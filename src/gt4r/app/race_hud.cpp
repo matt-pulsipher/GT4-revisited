@@ -408,6 +408,10 @@ void RaceHud::Impl::draw_top(const HudState& s) {
         draw_text(times, race::place_x(*p, true), float(p->y), kCentered, kTextGray, o * s.event_opacity, s.event);
     if (const DisplayPlace* p = layout.find(element::kMessage))
         draw_text(font("FC_48"), race::place_x(*p, true), float(p->y), kCentered, kTextGray, o * s.message_opacity, s.message);
+    // The status line (member 0x228C): over the driver's panel at (320, 348), over the chase views'
+    // at (320, 430); `hn_20R`.
+    if (!s.status.empty() && s.status_opacity > 0)
+        draw_text(font("hn_20R"), 320, s.driver_view ? 348.0f : 430.0f, kCentered, kTextGray, o * s.status_opacity, s.status);
 }
 
 // The course map with the cars on it; it neither turns nor scrolls.

@@ -285,7 +285,8 @@ public:
         }
         const std::span<const race::CarState> cars = world_->cars();
         const bool hold = flow_.holding();
-        auto_drive = auto_drive || flow_.player_finished();
+        // A rolling start: the player's car is driven for him until it takes the line.
+        auto_drive = auto_drive || flow_.player_finished() || handing_over();
         // The computer drivers (race_world.h) drive their cars; without them the simple driver follows
         // the road's line.
         const bool drivers = world_->computer_drivers();
@@ -293,6 +294,8 @@ public:
             inputs_[c] = hold || (drivers && (c > 0 || watched_ || setup_.auto_drive)) ? race::CarInput{}
                                                                                        : race::follow_line(world_->line(), cars[c], c & 1 ? 2.0f : -2.0f, 1.0f - 0.05f * float(c));
         const gt3r::sim::ControlInputs in = mapper_.update(pad, kStep);
+        // (What the pad asks during the hand-over: "GET READY TO DRIVE" once the throttle is held.)
+        if (handing_over()) throttle_held_ = in.throttle > 0.5f;
         if (!auto_drive) {
             race::CarInput& me = inputs_[0];
             me = {};
@@ -423,6 +426,12 @@ public:
             h.message = hud.word("RaceStart");
             h.message_opacity = window(s, 1.0f, 0.15f);
         }
+        // The rolling start's status line (the race words AutoDriveFullThrottle, AutoDriveReady).
+        h.status.clear(), h.status_opacity = 0;
+        if (handing_over() && !watched_ && !setup_.auto_drive) {
+            h.status = hud.word(throttle_held_ ? "AutoDriveReady" : "AutoDriveFullThrottle");
+            h.status_opacity = 1;
+        }
         h.event.clear(), h.event_opacity = 0;
         if (!replaying_ && event_steps_ >= 0 && event_steps_ < 200) {
             // "L1/3   1'23.456" for three seconds.
@@ -462,6 +471,9 @@ public:
             world_->render_mirror(ui, {c.x + 190 * k, c.y + 18 * k, 259 * k, 63 * k}, cars, pose, 0);
         }
     }
+
+    // A rolling start before the player's car takes the line: it is driven for him.
+    bool handing_over() const { return flow_.setup().start == race::StartType::Rolling && flow_.steps_since_start() < 0 && !replaying_ && !menu_scene_; }
 
     // The replay cameras' shot this step (once a step: their dampers and springs move a step at a
     // time); a cut with a dissolve starts it.
@@ -526,6 +538,7 @@ private:
     race::ResultBoard board_;
     float distance_ = 0;
     bool rolled_ = false; // a rolling start's music was started
+    bool throttle_held_ = false;
     float lateral_g_ = 0;
     course::Vec3 last_v_;
     std::string lap_words_[2] = {"Lap", "Laps"};

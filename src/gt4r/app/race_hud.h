@@ -33,6 +33,8 @@ struct HudState {
     float message_opacity = 0;
     std::string event;                // the line under the times ("L1/3   1'23.456")
     float event_opacity = 0;
+    std::string status;               // the status line over the panel ("FULL THROTTLE"); UTF-8
+    float status_opacity = 0;
     bool replay = false;              // a replay: its sign in place of the position, laps and times
     bool replay_display = false;      // the replay's display on (else only the logo)
     float opacity = 1;                // of the whole display
