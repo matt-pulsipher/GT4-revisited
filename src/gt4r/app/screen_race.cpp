@@ -17,7 +17,11 @@
 #include "gt4r/race/course_scene.h"
 #include "gt4r/race/drive_camera.h"
 #include "gt4r/race/rail_simulation.h"
+#include "race/billboards.h"
 #include "race/controls.h"
+#include "race/lamp_glows.h"
+#include "race/sun_disc.h"
+#include "race/sun_glare.h"
 #include "render/view3d.h"
 
 #include <algorithm>
@@ -127,6 +131,15 @@ public:
         for (int i = 0; i < setup.skip; ++i) step(gt3r::PadState{}, true);
         view_ = std::make_unique<render::View3D>(gpu);
         mount_ = setup.view;
+        // The sun, the lamps' glows (their meshes are the course's own, slot 37) and the billboards:
+        // the shared engine's layouts, read by its own code.
+        const ByteSpan env0 = course_->section(course::kSlotEnv);
+        sun_.load(*app.vfs(), app.renderer(), &gpu, env0);
+        sun_disc_.load(gpu, sun_.params());
+        lamps_.load(app.renderer(), &gpu, course_->section(course::kSlotEffects), env0, course_->section(course::kSlotWorldVis),
+                    course_->section(course::kSlotFlareShape));
+        billboards_.load(gpu, course_->section(course::kSlotBillboards), setup.course);
+        LOG_INFO("Drive: %zu lamps, %zu billboards, sun %s", lamps_.count(), billboards_.count(), sun_.params().enabled ? "on" : "off");
     }
 
     // One simulation step: the first car from the pad (or the simple driver), the others by the
@@ -169,7 +182,21 @@ public:
 
         fade_.update(course_->visible_nodes(pose.eye), pose.eye, kStep);
         items_.clear();
+        // The view's axes in course space (the rows of the view matrix's turn).
+        const RVec cam_right{pose.view.at(0, 0), pose.view.at(0, 1), pose.view.at(0, 2)}, cam_up{pose.view.at(1, 0), pose.view.at(1, 1), pose.view.at(1, 2)};
         course_->add_items(items_, pose.eye, race::CourseScene::View::Race, &fade_);
+        if (sun_disc_.active()) {
+            // The sun's disc right after the sky (the first item), before the backdrop.
+            std::vector<render::DrawItem> disc;
+            sun_disc_.add_items(disc, pose.eye, cam_right, cam_up);
+            for (render::DrawItem& it : disc) it.background = false, it.in_order = true, it.no_fog = true;
+            items_.insert(items_.begin() + 1, disc.begin(), disc.end());
+        }
+        if (billboards_.count() && (course_->env().view_flags[0] & 1)) {
+            billboards_.add_items(items_, cam_right, fade_.solid());
+            for (const gt3r::race::SceneryFade::Group& g : fade_.faded())
+                if (!g.nodes.empty()) billboards_.add_items(items_, cam_right, &g.nodes, g.weight);
+        }
         for (size_t i = 0; i < cars.size(); ++i) car_visuals_[i]->add_shadow_items(items_, cars[i]);
         for (size_t i = 0; i < cars.size(); ++i) {
             if (i == 0 && pose.body_hidden) continue;
@@ -195,6 +222,16 @@ public:
                 if (view_->render_env_cube(at, env_items_, eo, 128, faces)) o.env_cube = view_->env_cube(), o.env_gt3_lookup = true, env_ready_ = true;
             }
         }
+        // After the scene: the sun's glare by how much of it the scenery leaves in sight, and the
+        // lamps' glows.
+        overlay_.clear();
+        overlay_.rect = rect;
+        const render::Frustum frustum = render::Frustum::symmetric(pose.fovy(), aspect);
+        sun_.add(overlay_, rect, pose.view, frustum, sun_visibility(pose.eye, pose.fovy()));
+        const gt3r::race::Occluder& occluder = course_->occluder();
+        lamps_.tick(kStep);
+        lamps_.add(overlay_, rect, pose.view, pose.eye, frustum, [&](const RVec& a, const RVec& b) { return occluder.segment_blocked(a, b); }, &proj);
+        o.overlay = &overlay_;
         view_->draw(ui.renderer(), rect, pose.view, proj, pose.eye, items_, o);
         if (frame_ == 5)
             LOG_INFO("Drive: the car at (%.1f, %.1f, %.1f) heading (%.2f, %.2f), eye (%.1f, %.1f, %.1f); %d meshes drawn, %zu triangles", me.position.x,
@@ -214,6 +251,21 @@ public:
     const render::DrawStats& draw_stats() const { return view_->stats(); }
 
 private:
+    // How much of the sun is in sight: rays through the box the game tests around it, against the
+    // course's opaque triangles.
+    float sun_visibility(const RVec& eye, float fovy) const {
+        const gt3r::race::SunParams& sp = sun_.params();
+        if (!sp.enabled || course_->occluder().empty()) return 1.0f;
+        const RVec d = sp.direction();
+        const float half = std::max(1.0f, sp.test_box) * 0.5f * fovy / 448.0f;
+        const RVec r = render::normalize(render::cross(d, {0, 1, 0})), u = render::cross(r, d);
+        int open = 0;
+        for (int i = -1; i <= 1; ++i)
+            for (int j = -1; j <= 1; ++j)
+                open += course_->occluder().blocked(eye, render::normalize(d + r * (float(i) * half) + u * (float(j) * half)), 6000.0f) ? 0 : 1;
+        return float(open) / 9.0f;
+    }
+
     render::DrawOptions draw_options(float far) const {
         const gt3r::race::SunParams& env = course_->env();
         render::DrawOptions o;
@@ -255,6 +307,11 @@ private:
     gt3r::race::SceneryFade fade_;
     std::unique_ptr<render::View3D> view_;
     std::vector<render::DrawItem> items_, env_items_;
+    gt3r::race::SunGlare sun_;
+    gt3r::race::SunDisc sun_disc_;
+    gt3r::race::LampGlows lamps_;
+    gt3r::race::Billboards billboards_;
+    render::ScreenBatch overlay_;
     bool night_ = false, env_ready_ = false;
     int mount_ = race::DriveCamera::kChase;
     int steps_ = 0, frame_ = 0;
