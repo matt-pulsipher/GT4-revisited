@@ -184,9 +184,10 @@ void CourseLines::prepare(int k, float& query) {
         prev_h = p.height;
         query = std::trunc(p.height) + 2.0f;
         float s = 0;
-        (void)hint;
         if (course_distance(course_point(p.x, p.y, p.height), found ? hit.cluster : -1, s)) p.dist = s;
-        else p.dist = 0;
+        // (a road without the clusters' checkpoint lists, Prologue's: between the checkpoint lines)
+        else if (ground_->distance_along(course_point(p.x, p.y, p.height), s, &hint)) p.dist = s >= lap_ ? s - lap_ : s < 0 ? s + lap_ : s;
+        else p.dist = i ? pts[i - 1].dist : 0;
         if (k == kPitStop) {
             if (!lap_added && p.dist < lap_ * 0.5f) lap_added = true;
             if (lap_added) p.dist += lap_;

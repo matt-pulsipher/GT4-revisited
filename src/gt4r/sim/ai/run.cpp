@@ -2,6 +2,7 @@
 
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/course/course_file.h"
+#include "gt4r/formats/course/runway_gtrw.h"
 #include "gt4r/sim/car_spec.h"
 #include "gt4r/sim/rules_start.h"
 
@@ -43,8 +44,8 @@ FieldRun run_field(Disc& disc, const std::string& course, const std::vector<Fiel
     const Bytes data = vol->read(*file);
     if (!course::CourseFile::looks_like_course(data)) throw std::runtime_error("run: " + course + " is not a course");
     const course::CourseFile parsed = course::CourseFile::parse(data);
-    const ByteSpan section = parsed.section(data, course::kSlotRunway);
-    if (!course::Runway::is_runway(section)) throw std::runtime_error("run: the course " + course + " has no road");
+    std::optional<course::Runway> road = course::course_road(parsed, data); // (RNW4, or Prologue's GTRW)
+    if (!road) throw std::runtime_error("run: the course " + course + " has no road");
     std::vector<Entry> entries;
     std::vector<std::string> cars;
     for (const FieldCar& c : field_cars) entries.push_back(c.entry), cars.push_back(c.name);
@@ -52,7 +53,7 @@ FieldRun run_field(Disc& disc, const std::string& course, const std::vector<Fiel
     for (size_t i = 0; i < entries.size(); ++i)
         if (entries[i].start_speed > 0 && std::isnan(entries[i].start_distance))
             entries[i].start_distance = float(rules::rolling_start_distance(-400, 20, int(entries.size()), int(i)));
-    auto session = std::make_unique<Session>(db, program, std::make_shared<const course::Runway>(course::Runway::parse(section)), entries);
+    auto session = std::make_unique<Session>(db, program, std::make_shared<const course::Runway>(std::move(*road)), entries);
     std::vector<size_t> computer(cars.size());
     for (size_t i = 0; i < computer.size(); ++i) computer[i] = i;
     bool rolling = false;

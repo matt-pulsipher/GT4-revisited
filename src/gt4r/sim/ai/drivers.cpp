@@ -167,7 +167,8 @@ void Field::init(const course::AiData& data, const Program& program, std::span<c
         const Spec& spec = session.spec(car);
         const int drive = spec.drive(), system = spec.b(0x129);
         d->drive_class = drive == 1 ? 1 : drive == 2 ? (system == 3 ? 3 : system == 0 ? 1 : system == 5 ? 0 : 2) : 0;
-        if (program.known()) {
+        if (!program.known()) d->lay.fore_aft = {1, 1, 0xFF, 0xFF}; // the front wheels steer
+        else {
             const u8 row = wheel_layout_index(spec);
             d->lay = rules::wheel_layout(program, row);
             for (u32 k = 0; k < 0x54; ++k) d->lay_raw[k] = program.b(rules::kWheelLayouts + rules::kWheelLayoutSize * row + k);
@@ -263,10 +264,32 @@ F Field::probe_braking(size_t car) { return braking(*drivers_.at(car)); }
 // 0x463988: a + (b - a) x the driver's draw / 32768.
 static F draw(u16 r, F a, F b) { return a + (b - a) * (int_f(s32(r)) * F::raw(0x38000000)); }
 
+// A wheel's tire record on a surface (0x360F80): Gran Turismo 4's records where the program is mapped, else the shared
+// engine's (16 surfaces) the session builds.
+struct TireView {
+    F grip, mu, peak_slip, brake_peak;
+    const ex::Table<4>* load_curve = nullptr;
+};
+static TireView tire_view(const Cars& cars, bool gt4, size_t car, const rules::WheelLayout& lay, int wheel, int surface) {
+    TireView v;
+    if (gt4) {
+        const rules::Tire& t = rules::tire_record(cars.extra(car).tires, lay, wheel, u8(surface % 24));
+        v.grip = t.grip, v.mu = t.mu[size_t(surface % 24)], v.peak_slip = t.peak_slip, v.brake_peak = t.brake_peak, v.load_curve = &t.load_curve;
+        return v;
+    }
+    const ex::Car& c = cars.record(car);
+    const int row = core_surface(surface) & 15;
+    const size_t axle = wheel < 2 ? 0 : 1;
+    const ex::TireRecord& t = c.p.tire[std::min<size_t>(c.p.tire_index[axle][size_t(row)], 5)];
+    v.grip = t.grip, v.mu = t.mu[size_t(row)], v.peak_slip = t.peak_slip, v.brake_peak = t.brake_peak, v.load_curve = &t.load_curve;
+    return v;
+}
+
 // 0x467470: the computer drivers' grip factor for the front's tire record on a surface (1 for a pad car without a driver).
 F Field::ai_grip(const Driver& d, int surface) const {
     if (d.control != 1 && d.control != 2 && d.kind == 0) return kOne;
-    const u8 cls = session_->extra(d.car).tires.tire_index[0][size_t(surface) % 24];
+    const u8 cls = tables_.known ? session_->extra(d.car).tires.tire_index[0][size_t(surface) % 24]
+                                 : session_->record(d.car).p.tire_index[0][size_t(core_surface(surface) & 15)] % 3;
     return d.p.grip[std::min<size_t>(cls, 2)];
 }
 
@@ -276,13 +299,12 @@ F Field::corner_speed(const Driver& d, int i) {
     const std::vector<LinePoint>& pts = lines_.line(d.line);
     if (pts.empty()) return c.p.top_speed;
     const LinePoint& pt = pts[size_t(i) % pts.size()];
-    const sim::Extra& x = session_->extra(d.car);
     const u8 s = u8(pt.surface % 24);
-    const rules::Tire& rf = rules::tire_record(x.tires, d.lay, d.lay_raw[0xC], s);
-    const rules::Tire& rr = rules::tire_record(x.tires, d.lay, d.lay_raw[0xD], s);
+    const TireView rf = tire_view(*session_, tables_.known, d.car, d.lay, d.lay_raw[0xC], s);
+    const TireView rr = tire_view(*session_, tables_.known, d.car, d.lay, d.lay_raw[0xD], s);
     const F w = d.p.front_weight; // (❓ two flags of the car halve it towards 0.5: not mirrored)
     const F g = ai_grip(d, s);
-    const F mu0 = ((w * rf.mu[s]) * rf.grip) * g, mu1 = (((kOne - w) * rr.mu[s]) * rr.grip) * g;
+    const F mu0 = ((w * rf.mu) * rf.grip) * g, mu1 = (((kOne - w) * rr.mu) * rr.grip) * g;
     F a = mu0 + mu1; // (with tire wear on: the wheels' wear grips weigh it: not done)
     const F r(pt.radius), bank(pt.bank), zero;
     if (zero <= r) {
@@ -394,11 +416,11 @@ F Field::braking(Driver& d) {
         if (t.brake_spread && (d.control == 1 || d.control == 2) && d.kind == 0) m = m + draw(d.rand, t.brake_lo.at(m), t.brake_hi.at(m));
         kb = kb * m;
         const LinePoint& q = pts[size_t(bp)];
-        const sim::Extra& x = session_->extra(d.car);
         const u8 s = u8(q.surface % 24), axle = d.lay_raw[0x10] & 1;
-        const rules::Tire& rf = rules::tire_record(x.tires, d.lay, d.lay_raw[0xC], s);
-        F mu = rf.mu[s] * ai_grip(d, s);
-        mu = mu * ex::lookup_bisect(rf.load_curve, (c.p.weight * kHalf) / x.tires.width[axle]);
+        const TireView rf = tire_view(*session_, tables_.known, d.car, d.lay, d.lay_raw[0xC], s);
+        F mu = rf.mu * ai_grip(d, s);
+        const F width = tables_.known ? session_->extra(d.car).tires.width[axle] : c.p.width[axle];
+        if (rf.load_curve->n > 0 && width != F()) mu = mu * ex::lookup_bisect(*rf.load_curve, (c.p.weight * kHalf) / width);
         mu = (mu * rf.brake_peak) * c.p.cam_offset[axle];
         if (!(c.x535 & 0x10)) { // off the pit lane: the steered wheels' wear grips
             F sum;
@@ -743,12 +765,11 @@ void Field::decide(Driver& d) {
     if (moving != 0) {
         if (drive == 1) {
             // The steered wheels' (those ahead of the center of gravity) mean peak slip angle and slip direction.
-            const sim::Extra& x = session_->extra(d.car);
             float amax = 0, dir = 0;
             int steered = 0;
             for (int w = 0; w < int(d.lay.count) && w < 4; ++w)
                 if (gt3r::s8(d.lay.fore_aft[size_t(w)]) > 0) {
-                    amax += rules::tire_record(x.tires, d.lay, w, c.w[size_t(w)].surface).peak_slip.host();
+                    amax += tire_view(*session_, tables_.known, d.car, d.lay, w, c.w[size_t(w)].surface).peak_slip.host();
                     dir += c.w[size_t(w)].slip_dir.host();
                     ++steered;
                 }
@@ -771,7 +792,8 @@ void Field::decide(Driver& d) {
                 const float r = c.yaw_rate.host();
                 float ky = d.p.yaw_gain.host();
                 // T[2]: the gain falls as the steered wheels' mean slip angle nears their peak.
-                if (t.steer_mode && amax != 0) ky *= std::clamp((amax - x.tires.mean_slip.host()) / amax, -1.0f, 1.0f);
+                if (t.steer_mode && tables_.known && amax != 0)
+                    ky *= std::clamp((amax - session_->extra(d.car).tires.mean_slip.host()) / amax, -1.0f, 1.0f);
                 if (rd > 0 && r < rd) {
                     tgt += (rd - r) * ky;
                     if (tgt > amax && !session_->loose()) tgt = amax;
