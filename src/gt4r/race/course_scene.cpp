@@ -1,5 +1,7 @@
 #include "gt4r/race/course_scene.h"
 
+#include "gt4r/formats/course/runway_gtrw.h"
+
 #include "base/log.h"
 #include "formats/model/coplanar_overlays.h"
 #include "gt4r/formats/model/mdls.h"
@@ -61,7 +63,7 @@ CourseScene::CourseScene(render::GpuContext& ctx, ByteSpan course_file, const st
     const ByteSpan env = file_.section(data_, course::kSlotEnv);
     env_ = gt3r::race::SunParams::from_env0(env);
     color_scale_ = course::scenery_color_scale(env);
-    if (course::Runway::is_runway(file_.section(data_, course::kSlotRunway))) road_ = course::Runway::parse(file_.section(data_, course::kSlotRunway));
+    if (std::optional<course::Runway> road = course::course_road(file_, data_)) road_ = std::move(*road); // (RNW4, or Prologue's GTRW)
 
     scene::Model scenery;
     scenery_ = build(ctx, course::kSlotWorld, name + "/scenery", true, true, &scenery, true);

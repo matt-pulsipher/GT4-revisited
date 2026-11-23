@@ -1,5 +1,7 @@
 #include "gt4r/formats/db/specdb.h"
 
+#include "gt4r/formats/db/specdb_prologue.h"
+
 #include <algorithm>
 #include <cstring>
 
@@ -46,6 +48,7 @@ std::string cstring(ByteSpan d, size_t o, size_t n) {
 //       2 the plain row with changes: a code per 8 bytes of the row (bit i: byte i changes),
 //         then a code per changed byte.
 Table Table::parse(ByteSpan d) {
+    if (prologue::is_plain_table(d)) return prologue::parse_plain(d);
     if (!is_table(d)) throw FormatError("not a GTDB table");
     Table t;
     t.flags_ = rd32(d, 4);
@@ -115,6 +118,12 @@ Table Table::parse(ByteSpan d) {
     return t;
 }
 
+Table Table::make(u32 flags, size_t row_size, std::vector<u32> ids, Bytes data) {
+    Table t;
+    t.flags_ = flags, t.row_size_ = row_size, t.ids_ = std::move(ids), t.data_ = std::move(data);
+    return t;
+}
+
 ByteSpan Table::row(u32 id) const {
     const auto it = std::lower_bound(ids_.begin(), ids_.end(), id);
     if (it == ids_.end() || *it != id) return {};
@@ -181,6 +190,7 @@ SpecDb::SpecDb(Reader read, const Lister& list, std::string language) : read_(st
             break;
         }
     if (folder_.empty()) throw FormatError("This disc has no car database (specdb/).");
+    prologue_ = prologue::is_prologue_folder(folder_);
     for (const std::string& name : list(folder_))
         if (name.size() > 4 && name.compare(name.size() - 4, 4, ".dbt") == 0) names_.push_back(name.substr(0, name.size() - 4));
 }
@@ -189,7 +199,9 @@ const Table* SpecDb::table(const std::string& name) {
     auto it = tables_.find(name);
     if (it == tables_.end()) {
         std::optional<Table> t;
-        if (const std::optional<Bytes> file = read_(folder_ + name + ".dbt")) t = Table::parse(*file);
+        const std::string file_name = prologue_ ? prologue::file_name(name) : name;
+        if (const std::optional<Bytes> file = read_(folder_ + file_name + ".dbt")) t = Table::parse(*file);
+        if (t && prologue_) t = prologue::to_gt4(name, *t, *this);
         it = tables_.emplace(name, std::move(t)).first;
     }
     return it->second ? &*it->second : nullptr;
@@ -199,7 +211,8 @@ const Labels* SpecDb::labels(const std::string& name) {
     auto it = labels_.find(name);
     if (it == labels_.end()) {
         std::optional<Labels> l;
-        if (const std::optional<Bytes> file = read_(folder_ + name + ".idi")) l = Labels::parse(*file);
+        if (const std::optional<Bytes> file = read_(folder_ + (prologue_ ? prologue::file_name(name) : name) + ".idi")) l = Labels::parse(*file);
+        if (l && prologue_) l = prologue::to_gt4(std::move(*l));
         it = labels_.emplace(name, std::move(l)).first;
     }
     return it->second ? &*it->second : nullptr;
