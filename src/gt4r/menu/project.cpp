@@ -82,6 +82,19 @@ const gt3r::Tex1::Image* Project::image(const std::string& page, const std::stri
     return nullptr;
 }
 
+std::optional<Bytes> Project::entry(const std::string& page, const std::string& path) {
+    auto from = [&path](const std::optional<ImagePack>& pack) -> std::optional<Bytes> {
+        if (!pack) return std::nullopt;
+        const ImagePack::Entry* e = pack->find(path);
+        if (!e) return std::nullopt;
+        return pack->read(*e);
+    };
+    if (std::optional<Bytes> b = from(pack_of(page).pack)) return b;
+    for (auto& [name, extra] : extra_)
+        if (std::optional<Bytes> b = from(extra.pack)) return b;
+    return std::nullopt;
+}
+
 bool Project::load_pack(const std::string& folder, const std::string& name) {
     if (extra_.count(name)) return true;
     std::string dir = folder;

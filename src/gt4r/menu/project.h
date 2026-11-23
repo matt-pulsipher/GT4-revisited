@@ -46,6 +46,9 @@ public:
     // A page's picture by the name a widget gives ("image/boot/lang_bg_4.png"); null when the
     // page's pack has none. Decoded once.
     const gt3r::Tex1::Image* image(const std::string& page, const std::string& path);
+    // Any other file of a page's pack by its name (a model face's "image/gtmode/map/panel_x.mdl"),
+    // unpacked; nothing when the page's packs have none.
+    std::optional<Bytes> entry(const std::string& page, const std::string& path);
     // More pictures a script loads for a page while it shows (`context.loadGpb(folder, name)`:
     // <folder>/<language>/<name>.gpb): looked in after the page's own. False when the file is
     // not there.
