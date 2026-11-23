@@ -200,9 +200,13 @@ float contact_strength(int kind, float value) {
 
 CarSoundState sound_state(const race::CarState& car) {
     CarSoundState s;
+    // The seam's contact is already the collision step's 0..1 strength (simulation.h), not the
+    // force or closing speed contact_strength() takes: it is used as the level, with the same floor
+    // of 0.2. ❓ Which of the two the program's hit sound reads is not settled.
     if (car.contact_kind == 1 || car.contact_kind == 2) {
         s.contact_kind = car.contact_kind == 1 ? 0 : 1;
-        s.contact = contact_strength(s.contact_kind, car.contact);
+        const float f = std::min(car.contact, 1.0f);
+        s.contact = f < 0.2f ? 0.0f : f;
     }
     s.position = car.position, s.velocity = car.velocity;
     s.course_distance = car.course_v;

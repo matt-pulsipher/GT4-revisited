@@ -1,5 +1,7 @@
 #include "gt4r/sim/program.h"
 
+#include "gt4r/sim/program_prologue.h"
+
 #include "disc/core_image.h"
 #include "gt4r/disc/disc.h"
 
@@ -46,6 +48,8 @@ Program Program::from_image(Bytes image, u32 load_address) {
             if (p.b(kStatic + 0x0C + i) < p.b(kStatic + 0x0C + i - 1)) p.known_ = false;
     }
     p.issue_ = p.known_ ? "" : "the disc's program is not a build whose tables are mapped";
+    if (!p.known_ && PrologueProgram::locate(p).recognized())
+        p.issue_ = "Gran Turismo 4 Prologue's program, whose own physics block, driver sets and spec defaults replace Gran Turismo 3's; for the rest";
     return p;
 }
 

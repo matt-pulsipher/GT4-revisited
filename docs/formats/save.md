@@ -41,8 +41,43 @@ space the game asks for is the files' KB, plus one KB for two entries and one (0
 
 To use a save from a PlayStation 2 card, copy its `BASCUS-97328GAMEDATA` folder (all four
 files, from any tool that copies a card's files as they are) into `<data>/memorycard/`; the
-same folder written here goes back onto a card the same way. 🔎 Reading a real card's save is
-checked; a save written here has not been tried on a console.
+same folder written here goes back onto a card the same way.
+
+## A card image
+
+An 8 MB card image (`.ps2`, `.mcd`; with or without the 16 spare bytes a page) is read and made
+by the shared engine's card layout (`formats/ps2/memcard.h`); `src/gt4r/save/card_image.*`:
+
+- **Into the game**: `gt4tool save <disc> import <image> <data>/memorycard` copies the image's
+  `BASCUS-97328GAMEDATA` folder in; or put the image itself in `<data>/memorycard/`: when that
+  folder has no game of its own, the first image by name that holds one is copied in the first
+  time the menus ask for the card (the game then loads it at power on as from a console's
+  card).
+- **Out of the game**: `gt4tool save <disc> export <data>/memorycard <out image> [another
+  image]` writes the folder onto a newly formatted card, or onto a copy of another card's image
+  with that card's other saves kept (a game folder already on it is replaced). The files go in
+  the order the game writes them; their directory entries have the modes the game's own card
+  has (folder 0x8427, files 0x8497).
+
+Checked: the reference card made by the running original (a new game and a used car) imports
+and loads (the player, credits, the car with its record; written again the same bytes);
+exported again onto a new card and onto another of the reference cards, both read back file for
+file the same. 🔎 A card made here has not been loaded by the original.
+
+## The game's other saves (🔎 not written here)
+
+The card manager's modes (0x179570's table) name the other kinds of save: `MODE_LOAD_REPLAY`,
+`MODE_SAVE_FULL_REPLAY`, `MODE_LOAD_BESTLAP_REPLAY`, `MODE_SAVE_BESTLAP_REPLAY`, the photo
+films and pictures, the replay and slide-show play lists, the patch. Each is a file class of
+`GT4MC::FileGT4` (RTTI): `FileGT4ReplayFull` (the data's name `ReplayData`, icons
+`icon/GT4_Rep_to_race.ico`, `_to_license`, `_tt1`), `FileGT4ReplayBest` (`GhostData`),
+`FileGT4ReplayDemo`, `FileGT4FilmData` (`F%04d`), `FileGT4PictureData` (`P%04d`),
+`FileGT4ReplayList` (`LSTRPLAY`), `FileGT4SlideShowList` (`LSTSLIDE`). The Replay Theater is the
+program's sequence `load_replay` (the title's third item asks for it), which runs the project
+`labomode` in `MODE_LOAD_REPLAY`: its scripts list the card's replays through the manager's
+`list`, `count`, `getFile(i)` and each file's `title`, `racemode`, `racesubmode`, `size`,
+`load`, `remove`, `isInfoValid`, `writeInfo`. Not read further: the folders' names and the
+replay's own layout.
 
 ## Results the scripts see (0x1CBF40)
 
@@ -145,16 +180,16 @@ three match (0x43AA68); there is no version: another size is another program.
 | 0x361C0 | 0x2404 | Arcade's unlocked cars (u64 codes [1024], ascending, -1 after), courses ([128]), "all" (u32) | `available_*`, `all_available` |
 | 0x385D0, 0x386E0 | 0x108 each | favorite cars, courses: u32 limit (30), u32 count, u64 codes [32] | `favorite_*` |
 | 0x387F0 | 0x74 | presents given: a bit a race (0 .. 867), then a bit a time present | `presents` |
-| 0x38870 | 0x88 | the championship left: the race's label char[0x20], u8 left, u8 session; the rest not named | `suspended_*`, `championship_rest` |
+| 0x38870 | 0x88 | the championship left (0x119BD8): its label char[0x20], u8 kept (1: left in the middle), u8 races run, u8 race count, 5 bytes, then six entrants {u64 the car's code, s32 paint, s32 points} (the player first; 🔎 for an opponent the program writes its entry's second code, here the car's) | `suspended_*`, `series`, `championship_rest` |
 | 0x38900 | 0x24 | used cars sold: 256 bits, the week they belong to | `used_sold`, `used_week` |
-| 0x38930 | 0x11C0 | the options (Option +8: its size 0x11C0, then the fields; the play lists not decoded) | `options` (the numbers) |
+| 0x38930 | 0x11C0 | the options (Option +8: its size 0x11C0, then the fields; the play lists below) | `options`, `bgm_playlist`, `slide_playlist` |
 | 0x39AF0 | 4 | the zone (0 UNDEF, 1 JP, 2 US, 3 UK, 4 EU, 5 KR) | `options["game_zone"]` |
 | 0x39B00 | 2 x 0x60 | the two players' button maps (not decoded) | kept |
 | 0x39BC0 | 0xAC | the LAN settings: names "Player1", ... | kept |
 | 0x39C6C | 0x258 | the network settings (not decoded) | kept |
 | 0x39ECC | 0x50 | event settings: char name[0x40], u16 Arcade's time limit | kept |
 | 0x39F1C | 5 | the logger's (1 each) | kept |
-| 0x39F30 | 0x144 | the menus' place: project char[0x20], page char[0x20], i32 menu depth (-1), the menu stack (0x100) | `major_menu_*`, `saved_menu_*` |
+| 0x39F30 | 0x144 | the menus' place: project char[0x20], page char[0x20], the kept menu stack: i32 its length in bytes (-1: none kept), the names each ended by a 0 (0x100; 0x42FE88) | `major_menu_*`, `saved_menu_*` |
 
 What the state does not name is kept as it was loaded (`GameState::saved_image`); a new game
 starts from the constructors' values (`save::new_game_payload`: the option block's numbers,
@@ -204,6 +239,17 @@ The race's car is the sheet in use: `garage[slot].record->active()` is the
   the code), 10 entries of 0x30 (u32 time ms, or a float speed in the machine test of top
   speed; the date; u64 the car's code; the pass code), 16 u32 section times, 8 bytes, the best
   score at +0x230.
+
+### The play lists (Option +0x90, +0x8A0; 0x810 each)
+
+The races' music list (`bgm_playlist`) and the slide show's (`slide_playlist`), the program's
+MPlayList: u32 rows (the streamed `racing` group's pieces, 65; 0 in a new game until the
+menus fill it), u16 the position in the order, u8 shuffled, u8 no row enabled, u16 the shuffle's
+seed (a new game's 0x3355 and 0x3476), a word; then 128 rows of 16 bytes: 8 bytes (❓ kept),
+u8 played this round, u8 enabled, s8 the place in the order (-1 none), s8 its copy, 4 bytes. The
+scripts' `play_data` rows are [place, played, enabled, copy]. A saved game made by the original
+after its first race has the US list: 36 of the 65 pieces, the first 15 disabled, place 0 at
+row 15 (the configuration's init_raceplaylist gives the same here).
 
 ### The calendar
 

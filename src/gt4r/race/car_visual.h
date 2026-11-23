@@ -31,6 +31,9 @@ public:
     // `car_file`: car/lod/<model>; `pat`: the paint file next to it when the car file has none
     // inside. Throws FormatError.
     CarVisual(render::GpuContext& ctx, ByteSpan car_file, ByteSpan pat, const CarSpec& spec, const Options& opt, const std::string& name);
+    // A car file in Gran Turismo 3's layout (Gran Turismo 4 Prologue's cars), which the
+    // constructor reads too (car_visual_prologue.cpp): `paint` is then its body's paint variant.
+    static bool is_gt3_car(ByteSpan car_file);
     ~CarVisual();
 
     // The shadow's look on this course (the environment block's values).
@@ -70,6 +73,7 @@ public:
     const render::Vec3& bounds_max() const { return max_; }
 
 private:
+    void build_gt3(ByteSpan car_file, const Options& opt, const std::string& name); // car_visual_prologue.cpp
     CarSpec spec_;
     std::array<std::unique_ptr<render::GpuModel>, 2> body_;        // [brake lamps lit]
     std::array<std::unique_ptr<render::GpuModel>, 4> brakes_;      // the brake parts per wheel

@@ -21,6 +21,8 @@ public:
     static bool is_table(ByteSpan d) { return d.size() >= 0x10 && gt3r::has_magic(d, "GTDB"); }
     // Throws FormatError.
     static Table parse(ByteSpan file);
+    // A table of the given rows (`ids` ascending, `data` their rows in that order).
+    static Table make(u32 flags, size_t row_size, std::vector<u32> ids, Bytes data);
 
     u32 flags() const { return flags_; }
     size_t row_size() const { return row_size_; }
@@ -84,6 +86,8 @@ public:
     SpecDb(Reader read, const Lister& list, std::string language = "american");
 
     const std::string& folder() const { return folder_; } // "specdb/GT4_US2560/"
+    // Gran Turismo 4 Prologue's set, read in Gran Turismo 4's layout (specdb_prologue.h).
+    bool prologue() const { return prologue_; }
     std::vector<std::string> table_names() const { return names_; }
     // A table, its labels, a pool; null when the set has none by that name.
     const Table* table(const std::string& name);
@@ -105,6 +109,7 @@ public:
 private:
     Reader read_;
     std::string folder_, language_;
+    bool prologue_ = false;
     std::vector<std::string> names_;
     std::map<std::string, std::optional<Table>> tables_;
     std::map<std::string, std::optional<Labels>> labels_;

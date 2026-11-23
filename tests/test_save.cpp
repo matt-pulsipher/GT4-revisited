@@ -3,9 +3,12 @@
 
 #include "test_framework.h"
 
+#include "gt4r/save/card_image.h"
 #include "gt4r/save/codec.h"
 #include "gt4r/save/game_data.h"
 #include "gt4r/save/memory_card.h"
+
+#include "formats/ps2/memcard.h"
 
 #include <cstring>
 #include <filesystem>
@@ -136,6 +139,18 @@ TEST(save_game_data_round_trip) {
     CHECK(t.option_int("race_laps") == 5 && t.option_text("game_zone") == "US" && t.license_record[0x58] == 0x12);
     // Written again it is the same bytes.
     CHECK(save::write_game(t, codes) == payload);
+    // A championship left after two of its five races: its entrants and their points come back.
+    menu::GameState c = s;
+    c.series = {"jp_mazda_roadster_0500", 2, 5, {}};
+    for (int k = 0; k < 6; ++k) c.series.entrants.push_back({(u64(0) << 32) | u64(100 + k), k, 20 - 3 * k});
+    c.suspend_series(true);
+    menu::GameState back;
+    CHECK(save::read_game(save::write_game(c, codes), back, codes));
+    CHECK(back.suspended == 1 && back.suspended_racecode == "jp_mazda_roadster_0500" && back.suspended_session == 2);
+    CHECK(back.series.label == "jp_mazda_roadster_0500" && back.series.races_run == 2 && back.series.race_count == 5 && back.series.entrants.size() == 6);
+    if (back.series.entrants.size() == 6) CHECK(back.series.entrants[5].code == 105 && back.series.entrants[5].paint == 5 && back.series.entrants[5].points == 5);
+    c.suspend_series(false);
+    CHECK(save::read_game(save::write_game(c, codes), back, codes) && back.suspended == 0 && back.series.entrants.empty());
     // Not a game: another length or a broken CRC.
     Bytes bad = payload;
     bad[0x5000] ^= 0x40;
@@ -177,4 +192,52 @@ TEST(save_card_folder) {
     menu::GameState v;
     CHECK(save::GameSave(dir, made_up_codes()).load(v) == save::Result::DifferentMemoryCard && v.username.empty());
     std::filesystem::remove_all(dir);
+}
+
+// A memory card image: a saved game put into a new card image and into another card's image
+// (that card's own save kept), read back from it file for file and loaded; an image dropped in
+// the card's folder stands for the card when the folder has no game.
+TEST(save_card_image) {
+    namespace fs = std::filesystem;
+    const fs::path dir = fs::temp_directory_path() / "gt4r-save-test-image";
+    fs::remove_all(dir);
+    save::GameSave card((dir / "a").string(), made_up_codes());
+    menu::GameState s = a_game();
+    s.money = 77'000;
+    CHECK(card.save_new(s, "Game Data") == save::Result::Ok);
+    std::string why;
+    const Bytes image = save::export_card((dir / "a").string(), std::nullopt, &why);
+    CHECK(save::is_card_image(image) && why.empty());
+    // Another card with a save of another game: both on the card made from it.
+    gt3r::ps2::McDir other;
+    other.name = "BASCUS-97102GAMEDATA";
+    other.files.push_back({"BASCUS-97102GAMEDATA", Bytes(5000, 0x5A)});
+    const Bytes base = gt3r::ps2::make_card({other});
+    const Bytes both = save::export_card((dir / "a").string(), ByteSpan(base), &why);
+    const std::vector<gt3r::ps2::McDir> dirs = gt3r::ps2::read_card(both);
+    CHECK(dirs.size() == 2 && dirs[0].name == "BASCUS-97102GAMEDATA" && dirs[1].name == "BASCUS-97328GAMEDATA");
+    // The game's files in the order the game writes them.
+    CHECK(dirs[1].files.size() >= 2 && dirs[1].files[0].name == "garage" && dirs[1].files[1].name == "BASCUS-97328GAMEDATA");
+    for (const Bytes* from : {&image, &both}) {
+        fs::remove_all(dir / "b");
+        const save::CardImageResult r = save::import_card(*from, (dir / "b").string());
+        CHECK(r.ok);
+        for (const char* f : {"BASCUS-97328GAMEDATA", "garage"}) {
+            std::ifstream x(dir / "a" / "BASCUS-97328GAMEDATA" / f, std::ios::binary), y(dir / "b" / "BASCUS-97328GAMEDATA" / f, std::ios::binary);
+            CHECK(Bytes((std::istreambuf_iterator<char>(x)), {}) == Bytes((std::istreambuf_iterator<char>(y)), {}));
+        }
+        menu::GameState t;
+        CHECK(save::GameSave((dir / "b").string(), made_up_codes()).load(t) == save::Result::Ok && t.money == 77'000 && t.username == "Driver");
+    }
+    // Not a card, a card without the game.
+    CHECK(!save::import_card(Bytes(100, 0), (dir / "c").string()).ok && !save::import_card(base, (dir / "c").string()).ok);
+    // A card image dropped in an empty card folder.
+    fs::create_directories(dir / "d");
+    {
+        std::ofstream out(dir / "d" / "Mcd001.ps2", std::ios::binary);
+        out.write(reinterpret_cast<const char*>(both.data()), std::streamsize(both.size()));
+    }
+    CHECK(save::import_dropped_card((dir / "d").string()).ok && save::GameSave((dir / "d").string(), made_up_codes()).exists() == 0);
+    CHECK(!save::import_dropped_card((dir / "d").string()).ok); // the folder has its game now
+    fs::remove_all(dir);
 }

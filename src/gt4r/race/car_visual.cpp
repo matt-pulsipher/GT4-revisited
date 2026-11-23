@@ -112,6 +112,10 @@ Mat4 basis(const render::Vec3& right, const render::Vec3& up, const render::Vec3
 
 CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const CarSpec& spec, const Options& opt, const std::string& name)
     : spec_(spec), ctx_(&ctx) {
+    if (!car::CarFile::is_car(file) && is_gt3_car(file)) {
+        build_gt3(file, opt, name); // (Prologue's cars)
+        return;
+    }
     const car::CarFile c = car::CarFile::parse(file);
     if (c.body_paint && c.body_paint < file.size()) pat = file.subspan(c.body_paint);
     Bytes painted;
