@@ -630,7 +630,10 @@ TEST(replay_script) {
     CHECK(cam.record() == &s.records[0]);
     CHECK(p.eye.x == 10 && p.eye.y == 2 && p.eye.z == 0);
     const gt3r::render::Vec3 seen = p.view.transform_point({10, 0.4f, -30});
-    CHECK(std::fabs(seen.x) < 1e-3f && std::fabs(seen.y) < 1e-3f && seen.z < -29);
+    // (A car shot keeps the car below the middle by 0.15 x the lens angle x cos(pitch): 0x36EBE8.)
+    const float pitch = std::atan2(1.6f, 30.0f), below = 0.15f * 30 * std::cos(pitch) * 3.14159265f / 180;
+    CHECK(std::fabs(seen.x) < 1e-3f && seen.z < -29);
+    CHECK(std::fabs(std::atan2(-seen.y, -seen.z) - below) < 1e-3f);
     CHECK(std::fabs(p.fov - 30 * 3.14159265f / 180) < 1e-5f);
     // The second: a quarter of the way along its path, its lens from the picture's width at the target.
     car.course_v = 875;

@@ -67,6 +67,7 @@ ReplayScript ReplayScript::parse(ByteSpan d) {
         r.lens = read_curve(d, rd32(d, o + 0x4C));
         r.offset[0] = read_curve(d, rd32(d, o + 0x50)), r.offset[1] = read_curve(d, rd32(d, o + 0x54));
         r.roll = read_curve(d, rd32(d, o + 0x6C));
+        r.follow[0] = read_curve(d, rd32(d, o + 0x64)), r.follow[1] = read_curve(d, rd32(d, o + 0x68));
         r.fov_min = f32_at(d, o + 0x5C), r.fov_max = f32_at(d, o + 0x60);
         if (!(r.fov_max > 0)) r.fov_max = 100;
         s.end = std::max(s.end, r.end);
@@ -105,7 +106,58 @@ const ReplayRecord* ReplayScript::find(float d) const {
     return last && d < last->end ? last : nullptr;
 }
 
+float CameraSpring::step(float target) {
+    if (slew > 0) want += std::clamp(target - want, -slew / 60, slew / 60);
+    else want = target;
+    v += (k * (want - x) - c * v) / 60;
+    v = std::clamp(v, vmin, vmax);
+    x += v / 60;
+    return x;
+}
+
+namespace {
+float wrap180(float a) {
+    a = std::fmod(a + 180.0f, 360.0f);
+    if (a < 0) a += 360;
+    return a - 180;
+}
+float wrap360(float a) {
+    a = std::fmod(a, 360.0f);
+    return a < 0 ? a + 360 : a;
+}
+} // namespace
+
+float AimDamper::rnd() {
+    seed_ = seed_ * 1664525u + 1013904223u;
+    return float(seed_ >> 8) / float(1u << 24);
+}
+
+void AimDamper::reset(float target, u32 seed) {
+    seed_ = seed ? seed : 1;
+    out_ = target, v_ = 0, prev_ = target, has_prev_ = false;
+    noise_x_ = noise_target_ = 256 * rnd(), noise_v_ = 0;
+    frame_ = 0;
+}
+
+float AimDamper::step(float target, float follow) {
+    // The noise (0x384C48): every third frame, now and then a new random target; a spring toward it.
+    if (follow > 1) noise_target_ = 256;
+    else if (++frame_ % 3 == 0 && rnd() > 0.8358f) noise_target_ = 256 * rnd();
+    noise_v_ += ((noise_target_ - noise_x_) * 60 - 10 * noise_v_) / 60;
+    noise_x_ += noise_v_ / 60;
+    const float noise = noise_x_ / 256;
+    const float delta = has_prev_ ? wrap180(target - prev_) : 0.0f;
+    prev_ = target, has_prev_ = true;
+    const float error = wrap180(target - out_) + 5 * delta;
+    const float g = std::clamp(follow, 0.0f, 1.0f);
+    const float n = follow > 1 ? 1.0f : 0.6f + 0.9f * noise;
+    v_ += (600 * n * error * g - 60 * v_) / 60;
+    out_ = wrap360(out_ + v_ / 60);
+    return out_;
+}
+
 bool ReplayCamera::pose(const ReplayScript& script, const CarState& car, const render::Mat4& body, ViewPose& out) {
+    cut_dissolve_ = 0;
     if (script.records.empty()) return false;
     float d = script.distance(std::max(car.lap, 0), car.course_v);
     // The shot holds while the car is in its stretch (brought into it by whole laps); then a cut.
@@ -119,20 +171,73 @@ bool ReplayCamera::pose(const ReplayScript& script, const CarState& car, const r
     };
     float at = d;
     if (!record_ || !within(*record_, at)) {
+        const ReplayRecord* ended = record_;
         record_ = script.find(d);
         // (The standing start lies before distance 0: the first records begin a little behind it.)
         if (!record_ && script.lap_length > 0) record_ = script.find(d - script.lap_length);
         if (!record_ || !within(*record_, at)) {
             record_ = nullptr;
+            cut_ = true;
             return false;
         }
+        // The ended shot's dissolve (CameraDesigner::vf25 0x37C9C8).
+        if (ended && ended != record_) cut_dissolve_ = std::max(0.0f, ended->dissolve);
+        cut_ = true;
     }
     const ReplayRecord& r = *record_;
     const float t = r.end > r.start ? std::clamp((at - r.start) / (r.end - r.start), 0.0f, 1.0f) : 0.0f;
-    return shot_pose(r, t, &body, out);
+    // The shot's own pose (raw), then its angles.
+    ViewPose raw;
+    if (!shot_pose(r, t, &body, raw, false)) return false;
+    const bool car_shot = r.looks_at_car();
+    const RVec ahead{-raw.view.at(2, 0), -raw.view.at(2, 1), -raw.view.at(2, 2)};
+    float pitch = -std::atan2(ahead.y, std::sqrt(ahead.x * ahead.x + ahead.z * ahead.z)) * 180 / kPi;
+    float yaw = 180 - std::atan2(ahead.x, ahead.z) * 180 / kPi;
+    const float lens = raw.fov * 180 / kPi;
+    const float roll_raw = r.roll.empty() ? 0.0f : r.roll.at(t);
+    const bool fresh = cut_;
+    if (cut_) {
+        // A cut: everything starts on its value; a random roll share (1 with kind 0x400).
+        cut_ = false;
+        seed_ = seed_ * 1664525u + 1013904223u;
+        roll_scale_ = r.full_roll() ? 1.0f : float(seed_ >> 8) / float(1u << 24);
+        lens_.reset(lens), across_.reset(r.offset[0].at(t)), up_.reset(r.offset[1].at(t)), roll_.reset(roll_raw * roll_scale_);
+        for (int k = 0; k < 2; ++k) follow_[k].reset(r.follow[size_t(k)].empty() ? 2.0f : r.follow[size_t(k)].at(t));
+    }
+    const float f = std::max(1.0f, lens_.step(lens));
+    const float across = across_.step(r.offset[0].at(t)), up = up_.step(r.offset[1].at(t));
+    yaw -= across * f / 2;
+    if (car_shot) pitch -= 0.15f * f * std::cos(pitch * kPi / 180);
+    pitch += up * f / 2;
+    float roll = roll_raw * roll_scale_;
+    if (car_shot) {
+        roll = roll_.step(roll);
+        const float fp = follow_[0].step(r.follow[0].empty() ? 2.0f : r.follow[0].at(t));
+        const float fy = follow_[1].step(r.follow[1].empty() ? 2.0f : r.follow[1].at(t));
+        if (fresh) yaw_.reset(wrap360(yaw), seed_), pitch_.reset(wrap360(pitch), seed_ ^ 0x9E3779B9u);
+        yaw = yaw_.step(wrap360(yaw), fy);
+        pitch = pitch_.step(wrap360(pitch), fp);
+    }
+    // The view: the eye, then yaw about y, pitch about x and roll about z.
+    const float ya = (180 - yaw) * kPi / 180, pa = pitch * kPi / 180;
+    RVec dir{std::sin(ya) * std::cos(pa), -std::sin(pa), std::cos(ya) * std::cos(pa)};
+    RVec right = render::cross(dir, {0, 1, 0});
+    if (render::length(right) < 1e-4f) right = {1, 0, 0};
+    right = render::normalize(right);
+    RVec upv = render::cross(right, dir);
+    if (roll != 0) {
+        const float a = roll * kPi / 180;
+        right = turn(right, dir, a), upv = turn(upv, dir, a);
+    }
+    out.eye = raw.eye;
+    out.view.m = {right.x, upv.x, -dir.x, 0, right.y, upv.y, -dir.y, 0, right.z, upv.z, -dir.z, 0,
+                  -render::dot(right, raw.eye), -render::dot(upv, raw.eye), render::dot(dir, raw.eye), 1};
+    out.fov = f * kPi / 180;
+    out.body_hidden = false;
+    return true;
 }
 
-bool shot_pose(const ReplayRecord& r, float t, const render::Mat4* car_body, ViewPose& out) {
+bool shot_pose(const ReplayRecord& r, float t, const render::Mat4* car_body, ViewPose& out, bool aimed) {
     const render::Mat4 body = car_body ? *car_body : render::Mat4{};
     const bool car_frame = car_body && r.car_frame();
     const RVec origin{body.at(0, 3), body.at(1, 3), body.at(2, 3)};
@@ -159,10 +264,10 @@ bool shot_pose(const ReplayRecord& r, float t, const render::Mat4* car_body, Vie
     RVec up = render::cross(right, ahead);
     // The target's place in the picture: the aim moves off it by that share of the half view.
     const float half = fov * 0.5f * kPi / 180;
-    const float across = r.offset[0].at(t) * half, upward = r.offset[1].at(t) * half * 0.75f;
+    const float across = aimed ? r.offset[0].at(t) * half : 0.0f, upward = aimed ? r.offset[1].at(t) * half : 0.0f;
     ahead = turn(ahead, up, across), right = turn(right, up, across);
     ahead = turn(ahead, right, -upward), up = turn(up, right, -upward);
-    if (!r.roll.empty()) {
+    if (aimed && !r.roll.empty()) {
         const float roll = r.roll.at(t) * kPi / 180;
         right = turn(right, ahead, roll), up = turn(up, ahead, roll);
     }

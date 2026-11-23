@@ -80,6 +80,9 @@ public:
     void render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarState> cars, const race::ViewPose& pose, size_t focus, int hidden);
     // The picture's correction (the screen settings, race/picture_settings.h) from the next frame.
     void set_grade(const gt3r::render::DrawOptions::PostGrade& g) { grade_ = g; }
+    // The next frame's dissolve: `snapshot` freezes the last picture shown, drawn over the new one at
+    // `weight`; `keep_last` keeps each picture for a later snapshot.
+    void set_dissolve(bool snapshot, float weight, bool keep_last) { snapshot_ = snapshot, dissolve_ = weight, keep_last_ = keep_last; }
 
     // The cars' icons (the results page's): each car standing side-on, its front to the left, drawn
     // over `canvas` (the 640 x 480 page on the screen) with its middle at (x, y) of the page.
@@ -119,6 +122,8 @@ private:
     bool computer_player_ = false;
     bool night_ = false, noted_ = false;
     gt3r::render::DrawOptions::PostGrade grade_;
+    bool snapshot_ = false, keep_last_ = false;
+    float dissolve_ = 0;
     std::unique_ptr<Impl> impl_;
 };
 

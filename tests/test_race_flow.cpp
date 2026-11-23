@@ -8,6 +8,7 @@
 #include "gt4r/race/race_flow.h"
 #include "gt4r/race/start_camera.h"
 #include "gt4r/race/start_rule.h"
+#include "gt4r/race/replay_script.h"
 #include "gt4r/race/picture_settings.h"
 #include "gt4r/formats/db/specdb.h"
 
@@ -396,4 +397,34 @@ TEST(race_picture_settings) {
     CHECK(std::fabs(c.contrast - 0.7f) < 1e-5f && std::fabs(c.saturation - 0.5f) < 1e-5f);
     g = q.grade();
     CHECK(std::fabs(g.black - 0.15f) < 1e-5f && std::fabs(g.white - 0.85f) < 1e-5f);
+}
+
+TEST(replay_camera_springs) {
+    // A spring settles on its target; the lens spring may fall 150 degrees a second, rise 100.
+    race::CameraSpring s{100, 20, 0, -150, 100};
+    s.reset(30);
+    for (int i = 0; i < 600; ++i) s.step(10);
+    CHECK(std::fabs(s.x - 10) < 1e-3f);
+    // The slew: the wanted value moves at most 2 a second.
+    race::CameraSpring o{70, 20, 2, -150, 150};
+    o.reset(0);
+    o.step(1);
+    CHECK(std::fabs(o.want - 2.0f / 60) < 1e-6f);
+    // The aim damper: starts on its target, follows a turning target a frame behind, wraps at 360.
+    race::AimDamper d;
+    d.reset(350, 7);
+    CHECK(d.value() == 350);
+    float target = 350;
+    for (int i = 0; i < 240; ++i) {
+        target = std::fmod(target + 0.5f, 360.0f);
+        d.step(target, 2.0f); // follow over 1: no noise
+    }
+    float err = std::fabs(d.value() - target);
+    err = std::min(err, 360 - err);
+    CHECK(err < 1.0f);
+    // A follow of 0 holds the aim where it is.
+    race::AimDamper h;
+    h.reset(100, 3);
+    for (int i = 0; i < 60; ++i) h.step(140, 0.0f);
+    CHECK(std::fabs(h.value() - 100) < 1e-3f);
 }

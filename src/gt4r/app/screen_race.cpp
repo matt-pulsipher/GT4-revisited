@@ -236,7 +236,11 @@ public:
     // simple driver, each on its own side of the line.
     void step(const gt3r::PadState& pad, bool auto_drive) {
         if (menu_scene_) {
+            const size_t shot = scenic_.shot();
             scenic_.step();
+            // The scenic shots' cuts dissolve (mode 5: the ended record's seconds).
+            if (scenic_.shot() != shot && scenic_.dissolve() > 0) begin_dissolve(int(std::lround(scenic_.dissolve_seconds() * 60)));
+            step_dissolve();
             return;
         }
         if (replaying_) {
@@ -248,6 +252,7 @@ public:
             ++replay_at_;
             start_camera_.step();
             camera_.step(history_[replay_at_][0], kStep);
+            step_tv(history_[replay_at_][0]);
             hear(history_[replay_at_], false);
             return;
         }
@@ -281,6 +286,7 @@ public:
         beeps_ += ev.beep;
         start_camera_.step();
         camera_.step(world_->cars()[0], kStep);
+        if (mount_ == kTvView) step_tv(world_->cars()[0]);
         if (event_steps_ >= 0) ++event_steps_;
         if (history_.size() < kHistory) history_.emplace_back(world_->cars().begin(), world_->cars().end());
         hear(world_->cars(), true);
@@ -400,7 +406,28 @@ public:
         // The racing views' screen settings; the replays' and the B-spec race's their own.
         world_->set_grade(picture_settings(replaying_ || watched_).grade());
         const race::ViewPose pose = current_pose(cars, look_back);
+        // A cut's dissolve: the last picture frozen at the cut, over the new one as it fades.
+        world_->set_dissolve(snapshot_, dissolve_total_ > 0 ? float(dissolve_left_) / float(dissolve_total_) : 0.0f, replaying_ || menu_scene_ || mount_ == kTvView);
+        snapshot_ = false;
         world_->render(ui, rect, cars, pose, 0, pose.body_hidden ? 0 : -1);
+    }
+
+    // The replay cameras' shot this step (once a step: their dampers and springs move a step at a
+    // time); a cut with a dissolve starts it.
+    void step_tv(const race::CarState& car) {
+        const render::Mat4 body = world_->visual(0).body_matrix(car);
+        tv_valid_ = replay_camera_.pose(replay_script_, car, body, tv_pose_);
+        if (const float d = replay_camera_.cut_dissolve(); d > 0) begin_dissolve(int(std::lround(d * 60)));
+        step_dissolve();
+    }
+    void begin_dissolve(int steps) {
+        if (steps <= 0) return;
+        snapshot_ = true;
+        dissolve_total_ = dissolve_left_ = steps;
+    }
+    void step_dissolve() {
+        if (dissolve_left_ > 0 && !snapshot_) --dissolve_left_;
+        if (dissolve_left_ == 0) dissolve_total_ = 0;
     }
 
     // The camera now: the opening shots, the replay cameras, or the car's view.
@@ -412,7 +439,7 @@ public:
         bool posed = menu_scene_ && scenic_.pose(pose);
         posed = posed || (start_camera_.active() && start_camera_.pose(pose));
         // The replay cameras' shot for the car; the chase view where the script has none.
-        if (!posed && view == kTvView) posed = replay_camera_.pose(replay_script_, me, body, pose);
+        if (!posed && view == kTvView && tv_valid_) pose = tv_pose_, posed = true;
         if (!posed) pose = camera_.pose(me, body, world_->visual(0).mounts(), view == kTvView ? race::DriveCamera::kChase : view, look_back || setup_.look_back);
         return pose;
     }
@@ -429,7 +456,7 @@ public:
     int mount() const { return mount_; }
     bool opening() const { return start_camera_.active(); }
     bool menu_scene() const { return menu_scene_; }
-    float scene_dissolve() const { return menu_scene_ ? scenic_.dissolve() : 0.0f; }
+
 
 private:
     Setup setup_;
@@ -439,6 +466,9 @@ private:
     race::DriveCamera camera_;
     race::ReplayScript replay_script_;
     race::ReplayCamera replay_camera_;
+    race::ViewPose tv_pose_;
+    bool tv_valid_ = false, snapshot_ = false;
+    int dissolve_total_ = 0, dissolve_left_ = 0;
     race::CameraMotion start_motion_, replay_motion_;
     race::StartCamera start_camera_;
     race::RaceFlow flow_;
@@ -612,9 +642,7 @@ public:
         const Uint64 t0 = SDL_GetTicksNS();
         race_->render(ui, {0, 0, float(Ui::kWidth), float(Ui::kHeight)}, look_back_);
         if (quick_) {
-            // The race's menus over the scene; the scenic shots' cuts dissolve through black (❓ how
-            // the program blends a dissolve is not read).
-            if (const float d = race_->scene_dissolve(); d > 0) ui.fill(0, 0, Ui::kWidth, Ui::kHeight, Color{0, 0, 0, u8(std::clamp(d, 0.0f, 1.0f) * 255)});
+            // The race's menus over the scene.
             const float scale = float(Ui::kHeight) / 480.0f, x = (Ui::kWidth - 640 * scale) / 2;
             if (painter_) painter_->draw(*menus_, x, scale);
             if (const float cover = menus_->fade_cover(); cover > 0) ui.fill(0, 0, Ui::kWidth, Ui::kHeight, Color{0, 0, 0, u8(std::clamp(cover, 0.0f, 1.0f) * 255.0f)});
