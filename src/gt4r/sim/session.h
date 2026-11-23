@@ -11,6 +11,7 @@
 #include "sim/collision_exact.h"
 #include "sim/exact/tick.h"
 
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
@@ -28,6 +29,10 @@ struct Entry {
     bool asm_on = true, tcs_on = true;
     int grid_place = -1;   // the course's start place (-1: the entry's index)
     float start_speed = 0; // a rolling start: metres per second along the place's heading at time 0
+    // A rolling start's place: metres along the course from the start line (negative: before it), the car on
+    // the road's middle there, facing along the course (NaN: the grid place). The race's rule for it:
+    // rules::rolling_start_distance (rules_start.h).
+    float start_distance = std::numeric_limits<float>::quiet_NaN();
 };
 
 class Session final : public race::Simulation {
@@ -80,6 +85,11 @@ private:
         float spin[4] = {};       // each wheel's angle rolled
         float rest_drop[4] = {};  // each wheel's center below its suspension point, at rest
         bool rest_set[4] = {};
+        bool airborne[4] = {};    // each wheel without load at the last step's end
+        // This step's contact from the collision step (race::CarState::contact ..).
+        float contact = 0;
+        u8 contact_kind = 0;
+        int contact_car = -1;
     };
     void place(size_t i, const course::Runway::Place& at);
     void ground_contact(gt3r::sim::exact::Car& c, Extra& x);

@@ -65,6 +65,30 @@ std::vector<Row> build() {
     f(0x480, 0x08, 0x580, "pitch and roll rates");
     f(0x536, 0x02, 0x4BA, "hold counter");
     f(0x4DC, 0x01, 0x4BC, "the start's hold");
+    // the clutch, the engine and the axles
+    f(0x437, 0x01, 0x522, "clutch state");
+    f(0x418, 0x04, 0x514, "clutch request");
+    f(0x38C, 0x08, 0x50C, "the clutch's engine and wheel-side speeds");
+    f(0x490, 0x02, 0x4FA, "engine rpm");
+    f(0x458, 0x08, 0x52C, "axle speeds");
+    f(0x4F4, 0x04, 0x51C, "the clutch's torque");
+    f(0x4B0, 0x08, 0x4E8, "the engine's full-throttle and friction torques");
+    f(0x43B, 0x01, 0x521, "rev limiter");
+    f(0x438, 0x02, 0x524, "the differentials' locks (per wheel group)");
+    f(0x384, 0x08, 0x534, "the axles' drive torques");
+    f(0x460, 0x01, 0x523, "the center clutch locked");
+    f(0x43A, 0x01, 0x526, "the gearbox's lock-out");
+    f(0x462, 0x02, 0x52A, "the shift's anti-hunt count");
+    f(0x464, 0x03, 0x527, "kick-down level, its timer and count");
+    f(0x380, 0x02, 0x462, "reverse and shift requests");
+    f(0x440, 0x04, 0x4F0, "turbo load");
+    f(0x43C, 0x04, 0x500, "turbo load, last step");
+    f(0x444, 0x04, 0x4F4, "turbo lags (rpm)");
+    f(0x4E2, 0x02, 0x4F8, "turbo pitch (rpm)");
+    f(0x4E8, 0x04, 0x504, "blow-off");
+    f(0x4EC, 0x04, 0x508, "intake");
+    f(0x4E6, 0x01, 0x606, "turbo spool");
+    f(0x4E7, 0x01, 0x607, "blow-off state");
     r.push_back({0xEC0, 4, C, kState + 0x448, "step length"});
     r.push_back({0x16A8, 8, C, kState + 0x5C4, "speed, highest speed"});
     r.push_back({0x16C4, 4, C, kState + 0x618, "best lap"});
@@ -102,6 +126,7 @@ std::vector<Row> build() {
     wheel(0x58, 4, 0x50, "wear grip");
     wheel(0x90, 4, 0x64, "brake pressure");
     drive(0x00, 4, 0x78, "brake torque");
+    drive(0x0C, 4, 0x84, "net torque");
 
     // ---- the ground records ----
     for (u32 w = 0; w < 4; ++w) r.push_back({eG + 0x34 * w, 0x34, C, kGround0 + kGroundSize * w, "ground record"});
@@ -116,6 +141,20 @@ std::vector<Row> build() {
     p(0x11C, 0x04, 0x118, "1 / yaw inertia");
     p(0x120, 0x18, 0x11C, "pitch and roll levers, the pitch's tire term");
     p(0x2B0, 0x08, 0x300, "a free wheel's extra mass, per axle");
+    // the engine block (GT4 +0x134: a curve of 24 points, what follows it 0x40 further on): the first 16 points
+    p(0x138, 0x02, 0x134, "the torque curve's points");
+    p(0x144, 0x40, 0x140, "the torque curve's speeds (16)");
+    p(0x184, 0x40, 0x1A0, "the torque curve's torques (16)");
+    p(0x1C4, 0x34, 0x200, "rev limit, idle, friction, turbo, power cap, boost");
+    // the driveline block (GT4 +0x234: eight down-shift speeds, ten ratios and speed factors)
+    p(0x1F8, 0x30, 0x234, "layout, gears, the four wheel drive, the differentials, launch and up-shift speeds");
+    p(0x228, 0x0C, 0x264, "down-shift speeds (6)");
+    p(0x234, 0x20, 0x274, "gear ratios (8)");
+    p(0x254, 0x20, 0x29C, "gear speed factors (8)");
+    p(0x274, 0x18, 0x2C4, "tire radii, their inverses, widths");
+    p(0x294, 0x1C, 0x2E4, "shift clutch torque, wheel gains, axle inertias");
+    p(0xE28, 0x0C, 0x1010, "brake torques, handbrake torque");
+    p(0xDF8, 0x04, 0xFD8, "top speed");
     // ---- the last step's values (0x343ED0) ----
     r.push_back({ePrev + 0x00, 0x14, C, kPrevious + 0x00, "last attitude and the ground's"});
     r.push_back({ePrev + 0x14, 0x80, C, kPrevious + 0x14, "last suspension, steer, camber, half track, spin, brake heat, ground values"});

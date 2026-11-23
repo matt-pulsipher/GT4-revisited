@@ -45,4 +45,11 @@ template <class X, class V> void wear_fields(X& x, V&& v) {
 // false (nothing done) with both wears off or on the pit lane.
 bool wear_grip(ex::Car& c, WearExtra& x, const TireExtra& t, const WheelLayout& l, const WearRules& k);
 
+// 0x3F38D8 (phase 11): each wheel's brake heat (wheel +0xA4): heating by the axle's brake torque times its
+// tire's radius, the brake pressure and the rim's speed (none while the brake pedal is up), cooling by the speed
+// and the heat; the constants k (0x845A00: heating, cooling rate, cooling speed offset, heat offset) as the
+// engine's BrakeHeatConsts.
+void brake_heat(ex::Car& c, const WheelLayout& l, const ex::BrakeHeatConsts& k, const std::array<F, 2>& radius);
+constexpr u32 kBrakeHeatConsts = 0x845A00;
+
 } // namespace gt4r::sim::rules
