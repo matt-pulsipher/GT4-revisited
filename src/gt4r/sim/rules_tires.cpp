@@ -179,8 +179,8 @@ void tire_long_force(ex::Car& c, const WheelLayout& l, const SlipBytes& sb) {
 }
 
 void rolling_resistance(ex::Car& c, const WheelLayout& l, const RoadTables& road) {
-    c.x4d0 = F(), c.a_x = F(), c.rolling = F();
-    F load = c.x4d0;
+    c.drive_sum = F(), c.a_x = F(), c.rolling = F();
+    F load = c.drive_sum;
     for (int i = 0; i < l.count && i < 4; ++i) load = load + c.w[size_t(i)].load * road.rolling_mu[c.w[size_t(i)].surface % 24];
     const F u = c.speed;
     const F rr = F() < u ? -table(road.rolling_curve, u) : table(road.rolling_curve, -u);
