@@ -355,8 +355,6 @@ struct SwitchActor : Actor {
 };
 
 
-Value number_or(const Value& v, float fallback) { return v.is_number() ? v : Value::number(fallback); }
-
 template <class T> void number_field(Object& o, const std::string& name, T* field, std::function<void()> changed = {}) {
     o.property(name, [field] { return Value::number(float(*field)); }, [field, changed](const Value& v) {
         if (v.is_number()) *field = T(v.as_float());

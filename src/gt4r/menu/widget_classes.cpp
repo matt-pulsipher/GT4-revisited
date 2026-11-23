@@ -1207,7 +1207,13 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
                 w->set_property("value", Value::string({}));
                 return Value{};
             });
-        if (n == "attach" || n == "resetAction") return nothing();
+        // attach(): the tip shows the focused widget's tool tip from then on (its `tooltip_key`).
+        if (n == "attach")
+            return fn([w](Vm&, const Value&, Args) {
+                w->set_property("attached", Value::integer(1));
+                return Value{};
+            });
+        if (n == "resetAction") return nothing();
     }
 
     if (type == "ImageFace" || type == "FrameImageFace" || type == "ColorChipFace" || type == "CarFace") {

@@ -485,7 +485,26 @@ private:
             image(w.text("image_path"), at, tint, face, add, has_uv ? uv : nullptr, w.number("from_disk") != 0);
         }
         else if (t == "FrameImageFace") frame(w, at, tint, face);
-        else if (t == "TextFace" || t == "InputTextFace" || t == "InputNumberFace" || t == "ToolTipFace" || t == "TextBoxFace") text(w, at, face);
+        else if (t == "ToolTipFace" && w.number("attached") != 0 && w.text("value").empty() && w.text("text").empty()) {
+            // An attached tip: the focused widget's (or the nearest parent's with one) tool tip.
+            Widget tip = w;
+            auto put = [&tip](const char* name, const std::string& value) {
+                for (menu::Property& p : tip.properties)
+                    if (p.name == name) return void(p.values = {value});
+                menu::Property p;
+                p.name = name, p.type = "string", p.values = {value};
+                tip.properties.push_back(p);
+            };
+            LiveWidget* page = const_cast<LiveWidget&>(live).page();
+            std::shared_ptr<LiveWidget> focus = page ? page->focus.lock() : nullptr;
+            for (const LiveWidget* f = focus.get(); f; f = f->parent_widget())
+                if (f->data.number("tooltip") != 0 && !f->data.text("tooltip_key").empty()) {
+                    put("key", f->data.text("tooltip_key"));
+                    if (LiveWidget* fp = const_cast<LiveWidget*>(f)->page()) put("key_page", fp->name);
+                    break;
+                }
+            text(tip, at, face);
+        } else if (t == "TextFace" || t == "InputTextFace" || t == "InputNumberFace" || t == "ToolTipFace" || t == "TextBoxFace") text(w, at, face);
         else if (t == "ColorChipFace") {
             // A car's paint: its colour under the chip's picture.
             if (w.has("chip_r")) fill(at, {Rgba{u8(w.number("chip_r")), u8(w.number("chip_g")), u8(w.number("chip_b")), 255}}, face, false);
