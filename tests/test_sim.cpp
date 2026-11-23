@@ -524,18 +524,21 @@ TEST(sim_disc_walls_hold) {
     const std::shared_ptr<const course::Runway> road = open_road(*disc, "tsukuba");
     CHECK(road != nullptr);
     if (!road) return;
-    // Straight on at full throttle into the first corner: over the sand into the wall, and no further.
+    // Straight on at full throttle into the first corner: over the sand into the wall, which stops the
+    // car's run (it may then scrape along the walls, as Gran Turismo 4's tires let it), and never
+    // through a wall: every step on the road's ground, upright.
     sim::Entry e;
     CHECK(sim::stock_car(sdb, program, "nsx_r_02", e.equipment));
     sim::Session s(sdb, program, road, std::span<const sim::Entry>(&e, 1));
     float fastest = 0;
-    bool left_tarmac = false;
+    bool left_tarmac = false, struck = false;
     for (int i = 0; i < 30 * 60; ++i) {
         race::CarInput in;
         in.throttle = 1;
         s.step_once(std::span<const race::CarInput>(&in, 1));
         const race::CarState& c = s.cars()[0];
         fastest = std::max(fastest, c.speed);
+        if (fastest > 30.0f && c.speed < 0.6f * fastest) struck = true;
         sim::GroundHit h;
         const bool on = s.ground().under(c.position, h);
         CHECK(on); // the walls stand on the road's surface: inside them there is ground
@@ -543,11 +546,8 @@ TEST(sim_disc_walls_hold) {
         if (h.material != 0) left_tarmac = true;
     }
     const race::CarState& c = s.cars()[0];
-    CHECK(fastest > 30.0f && left_tarmac);
-    // Held by a wall: within a car's length of one, and slow.
-    sim::RoadGround::WallHit w;
-    CHECK(s.ground().nearest_wall(c.position, 6.0f, w));
-    CHECK(c.speed < 10.0f && c.up.y > 0.8f);
+    CHECK(fastest > 30.0f && left_tarmac && struck);
+    CHECK(c.up.y > 0.8f);
 }
 
 TEST(sim_disc_two_cars_meet) {
@@ -586,4 +586,23 @@ TEST(sim_disc_two_cars_meet) {
         if (gap <= 1.2f) break;
     }
     CHECK(pushed);
+}
+
+TEST(sim_disc_steer_angle) {
+    Disc* disc = full_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    // A computer driver's road-wheel command is the steering command itself (past the pad's lock
+    // curve), within the full lock; without one the pad's share steers.
+    const std::string cars[] = {"nsx_r_02"};
+    const std::unique_ptr<sim::Session> s = sim::Session::open(*disc, "tsukuba", cars);
+    race::CarInput in;
+    in.throttle = 0.5f, in.steer_angle = 0.2f;
+    for (int i = 0; i < 90; ++i) s->step_once({&in, 1});
+    CHECK(std::fabs(s->record(0).steer_cmd.host() - 0.2f) < 1e-6f);
+    in.steer_angle = 10.0f;
+    s->step_once({&in, 1});
+    CHECK(s->record(0).steer_cmd.host() == s->record(0).p.max_lock.host());
+    in.steer_angle = NAN, in.steer = 0;
+    for (int i = 0; i < 60; ++i) s->step_once({&in, 1});
+    CHECK(std::fabs(s->record(0).steer_cmd.host()) < 0.01f);
 }

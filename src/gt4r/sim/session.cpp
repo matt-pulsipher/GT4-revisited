@@ -1,5 +1,7 @@
 #include "gt4r/sim/session.h"
 
+#include "gt4r/sim/rules_build.h"
+
 #include "base/ee_math.h"
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/course/course_file.h"
@@ -12,6 +14,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <stdexcept>
 
 namespace gt4r::sim {
@@ -162,6 +165,13 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
 
     cars_.resize(entries.size());
     extra_.resize(entries.size());
+    gx_.resize(entries.size());
+    layouts_.resize(entries.size());
+    gt4_ready_ = program.known();
+    // (GT4R_SIM_RULES=engine: the engine's rules throughout, for comparison)
+    const char* rules_env = std::getenv("GT4R_SIM_RULES");
+    gt4_rules_ = gt4_ready_ && !(rules_env && std::string(rules_env) == "engine");
+    if (gt4_ready_) tables_ = rules::tables(program, race_.statics);
     specs_.resize(entries.size());
     states_.resize(entries.size());
     for (size_t i = 0; i < entries.size(); ++i) {
@@ -192,6 +202,13 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
             ex::load_image(loaded, image.data());
             c.p = loaded.p;
             gt4_params(specs_[i], program, c.p);
+            if (gt4_ready_) {
+                Record r;
+                r.car = c;
+                gt4_extras(specs_[i], program, r);
+                gx_[i] = r.x;
+                layouts_[i] = r.layout;
+            }
         }
         c.pedal_style = e.automatic ? 0 : 1;
         // The start place: the entry's, or one further back along the first place's line when the grid is shorter.
@@ -398,11 +415,20 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
 
         ex::save_previous(c);
         ex::prep(c, race_.prep);
+        if (gt4_rules_) rules::prep_tires(c, gx_[i], layouts_[i], tables_);
         ex::driver_input_pad(c, race_.pad, f, course_kind);
+        // A computer driver's own command: the road wheels' angle as the game's drivers set it (0x464F38 writes it into the
+        // steering command directly), within the full lock, past the pad's lock curve (no later phase reads the bounds).
+        if (!std::isnan(in.steer_angle)) {
+            const gt3r::ee::F lock = c.p.max_lock;
+            c.steer_cmd = gt3r::ee::F(std::clamp(in.steer_angle, -lock.host(), lock.host()));
+        }
         ex::wheel_steer(c);
-        ex::slip_ratios(c, race_.statics);
+        if (gt4_rules_) rules::slip_phase(c, gx_[i], layouts_[i], tables_);
+        else ex::slip_ratios(c, race_.statics);
         ex::aids(c, race_.aids);
-        ex::dynamics(c, race_.statics, race_.gears, race_.class_grip);
+        if (gt4_rules_) rules::dynamics(c, gx_[i], layouts_[i], tables_, race_.statics, race_.gears);
+        else ex::dynamics(c, race_.statics, race_.gears, race_.class_grip);
         ex::brake_heat(c, race_.brake_heat);
         ex::clear_feedback(c);
     }

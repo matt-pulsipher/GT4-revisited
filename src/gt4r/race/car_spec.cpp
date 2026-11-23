@@ -90,6 +90,9 @@ std::vector<u32> car_paints(db::SpecDb& db, const std::string& car) {
         const ByteSpan r = rows->row_at(first + i);
         if (r.size() >= 8 && rd32(r, 4) >= 1) out.push_back(rd32(r, 4) - 1);
     }
+    // The game lists a car's paints by their number (the Ford Ka's Capri-Blau, paint 1, first),
+    // not in the rows' order.
+    std::sort(out.begin(), out.end());
     return out;
 }
 

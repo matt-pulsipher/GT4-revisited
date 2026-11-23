@@ -4,12 +4,16 @@
 
 #include "diff.h"
 
+#include "orig.h"
+
 #include "disc/core_image.h"
 #include "ee.h"
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/db/car_parts.h"
 #include "gt4r/sim/car_spec.h"
 #include "gt4r/sim/exact_bridge.h"
+#include "gt4r/sim/rules_build.h"
+#include "taps.h"
 #include "sim/exact/car_fields.h"
 #include "sim/exact/start.h"
 
@@ -22,62 +26,7 @@
 #include <string>
 #include <vector>
 
-// The interpreter's library stubs name Gran Turismo 3 addresses through this; they are not used here.
-namespace gt3r::diff {
-u32 pa(u32 a) { return a; }
-} // namespace gt3r::diff
-
-using gt3r::diff::Arg;
-using gt3r::diff::Ee;
-
 namespace gt4r::diff {
-
-namespace {
-
-
-// Gran Turismo 4 SCUS-97328 v1.01.
-constexpr u32 kTextEnd = 0x617A14, kBssStart = 0x6D5E00, kBssEnd = 0x8A215C, kGp = 0x6DDDF0;
-constexpr u32 kDatabase = 0x6235A8;       // the database object: a table's object at +0x134 + 4 x table id
-constexpr u32 kTableCtor = 0x448F18;      // a table object (0x6C bytes)
-constexpr u32 kTableOpen = 0x4490F8;      // (table, file image): the object's pointers into the image
-constexpr u32 kCacheFind = 0x44AB20, kCacheKeep = 0x44A908; // the row cache (left out: every row is unpacked)
-constexpr u32 kSetCar = 0x444480;         // (equipment, car)
-constexpr u32 kBuildSpec = 0x3F3B68;      // (spec, equipment, -, course kind)
-constexpr u32 kStatics = 0x35F808;        // (conductor or 0): the per-surface tables and the air's globals from the static block
-constexpr u32 kConvert = 0x361908;        // (parameter block, spec, control source, 0, rule block, condition block)
-
-db::SpecDb open_db(Disc& disc) {
-    gt3r::Volume* vol = &disc.volume();
-    return db::SpecDb(
-        [vol](const std::string& path) -> std::optional<Bytes> {
-            const gt3r::Volume::Entry* e = vol->find(path);
-            return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
-        },
-        [vol](const std::string& dir) { return vol->list_dir(dir); }, "american");
-}
-
-// The program loaded, with the database's tables opened from the disc's files as the game's loader leaves them.
-void boot(Ee& ee, Disc& disc, db::SpecDb& sdb) {
-    const gt3r::CoreImage core = gt3r::CoreImage::decode(disc.read_program());
-    ee.load_program(core.program, core.load_address, kTextEnd, kBssStart, kBssEnd, kGp);
-    ee.hle(kCacheFind, [](Ee& e) { e.set_v0(0); }, "row cache find");
-    ee.hle(kCacheKeep, [](Ee&) {}, "row cache keep");
-    const char* const more[] = {"COURSE", "RACE", "DEFAULT_PARTS", "DEFAULT_PARAM", "ENEMY_CARS", "CAR_NAME_american", "COURSE_NAME_american",
-                                "CAR_VARIATION_american", "VARIATIONamerican"};
-    for (u32 t = 0; t < 43; ++t) {
-        const char* name = db::part_table_name(t);
-        if (!name) name = more[t - 34];
-        const gt3r::Volume::Entry* e = disc.volume().find(sdb.folder() + name + ".dbt");
-        if (!e) continue;
-        const Bytes file = disc.volume().read(*e);
-        const u32 image = ee.alloc_bytes(file), table = ee.alloc(0x6C);
-        ee.call(kTableCtor, {Arg::ptr(table)});
-        ee.call(kTableOpen, {Arg::ptr(table), Arg::ptr(image)});
-        ee.w32(kDatabase + 0x134 + 4 * t, table);
-    }
-}
-
-} // namespace
 
 SpecResult run_spec(Disc& disc, bool print) {
     SpecResult result;
@@ -165,7 +114,7 @@ ParamsResult run_params(Disc& disc, bool print) {
     boot(ee, disc, sdb);
     ee.call(kStatics, {Arg::integer(0)});
     const ex::ProgramData core = sim::core_program(program);
-    const u32 eq_at = ee.alloc(0x200), spec_at = ee.alloc(0x600), p_at = ee.alloc(0x1400), rules_at = ee.alloc(0x100), cond_at = ee.alloc(0x100);
+    const u32 spec_at = ee.alloc(0x600), p_at = ee.alloc(0x1400), rules_at = ee.alloc(0x100), cond_at = ee.alloc(0x100);
     std::vector<Field>& fields = result.fields;
     auto field = [&](const char* name) -> Field& {
         for (Field& f : fields)
@@ -203,6 +152,48 @@ ParamsResult run_params(Disc& disc, bool print) {
         sim::gt4_params(spec, program, car.p);
         const ex::Params& p = car.p;
         ++cars;
+        // Gran Turismo 4's own part of the record (rules_build.h), bit for bit, every field the parameter block holds.
+        {
+            sim::Record ours{car, {}, {}};
+            sim::gt4_extras(spec, program, ours);
+            Image im;
+            im.car.assign(sim::layout::kCarSize, 0), im.params.resize(sim::layout::kParamsSize);
+            ee.read_bytes(p_at, im.params.data(), u32(im.params.size()));
+            sim::Record theirs{};
+            load(theirs, im);
+            const size_t x0 = size_t(reinterpret_cast<const u8*>(&ours.x) - reinterpret_cast<const u8*>(&ours));
+            for (const Slot& sl : slots()) {
+                if (sl.member < x0 || sl.place.block != sim::layout::Block::Params) continue;
+                const std::string name = sl.name.substr(0, sl.name.find('['));
+                Field& f = field(("extra " + name).c_str());
+                ++f.values;
+                const u8* a = reinterpret_cast<const u8*>(&theirs) + sl.member;
+                const u8* b = reinterpret_cast<const u8*>(&ours) + sl.member;
+                if (std::memcmp(a, b, sl.size) != 0) {
+                    ++f.off;
+                    if (f.where.empty()) {
+                        u32 x = 0, y = 0;
+                        std::memcpy(&x, a, sl.size), std::memcpy(&y, b, sl.size);
+                        char t[200];
+                        std::snprintf(t, sizeof t, "%s %s: the program's %08X, ours %08X", c.label.c_str(), sl.name.c_str(), x, y);
+                        f.where = t;
+                    }
+                }
+            }
+            auto bits = [&](const char* name, u32 at, gt3r::ee::F v) {
+                Field& f = field(name);
+                ++f.values;
+                if (ee.r32(p_at + at) != v.bits) {
+                    ++f.off;
+                    if (f.where.empty()) f.where = c.label;
+                }
+            };
+            bits("bits static load front", 0x1040, p.xe54), bits("bits static load rear", 0x1044, p.xe58);
+            bits("bits unsprung front", 0x344, p.susp[0].preload), bits("bits unsprung rear", 0x344 + 0x58, p.susp[1].preload);
+            Field& lf = field("extra wheel layout row");
+            ++lf.values;
+            if (ee.r8(p_at + 0x30) != sim::wheel_layout_index(spec)) ++lf.off, lf.where = c.label;
+        }
         // Equal: within a part in 100,000 (ours is in the same arithmetic but not everywhere in the same order).
         auto check = [&](const char* name, double theirs, double ours, double within = 1e-5) {
             Field& f = field(name);
