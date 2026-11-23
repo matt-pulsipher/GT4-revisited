@@ -132,16 +132,26 @@ Value Module::call(Vm& vm, Args args) {
     if (!is_class) throw ScriptError("not a class: " + path());
     for (const Module* m = this; m; m = m->base.get())
         if (m->construct) return m->construct(vm, args);
+    const Value self = make_object();
+    if (std::shared_ptr<Variable> init = find("__init__"))
+        if (auto fn = init->value.as<Function>()) vm.invoke(*fn, self, args);
+    return self;
+}
+
+bool Module::native_class() const {
+    for (const Module* m = this; m; m = m->base.get())
+        if (m->construct) return true;
+    return false;
+}
+
+Value Module::make_object() {
     auto object = std::make_shared<Instance>();
     object->cls = std::static_pointer_cast<Module>(shared_from_this());
     std::vector<const Module*> chain;
     for (const Module* m = this; m; m = m->base.get()) chain.push_back(m);
     for (auto it = chain.rbegin(); it != chain.rend(); ++it)
         for (const std::string& a : (*it)->attributes) object->attributes[a] = std::make_shared<Variable>();
-    const Value self = Value::of(Kind::Object, object);
-    if (std::shared_ptr<Variable> init = find("__init__"))
-        if (auto fn = init->value.as<Function>()) vm.invoke(*fn, self, args);
-    return self;
+    return Value::of(Kind::Object, object);
 }
 
 void Module::clear() {
@@ -409,8 +419,13 @@ void Vm::load_into(const std::shared_ptr<Module>& module, const std::string& nam
 // The interpreter
 // ---------------------------------------------------------------------------------------------
 
-struct Vm::Frame {
+struct Frame {
     std::shared_ptr<const Code> code;
+    size_t pc = 0;
+    size_t base_scopes = 1;
+    bool constructs = false; // a class's __init__: the call gives the object
+    Value object;
+    std::function<Value(Vm&, const Value&)> after; // of a call a native asked for
     std::vector<std::shared_ptr<Reference>> slots;
     std::vector<std::shared_ptr<Module>> scopes; // MODULE_DEFINE and CLASS_DEFINE push, SET_STATE 0 pops
     std::vector<Value> imports;                  // IMPORT "*": modules whose names are in reach
@@ -428,10 +443,10 @@ Vm::Vm(Loader loader) : loader_(std::move(loader)) {
     root_->define("Object", Value::of(Kind::Module, object));
 }
 
-Vm::~Vm() {
-    result_ = {};
-    root_->clear();
-}
+Vm::~Vm() { root_->clear(); }
+
+Task::Task() = default;
+Task::~Task() = default;
 
 Value Vm::native(std::string name, NativeFunction fn) {
     auto f = std::make_shared<Function>();
@@ -483,40 +498,170 @@ Value Vm::lookup(const std::string& path) {
     return v;
 }
 
-Value Vm::call(const Value& callee_, Args args) {
-    const Value callee = deref(*this, callee_);
-    if (!callee.p || !callee.p->callable()) throw ScriptError("not a function: " + callee.to_string());
-    return deref(*this, callee.p->call(*this, args));
+Value Vm::call(const Value& callee, Args args) {
+    Task t;
+    t.can_wait = false;
+    if (begin(t, callee, args)) return run_to_end(t);
+    return t.result;
+}
+
+void Vm::push_frame(Task& t, const Function& fn, const Value& self, Args args) {
+    if (t.frames.size() >= size_t(kMaxDepth)) throw ScriptError("calls nested too deep in " + fn.name);
+    auto f = std::make_unique<Frame>();
+    f->code = fn.code;
+    const size_t params = f->code->parameters.size();
+    f->slots.resize(std::max<size_t>(f->code->variables, params));
+    for (size_t i = 0; i < params; ++i) f->slots[i] = std::make_shared<Variable>(i < args.size() ? args[i] : Value{});
+    f->scopes.push_back(fn.scope ? fn.scope : root_);
+    f->self = self;
+    t.reg = {};
+    t.frames.push_back(std::move(f));
+}
+
+// The call a native asked for in its place (then_call): a script function gets a frame; one of
+// the program's is called here. True when a frame was pushed.
+bool Vm::push_chained(Task& t, Value& value) {
+    while (t.chained) {
+        Task::Chained c = std::move(*t.chained);
+        t.chained.reset();
+        const Value callee = deref(*this, c.callee);
+        if (auto fn = callee.as<Function>(); fn && !fn->native) {
+            push_frame(t, *fn, fn->self, c.args);
+            t.frames.back()->after = std::move(c.after);
+            return true;
+        }
+        Value r = callee.p && callee.p->callable() ? deref(*this, callee.p->call(*this, c.args)) : Value{};
+        if (c.after) r = c.after(*this, r);
+        value = std::move(r); // the value the script sees
+    }
+    return false;
+}
+
+void Vm::run_task(Task& t) {
+    struct Running {
+        Vm& vm;
+        Task* outer;
+        Running(Vm& v, Task& t) : vm(v), outer(v.current_) { v.current_ = &t, ++v.nesting_; }
+        ~Running() { vm.current_ = outer, --vm.nesting_; }
+    } running(*this, t);
+    if (nesting_ > 64) throw ScriptError("calls from the program nested too deep");
+    t.state = Task::State::Ready;
+    t.until = nullptr;
+    try {
+        while (!t.frames.empty()) {
+            Frame& f = *t.frames.back();
+            const Step step = execute(t, f);
+            if (step == Step::Waiting) {
+                t.state = Task::State::Waiting;
+                return;
+            }
+            if (step == Step::Called) continue;
+            // The frame returned: its value goes to the caller's stack.
+            Value v = f.constructs ? f.object : t.reg;
+            std::function<Value(Vm&, const Value&)> after = std::move(f.after);
+            t.frames.pop_back();
+            if (after) v = after(*this, v);
+            // What `after` chained runs in the frame's place; its value is the one passed on.
+            if (t.chained && push_chained(t, v)) continue;
+            if (t.frames.empty()) {
+                t.result = v;
+                break;
+            }
+            t.frames.back()->stack.push_back(std::move(v));
+            if (t.until) {
+                t.state = Task::State::Waiting;
+                return;
+            }
+        }
+    } catch (...) {
+        t.frames.clear();
+        t.chained.reset();
+        t.until = nullptr;
+        t.state = Task::State::Failed;
+        throw;
+    }
+    t.state = Task::State::Done;
+}
+
+Value Vm::run_to_end(Task& t) {
+    t.can_wait = false;
+    for (;;) {
+        run_task(t);
+        if (t.state != Task::State::Waiting) break;
+        t.until = nullptr; // a wait in a call that must end at once is passed over
+    }
+    return t.result;
 }
 
 Value Vm::invoke(Function& fn, const Value& self, Args args) {
     if (fn.native) return fn.native(*this, self, args);
-    if (depth_ >= kMaxDepth) throw ScriptError("calls nested too deep in " + fn.name);
-    Frame f;
-    f.code = fn.code;
-    const size_t params = f.code->parameters.size();
-    f.slots.resize(std::max<size_t>(f.code->variables, params));
-    for (size_t i = 0; i < params; ++i) f.slots[i] = std::make_shared<Variable>(i < args.size() ? args[i] : Value{});
-    f.scopes.push_back(fn.scope ? fn.scope : root_);
-    f.self = self;
-    result_ = {};
-    ++depth_;
-    try {
-        execute(f);
-    } catch (...) {
-        --depth_;
-        throw;
-    }
-    --depth_;
-    return result_;
+    Task t;
+    push_frame(t, fn, self, args);
+    return run_to_end(t);
 }
 
 void Vm::run(std::shared_ptr<const Code> code, std::shared_ptr<Module> scope) {
-    Frame f;
-    f.code = std::move(code);
-    f.slots.resize(f.code->variables);
-    f.scopes.push_back(scope ? std::move(scope) : root_);
-    execute(f);
+    Task t;
+    auto f = std::make_unique<Frame>();
+    f->code = std::move(code);
+    f->slots.resize(f->code->variables);
+    f->scopes.push_back(scope ? std::move(scope) : root_);
+    t.frames.push_back(std::move(f));
+    run_to_end(t);
+}
+
+// Begins a call in a task: a script function gets a frame; one of the program's is called
+// here (it may chain a script call or ask to wait). False when nothing is left to run.
+bool Vm::begin(Task& t, const Value& callee_, Args args) {
+    const Value callee = deref(*this, callee_);
+    if (!callee.p || !callee.p->callable()) throw ScriptError("not a function: " + callee.to_string());
+    if (auto fn = callee.as<Function>(); fn && !fn->native) {
+        push_frame(t, *fn, fn->self, args);
+        return true;
+    }
+    struct Running {
+        Vm& vm;
+        Task* outer;
+        Running(Vm& v, Task& t) : vm(v), outer(v.current_) { v.current_ = &t; }
+        ~Running() { vm.current_ = outer; }
+    } running(*this, t);
+    t.result = deref(*this, callee.p->call(*this, args));
+    return t.chained && push_chained(t, t.result);
+}
+
+std::shared_ptr<Task> Vm::start(const Value& callee, Args args) {
+    auto t = std::make_shared<Task>();
+    try {
+        if (begin(*t, callee, args)) run_task(*t);
+        else t->state = t->until ? Task::State::Waiting : Task::State::Done;
+    } catch (const ScriptError& e) {
+        t->state = Task::State::Failed, t->error = e.what();
+    }
+    return t;
+}
+
+void Vm::resume(Task& t) {
+    if (t.state != Task::State::Waiting) return;
+    try {
+        if (t.frames.empty()) t.state = Task::State::Done, t.until = nullptr;
+        else run_task(t);
+    } catch (const ScriptError& e) {
+        t.state = Task::State::Failed, t.error = e.what();
+    }
+}
+
+void Vm::wait(std::function<bool()> until) {
+    if (current_ && current_->can_wait) current_->until = std::move(until);
+}
+
+void Vm::then_call(const Value& callee, std::vector<Value> args, std::function<Value(Vm&, const Value&)> after) {
+    if (current_) {
+        current_->chained = Task::Chained{callee, std::move(args), std::move(after)};
+        return;
+    }
+    // Outside any script call, the function is called here.
+    const Value r = call(callee, args);
+    if (after) after(*this, r);
 }
 
 void Vm::require(const std::string& name, std::shared_ptr<Module> scope) {
@@ -618,12 +763,12 @@ std::shared_ptr<Module> Vm::module_at(Frame& f, const std::vector<std::string>& 
     return m;
 }
 
-void Vm::execute(Frame& f) {
+Vm::Step Vm::execute(Task& t, Frame& f) {
     const std::vector<Instruction>& code = f.code->instructions;
     std::vector<Value>& st = f.stack;
     st.reserve(f.code->stack + 4);
-    const size_t base_scopes = f.scopes.size();
-    size_t pc = 0;
+    const size_t base_scopes = f.base_scopes;
+    size_t& pc = f.pc;
     auto pop = [&]() {
         if (st.empty()) fail(f, pc, "the value stack is empty");
         Value v = std::move(st.back());
@@ -698,13 +843,43 @@ void Vm::execute(Frame& f) {
                 break;
             }
             case Op::Pop:
-                result_ = deref(*this, pop());
+                t.reg = deref(*this, pop());
                 break;
             case Op::Call: {
                 std::vector<Value> args = pop_many(in.value);
                 const Value callee = deref(*this, pop());
                 if (!callee.p || !callee.p->callable()) fail(f, pc, "not a function: " + callee.to_string());
-                st.push_back(callee.p->call(*this, args));
+                // A script function: a frame of its own, so the call can wait.
+                if (auto fn = callee.as<Function>(); fn && !fn->native) {
+                    ++pc;
+                    push_frame(t, *fn, fn->self, args);
+                    return Step::Called;
+                }
+                if (auto cls = callee.as<Module>(); cls && cls->is_class && !cls->native_class()) {
+                    const Value self = cls->make_object();
+                    const std::shared_ptr<Variable> init = cls->find("__init__");
+                    const auto fn = init ? init->value.as<Function>() : nullptr;
+                    if (fn && !fn->native) {
+                        ++pc;
+                        push_frame(t, *fn, self, args);
+                        t.frames.back()->constructs = true, t.frames.back()->object = self;
+                        return Step::Called;
+                    }
+                    if (fn) fn->native(*this, self, args);
+                    st.push_back(self);
+                    break;
+                }
+                Value r = callee.p->call(*this, args);
+                if (t.chained) {
+                    ++pc;
+                    if (push_chained(t, r)) return Step::Called;
+                    --pc;
+                }
+                st.push_back(std::move(r));
+                if (t.until) {
+                    ++pc;
+                    return Step::Waiting;
+                }
                 break;
             }
             case Op::BinaryOperator: {
@@ -777,7 +952,7 @@ void Vm::execute(Frame& f) {
             case Op::SetState:
                 // 0 ends a module's or class's block (the file's, at the top); 1 returns.
                 if (in.value == 0 && f.scopes.size() > base_scopes) f.scopes.pop_back();
-                else return;
+                else return Step::Returned;
                 break;
             case Op::FunctionDefine: case Op::MethodDefine: {
                 auto fn = std::make_shared<Function>();
@@ -824,6 +999,7 @@ void Vm::execute(Frame& f) {
         if (what.find(".ad:") != std::string::npos) throw;
         fail(f, pc, what);
     }
+    return Step::Returned;
 }
 
 // ---------------------------------------------------------------------------------------------

@@ -9,6 +9,7 @@
 
 #include <functional>
 #include <map>
+#include <memory>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -18,6 +19,7 @@
 namespace gt4r::script {
 
 class Vm;
+struct Frame;
 struct Heap;
 struct Reference;
 struct Variable;
@@ -125,6 +127,8 @@ struct Module : Heap {
     std::shared_ptr<Reference> member(Vm&, const Value& self, const std::string& name) override;
     bool callable() const override { return is_class; }
     Value call(Vm&, Args) override;
+    bool native_class() const; // its objects are the program's (it or a base has `construct`)
+    Value make_object();       // a script class's object, its attributes nil, before __init__
     std::string describe() const override { return (is_class ? "<class " : "<module ") + path() + ">"; }
     void clear() override;
 };
@@ -166,6 +170,34 @@ struct Stub : Heap {
     void clear() override { members.clear(); }
 };
 
+// A script call the interpreter can leave and come back to. The program runs its scripts on
+// threads: a call that waits (`context.sync`, a nested event loop) blocks its thread while the
+// rest of the program goes on. Here such a call is a task: its frames are kept while it waits.
+class Task {
+public:
+    enum class State { Ready, Waiting, Done, Failed };
+    Task();
+    ~Task();
+    State state = State::Ready;
+    Value result;                // the call's value, once Done
+    std::string error;           // why it Failed
+    std::function<bool()> until; // what a Waiting task waits for (true: go on)
+    bool can_wait = true;        // false: a call made from the program's side that must end at once
+    bool finished() const { return state == State::Done || state == State::Failed; }
+
+private:
+    friend class Vm;
+    std::vector<std::unique_ptr<Frame>> frames;
+    Value reg; // the last value popped: what a function returns
+    // A script function a native asked to be called in its place (Vm::then_call).
+    struct Chained {
+        Value callee;
+        std::vector<Value> args;
+        std::function<Value(Vm&, const Value&)> after;
+    };
+    std::optional<Chained> chained;
+};
+
 class Vm {
 public:
     // A script file by the path REQUIRE names ("/script/MenuClassDefine"), without ".adc".
@@ -194,8 +226,23 @@ public:
     void run(std::shared_ptr<const Code> code, std::shared_ptr<Module> scope = nullptr);
     // REQUIRE: a native module by name, or a script file ("/config/course").
     void require(const std::string& name, std::shared_ptr<Module> scope = nullptr);
+    // Calls a function and runs it to its end; a wait asked for inside is not waited.
     Value call(const Value& callee, Args args);
     Value invoke(Function& fn, const Value& self, Args args);
+    // Calls a function as a task: runs it until it ends or waits. Never throws: a script error
+    // leaves the task Failed.
+    std::shared_ptr<Task> start(const Value& callee, Args args);
+    // Goes on with a Waiting task (the caller has seen that what it waited for is over).
+    void resume(Task& task);
+    // For the program's functions, while a script calls them:
+    // the call that is running waits until `until` gives true (nothing happens in a call that
+    // cannot wait).
+    void wait(std::function<bool()> until);
+    bool can_wait() const { return current_ && current_->can_wait; }
+    // After the native function returns, `callee` is called in its place, and `after` (when
+    // given) makes the value the script sees from the callee's. So a script function called by
+    // the program's side can wait like any other.
+    void then_call(const Value& callee, std::vector<Value> args, std::function<Value(Vm&, const Value&)> after = {});
     // "BootProject::CourseData::akasaka" from the root; nil when a part is missing.
     Value lookup(const std::string& path);
     // A member's value (nil when the value has none of that name).
@@ -211,8 +258,13 @@ public:
     Value unary(const std::string& op, const Value& a);
 
 private:
-    struct Frame;
-    void execute(Frame& f);
+    enum class Step { Returned, Called, Waiting };
+    Step execute(Task& t, Frame& f);
+    bool begin(Task& t, const Value& callee, Args args);
+    void run_task(Task& t);          // until it ends or waits; throws ScriptError
+    Value run_to_end(Task& t);       // waits are passed over
+    void push_frame(Task& t, const Function& fn, const Value& self, Args args);
+    bool push_chained(Task& t, Value& value);
     std::shared_ptr<Reference> resolve(Frame& f, const std::vector<std::string>& symbols);
     std::shared_ptr<Module> module_at(Frame& f, const std::vector<std::string>& symbols, bool as_class,
                                       const std::string& class_name, const std::vector<std::string>& base);
@@ -223,8 +275,8 @@ private:
     std::map<std::string, NativeModule> natives_;
     std::shared_ptr<Module> root_;
     std::vector<std::string> folders_; // of the script files read so far
-    Value result_; // the last value popped: what a function returns
-    int depth_ = 0;
+    Task* current_ = nullptr; // the task whose code is running
+    int nesting_ = 0;         // calls from the program's side inside script calls
 };
 
 } // namespace gt4r::script

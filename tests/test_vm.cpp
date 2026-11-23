@@ -191,6 +191,63 @@ TEST(vm_operators_and_builtins) {
     CHECK(threw);
 }
 
+// A call that waits is left and gone on with later, at any depth of calls:
+//   function inner() { pause(); return 10; }
+//   function outer() { step = 1; pause(); step = 2; return inner() + 1; }
+//   function init(page) { return 3; }   // called by the native "open" in its place
+//   function opener() { return open() + 1; }
+TEST(vm_tasks_wait_and_go_on) {
+    using V = script::Value;
+    script::Vm vm;
+    int waits = 0;
+    bool go = false;
+    vm.root()->define("pause", script::Vm::native("pause", [&](script::Vm& v, const V&, script::Args) {
+        ++waits;
+        go = false;
+        v.wait([&] { return go; });
+        return V{};
+    }));
+    vm.root()->define("open", script::Vm::native("open", [&](script::Vm& v, const V&, script::Args) {
+        v.then_call(v.lookup("init"), {V::integer(1)}, [](script::Vm&, const V& r) { return V::integer(r.i * 2); });
+        return V{};
+    }));
+    vm.run(block(4, {
+        in(Op::StaticDefine, "step"),
+        function(Op::FunctionDefine, "inner", {}, 2,
+                 {name(1, "pause"), in(Op::Eval), in(Op::Call, 0), in(Op::Pop), in(Op::IntConst, 10), in(Op::Pop), in(Op::SetState, 1)}),
+        function(Op::FunctionDefine, "outer", {}, 4,
+                 {name(1, "step"), in(Op::IntConst, 1), in(Op::Assign), in(Op::Pop),
+                  name(2, "pause"), in(Op::Eval), in(Op::Call, 0), in(Op::Pop),
+                  name(1, "step"), in(Op::IntConst, 2), in(Op::Assign), in(Op::Pop),
+                  name(3, "inner"), in(Op::Eval), in(Op::Call, 0), in(Op::Eval), in(Op::IntConst, 1), in(Op::BinaryOperator, "+"), in(Op::Pop),
+                  in(Op::SetState, 1)}),
+        function(Op::FunctionDefine, "init", {"page"}, 2, {in(Op::IntConst, 3), in(Op::Pop), in(Op::SetState, 1)}),
+        function(Op::FunctionDefine, "opener", {}, 2,
+                 {name(1, "open"), in(Op::Eval), in(Op::Call, 0), in(Op::Eval), in(Op::IntConst, 1), in(Op::BinaryOperator, "+"), in(Op::Pop),
+                  in(Op::SetState, 1)}),
+    }));
+    const std::shared_ptr<script::Task> t = vm.start(vm.lookup("outer"), {});
+    CHECK(t->state == script::Task::State::Waiting && vm.lookup("step").i == 1 && waits == 1);
+    CHECK(t->until && !t->until());
+    go = true;
+    CHECK(t->until());
+    vm.resume(*t);
+    CHECK(t->state == script::Task::State::Waiting && vm.lookup("step").i == 2 && waits == 2); // inside inner()
+    vm.resume(*t);
+    CHECK(t->state == script::Task::State::Done && t->result.i == 11);
+    // The same call made from the program's side ends at once: its waits are passed over.
+    CHECK(vm.call(vm.lookup("outer"), {}).i == 11 && waits == 4);
+    // A native's chained call: the script function runs in the native's place.
+    const std::shared_ptr<script::Task> o = vm.start(vm.lookup("opener"), {});
+    CHECK(o->state == script::Task::State::Done && o->result.i == 7);
+    CHECK(vm.call(vm.lookup("opener"), {}).i == 7 && vm.call(vm.lookup("open"), {}).i == 6);
+    // A script error leaves the task failed, and the interpreter usable.
+    vm.root()->define("broken", script::Vm::native("broken", [](script::Vm&, const V&, script::Args) -> V { throw script::ScriptError("no"); }));
+    const std::shared_ptr<script::Task> bad = vm.start(vm.lookup("broken"), {});
+    CHECK(bad->state == script::Task::State::Failed && bad->error == "no");
+    CHECK(vm.call(vm.lookup("init"), {}).i == 3);
+}
+
 // Every script of the discs runs its top level (the program's own classes stood in for), and
 // the boot project's course list is what its script builds.
 TEST(disc_scripts_run) {
