@@ -31,7 +31,8 @@ struct WheelState {
     float travel = 0;     // suspension travel from rest, metres (+ compressed)
     float slip = 0;       // 0 gripping .. 1 sliding (smoke, squeal)
     bool on_ground = true;
-    u8 surface = 0;       // the kind of the road triangle under it (Runway::Triangle::kind)
+    u8 surface = 0;       // the flags byte of the road triangle under it (Runway::Triangle::kind)
+    u8 material = 0;      // the road's material under it (the triangle's byte +6, bits 0-4)
 };
 
 struct CarState {
