@@ -423,6 +423,8 @@ struct Frame {
     std::shared_ptr<const Code> code;
     size_t pc = 0;
     size_t base_scopes = 1;
+    std::shared_ptr<Reference> evaluated; // what the last EVAL read, and where
+    size_t evaluated_at = 0;
     bool constructs = false; // a class's __init__: the call gives the object
     Value object;
     std::function<Value(Vm&, const Value&)> after; // of a call a native asked for
@@ -576,7 +578,7 @@ void Vm::run_task(Task& t) {
     } catch (...) {
         t.frames.clear();
         t.chained.reset();
-        t.until = nullptr;
+        t.until = nullptr, t.after_wait = nullptr;
         t.state = Task::State::Failed;
         throw;
     }
@@ -589,6 +591,7 @@ Value Vm::run_to_end(Task& t) {
         run_task(t);
         if (t.state != Task::State::Waiting) break;
         t.until = nullptr; // a wait in a call that must end at once is passed over
+        t.after_wait = nullptr;
     }
     return t.result;
 }
@@ -643,15 +646,47 @@ std::shared_ptr<Task> Vm::start(const Value& callee, Args args) {
 void Vm::resume(Task& t) {
     if (t.state != Task::State::Waiting) return;
     try {
-        if (t.frames.empty()) t.state = Task::State::Done, t.until = nullptr;
+        t.until = nullptr;
+        if (t.after_wait) {
+            // What the native that waited does now; a script call it asks for takes the place
+            // of the value the native returned.
+            std::function<void(Vm&)> then = std::move(t.after_wait);
+            t.after_wait = nullptr;
+            {
+                struct Running {
+                    Vm& vm;
+                    Task* outer;
+                    Running(Vm& v, Task& t) : vm(v), outer(v.current_) { v.current_ = &t; }
+                    ~Running() { vm.current_ = outer; }
+                } running(*this, t);
+                then(*this);
+            }
+            if (t.chained) {
+                Value v;
+                std::vector<Value>* stack = t.frames.empty() ? nullptr : &t.frames.back()->stack;
+                if (stack && !stack->empty()) v = std::move(stack->back()), stack->pop_back();
+                if (!push_chained(t, v)) {
+                    if (stack) stack->push_back(std::move(v));
+                    else t.result = std::move(v);
+                }
+            }
+            if (t.until) return; // it waits again
+        }
+        if (t.frames.empty()) t.state = Task::State::Done;
         else run_task(t);
     } catch (const ScriptError& e) {
+        t.frames.clear();
         t.state = Task::State::Failed, t.error = e.what();
     }
 }
 
-void Vm::wait(std::function<bool()> until) {
-    if (current_ && current_->can_wait) current_->until = std::move(until);
+void Vm::wait(std::function<bool()> until, std::function<void(Vm&)> then) {
+    if (current_ && current_->can_wait) {
+        current_->until = std::move(until), current_->after_wait = std::move(then);
+        return;
+    }
+    // In a call that must end at once nothing is waited for: what was to follow happens now.
+    if (then) then(*this);
 }
 
 void Vm::then_call(const Value& callee, std::vector<Value> args, std::function<Value(Vm&, const Value&)> after) {
@@ -811,9 +846,22 @@ Vm::Step Vm::execute(Task& t, Frame& f) {
             }
             case Op::Eval:
                 if (st.empty()) fail(f, pc, "the value stack is empty");
-                if (st.back().kind == Kind::Reference) st.back() = deref(*this, std::move(st.back()));
+                if (st.back().kind == Kind::Reference) {
+                    f.evaluated = std::static_pointer_cast<Reference>(st.back().p), f.evaluated_at = pc;
+                    st.back() = deref(*this, std::move(st.back()));
+                }
                 break;
             case Op::AttributePush: {
+                // `x.value` of a number or a string is the variable it was just read from
+                // (`count.value = 3` assigns `count`: in the program a number is an object and
+                // `value` what it holds).
+                if (in.text == "value" && f.evaluated && f.evaluated_at + 1 == pc && !st.empty()) {
+                    const Kind k = st.back().kind;
+                    if (k == Kind::Nil || k == Kind::Int || k == Kind::Float || k == Kind::String) {
+                        st.back() = reference(f.evaluated);
+                        break;
+                    }
+                }
                 const Value of = deref(*this, pop());
                 std::shared_ptr<Reference> r = member(of, in.text);
                 if (!r) fail(f, pc, "no \"" + in.text + "\" in " + of.to_string());

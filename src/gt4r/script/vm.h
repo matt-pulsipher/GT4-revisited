@@ -182,6 +182,7 @@ public:
     Value result;                // the call's value, once Done
     std::string error;           // why it Failed
     std::function<bool()> until; // what a Waiting task waits for (true: go on)
+    std::function<void(Vm&)> after_wait; // run when the wait is over, before the script goes on
     bool can_wait = true;        // false: a call made from the program's side that must end at once
     bool finished() const { return state == State::Done || state == State::Failed; }
 
@@ -236,8 +237,9 @@ public:
     void resume(Task& task);
     // For the program's functions, while a script calls them:
     // the call that is running waits until `until` gives true (nothing happens in a call that
-    // cannot wait).
-    void wait(std::function<bool()> until);
+    // cannot wait). `then` runs when the wait is over, before the script goes on: it may ask
+    // for a script call (then_call) or for another wait.
+    void wait(std::function<bool()> until, std::function<void(Vm&)> then = {});
     bool can_wait() const { return current_ && current_->can_wait; }
     // After the native function returns, `callee` is called in its place, and `after` (when
     // given) makes the value the script sees from the callee's. So a script function called by
