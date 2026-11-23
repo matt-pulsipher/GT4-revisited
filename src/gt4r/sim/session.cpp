@@ -399,6 +399,12 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
         ex::save_previous(c);
         ex::prep(c, race_.prep);
         ex::driver_input_pad(c, race_.pad, f, course_kind);
+        // A computer driver's own command: the road wheels' angle as the game's drivers set it (0x464F38 writes it into the
+        // steering command directly), within the full lock, past the pad's lock curve (no later phase reads the bounds).
+        if (!std::isnan(in.steer_angle)) {
+            const gt3r::ee::F lock = c.p.max_lock;
+            c.steer_cmd = gt3r::ee::F(std::clamp(in.steer_angle, -lock.host(), lock.host()));
+        }
         ex::wheel_steer(c);
         ex::slip_ratios(c, race_.statics);
         ex::aids(c, race_.aids);

@@ -49,6 +49,7 @@
 
 namespace gt4r {
 int cmd_sound(Disc& disc, const std::vector<std::string>& args); // cmd_sound.cpp
+namespace tool { int cmd_ai(Disc& disc, const std::vector<std::string>& args); } // cmd_ai.cpp
 }
 using namespace gt4r;
 
@@ -604,6 +605,7 @@ const Command kCommands[] = {
     {"model-survey", "<disc> [prefix] [textures]", 0, cmd_model_survey},
     {"sound", "<disc> survey | bank <path> | effects | music | seq... | se-wav... | car... (see cmd_sound.cpp)", 1, cmd_sound},
     {"race", "<disc> rail <course> [seconds] | sections <course>", 2, cmd_race},
+    {"ai", "<disc> <course> [cars] [laps] | lines <course> [line] | survey (cmd_ai.cpp)", 1, [](Disc& d, const Args& a) { return gt4r::tool::cmd_ai(d, a); }},
 };
 
 } // namespace

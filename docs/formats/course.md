@@ -2,7 +2,8 @@
 
 Code: `src/gt4r/formats/course/` (the file and the road), `src/gt4r/race/course_scene.*` (the
 course as the race view draws it), `gt4tool race <disc> sections | models <course> [slot]`. `crs/<name>` (packed, 4-12 MB) is one course layout; the US
-disc has 110, with their driving-line models in `crs/bestline/` and a `crs/<name>.ad` file each.
+disc has 110, with a `crs/<name>.ad` file each for the computer drivers (below) and the license tests'
+driving-line models in `crs/bestline/`.
 All 1,145 model sets of the 238 files under `crs/` decode.
 
 ## Container
@@ -238,7 +239,7 @@ screens) that differs where noted.
    lists the set has; T is 0 everywhere, so list 0) and forces the last list with two players;
    the mirror forces list 1.
 5. A model set the course object loads apart from the course file, when its switch is on
-   (🔎 the driving line of `crs/bestline/`).
+   (🔎 the driving line of `crs/bestline/`, below).
 6. **Road reflection** (below), in the one-view draw.
 7. The frame is multiplied by +0x3C.
 8. The cones and boards (`GDGT`) lit by scene light 0 and the pit crews (🔎 both named from
@@ -531,3 +532,46 @@ Code: `runway.*`. All 110 roads read (`gt4tool runway-survey`). Offsets from the
   that do not (❓ the sections name the places a layout uses). A place's heading h gives the
   direction (sin h, cos h) in (x, z). Its height is only rough on some courses (Laguna Seca's
   places are at 0 where the road is at -21): the road under it is found from above.
+
+## The drivers' file: `crs/<name>.ad`
+
+Code: `ai_line.*`; what the race does with it: [specs/ai.md](../specs/ai.md). One per course (110
+on the US disc, `gt4tool ai <disc> survey`). A table of 32 u32 section offsets (slot 0 is 0, slot
+1 starts right after the table at 0x80), slots 1 to 5 used:
+
+- **Slot 1, the lines.** Usually "ADLN": +0x0C u32 the size, +0x14 u32 the line count (8), +0x18
+  u32 the offset of the table of line offsets (from the magic; 0: no line). A line is a 0x40-byte
+  header (u32 the point count, the rest 0) and its points, 0x40 bytes each:
+
+  ```
+  +0x00 u8 kind          0 a straight to the next point, 1 an arc
+  +0x01 s8               the braking distance's adjustment, percent
+  +0x02 s8               the arc's speed adjustment, km/h; -128 on 247 points: passed over
+  +0x03 u8               0
+  +0x04 f32 x, +0x08 f32 y   the place (the simulation's frame turned half round: (-x, -y) there)
+  +0x0C f32              0 (the race writes the road's height)
+  +0x10 u16              0xFFFF on all but 4 points (the race writes the surface at +0x12)
+  +0x14 f32              0 (the race writes the distance along the course)
+  +0x18 f32 radius       the arc's signed radius, metres (> 0 turns left); 0 on a straight
+  +0x1C .. +0x23         0 (the race writes the slope and the bank)
+  +0x24 f32 heading      radians, the direction (-sin h, cos h)
+  +0x28 .. +0x3F         0 (the race's run-time words)
+  ```
+
+  17 files have the older layout of Gran Turismo 3's line section instead (+0x04 u32 8, then
+  eight line offsets at +0x08, lines of a u32 count and 0x28-byte points: the kind and the two
+  adjustments in the first word, x and y in 1/4096 m, the segment, the radius in 1/4096 m, the
+  heading in the low half of the last word in 1/4096 of a turn). ✔ 14 of them (the special
+  stages `ss_*` and `testcourse_100m`) carry the same line section, which does not lie on their
+  roads; the other three are the gymkhanas' spirals'.
+- **Slots 2 to 5, the driver sets**, 0x80 bytes each (only the first 0x30 used), one per
+  driveline class. ✔ All 110 files have all four; the bytes are in [specs/ai.md](../specs/ai.md)
+  §3.1.
+
+Line roles and counts: [specs/ai.md](../specs/ai.md) §2.1. Every course has line 6, the main line.
+
+## The license tests' lines: `crs/bestline/`
+
+128 model sets (`MDLS`), one per license test, named as the test's event (`jpl0a0001` ..; the
+regions jp, kr, uk, us x the lessons l0a, l0b x 16): the driving line drawn on the road in the
+license tests (the race view's step 5 above). Not used by the drivers.

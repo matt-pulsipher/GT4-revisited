@@ -59,8 +59,8 @@ japanese, korean, big5) holds the names; `UnistrDB` the units and short specific
 | `MUFFLER` (sound) | 1,844 x 7 | +0x06 u8 the exhaust sound's variant, 0..3 (a car's stock muffler is no row: 0) |
 | `TURBINEKIT` (sound) | 1,798 x 18 | +0x09 u8 non-zero: a turbo (the exhaust sound is a `turbo` variant) |
 | `DEFAULT_PARTS` | 2,990 x 208 | Sets of parts: 26 pairs of u32 row id, u32 table id, the part of table t at pair t - 1 (-1: none). A car has several: `df_pt_<car label>`, `df_pt_sim_<car label>` (the one its `GENERIC_CAR` row names), `df_pt_d_` / `df_pt_s_<car label>` (dirt, snow), and sets for license tests and events |
-| `RACE` | 709 x 151 | The events |
-| `ENEMY_CARS` | 2,558 x 24 | The opponents |
+| `RACE` | 709 x 151 | The events ("Events" below) |
+| `ENEMY_CARS` | 2,558 x 24 | The opponents: a car, its parts and its settings ("Events" below) |
 
 Every one of the 722 cars' models is on the disc.
 
@@ -161,5 +161,57 @@ their content (`src/gt4r/menu/program_tables.*`; `gt4tool menu-names <disc>` pri
 
 `gt4tool db-strings <disc> <pool> [index ...]` prints texts of a string pool.
 
-❓ Not read: the `RACE` table's columns (151 bytes), `ENEMY_CARS`, which cars have no manual
-gears, the price of parts.
+❓ Not read: which cars have no manual gears, the price of parts.
+
+## Events: `RACE` and `ENEMY_CARS`
+
+Code: `race_events.*` (`gt4tool ai <disc> events | event <label>`); how a race uses them:
+[specs/ai.md](../specs/ai.md) §7, §8. The columns are the program's: the scripts' `MRaceData`
+methods (0x1A0F80 .. 0x1A2E30, registered by 0x1A2EC8), the `RaceSpec` accessors (0x447400 ..
+0x4477D0) and the race's copy of a row into its configuration (0x35E108). In memory a row
+follows a 0x10-byte header, so the methods' offsets are the row's + 0x10.
+
+| `RACE` (151) | What |
+|---|---|
+| +0x00 u32, +0x04 u32 | The course: a `COURSE` row and its table (34) |
+| +0x08, +0x0C | A part {row, table}, mostly -1 (❓ a set car: the tables 0x2D seen are not a list's) |
+| +0x10 u32 | 532 or 533 on the rows seen ❓ |
+| +0x14 u32 | Kept by the race as a u16 ❓ |
+| +0x18 u16 | `getLimitTime` ❓ unit |
+| +0x1A, +0x1C, +0x1E u16 | The gold, silver and bronze times' milliseconds (with the minutes and seconds at +0x76 / +0x77, +0x78 / +0x79, +0x7A / +0x7B) |
+| +0x20 u16 x 6 | `getPrize`: the prize by place (✔ Sunday Cup 6, 5, 4, 3, 2, 1; ❓ the unit) |
+| +0x2C s16 | `getPrizeGC` (x 100) ❓ |
+| +0x2E s16 x 5 | Kept by the race (0x4477D0) ❓ |
+| +0x38, +0x3A s16 | `getNeedYearRange`: the model years allowed |
+| +0x3E u8 | `entry_num`: the cars on the grid, the player's included (✔ 6 on the races, 1 on the license tests) |
+| +0x42 u8 | Kept by the race ❓ |
+| +0x43 u8 | `getNumberOfLaps` (✔ 2 on the Sunday Cup) |
+| +0x44 u8 | Kept by the race with the laps ❓ |
+| +0x45, +0x46, +0x48, +0x49, +0x4A u8 | `getNeedLicense`, `getNeedDrivetrain`, `getNeedAspiration`, `getNeedCarType`, `getNeedTire` |
+| +0x4B .. +0x52 | Kept by the race ❓ |
+| +0x53 .. +0x56 | Kept by the race per driveline class ❓ |
+| +0x57 .. +0x5A, +0x5B .. +0x5E, +0x5F .. +0x62 | The computer drivers' arcs' speed, braking and throttle percents per driveline class (0 = 100; ✔ the amateur FF events 90 / 85 / 100) |
+| +0x63 | The rubber band's overall percent (0 = 100) |
+| +0x64 | The rubber band's mode ❓ |
+| +0x65 .. +0x67 | Slowing the cars ahead: percent, from (m), full at (x 10 m) (✔ 50 % on the 12 license-test events that have it; 0 on every race) |
+| +0x68 .. +0x6A | Hurrying the cars behind: the same |
+| +0x6B .. +0x75, +0x80 .. +0x8B, +0x91 .. +0x96 | Kept by the race ❓ (+0x85 its first byte, +0x89 a signed byte) |
+| +0x92 | `getNeedPs`: power, x 10 PS |
+| +0x93, +0x94, +0x95 | `getNeedPrice`, `getLimitedWeight`, `getLimitedLength` ❓ units |
+| +0x96 | `getNeedCountryID` |
+
+**An event's opponents**: the file `specdb/<set>/RACES/<table><row>`, named by the event as a
+part, 16 hex digits (table 35, the row: `RACES/00000023000008A4` is `preview_entry_6`). 828
+files: u32 the count, u32 0, then per entry {u32 row, u32 table 38} (an `ENEMY_CARS` row) and a
+second word pair, the paint + 1 (-1: the race's choice ❓). ✔ 698 of the 709 events have a pool,
+6,047 entries, every one naming an `ENEMY_CARS` row whose car and parts exist.
+
+| `ENEMY_CARS` (24) | What |
+|---|---|
+| +0x00 u32, +0x04 u32 | The car: a `GENERIC_CAR` row and its table (0) |
+| +0x08 u32, +0x0C u32 | Its parts: a `DEFAULT_PARTS` row (table 36), e.g. `df_pt_sim_levin_bzr_98` |
+| +0x10 u32, +0x14 u32 | Its settings: a `DEFAULT_PARAM` row (table 37), e.g. `df_pr_sim_levin_bzr_98` |
+
+Labels name the event's series and the car (`gt4tgs_rr_civic_sir2_91`). A car's
+`ARCADEINFO_NORMAL` row's entries 6 and 7 are `ENEMY_CARS` rows (table 0x26), not events (✔ the
+Ford Ka '01's: rows 3627 and 4164, its six event entries -1).
