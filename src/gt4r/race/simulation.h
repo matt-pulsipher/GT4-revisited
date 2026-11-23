@@ -50,6 +50,12 @@ struct CarState {
     float course_v = 0;           // metres along the course (Runway::Checkpoint::v)
     int lap = 0;                  // laps completed; -1 for a car that starts behind the line, until
                                   // it first crosses it
+    // This step's contact: its strength (the simulation's measure, 0 for none), what was hit
+    // (0 none, 1 a wall, 2 another car) and that car's index; a wheel back on the ground.
+    float contact = 0;
+    u8 contact_kind = 0;
+    int contact_car = -1;
+    bool landed = false;
 };
 
 // One session's cars. Car 0.. in grid order; `inputs` has one entry per car (a car whose

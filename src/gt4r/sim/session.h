@@ -27,6 +27,7 @@ struct Entry {
     bool automatic = true; // the gearbox shifts itself
     bool asm_on = true, tcs_on = true;
     int grid_place = -1;   // the course's start place (-1: the entry's index)
+    float start_speed = 0; // a rolling start: metres per second along the place's heading at time 0
 };
 
 class Session final : public race::Simulation {
