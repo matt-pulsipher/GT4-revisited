@@ -116,8 +116,8 @@ TEST(sim_program_step_routines_equal) {
         if (!r.ran) std::printf("  %s: %s\n", car, r.error.c_str());
         CHECK(r.ran && !r.taps.empty());
         for (const diff::StepTap& t : r.taps) {
-            if (t.calls == 0 || t.equal != t.calls) std::printf("  %s, %s: %zu of %zu calls equal\n", car, t.name.c_str(), t.equal, t.calls);
-            CHECK(t.calls > 0 && t.equal == t.calls);
+            if (t.equal != t.calls) std::printf("  %s, %s: %zu of %zu calls equal\n", car, t.name.c_str(), t.equal, t.calls);
+            CHECK((t.calls > 0 || (t.name == "gear" && std::string(car) == "fit_w_ff_01")) && t.equal == t.calls); // (a stepless box's own gear step)
         }
     }
 }

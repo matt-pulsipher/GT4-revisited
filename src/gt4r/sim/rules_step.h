@@ -34,6 +34,9 @@ void prep_tires(ex::Car& c, Extra& x, const WheelLayout& l, const Tables& t, con
 inline void slip_phase(ex::Car& c, Extra& x, const WheelLayout& l, const Tables& t) { slip_ratios(c, x.tires, l, t.slip); }
 // Phase 10 (0x3535B0) for a car a player drives: brakes and clutch, the tire forces, the speed along the
 // body, the wheels' torques, the driveline, engine and gearbox, the lateral forces, yaw and hold.
-void dynamics(ex::Car& c, Extra& x, const WheelLayout& l, const Tables& t);
+// `computer`: a computer drives the car (our drivers, whose cars the session runs as a player's). The program
+// shifts a computer's car at its driver's speeds (0x36BEE0 / 0x36BF28 through 0x3F1E30, the driver's byte +0x83
+// / 128): not ported, so its gearbox is the engine's (the converter's down-shift speeds).
+void dynamics(ex::Car& c, Extra& x, const WheelLayout& l, const Tables& t, bool computer = false);
 
 } // namespace gt4r::sim::rules
