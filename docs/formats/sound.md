@@ -412,9 +412,16 @@ against the original (below): the Ford Ka '01's strongest note at 5,650 rpm is 1
   table's race level (`sdvol`, level 2 of the output mode: 0.40 for stereo on the US disc) ×
   [0x6213E0] (1). [0x6213D8] (0x391ED0) = the race effects option's flag × its raw value / 128
   (in a replay the replay's pair). [0x6213DC] and [0x6213E0] are 1.0 and [0x6213E4] 0.001 in the
-  original's race (its saved states at the start and on the straight). The fade (0x391D58: a target
-  over seconds) rises over 0.3 s as the race begins (🔎 3 s in race modes 2 and 3); it ducks to
-  0.45 (flag 0x6213EC) or 0.2 (0x6213F0) over 1 s ❓ (when is not read).
+  original's race (its saved states at the start and on the straight). The fade (0x391D58(target,
+  seconds): a step of (target - now) / 60 / seconds each frame) is set up with the race
+  (RaceBase virtual 38, 0x387FB0: [0x6213DC] = 1, both ducks off, then 0x391D98: from 0 to 1 over
+  3 s when the race's mode (race + 0xCC8) is 2 or 3, else over 0.3 s). The ducks (0x391DF0): to
+  0.45 while the flag 0x6213EC is set (0x391E50; RaceBase virtual 75, 0x389B08, sets it in modes 2
+  and up to "the first entry's state (+0x148 of a 0x19C-byte entry) is 2" ❓ what that state is),
+  to 0.2 while 0x6213F0 is (0x391E80; the free run, RaceFreeRun virtual 7 0x3BA6A0, 0x3BA8B8,
+  0x3BA938, on its own flags ❓), back to 1 when neither is, each over 1 s. 0x391DC8 fades out
+  (0x3E1C80, 0x3E1EA0 ❓). `RaceSound::fade(target, seconds)` is the routine; nothing calls the
+  ducks yet.
 - **The levels** (0x350080, 60 a second): n = the friction torque / (the friction torque + the
   full-throttle torque) is the throttle that just holds the revs; e = |throttle - n| + n,
   halved when the clutch (the record's byte, 1 locked) is not locked and for a hybrid; the
