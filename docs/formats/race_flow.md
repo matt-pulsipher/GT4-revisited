@@ -38,15 +38,33 @@ speed (K +0xF884 distance < 0 and K +0xF886 km/h != 0; `DynamicsConductorSingleP
 
 - The hold counts org +0xBC down a frame at a time; at 0, **event 4: the start signal**. The race
   clock and the cars stand meanwhile (the engines answer the throttle).
-- **The count is heard, not written**: a beep (sound effect 0x27) when the player's hold is 180,
-  120 and 60 frames (`fn_0039E9B0`, 0x39DA80), the start's sound (0x28) at the signal. No digits
-  are drawn.
+- **The count**: a beep (sound effect 0x27) when the player's hold is 180, 120 and 60 frames
+  (`fn_0039E9B0`, 0x39DA80), the start's sound (0x28) at the signal; and the digits
+  (`fn_0039D390`, display kinds 0 and 1): when the hold h has h % 60 == 1, the whole seconds
+  n = h / 60 (n > 0) are written `"%d"` as the middle message (color 0x80C8C8C8), shown 0.8 s
+  with a 0.15 s fade for n < 4; n of 4 and more only while the display's own opacity (D +0xBC)
+  is 1, with no fade. So under the opening shots only 3, 2, 1 show (the original's Grand Canyon
+  start: the camera swinging round the player's car while 3, 2, 1 appear).
 - At the signal the middle message `RaceStart` (the race text table's word +0x12C) in font
   `FC_48`, shown 1.0 s with a 0.15 s fade (`RaceDisplay::vf40` 0x3A1488).
-- A rolling start (K +0xCBE6 set; the event row's bytes +0x23 x -10 m, +0x24 km/h, +0x25; the
-  program's defaults -400 m, 80 km/h, 20): seen in the original's arcade race on Tsukuba (the
-  field running at 50 mph behind the opening shots, START as the player's car crosses the line).
-  🔎 The simulation here has no rolling start: the race's menus start a 10 s standing start.
+
+### Which start a course has (`race/start_rule.*`)
+
+The conductor's reset (`DynamicsConductor::vf28` 0x34D490 -> 0x34C7E0) reads the course's row
+of `COURSE` (0x447F48): the bytes +0x10 (the surface) .. +0x14, and **the start code**: the
+`UnistrDB` string the row's +0x08 names, a short text of hex digits ("1ff0" for tsukuba, route5,
+seattle, motegi ...; "0ff0" for suzuka, fisco, trialmt, grandvalley ...; "0000" for grandcanyon
+and the other loose and special courses), each digit into K +0xCBE6.. (0..15). **A first digit
+other than 0 gives a rolling start**: the conductor takes the distance, speed and a third value
+from the course object's block for its surface (K +0xCBD8 -> +0xA0 + 4 x surface), else the
+program's table at 0x623DC0 (a row for tarmac, one for dirt and snow), bytes +0x23 (x -10 m),
++0x24 (km/h), +0x25; the zeros there give the defaults **-400 m, 80 km/h** (the original's 50
+mph field) and 20. ❓ The other digits are not read here; ❓ who reads the course object's block.
+
+The race's menus here take the course's start: rolling (the cars' `sim::Entry::start_speed` 80
+km/h; the cars are placed by the simulation) or ❓ a standing start of 10 s with the opening shots
+(the race information's own type byte is not traced to its source; the original's Grand Canyon
+start fits it).
 
 ## The grid
 

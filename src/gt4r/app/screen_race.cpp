@@ -7,7 +7,7 @@
 // auto (the simple driver takes the first car too) or pad, `skip` simulation steps run before the
 // first picture (the start's hold is left out then), `paint` the first car's paint, `laps` the
 // race's length, `start` the start: 10 or 8 (a hold of so many seconds with the opening shots),
-// <seconds> (a plain hold), none, rolling; `view=tv` the course's replay cameras; `replay=N` drives
+// <seconds> (a plain hold), none, rolling, course (the course's own: race/start_rule.h); `view=tv` the course's replay cameras; `replay=N` drives
 // N steps unseen and plays them back through the replay cameras; `menus=single_race` the race
 // sequence's own menus (quick-arcade) before and after the race.
 
@@ -25,6 +25,7 @@
 #include "gt4r/race/rail_simulation.h"
 #include "gt4r/race/replay_script.h"
 #include "gt4r/race/start_camera.h"
+#include "gt4r/race/start_rule.h"
 #include "gt4r/sim/ai/grid.h"
 #include "gt4r/menu/game.h"
 #include "gt4r/menu/race_natives.h"
@@ -66,6 +67,9 @@ struct Setup {
     bool scripted = false; // from GT4R_RACE: no lists
     race::StartType start = race::StartType::Ten;
     int start_seconds = 0;
+    float start_speed = 0; // a rolling start's (metres per second)
+    bool course_start = false; // the start the course's start code gives (race/start_rule.h)
+    bool start_given = false;
     std::vector<std::string> opponents; // the other cars by label (empty: from the car list)
     std::string sequence; // `menus=single_race`: the race's own menus (the sequence's quick project) round the race
     sim::ai::Pace pace;   // the computer drivers' (the event's)
@@ -99,7 +103,9 @@ Setup setup_from_env() {
         else if (k == "laps") s.laps = std::clamp(std::atoi(v.c_str()), 1, 99);
         else if (k == "menus") s.sequence = v;
         else if (k == "start") {
-            if (v == "rolling") s.start = race::StartType::Rolling;
+            s.start_given = true;
+            if (v == "course") s.course_start = true;
+            else if (v == "rolling") s.start = race::StartType::Rolling, s.start_speed = 80 / 3.6f;
             else if (v == "none") s.start = race::StartType::None;
             else if (v == "8") s.start = race::StartType::Eight;
             else if (v == "10") s.start = race::StartType::Ten;
@@ -130,6 +136,7 @@ public:
                                                          : setup.opponents[size_t(i - 1) % setup.opponents.size()];
             e.paint = i == 0 ? setup.paint : u32(i);
             e.grid_place = places[size_t(i)];
+            if (setup.start == race::StartType::Rolling) e.start_speed = setup.start_speed;
             ws.entries.push_back(e);
         }
         world_ = std::make_unique<RaceWorld>(app, ws);
@@ -336,8 +343,17 @@ public:
             // FINISH: 3.7 s and a fade of 0.3 s.
             h.message = hud.word("RaceFinish");
             h.message_opacity = window(flow_.steps_since_player_finish(), 3.7f, 0.3f);
+        } else if (const int left = flow_.hold_left(); flow_.holding() && left > 1) {
+            // The count (0x39D390): each whole second n left of the hold is written when n x 60 + 1
+            // steps are left, "%d" in the middle, shown 0.8 s with a fade of 0.15 s; 4 and more only
+            // while the display shows in full (not under the opening shots).
+            const int n = (left + 58) / 60, at = n * 60 + 1;
+            if (n > 0 && at <= flow_.hold_total() && (n < 4 || !start_camera_.active())) {
+                h.message = std::to_string(n);
+                h.message_opacity = window(at - left, 0.8f, n < 4 ? 0.15f : 0.0f);
+            }
         } else if (const int s = flow_.steps_since_start(); s >= 0 && flow_.setup().start != race::StartType::None) {
-            // START at the start signal: 1.0 s and a fade of 0.15 s. (No count is written: the count is heard.)
+            // START at the start signal: 1.0 s and a fade of 0.15 s.
             h.message = hud.word("RaceStart");
             h.message_opacity = window(s, 1.0f, 0.15f);
         }
@@ -446,16 +462,23 @@ public:
                         LOG_WARN("Drive: the event's grid: %s", e.what());
                     }
                 }
-                // ❓ The start the race's information gives is not traced to its source: a standing
-                // start of 10 s with the opening shots (the original's arcade race starts rolling).
-                setup_.start = race::StartType::Ten;
             }
+            setup_.course_start = true;
             // A reversed layout is its own course file (crs/r_<name>); one the disc does not have is
             // driven forward.
             if (!app.vfs()->exists("crs/" + setup_.course) && setup_.course.rfind("r_", 0) == 0) {
                 LOG_WARN("Drive: the disc has no reversed layout crs/%s: the course is driven forward", setup_.course.c_str());
                 setup_.course = setup_.course.substr(2);
             }
+        }
+        // A race of the menus (or `start=course`): the start the course's start code gives, rolling
+        // at the program's speed, else ❓ a standing start of 10 s with the opening shots (the race
+        // information's own type is not traced to its source).
+        if (!setup_.start_given && !setup_.sequence.empty()) setup_.course_start = true;
+        if (db::SpecDb* sdb = app.db(); sdb && setup_.course_start) {
+            const race::CourseStart cs = race::course_start(*sdb, setup_.course);
+            setup_.start = cs.rolling ? race::StartType::Rolling : race::StartType::Ten;
+            setup_.start_speed = cs.speed();
         }
         if (db::SpecDb* sdb = app.db()) {
             cars_ = sdb->cars();

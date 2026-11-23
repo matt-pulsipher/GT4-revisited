@@ -156,6 +156,7 @@ void RaceWorld::build_simulation() {
                 if (!sim::stock_car(*app_.db(), program, setup_.entries[i].label, entries[i].equipment)) throw std::runtime_error("no parts for " + setup_.entries[i].label);
                 entries[i].grid_place = setup_.entries[i].grid_place;
                 entries[i].automatic = setup_.entries[i].automatic;
+                entries[i].start_speed = setup_.entries[i].start_speed;
             }
             session_ = std::make_unique<sim::Session>(*app_.db(), program, std::make_shared<const course::Runway>(course_->road()), entries);
             if (!noted_)

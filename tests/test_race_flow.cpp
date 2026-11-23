@@ -7,6 +7,8 @@
 #include "gt4r/formats/course/runway.h"
 #include "gt4r/race/race_flow.h"
 #include "gt4r/race/start_camera.h"
+#include "gt4r/race/start_rule.h"
+#include "gt4r/formats/db/specdb.h"
 
 #include <cmath>
 
@@ -345,4 +347,30 @@ TEST(strobe_result_movie_disc) {
         CHECK(exit);
     }
     if (!movies) SKIP("no Gran Turismo 4 disc");
+}
+
+TEST(race_course_start_disc) {
+    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    CHECK(race::start_code_digit("1ff0", 0) == 1 && race::start_code_digit("1ff0", 1) == 15 && race::start_code_digit("x", 0) == -1);
+    size_t ran = 0;
+    for (const auto& disc : test::discs()) {
+        if (disc->info().serial.rfind("SCUS_973.28", 0) != 0) continue;
+        gt3r::Volume* vol = &disc->volume();
+        db::SpecDb sdb(
+            [vol](const std::string& path) -> std::optional<Bytes> {
+                const gt3r::Volume::Entry* e = vol->find(path);
+                return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
+            },
+            [vol](const std::string& dir) { return vol->list_dir(dir); });
+        // The original's arcade races: Tsukuba and Route 5 start rolling at 50 mph, Grand Canyon from a
+        // standing count.
+        const race::CourseStart ts = race::course_start(sdb, "tsukuba"), r5 = race::course_start(sdb, "route5"), gc = race::course_start(sdb, "grandcanyon");
+        CHECK(ts.known && ts.rolling && ts.code == "1ff0");
+        CHECK(r5.known && r5.rolling);
+        CHECK(gc.known && !gc.rolling && gc.code == "0000");
+        CHECK(std::fabs(ts.speed() * 2.23694f - 49.7f) < 0.1f); // 80 km/h
+        CHECK(!race::course_start(sdb, "no_such_course").known);
+        ++ran;
+    }
+    if (!ran) SKIP("no Gran Turismo 4 US disc");
 }

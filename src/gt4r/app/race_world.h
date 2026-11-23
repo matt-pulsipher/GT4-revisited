@@ -35,6 +35,7 @@ struct WorldEntry {
     u32 paint = 0;         // by index in the car's paints
     int grid_place = -1;   // the course's start place (-1: the entry's index)
     bool automatic = true; // the gearbox shifts itself
+    float start_speed = 0; // a rolling start: metres per second at time 0 (sim::Entry::start_speed)
 };
 
 struct WorldSetup {
