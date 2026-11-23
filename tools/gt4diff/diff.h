@@ -37,4 +37,6 @@ struct ParamsResult {
 };
 ParamsResult run_params(Disc& disc, bool print);
 
+bool run_step(Disc& disc, bool print);
+
 } // namespace gt4r::diff

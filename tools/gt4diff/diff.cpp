@@ -4,6 +4,8 @@
 
 #include "diff.h"
 
+#include "orig.h"
+
 #include "disc/core_image.h"
 #include "ee.h"
 #include "gt4r/disc/disc.h"
@@ -22,62 +24,7 @@
 #include <string>
 #include <vector>
 
-// The interpreter's library stubs name Gran Turismo 3 addresses through this; they are not used here.
-namespace gt3r::diff {
-u32 pa(u32 a) { return a; }
-} // namespace gt3r::diff
-
-using gt3r::diff::Arg;
-using gt3r::diff::Ee;
-
 namespace gt4r::diff {
-
-namespace {
-
-
-// Gran Turismo 4 SCUS-97328 v1.01.
-constexpr u32 kTextEnd = 0x617A14, kBssStart = 0x6D5E00, kBssEnd = 0x8A215C, kGp = 0x6DDDF0;
-constexpr u32 kDatabase = 0x6235A8;       // the database object: a table's object at +0x134 + 4 x table id
-constexpr u32 kTableCtor = 0x448F18;      // a table object (0x6C bytes)
-constexpr u32 kTableOpen = 0x4490F8;      // (table, file image): the object's pointers into the image
-constexpr u32 kCacheFind = 0x44AB20, kCacheKeep = 0x44A908; // the row cache (left out: every row is unpacked)
-constexpr u32 kSetCar = 0x444480;         // (equipment, car)
-constexpr u32 kBuildSpec = 0x3F3B68;      // (spec, equipment, -, course kind)
-constexpr u32 kStatics = 0x35F808;        // (conductor or 0): the per-surface tables and the air's globals from the static block
-constexpr u32 kConvert = 0x361908;        // (parameter block, spec, control source, 0, rule block, condition block)
-
-db::SpecDb open_db(Disc& disc) {
-    gt3r::Volume* vol = &disc.volume();
-    return db::SpecDb(
-        [vol](const std::string& path) -> std::optional<Bytes> {
-            const gt3r::Volume::Entry* e = vol->find(path);
-            return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
-        },
-        [vol](const std::string& dir) { return vol->list_dir(dir); }, "american");
-}
-
-// The program loaded, with the database's tables opened from the disc's files as the game's loader leaves them.
-void boot(Ee& ee, Disc& disc, db::SpecDb& sdb) {
-    const gt3r::CoreImage core = gt3r::CoreImage::decode(disc.read_program());
-    ee.load_program(core.program, core.load_address, kTextEnd, kBssStart, kBssEnd, kGp);
-    ee.hle(kCacheFind, [](Ee& e) { e.set_v0(0); }, "row cache find");
-    ee.hle(kCacheKeep, [](Ee&) {}, "row cache keep");
-    const char* const more[] = {"COURSE", "RACE", "DEFAULT_PARTS", "DEFAULT_PARAM", "ENEMY_CARS", "CAR_NAME_american", "COURSE_NAME_american",
-                                "CAR_VARIATION_american", "VARIATIONamerican"};
-    for (u32 t = 0; t < 43; ++t) {
-        const char* name = db::part_table_name(t);
-        if (!name) name = more[t - 34];
-        const gt3r::Volume::Entry* e = disc.volume().find(sdb.folder() + name + ".dbt");
-        if (!e) continue;
-        const Bytes file = disc.volume().read(*e);
-        const u32 image = ee.alloc_bytes(file), table = ee.alloc(0x6C);
-        ee.call(kTableCtor, {Arg::ptr(table)});
-        ee.call(kTableOpen, {Arg::ptr(table), Arg::ptr(image)});
-        ee.w32(kDatabase + 0x134 + 4 * t, table);
-    }
-}
-
-} // namespace
 
 SpecResult run_spec(Disc& disc, bool print) {
     SpecResult result;
