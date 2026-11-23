@@ -54,6 +54,9 @@ std::vector<Row> build() {
     f(0x3F0, 0x08, 0x5D0, "distance driven and its carry");
     f(0x3F8, 0x20, 0x5D8, "the engine condition's words");
     f(0x4F8, 0x08, 0x5FC, "the view's heading and pitch lags");
+    f(0x398, 0x04, 0x5B0, "rolling resistance");
+    f(0x4C4, 0x04, 0x550, "longitudinal acceleration");
+    f(0x4D0, 0x04, 0x564, "(the rolling resistance's starting load)");
     r.push_back({0xEC0, 4, C, kState + 0x448, "step length"});
     r.push_back({0x16A8, 8, C, kState + 0x5C4, "speed, highest speed"});
     r.push_back({0x16C4, 4, C, kState + 0x618, "best lap"});
@@ -70,6 +73,15 @@ std::vector<Row> build() {
     wheel(0x7C, 4, 0x60, "slip direction's low-speed fade");
     wheel(0xA0, 4, 0xAC, "tread wear");
     wheel(0x5D, 1, 0xB1, "the HUD's wear level");
+    wheel(0x20, 4, 0x20, "rim speed");
+    wheel(0x48, 4, 0x3C, "slip gain");
+    wheel(0x68, 4, 0x38, "slip ratio");
+    drive(0x10, 1, 0x44, "slip state");
+    drive(0x12, 1, 0x45, "the longitudinal force's sign");
+    drive(0x14, 4, 0x54, "the longitudinal force's fraction (curve C)");
+    wheel(0x64, 4, 0x58, "friction circle (curve D)");
+    drive(0x04, 8, 0x7C, "the longitudinal force's reaction, driving and braking");
+    wheel(0x88, 8, 0x70, "the longitudinal force, driving and braking");
     wheel(0x08, 4, 0x48, "load");
     wheel(0x14, 4, 0x08, "half track");
     wheel(0x18, 4, 0x94, "suspension travel");

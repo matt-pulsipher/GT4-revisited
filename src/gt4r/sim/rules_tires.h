@@ -22,8 +22,9 @@ struct Tire {
     ex::Table<12> curve_c;     // +0xF8 (x +0x104, y +0x134)
     F slip_drive, slip_brake;  // +0x164 / +0x168
     F brake_peak;              // +0x16C
-    std::array<F, 12> curve_d; // +0x17C (its table +0x174 on curve C's axis)
+    std::array<F, 12> curve_d; // +0x17C (its table +0x170 on curve C's axis)
     ex::Table<4> load_curve;   // +0x1AC (x +0x1B8, y +0x1C8)
+    u8 direct_slip = 0;        // +0x1D8 not 0: the slip ratio is the hub's and the rim's speeds' difference, scaled (0x3513F8)
     u8 x1da = 0;               // +0x1DA copied to the wheel's +0xDD by 0x357418
 };
 constexpr u32 kTire0 = 0x410, kTireSize = 0x1EC;
@@ -35,6 +36,7 @@ struct TireExtra {
     std::array<F, 2> width;                         // P + 0x2D4 per axle: the load curve's width
     std::array<ex::Table<4>, 2> camber_grip;        // P + 0x3B8 + 0xC axle (x +0x3D0 + 0x10 axle, y +0x3F0 + 0x10 axle)
     std::array<F, 2> axle_grip;                     // P + 0xFD0 per axle
+    F direct_slip_scale;                            // P + 0xFC8 the direct slip ratio's scale (1 / (m/s))
     std::array<u8, 4> wheel_xdd{};                  // wheel +0xDD: the tire record's byte +0x1DA
 };
 
@@ -61,7 +63,7 @@ template <class X, class V> void tires_fields(X& x, V&& v) {
         v("tire.brake_peak", r, P, R + 0x16C, t.brake_peak);
         for (u32 k = 0; k < 12; ++k) v("tire.curve_d", r * 32 + int(k), P, R + 0x17C + 4 * k, t.curve_d[k]);
         table("tire.load_curve.n", "tire.load_curve.x", "tire.load_curve.y", r, R + 0x1AC, R + 0x1B8, R + 0x1C8, t.load_curve);
-        v("tire.x1da", r, P, R + 0x1DA, t.x1da);
+        v("tire.direct_slip", r, P, R + 0x1D8, t.direct_slip), v("tire.x1da", r, P, R + 0x1DA, t.x1da);
     }
     for (int a = 0; a < 2; ++a) {
         for (u32 s = 0; s < 24; ++s) v("tire_index", a * 32 + int(s), P, 0xF98 + 0x18 * u32(a) + s, x.tire_index[size_t(a)][s]);
@@ -70,6 +72,7 @@ template <class X, class V> void tires_fields(X& x, V&& v) {
               x.camber_grip[size_t(a)]);
         v("axle_grip", a, P, 0xFD0 + 4 * u32(a), x.axle_grip[size_t(a)]);
     }
+    v("direct_slip_scale", -1, P, 0xFC8, x.direct_slip_scale);
     for (int w = 0; w < 4; ++w) v("w.xdd", w, C, layout::kWheel0 + layout::kWheelSize * u32(w) + 0xDD, x.wheel_xdd[size_t(w)]);
 }
 
@@ -82,6 +85,38 @@ F load_per_width(const TireExtra& x, const WheelLayout& l, int w, F load);
 // wheel's own camber; times the computer driver's grip for the tire (`driver_grip`, 1 for a player's
 // car: 0x467470).
 void peak_force(ex::Car& c, TireExtra& x, const WheelLayout& l, bool wear, F driver_grip = F(1.0f));
+// The static block's slip ratio bytes (0x620CD8 + 0xB4, 8 bytes): the fade speeds (km/h) by the hub's
+// speed (braking) and the rim's (driving), then per side (0 braking, 1 driving) the gain's switch, its
+// value at rest (percent) and the speed it reaches 1 at (km/h).
+struct SlipBytes {
+    std::array<u8, 2> fade{}, gain_on{}, gain_base{}, gain_knee{};
+};
+constexpr u32 kSlipBytes = 0x620CD8 + 0xB4;
+SlipBytes slip_bytes(const u8* b);
+// 0x351358: the slip gain on side k at hub speed u.
+F slip_gain(const SlipBytes& sb, int k, F u);
+// 0x3513F8: wheel w's slip ratio, state and the force's sign for its hub speed x along its heading.
+void slip_ratio(ex::Car& c, const TireExtra& x, int w, const Tire& r, F along, const SlipBytes& sb);
+// 0x351778: every wheel's slip ratio.
+void slip_ratios(ex::Car& c, const TireExtra& x, const WheelLayout& l, const SlipBytes& sb);
+
+// The race's per-surface tables the step reads (built from the static block at a race's start by
+// 0x35F808): the rolling resistance's curve over speed (0x620938) and its factor per surface
+// (0x620984, 24 words).
+struct RoadTables {
+    ex::Table<8> rolling_curve;
+    std::array<F, 24> rolling_mu;
+};
+constexpr u32 kRollingCurve = 0x620938, kRollingMu = 0x620984;
+
+// 0x351850: each wheel's longitudinal force fraction (curve C) and friction circle (curve D) at its
+// slip ratio (0x3598F8: both on curve C's axis).
+void tire_curves(ex::Car& c, const TireExtra& x, const WheelLayout& l);
+// 0x3518E8: each wheel's longitudinal force and its reaction, on the driving or the braking side.
+void tire_long_force(ex::Car& c, const WheelLayout& l, const SlipBytes& sb);
+// 0x3534A0: the rolling resistance's force.
+void rolling_resistance(ex::Car& c, const WheelLayout& l, const RoadTables& road);
+
 // 0x357690: each wheel's slip direction and its low-speed fade (the engine's 2002 Tokyo-Geneva rule).
 void slip_angles(ex::Car& c, const WheelLayout& l);
 

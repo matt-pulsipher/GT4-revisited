@@ -30,6 +30,16 @@ sim::rules::WearRules wear_rules_of(TapCall& t) {
     return sim::rules::wear_rules(b);
 }
 
+// The race's per-surface tables as the program's race start left them.
+sim::rules::RoadTables road_tables(Ee& ee) {
+    sim::rules::RoadTables r;
+    r.rolling_curve.n = s16(ee.r16(sim::rules::kRollingCurve));
+    const u32 xs = ee.r32(sim::rules::kRollingCurve + 4), ys = ee.r32(sim::rules::kRollingCurve + 8);
+    for (u32 k = 0; k < 8; ++k) r.rolling_curve.x[k] = gt3r::ee::F::raw(ee.r32(xs + 4 * k)), r.rolling_curve.y[k] = gt3r::ee::F::raw(ee.r32(ys + 4 * k));
+    for (u32 s = 0; s < 24; ++s) r.rolling_mu[s] = gt3r::ee::F::raw(ee.r32(sim::rules::kRollingMu + 4 * s));
+    return r;
+}
+
 void add_taps(Taps& taps) {
     using namespace sim::rules;
     taps.add({0x3658A0, "step length", car_a0, [](TapCall& t) { ex::step_length(t.car); }});
@@ -40,6 +50,18 @@ void add_taps(Taps& taps) {
                   const bool wear = wear_grip(t.car, t.rec.x.wear, t.rec.x.tires, t.rec.layout, wear_rules_of(t));
                   peak_force(t.car, t.rec.x.tires, t.rec.layout, wear);
               }});
+    taps.add({0x351778, "slip ratios", car_a0, [](TapCall& t) {
+                  u8 b[8];
+                  t.ee.read_bytes(kSlipBytes, b, 8);
+                  slip_ratios(t.car, t.rec.x.tires, t.rec.layout, slip_bytes(b));
+              }});
+    taps.add({0x351850, "tire curves", car_a0, [](TapCall& t) { tire_curves(t.car, t.rec.x.tires, t.rec.layout); }});
+    taps.add({0x3518E8, "tire long force", car_a0, [](TapCall& t) {
+                  u8 b[8];
+                  t.ee.read_bytes(kSlipBytes, b, 8);
+                  tire_long_force(t.car, t.rec.layout, slip_bytes(b));
+              }});
+    taps.add({0x3534A0, "rolling resistance", car_a0, [](TapCall& t) { rolling_resistance(t.car, t.rec.layout, road_tables(t.ee)); }});
     taps.add({0x357690, "slip angles", car_a0, [](TapCall& t) { slip_angles(t.car, t.rec.layout); }});
     taps.add({0x343ED0, "save previous", car_a0, [](TapCall& t) { ex::save_previous(t.car); }});
     taps.add({0x36C9F8, "body axes", [](Ee& e) { return u32(e.a(0)) - 0x110; }, [](TapCall& t) { sim::rules::body_axes(t.car); }});
