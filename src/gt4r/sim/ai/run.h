@@ -28,11 +28,21 @@ struct FieldRun {
     std::vector<std::string> notes;
 };
 
-// Runs `cars` (labels, grid order) for `laps` laps on `course`, at most `limit` simulated seconds (0: 400 s a lap,
-// more on a long course).
-// From rest after a two-second hold. Throws std::runtime_error when the
-// course or a car cannot be set up.
+// A car of a run: its name for the report and its entry (equipment, rolling start).
+struct FieldCar {
+    std::string name;
+    Entry entry;
+};
+
+// Runs `cars` (labels, grid order, as sold) for `laps` laps on `course`, at most `limit` simulated seconds (0: 400 s a
+// lap, more on a long course). From rest after a two-second hold (a rolling start when the entries' start_speed is
+// set and the session places cars moving). Throws std::runtime_error when the course or a car cannot be set up.
 FieldRun run_field(Disc& disc, const std::string& course, const std::vector<std::string>& cars, int laps, const Pace& pace = {},
                    double limit = 0, const std::function<void(const Session&, const Field&)>& on_step = {});
+FieldRun run_field(Disc& disc, const std::string& course, const std::vector<FieldCar>& cars, int laps, const Pace& pace = {},
+                   double limit = 0, const std::function<void(const Session&, const Field&)>& on_step = {});
+
+// A disc's car database (the American names) and the program, for building entries.
+db::SpecDb open_specdb(Disc& disc);
 
 } // namespace gt4r::sim::ai

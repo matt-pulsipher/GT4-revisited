@@ -2,6 +2,7 @@
 
 #include "gt4r/disc/disc.h"
 #include "gt4r/sim/exact_bridge.h"
+#include "gt4r/sim/rules_build.h"
 #include "sim/exact/tick.h"
 
 #include <algorithm>
@@ -67,6 +68,9 @@ struct Field::Driver {
     bool hit_front = false, hit_rear = false;
     u8 blip = 0;
     float time_scale = 1;
+    float look = 0;
+    float brake_dist = 0, brake_to = 0;
+    rules::WheelLayout lay; // the car's wheels (0x359510)
 };
 
 std::optional<course::AiData> Field::read(Disc& disc, const std::string& course) {
@@ -116,12 +120,23 @@ static Params params_from(const std::array<u8, 0x80>& s, int cls, const Tuning& 
 }
 
 Field::Field(const Session& session, const course::AiData& data, const Program& program, std::span<const size_t> computer, const Pace& pace)
-    : session_(&session), tables_(Tables::load(program)), lines_(data, session.ground(), tables_), pace_(pace) {
+    : own_cars_(std::make_unique<SessionCars>(session)), session_(own_cars_.get()), tables_(Tables::load(program)), lines_(data, session.ground(), tables_),
+      pace_(pace) {
+    init(data, program, computer);
+}
+
+Field::Field(const Cars& cars, const course::AiData& data, const Program& program, std::span<const size_t> computer, const Pace& pace)
+    : session_(&cars), tables_(Tables::load(program)), lines_(data, cars.ground(), tables_), pace_(pace) {
+    init(data, program, computer);
+}
+
+void Field::init(const course::AiData& data, const Program& program, std::span<const size_t> computer) {
+    const Cars& session = *session_;
     if (program.known())
         for (u32 m = 0; m < 24; ++m) soft_[m] = program.w(Program::kSoft + 4 * m);
     else
         soft_[2] = soft_[3] = soft_[4] = soft_[6] = 1;
-    const size_t n = session.cars().size();
+    const size_t n = session.size();
     drivers_.resize(n);
     ranks_.assign(n, 0);
     for (size_t car : computer) {
@@ -132,6 +147,7 @@ Field::Field(const Session& session, const course::AiData& data, const Program& 
         const Spec& spec = session.spec(car);
         const int drive = spec.drive(), system = spec.b(0x129);
         d->drive_class = drive == 1 ? 1 : drive == 2 ? (system == 3 ? 3 : system == 0 ? 1 : system == 5 ? 0 : 2) : 0;
+        if (program.known()) d->lay = rules::wheel_layout(program, wheel_layout_index(spec));
         std::array<u8, 0x80> set{};
         if (const auto& s = data.sets[size_t(d->drive_class)]) set = *s;
         else std::copy(tables_.builtin[session.loose() ? 1 : 0].begin(), tables_.builtin[session.loose() ? 1 : 0].end(), set.begin());
@@ -140,7 +156,7 @@ Field::Field(const Session& session, const course::AiData& data, const Program& 
         const float mass = c.p.mass.host();
         if (mass > 0) d->p.downforce = (c.p.downforce_coef[0].host() + c.p.downforce_coef[1].host()) / mass;
         // The event's changes (0x467148): each class's percents, then the drivers' spread by grid index.
-        int thr = pace.throttle[size_t(d->drive_class)], brk = pace.brake[size_t(d->drive_class)], cs = pace.corner[size_t(d->drive_class)];
+        int thr = pace_.throttle[size_t(d->drive_class)], brk = pace_.brake[size_t(d->drive_class)], cs = pace_.corner[size_t(d->drive_class)];
         if (thr == 0 || thr > 100) thr = 100;
         if (brk == 0) brk = 100;
         if (cs == 0) cs = 100;
@@ -158,7 +174,7 @@ Field::Field(const Session& session, const course::AiData& data, const Program& 
         // The random draws (0x4639E0): seeded by the grid index for a computer car, then one step.
         d->rand = u16(d->control == 2 ? d->index + 1 : 1);
         d->rand = u16(((u32(d->rand) * 0x41C64E6Du + 0x3039u) >> 16) & 0x7FFF);
-        d->long_start = pace.standing_start && !session.loose();
+        d->long_start = pace_.standing_start && !session.loose();
         // The first line: the main line, or the nearest of the others to the car.
         d->line = d->prev_line = lines_.resolve(6);
         d->steer = 0;
@@ -166,7 +182,7 @@ Field::Field(const Session& session, const course::AiData& data, const Program& 
     }
     for (auto& d : drivers_)
         if (d && d->line >= 0) {
-            const race::CarState& st = session.cars()[d->car];
+            const race::CarState& st = session.state(d->car);
             d->s = lines_.wrap_lap(st.course_v);
             replan(*d);
         }
@@ -186,6 +202,7 @@ Field::Snapshot Field::snapshot(size_t car) const {
     const Driver* d = driver(car);
     if (!d) return o;
     o.line = d->line, o.next = d->next, o.mode = d->mode, o.status = d->status, o.state = d->state, o.follow = d->follow;
+    o.wanted_throttle = d->throttle, o.reverse = d->reverse, o.look = d->look, o.brake_dist = d->brake_dist, o.brake_to = d->brake_to;
     o.v_cur = d->v_cur, o.v_next = d->v_next, o.steer = d->steer, o.lock = session_->record(car).lock_hi.host(), o.steer_cmd = session_->record(car).steer_cmd.host(), o.throttle = d->applied_throttle, o.brake = d->brake, o.contact = d->contact;
     const ex::Car& c = session_->record(car);
     float x, y, h;
@@ -195,6 +212,27 @@ Field::Snapshot Field::snapshot(size_t car) const {
     }
     return o;
 }
+
+void Field::probe_set(size_t car, const Probe& p) {
+    Driver& d = *drivers_.at(car);
+    d.line = p.line, d.next = p.next, d.mode = p.mode, d.next_kind = p.next_kind, d.status = p.status, d.follow = p.follow, d.chain = p.chain;
+    d.v_cur = p.v_cur, d.v_next = p.v_next, d.contact = p.contact, d.s = p.s, d.rand = p.rand;
+    d.corner_mult = p.corner_mult, d.brake_mult = p.brake_mult, d.alongside_mult = p.alongside_mult;
+    d.zone = p.zone, d.cooldown = p.cooldown;
+}
+
+Field::Probe Field::probe_get(size_t car) const {
+    const Driver& d = *drivers_.at(car);
+    Probe p;
+    p.line = d.line, p.next = d.next, p.mode = d.mode, p.next_kind = d.next_kind, p.status = d.status, p.follow = d.follow, p.chain = d.chain;
+    p.v_cur = d.v_cur, p.v_next = d.v_next, p.contact = d.contact, p.s = d.s, p.rand = d.rand;
+    p.corner_mult = d.corner_mult, p.brake_mult = d.brake_mult, p.alongside_mult = d.alongside_mult;
+    p.zone = d.zone, p.cooldown = d.cooldown;
+    return p;
+}
+
+float Field::probe_corner_speed(size_t car, int i) { return corner_speed(*drivers_.at(car), i); }
+float Field::probe_braking(size_t car) { return braking(*drivers_.at(car)); }
 
 // ---- the plan --------------------------------------------------------------------------------------------------
 
@@ -332,8 +370,9 @@ float Field::braking(Driver& d) {
         if (kb > 1) dist /= kb;
         if (d.control == 1 || d.control == 2) dist += float(d.chain);
         if (d.cooldown == 0 && d.contact > 0) dist += 10;
-        if (d.follow >= 0 && session_->cars()[size_t(d.follow)].brake > 0) dist += 8;
+        if (d.follow >= 0 && session_->state(size_t(d.follow)).brake > 0) dist += 8;
         const float to = std::hypot(q.x - c.pos.x.host(), q.y - c.pos.y.host());
+        d.brake_dist = dist, d.brake_to = to;
         if (dist < to) {
             const float soft = kb < 1 ? dist * (1 / kb - 1) : 0;
             const float margin = to - dist;
@@ -379,7 +418,7 @@ void Field::target(const Driver& d, int line, float look, float& dx, float& dy) 
 // 0x3F4638 with 0x4694F8 (the zones), 0x3F42D0 (closing on a car ahead) and 0x469918 (the contact).
 void Field::proximity() {
     const size_t n = drivers_.size();
-    const auto& states = session_->cars();
+    const Cars& cars = *session_;
     for (auto& d : drivers_)
         if (d) {
             d->chain = 0, d->contact = 0, d->zone = {};
@@ -394,7 +433,7 @@ void Field::proximity() {
         const ex::Car& c = session_->record(i);
         const float fx = c.fwd.x.host(), fy = c.fwd.y.host(), l = std::max(std::hypot(fx, fy), 1e-6f);
         b[i] = {c.pos.x.host(), c.pos.y.host(), c.pos.z.host(), fx / l, fy / l, c.p.body_front.host(), c.p.body_rear.host(), c.p.body_width.host() * 0.5f,
-                c.speed.host(), lines_.wrap_lap(states[i].course_v)};
+                c.speed.host(), lines_.wrap_lap(cars.state(i).course_v)};
     }
     auto zones = [&](Driver& d, float dist, float u, float v, float ahead, float behind, float w) {
         auto& z = d.zone;
@@ -532,7 +571,7 @@ void Field::traffic(Driver& d) {
 
 void Field::decide(Driver& d) {
     const ex::Car& c = session_->record(d.car);
-    const race::CarState& st = session_->cars()[d.car];
+    const race::CarState& st = session_->state(d.car);
     const Tuning& t = tables_.tuning;
     // Begin (0x464ED8): the outputs cleared, the steering from the car's command.
     d.throttle = 0, d.brake = 0, d.reverse = false;
@@ -557,6 +596,7 @@ void Field::decide(Driver& d) {
             if (5000 - ms > 0) look += (5000 - ms) * 200 / 5000;
         } else if (2000 - ms > 0) look += (2000 - ms) * 40 / 2000;
     }
+    d.look = look;
     float ax, ay;
     target(d, d.line, look, ax, ay);
     if (d.blend > 0 && lines_.has(d.prev_line)) {
@@ -640,13 +680,17 @@ void Field::decide(Driver& d) {
     float tgt = 0;
     if (moving != 0) {
         if (drive == 1) {
+            // The steered wheels' (those ahead of the center of gravity) mean peak slip angle and slip direction.
+            const sim::Extra& x = session_->extra(d.car);
             float amax = 0, dir = 0;
-            for (int w = 0; w < 2; ++w) {
-                const int row = c.w[size_t(w)].surface & 15;
-                const u8 ti = c.p.tire_index[0][size_t(row)];
-                amax += c.p.tire[std::min<size_t>(ti, 5)].peak_slip.host() * 0.5f;
-                dir += c.w[size_t(w)].slip_dir.host() * 0.5f;
-            }
+            int steered = 0;
+            for (int w = 0; w < int(d.lay.count) && w < 4; ++w)
+                if (gt3r::s8(d.lay.fore_aft[size_t(w)]) > 0) {
+                    amax += rules::tire_record(x.tires, d.lay, w, c.w[size_t(w)].surface).peak_slip.host();
+                    dir += c.w[size_t(w)].slip_dir.host();
+                    ++steered;
+                }
+            if (steered) amax /= float(steered), dir /= float(steered);
             if (d.state != 0) {
                 if (eps > 80 * kDeg) tgt = amax;
                 else if (eps < -80 * kDeg) tgt = -amax;
@@ -663,7 +707,9 @@ void Field::decide(Driver& d) {
                 float rd = 2 * vxy * yl / p2;
                 if (v < 0) rd = -rd;
                 const float r = c.yaw_rate.host();
-                const float ky = d.p.yaw_gain;
+                float ky = d.p.yaw_gain;
+                // T[2]: the gain falls as the steered wheels' mean slip angle nears their peak.
+                if (t.steer_mode && amax != 0) ky *= std::clamp((amax - x.tires.mean_slip.host()) / amax, -1.0f, 1.0f);
                 if (rd > 0 && r < rd) {
                     tgt += (rd - r) * ky;
                     if (tgt > amax && !session_->loose()) tgt = amax;
@@ -730,9 +776,9 @@ void Field::decide(Driver& d) {
 // does not drive): ahead of it slowed by up to the slow share, behind it hurried by up to the fast share, ramped from the
 // start gap to the full gap (and fully a lap or more apart), times the overall share, at most 1.3.
 void Field::rubber_band() {
-    const auto& states = session_->cars();
-    size_t ref = states.size();
-    for (size_t i = 0; i < states.size(); ++i)
+    const Cars& cars = *session_;
+    size_t ref = cars.size();
+    for (size_t i = 0; i < cars.size(); ++i)
         if (!drivers_[i]) {
             ref = i;
             break;
@@ -741,9 +787,9 @@ void Field::rubber_band() {
     for (auto& d : drivers_) {
         if (!d) continue;
         d->time_scale = 1;
-        if (ref >= states.size() || (pace_.slow == 0 && pace_.fast == 0)) continue;
-        const double gap = (double(states[ref].lap) - double(states[d->car].lap)) * lap + double(states[ref].course_v) - double(states[d->car].course_v);
-        const int laps_apart = std::abs(states[ref].lap - states[d->car].lap);
+        if (ref >= cars.size() || (pace_.slow == 0 && pace_.fast == 0)) continue;
+        const double gap = (double(cars.state(ref).lap) - double(cars.state(d->car).lap)) * lap + double(cars.state(ref).course_v) - double(cars.state(d->car).course_v);
+        const int laps_apart = std::abs(cars.state(ref).lap - cars.state(d->car).lap);
         auto ramp = [&](float start, float full, float g) {
             if (laps_apart > 0 || g >= full) return 1.0f;
             if (g <= start) return 0.0f;
@@ -775,7 +821,7 @@ void Field::hold(std::span<race::CarInput> inputs) {
 }
 
 void Field::incidents_after(Driver& d) {
-    const race::CarState& st = session_->cars()[d.car];
+    const race::CarState& st = session_->state(d.car);
     const ex::Car& c = session_->record(d.car);
     // Walls and cars against the body's ends (the collision step's front and rear flags are not public).
     const float fx = st.forward.x, fz = st.forward.z;
@@ -792,10 +838,10 @@ void Field::incidents_after(Driver& d) {
         else if (along < -(rear - 0.4f)) d.hit_rear = true, wall = true;
         else if (across < half + 0.2f) wall = true;
     }
-    const auto& states = session_->cars();
-    for (size_t j = 0; j < states.size(); ++j) {
+    const Cars& cars = *session_;
+    for (size_t j = 0; j < cars.size(); ++j) {
         if (j == d.car) continue;
-        const float dx = states[j].position.x - st.position.x, dz = states[j].position.z - st.position.z;
+        const float dx = cars.state(j).position.x - st.position.x, dz = cars.state(j).position.z - st.position.z;
         const float along = dx * fx + dz * fz, across = std::fabs(dx * fz - dz * fx);
         const ex::Car& o = session_->record(j);
         if (across < half + o.p.body_width.host() * 0.5f - 0.1f && std::fabs(along) < front + o.p.body_rear.host()) {
@@ -804,6 +850,8 @@ void Field::incidents_after(Driver& d) {
             else d.hit_rear = true;
         }
     }
+    // The collision step's own flags where the cars give them.
+    if (bool hf, hr; session_->hits(d.car, hf, hr)) d.hit_front = hf, d.hit_rear = hr;
     if (wall && !d.was_wall) ++d.inc.wall_hits;
     if (car && !d.was_car) ++d.inc.car_hits;
     d.was_wall = wall, d.was_car = car;
@@ -817,45 +865,51 @@ void Field::incidents_after(Driver& d) {
     if (steps_ > 600 && std::fabs(st.speed) < 5 * kKmh) d.inc.stuck_seconds += kStep;
 }
 
-void Field::drive(std::span<race::CarInput> inputs) {
-    const auto& states = session_->cars();
+void Field::begin_step() {
+    const Cars& cars = *session_;
     // The order by laps and distance (1 first).
     {
-        std::vector<size_t> order(states.size());
+        std::vector<size_t> order(cars.size());
         for (size_t i = 0; i < order.size(); ++i) order[i] = i;
         std::sort(order.begin(), order.end(), [&](size_t a, size_t b) {
-            const double pa = double(states[a].lap) * lines_.lap() + states[a].course_v, pb = double(states[b].lap) * lines_.lap() + states[b].course_v;
+            const double pa = double(cars.state(a).lap) * lines_.lap() + cars.state(a).course_v, pb = double(cars.state(b).lap) * lines_.lap() + cars.state(b).course_v;
             return pa > pb;
         });
         for (size_t r = 0; r < order.size(); ++r) ranks_[order[r]] = int(r + 1);
     }
     for (auto& d : drivers_)
-        if (d) d->s = lines_.wrap_lap(states[d->car].course_v);
+        if (d) d->s = lines_.wrap_lap(cars.state(d->car).course_v);
     rubber_band();
     proximity();
-    for (auto& dp : drivers_) {
-        if (!dp || dp->car >= inputs.size()) continue;
-        Driver& d = *dp;
-        incidents_after(d);
-        decide(d);
-        // The outputs into the controls (0x464F38): the throttle slews in the arcs.
-        if (tables_.tuning.smooth_throttle == 0 && (d.mode == 1 || d.mode == 2)) {
-            d.applied_throttle += std::clamp(d.throttle - d.applied_throttle, -kStep, kStep);
-        } else d.applied_throttle = d.throttle;
-        const ex::Car& c = session_->record(d.car);
-        race::CarInput in;
-        // The steering as the pad's share of the lock it allows at the car's speed (what a pad reads), and the angle.
-        const float hi = c.lock_hi.host() > 0.01f ? c.lock_hi.host() : c.p.max_lock.host();
-        const float lo = c.lock_lo.host() < -0.01f ? -c.lock_lo.host() : c.p.max_lock.host();
-        const float share = d.steer >= 0 ? d.steer / std::max(hi, 1e-3f) : d.steer / std::max(lo, 1e-3f);
-        in.steer = std::clamp(-share, -1.0f, 1.0f);
-        in.steer_angle = d.steer; // the session takes the angle itself, past the pad's lock curve
-        in.throttle = std::clamp(d.applied_throttle, 0.0f, 1.0f);
-        in.brake = std::clamp(d.brake, 0.0f, 1.0f);
-        in.reverse = d.reverse;
-        inputs[d.car] = in;
-    }
-    ++steps_;
+}
+
+void Field::decide_car(size_t car, race::CarInput& in) {
+    if (car >= drivers_.size() || !drivers_[car]) return;
+    Driver& d = *drivers_[car];
+    incidents_after(d);
+    decide(d);
+    // The outputs into the controls (0x464F38): the throttle slews in the arcs.
+    if (tables_.tuning.smooth_throttle == 0 && (d.mode == 1 || d.mode == 2)) {
+        d.applied_throttle += std::clamp(d.throttle - d.applied_throttle, -kStep, kStep);
+    } else d.applied_throttle = d.throttle;
+    const ex::Car& c = session_->record(d.car);
+    in = race::CarInput{};
+    // The steering as the pad's share of the lock it allows at the car's speed (what a pad reads), and the angle.
+    const float hi = c.lock_hi.host() > 0.01f ? c.lock_hi.host() : c.p.max_lock.host();
+    const float lo = c.lock_lo.host() < -0.01f ? -c.lock_lo.host() : c.p.max_lock.host();
+    const float share = d.steer >= 0 ? d.steer / std::max(hi, 1e-3f) : d.steer / std::max(lo, 1e-3f);
+    in.steer = std::clamp(-share, -1.0f, 1.0f);
+    in.steer_angle = d.steer; // the session takes the angle itself, past the pad's lock curve
+    in.throttle = std::clamp(d.applied_throttle, 0.0f, 1.0f);
+    in.brake = std::clamp(d.brake, 0.0f, 1.0f);
+    in.reverse = d.reverse;
+}
+
+void Field::drive(std::span<race::CarInput> inputs) {
+    begin_step();
+    for (auto& dp : drivers_)
+        if (dp && dp->car < inputs.size()) decide_car(dp->car, inputs[dp->car]);
+    end_step();
 }
 
 } // namespace gt4r::sim::ai

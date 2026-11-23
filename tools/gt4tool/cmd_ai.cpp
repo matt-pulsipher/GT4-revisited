@@ -8,10 +8,18 @@
 //   gt4tool ai <disc> survey                   every course's driver file: its layout, lines and sets
 //   gt4tool ai <disc> events                   the database's events: course, laps, grid, their pools' sizes
 //   gt4tool ai <disc> event <label> [seed]     an event's columns, its pool of opponents and a grid drawn from it
-//   gt4tool ai <disc> race <label> [laps] [seed]  an event's drawn field (cars as sold) run on its course at its pace
+//   gt4tool ai <disc> race <label> [laps] [seed] [stock] [rolling=<km/h>]
+//                                              an event's drawn field run on its course at its pace, each opponent
+//                                              with its pool entry's parts and settings ([stock]: as sold)
+//   gt4tool ai <disc> entrant <enemy label>    an ENEMY_CARS row: its car, parts and settings against the car as sold
+//   gt4tool ai <disc> entrants                 every ENEMY_CARS row so
+//   gt4tool ai <disc> equipment <label>        the equipment record of a car as sold or of an ENEMY_CARS row, in hex
+//
+// Options anywhere: rolling=<km/h> starts the field moving (Entry::start_speed), trace=<car> prints a car's plan.
 
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/course/course_file.h"
+#include "gt4r/sim/ai/entrant.h"
 #include "gt4r/sim/ai/grid.h"
 #include "gt4r/sim/ai/run.h"
 #include "gt4r/sim/session.h"
@@ -45,6 +53,28 @@ std::vector<std::string> split(const std::string& s) {
 // A field of small cars of different classes (the grid of a Tsukuba race of the original).
 const std::vector<std::string> kDefaultField = {"_1100_standard_type11_49", "z_act_70", "n360_67", "midget2_d_type_98", "s500_63", "ka_01",
                                                 "civic_r_98", "integra_r_98", "nsx_r_02", "lancer_evo8_gsr_03"};
+
+// A named option ("rolling=80") among the arguments; `def` without it.
+double option(const Args& a, const char* name, double def) {
+    const std::string key = std::string(name) + "=";
+    for (const std::string& x : a)
+        if (x.rfind(key, 0) == 0) return std::atof(x.c_str() + key.size());
+    return def;
+}
+
+bool flag(const Args& a, const char* name) {
+    for (const std::string& x : a)
+        if (x == name) return true;
+    return false;
+}
+
+// The positional arguments (options left out).
+Args positional(const Args& a) {
+    Args out;
+    for (const std::string& x : a)
+        if (x.find('=') == std::string::npos && x != "stock") out.push_back(x);
+    return out;
+}
 
 std::string clock(double s) {
     char b[32];
@@ -165,10 +195,101 @@ void print_event(const db::RaceEvent& e) {
                 e.fast_pct, e.fast_start, e.fast_full);
 }
 
+int entrant(Disc& disc, const Args& a) {
+    db::SpecDb sdb = open_db(disc);
+    const db::RaceEvents ev(sdb, reader(disc));
+    const db::Labels* l = sdb.labels("ENEMY_CARS");
+    const std::optional<u32> id = l ? l->id(a[1]) : std::nullopt;
+    const std::optional<db::Opponent> o = id ? ev.opponent(*id) : std::nullopt;
+    if (!o) {
+        std::printf("no ENEMY_CARS row %s\n", a[1].c_str());
+        return 1;
+    }
+    const sim::Program program = sim::Program::load(disc);
+    sim::Equipment mine, sold;
+    if (!sim::ai::opponent_equipment(sdb, program, *o, mine) || !sim::stock_car(sdb, program, o->car, sold)) {
+        std::printf("%s: the car cannot be built\n", o->enemy.c_str());
+        return 1;
+    }
+    std::printf("%s: car %s, parts %s, settings %s\n", o->enemy.c_str(), o->car.c_str(), o->parts.c_str(), o->param.c_str());
+    for (u32 slot = 0x20; slot <= 0x108; slot += 8)
+        if (mine.part(slot) != sold.part(slot)) {
+            auto name = [&](db::PartId p) {
+                if (p == db::kNoPart) return std::string("none");
+                const char* t = db::part_table_name(db::part_table(p));
+                const db::Labels* pl = t ? sdb.labels(t) : nullptr;
+                const std::string* s = pl ? pl->label(db::part_row_id(p)) : nullptr;
+                return s ? *s : std::to_string(db::part_row_id(p));
+            };
+            std::printf("  part +0x%02X: %s (as sold %s)\n", slot, name(mine.part(slot)).c_str(), name(sold.part(slot)).c_str());
+        }
+    for (u32 o2 = 0x110; o2 < sim::Equipment::kSize; ++o2)
+        if (mine.bytes[o2] != sold.bytes[o2]) std::printf("  setting +0x%03X: %d (as sold %d)\n", o2, mine.bytes[o2], sold.bytes[o2]);
+    sim::Spec a1, b1;
+    sim::build_spec(sdb, program, mine, 0, a1);
+    sim::build_spec(sdb, program, sold, 0, b1);
+    const sim::SpecFigures fa = sim::spec_figures(a1), fb = sim::spec_figures(b1);
+    std::printf("  %.0f PS at %d rpm, %d kg (as sold %.0f PS, %d kg)\n", double(fa.ps), fa.power_rpm, a1.weight_kg(), double(fb.ps), b1.weight_kg());
+    return 0;
+}
+
+// Every ENEMY_CARS row against its car as sold: parts and settings that differ, power and weight.
+int entrants(Disc& disc) {
+    db::SpecDb sdb = open_db(disc);
+    const db::RaceEvents ev(sdb, reader(disc));
+    const db::Labels* l = sdb.labels("ENEMY_CARS");
+    if (!l) return 1;
+    const sim::Program program = sim::Program::load(disc);
+    int rows = 0, built = 0, parts_differ = 0, settings_differ = 0, power_differ = 0, weight_differ = 0;
+    for (const auto& [label, id] : l->entries) {
+        const std::optional<db::Opponent> o = ev.opponent(id);
+        if (!o) continue;
+        ++rows;
+        sim::Equipment mine, sold;
+        if (!sim::ai::opponent_equipment(sdb, program, *o, mine) || !sim::stock_car(sdb, program, o->car, sold)) {
+            std::printf("%-40s cannot be built\n", label.c_str());
+            continue;
+        }
+        ++built;
+        int np = 0, ns = 0;
+        for (u32 slot = 0x20; slot <= 0x108; slot += 8) np += mine.part(slot) != sold.part(slot);
+        for (u32 k = 0x110; k < sim::Equipment::kSize; ++k)
+            if (k != 0x15E && k != 0x15F && k != 0x157 && mine.bytes[k] != sold.bytes[k]) ++ns;
+        sim::Spec a1, b1;
+        sim::build_spec(sdb, program, mine, 0, a1);
+        sim::build_spec(sdb, program, sold, 0, b1);
+        const sim::SpecFigures fa = sim::spec_figures(a1), fb = sim::spec_figures(b1);
+        parts_differ += np > 0, settings_differ += ns > 0;
+        power_differ += std::fabs(fa.ps - fb.ps) > 0.5f, weight_differ += a1.weight_kg() != b1.weight_kg();
+        std::printf("%-40s %-28s parts %2d settings %2d  %4.0f PS %4d kg  (as sold %4.0f PS %4d kg)  ascc %d output %d\n", label.c_str(), o->car.c_str(), np, ns,
+                    double(fa.ps), a1.weight_kg(), double(fb.ps), b1.weight_kg(), mine.b(0x157), mine.h(0x15E));
+    }
+    std::printf("%d rows, %d built; parts differ on %d, settings on %d, power on %d, weight on %d\n", rows, built, parts_differ, settings_differ, power_differ,
+                weight_differ);
+    return 0;
+}
+
 } // namespace
 
-int cmd_ai(Disc& disc, const Args& a) {
-    if (a.empty()) return 2;
+int cmd_ai(Disc& disc, const Args& args) {
+    if (args.empty()) return 2;
+    const Args a = positional(args);
+    const float rolling = float(option(args, "rolling", 0) / 3.6);
+    if (a[0] == "entrant" && a.size() > 1) return entrant(disc, a);
+    if (a[0] == "entrants") return entrants(disc);
+    if (a[0] == "equipment" && a.size() > 1) { // the equipment record's bytes of a car as sold or an ENEMY_CARS row
+        db::SpecDb sdb = open_db(disc);
+        const db::RaceEvents ev(sdb, reader(disc));
+        const sim::Program program = sim::Program::load(disc);
+        sim::ai::GridEntry g;
+        g.car = a[1];
+        if (const db::Labels* l = sdb.labels("ENEMY_CARS"); l && l->id(a[1])) g.enemy = a[1];
+        sim::Equipment eq;
+        if (!sim::ai::entry_equipment(sdb, program, ev, g, eq)) return 1;
+        for (u32 k = 0; k < sim::Equipment::kSize; ++k) std::printf("%02x%s", eq.bytes[k], k % 16 == 15 ? "\n" : " ");
+        std::printf("\n");
+        return 0;
+    }
     if (a[0] == "survey") return survey(disc);
     if (a[0] == "events" || a[0] == "event" || a[0] == "race") {
         db::SpecDb sdb = open_db(disc);
@@ -201,8 +322,20 @@ int cmd_ai(Disc& disc, const Args& a) {
             std::printf("\n");
             return 0;
         }
-        std::vector<std::string> cars;
-        for (const auto& g : grid) cars.push_back(g.car);
+        const sim::Program program = sim::Program::load(disc);
+        std::vector<sim::ai::FieldCar> cars;
+        for (const auto& g : grid) {
+            sim::ai::FieldCar c;
+            c.name = g.enemy.empty() ? g.car : g.enemy;
+            sim::ai::GridEntry as = g;
+            if (flag(args, "stock")) as.enemy.clear();
+            if (!sim::ai::entry_equipment(sdb, program, ev, as, c.entry.equipment)) {
+                std::printf("%s: cannot be built\n", c.name.c_str());
+                return 1;
+            }
+            c.entry.start_speed = rolling;
+            cars.push_back(c);
+        }
         const int laps = a.size() > 2 ? std::max(1, std::atoi(a[2].c_str())) : std::max(1, e->laps);
         print_event(*e);
         const sim::ai::FieldRun run = sim::ai::run_field(disc, e->course, cars, laps, sim::ai::pace_for(*e));
@@ -226,8 +359,7 @@ int cmd_ai(Disc& disc, const Args& a) {
     const int laps = a.size() > 2 ? std::max(1, std::atoi(a[2].c_str())) : 3;
     // [trace=<car>]: that car's plan every half second.
     int trace = -1;
-    for (const std::string& x : a)
-        if (x.rfind("trace=", 0) == 0) trace = std::atoi(x.c_str() + 6);
+    trace = int(option(args, "trace", -1));
     auto on_step = [&](const sim::Session& s, const sim::ai::Field& f) {
         if (trace < 0 || size_t(trace) >= s.cars().size() || std::lround(s.time() * 60) % 30 != 0) return;
         const race::CarState& st = s.cars()[size_t(trace)];
@@ -236,7 +368,22 @@ int cmd_ai(Disc& disc, const Args& a) {
                     s.time(), double(st.course_v), st.lap, double(st.speed) * 3.6, o.line, o.next, o.mode, o.status, o.state, double(o.v_cur) * 3.6,
                     double(o.v_next) * 3.6, double(o.throttle), double(o.brake), double(o.steer), double(o.line_offset), double(o.contact), o.follow, double(o.lock), double(o.steer_cmd));
     };
-    const sim::ai::FieldRun run = sim::ai::run_field(disc, a[0], cars, laps, {}, 0, on_step);
+    std::vector<sim::ai::FieldCar> entries;
+    {
+        db::SpecDb sdb = open_db(disc);
+        const sim::Program program = sim::Program::load(disc);
+        for (const std::string& c : cars) {
+            sim::ai::FieldCar f;
+            f.name = c;
+            if (!sim::stock_car(sdb, program, c, f.entry.equipment)) {
+                std::printf("no car %s\n", c.c_str());
+                return 1;
+            }
+            f.entry.start_speed = rolling;
+            entries.push_back(f);
+        }
+    }
+    const sim::ai::FieldRun run = sim::ai::run_field(disc, a[0], entries, laps, {}, 0, on_step);
     for (const std::string& n : run.notes) std::printf("note: %s\n", n.c_str());
     std::printf("%s, lap %.1f m, %d laps, %.1f s run\n", run.course.c_str(), double(run.lap_length), laps, run.seconds);
     std::printf("%-28s %-10s %-10s %s  %5s %4s %4s %5s %5s %6s %s\n", "car", "total", "best", "laps", "top", "wall", "car", "spins", "off", "stuck", "lanes");

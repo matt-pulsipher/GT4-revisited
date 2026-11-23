@@ -51,6 +51,24 @@ struct StepResult {
 };
 StepResult run_step(Disc& disc, bool print, const std::string& course = "", const std::string& car = "", int steps = 0);
 
+// The computer drivers: a field of the program's own drivers run in the program's own race (every car a computer's, from
+// a standing start), each car's lap times (ai.cpp).
+struct AiCarRun {
+    std::string car;
+    std::vector<double> laps; // from the first line crossing, lap by lap
+    double total = 0;
+    bool finished = false;
+    float top_speed = 0;
+};
+struct AiRunResult {
+    bool ran = false;
+    std::string error;
+    float lap_length = 0;
+    double seconds = 0;
+    std::vector<AiCarRun> cars;
+};
+AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std::vector<std::string>& cars, int laps);
+
 // The C library's float routines the step calls, against the shared engine's.
 struct LeavesResult {
     bool ran = false;

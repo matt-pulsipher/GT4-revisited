@@ -74,10 +74,48 @@ struct Incidents {
     float stuck_seconds = 0; // time spent slower than 5 km/h after the start
 };
 
+// The cars as the drivers read them: a session's, or (for checks) another race's.
+class Cars {
+public:
+    virtual ~Cars() = default;
+    virtual size_t size() const = 0;
+    virtual const gt3r::sim::exact::Car& record(size_t i) const = 0;
+    virtual const race::CarState& state(size_t i) const = 0;
+    virtual const Spec& spec(size_t i) const = 0;
+    virtual bool loose() const = 0;
+    virtual const RoadGround& ground() const = 0;
+    // Gran Turismo 4's part of a car's record (its tires' records by surface, the front's mean slip angle).
+    virtual const sim::Extra& extra(size_t i) const = 0;
+    // The collision step's front and rear flags of a car this step (false: not known, the drivers judge them from the
+    // walls and the other cars).
+    virtual bool hits(size_t, bool& front, bool& rear) const {
+        front = rear = false;
+        return false;
+    }
+};
+
+// A session's cars.
+class SessionCars final : public Cars {
+public:
+    explicit SessionCars(const Session& s) : s_(&s) {}
+    size_t size() const override { return s_->cars().size(); }
+    const gt3r::sim::exact::Car& record(size_t i) const override { return s_->record(i); }
+    const race::CarState& state(size_t i) const override { return s_->cars()[i]; }
+    const Spec& spec(size_t i) const override { return s_->spec(i); }
+    bool loose() const override { return s_->loose(); }
+    const RoadGround& ground() const override { return s_->ground(); }
+    const sim::Extra& extra(size_t i) const override { return s_->gt4_record(i); }
+
+private:
+    const Session* s_;
+};
+
 class Field {
 public:
     // The drivers of `computer`'s cars of a session on a course whose driver file is `data`.
     Field(const Session& session, const course::AiData& data, const Program& program, std::span<const size_t> computer, const Pace& pace = {});
+    // The same over any cars (kept by the caller while the field lives).
+    Field(const Cars& cars, const course::AiData& data, const Program& program, std::span<const size_t> computer, const Pace& pace = {});
     ~Field();
     // With the course's driver file read from the disc (crs/<course>.ad). Throws std::runtime_error without one.
     static std::unique_ptr<Field> open(Disc& disc, const std::string& course, const Session& session, std::span<const size_t> computer,
@@ -89,6 +127,11 @@ public:
     void hold(std::span<race::CarInput> inputs);
     // The inputs for the next step (call once per Session step, before it).
     void drive(std::span<race::CarInput> inputs);
+    // drive() in its parts: the step's common part (the order, the rubber band, the pairs pass), then each driven car's
+    // decision, then the step's end.
+    void begin_step();
+    void decide_car(size_t car, race::CarInput& input);
+    void end_step() { ++steps_; }
 
     const CourseLines& lines() const { return lines_; }
     const Tables& tables() const { return tables_; }
@@ -105,10 +148,31 @@ public:
         int line = -1, next = 0, mode = 0, status = 0, state = 0, follow = -1;
         float v_cur = 0, v_next = 0, steer = 0, throttle = 0, brake = 0, contact = 0, lock = 0, steer_cmd = 0;
         float line_offset = 0; // the car's distance from its line, + to the right
+        float wanted_throttle = 0; // before the arcs' slew
+        bool reverse = false;
+        float look = 0;
+        float brake_dist = 0, brake_to = 0; // the last braking check: the distance needed and the distance to the point
     };
     Snapshot snapshot(size_t car) const;
     // The rubber band's time scale for a car (1: none). The session does not apply it (docs/specs/ai.md).
     float time_scale(size_t car) const;
+
+    // For checks against another race's drivers: a driver's plan and traffic state set as that race's driver object
+    // holds them, and the plan's routines run on it.
+    struct Probe {
+        int line = 6, next = 0, mode = 0, next_kind = 0, status = 0, follow = -1, chain = 0;
+        float v_cur = 0, v_next = 0, contact = 0, s = 0;
+        u16 rand = 0;
+        float corner_mult = 1, brake_mult = 1, alongside_mult = 1;
+        std::array<u8, 8> zone{};
+        s16 cooldown = 0;
+    };
+    void probe_set(size_t car, const Probe& p);
+    Probe probe_get(size_t car) const;
+    // 0x4674F0: the speed of line point i of the car's line.
+    float probe_corner_speed(size_t car, int i);
+    // 0x463EA8: the point bookkeeping and the braking; the throttle multiplier (the state changes as the routine's).
+    float probe_braking(size_t car);
 
 private:
     void proximity();
@@ -124,7 +188,10 @@ private:
     void target(const Driver& d, int line, float look, float& dx, float& dy) const;
     void incidents_after(Driver& d);
 
-    const Session* session_;
+    void init(const course::AiData& data, const Program& program, std::span<const size_t> computer);
+
+    std::unique_ptr<SessionCars> own_cars_;
+    const Cars* session_;
     Tables tables_;
     CourseLines lines_;
     Pace pace_;
