@@ -42,6 +42,19 @@ Plain files are read from the disc where they are; a packed file is unpacked whe
 touches it. Above that, `gt3r::Volume`, `gt3r::Vfs` (mods), the music and movie streams and
 every decoder work unchanged.
 
+## The race view
+
+`src/gt4r/race/` draws a race from the states of a `race::Simulation` (`simulation.h`) and
+nothing else of it: `course_scene.*` (a course's model sets in the game's order),
+`animated_models.*` (its scripted models), `car_visual.*` with `car_pose.*` and `car_spec.*` (a
+car's parts placed from a state), `drive_camera.*` and `replay_script.*` (the views),
+`race_display.*` (the display's places and numbers). The model sets become the shared engine's
+(`formats/model/mdls.*`) and are drawn by its renderer; the environment block, the visibility
+lists, the billboards, the lamp glows, the sun and the smoke are the shared engine's layouts
+and go to its own code as they are. `rail_simulation.*` is a stand-in that runs the cars along
+the road's line. The app's part is `app/screen_race.cpp` (the *Drive* screen) and
+`app/race_hud.*` (the display's drawing).
+
 ## Changing the shared engine
 
 A change the engine needs for both games is made in GT3 Revisited, in terms that apply to any

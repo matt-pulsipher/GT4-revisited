@@ -15,6 +15,7 @@
 //   gt4tool model <disc> <path>            describe a file's model sets as decoded
 //   gt4tool runway-survey <disc> [prefix]  read every course's road
 //   gt4tool model-survey <disc> [prefix] [textures]   decode every model set under a prefix
+//   gt4tool race <disc> <what> ...        the race view's data (cmd_race.cpp)
 //
 // Extracted files are for your own study; never commit them (docs/REVERSE_ENGINEERING.md).
 
@@ -50,6 +51,8 @@ namespace gt4r {
 int cmd_sound(Disc& disc, const std::vector<std::string>& args); // cmd_sound.cpp
 }
 using namespace gt4r;
+
+int cmd_race(Disc& disc, const std::vector<std::string>& args); // cmd_race.cpp
 
 namespace {
 
@@ -618,6 +621,7 @@ const Command kCommands[] = {
     {"runway-survey", "<disc> [prefix]", 0, cmd_runway_survey},
     {"model-survey", "<disc> [prefix] [textures]", 0, cmd_model_survey},
     {"sound", "<disc> survey | bank <path> | effects | music | seq... | se-wav... | car... (see cmd_sound.cpp)", 1, cmd_sound},
+    {"race", "<disc> rail <course> [seconds] | sections <course>", 2, cmd_race},
 };
 
 } // namespace

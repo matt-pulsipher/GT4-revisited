@@ -107,13 +107,13 @@ volume's index bytes (Prologue: its table of contents).
 | `MSEQ` 2 / `MADS` 2 music indexes, `BMRK` markers, `GTSE` effect names, `SDVL` mix levels | `music/`, `bgm/`, `sound/` | ✅ ([formats/sound.md](formats/sound.md)) |
 | `FT01` fonts | `font/*.fnt` | ✅ ([formats/menu.md](formats/menu.md)) |
 | `KNJI` double-byte fonts | `font/*.kf` | ✅ ([formats/menu.md](formats/menu.md) "Double-byte fonts"); ❓ which file a language's menus use |
-| `MDLS` models | cars, wheels, tires, wings, courses, prizes, characters | ✅ still models ([formats/model.md](formats/model.md)); ❓ scripts, callbacks (a car's wheels), skinned sets |
-| `CAR4`, `Pat0` | `car/` | ❓ |
-| Courses | `crs/` | ✅ the container and the scenery ([formats/course.md](formats/course.md)); the road `RNW4`; ❓ billboards, lamps, cameras |
+| `MDLS` models | cars, wheels, tires, wings, courses, prizes, characters | ✅ models, their scripts and a car's callbacks ([formats/model.md](formats/model.md), [formats/course.md](formats/course.md) "Scripts"); ❓ skinned sets |
+| `CAR4`, `Pat0` | `car/` | ✅ the parts, the paints, the camera mounts and lamps of the info block ([formats/model.md](formats/model.md)); ❓ the rest of the info block |
+| Courses | `crs/` | ✅ the container, the scenery, the road `RNW4`, the environment block, billboards, lamp glows, the course map ([formats/course.md](formats/course.md), [formats/race_display.md](formats/race_display.md)), the replay cameras `REP4` ([formats/camera.md](formats/camera.md)); ❓ cones and boards `GDGT`, camera motions `Mot1` |
 | `GTDB` / `GTID` / `GTST` | `specdb/` | ✅ the tables, labels and strings, the parts tables' columns ([formats/database.md](formats/database.md)); ❓ the events', opponents' and other tables' columns |
 | `ADCH` scripts | the menus, game flow, settings | ✅ read, listed and run by the interpreter ([formats/script.md](formats/script.md)); ❓ the program's classes they call |
 | Layouts (`.mproject`, `.mwidget`: text), `gpb0` / `gpb1` / `gpb2` pictures, `RT02` / `RT03` text | the menus | ✅ read and drawn as still pages ([formats/menu.md](formats/menu.md)) |
-| Replays (`REP4`), saves | | ❓ |
+| Replays, saves | `replay/` | ❓ |
 
 Prologue mixes the two generations: `CAR4` cars and `ADCH` scripts next to `GTM1` models,
 `GTTR` tires, `IMGS` picture sets and `GTDT` tables in Gran Turismo 3's formats, `gpb0`

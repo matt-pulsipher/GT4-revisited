@@ -123,5 +123,7 @@ std::unique_ptr<Screen> make_menu_viewer(App& app);
 // A list of models and a 3D view of the selected one; `load` builds the model of an item.
 using ModelLoader = std::function<gt3r::scene::Model(App& app, size_t index)>;
 std::unique_ptr<Screen> make_model_viewer(std::string title, std::vector<std::string> items, ModelLoader load);
+// Drive: a car on a course (screen_race.cpp). Throws FormatError when the disc's lists are not read.
+std::unique_ptr<Screen> make_race_screen(App& app);
 
 } // namespace gt4r
