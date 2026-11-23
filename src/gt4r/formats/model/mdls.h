@@ -9,6 +9,7 @@
 // coordinates). to_gtm1() rewrites a model set as the GTM1 block that says the same, which
 // the shared engine's decoder (formats/model/gtm1.h) turns into a scene::Model.
 
+#include "formats/model/gtm1.h"
 #include "gt4r/base/types.h"
 #include "scene/model.h"
 
@@ -54,6 +55,9 @@ struct Scene {
     // entry >= 0 picks a set of the model's own list for the slot instead; -1 leaves the texture
     // as it was.
     std::array<int, 16> outside_sets{-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+    // The factor on the vertex colours of pre-lit shapes (a course's scenery is drawn brighter than
+    // its stored colours: course_file.h).
+    float color_scale = 1.0f;
 };
 // A wheel file's sets: [0, 1] the rim band, [2] an empty set, [3 ..] face pictures, still and
 // turning by turns (its symbols "NRM" and "ROT" number them 0 .. 3). A still wheel's face:
@@ -75,5 +79,7 @@ struct Options {
     Scene scene;
 };
 gt3r::scene::Model build_model(ByteSpan mdls, const Options& opt = {}, const std::string& name = {});
+// The same with the shared decoder's own options (courses: its render-state and alpha-test handling).
+gt3r::scene::Model build_model(ByteSpan mdls, const gt3r::gtm1::Options& opt, const Scene& scene, const std::string& name);
 
 } // namespace gt4r::mdls

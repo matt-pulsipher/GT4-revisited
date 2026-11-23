@@ -3,6 +3,7 @@
 #include "test_framework.h"
 
 #include "formats/model/gtm1.h"
+#include "gt4r/formats/course/course_file.h"
 #include "gt4r/formats/model/mdls.h"
 
 #include <cmath>
@@ -160,5 +161,54 @@ TEST(disc_models_decode) {
         gt3r::scene::Model b = body;
         b.compute_bounds();
         CHECK(b.bounds_max[2] - b.bounds_min[2] > 3.0f && b.bounds_max[2] - b.bounds_min[2] < 5.0f); // a car's length in metres
+    }
+}
+
+TEST(course_container_reads) {
+    // A made-up course: the table, a model set in slot 1, an environment block in slot 32.
+    Bytes file(course::kSlotCount * 4, 0);
+    const Bytes set = make_set();
+    put32(file, 4 * course::kSlotWorld, u32(file.size()));
+    file.insert(file.end(), set.begin(), set.end());
+    while (file.size() & 0xFF) file.push_back(0);
+    put32(file, 4 * course::kSlotEnv, u32(file.size()));
+    Bytes env(0x80, 0);
+    std::memcpy(env.data(), "Env0", 4);
+    putf(env, 0x38, 2.0f);
+    file.insert(file.end(), env.begin(), env.end());
+    CHECK(course::CourseFile::looks_like_course(file));
+    const course::CourseFile c = course::CourseFile::parse(file);
+    CHECK(c.sections().size() == 2 && c.find(course::kSlotWorld) && c.find(course::kSlotWorld)->tag == "MDLS");
+    CHECK(c.section(file, course::kSlotEnv).size() == 0x80 && c.section(file, course::kSlotSky).empty());
+    CHECK(course::scenery_color_scale(c.section(file, course::kSlotEnv)) == 2.0f);
+    CHECK(course::scenery_color_scale({}) == 1.0f);
+    const gt3r::scene::Model m = course::build_course_model(file);
+    CHECK(m.meshes.size() == 1 && m.meshes[0].name.compare(0, 6, "world/") == 0);
+    CHECK(!course::CourseFile::looks_like_course(set));
+}
+
+TEST(disc_courses_decode) {
+    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    for (const auto& disc : test::discs()) {
+        if (disc->info().game != Game::GT4) continue;
+        size_t courses = 0, with_road = 0;
+        for (const gt3r::Volume::Entry& e : disc->volume().entries()) {
+            if (e.path.compare(0, 4, "crs/") != 0 || e.path.find('/', 4) != std::string::npos || e.path.find('.') != std::string::npos) continue;
+            const Bytes data = disc->volume().read(e);
+            CHECK(course::CourseFile::looks_like_course(data));
+            const course::CourseFile c = course::CourseFile::parse(data);
+            ++courses;
+            with_road += c.find(course::kSlotRunway) && c.find(course::kSlotRunway)->tag == "RNW4";
+            CHECK(c.find(course::kSlotEnv) && c.find(course::kSlotEnv)->tag == "Env0");
+            if (e.path == "crs/tsukuba") {
+                course::ModelOptions o;
+                o.textures = false;
+                gt3r::scene::Model m = course::build_course_model(data, o);
+                CHECK(m.meshes.size() > 500);
+                // A two-kilometre circuit: its scenery spans several hundred metres either way.
+                CHECK(m.bounds_max[0] - m.bounds_min[0] > 500 && m.bounds_max[0] - m.bounds_min[0] < 5000);
+            }
+        }
+        CHECK(courses == 110 && with_road == courses);
     }
 }

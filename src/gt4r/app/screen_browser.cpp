@@ -7,6 +7,7 @@
 #include "base/log.h"
 #include "formats/gs_memory.h"
 #include "formats/tex1.h"
+#include "gt4r/formats/course/course_file.h"
 #include "gt4r/formats/model/mdls.h"
 #include "video/movie_player.h"
 
@@ -212,9 +213,22 @@ private:
         return s;
     }
 
-    // The 3D viewer on the open file's model sets.
+    // The 3D viewer on the open file's model sets (a course: its scenery as a whole first).
     void view_models(App& app) {
         const std::string path = preview_.path;
+        if (course_) {
+            movie_.stop();
+            app.push(make_model_viewer(path, {"Scenery", "Scenery, backdrop and sky", "Reflection scenery", "Backdrop", "Sky"},
+                                       [path](App& a, size_t i) {
+                                           const std::optional<Bytes> data = a.vfs()->read(path);
+                                           if (!data) throw FormatError("Could not read " + path);
+                                           course::ModelOptions o;
+                                           o.world = i <= 1, o.after = i <= 1, o.far = i == 1 || i == 3, o.sky = i == 1 || i == 4;
+                                           o.environment = i == 2;
+                                           return course::build_course_model(*data, o, path);
+                                       }));
+            return;
+        }
         std::vector<std::string> items;
         for (const auto& [off, h] : models_) {
             char b[96];
@@ -237,6 +251,7 @@ private:
         movie_.stop();
         preview_.clear();
         models_.clear();
+        course_ = false;
         preview_.path = path;
         if (ends_with(path, ".ads")) {
             const auto stream = app.vfs()->open_stream(path);
@@ -311,7 +326,9 @@ private:
             } catch (const std::exception&) {
             }
         }
-        if (!models_.empty()) preview_.summary += ", " + std::to_string(models_.size()) + " model set(s)";
+        course_ = course::CourseFile::looks_like_course(*data);
+        if (course_) preview_.summary += ", a course";
+        else if (!models_.empty()) preview_.summary += ", " + std::to_string(models_.size()) + " model set(s)";
         if (total) {
             preview_.summary += ", " + std::to_string(total) + " texture(s)";
             if (total > preview_.textures.size()) preview_.summary += " (first " + std::to_string(preview_.textures.size()) + " shown)";
@@ -325,6 +342,7 @@ private:
     int sel_ = 0;
     Preview preview_;
     std::vector<std::pair<size_t, mdls::Header>> models_; // the open file's model sets
+    bool course_ = false; // the open file is a course
     gt3r::video::MoviePlayer movie_;
 };
 

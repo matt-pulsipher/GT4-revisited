@@ -168,7 +168,7 @@ struct Stream {
 // frames splits each range in half. An array may come as several UNPACKs of different widths, each
 // continuing at the address the last one stopped, and a packed run may be offsets from the VIF
 // row registers (STROW, with STMOD 1; STMOD 2 also moves the row).
-bool rewrite_packet(ByteSpan packet, float scale, Stream& out, ConvertStats& st) {
+bool rewrite_packet(ByteSpan packet, float scale, float color_scale, Stream& out, ConvertStats& st) {
     using Vec = std::array<float, 4>;
     struct Array {
         std::vector<Vec> v;
@@ -239,7 +239,16 @@ bool rewrite_packet(ByteSpan packet, float scale, Stream& out, ConvertStats& st)
             u32 at = a - 0x80, key = 0;
             if (at >= n && at >= 0x20) key = 1, at -= 0x20;
             if (col[key].size() < at + u.count) col[key].resize(at + u.count, 0);
-            for (u32 i = 0; i < u.count; ++i) col[key][at + i] = rd32(u.data, size_t(i) * 4);
+            for (u32 i = 0; i < u.count; ++i) {
+                u32 c = rd32(u.data, size_t(i) * 4);
+                if (color_scale != 1.0f) { // (the alpha byte stays)
+                    u32 scaled_c = c & 0xFF000000u;
+                    for (int k = 0; k < 3; ++k)
+                        scaled_c |= std::min<u32>(255, u32(float((c >> (8 * k)) & 0xFF) * color_scale + 0.5f)) << (8 * k);
+                    c = scaled_c;
+                }
+                col[key][at + i] = c;
+            }
         } else {
             known = false;
         }
@@ -342,9 +351,9 @@ Bytes to_gtm1(ByteSpan mdls, ConvertStats* stats, const Scene& scene) {
             const u32 po = so + rd32(src, e), qwc = rd16(src, e + 4);
             if (po > h.size || h.size - po < u64(qwc) * 16) throw FormatError("MDLS: packet out of range");
             ++st.packets;
-            const bool p = rewrite_packet(src.subspan(po, size_t(qwc) * 16), scale, packets[k], st);
+            const bool p = rewrite_packet(src.subspan(po, size_t(qwc) * 16), scale, scene.color_scale, packets[k], st);
             st.packed_packets += p;
-            packed |= p;
+            packed |= p || scene.color_scale != 1.0f; // (scaled colours are written again too)
             morph |= has_second_key(packets[k].b);
         }
         // The kind (bits 0-4) as GTM1 has it, with its mark of a shape with two key frames.
@@ -404,6 +413,11 @@ Bytes to_gtm1(ByteSpan mdls, ConvertStats* stats, const Scene& scene) {
     put32(out, 0x30, u32(sphere_tab)), put32(out, 0x34, h.texture_lists ? h.texture_table : 0);
     put32(out, 0x38, h.variations ? h.variation_table : 0);
     return out;
+}
+
+gt3r::scene::Model build_model(ByteSpan mdls, const gt3r::gtm1::Options& opt, const Scene& scene, const std::string& name) {
+    const Bytes block = to_gtm1(mdls, nullptr, scene);
+    return gt3r::gtm1::decode_gtm1(block, opt, name);
 }
 
 gt3r::scene::Model build_model(ByteSpan mdls, const Options& opt, const std::string& name) {
