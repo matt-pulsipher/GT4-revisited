@@ -9,7 +9,10 @@
 //   sound.set_course(course.section(course::kSlotSound), runway);
 //   each step:   sound.update(session, camera, target_car)  (or update(states, camera, target))
 //   the count:   sound.count(frames_left) every step of it  (3, 2, 1 beep; at 0 the start)
+//   a rolling start: sound.rolling() on its first step (the racing music), then
+//                sound.start_signal() when the player's car reaches the line (the start's sound)
 //   events:      sound.contact(car, kind, force), sound.finish(), sound.pause(true / false)
+//   the replay:  sound.replay() as it begins (the replay's levels; the race's first piece again)
 //
 // The master level of the race's effects is the race effects option (on / off, 0..128 of 128)
 // x the mix table's race level for the output mode x a fade (in over 0.3 s as the race begins).
@@ -17,6 +20,7 @@
 #include "gt4r/audio/car_sound.h"
 #include "gt4r/audio/course_sound.h"
 #include "gt4r/audio/menu_sound.h"
+#include "gt4r/audio/race_playlist.h"
 
 #include <memory>
 #include <span>
@@ -36,7 +40,9 @@ namespace gt4r::audio {
 // The volume options of the game's record (raw 0..128; a new game has every flag on and 115).
 struct RaceSoundOptions {
     bool effects_on = true, music_on = true;
-    int effects = 115, music = 115; // the race's (in a replay: the replay's pair)
+    int effects = 115, music = 115; // the race's
+    bool replay_effects_on = true, replay_music_on = true;
+    int replay_effects = 115, replay_music = 115; // a replay's
     OutputMode mode = OutputMode::Stereo;
 };
 
@@ -64,6 +70,9 @@ public:
     void set_course(ByteSpan crss, std::shared_ptr<const course::Runway> road);
     void set_options(const RaceSoundOptions& o);
     void set_music_kind(RaceMusic kind) { kind_ = kind; }
+    // The player's play list of racing music (the game's options): its next piece plays at each
+    // race's start. Without one the group's pieces play in the group's order.
+    void set_playlist(std::shared_ptr<RacePlaylist> list) { playlist_ = std::move(list); }
     // A helicopter's sound overhead (a replay's view from the air).
     void set_helicopter(bool on) { helicopter_ = on; }
 
@@ -76,7 +85,14 @@ public:
     // Every step of the count with the steps left to the start: a beep at 180, 120 and 60; the
     // start's sound and the racing music at 0.
     void count(int frames_left);
+    // A standing start: the start's sound and the racing music.
     void start();
+    // A rolling start: the racing music as the race begins to run, the start's sound at the line.
+    void rolling();
+    void start_signal();
+    // The replay begins: the replay's two options instead of the race's, the race's first piece
+    // from its beginning.
+    void replay();
     // A contact of car `car` (the camera's car only is heard): kind 0 a wall (force N), 1 a car
     // (its speed against ours, m/s), 2 the third kind (force); weaker than 0.2 is not heard.
     void contact(size_t car, int kind, float force);
@@ -109,6 +125,7 @@ private:
     void send(Held& h, float left, float right, float pitch);
     bool play_effect(const char* name, float level);
     bool play_stream(const char* group, int number, bool racing);
+    bool play_racing();
     float stream_level(bool racing) const;
     void quiet_course();
 
@@ -130,6 +147,9 @@ private:
     bool helicopter_ = false, paused_ = false, racing_ = false, started_ = false;
     float fade_ = 0, fade_target_ = 1, fade_step_ = 1.0f / 18.0f;
     int racing_piece_ = -1;
+    int first_piece_ = -1; // the race's first racing piece (a replay plays it again)
+    bool replay_ = false;
+    std::shared_ptr<RacePlaylist> playlist_;
     s16 reverb_before_ = 0;
     Report report_;
 };

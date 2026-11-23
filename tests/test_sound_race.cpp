@@ -8,6 +8,7 @@
 #include "gt4r/audio/analysis.h"
 #include "gt4r/audio/car_sound.h"
 #include "gt4r/audio/course_sound.h"
+#include "gt4r/audio/race_playlist.h"
 #include "gt4r/audio/race_sound.h"
 #include "gt4r/audio/race_tables.h"
 #include "gt4r/audio/render.h"
@@ -20,6 +21,7 @@
 #include "gt4r/sim/session.h"
 #include "vfs/vfs.h"
 
+#include <algorithm>
 #include <cmath>
 
 using namespace gt4r;
@@ -58,6 +60,45 @@ std::shared_ptr<const course::Runway> open_road(Disc& disc, const std::string& n
 }
 
 } // namespace
+
+// The races' play list (0x438170): the enabled rows in their order, round after round; a row
+// played this round passes its turn on; a shuffled order holds every enabled row once.
+TEST(sound_race_playlist) {
+    audio::RacePlaylist list = audio::RacePlaylist::in_order(8, {5, 2, 7});
+    std::vector<int> got;
+    for (int i = 0; i < 7; ++i) got.push_back(list.next());
+    CHECK((got == std::vector<int>{5, 2, 7, 5, 2, 7, 5}));
+    CHECK(list.position() == 1);
+    // A row already played this round: the next place's row instead.
+    list.reset_played();
+    list.set_position(0);
+    list.rows()[2].played = true;
+    CHECK(list.next() == 5 && list.next() == 7);
+    // Nothing enabled: nothing to play.
+    audio::RacePlaylist empty(4);
+    CHECK(empty.next() == -1);
+    // The program's random numbers: 2^31 is 0.5, 2^30 a quarter, and the state steps by 17 s + 17.
+    CHECK(audio::RacePlaylist::random_float(0x80000000u) == 0.5f && audio::RacePlaylist::random_float(0x40000000u) == 0.25f);
+    u32 state = 1;
+    const u32 r = audio::RacePlaylist::random_step(state);
+    CHECK(state == 34 && r == (34u ^ (34u << 16)));
+    for (int i = 0; i < 1000; ++i) {
+        const float f = audio::RacePlaylist::random_float(audio::RacePlaylist::random_step(state));
+        CHECK(f >= 0.0f && f < 1.0f);
+    }
+    // Shuffled: each of the enabled rows has one place of 0..n-1, and the same seed the same order.
+    audio::RacePlaylist a = audio::RacePlaylist::in_order(20, {1, 3, 4, 8, 9, 10, 15, 19}), b = a;
+    a.set_shuffle(true, 0x1234), b.set_shuffle(true, 0x1234);
+    a.build(), b.build();
+    std::vector<int> places;
+    for (size_t i = 0; i < a.rows().size(); ++i) {
+        CHECK(a.rows()[i].order == b.rows()[i].order);
+        if (a.rows()[i].enabled) places.push_back(a.rows()[i].order);
+    }
+    std::sort(places.begin(), places.end());
+    CHECK((places == std::vector<int>{0, 1, 2, 3, 4, 5, 6, 7}));
+    CHECK(a.seed() == b.seed() && a.seed() != 0x1234);
+}
 
 // The panner (0x391AF0): full level inside the reach, 1 / (1 + slope (d - reach)) past it, a
 // quarter-power pan by the sound's side, the quarter metre at the camera.
@@ -364,3 +405,48 @@ TEST(sound_race_session_on_disc) {
     s.advance(60);
     CHECK(s.mixer().active_voices() == 0);
 }
+
+// A rolling start (the original's arcade races): the racing music as the race begins to run, the
+// start's sound when the player's car reaches the line; the play list's pieces in turn; the replay
+// plays the race's first piece again at the replay's levels.
+TEST(sound_race_rolling_start_and_replay) {
+    Disc* disc = nullptr;
+    for (const std::unique_ptr<Disc>& d : test::discs())
+        if (d->info().game == Game::GT4 && d->volume().find("bgm/us/ads.inf")) disc = d.get();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    gt3r::Vfs vfs(&disc->volume());
+    audio::OfflineSound s(false);
+    auto library = std::make_shared<audio::SoundLibrary>(vfs);
+    struct Played {
+        std::string file;
+        float level;
+    };
+    std::vector<Played> streams;
+    bool playing = true;
+    audio::StreamPlayer music;
+    music.play = [&](const std::string& path, bool, float level) { return streams.push_back({path, level}), playing = true; };
+    music.stop = [&] { playing = false; };
+    music.playing = [&] { return playing; };
+    audio::RaceSound sound(vfs, s.mixer(), s.driver(), library, audio::RaceSoundTables::from_core(disc->read_program()), music);
+    audio::RaceSoundOptions o;
+    o.music = 64, o.replay_music = 128;
+    sound.set_options(o);
+    const int racing = sound::stream_group("racing");
+    const size_t pieces = library->streams().groups[size_t(racing)].size();
+    sound.set_playlist(std::make_shared<audio::RacePlaylist>(audio::RacePlaylist::in_order(pieces, {20, 16})));
+    sound.rolling();
+    CHECK(streams.size() == 1 && streams[0].file == library->stream_file(racing, 20));
+    CHECK(sound.report().starts == 0);
+    const float table = library->levels().level(int(audio::OutputMode::Stereo), sound::VolumeTable::Stream);
+    CHECK(near(streams[0].level, table * 0.5f, 1e-6));
+    sound.start_signal();
+    CHECK(sound.report().starts == 1 && streams.size() == 1);
+    // The piece ends: the play list's next.
+    playing = false;
+    sound.update(std::span<const audio::CarSoundState>{}, audio::SoundListener{}, -1);
+    CHECK(streams.size() == 2 && streams[1].file == library->stream_file(racing, 16));
+    // The replay: the first piece again, at the replay's level.
+    sound.replay();
+    CHECK(streams.size() == 3 && streams[2].file == library->stream_file(racing, 20) && near(streams[2].level, table, 1e-6));
+}
+
