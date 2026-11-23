@@ -264,7 +264,7 @@ TEST(menu_actors_move_as_the_program_does) {
 TEST(menu_game_state) {
     menu::GameState g;
     g.option_defaults("us");
-    CHECK(g.option_int("race_laps") == 2 && g.option_text("special_arcade_tuner").empty() && g.option_int("unit_velocity") == 1);
+    CHECK(g.option_int("race_laps") == 2 && g.option_text("special_arcade_tuner").empty() && g.option_text("unit_velocity") == "MPH" && g.power_unit().name == std::string("HP"));
     g.options["race_laps"] = 5;
     g.options["netconf"] = std::string("a \"b\"");
     g.options["some_ratio"] = 0.25f;

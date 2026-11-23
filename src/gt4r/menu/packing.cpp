@@ -1,4 +1,4 @@
-// The boxes' packing: a widget with `packing` takes the size it asks for and its box places it
+// The boxes' packing: a window with `packing` takes the size it asks for and its box places it
 // (VBox one under the other, HBox side by side, any other box where the layout has it). A
 // dialog grows with its message this way. ❓ A reduced form of the program's two passes
 // (MDBox's size request 0x2E9880 and allocation 0x2E99E0): the expanding children share what
@@ -19,7 +19,13 @@ struct Size {
     float w = 0, h = 0;
 };
 
-bool packed(const LiveWidget& w) { return w.data.number("packing") != 0 && w.visible(); }
+// What a box places: its windows that ask for it, and a face the layout marks as no face
+// (`is_face` 0: a dialog's message). A face with `packing` is the box's own look: it takes the
+// box's size.
+bool packed(const LiveWidget& w) {
+    if (w.data.number("packing") == 0 || !w.visible()) return false;
+    return w.is_composite() || (w.data.has("is_face") && w.data.number("is_face") == 0);
+}
 
 bool any_packed(const LiveWidget& w) {
     for (const auto& c : w.children)
@@ -53,6 +59,11 @@ Size request(LiveWidget& w) {
     }
     sum.w += pad(w, "pad_left") + pad(w, "pad_right") + 2 * pad(w, "border_width");
     sum.h += pad(w, "pad_top") + pad(w, "pad_bottom") + 2 * pad(w, "border_height");
+    // A box that orders its children is as long as they are (rows a script hid are left out),
+    // and at least its minimum.
+    const float least_w = w.data.number("minimum_width"), least_h = w.data.number("minimum_height");
+    if (down) return {std::max(own.w, sum.w), std::max(least_h, sum.h)};
+    if (across) return {std::max(least_w, sum.w), std::max(own.h, sum.h)};
     return {std::max(own.w, sum.w), std::max(own.h, sum.h)};
 }
 

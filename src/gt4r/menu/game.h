@@ -71,6 +71,15 @@ struct GameState {
     void option_defaults(const std::string& region);
     s32 option_int(const std::string& name, s32 fallback = 0) const;
     std::string option_text(const std::string& name) const;
+    // The units the player chose: what a value in the game's own unit is multiplied by, and
+    // the unit's name as the menus write it.
+    struct Unit {
+        float factor;
+        const char* name;
+    };
+    Unit velocity_unit() const; // of km/h
+    Unit power_unit() const;    // of PS
+    Unit torque_unit() const;   // of kgf.m
     // The options as text lines ("name = value"), and back; unknown names are kept.
     std::string options_text() const;
     void options_from_text(const std::string& text);

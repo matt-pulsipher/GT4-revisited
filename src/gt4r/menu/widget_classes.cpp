@@ -908,8 +908,24 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
     if (type == "TextBoxFace" && n == "clear") return nothing();
     if ((type == "FlashFace" && (n == "reset" || n == "getFlashPath" || n == "setFlashPath")) || (type == "GraphFace" && n == "changePoints")) return nothing();
     if (type == "InputTextFace") {
-        for (const char* m : {"putString", "backspace", "delete", "left", "right"})
-            if (n == m) return nothing();
+        // The text typed (`value`), at most `max_input_length` characters. The cursor is kept
+        // at the end: left and right do nothing here.
+        if (n == "putString")
+            return fn([w](Vm&, const Value&, Args a) {
+                std::string value = w->data.text("value") + (a.empty() ? std::string() : a[0].to_string());
+                const size_t most = w->data.has("max_input_length") ? size_t(std::max(w->data.number("max_input_length"), 0.0f)) : value.size();
+                if (value.size() > most) value.resize(most);
+                w->set_property("value", Value::string(value));
+                return Value{};
+            });
+        if (n == "backspace" || n == "delete")
+            return fn([w](Vm&, const Value&, Args) {
+                std::string value = w->data.text("value");
+                if (!value.empty()) value.pop_back();
+                w->set_property("value", Value::string(value));
+                return Value{};
+            });
+        if (n == "left" || n == "right") return nothing();
     }
     // The boxes that lay their children out: adjustSize() and the automatic rows and columns.
     if (w->is_composite()) {

@@ -403,7 +403,8 @@ std::shared_ptr<Reference> Vm::builtin_member(const Value& of, const std::string
 
 // Module.load: the file is looked for beside each folder a script was read from.
 void Vm::load_into(const std::shared_ptr<Module>& module, const std::string& name) {
-    const std::vector<std::string> folders = folders_;
+    std::vector<std::string> folders = folders_;
+    if (!name.empty() && name[0] == '/') folders = {std::string()}; // a path from the top
     for (auto dir = folders.rbegin(); dir != folders.rend(); ++dir) {
         std::optional<Bytes> file = loader_ ? loader_(*dir + name) : std::nullopt;
         if (!file) continue;

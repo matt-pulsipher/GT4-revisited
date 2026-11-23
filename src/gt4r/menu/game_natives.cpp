@@ -340,19 +340,19 @@ struct GameNatives {
         car->method("getCatPs", [spec, st](Vm& vm, const Value&, Args a) {
             const Database::Spec& sp = spec();
             if (!sp.engine) return text("--");
-            const bool hp = st->option_int("unit_power") != 0;
-            const Value args[4] = {number(s32(std::lround(float(sp.ps) * (hp ? 0.98632f : 1.0f)))), text(hp ? "HP" : "ps"), text(sp.power_rpm), text("rpm")};
+            const GameState::Unit unit = st->power_unit();
+            const Value args[4] = {number(s32(std::lround(float(sp.ps) * unit.factor))), text(unit.name), text(sp.power_rpm), text("rpm")};
             return a.empty() ? args[0] : vm.call(vm.attribute(a[0], "format"), args);
         });
         car->method("getCatTq", [spec, st](Vm& vm, const Value&, Args a) {
             const Database::Spec& sp = spec();
             if (!sp.engine) return text("--");
-            const bool ftlb = st->option_int("unit_torque") != 0;
-            const float v = sp.torque * (ftlb ? 7.233f : 1.0f);
+            const GameState::Unit unit = st->torque_unit();
+            const float v = sp.torque * unit.factor;
             if (a.empty()) return Value::number(v);
             std::string format = a[0].to_string();
             for (size_t at; (at = format.find('t')) != std::string::npos && at > 0 && (format[at - 1] == '%' || std::isdigit(u8(format[at - 1])));) format[at] = 'f';
-            const Value args[4] = {Value::number(v), text(ftlb ? "ft.lb" : "kgf.m"), text(sp.torque_rpm), text("rpm")};
+            const Value args[4] = {Value::number(v), text(unit.name), text(sp.torque_rpm), text("rpm")};
             return vm.call(vm.attribute(text(format), "format"), args);
         });
         car->method("getCatDisplacement", [spec](Vm&, const Value&, Args) { return text(spec().displacement); });
@@ -565,7 +565,12 @@ struct GameNatives {
 
         // The calendar: the game's day.
         auto calendar = std::make_shared<Object>("MCalendar");
-        calendar->property("today", [s] { return number(s->day); }, [s](const Value& v) { s->day = int(v.as_float()); });
+        // today: [year, month, day].
+        calendar->property("today", [s] {
+            int y, m, d;
+            day_to_date(s->day, y, m, d);
+            return Value::array({number(y), number(m), number(d)});
+        });
         calendar->method("getElapsedWeek", [s](Vm&, const Value&, Args) { return number(s->day / 7); });
         calendar->method("getElapsedDate", [s](Vm&, const Value&, Args) { return number(s->day); });
         calendar->method("incDate", [s](Vm&, const Value&, Args a) {
@@ -823,21 +828,18 @@ void install_game_natives(Runtime& rt, script::Module& menu) {
     // ---- MUnit, MUtility: numbers as text in the player's units.
     {
         auto cls = make_class(menu, "MUnit");
-        auto miles = [s] { return s->option_int("unit_velocity") != 0; };
-        auto hp = [s] { return s->option_int("unit_power") != 0; };
-        static_fn(*cls, "GetUnitOfVelocity", [miles](Vm&, const Value&, Args) { return text(miles() ? "mph" : "km/h"); });
-        static_fn(*cls, "GetVelocityForDisplay", [miles](Vm&, const Value&, Args a) { return Value::number(arg_number(a, 0) * (miles() ? 0.621371f : 1.0f)); });
-        static_fn(*cls, "GetVelocityString", [miles](Vm&, const Value&, Args a) {
+        auto miles = [s] { return s->option_text("unit_velocity") == "MPH"; };
+        static_fn(*cls, "GetUnitOfVelocity", [s](Vm&, const Value&, Args) { return text(s->velocity_unit().name); });
+        static_fn(*cls, "GetVelocityForDisplay", [s](Vm&, const Value&, Args a) { return Value::number(arg_number(a, 0) * s->velocity_unit().factor); });
+        static_fn(*cls, "GetVelocityString", [s](Vm&, const Value&, Args a) {
             char b[32];
-            std::snprintf(b, sizeof b, "%d", int(std::lround(arg_number(a, 0) * (miles() ? 0.621371f : 1.0f))));
+            std::snprintf(b, sizeof b, "%d", int(std::lround(arg_number(a, 0) * s->velocity_unit().factor)));
             return text(b);
         });
-        static_fn(*cls, "GetUnitOfPower", [hp](Vm&, const Value&, Args) { return text(hp() ? "HP" : "ps"); });
-        static_fn(*cls, "GetPowerForDisplay", [hp](Vm&, const Value&, Args a) { return Value::number(arg_number(a, 0) * (hp() ? 0.98632f : 1.0f)); });
-        static_fn(*cls, "GetUnitOfTorque", [s](Vm&, const Value&, Args) { return text(s->option_int("unit_torque") != 0 ? "ft.lb" : "kgf.m"); });
-        static_fn(*cls, "GetTorqueForDisplay", [s](Vm&, const Value&, Args a) {
-            return Value::number(arg_number(a, 0) * (s->option_int("unit_torque") != 0 ? 7.233f : 1.0f));
-        });
+        static_fn(*cls, "GetUnitOfPower", [s](Vm&, const Value&, Args) { return text(s->power_unit().name); });
+        static_fn(*cls, "GetPowerForDisplay", [s](Vm&, const Value&, Args a) { return Value::number(arg_number(a, 0) * s->power_unit().factor); });
+        static_fn(*cls, "GetUnitOfTorque", [s](Vm&, const Value&, Args) { return text(s->torque_unit().name); });
+        static_fn(*cls, "GetTorqueForDisplay", [s](Vm&, const Value&, Args a) { return Value::number(arg_number(a, 0) * s->torque_unit().factor); });
         static_fn(*cls, "GetUnitOfMass", [miles](Vm&, const Value&, Args) { return text(miles() ? "lbs" : "kg"); });
         static_fn(*cls, "GetCourseLengthString", [miles](Vm&, const Value&, Args a) {
             char b[32];
@@ -1113,6 +1115,43 @@ void install_game_natives(Runtime& rt, script::Module& menu) {
             return text(i >= 0 && size_t(i) < d->courses.size() ? d->courses[size_t(i)].label : std::string());
         });
     }
+
+    // MRaceData: an event of the RACE table. available(code): the table has it.
+    {
+        auto cls = make_class(menu, "MRaceData");
+        std::shared_ptr<Database> d = n->database;
+        auto race_id = [d, n](const std::string& code) {
+            db::SpecDb* db = d->get(n->config);
+            const db::Labels* labels = db ? db->labels("RACE") : nullptr;
+            return labels ? labels->id(code) : std::nullopt;
+        };
+        static_fn(*cls, "available", [race_id](Vm&, const Value&, Args a) { return number(race_id(arg_text(a, 0)).has_value()); });
+        // ❓ The RACE table's columns (151 bytes a row) are not read: an event's requirements
+        // and prizes answer "none".
+        cls->construct = [](Vm&, Args a) {
+            auto race = std::make_shared<Object>("MRaceData");
+            race->set("race_code", a.empty() ? text("") : a[0]);
+            for (const char* zero : {"gold_time", "silver_time", "bronze_time", "entry_num"}) race->set(zero, number(0));
+            race->set("course_code", text("")), race->set("car_code", text(""));
+            for (const char* none : {"getNeedLicense", "getNeedDrivetrain", "getNeedAspiration", "getNeedCarType", "getNeedTire", "getNeedCountry"})
+                race->method(none, [](Vm&, const Value&, Args) { return text(""); });
+            for (const char* zero : {"getNeedPs", "getNeedPrice", "getLimitedWeight", "getLimitedLength", "getNeedCountryID", "getPrize", "getPrizeGC",
+                                     "getAdditionalDriversPoints", "getNumberOfLaps", "getLimitTime"})
+                race->method(zero, [](Vm&, const Value&, Args) { return number(0); });
+            race->method("getNeedYearRange", [](Vm&, const Value&, Args) { return Value::array({number(0), number(0)}); });
+            race->method("getAllowedCarList", [](Vm&, const Value&, Args) { return Value::array({}); });
+            return object_value(race);
+        };
+    }
+
+    // Array(n): an array of n empty places.
+    rt.vm().root()->define("Array", Vm::native("Array", [](Vm&, const Value&, Args a) {
+        return Value::array(std::vector<Value>(size_t(std::clamp(arg_int(a, 0), 0, 1 << 20))));
+    }));
+    // What the configuration sets and the program's memory tools read.
+    for (const char* name : {"MemoryDebug_address", "MemoryDebug_size", "MemoryDebug_count"})
+        if (!rt.vm().root()->find(name)) rt.vm().root()->define(name, number(0));
+    menu.define("Version", number(0));
 
     // ---- small ones
     make_class(menu, "MColorObject")->construct = [](Vm&, Args a) {

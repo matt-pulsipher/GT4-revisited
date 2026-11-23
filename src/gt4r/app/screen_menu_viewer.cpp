@@ -80,7 +80,15 @@ public:
         ox_ = x, oy_ = y, scale_ = scale, page_ = page.name, widgets_drawn = 0;
         const SDL_Rect whole = to_clip({0, 0, 640, 480});
         SDL_SetRenderClipRect(r_, &whole);
+        over_.clear();
         widget(page, {0, 0, 640, 480}, 1.0f, whole, state);
+        // An option menu's open list lies over everything else of the page.
+        const std::vector<Over> over = std::move(over_);
+        over_.clear();
+        for (const Over& o : over) {
+            SDL_SetRenderClipRect(r_, &whole);
+            widget(*o.live, o.parent, o.opacity, whole, o.state);
+        }
         SDL_SetRenderClipRect(r_, nullptr);
     }
 
@@ -305,10 +313,24 @@ private:
             if (!SDL_GetRectIntersection(&clip, &own, &inner)) return;
             SDL_SetRenderClipRect(r_, &inner);
         }
-        for (const auto& c : live.children) widget(*c, at, opacity, inner, state);
+        const bool open_menu = t == "OptionMenu" && w.number("is_popuped") != 0;
+        for (const auto& c : live.children) {
+            if (open_menu && c->name == "popup") {
+                over_.push_back({c.get(), at, opacity, state & ~kFocusBits});
+                continue;
+            }
+            widget(*c, at, opacity, inner, state);
+        }
         if (w.number("clip") != 0) SDL_SetRenderClipRect(r_, &clip);
     }
 
+    struct Over {
+        const LiveWidget* live;
+        Rect parent;
+        float opacity;
+        int state;
+    };
+    std::vector<Over> over_;
     menu::Project* project_ = nullptr;
     SDL_Renderer* r_;
     std::vector<gt3r::text::FontFile> files_;
