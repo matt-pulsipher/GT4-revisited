@@ -19,13 +19,19 @@ std::string pages(Flow& f) {
     return out + "[" + f.focus() + "]";
 }
 
+// The prize page has counted its prize into the credits: its OK shows.
+bool prize_counted(Flow& f) {
+    const std::shared_ptr<menu::LiveWidget> ok = f.rt->current_page() ? f.rt->current_page()->child("OK") : nullptr;
+    return ok && ok->visible() && f.focus() == "OK";
+}
+
 // The race's menus after a race: the prize page counts the prize into the credits, then the
 // results page; Exit ends the sequence. True when it ended with Exit.
 bool after_race(Flow& f, Sequence& q) {
     f.rt->start_project(q.project);
     f.rt->settle();
     if (f.page() == "PrizeRoot") {
-        for (int i = 0; i < 1200 && f.focus() != "OK"; ++i) f.rt->update();
+        for (int i = 0; i < 8000 && !prize_counted(f); ++i) f.rt->update();
         f.rt->settle();
         f.press({menu::Key::Accept});
     }
@@ -165,5 +171,70 @@ TEST(disc_gt_mode_loop_prize_car) {
     }
     f.press({menu::Key::Accept});
     CHECK(f.page() == "EventCourseRoot" && g.garage_count() == 2);
+    CHECK(f.clean());
+}
+
+// A championship of five races (the Mazda Roadster cup at Mazda's): each race's points by
+// place, its prize, Next to the following race; after the last the championship's grand prize
+// and its record, and its prize car back in Gran Turismo mode.
+TEST(disc_gt_mode_loop_championship) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
+    Flow f(*disc);
+    CHECK(f.gt_mode_with_a_car());
+    if (f.page() != "TopRoot") return;
+    menu::GameState& g = f.rt->game();
+    menu::RaceRequest request = g.race;
+    request.sequence = "championship", request.race = "jp_mazda_roadster_0500", request.car = g.garage[0].car, request.garage_slot = 0;
+    g.next_sequence = "championship", g.sequence_asked = true;
+    f.rt->finish();
+    Sequence q(f, request);
+    const s64 money = g.money;
+    s64 total = 0, grand = 0;
+    for (int k = 1; k <= 5; ++k) {
+        q.request.race = "jp_mazda_roadster_050" + std::to_string(k);
+        q.fill();
+        q.work().set("SessionNumber", k - 1), q.work().set("IsFinalSession", k == 5);
+        CHECK(q.menus({menu::Key::Accept}) == "COMMAND_START");
+        menu::RaceResult r = q.result(k == 2 ? 1 : 0);
+        r.kind = menu::RaceResult::Kind::Championship, r.series = "jp_mazda_roadster_0500";
+        const s64 paid = q.ran(r);
+        // Points 10, 6, 4, 3, 2, 1 by place: the player second in the second race.
+        CHECK(g.series.label == "jp_mazda_roadster_0500" && g.series.races_run == k && !g.series.points.empty());
+        if (g.series.points.size() >= 2) CHECK(g.series.points[0] == (k >= 2 ? 10 * k - 4 : 10) && g.series.points[1] == (k >= 2 ? 6 * (k - 1) + 10 : 6));
+        CHECK(paid > 0 && q.work().get("prize") > 0 && q.work().get("GrandPrize") == (k == 5 ? q.work().get("GrandPrize") : 0));
+        if (k == 5) {
+            grand = q.work().get("GrandPrize");
+            CHECK(grand > 0 && q.work().get("SeriesRank") == 0);
+        }
+        total += paid;
+        f.rt->start_project(q.project);
+        f.rt->settle();
+        for (int pages_shown = 0; pages_shown < 2 && f.page() == "PrizeRoot"; ++pages_shown) {
+            for (int i = 0; i < 8000 && !prize_counted(f); ++i) f.rt->update();
+            f.rt->settle();
+            f.press({menu::Key::Accept});
+        }
+        CHECK(f.page() == "AfterRoot");
+        if (k < 5) {
+            CHECK(f.focus_on("Next"));
+            f.press({menu::Key::Accept});
+            CHECK(f.rt->finished() && q.work().take_command() == "COMMAND_NEXT_RACE");
+            q.work().set("IsSessionFinished", 0), q.work().set("canReplay", 0);
+        } else {
+            // After the last race the page offers no Next: leaving ends the championship.
+            f.press({menu::Key::Cancel});
+            CHECK(f.rt->finished() && q.work().take_command() == "COMMAND_EXIT");
+        }
+    }
+    std::printf("  five races: %lld credits with a grand prize of %lld\n", static_cast<long long>(total), static_cast<long long>(grand));
+    CHECK(g.money == money + total);
+    // The championship's own record: won.
+    script::Vm& vm = f.rt->vm();
+    const Value label[1] = {Value::string("jp_mazda_roadster_0500")};
+    CHECK(vm.attribute(vm.call(vm.attribute(vm.attribute(vm.lookup("game"), "race_record"), "getUnit"), label), "result").as_string() == "1");
+    CHECK(q.leave() && f.page() == "PresentRoot" && g.garage_count() == 2);
+    if (g.garage.size() >= 2) std::printf("  prize car %s\n", g.garage[1].car.c_str());
     CHECK(f.clean());
 }
