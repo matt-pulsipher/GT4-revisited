@@ -25,6 +25,7 @@
 #include "gt4r/race/rail_simulation.h"
 #include "gt4r/race/replay_script.h"
 #include "gt4r/race/start_camera.h"
+#include "gt4r/sim/ai/grid.h"
 #include "gt4r/menu/game.h"
 #include "gt4r/menu/race_natives.h"
 #include "gt4r/menu/runtime.h"
@@ -67,6 +68,7 @@ struct Setup {
     int start_seconds = 0;
     std::vector<std::string> opponents; // the other cars by label (empty: from the car list)
     std::string sequence; // `menus=single_race`: the race's own menus (the sequence's quick project) round the race
+    sim::ai::Pace pace;   // the computer drivers' (the event's)
 };
 
 Setup setup_from_env() {
@@ -118,6 +120,8 @@ public:
         WorldSetup ws;
         ws.course = setup.course;
         ws.smoke = setup.smoke, ws.reflection = setup.reflection, ws.rail = setup.rail;
+        ws.computer_player = setup.auto_drive;
+        ws.pace = setup.pace;
         // The grid: the player at the back, the others ahead of him in entry order.
         const std::vector<int> places = race::grid_places(size_t(setup.cars), 0);
         for (int i = 0; i < setup.cars; ++i) {
@@ -163,9 +167,12 @@ public:
         }
     }
 
-    // The cars on the grid and the start's hold from the beginning.
-    void begin_run() {
-        if (ran_) world_->restart();
+    // The cars on the grid and the start's hold from the beginning; `watched`: the computer drives the
+    // player's car too (B-spec).
+    void begin_run(bool watched = false) {
+        world_->set_computer_player(watched || setup_.auto_drive);
+        if (ran_ || watched != watched_) world_->restart();
+        watched_ = watched;
         ran_ = true;
         menu_scene_ = false;
         race::FlowSetup fs;
@@ -226,8 +233,12 @@ public:
         const std::span<const race::CarState> cars = world_->cars();
         const bool hold = flow_.holding();
         auto_drive = auto_drive || flow_.player_finished();
+        // The computer drivers (race_world.h) drive their cars; without them the simple driver follows
+        // the road's line.
+        const bool drivers = world_->computer_drivers();
         for (size_t c = 0; c < inputs_.size(); ++c)
-            inputs_[c] = hold ? race::CarInput{} : race::follow_line(world_->line(), cars[c], c & 1 ? 2.0f : -2.0f, 1.0f - 0.05f * float(c));
+            inputs_[c] = hold || (drivers && (c > 0 || watched_ || setup_.auto_drive)) ? race::CarInput{}
+                                                                                       : race::follow_line(world_->line(), cars[c], c & 1 ? 2.0f : -2.0f, 1.0f - 0.05f * float(c));
         const gt3r::sim::ControlInputs in = mapper_.update(pad, kStep);
         if (!auto_drive) {
             race::CarInput& me = inputs_[0];
@@ -393,7 +404,7 @@ private:
     race::ReplayScript scenic_script_;
     race::ScenicCamera scenic_;
     std::vector<std::vector<race::CarState>> history_;
-    bool replaying_ = false, replay_done_ = false, over_ = false, ran_ = false, menu_scene_ = false;
+    bool replaying_ = false, replay_done_ = false, over_ = false, ran_ = false, menu_scene_ = false, watched_ = false;
     size_t replay_at_ = 0;
     int event_steps_ = -1, event_lap_ = 0, beeps_ = 0;
     int mount_ = race::DriveCamera::kChase;
@@ -412,6 +423,21 @@ public:
             if (menus_) {
                 const menu::RaceRequest& q = menus_->game().race;
                 setup_.opponents = q.entries;
+                // The event's grid (the opponents drawn from its pool, the player last) and its pace.
+                if (db::SpecDb* sdb = app.db()) {
+                    try {
+                        gt3r::Vfs* vfs = app.vfs();
+                        const db::RaceEvents events(*sdb, [vfs](const std::string& path) { return vfs->read(path); });
+                        const std::vector<sim::ai::GridEntry> grid = sim::ai::grid_for(events, q, u32(SDL_GetTicks()));
+                        setup_.opponents.clear();
+                        for (const sim::ai::GridEntry& g : grid)
+                            if (!g.player) setup_.opponents.push_back(g.car);
+                        if (!setup_.opponents.empty()) setup_.cars = int(setup_.opponents.size()) + 1;
+                        if (const std::optional<db::RaceEvent> e = events.event(q.race)) setup_.pace = sim::ai::pace_for(*e);
+                    } catch (const std::exception& e) {
+                        LOG_WARN("Drive: the event's grid: %s", e.what());
+                    }
+                }
                 // ❓ The start the race's information gives is not traced to its source: a standing
                 // start of 10 s with the opening shots (the original's arcade race starts rolling).
                 setup_.start = race::StartType::Ten;
@@ -684,7 +710,7 @@ private:
         if (command == "COMMAND_START" || command == "COMMAND_SPECTATOR") {
             quick_ = false;
             spectator_ = command == "COMMAND_SPECTATOR";
-            race_->begin_run();
+            race_->begin_run(spectator_);
             clock_ = 0;
         } else if (command == "COMMAND_REPLAY" && race_->has_run()) {
             quick_ = false;

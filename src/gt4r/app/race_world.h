@@ -12,6 +12,7 @@
 #include "gt4r/race/rail_simulation.h"
 #include "gt4r/race/replay_script.h"
 #include "gt4r/race/simulation.h"
+#include "gt4r/sim/ai/drivers.h"
 
 #include <memory>
 #include <span>
@@ -42,6 +43,8 @@ struct WorldSetup {
     bool smoke = true;
     bool reflection = true;
     bool rail = false; // the stand-in simulation instead of the game's
+    sim::ai::Pace pace; // the computer drivers' (the event's)
+    bool computer_player = false; // the computer drivers drive the player's car too
 };
 
 class RaceWorld {
@@ -52,6 +55,11 @@ public:
 
     // The cars back on their start places, at rest; the course's animations from their start.
     void restart();
+    // The computer drivers drive the player's car too (B-spec, a scripted run) from the next restart.
+    void set_computer_player(bool on) { computer_player_ = on; }
+    // The game's computer drivers drive the cars (false: the caller's inputs, e.g. the stand-in's
+    // simple driver, for every car).
+    bool computer_drivers() const { return field_ != nullptr; }
     // One simulation step of 1/60 s. `hold`: the start's hold (the engines answer the throttle, the
     // cars stay).
     void step(std::span<const race::CarInput> inputs, bool hold = false);
@@ -95,6 +103,8 @@ private:
     race::Simulation* sim_ = nullptr;
     std::unique_ptr<race::RailSimulation> rail_; // the stand-in, when the simulation is not running
     std::unique_ptr<sim::Session> session_;
+    std::unique_ptr<sim::ai::Field> field_; // the computer drivers, on the game's simulation
+    bool computer_player_ = false;
     bool night_ = false, noted_ = false;
     std::unique_ptr<Impl> impl_;
 };

@@ -53,7 +53,7 @@ struct RaceWorld::Impl {
     int frame = 0;
 };
 
-RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setup), impl_(std::make_unique<Impl>()) {
+RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setup), computer_player_(setup.computer_player), impl_(std::make_unique<Impl>()) {
     Impl& m = *impl_;
     render::GpuContext& gpu = *app.gpu();
     const std::optional<Bytes> course = app.vfs()->read("crs/" + setup.course);
@@ -145,6 +145,7 @@ RaceWorld::~RaceWorld() = default;
 // course or car (and when asked for).
 void RaceWorld::build_simulation() {
     sim_ = nullptr;
+    field_.reset();
     session_.reset(), rail_.reset();
     if (!setup_.rail && app_.disc()) {
         try {
@@ -159,6 +160,17 @@ void RaceWorld::build_simulation() {
             if (!noted_)
                 for (const std::string& note : session_->notes()) LOG_INFO("Drive: %s", note.c_str());
             sim_ = session_.get();
+            // The computer drivers: every car but the player's (his too when he watches).
+            std::vector<size_t> computer;
+            for (size_t i = computer_player_ ? 0 : 1; i < setup_.entries.size(); ++i) computer.push_back(i);
+            field_.reset();
+            if (!computer.empty()) {
+                try {
+                    field_ = sim::ai::Field::open(*app_.disc(), setup_.course, *session_, computer, setup_.pace);
+                } catch (const std::exception& e) {
+                    if (!noted_) LOG_WARN("Drive: no computer drivers (%s); the simple driver drives", e.what());
+                }
+            }
         } catch (const std::exception& e) {
             if (!noted_) LOG_WARN("Drive: the simulation could not be set up (%s); the cars follow the road's line", e.what());
             session_.reset();
@@ -180,6 +192,14 @@ void RaceWorld::restart() {
 }
 
 void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold) {
+    // The computer drivers write their own cars' inputs.
+    std::vector<race::CarInput> driven;
+    if (field_) {
+        driven.assign(inputs.begin(), inputs.end());
+        driven.resize(car_visuals_.size());
+        hold ? field_->hold(driven) : field_->drive(driven);
+        inputs = driven;
+    }
     if (hold && session_) session_->hold_once(inputs);
     else if (hold) {
         // The stand-in has no hold: the cars stand on their brakes.
