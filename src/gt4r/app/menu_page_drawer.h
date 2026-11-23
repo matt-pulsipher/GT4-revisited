@@ -9,6 +9,7 @@
 #include "base/log.h"
 #include "formats/text/charset.h"
 #include "formats/text/text_layout.h"
+#include "gt4r/menu/faces_flash.h"
 #include "gt4r/menu/faces_graph.h"
 #include "gt4r/menu/font.h"
 #include "gt4r/menu/project.h"
@@ -79,9 +80,13 @@ public:
     ~PageDrawer() {
         for (auto& [image, t] : textures_) SDL_DestroyTexture(t);
         for (auto& [font, t] : atlases_) SDL_DestroyTexture(t);
+        for (auto& [k, f] : flashes_)
+            for (SDL_Texture* t : f.textures)
+                if (t) SDL_DestroyTexture(t);
     }
 
     int widgets_drawn = 0;
+    u64 menu_frame = 0; // the menus' picture count (Runtime::frame()): the flash faces' clock
     // A face whose content is not the layout's pictures and text (a movie, a 3D view): drawn by
     // this in its place in the page (`at`: the page's 640 x 480; `dst`: on the screen).
     // `project`, `page`: where its pictures are.
@@ -258,6 +263,71 @@ private:
         for (int i = 0; i < n; ++i) index.insert(index.end(), {0, 1 + i, 1 + (i + 1) % n});
         SDL_SetRenderDrawBlendMode(r_, blend);
         SDL_RenderGeometry(r_, nullptr, v.data(), int(v.size()), index.data(), int(index.size()));
+    }
+
+    // A flash face (mFlashFace, 0x292D70 / 0x292E70): its movie's frame at the face's time (1/60 s
+    // a picture from its start or its reset(t); round with `repeat`, else nothing past the end),
+    // fitted inside the rectangle and centred.
+    void flash(const LiveWidget& live, const Rect& at, float opacity) {
+        const Widget& w = live.data;
+        const std::string path = w.text("flash_path");
+        if (path.empty()) return;
+        const bool disk = w.number("from_disk") != 0;
+        const std::string key = (disk ? std::string("/") : page_ + "|") + path;
+        Flash& f = flashes_[key];
+        if (!f.tried) {
+            f.tried = true;
+            std::optional<Bytes> file;
+            if (disk && vfs_) {
+                std::string name = path;
+                while (!name.empty() && name[0] == '/') name.erase(0, 1);
+                file = vfs_->read(name);
+            } else file = project_->entry(page_, path);
+            try {
+                if (file && menu::FlashMovie::is_movie(*file)) {
+                    f.movie = menu::FlashMovie::parse(*file);
+                    for (const menu::FlashMovie::Image& im : f.movie.images) {
+                        SDL_Texture* tex = nullptr;
+                        if (size_t(im.offset) + im.size <= file->size()) {
+                            const ByteSpan tex1(file->data() + im.offset, im.size);
+                            if (gt3r::Tex1::is_tex1(tex1)) {
+                                const gt3r::Tex1 set = gt3r::Tex1::parse(tex1);
+                                gt3r::GsMemory gs;
+                                set.upload(tex1, gs);
+                                const gt3r::Tex1::Image img = set.decode(gs, 0);
+                                tex = SDL_CreateTexture(r_, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, int(img.width), int(img.height));
+                                if (tex) {
+                                    SDL_UpdateTexture(tex, nullptr, img.rgba.data(), int(img.width * 4));
+                                    SDL_SetTextureScaleMode(tex, SDL_SCALEMODE_LINEAR);
+                                }
+                            }
+                        }
+                        f.textures.push_back(tex);
+                    }
+                    f.ok = true;
+                }
+            } catch (const std::exception& e) {
+                LOG_WARN("Flash %s: %s", path.c_str(), e.what());
+            }
+        }
+        if (!f.ok || f.movie.width <= 0 || f.movie.height <= 0) return;
+        Clock& c = clocks_[&live];
+        const int restarts = int(w.number("flash_restarts"));
+        if (c.path != key || c.restarts != restarts || menu_frame < c.start) c.path = key, c.restarts = restarts, c.start = menu_frame, c.from = w.number("flash_restart_at");
+        float time = c.from + float(menu_frame - c.start) / 60.0f;
+        const float length = f.movie.frames > 0 && f.movie.rate > 0 ? float(f.movie.frames) / f.movie.rate : 0;
+        if (length > 0 && time >= length) time = (!w.has("repeat") || w.number("repeat") != 0) ? std::fmod(time, length) : length;
+        const float k = std::min(at.w / f.movie.width, at.h / f.movie.height);
+        const float ox = at.x + (at.w - f.movie.width * k) / 2, oy = at.y + (at.h - f.movie.height * k) / 2;
+        for (const menu::FlashQuad& q : f.movie.at(time)) {
+            if (q.image < 0 || size_t(q.image) >= f.textures.size() || !f.textures[size_t(q.image)]) continue;
+            const SDL_FPoint uv[4] = {{q.u0, q.v0}, {q.u1, q.v0}, {q.u1, q.v1}, {q.u0, q.v1}};
+            const SDL_FColor col{std::min(q.r, 1.0f), std::min(q.g, 1.0f), std::min(q.b, 1.0f), std::clamp(q.a * opacity, 0.0f, 1.0f)};
+            const SDL_FColor cols[4] = {col, col, col, col};
+            SDL_Texture* tex = f.textures[size_t(q.image)];
+            SDL_SetTextureColorMod(tex, 255, 255, 255), SDL_SetTextureAlphaMod(tex, 255);
+            quad(tex, {ox + q.x0 * k, oy + q.y0 * k, (q.x1 - q.x0) * k, (q.y1 - q.y0) * k}, uv, cols, SDL_BLENDMODE_BLEND);
+        }
     }
 
     // A graph (mGraphFace, 0x2E88F8): its points as fractions of the rectangle, through the
@@ -510,6 +580,7 @@ private:
             if (w.has("chip_r")) fill(at, {Rgba{u8(w.number("chip_r")), u8(w.number("chip_g")), u8(w.number("chip_b")), 255}}, face, false);
             image(w.text("image_path0"), at, tint, face, false);
         } else if (t == "GraphFace") graph(w, at, face);
+        else if (t == "FlashFace") flash(live, at, face);
         else if (draw_live) draw_live(live, project_, page_, at, to_screen(bounds(at)), face);
 
         SDL_Rect inner = clip;
@@ -548,6 +619,19 @@ private:
     float ox_ = 0, oy_ = 0, scale_ = 1;
     Affine m_; // the transforms of the widgets being drawn
     gt3r::Vfs* vfs_ = nullptr;
+    struct Flash {
+        bool tried = false, ok = false;
+        menu::FlashMovie movie;
+        std::vector<SDL_Texture*> textures;
+    };
+    std::map<std::string, Flash> flashes_;
+    struct Clock {
+        std::string path;
+        int restarts = 0;
+        u64 start = 0;
+        float from = 0;
+    };
+    std::map<const LiveWidget*, Clock> clocks_;
     std::map<std::string, std::unique_ptr<gt3r::Tex1::Image>> disk_images_;
     std::set<std::string> tried_;
     std::string page_;

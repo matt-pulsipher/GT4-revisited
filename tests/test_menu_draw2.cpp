@@ -5,6 +5,8 @@
 #include "test_framework.h"
 
 #include "disc/core_image.h"
+#include "gt4r/menu/faces_flash.h"
+#include "gt4r/menu/faces_graph.h"
 #include "gt4r/menu/font.h"
 #include "gt4r/menu/layout.h"
 #include "gt4r/menu/runtime.h"
@@ -224,4 +226,46 @@ TEST(disc_menu_stage_motion) {
         CHECK(most > 0.5f);
     }
     if (!any) SKIP("set GT4R_DISC");
+}
+
+// A flash face's movie: the license center's background cross-fades its pictures; the
+// dealers' banners from the disc.
+TEST(disc_menu_flash_movies) {
+    bool any = false;
+    for (const auto& disc : test::discs()) {
+        if (disc->info().serial != "SCUS_973.28") continue;
+        any = true;
+        gt3r::Vfs vfs(&disc->volume());
+        const std::optional<Bytes> banner = vfs.read("piece/tuner_screen/daihatsu.strb");
+        CHECK(banner && menu::FlashMovie::is_movie(*banner));
+        if (!banner) continue;
+        const menu::FlashMovie m = menu::FlashMovie::parse(*banner);
+        CHECK(near(m.width, 640) && m.frames > 100 && m.images.size() == 2);
+        const std::vector<menu::FlashQuad> first = m.at(0);
+        CHECK(!first.empty());
+        if (!first.empty()) CHECK(near(first.front().x0, 0) && near(first.front().x1, 640) && first.front().u0 >= 0 && first.front().u1 <= 1.01f);
+        // The upper picture fades out between frames 61 and 239.
+        float early = -1, late = -1;
+        for (const menu::FlashQuad& q : m.at(10.0f / 60)) early = q.a;
+        for (const menu::FlashQuad& q : m.at(200.0f / 60)) late = q.a;
+        CHECK(early > late);
+        CHECK(m.at(float(m.frames) / m.rate + 1).empty());
+    }
+    if (!any) SKIP("set GT4R_DISC to the US disc");
+}
+
+// A graph face's points as the scripts give them, and the segments of each type.
+TEST(menu_graph_face) {
+    menu::Runtime rt([](const std::string&) -> std::optional<Bytes> { return std::nullopt; });
+    const std::shared_ptr<menu::LiveWidget> face = face_in(rt, kLayout);
+    const script::Value p = script::Value::array({script::Value::array({script::Value::number(0), script::Value::number(0)}),
+                                                  script::Value::array({script::Value::number(0.5f), script::Value::number(1)}),
+                                                  script::Value::array({script::Value::number(1), script::Value::number(0.25f)})});
+    face->set("points", p);
+    menu::GraphFaceSettings s = menu::graph_face_settings(face->data);
+    CHECK(s.points.size() == 3 && near(s.points[1].x, 0.5f) && near(s.points[2].y, 0.25f) && !s.strip && near(s.line_width, 2));
+    CHECK(menu::graph_segments(s).size() == 1); // break_line: pairs
+    face->set("type", script::Value::string("line"));
+    s = menu::graph_face_settings(face->data);
+    CHECK(s.strip && menu::graph_segments(s).size() == 2);
 }

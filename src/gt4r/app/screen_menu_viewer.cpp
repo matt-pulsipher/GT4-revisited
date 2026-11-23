@@ -315,6 +315,7 @@ private:
             // A cross transition coming in: the pages grown about the screen's middle.
             Affine grown;
             grown.a = grown.d = tp.page_scale, grown.e = 320 * (1 - tp.page_scale), grown.f = 240 * (1 - tp.page_scale);
+            live_drawer_->menu_frame = runtime_->frame();
             for (const auto& page : runtime_->open_pages())
                 if (menu::Project* project = runtime_->project_of(*page)) live_drawer_->draw(*project, *page, x, 0, scale, 0, grown, tp.page_opacity);
             if (movies_) movies_->end_frame();
@@ -435,6 +436,7 @@ public:
         const menu::TransitionPicture tp = menu::transition_picture(rt.vm().attribute(rt.context(), "transition"));
         Affine grown;
         grown.a = grown.d = tp.page_scale, grown.e = 320 * (1 - tp.page_scale), grown.f = 240 * (1 - tp.page_scale);
+        drawer_.menu_frame = rt.frame();
         for (const auto& page : rt.open_pages())
             if (menu::Project* project = rt.project_of(*page)) drawer_.draw(*project, *page, x, 0, scale, 0, grown, tp.page_opacity);
         // The pointer (menu_cursor.h), a step a picture drawn.
