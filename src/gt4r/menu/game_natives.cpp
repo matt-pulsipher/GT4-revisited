@@ -351,7 +351,13 @@ Value GameNatives::make_option() {
         s->option_defaults(zone.empty() ? r->region() : zone);
         return Value{};
     });
-    for (const char* nothing : {"setGameZoneDefault", "applyRaceDisplayMode", "applyMenuDisplayMode", "setDeviceConfig", "setDeviceFeedback"})
+    // setGameZoneDefault (0x435D48): the zone by the program's region.
+option->method("setGameZoneDefault", [s, r](Vm&, const Value&, Args) {
+    const std::string region = r->region();
+    s->options["game_zone"] = std::string(region == "us" ? "US" : region == "uk" ? "EU" : region == "kr" ? "KR" : "JP");
+    return Value{};
+});
+for (const char* nothing : {"applyRaceDisplayMode", "applyMenuDisplayMode", "setDeviceConfig", "setDeviceFeedback"})
         option->method(nothing, [](Vm&, const Value&, Args) { return Value{}; });
     option->method("getDeviceConfig", [](Vm&, const Value&, Args) { return Value{}; });
     option->method("getDeviceFeedback", [](Vm&, const Value&, Args) { return number(0); });
@@ -412,7 +418,12 @@ Value GameNatives::make_game() {
         s->menu_stack.pop_back();
         return text(top);
     });
-    g.method("menuRef", [s](Vm&, const Value&, Args) { return s->menu_stack.empty() ? Value{} : text(s->menu_stack.back()); });
+    // menuRef(n): the name n places below the top (0 the top).
+g.method("menuRef", [s](Vm&, const Value&, Args a) {
+    const s32 n = arg_int(a, 0);
+    if (n < 0 || size_t(n) >= s->menu_stack.size()) return Value{};
+    return text(s->menu_stack[s->menu_stack.size() - 1 - size_t(n)]);
+});
     g.method("menuClearStack", [s](Vm&, const Value&, Args) {
         s->menu_stack.clear();
         return Value{};
@@ -834,6 +845,39 @@ Value make_car_object(Runtime& rt, const std::string& label, int paint) {
     c->state = &n->state(), c->label = label;
     set_car(n->db(), c->own, label, paint);
     return make_car_value(*n, c);
+}
+
+void complete_race_request(Runtime& rt, RaceRequest& r) {
+    const std::shared_ptr<GameNatives> n = g_natives_of(rt).lock();
+    if (!n) return;
+    GameState& s = rt.game();
+    Database& d = n->db();
+    // The race's own label: as given, or with the region's prefix (the license tests and
+    // missions are "usl0b0001", the scripts say "l0b0001"; 0x430D20 tries "us" then "jp").
+    std::string race = r.race;
+    for (const std::string& tried : {r.race, "us" + r.race, "jp" + r.race})
+        if (!r.race.empty() && d.code(kRaceTable, tried) != kNoCode) {
+            race = tried;
+            break;
+        }
+    const ByteSpan row = race.empty() ? ByteSpan{} : d.row("RACE", race);
+    if (r.course.empty() && row.size() >= 8) r.course = d.label(u64(r32(row, 0)) | u64(r32(row, 4)) << 32);
+    if (!r.car.empty()) return;
+    const bool test = r.sequence.find("license") != std::string::npos || r.sequence.find("mission") != std::string::npos;
+    if (test) {
+        // A test's car is the first of its pool (an ENEMY_CARS row: +0x00 the car).
+        const auto entries = race_entries(d, race);
+        if (!entries.empty()) {
+            const ByteSpan enemy = d.row("ENEMY_CARS", entries[0].first);
+            if (enemy.size() >= 4) r.car = d.label(make_code(kCarTable, r32(enemy, 0))), r.paint = std::max(entries[0].second, 0);
+        }
+        return;
+    }
+    if (s.riding_car >= 0 && size_t(s.riding_car) < s.garage.size() && s.garage[size_t(s.riding_car)].used) {
+        const GarageEntry& e = s.garage[size_t(s.riding_car)];
+        r.car = e.car, r.garage_slot = s.riding_car;
+        r.paint = e.record ? s8(e.record->active()[0x18]) : e.paint;
+    }
 }
 
 void install_fallback_world(Runtime& rt) {

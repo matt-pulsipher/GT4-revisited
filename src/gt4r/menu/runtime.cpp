@@ -80,6 +80,13 @@ Runtime::Runtime(FileReader read, Config config) : read_(std::move(read)), confi
         while (!path.empty() && path[0] == '/') path.erase(0, 1);
         path += ".adc";
         if (std::optional<Bytes> file = read_(path)) return file;
+        // A project's script names files of the disc's top beside its own (gtmode's
+        // "usedcar/US_used0000" is usedcar/US_used0000.adc). ❓ The program's search is not read.
+        if (path.rfind("projects/", 0) == 0) {
+            const size_t second = path.find('/', 9);
+            if (second != std::string::npos && path.find('/', second + 1) != std::string::npos)
+                if (std::optional<Bytes> file = read_(path.substr(second + 1))) return file;
+        }
         // The scripts name some files in another case than the disc has them
         // ("us_carlist" for projects/boot/US_carlist.adc).
         if (!config_.list) return std::nullopt;
@@ -486,6 +493,7 @@ std::optional<RaceRequest> Runtime::race_request() const {
     if (!finished_ || next.empty() || next == "menu" || next == "boot") return std::nullopt;
     RaceRequest r = game_->race;
     r.sequence = next;
+    complete_race_request(const_cast<Runtime&>(*this), r);
     return r;
 }
 
@@ -549,7 +557,11 @@ void Runtime::run_chain(std::vector<std::shared_ptr<LiveWidget>> chain, size_t a
         if (it == chain[at]->members.end() || it->second->value.kind != Kind::Function) continue;
         const Value callee = it->second->value;
         const std::string what = chain[at]->path() + "::" + name;
-        run(callee, args, what, [this, chain, at, name, args, done](const Value& result) mutable {
+        // An activate or cancel function also gets the widget it belongs to (the scripts'
+        // `object.getFocusedWidget()` on a page). ❓ From the scripts' use.
+        std::vector<Value> call_args = args;
+        if (name == "onActivate" || name == "onCancel") call_args.push_back(widget_value(chain[at]));
+        run(callee, call_args, what, [this, chain, at, name, args, done](const Value& result) mutable {
             // A number other than 0 ends it (the program's STOP 1 and FILTER 2).
             if (result.is_number() && result.as_float() != 0) {
                 if (done) done(true);

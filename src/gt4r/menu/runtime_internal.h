@@ -84,6 +84,9 @@ TextMeasure& text_measure();
 void install_game_natives(Runtime& rt, script::Module& menu);
 // The objects the main script makes when it does not run (a disc without one).
 void install_fallback_world(Runtime& rt);
+// What a race request leaves to the program: an event's course from its RACE row, the car
+// driven when the scripts name none.
+void complete_race_request(Runtime& rt, RaceRequest& r);
 // An MCarGarage object for a car by its label (what a car face's `car_data` is).
 script::Value make_car_object(Runtime& rt, const std::string& label, int paint);
 

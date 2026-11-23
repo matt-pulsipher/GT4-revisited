@@ -7,6 +7,7 @@
 //     next         the project the scripts asked for (after a project finished)
 //     stubs        what the scripts asked of stand-ins so far (the to-do list)
 //     tree         the pages shown: widgets, their places and texts
+//     focus=NAME   the focus put on the shown page's widget of that name
 //     state        the game's state: what is available, where the menus go, the race set up
 //     card=none | card=empty | card=saved    the memory card's state (before the project starts)
 //     credits=N                              the player's credits (before the project starts)
@@ -20,6 +21,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -126,7 +128,20 @@ int cmd_menu_run(Disc& disc, const std::vector<std::string>& a) {
             for (const auto& p : rt.open_pages()) print_tree(*p, 0);
             continue;
         }
-        if (k == "settle") rt.settle();
+        if (k.rfind("focus=", 0) == 0) {
+            // The widget of that name on the page shown (the first found, depth first).
+            const std::string name = k.substr(6);
+            std::function<std::shared_ptr<menu::LiveWidget>(const std::shared_ptr<menu::LiveWidget>&)> find =
+                [&](const std::shared_ptr<menu::LiveWidget>& w) -> std::shared_ptr<menu::LiveWidget> {
+                if (w->name == name) return w;
+                for (const auto& c : w->children)
+                    if (auto f = find(c)) return f;
+                return nullptr;
+            };
+            if (menu::LiveWidget* page = rt.current_page())
+                if (const auto w = find(page->self())) rt.set_focus(*page, w);
+            rt.settle();
+        } else if (k == "settle") rt.settle();
         else if (k.compare(0, 4, "wait") == 0) {
             for (int n = std::max(std::atoi(k.c_str() + 4), 1); n > 0; --n) rt.update();
         } else if (k == "next") {
