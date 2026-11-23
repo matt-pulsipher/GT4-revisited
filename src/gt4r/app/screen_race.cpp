@@ -1,0 +1,430 @@
+// Drive: pick a car and a course, then a race on the course's road: the first car driven with
+// the pad, the others by a simple driver, all on the simulation behind race/simulation.h.
+//
+// GT4R_RACE="course=tsukuba,car=<label>,cars=6,view=chase,drive=auto,skip=600,paint=1,hud=1"
+// sets it up without the lists, for pictures: `course` a course file's name, `car` a car's label
+// (or its model's name), `cars` how many on the grid, `view` in | chase | roof | back, `drive`
+// auto (the simple driver takes the first car too) or pad, `skip` simulation steps run before the
+// first picture, `paint` the first car's paint.
+
+#include "gt4r/app/app.h"
+
+#include "base/log.h"
+#include "gt4r/formats/course/course_file.h"
+#include "gt4r/formats/model/car_model.h"
+#include "gt4r/race/car_spec.h"
+#include "gt4r/race/car_visual.h"
+#include "gt4r/race/course_scene.h"
+#include "gt4r/race/drive_camera.h"
+#include "gt4r/race/rail_simulation.h"
+#include "race/controls.h"
+#include "render/view3d.h"
+
+#include <algorithm>
+#include <cmath>
+#include <map>
+
+namespace gt4r {
+
+namespace {
+
+namespace render = gt3r::render;
+using RVec = render::Vec3;
+
+constexpr float kStep = 1.0f / 60;
+constexpr float kPi = 3.14159265f;
+
+struct Setup {
+    std::string course = "tsukuba";
+    std::string car;
+    int cars = 6;
+    int view = race::DriveCamera::kChase;
+    bool look_back = false;
+    bool auto_drive = false;
+    int skip = 0;
+    u32 paint = 0;
+    bool hud = true;
+    bool scripted = false; // from GT4R_RACE: no lists
+};
+
+Setup setup_from_env() {
+    Setup s;
+    const char* env = SDL_getenv("GT4R_RACE");
+    if (!env) return s;
+    s.scripted = true;
+    for (std::string_view kv : gt3r::split(env, ',')) {
+        const size_t eq = kv.find('=');
+        if (eq == std::string_view::npos) continue;
+        const std::string k(gt3r::trim(kv.substr(0, eq))), v(gt3r::trim(kv.substr(eq + 1)));
+        if (k == "course") s.course = v;
+        else if (k == "car") s.car = v;
+        else if (k == "cars") s.cars = std::clamp(std::atoi(v.c_str()), 1, 16);
+        else if (k == "view") {
+            s.view = v == "in" ? race::DriveCamera::kInCar : v == "roof" ? race::DriveCamera::kRoof : race::DriveCamera::kChase;
+            if (v == "back") s.look_back = true;
+            if (!v.empty() && std::isdigit(static_cast<unsigned char>(v[0]))) s.view = std::atoi(v.c_str());
+        } else if (k == "drive") s.auto_drive = v == "auto";
+        else if (k == "skip") s.skip = std::max(0, std::atoi(v.c_str()));
+        else if (k == "paint") s.paint = u32(std::max(0, std::atoi(v.c_str())));
+        else if (k == "hud") s.hud = v != "0";
+    }
+    return s;
+}
+
+// The race itself: the course, the cars, the simulation and the view.
+class Race {
+public:
+    Race(App& app, const Setup& setup, const std::vector<db::CarEntry>& cars) : setup_(setup) {
+        render::GpuContext& gpu = *app.gpu();
+        const std::optional<Bytes> course = app.vfs()->read("crs/" + setup.course);
+        if (!course || !course::CourseFile::looks_like_course(*course)) throw FormatError("There is no course file crs/" + setup.course + ".");
+        course_ = std::make_unique<race::CourseScene>(gpu, *course, setup.course);
+        if (course_->road().checkpoints.size() < 3) throw FormatError("This place has no lap to drive.");
+        const u32 flags = course_->section(course::kSlotEnv).size() >= 0x14 ? rd32(course_->section(course::kSlotEnv), 0x10) : 0;
+        night_ = (flags & 0x8000) != 0;
+
+        // The first car is the one asked for; the others follow it in the car list.
+        size_t first = 0;
+        for (size_t i = 0; i < cars.size(); ++i)
+            if (cars[i].label == setup.car || cars[i].model == setup.car) first = i;
+        std::vector<race::RailCar> rails;
+        for (int i = 0; i < setup.cars; ++i) {
+            const db::CarEntry& entry = cars[(first + size_t(i) * 37) % cars.size()];
+            const race::CarSpec spec = race::read_car_spec(*app.db(), entry.label);
+            std::unique_ptr<race::CarVisual>& visual = visuals_by_model_[entry.model + "#" + std::to_string(i == 0 ? setup.paint : u32(i))];
+            if (!visual) {
+                const std::optional<Bytes> file = app.vfs()->read("car/lod/" + entry.model);
+                if (!file || !car::CarFile::is_car(*file)) throw FormatError("This car has no race model on the disc (" + entry.model + ").");
+                const std::optional<Bytes> pat = app.vfs()->read("car/lod/" + entry.model + ".pat");
+                const std::vector<u32> paints = race::car_paints(*app.db(), entry.label);
+                race::CarVisual::Options o;
+                const u32 pick = i == 0 ? setup.paint : u32(i);
+                o.paint = paints.empty() ? pick : paints[pick % paints.size()];
+                o.lamp_level = night_ ? 1 : 0;
+                visual = std::make_unique<race::CarVisual>(gpu, *file, pat ? ByteSpan(*pat) : ByteSpan{}, spec, o, entry.label);
+                const gt3r::race::SunParams& env = course_->env();
+                if (env.has_shadow) {
+                    race::CarVisual::Shadow sh;
+                    sh.on = true;
+                    for (int k = 0; k < 3; ++k) sh.rgb[k] = env.shadow_rgb[size_t(k)];
+                    sh.alpha = env.shadow_alpha;
+                    visual->set_shadow(sh);
+                }
+            }
+            car_visuals_.push_back(visual.get());
+            names_.push_back(entry.name.empty() ? entry.label : entry.name);
+            rails.push_back(race::rail_car(spec));
+        }
+        rail_ = std::make_unique<race::RailSimulation>(course_->road(), std::move(rails));
+        sim_ = rail_.get();
+        inputs_.resize(size_t(setup.cars));
+        camera_.reset(sim_->cars()[0]);
+        for (int i = 0; i < setup.skip; ++i) step(gt3r::PadState{}, true);
+        view_ = std::make_unique<render::View3D>(gpu);
+        mount_ = setup.view;
+    }
+
+    // One simulation step: the first car from the pad (or the simple driver), the others by the
+    // simple driver, each on its own side of the line.
+    void step(const gt3r::PadState& pad, bool auto_drive) {
+        const std::span<const race::CarState> cars = sim_->cars();
+        for (size_t c = 0; c < inputs_.size(); ++c)
+            inputs_[c] = race::follow_line(rail_->line(), cars[c], c & 1 ? 2.0f : -2.0f, 1.0f - 0.05f * float(c));
+        if (!auto_drive) {
+            const gt3r::sim::ControlInputs in = mapper_.update(pad, kStep);
+            race::CarInput& me = inputs_[0];
+            me = {};
+            me.steer = in.steer, me.throttle = in.throttle, me.brake = in.brake, me.handbrake = in.handbrake;
+            me.shift_up = in.shift_up, me.shift_down = in.shift_down;
+            me.reverse = mapper_.reverse();
+            if (me.reverse) me.throttle = std::max(me.throttle, gt3r::race::pressure_to_pedal(pad.press(PadButton::Triangle)));
+        }
+        sim_->step(inputs_, kStep);
+        camera_.step(sim_->cars()[0], kStep);
+        ++steps_;
+    }
+
+    void next_view() {
+        const auto& views = race::DriveCamera::kViews;
+        size_t at = 0;
+        for (size_t i = 0; i < std::size(views); ++i)
+            if (views[i] == mount_) at = i;
+        mount_ = views[(at + 1) % std::size(views)];
+    }
+
+    void render(Ui& ui, const SDL_FRect& rect, bool look_back) {
+        const std::span<const race::CarState> cars = sim_->cars();
+        const race::CarState& me = cars[0];
+        const race::ViewPose pose = camera_.pose(me, *car_visuals_[0], mount_, look_back || setup_.look_back);
+        const float aspect = rect.w / std::max(rect.h, 1.0f);
+        const gt3r::race::SunParams& env = course_->env();
+        const float far = env.has_env && env.far_clip > 0 ? env.far_clip : 5000.0f;
+        // (The backdrop's far plane lies a hundred times as far as the scenery's.)
+        const render::Mat4 proj = render::perspective(pose.fovy(), aspect, 0.1f, far * 100.0f);
+
+        fade_.update(course_->visible_nodes(pose.eye), pose.eye, kStep);
+        items_.clear();
+        course_->add_items(items_, pose.eye, race::CourseScene::View::Race, &fade_);
+        for (size_t i = 0; i < cars.size(); ++i) car_visuals_[i]->add_shadow_items(items_, cars[i]);
+        for (size_t i = 0; i < cars.size(); ++i) {
+            if (i == 0 && pose.body_hidden) continue;
+            car_visuals_[i]->add_items(items_, cars[i], pose.eye, kStep);
+        }
+        course_->add_after_items(items_);
+
+        render::DrawOptions o = draw_options(far);
+        // The cars' reflection picture: the course around the first car, refreshed a face at a time.
+        if (view_) {
+            env_items_.clear();
+            const RVec at{me.position.x, me.position.y + 0.8f, me.position.z};
+            const render::Mat4 sky_rot = render::rotate_x(env.sky_pitch * kPi / 180) * render::rotate_y(env.sky_yaw * kPi / 180);
+            if (course_->add_env_items(env_items_, at, sky_rot)) {
+                render::DrawOptions eo = o;
+                eo.env_cube = nullptr;
+                eo.draw_distance = 200, eo.far_clip = 0;
+                eo.fog = false;
+                eo.quantize_rgb5 = true;
+                for (float& c : eo.clear) c = 0;
+                eo.clear[3] = 1;
+                const unsigned faces = env_ready_ ? 1u << (frame_ % 6) : 0x3Fu;
+                if (view_->render_env_cube(at, env_items_, eo, 128, faces)) o.env_cube = view_->env_cube(), o.env_gt3_lookup = true, env_ready_ = true;
+            }
+        }
+        view_->draw(ui.renderer(), rect, pose.view, proj, pose.eye, items_, o);
+        if (frame_ == 5)
+            LOG_INFO("Drive: the car at (%.1f, %.1f, %.1f) heading (%.2f, %.2f), eye (%.1f, %.1f, %.1f); %d meshes drawn, %zu triangles", me.position.x,
+                     me.position.y, me.position.z, me.forward.x, me.forward.z, pose.eye.x, pose.eye.y, pose.eye.z, view_->stats().meshes_drawn,
+                     view_->stats().triangles);
+        ++frame_;
+    }
+
+    const race::CarState& player() const { return sim_->cars()[0]; }
+    std::span<const race::CarState> cars() const { return sim_->cars(); }
+    const std::string& car_name(size_t i) const { return names_[i]; }
+    const race::CourseScene& course() const { return *course_; }
+    const race::CarVisual& visual(size_t i) const { return *car_visuals_[i]; }
+    const race::RailLine& line() const { return rail_->line(); }
+    int steps() const { return steps_; }
+    int mount() const { return mount_; }
+    const render::DrawStats& draw_stats() const { return view_->stats(); }
+
+private:
+    render::DrawOptions draw_options(float far) const {
+        const gt3r::race::SunParams& env = course_->env();
+        render::DrawOptions o;
+        o.frustum_cull = true;
+        o.sort_blended = true;
+        o.far_clip = far;
+        o.guard_near = 0.07f;
+        for (int i = 0; i < 3; ++i) o.clear[i] = 0;
+        if (env.has_env) {
+            // The course's fog: visibility = b + (1 - b) min(1, A / z) toward the fog color.
+            o.fog = true;
+            o.fog_gt3 = true;
+            o.fog_start = std::max(env.fog_a, 0.0f);
+            o.fog_max = std::clamp(1.0f - env.fog_b, 0.0f, 1.0f);
+            for (int i = 0; i < 3; ++i) o.fog_color[i] = std::clamp(env.fog_rgb[size_t(i)], 0.0f, 1.0f);
+            // The cars' lights and the panoramic reflection's factors.
+            o.gt3_lighting = true;
+            if (env.car_light_mask) env.day_car_lights(o);
+            o.panorama[0] = env.panorama[0], o.panorama[1] = env.panorama[1];
+        }
+        const float* sky = course_->sky_color();
+        const float* ground = course_->ground_color();
+        for (int i = 0; i < 3; ++i) o.env_sky[i] = sky[i], o.env_horizon[i] = ground[i], o.env_ground[i] = ground[i];
+        o.reflection_fresnel = 0.8f;
+        o.reflection_strength = 1.0f;
+        return o;
+    }
+
+    Setup setup_;
+    std::unique_ptr<race::CourseScene> course_;
+    std::map<std::string, std::unique_ptr<race::CarVisual>> visuals_by_model_;
+    std::vector<race::CarVisual*> car_visuals_;
+    std::vector<std::string> names_;
+    std::unique_ptr<race::RailSimulation> rail_;
+    race::Simulation* sim_ = nullptr;
+    std::vector<race::CarInput> inputs_;
+    gt3r::race::ControlMapper mapper_;
+    race::DriveCamera camera_;
+    gt3r::race::SceneryFade fade_;
+    std::unique_ptr<render::View3D> view_;
+    std::vector<render::DrawItem> items_, env_items_;
+    bool night_ = false, env_ready_ = false;
+    int mount_ = race::DriveCamera::kChase;
+    int steps_ = 0, frame_ = 0;
+};
+
+class RaceScreen : public Screen {
+public:
+    explicit RaceScreen(App& app) : setup_(setup_from_env()) {
+        if (db::SpecDb* sdb = app.db()) {
+            cars_ = sdb->cars();
+            for (db::CourseEntry& c : sdb->courses())
+                if (app.vfs()->exists("crs/" + c.label)) courses_.push_back(std::move(c));
+        }
+        if (cars_.empty() || courses_.empty()) throw FormatError("This disc's cars and courses are not read yet.");
+        for (size_t i = 0; i < courses_.size(); ++i)
+            if (courses_[i].label == setup_.course) course_sel_ = int(i);
+        for (size_t i = 0; i < cars_.size(); ++i)
+            if (!setup_.car.empty() && (cars_[i].label == setup_.car || cars_[i].model == setup_.car)) car_sel_ = int(i);
+        if (setup_.scripted) start(app);
+    }
+    ~RaceScreen() override { report(); }
+
+    void update(App& app, double dt) override {
+        const MenuInput& m = app.menu();
+        if (!race_) {
+            if (m.pressed(PadButton::Triangle)) {
+                app.pop();
+                return;
+            }
+            if (m.horizontal()) column_ = std::clamp(column_ + m.horizontal(), 0, 1);
+            int& sel = column_ == 0 ? course_sel_ : car_sel_;
+            const int n = column_ == 0 ? int(courses_.size()) : int(cars_.size());
+            sel = std::clamp(sel + m.vertical(), 0, n - 1);
+            if (m.pressed(PadButton::L1)) sel = std::max(0, sel - 12);
+            if (m.pressed(PadButton::R1)) sel = std::min(n - 1, sel + 12);
+            if (m.pressed(PadButton::Cross)) {
+                setup_.course = courses_[size_t(course_sel_)].label;
+                setup_.car = cars_[size_t(car_sel_)].label;
+                start(app);
+            }
+            return;
+        }
+        if (m.pressed(PadButton::Start)) paused_ = !paused_;
+        if (paused_) {
+            if (m.pressed(PadButton::Triangle)) {
+                report();
+                race_.reset();
+                paused_ = false;
+                if (setup_.scripted) app.pop();
+            }
+            return;
+        }
+        const gt3r::PadState& pad = app.input().race_pad(0);
+        if (m.pressed(PadButton::R1) || m.pressed(PadButton::Select)) race_->next_view();
+        look_back_ = gt3r::race::look_back_held(pad, false);
+        // Whole simulation steps for the time that has passed (at most four a frame).
+        const Uint64 t0 = SDL_GetTicksNS();
+        clock_ += dt;
+        int n = 0;
+        for (; clock_ >= kStep && n < 4; ++n) clock_ -= kStep, race_->step(pad, setup_.auto_drive);
+        if (n == 4) clock_ = 0;
+        step_ns_ += SDL_GetTicksNS() - t0;
+    }
+
+    void render(App& app, Ui& ui) override {
+        if (!race_) {
+            draw_lists(ui);
+            return;
+        }
+        const Uint64 t0 = SDL_GetTicksNS();
+        race_->render(ui, {0, 0, float(Ui::kWidth), float(Ui::kHeight)}, look_back_);
+        if (setup_.hud) draw_overlay(ui);
+        if (paused_) {
+            ui.fill(0, 0, Ui::kWidth, Ui::kHeight, Color{0, 0, 0, 120});
+            ui.text_center(Ui::kHeight / 2 - 10, "PAUSED", colors::kText);
+            ui.text_center(Ui::kHeight / 2 + 6, Ui::expand_prompts("{Start}: go on   {Triangle}: leave the race"), colors::kDim);
+        }
+        // Frame times: the work of this frame, and the time from the last frame to this one.
+        const Uint64 now = SDL_GetTicksNS();
+        const double work = double(now - t0 + step_ns_) / 1e6;
+        step_ns_ = 0;
+        if (last_frame_ns_ && !paused_) {
+            const double interval = double(now - last_frame_ns_) / 1e6;
+            work_ms_.push_back(float(work));
+            interval_ms_.push_back(float(interval));
+        }
+        last_frame_ns_ = now;
+        (void)app;
+    }
+
+private:
+    void start(App& app) {
+        error_.clear();
+        if (!app.gpu()) {
+            error_ = "3D drawing is not available on this system.";
+            return;
+        }
+        try {
+            race_ = std::make_unique<Race>(app, setup_, cars_);
+            work_ms_.clear(), interval_ms_.clear();
+            last_frame_ns_ = 0, clock_ = 0;
+        } catch (const std::exception& e) {
+            error_ = e.what();
+            LOG_WARN("Drive: %s", e.what());
+        }
+    }
+
+    // The run's frame times in the log: the mean, the 99th percentile and the worst.
+    void report() {
+        if (interval_ms_.size() < 10) return;
+        auto stats = [](std::vector<float> v, const char* what) {
+            std::sort(v.begin(), v.end());
+            double sum = 0;
+            for (float x : v) sum += x;
+            LOG_INFO("Drive: %s over %zu frames: mean %.2f ms, median %.2f, 99%% %.2f, worst %.2f", what, v.size(), sum / double(v.size()),
+                     double(v[v.size() / 2]), double(v[v.size() * 99 / 100]), double(v.back()));
+        };
+        // (The first frames load textures: left out.)
+        const size_t skip = std::min<size_t>(30, interval_ms_.size() / 2);
+        stats({work_ms_.begin() + ptrdiff_t(skip), work_ms_.end()}, "work per frame");
+        stats({interval_ms_.begin() + ptrdiff_t(skip), interval_ms_.end()}, "frame interval");
+        interval_ms_.clear(), work_ms_.clear();
+    }
+
+    void draw_lists(Ui& ui) {
+        ui.header("DRIVE", "");
+        const float top = 34, row = 12;
+        const int rows = int((Ui::kHeight - 30 - top) / row);
+        auto list = [&](float x, float w, int n, int sel, bool active, const std::function<std::string(int)>& label, const char* title) {
+            ui.text(x, top - 12, title, active ? colors::kAccent : colors::kDim);
+            const int first = std::clamp(sel - rows / 2, 0, std::max(0, n - rows));
+            for (int i = 0; i < rows && first + i < n; ++i) {
+                const int idx = first + i;
+                const float y = top + 4 + float(i) * row;
+                if (idx == sel) ui.fill(x - 4, y - 2, w, row, active ? colors::kHighlight : colors::kPanel);
+                ui.text(x, y, Ui::clip(label(idx), w - 8), idx == sel ? colors::kText : colors::kDim);
+            }
+        };
+        list(24, 250, int(courses_.size()), course_sel_, column_ == 0, [&](int i) {
+            const db::CourseEntry& c = courses_[size_t(i)];
+            return c.name.empty() || c.name == c.label ? c.label : c.name + "  (" + c.label + ")";
+        }, "Course");
+        list(300, 320, int(cars_.size()), car_sel_, column_ == 1, [&](int i) {
+            const db::CarEntry& c = cars_[size_t(i)];
+            return c.name.empty() ? c.label : c.name;
+        }, "Car");
+        if (!error_.empty()) ui.text(24, Ui::kHeight - 36, Ui::clip(error_, Ui::kWidth - 48), colors::kBad);
+        ui.footer("{Left/Right}: course or car  {Up/Down}: select  {L1}/{R1}: a page  {Cross}: drive  {Triangle}: back");
+    }
+
+    // A plain read-out until the game's own race display is drawn.
+    void draw_overlay(Ui& ui) {
+        const race::CarState& s = race_->player();
+        char line[160];
+        std::snprintf(line, sizeof line, "%3.0f km/h   gear %s   %4.0f rpm   lap %d", std::fabs(s.speed) * 3.6f,
+                      s.gear < 0 ? "R" : s.gear == 0 ? "N" : std::to_string(s.gear).c_str(), s.engine_rpm, s.lap + 1);
+        ui.fill(0, Ui::kHeight - 16, Ui::kWidth, 16, Color{10, 11, 14, 150});
+        ui.text(8, Ui::kHeight - 13, line, colors::kText);
+        ui.text_right(Ui::kWidth - 8, Ui::kHeight - 13, race_->car_name(0), colors::kDim);
+    }
+
+    Setup setup_;
+    std::vector<db::CarEntry> cars_;
+    std::vector<db::CourseEntry> courses_;
+    int course_sel_ = 0, car_sel_ = 0, column_ = 0;
+    std::unique_ptr<Race> race_;
+    std::string error_;
+    bool paused_ = false, look_back_ = false;
+    double clock_ = 0;
+    Uint64 step_ns_ = 0, last_frame_ns_ = 0;
+    std::vector<float> work_ms_, interval_ms_;
+};
+
+} // namespace
+
+std::unique_ptr<Screen> make_race_screen(App& app) { return std::make_unique<RaceScreen>(app); }
+
+} // namespace gt4r

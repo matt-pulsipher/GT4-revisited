@@ -2,10 +2,12 @@
 //
 //   gt4tool race <disc> sections <course>          the course file's sections
 //   gt4tool race <disc> rail <course> [seconds]    runs the stand-in simulation on the course's road
+//   gt4tool race <disc> models <course> <slot>     a slot's model set as the race view decodes it
 
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/formats/course/runway.h"
+#include "gt4r/formats/model/mdls.h"
 #include "gt4r/race/rail_simulation.h"
 
 #include <cmath>
@@ -72,11 +74,54 @@ int race_rail(Disc& disc, const Args& a) {
     return 0;
 }
 
+// A course slot's model set as the race view decodes it: per model, what it draws and how.
+int race_models(Disc& disc, const Args& a) {
+    const Bytes data = read_course(disc, a[1]);
+    const course::CourseFile file = course::CourseFile::parse(data);
+    const int slot = a.size() > 2 ? std::atoi(a[2].c_str()) : course::kSlotWorld;
+    const ByteSpan s = file.section(data, slot);
+    if (!mdls::is_mdls(s)) throw FormatError("the slot holds no model set");
+    gt3r::gtm1::Options o;
+    o.reflection = false, o.course_env_maps = true, o.alpha_test = true, o.gs_state = true;
+    mdls::Scene sc;
+    sc.color_scale = course::scenery_color_scale(file.section(data, course::kSlotEnv));
+    const gt3r::scene::Model m = mdls::build_model(s, o, sc, a[1]);
+    std::printf("%zu meshes, %zu textures, color scale %.2f\n", m.meshes.size(), m.textures.size(), sc.color_scale);
+    const size_t limit = a.size() > 3 ? size_t(std::atoi(a[3].c_str())) : 40;
+    for (size_t i = 0; i < m.meshes.size() && i < limit; ++i) {
+        const gt3r::scene::Mesh& mesh = m.meshes[i];
+        std::printf("model %d: %zu vertices\n", mesh.node, mesh.vertices.size());
+        for (const gt3r::scene::Primitive& p : mesh.primitives) {
+            double c[4] = {};
+            float lo[3] = {1e9f, 1e9f, 1e9f}, hi[3] = {-1e9f, -1e9f, -1e9f};
+            for (u32 k = 0; k < p.index_count; ++k) {
+                const gt3r::scene::Vertex& v = mesh.vertices[mesh.indices[p.first_index + k]];
+                for (int j = 0; j < 4; ++j) c[j] += double((v.color >> (8 * j)) & 0xFF);
+                for (int j = 0; j < 3; ++j) lo[j] = std::min(lo[j], v.pos[j]), hi[j] = std::max(hi[j], v.pos[j]);
+            }
+            const double n = std::max<double>(1, p.index_count);
+            std::string tex = "none";
+            if (p.texture >= 0) {
+                const gt3r::scene::Texture& t = m.textures[size_t(p.texture)];
+                double alpha = 0;
+                for (u32 px : t.rgba) alpha += double(px >> 24);
+                char buf[64];
+                std::snprintf(buf, sizeof buf, "%d (%ux%u, mean alpha %.0f)", p.texture, t.width, t.height, t.rgba.empty() ? 0.0 : alpha / double(t.rgba.size()));
+                tex = buf;
+            }
+            std::printf("  %5u tris  flags %06x  alpha ref %.2f  texture %s  color %.0f %.0f %.0f %.0f  box (%.0f %.0f %.0f)-(%.0f %.0f %.0f)\n",
+                        p.index_count / 3, p.flags, p.alpha_ref, tex.c_str(), c[0] / n, c[1] / n, c[2] / n, c[3] / n, lo[0], lo[1], lo[2], hi[0], hi[1], hi[2]);
+        }
+    }
+    return 0;
+}
+
 } // namespace
 
 int cmd_race(Disc& disc, const Args& a) {
     if (a[0] == "sections") return race_sections(disc, a);
     if (a[0] == "rail") return race_rail(disc, a);
+    if (a[0] == "models") return race_models(disc, a);
     std::fprintf(stderr, "race: unknown request %s\n", a[0].c_str());
     return 2;
 }

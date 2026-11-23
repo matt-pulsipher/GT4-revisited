@@ -71,6 +71,7 @@ public:
                 case 2: app.push(make_browser_screen()); break;
                 case 3: app.show_open_dialog(); break;
                 case 5: app.push(make_menu_viewer(app)); break;
+                case 6: app.push(make_race_screen(app)); break;
                 default: app.quit(); break;
                 }
                 error_.clear();
@@ -114,6 +115,7 @@ private:
         } catch (const std::exception& e) {
             error_ = e.what();
         }
+        if (cars && courses && app.gpu()) items_.push_back({"Drive", "", 6});
         if (cars) items_.push_back({"Cars", std::to_string(cars), 0});
         if (courses) items_.push_back({"Courses", std::to_string(courses), 1});
         if (const size_t menus = menu::list_projects([&app](const std::string& f) { return app.vfs()->list_dir(f); }).size())

@@ -104,6 +104,7 @@ bool App::init(int argc, char** argv) {
         push(make_hub_screen());
         if (!browse_.empty()) push(make_browser_screen(browse_));
         else if (start_ == "menus") push(make_menu_viewer(*this));
+        else if (start_ == "race") push(make_race_screen(*this));
         else if (start_ == "cars" || start_ == "courses") keys_.insert(keys_.begin(), start_ == "cars" ? "cross" : "down"), start_ == "courses" ? void(keys_.insert(keys_.begin() + 1, "cross")) : void();
     } else push(make_setup_screen());
     last_ticks_ = SDL_GetTicksNS();

@@ -58,6 +58,21 @@ struct Scene {
     // The factor on the vertex colours of pre-lit shapes (a course's scenery is drawn brighter than
     // its stored colours: course_file.h).
     float color_scale = 1.0f;
+    // A program's 0x06 switches ask the set's callback for a value by id (a car: 0 the brake
+    // lamps, 7 the lamp level, 11-14 a wheel's frame, 47 the spoiler; docs/formats/model.md).
+    // With `resolve_callbacks` every such switch is settled when the set is converted: the id's
+    // value here (`callback_default` for an id without one) takes that case when the switch has
+    // it, and any other value goes on after the table, at the construct's end.
+    bool resolve_callbacks = false;
+    std::map<u16, int> callback_values;
+    int callback_default = 0;
+    // >= 0: only the shapes drawn inside the constructs of the switches with this id are kept
+    // (a car's brake parts, drawn in the wheel's frame under id 11 + wheel).
+    int only_inside = -1;
+    // The values of the script's registers the draw programs read (segment 0 cells), when the
+    // set's script has been run for this draw: a 0x4D switch takes its register's case (none: it
+    // goes on after the table). Empty: every register reads 0.
+    std::vector<u32> registers;
 };
 // A wheel file's sets: [0, 1] the rim band, [2] an empty set, [3 ..] face pictures, still and
 // turning by turns (its symbols "NRM" and "ROT" number them 0 .. 3). A still wheel's face:
