@@ -46,6 +46,9 @@
 #include <string>
 #include <vector>
 
+namespace gt4r {
+int cmd_sound(Disc& disc, const std::vector<std::string>& args); // cmd_sound.cpp
+}
 using namespace gt4r;
 
 namespace {
@@ -614,6 +617,7 @@ const Command kCommands[] = {
     {"model", "<disc> <path>", 1, cmd_model},
     {"runway-survey", "<disc> [prefix]", 0, cmd_runway_survey},
     {"model-survey", "<disc> [prefix] [textures]", 0, cmd_model_survey},
+    {"sound", "<disc> survey | bank <path> | effects | music | seq... | se-wav... | car... (see cmd_sound.cpp)", 1, cmd_sound},
 };
 
 } // namespace
