@@ -21,13 +21,27 @@ Done:
 - [x] Models (`MDLS`): car bodies, wheels, tires, wings and prize objects decode and draw as
       still models; a 3D viewer from the asset browser (Square on a file with models).
 
+- [x] The race view (`src/gt4r/race/`, *Drive* on the home screen, `gt4tool race`): a course
+      drawn in the game's order (sky, backdrop, the scenery by the visibility list of the
+      camera's place, the flags and people moved by the sets' scripts, billboards, the sun, the
+      lamps' glows, fog and lights of the environment block, smoke and dust); cars on their
+      wheels (the body by the wheels' places, steered and turning wheels with their turning
+      pictures, brake parts, lit brake lamps, both shadows, lamps and their glows at night, the
+      database's paints); the three driving views and the course's replay cameras; the race
+      display (position, laps, times, the course map, the meters of both views, the start's
+      count) from the disc's pictures, fonts and program tables; a finished run shown again
+      through the replay cameras. The cars move on a stand-in (`rail_simulation.*`) behind
+      `simulation.h` until the simulation is in.
+
 Next, in order:
 
 1. **Sound formats that changed since Gran Turismo 3**: instrument banks, sequences, the music
    index; the double-byte fonts (`.kf`).
-2. **Cars in motion**: the car callbacks as the game runs them (steering, suspension, wheel
-   spin and the turning wheel pictures), the model scripts, the skinned drivers, paint choice.
-3. **Courses**: billboards, lamps, the environment block, visibility lists in a drawn course.
+2. **Cars, the rest**: the far level's wheels, the brake discs' glow, fitted wings, the moving
+   parts of the few cars with scripts, the skinned drivers, how a race picks opponents' paints.
+3. **Courses, the rest**: the road reflection (slots 9, 13, 50), the mirror, cones and boards
+   (`GDGT`), skid marks, the models that move or turn by registers, the animated skies, the
+   glow filter of the photo locations.
 4. **The car database's columns**: specifications, parts, events, opponents.
 5. **The menus running**: the widgets as objects the scripts drive (focus, navigation, the
    actors), the functions of the program's classes the scripts call, events.

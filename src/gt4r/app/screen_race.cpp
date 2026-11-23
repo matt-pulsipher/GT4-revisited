@@ -31,6 +31,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <map>
 
 namespace gt4r {
@@ -120,6 +121,12 @@ public:
                 o.paint = paints.empty() ? pick : paints[pick % paints.size()];
                 o.lamp_level = night_ ? 1 : 0;
                 visual = std::make_unique<race::CarVisual>(gpu, *file, pat ? ByteSpan(*pat) : ByteSpan{}, spec, o, entry.label);
+                // The course's strengths of the three lamp lists (Env0 +0x1794: lights, brake, tail).
+                if (const ByteSpan e0 = course_->section(course::kSlotEnv); e0.size() >= 0x17A0) {
+                    float v[3];
+                    std::memcpy(v, e0.data() + 0x1794, 12);
+                    visual->set_lamp_strengths(v[0], v[1], v[2]);
+                }
                 const gt3r::race::SunParams& env = course_->env();
                 if (env.has_shadow) {
                     race::CarVisual::Shadow sh;
@@ -133,6 +140,7 @@ public:
                     // (elevation and azimuth in degrees), its length per metre of height.
                     const float el = -env.shadow_elev * kPi / 180, az = -env.shadow_az * kPi / 180;
                     sh.shear = RVec{std::sin(az), 0, std::cos(az)} * (env.shadow_len * std::cos(el));
+                    sh.headlamps = night_ ? env.headlamp_pool : 0.0f;
                     visual->set_shadow(sh);
                 }
             }
@@ -171,6 +179,7 @@ public:
         lamps_.load(app.renderer(), &gpu, course_->section(course::kSlotEffects), env0, course_->section(course::kSlotWorldVis),
                     course_->section(course::kSlotFlareShape));
         billboards_.load(gpu, course_->section(course::kSlotBillboards), setup.course);
+        car_lamps_.load(app.renderer(), &gpu, env0, course_->section(course::kSlotFlareShape));
         if (setup.smoke) smoke_.load(gpu, env0, course_->section(course::kSlotSmoke));
         LOG_INFO("Drive: %zu lamps, %zu billboards, sun %s", lamps_.count(), billboards_.count(), sun_.params().enabled ? "on" : "off");
     }
@@ -409,6 +418,20 @@ public:
         const gt3r::race::Occluder& occluder = course_->occluder();
         lamps_.tick(kStep);
         lamps_.add(overlay_, rect, pose.view, pose.eye, frustum, [&](const RVec& a, const RVec& b) { return occluder.segment_blocked(a, b); }, &proj);
+        if (car_lamps_.active()) {
+            // The cars' lamps at night: the lights, the tail lamps, the brake lamps while braking.
+            glow_cars_.clear();
+            for (size_t i = 0; i < cars.size(); ++i) {
+                if (i == 0 && pose.body_hidden) continue;
+                gt3r::race::CarLampGlows::Car g;
+                g.lamps = &car_visuals_[i]->lamps();
+                g.model = car_visuals_[i]->body_matrix(cars[i]);
+                g.k = cars[i].brake_lamps ? 1.0f : 0.0f;
+                g.brake_now = cars[i].brake_lamps;
+                glow_cars_.push_back(g);
+            }
+            car_lamps_.add(overlay_, rect, pose.view, pose.eye, frustum, glow_cars_, [&](const RVec& a, const RVec& b) { return occluder.segment_blocked(a, b); }, &proj);
+        }
         o.overlay = &overlay_;
         view_->draw(ui.renderer(), rect, pose.view, proj, pose.eye, items_, o);
         if (frame_ == 5)
@@ -493,6 +516,8 @@ private:
     gt3r::race::SunDisc sun_disc_;
     gt3r::race::LampGlows lamps_;
     gt3r::race::Billboards billboards_;
+    gt3r::race::CarLampGlows car_lamps_;
+    std::vector<gt3r::race::CarLampGlows::Car> glow_cars_;
     gt3r::race::TyreSmoke smoke_;
     render::ScreenBatch overlay_;
     int countdown_ = 0, lap_start_ = 0, event_steps_ = -1, event_lap_ = 0, finish_steps_ = 0;

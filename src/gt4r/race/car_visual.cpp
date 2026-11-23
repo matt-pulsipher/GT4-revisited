@@ -194,13 +194,46 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
     // The shadows: model 1, the body's shape, which the race throws flat along the light, and
     // model 2, the shadow under the car (flat, at y = 0). Black shapes whose vertex alpha is
     // their strength.
-    for (u32 k = 0; k < 2 && body_models > k + 1; ++k) {
-        mdls::Scene sc = body_scene(false, 0);
+    for (u32 k = 0; k < 3 && body_models > k + 1; ++k) {
+        mdls::Scene sc = body_scene(false, 1);
         gt3r::gtm1::Options o;
         o.node = int(k + 1);
         shadow_src_[k] = mdls::build_model(body, o, sc, name + "/shadow");
     }
     mounts_ = read_camera_mounts(file);
+    // The lamps (info +0x18, +0x20, +0x28: count and offset from the file's start; 0x70 bytes
+    // each): a matrix whose rows are the lamp's axes and place (the third axis points into the
+    // car, against the light), its half sizes, the point tested for being in sight, and flags.
+    if (c.info && c.info + 0x30 <= file.size()) {
+        auto f = [&](size_t o) {
+            float v;
+            std::memcpy(&v, file.data() + o, 4);
+            return v;
+        };
+        std::vector<gt3r::race::CarLampRecord>* const lists[3] = {&lamps_.head, &lamps_.tail, &lamps_.brake};
+        for (size_t l = 0; l < 3; ++l) {
+            const u32 n = rd32(file, c.info + 0x18 + 8 * l), at = rd32(file, c.info + 0x1C + 8 * l);
+            for (u32 i = 0; i < n && i < 32 && at + 0x70 * size_t(i) + 0x70 <= file.size(); ++i) {
+                const size_t o = at + 0x70 * size_t(i);
+                gt3r::race::CarLampRecord r;
+                r.xaxis = {f(o), f(o + 4), f(o + 8)};
+                r.view_axis = {f(o + 0x20), f(o + 0x24), f(o + 0x28)};
+                r.pos = {f(o + 0x30), f(o + 0x34), f(o + 0x38)};
+                r.a = f(o + 0x40), r.b = f(o + 0x44);
+                r.test = {f(o + 0x48), f(o + 0x4C), f(o + 0x50)};
+                r.exponent = 1;
+                r.fade = (rd16(file, o + 0x64) & 1) != 0;
+                lists[l]->push_back(r);
+            }
+        }
+    }
+}
+
+void CarVisual::set_lamp_strengths(float head, float brake, float tail) {
+    // The glow's color is the course's lamp color times the lamp's own: white ahead, red behind.
+    for (gt3r::race::CarLampRecord& r : lamps_.head) r.rgb = {head, head, head};
+    for (gt3r::race::CarLampRecord& r : lamps_.brake) r.rgb = {brake, brake * 0.12f, brake * 0.06f};
+    for (gt3r::race::CarLampRecord& r : lamps_.tail) r.rgb = {tail, tail * 0.12f, tail * 0.06f};
 }
 
 CarVisual::~CarVisual() = default;
@@ -208,9 +241,26 @@ CarVisual::~CarVisual() = default;
 void CarVisual::set_shadow(const Shadow& s) {
     shadow_look_ = s;
     const u32 rgb = u32(std::clamp(s.rgb[0], 0.0f, 1.0f) * 255) | u32(std::clamp(s.rgb[1], 0.0f, 1.0f) * 255) << 8 | u32(std::clamp(s.rgb[2], 0.0f, 1.0f) * 255) << 16;
-    for (size_t k = 0; k < 2; ++k) {
+    for (size_t k = 0; k < 3; ++k) {
         shadow_[k].reset();
         if (!s.on || shadow_src_[k].meshes.empty()) continue;
+        if (k == 2) {
+            // The headlamps' light on the road: its own colors, added, at the course's strength.
+            if (s.headlamps <= 0) continue;
+            scene::Model m = shadow_src_[k];
+            for (scene::Mesh& mesh : m.meshes) {
+                for (scene::Vertex& v : mesh.vertices) {
+                    const u32 a = u32(std::clamp(float(v.color >> 24) * s.headlamps, 0.0f, 255.0f));
+                    v.color = (v.color & 0x00FFFFFFu) | a << 24;
+                }
+                for (scene::Primitive& p : mesh.primitives) {
+                    p.flags |= scene::kAdditive | scene::kNoDepthWrite | scene::kUnlit | scene::kDoubleSided;
+                    p.flags &= ~u32(scene::kAlphaBlend | scene::kEnvironmentMap | scene::kAlphaTest);
+                }
+            }
+            shadow_[k] = std::make_unique<render::GpuModel>(*ctx_, m);
+            continue;
+        }
         // The shape's own alpha is the shadow's strength; its color is the course's.
         scene::Model m = shadow_src_[k];
         const float factor = s.alpha * (k == 0 ? s.light_factor : 1.0f);
@@ -251,7 +301,7 @@ void CarVisual::add_items(std::vector<render::DrawItem>& items, const CarState& 
 }
 
 void CarVisual::add_shadow_items(std::vector<render::DrawItem>& items, const CarState& s) const {
-    if (!shadow_[0] && !shadow_[1]) return;
+    if (!shadow_[0] && !shadow_[1] && !shadow_[2]) return;
     // On the road under the car: the plane through the tires' contacts, lifted 2 cm.
     render::Vec3 contact{0, 0, 0};
     render::Vec3 c[4];
@@ -276,6 +326,7 @@ void CarVisual::add_shadow_items(std::vector<render::DrawItem>& items, const Car
         items.push_back({shadow_[0].get(), ground * flat, 0});
     }
     if (shadow_[1]) items.push_back({shadow_[1].get(), ground, 0});
+    if (shadow_[2]) items.push_back({shadow_[2].get(), ground, 0});
 }
 
 } // namespace gt4r::race

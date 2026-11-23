@@ -1,7 +1,9 @@
 # Cameras
 
-Code: `src/gt4r/race/drive_camera.*` (the driving views), `src/gt4r/race/car_visual.*` (the
-mounts as read). Facts from the program (`CORE.GT4`, SCUS-97328 v1.01;
+Code: `src/gt4r/race/drive_camera.*` (the driving views and the mounts), `src/gt4r/race/replay_script.*`
+(the replay script and the camera that plays it: the place, the target or the car, the lens, the
+picture offsets and the roll; not the operator's filter, the lens's spring, the roadside points,
+the marks, or the shots that run on time). Facts from the program (`CORE.GT4`, SCUS-97328 v1.01;
 addresses are the program's) and from the disc's cars and courses. The camera's own angles are
 degrees; a car's attitude angles are radians. 🔎 partly understood, ❓ not investigated; the
 rest is read from the program and, where data is involved, checked on the disc as stated. The shared engine's counterparts: [RACE.md](../../engine/gt3r/docs/dev/RACE.md)

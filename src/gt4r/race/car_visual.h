@@ -9,6 +9,7 @@
 #include "gt4r/race/car_spec.h"
 #include "gt4r/race/drive_camera.h"
 #include "gt4r/race/simulation.h"
+#include "race/lamp_glows.h"
 #include "render/gpu_model.h"
 #include "render/view3d.h"
 
@@ -38,6 +39,7 @@ public:
         float rgb[3] = {0, 0, 0};
         float alpha = 0.5f;
         float light_factor = 1;      // on the alpha of the shadow the light throws
+        float headlamps = 0;         // the strength of the headlamps' light on the road (0: none)
         render::Vec3 shear{0, 0, 0}; // course-space shift per metre of height: where the light throws it
     };
     void set_shadow(const Shadow& s);
@@ -51,6 +53,11 @@ public:
     // The model's frame in course space for a state: the body as drawn.
     render::Mat4 body_matrix(const CarState& s) const;
     const std::vector<CameraMount>& mounts() const { return mounts_; }
+    // The car's lamps for their glows at night (the file's three lists: lit with the lights, the
+    // tail lamps, the brake lamps), in the model's frame. `head`, `brake`, `tail`: the course's
+    // strengths for each list.
+    const gt3r::race::CarLampSet& lamps() const { return lamps_; }
+    void set_lamp_strengths(float head, float brake, float tail);
     const CarSpec& spec() const { return spec_; }
     int lods() const { return lods_; }
     // The body's box in the model's frame.
@@ -64,8 +71,10 @@ private:
     std::array<std::array<std::unique_ptr<render::GpuModel>, 2>, 4> wheels_; // [wheel][turning]: tire and wheel
     // The body's shape thrown flat along the light (model 1) and the shadow under the car (model 2):
     // as read, to recolor, and as drawn.
-    std::array<gt3r::scene::Model, 2> shadow_src_;
-    std::array<std::unique_ptr<render::GpuModel>, 2> shadow_;
+    // ... and the headlamps' light on the road (model 3), drawn when the course asks for it.
+    std::array<gt3r::scene::Model, 3> shadow_src_;
+    std::array<std::unique_ptr<render::GpuModel>, 3> shadow_;
+    gt3r::race::CarLampSet lamps_;
     render::GpuContext* ctx_ = nullptr;
     Shadow shadow_look_;
     std::vector<CameraMount> mounts_;

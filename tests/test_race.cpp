@@ -661,8 +661,10 @@ TEST(replay_script) {
 
 TEST(replay_script_disc) {
     if (test::discs().empty()) SKIP("set GT4R_DISC");
-    size_t scripts = 0, records = 0, covered = 0, asked = 0;
+    size_t scripts = 0, records = 0, covered = 0, asked = 0, backward = 0;
+    bool full_game = false;
     for (const auto& disc : test::discs()) {
+        full_game |= disc->info().game == Game::GT4;
         for (const gt3r::Volume::Entry& e : disc->volume().entries()) {
             if (e.path.compare(0, 4, "crs/") != 0 || e.path.find('/', 4) != std::string::npos || e.path.find('.') != std::string::npos) continue;
             const Bytes data = disc->volume().read(e);
@@ -674,7 +676,11 @@ TEST(replay_script_disc) {
                 if (!race::ReplayScript::is_script(section)) continue;
                 const race::ReplayScript s = race::ReplayScript::parse(section);
                 CHECK(!s.records.empty());
-                for (const race::ReplayRecord& r : s.records) CHECK(r.end >= r.start && !r.eye[0].empty() && r.aperture >= 1);
+                // (One record of Prologue's paris_tarmac ends before it starts: no car is ever in it.)
+                for (const race::ReplayRecord& r : s.records) {
+                    backward += r.end < r.start;
+                    CHECK(!r.eye[0].empty() && r.aperture >= 1);
+                }
                 if (slot != 44) continue;
                 ++scripts, records += s.records.size();
                 // A car driven round the lap has a shot nearly everywhere.
@@ -698,7 +704,8 @@ TEST(replay_script_disc) {
         }
     }
     if (!scripts) SKIP("no Gran Turismo 4 disc");
-    CHECK(scripts >= 100 && records > 6000);
+    if (full_game) CHECK(scripts >= 100 && records > 6000);
+    CHECK(backward <= 3);
     CHECK(covered == asked);
 }
 

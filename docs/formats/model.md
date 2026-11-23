@@ -371,6 +371,10 @@ brake state, the per-wheel values and the lamp level into the model; drawing is:
   of `Env0` for them (+0xA60 colour, +0xA6C alpha, +0xA70 / +0xA74 / +0xA78 direction and
   length) and for model 1's second factor the lit shade factor +0xAB0 over the picture's scale
   +0x38 (2.0 / 2.0 on Tsukuba: taken at face value the shadow comes out solid black) 🔎 by eye.
+- (The race view here: the lamp lists go to the shared engine's car lamp glows with the lamp's
+  first axis, its third axis as the viewing axis, its place, half sizes and test point; the
+  glow's color white for the first list and red for the other two 🔎 by eye, the record's own
+  color not having been found, at the strengths below.)
 - **Lamp glows** (when the lamp level is not 0): the info block's three lamp lists, the first
   at the course's headlamp brightness (or a flashing pattern's), the brake list at the brake
   brightness x the ramp (flag bit 0) or while braking, the tail list at the tail brightness
