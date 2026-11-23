@@ -7,6 +7,8 @@
 //   gt4tool tex <disc> <path> <dir>        decode every texture set in a file to PNGs
 //   gt4tool adc <disc> [path]              a script's listing; without a path, a count of all
 //   gt4tool menu <disc> [project]         the menu projects: pages, widgets, pictures and text found
+//   gt4tool menu-run <disc> <project> [keys]  runs a menu project's script on its widgets: the pages it opens,
+//                                          what it asks for; keys: up down left right accept cancel
 //   gt4tool run <disc> [path]              runs a script's top level with stand-ins for the program's own
 //                                          classes and lists what it asked of them; without a path, every script
 //   gt4tool db <disc> [cars | courses | <table> [rows]]   the car database
@@ -29,6 +31,7 @@
 #include "gt4r/formats/model/mdls.h"
 #include "gt4r/menu/font.h"
 #include "gt4r/menu/project.h"
+#include "gt4r/menu/runtime.h"
 #include "gt4r/script/adc.h"
 #include "gt4r/script/vm.h"
 
@@ -563,6 +566,34 @@ int cmd_menu(Disc& disc, const Args& a) {
     return 0;
 }
 
+int cmd_menu_run(Disc& disc, const Args& a) {
+    const std::vector<std::string> languages = menu::project_languages(folder_lister(disc), a[0]);
+    menu::Runtime rt(file_reader(disc));
+    size_t shown = 0;
+    auto report = [&](const std::string& after) {
+        std::printf("-- %s\n", after.c_str());
+        for (; shown < rt.log().size(); ++shown) std::printf("   %s\n", rt.log()[shown].c_str());
+        const menu::LiveWidget* page = rt.current_page();
+        const menu::LiveWidget* focus = rt.focused();
+        std::printf("   page: %s, focus: %s\n", page ? page->name.c_str() : "(none)", focus ? focus->path().c_str() : "(none)");
+    };
+    rt.start_project(a[0], languages.empty() ? "US" : languages[0]);
+    rt.update();
+    report("start");
+    for (size_t i = 1; i < a.size(); ++i) {
+        const std::string& k = a[i];
+        if (k == "stubs") {
+            for (const auto& [what, n] : rt.vm().stub_uses) std::printf("   %5u  %s\n", n, what.c_str());
+            continue;
+        }
+        rt.key(k == "up" ? menu::Key::Up : k == "down" ? menu::Key::Down : k == "left" ? menu::Key::Left : k == "right" ? menu::Key::Right
+               : k == "cancel" ? menu::Key::Cancel : menu::Key::Accept);
+        rt.update();
+        report(k);
+    }
+    return 0;
+}
+
 struct Command {
     const char* name;
     const char* usage;
@@ -577,6 +608,7 @@ const Command kCommands[] = {
     {"tex", "<disc> <path> <outdir>", 2, cmd_tex},
     {"adc", "<disc> [path]", 0, cmd_adc},
     {"menu", "<disc> [project] [all]", 0, cmd_menu},
+    {"menu-run", "<disc> <project> [keys...]", 1, cmd_menu_run},
     {"run", "<disc> [path]", 0, cmd_run},
     {"db", "<disc> [cars | wheels | courses | <table> [rows]]", 0, cmd_db},
     {"model", "<disc> <path>", 1, cmd_model},

@@ -6,6 +6,7 @@
 #include "gt4r/menu/image_pack.h"
 #include "gt4r/menu/layout.h"
 #include "gt4r/menu/project.h"
+#include "gt4r/menu/runtime.h"
 #include "gt4r/menu/text_table.h"
 
 #include <cstring>
@@ -224,5 +225,89 @@ TEST(disc_menus_read) {
             CHECK(boot.module_name() == "BootProject" && boot.translate("EntryRoot", "Welcome to GT WORLD") == "Welcome to Gran Turismo 4");
             CHECK(boot.translate("EntryRoot", "no such key") == "no such key");
         }
+    }
+}
+
+// A widget as the scripts see it: its properties as attributes, its children as members.
+TEST(live_widget_properties) {
+    const menu::Widget layout = menu::parse_layout(std::string_view(R"(RootWindow {
+	name string {"Top"}
+	children [2] {
+		SelectBox {
+			name string {"Box"}
+			geometry rectangle {100 200 300 40}
+			direction digit {1}
+			children [0] {
+			}
+		}
+		Composite {
+			name string {"Item"}
+			can_focus digit {1}
+			geometry rectangle {10 20 30 40}
+			children [1] {
+				TextFace { name string {"label"} text string {"one"} }
+			}
+		}
+	}
+})"));
+    script::Vm vm;
+    const std::shared_ptr<menu::LiveWidget> top = menu::LiveWidget::build(layout, vm.root());
+    using V = script::Value;
+    const V item = vm.lookup("Top::Item");
+    CHECK(item.kind == script::Kind::Module && vm.attribute(item, "name").as_string() == "Item");
+    CHECK(vm.attribute(item, "x").as_float() == 10 && vm.attribute(item, "h").as_float() == 40 && vm.attribute(item, "visible").i == 1);
+    CHECK(vm.attribute(vm.lookup("Top::Item::label"), "text").as_string() == "one" && vm.attribute(item, "actor").is_nil());
+    vm.member(item, "visible")->set(vm, V::integer(0));
+    vm.member(item, "y")->set(vm, V::number(55.5f));
+    vm.member(vm.lookup("Top::Item::label"), "text")->set(vm, V::string("two"));
+    const menu::LiveWidget& live = *top->children[1];
+    CHECK(!live.visible() && live.data.rect("geometry")->y == 55.5f && live.children[0]->data.text("text") == "two");
+    // Copies into a box that shows one at a time.
+    const V box = vm.lookup("Top::Box");
+    for (int i = 0; i < 3; ++i) {
+        const V copy = vm.call(vm.attribute(item, "doCopy"), {});
+        const V args[1] = {copy};
+        vm.call(vm.attribute(box, "appendChild"), args);
+    }
+    const menu::LiveWidget& b = *top->children[0];
+    CHECK(b.children.size() == 3 && b.children[0] != top->children[1] && b.children[2]->children.size() == 1);
+    CHECK(vm.attribute(box, "first").p == b.children[0] && vm.attribute(V::of(script::Kind::Module, b.children[0]), "next").p == b.children[1]);
+    CHECK(vm.attribute(V::of(script::Kind::Module, b.children[2]), "next").is_nil());
+    vm.member(box, "index")->set(vm, V::integer(1));
+    CHECK(b.children[0]->data.rect("geometry")->y == -40 && b.children[1]->data.rect("geometry")->y == 0 && b.children[2]->data.rect("geometry")->y == 40);
+    CHECK(b.children[1]->screen_rect().x == 100 && b.children[1]->screen_rect().y == 200 && b.children[1]->screen_rect().w == 300);
+    vm.call(vm.attribute(box, "clearChildren"), {});
+    CHECK(b.children.empty() && vm.attribute(box, "first").is_nil());
+}
+
+// The game's own title page runs: its script builds the menu, the keys move through it, and
+// choosing Options ends the project asking for the option project.
+TEST(disc_title_page_runs) {
+    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    for (const auto& disc : test::discs()) {
+        if (disc->info().game != Game::GT4) continue;
+        menu::Runtime rt([&](const std::string& path) -> std::optional<Bytes> {
+            const gt3r::Volume::Entry* e = disc->volume().find(path);
+            if (!e) return std::nullopt;
+            return disc->volume().read(*e);
+        });
+        rt.start_project("arcade", "US");
+        rt.update();
+        CHECK(rt.current_page() && rt.current_page()->name == "TopRoot");
+        CHECK(rt.focused() && rt.focused()->parent_widget() && rt.focused()->parent_widget()->data.type == "SelectBox");
+        if (!rt.focused()) continue;
+        const size_t items = rt.focused()->parent_widget()->children.size();
+        CHECK(items >= 3 && (rt.focused()->state & menu::kFocus));
+        // Down to "Option" (wherever it is in the list), then choose it.
+        for (size_t i = 0; i < items && rt.focused()->name != "Option"; ++i) rt.key(menu::Key::Down);
+        CHECK(rt.focused()->name == "Option");
+        rt.key(menu::Key::Accept);
+        rt.update();
+        CHECK(!rt.current_page() && rt.wanted_project() == "option");
+        // The option project opens its page and has something to focus.
+        rt.start_project("option", "US");
+        rt.update();
+        CHECK(rt.current_page() && rt.current_page()->name == "OptionRoot" && rt.focused());
+        for (const std::string& line : rt.log()) CHECK(line.find("script error") == std::string::npos);
     }
 }

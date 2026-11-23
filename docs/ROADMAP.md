@@ -15,6 +15,9 @@ Done:
 - [x] Menus as still pictures: the layouts (`.mproject`), the pages' pictures (`.gpb`), the
       text (`.rt2`) and the fonts (`.fnt`) read; the app draws any page of any project
       (*Menu pages*); `gt4tool menu`.
+- [x] Menus running, a first part: a project's widgets as objects of the script world, the
+      context, events, focus and keys; the title page builds its menu from the game's script
+      and leads on to the project chosen (`gt4tool menu-run`; R1 in *Menu pages*).
 - [x] Models (`MDLS`): car bodies, wheels, tires, wings and prize objects decode and draw as
       still models; a 3D viewer from the asset browser (Square on a file with models).
 

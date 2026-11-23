@@ -1,7 +1,7 @@
 # Menus: layouts, pictures, text, fonts
 
-Code: `src/gt4r/menu/` (`layout.*`, `image_pack.*`, `text_table.*`, `font.*`, `project.*`);
-`gt4tool menu`; the app's *Menu pages* screen (`src/gt4r/app/screen_menu_viewer.cpp`).
+Code: `src/gt4r/menu/` (`layout.*`, `image_pack.*`, `text_table.*`, `font.*`, `project.*`,
+`runtime.*`); `gt4tool menu`, `gt4tool menu-run`; the app's *Menu pages* screen (`src/gt4r/app/screen_menu_viewer.cpp`).
 
 The menus are *projects* (`projects/<name>/`): `boot`, `arcade`, `gtmode`, `option`, `quick`,
 ... (33 on the US disc, 213 pages, 12,713 widgets; 9 projects in Prologue). A project is:
@@ -71,6 +71,47 @@ none compared with the program's own code yet):
 `HBox`: children carry their rectangles already), `ModelFace`, `CarFace`, `MovieFace`,
 `SceneViewFace`, the tool tips. The widgets' behaviour (focus, navigation, the actors that
 move and fade them) is the program's and the scripts'.
+
+## Running (`runtime.*`)
+
+A first part of the program's menu system, enough for the scripts to open their pages and
+answer keys: the title page builds its own menu and leads on (*Menu pages*, R1 on a project;
+`gt4tool menu-run <disc> arcade down accept`). The program's side is written from what the
+scripts ask of it; nothing here is compared with the program's own code yet, and what is not
+written is a stand-in that records the call (`gt4tool menu-run ... stubs` lists them).
+
+How a project runs, as far as it is written:
+
+1. Each widget of the layout is a module of the script world named as in the layout
+   (`ArcadeProject::TopRoot::StartScroll::SelectBox`): its children are members, its
+   properties are attributes (`widget.visible = 0`, `label.text = ...`, `x`, `y`, `w`, `h`).
+2. The project's script runs (`projects/<name>/<name>.adc`): its `module` blocks add the
+   event functions to those modules.
+3. The project's `onLoad(context)` is called. It opens a page with
+   `context.startPage(page)` (through the script's own `start_page`, which queues an event).
+4. A page that opens gets `onInitialize(context)`; one that closes, `onFinalize(context)`.
+5. Keys: the directions move the focus; accept calls `onActivate(context, event)` and cancel
+   `onCancel(context, event, item)` on the focused widget, then on each parent up to the
+   project, until one returns a number other than 0. `event.widget` is the focused widget.
+6. `context.finish()` ends the project; `main::game.next_menu_project` names the next one.
+
+| Of | Written |
+|---|---|
+| `context` | `startPage`, `pushPage`, `closePage`, `finish`, `pushEvent`, `translate(page, key)`, `cursor_visible`, `transition` (nil); `sync`, `flushKeyEvent`, `createRenderContext` do nothing |
+| `menu::MScriptEvent(context, module, function, arguments)`, `menu::MFunctionEvent(function, arguments...)` | Queued by `pushEvent`, called on the next frame |
+| Any widget | `doCopy()`, `appendChild([context,] widget)`, `clearChildren()`, `clearWindow()`, `first`, `last`, `next`, `prev`, `setFocus(widget)`, `actor` |
+| `SelectBox`, `SelectBar` | Show one child at a time: `index` chooses it, the keys along the box move it (`repeat`: around the ends), the chosen child has the focus. ❓ Their placing is by eye |
+| `main::game` | `next_menu_project`, `next_menu_arg`, `major_menu_project`, `major_menu_page`, `last_menu_project`, `option.special_arcade_tuner`, `option.can_watch_ending` |
+| `main::sound.play(name)` | Recorded |
+| `menu::MSystem.GetRegionCode()` | `us` |
+
+❓ Next: the actors (`MFadeActor`, `MMoveActor`, `MBlinkActor`, ...: the pages' movement),
+`context.sync` (a script waits while the page draws: scripts are threads in the program),
+the watcher (`MScriptWatcher`: a function every so many frames), the other widgets' own
+functions (`OptionMenu`, `ListBox`, `ScrollWindow`, ...), `main::game`'s state (the garage,
+the options, the memory card: the boot project waits on the memory card manager), focus
+navigation as the program does it (`navigate_target`, `navigate_source`), the main script
+(`projects/GT4Application.adc`) and the configuration it loads.
 
 ## Pictures (`.gpb`)
 

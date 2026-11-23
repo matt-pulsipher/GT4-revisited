@@ -9,10 +9,12 @@
 #include "formats/text/text_layout.h"
 #include "gt4r/menu/font.h"
 #include "gt4r/menu/project.h"
+#include "gt4r/menu/runtime.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <deque>
 #include <map>
 
 namespace gt4r {
@@ -23,8 +25,10 @@ using menu::Rect;
 using menu::Rgba;
 using menu::Widget;
 
-// A widget's states, as bits of the number its faces' "visible_condition" is tested against.
-enum State : int { kActive = 1, kFocus = 2, kPrelight = 4, kInsensitive = 8 };
+using menu::kActive;
+using menu::kFocus;
+using menu::kInsensitive;
+using menu::LiveWidget;
 
 // Draws a page into a rectangle of the screen.
 class PageDrawer {
@@ -50,11 +54,11 @@ public:
     int widgets_drawn = 0;
 
     // The page's 640 x 480 into (x, y) at `scale`; `state`: the bits every widget is drawn in.
-    void draw(const Widget& page, float x, float y, float scale, int state) {
-        ox_ = x, oy_ = y, scale_ = scale, state_ = state, page_ = page.name(), widgets_drawn = 0;
+    void draw(const LiveWidget& page, float x, float y, float scale, int state) {
+        ox_ = x, oy_ = y, scale_ = scale, page_ = page.name, widgets_drawn = 0;
         const SDL_Rect whole = to_clip({0, 0, 640, 480});
         SDL_SetRenderClipRect(r_, &whole);
-        widget(page, {0, 0, 640, 480}, 1.0f, whole);
+        widget(page, {0, 0, 640, 480}, 1.0f, whole, state);
         SDL_SetRenderClipRect(r_, nullptr);
     }
 
@@ -185,15 +189,18 @@ private:
         pass(w.color("text_color").value_or(Rgba{255, 255, 255, 255}), 0, 0);
     }
 
-    void widget(const Widget& w, const Rect& parent, float opacity, const SDL_Rect& clip) {
+    // A widget is drawn in its own state and its parents' (a focused button's faces light up).
+    void widget(const LiveWidget& live, const Rect& parent, float opacity, const SDL_Rect& clip, int state) {
+        const Widget& w = live.data;
+        state |= live.state;
         if (w.has("visible") && w.number("visible") == 0) return;
         if (w.has("visible_condition")) {
             const int want = int(w.number("visible_condition")), mask = int(w.number("visible_compare", float(want)));
-            if ((state_ & mask) != want) return;
+            if ((state & mask) != want) return;
         }
         Rect at = parent;
         if (const std::optional<Rect> g = w.rect("geometry")) at = {parent.x + g->x, parent.y + g->y, g->w, g->h};
-        opacity *= w.number("opacity", 1);
+        opacity *= w.number("opacity", 1) * w.number("alpha", 1);
         ++widgets_drawn;
         const std::vector<Rgba> colors = w.colors("color");
         const Rgba tint = colors.empty() ? Rgba{} : colors[0];
@@ -211,7 +218,7 @@ private:
             if (!SDL_GetRectIntersection(&clip, &own, &inner)) return;
             SDL_SetRenderClipRect(r_, &inner);
         }
-        for (const Widget& c : w.children()) widget(c, at, opacity, inner);
+        for (const auto& c : live.children) widget(*c, at, opacity, inner, state);
         if (w.number("clip") != 0) SDL_SetRenderClipRect(r_, &clip);
     }
 
@@ -222,7 +229,6 @@ private:
     std::map<const gt3r::Tex1::Image*, SDL_Texture*> textures_;
     std::map<std::pair<const gt3r::text::LatinFont*, int>, SDL_Texture*> atlases_;
     float ox_ = 0, oy_ = 0, scale_ = 1;
-    int state_ = 0;
     std::string page_;
 };
 
@@ -234,7 +240,7 @@ public:
             const std::vector<std::string> languages = menu::project_languages(list, name);
             projects_.push_back({name, languages.empty() ? std::string("US") : languages[0]});
         }
-        // GT4R_MENU="project=boot,page=LanguageRoot,state=2,full=1": what a scripted run opens.
+        // GT4R_MENU="project=boot,page=LanguageRoot,state=2,full=1,run=1": what a scripted run opens.
         if (const char* env = std::getenv("GT4R_MENU")) {
             std::string spec = env;
             size_t at = 0;
@@ -249,6 +255,7 @@ public:
                 else if (key == "page") start_page_ = value;
                 else if (key == "state") state_ = std::atoi(value.c_str());
                 else if (key == "full") full_ = value != "0";
+                else if (key == "run") start_run_ = value != "0";
             }
         }
     }
@@ -260,13 +267,14 @@ public:
                 if (projects_[i].name == start_project_) project_sel_ = int(i);
             start_project_.clear();
             open(app);
-            if (project_)
-                for (size_t i = 0; i < project_->pages().size(); ++i)
-                    if (project_->pages()[i].name() == start_page_) page_sel_ = int(i);
+            for (size_t i = 0; i < pages_.size(); ++i)
+                if (pages_[i]->name == start_page_) page_sel_ = int(i);
+            if (start_run_ && project_) run(app);
         }
+        if (runtime_) return update_running(app, m);
         if (m.pressed(PadButton::Triangle)) {
             if (full_) full_ = false;
-            else if (project_) project_.reset(), drawer_.reset(), error_.clear();
+            else if (project_) close();
             else app.pop();
             return;
         }
@@ -278,46 +286,49 @@ public:
             if (m.pressed(PadButton::Cross)) open(app);
             return;
         }
-        const int pages = int(project_->pages().size());
-        if (pages) page_sel_ = std::clamp(page_sel_ + m.vertical() + (m.pressed(PadButton::L1) ? -kRows : m.pressed(PadButton::R1) ? kRows : 0), 0, pages - 1);
+        const int pages = int(pages_.size());
+        if (pages) page_sel_ = std::clamp(page_sel_ + m.vertical() + (m.pressed(PadButton::L1) ? -kRows : 0), 0, pages - 1);
         if (m.pressed(PadButton::Cross)) full_ = !full_;
+        if (m.pressed(PadButton::R1)) run(app);
     }
 
     void render(App&, Ui& ui) override {
+        if (runtime_) return render_running(ui);
         const char* states = state_ == kFocus ? "focused" : state_ == kActive ? "active" : state_ == kInsensitive ? "unavailable" : "at rest";
-        if (project_ && full_ && page_sel_ < int(project_->pages().size())) {
+        if (project_ && full_ && page_sel_ < int(pages_.size())) {
             // The page over the whole height (4:3).
             const float scale = float(Ui::kHeight) / 480.0f;
             ui.fill(0, 0, Ui::kWidth, Ui::kHeight, {0, 0, 0});
-            drawer_->draw(project_->pages()[size_t(page_sel_)], (Ui::kWidth - 640 * scale) / 2, 0, scale, state_);
+            drawer_->draw(*pages_[size_t(page_sel_)], (Ui::kWidth - 640 * scale) / 2, 0, scale, state_);
             return;
         }
         ui.header("MENU PAGES", project_ ? project_->name() + "  (" + project_->module_name() + ", " + project_->language() + ")" : std::string());
-        const int n = project_ ? int(project_->pages().size()) : int(projects_.size());
+        const int n = project_ ? int(pages_.size()) : int(projects_.size());
         const int sel = project_ ? page_sel_ : project_sel_;
         const int first = ui.list_window(n, sel, kRows);
         for (int i = 0; i < kRows && first + i < n; ++i) {
             const int idx = first + i;
             const float y = 26 + float(i) * 12;
             if (idx == sel) ui.fill(4, y - 2, 200, 12, colors::kHighlight);
-            ui.text(8, y, Ui::clip(project_ ? project_->pages()[size_t(idx)].name() : projects_[size_t(idx)].name, 190), colors::kText);
+            ui.text(8, y, Ui::clip(project_ ? pages_[size_t(idx)]->name : projects_[size_t(idx)].name, 190), colors::kText);
         }
         if (n > kRows) ui.text_right(200, Ui::kHeight - 30, std::to_string(sel + 1) + "/" + std::to_string(n), colors::kDim);
         const float px = 212, py = 26, pw = Ui::kWidth - px - 6, ph = Ui::kHeight - 50 - py;
         ui.fill(px, py, pw, ph, colors::kPanel);
         if (!error_.empty()) ui.text(px + 6, py + 6, Ui::clip(error_, pw - 12), colors::kBad);
         if (project_ && page_sel_ < n) {
-            const Widget& page = project_->pages()[size_t(page_sel_)];
+            const LiveWidget& page = *pages_[size_t(page_sel_)];
             const float scale = std::min(pw / 640.0f, (ph - 14) / 480.0f);
             const float x = px + (pw - 640 * scale) / 2, y = py;
             ui.fill(x, y, 640 * scale, 480 * scale, {0, 0, 0});
             drawer_->draw(page, x, y, scale, state_);
-            ui.text(px + 6, py + ph - 12, std::to_string(page.count()) + " widgets, " + std::to_string(drawer_->widgets_drawn) + " drawn " + states, colors::kDim);
+            ui.text(px + 6, py + ph - 12, std::to_string(drawer_->widgets_drawn) + " widgets drawn " + states, colors::kDim);
         } else if (!project_) {
             ui.text(px + 6, py + 6, "The game's menus, a project each: its pages drawn from the", colors::kDim);
-            ui.text(px + 6, py + 18, "disc's layout, pictures, text and fonts. Still pictures for now.", colors::kDim);
+            ui.text(px + 6, py + 18, "disc's layout, pictures, text and fonts.", colors::kDim);
         }
-        ui.footer(project_ ? "{Up/Down}: page  {Cross}: whole screen  {Square}: state  {Triangle}: back" : "{Up/Down}: select  {Cross}: open  {Triangle}: back");
+        ui.footer(project_ ? "{Up/Down}: page  {Cross}: whole screen  {Square}: state  {R1}: run its script  {Triangle}: back"
+                           : "{Up/Down}: select  {Cross}: open  {Triangle}: back");
     }
 
 private:
@@ -332,20 +343,86 @@ private:
         try {
             project_ = std::make_unique<menu::Project>([&app](const std::string& path) { return app.vfs()->read(path); }, e.name, e.language);
             drawer_ = std::make_unique<PageDrawer>(app, *project_);
+            pages_.clear();
+            for (const Widget& page : project_->pages()) pages_.push_back(LiveWidget::build(page, nullptr));
             page_sel_ = 0;
             error_.clear();
         } catch (const std::exception& ex) {
-            project_.reset(), drawer_.reset();
+            close();
             error_ = ex.what();
             LOG_WARN("Menu viewer: %s", ex.what());
         }
+    }
+    void close() {
+        for (auto& p : pages_) p->clear();
+        pages_.clear(), drawer_.reset(), project_.reset(), error_.clear();
+    }
+
+    // The project's script on its widgets: the game's own menu, as far as the program's side
+    // of it is written.
+    void run(App& app) {
+        const Entry e = projects_[size_t(project_sel_)];
+        try {
+            runtime_ = std::make_unique<menu::Runtime>([&app](const std::string& path) { return app.vfs()->read(path); });
+            start(app, e.name);
+        } catch (const std::exception& ex) {
+            runtime_.reset(), live_drawer_.reset();
+            error_ = ex.what();
+            LOG_WARN("Menu viewer: %s", ex.what());
+        }
+    }
+    void start(App& app, const std::string& name) {
+        std::string language = "US";
+        for (const Entry& e : projects_)
+            if (e.name == name) language = e.language;
+        live_drawer_.reset();
+        runtime_->start_project(name, language);
+        live_drawer_ = std::make_unique<PageDrawer>(app, *runtime_->project());
+    }
+
+    void update_running(App& app, const MenuInput& m) {
+        if (m.pressed(PadButton::L1)) {
+            live_drawer_.reset(), runtime_.reset();
+            return;
+        }
+        try {
+            if (m.vertical()) runtime_->key(m.vertical() < 0 ? menu::Key::Up : menu::Key::Down);
+            if (m.horizontal()) runtime_->key(m.horizontal() < 0 ? menu::Key::Left : menu::Key::Right);
+            if (m.pressed(PadButton::Cross)) runtime_->key(menu::Key::Accept);
+            if (m.pressed(PadButton::Triangle)) runtime_->key(menu::Key::Cancel);
+            runtime_->update();
+            // A script that ended its project names the next one.
+            if (!runtime_->current_page()) {
+                const std::string next = runtime_->wanted_project();
+                const bool known = std::any_of(projects_.begin(), projects_.end(), [&](const Entry& e) { return e.name == next; });
+                if (known && ++restarts_ < 8) start(app, next);
+            } else restarts_ = 0;
+        } catch (const std::exception& ex) {
+            runtime_->note(std::string("stopped: ") + ex.what());
+        }
+    }
+
+    void render_running(Ui& ui) {
+        const float scale = float(Ui::kHeight) / 480.0f, x = (Ui::kWidth - 640 * scale) / 2;
+        ui.fill(0, 0, Ui::kWidth, Ui::kHeight, {0, 0, 0});
+        if (live_drawer_)
+            for (const auto& page : runtime_->open_pages()) live_drawer_->draw(*page, x, 0, scale, 0);
+        // What the scripts did, beside the page.
+        const std::deque<std::string>& log = runtime_->log();
+        const size_t lines = std::min<size_t>(log.size(), 26);
+        for (size_t i = 0; i < lines; ++i) ui.text(2, 14 + float(i) * 12, Ui::clip(log[log.size() - lines + i], x - 4), colors::kDim);
+        ui.text(2, 2, runtime_->project() ? runtime_->project()->name() : std::string("-"), colors::kAccent);
+        ui.text(x + 640 * scale + 2, 2, "L1: stop", colors::kDim);
     }
 
     std::vector<Entry> projects_;
     std::unique_ptr<menu::Project> project_;
     std::unique_ptr<PageDrawer> drawer_;
-    int project_sel_ = 0, page_sel_ = 0, state_ = 0;
-    bool full_ = false;
+    std::vector<std::shared_ptr<LiveWidget>> pages_;
+    std::unique_ptr<menu::Runtime> runtime_;
+    std::unique_ptr<PageDrawer> live_drawer_;
+    int project_sel_ = 0, page_sel_ = 0, state_ = 0, restarts_ = 0;
+    bool full_ = false, start_run_ = false;
     std::string error_, start_project_, start_page_;
 };
 
