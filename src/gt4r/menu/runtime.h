@@ -34,6 +34,7 @@ struct LiveWidget : script::Module {
     std::map<std::string, std::shared_ptr<script::Reference>> extras; // attributes the program keeps that are no layout property
     bool by_name_ = false; // inside element(): a name that is not there is nil
     std::weak_ptr<LiveWidget> focus;                                  // a page's: the widget of it that has the focus
+    std::weak_ptr<LiveWidget> focus_seen;                             // a page's: the focus its last picture had (the focus events)
     Runtime* runtime = nullptr;                                       // the one running it (none for a page only drawn)
     // A list box's rows, made from its template as they are asked for.
     std::vector<std::shared_ptr<LiveWidget>> items;
@@ -141,6 +142,10 @@ public:
     std::string wanted_project() const;
     // or the race they asked for (`main::game.next_sequence` set to a race's).
     std::optional<RaceRequest> race_request() const;
+    // A race run: what the program writes after it (records, the diary's day, the counters),
+    // as GameState holds them. Answers the prize the scripts pay (the quick menus' `prize`;
+    // the money itself is the scripts' incMoney).
+    s64 race_finished(const RaceResult& result);
     // Starts the project asked for; false when there is none (a race was asked for, or nothing).
     bool advance();
 
@@ -176,6 +181,9 @@ public:
     void finish();
     void navigate_sound(LiveWidget& page);
     void push_event(const script::Value& event);
+    // A widget's script function queued as an event (run after the event being dispatched);
+    // nothing when the widget has no such function.
+    void queue_call(LiveWidget& w, const std::string& name, std::vector<script::Value> args);
     void flush_key_events();
     void enter_event_loop();
     void leave_event_loop();
@@ -221,6 +229,7 @@ private:
         std::string what;
     };
     void install_natives();
+    void queue_focus_events();
     void pump();
     void run(const script::Value& callee, std::vector<script::Value> args, std::string what, std::function<void(const script::Value&)> done = {});
     // Calls `name` on each widget of a chain until one deals with it, then `done(dealt)`.
@@ -249,6 +258,7 @@ private:
     std::vector<std::weak_ptr<script::Heap>> actors_;
     std::vector<std::shared_ptr<Object>> watchers_;
     std::deque<std::shared_ptr<Object>> due_watchers_;
+    u64 watchers_turn_ = ~u64(0); // the frame whose loop turn has stepped the watchers
     std::deque<std::string> log_;
     std::vector<SoundCall> sounds_;
     u64 frame_ = 0, last_input_frame_ = 0;

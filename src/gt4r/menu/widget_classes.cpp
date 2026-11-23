@@ -96,22 +96,203 @@ void set_popup(Runtime& rt, LiveWidget& menu, bool open) {
     }
 }
 
-int slider_limit(const LiveWidget& w, const char* name, int fallback) { return w.data.has(name) ? int(w.data.number(name)) : fallback; }
+// ---- the bars (docs/formats/menu.md "SliderBar, ScaleBar")
+//
+// A SliderBar (0x2DD820) holds a whole `index` in [min, max] (a counter whose end is max + 1,
+// wrapping with the layout's `repeat`), a ScaleBar (0x236860) a number `value` in [min, max].
+// Both draw their `pinch` between display_min and display_max, sliding after the value; with
+// a popup (SliderBar: the layout's `popup`; ScaleBar: a child named `popup`) accept opens the
+// popup and only then do the keys along the bar change the value.
 
-// A slider's parts follow its value: the pinch along the popup's bar.
-void arrange_slider(LiveWidget& w) {
-    const W popup = w.child("popup");
-    if (!popup) return;
-    popup->set_property("visible", Value::integer(popup_open(w)));
-    const W pinch = popup->child("pinch");
-    const std::optional<Rect> bar = popup->data.rect("geometry");
-    if (!pinch || !bar) return;
-    const int lo = slider_limit(w, "min", 0), hi = slider_limit(w, "max", 100);
-    const std::optional<Rect> p = pinch->data.rect("geometry");
-    const float span = bar->w - (p ? p->w : 0.0f);
-    const float t = hi > lo ? float(w.index() - lo) / float(hi - lo) : 0.0f;
-    pinch->set_property("x", Value::number(std::clamp(t, 0.0f, 1.0f) * std::max(span, 0.0f)));
+namespace {
+
+float bar_num(const LiveWidget& w, const char* name, float fallback) { return w.data.has(name) ? w.data.number(name) : fallback; }
+void bar_set(LiveWidget& w, const char* name, float v) { w.set_property(name, Value::number(v)); }
+void bar_seti(LiveWidget& w, const char* name, int v) { w.set_property(name, Value::integer(v)); }
+
+// The defaults and the layout's properties, once.
+void bar_init(LiveWidget& w) {
+    if (w.data.number("bar_ready")) return;
+    bar_seti(w, "bar_ready", 1);
+    if (w.is("SliderBar")) {
+        int lo = 0, hi = 1;
+        if (const Property* r = w.data.find("range"); r && r->values.size() >= 2) lo = std::atoi(r->values[0].c_str()), hi = std::atoi(r->values[1].c_str());
+        if (hi < lo) hi = lo;
+        bar_seti(w, "min", lo), bar_seti(w, "max", hi), bar_seti(w, "display_min", lo), bar_seti(w, "display_max", hi);
+        if (!w.data.has("step")) bar_seti(w, "step", 1);
+        const int index = std::clamp(int(w.data.number("index")), lo, hi);
+        bar_seti(w, "index", index), bar_set(w, "bar_shown", float(index));
+    } else {
+        // `scale_direction` 0 is horizontal; `horizontal` as given; the default horizontal.
+        if (w.data.has("scale_direction")) bar_seti(w, "horizontal", w.data.number("scale_direction") == 0);
+        else if (!w.data.has("horizontal")) bar_seti(w, "horizontal", 1);
+        const float lo = bar_num(w, "min", 0), hi = bar_num(w, "max", 100);
+        bar_set(w, "min", lo), bar_set(w, "max", hi), bar_set(w, "display_min", 0), bar_set(w, "display_max", 100);
+        if (!w.data.has("step")) bar_set(w, "step", 1);
+        const float v = std::clamp(bar_num(w, "value", 0), lo, std::max(lo, hi));
+        bar_set(w, "value", bar_num(w, "value", 0)), bar_set(w, "current_value", v), bar_set(w, "repeat_start", v);
+    }
+    if (const W popup = w.child("popup")) popup->set_property("visible", Value::integer(0));
 }
+
+bool bar_popup_mode(const LiveWidget& w) { return w.is("SliderBar") ? w.data.number("popup") != 0 : w.child("popup") != nullptr; }
+
+// SliderBar: move the counter by d (0x57CF10): wrap with `repeat`, else clamp. True when it changed.
+bool slider_move(LiveWidget& w, int d) {
+    const int lo = int(w.data.number("min")), hi = int(w.data.number("max")), before = int(w.data.number("index"));
+    if (hi < lo) return false;
+    int v = before + d;
+    if (w.data.number("repeat") != 0) {
+        const int n = hi - lo + 1;
+        v = lo + ((v - lo) % n + n) % n;
+    } else v = std::clamp(v, lo, hi);
+    bar_seti(w, "index", v);
+    return v != before;
+}
+
+void cursor_shown(Runtime& rt, bool on) {
+    if (auto render = rt.context().as<Object>()) render->set("cursor_visible", Value::integer(on));
+}
+
+void play(Runtime& rt, const char* name) {
+    const Value arg = Value::string(name);
+    rt.sound("sound", "play", Args(&arg, 1));
+}
+
+// SliderBar: onValueChanged(context, index) at once, with `has_script` (0x2DF3A0).
+void slider_notify(Runtime& rt, LiveWidget& w, bool sound) {
+    if (sound) play(rt, "param");
+    if (w.data.number("has_script") != 0) rt.call_now(w, "onValueChanged", {rt.context(), Value::integer(w.index())});
+}
+
+// ScaleBar: onValueChanged(context, bar) and onStepChanged(context, bar) queued (0x238978,
+// 0x238A10).
+void scale_value_notify(Runtime& rt, LiveWidget& w) {
+    if (w.data.number("cancel") == 0) play(rt, "param");
+    rt.queue_call(w, "onValueChanged", {rt.context(), widget_value(w.self())});
+}
+void scale_step_notify(Runtime& rt, LiveWidget& w) { rt.queue_call(w, "onStepChanged", {rt.context(), widget_value(w.self())}); }
+
+void bar_open(Runtime& rt, LiveWidget& w) {
+    play(rt, "cursor");
+    bar_seti(w, "is_popuped", 1), bar_seti(w, "cancel", 0);
+    cursor_shown(rt, false);
+    bar_set(w, "bar_saved", w.is("SliderBar") ? float(w.index()) : bar_num(w, "value", 0));
+    if (const W popup = w.child("popup")) popup->set_property("visible", Value::integer(1));
+}
+
+void bar_close(Runtime& rt, LiveWidget& w, bool cancel) {
+    play(rt, "cursor");
+    if (w.is("SliderBar")) {
+        if (cancel) {
+            bar_seti(w, "index", int(w.data.number("bar_saved")));
+            slider_notify(rt, w, false);
+        }
+    } else {
+        bar_seti(w, "cancel", cancel);
+        if (cancel) {
+            const float v = std::clamp(bar_num(w, "bar_saved", 0), bar_num(w, "min", 0), bar_num(w, "max", 100));
+            bar_set(w, "value", v), bar_set(w, "current_value", v), bar_set(w, "repeat_start", v);
+            scale_value_notify(rt, w), scale_step_notify(rt, w);
+        }
+    }
+    bar_seti(w, "is_popuped", 0);
+    cursor_shown(rt, true);
+    if (const W popup = w.child("popup")) popup->set_property("visible", Value::integer(0));
+}
+
+// Where the pinch is: the popup while it is open, else the bar; along its width (or height).
+void place_pinch(LiveWidget& w, float shown, float dmin, float dmax, float steps_over) {
+    const W popup = w.child("popup");
+    const W pinch = popup ? popup->child("pinch") : w.child("pinch");
+    if (!pinch) return;
+    const LiveWidget& box = popup && popup_open(w) ? *popup : w;
+    const bool along_x = w.is("SliderBar") ? w.data.number("direction") == 0 : w.data.number("horizontal") != 0;
+    const std::optional<Rect> b = box.data.rect("geometry"), p = pinch->data.rect("geometry");
+    if (!b || !p) return;
+    const float room = (along_x ? b->w - p->w : b->h - p->h);
+    if (steps_over <= 0) return;
+    const float at = room / steps_over * (shown - dmin);
+    pinch->set_property(along_x ? "x" : "y", Value::number(at));
+    (void)dmax;
+}
+
+} // namespace
+
+// Each picture: the shown value slides after the value (SliderBar 0.4, ScaleBar 0.2) and the
+// pinch is placed by it.
+void arrange_slider(LiveWidget& w) {
+    bar_init(w);
+    if (w.is("SliderBar")) {
+        float shown = bar_num(w, "bar_shown", float(w.index()));
+        shown += (float(w.index()) - shown) * 0.4f;
+        bar_set(w, "bar_shown", shown);
+        const float dmin = bar_num(w, "display_min", 0), dmax = bar_num(w, "display_max", 1);
+        place_pinch(w, shown, dmin, dmax, dmax - dmin);
+    } else {
+        float shown = bar_num(w, "current_value", 0);
+        shown += (bar_num(w, "value", 0) - shown) * 0.2f;
+        bar_set(w, "current_value", shown);
+        const float dmin = bar_num(w, "display_min", 0), dmax = bar_num(w, "display_max", 100);
+        place_pinch(w, shown, dmin, dmax, dmax - dmin);
+    }
+}
+
+void scale_focus_entered(Runtime& rt, LiveWidget& w) {
+    if (!w.is("ScaleBar")) return;
+    bar_init(w);
+    const float v = std::clamp(bar_num(w, "value", 0), bar_num(w, "min", 0), bar_num(w, "max", 100));
+    bar_set(w, "current_value", v), bar_set(w, "repeat_start", v);
+    scale_step_notify(rt, w);
+}
+
+namespace {
+
+// A bar's keys (SliderBar 0x2DF848, ScaleBar 0x238D10): true when the bar dealt with the key.
+bool bar_key(Runtime& rt, LiveWidget& w, Key k) {
+    bar_init(w);
+    const bool popup = bar_popup_mode(w), open = popup_open(w);
+    const bool along_x = w.is("SliderBar") ? w.data.number("direction") == 0 : w.data.number("horizontal") != 0;
+    const int dir = along_x ? (k == Key::Left ? -1 : k == Key::Right ? 1 : 0) : (k == Key::Up ? -1 : k == Key::Down ? 1 : 0);
+    if (popup) {
+        if (k == Key::Accept) {
+            if (!open) bar_open(rt, w);
+            else bar_close(rt, w, false);
+            return true;
+        }
+        if (k == Key::Cancel && open) {
+            bar_close(rt, w, true);
+            return true;
+        }
+    }
+    if (w.is("SliderBar")) {
+        if (popup && !open) return false; // the value does not change; the key goes on
+        if (dir && slider_move(w, dir * std::max(int(w.data.number("step")), 1))) {
+            slider_notify(rt, w, true);
+            return true;
+        }
+        return popup && open;
+    }
+    // ScaleBar: a press of a key along it starts a hold (repeat_start); ❓ the script's
+    // onKeyPress, which the program calls before the value moves, comes after it here.
+    if (dir) {
+        bar_set(w, "repeat_start", std::clamp(bar_num(w, "value", 0), bar_num(w, "min", 0), bar_num(w, "max", 100)));
+        scale_step_notify(rt, w);
+    }
+    if (popup && !open) return false;
+    if (dir) {
+        const float before = bar_num(w, "value", 0);
+        const float v = std::clamp(before + float(dir) * bar_num(w, "step", 1), bar_num(w, "min", 0), bar_num(w, "max", 100));
+        bar_set(w, "value", v);
+        if (v != before) {
+            scale_value_notify(rt, w), scale_step_notify(rt, w);
+            return true;
+        }
+    }
+    return popup && open;
+}
+
+} // namespace
 
 // ---- the list box: rows made from a template as they come into view ------------------------
 
@@ -269,6 +450,8 @@ bool scroll_window_target(LiveWidget& window, const LiveWidget& inside, float& x
 
 } // namespace
 
+void widget_focus_entered(Runtime& rt, LiveWidget& w) { scale_focus_entered(rt, w); }
+
 // A select box (MSelectBox, MSelectBar): its rows one after the other along its direction, all
 // the size of the first, the chosen one `magnify_ratio` larger and `active`. The row chosen is
 // kept in the middle of the box while the rows are longer than the box (0.3 of a row may show
@@ -362,13 +545,132 @@ void collect_focusable(const W& w, std::vector<W>& out) {
     for (const auto& c : w->children) collect_focusable(c, out);
 }
 
+bool condition_holds(const LiveWidget& w) {
+    if (!w.visible()) return false;
+    const int condition = int(w.data.number("visible_condition")), mask = int(w.data.number("visible_compare"));
+    if (mask) return ((w.state ^ condition) & mask) == 0;
+    if (condition) return (w.state & condition) != 0;
+    return true;
+}
+
+namespace {
+
+// A navigate region of the layout: corners x0 y0 x1 y1 from the widget's top left (0x262668,
+// 0x2626A0; kept as fractions of the widget's size, 0x268478); none: the widget's rectangle.
+Rect navigate_region(const LiveWidget& w, const Rect& r, const char* name) {
+    const Property* p = w.data.find(name);
+    if ((!p || p->values.size() < 4) && std::string(name) == "navigate_target") p = w.data.find("navigate_box");
+    if (!p || p->values.size() < 4) return r;
+    const float v[4] = {std::strtof(p->values[0].c_str(), nullptr), std::strtof(p->values[1].c_str(), nullptr), std::strtof(p->values[2].c_str(), nullptr),
+                        std::strtof(p->values[3].c_str(), nullptr)};
+    // As fractions of the size the layout gives, then on the size now.
+    const std::optional<Rect> g = w.data.rect("geometry");
+    const float lw = g && g->w > 0 ? g->w : r.w, lh = g && g->h > 0 ? g->h : r.h;
+    const float fx0 = lw > 0 ? v[0] / lw : 0, fx1 = lw > 0 ? v[2] / lw : 1, fy0 = lh > 0 ? v[1] / lh : 0, fy1 = lh > 0 ? v[3] / lh : 1;
+    return {r.x + fx0 * r.w, r.y + fy0 * r.h, (fx1 - fx0) * r.w, (fy1 - fy0) * r.h};
+}
+
+Rect cut(const Rect& r, const Rect& c) {
+    const float x0 = std::max(r.x, c.x), y0 = std::max(r.y, c.y), x1 = std::min(r.x + r.w, c.x + c.w), y1 = std::min(r.y + r.h, c.y + c.h);
+    if (x1 <= x0 || y1 <= y0) return {std::clamp(r.x, c.x, c.x + c.w), std::clamp(r.y, c.y, c.y + c.h), 0, 0};
+    return {x0, y0, x1 - x0, y1 - y0};
+}
+
+// The widget whose `space` is the scroll window's: the program marks a ScrollWindow's
+// clip::space (0x2D2F88).
+bool is_navigate_space(const LiveWidget& w) {
+    const LiveWidget* clip = w.parent_widget();
+    const LiveWidget* window = clip ? clip->parent_widget() : nullptr;
+    return w.name == "space" && clip && clip->name == "clip" && window && window->is("ScrollWindow");
+}
+
+struct Collector {
+    bool clipped;
+    const LiveWidget* space; // the navigate space the focus is in
+    std::vector<Rect> clips;
+    int group = 0;
+    std::vector<FocusCandidate> out;
+
+    void add(const W& w) {
+        FocusCandidate c;
+        c.widget = w, c.group = group, c.rect = w->screen_rect();
+        c.source = navigate_region(*w, c.rect, "navigate_source");
+        c.target = navigate_region(*w, c.rect, "navigate_target");
+        if (clipped && !clips.empty() && clips.back().w > 0 && clips.back().h > 0) {
+            const Rect& top = clips.back();
+            c.rect = cut(c.rect, top), c.source = cut(c.source, top), c.target = cut(c.target, top);
+            if (c.rect.w <= 0 || c.rect.h <= 0) return;
+        }
+        out.push_back(std::move(c));
+    }
+
+    void visit(const W& w) {
+        if (!condition_holds(*w) || w->insensitive()) return;
+        // The classes whose focus is their own (a select box's chosen row, a list box, an
+        // option menu's open list).
+        if (is_select_box(*w)) {
+            const std::vector<W> rows = rows_of(*w);
+            if (!rows.empty()) add(rows[size_t(std::clamp(w->index(), 0, int(rows.size()) - 1))]);
+            return;
+        }
+        if (w->is("ListBox")) { // nothing inside a list box is a candidate (0x5E8398)
+            if (w->can_focus() && list_count(*w) > 0) add(w);
+            return;
+        }
+        if (w->is("OptionMenu") && popup_open(*w)) {
+            for (const W& item : option_items(*w))
+                if (!item->insensitive()) add(item);
+            return;
+        }
+        // A focusable widget is a candidate and hides what is inside it.
+        if (w->can_focus()) {
+            add(w);
+            return;
+        }
+        if (!w->is_composite() || w->children.empty()) return;
+        const bool pushed_space = clipped && w.get() == space;
+        if (pushed_space) clips.push_back(w->screen_rect()), ++group;
+        const bool pushed_clip = clipped && w->data.number("clip") != 0;
+        if (pushed_clip) clips.push_back(clips.empty() ? w->screen_rect() : cut(w->screen_rect(), clips.back()));
+        for (const auto& c : w->children) visit(c);
+        if (pushed_clip) clips.pop_back();
+        if (pushed_space) clips.pop_back(), --group;
+    }
+};
+
+} // namespace
+
+std::vector<FocusCandidate> focus_candidates(LiveWidget& page, bool clipped) {
+    Collector c{clipped, nullptr, {}, 0, {}};
+    for (const LiveWidget* w = page.focus.lock().get(); w && w != &page; w = w->parent_widget())
+        if (is_navigate_space(*w)) {
+            c.space = w;
+            break;
+        }
+    for (const auto& child : page.children) c.visit(child);
+    return std::move(c.out);
+}
+
+// The first focus of a page that has none (0x234D60 runs the "next" search, 0x26EEF8): the
+// candidates in order of their parents' places (y, then x), then their own places, then the
+// order they were made in.
 W first_focus(LiveWidget& page) {
-    std::vector<W> all;
-    for (const auto& c : page.children) collect_focusable(c, all);
-    // A widget the layout marks takes it; else the first in the layout's order.
-    for (const W& w : all)
-        if (w->data.number("focus") != 0 || w->data.number("can_default") != 0) return w;
-    return all.empty() ? nullptr : all.front();
+    std::vector<FocusCandidate> all = focus_candidates(page, false);
+    if (all.empty()) return nullptr;
+    std::stable_sort(all.begin(), all.end(), [](const FocusCandidate& a, const FocusCandidate& b) {
+        const LiveWidget* pa = a.widget->parent_widget();
+        const LiveWidget* pb = b.widget->parent_widget();
+        if (pa != pb && pa && pb) {
+            const Rect ra = pa->screen_rect(), rb = pb->screen_rect();
+            if (ra.y != rb.y) return ra.y < rb.y;
+            if (ra.x != rb.x) return ra.x < rb.x;
+            const Rect wa = a.widget->screen_rect(), wb = b.widget->screen_rect();
+            if (wa.y != wb.y) return wa.y < wb.y;
+            return wa.x < wb.x;
+        }
+        return false;
+    });
+    return all.front().widget;
 }
 
 void widget_children_changed(Runtime& rt, LiveWidget& w) {
@@ -414,12 +716,11 @@ void widget_set_index(Runtime& rt, LiveWidget& w, int index, bool notify) {
         return;
     }
     if (w.is("SliderBar") || w.is("ScaleBar")) {
-        index = std::clamp(index, slider_limit(w, "min", 0), slider_limit(w, "max", 100));
-        const int before = w.index();
-        w.set_property("index", Value::integer(index));
-        if (w.is("ScaleBar")) w.set_property("value", Value::integer(index));
-        arrange_slider(w);
-        if (notify && index != before) rt.call_now(w, "onValueChanged", {rt.context(), Value::integer(index)});
+        // `index = n` (0x2DDAE8, 0x236D10): the value clamped, no event, the pinch slides there.
+        bar_init(w);
+        if (w.is("SliderBar")) bar_seti(w, "index", std::clamp(index, int(w.data.number("min")), int(w.data.number("max"))));
+        else bar_set(w, "value", std::clamp(float(index), bar_num(w, "min", 0), bar_num(w, "max", 100)));
+        (void)rt, (void)notify;
         return;
     }
     w.set_property("index", Value::integer(index));
@@ -477,30 +778,13 @@ bool widget_key(Runtime& rt, LiveWidget& w, Key k) {
         }
         return k == Key::Left || k == Key::Right; // the list keeps the keys while it is open
     }
-    if (w.is("SliderBar") || w.is("ScaleBar")) {
-        const int step = std::max(slider_limit(w, "step", 1), 1);
-        if (k == Key::Left || k == Key::Right) {
-            const int before = w.index();
-            widget_set_index(rt, w, before + (k == Key::Left ? -step : step), true);
-            return true;
-        }
-        if (k == Key::Accept && !popup_open(w) && w.child("popup")) {
-            w.set_property("is_popuped", Value::integer(1));
-            arrange_slider(w);
-            return true;
-        }
-        if ((k == Key::Accept || k == Key::Cancel) && popup_open(w)) {
-            w.set_property("is_popuped", Value::integer(0));
-            arrange_slider(w);
-            return true;
-        }
-        return false;
-    }
+    if (w.is("SliderBar") || w.is("ScaleBar")) return bar_key(rt, w, k);
     return false;
 }
 
 void step_widgets(Runtime& rt, LiveWidget& w) {
     if (is_select_box(w)) select_box_layout(w, false);
+    if (w.is("SliderBar") || w.is("ScaleBar")) arrange_slider(w);
     if (w.is("ListBox")) {
         arrange_list(rt, w, false);
         return; // its rows are placed; nothing below them moves by itself
@@ -718,20 +1002,74 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
     }
 
     if (type == "SliderBar" || type == "ScaleBar") {
-        auto move = [r, w](int sign) {
-            return [r, w, sign](Vm&, const Value&, Args) {
-                const int before = w->index();
-                widget_set_index(*r, *w, before + sign * std::max(slider_limit(*w, "step", 1), 1), true);
-                return Value::integer(w->index() != before);
-            };
-        };
-        if (n == "incIndex" || n == "incValue") return fn(move(1));
-        if (n == "decIndex" || n == "decValue") return fn(move(-1));
-        if (type == "ScaleBar" && (n == "value" || n == "current_value")) {
+        bar_init(*w);
+        const bool slider = type == "SliderBar";
+        auto attr = [](std::function<Value()> read, std::function<void(const Value&)> write) {
             auto a = std::make_shared<Accessor>();
-            a->read = [w] { return Value::integer(w->index()); };
-            a->write = [r, w](const Value& v) { widget_set_index(*r, *w, v.is_number() ? int(v.as_float()) : 0, false); };
+            a->read = std::move(read), a->write = std::move(write);
             return a;
+        };
+        auto num = [](const Value& v) { return v.is_number() ? v.as_float() : 0.0f; };
+        if (slider) {
+            // SliderBar's members (0x2DE4E8): whole numbers.
+            auto set_range = [w](int lo, int hi) {
+                if (hi < lo) hi = lo;
+                bar_seti(*w, "min", lo), bar_seti(*w, "max", hi), bar_seti(*w, "display_min", lo), bar_seti(*w, "display_max", hi);
+                bar_seti(*w, "index", std::clamp(w->index(), lo, hi));
+            };
+            if (n == "index")
+                return attr([w] { return Value::integer(w->index()); }, [w, num](const Value& v) {
+                    bar_seti(*w, "index", std::clamp(int(num(v)), int(w->data.number("min")), int(w->data.number("max"))));
+                    bar_set(*w, "bar_shown", num(v)); // shown as given: an index out of the range slides in
+                });
+            if (n == "min") // the counter's end is passed as it is: max goes one up (0x2DF948)
+                return attr([w] { return Value::integer(int(w->data.number("min"))); }, [w, set_range, num](const Value& v) { set_range(int(num(v)), int(w->data.number("max")) + 1); });
+            if (n == "max") return attr([w] { return Value::integer(int(w->data.number("max"))); }, [w, set_range, num](const Value& v) { set_range(int(w->data.number("min")), int(num(v))); });
+            if (n == "range")
+                return attr([w] { return Value::array({Value::integer(int(w->data.number("min"))), Value::integer(int(w->data.number("max")))}); },
+                            [set_range, num](const Value& v) {
+                                if (v.items() && v.items()->size() >= 2) set_range(int(num((*v.items())[0])), int(num((*v.items())[1])));
+                            });
+            for (const char* plain : {"display_min", "display_max", "step"})
+                if (n == plain)
+                    return attr([w, plain] { return Value::integer(int(w->data.number(plain))); }, [w, plain, num](const Value& v) { bar_seti(*w, plain, int(num(v))); });
+            if (n == "is_popuped") return attr([w] { return Value::integer(popup_open(*w)); }, {});
+            if (n == "incIndex" || n == "decIndex") {
+                const int sign = n == "incIndex" ? 1 : -1;
+                return fn([w, sign](Vm&, const Value&, Args a) { return Value::integer(slider_move(*w, sign * arg_int(a, 0, 1))); });
+            }
+        } else {
+            // ScaleBar's members (0x237828): numbers.
+            auto clamped = [w](float v) { return std::clamp(v, bar_num(*w, "min", 0), std::max(bar_num(*w, "min", 0), bar_num(*w, "max", 100))); };
+            if (n == "value") return attr([w] { return Value::number(bar_num(*w, "value", 0)); }, [w, clamped, num](const Value& v) { bar_set(*w, "value", clamped(num(v))); });
+            if (n == "current_value")
+                return attr([w] { return Value::number(bar_num(*w, "current_value", 0)); }, [w, clamped, num](const Value& v) { bar_set(*w, "current_value", clamped(num(v))); });
+            if (n == "index") // rounded half away from zero
+                return attr([w] {
+                    const float v = bar_num(*w, "value", 0);
+                    return Value::integer(int(v >= 0 ? v + 0.5f : v - 0.5f));
+                }, [w, clamped, num](const Value& v) { bar_set(*w, "value", clamped(num(v))); });
+            if (n == "repeat_start")
+                return attr([w] { return Value::number(bar_num(*w, "repeat_start", 0)); }, [w, clamped, num](const Value& v) { bar_set(*w, "repeat_start", clamped(num(v))); });
+            if (n == "min") return attr([w] { return Value::number(bar_num(*w, "min", 0)); }, [w, num](const Value& v) { bar_set(*w, "min", num(v)), bar_set(*w, "display_min", num(v)); });
+            if (n == "max") return attr([w] { return Value::number(bar_num(*w, "max", 100)); }, [w, num](const Value& v) { bar_set(*w, "max", num(v)), bar_set(*w, "display_max", num(v)); });
+            if (n == "range")
+                return attr([w] { return Value::array({Value::number(bar_num(*w, "min", 0)), Value::number(bar_num(*w, "max", 100))}); }, [w, num](const Value& v) {
+                    if (!v.items() || v.items()->size() < 2) return;
+                    bar_set(*w, "min", num((*v.items())[0])), bar_set(*w, "display_min", num((*v.items())[0]));
+                    bar_set(*w, "max", num((*v.items())[1])), bar_set(*w, "display_max", num((*v.items())[1]));
+                });
+            for (const char* plain : {"display_min", "display_max", "step"})
+                if (n == plain) return attr([w, plain] { return Value::number(bar_num(*w, plain, 0)); }, [w, plain, num](const Value& v) { bar_set(*w, plain, num(v)); });
+            if (n == "popup") return attr([w] { return Value::integer(popup_open(*w)); }, [w](const Value& v) { bar_seti(*w, "is_popuped", v.truthy()); });
+            if (n == "cancel") return attr([w] { return Value::integer(w->data.number("cancel") != 0); }, {});
+            if (n == "incValue" || n == "decValue") {
+                const float sign = n == "incValue" ? 1.0f : -1.0f;
+                return fn([w, sign, clamped](Vm&, const Value&, Args a) {
+                    bar_set(*w, "value", clamped(bar_num(*w, "value", 0) + sign * arg_number(a, 0, bar_num(*w, "step", 1))));
+                    return Value{};
+                });
+            }
         }
     }
 

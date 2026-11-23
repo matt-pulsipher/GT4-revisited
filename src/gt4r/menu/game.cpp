@@ -1,7 +1,10 @@
 #include "gt4r/menu/game.h"
 
+#include "gt4r/sim/equipment.h"
+
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <sstream>
 
 namespace gt4r::menu {
@@ -14,34 +17,34 @@ struct Default {
 };
 
 // MOption's attributes (the names are the program's registration table at 0x189E38) with the
-// values a new game starts from. Several are names, the ones the option pages' scripts list
-// ("NONE", "STEREO", "MPH", ...). ❓ The values are not read from the program's own defaults
-// yet (MOption::setDefault, 0x189A60): they are plain choices that take the scripts down the
-// retail game's paths (no show build, no arcade machine).
+// values a new game starts from. The numbers are the program's constructors' (the option
+// block of a new game's saved data, checked against the running game after a new game:
+// volumes 115, the title's demo after 20 and the top menu after 600, ...). Several are names,
+// the ones the option pages' scripts list ("NONE", "STEREO", "MPH", ...); ❓ their numbers in
+// the program are not all read.
 const Default kDefaults[] = {
-    {"game_zone", std::string("us")}, {"language", std::string("US")}, {"wide_mode", 0}, {"race_display_mode", std::string("normal")},
+    {"game_zone", std::string("US")}, {"language", std::string("US")}, {"wide_mode", 0}, {"race_display_mode", std::string("normal")},
     {"screen_adjust_h", 0}, {"screen_adjust_v", 0}, {"monitor_size", std::string("normal")}, {"race_color_correction", 0}, {"replay_color_correction", 0},
-    {"physical_monitor_size", 0}, {"sharpness_mode", 0},
-    {"menu_bgm", 1}, {"menu_bgm_volume", 100}, {"menu_bgm_volume_raw", 100}, {"menu_se", 1}, {"menu_se_volume", 100}, {"menu_se_volume_raw", 100},
-    {"race_bgm", 1}, {"race_bgm_volume", 100}, {"race_bgm_volume_raw", 100}, {"race_se", 1}, {"race_se_volume", 100}, {"race_se_volume_raw", 100},
-    {"replay_bgm", 1}, {"replay_bgm_volume", 100}, {"replay_bgm_volume_raw", 100}, {"replay_se", 1}, {"replay_se_volume", 100},
-    {"replay_se_volume_raw", 100}, {"slide_bgm_volume", 100}, {"slide_bgm_volume_raw", 100}, {"sound_type", std::string("STEREO")}, {"narration", 1}, {"enableAC3", 0},
-    {"auto_save", 0}, {"race_laps", 2}, {"tire_damage", 0}, {"automatic_gear", 1}, {"automatic_ghost", 1}, {"assist_asm", 1}, {"assist_tcs", 1},
-    {"assist", 1}, {"difficulty", 0}, {"run_with_enemies", 1}, {"license_transmission_MT", 0}, {"penalty_type", std::string("NONE")},
+    {"physical_monitor_size", 0}, {"sharpness_mode", 1},
+    {"menu_bgm", 1}, {"menu_bgm_volume", 115}, {"menu_bgm_volume_raw", 115}, {"menu_se", 1}, {"menu_se_volume", 115}, {"menu_se_volume_raw", 115},
+    {"race_bgm", 1}, {"race_bgm_volume", 115}, {"race_bgm_volume_raw", 115}, {"race_se", 1}, {"race_se_volume", 115}, {"race_se_volume_raw", 115},
+    {"replay_bgm", 1}, {"replay_bgm_volume", 115}, {"replay_bgm_volume_raw", 115}, {"replay_se", 1}, {"replay_se_volume", 115},
+    {"replay_se_volume_raw", 115}, {"slide_bgm_volume", 115}, {"slide_bgm_volume_raw", 115}, {"sound_type", std::string("STEREO")}, {"narration", 1}, {"enableAC3", 0},
+    {"auto_save", 1}, {"race_laps", 2}, {"tire_damage", 0}, {"automatic_gear", 1}, {"automatic_ghost", 1}, {"assist_asm", 1}, {"assist_tcs", 1},
+    {"assist", 1}, {"difficulty", 0}, {"run_with_enemies", 0}, {"license_transmission_MT", 0}, {"penalty_type", std::string("NONE")},
     {"limit_favorite_car_only", 0}, {"limit_favorite_course_only", 0}, {"limit_enemies_to_favorite_car_only", 0},
     {"view_type", 0}, {"view_type_1p", 0}, {"view_type_2p", 0}, {"split_race_laps", 2}, {"split_tire_damage", 0}, {"split_handicap", 0},
-    {"split_boost_level", 0}, {"photo_quality", std::string("STANDARD")}, {"photo_manual_focus", 0}, {"photo_aspect", 0}, {"photo_shutter", 0}, {"photo_professional", 0},
-    {"photo_saturation", 0}, {"photo_save_slot", 0}, {"photo_save_method", 0},
+    {"split_boost_level", 1}, {"photo_quality", std::string("STANDARD")}, {"photo_manual_focus", 0}, {"photo_aspect", 0}, {"photo_shutter", 0}, {"photo_professional", 0},
+    {"photo_saturation", 0}, {"photo_save_slot", 0}, {"photo_save_method", 2},
     {"vibration_1p", 1}, {"vibration_2p", 1}, {"steering_assist_1p", std::string("AMATEUR")}, {"steering_assist_2p", std::string("AMATEUR")}, {"active_steering_1p", 0},
     {"active_steering_2p", 0}, {"steering_forcefeedback_1p", 0}, {"steering_forcefeedback_2p", 0},
     {"replay_mode", std::string("NORMAL")}, {"replay_play_mode", std::string("STRAIGHT")}, {"replay_display_enable", 1}, {"race_display_config", 0}, {"race_display_map", 1},
     {"race_display_steering", 1}, {"race_display_meter", 1}, {"race_display_time", 1}, {"race_display_lap", 1}, {"race_display_position", 1},
-    {"race_display_car_name", 1}, {"race_display_suggested_gear", 1}, {"race_display_g_meter", 0}, {"replay_2p_split", 0},
-    {"replay_memory_card_slot", 0}, {"album_slide_effect", 0}, {"album_slide_play_time", 5}, {"album_slide_transition_time", 1},
+    {"race_display_car_name", 1}, {"race_display_suggested_gear", 1}, {"race_display_g_meter", 0}, {"replay_2p_split", 1},
+    {"replay_memory_card_slot", 0}, {"album_slide_effect", 1}, {"album_slide_play_time", 8}, {"album_slide_transition_time", 4},
     {"album_memory_card_slot", 0}, {"ustorage_photo_quality", std::string("STANDARD")},
-    // No show timeouts, no arcade machine, the full car and course lists.
-    {"timeout_count_to_autodemo", 0}, {"timeout_count_to_topmenu", 0}, {"machine_role", std::string()}, {"special_arcade_tuner", std::string()},
-    {"arcade_skip_to_favorite", 0}, {"opening_after_autoload", 0}, {"can_watch_ending", 0}, {"demo_movie_interval", 0},
+    {"timeout_count_to_autodemo", 20}, {"timeout_count_to_topmenu", 600}, {"machine_role", std::string()}, {"special_arcade_tuner", std::string()},
+    {"arcade_skip_to_favorite", 0}, {"opening_after_autoload", 1}, {"can_watch_ending", 0}, {"demo_movie_interval", 3},
     {"netconf", std::string()}, {"LAN_machine_name", std::string()}, {"LAN_style", std::string("play")}, {"LAN_target_name", std::string()}, {"LAN_live_target", 0},
     {"LAN_monitor_num", 1}, {"LAN_monitor_position_x", 0}, {"LAN_monitor_position_y", 0}, {"LAN_delay_buffer_size", 0}, {"LAN_host", 0},
     {"LAN_heavy", 0}, {"LAN_player_num", 0}, {"LAN_auto_connect", 0}, {"LAN_auto_machine_num", 0}, {"LAN_auto_machine_idx", 0},
@@ -54,7 +57,9 @@ const Default kDefaults[] = {
 void GameState::option_defaults(const std::string& region) {
     options.clear();
     for (const Default& d : kDefaults) options[d.name] = d.value;
-    options["game_zone"] = region;
+    // MOption::setGameZoneDefault (0x435D48): the zone by the program's region, by its name
+    // (0 UNDEF, 1 JP, 2 US, 3 UK, 4 EU, 5 KR; table 0x622DA8).
+    options["game_zone"] = std::string(region == "us" ? "US" : region == "uk" ? "EU" : region == "kr" ? "KR" : "JP");
     // Miles and horsepower where the game is sold with them (the option pages' own names).
     const bool imperial = region == "us" || region == "uk";
     options["unit_velocity"] = std::string(imperial ? "MPH" : "KMPH");
@@ -146,6 +151,104 @@ void GameState::options_from_text(const std::string& text) {
         } else if (value.find_first_of(".eE") != std::string::npos) options[name] = std::strtof(value.c_str(), nullptr);
         else options[name] = s32(std::strtol(value.c_str(), nullptr, 10));
     }
+}
+
+CarRecord::CarRecord() {
+    // Three cleared equipment records (0x4442B8), no wheels, sheet 0, no wear.
+    const sim::Equipment empty;
+    for (int i = 0; i < 3; ++i) std::memcpy(sheet(i), empty.bytes.data(), kSheet);
+    for (int c = 0; c < 4; ++c) set_wheel(c, -1);
+    bytes[0x4AC] = 1;
+}
+
+float CarRecord::condition(size_t field) const {
+    const u32 v = u32at(0x498 + 4 * field);
+    float f;
+    std::memcpy(&f, &v, 4);
+    return f;
+}
+
+void CarRecord::set_condition(size_t field, float v) {
+    u32 u;
+    std::memcpy(&u, &v, 4);
+    put32(0x498 + 4 * field, u);
+}
+
+GameState::GameState() { new_game(); }
+
+namespace {
+
+void put32(Bytes& b, size_t o, u32 v) { b[o] = u8(v), b[o + 1] = u8(v >> 8), b[o + 2] = u8(v >> 16), b[o + 3] = u8(v >> 24); }
+
+// A ranking's empty entries (the constructors 0x432368, 0x433AA0): no time, the date 0, the
+// pass code "--------".
+void fresh_license_unit(Bytes& b, size_t at) {
+    for (size_t e = 0; e < 10; ++e) {
+        const size_t o = at + e * 0x2C;
+        put32(b, o, kNoTime);
+        b[o + 8] = 15; // no result
+        std::memset(b.data() + o + 9, '-', 8);
+    }
+    for (size_t i = 0; i < 16; ++i) put32(b, at + 0x1B8 + 4 * i, kNoTime);
+}
+
+void fresh_course_unit(Bytes& b, size_t at, bool speed) {
+    std::memset(b.data() + at, 0xFF, 8); // no course
+    for (size_t e = 0; e < 10; ++e) {
+        const size_t o = at + 8 + e * 0x30;
+        put32(b, o, speed ? 0 : kNoTime);
+        std::memset(b.data() + o + 8, 0xFF, 8); // no car
+        std::memset(b.data() + o + 0x10, '-', 8);
+    }
+    for (size_t i = 0; i < 16; ++i) put32(b, at + 0x1E8 + 4 * i, kNoTime);
+}
+
+} // namespace
+
+void GameState::new_game() {
+    money = 0, username.clear(), password.clear(), last_entry_name.clear();
+    score = 0, total_prize_money = 0, total_prize_cars = 0, rank_counts = {}, aspec_distance = 0, bspec_distance = 0;
+    withdrawn = 0, withdrawn_gt4p = 0, met_type = 0;
+    today = kFirstDay, diary.clear();
+    garage.clear(), riding_car = -1, garage_key = 0, garage_serial = 0, garage_kept = {};
+    race_units.fill(0x0000FFF0u); // type none, the three results none, score 0
+    license_record.assign(kLicenseUnit * kLicenseUnits, 0);
+    for (size_t u = 0; u < kLicenseUnits; ++u) fresh_license_unit(license_record, u * kLicenseUnit);
+    course_record.assign(kCourseUnit * kCourseUnits, 0);
+    for (size_t u = 0; u < kCourseUnits; ++u) fresh_course_unit(course_record, u * kCourseUnit, false);
+    machine_record.assign(kCourseUnit * kMachineUnits, 0);
+    for (size_t u = 0; u < kMachineUnits; ++u) fresh_course_unit(machine_record, u * kCourseUnit, u == 2); // ❓ unit 2: the top speed's
+    available_cars.clear(), available_courses.clear(), all_available = false;
+    favorite_cars.clear(), favorite_courses.clear();
+    presents = {}, used_sold = {}, used_week = 0;
+    suspended_racecode.clear(), suspended = 0, suspended_session = 0;
+    championship_rest.assign(0x88 - 0x22, 0);
+    saved_menu_depth = -1, saved_menu_stack.assign(0x100, 0);
+    saved_image.clear();
+}
+
+void GameState::put_day(const DayEvent& e) {
+    if (diary.size() >= kDiaryDays) diary.pop_front();
+    diary.push_back(e);
+    ++today;
+}
+
+int GameState::garage_count() const {
+    int n = 0;
+    for (const GarageEntry& e : garage) n += e.used;
+    return n;
+}
+
+int GameState::add_car(GarageEntry e) {
+    e.used = true;
+    for (size_t i = 0; i < garage.size(); ++i)
+        if (!garage[i].used) {
+            garage[i] = std::move(e);
+            return int(i);
+        }
+    if (garage.size() >= kGarageSize) return -1;
+    garage.push_back(std::move(e));
+    return int(garage.size()) - 1;
 }
 
 } // namespace gt4r::menu

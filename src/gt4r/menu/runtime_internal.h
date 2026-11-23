@@ -54,6 +54,8 @@ bool widget_key(Runtime& rt, LiveWidget& focus, Key k);
 // `widget.index = i`; `notify`: the script's onValueChanged is called.
 void widget_set_index(Runtime& rt, LiveWidget& w, int index, bool notify);
 void widget_children_changed(Runtime& rt, LiveWidget& w);
+// The class's own step when a widget takes the focus (a scale bar's, 0x238790).
+void widget_focus_entered(Runtime& rt, LiveWidget& w);
 // Sizes and places a page's widgets that are packed by their boxes (packing.cpp).
 void pack_page(LiveWidget& page);
 // One frame of the widgets' own movement (scrolling, a list's rows).
@@ -62,6 +64,17 @@ void step_widgets(Runtime& rt, LiveWidget& page);
 std::shared_ptr<LiveWidget> first_focus(LiveWidget& page);
 // The widgets of a page that can take the focus now.
 void collect_focusable(const std::shared_ptr<LiveWidget>& w, std::vector<std::shared_ptr<LiveWidget>>& out);
+// The focus search's candidates (the program's collector, 0x26F9E0): each with its rectangle,
+// its navigate source and target on the screen, and its group (1 inside the scroll window's
+// space the focus is in). `clipped`: a direction search, cut to the clips it is under.
+struct FocusCandidate {
+    std::shared_ptr<LiveWidget> widget;
+    int group = 0;
+    Rect rect, source, target;
+};
+std::vector<FocusCandidate> focus_candidates(LiveWidget& page, bool clipped);
+// The visible flag and the layout's visible condition against the widget's state (0x265DC8).
+bool condition_holds(const LiveWidget& w);
 // Text measured as the page's font draws it: the runtime has no fonts, so the app gives one.
 struct TextMeasure {
     std::function<void(const LiveWidget& text, float& w, float& h)> measure;
@@ -73,6 +86,9 @@ TextMeasure& text_measure();
 void install_game_natives(Runtime& rt, script::Module& menu);
 // The objects the main script makes when it does not run (a disc without one).
 void install_fallback_world(Runtime& rt);
+// What a race request leaves to the program: an event's course from its RACE row, the car
+// driven when the scripts name none.
+void complete_race_request(Runtime& rt, RaceRequest& r);
 // An MCarGarage object for a car by its label (what a car face's `car_data` is).
 script::Value make_car_object(Runtime& rt, const std::string& label, int paint);
 
