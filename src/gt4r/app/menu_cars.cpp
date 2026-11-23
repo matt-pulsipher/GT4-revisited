@@ -76,6 +76,12 @@ MenuCars::Car* MenuCars::car(const std::string& code, int color) {
     std::unique_ptr<Car>& c = cars_[key];
     if (c) return c->failed ? nullptr : c.get();
     c = std::make_unique<Car>();
+    const Uint64 t0 = SDL_GetTicksNS();
+    struct Took {
+        Uint64 t0;
+        const std::string& code;
+        ~Took() { LOG_INFO("Menu car %s made in %.1f ms", code.c_str(), double(SDL_GetTicksNS() - t0) / 1e6); }
+    } took{t0, code};
     db::SpecDb* db = app_.db();
     if (!db || !app_.gpu()) return c->failed = true, nullptr;
     if (models_.empty())

@@ -3,6 +3,7 @@
 // docs/formats/save.md ("The car record") and docs/formats/menu.md ("A car") say what each does.
 
 #include "gt4r/menu/game_internal.h"
+#include "gt4r/menu/faces_graph.h"
 
 #include "gt4r/sim/car_spec.h"
 #include "gt4r/sim/equipment.h"
@@ -932,9 +933,16 @@ Value make_car_value(GameNatives& n, std::shared_ptr<CarHandle> c) {
     });
     // ❓ The charts' points (0x148940, 0x148B60) are for the graph faces: none here.
     car->method("buildGearRatioData", [](Vm&, const Value&, Args) { return Value{}; });
-    car->method("buildEngineCurveData", [c, update](Vm&, const Value&, Args) {
+    // The graph faces' engine curves (menu-draw's faces_graph.*).
+    car->method("buildEngineCurveData", [c, update, rec, db](Vm&, const Value&, Args) {
         update();
-        return Value::array({Value{}, Value{}, Value::number(float(c->power100) / 100.0f), Value::number(float(c->torque100) / 100.0f), Value::number(0), Value::number(0)});
+        if (!db().db)
+            return Value::array({Value{}, Value{}, Value::number(float(c->power100) / 100.0f), Value::number(float(c->torque100) / 100.0f), Value::number(0), Value::number(0)});
+        sim::Equipment eq;
+        std::memcpy(eq.bytes.data(), rec().active(), sim::Equipment::kSize);
+        sim::Spec spec;
+        sim::build_spec(*db().db, db().program, eq, 0, spec);
+        return engine_curve_value(menu::engine_curve(spec));
     });
     // The engine speeds of the spec (+0xBD rev limit, +0xBE shift limit, +0x110 the red line).
     auto engine_speed = [rec, db](u32 at) {

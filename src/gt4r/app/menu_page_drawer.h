@@ -9,6 +9,7 @@
 #include "base/log.h"
 #include "formats/text/charset.h"
 #include "formats/text/text_layout.h"
+#include "gt4r/menu/faces_graph.h"
 #include "gt4r/menu/font.h"
 #include "gt4r/menu/project.h"
 #include "gt4r/menu/runtime.h"
@@ -259,6 +260,31 @@ private:
         SDL_RenderGeometry(r_, nullptr, v.data(), int(v.size()), index.data(), int(index.size()));
     }
 
+    // A graph (mGraphFace, 0x2E88F8): its points as fractions of the rectangle, through the
+    // transforms, each segment a band of the line's width across it (0x218430).
+    void graph(const Widget& w, const Rect& at, float opacity) {
+        const menu::GraphFaceSettings g = menu::graph_face_settings(w);
+        const float half = g.line_width * 0.5f * scale_;
+        const SDL_FColor c{g.color.r / 255.0f, g.color.g / 255.0f, g.color.b / 255.0f, g.color.a / 255.0f * opacity};
+        std::vector<SDL_Vertex> v;
+        std::vector<int> index;
+        for (const auto& [p, q] : menu::graph_segments(g)) {
+            const SDL_FPoint a = to_screen(at.x + p.x * at.w, at.y + p.y * at.h), b = to_screen(at.x + q.x * at.w, at.y + q.y * at.h);
+            const float dx = b.x - a.x, dy = b.y - a.y, len = std::sqrt(dx * dx + dy * dy);
+            if (len <= 0) continue;
+            const float ox = half * dy / len, oy = half * dx / len;
+            const int base = int(v.size());
+            v.push_back({{a.x + ox, a.y - oy}, c, {0, 0}});
+            v.push_back({{a.x - ox, a.y + oy}, c, {0, 0}});
+            v.push_back({{b.x + ox, b.y - oy}, c, {0, 0}});
+            v.push_back({{b.x - ox, b.y + oy}, c, {0, 0}});
+            index.insert(index.end(), {base, base + 1, base + 2, base + 1, base + 3, base + 2});
+        }
+        if (v.empty()) return;
+        SDL_SetRenderDrawBlendMode(r_, SDL_BLENDMODE_BLEND);
+        SDL_RenderGeometry(r_, nullptr, v.data(), int(v.size()), index.data(), int(index.size()));
+    }
+
     // A frame of nine pictures: the corners at their own size, the sides stretched between
     // them, the middle over what is left.
     void frame(const Widget& w, const Rect& at, Rgba tint, float opacity) {
@@ -464,7 +490,8 @@ private:
             // A car's paint: its colour under the chip's picture.
             if (w.has("chip_r")) fill(at, {Rgba{u8(w.number("chip_r")), u8(w.number("chip_g")), u8(w.number("chip_b")), 255}}, face, false);
             image(w.text("image_path0"), at, tint, face, false);
-        } else if (draw_live) draw_live(live, project_, page_, at, to_screen(bounds(at)), face);
+        } else if (t == "GraphFace") graph(w, at, face);
+        else if (draw_live) draw_live(live, project_, page_, at, to_screen(bounds(at)), face);
 
         SDL_Rect inner = clip;
         if (w.number("clip") != 0) {

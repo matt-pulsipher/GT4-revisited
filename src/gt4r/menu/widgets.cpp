@@ -312,7 +312,12 @@ void LiveWidget::set_property(const std::string& n, const Value& v) {
     } else if (const std::vector<Value>* list = v.items()) {
         Property& p = property(data, n, "vector");
         p.values.clear();
-        for (const Value& item : *list) p.values.push_back(number_text(item.as_float()));
+        for (const Value& item : *list) {
+            // A list of pairs (a graph face's points) is kept as its numbers in order.
+            if (const std::vector<Value>* pair = item.items())
+                for (const Value& v2 : *pair) p.values.push_back(number_text(v2.is_number() ? v2.as_float() : 0.0f));
+            else p.values.push_back(number_text(item.is_number() ? item.as_float() : 0.0f));
+        }
     } else if (v.is_nil()) {
         if (Property* p = find_property(data, n)) p->values.clear();
     }
