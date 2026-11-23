@@ -429,3 +429,36 @@ TEST(disc_gt_mode_loop_championship_left) {
     print_stubs(f);
     CHECK(f.clean());
 }
+
+// The garage's change of the car driven: to a car never driven its record is made as sold and
+// cancelRidingCar takes the change back; a car already driven keeps its record and a cancel
+// leaves it (0x435388, 0x435418, 0x435568).
+TEST(disc_gt_mode_riding_car) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    Flow f(*disc);
+    CHECK(f.gt_mode_with_a_car());
+    if (f.page() != "TopRoot") return;
+    menu::GameState& g = f.rt->game();
+    script::Vm& vm = f.rt->vm();
+    const Value garage = vm.attribute(vm.lookup("game"), "garage");
+    const Value add[2] = {Value::string("demio_glx_99"), Value::integer(0)};
+    const s32 place = vm.call(vm.attribute(garage, "addNewCar"), add).i;
+    CHECK(place == 1 && !g.garage[1].record && g.garage[1].ride_rank == 0x3FF);
+    const Value before = vm.attribute(garage, "riding_car");
+    const Value change[2] = {Value::integer(1), Value{}};
+    CHECK(vm.call(vm.attribute(garage, "changeRidingCar"), change).as_string() == "OK");
+    CHECK(g.riding_car == 1 && g.riding_fresh && g.garage[1].record && g.garage[1].ride_rank == 0 && g.garage[0].ride_rank == 1);
+    // Taken back: the Demio has no record again, the first car is driven.
+    const Value back[2] = {Value::integer(0), before};
+    vm.call(vm.attribute(garage, "cancelRidingCar"), back);
+    CHECK(g.riding_car == 0 && !g.riding_fresh && !g.garage[1].record && g.garage[0].ride_rank == 0 && g.garage[0].record);
+    // A change to it again, kept; then to the first car (driven before): no cancel undoes that.
+    vm.call(vm.attribute(garage, "changeRidingCar"), change);
+    const Value first[2] = {Value::integer(0), Value{}};
+    vm.call(vm.attribute(garage, "changeRidingCar"), first);
+    CHECK(g.riding_car == 0 && !g.riding_fresh && g.garage[1].record && g.garage[1].ride_rank == 1);
+    const Value to_demio[2] = {Value::integer(1), Value{}};
+    vm.call(vm.attribute(garage, "cancelRidingCar"), to_demio);
+    CHECK(g.riding_car == 0 && g.garage[1].record && f.clean());
+}

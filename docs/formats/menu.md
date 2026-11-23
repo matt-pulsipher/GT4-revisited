@@ -374,8 +374,14 @@ over it are the program's, with their addresses in save.md and here:
   place (1 when it was the car driven), `undelCar` puts it back; `riding_car` is an object on
   the garage's own record. The program reads and writes a car's slot of the garage file in
   `changeRidingCar`, `pushRidingCar`, `popGarageCar`; here the records are in the state (they
-  answer `OK`). ❓ `setRidingCar(place, car)` and `cancelRidingCar(place, car)`, and what
-  `pickup`, `pickupCountry`, `pickupTuner` compare, are from the scripts' use.
+  answer `OK`). A change of the car driven (0x435388) takes the car's record (to a car never
+  driven: made as sold with its odometer, and marked so, 0x435568), marks the place as having a
+  record and moves it first in the order of driving, every car driven more recently one further
+  (0x435690); `setRidingCar(place, car)` is that change with the car's record, `(place, label,
+  paint)` the car as sold without the marks (0x435490); `cancelRidingCar(place, car)` acts only
+  after a change to a car never driven: that car's record is dropped and the car given is driven
+  again (0x435418). ❓ What `pickup`, `pickupCountry`, `pickupTuner` compare is from the
+  scripts' use.
 - **MCarGarage** (a car; 0x141B90, 0x14EF00; `game_car.cpp`): its record's three sheets, `slot`
   the sheet in use; the parts that fit it (its file `specdb/<set>/CARS/<the car's code>`: u64
   count, then {u64 part, u8 category, 7 bytes}); a parts type is the table id, type 31 the

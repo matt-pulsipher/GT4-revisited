@@ -202,6 +202,7 @@ struct GameState {
     // The garage: its list, the car driven, the key and serial that tie the saved files.
     std::vector<GarageEntry> garage;
     int riding_car = -1; // the list's place; -1: none
+    bool riding_fresh = false; // the car driven was changed to one never driven (its record made as sold)
     u32 garage_key = 0, garage_serial = 0;
     std::array<s32, 4> garage_kept{}; // the four words after the key (not named)
     int garage_count() const;

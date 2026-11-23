@@ -654,39 +654,48 @@ g.method("menuRef", [s](Vm&, const Value&, Args a) {
             if (int(i) != s->riding_car) s->garage[i].used = false;
         return Value{};
     });
-    // A change of the car driven (0x435388): its record, rank 0, the others one further.
+    // A change of the car driven (0x435388): its record (the car's given, or, from the card,
+    // the place's own: one never driven is made as sold, with its odometer, 0x435568, and the
+    // change is marked as such), the place has a record, and the order of driving: the place
+    // first, every car driven more recently than it one further (0x435690).
     auto ride = [self, s, valid](s32 i, CarHandle* with) {
         if (!valid(i)) return false;
         GarageEntry& e = s->garage[size_t(i)];
         if (with) e.record = with->record();
-        else if (!e.record) {
-            auto c = car_from_entry(self->db(), *s, i, false);
-            e.record = c->own;
+        else {
+            s->riding_fresh = !e.record;
+            if (!e.record) e.record = car_from_entry(self->db(), *s, i, false)->own;
         }
-        if (s->riding_car != i) {
-            const int old = e.ride_rank;
+        if (const int old = e.ride_rank & 0x3FF; old != 0) {
             for (GarageEntry& o : s->garage)
-                if (&o != &e && o.used && o.ride_rank < old && o.ride_rank < 0x3FF) ++o.ride_rank;
+                if ((o.ride_rank & 0x3FF) < old) o.ride_rank = (o.ride_rank + 1) & 0x3FF;
             e.ride_rank = 0;
         }
         s->riding_car = i;
         return true;
     };
-    // setRidingCar(place, car), cancelRidingCar(place, car): ❓ the natives are not read; from
-    // the scripts' use: the car given is driven from that place (cancel: put back as it was).
-    garage->method("setRidingCar", [ride](Vm&, const Value&, Args a) {
+    // setRidingCar(place, car): the car given is driven from that place (0x16E108 -> 0x435388).
+    // setRidingCar(place, label, paint): the car driven is that car as sold, from that place,
+    // the place's marks and the order left as they are (0x435490).
+    garage->method("setRidingCar", [self, s, ride, valid](Vm&, const Value&, Args a) {
+        if (a.size() >= 3) {
+            const s32 i = arg_int(a, 0, -1);
+            if (!valid(i)) return Value{};
+            CarRecord r;
+            if (set_car(self->db(), r, arg_text(a, 1), arg_int(a, 2))) s->garage[size_t(i)].record = r;
+            s->riding_car = i;
+            return Value{};
+        }
         ride(arg_int(a, 0, -1), a.size() > 1 ? car_handle(a[1]) : nullptr);
         return Value{};
     });
-    garage->method("cancelRidingCar", [s, valid](Vm&, const Value&, Args a) {
-        const s32 i = arg_int(a, 0, -1);
-        CarHandle* with = a.size() > 1 ? car_handle(a[1]) : nullptr;
-        if (!valid(i)) {
-            s->riding_car = -1;
-            return Value{};
-        }
-        if (with) s->garage[size_t(i)].record = with->record();
-        s->riding_car = i;
+    // cancelRidingCar(place, car): only after a change to a car never driven (0x435418): that
+    // car's record is dropped again and the car given is driven from its place.
+    garage->method("cancelRidingCar", [s, ride](Vm&, const Value&, Args a) {
+        if (!s->riding_fresh) return Value{};
+        if (s->riding_car >= 0 && size_t(s->riding_car) < s->garage.size()) s->garage[size_t(s->riding_car)].record.reset();
+        ride(arg_int(a, 0, -1), a.size() > 1 ? car_handle(a[1]) : nullptr);
+        s->riding_fresh = false;
         return Value{};
     });
     // changeRidingCar(place, manager), pushRidingCar(manager), popGarageCar(place, car,
