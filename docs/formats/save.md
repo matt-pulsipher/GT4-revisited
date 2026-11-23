@@ -15,7 +15,12 @@ How it was checked: the program's own save routines (the Status constructor 0x43
 0x1D4E60, the header coder 0x1CB900 / 0x1CB9B8, the bit shuffle 0x1D4B78) were run in an
 interpreter of the console's processor on made-up data and compared with a reimplementation
 from these facts, both ways; a new game's payload written by `src/gt4r/save` is **byte for byte
-the program's** (including its CRC). No save from a real card has been read yet.
+the program's** (including its CRC). A save the original game wrote on a memory card (its four
+files taken from the card's image) reads: the player, the credits, the day, the car with its
+record; written again from what was read it is the same bytes (`gt4tool save <disc> show
+<card folder>`), and the menus run from it. The state after a new game in the running original
+(a captured memory image at the map) gives the same blocks as ours after the same steps, but
+the name typed, the garage's key and the display's numbers.
 
 ## The folder
 
@@ -36,7 +41,8 @@ space the game asks for is the files' KB, plus one KB for two entries and one (0
 
 To use a save from a PlayStation 2 card, copy its `BASCUS-97328GAMEDATA` folder (all four
 files, from any tool that copies a card's files as they are) into `<data>/memorycard/`; the
-same folder written here goes back onto a card the same way. 🔎 Not tried with a real card.
+same folder written here goes back onto a card the same way. 🔎 Reading a real card's save is
+checked; a save written here has not been tried on a console.
 
 ## Results the scripts see (0x1CBF40)
 
