@@ -4,12 +4,14 @@
 #include "formats/model/coplanar_overlays.h"
 #include "gt4r/formats/model/mdls.h"
 
+#include <algorithm>
+
 namespace gt4r::race {
 
 namespace scene = gt3r::scene;
 
 std::unique_ptr<render::GpuModel> CourseScene::build(render::GpuContext& ctx, int slot, const std::string& label, bool keep,
-                                                     bool sheen, scene::Model* out) {
+                                                     bool sheen, scene::Model* out, bool animated) {
     const ByteSpan s = file_.section(data_, slot);
     if (!mdls::is_mdls(s)) return nullptr;
     // Scenery as the shared engine decodes its own: the programs' render state kept, cut-out
@@ -28,6 +30,25 @@ std::unique_ptr<render::GpuModel> CourseScene::build(render::GpuContext& ctx, in
     o.gs_state = true;
     scene::Model m = gt3r::gtm1::build_model(g, o, label);
     for (scene::Mesh& mesh : m.meshes) gt3r::gtm1::mark_coplanar_overlays(mesh);
+    if (animated) {
+        // The set's animated models are drawn apart, posed each frame; a set whose scripts do not
+        // read stays whole and still.
+        try {
+            animated_ = AnimatedModels(s, color_scale_, o);
+        } catch (const std::exception& e) {
+            LOG_WARN("Course %s: its animated models stay still (%s)", label.c_str(), e.what());
+            animated_ = {};
+        }
+        const std::vector<u32> moving = animated_.models();
+        std::erase_if(m.meshes, [&](const scene::Mesh& mesh) { return mesh.node >= 0 && std::binary_search(moving.begin(), moving.end(), u32(mesh.node)); });
+        if (!animated_.empty()) {
+            scene::Model holder = animated_.textures();
+            holder.name = label + "/animated";
+            animated_textures_ = std::make_unique<render::GpuModel>(ctx, holder);
+            animated_gpu_ = std::make_unique<render::GpuModel>(ctx, *animated_textures_);
+            animated_gpu_->keep_geometry();
+        }
+    }
     if (m.meshes.empty()) return nullptr;
     auto gpu = std::make_unique<render::GpuModel>(ctx, m, keep);
     if (out) *out = std::move(m);
@@ -42,7 +63,7 @@ CourseScene::CourseScene(render::GpuContext& ctx, ByteSpan course_file, const st
     if (course::Runway::is_runway(file_.section(data_, course::kSlotRunway))) road_ = course::Runway::parse(file_.section(data_, course::kSlotRunway));
 
     scene::Model scenery;
-    scenery_ = build(ctx, course::kSlotWorld, name + "/scenery", true, true, &scenery);
+    scenery_ = build(ctx, course::kSlotWorld, name + "/scenery", true, true, &scenery, true);
     if (!scenery_) throw FormatError("The course has no scenery.");
     stats_.models = scenery.meshes.size();
     stats_.textures = scenery.textures.size();
@@ -113,6 +134,12 @@ CourseScene::~CourseScene() = default;
 
 ByteSpan CourseScene::section(int slot) const { return file_.section(data_, slot); }
 
+void CourseScene::restart_animations() { animated_.restart(); }
+void CourseScene::animate(float seconds, std::span<const CarState> cars) { animated_.tick(seconds, cars); }
+void CourseScene::upload_animations(std::span<const CarState> cars) {
+    if (animated_gpu_) animated_gpu_->update_geometry(animated_.meshes(cars));
+}
+
 void CourseScene::add_items(std::vector<render::DrawItem>& items, const render::Vec3& eye, View view,
                             const gt3r::race::SceneryFade* fade) const {
     const render::ItemLights* lights = has_lights_ ? &lights_ : nullptr;
@@ -154,6 +181,12 @@ void CourseScene::add_items(std::vector<render::DrawItem>& items, const render::
         it.sphere_map = true;
         it.guard_band = true;
         items.push_back(it);
+        // The animated models with the scenery they were taken from.
+        if (animated_gpu_ && animated_gpu_->valid()) {
+            it.model = animated_gpu_.get();
+            it.in_order_join = true;
+            items.push_back(it);
+        }
     }
     if (fade)
         for (const gt3r::race::SceneryFade::Group& g : fade->faded()) {

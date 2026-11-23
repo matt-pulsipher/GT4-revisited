@@ -367,7 +367,10 @@ brake state, the per-wheel values and the lamp level into the model; drawing is:
   - model 3 when the course's headlamp-pool brightness is above 0 (`Env0` +0x58 🔎), with
     that as its alpha.
   ❓ The light vector and shadow colour are globals of the race (0x8465A0, 0x8465B0); their
-  source in the course has not been read.
+  source in the course has not been read. The race view here takes the shared engine's fields
+  of `Env0` for them (+0xA60 colour, +0xA6C alpha, +0xA70 / +0xA74 / +0xA78 direction and
+  length) and for model 1's second factor the lit shade factor +0xAB0 over the picture's scale
+  +0x38 (2.0 / 2.0 on Tsukuba: taken at face value the shadow comes out solid black) 🔎 by eye.
 - **Lamp glows** (when the lamp level is not 0): the info block's three lamp lists, the first
   at the course's headlamp brightness (or a flashing pattern's), the brake list at the brake
   brightness x the ramp (flag bit 0) or while braking, the tail list at the tail brightness

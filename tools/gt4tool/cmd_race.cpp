@@ -3,6 +3,7 @@
 //   gt4tool race <disc> sections <course>          the course file's sections
 //   gt4tool race <disc> rail <course> [seconds]    runs the stand-in simulation on the course's road
 //   gt4tool race <disc> models <course> <slot>     a slot's model set as the race view decodes it
+//   gt4tool race <disc> script <course> [slot] [ms]  runs a slot's model scripts at a time: the registers they set
 //   gt4tool race <disc> car <model> [paint] [n]    a race car's body (its model n) as decoded: materials, pictures, colors
 
 #include "gt4r/disc/disc.h"
@@ -10,11 +11,13 @@
 #include "gt4r/formats/course/runway.h"
 #include "gt4r/formats/model/car_model.h"
 #include "gt4r/formats/model/mdls.h"
+#include "gt4r/formats/model/model_script.h"
 #include "gt4r/race/rail_simulation.h"
 
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -175,6 +178,52 @@ int race_car(Disc& disc, const Args& a) {
     return 0;
 }
 
+// A course slot's model scripts run once at a time of the race: the variables, and what each
+// scripted model's registers come to.
+int race_script(Disc& disc, const Args& a) {
+    const Bytes data = read_course(disc, a[1]);
+    const course::CourseFile file = course::CourseFile::parse(data);
+    const int slot = a.size() > 2 ? std::atoi(a[2].c_str()) : course::kSlotWorld;
+    const int ms = a.size() > 3 ? std::atoi(a[3].c_str()) : 1230;
+    const mdls::Script script = mdls::Script::parse(file.section(data, slot));
+    if (script.empty()) {
+        std::printf("no script\n");
+        return 0;
+    }
+    std::printf("%zu bytes of code, %u + %u cells, host:", script.code.size(), script.register_cells, script.second_cells);
+    for (const mdls::Script::Variable& v : script.host) std::printf(" %s@%u", v.name.c_str(), v.cell);
+    std::printf(", %zu named registers\n", script.registers.size());
+    mdls::ScriptState state(script);
+    state.set_host(script.host_cell("time"), u32(ms));
+    state.set_host_f(script.host_cell("deltaT"), 1.0f / 60);
+    size_t setup = 0, tick = 0, draw = 0, failed = 0;
+    auto far = [](u32, std::span<const u32>) { return 1000.0f; }; // (no car near)
+    for (const mdls::Script::Entries& e : script.models)
+        if (e.setup >= 0) ++setup, failed += !mdls::run_script(script, e.setup, state, far);
+    for (const mdls::Script::Entries& e : script.models)
+        if (e.tick >= 0) ++tick, failed += !mdls::run_script(script, e.tick, state, far);
+    for (size_t i = 0; i < script.models.size(); ++i) {
+        const mdls::Script::Entries& e = script.models[i];
+        if (e.draw < 0) continue;
+        const std::vector<u32> before = state.registers;
+        const bool ok = mdls::run_script(script, e.draw, state, far);
+        failed += !ok;
+        if (draw++ < 24) {
+            std::printf("  model %zu:%s", i, ok ? "" : " (stopped)");
+            for (size_t c = 0; c < state.registers.size(); ++c)
+                if (state.registers[c] != before[c]) {
+                    std::string name = "r" + std::to_string(c);
+                    for (const mdls::Script::Variable& v : script.registers)
+                        if (v.cell == c) name = v.name;
+                    std::printf("  %s = %d / %g", name.c_str(), s32(state.registers[c]), state.register_f(u32(c)));
+                }
+            std::printf("\n");
+        }
+    }
+    std::printf("%zu set-up, %zu tick and %zu draw scripts run, %zu stopped\n", setup, tick, draw, failed);
+    return failed ? 1 : 0;
+}
+
 } // namespace
 
 int cmd_race(Disc& disc, const Args& a) {
@@ -182,6 +231,7 @@ int cmd_race(Disc& disc, const Args& a) {
     if (a[0] == "rail") return race_rail(disc, a);
     if (a[0] == "models") return race_models(disc, a);
     if (a[0] == "car") return race_car(disc, a);
+    if (a[0] == "script") return race_script(disc, a);
     std::fprintf(stderr, "race: unknown request %s\n", a[0].c_str());
     return 2;
 }

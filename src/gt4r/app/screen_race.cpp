@@ -123,7 +123,9 @@ public:
                     sh.on = true;
                     for (int k = 0; k < 3; ++k) sh.rgb[k] = env.shadow_rgb[size_t(k)];
                     sh.alpha = env.shadow_alpha;
-                    sh.light_factor = env.shadow_f_lit;
+                    // (The factor of a car in full light is the picture's scale on every course looked
+                    // at, 2.0: taken as a strength in the half-scale picture's terms.)
+                    sh.light_factor = env.shadow_f_lit / std::max(course_->color_scale(), 1.0f);
                     // Where the light throws a point a metre up: along the shadow's direction
                     // (elevation and azimuth in degrees), its length per metre of height.
                     const float el = -env.shadow_elev * kPi / 180, az = -env.shadow_az * kPi / 180;
@@ -203,6 +205,7 @@ public:
         }
         const int lap_before = cars[0].lap;
         sim_->step(inputs_, kStep);
+        course_->animate(kStep, sim_->cars());
         camera_.step(sim_->cars()[0], kStep);
         ++steps_;
         // The player's laps: a lap's time runs from one crossing of the line to the next (the
@@ -311,6 +314,7 @@ public:
         // (The backdrop's far plane lies a hundred times as far as the scenery's.)
         const render::Mat4 proj = render::perspective(pose.fovy(), aspect, 0.1f, far * 100.0f);
 
+        course_->upload_animations(cars);
         fade_.update(course_->visible_nodes(pose.eye), pose.eye, kStep);
         items_.clear();
         // The view's axes in course space (the rows of the view matrix's turn).

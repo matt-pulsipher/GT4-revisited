@@ -10,6 +10,7 @@
 #include "formats/course/visibility.h"
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/formats/course/runway.h"
+#include "gt4r/race/animated_models.h"
 #include "race/occluder.h"
 #include "race/scenery_fade.h"
 #include "race/sun_glare.h"
@@ -43,6 +44,12 @@ public:
     // slot 6's list for `eye`. False when the course has neither.
     bool add_env_items(std::vector<render::DrawItem>& items, const render::Vec3& eye, const render::Mat4& sky_rotation) const;
 
+    // The course's animated models (flags, people who step back from the road): the start of a
+    // race, a step of it, and once per drawn frame their shapes as they are now.
+    void restart_animations();
+    void animate(float seconds, std::span<const CarState> cars);
+    void upload_animations(std::span<const CarState> cars);
+
     // The scenery models the view draws from `eye` (null: all of them). Valid while the scene lives.
     const std::vector<u16>* visible_nodes(const render::Vec3& eye, View view = View::Race) const {
         return vis_[size_t(view)].visible(eye.x, eye.y, eye.z);
@@ -68,13 +75,16 @@ public:
 
 private:
     std::unique_ptr<render::GpuModel> build(render::GpuContext& ctx, int slot, const std::string& label, bool keep, bool sheen,
-                                            gt3r::scene::Model* out = nullptr);
+                                            gt3r::scene::Model* out = nullptr, bool animated = false);
 
     Bytes data_;
     course::CourseFile file_;
     course::Runway road_;
     gt3r::race::SunParams env_;
     float color_scale_ = 1;
+    // The scenery's animated models: a model holding their pictures, and their shapes of the frame.
+    AnimatedModels animated_;
+    std::unique_ptr<render::GpuModel> animated_textures_, animated_gpu_;
     std::unique_ptr<render::GpuModel> scenery_, after_, backdrop_, sky_, mirror_sky_, env_scenery_, env_sky_;
     std::array<gt3r::course::Visibility, 2> vis_; // slot 1's lists per View
     gt3r::course::Visibility env_vis_;            // slot 5's

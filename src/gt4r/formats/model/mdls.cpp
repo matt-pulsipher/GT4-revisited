@@ -64,7 +64,7 @@ void put32(Bytes& b, size_t o, u32 v) { std::memcpy(b.data() + o, &v, 4); }
 s32 s16_at(ByteSpan d, size_t o) { return s32(s16(rd16(d, o))); }
 
 // Walks a draw program from `start` over every path and replaces the commands GTM1 lacks.
-void patch_program(Bytes& b, size_t start, ConvertStats& st, const Scene& scene) {
+void patch_program(Bytes& b, size_t start, ConvertStats& st, const Scene& scene, std::set<u32>* shapes = nullptr) {
     std::set<size_t> seen;
     std::vector<size_t> work{start};
     std::vector<std::pair<size_t, size_t>> inside; // Scene::only_inside: the constructs kept
@@ -151,6 +151,12 @@ void patch_program(Bytes& b, size_t start, ConvertStats& st, const Scene& scene)
             if (n < 0) throw FormatError("MDLS draw program: unknown command");
             need(a, size_t(n));
             if (op == 0x02 || op == 0x03 || op == 0x04 || op == 0x05 || op == 0x35) draws.emplace_back(pc, size_t(n) + 1);
+            if (shapes) { // the shapes this program can draw
+                if (op == 0x04) shapes->insert(b[a]);
+                else if (op == 0x05) shapes->insert(rd16(d, a));
+                else if (op == 0x35)
+                    for (u32 k = 0; k < rd16(d, a + 2); ++k) shapes->insert(rd16(d, a) + k);
+            }
             if (op == 0x50 && b[a] < scene.outside_sets.size() && scene.outside_sets[b[a]] >= 0) {
                 ++st.replaced_commands;
                 b[pc] = kSelectSet, b[a] = u8(scene.outside_sets[b[a]]); // a set of the model's own list
@@ -197,7 +203,7 @@ struct Stream {
 // frames splits each range in half. An array may come as several UNPACKs of different widths, each
 // continuing at the address the last one stopped, and a packed run may be offsets from the VIF
 // row registers (STROW, with STMOD 1; STMOD 2 also moves the row).
-bool rewrite_packet(ByteSpan packet, float scale, bool packed_shape, float color_scale, Stream& out, ConvertStats& st) {
+bool rewrite_packet(ByteSpan packet, float scale, bool packed_shape, float color_scale, float morph_weight, Stream& out, ConvertStats& st) {
     using Vec = std::array<float, 4>;
     struct Array {
         std::vector<Vec> v;
@@ -291,6 +297,26 @@ bool rewrite_packet(ByteSpan packet, float scale, bool packed_shape, float color
             ++st.unknown_kinds[name];
         }
     }
+    // The shape between the two key shapes, when the draw's weight is known.
+    if (morph_weight >= 0 && pos[1].any) {
+        const float w = std::min(morph_weight, 1.0f);
+        auto blend = [&](Array* a) {
+            if (!a[0].any || !a[1].any) return;
+            for (size_t i = 0; i < a[0].v.size() && i < a[1].v.size(); ++i)
+                for (size_t j = 0; j < 4; ++j) a[0].v[i][j] += (a[1].v[i][j] - a[0].v[i][j]) * w;
+        };
+        blend(pos), blend(uv), blend(env), blend(nrm);
+        for (size_t i = 0; i < col[0].size() && i < col[1].size(); ++i) {
+            u32 c = 0;
+            for (int k = 0; k < 4; ++k) {
+                const float x = float((col[0][i] >> (8 * k)) & 0xFF), y = float((col[1][i] >> (8 * k)) & 0xFF);
+                c |= u32(x + (y - x) * w + 0.5f) << (8 * k);
+            }
+            col[0][i] = c;
+        }
+        pos[1] = {}, uv[1] = {}, env[1] = {}, nrm[1] = {}, col[1].clear();
+        packed = true; // (written again in any case)
+    }
     if (!tag.empty()) out.unpack(2, 0, 0xC0, false, 1, tag);
     for (int key = 0; key < 2; ++key) {
         const u32 shift = key ? 0x20 : 0;
@@ -359,9 +385,14 @@ Bytes to_gtm1(ByteSpan mdls, ConvertStats* stats, const Scene& scene) {
 
     // Draw programs: one per model (model record +0x18).
     std::vector<u32> programs(h.models);
+    std::set<u32> wanted_shapes;
+    const bool some = !scene.only_models.empty();
+    std::vector<bool> wanted(h.models, !some);
+    for (u32 m : scene.only_models)
+        if (m < h.models) wanted[m] = true;
     for (u32 i = 0; i < h.models; ++i) {
         programs[i] = rd32(src, h.model_table + 0x28 * size_t(i) + 0x18);
-        if (programs[i]) patch_program(out, programs[i], st, scene);
+        if (programs[i] && wanted[i]) patch_program(out, programs[i], st, scene, some ? &wanted_shapes : nullptr);
     }
 
     // Shapes: GTM1's chunk layout, +0x04 the scale of packed positions. A shape with packed data
@@ -370,6 +401,10 @@ Bytes to_gtm1(ByteSpan mdls, ConvertStats* stats, const Scene& scene) {
     for (u32 s = 0; s < h.shapes; ++s) {
         const u32 so = rd32(src, h.shape_table + 4 * size_t(s));
         if (so > h.size || h.size - so < 0x10) throw FormatError("MDLS: shape out of range");
+        if (some && !wanted_shapes.count(s)) { // (not drawn by the models asked for)
+            chunks[s] = so;
+            continue;
+        }
         float scale;
         std::memcpy(&scale, src.data() + so + 4, 4);
         const u32 count = rd16(src, so + 10);
@@ -382,7 +417,8 @@ Bytes to_gtm1(ByteSpan mdls, ConvertStats* stats, const Scene& scene) {
             const u32 po = so + rd32(src, e), qwc = rd16(src, e + 4);
             if (po > h.size || h.size - po < u64(qwc) * 16) throw FormatError("MDLS: packet out of range");
             ++st.packets;
-            const bool p = rewrite_packet(src.subspan(po, size_t(qwc) * 16), scale, (rd16(src, so + 8) & 0x80) != 0 && scale > 0, scene.color_scale, packets[k], st);
+            const bool p = rewrite_packet(src.subspan(po, size_t(qwc) * 16), scale, (rd16(src, so + 8) & 0x80) != 0 && scale > 0, scene.color_scale,
+                                          scene.morph_weight, packets[k], st);
             st.packed_packets += p;
             packed |= p || scene.color_scale != 1.0f; // (scaled colours are written again too)
             morph |= has_second_key(packets[k].b);

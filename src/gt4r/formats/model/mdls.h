@@ -69,6 +69,13 @@ struct Scene {
     // >= 0: only the shapes drawn inside the constructs of the switches with this id are kept
     // (a car's brake parts, drawn in the wheel's frame under id 11 + wheel).
     int only_inside = -1;
+    // >= 0: a shape with two key shapes is written as the one between them at this weight (0 the
+    // first, 1 the second), as the game blends them for a draw (commands 0x35 and 0x4C).
+    float morph_weight = -1.0f;
+    // Not empty: only these models' programs and the shapes they draw are converted (the others
+    // are left as they are and must not be decoded): one animated model's pose without the
+    // whole set's work.
+    std::vector<u32> only_models;
     // The values of the script's registers the draw programs read (segment 0 cells), when the
     // set's script has been run for this draw: a 0x4D switch takes its register's case (none: it
     // goes on after the table). Empty: every register reads 0.

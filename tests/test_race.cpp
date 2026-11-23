@@ -701,3 +701,133 @@ TEST(replay_script_disc) {
     CHECK(scripts >= 100 && records > 6000);
     CHECK(covered == asked);
 }
+
+// --- The model sets' scripts and a course's animated models ---
+
+#include "gt4r/formats/model/model_script.h"
+#include "gt4r/race/animated_models.h"
+
+namespace {
+
+u32 float_bits(float f) {
+    u32 v;
+    std::memcpy(&v, &f, 4);
+    return v;
+}
+void op(Bytes& b, u8 code) { b.push_back(code); }
+void op16(Bytes& b, u8 code, u32 v) { b.push_back(code), b.push_back(u8(v)), b.push_back(u8(v >> 8)); }
+void opf(Bytes& b, float f) {
+    b.push_back(0x11);
+    const u32 v = float_bits(f);
+    for (int k = 0; k < 4; ++k) b.push_back(u8(v >> (8 * k)));
+}
+
+} // namespace
+
+TEST(model_script_machine) {
+    // A flag's script: t = fmod(time / 1000 + 0.5, 1) x 10; register 1 its whole part (the key
+    // shape), register 0 its fraction (the weight).
+    mdls::Script s;
+    s.register_cells = 2;
+    s.host = {{"deltaT", 1, 1}, {"time", 1, 0}};
+    Bytes& c = s.code;
+    c.push_back(0x20), c.push_back(1);                 // a local
+    op16(c, 0x12, 0x8000), op(c, 0x3C);                // time as a float
+    opf(c, 1000), op(c, 0x83), opf(c, 0.5f), op(c, 0x80), opf(c, 1), op(c, 0x84);
+    opf(c, 10), op(c, 0x82), op16(c, 0x13, 2);         // local 2 = t
+    op16(c, 0x10, 2), op(c, 0x8C), op16(c, 0x14, 1);   // register 1 = int(t)
+    op16(c, 0x10, 2), opf(c, 1), op(c, 0x84), op16(c, 0x14, 0); // register 0 = fmod(t, 1)
+    c.push_back(0x23), c.push_back(0);
+    CHECK(s.host_cell("time") == 0 && s.host_cell("deltaT") == 1 && s.host_cell("brake") == -1);
+    mdls::ScriptState st(s);
+    st.set_host(0, 1230);
+    CHECK(mdls::run_script(s, 0, st));
+    CHECK(st.register_i(1) == 7 && std::fabs(st.register_f(0) - 0.3f) < 1e-4f);
+    st.set_host(0, 500);
+    CHECK(mdls::run_script(s, 0, st));
+    CHECK(st.register_i(1) == 0 && std::fabs(st.register_f(0)) < 1e-5f);
+
+    // Integers, a jump when zero, a question to the owner, a variable of a segment the set lacks.
+    mdls::Script q;
+    q.register_cells = 4;
+    Bytes& d = q.code;
+    op16(d, 0x12, 0x4005);                              // segment 1 has no cells: 0
+    op16(d, 0x26, 5);                                   // when 0: over the next command (5 bytes)
+    d.push_back(0x11), d.push_back(99), d.push_back(0), d.push_back(0), d.push_back(0); // (skipped) push 99
+    d.push_back(0x11), d.push_back(7), d.push_back(0), d.push_back(0), d.push_back(0);
+    d.push_back(0x11), d.push_back(3), d.push_back(0), d.push_back(0), d.push_back(0);
+    op(d, 0x34), op16(d, 0x14, 2);                      // register 2 = 7 % 3
+    d.push_back(0xC1), d.push_back(1), d.push_back(0), d.push_back(0), d.push_back(0); // ask id 1 on register 0
+    op16(d, 0x14, 3);
+    d.push_back(0x23), d.push_back(0);
+    mdls::ScriptState qs(q);
+    qs.registers[0] = float_bits(4.0f);
+    u32 asked = 99;
+    CHECK(mdls::run_script(q, 0, qs, [&](u32 id, std::span<const u32> cells) {
+        asked = id;
+        return cells.empty() ? 0.0f : 2.5f;
+    }));
+    CHECK(asked == 1 && qs.register_i(2) == 1 && std::fabs(qs.register_f(3) - 2.5f) < 1e-6f);
+    // It stops on an unknown command and on a program that never ends.
+    mdls::Script bad;
+    bad.code = {0xEE};
+    mdls::ScriptState bs(bad);
+    CHECK(!mdls::run_script(bad, 0, bs));
+    bad.code = {0x25, 0xFD, 0xFF}; // a jump to itself
+    CHECK(!mdls::run_script(bad, 0, bs));
+    CHECK(!mdls::run_script(bad, 5, bs));
+}
+
+TEST(animated_models_disc) {
+    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    size_t ran = 0;
+    for (const auto& disc : test::discs()) {
+        const gt3r::Volume::Entry* e = disc->volume().find("crs/tsukuba");
+        if (!e) continue;
+        const Bytes data = disc->volume().read(*e);
+        const course::CourseFile file = course::CourseFile::parse(data);
+        const ByteSpan set = file.section(data, course::kSlotWorld);
+        // Every script of the set runs to its end.
+        const mdls::Script script = mdls::Script::parse(set);
+        CHECK(!script.empty() && script.host_cell("time") == 0);
+        mdls::ScriptState st(script);
+        st.set_host(script.host_cell("time"), 1230);
+        size_t draws = 0;
+        for (const mdls::Script::Entries& m : script.models)
+            if (m.draw >= 0) {
+                ++draws;
+                CHECK(mdls::run_script(script, m.draw, st));
+            }
+        CHECK(draws == 19); // the flags
+
+        gt3r::gtm1::Options o;
+        o.course_env_maps = true, o.alpha_test = true, o.gs_state = true;
+        race::AnimatedModels flags(set, 2.0f, o);
+        CHECK(flags.models().size() == 19);
+        CHECK(!flags.textures().textures.empty());
+        // A second into the race and a third of a second later: the same flags, other shapes.
+        for (int i = 0; i < 60; ++i) flags.tick(1.0f / 60, {});
+        const std::vector<gt3r::scene::Mesh> a = flags.meshes({});
+        for (int i = 0; i < 20; ++i) flags.tick(1.0f / 60, {});
+        const std::vector<gt3r::scene::Mesh> b = flags.meshes({});
+        CHECK(a.size() == 19 && b.size() == 19);
+        size_t moved = 0;
+        for (size_t i = 0; i < a.size() && i < b.size(); ++i) {
+            CHECK(a[i].node == b[i].node && !a[i].vertices.empty() && !a[i].indices.empty());
+            float lo[3] = {1e9f, 1e9f, 1e9f}, hi[3] = {-1e9f, -1e9f, -1e9f};
+            for (const gt3r::scene::Vertex& v : a[i].vertices)
+                for (int k = 0; k < 3; ++k) lo[k] = std::min(lo[k], v.pos[k]), hi[k] = std::max(hi[k], v.pos[k]);
+            // A flag is a few metres of cloth above the pits, not a shape across the course.
+            CHECK(hi[0] - lo[0] < 12 && hi[1] - lo[1] < 12 && hi[2] - lo[2] < 12 && lo[1] > 5 && hi[1] < 40);
+            if (a[i].vertices.size() == b[i].vertices.size())
+                for (size_t v = 0; v < a[i].vertices.size(); ++v)
+                    if (std::fabs(a[i].vertices[v].pos[0] - b[i].vertices[v].pos[0]) + std::fabs(a[i].vertices[v].pos[2] - b[i].vertices[v].pos[2]) > 0.01f) {
+                        ++moved;
+                        break;
+                    }
+        }
+        CHECK(moved >= 15);
+        ++ran;
+    }
+    if (!ran) SKIP("no Gran Turismo 4 disc");
+}

@@ -303,6 +303,12 @@ list) is the same routine. Which lists belong to which view, from the draw routi
 
 ## Scripts of the model sets
 
+Code: `src/gt4r/formats/model/model_script.*` (the machine), `src/gt4r/race/animated_models.*`
+(a course's models that pick a key shape and a blend weight: decoded once per key shape, blended
+each frame), `gt4tool race <disc> script <course> [slot] [ms]`. The models that also move or
+turn by registers (icerace's walkers, a turning sign each on lasvegas and seoul) and the animated
+skies are drawn still.
+
 The sky, backdrop and scenery sets carry a small program per animated model: flags, people who
 walk or step back from the road, turning signs. Counts on the US disc: 3,347 scenery models
 with a draw script on 66 courses, 785 with a per-tick script on 19, six animated skies (seoul,
