@@ -61,10 +61,14 @@ program's table at 0x623DC0 (a row for tarmac, one for dirt and snow), bytes +0x
 +0x24 (km/h), +0x25; the zeros there give the defaults **-400 m, 80 km/h** (the original's 50
 mph field) and 20. ❓ The other digits are not read here; ❓ who reads the course object's block.
 
-The race's menus here take the course's start: rolling (the cars' `sim::Entry::start_speed` 80
-km/h; the cars are placed by the simulation) or ❓ a standing start of 10 s with the opening shots
-(the race information's own type byte is not traced to its source; the original's Grand Canyon
-start fits it).
+The race's menus here take the course's start: rolling (every car at 80 km/h in single file, the
+last place 400 m before the line and 20 m between places: `sim::Entry::start_speed` and
+`start_distance` by `sim::rules::rolling_start_distance`) or ❓ a standing start of 10 s with the
+opening shots (the race information's own type byte is not traced to its source; the original's
+Grand Canyon start fits it). In a rolling start the computer drivers drive the player's car too
+until it takes the line; ❓ judged from the original: the course's TV cameras show the field
+running up until the player's car is 130 m from the line, the race clock standing until then. 🔎
+The original's field holds about 50 mph to the line; the computer drivers here speed up.
 
 ## The grid
 

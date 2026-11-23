@@ -15,6 +15,7 @@
 #include "gt4r/sim/ai/drivers.h"
 #include "gt4r/sim/equipment.h"
 
+#include <limits>
 #include <map>
 #include <memory>
 #include <optional>
@@ -42,6 +43,7 @@ struct WorldEntry {
     bool automatic = true; // the gearbox shifts itself
     float start_speed = 0; // a rolling start: metres per second at time 0 (sim::Entry::start_speed)
     std::optional<sim::Equipment> equipment; // the car's parts and settings (a garage car's); none: as sold
+    float start_distance = std::numeric_limits<float>::quiet_NaN(); // a rolling start's place (sim::Entry::start_distance)
 };
 
 struct WorldSetup {
@@ -73,7 +75,9 @@ public:
     bool computer_drivers() const { return field_ != nullptr; }
     // One simulation step of 1/60 s. `hold`: the start's hold (the engines answer the throttle, the
     // cars stay).
-    void step(std::span<const race::CarInput> inputs, bool hold = false);
+    // `player_by_computer`: when the computer drivers were set up for the player's car too, they drive
+    // it this step (else its input is the caller's: a rolling start handed over).
+    void step(std::span<const race::CarInput> inputs, bool hold = false, bool player_by_computer = true);
     std::span<const race::CarState> cars() const { return sim_->cars(); }
     // What goes with the cars shown in a step, live (the simulation's) or recorded: smoke and dust
     // from the wheels, and the race's sound heard from `camera` (none: no sound) about car `target`.

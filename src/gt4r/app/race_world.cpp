@@ -164,6 +164,7 @@ void RaceWorld::build_simulation() {
                 entries[i].grid_place = setup_.entries[i].grid_place;
                 entries[i].automatic = setup_.entries[i].automatic;
                 entries[i].start_speed = setup_.entries[i].start_speed;
+                entries[i].start_distance = setup_.entries[i].start_distance;
             }
             // The player's car's power as built (the replay's card).
             try {
@@ -208,13 +209,14 @@ void RaceWorld::restart() {
     clear_effects();
 }
 
-void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold) {
-    // The computer drivers write their own cars' inputs.
+void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool player_by_computer) {
+    // The computer drivers write their own cars' inputs (the player's too while they drive it).
     std::vector<race::CarInput> driven;
     if (field_) {
         driven.assign(inputs.begin(), inputs.end());
         driven.resize(car_visuals_.size());
         hold ? field_->hold(driven) : field_->drive(driven);
+        if (computer_player_ && !player_by_computer && !inputs.empty()) driven[0] = inputs[0];
         inputs = driven;
     }
     if (hold && session_) session_->hold_once(inputs);

@@ -31,6 +31,7 @@
 #include "gt4r/race/start_rule.h"
 #include "gt4r/race/picture_settings.h"
 #include "gt4r/sim/ai/grid.h"
+#include "gt4r/sim/rules_start.h"
 #include "gt4r/menu/game.h"
 #include "gt4r/menu/race_natives.h"
 #include "gt4r/menu/runtime.h"
@@ -171,7 +172,7 @@ public:
         WorldSetup ws;
         ws.course = setup.course;
         ws.smoke = setup.smoke, ws.reflection = setup.reflection, ws.rail = setup.rail;
-        ws.computer_player = setup.auto_drive;
+        ws.computer_player = setup.auto_drive || setup.start == race::StartType::Rolling;
         ws.pace = setup.pace;
         ws.options = setup.options;
         ws.playlist = setup.playlist;
@@ -183,7 +184,12 @@ public:
                                                          : setup.opponents[size_t(i - 1) % setup.opponents.size()];
             e.paint = size_t(i) < setup.paints.size() ? setup.paints[size_t(i)] : i == 0 ? setup.paint : u32(i);
             e.grid_place = places[size_t(i)];
-            if (setup.start == race::StartType::Rolling) e.start_speed = setup.start_speed;
+            if (setup.start == race::StartType::Rolling) {
+                // In single file behind the line: the last place 400 m back, 20 m between places
+                // (the program's defaults: docs/formats/race_flow.md "Which start a course has").
+                e.start_speed = setup.start_speed;
+                e.start_distance = float(sim::rules::rolling_start_distance(-400, 20, setup.cars, e.grid_place));
+            }
             if (i == 0) e.equipment = setup.player_equipment;
             ws.entries.push_back(e);
         }
@@ -225,7 +231,8 @@ public:
     // The cars on the grid and the start's hold from the beginning; `watched`: the computer drives the
     // player's car too (B-spec).
     void begin_run(bool watched = false) {
-        world_->set_computer_player(watched || setup_.auto_drive);
+        // (A rolling start: the computer drivers drive the player's car up to the line.)
+        world_->set_computer_player(watched || setup_.auto_drive || setup_.start == race::StartType::Rolling);
         if (ran_ || watched != watched_) world_->restart();
         watched_ = watched;
         ran_ = true;
@@ -329,8 +336,9 @@ public:
             me.reverse = mapper_.reverse();
             if (me.reverse) me.throttle = std::max(me.throttle, gt3r::race::pressure_to_pedal(pad.press(PadButton::Triangle)));
         }
-        world_->step(inputs_, hold);
-        const race::RaceFlow::Events ev = flow_.step(world_->cars());
+        const bool opening = opening_tv();
+        world_->step(inputs_, hold, auto_drive || watched_ || setup_.auto_drive);
+        const race::RaceFlow::Events ev = opening ? race::RaceFlow::Events{} : flow_.step(world_->cars());
         if (!ev.finished.empty()) board_.finished(flow_, ev.finished);
         if (!hold) distance_ += std::fabs(world_->cars()[0].speed) * kStep;
         {
@@ -353,7 +361,7 @@ public:
         beeps_ += ev.beep;
         start_camera_.step();
         camera_.step(world_->cars()[0], kStep);
-        if (mount_ == kTvView) step_tv(world_->cars()[0]);
+        if (mount_ == kTvView || opening) step_tv(world_->cars()[0]);
         if (event_steps_ >= 0) ++event_steps_;
         if (history_.size() < kHistory) history_.emplace_back(world_->cars().begin(), world_->cars().end());
         hear(world_->cars(), true);
@@ -517,6 +525,19 @@ public:
         }
     }
 
+    // A rolling start's opening shots: the course's TV cameras on the field running up, until the
+    // player's car is 130 m from the line; the race clock stands meanwhile (❓ judged from the
+    // original's Tsukuba start: about 12 s of shots, the clock starting during the last one and the
+    // field taking the line some 4 s later; the program's routine is not read).
+    bool opening_tv() const {
+        if (!handing_over() || setup_.skip > 0) return false;
+        const race::CarState& c = world_->cars()[0];
+        const float len = world_->line().length;
+        if (!(len > 0)) return false;
+        const float to_line = c.course_v > len * 0.5f ? len - c.course_v : (c.lap < 0 ? len - c.course_v : 0.0f);
+        return to_line > 130.0f;
+    }
+
     // A rolling start before the player's car takes the line: it is driven for him.
     bool handing_over() const { return flow_.setup().start == race::StartType::Rolling && flow_.steps_since_start() < 0 && !replaying_ && !menu_scene_; }
 
@@ -543,7 +564,7 @@ public:
         const race::CarState& me = cars[0];
         const render::Mat4 body = world_->visual(0).body_matrix(me);
         race::ViewPose pose;
-        const int view = replaying_ ? kTvView : mount_;
+        const int view = replaying_ || (!menu_scene_ && opening_tv()) ? kTvView : mount_;
         bool posed = menu_scene_ && scenic_.pose(pose);
         posed = posed || (start_camera_.active() && start_camera_.pose(pose));
         // The replay cameras' shot for the car; the chase view where the script has none.
