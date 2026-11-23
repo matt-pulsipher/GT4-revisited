@@ -124,6 +124,53 @@ TEST(race_flow_crossing_time) {
     CHECK(started && rolling.steps_since_start() >= 0);
 }
 
+TEST(race_result_board) {
+    // Three cars, the player (0) the slowest; the page up when the leader finishes.
+    Field f({2.0f, 3.0f, 2.5f}, 5);
+    race::FlowSetup s;
+    s.start = race::StartType::None, s.laps = 1, s.lap_length = kLap;
+    race::RaceFlow flow(s, f.cars);
+    race::ResultBoard board;
+    board.begin(3, 0, "Lap", "Laps");
+    CHECK(board.rows().size() == 3 && board.rows()[0].car == -1);
+    bool page = false;
+    for (int i = 0; i < 2000 && !flow.everyone_finished(); ++i) {
+        f.step();
+        const race::RaceFlow::Events ev = flow.step(f.cars);
+        if (!ev.finished.empty()) board.finished(flow, ev.finished), page = true;
+        if (page) {
+            board.follow(flow);
+            // While car 2 and 0 run, their rows follow the order with no time.
+            if (!flow.car(2).finished) {
+                CHECK(board.rows()[1].car == 2 && board.rows()[1].time.empty() && !board.rows()[1].fixed);
+                CHECK(board.rows()[2].car == 0 && board.player_row() == 2);
+            }
+        }
+    }
+    CHECK(board.all_fixed());
+    const auto& r = board.rows();
+    CHECK(r[0].car == 1 && r[1].car == 2 && r[2].car == 0);
+    // The winner's whole time (" M'SS.mmm"), the others' gaps ("+M'SS.mmm").
+    CHECK(r[0].time == race::result_time(race::clock_ms(flow.car(1).finish_units), false));
+    CHECK(r[0].time[0] == ' ' && r[1].time[0] == '+' && r[2].time[0] == '+');
+    CHECK(r[2].time == race::result_time(race::clock_ms(flow.car(0).finish_units) - race::clock_ms(flow.car(1).finish_units), true));
+    // The changed mark is taken once.
+    CHECK(board.take_changed(0) && !board.take_changed(0));
+    CHECK(race::result_time(184462, false) == " 3'04.462" && race::result_time(491, true) == "+0'00.491");
+    // A car a lap down: "+1Lap".
+    Field g({3.0f, 1.0f}, 5);
+    s.laps = 3;
+    race::RaceFlow f2(s, g.cars);
+    race::ResultBoard b2;
+    b2.begin(2, 0, "Lap", "Laps");
+    for (int i = 0; i < 5000 && !f2.everyone_finished(); ++i) {
+        g.step();
+        const auto ev = f2.step(g.cars);
+        if (!ev.finished.empty()) b2.finished(f2, ev.finished);
+    }
+    CHECK(b2.rows()[1].time == "+2Laps");
+}
+
 TEST(race_start_motion_curves) {
     race::MotionChannel c;
     c.first = 0;
@@ -287,6 +334,11 @@ TEST(strobe_result_movie_disc) {
         CHECK(std::find(words.begin(), words.end(), "Car 1") != words.end());
         CHECK(std::find(words.begin(), words.end(), "1'02.000") != words.end());
         CHECK(std::find(words.begin(), words.end(), "Car 5") == words.end()); // not finished: its row not filled
+        // The car icons are the program's pictures (kind 7), one per visible row, not shapes.
+        size_t icons = 0;
+        for (const race::StrobePlayer::Draw& d : p.draw_list())
+            if (d.external.rfind("_EXT_CARICON", 0) == 0) ++icons;
+        CHECK(icons == 6);
         // Accept leaves the page.
         p.key(0x20);
         for (int i = 0; i < 90 && !exit; ++i) p.advance(1.0f / 30);

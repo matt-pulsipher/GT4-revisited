@@ -267,7 +267,21 @@ void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlaye
             if (tex.textures.empty()) return nullptr;
             gt3r::GsMemory gs;
             tex.upload(set, gs);
-            t = m.make_texture(tex.decode(gs, 0));
+            gt3r::Tex1::Image img = tex.decode(gs, 0);
+            // The fill matrices map the movie's size of the picture (a power of two: 128 x 64); the set's
+            // texture is the picture's own size (99 x 34) at its top left.
+            if (i < movie.textures.size()) {
+                const u32 w = movie.textures[i].width, h = movie.textures[i].height;
+                if (w > 0 && h > 0 && w <= 4096 && h <= 4096 && (w != img.width || h != img.height)) {
+                    gt3r::Tex1::Image out;
+                    out.width = w, out.height = h;
+                    out.rgba.assign(size_t(w) * h, 0);
+                    for (u32 y = 0; y < std::min(h, img.height); ++y)
+                        std::copy_n(img.rgba.begin() + ptrdiff_t(size_t(y) * img.width), std::min(w, img.width), out.rgba.begin() + ptrdiff_t(size_t(y) * w));
+                    img = std::move(out);
+                }
+            }
+            t = m.make_texture(img);
         } catch (const std::exception& e) {
             LOG_WARN("Race movie: picture %zu: %s", i, e.what());
         }
@@ -323,8 +337,10 @@ void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlaye
                 f.sy = comma == std::string::npos ? f.sx : float(std::atof(sizes.c_str() + comma + 1)) / 100.0f;
             }
             if (!f.font) continue;
-            // The field's own size against the font's (16 units).
-            const float size = t.height / 16.0f, sx = std::hypot(d.m[0], d.m[1]), sy = std::hypot(d.m[2], d.m[3]);
+            // The field's em (its height) against the font's own size (the program
+            // scales the glyphs by the height alone: 0x479CA0).
+            const float em = f.font->size > 0 ? float(f.font->size) : 16.0f;
+            const float size = t.height / em, sx = std::hypot(d.m[0], d.m[1]), sy = std::hypot(d.m[2], d.m[3]);
             f.sx *= size * sx, f.sy *= size * sy;
             const float x = t.align == 2 ? (t.x0 + t.x1) / 2 : t.align == 1 ? t.x1 : t.x0;
             const float px = d.m[0] * x + d.m[2] * t.y0 + d.m[4], py = d.m[1] * x + d.m[3] * t.y0 + d.m[5];

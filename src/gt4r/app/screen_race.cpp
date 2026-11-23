@@ -182,6 +182,7 @@ public:
         fs.player = 0;
         fs.lap_length = world_->line().length;
         flow_.begin(fs, world_->cars());
+        board_.begin(world_->car_count(), 0, lap_words_[0], lap_words_[1]);
         camera_.reset(world_->cars()[0]);
         history_.clear();
         replaying_ = false, over_ = false;
@@ -250,6 +251,7 @@ public:
         }
         world_->step(inputs_, hold);
         const race::RaceFlow::Events ev = flow_.step(world_->cars());
+        if (!ev.finished.empty()) board_.finished(flow_, ev.finished);
         if (audio::RaceSound* sound = world_->sound()) {
             if (hold) sound->count(flow_.hold_left());
             if (ev.player_finished) sound->finish();
@@ -301,6 +303,9 @@ public:
     void stop_replay() { replaying_ = false, replay_done_ = true; }
     bool over() const { return over_; }
     const race::RaceFlow& flow() const { return flow_; }
+    race::ResultBoard& board() { return board_; }
+    // The race's words for one lap and several (the results' "+1Lap").
+    void set_lap_words(std::string one, std::string several) { lap_words_[0] = std::move(one), lap_words_[1] = std::move(several); }
     int beeps() const { return beeps_; }
     std::span<const race::CarState> shown() const { return replaying_ ? std::span<const race::CarState>(history_[replay_at_]) : world_->cars(); }
 
@@ -401,6 +406,8 @@ private:
     race::CameraMotion start_motion_, replay_motion_;
     race::StartCamera start_camera_;
     race::RaceFlow flow_;
+    race::ResultBoard board_;
+    std::string lap_words_[2] = {"Lap", "Laps"};
     race::ReplayScript scenic_script_;
     race::ScenicCamera scenic_;
     std::vector<std::vector<race::CarState>> history_;
@@ -513,6 +520,7 @@ public:
             if (!result_ && !result_tried_) open_results(app);
             bool leave = false;
             if (result_) {
+                race_->board().follow(race_->flow());
                 if (m.vertical()) result_->key(m.vertical() < 0 ? 0x26 : 0x28);
                 if (m.pressed(PadButton::Cross)) result_->key(0x20);
                 result_->advance(float(dt));
@@ -558,7 +566,8 @@ public:
             if (const float cover = menus_->fade_cover(); cover > 0) ui.fill(0, 0, Ui::kWidth, Ui::kHeight, Color{0, 0, 0, u8(std::clamp(cover, 0.0f, 1.0f) * 255.0f)});
             return;
         }
-        if (setup_.hud) {
+        // The results page covers the race display (the program hides it under the page).
+        if (setup_.hud && !results_shown()) {
             if (hud_ && hud_->ready()) {
                 race_->fill(hud_state_, *hud_);
                 hud_->draw(ui, hud_state_);
@@ -776,18 +785,15 @@ private:
             using V = race::StrobePlayer::Value;
             std::string n = name;
             for (char& c : n) c = char(std::toupper(static_cast<unsigned char>(c)));
-            const std::vector<race::RaceFlow::ResultRow> rows = race_->flow().results();
+            race::ResultBoard& board = race_->board();
             const int i = args.empty() ? -1 : int(args[0].to_number());
-            const race::RaceFlow::ResultRow* row = i >= 0 && size_t(i) < rows.size() ? &rows[size_t(i)] : nullptr;
+            const race::ResultBoard::Row* row = i >= 0 && size_t(i) < board.rows().size() ? &board.rows()[size_t(i)] : nullptr;
+            // (docs/formats/race_flow.md "The results": the program's callbacks over its rows.)
             if (n == "CB_ISVISIBLE") return V::boolean(row != nullptr);
-            if (n == "CB_STABLE") return V::boolean(row && row->finished);
-            if (n == "CB_PLAYERRANK") {
-                for (size_t k = 0; k < rows.size(); ++k)
-                    if (rows[k].car == 0) return V::number(double(k));
-                return V::number(-1);
-            }
-            if (n == "CB_GETNAME") return V::string(row ? race_->car_name(row->car) : std::string());
-            if (n == "CB_GETTIME") return V::string(row && row->finished ? race::format_lap_time(row->total_ms) : std::string());
+            if (n == "CB_STABLE") return V::boolean(row && board.take_changed(size_t(i)));
+            if (n == "CB_PLAYERRANK") return V::number(board.player_row());
+            if (n == "CB_GETNAME") return V::string(row && row->car >= 0 ? race_->car_name(size_t(row->car)) : std::string());
+            if (n == "CB_GETTIME") return V::string(row ? row->time : std::string());
             if (n == "CB_ENABLEEXIT") return V::number(1);
             if (n == "CB_RACEEXIT") result_exit_ = true;
             if (n == "PLAY_SOUND")
@@ -840,6 +846,7 @@ private:
         try {
             race_ = std::make_unique<Race>(app, setup_, cars_);
             hud_ = std::make_unique<RaceHud>(app, race_->course().section(course::kSlotMiniMap));
+            race_->set_lap_words(hud_->word("WordOfLap"), hud_->word("WordOfLaps"));
             work_ms_.clear(), interval_ms_.clear();
             last_frame_ns_ = 0, clock_ = 0;
         } catch (const std::exception& e) {

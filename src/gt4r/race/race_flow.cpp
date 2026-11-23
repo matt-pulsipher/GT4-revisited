@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 
 namespace gt4r::race {
 
@@ -159,6 +160,80 @@ std::vector<RaceFlow::ResultRow> RaceFlow::results() const {
         rows.push_back(row);
     }
     return rows;
+}
+
+std::string result_time(s64 ms, bool plus) {
+    ms = std::max<s64>(0, ms);
+    char buf[32];
+    std::snprintf(buf, sizeof buf, "%c%d'%02d.%03d", plus ? '+' : ' ', int(ms / 60000), int(ms / 1000 % 60), int(ms % 1000));
+    return buf;
+}
+
+void ResultBoard::begin(size_t cars, size_t player, std::string lap_word, std::string laps_word) {
+    rows_.assign(cars, Row{});
+    recorded_.assign(cars, false);
+    player_ = player;
+    player_row_ = 0;
+    all_fixed_ = false;
+    leader_ms_ = 0, leader_laps_ = 0;
+    lap_word_ = std::move(lap_word), laps_word_ = std::move(laps_word);
+}
+
+void ResultBoard::set_player_row(int row) {
+    // Both the old and the new row are marked (the place's colour moves).
+    if (player_row_ != row && size_t(player_row_) < rows_.size()) rows_[size_t(player_row_)].changed = true;
+    player_row_ = row;
+    if (size_t(row) < rows_.size()) rows_[size_t(row)].changed = true;
+}
+
+void ResultBoard::put(size_t row, int car) {
+    rows_[row].car = car;
+    rows_[row].changed = true;
+    if (size_t(car) == player_) set_player_row(int(row));
+}
+
+void ResultBoard::finished(const RaceFlow& flow, std::span<const size_t> cars) {
+    if (all_fixed_) return;
+    const std::vector<size_t>& order = flow.order();
+    for (size_t car : cars) {
+        if (car >= recorded_.size() || recorded_[car]) continue;
+        size_t row = 0;
+        while (row < order.size() && order[row] != car) ++row;
+        if (row >= rows_.size()) continue;
+        recorded_[car] = true;
+        put(row, int(car));
+        Row& r = rows_[row];
+        r.fixed = true;
+        // The time (ResultArcade::vf9, kind 0): the winner's whole time; the others' gap to it, or
+        // the laps short of the winner's.
+        const RaceFlow::CarRecord& c = flow.car(car);
+        const s64 ms = clock_ms(c.finish_units);
+        if (row == 0) leader_ms_ = ms, leader_laps_ = c.laps_done;
+        if (c.laps_done == leader_laps_) {
+            r.time = result_time(row == 0 ? ms : ms - leader_ms_, row != 0);
+        } else {
+            const int behind = leader_laps_ - c.laps_done;
+            r.time = "+" + std::to_string(behind) + (behind < 2 ? lap_word_ : laps_word_);
+        }
+    }
+    all_fixed_ = std::all_of(recorded_.begin(), recorded_.end(), [](bool b) { return b; });
+}
+
+void ResultBoard::follow(const RaceFlow& flow) {
+    if (all_fixed_) return;
+    const std::vector<size_t>& order = flow.order();
+    for (size_t row = 0; row < order.size() && row < rows_.size(); ++row) {
+        const size_t car = order[row];
+        if (recorded_[car] || rows_[row].car == int(car)) continue;
+        put(row, int(car));
+    }
+}
+
+bool ResultBoard::take_changed(size_t row) {
+    if (row >= rows_.size()) return false;
+    const bool c = rows_[row].changed;
+    rows_[row].changed = false;
+    return c;
 }
 
 } // namespace gt4r::race
