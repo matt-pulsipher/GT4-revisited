@@ -252,7 +252,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
     // that drives every car's run-up leaves it.
     for (size_t i = 0; i < cars_.size(); ++i) {
         if (!(entries[i].start_speed > 0)) continue;
-        rules::moving_start(cars_[i], F(entries[i].start_speed), true);
+        rules::moving_start(cars_[i], gx_[i].drive, F(entries[i].start_speed), true);
         publish(i);
     }
 }
@@ -450,7 +450,7 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
 
         ex::save_previous(c);
         ex::prep(c, race_.prep);
-        if (gt4_rules_) rules::prep_tires(c, gx_[i], layouts_[i], tables_);
+        if (gt4_rules_) rules::prep_tires(c, gx_[i], layouts_[i], tables_, race_.prep.condition);
         ex::driver_input_pad(c, race_.pad, f, course_kind);
         // A computer driver's own command: the road wheels' angle as the game's drivers set it (0x464F38 writes it into the
         // steering command directly), within the full lock, past the pad's lock curve (no later phase reads the bounds).
@@ -462,7 +462,7 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
         if (gt4_rules_) rules::slip_phase(c, gx_[i], layouts_[i], tables_);
         else ex::slip_ratios(c, race_.statics);
         ex::aids(c, race_.aids);
-        if (gt4_rules_) rules::dynamics(c, gx_[i], layouts_[i], tables_, race_.statics, race_.gears);
+        if (gt4_rules_) rules::dynamics(c, gx_[i], layouts_[i], tables_);
         else ex::dynamics(c, race_.statics, race_.gears, race_.class_grip);
         ex::brake_heat(c, race_.brake_heat);
         ex::clear_feedback(c);

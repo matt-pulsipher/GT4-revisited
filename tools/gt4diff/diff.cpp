@@ -169,6 +169,28 @@ ParamsResult run_params(Disc& disc, bool print) {
                 ++f.values;
                 const u8* a = reinterpret_cast<const u8*>(&theirs) + sl.member;
                 const u8* b = reinterpret_cast<const u8*>(&ours) + sl.member;
+                // The driveline block's values also by size (the engine's converter's arithmetic, a unit or two in the
+                // last place on many): "near d.<name>".
+                if (name.rfind("d.", 0) == 0 && (sl.real || sl.size == 2)) {
+                    double x = 0, y = 0;
+                    if (sl.real) {
+                        gt3r::ee::F fa, fb;
+                        std::memcpy(&fa, a, 4), std::memcpy(&fb, b, 4);
+                        x = double(fa.host()), y = double(fb.host());
+                    } else {
+                        u16 ha = 0, hb = 0;
+                        std::memcpy(&ha, a, 2), std::memcpy(&hb, b, 2);
+                        x = ha, y = hb;
+                    }
+                    Field& nf = field(("near " + name).c_str());
+                    ++nf.values;
+                    const double dd = std::fabs(x - y), rel = dd / std::max(std::fabs(x), 1e-9);
+                    if (dd > 1e-6 && rel > (sl.real ? 1e-5 : 1e-3)) {
+                        ++nf.off;
+                        if (std::getenv("GT4R_LIST_NEAR")) std::printf("  near %s %s: %g / %g\n", c.label.c_str(), sl.name.c_str(), x, y);
+                        if (rel > nf.worst) nf.worst = rel, nf.where = c.label + " " + sl.name + ": the program's " + std::to_string(x) + ", ours " + std::to_string(y);
+                    }
+                }
                 if (std::memcmp(a, b, sl.size) != 0) {
                     ++f.off;
                     if (f.where.empty()) {

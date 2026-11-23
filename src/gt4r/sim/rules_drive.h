@@ -112,6 +112,8 @@ constexpr u32 kAwdFade = 0x62030A, kSteplessBytes = 0x6220F4, kControllerSetting
 DriveTables drive_tables(const u8* awd, const u8* stepless_bytes, const u8* settings);
 DriveTables drive_tables(const Program& program);
 
+// 0x34EB00: a turbo stage's boost at rpm n.
+F turbo_boost(const EngineBlock& e, gt3r::s16 n, int stage);
 // 0x350DA0: the speed of the axles the engine drives (by the driveline's layout: 0, 4 .. 7 the rear, 1,
 // 2 and 9 the front, 3 and 10 their mean, 8 the rear's plus the split times the difference).
 F driven_axle_speed(const ex::Car& c, const DrivelineBlock& d);

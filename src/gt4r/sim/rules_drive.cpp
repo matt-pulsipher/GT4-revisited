@@ -346,6 +346,8 @@ void change_gear(ex::Car& c, int g) {
 
 } // namespace
 
+F turbo_boost(const EngineBlock& e, s16 n, int stage) { return turbo_stage(e, n, stage); }
+
 DriveTables drive_tables(const u8* awd, const u8* stepless_bytes, const u8* settings) {
     DriveTables t;
     auto word = [](const u8* p) { return F::raw(u32(p[0]) | u32(p[1]) << 8 | u32(p[2]) << 16 | u32(p[3]) << 24); };

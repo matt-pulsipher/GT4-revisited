@@ -26,28 +26,30 @@ Tables tables(const Program& program, const ex::Statics&) {
     t.globals.steer_mode = 1;
     t.globals.camber_ref = F::raw(program.w(kCamberRef)), t.globals.camber_gain = F::raw(program.w(kCamberGain));
     t.globals.mean_on = 1;
+    t.drive = drive_tables(program);
     return t;
 }
 
-void prep_tires(ex::Car& c, Extra& x, const WheelLayout& l, const Tables& t) {
+void prep_tires(ex::Car& c, Extra& x, const WheelLayout& l, const Tables& t, const ex::Condition& cond) {
+    engine_torques(c, x.drive, cond);
     const bool wear = wear_grip(c, x.wear, x.tires, l, t.wear);
     peak_force(c, x.tires, l, wear);
     slip_angles(c, l);
 }
 
-void dynamics(ex::Car& c, Extra& x, const WheelLayout& l, const Tables& t, const ex::Statics& s, const ex::GearSettings& g) {
-    ex::brakes_and_clutch(c);
+void dynamics(ex::Car& c, Extra& x, const WheelLayout& l, const Tables& t) {
+    brakes_and_clutch(c, x.drive, l);
     rolling_resistance(c, l, t.road);
     tire_curves(c, x.tires, l);
     tire_long_force(c, l, t.slip);
     tire_slip_force(c, x.tires, l, t.globals);
     forward_step(c, x.chassis, x.tires, l);
-    ex::wheel_net_torque(c);
-    ex::torque_vectoring(c, s.hybrid);
-    ex::axle_step(c, s.awd3, s.stepless, s.hybrid);
-    ex::wheel_speeds(c);
-    ex::engine_speed(c, s.hybrid);
-    ex::gear_step(c, g);
+    wheel_torques(c, x.drive, l);
+    vectoring(c, x.drive, l);
+    axle_step(c, x.drive, l, t.drive);
+    wheel_speeds(c, x.drive, l);
+    engine_speed(c, x.drive, l);
+    gear_step(c, x.drive, l, x.tires, t.drive);
     const bool air = airborne(c, l);
     lateral_yaw(c, x.chassis, x.tires, l, air, t.globals);
     stop_hold(c, l, air);
