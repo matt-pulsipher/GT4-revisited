@@ -344,9 +344,15 @@ void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlaye
                 f.sy = comma == std::string::npos ? f.sx : float(std::atof(sizes.c_str() + comma + 1)) / 100.0f;
             }
             if (!f.font) continue;
-            // The field's em (its height) against the font's own size (the program
-            // scales the glyphs by the height alone: 0x479CA0).
-            const float em = f.font->size > 0 ? float(f.font->size) : 16.0f;
+            // The field's em (its height) against the font's own: the number its name ends with
+            // (hm_16: 16, hb_24: 24; the program scales the glyphs by the height alone, 0x479CA0).
+            float em = 16;
+            {
+                const std::string base = spec.substr(0, std::min(star, hash));
+                const size_t us = base.rfind('_');
+                if (us != std::string::npos && us + 1 < base.size() && std::isdigit(static_cast<unsigned char>(base[us + 1]))) em = float(std::atoi(base.c_str() + us + 1));
+                if (!(em > 0)) em = 16;
+            }
             const float size = t.height / em, sx = std::hypot(d.m[0], d.m[1]), sy = std::hypot(d.m[2], d.m[3]);
             f.sx *= size * sx, f.sy *= size * sy;
             const float x = t.align == 2 ? (t.x0 + t.x1) / 2 : t.align == 1 ? t.x1 : t.x0;

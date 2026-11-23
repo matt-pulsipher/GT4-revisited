@@ -117,6 +117,8 @@ Setup setup_from_env() {
         else if (k == "laps") s.laps = std::clamp(std::atoi(v.c_str()), 1, 99);
         else if (k == "menus") s.sequence = v;
         else if (k == "race") s.race = v;
+        else if (k == "opponents")
+            for (std::string_view o : gt3r::split(v, '/')) s.opponents.emplace_back(gt3r::trim(o));
         else if (k == "replay_file") s.replay_file = v;
         else if (k == "save") s.save_replay = v != "0";
         else if (k == "start") {
