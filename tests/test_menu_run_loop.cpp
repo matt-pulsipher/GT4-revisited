@@ -474,3 +474,32 @@ TEST(disc_gt_mode_riding_car) {
     const Value cars = vm.call(vm.attribute(garage, "pickup"), all);
     CHECK(cars.items() && cars.items()->size() == 2 && f.clean());
 }
+
+// Arcade's two-player battle: a course, the first player's car and paint, the second's (another
+// car of the maker), Race Start: the race asked for has both cars.
+TEST(disc_arcade_split_battle) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    Flow f(*disc);
+    CHECK(f.boot_to_title());
+    f.press({menu::Key::Accept, menu::Key::Down});
+    CHECK(f.focus() == "SplitBattle");
+    f.press({menu::Key::Accept, menu::Key::Accept, menu::Key::Accept});
+    CHECK(f.page() == "SplitRoot" && f.focus() == "Select");
+    // Each player in turn: a maker, a car, its paint, the driving options.
+    for (int player = 0; player < 2; ++player) {
+        f.press({menu::Key::Accept});
+        if (f.page() == "MakerRoot" && f.focus() == "Maker") f.press({menu::Key::Accept});
+        f.press({menu::Key::Accept});
+        CHECK(f.page() == "CarRoot");
+        if (player == 1) f.press({menu::Key::Right});
+        f.press({menu::Key::Accept, menu::Key::Accept, menu::Key::Accept});
+        CHECK(f.page() == "SplitRoot");
+    }
+    CHECK(f.focus() == "RaceStart");
+    f.press({menu::Key::Accept});
+    const std::optional<menu::RaceRequest> r = f.rt->race_request();
+    CHECK(r && r->sequence == "split_battle" && !r->car.empty() && !r->car_2p.empty() && r->car != r->car_2p && !r->course.empty());
+    if (r) std::printf("  split battle: %s and %s at %s\n", r->car.c_str(), r->car_2p.c_str(), r->course.c_str());
+    CHECK(f.clean());
+}
