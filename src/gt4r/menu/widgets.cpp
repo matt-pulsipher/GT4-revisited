@@ -264,6 +264,7 @@ void LiveWidget::set(const std::string& n, const Value& v) {
         return;
     }
     set_property(n, v);
+    if (n == "index" && is_select_box(*this)) select_box_layout(*this, true);
     // A text given directly replaces the one looked up by key.
     if (n == "text" && v.is_nil()) set_property("text", Value::string({}));
 }

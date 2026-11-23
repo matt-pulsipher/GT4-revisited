@@ -296,18 +296,19 @@ void Runtime::boot() {
     if (booted_) return;
     booted_ = true;
     vm_->instructions = 0, vm_->budget = kCallBudget * 4;
-    try {
-        vm_->require("/projects/GT4Application");
-    } catch (const script::ScriptError& e) {
-        note(std::string("the main script stopped: ") + e.what());
-        install_fallback_world(*this);
-    } catch (const FormatError& e) {
-        note(std::string("the main script does not read: ") + e.what());
-        install_fallback_world(*this);
+    if (read_("projects/GT4Application.adc")) {
+        try {
+            vm_->require("/projects/GT4Application");
+        } catch (const script::ScriptError& e) {
+            note(std::string("the main script stopped: ") + e.what());
+        } catch (const FormatError& e) {
+            note(std::string("the main script does not read: ") + e.what());
+        }
     }
-    if (vm_->lookup("game").is_nil() || vm_->lookup("sound").is_nil()) install_fallback_world(*this);
+    // Without a main script (or one that stopped early), the objects it makes are made here.
+    if (!vm_->lookup("game").as<Object>() || !vm_->lookup("sound").as<Object>()) install_fallback_world(*this);
     // The common project: its pages are there for every project (getCommonPage).
-    try {
+    if (read_(std::string("projects/") + kCommonProject + "/" + kCommonProject + ".mproject")) try {
         common_ = load_project_files(kCommonProject, config_.language);
         common_widget_ = LiveWidget::build(common_->layout(), vm_->root(), this);
         vm_->instructions = 0, vm_->budget = kCallBudget;
@@ -404,6 +405,16 @@ void Runtime::start_project(const std::string& name, const std::string& language
     };
     load(root_widget_);
     pump();
+}
+
+std::shared_ptr<LiveWidget> Runtime::start_layout(const Widget& layout) {
+    boot();
+    unload_project();
+    project_name_ = layout.name();
+    root_widget_ = LiveWidget::build(layout, vm_->root(), this);
+    note("project " + root_widget_->name);
+    if (auto render = render_context_.as<Object>()) render->set("transition", Value{}), render->set("cursor_visible", Value::integer(1));
+    return root_widget_;
 }
 
 std::string Runtime::wanted_project() const { return game_->next_menu_project; }

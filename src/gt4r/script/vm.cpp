@@ -533,7 +533,13 @@ bool Vm::push_chained(Task& t, Value& value) {
             return true;
         }
         Value r = callee.p && callee.p->callable() ? deref(*this, callee.p->call(*this, c.args)) : Value{};
-        if (c.after) r = c.after(*this, r);
+        if (c.after) {
+            if (t.until && !t.after_wait) {
+                // The function asked to wait: what follows it does so once the wait is over.
+                std::function<Value(Vm&, const Value&)> after = std::move(c.after);
+                t.after_wait = [after, r](Vm& vm) { after(vm, r); };
+            } else r = c.after(*this, r);
+        }
         value = std::move(r); // the value the script sees
     }
     return false;
@@ -660,14 +666,14 @@ void Vm::resume(Task& t) {
                     ~Running() { vm.current_ = outer; }
                 } running(*this, t);
                 then(*this);
-            }
-            if (t.chained) {
-                Value v;
-                std::vector<Value>* stack = t.frames.empty() ? nullptr : &t.frames.back()->stack;
-                if (stack && !stack->empty()) v = std::move(stack->back()), stack->pop_back();
-                if (!push_chained(t, v)) {
-                    if (stack) stack->push_back(std::move(v));
-                    else t.result = std::move(v);
+                if (t.chained) {
+                    Value v;
+                    std::vector<Value>* stack = t.frames.empty() ? nullptr : &t.frames.back()->stack;
+                    if (stack && !stack->empty()) v = std::move(stack->back()), stack->pop_back();
+                    if (!push_chained(t, v)) {
+                        if (stack) stack->push_back(std::move(v));
+                        else t.result = std::move(v);
+                    }
                 }
             }
             if (t.until) return; // it waits again

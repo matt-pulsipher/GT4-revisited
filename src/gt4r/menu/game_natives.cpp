@@ -705,9 +705,16 @@ Value make_car_object(Runtime& rt, const std::string& label, int paint) {
 
 void install_fallback_world(Runtime& rt) {
     Vm& vm = rt.vm();
+    // The program's module, as the main script would have asked for it.
+    if (vm.lookup("menu").kind != Kind::Module) {
+        auto module = std::make_shared<script::Module>();
+        module->name = "menu", module->parent = vm.root();
+        vm.root()->define("menu", Value::of(Kind::Module, module));
+        vm.require("menu", module);
+    }
     const Value menu = vm.lookup("menu");
     for (const char* name : {"sound", "game", "network", "shell"}) {
-        if (!vm.lookup(name).is_nil() && vm.lookup(name).kind != Kind::Object) continue;
+        if (vm.lookup(name).as<Object>()) continue;
         const std::string cls = name == std::string("sound") ? "MSound" : name == std::string("game") ? "MGame" : name == std::string("network") ? "MNetwork" : "MShell";
         const Value maker = vm.attribute(menu, cls);
         try {

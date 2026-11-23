@@ -118,6 +118,10 @@ public:
     // Loads a project (its layout as live widgets, its script) and calls its onLoad. Throws
     // FormatError / script::ScriptError when the project cannot start.
     void start_project(const std::string& name, const std::string& language = {});
+    // The same from a layout already read, with no files behind it (no script, pictures or
+    // text): its widgets' event functions are whatever the caller defines on them before the
+    // next update. The project's first page is not opened by itself.
+    std::shared_ptr<LiveWidget> start_layout(const Widget& layout);
     // One frame (1/60 s): the script that waits goes on when its wait is over, the events
     // queued are given to the scripts, the actors move.
     void update();
