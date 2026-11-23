@@ -150,6 +150,9 @@ right 0xFF53, accept 0xFF0D, cancel 0xFF1B, start 0xFF8D, select 0xFF63, and 0xF
 0x80000, 0x100000. ❓ Which buttons those masks are is not read: taken as L1, R1, L2, R2 for
 the first four.
 
+`onActivate` and `onCancel` get a third argument, the widget whose function it is (a page's
+`object.getFocusedWidget()`; ❓ from the scripts' use).
+
 Other events by name: `onLoad`, `onUnload`, `onKeyRelease`, `onButtonPress`,
 `onButtonRelease`, `onEnter`, `onLeave`, `onFocusEnter`, `onFocusLeave` (the widget's slots
 66 to 82).
@@ -160,22 +163,41 @@ A page's layout properties (mRootWindow, 0x232E00 for the defaults): `navigate_c
 (0), `navigate_wraparound` (on), `navigate_start_front` (off), `navigate_slant_move` (off),
 `navigate_sound` (`cursor`); also `preload`, `noload`, `bgm`.
 
-The search (0x26EE28, 0x270118; measuring 0x26F0A8, ordering 0x26F2B8):
+**Candidates** (the collector 0x26F9E0): a widget that is shown (its visible flag and its
+visible condition against its state, 0x265DC8), can take the focus (`can_focus`) and is not
+insensitive is a candidate, and **what is inside it is not searched**. Any other composite is
+searched into when it is shown and not insensitive; a list box never is. In a direction
+search the candidates are cut to the clips they are under (a composite with `clip`), and one
+cut away entirely is no candidate; the scroll window's `space` that holds the focus is pushed
+as a clip of its own and its widgets are group 1 (searched first), so inside a scroll window
+every place counts, also those scrolled out of view.
 
-- A candidate must lie ahead: its middle further along the direction than the focus's.
-- In line with the focus (their extents across the direction overlap): angle 0, distance the
-  gap from the focus's far edge (its near edge with `navigate_start_front`) plus 1.
-- To the side: the angle of the gap across against the distance along, in degrees; it counts
-  only below the page's clip angle when one is set; the distance is the straight one.
-- Order: valid before not, then a whole-number priority, the smaller angle, the nearer, the
-  closer across.
-- With wraparound and nothing ahead, the search goes around: every widget is measured as
-  10000 further along.
-- A widget is measured by its `navigate_target` region when the layout gives one, the
-  focused one by its `navigate_source`.
+**Regions**: `navigate_source` / `navigate_target` (`navigate_box`) are corners x0 y0 x1 y1
+from the widget's top left (0x262668, 0x2626A0), kept as fractions of the widget's size
+(0x268478); without one, the widget's rectangle.
 
-❓ Which widgets are candidates (0x26F9E0) is not read: every visible widget that can take
-the focus (`can_focus`, the buttons, option menus, sliders) and is not insensitive.
+**The search** (0x26EE28, 0x270118; measuring 0x26F0A8, ordering 0x26F2B8): every rectangle
+is turned so the key's direction is "along" (the four edges' middles turned, their box).
+The focused entry is the topmost widget above the focus that can take it; F is its source, S
+and T a candidate's source and target.
+
+- Ahead: the middle of S further along than the middle of F.
+- From F's back edge (its front edge with `navigate_start_front`): `a = T.x0 - edge + 1`,
+  `b = T.x1 - edge + 1`. In line (T and F overlap across): angle 0, distance the smaller of
+  those not negative. To the side: the one of smaller size, the angle of the gap across to it
+  in degrees, the straight distance; valid only when the angle is **below the clip angle**:
+  with the default 0 nothing to the side is ever taken.
+- Order: valid before not; the larger group; the smaller angle; the nearer; the closer across
+  (S against F); then the one made first.
+- Nothing valid and wraparound on: everything is measured again 10,000 further along.
+
+A direction key is the page's whether or not the focus moved; `navigate_sound` plays on a
+move. Gran Turismo mode's map: from Home right is ExtremeHall, left GTAuto, up DealerItaly,
+down License.
+
+**A page's first focus** (0x234D60): a focus kept from when the page closed, else the
+script's `setFocus` in `onInitialize`, else the "next" search (0x26EEF8): the candidates by
+their parents' places (y, then x), then their own, then the order they were made in.
 
 ### Widgets
 
@@ -284,37 +306,97 @@ names; the names are the ones the option pages' scripts list (`sound_type` `MONO
 `STEREO`, `PROLOGIC2`; `penalty_type` `NONE`, `SPEED_LIMITATION`, `PASSING_PITLANE`;
 `unit_velocity` `KMPH`, `MPH`; `unit_power` `PS`, `HP`, `BHP`, `CH`, `KW`, `CV`, `PF`;
 `unit_torque` `KGFM`, `FTLB`, `NM`; `race_display_mode` `normal`, `480p`, `1080i`; ...).
-❓ A new game's values are not read from the program (0x189A60): plain choices, miles and
-horsepower for the US. They are kept as text lines in `<data folder>/gt4r-options.txt`
-(`GT4R_DATA_DIR`), written when the scripts apply or save them and when a project ends.
+`game_zone` is a zone's name (`UNDEF`, `JP`, `US`, `UK`, `EU`, `KR`; 0x622DA8), set from the
+program's region by `setGameZoneDefault` (0x435D48: us US, uk EU, kr KR, else JP). The options
+that are numbers are saved in the game data (save.md); ❓ the named ones' numbers and a new
+game's values of the named ones are not read. They are also kept as text lines in
+`<data folder>/gt4r-options.txt`.
 
-**The memory card** (`menu::MMemoryCardManager`, 0x17AC20): answers as a console with a
-formatted card that has no saved game (`card.connected`, `formatted`, `has_game_data`,
-`free_kb` choose other answers; `gt4tool menu-run ... card=none|empty|saved`). Saving sets
-"has a game" and nothing else: no file is written or read. A saved game goes behind
-`GameState`.
+**The program's start** ends with the configuration's `last_strap()` (0x108BF8 -> 0x10B268):
+the zone, the credits a new game has (10,000), the music play lists. A loaded game's credits
+then come from the garage file.
 
-**The garage** (`main::game.garage`): the cars, the one driven (`riding_car`; a vacant car
-object when there is none), `addNewCar`, `addUsedCar`, `delCar`, the lists the garage page
-asks for (`pickup(country, tuner, drivetrain)`, `pickupCountry()`, `pickupTuner(country)`)
-and `MCarGarage::sortBy...`. In the program the garage's cars are a file on the memory card:
-`changeRidingCar`, `pushRidingCar` and `popGarageCar` take the card manager and answer as a
-card operation (`OK`). ❓ What the lists and sorts compare is from their names and the garage
-page's use; parts bought for a car are not kept.
+**The memory card** (`menu::MMemoryCardManager`, 0x17AC20): the card in slot 1 is the folder
+`<data folder>/memorycard/`, holding the game's own files (save.md): `saveNew`, `save`, `load`,
+`isExist`, `readSize`, `remove` and the file's `size` are real; a game survives a restart and
+the boot project loads it. Without a data folder a stand-in answers (`GameState::card`:
+`connected`, `formatted`, `has_game_data`; `gt4tool menu-run ... card=none|empty|saved`).
+❓ `loadInstance` (a second game beside the one played, for trading cars) answers its result
+only; the probes of earlier games' saves answer none.
 
-**Cars and courses** (`menu::MCarData`, 0x131068; `menu::MCourseData`, 0x1B34D0; the car
-object `menu::MCarGarage`): from the disc's car database ([database.md](database.md)) and
-the program's lists of makers, tuners, countries and categories, found in the disc's
-program file by their content (`program_tables.*`). ❓ Not read: the width, the numbers with
-other parts fitted, used prices, which cars have no manual gears, the RACE table's columns
-(`menu::MRaceData` answers "none" for requirements and prizes), the meaning of
-`IsTireNormal` and `IsDirtRunnable`.
+**The game's state** (`GameState`) is the program's `Status` as it is saved: the player's
+counters, the calendar and its diary, the garage's list with each driven car's record, the
+records, the presents, the used cars sold, the favorites, the championship left. The natives
+over it are the program's, with their addresses in save.md and here:
+
+- **MGame**: `money` is the money text ("10,000"; "--" for nothing, 0x42E6B8), `incMoney` has
+  no cap (the scripts keep theirs); `getScore` with commas; `getTotalRankCount(i)`;
+  `getAspecDistance` in the player's unit; `menuRef(n)` the name n places below the top of the
+  menu stack; `saveMenuStack` / `loadMenuStack` (❓ the stack's saved form is not read: the
+  names, each ended by a 0).
+- **MGarage** (0x16DA58 on): places that are never packed; `addNewCar(label, paint)` a car as
+  sold on today's date, `addUsedCar(car)` / `addCar(car)` the car's record; `delCar` clears the
+  place (1 when it was the car driven), `undelCar` puts it back; `riding_car` is an object on
+  the garage's own record. The program reads and writes a car's slot of the garage file in
+  `changeRidingCar`, `pushRidingCar`, `popGarageCar`; here the records are in the state (they
+  answer `OK`). ❓ `setRidingCar(place, car)` and `cancelRidingCar(place, car)`, and what
+  `pickup`, `pickupCountry`, `pickupTuner` compare, are from the scripts' use.
+- **MCarGarage** (a car; 0x141B90, 0x14EF00; `game_car.cpp`): its record's three sheets, `slot`
+  the sheet in use; the parts that fit it (its file `specdb/<set>/CARS/<the car's code>`: u64
+  count, then {u64 part, u8 category, 7 bytes}); a parts type is the table id, type 31 the
+  body's stiffness work (Cr. 30,000); a category the stage, a byte of the part's row; the
+  price a column of the row (`getPartsPrice`); `getParts` marks one owned (96 bits), `setParts`
+  fits it with its settings at the row's defaults, on the sheet in use, or on all three for
+  the parts that cannot be undone (lightweight, port polish, balancing, displacement, wheels,
+  wings, stiffness); the settings pages' ranges and values (`getSuspensionRange`, ...); the
+  current figures (`updateCurrentStatus`: the spec of the sheet in use, `sim::build_spec`, with
+  the engine's wear and oil: a new engine 97 %, run in 100 %, old 95 %; fresh oil 105 %, old
+  95 %); wheels and wings by label; the condition (odometer, oil, dirt, body); `makeUsed(seed,
+  paint, meters)` (the program's random numbers; meters by model year); used prices by the
+  thousands of km driven (85 % below 1,000 km ... 10 % from 100,000); the sorts, one key each
+  (power, weight, kg/PS, date, order of driving, aspiration, name, price, year, country,
+  tuner, drivetrain, the paint's hue). ❓ The gears' ranges (0x3553A0) and the charts' points
+  (0x148940, 0x148B60) are not written.
+- **MRaceData** (0x1A0F80 on; `game_race.cpp`): the RACE row's columns (database.md "RACE"):
+  the medal times as text, entries, the course, the opponents' pool (`car_code(i)`), the
+  requirements (license, drivetrain, aspiration, car type, tires, power, weight, length,
+  country, model years), the prizes (x 100), the championship's points (10, 6, 4, 3, 2, 1),
+  the allowed cars, laps, time limit.
+- **MCalendar**, **MRaceRecord** / **MLicenseRecord** / **MCourseRecord** and their units,
+  **MPresent**, **MUsedCar**, **MFavorite** (`game_records.cpp`): as save.md has their blocks;
+  `getEvent(y, m, d)` gives a past day as an array by its kind; the license predicates
+  (`isLicenseAllBronze`, ...) and `isMissionClear` test the units of `"%s%04d"`.
+- **MRandom** (0x2CB888): the program's generator, its state from 0x12345678; with a third
+  argument one draw from that seed. ❓ The float made of a draw (0x578598) is as read.
+- **MColorObject.interpolate(a, b, t)** (0x2039E0): a x t + b x (1 - t).
+
+**A race request.** When a project finishes with `next_sequence` naming a race,
+`Runtime::race_request()` gives what the scripts set (`RaceRequest`), with what the program
+fills in: an event's course from its RACE row (labels tried as they are, then with "us" and
+"jp" in front), the car driven (`garage_slot`) when the scripts name none, and a license
+test's or a mission's car, the first of the race's pool.
+
+**After a race** (`Runtime::race_finished(RaceResult)`, `game_race.cpp`): what the program's
+result routines write (0x114498 an event; 0x1105A8 a license test; 0x11C328 a mission;
+0x115A90 on a course's run): an event finished in place p pays the row's prize of p (answered
+for the scripts' `prize`; the money is the scripts' `incMoney`), counts the place and the
+prize, and updates the race's unit ("event", p: a better place is kept); one not finished
+counts as such; a test keeps its result in its unit and its ranking (time, result, the real
+date, the pass code); every run is a day of the diary. ❓ The car's distance is added to its
+odometer and wear (the adders 0x343518 on exist; who calls them is not read).
+
+**Cars and courses** (`menu::MCarData`, 0x131068; `menu::MCourseData`, 0x1B34D0): from the
+disc's car database ([database.md](database.md)) and the program's lists of makers, tuners,
+countries and categories, found in the disc's program file by their content
+(`program_tables.*`).
 
 **Other objects**: `menu::MSystem`, `MLocale`, `MUnit` (the calendar's order by language,
-0x48EE00: ❓ which language has which is not read, the US takes month first), `MUtility`
-(`GetFormatString` uses the program's text format, [script.md](script.md)), `MRandom`,
-`MCalendar` (❓ the first day's date), `MNetwork`, `MShell`, `MProgress`, `MGpb`
-(`context.loadGpb(folder, name)` adds `<folder>/<LANG>/<name>.gpb` to the pictures).
+0x48EE00: year first for JP, KR, TW), `MUtility` (`GetMoneyString`, `GetTimeString` as the
+program's text, `GetPriceMagnification` 100 for "jp"), `MNetwork`, `MShell`, `MProgress`,
+`MGpb` (`context.loadGpb(folder, name)` adds `<folder>/<LANG>/<name>.gpb` to the pictures).
+
+A project's script names files of the disc's top beside its own (gtmode's
+`usedcar/US_used0000` is `usedcar/US_used0000.adc`; ❓ the program's search is not read).
 
 ### Drawn in the app
 
@@ -331,10 +413,13 @@ drawn over the page; the cursor is the common project's `CursorRoot` at the focu
 
 ### Not done
 
-Gran Turismo mode beyond the map, home, the garage and buying a new car (used cars, parts,
-events, licenses, the diary); a saved game read from or written to a file; the option pages'
-effect on anything but the stored values; Prologue's flows (its main script, configuration and projects load and show a first
-page; ❓ which page each project starts on); two-player and LAN paths.
+Gran Turismo mode: the places run to their pages and to the race asked for (used cars, events,
+license tests, missions, GT Auto, tune shops, the garage, the status, the diary, the car's
+settings); not checked page by page: trading cars between saves, the presents' pages after
+a race, the championship's sessions, the photo travel (its page stops on an actor that is not
+made), the B-spec driver. The option pages' effect on anything but the stored values;
+Prologue's flows (its main script, configuration and projects load and show a first page; ❓
+which page each project starts on); two-player and LAN paths.
 
 ## Pictures (`.gpb`)
 
