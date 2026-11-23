@@ -70,6 +70,23 @@ RowFigures row_figures(Runtime& rt, const std::string& label) {
 
 } // namespace
 
+void fill_player_car(Runtime& rt, QuickWork& w, const std::string& label) {
+    w.player_car = label;
+    try {
+        std::shared_ptr<GameNatives> n = natives_of(rt);
+        if (!n) return;
+        Database& d = n->db();
+        const ByteSpan car = d.row("GENERIC_CAR", label);
+        if (car.size() > 0x11) {
+            w.set("carCategory", s32(car[0x11] % 100));
+            w.set("carYear", s32(s16(u16(car[0x0C] | car[0x0D] << 8))));
+        }
+        const int t = d.spec(label).drivetrain;
+        w.set("driveTrainType", t >= 0 && t < 5 ? t : -1);
+    } catch (const std::exception&) {
+    }
+}
+
 const std::vector<std::string>& QuickWork::command_names() {
     static const std::vector<std::string> names = {
         "COMMAND_NOTHING",     "COMMAND_START",       "COMMAND_EXIT",        "COMMAND_REPLAY",      "COMMAND_DEMONSTRATION", "COMMAND_RECORDS",

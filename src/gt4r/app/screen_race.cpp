@@ -9,7 +9,8 @@
 // race's length, `start` the start: 10 or 8 (a hold of so many seconds with the opening shots),
 // <seconds> (a plain hold), none, rolling, course (the course's own: race/start_rule.h); `view=tv` the course's replay cameras; `replay=N` drives
 // N steps unseen and plays them back through the replay cameras; `menus=single_race` the race
-// sequence's own menus (quick-arcade) before and after the race.
+// sequence's own menus (quick-arcade) before and after the race (any sequence: solo_event,
+// championship, license, mission, time_trial, freerun, practice, machinetest), `race=<label>` its event.
 
 #include "gt4r/app/app.h"
 #include "gt4r/app/menu_painter.h"
@@ -73,6 +74,7 @@ struct Setup {
     bool start_given = false;
     std::vector<std::string> opponents; // the other cars by label (empty: from the car list)
     std::string sequence; // `menus=single_race`: the race's own menus (the sequence's quick project) round the race
+    std::string race;     // `race=<label>`: the event (the car database's RACE row) the sequence runs
     sim::ai::Pace pace;   // the computer drivers' (the event's)
 };
 
@@ -103,6 +105,7 @@ Setup setup_from_env() {
         else if (k == "sim") s.rail = v == "rail";
         else if (k == "laps") s.laps = std::clamp(std::atoi(v.c_str()), 1, 99);
         else if (k == "menus") s.sequence = v;
+        else if (k == "race") s.race = v;
         else if (k == "start") {
             s.start_given = true;
             if (v == "course") s.course_start = true;
@@ -201,6 +204,7 @@ public:
         board_.begin(world_->car_count(), 0, lap_words_[0], lap_words_[1]);
         camera_.reset(world_->cars()[0]);
         history_.clear();
+        distance_ = 0;
         replaying_ = false, over_ = false;
         event_steps_ = -1;
         begin_start_camera(false);
@@ -268,6 +272,7 @@ public:
         world_->step(inputs_, hold);
         const race::RaceFlow::Events ev = flow_.step(world_->cars());
         if (!ev.finished.empty()) board_.finished(flow_, ev.finished);
+        if (!hold) distance_ += std::fabs(world_->cars()[0].speed) * kStep;
         if (audio::RaceSound* sound = world_->sound()) {
             if (hold) sound->count(flow_.hold_left());
             if (ev.player_finished) sound->finish();
@@ -300,9 +305,10 @@ public:
 
     // The run is over (the results page left): the replay plays at once when the player drove a
     // lap or more.
-    void end_run() {
+    // `replay`: the sequence plays it (the single race and Gran Turismo mode's events, after a driven run).
+    void end_run(bool replay = true) {
         over_ = true;
-        if (flow_.car(0).counter >= 2) start_replay();
+        if (replay && !watched_ && flow_.car(0).counter >= 2) start_replay();
     }
 
     void start_replay() {
@@ -320,6 +326,8 @@ public:
     bool over() const { return over_; }
     const race::RaceFlow& flow() const { return flow_; }
     race::ResultBoard& board() { return board_; }
+    float player_distance() const { return distance_; } // metres the player's car ran this run
+    float lap_length() const { return world_->line().length; }
     // The race's words for one lap and several (the results' "+1Lap").
     void set_lap_words(std::string one, std::string several) { lap_words_[0] = std::move(one), lap_words_[1] = std::move(several); }
     int beeps() const { return beeps_; }
@@ -435,6 +443,7 @@ private:
     race::StartCamera start_camera_;
     race::RaceFlow flow_;
     race::ResultBoard board_;
+    float distance_ = 0;
     std::string lap_words_[2] = {"Lap", "Laps"};
     race::ReplayScript scenic_script_;
     race::ScenicCamera scenic_;
@@ -455,6 +464,8 @@ public:
             setup_.scripted = true;
             from_menus_ = true;
             menus_ = chosen->menus, sequence_ = chosen->sequence;
+            setup_.sequence = chosen->sequence;
+            if (menus_) setup_.race = menus_->game().race.race;
             if (menus_) {
                 const menu::RaceRequest& q = menus_->game().race;
                 setup_.opponents = q.entries;
@@ -482,6 +493,12 @@ public:
                 setup_.course = setup_.course.substr(2);
             }
         }
+        // The sequences that run the player's car alone (RaceFreeRun, the tests); the free run's race
+        // code is "freerun" (0x116E20).
+        if (setup_.sequence == "time_trial" || setup_.sequence == "freerun" || setup_.sequence == "license" || setup_.sequence == "machinetest" ||
+            setup_.sequence == "photo_drive")
+            setup_.cars = 1, setup_.opponents.clear();
+        if (setup_.sequence == "freerun" && setup_.race.empty()) setup_.race = "freerun";
         // A race of the menus (or `start=course`): the start the course's start code gives, rolling
         // at the program's speed, else ❓ a standing start of 10 s with the opening shots (the race
         // information's own type is not traced to its source).
@@ -513,6 +530,7 @@ public:
             menus_ = own_menus_.get(), sequence_ = setup_.sequence;
             menu::RaceRequest& q = menus_->game().race;
             q.course = setup_.course, q.car = setup_.car, q.paint = int(setup_.paint), q.laps = setup_.laps, q.max_entry = setup_.cars;
+            q.race = setup_.race, q.sequence = setup_.sequence;
             q.assist_tcs = 1, q.assist_asm = 1, q.tire = 4;
         }
         if (setup_.scripted) start(app);
@@ -565,7 +583,8 @@ public:
             }
             if (leave) {
                 result_.reset();
-                race_->end_run();
+                report_result();
+                race_->end_run(!demo_ && (sequence_.empty() || sequence_ == "single_race" || sequence_ == "solo_event" || sequence_ == "championship"));
                 if (!race_->replaying()) return finish_run(app);
             }
         } else if (m.pressed(PadButton::Start) && !paused_) {
@@ -664,15 +683,18 @@ private:
             }
         }
         if (!pause_movie_) return;
-        // The single race's pause: Continue, Exit and the screen settings; no retry, no confirmation.
-        auto host = [this, &app](const std::string& name, const std::vector<race::StrobePlayer::Value>& args) {
+        // The entries by the race's class (docs/formats/strobe.md "Entries per mode"): a retry in the
+        // license tests, missions and machine tests; Exit asks first in Gran Turismo mode's races.
+        const bool retry = sequence_ == "license" || sequence_ == "mission" || sequence_ == "machinetest";
+        const bool confirm = sequence_ == "solo_event" || sequence_ == "championship";
+        auto host = [this, &app, retry, confirm](const std::string& name, const std::vector<race::StrobePlayer::Value>& args) {
             using V = race::StrobePlayer::Value;
             std::string n = name;
             for (char& c : n) c = char(std::toupper(static_cast<unsigned char>(c)));
             auto text = [&](size_t i) { return i < args.size() ? args[i].to_string() : std::string(); };
-            if (n == "RETRYENABLE") return V::number(0);
+            if (n == "RETRYENABLE") return V::number(retry ? 1 : 0);
             if (n == "SCREENSETTINGENABLE") return V::number(1);
-            if (n == "CONFIRMEXIT") return V::number(0);
+            if (n == "CONFIRMEXIT") return V::number(confirm ? 1 : 0);
             if (n == "EXIT_MENU") pause_result_ = text(0);
             else if (n == "PLAY_SOUND") {
                 if (audio::AppSound* sound = app.sound()) sound->menu().play(text(0));
@@ -701,10 +723,18 @@ private:
             }
             if (!pause_result_.empty()) close_pause(pause_result_);
         }
+        if (!paused_ && pause_retry_) {
+            // Retry (end code 4): the run again at once, without the menus.
+            pause_retry_ = false;
+            race_->begin_run(spectator_);
+            result_tried_ = false, result_.reset(), reported_ = false;
+            clock_ = 0;
+            return;
+        }
         if (!paused_ && pause_exit_) {
             pause_exit_ = false;
-            // Exit: the run ends (end code 2); the single race goes back to its menus.
-            if (menus_) return enter_quick(spectator_ ? 2 : 1);
+            // Exit: the run ends (end code 2); the sequence's menus again.
+            if (menus_) return run_over();
             report();
             hud_.reset();
             race_.reset();
@@ -717,20 +747,34 @@ private:
         pause_result_.clear();
         race_->pause_sound(false);
         pause_exit_ = result == "exit";
+        pause_retry_ = result == "retry";
     }
 
     // ---- The race's menus (the sequence's quick-* project) over the standing race.
 
-    // The menus before a run (can_replay 0) or after one (1 driven, 2 watched).
-    void enter_quick(int can_replay) {
+    // Gran Turismo mode's races whose menus show the run's result (IsSessionFinished).
+    bool session_kind() const { return sequence_ == "solo_event" || sequence_ == "championship" || sequence_ == "mission"; }
+
+    // The menus before a run (can_replay 0) or after one (1 driven, 2 watched). `refill`: the
+    // page's rows from the grid (else they stay as the run's result left them).
+    void enter_quick(int can_replay, bool refill = true) {
         race_->stand();
         quick_ = true, option_ = false, spectator_ = false, paused_ = false;
-        fill_quick_work(can_replay);
+        if (refill) fill_quick_work(can_replay);
+        else menu::quick_work(menus_->game()).set("canReplay", can_replay);
+        last_can_replay_ = can_replay;
         menus_->game().during_quick_menu = true;
-        menus_->start_project(menu::quick_project(sequence_));
+        try {
+            menus_->start_project(menu::quick_project(sequence_));
+        } catch (const std::exception& e) {
+            menus_->note(std::string("stopped: ") + e.what());
+            menus_->finish(); // (the page's command stays COMMAND_NOTHING: the sequence ends)
+        }
     }
 
-    // MQuickWork as the arcade sequence fills it before its menu (the program's 0x111A40, 0x111B50).
+    // MQuickWork as the sequence fills it before its menu: the single race's (0x111A40, 0x111B50),
+    // the others' (the event's 0x114250: rows by grid place, the race's label, its laps and length,
+    // no prize, no result yet).
     void fill_quick_work(int can_replay) {
         menu::QuickWork& w = menu::quick_work(menus_->game());
         const menu::RaceRequest& q = menus_->game().race;
@@ -748,6 +792,15 @@ private:
         w.course_label = setup_.course;
         w.race_label = q.race;
         w.player_car = q.car;
+        w.set("Laps", setup_.laps);
+        menu::fill_player_car(*menus_, w, race_->entry(0).label);
+        if (sequence_ != "single_race") {
+            w.set("IsASpec", 1); // ❓ the license the event asks for is not checked
+            w.set("prize", 0);
+            w.set("IsSessionFinished", 0);
+            w.set("CourseLength", s32(race_->lap_length()));
+            return;
+        }
         // ❓ The Spectator button's rule (the course's condition and its record's byte +0x14) and
         // the dry-course rule are not read from the course here: both answer yes.
         w.set("IsBSpec", 1);
@@ -757,7 +810,86 @@ private:
         w.set("QuickTuneTransmission", q.manual ? 1 : 0);
         w.set("QuickTuneDrivingAssist", q.assist_asm ? 2 : q.assist_tcs ? 1 : 0);
         w.set("IsQuickTuned", 0);
-        w.set("Laps", setup_.laps);
+    }
+
+    // A run of the race: driven (mode 0), watched (1, B-spec) or a demonstration (watched, no result).
+    void start_run(bool watched, bool demo = false) {
+        quick_ = false;
+        spectator_ = watched;
+        demo_ = demo;
+        reported_ = false;
+        race_->begin_run(watched);
+        clock_ = 0;
+    }
+
+    // The run is over (its results page left and its replay played, or the pause's Exit): its
+    // result to Gran Turismo mode, then the sequence's menus.
+    void run_over() {
+        const int can = spectator_ ? 2 : 1;
+        report_result();
+        if (session_kind() && !demo_) return enter_quick(can, false);
+        enter_quick(can);
+    }
+
+    // The run's result as the sequence's result routine gives it (Runtime::race_finished; the
+    // event's 0x114498, the license's 0x1105A8, the mission's 0x11C328, a course run's 0x115A90),
+    // and the page's rows after the run (0x114390: in finishing order, the times, the player's
+    // place).
+    void report_result() {
+        if (reported_ || demo_ || !menus_ || !race_->has_run()) return;
+        reported_ = true;
+        const race::RaceFlow& flow = race_->flow();
+        const menu::RaceRequest& q = menus_->game().race;
+        menu::QuickWork& w = menu::quick_work(menus_->game());
+        menu::RaceResult r;
+        r.race = q.race;
+        r.course = q.course.empty() ? setup_.course : q.course;
+        r.garage_slot = q.garage_slot;
+        r.finished = flow.player_finished();
+        r.place = std::max(0, flow.place(0) - 1);
+        r.time_ms = r.finished ? u32(race::clock_ms(flow.car(0).finish_units)) : 0;
+        r.distance_m = race_->player_distance();
+        if (sequence_ == "license") {
+            r.kind = menu::RaceResult::Kind::License;
+            // ❓ The test's grading: the time against the page's gold, silver and bronze times.
+            const s32 t = s32(r.time_ms);
+            r.result = !r.finished ? "failed" : t <= w.get("goldTime") ? "gold" : t <= w.get("silverTime") ? "silver" : t <= w.get("bronzeTime") ? "bronze" : "failed";
+        } else if (sequence_ == "mission") {
+            r.kind = menu::RaceResult::Kind::Mission;
+        } else if (sequence_ == "solo_event" || sequence_ == "championship") {
+            r.kind = menu::RaceResult::Kind::Event;
+        } else {
+            r.kind = menu::RaceResult::Kind::Course;
+            r.course_kind = sequence_ == "freerun" ? 1 : sequence_ == "practice" ? 3 : sequence_ == "photo_drive" ? 4 : sequence_ == "machinetest" ? 6 : 7;
+            if (const s64 best = flow.car(0).best_lap_ms; best > 0) r.time_ms = u32(best);
+        }
+        if (sequence_ == "single_race") {
+            // (The single race keeps its course record only: 0x111E98.)
+        } else {
+            try {
+                const s64 prize = menus_->race_finished(r);
+                if (session_kind()) w.set("prize", s32(std::clamp<s64>(prize, 0, 0x7FFFFFFF)));
+            } catch (const std::exception& e) {
+                LOG_WARN("Race result: %s", e.what());
+            }
+        }
+        if (sequence_ == "time_trial" || sequence_ == "freerun" || sequence_ == "machinetest" || sequence_ == "license") {
+            const s64 best = flow.car(0).best_lap_ms;
+            const s32 have = w.get("BestTime");
+            if (best > 0 && (have <= 0 || have == menu::QuickWork::kNoTime || best < have)) w.set("BestTime", s32(best));
+        }
+        if (session_kind()) {
+            // The rows in finishing order with their times; a run the player did not finish: no times.
+            const std::vector<race::RaceFlow::ResultRow> rows = flow.results();
+            w.rows.assign(rows.size(), menu::QuickRow{});
+            for (size_t i = 0; i < rows.size(); ++i) {
+                menu::QuickRow& row = w.rows[i];
+                row.car = race_->entry(rows[i].car).label, row.paint = int(race_->entry(rows[i].car).paint);
+                row.time_ms = r.finished && rows[i].finished ? rows[i].total_ms : menu::QuickWork::kNoTime;
+                if (rows[i].car == 0) w.set("playerGridNumber", s32(i));
+            }
+            w.set("IsSessionFinished", 1);
+        }
     }
 
     void update_quick(App& app, const MenuInput& m, double dt) {
@@ -772,27 +904,35 @@ private:
         for (int n = 0; clock_ >= kStep && n < 4; ++n) clock_ -= kStep, race_->step({}, true);
         clock_ = std::min(clock_, double(kStep));
         if (!menus_->finished()) return;
-        if (option_) return enter_quick(menu::quick_work(menus_->game()).get("canReplay"));
-        // The command the scripts chose (the arcade sequence's table).
         menu::QuickWork& w = menu::quick_work(menus_->game());
+        if (option_) return enter_quick(w.get("canReplay"), false);
+        // The command the scripts chose (the sequences' tables: docs/formats/race_flow.md).
         const std::string command = w.take_command();
         menus_->game().during_quick_menu = false;
-        if (command == "COMMAND_START" || command == "COMMAND_SPECTATOR") {
-            quick_ = false;
-            spectator_ = command == "COMMAND_SPECTATOR";
-            race_->begin_run(spectator_);
-            clock_ = 0;
+        const bool session_over = session_kind() && w.get("IsSessionFinished") == 1;
+        if ((command == "COMMAND_START" || command == "COMMAND_SPECTATOR") && session_over) {
+            // A Gran Turismo mode race already run: the page as before a race, no run.
+            enter_quick(0);
+        } else if (command == "COMMAND_START") {
+            start_run(false);
+        } else if (command == "COMMAND_SPECTATOR") {
+            start_run(true);
+        } else if (command == "COMMAND_DEMONSTRATION") {
+            start_run(true, true);
         } else if (command == "COMMAND_REPLAY" && race_->has_run()) {
             quick_ = false;
             race_->start_replay();
-        } else if (command == "COMMAND_OPTION") {
+        } else if (command == "COMMAND_OPTION" || command == "COMMAND_SETTINGS") {
+            // The options, or the car's settings (the project `setting`), then the menus again.
             option_ = true;
-            menus_->start_project("option");
-        } else if (command == "COMMAND_EXIT" || command == "COMMAND_NOTHING") {
+            menus_->start_project(command == "COMMAND_OPTION" ? "option" : "setting");
+        } else if (command == "COMMAND_EXIT" || command == "COMMAND_NOTHING" || command == "COMMAND_RETIRE_CHAMPIONSHIP" || command == "COMMAND_NEXT_RACE" ||
+                   command == "COMMAND_RETURN_MENU") {
+            // (The next race of a series or test is the menus' to pick: they ask for it again.)
             leave_to_menus(app);
         } else {
-            // (Saving a replay is not done here: the menus again.)
-            enter_quick(w.get("canReplay"));
+            // (Saving and loading replays and ghosts and the logger are not done here: the menus again.)
+            enter_quick(w.get("canReplay"), !session_over);
         }
     }
 
@@ -856,7 +996,7 @@ private:
     // same race again.
     void finish_run(App& app) {
         result_tried_ = false, result_.reset();
-        if (menus_) return enter_quick(spectator_ ? 2 : 1);
+        if (menus_) return run_over();
         if (from_menus_) {
             report();
             app.pop();
@@ -977,7 +1117,9 @@ private:
     std::shared_ptr<const race::StrobeMovie> pause_movie_;
     std::unique_ptr<race::StrobePlayer> pause_;
     std::string pause_result_;
-    bool pause_exit_ = false;
+    bool pause_exit_ = false, pause_retry_ = false;
+    bool demo_ = false, reported_ = false; // the run is a demonstration; its result was given
+    int last_can_replay_ = 0;
     std::shared_ptr<const race::StrobeMovie> result_movie_;
     std::unique_ptr<race::StrobePlayer> result_;
     bool result_tried_ = false, result_exit_ = false;
