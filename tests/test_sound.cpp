@@ -662,6 +662,7 @@ TEST(sound_menu_effects_on_disc) {
         audio::MenuSound menu(vfs, s.driver());
         CHECK(!menu.play("no such sound"));
         // The level follows the effects option.
+        menu.set_effect_option(1.0f);
         menu.play("ok");
         s.advance_seconds(1.5);
         const int full = audio::measure(s.pcm).peak;

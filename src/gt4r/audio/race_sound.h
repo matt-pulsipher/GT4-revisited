@@ -22,9 +22,11 @@
 #include "gt4r/audio/menu_sound.h"
 #include "gt4r/audio/race_playlist.h"
 
+#include <map>
 #include <memory>
 #include <span>
 #include <string>
+#include <variant>
 #include <vector>
 
 namespace gt4r::course {
@@ -45,6 +47,10 @@ struct RaceSoundOptions {
     int replay_effects = 115, replay_music = 115; // a replay's
     OutputMode mode = OutputMode::Stereo;
 };
+
+// The options of the game's record (menu::GameState::options: race_se, race_se_volume_raw, ...,
+// sound_type) as the race's sound takes them; what is missing keeps the new game's value.
+RaceSoundOptions race_sound_options(const std::map<std::string, std::variant<s32, float, std::string>>& options);
 
 // Which pair of jingles a race plays at its start and its finish (the race type sets them).
 enum class RaceMusic : u8 { Race, Championship, TimeTrial, License, Coffee, Other, Last };

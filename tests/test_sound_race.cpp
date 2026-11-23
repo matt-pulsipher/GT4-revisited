@@ -100,6 +100,18 @@ TEST(sound_race_playlist) {
     CHECK(a.seed() == b.seed() && a.seed() != 0x1234);
 }
 
+// The game record's options as the race takes them (the option page's names for the output).
+TEST(sound_race_options_from_record) {
+    std::map<std::string, std::variant<s32, float, std::string>> o;
+    audio::RaceSoundOptions r = audio::race_sound_options(o);
+    CHECK(r.effects_on && r.effects == 115 && r.music == 115 && r.replay_music == 115 && r.mode == audio::OutputMode::Stereo);
+    o["race_se"] = 0, o["race_bgm_volume_raw"] = 64, o["replay_se_volume_raw"] = 100, o["sound_type"] = std::string("PROLOGIC2");
+    r = audio::race_sound_options(o);
+    CHECK(!r.effects_on && r.music == 64 && r.replay_effects == 100 && r.mode == audio::OutputMode::Surround);
+    o["sound_type"] = std::string("MONOPHONIC");
+    CHECK(audio::race_sound_options(o).mode == audio::OutputMode::Mono);
+}
+
 // The seam's contacts as the program records them (0x350328), and a landing.
 TEST(sound_race_contacts_from_seam) {
     CHECK(near(audio::contact_strength(0, 25000), 0.5, 1e-6) && audio::contact_strength(0, 5000) == 0); // a wall: N / 50,000; under 0.2 none

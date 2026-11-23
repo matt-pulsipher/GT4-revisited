@@ -21,6 +21,25 @@ int count_beep(int f) { return f > 0 && f < 240 && f % 60 == 0; }
 
 } // namespace
 
+RaceSoundOptions race_sound_options(const std::map<std::string, std::variant<s32, float, std::string>>& options) {
+    RaceSoundOptions o;
+    const auto number = [&](const char* name, int fallback) {
+        const auto it = options.find(name);
+        if (it == options.end()) return fallback;
+        if (const s32* i = std::get_if<s32>(&it->second)) return int(*i);
+        if (const float* f = std::get_if<float>(&it->second)) return int(*f);
+        return fallback;
+    };
+    o.effects_on = number("race_se", 1) != 0, o.effects = number("race_se_volume_raw", o.effects);
+    o.music_on = number("race_bgm", 1) != 0, o.music = number("race_bgm_volume_raw", o.music);
+    o.replay_effects_on = number("replay_se", 1) != 0, o.replay_effects = number("replay_se_volume_raw", o.replay_effects);
+    o.replay_music_on = number("replay_bgm", 1) != 0, o.replay_music = number("replay_bgm_volume_raw", o.replay_music);
+    if (const auto it = options.find("sound_type"); it != options.end())
+        if (const std::string* t = std::get_if<std::string>(&it->second))
+            o.mode = *t == "MONOPHONIC" ? OutputMode::Mono : *t == "PROLOGIC2" ? OutputMode::Surround : OutputMode::Stereo;
+    return o;
+}
+
 const char* race_start_group(RaceMusic k) {
     switch (k) {
     case RaceMusic::Championship: return "champ_start";
