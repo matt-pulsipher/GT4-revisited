@@ -1,7 +1,7 @@
 # Sound
 
 Code: `src/gt4r/formats/sound/` (the files), `src/gt4r/audio/` (what plays them),
-`tools/gt4tool/cmd_sound.cpp` (`gt4tool sound`), `tests/test_sound.cpp`. Everything is
+`tools/gt4tool/cmd_sound.cpp` (`gt4tool sound`), `tests/test_sound.cpp`, `tests/test_sound_race.cpp`. Everything is
 played through the shared engine's SPU2 voice mixer and reverb
 ([engine/gt3r/docs/formats/sound.md](../../engine/gt3r/docs/formats/sound.md),
 [sound_sequencer.md](../../engine/gt3r/docs/specs/sound_sequencer.md)): sample data is
@@ -329,8 +329,8 @@ leaves the music alone. 49 of the US disc's 215 pages name one (`gt4tool sound <
 may also name a `navigate_sound` (`select`, `license_cursor`), an effect its code plays
 (0x235680) 🔎 when the focus moves. Prologue's layouts name no music.
 
-❓ The options' volume values, when exactly the root window asks for its music (🔎 as the
-page opens), and the race's music (`RaceBGMPS2`).
+❓ When exactly the root window asks for its music (🔎 as the page opens). The options' values
+and the race's music: "A race's sound" below.
 
 ## A car's sounds [P] 🔎 (`audio/car_sound.*`)
 
@@ -345,8 +345,143 @@ All 722 cars' two files are on the US disc (383 different numbers; 259 cars are 
 the Isuzu 117 Coupe: `sound/engine/55201` and `sound/normal0/55201`. The wind's bank is
 `sound/roadnoiz.es` [P].
 
-🔎 How the layers are played is taken from Gran Turismo 3 (the shared engine's engine-sound
-model): the game's own routine here (0x392640) is not read yet, and neither are its rules for
-the tire, surface, wind and collision effects (`gt4race.ins`, `gt4race2.ins`). Rendered
-through that model, the 117 Coupe's note is at 0.49 of a cycle per turn of the engine at
-2,000, 3,000, 4,000 and 5,000 rpm alike (16.4, 24.5, 32.7, 40.8 Hz), across the layer changes.
+The layers are played by the shared engine's layer player: the game's own (24 players of 0x58
+bytes at 0x64FBF8, stepped by 0x558FD8) follows the same rules [P]: nothing under 200 rpm, one
+layer or a neighbouring pair crossfaded by a sine table (0x64D3F8), the pitch moving at most
+x0.5..x2 a step and the volume by 0x1000 a step, envelope ADSR1 3 / ADSR2 0xA, only the bank's
+first layer table. Rendered, the 117 Coupe's note is at 0.49 of a cycle per turn of the engine at
+2,000, 3,000, 4,000 and 5,000 rpm alike (16.4, 24.6, 32.7, 40.7 Hz), across the layer changes.
+
+## A race's sound [P] (`audio/race_sound.*`, `car_sound.*`, `course_sound.*`, `race_tables.*`)
+
+`gt4tool sound <disc> race-tables` prints the tables below from the disc's program;
+`gt4tool sound <disc> pass-wav <car> <out.wav> [km/h]` renders a car passing a still camera
+10 m away, mixed by them. `tests/test_sound_race.cpp` measures what is said here on renderings.
+
+### Per car, every step
+
+0x3B5E80(entry, race, flag) fills a frame for a car and 0x392640(entry + 0x2900, frame) plays it.
+
+- **The view** (the race's virtual +0x108, the camera's kind): below 0 → 4; 0 and 1 (in-car)
+  → 0 for the camera's car (the race's virtual +0x168), 1 for the others; 2 (chase) → 2 / 3;
+  anything else → 4.
+- **The gains** of a view: s16 hundredths, 5 rows of 24 at 0x622330 (US 1.01; loaded by
+  0x3F3AB8 to 0x845A10; columns 16..23 hold 100 in every row, which is how `race_tables.cpp`
+  finds the table). Columns: 0 engine, 1 exhaust, 2 turbine (the spool), 3 b_off,
+  4 turbine2 (the gearbox's whine), 5 clash, 6 the three rumble strips, 7 in_car, 8 wind,
+  9 on_road, 10 rain, 11 on_skill, 12 read and not used, 13 off_skill, 14 off_roadnoiz /
+  pebble / sand, 15 on_bound. US 1.01 (engine / exhaust): in-car own 6.5 / 7.0, in-car others
+  3.5 / 4.7, chase own 3.0 / 6.5, chase others 2.5 / 4.2, other cameras 5.0 / 15.0; the wind
+  from other cameras 60.
+- **Three places**: the engine's, the body's and the exhaust's. From the car's own in-car view
+  the car is at the camera and the three sit 1.25 m ahead / 0.01 m / 1.25 m behind the head for
+  a front engine (the engine's place by the car: 1 front, 2 middle, 3 rear; 4 is heard as 1),
+  turned by the in-car camera's look (the race's virtual +0x128); from any other view all three
+  are the car's position in the camera's space.
+- **The Doppler factor**: (u · camera's step + c') / (u · car's step + c') with u the unit vector
+  from the camera to the car, steps per 1/60 s, c' = 5.5241666 m (331.45 m/s) [P]; only while
+  the race's virtual +0x100 is not 0. Measured: a car coming at 30 m/s gives 1.0995, its note
+  rendered 32.7 → 35.9 Hz (1.0991).
+- **The panner** 0x391AF0 / 0x39A7B0, one microphone per sound (0 the engine's, 1 the
+  exhaust's, 2 the body's and the wheels'): d = hypot(x, z) (x right, z ahead); under 0.25 m
+  the sound moves ahead by 0.25 - d; gain 1 / (1 + slope × max(d - reach, 0)) (a microphone
+  switched off: 32 / d); the sides cos / sin of clamp((x / d + 1) π/4, 0, π/2) (a sound on the
+  right is on the right side only). The microphones by output mode (set by 0x391A60 from
+  0x6A0250; reach 9 m for all): mono 0.5 / 0.17 / 0.22, stereo 0.5 / 0.1 / 0.22, surround
+  0.5 / 0.07 / 0.16 (slopes of mics 0 / 1 / 2). 🔎 The output mode is [0x6518C8] taken as
+  mono / stereo / surround. Measured: the engine's gain at 29 m is 1/11 of its gain at 5 m and
+  the exhaust's 1/3; the rendered car 3.16 times quieter (between the two).
+- **The master** M (0x391CD8) = [0x6213D8] × [0x6213DC] × the fade [0x88F2D0] × the mix
+  table's race level (`sdvol`, level 2 of the output mode: 0.40 for stereo on the US disc) ×
+  [0x6213E0] (1). [0x6213D8] (0x391ED0) = the race effects option's flag × its raw value / 128
+  (in a replay the replay's pair). ❓ [0x6213DC] is taken as 1. The fade (0x391D58: a target
+  over seconds) rises over 0.3 s as the race begins (🔎 3 s in race modes 2 and 3); it ducks to
+  0.45 (flag 0x6213EC) or 0.2 (0x6213F0) over 1 s ❓ (when is not read).
+- **The levels** (0x350080, 60 a second): n = the friction torque / (the friction torque + the
+  full-throttle torque) is the throttle that just holds the revs; e = |throttle - n| + n,
+  halved when the clutch (the record's byte, 1 locked) is not locked and for a hybrid; the
+  engine's level byte moves half way to min(127, int(e × 127 × B25)). The exhaust's: load =
+  max(throttle - n, 0) / (1 - n), x = (1 - (1 - load)^16) × 0.6 + 0.4, its byte half way to
+  min(127, int(x × 127 × B26)). The spool's byte is min(127, int(byte × B27)), the blow-off ×
+  B28. A hybrid (P +0x246 = 3) under its idle revs: both 0. Rendered (B25 = B26 = 1, torques
+  3 : 1): throttle shut 63, at a quarter (the quietest) 30, open 126, open with the clutch
+  open 63; the exhaust 50 shut, 126 open.
+- **The layer players**: engine = G0 × level / 64 at the engine's place (mic 0); exhaust =
+  G1 × level / 64 at the exhaust's (mic 1); wind = G8 × the wind (0x34FA90) on
+  `sound/roadnoiz.es` at the engine's place and gain, its "revs" made from the speed. Each
+  player's gain is clamp(placement gain × M, -1, 1) × that.
+- **The block of numbers** (42 bytes after twelve 0x28-byte curve records at 0x6224B0; the
+  block at 0x622690; made into floats by 0x34F6A0): wind gain = p[0xE] / 10 ×
+  (p[0xF] / 1000)² × the car's drag × speed² × (1 - slipstream), at most p[0x14] / 10, its revs
+  p[0x12]..p[0x13] × 100 over p[0x10]..p[0x11] × 10 km/h; the cabin's rush (in_car) likewise from
+  p[0x16..0x1B] (pitch / 100, at most / 10); the road's roar p[6..0xD]; the whine p[0..4]
+  (torque p[2] × 9.8 N m; pitch p[4] / 10 + (p[3] - p[4]) / 10 per 1047.2 rad/s); B25..B28 =
+  p[0x1C..0x1E] / 100, p[0x1F] / 10 (US: 0.10, 0.10, 0.20, 2.5); contacts × p[0x26] / 100
+  (0.6), thresholds p[0x28], p[0x29] / 100.
+- **Held notes** (48 objects at 0x650500; a new note takes the voice of the lowest priority
+  below its own; priority from |level|; side gains kept in s16, so up to 2): turbine
+  G2 × spool / 128, pitch u16 / 6144, no Doppler; turbine2 (a gearbox that whines: P[0x10D1],
+  the GEAR row's byte +0x22 or a car of category 2; not with the clutch open); in_car G7 at the
+  body; nos 1 for the in-car own view while flowing; body_noiz always 0. in_car, body_noiz and
+  nos ease: rising at once, falling 0.05 a step.
+- **The wheels** (wheel record car + 0x164 + 0xEC w: +0x89 surface, +0xB4 slip intensity,
+  +0xB8 skid pitch, +0x20 rim speed): each at its own place on mic 2, at clamp(gain × M) × M
+  (the master twice). Notes by the surface index (the road's material, or its wet variant 20,
+  21, 22): on_skill G11 and on_road G9 (the roar: (rim speed / 100)² × gain × the tire's width
+  factor from 0.135 to 0.355 m, its pitch by the rim speed) on 0, 7, 8, 9, 12; rain_noiz G10 on
+  6, 20, 22; off_roadnoiz G14 on 5; off_skill G13 on 2, 3, 4; pebble G14 on 13; sand G14 on 14;
+  rumble G6 on 1, 21; rumble2 on 10; rumble3 on 11; the slipping notes by the slip intensity at
+  the skid pitch. The notes past the first three ease as above. ❓ Which slots a course allows
+  (0x360458 → 0x3922B0) is not applied.
+- **Single notes** (table 0x621418; under 0.001 not played; 0x392EB8): b_off G3 × blow-off at
+  the engine; clash / clash2 / clash4 by the contact's kind 0 / 1 / 2, the camera's car only
+  (the recorder 0x350328: kind 0 force / 50000, 1 twice the speed, 2 |force / 50|; under 0.2
+  none; × p[0x26] / 100); on_bound for the in-car own view (the strongest wheel landing, 0.5..1,
+  × G15 × 2.5); backfire / backfire2 (one at random) at the exhaust, strength 3, when an
+  afterfire flame starts (0x3D6D30); heartbeat (P[0x32] = 3) ❓ not played.
+- 🔎 The frame's reverb flag (+4) is never written: the voices send to the reverb.
+
+### The course (0x398B70)
+
+Five lists of the `CRSS` section play air (31), city (32), crowds (33), cheer (61), sea (34).
+Air and city are not placed: both sides at the first emitter's first point's weight. Crowds are
+placed (each point's weight, past 32 m × 32 / distance, a sine pan) with a Doppler pitch; cheer
+and sea placed with pitch 1. All × M, at most 1; with more than one camera both sides take the
+larger and the pitch is 1. The emitters (0x457918): without gates the gain is 1 at once; with
+gates the cars between them weigh 1, 0.8, 0.64 ... (at most 1), the gain rising 1/120 and
+falling 1/180 a step. The road's triangle under the camera (asked from 5 m above), flags & 0x18:
+0x08 the first tunnel's pair (tunnel1_l on the left, _r on the right) at M and a reverb of 0.5;
+0x10 the second's (its _l on the right, _r on the left) and 0.25; 0x18 0.25 only; else 0.125.
+The reverb's depth (int(x × 32767) both sides, 0x55CD18) moves 1/36 a step; with more than one
+camera it is 0.125. heri plays at 1 (without M) while the race's virtual +0x130 bit 0 is set.
+Measured on Tsukuba: four crowd emitters and no others; the crowds at 1 × M.
+
+### The count, the music
+
+- **The count** (RaceDisplay, 0x39E9B0 → flags 0x621514..0x621516 → 0x39DA80, played through
+  0x393428 at M): `count_d` (39) when the car's steps to its start (0x34C1C8: the race's count
+  plus the car's own offset) are 180, 120 and 60; `count_s` (40) when the start message (4)
+  reaches the camera's car with nothing left to count (and with some of the display's messages,
+  0x3A06B0 ❓); `chime` (48) when the start reaches another car while ours still counts
+  (🔎 staggered starts). Rendered: the beeps one second apart, heard within 2 ms.
+- **The music** (`RaceBGMPS2`, race + 0xCF88): messages of type 0x18 (RaceBase virtual +73,
+  0x389758): -1 stop, -2 / -3 pause / resume, 10 → the race type's start code (race + 0xD60),
+  11 → its goal code (+0xD64), 19 → the start code, else the code itself. Codes 10.. are the
+  streamed groups + 10. Code 12 (`racing`) plays the next piece of the player's playlist
+  (0x438170: 0x10-byte entries, enabled / played / order) at the stream level × the race music
+  option / 128 (in a replay the replay's); the others a piece of their group at the stream level
+  when the music is on. When a racing piece ends the next starts (0x33D170). The pairs: the
+  default (RaceBase, 0x387C40) start / goal; 0x1D / 0x1E timeattack (0x112620, 0x116E20);
+  0x13 / 0x14 license_start / license_gold (0x114E38, 0x11BB60); 0x21 / 0x22 etc (0x1181C8);
+  0x1B / 0x1C champ or 0x23 / 0x24 last (0x11A4C0); 0x1F / 0x20 coffee (0x11CB38).
+  ❓ Who posts the messages and when; the playlist is played in the group's order.
+- **The options** (the game record +0x5C: a flag and a raw value each for menu_bgm, menu_se,
+  race_bgm, race_se, replay_bgm, replay_se; raw 0..128, the option page's slider = raw / 8; a new
+  game (0x4363A0) has every flag on and 115). Menu effects in a race: menu_se / 128 × sdvol level 3.
+- Pit sounds (`wheelgun`, `dropnut`, ... through 0x393428 and 0x3934A0 from 0x3D0230..) ❓ not played.
+
+### Prologue
+
+Prologue's program has the block of numbers but neither the gains' table nor the microphones'
+in this form (`race-tables` finds them "not found"): its race mixes with every gain 1 and
+32 / distance. ❓ Its own tables; its car sounds (the database is the earlier format).
