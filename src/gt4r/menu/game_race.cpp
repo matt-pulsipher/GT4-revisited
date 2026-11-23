@@ -3,8 +3,10 @@
 // specdb/<set>/RACES/<the race's code>).
 
 #include "gt4r/menu/game_internal.h"
+#include "gt4r/menu/race_natives.h"
 
 #include <cstdio>
+#include <cstdlib>
 
 namespace gt4r::menu {
 
@@ -108,11 +110,7 @@ void install_race_classes(GameNatives& n, script::Module& menu) {
         });
         race->method("getPrizeGC", [row](Vm&, const Value&, Args) { return number(s32(s16(r16(row(), 0x2C))) * 100); });
         // The championship's points: 10, 6, 4, 3, 2, 1 (the program's table at 0x6A6EF0).
-        race->method("getAdditionalDriversPoints", [](Vm&, const Value&, Args a) {
-            static const s32 points[6] = {10, 6, 4, 3, 2, 1};
-            const s32 i = arg_int(a, 0);
-            return number(i >= 0 && i < 6 ? points[i] : 0);
-        });
+        race->method("getAdditionalDriversPoints", [np](Vm&, const Value&, Args a) { return number(championship_points(np->db(), arg_int(a, 0))); });
         // getAllowedCarList(): the GENERIC_CAR labels of the row's ALLOW_ENTRY row (60 codes, -1
         // ends); nil when the race has none.
         race->method("getAllowedCarList", [row, np](Vm&, const Value&, Args) {
@@ -135,39 +133,88 @@ void install_race_classes(GameNatives& n, script::Module& menu) {
 
 namespace gt4r::menu {
 
-// The program's result routines in outline (docs/formats/menu.md "After a race"): a finished
-// event pays the place's prize (left to the scripts to add) and counts the place; a better
-// place updates the race's record unit; a test keeps its result and its ranking; every run is
-// a day of the diary.
+// A championship's points for a place (0 first; the program's signed bytes at 0x6A6EF0, read
+// from the user's own program; none when its tables are not mapped).
+s32 championship_points(Database& d, int place) {
+    if (place < 0 || place >= 6 || !d.program.known()) return 0;
+    return s32(s8(d.program.b(kChampionshipPoints + u32(place))));
+}
+
+// The race count of a championship's label and the index of one of its races: the label ends
+// in two digits of each ("..._0500": five races, the championship itself; "..._0503": its third).
+int series_race_count(const std::string& label) { return label.size() >= 6 ? std::atoi(label.substr(label.size() - 4, 2).c_str()) : 0; }
+
+namespace {
+
+// A race record unit's update (0x430A58): a unit of no kind takes the kind and the result as
+// best and last; one of the same kind takes the last, and the best when it is better; another
+// kind is left.
+void unit_result(u32& w, u32 type, u32 result) {
+    const u32 have = w & 15;
+    result &= 15;
+    if (have == 0) {
+        w = (w & ~0xFFFu) | type | result << 4 | result << 8;
+        return;
+    }
+    if (have != type || have > 3) return;
+    w = (w & ~0xF00u) | result << 8;
+    if (result < ((w >> 4) & 15)) w = (w & ~0xF0u) | result << 4;
+}
+// The unit's best score (0x430A20): kept when higher, capped at 255.
+void unit_score(u32& w, int score) {
+    const u32 v = u32(std::clamp(score, 0, 255));
+    if (((w >> 16) & 0xFF) < v) w = (w & ~(0xFFu << 16)) | v << 16;
+}
+
+} // namespace
+
+// The program's result routines (docs/formats/menu.md "After a race"). The race's menus' work
+// (MQuickWork) gets what the routines write into it: the prize, the rows in finishing order
+// (0x114390, 0x11A168, 0x11C1D8), the player's place, and a championship's grand prize and rank.
 s64 Runtime::race_finished(const RaceResult& r) {
     const std::shared_ptr<GameNatives> n = natives_of(*this);
     GameState& s = game();
     if (!n) return 0;
     Database& d = n->db();
-    std::string race = r.race;
-    for (const std::string& tried : {r.race, "us" + r.race, "jp" + r.race})
-        if (!r.race.empty() && d.code(kRaceTable, tried) != kNoCode) {
-            race = tried;
-            break;
-        }
+    auto known = [&d](const std::string& label) {
+        for (const std::string& tried : {label, "us" + label, "jp" + label})
+            if (!label.empty() && d.code(kRaceTable, tried) != kNoCode) return tried;
+        return label;
+    };
+    const std::string race = known(r.race);
     const u64 race_code = d.code(kRaceTable, race);
     const int unit = d.race_unit(race);
-    auto update_unit = [&](u32 type, u32 result) {
-        if (unit < 0) return;
-        u32& w = s.race_units[size_t(unit)];
-        const u32 have = w & 15;
-        if (have == 0) w = (w & ~0xFFFu) | type | result << 4 | result << 8;
-        else if (have == type) {
-            w = (w & ~(15u << 8)) | result << 8;
-            if (result < ((w >> 4) & 15)) w = (w & ~(15u << 4)) | result << 4;
-        }
-        if (r.score >= 0 && ((w >> 16) & 0xFF) < u32(std::min(r.score, 255))) w = (w & ~(0xFFu << 16)) | u32(std::min(r.score, 255)) << 16;
-    };
+    u32 dummy = 0;
+    u32& w = unit >= 0 ? s.race_units[size_t(unit)] : dummy;
+    const ByteSpan row = d.row("RACE", race);
+    auto prize_of = [&row](int place) { return place >= 0 && place < 6 && row.size() >= 0x2C ? s64(u16(row[0x20 + 2 * size_t(place)] | row[0x21 + 2 * size_t(place)] << 8)) * 100 : 0; };
     static const char* const kNames[16] = {"1", "2", "3", "4", "5", "6", "7", "8", "abandon", "gold", "silver", "bronze", "red", "failed", "view", "NONE"};
     auto result_number = [](const std::string& name) {
         for (u32 i = 0; i < 16; ++i)
             if (name == kNames[i]) return i;
         return 15u;
+    };
+    // The player's place in the finishing order (0x110570), or the one given.
+    int place = r.place;
+    for (size_t i = 0; i < r.order.size(); ++i)
+        if (r.order[i].entry == 0) place = int(i);
+    // The race's menus' rows: every car in finishing order with its time (0x114390); a race the
+    // player did not finish has "-" rows and no times (0x110898; ❓ here empty rows).
+    QuickWork& work = quick_work(s);
+    auto fill_rows = [&](bool cleared) {
+        if (r.order.empty()) return;
+        work.rows.assign(r.order.size(), QuickRow{});
+        for (size_t i = 0; i < r.order.size(); ++i) {
+            QuickRow& q = work.rows[i];
+            if (cleared) {
+                q.time_ms = QuickWork::kNoTime;
+                continue;
+            }
+            q.car = r.order[i].car, q.paint = r.order[i].paint;
+            q.time_ms = r.order[i].finished ? r.order[i].time_ms : QuickWork::kNoTime;
+            if (r.order[i].entry == 0) work.set("playerGridNumber", s32(i));
+        }
+        work.set("numberOfEntries", s32(r.order.size()));
     };
     // The car's distance (❓ the adders 0x343518 on are the race's; their callers are not read).
     if (r.garage_slot >= 0 && size_t(r.garage_slot) < s.garage.size() && s.garage[size_t(r.garage_slot)].record && r.distance_m > 0) {
@@ -184,30 +231,115 @@ s64 Runtime::race_finished(const RaceResult& r) {
     s64 prize = 0;
     switch (r.kind) {
     case RaceResult::Kind::Event: {
+        // 0x114498: not finished, no prize, a race counted as such; finished, the place's
+        // prize and count, the score of a driven race, and the record when the place is the
+        // sequence's best so far.
+        day.b2 = 14;
         if (!r.finished) {
             ++s.rank_counts[0];
-            day.b1 = 15;
-            day.word = kNoTime;
+            day.b1 = 15, day.word = kNoTime;
+            fill_rows(true);
         } else {
-            const int p = std::clamp(r.place, 0, 7);
-            const ByteSpan row = d.row("RACE", race);
-            prize = p < 6 && row.size() >= 0x2C ? s64(u16(row[0x20 + 2 * size_t(p)] | row[0x21 + 2 * size_t(p)] << 8)) * 100 : 0;
+            const int p = std::clamp(place, 0, 15);
+            prize = prize_of(p);
             if (p < 6) ++s.rank_counts[size_t(p) + 1];
             s.total_prize_money += prize;
-            update_unit(2, u32(p));
+            if (!r.watched && r.score >= 0) unit_score(w, r.score);
+            if (p < s.race_session.best_place) {
+                if (unit >= 0) unit_result(w, 2, u32(p));
+                s.race_session.best_place = p;
+            }
             day.b1 = u8(p), day.word = r.time_ms;
+            fill_rows(false);
+            work.set("playerGridNumber", s32(p));
         }
-        day.b2 = 14;
-        if (race == "family") day.type = 8, day.b3 = 2, day.code = d.code(kCourseTable, r.course);
+        if (race == "family") day.type = 8, day.b3 = 2, day.code = d.code(kCourseTable, r.course.empty() ? s.race.course : r.course);
         else day.type = 3, day.code = race_code;
+        work.set("prize", s32(prize));
         break;
     }
-    case RaceResult::Kind::License:
+    case RaceResult::Kind::Championship: {
+        // 0x119CB8 a race of the series, 0x119F28 its last: points by the finishing order
+        // (0x3EEFE0; a player who did not finish gets none and the others move up, 0x3EF1E8),
+        // the race's prize, its record; on the last race the series is won when no other
+        // entrant has as many points as the player (0x3EF298): the series' record and its grand
+        // prize (the row's +0x2C x 100); the player's rank among the first six (0x3EF2D8).
+        const std::string series = known(r.series);
+        if (s.series.label != series) s.series = {series, 0, {}};
+        auto add_points = [&](bool skip_player) {
+            int k = 0;
+            for (const RaceResult::Finisher& f : r.order) {
+                if (skip_player && f.entry == 0) continue;
+                if (f.entry >= 0 && size_t(f.entry) >= s.series.points.size()) s.series.points.resize(size_t(f.entry) + 1, 0);
+                if (f.entry >= 0) s.series.points[size_t(f.entry)] += championship_points(d, k);
+                ++k;
+            }
+        };
+        ++s.series.races_run;
+        const int count = series_race_count(series);
+        const bool last = s.series.races_run >= count;
+        day.type = 3, day.code = race_code, day.b2 = 14;
+        if (!r.finished) {
+            fill_rows(true);
+            add_points(true);
+            ++s.rank_counts[0];
+            day.b1 = 15, day.word = kNoTime;
+            place = -1;
+        } else {
+            add_points(false);
+            const int p = std::clamp(place, 0, 15);
+            prize = prize_of(p);
+            if (p < 6) ++s.rank_counts[size_t(p) + 1];
+            if (!r.watched && r.score >= 0) unit_score(w, r.score);
+            if (!last && !r.watched && unit >= 0) unit_result(w, 2, u32(p));
+            day.b1 = u8(p), day.word = r.time_ms;
+            fill_rows(false);
+            work.set("playerGridNumber", s32(p));
+        }
+        s64 grand = 0;
+        if (last) {
+            if (s.series.points.empty()) s.series.points.assign(1, 0);
+            const s32 mine = s.series.points[0];
+            bool won = true;
+            int rank = 0;
+            for (size_t k = 1; k < 6; ++k) {
+                const s32 other = k < s.series.points.size() ? s.series.points[k] : 0;
+                if (other >= mine) won = false, ++rank;
+            }
+            const int series_unit = d.race_unit(series);
+            if (won) {
+                const ByteSpan srow = row;
+                grand = srow.size() >= 0x2E ? s64(s16(u16(srow[0x2C] | srow[0x2D] << 8))) * 100 : 0;
+                if (series_unit >= 0) unit_result(s.race_units[size_t(series_unit)], 2, 0);
+                day.b2 = 0;
+            }
+            if (unit >= 0) unit_result(w, 2, u32(place < 0 ? 15 : place));
+            work.set("GrandPrize", s32(grand));
+            work.set("SeriesRank", s32(rank));
+        }
+        s.total_prize_money += prize + grand;
+        work.set("prize", s32(prize));
+        prize += grand;
+        break;
+    }
     case RaceResult::Kind::Mission: {
-        const bool license = r.kind == RaceResult::Kind::License;
+        // 0x11C328: the place's prize whatever the run, the record's kind 3 with the place,
+        // the score; the diary's mission day (place, note 15, time).
+        const int p = std::clamp(place, 0, 15);
+        prize = prize_of(p);
+        s.total_prize_money += prize;
+        if (unit >= 0) unit_result(w, 3, u32(p));
+        if (r.score >= 0) unit_score(w, r.score);
+        day.type = 5, day.b1 = u8(p), day.b2 = 15, day.word = r.time_ms, day.code = race_code;
+        fill_rows(false);
+        work.set("playerGridNumber", s32(p));
+        work.set("prize", s32(prize));
+        break;
+    }
+    case RaceResult::Kind::License: {
         const u32 result = r.finished ? result_number(r.result) : 15;
-        update_unit(license ? 1 : 3, result);
-        day.type = license ? 4 : 5, day.b1 = u8(result), day.b2 = 14, day.word = r.finished ? r.time_ms : kNoTime, day.code = race_code;
+        if (unit >= 0) unit_result(w, 1, result);
+        day.type = 4, day.b1 = u8(result), day.b2 = 14, day.word = r.finished ? r.time_ms : kNoTime, day.code = race_code;
         // The test's ranking (0x4320B8): a finished run with a time.
         if (r.finished && r.time_ms && result != 15) {
             const Value args[3] = {Value::integer(s32(r.time_ms)), Value::string(kNames[result]), Value::string(r.pass_code.empty() ? "--------" : r.pass_code)};

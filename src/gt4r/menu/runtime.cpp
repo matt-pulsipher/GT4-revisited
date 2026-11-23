@@ -533,6 +533,13 @@ void Runtime::finish() {
     finished_ = true;
     save_options();
     const std::optional<RaceRequest> race = race_request();
+    // The scripts asked for a race: its sequence starts (the program makes the race's menus'
+    // work object anew, 0x127E60, and the result routines' session).
+    if (race && game_->sequence_asked) {
+        game_->race_session = {};
+        game_->quick_work.reset();
+    }
+    game_->sequence_asked = false;
     note(race ? "the project finished; the scripts ask for " + race->sequence + ": " + race->car + " at " + race->course
               : "the project finished; next: " + (wanted_project().empty() ? std::string("(none)") : wanted_project()));
 }

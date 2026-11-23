@@ -231,6 +231,7 @@ void GameState::put_day(const DayEvent& e) {
     if (diary.size() >= kDiaryDays) diary.pop_front();
     diary.push_back(e);
     ++today;
+    need_save = true;
 }
 
 int GameState::garage_count() const {
@@ -249,6 +250,15 @@ int GameState::add_car(GarageEntry e) {
     if (garage.size() >= kGarageSize) return -1;
     garage.push_back(std::move(e));
     return int(garage.size()) - 1;
+}
+
+std::optional<sim::Equipment> race_equipment(const GameState& game, int garage_slot) {
+    if (garage_slot < 0 || size_t(garage_slot) >= game.garage.size()) return std::nullopt;
+    const GarageEntry& e = game.garage[size_t(garage_slot)];
+    if (!e.used || !e.record) return std::nullopt;
+    sim::Equipment q;
+    std::copy_n(e.record->active(), sim::Equipment::kSize, q.bytes.begin());
+    return q;
 }
 
 } // namespace gt4r::menu

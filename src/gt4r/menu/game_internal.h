@@ -148,6 +148,10 @@ void install_records(GameNatives& n, Object& game, script::Module& menu);
 
 // ---- game_race.cpp
 void install_race_classes(GameNatives& n, script::Module& menu);
+// A championship's points for a place (0x6A6EF0 of the program), its race count by its label.
+constexpr u32 kChampionshipPoints = 0x6A6EF0;
+s32 championship_points(Database& d, int place);
+int series_race_count(const std::string& label);
 // A race's pool of opponents (its RACES file): the ENEMY_CARS label and paint (-1: any).
 std::vector<std::pair<std::string, int>> race_entries(Database& d, const std::string& race);
 

@@ -384,7 +384,12 @@ Value GameNatives::make_game() {
     field(g, "major_menu_page", &s->major_menu_page);
     field(g, "major_menu_widget", &s->major_menu_widget);
     g.property("last_sequence", [s] { return text(s->last_sequence); });
-    field(g, "next_sequence", &s->next_sequence);
+    // Setting a race's sequence is the scripts asking for a race: the sequence starts when the
+    // project finishes (Runtime::finish).
+    g.property("next_sequence", [s] { return text(s->next_sequence); }, [s](const Value& v) {
+        s->next_sequence = v.is_nil() ? std::string() : v.to_string();
+        s->sequence_asked = true;
+    });
     g.property("last_menu_project", [s] { return text(s->last_menu_project); });
     field(g, "next_menu_project", &s->next_menu_project);
     g.property("last_menu_arg", [s] { return text(s->last_menu_arg); });
@@ -544,9 +549,15 @@ g.method("menuRef", [s](Vm&, const Value&, Args a) {
         s->all_available = a.empty() || a[0].truthy();
         return Value{};
     });
-    g.method("isNeedSave", [s](Vm&, const Value&, Args) { return number(s->need_save); });
-    g.method("setNeedSave", [s](Vm&, const Value&, Args a) {
-        s->need_save = a.empty() || a[0].truthy();
+    // isNeedSave answers whether something changed and clears it (0x43AC68); setNeedSave sets it
+    // (0x43ACA8, no argument).
+    g.method("isNeedSave", [s](Vm&, const Value&, Args) {
+        const bool need = s->need_save;
+        s->need_save = false;
+        return number(need);
+    });
+    g.method("setNeedSave", [s](Vm&, const Value&, Args) {
+        s->need_save = true;
         return Value{};
     });
     g.method("isDuringQuickMenu", [s](Vm&, const Value&, Args) { return number(s->during_quick_menu); });
