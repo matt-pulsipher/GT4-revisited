@@ -1,4 +1,5 @@
-// The home screen with a disc open: the cars and courses by name, and the asset browser.
+// The home screen with a disc open: the cars and courses by name, the menu pages, and the asset
+// browser.
 
 #include "gt4r/app/app.h"
 
@@ -6,6 +7,7 @@
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/formats/model/car_model.h"
 #include "gt4r/formats/model/mdls.h"
+#include "gt4r/menu/project.h"
 #include "gt4r_version.h"
 
 #include <algorithm>
@@ -68,6 +70,7 @@ public:
                 case 1: app.push(make_courses_screen(app)); break;
                 case 2: app.push(make_browser_screen()); break;
                 case 3: app.show_open_dialog(); break;
+                case 5: app.push(make_menu_viewer(app)); break;
                 default: app.quit(); break;
                 }
                 error_.clear();
@@ -113,6 +116,8 @@ private:
         }
         if (cars) items_.push_back({"Cars", std::to_string(cars), 0});
         if (courses) items_.push_back({"Courses", std::to_string(courses), 1});
+        if (const size_t menus = menu::list_projects([&app](const std::string& f) { return app.vfs()->list_dir(f); }).size())
+            items_.push_back({"Menu pages", std::to_string(menus) + " projects", 5});
         items_.push_back({"Asset browser", std::to_string(app.disc()->files().size()) + " files", 2});
         items_.push_back({"Another disc", "", 3});
         items_.push_back({"Quit", "", 4});

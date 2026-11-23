@@ -83,7 +83,7 @@ volume's index bytes (Prologue: its table of contents).
 | `wheel/`, `tire/`, `wing/` | 2,575 | `MDLS` models |
 | `specdb/` | 1,801 | the car database: `GTDB` tables, `GTID` ids, `GTST` strings |
 | `replay/` | 738 | demonstration replays as memory-card saves |
-| `projects/` | 671 | the menus: `ADCH` scripts, `Proj` layouts, `gpb1`/`gpb2` pictures, `RT03` text |
+| `projects/` | 671 | the menus: `ADCH` scripts, layouts as text, `gpb1`/`gpb2` pictures, `RT03` text |
 | `usedcar/`, `config/`, `script/` | 499 | `ADCH` scripts, `.mwidget` layouts |
 | `crs/` | 348 | courses, their driving lines (`MDLS`) and `.ad` files |
 | `bgm/`, `narration/` | 260 | `SShd` streams, `MADS` index, `BMRK` markers |
@@ -105,13 +105,13 @@ volume's index bytes (Prologue: its table of contents).
 | `INST` instrument banks | `sound/`, `music/` | ❓ newer layout than Gran Turismo 3's |
 | `Ssqt` sequences (`.sqt`) | `music/` | ❓ |
 | `MADS` music index | `bgm/` | ❓ newer layout |
-| `FT01`, `KNJI` fonts | `font/` | ❓ newer layouts |
+| `FT01` fonts | `font/*.fnt` | ✅ ([formats/menu.md](formats/menu.md)); `KNJI` (`font/*.kf`) ❓ a newer layout |
 | `MDLS` models | cars, wheels, tires, wings, courses, prizes, characters | ✅ still models ([formats/model.md](formats/model.md)); ❓ scripts, callbacks (a car's wheels), skinned sets |
 | `CAR4`, `Pat0` | `car/` | ❓ |
 | Courses | `crs/` | ✅ the container and the scenery ([formats/course.md](formats/course.md)); the road `RNW4`; ❓ billboards, lamps, cameras |
 | `GTDB` / `GTID` / `GTST` | `specdb/` | ✅ the tables, labels and strings ([formats/database.md](formats/database.md)); ❓ most columns |
-| `ADCH` scripts | the menus, game flow, settings | ✅ read and listed ([formats/script.md](formats/script.md)); ❓ run |
-| `Proj` / `.mwidget` layouts, `gpb1` / `gpb2`, `RT03` | the menus | ❓ |
+| `ADCH` scripts | the menus, game flow, settings | ✅ read, listed and run by the interpreter ([formats/script.md](formats/script.md)); ❓ the program's classes they call |
+| Layouts (`.mproject`, `.mwidget`: text), `gpb0` / `gpb1` / `gpb2` pictures, `RT02` / `RT03` text | the menus | ✅ read and drawn as still pages ([formats/menu.md](formats/menu.md)) |
 | Replays (`REP4`), saves | | ❓ |
 
 Prologue mixes the two generations: `CAR4` cars and `ADCH` scripts next to `GTM1` models,

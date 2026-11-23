@@ -118,6 +118,8 @@ std::string user_data_dir();
 std::unique_ptr<Screen> make_setup_screen();
 std::unique_ptr<Screen> make_hub_screen();
 std::unique_ptr<Screen> make_browser_screen(const std::string& open_path = "");
+// The menu projects' pages drawn from the disc's layouts (still pictures).
+std::unique_ptr<Screen> make_menu_viewer(App& app);
 // A list of models and a 3D view of the selected one; `load` builds the model of an item.
 using ModelLoader = std::function<gt3r::scene::Model(App& app, size_t index)>;
 std::unique_ptr<Screen> make_model_viewer(std::string title, std::vector<std::string> items, ModelLoader load);

@@ -6,6 +6,7 @@
 //   gt4tool extract <disc> <prefix> <dir>  write the files under a prefix (unpacked) to a folder
 //   gt4tool tex <disc> <path> <dir>        decode every texture set in a file to PNGs
 //   gt4tool adc <disc> [path]              a script's listing; without a path, a count of all
+//   gt4tool menu <disc> [project]         the menu projects: pages, widgets, pictures and text found
 //   gt4tool run <disc> [path]              runs a script's top level with stand-ins for the program's own
 //                                          classes and lists what it asked of them; without a path, every script
 //   gt4tool db <disc> [cars | courses | <table> [rows]]   the car database
@@ -26,6 +27,8 @@
 #include "gt4r/formats/course/runway.h"
 #include "gt4r/formats/db/specdb.h"
 #include "gt4r/formats/model/mdls.h"
+#include "gt4r/menu/font.h"
+#include "gt4r/menu/project.h"
 #include "gt4r/script/adc.h"
 #include "gt4r/script/vm.h"
 
@@ -456,6 +459,110 @@ int cmd_run(Disc& disc, const Args& a) {
     return 0;
 }
 
+menu::FileReader file_reader(Disc& disc) {
+    return [&disc](const std::string& path) -> std::optional<Bytes> {
+        const gt3r::Volume::Entry* e = disc.volume().find(path);
+        if (!e) return std::nullopt;
+        return disc.volume().read(*e);
+    };
+}
+
+// A folder's entries from the volume's flat list.
+menu::FolderLister folder_lister(Disc& disc) {
+    return [&disc](const std::string& folder) {
+        std::vector<std::string> out;
+        for (const gt3r::Volume::Entry& e : disc.volume().entries()) {
+            if (e.path.compare(0, folder.size(), folder) != 0) continue;
+            const size_t slash = e.path.find('/', folder.size());
+            std::string name = e.path.substr(folder.size(), slash == std::string::npos ? slash : slash + 1 - folder.size());
+            if (std::find(out.begin(), out.end(), name) == out.end()) out.push_back(std::move(name));
+        }
+        return out;
+    };
+}
+
+void print_widget(const menu::Widget& w, int depth, int max_depth) {
+    std::string extra;
+    if (const auto r = w.rect("geometry")) {
+        char b[64];
+        std::snprintf(b, sizeof b, "  %g,%g %gx%g", double(r->x), double(r->y), double(r->w), double(r->h));
+        extra += b;
+    }
+    for (const char* p : {"image_path", "key", "text", "font"})
+        if (w.has(p)) extra += std::string("  ") + p + "=" + w.text(p);
+    std::printf("%*s%s %s%s\n", depth * 2, "", w.type.c_str(), w.name().c_str(), extra.c_str());
+    if (depth < max_depth)
+        for (const menu::Widget& c : w.children()) print_widget(c, depth + 1, max_depth);
+}
+
+int cmd_menu(Disc& disc, const Args& a) {
+    const menu::FolderLister list = folder_lister(disc);
+    const menu::FileReader read = file_reader(disc);
+    // The fonts.
+    std::vector<std::string> fonts;
+    for (const std::string& f : list("font/")) {
+        if (f.size() < 4 || f.compare(f.size() - 4, 4, ".fnt") != 0) continue;
+        try {
+            for (const gt3r::text::LatinFont& font : menu::read_fonts(*read("font/" + f)).fonts) {
+                size_t glyphs = 0;
+                for (const gt3r::text::FontGlyph& g : font.glyphs) glyphs += g.defined();
+                char b[160];
+                std::snprintf(b, sizeof b, "%s: %s, %zu glyphs (%x..%x), line %u, picture %ux%u", f.c_str(), font.name.c_str(), glyphs, font.first,
+                              font.last, font.line_height, font.atlas[0].width, font.atlas[0].height);
+                fonts.push_back(b);
+            }
+        } catch (const std::exception& e) {
+            std::printf("font/%s: %s\n", f.c_str(), e.what());
+        }
+    }
+    if (a.empty())
+        for (const std::string& f : fonts) std::printf("%s\n", f.c_str());
+    size_t projects = 0, pages = 0, widgets = 0, images = 0, missing_images = 0, keys = 0, missing_keys = 0;
+    std::map<std::string, size_t> types;
+    for (const std::string& name : menu::list_projects(list)) {
+        if (!a.empty() && a[0] != name) continue;
+        const std::vector<std::string> languages = menu::project_languages(list, name);
+        try {
+            menu::Project project(read, name, languages.empty() ? "US" : languages[0]);
+            ++projects;
+            size_t p_widgets = 0, p_images = 0, p_missing = 0, p_keys = 0, p_nokey = 0;
+            for (const menu::Widget& page : project.pages()) {
+                ++pages;
+                std::function<void(const menu::Widget&)> walk = [&](const menu::Widget& w) {
+                    ++p_widgets, ++types[w.type];
+                    for (const menu::Property& p : w.properties) {
+                        if (p.name.size() >= 10 && p.name.compare(p.name.size() - 10, 10, "image_path") == 0 && !p.values.empty() && !p.values[0].empty()) {
+                            ++p_images;
+                            if (!project.image(page.name(), p.values[0])) {
+                                if (++p_missing <= 3 && !a.empty()) std::printf("  no picture %s in %s\n", p.values[0].c_str(), page.name().c_str());
+                            }
+                        }
+                        if (p.name == "key" && !p.values.empty() && !p.values[0].empty()) {
+                            ++p_keys;
+                            if (!project.text().find(project.module_name() + "::" + page.name(), p.values[0])) ++p_nokey;
+                        }
+                        for (const menu::Widget& c : p.widgets) walk(c);
+                    }
+                };
+                walk(page);
+            }
+            std::printf("%-20s %-3s %-22s %3zu pages %5zu widgets, pictures %4zu (%zu not found), keys %4zu (%zu without text)\n", name.c_str(),
+                        project.language().c_str(), project.module_name().c_str(), project.pages().size(), p_widgets, p_images, p_missing, p_keys, p_nokey);
+            widgets += p_widgets, images += p_images, missing_images += p_missing, keys += p_keys, missing_keys += p_nokey;
+            if (!a.empty())
+                for (const menu::Widget& page : project.pages()) print_widget(page, 1, a.size() > 1 ? 9 : 2);
+        } catch (const std::exception& e) {
+            std::printf("%s: %s\n", name.c_str(), e.what());
+        }
+    }
+    if (a.empty()) {
+        std::printf("%zu projects, %zu pages, %zu widgets; pictures %zu (%zu not found); keys %zu (%zu without text)\n", projects, pages, widgets,
+                    images, missing_images, keys, missing_keys);
+        for (const auto& [type, n] : types) std::printf("  %-18s %zu\n", type.c_str(), n);
+    }
+    return 0;
+}
+
 struct Command {
     const char* name;
     const char* usage;
@@ -469,6 +576,7 @@ const Command kCommands[] = {
     {"extract", "<disc> <prefix> <outdir>", 2, cmd_extract},
     {"tex", "<disc> <path> <outdir>", 2, cmd_tex},
     {"adc", "<disc> [path]", 0, cmd_adc},
+    {"menu", "<disc> [project] [all]", 0, cmd_menu},
     {"run", "<disc> [path]", 0, cmd_run},
     {"db", "<disc> [cars | wheels | courses | <table> [rows]]", 0, cmd_db},
     {"model", "<disc> <path>", 1, cmd_model},
