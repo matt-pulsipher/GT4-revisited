@@ -115,9 +115,9 @@ private:
         } catch (const std::exception& e) {
             error_ = e.what();
         }
-        if (cars && courses && app.gpu()) items_.push_back({"Drive", "", 6});
         if (cars) items_.push_back({"Cars", std::to_string(cars), 0});
         if (courses) items_.push_back({"Courses", std::to_string(courses), 1});
+        if (cars && courses && app.gpu()) items_.push_back({"Drive", "", 6});
         if (const size_t menus = menu::list_projects([&app](const std::string& f) { return app.vfs()->list_dir(f); }).size())
             items_.push_back({"Menu pages", std::to_string(menus) + " projects", 5});
         items_.push_back({"Asset browser", std::to_string(app.disc()->files().size()) + " files", 2});

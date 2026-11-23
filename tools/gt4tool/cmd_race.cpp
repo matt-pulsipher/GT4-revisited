@@ -3,15 +3,18 @@
 //   gt4tool race <disc> sections <course>          the course file's sections
 //   gt4tool race <disc> rail <course> [seconds]    runs the stand-in simulation on the course's road
 //   gt4tool race <disc> models <course> <slot>     a slot's model set as the race view decodes it
+//   gt4tool race <disc> car <model> [paint]        a race car's body as decoded: materials, pictures, colors
 
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/formats/course/runway.h"
+#include "gt4r/formats/model/car_model.h"
 #include "gt4r/formats/model/mdls.h"
 #include "gt4r/race/rail_simulation.h"
 
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -116,12 +119,69 @@ int race_models(Disc& disc, const Args& a) {
     return 0;
 }
 
+// A race car's body (car/lod/<model>, model 0, the nearest level) with a paint put on.
+int race_car(Disc& disc, const Args& a) {
+    const gt3r::Volume::Entry* e = disc.volume().find("car/lod/" + a[1]);
+    if (!e) throw FormatError("no file car/lod/" + a[1]);
+    const Bytes file = disc.volume().read(*e);
+    const car::CarFile c = car::CarFile::parse(file);
+    Bytes pat_file;
+    ByteSpan pat;
+    if (c.body_paint) pat = ByteSpan(file).subspan(c.body_paint);
+    else if (const gt3r::Volume::Entry* p = disc.volume().find("car/lod/" + a[1] + ".pat")) pat_file = disc.volume().read(*p), pat = pat_file;
+    const u32 paint = a.size() > 2 ? u32(std::atoi(a[2].c_str())) : 0;
+    std::printf("%u paints\n", car::paint_count(pat));
+    const Bytes body = car::paint_count(pat) ? car::apply_paint(ByteSpan(file).subspan(c.body), pat, paint) : Bytes(file.begin() + c.body, file.end());
+    const mdls::Header h = mdls::read_header(body);
+    std::printf("body: %u models, %u shapes, %u materials, %u variations, %u texture sets x %u lists\n", h.models, h.shapes, h.materials, h.variations,
+                h.texture_sets, h.texture_lists);
+    for (u32 i = 0; i < h.materials && i < 12; ++i) {
+        std::printf("  material %u:", i);
+        for (int k = 0; k < 20; ++k) {
+            float f;
+            std::memcpy(&f, body.data() + h.material_table + 0x50 * size_t(i) + 4 * size_t(k), 4);
+            std::printf(" %.2f", f);
+        }
+        std::printf("\n");
+    }
+    gt3r::gtm1::Options o;
+    o.node = 0;
+    mdls::Scene sc;
+    sc.resolve_callbacks = true;
+    for (u16 id = 11; id <= 39; ++id) sc.callback_values[id] = 99;
+    const gt3r::scene::Model m = mdls::build_model(body, o, sc, a[1]);
+    for (const gt3r::scene::Mesh& mesh : m.meshes)
+        for (const gt3r::scene::Primitive& p : mesh.primitives) {
+            double c4[4] = {};
+            for (u32 k = 0; k < p.index_count; ++k) {
+                const gt3r::scene::Vertex& v = mesh.vertices[mesh.indices[p.first_index + k]];
+                for (int j = 0; j < 4; ++j) c4[j] += double((v.color >> (8 * j)) & 0xFF);
+            }
+            const double n = std::max<double>(1, p.index_count);
+            double t[4] = {};
+            std::string size = "none";
+            if (p.texture >= 0) {
+                const gt3r::scene::Texture& tex = m.textures[size_t(p.texture)];
+                for (u32 px : tex.rgba)
+                    for (int j = 0; j < 4; ++j) t[j] += double((px >> (8 * j)) & 0xFF);
+                for (double& x : t) x /= std::max<double>(1, double(tex.rgba.size()));
+                size = std::to_string(tex.width) + "x" + std::to_string(tex.height);
+            }
+            std::printf("  %5u tris  flags %06x  texture %2d %-8s mean %3.0f %3.0f %3.0f %3.0f  vertex %3.0f %3.0f %3.0f %3.0f  material %s d %.2f %.2f %.2f a %.2f s %.2f sh %.0f\n",
+                        p.index_count / 3, p.flags, p.texture, size.c_str(), t[0], t[1], t[2], t[3], c4[0] / n, c4[1] / n, c4[2] / n, c4[3] / n,
+                        p.material.valid ? "yes" : "no ", p.material.diffuse[0], p.material.diffuse[1], p.material.diffuse[2], p.material.ambient[0],
+                        p.material.specular[0], p.material.shininess);
+        }
+    return 0;
+}
+
 } // namespace
 
 int cmd_race(Disc& disc, const Args& a) {
     if (a[0] == "sections") return race_sections(disc, a);
     if (a[0] == "rail") return race_rail(disc, a);
     if (a[0] == "models") return race_models(disc, a);
+    if (a[0] == "car") return race_car(disc, a);
     std::fprintf(stderr, "race: unknown request %s\n", a[0].c_str());
     return 2;
 }

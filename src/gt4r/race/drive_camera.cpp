@@ -103,8 +103,9 @@ ViewPose DriveCamera::pose(const CarState& car, const CarVisual& visual, int mou
         p.fov = kOnBoardAngle;
         if (look_back) ahead = ahead * -1.0f, right = right * -1.0f;
     } else {
-        // The place's own turn: yaw (to the right), then pitch (up), then roll.
-        const float yaw = (m.yaw + (look_back ? 180.0f : 0.0f)) * kPi / 180.0f, pitch = (look_back ? -m.pitch : m.pitch) * kPi / 180.0f;
+        // The place's own turn: yaw (to the right), then pitch (a positive one looks down: the
+        // chase place's 8 degrees toward the car), then roll.
+        const float yaw = (m.yaw + (look_back ? 180.0f : 0.0f)) * kPi / 180.0f, pitch = (look_back ? m.pitch : -m.pitch) * kPi / 180.0f;
         ahead = turn(ahead, up, -yaw), right = turn(right, up, -yaw);
         ahead = turn(ahead, right, pitch), up = turn(up, right, pitch);
         const float roll = (look_back ? -m.roll : m.roll) * kPi / 180.0f;

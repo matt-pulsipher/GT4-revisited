@@ -41,13 +41,24 @@ mdls::Scene body_scene(bool brake, int lamp_level) {
     return s;
 }
 
+// A car's sets as the shared engine decodes its own cars': the programs' alpha test cuts the wheel
+// arches and grilles out, the reflection passes are weighted by the paint's own alpha, the
+// pictures are sampled at full size.
+gt3r::gtm1::Options car_options() {
+    gt3r::gtm1::Options o;
+    o.program_alpha_test = true;
+    o.weighted_reflection = true;
+    o.gs_mip_levels = true;
+    return o;
+}
+
 // A set's model at every level of detail it has (at most `levels`) as one model, the meshes
 // tagged with their level.
 scene::Model build_levels(ByteSpan set, int model, const mdls::Scene& sc, int levels, int texture_list, const std::string& name) {
     scene::Model out;
     out.name = name;
     for (int lod = 0; lod < levels; ++lod) {
-        gt3r::gtm1::Options o;
+        gt3r::gtm1::Options o = car_options();
         o.node = model;
         o.run.lod = lod;
         o.run.texture_lod = texture_list;
@@ -137,8 +148,12 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
         sc.callback_values[u16(11 + w)] = 0;
         sc.only_inside = 11 + w;
         scene::Model m = build_levels(body, 0, sc, 1, 0, name + "/brake");
+        // The disc's glow (an additive shape whose strength is the brake's heat) is left out: cold brakes.
         bool any = false;
-        for (const scene::Mesh& mesh : m.meshes) any |= !mesh.indices.empty();
+        for (scene::Mesh& mesh : m.meshes) {
+            std::erase_if(mesh.primitives, [](const scene::Primitive& p) { return (p.flags & scene::kAdditive) != 0; });
+            any |= !mesh.primitives.empty();
+        }
         if (any) brakes_[w] = std::make_unique<render::GpuModel>(ctx, m);
     }
     // Wheels and tires, still and turning. Both sets are in units of the rim's radius, modelled
@@ -168,7 +183,7 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
                     mdls::Scene ws;
                     ws.resolve_callbacks = true;
                     ws.outside_sets[mdls::kWheelFaceSlot] = mdls::kWheelFaceSet + 2 * lod + turning;
-                    gt3r::gtm1::Options o;
+                    gt3r::gtm1::Options o = car_options();
                     o.node = int(w);
                     o.run.lod = lod;
                     scene::Model wheel = mdls::build_model(wheel_set, o, ws, "wheel");
