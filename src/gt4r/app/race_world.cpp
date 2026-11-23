@@ -40,6 +40,8 @@ struct RaceWorld::Impl {
     gt3r::race::SceneryFade fade;
     std::unique_ptr<render::View3D> view;
     std::unique_ptr<render::View3D> icon_view; // the results' car icons
+    std::unique_ptr<render::View3D> mirror_view; // the rear-view mirror
+    std::vector<render::DrawItem> mirror_items;
     std::vector<render::DrawItem> items, env_items, wet_items;
     gt3r::race::SunGlare sun;
     gt3r::race::SunDisc sun_disc;
@@ -465,6 +467,46 @@ void RaceWorld::draw_icons(Ui& ui, const SDL_FRect& canvas, std::span<const Icon
     o.composite_alpha = std::clamp(opacity, 0.0f, 1.0f);
     if (m.view && m.env_ready) o.env_cube = m.view->env_cube(), o.env_gt3_lookup = true;
     m.icon_view->draw(ui.renderer(), canvas, render::Mat4::identity(), proj, RVec{0, 0, 100}, items, o);
+}
+
+// The rear-view mirror (docs/formats/course.md "Drawing", step 9: the mirror's fog, its sky,
+// slot 1 by slot 3's list, the cars). ❓ Its lens and depth are the shared engine's mirror's (the
+// in-car view's angle zoomed 1.3 times, 120 m), not read from this program.
+void RaceWorld::render_mirror(Ui& ui, const SDL_FRect& rect, std::span<const race::CarState> cars, const race::ViewPose& pose, int hidden) {
+    Impl& m = *impl_;
+    if (!app_.gpu() || rect.w <= 0 || rect.h <= 0) return;
+    if (!m.mirror_view) m.mirror_view = std::make_unique<render::View3D>(*app_.gpu());
+    constexpr float kDepth = 120;
+    m.mirror_items.clear();
+    course_->add_items(m.mirror_items, pose.eye, race::CourseScene::View::Mirror);
+    const size_t n = std::min(cars.size(), car_visuals_.size());
+    for (size_t i = 0; i < n; ++i) {
+        if (int(i) == hidden) continue;
+        car_visuals_[i]->add_shadow_items(m.mirror_items, cars[i]);
+        car_visuals_[i]->add_items(m.mirror_items, cars[i], pose.eye, kStep);
+    }
+    render::DrawOptions o = draw_options(*course_, kDepth);
+    o.mirrored = true;
+    o.draw_distance = kDepth;
+    o.far_clip = 0;
+    o.post_grade = grade_;
+    const gt3r::race::SunParams& env = course_->env();
+    if (env.has_env) {
+        o.fog = true, o.fog_gt3 = true;
+        o.fog_start = std::max(env.mirror_fog_a, 0.0f);
+        o.fog_max = std::clamp(1.0f - env.mirror_fog_b, 0.0f, 1.0f);
+        for (int i = 0; i < 3; ++i) o.fog_color[i] = std::clamp(env.mirror_fog_rgb[size_t(i)], 0.0f, 1.0f);
+    }
+    if (m.view && m.env_ready) o.env_cube = m.view->env_cube(), o.env_gt3_lookup = true;
+    const float t = std::tan(pose.fovy() * 0.5f) / 1.3f;
+    const render::Mat4 proj = render::perspective(2.0f * std::atan(t), rect.w / rect.h, 0.1f, kDepth);
+    const render::Mat4 view = render::scale({1, 1, -1}) * pose.view;
+    SDL_SetRenderDrawColor(ui.renderer(), 0, 0, 0, 255);
+    SDL_RenderFillRect(ui.renderer(), &rect);
+    m.mirror_view->draw(ui.renderer(), rect, view, proj, pose.eye, m.mirror_items, o);
+    // Its frame: a thin light edge (❓ judged from the original's in-car view).
+    SDL_SetRenderDrawColor(ui.renderer(), 200, 200, 200, 255);
+    SDL_RenderRect(ui.renderer(), &rect);
 }
 
 } // namespace gt4r

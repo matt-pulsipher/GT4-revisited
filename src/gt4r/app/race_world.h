@@ -78,6 +78,9 @@ public:
     // make the cars' reflection picture); `hidden`: a car whose body is not drawn (the in-car
     // view's own), -1 for none.
     void render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarState> cars, const race::ViewPose& pose, size_t focus, int hidden);
+    // The rear-view mirror in `rect`: from `pose` (the in-car view) looking back, mirrored; the course
+    // by its mirror lists and sky, the cars but `hidden`, the mirror's own fog, 120 m deep.
+    void render_mirror(Ui& ui, const SDL_FRect& rect, std::span<const race::CarState> cars, const race::ViewPose& pose, int hidden);
     // The picture's correction (the screen settings, race/picture_settings.h) from the next frame.
     void set_grade(const gt3r::render::DrawOptions::PostGrade& g) { grade_ = g; }
     // The next frame's dissolve: `snapshot` freezes the last picture shown, drawn over the new one at

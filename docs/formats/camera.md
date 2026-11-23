@@ -196,11 +196,16 @@ pick a new random target in -1..1 and move 0.4 x strength of the way to it each 
 (🔎 half of one, twice the other: body movement). Mount 6 has bit 2 set: it is steady.
 Looking back is defined for view 6 only: the mount's yaw + 180, its pitch and roll negated.
 
-### The rear-view mirror ❓
+### The rear-view mirror 🔎
 
-Not investigated. The on-board camera publishes the view's turn (the sideways angle, + 180
-while looking back), and the course has visibility lists and a sky for the mirror
-([course.md](course.md), slots 3 and 24).
+The original's default (nose) view shows it at the top of the picture, (190, 18) 259 x 63 of the
+640 x 480 frame, with a thin light edge (measured on its in-car view); the chase view and the
+higher view have none. The course has visibility lists, a sky and fog for it ([course.md](course.md),
+slots 3 and 24, Env0 +0xA90; drawing step 9). Here (`RaceWorld::render_mirror`) it is the in-car
+view seen backward and mirrored, the course by its mirror lists, sky and fog, the other cars, 120 m
+deep, the in-car view's angle zoomed 1.3 times. ❓ The program's own mirror camera (its lens, depth
+and place) was not read: the on-board camera publishes the view's turn (the sideways angle, + 180
+while looking back).
 
 ## Replay cameras: `REP4` (course slots 44, 45, 46, 48)
 

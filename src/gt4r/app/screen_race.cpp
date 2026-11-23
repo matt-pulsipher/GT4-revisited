@@ -433,6 +433,14 @@ public:
         world_->set_dissolve(snapshot_, dissolve_total_ > 0 ? float(dissolve_left_) / float(dissolve_total_) : 0.0f, replaying_ || menu_scene_ || mount_ == kTvView);
         snapshot_ = false;
         world_->render(ui, rect, cars, pose, 0, pose.body_hidden ? 0 : -1);
+        // The in-car view's rear-view mirror at the top (❓ its place, (190, 18) 259 x 63 of the
+        // 640 x 480 picture, measured on the original's in-car view): not in replays, the opening
+        // shots or looking back.
+        if (mount_ == race::DriveCamera::kInCar && !replaying_ && !menu_scene_ && !start_camera_.active() && !look_back && !setup_.look_back) {
+            const SDL_FRect c = RaceHud::canvas();
+            const float k = c.h / 480.0f;
+            world_->render_mirror(ui, {c.x + 190 * k, c.y + 18 * k, 259 * k, 63 * k}, cars, pose, 0);
+        }
     }
 
     // The replay cameras' shot this step (once a step: their dampers and springs move a step at a
