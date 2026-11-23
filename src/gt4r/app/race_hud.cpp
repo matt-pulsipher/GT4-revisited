@@ -530,6 +530,14 @@ void RaceHud::Impl::draw_driver_panel(const HudState& s) {
 void RaceHud::draw(Ui& ui, const HudState& s) {
     if (!ready() || s.opacity <= 0) return;
     (void)ui;
+    if (s.replay && !s.replay_display) {
+        // A replay with its display off (the Replay options' Screen Display: Off, the original's
+        // default): the small Gran Turismo 4 logo, its right bottom at (604, 441) (member 0x1170),
+        // ❓ at about 60 % (judged from the original's replay; its draw colour is not read).
+        const Impl::Picture& logo = impl_->picture("JP/gt_logo_mini");
+        if (logo.w > 0) impl_->draw_picture(logo, race::place_rect({0, 604, 441, 0, 0, 1, 1}, logo.w, logo.h, true), kNeutral, s.opacity * 0.6f);
+        return;
+    }
     if (s.replay) {
         // The replay's sign at its place (the place's rectangle is the sign's room: its own size, top left).
         if (const DisplayPlace* p = impl_->layout.find(element::kReplaySign)) {
