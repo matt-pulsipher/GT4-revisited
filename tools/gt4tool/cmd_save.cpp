@@ -4,9 +4,12 @@
 //   gt4tool save <disc> payload <card folder> <out>  the game data file's payload, unscrambled
 //   gt4tool save <disc> new <out>                    a new game's payload as the program's constructors make it
 //   gt4tool save <disc> card <card folder> [name]    a new game saved in a card's folder
+//   gt4tool save <disc> import <card image> <card folder>          the game's folder of a .ps2 / .mcd card image into a card folder
+//   gt4tool save <disc> export <card folder> <out image> [base image]  the card folder's game into a card image (another card's other saves kept)
 
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/db/specdb.h"
+#include "gt4r/save/card_image.h"
 #include "gt4r/save/codec.h"
 #include "gt4r/save/memory_card.h"
 
@@ -70,6 +73,29 @@ int cmd_save(Disc& disc, const std::vector<std::string>& a) {
         std::printf("%s: %s\n", card.folder().c_str(), save::result_name(r));
         return r == save::Result::Ok ? 0 : 1;
     }
+    if (what == "import" && a.size() >= 3) {
+        std::ifstream in(a[1], std::ios::binary);
+        const Bytes image((std::istreambuf_iterator<char>(in)), {});
+        const save::CardImageResult r = save::import_card(image, a[2]);
+        for (const std::string& f : r.folders) std::printf("on the card: %s\n", f.c_str());
+        std::printf("%s\n", r.message.c_str());
+        return r.ok ? 0 : 1;
+    }
+    if (what == "export" && a.size() >= 3) {
+        std::optional<Bytes> base;
+        if (a.size() >= 4) {
+            std::ifstream in(a[3], std::ios::binary);
+            base = Bytes((std::istreambuf_iterator<char>(in)), {});
+        }
+        std::string why;
+        const Bytes image = base ? save::export_card(a[1], ByteSpan(*base), &why) : save::export_card(a[1], std::nullopt, &why);
+        if (image.empty()) {
+            std::fprintf(stderr, "error: %s\n", why.c_str());
+            return 1;
+        }
+        std::printf("%s: %zu bytes\n", a[2].c_str(), image.size());
+        return write_file(a[2], image) ? 0 : 1;
+    }
     if ((what == "show" || what == "payload") && a.size() >= 2) {
         db::SpecDb db = open_db(disc);
         save::GameSave card(a[1], save::database_codes(db));
@@ -110,7 +136,7 @@ int cmd_save(Disc& disc, const std::vector<std::string>& a) {
                     s.all_available ? " (all)" : "", s.favorite_cars.size(), s.favorite_courses.size());
         return 0;
     }
-    std::fprintf(stderr, "usage: gt4tool save <disc> show <card folder> | payload <card folder> <out> | new <out> | card <card folder> [name]\n");
+    std::fprintf(stderr, "usage: gt4tool save <disc> show <card folder> | payload <card folder> <out> | new <out> | card <card folder> [name] | import <card image> <card folder> | export <card folder> <out image> [base image]\n");
     return 2;
 }
 

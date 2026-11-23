@@ -41,8 +41,28 @@ space the game asks for is the files' KB, plus one KB for two entries and one (0
 
 To use a save from a PlayStation 2 card, copy its `BASCUS-97328GAMEDATA` folder (all four
 files, from any tool that copies a card's files as they are) into `<data>/memorycard/`; the
-same folder written here goes back onto a card the same way. 🔎 Reading a real card's save is
-checked; a save written here has not been tried on a console.
+same folder written here goes back onto a card the same way.
+
+## A card image
+
+An 8 MB card image (`.ps2`, `.mcd`; with or without the 16 spare bytes a page) is read and made
+by the shared engine's card layout (`formats/ps2/memcard.h`); `src/gt4r/save/card_image.*`:
+
+- **Into the game**: `gt4tool save <disc> import <image> <data>/memorycard` copies the image's
+  `BASCUS-97328GAMEDATA` folder in; or put the image itself in `<data>/memorycard/`: when that
+  folder has no game of its own, the first image by name that holds one is copied in the first
+  time the menus ask for the card (the game then loads it at power on as from a console's
+  card).
+- **Out of the game**: `gt4tool save <disc> export <data>/memorycard <out image> [another
+  image]` writes the folder onto a newly formatted card, or onto a copy of another card's image
+  with that card's other saves kept (a game folder already on it is replaced). The files go in
+  the order the game writes them; their directory entries have the modes the game's own card
+  has (folder 0x8427, files 0x8497).
+
+Checked: the reference card made by the running original (a new game and a used car) imports
+and loads (the player, credits, the car with its record; written again the same bytes);
+exported again onto a new card and onto another of the reference cards, both read back file for
+file the same. 🔎 A card made here has not been loaded by the original.
 
 ## Results the scripts see (0x1CBF40)
 

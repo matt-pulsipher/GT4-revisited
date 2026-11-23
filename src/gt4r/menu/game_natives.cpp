@@ -6,6 +6,7 @@
 // docs/formats/menu.md ("The game's state") says what each answers and why.
 
 #include "gt4r/menu/game_internal.h"
+#include "gt4r/save/card_image.h"
 
 #include "gt4r/save/memory_card.h"
 #include "disc/core_image.h"
@@ -769,6 +770,8 @@ save::GameSave& GameNatives::card() {
         save::Codes codes{[self](u32 table, const std::string& label) { return self->db().code(table, label); },
                           [self](u64 code) { return self->db().label(code); }};
         (void)d;
+        // A card image in the card's folder stands for the card when the folder has no game.
+        if (const save::CardImageResult taken = save::import_dropped_card(dir); taken.ok) rt.note("memory card: " + taken.message);
         card_save = std::make_shared<save::GameSave>(dir, codes, rt.reader());
     }
     return *card_save;
