@@ -27,6 +27,7 @@
 #include "race/sun_disc.h"
 #include "race/sun_glare.h"
 #include "race/tyre_smoke.h"
+#include "race/wet_road.h"
 #include "render/view3d.h"
 
 #include <algorithm>
@@ -59,6 +60,7 @@ struct Setup {
     int laps = 3;
     int replay = 0;
     bool smoke = true;
+    bool reflection = true;
     bool scripted = false; // from GT4R_RACE: no lists
 };
 
@@ -85,6 +87,7 @@ Setup setup_from_env() {
         else if (k == "hud") s.hud = v != "0";
         else if (k == "replay") s.replay = std::max(0, std::atoi(v.c_str()));
         else if (k == "smoke") s.smoke = v != "0";
+        else if (k == "reflection") s.reflection = v != "0";
         else if (k == "laps") s.laps = std::clamp(std::atoi(v.c_str()), 1, 99);
     }
     return s;
@@ -180,6 +183,7 @@ public:
                     course_->section(course::kSlotFlareShape));
         billboards_.load(gpu, course_->section(course::kSlotBillboards), setup.course);
         car_lamps_.load(app.renderer(), &gpu, env0, course_->section(course::kSlotFlareShape));
+        if (setup.reflection && !course_->reflection_course().empty()) wet_.load(gpu, *app.vfs(), course_->reflection_course(), env0);
         if (setup.smoke) smoke_.load(gpu, env0, course_->section(course::kSlotSmoke));
         LOG_INFO("Drive: %zu lamps, %zu billboards, sun %s", lamps_.count(), billboards_.count(), sun_.params().enabled ? "on" : "off");
     }
@@ -376,6 +380,16 @@ public:
             for (const gt3r::race::SceneryFade::Group& g : fade_.faded())
                 if (!g.nodes.empty()) billboards_.add_items(items_, cam_right, &g.nodes, g.weight);
         }
+        // The road's reflection: the mirrored scenery and its sky drawn into a small picture, which
+        // goes on the road (where the road's mask lets it) after the scenery and before the cars.
+        if (wet_.active()) {
+            wet_items_.clear();
+            course_->add_reflection_sky_items(wet_items_, pose.eye);
+            wet_.add_buffer_items(wet_items_, pose.view, pose.eye, {});
+            for (render::DrawItem& it : wet_items_) it.tint = course_->reflection_gain();
+            const render::DrawOptions wo = draw_options(far);
+            if (SDL_GPUTexture* t = wet_.render(*view_, pose.view, proj, pose.eye, wet_items_, wo)) wet_.add_frame_items(items_, pose.view, pose.fovy(), aspect, t);
+        }
         for (size_t i = 0; i < cars.size(); ++i) car_visuals_[i]->add_shadow_items(items_, cars[i]);
         for (size_t i = 0; i < cars.size(); ++i) {
             if (i == 0 && pose.body_hidden) continue;
@@ -519,6 +533,8 @@ private:
     gt3r::race::CarLampGlows car_lamps_;
     std::vector<gt3r::race::CarLampGlows::Car> glow_cars_;
     gt3r::race::TyreSmoke smoke_;
+    gt3r::race::WetRoad wet_;
+    std::vector<render::DrawItem> wet_items_;
     render::ScreenBatch overlay_;
     int countdown_ = 0, lap_start_ = 0, event_steps_ = -1, event_lap_ = 0, finish_steps_ = 0;
     bool started_with_count_ = false, finished_ = false;

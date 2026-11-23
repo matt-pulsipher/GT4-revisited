@@ -50,6 +50,14 @@ public:
     void animate(float seconds, std::span<const CarState> cars);
     void upload_animations(std::span<const CarState> cars);
 
+    // The road reflection's sets (slots 9 and 13 with their lists 10 and 14) as a course file in
+    // the shared engine's layout, for its own reflection pass; empty when the course has no slot 9.
+    ByteSpan reflection_course() const { return reflection_course_; }
+    // The reflection buffer's sky (slot 50), round the camera.
+    void add_reflection_sky_items(std::vector<render::DrawItem>& items, const render::Vec3& eye) const;
+    // The reflection's strength on the road: the environment's color and gain (Env0 +0xC10..+0xC1C).
+    float reflection_gain() const { return reflection_gain_; }
+
     // The scenery models the view draws from `eye` (null: all of them). Valid while the scene lives.
     const std::vector<u16>* visible_nodes(const render::Vec3& eye, View view = View::Race) const {
         return vis_[size_t(view)].visible(eye.x, eye.y, eye.z);
@@ -85,6 +93,9 @@ private:
     // The scenery's animated models: a model holding their pictures, and their shapes of the frame.
     AnimatedModels animated_;
     std::unique_ptr<render::GpuModel> animated_textures_, animated_gpu_;
+    Bytes reflection_course_;
+    float reflection_gain_ = 1;
+    std::unique_ptr<render::GpuModel> reflection_sky_;
     std::unique_ptr<render::GpuModel> scenery_, after_, backdrop_, sky_, mirror_sky_, env_scenery_, env_sky_;
     std::array<gt3r::course::Visibility, 2> vis_; // slot 1's lists per View
     gt3r::course::Visibility env_vis_;            // slot 5's

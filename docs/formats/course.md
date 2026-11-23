@@ -265,6 +265,11 @@ list of the car's place.
 
 ### Road reflection (slots 9, 13, 50)
 
+Code: `CourseScene::reflection_course` hands slots 9, 10, 13 and 14 to the shared engine's pass
+(`engine/gt3r/src/race/wet_road.*`) as a course file of its layout; slot 50's sky is drawn into
+the buffer first. The buffer's items are drawn at the strength (+0xC10..+0xC18 averaged) x
++0xC1C. Not drawn: the mirrored cars and the lamp streaks.
+
 The shared engine's wet-road pass, on every course that has slot 9 or slot 50 (no flag asks for
 it; 85 courses have slot 9): dry roads get a faint mirror of the sky and the backdrop, wet ones
 the full scenery.

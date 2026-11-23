@@ -5,6 +5,7 @@
 #include "gt4r/formats/model/mdls.h"
 
 #include <algorithm>
+#include <cstring>
 
 namespace gt4r::race {
 
@@ -121,6 +122,42 @@ CourseScene::CourseScene(render::GpuContext& ctx, ByteSpan course_file, const st
     vis_[size_t(View::Mirror)] = gt3r::course::Visibility::parse(file_.section(data_, course::kSlotWorldVis + 1));
     env_vis_ = gt3r::course::Visibility::parse(file_.section(data_, course::kSlotEnvironment + 1));
 
+    // The road reflection: the scenery stored mirrored below the road (slot 9) and the road as its
+    // mask (slot 13), handed to the shared engine's pass as a course file of its own layout (48
+    // offsets; the sets converted, the lists as they are).
+    if (mdls::is_mdls(file_.section(data_, course::kSlotReflection))) {
+        try {
+            mdls::Scene sc;
+            sc.color_scale = color_scale_;
+            Bytes out(48 * 4, 0);
+            auto put = [&](int slot, ByteSpan bytes) {
+                if (bytes.empty()) return;
+                while (out.size() & 15) out.push_back(0);
+                const u32 at = u32(out.size());
+                std::memcpy(out.data() + size_t(slot) * 4, &at, 4);
+                out.insert(out.end(), bytes.begin(), bytes.end());
+            };
+            put(course::kSlotReflection, mdls::to_gtm1(file_.section(data_, course::kSlotReflection), nullptr, sc));
+            put(course::kSlotReflection + 1, file_.section(data_, course::kSlotReflection + 1));
+            if (mdls::is_mdls(file_.section(data_, course::kSlotReflectionMask))) {
+                put(course::kSlotReflectionMask, mdls::to_gtm1(file_.section(data_, course::kSlotReflectionMask), nullptr, sc));
+                put(course::kSlotReflectionMask + 1, file_.section(data_, course::kSlotReflectionMask + 1));
+            }
+            reflection_course_ = std::move(out);
+            reflection_sky_ = build(ctx, course::kSlotSkyReflection, name + "/reflection_sky", false, false);
+            if (env.size() >= 0xC20) {
+                float v[4];
+                std::memcpy(v, env.data() + 0xC10, 16);
+                // (One strength for the three channels: the colors are near white.)
+                const float gain = (v[0] + v[1] + v[2]) / 3 * v[3];
+                reflection_gain_ = gain > 0 && gain <= 4 ? gain : 1.0f;
+            }
+        } catch (const std::exception& e) {
+            LOG_WARN("Course %s: no road reflection (%s)", name.c_str(), e.what());
+            reflection_course_.clear();
+        }
+    }
+
     // The lights of the course's own lit shapes: the environment's scene lights.
     if (env_.has_env) {
         env_.course_lights(lights_);
@@ -201,6 +238,13 @@ void CourseScene::add_items(std::vector<render::DrawItem>& items, const render::
             it.guard_band = true;
             items.push_back(it);
         }
+}
+
+void CourseScene::add_reflection_sky_items(std::vector<render::DrawItem>& items, const render::Vec3& eye) const {
+    if (!reflection_sky_) return;
+    render::DrawItem it{reflection_sky_.get(), render::translate(eye), 0};
+    it.background = true;
+    items.push_back(it);
 }
 
 void CourseScene::add_after_items(std::vector<render::DrawItem>& items) const {
