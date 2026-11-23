@@ -126,6 +126,9 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
         for (const WorldEntry& e : setup.entries)
             if (!m.sound->add_car(e.label)) LOG_WARN("Drive: no engine sound for %s", e.label.c_str());
         m.sound->set_course(course_->section(course::kSlotSound), std::make_shared<const course::Runway>(course_->road()));
+        // The volumes and output of the game's options, and the player's play list of racing music.
+        m.sound->set_options(audio::race_sound_options(setup.options));
+        if (setup.playlist) m.sound->set_playlist(setup.playlist);
     }
     m.view = std::make_unique<render::View3D>(gpu);
     // The sun, the lamps' glows (their meshes are the course's own, slot 37) and the billboards:

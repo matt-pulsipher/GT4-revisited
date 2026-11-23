@@ -41,6 +41,7 @@
 #include <ctime>
 #include <optional>
 #include <map>
+#include <variant>
 
 namespace gt4r {
 
@@ -82,6 +83,7 @@ struct Setup {
     bool save_replay = false; // `save=1`: the run `replay=N` drove saved as a replay file
     std::string race;     // `race=<label>`: the event (the car database's RACE row) the sequence runs
     sim::ai::Pace pace;   // the computer drivers' (the event's)
+    std::map<std::string, std::variant<s32, float, std::string>> options; // the game's (the sound's volumes); empty: a new game's
 };
 
 Setup setup_from_env() {
@@ -148,6 +150,7 @@ public:
         ws.smoke = setup.smoke, ws.reflection = setup.reflection, ws.rail = setup.rail;
         ws.computer_player = setup.auto_drive;
         ws.pace = setup.pace;
+        ws.options = setup.options;
         // The grid: the player at the back, the others ahead of him in entry order.
         const std::vector<int> places = race::grid_places(size_t(setup.cars), 0);
         for (int i = 0; i < setup.cars; ++i) {
@@ -209,6 +212,7 @@ public:
         fs.player = 0;
         fs.lap_length = world_->line().length;
         flow_.begin(fs, world_->cars());
+        rolled_ = false;
         board_.begin(world_->car_count(), 0, lap_words_[0], lap_words_[1]);
         camera_.reset(world_->cars()[0]);
         history_.clear();
@@ -303,6 +307,10 @@ public:
         if (!hold) distance_ += std::fabs(world_->cars()[0].speed) * kStep;
         if (audio::RaceSound* sound = world_->sound()) {
             if (hold) sound->count(flow_.hold_left());
+            // A rolling start: the racing music as the field begins to run, the start's sound when
+            // the player's car takes the line.
+            if (!rolled_ && flow_.setup().start == race::StartType::Rolling) sound->rolling(), rolled_ = true;
+            if (ev.start && flow_.setup().start == race::StartType::Rolling) sound->start_signal();
             if (ev.player_finished) sound->finish();
         }
         if (ev.lap_done == 0) event_steps_ = 0, event_lap_ = flow_.car(0).laps_done;
@@ -343,6 +351,7 @@ public:
     void start_replay() {
         if (history_.empty() || replaying_) return;
         replaying_ = true, replay_done_ = false;
+        if (audio::RaceSound* sound = world_->sound()) sound->replay();
         replay_at_ = 0;
         camera_.reset(history_[0][0]);
         replay_camera_.reset();
@@ -505,6 +514,7 @@ private:
     race::RaceFlow flow_;
     race::ResultBoard board_;
     float distance_ = 0;
+    bool rolled_ = false; // a rolling start's music was started
     std::string lap_words_[2] = {"Lap", "Laps"};
     race::ReplayScript scenic_script_;
     race::ScenicCamera scenic_;
@@ -529,6 +539,7 @@ public:
             if (menus_) setup_.race = menus_->game().race.race;
             if (menus_) {
                 const menu::RaceRequest& q = menus_->game().race;
+                setup_.options = menus_->game().options;
                 setup_.opponents = q.entries;
                 // The event's grid (the opponents drawn from its pool, the player last) and its pace.
                 if (db::SpecDb* sdb = app.db()) {
@@ -589,6 +600,7 @@ public:
             own_menus_ = std::make_unique<menu::Runtime>([vfs](const std::string& path) { return vfs->read(path); }, config);
             own_menus_->boot();
             menus_ = own_menus_.get(), sequence_ = setup_.sequence;
+            setup_.options = menus_->game().options;
             menu::RaceRequest& q = menus_->game().race;
             q.course = setup_.course, q.car = setup_.car, q.paint = int(setup_.paint), q.laps = setup_.laps, q.max_entry = setup_.cars;
             q.race = setup_.race, q.sequence = setup_.sequence;

@@ -14,7 +14,9 @@
 #include "gt4r/race/simulation.h"
 #include "gt4r/sim/ai/drivers.h"
 
+#include <map>
 #include <memory>
+#include <variant>
 #include <span>
 #include <string>
 #include <vector>
@@ -26,6 +28,7 @@ class Session;
 }
 namespace audio {
 class RaceSound;
+class RacePlaylist;
 struct SoundListener;
 } // namespace audio
 
@@ -46,6 +49,10 @@ struct WorldSetup {
     bool rail = false; // the stand-in simulation instead of the game's
     sim::ai::Pace pace; // the computer drivers' (the event's)
     bool computer_player = false; // the computer drivers drive the player's car too
+    // The game's options (menu::GameState::options: the sound's volumes and output) and the race
+    // play list; none: a new game's.
+    std::map<std::string, std::variant<s32, float, std::string>> options;
+    std::shared_ptr<audio::RacePlaylist> playlist;
 };
 
 class RaceWorld {
