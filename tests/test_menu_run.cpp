@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstring>
 #include <filesystem>
+#include <functional>
 
 using namespace gt4r;
 using script::Value;
@@ -431,6 +432,46 @@ struct Flow {
         rt->settle();
         return page() == "TopRoot" ? typed : std::string();
     }
+    // GT mode's map with a game standing in for a saved one: credits, a car bought at Alfa
+    // Romeo's and driven. True on the map.
+    bool gt_mode_with_a_car(s64 credits = 500000) {
+        rt->game().card.has_game_data = true, rt->game().username = "Player", rt->game().money = credits;
+        rt->boot();
+        rt->start_project(rt->first_project());
+        rt->settle();
+        if (!rt->finished() || !rt->advance()) return false;
+        rt->settle();
+        press({menu::Key::Down, menu::Key::Accept});
+        if (!rt->finished() || !rt->advance()) return false;
+        rt->settle();
+        map_focus("DealerItaly");
+        press({menu::Key::Accept, menu::Key::Accept, menu::Key::Accept, menu::Key::Accept, menu::Key::Accept, menu::Key::Accept, menu::Key::Right,
+               menu::Key::Accept, menu::Key::Accept, menu::Key::Accept});
+        for (int i = 0; i < 6 && page() != "TopRoot"; ++i) press({menu::Key::Cancel});
+        return page() == "TopRoot" && rt->game().garage_count() == 1 && rt->game().riding_car == 0;
+    }
+    // A widget of the page shown by its name (depth first), focused.
+    bool focus_on(const std::string& name) {
+        std::function<std::shared_ptr<menu::LiveWidget>(const std::shared_ptr<menu::LiveWidget>&)> find = [&](const std::shared_ptr<menu::LiveWidget>& w) {
+            if (w->name == name) return w;
+            for (const auto& c : w->children)
+                if (auto f = find(c)) return f;
+            return std::shared_ptr<menu::LiveWidget>();
+        };
+        const auto w = rt->current_page() ? find(rt->current_page()->self()) : nullptr;
+        if (w) rt->set_focus(*rt->current_page(), w);
+        rt->settle();
+        return w != nullptr;
+    }
+    std::string text_of(const std::string& name) {
+        std::function<std::string(const menu::LiveWidget&)> find = [&](const menu::LiveWidget& w) -> std::string {
+            if (w.name == name && w.is("TextFace")) return w.data.text("text");
+            for (const auto& c : w.children)
+                if (std::string t = find(*c); !t.empty()) return t;
+            return {};
+        };
+        return rt->current_page() ? find(*rt->current_page()) : std::string();
+    }
     // The map's place by its name, focused.
     void map_focus(const std::string& place) {
         rt->set_focus(*rt->current_page(), rt->current_page()->child("ScrollWindow")->child("clip")->child("space")->child(place));
@@ -803,6 +844,109 @@ TEST(disc_menu_game_saved_and_loaded) {
         CHECK(f.clean());
     }
     std::filesystem::remove_all(dir);
+}
+
+// Gran Turismo mode's places with a car: the map's directions, a used car lot, an event hall to
+// an event's page and the race asked for, a license test and a mission with their cars, GT
+// Auto, the garage, the status and the diary.
+TEST(disc_menu_gt_mode_places) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    Flow f(*disc);
+    CHECK(f.gt_mode_with_a_car());
+    if (f.page() != "TopRoot") return;
+    const menu::GameState& g = f.rt->game();
+    const std::string car = g.garage[0].car;
+    // The map moves by the program's search: from Home right, left, up, down.
+    for (const auto& [key, to] : {std::pair<menu::Key, const char*>{menu::Key::Right, "ExtremeHall"}, {menu::Key::Left, "GTAuto"}, {menu::Key::Up, "DealerItaly"},
+                                  {menu::Key::Down, "License"}}) {
+        f.map_focus("Home");
+        f.press({key});
+        CHECK(f.focus() == to);
+    }
+    // The used car lot of the week: cars with their used prices.
+    f.map_focus("UsedCarAsia");
+    f.press({menu::Key::Accept});
+    CHECK(f.page() == "UsedCarRoot" && f.focus() == "Item");
+    const std::string price = f.text_of("Price");
+    CHECK(!f.text_of("Name").empty() && price.rfind("Cr.", 0) == 0 && price.size() > 4);
+    std::printf("  used car: %s, %s\n", f.text_of("Name").c_str(), price.c_str());
+    f.press({menu::Key::Cancel});
+    CHECK(f.page() == "TopRoot");
+    // The beginners' hall: the Sunday Cup's page has its prizes; OK, the race, the mode, and the
+    // race is asked for with the car driven at the event's course.
+    f.map_focus("BeginnerHall");
+    f.press({menu::Key::Accept});
+    CHECK(f.page() == "EventHallRoot");
+    f.press({menu::Key::Accept});
+    CHECK(f.page() == "EventInfoDialog" && f.focus() == "OK" && f.text_of("prize") == "600" && f.text_of("label") == "Sunday Cup");
+    f.press({menu::Key::Accept, menu::Key::Accept, menu::Key::Accept});
+    std::optional<menu::RaceRequest> race = f.rt->race_request();
+    CHECK(race && race->sequence == "solo_event" && race->race == "am_sunday_0001" && race->car == car && race->garage_slot == 0 && !race->course.empty());
+    CHECK(f.clean());
+    // A license test: its own car and course.
+    {
+        Flow l(*disc);
+        CHECK(l.gt_mode_with_a_car());
+        l.map_focus("License");
+        l.press({menu::Key::Accept});
+        CHECK(l.page() == "LicenseRoot" && l.focus() == "l0b");
+        l.press({menu::Key::Accept, menu::Key::Accept});
+        race = l.rt->race_request();
+        CHECK(race && race->sequence == "license" && race->race == "l0b0001" && race->car == "demio_glx_99" && race->course == "testcourse_100m");
+        CHECK(l.clean());
+    }
+    // A mission.
+    {
+        Flow m(*disc);
+        CHECK(m.gt_mode_with_a_car());
+        m.map_focus("Mission");
+        m.press({menu::Key::Accept});
+        CHECK(m.page() == "MissionRoot");
+        m.press({menu::Key::Accept});
+        race = m.rt->race_request();
+        CHECK(race && race->sequence == "mission" && !race->car.empty() && race->car != car && !race->course.empty());
+        CHECK(m.clean());
+    }
+    // GT Auto: the car wash washes the car driven.
+    {
+        Flow a(*disc);
+        CHECK(a.gt_mode_with_a_car());
+        a.rt->game().garage[0].record->set_condition(3, 0.5f);
+        a.map_focus("GTAuto");
+        a.press({menu::Key::Accept});
+        CHECK(a.page() == "GTAutoRoot" && a.focus() == "Wash");
+        a.press({menu::Key::Right});
+        CHECK(a.focus() == "Oil");
+        a.press({menu::Key::Left, menu::Key::Accept});
+        CHECK(a.page() == "CarWashRoot");
+        a.press({menu::Key::Accept});
+        for (int i = 0; i < 600; ++i) a.rt->update();
+        a.rt->settle();
+        CHECK(a.rt->game().garage[0].record->condition(3) == 0 && a.rt->game().money < 500000 - 30590);
+        CHECK(a.clean());
+    }
+    // Home: the status, the diary of the day the car was bought, the garage and the car's page.
+    Flow h(*disc);
+    CHECK(h.gt_mode_with_a_car());
+    h.map_focus("Home");
+    h.press({menu::Key::Accept});
+    CHECK(h.page() == "HomeRoot");
+    h.press({menu::Key::Right, menu::Key::Accept});
+    CHECK(h.page() == "StatusRoot");
+    h.press({menu::Key::Cancel});
+    CHECK(h.page() == "HomeRoot");
+    h.focus_on("Diary");
+    h.press({menu::Key::Accept});
+    CHECK(h.page() == "LogRoot" && h.text_of("record").find("purchased") != std::string::npos);
+    h.press({menu::Key::Cancel});
+    h.focus_on("Garage");
+    h.press({menu::Key::Accept});
+    CHECK(h.page() == "GarageRoot" && h.text_of("cars") == "1/1 cars");
+    h.focus_on("Line0");
+    h.press({menu::Key::Accept});
+    CHECK(h.page() == "CarViewRoot" && h.focus() == "Change");
+    CHECK(h.clean());
 }
 
 // Prologue's main script, configuration and projects load, and a project shows a page.
