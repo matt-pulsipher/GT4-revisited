@@ -26,6 +26,7 @@
 #include "race/lamp_glows.h"
 #include "race/sun_disc.h"
 #include "race/sun_glare.h"
+#include "race/tyre_smoke.h"
 #include "render/view3d.h"
 
 #include <algorithm>
@@ -56,6 +57,7 @@ struct Setup {
     bool hud = true;
     int laps = 3;
     int replay = 0;
+    bool smoke = true;
     bool scripted = false; // from GT4R_RACE: no lists
 };
 
@@ -81,6 +83,7 @@ Setup setup_from_env() {
         else if (k == "paint") s.paint = u32(std::max(0, std::atoi(v.c_str())));
         else if (k == "hud") s.hud = v != "0";
         else if (k == "replay") s.replay = std::max(0, std::atoi(v.c_str()));
+        else if (k == "smoke") s.smoke = v != "0";
         else if (k == "laps") s.laps = std::clamp(std::atoi(v.c_str()), 1, 99);
     }
     return s;
@@ -168,6 +171,7 @@ public:
         lamps_.load(app.renderer(), &gpu, course_->section(course::kSlotEffects), env0, course_->section(course::kSlotWorldVis),
                     course_->section(course::kSlotFlareShape));
         billboards_.load(gpu, course_->section(course::kSlotBillboards), setup.course);
+        if (setup.smoke) smoke_.load(gpu, env0, course_->section(course::kSlotSmoke));
         LOG_INFO("Drive: %zu lamps, %zu billboards, sun %s", lamps_.count(), billboards_.count(), sun_.params().enabled ? "on" : "off");
     }
 
@@ -177,8 +181,9 @@ public:
         if (replaying_) {
             // The recorded run again, from its start when it ends.
             replay_at_ = (replay_at_ + 1) % history_.size();
-            if (replay_at_ == 0) camera_.reset(history_[0][0]), replay_camera_.reset();
+            if (replay_at_ == 0) camera_.reset(history_[0][0]), replay_camera_.reset(), smoke_.clear();
             camera_.step(history_[replay_at_][0], kStep);
+            puff(history_[replay_at_]);
             return;
         }
         const std::span<const race::CarState> cars = sim_->cars();
@@ -223,8 +228,38 @@ public:
         if (event_steps_ >= 0) ++event_steps_;
         if (finished_) ++finish_steps_;
         if (history_.size() < kHistory) history_.emplace_back(sim_->cars().begin(), sim_->cars().end());
+        puff(sim_->cars());
         // Five seconds after the finish the run is shown again.
         if (finished_ && finish_steps_ > 5 * 60) start_replay();
+    }
+
+    // Smoke and dust from the wheels for a step: a puff where a tire slides on the road, dust and
+    // spray from any wheel that turns on a loose or wet surface. The kind of puff is the course's,
+    // by the surface under the wheel.
+    void puff(std::span<const race::CarState> cars) {
+        if (!smoke_.loaded()) return;
+        const course::Runway& road = course_->road();
+        for (size_t c = 0; c < cars.size(); ++c) {
+            const float radius = car_visuals_[c]->spec().tire_radius[0];
+            for (int w = 0; w < 4; ++w) {
+                const race::WheelState& ws = cars[c].wheels[w];
+                if (!ws.on_ground) continue;
+                const RVec contact{ws.center.x - cars[c].up.x * radius, ws.center.y - cars[c].up.y * radius, ws.center.z - cars[c].up.z * radius};
+                float y;
+                int tri = -1;
+                int surface = 0;
+                if (road.height_at(contact.x, contact.z, contact.y + 1.0f, y, &tri) && tri >= 0) {
+                    const course::Runway::Triangle& t = road.triangles[size_t(tri)];
+                    surface = t.bits & 0x1F;
+                    if ((t.kind & 2) && surface == 0) surface = 12; // the wet road
+                }
+                const float speed = std::fabs(ws.spin_rate) * radius;
+                float amount = std::max(0.0f, ws.slip - 0.6f) * 1.25f;
+                if (surface != 0) amount = std::max(amount, std::min(0.25f, speed / 120.0f) * (w >= 2 ? 1.0f : 0.5f));
+                smoke_.emit(contact, surface, amount, 1.0f, (w & 1) != 0);
+            }
+        }
+        smoke_.update(kStep);
     }
 
     void start_replay() {
@@ -338,6 +373,14 @@ public:
             car_visuals_[i]->add_items(items_, cars[i], pose.eye, kStep);
         }
         course_->add_after_items(items_);
+        if (smoke_.loaded()) {
+            // The puffs after everything else of the scene, facing the camera.
+            gt3r::race::TyreSmoke::View sv;
+            sv.forward = RVec{-pose.view.at(2, 0), -pose.view.at(2, 1), -pose.view.at(2, 2)};
+            sv.proj_x = 1.0f / (std::tan(pose.fovy() * 0.5f) * std::max(aspect, 1e-3f));
+            sv.near_m = 0.1f, sv.far_m = far;
+            smoke_.add_items(items_, pose.eye, cam_right, cam_up, sv);
+        }
 
         render::DrawOptions o = draw_options(far);
         // The cars' reflection picture: the course around the first car, refreshed a face at a time.
@@ -450,6 +493,7 @@ private:
     gt3r::race::SunDisc sun_disc_;
     gt3r::race::LampGlows lamps_;
     gt3r::race::Billboards billboards_;
+    gt3r::race::TyreSmoke smoke_;
     render::ScreenBatch overlay_;
     int countdown_ = 0, lap_start_ = 0, event_steps_ = -1, event_lap_ = 0, finish_steps_ = 0;
     bool started_with_count_ = false, finished_ = false;
