@@ -1,4 +1,4 @@
-// Gran Turismo 4's body attitude routines (rules.h).
+// Gran Turismo 4's own routines of the race step: what every area shares (rules.h).
 
 #include "gt4r/sim/rules.h"
 
