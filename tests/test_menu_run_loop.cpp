@@ -96,6 +96,8 @@ TEST(disc_gt_mode_loop_event) {
         CHECK(f.page() == "TopRoot" && g.garage_count() == 1 && g.riding_car == 0 && g.money < 10'000);
         if (g.garage_count() != 1) return;
         car = g.garage[0].car;
+        // A car got in Gran Turismo mode is open in Arcade from now on.
+        CHECK(g.available_cars.count(car) == 1);
         std::printf("  bought %s, %lld credits left\n", car.c_str(), static_cast<long long>(g.money));
         // The Sunday Cup's first race with that car.
         const std::optional<menu::RaceRequest> race = enter_sunday_cup(f);
@@ -129,6 +131,7 @@ TEST(disc_gt_mode_loop_event) {
         for (int i = 0; i < 6 && !f.rt->finished(); ++i) f.press({f.page() == "MovieRoot" ? menu::Key::Start : menu::Key::Accept});
         menu::GameState& g = f.rt->game();
         CHECK(f.rt->finished() && g.money == money && g.today == today && g.garage_count() == 1 && g.rank_counts[1] == 1);
+        CHECK(g.available_cars.count(car) == 1);
         // A game saved in Gran Turismo mode starts there again (the boot project's endBoot).
         CHECK(f.rt->advance());
         f.rt->settle();
@@ -209,6 +212,7 @@ TEST(disc_gt_mode_loop_championship) {
     Sequence q(f, request);
     const s64 money = g.money;
     s64 total = 0, grand = 0;
+    const bool had_prize_car = g.available_cars.count("mazda_suv_concept_05") > 0;
     for (int k = 1; k <= 5; ++k) {
         q.request.race = "jp_mazda_roadster_050" + std::to_string(k);
         q.fill();
@@ -257,7 +261,11 @@ TEST(disc_gt_mode_loop_championship) {
     const Value label[1] = {Value::string("jp_mazda_roadster_0500")};
     CHECK(vm.attribute(vm.call(vm.attribute(vm.attribute(vm.lookup("game"), "race_record"), "getUnit"), label), "result").as_string() == "1");
     CHECK(q.leave() && f.page() == "PresentRoot" && g.garage_count() == 2);
-    if (g.garage.size() >= 2) std::printf("  prize car %s\n", g.garage[1].car.c_str());
+    if (g.garage.size() >= 2) {
+        // The prize car is open in Arcade from now on.
+        std::printf("  prize car %s (Arcade had it before: %d)\n", g.garage[1].car.c_str(), had_prize_car);
+        CHECK(!had_prize_car && g.available_cars.count(g.garage[1].car) == 1);
+    }
     print_stubs(f);
     CHECK(f.clean());
 }
