@@ -45,9 +45,9 @@ struct OptionField {
 };
 const OptionField kOptionNumbers[] = {
     {"screen_adjust_h", 0x18}, {"screen_adjust_v", 0x1C}, {"sharpness_mode", 0x20},
-    {"menu_bgm", 0x5C}, {"menu_bgm_volume", 0x60}, {"menu_se", 0x64}, {"menu_se_volume", 0x68}, {"race_bgm", 0x6C}, {"race_bgm_volume", 0x70},
-    {"race_se", 0x74}, {"race_se_volume", 0x78}, {"replay_bgm", 0x7C}, {"replay_bgm_volume", 0x80}, {"replay_se", 0x84}, {"replay_se_volume", 0x88},
-    {"slide_bgm_volume", 0x8C},
+    {"menu_bgm", 0x5C}, {"menu_bgm_volume_raw", 0x60}, {"menu_se", 0x64}, {"menu_se_volume_raw", 0x68}, {"race_bgm", 0x6C}, {"race_bgm_volume_raw", 0x70},
+    {"race_se", 0x74}, {"race_se_volume_raw", 0x78}, {"replay_bgm", 0x7C}, {"replay_bgm_volume_raw", 0x80}, {"replay_se", 0x84}, {"replay_se_volume_raw", 0x88},
+    {"slide_bgm_volume_raw", 0x8C},
     {"narration", 0x10B4}, {"enableAC3", 0x10B8}, {"auto_save", 0x10BC}, {"race_laps", 0x10C0}, {"tire_damage", 0x10C4}, {"automatic_gear", 0x10C8},
     {"automatic_ghost", 0x10CC}, {"assist_asm", 0x10D0}, {"assist_tcs", 0x10D4}, {"difficulty", 0x10D8}, {"run_with_enemies", 0x10DC},
     {"license_transmission_MT", 0x10E0}, {"limit_favorite_car_only", 0x10E8}, {"limit_favorite_course_only", 0x10EC},
@@ -60,6 +60,20 @@ const OptionField kOptionNumbers[] = {
     {"album_memory_card_slot", 0x1178}, {"album_slide_transition_time", 0x1180},
 };
 const char* const kZones[] = {"UNDEF", "JP", "US", "UK", "EU", "KR"};
+// The options kept as names, by their numbers: the language (0x6AE3F8) and the units (MUnit's
+// tables, 0x472680 on), at Option +0x0C (u32) and +0x10, +0x11, +0x12 (bytes).
+struct NamedOption {
+    const char* name;
+    size_t at;
+    int bytes;
+    std::vector<const char*> names;
+};
+const NamedOption kNamedOptions[] = {
+    {"language", 0x0C, 4, {"JP", "US", "GB", "FR", "DE", "IT", "ES", "PT", "KR", "CN", "TW", "DB"}},
+    {"unit_velocity", 0x10, 1, {"KMPH", "MPH"}},
+    {"unit_power", 0x11, 1, {"PS", "HP", "BHP", "CH", "KW", "CV", "PF"}},
+    {"unit_torque", 0x12, 1, {"KGFM", "FTLB", "NM"}},
+};
 
 // A play list's 128 rows of 16 bytes, each "nothing chosen" (00 01 FF FF, then zeros).
 void fresh_playlist(Bytes& b, size_t rows) {
@@ -214,6 +228,14 @@ Bytes write_game(const GameState& s, const Codes& codes) {
     for (const OptionField& f : kOptionNumbers)
         if (const auto it = s.options.find(f.name); it != s.options.end())
             if (const s32* v = std::get_if<s32>(&it->second)) put32(b, option(f.at), u32(*v));
+    for (const NamedOption& o : kNamedOptions) {
+        const std::string v = s.option_text(o.name);
+        for (size_t i = 0; i < o.names.size(); ++i)
+            if (v == o.names[i]) {
+                if (o.bytes == 4) put32(b, option(o.at), u32(i));
+                else b[option(o.at)] = u8(i);
+            }
+    }
     {
         const std::string zone = s.option_text("game_zone");
         u32 z = 0;
@@ -302,6 +324,10 @@ bool read_game(ByteSpan p, GameState& s, const Codes& codes, std::vector<int>* r
     s.used_week = get32(p, kUsedCar + 0x20);
     for (const OptionField& f : kOptionNumbers) s.options[f.name] = s32(get32(p, option(f.at)));
     if (const u32 z = get32(p, kGameZone); z > 0 && z < 6) s.options["game_zone"] = std::string(kZones[z]);
+    for (const NamedOption& o : kNamedOptions) {
+        const u32 v = o.bytes == 4 ? get32(p, option(o.at)) : p[option(o.at)];
+        if (v < o.names.size()) s.options[o.name] = std::string(o.names[v]);
+    }
     s.major_menu_project = get_text(p, kContext, 0x20), s.major_menu_page = get_text(p, kContext + 0x20, 0x20);
     s.saved_menu_depth = s32(get32(p, kContext + 0x40));
     s.saved_menu_stack.assign(p.begin() + kContext + 0x44, p.begin() + kContext + 0x144);

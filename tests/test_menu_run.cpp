@@ -439,6 +439,7 @@ struct Flow {
         rt->boot();
         rt->start_project(rt->first_project());
         rt->settle();
+        if (page() == "MovieRoot") press({menu::Key::Start}); // the opening after a game is loaded
         if (!rt->finished() || !rt->advance()) return false;
         rt->settle();
         press({menu::Key::Down, menu::Key::Accept});
@@ -750,7 +751,9 @@ TEST(disc_menu_buy_a_car) {
     f.rt->boot();
     f.rt->start_project(f.rt->first_project());
     f.rt->settle();
-    CHECK(f.rt->finished() && f.rt->advance()); // the game loads and the title follows
+    CHECK(f.page() == "MovieRoot"); // the game loads and the opening plays (opening_after_autoload)
+    f.press({menu::Key::Start});
+    CHECK(f.rt->finished() && f.rt->advance()); // then the title
     f.rt->settle();
     CHECK(f.page() == "TopRoot");
     f.press({menu::Key::Down, menu::Key::Accept});
@@ -838,12 +841,12 @@ TEST(disc_menu_game_saved_and_loaded) {
         f.rt->start_project(f.rt->first_project());
         f.rt->settle();
         // The boot project loads the game and goes on to the title.
-        for (int i = 0; i < 6 && !f.rt->finished(); ++i) f.press({menu::Key::Accept});
+        for (int i = 0; i < 6 && !f.rt->finished(); ++i) f.press({f.page() == "MovieRoot" ? menu::Key::Start : menu::Key::Accept});
         CHECK(f.rt->finished() && f.rt->game().username == name && f.rt->game().money == 10000 && f.rt->game().card.has_game_data);
         std::printf("  loaded the game of %s\n", f.rt->game().username.c_str());
         CHECK(f.clean());
     }
-    std::filesystem::remove_all(dir);
+    if (!std::getenv("GT4R_KEEP_TEST_FILES")) std::filesystem::remove_all(dir);
 }
 
 // Gran Turismo mode's places with a car: the map's directions, a used car lot, an event hall to
