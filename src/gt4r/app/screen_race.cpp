@@ -305,6 +305,14 @@ public:
         const race::RaceFlow::Events ev = flow_.step(world_->cars());
         if (!ev.finished.empty()) board_.finished(flow_, ev.finished);
         if (!hold) distance_ += std::fabs(world_->cars()[0].speed) * kStep;
+        {
+            // The player's sideways acceleration (the G meter), smoothed over a few steps.
+            const race::CarState& c = world_->cars()[0];
+            const float ax = (c.velocity.x - last_v_.x) / kStep, ay = (c.velocity.y - last_v_.y) / kStep, az = (c.velocity.z - last_v_.z) / kStep;
+            const float g = (ax * c.right.x + ay * c.right.y + az * c.right.z) / 9.81f;
+            lateral_g_ += (std::clamp(g, -4.0f, 4.0f) - lateral_g_) * 0.2f;
+            last_v_ = c.velocity;
+        }
         if (audio::RaceSound* sound = world_->sound()) {
             if (hold) sound->count(flow_.hold_left());
             // A rolling start: the racing music as the field begins to run, the start's sound when
@@ -378,6 +386,9 @@ public:
         const race::CarState& me = cars[0];
         const race::CarSpec& spec = world_->visual(0).spec();
         h.speed = me.speed, h.rpm = me.engine_rpm, h.gear = me.gear;
+        h.throttle = me.throttle, h.brake = me.brake;
+        h.trip_m = replaying_ ? 0 : distance_;
+        h.lateral_g = replaying_ ? 0 : lateral_g_;
         h.red_line = spec.red_line, h.rev_limit = spec.rev_limit;
         h.driver_view = mount_ != race::DriveCamera::kChase && mount_ != kTvView;
         h.cars.clear();
@@ -515,6 +526,8 @@ private:
     race::ResultBoard board_;
     float distance_ = 0;
     bool rolled_ = false; // a rolling start's music was started
+    float lateral_g_ = 0;
+    course::Vec3 last_v_;
     std::string lap_words_[2] = {"Lap", "Laps"};
     race::ReplayScript scenic_script_;
     race::ScenicCamera scenic_;

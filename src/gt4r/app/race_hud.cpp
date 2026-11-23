@@ -192,6 +192,7 @@ struct RaceHud::Impl {
     void draw_dial(const DisplayRect& at, const std::string& face, float ox, float value, float min, float max, float a0, float a1,
                    float red_from, float& last_angle, float opacity);
     void draw_gear(const DisplayRect& box, const HudState& s);
+    void draw_small_parts(const HudState& s, bool driver);
     std::string speed_text(const HudState& s) const {
         char buf[16];
         std::snprintf(buf, sizeof buf, "%3d", int(std::lround(std::fabs(s.speed) * (mph ? 2.2369363f : 3.6f))));
@@ -462,6 +463,69 @@ void RaceHud::Impl::draw_chase_panel(const HudState& s) {
     const float x0 = at.x + 0.70625f * at.w, x1 = at.x + at.w - 1, y0 = at.y - 3, y1 = at.y - 1, a = o * float(0x70) / 128.0f;
     triangles({vertex(x0, y0, 0x99, 0, 0, a), vertex(x1, y0, 0x99, 0, 0, a), vertex(x1, y1, 0x99, 0, 0, a), vertex(x0, y0, 0x99, 0, 0, a),
                vertex(x1, y1, 0x99, 0, 0, a), vertex(x0, y1, 0x99, 0, 0, a)});
+    draw_small_parts(s, false);
+}
+
+// The panels' smaller parts at the places the panels give them (docs/formats/race_display.md
+// "Driver's views", "Chase views"): the warning signs, the shift lamp, the sideways G meter, and in
+// the driver's views the trip meter, in the chase views the pedals, the tire wear and the fuel.
+// ❓ How each part's value moves its picture is judged (their drawing routines are not read): the
+// G meter's point by the sideways g against two either way, a sign unlit at a third (the aids'
+// work is not given by the simulation), the shift lamp lit past 97 % of the red line, the bars
+// filled by their share.
+void RaceHud::Impl::draw_small_parts(const HudState& s, bool driver) {
+    const float o = s.opacity;
+    const int C = 320, B = driver ? 452 : 464, L = 0;
+    // The signs: the stability aid's in its own color, the brake's and the oil's red.
+    if (driver) {
+        draw_at("sign_asm", {0, C - 199, B, 24, 24, 1, 2}, 0x80E3B896u, o / 3);
+        draw_at("sign_brake", {0, C - 166, B, 24, 24, 1, 2}, 0x800000C8u, o / 3);
+        draw_at("sign_oil", {0, C + 166, B, 24, 24, 0, 2}, 0x800000C8u, o / 3);
+    } else {
+        draw_at("sign_asm", {0, L + 119, B, 24, 24, 6, 1}, 0x80E3B896u, o / 3);
+        draw_at("sign_brake", {0, L + 147, B, 24, 24, 6, 1}, 0x800000C8u, o / 3);
+        draw_at("sign_oil", {0, L + 175, B, 24, 24, 6, 1}, 0x800000C8u, o / 3);
+    }
+    // The shift lamp.
+    const bool shift = s.red_line > 0 && s.rpm >= 0.97f * s.red_line;
+    if (driver) draw_at("timing_lamp", {0, C + 103, B - 62, 8, 8, 2, 2}, shift ? kNeutral : 0x80404040u, o);
+    else draw_at("timing_lamp", {0, 640 - 142, B - 28, 8, 8, 13, 0}, shift ? kNeutral : 0x80404040u, o);
+    // The sideways G meter: its base, and its point moved along it.
+    {
+        const DisplayRect base = draw_at("g_meter_base", {0, C, B, 214, 24, 2, u8(driver ? 2 : 1)}, kNeutral, o);
+        const Picture& pt = picture("g_meter_point");
+        if (pt.texture && base.w > 0) {
+            const float k = std::clamp(s.lateral_g / 2.0f, -1.0f, 1.0f);
+            const float cx = base.x + base.w / 2 + k * (base.w / 2 - pt.w), cy = base.y + base.h / 2;
+            draw_picture(pt, {cx - pt.w / 2, cy - pt.h / 2, pt.w, pt.h}, kNeutral, o);
+        }
+    }
+    if (driver) {
+        // The trip meter: whole miles or kilometres of this race, six digits.
+        char buf[16];
+        std::snprintf(buf, sizeof buf, "%06d", std::clamp(int(s.trip_m / (mph ? 1609.344f : 1000.0f)), 0, 999999));
+        draw_text(font("GT4meter", 60, 1), float(C - 103), float(B - 45), kCentered, kMeterBlue, o, buf);
+        return;
+    }
+    // The pedals: the throttle's bar and the brake's, from the bottom.
+    {
+        const Picture& p = picture("pedals");
+        const DisplayRect at = race::place_rect({0, L + 26, B, 22, 66, 4, 1}, p.w > 0 ? p.w : 22, p.h > 0 ? p.h : 66, true);
+        draw_picture(p, at, 0x80202020u, o * 0.6f);
+        const float bw = at.w / 2 - 1;
+        auto bar = [&](float x, float v, u8 r, u8 g, u8 b) {
+            const float h = at.h * std::clamp(v, 0.0f, 1.0f);
+            if (h <= 0) return;
+            triangles({vertex(x, at.y + at.h - h, r, g, b, o), vertex(x + bw, at.y + at.h - h, r, g, b, o), vertex(x + bw, at.y + at.h, r, g, b, o),
+                       vertex(x, at.y + at.h - h, r, g, b, o), vertex(x + bw, at.y + at.h, r, g, b, o), vertex(x, at.y + at.h, r, g, b, o)});
+        };
+        bar(at.x, s.throttle, 0x40, 0xC0, 0x40);
+        bar(at.x + bw + 2, s.brake, 0xC0, 0x30, 0x30);
+    }
+    draw_at("tire_wear", {0, L + 58, B, 40, 68, 4, 1}, kNeutral, o * (0.5f + 0.5f * std::clamp(s.tire_wear, 0.0f, 1.0f)));
+    // The fuel gauge: the empty bar, the full one over it by what is left.
+    draw_at("fuel_b0", {0, L + 107, B - 30, 86, 11, 4, 1}, kNeutral, o);
+    draw_at("fuel_b1", {0, L + 107, B - 30, 86, 11, 4, 1}, kNeutral, o, std::clamp(s.fuel, 0.0f, 1.0f));
 }
 
 // A round meter: the red zone behind the face (from `red_from` in the value's units; past the
@@ -525,6 +589,7 @@ void RaceHud::Impl::draw_driver_panel(const HudState& s) {
     const float width = text_width(meter, "000");
     draw_text(meter, float(C - 2) + width / 2, float(B - 41), kEndsAtPen, kMeterBlue, o, speed_text(s));
     draw_at(mph ? "mph" : "kmph", {0, C, B - 24, 28, 9, 2, 1}, kNeutral, o);
+    draw_small_parts(s, true);
 }
 
 void RaceHud::draw(Ui& ui, const HudState& s) {

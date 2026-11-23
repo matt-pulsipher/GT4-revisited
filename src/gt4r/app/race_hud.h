@@ -36,6 +36,11 @@ struct HudState {
     bool replay = false;              // a replay: its sign in place of the position, laps and times
     bool replay_display = false;      // the replay's display on (else only the logo)
     float opacity = 1;                // of the whole display
+    // The panels' smaller parts.
+    float lateral_g = 0;              // the car's sideways acceleration in g (+ right)
+    float throttle = 0, brake = 0;    // the pedals, 0..1
+    float trip_m = 0;                 // metres the car ran this race (the trip meter)
+    float fuel = 1, tire_wear = 1;    // 0..1 left
 };
 
 class RaceHud {
