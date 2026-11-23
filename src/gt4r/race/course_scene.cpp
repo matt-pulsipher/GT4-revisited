@@ -16,13 +16,15 @@ namespace scene = gt3r::scene;
 std::unique_ptr<render::GpuModel> CourseScene::build(render::GpuContext& ctx, int slot, const std::string& label, bool keep,
                                                      bool sheen, scene::Model* out, bool animated) {
     const ByteSpan s = file_.section(data_, slot);
-    if (!mdls::is_mdls(s)) return nullptr;
+    const bool gtm1 = gt3r::has_magic(s, "GTM1"); // (Prologue's courses in Gran Turismo 3's table)
+    if (!mdls::is_mdls(s) && !gtm1) return nullptr;
     // Scenery as the shared engine decodes its own: the programs' render state kept, cut-out
     // textures alpha tested, each packet's own texture for its environment pass, and the second
     // pass over the road and the fences (the sheen) weighted by the frame's alpha.
     mdls::Scene sc;
     sc.color_scale = color_scale_;
-    const Bytes block = mdls::to_gtm1(s, nullptr, sc);
+    const Bytes block = gtm1 ? Bytes(s.begin(), s.end()) : mdls::to_gtm1(s, nullptr, sc);
+    animated = animated && !gtm1;
     const gt3r::gtm1::Gtm1 g = gt3r::gtm1::Gtm1::parse(block);
     gt3r::gtm1::Options o;
     o.reflection = sheen;

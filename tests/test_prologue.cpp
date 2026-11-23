@@ -133,7 +133,7 @@ TEST(disc_prologue_database) {
     CHECK(sdb.courses().size() == 64);
 }
 
-// Every road of the courses in the 64-slot table reads as a Runway: the start grid on the road and
+// Every course's road (in either table) reads as a Runway: the start grid on the road and
 // facing along the course, the checkpoints rising, every triangle found through the lookup tree.
 TEST(disc_prologue_roads) {
     Disc* disc = prologue_disc();
@@ -148,7 +148,7 @@ TEST(disc_prologue_roads) {
         CHECK(r.has_value());
         if (!r) continue;
         ++roads;
-        CHECK(r->length > 50 && r->checkpoints.size() >= 10 && !r->clusters.empty());
+        CHECK(r->length > 50 && !r->clusters.empty() && (r->checkpoints.size() >= 10 || name.rfind("ss_", 0) == 0)); // (the photo stages ss_*: 3 .. 17)
         for (const course::Runway::Place& g : r->grid) {
             ++grids;
             float y;
@@ -181,9 +181,10 @@ TEST(disc_prologue_roads) {
     }
     std::printf("  %zu roads: %zu of %zu grid places on the road, %zu first places facing along, %zu of %zu triangles in their cell\n",
                 roads, grid_on_road, grids, along, found, tris);
-    // (The three gymkhanas' first places face against the checkpoints' order, and Las Vegas's lies
-    // before the first checkpoint: the four that do not.)
-    CHECK(roads == 45 && found == tris && along + 4 >= roads);
+    // (The three gymkhanas' and Laguna Seca's first places face against the checkpoints' order,
+    // Las Vegas's lies before the first checkpoint, and two photo stages have three or eight
+    // checkpoints: the seven that do not.)
+    CHECK(roads == 62 && found == tris && along + 7 >= roads);
     CHECK(grid_on_road == grids);
 }
 
