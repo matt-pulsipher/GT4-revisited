@@ -115,13 +115,21 @@ Session::~Session() = default;
 Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const course::Runway> road, std::span<const Entry> entries) : road_(std::move(road)) {
     if (!road_) throw std::runtime_error("session: no road");
     if (entries.empty()) throw std::runtime_error("session: no cars");
-    if (road_->grid.empty()) throw std::runtime_error("session: the course has no start place");
     ground_ = std::make_unique<RoadGround>(*road_);
     if (!program.known()) notes_.push_back(program.issue() + ": the shared engine's tables serve");
     data_ = std::make_unique<ex::ProgramData>(core_program(program));
 
+    // The start places that stand on the road, each at the road's height.
+    std::vector<course::Runway::Place> places;
     GroundHit start;
-    if (!ground_->under(road_->grid[0].pos, start)) throw std::runtime_error("session: the first start place is not on the road");
+    for (course::Runway::Place at : road_->grid) {
+        GroundHit h;
+        if (!ground_->at_place(at.pos, h)) continue;
+        if (places.empty()) start = h;
+        at.pos.y = h.point.y;
+        places.push_back(at);
+    }
+    if (places.empty()) throw std::runtime_error("session: no start place is on the road");
     loose_ = loose_surface(surface_index(start.material, start.flags));
     const u8 category = loose_ ? 2 : 0;
     const ex::RaceConfig config{};
@@ -159,17 +167,18 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
             ex::Car loaded;
             ex::load_image(loaded, image.data());
             c.p = loaded.p;
+            gt4_levers(specs_[i], program, c.p);
         }
         c.pedal_style = e.automatic ? 0 : 1;
-        // The start place: the entry's, or the next one back along the course when the grid is shorter.
+        // The start place: the entry's, or one further back along the first place's line when the grid is shorter.
         const int want = e.grid_place >= 0 ? e.grid_place : int(i);
-        course::Runway::Place at = road_->grid[size_t(want) % road_->grid.size()];
-        GroundHit h;
-        if (size_t(want) >= road_->grid.size() || !ground_->under(at.pos, h)) {
-            at = road_->grid[0];
+        course::Runway::Place at = places[size_t(want) % places.size()];
+        if (size_t(want) >= places.size()) {
+            at = places[0];
             const float back = 8.0f * float(want);
             at.pos.x -= std::sin(at.heading) * back, at.pos.z -= std::cos(at.heading) * back;
-            if (ground_->under(at.pos, h)) at.pos.y = h.point.y;
+            GroundHit h;
+            if (ground_->at_place(at.pos, h)) at.pos.y = h.point.y;
         }
         place(i, at);
         publish(i);
@@ -184,6 +193,17 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
         bodies_[i].course = walls_.get();
     }
     gt3r::sim::collide::exact::pair_tables(bodies_);
+    // The start's hold: the cars held as during a start's countdown until the engines idle and the
+    // bodies have settled on their springs.
+    for (int i = 0; i < kHoldSteps; ++i) hold_once({});
+}
+
+void Session::hold_once(std::span<const race::CarInput> inputs) {
+    const u64 steps = steps_;
+    race_.prep.start_count = 1;
+    step_once(inputs);
+    race_.prep.start_count = 0;
+    steps_ = steps;
 }
 
 // The car at rest on a start place (the engine's race start: the pose on the road, the standing
@@ -386,10 +406,15 @@ void Session::publish(size_t i) {
     const ex::Car& c = cars_[i];
     Extra& x = extra_[i];
     race::CarState& s = states_[i];
-    s.position = to_course(c.pos);
     s.forward = to_course(c.fwd), s.up = to_course(c.up);
     // The car's right side: forward x up (the course's frame is right-handed: x, y up, z).
     s.right = {s.forward.y * s.up.z - s.forward.z * s.up.y, s.forward.z * s.up.x - s.forward.x * s.up.z, s.forward.x * s.up.y - s.forward.y * s.up.x};
+    // The body's reference point: the middle of the wheelbase at the body's underside (the car
+    // model's origin). The record keeps the center of mass: the middle is P +0x54 behind it, and it is at its
+    // own height above the road; the underside is the ride height above it.
+    const Vec3 cog = to_course(c.pos);
+    const float back = c.p.x54.host(), lift = (c.p.ride_height[0].host() + c.p.ride_height[1].host()) * 0.5f - c.p.cog_height.host();
+    s.position = {cog.x - s.forward.x * back + s.up.x * lift, cog.y - s.forward.y * back + s.up.y * lift, cog.z - s.forward.z * back + s.up.z * lift};
     s.velocity = to_course(c.vel);
     s.speed = c.speed.host();
     s.engine_rpm = c.omega.host() * 9.549297f;
@@ -403,18 +428,27 @@ void Session::publish(size_t i) {
         const ex::Wheel& wheel = c.w[w];
         race::WheelState& o = s.wheels[w];
         const size_t a = w >> 1;
-        o.center = {c.pos.x.host() + wheel.hub.x.host(), c.pos.z.host() + wheel.hub.z.host(), -(c.pos.y.host() + wheel.hub.y.host())};
-        o.steer = -wheel.steer.host();
-        o.spin = wheel.spin.host();
         const float radius = c.p.tire_radius[a].host();
-        o.spin_rate = radius > 0 ? wheel.rim_speed.host() / radius : 0;
-        o.travel = wheel.susp.host() - c.p.susp[a].x_static.host();
-        o.slip = std::clamp(wheel.slip_intensity.host(), 0.0f, 1.0f);
         o.on_ground = !(wheel.flags & 1) && !c.g[w].miss;
+        // The wheel's center: over the suspension's point at the wheel, a tire radius above the road
+        // while the tire is on it; off the ground it hangs where it was at rest under the body.
+        const float px = c.pos.x.host() + wheel.hub.x.host(), py = c.pos.z.host() + wheel.hub.z.host(), pz = -(c.pos.y.host() + wheel.hub.y.host());
+        if (o.on_ground) {
+            o.center = {px, wheel.ground.host() + radius, pz};
+            if (!x.rest_set[w]) x.rest_drop[w] = py - o.center.y, x.rest_set[w] = true;
+        } else {
+            o.center = {px, py - x.rest_drop[w], pz};
+        }
+        o.steer = -wheel.steer.host();
+        o.spin_rate = radius > 0 ? wheel.rim_speed.host() / radius : 0;
+        x.spin[w] = std::fmod(x.spin[w] + o.spin_rate * kStep, 6.2831855f);
+        o.spin = x.spin[w];
+        o.travel = c.p.susp[a].x_static.host() - wheel.susp.host();
+        o.slip = std::clamp(wheel.slip_intensity.host(), 0.0f, 1.0f);
         o.surface = x.kinds[w];
     }
     float v = 0;
-    if (ground_->distance_along(s.position, v, &x.checkpoint)) {
+    if (ground_->distance_along(cog, v, &x.checkpoint)) {
         if (x.has_v && road_->length > 0) {
             const float d = v - x.last_v;
             if (d < -road_->length * 0.5f) ++s.lap;

@@ -11,6 +11,7 @@
 
 #include "gt4r/sim/car_spec.h"
 #include "gt4r/sim/program.h"
+#include "sim/exact/car_record.h"
 #include "sim/exact/params_build.h"
 #include "sim/exact/program_data.h"
 
@@ -28,5 +29,10 @@ gt3r::sim::exact::ProgramData core_program(const Program& program);
 // Our spec as the core's. An engine curve of more than 16 points is thinned to 16 (the points whose
 // loss changes the curve least go first); a gearbox of more than 7 gears keeps its first 7.
 void core_spec(const Spec& from, gt3r::sim::exact::Spec& to);
+
+// Parameters Gran Turismo 4's converter makes by another rule than the core's, put over the core's:
+// the pitch and roll levers (the arm over the inertia byte x 100, without the core's 2 pi) and the
+// pitch's tire term.
+void gt4_levers(const Spec& s, const Program& program, gt3r::sim::exact::Params& p);
 
 } // namespace gt4r::sim

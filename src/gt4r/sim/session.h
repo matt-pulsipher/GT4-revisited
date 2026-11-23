@@ -26,6 +26,7 @@ struct Entry {
 class Session final : public race::Simulation {
 public:
     static constexpr float kStep = 1.0f / 60.0f;
+    static constexpr int kHoldSteps = 120; // the hold before the session's time 0
 
     // Throws std::runtime_error for a session that cannot be set up (no entries, a course without a
     // start place on the road, a car whose parameters cannot be built).
@@ -38,6 +39,9 @@ public:
 
     // One step of 1/60 s.
     void step_once(std::span<const race::CarInput> inputs);
+    // One step with the cars held as during a start's countdown (the engines answer the throttle, the
+    // cars stay); the session's time does not advance.
+    void hold_once(std::span<const race::CarInput> inputs);
     double time() const { return double(steps_) * double(kStep); }
     const RoadGround& ground() const { return *ground_; }
     // A car's record in the vehicle step (the engine's mirror of the car record).
@@ -56,6 +60,9 @@ private:
         bool has_v = false;
         u8 kinds[4] = {};    // each wheel's road triangle flags
         u8 prev_buttons = 0;
+        float spin[4] = {};       // each wheel's angle rolled
+        float rest_drop[4] = {};  // each wheel's center below its suspension point, at rest
+        bool rest_set[4] = {};
     };
     void place(size_t i, const course::Runway::Place& at);
     void ground_contact(gt3r::sim::exact::Car& c, Extra& x);

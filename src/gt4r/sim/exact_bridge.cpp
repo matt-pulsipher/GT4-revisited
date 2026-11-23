@@ -1,5 +1,6 @@
 #include "gt4r/sim/exact_bridge.h"
 
+#include "sim/exact/car_record.h"
 #include "sim/exact/program_tables.h"
 
 #include <algorithm>
@@ -43,7 +44,10 @@ ex::ProgramData core_program(const Program& program) {
         d.poke(T::Static, 0x5C + row, program.b(g + 0x7C + s));         // bump scaled by speed
         d.poke(T::Static, 0x6C + row, program.b(g + 0x94 + s));         // bump mode
     }
-    for (u32 i = 0x7C; i < ex::ProgramData::size(T::Static); ++i) d.poke(T::Static, i, program.b(g + 0x30 + i));
+    // The slip ratio's bytes (+0x84 .. +0x8B) stay the core's: they belong to its slip ratio rule, and
+    // Gran Turismo 4's bytes there to its own (0x3513F8).
+    for (u32 i = 0x7C; i < ex::ProgramData::size(T::Static); ++i)
+        if (i < 0x84 || i > 0x8B) d.poke(T::Static, i, program.b(g + 0x30 + i));
     // The soft materials, by row.
     for (u32 row = 0; row < 16; ++row) {
         const u32 w = program.w(Program::kSoft + 4 * u32(kRowSurface[row]));
@@ -117,9 +121,11 @@ void core_spec(const Spec& s, ex::Spec& to) {
     if (s.b(0x08) != 0 && s.b(0x08) != 100) weight = weight * s.b(0x08) / 100;
     h(0x2A, u32(weight + s.b(0x05)));
     b(0x2C, s.b(0x22)), b(0x2D, s.b(0x23));
-    // The inertia bytes: the yaw's; the pitch's and roll's as the core's own builder makes them (the yaw's,
-    // and half of it). Gran Turismo 4's shares (spec +0x25 / +0x26) belong to its own attitude step.
-    b(0x2E, s.b(0x24)), b(0x2F, s.b(0x24)), b(0x30, s.b(0x24) >> 1), b(0x31, s.b(0x27));
+    // The inertia bytes: the yaw's; the pitch's and roll's times 2 pi, which the core's converter
+    // has in its levers and Gran Turismo 4's has not (gt4_levers puts the exact values in afterwards).
+    b(0x2E, s.b(0x24)), b(0x31, s.b(0x27));
+    b(0x2F, cap(u32(std::lround(double(s.b(0x25)) * 6.283185307))));
+    b(0x30, cap(u32(std::lround(double(s.b(0x26)) * 6.283185307))));
     b(0x32, s.b(0x42)), b(0x33, s.b(0x43)), b(0x34, s.b(0x44));
     b(0x35, s.b(0x28)), b(0x36, s.b(0x2A)), b(0x37, s.b(0x2B));
     b(0x38, s.b(0x98)), b(0x39, s.b(0x99));
@@ -140,7 +146,9 @@ void core_spec(const Spec& s, ex::Spec& to) {
     h(0xA2, out), h(0xA4, s.h(0x10A)), b(0xA6, s.b(0x10C)), b(0xA7, s.b(0x113));
     bytes(0xAA, 0x116, 6);
     b(0xB2, s.b(0x128)), b(0xB3, s.b(0x129)), b(0xB4, s.b(0x12A));
-    const u32 gears = std::min<u32>(s.b(0x155), 7);
+    // The forward gears: seven at most, and only those with a ratio (one car's fifth gear has none).
+    u32 gears = 0;
+    while (gears < 7 && gears < s.b(0x155) && s.h(0x138 + 2 * (gears + 1)) != 0 && s.sh(0x138 + 2 * (gears + 1)) > 0) ++gears;
     for (u32 i = 0; i < 8; ++i) h(0xB6 + 2 * i, i <= gears ? s.h(0x138 + 2 * i) : 0xFFFF);
     h(0xC6, s.h(0x150)), b(0xC8, gears), b(0xC9, s.b(0x160)), b(0xCB, s.b(0x157)), b(0xCC, s.b(0x161));
     h(0xCE, s.h(0x164)), h(0xD0, s.h(0x166)), h(0xD2, s.h(0x174)), h(0xD4, s.h(0x176));
@@ -163,6 +171,25 @@ void core_spec(const Spec& s, ex::Spec& to) {
     bytes(0x120, 0x1CE, 2), bytes(0x122, 0x1D0, 16);
     for (u32 row = 0; row < 16; ++row) b(0x132 + row, s.b(0x1F0 + u32(kRowSurface[row])));
     for (int k = 0; k < 6; ++k) tire_block(s, Spec::tire_block(k), to, (k < 3 ? 0x142u : 0x292u) + 0x70u * u32(k % 3));
+}
+
+// 0x361908 (0x362904 .. 0x362D1C): the levers by Gran Turismo 4's rule, in its arithmetic.
+void gt4_levers(const Spec& s, const Program& program, ex::Params& p) {
+    using gt3r::ee::F;
+    const F k100 = F::raw(0x42C80000), k001 = F::raw(0x3C23D70A);
+    if (s.b(0x25) != 0) {
+        const F inertia = gt3r::ee::int_to_f(s.b(0x25)) * k100;
+        p.pitch_lever[0] = p.dist_front / inertia, p.pitch_lever[1] = p.dist_rear / inertia;
+        if (program.known()) {
+            const F tire = gt3r::ee::int_to_f(program.b(Program::kStatic + 7)) * k001;
+            p.pitch_tire[0] = tire / (inertia + (p.mass * p.dist_front) * p.dist_front);
+            p.pitch_tire[1] = tire / (inertia + (p.mass * p.dist_rear) * p.dist_rear);
+        }
+    }
+    if (s.b(0x26) != 0) {
+        const F inertia = gt3r::ee::int_to_f(s.b(0x26)) * k100;
+        p.roll_lever[0] = p.half_track[0] / inertia, p.roll_lever[1] = p.half_track[1] / inertia;
+    }
 }
 
 } // namespace gt4r::sim

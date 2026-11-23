@@ -134,6 +134,17 @@ bool RoadGround::cast_down(const Vec3& from_in, GroundHit& out) const {
     return true;
 }
 
+bool RoadGround::at_place(const Vec3& p, GroundHit& out) const {
+    bool found = false;
+    float y = road_->max.y;
+    GroundHit h;
+    for (int level = 0; level < 8 && cast_down({p.x, y, p.z}, h); ++level) {
+        if (!found || std::fabs(h.point.y - p.y) < std::fabs(out.point.y - p.y)) out = h, found = true;
+        y = h.point.y - 0.5f;
+    }
+    return found;
+}
+
 bool RoadGround::distance_along(const Vec3& p, float& v, int* hint) const {
     const course::Runway& r = *road_;
     const int n = int(r.checkpoints.size());
@@ -141,13 +152,12 @@ bool RoadGround::distance_along(const Vec3& p, float& v, int* hint) const {
     // How far p is past checkpoint i's line, along the course.
     auto past = [&](int i, float& side) {
         const course::Runway::Checkpoint& c = r.checkpoints[size_t(i)];
-        const course::Runway::Checkpoint& next = r.checkpoints[size_t((i + 1) % n)];
         float lx = c.right.x - c.left.x, lz = c.right.z - c.left.z;
         const float len = std::sqrt(lx * lx + lz * lz);
         if (len < 1e-6f) return 0.0f;
         lx /= len, lz /= len;
-        float fx = -lz, fz = lx; // across the line; turned to point at the next checkpoint
-        if (fx * (next.middle.x - c.middle.x) + fz * (next.middle.z - c.middle.z) < 0) fx = -fx, fz = -fz;
+        // Along the course: up x (left to right), the course's frame being right-handed.
+        const float fx = lz, fz = -lx;
         side = (p.x - c.middle.x) * lx + (p.z - c.middle.z) * lz;
         return (p.x - c.middle.x) * fx + (p.z - c.middle.z) * fz;
     };
@@ -171,17 +181,22 @@ bool RoadGround::distance_along(const Vec3& p, float& v, int* hint) const {
         if (hint) *hint = i;
     };
     if (hint && *hint >= 0) {
-        for (int k = -3; k <= 6; ++k) try_pair(*hint + k);
-        if (found && best < 60.0f) return true;
+        // Around the last answer first: where gates of two stretches overlap, the car stays on its own.
+        const int from = *hint;
+        for (int k = 0; k <= 4 && !found; ++k) {
+            try_pair(from + k);
+            if (!found && k > 0) try_pair(from - k);
+        }
+        if (found) return true;
     }
     for (int i = 0; i < n; ++i) try_pair(i);
     return found;
 }
 
-void RoadGround::middle_at(float v, Vec3& point, Vec3& direction) const {
+void RoadGround::gate_at(float v, Vec3& left, Vec3& right) const {
     const course::Runway& r = *road_;
     const int n = int(r.checkpoints.size());
-    point = {}, direction = {0, 0, 1};
+    left = right = {};
     if (n < 2) return;
     const float first = r.checkpoints[first_].v;
     if (r.length > 0) {
@@ -201,11 +216,67 @@ void RoadGround::middle_at(float v, Vec3& point, Vec3& direction) const {
     float span = d.v - c.v;
     if (span <= 0) span += r.length;
     const float t = span > 1e-6f ? std::clamp((v - c.v) / span, 0.0f, 1.0f) : 0.0f;
-    point = {c.middle.x + (d.middle.x - c.middle.x) * t, c.middle.y + (d.middle.y - c.middle.y) * t, c.middle.z + (d.middle.z - c.middle.z) * t};
-    direction = {d.middle.x - c.middle.x, d.middle.y - c.middle.y, d.middle.z - c.middle.z};
+    auto mix = [&](const Vec3& p, const Vec3& q) { return Vec3{p.x + (q.x - p.x) * t, p.y + (q.y - p.y) * t, p.z + (q.z - p.z) * t}; };
+    left = mix(c.left, d.left), right = mix(c.right, d.right);
+}
+
+void RoadGround::middle_at(float v, Vec3& point, Vec3& direction) const {
+    Vec3 l0, r0, l1, r1;
+    gate_at(v, l0, r0), gate_at(v + 1.0f, l1, r1);
+    point = {(l0.x + r0.x) * 0.5f, (l0.y + r0.y) * 0.5f, (l0.z + r0.z) * 0.5f};
+    direction = {(l1.x + r1.x) * 0.5f - point.x, (l1.y + r1.y) * 0.5f - point.y, (l1.z + r1.z) * 0.5f - point.z};
     const float len = std::sqrt(direction.x * direction.x + direction.y * direction.y + direction.z * direction.z);
     if (len > 1e-6f) direction = {direction.x / len, direction.y / len, direction.z / len};
     else direction = {0, 0, 1};
+}
+
+bool RoadGround::road_middle(float v, int road, const Vec3& near, Vec3& middle, float* width) const {
+    Vec3 l, r;
+    gate_at(v, l, r);
+    const float dx = r.x - l.x, dz = r.z - l.z;
+    const float len = std::sqrt(dx * dx + dz * dz);
+    if (len < 1.0f) return false;
+    auto paved = [](int m) { return m == 0 || m == 1 || (m >= 7 && m <= 12); };
+    const int steps = std::min(600, int(len) + 1);
+    const float top = road_->max.y + 1.0f;
+    // The runs of road surface along the gate: the one nearest to `near` (in the plane, then in height).
+    bool found = false, in_run = false;
+    float best = std::numeric_limits<float>::max(), run_from = 0, run_y = 0;
+    auto close_run = [&](float to) {
+        const float mid = (run_from + to) * 0.5f;
+        const Vec3 p = {l.x + dx * mid / len, run_y, l.z + dz * mid / len};
+        const float ax = near.x - l.x, az = near.z - l.z;
+        const float along = (ax * dx + az * dz) / len; // near's place along the gate
+        float off = along < run_from ? run_from - along : along > to ? along - to : 0.0f;
+        off += 4.0f * std::fabs(run_y - near.y);
+        if (off < best) {
+            best = off, found = true, middle = p;
+            if (width) *width = to - run_from;
+        }
+    };
+    for (int i = 0; i <= steps; ++i) {
+        const float s = len * float(i) / float(steps);
+        // Every level under the gate: from the top down, below each hit.
+        GroundHit h;
+        bool on = false;
+        float y = top, hit_y = 0;
+        for (int level = 0; level < 4 && cast_down({l.x + dx * s / len, y, l.z + dz * s / len}, h); ++level) {
+            const bool ok = paved(road) ? paved(h.material) : int(h.material) == road;
+            if (ok && (!on || std::fabs(h.point.y - near.y) < std::fabs(hit_y - near.y))) on = true, hit_y = h.point.y;
+            y = h.point.y - 0.5f;
+        }
+        // A wall across the gate ends a stretch.
+        if (on) {
+            WallHit w;
+            if (nearest_wall({l.x + dx * s / len, hit_y, l.z + dz * s / len}, len / float(steps) * 0.6f, w)) on = false;
+        }
+        if (on && !in_run) in_run = true, run_from = s, run_y = hit_y;
+        else if (on && std::fabs(hit_y - run_y) > 3.0f) close_run(s), run_from = s, run_y = hit_y; // another level
+        else if (!on && in_run) in_run = false, close_run(s);
+        if (on) run_y = hit_y;
+    }
+    if (in_run) close_run(len);
+    return found;
 }
 
 bool RoadGround::nearest_wall(const Vec3& p, float reach, WallHit& out) const {

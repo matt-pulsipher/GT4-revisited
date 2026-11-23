@@ -41,12 +41,23 @@ public:
     // The ground under a wheel as the vehicle step asks for it (0x395760): cast_down from 5 m above.
     bool under(const Vec3& p, GroundHit& out) const { return cast_down({p.x, p.y + 5.0f, p.z}, out); }
 
+    // The road at a place whose height is only roughly known (the start places' heights are not the
+    // road's on some courses): of the road's levels under (x, z), the one nearest to p's height.
+    bool at_place(const Vec3& p, GroundHit& out) const;
+
     // The distance along the course (Runway::Checkpoint::v) of a point: between the two checkpoint
     // lines it lies between, by its place along the line through their middles. `hint`: the
     // checkpoint found last time (-1: none); the search starts around it. False off the course.
     bool distance_along(const Vec3& p, float& v, int* hint = nullptr) const;
-    // The course's middle line at distance v (wrapped into the lap): the point and the direction of travel.
+    // The checkpoint lines' middle at distance v (wrapped into the lap): the point and the direction of
+    // travel. The lines are gates wider than the road; road_middle finds the road in one.
     void middle_at(float v, Vec3& point, Vec3& direction) const;
+    // The gate at distance v: the checkpoint lines' ends there.
+    void gate_at(float v, Vec3& left, Vec3& right) const;
+    // The middle of the stretch of road surface (triangles of material `road` or of a paved material
+    // when `road` is paved) across the gate at distance v that is nearest to `near`. False when the
+    // gate crosses no such surface.
+    bool road_middle(float v, int road, const Vec3& near, Vec3& middle, float* width = nullptr) const;
 
     // The nearest wall segment within `reach` of p, in the horizontal plane: the closest point on
     // it and the unit normal from the wall towards p. False when none is that near.

@@ -11,6 +11,7 @@
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/sim/car_spec.h"
 #include "gt4r/sim/ground.h"
+#include "gt4r/sim/line_driver.h"
 #include "gt4r/sim/session.h"
 
 #include <algorithm>
@@ -131,6 +132,12 @@ void road_report(const std::string& name, const course::Runway& r, bool detail) 
             std::printf(" [%zu] v %.1f (%.1f %.1f %.1f)", i, double(r.checkpoints[i].v), double(r.checkpoints[i].middle.x), double(r.checkpoints[i].middle.y),
                         double(r.checkpoints[i].middle.z));
     std::printf("\n");
+    for (size_t i = 0; i < r.checkpoints.size(); ++i) {
+        const course::Runway::Checkpoint& c = r.checkpoints[i];
+        if (std::fabs(c.v - r.checkpoints[0].v) > 400 && c.v > 200 && c.v < r.length - 200) continue;
+        std::printf("  checkpoint %zu v %.1f left %.1f %.1f %.1f middle %.1f %.1f %.1f right %.1f %.1f %.1f\n", i, double(c.v), double(c.left.x), double(c.left.y),
+                    double(c.left.z), double(c.middle.x), double(c.middle.y), double(c.middle.z), double(c.right.x), double(c.right.y), double(c.right.z));
+    }
     for (size_t i = 0; i < r.grid.size(); ++i) {
         sim::GroundHit h;
         const bool ok = ground.under(r.grid[i].pos, h);
@@ -161,16 +168,6 @@ int cmd_road(Disc& disc, const Args& a) {
     return 0;
 }
 
-// The steering towards the course's middle line: the car aims at the line's point a little ahead.
-float steer_along(const sim::Session& session, const race::CarState& car) {
-    const float ahead = 12.0f + std::fabs(car.speed) * 0.6f;
-    course::Vec3 point, direction;
-    session.ground().middle_at(car.course_v + ahead, point, direction);
-    const float dx = point.x - car.position.x, dz = point.z - car.position.z;
-    const float along = dx * car.forward.x + dz * car.forward.z, across = dx * car.right.x + dz * car.right.z;
-    return std::clamp(std::atan2(across, std::max(along, 1.0f)) * 2.5f, -1.0f, 1.0f);
-}
-
 int cmd_drive(Disc& disc, const Args& a) {
     db::SpecDb sdb = open_db(disc);
     const sim::Program program = sim::Program::load(disc);
@@ -185,12 +182,18 @@ int cmd_drive(Disc& disc, const Args& a) {
         return 1;
     }
     const double seconds = a.size() > 2 ? std::atof(a[2].c_str()) : 30.0;
-    const bool no_steer = a.size() > 3 && a[3] == "straight";
+    const bool no_steer = a.size() > 3 && a[3] == "straight", careful = a.size() > 3 && a[3] == "careful";
     sim::Session session(sdb, program, std::make_shared<const course::Runway>(std::move(*road)), std::span<const sim::Entry>(&entry, 1));
     for (const std::string& n : session.notes()) std::printf("note: %s\n", n.c_str());
     print_figures(sdb, program, a[0]);
     std::printf("%s course, lap %.1f m\n", session.loose() ? "loose" : "paved", double(session.ground().road().length));
     std::printf("%7s %9s %8s %9s %9s %7s %6s %4s %8s\n", "time", "x", "y", "z", "along", "km/h", "rpm", "gear", "driven m");
+    sim::LineDriver driver(session, 0);
+    { // the engine revved before the start, as through a start's countdown
+        race::CarInput rev;
+        rev.throttle = 1;
+        for (int i = 0; i < 90; ++i) session.hold_once(std::span<const race::CarInput>(&rev, 1));
+    }
     double driven = 0, quarter = -1;
     const int steps = int(seconds * 60.0 + 0.5);
     for (int i = 0; i <= steps; ++i) {
@@ -201,14 +204,7 @@ int cmd_drive(Disc& disc, const Args& a) {
                         double(car.engine_rpm), car.gear, driven);
         race::CarInput in;
         in.throttle = 1;
-        if (!no_steer) in.steer = steer_along(session, car);
-        if (a.size() > 4 && i % 30 == 0) {
-            course::Vec3 point, direction;
-            session.ground().middle_at(car.course_v + 12.0f, point, direction);
-            std::printf("    aim %.2f %.2f %.2f dir %.2f %.2f  car fwd %.2f %.2f right %.2f %.2f steer in %.2f applied %.2f\n", double(point.x), double(point.y),
-                        double(point.z), double(direction.x), double(direction.z), double(car.forward.x), double(car.forward.z), double(car.right.x),
-                        double(car.right.z), double(in.steer), double(car.steer));
-        }
+        if (!no_steer) in = driver.drive(1.0f, careful);
         session.step_once(std::span<const race::CarInput>(&in, 1));
         driven += double(std::fabs(session.cars()[0].speed)) * double(sim::Session::kStep);
         if (quarter < 0 && driven >= 402.336) quarter = session.time();
@@ -230,6 +226,14 @@ int cmd_drive(Disc& disc, const Args& a) {
         std::printf("pos z %.3f pitch %.4f roll %.4f tcs %d ascc %d torque %.1f rev limiter %d drive torque %.1f %.1f\n", double(c.pos.z.host()), double(c.pitch.host()),
                     double(c.roll.host()), c.tcs_status, c.ascc_status, double(c.torque_wot.host()), c.rev_limiter, double(c.drive_torque[0].host()),
                     double(c.drive_torque[1].host()));
+        for (int ax = 0; ax < 2; ++ax) {
+            const gt3r::sim::exact::Suspension& u = c.p.susp[size_t(ax)];
+            std::printf(" axle %d: k %.0f k2 %.0f knee %.4f bump limit %.4f droop %.4f static %.4f offset %.4f preload %.0f bump damping %.0f anti-roll %.0f damper b %.3f %.1f %.1f r %.3f %.1f %.1f  pitch lever %.6f roll lever %.6f pitch tire %.6f\n",
+                        ax, double(u.k.host()), double(u.k2.host()), double(u.knee.host()), double(u.bump_limit.host()), double(u.droop.host()),
+                        double(u.x_static.host()), double(u.offset.host()), double(u.preload.host()), double(u.bump_damping.host()), double(u.anti_roll.host()),
+                        double(u.bump_t.host()), double(u.bump_o.host()), double(u.bump_g.host()), double(u.reb_t.host()), double(u.reb_o.host()), double(u.reb_g.host()),
+                        double(c.p.pitch_lever[size_t(ax)].host()), double(c.p.roll_lever[size_t(ax)].host()), double(c.p.pitch_tire[size_t(ax)].host()));
+        }
         std::printf("mass %.1f weight %.0f radius %.3f %.3f cog %.3f wheelbase %.3f track %.3f\n", double(c.p.mass.host()), double(c.p.weight.host()),
                     double(c.p.tire_radius[0].host()), double(c.p.tire_radius[1].host()), double(c.p.cog_height.host()), double(c.p.wheelbase.host()),
                     double(c.p.track.host()));
@@ -246,7 +250,7 @@ struct Command {
 const Command kCommands[] = {
     {"car", "<disc> [car label]", 0, cmd_car},
     {"road", "<disc> [course]", 0, cmd_road},
-    {"drive", "<disc> <car label> <course> [seconds] [straight]", 2, cmd_drive},
+    {"drive", "<disc> <car label> <course> [seconds] [straight | careful]", 2, cmd_drive},
 };
 
 } // namespace
