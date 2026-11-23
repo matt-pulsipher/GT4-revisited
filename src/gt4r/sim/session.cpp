@@ -1,6 +1,8 @@
 #include "gt4r/sim/session.h"
 
 #include "base/ee_math.h"
+#include "gt4r/disc/disc.h"
+#include "gt4r/formats/course/course_file.h"
 #include "gt4r/sim/exact_bridge.h"
 #include "sim/exact/build_math.h"
 #include "sim/exact/car_fields.h"
@@ -111,6 +113,28 @@ private:
 };
 
 Session::~Session() = default;
+
+std::unique_ptr<Session> Session::open(Disc& disc, const std::string& course, std::span<const std::string> cars) {
+    gt3r::Volume* vol = &disc.volume();
+    db::SpecDb db(
+        [vol](const std::string& path) -> std::optional<Bytes> {
+            const gt3r::Volume::Entry* e = vol->find(path);
+            return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
+        },
+        [vol](const std::string& dir) { return vol->list_dir(dir); }, "american");
+    const gt3r::Volume::Entry* file = vol->find("crs/" + course);
+    if (!file) throw std::runtime_error("session: no course " + course);
+    const Bytes data = vol->read(*file);
+    if (!course::CourseFile::looks_like_course(data)) throw std::runtime_error("session: " + course + " is not a course");
+    const course::CourseFile parsed = course::CourseFile::parse(data);
+    const ByteSpan section = parsed.section(data, course::kSlotRunway);
+    if (!course::Runway::is_runway(section)) throw std::runtime_error("session: the course " + course + " has no road");
+    const Program program = Program::load(disc);
+    std::vector<Entry> entries(cars.size());
+    for (size_t i = 0; i < cars.size(); ++i)
+        if (!stock_car(db, program, cars[i], entries[i].equipment)) throw std::runtime_error("session: no car " + cars[i]);
+    return std::make_unique<Session>(db, program, std::make_shared<const course::Runway>(course::Runway::parse(section)), entries);
+}
 
 Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const course::Runway> road, std::span<const Entry> entries) : road_(std::move(road)) {
     if (!road_) throw std::runtime_error("session: no road");

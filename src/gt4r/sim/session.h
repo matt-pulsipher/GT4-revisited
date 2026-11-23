@@ -13,6 +13,10 @@
 #include <string>
 #include <vector>
 
+namespace gt4r {
+class Disc;
+}
+
 namespace gt4r::sim {
 
 // A car of the session.
@@ -32,6 +36,9 @@ public:
     // start place on the road, a car whose parameters cannot be built).
     Session(db::SpecDb& db, const Program& program, std::shared_ptr<const course::Runway> road, std::span<const Entry> entries);
     ~Session() override;
+    // A session on a disc's course ("tsukuba": the file crs/tsukuba) with cars as sold, by their labels
+    // ("nsx_r_02"), in grid order. Throws std::runtime_error (no such course or car, or as the constructor).
+    static std::unique_ptr<Session> open(Disc& disc, const std::string& course, std::span<const std::string> cars);
 
     // Advances by dt in whole steps of 1/60 s (the remainder is kept for the next call).
     void step(std::span<const race::CarInput> inputs, float dt) override;

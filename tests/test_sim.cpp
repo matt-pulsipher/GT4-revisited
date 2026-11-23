@@ -479,6 +479,43 @@ TEST(sim_disc_cars_and_courses) {
     }
 }
 
+TEST(sim_disc_session_open) {
+    Disc* disc = full_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    // A session by names, as the race view asks for one; stepped through the seam.
+    const std::string cars[] = {"nsx_r_02", "civic_r_01", "viper_gts_99"};
+    const std::unique_ptr<sim::Session> s = sim::Session::open(*disc, "tsukuba", cars);
+    race::Simulation& sim = *s;
+    CHECK(sim.cars().size() == 3);
+    race::CarInput in[3];
+    for (race::CarInput& i : in) i.throttle = 1;
+    for (int frame = 0; frame < 120; ++frame) sim.step(in, 1.0f / 60.0f);
+    CHECK(std::fabs(s->time() - 2.0) < 0.02);
+    for (const race::CarState& c : sim.cars()) {
+        CHECK(c.speed > 3.0f && c.engine_rpm > 1000 && c.gear >= 1);
+        // A right-handed frame, the wheels a tire's radius above the road around the body's origin.
+        const float rx = c.forward.y * c.up.z - c.forward.z * c.up.y;
+        CHECK(std::fabs(rx - c.right.x) < 1e-4f && c.up.y > 0.9f);
+        for (const race::WheelState& w : c.wheels) {
+            CHECK(std::hypot(w.center.x - c.position.x, w.center.z - c.position.z) < 3.5f);
+            CHECK(w.center.y - c.position.y > -0.2f && w.center.y - c.position.y < 0.6f && w.spin_rate > 1.0f);
+        }
+        // Left wheels to the left of the origin, front wheels ahead.
+        auto side = [&](int w) { return (c.wheels[w].center.x - c.position.x) * c.right.x + (c.wheels[w].center.z - c.position.z) * c.right.z; };
+        auto ahead = [&](int w) { return (c.wheels[w].center.x - c.position.x) * c.forward.x + (c.wheels[w].center.z - c.position.z) * c.forward.z; };
+        CHECK(side(0) < 0 && side(1) > 0 && side(2) < 0 && side(3) > 0);
+        CHECK(ahead(0) > 0 && ahead(1) > 0 && ahead(2) < 0 && ahead(3) < 0);
+        CHECK(std::fabs(ahead(0) + ahead(2)) < 0.15f); // the origin is the wheelbase's middle
+    }
+    bool threw = false;
+    try {
+        sim::Session::open(*disc, "tsukuba", std::span<const std::string>());
+    } catch (const std::exception&) {
+        threw = true;
+    }
+    CHECK(threw);
+}
+
 TEST(sim_disc_walls_hold) {
     Disc* disc = full_disc();
     if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");

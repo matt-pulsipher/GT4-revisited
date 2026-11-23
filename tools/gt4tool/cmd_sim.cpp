@@ -2,8 +2,10 @@
 //
 //   gt4tool car <disc> [car label]         a car's spec as the race builds it (without a label: every car's figures)
 //   gt4tool road <disc> [course]           a course's road as the simulation reads it (without a course: every course)
-//   gt4tool drive <disc> <car label> <course> [seconds]   puts the car on the first grid place and drives it at full
-//                                          throttle along the course's middle line: time, place, speed, engine speed, gear
+//   gt4tool drive <disc> <car label> <course> [seconds] [straight | careful]   puts the car on the first grid place and drives it at full
+//                                          throttle along the road's middle: time, place, speed, engine speed, gear each second.
+//                                          [straight]: no steering; [careful]: braking for bends; a fifth argument
+//                                          prints the car's record at the end (driveline, wheels, suspension)
 
 #include "base/log.h"
 #include "gt4r/disc/disc.h"
