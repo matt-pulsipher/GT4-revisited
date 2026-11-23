@@ -279,4 +279,10 @@ TEST(live_widget_properties) {
     CHECK(b.children[1]->screen_rect().x == 100 && b.children[1]->screen_rect().y == 200 && b.children[1]->screen_rect().w == 30);
     vm.call(vm.attribute(box, "clearChildren"), {});
     CHECK(b.children.empty() && vm.attribute(box, "first").is_nil());
+    // A child asked by name that is not there is nil; a value assigned to the name stays. The
+    // page a text's key is looked up in goes with the widget.
+    CHECK(vm.binary("[]", item, V::string("nothing")).as<script::Reference>()->get(vm).is_nil());
+    CHECK(!vm.binary("[]", item, V::string("label")).as<script::Reference>()->get(vm).is_nil());
+    vm.binary("[]", item, V::string("notice")).as<script::Reference>()->set(vm, V::string("kept"));
+    CHECK(vm.attribute(item, "notice").as_string() == "kept");
 }

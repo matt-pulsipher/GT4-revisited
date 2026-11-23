@@ -32,6 +32,7 @@ struct LiveWidget : script::Module {
     int state = 0;
     std::shared_ptr<script::Heap> actor;                              // what moves or fades it (`widget.actor`)
     std::map<std::string, std::shared_ptr<script::Reference>> extras; // attributes the program keeps that are no layout property
+    bool by_name_ = false; // inside element(): a name that is not there is nil
     std::weak_ptr<LiveWidget> focus;                                  // a page's: the widget of it that has the focus
     Runtime* runtime = nullptr;                                       // the one running it (none for a page only drawn)
     // A list box's rows, made from its template as they are asked for.
@@ -51,6 +52,8 @@ struct LiveWidget : script::Module {
     void arrange();
 
     std::shared_ptr<script::Reference> member(script::Vm&, const script::Value& self, const std::string& name) override;
+
+    std::shared_ptr<script::Reference> element(script::Vm& vm, const script::Value& self, const std::string& name) override;
     std::string describe() const override { return "<" + data.type + " " + path() + ">"; }
     void clear() override;
 

@@ -216,12 +216,16 @@ private:
     void text(const Widget& w, const Rect& at, float opacity) {
         std::string s = w.text("text");
         if (s.empty()) s = w.text("value"); // a tool tip's, an input's
-        if (s.empty() && w.has("key")) s = project_->translate(page_, w.text("key"));
+        if (s.empty() && w.has("key")) s = project_->translate(w.has("key_page") ? w.text("key_page") : page_, w.text("key"));
         if (s.empty()) return;
-        // The marks of the pad's buttons ("%BG") and of a colour ("%Cfff") are left out.
-        for (size_t mark; (mark = s.find('%')) != std::string::npos && mark + 1 < s.size() && (s[mark + 1] == 'B' || s[mark + 1] == 'C');) {
-            const size_t len = s[mark + 1] == 'B' ? 3 : 5;
-            s.erase(mark, std::min(len, s.size() - mark));
+        // A text's marks: of the pad's buttons ("%BG") and of a colour ("%Cfff"), left out;
+        // "%%" is a percent sign (❓ judged from the scripts, which end a percentage with it).
+        for (size_t mark = s.find('%'); mark != std::string::npos && mark + 1 < s.size(); mark = s.find('%', mark)) {
+            const char c = s[mark + 1];
+            if (c == 'B') s.erase(mark, std::min<size_t>(3, s.size() - mark));
+            else if (c == 'C') s.erase(mark, std::min<size_t>(5, s.size() - mark));
+            else if (c == '%') s.erase(mark, 1), ++mark;
+            else ++mark;
         }
         gt3r::text::FontVariant variant = gt3r::text::FontVariant::Plain;
         const gt3r::text::LatinFont* found = font_of(w, &variant);
@@ -490,7 +494,7 @@ private:
             if (!projects_.empty()) config.language = projects_[size_t(std::clamp(project_sel_, 0, int(projects_.size()) - 1))].language;
             runtime_ = std::make_unique<menu::Runtime>([vfs](const std::string& path) { return vfs->read(path); }, config);
             if (card_ == "none") runtime_->game().card.connected = false;
-            else if (card_ == "saved") runtime_->game().card.has_game_data = true;
+            else if (card_ == "saved") runtime_->game().card.has_game_data = true, runtime_->game().username = "Player"; // a stand-in for a saved game
             live_drawer_ = std::make_unique<PageDrawer>(app);
             PageDrawer* drawer = live_drawer_.get();
             menu::text_measure().measure = [drawer](const LiveWidget& face, float& w, float& h) { drawer->measure(face, w, h); };

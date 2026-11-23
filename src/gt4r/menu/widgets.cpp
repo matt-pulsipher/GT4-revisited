@@ -5,6 +5,7 @@
 #include "gt4r/menu/runtime_internal.h"
 
 #include <algorithm>
+#include <functional>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -112,6 +113,17 @@ std::shared_ptr<LiveWidget> LiveWidget::build(const Widget& layout, const std::s
     if (layout.number("insensitive") != 0) w->state |= kInsensitive;
     if (parent && !w->name.empty()) parent->define(w->name, Value::of(Kind::Module, w));
     for (const Widget& c : layout.children()) w->children.push_back(build(c, w, runtime));
+    // A text face's key is looked up in the page the layout has it in, wherever the scripts
+    // move or copy the widget to afterwards (a header kept in a template page): the page's
+    // name goes with it. ❓ When the program looks the text up is not read.
+    if (layout.type == "RootWindow") {
+        const std::string page = w->name;
+        std::function<void(LiveWidget&)> mark = [&](LiveWidget& x) {
+            if (x.data.has("key") && !x.data.has("key_page")) x.data.properties.push_back(Property{"key_page", "string", {page}, {}, {}, false});
+            for (auto& c : x.children) mark(*c);
+        };
+        mark(*w);
+    }
     if (is_select_box(*w)) {
         for (const auto& c : w->children)
             if (c->is_composite()) {
@@ -492,7 +504,18 @@ std::shared_ptr<script::Reference> LiveWidget::member(Vm& vm, const Value& self_
     }
     if (std::shared_ptr<script::Reference> r = vm.builtin_member(self_value, n)) return r;
     // Anything else of the program's is a stand-in, kept so a value assigned to it stays.
-    return extras[n] = std::make_shared<script::Variable>(vm.stub_natives ? vm.make_stub(data.type + "." + n) : Value{});
+    return extras[n] = std::make_shared<script::Variable>(vm.stub_natives && !by_name_ ? vm.make_stub(data.type + "." + n) : Value{});
+}
+
+// widget["label"]: a child or an attribute by name; nil when the widget has nothing of that
+// name (the scripts ask `w["label"] != nil` of every widget of a page), and a value assigned
+// to it stays.
+std::shared_ptr<script::Reference> LiveWidget::element(Vm& vm, const Value& self_value, const std::string& n) {
+    const bool was = by_name_;
+    by_name_ = true;
+    std::shared_ptr<script::Reference> r = member(vm, self_value, n);
+    by_name_ = was;
+    return r;
 }
 
 } // namespace gt4r::menu

@@ -163,6 +163,9 @@ TEST(vm_operators_and_builtins) {
     CHECK(call(V::string("r_tsukuba"), "substr", {V::integer(0), V::integer(2)}).as_string() == "r_");
     CHECK(call(V::string("1abc"), "at", {V::integer(0)}).i == 49);
     CHECK(call(V::string("%d laps, %s, %.1f"), "format", {V::integer(3), V::string("wet"), V::number(2.25f)}).as_string() == "3 laps, wet, 2.2");
+    // The program's own conversion: a whole number with a point before its last digits.
+    CHECK(call(V::string("%.1t%%"), "format", {V::integer(123)}).as_string() == "12.3%" && call(V::string("%.2t"), "format", {V::integer(-5)}).as_string() == "-0.05");
+    CHECK(call(V::string("%t|%.3t"), "format", {V::integer(42), V::integer(1234567)}).as_string() == "42|1234.567");
     CHECK(call(V::string("a,b,c"), "split", {V::string(",")}).items()->size() == 3);
     CHECK(call(V::integer(12), "toString", {}).as_string() == "12" && call(V::string("42"), "toInt", {}).i == 42);
     const V list = V::array({V::integer(3), V::integer(1), V::integer(2)});

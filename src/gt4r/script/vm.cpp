@@ -210,7 +210,8 @@ s32 int_arg(Args a, size_t i, s32 fallback = 0) {
     return a[i].kind == Kind::Int ? a[i].i : a[i].kind == Kind::Float ? s32(a[i].f) : fallback;
 }
 
-// "%d of %s".format(3, "x"): C's conversions, an argument each.
+// "%d of %s".format(3, "x"): C's conversions, an argument each, and the program's own
+// "%.2t": a whole number written with a point before its last two digits (1234: "12.34").
 std::string format(const std::string& f, Args args) {
     std::string out;
     size_t next = 0;
@@ -234,6 +235,16 @@ std::string format(const std::string& f, Args args) {
         } else if (std::strchr("feEgG", c)) {
             std::snprintf(b, sizeof b, (spec + c).c_str(), double(v.as_float()));
             out += b, ++next;
+        } else if (c == 't') {
+            const size_t dot = spec.find('.');
+            const int places = dot == std::string::npos ? 0 : std::atoi(spec.c_str() + dot + 1);
+            const s64 n = v.kind == Kind::Float ? s64(v.f) : s64(v.i);
+            std::string digits = std::to_string(n < 0 ? -n : n);
+            if (places > 0) {
+                if (digits.size() <= size_t(places)) digits.insert(0, size_t(places) + 1 - digits.size(), '0');
+                digits.insert(digits.size() - size_t(places), ".");
+            }
+            out += (n < 0 ? "-" : "") + digits, ++next;
         } else if (c == 's') {
             std::snprintf(b, sizeof b, (spec + c).c_str(), v.to_string().c_str());
             out += b, ++next;
@@ -1074,7 +1085,7 @@ Value Vm::binary(const std::string& op, const Value& a, const Value& b) {
             return Value::string(s.substr(size_t(b.i), 1));
         }
         if (a.p && b.kind == Kind::String) // a member by name: page["open"], Root["Grid1"]
-            if (std::shared_ptr<Reference> r = member(a, b.as_string())) return reference(std::move(r));
+            if (std::shared_ptr<Reference> r = a.kind == Kind::Module ? a.p->element(*this, a, b.as_string()) : member(a, b.as_string())) return reference(std::move(r));
         if (is_stub(a)) return reference(a.p->member(*this, a, "[]"));
         throw ScriptError("no [" + b.to_string() + "] in " + a.to_string());
     }

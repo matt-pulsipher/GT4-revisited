@@ -635,6 +635,14 @@ TEST(disc_menu_new_game_to_gt_mode) {
     CHECK(money && money->data.text("text") == "10000");
     f.press({menu::Key::Accept});
     CHECK(f.page() == "HomeRoot" && f.focus() == "Garage");
+    // The home page's numbers: nothing completed, written with one decimal.
+    const std::shared_ptr<menu::LiveWidget> home = f.rt->current_page()->self();
+    CHECK(home->child("Status")->child("Achievement")->child("value")->data.text("text") == "0.0%%");
+    // The garage of a new game: no car, and the page says so.
+    f.press({menu::Key::Accept});
+    CHECK(f.page() == "GarageRoot" && f.clean());
+    f.press({menu::Key::Cancel});
+    CHECK(f.page() == "HomeRoot");
     f.press({menu::Key::Cancel});
     CHECK(f.page() == "TopRoot");
 }

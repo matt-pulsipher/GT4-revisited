@@ -76,6 +76,9 @@ struct Heap : std::enable_shared_from_this<Heap> {
     // A member by name, as something to read and assign; null when there is none. `self` is the
     // value it is asked of (a method found this way is bound to it).
     virtual std::shared_ptr<Reference> member(Vm&, const Value& self, const std::string& name) { return nullptr; }
+    // value["name"]: the member, where a value answers differently for a name that is not there
+    // (a widget without that child gives nil).
+    virtual std::shared_ptr<Reference> element(Vm& vm, const Value& self, const std::string& name) { return member(vm, self, name); }
     virtual bool callable() const { return false; }
     virtual Value call(Vm&, Args) { throw ScriptError("not a function: " + describe()); }
     virtual std::string describe() const = 0;

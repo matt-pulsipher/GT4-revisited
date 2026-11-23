@@ -25,6 +25,20 @@ using script::Vm;
 
 namespace {
 
+// The number a "%.2t" in `format` is given: the value times a hundred, whole (the conversion
+// puts the point back); the value itself when the format has no such conversion.
+script::Value fixed_for(const std::string& format, float value) {
+    for (size_t at = format.find('%'); at != std::string::npos; at = format.find('%', at + 1)) {
+        size_t j = at + 1;
+        while (j < format.size() && std::strchr("-+ 0123456789.", format[j])) ++j;
+        if (j >= format.size() || format[j] != 't') continue;
+        const size_t dot = format.find('.', at);
+        const int places = dot < j ? std::atoi(format.c_str() + dot + 1) : 0;
+        return script::Value::integer(s32(std::lround(double(value) * std::pow(10.0, places))));
+    }
+    return script::Value::number(value);
+}
+
 using Fn = script::NativeFunction;
 
 Value text(const std::string& s) { return Value::string(s); }
@@ -333,10 +347,8 @@ struct GameNatives {
             const GameState::Unit unit = st->torque_unit();
             const float v = sp.torque * unit.factor;
             if (a.empty()) return Value::number(v);
-            std::string format = a[0].to_string();
-            for (size_t at; (at = format.find('t')) != std::string::npos && at > 0 && (format[at - 1] == '%' || std::isdigit(u8(format[at - 1])));) format[at] = 'f';
-            const Value args[4] = {Value::number(v), text(unit.name), text(sp.torque_rpm), text("rpm")};
-            return vm.call(vm.attribute(text(format), "format"), args);
+            const Value args[4] = {fixed_for(a[0].to_string(), v), text(unit.name), text(sp.torque_rpm), text("rpm")};
+            return vm.call(vm.attribute(a[0], "format"), args);
         });
         car->method("getCatDisplacement", [spec](Vm&, const Value&, Args) { return text(spec().displacement); });
         car->method("getCatEngineType", [spec](Vm&, const Value&, Args) { return text(spec().layout); });
@@ -344,10 +356,23 @@ struct GameNatives {
         car->method("getAspiration", [spec](Vm&, const Value&, Args) { return text(spec().aspiration); });
         car->method("getCurrentPs", [spec](Vm&, const Value&, Args) { return number(spec().ps); });
         car->method("getCurrentPower", [spec](Vm&, const Value&, Args) { return number(spec().ps); });
-        car->method("getCurrentTq", [spec](Vm&, const Value&, Args) { return Value::number(spec().torque); });
+        // ❓ The fitted parts do not change the numbers yet: the catalog's.
+        car->method("getCurrentTq", [spec, st](Vm& vm, const Value&, Args a) {
+            const GameState::Unit unit = st->torque_unit();
+            const float v = spec().torque * unit.factor;
+            if (a.empty()) return Value::number(v);
+            const Value args[4] = {fixed_for(a[0].to_string(), v), text(unit.name), text(spec().torque_rpm), text("rpm")};
+            return vm.call(vm.attribute(a[0], "format"), args);
+        });
         car->method("isTurbo", [spec](Vm&, const Value&, Args) { return number(spec().aspiration == "TURBO"); });
         car->method("isSuperCharger", [spec](Vm&, const Value&, Args) { return number(spec().aspiration == "SUPERCHARGER"); });
-        car->method("getOdometer", [data](Vm&, const Value&, Args) { return Value::number(data->odometer); });
+        // getOdometer(format): the distance driven in the player's unit and the unit ("%.1t%s").
+        car->method("getOdometer", [data, st](Vm& vm, const Value&, Args a) {
+            if (a.empty()) return Value::number(data->odometer);
+            const bool miles = st->option_text("unit_velocity") == "MPH";
+            const Value args[2] = {fixed_for(a[0].to_string(), data->odometer * (miles ? 0.621371f : 1.0f)), text(miles ? "mi" : "km")};
+            return vm.call(vm.attribute(a[0], "format"), args);
+        });
         car->method("getDate", [data](Vm&, const Value&, Args) { return number(data->date); });
         for (const char* nothing : {"dump", "updateCurrentStatus", "loadPartsInfo", "setupPartsBuffer", "beginSetting", "endSetting", "syncWheel", "makeUsed"})
             car->method(nothing, [](Vm&, const Value&, Args) { return Value{}; });
@@ -498,7 +523,8 @@ struct GameNatives {
         garage->property("count", [s] { return number(s32(s->garage.size())); });
         garage->method("hasRidingCar", [s](Vm&, const Value&, Args) { return number(s->riding_car >= 0 && size_t(s->riding_car) < s->garage.size()); });
         garage->property("riding_car", [this, s] {
-            if (s->riding_car < 0 || size_t(s->riding_car) >= s->garage.size()) return Value{};
+            // Without one, a car object that is vacant (the scripts ask it for its place).
+            if (s->riding_car < 0 || size_t(s->riding_car) >= s->garage.size()) return make_car({}, 0, -1);
             const GarageCar& c = s->garage[size_t(s->riding_car)];
             return make_car(c.car, c.paint, s->riding_car);
         });
@@ -1081,6 +1107,46 @@ void install_game_natives(Runtime& rt, script::Module& menu) {
     {
         auto cls = make_class(menu, "MCarGarage");
         cls->construct = [n](Vm&, Args a) { return n->make_car(arg_text(a, 0), arg_int(a, 1), -1); };
+        // sortByDate(list, ascending), ...: a list of cars put in order. ❓ What each compares
+        // is taken from its name; weight and the power to weight ratio are not read from the
+        // car database yet and leave the order as it is.
+        struct Order {
+            const char* name;
+            const char* member; // the car object's method or attribute compared; nullptr: none yet
+            const char* of_label = nullptr; // or MCarData's function of the car's label
+        };
+        static const Order orders[] = {
+            {"sortByDate", "getDate"}, {"sortByPower", "getCurrentPs"}, {"sortByWeight", nullptr}, {"sortByPWR", nullptr},
+            {"sortByName", "name"}, {"sortByPrice", "car_code", "GetPrice"}, {"sortByYear", "car_code", "GetModelYear"},
+            {"sortByColor", "getColorIndex"}, {"sortByCountry", "car_code", "GetCountry"}, {"sortByTuner", "car_code", "GetTuner"},
+            {"sortByDriveTrain", "getDTrain"},
+            {"sortByRideHistory", "rideHistory"}, {"sortByAspiration", "getAspiration"},
+        };
+        for (const Order& o : orders)
+            static_fn(*cls, o.name, [member = o.member, of_label = o.of_label](Vm& vm, const Value&, Args a) {
+                if (a.empty() || a[0].kind != Kind::Array || !member) return Value{};
+                const bool ascending = a.size() < 2 || a[1].truthy();
+                auto key = [&](const Value& car) {
+                    Value v = vm.attribute(car, member);
+                    if (v.p && v.p->callable()) v = vm.call(v, {});
+                    if (of_label) {
+                        const Value label[1] = {v};
+                        v = vm.call(vm.attribute(vm.attribute(vm.lookup("menu"), "MCarData"), of_label), label);
+                    }
+                    return v;
+                };
+                std::vector<std::pair<Value, Value>> keyed;
+                for (const Value& car : *a[0].items()) keyed.emplace_back(key(car), car);
+                std::stable_sort(keyed.begin(), keyed.end(), [&](const auto& x, const auto& y) {
+                    const Value& p = ascending ? x.first : y.first;
+                    const Value& q = ascending ? y.first : x.first;
+                    if (p.kind == Kind::String || q.kind == Kind::String) return p.to_string() < q.to_string();
+                    return p.as_float() < q.as_float();
+                });
+                std::vector<Value>& items = *a[0].items();
+                for (size_t i = 0; i < keyed.size(); ++i) items[i] = keyed[i].second;
+                return Value{};
+            });
     }
     {
         auto cls = make_class(menu, "MDatabase");

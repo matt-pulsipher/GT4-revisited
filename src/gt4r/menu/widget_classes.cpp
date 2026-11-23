@@ -637,6 +637,18 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
     }
 
     if (type == "OptionMenu") {
+        // The row the closed menu shows. ❓ In the program a child of that name; here the
+        // chosen row of the list, which is what shows.
+        if (n == "selected_item") {
+            auto shown = std::make_shared<Accessor>();
+            shown->read = [w] {
+                const std::vector<W> items = option_items(*w);
+                const int i = w->index();
+                return i >= 0 && size_t(i) < items.size() ? widget_value(items[size_t(i)]) : Value{};
+            };
+            shown->write = [](const Value&) {};
+            return shown;
+        }
         if (n == "setIndex") // (context, index)
             return fn([r, w](Vm&, const Value&, Args a) {
                 widget_set_index(*r, *w, arg_int(a, a.size() > 1 ? 1 : 0), false);
