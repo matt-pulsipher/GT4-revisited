@@ -5,7 +5,7 @@
 // at known places in Gran Turismo 4 SCUS-97328 v1.01, the build the specification was written from;
 // that build is recognized by its code (a hash of the routines that address the tables). For any
 // other program (Prologue, another release) known() is false and the simulation runs on the shared
-// engine's own values.
+// engine's own values (Prologue's own tables where program_prologue.h places them).
 
 #include "gt4r/base/types.h"
 
@@ -29,6 +29,9 @@ public:
     // Why the tables are not the disc's ("the disc's program is not a build whose tables are mapped").
     const std::string& issue() const { return issue_; }
 
+    // The image as loaded at base() (kept for a build that is not known too: program_prologue.h).
+    ByteSpan image() const { return image_; }
+    u32 base() const { return base_; }
     // The image's bytes at a program address (0 outside it).
     u8 b(u32 addr) const;
     u16 h(u32 addr) const { return u16(b(addr) | (b(addr + 1) << 8)); }

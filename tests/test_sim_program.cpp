@@ -69,11 +69,30 @@ TEST(sim_program_params_equal) {
     for (const diff::Field& f : r.fields) {
         if (f.name.rfind("extra ", 0) != 0) continue;
         ++extras;
+        // (The driveline block: its tires' radii and widths, the differentials' settings and the axles' inertias are
+        // still the engine's converter's, a unit or two in the last place: compared by size below.)
+        if (f.name.rfind("extra d.", 0) == 0) continue;
         const size_t allowed = f.name == "extra tire.grip" ? 250 : 0;
         if (f.off > allowed) std::printf("  %s: %zu of %zu differ (%s)\n", f.name.c_str(), f.off, f.values, f.where.c_str());
         CHECK(f.values >= r.cars && f.off <= allowed);
     }
     CHECK(extras > 30);
+    // The driveline block by size: equal but for the tank's tires, one car's axle inertia, the down-shift speeds a
+    // stepless box's hold speed sets (0x360780) or a ratio's last digit moves, and the speed factors of the tank.
+    for (const diff::Field& f : r.fields) {
+        if (f.name.rfind("near d.", 0) != 0) continue;
+        size_t allowed = 0;
+        if (f.name == "near d.down_rpm") allowed = 160;
+        else if (f.name == "near d.gear_speed") allowed = 8;
+        else if (f.name == "near d.tire_radius" || f.name == "near d.inv_tire_radius" || f.name == "near d.wheel_gain") allowed = 2;
+        else if (f.name == "near d.axle_inertia" || f.name == "near d.inv_axle_inertia") allowed = 1;
+        if (f.off > allowed) std::printf("  %s: %zu of %zu differ (%s)\n", f.name.c_str(), f.off, f.values, f.where.c_str());
+        CHECK(f.off <= allowed);
+    }
+    for (const char* name : {"extra d.layout", "extra d.gears", "extra d.kind", "extra d.ratio", "extra d.awd_k", "extra d.awd_capacity", "extra d.launch_rpm"}) {
+        const diff::Field* f = r.field(name);
+        CHECK(f && f->off == 0);
+    }
 }
 
 TEST(sim_program_leaves_equal) {
@@ -92,13 +111,13 @@ TEST(sim_program_step_routines_equal) {
     // The program's own race step on a drive (a start, the gears, turns, the brakes), with each of our
     // routines run in place at every call and compared field by field: equal at every call, for cars of
     // each drive.
-    for (const char* car : {"nsx_r_02", "civic_r_01", "impreza_wrc_03"}) {
+    for (const char* car : {"nsx_r_02", "civic_r_01", "impreza_wrc_03", "r34_gtr_v2_nur_02", "fit_w_ff_01", "a3_32_quattro_03"}) {
         const diff::StepResult r = diff::run_step(*disc, false, "tsukuba", car, 900);
         if (!r.ran) std::printf("  %s: %s\n", car, r.error.c_str());
         CHECK(r.ran && !r.taps.empty());
         for (const diff::StepTap& t : r.taps) {
-            if (t.calls == 0 || t.equal != t.calls) std::printf("  %s, %s: %zu of %zu calls equal\n", car, t.name.c_str(), t.equal, t.calls);
-            CHECK(t.calls > 0 && t.equal == t.calls);
+            if (t.equal != t.calls) std::printf("  %s, %s: %zu of %zu calls equal\n", car, t.name.c_str(), t.equal, t.calls);
+            CHECK((t.calls > 0 || (t.name == "gear" && std::string(car) == "fit_w_ff_01")) && t.equal == t.calls); // (a stepless box's own gear step)
         }
     }
 }

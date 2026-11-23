@@ -2,6 +2,7 @@
 
 #include "base/ee_math.h"
 #include "gt4r/disc/disc.h"
+#include "gt4r/formats/course/ai_line_course.h"
 #include "gt4r/sim/exact_bridge.h"
 #include "gt4r/sim/rules_build.h"
 #include "sim/exact/tick.h"
@@ -82,7 +83,13 @@ struct Field::Driver {
 std::optional<course::AiData> Field::read(Disc& disc, const std::string& course) {
     gt3r::Volume& vol = disc.volume();
     const gt3r::Volume::Entry* e = vol.find("crs/" + course + ".ad");
-    if (!e) return std::nullopt;
+    if (!e) { // Prologue: the lines and sets in the course file (ai_line_course.h)
+        const gt3r::Volume::Entry* c = vol.find("crs/" + course);
+        if (!c) return std::nullopt;
+        const Bytes file = vol.read(*c);
+        if (!course::CourseFile::looks_like_course(file)) return std::nullopt;
+        return course::ai_from_course(course::CourseFile::parse(file), file);
+    }
     const Bytes data = vol.read(*e);
     if (!course::AiData::looks_like(data)) return std::nullopt;
     return course::AiData::parse(data);

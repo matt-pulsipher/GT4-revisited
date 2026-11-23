@@ -2,6 +2,7 @@
 
 #include "gt4r/sim/session.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace gt4r::audio {
@@ -45,6 +46,18 @@ CarSoundState sound_state(const sim::Session& session, size_t i) {
         o.rim_speed = in.rim_speed.host();
         o.width = c.p.width[w >> 1].host();
     }
+    // The gearbox's whine (0x34FED0): the torque through the clutch, the gear's ratio against the
+    // first's, the driven wheels' speed. 🔎 (the program reads its engine torque, F +0x51C, and an
+    // axle speed by the layout, 0x350DA0)
+    s.drive_torque = c.clutch_torque.host();
+    const int gear = std::clamp(int(c.gear), 0, 7);
+    s.gear_ratio = c.p.d.ratio[size_t(gear)].host(), s.low_ratio = c.p.d.ratio[1].host();
+    const size_t axle = c.p.d.driven_axle ? 2 : 0;
+    s.shaft_speed = 0.5f * (std::fabs(car.wheels[axle].spin_rate) + std::fabs(car.wheels[axle + 1].spin_rate));
+    // The step's contact and landings, as the seam publishes them.
+    const CarSoundState seam = sound_state(car);
+    s.contact = seam.contact, s.contact_kind = seam.contact_kind;
+    for (size_t w = 0; w < 4; ++w) s.wheels[w].landing = seam.wheels[w].landing;
     return s;
 }
 

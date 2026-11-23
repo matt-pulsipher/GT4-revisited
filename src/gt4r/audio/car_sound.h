@@ -41,6 +41,7 @@ struct CarSoundFiles {
     int id = 0;          // the engine sound's number
     int muffler = 0;     // 0..3
     bool turbo = false;
+    bool whine = false;  // a gearbox that whines: its GEAR row's byte +0x22 (0x4462A0) 🔎 or a car of kind 2 (not read)
     std::string variant; // "normal0" .. "turbo3"
     std::string engine;  // "sound/engine/00123"; empty when the car is not in the database
     std::string exhaust; // "sound/normal0/00123"
@@ -92,7 +93,7 @@ struct CarSoundState {
     int turbine_level = 0;              // the spool's level, 0..127
     int turbine_pitch = 0;              // 6144: the recording's pitch
     float blow_off = 0;                 // the valve's strength this step
-    bool gear_whine = false;            // a gearbox that whines
+    bool gear_whine = false;            // a gearbox that whines (or the car's files say it does)
     float drive_torque = 0;             // through the clutch, N m
     float gear_ratio = 1, low_ratio = 1; // the gear's ratio and the whine's reference
     float shaft_speed = 0;              // rad/s
@@ -103,9 +104,16 @@ struct CarSoundState {
     std::array<WheelSoundState, 4> wheels{}; // front left, front right, rear left, rear right
 };
 
+// A contact's strength as the program records it (0x350328): kind 0 (a wall) its force / 50,000 N,
+// kind 1 (another car) twice the closing speed in m/s, kind 2 |value / 50| and at least 0.2; at
+// most 1, and under 0.2 none (0).
+float contact_strength(int kind, float value);
+
 // From what the simulation's seam gives. What it lacks is estimated: the skid's pitch from
-// the slip, the rim's speed from the car's, the engine's quietest throttle (3/8); no turbo,
-// whine, contact or landing.
+// the slip, the rim's speed from the car's, the engine's quietest throttle (3/8); no turbo or
+// whine. The seam's contact (race::CarState::contact: a wall's force in N, another car's closing
+// speed in m/s) is recorded as the program's kinds 0 and 1; a wheel landing is heard at the
+// strength of the car's speed downward (m/s) / 5, under 0.5 not at all. 🔎
 CarSoundState sound_state(const race::CarState& car);
 
 // Where the sounds are heard from: the camera.
@@ -215,6 +223,7 @@ private:
     Effect turbine_fx_, whine_fx_, cabin_fx_, nitrous_fx_, blow_off_fx_, landing_fx_, backfire_fx_[2], clash_fx_[3];
     std::array<Effect, kWheelNotes> wheel_fx_{};
     Loop turbine_, whine_, cabin_, nitrous_;
+    gt3r::SurroundCue cue_[3], wheel_cue_[4]; // the engine's, the body's, the exhaust's places; each wheel's
     std::array<std::array<Loop, kWheelNotes>, 4> wheels_{};
     Report report_;
 };

@@ -6,6 +6,7 @@
 // game_natives.cpp. docs/formats/menu.md ("The game's state").
 
 #include "gt4r/base/types.h"
+#include "gt4r/sim/equipment.h"
 
 #include <algorithm>
 #include <array>
@@ -52,16 +53,23 @@ struct RaceRequest {
     int garage_slot = -1, garage_slot_2p = -1;
 };
 
+// No time: the program's 359,999,999 ms (shown "--'--.---").
+constexpr u32 kNoTime = 359'999'999;
+
 // What a race gives back to the menus (the race side fills it): the program's result routines
-// (0x114498 an event, 0x1105A8 a license test, 0x11C328 a mission, 0x115A90 on a course's run)
-// write it into the game's records, the diary and the counters.
+// (0x114498 an event, 0x119CB8 / 0x119F28 a championship's race and its last, 0x1105A8 a
+// license test, 0x11C328 a mission, 0x115A90 on a course's run) write it into the game's
+// records, the diary, the counters and the race's menus (MQuickWork: the prize, the rows in
+// finishing order, the player's place; a championship's points, grand prize and rank).
 struct RaceResult {
-    enum class Kind { Event, License, Mission, Course };
+    enum class Kind { Event, License, Mission, Course, Championship };
     Kind kind = Kind::Event;
-    std::string race;      // the RACE label as the request had it ("am_sunday_0001", "l0b0001")
+    std::string race;      // the RACE label as the request had it ("am_sunday_0001", "l0b0001"); a championship's race: the race run ("..._0501")
+    std::string series;    // a championship: its own label ("..._0500")
     std::string course;    // the course's label (a course's run)
     int course_kind = 1;   // a course's run: 1 free run, 2 event, 3 practice, 4 photo, 6 machine test, 7 time trial
     bool finished = true;
+    bool watched = false;  // the player watched (Spectator, B-spec): no record of the player's own driving
     int place = 0;         // 0: first
     std::string result;    // a test's: "gold", "silver", "bronze", "failed", ... (the result names)
     u32 time_ms = 0;       // the whole race's time
@@ -69,6 +77,15 @@ struct RaceResult {
     float distance_m = 0;  // what the car driven covered
     int score = -1;        // the race's A-spec points (-1: none)
     int garage_slot = -1;  // the car driven's place in the garage (-1: not a garage car)
+    // Every car in finishing order (the player's place in it is `place` when it finished).
+    struct Finisher {
+        int entry = 0;     // 0: the player's; else the entry's index on the grid (the same car through a championship)
+        std::string car;   // its label
+        int paint = 0;
+        bool finished = true;
+        u32 time_ms = kNoTime;
+    };
+    std::vector<Finisher> order;
 };
 
 // A car's record as the garage keeps it: the program's CarGarage (0x4B8 bytes, saved as they
@@ -137,7 +154,6 @@ struct DayEvent {
 
 // A ranking (a license test's, a course's): 10 entries, best first, kept as the program's
 // bytes; and a course's unit has its course's code.
-constexpr u32 kNoTime = 359'999'999; // shown "--'--.---"
 constexpr size_t kLicenseUnit = 0x1F8, kLicenseUnits = 125, kCourseUnit = 0x238, kCourseUnits = 128, kMachineUnits = 4;
 
 struct GameState {
@@ -148,6 +164,27 @@ struct GameState {
     std::vector<std::string> menu_stack; // menuPush / menuPop / menuRef
 
     RaceRequest race; // the race being set up
+
+    // The music's play lists (the program's MPlayList, 0x437E50 .. 0x4382B0; the option object's
+    // `bgm_playlist`, the races' music, and `slide_playlist`; saved in the option block,
+    // docs/formats/save.md "The play lists"): a row a piece of the streamed `racing` group
+    // (its count in `rows`), each enabled or not, its place in the playing order, played this
+    // round or not; the position in the order, shuffled or not, the shuffle's seed.
+    struct PlayList {
+        struct Row {
+            u64 kept = 0; // the row's first 8 bytes, as loaded (❓ not named)
+            u8 played = 0, enabled = 1;
+            gt3r::s8 order = -1, order2 = -1; // the place in the playing order (-1 none); its copy (the scripts' [3])
+            u32 kept_tail = 0;
+        };
+        u32 rows = 0; // 0 until the menus fill the list: then the racing group's pieces
+        u16 position = 0;
+        u8 shuffle = 0, none = 1; // shuffled; no row enabled
+        u16 seed = 0;
+        u32 kept = 0; // the header's last word
+        std::array<Row, 128> row{};
+    };
+    PlayList bgm_playlist, slide_playlist;
 
     // MOption's attributes by name. `option_defaults` fills them as a new game has them.
     std::map<std::string, OptionValue> options;
@@ -186,6 +223,7 @@ struct GameState {
     // The garage: its list, the car driven, the key and serial that tie the saved files.
     std::vector<GarageEntry> garage;
     int riding_car = -1; // the list's place; -1: none
+    bool riding_fresh = false; // the car driven was changed to one never driven (its record made as sold)
     u32 garage_key = 0, garage_serial = 0;
     std::array<s32, 4> garage_kept{}; // the four words after the key (not named)
     int garage_count() const;
@@ -210,15 +248,38 @@ struct GameState {
     int suspended = 0, suspended_session = 0;
     Bytes championship_rest; // the context's bytes past the named ones (0x88 in all)
     // The menus' place kept in the save (Context: the major project and page, the menu stack).
-    int saved_menu_depth = -1;
+    int saved_menu_depth = -1; // the kept stack's length in bytes (-1: none kept)
     Bytes saved_menu_stack;
 
     // Everything saved that is not named above, as the last loaded game had it (a new game: as
     // the program's constructors make it). The save module writes the named fields over it.
     Bytes saved_image;
 
+    // Something to save (MGame.isNeedSave answers it and clears it, 0x43AC68): a day put in the
+    // diary sets it (0x42F0E0), as does setNeedSave.
     bool need_save = false;
     bool during_quick_menu = false;
+
+    // A race sequence (the menus left for a race, until they are back): what its result routines
+    // keep between its runs. A sequence starts when the scripts that asked for it finish.
+    struct RaceSession {
+        int best_place = 15; // the best place finished in it (an event's record follows a better one only, 0x114498)
+    } race_session;
+    bool sequence_asked = false; // next_sequence was set by the scripts since the last project
+    // A championship under way (the program's series object, 0x3EEFE0 on): its label, the races
+    // run of its count, and its entrants (0 the player's): the car's code, its paint, the points.
+    struct Series {
+        std::string label;
+        int races_run = 0, race_count = 0;
+        struct Entrant {
+            u64 code = ~u64(0);
+            s32 paint = 0, points = 0;
+        };
+        std::vector<Entrant> entrants;
+    } series;
+    // The championship is left in the middle (keep) or closed (0x119BD8): a kept one is saved
+    // in the game's championship block and taken up again from it.
+    void suspend_series(bool keep);
 
     GameState();
     void new_game(); // the constructors' values: no car, no records, the first day
@@ -234,5 +295,10 @@ struct GameState {
     // The race's menus' shared object (MQuickWork): race_natives.h.
     std::shared_ptr<QuickWork> quick_work;
 };
+
+// The car a race takes from the garage (RaceRequest::garage_slot): the sheet in use of its
+// record, the program's car equipment record as it is (docs/formats/save.md "The car
+// record"). Nothing for a place without a driven car's record.
+std::optional<sim::Equipment> race_equipment(const GameState& game, int garage_slot);
 
 } // namespace gt4r::menu

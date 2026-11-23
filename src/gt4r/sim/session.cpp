@@ -1,10 +1,12 @@
 #include "gt4r/sim/session.h"
 
 #include "gt4r/sim/rules_build.h"
+#include "gt4r/sim/rules_start.h"
 
 #include "base/ee_math.h"
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/course/course_file.h"
+#include "gt4r/formats/course/runway_gtrw.h"
 #include "gt4r/sim/exact_bridge.h"
 #include "sim/exact/build_math.h"
 #include "sim/exact/car_fields.h"
@@ -130,13 +132,13 @@ std::unique_ptr<Session> Session::open(Disc& disc, const std::string& course, st
     const Bytes data = vol->read(*file);
     if (!course::CourseFile::looks_like_course(data)) throw std::runtime_error("session: " + course + " is not a course");
     const course::CourseFile parsed = course::CourseFile::parse(data);
-    const ByteSpan section = parsed.section(data, course::kSlotRunway);
-    if (!course::Runway::is_runway(section)) throw std::runtime_error("session: the course " + course + " has no road");
+    std::optional<course::Runway> road = course::course_road(parsed, data); // (RNW4, or Prologue's GTRW)
+    if (!road) throw std::runtime_error("session: the course " + course + " has no road");
     const Program program = Program::load(disc);
     std::vector<Entry> entries(cars.size());
     for (size_t i = 0; i < cars.size(); ++i)
         if (!stock_car(db, program, cars[i], entries[i].equipment)) throw std::runtime_error("session: no car " + cars[i]);
-    return std::make_unique<Session>(db, program, std::make_shared<const course::Runway>(course::Runway::parse(section)), entries);
+    return std::make_unique<Session>(db, program, std::make_shared<const course::Runway>(std::move(*road)), entries);
 }
 
 Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const course::Runway> road, std::span<const Entry> entries) : road_(std::move(road)) {
@@ -211,10 +213,20 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
             }
         }
         c.pedal_style = e.automatic ? 0 : 1;
-        // The start place: the entry's, or one further back along the first place's line when the grid is shorter.
+        // The start place: the entry's, or one further back along the first place's line when the grid is shorter;
+        // a rolling start's on the road's middle at its distance along the course.
         const int want = e.grid_place >= 0 ? e.grid_place : int(i);
         course::Runway::Place at = places[size_t(want) % places.size()];
-        if (size_t(want) >= places.size()) {
+        if (!std::isnan(e.start_distance) && road_->length > 0) {
+            float v = std::fmod(e.start_distance, road_->length);
+            if (v < 0) v += road_->length;
+            Vec3 point, dir, middle;
+            ground_->middle_at(v, point, dir);
+            if (ground_->road_middle(v, start.material, point, middle)) point = middle;
+            at.pos = point, at.heading = std::atan2(dir.x, dir.z);
+            GroundHit h;
+            if (ground_->at_place(at.pos, h)) at.pos.y = h.point.y;
+        } else if (size_t(want) >= places.size()) {
             at = places[0];
             const float back = 8.0f * float(want);
             at.pos.x -= std::sin(at.heading) * back, at.pos.z -= std::cos(at.heading) * back;
@@ -237,6 +249,13 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
     // The start's hold: the cars held as during a start's countdown until the engines idle and the
     // bodies have settled on their springs.
     for (int i = 0; i < kHoldSteps; ++i) hold_once({});
+    // A rolling start: the cars moving at time 0 (the car's set-up, 0x363868), the throttle open as the computer
+    // that drives every car's run-up leaves it.
+    for (size_t i = 0; i < cars_.size(); ++i) {
+        if (!(entries[i].start_speed > 0)) continue;
+        rules::moving_start(cars_[i], gx_[i].drive, F(entries[i].start_speed), true);
+        publish(i);
+    }
 }
 
 void Session::hold_once(std::span<const race::CarInput> inputs) {
@@ -390,6 +409,23 @@ void Session::collide() {
         c.pos = {b.cx, b.cy, b.cz};
         c.vel = {b.cvx, b.cvy, b.cvz};
         c.heading = b.ch, c.yaw_rate = b.cw;
+        // The step's contact as the collision step leaves it on the body: the summed impulses' strength (at most 1),
+        // whether a wall or a car was met, and the car: one that was met this step whose edge this body's vertex met
+        // (the body's last pair), or whose vertex met this body's edge (that body's last pair), or on whose edge a
+        // vertex of this body is held.
+        Extra& x = extra_[i];
+        x.contact = b.car_hit || b.wall_hit ? std::min(b.strength.host(), 1.0f) : 0.0f;
+        x.contact_kind = b.car_hit ? 2 : b.wall_hit ? 1 : 0;
+        x.contact_car = -1;
+        if (b.car_hit) {
+            auto met = [&](int k) { return k >= 0 && size_t(k) < bodies_.size() && size_t(k) != i && bodies_[size_t(k)].car_hit; };
+            if (met(b.other) && size_t(bodies_[size_t(b.other)].other) != i) x.contact_car = b.other;
+            for (size_t k = 0; x.contact_car < 0 && k < bodies_.size(); ++k)
+                if (met(int(k)) && size_t(bodies_[k].other) == i) x.contact_car = int(k);
+            for (const cx::Point& q : b.p)
+                if (x.contact_car < 0 && (q.flags & 2) && met(q.other)) x.contact_car = q.other;
+            if (x.contact_car < 0 && met(b.other)) x.contact_car = b.other;
+        }
     }
 }
 
@@ -415,7 +451,7 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
 
         ex::save_previous(c);
         ex::prep(c, race_.prep);
-        if (gt4_rules_) rules::prep_tires(c, gx_[i], layouts_[i], tables_);
+        if (gt4_rules_) rules::prep_tires(c, gx_[i], layouts_[i], tables_, race_.prep.condition);
         if (in.computer) {
             // A computer driver's outputs into the controls as the program's drivers write them (0x464F38).
             c.full_throttle = 1;
@@ -437,9 +473,10 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
         if (gt4_rules_) rules::slip_phase(c, gx_[i], layouts_[i], tables_);
         else ex::slip_ratios(c, race_.statics);
         ex::aids(c, race_.aids);
-        if (gt4_rules_) rules::dynamics(c, gx_[i], layouts_[i], tables_, race_.statics, race_.gears);
+        if (gt4_rules_) rules::dynamics(c, gx_[i], layouts_[i], tables_, !std::isnan(in.steer_angle));
         else ex::dynamics(c, race_.statics, race_.gears, race_.class_grip);
-        ex::brake_heat(c, race_.brake_heat);
+        if (gt4_rules_) rules::brake_heat(c, layouts_[i], tables_.brake_heat, gx_[i].drive.d.tire_radius);
+        else ex::brake_heat(c, race_.brake_heat);
         ex::clear_feedback(c);
     }
     collide();
@@ -486,6 +523,14 @@ void Session::publish(size_t i) {
     s.steer = lock > 0 ? -c.steer_cmd.host() / lock : 0;
     s.brake_lamps = c.brake_pedal.host() > 0;
     s.reverse_lamps = c.gear == 0;
+    s.contact = x.contact, s.contact_kind = x.contact_kind, s.contact_car = x.contact_car;
+    // A wheel back on the ground: loaded at this step's end after a step without load.
+    s.landed = false;
+    for (size_t w = 0; w < 4; ++w) {
+        const bool air = (c.w[w].flags & 1) != 0 || c.g[w].miss;
+        if (x.airborne[w] && !air) s.landed = true;
+        x.airborne[w] = air;
+    }
     for (size_t w = 0; w < 4; ++w) {
         const ex::Wheel& wheel = c.w[w];
         race::WheelState& o = s.wheels[w];
