@@ -460,11 +460,20 @@ void Runtime::start_project(const std::string& name, const std::string& language
         events_.push_back(std::move(e));
     };
     load(root_widget_);
-    // A project whose onLoad opens no page starts on its first one (Prologue's projects).
-    // ❓ Which page the program takes (its getStartPage) is not read.
+    // A project whose onLoad opens no page: Prologue's projects name their first page by their
+    // getStartPage(arg), given the project's argument (main::game.next_menu_arg; "" none); else the
+    // first page.
     Event first;
     first.kind = Event::Kind::Call, first.what = "the first page";
-    first.callee = Vm::native("first page", [this](Vm&, const Value&, Args) {
+    const std::string start_arg = game_->next_menu_arg;
+    first.callee = Vm::native("first page", [this, start_arg](Vm&, const Value&, Args) {
+        if (pages_.empty() && !finished_ && root_widget_) {
+            const Value page = call_now(*root_widget_, "getStartPage", {Value::string(start_arg)});
+            if (const auto live = page.as<LiveWidget>(); live && live->is("RootWindow")) {
+                open_page(live, true);
+                return Value{};
+            }
+        }
         if (pages_.empty() && !finished_ && root_widget_)
             for (const auto& page : root_widget_->children)
                 if (page->is("RootWindow")) {

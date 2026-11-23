@@ -145,6 +145,8 @@ void make_used_condition(Database& d, CarRecord& r, u32 meters);
 
 // ---- game_records.cpp
 void install_records(GameNatives& n, Object& game, script::Module& menu);
+// Gran Turismo 4 Prologue's main::game.license (prologue_natives.cpp).
+void install_prologue_license(Object& game);
 
 // ---- game_race.cpp
 void install_race_classes(GameNatives& n, script::Module& menu);

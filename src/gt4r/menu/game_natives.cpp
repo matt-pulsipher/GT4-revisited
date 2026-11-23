@@ -732,6 +732,7 @@ g.method("menuRef", [s](Vm&, const Value&, Args a) {
 
     // The calendar, the records, the favorites, the presents, the used cars (game_records.cpp).
     install_records(*this, g, *rt.vm().lookup("menu").as<script::Module>());
+    install_prologue_license(g);
     (void)r;
     return object_value(game);
 }
