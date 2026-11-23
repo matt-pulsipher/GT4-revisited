@@ -202,3 +202,108 @@ TEST(rail_simulation_disc) {
     }
     if (!ran) SKIP("no Gran Turismo 4 disc");
 }
+
+// --- The race display's numbers ---
+
+#include "disc/core_image.h"
+#include "gt4r/race/race_display.h"
+
+TEST(race_display_numbers) {
+    CHECK(race::format_lap_time(83456) == "1'23.456");
+    CHECK(race::format_lap_time(0) == "0'00.000");
+    CHECK(race::format_lap_time(10 * 60000 + 5) == "10'00.005");
+    CHECK(race::format_lap_time(-1) == "\x7F'\x7F\x7F.\x7F\x7F\x7F"); // the font's dash
+    // The bar's 40 segments: full at the red line / 0.7.
+    CHECK(race::rev_bar_fraction(0, 7000) == 0);
+    CHECK(std::fabs(race::rev_bar_fraction(7000, 7000) - 0.7f) < 1e-6f);
+    CHECK(race::rev_bar_fraction(10000, 7000) == 1);
+    CHECK(std::fabs(race::rev_bar_fraction(5100, 7000) - 20.0f / 40) < 1e-6f); // 0.51 of the bar: 20 whole segments
+    // A color's 0x80 is full strength.
+    const race::Rgba8 c = race::gs_color(0x80402010u);
+    CHECK(c.r == 0x10 * 255 / 128 && c.g == 0x20 * 255 / 128 && c.b == 0x40 * 255 / 128 && c.a == 255);
+    CHECK(race::gs_color(0x80FFFFFFu, 0.5f).r == 255 && race::gs_color(0x80FFFFFFu, 0.5f).a == 127);
+    // Anchors: the middle tied to the left side; the right edge tied to the right.
+    const race::DisplayPlace word{0, 56, 21, 0, 0, 6, 0};
+    race::DisplayRect r = race::place_rect(word, 74, 20, false);
+    CHECK(r.x == 56 - 37 && r.y == 21 && r.w == 74 && r.h == 20);
+    r = race::place_rect(word, 74, 20, true);
+    CHECK(r.x == 56 - 37 - 96);
+    const race::DisplayPlace plate{0, 614, 420, 82, 26, 13, 0};
+    r = race::place_rect(plate, 0, 0, true);
+    CHECK(r.x == 614 + 96 - 82 && r.w == 82);
+    const race::DisplayPlace box{0, 56, 86, 42, 45, 6, 1};
+    r = race::place_rect(box, 42, 42, false);
+    CHECK(r.x == 35 && r.y == 41 && r.h == 45);
+    // Dials.
+    CHECK(race::rev_dial_maximum(7500) == 8000 && race::rev_dial_maximum(7000) == 7000 && race::rev_dial_maximum(8200) == 9000);
+    CHECK(std::fabs(race::needle_angle(0, 0, 240, 56, 276) - 146) < 1e-4f);
+    CHECK(std::fabs(race::needle_angle(240, 0, 240, 56, 276) - 366) < 1e-4f);
+    CHECK(std::fabs(race::needle_angle(999, 0, 240, 56, 276) - 368) < 1e-4f); // two degrees past the end at most
+    // The map's numbers: the middle of the course at the middle of the picture, turned.
+    race::CourseMap m;
+    m.image.width = 180, m.image.height = 180;
+    m.center_x = 10, m.center_z = -20, m.scale = 0.5f, m.rotation = 90;
+    float px, py;
+    m.map(10, -20, px, py);
+    CHECK(px == 90 && py == 90);
+    m.map(30, -20, px, py); // 20 m along +x, a quarter turn: down the picture
+    CHECK(std::fabs(px - 90) < 1e-3f && std::fabs(py - 100) < 1e-3f);
+    // A program that is not the one read: no places.
+    const Bytes zeros(0x700000, 0);
+    CHECK(!race::read_single_race_layout(zeros, 0x100000).valid());
+    CHECK(race::read_rev_faces(zeros, 0x100000).empty());
+}
+
+TEST(race_display_disc) {
+    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    size_t ran = 0;
+    for (const auto& disc : test::discs()) {
+        if (disc->info().serial.rfind("SCUS_973.28", 0) != 0) continue;
+        const gt3r::CoreImage core = gt3r::CoreImage::decode(disc->read_program());
+        const race::DisplayLayout layout = race::read_single_race_layout(core.program, core.load_address);
+        CHECK(layout.valid());
+        const race::DisplayPlace* rank = layout.find(race::element::kPosition);
+        CHECK(rank && rank->x == 56 && rank->y == 86 && rank->w == 42 && rank->h == 45 && rank->anchor_x == 6 && rank->anchor_y == 1);
+        const race::DisplayPlace* map = layout.find(race::element::kMap);
+        CHECK(map && map->x == 24 && map->y == 96 && map->anchor_x == 4);
+        const race::DisplayPlace* best = layout.find(race::element::kBestTime);
+        CHECK(best && best->x == 550 && best->y == 58 && best->anchor_x == 14);
+        CHECK(layout.find(race::element::kLapTime) && layout.find(race::element::kLastTime) && layout.find(race::element::kMessage));
+        // The dials' faces.
+        const std::vector<race::DialFace> revs = race::read_rev_faces(core.program, core.load_address);
+        CHECK(revs.size() == 9);
+        if (revs.size() == 9) {
+            CHECK(revs[0].picture == "rev_4000" && revs[0].max == 4000 && revs[0].min == 0);
+            CHECK(revs[4].picture == "rev_8000" && revs[4].min == 1000);
+            CHECK(revs[8].picture == "rev_18000" && revs[8].min == 2000);
+            const race::DialFace* f = race::pick_face(revs, 8000);
+            CHECK(f && f->picture == "rev_8000");
+            CHECK(race::pick_face(revs, 15000)->picture == "rev_18000");
+        }
+        const std::vector<race::DialFace> kmh = race::read_speed_faces(core.program, core.load_address, false);
+        const std::vector<race::DialFace> mph = race::read_speed_faces(core.program, core.load_address, true);
+        CHECK(kmh.size() == 4 && mph.size() == 3);
+        if (kmh.size() == 4) CHECK(kmh[3].picture == "speed_320km" && race::pick_face(kmh, 240)->picture == "speed_240km");
+        // Every course's map puts the grid's first place on the picture.
+        size_t maps = 0;
+        for (const gt3r::Volume::Entry& e : disc->volume().entries()) {
+            if (e.path.compare(0, 4, "crs/") != 0 || e.path.find('/', 4) != std::string::npos || e.path.find('.') != std::string::npos) continue;
+            if (e.path.compare(0, 7, "crs/ss_") == 0) continue; // (the photo locations' maps are an older layout)
+            const Bytes data = disc->volume().read(e);
+            if (!course::CourseFile::looks_like_course(data)) continue;
+            const course::CourseFile file = course::CourseFile::parse(data);
+            const race::CourseMap m = race::CourseMap::parse(file.section(data, course::kSlotMiniMap));
+            const ByteSpan rs = file.section(data, course::kSlotRunway);
+            if (!m.valid() || !Runway::is_runway(rs)) continue;
+            const Runway road = Runway::parse(rs);
+            if (road.grid.empty()) continue;
+            float px, py;
+            m.map(road.grid[0].pos.x, road.grid[0].pos.z, px, py);
+            CHECK(px >= 0 && py >= 0 && px < float(m.image.width) && py < float(m.image.height));
+            ++maps;
+        }
+        CHECK(maps >= 80);
+        ++ran;
+    }
+    if (!ran) SKIP("no Gran Turismo 4 US disc");
+}

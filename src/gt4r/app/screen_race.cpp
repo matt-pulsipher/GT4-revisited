@@ -5,9 +5,11 @@
 // sets it up without the lists, for pictures: `course` a course file's name, `car` a car's label
 // (or its model's name), `cars` how many on the grid, `view` in | chase | roof | back, `drive`
 // auto (the simple driver takes the first car too) or pad, `skip` simulation steps run before the
-// first picture, `paint` the first car's paint.
+// first picture (the start's countdown is left out then), `paint` the first car's paint, `laps` the
+// race's length.
 
 #include "gt4r/app/app.h"
+#include "gt4r/app/race_hud.h"
 
 #include "base/log.h"
 #include "gt4r/formats/course/course_file.h"
@@ -48,6 +50,7 @@ struct Setup {
     int skip = 0;
     u32 paint = 0;
     bool hud = true;
+    int laps = 3;
     bool scripted = false; // from GT4R_RACE: no lists
 };
 
@@ -71,6 +74,7 @@ Setup setup_from_env() {
         else if (k == "skip") s.skip = std::max(0, std::atoi(v.c_str()));
         else if (k == "paint") s.paint = u32(std::max(0, std::atoi(v.c_str())));
         else if (k == "hud") s.hud = v != "0";
+        else if (k == "laps") s.laps = std::clamp(std::atoi(v.c_str()), 1, 99);
     }
     return s;
 }
@@ -128,6 +132,9 @@ public:
         sim_ = rail_.get();
         inputs_.resize(size_t(setup.cars));
         camera_.reset(sim_->cars()[0]);
+        // The count before the start: three seconds (a scripted run that skips ahead has none).
+        started_with_count_ = setup.skip == 0;
+        countdown_ = started_with_count_ ? 3 * 60 : 0;
         for (int i = 0; i < setup.skip; ++i) step(gt3r::PadState{}, true);
         view_ = std::make_unique<render::View3D>(gpu);
         mount_ = setup.view;
@@ -146,6 +153,16 @@ public:
     // simple driver, each on its own side of the line.
     void step(const gt3r::PadState& pad, bool auto_drive) {
         const std::span<const race::CarState> cars = sim_->cars();
+        // The start: the cars stand through the count.
+        if (countdown_ > 0) {
+            --countdown_;
+            mapper_.update(pad, kStep);
+            std::fill(inputs_.begin(), inputs_.end(), race::CarInput{});
+            for (race::CarInput& in : inputs_) in.brake = 1;
+            sim_->step(inputs_, kStep);
+            return;
+        }
+        auto_drive = auto_drive || finished_;
         for (size_t c = 0; c < inputs_.size(); ++c)
             inputs_[c] = race::follow_line(rail_->line(), cars[c], c & 1 ? 2.0f : -2.0f, 1.0f - 0.05f * float(c));
         if (!auto_drive) {
@@ -157,9 +174,71 @@ public:
             me.reverse = mapper_.reverse();
             if (me.reverse) me.throttle = std::max(me.throttle, gt3r::race::pressure_to_pedal(pad.press(PadButton::Triangle)));
         }
+        const int lap_before = cars[0].lap;
         sim_->step(inputs_, kStep);
         camera_.step(sim_->cars()[0], kStep);
         ++steps_;
+        // The player's laps: a lap's time runs from one crossing of the line to the next (the
+        // first from the start).
+        const int lap = sim_->cars()[0].lap;
+        if (lap > lap_before && !finished_) {
+            if (lap >= 1) {
+                last_ms_ = s64(steps_ - lap_start_) * 1000 / 60;
+                if (best_ms_ < 0 || last_ms_ < best_ms_) best_ms_ = last_ms_;
+                event_lap_ = lap, event_steps_ = 0;
+                if (lap >= setup_.laps) finished_ = true, finish_steps_ = 0;
+            }
+            lap_start_ = steps_;
+        }
+        if (event_steps_ >= 0) ++event_steps_;
+        if (finished_) ++finish_steps_;
+    }
+
+    // What the race display shows now.
+    void fill(HudState& h, const RaceHud& hud) const {
+        const std::span<const race::CarState> cars = sim_->cars();
+        const race::CarState& me = cars[0];
+        const race::CarSpec& spec = car_visuals_[0]->spec();
+        h.speed = me.speed, h.rpm = me.engine_rpm, h.gear = me.gear;
+        h.red_line = spec.red_line, h.rev_limit = spec.rev_limit;
+        h.driver_view = mount_ != race::DriveCamera::kChase;
+        // The place: by laps and distance along the course.
+        const float length = rail_->line().length;
+        auto progress = [&](const race::CarState& c) { return float(c.lap) * length + c.course_v; };
+        h.place = 1;
+        h.cars.clear();
+        for (const race::CarState& c : cars) {
+            h.place += &c != &me && progress(c) > progress(me);
+            h.cars.push_back({c.position.x, c.position.z});
+        }
+        h.lap = std::clamp(me.lap + 1, 1, setup_.laps), h.laps = setup_.laps;
+        h.lap_ms = finished_ ? last_ms_ : countdown_ > 0 ? 0 : s64(steps_ - lap_start_) * 1000 / 60;
+        h.best_ms = best_ms_, h.last_ms = last_ms_;
+        h.time = double(steps_) / 60;
+        // A window of a line or message: full for `hold` seconds, then fading out.
+        auto window = [](int steps, float hold, float fade) {
+            const float t = float(steps) / 60;
+            return t < 0 ? 0.0f : t < hold ? 1.0f : std::max(0.0f, 1 - (t - hold) / fade);
+        };
+        h.message.clear(), h.message_opacity = 0;
+        if (countdown_ > 0) {
+            // The whole seconds left, each for 0.8 s and a fade of 0.15 s.
+            const int left = (countdown_ + 59) / 60;
+            h.message = std::to_string(left);
+            h.message_opacity = window(left * 60 - countdown_, 0.8f, 0.15f);
+        } else if (finished_) {
+            h.message = hud.word("RaceFinish");
+            h.message_opacity = window(finish_steps_, 3.7f, 0.3f);
+        } else if (started_with_count_ && steps_ < 90) {
+            h.message = hud.word("RaceStart");
+            h.message_opacity = window(steps_, 1.0f, 0.15f);
+        }
+        h.event.clear(), h.event_opacity = 0;
+        if (event_steps_ >= 0 && event_steps_ < 200) {
+            // "L1/3   1'23.456" for three seconds.
+            h.event = hud.word("WordOfLapTime") + std::to_string(event_lap_) + "/" + std::to_string(setup_.laps) + "   " + race::format_lap_time(last_ms_);
+            h.event_opacity = std::min(1.0f, float(event_steps_) / 9.0f) * window(event_steps_, 3.0f, 0.15f);
+        }
     }
 
     void next_view() {
@@ -312,6 +391,9 @@ private:
     gt3r::race::LampGlows lamps_;
     gt3r::race::Billboards billboards_;
     render::ScreenBatch overlay_;
+    int countdown_ = 0, lap_start_ = 0, event_steps_ = -1, event_lap_ = 0, finish_steps_ = 0;
+    bool started_with_count_ = false, finished_ = false;
+    s64 best_ms_ = -1, last_ms_ = -1;
     bool night_ = false, env_ready_ = false;
     int mount_ = race::DriveCamera::kChase;
     int steps_ = 0, frame_ = 0;
@@ -358,6 +440,7 @@ public:
         if (paused_) {
             if (m.pressed(PadButton::Triangle)) {
                 report();
+                hud_.reset();
                 race_.reset();
                 paused_ = false;
                 if (setup_.scripted) app.pop();
@@ -383,7 +466,14 @@ public:
         }
         const Uint64 t0 = SDL_GetTicksNS();
         race_->render(ui, {0, 0, float(Ui::kWidth), float(Ui::kHeight)}, look_back_);
-        if (setup_.hud) draw_overlay(ui);
+        if (setup_.hud) {
+            if (hud_ && hud_->ready()) {
+                race_->fill(hud_state_, *hud_);
+                hud_->draw(ui, hud_state_);
+            } else {
+                draw_overlay(ui);
+            }
+        }
         if (paused_) {
             ui.fill(0, 0, Ui::kWidth, Ui::kHeight, Color{0, 0, 0, 120});
             ui.text_center(Ui::kHeight / 2 - 10, "PAUSED", colors::kText);
@@ -411,6 +501,7 @@ private:
         }
         try {
             race_ = std::make_unique<Race>(app, setup_, cars_);
+            hud_ = std::make_unique<RaceHud>(app, race_->course().section(course::kSlotMiniMap));
             work_ms_.clear(), interval_ms_.clear();
             last_frame_ns_ = 0, clock_ = 0;
         } catch (const std::exception& e) {
@@ -478,6 +569,8 @@ private:
     std::vector<db::CourseEntry> courses_;
     int course_sel_ = 0, car_sel_ = 0, column_ = 0;
     std::unique_ptr<Race> race_;
+    std::unique_ptr<RaceHud> hud_;
+    HudState hud_state_;
     std::string error_;
     bool paused_ = false, look_back_ = false;
     double clock_ = 0;
