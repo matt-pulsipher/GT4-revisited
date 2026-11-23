@@ -65,14 +65,24 @@ none compared with the program's own code yet):
 | `ImageFace` `image_path`, `color` | The picture over the rectangle, tinted; `blend` 1 adds |
 | `FrameImageFace` `tl_`, `t_`, `tr_`, `l_`, `r_`, `bl_`, `b_`, `br_image_path`, `image_path` | Corners at their own size, sides stretched between, the middle over the rest |
 | `TextFace` `text`, or `key` | The text; a key is looked up in the page's text (below) |
-| `font` | A font's name (below); `hm_16` when absent or unknown |
+| `font` | A font's name (below); `hn_14` when absent (the text style's default, 0x246F58); ❓ `hm_16` for a name the files do not have (`sw_20`, `sw_12`) |
 | `align` | Where in the rectangle: 0 to 8, rows from the top, columns from the left; the middle when absent |
-| `scale_x`, `scale_y`, `text_color`, `shadow`, `shadow_color` | The glyphs' scale and colour; a copy offset by `shadow` behind |
+| `scale_x`, `scale_y`, `text_color`, `shadow`, `shadow_color` | The glyphs' scale and colour (212, 212, 212 when absent); a copy offset by `shadow` behind |
+| `translate`, `rotate`, `scale`, `skew` | The widget's transform, carried to its children (below) |
+| `ColorFace` `round` | With one colour: the corners rounded to that radius (at most half a side), 8 steps each (0x2857C0) |
+| `ImageFace` `texcoord` | The picture's coordinates of the four corners, clockwise from the top left; `from_disk` 1: `image_path` is a Tex1 file of the disc (`piece/nation_bg/japan.img`) |
 
-❓ Not drawn: `round`, `rotate`, `scale`, `skew`, `texcoord`, `ModelFace`, `CarFace`,
-`MovieFace`, `SceneViewFace`, the tool tips. A page on its own is drawn with the rectangles
-the layout gives; the boxes' packing, the focus, navigation and the actors are part of
-running the menus (below).
+**The widget's transform** (mWidget, rebuilt by 0x2679B0; the operations 0x24BEB0 translate,
+0x24BEF8 rotate, 0x24BE78 scale, 0x24BFA0 / 0x24C000 skew): about the middle of the widget's
+rectangle a point's x moves by y tan(`skew` x), its y by x tan(`skew` y), it is scaled by
+`scale`, turned clockwise on the screen by `rotate` degrees, put back, then moved by
+`translate`. It multiplies the parent's (the draw stack, 0x231508), so a box's children turn
+with it; the layouts' italics are `skew {-16 0}` and the like, the graphs' `scale {1 -1}`. The
+cursor's target and the focus search keep using the plain rectangles. ❓ A clip under a
+transform is the box around the turned rectangle.
+
+A page on its own is drawn with the rectangles the layout gives; the boxes' packing, the focus,
+navigation and the actors are part of running the menus (below).
 
 ## Running (`runtime.*`, `widgets.cpp`, `widget_classes.cpp`, `actors.cpp`, `packing.cpp`)
 
@@ -304,13 +314,36 @@ A widget's `actor` is stepped each picture.
 - **MMoveActor** (update 0x2C1960): each of its four values moves by what is left x `ratio`;
   `linear`: by the whole distance x ratio; `repeat`, `flip`.
 - **MBlinkActor** (0x278E98, update 0x279908, period 0x279870): 0 to 1 and back at 1/30 a
-  picture, repeating.
-- ❓ `MRotateActor`, `MChaseActor`, `MMagnifyActor`, `MSwitchActor`, `MTextActor`,
-  `MButtonActor`, `MAnchorActor` keep what the scripts set and do nothing.
+  picture, repeating. It sets the face's own alpha (mWidget slot 58: a colour, picture, frame
+  or text face's colours; a composite has none and stays as it is), not the opacity.
+- **MRotateActor**(widget, destination, cw) (0x2CCBE8, update 0x2CDCE0): the widget's `rotate`
+  toward `destination` (`out` on) or 0 by `ratio` (0.2) of the way the way round `cw` says,
+  kept in 0..360; with `velocity` set, velocity / 60 degrees a picture. `warp`, `doFlip`.
+- **MChaseActor** (0x2841C0, update 0x284270): hops the widget from where it stood: a phase
+  of 360 / (`period` x 60) degrees a picture (period 8.5; the fraction dropped each picture),
+  y less |sin| x `floating_range_y` (16), x plus sin x `floating_range_x` (0); `doStart`,
+  `doStop` (back to its place).
+- **MAnchorActor**(widget, anchor, follow_x, follow_y) (0x278630, update 0x2786D0): keeps the
+  distance it had from the anchor along the axes it follows.
+- **MMagnifyActor** (update 0x2BA2B0): the rectangle grown about its middle by s, s + 1/60 a
+  picture (the script's `period` setter passes 1 for any value); with `repeat` back to 1 at
+  0.5 or 2. **MButtonActor** (update 0x27E978): while active the rectangle pulses by
+  1 + 0.15 v and its child `Active` shows v, v falling 1 to 0 over `period` (1/2 s).
+  **MTextActor** (update 0x2E4390): one more letter a picture. **MSwitchActor** (update
+  0x2E2D18): t by 0.1 a picture toward 1 (`start`) or 0 (`end`), the button pushed out from
+  its parent's middle by 1 + 0.6 (1 - t²), its `base`, `text`, `ring` at alpha t (❓ their
+  colours by state are not written).
 - **Transitions** (mTransition, 0x24D1B8 on): `panOut`, `panIn`, `panOutIn` start the halves,
-  `syncOut`, `syncWait`, `syncIn` wait for them. `MColorTransition` (0x286EA0, update
-  0x287348) covers the screen with its color by 1/15 a picture. ❓ `MCrossTransition` and
-  `MBlockTransition` are drawn as the color one.
+  `syncOut`, `syncWait`, `syncIn` wait for them; `period` is the step a picture,
+  1 / (period x 60). `MColorTransition` (0x286EA0, update 0x287348) covers the screen with its
+  color by 1/15 a picture. **MCrossTransition** (0x28A6B0, 0x28A5B8): its out half is done at
+  once; coming in, t falls from 1 by 1/30 a picture (one more picture at 0) and every page is
+  drawn at opacity 1 - t and size 1 + t² about the screen's middle. ❓ Its trail (the last
+  picture blended over at `magnify_ratio` with a black veil) is not drawn. **MBlockTransition**
+  (0x27AEE0, 0x27B2A8): the screen as it was is held in 32 x 24 blocks of 20 pixels; each
+  block's timer starts at 1 + a random part of `range` (0.125) + its column / 32 x `slope` (2;
+  a negative slope from the right) and falls by 2/15 a picture; a block shows at alpha
+  min(timer, 1) (❓ the random source, 0x5792F0, is not read: a fixed generator).
 
 ### Sound
 
@@ -478,20 +511,87 @@ A project's script names files of the disc's top beside its own (gtmode's
 ### Drawn in the app
 
 A running page is drawn from the live widgets with the rules of the table above, and:
-a text is wrapped to its rectangle unless a box places it, made narrower when the script
-asked (`adjustScale`), or cut with an ellipsis (`abbreviate`); `%%` in a text is a percent
-sign, `%B.` and `%C...` marks are left out (❓ from the scripts' texts); a key is looked up in
-the page the layout has the widget in, wherever the scripts copy it; an open option list is
-drawn over the page; the cursor is the common project's `CursorRoot` at the focused widget
-(❓ its place by eye); a transition covers the screen with its color.
+a text of several lines (`multiline`) is broken at spaces to its rectangle unless a box
+places it (`equalized`: ❓ such a line spread to the width at its spaces), made narrower when
+the script asked (`adjustScale`: the widest line to the face's width), or cut with an ellipsis
+(`abbreviate`); a key is looked up in the page the layout has the widget in, wherever the
+scripts copy it; an open option list is drawn over the page; the cursor and the transitions
+as below.
+
+**Text** (`menu/text_layout.*`; the program's 0x491028 a line at a time, 0x4940E8 the marks,
+0x492978 a character). Gran Turismo 4's font record has two bytes past Gran Turismo 3's:
++0x14 the step after a double-byte character and +0x15 a pair spacing (1 for `hn_14`,
+`hm_16`, 2 for `hc_20`, `tr_30`). The pen:
+
+- a space (and a code the font lacks): the space's advance, and the next glyph starts a word;
+- the first glyph of a word stands at the pen and steps its advance (its left offset is not
+  added);
+- a later glyph: d = its left offset + (unless it is a digit or 0x7F) the pair spacing less
+  the pair's kerning (the profiles' rows added with saturation, the least of them, even rows
+  to 7 bits, odd rows as bytes, then to 7 bits); it stands at pen + d, the pen steps d +
+  advance (all times `scale_x`);
+- a code from U+0300 on is a double-byte character: the font's cell (+0x10 size, +0x12 offset,
+  one more across after a glyph) from the kanji font, then the font's wide step. ❓ The US
+  menus load no kanji font; a full-width form is drawn as its Latin letter (the diary's
+  "1～7 days" shows a tilde).
+- Each line is aligned by itself; its width is the pen less half a space's advance.
+- Marks: `%%` a percent sign; `%Crgb` a colour (hex digits x 17, 0x493BC0); `%Bx` the button
+  x of the `Gaiji` font at scale 1, `c` .. `f` (triangle, circle, cross, square) in the
+  colours of the program's table before the name "Gaiji" (found by that), the others gray
+  (100, 100, 100); ❓ `%F<name> ` (a font) is skipped.
+
+Checked against the original's first dialog: every word of its lines starts where the
+original's does (to the pixel, `disc_menu_text_layout`).
+
+**Tool tips** (mToolTipFace): the text is the page's `TOOLTIP|<key>` (0x249B70; ❓ the key's
+own text when there is none). It is not aligned (its style's `aligned` off, 0x248DD0): from
+the face's top, in the middle across when it fits 95 % of the width, else from 5 % in
+(0x24A2F8; ❓ its scrolling and the slide up of a new tip are not drawn). `attach()` makes it
+show the focused widget's tool tip (the nearest with `tooltip` and a `tooltip_key`).
+
+**The cursor** (0x230B68, 0x230CF8, 0x230378, drawn 0x230558): a pointer that travels to a
+point of the focused widget chosen by its `cursor_align` (default 8; table 0x6987E0), two
+pixels inside the rectangle, with an angle: 0 left middle 45°, 1 bottom left 22.5°, 2 bottom
+middle 0°, 3 (and 9 on) bottom right -22.5°, 4 right middle -45°, 5 top right 45°, 6 top
+middle 45°, 7 top left 45°, 8 the middle -22.5°; kept on the screen. Each picture it moves
+0.15 of the way (snapping under a pixel), then turns the same way; the picture
+(`CursorRoot::Cursor`) hangs from the middle of its top edge, turned clockwise by the angle.
+`cursor_target` 0 leaves it where it was; shown again it starts from where it last aimed.
+
+**Units**: a course's length "%.2t%s" (hundredths rounded, `miles` or `km`, 0x1AEE18), its
+height "%.1t%s" (tenths, `ft` or `m`, 0x1AEFC0): "12.94miles", "984.2ft".
 
 The menus step at the program's 60 pictures a second whatever the display's rate. The faces
 with content of their own are drawn in their place in the page's order (`draw_live` of
 `app/menu_page_drawer.h`): movies, cars and models below.
 
-❓ Not drawn: `SceneViewFace`, `FlashFace`, `GraphFace`, `SlideShowFace`, `RaceCourseMapFace`,
-`PhotoViewFace`, `PhotoRenderFace`, `EyetoyFace`, `VirtualFace`, `LoggerFace`; Japanese text
-(Prologue's pages show their pictures and Latin text).
+❓ Not drawn: `SceneViewFace`, `SlideShowFace`, `RaceCourseMapFace`, `PhotoViewFace`,
+`PhotoRenderFace`, `EyetoyFace`, `VirtualFace`, `LoggerFace`; double-byte text (laid out, its
+cells not drawn: Prologue's pages show their pictures and Latin text).
+
+#### Graphs (`GraphFace`; `menu/faces_graph.*`)
+
+`mGraphFace` (draw 0x2E88F8): `points` as fractions of the rectangle (the layouts' `scale
+{1 -1}` puts y up), `type` "line" (a strip) or "break_line" (pairs, the default), `line_width`
+(2) across each segment after the transforms (0x218430), `color`'s first. The settings pages'
+curves come from `MCarData.buildEngineCurveData()` (0x148B60): [power points, torque points,
+peak PS, peak kgf·m, lowest rpm, highest rpm]; here from the spec's engine points (speeds
++0xC0, torques +0xD8 with the output factors), x the speed from the first point's to the
+last's, y over the curve's own peak. ❓ The program's highest rpm and which points it keeps
+past the rev limit; `buildGearRatioData` is not written.
+
+#### Flash (`FlashFace`; `menu/faces_flash.*`)
+
+`mFlashFace`: `flash_path` an entry of the page's packs (or with `from_disk` a disc file) in
+the program's STRB format; time 1/60 s a picture from the face's start or `reset(t)`, round
+with `repeat` (default 1), else nothing past the end; the frame fitted inside the rectangle
+and centred (0x292D70, 0x292E70, 0x272C60). The menu movies use only: the header (0x10
+stage width, height; 0x1C rate; 0x20 frames), sprite 0's placements (0x28 bytes: kind, first
+frame, end, shape, keys of 0x24 bytes: scale, place, a colour multiply with 0x80 = 1) and
+frame lists, the shapes' bounds and fill styles (kind 3 / 4 a picture through its texture
+matrix: u = m0 x + m4 y + m12, v = m1 x + m5 y + m13) and the pictures (Tex1). Keys k and
+k + 1 are blended by the frame's fraction. The dealers' banners (`piece/tuner_screen/*.strb`),
+the license center's and the event halls' backgrounds.
 
 #### Movies (`MovieFace`; `menu/faces_movie.*`, `app/menu_movies.*`)
 
@@ -541,7 +641,7 @@ face's:
 | `lN_enable`, `lN_pos`, `lN_amb`, `lN_dif`, `lN_spe`, `lN_sdw` (N 0..2) | light 0 on; (0, 1, 0, 0); 0.3; 0.5; 0.5; (0, 0, 0, 1) | world-space directions toward the light (w 0); colours 0..255 / 255 |
 | `image_path` | "" | the picture the car reflects |
 | `trans`, `rotate` | 0 | where a newly set car starts |
-| `mirror` | 1 | ❓ the mirrored copy under the car is not drawn here |
+| `mirror` | 1 | normal mode: the car turned upside down about its floor (Scale(1, -1, 1)), without its shadow, at 0.3 of its alpha, drawn first (0x156820, 0x217058) |
 | `action_type` | 1 "advanced" | scripts write "normal" / "advanced"; only the arcade and event car pages keep "advanced" |
 
 Projection (0x217058): the picture's middle is the face rectangle's; d = (h / 2) / tan(view /
@@ -559,11 +659,19 @@ targets; `fadein`, `transparentRatio` as their names say. Model = T(cur) Rz Rx R
 origin is on the body's underside, so the car is raised by its ride height to stand on y = 0
 (❓ judged: the program's ShowRoomCar is not read).
 
-The "advanced" stage (0x157378) takes the car at (x, y, -z) turned half round and draws
-`menu/select/bg.mdl` behind it; ❓ its camera (`menu/select/camera.mot`, a `Mot1` of one clip
-`TEST_CAMERA` whose keys are packed) and its light motion are not read: the layout camera's
-distance and height are used, looking from 60 degrees to the car's left of straight ahead
-(judged against the original's colour page), and only bg.mdl's first variant is drawn.
+The "advanced" stage (0x157378) takes the car at (x, y, -z) turned half round. Its time steps
+1/60 s a picture round the light motion's length. **The stage's motions**
+(`menu/stage_motion.*`): `menu/select/camera.mot` and `light.mot` are `Mot1` files whose scene
+is a byte program of the motion library (0x42B440; the root's +0xC points at it): 0 end, 1..3
+the hierarchy's steps, 4 a name, 0x0A the perspective (u8 flags, the field of view in
+radians), 0x0B the camera (u16 flags; eye, point looked at, up), 0x0C / 0x0D / 0x0E a light's
+ambient / diffuse / specular (u8 light, u8 flags, 4 values), 0x0F its place (3 values), 0x10
+a named value (u8 flags, the name, 1 value). A value whose flag bit is set is a u16 channel of
+the clip, else a constant f32 (0x42D688). The camera stands still: eye (0, 1.28, -9.137)
+looking at (0, 0.426, 0.004), up (0, 0.996, 0.093), 0.4495 rad across the page's height (❓
+the axis). `light.mot` (24.15 s) keys `Alpha0`..`Alpha3`, the weights of bg.mdl's four models
+(the backdrops), drawn cross-faded over black; ❓ its `BlackLevel`, `WhiteLevel`,
+`ColorScale`, shadow values and lights, env.mdl and tire.mdl are not used yet.
 
 #### Models (`ModelFace`; `menu/faces_model.*`, `app/menu_models.*`)
 
