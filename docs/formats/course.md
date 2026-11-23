@@ -77,15 +77,31 @@ Code: `runway.*`. All 110 roads read (`gt4tool runway-survey`). Offsets from the
 0x54 u16 sections           0x9C u32 -> the sections
 ```
 
-- **Triangle kinds** (US disc, all courses): 0 on 93% of the triangles (the road); 1, 2, 3, 4,
-  8, 16, 17, 24, 25, 32, 33 the rest (verges, sand, grass, dirt: which is which ❓).
+- **A triangle's surface**: its byte +0x06, bits 0-4, is the material (US disc, all courses:
+  0 on 57% of the triangles, the tarmac; 1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12 the rest; 2, 3, 4
+  and 6 are the soft ones, sand and grass, by the program's table). Its byte +0x07 is a set of
+  flags: bit 0 the pit lane, bit 1 wet (the wheel is then on the material's wet variant:
+  [specs/physics.md](../specs/physics.md) "The ground"); ❓ bits 2-5. Triangles are wound so
+  that (b - a) x (c - a) points up.
+- **A vertex's bytes** +0x0E and +0x0F (bits 0-6) are two values of the surface, / 255 and
+  / 127, which the road query interpolates across the triangle (❓ their use).
 - **The tree** finds the triangles under a point. It is a full binary tree of the given depth
   stored one byte per node, depth first with the left subtree before the right: bits 0-5 a
   place p, bits 6-7 the axis (0 x, 1 y, 2 z). A node splits its box (the root's is the bounds)
   at min + (max - min)(p + 0.5) / 64; the leaves, left to right, are the clusters, each a list
   of triangles. Checked on every course: a triangle's centre leads to a cluster that lists it.
 - **Walls** are closed chains of the wall vertices in order. A chain's first vertex has its
-  length in the tag's low 16 bits, and its last vertex minus (length - 1) there. ❓ tag bit 16,
-  the wall lookups.
-- **The start grid**: most courses have 6 places that stand on the road; some list places that
-  do not (❓ the sections name the places a layout uses).
+  length in the tag's low 16 bits, and its last vertex minus (length - 1) there: the link to
+  the chain's next vertex, as in Gran Turismo 3's wall points, whose collision step reads these
+  records as they are (the tag's high half its flags: bit 0 a corner vertex, bit 1 a sensor
+  edge). ❓ the wall lookups.
+- **Checkpoints** are gates across the whole course, wider than the road (37 m on Tsukuba, up
+  to 140 m on the Circuit de la Sarthe, with the pit lane and whatever lies beside the road
+  inside), so their middles are not the road's middle. Their heights are not the road's
+  (Tsukuba's are 0 .. 4 where the road is at 9 .. 15). The list starts mid-lap: the distances
+  rise along it and fall back once, at the lap's end. Left and right are as a driver sees
+  them: up x (right - left) points along the course.
+- **The start grid**: most courses have 6 places that stand on the road; some list places
+  that do not (❓ the sections name the places a layout uses). A place's heading h gives the
+  direction (sin h, cos h) in (x, z). Its height is only rough on some courses (Laguna Seca's
+  places are at 0 where the road is at -21): the road under it is found from above.
