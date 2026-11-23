@@ -37,8 +37,19 @@ struct ParamsResult {
 };
 ParamsResult run_params(Disc& disc, bool print);
 
-// The race step: the program's own run in the interpreter with ours compared at every call (step.cpp).
-bool run_step(Disc& disc, bool print);
+// The race step: the program's own run in the interpreter with ours compared at every call (step.cpp):
+// a standing start, the gears, a lift, turns each way and the brakes, on a course ("tsukuba") with a car
+// ("nsx_r_02"; the environment's GT4R_STEP_COURSE / GT4R_STEP_CAR when empty).
+struct StepTap {
+    std::string name;
+    size_t calls = 0, equal = 0; // calls, and those with every compared field and result equal
+};
+struct StepResult {
+    bool ran = false;
+    std::string error;
+    std::vector<StepTap> taps;
+};
+StepResult run_step(Disc& disc, bool print, const std::string& course = "", const std::string& car = "", int steps = 0);
 
 // The C library's float routines the step calls, against the shared engine's.
 struct LeavesResult {

@@ -97,12 +97,14 @@ Pad drive(int i) {
 
 } // namespace
 
-bool run_step(Disc& disc, bool print) {
+StepResult run_step(Disc& disc, bool print, const std::string& course_label, const std::string& car_label, int step_count) {
+    StepResult result;
     db::SpecDb sdb = open_db(disc);
     const sim::Program program = sim::Program::load(disc);
     if (!program.known()) {
-        if (print) std::printf("step: the disc's program is not a mapped build\n");
-        return false;
+        result.error = "the disc's program is not a mapped build";
+        if (print) std::printf("step: %s\n", result.error.c_str());
+        return result;
     }
     Ee ee;
     boot(ee, disc, sdb);
@@ -110,9 +112,12 @@ bool run_step(Disc& disc, bool print) {
     std::string err;
     const char* course = std::getenv("GT4R_STEP_COURSE");
     const char* car = std::getenv("GT4R_STEP_CAR");
-    if (!setup_race(ee, disc, sdb, course ? course : "tsukuba", {car ? car : "nsx_r_02"}, 1, o, err)) {
+    const std::string course_name = !course_label.empty() ? course_label : course ? course : "tsukuba";
+    const std::string car_name = !car_label.empty() ? car_label : car ? car : "nsx_r_02";
+    if (!setup_race(ee, disc, sdb, course_name, {car_name}, 1, o, err)) {
+        result.error = err;
         if (print) std::printf("step: %s\n", err.c_str());
-        return false;
+        return result;
     }
     const ex::ProgramData data = sim::core_program(program);
     const ex::RaceConfig config{};
@@ -154,15 +159,18 @@ bool run_step(Disc& disc, bool print) {
             if (v >= pb && v < pb + kParamsSize) std::printf("  P+%04X -> P+%04X\n", off, v - pb);
         }
     }
-    const int steps = std::getenv("GT4R_STEPS") ? std::atoi(std::getenv("GT4R_STEPS")) : 1200;
+    const int steps = step_count > 0 ? step_count : std::getenv("GT4R_STEPS") ? std::atoi(std::getenv("GT4R_STEPS")) : 1200;
     try {
         for (int i = 0; i < steps; ++i) {
             o.pad[0] = drive(i);
             orig_step(ee, o);
         }
     } catch (const std::exception& e) {
-        if (print) std::printf("step: stopped: %s (pc %08X ra %08X)\n", e.what(), ee.cur_pc, ee.g32(31));
-        return false;
+        char b[160];
+        std::snprintf(b, sizeof b, "stopped: %s (pc %08X ra %08X)", e.what(), ee.cur_pc, ee.g32(31));
+        result.error = b;
+        if (print) std::printf("step: %s\n", b);
+        return result;
     }
     if (print) {
         const u32 at = o.car(0);
@@ -170,7 +178,9 @@ bool run_step(Disc& disc, bool print) {
                     double(ee.rf(at + kF + 8)), double(ee.rf(at + kF + 0x53C)) * 3.6);
         taps.print();
     }
-    return true;
+    for (const TapStat& st : taps.stats()) result.taps.push_back({st.name, size_t(st.calls), size_t(st.clean)});
+    result.ran = true;
+    return result;
 }
 
 } // namespace gt4r::diff

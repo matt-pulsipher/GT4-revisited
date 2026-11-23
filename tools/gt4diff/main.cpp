@@ -25,7 +25,7 @@ int main(int argc, char** argv) {
         }
         if (test.empty() || test == "params") ok = gt4r::diff::run_params(*disc, true).ran && ok;
         if (test.empty() || test == "leaves") ok = gt4r::diff::run_leaves(*disc, true).ran && ok;
-        if (test.empty() || test == "step") ok = gt4r::diff::run_step(*disc, true) && ok;
+        if (test.empty() || test == "step") ok = gt4r::diff::run_step(*disc, true).ran && ok;
         return ok ? 0 : 1;
     } catch (const std::exception& e) {
         std::fprintf(stderr, "error: %s\n", e.what());
