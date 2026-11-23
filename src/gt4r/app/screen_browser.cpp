@@ -7,6 +7,7 @@
 #include "base/log.h"
 #include "formats/gs_memory.h"
 #include "formats/tex1.h"
+#include "gt4r/formats/model/mdls.h"
 #include "video/movie_player.h"
 
 #include <algorithm>
@@ -113,6 +114,7 @@ public:
             movie_.stop();
         }
         if (m.pressed(PadButton::Select)) app.show_open_dialog();
+        if (m.pressed(PadButton::Square) && !models_.empty()) view_models(app);
     }
 
     void render(App& app, Ui& ui) override {
@@ -176,7 +178,8 @@ public:
             const double pos = app.audio().music_position(), len = app.audio().music_length();
             ui.bar(px + 6, Ui::kHeight - 40, pw - 12, 6, len > 0 ? float(pos / len) : 0.0f, colors::kAccent);
         }
-        ui.footer("{Cross}: open  {Triangle}: up  {L1}/{R1}: page  {Left/Right}: texture  {Circle}: stop  {Select}: another disc");
+        ui.footer(models_.empty() ? "{Cross}: open  {Triangle}: up  {L1}/{R1}: page  {Left/Right}: texture  {Circle}: stop  {Select}: another disc"
+                                  : "{Cross}: open  {Square}: view models  {Triangle}: up  {L1}/{R1}: page  {Left/Right}: texture  {Circle}: stop");
     }
 
 private:
@@ -209,9 +212,31 @@ private:
         return s;
     }
 
+    // The 3D viewer on the open file's model sets.
+    void view_models(App& app) {
+        const std::string path = preview_.path;
+        std::vector<std::string> items;
+        for (const auto& [off, h] : models_) {
+            char b[96];
+            std::snprintf(b, sizeof b, "@%zx  %u models, %u shapes", off, h.models, h.shapes);
+            items.push_back(b);
+        }
+        std::vector<size_t> offsets;
+        for (const auto& [off, h] : models_) offsets.push_back(off);
+        movie_.stop();
+        app.push(make_model_viewer(path, std::move(items), [path, offsets](App& a, size_t i) {
+            const std::optional<Bytes> data = a.vfs()->read(path);
+            if (!data || offsets[i] >= data->size()) throw FormatError("Could not read " + path);
+            mdls::Options o;
+            if (path.compare(0, 6, "wheel/") == 0) o.scene.outside_sets[mdls::kWheelFaceSlot] = mdls::kWheelFaceSet;
+            return mdls::build_model(ByteSpan(*data).subspan(offsets[i]), o, path);
+        }));
+    }
+
     void open(App& app, const std::string& path) {
         movie_.stop();
         preview_.clear();
+        models_.clear();
         preview_.path = path;
         if (ends_with(path, ".ads")) {
             const auto stream = app.vfs()->open_stream(path);
@@ -280,6 +305,13 @@ private:
         } catch (const std::exception& e) {
             LOG_WARN("Texture decode failed for %s: %s", path.c_str(), e.what());
         }
+        for (size_t off : mdls::find_model_sets(*data)) {
+            try {
+                models_.emplace_back(off, mdls::read_header(ByteSpan(*data).subspan(off)));
+            } catch (const std::exception&) {
+            }
+        }
+        if (!models_.empty()) preview_.summary += ", " + std::to_string(models_.size()) + " model set(s)";
         if (total) {
             preview_.summary += ", " + std::to_string(total) + " texture(s)";
             if (total > preview_.textures.size()) preview_.summary += " (first " + std::to_string(preview_.textures.size()) + " shown)";
@@ -292,6 +324,7 @@ private:
     bool entries_dirty_ = true;
     int sel_ = 0;
     Preview preview_;
+    std::vector<std::pair<size_t, mdls::Header>> models_; // the open file's model sets
     gt3r::video::MoviePlayer movie_;
 };
 

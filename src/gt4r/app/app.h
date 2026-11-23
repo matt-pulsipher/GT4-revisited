@@ -9,10 +9,13 @@
 #include "base/config.h"
 #include "gt4r/disc/disc.h"
 #include "input/input_manager.h"
+#include "render/gpu_context.h"
+#include "scene/model.h"
 #include "vfs/vfs.h"
 
 #include <SDL3/SDL.h>
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -60,6 +63,8 @@ public:
     gt3r::IniDocument& config() { return config_; }
     const MenuInput& menu() const { return menu_; }
     SDL_Renderer* renderer() { return renderer_; }
+    // The 3D device; null when the system has none (the 2D screens still work).
+    gt3r::render::GpuContext* gpu() { return gpu_.get(); }
     const std::string& data_dir() const { return data_dir_; }
     std::string mods_dir() const { return data_dir_ + "mods"; }
     const std::string& last_error() const { return last_error_; }
@@ -71,7 +76,8 @@ private:
     gt3r::PadState scripted_keys(); // this frame's --keys press, none when the script is done
 
     SDL_Window* window_ = nullptr;
-    SDL_Renderer* renderer_ = nullptr;
+    SDL_Renderer* renderer_ = nullptr; // the 3D device's when there is one
+    std::unique_ptr<gt3r::render::GpuContext> gpu_;
     std::unique_ptr<Ui> ui_;
     std::unique_ptr<gt3r::InputManager> input_;
     std::unique_ptr<gt3r::AudioEngine> audio_;
@@ -104,5 +110,8 @@ std::string user_data_dir();
 
 std::unique_ptr<Screen> make_setup_screen();
 std::unique_ptr<Screen> make_browser_screen(const std::string& open_path = "");
+// A list of models and a 3D view of the selected one; `load` builds the model of an item.
+using ModelLoader = std::function<gt3r::scene::Model(App& app, size_t index)>;
+std::unique_ptr<Screen> make_model_viewer(std::string title, std::vector<std::string> items, ModelLoader load);
 
 } // namespace gt4r

@@ -18,7 +18,8 @@ SDL_AppResult SDL_AppInit(void** state, int argc, char** argv) {
                         "  --browse <path>     open the asset browser on a file of the disc\n"
                         "  --shot <out.png>    save a picture of one frame, then quit\n"
                         "  --shot-frame <n>    which frame --shot saves (default 30)\n"
-                        "  --keys <list>       scripted menu presses, e.g. \"down,down,cross,wait60,right\"\n");
+                        "  --keys <list>       scripted menu presses, e.g. \"down,down,cross,wait60,right\"\n"
+                        "  --no-gpu            2D screens only\n");
             return SDL_APP_SUCCESS;
         }
     auto* app = new App();

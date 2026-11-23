@@ -22,3 +22,7 @@
   `docs/REVERSE_ENGINEERING.md` for this program's segment addresses). Outputs go outside the
   repository.
 - The repository is private for now: do not mention it in the public GT3 Revisited repository.
+- **Outside sources**: the Gran Turismo modding hub (nenkai.github.io/gt-modding-hub) and the MIT
+  format templates (Nenkai/GT-File-Specifications-Documentation) may be read for facts. Do not
+  read or use Nenkai/PDTools or Nenkai/GTPS2ModelTool: their authors forbid AI use of those
+  repositories. Never read The Cutting Room Floor. Prefer facts checked on the user's own disc.

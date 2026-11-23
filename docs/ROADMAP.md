@@ -5,12 +5,15 @@ Done:
 - [x] Disc: identification, both layers, the volumes' file index, packed files; Prologue's
       volume. `gt4tool`. Tests on made-up volumes and on real discs.
 - [x] Asset browser: textures, music and voice streams, movies.
+- [x] Models (`MDLS`): car bodies, wheels, tires, wings and prize objects decode and draw as
+      still models; a 3D viewer from the asset browser (Square on a file with models).
 
 Next, in order:
 
 1. **Sound and text formats that changed since Gran Turismo 3**: instrument banks, sequences,
    the music index, fonts, the string tables (`.rt2`).
-2. **Models** (`MDLS`): cars, wheels, tires, wings, prize objects; a model viewer.
+2. **Whole cars**: wheels and tires in place (the car callbacks), paint (`Pat0`), the model
+   scripts, the skinned drivers.
 3. **Courses**: the container, scenery, the road (`RNW4`), a course viewer.
 4. **The car database** (`specdb`).
 5. **The menus**: the script interpreter (`.adc`), the widget toolkit (`.mproject`, `.gpb`),

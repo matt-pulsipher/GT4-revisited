@@ -60,12 +60,22 @@ bool App::init(int argc, char** argv) {
         LOG_ERROR("Window creation failed: %s", SDL_GetError());
         return false;
     }
-    renderer_ = SDL_CreateRenderer(window_, nullptr);
-    if (!renderer_) {
-        LOG_ERROR("Renderer creation failed: %s", SDL_GetError());
-        return false;
+    bool use_gpu = true;
+    for (int i = 1; i < argc; ++i)
+        if (std::string(argv[i]) == "--no-gpu") use_gpu = false;
+    if (use_gpu) gpu_ = gt3r::render::GpuContext::create(window_, gt3r::render::GpuOptions{});
+    if (gpu_) {
+        renderer_ = gpu_->renderer2d();
+        gpu_->warm_pipelines();
+    } else {
+        if (use_gpu) LOG_WARN("3D drawing is not available; continuing with the 2D screens only");
+        renderer_ = SDL_CreateRenderer(window_, nullptr);
+        if (!renderer_) {
+            LOG_ERROR("Renderer creation failed: %s", SDL_GetError());
+            return false;
+        }
+        SDL_SetRenderVSync(renderer_, 1);
     }
-    SDL_SetRenderVSync(renderer_, 1);
     SDL_SetRenderLogicalPresentation(renderer_, Ui::kWidth, Ui::kHeight, SDL_LOGICAL_PRESENTATION_LETTERBOX);
     ui_ = std::make_unique<Ui>(renderer_);
     ui_->set_layout(float(Ui::kWidth), float(Ui::kHeight), {0, 0, float(Ui::kWidth), float(Ui::kHeight)}, false);
@@ -199,6 +209,7 @@ SDL_AppResult App::iterate() {
         quit_ = true;
     }
     SDL_RenderPresent(renderer_);
+    if (gpu_) gpu_->frame_presented();
     return quit_ ? SDL_APP_SUCCESS : SDL_APP_CONTINUE;
 }
 
@@ -236,7 +247,8 @@ void App::shutdown() {
     ui_.reset();
     input_.reset();
     if (dialog_mutex_) SDL_DestroyMutex(dialog_mutex_);
-    if (renderer_) SDL_DestroyRenderer(renderer_);
+    if (gpu_) gpu_.reset(); // (its renderer goes with it)
+    else if (renderer_) SDL_DestroyRenderer(renderer_);
     if (window_) SDL_DestroyWindow(window_);
     SDL_Quit();
 }

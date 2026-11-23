@@ -13,7 +13,10 @@ game itself runs yet. See [docs/ROADMAP.md](docs/ROADMAP.md).
   disc, and Gran Turismo 4 Prologue.
 - Asset browser: every file of the disc by folder, with previews of textures (alone or inside
   cars, courses and menus), music and voice streams, and movies.
-- `gt4tool`: identify a disc, list and extract its files, decode textures to PNG.
+- 3D viewer for the game's models (car bodies, wheels, tires, wings, prize objects): open a
+  file in the asset browser and press Square.
+- `gt4tool`: identify a disc, list and extract its files, decode textures to PNG, describe and
+  survey models.
 - Mods layered over the disc's files, as in GT3 Revisited (`<user data>/mods/<id>/files/...`).
 
 Tested discs: Gran Turismo 4 `SCUS-97328` v1.01 (NTSC-U/C) and Gran Turismo 4 Prologue

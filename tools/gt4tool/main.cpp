@@ -5,6 +5,8 @@
 //   gt4tool survey <disc>                  count the files by folder, extension and magic
 //   gt4tool extract <disc> <prefix> <dir>  write the files under a prefix (unpacked) to a folder
 //   gt4tool tex <disc> <path> <dir>        decode every texture set in a file to PNGs
+//   gt4tool model <disc> <path>            describe a file's model sets as decoded
+//   gt4tool model-survey <disc> [prefix] [textures]   decode every model set under a prefix
 //
 // Extracted files are for your own study; never commit them (docs/REVERSE_ENGINEERING.md).
 
@@ -15,6 +17,7 @@
 #include "formats/png_writer.h"
 #include "formats/tex1.h"
 #include "gt4r/disc/disc.h"
+#include "gt4r/formats/model/mdls.h"
 
 #include <cstdio>
 #include <cstring>
@@ -147,6 +150,77 @@ int cmd_tex(Disc& disc, const Args& a) {
     return 0;
 }
 
+// A file's model sets as the shared decoder builds them: meshes, primitives and their draw state.
+int cmd_model(Disc& disc, const Args& a) {
+    const gt3r::Volume::Entry* e = disc.volume().find(a[0]);
+    if (!e) {
+        std::fprintf(stderr, "error: no such file: %s\n", a[0].c_str());
+        return 1;
+    }
+    const Bytes data = disc.volume().read(*e);
+    for (size_t off : mdls::find_model_sets(data)) {
+        const ByteSpan set = ByteSpan(data).subspan(off);
+        const mdls::Header h = mdls::read_header(set);
+        std::printf("model set @0x%zx: %u models, %u shapes, %u materials, %u texture sets x %u lists, %u variations%s\n", off, h.models,
+                    h.shapes, h.materials, h.texture_sets, h.texture_lists, h.variations, h.script ? ", script" : "");
+        mdls::Options o;
+        if (a[0].compare(0, 6, "wheel/") == 0) o.scene.outside_sets[mdls::kWheelFaceSlot] = mdls::kWheelFaceSet;
+        try {
+            const gt3r::scene::Model m = mdls::build_model(set, o);
+            for (const gt3r::scene::Mesh& mesh : m.meshes) {
+                std::printf("  mesh node %d lod %d: %zu vertices, %zu triangles\n", mesh.node, mesh.lod, mesh.vertices.size(), mesh.indices.size() / 3);
+                for (const gt3r::scene::Primitive& p : mesh.primitives)
+                    std::printf("    %5u tris  texture %2d  flags %05x  alpha ref %.3f  env %d  diffuse %.2f %.2f %.2f\n", p.index_count / 3,
+                                p.texture, p.flags, double(p.alpha_ref), p.env_kind, double(p.material.diffuse[0]),
+                                double(p.material.diffuse[1]), double(p.material.diffuse[2]));
+            }
+            for (size_t i = 0; i < m.textures.size(); ++i) std::printf("  texture %zu: %ux%u\n", i, m.textures[i].width, m.textures[i].height);
+        } catch (const std::exception& ex) {
+            std::printf("  could not build: %s\n", ex.what());
+        }
+    }
+    return 0;
+}
+
+// Every model set under a prefix through the converter and the shared decoder.
+int cmd_model_survey(Disc& disc, const Args& a) {
+    const std::string prefix = a.empty() ? "" : a[0];
+    const bool textures = a.size() > 1 && a[1] == "textures";
+    size_t files = 0, sets = 0, ok = 0, meshes = 0, triangles = 0, tex = 0;
+    mdls::ConvertStats st;
+    std::map<std::string, std::pair<size_t, std::string>> errors;
+    for (const gt3r::Volume::Entry& e : disc.volume().entries()) {
+        if (e.path.compare(0, prefix.size(), prefix) != 0 || e.size > (64u << 20)) continue;
+        const Bytes data = disc.volume().read(e);
+        const std::vector<size_t> found = mdls::find_model_sets(data);
+        if (found.empty()) continue;
+        ++files;
+        for (size_t off : found) {
+            ++sets;
+            try {
+                const ByteSpan set = ByteSpan(data).subspan(off);
+                mdls::to_gtm1(set, &st);
+                mdls::Options o;
+                o.textures = textures;
+                const gt3r::scene::Model m = mdls::build_model(set, o);
+                ++ok;
+                meshes += m.meshes.size();
+                tex += m.textures.size();
+                for (const gt3r::scene::Mesh& mesh : m.meshes) triangles += mesh.indices.size() / 3;
+            } catch (const std::exception& ex) {
+                auto& row = errors[ex.what()];
+                if (!row.first++) row.second = e.path;
+            }
+        }
+    }
+    std::printf("%zu files, %zu model sets, %zu decoded: %zu meshes, %zu triangles, %zu textures\n", files, sets, ok, meshes, triangles, tex);
+    std::printf("  %zu shapes, %zu packets (%zu packed), %zu vertex arrays left out, %zu commands (%zu replaced)\n", st.shapes,
+                st.packets, st.packed_packets, st.unknown_unpacks, st.commands, st.replaced_commands);
+    for (const auto& [kind, n] : st.unknown_kinds) std::printf("  left out: %zu x %s\n", n, kind.c_str());
+    for (const auto& [what, row] : errors) std::printf("  %zu x %s (first: %s)\n", row.first, what.c_str(), row.second.c_str());
+    return ok == sets ? 0 : 1;
+}
+
 struct Command {
     const char* name;
     const char* usage;
@@ -159,6 +233,8 @@ const Command kCommands[] = {
     {"survey", "<disc>", 0, cmd_survey},
     {"extract", "<disc> <prefix> <outdir>", 2, cmd_extract},
     {"tex", "<disc> <path> <outdir>", 2, cmd_tex},
+    {"model", "<disc> <path>", 1, cmd_model},
+    {"model-survey", "<disc> [prefix] [textures]", 0, cmd_model_survey},
 };
 
 } // namespace
@@ -179,6 +255,6 @@ int main(int argc, char** argv) {
             }
         }
     std::fprintf(stderr, "usage: gt4tool <command> <disc.iso|disc.chd> [args]\n\n");
-    for (const Command& c : kCommands) std::fprintf(stderr, "  %-8s %s\n", c.name, c.usage);
+    for (const Command& c : kCommands) std::fprintf(stderr, "  %-13s %s\n", c.name, c.usage);
     return 2;
 }
