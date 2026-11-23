@@ -345,7 +345,10 @@ race's for checks). Departures:
   (P +0x104A, F +0x5C2: 0 on every car checked), the arcs' grip with tire wear on, T+0x158's factor
   (1 throughout in this program).
 - Without the mapped program (Prologue, another release) the drivers run with neutral values: no
-  spreads, no offset of the aim, a fallback of the passing lines to the main line. Prologue's
+  spreads, no offset of the aim, a fallback of the passing lines to the main line, the shared
+  engine's tire records (16 surfaces) and no slip scaling of the steering gain; on a road without
+  the clusters' checkpoint lists (Prologue's) the lines' distances are taken between the
+  checkpoint lines. Prologue's
   disc has no driver files (`crs/*.ad`): its courses carry the lines and sets in slots 31 and
   37 .. 40 ([formats/prologue.md](../formats/prologue.md) "The drivers").
 
