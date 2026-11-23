@@ -4,6 +4,8 @@
 
 namespace gt4r::sim::ai {
 
+using gt3r::ee::F;
+
 namespace {
 
 // Addresses in SCUS-97328 v1.01 (docs/specs/ai.md "The program's tables").
@@ -15,9 +17,10 @@ constexpr u32 kDriverSpread = 0x620DE9, kSaturationCut = 0x620DE7;
 
 } // namespace
 
-float Ramp::at(float x) const {
+// 0x359568 on a table of two points: y0 at x0 and below, y1 at x1 and above, linear between.
+F Ramp::at(F x) const {
     if (x <= x0) return y0;
-    if (x >= x1) return y1;
+    if (x1 <= x) return y1;
     return y0 + (y1 - y0) * (x - x0) / (x1 - x0);
 }
 
@@ -33,25 +36,28 @@ Tables Tables::load(const Program& program) {
     }
     t.known = true;
     const auto S = [&](u32 i) { return program.b(kTuningBytes + i); };
+    // 0x468EE8 (and 0x469468 for the spreads' switches), in the program's arithmetic.
+    const F tenth = F::raw(0x3DCCCCCC), hundredth = F::raw(0x3C23D70A), hundred = F::raw(0x42C80000);
+    const auto I = [&](u32 i) { return gt3r::ee::int_to_f(s32(S(i))); };
     Tuning& u = t.tuning;
     u.smooth_throttle = S(0);
     u.steer_mode = S(2);
     u.blend_by_distance = S(0x24);
-    u.blend_rate = float(S(0x25)) * 0.1f;
+    u.blend_rate = I(0x25) * tenth;
     u.offset_flags = u8((S(0x28) ? 1 : 0) | (S(0x29) ? 2 : 0) | (S(0x2A) ? 4 : 0));
-    u.side_share = float(S(0x2B)) * 0.1f, u.side_share_pit = float(S(0x2C)) * 0.1f;
-    u.offset_rate = float(S(0x2D)) * 0.1f, u.offset_limit = float(S(0x2E)) * 0.1f;
+    u.side_share = S(0x28) ? I(0x2B) * tenth : F(), u.side_share_pit = S(0x28) ? I(0x2C) * tenth : F();
+    u.offset_rate = u.offset_flags ? I(0x2D) * tenth : F(), u.offset_limit = u.offset_flags ? I(0x2E) * tenth : F();
     u.offset_by_grip = S(0x30);
-    u.grip_lo = float(S(0x31)) * 0.01f, u.grip_hi = float(S(0x32)) * 0.01f;
+    u.grip_lo = u.offset_by_grip ? I(0x31) * hundredth : F(), u.grip_hi = u.offset_by_grip ? I(0x32) * hundredth : F();
     u.alongside_slow = S(0x34);
-    u.alongside_share = float(S(0x35)) * 0.01f;
+    u.alongside_share = I(0x35) * hundredth;
     u.corner_spread = S(0x38);
-    u.corner_lo = {float(S(0x39)) * 0.01f, float(S(0x3A)) * 0.01f, -float(S(0x3B)) * 0.01f, -float(S(0x3C)) * 0.01f};
-    u.corner_hi = {float(S(0x39)) * 0.01f, float(S(0x3A)) * 0.01f, float(S(0x3D)) * 0.01f, float(S(0x3E)) * 0.01f};
+    u.corner_lo = {I(0x39) / hundred, I(0x3A) / hundred, (-I(0x3B)) / hundred, (-I(0x3C)) / hundred};
+    u.corner_hi = {I(0x39) / hundred, I(0x3A) / hundred, I(0x3D) / hundred, I(0x3E) / hundred};
     u.brake_spread = S(0x3F);
-    u.brake_lo = {float(S(0x40)) * 0.01f, float(S(0x41)) * 0.01f, -float(S(0x42)) * 0.01f, -float(S(0x43)) * 0.01f};
-    u.brake_hi = {float(S(0x40)) * 0.01f, float(S(0x41)) * 0.01f, float(S(0x44)) * 0.01f, float(S(0x45)) * 0.01f};
-    u.brake_global = float(S(0x46)) * 0.01f;
+    u.brake_lo = {I(0x40) / hundred, I(0x41) / hundred, (-I(0x42)) / hundred, (-I(0x43)) / hundred};
+    u.brake_hi = {I(0x40) / hundred, I(0x41) / hundred, I(0x44) / hundred, I(0x45) / hundred};
+    u.brake_global = I(0x46) / hundred;
     for (u32 c = 0; c < 4; ++c) u.class_bonus[c] = S(0x20 + c);
     for (u32 s = 0; s < 2; ++s)
         for (u32 i = 0; i < 0x40; ++i) t.builtin[s][i] = program.b(kBuiltinSets + 0x40 * s + i);

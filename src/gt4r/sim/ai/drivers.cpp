@@ -1,5 +1,6 @@
 #include "gt4r/sim/ai/drivers.h"
 
+#include "base/ee_math.h"
 #include "gt4r/disc/disc.h"
 #include "gt4r/sim/exact_bridge.h"
 #include "gt4r/sim/rules_build.h"
@@ -13,6 +14,7 @@
 namespace gt4r::sim::ai {
 
 namespace ex = gt3r::sim::exact;
+using gt3r::ee::F;
 
 namespace {
 
@@ -40,7 +42,8 @@ struct Field::Driver {
     Params p;
     // The plan (0x463C00 ..).
     int line = 6, prev_line = 6, next = 0, mode = 0, next_kind = 0;
-    float v_cur = 0, v_next = 0, blend = 0;
+    F v_cur, v_next;
+    float blend = 0;
     int arc_ticks = 0;
     int state = 0;          // recovery: 0 racing, 1 backing out, 2 turning round
     int status = 0;         // 0x43: 1 nearing a braking point, 2 braking, 3 / 4 / 5 in an arc near the grip's limit
@@ -49,7 +52,7 @@ struct Field::Driver {
     bool long_start = true; // 0x1A == 0: the standing start's long look ahead (5 s)
     float offset = 0;       // 0x54: the sideways offset of the aim (m, + right)
     u16 rand = 0;           // 0x68
-    float corner_mult = 1, brake_mult = 1, alongside_mult = 1; // 0xB8 / 0xBC / 0xC0
+    F corner_mult{1.0f}, brake_mult{1.0f}, alongside_mult{1.0f}; // 0xB8 / 0xBC / 0xC0
     // Proximity, every step (0x4694A0).
     float contact = 0;
     std::array<u8, 8> zone{};
@@ -72,6 +75,8 @@ struct Field::Driver {
     float brake_dist = 0, brake_to = 0;
     u8 shift_lock = 0;      // 0x3C: the gearbox held this many steps (a part throttle)
     rules::WheelLayout lay; // the car's wheels (0x359510)
+    std::array<u8, 0x54> lay_raw{0, 4, 0, 0, 2, 2, 0, 0, 0, 0, 0, 0, 0, 2}; // its row of the program's table
+    int kind = 0;           // F+0x467: the driver's kind (0 racing)
 };
 
 std::optional<course::AiData> Field::read(Disc& disc, const std::string& course) {
@@ -90,33 +95,40 @@ std::unique_ptr<Field> Field::open(Disc& disc, const std::string& course, const 
     return std::make_unique<Field>(session, *data, program, computer, pace);
 }
 
-// The course's set for a driveline class into a driver's parameters (0x466C20).
+// The program's constants.
+static const F kHundredth = F::raw(0x3C23D70A), kPerKmh = F::raw(0x3E8E38E3), kPerDeg = F::raw(0x3C8EFA34), kHundred = F::raw(0x42C80000);
+static const F kOne = F::raw(0x3F800000), kHalf = F::raw(0x3F000000);
+
+static F int_f(s32 v) { return gt3r::ee::int_to_f(v); }
+
+// The course's set for a driveline class into a driver's parameters (0x466C20), in the program's arithmetic.
 static Params params_from(const std::array<u8, 0x80>& s, int cls, const Tuning& t) {
     Params p;
-    const auto b = [&](size_t i) { return float(s[i]); };
-    p.brake = b(0) * 0.01f * t.brake_global;
-    p.corner_scale = b(1) * 0.01f;
-    p.corner_offset = (b(2) - 100.0f) * kKmh;
-    p.yaw_gain = b(3) * 5.0f * 0.01f;
-    p.sat_throttle = b(4) * 0.01f, p.sat_brake = b(5) * 0.01f;
-    p.look_speed = s[6] ? 1.0f / (b(6) * 2.0f * kKmh) : 0.0f;
+    const auto b = [&](size_t i) { return int_f(s32(s[i])); };
+    p.yaw_gain = int_f(s32(s[3]) * 5) * kHundredth;
     p.look_min = b(7), p.look_max = b(8);
-    p.front_weight = b(0xE) * 0.01f;
-    p.corner_bonus = b(0xF) * kKmh;
-    p.steer_rate = b(0x10) * 10.0f * kDeg;
+    p.throttle = kOne;
+    p.look_speed = kOne / (int_f(s32(s[6]) * 2) * kPerKmh);
+    p.brake = b(0) * kHundredth;
+    p.corner_scale = b(1) * kHundredth;
+    p.corner_offset = int_f(s32(s[2]) - 100) * kPerKmh;
+    p.sat_throttle = b(4) * kHundredth, p.sat_brake = b(5) * kHundredth;
+    p.front_weight = b(0xE) * kHundredth;
+    p.corner_bonus = b(0xF) * kPerKmh;
+    p.steer_rate = int_f(s32(s[0x10]) * 10) * kPerDeg;
     p.bonus_ticks = int(s[0x11]) * 10;
-    p.pit_speed = float(s[0x12] ? s[0x12] : 80) * kKmh;
-    p.throttle = 1;
-    if (s[0x1C] && s[0x1D]) {
+    p.pit_speed = int_f(s32(s[0x12] ? s[0x12] : 80)) * kPerKmh;
+    p.brake = p.brake * t.brake_global;
+    if (s[0x1D] && s[0x1C]) {
         p.straight_bonus = true;
-        p.bonus_angle = b(0x1C) * kDeg;
-        p.bonus_speed = b(0x1D) * kKmh;
+        p.bonus_angle = b(0x1C) * kPerDeg;
+        p.bonus_speed = b(0x1D) * kPerKmh;
         const u8 cb = t.class_bonus[size_t(cls) & 3];
-        if (cb != 0 && cb != 100) p.bonus_speed *= float(cb) / 100.0f;
+        if (cb != 0 && cb != 100) p.bonus_speed = p.bonus_speed * (int_f(cb) / kHundred);
     }
     if (s[0x1B] == 0x20)
         for (size_t i = 0; i < 3; ++i)
-            if (s[0x20 + i] != 0 && s[0x20 + i] != 100) p.grip[i] = b(0x20 + i) / 100.0f;
+            if (s[0x20 + i] != 0 && s[0x20 + i] != 100) p.grip[i] = b(0x20 + i) / kHundred;
     return p;
 }
 
@@ -148,14 +160,18 @@ void Field::init(const course::AiData& data, const Program& program, std::span<c
         const Spec& spec = session.spec(car);
         const int drive = spec.drive(), system = spec.b(0x129);
         d->drive_class = drive == 1 ? 1 : drive == 2 ? (system == 3 ? 3 : system == 0 ? 1 : system == 5 ? 0 : 2) : 0;
-        if (program.known()) d->lay = rules::wheel_layout(program, wheel_layout_index(spec));
+        if (program.known()) {
+            const u8 row = wheel_layout_index(spec);
+            d->lay = rules::wheel_layout(program, row);
+            for (u32 k = 0; k < 0x54; ++k) d->lay_raw[k] = program.b(rules::kWheelLayouts + rules::kWheelLayoutSize * row + k);
+        }
         std::array<u8, 0x80> set{};
         if (const auto& s = data.sets[size_t(d->drive_class)]) set = *s;
         else std::copy(tables_.builtin[session.loose() ? 1 : 0].begin(), tables_.builtin[session.loose() ? 1 : 0].end(), set.begin());
         d->p = params_from(set, d->drive_class, tables_.tuning);
         const ex::Car& c = session.record(car);
-        const float mass = c.p.mass.host();
-        if (mass > 0) d->p.downforce = (c.p.downforce_coef[0].host() + c.p.downforce_coef[1].host()) / mass;
+        // 0x4673D8: the downforce term (the aero bonus's lift part is ❓ not mirrored: 0).
+        if (c.p.mass != F()) d->p.downforce = (c.p.downforce_coef[0] + c.p.downforce_coef[1]) / c.p.mass;
         // The event's changes (0x467148): each class's percents, then the drivers' spread by grid index.
         int thr = pace_.throttle[size_t(d->drive_class)], brk = pace_.brake[size_t(d->drive_class)], cs = pace_.corner[size_t(d->drive_class)];
         if (thr == 0 || thr > 100) thr = 100;
@@ -166,12 +182,12 @@ void Field::init(const course::AiData& data, const Program& program, std::span<c
             const int idx = d->index;
             if (!tables_.tuning.brake_spread) brk -= (idx % 3) * 7;
             if (!tables_.tuning.corner_spread) cs -= (idx * 4) & 4, off = -2 * ((idx * 7) % 5);
-            d->p.yaw_gain *= float(((idx + 1) % 3) * 3 + 97) * 0.01f;
+            d->p.yaw_gain = d->p.yaw_gain * (int_f(((idx + 1) % 3) * 3 + 97) * kHundredth);
         }
-        if (thr != 100) d->p.throttle = float(thr) * 0.01f;
-        if (brk != 100) d->brake_mult *= float(brk) * 0.01f;
-        if (cs != 100) d->corner_mult *= float(cs) * 0.01f;
-        if (off) d->p.corner_offset += float(off) * kKmh;
+        if (thr != 100) d->p.throttle = int_f(thr) * kHundredth;
+        if (brk != 100) d->brake_mult = d->brake_mult * (int_f(brk) * kHundredth);
+        if (cs != 100) d->corner_mult = d->corner_mult * (int_f(cs) * kHundredth);
+        if (off) d->p.corner_offset = d->p.corner_offset + int_f(off) * kPerKmh;
         // The random draws (0x4639E0): seeded by the grid index for a computer car, then one step.
         d->rand = u16(d->control == 2 ? d->index + 1 : 1);
         d->rand = u16(((u32(d->rand) * 0x41C64E6Du + 0x3039u) >> 16) & 0x7FFF);
@@ -204,7 +220,7 @@ Field::Snapshot Field::snapshot(size_t car) const {
     if (!d) return o;
     o.line = d->line, o.next = d->next, o.mode = d->mode, o.status = d->status, o.state = d->state, o.follow = d->follow;
     o.wanted_throttle = d->throttle, o.reverse = d->reverse, o.look = d->look, o.brake_dist = d->brake_dist, o.brake_to = d->brake_to;
-    o.v_cur = d->v_cur, o.v_next = d->v_next, o.steer = d->steer, o.lock = session_->record(car).lock_hi.host(), o.steer_cmd = session_->record(car).steer_cmd.host(), o.throttle = d->applied_throttle, o.brake = d->brake, o.contact = d->contact;
+    o.v_cur = d->v_cur.host(), o.v_next = d->v_next.host(), o.steer = d->steer, o.lock = session_->record(car).lock_hi.host(), o.steer_cmd = session_->record(car).steer_cmd.host(), o.throttle = d->applied_throttle, o.brake = d->brake, o.contact = d->contact;
     const ex::Car& c = session_->record(car);
     float x, y, h;
     if (d->line >= 0 && lines_.evaluate(d->line, d->next, d->s, x, y, h)) {
@@ -232,44 +248,62 @@ Field::Probe Field::probe_get(size_t car) const {
     return p;
 }
 
-float Field::probe_corner_speed(size_t car, int i) { return corner_speed(*drivers_.at(car), i); }
-float Field::probe_braking(size_t car) { return braking(*drivers_.at(car)); }
+F Field::probe_corner_speed(size_t car, int i) { return corner_speed(*drivers_.at(car), i); }
+F Field::probe_braking(size_t car) { return braking(*drivers_.at(car)); }
 
 // ---- the plan --------------------------------------------------------------------------------------------------
 
-float Field::corner_speed(const Driver& d, int i) {
+// 0x463988: a + (b - a) x the driver's draw / 32768.
+static F draw(u16 r, F a, F b) { return a + (b - a) * (int_f(s32(r)) * F::raw(0x38000000)); }
+
+// 0x467470: the computer drivers' grip factor for the front's tire record on a surface (1 for a pad car without a driver).
+F Field::ai_grip(const Driver& d, int surface) const {
+    if (d.control != 1 && d.control != 2 && d.kind == 0) return kOne;
+    const u8 cls = session_->extra(d.car).tires.tire_index[0][size_t(surface) % 24];
+    return d.p.grip[std::min<size_t>(cls, 2)];
+}
+
+// 0x4674F0, in the program's arithmetic.
+F Field::corner_speed(const Driver& d, int i) {
     const ex::Car& c = session_->record(d.car);
     const std::vector<LinePoint>& pts = lines_.line(d.line);
-    if (pts.empty()) return c.p.top_speed.host();
+    if (pts.empty()) return c.p.top_speed;
     const LinePoint& pt = pts[size_t(i) % pts.size()];
-    const int row = core_surface(pt.surface);
-    const u8 tf = c.p.tire_index[0][size_t(row) & 15], tr = c.p.tire_index[1][size_t(row) & 15];
-    const ex::TireRecord& rf = c.p.tire[std::min<size_t>(tf, 5)];
-    const ex::TireRecord& rr = c.p.tire[std::min<size_t>(tr, 5)];
-    const float w = d.p.front_weight;
-    const float g = d.p.grip[std::min<size_t>(tf % 3, 2)];
-    float a = (w * rf.mu[size_t(row)].host() * rf.grip.host() + (1 - w) * rr.mu[size_t(row)].host() * rr.grip.host()) * g;
-    const float r = pt.radius;
-    a *= std::fabs(r);
-    if ((r >= 0 && pt.bank < 0) || (r < 0 && pt.bank > 0)) a /= (1 - std::sin(std::fabs(pt.bank)));
-    const float e = pt.crest ? 0 : d.p.aero_bonus;
-    float q = 1 + e, v = 0;
+    const sim::Extra& x = session_->extra(d.car);
+    const u8 s = u8(pt.surface % 24);
+    const rules::Tire& rf = rules::tire_record(x.tires, d.lay, d.lay_raw[0xC], s);
+    const rules::Tire& rr = rules::tire_record(x.tires, d.lay, d.lay_raw[0xD], s);
+    const F w = d.p.front_weight; // (❓ two flags of the car halve it towards 0.5: not mirrored)
+    const F g = ai_grip(d, s);
+    const F mu0 = ((w * rf.mu[s]) * rf.grip) * g, mu1 = (((kOne - w) * rr.mu[s]) * rr.grip) * g;
+    F a = mu0 + mu1; // (with tire wear on: the wheels' wear grips weigh it: not done)
+    const F r(pt.radius), bank(pt.bank), zero;
+    if (zero <= r) {
+        a = a * r;
+        if (bank < zero) a = a / (kOne + gt3r::ee::sin(bank));
+    } else {
+        a = a * (-r);
+        if (zero < bank) a = a / (kOne - gt3r::ee::sin(bank));
+    }
+    const F e = pt.crest ? zero : d.p.aero_bonus;
+    F q = e + kOne, v;
     for (int k = 0; k < 3; ++k) {
-        v = std::sqrt(std::max(a * q, 0.0f));
-        q = d.p.downforce * v * v + 1 + e;
+        v = gt3r::ee::sqrt(a * q);
+        q = ((d.p.downforce * v) * v + kOne) + e;
     }
-    float scale = d.p.corner_scale;
-    float m = d.control == 0 ? 1 : d.corner_mult;
+    F m = d.control == 0 ? kOne : d.corner_mult;
     const Tuning& t = tables_.tuning;
-    if (t.corner_spread && (d.control == 1 || d.control == 2)) {
-        const float lo = t.corner_lo.at(m), hi = t.corner_hi.at(m);
-        m += lo + (hi - lo) * float(d.rand) / 32768.0f;
-    }
-    scale *= m;
+    if (t.corner_spread && (d.control == 1 || d.control == 2) && d.kind == 0) m = m + draw(d.rand, t.corner_lo.at(m), t.corner_hi.at(m));
+    F scale = d.p.corner_scale * m;
     if (t.alongside_slow && (d.zone[kFrontLeft] || d.zone[kLeft] || d.zone[kRight] || d.zone[kFrontRight]))
-        scale *= 1 - t.alongside_share * (d.control == 0 ? 1 : d.alongside_mult);
-    const float offset = d.p.corner_offset + (pt.speed_adjust == -128 ? 0.0f : float(pt.speed_adjust) * kKmh);
-    return std::clamp(scale * v + offset, 20 * kKmh, std::max(c.p.top_speed.host(), 20 * kKmh));
+        scale = scale * (kOne - t.alongside_share * (d.control == 0 ? kOne : d.alongside_mult));
+    const F offset = d.p.corner_offset + int_f(pt.speed_adjust == -128 ? 0 : pt.speed_adjust) * kPerKmh;
+    // (on the front's first tire record the scale takes T+0x158's factor of its paved grip: 1 throughout in this program)
+    F out = scale * v + offset;
+    const F top = c.p.top_speed, least = F::raw(0x40B1C71B); // 20 km/h
+    if (top < out) out = top;
+    else if (out < least) out = least;
+    return out;
 }
 
 // 0x4679C0: the next segment: a random draw, the current one takes the next's kind and speed.
@@ -284,7 +318,7 @@ void Field::bookkeeping_shift(Driver& d) {
     int i = d.next == count ? 0 : d.next;
     if (pts[size_t(i)].speed_adjust == -128) i = (i + 1) % count;
     d.next_kind = pts[size_t(i)].kind;
-    d.v_next = d.next_kind == 0 ? c.p.top_speed.host() : corner_speed(d, i);
+    d.v_next = d.next_kind == 0 ? c.p.top_speed : corner_speed(d, i);
 }
 
 // 0x467AA8: the plan made again from the car's place on its line.
@@ -303,7 +337,7 @@ void Field::replan(Driver& d) {
     int cur = (n + count - 1) % count;
     if (pts[size_t(cur)].speed_adjust == -128) cur = (cur - 1 + count) % count;
     d.next_kind = pts[size_t(cur)].kind;
-    d.v_next = d.next_kind ? corner_speed(d, cur) : c.p.top_speed.host();
+    d.v_next = d.next_kind ? corner_speed(d, cur) : c.p.top_speed;
     bookkeeping_shift(d);
 }
 
@@ -323,15 +357,14 @@ bool Field::request_line(Driver& d, int line, bool at_once) {
 }
 
 // 0x463EA8: the point bookkeeping, the braking point, the status; the throttle's multiplier.
-float Field::braking(Driver& d) {
+F Field::braking(Driver& d) {
     d.status = 0;
-    if (d.line == CourseLines::kPitStop) return 1;
+    if (d.line == CourseLines::kPitStop) return kOne;
     const ex::Car& c = session_->record(d.car);
     const std::vector<LinePoint>& pts = lines_.line(d.line);
     const int count = int(pts.size());
-    if (count == 0) return 1;
+    if (count == 0) return kOne;
     const float lap = lines_.lap(), s = d.s;
-    float mult = 1;
     // At most one step a tick.
     int n = d.next;
     bool changed = false;
@@ -343,50 +376,67 @@ float Field::braking(Driver& d) {
     if (changed) bookkeeping_shift(d);
     int bp = d.next == count ? 0 : d.next;
     if (pts[size_t(bp)].speed_adjust == -128) bp = (bp + 1) % count;
-    const float v = c.speed.host();
+    // The braking point (in the program's arithmetic).
+    const F v = c.speed, zero;
+    F mult = kOne;
     if (d.mode == 3 || d.mode == 4) d.status = 2;
     else if (d.next_kind != 0 && d.v_next < v) {
-        float kb = d.p.brake;
-        float m = d.control == 0 ? 1 : d.brake_mult;
+        F kb = d.p.brake;
+        F m = d.control == 0 ? kOne : d.brake_mult;
         const Tuning& t = tables_.tuning;
-        if (t.brake_spread && (d.control == 1 || d.control == 2)) {
-            const float lo = t.brake_lo.at(m), hi = t.brake_hi.at(m);
-            m += lo + (hi - lo) * float(d.rand) / 32768.0f;
-        }
-        kb *= m;
+        if (t.brake_spread && (d.control == 1 || d.control == 2) && d.kind == 0) m = m + draw(d.rand, t.brake_lo.at(m), t.brake_hi.at(m));
+        kb = kb * m;
         const LinePoint& q = pts[size_t(bp)];
-        const int row = core_surface(q.surface);
-        const u8 tf = c.p.tire_index[0][size_t(row) & 15];
-        const ex::TireRecord& rf = c.p.tire[std::min<size_t>(tf, 5)];
-        float mu = rf.mu[size_t(row)].host() * d.p.grip[std::min<size_t>(tf % 3, 2)];
-        const float width = c.p.width[0].host();
-        if (width > 0) mu *= ex::lookup(rf.load_curve, gt3r::ee::F(c.p.weight.host() * 0.5f / width)).host();
-        mu *= rf.brake_peak.host() * c.p.cam_offset[0].host();
-        const float vn = d.v_next;
-        const float e = q.crest ? 0 : d.p.aero_bonus;
-        const float qh = 1 + d.p.downforce * v * v + e, ql = 1 + d.p.downforce * vn * vn + e;
-        const float coef = std::max(c.p.brake_coef.host(), 1.0f / std::max(mu * 9.8f * (qh + ql), 1e-3f)) * (1 - std::sin(q.slope));
-        float dist = (v + vn) * (v - vn) * coef;
-        dist *= std::max(0.1f, 1.0f + float(q.brake_adjust) * 0.01f);
-        if (kb > 1) dist /= kb;
-        if (d.control == 1 || d.control == 2) dist += float(d.chain);
-        if (d.cooldown == 0 && d.contact > 0) dist += 10;
-        if (d.follow >= 0 && session_->state(size_t(d.follow)).brake > 0) dist += 8;
-        const float to = std::hypot(q.x - c.pos.x.host(), q.y - c.pos.y.host());
-        d.brake_dist = dist, d.brake_to = to;
+        const sim::Extra& x = session_->extra(d.car);
+        const u8 s = u8(q.surface % 24), axle = d.lay_raw[0x10] & 1;
+        const rules::Tire& rf = rules::tire_record(x.tires, d.lay, d.lay_raw[0xC], s);
+        F mu = rf.mu[s] * ai_grip(d, s);
+        mu = mu * ex::lookup_bisect(rf.load_curve, (c.p.weight * kHalf) / x.tires.width[axle]);
+        mu = (mu * rf.brake_peak) * c.p.cam_offset[axle];
+        if (!(c.x535 & 0x10)) { // off the pit lane: the steered wheels' wear grips
+            F sum;
+            int k = 0;
+            for (int w = 0; w < int(d.lay.count) && w < 4; ++w)
+                if (gt3r::s8(d.lay.fore_aft[size_t(w)]) > 0) sum = sum + c.w[size_t(w)].wear_grip, ++k;
+            if (k) mu = (mu * sum) / int_f(k);
+        }
+        const F vn = d.v_next;
+        const F e = q.crest ? zero : d.p.aero_bonus;
+        const F qh = (d.p.downforce * v) * v + kOne, ql = (d.p.downforce * vn) * vn + kOne;
+        const F hq = ((mu * F::raw(0x411CCCCC)) * ((qh + e) + (ql + e))) * kHalf; // 9.8
+        F coef = kOne / (hq + hq);
+        if (coef < c.p.brake_coef) coef = c.p.brake_coef;
+        coef = coef * (kOne - gt3r::ee::sin(F(q.slope)));
+        F dist = zero + ((v + vn) * (v - vn)) * coef;
+        if (d.control != 1 && d.control != 2 && d.kind == 0) dist = dist + c.speed;
+        F adj = int_f(q.brake_adjust) * kHundredth + kOne;
+        if (adj < F::raw(0x3DCCCCCC)) adj = F::raw(0x3DCCCCCC);
+        dist = dist * adj;
+        if (kOne < kb) dist = dist / kb;
+        if (d.control == 1 || d.control == 2) {
+            dist = dist + int_f(d.chain);
+            if (d.cooldown == 0 && zero < F(d.contact)) {
+                dist = dist + F::raw(0x41200000);
+                if (d.follow >= 0 && session_->state(size_t(d.follow)).brake > 0) dist = dist + F::raw(0x41000000);
+            }
+        }
+        const F dx = F(q.x) - c.pos.x, dy = F(q.y) - c.pos.y;
+        const F to = gt3r::ee::sqrt(dx * dx + dy * dy);
+        d.brake_dist = dist.host(), d.brake_to = to.host();
         if (dist < to) {
-            const float soft = kb < 1 ? dist * (1 / kb - 1) : 0;
-            const float margin = to - dist;
-            if (margin < soft + 25) d.status = 1;
-            if (soft > 0 && margin < soft) mult = margin / soft;
+            const F soft = kb < kOne ? dist * (kOne / kb - kOne) : zero;
+            const F margin = to - dist;
+            if (margin < soft + F::raw(0x41C80000)) d.status = 1;
+            if (zero < soft && margin < soft) mult = margin / soft;
         } else {
             d.mode = d.mode ? 4 : 3;
             d.status = 2;
         }
     }
-    if (d.line != CourseLines::kPitLane && d.p.throttle < 1) {
-        const float wot = c.torque_wot.host(), fr = c.torque_friction.host(), sum = wot + fr;
-        mult *= sum != 0 ? (d.p.throttle * wot + fr) / sum : d.p.throttle;
+    // The event's throttle share as a share of the full-throttle torque.
+    if (d.line != CourseLines::kPitLane && d.p.throttle < kOne) {
+        const F wot = c.torque_wot, fr = c.torque_friction, sum = wot + fr;
+        if (sum != F()) mult = mult * ((d.p.throttle * wot + fr) / sum);
     }
     return mult;
 }
@@ -580,7 +630,7 @@ void Field::decide(Driver& d) {
     d.steer = c.steer_cmd.host();
     if (!t.blend_by_distance) d.blend = std::max(0.0f, d.blend - kStep);
     if (d.line < 0) return;
-    const float scale = braking(d);
+    const float scale = braking(d).host();
     const float v = c.speed.host();
     const float px = c.pos.x.host(), py = c.pos.y.host();
     const float fx = c.fwd.x.host(), fy = c.fwd.y.host();
@@ -592,7 +642,9 @@ void Field::decide(Driver& d) {
     float look;
     if (d.state != 0) look = d.state == 1 ? 10.0f : 40.0f;
     else {
-        look = v <= 0 ? d.p.look_min : std::min(1.0f, d.p.look_speed * v) * (d.p.look_max - d.p.look_min) + d.p.look_min;
+        // 0x464E88
+        const F fv(v), f = d.p.look_speed * fv;
+        look = (fv <= F() ? d.p.look_min : kOne <= f ? d.p.look_max : d.p.look_min + f * (d.p.look_max - d.p.look_min)).host();
         const float ms = float(steps_) * 1000.0f / 60.0f;
         if (d.long_start) {
             if (5000 - ms > 0) look += (5000 - ms) * 200 / 5000;
@@ -605,7 +657,7 @@ void Field::decide(Driver& d) {
         float ox, oy;
         target(d, d.prev_line, look, ox, oy);
         if (t.blend_by_distance) {
-            const float gap = std::hypot(ox - ax, oy - ay), step = t.blend_rate * kStep;
+            const float gap = std::hypot(ox - ax, oy - ay), step = t.blend_rate.host() * kStep;
             d.blend = gap < step ? 0 : std::max(0.0f, d.blend - step / gap);
         }
         ax += (ox - ax) * d.blend, ay += (oy - ay) * d.blend;
@@ -617,7 +669,7 @@ void Field::decide(Driver& d) {
             float lx = px, ly = py, lh;
             lines_.evaluate(d.line, d.next, d.s, lx, ly, lh);
             const float e = rx * (lx - px) + ry * (ly - py);
-            o = e * (d.line == 3 || d.line == 4 ? t.side_share_pit : t.side_share);
+            o = e * (d.line == 3 || d.line == 4 ? t.side_share_pit : t.side_share).host();
         }
         if ((t.offset_flags & 2) && d.line != 4) {
             if (d.gap_left < 2) o += 2 - d.gap_left;
@@ -631,10 +683,11 @@ void Field::decide(Driver& d) {
         }
         if (t.offset_by_grip) {
             const float g = std::fabs(c.lat_g.host());
-            const float lim = g >= t.grip_hi ? 0 : g > t.grip_lo ? t.offset_limit * (t.grip_hi - g) / (t.grip_hi - t.grip_lo) : t.offset_limit;
+            const float hi = t.grip_hi.host(), lo = t.grip_lo.host(), lm = t.offset_limit.host();
+            const float lim = g >= hi ? 0 : g > lo ? lm * (hi - g) / (hi - lo) : lm;
             o = std::clamp(o, -lim, lim);
         }
-        const float step = t.offset_rate * kStep;
+        const float step = t.offset_rate.host() * kStep;
         d.offset += std::clamp(o - d.offset, -step, step);
         ax += d.offset * rx, ay += d.offset * ry;
     }
@@ -709,7 +762,7 @@ void Field::decide(Driver& d) {
                 float rd = 2 * vxy * yl / p2;
                 if (v < 0) rd = -rd;
                 const float r = c.yaw_rate.host();
-                float ky = d.p.yaw_gain;
+                float ky = d.p.yaw_gain.host();
                 // T[2]: the gain falls as the steered wheels' mean slip angle nears their peak.
                 if (t.steer_mode && amax != 0) ky *= std::clamp((amax - x.tires.mean_slip.host()) / amax, -1.0f, 1.0f);
                 if (rd > 0 && r < rd) {
@@ -729,13 +782,13 @@ void Field::decide(Driver& d) {
     }
     const float lock = c.p.max_lock.host();
     tgt = std::clamp(tgt, -lock, lock);
-    const float step = d.p.steer_rate * kStep;
+    const float step = d.p.steer_rate.host() * kStep;
     d.steer += std::clamp(tgt - d.steer, -step, step);
 
     // Throttle and brake.
     if (drive == 1) {
         if (brakeflag) d.brake = 0.09f;
-        float aim = d.v_cur, next = d.v_next;
+        float aim = d.v_cur.host(), next = d.v_next.host();
         int mode = d.mode;
         if (d.follow >= 0 && d.cooldown < 120) {
             const float margin = d.status == 1 || d.status == 2 ? 20 * kKmh : d.status >= 3 ? 15 * kKmh : 5 * kKmh;
@@ -754,8 +807,9 @@ void Field::decide(Driver& d) {
             speed_control(d, next, -1), ++d.arc_ticks;
         } else {
             float tv = aim;
-            if (!(st.wheels[0].surface & 1) && d.arc_ticks >= d.p.bonus_ticks) tv += d.p.corner_bonus;
-            if (d.p.straight_bonus && aeps < d.p.bonus_angle) tv += d.p.bonus_speed * (d.p.bonus_angle - aeps) / d.p.bonus_angle;
+            if (!(st.wheels[0].surface & 1) && d.arc_ticks >= d.p.bonus_ticks) tv += d.p.corner_bonus.host();
+            if (d.p.straight_bonus && aeps < d.p.bonus_angle.host())
+                tv += d.p.bonus_speed.host() * (d.p.bonus_angle.host() - aeps) / d.p.bonus_angle.host();
             speed_control(d, tv, -0.5f);
             if (d.status == 0) {
                 const float g = std::fabs(c.lat_g.host());

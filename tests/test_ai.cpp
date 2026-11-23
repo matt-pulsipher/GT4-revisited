@@ -140,8 +140,9 @@ TEST(ai_file_fixed) {
 }
 
 TEST(ai_ramp_and_neutral_tables) {
-    const sim::ai::Ramp r{0.8f, 1.0f, -0.12f, -0.04f};
-    CHECK(r.at(0.5f) == -0.12f && r.at(2.0f) == -0.04f && std::fabs(r.at(0.9f) + 0.08f) < 1e-6f);
+    using gt3r::ee::F;
+    const sim::ai::Ramp r{F(0.8f), F(1.0f), F(-0.12f), F(-0.04f)};
+    CHECK(r.at(F(0.5f)).host() == -0.12f && r.at(F(2.0f)).host() == -0.04f && std::fabs(r.at(F(0.9f)).host() + 0.08f) < 1e-6f);
     const sim::ai::Tables t = sim::ai::Tables::load(sim::Program{});
     CHECK(!t.known);
     CHECK(t.fallback[1][0] == 1 && t.fallback[1][1] == 6 && t.fallback[6][0] == 6);

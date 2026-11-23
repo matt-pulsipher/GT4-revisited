@@ -1,5 +1,10 @@
 #include "gt4r/sim/ai/course_lines.h"
 
+#include "base/ee_float.h"
+#include "base/ee_math.h"
+#include "gt4r/sim/rules.h"
+#include "sim/exact/build_math.h"
+
 #include <algorithm>
 #include <cmath>
 #include <numbers>
@@ -13,7 +18,82 @@ constexpr float kTwoPi = 2 * kPi;
 
 Vec3 course_point(float x, float y, float h) { return {x, h, -y}; }
 
+using gt3r::ee::F;
+
+// 0x3E6610: point p in the quad a (the gate's start, left), b (the next gate's, left), c (the gate's start, right), d (the
+// next gate's, right), across the ground (x, z): its place u from a to b and v from a to c (inverting the quad's
+// bilinear map), and p's height above the quad's at (u, v). False outside the quad (or a quad of no extent).
+bool quad_place(const Vec3& pp, const Vec3& aa, const Vec3& bb, const Vec3& cc, const Vec3& dd, F& u, F& v, F& above) {
+    const F px(pp.x), pz(pp.z), ax(aa.x), az(aa.z), bx(bb.x), bz(bb.z), cx(cc.x), cz(cc.z), dx(dd.x), dz(dd.z);
+    const F zero;
+    const F acx = cx - ax, acz = cz - az, dbx = bx - dx, dbz = bz - dz;
+    if (acx == zero && acz == zero && dbx == zero && dbz == zero) return false;
+    const F apx = px - ax, apz = pz - az;
+    const F s1 = apz * acx - apx * acz;
+    if (zero < s1) return false;
+    const F abx = bx - ax, abz = bz - az;
+    const F s2 = apz * abx - apx * abz;
+    if (s2 < zero) return false;
+    const F dpx = px - dx, dpz = pz - dz;
+    if (zero < dpz * dbx - dpx * dbz) return false;
+    const F dcx = cx - dx, dcz = cz - dz;
+    if (dpz * dcx - dpx * dcz < zero) return false;
+    const F ex = (-dcx) - abx, ez = (-dcz) - abz;
+    const F k = apz * ex - apx * ez;
+    if (acx == zero && acz == zero) {
+        u = (-s2) / k;
+        v = k / (abz * ex - abx * ez);
+    } else {
+        const F q = abz * acx - abx * acz;
+        const F r = acz * ex - acx * ez;
+        const F b0 = k + q, b1 = q - k;
+        const F disc = gt3r::ee::sqrt(b0 * b0 + (s2 * F::raw(0x40800000)) * r);
+        v = (s2 * F::raw(0xC0000000)) / (b0 - disc);
+        u = (s1 + s1) / (b1 - disc);
+    }
+    const F one = F::raw(0x3F800000);
+    const F ay(aa.y), by(bb.y), cy(cc.y), dy(dd.y);
+    const F h = (one - u) * (one - v) * ay + u * (one - v) * by + (one - u) * v * cy + u * v * dy;
+    above = F(pp.y) - h;
+    return true;
+}
+
 } // namespace
+
+bool CourseLines::course_distance(const Vec3& p, int cluster, float& out) const {
+    if (!ground_) return false;
+    const course::Runway& r = ground_->road();
+    if (cluster < 0) {
+        GroundHit hit;
+        if (!ground_->cast_down(p, hit)) return false;
+        cluster = hit.cluster;
+    }
+    if (cluster < 0 || size_t(cluster) >= r.clusters.size()) return false;
+    const course::Runway::Cluster& c = r.clusters[size_t(cluster)];
+    const size_t n = r.checkpoints.size();
+    F best = F::raw(0x7FFFFFFF), dist;
+    bool found = false;
+    for (u32 k = c.checkpoint_first; k < u32(c.checkpoint_first) + c.checkpoint_count && k < r.checkpoint_lookup.size(); ++k) {
+        const size_t i = r.checkpoint_lookup[k];
+        if (i >= n) continue;
+        const size_t j = i + 1 == n ? 0 : i + 1;
+        const course::Runway::Checkpoint &a = r.checkpoints[i], &b = r.checkpoints[j];
+        F u, v, above;
+        bool in = quad_place(p, a.left, b.left, a.middle, b.middle, u, v, above);
+        if (!in) in = quad_place(p, a.middle, b.middle, a.right, b.right, u, v, above);
+        if (!in) continue;
+        const F h = gt3r::ee::abs(above);
+        if (!(h < best)) continue;
+        best = h, found = true;
+        const F lap(r.length), from(a.v);
+        F to(b.v);
+        if (to < from) to = to + lap;
+        dist = from + (to - from) * u;
+        if (lap < dist) dist = dist - lap;
+    }
+    if (found) out = dist.host();
+    return found;
+}
 
 CourseLines::CourseLines(const course::AiData& data, const RoadGround& ground, const Tables& tables) : ground_(&ground), fallback_(tables.fallback) {
     lap_ = ground.road().length;
@@ -46,6 +126,24 @@ void CourseLines::prepare(int k, float& query) {
     for (size_t i = 0; i < n; ++i) {
         LinePoint& p = pts[i];
         if (p.kind != 0) p.kind = k == kSideMap ? 1 : p.radius > 0 ? 1 : 2;
+        // The stop line's middle points stand on the road's pit stops (the nearest within 5 m), facing the stop's way.
+        if (k == kPitStop && i >= 3 && i + 4 <= n) {
+            const auto& stops = ground_->road().pit_stops;
+            int best = -1;
+            float best_d = 5.0f;
+            for (size_t j = 0; j < stops.size(); ++j) {
+                const float d = std::hypot(stops[j].pos.x - p.x, -stops[j].pos.z - p.y);
+                if (d < best_d) best_d = d, best = int(j);
+            }
+            if (best >= 0) {
+                const auto& st = stops[size_t(best)];
+                p.x = st.pos.x, p.y = -st.pos.z;
+                float hd = st.heading + kPi;
+                while (hd > kPi) hd -= kTwoPi;
+                while (hd < -kPi) hd += kTwoPi;
+                p.heading = hd;
+            }
+        }
         // The road under the point: from well above the first point, then from a little above the last height (more
         // along a longer stretch), then from 100 m above.
         GroundHit hit;
@@ -61,19 +159,34 @@ void CourseLines::prepare(int k, float& query) {
             p.height = hit.point.y;
             p.surface = surface_index(hit.material, hit.flags);
             p.pit = hit.flags & 1;
-            // The normal in the simulation's frame (x, y, up) against the heading's direction and its left.
-            const float nx = hit.normal.x, ny = -hit.normal.z;
-            const float dx = -std::sin(p.heading), dy = std::cos(p.heading);
-            p.slope = -std::asin(std::clamp(nx * dx + ny * dy, -1.0f, 1.0f));
-            p.bank = -std::asin(std::clamp(nx * -dy + ny * dx, -1.0f, 1.0f));
+            // 0x46A140: the slope and bank from the road's heights half a metre ahead and behind, left and right (a probe
+            // that meets no road: the point's own height half a metre from the other).
+            const F h(p.heading), half = F::raw(0x3F000000), one = F::raw(0x3F800000);
+            const F hs = gt3r::ee::sin(h) * half, hc = gt3r::ee::cos(h) * half, x(p.x), y(p.y), at(p.height);
+            auto probe = [&](F px, F py, F& out) {
+                GroundHit g;
+                if (!ground_->under(course_point(px.host(), py.host(), p.height), g)) return false;
+                out = F(g.point.y);
+                return true;
+            };
+            F ahead, behind, left, right;
+            const bool a = probe(x - hs, y + hc, ahead), b = probe(x + hs, y - hc, behind);
+            const bool l = probe(x - hc, y - hs, left), r = probe(x + hc, y + hs, right);
+            const gt3r::sim::Behaviour beh = rules::behaviour();
+            p.slope = p.bank = 0;
+            if (a || b)
+                p.slope = gt3r::sim::exact::atan2(beh, !a ? at - behind : !b ? ahead - at : ahead - behind, a && b ? one : half).host();
+            if (l || r)
+                p.bank = gt3r::sim::exact::atan2(beh, !l ? at - right : !r ? left - at : left - right, l && r ? one : half).host();
         } else {
             p.height = i == 0 ? 0 : prev_h;
         }
         prev_h = p.height;
         query = std::trunc(p.height) + 2.0f;
         float s = 0;
-        if (ground_->distance_along(course_point(p.x, p.y, p.height), s, &hint)) p.dist = s >= lap_ ? s - lap_ : s < 0 ? s + lap_ : s;
-        else p.dist = i ? pts[i - 1].dist : 0;
+        (void)hint;
+        if (course_distance(course_point(p.x, p.y, p.height), found ? hit.cluster : -1, s)) p.dist = s;
+        else p.dist = 0;
         if (k == kPitStop) {
             if (!lap_added && p.dist < lap_ * 0.5f) lap_added = true;
             if (lap_added) p.dist += lap_;
