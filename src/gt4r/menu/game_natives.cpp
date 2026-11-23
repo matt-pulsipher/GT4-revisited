@@ -422,8 +422,16 @@ Value GameNatives::make_game() {
         return Value{};
     });
     // The pages the menus came through: a stack of names (the title page pushes the mode).
-    g.method("menuPush", [s](Vm&, const Value&, Args a) {
-        s->menu_stack.push_back(a.empty() ? std::string() : a[0].to_string());
+    // The menu stack (0x42FD00 on): the names one after another, each ended by a 0, in 0x100
+    // bytes; a name that would reach the last byte is not pushed.
+    auto stack_bytes = [s] {
+        size_t n = 0;
+        for (const std::string& name : s->menu_stack) n += name.size() + 1;
+        return n;
+    };
+    g.method("menuPush", [s, stack_bytes](Vm&, const Value&, Args a) {
+        const std::string name = a.empty() ? std::string() : a[0].to_string();
+        if (stack_bytes() + name.size() < 0xFF) s->menu_stack.push_back(name);
         return Value{};
     });
     g.method("menuPop", [s](Vm&, const Value&, Args) {
@@ -446,24 +454,27 @@ g.method("menuRef", [s](Vm&, const Value&, Args a) {
         g.method(nothing, [](Vm&, const Value&, Args) { return Value{}; });
 
     // The menus' place kept in the save (Context: the major project and page, the stack).
-    g.method("saveMenuStack", [s](Vm&, const Value&, Args) {
-        s->saved_menu_depth = int(s->menu_stack.size()) - 1;
+    // saveMenuStack keeps a copy of the stack and its length in bytes (0x42FE88); loadMenuStack
+    // puts it back and answers 1, or 0 when none was kept (the length -1, a new game's;
+    // 0x42FF48).
+    g.method("saveMenuStack", [s, stack_bytes](Vm&, const Value&, Args) {
         Bytes stack(0x100, 0);
         size_t at = 0;
-        for (const std::string& name : s->menu_stack) {
-            if (at + name.size() + 1 > stack.size()) break;
-            std::memcpy(stack.data() + at, name.data(), name.size()), at += name.size() + 1;
-        }
-        s->saved_menu_stack = stack; // ❓ the program's entry format is not read: the names, each ended by a 0
+        for (const std::string& name : s->menu_stack) std::memcpy(stack.data() + at, name.data(), name.size()), at += name.size() + 1;
+        s->saved_menu_depth = int(stack_bytes());
+        s->saved_menu_stack = stack;
         return Value{};
     });
     g.method("loadMenuStack", [s](Vm&, const Value&, Args) {
+        if (s->saved_menu_depth < 0) return number(0);
         s->menu_stack.clear();
-        for (size_t at = 0; at < s->saved_menu_stack.size() && s->saved_menu_stack[at] && int(s->menu_stack.size()) <= s->saved_menu_depth;) {
-            const std::string name(reinterpret_cast<const char*>(s->saved_menu_stack.data() + at));
+        const size_t end = std::min<size_t>(size_t(s->saved_menu_depth), s->saved_menu_stack.size());
+        for (size_t at = 0; at < end;) {
+            const char* p = reinterpret_cast<const char*>(s->saved_menu_stack.data() + at);
+            const std::string name(p, strnlen(p, end - at));
             s->menu_stack.push_back(name), at += name.size() + 1;
         }
-        return Value{};
+        return number(1);
     });
     // Credits: kept as a number, given to the scripts as the money text ("10,000"; "--" for
     // none, 0x42E6B8). No cap: the scripts keep their own.

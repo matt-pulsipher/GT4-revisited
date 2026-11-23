@@ -226,7 +226,7 @@ struct GameState {
     int suspended = 0, suspended_session = 0;
     Bytes championship_rest; // the context's bytes past the named ones (0x88 in all)
     // The menus' place kept in the save (Context: the major project and page, the menu stack).
-    int saved_menu_depth = -1;
+    int saved_menu_depth = -1; // the kept stack's length in bytes (-1: none kept)
     Bytes saved_menu_stack;
 
     // Everything saved that is not named above, as the last loaded game had it (a new game: as

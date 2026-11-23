@@ -366,3 +366,58 @@ TEST(disc_gt_mode_loop_mission) {
     print_stubs(f);
     CHECK(f.clean());
 }
+
+// A championship left after its first race: the race's menus ask whether to leave for now, the
+// championship is kept, Gran Turismo mode offers it again on the map.
+TEST(disc_gt_mode_loop_championship_left) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
+    Flow f(*disc);
+    CHECK(f.gt_mode_with_a_car());
+    if (f.page() != "TopRoot") return;
+    menu::GameState& g = f.rt->game();
+    menu::RaceRequest request = g.race;
+    request.sequence = "championship", request.race = "jp_mazda_roadster_0501", request.car = g.garage[0].car, request.garage_slot = 0;
+    g.major_menu_project = "gtmode", g.major_menu_page = "";
+    // As the event page does before a championship (saveMenuStack), then the sequence.
+    script::Vm& vm = f.rt->vm();
+    vm.call(vm.attribute(vm.lookup("game"), "saveMenuStack"), {});
+    g.next_sequence = "championship", g.sequence_asked = true;
+    f.rt->finish();
+    Sequence q(f, request);
+    q.fill();
+    q.work().set("SessionNumber", 0), q.work().set("IsFinalSession", 0);
+    CHECK(q.menus({menu::Key::Accept}) == "COMMAND_START");
+    menu::RaceResult r = q.result(0);
+    r.kind = menu::RaceResult::Kind::Championship, r.series = "jp_mazda_roadster_0500";
+    q.ran(r);
+    f.rt->start_project(q.project);
+    f.rt->settle();
+    for (int i = 0; i < 8000 && !prize_counted(f); ++i) f.rt->update();
+    f.rt->settle();
+    f.press({menu::Key::Accept});
+    CHECK(f.page() == "AfterRoot");
+    // Leaving before the last race: "leave for now?", yes; the sequence keeps the championship.
+    f.press({menu::Key::Cancel});
+    CHECK(f.page() == "ConfirmDialog" && f.focus() == "Yes");
+    f.press({menu::Key::Accept});
+    CHECK(f.rt->finished() && q.work().take_command() == "COMMAND_EXIT");
+    g.suspend_series(true);
+    CHECK(q.leave() && f.page() == "TopRoot" && g.suspended == 1 && g.suspended_racecode == "jp_mazda_roadster_0500" && g.suspended_session == 1);
+    // The map says a championship is under way; an event hall offers to go on with it.
+    const std::shared_ptr<menu::LiveWidget> info = widget(f, "Info");
+    CHECK(info && info->shown());
+    f.map_focus("BeginnerHall");
+    f.press({menu::Key::Accept});
+    CHECK(f.page() == "ConfirmDialog" && f.text_of("message").find("Roadster") != std::string::npos);
+    std::printf("  %s\n", f.text_of("message").c_str());
+    f.press({menu::Key::Accept});
+    for (int i = 0; i < 4 && !f.rt->finished() && f.page() == "ConfirmDialog" && f.focus() != "Yes"; ++i) f.press({menu::Key::Right});
+    f.press({menu::Key::Accept});
+    const std::optional<menu::RaceRequest> again = f.rt->race_request();
+    CHECK(again && again->sequence == "championship" && again->race == "jp_mazda_roadster_0500" && g.series.races_run == 1);
+    if (again) std::printf("  asked again: %s %s, %d of %d races run\n", again->sequence.c_str(), again->race.c_str(), g.series.races_run, g.series.race_count);
+    print_stubs(f);
+    CHECK(f.clean());
+}
