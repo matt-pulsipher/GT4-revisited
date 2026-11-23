@@ -74,7 +74,7 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
         std::unique_ptr<race::CarVisual>& visual = m.visuals_by_model[entry->model + "#" + std::to_string(e.paint)];
         if (!visual) {
             const std::optional<Bytes> file = app.vfs()->read("car/lod/" + entry->model);
-            if (!file || !car::CarFile::is_car(*file)) throw FormatError("This car has no race model on the disc (" + entry->model + ").");
+            if (!file || (!car::CarFile::is_car(*file) && !race::CarVisual::is_gt3_car(*file))) throw FormatError("This car has no race model on the disc (" + entry->model + ").");
             const std::optional<Bytes> pat = app.vfs()->read("car/lod/" + entry->model + ".pat");
             const std::vector<u32> paints = race::car_paints(*app.db(), entry->label);
             race::CarVisual::Options o;
