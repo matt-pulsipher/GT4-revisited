@@ -42,7 +42,8 @@ TEST(sim_program_params_equal) {
                              "rev limit", "idle", "engine friction", "tire width front", "tire width rear", "engine inertia", "front spring rate",
                              "rear spring rate", "front damper bound", "front damper rebound", "rear damper bound", "rear damper rebound", "front anti-roll",
                              "rear anti-roll", "front bump-stop rate", "rear bump-stop rate", "front unsprung weight", "rear unsprung weight",
-                             "front bump damping", "rear bump damping"}) {
+                             "front bump damping", "rear bump damping", "tire wear rate", "tire grip by surface", "tire curve A", "tire curve B",
+                             "tire curve C", "tire curve D", "tire optimum slips", "tire braking peak", "tire load curve"}) {
         const diff::Field* f = r.field(name);
         if (!f || f->off != 0) std::printf("  %s: %s\n", name, f ? f->where.c_str() : "not compared");
         CHECK(f && f->values >= r.cars && f->off == 0);

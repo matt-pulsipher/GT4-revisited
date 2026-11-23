@@ -14,6 +14,7 @@
 #include "sim/exact/start.h"
 
 #include <cmath>
+#include <cstdlib>
 
 #include <cstdio>
 #include <cstring>
@@ -252,6 +253,29 @@ ParamsResult run_params(Disc& disc, bool print) {
         check("tire radius front", double(ee.rf(D + 0x90)), p.tire_radius[0].host()), check("tire radius rear", double(ee.rf(D + 0x94)), p.tire_radius[1].host());
         check("tire width front", double(ee.rf(D + 0xA0)), p.width[0].host()), check("tire width rear", double(ee.rf(D + 0xA4)), p.width[1].host());
         check("engine inertia", double(ee.rf(D + 0x0C)), p.d.engine_inertia.host());
+        // The tire records (+0x410 + 0x1EC x record; the core's record with 24 surfaces, what follows them 0x24 further on):
+        // those the core built (a surface's class names them), surface by surface as the core's rows stand for them.
+        for (u32 r = 0; r < 6; ++r) {
+            const ex::TireRecord& t = p.tire[r];
+            if (t.mu[0] == gt3r::ee::F()) continue;
+            const u32 T = p_at + 0x410 + 0x1EC * r;
+            auto tf = [&](u32 o) { return double(ee.rf(T + o)); };
+            check("tire base grip", tf(0x00), t.grip.host()), check("tire wear rate", tf(0x04), t.wear_rate.host());
+            for (int row = 0; row < 16; ++row) {
+                if (row == 11) continue; // (the wear grip's floor in the core's record)
+                check("tire grip by surface", tf(0x08 + 4 * u32(sim::surface_of_core_row(row))), t.mu[size_t(row)].host());
+            }
+            for (u32 i = 0; i < 8; ++i) check("tire curve A", tf(0x78 + 4 * i) + tf(0x98 + 4 * i), double(t.curve_a.x[i].host()) + double(t.curve_a.y[i].host()));
+            check("tire peak slip angle", tf(0xB8), t.peak_slip.host());
+            for (u32 i = 0; i < 6; ++i) check("tire curve B", tf(0xC8 + 4 * i) + tf(0xE0 + 4 * i), double(t.curve_b.x[i].host()) + double(t.curve_b.y[i].host()));
+            for (u32 i = 0; i < 11; ++i) {
+                check("tire curve C", tf(0x104 + 4 * i) + tf(0x134 + 4 * i), double(t.curve_c.x[i].host()) + double(t.curve_c.y[i].host()));
+                check("tire curve D", tf(0x17C + 4 * i), t.curve_d[i].host());
+            }
+            check("tire optimum slips", tf(0x164) + tf(0x168), double(t.slip_drive.host()) + double(t.slip_brake.host()));
+            check("tire braking peak", tf(0x16C), t.brake_peak.host());
+            for (u32 i = 0; i < 4; ++i) check("tire load curve", tf(0x1B8 + 4 * i) * 1e-4 + tf(0x1C8 + 4 * i), double(t.load_curve.x[i].host()) * 1e-4 + double(t.load_curve.y[i].host()));
+        }
         // The suspension blocks (+0x308 + 0x58 x axle), the fields the core's blocks have at the same places.
         for (u32 a = 0; a < 2; ++a) {
             const u32 B = p_at + 0x308 + 0x58 * a;

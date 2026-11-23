@@ -264,7 +264,13 @@ GT3's 0x1DBFD8 (physics §6.4) with the block's fields at new places and these d
   +0x10D4 / +0x10D8.
 - Brake torques +0x1010 .. (byte x 98 N m), the aids' block +0x1098 (GT3's +0xE7C), the
   steering curves +0x58 .. +0xF4, the suspension blocks +0x308 / +0x360 (0x58 bytes an axle;
-  GT3 0x44), the tire records from +0x3B8.
+  GT3 0x44), the camber's grip curves +0x3B8.
+- **The tire records** ✔: +0x410 + 0x1EC r (GT3: +0x398 + 0x1B4 r), r = 0 .. 2 the front's
+  paved / loose / wet, 3 .. 5 the rear's; GT3's record (physics §6.5) with the grip of 24
+  surfaces from +0x08 and everything after them 0x24 further on (curve A's axis +0x78,
+  values +0x98, its peak's slip angle +0xB8, curve B +0xC8 / +0xE0, curve C +0x104 / +0x134,
+  the optimum slips +0x164 / +0x168, the braking peak +0x16C, curve D +0x17C, the load curve
+  +0x1B8 / +0x1C8).
 
 ## 5. The program's tables
 
@@ -361,13 +367,19 @@ object 0x6235A8 + 0x134 + 4 x table id; the row cache left out), and compares:
   the pitch and roll levers and the pitch's tire term, the center of gravity's height and
   both ride heights, drag and downforce, brake and handbrake torques, the axles' grip, the
   engine's curve (where it has 16 points or fewer), rev limit, idle, friction and inertia,
-  tire widths, and of each axle's suspension the spring rate, both damper fits, anti-roll,
-  bump-stop rate, unsprung weight and bump damping. Equal on all but a few cars: the load
+  tire widths, of each axle's suspension the spring rate, both damper fits, anti-roll,
+  bump-stop rate, unsprung weight and bump damping, and of all six tire records the wear
+  rate, the grip on every surface, curves A, B, C and D, the optimum slips, the braking
+  peak and the load curve. Equal on all but a few cars: the load
   transfers, static loads and the suspension's places (not the two three-wheelers), tire
   radii (not one car), the gears' speed factors (all but 10 of 4,490, to a ratio's last
   digit), the driveline's layout (not the car with four wheel drive system 5).
-- Not compared yet: the tire records, the aids' block, the steering curves, the driveline's
-  shift speeds and differentials, the turbo; any routine of the step itself.
+- Different on every car: a tire record's first word (the program's 0x361570 makes it with
+  the load curve; the core's is 9.8 x curve D at no slip; ❓ its reader) and the slip angle
+  of curve A's peak (the program's 0x353800 finds it more finely than the core's whole
+  degrees: 31.06 where the core has 32).
+- Not compared yet: the aids' block, the steering curves, the driveline's shift speeds and
+  differentials, the turbo; any routine of the step itself.
 
 ## 10. Open
 
