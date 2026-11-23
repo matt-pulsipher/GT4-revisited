@@ -12,6 +12,8 @@
 #include "gt4r/formats/db/car_parts.h"
 #include "gt4r/sim/car_spec.h"
 #include "gt4r/sim/exact_bridge.h"
+#include "gt4r/sim/rules_build.h"
+#include "taps.h"
 #include "sim/exact/car_fields.h"
 #include "sim/exact/start.h"
 
@@ -150,6 +152,48 @@ ParamsResult run_params(Disc& disc, bool print) {
         sim::gt4_params(spec, program, car.p);
         const ex::Params& p = car.p;
         ++cars;
+        // Gran Turismo 4's own part of the record (rules_build.h), bit for bit, every field the parameter block holds.
+        {
+            sim::Record ours{car, {}, {}};
+            sim::gt4_extras(spec, program, ours);
+            Image im;
+            im.car.assign(sim::layout::kCarSize, 0), im.params.resize(sim::layout::kParamsSize);
+            ee.read_bytes(p_at, im.params.data(), u32(im.params.size()));
+            sim::Record theirs{};
+            load(theirs, im);
+            const size_t x0 = size_t(reinterpret_cast<const u8*>(&ours.x) - reinterpret_cast<const u8*>(&ours));
+            for (const Slot& sl : slots()) {
+                if (sl.member < x0 || sl.place.block != sim::layout::Block::Params) continue;
+                const std::string name = sl.name.substr(0, sl.name.find('['));
+                Field& f = field(("extra " + name).c_str());
+                ++f.values;
+                const u8* a = reinterpret_cast<const u8*>(&theirs) + sl.member;
+                const u8* b = reinterpret_cast<const u8*>(&ours) + sl.member;
+                if (std::memcmp(a, b, sl.size) != 0) {
+                    ++f.off;
+                    if (f.where.empty()) {
+                        u32 x = 0, y = 0;
+                        std::memcpy(&x, a, sl.size), std::memcpy(&y, b, sl.size);
+                        char t[200];
+                        std::snprintf(t, sizeof t, "%s %s: the program's %08X, ours %08X", c.label.c_str(), sl.name.c_str(), x, y);
+                        f.where = t;
+                    }
+                }
+            }
+            auto bits = [&](const char* name, u32 at, gt3r::ee::F v) {
+                Field& f = field(name);
+                ++f.values;
+                if (ee.r32(p_at + at) != v.bits) {
+                    ++f.off;
+                    if (f.where.empty()) f.where = c.label;
+                }
+            };
+            bits("bits static load front", 0x1040, p.xe54), bits("bits static load rear", 0x1044, p.xe58);
+            bits("bits unsprung front", 0x344, p.susp[0].preload), bits("bits unsprung rear", 0x344 + 0x58, p.susp[1].preload);
+            Field& lf = field("extra wheel layout row");
+            ++lf.values;
+            if (ee.r8(p_at + 0x30) != sim::wheel_layout_index(spec)) ++lf.off, lf.where = c.label;
+        }
         // Equal: within a part in 100,000 (ours is in the same arithmetic but not everywhere in the same order).
         auto check = [&](const char* name, double theirs, double ours, double within = 1e-5) {
             Field& f = field(name);

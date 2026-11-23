@@ -62,6 +62,18 @@ TEST(sim_program_params_equal) {
     at_most("front offset", 3), at_most("rear offset", 3);
     at_most("tire radius front", 1), at_most("tire radius rear", 1);
     at_most("engine curve points", 52), at_most("forward gears", 2), at_most("driveline layout", 1), at_most("gear speed factors", 10);
+    // Gran Turismo 4's own part of the record (rules_build.h): bit for bit on every car, but the tire
+    // records' base grip, which takes the static loads of the engine's converter (a unit in the last place
+    // on a few records).
+    size_t extras = 0;
+    for (const diff::Field& f : r.fields) {
+        if (f.name.rfind("extra ", 0) != 0) continue;
+        ++extras;
+        const size_t allowed = f.name == "extra tire.grip" ? 250 : 0;
+        if (f.off > allowed) std::printf("  %s: %zu of %zu differ (%s)\n", f.name.c_str(), f.off, f.values, f.where.c_str());
+        CHECK(f.values >= r.cars && f.off <= allowed);
+    }
+    CHECK(extras > 30);
 }
 
 TEST(sim_program_leaves_equal) {
