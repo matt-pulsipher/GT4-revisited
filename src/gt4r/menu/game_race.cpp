@@ -265,19 +265,21 @@ s64 Runtime::race_finished(const RaceResult& r) {
         // entrant has as many points as the player (0x3EF298): the series' record and its grand
         // prize (the row's +0x2C x 100); the player's rank among the first six (0x3EF2D8).
         const std::string series = known(r.series);
-        if (s.series.label != series) s.series = {series, 0, {}};
+        if (s.series.label != series) s.series = {series, 0, series_race_count(series), {}};
         auto add_points = [&](bool skip_player) {
             int k = 0;
             for (const RaceResult::Finisher& f : r.order) {
                 if (skip_player && f.entry == 0) continue;
-                if (f.entry >= 0 && size_t(f.entry) >= s.series.points.size()) s.series.points.resize(size_t(f.entry) + 1, 0);
-                if (f.entry >= 0) s.series.points[size_t(f.entry)] += championship_points(d, k);
+                if (f.entry < 0) continue;
+                if (size_t(f.entry) >= s.series.entrants.size()) s.series.entrants.resize(size_t(f.entry) + 1);
+                GameState::Series::Entrant& e = s.series.entrants[size_t(f.entry)];
+                if (e.code == ~u64(0)) e.code = d.code(kCarTable, f.car), e.paint = f.paint;
+                e.points += championship_points(d, k);
                 ++k;
             }
         };
         ++s.series.races_run;
-        const int count = series_race_count(series);
-        const bool last = s.series.races_run >= count;
+        const bool last = s.series.races_run >= s.series.race_count;
         day.type = 3, day.code = race_code, day.b2 = 14;
         if (!r.finished) {
             fill_rows(true);
@@ -298,12 +300,12 @@ s64 Runtime::race_finished(const RaceResult& r) {
         }
         s64 grand = 0;
         if (last) {
-            if (s.series.points.empty()) s.series.points.assign(1, 0);
-            const s32 mine = s.series.points[0];
+            if (s.series.entrants.empty()) s.series.entrants.resize(1);
+            const s32 mine = s.series.entrants[0].points;
             bool won = true;
             int rank = 0;
             for (size_t k = 1; k < 6; ++k) {
-                const s32 other = k < s.series.points.size() ? s.series.points[k] : 0;
+                const s32 other = k < s.series.entrants.size() ? s.series.entrants[k].points : 0;
                 if (other >= mine) won = false, ++rank;
             }
             const int series_unit = d.race_unit(series);

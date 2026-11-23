@@ -252,6 +252,13 @@ int GameState::add_car(GarageEntry e) {
     return int(garage.size()) - 1;
 }
 
+void GameState::suspend_series(bool keep) {
+    suspended = keep;
+    if (!keep) return;
+    suspended_racecode = series.label;
+    suspended_session = series.races_run;
+}
+
 std::optional<sim::Equipment> race_equipment(const GameState& game, int garage_slot) {
     if (garage_slot < 0 || size_t(garage_slot) >= game.garage.size()) return std::nullopt;
     const GarageEntry& e = game.garage[size_t(garage_slot)];

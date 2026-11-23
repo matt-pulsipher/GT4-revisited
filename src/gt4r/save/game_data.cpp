@@ -222,6 +222,16 @@ Bytes write_game(const GameState& s, const Codes& codes) {
     put_text(b, kChampionship, 0x20, s.suspended_racecode);
     b[kChampionship + 0x20] = u8(s.suspended), b[kChampionship + 0x21] = u8(s.suspended_session);
     if (s.championship_rest.size() == 0x66) std::memcpy(b.data() + kChampionship + 0x22, s.championship_rest.data(), 0x66);
+    // A championship left in the middle (0x119BD8): its race count, then its six entrants
+    // (u64 the car's code, s32 the paint, s32 the points).
+    if (s.suspended && s.series.label == s.suspended_racecode) {
+        b[kChampionship + 0x22] = u8(s.series.race_count);
+        for (size_t k = 0; k < 6; ++k) {
+            const GameState::Series::Entrant e = k < s.series.entrants.size() ? s.series.entrants[k] : GameState::Series::Entrant{};
+            const size_t o = kChampionship + 0x28 + 0x10 * k;
+            put32(b, o, u32(e.code)), put32(b, o + 4, u32(e.code >> 32)), put32(b, o + 8, u32(e.paint)), put32(b, o + 12, u32(e.points));
+        }
+    }
     for (size_t i = 0; i < 8; ++i) put32(b, kUsedCar + 4 * i, s.used_sold[i]);
     put32(b, kUsedCar + 0x20, s.used_week);
     // The options that are numbers, and the zone.
@@ -320,6 +330,14 @@ bool read_game(ByteSpan p, GameState& s, const Codes& codes, std::vector<int>* r
     for (size_t i = 0; i < s.presents.size(); ++i) s.presents[i] = get32(p, kPresents + 4 * i);
     s.suspended_racecode = get_text(p, kChampionship, 0x20), s.suspended = p[kChampionship + 0x20], s.suspended_session = p[kChampionship + 0x21];
     s.championship_rest.assign(p.begin() + kChampionship + 0x22, p.begin() + kChampionship + 0x88);
+    s.series = {};
+    if (s.suspended) {
+        s.series.label = s.suspended_racecode, s.series.races_run = s.suspended_session, s.series.race_count = p[kChampionship + 0x22];
+        for (size_t k = 0; k < 6; ++k) {
+            const size_t o = kChampionship + 0x28 + 0x10 * k;
+            s.series.entrants.push_back({get64(p, o), s32(get32(p, o + 8)), s32(get32(p, o + 12))});
+        }
+    }
     for (size_t i = 0; i < 8; ++i) s.used_sold[i] = get32(p, kUsedCar + 4 * i);
     s.used_week = get32(p, kUsedCar + 0x20);
     for (const OptionField& f : kOptionNumbers) s.options[f.name] = s32(get32(p, option(f.at)));

@@ -245,12 +245,19 @@ struct GameState {
     } race_session;
     bool sequence_asked = false; // next_sequence was set by the scripts since the last project
     // A championship under way (the program's series object, 0x3EEFE0 on): its label, the races
-    // run and every entrant's points by entry (0 the player's).
+    // run of its count, and its entrants (0 the player's): the car's code, its paint, the points.
     struct Series {
         std::string label;
-        int races_run = 0;
-        std::vector<s32> points;
+        int races_run = 0, race_count = 0;
+        struct Entrant {
+            u64 code = ~u64(0);
+            s32 paint = 0, points = 0;
+        };
+        std::vector<Entrant> entrants;
     } series;
+    // The championship is left in the middle (keep) or closed (0x119BD8): a kept one is saved
+    // in the game's championship block and taken up again from it.
+    void suspend_series(bool keep);
 
     GameState();
     void new_game(); // the constructors' values: no car, no records, the first day

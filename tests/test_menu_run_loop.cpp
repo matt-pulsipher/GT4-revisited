@@ -218,8 +218,9 @@ TEST(disc_gt_mode_loop_championship) {
         r.kind = menu::RaceResult::Kind::Championship, r.series = "jp_mazda_roadster_0500";
         const s64 paid = q.ran(r);
         // Points 10, 6, 4, 3, 2, 1 by place: the player second in the second race.
-        CHECK(g.series.label == "jp_mazda_roadster_0500" && g.series.races_run == k && !g.series.points.empty());
-        if (g.series.points.size() >= 2) CHECK(g.series.points[0] == (k >= 2 ? 10 * k - 4 : 10) && g.series.points[1] == (k >= 2 ? 6 * (k - 1) + 10 : 6));
+        CHECK(g.series.label == "jp_mazda_roadster_0500" && g.series.races_run == k && g.series.race_count == 5 && g.series.entrants.size() == 6);
+        if (g.series.entrants.size() >= 2)
+            CHECK(g.series.entrants[0].points == (k >= 2 ? 10 * k - 4 : 10) && g.series.entrants[1].points == (k >= 2 ? 6 * (k - 1) + 10 : 6));
         CHECK(paid > 0 && q.work().get("prize") > 0 && q.work().get("GrandPrize") == (k == 5 ? q.work().get("GrandPrize") : 0));
         if (k == 5) {
             grand = q.work().get("GrandPrize");

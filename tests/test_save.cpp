@@ -136,6 +136,18 @@ TEST(save_game_data_round_trip) {
     CHECK(t.option_int("race_laps") == 5 && t.option_text("game_zone") == "US" && t.license_record[0x58] == 0x12);
     // Written again it is the same bytes.
     CHECK(save::write_game(t, codes) == payload);
+    // A championship left after two of its five races: its entrants and their points come back.
+    menu::GameState c = s;
+    c.series = {"jp_mazda_roadster_0500", 2, 5, {}};
+    for (int k = 0; k < 6; ++k) c.series.entrants.push_back({(u64(0) << 32) | u64(100 + k), k, 20 - 3 * k});
+    c.suspend_series(true);
+    menu::GameState back;
+    CHECK(save::read_game(save::write_game(c, codes), back, codes));
+    CHECK(back.suspended == 1 && back.suspended_racecode == "jp_mazda_roadster_0500" && back.suspended_session == 2);
+    CHECK(back.series.label == "jp_mazda_roadster_0500" && back.series.races_run == 2 && back.series.race_count == 5 && back.series.entrants.size() == 6);
+    if (back.series.entrants.size() == 6) CHECK(back.series.entrants[5].code == 105 && back.series.entrants[5].paint == 5 && back.series.entrants[5].points == 5);
+    c.suspend_series(false);
+    CHECK(save::read_game(save::write_game(c, codes), back, codes) && back.suspended == 0 && back.series.entrants.empty());
     // Not a game: another length or a broken CRC.
     Bytes bad = payload;
     bad[0x5000] ^= 0x40;
