@@ -11,6 +11,7 @@
 #include "gt4r/save/memory_card.h"
 
 #include <cstdio>
+#include <algorithm>
 #include <fstream>
 
 using namespace gt4r;
@@ -94,6 +95,16 @@ int cmd_save(Disc& disc, const std::vector<std::string>& a) {
             if (!e.used) continue;
             std::printf("  %4zu %-32s paint %2d  %6.1f PS %5u kg  %8.1f km  rank %d%s\n", i, e.car.c_str(), e.paint, e.power / 100.0, e.weight,
                         (e.record ? e.record->odometer() : e.odometer) / 1000.0, e.ride_rank, e.record ? "  (record)" : "");
+        }
+        // The game written again from the state: the same payload when every block is understood or kept.
+        {
+            std::ifstream in(card.folder() + "BASCUS-97328GAMEDATA", std::ios::binary);
+            const Bytes file((std::istreambuf_iterator<char>(in)), {});
+            const std::optional<Bytes> p = save::unscramble(file, 0);
+            menu::GameState t = s;
+            t.garage_serial = p && p->size() >= 0x135FC ? u32((*p)[0x135F8] | (*p)[0x135F9] << 8 | (*p)[0x135FA] << 16 | (*p)[0x135FB] << 24) : 0;
+            const Bytes again = save::write_game(t, save::database_codes(db));
+            std::printf("written again: %s\n", p && std::equal(again.begin(), again.end(), p->begin()) ? "the same bytes" : "different");
         }
         std::printf("available: %zu cars, %zu courses%s; favorites %zu cars, %zu courses\n", s.available_cars.size(), s.available_courses.size(),
                     s.all_available ? " (all)" : "", s.favorite_cars.size(), s.favorite_courses.size());

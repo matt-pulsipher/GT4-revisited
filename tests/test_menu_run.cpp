@@ -1093,6 +1093,35 @@ TEST(disc_menu_car_settings) {
     CHECK(std::memcmp(rec.active(), rec.sheet(1), menu::CarRecord::kSheet) == 0 && f.clean());
 }
 
+// The boxes' packing reproduces the rectangles the layouts were saved with: the program packs
+// every picture, so a page packed at once is as its file has it (lines, free boxes, grids).
+TEST(disc_menu_packing_keeps_the_layouts) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    for (const char* project : {"gtmode", "setting", "cursor", "quick-event"}) {
+        const gt3r::Volume::Entry* e = disc->volume().find(std::string("projects/") + project + "/" + project + ".mproject");
+        CHECK(e != nullptr);
+        if (!e) continue;
+        const menu::Widget layout = menu::parse_layout(disc->volume().read(*e));
+        int widgets = 0, moved = 0;
+        for (const menu::Widget& page : layout.children()) {
+            const std::shared_ptr<menu::LiveWidget> live = menu::LiveWidget::build(page, nullptr);
+            menu::pack_page(*live);
+            std::function<void(const menu::LiveWidget&, const menu::Widget&)> compare = [&](const menu::LiveWidget& w, const menu::Widget& file) {
+                ++widgets;
+                const std::optional<menu::Rect> a = w.data.rect("geometry"), b = file.rect("geometry");
+                if (a && b && (std::fabs(a->x - b->x) > 0.02f || std::fabs(a->y - b->y) > 0.02f || std::fabs(a->w - b->w) > 0.02f || std::fabs(a->h - b->h) > 0.02f)) {
+                    if (++moved <= 3) std::printf("  %s %s: %.2f %.2f %.2f %.2f, the file %.2f %.2f %.2f %.2f\n", project, w.path().c_str(), a->x, a->y, a->w, a->h, b->x, b->y, b->w, b->h);
+                }
+                for (size_t i = 0; i < w.children.size() && i < file.children().size(); ++i) compare(*w.children[i], file.children()[i]);
+            };
+            compare(*live, page);
+        }
+        std::printf("  %s: %d widgets, %d moved\n", project, widgets, moved);
+        CHECK(widgets > 50 && moved == 0);
+    }
+}
+
 // Prologue's main script, configuration and projects load, and a project shows a page.
 TEST(disc_menu_prologue_loads) {
     Disc* prologue = nullptr;

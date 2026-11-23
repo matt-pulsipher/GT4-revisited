@@ -222,13 +222,23 @@ Any widget: its layout properties as attributes; `doCopy()`, `doInitialize(conte
 `interpolate` (0x25BFE0): a value within 1 of its target arrives; otherwise it moves by the
 distance x the ratio.
 
-Boxes (mDBox: the size asked 0x2E9880, the places given 0x2E99E0): children one after
-another with `spacing`, the box's `border_width`, `border_height`, `pad_*`; a child that
-expands (`x_expand`, `y_expand`) shares the room left, one that fills (`x_fill`, `y_fill`)
-takes its share, `pack_end` packs from the far end. ❓ Written in a reduced form
-(`packing.cpp`): windows with `packing` and widgets with `is_face` 0 are placed, a text takes
-its natural size, faces with a rectangle follow the box as it grows, expanding children are
-centered.
+Boxes (`packing.cpp`) are packed **every picture**, not on a change: the size request bottom
+up as part of a composite's update, the allocation top down as part of its draw. A child takes
+part when it is no face (`is_face` 0; the `...Face` classes are faces), is visible and its
+`packing` equals the box's. What a child asks (0x263B80): its size, or with `packing` its
+request on the axes it allocates (`pack_allocate_x/y`, on), at least `minimum_width/height`;
+a text its measured size. **HBox / VBox** (mDBox, 0x2E9880, 0x2E99E0): one after another with
+`spacing` (between two or more), the pads (`border_width` / `border_height` set both of an
+axis, `pad_*` one side); the room left shared by the expanding children (`pack_expand_*`,
+`x_expand`), a filling one (`pack_fill_*`) takes its share, else it sits in its middle;
+`pack_end` / `pack_reverse` from the far end. **FBox** (also a page, ScaleBar, OptionMenu,
+SliderBar): each child by itself; an expanding one is put at the pad and filled or centered.
+**MBox**: a grid of `column` columns (2), `column_spacing`, `row_spacing`, columns and rows
+expanding when a child of theirs does. Any other composite gives each packing child the size
+it asks for. A face keeps its rectangle as fractions of its parent's (taken before any
+packing), so it follows a box that grows. Without a rectangle a window has the prototype's
+size (a page 640 x 480, a window 128 x 128). Packing the gtmode, setting, cursor and
+quick-event pages gives the rectangles their files were saved with, every one.
 
 **SelectBox, SelectBar** (0x2D8C90: ratio 0.2, magnify 1, item 16 x 16, no repeat): the first
 child appended gives the rows their size (0x2DB8B8); rows lie along `direction` with
