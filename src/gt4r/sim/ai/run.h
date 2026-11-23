@@ -28,8 +28,9 @@ struct FieldRun {
     std::vector<std::string> notes;
 };
 
-// Runs `cars` (labels, grid order) for `laps` laps on `course`, at most `limit` simulated seconds (0: 400 s a lap).
-// A rolling start at `rolling_kmh` (0: from rest after a two-second hold). Throws std::runtime_error when the
+// Runs `cars` (labels, grid order) for `laps` laps on `course`, at most `limit` simulated seconds (0: 400 s a lap,
+// more on a long course).
+// From rest after a two-second hold. Throws std::runtime_error when the
 // course or a car cannot be set up.
 FieldRun run_field(Disc& disc, const std::string& course, const std::vector<std::string>& cars, int laps, const Pace& pace = {},
                    double limit = 0, const std::function<void(const Session&, const Field&)>& on_step = {});

@@ -23,7 +23,8 @@ FieldRun run_field(Disc& disc, const std::string& course, const std::vector<std:
         field->hold(in);
         session->hold_once(in);
     }
-    if (limit <= 0) limit = 400.0 * std::max(laps, 1) + 60.0;
+    // At least 400 s a lap, more on a long course (5 m/s on average).
+    if (limit <= 0) limit = std::max(400.0, double(out.lap_length) / 5.0) * std::max(laps, 1) + 60.0;
     std::vector<int> last_lap(cars.size());
     std::vector<double> lap_start(cars.size(), 0.0);
     for (size_t i = 0; i < cars.size(); ++i) last_lap[i] = session->cars()[i].lap;
