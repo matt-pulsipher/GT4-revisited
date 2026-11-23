@@ -217,6 +217,35 @@ TEST(sim_core_spec_fields) {
     CHECK(c[0x132 + 2] == 1 && c[0x132 + 12] == 2 && c[0x132] == 0);
 }
 
+TEST(sim_gt4_params) {
+    // Gran Turismo 4's rules over a parameter block: 1,000 kg, the axles 1.2 m and 1.3 m from the center of gravity.
+    namespace ex = gt3r::sim::exact;
+    using gt3r::ee::F;
+    ex::Params p;
+    p.mass = F(1000.0f), p.dist_front = F(1.2f), p.dist_rear = F(1.3f), p.rear_weight = F(0.48f);
+    p.half_track = {F(0.75f), F(0.76f)}, p.tire_radius = {F(0.30f), F(0.32f)};
+    p.cog_height = F(0.10f), p.lat_transfer = F(1.0f), p.long_transfer = F(2.0f);
+    p.downforce_coef = {F(0.1f), F(0.3f)}, p.drag_coef = F(0.5f + 0.04f); // the core's: a tenth of the downforce in it
+    p.susp[0].x_static = F(-0.05f), p.susp[1].x_static = F(-0.06f);
+    sim::Spec s;
+    s.set_b(0x25, 20), s.set_b(0x26, 4), s.set_b(0x27, 100);
+    s.set_h(0x9A, 150), s.set_h(0x9C, 300); // ride heights: the rear's own
+    s.set_b(0x92, 40), s.set_b(0x93, 250);  // bump travel
+    s.set_h(0x66, 0), s.set_h(0x7E, 280);   // the gap to the progressive rate
+    sim::gt4_params(s, sim::Program(), p);
+    auto near = [](F v, double want) { return std::fabs(double(v.host()) - want) < 1e-5 * std::max(1.0, std::fabs(want)); };
+    CHECK(near(p.pitch_lever[0], 1.2 / 2000) && near(p.pitch_lever[1], 1.3 / 2000));
+    CHECK(near(p.roll_lever[0], 0.75 / 400) && near(p.roll_lever[1], 0.76 / 400));
+    CHECK(near(p.ride_height[0], 0.15) && near(p.ride_height[1], 0.30));
+    CHECK(near(p.cog_height, 0.15 * 0.52 + 0.30 * 0.48));
+    CHECK(near(p.lat_transfer, (0.1 + 0.222) / (0.1 + 0.10)) && near(p.long_transfer, 2 * (0.1 + 0.222) / 0.2));
+    CHECK(near(p.drag_coef, 0.54)); // (the drag's share is the program's byte: unchanged without a program)
+    // Front: the bump stop 40 mm short of the ground, no gap: the progressive rate starts at the stop.
+    CHECK(near(p.susp[0].offset, 0.30 - 0.15 - 0.05) && near(p.susp[0].bump_limit, -0.05 - 0.15 + 0.04) && near(p.susp[0].knee, -0.16));
+    // Rear: the gap word past the travel: the rate starts there.
+    CHECK(near(p.susp[1].bump_limit, -0.06 - 0.30 + 0.25) && near(p.susp[1].knee, -0.06 - 0.30 + 0.28));
+}
+
 TEST(sim_disc_program_tables) {
     Disc* disc = full_disc();
     if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
@@ -448,6 +477,40 @@ TEST(sim_disc_cars_and_courses) {
         const race::CarState& c = s.cars()[0];
         CHECK(c.up.y > 0.7f && std::isfinite(c.position.x) && std::isfinite(c.speed));
     }
+}
+
+TEST(sim_disc_walls_hold) {
+    Disc* disc = full_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    db::SpecDb sdb = open_db(*disc);
+    const sim::Program program = sim::Program::load(*disc);
+    const std::shared_ptr<const course::Runway> road = open_road(*disc, "tsukuba");
+    CHECK(road != nullptr);
+    if (!road) return;
+    // Straight on at full throttle into the first corner: over the sand into the wall, and no further.
+    sim::Entry e;
+    CHECK(sim::stock_car(sdb, program, "nsx_r_02", e.equipment));
+    sim::Session s(sdb, program, road, std::span<const sim::Entry>(&e, 1));
+    float fastest = 0;
+    bool left_tarmac = false;
+    for (int i = 0; i < 30 * 60; ++i) {
+        race::CarInput in;
+        in.throttle = 1;
+        s.step_once(std::span<const race::CarInput>(&in, 1));
+        const race::CarState& c = s.cars()[0];
+        fastest = std::max(fastest, c.speed);
+        sim::GroundHit h;
+        const bool on = s.ground().under(c.position, h);
+        CHECK(on); // the walls stand on the road's surface: inside them there is ground
+        if (!on) break;
+        if (h.material != 0) left_tarmac = true;
+    }
+    const race::CarState& c = s.cars()[0];
+    CHECK(fastest > 30.0f && left_tarmac);
+    // Held by a wall: within a car's length of one, and slow.
+    sim::RoadGround::WallHit w;
+    CHECK(s.ground().nearest_wall(c.position, 6.0f, w));
+    CHECK(c.speed < 10.0f && c.up.y > 0.8f);
 }
 
 TEST(sim_disc_two_cars_meet) {

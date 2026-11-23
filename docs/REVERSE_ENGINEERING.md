@@ -32,4 +32,8 @@ GT4 Revisited follows GT3 Revisited's rules and workflow
   through the Gran Turismo Concept builds and Prologue finds 70% of the physics routines
   GT3 Revisited's specifications cite (about a third of those with changed arithmetic or
   constants).
+- `gt4r_diff <disc>` (`tools/gt4diff`): runs routines of the user's own `CORE.GT4` in the
+  shared engine's R5900 interpreter (`engine/gt3r/tools/diffharness`) and compares what they
+  make with ours ([specs/physics.md](specs/physics.md) §9). The routines are named by address
+  and run from the disc; nothing of the program is kept.
 - Outputs go to a folder outside the repository and are never committed.

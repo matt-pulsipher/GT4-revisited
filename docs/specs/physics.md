@@ -5,8 +5,8 @@ What the program does to move a car, as far as it is known, and what our simulat
 (`CORE.GT4`); "GT3" addresses and section numbers (physics §n) are the shared engine's
 specification, [engine/gt3r/docs/specs/physics.md](../../engine/gt3r/docs/specs/physics.md),
 which describes the simulation this one grew from. A fact is from reading the program's
-listing unless marked: 🔎 seen but not yet checked by running the original, ❓ not known.
-Nothing here has yet been compared with the original program running.
+listing unless marked: ✔ checked by running the original routine on the user's disc (§9),
+🔎 seen but not yet checked that way, ❓ not known.
 
 ## 1. How it relates to Gran Turismo 3's
 
@@ -83,7 +83,7 @@ end countdown 0x35F658, the pass-by states 0x4146E8) as in Gran Turismo 3.
 
 ## 4. From the database to the spec
 
-### 4.1 The car's equipment (0x178 bytes)
+### 4.1 The car's equipment (0x178 bytes) ✔
 
 A race entry's car: the car, a part per table (each a 64-bit word: the row id, the table id
 in the high half; -1 none) and the settings. `sim::Equipment` keeps the record's bytes.
@@ -122,10 +122,13 @@ set of parts (`GENERIC_CAR` +0x00, the `df_pt_sim_` row of `DEFAULT_PARTS`) and 
 parts to their places; the paints' id (0x4457B0) and paint 0; then each part's default
 settings (0x4449C0: eleven setters 0x444A88 .. 0x445230), every one clamped into its range
 (0x4452A8; index settings have the least value 1); then, for a gearbox whose ratios are made
-(`GEAR` +0x25), the ratios from the slider (0x443240 → 0x354FF8, GT3's 0x1E28A8 with a small
-change ❓). The columns: [formats/database.md](../formats/database.md).
+(`GEAR` +0x25), the ratios from the slider (0x443240 → 0x354FF8, GT3's 0x1E28A8: the same
+ratios on every car whose gearbox is made, physics §6.7). The generator's caller copies twelve
+words into the record, so the gear words past the gearbox's count hold whatever the last
+call left; the spec builder overwrites them. The columns:
+[formats/database.md](../formats/database.md).
 
-### 4.2 The spec (0x600 bytes)
+### 4.2 The spec (0x600 bytes) ✔
 
 0x3F3B68 clears the spec, runs the builder 0x4413C8 and applies the fix-ups. The builder
 starts the two engine factors at 1000 (+0x10A, per mille) and 100 (+0x10C, percent) and runs
@@ -187,7 +190,7 @@ The layout, with the Gran Turismo 3 spec's offset for the same thing (physics §
 | 0x128, 0x129, 0x12A | 0xB2 .. 0xB4 | drive, four wheel drive system, front torque share |
 | 0x138 .. 0x14F | 0xB6 .. 0xC5 | the gear ratios, 12 u16 (past the count: -1) |
 | 0x150 | 0xC6 | final drive |
-| 0x152 / 0x154 | | two gearbox values (`GEAR` +0x1E / +0x29) |
+| 0x152 / 0x154 | | the gearbox's second reduction (x 1000) and its kind (`GEAR` +0x1E / +0x29; §4.3) |
 | 0x155, 0x156, 0x157, 0x158 | 0xC8, 0xCA, 0xCB | forward gears, 0, the slider, the gearbox's kind |
 | 0x160 / 0x161 | 0xC9 / 0xCC | the clutch's take-up speed / the clutch's byte |
 | 0x164 / 0x166 | 0xCE / 0xD0 | shaft inertias |
@@ -218,7 +221,7 @@ block's).
 
 **A rally car on a loose course** (category 2, course kind 2 or 3) gets, from the program
 bytes at 0x6224A0: the suspension byte 3, 80 added to both gaps to the progressive rate, 180
-to both ride heights, and both spring rates set to 50. 🔎
+to both ride heights, and both spring rates set to 50. ✔
 
 ### 4.3 The converter (0x361908) and the parameter block
 
@@ -227,14 +230,27 @@ GT3's 0x1DBFD8 (physics §6.4) with the block's fields at new places and these d
 - **Mass** (+0x48): the spec's weight (1200 when 0) times the weight percentage, plus the
   ballast, plus the static block's two bytes +3 and +4 (65 + 5 kg; GT3 65 + 55). The front
   weight share (+0x24) is the mass-weighted mean of the car's and the ballast's place.
-- **Pitch and roll levers** (+0x11C .. +0x128): the arm over the inertia byte x 100. GT3's has
+- **Pitch and roll levers** (+0x11C .. +0x128) ✔: the arm over the inertia byte x 100. GT3's has
   2 pi in the numerator; with the pitch and roll bytes 73 and 13 percent of the yaw's, a car's
   pitch inertia is 4.6 times and its roll inertia 1.6 times what GT3's rule gives the same
   yaw byte. The pitch's tire term (+0x12C): the static block's byte +7 x 0.01 over (the
   pitch inertia + mass x arm squared).
 - **Ride heights** (+0x40 / +0x44): the front's and the rear's own (GT3 gives both axles the
   front's); the center of gravity's height (+0x3C) is their mean weighted by the weight
-  shares.
+  shares; the load transfers (+0x34 / +0x38) follow it. ✔
+- **The suspension's places along its travel** (0x360DC8; block +0x308 + 0x58 x axle), with
+  x the travel (static x_s, more negative: more compressed), ride the axle's ride height,
+  t = min(ride, bump travel), g = min(ride, the gap word): the hub's offset +0x0C = tire
+  radius - ride + x_s; the bump stop +0x04 = x_s - ride + t; the start of the progressive
+  rate +0x00 = the bump stop when the gap word is 0 or g <= t, else x_s - ride + g; the
+  droop +0x08 = min(x_s + droop travel, unsprung weight / spring rate). The static travel
+  x_s = -(the axle's static load / its wheels) / spring rate. ✔
+- **Drag** (+0x1068): area x air density / 2 x Cd, plus the two downforce coefficients' sum
+  times the static block's byte +0x0A per mille (40: 4 percent; GT3 a tenth). ✔
+- **The gearbox's second reduction** (0x34B1A8; spec +0x152 when at least 500, by the kind at
+  +0x154): kind 1 multiplies every gear by it (the Honda S2000's 1.160); kind 2 uses it in
+  place of the final drive for reverse and the gears from the fifth on (the Audi A3 3.2
+  quattro: 4.800 and 3.600); ❓ kinds 3 and 4 (five rows).
 - **Tires** (0x34BA30): radius = rim / 2 + width x aspect; the rim in tenths of an inch
   (values below 61: inches); for tire kinds 6 .. 10 the chassis' two bytes change the
   sidewall and the width. The half-track is narrowed where the tire would stand out past the
@@ -310,8 +326,8 @@ rules in the PlayStation 2's arithmetic), fed with Gran Turismo 4's data:
 
 | Part | Runs | Follows |
 |---|---|---|
-| Parts, equipment, default settings, the spec, its fix-ups | `equipment.*`, `car_spec.*` | Gran Turismo 4 (§4.1, §4.2), every byte of the listing; computed gearboxes' ratios by the engine's generator (GT3's; 7 gears at most) |
-| Spec → parameter block | `exact_bridge.*` `core_spec`, then the engine's converter | GT3's converter on our spec translated field by field; then Gran Turismo 4's pitch and roll levers (`gt4_levers`). Lost in translation: engine curves beyond 16 points (thinned), gears beyond 7, half-inch rims (rounded), the rear's own ride height, ballast's place, the speed-switched part, nitrous, gearboxes without steps (run as stepped), tire kinds' rim and width changes |
+| Parts, equipment, default settings, the spec, its fix-ups | `equipment.*`, `car_spec.*` | Gran Turismo 4 (§4.1, §4.2): equal to the program's on all 722 cars, byte for byte (§9); computed gearboxes' ratios by the engine's generator (7 gears at most) |
+| Spec → parameter block | `exact_bridge.*`: `core_spec`, the engine's converter, `gt4_params` | GT3's converter on our spec translated field by field, then Gran Turismo 4's rules where they differ (the levers, drag, ride heights, the suspension's travel). Equal to the program's converter on every car for the fields of §9, but for what the engine's block cannot hold: engine curves beyond 16 points (thinned), gears beyond 7, half-inch rims and tire kinds' changes (one car), the three-wheelers' loads, four wheel drive system 5, the speed-switched part, nitrous, ballast's place, gearboxes without steps (run as stepped) |
 | Program tables | `program.*`, `core_program` | the static block from `CORE.GT4`, folded to the core's 16 surface rows (0 .. 11 as they are, 20 / 21 / 22 → 12 / 13 / 14, 12 → 15), except the slip ratio's bytes; every other table the engine's own (GT3's values) |
 | The road query, surface index | `ground.*` | Gran Turismo 4 (§6), in ordinary floats |
 | Ground contact, phase order | `session.cpp` | the engine's phase 12 order with our query; phases 1 .. 13 as GT3's step |
@@ -327,11 +343,38 @@ The figures a run gives: standing 400 m in 9.8 s (Mazda 787B), 12.9 s (Dodge Vip
 13.7 s (Honda NSX Type R), 16.2 s (Honda Civic Type R); 294 km/h for the Viper and 279 km/h
 for the NSX on the test course.
 
-## 9. Open
+## 9. Checks against the program
+
+`gt4r_diff <disc>` (`tools/gt4diff`, also run by the tests `sim_program_*`) runs the program's
+own routines from the user's `CORE.GT4` in the shared engine's R5900 interpreter
+(engine/gt3r/tools/diffharness), on the database's tables opened from the disc's files as the
+game's loader leaves them (a table object 0x448F18 / 0x4490F8 per table at the database
+object 0x6235A8 + 0x134 + 4 x table id; the row cache left out), and compares:
+
+- **spec**: set-car (0x444480) and the spec builder (0x3F3B68, course kinds 0, 2 and 3) for
+  every car against `sim::stock_car` and `sim::build_spec`: the equipment (but for the stale
+  gear words past the count) and all 0x600 spec bytes are equal on all 722 cars.
+- **params**: the converter (0x361908, after the static tables' builder 0x35F808) on each
+  car's spec against the engine's converter on our translated spec with `gt4_params`. Equal
+  (within a part in 100,000) on every car: the body's box, wheelbase, track and half-tracks,
+  the axles' distances, mass and weight, the origin's offset, steering lock, yaw inertia,
+  the pitch and roll levers and the pitch's tire term, the center of gravity's height and
+  both ride heights, drag and downforce, brake and handbrake torques, the axles' grip, the
+  engine's curve (where it has 16 points or fewer), rev limit, idle, friction and inertia,
+  tire widths, and of each axle's suspension the spring rate, both damper fits, anti-roll,
+  bump-stop rate, unsprung weight and bump damping. Equal on all but a few cars: the load
+  transfers, static loads and the suspension's places (not the two three-wheelers), tire
+  radii (not one car), the gears' speed factors (all but 10 of 4,490, to a ratio's last
+  digit), the driveline's layout (not the car with four wheel drive system 5).
+- Not compared yet: the tire records, the aids' block, the steering curves, the driveline's
+  shift speeds and differentials, the turbo; any routine of the step itself.
+
+## 10. Open
 
 - Everything marked ❓ above; the rewritten routines of §1; the three new phases.
-- No routine has been run against the original (the engine's diff harness loads this program;
-  nothing here has used it yet).
+- The step: no routine of it has been run against the original. The interpreter runs this
+  program's routines (§9), so each can be, as the engine's diff harness does for Gran
+  Turismo 3.
 - The computer drivers (the courses' `.ad` files and `crs/bestline`), the race flow (laps as
   the game counts them, sectors, the finish), pit stops, tire wear's curve per race, the
   rubber band.
