@@ -1021,6 +1021,41 @@ TEST(disc_menu_race_results) {
     CHECK(f.page() == "LogRoot" && f.clean());
 }
 
+// A car's settings: Start at home opens the setting project on the car driven; the sheets
+// (Set A, B, C) are the record's three equipment records; a setting written goes to the sheet
+// chosen, and is what the race's equipment reads.
+TEST(disc_menu_car_settings) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    Flow f(*disc);
+    CHECK(f.gt_mode_with_a_car());
+    if (f.page() != "TopRoot") return;
+    f.map_focus("Home");
+    f.press({menu::Key::Accept, menu::Key::Start});
+    CHECK(f.rt->finished() && f.rt->wanted_project() == "setting" && f.rt->advance());
+    f.rt->settle();
+    CHECK(f.page() == "SettingRoot" && f.focus() == "Set0");
+    menu::CarRecord& rec = *f.rt->game().garage[0].record;
+    CHECK(rec.active_sheet() == 0);
+    f.press({menu::Key::Right, menu::Key::Accept});
+    CHECK(f.focus() == "Set1" && rec.active_sheet() == 1);
+    // The suspension's ranges and settings, through the car object the pages use.
+    script::Vm& vm = f.rt->vm();
+    const Value car = vm.attribute(vm.attribute(vm.lookup("game"), "garage"), "riding_car");
+    const Value range = vm.call(vm.attribute(car, "getSuspensionRange"), {});
+    CHECK(range.items() && range.items()->size() == 42);
+    const s32 spring_min = (*range.items())[12].i, spring_max = (*range.items())[13].i;
+    const Value at[1] = {Value::integer(14)};
+    const s32 spring = vm.call(vm.attribute(car, "getSuspensionSetting"), at).i;
+    std::printf("  front spring %d in [%d, %d]\n", spring, spring_min, spring_max);
+    CHECK(spring_min <= spring && spring <= spring_max && spring_max > 0);
+    const Value put[2] = {Value::integer(14), Value::integer(spring_max)};
+    vm.call(vm.attribute(car, "setSuspensionSetting"), put);
+    CHECK(rec.sheet(1)[0x142] == spring_max && rec.sheet(0)[0x142] == spring);
+    // The race takes the sheet in use: the car's equipment record as the simulation has it.
+    CHECK(std::memcmp(rec.active(), rec.sheet(1), menu::CarRecord::kSheet) == 0 && f.clean());
+}
+
 // Prologue's main script, configuration and projects load, and a project shows a page.
 TEST(disc_menu_prologue_loads) {
     Disc* prologue = nullptr;
