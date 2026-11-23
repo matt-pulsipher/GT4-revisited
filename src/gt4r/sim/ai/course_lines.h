@@ -50,7 +50,8 @@ public:
     bool has(int k) const { return k >= 0 && k < 8 && !lines_[size_t(k)].empty(); }
     // The first line of the request's fallback row that is present (a request outside 0..7 asks for 6); -1 none.
     int resolve(int k) const;
-    // The passing lines: left and right of line k (-1: none). Line 2 is the left one, 1 the right one.
+    // The lines beside line k (0x46BC00 / 0x46BC40; -1: none): left of 1 the main line 6 (2 without it), left of 6
+    // line 2; right of 2 the main line (1 without it), right of 6 line 1. Line 2 is the left passing line, 1 the right.
     int left(int k) const;
     int right(int k) const;
 

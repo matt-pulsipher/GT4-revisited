@@ -505,7 +505,10 @@ void Field::traffic(Driver& d) {
     float c = d.cooldown > 0 ? 0 : d.contact;
     if (d.blend > 0) lanes = 0;
     if (lanes > 0 && c > 0) {
-        const int L = lines_.left(d.line), R = lines_.right(d.line);
+        // The farthest line on each side: one beside, then the one beside that if there is one.
+        int L = lines_.left(d.line), R = lines_.right(d.line);
+        if (L >= 0 && lines_.left(L) >= 0) L = lines_.left(L);
+        if (R >= 0 && lines_.right(R) >= 0) R = lines_.right(R);
         int pick = -1;
         if (d.next_kind == 1) pick = L >= 0 ? L : d.status != 4 ? R : -1;
         else if (d.next_kind == 2) pick = R >= 0 ? R : d.status != 3 ? L : -1;
@@ -723,6 +726,35 @@ void Field::decide(Driver& d) {
     }
 }
 
+// 0x365790 with 0x365688 / 0x365718: each computer car's time scale against the reference car (the first car the field
+// does not drive): ahead of it slowed by up to the slow share, behind it hurried by up to the fast share, ramped from the
+// start gap to the full gap (and fully a lap or more apart), times the overall share, at most 1.3.
+void Field::rubber_band() {
+    const auto& states = session_->cars();
+    size_t ref = states.size();
+    for (size_t i = 0; i < states.size(); ++i)
+        if (!drivers_[i]) {
+            ref = i;
+            break;
+        }
+    const float lap = lines_.lap();
+    for (auto& d : drivers_) {
+        if (!d) continue;
+        d->time_scale = 1;
+        if (ref >= states.size() || (pace_.slow == 0 && pace_.fast == 0)) continue;
+        const double gap = (double(states[ref].lap) - double(states[d->car].lap)) * lap + double(states[ref].course_v) - double(states[d->car].course_v);
+        const int laps_apart = std::abs(states[ref].lap - states[d->car].lap);
+        auto ramp = [&](float start, float full, float g) {
+            if (laps_apart > 0 || g >= full) return 1.0f;
+            if (g <= start) return 0.0f;
+            return full > start ? (g - start) / (full - start) : 1.0f;
+        };
+        float scale = gap > 0 ? 1 + pace_.fast * ramp(pace_.fast_start, pace_.fast_full, float(gap))
+                              : 1 - pace_.slow * ramp(pace_.slow_start, pace_.slow_full, float(-gap));
+        d->time_scale = std::min(scale * pace_.global, 1.3f);
+    }
+}
+
 // ---- the field -------------------------------------------------------------------------------------------------
 
 void Field::hold(std::span<race::CarInput> inputs) {
@@ -799,6 +831,7 @@ void Field::drive(std::span<race::CarInput> inputs) {
     }
     for (auto& d : drivers_)
         if (d) d->s = lines_.wrap_lap(states[d->car].course_v);
+    rubber_band();
     proximity();
     for (auto& dp : drivers_) {
         if (!dp || dp->car >= inputs.size()) continue;

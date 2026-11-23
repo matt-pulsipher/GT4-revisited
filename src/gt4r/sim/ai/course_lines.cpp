@@ -127,13 +127,13 @@ int CourseLines::resolve(int k) const {
 
 int CourseLines::left(int k) const {
     if (k == 1) return has(6) ? 6 : has(2) ? 2 : -1;
-    if (k == 6 || k == 7) return has(2) ? 2 : -1;
+    if (k == 6) return has(2) ? 2 : -1;
     return -1;
 }
 
 int CourseLines::right(int k) const {
     if (k == 2) return has(6) ? 6 : has(1) ? 1 : -1;
-    if (k == 6 || k == 7) return has(1) ? 1 : -1;
+    if (k == 6) return has(1) ? 1 : -1;
     return -1;
 }
 

@@ -6,9 +6,13 @@
 //   gt4tool ai <disc> lines <course> [line]    the course's driver file: its lines as the race prepares them (with
 //                                              [line] every point), its driver sets
 //   gt4tool ai <disc> survey                   every course's driver file: its layout, lines and sets
+//   gt4tool ai <disc> events                   the database's events: course, laps, grid, their pools' sizes
+//   gt4tool ai <disc> event <label> [seed]     an event's columns, its pool of opponents and a grid drawn from it
+//   gt4tool ai <disc> race <label> [laps] [seed]  an event's drawn field (cars as sold) run on its course at its pace
 
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/course/course_file.h"
+#include "gt4r/sim/ai/grid.h"
 #include "gt4r/sim/ai/run.h"
 #include "gt4r/sim/session.h"
 
@@ -127,11 +131,89 @@ int survey(Disc& disc) {
     return 0;
 }
 
+db::SpecDb open_db(Disc& disc) {
+    gt3r::Volume* vol = &disc.volume();
+    return db::SpecDb(
+        [vol](const std::string& path) -> std::optional<Bytes> {
+            const gt3r::Volume::Entry* e = vol->find(path);
+            return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
+        },
+        [vol](const std::string& dir) { return vol->list_dir(dir); }, "american");
+}
+
+db::SpecDb::Reader reader(Disc& disc) {
+    gt3r::Volume* vol = &disc.volume();
+    return [vol](const std::string& path) -> std::optional<Bytes> {
+        const gt3r::Volume::Entry* e = vol->find(path);
+        return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
+    };
+}
+
+void print_event(const db::RaceEvent& e) {
+    std::printf("%s (row %u): course %s, %d laps, grid %d, x44 %d, time limit %d\n", e.label.c_str(), e.id, e.course.c_str(), e.laps, e.grid, e.x44,
+                e.time_limit);
+    std::printf("  targets %s %s %s  prizes", e.target_ms[0] ? clock(e.target_ms[0] / 1000.0).c_str() : "-",
+                e.target_ms[1] ? clock(e.target_ms[1] / 1000.0).c_str() : "-", e.target_ms[2] ? clock(e.target_ms[2] / 1000.0).c_str() : "-");
+    for (u16 p : e.prize) std::printf(" %u", p);
+    std::printf(" (+0x2C %d)\n", e.prize_x2c);
+    std::printf("  needs: license %d drivetrain %d aspiration %d category %d tires %d power %d PS price %d weight %d length %d country %d years %d..%d\n",
+                e.need_license, e.need_drivetrain, e.need_aspiration, e.need_car_type, e.need_tire, e.need_ps, e.need_price, e.limit_weight, e.limit_length,
+                e.need_country, e.year_from, e.year_to);
+    std::printf("  drivers: throttle %d %d %d %d  braking %d %d %d %d  arcs %d %d %d %d  band %d mode %d slow %d%% %d..%d0 m fast %d%% %d..%d0 m\n",
+                e.ai_throttle[0], e.ai_throttle[1], e.ai_throttle[2], e.ai_throttle[3], e.ai_brake[0], e.ai_brake[1], e.ai_brake[2], e.ai_brake[3],
+                e.ai_corner[0], e.ai_corner[1], e.ai_corner[2], e.ai_corner[3], e.band_global, e.band_mode, e.slow_pct, e.slow_start, e.slow_full,
+                e.fast_pct, e.fast_start, e.fast_full);
+}
+
 } // namespace
 
 int cmd_ai(Disc& disc, const Args& a) {
     if (a.empty()) return 2;
     if (a[0] == "survey") return survey(disc);
+    if (a[0] == "events" || a[0] == "event" || a[0] == "race") {
+        db::SpecDb sdb = open_db(disc);
+        const db::RaceEvents ev(sdb, reader(disc));
+        if (a[0] == "events") {
+            for (const std::string& l : ev.labels())
+                if (const auto e = ev.event(l))
+                    std::printf("%-28s %-20s laps %3d grid %2d pool %3zu  drivers %d/%d/%d band %d/%d\n", l.c_str(), e->course.c_str(), e->laps, e->grid,
+                                ev.pool(*e).size(), e->ai_throttle[0], e->ai_brake[0], e->ai_corner[0], e->slow_pct, e->fast_pct);
+            return 0;
+        }
+        if (a.size() < 2) return 2;
+        const std::optional<db::RaceEvent> e = ev.event(a[1]);
+        if (!e) {
+            std::printf("no event %s\n", a[1].c_str());
+            return 1;
+        }
+        menu::RaceRequest req;
+        req.race = e->label;
+        const size_t seed_at = a[0] == "race" ? 3 : 2;
+        const u32 seed = a.size() > seed_at ? u32(std::strtoul(a[seed_at].c_str(), nullptr, 0)) : 1;
+        const std::vector<sim::ai::GridEntry> grid = sim::ai::grid_for(ev, req, seed);
+        if (a[0] == "event") {
+            print_event(*e);
+            const std::vector<db::Opponent> pool = ev.pool(*e);
+            std::printf("  pool of %zu:\n", pool.size());
+            for (const db::Opponent& o : pool) std::printf("    %-36s %-30s parts %-30s settings %s paint %d\n", o.enemy.c_str(), o.car.c_str(), o.parts.c_str(), o.param.c_str(), o.paint);
+            std::printf("  drawn (seed %u):", seed);
+            for (const auto& g : grid) std::printf(" %s", g.car.c_str());
+            std::printf("\n");
+            return 0;
+        }
+        std::vector<std::string> cars;
+        for (const auto& g : grid) cars.push_back(g.car);
+        const int laps = a.size() > 2 ? std::max(1, std::atoi(a[2].c_str())) : std::max(1, e->laps);
+        print_event(*e);
+        const sim::ai::FieldRun run = sim::ai::run_field(disc, e->course, cars, laps, sim::ai::pace_for(*e));
+        std::printf("%s, lap %.1f m, %d laps, %.1f s run\n", run.course.c_str(), double(run.lap_length), laps, run.seconds);
+        for (const sim::ai::CarRun& r : run.cars) {
+            std::printf("%-28s %-10s", r.car.c_str(), r.finished ? clock(r.total).c_str() : "-");
+            for (double l : r.laps) std::printf(" %s", clock(l).c_str());
+            std::printf("  walls %d cars %d spins %d\n", r.incidents.wall_hits, r.incidents.car_hits, r.incidents.spins);
+        }
+        return 0;
+    }
     if (a[0] == "lines" && a.size() > 1) return lines(disc, a);
     std::vector<std::string> cars;
     if (a.size() > 1) {

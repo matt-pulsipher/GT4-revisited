@@ -112,6 +112,7 @@ public:
 
 private:
     void proximity();
+    void rubber_band();
     void decide(Driver& d);
     float braking(Driver& d);
     void bookkeeping_shift(Driver& d);
