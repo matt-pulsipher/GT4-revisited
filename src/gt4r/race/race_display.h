@@ -35,7 +35,7 @@ float place_x(const DisplayPlace& p, bool wide);
 namespace element {
 constexpr u32 kPositionWord = 0x1668, kPosition = 0x1398, kLapWord = 0x1684, kLapCount = 0x1300, kMap = 0x1108;
 constexpr u32 kLapTime = 0x15F8, kBestWord = 0x16A0, kBestTime = 0x14A8, kLastWord = 0x16BC, kLastTime = 0x1588;
-constexpr u32 kEventLine = 0x17BC, kMessage = 0x252C;
+constexpr u32 kEventLine = 0x17BC, kMessage = 0x252C, kReplaySign = 0x2A6C;
 } // namespace element
 
 struct DisplayLayout {

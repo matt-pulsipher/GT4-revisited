@@ -32,6 +32,7 @@ struct HudState {
     float message_opacity = 0;
     std::string event;                // the line under the times ("L1/3   1'23.456")
     float event_opacity = 0;
+    bool replay = false;              // a replay: its sign in place of the position, laps and times
     float opacity = 1;                // of the whole display
 };
 

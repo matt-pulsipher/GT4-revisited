@@ -414,8 +414,18 @@ void RaceHud::Impl::draw_driver_panel(const HudState& s) {
 void RaceHud::draw(Ui& ui, const HudState& s) {
     if (!ready() || s.opacity <= 0) return;
     (void)ui;
-    impl_->draw_map(s);
-    impl_->draw_top(s);
+    if (s.replay) {
+        // The replay's sign at its place (the place's rectangle is the sign's room: its own size, top left).
+        if (const DisplayPlace* p = impl_->layout.find(element::kReplaySign)) {
+            const Impl::Picture& sign = impl_->picture("JP/replay");
+            DisplayPlace at = *p;
+            at.w = at.h = 0;
+            impl_->draw_picture(sign, race::place_rect(at, sign.w, sign.h, true), kNeutral, s.opacity);
+        }
+    } else {
+        impl_->draw_map(s);
+        impl_->draw_top(s);
+    }
     if (s.driver_view) impl_->draw_driver_panel(s);
     else impl_->draw_chase_panel(s);
 }

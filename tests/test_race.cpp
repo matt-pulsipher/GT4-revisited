@@ -566,3 +566,138 @@ TEST(car_spec_disc) {
     }
     if (!ran) SKIP("no Gran Turismo 4 US disc");
 }
+
+// --- Replay cameras ---
+
+#include "gt4r/race/replay_script.h"
+
+namespace {
+
+void curve(Bytes& b, std::initializer_list<std::array<float, 2>> keys) {
+    word(b, u32(keys.size()));
+    for (const auto& k : keys) {
+        b.resize(b.size() + 8);
+        putf(b, b.size() - 8, k[0]), putf(b, b.size() - 4, k[1]);
+    }
+}
+
+// A script of two shots on a lap of 1000 m: a camera standing beside the road that follows the
+// car from 0 to 500 with a 30 degree lens, then one moving along x that looks at a fixed point,
+// its lens the picture's width at the target.
+Bytes two_shot_script() {
+    Bytes b(0x48 + 2 * 0x7C, 0);
+    std::memcpy(b.data(), "REP4", 4);
+    putf(b, 0x14, 1000.0f), putf(b, 0x18, 2000.0f);
+    put32(b, 0x1C, 1), put32(b, 0x20, 2), put32(b, 0x24, 0x48);
+    auto add = [&](size_t record, size_t field, std::initializer_list<std::array<float, 2>> keys) {
+        put32(b, 0x48 + record * 0x7C + field, u32(b.size()));
+        curve(b, keys);
+    };
+    size_t r = 0x48;
+    put32(b, r, 4), putf(b, r + 4, 0.0f), putf(b, r + 8, 500.0f), putf(b, r + 0x1C, 8.0f), putf(b, r + 0x5C, 1.0f), putf(b, r + 0x60, 100.0f);
+    add(0, 0x34, {{0, 10}, {1, 10}}), add(0, 0x38, {{0, 2}, {1, 2}}), add(0, 0x3C, {{0, 0}, {1, 0}});
+    add(0, 0x4C, {{0, 30}, {1, 30}});
+    r += 0x7C;
+    put32(b, r, 0x100), putf(b, r + 4, 500.0f), putf(b, r + 8, 2000.0f), putf(b, r + 0x5C, 1.0f), putf(b, r + 0x60, 100.0f);
+    add(1, 0x34, {{0, 0}, {1, 100}}), add(1, 0x38, {{0, 5}, {1, 5}}), add(1, 0x3C, {{0, 0}, {1, 0}});
+    add(1, 0x40, {{0, 50}, {1, 50}}), add(1, 0x44, {{0, 5}, {1, 5}}), add(1, 0x48, {{0, 40}, {1, 40}});
+    add(1, 0x4C, {{0, 20}, {1, 20}});
+    put32(b, 0x0C, u32(b.size()));
+    return b;
+}
+
+} // namespace
+
+TEST(replay_script) {
+    const Bytes file = two_shot_script();
+    const race::ReplayScript s = race::ReplayScript::parse(file);
+    CHECK(s.records.size() == 2 && s.lap_length == 1000 && s.end == 2000);
+    CHECK(s.period() == 1000 && s.variant_count() == 1);
+    CHECK(s.find(0) == &s.records[0] && s.find(499) == &s.records[0] && s.find(500) == &s.records[1] && s.find(2500) == nullptr);
+    CHECK(s.distance(0, 250) == 250 && s.distance(3, 250) == 250);
+    const race::ReplayCurve& c = s.records[1].eye[0];
+    CHECK(c.at(-1) == 0 && c.at(0.25f) == 25 && c.at(2) == 100);
+    CHECK(s.records[0].looks_at_car() && !s.records[1].looks_at_car() && s.records[1].lens_is_width() && !s.records[0].on_time());
+
+    // The first shot: from (10, 2, 0), looking at the car 0.4 m above its origin.
+    race::CarState car;
+    car.course_v = 100;
+    gt3r::render::Mat4 body;
+    body.at(0, 3) = 10, body.at(1, 3) = 0, body.at(2, 3) = -30;
+    race::ReplayCamera cam;
+    race::ViewPose p;
+    CHECK(cam.pose(s, car, body, p));
+    CHECK(cam.record() == &s.records[0]);
+    CHECK(p.eye.x == 10 && p.eye.y == 2 && p.eye.z == 0);
+    const gt3r::render::Vec3 seen = p.view.transform_point({10, 0.4f, -30});
+    CHECK(std::fabs(seen.x) < 1e-3f && std::fabs(seen.y) < 1e-3f && seen.z < -29);
+    CHECK(std::fabs(p.fov - 30 * 3.14159265f / 180) < 1e-5f);
+    // The second: a quarter of the way along its path, its lens from the picture's width at the target.
+    car.course_v = 875;
+    CHECK(cam.pose(s, car, body, p));
+    CHECK(cam.record() == &s.records[1] && std::fabs(p.eye.x - 25) < 1e-3f);
+    const float distance = std::sqrt(25.0f * 25 + 40 * 40);
+    CHECK(std::fabs(p.fov - 2 * std::atan(20 / (2 * distance))) < 1e-4f);
+    CHECK(std::fabs(p.view.transform_point({50, 5, 40}).x) < 1e-3f);
+
+    // Not a script; a record table past the block.
+    bool threw = false;
+    try {
+        race::ReplayScript::parse(ByteSpan(file).first(0x30));
+    } catch (const FormatError&) {
+        threw = true;
+    }
+    CHECK(threw);
+    Bytes bad = file;
+    put32(bad, 0x20, 4000);
+    threw = false;
+    try {
+        race::ReplayScript::parse(bad);
+    } catch (const FormatError&) {
+        threw = true;
+    }
+    CHECK(threw);
+}
+
+TEST(replay_script_disc) {
+    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    size_t scripts = 0, records = 0, covered = 0, asked = 0;
+    for (const auto& disc : test::discs()) {
+        for (const gt3r::Volume::Entry& e : disc->volume().entries()) {
+            if (e.path.compare(0, 4, "crs/") != 0 || e.path.find('/', 4) != std::string::npos || e.path.find('.') != std::string::npos) continue;
+            const Bytes data = disc->volume().read(e);
+            if (!course::CourseFile::looks_like_course(data)) continue;
+            const course::CourseFile file = course::CourseFile::parse(data);
+            // Every script of the course reads: the replay's, the two round the car, the preview's.
+            for (int slot : {44, 45, 46, 48}) {
+                const ByteSpan section = file.section(data, slot);
+                if (!race::ReplayScript::is_script(section)) continue;
+                const race::ReplayScript s = race::ReplayScript::parse(section);
+                CHECK(!s.records.empty());
+                for (const race::ReplayRecord& r : s.records) CHECK(r.end >= r.start && !r.eye[0].empty() && r.aperture >= 1);
+                if (slot != 44) continue;
+                ++scripts, records += s.records.size();
+                // A car driven round the lap has a shot nearly everywhere.
+                const ByteSpan rs = file.section(data, course::kSlotRunway);
+                if (!Runway::is_runway(rs) || !(s.lap_length > 0)) continue;
+                // (The gymkhana areas, the drag strips and the photo locations have a shot for a
+                // stretch only.)
+                if (e.path.find("gymkhana") != std::string::npos || e.path.find("testcourse_") != std::string::npos || e.path.find("/ss_") != std::string::npos) continue;
+                race::ReplayCamera cam;
+                gt3r::render::Mat4 body;
+                for (float v = 0; v < s.lap_length; v += s.lap_length / 50) {
+                    race::CarState car;
+                    car.course_v = v, car.lap = 1;
+                    race::ViewPose p;
+                    ++asked, covered += cam.pose(s, car, body, p);
+                    if (!cam.record() && std::getenv("GT4R_TEST_VERBOSE"))
+                        std::printf("  %s: no shot at %.0f of %.0f (script %.0f .. %.0f, %d variants, stated %u)\n", e.path.c_str(), v, s.lap_length,
+                                    s.records.front().start, s.end, s.variant_count(), s.variants);
+                }
+            }
+        }
+    }
+    if (!scripts) SKIP("no Gran Turismo 4 disc");
+    CHECK(scripts >= 100 && records > 6000);
+    CHECK(covered == asked);
+}
