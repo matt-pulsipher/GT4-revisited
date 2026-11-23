@@ -49,6 +49,48 @@ struct Bag : script::Heap {
 std::shared_ptr<Bag> make_bag(const std::string& label) { return std::make_shared<Bag>(label); }
 Value object(const std::shared_ptr<script::Heap>& p) { return Value::of(Kind::Object, p); }
 
+// A widget's movement between two states, which the scripts switch with `actor.out`: the fade
+// actor between two alphas over `period` seconds, the move actor from the widget's place to
+// another by `ratio` of what is left each frame. `warp()` puts the widget at its state at once.
+// ❓ From how the scripts use them; the program's own curves are not read (its fade actor's
+// period starts as 1/30 s).
+struct Actor : Bag {
+    enum class Kind { Fade, Move } kind = Kind::Fade;
+    std::weak_ptr<LiveWidget> widget;
+    float in[2] = {1, 0}, out[2] = {0, 0}, now[2] = {1, 0};
+
+    using Bag::Bag;
+    float number(const char* name, float fallback) const {
+        const Value v = get(name);
+        return v.is_number() ? v.as_float() : fallback;
+    }
+    void apply() const {
+        const std::shared_ptr<LiveWidget> w = widget.lock();
+        if (!w) return;
+        if (kind == Kind::Fade) w->set_property("alpha", Value::number(now[0]));
+        else w->set_property("x", Value::number(now[0])), w->set_property("y", Value::number(now[1]));
+    }
+    void step(float dt, bool whole) {
+        const float* to = number("out", 0) != 0 ? out : in;
+        const int n = kind == Kind::Fade ? 1 : 2;
+        bool moved = false;
+        for (int i = 0; i < n; ++i) {
+            if (now[i] == to[i]) continue;
+            moved = true;
+            if (whole) now[i] = to[i];
+            else if (kind == Kind::Fade) {
+                const float rate = std::fabs(in[i] - out[i]) / std::max(number("period", 1.0f / 30.0f), 1e-3f) * dt;
+                now[i] = now[i] < to[i] ? std::min(now[i] + rate, to[i]) : std::max(now[i] - rate, to[i]);
+            } else {
+                const float ratio = std::clamp(number("ratio", 0.2f) * dt * 60.0f, 0.0f, 1.0f);
+                now[i] += (to[i] - now[i]) * ratio;
+                if (std::fabs(to[i] - now[i]) < 0.05f) now[i] = to[i];
+            }
+        }
+        if (moved) apply();
+    }
+};
+
 // An attribute of a widget that is one of its layout's properties.
 struct PropertyRef : script::Reference {
     std::shared_ptr<LiveWidget> widget;
@@ -336,6 +378,30 @@ Runtime::Runtime(FileReader read, std::string region) : read_(std::move(read)), 
         e->set("args", Value::array(std::vector<Value>(a.begin() + (a.empty() ? 0 : 1), a.end())));
         return object(e);
     }));
+    auto actor = [this](Actor::Kind kind, const char* label, Args a) {
+        // MFadeActor(widget, alpha, alpha when out); MMoveActor(widget, x when out, y when out)
+        auto act = std::make_shared<Actor>(label);
+        act->kind = kind;
+        const std::shared_ptr<LiveWidget> w = a.empty() ? nullptr : a[0].as<LiveWidget>();
+        act->widget = w;
+        auto arg = [&](size_t i, float fallback) { return i < a.size() && a[i].is_number() ? a[i].as_float() : fallback; };
+        if (kind == Actor::Kind::Fade) act->in[0] = act->now[0] = arg(1, 1), act->out[0] = arg(2, 0);
+        else {
+            const Rect r = w && w->data.rect("geometry") ? *w->data.rect("geometry") : Rect{};
+            act->in[0] = act->now[0] = r.x, act->in[1] = act->now[1] = r.y;
+            act->out[0] = arg(1, r.x), act->out[1] = arg(2, r.y);
+        }
+        act->set("out", Value::integer(0));
+        std::weak_ptr<Actor> weak = act;
+        act->method("warp", [weak](Vm&, const Value&, Args) {
+            if (auto self = weak.lock()) self->step(0, true);
+            return Value{};
+        });
+        actors_.push_back(act);
+        return object(act);
+    };
+    menu->define("MFadeActor", Vm::native("MFadeActor", [actor](Vm&, const Value&, Args a) { return actor(Actor::Kind::Fade, "MFadeActor", a); }));
+    menu->define("MMoveActor", Vm::native("MMoveActor", [actor](Vm&, const Value&, Args a) { return actor(Actor::Kind::Move, "MMoveActor", a); }));
     auto system = make_bag("menu::MSystem");
     system->method("GetRegionCode", [this](Vm&, const Value&, Args) { return Value::string(region_); });
     menu->define("MSystem", object(system));
@@ -400,6 +466,7 @@ std::string Runtime::wanted_project() const {
 
 void Runtime::start_project(const std::string& name, const std::string& language) {
     events_.clear();
+    actors_.clear();
     pages_.clear();
     focus_.reset();
     if (root_widget_) vm_->root()->members.erase(root_widget_->name), root_widget_->clear();
@@ -457,7 +524,18 @@ void Runtime::run_events() {
     }
 }
 
-void Runtime::update() { run_events(); }
+void Runtime::update(float dt) {
+    run_events();
+    for (size_t i = 0; i < actors_.size();) {
+        const std::shared_ptr<script::Heap> held = actors_[i].lock();
+        if (!held) {
+            actors_.erase(actors_.begin() + std::ptrdiff_t(i));
+            continue;
+        }
+        static_cast<Actor*>(held.get())->step(dt, false);
+        ++i;
+    }
+}
 
 void Runtime::open_page(const std::shared_ptr<LiveWidget>& page, bool replace) {
     if (replace && !pages_.empty()) close_page();
@@ -472,7 +550,7 @@ void Runtime::close_page() {
     const std::shared_ptr<LiveWidget> page = pages_.back();
     call_handler(*page, "onFinalize", {context_}, false);
     pages_.pop_back();
-    if (focus_ && focus_->page() == page.get()) focus_->state &= ~kFocus, focus_.reset();
+    if (focus_ && focus_->page() == page.get()) focus_->state &= ~(kFocus | kPrelight), focus_.reset();
     if (!pages_.empty()) focus_first(*pages_.back());
 }
 
@@ -503,13 +581,13 @@ void Runtime::set_focus(const std::shared_ptr<LiveWidget>& w) {
     if (focus_ == w) return;
     auto event = make_bag("event");
     if (focus_) {
-        focus_->state &= ~kFocus;
+        focus_->state &= ~(kFocus | kPrelight);
         event->set("widget", Value::of(Kind::Module, focus_));
         call_handler(*focus_, "onFocusLeave", {context_, object(event)}, true);
     }
     focus_ = w;
     if (!w) return;
-    w->state |= kFocus;
+    w->state |= kFocus | kPrelight; // the faces of a focused widget test either bit
     auto enter = make_bag("event");
     enter->set("widget", Value::of(Kind::Module, w));
     call_handler(*w, "onFocusEnter", {context_, object(enter)}, true);

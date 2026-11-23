@@ -46,7 +46,10 @@ struct LiveWidget : script::Module {
     void set(const std::string& property, const script::Value& v);
     void set_property(const std::string& property, const script::Value& v); // without its side effects
     bool visible() const { return !data.has("visible") || data.number("visible") != 0; }
-    bool can_focus() const { return data.number("can_focus") != 0; }
+    // The kinds that take the focus by themselves, and any widget the layout says can.
+    bool can_focus() const {
+        return data.number("can_focus") != 0 || data.type == "Button" || data.type == "OptionMenu" || data.type == "SliderBar" || data.type == "ScaleBar";
+    }
     LiveWidget* parent_widget() const { return dynamic_cast<LiveWidget*>(parent.lock().get()); }
     LiveWidget* page(); // the root window it is in
     Rect screen_rect() const;
@@ -62,8 +65,8 @@ public:
     // Loads a project (its layout as live widgets, its script) and calls its onLoad. Throws
     // FormatError / script::ScriptError when the project cannot start.
     void start_project(const std::string& name, const std::string& language);
-    // One frame: the events the scripts queued.
-    void update();
+    // One frame: the events the scripts queued, the actors' movement.
+    void update(float dt = 1.0f / 60.0f);
     void key(Key k);
 
     Project* project() { return project_.get(); }
@@ -96,6 +99,7 @@ private:
     std::shared_ptr<LiveWidget> focus_;
     script::Value context_;
     std::deque<script::Value> events_;
+    std::vector<std::weak_ptr<script::Heap>> actors_; // the fade and move actors the scripts made
     std::deque<std::string> log_;
 };
 

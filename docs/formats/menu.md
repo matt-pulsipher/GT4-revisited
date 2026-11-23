@@ -56,7 +56,7 @@ none compared with the program's own code yet):
 | `geometry` | The widget's rectangle in its parent's; a widget without one fills its parent. The screen is 640 x 480 |
 | `children` | Drawn in order over the widget |
 | `visible` 0 | Not drawn, nor its children |
-| `visible_condition`, `visible_compare` | Drawn when `(state & visible_compare) == visible_condition`; the state's bits by the older files' `cond_active`, `cond_focus`, `cond_prelight`, `cond_insensitive`: 1 active, 2 focus, 4 prelight, 8 insensitive |
+| `visible_condition`, `visible_compare` | Drawn when `(state & visible_compare) == visible_condition` (either absent: 0, and the mask is the condition). The state's bits by the older files' `cond_active`, `cond_focus`, `cond_prelight`, `cond_insensitive`: 1 active, 2 focus, 4 prelight, 8 insensitive; a focused widget's faces test 2 or 4 (the runtime sets both) |
 | `opacity` | Multiplies the alpha of the widget and its children |
 | `clip` 1 | Children are cut to the rectangle |
 | `ColorFace` `color` | One colour, or four for the corners clockwise from the top left |
@@ -99,13 +99,15 @@ How a project runs, as far as it is written:
 |---|---|
 | `context` | `startPage`, `pushPage`, `closePage`, `finish`, `pushEvent`, `translate(page, key)`, `cursor_visible`, `transition` (nil); `sync`, `flushKeyEvent`, `createRenderContext` do nothing |
 | `menu::MScriptEvent(context, module, function, arguments)`, `menu::MFunctionEvent(function, arguments...)` | Queued by `pushEvent`, called on the next frame |
+| `Button`, `OptionMenu`, `SliderBar`, `ScaleBar`, and any widget with `can_focus` | Take the focus |
 | Any widget | `doCopy()`, `appendChild([context,] widget)`, `clearChildren()`, `clearWindow()`, `first`, `last`, `next`, `prev`, `setFocus(widget)`, `actor` |
+| `menu::MFadeActor(widget, alpha, alpha when out)`, `menu::MMoveActor(widget, x when out, y when out)` | The widget's `actor`: `out` switches between the two states, `period` (seconds, fade) and `ratio` (of what is left each frame, move) set the speed, `warp()` jumps. ❓ The curves are not the program's yet (its fade period starts as 1/30 s) |
 | `SelectBox`, `SelectBar` | Show one child at a time: `index` chooses it, the keys along the box move it (`repeat`: around the ends), the chosen child has the focus. ❓ Their placing is by eye |
 | `main::game` | `next_menu_project`, `next_menu_arg`, `major_menu_project`, `major_menu_page`, `last_menu_project`, `option.special_arcade_tuner`, `option.can_watch_ending` |
 | `main::sound.play(name)` | Recorded |
 | `menu::MSystem.GetRegionCode()` | `us` |
 
-❓ Next: the actors (`MFadeActor`, `MMoveActor`, `MBlinkActor`, ...: the pages' movement),
+❓ Next: the other actors (`MBlinkActor`, `MRotateActor`, `MChaseActor`, ...) and the two written ones as the program has them,
 `context.sync` (a script waits while the page draws: scripts are threads in the program),
 the watcher (`MScriptWatcher`: a function every so many frames), the other widgets' own
 functions (`OptionMenu`, `ListBox`, `ScrollWindow`, ...), `main::game`'s state (the garage,

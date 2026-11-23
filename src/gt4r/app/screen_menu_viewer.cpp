@@ -27,8 +27,11 @@ using menu::Widget;
 
 using menu::kActive;
 using menu::kFocus;
+using menu::kPrelight;
 using menu::kInsensitive;
 using menu::LiveWidget;
+
+constexpr int kFocusBits = kFocus | kPrelight; // a focused widget has both
 
 // Draws a page into a rectangle of the screen.
 class PageDrawer {
@@ -194,7 +197,7 @@ private:
         const Widget& w = live.data;
         state |= live.state;
         if (w.has("visible") && w.number("visible") == 0) return;
-        if (w.has("visible_condition")) {
+        if (w.has("visible_condition") || w.has("visible_compare")) {
             const int want = int(w.number("visible_condition")), mask = int(w.number("visible_compare", float(want)));
             if ((state & mask) != want) return;
         }
@@ -278,7 +281,7 @@ public:
             else app.pop();
             return;
         }
-        if (m.pressed(PadButton::Square)) state_ = state_ == 0 ? kFocus : state_ == kFocus ? kActive : state_ == kActive ? kInsensitive : 0;
+        if (m.pressed(PadButton::Square)) state_ = state_ == 0 ? kFocusBits : state_ == kFocusBits ? kActive : state_ == kActive ? kInsensitive : 0;
         if (!project_) {
             if (projects_.empty()) return;
             const int page = m.pressed(PadButton::L1) ? -kRows : m.pressed(PadButton::R1) ? kRows : 0;
@@ -294,7 +297,7 @@ public:
 
     void render(App&, Ui& ui) override {
         if (runtime_) return render_running(ui);
-        const char* states = state_ == kFocus ? "focused" : state_ == kActive ? "active" : state_ == kInsensitive ? "unavailable" : "at rest";
+        const char* states = state_ == kFocusBits ? "focused" : state_ == kActive ? "active" : state_ == kInsensitive ? "unavailable" : "at rest";
         if (project_ && full_ && page_sel_ < int(pages_.size())) {
             // The page over the whole height (4:3).
             const float scale = float(Ui::kHeight) / 480.0f;
