@@ -622,7 +622,10 @@ const Command kCommands[] = {
 
 } // namespace
 
+namespace gt4r::tool { int sim_main(int argc, char** argv); void sim_usage(); } // cmd_sim.cpp
+
 int main(int argc, char** argv) {
+    if (const int r = gt4r::tool::sim_main(argc, argv); r >= 0) return r;
     if (argc >= 3)
         for (const Command& c : kCommands) {
             if (std::strcmp(argv[1], c.name) != 0) continue;
@@ -639,5 +642,6 @@ int main(int argc, char** argv) {
         }
     std::fprintf(stderr, "usage: gt4tool <command> <disc.iso|disc.chd> [args]\n\n");
     for (const Command& c : kCommands) std::fprintf(stderr, "  %-13s %s\n", c.name, c.usage);
+    gt4r::tool::sim_usage();
     return 2;
 }

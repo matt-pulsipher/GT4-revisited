@@ -110,7 +110,7 @@ volume's index bytes (Prologue: its table of contents).
 | `MDLS` models | cars, wheels, tires, wings, courses, prizes, characters | ✅ still models ([formats/model.md](formats/model.md)); ❓ scripts, callbacks (a car's wheels), skinned sets |
 | `CAR4`, `Pat0` | `car/` | ❓ |
 | Courses | `crs/` | ✅ the container and the scenery ([formats/course.md](formats/course.md)); the road `RNW4`; ❓ billboards, lamps, cameras |
-| `GTDB` / `GTID` / `GTST` | `specdb/` | ✅ the tables, labels and strings ([formats/database.md](formats/database.md)); ❓ most columns |
+| `GTDB` / `GTID` / `GTST` | `specdb/` | ✅ the tables, labels and strings, the parts tables' columns ([formats/database.md](formats/database.md)); ❓ the events', opponents' and other tables' columns |
 | `ADCH` scripts | the menus, game flow, settings | ✅ read, listed and run by the interpreter ([formats/script.md](formats/script.md)); ❓ the program's classes they call |
 | Layouts (`.mproject`, `.mwidget`: text), `gpb0` / `gpb1` / `gpb2` pictures, `RT02` / `RT03` text | the menus | ✅ read and drawn as still pages ([formats/menu.md](formats/menu.md)) |
 | Replays (`REP4`), saves | | ❓ |
