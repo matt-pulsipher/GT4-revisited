@@ -115,6 +115,27 @@ CourseScene::CourseScene(render::GpuContext& ctx, ByteSpan course_file, const st
     }
     mirror_sky_ = build(ctx, course::kSlotMirrorSky, name + "/mirror_sky", false, false);
     after_ = build(ctx, course::kSlotAfter, name + "/after", false, false);
+    // The cones and boards: their kinds' shapes, drawn where the road file puts them.
+    try {
+        gadgets_ = Gadgets::parse(file_.section(data_, course::kSlotGadgets), file_.section(data_, course::kSlotRunway));
+        if (!gadgets_.models.empty() && !gadgets_.placements.empty() && mdls::is_mdls(gadgets_.models)) {
+            mdls::Scene sc;
+            sc.color_scale = color_scale_;
+            const gt3r::gtm1::Gtm1 g = gt3r::gtm1::Gtm1::parse(mdls::to_gtm1(gadgets_.models, nullptr, sc));
+            gt3r::gtm1::Options o;
+            o.alpha_test = true;
+            o.gs_state = true;
+            scene::Model m = gt3r::gtm1::build_model(g, o, name + "/gadgets");
+            std::string nodes;
+            for (const scene::Mesh& mesh : m.meshes) nodes += " " + std::to_string(mesh.node);
+            LOG_INFO("Course %s: %zu cones and boards of %zu kinds; shapes of models%s", name.c_str(), gadgets_.placements.size(), gadgets_.kinds.size(), nodes.c_str());
+            if (!m.meshes.empty()) gadget_model_ = std::make_unique<render::GpuModel>(ctx, m);
+            for (const Gadgets::Kind& k : gadgets_.kinds) gadget_nodes_.push_back({u16(2 * k.index)});
+        }
+    } catch (const std::exception& e) {
+        LOG_WARN("Course %s: no cones and boards (%s)", name.c_str(), e.what());
+        gadgets_ = {};
+    }
     env_scenery_ = build(ctx, course::kSlotEnvironment, name + "/env", false, false);
     env_sky_ = build(ctx, course::kSlotEnvSky, name + "/env_sky", false, false);
 
@@ -225,6 +246,23 @@ void CourseScene::add_items(std::vector<render::DrawItem>& items, const render::
             items.push_back(it);
         }
     }
+    // The cones and boards near the camera (lit by the course's lights, 🔎 scene light 0 in the
+    // program), each kind's shape at its place and turn.
+    if (gadget_model_ && !mirror)
+        for (const Gadgets::Placement& p : gadgets_.placements) {
+            if (p.kind < 0 || size_t(p.kind) >= gadget_nodes_.size()) continue;
+            const float dx = p.position.x - eye.x, dy = p.position.y - eye.y, dz = p.position.z - eye.z;
+            if (dx * dx + dy * dy + dz * dz > 400.0f * 400.0f) continue;
+            const std::array<float, 9> r = Gadgets::rotation(p.angles);
+            render::Mat4 at;
+            for (int i = 0; i < 3; ++i)
+                for (int j = 0; j < 3; ++j) at.at(i, j) = r[size_t(i * 3 + j)];
+            at.at(0, 3) = p.position.x, at.at(1, 3) = p.position.y, at.at(2, 3) = p.position.z;
+            render::DrawItem it{gadget_model_.get(), at, 0};
+            it.nodes = &gadget_nodes_[size_t(p.kind)];
+            it.lights = lights;
+            items.push_back(it);
+        }
     if (fade)
         for (const gt3r::race::SceneryFade::Group& g : fade->faded()) {
             if (g.nodes.empty()) continue;

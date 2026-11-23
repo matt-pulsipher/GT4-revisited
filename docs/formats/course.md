@@ -485,6 +485,20 @@ have two (a disc of 62 vertices, 0.40 x 0.44, edge alpha 0, and a smaller one of
 engine's by the function map (the routines match Gran Turismo 3's with small edits); they were
 not re-derived for this game, and see "The picture's scale" for their strength.
 
+## Cones and boards: `GDGT` (slot 47) and the road's gadget records
+
+Code: `race/gadgets.*`, drawn by `course_scene.cpp`. The road file lists where they stand (RNW4
++0x44 u16 count, +0x70 -> 0x20 bytes each): `u32 kind, u32 0, f32 x, y, z, f32 a, b, c` (the
+Euler angles of the shared engine's pylon records: Tsukuba's 18 cones turned by b only). The
+`GDGT` block: `"GDGT"`, +0x08 u32 (0x102AD on tsukuba ❓), +0x10 u32 0x400 (where the models
+start), +0x1C u32 the kinds (6); from +0x20 a kind each 0xA0 bytes: u8 its number, u8 0, u8 2
+❓, u8 the hull's points (8 for the boards, 5 for the cone), f32 x3 inertia, the hull's points
+from +0x10 (x, y, z, w = 1), +0x90 f32 radius, +0x94 f32 mass; then at +0x400 an `MDLS` of
+2 x kinds models (🔎 model 2k a kind's shape, 2k + 1 its shadow, as the shared engine's pylon
+sets), then its pictures. The cone (kind 5): radius 0.59 m, 15 kg. The race view draws each
+kind's shape where the road puts it (within 400 m); ❓ the shadows, and the cars knocking them
+over (the shared engine's pylon physics) are not done.
+
 ## Road: `RNW4` (slot 55)
 
 Code: `runway.*`. All 110 roads read (`gt4tool runway-survey`). Offsets from the magic.

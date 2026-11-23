@@ -10,6 +10,7 @@
 #include "gt4r/race/start_rule.h"
 #include "gt4r/race/replay_script.h"
 #include "gt4r/race/replay_file.h"
+#include "gt4r/race/gadgets.h"
 #include "gt4r/race/picture_settings.h"
 #include "gt4r/formats/db/specdb.h"
 
@@ -459,4 +460,31 @@ TEST(race_replay_file) {
         threw = true;
     }
     CHECK(threw);
+}
+
+TEST(race_gadgets_disc) {
+    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    size_t ran = 0, courses = 0, placed = 0;
+    for (const auto& disc : test::discs()) {
+        if (disc->info().serial.rfind("SCUS_973.28", 0) != 0) continue;
+        for (const gt3r::Volume::Entry& e : disc->volume().entries()) {
+            if (e.path.compare(0, 4, "crs/") != 0 || e.path.find('/', 4) != std::string::npos || e.path.find('.') != std::string::npos) continue;
+            const Bytes data = disc->volume().read(e);
+            if (!course::CourseFile::looks_like_course(data)) continue;
+            const course::CourseFile file = course::CourseFile::parse(data);
+            const race::Gadgets g = race::Gadgets::parse(file.section(data, course::kSlotGadgets), file.section(data, course::kSlotRunway));
+            ++courses, placed += g.placements.size();
+            for (const race::Gadgets::Placement& p : g.placements) CHECK(p.kind >= 0 && size_t(p.kind) < std::max<size_t>(g.kinds.size(), 1));
+            if (e.path == "crs/tsukuba") {
+                // Tsukuba: 18 cones along its pit lane's ends; six kinds, the cone's a five-point hull.
+                CHECK(g.kinds.size() == 6 && g.placements.size() == 18);
+                CHECK(g.kinds[5].hull_points == 5 && std::fabs(g.kinds[5].radius - 0.593f) < 1e-3f && g.kinds[5].mass == 15);
+                CHECK(g.placements[0].kind == 5 && std::fabs(g.placements[0].position.x + 243.2f) < 0.1f);
+                CHECK(!g.models.empty());
+                ++ran;
+            }
+        }
+    }
+    if (!ran) SKIP("no Gran Turismo 4 US disc");
+    CHECK(courses > 100 && placed > 18);
 }
