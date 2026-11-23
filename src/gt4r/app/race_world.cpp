@@ -1,4 +1,5 @@
 #include "gt4r/app/race_world.h"
+#include "gt4r/sim/car_spec.h"
 
 #include "base/log.h"
 #include "gt4r/audio/race_sound.h"
@@ -39,6 +40,9 @@ struct RaceWorld::Impl {
     std::unique_ptr<audio::RaceSound> sound;
     gt3r::race::SceneryFade fade;
     std::unique_ptr<render::View3D> view;
+    std::unique_ptr<render::View3D> icon_view; // the results' car icons
+    std::unique_ptr<render::View3D> mirror_view; // the rear-view mirror
+    std::vector<render::DrawItem> mirror_items;
     std::vector<render::DrawItem> items, env_items, wet_items;
     gt3r::race::SunGlare sun;
     gt3r::race::SunDisc sun_disc;
@@ -123,6 +127,9 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
         for (const WorldEntry& e : setup.entries)
             if (!m.sound->add_car(e.label)) LOG_WARN("Drive: no engine sound for %s", e.label.c_str());
         m.sound->set_course(course_->section(course::kSlotSound), std::make_shared<const course::Runway>(course_->road()));
+        // The volumes and output of the game's options, and the player's play list of racing music.
+        m.sound->set_options(audio::race_sound_options(setup.options));
+        if (setup.playlist) m.sound->set_playlist(setup.playlist);
     }
     m.view = std::make_unique<render::View3D>(gpu);
     // The sun, the lamps' glows (their meshes are the course's own, slot 37) and the billboards:
@@ -152,9 +159,20 @@ void RaceWorld::build_simulation() {
             const sim::Program program = sim::Program::load(*app_.disc());
             std::vector<sim::Entry> entries(setup_.entries.size());
             for (size_t i = 0; i < entries.size(); ++i) {
-                if (!sim::stock_car(*app_.db(), program, setup_.entries[i].label, entries[i].equipment)) throw std::runtime_error("no parts for " + setup_.entries[i].label);
+                if (setup_.entries[i].equipment) entries[i].equipment = *setup_.entries[i].equipment; // a garage car's own
+                else if (!sim::stock_car(*app_.db(), program, setup_.entries[i].label, entries[i].equipment)) throw std::runtime_error("no parts for " + setup_.entries[i].label);
                 entries[i].grid_place = setup_.entries[i].grid_place;
                 entries[i].automatic = setup_.entries[i].automatic;
+                entries[i].start_speed = setup_.entries[i].start_speed;
+                entries[i].start_distance = setup_.entries[i].start_distance;
+            }
+            // The player's car's power as built (the replay's card).
+            try {
+                sim::Spec spec;
+                sim::build_spec(*app_.db(), program, entries[0].equipment, 0, spec);
+                player_ps_ = sim::spec_figures(spec).ps;
+            } catch (const std::exception&) {
+                player_ps_ = 0;
             }
             session_ = std::make_unique<sim::Session>(*app_.db(), program, std::make_shared<const course::Runway>(course_->road()), entries);
             if (!noted_)
@@ -191,13 +209,14 @@ void RaceWorld::restart() {
     clear_effects();
 }
 
-void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold) {
-    // The computer drivers write their own cars' inputs.
+void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool player_by_computer) {
+    // The computer drivers write their own cars' inputs (the player's too while they drive it).
     std::vector<race::CarInput> driven;
     if (field_) {
         driven.assign(inputs.begin(), inputs.end());
         driven.resize(car_visuals_.size());
         hold ? field_->hold(driven) : field_->drive(driven);
+        if (computer_player_ && !player_by_computer && !inputs.empty()) driven[0] = inputs[0];
         inputs = driven;
     }
     if (hold && session_) session_->hold_once(inputs);
@@ -333,6 +352,10 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
     if (m.wet.active()) {
         m.wet_items.clear();
         course_->add_reflection_sky_items(m.wet_items, pose.eye);
+        // The cars mirrored in the wet road when the course asks for them (Env0 +0x10 bit 16).
+        if (m.wet.params().cars)
+            for (size_t i = 0; i < std::min(cars.size(), car_visuals_.size()); ++i)
+                if (int(i) != hidden) car_visuals_[i]->add_mirror_items(m.wet_items, cars[i], pose.eye);
         m.wet.add_buffer_items(m.wet_items, pose.view, pose.eye, {});
         for (render::DrawItem& it : m.wet_items) it.tint = course_->reflection_gain();
         const render::DrawOptions wo = draw_options(*course_, far);
@@ -397,12 +420,112 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
         m.car_lamps.add(m.overlay, rect, pose.view, pose.eye, frustum, m.glow_cars, [&](const RVec& a, const RVec& b) { return occluder.segment_blocked(a, b); }, &proj);
     }
     o.overlay = &m.overlay;
+    o.post_grade = grade_;
+    o.snapshot = snapshot_, o.dissolve = dissolve_, o.keep_last = keep_last_;
     m.view->draw(ui.renderer(), rect, pose.view, proj, pose.eye, m.items, o);
     if (m.frame == 5)
         LOG_INFO("Drive: the car at (%.1f, %.1f, %.1f) heading (%.2f, %.2f), eye (%.1f, %.1f, %.1f); %d meshes drawn, %zu triangles", me.position.x,
                  me.position.y, me.position.z, me.forward.x, me.forward.z, pose.eye.x, pose.eye.y, pose.eye.z, m.view->stats().meshes_drawn,
                  m.view->stats().triangles);
     ++m.frame;
+}
+
+// The icons: one picture over the whole page, an orthographic camera looking down -z, each car
+// turned side-on (its front to the left, a little toward the camera) and tilted to be seen from
+// slightly above, at its icon's place. ❓ The program renders them once per car with its own camera
+// (CarIconMaker, 0x393B70: a 128 x 64 and a 64 x 32 picture); the angles and the size are judged
+// from the original's results page.
+void RaceWorld::draw_icons(Ui& ui, const SDL_FRect& canvas, std::span<const Icon> icons) {
+    Impl& m = *impl_;
+    if (icons.empty() || !app_.gpu()) return;
+    if (!m.icon_view) m.icon_view = std::make_unique<render::View3D>(*app_.gpu());
+    constexpr float kDegree = kPi / 180;
+    constexpr float kMetre = 0.085f; // metres a page unit: a car of 4.4 m about 52 units long
+    std::vector<render::DrawItem> items;
+    float opacity = 0;
+    for (const Icon& ic : icons) {
+        if (ic.car >= car_visuals_.size() || ic.opacity <= 0) continue;
+        const race::CarVisual& v = *car_visuals_[ic.car];
+        const race::CarSpec& spec = v.spec();
+        const render::Mat4 model = render::translate({ic.x * kMetre, -ic.y * kMetre, -20}) *
+                                   render::rotate_x(10 * kDegree) * render::rotate_y(100 * kDegree) *
+                                   render::translate({0, -(spec.ride_height[0] + spec.tire_radius[0]) / 2, 0});
+        auto apply = [&](const RVec& p, float w) {
+            return RVec{model.at(0, 0) * p.x + model.at(0, 1) * p.y + model.at(0, 2) * p.z + model.at(0, 3) * w,
+                        model.at(1, 0) * p.x + model.at(1, 1) * p.y + model.at(1, 2) * p.z + model.at(1, 3) * w,
+                        model.at(2, 0) * p.x + model.at(2, 1) * p.y + model.at(2, 2) * p.z + model.at(2, 3) * w};
+        };
+        auto cv = [](const RVec& a) { return course::Vec3{a.x, a.y, a.z}; };
+        race::CarState st;
+        st.position = cv(apply({0, spec.ride_height[0], 0}, 1));
+        st.right = cv(render::normalize(apply({1, 0, 0}, 0)));
+        st.up = cv(render::normalize(apply({0, 1, 0}, 0)));
+        st.forward = cv(render::normalize(apply({0, 0, -1}, 0)));
+        for (int w = 0; w < 4; ++w) {
+            const int axle = w / 2;
+            const float x = (w & 1) ? spec.half_track[axle] : -spec.half_track[axle];
+            const float z = axle == 0 ? -spec.wheelbase / 2 : spec.wheelbase / 2;
+            st.wheels[w].center = cv(apply({x, spec.tire_radius[axle], z}, 1));
+        }
+        v.add_items(items, st, RVec{st.position.x, st.position.y, st.position.z + 100});
+        opacity = std::max(opacity, ic.opacity);
+    }
+    if (items.empty()) return;
+    // Orthographic, depth reversed (1 at the near plane, 0 at the far one) as the 3D view's.
+    const float w = 640 * kMetre, h = 480 * kMetre, zn = 1, zf = 60;
+    render::Mat4 proj;
+    proj.m.fill(0);
+    proj.at(0, 0) = 2 / w, proj.at(0, 3) = -1;
+    proj.at(1, 1) = 2 / h, proj.at(1, 3) = 1;
+    proj.at(2, 2) = 1 / (zf - zn), proj.at(2, 3) = zf / (zf - zn);
+    proj.at(3, 3) = 1;
+    render::DrawOptions o = draw_options(*course_, zf);
+    o.fog = false;
+    o.frustum_cull = false;
+    for (float& c : o.clear) c = 0;
+    o.composite_alpha = std::clamp(opacity, 0.0f, 1.0f);
+    if (m.view && m.env_ready) o.env_cube = m.view->env_cube(), o.env_gt3_lookup = true;
+    m.icon_view->draw(ui.renderer(), canvas, render::Mat4::identity(), proj, RVec{0, 0, 100}, items, o);
+}
+
+// The rear-view mirror (docs/formats/course.md "Drawing", step 9: the mirror's fog, its sky,
+// slot 1 by slot 3's list, the cars). ❓ Its lens and depth are the shared engine's mirror's (the
+// in-car view's angle zoomed 1.3 times, 120 m), not read from this program.
+void RaceWorld::render_mirror(Ui& ui, const SDL_FRect& rect, std::span<const race::CarState> cars, const race::ViewPose& pose, int hidden) {
+    Impl& m = *impl_;
+    if (!app_.gpu() || rect.w <= 0 || rect.h <= 0) return;
+    if (!m.mirror_view) m.mirror_view = std::make_unique<render::View3D>(*app_.gpu());
+    constexpr float kDepth = 120;
+    m.mirror_items.clear();
+    course_->add_items(m.mirror_items, pose.eye, race::CourseScene::View::Mirror);
+    const size_t n = std::min(cars.size(), car_visuals_.size());
+    for (size_t i = 0; i < n; ++i) {
+        if (int(i) == hidden) continue;
+        car_visuals_[i]->add_shadow_items(m.mirror_items, cars[i]);
+        car_visuals_[i]->add_items(m.mirror_items, cars[i], pose.eye, kStep);
+    }
+    render::DrawOptions o = draw_options(*course_, kDepth);
+    o.mirrored = true;
+    o.draw_distance = kDepth;
+    o.far_clip = 0;
+    o.post_grade = grade_;
+    const gt3r::race::SunParams& env = course_->env();
+    if (env.has_env) {
+        o.fog = true, o.fog_gt3 = true;
+        o.fog_start = std::max(env.mirror_fog_a, 0.0f);
+        o.fog_max = std::clamp(1.0f - env.mirror_fog_b, 0.0f, 1.0f);
+        for (int i = 0; i < 3; ++i) o.fog_color[i] = std::clamp(env.mirror_fog_rgb[size_t(i)], 0.0f, 1.0f);
+    }
+    if (m.view && m.env_ready) o.env_cube = m.view->env_cube(), o.env_gt3_lookup = true;
+    const float t = std::tan(pose.fovy() * 0.5f) / 1.3f;
+    const render::Mat4 proj = render::perspective(2.0f * std::atan(t), rect.w / rect.h, 0.1f, kDepth);
+    const render::Mat4 view = render::scale({1, 1, -1}) * pose.view;
+    SDL_SetRenderDrawColor(ui.renderer(), 0, 0, 0, 255);
+    SDL_RenderFillRect(ui.renderer(), &rect);
+    m.mirror_view->draw(ui.renderer(), rect, view, proj, pose.eye, m.mirror_items, o);
+    // Its frame: a thin light edge (❓ judged from the original's in-car view).
+    SDL_SetRenderDrawColor(ui.renderer(), 200, 200, 200, 255);
+    SDL_RenderRect(ui.renderer(), &rect);
 }
 
 } // namespace gt4r

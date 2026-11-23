@@ -180,6 +180,14 @@ AnimatedModels::AnimatedModels(ByteSpan set, float color_scale, const gt3r::gtm1
                     scene::Model m = gt3r::gtm1::build_model(g, o, "animated");
                     scene::Mesh mesh;
                     if (!m.meshes.empty()) mesh = std::move(m.meshes[0]);
+                    // A model drawn with ALPHA 0x48 (Cs x As + Cd) adds to what is behind it: the
+                    // spectators' camera flashes (a star on black). The shared engine's decode adds
+                    // so only for cars; here the blended passes of such a model are made additive.
+                    bool adds = false;
+                    for (const gt3r::gtm1::Draw& d : g.run(a.model)) adds |= d.alpha_mode == 0x48;
+                    if (adds)
+                        for (scene::Primitive& prim : mesh.primitives)
+                            if (prim.flags & scene::kAlphaBlend) prim.flags = (prim.flags & ~u32(scene::kAlphaBlend)) | scene::kAdditive | scene::kNoDepthWrite;
                     // Its pictures into the one list every pose draws with (a decode lists the
                     // pictures in its own order).
                     for (scene::Primitive& prim : mesh.primitives) {

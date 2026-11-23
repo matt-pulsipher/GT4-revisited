@@ -278,6 +278,13 @@ colors: `sign_asm` 0x80E3B896, the other two 0x800000C8. Draw order: plate, the 
 shadows, trip meter, shift lamp, the two dials, boost gauge, gear, suggested gear, digital
 speed, tire wear, signs, unit, G meter, bars.
 
+The race display draws the signs, the shift lamp, the G meter and the trip meter at these places
+(`RaceHud::Impl::draw_small_parts`); ❓ judged: the signs stay unlit (a third of their color: the
+simulation does not say when an aid works), the lamp lights past 97 % of the red line, the G
+meter's point runs over two g each way, the trip meter counts whole miles or kilometres of the
+race. Not drawn: the suggested gear (it needs the course line's gear), the boost gauge, the
+driver's views' pedal, fuel and nitrous bars (their places are not read).
+
 ### Chase views: `RaceSimplePanel`
 
 The single race's form (the panel's split flag and its reduced flag both clear):
@@ -558,3 +565,16 @@ doubles and saturates), 🔎 by the GS's rule, not compared with the original ru
 - ❓ Not read: the lap-time list, the refuel bar, the tire wear and fuel gauges' drawing, the
   tool tips, the two-player and license displays' own classes (`RaceSplitDisplay`,
   `RaceLicenseDisplay`), the hybrid panel, the replay displays, the pause menu.
+
+
+## A replay's opening card (`RaceDisplay::vf45`, 0x39C838)
+
+Two lines in the middle of the picture, color 0x80C8C8C8: the car's name (the entry's +0x348C) in
+`hb_24#1` at (320, 220), and below it in `hm_16#1` at (320, 260) the race word `RaceInfoFormat`
+("%s  %s  %s") filled with the car's power as built (`"%d%s"` in the unit the options name; `"--%s"`
+when its GENERIC_CAR row hides it), its tires (`"%s/%s"`: the words `TireShort_NN` of the front and
+rear tires, "SM/SM") and the race's name (a word the organization gives, `"%s%d"` with a number:
+`ARCADE_SINGLE_RACE` "Single Race"); the times it shows and fades are its caller's (❓ not read).
+In the original's replay the picture under it is darkened and the course's logo shows bottom right;
+here the card shows the first 3.5 s with fades of 0.5 s over a darkening of 75 % (judged), and the
+course logo is not drawn (❓ its picture was not found).

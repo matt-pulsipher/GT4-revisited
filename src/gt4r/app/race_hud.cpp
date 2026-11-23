@@ -192,6 +192,7 @@ struct RaceHud::Impl {
     void draw_dial(const DisplayRect& at, const std::string& face, float ox, float value, float min, float max, float a0, float a1,
                    float red_from, float& last_angle, float opacity);
     void draw_gear(const DisplayRect& box, const HudState& s);
+    void draw_small_parts(const HudState& s, bool driver);
     std::string speed_text(const HudState& s) const {
         char buf[16];
         std::snprintf(buf, sizeof buf, "%3d", int(std::lround(std::fabs(s.speed) * (mph ? 2.2369363f : 3.6f))));
@@ -247,7 +248,9 @@ RaceHud::~RaceHud() {
         if (t) SDL_DestroyTexture(t);
 }
 
-void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlayer& player) {
+SDL_FRect RaceHud::canvas() { return to_ui(DisplayRect{0, 0, 640, 480}); }
+
+void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlayer& player, std::vector<MovieExternal>* externals) {
     Impl& m = *impl_;
     // A colour of the movie (0xAABBGGRR, 0x80 a full channel) through a draw's colour change.
     auto colour = [](u32 c, const race::StrobePlayer::Draw& d) {
@@ -267,13 +270,31 @@ void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlaye
             if (tex.textures.empty()) return nullptr;
             gt3r::GsMemory gs;
             tex.upload(set, gs);
-            t = m.make_texture(tex.decode(gs, 0));
+            gt3r::Tex1::Image img = tex.decode(gs, 0);
+            // The fill matrices map the movie's size of the picture (a power of two: 128 x 64); the set's
+            // texture is the picture's own size (99 x 34) at its top left.
+            if (i < movie.textures.size()) {
+                const u32 w = movie.textures[i].width, h = movie.textures[i].height;
+                if (w > 0 && h > 0 && w <= 4096 && h <= 4096 && (w != img.width || h != img.height)) {
+                    gt3r::Tex1::Image out;
+                    out.width = w, out.height = h;
+                    out.rgba.assign(size_t(w) * h, 0);
+                    for (u32 y = 0; y < std::min(h, img.height); ++y)
+                        std::copy_n(img.rgba.begin() + ptrdiff_t(size_t(y) * img.width), std::min(w, img.width), out.rgba.begin() + ptrdiff_t(size_t(y) * w));
+                    img = std::move(out);
+                }
+            }
+            t = m.make_texture(img);
         } catch (const std::exception& e) {
             LOG_WARN("Race movie: picture %zu: %s", i, e.what());
         }
         return t;
     };
     for (const race::StrobePlayer::Draw& d : player.draw_list()) {
+        if (!d.external.empty()) {
+            if (externals) externals->push_back({d.external, d.m[4], d.m[5], std::hypot(d.m[0], d.m[1]), std::clamp(d.mul[3], 0.0f, 1.0f)});
+            continue;
+        }
         if (d.group && !d.group->triangles.empty() && d.group->fill < movie.fills.size()) {
             const race::StrobeMovie::Fill& fill = movie.fills[d.group->fill];
             const std::array<float, 16>* mat = fill.value < movie.matrices.size() ? &movie.matrices[fill.value] : nullptr;
@@ -323,8 +344,16 @@ void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlaye
                 f.sy = comma == std::string::npos ? f.sx : float(std::atof(sizes.c_str() + comma + 1)) / 100.0f;
             }
             if (!f.font) continue;
-            // The field's own size against the font's (16 units).
-            const float size = t.height / 16.0f, sx = std::hypot(d.m[0], d.m[1]), sy = std::hypot(d.m[2], d.m[3]);
+            // The field's em (its height) against the font's own: the number its name ends with
+            // (hm_16: 16, hb_24: 24; the program scales the glyphs by the height alone, 0x479CA0).
+            float em = 16;
+            {
+                const std::string base = spec.substr(0, std::min(star, hash));
+                const size_t us = base.rfind('_');
+                if (us != std::string::npos && us + 1 < base.size() && std::isdigit(static_cast<unsigned char>(base[us + 1]))) em = float(std::atoi(base.c_str() + us + 1));
+                if (!(em > 0)) em = 16;
+            }
+            const float size = t.height / em, sx = std::hypot(d.m[0], d.m[1]), sy = std::hypot(d.m[2], d.m[3]);
             f.sx *= size * sx, f.sy *= size * sy;
             const float x = t.align == 2 ? (t.x0 + t.x1) / 2 : t.align == 1 ? t.x1 : t.x0;
             const float px = d.m[0] * x + d.m[2] * t.y0 + d.m[4], py = d.m[1] * x + d.m[3] * t.y0 + d.m[5];
@@ -385,6 +414,10 @@ void RaceHud::Impl::draw_top(const HudState& s) {
         draw_text(times, race::place_x(*p, true), float(p->y), kCentered, kTextGray, o * s.event_opacity, s.event);
     if (const DisplayPlace* p = layout.find(element::kMessage))
         draw_text(font("FC_48"), race::place_x(*p, true), float(p->y), kCentered, kTextGray, o * s.message_opacity, s.message);
+    // The status line (member 0x228C): over the driver's panel at (320, 348), over the chase views'
+    // at (320, 430); `hn_20R`.
+    if (!s.status.empty() && s.status_opacity > 0)
+        draw_text(font("hn_20R"), 320, s.driver_view ? 348.0f : 430.0f, kCentered, kTextGray, o * s.status_opacity, s.status);
 }
 
 // The course map with the cars on it; it neither turns nor scrolls.
@@ -440,6 +473,69 @@ void RaceHud::Impl::draw_chase_panel(const HudState& s) {
     const float x0 = at.x + 0.70625f * at.w, x1 = at.x + at.w - 1, y0 = at.y - 3, y1 = at.y - 1, a = o * float(0x70) / 128.0f;
     triangles({vertex(x0, y0, 0x99, 0, 0, a), vertex(x1, y0, 0x99, 0, 0, a), vertex(x1, y1, 0x99, 0, 0, a), vertex(x0, y0, 0x99, 0, 0, a),
                vertex(x1, y1, 0x99, 0, 0, a), vertex(x0, y1, 0x99, 0, 0, a)});
+    draw_small_parts(s, false);
+}
+
+// The panels' smaller parts at the places the panels give them (docs/formats/race_display.md
+// "Driver's views", "Chase views"): the warning signs, the shift lamp, the sideways G meter, and in
+// the driver's views the trip meter, in the chase views the pedals, the tire wear and the fuel.
+// ❓ How each part's value moves its picture is judged (their drawing routines are not read): the
+// G meter's point by the sideways g against two either way, a sign unlit at a third (the aids'
+// work is not given by the simulation), the shift lamp lit past 97 % of the red line, the bars
+// filled by their share.
+void RaceHud::Impl::draw_small_parts(const HudState& s, bool driver) {
+    const float o = s.opacity;
+    const int C = 320, B = driver ? 452 : 464, L = 0;
+    // The signs: the stability aid's in its own color, the brake's and the oil's red.
+    if (driver) {
+        draw_at("sign_asm", {0, C - 199, B, 24, 24, 1, 2}, 0x80E3B896u, o / 3);
+        draw_at("sign_brake", {0, C - 166, B, 24, 24, 1, 2}, 0x800000C8u, o / 3);
+        draw_at("sign_oil", {0, C + 166, B, 24, 24, 0, 2}, 0x800000C8u, o / 3);
+    } else {
+        draw_at("sign_asm", {0, L + 119, B, 24, 24, 6, 1}, 0x80E3B896u, o / 3);
+        draw_at("sign_brake", {0, L + 147, B, 24, 24, 6, 1}, 0x800000C8u, o / 3);
+        draw_at("sign_oil", {0, L + 175, B, 24, 24, 6, 1}, 0x800000C8u, o / 3);
+    }
+    // The shift lamp.
+    const bool shift = s.red_line > 0 && s.rpm >= 0.97f * s.red_line;
+    if (driver) draw_at("timing_lamp", {0, C + 103, B - 62, 8, 8, 2, 2}, shift ? kNeutral : 0x80404040u, o);
+    else draw_at("timing_lamp", {0, 640 - 142, B - 28, 8, 8, 13, 0}, shift ? kNeutral : 0x80404040u, o);
+    // The sideways G meter: its base, and its point moved along it.
+    {
+        const DisplayRect base = draw_at("g_meter_base", {0, C, B, 214, 24, 2, u8(driver ? 2 : 1)}, kNeutral, o);
+        const Picture& pt = picture("g_meter_point");
+        if (pt.texture && base.w > 0) {
+            const float k = std::clamp(s.lateral_g / 2.0f, -1.0f, 1.0f);
+            const float cx = base.x + base.w / 2 + k * (base.w / 2 - pt.w), cy = base.y + base.h / 2;
+            draw_picture(pt, {cx - pt.w / 2, cy - pt.h / 2, pt.w, pt.h}, kNeutral, o);
+        }
+    }
+    if (driver) {
+        // The trip meter: whole miles or kilometres of this race, six digits.
+        char buf[16];
+        std::snprintf(buf, sizeof buf, "%06d", std::clamp(int(s.trip_m / (mph ? 1609.344f : 1000.0f)), 0, 999999));
+        draw_text(font("GT4meter", 60, 1), float(C - 103), float(B - 45), kCentered, kMeterBlue, o, buf);
+        return;
+    }
+    // The pedals: the throttle's bar and the brake's, from the bottom.
+    {
+        const Picture& p = picture("pedals");
+        const DisplayRect at = race::place_rect({0, L + 26, B, 22, 66, 4, 1}, p.w > 0 ? p.w : 22, p.h > 0 ? p.h : 66, true);
+        draw_picture(p, at, 0x80202020u, o * 0.6f);
+        const float bw = at.w / 2 - 1;
+        auto bar = [&](float x, float v, u8 r, u8 g, u8 b) {
+            const float h = at.h * std::clamp(v, 0.0f, 1.0f);
+            if (h <= 0) return;
+            triangles({vertex(x, at.y + at.h - h, r, g, b, o), vertex(x + bw, at.y + at.h - h, r, g, b, o), vertex(x + bw, at.y + at.h, r, g, b, o),
+                       vertex(x, at.y + at.h - h, r, g, b, o), vertex(x + bw, at.y + at.h, r, g, b, o), vertex(x, at.y + at.h, r, g, b, o)});
+        };
+        bar(at.x, s.throttle, 0x40, 0xC0, 0x40);
+        bar(at.x + bw + 2, s.brake, 0xC0, 0x30, 0x30);
+    }
+    draw_at("tire_wear", {0, L + 58, B, 40, 68, 4, 1}, kNeutral, o * (0.5f + 0.5f * std::clamp(s.tire_wear, 0.0f, 1.0f)));
+    // The fuel gauge: the empty bar, the full one over it by what is left.
+    draw_at("fuel_b0", {0, L + 107, B - 30, 86, 11, 4, 1}, kNeutral, o);
+    draw_at("fuel_b1", {0, L + 107, B - 30, 86, 11, 4, 1}, kNeutral, o, std::clamp(s.fuel, 0.0f, 1.0f));
 }
 
 // A round meter: the red zone behind the face (from `red_from` in the value's units; past the
@@ -503,11 +599,33 @@ void RaceHud::Impl::draw_driver_panel(const HudState& s) {
     const float width = text_width(meter, "000");
     draw_text(meter, float(C - 2) + width / 2, float(B - 41), kEndsAtPen, kMeterBlue, o, speed_text(s));
     draw_at(mph ? "mph" : "kmph", {0, C, B - 24, 28, 9, 2, 1}, kNeutral, o);
+    draw_small_parts(s, true);
 }
 
 void RaceHud::draw(Ui& ui, const HudState& s) {
     if (!ready() || s.opacity <= 0) return;
     (void)ui;
+    if (s.replay && s.card_opacity > 0) {
+        // A replay's opening card (RaceDisplay::vf45, 0x39C838): the car's name in hb_24 at (320, 220),
+        // the line "power  tires  race" in hm_16 at (320, 260), color 0x80C8C8C8, over the picture
+        // darkened (❓ the darkening's strength is judged from the original's replay).
+        const float a = std::clamp(s.card_opacity, 0.0f, 1.0f);
+        const SDL_FRect c = to_ui(DisplayRect{-200, 0, 1040, 480});
+        SDL_SetRenderDrawBlendMode(impl_->r, SDL_BLENDMODE_BLEND);
+        SDL_SetRenderDrawColor(impl_->r, 0, 0, 0, u8(190 * a));
+        SDL_RenderFillRect(impl_->r, &c);
+        impl_->draw_text(impl_->font("hb_24", 100, 1), 320, 220, kCentered, kTextGray, s.opacity * a, s.card_title);
+        impl_->draw_text(impl_->font("hm_16", 100, 1), 320, 260, kCentered, kTextGray, s.opacity * a, s.card_line);
+    }
+    if (s.replay && !s.replay_display) {
+        // A replay with its display off (the Replay options' Screen Display: Off, the original's
+        // default): the small Gran Turismo 4 logo, its right bottom at (604, 441) (member 0x1170),
+        // ❓ at about 60 % (judged from the original's replay; its draw colour is not read).
+        const Impl::Picture& logo = impl_->picture("JP/gt_logo_mini");
+        // (Under the opening card the original shows the course's logo there instead: ❓ its picture is not found.)
+        if (logo.w > 0 && s.card_opacity <= 0) impl_->draw_picture(logo, race::place_rect({0, 604, 441, 0, 0, 1, 1}, logo.w, logo.h, true), kNeutral, s.opacity * 0.6f);
+        return;
+    }
     if (s.replay) {
         // The replay's sign at its place (the place's rectangle is the sign's room: its own size, top left).
         if (const DisplayPlace* p = impl_->layout.find(element::kReplaySign)) {
