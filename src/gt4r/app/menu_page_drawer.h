@@ -17,11 +17,14 @@
 
 #include "disc/core_image.h"
 #include "gt4r/disc/disc.h"
+#include "formats/gs_memory.h"
+#include "vfs/vfs.h"
 
 #include <algorithm>
 #include <cmath>
 #include <functional>
 #include <map>
+#include <set>
 
 namespace gt4r {
 
@@ -57,7 +60,7 @@ inline std::array<menu::TextColor, 4> program_button_colors(App& app) {
 // Draws a page into a rectangle of the screen.
 class PageDrawer {
 public:
-    explicit PageDrawer(App& app) : r_(app.renderer()) {
+    explicit PageDrawer(App& app) : r_(app.renderer()), vfs_(app.vfs()) {
         for (const char* path : {"font/system.fnt", "font/menu.fnt"}) {
             const std::optional<Bytes> file = app.vfs()->read(path);
             if (!file) continue;
@@ -176,8 +179,8 @@ private:
 
     // `uv`: the picture's coordinates of the four corners clockwise from the top left
     // (mImageFace's `texcoord`); none: the whole picture.
-    void image(const std::string& path, const Rect& at, Rgba tint, float opacity, bool add, const SDL_FPoint* uv = nullptr) {
-        const gt3r::Tex1::Image* img = path.empty() ? nullptr : project_->image(page_, path);
+    void image(const std::string& path, const Rect& at, Rgba tint, float opacity, bool add, const SDL_FPoint* uv = nullptr, bool from_disk = false) {
+        const gt3r::Tex1::Image* img = path.empty() ? nullptr : from_disk ? disk_image(path) : project_->image(page_, path);
         SDL_Texture* t = texture(img);
         if (!t) return;
         SDL_SetTextureColorMod(t, 255, 255, 255);
@@ -194,6 +197,28 @@ private:
         const SDL_FColor c{tint.r / 255.0f, tint.g / 255.0f, tint.b / 255.0f, std::clamp(tint.a * opacity / 255.0f, 0.0f, 1.0f)};
         const SDL_FColor colors[4] = {c, c, c, c};
         quad(t, at, uv ? uv : whole, colors, add ? SDL_BLENDMODE_ADD : SDL_BLENDMODE_BLEND);
+    }
+    // A picture face's `from_disk` picture: a Tex1 file of the disc (`piece/nation_bg/japan.img`).
+    const gt3r::Tex1::Image* disk_image(const std::string& path) {
+        std::unique_ptr<gt3r::Tex1::Image>& slot = disk_images_[path];
+        if (slot || !vfs_ || tried_.count(path)) return slot.get();
+        tried_.insert(path);
+        std::string name = path;
+        while (!name.empty() && name[0] == '/') name.erase(0, 1);
+        try {
+            const std::optional<Bytes> data = vfs_->read(name);
+            if (data && gt3r::Tex1::is_tex1(*data)) {
+                const gt3r::Tex1 set = gt3r::Tex1::parse(*data);
+                if (!set.textures.empty()) {
+                    gt3r::GsMemory gs;
+                    set.upload(*data, gs);
+                    slot = std::make_unique<gt3r::Tex1::Image>(set.decode(gs, 0));
+                }
+            }
+        } catch (const std::exception& e) {
+            LOG_WARN("Menu picture %s: %s", path.c_str(), e.what());
+        }
+        return slot.get();
     }
     SDL_FPoint image_size(const std::string& path) {
         const gt3r::Tex1::Image* img = path.empty() ? nullptr : project_->image(page_, path);
@@ -431,7 +456,7 @@ private:
                 for (size_t i = 0; i < 4; ++i)
                     uv[i] = {tc->items[i].values.size() > 0 ? std::strtof(tc->items[i].values[0].c_str(), nullptr) : 0,
                              tc->items[i].values.size() > 1 ? std::strtof(tc->items[i].values[1].c_str(), nullptr) : 0};
-            image(w.text("image_path"), at, tint, face, add, has_uv ? uv : nullptr);
+            image(w.text("image_path"), at, tint, face, add, has_uv ? uv : nullptr, w.number("from_disk") != 0);
         }
         else if (t == "FrameImageFace") frame(w, at, tint, face);
         else if (t == "TextFace" || t == "InputTextFace" || t == "InputNumberFace" || t == "ToolTipFace" || t == "TextBoxFace") text(w, at, face);
@@ -476,6 +501,9 @@ private:
     std::map<std::pair<const gt3r::text::LatinFont*, int>, SDL_Texture*> atlases_;
     float ox_ = 0, oy_ = 0, scale_ = 1;
     Affine m_; // the transforms of the widgets being drawn
+    gt3r::Vfs* vfs_ = nullptr;
+    std::map<std::string, std::unique_ptr<gt3r::Tex1::Image>> disk_images_;
+    std::set<std::string> tried_;
     std::string page_;
 };
 

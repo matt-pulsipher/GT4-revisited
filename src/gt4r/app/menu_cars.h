@@ -6,6 +6,7 @@
 
 #include "gt4r/menu/faces_car.h"
 #include "gt4r/menu/project.h"
+#include "gt4r/menu/stage_motion.h"
 #include "gt4r/race/car_visual.h"
 #include "render/view3d.h"
 
@@ -55,8 +56,12 @@ private:
     std::map<std::string, std::string> models_; // car label -> model file name
     std::map<const void*, SDL_GPUTexture*> env_;
     std::vector<gt3r::render::DrawItem> items_;
-    // The car-selection stage's backdrop (menu/select/bg.mdl, its first variant).
-    std::unique_ptr<gt3r::render::GpuModel> stage_;
+    void load_stage();
+    // The car-selection stage: its backdrops (menu/select/bg.mdl's models), camera and light
+    // motions, and its time.
+    std::vector<std::unique_ptr<gt3r::render::GpuModel>> stage_;
+    std::unique_ptr<menu::StageMotion> camera_motion_, light_motion_;
+    float stage_time_ = 0;
     bool stage_tried_ = false;
 };
 
