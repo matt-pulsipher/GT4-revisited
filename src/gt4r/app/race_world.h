@@ -13,9 +13,11 @@
 #include "gt4r/race/replay_script.h"
 #include "gt4r/race/simulation.h"
 #include "gt4r/sim/ai/drivers.h"
+#include "gt4r/sim/equipment.h"
 
 #include <map>
 #include <memory>
+#include <optional>
 #include <variant>
 #include <span>
 #include <string>
@@ -39,6 +41,7 @@ struct WorldEntry {
     int grid_place = -1;   // the course's start place (-1: the entry's index)
     bool automatic = true; // the gearbox shifts itself
     float start_speed = 0; // a rolling start: metres per second at time 0 (sim::Entry::start_speed)
+    std::optional<sim::Equipment> equipment; // the car's parts and settings (a garage car's); none: as sold
 };
 
 struct WorldSetup {

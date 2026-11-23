@@ -17,6 +17,7 @@
 #include "gt4r/app/race_hud.h"
 #include "gt4r/app/race_world.h"
 #include "gt4r/audio/app_sound.h"
+#include "gt4r/audio/race_playlist.h"
 #include "gt4r/audio/race_sound.h"
 
 #include "base/log.h"
@@ -84,6 +85,8 @@ struct Setup {
     std::string race;     // `race=<label>`: the event (the car database's RACE row) the sequence runs
     sim::ai::Pace pace;   // the computer drivers' (the event's)
     std::map<std::string, std::variant<s32, float, std::string>> options; // the game's (the sound's volumes); empty: a new game's
+    std::optional<sim::Equipment> player_equipment;  // a garage car's parts and settings
+    std::shared_ptr<audio::RacePlaylist> playlist;   // the races' music (the game's play list)
 };
 
 Setup setup_from_env() {
@@ -137,6 +140,24 @@ race::PictureSettings& picture_settings(bool replay) {
     return replay ? replays : race_views;
 }
 
+// The game's play list of the races' music as the race's sound takes it (null: none filled), and
+// what a race leaves of it (its position, the pieces played) back in the game.
+std::shared_ptr<audio::RacePlaylist> playlist_from(const menu::GameState::PlayList& list) {
+    if (list.rows == 0) return nullptr;
+    auto p = std::make_shared<audio::RacePlaylist>(std::min<size_t>(list.rows, list.row.size()));
+    for (size_t i = 0; i < p->rows().size(); ++i) {
+        audio::RacePlaylist::Row& r = p->rows()[i];
+        r.enabled = list.row[i].enabled != 0, r.played = list.row[i].played != 0, r.order = list.row[i].order;
+    }
+    p->set_position(list.position);
+    p->set_shuffle(list.shuffle != 0, list.seed);
+    return p;
+}
+void playlist_to(const audio::RacePlaylist& p, menu::GameState::PlayList& list) {
+    list.position = u16(std::max(0, p.position()));
+    for (size_t i = 0; i < p.rows().size() && i < list.row.size(); ++i) list.row[i].played = p.rows()[i].played ? 1 : 0;
+}
+
 // The race itself: the world (race_world.h), its flow (race_flow.h) and the cameras.
 class Race {
 public:
@@ -151,6 +172,7 @@ public:
         ws.computer_player = setup.auto_drive;
         ws.pace = setup.pace;
         ws.options = setup.options;
+        ws.playlist = setup.playlist;
         // The grid: the player at the back, the others ahead of him in entry order.
         const std::vector<int> places = race::grid_places(size_t(setup.cars), 0);
         for (int i = 0; i < setup.cars; ++i) {
@@ -160,6 +182,7 @@ public:
             e.paint = size_t(i) < setup.paints.size() ? setup.paints[size_t(i)] : i == 0 ? setup.paint : u32(i);
             e.grid_place = places[size_t(i)];
             if (setup.start == race::StartType::Rolling) e.start_speed = setup.start_speed;
+            if (i == 0) e.equipment = setup.player_equipment;
             ws.entries.push_back(e);
         }
         world_ = std::make_unique<RaceWorld>(app, ws);
@@ -566,6 +589,9 @@ public:
             if (menus_) {
                 const menu::RaceRequest& q = menus_->game().race;
                 setup_.options = menus_->game().options;
+                // The garage car's own parts and settings (the sheet in use).
+                if (q.garage_slot >= 0) setup_.player_equipment = menu::race_equipment(menus_->game(), q.garage_slot);
+                setup_.playlist = playlist_from(menus_->game().bgm_playlist);
                 setup_.opponents = q.entries;
                 // The event's grid (the opponents drawn from its pool, the player last) and its pace.
                 if (db::SpecDb* sdb = app.db()) {
@@ -627,6 +653,7 @@ public:
             own_menus_->boot();
             menus_ = own_menus_.get(), sequence_ = setup_.sequence;
             setup_.options = menus_->game().options;
+            setup_.playlist = playlist_from(menus_->game().bgm_playlist);
             menu::RaceRequest& q = menus_->game().race;
             q.course = setup_.course, q.car = setup_.car, q.paint = int(setup_.paint), q.laps = setup_.laps, q.max_entry = setup_.cars;
             q.race = setup_.race, q.sequence = setup_.sequence;
@@ -939,6 +966,12 @@ private:
         w.player_car = q.car;
         w.set("Laps", setup_.laps);
         menu::fill_player_car(*menus_, w, race_->entry(0).label);
+        if (sequence_ == "championship") {
+            // The series' session (0x119918): the races run, whether this is its last.
+            const menu::GameState& g = menus_->game();
+            w.set("SessionNumber", g.series.races_run);
+            w.set("IsFinalSession", g.series.race_count > 0 && g.series.races_run + 1 >= g.series.race_count ? 1 : 0);
+        }
         if (sequence_ != "single_race") {
             w.set("IsASpec", 1); // ❓ the license the event asks for is not checked
             w.set("prize", 0);
@@ -988,6 +1021,7 @@ private:
         menu::QuickWork& w = menu::quick_work(menus_->game());
         menu::RaceResult r;
         r.race = q.race;
+        r.watched = spectator_;
         r.course = q.course.empty() ? setup_.course : q.course;
         r.garage_slot = q.garage_slot;
         r.finished = flow.player_finished();
@@ -1001,12 +1035,25 @@ private:
             r.result = !r.finished ? "failed" : t <= w.get("goldTime") ? "gold" : t <= w.get("silverTime") ? "silver" : t <= w.get("bronzeTime") ? "bronze" : "failed";
         } else if (sequence_ == "mission") {
             r.kind = menu::RaceResult::Kind::Mission;
-        } else if (sequence_ == "solo_event" || sequence_ == "championship") {
+        } else if (sequence_ == "championship") {
+            // A championship's race: the series' label and the race of it run now.
+            r.kind = menu::RaceResult::Kind::Championship;
+            r.series = q.race, r.race = championship_race();
+        } else if (sequence_ == "solo_event") {
             r.kind = menu::RaceResult::Kind::Event;
         } else {
             r.kind = menu::RaceResult::Kind::Course;
             r.course_kind = sequence_ == "freerun" ? 1 : sequence_ == "practice" ? 3 : sequence_ == "photo_drive" ? 4 : sequence_ == "machinetest" ? 6 : 7;
             if (const s64 best = flow.car(0).best_lap_ms; best > 0) r.time_ms = u32(best);
+        }
+        // Every car in finishing order.
+        for (const race::RaceFlow::ResultRow& row : flow.results()) {
+            menu::RaceResult::Finisher f;
+            f.entry = row.car == 0 ? 0 : race_->entry(row.car).grid_place + 1;
+            f.car = race_->entry(row.car).label, f.paint = int(race_->entry(row.car).paint);
+            f.finished = row.finished;
+            if (row.finished) f.time_ms = u32(row.total_ms);
+            r.order.push_back(std::move(f));
         }
         if (sequence_ == "single_race") {
             // (The single race keeps its course record only: 0x111E98.)
@@ -1078,6 +1125,14 @@ private:
             menus_->start_project(command == "COMMAND_OPTION" ? "option" : "setting");
         } else if (command == "COMMAND_EXIT" || command == "COMMAND_NOTHING" || command == "COMMAND_RETIRE_CHAMPIONSHIP" || command == "COMMAND_NEXT_RACE" ||
                    command == "COMMAND_RETURN_MENU") {
+            if (sequence_ == "championship") {
+                // The series kept to go on later (left before its last race), or closed (retired,
+                // or run to its end): 0x119BD8.
+                menu::GameState& g = menus_->game();
+                const bool over = g.series.race_count > 0 && g.series.races_run >= g.series.race_count;
+                if (command == "COMMAND_RETIRE_CHAMPIONSHIP" || over) g.suspend_series(false);
+                else if (command == "COMMAND_EXIT") g.suspend_series(true);
+            }
             // (The next race of a series or test is the menus' to pick: they ask for it again.)
             leave_to_menus(app);
         } else {
@@ -1113,6 +1168,7 @@ private:
         quick_ = false;
         if (menus_) {
             menu::GameState& g = menus_->game();
+            if (setup_.playlist) playlist_to(*setup_.playlist, g.bgm_playlist);
             g.during_quick_menu = false;
             g.next_sequence.clear();
             g.last_sequence = sequence_;
@@ -1121,6 +1177,17 @@ private:
         }
         report();
         app.pop();
+    }
+
+    // A championship's race now: the series' label ("..._0500") with the race's number for its last
+    // two digits (the races run + 1).
+    std::string championship_race() const {
+        const menu::GameState& g = menus_->game();
+        const std::string& label = g.race.race;
+        if (label.size() < 2) return label;
+        char n[8];
+        std::snprintf(n, sizeof n, "%02d", std::clamp(g.series.races_run + 1, 1, 99));
+        return label.substr(0, label.size() - 2) + n;
     }
 
     // The test's title: "License B-1" from its race code (l0b0001: the class letters, the number;

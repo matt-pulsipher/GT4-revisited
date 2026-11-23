@@ -158,7 +158,8 @@ void RaceWorld::build_simulation() {
             const sim::Program program = sim::Program::load(*app_.disc());
             std::vector<sim::Entry> entries(setup_.entries.size());
             for (size_t i = 0; i < entries.size(); ++i) {
-                if (!sim::stock_car(*app_.db(), program, setup_.entries[i].label, entries[i].equipment)) throw std::runtime_error("no parts for " + setup_.entries[i].label);
+                if (setup_.entries[i].equipment) entries[i].equipment = *setup_.entries[i].equipment; // a garage car's own
+                else if (!sim::stock_car(*app_.db(), program, setup_.entries[i].label, entries[i].equipment)) throw std::runtime_error("no parts for " + setup_.entries[i].label);
                 entries[i].grid_place = setup_.entries[i].grid_place;
                 entries[i].automatic = setup_.entries[i].automatic;
                 entries[i].start_speed = setup_.entries[i].start_speed;
