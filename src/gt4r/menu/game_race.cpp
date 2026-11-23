@@ -4,6 +4,8 @@
 
 #include "gt4r/menu/game_internal.h"
 
+#include "gt4r/formats/db/specdb_prologue.h"
+
 #include <cstdio>
 
 namespace gt4r::menu {
@@ -29,12 +31,15 @@ std::vector<std::pair<std::string, int>> race_entries(Database& d, const std::st
     if (code == kNoCode || !d.db) return out;
     char name[40];
     std::snprintf(name, sizeof name, "RACES/%016llX", static_cast<unsigned long long>(code));
-    const std::optional<Bytes> file = d.rt->reader()(d.db->folder() + name);
+    // (Prologue's files carry its own table numbers: specdb_prologue.h.)
+    const std::string path = d.db->prologue() ? db::prologue::races_file(u32(code)) : std::string(name);
+    const std::optional<Bytes> file = d.rt->reader()(d.db->folder() + path);
     if (!file || file->size() < 8) return out;
     const u32 n = r32(*file, 0);
     for (u32 i = 0; i < n && 8 + (i + 1) * 16 <= file->size(); ++i) {
         const size_t o = 8 + i * 16;
-        const u64 c = u64(r32(*file, o)) | u64(r32(*file, o + 4)) << 32;
+        const u32 table = d.db->prologue() ? db::prologue::table_id(r32(*file, o + 4)) : r32(*file, o + 4);
+        const u64 c = u64(r32(*file, o)) | u64(table) << 32;
         const s64 paint = s64(u64(r32(*file, o + 8)) | u64(r32(*file, o + 12)) << 32);
         out.emplace_back(d.label(c), paint < 0 ? -1 : int(paint - 1));
     }

@@ -553,7 +553,9 @@ the Doppler constant at 0x378B88) but other tables:
   32 / distance, then held to -1..1 with the frame's scale, × [0x503978] × [0x50397C] 🔎 (the
   master's parts); the quarter metre, the pan and the surround flags as GT4's. `RaceSoundTables`
   then leaves the microphones off, which is that rule.
-- ❓ Its master's parts and fades; its car sounds (the database is the earlier format).
+- ❓ Its master's parts and fades.
+- **Its car sounds** are read as Gran Turismo 4's from its database presented in Gran Turismo 4's
+  layout ([prologue.md](prologue.md)): every engine's file is on the disc.
 
 ## Checked against the original
 

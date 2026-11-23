@@ -9,18 +9,31 @@
 
 namespace gt4r::course {
 
+namespace {
+// The slots of the table: 64, or Gran Turismo 3's 48 (16 of Prologue's courses, whose scenery is
+// GTM1: docs/formats/prologue.md "Courses"). Slot 1 starts right after the table.
+int table_slots(ByteSpan data) {
+    if (data.size() < 8 || rd32(data, 0) != 0) return 0;
+    const u32 first = rd32(data, 4);
+    return first == kSlotCount * 4 ? kSlotCount : first == 48 * 4 ? 48 : 0;
+}
+} // namespace
+
 bool CourseFile::looks_like_course(ByteSpan data) {
-    if (data.size() < kSlotCount * 4 + 4) return false;
-    return rd32(data, 0) == 0 && rd32(data, 4) == kSlotCount * 4 && gt3r::has_magic(data.subspan(kSlotCount * 4), "MDLS");
+    const int slots = table_slots(data);
+    if (!slots || data.size() < size_t(slots) * 4 + 4) return false;
+    const ByteSpan first = data.subspan(size_t(slots) * 4);
+    return gt3r::has_magic(first, "MDLS") || gt3r::has_magic(first, "GTM1");
 }
 
 CourseFile CourseFile::parse(ByteSpan data) {
-    if (data.size() < kSlotCount * 4) throw FormatError("course: file too small");
+    const int slots = table_slots(data) ? table_slots(data) : kSlotCount;
+    if (data.size() < size_t(slots) * 4) throw FormatError("course: file too small");
     CourseFile f;
-    for (int i = 0; i < kSlotCount; ++i) {
+    for (int i = 0; i < slots; ++i) {
         const u32 off = rd32(data, size_t(i) * 4);
         if (!off) continue;
-        if (off < kSlotCount * 4 || off > data.size()) throw FormatError("course: bad section offset");
+        if (off < u32(slots) * 4 || off > data.size()) throw FormatError("course: bad section offset");
         Section s;
         s.slot = i, s.offset = off;
         if (off + 4 <= data.size()) {

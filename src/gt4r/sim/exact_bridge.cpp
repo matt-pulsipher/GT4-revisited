@@ -1,5 +1,7 @@
 #include "gt4r/sim/exact_bridge.h"
 
+#include "gt4r/sim/program_prologue.h"
+
 #include "sim/exact/car_record.h"
 #include "sim/exact/program_tables.h"
 
@@ -30,7 +32,10 @@ ex::ProgramData core_program(const Program& program) {
         const ByteSpan bytes = ex::gt3_table(T(t));
         for (u32 i = 0; i < bytes.size() && i < ex::ProgramData::size(T(t)); ++i) d.poke(T(t), i, bytes[i]);
     }
-    if (!program.known()) return d;
+    if (!program.known()) {
+        PrologueProgram::locate(program).apply(program, d); // (Prologue's own tables, when it is Prologue's program)
+        return d;
+    }
     // The static physics block in the core's layout: the head as it is, each per-surface array by row,
     // what follows the arrays 0x30 bytes back.
     const u32 g = Program::kStatic;

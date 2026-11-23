@@ -376,6 +376,18 @@ std::shared_ptr<Reference> array_method(const Value& self, const std::string& na
             for (size_t i = 0; i < items(s).size(); ++i) out += (i ? sep : std::string()) + items(s)[i].to_string();
             return Value::string(std::move(out));
         });
+    if (name == "bsearch") // a value's index in the sorted array, -1 when it is not there (Prologue's scripts)
+        return method("bsearch", self, [items](Vm& vm, V s, Args a) {
+            if (a.empty()) return Value::integer(-1);
+            const std::vector<Value>& v = items(s);
+            size_t lo = 0, hi = v.size();
+            while (lo < hi) {
+                const size_t mid = (lo + hi) / 2;
+                if (vm.binary("<", v[mid], a[0]).truthy()) lo = mid + 1;
+                else hi = mid;
+            }
+            return Value::integer(lo < v.size() && vm.binary("==", v[lo], a[0]).truthy() ? s32(lo) : -1);
+        });
     if (name == "sort") // by a compare function's "a before b", or by value
         return method("sort", self, [items](Vm& vm, V s, Args a) {
             std::vector<Value> v = items(s);

@@ -732,6 +732,7 @@ g.method("menuRef", [s](Vm&, const Value&, Args a) {
 
     // The calendar, the records, the favorites, the presents, the used cars (game_records.cpp).
     install_records(*this, g, *rt.vm().lookup("menu").as<script::Module>());
+    install_prologue_license(g);
     (void)r;
     return object_value(game);
 }
@@ -876,6 +877,8 @@ void complete_race_request(Runtime& rt, RaceRequest& r) {
     if (!r.car.empty()) return;
     const bool test = r.sequence.find("license") != std::string::npos || r.sequence.find("mission") != std::string::npos;
     if (test) {
+        // A test's grid is its event's (RACE +0x3E: 1 on the license tests).
+        if (row.size() > 0x3E && row[0x3E]) r.max_entry = row[0x3E];
         // A test's car is the first of its pool (an ENEMY_CARS row: +0x00 the car).
         const auto entries = race_entries(d, race);
         if (!entries.empty()) {

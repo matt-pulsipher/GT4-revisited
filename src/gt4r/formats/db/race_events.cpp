@@ -1,5 +1,7 @@
 #include "gt4r/formats/db/race_events.h"
 
+#include "gt4r/formats/db/specdb_prologue.h"
+
 #include <cstdio>
 
 namespace gt4r::db {
@@ -85,13 +87,14 @@ std::vector<Opponent> RaceEvents::pool(const RaceEvent& e) const {
     // The pool's file is named by the event as a part: its table (35) in the high word, its row in the low one.
     char name[32];
     std::snprintf(name, sizeof name, "RACES/%08X%08X", kRaceTable, e.id);
-    const std::optional<Bytes> f = read_(db_->folder() + name);
+    const std::optional<Bytes> f = read_(db_->folder() + (db_->prologue() ? prologue::races_file(e.id) : std::string(name)));
     if (!f || f->size() < 8) return out;
     const ByteSpan d(*f);
     const u32 n = rd32(d, 0);
     for (u32 i = 0; i < n && 8 + 16 * size_t(i + 1) <= d.size(); ++i) {
         const size_t at = 8 + 16 * size_t(i);
-        const u32 row = rd32(d, at), table = rd32(d, at + 4), second = rd32(d, at + 8);
+        const u32 row = rd32(d, at), second = rd32(d, at + 8);
+        const u32 table = db_->prologue() ? prologue::table_id(rd32(d, at + 4)) : rd32(d, at + 4);
         if (table != 38) continue; // ENEMY_CARS
         std::optional<Opponent> o = opponent(row);
         if (!o) continue;
