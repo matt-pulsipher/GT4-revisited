@@ -124,7 +124,7 @@ public:
         const StrobeMovie::Shape::Group* group = nullptr;
         const StrobeMovie::TextField* text = nullptr;
         std::string words;    // a text field's text now
-        std::string external; // a picture the host draws (its instance's name, else its clip's), centred on the origin
+        std::string external; // a picture the host draws (its instance's name, else its clip's, else "_EXT"), centred on the origin
         float m[6] = {1, 0, 0, 1, 0, 0}; // x' = m0 x + m2 y + m4, y' = m1 x + m3 y + m5 (canvas units)
         float mul[4] = {1, 1, 1, 1}, add[4] = {0, 0, 0, 0}; // colour = c x mul + add (0..1)
     };

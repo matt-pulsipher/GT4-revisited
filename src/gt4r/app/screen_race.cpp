@@ -707,6 +707,16 @@ public:
             } else {
                 leave = m.pressed(PadButton::Cross);
             }
+            if (leave && sequence_ == "license" && license_retry_) {
+                // RETRY: the result given, the test again at once (end code 4).
+                license_retry_ = false;
+                result_.reset(), result_tried_ = false;
+                report_result();
+                race_->begin_run(false);
+                reported_ = false;
+                clock_ = 0;
+                return;
+            }
             if (leave) {
                 result_.reset();
                 report_result();
@@ -736,7 +746,16 @@ public:
             return;
         }
         const Uint64 t0 = SDL_GetTicksNS();
-        race_->render(ui, {0, 0, float(Ui::kWidth), float(Ui::kHeight)}, look_back_);
+        if (license_page()) {
+            // The test's results page: the race in its live inset (the movie's picture, 300 x 225 at
+            // its scale; it starts over the whole picture and shrinks into place) on black.
+            ui.fill(0, 0, Ui::kWidth, Ui::kHeight, Color{0, 0, 0, 255});
+            const SDL_FRect c = RaceHud::canvas();
+            const float k = c.h / 480.0f, w = 300 * inset_.scale * k, h = 225 * inset_.scale * k;
+            race_->render(ui, {c.x + inset_.x * k - w / 2, c.y + inset_.y * k - h / 2, w, h}, false);
+        } else {
+            race_->render(ui, {0, 0, float(Ui::kWidth), float(Ui::kHeight)}, look_back_);
+        }
         if (quick_) {
             // The race's menus over the scene.
             const float scale = float(Ui::kHeight) / 480.0f, x = (Ui::kWidth - 640 * scale) / 2;
@@ -757,14 +776,16 @@ public:
             if (result_ && hud_) {
                 // The rows' car icons (_EXT_CARICON<row + 1>) over the page.
                 std::vector<RaceHud::MovieExternal> ext;
-                hud_->draw_movie(*result_movie_, *result_, &ext);
+                hud_->draw_movie(license_page() && license_movie_ ? *license_movie_ : *result_movie_, *result_, &ext);
                 std::vector<RaceWorld::Icon> icons;
                 const auto& rows = race_->board().rows();
-                for (const RaceHud::MovieExternal& e : ext)
+                for (const RaceHud::MovieExternal& e : ext) {
+                    if (e.name == "_EXT") inset_ = e; // the license page's live inset
                     if (e.name.rfind("_EXT_CARICON", 0) == 0) {
                         const int row = std::atoi(e.name.c_str() + 12) - 1;
                         if (row >= 0 && size_t(row) < rows.size() && rows[size_t(row)].car >= 0) icons.push_back({size_t(rows[size_t(row)].car), e.x, e.y, e.opacity});
                     }
+                }
                 race_->draw_icons(ui, RaceHud::canvas(), icons);
             }
             else draw_results(ui);
@@ -1102,6 +1123,34 @@ private:
         app.pop();
     }
 
+    // The test's title: "License B-1" from its race code (l0b0001: the class letters, the number;
+    // ❓ the program's own title routine is not read).
+    std::string license_title() const {
+        const std::string code = menus_ ? menus_->game().race.race : std::string();
+        if (code.size() < 7) return "License";
+        std::string cls;
+        for (size_t i = 2; i < code.size() && std::isalpha(static_cast<unsigned char>(code[i])); ++i) cls += char(std::toupper(static_cast<unsigned char>(code[i])));
+        if (cls.size() > 1 && cls.back() != 'S') cls = cls.substr(1); // "0B" / "IB" -> B, IB
+        return "License " + cls + "-" + std::to_string(std::atoi(code.c_str() + code.size() - 4));
+    }
+
+    // The license test's results page is up (its live inset of the race).
+    bool license_page() const { return sequence_ == "license" && results_shown() && result_; }
+
+    // The test's grade (the movie's PrizeLevel: 0 gold, 1 silver, 2 bronze, 3 failed) by the time
+    // against the page's three times; ❓ the test's own rules (a cone touched, the course left, the
+    // car not stopped) are not read: the time alone.
+    int prize_level() const {
+        const menu::QuickWork& w = menu::quick_work(menus_->game());
+        const race::RaceFlow& f = race_->flow();
+        if (!f.player_finished()) return 3;
+        const s64 t = race::clock_ms(f.car(0).finish_units);
+        const s32 g = w.get("goldTime"), sv = w.get("silverTime"), b = w.get("bronzeTime");
+        auto known = [](s32 v) { return v > 0 && v != menu::QuickWork::kNoTime; };
+        if (!known(b)) return 3;
+        return known(g) && t <= g ? 0 : known(sv) && t <= sv ? 1 : t <= b ? 2 : 3;
+    }
+
     // The results page goes up at the player's finish (ResultArcade::vf7).
     bool results_shown() const { return race_ && !race_->replaying() && !race_->over() && race_->flow().player_finished(); }
 
@@ -1117,7 +1166,18 @@ private:
                 LOG_WARN("Results: %s", e.what());
             }
         }
-        if (!result_movie_) return;
+        if (sequence_ == "license" && !license_movie_) {
+            for (const char* path : {"menu/US/result_license.strb", "menu/result_license.strb"})
+                try {
+                    if (const std::optional<Bytes> file = app.vfs()->read(path); file && race::StrobeMovie::is_movie(*file)) {
+                        license_movie_ = std::make_shared<const race::StrobeMovie>(race::StrobeMovie::parse(*file));
+                        break;
+                    }
+                } catch (const std::exception& e) {
+                    LOG_WARN("License results: %s", e.what());
+                }
+        }
+        if (!result_movie_ && !license_movie_) return;
         auto host = [this, &app](const std::string& name, const std::vector<race::StrobePlayer::Value>& args) {
             using V = race::StrobePlayer::Value;
             std::string n = name;
@@ -1138,6 +1198,43 @@ private:
             if (n == "NAVIGATEALL" && result_) result_->navigate(true, true);
             return V::number(0); // isChampionship, isStage1, ...: no
         };
+        if (sequence_ == "license" && license_movie_) {
+            // ResultLicense (0x3E1BF8: result_license.strb): the grade, the time and its gap, the
+            // test's title, RETRY / EXIT.
+            auto lhost = [this, &app](const std::string& name, const std::vector<race::StrobePlayer::Value>& args) {
+                using V = race::StrobePlayer::Value;
+                std::string n = name;
+                for (char& c : n) c = char(std::toupper(static_cast<unsigned char>(c)));
+                const race::RaceFlow& f = race_->flow();
+                const s64 t = f.player_finished() ? race::clock_ms(f.car(0).finish_units) : f.time_ms();
+                auto seconds = [](s64 ms, bool sign) {
+                    char b[32];
+                    std::snprintf(b, sizeof b, "%s%lld.%03lld", sign ? (ms < 0 ? "-" : "+") : "", (long long)(std::llabs(ms) / 1000), (long long)(std::llabs(ms) % 1000));
+                    return std::string(b);
+                };
+                if (n == "PRIZELEVEL") return V::number(prize_level());
+                if (n == "GETTIME") return V::string(seconds(t, false));
+                if (n == "GETTIMEDIF") {
+                    // The gap to the next grade up (a failed run: to bronze).
+                    const menu::QuickWork& w = menu::quick_work(menus_->game());
+                    const int level = prize_level();
+                    const s32 ref = w.get(level <= 1 ? "goldTime" : level == 2 ? "silverTime" : "bronzeTime");
+                    return V::string(ref > 0 && ref != menu::QuickWork::kNoTime ? seconds(t - ref, true) : std::string());
+                }
+                if (n == "GETTITLE") return V::string(license_title());
+                if (n == "EXIT_MENU") {
+                    result_exit_ = true;
+                    license_retry_ = !args.empty() && args[0].to_string() == "retry";
+                }
+                if (n == "PLAY_SOUND")
+                    if (audio::AppSound* sound = app.sound()) sound->menu().play(args.empty() ? std::string() : args[0].to_string());
+                if (n == "NAVIGATEALL" && result_) result_->navigate(true, true);
+                return V::number(0);
+            };
+            result_ = std::make_unique<race::StrobePlayer>(license_movie_, lhost);
+            result_->navigate(true, true);
+            return;
+        }
         result_ = std::make_unique<race::StrobePlayer>(result_movie_, host);
         result_->play(); // the page up: the movie plays on from its first frame
     }
@@ -1275,6 +1372,9 @@ private:
     std::shared_ptr<const race::StrobeMovie> result_movie_;
     std::unique_ptr<race::StrobePlayer> result_;
     bool result_tried_ = false, result_exit_ = false;
+    std::shared_ptr<const race::StrobeMovie> license_movie_;
+    bool license_retry_ = false;
+    RaceHud::MovieExternal inset_{"_EXT", 320, 240, 640.0f / 300.0f, 1};
     menu::Runtime* menus_ = nullptr;    // the race's menus run on these (from the menus that asked)
     std::unique_ptr<menu::Runtime> own_menus_; // a scripted run's
     std::string sequence_;              // the race sequence ("single_race")

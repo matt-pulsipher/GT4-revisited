@@ -318,3 +318,19 @@ invisible full-screen button whose press asks `cb_EnableExit()`, plays `ok` and 
 30 calls `cb_raceexit()` (the run ends). Here the callbacks answer from the race's results
 (`RaceFlow::results`): rows in finishing order, times written `M'SS.mmm`. 🔎 Rows not yet fixed
 show the movie's placeholders ("car name", "00:00"); ❓ whether the program hides them.
+
+
+## The license test's results (`menu/US/result_license.strb`)
+
+`ResultLicense::vf12` (0x3E1BF8) names `result_license.strb` (the US disc has it in `menu/US/`, a
+larger one in `menu/`). 232 root frames: frame 0 asks `PrizeLevel()` (0 gold, 1 silver, 2 bronze, 3
+failed) and, unless it is 3, plays on at the label `PASSED` (frame 72); frames 1-71 are the FAIL
+page. Its first track is a picture the program supplies (kind 7, no name): **the race's live
+picture**, 300 x 225 at its scale, which starts at 2.13 (the whole frame) and shrinks to (214, 239)
+over the page's first frames; over it the run's time and its gap in red (`GetTime()`,
+`GetTimeDif()`: seconds with three decimals, "133.366" and "+122.066" in the original's B-1 run,
+the gap to the bronze time), the test's title (`GetTitle()`, "License B-1"), the FAIL picture,
+then RETRY and EXIT (`EXIT_MENU("retry")` / `EXIT_MENU("exit")`, the RETRY row named `DEFAULT`).
+Here: the grade from the run's time against the page's gold, silver and bronze times (❓ the
+tests' own failing rules are not read), the gap to the next grade up, the title from the race code
+(❓ the program's title routine is not read); RETRY runs the test again at once.

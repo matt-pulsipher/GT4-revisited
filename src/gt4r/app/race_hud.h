@@ -64,6 +64,7 @@ public:
     struct MovieExternal {
         std::string name;
         float x = 0, y = 0; // the canvas (640 x 480)
+        float scale = 1;    // the placed picture's scale
         float opacity = 1;
     };
     void draw_movie(const race::StrobeMovie& movie, const race::StrobePlayer& player, std::vector<MovieExternal>* externals = nullptr);

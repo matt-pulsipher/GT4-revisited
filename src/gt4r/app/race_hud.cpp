@@ -292,7 +292,7 @@ void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlaye
     };
     for (const race::StrobePlayer::Draw& d : player.draw_list()) {
         if (!d.external.empty()) {
-            if (externals) externals->push_back({d.external, d.m[4], d.m[5], std::clamp(d.mul[3], 0.0f, 1.0f)});
+            if (externals) externals->push_back({d.external, d.m[4], d.m[5], std::hypot(d.m[0], d.m[1]), std::clamp(d.mul[3], 0.0f, 1.0f)});
             continue;
         }
         if (d.group && !d.group->triangles.empty() && d.group->fill < movie.fills.size()) {
