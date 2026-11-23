@@ -527,17 +527,22 @@ rules in the PlayStation 2's arithmetic), fed with Gran Turismo 4's data:
 | Program tables | `program.*`, `core_program` | the static block from `CORE.GT4`, folded to the core's 16 surface rows (0 .. 11 as they are, 20 / 21 / 22 → 12 / 13 / 14, 12 → 15), except the slip ratio's bytes; every other table the engine's own (GT3's values) |
 | The road query, surface index | `ground.*` | Gran Turismo 4 (§6), in ordinary floats |
 | Ground contact, phase order | `session.cpp` | the engine's phase 12 order with our query; phases 1 .. 13 as GT3's step |
-| Preparation, input, steering, slip, aids, forces, driveline, suspension, attitude, wear | the engine's routines | GT3 |
+| Gran Turismo 4's own part of the record | `rules_build.*` `gt4_extras` | the program's converter (§3.3, §9): the tire records with 24 surfaces and their kind bytes, the tire index, widths, axle grips, camber curves, the direct scales, the wheel layout's row; bit for bit on every car but the base grip of 168 of 4,332 records (a unit in the last place: it takes the static loads of the engine's converter) |
+| The wear's grip, peak forces, slip angles (phase 4's tire part), slip ratios (phase 8), rolling resistance, tire curves, the longitudinal and lateral forces, the speed along the body, the forces across the car and the yaw, the standstill hold (phase 10) | `rules_*.cpp` through `rules_step.*` | Gran Turismo 4 (§3.3); the race's tables (`rules::tables`: the rolling resistance by surface and speed, the slip bytes, the globals) as the program's race set-up makes them (checked, §9); the wear rules off, as in every race seen |
+| The rest of preparation, the input, steering, aids, brakes and clutch, driveline, engine and gearbox, suspension, attitude, wear | the engine's routines | GT3 |
 | Collisions | the engine's collision step on the road's walls | the same routines as Gran Turismo 4's; the walls near a body are found by a grid of ours, levels by height |
 | Start | `session.cpp` `place` | the engine's race start (GT3's pose and standing start) on the first start places; a hold of 2 s before time 0 |
 | Distance along the course, laps | `ground.*` `distance_along` | ours (between the checkpoint gates) |
 | The driver of `gt4tool drive` | `line_driver.*` | ours; not a computer driver of the game's |
 
-So a car's weight, power, gearing, tires, springs and aids are its own; how the tires, the
-suspension and the body answer is Gran Turismo 3's until the rewritten routines are ported.
-The figures a run gives: standing 400 m in 9.8 s (Mazda 787B), 12.9 s (Dodge Viper GTS),
-13.7 s (Honda NSX Type R), 16.2 s (Honda Civic Type R); 294 km/h for the Viper and 279 km/h
-for the NSX on the test course.
+So a car's weight, power, gearing, tires, springs and aids are its own, and so is how its tires
+answer the road; the suspension, the body's attitude, the driveline and the aids answer as Gran
+Turismo 3's until their rewritten routines are ported. `GT4R_SIM_RULES=engine` runs the
+engine's routines throughout, for comparison. The figures a run gives (the engine's
+throughout → with Gran Turismo 4's routines): standing 400 m Mazda 787B 9.73 → 9.50 s, Dodge
+Viper GTS 12.98 → 12.67 s, Honda NSX Type R 13.70 → 13.55 s, Honda Civic Type R 16.23 →
+15.93 s; top speed on the test course Viper 294.2 → 305.9 km/h, NSX 279.1 → 288.9 km/h (the
+tires these cars wear give no force against the velocity while running straight, §3.3).
 
 ## 9. Checks against the program
 
