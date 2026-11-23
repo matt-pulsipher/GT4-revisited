@@ -15,7 +15,6 @@ namespace gt4r::audio {
 namespace {
 
 constexpr float kFadeIn = 0.3f;            // the master's fade as the race begins, seconds
-constexpr float kContactFloor = 0.2f;      // a weaker contact is not heard
 constexpr float kQuiet = 1.0f / 16383.0f;  // under this both sides are silent
 
 int count_beep(int f) { return f > 0 && f < 240 && f % 60 == 0; }
@@ -217,8 +216,8 @@ void RaceSound::finish() {
 
 void RaceSound::contact(size_t car, int kind, float force) {
     if (car >= contact_.size()) return;
-    const float strength = kind == 0 ? force / 50000.0f : kind == 1 ? 2.0f * force : std::fabs(force / 50.0f);
-    if (strength < kContactFloor || strength < contact_[car]) return;
+    const float strength = contact_strength(kind, force);
+    if (strength <= 0 || strength < contact_[car]) return;
     contact_[car] = strength, contact_kind_[car] = kind;
 }
 

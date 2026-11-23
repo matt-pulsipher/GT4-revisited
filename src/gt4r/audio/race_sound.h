@@ -94,7 +94,7 @@ public:
     // from its beginning.
     void replay();
     // A contact of car `car` (the camera's car only is heard): kind 0 a wall (force N), 1 a car
-    // (its speed against ours, m/s), 2 the third kind (force); weaker than 0.2 is not heard.
+    // (its speed against ours, m/s), 2 the third kind; its strength as contact_strength() makes it.
     void contact(size_t car, int kind, float force);
     // The race's start jingle (before the count) and finish jingle.
     void intro();

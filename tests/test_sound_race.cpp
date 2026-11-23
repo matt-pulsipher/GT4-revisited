@@ -100,6 +100,23 @@ TEST(sound_race_playlist) {
     CHECK(a.seed() == b.seed() && a.seed() != 0x1234);
 }
 
+// The seam's contacts as the program records them (0x350328), and a landing.
+TEST(sound_race_contacts_from_seam) {
+    CHECK(near(audio::contact_strength(0, 25000), 0.5, 1e-6) && audio::contact_strength(0, 5000) == 0); // a wall: N / 50,000; under 0.2 none
+    CHECK(near(audio::contact_strength(1, 0.3f), 0.6, 1e-6) && audio::contact_strength(1, 2) == 1);   // a car: twice the speed, at most 1
+    CHECK(near(audio::contact_strength(2, 1), 0.2, 1e-6));                                             // the third kind: at least 0.2
+    race::CarState car;
+    car.contact = 30000, car.contact_kind = 1;
+    audio::CarSoundState s = audio::sound_state(car);
+    CHECK(s.contact_kind == 0 && near(s.contact, 0.6, 1e-6));
+    car.contact = 0.25f, car.contact_kind = 2;
+    s = audio::sound_state(car);
+    CHECK(s.contact_kind == 1 && near(s.contact, 0.5, 1e-6));
+    car.contact_kind = 0, car.landed = true, car.velocity = {0, -4, 10};
+    s = audio::sound_state(car);
+    CHECK(s.contact == 0 && near(s.wheels[0].landing, 0.8, 1e-6));
+}
+
 // The panner (0x391AF0): full level inside the reach, 1 / (1 + slope (d - reach)) past it, a
 // quarter-power pan by the sound's side, the quarter metre at the camera.
 TEST(sound_race_place_sound) {
@@ -331,6 +348,37 @@ TEST(sound_race_engine_against_original) {
     CHECK(near(side(chase.engine_gain), 2146, 2146 * 0.005) && near(side(nose.engine_gain), 4651, 4651 * 0.005));
     CHECK(near(side(chase.exhaust_gain) * 12 / chase.exhaust_level, 5073, 5073 * 0.005));
     CHECK(near(side(nose.exhaust_gain) * 12 / nose.exhaust_level, 5464, 5464 * 0.005));
+}
+
+// The gearbox's whine: a car whose gearbox is not the road one (its GEAR row's byte +0x22, the
+// gearbox's grade: 1 close, 2 super close, 3 racing) whines with the clutch in and torque through it.
+TEST(sound_race_gear_whine_on_disc) {
+    Disc* disc = nullptr;
+    for (const std::unique_ptr<Disc>& d : test::discs())
+        if (d->info().game == Game::GT4 && d->volume().find("sound/engine/37701")) disc = d.get();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    gt3r::Vfs vfs(&disc->volume());
+    CHECK(!audio::car_sound_files(vfs, "ka_01").whine && audio::car_sound_files(vfs, "impreza_wrc_03").whine);
+    audio::OfflineSound s(false);
+    auto library = std::make_shared<audio::SoundLibrary>(vfs);
+    auto mix = std::make_shared<audio::RaceMix>();
+    mix->tables = audio::RaceSoundTables::from_core(disc->read_program());
+    audio::CarSound car(vfs, s.mixer(), &s.driver(), library);
+    car.set_mix(mix);
+    CHECK(car.load("impreza_wrc_03"));
+    audio::CarSoundState in;
+    in.rpm = 6000, in.throttle = 1, in.drive_torque = 300, in.gear_ratio = 1.5f, in.low_ratio = 3, in.shaft_speed = 100;
+    in.position = {0, 0, 5};
+    audio::SoundListener chase;
+    car.update(in, chase, true);
+    const float lo = car.report().whine;
+    in.gear_ratio = 3;
+    car.update(in, chase, true);
+    std::printf("  whine: %.3f in a high gear, %.3f in the first\n", double(lo), double(car.report().whine));
+    CHECK(lo > 0 && car.report().whine > lo);
+    in.clutch = 0;
+    car.update(in, chase, true);
+    CHECK(car.report().whine == 0);
 }
 
 // A race: a session on Tsukuba with its course sound, the count's beeps at 3, 2 and 1 seconds,

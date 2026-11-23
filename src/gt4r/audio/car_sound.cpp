@@ -18,7 +18,7 @@ constexpr const char* kWindBank = "sound/roadnoiz.es";
 // the value in Gran Turismo 3's units (0x1000 = 44.1 kHz) and its mixer converts (x 0xEB3 /
 // 0x1000): this factor undoes the conversion.
 constexpr float kLayerPitch = 4096.0f / 3763.0f;
-constexpr size_t kEngineSoundId = 0x18, kMufflerVariant = 6, kTurboKind = 9;
+constexpr size_t kEngineSoundId = 0x18, kMufflerVariant = 6, kTurboKind = 9, kGearWhine = 0x22;
 
 // A car's part as sold: from its row of default parts, or for a car without one its own
 // first row of the table ("en_<car label>_a").
@@ -50,6 +50,11 @@ CarSoundFiles car_sound_files(db::SpecDb& db, const std::string& car) {
         if (const auto id = part(db, car, "TURBINEKIT", "tk_")) {
             const ByteSpan r = t->row(*id);
             f.turbo = r.size() > kTurboKind && r[kTurboKind] != 0;
+        }
+    if (const db::Table* t = db.table("GEAR"))
+        if (const auto id = part(db, car, "GEAR", "ge_")) {
+            const ByteSpan r = t->row(*id);
+            f.whine = r.size() > kGearWhine && r[kGearWhine] != 0;
         }
     f.variant = gt3r::EngineSound::variant_dir(f.variant_index());
     char name[16];
@@ -184,8 +189,21 @@ SoundListener listener_at(const race::CarState& car, SoundListener::Kind kind) {
     return l;
 }
 
+float contact_strength(int kind, float value) {
+    float f = 0;
+    if (kind == 0) f = value / 50000.0f;
+    else if (kind == 1) f = value + value;
+    else if (kind == 2) f = std::max(std::fabs(value / 50.0f), 0.2f);
+    f = std::min(f, 1.0f);
+    return f < 0.2f ? 0.0f : f;
+}
+
 CarSoundState sound_state(const race::CarState& car) {
     CarSoundState s;
+    if (car.contact_kind == 1 || car.contact_kind == 2) {
+        s.contact_kind = car.contact_kind == 1 ? 0 : 1;
+        s.contact = contact_strength(s.contact_kind, car.contact);
+    }
     s.position = car.position, s.velocity = car.velocity;
     s.course_distance = car.course_v;
     s.rpm = car.engine_rpm;
@@ -203,6 +221,7 @@ CarSoundState sound_state(const race::CarState& car) {
         // rising as the tire slides.
         o.pitch = (tarmac(o.surface) ? 0.75f : 0.5f) + 0.45f * in.slip;
         o.rim_speed = std::fabs(car.speed);
+        if (car.landed && in.on_ground) o.landing = std::min(1.0f, std::max(0.0f, -car.velocity.y) / 5.0f);
     }
     return s;
 }
@@ -391,7 +410,7 @@ void CarSound::update(const CarSoundState& car, const SoundListener& listener, b
     send(turbine_, turbine_fx_, report_.turbine, at_engine, float(car.turbine_pitch) / 6144.0f);
     {
         float level = 0, pitch = 1.0f;
-        if (car.live && car.gear_whine && car.clutch != 0 && k.whine_torque > 0 && car.low_ratio != 0) {
+        if (car.live && (car.gear_whine || files_.whine) && car.clutch != 0 && k.whine_torque > 0 && car.low_ratio != 0) {
             const float torque = std::min(std::fabs(car.drive_torque), k.whine_torque);
             const float x = std::fabs(torque * car.gear_ratio / (k.whine_torque * car.low_ratio));
             level = k.whine_gain_lo + (k.whine_gain_hi - k.whine_gain_lo) * x;
