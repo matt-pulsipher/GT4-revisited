@@ -957,7 +957,20 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
         if (n == "getColor" || n == "setColor") return nothing();
     }
     if (type == "MovieFace") {
-        for (const char* m : {"reserveName", "setFrameHook", "setUnUpdate", "refOther", "load", "unload"})
+        // setFrameHook(frame, function name): that function of the face is called when the
+        // movie shows that frame; setUnUpdate(): the movie stops moving (app/menu_movies.cpp).
+        if (n == "setFrameHook")
+            return fn([w](Vm&, const Value&, Args a) {
+                w->set_property("frame_hook", Value::integer(arg_int(a, 0, -1)));
+                w->set_property("frame_hook_event", a.size() > 1 ? a[1] : Value::string({}));
+                return Value{};
+            });
+        if (n == "setUnUpdate")
+            return fn([w](Vm&, const Value&, Args a) {
+                w->set_property("un_update", Value::integer(a.empty() ? 1 : a[0].truthy()));
+                return Value{};
+            });
+        for (const char* m : {"reserveName", "refOther", "load", "unload"})
             if (n == m) return nothing();
     }
     if (type == "ModelFace") {
