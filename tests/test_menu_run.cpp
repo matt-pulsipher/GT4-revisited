@@ -157,6 +157,8 @@ TEST(menu_event_thread_waits_and_nests) {
     // Right moves the focus (the page's own handling of the key, after its script passed it on).
     rt.key(menu::Key::Right);
     rt.update();
+    CHECK(rt.focused() == top->child("Right").get() && seen.size() == 1); // the focus enter event comes the picture after
+    rt.update();
     CHECK(rt.focused() == top->child("Right").get() && seen.size() == 2 && seen[0] == "page saw key 65363" && seen[1] == "right focused");
     CHECK(!rt.sound_calls().empty() && rt.sound_calls().back().text() == "sound.play(cursor)");
     rt.key(menu::Key::Left);

@@ -34,6 +34,7 @@ struct LiveWidget : script::Module {
     std::map<std::string, std::shared_ptr<script::Reference>> extras; // attributes the program keeps that are no layout property
     bool by_name_ = false; // inside element(): a name that is not there is nil
     std::weak_ptr<LiveWidget> focus;                                  // a page's: the widget of it that has the focus
+    std::weak_ptr<LiveWidget> focus_seen;                             // a page's: the focus its last picture had (the focus events)
     Runtime* runtime = nullptr;                                       // the one running it (none for a page only drawn)
     // A list box's rows, made from its template as they are asked for.
     std::vector<std::shared_ptr<LiveWidget>> items;
@@ -228,6 +229,7 @@ private:
         std::string what;
     };
     void install_natives();
+    void queue_focus_events();
     void pump();
     void run(const script::Value& callee, std::vector<script::Value> args, std::string what, std::function<void(const script::Value&)> done = {});
     // Calls `name` on each widget of a chain until one deals with it, then `done(dealt)`.

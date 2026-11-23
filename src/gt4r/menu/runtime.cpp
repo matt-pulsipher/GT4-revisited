@@ -726,6 +726,7 @@ void Runtime::step_frame_objects() {
 void Runtime::update() {
     ++frame_;
     step_frame_objects();
+    queue_focus_events();
     pump();
 }
 
@@ -815,20 +816,41 @@ void Runtime::focus_first(LiveWidget& page) {
 void Runtime::set_focus(LiveWidget& page, const std::shared_ptr<LiveWidget>& w) {
     const std::shared_ptr<LiveWidget> before = page.focus.lock();
     if (before == w) return;
-    if (before) {
-        before->state &= ~(kFocus | kPrelight);
-        auto event = std::make_shared<Object>("MFocusLeaveEvent");
-        event->set("widget", widget_value(before)), event->set("context", render_context_);
-        bubble_now(*before, "onFocusLeave", {render_context_, object_value(event)});
-    }
+    // Only the reference changes here: the picture after, the focus leave and enter events are
+    // queued (0x22FBE0), so a page's onInitialize can set the focus before its widgets' actors
+    // are made.
+    if (before) before->state &= ~(kFocus | kPrelight);
     page.focus = w;
     if (!w) return;
     w->state |= kFocus | kPrelight; // the faces of a focused widget test either bit
     scroll_into_view(*w);
-    widget_focus_entered(*this, *w);
-    auto event = std::make_shared<Object>("MFocusEnterEvent");
-    event->set("widget", widget_value(w)), event->set("context", render_context_);
-    bubble_now(*w, "onFocusEnter", {render_context_, object_value(event)});
+}
+
+// Each picture (0x22FBE0): a page whose focus is not the one its last picture had queues an
+// MFocusLeaveEvent for the old and an MFocusEnterEvent for the new.
+void Runtime::queue_focus_events() {
+    for (const auto& page : pages_) {
+        const std::shared_ptr<LiveWidget> now = page->focus.lock(), seen = page->focus_seen.lock();
+        if (now == seen) continue;
+        page->focus_seen = now;
+        auto queue = [this](const std::shared_ptr<LiveWidget>& w, bool enter) {
+            std::weak_ptr<LiveWidget> weak = w;
+            Event e;
+            e.kind = Event::Kind::Call, e.what = w->path() + (enter ? "::onFocusEnter" : "::onFocusLeave");
+            e.callee = Vm::native(e.what, [this, weak, enter](Vm&, const Value&, Args) {
+                const std::shared_ptr<LiveWidget> target = weak.lock();
+                if (!target) return Value{};
+                if (enter) widget_focus_entered(*this, *target);
+                auto event = std::make_shared<Object>(enter ? "MFocusEnterEvent" : "MFocusLeaveEvent");
+                event->set("widget", widget_value(target)), event->set("context", render_context_);
+                bubble_now(*target, enter ? "onFocusEnter" : "onFocusLeave", {render_context_, object_value(event)});
+                return Value{};
+            });
+            events_.push_back(std::move(e));
+        };
+        if (seen) queue(seen, false);
+        if (now) queue(now, true);
+    }
 }
 
 void Runtime::key(Key k) {

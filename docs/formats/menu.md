@@ -153,6 +153,11 @@ right 0xFF53, accept 0xFF0D, cancel 0xFF1B, start 0xFF8D, select 0xFF63, and 0xF
 0x80000, 0x100000. ❓ Which buttons those masks are is not read: taken as L1, R1, L2, R2 for
 the first four.
 
+`setFocus` changes only the page's focus reference; each picture the page's focus is
+compared with the one its last picture had, and an `onFocusLeave` for the old and an
+`onFocusEnter` for the new are queued (0x22FBE0): they run the picture after, behind the
+events already queued.
+
 `onActivate` and `onCancel` get a third argument, the widget whose function it is (a page's
 `object.getFocusedWidget()`; ❓ from the scripts' use).
 
