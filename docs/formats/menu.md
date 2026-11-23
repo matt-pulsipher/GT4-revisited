@@ -340,8 +340,17 @@ names; the names are the ones the option pages' scripts list (`sound_type` `MONO
 `unit_torque` `KGFM`, `FTLB`, `NM`; `race_display_mode` `normal`, `480p`, `1080i`; ...).
 `game_zone` is a zone's name (`UNDEF`, `JP`, `US`, `UK`, `EU`, `KR`; 0x622DA8), set from the
 program's region by `setGameZoneDefault` (0x435D48: us US, uk EU, kr KR, else JP). The options
-that are numbers are saved in the game data (save.md); ❓ the named ones' numbers and a new
-game's values of the named ones are not read. They are also kept as text lines in
+that are numbers are saved in the game data (save.md); the named ones by their numbers in the
+program's tables of names (0x437758; the accessors 0x436810 on): `unit_velocity` +0x10,
+`unit_power` +0x11, `unit_torque` +0x12 (bytes), `sharpness_mode` +0x20 (`NORMAL`, `MILD`),
+`sound_type` +0x10B0, `penalty_type` +0x10E4, `view_type` / `view_type_2p` +0x10F4 / +0x10F8
+(`SUBJECTIVE`, `BONNET`, `OVERLOOK`), `photo_quality` +0x110C and `ustorage_photo_quality`
++0x117C (`STANDARD`, `FINE`, `SUPER_FINE`), `photo_aspect` +0x1114 (`4x3`, `16x9`, `3x2`, `1x1`),
+`photo_shutter` +0x1118 (`typeA` .. `typeS`), `steering_assist_1p` / `_2p` +0x112C / +0x1130
+(`AMATEUR`, `PROFESSIONAL`, `SIMULATION`), `replay_mode` +0x113C (`NORMAL`, `DIVE`),
+`replay_play_mode` +0x114C (`STRAIGHT`, `SHUFFLE`) (Option offsets); a new game's are the
+constructors' (`MILD`, `STEREO`, `NONE`, `SUBJECTIVE`, `STANDARD` / `SUPER_FINE`, `4x3`, `typeA`,
+`AMATEUR`, `NORMAL`, `STRAIGHT`). They are also kept as text lines in
 `<data folder>/gt4r-options.txt`.
 
 **The program's start** ends with the configuration's `last_strap()` (0x108BF8 -> 0x10B268):
@@ -363,16 +372,27 @@ over it are the program's, with their addresses in save.md and here:
 
 - **MGame**: `money` is the money text ("10,000"; "--" for nothing, 0x42E6B8), `incMoney` has
   no cap (the scripts keep theirs); `getScore` with commas; `getTotalRankCount(i)`;
-  `getAspecDistance` in the player's unit; `menuRef(n)` the name n places below the top of the
-  menu stack; `saveMenuStack` / `loadMenuStack` (❓ the stack's saved form is not read: the
-  names, each ended by a 0).
+  `getAspecDistance` in the player's unit; the menu stack (0x42FD00 on): the names one after
+  another, each ended by a 0, in 0x100 bytes (a name that would reach the last byte is not
+  pushed); `menuRef(n)` the name n places below the top; `saveMenuStack` keeps a copy and its
+  length (0x42FE88), `loadMenuStack` puts it back and answers 1, or 0 when none was kept (a new
+  game's length -1; 0x42FF48); `isNeedSave` answers whether a day was put in the diary
+  (0x42F0E0) or `setNeedSave` was called, and clears both (0x43AC68, 0x43ACA8).
 - **MGarage** (0x16DA58 on): places that are never packed; `addNewCar(label, paint)` a car as
   sold on today's date, `addUsedCar(car)` / `addCar(car)` the car's record; `delCar` clears the
   place (1 when it was the car driven), `undelCar` puts it back; `riding_car` is an object on
   the garage's own record. The program reads and writes a car's slot of the garage file in
   `changeRidingCar`, `pushRidingCar`, `popGarageCar`; here the records are in the state (they
-  answer `OK`). ❓ `setRidingCar(place, car)` and `cancelRidingCar(place, car)`, and what
-  `pickup`, `pickupCountry`, `pickupTuner` compare, are from the scripts' use.
+  answer `OK`). A change of the car driven (0x435388) takes the car's record (to a car never
+  driven: made as sold with its odometer, and marked so, 0x435568), marks the place as having a
+  record and moves it first in the order of driving, every car driven more recently one further
+  (0x435690); `setRidingCar(place, car)` is that change with the car's record, `(place, label,
+  paint)` the car as sold without the marks (0x435490); `cancelRidingCar(place, car)` acts only
+  after a change to a car never driven: that car's record is dropped and the car given is driven
+  again (0x435418). `pickup(country, tuner, drivetrain)` lists the cars in place order whose
+  country and tuner (the car's columns) and the drivetrain of the sheet in use are those named
+  ("all": any; 0x170088); `pickupCountry()`, `pickupTuner(country)` the ones the garage has, in
+  the order of their numbers (0x170278, 0x1705E0).
 - **MCarGarage** (a car; 0x141B90, 0x14EF00; `game_car.cpp`): its record's three sheets, `slot`
   the sheet in use; the parts that fit it (its file `specdb/<set>/CARS/<the car's code>`: u64
   count, then {u64 part, u8 category, 7 bytes}); a parts type is the table id, type 31 the
@@ -409,13 +429,38 @@ fills in: an event's course from its RACE row (labels tried as they are, then wi
 test's or a mission's car, the first of the race's pool.
 
 **After a race** (`Runtime::race_finished(RaceResult)`, `game_race.cpp`): what the program's
-result routines write (0x114498 an event; 0x1105A8 a license test; 0x11C328 a mission;
-0x115A90 on a course's run): an event finished in place p pays the row's prize of p (answered
-for the scripts' `prize`; the money is the scripts' `incMoney`), counts the place and the
-prize, and updates the race's unit ("event", p: a better place is kept); one not finished
-counts as such; a test keeps its result in its unit and its ranking (time, result, the real
-date, the pass code); every run is a day of the diary. ❓ The car's distance is added to its
-odometer and wear (the adders 0x343518 on exist; who calls them is not read).
+result routines write. The race's menus' work (MQuickWork) gets `prize`, the rows in finishing
+order with their times (0x114390; a race the player did not finish has "-" rows and no times,
+0x110898: ❓ here the rows are left empty) and `playerGridNumber`, the player's place. A race
+sequence starts when the scripts that asked for it finish (a new work object, 0x127E60).
+
+- **An event** (0x114498): not finished, a race counted as such and no prize; finished in
+  place p, the row's prize of p, the place counted, the prize added to the prize total, the
+  race's best score when the player drove it (0x430A20), and the race's record unit
+  ("event", p; 0x430A58) only when p is better than every earlier place of the same sequence;
+  the diary's day ("family" races as a course run).
+- **A championship's race** (0x119CB8; the last, 0x119F28): every entrant's points by the
+  finishing order from the program's table (0x6A6EF0: 10, 6, 4, 3, 2, 1; 0x3EEFE0; when the
+  player did not finish, none for the player and the others move up, 0x3EF1E8); the race's
+  prize and record as an event's (a watched run leaves the record). On the last race the
+  championship is won when no other of the first six entrants has as many points as the player
+  (0x3EF298): its own record unit gets "1" and `GrandPrize` the row's +0x2C x 100;
+  `SeriesRank` is the number of the others with at least the player's points (0x3EF2D8); the
+  diary's note is 0 for a won championship. A championship left in the middle is kept
+  (`GameState::suspend_series`, 0x119BD8) in the save and offered again on the map.
+- **A mission** (0x11C328): the place's prize whatever the run, the record ("mission", the
+  place) and its score, the diary's mission day (place, note 15, time).
+- **A license test** (0x1105A8) keeps its result in its unit and its ranking (time, result, the
+  real date, the pass code); **a course's run** (0x115A90) is a day of the diary.
+
+The prize page of the quick projects counts the prize into the credits (`incMoney`, ten at a
+time); the presents (prize cars, licenses) are given by Gran Turismo mode's present page on
+the way back, from the records' `present_result`. The car's distance goes on its condition as
+the race's step adds it (0x35DE20): the odometer (whole meters, capped at 100,000,000), and
+unless the car has no wear the engine's distance up to 9,700,000 m, the oil's (from below 0 up
+to 0, then from 300,000 m; else up to 6,000,000 m) and the body's up to 3,000,000 m, the limits
+read from the program's tables (0x620CD8 +0xD0 on, 0x620AF6; 0x350678, 0x366100). ❓ Added
+once for the race's whole distance.
 
 **Cars and courses** (`menu::MCarData`, 0x131068; `menu::MCourseData`, 0x1B34D0): from the
 disc's car database ([database.md](database.md)) and the program's lists of makers, tuners,
@@ -537,11 +582,19 @@ face is drawn over a part of the page three times its rectangle around it.
 
 Gran Turismo mode: the places run to their pages and to the race asked for (used cars, events,
 license tests, missions, GT Auto, tune shops, the garage, the status, the diary, the car's
-settings); not checked page by page: trading cars between saves, the presents' pages after
-a race, the championship's sessions, the photo travel (its page stops on an actor that is not
-made), the B-spec driver. The option pages' effect on anything but the stored values;
-Prologue's arcade mode and results ([prologue.md](prologue.md) "The menus": boot to a license
-test runs); two-player and LAN paths.
+settings); a race's whole loop runs with a made-up result in place of the race
+(`tests/test_menu_run_loop.cpp`: an event, a championship and one left in the middle, a
+license, a mission, the prize cars, saved and loaded); not checked page by page: trading cars
+between saves (`loadInstance` answers its result and no second game: the trade page needs a
+second MGame over another card's state), the photo travel (its page stops on an actor that is
+not made), the B-spec driver. The Replay Theater (the `load_replay` sequence and labomode's
+card lists: save.md "The game's other saves"). The option pages' effect on anything but the
+stored values. Arcade's two-player battle reaches its race with both cars; the LAN battle says
+the Network Adaptor is needed. Prologue's arcade mode and results ([prologue.md](prologue.md) "The menus": boot to a license
+test runs); its scripts ask for `MGame.license` (its own license record), answered with a new
+game's results. ❓ The gears' ranges on the settings pages (0x3553A0: the ratios
+of 0x354FF8, each gear's ends a third of the way to its neighbours, the first gear's top 9/8,
+the last's bottom 7/8) and the charts' points (0x148940, 0x148B60).
 
 ## Pictures (`.gpb`)
 

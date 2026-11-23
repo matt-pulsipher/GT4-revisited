@@ -152,7 +152,7 @@ written from how the scripts use it, not yet compared with the program's own cod
 | Of | Members |
 |---|---|
 | Any value | `toString()`, `toInt()`, `toFloat()` |
-| String | `size`, `at(i)` (the character's code), `substr(from, length)`, `split(separator)`, `format(...)`, `upcase()`, `downcase()` |
+| String | `size`, `at(i)` (the character's code), `substr(from, length)`, `split(separator)`, `format(...)`, `build(...)`, `upcase()`, `downcase()` |
 | Array | `size`, `push(v)`, `pop()`, `shift()`, `unshift(v)`, `erase(i)`, `join(separator)`, `sort(compare)` |
 | Module | `name`, `defined(name)`, `defineStatic(name, value)`, `removeStatic(name)`, `clearStatic()`, `load(file)` (runs a script beside its own in the module) |
 
@@ -161,9 +161,12 @@ a point before its last digits, as many as the precision (`"%.1t"` of 123 is `12
 `0.5`; the program's 0x493918, US v1.01). The menus give tenths and hundredths this way
 (`"%.2t%s/%s%s"`: a torque, its unit, the engine speed, its unit).
 
+`build` puts the n-th argument, as text, in place of each `{n}` (the program splits the text at
+`{` and `}`, 0x315B78): `"{0} Race No. {1}"`. ❓ A mark with no such argument is left as it is.
+
 `Array(n)` makes an array of n nils.
 
-Not written: the array's `pack`, `bsearch`, `move`; the string's `build`; `Math` (`sin`,
+Not written: the array's `pack`, `bsearch`, `move`; `Math` (`sin`,
 `cos`), `Path`, `Time`, `FileIO`, `Thread`, `ThreadGroup`, `Exception`, `System`.
 
 ## What the scripts ask of the program

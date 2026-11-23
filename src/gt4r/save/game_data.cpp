@@ -44,7 +44,7 @@ struct OptionField {
     size_t at;
 };
 const OptionField kOptionNumbers[] = {
-    {"screen_adjust_h", 0x18}, {"screen_adjust_v", 0x1C}, {"sharpness_mode", 0x20},
+    {"screen_adjust_h", 0x18}, {"screen_adjust_v", 0x1C},
     {"menu_bgm", 0x5C}, {"menu_bgm_volume_raw", 0x60}, {"menu_se", 0x64}, {"menu_se_volume_raw", 0x68}, {"race_bgm", 0x6C}, {"race_bgm_volume_raw", 0x70},
     {"race_se", 0x74}, {"race_se_volume_raw", 0x78}, {"replay_bgm", 0x7C}, {"replay_bgm_volume_raw", 0x80}, {"replay_se", 0x84}, {"replay_se_volume_raw", 0x88},
     {"slide_bgm_volume_raw", 0x8C},
@@ -60,8 +60,9 @@ const OptionField kOptionNumbers[] = {
     {"album_memory_card_slot", 0x1178}, {"album_slide_transition_time", 0x1180},
 };
 const char* const kZones[] = {"UNDEF", "JP", "US", "UK", "EU", "KR"};
-// The options kept as names, by their numbers: the language (0x6AE3F8) and the units (MUnit's
-// tables, 0x472680 on), at Option +0x0C (u32) and +0x10, +0x11, +0x12 (bytes).
+// The options kept as names, by their numbers: the language (0x6AE3F8) at Option +0x0C, and the
+// options MOption gives by name, each through its table of names (0x437758: the tables at
+// 0x6A5998 on; the accessors 0x436810 on read the field and look its number up).
 struct NamedOption {
     const char* name;
     size_t at;
@@ -73,6 +74,19 @@ const NamedOption kNamedOptions[] = {
     {"unit_velocity", 0x10, 1, {"KMPH", "MPH"}},
     {"unit_power", 0x11, 1, {"PS", "HP", "BHP", "CH", "KW", "CV", "PF"}},
     {"unit_torque", 0x12, 1, {"KGFM", "FTLB", "NM"}},
+    {"sharpness_mode", 0x20, 4, {"NORMAL", "MILD"}},
+    {"sound_type", 0x10B0, 4, {"MONOPHONIC", "STEREO", "PROLOGIC2"}},
+    {"penalty_type", 0x10E4, 4, {"NONE", "SPEED_LIMITATION", "PASSING_PITLANE"}},
+    {"view_type", 0x10F4, 4, {"SUBJECTIVE", "BONNET", "OVERLOOK"}},
+    {"view_type_2p", 0x10F8, 4, {"SUBJECTIVE", "BONNET", "OVERLOOK"}},
+    {"photo_quality", 0x110C, 4, {"STANDARD", "FINE", "SUPER_FINE"}},
+    {"photo_aspect", 0x1114, 4, {"4x3", "16x9", "3x2", "1x1"}},
+    {"photo_shutter", 0x1118, 4, {"typeA", "typeB", "typeC", "typeD", "typeE", "typeF", "typeG", "typeH", "typeI", "typeJ", "typeK", "typeL", "typeM", "typeN", "typeO", "typeP", "typeQ", "typeR", "typeS"}},
+    {"steering_assist_1p", 0x112C, 4, {"AMATEUR", "PROFESSIONAL", "SIMULATION"}},
+    {"steering_assist_2p", 0x1130, 4, {"AMATEUR", "PROFESSIONAL", "SIMULATION"}},
+    {"replay_mode", 0x113C, 4, {"NORMAL", "DIVE"}},
+    {"replay_play_mode", 0x114C, 4, {"STRAIGHT", "SHUFFLE"}},
+    {"ustorage_photo_quality", 0x117C, 4, {"STANDARD", "FINE", "SUPER_FINE"}},
 };
 
 // A play list's 128 rows of 16 bytes, each "nothing chosen" (00 01 FF FF, then zeros).
@@ -222,12 +236,36 @@ Bytes write_game(const GameState& s, const Codes& codes) {
     put_text(b, kChampionship, 0x20, s.suspended_racecode);
     b[kChampionship + 0x20] = u8(s.suspended), b[kChampionship + 0x21] = u8(s.suspended_session);
     if (s.championship_rest.size() == 0x66) std::memcpy(b.data() + kChampionship + 0x22, s.championship_rest.data(), 0x66);
+    // A championship left in the middle (0x119BD8): its race count, then its six entrants
+    // (u64 the car's code, s32 the paint, s32 the points).
+    if (s.suspended && s.series.label == s.suspended_racecode) {
+        b[kChampionship + 0x22] = u8(s.series.race_count);
+        for (size_t k = 0; k < 6; ++k) {
+            const GameState::Series::Entrant e = k < s.series.entrants.size() ? s.series.entrants[k] : GameState::Series::Entrant{};
+            const size_t o = kChampionship + 0x28 + 0x10 * k;
+            put32(b, o, u32(e.code)), put32(b, o + 4, u32(e.code >> 32)), put32(b, o + 8, u32(e.paint)), put32(b, o + 12, u32(e.points));
+        }
+    }
     for (size_t i = 0; i < 8; ++i) put32(b, kUsedCar + 4 * i, s.used_sold[i]);
     put32(b, kUsedCar + 0x20, s.used_week);
     // The options that are numbers, and the zone.
     for (const OptionField& f : kOptionNumbers)
         if (const auto it = s.options.find(f.name); it != s.options.end())
             if (const s32* v = std::get_if<s32>(&it->second)) put32(b, option(f.at), u32(*v));
+    // The play lists (Option +0x90 and +0x8A0): u32 rows, u16 position, u8 shuffle, u8 none,
+    // u16 seed, a word; 128 rows of 16 bytes: 8 bytes, u8 played, u8 enabled, s8 order, s8 its
+    // copy, 4 bytes.
+    for (const auto& [at, list] : {std::pair<size_t, const GameState::PlayList*>{0x90, &s.bgm_playlist}, {0x8A0, &s.slide_playlist}}) {
+        const size_t o = option(at);
+        put32(b, o, list->rows), b[o + 4] = u8(list->position), b[o + 5] = u8(list->position >> 8), b[o + 6] = list->shuffle, b[o + 7] = list->none;
+        b[o + 8] = u8(list->seed), b[o + 9] = u8(list->seed >> 8), put32(b, o + 0xC, list->kept);
+        for (size_t i = 0; i < 128; ++i) {
+            const GameState::PlayList::Row& r = list->row[i];
+            const size_t at_row = o + 0x10 + 16 * i;
+            put32(b, at_row, u32(r.kept)), put32(b, at_row + 4, u32(r.kept >> 32));
+            b[at_row + 8] = r.played, b[at_row + 9] = r.enabled, b[at_row + 10] = u8(r.order), b[at_row + 11] = u8(r.order2), put32(b, at_row + 12, r.kept_tail);
+        }
+    }
     for (const NamedOption& o : kNamedOptions) {
         const std::string v = s.option_text(o.name);
         for (size_t i = 0; i < o.names.size(); ++i)
@@ -320,10 +358,29 @@ bool read_game(ByteSpan p, GameState& s, const Codes& codes, std::vector<int>* r
     for (size_t i = 0; i < s.presents.size(); ++i) s.presents[i] = get32(p, kPresents + 4 * i);
     s.suspended_racecode = get_text(p, kChampionship, 0x20), s.suspended = p[kChampionship + 0x20], s.suspended_session = p[kChampionship + 0x21];
     s.championship_rest.assign(p.begin() + kChampionship + 0x22, p.begin() + kChampionship + 0x88);
+    s.series = {};
+    if (s.suspended) {
+        s.series.label = s.suspended_racecode, s.series.races_run = s.suspended_session, s.series.race_count = p[kChampionship + 0x22];
+        for (size_t k = 0; k < 6; ++k) {
+            const size_t o = kChampionship + 0x28 + 0x10 * k;
+            s.series.entrants.push_back({get64(p, o), s32(get32(p, o + 8)), s32(get32(p, o + 12))});
+        }
+    }
     for (size_t i = 0; i < 8; ++i) s.used_sold[i] = get32(p, kUsedCar + 4 * i);
     s.used_week = get32(p, kUsedCar + 0x20);
     for (const OptionField& f : kOptionNumbers) s.options[f.name] = s32(get32(p, option(f.at)));
     if (const u32 z = get32(p, kGameZone); z > 0 && z < 6) s.options["game_zone"] = std::string(kZones[z]);
+    for (const auto& [at, list] : {std::pair<size_t, GameState::PlayList*>{0x90, &s.bgm_playlist}, {0x8A0, &s.slide_playlist}}) {
+        const size_t o = option(at);
+        list->rows = get32(p, o), list->position = u16(p[o + 4] | p[o + 5] << 8), list->shuffle = p[o + 6], list->none = p[o + 7];
+        list->seed = u16(p[o + 8] | p[o + 9] << 8), list->kept = get32(p, o + 0xC);
+        for (size_t i = 0; i < 128; ++i) {
+            GameState::PlayList::Row& r = list->row[i];
+            const size_t at_row = o + 0x10 + 16 * i;
+            r.kept = get64(p, at_row), r.played = p[at_row + 8], r.enabled = p[at_row + 9], r.order = gt3r::s8(p[at_row + 10]), r.order2 = gt3r::s8(p[at_row + 11]);
+            r.kept_tail = get32(p, at_row + 12);
+        }
+    }
     for (const NamedOption& o : kNamedOptions) {
         const u32 v = o.bytes == 4 ? get32(p, option(o.at)) : p[option(o.at)];
         if (v < o.names.size()) s.options[o.name] = std::string(o.names[v]);

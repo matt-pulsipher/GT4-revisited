@@ -3,6 +3,7 @@
 // boot to the title, arcade to its race request, the options and back, the GT mode entry.
 
 #include "test_framework.h"
+#include "menu_run_flow.h"
 
 #include "gt4r/menu/program_tables.h"
 #include "gt4r/menu/runtime.h"
@@ -350,144 +351,6 @@ TEST(menu_program_tables_found) {
 // The game's own projects
 // ---------------------------------------------------------------------------------------------
 
-namespace {
-
-struct Flow {
-    Disc& disc;
-    std::unique_ptr<menu::Runtime> rt;
-
-    explicit Flow(Disc& d, const std::string& language = "US", const std::string& data_dir = {}) : disc(d) {
-        menu::Runtime::Config config;
-        config.language = language;
-        config.data_dir = data_dir;
-        config.list = [&d](const std::string& folder) {
-            std::vector<std::string> out;
-            for (const gt3r::Volume::Entry& e : d.volume().entries()) {
-                if (e.path.compare(0, folder.size(), folder) != 0) continue;
-                const size_t slash = e.path.find('/', folder.size());
-                std::string name = e.path.substr(folder.size(), slash == std::string::npos ? slash : slash + 1 - folder.size());
-                if (std::find(out.begin(), out.end(), name) == out.end()) out.push_back(std::move(name));
-            }
-            return out;
-        };
-        config.program = [&d] { return d.read_program(); };
-        rt = std::make_unique<menu::Runtime>(
-            [&d](const std::string& path) -> std::optional<Bytes> {
-                const gt3r::Volume::Entry* e = d.volume().find(path);
-                if (!e) return std::nullopt;
-                return d.volume().read(*e);
-            },
-            config);
-    }
-    void press(std::initializer_list<menu::Key> keys) {
-        for (menu::Key k : keys) {
-            rt->key(k);
-            rt->settle();
-        }
-    }
-    std::string page() const { return rt->current_page() ? rt->current_page()->name : std::string(); }
-    std::string focus() const { return rt->focused() ? rt->focused()->name : std::string(); }
-    bool clean() const {
-        for (const std::string& line : rt->log())
-            if (line.find("script error") != std::string::npos) {
-                std::printf("  %s\n", line.c_str());
-                return false;
-            }
-        return true;
-    }
-    // From power on to the title page, with a memory card that has no saved game: the game
-    // offers to make one (no), says what cannot be saved (continue), plays its opening movie
-    // (start skips it) and ends the boot project asking for arcade.
-    bool boot_to_title() {
-        rt->boot();
-        rt->start_project(rt->first_project());
-        rt->settle();
-        if (page() != "ConfirmDialog") return false;
-        press({menu::Key::Left, menu::Key::Accept}); // "create game data?": no
-        press({menu::Key::Right, menu::Key::Accept}); // "you cannot play GT mode": continue
-        if (page() != "MovieRoot") return false;
-        press({menu::Key::Start});
-        if (!rt->finished() || rt->wanted_project() != "arcade") return false;
-        if (!rt->advance()) return false;
-        rt->settle();
-        return page() == "TopRoot";
-    }
-    // From the title: GT mode, "make the game's data", a name of two letters, yes to every
-    // question until the title is back; then GT mode's map. The name typed, "" when it failed.
-    std::string new_game() {
-        press({menu::Key::Down});
-        if (focus() != "GTmode") return {};
-        press({menu::Key::Accept, menu::Key::Accept});
-        if (!rt->finished() || !rt->advance()) return {};
-        rt->settle();
-        press({menu::Key::Left, menu::Key::Accept, menu::Key::Left, menu::Key::Accept});
-        const std::string typed = rt->current_page()->child("Keyboard")->child("input")->data.text("value");
-        press({menu::Key::Right, menu::Key::Right});
-        for (int i = 0; i < 6 && focus() != "key_enter"; ++i) press({menu::Key::Right});
-        press({menu::Key::Accept});
-        for (int i = 0; i < 24 && !rt->finished(); ++i) press({menu::Key::Accept});
-        if (!rt->finished() || !rt->advance()) return {};
-        rt->settle();
-        for (int i = 0; i < 6 && focus() != "GTmode"; ++i) press({menu::Key::Down});
-        press({menu::Key::Accept});
-        if (!rt->finished() || rt->wanted_project() != "gtmode" || !rt->advance()) return {};
-        rt->settle();
-        return page() == "TopRoot" ? typed : std::string();
-    }
-    // GT mode's map with a game standing in for a saved one: credits, a car bought at Alfa
-    // Romeo's and driven. True on the map.
-    bool gt_mode_with_a_car(s64 credits = 500000) {
-        rt->game().card.has_game_data = true, rt->game().username = "Player", rt->game().money = credits;
-        rt->boot();
-        rt->start_project(rt->first_project());
-        rt->settle();
-        if (page() == "MovieRoot") press({menu::Key::Start}); // the opening after a game is loaded
-        if (!rt->finished() || !rt->advance()) return false;
-        rt->settle();
-        press({menu::Key::Down, menu::Key::Accept});
-        if (!rt->finished() || !rt->advance()) return false;
-        rt->settle();
-        map_focus("DealerItaly");
-        press({menu::Key::Accept, menu::Key::Accept, menu::Key::Accept, menu::Key::Accept, menu::Key::Accept, menu::Key::Accept, menu::Key::Right,
-               menu::Key::Accept, menu::Key::Accept, menu::Key::Accept});
-        for (int i = 0; i < 6 && page() != "TopRoot"; ++i) press({menu::Key::Cancel});
-        return page() == "TopRoot" && rt->game().garage_count() == 1 && rt->game().riding_car == 0;
-    }
-    // A widget of the page shown by its name (depth first), focused.
-    bool focus_on(const std::string& name) {
-        std::function<std::shared_ptr<menu::LiveWidget>(const std::shared_ptr<menu::LiveWidget>&)> find = [&](const std::shared_ptr<menu::LiveWidget>& w) {
-            if (w->name == name) return w;
-            for (const auto& c : w->children)
-                if (auto f = find(c)) return f;
-            return std::shared_ptr<menu::LiveWidget>();
-        };
-        const auto w = rt->current_page() ? find(rt->current_page()->self()) : nullptr;
-        if (w) rt->set_focus(*rt->current_page(), w);
-        rt->settle();
-        return w != nullptr;
-    }
-    std::string text_of(const std::string& name) {
-        std::function<std::string(const menu::LiveWidget&)> find = [&](const menu::LiveWidget& w) -> std::string {
-            if (w.name == name && w.is("TextFace")) return w.data.text("text");
-            for (const auto& c : w.children)
-                if (std::string t = find(*c); !t.empty()) return t;
-            return {};
-        };
-        return rt->current_page() ? find(*rt->current_page()) : std::string();
-    }
-    // The map's place by its name, focused.
-    void map_focus(const std::string& place) {
-        rt->set_focus(*rt->current_page(), rt->current_page()->child("ScrollWindow")->child("clip")->child("space")->child(place));
-    }
-};
-
-Disc* gt4_disc() {
-    for (const auto& disc : test::discs())
-        if (disc->info().game == Game::GT4) return disc.get();
-    return nullptr;
-}
-
-} // namespace
 
 // Power on to the title page.
 TEST(disc_menu_boot_to_title) {
@@ -1025,16 +888,22 @@ TEST(disc_menu_race_results) {
     const s64 prizes = g.total_prize_money;
     menu::RaceResult won;
     won.race = "am_sunday_0001", won.place = 0, won.time_ms = 185'432, won.distance_m = 8'000, won.garage_slot = g.riding_car, won.score = 30;
+    const float engine = g.garage[0].record->condition(1), body = g.garage[0].record->condition(4);
     CHECK(f.rt->race_finished(won) == 600);
+    // The distance on the engine and the body as the race's step adds it.
+    CHECK(g.garage[0].record->condition(1) == engine + 8'000.0f && g.garage[0].record->condition(4) == body + 8'000.0f);
     CHECK(g.total_prize_money == prizes + 600 && g.rank_counts[1] == 1 && g.today == today + 1 && g.diary.back().type == 3 && g.diary.back().word == 185'432);
     CHECK(g.garage[0].record->odometer() == 8'000);
     const Value record = vm.attribute(vm.lookup("game"), "race_record");
     const Value label[1] = {Value::string("am_sunday_0001")};
     const Value unit = vm.call(vm.attribute(record, "getUnit"), label);
     CHECK(vm.attribute(unit, "result").as_string() == "1" && vm.attribute(unit, "type").as_string() == "event" && vm.attribute(unit, "best_score").i == 30);
-    // Second place later does not undo the win; the diary keeps both days.
+    // Second place in the same sequence pays but leaves the record (it follows the sequence's
+    // best place); in a later sequence it is the last result, and the win stays the best.
     menu::RaceResult second = won;
     second.place = 1;
+    CHECK(f.rt->race_finished(second) == 500 && vm.attribute(unit, "present_result").as_string() == "1");
+    g.race_session = {};
     CHECK(f.rt->race_finished(second) == 500 && vm.attribute(unit, "result").as_string() == "1" && vm.attribute(unit, "present_result").as_string() == "2");
     // Not finished: a race counted as such, no prize.
     menu::RaceResult retired = won;
