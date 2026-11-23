@@ -21,10 +21,15 @@ Done:
 - [x] Models (`MDLS`): car bodies, wheels, tires, wings and prize objects decode and draw as
       still models; a 3D viewer from the asset browser (Square on a file with models).
 
+- [x] Sound: the instrument banks, sequences and indexes that changed since Gran Turismo 3
+      read; a sound driver after the game's plays the menus' effects and sequenced music, the
+      scripts' sound object (`audio::MenuSound`) and a car's engine sounds chosen from the
+      database (`gt4tool sound`). The double-byte fonts (`.kf`).
+
 Next, in order:
 
-1. **Sound formats that changed since Gran Turismo 3**: instrument banks, sequences, the music
-   index; the double-byte fonts (`.kf`).
+1. **Sound in the race**: the game's own rules for the engine layers, the tire, surface, wind
+   and collision effects, the course ambience, the reverb, the race's music and jingles.
 2. **Cars in motion**: the car callbacks as the game runs them (steering, suspension, wheel
    spin and the turning wheel pictures), the model scripts, the skinned drivers, paint choice.
 3. **Courses**: billboards, lamps, the environment block, visibility lists in a drawn course.

@@ -54,7 +54,10 @@ japanese, korean, big5) holds the names; `UnistrDB` the units and short specific
 | `CHASSIS` | 722 x 37 | u16 mm: +0x00 length, +0x02 height, +0x04 wheelbase, +0x06 weight (kg), +0x12 / +0x14 width across the front / rear tires, +0x16 / +0x18 front / rear tire diameter (checked on the AC 427 S/C: 3962, 1244, 2286; the Lancer Evolution II: 4310, 1420, 2510, 1250 kg) |
 | `TIRESIZE` | 286 x 4 | +0 u8 aspect / 5, +2 u8 rim inches x 10, +3 u8 width / 5 mm (205/60R15 is `0c 00 96 29`) |
 | `FRONTTIRE`, `REARTIRE` | | Pairs of u32 row id, u32 table id; the first is the tire's `TIRESIZE` row |
-| `ENGINE`, `GEAR`, `DRIVETRAIN`, `LSD`, `SUSPENSION`, `BRAKE`, `TIRESIZE`, `TIRECOMPOUND`, `TIREFORCEVOL`, `TURBINEKIT`, `MUFFLER`, ... | | The parts, a table per kind as in Gran Turismo 3's database ❓ columns |
+| `ENGINE` | 723 x 113 | +0x18 u16 the engine's sound number: the car plays `sound/engine/<number>` and `sound/<variant>/<number>` ([sound.md](sound.md) "A car's sounds") ❓ the rest |
+| `MUFFLER` | 1,844 x 7 | +0x06 u8 the exhaust sound's variant, 0..3 (a car's stock muffler is no row: 0) ❓ the rest |
+| `TURBINEKIT` | 1,798 x 18 | +0x09 u8 non-zero: a turbo (the exhaust sound is a `turbo` variant) ❓ the rest |
+| `GEAR`, `DRIVETRAIN`, `LSD`, `SUSPENSION`, `BRAKE`, `TIRESIZE`, `TIRECOMPOUND`, `TIREFORCEVOL`, ... | | The parts, a table per kind as in Gran Turismo 3's database ❓ columns |
 | `DEFAULT_PARTS` | 2,990 x 208 | The parts a car has as sold, labelled `df_pt_<car label>`: 26 pairs of u32 row id, u32 table id (the label lists' ids: 6 `CHASSIS`, 12 `ENGINE`, 25 `FRONTTIRE`, ...; -1: none) |
 | `RACE` | 709 x 151 | The events |
 | `ENEMY_CARS` | 2,558 x 24 | The opponents |

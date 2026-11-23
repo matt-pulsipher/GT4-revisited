@@ -97,15 +97,16 @@ volume's index bytes (Prologue: its table of contents).
 | `Tex1` texture sets | `.img` files; inside cars, courses, models, menus | ✅ the shared decoder, unchanged |
 | `SShd` streams (`.ads`) | `bgm/`, `narration/` | ✅ shared, unchanged |
 | MPEG-2 movies (`.pss`), `ipua` stills | `mpeg/` | ✅ shared, unchanged |
-| `ENGN` engine sounds | `sound/engine/` and others | ✅ shared, unchanged (5 of 3,576 files fail a layer-order check) |
+| `ENGN` engine sounds | `sound/engine/` and others | ✅ shared, unchanged; 5 of 3,576 files store their layers out of order, which `audio::parse_engine_bank` reads ([formats/sound.md](formats/sound.md)) |
 | `GTRC` camera scripts | `cameras/` | ✅ shared parser reads them |
 | `.pmb` menu pages | `menu/` (the race pause menus) | ✅ shared parser reads them |
-| `MLTX` strings, `GTBR` brake parts, `MSEQ` music index, `race/flare.bin` | | ✅ shared parsers read them |
+| `MLTX` strings, `GTBR` brake parts, `race/flare.bin` | | ✅ shared parsers read them |
 | Course sections `Vls0`, `CRSS` | `crs/` | ✅ shared parsers read them |
-| `INST` instrument banks | `sound/`, `music/` | ❓ newer layout than Gran Turismo 3's |
-| `Ssqt` sequences (`.sqt`) | `music/` | ❓ |
-| `MADS` music index | `bgm/` | ❓ newer layout |
-| `FT01` fonts | `font/*.fnt` | ✅ ([formats/menu.md](formats/menu.md)); `KNJI` (`font/*.kf`) ❓ a newer layout |
+| `INST` instrument banks | `sound/`, `music/` | ✅ programs, tones, effect programs and effect sequences ([formats/sound.md](formats/sound.md)); ❓ two small tables |
+| `Ssqt` sequences (`.sqt`) | `music/` | ✅ read and played by the sound driver (`audio/sound_driver.*`) |
+| `MSEQ` 2 / `MADS` 2 music indexes, `BMRK` markers, `GTSE` effect names, `SDVL` mix levels | `music/`, `bgm/`, `sound/` | ✅ ([formats/sound.md](formats/sound.md)) |
+| `FT01` fonts | `font/*.fnt` | ✅ ([formats/menu.md](formats/menu.md)) |
+| `KNJI` double-byte fonts | `font/*.kf` | ✅ ([formats/menu.md](formats/menu.md) "Double-byte fonts"); ❓ which file a language's menus use |
 | `MDLS` models | cars, wheels, tires, wings, courses, prizes, characters | ✅ still models ([formats/model.md](formats/model.md)); ❓ scripts, callbacks (a car's wheels), skinned sets |
 | `CAR4`, `Pat0` | `car/` | ❓ |
 | Courses | `crs/` | ✅ the container and the scenery ([formats/course.md](formats/course.md)); the road `RNW4`; ❓ billboards, lamps, cameras |

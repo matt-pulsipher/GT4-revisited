@@ -164,5 +164,42 @@ fonts). `font/system.fnt`: `hm_16` (the menus' body text), `hb_24`, `hc_20`, `hn
 (`hb_24#1*130,130`: palette 1, scaled 130%). The glyphs are laid out by the shared engine's
 text layout (kerning by the profiles), ❓ assumed unchanged from Gran Turismo 3.
 
-❓ The double-byte fonts (`font/*.kf`, `KNJI`: a newer layout than Gran Turismo 3's) and
-`font/jis2uni.dat`.
+## Double-byte fonts (`font/*.kf`, `KNJI`)
+
+Code: `src/gt4r/menu/kanji_font.*`, `tests/test_kanji_font.cpp`. Gran Turismo 3's kanji font
+file ([engine/gt3r/docs/formats/text.md](../../engine/gt3r/docs/formats/text.md) "Kanji
+fonts") with the cells indexed by **Unicode code point** (the text is UTF-8) in place of a JIS
+code:
+
+```
+0x00 "KNJI"   0x0C u32 0, or 0x80 in the files of two faces
+0x10 u16 faces, u16 palettes (two per face)
+0x14 u32 offset of the faces' offsets (u32 each)   0x18 u32 offset of the palettes
+palette: 16 x RGBA, alpha as the GS has it (0x80 opaque)
+face, 0x18 bytes:
+  +0x00 u16 first code point, u16 last
+  +0x04 u32 offset of the cells   +0x08 u32 bytes from one cell to the next
+  +0x0C u16 cell width, u16 cell height
+  +0x10 u32 offset of the index: u16 cell per code point first..last
+  +0x14 u32 offset of the face's name
+```
+
+A cell is 4 bits a pixel, row by row, low nibble first, (width + 1) / 2 bytes a row. A code
+point without a cell has index 0xFFFF; in the files of two faces it has index 0, a blank cell.
+Even palettes are the outlined look (light grays, a dark edge), odd ones white on a ramp of
+alpha, as in the Latin fonts' two texture variants.
+
+| File | Faces | Cells |
+|---|---|---|
+| `unicode.kf` (both discs) | 22 x 22 `medium` (Prologue: `ShinGoM`), U+0391..U+FFE5 | 7,381 |
+| `big5.kf` (both), `hangul.kf` | 22 x 22 `DFHeiBold-B5`, `AsiaNew` | |
+| `jp_menu.kf`, `jp_race.kf` | 16 x 16 `medium` and 22 x 22 `bold` | 7,260 + 1,412 in `jp_menu` |
+| `cn_`, `kr_`, `tw_` `menu.kf` / `race.kf` | 22 x 22 `medium`: the characters that language's menus or race display use | |
+| `europe.kf` | 22 x 22 `ShinGo-M`: three cells (U+201C..U+25A0) | 3 |
+
+All 14 files of the two discs read (35,892 and 13,174 cells). ASCII and the Latin letters are
+not in these fonts: a line of text takes them from the `FT01` fonts. The `FT01` font record's
+"double-byte font's cell" places a cell of these fonts on that font's line.
+
+❓ Which file each language's menus load (the program names `jp_menu.kf` to `tw_race.kf` in
+one routine, 0x108D80) and `font/jis2uni.dat` (Gran Turismo 3's `UTBL` table).
