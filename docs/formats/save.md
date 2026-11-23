@@ -64,6 +64,21 @@ and loads (the player, credits, the car with its record; written again the same 
 exported again onto a new card and onto another of the reference cards, both read back file for
 file the same. 🔎 A card made here has not been loaded by the original.
 
+## The game's other saves (🔎 not written here)
+
+The card manager's modes (0x179570's table) name the other kinds of save: `MODE_LOAD_REPLAY`,
+`MODE_SAVE_FULL_REPLAY`, `MODE_LOAD_BESTLAP_REPLAY`, `MODE_SAVE_BESTLAP_REPLAY`, the photo
+films and pictures, the replay and slide-show play lists, the patch. Each is a file class of
+`GT4MC::FileGT4` (RTTI): `FileGT4ReplayFull` (the data's name `ReplayData`, icons
+`icon/GT4_Rep_to_race.ico`, `_to_license`, `_tt1`), `FileGT4ReplayBest` (`GhostData`),
+`FileGT4ReplayDemo`, `FileGT4FilmData` (`F%04d`), `FileGT4PictureData` (`P%04d`),
+`FileGT4ReplayList` (`LSTRPLAY`), `FileGT4SlideShowList` (`LSTSLIDE`). The Replay Theater is the
+program's sequence `load_replay` (the title's third item asks for it), which runs the project
+`labomode` in `MODE_LOAD_REPLAY`: its scripts list the card's replays through the manager's
+`list`, `count`, `getFile(i)` and each file's `title`, `racemode`, `racesubmode`, `size`,
+`load`, `remove`, `isInfoValid`, `writeInfo`. Not read further: the folders' names and the
+replay's own layout.
+
 ## Results the scripts see (0x1CBF40)
 
 0 `OK`, 1 `DEVICE_ERROR`, 2 `INVALID_FILE`, 3 `FILE_NOT_FOUND`, 4 `DIFFERENT_MEMORYCARD`,

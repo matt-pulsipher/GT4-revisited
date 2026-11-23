@@ -583,11 +583,19 @@ face is drawn over a part of the page three times its rectangle around it.
 Gran Turismo mode: the places run to their pages and to the race asked for (used cars, events,
 license tests, missions, GT Auto, tune shops, the garage, the status, the diary, the car's
 settings); a race's whole loop runs with a made-up result in place of the race
-(`tests/test_menu_run_loop.cpp`: an event, a championship, a license, a mission, the prize
-cars, saved and loaded); not checked page by page: trading cars between saves, the photo travel (its page stops on an actor that is not
-made), the B-spec driver. The option pages' effect on anything but the stored values;
-Prologue's flows (its main script, configuration and projects load and show a first page; ❓
-which page each project starts on); two-player and LAN paths.
+(`tests/test_menu_run_loop.cpp`: an event, a championship and one left in the middle, a
+license, a mission, the prize cars, saved and loaded); not checked page by page: trading cars
+between saves (`loadInstance` answers its result and no second game: the trade page needs a
+second MGame over another card's state), the photo travel (its page stops on an actor that is
+not made), the B-spec driver. The Replay Theater (the `load_replay` sequence and labomode's
+card lists: save.md "The game's other saves"). The option pages' effect on anything but the
+stored values. Arcade's two-player battle reaches its race with both cars; the LAN battle says
+the Network Adaptor is needed. Prologue's flows: its main script, configuration and projects
+load and show a first page; its memcard project stops after its first dialog (❓ which
+argument the configuration gives it), and its scripts ask for `MGame.license` (its own license
+record) that is not written. ❓ The gears' ranges on the settings pages (0x3553A0: the ratios
+of 0x354FF8, each gear's ends a third of the way to its neighbours, the first gear's top 9/8,
+the last's bottom 7/8) and the charts' points (0x148940, 0x148B60).
 
 ## Pictures (`.gpb`)
 
