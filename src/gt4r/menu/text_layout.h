@@ -70,5 +70,8 @@ std::optional<std::array<TextColor, 4>> find_button_colors(ByteSpan program_imag
 // "%F<name> " (a font) is skipped; "\r" is left out; "\v" is a line broken to fit (justified with
 // `justify_width`).
 TextLayout layout_menu_text(std::string_view utf8, const TextStyle& style, float x, float y);
+// The same in a box (x, y, w, h) by a face's `align` 0..8 (rows from the top, columns from the
+// left; 4 the middle): the style's alignment is set from it.
+TextLayout layout_menu_text_in(std::string_view utf8, TextStyle style, float x, float y, float w, float h, int align = 4);
 
 } // namespace gt4r::menu

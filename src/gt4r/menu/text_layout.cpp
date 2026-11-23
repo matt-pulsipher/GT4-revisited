@@ -225,4 +225,11 @@ TextLayout layout_menu_text(std::string_view s, const TextStyle& st, float x, fl
     return lay;
 }
 
+TextLayout layout_menu_text_in(std::string_view utf8, TextStyle st, float x, float y, float w, float h, int align) {
+    const int col = std::clamp(align, 0, 8) % 3, row = std::clamp(align, 0, 8) / 3;
+    st.align = col == 0 ? gt3r::text::HAlign::Left : col == 1 ? gt3r::text::HAlign::Center : gt3r::text::HAlign::Right;
+    st.valign = row == 0 ? gt3r::text::VAlign::Top : row == 1 ? gt3r::text::VAlign::Middle : gt3r::text::VAlign::Bottom;
+    return layout_menu_text(utf8, st, col == 0 ? x : col == 1 ? x + w / 2 : x + w, row == 0 ? y : row == 1 ? y + h / 2 : y + h);
+}
+
 } // namespace gt4r::menu
