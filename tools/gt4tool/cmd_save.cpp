@@ -3,6 +3,7 @@
 //   gt4tool save <disc> show <card folder>          the game in a card's folder (BASCUS-97328GAMEDATA/ inside it)
 //   gt4tool save <disc> payload <card folder> <out>  the game data file's payload, unscrambled
 //   gt4tool save <disc> new <out>                    a new game's payload as the program's constructors make it
+//   gt4tool save <disc> card <card folder> [name]    a new game saved in a card's folder
 
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/db/specdb.h"
@@ -54,6 +55,20 @@ int cmd_save(Disc& disc, const std::vector<std::string>& a) {
         const Bytes payload = save::write_game(fresh, save::database_codes(db));
         return write_file(a[1], payload) ? 0 : 1;
     }
+    if (what == "card" && a.size() >= 2) {
+        db::SpecDb db = open_db(disc);
+        auto read = [&disc](const std::string& path) -> std::optional<Bytes> {
+            const gt3r::Volume::Entry* e = disc.volume().find(path);
+            if (!e) return std::nullopt;
+            return disc.volume().read(*e);
+        };
+        save::GameSave card(a[1], save::database_codes(db), read);
+        menu::GameState s;
+        s.username = a.size() >= 3 ? a[2] : "Player", s.money = 10000;
+        const save::Result r = card.save_new(s, "Game Data");
+        std::printf("%s: %s\n", card.folder().c_str(), save::result_name(r));
+        return r == save::Result::Ok ? 0 : 1;
+    }
     if ((what == "show" || what == "payload") && a.size() >= 2) {
         db::SpecDb db = open_db(disc);
         save::GameSave card(a[1], save::database_codes(db));
@@ -84,7 +99,7 @@ int cmd_save(Disc& disc, const std::vector<std::string>& a) {
                     s.all_available ? " (all)" : "", s.favorite_cars.size(), s.favorite_courses.size());
         return 0;
     }
-    std::fprintf(stderr, "usage: gt4tool save <disc> show <card folder> | payload <card folder> <out> | new <out>\n");
+    std::fprintf(stderr, "usage: gt4tool save <disc> show <card folder> | payload <card folder> <out> | new <out> | card <card folder> [name]\n");
     return 2;
 }
 

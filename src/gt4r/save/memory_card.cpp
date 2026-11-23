@@ -164,14 +164,14 @@ Result GameSave::save_new(GameState& s, const std::string& title) {
     if (disc_) {
         if (const std::optional<Bytes> icon = disc_("icon/GT4_Gamedata.ico")) write("icon0.ico", *icon);
         if (std::optional<Bytes> sys = disc_("icon/icon.sys"); sys && sys->size() >= 0x1C4) {
+            // Line one, the program's text at 0x694DD8 (14 full-width letters), then the title.
             Bytes text = full_width("GRAN TURISMO 4");
-            text.resize(26);
             const Bytes second = full_width(title);
             text.insert(text.end(), second.begin(), second.end());
             text.resize(std::min<size_t>(text.size(), 0x43));
             std::memset(sys->data() + 0xC0, 0, 0x44);
             std::memcpy(sys->data() + 0xC0, text.data(), text.size());
-            (*sys)[6] = 26, (*sys)[7] = 0; // the line break, in bytes
+            (*sys)[6] = 28, (*sys)[7] = 0; // where the second line starts, in bytes (0x1CBED0)
             for (size_t at : {0x104, 0x144, 0x184}) {
                 std::memset(sys->data() + at, 0, 0x40);
                 std::memcpy(sys->data() + at, "icon0.ico", 9);

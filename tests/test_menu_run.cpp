@@ -409,6 +409,32 @@ struct Flow {
         rt->settle();
         return page() == "TopRoot";
     }
+    // From the title: GT mode, "make the game's data", a name of two letters, yes to every
+    // question until the title is back; then GT mode's map. The name typed, "" when it failed.
+    std::string new_game() {
+        press({menu::Key::Down});
+        if (focus() != "GTmode") return {};
+        press({menu::Key::Accept, menu::Key::Accept});
+        if (!rt->finished() || !rt->advance()) return {};
+        rt->settle();
+        press({menu::Key::Left, menu::Key::Accept, menu::Key::Left, menu::Key::Accept});
+        const std::string typed = rt->current_page()->child("Keyboard")->child("input")->data.text("value");
+        press({menu::Key::Right, menu::Key::Right});
+        for (int i = 0; i < 6 && focus() != "key_enter"; ++i) press({menu::Key::Right});
+        press({menu::Key::Accept});
+        for (int i = 0; i < 24 && !rt->finished(); ++i) press({menu::Key::Accept});
+        if (!rt->finished() || !rt->advance()) return {};
+        rt->settle();
+        for (int i = 0; i < 6 && focus() != "GTmode"; ++i) press({menu::Key::Down});
+        press({menu::Key::Accept});
+        if (!rt->finished() || rt->wanted_project() != "gtmode" || !rt->advance()) return {};
+        rt->settle();
+        return page() == "TopRoot" ? typed : std::string();
+    }
+    // The map's place by its name, focused.
+    void map_focus(const std::string& place) {
+        rt->set_focus(*rt->current_page(), rt->current_page()->child("ScrollWindow")->child("clip")->child("space")->child(place));
+    }
 };
 
 Disc* gt4_disc() {
@@ -737,6 +763,46 @@ TEST(disc_menu_buy_a_car) {
     const std::shared_ptr<menu::LiveWidget> cars = f.rt->current_page()->child("Info") ? f.rt->current_page()->child("Info")->child("cars") : nullptr;
     CHECK(cars && cars->data.text("text").find("1") != std::string::npos);
     if (cars) std::printf("  the garage: %s\n", cars->data.text("text").c_str());
+}
+
+// A new game is saved on the memory card's folder under the data folder as the game's own
+// files; the next start finds it, loads it and goes to the title with it.
+TEST(disc_menu_game_saved_and_loaded) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    const std::string dir = (std::filesystem::temp_directory_path() / "gt4r-menu-test-save").string();
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir);
+    std::string name;
+    {
+        Flow f(*disc, "US", dir);
+        f.rt->boot();
+        f.rt->start_project(f.rt->first_project());
+        f.rt->settle();
+        CHECK(f.page() == "ConfirmDialog"); // no game on the card
+        f.press({menu::Key::Left, menu::Key::Accept});
+        f.press({menu::Key::Right, menu::Key::Accept});
+        f.press({menu::Key::Start});
+        CHECK(f.rt->advance());
+        f.rt->settle();
+        name = f.new_game();
+        CHECK(!name.empty() && f.rt->project()->name() == "gtmode" && f.clean());
+        const std::string folder = dir + "/memorycard/BASCUS-97328GAMEDATA/";
+        CHECK(std::filesystem::exists(folder + "BASCUS-97328GAMEDATA") && std::filesystem::file_size(folder + "BASCUS-97328GAMEDATA") == 0x3A0C0);
+        CHECK(std::filesystem::exists(folder + "garage") && std::filesystem::exists(folder + "icon.sys") && std::filesystem::exists(folder + "icon0.ico"));
+    }
+    {
+        Flow f(*disc, "US", dir);
+        f.rt->boot();
+        f.rt->start_project(f.rt->first_project());
+        f.rt->settle();
+        // The boot project loads the game and goes on to the title.
+        for (int i = 0; i < 6 && !f.rt->finished(); ++i) f.press({menu::Key::Accept});
+        CHECK(f.rt->finished() && f.rt->game().username == name && f.rt->game().money == 10000 && f.rt->game().card.has_game_data);
+        std::printf("  loaded the game of %s\n", f.rt->game().username.c_str());
+        CHECK(f.clean());
+    }
+    std::filesystem::remove_all(dir);
 }
 
 // Prologue's main script, configuration and projects load, and a project shows a page.
