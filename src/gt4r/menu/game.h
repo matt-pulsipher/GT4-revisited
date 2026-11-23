@@ -165,6 +165,27 @@ struct GameState {
 
     RaceRequest race; // the race being set up
 
+    // The music's play lists (the program's MPlayList, 0x437E50 .. 0x4382B0; the option object's
+    // `bgm_playlist`, the races' music, and `slide_playlist`; saved in the option block,
+    // docs/formats/save.md "The play lists"): a row a piece of the streamed `racing` group
+    // (its count in `rows`), each enabled or not, its place in the playing order, played this
+    // round or not; the position in the order, shuffled or not, the shuffle's seed.
+    struct PlayList {
+        struct Row {
+            u64 kept = 0; // the row's first 8 bytes, as loaded (❓ not named)
+            u8 played = 0, enabled = 1;
+            gt3r::s8 order = -1, order2 = -1; // the place in the playing order (-1 none); its copy (the scripts' [3])
+            u32 kept_tail = 0;
+        };
+        u32 rows = 0; // 0 until the menus fill the list: then the racing group's pieces
+        u16 position = 0;
+        u8 shuffle = 0, none = 1; // shuffled; no row enabled
+        u16 seed = 0;
+        u32 kept = 0; // the header's last word
+        std::array<Row, 128> row{};
+    };
+    PlayList bgm_playlist, slide_playlist;
+
     // MOption's attributes by name. `option_defaults` fills them as a new game has them.
     std::map<std::string, OptionValue> options;
     void option_defaults(const std::string& region);

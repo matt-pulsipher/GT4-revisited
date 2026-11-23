@@ -252,6 +252,20 @@ Bytes write_game(const GameState& s, const Codes& codes) {
     for (const OptionField& f : kOptionNumbers)
         if (const auto it = s.options.find(f.name); it != s.options.end())
             if (const s32* v = std::get_if<s32>(&it->second)) put32(b, option(f.at), u32(*v));
+    // The play lists (Option +0x90 and +0x8A0): u32 rows, u16 position, u8 shuffle, u8 none,
+    // u16 seed, a word; 128 rows of 16 bytes: 8 bytes, u8 played, u8 enabled, s8 order, s8 its
+    // copy, 4 bytes.
+    for (const auto& [at, list] : {std::pair<size_t, const GameState::PlayList*>{0x90, &s.bgm_playlist}, {0x8A0, &s.slide_playlist}}) {
+        const size_t o = option(at);
+        put32(b, o, list->rows), b[o + 4] = u8(list->position), b[o + 5] = u8(list->position >> 8), b[o + 6] = list->shuffle, b[o + 7] = list->none;
+        b[o + 8] = u8(list->seed), b[o + 9] = u8(list->seed >> 8), put32(b, o + 0xC, list->kept);
+        for (size_t i = 0; i < 128; ++i) {
+            const GameState::PlayList::Row& r = list->row[i];
+            const size_t at_row = o + 0x10 + 16 * i;
+            put32(b, at_row, u32(r.kept)), put32(b, at_row + 4, u32(r.kept >> 32));
+            b[at_row + 8] = r.played, b[at_row + 9] = r.enabled, b[at_row + 10] = u8(r.order), b[at_row + 11] = u8(r.order2), put32(b, at_row + 12, r.kept_tail);
+        }
+    }
     for (const NamedOption& o : kNamedOptions) {
         const std::string v = s.option_text(o.name);
         for (size_t i = 0; i < o.names.size(); ++i)
@@ -356,6 +370,17 @@ bool read_game(ByteSpan p, GameState& s, const Codes& codes, std::vector<int>* r
     s.used_week = get32(p, kUsedCar + 0x20);
     for (const OptionField& f : kOptionNumbers) s.options[f.name] = s32(get32(p, option(f.at)));
     if (const u32 z = get32(p, kGameZone); z > 0 && z < 6) s.options["game_zone"] = std::string(kZones[z]);
+    for (const auto& [at, list] : {std::pair<size_t, GameState::PlayList*>{0x90, &s.bgm_playlist}, {0x8A0, &s.slide_playlist}}) {
+        const size_t o = option(at);
+        list->rows = get32(p, o), list->position = u16(p[o + 4] | p[o + 5] << 8), list->shuffle = p[o + 6], list->none = p[o + 7];
+        list->seed = u16(p[o + 8] | p[o + 9] << 8), list->kept = get32(p, o + 0xC);
+        for (size_t i = 0; i < 128; ++i) {
+            GameState::PlayList::Row& r = list->row[i];
+            const size_t at_row = o + 0x10 + 16 * i;
+            r.kept = get64(p, at_row), r.played = p[at_row + 8], r.enabled = p[at_row + 9], r.order = gt3r::s8(p[at_row + 10]), r.order2 = gt3r::s8(p[at_row + 11]);
+            r.kept_tail = get32(p, at_row + 12);
+        }
+    }
     for (const NamedOption& o : kNamedOptions) {
         const u32 v = o.bytes == 4 ? get32(p, option(o.at)) : p[option(o.at)];
         if (v < o.names.size()) s.options[o.name] = std::string(o.names[v]);

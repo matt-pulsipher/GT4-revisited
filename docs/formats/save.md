@@ -182,7 +182,7 @@ three match (0x43AA68); there is no version: another size is another program.
 | 0x387F0 | 0x74 | presents given: a bit a race (0 .. 867), then a bit a time present | `presents` |
 | 0x38870 | 0x88 | the championship left (0x119BD8): its label char[0x20], u8 kept (1: left in the middle), u8 races run, u8 race count, 5 bytes, then six entrants {u64 the car's code, s32 paint, s32 points} (the player first; 🔎 for an opponent the program writes its entry's second code, here the car's) | `suspended_*`, `series`, `championship_rest` |
 | 0x38900 | 0x24 | used cars sold: 256 bits, the week they belong to | `used_sold`, `used_week` |
-| 0x38930 | 0x11C0 | the options (Option +8: its size 0x11C0, then the fields; the play lists not decoded) | `options` (the numbers) |
+| 0x38930 | 0x11C0 | the options (Option +8: its size 0x11C0, then the fields; the play lists below) | `options`, `bgm_playlist`, `slide_playlist` |
 | 0x39AF0 | 4 | the zone (0 UNDEF, 1 JP, 2 US, 3 UK, 4 EU, 5 KR) | `options["game_zone"]` |
 | 0x39B00 | 2 x 0x60 | the two players' button maps (not decoded) | kept |
 | 0x39BC0 | 0xAC | the LAN settings: names "Player1", ... | kept |
@@ -239,6 +239,17 @@ The race's car is the sheet in use: `garage[slot].record->active()` is the
   the code), 10 entries of 0x30 (u32 time ms, or a float speed in the machine test of top
   speed; the date; u64 the car's code; the pass code), 16 u32 section times, 8 bytes, the best
   score at +0x230.
+
+### The play lists (Option +0x90, +0x8A0; 0x810 each)
+
+The races' music list (`bgm_playlist`) and the slide show's (`slide_playlist`), the program's
+MPlayList: u32 rows (the streamed `racing` group's pieces, 65; 0 in a new game until the
+menus fill it), u16 the position in the order, u8 shuffled, u8 no row enabled, u16 the shuffle's
+seed (a new game's 0x3355 and 0x3476), a word; then 128 rows of 16 bytes: 8 bytes (❓ kept),
+u8 played this round, u8 enabled, s8 the place in the order (-1 none), s8 its copy, 4 bytes. The
+scripts' `play_data` rows are [place, played, enabled, copy]. A saved game made by the original
+after its first race has the US list: 36 of the 65 pieces, the first 15 disabled, place 0 at
+row 15 (the configuration's init_raceplaylist gives the same here).
 
 ### The calendar
 

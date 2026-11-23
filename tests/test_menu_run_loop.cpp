@@ -517,3 +517,19 @@ TEST(disc_arcade_lan_battle_without_network) {
     f.press({menu::Key::Accept});
     CHECK(f.page() == "GameRoot" && f.focus() == "LANBattle" && !f.rt->finished() && f.clean());
 }
+
+// The races' play list: the configuration fills it at power on (the US disc's 36 pieces of the
+// racing group's 65 in their order, as the original's saved game has them), it is the game
+// state's for the race's music, and a save keeps it.
+TEST(disc_menu_race_playlist) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    Flow f(*disc);
+    f.rt->boot();
+    const menu::GameState::PlayList& list = f.rt->game().bgm_playlist;
+    int enabled = 0;
+    for (u32 i = 0; i < list.rows; ++i) enabled += list.row[i].enabled;
+    std::printf("  play list: %u rows, %d enabled, row 15 place %d, row 16 %d, row 17 %d\n", list.rows, enabled, list.row[15].order, list.row[16].order, list.row[17].order);
+    CHECK(list.rows == 65 && enabled == 36 && !list.row[14].enabled && list.row[15].order == 0 && list.row[16].order == 1 && list.row[17].order == 3 && !list.none);
+    CHECK(f.rt->game().slide_playlist.rows == 65);
+}

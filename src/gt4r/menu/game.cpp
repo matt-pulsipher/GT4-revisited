@@ -206,6 +206,9 @@ void fresh_course_unit(Bytes& b, size_t at, bool speed) {
 } // namespace
 
 void GameState::new_game() {
+    // The play lists as the option's constructor leaves them (seeds 0x3355, 0x3476).
+    bgm_playlist = {}, slide_playlist = {};
+    bgm_playlist.seed = 0x3355, slide_playlist.seed = 0x3476;
     money = 0, username.clear(), password.clear(), last_entry_name.clear();
     score = 0, total_prize_money = 0, total_prize_cars = 0, rank_counts = {}, aspec_distance = 0, bspec_distance = 0;
     withdrawn = 0, withdrawn_gt4p = 0, met_type = 0;

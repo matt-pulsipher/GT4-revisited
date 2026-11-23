@@ -362,16 +362,60 @@ for (const char* nothing : {"applyRaceDisplayMode", "applyMenuDisplayMode", "set
         option->method(nothing, [](Vm&, const Value&, Args) { return Value{}; });
     option->method("getDeviceConfig", [](Vm&, const Value&, Args) { return Value{}; });
     option->method("getDeviceFeedback", [](Vm&, const Value&, Args) { return number(0); });
-    // The music and slide-show play lists: a row a song ({order, 0, chosen, order}; -1 none).
-// ❓ The rows' program form (0x1020 bytes in the option block) is not decoded: 128 rows here,
-// kept for the run.
-for (const char* list : {"bgm_playlist", "slide_playlist"}) {
-    auto p = std::make_shared<Object>("MPlayList");
-    std::vector<Value> rows;
-    for (int i = 0; i < 128; ++i) rows.push_back(Value::array({number(-1), number(0), number(0), number(-1)}));
-    p->set("play_data", Value::array(std::move(rows)));
-    option->set(list, object_value(p));
-}
+    // The music and slide-show play lists (GameState::PlayList): `play_data` is a row a piece of
+    // the streamed `racing` group, each [place in the order, played, enabled, the place's copy]
+    // (the configuration's init_raceplaylist writes them: places for the region's pieces, -1 and
+    // disabled for the others). A list not filled yet has the group's count of rows (the disc's
+    // bgm/<region>/ads.inf, its third group; ❓ the slide show's list as long, as a saved game
+    // has it). ❓ initShuffle is taken as the program's making of the order again: position 0,
+    // every enabled row unplayed, "none" when no row is enabled.
+    for (const auto& [list_name, list] : {std::pair<const char*, GameState::PlayList*>{"bgm_playlist", &state().bgm_playlist}, {"slide_playlist", &state().slide_playlist}}) {
+        auto p = std::make_shared<Object>("MPlayList");
+        GameState::PlayList* l = list;
+        Runtime* r = &rt;
+        auto rows = [l, r]() -> u32 {
+            if (!l->rows) {
+                for (const std::string& path : {"bgm/" + r->region() + "/ads.inf", std::string("bgm/us/ads.inf")}) {
+                    const std::optional<Bytes> inf = r->reader()(path);
+                    if (!inf || inf->size() < 0x14 + 3 * 8) continue;
+                    auto w = [&inf](size_t o) { return u32((*inf)[o]) | u32((*inf)[o + 1]) << 8 | u32((*inf)[o + 2]) << 16 | u32((*inf)[o + 3]) << 24; };
+                    if (w(0x0C) >= 3) l->rows = std::min<u32>(w(0x14 + 2 * 8 + 4), 128);
+                    break;
+                }
+            }
+            return std::min<u32>(l->rows, 128);
+        };
+        p->property("play_data", [l, rows] {
+            std::vector<Value> out;
+            for (u32 i = 0; i < rows(); ++i) {
+                const GameState::PlayList::Row& row = l->row[i];
+                out.push_back(Value::array({number(row.order), number(row.played), number(row.enabled), number(row.order2)}));
+            }
+            return Value::array(std::move(out));
+        }, [l, rows](const Value& v) {
+            const std::vector<Value>* items = v.items();
+            if (!items) return;
+            const u32 n = std::min<u32>(rows(), u32(items->size()));
+            for (u32 i = 0; i < n; ++i) {
+                const std::vector<Value>* d = (*items)[i].items();
+                if (!d || d->size() < 4) continue;
+                GameState::PlayList::Row& row = l->row[i];
+                row.order = gt3r::s8((*d)[0].as_float()), row.played = u8((*d)[1].as_float() != 0), row.enabled = u8((*d)[2].as_float() != 0), row.order2 = gt3r::s8((*d)[3].as_float());
+            }
+            // ❓ "none" follows the rows given (a saved game after the configuration's list has 0).
+            l->none = 1;
+            for (u32 i = 0; i < rows(); ++i)
+                if (l->row[i].enabled) l->none = 0;
+        });
+        p->method("initShuffle", [l, rows](Vm&, const Value&, Args) {
+            bool any = false;
+            for (u32 i = 0; i < rows(); ++i) l->row[i].played = !l->row[i].enabled, any |= l->row[i].enabled != 0;
+            l->none = !any, l->position = 0;
+            return Value{};
+        });
+        p->property("shuffle", [l] { return number(l->shuffle); }, [l](const Value& v) { l->shuffle = v.truthy(); });
+        option->set(list_name, object_value(p));
+    }
     return object_value(option);
 }
 
