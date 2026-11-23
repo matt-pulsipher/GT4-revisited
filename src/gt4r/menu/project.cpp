@@ -50,15 +50,16 @@ Project::Pack& Project::pack_of(const std::string& page) {
     return p;
 }
 
-const gt3r::Tex1::Image* Project::image(const std::string& page, const std::string& path) {
-    Pack& p = pack_of(page);
-    if (!p.pack) return nullptr;
-    if (const auto it = p.images.find(path); it != p.images.end()) return it->second.get();
-    std::unique_ptr<gt3r::Tex1::Image>& slot = p.images[path];
-    const ImagePack::Entry* e = p.pack->find(path);
+namespace {
+
+const gt3r::Tex1::Image* decode(std::optional<ImagePack>& pack, std::map<std::string, std::unique_ptr<gt3r::Tex1::Image>>& images, const std::string& path) {
+    if (!pack) return nullptr;
+    if (const auto it = images.find(path); it != images.end()) return it->second.get();
+    const ImagePack::Entry* e = pack->find(path);
     if (!e) return nullptr;
+    std::unique_ptr<gt3r::Tex1::Image>& slot = images[path];
     try {
-        const Bytes data = p.pack->read(*e);
+        const Bytes data = pack->read(*e);
         if (!gt3r::Tex1::is_tex1(data)) return nullptr;
         const gt3r::Tex1 set = gt3r::Tex1::parse(data);
         if (set.textures.empty()) return nullptr;
@@ -70,5 +71,29 @@ const gt3r::Tex1::Image* Project::image(const std::string& page, const std::stri
     }
     return slot.get();
 }
+
+} // namespace
+
+const gt3r::Tex1::Image* Project::image(const std::string& page, const std::string& path) {
+    Pack& p = pack_of(page);
+    if (const gt3r::Tex1::Image* image = decode(p.pack, p.images, path)) return image;
+    for (auto& [name, extra] : extra_)
+        if (const gt3r::Tex1::Image* image = decode(extra.pack, extra.images, path)) return image;
+    return nullptr;
+}
+
+bool Project::load_pack(const std::string& folder, const std::string& name) {
+    if (extra_.count(name)) return true;
+    std::string dir = folder;
+    while (!dir.empty() && dir[0] == '/') dir.erase(0, 1);
+    std::optional<Bytes> file = read_(dir + "/" + language_ + "/" + name + ".gpb");
+    if (!file || !ImagePack::is_pack(*file)) return false;
+    Pack& p = extra_[name];
+    p.file = std::move(*file);
+    p.pack = ImagePack::parse(p.file);
+    return true;
+}
+
+void Project::unload_pack(const std::string& name) { extra_.erase(name); }
 
 } // namespace gt4r::menu

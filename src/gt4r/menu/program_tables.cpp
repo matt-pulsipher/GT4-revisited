@@ -73,7 +73,7 @@ ProgramTables ProgramTables::find(ByteSpan image, u32 load_address) {
     t.makers = f.list_with("renault", "polyphony", "hks");
     t.countries = f.list_with("JP", "US", {});
     for (auto it = t.countries.begin(); it != t.countries.end();) it = it->second.size() == 2 ? std::next(it) : t.countries.erase(it);
-    t.categories = f.list_with("NORMAL", "RACING", {});
+    t.categories = f.list_with("CONCEPT", "TUNING", {}); // another list has NORMAL and RACING too (with DIRT and SNOW)
     return t;
 }
 

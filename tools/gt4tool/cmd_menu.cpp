@@ -13,6 +13,7 @@
 
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/db/specdb.h"
+#include "gt4r/menu/program_tables.h"
 #include "gt4r/menu/runtime.h"
 
 #include <algorithm>
@@ -164,6 +165,20 @@ int cmd_db_strings(Disc& disc, const std::vector<std::string>& a) {
         return 0;
     }
     for (size_t i = 0; i < pool->strings.size(); ++i) std::printf("%6zu  %s\n", i, pool->strings[i].c_str());
+    return 0;
+}
+
+// gt4tool menu-names <disc>: the name lists found in the disc's program (makers, tuners,
+// countries, car categories by their numbers in the car table).
+int cmd_menu_names(Disc& disc, const std::vector<std::string>&) {
+    const menu::ProgramTables t = menu::ProgramTables::from_core(disc.read_program());
+    const std::pair<const char*, const std::map<int, std::string>*> lists[] = {
+        {"makers", &t.makers}, {"tuners", &t.tuners}, {"countries", &t.countries}, {"categories", &t.categories}};
+    for (const auto& [name, list] : lists) {
+        std::printf("%s (%zu):", name, list->size());
+        for (const auto& [number, text] : *list) std::printf(" %d=%s", number, text.c_str());
+        std::printf("\n");
+    }
     return 0;
 }
 

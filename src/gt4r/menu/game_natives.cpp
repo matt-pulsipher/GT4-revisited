@@ -74,6 +74,7 @@ struct Database {
     }
 
     // What the menus show of a car, from its rows of the car database:
+    //   GENERIC_CAR: +0x00 u32 the car's row of DEFAULT_PARTS (its parts as sold);
     //   ENGINE (the car's own engine, DEFAULT_PARTS' entry of table 12): +0x00 .. +0x14 six
     //   u32 texts of the unit pool (displacement, layout, valve gear, aspiration, the engine
     //   speeds of the power and the torque), +0x1A u16 PS, +0x1C u16 kgf.m x 100;
@@ -100,7 +101,18 @@ struct Database {
         auto u16at = [](ByteSpan r, size_t at) { return r.size() >= at + 2 ? int(u16(r[at]) | u16(r[at + 1]) << 8) : 0; };
         auto u32at = [](ByteSpan r, size_t at) { return r.size() >= at + 4 ? u32(r[at]) | u32(r[at + 1]) << 8 | u32(r[at + 2]) << 16 | u32(r[at + 3]) << 24 : 0u; };
         const db::Strings* units = db->strings("UnistrDB");
-        if (const std::optional<u32> id = db->default_part(label, 12))
+        // The car's parts as sold: the car table's row starts with their row of DEFAULT_PARTS
+        // (pairs of a part's row and its table).
+        auto part = [&](u32 table_id) -> std::optional<u32> {
+            const db::Table* parts = db->table("DEFAULT_PARTS");
+            const ByteSpan car = car_row(label);
+            if (!parts || car.size() < 4) return std::nullopt;
+            const ByteSpan row = parts->row(u32at(car, 0));
+            for (size_t o = 0; o + 8 <= row.size(); o += 8)
+                if (u32at(row, o + 4) == table_id && u32at(row, o) != 0xFFFFFFFFu) return u32at(row, o);
+            return std::nullopt;
+        };
+        if (const std::optional<u32> id = part(12))
             if (const db::Table* engines = db->table("ENGINE"))
                 if (const ByteSpan r = engines->row(*id); r.size() >= 0x1E) {
                     sp.engine = true;
@@ -110,7 +122,7 @@ struct Database {
                         sp.aspiration = units->at(u32at(r, 12)), sp.power_rpm = units->at(u32at(r, 16)), sp.torque_rpm = units->at(u32at(r, 20));
                     }
                 }
-        if (const std::optional<u32> id = db->default_part(label, 10))
+        if (const std::optional<u32> id = part(10))
             if (const db::Table* trains = db->table("DRIVETRAIN"))
                 if (const ByteSpan r = trains->row(*id); r.size() > 0x10) sp.drivetrain = r[0x10];
         const db::Labels* cars_ = db->labels("GENERIC_CAR");

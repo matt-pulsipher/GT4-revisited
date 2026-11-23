@@ -46,6 +46,11 @@ public:
     // A page's picture by the name a widget gives ("image/boot/lang_bg_4.png"); null when the
     // page's pack has none. Decoded once.
     const gt3r::Tex1::Image* image(const std::string& page, const std::string& path);
+    // More pictures a script loads for a page while it shows (`context.loadGpb(folder, name)`:
+    // <folder>/<language>/<name>.gpb): looked in after the page's own. False when the file is
+    // not there.
+    bool load_pack(const std::string& folder, const std::string& name);
+    void unload_pack(const std::string& name);
 
 private:
     struct Pack {
@@ -60,6 +65,7 @@ private:
     Widget layout_;
     TextTable text_;
     std::map<std::string, Pack> packs_;
+    std::map<std::string, Pack> extra_; // by the name a script gave
 };
 
 } // namespace gt4r::menu

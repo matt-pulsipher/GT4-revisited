@@ -204,7 +204,7 @@ void Runtime::install_natives() {
     update->set("repeat_speed", Value::integer(4));
     for (const char* zero : {"getPadButtonState", "getLastPadButtonState", "getPadAnalogChannel", "getLastPadAnalogChannel"})
         update->method(zero, [](Vm&, const Value&, Args) { return Value::integer(0); });
-    for (const char* nothing : {"loadGpb", "loadGpbFromMC", "unloadGpb", "setStartPage"}) update->method(nothing, [](Vm&, const Value&, Args) { return Value{}; });
+    for (const char* nothing : {"loadGpbFromMC", "setStartPage"}) update->method(nothing, [](Vm&, const Value&, Args) { return Value{}; });
     update->method("existGpbBinary", [](Vm&, const Value&, Args) { return Value::integer(1); });
     update->method("getStartPage", [](Vm&, const Value&, Args) { return Value{}; });
     auto translate_fn = [this](Vm&, const Value&, Args a) {
@@ -273,8 +273,19 @@ void Runtime::install_natives() {
     render->method("getCommonPage", [this](Vm&, const Value&, Args a) { return widget_value(common_page(arg_text(a, 0))); });
     render->method("getCursorProject", [this](Vm&, const Value&, Args) { return widget_value(common_widget_); });
     render->method("getPrelightWidget", [this](Vm&, const Value&, Args) { return widget_value(focused() ? focused()->self() : nullptr); });
-    for (const char* nothing : {"loadGpb", "unloadGpb", "captureScreen", "releaseScreen", "shotScreen", "openOSKeyboard", "closeOSKeyboard",
-                                "setMousePositionOnFocus"})
+    // loadGpb(folder, name): more pictures for the pages shown (a maker's cars); unloadGpb(name).
+    auto load_gpb = [this](Vm&, const Value&, Args a) {
+        const bool found = project_ && project_->load_pack(arg_text(a, 0), arg_text(a, 1));
+        if (!found) note("no pictures " + arg_text(a, 0) + " " + arg_text(a, 1));
+        return Value::integer(found);
+    };
+    auto unload_gpb = [this](Vm&, const Value&, Args a) {
+        if (project_) project_->unload_pack(arg_text(a, 0));
+        return Value{};
+    };
+    render->method("loadGpb", load_gpb), render->method("unloadGpb", unload_gpb);
+    update->method("loadGpb", load_gpb), update->method("unloadGpb", unload_gpb);
+    for (const char* nothing : {"captureScreen", "releaseScreen", "shotScreen", "openOSKeyboard", "closeOSKeyboard", "setMousePositionOnFocus"})
         render->method(nothing, [](Vm&, const Value&, Args) { return Value{}; });
     render->method("existGpbBinary", [](Vm&, const Value&, Args) { return Value::integer(1); });
     render->set("enable", Value::integer(1));
