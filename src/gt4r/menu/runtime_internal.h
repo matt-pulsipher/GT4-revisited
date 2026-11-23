@@ -71,5 +71,7 @@ TextMeasure& text_measure();
 void install_game_natives(Runtime& rt, script::Module& menu);
 // The objects the main script makes when it does not run (a disc without one).
 void install_fallback_world(Runtime& rt);
+// An MCarGarage object for a car by its label (what a car face's `car_data` is).
+script::Value make_car_object(Runtime& rt, const std::string& label, int paint);
 
 } // namespace gt4r::menu

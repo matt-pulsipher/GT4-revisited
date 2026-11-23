@@ -7,10 +7,12 @@
 //     next         the project the scripts asked for (after a project finished)
 //     stubs        what the scripts asked of stand-ins so far (the to-do list)
 //     tree         the pages shown: widgets, their places and texts
+//     state        the game's state: what is available, where the menus go, the race set up
 //     card=none | card=empty | card=saved    the memory card's state (before the project starts)
 //     all          every car and course available (before the project starts)
 
 #include "gt4r/disc/disc.h"
+#include "gt4r/formats/db/specdb.h"
 #include "gt4r/menu/runtime.h"
 
 #include <algorithm>
@@ -70,6 +72,7 @@ void print_tree(const menu::LiveWidget& w, int depth) {
 int cmd_menu_run(Disc& disc, const std::vector<std::string>& a) {
     menu::Runtime::Config config;
     config.list = disc_lister(disc);
+    config.program = [&disc] { return disc.read_program(); };
     const std::vector<std::string> languages = menu::project_languages(config.list, a[0] == "boot" ? "boot" : a[0]);
     if (!languages.empty()) config.language = languages[0];
     if (const char* dir = std::getenv("GT4R_DATA_DIR")) config.data_dir = dir;
@@ -105,6 +108,17 @@ int cmd_menu_run(Disc& disc, const std::vector<std::string>& a) {
             for (const auto& [what, n] : rt.vm().stub_uses) std::printf("   %5u  %s\n", n, what.c_str());
             continue;
         }
+        if (k == "state") {
+            const menu::GameState& g = rt.game();
+            std::printf("   cars available %zu, courses available %zu%s; garage %zu; credits %lld; menu stack %zu\n", g.available_cars.size(),
+                        g.available_courses.size(), g.all_available ? " (all)" : "", g.garage.size(), static_cast<long long>(g.money), g.menu_stack.size());
+            std::printf("   sequence last \"%s\" next \"%s\"; project last \"%s\" next \"%s\" (%s); major \"%s\" page \"%s\"\n", g.last_sequence.c_str(),
+                        g.next_sequence.c_str(), g.last_menu_project.c_str(), g.next_menu_project.c_str(), g.next_menu_arg.c_str(),
+                        g.major_menu_project.c_str(), g.major_menu_page.c_str());
+            std::printf("   race: course \"%s\" car \"%s\" paint %d laps %d difficulty %s entries %d race \"%s\"\n", g.race.course.c_str(), g.race.car.c_str(),
+                        g.race.paint, g.race.laps, g.race.difficulty.c_str(), g.race.max_entry, g.race.race.c_str());
+            continue;
+        }
         if (k == "tree") {
             for (const auto& p : rt.open_pages()) print_tree(*p, 0);
             continue;
@@ -114,8 +128,8 @@ int cmd_menu_run(Disc& disc, const std::vector<std::string>& a) {
             for (int n = std::max(std::atoi(k.c_str() + 4), 1); n > 0; --n) rt.update();
         } else if (k == "next") {
             if (const std::optional<menu::RaceRequest> race = rt.race_request()) {
-                std::printf("   race asked for: %s  course %s  car %s  paint %d  laps %d  difficulty %d  entries %d  race \"%s\"\n", race->sequence.c_str(),
-                            race->course.c_str(), race->car.c_str(), race->paint, race->laps, race->difficulty, race->max_entry, race->race.c_str());
+                std::printf("   race asked for: %s  course %s  car %s  paint %d  laps %d  difficulty %s  entries %d  race \"%s\"\n", race->sequence.c_str(),
+                            race->course.c_str(), race->car.c_str(), race->paint, race->laps, race->difficulty.c_str(), race->max_entry, race->race.c_str());
                 continue;
             }
             if (!rt.advance()) {
@@ -132,6 +146,24 @@ int cmd_menu_run(Disc& disc, const std::vector<std::string>& a) {
         }
         report(k);
     }
+    return 0;
+}
+
+// gt4tool db-strings <disc> <pool> [index...]: a string pool of the car database ("UnistrDB",
+// "american_StrDB"): the strings by index, or the ones asked for.
+int cmd_db_strings(Disc& disc, const std::vector<std::string>& a) {
+    const menu::FolderLister list = disc_lister(disc);
+    db::SpecDb sdb(disc_reader(disc), [list](const std::string& dir) { return list(!dir.empty() && dir.back() == '/' ? dir : dir + "/"); }, "american");
+    const db::Strings* pool = sdb.strings(a[0]);
+    if (!pool) {
+        std::fprintf(stderr, "error: no string pool named %s\n", a[0].c_str());
+        return 1;
+    }
+    if (a.size() > 1) {
+        for (size_t i = 1; i < a.size(); ++i) std::printf("%6s  %s\n", a[i].c_str(), pool->at(u32(std::strtoul(a[i].c_str(), nullptr, 0))).c_str());
+        return 0;
+    }
+    for (size_t i = 0; i < pool->strings.size(); ++i) std::printf("%6zu  %s\n", i, pool->strings[i].c_str());
     return 0;
 }
 

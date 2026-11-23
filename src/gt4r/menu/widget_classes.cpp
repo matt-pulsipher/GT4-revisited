@@ -139,50 +139,76 @@ Value list_callback(const LiveWidget& list, const char* name) {
     return cell ? cell->value : Value{};
 }
 
-// Places a list's rows one after the other along its direction, the focused row kept in view,
-// and asks the script to fill the rows that show (update_callback(context, index, widget)).
-void arrange_list(Runtime& rt, LiveWidget& list) {
+// A list box (MListBox): rows made from a template, as many as its item count, one after the
+// other along its direction (across unless `direction` is 1), `spacing` apart, the focused row
+// `magnify_ratio` larger and kept in the middle while the rows are longer than the box.
+// ❓ Laid out as the select box is (the two share MScrollable and these attributes); MListBox's
+// own routines (0x2B24D8 on) are not read: its `h_justify` / `v_justify` are taken as where a
+// row sits across the box (0 start, 0.5 middle, 1 end), `step_min` / `step_max` are not used.
+void arrange_list(Runtime& rt, LiveWidget& list, bool warp) {
     const std::optional<Rect> box = list.data.rect("geometry");
     const int n = list_count(list);
-    if (!box || n <= 0) {
-        list.children.clear();
-        return;
-    }
-    const bool across = list.data.number("direction") == 0 && list.data.has("direction");
-    const W first = list_item(rt, list, std::clamp(int(list.data.number("focus_index")), 0, n - 1), true);
-    if (!first) return;
-    const std::optional<Rect> size = first->data.rect("geometry");
-    const float step = std::max(across ? (size ? size->w : 32.0f) : (size ? size->h : 24.0f), 1.0f);
-    const float room = across ? box->w : box->h;
-    const int focus = std::clamp(int(list.data.number("focus_index")), 0, n - 1);
-    // The row at the top keeps the focused one inside the box.
-    int top = int(list.data.number("top_index"));
-    const int fit = std::max(int(room / step), 1);
-    if (focus < top) top = focus;
-    if (focus >= top + fit) top = focus - fit + 1;
-    top = std::clamp(top, 0, std::max(n - fit, 0));
-    list.set_property("top_index", Value::integer(top));
     list.children.clear();
+    if (!box || n <= 0) return;
+    const bool across = list.data.number("direction") == 0;
+    const int focus = std::clamp(int(list.data.number("focus_index")), 0, n - 1);
+    const W first = list_item(rt, list, focus, true);
+    if (!first) return;
+    const std::optional<Rect> size = first->data.has("item_w") ? std::optional<Rect>(Rect{0, 0, first->data.number("item_w"), first->data.number("item_h")})
+                                                              : first->data.rect("geometry");
+    const float item_w = size ? size->w : 32.0f, item_h = size ? size->h : 24.0f;
+    const float magnify = list.data.has("magnify_ratio") ? list.data.number("magnify_ratio") : 1.0f;
+    const float spacing = list.data.number("spacing"), border = list.data.number("border_width");
+    const float item = across ? item_w : item_h, extent = across ? box->w : box->h;
+    const float pitch = item + spacing, chosen = item * magnify, total = pitch * float(n - 1) + chosen;
+    float target = 0;
+    if (total < extent) target = (extent - total) * 0.5f;
+    else {
+        target = extent * 0.5f - (pitch * float(focus) + chosen * 0.5f);
+        target = std::min(target, item * 0.3f);
+        target = std::max(target, extent - item * 0.3f - total);
+    }
+    if (warp) list.scroll = target;
+    else {
+        const float ratio = list.data.has("interpolate_ratio") ? list.data.number("interpolate_ratio") : 0.2f;
+        const float d = (target - list.scroll) * ratio;
+        list.scroll = d >= -0.1f && d <= 0.1f ? target : list.scroll + d;
+    }
+    list.scroll_target = target;
+    const bool has_focus = list.page() && list.page()->focus.lock().get() == &list;
+    const float justify = across ? (list.data.has("v_justify") ? list.data.number("v_justify") : 0.0f)
+                                 : (list.data.has("h_justify") ? list.data.number("h_justify") : 0.0f);
     const Value update = list_callback(list, "update_callback");
-    for (int i = top; i < std::min(top + fit + 1, n); ++i) {
-        const bool fresh = !list.items.empty() && size_t(i) < list.items.size() && !list.items[size_t(i)];
-        const W row = list_item(rt, list, i, true);
-        if (!row) continue;
-        row->set_property(across ? "x" : "y", Value::number(float(i - top) * step));
-        row->set_property(across ? "y" : "x", Value::number(0));
-        list.children.push_back(row);
-        const bool stale = row->data.number("item_update") != 0 || fresh || !row->data.has("item_update");
-        if (stale && update.p && update.p->callable()) {
-            row->set_property("item_update", Value::integer(0));
-            try {
-                const Value args[3] = {rt.context(), Value::integer(i), widget_value(row)};
-                rt.vm().call(update, args);
-            } catch (const script::ScriptError& e) {
-                rt.note(std::string("script error in a list's update: ") + e.what());
+    float at = list.scroll;
+    for (int i = 0; i < n; ++i) {
+        const float scale = i == focus ? magnify : 1.0f;
+        const float length = item * scale;
+        if (at + length >= -pitch && at <= extent + pitch) {
+            const bool fresh = size_t(i) >= list.items.size() || !list.items[size_t(i)];
+            if (const W row = list_item(rt, list, i, true)) {
+                if (!row->data.has("item_w")) row->set_property("item_w", Value::number(item_w)), row->set_property("item_h", Value::number(item_h));
+                const float w = item_w * scale, h = item_h * scale;
+                const float cross = ((across ? box->h : box->w) - (across ? h : w) - border) * justify + border * (1.0f - justify);
+                row->set_property("w", Value::number(w));
+                row->set_property("h", Value::number(h));
+                row->set_property("x", Value::number(across ? at : cross));
+                row->set_property("y", Value::number(across ? cross : at));
+                row->state = i == focus ? row->state | kActive : row->state & ~kActive;
+                row->state = i == focus && has_focus ? row->state | (kFocus | kPrelight) : row->state & ~(kFocus | kPrelight);
+                list.children.push_back(row);
+                if ((fresh || row->data.number("item_update") != 0) && update.p && update.p->callable()) {
+                    row->set_property("item_update", Value::integer(0));
+                    try {
+                        const Value args[3] = {rt.context(), Value::integer(i), widget_value(row)};
+                        rt.vm().call(update, args);
+                    } catch (const script::ScriptError& e) {
+                        rt.note(std::string("script error in a list's update: ") + e.what());
+                    }
+                }
             }
         }
+        at += length + spacing;
     }
-    list.set_property("clip", Value::integer(1));
 }
 
 void list_focus(Runtime& rt, LiveWidget& list, int index, bool notify) {
@@ -191,13 +217,10 @@ void list_focus(Runtime& rt, LiveWidget& list, int index, bool notify) {
     index = list.data.number("repeat") != 0 ? ((index % n) + n) % n : std::clamp(index, 0, n - 1);
     const int before = int(list.data.number("focus_index"));
     list.set_property("focus_index", Value::integer(index));
-    arrange_list(rt, list);
-    if (LiveWidget* page = list.page()) {
-        const W at = page->focus.lock();
-        if (at && (at.get() == &list || at->parent_widget() == &list))
-            if (const W row = list_item(rt, list, index, true)) rt.set_focus(*page, row);
-    }
+    arrange_list(rt, list, !notify);
     if (notify && index != before) {
+        if (LiveWidget* page = list.page()) rt.navigate_sound(*page);
+        // focus_callback(context, index), else the list's own onValueChanged.
         const Value cb = list_callback(list, "focus_callback");
         if (cb.p && cb.p->callable()) {
             try {
@@ -206,7 +229,7 @@ void list_focus(Runtime& rt, LiveWidget& list, int index, bool notify) {
             } catch (const script::ScriptError& e) {
                 rt.note(std::string("script error in a list's focus: ") + e.what());
             }
-        }
+        } else rt.call_now(list, "onValueChanged", {rt.context(), Value::integer(index)});
     }
 }
 
@@ -299,11 +322,8 @@ void collect_focusable(const W& w, std::vector<W>& out) {
         return;
     }
     if (w->is("ListBox")) {
-        if (!w->children.empty()) {
-            const int focus = int(w->data.number("focus_index")), top = int(w->data.number("top_index"));
-            const size_t at = size_t(std::clamp(focus - top, 0, int(w->children.size()) - 1));
-            out.push_back(w->children[at]);
-        }
+        // The list itself has the focus; its rows are its look.
+        if (w->can_focus() && list_count(*w) > 0) out.push_back(w);
         return;
     }
     if (w->is("OptionMenu") || w->is("SliderBar") || w->is("ScaleBar")) {
@@ -394,7 +414,7 @@ bool widget_key(Runtime& rt, LiveWidget& w, Key k) {
         return false;
     }
     if (w.is("ListBox")) {
-        const bool across = w.data.number("direction") == 0 && w.data.has("direction");
+        const bool across = w.data.number("direction") == 0;
         const int step = across ? (k == Key::Left ? -1 : k == Key::Right ? 1 : 0) : (k == Key::Up ? -1 : k == Key::Down ? 1 : 0);
         if (!step) return false;
         const int before = int(w.data.number("focus_index"));
@@ -456,15 +476,24 @@ bool widget_key(Runtime& rt, LiveWidget& w, Key k) {
 
 void step_widgets(Runtime& rt, LiveWidget& w) {
     if (is_select_box(w)) select_box_layout(w, false);
+    if (w.is("ListBox")) {
+        arrange_list(rt, w, false);
+        return; // its rows are placed; nothing below them moves by itself
+    }
     if (w.is("ScrollBox")) {
         // A scroll box lights its arrows while the box inside it has more rows that way (the
         // program's 0x2CF868: its children named inc_arrow, dec_arrow, and the scrollable one).
-        for (const auto& c : w.children)
-            if (is_select_box(*c)) {
-                if (const W inc = w.child("inc_arrow")) inc->state = select_box_more(*c, true) ? inc->state | kActive : inc->state & ~kActive;
-                if (const W dec = w.child("dec_arrow")) dec->state = select_box_more(*c, false) ? dec->state | kActive : dec->state & ~kActive;
-                break;
-            }
+        for (const auto& c : w.children) {
+            bool more[2] = {false, false};
+            if (is_select_box(*c)) more[0] = select_box_more(*c, true), more[1] = select_box_more(*c, false);
+            else if (c->is("ListBox")) {
+                const int count = list_count(*c), focus = int(c->data.number("focus_index"));
+                more[0] = focus < count - 1, more[1] = focus > 0;
+            } else continue;
+            if (const W inc = w.child("inc_arrow")) inc->state = more[0] ? inc->state | kActive : inc->state & ~kActive;
+            if (const W dec = w.child("dec_arrow")) dec->state = more[1] ? dec->state | kActive : dec->state & ~kActive;
+            break;
+        }
     }
     if (w.is("ScrollWindow") || w.is("ScrollBox")) {
         // The content follows the focused widget: it moves a part of the way each frame.
@@ -667,19 +696,19 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
                 w->items.clear();
                 w->items.resize(size_t(count));
                 w->set_property("focus_index", Value::integer(std::clamp(int(w->data.number("focus_index")), 0, std::max(count - 1, 0))));
-                arrange_list(*r, *w);
+                arrange_list(*r, *w, true);
                 return Value{};
             });
         if (n == "getItemCount") return fn([w](Vm&, const Value&, Args) { return Value::integer(list_count(*w)); });
-        if (n == "getItemWidget") // (index[, context]): the row, made when a context is given
-            return fn([r, w](Vm&, const Value&, Args a) { return widget_value(list_item(*r, *w, arg_int(a, 0, -1), a.size() > 1)); });
+        if (n == "getItemWidget") // (index[, context]): the row, made from the template when it is not there yet
+            return fn([r, w](Vm&, const Value&, Args a) { return widget_value(list_item(*r, *w, arg_int(a, 0, -1), true)); });
         if (n == "setItemWidget") // (index, context, widget)
             return fn([r, w](Vm&, const Value&, Args a) {
                 const int i = arg_int(a, 0, -1);
                 if (i >= 0 && i < list_count(*w)) {
                     if (w->items.size() < size_t(list_count(*w))) w->items.resize(size_t(list_count(*w)));
                     w->items[size_t(i)] = a.size() > 2 ? a[2].as<LiveWidget>() : nullptr;
-                    arrange_list(*r, *w);
+                    arrange_list(*r, *w, true);
                 }
                 return Value{};
             });
@@ -687,7 +716,7 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
             return fn([r, w](Vm&, const Value&, Args) {
                 for (const W& row : w->items)
                     if (row) row->set_property("item_update", Value::integer(1));
-                arrange_list(*r, *w);
+                arrange_list(*r, *w, true);
                 return Value{};
             });
         if (n == "incIndex" || n == "decIndex") {
@@ -803,6 +832,46 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
         if (n == "setData" || n == "setColor" || n == "setColorIndex" || n == "syncLoading" || n == "loadModelSet" || n == "loadModelMotion" ||
             n == "loadModelOptionMotion")
             return nothing();
+    }
+    if (type == "CarFace") {
+        // car_code: the car shown; car_data: an MCarGarage of it; car_model: where the model
+        // stands and how it turns (MCarModel's attributes, kept for the scene that draws it).
+        if (n == "car_data" || n == "car_garage") {
+            auto a = std::make_shared<Accessor>();
+            a->read = [r, w]() -> Value {
+                const std::string code = w->data.text("car_code");
+                if (code.empty()) return Value{};
+                const auto it = w->extras.find("car_data of " + code);
+                if (it != w->extras.end())
+                    if (auto cell = std::dynamic_pointer_cast<script::Variable>(it->second)) return cell->value;
+                const Value car = make_car_object(*r, code, int(w->data.number("car_color")));
+                w->extras["car_data of " + code] = std::make_shared<script::Variable>(car);
+                return car;
+            };
+            a->write = [r, w](const Value& v) {
+                const std::string code = v.is_nil() ? std::string() : r->vm().attribute(v, "car_code").to_string();
+                w->set_property("car_code", Value::string(code));
+                if (!code.empty()) w->extras["car_data of " + code] = std::make_shared<script::Variable>(v);
+            };
+            return a;
+        }
+        if (n == "car_model") {
+            const auto it = w->extras.find("car_model");
+            if (it != w->extras.end()) return it->second;
+            auto model = std::make_shared<Object>("MCarModel");
+            for (const char* f : {"motion", "tx", "ty", "tz", "rx", "ry", "rz", "fadein", "transparentRatio", "independent"}) model->set(f, Value::number(0));
+            for (const char* f : {"posInterpolateSpeed", "rotInterpolateSpeed", "alpha", "alphaInterpolateSpeed", "additionalModelScale"})
+                model->set(f, Value::number(1));
+            for (const char* m : {"warp", "playModelMotion", "stopModelMotion", "setModelMotionLoop"})
+                model->method(m, [](Vm&, const Value&, Args) { return Value{}; });
+            model->method("isPlayingModelMotion", [](Vm&, const Value&, Args) { return Value::integer(0); });
+            return w->extras["car_model"] = std::make_shared<script::Variable>(object_value(model));
+        }
+        if (n == "setColorIndex")
+            return fn([w](Vm&, const Value&, Args a) {
+                w->set_property("car_color", Value::integer(arg_int(a, 0)));
+                return Value{};
+            });
     }
     if (type == "ColorFace" || type == "ColorWindow") {
         if (n == "getAlpha") return fn([w](Vm&, const Value&, Args) { return w->get("alpha"); });

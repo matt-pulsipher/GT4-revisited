@@ -7,10 +7,13 @@
 #include "gt4r/menu/runtime_internal.h"
 
 #include "gt4r/formats/db/specdb.h"
+#include "gt4r/menu/program_tables.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <ctime>
 
 namespace gt4r::menu {
@@ -60,13 +63,92 @@ struct Database {
     std::vector<db::CarEntry> cars;
     std::map<std::string, size_t> by_label;
     std::vector<db::CourseEntry> courses;
+    ProgramTables names; // the makers, tuners, countries and categories by number
+
+    // A car's row of the car table (GENERIC_CAR); empty when there is none.
+    ByteSpan car_row(const std::string& label) {
+        const db::Labels* labels = db ? db->labels("GENERIC_CAR") : nullptr;
+        const db::Table* table = db ? db->table("GENERIC_CAR") : nullptr;
+        const std::optional<u32> id = labels ? labels->id(label) : std::nullopt;
+        return table && id ? table->row(*id) : ByteSpan{};
+    }
+
+    // What the menus show of a car, from its rows of the car database:
+    //   ENGINE (the car's own engine, DEFAULT_PARTS' entry of table 12): +0x00 .. +0x14 six
+    //   u32 texts of the unit pool (displacement, layout, valve gear, aspiration, the engine
+    //   speeds of the power and the torque), +0x1A u16 PS, +0x1C u16 kgf.m x 100;
+    //   DRIVETRAIN (table 10): +0x10 u8 0 FR, 1 FF, 2 4WD, 3 MR, 4 RR;
+    //   VARIATION<language> (a row per paint): +0x0C u32 the paint's name, +0x24 its colour.
+    struct Paint {
+        std::string name;
+        u8 rgb[3] = {};
+    };
+    struct Spec {
+        bool engine = false;
+        int ps = 0;
+        float torque = 0; // kgf.m
+        std::string displacement, layout, valves, aspiration, power_rpm, torque_rpm;
+        int drivetrain = -1;
+        std::vector<Paint> paints;
+    };
+    std::map<std::string, Spec> specs;
+    const Spec& spec(const std::string& label) {
+        const auto it = specs.find(label);
+        if (it != specs.end()) return it->second;
+        Spec& sp = specs[label];
+        if (!db) return sp;
+        auto u16at = [](ByteSpan r, size_t at) { return r.size() >= at + 2 ? int(u16(r[at]) | u16(r[at + 1]) << 8) : 0; };
+        auto u32at = [](ByteSpan r, size_t at) { return r.size() >= at + 4 ? u32(r[at]) | u32(r[at + 1]) << 8 | u32(r[at + 2]) << 16 | u32(r[at + 3]) << 24 : 0u; };
+        const db::Strings* units = db->strings("UnistrDB");
+        if (const std::optional<u32> id = db->default_part(label, 12))
+            if (const db::Table* engines = db->table("ENGINE"))
+                if (const ByteSpan r = engines->row(*id); r.size() >= 0x1E) {
+                    sp.engine = true;
+                    sp.ps = u16at(r, 0x1A), sp.torque = float(u16at(r, 0x1C)) / 100.0f;
+                    if (units) {
+                        sp.displacement = units->at(u32at(r, 0)), sp.layout = units->at(u32at(r, 4)), sp.valves = units->at(u32at(r, 8));
+                        sp.aspiration = units->at(u32at(r, 12)), sp.power_rpm = units->at(u32at(r, 16)), sp.torque_rpm = units->at(u32at(r, 20));
+                    }
+                }
+        if (const std::optional<u32> id = db->default_part(label, 10))
+            if (const db::Table* trains = db->table("DRIVETRAIN"))
+                if (const ByteSpan r = trains->row(*id); r.size() > 0x10) sp.drivetrain = r[0x10];
+        const db::Labels* cars_ = db->labels("GENERIC_CAR");
+        const db::Table* car_paints = db->table("CAR_VARIATION_american");
+        const db::Table* paints = db->table("VARIATIONamerican");
+        const db::Strings* names_ = db->strings("american_StrDB");
+        const std::optional<u32> car_id = cars_ ? cars_->id(label) : std::nullopt;
+        if (car_id && car_paints && paints)
+            if (const ByteSpan row = car_paints->row(*car_id); row.size() >= 4) {
+                size_t first = 0;
+                const size_t n = paints->rows(u32at(row, 0), first);
+                for (size_t i = 0; i < n; ++i) {
+                    const ByteSpan r = paints->row_at(first + i);
+                    Paint paint;
+                    if (names_) paint.name = names_->at(u32at(r, 0x0C));
+                    if (r.size() >= 0x27) paint.rgb[0] = r[0x24], paint.rgb[1] = r[0x25], paint.rgb[2] = r[0x26];
+                    sp.paints.push_back(std::move(paint));
+                }
+            }
+        return sp;
+    }
 
     db::SpecDb* get(const Runtime::Config& config) {
         if (tried) return db.get();
         tried = true;
+        if (config.program) {
+            try {
+                names = ProgramTables::from_core(config.program());
+            } catch (const std::exception& e) {
+                rt->note(std::string("the program's name lists were not read: ") + e.what());
+            }
+        }
         if (!config.list) return nullptr;
         try {
-            db = std::make_unique<db::SpecDb>(rt->reader(), config.list, "american");
+            // The menus' lister takes a folder with its slash; the database names it without.
+            const FolderLister list = config.list;
+            db = std::make_unique<db::SpecDb>(rt->reader(), [list](const std::string& dir) { return list(!dir.empty() && dir.back() == '/' ? dir : dir + "/"); },
+                                              "american");
             cars = db->cars();
             for (size_t i = 0; i < cars.size(); ++i) by_label[cars[i].label] = i;
             courses = db->courses();
@@ -208,14 +290,77 @@ struct GameNatives {
         car->property("short_name_no_year", name);
         car->set("slot", number(slot));
         car->set("rideHistory", number(0));
-        car->method("getColorNum", [data, d, cfg](Vm&, const Value&, Args) {
+        GameState* st = &state();
+        auto spec = [data, d, cfg]() -> const Database::Spec& {
             d->get(cfg);
-            const db::CarEntry* e = d->car(data->car);
-            return number(e ? s32(std::max<u32>(e->paints, 1)) : 1);
+            return d->spec(data->car);
+        };
+        car->method("getColorNum", [spec](Vm&, const Value&, Args) { return number(s32(std::max<size_t>(spec().paints.size(), 1))); });
+        // getColors(): a paint each, as its colour (0 to 1 a part).
+        auto colors = [spec](Vm&, const Value&, Args) {
+            std::vector<Value> out;
+            for (const Database::Paint& p : spec().paints) {
+                auto c = std::make_shared<Object>("MColorObject");
+                c->set("r", Value::number(float(p.rgb[0]) / 255.0f)), c->set("g", Value::number(float(p.rgb[1]) / 255.0f));
+                c->set("b", Value::number(float(p.rgb[2]) / 255.0f)), c->set("a", Value::number(1));
+                out.push_back(object_value(c));
+            }
+            return Value::array(std::move(out));
+        };
+        car->method("getColors", colors);
+        car->method("getAllColors", colors);
+        car->method("getColorName", [spec, data](Vm&, const Value&, Args a) {
+            const std::vector<Database::Paint>& paints = spec().paints;
+            const s32 i = a.empty() ? data->paint : arg_int(a, 0);
+            return text(i >= 0 && size_t(i) < paints.size() && !paints[size_t(i)].name.empty() ? paints[size_t(i)].name : std::string("-"));
         });
+        // The drivetrain by its name in the text ("DriveTrainName": FR, FF, 4WD, MR, RR).
+        auto train = [spec](Vm&, const Value&, Args) {
+            static const char* const kinds[] = {"FR", "FF", "4WD", "MR", "RR"};
+            const int t = spec().drivetrain;
+            return t >= 0 && t < 5 ? text(kinds[t]) : Value{};
+        };
+        car->method("getDTrainType", train);
+        car->method("getDTrain", train);
+        // getCatPs(format), getCatTq(format): the catalog's power and torque as text; the
+        // format takes the number, its unit, the engine speed and its unit ("%d%s/%s%s";
+        // "%.2t": the torque with two decimals).
+        car->method("getCatPs", [spec, st](Vm& vm, const Value&, Args a) {
+            const Database::Spec& sp = spec();
+            if (!sp.engine) return text("--");
+            const bool hp = st->option_int("unit_power") != 0;
+            const Value args[4] = {number(s32(std::lround(float(sp.ps) * (hp ? 0.98632f : 1.0f)))), text(hp ? "HP" : "ps"), text(sp.power_rpm), text("rpm")};
+            return a.empty() ? args[0] : vm.call(vm.attribute(a[0], "format"), args);
+        });
+        car->method("getCatTq", [spec, st](Vm& vm, const Value&, Args a) {
+            const Database::Spec& sp = spec();
+            if (!sp.engine) return text("--");
+            const bool ftlb = st->option_int("unit_torque") != 0;
+            const float v = sp.torque * (ftlb ? 7.233f : 1.0f);
+            if (a.empty()) return Value::number(v);
+            std::string format = a[0].to_string();
+            for (size_t at; (at = format.find('t')) != std::string::npos && at > 0 && (format[at - 1] == '%' || std::isdigit(u8(format[at - 1])));) format[at] = 'f';
+            const Value args[4] = {Value::number(v), text(ftlb ? "ft.lb" : "kgf.m"), text(sp.torque_rpm), text("rpm")};
+            return vm.call(vm.attribute(text(format), "format"), args);
+        });
+        car->method("getCatDisplacement", [spec](Vm&, const Value&, Args) { return text(spec().displacement); });
+        car->method("getCatEngineType", [spec](Vm&, const Value&, Args) { return text(spec().layout); });
+        car->method("getCatEngineCam", [spec](Vm&, const Value&, Args) { return text(spec().valves); });
+        car->method("getAspiration", [spec](Vm&, const Value&, Args) { return text(spec().aspiration); });
+        car->method("getCurrentPs", [spec](Vm&, const Value&, Args) { return number(spec().ps); });
+        car->method("getCurrentPower", [spec](Vm&, const Value&, Args) { return number(spec().ps); });
+        car->method("getCurrentTq", [spec](Vm&, const Value&, Args) { return Value::number(spec().torque); });
+        car->method("isTurbo", [spec](Vm&, const Value&, Args) { return number(spec().aspiration == "TURBO"); });
+        car->method("isSuperCharger", [spec](Vm&, const Value&, Args) { return number(spec().aspiration == "SUPERCHARGER"); });
+        car->method("getOdometer", [data](Vm&, const Value&, Args) { return Value::number(data->odometer); });
+        car->method("getDate", [data](Vm&, const Value&, Args) { return number(data->date); });
+        for (const char* nothing : {"dump", "updateCurrentStatus", "loadPartsInfo", "setupPartsBuffer", "beginSetting", "endSetting", "syncWheel", "makeUsed"})
+            car->method(nothing, [](Vm&, const Value&, Args) { return Value{}; });
         car->method("getColorIndex", [data](Vm&, const Value&, Args) { return number(data->paint); });
         car->method("getGarageIndex", [slot](Vm&, const Value&, Args) { return number(slot); });
         car->method("isVacant", [data](Vm&, const Value&, Args) { return number(data->car.empty()); });
+        // ❓ Which cars have no manual gears is not read: none.
+        car->method("isAutomaticOnly", [](Vm&, const Value&, Args) { return number(0); });
         car->method("copyFrom", [](Vm&, const Value&, Args) { return Value{}; });
         return object_value(car);
     }
@@ -241,6 +386,7 @@ struct GameNatives {
         RaceRequest* q = &s->race;
         field(g, "course_code", &q->course), field(g, "race_code", &q->race), field(g, "game_code", &q->game);
         field(g, "max_entry", &q->max_entry), field(g, "laps", &q->laps), field(g, "difficulty", &q->difficulty);
+        // ❓ "NORMAL" to begin with: the scripts expect one of their three names.
         field(g, "enemy_level", &q->enemy_level), field(g, "overwrite_enemy_num", &q->overwrite_enemy_num);
         field(g, "car_code", &q->car), field(g, "car_color", &q->paint), field(g, "assist_type", &q->assist_type);
         field(g, "assist_asm", &q->assist_asm), field(g, "assist_tcs", &q->assist_tcs), field(g, "manual", &q->manual);
@@ -542,6 +688,21 @@ struct GameNatives {
     }
 };
 
+namespace {
+std::weak_ptr<GameNatives> g_natives_of(Runtime& rt, std::shared_ptr<GameNatives> set = nullptr) {
+    static std::map<Runtime*, std::weak_ptr<GameNatives>> all;
+    if (set) all[&rt] = set;
+    for (auto it = all.begin(); it != all.end();) it = it->second.expired() ? all.erase(it) : std::next(it);
+    const auto it = all.find(&rt);
+    return it == all.end() ? std::weak_ptr<GameNatives>() : it->second;
+}
+} // namespace
+
+Value make_car_object(Runtime& rt, const std::string& label, int paint) {
+    const std::shared_ptr<GameNatives> n = g_natives_of(rt).lock();
+    return n ? n->make_car(label, paint, -1) : Value{};
+}
+
 void install_fallback_world(Runtime& rt) {
     Vm& vm = rt.vm();
     const Value menu = vm.lookup("menu");
@@ -559,6 +720,8 @@ void install_fallback_world(Runtime& rt) {
 void install_game_natives(Runtime& rt, script::Module& menu) {
     auto n = std::make_shared<GameNatives>(GameNatives{rt, {}, std::make_shared<Database>(), nullptr, nullptr, nullptr});
     n->database->rt = &rt;
+    g_natives_of(rt, n);
+    rt.keep_alive(n);
     Runtime* r = &rt;
     GameState* s = &rt.game();
 
@@ -775,6 +938,135 @@ void install_game_natives(Runtime& rt, script::Module& menu) {
         static_fn(*cls, "GetCarName", name);
         static_fn(*cls, "GetShortCarName", name);
         (void)cfg;
+        // The car table's columns as the program's own accessors read them (0x448868 on):
+        // +0x08 u32 price, +0x0C s16 model year, +0x0E country, +0x0F maker, +0x10 tuner,
+        // +0x11 category (0 to 99; from 100 a car not shown in the lists), +0x12 flags (bit 0
+        // not for sale, bit 2 not in races, bit 5 a test car), +0x14 the open-top kind.
+        auto row = [d, n](Args a) {
+            d->get(n->config);
+            return d->car_row(arg_text(a, 0));
+        };
+        auto byte_at = [row](size_t at) { return [row, at](Vm&, const Value&, Args a) {
+            const ByteSpan r = row(a);
+            return number(r.size() > at ? r[at] : 0);
+        }; };
+        auto flag = [row](int bit) { return [row, bit](Vm&, const Value&, Args a) {
+            const ByteSpan r = row(a);
+            return number(r.size() > 0x12 ? (r[0x12] >> bit) & 1 : 0);
+        }; };
+        auto named = [row, d](size_t at, std::map<int, std::string> ProgramTables::*list, const char* none, int modulo) {
+            return [row, d, at, list, none, modulo](Vm&, const Value&, Args a) {
+                const ByteSpan r = row(a);
+                if (r.size() <= at) return text(none);
+                const std::map<int, std::string>& names = d->names.*list;
+                const auto it = names.find(modulo ? r[at] % modulo : r[at]);
+                return text(it == names.end() ? none : it->second);
+            };
+        };
+        static_fn(*cls, "GetPrice", [row](Vm&, const Value&, Args a) {
+            const ByteSpan r = row(a);
+            return number(r.size() >= 0x0C ? s32(u32(r[8]) | u32(r[9]) << 8 | u32(r[10]) << 16 | u32(r[11]) << 24) : 0);
+        });
+        static_fn(*cls, "GetModelYear", [row](Vm&, const Value&, Args a) {
+            const ByteSpan r = row(a);
+            return number(r.size() >= 0x0E ? s16(u16(r[0x0C]) | u16(r[0x0D]) << 8) : 0);
+        });
+        static_fn(*cls, "GetMaker", named(0x0F, &ProgramTables::makers, "none", 0));
+        static_fn(*cls, "GetTuner", named(0x10, &ProgramTables::tuners, "none", 0));
+        static_fn(*cls, "GetCountry", named(0x0E, &ProgramTables::countries, "none", 0));
+        static_fn(*cls, "GetCategory", named(0x11, &ProgramTables::categories, "no categorised", 100));
+        static_fn(*cls, "GetCarLogoName", named(0x10, &ProgramTables::tuners, "none", 0));
+        static_fn(*cls, "IsStrange", [row](Vm&, const Value&, Args a) {
+            const ByteSpan r = row(a);
+            return number(r.size() > 0x11 && r[0x11] >= 100);
+        });
+        static_fn(*cls, "GetOpenModelType", byte_at(0x14));
+        static_fn(*cls, "NotForSell", flag(0));
+        static_fn(*cls, "RaceForbidden", flag(2));
+        static_fn(*cls, "IsTestCar", flag(5));
+        // ❓ Not read from the program yet: what the tires and the surface checks answer
+        // (0x448AD0 reads the car's tire rows), the dirt and snow versions of a car, the
+        // selling price and the opponents picked for a car.
+        // The car's row of ARCADEINFO_NORMAL: eight entries of {u32 row of RACE, u32 table}
+        // and a byte. The program's GetRaceCode (0x12E150) takes entry `difficulty` (0 to 2)
+        // on a dry course and entry 3 + `difficulty` on any other. ❓ Its tire and dirt checks
+        // read a rearranged copy of the row: the last byte is taken as "road tires" and entry 6
+        // as the dirt race.
+        auto arcade = [d, n](Args a) -> ByteSpan {
+            db::SpecDb* db = d->get(n->config);
+            const db::Labels* labels = db ? db->labels("ARCADEINFO_NORMAL") : nullptr;
+            const db::Table* table = db ? db->table("ARCADEINFO_NORMAL") : nullptr;
+            const std::optional<u32> id = labels ? labels->id(arg_text(a, 0)) : std::nullopt;
+            return table && id ? table->row(*id) : ByteSpan{};
+        };
+        auto entry = [](ByteSpan r, size_t i) -> s32 {
+            return r.size() >= i * 8 + 4 ? s32(u32(r[i * 8]) | u32(r[i * 8 + 1]) << 8 | u32(r[i * 8 + 2]) << 16 | u32(r[i * 8 + 3]) << 24) : -1;
+        };
+        static_fn(*cls, "IsTireNormal", [arcade](Vm&, const Value&, Args a) {
+            const ByteSpan r = arcade(a);
+            return number(r.size() > 0x40 ? r[0x40] != 0 : 1);
+        });
+        static_fn(*cls, "IsDirtRunnable", [arcade, entry](Vm&, const Value&, Args a) {
+            const ByteSpan r = arcade(a);
+            return number(r.empty() ? 0 : entry(r, 6) != -1);
+        });
+        static_fn(*cls, "GetRaceCode", [arcade, entry, d](Vm&, const Value&, Args a) {
+            const ByteSpan r = arcade(a);
+            const s32 type = arg_int(a, 1), level = std::clamp(a.size() > 2 && a[2].kind == Kind::String ? s32(std::strtol(a[2].as_string().c_str(), nullptr, 0)) : arg_int(a, 2), 0, 2);
+            const s32 id = entry(r, size_t(type == 0 ? level : 3 + level));
+            const db::Labels* races = d->db && id != -1 ? d->db->labels("RACE") : nullptr;
+            const std::string* label = races ? races->label(u32(id)) : nullptr;
+            return label ? text(*label) : Value{};
+        });
+        static_fn(*cls, "GetCarNumericCode", [d, n](Vm&, const Value&, Args a) {
+            db::SpecDb* db = d->get(n->config);
+            const db::Labels* labels = db ? db->labels("GENERIC_CAR") : nullptr;
+            const std::optional<u32> id = labels ? labels->id(arg_text(a, 0)) : std::nullopt;
+            return number(id ? s32(*id) : -1);
+        });
+        static_fn(*cls, "GetCarNameByNumericCode", [d, n](Vm&, const Value&, Args a) {
+            db::SpecDb* db = d->get(n->config);
+            const db::Labels* labels = db ? db->labels("GENERIC_CAR") : nullptr;
+            const std::string* label = labels ? labels->label(u32(arg_int(a, 0, -1))) : nullptr;
+            return text(label ? *label : std::string());
+        });
+        static_fn(*cls, "GetSellPrice", [row](Vm&, const Value&, Args a) {
+            const ByteSpan r = row(a);
+            return number(r.size() >= 0x0C ? s32((u32(r[8]) | u32(r[9]) << 8 | u32(r[10]) << 16 | u32(r[11]) << 24) / 4) : 0);
+        });
+        for (const char* same : {"ShiftCarCode", "GetDirtCarCode", "GetSnowCarCode"})
+            static_fn(*cls, same, [](Vm&, const Value&, Args a) { return a.empty() ? text("") : text(a[0].to_string()); });
+        static_fn(*cls, "GetDescriptionID", [](Vm&, const Value&, Args a) { return a.empty() ? text("") : text(a[0].to_string()); });
+        static_fn(*cls, "PickUpEnemyCars", [](Vm&, const Value&, Args) { return Value::array({}); });
+    }
+    // MCourseData: a course's row of the COURSE table by its label. The program reads the same
+    // row (0x1B2F10, 0x1B3030): +0x10 the surface (0 dry, 1 wet, 2 dirt, 3 snow), +0x11 the most
+    // cars it takes.
+    {
+        auto cls = make_class(menu, "MCourseData");
+        std::shared_ptr<Database> d = n->database;
+        auto row = [d, n](const std::string& label) -> ByteSpan {
+            db::SpecDb* db = d->get(n->config);
+            const db::Labels* labels = db ? db->labels("COURSE") : nullptr;
+            const db::Table* table = db ? db->table("COURSE") : nullptr;
+            const std::optional<u32> id = labels ? labels->id(label) : std::nullopt;
+            return table && id ? table->row(*id) : ByteSpan{};
+        };
+        static_fn(*cls, "GetMaxCarNum", [row](Vm&, const Value&, Args a) {
+            const ByteSpan r = row(arg_text(a, 0));
+            return number(r.size() > 0x11 ? r[0x11] : 0);
+        });
+        static_fn(*cls, "GetType", [row](Vm&, const Value&, Args a) {
+            const ByteSpan r = row(arg_text(a, 0));
+            static const char* const kinds[] = {"dry", "wet", "dirt", "snow"};
+            return text(r.size() > 0x10 && r[0x10] < 4 ? kinds[r[0x10]] : "unknown");
+        });
+        static_fn(*cls, "GetID", [d, n](Vm&, const Value&, Args a) {
+            db::SpecDb* db = d->get(n->config);
+            const db::Labels* labels = db ? db->labels("COURSE") : nullptr;
+            const std::optional<u32> id = labels ? labels->id(arg_text(a, 0)) : std::nullopt;
+            return number(id ? s32(*id) : -1);
+        });
     }
     {
         auto cls = make_class(menu, "MCarGarage");
@@ -820,7 +1112,7 @@ void install_game_natives(Runtime& rt, script::Module& menu) {
         for (const char* nothing : {"load", "unload", "get"}) p->method(nothing, [](Vm&, const Value&, Args) { return Value{}; });
         return object_value(p);
     };
-    n->config = Runtime::Config{rt.region(), rt.language(), rt.lister(), rt.data_dir()};
+    n->config = rt.config();
 }
 
 } // namespace gt4r::menu

@@ -50,6 +50,7 @@ using namespace gt4r;
 
 namespace gt4tool {
 int cmd_menu_run(Disc& disc, const std::vector<std::string>& args); // cmd_menu.cpp
+int cmd_db_strings(Disc& disc, const std::vector<std::string>& args);
 }
 
 namespace {
@@ -588,6 +589,7 @@ const Command kCommands[] = {
     {"adc", "<disc> [path]", 0, cmd_adc},
     {"menu", "<disc> [project] [all]", 0, cmd_menu},
     {"menu-run", "<disc> <project> [steps...]", 1, cmd_menu_run},
+    {"db-strings", "<disc> <pool> [index...]", 1, [](Disc& d, const Args& a) { return gt4tool::cmd_db_strings(d, a); }},
     {"run", "<disc> [path]", 0, cmd_run},
     {"db", "<disc> [cars | wheels | courses | <table> [rows]]", 0, cmd_db},
     {"model", "<disc> <path>", 1, cmd_model},

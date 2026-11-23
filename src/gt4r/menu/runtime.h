@@ -96,6 +96,7 @@ struct RuntimeConfig {
     std::string region = "us";   // menu::MSystem::GetRegionCode()
     std::string language = "US"; // the projects' language folder
     FolderLister list;           // the disc's folders (the car database's)
+    std::function<Bytes()> program; // the disc's program file (CORE.GT4): the name lists the scripts read through MCarData
     std::string data_dir;        // where the options are kept ("" : not kept)
 };
 
@@ -176,6 +177,7 @@ public:
     void track_actor(const std::shared_ptr<script::Heap>& a);
     const script::Value& context() const { return render_context_; }
     const script::Value& update_context() const { return update_context_; }
+    const Config& config() const { return config_; }
     const std::string& region() const { return config_.region; }
     const FolderLister& lister() const { return config_.list; }
     const std::string& data_dir() const { return config_.data_dir; }
@@ -189,6 +191,8 @@ public:
     script::Value bubble_now(LiveWidget& from, const std::string& name, std::vector<script::Value> args);
     float seconds_since_input() const { return float(frame_ - last_input_frame_) / 60.0f; }
     FileReader& reader() { return read_; }
+    // Something the natives own for as long as the runtime lives.
+    void keep_alive(std::shared_ptr<void> p) { kept_.push_back(std::move(p)); }
 
 private:
     struct Running {
@@ -240,6 +244,7 @@ private:
     bool finished_ = false;
     std::string sequence_ = "boot"; // the part of the game running: "boot", then "menu"
     int pumping_ = 0;
+    std::vector<std::shared_ptr<void>> kept_;
 };
 
 } // namespace gt4r::menu

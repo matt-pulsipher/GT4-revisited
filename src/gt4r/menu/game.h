@@ -30,8 +30,8 @@ struct RaceRequest {
     std::string car;      // car_code: a car's label ("_117_coupe_68")
     int paint = 0;        // car_color: the car's paint by index
     int laps = 0;
-    int difficulty = 0;
-    int enemy_level = 0;
+    std::string difficulty = "NORMAL"; // "EASY", "NORMAL", "HARD" (the scripts' names)
+    int enemy_level = 0;               // -10 to 10: the opponents' pace when the car has no race of its own
     int max_entry = 6;           // cars on the grid
     int overwrite_enemy_num = 0; // opponents chosen by the scripts (entries)
     int assist_type = 0, assist_asm = 0, assist_tcs = 0;
