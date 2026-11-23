@@ -29,6 +29,9 @@ public:
     // Why the tables are not the disc's ("the disc's program is not a build whose tables are mapped").
     const std::string& issue() const { return issue_; }
 
+    // The image as loaded at base() (kept for a build that is not known too: program_prologue.h).
+    ByteSpan image() const { return image_; }
+    u32 base() const { return base_; }
     // The image's bytes at a program address (0 outside it).
     u8 b(u32 addr) const;
     u16 h(u32 addr) const { return u16(b(addr) | (b(addr + 1) << 8)); }
