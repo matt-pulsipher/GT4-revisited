@@ -283,7 +283,8 @@ the full scenery.
   the buffer 64 x 64; on wet Tsukuba it is 28 models, 256 x 128 with 2 blur passes; Grand
   Valley's is one model and a slot 50 sky.
 - Mirrored cars (flag bit 16) and lamp streaks (bit 17, the picture of slot 40) go in, then the
-  blur passes (+0xC2C).
+  blur passes (+0xC2C). The race view mirrors each car (but the in-car view's own) in the plane
+  through its tires' contacts (`CarVisual::add_mirror_items`, as the shared engine's).
 - The buffer is put on the road with the blend mode +0xC20 and the color (+0xC10, +0xC14,
   +0xC18) x +0xC1C (gain 0.5 on 74 courses; dry Tsukuba 1 1 1 x 0.5, wet Tsukuba 0.9 0.9 0.85
   x 1.0 with mode 0x54).

@@ -340,6 +340,10 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
     if (m.wet.active()) {
         m.wet_items.clear();
         course_->add_reflection_sky_items(m.wet_items, pose.eye);
+        // The cars mirrored in the wet road when the course asks for them (Env0 +0x10 bit 16).
+        if (m.wet.params().cars)
+            for (size_t i = 0; i < std::min(cars.size(), car_visuals_.size()); ++i)
+                if (int(i) != hidden) car_visuals_[i]->add_mirror_items(m.wet_items, cars[i], pose.eye);
         m.wet.add_buffer_items(m.wet_items, pose.view, pose.eye, {});
         for (render::DrawItem& it : m.wet_items) it.tint = course_->reflection_gain();
         const render::DrawOptions wo = draw_options(*course_, far);

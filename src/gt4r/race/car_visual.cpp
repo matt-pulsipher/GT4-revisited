@@ -300,6 +300,34 @@ void CarVisual::add_items(std::vector<render::DrawItem>& items, const CarState& 
     }
 }
 
+bool CarVisual::road_mirror(const CarState& s, Mat4& out) const {
+    render::Vec3 c[4], p{0, 0, 0};
+    for (int w = 0; w < 4; ++w) {
+        c[w] = v3(s.wheels[w].center) - v3(s.up) * spec_.tire_radius[w / 2];
+        p = p + c[w] * 0.25f;
+    }
+    const render::Vec3 ahead = (c[0] + c[1]) - (c[2] + c[3]), side = (c[1] + c[3]) - (c[0] + c[2]);
+    if (!(render::length(ahead) > 0.5f) || !(render::length(side) > 0.5f)) return false;
+    const render::Vec3 n = render::normalize(render::cross(side, ahead));
+    if (!(n.y > 0.3f)) return false;
+    const float pn = render::dot(p, n), N[3] = {n.x, n.y, n.z};
+    out = Mat4{};
+    for (int r = 0; r < 3; ++r) {
+        for (int k = 0; k < 3; ++k) out.at(r, k) = (r == k ? 1.0f : 0.0f) - 2.0f * N[r] * N[k];
+        out.at(r, 3) = 2.0f * pn * N[r];
+    }
+    return true;
+}
+
+bool CarVisual::add_mirror_items(std::vector<render::DrawItem>& items, const CarState& s, const render::Vec3& eye) const {
+    Mat4 m;
+    if (!road_mirror(s, m)) return false;
+    const size_t first = items.size();
+    add_items(items, s, eye);
+    for (size_t i = first; i < items.size(); ++i) items[i].transform = m * items[i].transform;
+    return true;
+}
+
 void CarVisual::add_shadow_items(std::vector<render::DrawItem>& items, const CarState& s) const {
     if (!shadow_[0] && !shadow_[1] && !shadow_[2]) return;
     // On the road under the car: the plane through the tires' contacts, lifted 2 cm.

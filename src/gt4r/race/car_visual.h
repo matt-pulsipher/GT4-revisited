@@ -48,6 +48,11 @@ public:
     // seconds (the wheels show their turning picture by how far they turn in one).
     void add_items(std::vector<render::DrawItem>& items, const CarState& s, const render::Vec3& eye, float step = 1.0f / 60) const;
     // The shadow under the car: after the course, before any car.
+    // The car mirrored in the road under it (a wet road's reflection, the course's flag): the plane
+    // through the tires' contacts. False when the car is not on a road it can mirror in.
+    bool add_mirror_items(std::vector<render::DrawItem>& items, const CarState& s, const render::Vec3& eye) const;
+    // That mirror (course space to course space).
+    bool road_mirror(const CarState& s, render::Mat4& out) const;
     void add_shadow_items(std::vector<render::DrawItem>& items, const CarState& s) const;
 
     // The model's frame in course space for a state: the body as drawn.
