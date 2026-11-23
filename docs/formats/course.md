@@ -36,12 +36,12 @@ Gran Turismo 3's table of section offsets
 | 40 | `Tex1` | The lamp streak of the road reflection, 32x64 T4 (`race/reflection.img`) |
 | 42 | `Tex1` | One 256x128 T8 picture on ten loose-surface courses (assisi, capri, grandcanyon, icerace, nursnow, paris_rally, smtsouth, tahiti_maze, yosemite_dirt and its short layout) ❓ |
 | 43 | `MDLS` | `ss_snow` only ❓ |
-| 44-46, 48 | `REP4` | Replay cameras; the start's cameras; the preview's |
+| 44-46, 48 | `REP4` | Replay cameras (44); two shots round the car the program does not use (45, 46); the scenic shots behind the race's menus (48) |
 | 47 | `GDGT` | Cones and boards |
 | 49 | `Tex1` | A picture of the race display (256x64 or 256x128 T8; 102 courses) ❓ |
 | 50 | `MDLS` | The sky of the road reflection (35 courses) |
 | 51 | `CRPM` | The 15 `ss_` photo locations only ❓ |
-| 52, 53 | `Mot1` | Camera motions |
+| 52, 53 | `Mot1` | Camera motions: the race's start shots (52), a replay's (53) |
 | 55 | `RNW4` | The road: surface, walls, checkpoints, start grid (below) |
 
 Checked on all 110 courses: every one has slots 1-7, 21-24, 26, 29, 30, 32, 33, 35, 37, 39, 40,
