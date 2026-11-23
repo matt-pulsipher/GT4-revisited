@@ -117,13 +117,17 @@ TEST(sound_race_contacts_from_seam) {
     CHECK(near(audio::contact_strength(0, 25000), 0.5, 1e-6) && audio::contact_strength(0, 5000) == 0); // a wall: N / 50,000; under 0.2 none
     CHECK(near(audio::contact_strength(1, 0.3f), 0.6, 1e-6) && audio::contact_strength(1, 2) == 1);   // a car: twice the speed, at most 1
     CHECK(near(audio::contact_strength(2, 1), 0.2, 1e-6));                                             // the third kind: at least 0.2
+    // The seam's contact is the collision step's 0..1 strength: the level as it is, none under 0.2.
     race::CarState car;
-    car.contact = 30000, car.contact_kind = 1;
+    car.contact = 0.6f, car.contact_kind = 1;
     audio::CarSoundState s = audio::sound_state(car);
     CHECK(s.contact_kind == 0 && near(s.contact, 0.6, 1e-6));
-    car.contact = 0.25f, car.contact_kind = 2;
+    car.contact = 0.5f, car.contact_kind = 2;
     s = audio::sound_state(car);
     CHECK(s.contact_kind == 1 && near(s.contact, 0.5, 1e-6));
+    car.contact = 0.1f;
+    s = audio::sound_state(car);
+    CHECK(s.contact == 0);
     car.contact_kind = 0, car.landed = true, car.velocity = {0, -4, 10};
     s = audio::sound_state(car);
     CHECK(s.contact == 0 && near(s.wheels[0].landing, 0.8, 1e-6));
