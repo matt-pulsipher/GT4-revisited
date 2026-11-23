@@ -7,6 +7,7 @@
 #include "app/ui.h"
 #include "audio/audio_engine.h"
 #include "base/config.h"
+#include "gt4r/audio/app_sound.h"
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/db/specdb.h"
 #include "input/input_manager.h"
@@ -64,6 +65,9 @@ public:
     db::SpecDb* db();
     gt3r::InputManager& input() { return *input_; }
     gt3r::AudioEngine& audio() { return *audio_; }
+    // The open disc's sound (the menus' effects and music, the bank library the cars' sounds
+    // use), made on first use; null without a disc.
+    audio::AppSound* sound();
     gt3r::IniDocument& config() { return config_; }
     const MenuInput& menu() const { return menu_; }
     SDL_Renderer* renderer() { return renderer_; }
@@ -88,6 +92,7 @@ private:
     std::unique_ptr<Disc> disc_;
     std::unique_ptr<gt3r::Vfs> vfs_;
     std::unique_ptr<db::SpecDb> db_;
+    std::unique_ptr<audio::AppSound> sound_; // (after audio_ and vfs_: gone before them)
     bool db_tried_ = false;
     gt3r::IniDocument config_;
     std::string data_dir_, config_path_;

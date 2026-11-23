@@ -45,7 +45,8 @@ struct CarState {
     bool brake_lamps = false, reverse_lamps = false;
     WheelState wheels[4];         // front left, front right, rear left, rear right
     float course_v = 0;           // metres along the course (Runway::Checkpoint::v)
-    int lap = 0;                  // laps completed
+    int lap = 0;                  // laps completed; -1 for a car that starts behind the line, until
+                                  // it first crosses it
 };
 
 // One session's cars. Car 0.. in grid order; `inputs` has one entry per car (a car whose

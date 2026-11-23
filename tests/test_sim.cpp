@@ -98,7 +98,7 @@ Run drive(sim::Session& s, double seconds, bool steer, bool careful = false) {
         rev.throttle = 1;
         for (int i = 0; i < 90; ++i) s.hold_once(std::span<const race::CarInput>(&rev, 1));
     }
-    const float start = s.cars()[0].course_v;
+    const float start = s.cars()[0].course_v + float(s.cars()[0].lap) * s.ground().road().length;
     for (int i = 0; i < int(seconds * 60); ++i) {
         race::CarInput in;
         in.throttle = 1;

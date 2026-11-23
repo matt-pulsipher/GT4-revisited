@@ -478,6 +478,8 @@ void Session::publish(size_t i) {
             if (d < -road_->length * 0.5f) ++s.lap;
             else if (d > road_->length * 0.5f) --s.lap;
         }
+        // A start place behind the line: the first lap begins when the car crosses it.
+        if (!x.has_v && road_->length > 0 && v > road_->length * 0.5f) s.lap = -1;
         x.last_v = v, x.has_v = true;
         s.course_v = v;
     }

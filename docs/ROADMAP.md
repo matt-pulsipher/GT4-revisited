@@ -34,8 +34,9 @@ Done:
       database's paints); the three driving views and the course's replay cameras; the race
       display (position, laps, times, the course map, the meters of both views, the start's
       count) from the disc's pictures, fonts and program tables; a finished run shown again
-      through the replay cameras. The cars move on a stand-in (`rail_simulation.*`) behind
-      `simulation.h`.
+      through the replay cameras; the cars' engine, exhaust, wind and tire sounds. The cars
+      move by the simulation behind `simulation.h` (a stand-in, `rail_simulation.*`, where it
+      cannot be set up, as on Prologue's disc).
 - [x] The simulation, a first part (`src/gt4r/sim/`, `gt4tool car`, `road`, `drive`): a car's
       parts, default settings and specification as the game builds them, and its physics
       parameters, checked against the user's own program on every car (`gt4r_diff`); the

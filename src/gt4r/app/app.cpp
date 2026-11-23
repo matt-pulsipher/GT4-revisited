@@ -120,6 +120,7 @@ std::string App::open_disc(const std::string& path) {
         return e.what();
     }
     if (audio_) audio_->stop_music(); // (it streams from the disc being closed)
+    sound_.reset();
     vfs_.reset();
     db_.reset(), db_tried_ = false;
     disc_ = std::move(disc);
@@ -137,6 +138,11 @@ std::string App::open_disc(const std::string& path) {
         if (!config_.save(config_path_)) LOG_WARN("Could not save %s", config_path_.c_str());
     }
     return {};
+}
+
+audio::AppSound* App::sound() {
+    if (!sound_ && audio_ && vfs_) sound_ = std::make_unique<audio::AppSound>(*audio_, *vfs_);
+    return sound_.get();
 }
 
 db::SpecDb* App::db() {
@@ -262,6 +268,7 @@ void App::save_screenshot(const std::string& path) {
 void App::shutdown() {
     screens_.clear(); // (screens stop their streams before the audio and the disc go)
     pending_.clear();
+    sound_.reset();
     audio_.reset();
     db_.reset();
     vfs_.reset();

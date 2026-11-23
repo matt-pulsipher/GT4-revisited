@@ -1,7 +1,7 @@
 // Drive: pick a car and a course, then a race on the course's road: the first car driven with
 // the pad, the others by a simple driver, all on the simulation behind race/simulation.h.
 //
-// GT4R_RACE="course=tsukuba,car=<label>,cars=6,view=chase,drive=auto,skip=600,paint=1,hud=1"
+// GT4R_RACE="course=tsukuba,car=<label>,cars=6,view=chase,drive=auto,skip=600,paint=1,hud=1,sim=rail"
 // sets it up without the lists, for pictures: `course` a course file's name, `car` a car's label
 // (or its model's name), `cars` how many on the grid, `view` in | chase | roof | back, `drive`
 // auto (the simple driver takes the first car too) or pad, `skip` simulation steps run before the
@@ -13,6 +13,7 @@
 #include "gt4r/app/race_hud.h"
 
 #include "base/log.h"
+#include "gt4r/audio/car_sound.h"
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/formats/model/car_model.h"
 #include "gt4r/race/car_spec.h"
@@ -21,6 +22,7 @@
 #include "gt4r/race/drive_camera.h"
 #include "gt4r/race/rail_simulation.h"
 #include "gt4r/race/replay_script.h"
+#include "gt4r/sim/session.h"
 #include "race/billboards.h"
 #include "race/controls.h"
 #include "race/lamp_glows.h"
@@ -61,6 +63,7 @@ struct Setup {
     int replay = 0;
     bool smoke = true;
     bool reflection = true;
+    bool rail = false;     // the stand-in simulation instead of the game's
     bool scripted = false; // from GT4R_RACE: no lists
 };
 
@@ -88,6 +91,7 @@ Setup setup_from_env() {
         else if (k == "replay") s.replay = std::max(0, std::atoi(v.c_str()));
         else if (k == "smoke") s.smoke = v != "0";
         else if (k == "reflection") s.reflection = v != "0";
+        else if (k == "sim") s.rail = v == "rail";
         else if (k == "laps") s.laps = std::clamp(std::atoi(v.c_str()), 1, 99);
     }
     return s;
@@ -110,6 +114,7 @@ public:
         for (size_t i = 0; i < cars.size(); ++i)
             if (cars[i].label == setup.car || cars[i].model == setup.car) first = i;
         std::vector<race::RailCar> rails;
+        std::vector<std::string> labels;
         for (int i = 0; i < setup.cars; ++i) {
             const db::CarEntry& entry = cars[(first + size_t(i) * 37) % cars.size()];
             const race::CarSpec spec = race::read_car_spec(*app.db(), entry.label);
@@ -150,10 +155,39 @@ public:
             car_visuals_.push_back(visual.get());
             names_.push_back(entry.name.empty() ? entry.label : entry.name);
             rails.push_back(race::rail_car(spec));
+            labels.push_back(entry.label);
         }
-        rail_ = std::make_unique<race::RailSimulation>(course_->road(), std::move(rails));
-        sim_ = rail_.get();
+        line_ = race::RailLine(course_->road());
+        // The cars move by the simulation; the stand-in serves when it cannot be set up for this
+        // disc, course or car (and when asked for: sim=rail).
+        if (!setup.rail && app.disc()) {
+            try {
+                const sim::Program program = sim::Program::load(*app.disc());
+                std::vector<sim::Entry> entries(labels.size());
+                for (size_t i = 0; i < labels.size(); ++i)
+                    if (!sim::stock_car(*app.db(), program, labels[i], entries[i].equipment)) throw std::runtime_error("no parts for " + labels[i]);
+                session_ = std::make_unique<sim::Session>(*app.db(), program, std::make_shared<const course::Runway>(course_->road()), entries);
+                for (const std::string& note : session_->notes()) LOG_INFO("Drive: %s", note.c_str());
+                sim_ = session_.get();
+            } catch (const std::exception& e) {
+                LOG_WARN("Drive: the simulation could not be set up (%s); the cars follow the road's line", e.what());
+                session_.reset();
+            }
+        }
+        if (!sim_) {
+            rail_ = std::make_unique<race::RailSimulation>(course_->road(), std::move(rails));
+            sim_ = rail_.get();
+        }
         inputs_.resize(size_t(setup.cars));
+        // Each car's engine, exhaust, wind and tires, heard from the first car.
+        if (audio::AppSound* sound = app.sound()) {
+            for (size_t i = 0; i < labels.size(); ++i) {
+                auto s = std::make_unique<audio::CarSound>(*app.vfs(), app.audio().voices(), &sound->driver(), sound->library_ptr());
+                if (!s->load(labels[i])) LOG_WARN("Drive: no engine sound for %s", labels[i].c_str());
+                s->set_view(i == 0 ? gt3r::EngineSound::View::ChaseOwn : gt3r::EngineSound::View::ChaseOther);
+                sounds_.push_back(std::move(s));
+            }
+        }
         camera_.reset(sim_->cars()[0]);
         // The count before the start: three seconds (a scripted run that skips ahead has none).
         started_with_count_ = setup.skip == 0;
@@ -197,6 +231,7 @@ public:
             if (replay_at_ == 0) camera_.reset(history_[0][0]), replay_camera_.reset(), smoke_.clear();
             camera_.step(history_[replay_at_][0], kStep);
             puff(history_[replay_at_]);
+            hear(history_[replay_at_]);
             return;
         }
         const std::span<const race::CarState> cars = sim_->cars();
@@ -207,11 +242,12 @@ public:
             std::fill(inputs_.begin(), inputs_.end(), race::CarInput{});
             for (race::CarInput& in : inputs_) in.brake = 1;
             sim_->step(inputs_, kStep);
+            hear(sim_->cars());
             return;
         }
         auto_drive = auto_drive || finished_;
         for (size_t c = 0; c < inputs_.size(); ++c)
-            inputs_[c] = race::follow_line(rail_->line(), cars[c], c & 1 ? 2.0f : -2.0f, 1.0f - 0.05f * float(c));
+            inputs_[c] = race::follow_line(line_, cars[c], c & 1 ? 2.0f : -2.0f, 1.0f - 0.05f * float(c));
         if (!auto_drive) {
             const gt3r::sim::ControlInputs in = mapper_.update(pad, kStep);
             race::CarInput& me = inputs_[0];
@@ -242,6 +278,7 @@ public:
         if (finished_) ++finish_steps_;
         if (history_.size() < kHistory) history_.emplace_back(sim_->cars().begin(), sim_->cars().end());
         puff(sim_->cars());
+        hear(sim_->cars());
         // Five seconds after the finish the run is shown again.
         if (finished_ && finish_steps_ > 5 * 60) start_replay();
     }
@@ -296,7 +333,7 @@ public:
         h.red_line = spec.red_line, h.rev_limit = spec.rev_limit;
         h.driver_view = mount_ != race::DriveCamera::kChase && mount_ != kTvView;
         // The place: by laps and distance along the course.
-        const float length = rail_->line().length;
+        const float length = line_.length;
         auto progress = [&](const race::CarState& c) { return float(c.lap) * length + c.course_v; };
         h.place = 1;
         h.cars.clear();
@@ -455,11 +492,20 @@ public:
         ++frame_;
     }
 
+    // The cars' sounds for a step, and their silence (a pause).
+    void hear(std::span<const race::CarState> cars) {
+        for (size_t i = 0; i < sounds_.size() && i < cars.size(); ++i) sounds_[i]->update(cars[i], i == 0 ? nullptr : &cars[0]);
+    }
+    void quiet() {
+        for (const auto& s : sounds_) s->stop();
+    }
+
     const race::CarState& player() const { return shown()[0]; }
     const std::string& car_name(size_t i) const { return names_[i]; }
     const race::CourseScene& course() const { return *course_; }
     const race::CarVisual& visual(size_t i) const { return *car_visuals_[i]; }
-    const race::RailLine& line() const { return rail_->line(); }
+    const race::RailLine& line() const { return line_; }
+    bool simulated() const { return session_ != nullptr; }
     int steps() const { return steps_; }
     int mount() const { return mount_; }
     const render::DrawStats& draw_stats() const { return view_->stats(); }
@@ -513,7 +559,10 @@ private:
     std::map<std::string, std::unique_ptr<race::CarVisual>> visuals_by_model_;
     std::vector<race::CarVisual*> car_visuals_;
     std::vector<std::string> names_;
-    std::unique_ptr<race::RailSimulation> rail_;
+    std::unique_ptr<race::RailSimulation> rail_; // the stand-in, when the simulation is not running
+    std::unique_ptr<sim::Session> session_;
+    std::vector<std::unique_ptr<audio::CarSound>> sounds_;
+    race::RailLine line_; // the road's line: the simple driver's guide, and the lap's length
     race::Simulation* sim_ = nullptr;
     std::vector<race::CarInput> inputs_;
     gt3r::race::ControlMapper mapper_;
@@ -581,7 +630,10 @@ public:
             }
             return;
         }
-        if (m.pressed(PadButton::Start)) paused_ = !paused_;
+        if (m.pressed(PadButton::Start)) {
+            paused_ = !paused_;
+            if (paused_) race_->quiet();
+        }
         if (paused_) {
             if (m.pressed(PadButton::Triangle)) {
                 report();
