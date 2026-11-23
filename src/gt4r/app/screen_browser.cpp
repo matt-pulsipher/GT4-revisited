@@ -9,6 +9,7 @@
 #include "formats/tex1.h"
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/formats/model/mdls.h"
+#include "gt4r/audio/app_sound.h"
 #include "video/movie_player.h"
 
 #include <algorithm>
@@ -117,6 +118,7 @@ public:
         }
         if (m.pressed(PadButton::Circle)) {
             app.audio().stop_music();
+            if (sound_) sound_->stop();
             movie_.stop();
         }
         if (m.pressed(PadButton::Select)) app.show_open_dialog();
@@ -265,6 +267,12 @@ private:
             preview_.summary = where(app, path, stream ? stream->size : 0) + (ok ? ", playing" : ", could not play this stream");
             return;
         }
+        if (ends_with(path, ".sqt") || ends_with(path, ".ins")) { // sequenced music and effect banks
+            if (!sound_) sound_ = std::make_unique<audio::AppSound>(app.audio(), *app.vfs());
+            const auto stream = app.vfs()->open_stream(path);
+            preview_.summary = where(app, path, stream ? stream->size : 0) + sound_->preview(path);
+            return;
+        }
         if (ends_with(path, ".pss")) {
             const auto stream = app.vfs()->open_stream(path);
             preview_.summary = where(app, path, stream ? stream->size : 0);
@@ -350,6 +358,7 @@ private:
     std::vector<std::pair<size_t, mdls::Header>> models_; // the open file's model sets
     bool course_ = false; // the open file is a course
     gt3r::video::MoviePlayer movie_;
+    std::unique_ptr<audio::AppSound> sound_; // made when a sound file is first opened
 };
 
 } // namespace
