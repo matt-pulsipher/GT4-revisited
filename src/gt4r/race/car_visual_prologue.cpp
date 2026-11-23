@@ -10,14 +10,30 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 namespace gt4r::race {
 
 namespace scene = gt3r::scene;
 
-bool CarVisual::is_gt3_car(ByteSpan file) { return gt3r::CarFile::is_car(file); }
+namespace {
 
-void CarVisual::build_gt3(ByteSpan file, const Options& opt, const std::string& name) {
+// One car (toyt0030, the "mtr_gmv_04") names its info block "CIF0" where the others have "GTCI";
+// the engine's reader checks the name and reads nothing else of the block when it builds the model.
+Bytes with_info_named(ByteSpan file) {
+    Bytes b(file.begin(), file.end());
+    if (b.size() >= 0x40 && rd32(b, 4) + 4 <= b.size() && std::memcmp(b.data() + rd32(b, 4), "CIF0", 4) == 0)
+        std::memcpy(b.data() + rd32(b, 4), "GTCI", 4);
+    return b;
+}
+
+} // namespace
+
+bool CarVisual::is_gt3_car(ByteSpan file) { return gt3r::CarFile::is_car(file) || gt3r::CarFile::is_car(with_info_named(file)); }
+
+void CarVisual::build_gt3(ByteSpan file_in, const Options& opt, const std::string& name) {
+    const Bytes named = with_info_named(file_in);
+    const ByteSpan file(named);
     gt3r::WheelSpec ws;
     ws.wheelbase = spec_.wheelbase;
     for (int a = 0; a < 2; ++a) {
