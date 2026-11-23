@@ -37,7 +37,7 @@ namespace gt4r::audio {
 
 // What the caller sets on an effect sequence or a held note.
 struct SoundParams {
-    float left = 1.0f, right = 1.0f; // side gains, -1..1 (negative inverts the side)
+    float left = 1.0f, right = 1.0f; // side gains, -1..1 (negative inverts the side); a held note's: up to 2
     float pitch = 1.0f;              // pitch factor
     int pan = 0x40;                  // added to the tone's pan (0x40: none)
     int priority = 0;                // a held note's voice priority: higher keeps its voice longer
@@ -181,6 +181,7 @@ private:
     Effect* effect(u32 id);
     const Effect* effect(u32 id) const;
     static int q14(float v);
+    static int note_gain(float v);
 
     gt3r::VoiceMixer& mixer_;
     mutable std::mutex mutex_;

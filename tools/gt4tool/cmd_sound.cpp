@@ -313,11 +313,10 @@ int car(Disc& disc, const Args& a) {
     // Ten seconds from 1000 to 8000 rpm at full throttle, then two of coasting down.
     const int up = 10 * audio::SoundDriver::kUpdateRate, down = 2 * audio::SoundDriver::kUpdateRate;
     s.advance(up + down, [&](int i) {
-        audio::CarSoundInput in;
+        audio::CarSoundState in;
         in.rpm = i < up ? 1000.0f + 7000.0f * float(i) / float(up) : 8000.0f - 6000.0f * float(i - up) / float(down);
         in.throttle = i < up ? 1.0f : 0.0f;
-        in.speed = 0;
-        sound.update(in);
+        sound.update(in, audio::SoundListener{}, true);
     });
     sound.stop();
     s.advance_seconds(0.5);
