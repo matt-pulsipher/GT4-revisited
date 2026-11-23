@@ -24,7 +24,8 @@ public:
     explicit MenuCars(App& app);
     ~MenuCars();
 
-    void begin_frame();
+    // `frame`: the menus' picture count (Runtime::frame()): the motions step once a picture.
+    void begin_frame(u64 frame);
     void end_frame();
     // Draws a car face (PageDrawer::draw_live): `at` its rectangle in the page, `dst` on the screen.
     void draw(const menu::LiveWidget& face, menu::Project* project, const std::string& page, const menu::Rect& at, const SDL_FRect& dst, float opacity);
@@ -40,6 +41,7 @@ private:
         std::weak_ptr<script::Heap> widget;
         std::string car; // car_code#paint
         bool seen = false;
+        u64 stepped = 0; // the picture its motion was last stepped to
     };
     Car* car(const std::string& code, int color);
     SDL_GPUTexture* env_texture(menu::Project* project, const std::string& page, const std::string& path);
@@ -48,6 +50,7 @@ private:
     std::unique_ptr<gt3r::render::View3D> view_;
     std::map<std::string, std::unique_ptr<Car>> cars_; // by code#paint
     std::map<const menu::LiveWidget*, Face> faces_;
+    u64 frame_ = 0;
     std::map<std::string, std::string> models_; // car label -> model file name
     std::map<const void*, SDL_GPUTexture*> env_;
     std::vector<gt3r::render::DrawItem> items_;

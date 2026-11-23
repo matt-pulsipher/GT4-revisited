@@ -26,7 +26,8 @@ MenuModels::~MenuModels() {
             if (t) app_.gpu()->release_texture(t);
 }
 
-void MenuModels::begin_frame() {
+void MenuModels::begin_frame(u64 frame) {
+    frame_ = frame;
     for (auto& [w, f] : faces_) f.seen = false;
 }
 
@@ -99,7 +100,10 @@ void MenuModels::draw(const menu::LiveWidget& face, menu::Project* project, cons
     f.widget = live.weak_from_this();
     f.path = s.model_set_path;
     f.seen = true;
-    f.spin.step();
+    // One step a picture of the menus, however often the screen is drawn.
+    if (f.stepped == 0 || f.stepped > frame_) f.stepped = frame_ ? frame_ - 1 : 0;
+    for (int n = 0; f.stepped < frame_ && n < 10; ++n, ++f.stepped) f.spin.step();
+    f.stepped = frame_;
 
     // The program draws over the whole page; here a part of it three times the face's size
     // around it (a face's model stays near its rectangle), so many small faces stay cheap.

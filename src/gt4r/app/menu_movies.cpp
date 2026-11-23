@@ -112,7 +112,10 @@ void MenuMovies::draw(const menu::LiveWidget& face, const SDL_FRect& dst, float 
     const double rate = m->player.info().frame_rate;
     const long frame = rate > 0 && m->player.texture() ? long(std::lround(m->player.picture_time() * rate)) : -1;
     const long hook = face.data.has("frame_hook") ? long(face.data.number("frame_hook", -1)) : -1;
-    const menu::MovieFaceEvents e = menu::movie_face_events(s, frame, hook, m->player.finished(), m->finish_told);
+    // Ended: the player says so, or no new picture came for a second while its clock ran (the
+    // opening's sound does not drain at its end, so the player's own test never passes).
+    const bool ended = m->player.finished() || (m->player.texture() && !m->player.paused() && m->player.position() - m->player.picture_time() > 1.0);
+    const menu::MovieFaceEvents e = menu::movie_face_events(s, frame, hook, ended, m->finish_told);
     menu::LiveWidget& live = const_cast<menu::LiveWidget&>(face);
     if (e.hook) {
         const std::string name = face.data.text("frame_hook_event");

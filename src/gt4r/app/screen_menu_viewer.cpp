@@ -60,7 +60,8 @@ public:
         }
         // GT4R_MENU="project=boot,page=LanguageRoot,state=2,full=1,run=1": what a scripted run opens.
         // "boot=1": the menus run from the game's first project, as from power on; "card=none"
-        // (no memory card), "card=saved" (one with a saved game), "credits=N" for that run.
+        // (no memory card), "card=saved" (one with a saved game), "credits=N" for that run;
+        // "timing=1" logs the frame times and the pages' drawing every 300 frames.
         if (const char* env = std::getenv("GT4R_MENU")) {
             std::string spec = env;
             size_t at = 0;
@@ -79,11 +80,13 @@ public:
                 else if (key == "boot") start_boot_ = value != "0";
                 else if (key == "card") card_ = value;
                 else if (key == "credits") credits_ = std::atoll(value.c_str());
+                else if (key == "timing") timing_ = value != "0";
             }
         }
     }
 
-    void update(App& app, double) override {
+    void update(App& app, double dt) override {
+        step_time_ += dt;
         const MenuInput& m = app.menu();
         if (start_boot_) {
             start_boot_ = false, start_project_.clear();
@@ -258,7 +261,10 @@ private:
             if (m.horizontal()) runtime_->key(m.horizontal() < 0 ? menu::Key::Left : menu::Key::Right);
             for (const auto& [button, key] : keys)
                 if (m.pressed(button)) runtime_->key(key);
-            runtime_->update();
+            // The menus run at the program's 60 pictures a second, whatever the display's rate.
+            const int steps = std::min(int(step_time_ * 60.0), 4);
+            step_time_ = steps == 4 ? 0.0 : step_time_ - steps / 60.0;
+            for (int i = 0; i < steps; ++i) runtime_->update();
             // A script that ended its project names the next one, or asks for a race.
             if (runtime_->finished() && !race_) {
                 race_ = runtime_->race_request();
@@ -283,10 +289,11 @@ private:
     void render_running(Ui& ui) {
         const float scale = float(Ui::kHeight) / 480.0f, x = (Ui::kWidth - 640 * scale) / 2;
         ui.fill(0, 0, Ui::kWidth, Ui::kHeight, {0, 0, 0});
+        const Uint64 t0 = SDL_GetTicksNS();
         if (live_drawer_) {
             if (movies_) movies_->begin_frame();
-            if (cars_) cars_->begin_frame();
-            if (models_) models_->begin_frame();
+            if (cars_) cars_->begin_frame(runtime_->frame());
+            if (models_) models_->begin_frame(runtime_->frame());
             for (const auto& page : runtime_->open_pages())
                 if (menu::Project* project = runtime_->project_of(*page)) live_drawer_->draw(*project, *page, x, 0, scale, 0);
             if (movies_) movies_->end_frame();
@@ -294,6 +301,18 @@ private:
             if (models_) models_->end_frame();
             draw_cursor(x, scale);
             // The transition's colour over the pages.
+            if (timing_) {
+                // The pages' drawing (movies and 3D included) and the whole frame, in ms.
+                const Uint64 t1 = SDL_GetTicksNS();
+                draw_ms_ += double(t1 - t0) / 1e6;
+                if (last_frame_) frame_ms_ += double(t1 - last_frame_) / 1e6, frame_max_ = std::max(frame_max_, double(t1 - last_frame_) / 1e6);
+                last_frame_ = t1;
+                if (++timed_ == 300) {
+                    LOG_INFO("Menu timing on %s: frame %.2f ms (max %.2f), pages drawn in %.2f ms", runtime_->current_page() ? runtime_->current_page()->name.c_str() : "-",
+                             frame_ms_ / 299, frame_max_, draw_ms_ / 300);
+                    timed_ = 0, draw_ms_ = frame_ms_ = frame_max_ = 0, last_frame_ = 0;
+                }
+            }
             if (const float cover = runtime_->fade_cover(); cover > 0) ui.fill(x, 0, 640 * scale, 480 * scale, Color{0, 0, 0, u8(std::clamp(cover, 0.0f, 1.0f) * 255.0f)});
         }
         // What the scripts did, beside the page.
@@ -351,6 +370,11 @@ private:
     int project_sel_ = 0, page_sel_ = 0, state_ = 0;
     bool full_ = false, start_run_ = false, start_boot_ = false;
     std::string error_, start_project_, start_page_, card_;
+    double step_time_ = 0; // display time not yet stepped by the menus
+    bool timing_ = false;
+    int timed_ = 0;
+    double draw_ms_ = 0, frame_ms_ = 0, frame_max_ = 0;
+    Uint64 last_frame_ = 0;
     long long credits_ = -1; // a scripted run's credits; -1: the game's own
     std::optional<menu::RaceRequest> race_; // what the running menus asked for at their end
     App* app_ = nullptr;                    // set when the menus start running

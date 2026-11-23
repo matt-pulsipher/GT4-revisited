@@ -326,8 +326,98 @@ the page the layout has the widget in, wherever the scripts copy it; an open opt
 drawn over the page; the cursor is the common project's `CursorRoot` at the focused widget
 (❓ its place by eye); a transition covers the screen with its color.
 
-❓ Not drawn: the 3D faces (`CarFace`, `ModelFace`, `SceneViewFace`), movies, Japanese text
+The menus step at the program's 60 pictures a second whatever the display's rate. The faces
+with content of their own are drawn in their place in the page's order (`draw_live` of
+`app/menu_page_drawer.h`): movies, cars and models below.
+
+❓ Not drawn: `SceneViewFace`, `FlashFace`, `GraphFace`, `SlideShowFace`, `RaceCourseMapFace`,
+`PhotoViewFace`, `PhotoRenderFace`, `EyetoyFace`, `VirtualFace`, `LoggerFace`; Japanese text
 (Prologue's pages show their pictures and Latin text).
+
+#### Movies (`MovieFace`; `menu/faces_movie.*`, `app/menu_movies.*`)
+
+Class `mMovieFace` (vtable 0x664398, derived from `mImageFace`, 0x160 bytes). Its settings
+(constructor 0x220730, layout reader 0x220A38):
+
+| Property | Default | |
+|---|---|---|
+| `movie_name` | "" | the file `mpeg/<MpegRoot>/<movie_name>.pss` (0x220850, 0x2208E8) |
+| `pixel_width`, `pixel_height` | 640, 0 | |
+| `interlace` | 1 | the movie holds its two fields as the frame's halves |
+| `audio` | 0 | its sound played |
+| `repeat` | 1 | starts again at its end |
+| `ac3` (scripts: `AC3`), `audio_track` | 0, 0 | |
+
+`MpegRoot` is the configuration's (`config-main`: `main`, `main_pal` for the UK; Prologue's
+`prologue`), `preview` when it has none. A face with no `geometry` fills the page; all seven
+are their page's first widget. The per-picture update (0x21F440) calls the face's script
+function named by `setFrameHook(frame, name)` when the movie shows that frame, and once, when a
+movie that does not repeat ends, its `onMovieFinish(context)`; `setUnUpdate()` stops it.
+Here: played by the engine's player (silent unless `audio`), restarted when the scripts change
+the name, stopped when the face is no longer drawn; until its first picture the still of that
+name from `mpeg/<MpegRoot>/course.ipic` (`ipua`, 56 entries on the US disc: `start_game`,
+`maker_game`, `category` and the course movies; 640 x 448, Prologue's 512 x 448). An interlaced
+movie shows its first field until the player has detected the layout from its pictures. A
+movie counts as ended when no new picture came for a second while the clock ran (the opening's
+sound does not drain at its end in the player).
+
+| Face | Plays |
+|---|---|
+| `boot/MovieRoot::Mpeg`, `demo_movie/MovieRoot::Mpeg` | `opening_us` / `ending_us` (the script), with sound, once |
+| `arcade/TopRoot::mpeg` (the title), `online/TopRoot::bg` | `start_game` (`maker_game` with the special tuner option) |
+| `arcade/CategoryRoot::Mpeg` | `category`: the four categories' footage in quadrants |
+| `arcade/CourseRoot::Mpeg`, `arcade/PregridRoot::Mpeg` | the focused course's code (without `r_` on the pre-grid page) |
+
+#### Cars (`CarFace`; `menu/faces_car.*`, `app/menu_cars.*`)
+
+Class `mCarFace` (vtable 0x65B0C0, 0x2BC bytes) with an `mCarModel` (`car_model`). Its camera
+(0x201EC8 / 0x201FA8) and lights (0x210830 / 0x210988) are the same readers as the model
+face's:
+
+| Property | Default | |
+|---|---|---|
+| `view_angle`, `near`, `far` | 50, 0.1, 32 | degrees across the face's height |
+| `camera_trans`, `camera_rotate` | (0, 0, 4), (0, 0, 0) | view = Ry(-ry) Rx(-rx) Rz(-rz) T(-t) (0x21AA30) |
+| `world_ambient` | (0, 0, 0) | |
+| `lN_enable`, `lN_pos`, `lN_amb`, `lN_dif`, `lN_spe`, `lN_sdw` (N 0..2) | light 0 on; (0, 1, 0, 0); 0.3; 0.5; 0.5; (0, 0, 0, 1) | world-space directions toward the light (w 0); colours 0..255 / 255 |
+| `image_path` | "" | the picture the car reflects |
+| `trans`, `rotate` | 0 | where a newly set car starts |
+| `mirror` | 1 | ❓ the mirrored copy under the car is not drawn here |
+| `action_type` | 1 "advanced" | scripts write "normal" / "advanced"; only the arcade and event car pages keep "advanced" |
+
+Projection (0x217058): the picture's middle is the face rectangle's; d = (h / 2) / tan(view /
+2) over the face's height h; on NTSC a page unit across is d x 448/480 and down d / 1.098; the
+whole page is the viewport.
+
+The car (`car_code`) is `car/menu/<model>` in paint `car_color` (a car's paints in the order of
+their paint number, VARIATION +0x04: the Ka's Capri-Blau, paint 1, first). Its motion
+(0x153BB8, one step a picture): alpha eases by `alphaInterpolateSpeed` plus a step (+1/120 after
+a car is set: a two-second fade); `motion` 1 turns it like a turntable (velocity v = (v + 80/60)
+x (1 - 4/60) degrees a second, settling at 18.67), 2 eases the yaw toward `ry` by a fifth a
+picture; the position eases toward `tx ty tz` by `posInterpolateSpeed` (0.1), `rx`/`rz` by 0.1.
+The program's setter of `rotInterpolateSpeed` writes the position's speed. `warp()` jumps to the
+targets; `fadein`, `transparentRatio` as their names say. Model = T(cur) Rz Rx Ry(yaw); the model's
+origin is on the body's underside, so the car is raised by its ride height to stand on y = 0
+(❓ judged: the program's ShowRoomCar is not read).
+
+The "advanced" stage (0x157378) takes the car at (x, y, -z) turned half round and draws
+`menu/select/bg.mdl` behind it; ❓ its camera (`menu/select/camera.mot`, a `Mot1` of one clip
+`TEST_CAMERA` whose keys are packed) and its light motion are not read: the layout camera's
+distance and height are used, looking from 60 degrees to the car's left of straight ahead
+(judged against the original's colour page), and only bg.mdl's first variant is drawn.
+
+#### Models (`ModelFace`; `menu/faces_model.*`, `app/menu_models.*`)
+
+Class `mModelFace` (vtable 0x66ED98, 0x30C bytes): the camera and lights above (the layouts also
+use `far`), `model_set_path` (an entry of the page's picture packs, or with
+`model_set_from_disk` a file of the disc), `env_image_path`, `model_translate`, `model_rotate`
+(the home rotation), `model_rotate_v` (degrees a picture). Every model of the set is drawn at
+its most detailed level with Model = T(translate) Rz Rx Ry. Update (0x2BD2E8): `target_mode` 0
+spins by `rotate_v` (kept in 0..360); 1 eases back to the home rotation by 5 % of the shorter
+way a picture; `stopRotate()` stops at home. The Gran Turismo mode map's 37 faces are its places'
+icons (`image/gtmode/map/panel_*.mdl` of the page's pack); entering a place sets
+`rotate_v = [0, 2, 0]`, leaving it `target_mode = 1` (nine places stop where they are). Here each
+face is drawn over a part of the page three times its rectangle around it.
 
 ### Not done
 

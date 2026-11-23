@@ -59,7 +59,8 @@ MenuCars::~MenuCars() {
             if (t) app_.gpu()->release_texture(t);
 }
 
-void MenuCars::begin_frame() {
+void MenuCars::begin_frame(u64 frame) {
+    frame_ = frame;
     for (auto& [w, f] : faces_) f.seen = false;
 }
 
@@ -137,7 +138,10 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
     f.car = key;
     f.seen = true;
     menu::CarMotion& m = model->m;
-    m.step();
+    // One step a picture of the menus, however often the screen is drawn.
+    if (f.stepped == 0 || f.stepped > frame_) f.stepped = frame_ ? frame_ - 1 : 0;
+    for (int n = 0; f.stepped < frame_ && n < 10; ++n, ++f.stepped) m.step();
+    f.stepped = frame_;
 
     // The camera's picture covers the whole page.
     const menu::Rect page_part{0, 0, 640, 480};
