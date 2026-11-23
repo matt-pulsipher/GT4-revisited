@@ -122,3 +122,48 @@ TEST(disc_gt_mode_loop_event) {
     }
     if (!std::getenv("GT4R_KEEP_TEST_FILES")) std::filesystem::remove_all(dir);
 }
+
+namespace {
+
+// An event's race run through its sequence: the race's menus, Start, the made-up result, the
+// prize page and the results, Exit, and Gran Turismo mode again. The prize paid.
+s64 race_event(Flow& f, const menu::RaceRequest& race, int place) {
+    Sequence q(f, race);
+    q.fill();
+    if (q.menus({menu::Key::Accept}) != "COMMAND_START") return -1;
+    const s64 prize = q.ran(q.result(place));
+    if (!after_race(f, q) || !q.leave()) return -1;
+    return prize;
+}
+
+} // namespace
+
+// The Sunday Cup's five races won: back on Gran Turismo mode's map the present page gives the
+// cup's prize car, and the garage has it.
+TEST(disc_gt_mode_loop_prize_car) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
+    Flow f(*disc);
+    CHECK(f.gt_mode_with_a_car());
+    if (f.page() != "TopRoot") return;
+    menu::GameState& g = f.rt->game();
+    for (int race = 0; race < 5; ++race) {
+        for (int i = 0; i < 4 && f.page() != "TopRoot"; ++i) f.press({menu::Key::Cancel});
+        const std::optional<menu::RaceRequest> r = enter_sunday_cup(f, race);
+        CHECK(r && r->race == "am_sunday_000" + std::to_string(race + 1));
+        if (!r) return;
+        CHECK(race_event(f, *r, 0) > 0);
+        std::printf("  %s won: %s\n", r->race.c_str(), pages(f).c_str());
+    }
+    // The last win's way back opens the present page: the car is the garage's.
+    CHECK(f.page() == "PresentRoot" && g.garage_count() == 2);
+    if (g.garage.size() >= 2) {
+        const menu::DayEvent& got = g.diary.back();
+        std::printf("  prize car %s (paint %d); prize cars counted %u; the day: kind %d, how %d\n", g.garage[1].car.c_str(), g.garage[1].paint, g.total_prize_cars, got.type, got.b2);
+        CHECK(!g.garage[1].car.empty() && got.type == 1 && got.b2 == 4);
+    }
+    f.press({menu::Key::Accept});
+    CHECK(f.page() == "EventCourseRoot" && g.garage_count() == 2);
+    CHECK(f.clean());
+}
