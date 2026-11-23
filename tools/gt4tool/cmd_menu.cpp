@@ -7,7 +7,7 @@
 //     next         the project the scripts asked for (after a project finished)
 //     stubs        what the scripts asked of stand-ins so far (the to-do list)
 //     tree         the pages shown: widgets, their places and texts
-//     focus=NAME   the focus put on the shown page's widget of that name
+//     focus=NAME   the focus put on the shown page's widget of that name ("a/b": b inside a)
 //     state        the game's state: what is available, where the menus go, the race set up
 //     card=none | card=empty | card=saved    the memory card's state (before the project starts)
 //     credits=N                              the player's credits (before the project starts)
@@ -131,15 +131,26 @@ int cmd_menu_run(Disc& disc, const std::vector<std::string>& a) {
         if (k.rfind("focus=", 0) == 0) {
             // The widget of that name on the page shown (the first found, depth first).
             const std::string name = k.substr(6);
-            std::function<std::shared_ptr<menu::LiveWidget>(const std::shared_ptr<menu::LiveWidget>&)> find =
-                [&](const std::shared_ptr<menu::LiveWidget>& w) -> std::shared_ptr<menu::LiveWidget> {
-                if (w->name == name) return w;
-                for (const auto& c : w->children)
-                    if (auto f = find(c)) return f;
-                return nullptr;
-            };
-            if (menu::LiveWidget* page = rt.current_page())
-                if (const auto w = find(page->self())) rt.set_focus(*page, w);
+            // "a/b": b inside a.
+            if (menu::LiveWidget* page = rt.current_page()) {
+                std::shared_ptr<menu::LiveWidget> at = page->self();
+                size_t from = 0;
+                for (;;) {
+                    const size_t slash = name.find('/', from);
+                    const std::string part = name.substr(from, slash == std::string::npos ? std::string::npos : slash - from);
+                    std::function<std::shared_ptr<menu::LiveWidget>(const std::shared_ptr<menu::LiveWidget>&)> look =
+                        [&](const std::shared_ptr<menu::LiveWidget>& w) -> std::shared_ptr<menu::LiveWidget> {
+                        if (w != at && w->name == part) return w;
+                        for (const auto& c : w->children)
+                            if (auto f = look(c)) return f;
+                        return nullptr;
+                    };
+                    at = at ? look(at) : nullptr;
+                    if (!at || slash == std::string::npos) break;
+                    from = slash + 1;
+                }
+                if (at) rt.set_focus(*page, at);
+            }
             rt.settle();
         } else if (k == "settle") rt.settle();
         else if (k.compare(0, 4, "wait") == 0) {

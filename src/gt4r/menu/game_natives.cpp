@@ -361,7 +361,16 @@ for (const char* nothing : {"applyRaceDisplayMode", "applyMenuDisplayMode", "set
         option->method(nothing, [](Vm&, const Value&, Args) { return Value{}; });
     option->method("getDeviceConfig", [](Vm&, const Value&, Args) { return Value{}; });
     option->method("getDeviceFeedback", [](Vm&, const Value&, Args) { return number(0); });
-    option->set("bgm_playlist", Value{}), option->set("slide_playlist", Value{});
+    // The music and slide-show play lists: a row a song ({order, 0, chosen, order}; -1 none).
+// ❓ The rows' program form (0x1020 bytes in the option block) is not decoded: 128 rows here,
+// kept for the run.
+for (const char* list : {"bgm_playlist", "slide_playlist"}) {
+    auto p = std::make_shared<Object>("MPlayList");
+    std::vector<Value> rows;
+    for (int i = 0; i < 128; ++i) rows.push_back(Value::array({number(-1), number(0), number(0), number(-1)}));
+    p->set("play_data", Value::array(std::move(rows)));
+    option->set(list, object_value(p));
+}
     return object_value(option);
 }
 
@@ -1267,12 +1276,24 @@ void install_game_natives(Runtime& rt, script::Module& menu) {
     menu.define("Version", number(0));
 
     // ---- small ones
-    make_class(menu, "MColorObject")->construct = [](Vm&, Args a) {
-        auto c = std::make_shared<Object>("MColorObject");
-        c->set("r", a.size() > 0 ? a[0] : Value::number(1)), c->set("g", a.size() > 1 ? a[1] : Value::number(1));
-        c->set("b", a.size() > 2 ? a[2] : Value::number(1)), c->set("a", a.size() > 3 ? a[3] : Value::number(1));
-        return object_value(c);
-    };
+    {
+        auto cls = make_class(menu, "MColorObject");
+        cls->construct = [](Vm&, Args a) {
+            auto c = std::make_shared<Object>("MColorObject");
+            c->set("r", a.size() > 0 ? a[0] : Value::number(1)), c->set("g", a.size() > 1 ? a[1] : Value::number(1));
+            c->set("b", a.size() > 2 ? a[2] : Value::number(1)), c->set("a", a.size() > 3 ? a[3] : Value::number(1));
+            return object_value(c);
+        };
+        // interpolate(a, b, t) (0x2039E0): a x t + b x (1 - t), each part.
+        static_fn(*cls, "interpolate", [](Vm& vm, const Value&, Args a) {
+            if (a.size() < 3) return Value{};
+            const float t = arg_number(a, 2);
+            auto c = std::make_shared<Object>("MColorObject");
+            for (const char* part : {"r", "g", "b", "a"})
+                c->set(part, Value::number(vm.attribute(a[0], part).as_float() * t + vm.attribute(a[1], part).as_float() * (1 - t)));
+            return object_value(c);
+        });
+    }
     make_class(menu, "MProgress")->construct = [](Vm&, Args) {
         auto p = std::make_shared<Object>("MProgress");
         p->set("value", Value::number(0));
