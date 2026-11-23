@@ -13,10 +13,18 @@
 //   gt4tool sound <disc> race-tables                the program's tables that mix a race's sound
 //   gt4tool sound <disc> pass-wav <label> <out.wav> [km/h]   a car passing 10 m from a still camera,
 //                                                   mixed by the program's tables (5 s)
+//   gt4tool sound <disc> drive-wav <label> <out.wav> <rpm>[:<rpm>] <seconds> [incar|chase|other] [rpm per m/s]
+//                                                   the car driven flat out from the first revs to the
+//                                                   second (its speed the revs over the last number,
+//                                                   200 by default), heard from that view of it, mixed by
+//                                                   the program's tables at the new game's levels
+//   gt4tool sound <disc> stream-wav <path.ads> <out.wav> [seconds] [level]   a streamed piece decoded
+//                                                   (from the start, at its own rate, x level)
 //
 // The WAV files are for measuring (length, level, pitch); never commit them.
 
 #include "base/file.h"
+#include "formats/ads.h"
 #include "formats/sound/crss.h"
 #include "formats/sound/engn.h"
 #include "gt4r/audio/car_sound.h"
@@ -30,7 +38,9 @@
 #include "gt4r/menu/layout.h"
 #include "vfs/vfs.h"
 
+#include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <cstdio>
 #include <filesystem>
 #include <map>
@@ -339,7 +349,8 @@ int race_tables(Disc& disc) {
         std::printf("\n");
     }
     static const char* const kModes[] = {"mono", "stereo", "surround"};
-    for (int m = 0; m < audio::RaceSoundTables::kModes; ++m) {
+    if (!t.found_mics) std::printf("microphones: none: every sound at 32 / its distance, at most 1 (Prologue's panner)\n");
+    for (int m = 0; m < audio::RaceSoundTables::kModes && t.found_mics; ++m) {
         std::printf("microphones, %s:", kModes[m]);
         for (int n = 0; n < audio::RaceSoundTables::kMics; ++n)
             std::printf(" (slope %.2f, reach %.1f m)", double(t.mics[size_t(m)][size_t(n)].slope), double(t.mics[size_t(m)][size_t(n)].reach));
@@ -395,6 +406,80 @@ int pass_wav(Disc& disc, const Args& a) {
     return write_wav(a[2], s.pcm) ? 0 : 1;
 }
 
+int drive_wav(Disc& disc, const Args& a) {
+    gt3r::Vfs vfs(&disc.volume());
+    audio::OfflineSound s;
+    auto library = std::make_shared<audio::SoundLibrary>(vfs);
+    auto mix = std::make_shared<audio::RaceMix>();
+    mix->tables = audio::RaceSoundTables::from_core(disc.read_program());
+    mix->master = library->levels().level(int(audio::OutputMode::Stereo), sound::VolumeTable::Race) * 115.0f / 128.0f;
+    audio::CarSound car(vfs, s.mixer(), &s.driver(), library);
+    car.set_mix(mix);
+    if (!car.load(a[1])) {
+        std::fprintf(stderr, "error: the car's engine sounds do not load\n");
+        return 1;
+    }
+    float rpm0 = 0, rpm1 = 0;
+    if (std::sscanf(a[3].c_str(), "%f:%f", &rpm0, &rpm1) < 2) rpm1 = rpm0;
+    const double seconds = a.size() > 4 ? std::atof(a[4].c_str()) : 5.0;
+    const std::string view = a.size() > 5 ? a[5] : "chase";
+    const float per = a.size() > 6 ? float(std::atof(a[6].c_str())) : 200.0f;
+    audio::SoundListener at;
+    at.kind = view == "incar" ? audio::SoundListener::Kind::InCar : view == "other" ? audio::SoundListener::Kind::Other : audio::SoundListener::Kind::Chase;
+    const bool own = view != "other";
+    const int steps = int(seconds * audio::SoundDriver::kUpdateRate);
+    s.advance(steps, [&](int i) {
+        audio::CarSoundState in;
+        in.rpm = rpm0 + (rpm1 - rpm0) * float(i) / float(std::max(1, steps - 1));
+        in.throttle = 1, in.torque_full = 3, in.torque_friction = 1;
+        in.speed = in.rpm / per;
+        // The chase camera 5 m behind the car; another camera 20 m to the side; in the car: at it.
+        const float behind = at.kind == audio::SoundListener::Kind::Chase ? 5.0f : 0.0f;
+        in.position = at.kind == audio::SoundListener::Kind::Other ? race::Vec3{20, 0, 0} : race::Vec3{0, 0, behind};
+        in.velocity = {0, 0, at.kind == audio::SoundListener::Kind::Other ? in.speed : 0.0f}; // the camera follows the car
+        for (auto& w : in.wheels) w.position = in.position, w.rim_speed = in.speed;
+        car.update(in, at, own);
+        if (i % 60 == 0) {
+            const auto& r = car.report();
+            std::printf("  %5.2f s: %5.0f rpm, levels %d / %d, engine %.3f exhaust %.3f wind %.3f, cabin %.3f, roar %.3f\n", double(i) / 60.0,
+                        double(in.rpm), r.engine_level, r.exhaust_level, double(r.engine_gain), double(r.exhaust_gain), double(r.wind_gain), double(r.cabin),
+                        double(r.wheel[0][1]));
+        }
+    });
+    car.stop();
+    s.advance_seconds(0.3);
+    return write_wav(a[2], s.pcm) ? 0 : 1;
+}
+
+int stream_wav(Disc& disc, const Args& a) {
+    const Bytes data = read(disc, a[1]);
+    const gt3r::AdsHeader h = gt3r::AdsHeader::parse(data);
+    gt3r::AdsStream stream(h, [&data](u64 off, void* out, size_t len) {
+        const size_t n = off < data.size() ? std::min<size_t>(len, data.size() - size_t(off)) : 0;
+        std::memcpy(out, data.data() + off, n);
+        std::memset(static_cast<u8*>(out) + n, 0, len - n);
+    }, false);
+    const double seconds = a.size() > 3 ? std::atof(a[3].c_str()) : 1e9;
+    const float level = a.size() > 4 ? float(std::atof(a[4].c_str())) : 1.0f;
+    const size_t want = size_t(std::min(seconds * h.sample_rate, double(h.total_frames())));
+    std::vector<s16> pcm;
+    std::vector<s16> buf(4096 * std::max<u32>(1, h.channels));
+    for (size_t got = 0; got < want;) {
+        const size_t n = stream.read(buf.data(), std::min<size_t>(4096, want - got));
+        if (n == 0) break;
+        for (size_t f = 0; f < n; ++f) {
+            const s16 l = buf[f * h.channels], r = h.channels > 1 ? buf[f * h.channels + 1] : l;
+            pcm.push_back(s16(std::clamp(std::lround(l * level), -32768L, 32767L)));
+            pcm.push_back(s16(std::clamp(std::lround(r * level), -32768L, 32767L)));
+        }
+        got += n;
+    }
+    std::printf("%s: %u Hz, %u sides, %.2f s\n", a[1].c_str(), h.sample_rate, h.channels, double(h.total_frames()) / h.sample_rate);
+    std::error_code ec;
+    std::filesystem::create_directories(std::filesystem::path(a[2]).parent_path(), ec);
+    return gt3r::write_host_file(a[2], audio::wav_file(pcm, h.sample_rate)) ? 0 : 1;
+}
+
 } // namespace
 
 int cmd_sound(Disc& disc, const std::vector<std::string>& a) {
@@ -410,9 +495,13 @@ int cmd_sound(Disc& disc, const std::vector<std::string>& a) {
     if ((what == "car" || what == "car-wav") && a.size() > 1) return car(disc, a);
     if (what == "race-tables") return race_tables(disc);
     if (what == "pass-wav" && a.size() > 2) return pass_wav(disc, a);
+    if (what == "drive-wav" && a.size() > 3) return drive_wav(disc, a);
+    if (what == "stream-wav" && a.size() > 2) return stream_wav(disc, a);
     std::fprintf(stderr, "usage: gt4tool sound <disc> survey | bank <path.ins> | effects | music | pages | seq <bank> [n] |\n"
                          "       seq-wav <bank> <n> <out.wav> [loops] | se-wav <name> <out.wav> | car <label> [out.wav] |\n"
-                         "       race-tables | pass-wav <label> <out.wav> [km/h]\n");
+                         "       race-tables | pass-wav <label> <out.wav> [km/h] |\n"
+                         "       drive-wav <label> <out.wav> <rpm>[:<rpm>] <seconds> [incar|chase|other] [rpm per m/s] |\n"
+                         "       stream-wav <path.ads> <out.wav> [seconds] [level]\n");
     return 2;
 }
 

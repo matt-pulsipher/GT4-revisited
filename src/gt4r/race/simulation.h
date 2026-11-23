@@ -50,8 +50,12 @@ struct CarState {
     float course_v = 0;           // metres along the course (Runway::Checkpoint::v)
     int lap = 0;                  // laps completed; -1 for a car that starts behind the line, until
                                   // it first crosses it
-    // This step's contact: its strength (the simulation's measure, 0 for none), what was hit
-    // (0 none, 1 a wall, 2 another car) and that car's index; a wheel back on the ground.
+    // This step's contact: its strength, what was hit (0 none, 1 a wall, 2 another car) and that
+    // car's index; a wheel back on the ground. The strength is the collision step's own measure, the
+    // one the game's hit sound and rumble take (sim::Session: the body's strength, 0 for none): the
+    // step's summed impulses |j| (N s) over 100,000 against a wall and over 15,000 between cars, at
+    // most 1 (not a force in newtons, nor a closing speed). `landed` carries no strength: the car's
+    // downward speed is in `velocity`.
     float contact = 0;
     u8 contact_kind = 0;
     int contact_car = -1;

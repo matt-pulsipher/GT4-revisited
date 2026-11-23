@@ -13,7 +13,12 @@ namespace gt4r::audio {
 namespace {
 
 constexpr const char* kWindBank = "sound/roadnoiz.es";
-constexpr size_t kEngineSoundId = 0x18, kMufflerVariant = 6, kTurboKind = 9;
+// The layer players send a layer's pitch x revs / its revs x the Doppler factor to the SPU2 as it
+// is (0x558DB0, 0x55DF70: 0x1000 plays the sample at 48 kHz). The shared engine's player takes
+// the value in Gran Turismo 3's units (0x1000 = 44.1 kHz) and its mixer converts (x 0xEB3 /
+// 0x1000): this factor undoes the conversion.
+constexpr float kLayerPitch = 4096.0f / 3763.0f;
+constexpr size_t kEngineSoundId = 0x18, kMufflerVariant = 6, kTurboKind = 9, kGearWhine = 0x22;
 
 // A car's part as sold: from its row of default parts, or for a car without one its own
 // first row of the table ("en_<car label>_a").
@@ -45,6 +50,11 @@ CarSoundFiles car_sound_files(db::SpecDb& db, const std::string& car) {
         if (const auto id = part(db, car, "TURBINEKIT", "tk_")) {
             const ByteSpan r = t->row(*id);
             f.turbo = r.size() > kTurboKind && r[kTurboKind] != 0;
+        }
+    if (const db::Table* t = db.table("GEAR"))
+        if (const auto id = part(db, car, "GEAR", "ge_")) {
+            const ByteSpan r = t->row(*id);
+            f.whine = r.size() > kGearWhine && r[kGearWhine] != 0;
         }
     f.variant = gt3r::EngineSound::variant_dir(f.variant_index());
     char name[16];
@@ -179,8 +189,25 @@ SoundListener listener_at(const race::CarState& car, SoundListener::Kind kind) {
     return l;
 }
 
+float contact_strength(int kind, float value) {
+    float f = 0;
+    if (kind == 0) f = value / 50000.0f;
+    else if (kind == 1) f = value + value;
+    else if (kind == 2) f = std::max(std::fabs(value / 50.0f), 0.2f);
+    f = std::min(f, 1.0f);
+    return f < 0.2f ? 0.0f : f;
+}
+
 CarSoundState sound_state(const race::CarState& car) {
     CarSoundState s;
+    // The seam's contact is already the collision step's 0..1 strength (simulation.h), not the
+    // force or closing speed contact_strength() takes: it is used as the level, with the same floor
+    // of 0.2. ❓ Which of the two the program's hit sound reads is not settled.
+    if (car.contact_kind == 1 || car.contact_kind == 2) {
+        s.contact_kind = car.contact_kind == 1 ? 0 : 1;
+        const float f = std::min(car.contact, 1.0f);
+        s.contact = f < 0.2f ? 0.0f : f;
+    }
     s.position = car.position, s.velocity = car.velocity;
     s.course_distance = car.course_v;
     s.rpm = car.engine_rpm;
@@ -198,6 +225,7 @@ CarSoundState sound_state(const race::CarState& car) {
         // rising as the tire slides.
         o.pitch = (tarmac(o.surface) ? 0.75f : 0.5f) + 0.45f * in.slip;
         o.rim_speed = std::fabs(car.speed);
+        if (car.landed && in.on_ground) o.landing = std::min(1.0f, std::max(0.0f, -car.velocity.y) / 5.0f);
     }
     return s;
 }
@@ -339,13 +367,23 @@ void CarSound::update(const CarSoundState& car, const SoundListener& listener, b
         for (int i = 0; i < 3; ++i) px[i] = x, pz[i] = z;
     }
     const OutputMode mode = mix.mode;
-    const Placement at_engine = place_sound(t.mic(mode, 0), px[0], pz[0]);
-    const Placement at_body = place_sound(t.mic(mode, 2), px[1], pz[1]);
-    const Placement at_exhaust = place_sound(t.mic(mode, 1), px[2], pz[2]);
+    Placement at_engine = place_sound(t.mic(mode, 0), px[0], pz[0]);
+    Placement at_body = place_sound(t.mic(mode, 2), px[1], pz[1]);
+    Placement at_exhaust = place_sound(t.mic(mode, 1), px[2], pz[2]);
     const float master = mix.master;
     const auto held = [&](const Placement& p) { return std::clamp(p.gain * master, -1.0f, 1.0f); };
     const float g_engine = held(at_engine), g_body = held(at_body), g_exhaust = held(at_exhaust);
     report_.engine = at_engine, report_.body = at_body, report_.exhaust = at_exhaust;
+    // The surround cue (the panner's two flags, 0x39A7B0): a sound behind the camera has one side
+    // inverted. The program does it in every output mode; here when the mixer's option is on (the
+    // layer players do the same for their own).
+    const bool cue = mixer_.surround_cue();
+    const auto behind = [&](gt3r::SurroundCue& c, Placement& p) {
+        if (!cue) return;
+        c.update(p.x, p.z);
+        if (c.invert_l) p.left = -p.left;
+        if (c.invert_r) p.right = -p.right;
+    };
 
     // The two banks' levels: each moves half way to its target every step.
     if (!car.live || (car.hybrid && car.rpm < car.idle_rpm)) {
@@ -375,17 +413,19 @@ void CarSound::update(const CarSoundState& car, const SoundListener& listener, b
     report_.exhaust_gain = g_exhaust * gain(SoundChannel::Exhaust) * float(exhaust_level_) / 64.0f;
     report_.wind_gain = g_engine * gain(SoundChannel::Wind) * wind;
     report_.wind_rpm = wind_rpm;
-    if (engine_.loaded()) engine_.update_at(mixer_, car.rpm, report_.engine_gain, at_engine.x, at_engine.z, doppler);
-    if (exhaust_.loaded()) exhaust_.update_at(mixer_, car.rpm, report_.exhaust_gain, at_exhaust.x, at_exhaust.z, doppler);
-    if (wind_.loaded()) wind_.update_at(mixer_, wind_rpm, report_.wind_gain, at_engine.x, at_engine.z, doppler);
+    const float layer_pitch = doppler * kLayerPitch;
+    if (engine_.loaded()) engine_.update_at(mixer_, car.rpm, report_.engine_gain, at_engine.x, at_engine.z, layer_pitch);
+    if (exhaust_.loaded()) exhaust_.update_at(mixer_, car.rpm, report_.exhaust_gain, at_exhaust.x, at_exhaust.z, layer_pitch);
+    if (wind_.loaded()) wind_.update_at(mixer_, wind_rpm, report_.wind_gain, at_engine.x, at_engine.z, layer_pitch);
     if (!effects_) return;
+    behind(cue_[0], at_engine), behind(cue_[1], at_body), behind(cue_[2], at_exhaust);
 
     // The turbo's spool and the gearbox's whine, at the engine.
     report_.turbine = g_engine * gain(SoundChannel::Turbine) * float(car.live ? car.turbine_level : 0) / 128.0f;
     send(turbine_, turbine_fx_, report_.turbine, at_engine, float(car.turbine_pitch) / 6144.0f);
     {
         float level = 0, pitch = 1.0f;
-        if (car.live && car.gear_whine && car.clutch != 0 && k.whine_torque > 0 && car.low_ratio != 0) {
+        if (car.live && (car.gear_whine || files_.whine) && car.clutch != 0 && k.whine_torque > 0 && car.low_ratio != 0) {
             const float torque = std::min(std::fabs(car.drive_torque), k.whine_torque);
             const float x = std::fabs(torque * car.gear_ratio / (k.whine_torque * car.low_ratio));
             level = k.whine_gain_lo + (k.whine_gain_hi - k.whine_gain_lo) * x;
@@ -409,7 +449,8 @@ void CarSound::update(const CarSoundState& car, const SoundListener& listener, b
     for (size_t w = 0; w < 4; ++w) {
         const WheelSoundState& wheel = car.wheels[w];
         const race::Vec3 from = sub(wheel.position, listener.position);
-        const Placement at = place_sound(t.mic(mode, 2), dot(from, listener.right), dot(from, listener.forward));
+        Placement at = place_sound(t.mic(mode, 2), dot(from, listener.right), dot(from, listener.forward));
+        behind(wheel_cue_[w], at);
         const float g = held(at) * master;
         float level[kWheelNotes] = {}, pitch[kWheelNotes];
         std::fill(pitch, pitch + kWheelNotes, doppler);

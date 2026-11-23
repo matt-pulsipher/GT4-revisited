@@ -61,7 +61,7 @@ public:
     Disc* disc() { return disc_.get(); }
     gt3r::Vfs* vfs() { return vfs_.get(); }
     // The open disc's car database, read on first use; null when the disc has none (Prologue's is
-    // not read yet).
+    // read in Gran Turismo 4's layout: formats/db/specdb_prologue.h).
     db::SpecDb* db();
     gt3r::InputManager& input() { return *input_; }
     gt3r::AudioEngine& audio() { return *audio_; }

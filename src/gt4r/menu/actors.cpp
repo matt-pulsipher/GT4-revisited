@@ -470,7 +470,7 @@ struct Transition : Object {
     }
 };
 
-// MScriptWatcher(context, function): the function is called every `interval` frames while the
+// MScriptWatcher(context, function) (Prologue's: (context, module, function's name)): the function is called every `interval` frames while the
 // watcher is appended; `count` is how often it has been.
 struct Watcher : Object {
     Value function, context;
@@ -776,10 +776,12 @@ void install_actor_natives(Runtime& rt, script::Module& menu) {
             return object_value(t);
         }));
 
-    menu.define("MScriptWatcher", Vm::native("MScriptWatcher", [r](Vm&, const Value&, Args a) {
+    menu.define("MScriptWatcher", Vm::native("MScriptWatcher", [r](Vm& vm, const Value&, Args a) {
         auto w = std::make_shared<Watcher>("MScriptWatcher");
         w->context = a.empty() ? Value{} : a[0];
         w->function = a.size() > 1 ? a[1] : Value{};
+        // Prologue's scripts name the function by its module and name: (context, module, "onCheck").
+        if (a.size() > 2 && a[2].kind == script::Kind::String) w->function = vm.attribute(a[1], a[2].as_string());
         Watcher* p = w.get();
         std::weak_ptr<Watcher> weak = w;
         number_field(*w, "interval", &p->interval);

@@ -45,6 +45,29 @@ bool find_gains(ByteSpan d, RaceSoundTables& t) {
     }
 }
 
+// Prologue's views' gains (its 0x3B3978 reads them): five rows of sixteen floats, one per
+// channel, with 1.0 in the last column of every row, the in-car rush (column 7) only from the
+// car's own in-car view, and the turbo's two (columns 2, 3) silent from the other cars' views.
+bool find_float_gains(ByteSpan d, RaceSoundTables& t) {
+    constexpr size_t kRow = 4 * 16, kSize = kRow * RaceSoundTables::kViews;
+    for (size_t at = 0; at + kSize <= d.size(); at += 4) {
+        if (f32_at(d, at + 15 * 4) != 1.0f) continue;
+        bool ok = true;
+        for (size_t k = 0; ok && k < 16 * size_t(RaceSoundTables::kViews); ++k) {
+            const float f = f32_at(d, at + 4 * k);
+            ok = std::isfinite(f) && f >= 0.0f && f <= 100.0f && (k % 16 != 15 || f == 1.0f);
+        }
+        for (int v = 1; ok && v < RaceSoundTables::kViews; ++v) ok = f32_at(d, at + kRow * size_t(v) + 7 * 4) == 0.0f;
+        for (int v : {1, 3}) ok = ok && f32_at(d, at + kRow * size_t(v) + 2 * 4) == 0.0f && f32_at(d, at + kRow * size_t(v) + 3 * 4) == 0.0f;
+        ok = ok && f32_at(d, at + 7 * 4) > 0.0f && f32_at(d, at) > 0.0f;
+        if (!ok) continue;
+        for (int v = 0; v < RaceSoundTables::kViews; ++v)
+            for (int c = 0; c < 16; ++c) t.gain[size_t(v)][size_t(c)] = f32_at(d, at + kRow * size_t(v) + 4 * size_t(c));
+        return true;
+    }
+    return false;
+}
+
 // The microphones: for each output mode three pairs of floats (slope, reach). The engine's pair
 // is the same in every mode and every reach is the same distance.
 bool find_mics(ByteSpan d, RaceSoundTables& t) {
@@ -127,7 +150,7 @@ RaceSoundTables RaceSoundTables::flat() {
 
 RaceSoundTables RaceSoundTables::find(ByteSpan image) {
     RaceSoundTables t = flat();
-    t.found_gains = find_gains(image, t);
+    t.found_gains = find_gains(image, t) || find_float_gains(image, t);
     t.found_mics = find_mics(image, t);
     t.found_params = find_params(image, t);
     return t;

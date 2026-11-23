@@ -6,6 +6,7 @@
 // docs/formats/menu.md ("The game's state") says what each answers and why.
 
 #include "gt4r/menu/game_internal.h"
+#include "gt4r/save/card_image.h"
 
 #include "gt4r/save/memory_card.h"
 #include "disc/core_image.h"
@@ -361,16 +362,60 @@ for (const char* nothing : {"applyRaceDisplayMode", "applyMenuDisplayMode", "set
         option->method(nothing, [](Vm&, const Value&, Args) { return Value{}; });
     option->method("getDeviceConfig", [](Vm&, const Value&, Args) { return Value{}; });
     option->method("getDeviceFeedback", [](Vm&, const Value&, Args) { return number(0); });
-    // The music and slide-show play lists: a row a song ({order, 0, chosen, order}; -1 none).
-// ❓ The rows' program form (0x1020 bytes in the option block) is not decoded: 128 rows here,
-// kept for the run.
-for (const char* list : {"bgm_playlist", "slide_playlist"}) {
-    auto p = std::make_shared<Object>("MPlayList");
-    std::vector<Value> rows;
-    for (int i = 0; i < 128; ++i) rows.push_back(Value::array({number(-1), number(0), number(0), number(-1)}));
-    p->set("play_data", Value::array(std::move(rows)));
-    option->set(list, object_value(p));
-}
+    // The music and slide-show play lists (GameState::PlayList): `play_data` is a row a piece of
+    // the streamed `racing` group, each [place in the order, played, enabled, the place's copy]
+    // (the configuration's init_raceplaylist writes them: places for the region's pieces, -1 and
+    // disabled for the others). A list not filled yet has the group's count of rows (the disc's
+    // bgm/<region>/ads.inf, its third group; ❓ the slide show's list as long, as a saved game
+    // has it). ❓ initShuffle is taken as the program's making of the order again: position 0,
+    // every enabled row unplayed, "none" when no row is enabled.
+    for (const auto& [list_name, list] : {std::pair<const char*, GameState::PlayList*>{"bgm_playlist", &state().bgm_playlist}, {"slide_playlist", &state().slide_playlist}}) {
+        auto p = std::make_shared<Object>("MPlayList");
+        GameState::PlayList* l = list;
+        Runtime* r = &rt;
+        auto rows = [l, r]() -> u32 {
+            if (!l->rows) {
+                for (const std::string& path : {"bgm/" + r->region() + "/ads.inf", std::string("bgm/us/ads.inf")}) {
+                    const std::optional<Bytes> inf = r->reader()(path);
+                    if (!inf || inf->size() < 0x14 + 3 * 8) continue;
+                    auto w = [&inf](size_t o) { return u32((*inf)[o]) | u32((*inf)[o + 1]) << 8 | u32((*inf)[o + 2]) << 16 | u32((*inf)[o + 3]) << 24; };
+                    if (w(0x0C) >= 3) l->rows = std::min<u32>(w(0x14 + 2 * 8 + 4), 128);
+                    break;
+                }
+            }
+            return std::min<u32>(l->rows, 128);
+        };
+        p->property("play_data", [l, rows] {
+            std::vector<Value> out;
+            for (u32 i = 0; i < rows(); ++i) {
+                const GameState::PlayList::Row& row = l->row[i];
+                out.push_back(Value::array({number(row.order), number(row.played), number(row.enabled), number(row.order2)}));
+            }
+            return Value::array(std::move(out));
+        }, [l, rows](const Value& v) {
+            const std::vector<Value>* items = v.items();
+            if (!items) return;
+            const u32 n = std::min<u32>(rows(), u32(items->size()));
+            for (u32 i = 0; i < n; ++i) {
+                const std::vector<Value>* d = (*items)[i].items();
+                if (!d || d->size() < 4) continue;
+                GameState::PlayList::Row& row = l->row[i];
+                row.order = gt3r::s8((*d)[0].as_float()), row.played = u8((*d)[1].as_float() != 0), row.enabled = u8((*d)[2].as_float() != 0), row.order2 = gt3r::s8((*d)[3].as_float());
+            }
+            // ❓ "none" follows the rows given (a saved game after the configuration's list has 0).
+            l->none = 1;
+            for (u32 i = 0; i < rows(); ++i)
+                if (l->row[i].enabled) l->none = 0;
+        });
+        p->method("initShuffle", [l, rows](Vm&, const Value&, Args) {
+            bool any = false;
+            for (u32 i = 0; i < rows(); ++i) l->row[i].played = !l->row[i].enabled, any |= l->row[i].enabled != 0;
+            l->none = !any, l->position = 0;
+            return Value{};
+        });
+        p->property("shuffle", [l] { return number(l->shuffle); }, [l](const Value& v) { l->shuffle = v.truthy(); });
+        option->set(list_name, object_value(p));
+    }
     return object_value(option);
 }
 
@@ -384,7 +429,12 @@ Value GameNatives::make_game() {
     field(g, "major_menu_page", &s->major_menu_page);
     field(g, "major_menu_widget", &s->major_menu_widget);
     g.property("last_sequence", [s] { return text(s->last_sequence); });
-    field(g, "next_sequence", &s->next_sequence);
+    // Setting a race's sequence is the scripts asking for a race: the sequence starts when the
+    // project finishes (Runtime::finish).
+    g.property("next_sequence", [s] { return text(s->next_sequence); }, [s](const Value& v) {
+        s->next_sequence = v.is_nil() ? std::string() : v.to_string();
+        s->sequence_asked = true;
+    });
     g.property("last_menu_project", [s] { return text(s->last_menu_project); });
     field(g, "next_menu_project", &s->next_menu_project);
     g.property("last_menu_arg", [s] { return text(s->last_menu_arg); });
@@ -417,8 +467,16 @@ Value GameNatives::make_game() {
         return Value{};
     });
     // The pages the menus came through: a stack of names (the title page pushes the mode).
-    g.method("menuPush", [s](Vm&, const Value&, Args a) {
-        s->menu_stack.push_back(a.empty() ? std::string() : a[0].to_string());
+    // The menu stack (0x42FD00 on): the names one after another, each ended by a 0, in 0x100
+    // bytes; a name that would reach the last byte is not pushed.
+    auto stack_bytes = [s] {
+        size_t n = 0;
+        for (const std::string& name : s->menu_stack) n += name.size() + 1;
+        return n;
+    };
+    g.method("menuPush", [s, stack_bytes](Vm&, const Value&, Args a) {
+        const std::string name = a.empty() ? std::string() : a[0].to_string();
+        if (stack_bytes() + name.size() < 0xFF) s->menu_stack.push_back(name);
         return Value{};
     });
     g.method("menuPop", [s](Vm&, const Value&, Args) {
@@ -441,24 +499,27 @@ g.method("menuRef", [s](Vm&, const Value&, Args a) {
         g.method(nothing, [](Vm&, const Value&, Args) { return Value{}; });
 
     // The menus' place kept in the save (Context: the major project and page, the stack).
-    g.method("saveMenuStack", [s](Vm&, const Value&, Args) {
-        s->saved_menu_depth = int(s->menu_stack.size()) - 1;
+    // saveMenuStack keeps a copy of the stack and its length in bytes (0x42FE88); loadMenuStack
+    // puts it back and answers 1, or 0 when none was kept (the length -1, a new game's;
+    // 0x42FF48).
+    g.method("saveMenuStack", [s, stack_bytes](Vm&, const Value&, Args) {
         Bytes stack(0x100, 0);
         size_t at = 0;
-        for (const std::string& name : s->menu_stack) {
-            if (at + name.size() + 1 > stack.size()) break;
-            std::memcpy(stack.data() + at, name.data(), name.size()), at += name.size() + 1;
-        }
-        s->saved_menu_stack = stack; // ❓ the program's entry format is not read: the names, each ended by a 0
+        for (const std::string& name : s->menu_stack) std::memcpy(stack.data() + at, name.data(), name.size()), at += name.size() + 1;
+        s->saved_menu_depth = int(stack_bytes());
+        s->saved_menu_stack = stack;
         return Value{};
     });
     g.method("loadMenuStack", [s](Vm&, const Value&, Args) {
+        if (s->saved_menu_depth < 0) return number(0);
         s->menu_stack.clear();
-        for (size_t at = 0; at < s->saved_menu_stack.size() && s->saved_menu_stack[at] && int(s->menu_stack.size()) <= s->saved_menu_depth;) {
-            const std::string name(reinterpret_cast<const char*>(s->saved_menu_stack.data() + at));
+        const size_t end = std::min<size_t>(size_t(s->saved_menu_depth), s->saved_menu_stack.size());
+        for (size_t at = 0; at < end;) {
+            const char* p = reinterpret_cast<const char*>(s->saved_menu_stack.data() + at);
+            const std::string name(p, strnlen(p, end - at));
             s->menu_stack.push_back(name), at += name.size() + 1;
         }
-        return Value{};
+        return number(1);
     });
     // Credits: kept as a number, given to the scripts as the money text ("10,000"; "--" for
     // none, 0x42E6B8). No cap: the scripts keep their own.
@@ -544,9 +605,15 @@ g.method("menuRef", [s](Vm&, const Value&, Args a) {
         s->all_available = a.empty() || a[0].truthy();
         return Value{};
     });
-    g.method("isNeedSave", [s](Vm&, const Value&, Args) { return number(s->need_save); });
-    g.method("setNeedSave", [s](Vm&, const Value&, Args a) {
-        s->need_save = a.empty() || a[0].truthy();
+    // isNeedSave answers whether something changed and clears it (0x43AC68); setNeedSave sets it
+    // (0x43ACA8, no argument).
+    g.method("isNeedSave", [s](Vm&, const Value&, Args) {
+        const bool need = s->need_save;
+        s->need_save = false;
+        return number(need);
+    });
+    g.method("setNeedSave", [s](Vm&, const Value&, Args) {
+        s->need_save = true;
         return Value{};
     });
     g.method("isDuringQuickMenu", [s](Vm&, const Value&, Args) { return number(s->during_quick_menu); });
@@ -631,39 +698,48 @@ g.method("menuRef", [s](Vm&, const Value&, Args a) {
             if (int(i) != s->riding_car) s->garage[i].used = false;
         return Value{};
     });
-    // A change of the car driven (0x435388): its record, rank 0, the others one further.
+    // A change of the car driven (0x435388): its record (the car's given, or, from the card,
+    // the place's own: one never driven is made as sold, with its odometer, 0x435568, and the
+    // change is marked as such), the place has a record, and the order of driving: the place
+    // first, every car driven more recently than it one further (0x435690).
     auto ride = [self, s, valid](s32 i, CarHandle* with) {
         if (!valid(i)) return false;
         GarageEntry& e = s->garage[size_t(i)];
         if (with) e.record = with->record();
-        else if (!e.record) {
-            auto c = car_from_entry(self->db(), *s, i, false);
-            e.record = c->own;
+        else {
+            s->riding_fresh = !e.record;
+            if (!e.record) e.record = car_from_entry(self->db(), *s, i, false)->own;
         }
-        if (s->riding_car != i) {
-            const int old = e.ride_rank;
+        if (const int old = e.ride_rank & 0x3FF; old != 0) {
             for (GarageEntry& o : s->garage)
-                if (&o != &e && o.used && o.ride_rank < old && o.ride_rank < 0x3FF) ++o.ride_rank;
+                if ((o.ride_rank & 0x3FF) < old) o.ride_rank = (o.ride_rank + 1) & 0x3FF;
             e.ride_rank = 0;
         }
         s->riding_car = i;
         return true;
     };
-    // setRidingCar(place, car), cancelRidingCar(place, car): ❓ the natives are not read; from
-    // the scripts' use: the car given is driven from that place (cancel: put back as it was).
-    garage->method("setRidingCar", [ride](Vm&, const Value&, Args a) {
+    // setRidingCar(place, car): the car given is driven from that place (0x16E108 -> 0x435388).
+    // setRidingCar(place, label, paint): the car driven is that car as sold, from that place,
+    // the place's marks and the order left as they are (0x435490).
+    garage->method("setRidingCar", [self, s, ride, valid](Vm&, const Value&, Args a) {
+        if (a.size() >= 3) {
+            const s32 i = arg_int(a, 0, -1);
+            if (!valid(i)) return Value{};
+            CarRecord r;
+            if (set_car(self->db(), r, arg_text(a, 1), arg_int(a, 2))) s->garage[size_t(i)].record = r;
+            s->riding_car = i;
+            return Value{};
+        }
         ride(arg_int(a, 0, -1), a.size() > 1 ? car_handle(a[1]) : nullptr);
         return Value{};
     });
-    garage->method("cancelRidingCar", [s, valid](Vm&, const Value&, Args a) {
-        const s32 i = arg_int(a, 0, -1);
-        CarHandle* with = a.size() > 1 ? car_handle(a[1]) : nullptr;
-        if (!valid(i)) {
-            s->riding_car = -1;
-            return Value{};
-        }
-        if (with) s->garage[size_t(i)].record = with->record();
-        s->riding_car = i;
+    // cancelRidingCar(place, car): only after a change to a car never driven (0x435418): that
+    // car's record is dropped again and the car given is driven from its place.
+    garage->method("cancelRidingCar", [s, ride](Vm&, const Value&, Args a) {
+        if (!s->riding_fresh) return Value{};
+        if (s->riding_car >= 0 && size_t(s->riding_car) < s->garage.size()) s->garage[size_t(s->riding_car)].record.reset();
+        ride(arg_int(a, 0, -1), a.size() > 1 ? car_handle(a[1]) : nullptr);
+        s->riding_fresh = false;
         return Value{};
     });
     // changeRidingCar(place, manager), pushRidingCar(manager), popGarageCar(place, car,
@@ -682,16 +758,20 @@ g.method("menuRef", [s](Vm&, const Value&, Args a) {
         }
         return text("OK");
     });
-    // pickup(country, tuner, drivetrain): the garage's cars of a country, tuner and drivetrain
-    // ("all" or nil: any), each built from its place; pickupCountry(), pickupTuner(country):
-    // the countries and tuners the garage has cars of. ❓ The natives compare names (0x16EE90,
-    // 0x16F188, 0x16F218, not read): from the garage page's use.
+    // pickup(country, tuner, drivetrain): the garage's cars in place order whose country and
+    // tuner (the car's columns, by their names' numbers) and the drivetrain of the sheet in use
+    // are the ones named ("all" or a name not known: any), each a car object of its place
+    // (0x16EE90 -> 0x170088; the car driven's list columns refreshed first, 0x435630).
+    // pickupCountry(), pickupTuner(country): the countries and tuners the garage has cars of,
+    // in the order of their numbers (0x170278, 0x1705E0).
     auto of_label = [](Vm& vm, const char* fn, const std::string& label) {
         const Value arg[1] = {text(label)};
         return vm.call(vm.attribute(vm.attribute(vm.lookup("menu"), "MCarData"), fn), arg).to_string();
     };
     auto named = [](Args a, size_t i) { return i < a.size() && a[i].kind == Kind::String && !a[i].as_string().empty() && a[i].as_string() != "all"; };
     garage->method("pickup", [self, s, of_label, named](Vm& vm, const Value&, Args a) {
+        if (s->riding_car >= 0 && size_t(s->riding_car) < s->garage.size() && s->garage[size_t(s->riding_car)].record)
+            entry_from_record(self->db(), s->garage[size_t(s->riding_car)]);
         std::vector<Value> out;
         for (size_t i = 0; i < s->garage.size(); ++i) {
             const GarageEntry& e = s->garage[i];
@@ -705,17 +785,24 @@ g.method("menuRef", [s](Vm&, const Value&, Args a) {
         }
         return Value::array(std::move(out));
     });
-    auto distinct = [s, of_label, named](const char* fn, bool by_country) {
-        return [s, of_label, named, fn, by_country](Vm& vm, const Value&, Args a) {
-            std::vector<std::string> seen;
+    auto distinct = [self, s, of_label, named](const char* fn, bool by_country) {
+        return [self, s, of_label, named, fn, by_country](Vm& vm, const Value&, Args a) {
+            const std::map<int, std::string>& numbers = by_country ? self->db().names.tuners : self->db().names.countries;
+            auto number_of = [&numbers](const std::string& name) {
+                for (const auto& [n, v] : numbers)
+                    if (v == name) return n;
+                return 1 << 30;
+            };
+            std::vector<std::pair<int, std::string>> seen;
             for (const GarageEntry& e : s->garage) {
                 if (!e.used) continue;
                 if (by_country && named(a, 0) && of_label(vm, "GetCountry", e.car) != a[0].as_string()) continue;
                 const std::string v = of_label(vm, fn, e.car);
-                if (std::find(seen.begin(), seen.end(), v) == seen.end()) seen.push_back(v);
+                if (std::none_of(seen.begin(), seen.end(), [&v](const auto& x) { return x.second == v; })) seen.emplace_back(number_of(v), v);
             }
+            std::stable_sort(seen.begin(), seen.end(), [](const auto& x, const auto& y) { return x.first < y.first; });
             std::vector<Value> out;
-            for (const std::string& v : seen) out.push_back(text(v));
+            for (const auto& [n, v] : seen) out.push_back(text(v));
             return Value::array(std::move(out));
         };
     };
@@ -732,6 +819,7 @@ g.method("menuRef", [s](Vm&, const Value&, Args a) {
 
     // The calendar, the records, the favorites, the presents, the used cars (game_records.cpp).
     install_records(*this, g, *rt.vm().lookup("menu").as<script::Module>());
+    install_prologue_license(g);
     (void)r;
     return object_value(game);
 }
@@ -747,6 +835,8 @@ save::GameSave& GameNatives::card() {
         save::Codes codes{[self](u32 table, const std::string& label) { return self->db().code(table, label); },
                           [self](u64 code) { return self->db().label(code); }};
         (void)d;
+        // A card image in the card's folder stands for the card when the folder has no game.
+        if (const save::CardImageResult taken = save::import_dropped_card(dir); taken.ok) rt.note("memory card: " + taken.message);
         card_save = std::make_shared<save::GameSave>(dir, codes, rt.reader());
     }
     return *card_save;
@@ -876,6 +966,8 @@ void complete_race_request(Runtime& rt, RaceRequest& r) {
     if (!r.car.empty()) return;
     const bool test = r.sequence.find("license") != std::string::npos || r.sequence.find("mission") != std::string::npos;
     if (test) {
+        // A test's grid is its event's (RACE +0x3E: 1 on the license tests).
+        if (row.size() > 0x3E && row[0x3E]) r.max_entry = row[0x3E];
         // A test's car is the first of its pool (an ENEMY_CARS row: +0x00 the car).
         const auto entries = race_entries(d, race);
         if (!entries.empty()) {

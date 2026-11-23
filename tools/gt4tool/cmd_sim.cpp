@@ -11,6 +11,7 @@
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/db/car_parts.h"
 #include "gt4r/formats/course/course_file.h"
+#include "gt4r/formats/course/runway_gtrw.h"
 #include "gt4r/sim/car_spec.h"
 #include "gt4r/sim/ground.h"
 #include "gt4r/sim/line_driver.h"
@@ -90,9 +91,7 @@ std::optional<course::Runway> open_road(Disc& disc, const std::string& name) {
     const Bytes data = disc.volume().read(*e);
     if (!course::CourseFile::looks_like_course(data)) return std::nullopt;
     const course::CourseFile file = course::CourseFile::parse(data);
-    const ByteSpan section = file.section(data, course::kSlotRunway);
-    if (!course::Runway::is_runway(section)) return std::nullopt;
-    return course::Runway::parse(section);
+    return course::course_road(file, data); // (RNW4, or Prologue's GTRW)
 }
 
 void road_report(const std::string& name, const course::Runway& r, bool detail) {

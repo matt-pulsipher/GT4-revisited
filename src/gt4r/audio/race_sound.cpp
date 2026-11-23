@@ -15,12 +15,30 @@ namespace gt4r::audio {
 namespace {
 
 constexpr float kFadeIn = 0.3f;            // the master's fade as the race begins, seconds
-constexpr float kContactFloor = 0.2f;      // a weaker contact is not heard
 constexpr float kQuiet = 1.0f / 16383.0f;  // under this both sides are silent
 
 int count_beep(int f) { return f > 0 && f < 240 && f % 60 == 0; }
 
 } // namespace
+
+RaceSoundOptions race_sound_options(const std::map<std::string, std::variant<s32, float, std::string>>& options) {
+    RaceSoundOptions o;
+    const auto number = [&](const char* name, int fallback) {
+        const auto it = options.find(name);
+        if (it == options.end()) return fallback;
+        if (const s32* i = std::get_if<s32>(&it->second)) return int(*i);
+        if (const float* f = std::get_if<float>(&it->second)) return int(*f);
+        return fallback;
+    };
+    o.effects_on = number("race_se", 1) != 0, o.effects = number("race_se_volume_raw", o.effects);
+    o.music_on = number("race_bgm", 1) != 0, o.music = number("race_bgm_volume_raw", o.music);
+    o.replay_effects_on = number("replay_se", 1) != 0, o.replay_effects = number("replay_se_volume_raw", o.replay_effects);
+    o.replay_music_on = number("replay_bgm", 1) != 0, o.replay_music = number("replay_bgm_volume_raw", o.replay_music);
+    if (const auto it = options.find("sound_type"); it != options.end())
+        if (const std::string* t = std::get_if<std::string>(&it->second))
+            o.mode = *t == "MONOPHONIC" ? OutputMode::Mono : *t == "PROLOGIC2" ? OutputMode::Surround : OutputMode::Stereo;
+    return o;
+}
 
 const char* race_start_group(RaceMusic k) {
     switch (k) {
@@ -148,9 +166,9 @@ bool RaceSound::play_effect(const char* name, float level) {
 }
 
 float RaceSound::stream_level(bool racing) const {
-    if (!options_.music_on) return 0;
+    if (!(replay_ ? options_.replay_music_on : options_.music_on)) return 0;
     const float table = library_ ? library_->levels().level(int(options_.mode), sound::VolumeTable::Stream) : 1.0f;
-    return racing ? table * float(options_.music) / 128.0f : table;
+    return racing ? table * float(replay_ ? options_.replay_music : options_.music) / 128.0f : table;
 }
 
 bool RaceSound::play_stream(const char* group, int number, bool racing) {
@@ -175,13 +193,38 @@ void RaceSound::count(int frames_left) {
     if (count_beep(frames_left) && play_effect("count_d", mix_->master)) ++report_.beeps;
 }
 
+// The next racing piece: the play list's, or the group's next.
+bool RaceSound::play_racing() {
+    racing_piece_ = playlist_ ? playlist_->next() : racing_piece_ + 1;
+    if (racing_piece_ < 0) return false;
+    if (first_piece_ < 0) first_piece_ = racing_piece_;
+    return play_stream("racing", racing_piece_, true);
+}
+
 void RaceSound::start() {
+    start_signal();
+    rolling();
+}
+
+void RaceSound::start_signal() {
     if (started_) return;
     started_ = true;
     if (play_effect("count_s", mix_->master)) ++report_.starts;
+}
+
+void RaceSound::rolling() {
+    if (racing_) return;
     racing_ = true;
-    racing_piece_ = 0;
-    if (!play_stream("racing", racing_piece_, true) && !music_.play) racing_ = false;
+    if (!play_racing() && !music_.play) racing_ = false;
+}
+
+void RaceSound::replay() {
+    replay_ = true;
+    started_ = true;
+    for (auto& c : cars_) c->stop();
+    racing_ = false;
+    if (music_.stop) music_.stop();
+    if (first_piece_ >= 0) racing_ = play_stream("racing", first_piece_, true);
 }
 
 void RaceSound::finish() {
@@ -192,8 +235,8 @@ void RaceSound::finish() {
 
 void RaceSound::contact(size_t car, int kind, float force) {
     if (car >= contact_.size()) return;
-    const float strength = kind == 0 ? force / 50000.0f : kind == 1 ? 2.0f * force : std::fabs(force / 50.0f);
-    if (strength < kContactFloor || strength < contact_[car]) return;
+    const float strength = contact_strength(kind, force);
+    if (strength <= 0 || strength < contact_[car]) return;
     contact_[car] = strength, contact_kind_[car] = kind;
 }
 
@@ -228,7 +271,8 @@ void RaceSound::update(std::span<const CarSoundState> states, const SoundListene
     // The master level.
     fade_ = fade_ < fade_target_ ? std::min(fade_ + fade_step_, fade_target_) : std::max(fade_ - fade_step_, fade_target_);
     const float table = library_ ? library_->levels().level(int(options_.mode), sound::VolumeTable::Race) : 1.0f;
-    const float option = options_.effects_on ? float(options_.effects) / 128.0f : 0.0f;
+    const bool on = replay_ ? options_.replay_effects_on : options_.effects_on;
+    const float option = on ? float(replay_ ? options_.replay_effects : options_.effects) / 128.0f : 0.0f;
     mix_->master = option * fade_ * table;
     const float master = mix_->master;
 
@@ -266,10 +310,7 @@ void RaceSound::update(std::span<const CarSoundState> states, const SoundListene
     mixer_.set_reverb_depth(depth, depth);
 
     // The racing music: the playlist's next piece when one ends.
-    if (racing_ && music_.playing && !music_.playing()) {
-        ++racing_piece_;
-        play_stream("racing", racing_piece_, true);
-    }
+    if (racing_ && music_.playing && !music_.playing()) play_racing();
 }
 
 void RaceSound::update(const sim::Session& session, const SoundListener& camera, int target) {

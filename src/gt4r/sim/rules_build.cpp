@@ -2,6 +2,7 @@
 
 #include "gt4r/sim/rules_build.h"
 
+#include "gt4r/sim/rules_drive.h"
 #include "gt4r/sim/rules_tires.h"
 
 namespace gt4r::sim {
@@ -31,6 +32,198 @@ F peak_slip(const rules::Tire& t) {
         if (best < y) best = y, deg = d;
     }
     return int_to_f(deg) * kDegree;
+}
+// The engine and driveline blocks (0x34EF30, 0x34ACA8): the engine's converter's, in Gran Turismo 4's places.
+void drive_blocks(const Spec& s, const Program& program, const gt3r::sim::exact::Params& p, rules::DriveExtra& x) {
+    (void)s, (void)program;
+    rules::EngineBlock& e = x.e;
+    e.rev_limit = p.e.rev_limit, e.idle = p.e.idle;
+    e.power_cap_on = p.e.power_cap_on, e.power_cap = p.e.power_cap, e.power_cap_soft = p.e.power_cap_soft;
+    // The turbo (0x34ED48): the cap (+0x113 x 0.1) with a first stage's knee (+0x116, x 100 rpm), peak and rate
+    // (+0x118 / +0x11A, x 0.1), a second's when all three of its bytes (+0x117, +0x119, +0x11B) are set; each
+    // stage's shape below the knee (+0x114 / +0x115, 0 .. 2) and its square term (the peak over the knee squared).
+    {
+        const F tenth = F::raw(0x3DCCCCCC);
+        e.boost_max = s.b(0x113) ? int_to_f(s.b(0x113)) * tenth : F();
+        if (!s.b(0x116) || !s.b(0x118) || !s.b(0x11A)) e.boost_max = F();
+        e.turbo_knee = {}, e.turbo_shape = {}, e.turbo_peak = {}, e.turbo_rate = {}, e.turbo_coef = {};
+        if (!(e.boost_max == F())) {
+            for (u32 st = 0; st < 2; ++st) {
+                if (st == 1 && !(s.b(0x117) && s.b(0x119) && s.b(0x11B))) break;
+                e.turbo_shape[st] = s.b(0x114 + st) < 3 ? s.b(0x114 + st) : 0;
+                e.turbo_peak[st] = int_to_f(s.b(0x118 + st)) * tenth;
+                e.turbo_rate[st] = int_to_f(s.b(0x11A + st)) * tenth;
+                e.turbo_knee[st] = gt3r::s16(s32(s.b(0x116 + st)) * 100);
+                const F k = int_to_f(e.turbo_knee[st]);
+                e.turbo_coef[st] = e.turbo_peak[st] / (k * k);
+            }
+        }
+    }
+    // The torque curve (0x34EF30): the spec's points (+0xBF), speeds the bytes at +0xC0 x 100 rpm, torques the
+    // u16s at +0xD8 (the last, when 0, the one before it) x 0.01 x 9.8 N m times the output factor (+0x108 per
+    // mille) and the power percentage (+0x07), shaded linearly over the curve from the low end's factor (+0x10C
+    // percent) to the high end's (+0x10A per mille); each point then x the capped boost over the uncapped.
+    e.torque = {};
+    const u32 n = s.b(0xBF) < 24 ? s.b(0xBF) : 24;
+    e.torque.n = gt3r::s16(n);
+    auto torque_word = [&](u32 k) {
+        u16 v = s.h(0xD8 + 2 * k);
+        if (k + 1 == n && v == 0 && k > 0) v = s.h(0xD8 + 2 * (k - 1));
+        const s32 t = gt3r::s16(v) < -1 ? s32(v) : s32(gt3r::s16(v));
+        return t;
+    };
+    for (u32 k = 0; k < n; ++k) e.torque.x[k] = int_to_f(s32(s.b(0xC0 + k)) * 100) * F::raw(0x3DD6774E);
+    if (n > 0) {
+        const F low = s.b(0x10C) ? int_to_f(s.b(0x10C)) * kPercent : kOne;
+        const F high = s.h(0x10A) ? int_to_f(s.h(0x10A)) * F::raw(0x3A83126E) : kOne;
+        F out = s.h(0x108) ? int_to_f(s.h(0x108)) * F::raw(0x3A83126E) : kOne;
+        out = out * kPercent;
+        if (const u8 pw = s.b(0x07); pw != 0 && pw != 100) out = out * (int_to_f(pw) / F::raw(0x42C80000));
+        const F x0 = e.torque.x[0], span = e.torque.x[n - 1] - x0, shade = high - low;
+        for (u32 k = 0; k < n; ++k) {
+            const F f = low + (shade * (e.torque.x[k] - x0)) / span;
+            e.torque.y[k] = (int_to_f(torque_word(k)) * F::raw(0x411CCCCC)) * (out * f);
+        }
+        // The friction (+0xD0): the spec's u16 +0xBA x 0.1 x 9.8 over the curve's last speed (x 0.9 instead when the
+        // static block's byte +0x13C is set).
+        const F fr = (int_to_f(s.h(0xBA)) * F::raw(0x3DCCCCCC)) * F::raw(0x411CCCCC);
+        e.friction = program.b(Program::kStatic + 0x13C) ? fr * F::raw(0x3F666666) : fr / e.torque.x[n - 1];
+        for (u32 k = 0; k < n; ++k) {
+            const gt3r::s16 rpm = gt3r::s16(s32(s.b(0xC0 + k)) * 100);
+            F sum = F();
+            for (u32 st = 0; st < 2; ++st)
+                if (!(e.turbo_peak[st] == F())) sum = sum + rules::turbo_boost(e, rpm, int(st));
+            const F raw = sum + kOne;
+            F capped = raw;
+            if (e.boost_max + kOne < capped) capped = e.boost_max + kOne;
+            e.torque.y[k] = e.torque.y[k] * (capped / raw);
+        }
+    }
+    rules::DrivelineBlock& d = x.d;
+    d = {};
+    d.layout = p.d.layout, d.unequal = p.d.unequal, d.gears = p.d.gears, d.driven_axle = p.d.driven_axle;
+    d.awd_k = p.d.awd_k, d.awd_capacity = p.d.awd_capacity, d.engine_inertia = p.d.engine_inertia;
+    d.diff_type = p.d.diff_type, d.kind = p.d.kind;
+    d.diff_initial = p.d.diff_initial, d.diff_accel = p.d.diff_accel, d.diff_decel = p.d.diff_decel;
+    d.launch_rpm = p.d.launch_rpm, d.up_rpm = p.d.up_rpm;
+    d.tire_radius = p.tire_radius, d.inv_tire_radius = p.inv_tire_radius, d.width = p.width;
+    d.shift_clutch_torque = p.d.shift_clutch_torque, d.wheel_gain = p.d.wheel_gain, d.axle_inertia = p.d.axle_inertia;
+    d.inv_axle_inertia = p.d.inv_axle_inertia, d.inv_engine_inertia = p.d.inv_engine_inertia;
+    // Gran Turismo 4's own rules of the driveline builder (0x34ACA8) on those values: the gearbox's kind (spec +0x158;
+    // 5 is 2, 6 is 0; a stepless box of kind 1 needs two gears, a one-speed box has one), the gears (at most 9),
+    // the axles' tires told apart (layout 5 with unequal radii, or a second reduction of kind 4), the launch speed
+    // (+0x160 x 10 rpm; at least idle + 100, a stepless box's idle), the up-shift speed (+0xBE x 100), the
+    // down-shift speeds, the stepless ratios relative to the first, the class of the up-shift speed.
+    // The drive (0x34BC98): spec +0x128 0 (and 3, 4) the rear wheels, 1 the front, 2 all four by the system +0x129:
+    // 0 layout 2 (the front driven), 1 layout 3, 2 layout 4, 3 layout 5, 4 layout 6, 5 layout 7, 6 layout 9 (the front
+    // driven), 7 layout 8, 8 layout 10; the split the front share (+0x12A, percent), for layout 4 1 from 50 on, for
+    // layout 5 x 0.36 x the program's byte 0x620308 percent, for layout 6 1 / (the share in degrees); the center
+    // clutch's capacity +0x12B x 10 x 9.8 N m (8 for layout 4, 15 for layout 6 when 0; layout 5's the program's byte
+    // 0x620309).
+    {
+        const u8 drive = s.b(0x128), sys = s.b(0x129);
+        const F share = int_to_f(s.b(0x12A)) * kPercent;
+        auto capacity = [&](u8 fallback) { return int_to_f(s32(s.b(0x12B) ? s.b(0x12B) : fallback) * 10) * F::raw(0x411CCCCC); };
+        d.awd_k = F(), d.awd_capacity = F();
+        if (drive == 1) d.layout = 1, d.driven_axle = 0;
+        else if (drive != 2 || sys > 8) d.layout = drive == 2 ? 3 : 0, d.driven_axle = 1;
+        else {
+            d.awd_k = share, d.driven_axle = 1;
+            switch (sys) {
+            case 0: d.layout = 2, d.driven_axle = 0; break;
+            case 1: d.layout = 3; break;
+            case 2:
+                d.layout = 4;
+                if (!(s.b(0x12A) < 50)) d.awd_k = kOne;
+                d.awd_capacity = capacity(8);
+                break;
+            case 3:
+                d.layout = 5;
+                d.awd_k = (share * F::raw(0x3EB851ED)) * (int_to_f(program.b(0x620308)) / F::raw(0x42C80000));
+                d.awd_capacity = int_to_f(s32(program.b(0x620309)) * 10) * F::raw(0x411CCCCC);
+                break;
+            case 4:
+                d.layout = 6;
+                if (!(share == F())) d.awd_k = kOne / ((share * F::raw(0x42C80000)) * F::raw(0x3C8EFA34));
+                d.awd_capacity = capacity(15);
+                break;
+            case 5: d.layout = 7; break; // (0x355978: the motors' set-up, not ported)
+            case 6: d.layout = 9, d.driven_axle = 0; break;
+            case 7: d.layout = 8; break;
+            default: d.layout = 10; break;
+            }
+        }
+    }
+    u8 kind = s.b(0x158);
+    if (kind == 5) kind = 2;
+    else if (kind == 6) kind = 0;
+    u8 gears = s.b(0x155);
+    if (gears >= 10) gears = 9;
+    if (kind == 3 && gears != 1) gears = 1;
+    if (kind == 1 && gears < 2) kind = 0;
+    d.kind = kind;
+    d.gears = gears;
+    // The ratios (0x34ACA8): each gear's word (spec +0x138 + 2 g, x 0.001; reverse and first 3.5 and 4.0 when below
+    // 100; a later gear below 100 ends the box there) times the final drive (+0x150, x 0.001; 4.0 below 500), reverse
+    // negative; then the second reduction (+0x152 x 0.001, from 500) by its kind (+0x154): 1 every gear times it, 2
+    // reverse and the gears from the fifth on, 3 reverse and the third and fourth, each times it over the final drive.
+    d.ratio = {};
+    {
+        const gt3r::s16 fw = gt3r::s16(s.h(0x150));
+        const F fin = int_to_f(fw < 500 ? 4000 : fw) * F::raw(0x3A83126E);
+        for (u32 g = 0; g <= d.gears && g < 10; ++g) {
+            const gt3r::s16 r = gt3r::s16(s.h(0x138 + 2 * g));
+            s32 v = r;
+            if (r < 100) {
+                if (g >= 2) {
+                    d.gears = u8(g - 1);
+                    break;
+                }
+                v = g == 1 ? 4000 : 3500;
+            }
+            d.ratio[g] = (int_to_f(v) * F::raw(0x3A83126E)) * fin;
+        }
+        d.ratio[0] = -d.ratio[0];
+        const gt3r::s16 rw = gt3r::s16(s.h(0x152));
+        const u8 rk = s.b(0x154);
+        if (rk != 0 && rk != 4 && !(rw < 500)) {
+            F f = int_to_f(rw) * F::raw(0x3A83126E);
+            if (rk == 1) {
+                for (u32 g = 0; g <= d.gears && g < 10; ++g) d.ratio[g] = d.ratio[g] * f;
+            } else if (rk == 2 || rk == 3) {
+                f = f / fin;
+                d.ratio[0] = d.ratio[0] * f;
+                if (rk == 2)
+                    for (u32 g = 5; g <= d.gears && g < 10; ++g) d.ratio[g] = d.ratio[g] * f;
+                else
+                    d.ratio[3] = d.ratio[3] * f, d.ratio[4] = d.ratio[4] * f;
+            }
+        }
+        // The engine's inertia (+0xB8 x 0.001) and its inverse; each gear's speed factor: its ratio over the driven
+        // axle's tire radius.
+        d.engine_inertia = int_to_f(s.h(0xB8)) * F::raw(0x3A83126E);
+        if (s.h(0xB8)) d.inv_engine_inertia = kOne / d.engine_inertia;
+        d.gear_speed = {};
+        for (u32 g = 0; g <= d.gears && g < 10; ++g) d.gear_speed[g] = d.ratio[g] / d.tire_radius[d.driven_axle & 1];
+    }
+    d.unequal = (d.layout == 5 && !(d.tire_radius[0] == d.tire_radius[1])) || s.b(0x154) == 4 ? 1 : 0;
+    const bool stepless = u8(kind - 1) < 2;
+    d.launch_rpm = u16(s32(s.b(0x160)) * 10);
+    d.up_rpm = u16(s32(s.b(0xBE)) * 100);
+    if (stepless) d.launch_rpm = x.e.idle;
+    else if (s32(d.launch_rpm) - 100 < s32(x.e.idle)) d.launch_rpm = u16(x.e.idle + 100);
+    for (u32 g = 1; g < d.gears && g + 1 < 10; ++g) {
+        const F turn = int_to_f(s32(d.up_rpm)) * F::raw(0x3DD6774E);
+        s32 v = gt3r::ee::to_int((((turn * d.ratio[g + 1]) / d.ratio[g]) * F::raw(0x42700000)) / F::raw(0x40C90FDA));
+        if (program.b(Program::kStatic + 0x112) && g == 1) v = (s32(d.launch_rpm) + v) / 2;
+        v -= gt3r::ee::to_int(((d.gear_speed[g + 1] * F::raw(0x4031C71B)) * F::raw(0x42700000)) / F::raw(0x40C90FDA));
+        const s32 least = s32(d.launch_rpm) + 500 * s32(g);
+        d.down_rpm[g - 1] = u16(v < least ? least : v);
+    }
+    if (stepless && d.gears >= 2)
+        for (u32 g = 2; g <= d.gears && g < 10; ++g) d.ratio[g] = d.ratio[g] / d.ratio[1];
+    d.x13 = d.up_rpm < 4500 ? 1 : d.up_rpm < 5000 ? 2 : 3;
+    if (s.b(0x01) == 5) d.x13 = 4;
 }
 } // namespace
 
@@ -133,6 +326,7 @@ void gt4_extras(const Spec& s, const Program& program, Record& r) {
     t.direct_lateral_scale = F::raw(0x3FC90FD9) / speed(0x118);
     t.direct_slip_scale = kOne / speed(0x119);
     r.x.chassis.mass = p.mass;
+    drive_blocks(s, program, p, r.x.drive);
 }
 
 } // namespace gt4r::sim
