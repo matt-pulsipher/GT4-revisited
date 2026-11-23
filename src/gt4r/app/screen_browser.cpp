@@ -218,13 +218,14 @@ private:
         const std::string path = preview_.path;
         if (course_) {
             movie_.stop();
-            app.push(make_model_viewer(path, {"Scenery", "Scenery, backdrop and sky", "Reflection scenery", "Backdrop", "Sky"},
+            app.push(make_model_viewer(path, {"Scenery", "Scenery, backdrop and sky", "Reflection scenery", "Backdrop", "Sky", "Road, walls and start grid",
+                                        "Scenery with the road over it"},
                                        [path](App& a, size_t i) {
                                            const std::optional<Bytes> data = a.vfs()->read(path);
                                            if (!data) throw FormatError("Could not read " + path);
                                            course::ModelOptions o;
-                                           o.world = i <= 1, o.after = i <= 1, o.far = i == 1 || i == 3, o.sky = i == 1 || i == 4;
-                                           o.environment = i == 2;
+                                           o.world = i <= 1 || i == 6, o.after = o.world, o.far = i == 1 || i == 3, o.sky = i == 1 || i == 4;
+                                           o.environment = i == 2, o.road = i >= 5;
                                            return course::build_course_model(*data, o, path);
                                        }));
             return;

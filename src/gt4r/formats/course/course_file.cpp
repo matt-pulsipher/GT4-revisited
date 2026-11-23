@@ -1,6 +1,7 @@
 #include "gt4r/formats/course/course_file.h"
 
 #include "formats/course/course_model.h"
+#include "gt4r/formats/course/runway.h"
 #include "gt4r/formats/model/mdls.h"
 
 #include <algorithm>
@@ -87,6 +88,11 @@ gt3r::scene::Model build_course_model(ByteSpan data, const ModelOptions& opt, co
     if (opt.after) add(kSlotAfter, "after");
     if (opt.far) add(kSlotFar, "far");
     if (opt.sky) add(kSlotSky, "sky");
+    if (opt.road && Runway::is_runway(file.section(data, kSlotRunway))) {
+        const Runway r = Runway::parse(file.section(data, kSlotRunway));
+        model.meshes.push_back(make_road_mesh(r));
+        model.meshes.push_back(make_wall_mesh(r));
+    }
     model.compute_bounds();
     return model;
 }

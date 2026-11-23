@@ -67,6 +67,7 @@ struct ModelOptions {
     bool sky = false;
     bool course_line = false;
     bool environment = false; // the reflection picture's scenery (overlaps the world)
+    bool road = false;        // the road's triangles by kind, its walls and start grid (runway.h)
     bool textures = true;
     int lod = 0;
 };

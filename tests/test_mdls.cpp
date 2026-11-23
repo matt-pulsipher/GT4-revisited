@@ -4,6 +4,7 @@
 
 #include "formats/model/gtm1.h"
 #include "gt4r/formats/course/course_file.h"
+#include "gt4r/formats/course/runway.h"
 #include "gt4r/formats/model/mdls.h"
 
 #include <cmath>
@@ -210,5 +211,76 @@ TEST(disc_courses_decode) {
             }
         }
         CHECK(courses == 110 && with_road == courses);
+    }
+}
+
+TEST(runway_reads_and_finds_the_road) {
+    // A made-up road: a 20 x 10 m slope of two cells, each two triangles, split at x = 10 by a
+    // tree of depth 1.
+    Bytes d(0xA0, 0);
+    std::memcpy(d.data(), "RNW4", 4);
+    put32(d, 0x10, 4);
+    putf(d, 0x14, 123.0f);
+    putf(d, 0x20, 0), putf(d, 0x24, 0), putf(d, 0x28, 0), putf(d, 0x2C, 20), putf(d, 0x30, 2), putf(d, 0x34, 10);
+    put16(d, 0x3A, 1), put16(d, 0x46, 6), put16(d, 0x48, 4), put16(d, 0x4A, 2), put16(d, 0x4C, 1);
+    auto at = [&](size_t header) {
+        while (d.size() & 15) d.push_back(0);
+        put32(d, header, u32(d.size()));
+        return d.size();
+    };
+    size_t o = at(0x5C); // grid: one place at (5, 0.5, 5)
+    d.resize(o + 0x10, 0);
+    putf(d, o, 5), putf(d, o + 4, 0.5f), putf(d, o + 8, 5), putf(d, o + 12, 1.5f);
+    o = at(0x74); // vertices: x 0, 10, 20 at z 0 and 10; the height rises with x (y = x / 10)
+    d.resize(o + 6 * 0x10, 0);
+    for (int i = 0; i < 6; ++i) putf(d, o + 0x10 * size_t(i), float(10 * (i % 3))), putf(d, o + 0x10 * size_t(i) + 4, float(i % 3)), putf(d, o + 0x10 * size_t(i) + 8, float(10 * (i / 3)));
+    o = at(0x78);
+    d.resize(o + 4 * 0x0C, 0);
+    const u16 tris[4][3] = {{0, 1, 3}, {1, 4, 3}, {1, 2, 4}, {2, 5, 4}};
+    for (int t = 0; t < 4; ++t) {
+        for (int k = 0; k < 3; ++k) put16(d, o + 0x0C * size_t(t) + 2 * size_t(k), tris[t][k]);
+        d[o + 0x0C * size_t(t) + 7] = u8(t >= 2 ? 8 : 0); // the far cell is another kind
+    }
+    const size_t lists = at(0x94); // (the clusters' triangle lists; the header slot is not read)
+    d.resize(lists + 8, 0);
+    put16(d, lists, 0), put16(d, lists + 2, 1), put16(d, lists + 4, 2), put16(d, lists + 6, 3);
+    o = at(0x7C);
+    d.resize(o + 2 * 0x10, 0);
+    put16(d, o, 2), put32(d, o + 8, u32(lists));
+    put16(d, o + 0x10, 2), put32(d, o + 0x18, u32(lists + 4));
+    o = at(0x80);
+    d.push_back(u8(0 << 6 | 31)); // split x at 0 + 20 x 31.5 / 64 = 9.84
+    put32(d, 0x08, u32(d.size()));
+
+    const course::Runway r = course::Runway::parse(d);
+    CHECK(r.version == 4 && r.length == 123.0f && r.vertices.size() == 6 && r.triangles.size() == 4 && r.clusters.size() == 2);
+    CHECK(r.grid.size() == 1 && r.grid[0].pos.x == 5 && r.grid[0].heading == 1.5f);
+    CHECK(r.cluster_at(3, 5) == 0 && r.cluster_at(15, 5) == 1);
+    float y = 0;
+    int tri = -1;
+    CHECK(r.height_at(5, 5, 10, y, &tri) && std::fabs(y - 0.5f) < 1e-4f && tri <= 1);
+    CHECK(r.height_at(15, 2, 10, y, &tri) && std::fabs(y - 1.5f) < 1e-4f && tri >= 2 && r.triangles[size_t(tri)].kind == 8);
+    CHECK(!r.height_at(25, 5, 10, y));     // off the road
+    CHECK(!r.height_at(15, 2, 1.0f, y));   // the road there is above the limit
+    CHECK(course::make_road_mesh(r).indices.size() == 12);
+}
+
+TEST(disc_roads_read) {
+    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    for (const auto& disc : test::discs()) {
+        if (disc->info().game != Game::GT4) continue;
+        size_t roads = 0, grids_on_road = 0;
+        for (const gt3r::Volume::Entry& e : disc->volume().entries()) {
+            if (e.path.compare(0, 4, "crs/") != 0 || e.path.find('/', 4) != std::string::npos || e.path.find('.') != std::string::npos) continue;
+            const Bytes data = disc->volume().read(e);
+            const course::CourseFile c = course::CourseFile::parse(data);
+            const course::Runway r = course::Runway::parse(c.section(data, course::kSlotRunway));
+            ++roads;
+            CHECK(r.length > 100 && r.length < 30000 && !r.triangles.empty() && !r.checkpoints.empty());
+            float y;
+            if (!r.grid.empty() && r.height_at(r.grid[0].pos.x, r.grid[0].pos.z, r.grid[0].pos.y + 2, y)) ++grids_on_road;
+            if (e.path == "crs/tsukuba") CHECK(r.length > 2000 && r.length < 2200); // a two-kilometre lap (the file: 2115.1 m)
+        }
+        CHECK(roads == 110 && grids_on_road > 90);
     }
 }

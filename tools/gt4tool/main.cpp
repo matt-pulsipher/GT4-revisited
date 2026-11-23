@@ -6,6 +6,7 @@
 //   gt4tool extract <disc> <prefix> <dir>  write the files under a prefix (unpacked) to a folder
 //   gt4tool tex <disc> <path> <dir>        decode every texture set in a file to PNGs
 //   gt4tool model <disc> <path>            describe a file's model sets as decoded
+//   gt4tool runway-survey <disc> [prefix]  read every course's road
 //   gt4tool model-survey <disc> [prefix] [textures]   decode every model set under a prefix
 //
 // Extracted files are for your own study; never commit them (docs/REVERSE_ENGINEERING.md).
@@ -17,8 +18,12 @@
 #include "formats/png_writer.h"
 #include "formats/tex1.h"
 #include "gt4r/disc/disc.h"
+#include "gt4r/formats/course/course_file.h"
+#include "gt4r/formats/course/runway.h"
 #include "gt4r/formats/model/mdls.h"
 
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -221,6 +226,56 @@ int cmd_model_survey(Disc& disc, const Args& a) {
     return ok == sets ? 0 : 1;
 }
 
+// Every course's road: sizes, and how its tables hang together.
+int cmd_runway_survey(Disc& disc, const Args& a) {
+    const std::string prefix = a.empty() ? "crs/" : a[0];
+    size_t n = 0, bad = 0;
+    std::map<u32, size_t> kinds, flag_bits, wall_tags;
+    for (const gt3r::Volume::Entry& e : disc.volume().entries()) {
+        if (e.path.compare(0, prefix.size(), prefix) != 0) continue;
+        const Bytes data = disc.volume().read(e);
+        if (!course::CourseFile::looks_like_course(data)) continue;
+        const course::CourseFile file = course::CourseFile::parse(data);
+        try {
+            const course::Runway r = course::Runway::parse(file.section(data, course::kSlotRunway));
+            ++n;
+            // The grid stands on the road, and every triangle is found through the tree.
+            size_t on_road = 0, through_tree = 0;
+            for (const course::Runway::Place& g : r.grid) {
+                float y;
+                on_road += r.height_at(g.pos.x, g.pos.z, g.pos.y + 2.0f, y) && std::fabs(y - g.pos.y) < 1.0f;
+            }
+            for (size_t t = 0; t < r.triangles.size(); t += 7) {
+                const course::Runway::Triangle& tri = r.triangles[t];
+                const course::Vec3 &p0 = r.vertices[tri.v[0]].pos, &p1 = r.vertices[tri.v[1]].pos, &p2 = r.vertices[tri.v[2]].pos;
+                const int c = r.cluster_at((p0.x + p1.x + p2.x) / 3, (p0.z + p1.z + p2.z) / 3);
+                if (c < 0) continue;
+                const auto& list = r.clusters[size_t(c)].triangles;
+                through_tree += std::find(list.begin(), list.end(), u16(t)) != list.end();
+            }
+            for (const course::Runway::Triangle& t : r.triangles) {
+                ++kinds[t.kind];
+                for (u32 b = 0; b < 32; ++b)
+                    if (t.flags >> b & 1) ++flag_bits[b];
+            }
+            for (const course::Runway::WallVertex& w : r.wall_vertices) ++wall_tags[w.tag];
+            std::printf("%-28s v%u %8.1f m  %5zu verts %5zu tris %4zu clusters depth %u  %4zu checkpoints  grid %zu (%zu on road)  pits %zu  walls %zu  tree %zu/%zu\n",
+                        e.path.c_str(), r.version, double(r.length), r.vertices.size(), r.triangles.size(), r.clusters.size(), r.tree_depth,
+                        r.checkpoints.size(), r.grid.size(), on_road, r.pit_stops.size(), r.wall_vertices.size(), through_tree,
+                        (r.triangles.size() + 6) / 7);
+        } catch (const std::exception& ex) {
+            ++bad;
+            std::printf("%-28s %s\n", e.path.c_str(), ex.what());
+        }
+    }
+    std::printf("%zu roads read, %zu failed\n  triangle kinds:", n, bad);
+    for (const auto& [k, c] : kinds) std::printf(" %u:%zu", k, c);
+    std::printf("\n  triangle flag bits:");
+    for (const auto& [k, c] : flag_bits) std::printf(" %u:%zu", k, c);
+    std::printf("\n  wall tags: %zu distinct\n", wall_tags.size());
+    return bad ? 1 : 0;
+}
+
 struct Command {
     const char* name;
     const char* usage;
@@ -234,6 +289,7 @@ const Command kCommands[] = {
     {"extract", "<disc> <prefix> <outdir>", 2, cmd_extract},
     {"tex", "<disc> <path> <outdir>", 2, cmd_tex},
     {"model", "<disc> <path>", 1, cmd_model},
+    {"runway-survey", "<disc> [prefix]", 0, cmd_runway_survey},
     {"model-survey", "<disc> [prefix] [textures]", 0, cmd_model_survey},
 };
 

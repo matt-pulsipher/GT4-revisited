@@ -32,7 +32,7 @@ Gran Turismo 3's table of section offsets
 | 47 | `GDGT` | Cones and boards |
 | 50 | `MDLS` | Sky reflection |
 | 52, 53 | `Mot1` | Camera motions |
-| 55 | `RNW4` | The road: surface, walls, checkpoints, start grid ❓ |
+| 55 | `RNW4` | The road: surface, walls, checkpoints, start grid (below) |
 
 `Vls0` and `CRSS` read with the shared engine's parsers as they are.
 
@@ -52,3 +52,40 @@ scene reads every register as 0.
 The first fields that match Gran Turismo 3's: +0x10 flags, +0x20 far clip (5000 on most
 courses), +0x60 fog colour, +0x70 / +0x74 fog distance and minimum visibility. +0x24..+0x44
 are scale factors this format adds (+0x38: the colour scale above). ❓ the rest.
+
+## Road: `RNW4` (slot 55)
+
+Code: `runway.*`. All 110 roads read (`gt4tool runway-survey`). Offsets from the magic.
+
+```
+0x0C u32 flags          0x10 u32 version (4; 0 on some courses)
+0x14 f32 lap length (m) 0x18 f32 start, 0x1C f32 goal: distances along the course
+0x20 f32 x3 bounds min  0x2C f32 x3 bounds max
+0x38 u16 checkpoint lists   0x58 u32 -> the lists
+0x3A u16 grid places        0x5C u32 -> {f32 x, y, z, heading (radians)}
+0x3C u16 checkpoints        0x60 u32 -> 0x28 bytes: left, middle, right (f32 x3 each), f32 distance
+0x3E u16 checkpoint lookups 0x64 u32 -> u16[]
+0x44 u16 gadgets            0x70 u32 -> 0x20 bytes each
+0x46 u16 vertices           0x74 u32 -> 0x10 bytes: f32 x, y, z, s16, u8, u8
+0x48 u16 triangles          0x78 u32 -> 0x0C bytes: u16 x3 vertices, u8, u8 kind, u32 flags
+0x4A u16 clusters           0x7C u32 -> 0x10 bytes: u16 triangles, u16 lookup count, u16 lookup
+                                         first, u16 0, u32 -> u16 triangle numbers[]
+0x4C u16 tree depth         0x80 u32 -> the tree
+0x4E u16 wall vertices      0x84 u32 -> 0x10 bytes: f32 x, y, z, u32 tag
+0x88 u32 wall lookups       0x8C u32 -> s16[]
+0x52 u16 pit stops          0x90 u32 -> as grid places
+0x54 u16 sections           0x9C u32 -> the sections
+```
+
+- **Triangle kinds** (US disc, all courses): 0 on 93% of the triangles (the road); 1, 2, 3, 4,
+  8, 16, 17, 24, 25, 32, 33 the rest (verges, sand, grass, dirt: which is which ❓).
+- **The tree** finds the triangles under a point. It is a full binary tree of the given depth
+  stored one byte per node, depth first with the left subtree before the right: bits 0-5 a
+  place p, bits 6-7 the axis (0 x, 1 y, 2 z). A node splits its box (the root's is the bounds)
+  at min + (max - min)(p + 0.5) / 64; the leaves, left to right, are the clusters, each a list
+  of triangles. Checked on every course: a triangle's centre leads to a cluster that lists it.
+- **Walls** are closed chains of the wall vertices in order. A chain's first vertex has its
+  length in the tag's low 16 bits, and its last vertex minus (length - 1) there. ❓ tag bit 16,
+  the wall lookups.
+- **The start grid**: most courses have 6 places that stand on the road; some list places that
+  do not (❓ the sections name the places a layout uses).
