@@ -608,6 +608,11 @@ struct StrobePlayer::Impl {
                 d.words = it != c.children.end() ? it->second->text : d.text->text;
                 std::memcpy(d.m, w, sizeof w), std::memcpy(d.mul, wm, sizeof wm), std::memcpy(d.add, wa, sizeof wa);
                 out.push_back(std::move(d));
+            } else if (t.kind == Movie::kExternal) {
+                Draw d;
+                d.external = !t.name.empty() ? t.name : !c.name.empty() ? c.name : std::string("_EXT"); // the picture's own name, else its clip's
+                std::memcpy(d.m, w, sizeof w), std::memcpy(d.mul, wm, sizeof wm), std::memcpy(d.add, wa, sizeof wa);
+                out.push_back(std::move(d));
             } else if (size_t(t.index) < movie->shapes.size()) {
                 for (const Movie::Shape::Group& g : movie->shapes[t.index].groups) {
                     Draw d;

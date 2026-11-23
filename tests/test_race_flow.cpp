@@ -7,6 +7,12 @@
 #include "gt4r/formats/course/runway.h"
 #include "gt4r/race/race_flow.h"
 #include "gt4r/race/start_camera.h"
+#include "gt4r/race/start_rule.h"
+#include "gt4r/race/replay_script.h"
+#include "gt4r/race/replay_file.h"
+#include "gt4r/race/gadgets.h"
+#include "gt4r/race/picture_settings.h"
+#include "gt4r/formats/db/specdb.h"
 
 #include <cmath>
 
@@ -122,6 +128,53 @@ TEST(race_flow_crossing_time) {
     bool started = false;
     for (int i = 0; i < 3; ++i) g.step(), started |= rolling.step(g.cars).start;
     CHECK(started && rolling.steps_since_start() >= 0);
+}
+
+TEST(race_result_board) {
+    // Three cars, the player (0) the slowest; the page up when the leader finishes.
+    Field f({2.0f, 3.0f, 2.5f}, 5);
+    race::FlowSetup s;
+    s.start = race::StartType::None, s.laps = 1, s.lap_length = kLap;
+    race::RaceFlow flow(s, f.cars);
+    race::ResultBoard board;
+    board.begin(3, 0, "Lap", "Laps");
+    CHECK(board.rows().size() == 3 && board.rows()[0].car == -1);
+    bool page = false;
+    for (int i = 0; i < 2000 && !flow.everyone_finished(); ++i) {
+        f.step();
+        const race::RaceFlow::Events ev = flow.step(f.cars);
+        if (!ev.finished.empty()) board.finished(flow, ev.finished), page = true;
+        if (page) {
+            board.follow(flow);
+            // While car 2 and 0 run, their rows follow the order with no time.
+            if (!flow.car(2).finished) {
+                CHECK(board.rows()[1].car == 2 && board.rows()[1].time.empty() && !board.rows()[1].fixed);
+                CHECK(board.rows()[2].car == 0 && board.player_row() == 2);
+            }
+        }
+    }
+    CHECK(board.all_fixed());
+    const auto& r = board.rows();
+    CHECK(r[0].car == 1 && r[1].car == 2 && r[2].car == 0);
+    // The winner's whole time (" M'SS.mmm"), the others' gaps ("+M'SS.mmm").
+    CHECK(r[0].time == race::result_time(race::clock_ms(flow.car(1).finish_units), false));
+    CHECK(r[0].time[0] == ' ' && r[1].time[0] == '+' && r[2].time[0] == '+');
+    CHECK(r[2].time == race::result_time(race::clock_ms(flow.car(0).finish_units) - race::clock_ms(flow.car(1).finish_units), true));
+    // The changed mark is taken once.
+    CHECK(board.take_changed(0) && !board.take_changed(0));
+    CHECK(race::result_time(184462, false) == " 3'04.462" && race::result_time(491, true) == "+0'00.491");
+    // A car a lap down: "+1Lap".
+    Field g({3.0f, 1.0f}, 5);
+    s.laps = 3;
+    race::RaceFlow f2(s, g.cars);
+    race::ResultBoard b2;
+    b2.begin(2, 0, "Lap", "Laps");
+    for (int i = 0; i < 5000 && !f2.everyone_finished(); ++i) {
+        g.step();
+        const auto ev = f2.step(g.cars);
+        if (!ev.finished.empty()) b2.finished(f2, ev.finished);
+    }
+    CHECK(b2.rows()[1].time == "+2Laps");
 }
 
 TEST(race_start_motion_curves) {
@@ -287,10 +340,151 @@ TEST(strobe_result_movie_disc) {
         CHECK(std::find(words.begin(), words.end(), "Car 1") != words.end());
         CHECK(std::find(words.begin(), words.end(), "1'02.000") != words.end());
         CHECK(std::find(words.begin(), words.end(), "Car 5") == words.end()); // not finished: its row not filled
+        // The car icons are the program's pictures (kind 7), one per visible row, not shapes.
+        size_t icons = 0;
+        for (const race::StrobePlayer::Draw& d : p.draw_list())
+            if (d.external.rfind("_EXT_CARICON", 0) == 0) ++icons;
+        CHECK(icons == 6);
         // Accept leaves the page.
         p.key(0x20);
         for (int i = 0; i < 90 && !exit; ++i) p.advance(1.0f / 30);
         CHECK(exit);
     }
     if (!movies) SKIP("no Gran Turismo 4 disc");
+}
+
+TEST(race_course_start_disc) {
+    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    CHECK(race::start_code_digit("1ff0", 0) == 1 && race::start_code_digit("1ff0", 1) == 15 && race::start_code_digit("x", 0) == -1);
+    size_t ran = 0;
+    for (const auto& disc : test::discs()) {
+        if (disc->info().serial.rfind("SCUS_973.28", 0) != 0) continue;
+        gt3r::Volume* vol = &disc->volume();
+        db::SpecDb sdb(
+            [vol](const std::string& path) -> std::optional<Bytes> {
+                const gt3r::Volume::Entry* e = vol->find(path);
+                return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
+            },
+            [vol](const std::string& dir) { return vol->list_dir(dir); });
+        // The original's arcade races: Tsukuba and Route 5 start rolling at 50 mph, Grand Canyon from a
+        // standing count.
+        const race::CourseStart ts = race::course_start(sdb, "tsukuba"), r5 = race::course_start(sdb, "route5"), gc = race::course_start(sdb, "grandcanyon");
+        CHECK(ts.known && ts.rolling && ts.code == "1ff0");
+        CHECK(r5.known && r5.rolling);
+        CHECK(gc.known && !gc.rolling && gc.code == "0000");
+        CHECK(std::fabs(ts.speed() * 2.23694f - 49.7f) < 0.1f); // 80 km/h
+        CHECK(!race::course_start(sdb, "no_such_course").known);
+        ++ran;
+    }
+    if (!ran) SKIP("no Gran Turismo 4 US disc");
+}
+
+TEST(race_picture_settings) {
+    race::PictureSettings p;
+    CHECK(p.v[0] == 3 && p.v[1] == 0 && p.v[2] == 0 && p.v[3] == 0);
+    // Brightness +3: a gain of 2^0.3 on every channel.
+    race::PictureSettings::Correction c = p.correction();
+    CHECK(std::fabs(c.gain[1] - std::pow(2.0f, 0.3f)) < 1e-5f && c.gain[0] == c.gain[1] && c.gain[2] == c.gain[1]);
+    CHECK(c.contrast == 1 && c.saturation == 1);
+    auto g = p.grade();
+    CHECK(g.on && std::fabs(g.white - 1 / std::pow(2.0f, 0.3f)) < 1e-5f && std::fabs(g.black) < 1e-6f);
+    // All zero: no correction.
+    race::PictureSettings z{race::PictureSettings::kReplayDefault};
+    CHECK(!z.grade().on);
+    // Balance +5: 6500 K; red down, blue up by 0.1. Contrast +5: the term 0.7. Saturation -5: 0.5.
+    race::PictureSettings q;
+    q.v = {0, 5, -5, 5};
+    c = q.correction();
+    CHECK(std::fabs(c.gain[0] - 0.9f) < 1e-5f && std::fabs(c.gain[2] - 1.1f) < 1e-5f);
+    CHECK(std::fabs(c.contrast - 0.7f) < 1e-5f && std::fabs(c.saturation - 0.5f) < 1e-5f);
+    g = q.grade();
+    CHECK(std::fabs(g.black - 0.15f) < 1e-5f && std::fabs(g.white - 0.85f) < 1e-5f);
+}
+
+TEST(replay_camera_springs) {
+    // A spring settles on its target; the lens spring may fall 150 degrees a second, rise 100.
+    race::CameraSpring s{100, 20, 0, -150, 100};
+    s.reset(30);
+    for (int i = 0; i < 600; ++i) s.step(10);
+    CHECK(std::fabs(s.x - 10) < 1e-3f);
+    // The slew: the wanted value moves at most 2 a second.
+    race::CameraSpring o{70, 20, 2, -150, 150};
+    o.reset(0);
+    o.step(1);
+    CHECK(std::fabs(o.want - 2.0f / 60) < 1e-6f);
+    // The aim damper: starts on its target, follows a turning target a frame behind, wraps at 360.
+    race::AimDamper d;
+    d.reset(350, 7);
+    CHECK(d.value() == 350);
+    float target = 350;
+    for (int i = 0; i < 240; ++i) {
+        target = std::fmod(target + 0.5f, 360.0f);
+        d.step(target, 2.0f); // follow over 1: no noise
+    }
+    float err = std::fabs(d.value() - target);
+    err = std::min(err, 360 - err);
+    CHECK(err < 1.0f);
+    // A follow of 0 holds the aim where it is.
+    race::AimDamper h;
+    h.reset(100, 3);
+    for (int i = 0; i < 60; ++i) h.step(140, 0.0f);
+    CHECK(std::fabs(h.value() - 100) < 1e-3f);
+}
+
+TEST(race_replay_file) {
+    race::ReplayFile f;
+    f.course = "tsukuba", f.sequence = "single_race", f.race = "", f.laps = 2;
+    f.cars = {{"_117_coupe_68", 3}, {"nsx_r_02", 0}};
+    for (int s = 0; s < 120; ++s) {
+        std::vector<race::CarState> st(2);
+        for (int c = 0; c < 2; ++c) {
+            st[size_t(c)].position = {float(s) * 0.5f, 1, float(c)};
+            st[size_t(c)].speed = float(s), st[size_t(c)].gear = c + 1, st[size_t(c)].lap = s / 60;
+            st[size_t(c)].wheels[2].spin = float(s) * 0.1f, st[size_t(c)].wheels[3].surface = 7;
+            st[size_t(c)].brake_lamps = s % 2;
+        }
+        f.steps.push_back(st);
+    }
+    const Bytes b = f.encode();
+    CHECK(race::ReplayFile::is_replay(b));
+    const race::ReplayFile g = race::ReplayFile::decode(b);
+    CHECK(g.course == "tsukuba" && g.sequence == "single_race" && g.laps == 2 && g.cars.size() == 2 && g.cars[0].paint == 3 && g.cars[1].label == "nsx_r_02");
+    CHECK(g.steps.size() == 120);
+    CHECK(g.steps[119][1].position.x == 59.5f && g.steps[119][1].gear == 2 && g.steps[119][0].lap == 1 && g.steps[61][0].brake_lamps);
+    CHECK(g.steps[50][0].wheels[2].spin == f.steps[50][0].wheels[2].spin && g.steps[50][1].wheels[3].surface == 7);
+    // A cut file.
+    bool threw = false;
+    try {
+        race::ReplayFile::decode(ByteSpan(b).first(b.size() / 2));
+    } catch (const std::exception&) {
+        threw = true;
+    }
+    CHECK(threw);
+}
+
+TEST(race_gadgets_disc) {
+    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    size_t ran = 0, courses = 0, placed = 0;
+    for (const auto& disc : test::discs()) {
+        if (disc->info().serial.rfind("SCUS_973.28", 0) != 0) continue;
+        for (const gt3r::Volume::Entry& e : disc->volume().entries()) {
+            if (e.path.compare(0, 4, "crs/") != 0 || e.path.find('/', 4) != std::string::npos || e.path.find('.') != std::string::npos) continue;
+            const Bytes data = disc->volume().read(e);
+            if (!course::CourseFile::looks_like_course(data)) continue;
+            const course::CourseFile file = course::CourseFile::parse(data);
+            const race::Gadgets g = race::Gadgets::parse(file.section(data, course::kSlotGadgets), file.section(data, course::kSlotRunway));
+            ++courses, placed += g.placements.size();
+            for (const race::Gadgets::Placement& p : g.placements) CHECK(p.kind >= 0 && size_t(p.kind) < std::max<size_t>(g.kinds.size(), 1));
+            if (e.path == "crs/tsukuba") {
+                // Tsukuba: 18 cones along its pit lane's ends; six kinds, the cone's a five-point hull.
+                CHECK(g.kinds.size() == 6 && g.placements.size() == 18);
+                CHECK(g.kinds[5].hull_points == 5 && std::fabs(g.kinds[5].radius - 0.593f) < 1e-3f && g.kinds[5].mass == 15);
+                CHECK(g.placements[0].kind == 5 && std::fabs(g.placements[0].position.x + 243.2f) < 0.1f);
+                CHECK(!g.models.empty());
+                ++ran;
+            }
+        }
+    }
+    if (!ran) SKIP("no Gran Turismo 4 US disc");
+    CHECK(courses > 100 && placed > 18);
 }

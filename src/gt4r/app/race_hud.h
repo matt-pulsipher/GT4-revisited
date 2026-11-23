@@ -33,8 +33,18 @@ struct HudState {
     float message_opacity = 0;
     std::string event;                // the line under the times ("L1/3   1'23.456")
     float event_opacity = 0;
+    std::string card_title, card_line; // a replay's opening card: the car, its power, tires and the race
+    float card_opacity = 0;
+    std::string status;               // the status line over the panel ("FULL THROTTLE"); UTF-8
+    float status_opacity = 0;
     bool replay = false;              // a replay: its sign in place of the position, laps and times
+    bool replay_display = false;      // the replay's display on (else only the logo)
     float opacity = 1;                // of the whole display
+    // The panels' smaller parts.
+    float lateral_g = 0;              // the car's sideways acceleration in g (+ right)
+    float throttle = 0, brake = 0;    // the pedals, 0..1
+    float trip_m = 0;                 // metres the car ran this race (the trip meter)
+    float fuel = 1, tire_wear = 1;    // 0..1 left
 };
 
 class RaceHud {
@@ -51,7 +61,17 @@ public:
     bool mph() const;
     // A race movie (the pause menu, the results) as its player shows it now, over the whole canvas:
     // its shapes, pictures and texts (the texts' words looked up in the race's text table).
-    void draw_movie(const race::StrobeMovie& movie, const race::StrobePlayer& player);
+    // `externals`: the pictures the program supplies (the results' car icons), where they go on the
+    // canvas, for the caller to draw.
+    struct MovieExternal {
+        std::string name;
+        float x = 0, y = 0; // the canvas (640 x 480)
+        float scale = 1;    // the placed picture's scale
+        float opacity = 1;
+    };
+    void draw_movie(const race::StrobeMovie& movie, const race::StrobePlayer& player, std::vector<MovieExternal>* externals = nullptr);
+    // The 640 x 480 canvas on the screen.
+    static SDL_FRect canvas();
 
 private:
     struct Impl;

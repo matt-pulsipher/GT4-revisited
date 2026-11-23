@@ -13,8 +13,13 @@
 #include "gt4r/race/replay_script.h"
 #include "gt4r/race/simulation.h"
 #include "gt4r/sim/ai/drivers.h"
+#include "gt4r/sim/equipment.h"
 
+#include <limits>
+#include <map>
 #include <memory>
+#include <optional>
+#include <variant>
 #include <span>
 #include <string>
 #include <vector>
@@ -26,6 +31,7 @@ class Session;
 }
 namespace audio {
 class RaceSound;
+class RacePlaylist;
 struct SoundListener;
 } // namespace audio
 
@@ -35,6 +41,9 @@ struct WorldEntry {
     u32 paint = 0;         // by index in the car's paints
     int grid_place = -1;   // the course's start place (-1: the entry's index)
     bool automatic = true; // the gearbox shifts itself
+    float start_speed = 0; // a rolling start: metres per second at time 0 (sim::Entry::start_speed)
+    std::optional<sim::Equipment> equipment; // the car's parts and settings (a garage car's); none: as sold
+    float start_distance = std::numeric_limits<float>::quiet_NaN(); // a rolling start's place (sim::Entry::start_distance)
 };
 
 struct WorldSetup {
@@ -45,6 +54,10 @@ struct WorldSetup {
     bool rail = false; // the stand-in simulation instead of the game's
     sim::ai::Pace pace; // the computer drivers' (the event's)
     bool computer_player = false; // the computer drivers drive the player's car too
+    // The game's options (menu::GameState::options: the sound's volumes and output) and the race
+    // play list; none: a new game's.
+    std::map<std::string, std::variant<s32, float, std::string>> options;
+    std::shared_ptr<audio::RacePlaylist> playlist;
 };
 
 class RaceWorld {
@@ -62,7 +75,9 @@ public:
     bool computer_drivers() const { return field_ != nullptr; }
     // One simulation step of 1/60 s. `hold`: the start's hold (the engines answer the throttle, the
     // cars stay).
-    void step(std::span<const race::CarInput> inputs, bool hold = false);
+    // `player_by_computer`: when the computer drivers were set up for the player's car too, they drive
+    // it this step (else its input is the caller's: a rolling start handed over).
+    void step(std::span<const race::CarInput> inputs, bool hold = false, bool player_by_computer = true);
     std::span<const race::CarState> cars() const { return sim_->cars(); }
     // What goes with the cars shown in a step, live (the simulation's) or recorded: smoke and dust
     // from the wheels, and the race's sound heard from `camera` (none: no sound) about car `target`.
@@ -77,6 +92,23 @@ public:
     // make the cars' reflection picture); `hidden`: a car whose body is not drawn (the in-car
     // view's own), -1 for none.
     void render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarState> cars, const race::ViewPose& pose, size_t focus, int hidden);
+    // The rear-view mirror in `rect`: from `pose` (the in-car view) looking back, mirrored; the course
+    // by its mirror lists and sky, the cars but `hidden`, the mirror's own fog, 120 m deep.
+    void render_mirror(Ui& ui, const SDL_FRect& rect, std::span<const race::CarState> cars, const race::ViewPose& pose, int hidden);
+    // The picture's correction (the screen settings, race/picture_settings.h) from the next frame.
+    void set_grade(const gt3r::render::DrawOptions::PostGrade& g) { grade_ = g; }
+    // The next frame's dissolve: `snapshot` freezes the last picture shown, drawn over the new one at
+    // `weight`; `keep_last` keeps each picture for a later snapshot.
+    void set_dissolve(bool snapshot, float weight, bool keep_last) { snapshot_ = snapshot, dissolve_ = weight, keep_last_ = keep_last; }
+
+    // The cars' icons (the results page's): each car standing side-on, its front to the left, drawn
+    // over `canvas` (the 640 x 480 page on the screen) with its middle at (x, y) of the page.
+    struct Icon {
+        size_t car = 0;
+        float x = 0, y = 0;
+        float opacity = 1;
+    };
+    void draw_icons(Ui& ui, const SDL_FRect& canvas, std::span<const Icon> icons);
 
     const race::CourseScene& course() const { return *course_; }
     const race::CarVisual& visual(size_t i) const { return *car_visuals_[i]; }
@@ -88,6 +120,8 @@ public:
     bool simulated() const { return session_ != nullptr; }
     bool night() const { return night_; }
     const WorldSetup& setup() const { return setup_; }
+    // The player's car's power as built, PS (0: not known).
+    float player_power_ps() const { return player_ps_; }
     const gt3r::render::DrawStats& draw_stats() const;
 
 private:
@@ -105,7 +139,11 @@ private:
     std::unique_ptr<sim::Session> session_;
     std::unique_ptr<sim::ai::Field> field_; // the computer drivers, on the game's simulation
     bool computer_player_ = false;
+    float player_ps_ = 0;
     bool night_ = false, noted_ = false;
+    gt3r::render::DrawOptions::PostGrade grade_;
+    bool snapshot_ = false, keep_last_ = false;
+    float dissolve_ = 0;
     std::unique_ptr<Impl> impl_;
 };
 

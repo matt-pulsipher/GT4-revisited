@@ -9,6 +9,7 @@
 #include "gt4r/race/simulation.h"
 
 #include <span>
+#include <string>
 #include <vector>
 
 namespace gt4r::race {
@@ -118,5 +119,47 @@ private:
     int finishers_ = 0;
     int player_finish_steps_ = -1, started_steps_ = -1;
 };
+
+// The results page's rows as the program keeps them (ResultArcade, docs/formats/race_flow.md "The
+// results"): a row per place; a car's row is written for good when it finishes (its time: the
+// winner's total, the others' gap to it, or the laps short of it), and while the page is up and
+// cars still run, the rows of the running cars follow the race's order (their names, no time).
+// Each row has a "changed" mark the page takes once (CB_STABLE).
+class ResultBoard {
+public:
+    struct Row {
+        int car = -1;     // the car shown (-1 none yet)
+        std::string time; // " 1'23.456", "+0'01.234", "+1Lap"; empty while the car runs
+        bool changed = false;
+        bool fixed = false; // the car has finished
+    };
+    // `lap_word` / `laps_word`: the race's words for one lap and several (WordOfLap, WordOfLaps).
+    void begin(size_t cars, size_t player, std::string lap_word = "Lap", std::string laps_word = "Laps");
+    // The cars that finished in a step, in that order (RaceFlow::Events::finished).
+    void finished(const RaceFlow& flow, std::span<const size_t> cars);
+    // While the page is up: the running cars' rows from the race's order now.
+    void follow(const RaceFlow& flow);
+    // The page's question for a row: changed since it last asked (the mark is taken).
+    bool take_changed(size_t row);
+    const std::vector<Row>& rows() const { return rows_; }
+    int player_row() const { return player_row_; }
+    bool all_fixed() const { return all_fixed_; }
+
+private:
+    void put(size_t row, int car);
+    void set_player_row(int row);
+
+    std::vector<Row> rows_;
+    std::vector<bool> recorded_;
+    size_t player_ = 0;
+    int player_row_ = 0;
+    bool all_fixed_ = false;
+    s64 leader_ms_ = 0;
+    int leader_laps_ = 0;
+    std::string lap_word_, laps_word_;
+};
+
+// The results page's time for a row: " M'SS.mmm" for the winner (`plus` false), "+M'SS.mmm" for a gap.
+std::string result_time(s64 milliseconds, bool plus);
 
 } // namespace gt4r::race
