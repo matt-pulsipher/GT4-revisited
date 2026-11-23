@@ -6,6 +6,8 @@
 #include "gt4r/race/simulation.h"
 #include "gt4r/sim/car_spec.h"
 #include "gt4r/sim/ground.h"
+#include "gt4r/sim/record.h"
+#include "gt4r/sim/rules_step.h"
 #include "sim/collision_exact.h"
 #include "sim/exact/tick.h"
 
@@ -57,6 +59,12 @@ public:
     const Spec& spec(size_t i) const { return specs_[i]; }
     // The course is a loose one (its first start place is on a loose surface).
     bool loose() const { return loose_; }
+    // Gran Turismo 4's own routines where they are ported (rules_step.h; the default), or the shared
+    // engine's throughout (Gran Turismo 3's rules on Gran Turismo 4's cars), for comparison.
+    void set_gt4_rules(bool on) { gt4_rules_ = on && gt4_ready_; }
+    bool gt4_rules() const { return gt4_rules_; }
+    // A car's Gran Turismo 4 part of the record (record.h) and wheel layout.
+    const sim::Extra& gt4_record(size_t i) const { return gx_[i]; }
     // What the session runs on stand-ins for ("the disc's program is not a build whose tables are mapped").
     const std::vector<std::string>& notes() const { return notes_; }
 
@@ -86,6 +94,10 @@ private:
     std::unique_ptr<Walls> walls_;
     std::vector<gt3r::sim::collide::exact::Body> bodies_;
     std::vector<Extra> extra_;
+    std::vector<sim::Extra> gx_;
+    std::vector<rules::WheelLayout> layouts_;
+    rules::Tables tables_;
+    bool gt4_ready_ = false, gt4_rules_ = false;
     std::vector<Spec> specs_;
     std::vector<race::CarState> states_;
     std::vector<std::string> notes_;

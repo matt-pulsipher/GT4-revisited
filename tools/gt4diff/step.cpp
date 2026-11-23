@@ -8,6 +8,7 @@
 #include "gt4r/sim/exact_bridge.h"
 #include "gt4r/sim/rules.h"
 #include "gt4r/sim/rules_chassis.h"
+#include "gt4r/sim/rules_step.h"
 #include "gt4r/sim/rules_tires.h"
 #include "gt4r/sim/rules_wear.h"
 #include "sim/exact/tick.h"
@@ -158,6 +159,44 @@ StepResult run_step(Disc& disc, bool print, const std::string& course_label, con
             const u32 v = ee.r32(pb + off);
             if (v >= pb && v < pb + kParamsSize) std::printf("  P+%04X -> P+%04X\n", off, v - pb);
         }
+    }
+    // What our session builds for the step beside the program's own: the race's per-surface rolling
+    // resistance tables, the mass the step reads.
+    {
+        StepTap road{"race tables (ours as the session builds them)", 1, 0};
+        const sim::rules::Tables mine = sim::rules::tables(program, inputs.statics);
+        const sim::rules::RoadTables theirs = road_tables(ee);
+        bool same = mine.road.rolling_curve.n == theirs.rolling_curve.n;
+        for (int k = 0; k < theirs.rolling_curve.n && k < 8; ++k)
+            same = same && mine.road.rolling_curve.x[size_t(k)].bits == theirs.rolling_curve.x[size_t(k)].bits &&
+                   mine.road.rolling_curve.y[size_t(k)].bits == theirs.rolling_curve.y[size_t(k)].bits;
+        for (int k = 0; k < theirs.rolling_curve.n && k < 8 && print; ++k)
+            if (mine.road.rolling_curve.x[size_t(k)].bits != theirs.rolling_curve.x[size_t(k)].bits || mine.road.rolling_curve.y[size_t(k)].bits != theirs.rolling_curve.y[size_t(k)].bits)
+                std::printf("  rolling curve point %d: the program's %08X %08X, ours %08X %08X\n", k, theirs.rolling_curve.x[size_t(k)].bits, theirs.rolling_curve.y[size_t(k)].bits,
+                            mine.road.rolling_curve.x[size_t(k)].bits, mine.road.rolling_curve.y[size_t(k)].bits);
+        for (size_t k = 0; k < 24; ++k) {
+            if (mine.road.rolling_mu[k].bits != theirs.rolling_mu[k].bits) {
+                same = false;
+                if (print) std::printf("  rolling resistance of surface %zu: the program's %08X, ours %08X\n", k, theirs.rolling_mu[k].bits, mine.road.rolling_mu[k].bits);
+            }
+        }
+        u8 sb[8];
+        ee.read_bytes(sim::rules::kSlipBytes, sb, 8);
+        const sim::rules::SlipBytes theirs_slip = sim::rules::slip_bytes(sb);
+        same = same && theirs_slip.fade == mine.slip.fade && theirs_slip.gain_on == mine.slip.gain_on && theirs_slip.gain_base == mine.slip.gain_base &&
+               theirs_slip.gain_knee == mine.slip.gain_knee;
+        const sim::rules::SlipForceGlobals g = slip_globals(ee);
+        same = same && g.steer_mode == mine.globals.steer_mode && g.camber_ref.bits == mine.globals.camber_ref.bits &&
+               g.camber_gain.bits == mine.globals.camber_gain.bits && g.mean_on == mine.globals.mean_on;
+        same = same && ee.r32(o.car(0) + kF + 0x4D4) == ee.r32(o.params(0) + 0x48);
+        if (print && !same)
+            std::printf("  curve n %d/%d slip %d globals %d/%d %08X/%08X %08X/%08X %d/%d mass %08X/%08X\n", mine.road.rolling_curve.n, theirs.rolling_curve.n,
+                        int(theirs_slip.fade == mine.slip.fade && theirs_slip.gain_on == mine.slip.gain_on), int(g.steer_mode), int(mine.globals.steer_mode),
+                        g.camber_ref.bits, mine.globals.camber_ref.bits, g.camber_gain.bits, mine.globals.camber_gain.bits, g.mean_on, mine.globals.mean_on,
+                        ee.r32(o.car(0) + kF + 0x4D4), ee.r32(o.params(0) + 0x48));
+        road.equal = same ? 1 : 0;
+        result.taps.push_back(road);
+        if (print) std::printf("  %-28s %s\n", road.name.c_str(), same ? "equal" : "differ");
     }
     const int steps = step_count > 0 ? step_count : std::getenv("GT4R_STEPS") ? std::atoi(std::getenv("GT4R_STEPS")) : 1200;
     try {

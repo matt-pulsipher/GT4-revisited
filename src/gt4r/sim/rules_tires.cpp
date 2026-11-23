@@ -215,7 +215,7 @@ void tire_slip_force(ex::Car& c, TireExtra& x, const WheelLayout& l, const SlipF
             if (v < F()) v = -v, sign = kMinusOne;
             if (!r.x1da && w.rim_speed < F()) sign = -sign;
         } else {
-            v = ex::slip_angle_fold(c.behaviour, beta, sign);
+            v = ex::slip_angle_fold(behaviour(), beta, sign);
             if (r.x1da == 1 && w.rim_speed < F()) sign = -sign;
         }
         if (i < l.count && s8(l.fore_aft[size_t(i)]) > 0) sum = sum + v, ++counted;
@@ -259,7 +259,7 @@ void tire_slip_force(ex::Car& c, TireExtra& x, const WheelLayout& l, const SlipF
 void slip_angles(ex::Car& c, const WheelLayout& l) {
     for (int i = 0; i < l.count && i < 4; ++i) {
         ex::Wheel& w = c.w[size_t(i)];
-        w.slip_dir = ex::slip_angle(c.behaviour, w.hub_vx, w.hub_vy, w.slip_fade);
+        w.slip_dir = ex::slip_angle(behaviour(), w.hub_vx, w.hub_vy, w.slip_fade);
     }
 }
 
