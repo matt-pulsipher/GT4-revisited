@@ -416,7 +416,17 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
         ex::save_previous(c);
         ex::prep(c, race_.prep);
         if (gt4_rules_) rules::prep_tires(c, gx_[i], layouts_[i], tables_);
-        ex::driver_input_pad(c, race_.pad, f, course_kind);
+        if (in.computer) {
+            // A computer driver's outputs into the controls as the program's drivers write them (0x464F38).
+            c.full_throttle = 1;
+            c.throttle_pedal = c.throttle = gt3r::ee::F(std::clamp(in.throttle, 0.0f, 1.0f));
+            ex::set_brake_pedal(c, gt3r::ee::F(std::clamp(in.brake, 0.0f, 1.0f)));
+            c.reverse_req = gt3r::s8(in.reverse ? 1 : 0);
+            if (in.shift_lock) c.shift_lockout = in.shift_lock;
+            c.shift_req = 0;
+            c.clutch_req = c.race_hold != 0 || c.hold != 0 || c.driver_kind == 8 ? gt3r::ee::F() : gt3r::ee::F::raw(0x3F800000);
+        } else
+            ex::driver_input_pad(c, race_.pad, f, course_kind);
         // A computer driver's own command: the road wheels' angle as the game's drivers set it (0x464F38 writes it into the
         // steering command directly), within the full lock, past the pad's lock curve (no later phase reads the bounds).
         if (!std::isnan(in.steer_angle)) {

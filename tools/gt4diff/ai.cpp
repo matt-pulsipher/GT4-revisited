@@ -249,6 +249,9 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
         if (print) std::printf("ai: %s\n", err.c_str());
         return result;
     }
+    // The rubber band off (the race's set-up from an event row is left out: the conductor's own values would hurry the
+    // cars behind car 0; GT4R_AI_BAND keeps them).
+    if (!std::getenv("GT4R_AI_BAND")) ee.wf(o.cond + 0x7C, 0.0f), ee.wf(o.cond + 0x88, 0.0f), ee.wf(o.cond + 0x94, 1.0f);
     const u32 lap_bits = ee.call(kLapLength, {Arg::ptr(o.cond + kAiCourse)}).f0;
     float lap_length;
     std::memcpy(&lap_length, &lap_bits, 4);
@@ -337,6 +340,11 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
                                 double(ee.rf(D + 0x24)) * 3.6, double(ee.rf(D + 0x28)) * 3.6, double(ee.rf(D + 0x34)), double(ee.rf(D + 0x38)),
                                 double(ee.rf(D + 0x30)));
                 }
+            }
+            if (std::getenv("GT4R_AI_SCALE") && step % 600 == 0) {
+                std::printf("%6.1f s scales:", t);
+                for (int i = 0; i < o.cars; ++i) std::printf(" %.3f", double(ee.rf(o.car(i) + kF + 0x444)));
+                std::printf("\n");
             }
             if (all) break;
         }

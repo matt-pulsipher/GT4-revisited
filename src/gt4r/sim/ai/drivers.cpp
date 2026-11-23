@@ -70,6 +70,7 @@ struct Field::Driver {
     float time_scale = 1;
     float look = 0;
     float brake_dist = 0, brake_to = 0;
+    u8 shift_lock = 0;      // 0x3C: the gearbox held this many steps (a part throttle)
     rules::WheelLayout lay; // the car's wheels (0x359510)
 };
 
@@ -395,6 +396,7 @@ void Field::speed_control(Driver& d, float vt, float gain) {
     const float v = session_->record(d.car).speed.host();
     const float dv = std::clamp(v - (vt - 2 * kKmh), -10 * kKmh, 10 * kKmh);
     d.throttle = std::clamp(0.75f + gain * dv, 0.0f, 1.0f);
+    if (d.throttle != 0 && d.throttle != 1) d.shift_lock = 12;
     float vb = vt;
     if (d.mode != 3 && d.mode != 4) vb += 20 * kKmh;
     if (d.throttle == 0 && vb < v) d.brake = 1;
@@ -574,7 +576,7 @@ void Field::decide(Driver& d) {
     const race::CarState& st = session_->state(d.car);
     const Tuning& t = tables_.tuning;
     // Begin (0x464ED8): the outputs cleared, the steering from the car's command.
-    d.throttle = 0, d.brake = 0, d.reverse = false;
+    d.throttle = 0, d.brake = 0, d.reverse = false, d.shift_lock = 0;
     d.steer = c.steer_cmd.host();
     if (!t.blend_by_distance) d.blend = std::max(0.0f, d.blend - kStep);
     if (d.line < 0) return;
@@ -903,6 +905,8 @@ void Field::decide_car(size_t car, race::CarInput& in) {
     in.throttle = std::clamp(d.applied_throttle, 0.0f, 1.0f);
     in.brake = std::clamp(d.brake, 0.0f, 1.0f);
     in.reverse = d.reverse;
+    in.computer = true;
+    in.shift_lock = d.shift_lock;
 }
 
 void Field::drive(std::span<race::CarInput> inputs) {
