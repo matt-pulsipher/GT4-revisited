@@ -140,6 +140,34 @@ s32 championship_points(Database& d, int place) {
     return s32(s8(d.program.b(kChampionshipPoints + u32(place))));
 }
 
+// A distance driven added to a car's condition as the race's step does (0x35DE20, 0x35DD00):
+// the odometer (whole meters, capped at 100,000,000; 0x343518), and unless the car has no
+// wear the engine's distance up to its limit (0x3435E8), the oil's (0x343708: from below 0 it
+// counts up to 0 and then starts again at three times its run-in length; else up to its limit)
+// and the body's (0x3439E8). The limits from the program's static block (0x620CD8 +0xD0 on, in
+// 100,000 m: the new engine -3, its limit 100 from that, the run-in -2 x 0.5, the oil's limit
+// 60; 0x350678) and the body's from 0x620AF6 (x 1,000 m; 0x366100). ❓ Added once for the whole
+// distance here, where the race adds it a step at a time (the oil's start again differs by the
+// step that crosses 0).
+void add_distance(Database& d, CarRecord& rec, float meters) {
+    rec.set_odometer(std::min<u32>(rec.odometer() + u32(meters), 100'000'000));
+    if (rec.no_wear() || !d.program.known()) return;
+    const sim::Program& p = d.program;
+    const float k = 100'000.0f;
+    const float engine_new = -float(p.b(0x620CD8 + 0xD0)) * k, engine_max = float(p.b(0x620CD8 + 0xD3)) * k + engine_new;
+    const float run_in = -float(p.b(0x620CD8 + 0xD5)) * k * 0.5f, oil_max = float(p.b(0x620CD8 + 0xD7)) * k;
+    const float body_max = float(s16(p.h(0x620AF6))) * 1000.0f;
+    rec.set_condition(1, std::min(rec.condition(1) + meters, engine_max));
+    float oil = rec.condition(2);
+    if (oil < 0) {
+        oil += meters;
+        if (oil >= 0) oil = -run_in * 3.0f + oil;
+    } else
+        oil = std::min(oil + meters, oil_max);
+    rec.set_condition(2, oil);
+    rec.set_condition(4, std::min(rec.condition(4) + meters, body_max));
+}
+
 // The race count of a championship's label and the index of one of its races: the label ends
 // in two digits of each ("..._0500": five races, the championship itself; "..._0503": its third).
 int series_race_count(const std::string& label) { return label.size() >= 6 ? std::atoi(label.substr(label.size() - 4, 2).c_str()) : 0; }
@@ -216,15 +244,9 @@ s64 Runtime::race_finished(const RaceResult& r) {
         }
         work.set("numberOfEntries", s32(r.order.size()));
     };
-    // The car's distance (❓ the adders 0x343518 on are the race's; their callers are not read).
+    // The car's distance: what the race's step adds to the car's condition (0x35DE20).
     if (r.garage_slot >= 0 && size_t(r.garage_slot) < s.garage.size() && s.garage[size_t(r.garage_slot)].record && r.distance_m > 0) {
-        CarRecord& rec = *s.garage[size_t(r.garage_slot)].record;
-        rec.set_odometer(std::min<u32>(rec.odometer() + u32(r.distance_m), 100'000'000));
-        if (!rec.no_wear()) {
-            rec.set_condition(1, std::min(rec.condition(1) + r.distance_m, 11'000'000.0f));
-            rec.set_condition(2, std::min(rec.condition(2) + r.distance_m, 6'000'000.0f));
-            rec.set_condition(4, std::min(rec.condition(4) + r.distance_m, 3'000'000.0f));
-        }
+        add_distance(d, *s.garage[size_t(r.garage_slot)].record, r.distance_m);
         s.aspec_distance += s64(r.distance_m);
     }
     DayEvent day;

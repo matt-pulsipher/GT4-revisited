@@ -446,8 +446,12 @@ sequence starts when the scripts that asked for it finish (a new work object, 0x
 
 The prize page of the quick projects counts the prize into the credits (`incMoney`, ten at a
 time); the presents (prize cars, licenses) are given by Gran Turismo mode's present page on
-the way back, from the records' `present_result`. ❓ The car's distance is added to its
-odometer and wear (the adders 0x343518 on exist; who calls them is not read).
+the way back, from the records' `present_result`. The car's distance goes on its condition as
+the race's step adds it (0x35DE20): the odometer (whole meters, capped at 100,000,000), and
+unless the car has no wear the engine's distance up to 9,700,000 m, the oil's (from below 0 up
+to 0, then from 300,000 m; else up to 6,000,000 m) and the body's up to 3,000,000 m, the limits
+read from the program's tables (0x620CD8 +0xD0 on, 0x620AF6; 0x350678, 0x366100). ❓ Added
+once for the race's whole distance.
 
 **Cars and courses** (`menu::MCarData`, 0x131068; `menu::MCourseData`, 0x1B34D0): from the
 disc's car database ([database.md](database.md)) and the program's lists of makers, tuners,

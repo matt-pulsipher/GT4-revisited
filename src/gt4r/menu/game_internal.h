@@ -148,6 +148,8 @@ void install_records(GameNatives& n, Object& game, script::Module& menu);
 
 // ---- game_race.cpp
 void install_race_classes(GameNatives& n, script::Module& menu);
+// A distance driven added to a car's condition (odometer, engine, oil, body) as the race does.
+void add_distance(Database& d, CarRecord& rec, float meters);
 // A championship's points for a place (0x6A6EF0 of the program), its race count by its label.
 constexpr u32 kChampionshipPoints = 0x6A6EF0;
 s32 championship_points(Database& d, int place);

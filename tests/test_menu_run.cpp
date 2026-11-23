@@ -888,7 +888,10 @@ TEST(disc_menu_race_results) {
     const s64 prizes = g.total_prize_money;
     menu::RaceResult won;
     won.race = "am_sunday_0001", won.place = 0, won.time_ms = 185'432, won.distance_m = 8'000, won.garage_slot = g.riding_car, won.score = 30;
+    const float engine = g.garage[0].record->condition(1), body = g.garage[0].record->condition(4);
     CHECK(f.rt->race_finished(won) == 600);
+    // The distance on the engine and the body as the race's step adds it.
+    CHECK(g.garage[0].record->condition(1) == engine + 8'000.0f && g.garage[0].record->condition(4) == body + 8'000.0f);
     CHECK(g.total_prize_money == prizes + 600 && g.rank_counts[1] == 1 && g.today == today + 1 && g.diary.back().type == 3 && g.diary.back().word == 185'432);
     CHECK(g.garage[0].record->odometer() == 8'000);
     const Value record = vm.attribute(vm.lookup("game"), "race_record");
