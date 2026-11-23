@@ -79,7 +79,8 @@ public:
     // The file start_stream() would play (for the random piece: the one it would draw next).
     std::string stream_file(const std::string& kind, const std::string& code, int number = -1) const;
 
-    // The game's volume options, 0..1 (1 at start): the music's and the effects'.
+    // The game's volume options, 0..1: the music's and the effects' (at start a new game's: 115 of 128,
+    // which is what the original's menus measure at).
     void set_music_option(float v);
     void set_effect_option(float v);
 
@@ -94,7 +95,7 @@ private:
     int group_ = -1;          // the group whose bank is in use
     std::vector<int> next_;   // per group: the piece its next start plays
     float music_volume_ = 1.0f; // the scripts' music volume (MMusic.volume)
-    float music_option_ = 1.0f, effect_option_ = 1.0f;
+    float music_option_ = 115.0f / 128.0f, effect_option_ = 115.0f / 128.0f;
     mutable u32 random_ = 0x2545F491;
 };
 

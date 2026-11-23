@@ -55,9 +55,11 @@ Next, in order:
 2. **Sound in the race**: read from the program and built (`audio::RaceSound`,
    [formats/sound.md](formats/sound.md) "A race's sound"): the views' gains, the microphones,
    the engine's and exhaust's levels by the throttle, the wheels' notes by surface, the course's
-   ambience, tunnels and reverb, the count's beeps, the race's music by race type. Left: wiring
-   it into the Drive screen, the contacts and landings from the simulation, when the music's
-   messages are sent, the playlist from the save, Prologue's tables, pit sounds.
+   ambience, tunnels and reverb, the count's beeps, the race's music by race type and the play
+   list, contacts, landings and the gearbox's whine from the simulation; checked against the
+   original's recordings (`gt4tool sound compare`; the engine's pitch, the players' volumes, the
+   count, which music plays when). Left: the Drive screen's calls for a rolling start and the
+   replay, the play list from the save, the master's ducks, Prologue's tables, pit sounds.
 3. **Cars, the rest**: the far level's wheels, the brake discs' glow, fitted wings, the moving
    parts of the few cars with scripts, the skinned drivers, how a race picks opponents' paints.
 4. **Courses, the rest**: the mirror, cones and boards (`GDGT`), skid marks, the models that
