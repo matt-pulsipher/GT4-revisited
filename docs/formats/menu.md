@@ -340,8 +340,17 @@ names; the names are the ones the option pages' scripts list (`sound_type` `MONO
 `unit_torque` `KGFM`, `FTLB`, `NM`; `race_display_mode` `normal`, `480p`, `1080i`; ...).
 `game_zone` is a zone's name (`UNDEF`, `JP`, `US`, `UK`, `EU`, `KR`; 0x622DA8), set from the
 program's region by `setGameZoneDefault` (0x435D48: us US, uk EU, kr KR, else JP). The options
-that are numbers are saved in the game data (save.md); ❓ the named ones' numbers and a new
-game's values of the named ones are not read. They are also kept as text lines in
+that are numbers are saved in the game data (save.md); the named ones by their numbers in the
+program's tables of names (0x437758; the accessors 0x436810 on): `unit_velocity` +0x10,
+`unit_power` +0x11, `unit_torque` +0x12 (bytes), `sharpness_mode` +0x20 (`NORMAL`, `MILD`),
+`sound_type` +0x10B0, `penalty_type` +0x10E4, `view_type` / `view_type_2p` +0x10F4 / +0x10F8
+(`SUBJECTIVE`, `BONNET`, `OVERLOOK`), `photo_quality` +0x110C and `ustorage_photo_quality`
++0x117C (`STANDARD`, `FINE`, `SUPER_FINE`), `photo_aspect` +0x1114 (`4x3`, `16x9`, `3x2`, `1x1`),
+`photo_shutter` +0x1118 (`typeA` .. `typeS`), `steering_assist_1p` / `_2p` +0x112C / +0x1130
+(`AMATEUR`, `PROFESSIONAL`, `SIMULATION`), `replay_mode` +0x113C (`NORMAL`, `DIVE`),
+`replay_play_mode` +0x114C (`STRAIGHT`, `SHUFFLE`) (Option offsets); a new game's are the
+constructors' (`MILD`, `STEREO`, `NONE`, `SUBJECTIVE`, `STANDARD` / `SUPER_FINE`, `4x3`, `typeA`,
+`AMATEUR`, `NORMAL`, `STRAIGHT`). They are also kept as text lines in
 `<data folder>/gt4r-options.txt`.
 
 **The program's start** ends with the configuration's `last_strap()` (0x108BF8 -> 0x10B268):

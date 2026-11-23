@@ -20,12 +20,12 @@ struct Default {
 // values a new game starts from. The numbers are the program's constructors' (the option
 // block of a new game's saved data, checked against the running game after a new game:
 // volumes 115, the title's demo after 20 and the top menu after 600, ...). Several are names,
-// the ones the option pages' scripts list ("NONE", "STEREO", "MPH", ...); ❓ their numbers in
-// the program are not all read.
+// the ones the option pages' scripts list ("NONE", "STEREO", "MPH", ...), saved by their numbers
+// in the program's tables of names (save/game_data.cpp); a new game's are the constructors'.
 const Default kDefaults[] = {
     {"game_zone", std::string("US")}, {"language", std::string("US")}, {"wide_mode", 0}, {"race_display_mode", std::string("normal")},
     {"screen_adjust_h", 0}, {"screen_adjust_v", 0}, {"monitor_size", std::string("normal")}, {"race_color_correction", 0}, {"replay_color_correction", 0},
-    {"physical_monitor_size", 0}, {"sharpness_mode", 1},
+    {"physical_monitor_size", 0}, {"sharpness_mode", std::string("MILD")},
     {"menu_bgm", 1}, {"menu_bgm_volume", 115}, {"menu_bgm_volume_raw", 115}, {"menu_se", 1}, {"menu_se_volume", 115}, {"menu_se_volume_raw", 115},
     {"race_bgm", 1}, {"race_bgm_volume", 115}, {"race_bgm_volume_raw", 115}, {"race_se", 1}, {"race_se_volume", 115}, {"race_se_volume_raw", 115},
     {"replay_bgm", 1}, {"replay_bgm_volume", 115}, {"replay_bgm_volume_raw", 115}, {"replay_se", 1}, {"replay_se_volume", 115},
@@ -33,8 +33,8 @@ const Default kDefaults[] = {
     {"auto_save", 1}, {"race_laps", 2}, {"tire_damage", 0}, {"automatic_gear", 1}, {"automatic_ghost", 1}, {"assist_asm", 1}, {"assist_tcs", 1},
     {"assist", 1}, {"difficulty", 0}, {"run_with_enemies", 0}, {"license_transmission_MT", 0}, {"penalty_type", std::string("NONE")},
     {"limit_favorite_car_only", 0}, {"limit_favorite_course_only", 0}, {"limit_enemies_to_favorite_car_only", 0},
-    {"view_type", 0}, {"view_type_1p", 0}, {"view_type_2p", 0}, {"split_race_laps", 2}, {"split_tire_damage", 0}, {"split_handicap", 0},
-    {"split_boost_level", 1}, {"photo_quality", std::string("STANDARD")}, {"photo_manual_focus", 0}, {"photo_aspect", 0}, {"photo_shutter", 0}, {"photo_professional", 0},
+    {"view_type", std::string("SUBJECTIVE")}, {"view_type_1p", 0}, {"view_type_2p", std::string("SUBJECTIVE")}, {"split_race_laps", 2}, {"split_tire_damage", 0}, {"split_handicap", 0},
+    {"split_boost_level", 1}, {"photo_quality", std::string("STANDARD")}, {"photo_manual_focus", 0}, {"photo_aspect", std::string("4x3")}, {"photo_shutter", std::string("typeA")}, {"photo_professional", 0},
     {"photo_saturation", 0}, {"photo_save_slot", 0}, {"photo_save_method", 2},
     {"vibration_1p", 1}, {"vibration_2p", 1}, {"steering_assist_1p", std::string("AMATEUR")}, {"steering_assist_2p", std::string("AMATEUR")}, {"active_steering_1p", 0},
     {"active_steering_2p", 0}, {"steering_forcefeedback_1p", 0}, {"steering_forcefeedback_2p", 0},
@@ -42,7 +42,7 @@ const Default kDefaults[] = {
     {"race_display_steering", 1}, {"race_display_meter", 1}, {"race_display_time", 1}, {"race_display_lap", 1}, {"race_display_position", 1},
     {"race_display_car_name", 1}, {"race_display_suggested_gear", 1}, {"race_display_g_meter", 0}, {"replay_2p_split", 1},
     {"replay_memory_card_slot", 0}, {"album_slide_effect", 1}, {"album_slide_play_time", 8}, {"album_slide_transition_time", 4},
-    {"album_memory_card_slot", 0}, {"ustorage_photo_quality", std::string("STANDARD")},
+    {"album_memory_card_slot", 0}, {"ustorage_photo_quality", std::string("SUPER_FINE")},
     {"timeout_count_to_autodemo", 20}, {"timeout_count_to_topmenu", 600}, {"machine_role", std::string()}, {"special_arcade_tuner", std::string()},
     {"arcade_skip_to_favorite", 0}, {"opening_after_autoload", 1}, {"can_watch_ending", 0}, {"demo_movie_interval", 3},
     {"netconf", std::string()}, {"LAN_machine_name", std::string()}, {"LAN_style", std::string("play")}, {"LAN_target_name", std::string()}, {"LAN_live_target", 0},

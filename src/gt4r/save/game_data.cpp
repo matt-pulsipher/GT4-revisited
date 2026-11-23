@@ -44,7 +44,7 @@ struct OptionField {
     size_t at;
 };
 const OptionField kOptionNumbers[] = {
-    {"screen_adjust_h", 0x18}, {"screen_adjust_v", 0x1C}, {"sharpness_mode", 0x20},
+    {"screen_adjust_h", 0x18}, {"screen_adjust_v", 0x1C},
     {"menu_bgm", 0x5C}, {"menu_bgm_volume_raw", 0x60}, {"menu_se", 0x64}, {"menu_se_volume_raw", 0x68}, {"race_bgm", 0x6C}, {"race_bgm_volume_raw", 0x70},
     {"race_se", 0x74}, {"race_se_volume_raw", 0x78}, {"replay_bgm", 0x7C}, {"replay_bgm_volume_raw", 0x80}, {"replay_se", 0x84}, {"replay_se_volume_raw", 0x88},
     {"slide_bgm_volume_raw", 0x8C},
@@ -60,8 +60,9 @@ const OptionField kOptionNumbers[] = {
     {"album_memory_card_slot", 0x1178}, {"album_slide_transition_time", 0x1180},
 };
 const char* const kZones[] = {"UNDEF", "JP", "US", "UK", "EU", "KR"};
-// The options kept as names, by their numbers: the language (0x6AE3F8) and the units (MUnit's
-// tables, 0x472680 on), at Option +0x0C (u32) and +0x10, +0x11, +0x12 (bytes).
+// The options kept as names, by their numbers: the language (0x6AE3F8) at Option +0x0C, and the
+// options MOption gives by name, each through its table of names (0x437758: the tables at
+// 0x6A5998 on; the accessors 0x436810 on read the field and look its number up).
 struct NamedOption {
     const char* name;
     size_t at;
@@ -73,6 +74,19 @@ const NamedOption kNamedOptions[] = {
     {"unit_velocity", 0x10, 1, {"KMPH", "MPH"}},
     {"unit_power", 0x11, 1, {"PS", "HP", "BHP", "CH", "KW", "CV", "PF"}},
     {"unit_torque", 0x12, 1, {"KGFM", "FTLB", "NM"}},
+    {"sharpness_mode", 0x20, 4, {"NORMAL", "MILD"}},
+    {"sound_type", 0x10B0, 4, {"MONOPHONIC", "STEREO", "PROLOGIC2"}},
+    {"penalty_type", 0x10E4, 4, {"NONE", "SPEED_LIMITATION", "PASSING_PITLANE"}},
+    {"view_type", 0x10F4, 4, {"SUBJECTIVE", "BONNET", "OVERLOOK"}},
+    {"view_type_2p", 0x10F8, 4, {"SUBJECTIVE", "BONNET", "OVERLOOK"}},
+    {"photo_quality", 0x110C, 4, {"STANDARD", "FINE", "SUPER_FINE"}},
+    {"photo_aspect", 0x1114, 4, {"4x3", "16x9", "3x2", "1x1"}},
+    {"photo_shutter", 0x1118, 4, {"typeA", "typeB", "typeC", "typeD", "typeE", "typeF", "typeG", "typeH", "typeI", "typeJ", "typeK", "typeL", "typeM", "typeN", "typeO", "typeP", "typeQ", "typeR", "typeS"}},
+    {"steering_assist_1p", 0x112C, 4, {"AMATEUR", "PROFESSIONAL", "SIMULATION"}},
+    {"steering_assist_2p", 0x1130, 4, {"AMATEUR", "PROFESSIONAL", "SIMULATION"}},
+    {"replay_mode", 0x113C, 4, {"NORMAL", "DIVE"}},
+    {"replay_play_mode", 0x114C, 4, {"STRAIGHT", "SHUFFLE"}},
+    {"ustorage_photo_quality", 0x117C, 4, {"STANDARD", "FINE", "SUPER_FINE"}},
 };
 
 // A play list's 128 rows of 16 bytes, each "nothing chosen" (00 01 FF FF, then zeros).
