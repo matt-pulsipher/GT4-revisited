@@ -130,5 +130,15 @@ using ModelLoader = std::function<gt3r::scene::Model(App& app, size_t index)>;
 std::unique_ptr<Screen> make_model_viewer(std::string title, std::vector<std::string> items, ModelLoader load);
 // Drive: a car on a course (screen_race.cpp). Throws FormatError when the disc's lists are not read.
 std::unique_ptr<Screen> make_race_screen(App& app);
+// The same for a race already chosen (the menus' request): no lists, and leaving it returns to
+// the screen below.
+struct RaceStart {
+    std::string course; // a course file's name ("tsukuba")
+    std::string car;    // a car's label
+    int paint = 0;      // the car's paint by index
+    int cars = 6;       // on the grid
+    int laps = 3;
+};
+std::unique_ptr<Screen> make_race_screen(App& app, const RaceStart& start);
 
 } // namespace gt4r

@@ -737,6 +737,11 @@ void Runtime::open_page(const std::shared_ptr<LiveWidget>& page, bool replace) {
     if (std::find(pages_.begin(), pages_.end(), page) != pages_.end()) return;
     pages_.push_back(page);
     note("page " + page->name);
+    // A page that names its music: the same as the scripts' keepMusic of it.
+    if (page->data.has("bgm")) {
+        const Value group = Value::string(page->data.text("bgm"));
+        sound("sound", "keepMusic", Args(&group, 1));
+    }
     // onInitialize(context), then the focus goes to the page's first widget when the script
     // gave it none. The function is called in the script's own call, so it can wait.
     std::weak_ptr<LiveWidget> weak = page;

@@ -7,6 +7,7 @@
 #include "base/log.h"
 #include "formats/text/charset.h"
 #include "formats/text/text_layout.h"
+#include "gt4r/audio/app_sound.h"
 #include "gt4r/menu/font.h"
 #include "gt4r/menu/project.h"
 #include "gt4r/menu/runtime.h"
@@ -21,6 +22,27 @@
 namespace gt4r {
 
 namespace {
+
+// A call of the scripts' sound object, played (audio/menu_sound.h has what each does). The
+// calls of its `midi` and `stream` objects are not played yet.
+void play_sound_call(audio::MenuSound& s, const menu::SoundCall& c) {
+    if (c.object != "sound") return;
+    auto text = [&c](size_t i) { return i < c.args.size() ? c.args[i].to_string() : std::string(); };
+    auto number = [&c](size_t i, float otherwise) { return i < c.args.size() && c.args[i].is_number() ? c.args[i].as_float() : otherwise; };
+    const std::string& m = c.method;
+    if (m == "play") s.play(text(0));
+    else if (m == "load") c.args.empty() ? s.load() : s.load(text(0));
+    else if (m == "unload") s.unload();
+    else if (m == "keepMusic") s.keep_music(text(0));
+    else if (m == "startMusic") s.start_music(text(0));
+    else if (m == "stopMusic") s.stop_music();
+    else if (m == "fadeOutMusic") s.fade_out_music(number(0, 1.0f));
+    else if (m == "fadeInMusic") s.fade_in_music(text(0), number(1, 1.0f));
+    else if (m == "startStream") s.start_stream(text(0), text(1));
+    else if (m == "startStreamEx") s.start_stream(text(0), text(1), int(number(2, -1)), number(3, 0) != 0, number(4, 1.0f));
+    else if (m == "stopStream") s.stop_stream();
+    else if (m == "pauseStream") s.pause_stream(number(0, 1) != 0);
+}
 
 using menu::Rect;
 using menu::Rgba;
@@ -497,6 +519,10 @@ private:
             if (card_ == "none") runtime_->game().card.connected = false;
             else if (card_ == "saved") runtime_->game().card.has_game_data = true, runtime_->game().username = "Player"; // a stand-in for a saved game
             if (credits_ >= 0) runtime_->game().money = credits_;
+            app_ = &app;
+            runtime_->on_sound = [&app](const menu::SoundCall& call) {
+                if (audio::AppSound* sound = app.sound()) play_sound_call(sound->menu(), call);
+            };
             live_drawer_ = std::make_unique<PageDrawer>(app);
             PageDrawer* drawer = live_drawer_.get();
             menu::text_measure().measure = [drawer](const LiveWidget& face, float& w, float& h) { drawer->measure(face, w, h); };
@@ -512,9 +538,11 @@ private:
     void stop() {
         menu::text_measure().measure = nullptr;
         live_drawer_.reset(), runtime_.reset(), race_.reset();
+        if (app_)
+            if (audio::AppSound* sound = app_->sound()) sound->stop();
     }
 
-    void update_running(App&, const MenuInput& m) {
+    void update_running(App& app, const MenuInput& m) {
         // Select and Start together leave the running menus.
         if (m.held(PadButton::Select) && m.pressed(PadButton::Start)) return stop();
         try {
@@ -532,6 +560,17 @@ private:
             if (runtime_->finished() && !race_) {
                 race_ = runtime_->race_request();
                 if (!race_ && !runtime_->advance()) runtime_->note("the menus ended and asked for nothing");
+            } else if (race_ && m.pressed(PadButton::Cross)) {
+                // The race the menus asked for, on the course as it is driven forward (a reversed
+                // course's code is the course's with "r_" before it).
+                RaceStart start;
+                start.course = race_->course;
+                if (!app.vfs()->exists("crs/" + start.course) && start.course.rfind("r_", 0) == 0) start.course = start.course.substr(2);
+                start.car = race_->car, start.paint = race_->paint;
+                start.cars = std::max(1, race_->max_entry);
+                if (race_->laps > 0) start.laps = race_->laps;
+                if (audio::AppSound* sound = app.sound()) sound->menu().stop_music(), sound->menu().stop_stream();
+                app.push(make_race_screen(app, start));
             }
         } catch (const std::exception& ex) {
             runtime_->note(std::string("stopped: ") + ex.what());
@@ -563,7 +602,7 @@ private:
             ui.text(px + 8, py + 22, "Course " + race_->course + (race_->race.empty() ? std::string() : "   event " + race_->race), colors::kText);
             ui.text(px + 8, py + 36, "Car " + race_->car + "   paint " + std::to_string(race_->paint) + "   " + std::to_string(race_->max_entry) + " cars", colors::kText);
             ui.text(px + 8, py + 50, std::string(race_->manual ? "Manual" : "Automatic") + " gears   difficulty " + race_->difficulty, colors::kText);
-            ui.text(px + 8, py + 66, "Races are not part of this build yet.", colors::kDim);
+            ui.text(px + 8, py + 66, "Cross: drive it", colors::kDim);
         }
     }
 
@@ -602,6 +641,7 @@ private:
     std::string error_, start_project_, start_page_, card_;
     long long credits_ = -1; // a scripted run's credits; -1: the game's own
     std::optional<menu::RaceRequest> race_; // what the running menus asked for at their end
+    App* app_ = nullptr;                    // set when the menus start running
 };
 
 } // namespace

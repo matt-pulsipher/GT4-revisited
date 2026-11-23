@@ -595,7 +595,13 @@ private:
 
 class RaceScreen : public Screen {
 public:
-    explicit RaceScreen(App& app) : setup_(setup_from_env()) {
+    explicit RaceScreen(App& app, const RaceStart* chosen = nullptr) : setup_(chosen ? Setup{} : setup_from_env()) {
+        if (chosen) {
+            setup_.course = chosen->course, setup_.car = chosen->car;
+            setup_.paint = u32(std::max(0, chosen->paint));
+            setup_.cars = std::clamp(chosen->cars, 1, 16), setup_.laps = std::clamp(chosen->laps, 1, 99);
+            setup_.scripted = true;
+        }
         if (db::SpecDb* sdb = app.db()) {
             cars_ = sdb->cars();
             for (db::CourseEntry& c : sdb->courses())
@@ -778,5 +784,6 @@ private:
 } // namespace
 
 std::unique_ptr<Screen> make_race_screen(App& app) { return std::make_unique<RaceScreen>(app); }
+std::unique_ptr<Screen> make_race_screen(App& app, const RaceStart& start) { return std::make_unique<RaceScreen>(app, &start); }
 
 } // namespace gt4r
