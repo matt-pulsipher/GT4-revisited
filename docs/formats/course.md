@@ -403,6 +403,13 @@ three cells x, y, z: a person's place):
 Used by the people of 19 loose-surface and city courses (assisi, capri, grandcanyon, icerace,
 nursnow, paris_rally, tahiti_maze, yosemite_dirt, lasvegas and their variants).
 
+**Camera flashes.** On grandcanyon (and the other people's courses) a spectator's camera flash is
+an animated model of its own: a 64 x 64 picture of a star on black on a quad, drawn with GS ALPHA
+0x48 (Cs x As + Cd: added to what is behind), the person's script picking its key. Drawn as an
+ordinary blend it shows as a black square with a star in it (the Drive screen's "black square
+near the horizon"); the race view adds those models' blended passes
+(`race/animated_models.cpp`; the shared engine's model decode adds ALPHA 0x48 for cars only).
+
 ### Examples
 
 - **Tsukuba's 19 flags** (slot 1 models 347-365, a draw script each): t = fmod(`time` / 1000 +
