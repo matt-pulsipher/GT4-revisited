@@ -2,6 +2,7 @@
 
 #include "base/log.h"
 #include "formats/course/course_model.h"
+#include "gt4r/race/car_pose.h"
 #include "gt4r/formats/model/car_model.h"
 #include "gt4r/formats/model/mdls.h"
 
@@ -16,16 +17,9 @@ namespace {
 namespace scene = gt3r::scene;
 using render::Mat4;
 
-constexpr float kPi = 3.14159265f;
 constexpr int kSkip = 99; // a callback value no switch has a case for: the construct is left out
 
 render::Vec3 v3(const course::Vec3& v) { return {v.x, v.y, v.z}; }
-
-float rdf(ByteSpan d, size_t o) {
-    float f;
-    std::memcpy(&f, d.data() + o, 4);
-    return f;
-}
 
 // The callback values of a car's body for the race view's draws: the wheels' constructs are left
 // out (the wheels are items of their own), the spoiler is as built.
@@ -206,19 +200,7 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
         o.node = int(k + 1);
         shadow_src_[k] = mdls::build_model(body, o, sc, name + "/shadow");
     }
-    // The camera places (info +0x40: count, offset from the file's start; 0x20 bytes each).
-    if (c.info && c.info + 0x48 <= file.size()) {
-        const u32 n = rd32(file, c.info + 0x40), at = rd32(file, c.info + 0x44);
-        for (u32 i = 0; i < n && i < 64 && at + 0x20 * size_t(i) + 0x20 <= file.size(); ++i) {
-            const size_t o = at + 0x20 * size_t(i);
-            CameraMount m;
-            // Stored with y down and z forward: turned into the model's frame.
-            m.pos = {rdf(file, o), -rdf(file, o + 4), -rdf(file, o + 8)};
-            m.pitch = rdf(file, o + 12), m.yaw = rdf(file, o + 16), m.roll = rdf(file, o + 20);
-            m.zoom = rdf(file, o + 24), m.flags = rd32(file, o + 28);
-            mounts_.push_back(m);
-        }
-    }
+    mounts_ = read_camera_mounts(file);
 }
 
 CarVisual::~CarVisual() = default;
@@ -246,18 +228,7 @@ void CarVisual::set_shadow(const Shadow& s) {
     }
 }
 
-Mat4 CarVisual::body_matrix(const CarState& s) const {
-    const render::Vec3 right = v3(s.right), up = v3(s.up), forward = v3(s.forward), pos = v3(s.position);
-    // The model's origin is at the body's underside, the ride height above the road, with a hub
-    // at y = R - q + its travel. Whichever point of the car the state's position is, the wheels
-    // say how far along the body's up axis the origin lies from it.
-    float lift = 0;
-    for (int w = 0; w < 4; ++w) {
-        const int axle = w / 2;
-        lift += render::dot(v3(s.wheels[w].center) - pos, up) - (spec_.tire_radius[axle] - spec_.ride_height[axle] + s.wheels[w].travel);
-    }
-    return basis(right, up, forward * -1.0f, pos + up * (lift * 0.25f));
-}
+Mat4 CarVisual::body_matrix(const CarState& s) const { return race::body_matrix(s, spec_); }
 
 void CarVisual::add_items(std::vector<render::DrawItem>& items, const CarState& s, const render::Vec3& eye, float step) const {
     const Mat4 body = body_matrix(s);
@@ -269,25 +240,13 @@ void CarVisual::add_items(std::vector<render::DrawItem>& items, const CarState& 
         it.far_whole = true;
         items.push_back(it);
     }
-    const render::Vec3 right = v3(s.right), up = v3(s.up), forward = v3(s.forward);
     for (int w = 0; w < 4; ++w) {
-        const int axle = w / 2;
-        const bool right_side = (w & 1) != 0;
-        const WheelState& ws = s.wheels[w];
-        // The wheel's frame: at the hub, steered about the body's up axis, moved out to the
-        // tire's outer face; then turned about the axle and scaled by the rim's radius, the
-        // right side's turned half round.
-        const Mat4 hub = basis(right, up, forward * -1.0f, v3(ws.center)) * render::rotate_y(-ws.steer) *
-                         render::translate({(right_side ? 0.5f : -0.5f) * spec_.tire_width[axle], 0, 0});
-        if (lod == 0 && brakes_[size_t(w)]) items.push_back({brakes_[size_t(w)].get(), hub, 0});
-        // The turning pictures show when the wheel turns more than 5 degrees in a step.
-        const bool turning = std::fabs(ws.spin_rate * step) * (180.0f / kPi) > 5.0f;
+        // The brake parts in the wheel's frame; the tire and the wheel turned and scaled in it, with
+        // their turning pictures when the wheel turns fast enough.
+        if (lod == 0 && brakes_[size_t(w)]) items.push_back({brakes_[size_t(w)].get(), wheel_frame(s, spec_, w), 0});
+        const bool turning = wheel_turning(s.wheels[w], step);
         const render::GpuModel* wheel = wheels_[size_t(w)][turning ? 1 : 0] ? wheels_[size_t(w)][turning ? 1 : 0].get() : wheels_[size_t(w)][0].get();
-        if (!wheel) continue;
-        const float r = spec_.rim_radius[axle];
-        Mat4 m = hub * render::rotate_x(-ws.spin) * render::scale({r, r, r});
-        if (right_side) m = m * render::rotate_y(kPi);
-        items.push_back({wheel, m, lod});
+        if (wheel) items.push_back({wheel, wheel_matrix(s, spec_, w), lod});
     }
 }
 

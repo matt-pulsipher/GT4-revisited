@@ -252,7 +252,7 @@ public:
     void render(Ui& ui, const SDL_FRect& rect, bool look_back) {
         const std::span<const race::CarState> cars = sim_->cars();
         const race::CarState& me = cars[0];
-        const race::ViewPose pose = camera_.pose(me, *car_visuals_[0], mount_, look_back || setup_.look_back);
+        const race::ViewPose pose = camera_.pose(me, car_visuals_[0]->body_matrix(me), car_visuals_[0]->mounts(), mount_, look_back || setup_.look_back);
         const float aspect = rect.w / std::max(rect.h, 1.0f);
         const gt3r::race::SunParams& env = course_->env();
         const float far = env.has_env && env.far_clip > 0 ? env.far_clip : 5000.0f;

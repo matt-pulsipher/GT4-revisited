@@ -307,3 +307,262 @@ TEST(race_display_disc) {
     }
     if (!ran) SKIP("no Gran Turismo 4 US disc");
 }
+
+// --- A car's draw program settled for the race view, its sizes, its parts' places, the views ---
+
+#include "formats/model/gtm1.h"
+#include "gt4r/formats/db/specdb.h"
+#include "gt4r/formats/model/mdls.h"
+#include "gt4r/race/car_pose.h"
+#include "gt4r/race/car_spec.h"
+#include "gt4r/race/drive_camera.h"
+
+#include <cstring>
+
+namespace {
+
+void put16(Bytes& b, size_t o, u32 v) { b[o] = u8(v), b[o + 1] = u8(v >> 8); }
+void put32(Bytes& b, size_t o, u32 v) { std::memcpy(b.data() + o, &v, 4); }
+void putf(Bytes& b, size_t o, float f) { std::memcpy(b.data() + o, &f, 4); }
+void word(Bytes& b, u32 v) {
+    b.resize(b.size() + 4);
+    put32(b, b.size() - 4, v);
+}
+
+// A set of one model and one packed shape whose positions are 32-bit integers. The program is a
+// car body's in small: a wheel's construct (callback 11: case 0 draws the shape, the brake
+// parts), the brake lamps' switch (callback 0: case 1 draws the shape, the lit lens), then the
+// shape again (the body).
+Bytes car_like_set() {
+    Bytes b(0x200, 0);
+    std::memcpy(b.data(), "MDLS", 4);
+    put16(b, 0x16, 1), put16(b, 0x18, 1), put16(b, 0x1A, 1);
+    put32(b, 0x38, 0x80), put32(b, 0x3C, 0xB0), put32(b, 0x40, 0xC0), put32(b, 0x44, 0);
+    putf(b, 0x80 + 0x08, 2.0f);
+    put32(b, 0x80 + 0x18, 0x110);
+    put32(b, 0xB0, 0x140);
+    const u8 program[] = {
+        0x06, 0x0B, 0x00, 0x02, 0x06, 0x00, 0x08, 0x00, // 0x110: callback 11 -> 0x11A, 0x11E
+        0x08, 0x07,                                     // 0x118: to the construct's end, 0x120
+        0x04, 0x00, 0x08, 0x03,                         // 0x11A: draw; to 0x120
+        0x01, 0x01,                                     // 0x11E: (the tire alone: nothing here)
+        0x06, 0x00, 0x00, 0x02, 0x06, 0x00, 0x06, 0x00, // 0x120: callback 0 -> 0x12A, 0x12C
+        0x08, 0x05,                                     // 0x128: to 0x12E
+        0x08, 0x03,                                     // 0x12A: unlit: to 0x12E
+        0x04, 0x00,                                     // 0x12C: lit: draw
+        0x04, 0x00, 0x00,                               // 0x12E: the body; end
+    };
+    std::memcpy(b.data() + 0x110, program, sizeof program);
+    putf(b, 0x140 + 4, 0.01f);
+    put16(b, 0x140 + 8, 0x4080), put16(b, 0x140 + 10, 1), put16(b, 0x140 + 12, 3), put16(b, 0x140 + 14, 1);
+    Bytes p;
+    word(p, 0x6801C0C0); // the GIF tag: 3 vertices
+    word(p, 0x00008003), word(p, 0x301E4000), word(p, 0x00001412);
+    word(p, 0x68038000); // positions: three vectors of 32-bit whole numbers at 0
+    for (int v : {100000, 0, 0, 0, 200000, 0, -100000, 0, -50}) word(p, u32(v));
+    word(p, 0x6E038080); // colors
+    for (int i = 0; i < 3; ++i) word(p, 0x80404040u);
+    word(p, 0x20000000), word(p, 0x3F3F3F3F);
+    word(p, 0x7202C040), p.push_back(1), p.push_back(3), p.push_back(0), p.push_back(0); // one strip: a triangle
+    while (p.size() & 15) p.push_back(0);
+    put32(b, 0x140 + 0x10, 0x20), put16(b, 0x140 + 0x14, u32(p.size() / 16));
+    b.resize(0x160);
+    b.insert(b.end(), p.begin(), p.end());
+    put32(b, 0x10, u32(b.size()));
+    return b;
+}
+
+size_t draws_of(const Bytes& set, const mdls::Scene& scene) {
+    const Bytes block = mdls::to_gtm1(set, nullptr, scene);
+    return gt3r::gtm1::Gtm1::parse(block).run(0).size();
+}
+
+race::CarState standing_car(const race::CarSpec& spec, bool position_on_road) {
+    // Heading along -x, on level ground at y = 5.
+    race::CarState s;
+    s.forward = {-1, 0, 0}, s.up = {0, 1, 0}, s.right = {0, 0, -1};
+    const float q = 0.5f * (spec.ride_height[0] + spec.ride_height[1]);
+    s.position = {10, position_on_road ? 5.0f : 5.0f + q, 20};
+    for (int w = 0; w < 4; ++w) {
+        const int axle = w / 2;
+        const float along = (axle == 0 ? 0.5f : -0.5f) * spec.wheelbase, out = ((w & 1) ? 1.0f : -1.0f) * spec.half_track[axle];
+        s.wheels[w].center = {10 - along, 5 + spec.tire_radius[axle], 20 - out};
+    }
+    return s;
+}
+
+} // namespace
+
+TEST(mdls_callbacks_settled) {
+    const Bytes set = car_like_set();
+    // As a still model: every switch is the decoder's (its own value 0 takes each first case).
+    CHECK(draws_of(set, {}) == 2);
+    mdls::Scene s;
+    s.resolve_callbacks = true;
+    s.callback_values[11] = 99; // no such case: the wheel's construct is left out
+    s.callback_values[0] = 0;
+    CHECK(draws_of(set, s) == 1);
+    s.callback_values[0] = 1; // the lit lens
+    CHECK(draws_of(set, s) == 2);
+    s.callback_values[11] = 0;
+    CHECK(draws_of(set, s) == 3);
+    s.only_inside = 11; // the wheel's own shapes only
+    CHECK(draws_of(set, s) == 1);
+    s.callback_values[11] = 1;
+    CHECK(draws_of(set, s) == 0);
+    // An id without a value takes the default.
+    mdls::Scene d;
+    d.resolve_callbacks = true;
+    d.callback_default = 99;
+    CHECK(draws_of(set, d) == 1);
+
+    // The packed shape's 32-bit positions are whole numbers times its scale.
+    const Bytes block = mdls::to_gtm1(set);
+    const gt3r::gtm1::Gtm1 g = gt3r::gtm1::Gtm1::parse(block);
+    const gt3r::gtm1::DecodedPacket p = g.decode_packet(g.chunks[0].packets[0]);
+    CHECK(p.vertices.size() == 3);
+    if (p.vertices.size() == 3) {
+        CHECK(std::fabs(p.vertices[0].pos[0] - 1000.0f) < 1e-3f && std::fabs(p.vertices[1].pos[1] - 2000.0f) < 1e-3f);
+        CHECK(std::fabs(p.vertices[2].pos[0] + 1000.0f) < 1e-3f && std::fabs(p.vertices[2].pos[2] + 0.5f) < 1e-5f);
+    }
+}
+
+TEST(car_pose) {
+    race::CarSpec spec;
+    spec.wheelbase = 2.665f, spec.half_track[0] = 0.74f, spec.half_track[1] = 0.745f;
+    spec.ride_height[0] = spec.ride_height[1] = 0.13f;
+    spec.tire_width[0] = spec.tire_width[1] = 0.245f;
+    spec.tire_radius[0] = spec.tire_radius[1] = 0.3266f, spec.rim_radius[0] = spec.rim_radius[1] = 0.2286f;
+    // The body's origin is the ride height above the road whichever point the state's position is.
+    for (bool on_road : {true, false}) {
+        const race::CarState s = standing_car(spec, on_road);
+        const gt3r::render::Mat4 body = race::body_matrix(s, spec);
+        CHECK(std::fabs(body.at(1, 3) - 5.13f) < 1e-4f && std::fabs(body.at(0, 3) - 10) < 1e-4f);
+        // The model's front (-z) points along the car's forward axis; its hubs are where the wheels are.
+        const gt3r::render::Vec3 nose = body.transform_point({0, 0, -1});
+        CHECK(std::fabs(nose.x - 9) < 1e-4f && std::fabs(nose.z - 20) < 1e-4f);
+        const gt3r::render::Vec3 hub = body.transform_point({-0.74f, 0.3266f - 0.13f, -1.3325f}); // front left
+        CHECK(std::fabs(hub.x - s.wheels[0].center.x) < 1e-3f && std::fabs(hub.y - s.wheels[0].center.y) < 1e-3f && std::fabs(hub.z - s.wheels[0].center.z) < 1e-3f);
+    }
+    race::CarState s = standing_car(spec, true);
+    // A left wheel's model has its outer face at x = 0 and runs inward along +x: the face lands
+    // half a tire's width outside the hub, the inner edge as far inside.
+    gt3r::render::Vec3 face = race::wheel_matrix(s, spec, 0).transform_point({0, 0, 0});
+    gt3r::render::Vec3 inner = race::wheel_matrix(s, spec, 0).transform_point({0.245f / 0.2286f, 0, 0});
+    CHECK(std::fabs(face.z - (s.wheels[0].center.z + 0.1225f)) < 1e-4f); // (the car's left is +z here)
+    CHECK(std::fabs(inner.z - (s.wheels[0].center.z - 0.1225f)) < 1e-4f);
+    // The right wheel is the same model turned half round: its face is outside too.
+    face = race::wheel_matrix(s, spec, 1).transform_point({0, 0, 0});
+    inner = race::wheel_matrix(s, spec, 1).transform_point({0.245f / 0.2286f, 0, 0});
+    CHECK(std::fabs(face.z - (s.wheels[1].center.z - 0.1225f)) < 1e-4f && std::fabs(inner.z - (s.wheels[1].center.z + 0.1225f)) < 1e-4f);
+    // A point on the tread at the top (the tire's radius up, in rim radii) rolls forward and down
+    // as the wheel turns forward.
+    const gt3r::render::Vec3 top{0, 0.3266f / 0.2286f, 0};
+    s.wheels[0].spin = 0.5f;
+    const gt3r::render::Vec3 rolled = race::wheel_matrix(s, spec, 0).transform_point(top);
+    CHECK(rolled.x < s.wheels[0].center.x - 0.1f && rolled.y < s.wheels[0].center.y + 0.3266f - 0.02f);
+    // Steering to the right turns the front of the left wheel inward (toward the car's right, -z here).
+    s.wheels[0].spin = 0, s.wheels[0].steer = 0.3f;
+    const gt3r::render::Vec3 front = race::wheel_frame(s, spec, 0).transform_point({0, 0, -1});
+    CHECK(front.z < race::wheel_frame(s, spec, 0).transform_point({0, 0, 0}).z - 0.2f);
+    // The turning pictures from 5 degrees a step.
+    race::WheelState w;
+    w.spin_rate = 5.0f; // 4.8 degrees in a sixtieth
+    CHECK(!race::wheel_turning(w, 1.0f / 60));
+    w.spin_rate = -5.5f;
+    CHECK(race::wheel_turning(w, 1.0f / 60));
+}
+
+TEST(drive_camera) {
+    race::CarSpec spec;
+    race::CarState s = standing_car(spec, false);
+    std::vector<race::CameraMount> mounts(7);
+    mounts[0] = {{0, 1.0f, 0.2f}, 0, 0, 0, 2.0503f, 5};
+    mounts[1] = {{0, 1.7f, 6.0f}, 8, 0, 0, 2.699f, 2};
+    mounts[6] = {{0, 1.4f, 0.23f}, 0, 0, 0, 2.0503f, 0xF};
+    race::DriveCamera cam;
+    cam.reset(s);
+    gt3r::render::Mat4 body = race::body_matrix(s, spec);
+    // The chase view: 6 m behind the origin and 1.7 m above it, level, looking along the car.
+    race::ViewPose p = cam.pose(s, body, mounts, race::DriveCamera::kChase, false);
+    CHECK(std::fabs(p.eye.x - (body.at(0, 3) + 6)) < 1e-4f && std::fabs(p.eye.y - (body.at(1, 3) + 1.7f)) < 1e-4f && std::fabs(p.eye.z - body.at(2, 3)) < 1e-4f);
+    CHECK(!p.body_hidden);
+    gt3r::render::Vec3 ahead = p.view.transform_point({p.eye.x - 10, p.eye.y, p.eye.z}); // a point 10 m ahead of the eye
+    CHECK(std::fabs(ahead.x) < 1e-3f && std::fabs(ahead.y) < 1e-3f && std::fabs(ahead.z + 10) < 1e-3f);
+    // Looking back: in front of the car, looking at it.
+    p = cam.pose(s, body, mounts, race::DriveCamera::kChase, true);
+    CHECK(std::fabs(p.eye.x - (body.at(0, 3) - 6)) < 1e-4f);
+    CHECK(p.view.transform_point({body.at(0, 3), p.eye.y, body.at(2, 3)}).z < -5);
+    // The car turns a quarter turn to its right at once: the view follows through its spring,
+    // most of the way in half a second, all of it in two, the eye always 6 m from the origin.
+    s.forward = {0, 0, -1}, s.right = {1, 0, 0};
+    for (int w = 0; w < 4; ++w) s.wheels[w].center = {10, 5 + spec.tire_radius[0], 20};
+    body = race::body_matrix(s, spec);
+    float after_half = 0;
+    for (int i = 0; i < 120; ++i) {
+        cam.step(s, 1.0f / 60);
+        p = cam.pose(s, body, mounts, race::DriveCamera::kChase, false);
+        const float dx = p.eye.x - body.at(0, 3), dz = p.eye.z - body.at(2, 3);
+        CHECK(std::fabs(std::hypot(dx, dz) - 6) < 1e-3f);
+        if (i == 29) after_half = dz;
+    }
+    CHECK(after_half > 4.5f);                 // (behind the car is +z now)
+    CHECK(std::fabs(p.eye.z - (body.at(2, 3) + 6)) < 0.05f && std::fabs(p.eye.x - body.at(0, 3)) < 0.3f);
+    // The in-car view hides the body and rides it; the roof view shows it, from its mount's lens.
+    p = cam.pose(s, body, mounts, race::DriveCamera::kInCar, false);
+    CHECK(p.body_hidden && std::fabs(p.eye.y - (body.at(1, 3) + 1.0f)) < 1e-4f);
+    p = cam.pose(s, body, mounts, race::DriveCamera::kRoof, false);
+    CHECK(!p.body_hidden && std::fabs(p.fov - 2 * std::atan(1 / 2.0503f)) < 1e-5f);
+    CHECK(std::fabs(p.fovy() - 2 * std::atan(std::tan(p.fov / 2) * 0.75f)) < 1e-6f);
+}
+
+TEST(car_spec_disc) {
+    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    size_t ran = 0;
+    for (const auto& disc : test::discs()) {
+        if (disc->info().serial.rfind("SCUS_973.28", 0) != 0) continue;
+        gt3r::Volume* vol = &disc->volume();
+        db::SpecDb sdb(
+            [vol](const std::string& path) -> std::optional<Bytes> {
+                const gt3r::Volume::Entry* e = vol->find(path);
+                return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
+            },
+            [vol](const std::string& dir) { return vol->list_dir(dir); });
+        // The Skyline GT-R V-spec II Nur (R34): 245/40R18 all round, treads 1480 / 1490, 130 mm off the road.
+        std::string label;
+        size_t from_db = 0, cars = 0;
+        for (const db::CarEntry& c : sdb.cars()) {
+            if (c.model == "niss0021") label = c.label;
+            const race::CarSpec s = race::read_car_spec(sdb, c.label);
+            ++cars, from_db += s.from_database;
+            // (The ranges take in the three-wheeler, whose front wheels are 12 mm apart, and the cars
+            // of 1886 on 50 mm tires that turn 500 times a minute.)
+            CHECK(s.wheelbase > 1.2f && s.wheelbase < 5.0f);
+            for (int a = 0; a < 2; ++a) {
+                CHECK(s.tire_radius[a] > 0.2f && s.tire_radius[a] < 0.6f && s.rim_radius[a] > 0.1f && s.rim_radius[a] < s.tire_radius[a]);
+                CHECK(s.half_track[a] >= 0.0f && s.half_track[a] < 1.3f && s.tire_width[a] > 0.04f && s.tire_width[a] < 0.5f);
+                CHECK(s.ride_height[a] > 0.02f && s.ride_height[a] < 0.5f);
+            }
+            CHECK(s.red_line >= 400 && s.red_line <= 20000 && s.rev_limit >= s.red_line);
+        }
+        CHECK(cars > 700 && from_db * 10 >= cars * 9);
+        CHECK(!label.empty());
+        const race::CarSpec r34 = race::read_car_spec(sdb, label);
+        CHECK(r34.from_database);
+        CHECK(std::fabs(r34.wheelbase - 2.665f) < 1e-3f);
+        CHECK(std::fabs(r34.half_track[0] - 0.740f) < 1e-3f && std::fabs(r34.half_track[1] - 0.745f) < 1e-3f);
+        CHECK(std::fabs(r34.ride_height[0] - 0.130f) < 1e-3f);
+        CHECK(std::fabs(r34.tire_width[0] - 0.245f) < 1e-3f && std::fabs(r34.rim_radius[0] - 0.2286f) < 1e-3f && std::fabs(r34.tire_radius[0] - 0.3266f) < 1e-3f);
+        const std::vector<u32> paints = race::car_paints(sdb, label);
+        CHECK(paints.size() == 7);
+        // Its camera places: the chase view 6 m behind and 1.7 m up.
+        const std::vector<race::CameraMount> mounts = race::read_camera_mounts(vol->read(*vol->find("car/lod/niss0021")));
+        CHECK(mounts.size() == 25);
+        if (mounts.size() == 25) {
+            CHECK(std::fabs(mounts[1].pos.y - 1.7f) < 1e-3f && std::fabs(mounts[1].pos.z - 6.0f) < 1e-3f && mounts[1].flags == 2);
+            CHECK(mounts[0].flags == 5 && mounts[0].pos.y > 0.8f && mounts[0].pos.y < 1.3f && (mounts[6].flags & 2));
+        }
+        ++ran;
+    }
+    if (!ran) SKIP("no Gran Turismo 4 US disc");
+}

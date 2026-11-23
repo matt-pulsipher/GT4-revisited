@@ -7,6 +7,7 @@
 
 #include "gt4r/base/types.h"
 #include "gt4r/race/car_spec.h"
+#include "gt4r/race/drive_camera.h"
 #include "gt4r/race/simulation.h"
 #include "render/gpu_model.h"
 #include "render/view3d.h"
@@ -19,15 +20,6 @@
 namespace gt4r::race {
 
 namespace render = gt3r::render;
-
-// One of a car's 25 camera places (CAR4 info +0x40), turned into the model's frame: x right,
-// y up, the front at -z; angles in degrees.
-struct CameraMount {
-    render::Vec3 pos;
-    float pitch = 0, yaw = 0, roll = 0;
-    float zoom = 0; // 1 / tan(half the view angle)
-    u32 flags = 0;  // 0: unused
-};
 
 class CarVisual {
 public:

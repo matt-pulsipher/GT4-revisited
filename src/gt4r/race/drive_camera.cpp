@@ -2,11 +2,13 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 
 namespace gt4r::race {
 
 namespace {
 
+namespace render = gt3r::render;
 using render::Mat4;
 using RVec = render::Vec3;
 
@@ -71,11 +73,33 @@ void DriveCamera::step(const CarState& car, float h) {
     nod_ += nod_rate_ * h;
 }
 
-ViewPose DriveCamera::pose(const CarState& car, const CarVisual& visual, int mount, bool look_back) const {
+std::vector<CameraMount> read_camera_mounts(ByteSpan file) {
+    std::vector<CameraMount> out;
+    if (file.size() < 0x40 || !gt3r::has_magic(file, "CAR4")) return out;
+    const u32 info = rd32(file, 0x10);
+    if (!info || info + 0x48 > file.size()) return out;
+    // Info +0x40: count, offset from the file's start; 0x20 bytes each.
+    const u32 n = rd32(file, info + 0x40), at = rd32(file, info + 0x44);
+    auto f = [&](size_t o) {
+        float v;
+        std::memcpy(&v, file.data() + o, 4);
+        return v;
+    };
+    for (u32 i = 0; i < n && i < 64 && at + 0x20 * size_t(i) + 0x20 <= file.size(); ++i) {
+        const size_t o = at + 0x20 * size_t(i);
+        CameraMount m;
+        // Stored with y down and z forward: turned into the model's frame.
+        m.pos = {f(o), -f(o + 4), -f(o + 8)};
+        m.pitch = f(o + 12), m.yaw = f(o + 16), m.roll = f(o + 20);
+        m.zoom = f(o + 24), m.flags = rd32(file, o + 28);
+        out.push_back(m);
+    }
+    return out;
+}
+
+ViewPose DriveCamera::pose(const CarState& car, const Mat4& body, std::span<const CameraMount> mounts, int mount, bool look_back) const {
     ViewPose p;
-    const Mat4 body = visual.body_matrix(car);
     const RVec origin{body.at(0, 3), body.at(1, 3), body.at(2, 3)};
-    const std::vector<CameraMount>& mounts = visual.mounts();
     CameraMount m;
     if (mount >= 0 && size_t(mount) < mounts.size() && mounts[size_t(mount)].flags != 0) m = mounts[size_t(mount)];
     else if (mount == kChase) m.pos = {0, 1.7f, 6.0f}, m.flags = 2; // (a car without the record: the place most cars have)
