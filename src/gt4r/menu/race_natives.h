@@ -2,7 +2,7 @@
 
 // What the race's menus (the quick-* projects) share with the race: the program's MQuickWork,
 // one object the race sequence fills and the scripts read and write (the grid, the quick tune,
-// the command chosen). docs/formats/menu.md "The race's menus".
+// the command chosen). docs/formats/race_flow.md "MQuickWork".
 
 #include "gt4r/base/types.h"
 

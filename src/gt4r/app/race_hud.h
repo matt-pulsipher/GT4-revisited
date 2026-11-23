@@ -6,6 +6,7 @@
 
 #include "gt4r/app/app.h"
 #include "gt4r/race/race_display.h"
+#include "gt4r/race/strobe.h"
 
 #include <memory>
 #include <string>
@@ -48,6 +49,9 @@ public:
     // The race's words by key ("RaceStart"); the key itself when the table has none.
     std::string word(const std::string& key) const;
     bool mph() const;
+    // A race movie (the pause menu, the results) as its player shows it now, over the whole canvas:
+    // its shapes, pictures and texts (the texts' words looked up in the race's text table).
+    void draw_movie(const race::StrobeMovie& movie, const race::StrobePlayer& player);
 
 private:
     struct Impl;

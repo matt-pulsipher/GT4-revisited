@@ -15,6 +15,7 @@
 #include "gt4r/app/menu_painter.h"
 #include "gt4r/app/race_hud.h"
 #include "gt4r/app/race_world.h"
+#include "gt4r/audio/app_sound.h"
 #include "gt4r/audio/race_sound.h"
 
 #include "base/log.h"
@@ -487,23 +488,11 @@ public:
                 race_->end_run();
                 if (!race_->replaying()) return finish_run(app);
             }
-        } else if (m.pressed(PadButton::Start)) {
-            paused_ = !paused_;
-            race_->pause_sound(paused_);
-        }
-        if (paused_) {
-            if (m.pressed(PadButton::Triangle)) {
-                paused_ = false;
-                race_->pause_sound(false);
-                // Leaving the race: its menus again, or the screen that asked for it.
-                if (menus_) return enter_quick(spectator_ ? 2 : 1);
-                report();
-                hud_.reset();
-                race_.reset();
-                if (setup_.scripted) app.pop();
-            }
+        } else if (m.pressed(PadButton::Start) && !paused_) {
+            open_pause(app);
             return;
         }
+        if (paused_) return update_pause(app, m, dt);
         const gt3r::PadState& pad = app.input().race_pad(0);
         if (m.pressed(PadButton::R1) || m.pressed(PadButton::Select)) race_->next_view();
         look_back_ = gt3r::race::look_back_held(pad, false);
@@ -542,9 +531,13 @@ public:
         }
         if (results_shown()) draw_results(ui);
         if (paused_) {
-            ui.fill(0, 0, Ui::kWidth, Ui::kHeight, Color{0, 0, 0, 120});
-            ui.text_center(Ui::kHeight / 2 - 10, "PAUSED", colors::kText);
-            ui.text_center(Ui::kHeight / 2 + 6, Ui::expand_prompts("{Start}: go on   {Triangle}: leave the race"), colors::kDim);
+            if (pause_ && hud_) {
+                hud_->draw_movie(*pause_movie_, *pause_);
+            } else {
+                ui.fill(0, 0, Ui::kWidth, Ui::kHeight, Color{0, 0, 0, 120});
+                ui.text_center(Ui::kHeight / 2 - 10, "PAUSED", colors::kText);
+                ui.text_center(Ui::kHeight / 2 + 6, Ui::expand_prompts("{Start}: go on   {Triangle}: leave the race"), colors::kDim);
+            }
         }
         // Frame times: the work of this frame, and the time from the last frame to this one.
         const Uint64 now = SDL_GetTicksNS();
@@ -560,6 +553,76 @@ public:
     }
 
 private:
+    // ---- The pause: the game's pause movie (menu/common/pause.strb) and its entries.
+
+    void open_pause(App& app) {
+        paused_ = true;
+        pause_result_.clear();
+        race_->pause_sound(true);
+        if (!pause_movie_) {
+            try {
+                if (const std::optional<Bytes> file = app.vfs()->read("menu/common/pause.strb"); file && race::StrobeMovie::is_movie(*file))
+                    pause_movie_ = std::make_shared<const race::StrobeMovie>(race::StrobeMovie::parse(*file));
+            } catch (const std::exception& e) {
+                LOG_WARN("Pause: %s", e.what());
+            }
+        }
+        if (!pause_movie_) return;
+        // The single race's pause: Continue, Exit and the screen settings; no retry, no confirmation.
+        auto host = [this, &app](const std::string& name, const std::vector<race::StrobePlayer::Value>& args) {
+            using V = race::StrobePlayer::Value;
+            std::string n = name;
+            for (char& c : n) c = char(std::toupper(static_cast<unsigned char>(c)));
+            auto text = [&](size_t i) { return i < args.size() ? args[i].to_string() : std::string(); };
+            if (n == "RETRYENABLE") return V::number(0);
+            if (n == "SCREENSETTINGENABLE") return V::number(1);
+            if (n == "CONFIRMEXIT") return V::number(0);
+            if (n == "EXIT_MENU") pause_result_ = text(0);
+            else if (n == "PLAY_SOUND") {
+                if (audio::AppSound* sound = app.sound()) sound->menu().play(text(0));
+            } else if (n == "NAVIGATEVERTICAL" && pause_) pause_->navigate(true, false);
+            else if (n == "NAVIGATEALL" && pause_) pause_->navigate(true, true);
+            else if (n == "DEFAULTVAL") return V::number(text(0) == "BRIGHTNESS" ? screen_[0] : screen_[1]);
+            else if (n == "SETVAL" && args.size() >= 2) screen_[text(0) == "BRIGHTNESS" ? 0 : 1] = int(args[1].to_number());
+            return V{};
+        };
+        pause_ = std::make_unique<race::StrobePlayer>(pause_movie_, host);
+    }
+
+    void update_pause(App& app, const MenuInput& m, double dt) {
+        if (!pause_) {
+            // No movie: Start goes on, Triangle leaves.
+            if (m.pressed(PadButton::Start)) close_pause("continue");
+            else if (m.pressed(PadButton::Triangle)) close_pause("exit");
+        } else {
+            // Cancel goes on at once, whatever page is shown.
+            if (m.pressed(PadButton::Triangle)) pause_result_ = "continue";
+            else {
+                if (m.vertical()) pause_->key(m.vertical() < 0 ? 0x26 : 0x28);
+                if (m.horizontal()) pause_->key(m.horizontal() < 0 ? 0x25 : 0x27);
+                if (m.pressed(PadButton::Cross)) pause_->key(0x20);
+                pause_->advance(float(dt));
+            }
+            if (!pause_result_.empty()) close_pause(pause_result_);
+        }
+        if (!paused_ && pause_exit_) {
+            pause_exit_ = false;
+            // Exit: the run ends (end code 2); the single race goes back to its menus.
+            if (menus_) return enter_quick(spectator_ ? 2 : 1);
+            report();
+            hud_.reset();
+            race_.reset();
+            if (setup_.scripted) app.pop();
+        }
+    }
+    void close_pause(const std::string& result) {
+        paused_ = false;
+        pause_.reset();
+        pause_result_.clear();
+        race_->pause_sound(false);
+        pause_exit_ = result == "exit";
+    }
+
     // ---- The race's menus (the sequence's quick-* project) over the standing race.
 
     // The menus before a run (can_replay 0) or after one (1 driven, 2 watched).
@@ -778,6 +841,11 @@ private:
     HudState hud_state_;
     std::string error_;
     bool paused_ = false, look_back_ = false, from_menus_ = false;
+    std::shared_ptr<const race::StrobeMovie> pause_movie_;
+    std::unique_ptr<race::StrobePlayer> pause_;
+    std::string pause_result_;
+    bool pause_exit_ = false;
+    int screen_[2] = {0, 0}; // the pause's screen settings: brightness, contrast (-5..5) ❓ not applied to the picture
     menu::Runtime* menus_ = nullptr;    // the race's menus run on these (from the menus that asked)
     std::unique_ptr<menu::Runtime> own_menus_; // a scripted run's
     std::string sequence_;              // the race sequence ("single_race")
