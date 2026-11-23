@@ -8,9 +8,11 @@
 // first picture (the start's hold is left out then), `paint` the first car's paint, `laps` the
 // race's length, `start` the start: 10 or 8 (a hold of so many seconds with the opening shots),
 // <seconds> (a plain hold), none, rolling; `view=tv` the course's replay cameras; `replay=N` drives
-// N steps unseen and plays them back through the replay cameras.
+// N steps unseen and plays them back through the replay cameras; `menus=single_race` the race
+// sequence's own menus (quick-arcade) before and after the race.
 
 #include "gt4r/app/app.h"
+#include "gt4r/app/menu_painter.h"
 #include "gt4r/app/race_hud.h"
 #include "gt4r/app/race_world.h"
 #include "gt4r/audio/race_sound.h"
@@ -22,6 +24,9 @@
 #include "gt4r/race/rail_simulation.h"
 #include "gt4r/race/replay_script.h"
 #include "gt4r/race/start_camera.h"
+#include "gt4r/menu/game.h"
+#include "gt4r/menu/race_natives.h"
+#include "gt4r/menu/runtime.h"
 #include "race/controls.h"
 
 #include <algorithm>
@@ -39,6 +44,7 @@ using RVec = render::Vec3;
 constexpr float kStep = 1.0f / 60;
 constexpr int kTvView = -1; // the course's replay cameras, after the car's three views
 constexpr size_t kHistory = 60 * 60 * 10; // steps of a run kept for its replay
+constexpr int kSlotScenic = 48;            // the course's scenic shots (REP4): behind the race's menus
 
 struct Setup {
     std::string course = "tsukuba";
@@ -59,6 +65,7 @@ struct Setup {
     race::StartType start = race::StartType::Ten;
     int start_seconds = 0;
     std::vector<std::string> opponents; // the other cars by label (empty: from the car list)
+    std::string sequence; // `menus=single_race`: the race's own menus (the sequence's quick project) round the race
 };
 
 Setup setup_from_env() {
@@ -87,6 +94,7 @@ Setup setup_from_env() {
         else if (k == "reflection") s.reflection = v != "0";
         else if (k == "sim") s.rail = v == "rail";
         else if (k == "laps") s.laps = std::clamp(std::atoi(v.c_str()), 1, 99);
+        else if (k == "menus") s.sequence = v;
         else if (k == "start") {
             if (v == "rolling") s.start = race::StartType::Rolling;
             else if (v == "none") s.start = race::StartType::None;
@@ -128,6 +136,13 @@ public:
                 LOG_WARN("Replay cameras: %s", e.what());
             }
         }
+        if (const ByteSpan scenic = world_->course().section(kSlotScenic); race::ReplayScript::is_script(scenic)) {
+            try {
+                scenic_script_ = race::ReplayScript::parse(scenic);
+            } catch (const std::exception& e) {
+                LOG_WARN("Scenic shots: %s", e.what());
+            }
+        }
         for (int k = 0; k < 2; ++k)
             if (const ByteSpan mot = world_->course().section(k ? race::kSlotReplayStartMotion : race::kSlotStartMotion); race::CameraMotion::is_motion(mot)) {
                 try {
@@ -151,6 +166,7 @@ public:
     void begin_run() {
         if (ran_) world_->restart();
         ran_ = true;
+        menu_scene_ = false;
         race::FlowSetup fs;
         fs.start = setup_.skip > 0 ? race::StartType::None : setup_.start;
         fs.start_seconds = setup_.start_seconds;
@@ -165,6 +181,19 @@ public:
         begin_start_camera(false);
     }
 
+    // The scene behind the race's menus: the cars standing on the grid, the course's scenic shots
+    // (the last run is kept for its replay).
+    void stand() {
+        if (ran_) world_->restart();
+        ran_ = true;
+        menu_scene_ = true, replaying_ = false, over_ = false;
+        world_->quiet();
+        world_->clear_effects();
+        scenic_.reset(&scenic_script_);
+        start_camera_.begin(nullptr, false, 0, {}, world_->cars()[0]);
+    }
+    bool has_run() const { return !history_.empty(); }
+
     void begin_start_camera(bool replay) {
         const race::CameraMotion& m = replay ? replay_motion_ : start_motion_;
         const course::Runway& road = world_->course().road();
@@ -177,6 +206,10 @@ public:
     // One simulation step: the player's car from the pad (or the simple driver), the others by the
     // simple driver, each on its own side of the line.
     void step(const gt3r::PadState& pad, bool auto_drive) {
+        if (menu_scene_) {
+            scenic_.step();
+            return;
+        }
         if (replaying_) {
             // The recorded run again; it ends at its end.
             if (replay_at_ + 1 >= history_.size()) {
@@ -324,7 +357,8 @@ public:
         const render::Mat4 body = world_->visual(0).body_matrix(me);
         race::ViewPose pose;
         const int view = replaying_ ? kTvView : mount_;
-        bool posed = start_camera_.active() && start_camera_.pose(pose);
+        bool posed = menu_scene_ && scenic_.pose(pose);
+        posed = posed || (start_camera_.active() && start_camera_.pose(pose));
         // The replay cameras' shot for the car; the chase view where the script has none.
         if (!posed && view == kTvView) posed = replay_camera_.pose(replay_script_, me, body, pose);
         if (!posed) pose = camera_.pose(me, body, world_->visual(0).mounts(), view == kTvView ? race::DriveCamera::kChase : view, look_back || setup_.look_back);
@@ -336,10 +370,13 @@ public:
 
     const race::CarState& player() const { return shown()[0]; }
     const std::string& car_name(size_t i) const { return world_->car_name(i); }
+    const WorldEntry& entry(size_t i) const { return world_->setup().entries[i]; }
     size_t car_count() const { return world_->car_count(); }
     const race::CourseScene& course() const { return world_->course(); }
     int mount() const { return mount_; }
     bool opening() const { return start_camera_.active(); }
+    bool menu_scene() const { return menu_scene_; }
+    float scene_dissolve() const { return menu_scene_ ? scenic_.dissolve() : 0.0f; }
 
 private:
     Setup setup_;
@@ -352,8 +389,10 @@ private:
     race::CameraMotion start_motion_, replay_motion_;
     race::StartCamera start_camera_;
     race::RaceFlow flow_;
+    race::ReplayScript scenic_script_;
+    race::ScenicCamera scenic_;
     std::vector<std::vector<race::CarState>> history_;
-    bool replaying_ = false, replay_done_ = false, over_ = false, ran_ = false;
+    bool replaying_ = false, replay_done_ = false, over_ = false, ran_ = false, menu_scene_ = false;
     size_t replay_at_ = 0;
     int event_steps_ = -1, event_lap_ = 0, beeps_ = 0;
     int mount_ = race::DriveCamera::kChase;
@@ -368,6 +407,20 @@ public:
             setup_.cars = std::clamp(chosen->cars, 1, 16), setup_.laps = std::clamp(chosen->laps, 1, 99);
             setup_.scripted = true;
             from_menus_ = true;
+            menus_ = chosen->menus, sequence_ = chosen->sequence;
+            if (menus_) {
+                const menu::RaceRequest& q = menus_->game().race;
+                setup_.opponents = q.entries;
+                // ❓ The start the race's information gives is not traced to its source: a standing
+                // start of 10 s with the opening shots (the original's arcade race starts rolling).
+                setup_.start = race::StartType::Ten;
+            }
+            // A reversed layout is its own course file (crs/r_<name>); one the disc does not have is
+            // driven forward.
+            if (!app.vfs()->exists("crs/" + setup_.course) && setup_.course.rfind("r_", 0) == 0) {
+                LOG_WARN("Drive: the disc has no reversed layout crs/%s: the course is driven forward", setup_.course.c_str());
+                setup_.course = setup_.course.substr(2);
+            }
         }
         if (db::SpecDb* sdb = app.db()) {
             cars_ = sdb->cars();
@@ -379,12 +432,33 @@ public:
             if (courses_[i].label == setup_.course) course_sel_ = int(i);
         for (size_t i = 0; i < cars_.size(); ++i)
             if (!setup_.car.empty() && (cars_[i].label == setup_.car || cars_[i].model == setup_.car)) car_sel_ = int(i);
+        // A scripted run with the race's menus: menus of its own, booted as the game's.
+        if (!chosen && !setup_.sequence.empty() && !menu::quick_project(setup_.sequence).empty()) {
+            menu::Runtime::Config config;
+            gt3r::Vfs* vfs = app.vfs();
+            config.list = [vfs](const std::string& folder) { return vfs->list_dir(folder); };
+            if (Disc* disc = app.disc()) config.program = [disc] { return disc->read_program(); };
+            config.data_dir = app.data_dir();
+            own_menus_ = std::make_unique<menu::Runtime>([vfs](const std::string& path) { return vfs->read(path); }, config);
+            own_menus_->boot();
+            menus_ = own_menus_.get(), sequence_ = setup_.sequence;
+            menu::RaceRequest& q = menus_->game().race;
+            q.course = setup_.course, q.car = setup_.car, q.paint = int(setup_.paint), q.laps = setup_.laps, q.max_entry = setup_.cars;
+            q.assist_tcs = 1, q.assist_asm = 1, q.tire = 4;
+        }
         if (setup_.scripted) start(app);
+        if (menus_ && race_) {
+            painter_ = make_menu_painter(app);
+            enter_quick(0);
+        } else if (menus_) {
+            leave_to_menus(app);
+        }
     }
     ~RaceScreen() override { report(); }
 
     void update(App& app, double dt) override {
         const MenuInput& m = app.menu();
+        if (quick_ && race_) return update_quick(app, m, dt);
         if (!race_) {
             if (m.pressed(PadButton::Triangle)) {
                 app.pop();
@@ -419,10 +493,13 @@ public:
         }
         if (paused_) {
             if (m.pressed(PadButton::Triangle)) {
+                paused_ = false;
+                race_->pause_sound(false);
+                // Leaving the race: its menus again, or the screen that asked for it.
+                if (menus_) return enter_quick(spectator_ ? 2 : 1);
                 report();
                 hud_.reset();
                 race_.reset();
-                paused_ = false;
                 if (setup_.scripted) app.pop();
             }
             return;
@@ -434,7 +511,7 @@ public:
         const Uint64 t0 = SDL_GetTicksNS();
         clock_ += dt;
         int n = 0;
-        for (; clock_ >= kStep && n < 4; ++n) clock_ -= kStep, race_->step(pad, setup_.auto_drive);
+        for (; clock_ >= kStep && n < 4; ++n) clock_ -= kStep, race_->step(pad, setup_.auto_drive || spectator_);
         if (n == 4) clock_ = 0;
         step_ns_ += SDL_GetTicksNS() - t0;
     }
@@ -446,6 +523,15 @@ public:
         }
         const Uint64 t0 = SDL_GetTicksNS();
         race_->render(ui, {0, 0, float(Ui::kWidth), float(Ui::kHeight)}, look_back_);
+        if (quick_) {
+            // The race's menus over the scene; the scenic shots' cuts dissolve through black (❓ how
+            // the program blends a dissolve is not read).
+            if (const float d = race_->scene_dissolve(); d > 0) ui.fill(0, 0, Ui::kWidth, Ui::kHeight, Color{0, 0, 0, u8(std::clamp(d, 0.0f, 1.0f) * 255)});
+            const float scale = float(Ui::kHeight) / 480.0f, x = (Ui::kWidth - 640 * scale) / 2;
+            if (painter_) painter_->draw(*menus_, x, scale);
+            if (const float cover = menus_->fade_cover(); cover > 0) ui.fill(0, 0, Ui::kWidth, Ui::kHeight, Color{0, 0, 0, u8(std::clamp(cover, 0.0f, 1.0f) * 255.0f)});
+            return;
+        }
         if (setup_.hud) {
             if (hud_ && hud_->ready()) {
                 race_->fill(hud_state_, *hud_);
@@ -474,13 +560,108 @@ public:
     }
 
 private:
+    // ---- The race's menus (the sequence's quick-* project) over the standing race.
+
+    // The menus before a run (can_replay 0) or after one (1 driven, 2 watched).
+    void enter_quick(int can_replay) {
+        race_->stand();
+        quick_ = true, option_ = false, spectator_ = false, paused_ = false;
+        fill_quick_work(can_replay);
+        menus_->game().during_quick_menu = true;
+        menus_->start_project(menu::quick_project(sequence_));
+    }
+
+    // MQuickWork as the arcade sequence fills it before its menu (the program's 0x111A40, 0x111B50).
+    void fill_quick_work(int can_replay) {
+        menu::QuickWork& w = menu::quick_work(menus_->game());
+        const menu::RaceRequest& q = menus_->game().race;
+        const size_t n = race_->car_count();
+        const std::vector<int> places = race::grid_places(n, 0);
+        w.rows.assign(n, menu::QuickRow{});
+        for (size_t i = 0; i < n; ++i) {
+            menu::QuickRow& row = w.rows[size_t(places[i])];
+            row.car = race_->entry(i).label, row.paint = int(race_->entry(i).paint);
+            row.tire = q.tire;
+        }
+        w.set("numberOfEntries", s32(n));
+        w.set("playerGridNumber", places[0]);
+        w.set("canReplay", can_replay);
+        w.course_label = setup_.course;
+        w.race_label = q.race;
+        w.player_car = q.car;
+        // ❓ The Spectator button's rule (the course's condition and its record's byte +0x14) and
+        // the dry-course rule are not read from the course here: both answer yes.
+        w.set("IsBSpec", 1);
+        w.set("IsDryCourse", 1);
+        w.set("QuickTunePowerLevel", 0), w.set("QuickTuneWeightLevel", 0);
+        w.set("QuickTuneFrontTireType", q.tire), w.set("QuickTuneRearTireType", q.tire);
+        w.set("QuickTuneTransmission", q.manual ? 1 : 0);
+        w.set("QuickTuneDrivingAssist", q.assist_asm ? 2 : q.assist_tcs ? 1 : 0);
+        w.set("IsQuickTuned", 0);
+        w.set("Laps", setup_.laps);
+    }
+
+    void update_quick(App& app, const MenuInput& m, double dt) {
+        try {
+            send_menu_keys(*menus_, m);
+            menus_->update();
+        } catch (const std::exception& e) {
+            menus_->note(std::string("stopped: ") + e.what());
+            return leave_to_menus(app);
+        }
+        clock_ += dt;
+        for (int n = 0; clock_ >= kStep && n < 4; ++n) clock_ -= kStep, race_->step({}, true);
+        clock_ = std::min(clock_, double(kStep));
+        if (!menus_->finished()) return;
+        if (option_) return enter_quick(menu::quick_work(menus_->game()).get("canReplay"));
+        // The command the scripts chose (the arcade sequence's table).
+        menu::QuickWork& w = menu::quick_work(menus_->game());
+        const std::string command = w.take_command();
+        menus_->game().during_quick_menu = false;
+        if (command == "COMMAND_START" || command == "COMMAND_SPECTATOR") {
+            quick_ = false;
+            spectator_ = command == "COMMAND_SPECTATOR";
+            race_->begin_run();
+            clock_ = 0;
+        } else if (command == "COMMAND_REPLAY" && race_->has_run()) {
+            quick_ = false;
+            race_->start_replay();
+        } else if (command == "COMMAND_OPTION") {
+            option_ = true;
+            menus_->start_project("option");
+        } else if (command == "COMMAND_EXIT" || command == "COMMAND_NOTHING") {
+            leave_to_menus(app);
+        } else {
+            // (Saving a replay is not done here: the menus again.)
+            enter_quick(w.get("canReplay"));
+        }
+    }
+
+    // The race sequence is over: the menus go on where the scripts said (their next project), as
+    // after the program's sequence routine (last_sequence = the race's, next_sequence = menu).
+    void leave_to_menus(App& app) {
+        quick_ = false;
+        if (menus_) {
+            menu::GameState& g = menus_->game();
+            g.during_quick_menu = false;
+            g.next_sequence.clear();
+            g.last_sequence = sequence_;
+            if (g.next_menu_project.empty()) g.next_menu_project = g.major_menu_project;
+            if (!menus_->finished()) menus_->finish();
+        }
+        report();
+        app.pop();
+    }
+
     // The results page goes up once the player's FINISH has been shown.
     bool results_shown() const {
         return race_ && !race_->replaying() && !race_->over() && race_->flow().player_finished() && race_->flow().steps_since_player_finish() >= 4 * 60;
     }
 
-    // After the run and its replay: back to the menus that asked for the race, else the same race again.
+    // After the run and its replay: the race's menus, back to the menus that asked for the race, or the
+    // same race again.
     void finish_run(App& app) {
+        if (menus_) return enter_quick(spectator_ ? 2 : 1);
         if (from_menus_) {
             report();
             app.pop();
@@ -527,6 +708,10 @@ private:
 
     // The run's frame times in the log: the mean, the 99th percentile and the worst.
     void report() {
+        // What the race's menus' scripts stopped on.
+        if (menus_)
+            for (const std::string& line : menus_->log())
+                if (line.find("error") != std::string::npos || line.find("stopped") != std::string::npos) LOG_WARN("Race menus: %s", line.c_str());
         if (race_)
             if (audio::RaceSound* sound = race_->sound()) {
                 const audio::RaceSound::Report& r = sound->report();
@@ -593,6 +778,11 @@ private:
     HudState hud_state_;
     std::string error_;
     bool paused_ = false, look_back_ = false, from_menus_ = false;
+    menu::Runtime* menus_ = nullptr;    // the race's menus run on these (from the menus that asked)
+    std::unique_ptr<menu::Runtime> own_menus_; // a scripted run's
+    std::string sequence_;              // the race sequence ("single_race")
+    std::unique_ptr<MenuPainter> painter_;
+    bool quick_ = false, option_ = false, spectator_ = false;
     double clock_ = 0;
     Uint64 step_ns_ = 0, last_frame_ns_ = 0;
     std::vector<float> work_ms_, interval_ms_;

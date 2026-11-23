@@ -76,4 +76,8 @@ void install_fallback_world(Runtime& rt);
 // An MCarGarage object for a car by its label (what a car face's `car_data` is).
 script::Value make_car_object(Runtime& rt, const std::string& label, int paint);
 
+// ---- race_natives.cpp
+// The objects the race's menus call (MQuickWork).
+void install_race_natives(Runtime& rt, script::Module& menu);
+
 } // namespace gt4r::menu

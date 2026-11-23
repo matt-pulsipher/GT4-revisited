@@ -8,6 +8,7 @@
 #include "gt4r/base/types.h"
 
 #include <map>
+#include <memory>
 #include <optional>
 #include <set>
 #include <string>
@@ -15,6 +16,8 @@
 #include <vector>
 
 namespace gt4r::menu {
+
+struct QuickWork; // race_natives.h
 
 // An option's value: MOption's attributes are numbers and text.
 using OptionValue = std::variant<s32, float, std::string>;
@@ -111,6 +114,8 @@ struct GameState {
         int free_kb = 8000;
     } card;
     bool valid_game_data = false; // MMemoryCardManager::setExistValidGameData: a game was loaded or made
+    // The race's menus' shared object (MQuickWork): race_natives.h.
+    std::shared_ptr<QuickWork> quick_work;
 };
 
 } // namespace gt4r::menu
