@@ -349,7 +349,8 @@ int race_tables(Disc& disc) {
         std::printf("\n");
     }
     static const char* const kModes[] = {"mono", "stereo", "surround"};
-    for (int m = 0; m < audio::RaceSoundTables::kModes; ++m) {
+    if (!t.found_mics) std::printf("microphones: none: every sound at 32 / its distance, at most 1 (Prologue's panner)\n");
+    for (int m = 0; m < audio::RaceSoundTables::kModes && t.found_mics; ++m) {
         std::printf("microphones, %s:", kModes[m]);
         for (int n = 0; n < audio::RaceSoundTables::kMics; ++n)
             std::printf(" (slope %.2f, reach %.1f m)", double(t.mics[size_t(m)][size_t(n)].slope), double(t.mics[size_t(m)][size_t(n)].reach));

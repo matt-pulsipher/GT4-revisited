@@ -534,10 +534,19 @@ Measured on Tsukuba: four crowd emitters and no others; the crowds at 1 × M.
 
 ### Prologue
 
-Prologue's program has the block of numbers but neither the gains' table nor the microphones'
-in this form (`race-tables` says "not found"); `RaceSoundTables` then gives every view gain 1
-and every microphone 32 / distance. ❓ Prologue's own tables; its car sounds (the database is the
-earlier format).
+Prologue's program (SCPS-15055 v1.01) has the block of numbers and the per-car frame (0x378870,
+the Doppler constant at 0x378B88) but other tables:
+
+- **The gains** are floats, five rows of sixteen (one per channel, GT4's channel order 🔎 by the
+  channels each use reads) at 0x503CD8, read by 0x3B3978(view, channel) = float[0x503CD8 + 4 (16
+  view + channel)]; the last column 1.0 in every row, which is how `race_tables.cpp` finds them.
+  Engine / exhaust: in-car own 5.6 / 4.6, in-car others 0.6 / 2.6, chase own 2.0 / 6.0, chase
+  others 0.6 / 2.6, other cameras 1.0 / 6.0.
+- **No microphones**: its panner (inline in 0x3A1D38 and its two siblings) gives every sound
+  32 / distance, then held to -1..1 with the frame's scale, × [0x503978] × [0x50397C] 🔎 (the
+  master's parts); the quarter metre, the pan and the surround flags as GT4's. `RaceSoundTables`
+  then leaves the microphones off, which is that rule.
+- ❓ Its master's parts and fades; its car sounds (the database is the earlier format).
 
 ## Checked against the original
 

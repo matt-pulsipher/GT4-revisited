@@ -250,10 +250,17 @@ TEST(sound_race_tables_on_disc) {
         const audio::RaceSoundTables t = audio::RaceSoundTables::from_core(core);
         std::printf("  %s: gains %s, microphones %s, numbers %s\n", disc->info().game == Game::GT4 ? "Gran Turismo 4" : "Prologue",
                     t.found_gains ? "found" : "not found", t.found_mics ? "found" : "not found", t.found_params ? "found" : "not found");
-        if (disc->info().game != Game::GT4) continue;
-        CHECK(t.found());
         using V = audio::SoundView;
         using C = audio::SoundChannel;
+        if (disc->info().game != Game::GT4) {
+            // Prologue: the gains as floats (0x3B3978 reads them), no microphones (its panner is
+            // 32 / distance, 0x3A1D38).
+            CHECK(t.found_gains && t.found_params && !t.found_mics);
+            CHECK(near(t.view_gain(V::InCarTarget, C::Engine), 5.6, 1e-5) && near(t.view_gain(V::ChaseTarget, C::Exhaust), 6.0, 1e-5));
+            CHECK(t.view_gain(V::InCarOther, C::InCar) == 0 && near(t.view_gain(V::Other, C::Exhaust), 6.0, 1e-5));
+            continue;
+        }
+        CHECK(t.found());
         std::printf("  engine / exhaust by view:");
         for (int v = 0; v < 5; ++v) std::printf(" %.2f/%.2f", double(t.view_gain(V(v), C::Engine)), double(t.view_gain(V(v), C::Exhaust)));
         std::printf("\n  wind %.2f..%.2f m/s -> %.0f..%.0f rpm; levels %.2f %.2f, spool %.2f, blow-off %.2f\n", double(t.params.wind_speed_lo),
