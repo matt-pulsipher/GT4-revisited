@@ -926,6 +926,31 @@ TEST(disc_menu_gt_mode_places) {
         CHECK(a.rt->game().garage[0].record->condition(3) == 0 && a.rt->game().money < 500000 - 30590);
         CHECK(a.clean());
     }
+    // A tune shop: the car's parts, a sports exhaust's page (power before and after, its
+    // price), bought and fitted to the car driven.
+    {
+        Flow t(*disc);
+        CHECK(t.gt_mode_with_a_car());
+        t.map_focus("DealerItaly");
+        t.press({menu::Key::Accept, menu::Key::Accept});
+        CHECK(t.page() == "DealerRoot" && t.focus_on("Tuner"));
+        t.press({menu::Key::Accept});
+        CHECK(t.page() == "TuningRoot" && t.focus() == "Muffler");
+        t.press({menu::Key::Accept, menu::Key::Accept});
+        CHECK(t.page() == "TuningDialog" && t.text_of("price") == "Cr. 1,500");
+        const int before = std::atoi(t.text_of("before").c_str()), after = std::atoi(t.text_of("after").c_str());
+        CHECK(before > 0 && after > before);
+        std::printf("  sports exhaust: %d -> %d %s\n", before, after, t.text_of("ps0").c_str());
+        const s64 money = t.rt->game().money;
+        t.press({menu::Key::Right, menu::Key::Accept, menu::Key::Accept, menu::Key::Accept});
+        CHECK(t.rt->game().money == money - 1500);
+        script::Vm& vm = t.rt->vm();
+        const Value riding = vm.attribute(vm.attribute(vm.lookup("game"), "garage"), "riding_car");
+        const Value muffler[1] = {Value::integer(20)};
+        CHECK(vm.call(vm.attribute(riding, "getEquipedParts"), muffler).i == 1);
+        const Value owned[2] = {Value::integer(20), Value::integer(1)};
+        CHECK(vm.call(vm.attribute(riding, "isHavingParts"), owned).i == 1 && t.clean());
+    }
     // Home: the status, the diary of the day the car was bought, the garage and the car's page.
     Flow h(*disc);
     CHECK(h.gt_mode_with_a_car());
