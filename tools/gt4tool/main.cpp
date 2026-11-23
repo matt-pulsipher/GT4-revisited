@@ -1,0 +1,184 @@
+// gt4tool: command line access to a Gran Turismo 4 disc image (your own), for format research.
+//
+//   gt4tool info <disc>                    identify the disc, its volumes and its program
+//   gt4tool ls <disc> [folder]             list a folder of the volumes
+//   gt4tool survey <disc>                  count the files by folder, extension and magic
+//   gt4tool extract <disc> <prefix> <dir>  write the files under a prefix (unpacked) to a folder
+//   gt4tool tex <disc> <path> <dir>        decode every texture set in a file to PNGs
+//
+// Extracted files are for your own study; never commit them (docs/REVERSE_ENGINEERING.md).
+
+#include "base/file.h"
+#include "base/log.h"
+#include "disc/core_image.h"
+#include "formats/gs_memory.h"
+#include "formats/png_writer.h"
+#include "formats/tex1.h"
+#include "gt4r/disc/disc.h"
+
+#include <cstdio>
+#include <cstring>
+#include <filesystem>
+#include <map>
+#include <string>
+#include <vector>
+
+using namespace gt4r;
+
+namespace {
+
+using Args = std::vector<std::string>;
+
+bool save(const std::string& path, ByteSpan data) {
+    std::error_code ec;
+    std::filesystem::create_directories(std::filesystem::path(path).parent_path(), ec);
+    if (!gt3r::write_host_file(path, data)) {
+        std::fprintf(stderr, "error: cannot write %s\n", path.c_str());
+        return false;
+    }
+    return true;
+}
+
+std::string magic_of(ByteSpan d) {
+    if (d.size() < 4) return "(short)";
+    for (size_t i = 0; i < 4; ++i)
+        if (d[i] < 0x20 || d[i] > 0x7E) return "(binary)";
+    return std::string(reinterpret_cast<const char*>(d.data()), 4);
+}
+
+int cmd_info(Disc& disc, const Args&) {
+    const DiscInfo& i = disc.info();
+    std::printf("%s\n", i.description.c_str());
+    std::printf("  serial   %s  version %s  video %s\n", i.serial.c_str(), i.version.c_str(), i.video.c_str());
+    std::printf("  game     %s\n", game_name(i.game));
+    std::printf("  files    %s%s\n", i.digest.c_str(), i.verified ? " (verified release)" : i.modified ? " (modified copy)" : " (not in the tested list)");
+    if (!i.problem.empty()) std::printf("  problem  %s\n", i.problem.c_str());
+    for (const VolumeInfo& v : disc.volumes()) {
+        std::printf("  %-10s %zu files, %.2f GB, %s", v.name.c_str(), v.files, double(v.size) / 1e9, v.paged ? "paged index" : "front table");
+        if (v.unused_entries) std::printf(" (front table: %zu entries the game does not read)", v.unused_entries);
+        std::printf("\n");
+    }
+    u64 bytes = 0, stored = 0;
+    size_t packed = 0;
+    for (const ImageFile& f : disc.files()) bytes += f.size, stored += f.stored_size, packed += f.packed;
+    std::printf("  total    %zu files (%zu packed), %.2f GB on the disc, %.2f GB unpacked\n", disc.files().size(), packed,
+                double(stored) / 1e9, double(bytes) / 1e9);
+    const gt3r::CoreImage core = gt3r::CoreImage::decode(disc.read_program());
+    std::printf("  program  CORE.GT4: load 0x%08X, entry 0x%08X, %u bytes\n", core.load_address, core.entry_point, core.image_size);
+    return 0;
+}
+
+int cmd_ls(Disc& disc, const Args& a) {
+    const std::string dir = a.empty() ? "" : a[0];
+    for (const std::string& name : disc.volume().list_dir(dir)) {
+        if (name.back() == '/') {
+            std::printf("%12s  %s\n", "", name.c_str());
+            continue;
+        }
+        const std::string prefix = dir.empty() || dir.back() == '/' ? dir : dir + "/";
+        const gt3r::Volume::Entry* e = disc.volume().find(prefix + name);
+        std::printf("%12u  %s\n", e ? e->size : 0, name.c_str());
+    }
+    return 0;
+}
+
+int cmd_survey(Disc& disc, const Args&) {
+    struct Row {
+        size_t files = 0;
+        u64 bytes = 0;
+        std::string example;
+    };
+    std::map<std::string, Row> rows;
+    for (const ImageFile& f : disc.files()) {
+        Bytes head;
+        try {
+            if (f.packed) head = disc.volume().read(*disc.volume().find(f.path)); // (unpacked whole: packed files are small)
+            else head = disc.read_stored({f.path, f.disc_offset, std::min<u32>(f.size, 16), std::min<u32>(f.size, 16), false, f.volume});
+        } catch (const std::exception& e) {
+            std::fprintf(stderr, "error: %s: %s\n", f.path.c_str(), e.what());
+            return 1;
+        }
+        const std::string top = f.path.find('/') == std::string::npos ? "(root)" : f.path.substr(0, f.path.find('/'));
+        const std::string leaf = f.path.substr(f.path.find_last_of('/') + 1);
+        const std::string ext = leaf.find('.') == std::string::npos ? "-" : leaf.substr(leaf.find_last_of('.') + 1);
+        char key[160];
+        std::snprintf(key, sizeof key, "%-13s .%-9s %-9s", top.c_str(), ext.c_str(), magic_of(head).c_str());
+        Row& r = rows[key];
+        if (!r.files++) r.example = f.path;
+        r.bytes += f.size;
+    }
+    for (const auto& [key, r] : rows) std::printf("%s %6zu files %12llu bytes  %s\n", key.c_str(), r.files, (unsigned long long)r.bytes, r.example.c_str());
+    return 0;
+}
+
+int cmd_extract(Disc& disc, const Args& a) {
+    size_t n = 0;
+    for (const gt3r::Volume::Entry& e : disc.volume().entries()) {
+        if (e.path.compare(0, a[0].size(), a[0]) != 0) continue;
+        if (!save(a[1] + "/" + e.path, disc.volume().read(e))) return 1;
+        ++n;
+    }
+    std::printf("%zu files written to %s\n", n, a[1].c_str());
+    return n ? 0 : 1;
+}
+
+int cmd_tex(Disc& disc, const Args& a) {
+    const gt3r::Volume::Entry* e = disc.volume().find(a[0]);
+    if (!e) {
+        std::fprintf(stderr, "error: no such file: %s\n", a[0].c_str());
+        return 1;
+    }
+    const Bytes data = disc.volume().read(*e);
+    const std::vector<size_t> sets = gt3r::find_tex1_sets(data);
+    std::printf("%zu texture set(s)\n", sets.size());
+    for (size_t s = 0; s < sets.size(); ++s) {
+        const ByteSpan sub = ByteSpan(data).subspan(sets[s]);
+        const gt3r::Tex1 tex = gt3r::Tex1::parse(sub);
+        gt3r::GsMemory gs;
+        tex.upload(sub, gs);
+        for (size_t i = 0; i < tex.textures.size(); ++i) {
+            const gt3r::Tex1::Image img = tex.decode(gs, i);
+            char name[64];
+            std::snprintf(name, sizeof name, "/set%02zu_tex%02zu.png", s, i);
+            std::printf("  set %zu @0x%zx tex %zu: %ux%u %s\n", s, sets[s], i, img.width, img.height, gt3r::psm_name(tex.textures[i].tex0.psm));
+            if (!save(a[1] + name, gt3r::encode_png(img.width, img.height, img.rgba))) return 1;
+        }
+    }
+    return 0;
+}
+
+struct Command {
+    const char* name;
+    const char* usage;
+    size_t min_args;
+    int (*run)(Disc&, const Args&);
+};
+const Command kCommands[] = {
+    {"info", "<disc>", 0, cmd_info},
+    {"ls", "<disc> [folder]", 0, cmd_ls},
+    {"survey", "<disc>", 0, cmd_survey},
+    {"extract", "<disc> <prefix> <outdir>", 2, cmd_extract},
+    {"tex", "<disc> <path> <outdir>", 2, cmd_tex},
+};
+
+} // namespace
+
+int main(int argc, char** argv) {
+    if (argc >= 3)
+        for (const Command& c : kCommands) {
+            if (std::strcmp(argv[1], c.name) != 0) continue;
+            const Args args(argv + 3, argv + argc);
+            if (args.size() < c.min_args) break;
+            try {
+                gt3r::log_set_level(gt3r::LogLevel::Warn);
+                const std::unique_ptr<Disc> disc = Disc::open(argv[2]);
+                return c.run(*disc, args);
+            } catch (const std::exception& e) {
+                std::fprintf(stderr, "error: %s\n", e.what());
+                return 1;
+            }
+        }
+    std::fprintf(stderr, "usage: gt4tool <command> <disc.iso|disc.chd> [args]\n\n");
+    for (const Command& c : kCommands) std::fprintf(stderr, "  %-8s %s\n", c.name, c.usage);
+    return 2;
+}

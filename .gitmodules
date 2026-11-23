@@ -1,0 +1,3 @@
+[submodule "engine/gt3r"]
+	path = engine/gt3r
+	url = https://github.com/matt-pulsipher/GT3-revisited.git
