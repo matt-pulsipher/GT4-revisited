@@ -399,6 +399,7 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
         m.car_lamps.add(m.overlay, rect, pose.view, pose.eye, frustum, m.glow_cars, [&](const RVec& a, const RVec& b) { return occluder.segment_blocked(a, b); }, &proj);
     }
     o.overlay = &m.overlay;
+    o.post_grade = grade_;
     m.view->draw(ui.renderer(), rect, pose.view, proj, pose.eye, m.items, o);
     if (m.frame == 5)
         LOG_INFO("Drive: the car at (%.1f, %.1f, %.1f) heading (%.2f, %.2f), eye (%.1f, %.1f, %.1f); %d meshes drawn, %zu triangles", me.position.x,

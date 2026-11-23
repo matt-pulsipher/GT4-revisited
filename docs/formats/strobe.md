@@ -203,9 +203,16 @@ no fade). The rows appear one frame after the panel.
 - Screen settings are kept in the game object (the pointer at 0x622F4C) at +0x39E34: four s32
   `{brightness, contrast, ❓, ❓}`; a second record at +0x39E44 is used when `RacePause+0x34` is set
   (`RaceArcade` sets it in the B-spec mode). Both -5..+5. The race's final picture pass builds a color
-  correction from the record (0x3EFDF0: brightness/10, contrast x 0.6, (third+10)/10, 5500 + 200 x
-  fourth against 5500; used by 0x33F2E8). ❓ No `MOption` attribute of the menus' scripts was found for
-  them.
+  correction from the record (0x3EFDF0 -> 0x3EFC10): a gain 2^(brightness / 10) on every channel
+  (`pow(2, b)`, 1 at 0), red and blue moved by -/+ (T - 5500) x 0.2 / 2000 with T = 5500 + 200 x
+  balance (0.02 a step), a contrast term 1 - 0.06 x contrast, a saturation (saturation + 10) / 10;
+  used by 0x33F2E8, the race's last picture pass. The records are the options' `MOption`
+  `race_color_correction` and `replay_color_correction` (the Picture Quality page's Racing Views and
+  TV Live Relay Views: `[brightness, contrast, saturation, balance]`). **A new game's racing views
+  have brightness +3** (the original's options page and pause after a new game), the replays' 0.
+  Here (`race/picture_settings.*`) the gain and the contrast are the 3D view's grade levels, the
+  saturation its saturation; ❓ how 0x33F2E8 applies the contrast term (taken as a stretch about the
+  middle by 1 / term) and the balance are not read.
 - Drawing (`RacePause::vf5` 0x3C3988 -> 0x3EC0B0): the movie on the 640x480 canvas over the whole
   frame, global color 0x80FFFFFF, in the race's 2D pass (`RaceBasic::vf107`, only while paused).
 

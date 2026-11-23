@@ -8,6 +8,7 @@
 #include "gt4r/race/race_flow.h"
 #include "gt4r/race/start_camera.h"
 #include "gt4r/race/start_rule.h"
+#include "gt4r/race/picture_settings.h"
 #include "gt4r/formats/db/specdb.h"
 
 #include <cmath>
@@ -373,4 +374,26 @@ TEST(race_course_start_disc) {
         ++ran;
     }
     if (!ran) SKIP("no Gran Turismo 4 US disc");
+}
+
+TEST(race_picture_settings) {
+    race::PictureSettings p;
+    CHECK(p.v[0] == 3 && p.v[1] == 0 && p.v[2] == 0 && p.v[3] == 0);
+    // Brightness +3: a gain of 2^0.3 on every channel.
+    race::PictureSettings::Correction c = p.correction();
+    CHECK(std::fabs(c.gain[1] - std::pow(2.0f, 0.3f)) < 1e-5f && c.gain[0] == c.gain[1] && c.gain[2] == c.gain[1]);
+    CHECK(c.contrast == 1 && c.saturation == 1);
+    auto g = p.grade();
+    CHECK(g.on && std::fabs(g.white - 1 / std::pow(2.0f, 0.3f)) < 1e-5f && std::fabs(g.black) < 1e-6f);
+    // All zero: no correction.
+    race::PictureSettings z{race::PictureSettings::kReplayDefault};
+    CHECK(!z.grade().on);
+    // Balance +5: 6500 K; red down, blue up by 0.1. Contrast +5: the term 0.7. Saturation -5: 0.5.
+    race::PictureSettings q;
+    q.v = {0, 5, -5, 5};
+    c = q.correction();
+    CHECK(std::fabs(c.gain[0] - 0.9f) < 1e-5f && std::fabs(c.gain[2] - 1.1f) < 1e-5f);
+    CHECK(std::fabs(c.contrast - 0.7f) < 1e-5f && std::fabs(c.saturation - 0.5f) < 1e-5f);
+    g = q.grade();
+    CHECK(std::fabs(g.black - 0.15f) < 1e-5f && std::fabs(g.white - 0.85f) < 1e-5f);
 }

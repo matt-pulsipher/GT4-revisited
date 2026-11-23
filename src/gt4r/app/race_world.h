@@ -78,6 +78,8 @@ public:
     // make the cars' reflection picture); `hidden`: a car whose body is not drawn (the in-car
     // view's own), -1 for none.
     void render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarState> cars, const race::ViewPose& pose, size_t focus, int hidden);
+    // The picture's correction (the screen settings, race/picture_settings.h) from the next frame.
+    void set_grade(const gt3r::render::DrawOptions::PostGrade& g) { grade_ = g; }
 
     // The cars' icons (the results page's): each car standing side-on, its front to the left, drawn
     // over `canvas` (the 640 x 480 page on the screen) with its middle at (x, y) of the page.
@@ -116,6 +118,7 @@ private:
     std::unique_ptr<sim::ai::Field> field_; // the computer drivers, on the game's simulation
     bool computer_player_ = false;
     bool night_ = false, noted_ = false;
+    gt3r::render::DrawOptions::PostGrade grade_;
     std::unique_ptr<Impl> impl_;
 };
 

@@ -26,6 +26,7 @@
 #include "gt4r/race/replay_script.h"
 #include "gt4r/race/start_camera.h"
 #include "gt4r/race/start_rule.h"
+#include "gt4r/race/picture_settings.h"
 #include "gt4r/sim/ai/grid.h"
 #include "gt4r/menu/game.h"
 #include "gt4r/menu/race_natives.h"
@@ -113,6 +114,14 @@ Setup setup_from_env() {
         }
     }
     return s;
+}
+
+// The screen settings of the racing views and of the replays and B-spec races, kept while the app
+// runs. ❓ The options' Picture Quality page keeps them in MOption (race_color_correction,
+// replay_color_correction: four numbers each); the menus here do not hold them as numbers yet.
+race::PictureSettings& picture_settings(bool replay) {
+    static race::PictureSettings race_views, replays{race::PictureSettings::kReplayDefault};
+    return replay ? replays : race_views;
 }
 
 // The race itself: the world (race_world.h), its flow (race_flow.h) and the cameras.
@@ -380,6 +389,8 @@ public:
 
     void render(Ui& ui, const SDL_FRect& rect, bool look_back) {
         const std::span<const race::CarState> cars = shown();
+        // The racing views' screen settings; the replays' and the B-spec race's their own.
+        world_->set_grade(picture_settings(replaying_ || watched_).grade());
         const race::ViewPose pose = current_pose(cars, look_back);
         world_->render(ui, rect, cars, pose, 0, pose.body_hidden ? 0 : -1);
     }
@@ -667,8 +678,8 @@ private:
                 if (audio::AppSound* sound = app.sound()) sound->menu().play(text(0));
             } else if (n == "NAVIGATEVERTICAL" && pause_) pause_->navigate(true, false);
             else if (n == "NAVIGATEALL" && pause_) pause_->navigate(true, true);
-            else if (n == "DEFAULTVAL") return V::number(text(0) == "BRIGHTNESS" ? screen_[0] : screen_[1]);
-            else if (n == "SETVAL" && args.size() >= 2) screen_[text(0) == "BRIGHTNESS" ? 0 : 1] = int(args[1].to_number());
+            else if (n == "DEFAULTVAL") return V::number(picture_settings(spectator_).v[text(0) == "BRIGHTNESS" ? 0 : 1]);
+            else if (n == "SETVAL" && args.size() >= 2) picture_settings(spectator_).v[text(0) == "BRIGHTNESS" ? 0 : 1] = std::clamp(int(args[1].to_number()), -5, 5);
             return V{};
         };
         pause_ = std::make_unique<race::StrobePlayer>(pause_movie_, host);
@@ -970,7 +981,6 @@ private:
     std::shared_ptr<const race::StrobeMovie> result_movie_;
     std::unique_ptr<race::StrobePlayer> result_;
     bool result_tried_ = false, result_exit_ = false;
-    int screen_[2] = {0, 0}; // the pause's screen settings: brightness, contrast (-5..5) ❓ not applied to the picture
     menu::Runtime* menus_ = nullptr;    // the race's menus run on these (from the menus that asked)
     std::unique_ptr<menu::Runtime> own_menus_; // a scripted run's
     std::string sequence_;              // the race sequence ("single_race")
