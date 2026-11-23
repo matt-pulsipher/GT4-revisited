@@ -5,9 +5,10 @@
 // sets it up without the lists, for pictures: `course` a course file's name, `car` a car's label
 // (or its model's name), `cars` how many on the grid, `view` in | chase | roof | back, `drive`
 // auto (the simple driver takes the first car too) or pad, `skip` simulation steps run before the
-// first picture (the start's countdown is left out then), `paint` the first car's paint, `laps` the
-// race's length; `view=tv` the course's replay cameras; `replay=N` drives N steps unseen and plays
-// them back through the replay cameras.
+// first picture (the start's hold is left out then), `paint` the first car's paint, `laps` the
+// race's length, `start` the start: 10 or 8 (a hold of so many seconds with the opening shots),
+// <seconds> (a plain hold), none, rolling; `view=tv` the course's replay cameras; `replay=N` drives
+// N steps unseen and plays them back through the replay cameras.
 
 #include "gt4r/app/app.h"
 #include "gt4r/app/race_hud.h"
@@ -16,8 +17,10 @@
 #include "base/log.h"
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/race/drive_camera.h"
+#include "gt4r/race/race_flow.h"
 #include "gt4r/race/rail_simulation.h"
 #include "gt4r/race/replay_script.h"
+#include "gt4r/race/start_camera.h"
 #include "race/controls.h"
 
 #include <algorithm>
@@ -52,6 +55,9 @@ struct Setup {
     bool reflection = true;
     bool rail = false;     // the stand-in simulation instead of the game's
     bool scripted = false; // from GT4R_RACE: no lists
+    race::StartType start = race::StartType::Ten;
+    int start_seconds = 0;
+    std::vector<std::string> opponents; // the other cars by label (empty: from the car list)
 };
 
 Setup setup_from_env() {
@@ -80,11 +86,18 @@ Setup setup_from_env() {
         else if (k == "reflection") s.reflection = v != "0";
         else if (k == "sim") s.rail = v == "rail";
         else if (k == "laps") s.laps = std::clamp(std::atoi(v.c_str()), 1, 99);
+        else if (k == "start") {
+            if (v == "rolling") s.start = race::StartType::Rolling;
+            else if (v == "none") s.start = race::StartType::None;
+            else if (v == "8") s.start = race::StartType::Eight;
+            else if (v == "10") s.start = race::StartType::Ten;
+            else s.start = race::StartType::Given, s.start_seconds = std::clamp(std::atoi(v.c_str()), 0, 60);
+        }
     }
     return s;
 }
 
-// The race itself: the world (race_world.h), the flow and the cameras.
+// The race itself: the world (race_world.h), its flow (race_flow.h) and the cameras.
 class Race {
 public:
     Race(App& app, const Setup& setup, const std::vector<db::CarEntry>& cars) : setup_(setup) {
@@ -95,20 +108,18 @@ public:
         WorldSetup ws;
         ws.course = setup.course;
         ws.smoke = setup.smoke, ws.reflection = setup.reflection, ws.rail = setup.rail;
+        // The grid: the player at the back, the others ahead of him in entry order.
+        const std::vector<int> places = race::grid_places(size_t(setup.cars), 0);
         for (int i = 0; i < setup.cars; ++i) {
             WorldEntry e;
-            e.label = cars[(first + size_t(i) * 37) % cars.size()].label;
+            e.label = i == 0 || setup.opponents.empty() ? cars[(first + size_t(i) * 37) % cars.size()].label
+                                                         : setup.opponents[size_t(i - 1) % setup.opponents.size()];
             e.paint = i == 0 ? setup.paint : u32(i);
+            e.grid_place = places[size_t(i)];
             ws.entries.push_back(e);
         }
         world_ = std::make_unique<RaceWorld>(app, ws);
         inputs_.resize(size_t(setup.cars));
-        camera_.reset(world_->cars()[0]);
-        // The count before the start: three seconds (a scripted run that skips ahead has none).
-        started_with_count_ = setup.skip == 0;
-        countdown_ = started_with_count_ ? 3 * 60 : 0;
-        for (int i = 0; i < setup.skip; ++i) step(gt3r::PadState{}, true);
-        mount_ = setup.view;
         if (const ByteSpan rep = world_->course().section(course::kSlotReplay); race::ReplayScript::is_script(rep)) {
             try {
                 replay_script_ = race::ReplayScript::parse(rep);
@@ -116,41 +127,74 @@ public:
                 LOG_WARN("Replay cameras: %s", e.what());
             }
         }
+        for (int k = 0; k < 2; ++k)
+            if (const ByteSpan mot = world_->course().section(k ? race::kSlotReplayStartMotion : race::kSlotStartMotion); race::CameraMotion::is_motion(mot)) {
+                try {
+                    (k ? replay_motion_ : start_motion_) = race::CameraMotion::parse(mot);
+                } catch (const std::exception& e) {
+                    LOG_WARN("Start shots: %s", e.what());
+                }
+            }
+        mount_ = setup.view;
+        begin_run();
+        // A scripted run that skips ahead: those steps unseen.
+        for (int i = 0; i < setup.skip; ++i) step(gt3r::PadState{}, true);
         if (setup.replay > 0) {
             // A run driven unseen, then shown through the replay cameras.
-            countdown_ = 0;
             for (int i = 0; i < setup.replay; ++i) step(gt3r::PadState{}, true);
             start_replay();
         }
     }
 
-    // One simulation step: the first car from the pad (or the simple driver), the others by the
+    // The cars on the grid and the start's hold from the beginning.
+    void begin_run() {
+        if (ran_) world_->restart();
+        ran_ = true;
+        race::FlowSetup fs;
+        fs.start = setup_.skip > 0 ? race::StartType::None : setup_.start;
+        fs.start_seconds = setup_.start_seconds;
+        fs.laps = setup_.laps;
+        fs.player = 0;
+        fs.lap_length = world_->line().length;
+        flow_.begin(fs, world_->cars());
+        camera_.reset(world_->cars()[0]);
+        history_.clear();
+        replaying_ = false, over_ = false;
+        event_steps_ = -1;
+        begin_start_camera(false);
+    }
+
+    void begin_start_camera(bool replay) {
+        const race::CameraMotion& m = replay ? replay_motion_ : start_motion_;
+        const course::Runway& road = world_->course().road();
+        course::Runway::Place grid;
+        if (!road.grid.empty()) grid = road.grid[0];
+        const int hold = replay ? flow_.hold_total() : flow_.hold_left();
+        start_camera_.begin(m.clips.empty() ? nullptr : &m, replay, hold, grid, replay && !history_.empty() ? history_[0][0] : world_->cars()[0]);
+    }
+
+    // One simulation step: the player's car from the pad (or the simple driver), the others by the
     // simple driver, each on its own side of the line.
     void step(const gt3r::PadState& pad, bool auto_drive) {
         if (replaying_) {
-            // The recorded run again, from its start when it ends.
-            replay_at_ = (replay_at_ + 1) % history_.size();
-            if (replay_at_ == 0) camera_.reset(history_[0][0]), replay_camera_.reset(), world_->clear_effects();
+            // The recorded run again; it ends at its end.
+            if (replay_at_ + 1 >= history_.size()) {
+                replay_done_ = true;
+                return;
+            }
+            ++replay_at_;
+            start_camera_.step();
             camera_.step(history_[replay_at_][0], kStep);
             world_->present(history_[replay_at_], true);
             return;
         }
         const std::span<const race::CarState> cars = world_->cars();
-        // The start: the cars stand through the count.
-        if (countdown_ > 0) {
-            --countdown_;
-            mapper_.update(pad, kStep);
-            std::fill(inputs_.begin(), inputs_.end(), race::CarInput{});
-            for (race::CarInput& in : inputs_) in.brake = 1;
-            world_->step(inputs_);
-            world_->present(world_->cars(), true);
-            return;
-        }
-        auto_drive = auto_drive || finished_;
+        const bool hold = flow_.holding();
+        auto_drive = auto_drive || flow_.player_finished();
         for (size_t c = 0; c < inputs_.size(); ++c)
-            inputs_[c] = race::follow_line(world_->line(), cars[c], c & 1 ? 2.0f : -2.0f, 1.0f - 0.05f * float(c));
+            inputs_[c] = hold ? race::CarInput{} : race::follow_line(world_->line(), cars[c], c & 1 ? 2.0f : -2.0f, 1.0f - 0.05f * float(c));
+        const gt3r::sim::ControlInputs in = mapper_.update(pad, kStep);
         if (!auto_drive) {
-            const gt3r::sim::ControlInputs in = mapper_.update(pad, kStep);
             race::CarInput& me = inputs_[0];
             me = {};
             me.steer = in.steer, me.throttle = in.throttle, me.brake = in.brake, me.handbrake = in.handbrake;
@@ -158,39 +202,39 @@ public:
             me.reverse = mapper_.reverse();
             if (me.reverse) me.throttle = std::max(me.throttle, gt3r::race::pressure_to_pedal(pad.press(PadButton::Triangle)));
         }
-        const int lap_before = cars[0].lap;
-        world_->step(inputs_);
+        world_->step(inputs_, hold);
+        const race::RaceFlow::Events ev = flow_.step(world_->cars());
+        if (ev.lap_done == 0) event_steps_ = 0, event_lap_ = flow_.car(0).laps_done;
+        beeps_ += ev.beep;
+        start_camera_.step();
         camera_.step(world_->cars()[0], kStep);
-        ++steps_;
-        // The player's laps: a lap's time runs from one crossing of the line to the next (the
-        // first from the start).
-        const int lap = world_->cars()[0].lap;
-        if (lap > lap_before && !finished_) {
-            if (lap >= 1) {
-                last_ms_ = s64(steps_ - lap_start_) * 1000 / 60;
-                if (best_ms_ < 0 || last_ms_ < best_ms_) best_ms_ = last_ms_;
-                event_lap_ = lap, event_steps_ = 0;
-                if (lap >= setup_.laps) finished_ = true, finish_steps_ = 0;
-            }
-            lap_start_ = steps_;
-        }
         if (event_steps_ >= 0) ++event_steps_;
-        if (finished_) ++finish_steps_;
         if (history_.size() < kHistory) history_.emplace_back(world_->cars().begin(), world_->cars().end());
         world_->present(world_->cars(), true);
-        // Five seconds after the finish the run is shown again.
-        if (finished_ && finish_steps_ > 5 * 60) start_replay();
+    }
+
+    // The run is over (the results page left): the replay plays at once when the player drove a
+    // lap or more.
+    void end_run() {
+        over_ = true;
+        if (flow_.car(0).counter >= 2) start_replay();
     }
 
     void start_replay() {
         if (history_.empty() || replaying_) return;
-        replaying_ = true;
+        replaying_ = true, replay_done_ = false;
         replay_at_ = 0;
-        mount_ = kTvView;
         camera_.reset(history_[0][0]);
         replay_camera_.reset();
+        world_->clear_effects();
+        begin_start_camera(true);
     }
     bool replaying() const { return replaying_; }
+    bool replay_done() const { return replay_done_; }
+    void stop_replay() { replaying_ = false, replay_done_ = true; }
+    bool over() const { return over_; }
+    const race::RaceFlow& flow() const { return flow_; }
+    int beeps() const { return beeps_; }
     std::span<const race::CarState> shown() const { return replaying_ ? std::span<const race::CarState>(history_[replay_at_]) : world_->cars(); }
 
     // What the race display shows now.
@@ -202,19 +246,13 @@ public:
         h.speed = me.speed, h.rpm = me.engine_rpm, h.gear = me.gear;
         h.red_line = spec.red_line, h.rev_limit = spec.rev_limit;
         h.driver_view = mount_ != race::DriveCamera::kChase && mount_ != kTvView;
-        // The place: by laps and distance along the course.
-        const float length = world_->line().length;
-        auto progress = [&](const race::CarState& c) { return float(c.lap) * length + c.course_v; };
-        h.place = 1;
         h.cars.clear();
-        for (const race::CarState& c : cars) {
-            h.place += &c != &me && progress(c) > progress(me);
-            h.cars.push_back({c.position.x, c.position.z});
-        }
-        h.lap = std::clamp(me.lap + 1, 1, setup_.laps), h.laps = setup_.laps;
-        h.lap_ms = replaying_ ? s64(replay_at_) * 1000 / 60 : finished_ ? last_ms_ : countdown_ > 0 ? 0 : s64(steps_ - lap_start_) * 1000 / 60;
-        h.best_ms = best_ms_, h.last_ms = last_ms_;
-        h.time = double(steps_) / 60;
+        for (const race::CarState& c : cars) h.cars.push_back({c.position.x, c.position.z});
+        h.place = flow_.place(0);
+        h.lap = flow_.lap_shown(0), h.laps = setup_.laps;
+        h.lap_ms = replaying_ ? s64(replay_at_) * 1000 / 60 : flow_.lap_ms(0);
+        h.best_ms = flow_.car(0).best_lap_ms, h.last_ms = flow_.car(0).last_lap_ms;
+        h.time = double(flow_.time_ms()) / 1000;
         // A window of a line or message: full for `hold` seconds, then fading out.
         auto window = [](int steps, float hold, float fade) {
             const float t = float(steps) / 60;
@@ -222,22 +260,19 @@ public:
         };
         h.message.clear(), h.message_opacity = 0;
         if (replaying_) {
-        } else if (countdown_ > 0) {
-            // The whole seconds left, each for 0.8 s and a fade of 0.15 s.
-            const int left = (countdown_ + 59) / 60;
-            h.message = std::to_string(left);
-            h.message_opacity = window(left * 60 - countdown_, 0.8f, 0.15f);
-        } else if (finished_) {
+        } else if (flow_.player_finished()) {
+            // FINISH: 3.7 s and a fade of 0.3 s.
             h.message = hud.word("RaceFinish");
-            h.message_opacity = window(finish_steps_, 3.7f, 0.3f);
-        } else if (started_with_count_ && steps_ < 90) {
+            h.message_opacity = window(flow_.steps_since_player_finish(), 3.7f, 0.3f);
+        } else if (const int s = flow_.steps_since_start(); s >= 0 && flow_.setup().start != race::StartType::None) {
+            // START at the start signal: 1.0 s and a fade of 0.15 s. (No count is written: the count is heard.)
             h.message = hud.word("RaceStart");
-            h.message_opacity = window(steps_, 1.0f, 0.15f);
+            h.message_opacity = window(s, 1.0f, 0.15f);
         }
         h.event.clear(), h.event_opacity = 0;
         if (!replaying_ && event_steps_ >= 0 && event_steps_ < 200) {
             // "L1/3   1'23.456" for three seconds.
-            h.event = hud.word("WordOfLapTime") + std::to_string(event_lap_) + "/" + std::to_string(setup_.laps) + "   " + race::format_lap_time(last_ms_);
+            h.event = hud.word("WordOfLapTime") + std::to_string(event_lap_) + "/" + std::to_string(setup_.laps) + "   " + race::format_lap_time(flow_.car(0).last_lap_ms);
             h.event_opacity = std::min(1.0f, float(event_steps_) / 9.0f) * window(event_steps_, 3.0f, 0.15f);
         }
     }
@@ -260,9 +295,11 @@ public:
         const race::CarState& me = cars[0];
         const render::Mat4 body = world_->visual(0).body_matrix(me);
         race::ViewPose pose;
+        const int view = replaying_ ? kTvView : mount_;
+        bool posed = start_camera_.active() && start_camera_.pose(pose);
         // The replay cameras' shot for the car; the chase view where the script has none.
-        if (mount_ != kTvView || !replay_camera_.pose(replay_script_, me, body, pose))
-            pose = camera_.pose(me, body, world_->visual(0).mounts(), mount_ == kTvView ? race::DriveCamera::kChase : mount_, look_back || setup_.look_back);
+        if (!posed && view == kTvView) posed = replay_camera_.pose(replay_script_, me, body, pose);
+        if (!posed) pose = camera_.pose(me, body, world_->visual(0).mounts(), view == kTvView ? race::DriveCamera::kChase : view, look_back || setup_.look_back);
         world_->render(ui, rect, cars, pose, 0, pose.body_hidden ? 0 : -1);
     }
 
@@ -270,9 +307,10 @@ public:
 
     const race::CarState& player() const { return shown()[0]; }
     const std::string& car_name(size_t i) const { return world_->car_name(i); }
+    size_t car_count() const { return world_->car_count(); }
     const race::CourseScene& course() const { return world_->course(); }
-    int steps() const { return steps_; }
     int mount() const { return mount_; }
+    bool opening() const { return start_camera_.active(); }
 
 private:
     Setup setup_;
@@ -282,14 +320,14 @@ private:
     race::DriveCamera camera_;
     race::ReplayScript replay_script_;
     race::ReplayCamera replay_camera_;
+    race::CameraMotion start_motion_, replay_motion_;
+    race::StartCamera start_camera_;
+    race::RaceFlow flow_;
     std::vector<std::vector<race::CarState>> history_;
-    bool replaying_ = false;
+    bool replaying_ = false, replay_done_ = false, over_ = false, ran_ = false;
     size_t replay_at_ = 0;
-    int countdown_ = 0, lap_start_ = 0, event_steps_ = -1, event_lap_ = 0, finish_steps_ = 0;
-    bool started_with_count_ = false, finished_ = false;
-    s64 best_ms_ = -1, last_ms_ = -1;
+    int event_steps_ = -1, event_lap_ = 0, beeps_ = 0;
     int mount_ = race::DriveCamera::kChase;
-    int steps_ = 0;
 };
 
 class RaceScreen : public Screen {
@@ -300,6 +338,7 @@ public:
             setup_.paint = u32(std::max(0, chosen->paint));
             setup_.cars = std::clamp(chosen->cars, 1, 16), setup_.laps = std::clamp(chosen->laps, 1, 99);
             setup_.scripted = true;
+            from_menus_ = true;
         }
         if (db::SpecDb* sdb = app.db()) {
             cars_ = sdb->cars();
@@ -335,7 +374,17 @@ public:
             }
             return;
         }
-        if (m.pressed(PadButton::Start)) {
+        // A replay: Start (or Cross) ends it; it has no pause.
+        if (race_->replaying()) {
+            if (m.pressed(PadButton::Start) || m.pressed(PadButton::Cross)) race_->stop_replay();
+            if (race_->replay_done()) return finish_run(app);
+        } else if (results_shown()) {
+            // The results page: Cross leaves it and the run is over.
+            if (m.pressed(PadButton::Cross)) {
+                race_->end_run();
+                if (!race_->replaying()) return finish_run(app);
+            }
+        } else if (m.pressed(PadButton::Start)) {
             paused_ = !paused_;
             if (paused_) race_->quiet();
         }
@@ -376,6 +425,7 @@ public:
                 draw_overlay(ui);
             }
         }
+        if (results_shown()) draw_results(ui);
         if (paused_) {
             ui.fill(0, 0, Ui::kWidth, Ui::kHeight, Color{0, 0, 0, 120});
             ui.text_center(Ui::kHeight / 2 - 10, "PAUSED", colors::kText);
@@ -395,6 +445,40 @@ public:
     }
 
 private:
+    // The results page goes up once the player's FINISH has been shown.
+    bool results_shown() const {
+        return race_ && !race_->replaying() && !race_->over() && race_->flow().player_finished() && race_->flow().steps_since_player_finish() >= 4 * 60;
+    }
+
+    // After the run and its replay: back to the menus that asked for the race, else the same race again.
+    void finish_run(App& app) {
+        if (from_menus_) {
+            report();
+            app.pop();
+            return;
+        }
+        race_->begin_run();
+    }
+
+    // The results: each car's place, name and time, the player's row marked. (A plain page in place of
+    // the game's results movie.)
+    void draw_results(Ui& ui) {
+        const std::vector<race::RaceFlow::ResultRow> rows = race_->flow().results();
+        const float w = 360, row = 16, h = 40 + row * float(rows.size()), x = (Ui::kWidth - w) / 2, y = (Ui::kHeight - h) / 2;
+        ui.fill(x, y, w, h, Color{0, 0, 0, 170});
+        ui.text_center(y + 8, hud_ ? hud_->word("RaceResult") : std::string("RESULT"), colors::kText);
+        for (size_t i = 0; i < rows.size(); ++i) {
+            const race::RaceFlow::ResultRow& r = rows[i];
+            const float ry = y + 30 + row * float(i);
+            const Color c = r.car == 0 ? colors::kAccent : colors::kText;
+            ui.text(x + 12, ry, std::to_string(i + 1), c);
+            ui.text(x + 40, ry, Ui::clip(race_->car_name(r.car), 200), c);
+            const std::string t = race::format_lap_time(r.finished ? r.total_ms : -1);
+            ui.text_right(x + w - 12, ry, t, c);
+        }
+        ui.text_center(y + h + 4, Ui::expand_prompts("{Cross}: OK"), colors::kDim);
+    }
+
     void start(App& app) {
         error_.clear();
         if (!app.gpu()) {
@@ -474,7 +558,7 @@ private:
     std::unique_ptr<RaceHud> hud_;
     HudState hud_state_;
     std::string error_;
-    bool paused_ = false, look_back_ = false;
+    bool paused_ = false, look_back_ = false, from_menus_ = false;
     double clock_ = 0;
     Uint64 step_ns_ = 0, last_frame_ns_ = 0;
     std::vector<float> work_ms_, interval_ms_;
