@@ -5,6 +5,7 @@
 //   gt4tool survey <disc>                  count the files by folder, extension and magic
 //   gt4tool extract <disc> <prefix> <dir>  write the files under a prefix (unpacked) to a folder
 //   gt4tool tex <disc> <path> <dir>        decode every texture set in a file to PNGs
+//   gt4tool db <disc> [cars | courses | <table> [rows]]   the car database
 //   gt4tool model <disc> <path>            describe a file's model sets as decoded
 //   gt4tool runway-survey <disc> [prefix]  read every course's road
 //   gt4tool model-survey <disc> [prefix] [textures]   decode every model set under a prefix
@@ -20,11 +21,13 @@
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/formats/course/runway.h"
+#include "gt4r/formats/db/specdb.h"
 #include "gt4r/formats/model/mdls.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <map>
@@ -276,6 +279,56 @@ int cmd_runway_survey(Disc& disc, const Args& a) {
     return bad ? 1 : 0;
 }
 
+db::SpecDb open_db(Disc& disc, const std::string& language = "american") {
+    gt3r::Volume* vol = &disc.volume();
+    return db::SpecDb(
+        [vol](const std::string& path) -> std::optional<Bytes> {
+            const gt3r::Volume::Entry* e = vol->find(path);
+            return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
+        },
+        [vol](const std::string& dir) { return vol->list_dir(dir); }, language);
+}
+
+// The car database: its tables; a table's rows; the cars and courses by name.
+int cmd_db(Disc& disc, const Args& a) {
+    db::SpecDb sdb = open_db(disc);
+    if (a.empty()) {
+        size_t rows = 0;
+        for (const std::string& name : sdb.table_names()) {
+            const db::Table* t = sdb.table(name);
+            if (!t) continue;
+            rows += t->size();
+            const db::Labels* l = sdb.labels(name);
+            std::printf("%-28s %5zu rows x %3zu bytes  flags %x  %zu labels\n", name.c_str(), t->size(), t->row_size(), t->flags(), l ? l->entries.size() : 0);
+        }
+        std::printf("%zu tables, %zu rows in %s\n", sdb.table_names().size(), rows, sdb.folder().c_str());
+        return 0;
+    }
+    if (a[0] == "cars") {
+        for (const db::CarEntry& c : sdb.cars()) std::printf("%5u  %-32s %-10s %2u paints  %s\n", c.id, c.label.c_str(), c.model.c_str(), c.paints, c.name.c_str());
+        return 0;
+    }
+    if (a[0] == "courses") {
+        for (const db::CourseEntry& c : sdb.courses()) std::printf("%5u  %-24s %s\n", c.id, c.label.c_str(), c.name.c_str());
+        return 0;
+    }
+    const db::Table* t = sdb.table(a[0]);
+    if (!t) {
+        std::fprintf(stderr, "error: no table named %s\n", a[0].c_str());
+        return 1;
+    }
+    const db::Labels* l = sdb.labels(a[0]);
+    const size_t limit = a.size() > 1 ? size_t(std::atoi(a[1].c_str())) : t->size();
+    for (size_t i = 0; i < t->size() && i < limit; ++i) {
+        const u32 id = t->ids()[i];
+        const std::string* label = l ? l->label(id) : nullptr;
+        std::printf("%5u %-28s", id, label ? label->c_str() : "");
+        for (u8 b : t->row_at(i)) std::printf(" %02x", b);
+        std::printf("\n");
+    }
+    return 0;
+}
+
 struct Command {
     const char* name;
     const char* usage;
@@ -288,6 +341,7 @@ const Command kCommands[] = {
     {"survey", "<disc>", 0, cmd_survey},
     {"extract", "<disc> <prefix> <outdir>", 2, cmd_extract},
     {"tex", "<disc> <path> <outdir>", 2, cmd_tex},
+    {"db", "<disc> [cars | courses | <table> [rows]]", 0, cmd_db},
     {"model", "<disc> <path>", 1, cmd_model},
     {"runway-survey", "<disc> [prefix]", 0, cmd_runway_survey},
     {"model-survey", "<disc> [prefix] [textures]", 0, cmd_model_survey},

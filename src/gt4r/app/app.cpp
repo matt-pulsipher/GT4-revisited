@@ -91,6 +91,7 @@ bool App::init(int argc, char** argv) {
         const bool has_value = i + 1 < argc;
         if (a == "--browse" && has_value) browse_ = argv[++i];
         else if (a == "--shot" && has_value) shot_path_ = argv[++i];
+        else if (a == "--screen" && has_value) start_ = argv[++i];
         else if (a == "--shot-frame" && has_value) shot_frame_ = std::atoi(argv[++i]);
         else if (a == "--keys" && has_value) {
             for (std::string_view k : gt3r::split(argv[++i], ','))
@@ -99,8 +100,11 @@ bool App::init(int argc, char** argv) {
     }
     if (disc_path.empty()) disc_path = config_.get("game", "disc").value_or("");
     if (!disc_path.empty()) last_error_ = open_disc(disc_path);
-    if (disc_) push(make_browser_screen(browse_));
-    else push(make_setup_screen());
+    if (disc_) {
+        push(make_hub_screen());
+        if (!browse_.empty()) push(make_browser_screen(browse_));
+        else if (start_ == "cars" || start_ == "courses") keys_.insert(keys_.begin(), start_ == "cars" ? "cross" : "down"), start_ == "courses" ? void(keys_.insert(keys_.begin() + 1, "cross")) : void();
+    } else push(make_setup_screen());
     last_ticks_ = SDL_GetTicksNS();
     return true;
 }
@@ -115,6 +119,7 @@ std::string App::open_disc(const std::string& path) {
     }
     if (audio_) audio_->stop_music(); // (it streams from the disc being closed)
     vfs_.reset();
+    db_.reset(), db_tried_ = false;
     disc_ = std::move(disc);
     vfs_ = std::make_unique<gt3r::Vfs>(&disc_->volume());
     vfs_->scan_mods(mods_dir(), &config_);
@@ -130,6 +135,20 @@ std::string App::open_disc(const std::string& path) {
         if (!config_.save(config_path_)) LOG_WARN("Could not save %s", config_path_.c_str());
     }
     return {};
+}
+
+db::SpecDb* App::db() {
+    if (!db_tried_ && vfs_) {
+        db_tried_ = true;
+        gt3r::Vfs* vfs = vfs_.get();
+        try {
+            db_ = std::make_unique<db::SpecDb>([vfs](const std::string& path) { return vfs->read(path); },
+                                               [vfs](const std::string& dir) { return vfs->list_dir(dir); });
+        } catch (const std::exception& e) {
+            LOG_WARN("Car database: %s", e.what());
+        }
+    }
+    return db_.get();
 }
 
 void App::show_open_dialog() {
@@ -188,7 +207,7 @@ SDL_AppResult App::iterate() {
         if (last_error_.empty()) {
             screens_.clear();
             pending_.clear();
-            push(make_browser_screen());
+            push(make_hub_screen());
         }
     }
 
@@ -242,6 +261,7 @@ void App::shutdown() {
     screens_.clear(); // (screens stop their streams before the audio and the disc go)
     pending_.clear();
     audio_.reset();
+    db_.reset();
     vfs_.reset();
     disc_.reset();
     ui_.reset();

@@ -109,7 +109,7 @@ volume's index bytes (Prologue: its table of contents).
 | `MDLS` models | cars, wheels, tires, wings, courses, prizes, characters | ✅ still models ([formats/model.md](formats/model.md)); ❓ scripts, callbacks (a car's wheels), skinned sets |
 | `CAR4`, `Pat0` | `car/` | ❓ |
 | Courses | `crs/` | ✅ the container and the scenery ([formats/course.md](formats/course.md)); the road `RNW4`; ❓ billboards, lamps, cameras |
-| `GTDB` / `GTID` / `GTST` | `specdb/` | ❓ |
+| `GTDB` / `GTID` / `GTST` | `specdb/` | ✅ the tables, labels and strings ([formats/database.md](formats/database.md)); ❓ most columns |
 | `ADCH` scripts, `Proj` / `.mwidget` layouts, `gpb1` / `gpb2`, `RT03` | the menus | ❓ |
 | Replays (`REP4`), saves | | ❓ |
 

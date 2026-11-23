@@ -13,6 +13,7 @@ game itself runs yet. See [docs/ROADMAP.md](docs/ROADMAP.md).
   disc, and Gran Turismo 4 Prologue.
 - Asset browser: every file of the disc by folder, with previews of textures (alone or inside
   cars, courses and menus), music and voice streams, and movies.
+- The cars (722) and courses by name, each in a 3D viewer; courses with their road surface.
 - 3D viewer for the game's models (car bodies, wheels, tires, wings, prize objects): open a
   file in the asset browser and press Square.
 - `gt4tool`: identify a disc, list and extract its files, decode textures to PNG, describe and

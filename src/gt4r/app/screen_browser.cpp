@@ -91,7 +91,12 @@ public:
         }
         if (!preview_.textures.empty() && m.horizontal())
             preview_.current = (preview_.current + m.horizontal() + int(preview_.textures.size())) % int(preview_.textures.size());
-        if (m.pressed(PadButton::Triangle) && !dir_.empty()) {
+        if (m.pressed(PadButton::Triangle) && dir_.empty()) {
+            app.audio().stop_music();
+            app.pop();
+            return;
+        }
+        if (m.pressed(PadButton::Triangle)) {
             const std::string prev = dir_;
             dir_.pop_back();
             dir_ = dir_.substr(0, dir_.find_last_of('/') + 1);

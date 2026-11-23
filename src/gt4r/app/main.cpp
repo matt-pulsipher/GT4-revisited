@@ -16,6 +16,7 @@ SDL_AppResult SDL_AppInit(void** state, int argc, char** argv) {
         if (!std::strcmp(argv[i], "--help") || !std::strcmp(argv[i], "-h")) {
             std::printf("usage: gt4r [disc.iso|disc.chd] [options]\n\n"
                         "  --browse <path>     open the asset browser on a file of the disc\n"
+                        "  --screen <name>     open cars or courses at start\n"
                         "  --shot <out.png>    save a picture of one frame, then quit\n"
                         "  --shot-frame <n>    which frame --shot saves (default 30)\n"
                         "  --keys <list>       scripted menu presses, e.g. \"down,down,cross,wait60,right\"\n"

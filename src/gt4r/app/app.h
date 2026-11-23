@@ -8,6 +8,7 @@
 #include "audio/audio_engine.h"
 #include "base/config.h"
 #include "gt4r/disc/disc.h"
+#include "gt4r/formats/db/specdb.h"
 #include "input/input_manager.h"
 #include "render/gpu_context.h"
 #include "scene/model.h"
@@ -58,6 +59,9 @@ public:
 
     Disc* disc() { return disc_.get(); }
     gt3r::Vfs* vfs() { return vfs_.get(); }
+    // The open disc's car database, read on first use; null when the disc has none (Prologue's is
+    // not read yet).
+    db::SpecDb* db();
     gt3r::InputManager& input() { return *input_; }
     gt3r::AudioEngine& audio() { return *audio_; }
     gt3r::IniDocument& config() { return config_; }
@@ -83,6 +87,8 @@ private:
     std::unique_ptr<gt3r::AudioEngine> audio_;
     std::unique_ptr<Disc> disc_;
     std::unique_ptr<gt3r::Vfs> vfs_;
+    std::unique_ptr<db::SpecDb> db_;
+    bool db_tried_ = false;
     gt3r::IniDocument config_;
     std::string data_dir_, config_path_;
     MenuInput menu_;
@@ -97,6 +103,7 @@ private:
     std::string last_error_;
 
     std::string browse_;                // --browse: a file the browser opens at start
+    std::string start_;                 // --screen cars | courses: the hub's item opened at start
     std::string shot_path_;             // --shot: a picture of one frame, then quit
     int shot_frame_ = 30;               // --shot-frame
     std::vector<std::string> keys_;     // --keys: scripted menu presses (tests, pictures)
@@ -109,6 +116,7 @@ private:
 std::string user_data_dir();
 
 std::unique_ptr<Screen> make_setup_screen();
+std::unique_ptr<Screen> make_hub_screen();
 std::unique_ptr<Screen> make_browser_screen(const std::string& open_path = "");
 // A list of models and a 3D view of the selected one; `load` builds the model of an item.
 using ModelLoader = std::function<gt3r::scene::Model(App& app, size_t index)>;
