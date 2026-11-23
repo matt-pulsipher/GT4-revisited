@@ -624,7 +624,10 @@ void Runtime::step_frame_objects() {
         ++i;
     }
     step_transition(vm_->attribute(render_context_, "transition"));
-    for (const auto& page : pages_) step_widgets(*this, *page);
+    for (const auto& page : pages_) {
+        step_widgets(*this, *page);
+        pack_page(*page);
+    }
     // The watchers whose time has come: their functions are called by the event thread when it
     // has nothing else to do (after the events queued, never inside a call that waits).
     for (const auto& w : watchers_)

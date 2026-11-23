@@ -230,7 +230,10 @@ void LiveWidget::arrange() {
 
 Value LiveWidget::get(const std::string& n) const {
     if (const int i = rect_index(n); i >= 0) {
-        const std::optional<Rect> r = data.rect("geometry");
+        std::optional<Rect> r = data.rect("geometry");
+        if (!r && i >= 2) // it fills its parent
+            for (const LiveWidget* up = parent_widget(); up && !r; up = up->parent_widget())
+                if (const std::optional<Rect> g = up->data.rect("geometry")) r = Rect{0, 0, g->w, g->h};
         const float v[4] = {r ? r->x : 0, r ? r->y : 0, r ? r->w : 0, r ? r->h : 0};
         return Value::number(v[i]);
     }
@@ -271,8 +274,19 @@ void LiveWidget::set(const std::string& n, const Value& v) {
 
 void LiveWidget::set_property(const std::string& n, const Value& v) {
     if (const int i = rect_index(n); i >= 0) {
+        if (!data.has("geometry")) {
+            // Until now it filled its parent: it keeps that size.
+            float pw = 640, ph = 480;
+            for (const LiveWidget* up = parent_widget(); up; up = up->parent_widget())
+                if (const std::optional<Rect> r = up->data.rect("geometry")) {
+                    pw = r->w, ph = r->h;
+                    break;
+                }
+            Property& made = property(data, "geometry", "rectangle");
+            made.type = "rectangle";
+            made.values = {"0", "0", number_text(pw), number_text(ph)};
+        }
         Property& g = property(data, "geometry", "rectangle");
-        g.type = "rectangle";
         g.values.resize(4, "0");
         g.values[size_t(i)] = number_text(v.as_float());
         return;

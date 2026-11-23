@@ -829,6 +829,20 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
                 }
                 return Value{};
             });
+        // setData(car, index): a paint chip takes the car's paint of that index.
+        if (type == "ColorChipFace" && n == "setData")
+            return fn([w](Vm& vm, const Value&, Args a) {
+                if (a.size() < 2) return Value{};
+                const Value colors = vm.call(vm.attribute(a[0], "getColors"), {});
+                const std::vector<Value>* list = colors.items();
+                const s32 i = arg_int(a, 1);
+                if (!list || i < 0 || size_t(i) >= list->size()) return Value{};
+                const Value& c = (*list)[size_t(i)];
+                w->set_property("chip_r", Value::integer(s32(vm.attribute(c, "r").as_float() * 255.0f)));
+                w->set_property("chip_g", Value::integer(s32(vm.attribute(c, "g").as_float() * 255.0f)));
+                w->set_property("chip_b", Value::integer(s32(vm.attribute(c, "b").as_float() * 255.0f)));
+                return Value{};
+            });
         if (n == "setData" || n == "setColor" || n == "setColorIndex" || n == "syncLoading" || n == "loadModelSet" || n == "loadModelMotion" ||
             n == "loadModelOptionMotion")
             return nothing();
