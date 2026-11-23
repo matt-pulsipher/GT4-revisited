@@ -941,6 +941,14 @@ TEST(disc_menu_gt_mode_places) {
         for (int i = 0; i < 600; ++i) a.rt->update();
         a.rt->settle();
         CHECK(a.rt->game().garage[0].record->condition(3) == 0 && a.rt->game().money < 500000 - 30590);
+        // Wheels for road tires from the first maker: the car's chosen wheel, a day of the diary.
+        for (int i = 0; i < 4 && a.page() != "GTAutoRoot"; ++i) a.press({menu::Key::Cancel});
+        a.focus_on("Wheel");
+        const s64 money = a.rt->game().money;
+        a.press({menu::Key::Accept, menu::Key::Accept, menu::Key::Accept});
+        CHECK(a.page() == "WheelShopRoot");
+        a.press({menu::Key::Accept, menu::Key::Accept, menu::Key::Accept});
+        CHECK(a.rt->game().money < money && a.rt->game().garage[0].record->wheel(0) != -1 && a.rt->game().diary.back().type == 6);
         CHECK(a.clean());
     }
     // A tune shop: the car's parts, a sports exhaust's page (power before and after, its
