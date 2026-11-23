@@ -178,9 +178,21 @@ AnimatedModels::AnimatedModels(ByteSpan set, float color_scale, const gt3r::gtm1
                     if (size_t(k) >= a.keys.size()) continue;
                     o.node = int(a.model);
                     scene::Model m = gt3r::gtm1::build_model(g, o, "animated");
-                    if (textures_.textures.empty()) textures_.textures = m.textures;
                     scene::Mesh mesh;
                     if (!m.meshes.empty()) mesh = std::move(m.meshes[0]);
+                    // Its pictures into the one list every pose draws with (a decode lists the
+                    // pictures in its own order).
+                    for (scene::Primitive& prim : mesh.primitives) {
+                        if (prim.texture < 0 || size_t(prim.texture) >= m.textures.size()) continue;
+                        const scene::Texture& t = m.textures[size_t(prim.texture)];
+                        int found = -1;
+                        for (size_t k = 0; k < textures_.textures.size() && found < 0; ++k) {
+                            const scene::Texture& have = textures_.textures[k];
+                            if (have.width == t.width && have.height == t.height && have.clamp_u == t.clamp_u && have.clamp_v == t.clamp_v && have.rgba == t.rgba) found = int(k);
+                        }
+                        if (found < 0) found = int(textures_.textures.size()), textures_.textures.push_back(t);
+                        prim.texture = found;
+                    }
                     mesh.node = int(a.model);
                     mesh.name = "node" + std::to_string(a.model);
                     ++meshes;

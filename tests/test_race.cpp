@@ -838,3 +838,41 @@ TEST(animated_models_disc) {
     }
     if (!ran) SKIP("no Gran Turismo 4 disc");
 }
+
+// --- A course's far sets: positions too large for 16 bits ---
+
+TEST(course_backdrop_positions_disc) {
+    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    size_t sets = 0;
+    for (const auto& disc : test::discs()) {
+        for (const char* name : {"crs/tsukuba", "crs/grandvalley", "crs/route5", "crs/yosemite_dirt"}) {
+            const gt3r::Volume::Entry* e = disc->volume().find(name);
+            if (!e) continue;
+            const Bytes data = disc->volume().read(*e);
+            if (!course::CourseFile::looks_like_course(data)) continue;
+            const course::CourseFile file = course::CourseFile::parse(data);
+            for (int slot : {course::kSlotFar, course::kSlotWorld}) {
+                const ByteSpan set = file.section(data, slot);
+                if (!mdls::is_mdls(set)) continue;
+                gt3r::gtm1::Options o;
+                o.textures = false;
+                const gt3r::scene::Model m = mdls::build_model(set, o, {}, name);
+                size_t vertices = 0, at_origin = 0, wild = 0;
+                for (const gt3r::scene::Mesh& mesh : m.meshes)
+                    for (const gt3r::scene::Vertex& v : mesh.vertices) {
+                        ++vertices;
+                        at_origin += v.pos[0] == 0 && v.pos[1] == 0 && v.pos[2] == 0;
+                        wild += !(std::isfinite(v.pos[0]) && std::isfinite(v.pos[1]) && std::isfinite(v.pos[2])) || std::fabs(v.pos[0]) > 30000 ||
+                                std::fabs(v.pos[1]) > 30000 || std::fabs(v.pos[2]) > 30000;
+                    }
+                // No vertex is left at the origin by a position read as the wrong kind of number, and
+                // none is thrown far off the course.
+                CHECK(vertices > 100);
+                CHECK(at_origin * 1000 <= vertices);
+                CHECK(wild == 0);
+                ++sets;
+            }
+        }
+    }
+    if (!sets) SKIP("no Gran Turismo 4 disc");
+}
