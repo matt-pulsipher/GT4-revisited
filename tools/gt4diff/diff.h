@@ -37,6 +37,15 @@ struct ParamsResult {
 };
 ParamsResult run_params(Disc& disc, bool print);
 
+// The race step: the program's own run in the interpreter with ours compared at every call (step.cpp).
 bool run_step(Disc& disc, bool print);
+
+// The C library's float routines the step calls, against the shared engine's.
+struct LeavesResult {
+    bool ran = false;
+    size_t samples = 0, sin_off = 0, cos_off = 0, tan_off = 0;
+    size_t atan2_off[3] = {}; // against Gran Turismo 3's, the later builds' and 2002 Tokyo-Geneva's
+};
+LeavesResult run_leaves(Disc& disc, bool print);
 
 } // namespace gt4r::diff

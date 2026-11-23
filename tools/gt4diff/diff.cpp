@@ -112,7 +112,7 @@ ParamsResult run_params(Disc& disc, bool print) {
     boot(ee, disc, sdb);
     ee.call(kStatics, {Arg::integer(0)});
     const ex::ProgramData core = sim::core_program(program);
-    const u32 eq_at = ee.alloc(0x200), spec_at = ee.alloc(0x600), p_at = ee.alloc(0x1400), rules_at = ee.alloc(0x100), cond_at = ee.alloc(0x100);
+    const u32 spec_at = ee.alloc(0x600), p_at = ee.alloc(0x1400), rules_at = ee.alloc(0x100), cond_at = ee.alloc(0x100);
     std::vector<Field>& fields = result.fields;
     auto field = [&](const char* name) -> Field& {
         for (Field& f : fields)

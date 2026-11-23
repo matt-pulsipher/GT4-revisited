@@ -24,6 +24,7 @@ int main(int argc, char** argv) {
             ok = ok && r.ran && r.equipment_equal == r.cars && r.spec_equal == r.cars;
         }
         if (test.empty() || test == "params") ok = gt4r::diff::run_params(*disc, true).ran && ok;
+        if (test.empty() || test == "leaves") ok = gt4r::diff::run_leaves(*disc, true).ran && ok;
         if (test.empty() || test == "step") ok = gt4r::diff::run_step(*disc, true) && ok;
         return ok ? 0 : 1;
     } catch (const std::exception& e) {
