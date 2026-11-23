@@ -74,8 +74,10 @@ const std::vector<Layout>& layouts() {
         {"CAR_NAME_", 16, {{0, 0, 4}, {4, 0, 4}, {8, 0, 4}, {12, 4, 4}}, {}},
         // The course's texts and its surface (+0x10: 0 dry, 1 wet, 2 dirt, 3 snow).
         {"COURSE", 22, {{0, 0, 8}, {0x10, 8, 1}}, {}},
-        // The course {row, table}; ❓ the rest of the columns.
-        {"RACE", 151, {{0, 0, 8}}, {4}},
+        // The course {row, table}; the grid's size and the computer drivers' columns where the
+        // race's copy of a row (Gran Turismo 4 0x35E108, Prologue 0x3C5978) reads them; the laps
+        // (❓ +0x25 by the data: 2 on every championship race, 1 or 3 on the tests); ❓ the rest.
+        {"RACE", 151, {{0, 0, 8}, {0x3E, 0x22, 1}, {0x43, 0x25, 1}, {0x4B, 0x31, 0x27}, {0x72, 0x5A, 2}}, {4}},
     };
     return k;
 }
