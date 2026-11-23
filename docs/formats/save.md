@@ -165,7 +165,7 @@ three match (0x43AA68); there is no version: another size is another program.
 | 0x361C0 | 0x2404 | Arcade's unlocked cars (u64 codes [1024], ascending, -1 after), courses ([128]), "all" (u32) | `available_*`, `all_available` |
 | 0x385D0, 0x386E0 | 0x108 each | favorite cars, courses: u32 limit (30), u32 count, u64 codes [32] | `favorite_*` |
 | 0x387F0 | 0x74 | presents given: a bit a race (0 .. 867), then a bit a time present | `presents` |
-| 0x38870 | 0x88 | the championship left: the race's label char[0x20], u8 left, u8 session; the rest not named | `suspended_*`, `championship_rest` |
+| 0x38870 | 0x88 | the championship left (0x119BD8): its label char[0x20], u8 kept (1: left in the middle), u8 races run, u8 race count, 5 bytes, then six entrants {u64 the car's code, s32 paint, s32 points} (the player first; 🔎 for an opponent the program writes its entry's second code, here the car's) | `suspended_*`, `series`, `championship_rest` |
 | 0x38900 | 0x24 | used cars sold: 256 bits, the week they belong to | `used_sold`, `used_week` |
 | 0x38930 | 0x11C0 | the options (Option +8: its size 0x11C0, then the fields; the play lists not decoded) | `options` (the numbers) |
 | 0x39AF0 | 4 | the zone (0 UNDEF, 1 JP, 2 US, 3 UK, 4 EU, 5 KR) | `options["game_zone"]` |
@@ -174,7 +174,7 @@ three match (0x43AA68); there is no version: another size is another program.
 | 0x39C6C | 0x258 | the network settings (not decoded) | kept |
 | 0x39ECC | 0x50 | event settings: char name[0x40], u16 Arcade's time limit | kept |
 | 0x39F1C | 5 | the logger's (1 each) | kept |
-| 0x39F30 | 0x144 | the menus' place: project char[0x20], page char[0x20], i32 menu depth (-1), the menu stack (0x100) | `major_menu_*`, `saved_menu_*` |
+| 0x39F30 | 0x144 | the menus' place: project char[0x20], page char[0x20], the kept menu stack: i32 its length in bytes (-1: none kept), the names each ended by a 0 (0x100; 0x42FE88) | `major_menu_*`, `saved_menu_*` |
 
 What the state does not name is kept as it was loaded (`GameState::saved_image`); a new game
 starts from the constructors' values (`save::new_game_payload`: the option block's numbers,
