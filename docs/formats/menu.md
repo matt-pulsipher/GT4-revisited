@@ -540,8 +540,8 @@ license tests, missions, GT Auto, tune shops, the garage, the status, the diary,
 settings); not checked page by page: trading cars between saves, the presents' pages after
 a race, the championship's sessions, the photo travel (its page stops on an actor that is not
 made), the B-spec driver. The option pages' effect on anything but the stored values;
-Prologue's flows (its main script, configuration and projects load and show a first page; ❓
-which page each project starts on); two-player and LAN paths.
+Prologue's arcade mode and results ([prologue.md](prologue.md) "The menus": boot to a license
+test runs); two-player and LAN paths.
 
 ## Pictures (`.gpb`)
 

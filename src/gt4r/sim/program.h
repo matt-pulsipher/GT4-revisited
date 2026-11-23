@@ -5,7 +5,7 @@
 // at known places in Gran Turismo 4 SCUS-97328 v1.01, the build the specification was written from;
 // that build is recognized by its code (a hash of the routines that address the tables). For any
 // other program (Prologue, another release) known() is false and the simulation runs on the shared
-// engine's own values.
+// engine's own values (Prologue's own tables where program_prologue.h places them).
 
 #include "gt4r/base/types.h"
 

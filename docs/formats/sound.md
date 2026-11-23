@@ -484,5 +484,6 @@ Measured on Tsukuba: four crowd emitters and no others; the crowds at 1 × M.
 
 Prologue's program has the block of numbers but neither the gains' table nor the microphones'
 in this form (`race-tables` says "not found"); `RaceSoundTables` then gives every view gain 1
-and every microphone 32 / distance. ❓ Prologue's own tables; its car sounds (the database is the
-earlier format).
+and every microphone 32 / distance. ❓ Prologue's own tables. Its car sounds are read as Gran
+Turismo 4's from its database in Gran Turismo 4's layout ([prologue.md](prologue.md)): every
+engine's file is on the disc.

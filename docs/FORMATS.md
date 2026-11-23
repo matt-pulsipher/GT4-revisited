@@ -118,6 +118,7 @@ volume's index bytes (Prologue: its table of contents).
 | The saved game (`BASCUS-97328GAMEDATA`: game data, `garage`, icons) | a memory card | ✅ written and read ([formats/save.md](formats/save.md)); 🔎 not yet tried with a real card's save |
 | Replays, saves | `replay/` | ❓ |
 
-Prologue mixes the two generations: `CAR4` cars and `ADCH` scripts next to `GTM1` models,
-`GTTR` tires, `IMGS` picture sets and `GTDT` tables in Gran Turismo 3's formats, `gpb0`
-pictures and `RT02` text.
+Prologue mixes the two generations: Gran Turismo 4's database files (stored plain, earlier
+columns), `ADCH` scripts and menus next to Gran Turismo 3's car files (`GTM1`), roads (`GTRW`),
+drivers' lines and course tables, `GTTR` tires, `IMGS` picture sets, `gpb0` pictures and `RT02`
+text. Each, and how it is read: [formats/prologue.md](formats/prologue.md) ✅.

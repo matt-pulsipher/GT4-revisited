@@ -39,7 +39,11 @@ Done:
       count) from the disc's pictures, fonts and program tables; a finished run shown again
       through the replay cameras; the cars' engine, exhaust, wind and tire sounds. The cars
       move by the simulation behind `simulation.h` (a stand-in, `rail_simulation.*`, where it
-      cannot be set up, as on Prologue's disc).
+      cannot be set up).
+- [x] Gran Turismo 4 Prologue ([formats/prologue.md](formats/prologue.md)): its database in
+      Gran Turismo 4's layout, its roads (`GTRW`) as Runways, its drivers from the course files,
+      its cars in the race view, its program recognized with its own physics tables, its menus
+      from power on through the School Mode into a license test.
 - [x] The simulation, a first part (`src/gt4r/sim/`, `gt4tool car`, `road`, `drive`): a car's
       parts, default settings and specification as the game builds them, and its physics
       parameters, checked against the user's own program on every car (`gt4r_diff`); the
@@ -57,7 +61,7 @@ Next, in order:
    the engine's and exhaust's levels by the throttle, the wheels' notes by surface, the course's
    ambience, tunnels and reverb, the count's beeps, the race's music by race type. Left: wiring
    it into the Drive screen, the contacts and landings from the simulation, when the music's
-   messages are sent, the playlist from the save, Prologue's tables, pit sounds.
+   messages are sent, the playlist from the save, Prologue's race sound tables, pit sounds.
 3. **Cars, the rest**: the far level's wheels, the brake discs' glow, fitted wings, the moving
    parts of the few cars with scripts, the skinned drivers, how a race picks opponents' paints.
 4. **Courses, the rest**: the mirror, cones and boards (`GDGT`), skid marks, the models that
@@ -65,7 +69,7 @@ Next, in order:
 5. **The car database, the rest**: the events (`RACE`) and opponents (`ENEMY_CARS`).
 6. **The menus, further**: Gran Turismo mode past the home page (used cars, parts, events,
    licenses), the list box and the idle actors from the program, the 3D faces, Japanese
-   text, Prologue's flows.
+   text, Prologue's arcade mode and its results.
 7. **Saved games and replays**.
 
 [FORMATS.md](FORMATS.md) has each format's state.

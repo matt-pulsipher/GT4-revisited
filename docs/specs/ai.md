@@ -268,7 +268,8 @@ flags, the decision and the outputs. Departures:
   the pit-stop snapping of line 4, the two ❓ flags of §4.2.
 - Without the mapped program (Prologue, another release) the drivers run with neutral values: no
   spreads, no offset of the aim, a fallback of the passing lines to the main line. Prologue's
-  disc has no driver files (`crs/*.ad`): its courses cannot be driven by them ❓ where its lines are.
+  disc has no driver files (`crs/*.ad`): its courses carry the lines and sets in slots 31 and
+  37 .. 40 ([formats/prologue.md](../formats/prologue.md) "The drivers").
 
 ## 10. Checks
 

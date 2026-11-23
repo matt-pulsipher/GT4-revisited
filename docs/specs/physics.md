@@ -622,6 +622,6 @@ object 0x6235A8 + 0x134 + 4 x table id; the row cache left out), and compares:
 - The start: Gran Turismo 4's own set-up routine (0x363B10) and starts (0x363560 standing,
   0x363868 moving).
 - Other builds: a program that is not the mapped build serves no tables, and a session then
-  runs on the engine's own values and says so (`Session::notes`). Prologue cannot run a
-  session at all yet: its database's tables are in an earlier form `specdb.*` does not read,
-  and its courses have no `RNW4` road.
+  runs on the engine's own values and says so (`Session::notes`). Prologue's disc runs a
+  session on its database in Gran Turismo 4's layout, its `GTRW` roads and its own physics
+  tables in the engine's core ([formats/prologue.md](../formats/prologue.md)).
