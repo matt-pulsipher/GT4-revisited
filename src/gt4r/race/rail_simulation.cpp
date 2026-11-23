@@ -47,10 +47,34 @@ RailLine::RailLine(const course::Runway& road) : length(road.length) {
     const size_t n = cps.size();
     if (n < 3 || length <= 0) return;
     points.resize(n);
+    // A checkpoint's points give no height: the road's own, followed from the start grid round
+    // the lap so that a bridge and the road under it are told apart.
+    size_t first = 0;
+    float height = road.max.y;
+    if (!road.grid.empty()) {
+        const Vec3& g = road.grid[0].pos;
+        float best = 1e30f;
+        for (size_t i = 0; i < n; ++i) {
+            const float d = std::hypot(cps[i].middle.x - g.x, cps[i].middle.z - g.z);
+            if (d < best) best = d, first = i;
+        }
+        height = g.y;
+    }
+    std::vector<float> heights(n);
+    for (size_t k = 0; k < n; ++k) {
+        const size_t i = (first + k) % n;
+        const Vec3& m = cps[i].middle;
+        const Vec3& before = cps[(i + n - 1) % n].middle;
+        const float reach = k == 0 ? 2.0f : std::max(3.0f, 0.3f * std::hypot(m.x - before.x, m.z - before.z));
+        float y;
+        if (road.height_at(m.x, m.z, height + reach, y) && y > height - 2 * reach) height = y;
+        heights[i] = height;
+    }
     for (size_t i = 0; i < n; ++i) {
         const auto& c = cps[i];
         Point& p = points[i];
         p.v = c.v;
+        const Vec3 middle{c.middle.x, heights[i], c.middle.z};
         // To the right of the direction of travel: along the checkpoint, whichever way its ends
         // are stored.
         const Vec3 ahead = level(cps[(i + 1) % n].middle - cps[(i + n - 1) % n].middle);
@@ -59,7 +83,7 @@ RailLine::RailLine(const course::Runway& road) : length(road.length) {
         p.across = across;
         // The paved strip under the middle point: walk the checkpoint's line in half-metre steps
         // and keep the run of road triangles that holds the middle (the nearest one otherwise).
-        const float to_left = std::fabs(dot(c.left - c.middle, across)), to_right = std::fabs(dot(c.right - c.middle, across));
+        const float to_left = std::fabs(dot(level(c.left - c.middle), across)), to_right = std::fabs(dot(level(c.right - c.middle), across));
         const float step = 0.5f;
         float best_a = 0, best_b = 0, best_gap = 1e9f;
         bool in_run = false, any = false;
@@ -69,20 +93,20 @@ RailLine::RailLine(const course::Runway& road) : length(road.length) {
             if (gap < best_gap) best_gap = gap, best_a = a, best_b = b, any = true;
         };
         for (float d = -to_left; d <= to_right + step; d += step) {
-            const Vec3 q = c.middle + across * d;
+            const Vec3 q = middle + across * d;
             float y;
             int tri = -1;
-            const bool road_here = d <= to_right && road.height_at(q.x, q.z, c.middle.y + 4.0f, y, &tri) && tri >= 0 &&
-                                   road.triangles[size_t(tri)].kind == kRoadKind && std::fabs(y - c.middle.y) < 4.0f;
+            const bool road_here = d <= to_right && road.height_at(q.x, q.z, middle.y + 3.0f, y, &tri) && tri >= 0 &&
+                                   road.triangles[size_t(tri)].kind == kRoadKind && std::fabs(y - middle.y) < 3.0f;
             if (road_here && !in_run) in_run = true, run_a = d;
             if (!road_here && in_run) in_run = false, close_run(run_a, d - step);
         }
         float center = 0, room = 2.0f;
         if (any && best_b - best_a >= 2.0f) center = (best_a + best_b) * 0.5f, room = (best_b - best_a) * 0.5f;
         room = std::min(room, kMaxRoom);
-        p.pos = c.middle + across * center;
+        p.pos = middle + across * center;
         float y;
-        if (road.height_at(p.pos.x, p.pos.z, c.middle.y + 4.0f, y)) p.pos.y = y;
+        if (road.height_at(p.pos.x, p.pos.z, middle.y + 3.0f, y)) p.pos.y = y;
         p.left = p.right = room;
     }
     // A pit entry or a run-off widens the strip for a checkpoint or two: keep the line from
@@ -94,7 +118,11 @@ RailLine::RailLine(const course::Runway& road) : length(road.length) {
         const float move = std::clamp(side * 0.5f, -points[i].left * 0.5f, points[i].right * 0.5f);
         eased[i] = points[i].pos + points[i].across * move;
     }
-    for (size_t i = 0; i < n; ++i) points[i].pos = eased[i];
+    for (size_t i = 0; i < n; ++i) {
+        float y;
+        if (road.height_at(eased[i].x, eased[i].z, eased[i].y + 3.0f, y)) eased[i].y = y;
+        points[i].pos = eased[i];
+    }
 }
 
 namespace {

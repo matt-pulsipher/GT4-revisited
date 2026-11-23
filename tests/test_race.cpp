@@ -174,6 +174,7 @@ TEST(rail_simulation_disc) {
                 float y;
                 off_road += !road.height_at(a.x, a.z, a.y + 3, y);
             }
+            if (off_road * 20 > n) std::printf("  %s: %zu of %zu line points off the road\n", name, off_road, n);
             CHECK(off_road * 20 <= n); // (a few points of the longest courses lie over a gap in the road's mesh)
             CHECK(total > road.length * 0.9f && total < road.length * 1.1f);
 
