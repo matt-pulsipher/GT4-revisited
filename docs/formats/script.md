@@ -1,6 +1,7 @@
 # Scripts: `.adc`
 
-Code: `src/gt4r/script/adc.*`; `gt4tool adc`. The game's menus, game flow and settings are
+Code: `src/gt4r/script/adc.*` (the files), `src/gt4r/script/vm.*` (the interpreter);
+`gt4tool adc`, `gt4tool run`. The game's menus, game flow and settings are
 script programs: the program file holds an interpreter and the classes the scripts drive
 (`menu::MSound`, `menu::MGame`, ...). The US disc has 493 compiled scripts: 488 of bytecode
 version 5, which all read (484,273 instructions, 4,653 functions), and five leftover files of
@@ -26,8 +27,8 @@ A block (a file's top level, or a function's body):
 ```
 name     the source file ("MenuClassDefine.ad"): u16 length, the bytes
 u32      parameters, then their names
+u32      variable slots: the parameters, one spare, then every name the block uses
 u32      value-stack entries the block needs
-u32      local variable slots
 u32      instructions
 each:    u32 source line, u8 opcode, operands
 ```
@@ -57,7 +58,7 @@ program (`mArrayPush` ... `mVariablePush`, read from the loader's dispatch).
 | 12 | `INT_CONST` | u32 |
 | 13, 14, 15 | `JUMP`, `JUMP_NOT_ZERO`, `JUMP_ZERO` | u32: an instruction's number in the block |
 | 16 | `LIST_ASSIGN` | u32 |
-| 17 | `LOCAL_DEFINE` | name, u32 local slot |
+| 17 | `LOCAL_DEFINE` | name, u32 variable slot |
 | 18, 19 | `LOGICAL_AND`, `LOGICAL_OR` | u32: an instruction's number |
 | 20 | `METHOD_DEFINE` | name, a block |
 | 21 | `MODULE_DEFINE` | path |
@@ -72,10 +73,86 @@ program (`mArrayPush` ... `mVariablePush`, read from the loader's dispatch).
 | 32 | `TRY_CATCH` | u32 |
 | 33, 34 | `UNARY_ASSIGN_OPERATOR`, `UNARY_OPERATOR` | name: the operator |
 | 35 | `UNDEF` | path |
-| 36 | `VARIABLE_PUSH` | path, u32 local slot |
+| 36 | `VARIABLE_PUSH` | path, u32 variable slot |
 
 Checked on every version 5 script of the disc: each block reads exactly the number of
 instructions it gives, and a file ends where its top block does.
 
-❓ What each instruction does to the interpreter's state, and the functions of the program's
-classes the scripts call.
+No script on the discs has `LOCAL_DEFINE`, `THROW`, `TRY_CATCH` or `UNDEF`.
+
+## What the instructions do
+
+The interpreter keeps, per call, a stack of values and the block's variable slots; a module
+stack (which module definitions land in); and one register for the last value popped, which
+is what a function returns. A value is nil, an int (32 bits), a float (32 bits), a string, an
+array, an object, a module or class, or a function (the program's `hNil`, `hInt`, `hFloat`,
+`hString`, `hArray`, `hObject`, `hModule`, `hClass`, `h...Function`); there is no map and no
+boolean (comparisons give the ints 0 and 1).
+
+Read from the program's instruction classes (each one's "execute" is slot 9 of its vtable) and
+from how the compiler uses them; then checked two ways: a count of pushes and pops along every
+path of every block of the disc never goes below zero nor above the stack size the block
+declares, and the interpreter runs the scripts themselves.
+
+| Instruction | Effect |
+|---|---|
+| `VARIABLE_PUSH` | Pushes a *reference* to a variable. One name: the block's own variable (made on first use, kept in its slot). A path: a name in reach, looked up once and kept in the slot: the object's own attributes and methods in a method, what `IMPORT` brought, then each module from the current one outward to `main`; the path's further parts are members (`main`, `menu`, `MSound`) |
+| `ATTRIBUTE_PUSH` | Pops an object, pushes a reference to its member of that name |
+| `EVAL` | Replaces a reference on top of the stack with its value |
+| `ASSIGN` | Pops a value and a reference, stores, pushes the value |
+| `LIST_ASSIGN n` | `[a, b] = list`: pops the list and n references, stores an element in each, pushes the list |
+| `POP` | Pops a value into the result register |
+| `CALL n` | Pops n arguments and the callee, pushes the call's result. Calling a class makes an object (its attributes nil), runs its `__init__` method and gives the object |
+| `INT_CONST`, `FLOAT_CONST`, `STRING_CONST`, `NIL_CONST` | Push the constant |
+| `ARRAY_PUSH n` | Pops n values, pushes an array of them |
+| `STRING_PUSH n` | Pops n values, pushes them joined as text |
+| `PRINT n` | Pops n values and writes them; pushes nil |
+| `BINARY_OPERATOR` | Pops two values, pushes the result. `[]` gives a reference: an array's element, or an object's or module's member by name (`page["open"]`). `+` with a string joins text |
+| `UNARY_OPERATOR` | `!`, `-@`, `+@`, `~` on the top value |
+| `BINARY_ASSIGN_OPERATOR` | `a += b`: pops the value and the reference, stores, pushes the result |
+| `UNARY_ASSIGN_OPERATOR` | `@++`, `@--` push the value before; `++@`, `--@` the value after |
+| `JUMP`, `JUMP_ZERO`, `JUMP_NOT_ZERO` | The conditional ones pop the value they test |
+| `LOGICAL_AND`, `LOGICAL_OR` | `a && b`: when the top value settles the result it stays and the jump is taken; otherwise the `POP` that follows drops it and `b` is evaluated |
+| `MODULE_DEFINE` | Enters a module: the one of that name in reach, or a new one in the current module. A path names nested ones (`BootProject`, `MovieRoot`, `Mpeg`) |
+| `CLASS_DEFINE` | Enters a class of the current module, with its base class |
+| `SET_STATE 0` | Leaves the module or class entered last; at a file's top, ends it |
+| `SET_STATE 1` | Returns (the result register holds the value: `return x` is `x`, `POP`, `SET_STATE 1`) |
+| `FUNCTION_DEFINE`, `METHOD_DEFINE` | Define the function in the current module or class. A method runs with its object: the object's attributes are names in reach |
+| `STATIC_DEFINE` | A variable of the current module |
+| `ATTRIBUTE_DEFINE` | An attribute every object of the current class gets |
+| `IMPORT` | Brings one name of a module, or all (`*`), in reach of the block |
+| `REQUIRE` | Pops a name. `menu`, `gt4app`: one of the program's own modules, filled into the current module. `/config/course`: a script file (`config/course.adc`), run in the current module; a bare name is a file beside the one running |
+
+A compiled statement can leave a value behind on the stack (an expression whose result is not
+used and not popped), so the stack is the call's own and is dropped with it.
+
+## Built-in members
+
+The names are the program's (the tables its value classes register); what each does is
+written from how the scripts use it, not yet compared with the program's own code:
+
+| Of | Members |
+|---|---|
+| Any value | `toString()`, `toInt()`, `toFloat()` |
+| String | `size`, `at(i)` (the character's code), `substr(from, length)`, `split(separator)`, `format(...)` (C conversions), `upcase()`, `downcase()` |
+| Array | `size`, `push(v)`, `pop()`, `shift()`, `unshift(v)`, `erase(i)`, `join(separator)`, `sort(compare)` |
+| Module | `name`, `defined(name)`, `defineStatic(name, value)`, `removeStatic(name)`, `clearStatic()`, `load(file)` (runs a script beside its own in the module) |
+
+Not written: the array's `pack`, `bsearch`, `move`; the string's `build`; `Math` (`sin`,
+`cos`), `Path`, `Time`, `FileIO`, `Thread`, `ThreadGroup`, `Exception`, `System`.
+
+## What the scripts ask of the program
+
+`gt4tool run <disc>` runs every script's top level with stand-ins for the program's own
+classes and counts what is asked of them: 485 of the 488 scripts run to their end (three need
+a real answer: the configuration file's name, the region code, a widget's children). The main
+script loads the program's `menu` and `gt4app` modules into `menu`, makes
+`menu::MSound()`, `MNetwork()`, `MShell()`, `MGame()`, runs `/script/MenuClassDefine` (which
+registers the widget classes with `menu::MManager().registerClass`) and the configuration
+script `menu::MGame::getConfigScriptFile()` names. A menu project's script fills the module
+of its name (`BootProject`) with a module per page and widget, holding the event functions
+(`onInitialize`, `onKeyPress`, `onCancel`, ...) the program calls.
+
+❓ The program's own classes (about 150 `M...` classes: widgets, actors, the game's state);
+`TRY_CATCH` and the instructions no script uses; the built-ins compared with the program;
+threads (`context.pushEvent`, the event loop).

@@ -57,7 +57,7 @@ TEST(script_reads) {
     CHECK(script::Script::version_of(file) == 5);
     const script::Script s = script::Script::parse(file);
     const script::Code& c = s.code;
-    CHECK(c.source == "demo.ad" && c.parameters.empty() && c.stack == 4 && c.locals == 2 && c.instructions.size() == 7);
+    CHECK(c.source == "demo.ad" && c.parameters.empty() && c.variables == 4 && c.stack == 2 && c.instructions.size() == 7);
     CHECK(c.instructions[0].op == script::Op::ModuleDefine && c.instructions[0].symbols == std::vector<std::string>{"demo"});
     const script::Instruction& fn = c.instructions[1];
     CHECK(fn.op == script::Op::FunctionDefine && fn.text == "twice" && fn.body && fn.body->parameters == std::vector<std::string>{"x"});

@@ -38,8 +38,8 @@ struct Instruction {
 struct Code {
     std::string source;                  // the source file's name ("MenuClassDefine.ad")
     std::vector<std::string> parameters; // a function's
-    u32 stack = 0;                       // value-stack entries the block needs
-    u32 locals = 0;                      // local variable slots
+    u32 variables = 0;                   // variable slots: the parameters, one spare, then every name the block uses
+    u32 stack = 0;                       // value-stack entries the block needs (never fewer than it uses)
     std::vector<Instruction> instructions;
 };
 

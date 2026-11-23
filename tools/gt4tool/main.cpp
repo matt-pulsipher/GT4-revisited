@@ -6,6 +6,8 @@
 //   gt4tool extract <disc> <prefix> <dir>  write the files under a prefix (unpacked) to a folder
 //   gt4tool tex <disc> <path> <dir>        decode every texture set in a file to PNGs
 //   gt4tool adc <disc> [path]              a script's listing; without a path, a count of all
+//   gt4tool run <disc> [path]              runs a script's top level with stand-ins for the program's own
+//                                          classes and lists what it asked of them; without a path, every script
 //   gt4tool db <disc> [cars | courses | <table> [rows]]   the car database
 //   gt4tool model <disc> <path>            describe a file's model sets as decoded
 //   gt4tool runway-survey <disc> [prefix]  read every course's road
@@ -25,6 +27,7 @@
 #include "gt4r/formats/db/specdb.h"
 #include "gt4r/formats/model/mdls.h"
 #include "gt4r/script/adc.h"
+#include "gt4r/script/vm.h"
 
 #include <algorithm>
 #include <cmath>
@@ -385,6 +388,74 @@ int cmd_adc(Disc& disc, const Args& a) {
     return 0;
 }
 
+// The interpreter on a script file: what REQUIRE names is read from the disc, the program's
+// own modules are stand-ins.
+script::Vm::Loader script_loader(Disc& disc) {
+    return [&disc](const std::string& name) -> std::optional<Bytes> {
+        std::string path = name;
+        while (!path.empty() && path[0] == '/') path.erase(0, 1);
+        const gt3r::Volume::Entry* e = disc.volume().find(path + ".adc");
+        if (!e) return std::nullopt;
+        return disc.volume().read(*e);
+    };
+}
+
+void print_module(const script::Module& m, int depth, int max_depth) {
+    size_t functions = 0, values = 0;
+    std::vector<const script::Module*> inner;
+    for (const auto& [name, cell] : m.members) {
+        if (auto sub = cell->value.as<script::Module>()) {
+            if (sub->parent.lock().get() == &m) inner.push_back(sub.get());
+        } else if (cell->value.kind == script::Kind::Function) ++functions;
+        else ++values;
+    }
+    std::printf("%*s%s %s: %zu functions, %zu values, %zu modules\n", depth * 2, "", m.is_class ? "class" : "module", m.name.c_str(),
+                functions, values, inner.size());
+    if (depth < max_depth)
+        for (const script::Module* sub : inner) print_module(*sub, depth + 1, max_depth);
+}
+
+int cmd_run(Disc& disc, const Args& a) {
+    if (!a.empty()) {
+        script::Vm vm(script_loader(disc));
+        vm.stub_natives = true, vm.budget = 5'000'000; // a stand-in's answers can keep a loop going
+        std::string name = a[0];
+        if (name.size() > 4 && name.compare(name.size() - 4, 4, ".adc") == 0) name.resize(name.size() - 4);
+        vm.require("/" + name);
+        std::printf("%llu instructions run\n", static_cast<unsigned long long>(vm.instructions));
+        print_module(*vm.root(), 0, 2);
+        for (const std::string& line : vm.output) std::printf("print: %s", line.c_str());
+        std::printf("asked of the program:\n");
+        for (const auto& [what, n] : vm.stub_uses) std::printf("  %5u  %s\n", n, what.c_str());
+        return 0;
+    }
+    size_t ran = 0, failed = 0;
+    std::map<std::string, u32> uses;
+    std::map<std::string, size_t> errors;
+    for (const gt3r::Volume::Entry& e : disc.volume().entries()) {
+        if (e.path.size() < 4 || e.path.compare(e.path.size() - 4, 4, ".adc") != 0) continue;
+        const Bytes data = disc.volume().read(e);
+        if (script::Script::version_of(data) != 5) continue;
+        script::Vm vm(script_loader(disc));
+        vm.stub_natives = true, vm.budget = 5'000'000;
+        try {
+            vm.require("/" + e.path.substr(0, e.path.size() - 4));
+            ++ran;
+        } catch (const std::exception& ex) {
+            ++failed;
+            if (++errors[ex.what()] == 1) std::printf("%s: %s\n", e.path.c_str(), ex.what());
+        }
+        for (const auto& [what, n] : vm.stub_uses) uses[what] += n;
+    }
+    std::printf("%zu scripts ran their top level, %zu stopped\n", ran, failed);
+    std::printf("asked of the program (%zu names):\n", uses.size());
+    std::vector<std::pair<u32, std::string>> top;
+    for (const auto& [what, n] : uses) top.emplace_back(n, what);
+    std::sort(top.rbegin(), top.rend());
+    for (size_t i = 0; i < top.size() && i < 60; ++i) std::printf("  %6u  %s\n", top[i].first, top[i].second.c_str());
+    return 0;
+}
+
 struct Command {
     const char* name;
     const char* usage;
@@ -398,6 +469,7 @@ const Command kCommands[] = {
     {"extract", "<disc> <prefix> <outdir>", 2, cmd_extract},
     {"tex", "<disc> <path> <outdir>", 2, cmd_tex},
     {"adc", "<disc> [path]", 0, cmd_adc},
+    {"run", "<disc> [path]", 0, cmd_run},
     {"db", "<disc> [cars | wheels | courses | <table> [rows]]", 0, cmd_db},
     {"model", "<disc> <path>", 1, cmd_model},
     {"runway-survey", "<disc> [prefix]", 0, cmd_runway_survey},

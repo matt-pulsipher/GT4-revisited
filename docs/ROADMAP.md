@@ -7,7 +7,9 @@ Done:
 - [x] Asset browser: textures, music and voice streams, movies.
 - [x] Courses: the container, all scenery and the road (surface, lookup tree, walls,
       checkpoints, start grid); a course opens in the 3D viewer.
-- [x] Scripts (`.adc`): all 488 read and list (`gt4tool adc`).
+- [x] Scripts (`.adc`): all 488 read and list (`gt4tool adc`). The interpreter runs them
+      (`src/gt4r/script/vm.*`, `gt4tool run`): every instruction the discs' scripts use, the
+      built-in methods of strings, arrays and modules; the program's own classes are stand-ins.
 - [x] Whole cars as still models: the painted body with its wheels and tires in place.
 - [x] The car database: every table unpacks; the cars and courses by name on the home screen.
 - [x] Models (`MDLS`): car bodies, wheels, tires, wings and prize objects decode and draw as

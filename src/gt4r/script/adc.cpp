@@ -47,14 +47,14 @@ struct Reader {
     }
 };
 
-// A block: the source file's name, u32 parameters and their names, u32 stack entries, u32 local
-// slots, u32 instructions, then each instruction: u32 line, u8 opcode, its operands.
+// A block: the source file's name, u32 parameters and their names, u32 variable slots, u32 stack
+// entries, u32 instructions, then each instruction: u32 line, u8 opcode, its operands.
 Code read_code(Reader& r, int depth) {
     if (depth > kMaxDepth) throw FormatError("ADCH: functions nested too deep");
     Code c;
     c.source = r.name();
     c.parameters = r.names();
-    c.stack = r.word(), c.locals = r.word();
+    c.variables = r.word(), c.stack = r.word();
     const u32 count = r.word();
     if (count > kMaxInstructions) throw FormatError("ADCH: bad instruction count");
     c.instructions.reserve(count);
@@ -145,7 +145,7 @@ std::string disassemble(const Code& code, int indent) {
     char b[96];
     out += pad + "; " + code.source + "  (";
     for (size_t i = 0; i < code.parameters.size(); ++i) out += (i ? ", " : "") + code.parameters[i];
-    std::snprintf(b, sizeof b, ")  stack %u, locals %u\n", code.stack, code.locals);
+    std::snprintf(b, sizeof b, ")  variables %u, stack %u\n", code.variables, code.stack);
     out += b;
     for (size_t i = 0; i < code.instructions.size(); ++i) {
         const Instruction& in = code.instructions[i];
