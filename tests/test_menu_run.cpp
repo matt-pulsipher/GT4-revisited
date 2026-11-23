@@ -10,6 +10,7 @@
 
 #include <cmath>
 #include <cstring>
+#include <filesystem>
 
 using namespace gt4r;
 using script::Value;
@@ -350,9 +351,10 @@ struct Flow {
     Disc& disc;
     std::unique_ptr<menu::Runtime> rt;
 
-    explicit Flow(Disc& d, const std::string& language = "US") : disc(d) {
+    explicit Flow(Disc& d, const std::string& language = "US", const std::string& data_dir = {}) : disc(d) {
         menu::Runtime::Config config;
         config.language = language;
+        config.data_dir = data_dir;
         config.list = [&d](const std::string& folder) {
             std::vector<std::string> out;
             for (const gt3r::Volume::Entry& e : d.volume().entries()) {
@@ -537,4 +539,159 @@ TEST(disc_menu_arcade_to_race) {
                     maker.c_str(), race->paint, race->course.c_str(), course_index, courses, race->max_entry, race->race.c_str());
     }
     CHECK(!f.rt->advance() && f.clean());
+}
+
+// The options: from the title into the option project, a setting changed in its list and kept
+// (under the data folder), and back to the title.
+TEST(disc_menu_options_and_back) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    const std::string dir = (std::filesystem::temp_directory_path() / "gt4r-menu-test-options").string();
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir);
+    {
+        Flow f(*disc, "US", dir);
+        CHECK(f.boot_to_title());
+        if (f.page() != "TopRoot") return;
+        for (int i = 0; i < 6 && f.focus() != "Option"; ++i) f.press({menu::Key::Down});
+        CHECK(f.focus() == "Option");
+        f.press({menu::Key::Accept});
+        CHECK(f.rt->finished() && f.rt->wanted_project() == "option" && f.rt->advance());
+        f.rt->settle();
+        CHECK(f.page() == "OptionRoot" && f.rt->project()->name() == "option" && f.rt->focused());
+        // The first item: the race settings.
+        f.press({menu::Key::Accept});
+        CHECK(f.page() == "RaceRoot" && f.rt->focused() && f.rt->focused()->is("OptionMenu"));
+        const menu::LiveWidget* transmission = f.rt->focused();
+        CHECK(f.rt->game().option_int("automatic_gear") == 1 && transmission->index() == 0);
+        // Open the list, take the second row (manual gears), and confirm with OK.
+        f.press({menu::Key::Accept});
+        CHECK(transmission->data.number("is_popuped") != 0 && f.rt->focused()->parent_widget()->name == "vbox");
+        f.press({menu::Key::Down, menu::Key::Accept});
+        CHECK(transmission->data.number("is_popuped") == 0 && transmission->index() == 1 && f.rt->focused() == transmission);
+        for (int i = 0; i < 8 && f.focus() != "OK"; ++i) f.press({menu::Key::Down});
+        if (f.focus() != "OK") f.press({menu::Key::Right});
+        CHECK(f.focus() == "OK");
+        f.press({menu::Key::Accept});
+        CHECK(f.page() == "OptionRoot" && f.rt->game().option_int("automatic_gear") == 0);
+        // Leaving the options: "Exit?", yes, and the title is back.
+        f.press({menu::Key::Cancel});
+        CHECK(f.page() == "ConfirmDialog" && f.focus() == "Yes");
+        f.press({menu::Key::Accept});
+        CHECK(f.rt->finished() && f.rt->wanted_project() == "arcade" && f.rt->advance());
+        f.rt->settle();
+        CHECK(f.page() == "TopRoot" && f.focus() == "Option" && f.clean()); // the title remembers where the player was
+    }
+    // A new run finds the setting as it was left.
+    {
+        Flow f(*disc, "US", dir);
+        CHECK(f.rt->game().option_int("automatic_gear", 1) == 0);
+        f.rt->boot();
+        CHECK(f.rt->vm().attribute(f.rt->vm().attribute(f.rt->vm().lookup("game"), "option"), "automatic_gear").i == 0);
+    }
+    std::filesystem::remove_all(dir);
+}
+
+// A new game: at the title, GT mode offers to make the game's data; the player's name is
+// typed on the name page; the game explains its saving; then GT mode opens on its map.
+TEST(disc_menu_new_game_to_gt_mode) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    Flow f(*disc);
+    CHECK(f.boot_to_title());
+    if (f.page() != "TopRoot") return;
+    f.press({menu::Key::Down});
+    CHECK(f.focus() == "GTmode");
+    f.press({menu::Key::Accept});
+    CHECK(f.page() == "ConfirmDialog"); // no game data: make it now?
+    f.press({menu::Key::Accept});
+    CHECK(f.rt->finished() && f.rt->wanted_project() == "boot" && f.rt->game().next_menu_arg == "EntryRoot" && f.rt->advance());
+    f.rt->settle();
+    CHECK(f.page() == "EntryRoot" && f.focus() == "key_enter");
+    // Two letters, then enter.
+    f.press({menu::Key::Left, menu::Key::Accept, menu::Key::Left, menu::Key::Accept});
+    const std::string typed = f.rt->current_page()->child("Keyboard")->child("input")->data.text("value");
+    CHECK(typed.size() == 2 && typed[0] >= 'A' && typed[0] <= 'Z' && typed[1] >= 'a' && typed[1] <= 'z'); // the keys turn to small letters after the first
+    f.press({menu::Key::Right, menu::Key::Right});
+    for (int i = 0; i < 6 && f.focus() != "key_enter"; ++i) f.press({menu::Key::Right});
+    CHECK(f.focus() == "key_enter");
+    f.press({menu::Key::Accept});
+    CHECK(f.page() == "ConfirmDialog"); // "is this your name?"
+    // Yes to every question, OK to every notice, until the boot project ends.
+    for (int i = 0; i < 24 && !f.rt->finished(); ++i) f.press({menu::Key::Accept});
+    CHECK(f.rt->finished() && f.rt->game().username == typed && f.rt->game().valid_game_data && f.rt->game().card.has_game_data);
+    CHECK(f.rt->advance());
+    f.rt->settle();
+    CHECK(f.page() == "TopRoot" && f.rt->project()->name() == "arcade");
+    // Now GT mode opens.
+    for (int i = 0; i < 6 && f.focus() != "GTmode"; ++i) f.press({menu::Key::Down});
+    f.press({menu::Key::Accept});
+    CHECK(f.rt->finished() && f.rt->wanted_project() == "gtmode" && f.rt->advance());
+    f.rt->settle();
+    CHECK(f.page() == "TopRoot" && f.rt->project()->name() == "gtmode" && f.focus() == "Home");
+    // The map's header: the player's credits.
+    const std::shared_ptr<menu::LiveWidget> top = f.rt->open_pages().back();
+    const std::shared_ptr<menu::LiveWidget> money = top->child("Common") ? top->child("Common")->child("Header")->child("Money")->child("label") : nullptr;
+    CHECK(money && money->data.text("text") == "10000");
+    f.press({menu::Key::Accept});
+    CHECK(f.page() == "HomeRoot" && f.focus() == "Garage");
+    f.press({menu::Key::Cancel});
+    CHECK(f.page() == "TopRoot");
+}
+
+// Prologue's main script, configuration and projects load, and a project shows a page.
+TEST(disc_menu_prologue_loads) {
+    Disc* prologue = nullptr;
+    for (const auto& disc : test::discs())
+        if (disc->info().game != Game::GT4) prologue = disc.get();
+    if (!prologue) SKIP("set GT4R_DISC to a Gran Turismo 4 Prologue disc");
+    Flow f(*prologue, "JP");
+    f.rt->boot();
+    CHECK(f.rt->first_project() == "memcard" && f.rt->vm().lookup("TopProject").as_string() == "prologue_opening");
+    CHECK(f.rt->vm().lookup("prologue").kind == script::Kind::Module);
+    for (const char* project : {"prologue_opening", "prologue", "memcard", "option"}) {
+        f.rt->start_project(project);
+        f.rt->settle();
+        CHECK(f.rt->current_page() != nullptr);
+    }
+}
+
+// The focus search: in line first, the nearest; around the page's end with wraparound.
+TEST(menu_focus_moves_as_the_search_orders) {
+    const char* layout = R"(Project {
+	name string {"NavProject"}
+	children [1] {
+		RootWindow {
+			name string {"Top"}
+			children [5] {
+				Composite { name string {"A"} can_focus digit {1} geometry rectangle {100 100 80 30} }
+				Composite { name string {"B"} can_focus digit {1} geometry rectangle {300 100 80 30} }
+				Composite { name string {"C"} can_focus digit {1} geometry rectangle {500 110 80 30} }
+				Composite { name string {"D"} can_focus digit {1} geometry rectangle {120 300 80 30} }
+				Composite { name string {"E"} can_focus digit {1} geometry rectangle {400 300 80 30} }
+			}
+		}
+	}
+})";
+    menu::Runtime rt(no_files());
+    const std::shared_ptr<menu::LiveWidget> top = rt.start_layout(menu::parse_layout(std::string_view(layout)))->child("Top");
+    rt.open_page(top, true);
+    auto go = [&](menu::Key k) {
+        rt.key(k);
+        rt.settle();
+        return rt.focused() ? rt.focused()->name : std::string();
+    };
+    CHECK(rt.focused()->name == "A");
+    CHECK(go(menu::Key::Right) == "B" && go(menu::Key::Right) == "C"); // C overlaps B's height: in line
+    CHECK(go(menu::Key::Right) == "A");                                // around the end
+    CHECK(go(menu::Key::Left) == "C" && go(menu::Key::Left) == "B");
+    CHECK(go(menu::Key::Down) == "B"); // E is below but to the side: not in line, and the page's clip angle is 0
+    CHECK(go(menu::Key::Left) == "A" && go(menu::Key::Down) == "D" && go(menu::Key::Right) == "E" && go(menu::Key::Up) == "E");
+    // With a clip angle the page lets the focus go to the side.
+    top->set_property("navigate_clip_angle", Value::integer(80));
+    CHECK(go(menu::Key::Up) == "B" || go(menu::Key::Up) == "C");
+    // Without wraparound the end is the end.
+    top->set_property("navigate_wraparound", Value::integer(0));
+    rt.set_focus(*top, top->child("C"));
+    CHECK(go(menu::Key::Right) == "C");
 }

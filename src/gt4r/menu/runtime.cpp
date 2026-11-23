@@ -73,6 +73,7 @@ std::string SoundCall::text() const {
 Runtime::Runtime(FileReader read, Config config) : read_(std::move(read)), config_(std::move(config)) {
     game_ = std::make_unique<GameState>();
     game_->option_defaults(config_.region);
+    load_options();
     vm_ = std::make_unique<Vm>([this](const std::string& name) -> std::optional<Bytes> {
         std::string path = name;
         while (!path.empty() && path[0] == '/') path.erase(0, 1);
@@ -104,6 +105,27 @@ Runtime::~Runtime() {
     pages_.clear();
     render_context_ = {}, update_context_ = {};
     vm_.reset();
+}
+
+void Runtime::save_options() {
+    if (config_.data_dir.empty()) return;
+    const std::string file = config_.data_dir + "/gt4r-options.txt";
+    if (std::FILE* f = std::fopen(file.c_str(), "wb")) {
+        const std::string t = game_->options_text();
+        std::fwrite(t.data(), 1, t.size(), f);
+        std::fclose(f);
+    } else note("the options could not be kept in " + file);
+}
+
+void Runtime::load_options() {
+    if (config_.data_dir.empty()) return;
+    std::FILE* f = std::fopen((config_.data_dir + "/gt4r-options.txt").c_str(), "rb");
+    if (!f) return;
+    std::string t;
+    char buf[4096];
+    for (size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;) t.append(buf, n);
+    std::fclose(f);
+    game_->options_from_text(t);
 }
 
 void Runtime::note(std::string line) {
@@ -185,8 +207,10 @@ void Runtime::install_natives() {
     // The update context a project's onLoad is given, and the render context every page's
     // event function is given (the program's MUpdateContext at 0x24F7A0, MRenderContext at
     // 0x22D228: the member names are its tables').
-    auto update = std::make_shared<Object>("MUpdateContext");
+    // One object stands for both here: Prologue's scripts, written before the two were told
+    // apart, open their pages and set the transition on the context onLoad is given.
     auto render = std::make_shared<Object>("MRenderContext");
+    const std::shared_ptr<Object> update = render;
     update_context_ = object_value(update);
     render_context_ = object_value(render);
     update->method("createRenderContext", [](Vm&, const Value&, Args) { return Value{}; });
@@ -415,6 +439,20 @@ void Runtime::start_project(const std::string& name, const std::string& language
         events_.push_back(std::move(e));
     };
     load(root_widget_);
+    // A project whose onLoad opens no page starts on its first one (Prologue's projects).
+    // ❓ Which page the program takes (its getStartPage) is not read.
+    Event first;
+    first.kind = Event::Kind::Call, first.what = "the first page";
+    first.callee = Vm::native("first page", [this](Vm&, const Value&, Args) {
+        if (pages_.empty() && !finished_ && root_widget_)
+            for (const auto& page : root_widget_->children)
+                if (page->is("RootWindow")) {
+                    open_page(page, true);
+                    break;
+                }
+        return Value{};
+    });
+    events_.push_back(std::move(first));
     pump();
 }
 
@@ -471,6 +509,7 @@ void Runtime::finish() {
     watchers_.clear();
     events_.clear();
     finished_ = true;
+    save_options();
     const std::optional<RaceRequest> race = race_request();
     note(race ? "the project finished; the scripts ask for " + race->sequence + ": " + race->car + " at " + race->course
               : "the project finished; next: " + (wanted_project().empty() ? std::string("(none)") : wanted_project()));

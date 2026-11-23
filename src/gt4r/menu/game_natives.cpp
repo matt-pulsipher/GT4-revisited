@@ -240,17 +240,9 @@ struct GameNatives {
             });
         }
         Runtime* r = &rt;
-        const std::string dir = config.data_dir;
-        auto path = [dir] { return dir.empty() ? std::string() : dir + "/gt4r-options.txt"; };
-        // apply(): the settings take effect; here they are kept (under the data folder).
-        auto save = [s, path, r](Vm&, const Value&, Args) {
-            const std::string file = path();
-            if (file.empty()) return number(1);
-            if (std::FILE* f = std::fopen(file.c_str(), "wb")) {
-                const std::string t = s->options_text();
-                std::fwrite(t.data(), 1, t.size(), f);
-                std::fclose(f);
-            } else r->note("the options could not be kept in " + file);
+        // apply(), save(): the settings take effect; here they are kept (under the data folder).
+        auto save = [r](Vm&, const Value&, Args) {
+            r->save_options();
             return number(1);
         };
         option->method("apply", save);
@@ -266,15 +258,6 @@ struct GameNatives {
         option->method("getDeviceConfig", [](Vm&, const Value&, Args) { return Value{}; });
         option->method("getDeviceFeedback", [](Vm&, const Value&, Args) { return number(0); });
         option->set("bgm_playlist", Value{}), option->set("slide_playlist", Value{});
-        // The options kept from the last time.
-        if (const std::string file = path(); !file.empty())
-            if (std::FILE* f = std::fopen(file.c_str(), "rb")) {
-                std::string t;
-                char buf[4096];
-                for (size_t n; (n = std::fread(buf, 1, sizeof buf, f)) > 0;) t.append(buf, n);
-                std::fclose(f);
-                s->options_from_text(t);
-            }
         return object_value(option);
     }
 
@@ -753,8 +736,14 @@ void install_game_natives(Runtime& rt, script::Module& menu) {
     {
         auto cls = make_class(menu, "MGame");
         cls->construct = [n](Vm&, Args) { return n->make_game(); };
-        // The configuration script the main script requires: the retail game's.
-        static_fn(*cls, "getConfigScriptFile", [](Vm&, const Value&, Args) { return text("config-main"); });
+        // The configuration script the main script requires. The program names it (the US
+        // game's "config-main" is a text of its own, at 0x6A62C8); here it is the retail one
+        // the disc has: config-main, or Prologue's config-prologue.
+        static_fn(*cls, "getConfigScriptFile", [r](Vm&, const Value&, Args) {
+            for (const char* name : {"config-main", "config-prologue"})
+                if (r->reader()(std::string("config/") + name + ".adc")) return text(name);
+            return text("config-main");
+        });
     }
     make_class(menu, "MSound")->construct = [n](Vm&, Args) { return n->make_sound(); };
     make_class(menu, "MOption")->construct = [n](Vm&, Args) { return n->make_option(); };

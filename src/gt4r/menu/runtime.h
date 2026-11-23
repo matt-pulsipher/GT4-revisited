@@ -195,6 +195,10 @@ public:
     script::Value bubble_now(LiveWidget& from, const std::string& name, std::vector<script::Value> args);
     float seconds_since_input() const { return float(frame_ - last_input_frame_) / 60.0f; }
     FileReader& reader() { return read_; }
+    // The options as a text file under the data folder ("gt4r-options.txt"): written when the
+    // scripts apply or save them and when a project ends; read when the runtime is made.
+    void save_options();
+    void load_options();
     // Something the natives own for as long as the runtime lives.
     void keep_alive(std::shared_ptr<void> p) { kept_.push_back(std::move(p)); }
 
