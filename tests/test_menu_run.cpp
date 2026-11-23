@@ -629,6 +629,27 @@ TEST(disc_menu_new_game_to_gt_mode) {
     CHECK(f.rt->finished() && f.rt->wanted_project() == "gtmode" && f.rt->advance());
     f.rt->settle();
     CHECK(f.page() == "TopRoot" && f.rt->project()->name() == "gtmode" && f.focus() == "Home");
+    // The map is larger than the screen: it lies so the focused place is in the middle of the
+    // view, and follows the focus.
+    {
+        const std::shared_ptr<menu::LiveWidget> window = f.rt->current_page()->child("ScrollWindow");
+        const std::shared_ptr<menu::LiveWidget> clip = window ? window->child("clip") : nullptr;
+        const std::shared_ptr<menu::LiveWidget> space = clip ? clip->child("space") : nullptr;
+        const std::shared_ptr<menu::LiveWidget> home = space ? space->child("Home") : nullptr;
+        CHECK(home != nullptr);
+        if (home) {
+            const menu::Rect view = *clip->data.rect("geometry"), whole = *space->data.rect("geometry"), at = *home->data.rect("geometry");
+            const float x = std::clamp((view.w - at.w) * 0.5f - at.x, view.w - whole.w, 0.0f);
+            const float y = std::clamp((view.h - at.h) * 0.5f - at.y, view.h - whole.h, 0.0f);
+            CHECK(std::fabs(whole.x - x) < 0.5f && std::fabs(whole.y - y) < 0.5f && whole.w > view.w);
+            f.press({menu::Key::Up});
+            CHECK(f.focus() != "Home");
+            for (int i = 0; i < 120; ++i) f.rt->update();
+            const menu::Rect moved = *space->data.rect("geometry");
+            CHECK(moved.x != whole.x || moved.y != whole.y);
+            f.rt->set_focus(*f.rt->current_page(), home);
+        }
+    }
     // The map's header: the player's credits.
     const std::shared_ptr<menu::LiveWidget> top = f.rt->open_pages().back();
     const std::shared_ptr<menu::LiveWidget> money = top->child("Common") ? top->child("Common")->child("Header")->child("Money")->child("label") : nullptr;

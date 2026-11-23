@@ -218,12 +218,19 @@ the rows are the children of `popup::vbox`; accept opens the list with the focus
 chosen row, accept on a row chooses it (`onValueChanged`), cancel closes. ❓ The list's
 place, the keys and `selected_item` (here the chosen row) are from the scripts and by eye.
 
+**ScrollWindow** (0x2D2720; layout `interpolate_ratio`, 0.3 when absent, and `floating`):
+its child `clip` shows a part of `clip::space`. The space wants to be where the page's
+focused widget is in the middle of the clip, kept against the clip's edges, and 0 along a
+direction it does not exceed the clip in (0x2D3430); each picture it moves the ratio of the
+way there (0x2D36A0); `warp(widget)` puts it there at once (0x2D2918). Gran Turismo mode's
+map is one. ❓ `floating` (the space follows a pointer) is not written; `updateGeometry` makes
+the space as tall as what is in it, from the scripts' use.
+
 **SliderBar, ScaleBar** (layout `range`, `step`, `popup`, `direction`, `repeat`,
 `fix_pinch_size`; `value`, `min`, `max`, `step`, `horizontal`, `scale_direction`), **ListBox**
 (`step_min`, `step_max`, `interpolate_ratio`, `magnify_ratio`, `focus_active`, `repeat`,
-`alignment`, `h_justify`, `v_justify`), **ScrollWindow** (`interpolate_ratio`, `floating`):
-❓ their own routines are not read; they answer the scripts' calls, the list box laid out as
-a select box, and a scroll window does not follow the focus yet (Gran Turismo mode's map).
+`alignment`, `h_justify`, `v_justify`): ❓ their own routines are not read; they answer the
+scripts' calls, the list box laid out as a select box.
 
 Faces: `TextFace` (`getTextSize`, `abbreviate`, `adjustScale`: the text made narrower to fit
 its rectangle), `ImageFace` (`adjustSize`), `InputTextFace` (`putString`, `backspace`,

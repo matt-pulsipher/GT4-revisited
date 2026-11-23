@@ -242,6 +242,30 @@ LiveWidget* scroll_content(LiveWidget& window) {
     return nullptr;
 }
 
+// Where a scroll window (MScrollWindow) wants its `space` so `inside` shows (the program's
+// 0x2D3430): the widget in the middle of the `clip`, the space kept against the clip's edges;
+// 0 along a direction the space does not exceed the clip in. False when the widget is not
+// inside the space.
+bool scroll_window_target(LiveWidget& window, const LiveWidget& inside, float& x, float& y) {
+    LiveWidget* space = scroll_content(window);
+    const W clip = window.child("clip");
+    if (!space || !clip) return false;
+    float wx = 0, wy = 0;
+    const LiveWidget* p = &inside;
+    for (; p && p != space; p = p->parent_widget())
+        if (const std::optional<Rect> g = p->data.rect("geometry")) wx += g->x, wy += g->y;
+    if (p != space || &inside == space) return false;
+    const std::optional<Rect> own = inside.data.rect("geometry"), view = clip->data.rect("geometry"), whole = space->data.rect("geometry");
+    if (!view || !whole) return false;
+    const float ww = own ? own->w : 0.0f, wh = own ? own->h : 0.0f;
+    auto along = [](float view_size, float whole_size, float at, float size) {
+        if (!(view_size < whole_size)) return 0.0f;
+        return std::clamp((view_size - size) * 0.5f - at, view_size - whole_size, 0.0f);
+    };
+    x = along(view->w, whole->w, wx, ww), y = along(view->h, whole->h, wy, wh);
+    return true;
+}
+
 } // namespace
 
 // A select box (MSelectBox, MSelectBar): its rows one after the other along its direction, all
@@ -495,7 +519,23 @@ void step_widgets(Runtime& rt, LiveWidget& w) {
             break;
         }
     }
-    if (w.is("ScrollWindow") || w.is("ScrollBox")) {
+    if (w.is("ScrollWindow")) {
+        // The space follows the page's focused widget: each picture it moves `interpolate_ratio`
+        // (0.3 when the layout gives none, 0x2D2720) of the way to where it wants to be
+        // (0x2D36A0). ❓ `floating` (the space follows a pointer) is not written.
+        LiveWidget* page = w.page();
+        const W focus = page ? page->focus.lock() : nullptr;
+        LiveWidget* content = scroll_content(w);
+        float tx = 0, ty = 0;
+        if (focus && content && scroll_window_target(w, *focus, tx, ty)) {
+            const float ratio = w.data.has("interpolate_ratio") ? w.data.number("interpolate_ratio") : 0.3f;
+            const float x = content->get("x").as_float(), y = content->get("y").as_float();
+            if (x != tx || y != ty) {
+                content->set_property("x", Value::number(std::fabs(tx - x) < 0.01f ? tx : x + (tx - x) * ratio));
+                content->set_property("y", Value::number(std::fabs(ty - y) < 0.01f ? ty : y + (ty - y) * ratio));
+            }
+        }
+    } else if (w.is("ScrollBox")) {
         // The content follows the focused widget: it moves a part of the way each frame.
         if (LiveWidget* content = scroll_content(w)) {
             float y = content->get("y").as_float();
@@ -511,7 +551,7 @@ void step_widgets(Runtime& rt, LiveWidget& w) {
 // Moves a scroll window's content so a widget inside it shows.
 void scroll_into_view(LiveWidget& inside) {
     for (LiveWidget* w = inside.parent_widget(); w; w = w->parent_widget()) {
-        if (!w->is("ScrollWindow") && !w->is("ScrollBox")) continue;
+        if (!w->is("ScrollBox")) continue; // a scroll window follows the focus as it is stepped
         LiveWidget* content = scroll_content(*w);
         const W clip = w->child("clip");
         if (!content || !clip) continue;
@@ -780,9 +820,17 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
                 }
                 return Value{};
             });
+        // warp(widget): the space is at once where it shows the widget (0x2D2918).
         if (n == "warp")
-            return fn([w](Vm&, const Value&, Args) {
-                if (LiveWidget* content = scroll_content(*w)) content->set_property("y", Value::number(w->scroll_target));
+            return fn([w](Vm&, const Value&, Args a) {
+                LiveWidget* content = scroll_content(*w);
+                if (!content) return Value{};
+                const W to = a.empty() ? nullptr : a.back().as<LiveWidget>();
+                float x = 0, y = 0;
+                if (w->is("ScrollWindow") && to && scroll_window_target(*w, *to, x, y)) {
+                    content->set_property("x", Value::number(x));
+                    content->set_property("y", Value::number(y));
+                } else if (!w->is("ScrollWindow")) content->set_property("y", Value::number(w->scroll_target));
                 return Value{};
             });
     }
