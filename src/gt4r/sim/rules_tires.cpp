@@ -218,7 +218,7 @@ void tire_slip_force(ex::Car& c, TireExtra& x, const WheelLayout& l, const SlipF
             v = ex::slip_angle_fold(c.behaviour, beta, sign);
             if (r.x1da == 1 && w.rim_speed < F()) sign = -sign;
         }
-        if (i < l.count && s8(l.mean_slip[size_t(i)]) > 0) sum = sum + v, ++counted;
+        if (i < l.count && s8(l.fore_aft[size_t(i)]) > 0) sum = sum + v, ++counted;
         const F ca = table(r.curve_a, v);
         x.curve_a[size_t(i)] = ca;
         F u1 = sign * ca;

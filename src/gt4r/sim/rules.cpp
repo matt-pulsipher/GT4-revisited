@@ -13,7 +13,8 @@ WheelLayout wheel_layout(const u8* row) {
     WheelLayout l;
     l.kind = row[0], l.count = row[1];
     for (size_t w = 0; w < 8; ++w)
-        l.axle[w] = row[0x14 + w], l.side[w] = row[0x1C + w], l.mean_slip[w] = row[0x3C + w], l.camber_thrust[w] = row[0x44 + w];
+        l.axle[w] = row[0x14 + w], l.side[w] = row[0x1C + w], l.geometry[w] = row[0x2C + w], l.fore_aft[w] = row[0x3C + w],
+        l.camber_thrust[w] = row[0x44 + w];
     return l;
 }
 

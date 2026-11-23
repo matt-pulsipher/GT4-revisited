@@ -58,6 +58,13 @@ std::vector<Row> build() {
     f(0x4C4, 0x04, 0x550, "longitudinal acceleration");
     f(0x4D8, 0x04, 0x564, "the forces along the body");
     f(0x4B8, 0x04, 0x5A4, "drag");
+    f(0x4C8, 0x04, 0x554, "lateral acceleration");
+    f(0x474, 0x04, 0x58C, "lateral acceleration over the tires' grip");
+    f(0x478, 0x04, 0x588, "yaw acceleration");
+    f(0x47C, 0x04, 0x57C, "yaw rate");
+    f(0x480, 0x08, 0x580, "pitch and roll rates");
+    f(0x536, 0x02, 0x4BA, "hold counter");
+    f(0x4DC, 0x01, 0x4BC, "the start's hold");
     r.push_back({0xEC0, 4, C, kState + 0x448, "step length"});
     r.push_back({0x16A8, 8, C, kState + 0x5C4, "speed, highest speed"});
     r.push_back({0x16C4, 4, C, kState + 0x618, "best lap"});
@@ -106,6 +113,7 @@ std::vector<Row> build() {
     p(0x054, 0x04, 0x050, "origin offset");
     p(0x058, 0x04, 0x054, "steering lock");
     p(0x118, 0x04, 0x114, "yaw inertia");
+    p(0x11C, 0x04, 0x118, "1 / yaw inertia");
     p(0x120, 0x18, 0x11C, "pitch and roll levers, the pitch's tire term");
     p(0x2B0, 0x08, 0x300, "a free wheel's extra mass, per axle");
     // ---- the last step's values (0x343ED0) ----

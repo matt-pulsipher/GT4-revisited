@@ -41,6 +41,14 @@ sim::rules::RoadTables road_tables(Ee& ee) {
     return r;
 }
 
+sim::rules::SlipForceGlobals slip_globals(Ee& ee) {
+    using namespace sim::rules;
+    SlipForceGlobals g;
+    g.steer_mode = ee.r32(kSteerMode), g.camber_ref = gt3r::ee::F::raw(ee.r32(kCamberRef));
+    g.camber_gain = gt3r::ee::F::raw(ee.r32(kCamberGain)), g.mean_on = ee.r8(kMeanSlipOn);
+    return g;
+}
+
 void add_taps(Taps& taps) {
     using namespace sim::rules;
     taps.add({0x3658A0, "step length", car_a0, [](TapCall& t) { ex::step_length(t.car); }});
@@ -62,12 +70,11 @@ void add_taps(Taps& taps) {
                   t.ee.read_bytes(kSlipBytes, b, 8);
                   tire_long_force(t.car, t.rec.layout, slip_bytes(b));
               }});
-    taps.add({0x352408, "tire slip force", car_a0, [](TapCall& t) {
-                  SlipForceGlobals g;
-                  g.steer_mode = t.ee.r32(kSteerMode), g.camber_ref = gt3r::ee::F::raw(t.ee.r32(kCamberRef));
-                  g.camber_gain = gt3r::ee::F::raw(t.ee.r32(kCamberGain)), g.mean_on = t.ee.r8(kMeanSlipOn);
-                  tire_slip_force(t.car, t.rec.x.tires, t.rec.layout, g);
+    taps.add({0x352408, "tire slip force", car_a0, [](TapCall& t) { tire_slip_force(t.car, t.rec.x.tires, t.rec.layout, slip_globals(t.ee)); }});
+    taps.add({0x352848, "lateral and yaw", car_a0, [](TapCall& t) {
+                  lateral_yaw(t.car, t.rec.x.chassis, t.rec.x.tires, t.rec.layout, t.ee.a(1) != 0, slip_globals(t.ee));
               }});
+    taps.add({0x352C90, "stop hold", car_a0, [](TapCall& t) { stop_hold(t.car, t.rec.layout, t.ee.a(1) != 0); }});
     taps.add({0x351FA8, "forward step", car_a0, [](TapCall& t) { forward_step(t.car, t.rec.x.chassis, t.rec.x.tires, t.rec.layout); }});
     taps.add({0x3534A0, "rolling resistance", car_a0, [](TapCall& t) { rolling_resistance(t.car, t.rec.layout, road_tables(t.ee)); }});
     taps.add({0x357690, "slip angles", car_a0, [](TapCall& t) { slip_angles(t.car, t.rec.layout); }});

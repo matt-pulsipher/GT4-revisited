@@ -36,7 +36,8 @@ struct WheelLayout {
     u8 count = 4;                               // +0x01 the wheels the step runs
     std::array<u8, 8> axle{0, 0, 1, 1};         // +0x14 + w: wheel w's axle (0 front, 1 rear)
     std::array<u8, 8> side{0, 1, 0, 1};         // +0x1C + w: wheel w's side (0 left)
-    std::array<u8, 8> mean_slip{};              // +0x3C + w: above 0 (signed): wheel w's slip angle is in the mean the step keeps (0x352408)
+    std::array<u8, 8> geometry{};               // +0x2C + w: which axle's half track and distance from the center of gravity wheel w has
+    std::array<u8, 8> fore_aft{};               // +0x3C + w: signed: above 0 ahead of the center of gravity, below 0 behind it, 0 at it
     std::array<u8, 8> camber_thrust{};          // +0x44 + w: 2: wheel w's camber gives a lateral force (0x352408)
 };
 constexpr u32 kWheelLayouts = 0x620478, kWheelLayoutSize = 0x54;

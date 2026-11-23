@@ -45,7 +45,7 @@ struct TireExtra {
                                                     // under the program's steering mode 1 (2)
     std::array<F, 4> curve_a;                       // wheel +0x5C: curve A at the slip angle
     std::array<F, 4> camber_force;                  // car + 0x534 + 4 w: the camber's lateral force
-    F mean_slip;                                    // F + 0x46C: the mean slip angle of the layout's marked wheels
+    F mean_slip;                                    // F + 0x46C: the mean slip angle of the wheels ahead of the center of gravity
 };
 
 // Every member of TireExtra with its place in Gran Turismo 4's record: v(name, index (-1: single),
