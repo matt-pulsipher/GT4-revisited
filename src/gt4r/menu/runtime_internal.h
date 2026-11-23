@@ -54,6 +54,8 @@ bool widget_key(Runtime& rt, LiveWidget& focus, Key k);
 // `widget.index = i`; `notify`: the script's onValueChanged is called.
 void widget_set_index(Runtime& rt, LiveWidget& w, int index, bool notify);
 void widget_children_changed(Runtime& rt, LiveWidget& w);
+// The class's own step when a widget takes the focus (a scale bar's, 0x238790).
+void widget_focus_entered(Runtime& rt, LiveWidget& w);
 // Sizes and places a page's widgets that are packed by their boxes (packing.cpp).
 void pack_page(LiveWidget& page);
 // One frame of the widgets' own movement (scrolling, a list's rows).

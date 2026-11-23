@@ -125,9 +125,12 @@ next picture at 0x4A22C0). Here a call is a task that keeps its frames across th
   `leaveEventLoop()` (the dialogs: a function opens the dialog, waits there, and goes on with
   the answer).
 - `context.startPage(page)` with a transition set waits for the transition's first half.
-- A watcher (`menu::MScriptWatcher(function, interval)`, 0x2CEB78: calls
-  `function(context)` and counts) is called when the thread is idle and no event waits.
-  ❓ The program's order between watchers and events is not read.
+- A watcher (`menu::MScriptWatcher(function, interval)`, 0x2CEB78: calls `function(context)`
+  and counts) is stepped once a turn of the event loop (0x251CE8, 0x250E08): every queued
+  event first, then the watchers in the order they were appended (`interval` <= 0 every turn,
+  else every interval-th), then the wait for the next picture. A call waiting in `sync` holds
+  the loop, so no watcher runs or counts meanwhile; inside `enterEventLoop` they do. What a
+  watcher queues is dispatched on the next turn.
 
 ### Events and keys
 
@@ -249,11 +252,25 @@ way there (0x2D36A0); `warp(widget)` puts it there at once (0x2D2918). Gran Turi
 map is one. ❓ `floating` (the space follows a pointer) is not written; `updateGeometry` makes
 the space as tall as what is in it, from the scripts' use.
 
-**SliderBar, ScaleBar** (layout `range`, `step`, `popup`, `direction`, `repeat`,
-`fix_pinch_size`; `value`, `min`, `max`, `step`, `horizontal`, `scale_direction`), **ListBox**
-(`step_min`, `step_max`, `interpolate_ratio`, `magnify_ratio`, `focus_active`, `repeat`,
-`alignment`, `h_justify`, `v_justify`): ❓ their own routines are not read; they answer the
-scripts' calls, the list box laid out as a select box.
+**SliderBar** (0x2DD820): a whole `index` in [min, max] (`range` sets both and the display
+ends; writing `min` passes the counter's end as it is, so max goes one up; `index =` clamps,
+no event); the layout's `repeat` wraps at the ends, `step` per key, `direction` 0 left and
+right. **ScaleBar** (0x236860): a number `value` in [min, max] (writing `min` / `max` also sets
+the display ends and does not clamp the value; `index` the value rounded half away from zero),
+`step` a number the scripts change while a key is held (`repeat_start`, `onStepChanged`).
+With a popup (SliderBar: the layout's `popup`; ScaleBar: a child named `popup`, made
+invisible at load) accept opens it (sound `cursor`, the cursor hidden) and only then do the
+keys along the bar move the value (sound `param`); while open every other key is the bar's;
+accept closes keeping the value, cancel puts the old one back and tells the script again.
+Without a popup the keys move it directly; at an end the key goes on to the page. SliderBar
+calls `onValueChanged(context, index)` at once (with `has_script`); ScaleBar queues
+`onValueChanged(context, bar)` and `onStepChanged(context, bar)` (also at focus enter and a
+fresh press). The pinch slides after the value (0.4 a picture, 0.2 for the ScaleBar) between
+the display ends, in the popup while open, else in the bar. `incIndex` / `decIndex` move by
+their argument and send nothing. ❓ A ScaleBar's own `onKeyPress` runs before the value moves
+in the program; here after. **ListBox** (`step_min`, `step_max`, `interpolate_ratio`,
+`magnify_ratio`, `focus_active`, `repeat`, `alignment`, `h_justify`, `v_justify`): ❓ its own
+routines are not read; it answers the scripts' calls, laid out as a select box.
 
 Faces: `TextFace` (`getTextSize`, `abbreviate`, `adjustScale`: the text made narrower to fit
 its rectangle), `ImageFace` (`adjustSize`), `InputTextFace` (`putString`, `backspace`,

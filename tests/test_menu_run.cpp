@@ -1076,6 +1076,82 @@ TEST(disc_menu_prologue_loads) {
     }
 }
 
+// The bars as the program's: a slider with a popup changes its index only while the popup is
+// open, accept keeps, cancel puts the old index back and tells the script; a scale bar's value
+// is a number moved by its step, its events queued; both draw the pinch after the value.
+TEST(menu_bars_follow_the_program) {
+    const char* layout = R"(Project {
+	name string {"BarProject"}
+	children [1] {
+		RootWindow {
+			name string {"Top"}
+			children [3] {
+				SliderBar {
+					name string {"Slider"} has_script digit {1} popup digit {1} geometry rectangle {100 100 150 24}
+					children [1] { Composite { name string {"popup"} geometry rectangle {0 0 128 24} children [1] { Composite { name string {"pinch"} geometry rectangle {0 -14 32 54} } } } }
+				}
+				ScaleBar {
+					name string {"Scale"} has_script digit {1} geometry rectangle {100 200 150 24}
+					children [1] { Composite { name string {"pinch"} geometry rectangle {0 0 30 24} } }
+				}
+				Composite { name string {"Next"} can_focus digit {1} geometry rectangle {300 100 50 24} }
+			}
+		}
+	}
+})";
+    menu::Runtime rt(no_files());
+    const std::shared_ptr<menu::LiveWidget> top = rt.start_layout(menu::parse_layout(std::string_view(layout)))->child("Top");
+    script::Vm& vm = rt.vm();
+    const std::shared_ptr<menu::LiveWidget> slider = top->child("Slider"), scale = top->child("Scale");
+    std::vector<int> told;
+    slider->define("onValueChanged", native([&](script::Vm&, script::Args a) {
+        told.push_back(a.size() > 1 ? a[1].i : -99);
+        return Value{};
+    }));
+    int scale_told = 0, steps_told = 0;
+    scale->define("onValueChanged", native([&](script::Vm&, script::Args) { return Value::integer(++scale_told); }));
+    scale->define("onStepChanged", native([&](script::Vm&, script::Args) { return Value::integer(++steps_told); }));
+    rt.open_page(top, true);
+    rt.set_focus(*top, slider);
+    assign(vm, menu::widget_value(slider), "range", Value::array({Value::integer(1), Value::integer(5)}));
+    assign(vm, menu::widget_value(slider), "index", Value::integer(3));
+    CHECK(vm.attribute(menu::widget_value(slider), "max").i == 5 && slider->index() == 3 && told.empty());
+    // Closed: right goes on to the page (the focus moves), the index stays.
+    rt.key(menu::Key::Right);
+    rt.settle();
+    CHECK(rt.focused() == top->child("Next").get() && slider->index() == 3);
+    rt.set_focus(*top, slider);
+    // Open: right moves it and tells at once; cancel puts it back and tells again.
+    rt.key(menu::Key::Accept);
+    rt.settle();
+    CHECK(vm.attribute(menu::widget_value(slider), "is_popuped").i == 1 && !rt.cursor_visible());
+    rt.key(menu::Key::Right);
+    rt.key(menu::Key::Right);
+    rt.key(menu::Key::Right);
+    rt.settle();
+    CHECK(slider->index() == 5 && told.size() == 2 && told[1] == 5 && rt.focused() == slider.get()); // stopped at the end; the key swallowed
+    rt.key(menu::Key::Cancel);
+    rt.settle();
+    CHECK(slider->index() == 3 && told.size() == 3 && told[2] == 3 && vm.attribute(menu::widget_value(slider), "is_popuped").i == 0 && rt.cursor_visible());
+    // The pinch slides toward its place, in the bar while the popup is closed: (150 - 32) / 4 x (3 - 1).
+    for (int i = 0; i < 60; ++i) rt.update();
+    CHECK(std::fabs(slider->child("popup")->child("pinch")->data.rect("geometry")->x - 59) < 0.5f);
+    // A scale bar without a popup: left and right move the value by the step.
+    rt.set_focus(*top, scale);
+    rt.settle();
+    CHECK(steps_told == 1); // focus enter
+    assign(vm, menu::widget_value(scale), "min", Value::number(-10));
+    assign(vm, menu::widget_value(scale), "max", Value::number(10));
+    assign(vm, menu::widget_value(scale), "step", Value::number(2.5f));
+    assign(vm, menu::widget_value(scale), "value", Value::number(20));
+    CHECK(vm.attribute(menu::widget_value(scale), "value").as_float() == 10); // clamped
+    rt.key(menu::Key::Left);
+    rt.settle();
+    CHECK(vm.attribute(menu::widget_value(scale), "value").as_float() == 7.5f && vm.attribute(menu::widget_value(scale), "index").i == 8 && scale_told == 1 && steps_told == 3);
+    for (int i = 0; i < 120; ++i) rt.update();
+    CHECK(std::fabs(scale->child("pinch")->data.rect("geometry")->x - 105) < 0.5f);
+}
+
 // The focus search: in line first, the nearest; around the page's end with wraparound.
 TEST(menu_focus_moves_as_the_search_orders) {
     const char* layout = R"(Project {

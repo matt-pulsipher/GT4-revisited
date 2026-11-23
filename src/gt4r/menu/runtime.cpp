@@ -588,6 +588,14 @@ void Runtime::leave_event_loop() {
         }
 }
 
+void Runtime::queue_call(LiveWidget& w, const std::string& name, std::vector<Value> args) {
+    const auto it = w.members.find(name);
+    if (it == w.members.end() || it->second->value.kind != Kind::Function) return;
+    Event e;
+    e.kind = Event::Kind::Call, e.callee = it->second->value, e.args = std::move(args), e.what = w.path() + "::" + name;
+    events_.push_back(std::move(e));
+}
+
 void Runtime::push_event(const Value& event) {
     Event e;
     e.kind = Event::Kind::Script, e.value = event;
@@ -665,6 +673,14 @@ void Runtime::pump() {
         }
         if (finished_) break;
         if (events_.empty()) {
+            // The loop's turn (0x251CE8): every queued event, then the watchers, once a
+            // picture; a watcher's counter steps only on a turn, so not while a call waits
+            // in sync (0x250E08). What a watcher queues waits for the next turn.
+            if (watchers_turn_ != frame_) {
+                watchers_turn_ = frame_;
+                for (const auto& w : watchers_)
+                    if (step_watcher(*w)) due_watchers_.push_back(w);
+            }
             if (due_watchers_.empty()) break;
             const std::shared_ptr<Object> w = due_watchers_.front();
             due_watchers_.pop_front();
@@ -672,7 +688,9 @@ void Runtime::pump() {
             if (std::find(watchers_.begin(), watchers_.end(), w) == watchers_.end()) continue; // removed meanwhile
             if (!watcher_call(*w, function, context) || !function.p || !function.p->callable()) continue;
             watcher_called(*w);
+            const size_t queued = events_.size();
             run(function, {context}, "a watcher's function");
+            if (events_.size() > queued && due_watchers_.empty()) break;
             continue;
         }
         Event e = std::move(events_.front());
@@ -703,10 +721,6 @@ void Runtime::step_frame_objects() {
         step_widgets(*this, *page);
         pack_page(*page);
     }
-    // The watchers whose time has come: their functions are called by the event thread when it
-    // has nothing else to do (after the events queued, never inside a call that waits).
-    for (const auto& w : watchers_)
-        if (step_watcher(*w)) due_watchers_.push_back(w);
 }
 
 void Runtime::update() {
@@ -811,6 +825,7 @@ void Runtime::set_focus(LiveWidget& page, const std::shared_ptr<LiveWidget>& w) 
     if (!w) return;
     w->state |= kFocus | kPrelight; // the faces of a focused widget test either bit
     scroll_into_view(*w);
+    widget_focus_entered(*this, *w);
     auto event = std::make_shared<Object>("MFocusEnterEvent");
     event->set("widget", widget_value(w)), event->set("context", render_context_);
     bubble_now(*w, "onFocusEnter", {render_context_, object_value(event)});

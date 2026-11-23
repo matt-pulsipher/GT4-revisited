@@ -180,6 +180,9 @@ public:
     void finish();
     void navigate_sound(LiveWidget& page);
     void push_event(const script::Value& event);
+    // A widget's script function queued as an event (run after the event being dispatched);
+    // nothing when the widget has no such function.
+    void queue_call(LiveWidget& w, const std::string& name, std::vector<script::Value> args);
     void flush_key_events();
     void enter_event_loop();
     void leave_event_loop();
@@ -253,6 +256,7 @@ private:
     std::vector<std::weak_ptr<script::Heap>> actors_;
     std::vector<std::shared_ptr<Object>> watchers_;
     std::deque<std::shared_ptr<Object>> due_watchers_;
+    u64 watchers_turn_ = ~u64(0); // the frame whose loop turn has stepped the watchers
     std::deque<std::string> log_;
     std::vector<SoundCall> sounds_;
     u64 frame_ = 0, last_input_frame_ = 0;
