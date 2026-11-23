@@ -182,6 +182,7 @@ SoundListener listener_at(const race::CarState& car, SoundListener::Kind kind) {
 CarSoundState sound_state(const race::CarState& car) {
     CarSoundState s;
     s.position = car.position, s.velocity = car.velocity;
+    s.course_distance = car.course_v;
     s.rpm = car.engine_rpm;
     s.throttle = car.throttle;
     s.speed = car.speed;

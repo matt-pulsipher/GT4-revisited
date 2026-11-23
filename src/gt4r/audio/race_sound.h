@@ -1,0 +1,137 @@
+#pragma once
+
+// A race's sound, everything the Drive screen hears (docs/formats/sound.md "A race's sound"):
+// every car's sounds (car_sound.h) at the race's master level, the course's ambience, tunnels and
+// reverb (course_sound.h), the count's beeps and the race's music.
+//
+//   audio::RaceSound sound(vfs, mixer, app_sound.driver(), app_sound.library_ptr(), tables, streams);
+//   sound.add_car("nsx_r_02");  ...                         (in grid order)
+//   sound.set_course(course.section(course::kSlotSound), runway);
+//   each step:   sound.update(session, camera, target_car)  (or update(states, camera, target))
+//   the count:   sound.count(frames_left) every step of it  (3, 2, 1 beep; at 0 the start)
+//   events:      sound.contact(car, kind, force), sound.finish(), sound.pause(true / false)
+//
+// The master level of the race's effects is the race effects option (on / off, 0..128 of 128)
+// x the mix table's race level for the output mode x a fade (in over 0.3 s as the race begins).
+
+#include "gt4r/audio/car_sound.h"
+#include "gt4r/audio/course_sound.h"
+#include "gt4r/audio/menu_sound.h"
+
+#include <memory>
+#include <span>
+#include <string>
+#include <vector>
+
+namespace gt4r::course {
+struct Runway;
+}
+namespace gt4r::sim {
+class Session;
+class RoadGround;
+} // namespace gt4r::sim
+
+namespace gt4r::audio {
+
+// The volume options of the game's record (raw 0..128; a new game has every flag on and 115).
+struct RaceSoundOptions {
+    bool effects_on = true, music_on = true;
+    int effects = 115, music = 115; // the race's (in a replay: the replay's pair)
+    OutputMode mode = OutputMode::Stereo;
+};
+
+// Which pair of jingles a race plays at its start and its finish (the race type sets them).
+enum class RaceMusic : u8 { Race, Championship, TimeTrial, License, Coffee, Other, Last };
+// The streamed music groups (sound_index.h) of a kind's start and finish.
+const char* race_start_group(RaceMusic kind);
+const char* race_goal_group(RaceMusic kind);
+
+class RaceSound {
+public:
+    RaceSound(gt3r::Vfs& vfs, gt3r::VoiceMixer& mixer, SoundDriver& driver, std::shared_ptr<SoundLibrary> library, const RaceSoundTables& tables,
+              StreamPlayer music = {});
+    ~RaceSound();
+    RaceSound(const RaceSound&) = delete;
+    RaceSound& operator=(const RaceSound&) = delete;
+
+    // The cars in grid order. False when the car has no engine sound (it stays silent).
+    bool add_car(const std::string& label);
+    bool add_car(int sound_id, int variant);
+    size_t cars() const { return cars_.size(); }
+    CarSound& car(size_t i) { return *cars_[i]; }
+
+    // The course's ambience emitters (its CRSS section) and road (for the tunnels and the gates).
+    void set_course(ByteSpan crss, std::shared_ptr<const course::Runway> road);
+    void set_options(const RaceSoundOptions& o);
+    void set_music_kind(RaceMusic kind) { kind_ = kind; }
+    // A helicopter's sound overhead (a replay's view from the air).
+    void set_helicopter(bool on) { helicopter_ = on; }
+
+    // One step of 1/60 s: the cars' states in grid order, the camera, and the camera's car (-1: none).
+    void update(std::span<const CarSoundState> cars, const SoundListener& camera, int target);
+    void update(const sim::Session& session, const SoundListener& camera, int target);
+    void update(std::span<const race::CarState> cars, const SoundListener& camera, int target);
+
+    // --- events ---
+    // Every step of the count with the steps left to the start: a beep at 180, 120 and 60; the
+    // start's sound and the racing music at 0.
+    void count(int frames_left);
+    void start();
+    // A contact of car `car` (the camera's car only is heard): kind 0 a wall (force N), 1 a car
+    // (its speed against ours, m/s), 2 the third kind (force); weaker than 0.2 is not heard.
+    void contact(size_t car, int kind, float force);
+    // The race's start jingle (before the count) and finish jingle.
+    void intro();
+    void finish();
+    void pause(bool paused);
+    void stop();
+    // The master's fade: toward `target` over `seconds`.
+    void fade(float target, float seconds);
+
+    // The master level now, and what the last step did.
+    float master() const { return mix_->master; }
+    const CourseSound& course() const { return course_; }
+    struct Report {
+        int beeps = 0, starts = 0;
+        std::string music; // the last stream started
+        float ambience[CourseSound::kChannels] = {};
+        float tunnel1 = 0, tunnel2 = 0, reverb = 0;
+    };
+    const Report& report() const { return report_; }
+
+private:
+    struct Held {
+        std::shared_ptr<const sound::InstBank> bank;
+        int program = -1;
+        u32 id = 0;
+    };
+    Held held(const char* name);
+    void send(Held& h, float left, float right, float pitch);
+    bool play_effect(const char* name, float level);
+    bool play_stream(const char* group, int number, bool racing);
+    float stream_level(bool racing) const;
+    void quiet_course();
+
+    gt3r::Vfs& vfs_;
+    gt3r::VoiceMixer& mixer_;
+    SoundDriver& driver_;
+    std::shared_ptr<SoundLibrary> library_;
+    StreamPlayer music_;
+    std::shared_ptr<RaceMix> mix_;
+    RaceSoundOptions options_;
+    RaceMusic kind_ = RaceMusic::Race;
+    std::vector<std::unique_ptr<CarSound>> cars_;
+    std::vector<float> contact_; // contacts waiting for the next step
+    std::vector<int> contact_kind_;
+    CourseSound course_;
+    std::shared_ptr<const course::Runway> road_;
+    std::unique_ptr<sim::RoadGround> ground_;
+    Held ambience_[CourseSound::kChannels], tunnel_[4], heri_;
+    bool helicopter_ = false, paused_ = false, racing_ = false, started_ = false;
+    float fade_ = 0, fade_target_ = 1, fade_step_ = 1.0f / 18.0f;
+    int racing_piece_ = -1;
+    s16 reverb_before_ = 0;
+    Report report_;
+};
+
+} // namespace gt4r::audio

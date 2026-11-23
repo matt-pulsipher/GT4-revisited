@@ -75,6 +75,7 @@ struct WheelSoundState {
 struct CarSoundState {
     bool live = true;                   // a car out of the session is silent
     race::Vec3 position, velocity;      // course space; metres, metres per second
+    float course_distance = 0;          // metres along the course (the crowds' gates)
     float rpm = 0;
     float throttle = 0;                 // as the engine takes it, 0..1
     // The engine's torque at these revs with the throttle open and what its friction takes:
