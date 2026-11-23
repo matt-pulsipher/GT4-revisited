@@ -3,6 +3,7 @@
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/sim/car_spec.h"
+#include "gt4r/sim/rules_start.h"
 
 #include <algorithm>
 #include <cmath>
@@ -47,6 +48,10 @@ FieldRun run_field(Disc& disc, const std::string& course, const std::vector<Fiel
     std::vector<Entry> entries;
     std::vector<std::string> cars;
     for (const FieldCar& c : field_cars) entries.push_back(c.entry), cars.push_back(c.name);
+    // A rolling start without places of its own: the race's rule (the last place 400 m before the line, 20 m apart).
+    for (size_t i = 0; i < entries.size(); ++i)
+        if (entries[i].start_speed > 0 && std::isnan(entries[i].start_distance))
+            entries[i].start_distance = float(rules::rolling_start_distance(-400, 20, int(entries.size()), int(i)));
     auto session = std::make_unique<Session>(db, program, std::make_shared<const course::Runway>(course::Runway::parse(section)), entries);
     std::vector<size_t> computer(cars.size());
     for (size_t i = 0; i < computer.size(); ++i) computer[i] = i;

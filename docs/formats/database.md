@@ -212,6 +212,10 @@ second word pair, the paint + 1 (-1: the race's choice ❓). ✔ 698 of the 709 
 | +0x08 u32, +0x0C u32 | Its parts: a `DEFAULT_PARTS` row (table 36), e.g. `df_pt_sim_levin_bzr_98` |
 | +0x10 u32, +0x14 u32 | Its settings: a `DEFAULT_PARAM` row (table 37), e.g. `df_pr_sim_levin_bzr_98` |
 
+| Table (bytes) | What |
+|---|---|
+| `DEFAULT_PARAM` (37) | An entered car's settings, copied into the equipment record as they are (0x444860): +0x00 u16 the output factor, per mille (into +0x15E, only for a record that names an `ENEMY_CARS` row); +0x02 u16 final drive (x 1000); +0x04 / +0x06 u16 front / rear ride height, mm; +0x08 / +0x0A front / rear spring (+0x09 / +0x0B unread); +0x0C / +0x0D downforce; +0x0E .. +0x10 the front differential's initial, acceleration, deceleration, +0x11 .. +0x13 the rear's; +0x14 the gearbox slider; +0x15 / +0x16 camber; +0x17 / +0x18 toe; +0x19 .. +0x20 the eight damper indices in the record's order; +0x21 / +0x22 anti-roll; +0x23 the first ASCC index; +0x24 the TCS index (✔ 37 bytes) |
+
 Labels name the event's series and the car (`gt4tgs_rr_civic_sir2_91`). A car's
 `ARCADEINFO_NORMAL` row's entries 6 and 7 are `ENEMY_CARS` rows (table 0x26), not events (✔ the
 Ford Ka '01's: rows 3627 and 4164, its six event entries -1).

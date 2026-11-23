@@ -9,8 +9,9 @@ or a run), 🔎 seen but not checked, ❓ not known.
 
 Code: `src/gt4r/formats/course/ai_line.*` (the driver files), `src/gt4r/sim/ai/course_lines.*`
 (the lines as the race prepares them), `tables.*` (the program's values), `drivers.*` (the
-drivers), `grid.*` (who races), `run.*` and `gt4tool ai` (fields run headless), and
-`src/gt4r/formats/db/race_events.*` (the events). Tests: `tests/test_ai.cpp`.
+drivers), `grid.*` (who races), `entrant.*` (an opponent's car as entered), `run.*` and `gt4tool
+ai` (fields run headless), `tools/gt4diff/ai.cpp` (against the program), and
+`src/gt4r/formats/db/race_events.*` (the events). Tests: `tests/test_ai.cpp`, `tests/test_ai_program.cpp`.
 
 ## 1. How it relates to Gran Turismo 3's
 
@@ -74,13 +75,23 @@ In the order of the table at 0x624018 (✔ 6, 0, 1, 2, 5, 3, 4, 7), for each poi
 - **The kind**: a non-zero kind becomes 1 when the radius is positive (an arc to the left), 2
   otherwise (to the right); on line 5 always 1.
 - **Line 4, points 3 .. count - 4**: moved onto the nearest pit stop of the road (RNW4 +0x90)
-  within 5 m, its heading turned half round (🔎 not done by ours).
-- **The distance** along the course (0x3955E8) at +0x14; on line 4 a lap is added from the first
-  point in the lap's first half on. A line whose distances do not rise is flagged; lines 1, 2
-  and 7 so flagged are dropped.
-- **Slope, bank and surface** (0x46A140, all lines but 5): +0x0C the height, +0x1C the slope
-  along the heading, +0x20 the bank across it, +0x12 the surface index (0x3F4E40), +0x13 the road
-  record's byte +0x32.
+  within 5 m, its heading turned half round.
+- **The distance** along the course (0x3955E8 → 0x3E6858) at +0x14: the road cluster under the
+  point (the height probe's, else a cast from 1,000 m above) lists checkpoint indices (cluster
+  +0x02 count, +0x04 first, into RNW4 +0x64); each checkpoint i and the next (i + 1, the last's
+  next the first) make two quads across the ground, (left, middle) then (middle, right) of both
+  gates. 0x3E6610 inverts a quad's bilinear map for the point (u from the gate to the next, v
+  across; a quadratic solved with one square root; false outside the four edges or for a quad of
+  no extent) and gives the point's height above the quad. Of the quads that hold the point the
+  one nearest in height wins (the search starts from 0x7FFFFFFF, the EE's largest float): the
+  distance is the gate's + (the next's − the gate's, + a lap when it falls) × u, less a lap past
+  it. On line 4 a lap is added from the first point in the lap's first half on. A line whose
+  distances do not rise is flagged; lines 1, 2 and 7 so flagged are dropped.
+- **Slope, bank and surface** (0x46A140, all lines but 5): +0x0C the height, +0x12 the surface
+  index (0x3F4E40), +0x13 the road record's byte +0x32; +0x1C the slope and +0x20 the bank from
+  four road probes (0x46A0C8) half a metre ahead, behind, left and right of the point along its
+  heading: atan2(ahead − behind, 1), or with one probe off the road atan2 of the other against
+  the point's own height over 0.5; the bank the same with left and right (+ the left side higher).
 - Then each point's stretch to the next (+0x2C: the chord, or |r| x the heading's turn on an
   arc), the rise to the next point (+0x30) and its pitch atan2(rise, length) (+0x34); and +0x28
   = 1, a **crest**, where the pitch falls by more than a degree from the last point's.
@@ -116,13 +127,19 @@ into the parameter block PB:
 
 D +0xB8 / +0xBC / +0xC0 (corner, braking and alongside multipliers) start at 1.
 
+✔ The program builds them in its own arithmetic (whole numbers converted, then x 0.01 =
+0x3C23D70A, / 3.6 as x 0x3E8E38E3, degrees as x 0x3C8EFA34, the percent divisions by 100.0):
+ours are bit for bit the program's on every car checked (`gt4r_diff ai`, §10).
+
 ✔ Every one of the 110 files has its four sets. Tsukuba's: braking 110 %, arcs 100 %, look ahead
 3 .. 25 m to 140 km/h, yaw byte 40 (gain 2.0), steering 90 degrees/s, pit speed 80 km/h, the
 straight bonus 10 degrees / 30 km/h.
 
 ### 3.2 The tuning block (0x468EE8 → 0x623E50, from the bytes S at 0x623FB8)
 
-Built at every car's setup; ✔ the US program's values:
+Built at every car's setup (0x469440), the spreads' two switches after it from S[0x38] / S[0x3F]
+(0x469468; 0x468EE8 itself clears them); tenths are x 0x3DCCCCCC, hundredths x 0x3C23D70A, the
+tables' points / 100.0. ✔ The US program's values (read in the running game's memory too):
 
 | | | value |
 |---|---|---|
@@ -169,9 +186,21 @@ square roots as GT3 (ai §4.2) with the aero term: v = √(a q), q = PB+0x70 v²
 (0 from a crest point). The scale PB+0x04 x the corner multiplier (D +0xB8, plus the random
 spread for a computer car), x (1 - 5 %) with a car alongside (zone cells left, right, front left
 or right); the offset PB+0x08 + the point's speed byte / 3.6; x T+0x158's factor on tire class 0.
-The speed is clamped to 20 km/h .. the car's top speed.
+The speed is the car's top speed (P +0xFD8) when above it, else at least 20 km/h (0x40B1C71B). The
+tire records are Gran Turismo 4's (P +0x410 + 0x1EC r, 24 surfaces): the front's is wheel layout
+byte +0x0C's, the rear's +0x0D's (0x360F80). ✔ Ours runs in the program's arithmetic and equals
+its result at every call where the line point's own values do (§10).
 
 ### 4.3 Braking (0x463EA8)
+
+✔ Ported in the program's arithmetic; equal at every call checked (§10). In detail: the grip is the
+front record's (layout +0x0C) grip on the point's surface x the class grip x the load curve at
+(P +0x103C x 0.5) / the axle's width (layout +0x10's) x the record's braking peak x P +0xFF4's (the
+same axle), then off the pit lane x the steered wheels' mean wear grip; coefficient
+max(P +0x101C, 1 / (2 x (μ 9.8 ((q_h + e) + (q_l + e))) x 0.5)) x (1 − sin slope); a pad car adds its
+speed; x max(0.1, 1 + adjustment x 0.01); the follow chain, contact (+10 m) and the followed car's
+braking (+8 m) only for a computer car outside the cooldown; the status-1 margin is 0x469490's
+25 m.
 
 As GT3's (ai §4.3) but: the braking factor kb = PB+0x00 x the braking multiplier (plus its random
 spread) **divides** the distance when above 1 (GT3 multiplied below 1); the braking grip takes
@@ -197,7 +226,12 @@ with the old line as GT3's, the blend running off by distance (T[4]).
 
 ### 5.2 Recovery, steering, throttle
 
-As GT3's (ai §5-§7), with: the state machine rests 180 steps (D +0x6B) after a change; turning
+As GT3's (ai §5-§7), with: the yaw-rate steering's gain PB+0x0C scaled by T[2] (on in this
+program) by clamp((a_max − F+0x46C) / a_max, −1, 1), a_max the steered wheels' mean peak slip angle
+(their tire records' +0xB8, the wheels whose layout byte +0x3C is above 0) and F+0x46C their mean
+slip angle: the gain falls to nothing as the front reaches its peak (✔ without it our drivers
+steer up to five times the program's angle into the first corner and scrub off 15 km/h); the
+non-driving branch's eps x 1.4999998 (0x3FBFFFFE); the state machine rests 180 steps (D +0x6B) after a change; turning
 round towards 50 km/h; the yaw-rate steering on GT4's car fields; a pad car's driver ends after
 the aim. The saturation's throttle cut and brake (0x620DE7) is ✔ off in the US program.
 Following a car (D +0x51): the next speed is the car's less 20 km/h (braking), 15 (an arc's
@@ -248,24 +282,68 @@ copies the row into its configuration block (0x35E108, the conductor's +0xF818, 
 opponents: the event's pool (`RACES/<35, row>`: ENEMY_CARS rows, each a car, its parts and its
 settings); RaceInformation::vf15 (0x3BB5A8) draws one entry per opponent place at random from the
 race's generator (0x621AE8), the next undrawn one from there, skipping cars the race may not use
-(0x448C10 ❓ which); 0x4474B0 gives the place its car and the pool's paint word (less one; -1 the
-race's choice ❓).
+(0x448C10 ❓ which).
+
+**A place's car** (0x4474B0 → 0x444440 → 0x444690 for an `ENEMY_CARS` id, table 0x26; any other id
+0x444480, the car as sold): the record cleared, the row's car at +0x00, **the `ENEMY_CARS` id itself
+at +0x08** (-1 for a car as sold), the row's `DEFAULT_PARTS` set's 26 parts in their places, each
+part's default settings (0x4449C0), the paints' id, then the row's `DEFAULT_PARAM` settings
+(0x444860, copied as they are; the output factor only when +0x08 names a row, 0x445B78), then a
+computed gearbox's ratios from the settings' slider (0x443240). The layout of `DEFAULT_PARAM` is
+in [formats/database.md](../formats/database.md). ✔ All 2,558 rows build; 2,078 carry other parts
+than the car as sold, 766 other settings, 560 another power (e.g. the North American series' BMW
+M3 '04: 400 PS at an output factor of 1,150 against 344 as sold; `gt4tool ai entrants`).
+
+**The paint** (0x445880): the pool entry's second word less one is the place's paint when the car
+has that many (+0x18); -1 (a word of 0) leaves 0xFF, **the race's choice** (0x40AA48 after the
+draw): for each such car, its paints (0x445828: the car's paint rows, less the last when the car
+table hides it) each get a weight 1, 0.984375, 0.984375² .., divided by 1 + the sum over every
+other car's candidates of their colour likeness (0x40A338) — ^64 x 10,000 for a car whose paint is
+already fixed — normalised; the paint is drawn from the race's generator by those weights: a car
+avoids the colours already on the grid. ❓ 0x40A338's likeness (not read).
+
+**The per-car start delay** (missions): the race keeps per place 0..5 the row's bytes +0x91,
++0x8C .. +0x90 (0x447828) as seconds at CFG +0x60 + 2 i (s16); ✔ only the ten "catch the cars ahead"
+missions (usl0m0025 .. 0034) set them (e.g. 35, 0, 4, 11, 16, 19). The decision lengthens the
+start's long look ahead by them (5 s + delay); 🔎 the cars' held start itself is elsewhere (not
+found).
+
+**The reference race** (03-race, Arcade, Ford Ka '01 at Tsukuba): the Ka has no Arcade event rows,
+so the race is `sample_entry_6` (every percent 100, no rubber band) with opponents the menu's
+script picks by power (`PickUpEnemyCars`) and enters by their car labels: ✔ in the saved states
+their equipment records equal our cars as sold byte for byte (+0x08 -1), the arcade's tire class
+at +0x160 / +0x161 (4: sports medium, applied by RaceArcade::vf92 when +0x165 is set) their own.
+The drivers' parameter blocks in those states equal ours (the yaw spread 2.06 / 1.94 / 2.0 by grid
+index, multipliers 1.0).
+
+**B-spec's shift speeds** (0x36BEE0 / 0x36BF28 → 0x3F1E30): the gearbox's up- and down-shift speeds
+x the driver object's byte +0x6F (car +0x83) / 128, only for a car of control source 1 (the
+player's car with a computer driver: B-spec); the opponents (source 2) shift at the gearbox's own.
 
 ## 9. What our drivers run
 
-All of §2 to §7 in host floats (not the program's arithmetic), per step in this order: the order
+The parameters (§3.1, §3.3), the tuning block (§3.2), an arc's speed (§4.2) and the braking routine
+(§4.3) in the program's arithmetic (`gt3r::ee::F`); the lines' distances, slopes and banks as §2.2;
+the rest of the decision, the traffic and the rubber band still in host floats. Per step: the order
 by distance, the rubber band's scales, the pairs pass, then per driven car the recovery's contact
-flags, the decision and the outputs. Departures:
+flags, the decision and the outputs. The cars are read through `ai::Cars` (a session's, or another
+race's for checks). Departures:
 
-- **The steering** goes to the session as a road-wheel angle (`race::CarInput::steer_angle`, the
-  session's seam): the program writes the command directly, past the pad's lock curve.
-- **The collision flags** (the collision step's front and rear hits, GT3's +0x434 / +0x438) are
-  not public: a wall within the body's ends or a car overlapping stands for them.
+- **The outputs** go to the session as the program's 0x464F38 writes them (`race::CarInput::computer`:
+  throttle and brake pedals, reverse, the gearbox's lock, the clutch engaged; the pad's path not
+  run), the steering as the road-wheel command (`steer_angle`).
+- **The collision flags**: from the cars when they give them (the program's own in `gt4r_diff`), else
+  a wall within the body's ends or a car overlapping.
 - **The time scale** of the rubber band is computed (`Field::time_scale`) but the session does
-  not apply it (an engine change: a per-car step length).
+  not apply it: it needs a per-car step length (the engine's record has `time_scale`; the session no
+  setter).
+- **The road's heights** come from our road query in host floats: some line points' heights, slopes
+  and banks differ from the program's in their last bits, and so then do the arcs' speeds there.
 - Not done: the pit lane and the stop (lines 3 and 4 are prepared, never asked for), the stop
-  driver and the end of a run, B-spec's commands, the line-5 records, the start's per-car delay,
-  the pit-stop snapping of line 4, the two ❓ flags of §4.2.
+  driver and the end of a run, B-spec's commands and shift speeds, the line-5 records, the start's
+  per-car delay, the aero bonus (P +0x1077 / +0x1084 not mirrored: 0), the two ❓ flags of §4.2
+  (P +0x104A, F +0x5C2: 0 on every car checked), the arcs' grip with tire wear on, T+0x158's factor
+  (1 throughout in this program).
 - Without the mapped program (Prologue, another release) the drivers run with neutral values: no
   spreads, no offset of the aim, a fallback of the passing lines to the main line. Prologue's
   disc has no driver files (`crs/*.ad`): its courses carry the lines and sets in slots 31 and
@@ -273,16 +351,32 @@ flags, the decision and the outputs. Departures:
 
 ## 10. Checks
 
-`gt4tool ai <disc> <course> [cars] [laps]` runs a field and prints each car's laps and incidents;
-`trace=<car>` prints a car's plan every half second; `lines`, `survey`, `events`, `event`, `race`
-the data. Results (US disc, from rest, cars as sold):
+`gt4tool ai <disc> <course> [cars] [laps] [rolling=<km/h>] [trace=<car>]` runs a field and prints
+each car's laps and incidents (a rolling start at the race's rule: the last place 400 m before the
+line, 20 m apart); `lines`, `survey`, `events`, `event`, `race <label>` (the pool's parts and
+settings; `stock` as sold), `entrant <enemy>`, `entrants`, `equipment <label>` the data.
 
+`gt4r_diff <disc> ai [course] [cars] [laps]` runs **the program's own race** in the interpreter with
+**the program's own drivers** (the course's driver file in the course object's +0x9C / +0xA0, the
+conductor's rubber band off: without the event row its constructor's values hurry every car behind
+car 0 by up to 10 %), and prints each car's laps. `GT4R_AI_OURS=1`: our drivers instead, on the
+program's cars and physics (the decision 0x465078 replaced by ours; `ai::Cars` over the program's
+records). `GT4R_AI_CHECK=1`: the prepared lines, every driver's parameters, every line point's
+speed (0x4674F0) every 2 s and the braking routine (0x463EA8) every 4 steps against ours, from the
+program's driver state, bit for bit. Results at Tsukuba (US disc):
+
+- ✔ Parameters, braking (multiplier, status, mode, point), the lines' distances, kinds, surfaces
+  and crests equal at every call; the arcs' speeds equal but where a point's road height differs in
+  its last bits (§9).
+- ✔ **Our drivers on the program's physics lap as the program's drivers** (from a standing start,
+  three laps, best of the flying laps, s; the program's / ours): Beetle 1100 90.8 / 90.5, Z 97.5 /
+  95.0, N360 99.5 / 99.7, Midget II 91.7 / 91.2, S500 89.0 / 88.9, Ka 83.2 / 83.1. The program's
+  times reproduce the reference race's gaps (03-race: N360 and Z some 17 s behind the Beetle in two
+  laps, the S500 stuck behind the Beetle).
+- **On our own simulation** the same field laps Beetle 92.6, Z 93.6, N360 97.6, Midget 93.6, S500
+  91.8, Ka 88.3 (two laps from a rolling start: Beetle 3'07.9 against the reference's 3'04.5, N360
+  3'21.6 against 3'21.4, Z 3'14.3 against 3'22.1): the remaining differences are the simulation's
+  (the S500 alone: 89.2 s on the program's physics, 92 .. 97 s on ours, lost in the slow corners,
+  where our car's least speeds are 8 .. 18 km/h lower).
 - ✔ Six small cars finish three laps of Tsukuba (circuit), Seattle (city) and Grand Canyon (dirt)
-  with no car standing still, 0 .. 9 wall contacts each.
-- ✔ Tsukuba best laps by class: Beetle 1100 '49 102.0 s, Ka '01 93.9 s, Civic Type R '98 81.7 s,
-  Lancer Evolution VIII '03 73.7 s.
-- Against the original (`~/gt4re-out/reference` 03-race: the same five opponents at Tsukuba,
-  rolling start, two laps, the winner 3'04.462, laps about 92 to 101 s): ours lap in 100 to 104 s,
-  some 5 to 10 % slower, and the order differs (the original's Beetle wins; ours are within 4 s
-  of each other). ❓ Whether the original's opponents carry their pool's parts and settings (ours
-  run as sold) and the physics' share of the gap.
+  with no car standing still.
