@@ -21,7 +21,9 @@ struct StrobeMovie {
         float rotation = 0, skew = 0, sx = 1, sy = 1, x = 0, y = 0;
         u32 mul = 0x80808080, add = 0; // 0xAABBGGRR, 0x80 = x1
     };
-    enum TrackKind : u16 { kSprite = 2, kText = 5, kButton = 6 }; // anything else: a shape
+    // 7: a picture the program supplies by the instance's name ("_EXT_CARICON1": a car's icon);
+    // anything else: a shape.
+    enum TrackKind : u16 { kSprite = 2, kText = 5, kButton = 6, kExternal = 7 };
     struct Track {
         u16 kind = 0;
         int first = 0, end = 0; // frames [first, end)
@@ -122,6 +124,7 @@ public:
         const StrobeMovie::Shape::Group* group = nullptr;
         const StrobeMovie::TextField* text = nullptr;
         std::string words;    // a text field's text now
+        std::string external; // a picture the host draws (its instance's name, else its clip's, else "_EXT"), centred on the origin
         float m[6] = {1, 0, 0, 1, 0, 0}; // x' = m0 x + m2 y + m4, y' = m1 x + m3 y + m5 (canvas units)
         float mul[4] = {1, 1, 1, 1}, add[4] = {0, 0, 0, 0}; // colour = c x mul + add (0..1)
     };

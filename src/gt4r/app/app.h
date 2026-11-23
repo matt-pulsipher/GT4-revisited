@@ -114,6 +114,7 @@ private:
     std::vector<std::string> keys_;     // --keys: scripted menu presses (tests, pictures)
     size_t key_ = 0;
     int key_frames_ = 0;
+    std::string key_shot_;              // a "shot:<name>" key reached: saved beside --shot after this frame
 };
 
 // The folder of the config file and mods: GT4R_DATA_DIR, else the executable's folder when it

@@ -283,7 +283,8 @@ the full scenery.
   the buffer 64 x 64; on wet Tsukuba it is 28 models, 256 x 128 with 2 blur passes; Grand
   Valley's is one model and a slot 50 sky.
 - Mirrored cars (flag bit 16) and lamp streaks (bit 17, the picture of slot 40) go in, then the
-  blur passes (+0xC2C).
+  blur passes (+0xC2C). The race view mirrors each car (but the in-car view's own) in the plane
+  through its tires' contacts (`CarVisual::add_mirror_items`, as the shared engine's).
 - The buffer is put on the road with the blend mode +0xC20 and the color (+0xC10, +0xC14,
   +0xC18) x +0xC1C (gain 0.5 on 74 courses; dry Tsukuba 1 1 1 x 0.5, wet Tsukuba 0.9 0.9 0.85
   x 1.0 with mode 0x54).
@@ -403,6 +404,13 @@ three cells x, y, z: a person's place):
 Used by the people of 19 loose-surface and city courses (assisi, capri, grandcanyon, icerace,
 nursnow, paris_rally, tahiti_maze, yosemite_dirt, lasvegas and their variants).
 
+**Camera flashes.** On grandcanyon (and the other people's courses) a spectator's camera flash is
+an animated model of its own: a 64 x 64 picture of a star on black on a quad, drawn with GS ALPHA
+0x48 (Cs x As + Cd: added to what is behind), the person's script picking its key. Drawn as an
+ordinary blend it shows as a black square with a star in it (the Drive screen's "black square
+near the horizon"); the race view adds those models' blended passes
+(`race/animated_models.cpp`; the shared engine's model decode adds ALPHA 0x48 for cars only).
+
 ### Examples
 
 - **Tsukuba's 19 flags** (slot 1 models 347-365, a draw script each): t = fmod(`time` / 1000 +
@@ -477,6 +485,20 @@ have two (a disc of 62 vertices, 0.40 x 0.44, edge alpha 0, and a smaller one of
 🔎 The draw rules (screen test, attenuation, the 100-lamp limit, the halo) are the shared
 engine's by the function map (the routines match Gran Turismo 3's with small edits); they were
 not re-derived for this game, and see "The picture's scale" for their strength.
+
+## Cones and boards: `GDGT` (slot 47) and the road's gadget records
+
+Code: `race/gadgets.*`, drawn by `course_scene.cpp`. The road file lists where they stand (RNW4
++0x44 u16 count, +0x70 -> 0x20 bytes each): `u32 kind, u32 0, f32 x, y, z, f32 a, b, c` (the
+Euler angles of the shared engine's pylon records: Tsukuba's 18 cones turned by b only). The
+`GDGT` block: `"GDGT"`, +0x08 u32 (0x102AD on tsukuba ❓), +0x10 u32 0x400 (where the models
+start), +0x1C u32 the kinds (6); from +0x20 a kind each 0xA0 bytes: u8 its number, u8 0, u8 2
+❓, u8 the hull's points (8 for the boards, 5 for the cone), f32 x3 inertia, the hull's points
+from +0x10 (x, y, z, w = 1), +0x90 f32 radius, +0x94 f32 mass; then at +0x400 an `MDLS` of
+2 x kinds models (🔎 model 2k a kind's shape, 2k + 1 its shadow, as the shared engine's pylon
+sets), then its pictures. The cone (kind 5): radius 0.59 m, 15 kg. The race view draws each
+kind's shape where the road puts it (within 400 m); ❓ the shadows, and the cars knocking them
+over (the shared engine's pylon physics) are not done.
 
 ## Road: `RNW4` (slot 55)
 

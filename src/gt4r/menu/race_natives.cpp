@@ -4,6 +4,8 @@
 #include "gt4r/menu/race_natives.h"
 
 #include "gt4r/menu/game.h"
+#include "gt4r/menu/game_internal.h"
+#include "gt4r/sim/car_spec.h"
 #include "gt4r/menu/native.h"
 #include "gt4r/menu/runtime.h"
 #include "gt4r/menu/runtime_internal.h"
@@ -11,6 +13,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <map>
 
 namespace gt4r::menu {
 
@@ -21,12 +24,10 @@ using script::Vm;
 
 namespace {
 
-Value text(const std::string& s) { return Value::string(s); }
-Value number(s32 v) { return Value::integer(v); }
 
 // A time in ms as the quick pages write it: M'SS.mmm, with hours H:MM'SS.mmm; no time: the
 // font's dashes (character 0x7F).
-std::string time_text(s32 ms) {
+std::string quick_time_text(s32 ms) {
     if (ms < 0 || ms == QuickWork::kNoTime) return "\x7F\x7F'\x7F\x7F.\x7F\x7F\x7F";
     char b[40];
     if (ms >= 3600000) std::snprintf(b, sizeof b, "%d:%02d'%02d.%03d", ms / 3600000, (ms / 60000) % 60, (ms / 1000) % 60, ms % 1000);
@@ -34,7 +35,57 @@ std::string time_text(s32 ms) {
     return b;
 }
 
+// A grid car's power and weight as the race's car is built (ShowRoomCar 0x364E90: the built car's
+// power float, truncated; 0x364FA8 its weight): the car as sold. The power is 0 (written "--")
+// when the car's row hides its figures (GENERIC_CAR +0x12 bit 3, 0x4489A0).
+struct RowFigures {
+    int power = 0, weight = 0;
+    bool known = false;
+};
+RowFigures row_figures(Runtime& rt, const std::string& label) {
+    static std::map<std::string, RowFigures> cache; // ❓ one disc a run: the cars' figures do not change
+    if (const auto it = cache.find(label); it != cache.end()) return it->second;
+    RowFigures f;
+    try {
+        if (std::shared_ptr<GameNatives> n = natives_of(rt)) {
+            Database& d = n->db();
+            sim::Equipment eq;
+            if (d.db && sim::stock_car(*d.db, d.program, label, eq)) {
+                sim::Spec spec;
+                sim::build_spec(*d.db, d.program, eq, 0, spec);
+                const sim::SpecFigures fig = sim::spec_figures(spec);
+                f.power = int(fig.ps); // toward zero, as the program's conversion
+                f.weight = spec.weight_kg();
+                f.known = true;
+                const db::Table* t = d.db->table("GENERIC_CAR");
+                const ByteSpan car = t ? t->row(u32(eq.bytes[0]) | u32(eq.bytes[1]) << 8 | u32(eq.bytes[2]) << 16 | u32(eq.bytes[3]) << 24) : ByteSpan{};
+                if (car.size() > 0x12 && (car[0x12] & 8)) f.power = 0;
+            }
+        }
+    } catch (const std::exception&) {
+    }
+    cache[label] = f;
+    return f;
+}
+
 } // namespace
+
+void fill_player_car(Runtime& rt, QuickWork& w, const std::string& label) {
+    w.player_car = label;
+    try {
+        std::shared_ptr<GameNatives> n = natives_of(rt);
+        if (!n) return;
+        Database& d = n->db();
+        const ByteSpan car = d.row("GENERIC_CAR", label);
+        if (car.size() > 0x11) {
+            w.set("carCategory", s32(car[0x11] % 100));
+            w.set("carYear", s32(s16(u16(car[0x0C] | car[0x0D] << 8))));
+        }
+        const int t = d.spec(label).drivetrain;
+        w.set("driveTrainType", t >= 0 && t < 5 ? t : -1);
+    } catch (const std::exception&) {
+    }
+}
 
 const std::vector<std::string>& QuickWork::command_names() {
     static const std::vector<std::string> names = {
@@ -98,7 +149,7 @@ void install_race_natives(Runtime& rt, script::Module& menu) {
             const std::string n = name;
             const bool times = n == "goldTime" || n == "silverTime" || n == "bronzeTime";
             if (times) {
-                o->property(n, [work, n] { return text(time_text(work().get(n))); });
+                o->property(n, [work, n] { return text(quick_time_text(work().get(n))); });
                 continue;
             }
             o->property(n, [work, n] { return number(work().get(n)); }, [work, n](const Value& v) {
@@ -145,20 +196,19 @@ void install_race_natives(Runtime& rt, script::Module& menu) {
             return Value::array(std::move(words));
         });
         // The catalog's power (PS) and weight of a row's car when the sequence gave none.
-        o->method("getPower", [r, row](Vm& vm, const Value&, Args a) {
+        // The power (PS, whole) and weight of a row's car as the race builds it, when the sequence
+        // gave none.
+        o->method("getPower", [r, row](Vm&, const Value&, Args a) {
             const QuickRow* q = row(a);
             if (!q) return number(0);
             if (q->power >= 0 || q->car.empty()) return number(std::max(0, q->power));
-            const Value ps = vm.call(vm.attribute(make_car_object(*r, q->car, q->paint), "getCatPs"), {});
-            const float factor = r->game().power_unit().factor;
-            return number(ps.is_number() && factor > 0 ? s32(std::lround(ps.as_float() / factor)) : 0);
+            return number(row_figures(*r, q->car).power);
         });
-        o->method("getWeight", [r, row](Vm& vm, const Value&, Args a) {
+        o->method("getWeight", [r, row](Vm&, const Value&, Args a) {
             const QuickRow* q = row(a);
             if (!q) return number(0);
             if (q->weight >= 0 || q->car.empty()) return number(std::max(0, q->weight));
-            const Value kg = vm.call(vm.attribute(make_car_object(*r, q->car, q->paint), "getCatMs"), {});
-            return number(kg.is_number() ? s32(kg.as_float()) : 0);
+            return number(row_figures(*r, q->car).weight);
         });
         o->method("getTireType", [row](Vm&, const Value&, Args a) { const QuickRow* q = row(a); return number(q ? q->tire : 0); });
         o->method("getGridTime", [row](Vm&, const Value&, Args a) { const QuickRow* q = row(a); return number(q ? s32(q->time_ms) : QuickWork::kNoTime); });

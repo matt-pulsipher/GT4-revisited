@@ -11,6 +11,7 @@
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/formats/course/runway.h"
 #include "gt4r/race/animated_models.h"
+#include "gt4r/race/gadgets.h"
 #include "race/occluder.h"
 #include "race/scenery_fade.h"
 #include "race/sun_glare.h"
@@ -67,6 +68,8 @@ public:
     // The picture's scale (Env0 +0x38): the factor already put on the models' stored colors.
     float color_scale() const { return color_scale_; }
     const course::Runway& road() const { return road_; }
+    // The cones and boards where the road file puts them (still: ❓ the program knocks them about).
+    const Gadgets& gadgets() const { return gadgets_; }
     // Opaque scenery and backdrop triangles, for sight tests (the sun's glare, the lamp glows).
     const gt3r::race::Occluder& occluder() const { return occluder_; }
     // The sections other parts of the race view read (copies of the file's bytes; empty: none).
@@ -97,6 +100,9 @@ private:
     float reflection_gain_ = 1;
     std::unique_ptr<render::GpuModel> reflection_sky_;
     std::unique_ptr<render::GpuModel> scenery_, after_, backdrop_, sky_, mirror_sky_, env_scenery_, env_sky_;
+    Gadgets gadgets_;
+    std::unique_ptr<render::GpuModel> gadget_model_;
+    std::vector<std::vector<u16>> gadget_nodes_; // per kind: its shape's model
     std::array<gt3r::course::Visibility, 2> vis_; // slot 1's lists per View
     gt3r::course::Visibility env_vis_;            // slot 5's
     gt3r::race::Occluder occluder_;

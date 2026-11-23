@@ -196,11 +196,16 @@ pick a new random target in -1..1 and move 0.4 x strength of the way to it each 
 (🔎 half of one, twice the other: body movement). Mount 6 has bit 2 set: it is steady.
 Looking back is defined for view 6 only: the mount's yaw + 180, its pitch and roll negated.
 
-### The rear-view mirror ❓
+### The rear-view mirror 🔎
 
-Not investigated. The on-board camera publishes the view's turn (the sideways angle, + 180
-while looking back), and the course has visibility lists and a sky for the mirror
-([course.md](course.md), slots 3 and 24).
+The original's default (nose) view shows it at the top of the picture, (190, 18) 259 x 63 of the
+640 x 480 frame, with a thin light edge (measured on its in-car view); the chase view and the
+higher view have none. The course has visibility lists, a sky and fog for it ([course.md](course.md),
+slots 3 and 24, Env0 +0xA90; drawing step 9). Here (`RaceWorld::render_mirror`) it is the in-car
+view seen backward and mirrored, the course by its mirror lists, sky and fog, the other cars, 120 m
+deep, the in-car view's angle zoomed 1.3 times. ❓ The program's own mirror camera (its lens, depth
+and place) was not read: the on-board camera publishes the view's turn (the sideways angle, + 180
+while looking back).
 
 ## Replay cameras: `REP4` (course slots 44, 45, 46, 48)
 
@@ -290,14 +295,30 @@ words (0 on all but a few), f32 field of view (30; 90 on 55), two zero words.
 On the disc (slot 44): 4 (4,709 records), 0x104 (705), 0 (538), 0x204 (361), 0x100, 0x304,
 0x404, 0x200, 0x400 (a few each).
 
-**The shot** each frame: the camera's place from the three curves at t; the aim at the target,
-moved by the picture offsets (offset x field of view / 2), then passed through the operator's
-filter (the shared engine's `course_camera_aim`; GT4 adds the two per-record curves at 0x64 /
-0x68); roll from its curve; the field of view through a spring of its own; focus on the target
-(its distance + 0.7 m when it is the car).
+**The shot** each frame (`CameraDesigner::vf10` 0x37C138; `race/replay_script.cpp`
+`ReplayCamera`): the camera's place from the three curves at t; the target (the car + 0.4 m or the
+look-at curves); pitch = -atan2(dy, |dxz|), yaw = 180 - atan2(dx, dz) in degrees. The lens
+angle F (clamped to the record's limits) goes through a spring (k 100, c 20; falling at most 150,
+rising at most 100 degrees a second) and is used as F' = max(1, F / zoom). Then yaw -= across x F'
+/ 2 and pitch += up x F' / 2, the two picture offsets (curves +0x50 / +0x54) each through a
+spring (k 70, c 20, slew 2 a second, at most 150 a second); a car shot also lowers the aim by
+0.15 F' cos(pitch) (the car sits below the middle, 0x36EBE8). **A car shot's yaw and pitch go
+through the aim dampers** (0x384E58 / 0x384EE8): the target led by five frames of its motion
+(error = wrap180(target - out) + 5 x its last step), v += (600 n error g - 60 v) / 60, out +=
+v / 60, with g = the follow gain (curves +0x68 yaw, +0x64 pitch: 1 on most records, each
+through a spring k 50, c 20, slew 1.5 a second, at most 100 a second) clamped to 0..1, and n = 1
+when the gain is over 1, else 0.6 + 0.9 x a slow random hand (a value moving by a spring toward a
+random target that changes now and then: 0x384C48). The roll (curve +0x6C) x a random share drawn
+at the cut (1 with kind 0x400) through a spring (k 300, c 40) for a car shot. **At a cut** every
+spring starts on its value and the dampers on their target: the shot starts exactly aimed. The
+view: roll about z, pitch about x, yaw about y, then the eye. Focus on the target (its distance
++ 0.7 m when it is the car).
 
 **Record +0x18**: the dissolve in seconds when the shot ends (`CameraDesigner::vf25`
-0x37C9C8; 0.5 on every record of slot 48). 🔎 How the program blends the two pictures.
+0x37C9C8; 0.5 on every record of slot 48; 0 on most of slot 44's), handed up as the cut's
+dissolve. Here the last picture shown before the cut is frozen and drawn over the new shot at a
+weight falling from 1 to 0 over those seconds (the shared engine's dissolve pass); 🔎 the
+program's own blend was not read.
 
 **Which record** (0x3FD980 -> 0x396078 -> 0x3DDFF0): D at or past T wraps by the period; a
 binary search finds the **last record with start <= D**, taken only if D < its end (records are

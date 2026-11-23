@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 
 namespace gt4r::menu {
 
@@ -1207,7 +1208,13 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
                 w->set_property("value", Value::string({}));
                 return Value{};
             });
-        if (n == "attach" || n == "resetAction") return nothing();
+        // attach(): the tip shows the focused widget's tool tip from then on (its `tooltip_key`).
+        if (n == "attach")
+            return fn([w](Vm&, const Value&, Args) {
+                w->set_property("attached", Value::integer(1));
+                return Value{};
+            });
+        if (n == "resetAction") return nothing();
     }
 
     if (type == "ImageFace" || type == "FrameImageFace" || type == "ColorChipFace" || type == "CarFace") {
@@ -1325,7 +1332,40 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
             if (n == m) return nothing();
     }
     if (type == "TextBoxFace" && n == "clear") return nothing();
-    if ((type == "FlashFace" && (n == "reset" || n == "getFlashPath" || n == "setFlashPath")) || (type == "GraphFace" && n == "changePoints")) return nothing();
+    if (type == "FlashFace") {
+        // reset(t): the movie from t seconds (0x292170): counted by the drawer from now.
+        if (n == "reset")
+            return fn([w](Vm&, const Value&, Args a) {
+                w->set_property("flash_restarts", Value::integer(int(w->data.number("flash_restarts")) + 1));
+                w->set_property("flash_restart_at", Value::number(a.empty() || !a[0].is_number() ? 0.0f : a[0].as_float()));
+                return Value{};
+            });
+        if (n == "getFlashPath") return fn([w](Vm&, const Value&, Args) { return w->get("flash_path"); });
+        if (n == "setFlashPath")
+            return fn([w](Vm&, const Value&, Args a) {
+                if (!a.empty()) w->set_property("flash_path", a.back());
+                return Value{};
+            });
+    }
+    if (type == "GraphFace" && n == "changePoints")
+        // changePoints(pairs, start = 0): points from `start` replaced, as many as there are.
+        return fn([w](Vm&, const Value&, Args a) {
+            Property* p = nullptr;
+            for (Property& q : w->data.properties)
+                if (q.name == "points") p = &q;
+            const std::vector<Value>* pairs = a.empty() ? nullptr : a[0].items();
+            if (!p || !pairs) return Value{};
+            const size_t start = a.size() > 1 && a[1].is_number() ? size_t(std::max(0.0f, a[1].as_float())) : 0;
+            for (size_t i = 0; i < pairs->size() && 2 * (start + i) + 1 < p->values.size(); ++i)
+                if (const std::vector<Value>* xy = (*pairs)[i].items(); xy && xy->size() >= 2) {
+                    char b[32];
+                    std::snprintf(b, sizeof b, "%g", double((*xy)[0].as_float()));
+                    p->values[2 * (start + i)] = b;
+                    std::snprintf(b, sizeof b, "%g", double((*xy)[1].as_float()));
+                    p->values[2 * (start + i) + 1] = b;
+                }
+            return Value{};
+        });
     if (type == "InputTextFace") {
         // The text typed (`value`), at most `max_input_length` characters. The cursor is kept
         // at the end: left and right do nothing here.

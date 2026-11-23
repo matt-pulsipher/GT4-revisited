@@ -47,6 +47,11 @@ struct QuickWork {
     std::string take_command();
 };
 
+// The player's car's line of the time trial's and free run's pages (0x112E78, 0x117718): its
+// drivetrain (FR, FF, 4WD, MR, RR), category (GENERIC_CAR +0x11 % 100: normal, racing, tuning,
+// concept) and model year (+0x0C); the catalog's power and torque through `player_car`.
+void fill_player_car(Runtime& rt, QuickWork& work, const std::string& car_label);
+
 // The quick work of the game's state (made on first use).
 QuickWork& quick_work(GameState& game);
 

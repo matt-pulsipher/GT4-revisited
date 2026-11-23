@@ -183,6 +183,10 @@ gt3r::PadState App::scripted_keys() {
     if (key_ < keys_.size()) {
         const std::string& k = keys_[key_];
         const bool wait = k.compare(0, 4, "wait") == 0;
+        if (k.compare(0, 5, "shot:") == 0) { // a picture of this frame, then the next key
+            key_shot_ = k.substr(5), ++key_, key_frames_ = 0;
+            return pad;
+        }
         const int frames = wait ? std::max(1, std::atoi(k.c_str() + 4)) : 8;
         if (!wait && key_frames_ < 2) {
             std::string name = k;
@@ -231,6 +235,11 @@ SDL_AppResult App::iterate() {
     ui_->clear();
     if (!screens_.empty()) screens_.back()->render(*this, *ui_);
     ++frame_;
+    if (!key_shot_.empty() && !shot_path_.empty()) {
+        const size_t slash = shot_path_.find_last_of('/');
+        save_screenshot((slash == std::string::npos ? std::string() : shot_path_.substr(0, slash + 1)) + key_shot_ + ".png");
+        key_shot_.clear();
+    }
     if (!shot_path_.empty() && frame_ >= shot_frame_) {
         save_screenshot(shot_path_);
         quit_ = true;

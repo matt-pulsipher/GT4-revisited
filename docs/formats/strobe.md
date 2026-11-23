@@ -203,9 +203,16 @@ no fade). The rows appear one frame after the panel.
 - Screen settings are kept in the game object (the pointer at 0x622F4C) at +0x39E34: four s32
   `{brightness, contrast, ❓, ❓}`; a second record at +0x39E44 is used when `RacePause+0x34` is set
   (`RaceArcade` sets it in the B-spec mode). Both -5..+5. The race's final picture pass builds a color
-  correction from the record (0x3EFDF0: brightness/10, contrast x 0.6, (third+10)/10, 5500 + 200 x
-  fourth against 5500; used by 0x33F2E8). ❓ No `MOption` attribute of the menus' scripts was found for
-  them.
+  correction from the record (0x3EFDF0 -> 0x3EFC10): a gain 2^(brightness / 10) on every channel
+  (`pow(2, b)`, 1 at 0), red and blue moved by -/+ (T - 5500) x 0.2 / 2000 with T = 5500 + 200 x
+  balance (0.02 a step), a contrast term 1 - 0.06 x contrast, a saturation (saturation + 10) / 10;
+  used by 0x33F2E8, the race's last picture pass. The records are the options' `MOption`
+  `race_color_correction` and `replay_color_correction` (the Picture Quality page's Racing Views and
+  TV Live Relay Views: `[brightness, contrast, saturation, balance]`). **A new game's racing views
+  have brightness +3** (the original's options page and pause after a new game), the replays' 0.
+  Here (`race/picture_settings.*`) the gain and the contrast are the 3D view's grade levels, the
+  saturation its saturation; ❓ how 0x33F2E8 applies the contrast term (taken as a stretch about the
+  middle by 1 / term) and the balance are not read.
 - Drawing (`RacePause::vf5` 0x3C3988 -> 0x3EC0B0): the movie on the 640x480 canvas over the whole
   frame, global color 0x80FFFFFF, in the race's 2D pass (`RaceBasic::vf107`, only while paused).
 
@@ -296,8 +303,12 @@ the callback 0x3EBE28 -> 0x3AEAE8: the race's text table, the one the race displ
   gradient along the matrix's u); colours are 0xAABBGGRR with 0x80 a full channel, through the
   instances' colour changes (multiply 0x80 = x1, add / 255) from the root down; texts in the
   menus' fonts (`font/menu.fnt`) by the font string `name#palette*x%,y%` (palette 1, the plain
-  glyphs, when none is given), the field's height against the font's 16 units, the words looked
-  up in the race's text table.
+  glyphs, when none is given), the glyphs at their own pixel size (scale 1) times the font string's percentages and the
+  instance's scale, laid out by Gran Turismo 4's own text layout (`menu/text_layout.h`: its pair
+  spacing and space) in the field's box less its 2-unit gutter, aligned as the field says, the first
+  line at the box's top; the words looked up in the race's text table. A picture is placed at the size the
+  movie's texture list gives (a power of two, 128 x 64), the set's texture (its own size, 99 x 34)
+  at its top left: the fill matrices map the list's size.
 
 ## The results movie (`menu/common/result.strb`)
 
@@ -311,3 +322,19 @@ invisible full-screen button whose press asks `cb_EnableExit()`, plays `ok` and 
 30 calls `cb_raceexit()` (the run ends). Here the callbacks answer from the race's results
 (`RaceFlow::results`): rows in finishing order, times written `M'SS.mmm`. 🔎 Rows not yet fixed
 show the movie's placeholders ("car name", "00:00"); ❓ whether the program hides them.
+
+
+## The license test's results (`menu/US/result_license.strb`)
+
+`ResultLicense::vf12` (0x3E1BF8) names `result_license.strb` (the US disc has it in `menu/US/`, a
+larger one in `menu/`). 232 root frames: frame 0 asks `PrizeLevel()` (0 gold, 1 silver, 2 bronze, 3
+failed) and, unless it is 3, plays on at the label `PASSED` (frame 72); frames 1-71 are the FAIL
+page. Its first track is a picture the program supplies (kind 7, no name): **the race's live
+picture**, 300 x 225 at its scale, which starts at 2.13 (the whole frame) and shrinks to (214, 239)
+over the page's first frames; over it the run's time and its gap in red (`GetTime()`,
+`GetTimeDif()`: seconds with three decimals, "133.366" and "+122.066" in the original's B-1 run,
+the gap to the bronze time), the test's title (`GetTitle()`, "License B-1"), the FAIL picture,
+then RETRY and EXIT (`EXIT_MENU("retry")` / `EXIT_MENU("exit")`, the RETRY row named `DEFAULT`).
+Here: the grade from the run's time against the page's gold, silver and bronze times (❓ the
+tests' own failing rules are not read), the gap to the next grade up, the title from the race code
+(❓ the program's title routine is not read); RETRY runs the test again at once.
