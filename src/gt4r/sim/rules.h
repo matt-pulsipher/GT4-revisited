@@ -36,6 +36,8 @@ struct WheelLayout {
     u8 count = 4;                               // +0x01 the wheels the step runs
     std::array<u8, 8> axle{0, 0, 1, 1};         // +0x14 + w: wheel w's axle (0 front, 1 rear)
     std::array<u8, 8> side{0, 1, 0, 1};         // +0x1C + w: wheel w's side (0 left)
+    std::array<u8, 8> mean_slip{};              // +0x3C + w: above 0 (signed): wheel w's slip angle is in the mean the step keeps (0x352408)
+    std::array<u8, 8> camber_thrust{};          // +0x44 + w: 2: wheel w's camber gives a lateral force (0x352408)
 };
 constexpr u32 kWheelLayouts = 0x620478, kWheelLayoutSize = 0x54;
 // The row of the table at `row` (its 0x54 bytes).

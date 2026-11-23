@@ -24,8 +24,10 @@ struct Tire {
     F brake_peak;              // +0x16C
     std::array<F, 12> curve_d; // +0x17C (its table +0x170 on curve C's axis)
     ex::Table<4> load_curve;   // +0x1AC (x +0x1B8, y +0x1C8)
+    u8 direct_lateral = 0;     // +0x1D9 not 0: curve A is read at the hub's sideways speed, scaled, not at the slip angle (0x352408)
     u8 direct_slip = 0;        // +0x1D8 not 0: the slip ratio is the hub's and the rim's speeds' difference, scaled (0x3513F8)
-    u8 x1da = 0;               // +0x1DA copied to the wheel's +0xDD by 0x357418
+    u8 x1da = 0;               // +0x1DA copied to the wheel's +0xDD by 0x357418; 1: the lateral force is curve A alone, held in the
+                               // friction circle, with the slip angle's sign turned when the wheel rolls backwards
 };
 constexpr u32 kTire0 = 0x410, kTireSize = 0x1EC;
 
@@ -37,7 +39,13 @@ struct TireExtra {
     std::array<ex::Table<4>, 2> camber_grip;        // P + 0x3B8 + 0xC axle (x +0x3D0 + 0x10 axle, y +0x3F0 + 0x10 axle)
     std::array<F, 2> axle_grip;                     // P + 0xFD0 per axle
     F direct_slip_scale;                            // P + 0xFC8 the direct slip ratio's scale (1 / (m/s))
+    F direct_lateral_scale;                         // P + 0xFCC
     std::array<u8, 4> wheel_xdd{};                  // wheel +0xDD: the tire record's byte +0x1DA
+    std::array<F, 4> steer_offset;                  // wheel +0x1C: added to the steer angle (or in its place) for the slip angle
+                                                    // under the program's steering mode 1 (2)
+    std::array<F, 4> curve_a;                       // wheel +0x5C: curve A at the slip angle
+    std::array<F, 4> camber_force;                  // car + 0x534 + 4 w: the camber's lateral force
+    F mean_slip;                                    // F + 0x46C: the mean slip angle of the layout's marked wheels
 };
 
 // Every member of TireExtra with its place in Gran Turismo 4's record: v(name, index (-1: single),
@@ -63,7 +71,7 @@ template <class X, class V> void tires_fields(X& x, V&& v) {
         v("tire.brake_peak", r, P, R + 0x16C, t.brake_peak);
         for (u32 k = 0; k < 12; ++k) v("tire.curve_d", r * 32 + int(k), P, R + 0x17C + 4 * k, t.curve_d[k]);
         table("tire.load_curve.n", "tire.load_curve.x", "tire.load_curve.y", r, R + 0x1AC, R + 0x1B8, R + 0x1C8, t.load_curve);
-        v("tire.direct_slip", r, P, R + 0x1D8, t.direct_slip), v("tire.x1da", r, P, R + 0x1DA, t.x1da);
+        v("tire.direct_slip", r, P, R + 0x1D8, t.direct_slip), v("tire.direct_lateral", r, P, R + 0x1D9, t.direct_lateral), v("tire.x1da", r, P, R + 0x1DA, t.x1da);
     }
     for (int a = 0; a < 2; ++a) {
         for (u32 s = 0; s < 24; ++s) v("tire_index", a * 32 + int(s), P, 0xF98 + 0x18 * u32(a) + s, x.tire_index[size_t(a)][s]);
@@ -72,7 +80,13 @@ template <class X, class V> void tires_fields(X& x, V&& v) {
               x.camber_grip[size_t(a)]);
         v("axle_grip", a, P, 0xFD0 + 4 * u32(a), x.axle_grip[size_t(a)]);
     }
-    v("direct_slip_scale", -1, P, 0xFC8, x.direct_slip_scale);
+    v("direct_slip_scale", -1, P, 0xFC8, x.direct_slip_scale), v("direct_lateral_scale", -1, P, 0xFCC, x.direct_lateral_scale);
+    for (int w = 0; w < 4; ++w) {
+        const u32 W = layout::kWheel0 + layout::kWheelSize * u32(w);
+        v("w.steer_offset", w, C, W + 0x1C, x.steer_offset[size_t(w)]), v("w.curve_a", w, C, W + 0x5C, x.curve_a[size_t(w)]);
+        v("camber_force", w, C, 0x534 + 4 * u32(w), x.camber_force[size_t(w)]);
+    }
+    v("mean_slip", -1, C, layout::kState + 0x46C, x.mean_slip);
     for (int w = 0; w < 4; ++w) v("w.xdd", w, C, layout::kWheel0 + layout::kWheelSize * u32(w) + 0xDD, x.wheel_xdd[size_t(w)]);
 }
 
@@ -116,6 +130,20 @@ void tire_curves(ex::Car& c, const TireExtra& x, const WheelLayout& l);
 void tire_long_force(ex::Car& c, const WheelLayout& l, const SlipBytes& sb);
 // 0x3534A0: the rolling resistance's force.
 void rolling_resistance(ex::Car& c, const WheelLayout& l, const RoadTables& road);
+
+// What the slip force reads of the program's globals: the steering mode (0x845BF0; 1 the wheel's
+// offset added to its steer angle, 2 in its place), the camber force's reference angle (degrees,
+// 0x620764) and its gain (0x620768), the mean slip angle's switch (0x623E52).
+struct SlipForceGlobals {
+    u32 steer_mode = 0;
+    F camber_ref, camber_gain;
+    u8 mean_on = 0;
+};
+constexpr u32 kSteerMode = 0x845BF0, kCamberRef = 0x620764, kCamberGain = 0x620768, kMeanSlipOn = 0x623E52;
+// 0x352408: each wheel's slip angle and its lateral forces: curve A across the velocity and curve B
+// against it at the folded slip angle, faded at low speed and held in the friction circle; the camber's
+// force for the layout's marked wheels.
+void tire_slip_force(ex::Car& c, TireExtra& x, const WheelLayout& l, const SlipForceGlobals& g);
 
 // 0x357690: each wheel's slip direction and its low-speed fade (the engine's 2002 Tokyo-Geneva rule).
 void slip_angles(ex::Car& c, const WheelLayout& l);

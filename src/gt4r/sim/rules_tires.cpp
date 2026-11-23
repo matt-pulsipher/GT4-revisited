@@ -187,6 +187,75 @@ void rolling_resistance(ex::Car& c, const WheelLayout& l, const RoadTables& road
     c.rolling = rr * load;
 }
 
+void tire_slip_force(ex::Car& c, TireExtra& x, const WheelLayout& l, const SlipForceGlobals& g) {
+    const F kPi = F::raw(0x40490FDA), kDegree = F::raw(0x3C8EFA34);
+    F sum = F();
+    u32 counted = 0;
+    F sign = kOne;
+    for (int i = 0; i < l.count && i < 4; ++i) {
+        ex::Wheel& w = c.w[size_t(i)];
+        ex::Drive& t = c.t[size_t(i)];
+        const Tire& r = tire_record(x, l, i, w.surface);
+        t.slip_angle = F();
+        if (w.slip_fade == F()) {
+            w.force_a = F(), w.force_b = F();
+            continue;
+        }
+        const F steer = w.steer;
+        if (g.steer_mode == 1) w.steer = w.steer + x.steer_offset[size_t(i)];
+        else if (g.steer_mode == 2) w.steer = x.steer_offset[size_t(i)];
+        F a = w.steer;
+        if (w.hub_vx < F()) a = a + kPi;
+        const F beta = ex::angle_diff(a, w.slip_dir, gt3r::sim::Program::ConceptGenevaAsia);
+        t.slip_angle = beta;
+        F v;
+        if (r.direct_lateral) {
+            v = (gt3r::ee::cos(w.steer) * w.hub_vy + gt3r::ee::sin(w.steer) * w.hub_vx) * x.direct_lateral_scale;
+            sign = kOne;
+            if (v < F()) v = -v, sign = kMinusOne;
+            if (!r.x1da && w.rim_speed < F()) sign = -sign;
+        } else {
+            v = ex::slip_angle_fold(c.behaviour, beta, sign);
+            if (r.x1da == 1 && w.rim_speed < F()) sign = -sign;
+        }
+        if (i < l.count && s8(l.mean_slip[size_t(i)]) > 0) sum = sum + v, ++counted;
+        const F ca = table(r.curve_a, v);
+        x.curve_a[size_t(i)] = ca;
+        F u1 = sign * ca;
+        F cam = F();
+        if (l.camber_thrust[size_t(i)] == 2) {
+            const F d = c.roll - c.ground_roll;
+            F e = l.side[size_t(i)] == 1 ? d + w.camber : d - w.camber;
+            e = e / (g.camber_ref * kDegree);
+            if (kOne < e) e = kOne;
+            else if (e < kMinusOne) e = kMinusOne;
+            cam = e * -g.camber_gain;
+        }
+        if (!r.direct_lateral) cam = cam * w.slip_fade, u1 = u1 * w.slip_fade;
+        if (r.x1da == 1) {
+            if (w.circle < u1) u1 = w.circle;
+            else if (u1 < -w.circle) u1 = -w.circle;
+            w.force_a = u1 * w.peak_force;
+            x.camber_force[size_t(i)] = cam * w.peak_force;
+            w.force_b = F();
+        } else {
+            F u2 = table(r.curve_b, v);
+            if (!r.direct_lateral) u2 = u2 * w.slip_fade;
+            const F m = gt3r::ee::sqrt(u1 * u1 + u2 * u2);
+            if (w.circle < m) {
+                const F q = w.circle / m;
+                u2 = u2 * q;
+                u1 = u1 * q;
+            }
+            w.force_a = u1 * w.peak_force;
+            x.camber_force[size_t(i)] = cam * w.peak_force;
+            w.force_b = u2 * w.peak_force;
+        }
+        w.steer = steer;
+    }
+    if (g.mean_on) x.mean_slip = counted < 2 ? sum : sum / gt3r::ee::int_to_f(s32(counted));
+}
+
 void slip_angles(ex::Car& c, const WheelLayout& l) {
     for (int i = 0; i < l.count && i < 4; ++i) {
         ex::Wheel& w = c.w[size_t(i)];

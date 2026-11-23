@@ -61,6 +61,12 @@ void add_taps(Taps& taps) {
                   t.ee.read_bytes(kSlipBytes, b, 8);
                   tire_long_force(t.car, t.rec.layout, slip_bytes(b));
               }});
+    taps.add({0x352408, "tire slip force", car_a0, [](TapCall& t) {
+                  SlipForceGlobals g;
+                  g.steer_mode = t.ee.r32(kSteerMode), g.camber_ref = gt3r::ee::F::raw(t.ee.r32(kCamberRef));
+                  g.camber_gain = gt3r::ee::F::raw(t.ee.r32(kCamberGain)), g.mean_on = t.ee.r8(kMeanSlipOn);
+                  tire_slip_force(t.car, t.rec.x.tires, t.rec.layout, g);
+              }});
     taps.add({0x3534A0, "rolling resistance", car_a0, [](TapCall& t) { rolling_resistance(t.car, t.rec.layout, road_tables(t.ee)); }});
     taps.add({0x357690, "slip angles", car_a0, [](TapCall& t) { slip_angles(t.car, t.rec.layout); }});
     taps.add({0x343ED0, "save previous", car_a0, [](TapCall& t) { ex::save_previous(t.car); }});

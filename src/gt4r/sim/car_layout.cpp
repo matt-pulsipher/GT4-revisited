@@ -82,6 +82,8 @@ std::vector<Row> build() {
     wheel(0x64, 4, 0x58, "friction circle (curve D)");
     drive(0x04, 8, 0x7C, "the longitudinal force's reaction, driving and braking");
     wheel(0x88, 8, 0x70, "the longitudinal force, driving and braking");
+    wheel(0x80, 8, 0x68, "the slip angle's forces: curve A, curve B");
+    drive(0x20, 4, 0x34, "slip angle");
     wheel(0x08, 4, 0x48, "load");
     wheel(0x14, 4, 0x08, "half track");
     wheel(0x18, 4, 0x94, "suspension travel");
