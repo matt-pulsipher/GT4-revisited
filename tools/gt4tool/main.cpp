@@ -613,9 +613,11 @@ const Command kCommands[] = {
 } // namespace
 
 namespace gt4r::tool { int sim_main(int argc, char** argv); void sim_usage(); } // cmd_sim.cpp
+namespace gt4r::tool { int sound_main(int argc, char** argv); } // cmd_sound_compare.cpp
 
 int main(int argc, char** argv) {
     if (const int r = gt4r::tool::sim_main(argc, argv); r >= 0) return r;
+    if (const int r = gt4r::tool::sound_main(argc, argv); r >= 0) return r;
     if (argc >= 3)
         for (const Command& c : kCommands) {
             if (std::strcmp(argv[1], c.name) != 0) continue;

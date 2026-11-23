@@ -5,6 +5,7 @@
 #include "test_framework.h"
 
 #include "disc/core_image.h"
+#include "gt4r/audio/analysis.h"
 #include "gt4r/audio/car_sound.h"
 #include "gt4r/audio/course_sound.h"
 #include "gt4r/audio/race_sound.h"
@@ -240,6 +241,55 @@ TEST(sound_race_car_mix_on_disc) {
         CHECK(near(coming.doppler, expect, 1e-4));
         CHECK(f0 > 0 && near(f1 / f0, expect, 0.03));
     }
+}
+
+// The Ford Ka '01 flat out in the original's Tsukuba race (docs/formats/sound.md "Checked against
+// the original"): its engine's strongest note at 5,650 rpm from the chase view is at 181 Hz and at
+// 5,076 rpm from the nose view at 164 Hz, and the players' volumes the program held at those two
+// moments (engine / exhaust levels 11 / 12, the new game's options, stereo) were 2146 / 5073 and
+// 4651 / 5464 of 16383 on each side.
+TEST(sound_race_engine_against_original) {
+    Disc* disc = nullptr;
+    for (const std::unique_ptr<Disc>& d : test::discs())
+        if (d->info().game == Game::GT4 && d->volume().find("sound/engine/37701")) disc = d.get();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    gt3r::Vfs vfs(&disc->volume());
+    auto library = std::make_shared<audio::SoundLibrary>(vfs);
+    auto mix = std::make_shared<audio::RaceMix>();
+    mix->tables = audio::RaceSoundTables::from_core(disc->read_program());
+    mix->master = library->levels().level(int(audio::OutputMode::Stereo), sound::VolumeTable::Race) * 115.0f / 128.0f;
+    const auto render = [&](float rpm, audio::SoundListener::Kind kind, audio::CarSound::Report& report) {
+        audio::OfflineSound s(false);
+        audio::CarSound car(vfs, s.mixer());
+        car.set_mix(mix);
+        CHECK(car.load("ka_01"));
+        audio::SoundListener at;
+        at.kind = kind;
+        s.advance(150, [&](int) {
+            audio::CarSoundState in;
+            in.rpm = rpm, in.throttle = 1, in.torque_full = 3, in.torque_friction = 1;
+            in.position = {0, 0, kind == audio::SoundListener::Kind::Chase ? 5.0f : 0.0f};
+            car.update(in, at, true);
+        });
+        report = car.report();
+        return audio::slice(audio::signal_from(s.pcm), 1.0, 2.5);
+    };
+    audio::CarSound::Report chase, nose;
+    const audio::LogSpectrum a = audio::log_spectrum(render(5650, audio::SoundListener::Kind::Chase, chase), 48, 60, 2500);
+    const audio::LogSpectrum b = audio::log_spectrum(render(5076, audio::SoundListener::Kind::InCar, nose), 48, 60, 2500);
+    const double fa = a.peak(120, 260), fb = b.peak(120, 260);
+    std::printf("  strongest note: %.1f Hz at 5650 rpm (chase), %.1f Hz at 5076 rpm (in the car)\n", fa, fb);
+    CHECK(near(fa, 181, 181 * 0.02) && near(fb, 164, 164 * 0.02));
+    // The players' volumes: gain x the side's share (centred: 0.7071) x 16383. The original's
+    // exhaust level was 12 where a level rising from 0 settles at 11 (each step half way, rounded
+    // down): the exhaust is compared at its level.
+    const auto side = [](float gain) { return gain * 0.70710678f * 16383.0f; };
+    std::printf("  chase: engine %.0f exhaust %.0f; in the car: engine %.0f exhaust %.0f (levels %d / %d)\n", double(side(chase.engine_gain)),
+                double(side(chase.exhaust_gain)), double(side(nose.engine_gain)), double(side(nose.exhaust_gain)), nose.engine_level, nose.exhaust_level);
+    CHECK(chase.engine_level == 11 && nose.engine_level == 11);
+    CHECK(near(side(chase.engine_gain), 2146, 2146 * 0.005) && near(side(nose.engine_gain), 4651, 4651 * 0.005));
+    CHECK(near(side(chase.exhaust_gain) * 12 / chase.exhaust_level, 5073, 5073 * 0.005));
+    CHECK(near(side(nose.exhaust_gain) * 12 / nose.exhaust_level, 5464, 5464 * 0.005));
 }
 
 // A race: a session on Tsukuba with its course sound, the count's beeps at 3, 2 and 1 seconds,

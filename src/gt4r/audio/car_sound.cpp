@@ -13,6 +13,11 @@ namespace gt4r::audio {
 namespace {
 
 constexpr const char* kWindBank = "sound/roadnoiz.es";
+// The layer players send a layer's pitch x revs / its revs x the Doppler factor to the SPU2 as it
+// is (0x558DB0, 0x55DF70: 0x1000 plays the sample at 48 kHz). The shared engine's player takes
+// the value in Gran Turismo 3's units (0x1000 = 44.1 kHz) and its mixer converts (x 0xEB3 /
+// 0x1000): this factor undoes the conversion.
+constexpr float kLayerPitch = 4096.0f / 3763.0f;
 constexpr size_t kEngineSoundId = 0x18, kMufflerVariant = 6, kTurboKind = 9;
 
 // A car's part as sold: from its row of default parts, or for a car without one its own
@@ -375,9 +380,10 @@ void CarSound::update(const CarSoundState& car, const SoundListener& listener, b
     report_.exhaust_gain = g_exhaust * gain(SoundChannel::Exhaust) * float(exhaust_level_) / 64.0f;
     report_.wind_gain = g_engine * gain(SoundChannel::Wind) * wind;
     report_.wind_rpm = wind_rpm;
-    if (engine_.loaded()) engine_.update_at(mixer_, car.rpm, report_.engine_gain, at_engine.x, at_engine.z, doppler);
-    if (exhaust_.loaded()) exhaust_.update_at(mixer_, car.rpm, report_.exhaust_gain, at_exhaust.x, at_exhaust.z, doppler);
-    if (wind_.loaded()) wind_.update_at(mixer_, wind_rpm, report_.wind_gain, at_engine.x, at_engine.z, doppler);
+    const float layer_pitch = doppler * kLayerPitch;
+    if (engine_.loaded()) engine_.update_at(mixer_, car.rpm, report_.engine_gain, at_engine.x, at_engine.z, layer_pitch);
+    if (exhaust_.loaded()) exhaust_.update_at(mixer_, car.rpm, report_.exhaust_gain, at_exhaust.x, at_exhaust.z, layer_pitch);
+    if (wind_.loaded()) wind_.update_at(mixer_, wind_rpm, report_.wind_gain, at_engine.x, at_engine.z, layer_pitch);
     if (!effects_) return;
 
     // The turbo's spool and the gearbox's whine, at the engine.
