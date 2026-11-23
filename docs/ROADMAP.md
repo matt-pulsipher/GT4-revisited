@@ -52,8 +52,12 @@ Next, in order:
    (tires, suspension, driveline, aids: [specs/physics.md](specs/physics.md)), the computer
    drivers (the courses' `.ad` and `crs/bestline` files), the race's flow (grid, start,
    finish, results), pits, tire wear.
-2. **Sound in the race**: the game's own rules for the engine layers, the tire, surface, wind
-   and collision effects, the course ambience, the reverb, the race's music and jingles.
+2. **Sound in the race**: read from the program and built (`audio::RaceSound`,
+   [formats/sound.md](formats/sound.md) "A race's sound"): the views' gains, the microphones,
+   the engine's and exhaust's levels by the throttle, the wheels' notes by surface, the course's
+   ambience, tunnels and reverb, the count's beeps, the race's music by race type. Left: wiring
+   it into the Drive screen, the contacts and landings from the simulation, when the music's
+   messages are sent, the playlist from the save, Prologue's tables, pit sounds.
 3. **Cars, the rest**: the far level's wheels, the brake discs' glow, fitted wings, the moving
    parts of the few cars with scripts, the skinned drivers, how a race picks opponents' paints.
 4. **Courses, the rest**: the mirror, cones and boards (`GDGT`), skid marks, the models that

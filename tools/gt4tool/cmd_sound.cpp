@@ -10,6 +10,9 @@
 //   gt4tool sound <disc> se-wav <name> <out.wav>    an effect of the index rendered to a WAV file
 //   gt4tool sound <disc> car <label>                the sound files a car uses
 //   gt4tool sound <disc> car-wav <label> <out.wav>  a car's engine swept through its revs
+//   gt4tool sound <disc> race-tables                the program's tables that mix a race's sound
+//   gt4tool sound <disc> pass-wav <label> <out.wav> [km/h]   a car passing 10 m from a still camera,
+//                                                   mixed by the program's tables (5 s)
 //
 // The WAV files are for measuring (length, level, pitch); never commit them.
 
@@ -18,6 +21,7 @@
 #include "formats/sound/engn.h"
 #include "gt4r/audio/car_sound.h"
 #include "gt4r/audio/menu_sound.h"
+#include "gt4r/audio/race_tables.h"
 #include "gt4r/audio/render.h"
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/sound/inst_bank.h"
@@ -313,13 +317,80 @@ int car(Disc& disc, const Args& a) {
     // Ten seconds from 1000 to 8000 rpm at full throttle, then two of coasting down.
     const int up = 10 * audio::SoundDriver::kUpdateRate, down = 2 * audio::SoundDriver::kUpdateRate;
     s.advance(up + down, [&](int i) {
-        audio::CarSoundInput in;
+        audio::CarSoundState in;
         in.rpm = i < up ? 1000.0f + 7000.0f * float(i) / float(up) : 8000.0f - 6000.0f * float(i - up) / float(down);
         in.throttle = i < up ? 1.0f : 0.0f;
-        in.speed = 0;
-        sound.update(in);
+        sound.update(in, audio::SoundListener{}, true);
     });
     sound.stop();
+    s.advance_seconds(0.5);
+    return write_wav(a[2], s.pcm) ? 0 : 1;
+}
+
+int race_tables(Disc& disc) {
+    const audio::RaceSoundTables t = audio::RaceSoundTables::from_core(disc.read_program());
+    std::printf("gains %s, microphones %s, numbers %s\n", t.found_gains ? "found" : "not found", t.found_mics ? "found" : "not found",
+                t.found_params ? "found" : "not found");
+    static const char* const kViews[] = {"in-car, its car", "in-car, others", "chase, its car", "chase, others", "other cameras"};
+    std::printf("view gains (engine exhaust turbine b_off whine clash rumble in_car wind on_road rain on_skill - off_skill off_road on_bound):\n");
+    for (int v = 0; v < audio::RaceSoundTables::kViews; ++v) {
+        std::printf("  %-16s", kViews[v]);
+        for (int c = 0; c < 16; ++c) std::printf(" %5.2f", double(t.gain[size_t(v)][size_t(c)]));
+        std::printf("\n");
+    }
+    static const char* const kModes[] = {"mono", "stereo", "surround"};
+    for (int m = 0; m < audio::RaceSoundTables::kModes; ++m) {
+        std::printf("microphones, %s:", kModes[m]);
+        for (int n = 0; n < audio::RaceSoundTables::kMics; ++n)
+            std::printf(" (slope %.2f, reach %.1f m)", double(t.mics[size_t(m)][size_t(n)].slope), double(t.mics[size_t(m)][size_t(n)].reach));
+        std::printf("\n");
+    }
+    const auto& p = t.params;
+    std::printf("wind: gain %.6f, %.1f..%.1f m/s -> %.0f..%.0f rpm, at most %.2f\n", double(p.wind_gain), double(p.wind_speed_lo), double(p.wind_speed_hi),
+                double(p.wind_rpm_lo), double(p.wind_rpm_hi), double(p.wind_max));
+    std::printf("cabin: gain %.6f, %.1f..%.1f m/s -> pitch %.2f..%.2f, at most %.2f\n", double(p.incar_gain), double(p.incar_speed_lo),
+                double(p.incar_speed_hi), double(p.incar_pitch_lo), double(p.incar_pitch_hi), double(p.incar_max));
+    std::printf("road roar: gain %.2f (narrow x%.2f, wide x%.2f), %.1f..%.1f m/s -> pitch %.2f..%.2f, at most %.2f\n", double(p.roar_gain),
+                double(p.roar_narrow), double(p.roar_wide), double(p.roar_speed_lo), double(p.roar_speed_hi), double(p.roar_pitch_lo),
+                double(p.roar_pitch_hi), double(p.roar_max));
+    std::printf("gear whine: gain %.2f..%.2f at %.0f N m, pitch %.2f + %.5f per rad/s\n", double(p.whine_gain_lo), double(p.whine_gain_hi),
+                double(p.whine_torque), double(p.whine_pitch_lo), double(p.whine_pitch_rate));
+    std::printf("levels: engine %.2f, exhaust %.2f, spool %.2f, blow-off %.2f; contacts x%.2f\n", double(p.engine_level), double(p.exhaust_level),
+                double(p.turbine_level), double(p.blowoff_scale), double(p.clash_scale));
+    return 0;
+}
+
+int pass_wav(Disc& disc, const Args& a) {
+    gt3r::Vfs vfs(&disc.volume());
+    audio::OfflineSound s;
+    auto library = std::make_shared<audio::SoundLibrary>(vfs);
+    auto mix = std::make_shared<audio::RaceMix>();
+    mix->tables = audio::RaceSoundTables::from_core(disc.read_program());
+    mix->master = library->levels().level(int(audio::OutputMode::Stereo), sound::VolumeTable::Race) * 115.0f / 128.0f;
+    audio::CarSound car(vfs, s.mixer(), &s.driver(), library);
+    car.set_mix(mix);
+    if (!car.load(a[1])) {
+        std::fprintf(stderr, "error: the car's engine sounds do not load\n");
+        return 1;
+    }
+    const float speed = (a.size() > 3 ? float(std::atof(a[3].c_str())) : 150.0f) / 3.6f;
+    const int steps = 5 * audio::SoundDriver::kUpdateRate;
+    s.advance(steps, [&](int i) {
+        audio::CarSoundState in;
+        const float t = float(i - steps / 2) / 60.0f;
+        in.position = {10.0f, 0, speed * t}; // passing on the camera's right
+        in.velocity = {0, 0, speed};
+        in.speed = speed;
+        in.rpm = 6000, in.throttle = 1, in.torque_full = 3, in.torque_friction = 1;
+        for (auto& w : in.wheels) w.position = in.position, w.rim_speed = speed;
+        car.update(in, audio::SoundListener{}, false);
+        if (i % 30 == 0) {
+            const auto& r = car.report();
+            std::printf("  %5.2f s: z %6.1f m, Doppler %.3f, engine %.3f exhaust %.3f wind %.3f (L %.2f R %.2f)\n", double(t), double(in.position.z),
+                        double(r.doppler), double(r.engine_gain), double(r.exhaust_gain), double(r.wind_gain), double(r.engine.left), double(r.engine.right));
+        }
+    });
+    car.stop();
     s.advance_seconds(0.5);
     return write_wav(a[2], s.pcm) ? 0 : 1;
 }
@@ -337,8 +408,11 @@ int cmd_sound(Disc& disc, const std::vector<std::string>& a) {
     if (what == "seq-wav" && a.size() > 3) return seq_wav(disc, a);
     if (what == "se-wav" && a.size() > 2) return se_wav(disc, a);
     if ((what == "car" || what == "car-wav") && a.size() > 1) return car(disc, a);
+    if (what == "race-tables") return race_tables(disc);
+    if (what == "pass-wav" && a.size() > 2) return pass_wav(disc, a);
     std::fprintf(stderr, "usage: gt4tool sound <disc> survey | bank <path.ins> | effects | music | pages | seq <bank> [n] |\n"
-                         "       seq-wav <bank> <n> <out.wav> [loops] | se-wav <name> <out.wav> | car <label> [out.wav]\n");
+                         "       seq-wav <bank> <n> <out.wav> [loops] | se-wav <name> <out.wav> | car <label> [out.wav] |\n"
+                         "       race-tables | pass-wav <label> <out.wav> [km/h]\n");
     return 2;
 }
 

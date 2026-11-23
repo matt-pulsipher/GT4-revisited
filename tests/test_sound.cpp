@@ -817,10 +817,10 @@ TEST(sound_cars_on_disc) {
         for (int i = 0; i < 4; ++i) {
             const size_t at = s.pcm.size() / 2;
             s.advance(90, [&](int) {
-                audio::CarSoundInput in;
+                audio::CarSoundState in;
                 in.rpm = revs[i];
                 in.throttle = 1.0f;
-                sound.update(in);
+                sound.update(in, audio::SoundListener{}, true);
             });
             // The firing frequency of a four-stroke four: two a turn.
             hz[i] = audio::dominant_frequency(s.pcm, at + 24000, 40000, revs[i] / 60.0 * 0.45, revs[i] / 60.0 * 4.5);
