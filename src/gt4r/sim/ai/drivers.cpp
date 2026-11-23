@@ -167,7 +167,7 @@ Field::Field(const Session& session, const course::AiData& data, const Program& 
     for (auto& d : drivers_)
         if (d && d->line >= 0) {
             const race::CarState& st = session.cars()[d->car];
-            d->s = st.course_v;
+            d->s = lines_.wrap_lap(st.course_v);
             replan(*d);
         }
 }
@@ -394,7 +394,7 @@ void Field::proximity() {
         const ex::Car& c = session_->record(i);
         const float fx = c.fwd.x.host(), fy = c.fwd.y.host(), l = std::max(std::hypot(fx, fy), 1e-6f);
         b[i] = {c.pos.x.host(), c.pos.y.host(), c.pos.z.host(), fx / l, fy / l, c.p.body_front.host(), c.p.body_rear.host(), c.p.body_width.host() * 0.5f,
-                c.speed.host(), states[i].course_v};
+                c.speed.host(), lines_.wrap_lap(states[i].course_v)};
     }
     auto zones = [&](Driver& d, float dist, float u, float v, float ahead, float behind, float w) {
         auto& z = d.zone;
@@ -798,7 +798,7 @@ void Field::drive(std::span<race::CarInput> inputs) {
         for (size_t r = 0; r < order.size(); ++r) ranks_[order[r]] = int(r + 1);
     }
     for (auto& d : drivers_)
-        if (d) d->s = states[d->car].course_v;
+        if (d) d->s = lines_.wrap_lap(states[d->car].course_v);
     proximity();
     for (auto& dp : drivers_) {
         if (!dp || dp->car >= inputs.size()) continue;
@@ -811,11 +811,12 @@ void Field::drive(std::span<race::CarInput> inputs) {
         } else d.applied_throttle = d.throttle;
         const ex::Car& c = session_->record(d.car);
         race::CarInput in;
-        // The session's pad takes the steering as a share of the lock it allows at the car's speed.
+        // The steering as the pad's share of the lock it allows at the car's speed (what a pad reads), and the angle.
         const float hi = c.lock_hi.host() > 0.01f ? c.lock_hi.host() : c.p.max_lock.host();
         const float lo = c.lock_lo.host() < -0.01f ? -c.lock_lo.host() : c.p.max_lock.host();
         const float share = d.steer >= 0 ? d.steer / std::max(hi, 1e-3f) : d.steer / std::max(lo, 1e-3f);
         in.steer = std::clamp(-share, -1.0f, 1.0f);
+        in.steer_angle = d.steer; // the session takes the angle itself, past the pad's lock curve
         in.throttle = std::clamp(d.applied_throttle, 0.0f, 1.0f);
         in.brake = std::clamp(d.brake, 0.0f, 1.0f);
         in.reverse = d.reverse;

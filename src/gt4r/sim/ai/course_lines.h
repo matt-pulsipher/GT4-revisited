@@ -62,6 +62,8 @@ public:
     // The course distance of a simulation-frame point (the road's checkpoints), false off the course.
     bool distance(float x, float y, float h, float& s, int* hint = nullptr) const;
 
+    // A course distance wrapped once into the lap (the road's checkpoints run a little past it around the line).
+    float wrap_lap(float s) const;
     const RoadGround* ground() const { return ground_; }
 
 private:

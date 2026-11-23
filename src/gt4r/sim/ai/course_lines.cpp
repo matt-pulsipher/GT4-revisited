@@ -72,7 +72,7 @@ void CourseLines::prepare(int k, float& query) {
         prev_h = p.height;
         query = std::trunc(p.height) + 2.0f;
         float s = 0;
-        if (ground_->distance_along(course_point(p.x, p.y, p.height), s, &hint)) p.dist = s;
+        if (ground_->distance_along(course_point(p.x, p.y, p.height), s, &hint)) p.dist = s >= lap_ ? s - lap_ : s < 0 ? s + lap_ : s;
         else p.dist = i ? pts[i - 1].dist : 0;
         if (k == kPitStop) {
             if (!lap_added && p.dist < lap_ * 0.5f) lap_added = true;
@@ -103,7 +103,18 @@ void CourseLines::prepare(int k, float& query) {
     if (unordered && (k == 1 || k == 2 || k == 7)) pts.clear();
 }
 
-bool CourseLines::distance(float x, float y, float h, float& s, int* hint) const { return ground_ && ground_->distance_along(course_point(x, y, h), s, hint); }
+bool CourseLines::distance(float x, float y, float h, float& s, int* hint) const {
+    if (!ground_ || !ground_->distance_along(course_point(x, y, h), s, hint)) return false;
+    s = wrap_lap(s);
+    return true;
+}
+
+float CourseLines::wrap_lap(float s) const {
+    if (lap_ <= 0) return s;
+    if (s >= lap_) s -= lap_;
+    else if (s < 0) s += lap_;
+    return s;
+}
 
 int CourseLines::resolve(int k) const {
     if (k < 0 || k > 7) k = 6;
