@@ -15,7 +15,8 @@ its scripts run in an interpreter. The game itself does not run yet. See [docs/R
   cars, courses and menus), music and voice streams, and movies.
 - The cars (722) and courses by name, each in a 3D viewer; courses with their road surface.
 - The menu pages (213 in 33 projects) drawn from the disc's layouts with its own pictures,
-  text and fonts; a first part of them runs from the game's scripts (the title page's menu).
+  text and fonts; they run from the game's scripts: from power on to the title, Arcade up
+  to the race it asks for, the options, and a new game into Gran Turismo mode's home.
 - An interpreter for the game's menu and game-flow scripts; `gt4tool run` runs them with
   stand-ins for the program's own classes.
 - 3D viewer for the game's models (car bodies, wheels, tires, wings, prize objects): open a

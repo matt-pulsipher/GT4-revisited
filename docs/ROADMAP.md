@@ -15,9 +15,12 @@ Done:
 - [x] Menus as still pictures: the layouts (`.mproject`), the pages' pictures (`.gpb`), the
       text (`.rt2`) and the fonts (`.fnt`) read; the app draws any page of any project
       (*Menu pages*); `gt4tool menu`.
-- [x] Menus running, a first part: a project's widgets as objects of the script world, the
-      context, events, focus and keys; the title page builds its menu from the game's script
-      and leads on to the project chosen (`gt4tool menu-run`; R1 in *Menu pages*).
+- [x] Menus running: the game's own scripts from power on (the main script, the
+      configuration, scripts that wait), the events, keys, focus search, boxes and actors as
+      the program has them, the game's state behind `main::game`. Boot to the title, Arcade
+      to the race it asks for, the options and back, a new game into Gran Turismo mode's map,
+      home and garage, a car bought at a dealer (`gt4tool menu-run`; *Menu pages* in the app,
+      `GT4R_MENU="boot=1"`).
 - [x] Models (`MDLS`): car bodies, wheels, tires, wings and prize objects decode and draw as
       still models; a 3D viewer from the asset browser (Square on a file with models).
 
@@ -45,15 +48,20 @@ Done:
 
 Next, in order:
 
-1. **Sound in the race**: the game's own rules for the engine layers, the tire, surface, wind
+1. **The race's own rules**: the per-step routines the game changed since Gran Turismo 3
+   (tires, suspension, driveline, aids: [specs/physics.md](specs/physics.md)), the computer
+   drivers (the courses' `.ad` and `crs/bestline` files), the race's flow (grid, start,
+   finish, results), pits, tire wear.
+2. **Sound in the race**: the game's own rules for the engine layers, the tire, surface, wind
    and collision effects, the course ambience, the reverb, the race's music and jingles.
-2. **Cars, the rest**: the far level's wheels, the brake discs' glow, fitted wings, the moving
+3. **Cars, the rest**: the far level's wheels, the brake discs' glow, fitted wings, the moving
    parts of the few cars with scripts, the skinned drivers, how a race picks opponents' paints.
-3. **Courses, the rest**: the mirror, cones and boards (`GDGT`), skid marks, the models that
+4. **Courses, the rest**: the mirror, cones and boards (`GDGT`), skid marks, the models that
    move or turn by registers, the animated skies, the glow filter of the photo locations.
-4. **The car database's columns**: specifications, parts, events, opponents.
-5. **The menus running**: the widgets as objects the scripts drive (focus, navigation, the
-   actors), the functions of the program's classes the scripts call, events.
-6. **The race**: physics, computer drivers, the race display, replays.
+5. **The car database, the rest**: the events (`RACE`) and opponents (`ENEMY_CARS`).
+6. **The menus, further**: Gran Turismo mode past the home page (used cars, parts, events,
+   licenses), the list box and the idle actors from the program, the 3D faces, Japanese
+   text, Prologue's flows.
+7. **Saved games and replays**.
 
 [FORMATS.md](FORMATS.md) has each format's state.

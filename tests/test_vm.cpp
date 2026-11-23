@@ -163,6 +163,9 @@ TEST(vm_operators_and_builtins) {
     CHECK(call(V::string("r_tsukuba"), "substr", {V::integer(0), V::integer(2)}).as_string() == "r_");
     CHECK(call(V::string("1abc"), "at", {V::integer(0)}).i == 49);
     CHECK(call(V::string("%d laps, %s, %.1f"), "format", {V::integer(3), V::string("wet"), V::number(2.25f)}).as_string() == "3 laps, wet, 2.2");
+    // The program's own conversion: a whole number with a point before its last digits.
+    CHECK(call(V::string("%.1t%%"), "format", {V::integer(123)}).as_string() == "12.3%" && call(V::string("%.2t"), "format", {V::integer(-5)}).as_string() == "-0.05");
+    CHECK(call(V::string("%t|%.3t"), "format", {V::integer(42), V::integer(1234567)}).as_string() == "42|1234.567");
     CHECK(call(V::string("a,b,c"), "split", {V::string(",")}).items()->size() == 3);
     CHECK(call(V::integer(12), "toString", {}).as_string() == "12" && call(V::string("42"), "toInt", {}).i == 42);
     const V list = V::array({V::integer(3), V::integer(1), V::integer(2)});
@@ -189,6 +192,91 @@ TEST(vm_operators_and_builtins) {
         threw = true;
     }
     CHECK(threw);
+}
+
+// A call that waits is left and gone on with later, at any depth of calls:
+//   function inner() { pause(); return 10; }
+//   function outer() { step = 1; pause(); step = 2; return inner() + 1; }
+//   function init(page) { return 3; }   // called by the native "open" in its place
+//   function opener() { return open() + 1; }
+TEST(vm_tasks_wait_and_go_on) {
+    using V = script::Value;
+    script::Vm vm;
+    int waits = 0;
+    bool go = false;
+    vm.root()->define("pause", script::Vm::native("pause", [&](script::Vm& v, const V&, script::Args) {
+        ++waits;
+        go = false;
+        v.wait([&] { return go; });
+        return V{};
+    }));
+    vm.root()->define("open", script::Vm::native("open", [&](script::Vm& v, const V&, script::Args) {
+        v.then_call(v.lookup("init"), {V::integer(1)}, [](script::Vm&, const V& r) { return V::integer(r.i * 2); });
+        return V{};
+    }));
+    vm.run(block(4, {
+        in(Op::StaticDefine, "step"),
+        function(Op::FunctionDefine, "inner", {}, 2,
+                 {name(1, "pause"), in(Op::Eval), in(Op::Call, 0), in(Op::Pop), in(Op::IntConst, 10), in(Op::Pop), in(Op::SetState, 1)}),
+        function(Op::FunctionDefine, "outer", {}, 4,
+                 {name(1, "step"), in(Op::IntConst, 1), in(Op::Assign), in(Op::Pop),
+                  name(2, "pause"), in(Op::Eval), in(Op::Call, 0), in(Op::Pop),
+                  name(1, "step"), in(Op::IntConst, 2), in(Op::Assign), in(Op::Pop),
+                  name(3, "inner"), in(Op::Eval), in(Op::Call, 0), in(Op::Eval), in(Op::IntConst, 1), in(Op::BinaryOperator, "+"), in(Op::Pop),
+                  in(Op::SetState, 1)}),
+        function(Op::FunctionDefine, "init", {"page"}, 2, {in(Op::IntConst, 3), in(Op::Pop), in(Op::SetState, 1)}),
+        function(Op::FunctionDefine, "opener", {}, 2,
+                 {name(1, "open"), in(Op::Eval), in(Op::Call, 0), in(Op::Eval), in(Op::IntConst, 1), in(Op::BinaryOperator, "+"), in(Op::Pop),
+                  in(Op::SetState, 1)}),
+    }));
+    const std::shared_ptr<script::Task> t = vm.start(vm.lookup("outer"), {});
+    CHECK(t->state == script::Task::State::Waiting && vm.lookup("step").i == 1 && waits == 1);
+    CHECK(t->until && !t->until());
+    go = true;
+    CHECK(t->until());
+    vm.resume(*t);
+    CHECK(t->state == script::Task::State::Waiting && vm.lookup("step").i == 2 && waits == 2); // inside inner()
+    vm.resume(*t);
+    CHECK(t->state == script::Task::State::Done && t->result.i == 11);
+    // The same call made from the program's side ends at once: its waits are passed over.
+    CHECK(vm.call(vm.lookup("outer"), {}).i == 11 && waits == 4);
+    // A native's chained call: the script function runs in the native's place.
+    const std::shared_ptr<script::Task> o = vm.start(vm.lookup("opener"), {});
+    CHECK(o->state == script::Task::State::Done && o->result.i == 7);
+    CHECK(vm.call(vm.lookup("opener"), {}).i == 7 && vm.call(vm.lookup("open"), {}).i == 6);
+    // A script error leaves the task failed, and the interpreter usable.
+    vm.root()->define("broken", script::Vm::native("broken", [](script::Vm&, const V&, script::Args) -> V { throw script::ScriptError("no"); }));
+    const std::shared_ptr<script::Task> bad = vm.start(vm.lookup("broken"), {});
+    CHECK(bad->state == script::Task::State::Failed && bad->error == "no");
+    CHECK(vm.call(vm.lookup("init"), {}).i == 3);
+}
+
+// A variable pushed without EVAL as an argument is the variable itself: the function sets it.
+//   function set(out) { *out = 7; }            (VARIABLE_PUSH out, EVAL, 7, ASSIGN)
+//   function relay(out) { set(out); }          (the pointer handed on)
+//   function caller() { result = 1; relay(&result); other = result + 1; return other; }
+TEST(vm_variables_passed_as_themselves) {
+    using V = script::Value;
+    script::Vm vm;
+    V seen;
+    vm.root()->define("show", script::Vm::native("show", [&](script::Vm&, const V&, script::Args a) {
+        seen = a[0]; // the program's own functions are given the value
+        return V{};
+    }));
+    vm.run(block(2, {
+        function(Op::FunctionDefine, "set", {"out"}, 2,
+                 {var({"out"}, 0), in(Op::Eval), in(Op::IntConst, 7), in(Op::Assign), in(Op::Pop), in(Op::SetState, 1)}),
+        function(Op::FunctionDefine, "relay", {"out"}, 4,
+                 {name(2, "set"), in(Op::Eval), var({"out"}, 0), in(Op::Eval), in(Op::Call, 1), in(Op::Pop),
+                  name(3, "show"), in(Op::Eval), var({"out"}, 0), in(Op::Eval), in(Op::Call, 1), in(Op::Pop), in(Op::SetState, 1)}),
+        function(Op::FunctionDefine, "caller", {}, 4,
+                 {var({"result"}, 1), in(Op::IntConst, 1), in(Op::Assign), in(Op::Pop),
+                  name(2, "relay"), in(Op::Eval), var({"result"}, 1), in(Op::Call, 1), in(Op::Pop),
+                  var({"other"}, 3), var({"result"}, 1), in(Op::Eval), in(Op::IntConst, 1), in(Op::BinaryOperator, "+"), in(Op::Assign), in(Op::Pop),
+                  var({"other"}, 3), in(Op::Eval), in(Op::Pop), in(Op::SetState, 1)}),
+    }));
+    CHECK(vm.call(vm.lookup("caller"), {}).i == 8);
+    CHECK(seen.kind == script::Kind::Int && seen.i == 7);
 }
 
 // Every script of the discs runs its top level (the program's own classes stood in for), and

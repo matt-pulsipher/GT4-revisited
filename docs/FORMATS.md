@@ -111,8 +111,8 @@ volume's index bytes (Prologue: its table of contents).
 | `CAR4`, `Pat0` | `car/` | ✅ the parts, the paints, the camera mounts and lamps of the info block ([formats/model.md](formats/model.md)); ❓ the rest of the info block |
 | Courses | `crs/` | ✅ the container, the scenery, the road `RNW4`, the environment block, billboards, lamp glows, the course map ([formats/course.md](formats/course.md), [formats/race_display.md](formats/race_display.md)), the replay cameras `REP4` ([formats/camera.md](formats/camera.md)); ❓ cones and boards `GDGT`, camera motions `Mot1` |
 | `GTDB` / `GTID` / `GTST` | `specdb/` | ✅ the tables, labels and strings, the parts tables' columns ([formats/database.md](formats/database.md)); ❓ the events', opponents' and other tables' columns |
-| `ADCH` scripts | the menus, game flow, settings | ✅ read, listed and run by the interpreter ([formats/script.md](formats/script.md)); ❓ the program's classes they call |
-| Layouts (`.mproject`, `.mwidget`: text), `gpb0` / `gpb1` / `gpb2` pictures, `RT02` / `RT03` text | the menus | ✅ read and drawn as still pages ([formats/menu.md](formats/menu.md)) |
+| `ADCH` scripts | the menus, game flow, settings | ✅ read, listed and run by the interpreter, waits included ([formats/script.md](formats/script.md)); the menus' classes of the program are written ([formats/menu.md](formats/menu.md)) |
+| Layouts (`.mproject`, `.mwidget`: text), `gpb0` / `gpb1` / `gpb2` pictures, `RT02` / `RT03` text | the menus | ✅ read, drawn, and run from the game's scripts ([formats/menu.md](formats/menu.md)) |
 | Replays, saves | `replay/` | ❓ |
 
 Prologue mixes the two generations: `CAR4` cars and `ADCH` scripts next to `GTM1` models,

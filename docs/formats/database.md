@@ -125,3 +125,41 @@ names, 41 `CAR_VARIATION`, 42 `VARIATION`.
 middle, mm; +0x20 the frontal area, m2. `CAR_VARIATION` gives a car's `VARIATION` id (its row is
 {u32 row id, u32 table id 42}).
 
+## What the menus read
+
+Columns the menus' classes read (`menu::MCarData`, `MCourseData`, the car object; the
+accessors' addresses are the US program's, v1.01). Code: `src/gt4r/menu/game_natives.cpp`.
+
+| Table | Column | What |
+|---|---|---|
+| `GENERIC_CAR` (24) | +0x00 u32, +0x04 u32 | The car's row of `DEFAULT_PARTS` and that table's id (0x24): the label is not always `df_pt_<car label>` |
+| | +0x08 u32 | Price in credits |
+| | +0x0C s16 | Model year |
+| | +0x0E, +0x0F, +0x10 u8 | Country, maker, tuner: numbers of the program's lists (below) |
+| | +0x11 u8 | Category, modulo 100 (0 normal, 1 racing, 2 tuning, 3 concept); 100 and over ❓ |
+| | +0x12 u8 | Flags: bit 0 not for sale, bit 2 not allowed in races, bit 5 a test car |
+| | +0x14 u8 | The kind of open top |
+| `ENGINE` (113) | +0x00 to +0x14, six u32 | Texts of `UnistrDB`: displacement, layout, valve gear, aspiration, the engine speeds of the power and of the torque |
+| | +0x1A u16, +0x1C u16 | Power in PS; torque in kgf.m x 100 |
+| `DRIVETRAIN` (21) | +0x10 u8 | 0 FR, 1 FF, 2 4WD, 3 MR, 4 RR |
+| `VARIATION<language>` (52) | +0x0C u32 | The paint's name, a text of `<language>_StrDB` |
+| | +0x24 u8 x 3 | The paint's color, red, green, blue |
+| `COURSE` (110 x 22) | +0x10 u8 | The surface: 0 dry, 1 wet, 2 dirt, 3 snow (0x1B2F10) |
+| | +0x11 u8 | The most cars on it (0x1B3030) |
+| `ARCADEINFO_NORMAL` (721 x 65) | 8 x {u32 row, u32 table 0x26}, 1 byte | The car's Arcade events, rows of `RACE`: entry [difficulty 0 to 2] on a dry course, [3 + difficulty] otherwise (0x12E150) |
+| `DEFAULT_PARTS` | the pairs of table 12, 10, 6 | The car's `ENGINE`, `DRIVETRAIN`, `CHASSIS` rows |
+| `CHASSIS` | +0x08, +0x0A u16 | The length and height the menus write, mm (0x446038, 0x446068); the width is of another part ❓ |
+
+The accessors of `GENERIC_CAR` are at 0x448868 to 0x4489A0.
+
+**The program's lists.** Makers, tuners, countries and categories are numbers in the
+database and names in the program file: lists of {u32 number, u32 pointer to the name}
+(US v1.01: makers at 0x6A7310, 78; tuners at 0x6A7658, 96; countries at 0x6A79C0, 13;
+categories at 0x6A6FE0: `NORMAL`, `RACING`, `TUNING`, `CONCEPT`). The names are the pictures'
+and texts' keys (`toyota`, `nismo`, `JP`). They are found in the disc's program file by
+their content (`src/gt4r/menu/program_tables.*`; `gt4tool menu-names <disc>` prints them).
+
+`gt4tool db-strings <disc> <pool> [index ...]` prints texts of a string pool.
+
+❓ Not read: the `RACE` table's columns (151 bytes), `ENEMY_CARS`, which cars have no manual
+gears, the price of parts.

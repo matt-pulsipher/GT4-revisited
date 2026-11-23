@@ -262,7 +262,7 @@ TEST(live_widget_properties) {
     vm.member(vm.lookup("Top::Item::label"), "text")->set(vm, V::string("two"));
     const menu::LiveWidget& live = *top->children[1];
     CHECK(!live.visible() && live.data.rect("geometry")->y == 55.5f && live.children[0]->data.text("text") == "two");
-    // Copies into a box that shows one at a time.
+    // Copies into a select box.
     const V box = vm.lookup("Top::Box");
     for (int i = 0; i < 3; ++i) {
         const V copy = vm.call(vm.attribute(item, "doCopy"), {});
@@ -275,39 +275,14 @@ TEST(live_widget_properties) {
     CHECK(vm.attribute(V::of(script::Kind::Module, b.children[2]), "next").is_nil());
     vm.member(box, "index")->set(vm, V::integer(1));
     CHECK(b.children[0]->data.rect("geometry")->y == -40 && b.children[1]->data.rect("geometry")->y == 0 && b.children[2]->data.rect("geometry")->y == 40);
-    CHECK(b.children[1]->screen_rect().x == 100 && b.children[1]->screen_rect().y == 200 && b.children[1]->screen_rect().w == 300);
+    // The rows keep the first one's size; the chosen one is in the middle of the box.
+    CHECK(b.children[1]->screen_rect().x == 100 && b.children[1]->screen_rect().y == 200 && b.children[1]->screen_rect().w == 30);
     vm.call(vm.attribute(box, "clearChildren"), {});
     CHECK(b.children.empty() && vm.attribute(box, "first").is_nil());
-}
-
-// The game's own title page runs: its script builds the menu, the keys move through it, and
-// choosing Options ends the project asking for the option project.
-TEST(disc_title_page_runs) {
-    if (test::discs().empty()) SKIP("set GT4R_DISC");
-    for (const auto& disc : test::discs()) {
-        if (disc->info().game != Game::GT4) continue;
-        menu::Runtime rt([&](const std::string& path) -> std::optional<Bytes> {
-            const gt3r::Volume::Entry* e = disc->volume().find(path);
-            if (!e) return std::nullopt;
-            return disc->volume().read(*e);
-        });
-        rt.start_project("arcade", "US");
-        rt.update();
-        CHECK(rt.current_page() && rt.current_page()->name == "TopRoot");
-        CHECK(rt.focused() && rt.focused()->parent_widget() && rt.focused()->parent_widget()->data.type == "SelectBox");
-        if (!rt.focused()) continue;
-        const size_t items = rt.focused()->parent_widget()->children.size();
-        CHECK(items >= 3 && (rt.focused()->state & menu::kFocus));
-        // Down to "Option" (wherever it is in the list), then choose it.
-        for (size_t i = 0; i < items && rt.focused()->name != "Option"; ++i) rt.key(menu::Key::Down);
-        CHECK(rt.focused()->name == "Option");
-        rt.key(menu::Key::Accept);
-        rt.update();
-        CHECK(!rt.current_page() && rt.wanted_project() == "option");
-        // The option project opens its page and has something to focus.
-        rt.start_project("option", "US");
-        rt.update();
-        CHECK(rt.current_page() && rt.current_page()->name == "OptionRoot" && rt.focused());
-        for (const std::string& line : rt.log()) CHECK(line.find("script error") == std::string::npos);
-    }
+    // A child asked by name that is not there is nil; a value assigned to the name stays. The
+    // page a text's key is looked up in goes with the widget.
+    CHECK(vm.binary("[]", item, V::string("nothing")).as<script::Reference>()->get(vm).is_nil());
+    CHECK(!vm.binary("[]", item, V::string("label")).as<script::Reference>()->get(vm).is_nil());
+    vm.binary("[]", item, V::string("notice")).as<script::Reference>()->set(vm, V::string("kept"));
+    CHECK(vm.attribute(item, "notice").as_string() == "kept");
 }

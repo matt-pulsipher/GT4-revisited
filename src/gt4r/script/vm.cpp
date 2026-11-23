@@ -21,6 +21,29 @@ Value deref(Vm& vm, Value v) {
 
 Value reference(std::shared_ptr<Reference> r) { return Value::of(Kind::Reference, std::move(r)); }
 
+// A variable given as it is, not its value (`f(result)` where f assigns `*result`; the
+// compiled code pushes the variable and leaves the EVAL out): a value that stands for the
+// variable. Read, it gives the variable's value; assigned through, it sets the variable.
+struct Pointer : Reference {
+    std::shared_ptr<Reference> to;
+    Value get(Vm& vm) override { return to->get(vm); }
+    void set(Vm& vm, const Value& v) override { to->set(vm, v); }
+};
+
+// What a value pushed without EVAL is as an argument or as the right side of an assignment:
+// a variable becomes a pointer to it, a pointer stays, anything else is read.
+Value keep_variable(Vm& vm, Value v) {
+    if (v.kind != Kind::Reference) return v;
+    if (dynamic_cast<Pointer*>(v.p.get())) return v;
+    if (auto cell = std::dynamic_pointer_cast<Variable>(v.p)) {
+        if (cell->value.kind == Kind::Reference && dynamic_cast<Pointer*>(cell->value.p.get())) return cell->value; // a pointer handed on
+        auto p = std::make_shared<Pointer>();
+        p->to = std::move(cell);
+        return reference(std::move(p));
+    }
+    return deref(vm, std::move(v));
+}
+
 // An array's element.
 struct Element : Reference {
     std::shared_ptr<Array> array;
@@ -132,16 +155,26 @@ Value Module::call(Vm& vm, Args args) {
     if (!is_class) throw ScriptError("not a class: " + path());
     for (const Module* m = this; m; m = m->base.get())
         if (m->construct) return m->construct(vm, args);
+    const Value self = make_object();
+    if (std::shared_ptr<Variable> init = find("__init__"))
+        if (auto fn = init->value.as<Function>()) vm.invoke(*fn, self, args);
+    return self;
+}
+
+bool Module::native_class() const {
+    for (const Module* m = this; m; m = m->base.get())
+        if (m->construct) return true;
+    return false;
+}
+
+Value Module::make_object() {
     auto object = std::make_shared<Instance>();
     object->cls = std::static_pointer_cast<Module>(shared_from_this());
     std::vector<const Module*> chain;
     for (const Module* m = this; m; m = m->base.get()) chain.push_back(m);
     for (auto it = chain.rbegin(); it != chain.rend(); ++it)
         for (const std::string& a : (*it)->attributes) object->attributes[a] = std::make_shared<Variable>();
-    const Value self = Value::of(Kind::Object, object);
-    if (std::shared_ptr<Variable> init = find("__init__"))
-        if (auto fn = init->value.as<Function>()) vm.invoke(*fn, self, args);
-    return self;
+    return Value::of(Kind::Object, object);
 }
 
 void Module::clear() {
@@ -200,7 +233,8 @@ s32 int_arg(Args a, size_t i, s32 fallback = 0) {
     return a[i].kind == Kind::Int ? a[i].i : a[i].kind == Kind::Float ? s32(a[i].f) : fallback;
 }
 
-// "%d of %s".format(3, "x"): C's conversions, an argument each.
+// "%d of %s".format(3, "x"): C's conversions, an argument each, and the program's own
+// "%.2t": a whole number written with a point before its last two digits (1234: "12.34").
 std::string format(const std::string& f, Args args) {
     std::string out;
     size_t next = 0;
@@ -224,6 +258,16 @@ std::string format(const std::string& f, Args args) {
         } else if (std::strchr("feEgG", c)) {
             std::snprintf(b, sizeof b, (spec + c).c_str(), double(v.as_float()));
             out += b, ++next;
+        } else if (c == 't') {
+            const size_t dot = spec.find('.');
+            const int places = dot == std::string::npos ? 0 : std::atoi(spec.c_str() + dot + 1);
+            const s64 n = v.kind == Kind::Float ? s64(v.f) : s64(v.i);
+            std::string digits = std::to_string(n < 0 ? -n : n);
+            if (places > 0) {
+                if (digits.size() <= size_t(places)) digits.insert(0, size_t(places) + 1 - digits.size(), '0');
+                digits.insert(digits.size() - size_t(places), ".");
+            }
+            out += (n < 0 ? "-" : "") + digits, ++next;
         } else if (c == 's') {
             std::snprintf(b, sizeof b, (spec + c).c_str(), v.to_string().c_str());
             out += b, ++next;
@@ -393,7 +437,8 @@ std::shared_ptr<Reference> Vm::builtin_member(const Value& of, const std::string
 
 // Module.load: the file is looked for beside each folder a script was read from.
 void Vm::load_into(const std::shared_ptr<Module>& module, const std::string& name) {
-    const std::vector<std::string> folders = folders_;
+    std::vector<std::string> folders = folders_;
+    if (!name.empty() && name[0] == '/') folders = {std::string()}; // a path from the top
     for (auto dir = folders.rbegin(); dir != folders.rend(); ++dir) {
         std::optional<Bytes> file = loader_ ? loader_(*dir + name) : std::nullopt;
         if (!file) continue;
@@ -409,8 +454,15 @@ void Vm::load_into(const std::shared_ptr<Module>& module, const std::string& nam
 // The interpreter
 // ---------------------------------------------------------------------------------------------
 
-struct Vm::Frame {
+struct Frame {
     std::shared_ptr<const Code> code;
+    size_t pc = 0;
+    size_t base_scopes = 1;
+    std::shared_ptr<Reference> evaluated; // what the last EVAL read, and where
+    size_t evaluated_at = 0;
+    bool constructs = false; // a class's __init__: the call gives the object
+    Value object;
+    std::function<Value(Vm&, const Value&)> after; // of a call a native asked for
     std::vector<std::shared_ptr<Reference>> slots;
     std::vector<std::shared_ptr<Module>> scopes; // MODULE_DEFINE and CLASS_DEFINE push, SET_STATE 0 pops
     std::vector<Value> imports;                  // IMPORT "*": modules whose names are in reach
@@ -428,10 +480,10 @@ Vm::Vm(Loader loader) : loader_(std::move(loader)) {
     root_->define("Object", Value::of(Kind::Module, object));
 }
 
-Vm::~Vm() {
-    result_ = {};
-    root_->clear();
-}
+Vm::~Vm() { root_->clear(); }
+
+Task::Task() = default;
+Task::~Task() = default;
 
 Value Vm::native(std::string name, NativeFunction fn) {
     auto f = std::make_shared<Function>();
@@ -483,40 +535,209 @@ Value Vm::lookup(const std::string& path) {
     return v;
 }
 
-Value Vm::call(const Value& callee_, Args args) {
-    const Value callee = deref(*this, callee_);
-    if (!callee.p || !callee.p->callable()) throw ScriptError("not a function: " + callee.to_string());
-    return deref(*this, callee.p->call(*this, args));
+Value Vm::call(const Value& callee, Args args) {
+    Task t;
+    t.can_wait = false;
+    if (begin(t, callee, args)) return run_to_end(t);
+    return t.result;
+}
+
+void Vm::push_frame(Task& t, const Function& fn, const Value& self, Args args) {
+    if (t.frames.size() >= size_t(kMaxDepth)) throw ScriptError("calls nested too deep in " + fn.name);
+    auto f = std::make_unique<Frame>();
+    f->code = fn.code;
+    const size_t params = f->code->parameters.size();
+    f->slots.resize(std::max<size_t>(f->code->variables, params));
+    for (size_t i = 0; i < params; ++i) f->slots[i] = std::make_shared<Variable>(i < args.size() ? args[i] : Value{});
+    f->scopes.push_back(fn.scope ? fn.scope : root_);
+    f->self = self;
+    t.reg = {};
+    t.frames.push_back(std::move(f));
+}
+
+// The call a native asked for in its place (then_call): a script function gets a frame; one of
+// the program's is called here. True when a frame was pushed.
+bool Vm::push_chained(Task& t, Value& value) {
+    while (t.chained) {
+        Task::Chained c = std::move(*t.chained);
+        t.chained.reset();
+        const Value callee = deref(*this, c.callee);
+        if (auto fn = callee.as<Function>(); fn && !fn->native) {
+            push_frame(t, *fn, fn->self, c.args);
+            t.frames.back()->after = std::move(c.after);
+            return true;
+        }
+        Value r = callee.p && callee.p->callable() ? deref(*this, callee.p->call(*this, c.args)) : Value{};
+        if (c.after) {
+            if (t.until && !t.after_wait) {
+                // The function asked to wait: what follows it does so once the wait is over.
+                std::function<Value(Vm&, const Value&)> after = std::move(c.after);
+                t.after_wait = [after, r](Vm& vm) { after(vm, r); };
+            } else r = c.after(*this, r);
+        }
+        value = std::move(r); // the value the script sees
+    }
+    return false;
+}
+
+void Vm::run_task(Task& t) {
+    struct Running {
+        Vm& vm;
+        Task* outer;
+        Running(Vm& v, Task& t) : vm(v), outer(v.current_) { v.current_ = &t, ++v.nesting_; }
+        ~Running() { vm.current_ = outer, --vm.nesting_; }
+    } running(*this, t);
+    if (nesting_ > 64) throw ScriptError("calls from the program nested too deep");
+    t.state = Task::State::Ready;
+    t.until = nullptr;
+    try {
+        while (!t.frames.empty()) {
+            Frame& f = *t.frames.back();
+            const Step step = execute(t, f);
+            if (step == Step::Waiting) {
+                t.state = Task::State::Waiting;
+                return;
+            }
+            if (step == Step::Called) continue;
+            // The frame returned: its value goes to the caller's stack.
+            Value v = f.constructs ? f.object : t.reg;
+            std::function<Value(Vm&, const Value&)> after = std::move(f.after);
+            t.frames.pop_back();
+            if (after) v = after(*this, v);
+            // What `after` chained runs in the frame's place; its value is the one passed on.
+            if (t.chained && push_chained(t, v)) continue;
+            if (t.frames.empty()) {
+                t.result = v;
+                break;
+            }
+            t.frames.back()->stack.push_back(std::move(v));
+            if (t.until) {
+                t.state = Task::State::Waiting;
+                return;
+            }
+        }
+    } catch (...) {
+        t.frames.clear();
+        t.chained.reset();
+        t.until = nullptr, t.after_wait = nullptr;
+        t.state = Task::State::Failed;
+        throw;
+    }
+    t.state = Task::State::Done;
+}
+
+Value Vm::run_to_end(Task& t) {
+    t.can_wait = false;
+    for (;;) {
+        run_task(t);
+        if (t.state != Task::State::Waiting) break;
+        t.until = nullptr; // a wait in a call that must end at once is passed over
+        t.after_wait = nullptr;
+    }
+    return t.result;
 }
 
 Value Vm::invoke(Function& fn, const Value& self, Args args) {
     if (fn.native) return fn.native(*this, self, args);
-    if (depth_ >= kMaxDepth) throw ScriptError("calls nested too deep in " + fn.name);
-    Frame f;
-    f.code = fn.code;
-    const size_t params = f.code->parameters.size();
-    f.slots.resize(std::max<size_t>(f.code->variables, params));
-    for (size_t i = 0; i < params; ++i) f.slots[i] = std::make_shared<Variable>(i < args.size() ? args[i] : Value{});
-    f.scopes.push_back(fn.scope ? fn.scope : root_);
-    f.self = self;
-    result_ = {};
-    ++depth_;
-    try {
-        execute(f);
-    } catch (...) {
-        --depth_;
-        throw;
-    }
-    --depth_;
-    return result_;
+    Task t;
+    push_frame(t, fn, self, args);
+    return run_to_end(t);
 }
 
 void Vm::run(std::shared_ptr<const Code> code, std::shared_ptr<Module> scope) {
-    Frame f;
-    f.code = std::move(code);
-    f.slots.resize(f.code->variables);
-    f.scopes.push_back(scope ? std::move(scope) : root_);
-    execute(f);
+    Task t;
+    auto f = std::make_unique<Frame>();
+    f->code = std::move(code);
+    f->slots.resize(f->code->variables);
+    f->scopes.push_back(scope ? std::move(scope) : root_);
+    t.frames.push_back(std::move(f));
+    run_to_end(t);
+}
+
+// Begins a call in a task: a script function gets a frame; one of the program's is called
+// here (it may chain a script call or ask to wait). False when nothing is left to run.
+bool Vm::begin(Task& t, const Value& callee_, Args args) {
+    const Value callee = deref(*this, callee_);
+    if (!callee.p || !callee.p->callable()) throw ScriptError("not a function: " + callee.to_string());
+    if (auto fn = callee.as<Function>(); fn && !fn->native) {
+        push_frame(t, *fn, fn->self, args);
+        return true;
+    }
+    struct Running {
+        Vm& vm;
+        Task* outer;
+        Running(Vm& v, Task& t) : vm(v), outer(v.current_) { v.current_ = &t; }
+        ~Running() { vm.current_ = outer; }
+    } running(*this, t);
+    t.result = deref(*this, callee.p->call(*this, args));
+    return t.chained && push_chained(t, t.result);
+}
+
+std::shared_ptr<Task> Vm::start(const Value& callee, Args args) {
+    auto t = std::make_shared<Task>();
+    try {
+        if (begin(*t, callee, args)) run_task(*t);
+        else t->state = t->until ? Task::State::Waiting : Task::State::Done;
+    } catch (const ScriptError& e) {
+        t->state = Task::State::Failed, t->error = e.what();
+    }
+    return t;
+}
+
+void Vm::resume(Task& t) {
+    if (t.state != Task::State::Waiting) return;
+    try {
+        t.until = nullptr;
+        if (t.after_wait) {
+            // What the native that waited does now; a script call it asks for takes the place
+            // of the value the native returned.
+            std::function<void(Vm&)> then = std::move(t.after_wait);
+            t.after_wait = nullptr;
+            {
+                struct Running {
+                    Vm& vm;
+                    Task* outer;
+                    Running(Vm& v, Task& t) : vm(v), outer(v.current_) { v.current_ = &t; }
+                    ~Running() { vm.current_ = outer; }
+                } running(*this, t);
+                then(*this);
+                if (t.chained) {
+                    Value v;
+                    std::vector<Value>* stack = t.frames.empty() ? nullptr : &t.frames.back()->stack;
+                    if (stack && !stack->empty()) v = std::move(stack->back()), stack->pop_back();
+                    if (!push_chained(t, v)) {
+                        if (stack) stack->push_back(std::move(v));
+                        else t.result = std::move(v);
+                    }
+                }
+            }
+            if (t.until) return; // it waits again
+        }
+        if (t.frames.empty()) t.state = Task::State::Done;
+        else run_task(t);
+    } catch (const ScriptError& e) {
+        t.frames.clear();
+        t.state = Task::State::Failed, t.error = e.what();
+    }
+}
+
+void Vm::wait(std::function<bool()> until, std::function<void(Vm&)> then) {
+    if (current_ && current_->can_wait) {
+        current_->until = std::move(until), current_->after_wait = std::move(then);
+        return;
+    }
+    // In a call that must end at once nothing is waited for: what was to follow happens now.
+    if (then) then(*this);
+}
+
+void Vm::then_call(const Value& callee, std::vector<Value> args, std::function<Value(Vm&, const Value&)> after) {
+    if (current_) {
+        current_->chained = Task::Chained{callee, std::move(args), std::move(after)};
+        return;
+    }
+    // Outside any script call, the function is called here.
+    const Value r = call(callee, args);
+    if (after) after(*this, r);
 }
 
 void Vm::require(const std::string& name, std::shared_ptr<Module> scope) {
@@ -618,12 +839,12 @@ std::shared_ptr<Module> Vm::module_at(Frame& f, const std::vector<std::string>& 
     return m;
 }
 
-void Vm::execute(Frame& f) {
+Vm::Step Vm::execute(Task& t, Frame& f) {
     const std::vector<Instruction>& code = f.code->instructions;
     std::vector<Value>& st = f.stack;
     st.reserve(f.code->stack + 4);
-    const size_t base_scopes = f.scopes.size();
-    size_t pc = 0;
+    const size_t base_scopes = f.base_scopes;
+    size_t& pc = f.pc;
     auto pop = [&]() {
         if (st.empty()) fail(f, pc, "the value stack is empty");
         Value v = std::move(st.back());
@@ -666,9 +887,26 @@ void Vm::execute(Frame& f) {
             }
             case Op::Eval:
                 if (st.empty()) fail(f, pc, "the value stack is empty");
-                if (st.back().kind == Kind::Reference) st.back() = deref(*this, std::move(st.back()));
+                if (st.back().kind == Kind::Reference) {
+                    f.evaluated = std::static_pointer_cast<Reference>(st.back().p), f.evaluated_at = pc;
+                    // A variable that holds a pointer gives the pointer (`*result = 1` assigns
+                    // through it); everything else its value.
+                    const auto cell = std::dynamic_pointer_cast<Variable>(st.back().p);
+                    if (cell && cell->value.kind == Kind::Reference && dynamic_cast<Pointer*>(cell->value.p.get())) st.back() = cell->value;
+                    else st.back() = deref(*this, std::move(st.back()));
+                }
                 break;
             case Op::AttributePush: {
+                // `x.value` of a number or a string is the variable it was just read from
+                // (`count.value = 3` assigns `count`: in the program a number is an object and
+                // `value` what it holds).
+                if (in.text == "value" && f.evaluated && f.evaluated_at + 1 == pc && !st.empty()) {
+                    const Kind k = st.back().kind;
+                    if (k == Kind::Nil || k == Kind::Int || k == Kind::Float || k == Kind::String) {
+                        st.back() = reference(f.evaluated);
+                        break;
+                    }
+                }
                 const Value of = deref(*this, pop());
                 std::shared_ptr<Reference> r = member(of, in.text);
                 if (!r) fail(f, pc, "no \"" + in.text + "\" in " + of.to_string());
@@ -676,11 +914,14 @@ void Vm::execute(Frame& f) {
                 break;
             }
             case Op::Assign: {
-                Value v = deref(*this, pop());
+                Value v = keep_variable(*this, pop());
                 const Value to = pop();
                 if (to.kind != Kind::Reference) fail(f, pc, "assignment to a value");
+                // A pointer is kept only by a variable; anything else takes the value.
+                const bool pointer = v.kind == Kind::Reference;
+                if (pointer && !dynamic_cast<Variable*>(to.p.get())) v = deref(*this, std::move(v));
                 static_cast<Reference*>(to.p.get())->set(*this, v);
-                st.push_back(std::move(v));
+                st.push_back(deref(*this, std::move(v)));
                 break;
             }
             case Op::ListAssign: { // [a, b] = value
@@ -698,13 +939,52 @@ void Vm::execute(Frame& f) {
                 break;
             }
             case Op::Pop:
-                result_ = deref(*this, pop());
+                t.reg = deref(*this, pop());
                 break;
             case Op::Call: {
-                std::vector<Value> args = pop_many(in.value);
+                if (st.size() < in.value) fail(f, pc, "the value stack is short");
+                std::vector<Value> raw(st.end() - in.value, st.end());
+                st.resize(st.size() - in.value);
                 const Value callee = deref(*this, pop());
                 if (!callee.p || !callee.p->callable()) fail(f, pc, "not a function: " + callee.to_string());
-                st.push_back(callee.p->call(*this, args));
+                // A script function takes a variable pushed as it is as a pointer to it; the
+                // program's own functions take values.
+                const auto script_fn = callee.as<Function>();
+                const bool to_script = script_fn && !script_fn->native;
+                std::vector<Value> args;
+                args.reserve(raw.size());
+                for (Value& x : raw) args.push_back(to_script ? keep_variable(*this, std::move(x)) : deref(*this, std::move(x)));
+                // A script function: a frame of its own, so the call can wait.
+                if (auto fn = callee.as<Function>(); fn && !fn->native) {
+                    ++pc;
+                    push_frame(t, *fn, fn->self, args);
+                    return Step::Called;
+                }
+                if (auto cls = callee.as<Module>(); cls && cls->is_class && !cls->native_class()) {
+                    const Value self = cls->make_object();
+                    const std::shared_ptr<Variable> init = cls->find("__init__");
+                    const auto fn = init ? init->value.as<Function>() : nullptr;
+                    if (fn && !fn->native) {
+                        ++pc;
+                        push_frame(t, *fn, self, args);
+                        t.frames.back()->constructs = true, t.frames.back()->object = self;
+                        return Step::Called;
+                    }
+                    if (fn) fn->native(*this, self, args);
+                    st.push_back(self);
+                    break;
+                }
+                Value r = callee.p->call(*this, args);
+                if (t.chained) {
+                    ++pc;
+                    if (push_chained(t, r)) return Step::Called;
+                    --pc;
+                }
+                st.push_back(std::move(r));
+                if (t.until) {
+                    ++pc;
+                    return Step::Waiting;
+                }
                 break;
             }
             case Op::BinaryOperator: {
@@ -777,7 +1057,7 @@ void Vm::execute(Frame& f) {
             case Op::SetState:
                 // 0 ends a module's or class's block (the file's, at the top); 1 returns.
                 if (in.value == 0 && f.scopes.size() > base_scopes) f.scopes.pop_back();
-                else return;
+                else return Step::Returned;
                 break;
             case Op::FunctionDefine: case Op::MethodDefine: {
                 auto fn = std::make_shared<Function>();
@@ -824,6 +1104,7 @@ void Vm::execute(Frame& f) {
         if (what.find(".ad:") != std::string::npos) throw;
         fail(f, pc, what);
     }
+    return Step::Returned;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -843,7 +1124,7 @@ Value Vm::binary(const std::string& op, const Value& a, const Value& b) {
             return Value::string(s.substr(size_t(b.i), 1));
         }
         if (a.p && b.kind == Kind::String) // a member by name: page["open"], Root["Grid1"]
-            if (std::shared_ptr<Reference> r = member(a, b.as_string())) return reference(std::move(r));
+            if (std::shared_ptr<Reference> r = a.kind == Kind::Module ? a.p->element(*this, a, b.as_string()) : member(a, b.as_string())) return reference(std::move(r));
         if (is_stub(a)) return reference(a.p->member(*this, a, "[]"));
         throw ScriptError("no [" + b.to_string() + "] in " + a.to_string());
     }

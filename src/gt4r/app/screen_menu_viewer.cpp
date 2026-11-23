@@ -1,6 +1,6 @@
 // The menu pages as the game's files describe them: a project's layout drawn with its own
-// pictures, text and fonts. Still pictures: the scripts that fill in and move the pages do
-// not run here yet. How the properties are drawn is in docs/formats/menu.md.
+// pictures, text and fonts; and the menus running (menu::Runtime): the game's scripts on those
+// pages, from the boot project on. How the properties are drawn is in docs/formats/menu.md.
 
 #include "gt4r/app/app.h"
 
@@ -10,6 +10,7 @@
 #include "gt4r/menu/font.h"
 #include "gt4r/menu/project.h"
 #include "gt4r/menu/runtime.h"
+#include "gt4r/menu/runtime_internal.h"
 
 #include <algorithm>
 #include <cmath>
@@ -36,7 +37,7 @@ constexpr int kFocusBits = kFocus | kPrelight; // a focused widget has both
 // Draws a page into a rectangle of the screen.
 class PageDrawer {
 public:
-    PageDrawer(App& app, menu::Project& project) : project_(project), r_(app.renderer()) {
+    explicit PageDrawer(App& app) : r_(app.renderer()) {
         for (const char* path : {"font/system.fnt", "font/menu.fnt"}) {
             const std::optional<Bytes> file = app.vfs()->read(path);
             if (!file) continue;
@@ -56,12 +57,48 @@ public:
 
     int widgets_drawn = 0;
 
+    // A text's size as its face draws it (for the scripts' getTextSize).
+    void measure(const LiveWidget& face, float& w, float& h) {
+        const Widget& d = face.data;
+        std::string s = d.text("text");
+        if (s.empty()) s = d.text("value");
+        const gt3r::text::LatinFont* font = font_of(d);
+        w = h = 0;
+        if (!font || s.empty()) return;
+        gt3r::text::LayoutOptions opt;
+        opt.scale_x = d.number("scale_x", 1), opt.scale_y = d.number("scale_y", 1);
+        // A packed face takes the size of its text; any other breaks its lines at its width.
+        if (const std::optional<Rect> g = d.rect("geometry"); g && g->w > 0 && d.number("multiline") != 0 && d.number("packing") == 0) s = wrapped(s, *font, opt, g->w);
+        const gt3r::text::TextLayout lay = gt3r::text::layout_text(glyphs_of(s, *font), *font, nullptr, 0, 0, opt);
+        w = lay.width, h = lay.height;
+    }
+
     // The page's 640 x 480 into (x, y) at `scale`; `state`: the bits every widget is drawn in.
-    void draw(const LiveWidget& page, float x, float y, float scale, int state) {
+    // `project`: where the page's pictures and text are.
+    void draw(menu::Project& project, const LiveWidget& page, float x, float y, float scale, int state) {
+        project_ = &project;
         ox_ = x, oy_ = y, scale_ = scale, page_ = page.name, widgets_drawn = 0;
         const SDL_Rect whole = to_clip({0, 0, 640, 480});
         SDL_SetRenderClipRect(r_, &whole);
+        over_.clear();
         widget(page, {0, 0, 640, 480}, 1.0f, whole, state);
+        // An option menu's open list lies over everything else of the page.
+        const std::vector<Over> over = std::move(over_);
+        over_.clear();
+        for (const Over& o : over) {
+            SDL_SetRenderClipRect(r_, &whole);
+            widget(*o.live, o.parent, o.opacity, whole, o.state);
+        }
+        SDL_SetRenderClipRect(r_, nullptr);
+    }
+
+    // One widget by itself (the cursor), its rectangle in the page's 640 x 480.
+    void draw_one(menu::Project& project, const std::string& page, const LiveWidget& w, float x, float y, float scale) {
+        project_ = &project;
+        ox_ = x, oy_ = y, scale_ = scale, page_ = page;
+        const SDL_Rect whole = to_clip({0, 0, 640, 480});
+        SDL_SetRenderClipRect(r_, &whole);
+        widget(w, {0, 0, 640, 480}, 1.0f, whole, 0);
         SDL_SetRenderClipRect(r_, nullptr);
     }
 
@@ -87,7 +124,7 @@ private:
     }
 
     void image(const std::string& path, const Rect& at, Rgba tint, float opacity, bool add) {
-        const gt3r::Tex1::Image* img = path.empty() ? nullptr : project_.image(page_, path);
+        const gt3r::Tex1::Image* img = path.empty() ? nullptr : project_->image(page_, path);
         SDL_Texture* t = texture(img);
         if (!t) return;
         SDL_SetTextureColorMod(t, tint.r, tint.g, tint.b);
@@ -97,7 +134,7 @@ private:
         SDL_RenderTexture(r_, t, nullptr, &dst);
     }
     SDL_FPoint image_size(const std::string& path) {
-        const gt3r::Tex1::Image* img = path.empty() ? nullptr : project_.image(page_, path);
+        const gt3r::Tex1::Image* img = path.empty() ? nullptr : project_->image(page_, path);
         return img ? SDL_FPoint{float(img->width), float(img->height)} : SDL_FPoint{0, 0};
     }
 
@@ -136,24 +173,78 @@ private:
         image(br, {at.x + at.w - sbr.x, at.y + at.h - sbr.y, sbr.x, sbr.y}, tint, opacity, false);
     }
 
-    void text(const Widget& w, const Rect& at, float opacity) {
-        std::string s = w.text("text");
-        if (s.empty() && w.has("key")) s = project_.translate(page_, w.text("key"));
-        if (s.empty()) return;
-        // "hm_16", or with a palette "hm_16#1"; a name the files do not have: the menus' body font.
+    // "hm_16", or with a palette "hm_16#1"; a name the files do not have: the menus' body font.
+    const gt3r::text::LatinFont* font_of(const Widget& w, gt3r::text::FontVariant* variant = nullptr) const {
         std::string name = w.text("font", "hm_16");
-        gt3r::text::FontVariant variant = gt3r::text::FontVariant::Plain;
         if (const size_t hash = name.find('#'); hash != std::string::npos) {
-            variant = name.compare(hash, 2, "#0") == 0 ? gt3r::text::FontVariant::Outlined : gt3r::text::FontVariant::Plain;
+            if (variant) *variant = name.compare(hash, 2, "#0") == 0 ? gt3r::text::FontVariant::Outlined : gt3r::text::FontVariant::Plain;
             name.resize(hash);
         }
         auto it = fonts_.find(name);
         if (it == fonts_.end()) it = fonts_.find("hm_16");
-        if (it == fonts_.end()) return;
-        const gt3r::text::LatinFont& font = *it->second;
+        return it == fonts_.end() ? nullptr : it->second;
+    }
+    static std::vector<gt3r::text::GlyphRef> glyphs_of(const std::string& utf8, const gt3r::text::LatinFont& font) {
+        std::u32string wide; // the text's lines end in "\r\n"
+        for (char32_t c : gt3r::text::utf8_decode(utf8))
+            if (c != U'\r') wide += c;
+        return gt3r::text::map_unicode(wide, font, nullptr, nullptr);
+    }
+    float width_of(const std::string& line, const gt3r::text::LatinFont& font, const gt3r::text::LayoutOptions& opt) const {
+        gt3r::text::LayoutOptions plain = opt;
+        plain.align = gt3r::text::HAlign::Left, plain.valign = gt3r::text::VAlign::Top;
+        return gt3r::text::layout_text(glyphs_of(line, font), font, nullptr, 0, 0, plain).width;
+    }
+    // A text of several lines is broken at spaces where a line would pass the face's width.
+    std::string wrapped(const std::string& s, const gt3r::text::LatinFont& font, const gt3r::text::LayoutOptions& opt, float width) const {
+        std::string out, line;
+        auto flush = [&] { out += line, line.clear(); };
+        size_t at = 0;
+        while (at <= s.size()) {
+            const size_t end = std::min(s.find_first_of(" \n", at), s.size());
+            const std::string word = s.substr(at, end - at);
+            const std::string tried = line.empty() ? word : line + " " + word;
+            if (!line.empty() && width_of(tried, font, opt) > width) flush(), out += '\n', line = word;
+            else line = tried;
+            if (end < s.size() && s[end] == '\n') flush(), out += '\n';
+            at = end + 1;
+        }
+        flush();
+        return out;
+    }
+
+    void text(const Widget& w, const Rect& at, float opacity) {
+        std::string s = w.text("text");
+        if (s.empty()) s = w.text("value"); // a tool tip's, an input's
+        if (s.empty() && w.has("key")) s = project_->translate(w.has("key_page") ? w.text("key_page") : page_, w.text("key"));
+        if (s.empty()) return;
+        // A text's marks: of the pad's buttons ("%BG") and of a colour ("%Cfff"), left out;
+        // "%%" is a percent sign (❓ judged from the scripts, which end a percentage with it).
+        for (size_t mark = s.find('%'); mark != std::string::npos && mark + 1 < s.size(); mark = s.find('%', mark)) {
+            const char c = s[mark + 1];
+            if (c == 'B') s.erase(mark, std::min<size_t>(3, s.size() - mark));
+            else if (c == 'C') s.erase(mark, std::min<size_t>(5, s.size() - mark));
+            else if (c == '%') s.erase(mark, 1), ++mark;
+            else ++mark;
+        }
+        gt3r::text::FontVariant variant = gt3r::text::FontVariant::Plain;
+        const gt3r::text::LatinFont* found = font_of(w, &variant);
+        if (!found) return;
+        const gt3r::text::LatinFont& font = *found;
 
         gt3r::text::LayoutOptions opt;
         opt.scale_x = w.number("scale_x", 1), opt.scale_y = w.number("scale_y", 1);
+        // adjustScale(): drawn narrower when it would pass the face's width; abbreviate(): cut
+        // there and ended in dots.
+        if (at.w > 0 && s.find('\n') == std::string::npos) {
+            const float width = width_of(s, font, opt);
+            if (width > at.w && w.number("adjust_scale") != 0) opt.scale_x *= at.w / width;
+            else if (width > at.w && w.number("abbreviate") != 0) {
+                while (s.size() > 1 && width_of(s + "...", font, opt) > at.w) s.pop_back();
+                s += "...";
+            }
+        }
+        if (w.number("multiline") != 0 && w.number("packing") == 0 && at.w > 0) s = wrapped(s, font, opt, at.w);
         // Where in its rectangle: 0..8, rows from the top, columns from the left; the middle (4)
         // when not given.
         const int align = w.has("align") ? int(w.number("align")) : 4;
@@ -162,11 +253,7 @@ private:
         opt.valign = row == 0 ? gt3r::text::VAlign::Top : row == 1 ? gt3r::text::VAlign::Middle : gt3r::text::VAlign::Bottom;
         const float x = col == 0 ? at.x : col == 1 ? at.x + at.w / 2 : at.x + at.w;
         const float y = row == 0 ? at.y : row == 1 ? at.y + at.h / 2 : at.y + at.h;
-        std::u32string wide; // the text's lines end in "\r\n"
-        for (char32_t c : gt3r::text::utf8_decode(s))
-            if (c != U'\r') wide += c;
-        const std::vector<gt3r::text::GlyphRef> glyphs = gt3r::text::map_unicode(wide, font, nullptr, nullptr);
-        const gt3r::text::TextLayout lay = gt3r::text::layout_text(glyphs, font, nullptr, x, y, opt);
+        const gt3r::text::TextLayout lay = gt3r::text::layout_text(glyphs_of(s, font), font, nullptr, x, y, opt);
 
         SDL_Texture*& atlas = atlases_[{&font, int(variant)}];
         if (!atlas) {
@@ -203,17 +290,26 @@ private:
         }
         Rect at = parent;
         if (const std::optional<Rect> g = w.rect("geometry")) at = {parent.x + g->x, parent.y + g->y, g->w, g->h};
-        opacity *= w.number("opacity", 1) * w.number("alpha", 1);
+        opacity *= std::clamp(w.number("opacity", 1), 0.0f, 1.0f);
+        if (opacity <= 0) return;
+        // A widget made larger (a move actor's, a list's chosen row) grows about its middle.
+        if (const float sx = w.number("sx", 1), sy = w.number("sy", 1); sx != 1 || sy != 1)
+            at = {at.x - at.w * (sx - 1) / 2, at.y - at.h * (sy - 1) / 2, at.w * sx, at.h * sy};
+        const float face = opacity * std::clamp(w.number("alpha", 1), 0.0f, 1.0f); // the face's own, not its children's
         ++widgets_drawn;
         const std::vector<Rgba> colors = w.colors("color");
         const Rgba tint = colors.empty() ? Rgba{} : colors[0];
         const bool add = w.number("blend") != 0;
         const std::string& t = w.type;
-        if (t == "ColorFace") fill(at, colors, opacity, add);
-        else if (t == "ImageFace" || t == "ProgressFace") image(w.text("image_path"), at, tint, opacity, add);
-        else if (t == "FrameImageFace") frame(w, at, tint, opacity);
-        else if (t == "TextFace" || t == "InputTextFace" || t == "InputNumberFace" || t == "ToolTipFace" || t == "TextBoxFace") text(w, at, opacity);
-        else if (t == "ColorChipFace") image(w.text("image_path0"), at, tint, opacity, false);
+        if (t == "ColorFace") fill(at, colors, face, add);
+        else if (t == "ImageFace" || t == "ProgressFace") image(w.text("image_path"), at, tint, face, add);
+        else if (t == "FrameImageFace") frame(w, at, tint, face);
+        else if (t == "TextFace" || t == "InputTextFace" || t == "InputNumberFace" || t == "ToolTipFace" || t == "TextBoxFace") text(w, at, face);
+        else if (t == "ColorChipFace") {
+            // A car's paint: its colour under the chip's picture.
+            if (w.has("chip_r")) fill(at, {Rgba{u8(w.number("chip_r")), u8(w.number("chip_g")), u8(w.number("chip_b")), 255}}, face, false);
+            image(w.text("image_path0"), at, tint, face, false);
+        }
 
         SDL_Rect inner = clip;
         if (w.number("clip") != 0) {
@@ -221,11 +317,25 @@ private:
             if (!SDL_GetRectIntersection(&clip, &own, &inner)) return;
             SDL_SetRenderClipRect(r_, &inner);
         }
-        for (const auto& c : live.children) widget(*c, at, opacity, inner, state);
+        const bool open_menu = t == "OptionMenu" && w.number("is_popuped") != 0;
+        for (const auto& c : live.children) {
+            if (open_menu && c->name == "popup") {
+                over_.push_back({c.get(), at, opacity, state & ~kFocusBits});
+                continue;
+            }
+            widget(*c, at, opacity, inner, state);
+        }
         if (w.number("clip") != 0) SDL_SetRenderClipRect(r_, &clip);
     }
 
-    menu::Project& project_;
+    struct Over {
+        const LiveWidget* live;
+        Rect parent;
+        float opacity;
+        int state;
+    };
+    std::vector<Over> over_;
+    menu::Project* project_ = nullptr;
     SDL_Renderer* r_;
     std::vector<gt3r::text::FontFile> files_;
     std::map<std::string, const gt3r::text::LatinFont*> fonts_;
@@ -244,6 +354,8 @@ public:
             projects_.push_back({name, languages.empty() ? std::string("US") : languages[0]});
         }
         // GT4R_MENU="project=boot,page=LanguageRoot,state=2,full=1,run=1": what a scripted run opens.
+        // "boot=1": the menus run from the game's first project, as from power on; "card=none"
+        // (no memory card), "card=saved" (one with a saved game), "credits=N" for that run.
         if (const char* env = std::getenv("GT4R_MENU")) {
             std::string spec = env;
             size_t at = 0;
@@ -259,12 +371,19 @@ public:
                 else if (key == "state") state_ = std::atoi(value.c_str());
                 else if (key == "full") full_ = value != "0";
                 else if (key == "run") start_run_ = value != "0";
+                else if (key == "boot") start_boot_ = value != "0";
+                else if (key == "card") card_ = value;
+                else if (key == "credits") credits_ = std::atoll(value.c_str());
             }
         }
     }
 
     void update(App& app, double) override {
         const MenuInput& m = app.menu();
+        if (start_boot_) {
+            start_boot_ = false, start_project_.clear();
+            run(app, true);
+        }
         if (!start_project_.empty()) {
             for (size_t i = 0; i < projects_.size(); ++i)
                 if (projects_[i].name == start_project_) project_sel_ = int(i);
@@ -272,7 +391,7 @@ public:
             open(app);
             for (size_t i = 0; i < pages_.size(); ++i)
                 if (pages_[i]->name == start_page_) page_sel_ = int(i);
-            if (start_run_ && project_) run(app);
+            if (start_run_ && project_) run(app, false);
         }
         if (runtime_) return update_running(app, m);
         if (m.pressed(PadButton::Triangle)) {
@@ -287,12 +406,13 @@ public:
             const int page = m.pressed(PadButton::L1) ? -kRows : m.pressed(PadButton::R1) ? kRows : 0;
             project_sel_ = std::clamp(project_sel_ + m.vertical() + page, 0, int(projects_.size()) - 1);
             if (m.pressed(PadButton::Cross)) open(app);
+            if (m.pressed(PadButton::Start)) run(app, true);
             return;
         }
         const int pages = int(pages_.size());
         if (pages) page_sel_ = std::clamp(page_sel_ + m.vertical() + (m.pressed(PadButton::L1) ? -kRows : 0), 0, pages - 1);
         if (m.pressed(PadButton::Cross)) full_ = !full_;
-        if (m.pressed(PadButton::R1)) run(app);
+        if (m.pressed(PadButton::R1)) run(app, false);
     }
 
     void render(App&, Ui& ui) override {
@@ -302,7 +422,7 @@ public:
             // The page over the whole height (4:3).
             const float scale = float(Ui::kHeight) / 480.0f;
             ui.fill(0, 0, Ui::kWidth, Ui::kHeight, {0, 0, 0});
-            drawer_->draw(*pages_[size_t(page_sel_)], (Ui::kWidth - 640 * scale) / 2, 0, scale, state_);
+            drawer_->draw(*project_, *pages_[size_t(page_sel_)], (Ui::kWidth - 640 * scale) / 2, 0, scale, state_);
             return;
         }
         ui.header("MENU PAGES", project_ ? project_->name() + "  (" + project_->module_name() + ", " + project_->language() + ")" : std::string());
@@ -324,14 +444,14 @@ public:
             const float scale = std::min(pw / 640.0f, (ph - 14) / 480.0f);
             const float x = px + (pw - 640 * scale) / 2, y = py;
             ui.fill(x, y, 640 * scale, 480 * scale, {0, 0, 0});
-            drawer_->draw(page, x, y, scale, state_);
+            drawer_->draw(*project_, page, x, y, scale, state_);
             ui.text(px + 6, py + ph - 12, std::to_string(drawer_->widgets_drawn) + " widgets drawn " + states, colors::kDim);
         } else if (!project_) {
             ui.text(px + 6, py + 6, "The game's menus, a project each: its pages drawn from the", colors::kDim);
             ui.text(px + 6, py + 18, "disc's layout, pictures, text and fonts.", colors::kDim);
         }
         ui.footer(project_ ? "{Up/Down}: page  {Cross}: whole screen  {Square}: state  {R1}: run its script  {Triangle}: back"
-                           : "{Up/Down}: select  {Cross}: open  {Triangle}: back");
+                           : "{Up/Down}: select  {Cross}: open  {Start}: run the menus from boot  {Triangle}: back");
     }
 
 private:
@@ -345,7 +465,7 @@ private:
         const Entry& e = projects_[size_t(project_sel_)];
         try {
             project_ = std::make_unique<menu::Project>([&app](const std::string& path) { return app.vfs()->read(path); }, e.name, e.language);
-            drawer_ = std::make_unique<PageDrawer>(app, *project_);
+            drawer_ = std::make_unique<PageDrawer>(app);
             pages_.clear();
             for (const Widget& page : project_->pages()) pages_.push_back(LiveWidget::build(page, nullptr));
             page_sel_ = 0;
@@ -361,45 +481,58 @@ private:
         pages_.clear(), drawer_.reset(), project_.reset(), error_.clear();
     }
 
-    // The project's script on its widgets: the game's own menu, as far as the program's side
-    // of it is written.
-    void run(App& app) {
-        const Entry e = projects_[size_t(project_sel_)];
+    // The menus running: the game's scripts on its pages. `from_boot`: from the project the
+    // game starts with; else the project selected, in the world the main script sets up.
+    void run(App& app, bool from_boot) {
         try {
-            runtime_ = std::make_unique<menu::Runtime>([&app](const std::string& path) { return app.vfs()->read(path); });
-            start(app, e.name);
+            menu::Runtime::Config config;
+            gt3r::Vfs* vfs = app.vfs();
+            config.list = [vfs](const std::string& folder) { return vfs->list_dir(folder); };
+            Disc* disc = app.disc();
+            if (disc) config.program = [disc] { return disc->read_program(); };
+            config.data_dir = app.data_dir();
+            while (!config.data_dir.empty() && (config.data_dir.back() == '/' || config.data_dir.back() == '\\')) config.data_dir.pop_back();
+            if (!projects_.empty()) config.language = projects_[size_t(std::clamp(project_sel_, 0, int(projects_.size()) - 1))].language;
+            runtime_ = std::make_unique<menu::Runtime>([vfs](const std::string& path) { return vfs->read(path); }, config);
+            if (card_ == "none") runtime_->game().card.connected = false;
+            else if (card_ == "saved") runtime_->game().card.has_game_data = true, runtime_->game().username = "Player"; // a stand-in for a saved game
+            if (credits_ >= 0) runtime_->game().money = credits_;
+            live_drawer_ = std::make_unique<PageDrawer>(app);
+            PageDrawer* drawer = live_drawer_.get();
+            menu::text_measure().measure = [drawer](const LiveWidget& face, float& w, float& h) { drawer->measure(face, w, h); };
+            runtime_->boot();
+            race_.reset();
+            runtime_->start_project(from_boot || projects_.empty() ? runtime_->first_project() : projects_[size_t(project_sel_)].name);
         } catch (const std::exception& ex) {
-            runtime_.reset(), live_drawer_.reset();
+            stop();
             error_ = ex.what();
             LOG_WARN("Menu viewer: %s", ex.what());
         }
     }
-    void start(App& app, const std::string& name) {
-        std::string language = "US";
-        for (const Entry& e : projects_)
-            if (e.name == name) language = e.language;
-        live_drawer_.reset();
-        runtime_->start_project(name, language);
-        live_drawer_ = std::make_unique<PageDrawer>(app, *runtime_->project());
+    void stop() {
+        menu::text_measure().measure = nullptr;
+        live_drawer_.reset(), runtime_.reset(), race_.reset();
     }
 
-    void update_running(App& app, const MenuInput& m) {
-        if (m.pressed(PadButton::L1)) {
-            live_drawer_.reset(), runtime_.reset();
-            return;
-        }
+    void update_running(App&, const MenuInput& m) {
+        // Select and Start together leave the running menus.
+        if (m.held(PadButton::Select) && m.pressed(PadButton::Start)) return stop();
         try {
+            static const std::pair<PadButton, menu::Key> keys[] = {
+                {PadButton::Cross, menu::Key::Accept}, {PadButton::Triangle, menu::Key::Cancel}, {PadButton::Start, menu::Key::Start},
+                {PadButton::Select, menu::Key::Select}, {PadButton::L1, menu::Key::L1},         {PadButton::R1, menu::Key::R1},
+                {PadButton::L2, menu::Key::L2},         {PadButton::R2, menu::Key::R2},         {PadButton::Square, menu::Key::Square},
+            };
             if (m.vertical()) runtime_->key(m.vertical() < 0 ? menu::Key::Up : menu::Key::Down);
             if (m.horizontal()) runtime_->key(m.horizontal() < 0 ? menu::Key::Left : menu::Key::Right);
-            if (m.pressed(PadButton::Cross)) runtime_->key(menu::Key::Accept);
-            if (m.pressed(PadButton::Triangle)) runtime_->key(menu::Key::Cancel);
+            for (const auto& [button, key] : keys)
+                if (m.pressed(button)) runtime_->key(key);
             runtime_->update();
-            // A script that ended its project names the next one.
-            if (!runtime_->current_page()) {
-                const std::string next = runtime_->wanted_project();
-                const bool known = std::any_of(projects_.begin(), projects_.end(), [&](const Entry& e) { return e.name == next; });
-                if (known && ++restarts_ < 8) start(app, next);
-            } else restarts_ = 0;
+            // A script that ended its project names the next one, or asks for a race.
+            if (runtime_->finished() && !race_) {
+                race_ = runtime_->race_request();
+                if (!race_ && !runtime_->advance()) runtime_->note("the menus ended and asked for nothing");
+            }
         } catch (const std::exception& ex) {
             runtime_->note(std::string("stopped: ") + ex.what());
         }
@@ -408,14 +541,54 @@ private:
     void render_running(Ui& ui) {
         const float scale = float(Ui::kHeight) / 480.0f, x = (Ui::kWidth - 640 * scale) / 2;
         ui.fill(0, 0, Ui::kWidth, Ui::kHeight, {0, 0, 0});
-        if (live_drawer_)
-            for (const auto& page : runtime_->open_pages()) live_drawer_->draw(*page, x, 0, scale, 0);
+        if (live_drawer_) {
+            for (const auto& page : runtime_->open_pages())
+                if (menu::Project* project = runtime_->project_of(*page)) live_drawer_->draw(*project, *page, x, 0, scale, 0);
+            draw_cursor(x, scale);
+            // The transition's colour over the pages.
+            if (const float cover = runtime_->fade_cover(); cover > 0) ui.fill(x, 0, 640 * scale, 480 * scale, Color{0, 0, 0, u8(std::clamp(cover, 0.0f, 1.0f) * 255.0f)});
+        }
         // What the scripts did, beside the page.
         const std::deque<std::string>& log = runtime_->log();
         const size_t lines = std::min<size_t>(log.size(), 26);
         for (size_t i = 0; i < lines; ++i) ui.text(2, 14 + float(i) * 12, Ui::clip(log[log.size() - lines + i], x - 4), colors::kDim);
         ui.text(2, 2, runtime_->project() ? runtime_->project()->name() : std::string("-"), colors::kAccent);
-        ui.text(x + 640 * scale + 2, 2, "L1: stop", colors::kDim);
+        ui.text(x + 640 * scale + 2, 2, "Select+Start:", colors::kDim);
+        ui.text(x + 640 * scale + 2, 14, "stop", colors::kDim);
+        if (race_) {
+            // The menus' work is done: this is what a race would be started from.
+            const float px = x + 60 * scale, py = 150 * scale, pw = 520 * scale;
+            ui.fill(px, py, pw, 84, colors::kPanel);
+            ui.text(px + 8, py + 6, "The menus ask for a race: " + race_->sequence, colors::kAccent);
+            ui.text(px + 8, py + 22, "Course " + race_->course + (race_->race.empty() ? std::string() : "   event " + race_->race), colors::kText);
+            ui.text(px + 8, py + 36, "Car " + race_->car + "   paint " + std::to_string(race_->paint) + "   " + std::to_string(race_->max_entry) + " cars", colors::kText);
+            ui.text(px + 8, py + 50, std::string(race_->manual ? "Manual" : "Automatic") + " gears   difficulty " + race_->difficulty, colors::kText);
+            ui.text(px + 8, py + 66, "Races are not part of this build yet.", colors::kDim);
+        }
+    }
+
+    // The menus' pointer: the common project's cursor picture, its tip on the focused widget.
+    // ❓ Where on the widget the program puts it (the layouts' cursor_align) is by eye: the
+    // widget's right half, at mid height.
+    void draw_cursor(float x, float scale) {
+        if (!runtime_->cursor_visible() || !runtime_->common_project()) return;
+        LiveWidget* focus = runtime_->focused();
+        const std::shared_ptr<LiveWidget> root = runtime_->common_page("CursorRoot");
+        const std::shared_ptr<LiveWidget> cursor = root ? root->child("Cursor") : nullptr;
+        if (!focus || !cursor || !focus->shown()) return;
+        const Rect at = focus->screen_rect();
+        const std::optional<Rect> size = cursor->data.rect("geometry");
+        const float w = size ? size->w : 32, h = size ? size->h : 32;
+        LiveWidget pointer;
+        pointer.data = cursor->data;
+        pointer.set_property("x", script::Value::number(at.x + at.w * 0.75f));
+        pointer.set_property("y", script::Value::number(at.y + at.h * 0.5f));
+        pointer.set_property("w", script::Value::number(w));
+        pointer.set_property("h", script::Value::number(h));
+        pointer.name = root->name;
+        LiveWidget page;
+        page.name = root->name, page.data.type = "RootWindow";
+        live_drawer_->draw_one(*runtime_->common_project(), root->name, pointer, x, 0, scale);
     }
 
     std::vector<Entry> projects_;
@@ -424,9 +597,11 @@ private:
     std::vector<std::shared_ptr<LiveWidget>> pages_;
     std::unique_ptr<menu::Runtime> runtime_;
     std::unique_ptr<PageDrawer> live_drawer_;
-    int project_sel_ = 0, page_sel_ = 0, state_ = 0, restarts_ = 0;
-    bool full_ = false, start_run_ = false;
-    std::string error_, start_project_, start_page_;
+    int project_sel_ = 0, page_sel_ = 0, state_ = 0;
+    bool full_ = false, start_run_ = false, start_boot_ = false;
+    std::string error_, start_project_, start_page_, card_;
+    long long credits_ = -1; // a scripted run's credits; -1: the game's own
+    std::optional<menu::RaceRequest> race_; // what the running menus asked for at their end
 };
 
 } // namespace
