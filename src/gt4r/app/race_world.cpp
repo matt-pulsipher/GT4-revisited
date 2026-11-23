@@ -1,4 +1,5 @@
 #include "gt4r/app/race_world.h"
+#include "gt4r/sim/car_spec.h"
 
 #include "base/log.h"
 #include "gt4r/audio/race_sound.h"
@@ -163,6 +164,14 @@ void RaceWorld::build_simulation() {
                 entries[i].grid_place = setup_.entries[i].grid_place;
                 entries[i].automatic = setup_.entries[i].automatic;
                 entries[i].start_speed = setup_.entries[i].start_speed;
+            }
+            // The player's car's power as built (the replay's card).
+            try {
+                sim::Spec spec;
+                sim::build_spec(*app_.db(), program, entries[0].equipment, 0, spec);
+                player_ps_ = sim::spec_figures(spec).ps;
+            } catch (const std::exception&) {
+                player_ps_ = 0;
             }
             session_ = std::make_unique<sim::Session>(*app_.db(), program, std::make_shared<const course::Runway>(course_->road()), entries);
             if (!noted_)

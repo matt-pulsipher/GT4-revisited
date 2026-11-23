@@ -403,6 +403,7 @@ public:
     float player_distance() const { return distance_; } // metres the player's car ran this run
     float lap_length() const { return world_->line().length; }
     // The race's words for one lap and several (the results' "+1Lap").
+    void set_card(int tire, std::string race_word) { tire_index_ = tire, race_word_ = std::move(race_word); }
     void set_lap_words(std::string one, std::string several) { lap_words_[0] = std::move(one), lap_words_[1] = std::move(several); }
     int beeps() const { return beeps_; }
     std::span<const race::CarState> shown() const { return replaying_ ? std::span<const race::CarState>(history_[replay_at_]) : world_->cars(); }
@@ -432,6 +433,25 @@ public:
             return t < 0 ? 0.0f : t < hold ? 1.0f : std::max(0.0f, 1 - (t - hold) / fade);
         };
         h.message.clear(), h.message_opacity = 0;
+        // A replay's opening card for its first seconds (❓ 3 s with fades of 0.5 s, judged from the
+        // original's replay; the program's times come from its caller, not read).
+        h.card_opacity = 0;
+        if (replaying_ && replay_at_ < 210) {
+            const float t = float(replay_at_) / 60;
+            h.card_opacity = std::min({1.0f, t / 0.5f + 0.2f, (3.5f - t) / 0.5f});
+            h.card_title = world_->car_name(0);
+            char power[32] = "--";
+            const float ps = world_->player_power_ps();
+            if (ps > 0) std::snprintf(power, sizeof power, "%d%s", int(ps * (hud.mph() ? 0.98632f : 1.0f)), hud.mph() ? "HP" : "PS");
+            char tire[32];
+            std::snprintf(tire, sizeof tire, "TireShort_%02d", std::clamp(tire_index_, 0, 12));
+            const std::string t1 = hud.word(tire);
+            std::string line = hud.word("RaceInfoFormat");
+            const std::string parts[3] = {power, t1 + "/" + t1, hud.word(race_word_)};
+            for (const std::string& part : parts)
+                if (const size_t at = line.find("%s"); at != std::string::npos) line.replace(at, 2, part);
+            h.card_line = line;
+        }
         if (replaying_) {
         } else if (flow_.player_finished()) {
             // FINISH: 3.7 s and a fade of 0.3 s.
@@ -563,6 +583,8 @@ private:
     race::ResultBoard board_;
     float distance_ = 0;
     bool rolled_ = false; // a rolling start's music was started
+    int tire_index_ = 4;   // the race's tires (the scripts' index: 4 sports medium)
+    std::string race_word_ = "ARCADE_SINGLE_RACE"; // the race's name in the race's words
     bool throttle_held_ = false;
     float lateral_g_ = 0;
     course::Vec3 last_v_;
@@ -1350,6 +1372,10 @@ private:
             race_ = std::make_unique<Race>(app, setup_, cars_);
             hud_ = std::make_unique<RaceHud>(app, race_->course().section(course::kSlotMiniMap));
             race_->set_lap_words(hud_->word("WordOfLap"), hud_->word("WordOfLaps"));
+            // The replay card's tires and race name.
+            const std::string& seq = setup_.sequence;
+            race_->set_card(menus_ ? menus_->game().race.tire : 4,
+                            seq == "time_trial" ? "ARCADE_TIME_TRIAL" : seq == "solo_event" || seq == "championship" ? "GTMODE_EVENT_RACE" : "ARCADE_SINGLE_RACE");
             work_ms_.clear(), interval_ms_.clear();
             last_frame_ns_ = 0, clock_ = 0;
         } catch (const std::exception& e) {

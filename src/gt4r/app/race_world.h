@@ -116,6 +116,8 @@ public:
     bool simulated() const { return session_ != nullptr; }
     bool night() const { return night_; }
     const WorldSetup& setup() const { return setup_; }
+    // The player's car's power as built, PS (0: not known).
+    float player_power_ps() const { return player_ps_; }
     const gt3r::render::DrawStats& draw_stats() const;
 
 private:
@@ -133,6 +135,7 @@ private:
     std::unique_ptr<sim::Session> session_;
     std::unique_ptr<sim::ai::Field> field_; // the computer drivers, on the game's simulation
     bool computer_player_ = false;
+    float player_ps_ = 0;
     bool night_ = false, noted_ = false;
     gt3r::render::DrawOptions::PostGrade grade_;
     bool snapshot_ = false, keep_last_ = false;

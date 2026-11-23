@@ -605,12 +605,25 @@ void RaceHud::Impl::draw_driver_panel(const HudState& s) {
 void RaceHud::draw(Ui& ui, const HudState& s) {
     if (!ready() || s.opacity <= 0) return;
     (void)ui;
+    if (s.replay && s.card_opacity > 0) {
+        // A replay's opening card (RaceDisplay::vf45, 0x39C838): the car's name in hb_24 at (320, 220),
+        // the line "power  tires  race" in hm_16 at (320, 260), color 0x80C8C8C8, over the picture
+        // darkened (❓ the darkening's strength is judged from the original's replay).
+        const float a = std::clamp(s.card_opacity, 0.0f, 1.0f);
+        const SDL_FRect c = to_ui(DisplayRect{-200, 0, 1040, 480});
+        SDL_SetRenderDrawBlendMode(impl_->r, SDL_BLENDMODE_BLEND);
+        SDL_SetRenderDrawColor(impl_->r, 0, 0, 0, u8(190 * a));
+        SDL_RenderFillRect(impl_->r, &c);
+        impl_->draw_text(impl_->font("hb_24", 100, 1), 320, 220, kCentered, kTextGray, s.opacity * a, s.card_title);
+        impl_->draw_text(impl_->font("hm_16", 100, 1), 320, 260, kCentered, kTextGray, s.opacity * a, s.card_line);
+    }
     if (s.replay && !s.replay_display) {
         // A replay with its display off (the Replay options' Screen Display: Off, the original's
         // default): the small Gran Turismo 4 logo, its right bottom at (604, 441) (member 0x1170),
         // ❓ at about 60 % (judged from the original's replay; its draw colour is not read).
         const Impl::Picture& logo = impl_->picture("JP/gt_logo_mini");
-        if (logo.w > 0) impl_->draw_picture(logo, race::place_rect({0, 604, 441, 0, 0, 1, 1}, logo.w, logo.h, true), kNeutral, s.opacity * 0.6f);
+        // (Under the opening card the original shows the course's logo there instead: ❓ its picture is not found.)
+        if (logo.w > 0 && s.card_opacity <= 0) impl_->draw_picture(logo, race::place_rect({0, 604, 441, 0, 0, 1, 1}, logo.w, logo.h, true), kNeutral, s.opacity * 0.6f);
         return;
     }
     if (s.replay) {

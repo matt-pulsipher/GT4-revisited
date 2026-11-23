@@ -565,3 +565,16 @@ doubles and saturates), 🔎 by the GS's rule, not compared with the original ru
 - ❓ Not read: the lap-time list, the refuel bar, the tire wear and fuel gauges' drawing, the
   tool tips, the two-player and license displays' own classes (`RaceSplitDisplay`,
   `RaceLicenseDisplay`), the hybrid panel, the replay displays, the pause menu.
+
+
+## A replay's opening card (`RaceDisplay::vf45`, 0x39C838)
+
+Two lines in the middle of the picture, color 0x80C8C8C8: the car's name (the entry's +0x348C) in
+`hb_24#1` at (320, 220), and below it in `hm_16#1` at (320, 260) the race word `RaceInfoFormat`
+("%s  %s  %s") filled with the car's power as built (`"%d%s"` in the unit the options name; `"--%s"`
+when its GENERIC_CAR row hides it), its tires (`"%s/%s"`: the words `TireShort_NN` of the front and
+rear tires, "SM/SM") and the race's name (a word the organization gives, `"%s%d"` with a number:
+`ARCADE_SINGLE_RACE` "Single Race"); the times it shows and fades are its caller's (❓ not read).
+In the original's replay the picture under it is darkened and the course's logo shows bottom right;
+here the card shows the first 3.5 s with fades of 0.5 s over a darkening of 75 % (judged), and the
+course logo is not drawn (❓ its picture was not found).
