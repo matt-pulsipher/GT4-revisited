@@ -288,7 +288,10 @@ std::string clock(double s) {
 
 } // namespace
 
-AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std::vector<std::string>& cars, int laps) {
+AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std::vector<std::string>& cars, int laps, AiRunOptions options) {
+    if (std::getenv("GT4R_AI_OURS")) options.ours = true;
+    if (std::getenv("GT4R_AI_CHECK")) options.checks = true;
+    if (std::getenv("GT4R_AI_BAND")) options.band = true;
     AiRunResult result;
     db::SpecDb sdb = open_db(disc);
     Ee ee;
@@ -302,7 +305,7 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
     }
     // The rubber band off (the race's set-up from an event row is left out: the conductor's own values would hurry the
     // cars behind car 0; GT4R_AI_BAND keeps them).
-    if (!std::getenv("GT4R_AI_BAND")) ee.wf(o.cond + 0x7C, 0.0f), ee.wf(o.cond + 0x88, 0.0f), ee.wf(o.cond + 0x94, 1.0f);
+    if (!options.band) ee.wf(o.cond + 0x7C, 0.0f), ee.wf(o.cond + 0x88, 0.0f), ee.wf(o.cond + 0x94, 1.0f);
     const u32 lap_bits = ee.call(kLapLength, {Arg::ptr(o.cond + kAiCourse)}).f0;
     float lap_length;
     std::memcpy(&lap_length, &lap_bits, 4);
@@ -312,7 +315,7 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
     std::unique_ptr<ProgramCars> pcars;
     std::unique_ptr<sim::ai::Field> field;
     const sim::Program program = sim::Program::load(disc);
-    const bool ours = std::getenv("GT4R_AI_OURS") != nullptr, checks = std::getenv("GT4R_AI_CHECK") != nullptr;
+    const bool ours = options.ours, checks = options.checks;
     std::map<std::string, Tally> tally;
     if (ours || checks) {
         const gt3r::Volume::Entry* file = disc.volume().find("crs/" + course);
@@ -406,8 +409,10 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
         result.error = b;
         if (print) std::printf("ai: %s\n", b);
     }
-    if (checks)
-        for (const auto& [name, tl] : tally) tl.print(name.c_str());
+    for (const auto& [name, tl] : tally) {
+        result.checks[name] = {tl.n, tl.off};
+        if (print) tl.print(name.c_str());
+    }
     result.seconds = double(step) / 60.0;
     result.ran = result.error.empty();
     if (print) {
