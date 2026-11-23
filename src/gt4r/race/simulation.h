@@ -23,6 +23,10 @@ struct CarInput {
     bool shift_up = false, shift_down = false; // held this step (the simulation finds the edges)
     bool reverse = false;
     float steer_angle = NAN; // a computer driver's road-wheel steering command (radians, + left), used instead of steer when set
+    // A computer driver's outputs (0x464F38): throttle, brake, steering command and reverse written into the controls as
+    // they are, the pad's path not run; shift_lock holds the gearbox that many steps.
+    bool computer = false;
+    u8 shift_lock = 0;
 };
 
 struct WheelState {

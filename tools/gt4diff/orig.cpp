@@ -71,7 +71,7 @@ void boot(Ee& ee, Disc& disc, db::SpecDb& sdb) {
 }
 
 bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, const std::vector<std::string>& labels, int human, OrigRace& o,
-                std::string& err) {
+                std::string& err, bool drivers) {
     o = OrigRace{};
     o.cars = int(labels.size());
     try {
@@ -89,6 +89,16 @@ bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, 
         o.course = ee.alloc(0x200, 64);
         ee.w32(o.course + 4, o.container);
         ee.w32(o.course + 0xB0, 0xFFFFFFFF); // no layout of the course's sections: the road's own grid
+        if (drivers) { // the driver file: its lines' section at +0x9C, the four driver sets at +0xA0 ..
+            const gt3r::Volume::Entry* ad = disc.volume().find("crs/" + course + ".ad");
+            if (!ad) return err = "no driver file crs/" + course + ".ad", false;
+            const Bytes f = disc.volume().read(*ad);
+            const u32 at = ee.alloc_bytes(f, 64);
+            auto slot = [&](u32 k) { return f.size() >= 4 * (k + 1) ? rd32(f, 4 * k) : 0u; };
+            if (slot(1)) ee.w32(o.course + 0x9C, at + slot(1));
+            for (u32 k = 0; k < 4; ++k)
+                if (slot(2 + k)) ee.w32(o.course + 0xA0 + 4 * k, at + slot(2 + k));
+        }
 
         u32 course_id = 0;
         for (const db::CourseEntry& c : sdb.courses())
@@ -139,10 +149,12 @@ bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, 
             ee.w32(arr + 4 * u32(i), entry);
             o.entries.push_back(entry);
         }
-        // The computer drivers' lines are not loaded: their object's start is left out.
-        for (u32 a : {0x4639E0u, 0x469E58u, 0x465078u}) ee.hle(a, [](Ee&) {}, "driver lines");
-        // (the driving line's heading at a car, which the pad's steering reads: 0 without the lines)
-        ee.hle(0x4649F0, [](Ee& e) { e.fpr[0] = 0; }, "line heading");
+        if (!drivers) {
+            // The computer drivers' lines are not loaded: their object's start is left out.
+            for (u32 a : {0x4639E0u, 0x469E58u, 0x465078u}) ee.hle(a, [](Ee&) {}, "driver lines");
+            // (the driving line's heading at a car, which the pad's steering reads: 0 without the lines)
+            ee.hle(0x4649F0, [](Ee& e) { e.fpr[0] = 0; }, "line heading");
+        }
         // The race's end (the finish's countdown and what it starts) is left out of the step.
         ee.hle(0x35F658, [](Ee&) {}, "race end");
         // The parts list of the pit stops' tire choices is a file of its own: its reads are left out (no choices).

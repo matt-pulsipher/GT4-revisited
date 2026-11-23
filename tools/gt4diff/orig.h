@@ -58,8 +58,10 @@ void orig_step(Ee& ee, OrigRace& o);
 // A single race on a course ("tsukuba") with cars as sold, in grid order, set up by the program's own
 // conductor (its constructor and initialisation). `human`: the entries the pad drives (the others a
 // computer driver). Returns false with `err` when the set-up stops.
+// `drivers`: the computer drivers run (the course's driver file in the course object; else their start and decision are
+// left out).
 bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, const std::vector<std::string>& labels, int human, OrigRace& o,
-                std::string& err);
+                std::string& err, bool drivers = false);
 // (`o` must stay where it is while the race runs: the pad stub reads it.)
 
 } // namespace gt4r::diff

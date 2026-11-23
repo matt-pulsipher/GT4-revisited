@@ -4,6 +4,7 @@
 
 #include "gt4r/disc/disc.h"
 
+#include <map>
 #include <string>
 #include <vector>
 
@@ -50,6 +51,34 @@ struct StepResult {
     std::vector<StepTap> taps;
 };
 StepResult run_step(Disc& disc, bool print, const std::string& course = "", const std::string& car = "", int steps = 0);
+
+// The computer drivers: a field of the program's own drivers run in the program's own race (every car a computer's, from
+// a standing start), each car's lap times (ai.cpp).
+struct AiCarRun {
+    std::string car;
+    std::vector<double> laps; // from the first line crossing, lap by lap
+    double total = 0;
+    bool finished = false;
+    float top_speed = 0;
+};
+struct AiRunOptions {
+    bool ours = false;   // our drivers in the program's race (the decision 0x465078 replaced)
+    bool checks = false; // the lines, parameters, arcs' speeds and braking compared with ours, bit for bit
+    bool band = false;   // the conductor's own rubber band kept (else off)
+};
+struct AiCheck {
+    u64 compared = 0, differ = 0;
+};
+struct AiRunResult {
+    bool ran = false;
+    std::string error;
+    float lap_length = 0;
+    double seconds = 0;
+    std::vector<AiCarRun> cars;
+    std::map<std::string, AiCheck> checks;
+};
+// (GT4R_AI_OURS, GT4R_AI_CHECK, GT4R_AI_BAND set the options too; GT4R_AI_TRACE=<car> prints a car's plan.)
+AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std::vector<std::string>& cars, int laps, AiRunOptions options = {});
 
 // The C library's float routines the step calls, against the shared engine's.
 struct LeavesResult {

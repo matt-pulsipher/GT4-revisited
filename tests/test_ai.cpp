@@ -5,6 +5,7 @@
 
 #include "gt4r/formats/course/ai_line.h"
 #include "gt4r/formats/db/race_events.h"
+#include "gt4r/sim/ai/entrant.h"
 #include "gt4r/sim/ai/grid.h"
 #include "gt4r/sim/ai/run.h"
 
@@ -140,8 +141,9 @@ TEST(ai_file_fixed) {
 }
 
 TEST(ai_ramp_and_neutral_tables) {
-    const sim::ai::Ramp r{0.8f, 1.0f, -0.12f, -0.04f};
-    CHECK(r.at(0.5f) == -0.12f && r.at(2.0f) == -0.04f && std::fabs(r.at(0.9f) + 0.08f) < 1e-6f);
+    using gt3r::ee::F;
+    const sim::ai::Ramp r{F(0.8f), F(1.0f), F(-0.12f), F(-0.04f)};
+    CHECK(r.at(F(0.5f)).host() == -0.12f && r.at(F(2.0f)).host() == -0.04f && std::fabs(r.at(F(0.9f)).host() + 0.08f) < 1e-6f);
     const sim::ai::Tables t = sim::ai::Tables::load(sim::Program{});
     CHECK(!t.known);
     CHECK(t.fallback[1][0] == 1 && t.fallback[1][1] == 6 && t.fallback[6][0] == 6);
@@ -293,4 +295,45 @@ TEST(ai_disc_events) {
     // The license tests' events carry the rubber band (the races none).
     const std::optional<db::RaceEvent> lic = ev.event("usl0a0005");
     CHECK(lic && lic->slow_pct == 50);
+}
+
+TEST(ai_disc_opponent_equipment) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    db::SpecDb sdb = open_db(*disc);
+    const db::RaceEvents ev(sdb, reader(*disc));
+    const sim::Program program = sim::Program::load(*disc);
+    const db::Labels* l = sdb.labels("ENEMY_CARS");
+    CHECK(l != nullptr);
+    if (!l) return;
+    // Every ENEMY_CARS row builds: its car with its own parts and settings.
+    int rows = 0, built = 0;
+    for (const auto& [label, id] : l->entries) {
+        const std::optional<db::Opponent> o = ev.opponent(id);
+        if (!o) continue;
+        ++rows;
+        sim::Equipment eq;
+        if (sim::ai::opponent_equipment(sdb, program, *o, eq)) ++built;
+    }
+    CHECK(rows == 2558 && built == rows);
+    // An entered car names its row (+0x08), takes the row's settings (the first ASCC index 1) and its output factor: the
+    // BMW M3 '04 of the North American series at 1,150 per mille, about 400 PS against 344 as sold.
+    const std::optional<u32> id = l->id("gt4r_na_m3_04");
+    CHECK(id.has_value());
+    if (!id) return;
+    const std::optional<db::Opponent> o = ev.opponent(*id);
+    sim::Equipment mine, sold;
+    CHECK(o && sim::ai::opponent_equipment(sdb, program, *o, mine) && sim::stock_car(sdb, program, o->car, sold));
+    CHECK(mine.part(0x08) == db::part_id(38, *id) && sold.part(0x08) == db::kNoPart);
+    CHECK(mine.h(sim::Equipment::OutputFactor) == 1150 && mine.b(sim::Equipment::AsccIndices) == 1);
+    sim::Spec a, b;
+    sim::build_spec(sdb, program, mine, 0, a), sim::build_spec(sdb, program, sold, 0, b);
+    const float pa = sim::spec_figures(a).ps, pb = sim::spec_figures(b).ps;
+    CHECK(pa > pb * 1.1f && pa < pb * 1.2f);
+    // The pool's paint: -1 leaves 0xFF (the race's choice); a grid entry drawn from a pool builds the same way.
+    CHECK(mine.b(0x18) == 0xFF || mine.b(0x18) < sim::ai::paint_count(sdb, mine));
+    sim::ai::GridEntry g;
+    g.car = o->car, g.enemy = o->enemy, g.paint = 0;
+    sim::Equipment again;
+    CHECK(sim::ai::entry_equipment(sdb, program, ev, g, again) && again.h(sim::Equipment::OutputFactor) == 1150 && again.b(0x18) == 0);
 }

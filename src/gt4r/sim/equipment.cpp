@@ -39,7 +39,11 @@ int clamp(int lo, int v, int hi) {
 // computed gearbox's ratios, made by the caller: car_spec.h).
 bool stock_equipment(db::SpecDb& db, const std::string& car_label, Equipment& eq) {
     const std::optional<db::CarParts> car = db::car_parts(db, car_label);
-    if (!car) return false;
+    return car && parts_equipment(db, *car, eq);
+}
+
+bool parts_equipment(db::SpecDb& db, const db::CarParts& car_parts, Equipment& eq) {
+    const db::CarParts* car = &car_parts;
     eq = Equipment();
     eq.set_part(Equipment::Car, db::part_id(u32(PartTable::GenericCar), car->car_id));
     static constexpr std::pair<u32, PartTable> kPlaces[] = {

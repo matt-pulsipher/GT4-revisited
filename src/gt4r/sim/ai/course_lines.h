@@ -63,6 +63,10 @@ public:
     // The course distance of a simulation-frame point (the road's checkpoints), false off the course.
     bool distance(float x, float y, float h, float& s, int* hint = nullptr) const;
 
+    // 0x3E6858: the course distance of a point of the course's frame from the checkpoint gates of road cluster `cluster`
+    // (-1: the cluster under the point): the gate pair whose quad holds the point nearest its height, the distance
+    // interpolated across it. False when no gate pair holds it.
+    bool course_distance(const Vec3& p, int cluster, float& out) const;
     // A course distance wrapped once into the lap (the road's checkpoints run a little past it around the line).
     float wrap_lap(float s) const;
     const RoadGround* ground() const { return ground_; }

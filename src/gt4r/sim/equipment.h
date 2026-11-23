@@ -88,5 +88,7 @@ struct Equipment {
 // A car as sold (the program's set-car routine): its default parts, then each part's default settings
 // clamped to the part's range. False when the database has no such car.
 bool stock_equipment(db::SpecDb& db, const std::string& car_label, Equipment& out);
+// The same with a given set of parts (a car entered with another DEFAULT_PARTS row than its own: 0x444690).
+bool parts_equipment(db::SpecDb& db, const db::CarParts& car, Equipment& out);
 
 } // namespace gt4r::sim
