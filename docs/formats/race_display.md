@@ -5,6 +5,12 @@ What the player sees over the race: position, lap count, lap times, the course m
 SCUS-97328 v1.01; addresses are the program's, for the analysis outputs) and from the disc's
 files; nothing here is compared with the original running yet (🔎 where a reading is partial).
 
+Code: `src/gt4r/race/race_display.*` (the places and tables read from the program, the time
+format, the map's numbers), `src/gt4r/app/race_hud.*` (the drawing). Drawn so far: the single
+race's position, lap count, three times, event line and middle message, the course map with
+the cars, the chase views' speed plate, gear and rev bar, the driver's views' plate, two dials,
+gear, digital speed and unit.
+
 ## Where the layout lives
 
 **In the program, not in a data file.** The race display is not a menu project and has no
@@ -359,8 +365,10 @@ frame's (a trail when it moves; at rest they add up), 🔎 each copy with a sub-
 (The base class's own values, used by no meter of this display: offset 0.5, 0.5, r 150,
 65 .. 295, -0.1 .. 0.95, N 8.)
 
-**Rev counter face and range** (table 0x6A3D38): the first row whose limit is at least the
-car's dial maximum:
+**Rev counter face and range** (table 0x6A3D38; rows of 16 bytes: `f32` limit, `f32` range
+maximum, `f32` range minimum, `u32 ->` the number in the picture's name, "8000" for `rev_8000`;
+the last row's limit is the word 0x7FFFFFFF): the first row whose limit is at least the car's
+dial maximum:
 
 | Dial maximum up to | Picture | Range (rpm) |
 |---|---|---|
@@ -378,7 +386,8 @@ car's dial maximum:
 0.6833 r and 0.6833 r + 0.3109 r, color 0x80000099, in steps of about 10 degrees (at least 2),
 drawn twice at alpha opacity / 3. No sector when the red line is at or past the dial's end.
 
-**Speedometer face** (0x3EB860): from the dial's top speed S, the first of `speed_80km`
+**Speedometer face** (0x3EB860; tables 0x6A3C88 for km/h, four rows, and 0x6A3C50 for mph,
+three; rows of 12 bytes: `f32` limit, `f32` range maximum, `u32 ->` the picture's name): from the dial's top speed S, the first of `speed_80km`
 (S <= 80, range 0-80), `speed_160mph` (<= 160, 0-160), `speed_240km` (<= 240, 0-240),
 `speed_320km` (0-320; in mph there is no fourth row, 240 is the last). The pictures are number
 rings only (the "km" / "mph" in their names is not a unit); the unit is the separate `kmph` /

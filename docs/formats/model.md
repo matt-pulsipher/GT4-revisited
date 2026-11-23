@@ -102,7 +102,7 @@ texture coordinates (0x40, with the strip table in their fourth lane) and normal
 
 | Data | Format | Value |
 |---|---|---|
-| positions | V3-32 floats, or V3-16 / V3-8 | integer x the shape's scale (+0x04) |
+| positions | V3-32 floats (a shape without the packed mark); V3-16 / V3-8, or V3-32 integers, in a packed shape | integer x the shape's scale (+0x04) |
 | normals | V3-32, or V3-8 | integer / 127 |
 | texture coordinates | V2-32, or V2-16 / V2-8 | integer / 4096 |
 | reflection normals (in the coordinates' place) | V3-32, or V3-8 | integer / 127 |
@@ -112,6 +112,13 @@ An array may come as several UNPACKs of different widths, each continuing at the
 last one stopped (`V2-16 @0x40` then `V2-8 @0x51`). A packed run can be offsets from the VIF
 row registers: `STROW` sets them, `STMOD 1` adds them to every vector, `STMOD 2` adds and keeps
 the sum.
+
+A packed shape (flags bit 7, a scale above 0) whose positions do not fit 16 bits has them as
+32-bit **integers**, the first vector of a run or all of it: a course's backdrop (Tsukuba's: 105
+of its 244 packets; -228,940 x 0.002 = -457.9 m) and 251 packets of its scenery, among them the
+power lines. A shape without the mark (scale 0) has floats there. Checked on nine courses and
+120 cars: every 32-bit position run of a packed shape reads as whole numbers that land on the
+course, none as a float.
 
 Scales seen: 0.002 (courses), 2 / 32767 (wheels), 5 / 32767 and 6 / 32767 (car bodies).
 
@@ -125,7 +132,9 @@ slot 2, the wheel's face (below). The car's draw clears slots 1-3 when it ends.
 
 ## Cars: `CAR4`
 
-Code: `car_model.*`. `car/menu/<model>` is a car's showroom model and `car/lod/<model>` its race
+Code: `car_model.*` (the file, a still car), `src/gt4r/race/car_visual.*` (a car in the race
+view), `src/gt4r/race/car_spec.*` (its sizes from the database), `gt4tool race <disc> car <model>`.
+`car/menu/<model>` is a car's showroom model and `car/lod/<model>` its race
 model; `<model>` comes from the database ([database.md](database.md)). Offsets from the file's
 start:
 
@@ -147,7 +156,8 @@ start:
   cars: the R34's ride height of 0.130 puts its hubs at y = 0.197).
 - **Body** (four models on all 807 race cars): model 0 the car (three levels of detail on
   nearly all: one draw program, a 0x07 switch at its start); model 1 a plain copy of the body,
-  the shadow the light casts; model 2 the shadow under the car (flat, at y = 0, a picture);
+  the shadow the light casts; model 2 the shadow under the car (flat, at y = 0; like model 1 an
+  untextured black shape whose vertex alpha is its strength: R34 22 to 153 of 255);
   model 3 the light of the headlamps on the road (flat, at y = 0, ahead of the car).
   [How a race draws them](#a-car-in-a-race).
 - **Paint** (`Pat0`): `+0x10 s16 paints, +0x12 s16 patches per paint`, then `u32 offsets[paints
@@ -353,7 +363,7 @@ brake state, the per-wheel values and the lamp level into the model; drawing is:
   - model 1 flattened onto y = 0 along the light: x += lx x y, z += lz x y, y = 0, (lx, lz)
     the race's light vector taken into that frame; colour offset = the race's shadow colour,
     alpha = shadow alpha x a second factor;
-  - model 2 (the picture under the car) with the same colour and the shadow alpha;
+  - model 2 (the shape under the car) with the same colour and the shadow alpha;
   - model 3 when the course's headlamp-pool brightness is above 0 (`Env0` +0x58 🔎), with
     that as its alpha.
   ❓ The light vector and shadow colour are globals of the race (0x8465A0, 0x8465B0); their

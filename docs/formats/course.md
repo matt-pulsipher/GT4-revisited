@@ -1,6 +1,7 @@
 # Courses
 
-Code: `src/gt4r/formats/course/`. `crs/<name>` (packed, 4-12 MB) is one course layout; the US
+Code: `src/gt4r/formats/course/` (the file and the road), `src/gt4r/race/course_scene.*` (the
+course as the race view draws it), `gt4tool race <disc> sections | models <course> [slot]`. `crs/<name>` (packed, 4-12 MB) is one course layout; the US
 disc has 110, with their driving-line models in `crs/bestline/` and a `crs/<name>.ad` file each.
 All 1,145 model sets of the 238 files under `crs/` decode.
 
@@ -61,6 +62,15 @@ colors by +0x38 gives the same picture.
 
 Animated objects (flags, people) are driven by each set's script through registers ("Scripts"
 below); a still scene reads every register as 0.
+
+The programs' render state and the shapes' kinds are the shared engine's
+([its course.md](../../engine/gt3r/docs/formats/course.md), "Render state", "Lighting"), and
+the scenery is decoded with the same options as its own courses: cut-outs by the programs' alpha
+test, the blended decals without depth writes, and the second pass of kind 4 over the road, the
+curbs and the fences (blend 0x58: added where the frame's alpha, written by the pass under it,
+lets it). Left as an ordinary pass that second pass covers what is under it: Tsukuba's noise
+barriers come out black. 🔎 The kind 4 pass is taken to be the shared engine's road sheen (the
+first scene light's specular term); its arithmetic has not been read in this program.
 
 ## Env0 (slot 32)
 
@@ -211,8 +221,11 @@ screens) that differs where noted.
    the scene lights (+0xAD0, flag bits 11-14, global ambient 0), the car shadows' direction,
    the fog (+0x60), the panoramic factors (+0xEC0), the reflection factors (+0x30 / +0x34).
 2. **Sky** (slot 21): all its models, with the view's translation removed, no fog, and its own
-   depth range (near 1, far 1000; 🔎 the near value). Then the sun's disc (flag bit 10), and the
-   fog color is set for the scenery.
+   depth range (near 1, far 1000; 🔎 the near value). The dome needs that depth: its last shape
+   is a flat top (Tsukuba: a square 40 m to each side at y = 32) whose corners lie behind the
+   upper ring and are darker than it; drawn over the ring without a depth test, a dark corner
+   shows in the sky. Then the sun's disc (flag bit 10), and the fog color is set for the
+   scenery.
 3. **Backdrop** (slot 22): the frame's alpha and depth are cleared; all its models are drawn
    with the scenery's fog at their true distance and the projection's depth term multiplied by
    100 (the depth of a point is that of a point 100 times nearer; Gran Turismo 3's 0.01
@@ -464,6 +477,8 @@ Code: `runway.*`. All 110 roads read (`gt4tool runway-survey`). Offsets from the
 0x38 u16 checkpoint lists   0x58 u32 -> the lists
 0x3A u16 grid places        0x5C u32 -> {f32 x, y, z, heading (radians)}
 0x3C u16 checkpoints        0x60 u32 -> 0x28 bytes: left, middle, right (f32 x3 each), f32 distance
+                                         (a point's y is not the road's height: Tsukuba's are 0 to 4.2
+                                         where its road lies at 9.2 to 15.5)
 0x3E u16 checkpoint lookups 0x64 u32 -> u16[]
 0x44 u16 gadgets            0x70 u32 -> 0x20 bytes each
 0x46 u16 vertices           0x74 u32 -> 0x10 bytes: f32 x, y, z, s16, u8, u8

@@ -1,6 +1,7 @@
 # Cameras
 
-Code: `src/gt4r/race/` (the lead adds this). Facts from the program (`CORE.GT4`, SCUS-97328 v1.01;
+Code: `src/gt4r/race/drive_camera.*` (the driving views), `src/gt4r/race/car_visual.*` (the
+mounts as read). Facts from the program (`CORE.GT4`, SCUS-97328 v1.01;
 addresses are the program's) and from the disc's cars and courses. The camera's own angles are
 degrees; a car's attitude angles are radians. 🔎 partly understood, ❓ not investigated; the
 rest is read from the program and, where data is involved, checked on the disc as stated. The shared engine's counterparts: [RACE.md](../../engine/gt3r/docs/dev/RACE.md)
@@ -60,7 +61,9 @@ file's start), 0x20 bytes each:
 0x00 f32 x, y, z     where the car's origin is, seen from the camera before the camera's own turn:
                      x right, y up, z towards the viewer. So the eye is -y metres above the car's
                      origin and -z metres ahead of it (z = -6: 6 m behind).
-0x0C f32 pitch       degrees; the camera's own turn at its place
+0x0C f32 pitch       degrees; the camera's own turn at its place. A positive pitch looks down
+                     (the chase place's 8; mount 19, ahead of the car at yaw 180, looks back
+                     down at it: seen in a picture with the sign either way)
 0x10 f32 yaw         degrees (180: looking back)
 0x14 f32 roll        degrees
 0x18 f32 zoom        1 / tan(half the field of view); +infinity in an unused record
@@ -108,7 +111,9 @@ Mounts 0 and 6 carry the same zoom on every car, which suggests views 0 and 6 ar
 match; a level chase view 1.7 m up and 6 m back needs about 60 degrees across a 4:3 picture
 or more to show the car's wheels. Until the screen's lens is read from the running game, treat
 the three angles as open: 90 is the program's number for views 0 and 1, 52 the data's for
-mount 0 and the roof, 40.7 the data's for mount 1.
+mount 0 and the roof, 40.7 the data's for mount 1. The race view here draws views 0 and 1 with
+90 degrees across a 4:3 picture's width (a wider picture shows more at the sides), 🔎 judged by
+eye only: the car in the chase view then takes about a quarter of a 4:3 picture's width.
 
 ### Chase view (view 1)
 
