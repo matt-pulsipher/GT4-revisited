@@ -110,7 +110,8 @@ volume's index bytes (Prologue: its table of contents).
 | `CAR4`, `Pat0` | `car/` | ❓ |
 | Courses | `crs/` | ✅ the container and the scenery ([formats/course.md](formats/course.md)); the road `RNW4`; ❓ billboards, lamps, cameras |
 | `GTDB` / `GTID` / `GTST` | `specdb/` | ✅ the tables, labels and strings ([formats/database.md](formats/database.md)); ❓ most columns |
-| `ADCH` scripts, `Proj` / `.mwidget` layouts, `gpb1` / `gpb2`, `RT03` | the menus | ❓ |
+| `ADCH` scripts | the menus, game flow, settings | ✅ read and listed ([formats/script.md](formats/script.md)); ❓ run |
+| `Proj` / `.mwidget` layouts, `gpb1` / `gpb2`, `RT03` | the menus | ❓ |
 | Replays (`REP4`), saves | | ❓ |
 
 Prologue mixes the two generations: `CAR4` cars and `ADCH` scripts next to `GTM1` models,

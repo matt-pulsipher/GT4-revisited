@@ -5,6 +5,7 @@
 //   gt4tool survey <disc>                  count the files by folder, extension and magic
 //   gt4tool extract <disc> <prefix> <dir>  write the files under a prefix (unpacked) to a folder
 //   gt4tool tex <disc> <path> <dir>        decode every texture set in a file to PNGs
+//   gt4tool adc <disc> [path]              a script's listing; without a path, a count of all
 //   gt4tool db <disc> [cars | courses | <table> [rows]]   the car database
 //   gt4tool model <disc> <path>            describe a file's model sets as decoded
 //   gt4tool runway-survey <disc> [prefix]  read every course's road
@@ -23,6 +24,7 @@
 #include "gt4r/formats/course/runway.h"
 #include "gt4r/formats/db/specdb.h"
 #include "gt4r/formats/model/mdls.h"
+#include "gt4r/script/adc.h"
 
 #include <algorithm>
 #include <cmath>
@@ -30,6 +32,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <string>
 #include <vector>
@@ -339,6 +342,49 @@ int cmd_db(Disc& disc, const Args& a) {
     return 0;
 }
 
+// A script's listing, or with no path how many of the disc's scripts read.
+int cmd_adc(Disc& disc, const Args& a) {
+    if (!a.empty()) {
+        const gt3r::Volume::Entry* e = disc.volume().find(a[0]);
+        if (!e) {
+            std::fprintf(stderr, "error: no such file: %s\n", a[0].c_str());
+            return 1;
+        }
+        const script::Script s = script::Script::parse(disc.volume().read(*e));
+        std::fputs(script::disassemble(s.code).c_str(), stdout);
+        return 0;
+    }
+    size_t read = 0, instructions = 0, functions = 0;
+    std::map<int, size_t> other;
+    std::map<std::string, size_t> ops;
+    std::function<void(const script::Code&)> count = [&](const script::Code& c) {
+        instructions += c.instructions.size();
+        for (const script::Instruction& in : c.instructions) {
+            ++ops[script::op_name(in.op)];
+            if (in.body) ++functions, count(*in.body);
+        }
+    };
+    for (const gt3r::Volume::Entry& e : disc.volume().entries()) {
+        if (e.path.size() < 4 || e.path.compare(e.path.size() - 4, 4, ".adc") != 0) continue;
+        const Bytes data = disc.volume().read(e);
+        const int v = script::Script::version_of(data);
+        if (v != 5) {
+            ++other[v];
+            continue;
+        }
+        try {
+            count(script::Script::parse(data).code);
+            ++read;
+        } catch (const std::exception& ex) {
+            std::printf("%s: %s\n", e.path.c_str(), ex.what());
+        }
+    }
+    std::printf("%zu scripts read: %zu instructions, %zu functions\n", read, instructions, functions);
+    for (const auto& [v, n] : other) std::printf("  %zu of version %d (not read)\n", n, v);
+    for (const auto& [name, n] : ops) std::printf("  %-24s %zu\n", name.c_str(), n);
+    return 0;
+}
+
 struct Command {
     const char* name;
     const char* usage;
@@ -351,6 +397,7 @@ const Command kCommands[] = {
     {"survey", "<disc>", 0, cmd_survey},
     {"extract", "<disc> <prefix> <outdir>", 2, cmd_extract},
     {"tex", "<disc> <path> <outdir>", 2, cmd_tex},
+    {"adc", "<disc> [path]", 0, cmd_adc},
     {"db", "<disc> [cars | wheels | courses | <table> [rows]]", 0, cmd_db},
     {"model", "<disc> <path>", 1, cmd_model},
     {"runway-survey", "<disc> [prefix]", 0, cmd_runway_survey},
