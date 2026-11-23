@@ -49,7 +49,10 @@ void RaceFlow::sort_order(std::span<const CarState> cars) {
     for (size_t i = 0; i < order_.size(); ++i) order_[i] = i;
     std::stable_sort(order_.begin(), order_.end(), [&](size_t a, size_t b) {
         const CarRecord &ra = cars_[a], &rb = cars_[b];
-        if (ra.finished != rb.finished) return ra.finished;
+        // More crossings of the line first; on equal crossings a car still running ahead of a
+        // finished one, two finished ones by their finish, two running ones by their distance.
+        if (ra.counter != rb.counter) return ra.counter > rb.counter;
+        if (ra.finished != rb.finished) return !ra.finished;
         if (ra.finished) return ra.finish_order < rb.finish_order;
         return progress(a, cars[a]) > progress(b, cars[b]);
     });

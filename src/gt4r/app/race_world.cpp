@@ -1,7 +1,10 @@
 #include "gt4r/app/race_world.h"
 
 #include "base/log.h"
-#include "gt4r/audio/car_sound.h"
+#include "gt4r/audio/race_sound.h"
+#include "gt4r/audio/app_sound.h"
+#include "gt4r/audio/race_tables.h"
+#include "audio/audio_engine.h"
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/formats/model/car_model.h"
 #include "gt4r/race/car_spec.h"
@@ -33,7 +36,7 @@ constexpr float kPi = 3.14159265f;
 
 struct RaceWorld::Impl {
     std::map<std::string, std::unique_ptr<race::CarVisual>> visuals_by_model;
-    std::vector<std::unique_ptr<audio::CarSound>> sounds;
+    std::unique_ptr<audio::RaceSound> sound;
     gt3r::race::SceneryFade fade;
     std::unique_ptr<render::View3D> view;
     std::vector<render::DrawItem> items, env_items, wet_items;
@@ -106,14 +109,20 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
     }
     line_ = race::RailLine(course_->road());
     build_simulation();
-    // Each car's engine, exhaust, wind and tires, heard from the first car.
+    // The race's sound: every car, the course's ambience, the count and the music.
     if (audio::AppSound* sound = app.sound()) {
-        for (size_t i = 0; i < setup.entries.size(); ++i) {
-            auto s = std::make_unique<audio::CarSound>(*app.vfs(), app.audio().voices(), &sound->driver(), sound->library_ptr());
-            if (!s->load(setup.entries[i].label)) LOG_WARN("Drive: no engine sound for %s", setup.entries[i].label.c_str());
-            s->set_view(i == 0 ? gt3r::EngineSound::View::ChaseOwn : gt3r::EngineSound::View::ChaseOther);
-            m.sounds.push_back(std::move(s));
-        }
+        gt3r::AudioEngine& engine = app.audio();
+        gt3r::Vfs& vfs = *app.vfs();
+        audio::StreamPlayer music;
+        music.play = [&engine, &vfs](const std::string& path, bool repeat, float level) { return engine.play_music(vfs, path, repeat, level); };
+        music.stop = [&engine] { engine.stop_music(); };
+        music.pause = [&engine](bool paused) { paused ? engine.pause_music() : engine.resume_music(); };
+        music.playing = [&engine] { return engine.music_playing(); };
+        const Bytes program = app.disc() ? app.disc()->read_program() : Bytes{};
+        m.sound = std::make_unique<audio::RaceSound>(vfs, engine.voices(), sound->driver(), sound->library_ptr(), audio::RaceSoundTables::from_core(program), music);
+        for (const WorldEntry& e : setup.entries)
+            if (!m.sound->add_car(e.label)) LOG_WARN("Drive: no engine sound for %s", e.label.c_str());
+        m.sound->set_course(course_->section(course::kSlotSound), std::make_shared<const course::Runway>(course_->road()));
     }
     m.view = std::make_unique<render::View3D>(gpu);
     // The sun, the lamps' glows (their meshes are the course's own, slot 37) and the billboards:
@@ -185,10 +194,12 @@ void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold) {
 // Smoke and dust from the wheels for a step: a puff where a tire slides on the road, dust and
 // spray from any wheel that turns on a loose or wet surface. The kind of puff is the course's,
 // by the surface under the wheel.
-void RaceWorld::present(std::span<const race::CarState> cars, bool sound, size_t listener) {
+void RaceWorld::present(std::span<const race::CarState> cars, const audio::SoundListener* camera, int target, bool live) {
     Impl& m = *impl_;
-    if (sound)
-        for (size_t i = 0; i < m.sounds.size() && i < cars.size(); ++i) m.sounds[i]->update(cars[i], i == listener || listener >= cars.size() ? nullptr : &cars[listener]);
+    if (camera && m.sound) {
+        if (live && session_) m.sound->update(*session_, *camera, target);
+        else m.sound->update(cars, *camera, target);
+    }
     if (!m.smoke.loaded()) return;
     const course::Runway& road = course_->road();
     for (size_t c = 0; c < cars.size() && c < car_visuals_.size(); ++c) {
@@ -217,8 +228,10 @@ void RaceWorld::present(std::span<const race::CarState> cars, bool sound, size_t
 void RaceWorld::clear_effects() { impl_->smoke.clear(); }
 
 void RaceWorld::quiet() {
-    for (const auto& s : impl_->sounds) s->stop();
+    if (impl_->sound) impl_->sound->stop();
 }
+
+audio::RaceSound* RaceWorld::sound() { return impl_->sound.get(); }
 
 const gt3r::render::DrawStats& RaceWorld::draw_stats() const { return impl_->view->stats(); }
 

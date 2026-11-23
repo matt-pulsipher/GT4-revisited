@@ -88,8 +88,8 @@ public:
     s64 time_ms() const { return clock_ms(clock_); }
     const CarRecord& car(size_t i) const { return cars_[i]; }
     size_t car_count() const { return cars_.size(); }
-    // The cars by their race order now: the finished ones by their finish, then by line crossings
-    // and distance along the lap.
+    // The cars by their race order now: by crossings of the line, then (equal crossings) a running car
+    // ahead of a finished one, finished ones by their finish, running ones by distance along the lap.
     const std::vector<size_t>& order() const { return order_; }
     // A car's place, 1 the leader.
     int place(size_t car) const;

@@ -13,6 +13,7 @@
 #include "gt4r/app/app.h"
 #include "gt4r/app/race_hud.h"
 #include "gt4r/app/race_world.h"
+#include "gt4r/audio/race_sound.h"
 
 #include "base/log.h"
 #include "gt4r/formats/course/course_file.h"
@@ -185,7 +186,7 @@ public:
             ++replay_at_;
             start_camera_.step();
             camera_.step(history_[replay_at_][0], kStep);
-            world_->present(history_[replay_at_], true);
+            hear(history_[replay_at_], false);
             return;
         }
         const std::span<const race::CarState> cars = world_->cars();
@@ -204,13 +205,34 @@ public:
         }
         world_->step(inputs_, hold);
         const race::RaceFlow::Events ev = flow_.step(world_->cars());
+        if (audio::RaceSound* sound = world_->sound()) {
+            if (hold) sound->count(flow_.hold_left());
+            if (ev.player_finished) sound->finish();
+        }
         if (ev.lap_done == 0) event_steps_ = 0, event_lap_ = flow_.car(0).laps_done;
         beeps_ += ev.beep;
         start_camera_.step();
         camera_.step(world_->cars()[0], kStep);
         if (event_steps_ >= 0) ++event_steps_;
         if (history_.size() < kHistory) history_.emplace_back(world_->cars().begin(), world_->cars().end());
-        world_->present(world_->cars(), true);
+        hear(world_->cars(), true);
+    }
+
+    // The step's smoke and sound, heard from the camera.
+    void hear(std::span<const race::CarState> cars, bool live) {
+        const race::ViewPose pose = current_pose(cars, false);
+        const auto& m = pose.view.m;
+        audio::SoundListener l;
+        l.position = {pose.eye.x, pose.eye.y, pose.eye.z};
+        l.right = {m[0], m[4], m[8]}, l.up = {m[1], m[5], m[9]}, l.forward = {-m[2], -m[6], -m[10]};
+        l.velocity = cars[0].velocity;
+        const bool own = !start_camera_.active() && !replaying_ && mount_ != kTvView;
+        l.kind = pose.body_hidden ? audio::SoundListener::Kind::InCar : own && mount_ == race::DriveCamera::kChase ? audio::SoundListener::Kind::Chase
+                                                                                                                 : audio::SoundListener::Kind::Other;
+        world_->present(cars, &l, 0, live);
+    }
+    void pause_sound(bool paused) {
+        if (audio::RaceSound* sound = world_->sound()) sound->pause(paused);
     }
 
     // The run is over (the results page left): the replay plays at once when the player drove a
@@ -292,6 +314,12 @@ public:
 
     void render(Ui& ui, const SDL_FRect& rect, bool look_back) {
         const std::span<const race::CarState> cars = shown();
+        const race::ViewPose pose = current_pose(cars, look_back);
+        world_->render(ui, rect, cars, pose, 0, pose.body_hidden ? 0 : -1);
+    }
+
+    // The camera now: the opening shots, the replay cameras, or the car's view.
+    race::ViewPose current_pose(std::span<const race::CarState> cars, bool look_back) {
         const race::CarState& me = cars[0];
         const render::Mat4 body = world_->visual(0).body_matrix(me);
         race::ViewPose pose;
@@ -300,10 +328,11 @@ public:
         // The replay cameras' shot for the car; the chase view where the script has none.
         if (!posed && view == kTvView) posed = replay_camera_.pose(replay_script_, me, body, pose);
         if (!posed) pose = camera_.pose(me, body, world_->visual(0).mounts(), view == kTvView ? race::DriveCamera::kChase : view, look_back || setup_.look_back);
-        world_->render(ui, rect, cars, pose, 0, pose.body_hidden ? 0 : -1);
+        return pose;
     }
 
     void quiet() { world_->quiet(); }
+    audio::RaceSound* sound() { return world_->sound(); }
 
     const race::CarState& player() const { return shown()[0]; }
     const std::string& car_name(size_t i) const { return world_->car_name(i); }
@@ -386,7 +415,7 @@ public:
             }
         } else if (m.pressed(PadButton::Start)) {
             paused_ = !paused_;
-            if (paused_) race_->quiet();
+            race_->pause_sound(paused_);
         }
         if (paused_) {
             if (m.pressed(PadButton::Triangle)) {
@@ -498,6 +527,11 @@ private:
 
     // The run's frame times in the log: the mean, the 99th percentile and the worst.
     void report() {
+        if (race_)
+            if (audio::RaceSound* sound = race_->sound()) {
+                const audio::RaceSound::Report& r = sound->report();
+                LOG_INFO("Drive: the race's sound: %d count beeps, %d starts, music \"%s\", master %.2f", r.beeps, r.starts, r.music.c_str(), double(sound->master()));
+            }
         if (interval_ms_.size() < 10) return;
         auto stats = [](std::vector<float> v, const char* what) {
             std::sort(v.begin(), v.end());

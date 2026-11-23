@@ -23,6 +23,10 @@ namespace gt4r {
 namespace sim {
 class Session;
 }
+namespace audio {
+class RaceSound;
+struct SoundListener;
+} // namespace audio
 
 // A car of the race.
 struct WorldEntry {
@@ -52,12 +56,14 @@ public:
     // cars stay).
     void step(std::span<const race::CarInput> inputs, bool hold = false);
     std::span<const race::CarState> cars() const { return sim_->cars(); }
-    // What goes with the cars shown in a step, live or recorded: smoke and dust from the wheels,
-    // and (`sound`) the cars' sounds heard from car `listener`.
-    void present(std::span<const race::CarState> cars, bool sound, size_t listener = 0);
+    // What goes with the cars shown in a step, live (the simulation's) or recorded: smoke and dust
+    // from the wheels, and the race's sound heard from `camera` (none: no sound) about car `target`.
+    void present(std::span<const race::CarState> cars, const audio::SoundListener* camera, int target, bool live);
     void clear_effects();
-    // The cars' sounds stopped (a pause, a menu).
+    // The race's sound stopped (a menu).
     void quiet();
+    // The race's sound (null without sound): its events (the count, the finish, a pause).
+    audio::RaceSound* sound();
 
     // One frame: `cars` as seen from `pose`; `focus`: the car the view is about (its surroundings
     // make the cars' reflection picture); `hidden`: a car whose body is not drawn (the in-car
