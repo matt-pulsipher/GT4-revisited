@@ -66,6 +66,7 @@ private:
         float last_v = 0;
         bool has_v = false;
         u8 kinds[4] = {};    // each wheel's road triangle flags
+        u8 materials[4] = {}; // and its material
         u8 prev_buttons = 0;
         float spin[4] = {};       // each wheel's angle rolled
         float rest_drop[4] = {};  // each wheel's center below its suspension point, at rest

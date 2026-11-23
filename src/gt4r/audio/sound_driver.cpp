@@ -22,6 +22,10 @@ u8 mixer_priority(int game) { return u8(255 - std::clamp(game, 0, 255)); }
 
 int SoundDriver::q14(float v) { return std::clamp(int(v * 16383.0f), -0x4000, kFull); }
 
+// A held note's side gain: the game keeps it in 16 bits, so it may pass 1 (the level is held
+// to the voice's range after the tone's volume is taken) up to just under 2.
+int SoundDriver::note_gain(float v) { return std::clamp(int(v * 16383.0f), -0x8000, 0x7FFF); }
+
 SoundDriver::SoundDriver(gt3r::VoiceMixer& mixer) : mixer_(mixer) { master_.fill(kFull); }
 
 SoundDriver::~SoundDriver() { stop_all(); }
@@ -568,8 +572,8 @@ u32 SoundDriver::note_on(std::shared_ptr<const sound::InstBank> bank, int progra
     v.owner = next_id_;
     v.key = 60;
     v.key16 = kNoteKey16;
-    v.gain_l = q14(p.left);
-    v.gain_r = q14(p.right);
+    v.gain_l = note_gain(p.left);
+    v.gain_r = note_gain(p.right);
     v.pan_sequence = p.pan;
     v.pan_channel = tone.pan;
     v.pitch_factor = int(p.pitch * 4096.0f);
@@ -582,8 +586,8 @@ void SoundDriver::set_note(u32 id, const SoundParams& p) {
     std::lock_guard lock(mutex_);
     for (Voice& v : voices_)
         if (v.kind == Kind::Note && v.owner == id) {
-            v.gain_l = q14(p.left);
-            v.gain_r = q14(p.right);
+            v.gain_l = note_gain(p.left);
+            v.gain_r = note_gain(p.right);
             v.pan_sequence = p.pan;
             v.pitch_factor = int(p.pitch * 4096.0f);
             v.dirty = true;

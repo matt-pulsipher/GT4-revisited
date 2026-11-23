@@ -257,6 +257,7 @@ void Session::place(size_t i, const course::Runway::Place& at) {
         const bool hit = ground_->under({g.x.host(), g.h.host(), g.z.host()}, wh);
         fill(g, hit, wh);
         extra_[i].kinds[w] = hit ? wh.flags : 0;
+        extra_[i].materials[w] = hit ? wh.material : 0;
         if (hit) {
             wheel.ground = wheel.ground0 = g.height;
             wheel.surface = g.material, wheel.x25 = 0, wheel.surface_flags = g.flags;
@@ -307,6 +308,7 @@ void Session::ground_contact(ex::Car& c, Extra& x) {
             continue;
         }
         x.kinds[i] = h.flags;
+        x.materials[i] = h.material;
         w.ground0 = g.height, w.ground = g.height;
         w.surface = g.material, w.x25 = 0, w.surface_flags = g.flags;
         const size_t s = w.surface & 15;
@@ -470,6 +472,7 @@ void Session::publish(size_t i) {
         o.travel = c.p.susp[a].x_static.host() - wheel.susp.host();
         o.slip = std::clamp(wheel.slip_intensity.host(), 0.0f, 1.0f);
         o.surface = x.kinds[w];
+        o.material = x.materials[w];
     }
     float v = 0;
     if (ground_->distance_along(cog, v, &x.checkpoint)) {
