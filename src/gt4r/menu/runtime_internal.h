@@ -62,6 +62,17 @@ void step_widgets(Runtime& rt, LiveWidget& page);
 std::shared_ptr<LiveWidget> first_focus(LiveWidget& page);
 // The widgets of a page that can take the focus now.
 void collect_focusable(const std::shared_ptr<LiveWidget>& w, std::vector<std::shared_ptr<LiveWidget>>& out);
+// The focus search's candidates (the program's collector, 0x26F9E0): each with its rectangle,
+// its navigate source and target on the screen, and its group (1 inside the scroll window's
+// space the focus is in). `clipped`: a direction search, cut to the clips it is under.
+struct FocusCandidate {
+    std::shared_ptr<LiveWidget> widget;
+    int group = 0;
+    Rect rect, source, target;
+};
+std::vector<FocusCandidate> focus_candidates(LiveWidget& page, bool clipped);
+// The visible flag and the layout's visible condition against the widget's state (0x265DC8).
+bool condition_holds(const LiveWidget& w);
 // Text measured as the page's font draws it: the runtime has no fonts, so the app gives one.
 struct TextMeasure {
     std::function<void(const LiveWidget& text, float& w, float& h)> measure;

@@ -361,13 +361,132 @@ void collect_focusable(const W& w, std::vector<W>& out) {
     for (const auto& c : w->children) collect_focusable(c, out);
 }
 
+bool condition_holds(const LiveWidget& w) {
+    if (!w.visible()) return false;
+    const int condition = int(w.data.number("visible_condition")), mask = int(w.data.number("visible_compare"));
+    if (mask) return ((w.state ^ condition) & mask) == 0;
+    if (condition) return (w.state & condition) != 0;
+    return true;
+}
+
+namespace {
+
+// A navigate region of the layout: corners x0 y0 x1 y1 from the widget's top left (0x262668,
+// 0x2626A0; kept as fractions of the widget's size, 0x268478); none: the widget's rectangle.
+Rect navigate_region(const LiveWidget& w, const Rect& r, const char* name) {
+    const Property* p = w.data.find(name);
+    if ((!p || p->values.size() < 4) && std::string(name) == "navigate_target") p = w.data.find("navigate_box");
+    if (!p || p->values.size() < 4) return r;
+    const float v[4] = {std::strtof(p->values[0].c_str(), nullptr), std::strtof(p->values[1].c_str(), nullptr), std::strtof(p->values[2].c_str(), nullptr),
+                        std::strtof(p->values[3].c_str(), nullptr)};
+    // As fractions of the size the layout gives, then on the size now.
+    const std::optional<Rect> g = w.data.rect("geometry");
+    const float lw = g && g->w > 0 ? g->w : r.w, lh = g && g->h > 0 ? g->h : r.h;
+    const float fx0 = lw > 0 ? v[0] / lw : 0, fx1 = lw > 0 ? v[2] / lw : 1, fy0 = lh > 0 ? v[1] / lh : 0, fy1 = lh > 0 ? v[3] / lh : 1;
+    return {r.x + fx0 * r.w, r.y + fy0 * r.h, (fx1 - fx0) * r.w, (fy1 - fy0) * r.h};
+}
+
+Rect cut(const Rect& r, const Rect& c) {
+    const float x0 = std::max(r.x, c.x), y0 = std::max(r.y, c.y), x1 = std::min(r.x + r.w, c.x + c.w), y1 = std::min(r.y + r.h, c.y + c.h);
+    if (x1 <= x0 || y1 <= y0) return {std::clamp(r.x, c.x, c.x + c.w), std::clamp(r.y, c.y, c.y + c.h), 0, 0};
+    return {x0, y0, x1 - x0, y1 - y0};
+}
+
+// The widget whose `space` is the scroll window's: the program marks a ScrollWindow's
+// clip::space (0x2D2F88).
+bool is_navigate_space(const LiveWidget& w) {
+    const LiveWidget* clip = w.parent_widget();
+    const LiveWidget* window = clip ? clip->parent_widget() : nullptr;
+    return w.name == "space" && clip && clip->name == "clip" && window && window->is("ScrollWindow");
+}
+
+struct Collector {
+    bool clipped;
+    const LiveWidget* space; // the navigate space the focus is in
+    std::vector<Rect> clips;
+    int group = 0;
+    std::vector<FocusCandidate> out;
+
+    void add(const W& w) {
+        FocusCandidate c;
+        c.widget = w, c.group = group, c.rect = w->screen_rect();
+        c.source = navigate_region(*w, c.rect, "navigate_source");
+        c.target = navigate_region(*w, c.rect, "navigate_target");
+        if (clipped && !clips.empty() && clips.back().w > 0 && clips.back().h > 0) {
+            const Rect& top = clips.back();
+            c.rect = cut(c.rect, top), c.source = cut(c.source, top), c.target = cut(c.target, top);
+            if (c.rect.w <= 0 || c.rect.h <= 0) return;
+        }
+        out.push_back(std::move(c));
+    }
+
+    void visit(const W& w) {
+        if (!condition_holds(*w) || w->insensitive()) return;
+        // The classes whose focus is their own (a select box's chosen row, a list box, an
+        // option menu's open list).
+        if (is_select_box(*w)) {
+            const std::vector<W> rows = rows_of(*w);
+            if (!rows.empty()) add(rows[size_t(std::clamp(w->index(), 0, int(rows.size()) - 1))]);
+            return;
+        }
+        if (w->is("ListBox")) { // nothing inside a list box is a candidate (0x5E8398)
+            if (w->can_focus() && list_count(*w) > 0) add(w);
+            return;
+        }
+        if (w->is("OptionMenu") && popup_open(*w)) {
+            for (const W& item : option_items(*w))
+                if (!item->insensitive()) add(item);
+            return;
+        }
+        // A focusable widget is a candidate and hides what is inside it.
+        if (w->can_focus()) {
+            add(w);
+            return;
+        }
+        if (!w->is_composite() || w->children.empty()) return;
+        const bool pushed_space = clipped && w.get() == space;
+        if (pushed_space) clips.push_back(w->screen_rect()), ++group;
+        const bool pushed_clip = clipped && w->data.number("clip") != 0;
+        if (pushed_clip) clips.push_back(clips.empty() ? w->screen_rect() : cut(w->screen_rect(), clips.back()));
+        for (const auto& c : w->children) visit(c);
+        if (pushed_clip) clips.pop_back();
+        if (pushed_space) clips.pop_back(), --group;
+    }
+};
+
+} // namespace
+
+std::vector<FocusCandidate> focus_candidates(LiveWidget& page, bool clipped) {
+    Collector c{clipped, nullptr, {}, 0, {}};
+    for (const LiveWidget* w = page.focus.lock().get(); w && w != &page; w = w->parent_widget())
+        if (is_navigate_space(*w)) {
+            c.space = w;
+            break;
+        }
+    for (const auto& child : page.children) c.visit(child);
+    return std::move(c.out);
+}
+
+// The first focus of a page that has none (0x234D60 runs the "next" search, 0x26EEF8): the
+// candidates in order of their parents' places (y, then x), then their own places, then the
+// order they were made in.
 W first_focus(LiveWidget& page) {
-    std::vector<W> all;
-    for (const auto& c : page.children) collect_focusable(c, all);
-    // A widget the layout marks takes it; else the first in the layout's order.
-    for (const W& w : all)
-        if (w->data.number("focus") != 0 || w->data.number("can_default") != 0) return w;
-    return all.empty() ? nullptr : all.front();
+    std::vector<FocusCandidate> all = focus_candidates(page, false);
+    if (all.empty()) return nullptr;
+    std::stable_sort(all.begin(), all.end(), [](const FocusCandidate& a, const FocusCandidate& b) {
+        const LiveWidget* pa = a.widget->parent_widget();
+        const LiveWidget* pb = b.widget->parent_widget();
+        if (pa != pb && pa && pb) {
+            const Rect ra = pa->screen_rect(), rb = pb->screen_rect();
+            if (ra.y != rb.y) return ra.y < rb.y;
+            if (ra.x != rb.x) return ra.x < rb.x;
+            const Rect wa = a.widget->screen_rect(), wb = b.widget->screen_rect();
+            if (wa.y != wb.y) return wa.y < wb.y;
+            return wa.x < wb.x;
+        }
+        return false;
+    });
+    return all.front().widget;
 }
 
 void widget_children_changed(Runtime& rt, LiveWidget& w) {

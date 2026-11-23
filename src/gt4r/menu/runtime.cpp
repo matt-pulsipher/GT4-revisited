@@ -853,89 +853,102 @@ void Runtime::dispatch_key(Key k) {
     (*step)(0); // the calls it starts hold it until they end
 }
 
-// The focus moves as the program's search orders the page's widgets (0x26F0A8 the measure,
-// 0x26F2B8 the order, with the page's navigate_clip_angle, navigate_start_front and
-// navigate_wraparound; a page starts with angle 0, wraparound on):
-//   - only a widget whose middle lies further in the key's direction than the focused one's;
-//   - one in line with the focused widget (their extents across the direction overlap) is at
-//     angle 0 and as far as the gap along the direction, from the focused widget's back edge
-//     (its front edge with navigate_start_front), plus one;
-//   - one to the side is at the angle of the gap to it and counts only below the clip angle;
-//   - the smallest angle wins, then the nearest, then the one whose middle is closest across;
-//   - with nothing ahead and wraparound on, the search goes around: everything is taken as
-//     10000 further along.
-// ❓ Which widgets the program collects (0x26F9E0) is not read: here every widget of the page
-// that can take the focus, measured by its navigate_target region when the layout gives one
-// (the focused one by its navigate_source).
+// The focus moves as the program's search orders the page's candidates (0x270118; the
+// collector 0x26F9E0, the measure 0x26F0A8, the order 0x26F2B8), with the page's
+// navigate_clip_angle (0), navigate_start_front (off) and navigate_wraparound (on):
+//   - every rectangle is turned so the key's direction is +x ("along"; "across" the other);
+//   - the focused entry is the topmost widget above the focus that can take it; F is its
+//     navigate source, S and T a candidate's source and target;
+//   - a candidate must lie ahead: the middle of S further along than the middle of F;
+//   - from F's back edge (its front edge with navigate_start_front), a = T.x0 - edge + 1 and
+//     b = T.x1 - edge + 1; in line (T and F overlap across): the smaller of the two that are
+//     not negative, angle 0; to the side: the one of smaller size, the angle of the gap across
+//     to it, valid only below the clip angle (so never with the default 0);
+//   - order: the larger group (inside the focus's scroll space first), the smaller angle, the
+//     nearer, the closer across (S against F), the earlier made;
+//   - with nothing valid and wraparound on, everything is measured again 10000 further along.
+// The key is the page's whether or not the focus moved; the sound plays on a move.
 void Runtime::navigate(Key k) {
     LiveWidget* page = current_page();
     if (!page) return;
-    std::vector<std::shared_ptr<LiveWidget>> all;
-    for (const auto& c : page->children) collect_focusable(c, all);
+    const std::vector<FocusCandidate> all = focus_candidates(*page, true);
     if (all.empty()) return;
-    const std::shared_ptr<LiveWidget> focus = page->focus.lock();
+    std::shared_ptr<LiveWidget> focus = page->focus.lock();
     if (!focus) {
-        set_focus(*page, all.front());
+        set_focus(*page, first_focus(*page));
         return;
     }
-    // A widget's rectangle with the key's direction as +x: {along0, across0, along1, across1}.
+    // The topmost focusable widget above the focus (a candidate hides what is inside it).
+    for (LiveWidget* w = focus->parent_widget(); w && w != page; w = w->parent_widget())
+        if (w->can_focus() && condition_holds(*w) && !w->insensitive() && !w->is("ListBox")) focus = w->self();
     struct Box {
         float a0, c0, a1, c1;
     };
-    auto box_of = [k](const LiveWidget& w, const char* region) {
-        Rect r = w.screen_rect();
-        if (const Property* p = w.data.find(region); p && p->values.size() >= 4) {
-            const float v[4] = {std::strtof(p->values[0].c_str(), nullptr), std::strtof(p->values[1].c_str(), nullptr),
-                                std::strtof(p->values[2].c_str(), nullptr), std::strtof(p->values[3].c_str(), nullptr)};
-            r = {r.x + v[0], r.y + v[1], v[2], v[3]};
-        }
+    auto turn = [k](const Rect& r, float shift) {
         switch (k) {
-        case Key::Right: return Box{r.x, r.y, r.x + r.w, r.y + r.h};
-        case Key::Left: return Box{-(r.x + r.w), r.y, -r.x, r.y + r.h};
-        case Key::Down: return Box{r.y, r.x, r.y + r.h, r.x + r.w};
-        default: return Box{-(r.y + r.h), r.x, -r.y, r.x + r.w};
+        case Key::Right: return Box{r.x + shift, r.y, r.x + r.w + shift, r.y + r.h};
+        case Key::Left: return Box{-(r.x + r.w) + shift, -(r.y + r.h), -r.x + shift, -r.y};
+        case Key::Down: return Box{r.y + shift, -(r.x + r.w), r.y + r.h + shift, -r.x};
+        default: return Box{-(r.y + r.h) + shift, r.x, -r.y + shift, r.x + r.w};
         }
     };
     const float clip_angle = page->data.number("navigate_clip_angle");
     const bool start_front = page->data.number("navigate_start_front") != 0;
     const bool wraparound = !page->data.has("navigate_wraparound") || page->data.number("navigate_wraparound") != 0;
-    const Box f = box_of(*focus, "navigate_source");
+    Box f{};
+    bool found = false;
+    for (const FocusCandidate& c : all)
+        if (c.widget == focus) f = turn(c.source, 0), found = true;
+    if (!found) {
+        const Rect r = focus->screen_rect();
+        f = turn(r, 0);
+    }
     struct Measure {
         bool valid = false;
         float angle = 0, distance = 10000, across = 0;
+        int group = 0;
+        size_t order = 0;
     };
-    auto measure = [&](const Box& c, float shift) {
+    auto measure = [&](const FocusCandidate& c, float shift) {
         Measure m;
-        const float a0 = c.a0 + shift, a1 = c.a1 + shift;
-        m.across = std::fabs((c.c0 + c.c1) * 0.5f - (f.c0 + f.c1) * 0.5f);
-        if (!((f.a0 + f.a1) * 0.5f < (a0 + a1) * 0.5f)) return m;
-        const float from = start_front ? f.a1 : f.a0;
-        const float near = a0 - from + 1, far = a1 - from + 1;
+        m.group = c.group;
+        const Box s = turn(c.source, shift), t = turn(c.target, shift);
+        m.across = std::fabs((s.c0 + s.c1) * 0.5f - (f.c0 + f.c1) * 0.5f);
+        if (!((f.a0 + f.a1) * 0.5f < (s.a0 + s.a1) * 0.5f)) return m;
+        const float edge = start_front ? f.a1 : f.a0;
+        const float a = t.a0 - edge + 1, b = t.a1 - edge + 1;
         float gap = -1;
-        if (c.c1 <= f.c0) gap = f.c0 - c.c1;
-        else if (f.c1 <= c.c0) gap = c.c0 - f.c1;
+        if (t.c1 <= f.c0) gap = f.c0 - t.c1;
+        else if (f.c1 <= t.c0) gap = t.c0 - f.c1;
         if (gap >= 0) { // to the side
-            const float along = std::fabs(near) < std::fabs(far) ? near : far;
+            const float along = std::fabs(a) < std::fabs(b) ? a : b;
             m.angle = std::atan2(gap, along) / 3.14159274f * 180.0f;
             m.distance = std::sqrt(along * along + gap * gap);
             m.valid = m.angle < clip_angle;
             return m;
         }
-        if (near >= 0) m.distance = far >= 0 && far < near ? far : near, m.valid = true;
-        else if (far >= 0) m.distance = far, m.valid = true;
+        if (a >= 0 && b >= 0) m.distance = std::min(a, b), m.valid = true;
+        else if (a >= 0) m.distance = a, m.valid = true;
+        else if (b >= 0) m.distance = b, m.valid = true;
         return m;
+    };
+    auto before = [](const Measure& x, const Measure& y) {
+        if (x.group != y.group) return x.group > y.group;
+        if (x.angle != y.angle) return x.angle < y.angle;
+        if (x.distance != y.distance) return x.distance < y.distance;
+        if (x.across != y.across) return x.across < y.across;
+        return x.order < y.order;
     };
     std::shared_ptr<LiveWidget> best;
     for (int pass = 0; pass < 2 && !best; ++pass) {
         if (pass == 1 && !wraparound) break;
         Measure best_m;
-        for (const auto& w : all) {
-            if (w == focus) continue;
-            const Measure m = measure(box_of(*w, "navigate_target"), pass ? 10000.0f : 0.0f);
+        for (size_t i = 0; i < all.size(); ++i) {
+            if (all[i].widget == focus) continue;
+            Measure m = measure(all[i], pass ? 10000.0f : 0.0f);
+            m.order = i;
             if (!m.valid) continue;
-            const bool better = !best || m.angle < best_m.angle || (m.angle == best_m.angle && (m.distance < best_m.distance ||
-                                (m.distance == best_m.distance && m.across < best_m.across)));
-            if (better) best = w, best_m = m;
+            if (!best || before(m, best_m)) best = all[i].widget, best_m = m;
         }
     }
     if (!best) return;
