@@ -8,6 +8,7 @@
 #include "gt4r/sim/exact_bridge.h"
 #include "gt4r/sim/rules.h"
 #include "gt4r/sim/rules_chassis.h"
+#include "gt4r/sim/rules_drive.h"
 #include "gt4r/sim/rules_step.h"
 #include "gt4r/sim/rules_tires.h"
 #include "gt4r/sim/rules_wear.h"
@@ -50,8 +51,23 @@ sim::rules::SlipForceGlobals slip_globals(Ee& ee) {
     return g;
 }
 
+// The driveline's tables as the program's race set-up left them.
+sim::rules::DriveTables drive_tables(Ee& ee) {
+    u8 a[14], st[14], g[12];
+    ee.read_bytes(sim::rules::kAwdFade, a, 14), ee.read_bytes(sim::rules::kSteplessBytes, st, 14), ee.read_bytes(sim::rules::kControllerSettings, g, 12);
+    return sim::rules::drive_tables(a, st, g);
+}
+
 void add_taps(Taps& taps) {
     using namespace sim::rules;
+    taps.add({0x3511A0, "brakes and clutch", car_a0, [](TapCall& t) { brakes_and_clutch(t.car, t.rec.x.drive, t.rec.layout); }});
+    taps.add({0x36D230, "wheel torques", car_a0, [](TapCall& t) { wheel_torques(t.car, t.rec.x.drive, t.rec.layout); }});
+    taps.add({0x36D2F8, "vectoring", car_a0, [](TapCall& t) { vectoring(t.car, t.rec.x.drive, t.rec.layout); }});
+    taps.add({0x36D818, "axle step", car_a0, [](TapCall& t) { axle_step(t.car, t.rec.x.drive, t.rec.layout, drive_tables(t.ee)); }});
+    taps.add({0x36E4B8, "wheel speeds", car_a0, [](TapCall& t) { wheel_speeds(t.car, t.rec.x.drive, t.rec.layout); }});
+    taps.add({0x3519B8, "engine speed", car_a0, [](TapCall& t) { engine_speed(t.car, t.rec.x.drive, t.rec.layout); }});
+    taps.add({0x351DC8, "gear", car_a0, [](TapCall& t) { gear_step(t.car, t.rec.x.drive, t.rec.layout, t.rec.x.tires, drive_tables(t.ee)); }});
+    taps.add({0x3554A0, "engine torque", car_a0, [](TapCall& t) { t.ret_f("returns", engine_torque(t.car, t.rec.x.drive, gt3r::ee::F::raw(t.ee.fpr[12]))); }});
     taps.add({0x3658A0, "step length", car_a0, [](TapCall& t) { ex::step_length(t.car); }});
     taps.add({0x356EF0, "wear grip", car_a0, [](TapCall& t) {
                   t.ret_i("returns", wear_grip(t.car, t.rec.x.wear, t.rec.x.tires, t.rec.layout, wear_rules_of(t)));
@@ -80,6 +96,18 @@ void add_taps(Taps& taps) {
     taps.add({0x3534A0, "rolling resistance", car_a0, [](TapCall& t) { rolling_resistance(t.car, t.rec.layout, road_tables(t.ee)); }});
     taps.add({0x357690, "slip angles", car_a0, [](TapCall& t) { slip_angles(t.car, t.rec.layout); }});
     taps.add({0x343ED0, "save previous", car_a0, [](TapCall& t) { ex::save_previous(t.car); }});
+    // The engine's routines where Gran Turismo 4's are not ported yet (to see how they differ).
+    if (std::getenv("GT4R_STEP_ENGINE_TAPS")) {
+        taps.add({0x3511A0, "engine: brakes and clutch", car_a0, [](TapCall& t) { ex::brakes_and_clutch(t.car); }});
+        taps.add({0x36D230, "engine: wheel torques", car_a0, [](TapCall& t) { ex::wheel_net_torque(t.car); }});
+        taps.add({0x36D2F8, "engine: vectoring", car_a0, [](TapCall& t) { ex::torque_vectoring(t.car, t.inputs.statics.hybrid); }});
+        taps.add({0x36D818, "engine: axle step", car_a0, [](TapCall& t) {
+                      ex::axle_step(t.car, t.inputs.statics.awd3, t.inputs.statics.stepless, t.inputs.statics.hybrid);
+                  }});
+        taps.add({0x36E4B8, "engine: wheel speeds", car_a0, [](TapCall& t) { ex::wheel_speeds(t.car); }});
+        taps.add({0x3519B8, "engine: engine speed", car_a0, [](TapCall& t) { ex::engine_speed(t.car, t.inputs.statics.hybrid); }});
+        taps.add({0x351DC8, "engine: gear", car_a0, [](TapCall& t) { ex::gear_step(t.car, t.inputs.gears); }});
+    }
     taps.add({0x36C9F8, "body axes", [](Ee& e) { return u32(e.a(0)) - 0x110; }, [](TapCall& t) { sim::rules::body_axes(t.car); }});
 }
 

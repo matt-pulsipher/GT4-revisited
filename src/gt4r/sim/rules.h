@@ -34,11 +34,17 @@ gt3r::sim::Behaviour behaviour();
 struct WheelLayout {
     u8 kind = 0;                                // +0x00 (1: the camber's grip is read at 0)
     u8 count = 4;                               // +0x01 the wheels the step runs
+    u8 groups = 2;                              // +0x02 the wheel groups (a group: the wheels of an axle)
+    std::array<u8, 4> axle_wheels{2, 2};        // +0x04 + a: axle a's wheels
+    std::array<u8, 4> group_wheels{2, 2};       // +0x08 + k: group k's wheels
+    std::array<u8, 4> group_first{0, 2};        // +0x0C + k: group k's first wheel
+    std::array<u8, 4> group_axle{0, 1};         // +0x10 + k: group k's axle
     std::array<u8, 8> axle{0, 0, 1, 1};         // +0x14 + w: wheel w's axle (0 front, 1 rear)
     std::array<u8, 8> side{0, 1, 0, 1};         // +0x1C + w: wheel w's side (0 left)
     std::array<u8, 8> geometry{};               // +0x2C + w: which axle's half track and distance from the center of gravity wheel w has
     std::array<u8, 8> fore_aft{};               // +0x3C + w: signed: above 0 ahead of the center of gravity, below 0 behind it, 0 at it
     std::array<u8, 8> camber_thrust{};          // +0x44 + w: 2: wheel w's camber gives a lateral force (0x352408)
+    std::array<u8, 8> partner{1, 0, 3, 2};      // +0x24 + w: the other wheel of wheel w's group (0x7F: none)
 };
 constexpr u32 kWheelLayouts = 0x620478, kWheelLayoutSize = 0x54;
 // The row of the table at `row` (its 0x54 bytes).

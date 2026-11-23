@@ -239,6 +239,9 @@ ParamsResult run_params(Disc& disc, bool print) {
         check("engine friction", double(ee.rf(E + 0xD0)), p.e.friction.host());
         // The driveline (+0x234): gears, each gear's speed factor (+0x68), tire radius (+0x90) and width (+0xA0).
         const u32 D = p_at + 0x234;
+        if (std::getenv("GT4R_LIST_DRIVES") && (ee.r8(D + 0x12) != 0 || ee.r8(D) > 6 || ee.r8(D + 2) > 7 || gt3r::s16(ee.r16(p_at + 0x134)) > 16))
+            std::printf("  drive %s: layout %d, kind %d, gears %d, curve %d, special %d\n", c.label.c_str(), ee.r8(D), ee.r8(D + 0x12), ee.r8(D + 2),
+                        gt3r::s16(ee.r16(p_at + 0x134)), ee.r8(p_at + 0x32));
         check("forward gears", ee.r8(D + 2), p.d.gears);
         check("driveline layout", ee.r8(D), p.d.layout);
         for (u32 g = 0; g <= ee.r8(D + 2) && g <= p.d.gears && g < 8; ++g) check("gear speed factors", double(ee.rf(D + 0x68 + 4 * g)), p.d.gear_speed[g].host(), 1e-3); // (a second reduction: to a ratio's last digit)

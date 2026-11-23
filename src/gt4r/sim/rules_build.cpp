@@ -2,6 +2,7 @@
 
 #include "gt4r/sim/rules_build.h"
 
+#include "gt4r/sim/rules_drive.h"
 #include "gt4r/sim/rules_tires.h"
 
 namespace gt4r::sim {
@@ -31,6 +32,30 @@ F peak_slip(const rules::Tire& t) {
         if (best < y) best = y, deg = d;
     }
     return int_to_f(deg) * kDegree;
+}
+// The engine and driveline blocks (0x34EF30, 0x34ACA8): the engine's converter's, in Gran Turismo 4's places.
+void drive_blocks(const Spec& s, const Program& program, const gt3r::sim::exact::Params& p, rules::DriveExtra& x) {
+    (void)s, (void)program;
+    rules::EngineBlock& e = x.e;
+    e.torque = {};
+    e.torque.n = p.e.torque.n;
+    for (size_t k = 0; k < 16; ++k) e.torque.x[k] = p.e.torque.x[k], e.torque.y[k] = p.e.torque.y[k];
+    e.rev_limit = p.e.rev_limit, e.idle = p.e.idle, e.friction = p.e.friction;
+    e.turbo_knee = p.e.turbo_knee, e.turbo_shape = p.e.turbo_shape, e.power_cap_on = p.e.power_cap_on;
+    e.power_cap = p.e.power_cap, e.power_cap_soft = p.e.power_cap_soft;
+    e.turbo_peak = p.e.turbo_peak, e.turbo_rate = p.e.turbo_rate, e.turbo_coef = p.e.turbo_coef, e.boost_max = p.e.boost_max;
+    rules::DrivelineBlock& d = x.d;
+    d = {};
+    d.layout = p.d.layout, d.unequal = p.d.unequal, d.gears = p.d.gears, d.driven_axle = p.d.driven_axle;
+    d.awd_k = p.d.awd_k, d.awd_capacity = p.d.awd_capacity, d.engine_inertia = p.d.engine_inertia;
+    d.diff_type = p.d.diff_type, d.kind = p.d.kind;
+    d.diff_initial = p.d.diff_initial, d.diff_accel = p.d.diff_accel, d.diff_decel = p.d.diff_decel;
+    d.launch_rpm = p.d.launch_rpm, d.up_rpm = p.d.up_rpm;
+    for (size_t g = 0; g < 6; ++g) d.down_rpm[g] = p.d.down_rpm[g];
+    for (size_t g = 0; g < 8; ++g) d.ratio[g] = p.d.ratio[g], d.gear_speed[g] = p.d.gear_speed[g];
+    d.tire_radius = p.tire_radius, d.inv_tire_radius = p.inv_tire_radius, d.width = p.width;
+    d.shift_clutch_torque = p.d.shift_clutch_torque, d.wheel_gain = p.d.wheel_gain, d.axle_inertia = p.d.axle_inertia;
+    d.inv_axle_inertia = p.d.inv_axle_inertia, d.inv_engine_inertia = p.d.inv_engine_inertia;
 }
 } // namespace
 
@@ -133,6 +158,7 @@ void gt4_extras(const Spec& s, const Program& program, Record& r) {
     t.direct_lateral_scale = F::raw(0x3FC90FD9) / speed(0x118);
     t.direct_slip_scale = kOne / speed(0x119);
     r.x.chassis.mass = p.mass;
+    drive_blocks(s, program, p, r.x.drive);
 }
 
 } // namespace gt4r::sim

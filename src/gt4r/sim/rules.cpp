@@ -11,7 +11,10 @@ gt3r::sim::Behaviour behaviour() { return {gt3r::sim::Program::ConceptGenevaAsia
 
 WheelLayout wheel_layout(const u8* row) {
     WheelLayout l;
-    l.kind = row[0], l.count = row[1];
+    l.kind = row[0], l.count = row[1], l.groups = row[2];
+    for (size_t k = 0; k < 4; ++k)
+        l.axle_wheels[k] = row[0x04 + k], l.group_wheels[k] = row[0x08 + k], l.group_first[k] = row[0x0C + k], l.group_axle[k] = row[0x10 + k];
+    for (size_t w = 0; w < 8; ++w) l.partner[w] = row[0x24 + w];
     for (size_t w = 0; w < 8; ++w)
         l.axle[w] = row[0x14 + w], l.side[w] = row[0x1C + w], l.geometry[w] = row[0x2C + w], l.fore_aft[w] = row[0x3C + w],
         l.camber_thrust[w] = row[0x44 + w];
