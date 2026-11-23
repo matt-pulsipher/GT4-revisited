@@ -874,8 +874,22 @@ TEST(disc_menu_gt_mode_places) {
     const std::string price = f.text_of("Price");
     CHECK(!f.text_of("Name").empty() && price.rfind("Cr.", 0) == 0 && price.size() > 4);
     std::printf("  used car: %s, %s\n", f.text_of("Name").c_str(), price.c_str());
+    // Bought: its used price paid, driven from now on, with its odometer; a day of the diary.
+    {
+        const s64 money = g.money;
+        const u32 day = g.today;
+        f.press({menu::Key::Accept, menu::Key::Accept, menu::Key::Right, menu::Key::Accept, menu::Key::Accept, menu::Key::Accept});
+        CHECK(f.page() == "UsedCarRoot" && g.garage_count() == 2 && g.riding_car == 1 && g.today == day + 1);
+        std::string digits;
+        for (char c : price)
+            if (c >= '0' && c <= '9') digits += c;
+        CHECK(g.money == money - std::atoll(digits.c_str()) && g.garage[1].record && g.garage[1].record->odometer() > 0);
+        CHECK(g.diary.back().type == 1 && g.diary.back().b2 == 2); // got a car, used
+    }
     f.press({menu::Key::Cancel});
     CHECK(f.page() == "TopRoot");
+    f.map_focus("DealerItaly"); // the car bought new is driven again below
+    f.rt->game().riding_car = 0;
     // The beginners' hall: the Sunday Cup's page has its prizes; OK, the race, the mode, and the
     // race is asked for with the car driven at the event's course.
     f.map_focus("BeginnerHall");
@@ -974,6 +988,16 @@ TEST(disc_menu_gt_mode_places) {
     h.focus_on("Line0");
     h.press({menu::Key::Accept});
     CHECK(h.page() == "CarViewRoot" && h.focus() == "Change");
+    // Sold: a quarter of its used price, the place left free, no car driven.
+    const s64 money = h.rt->game().money;
+    h.press({menu::Key::Left, menu::Key::Accept});
+    CHECK(h.page() == "BuyCarDialog");
+    h.press({menu::Key::Right, menu::Key::Accept}); // "sell"
+    CHECK(h.page() == "ConfirmDialog");
+    h.press({menu::Key::Accept}); // yes
+    for (int i = 0; i < 4 && h.page() == "ConfirmDialog"; ++i) h.press({menu::Key::Accept});
+    CHECK(h.rt->game().garage_count() == 0 && h.rt->game().riding_car == -1 && h.rt->game().money > money);
+    std::printf("  sold for %lld credits\n", static_cast<long long>(h.rt->game().money - money));
     CHECK(h.clean());
 }
 
