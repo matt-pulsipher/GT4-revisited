@@ -139,3 +139,15 @@ place, `numberOfEntries`, `playerGridNumber` (the player's place), `courseLabel`
 (transmission, assists), `canReplay` 0. ❓ Here IsBSpec and IsDryCourse answer 1 (the course's
 condition and record byte are not read), and only the first chip word (the paint's colour) is
 filled.
+
+## Saved replays
+
+The program's Save Replay runs the project `labomode` with `next_menu_arg` =
+`MODE_SAVE_FULL_REPLAY` and keeps the drivers' controls on the memory card
+(`Serialize::ReplayData`, `GT4MC::FileGT4Replay*`); a replay is the race run again from them. The
+rebuild keeps the cars' states instead, step by step, in a file of its own under the data folder's
+`replays/` (`<course>-<date>-<time>.gt4rrep`; `race/replay_file.*`): `"GT4RRPL1"`, u32 the body's
+size, u32 its deflated size, then the zlib-deflated body: the course, the sequence and the race's
+labels, the laps, the cars (label, paint), the steps (every car's state). The Drive screen plays
+one with `GT4R_RACE="replay_file=<path>"` through the course's replay cameras. ❓ The menus'
+Replay Theater does not list these files yet.

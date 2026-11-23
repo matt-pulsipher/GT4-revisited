@@ -25,6 +25,7 @@
 #include "gt4r/race/race_flow.h"
 #include "gt4r/race/rail_simulation.h"
 #include "gt4r/race/replay_script.h"
+#include "gt4r/race/replay_file.h"
 #include "gt4r/race/start_camera.h"
 #include "gt4r/race/start_rule.h"
 #include "gt4r/race/picture_settings.h"
@@ -37,6 +38,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <ctime>
+#include <optional>
 #include <map>
 
 namespace gt4r {
@@ -74,6 +77,9 @@ struct Setup {
     bool start_given = false;
     std::vector<std::string> opponents; // the other cars by label (empty: from the car list)
     std::string sequence; // `menus=single_race`: the race's own menus (the sequence's quick project) round the race
+    std::vector<u32> paints; // every car's paint (a saved replay's); empty: the player's `paint`, the others by number
+    std::string replay_file; // `replay_file=<path>`: a saved replay played
+    bool save_replay = false; // `save=1`: the run `replay=N` drove saved as a replay file
     std::string race;     // `race=<label>`: the event (the car database's RACE row) the sequence runs
     sim::ai::Pace pace;   // the computer drivers' (the event's)
 };
@@ -106,6 +112,8 @@ Setup setup_from_env() {
         else if (k == "laps") s.laps = std::clamp(std::atoi(v.c_str()), 1, 99);
         else if (k == "menus") s.sequence = v;
         else if (k == "race") s.race = v;
+        else if (k == "replay_file") s.replay_file = v;
+        else if (k == "save") s.save_replay = v != "0";
         else if (k == "start") {
             s.start_given = true;
             if (v == "course") s.course_start = true;
@@ -146,7 +154,7 @@ public:
             WorldEntry e;
             e.label = i == 0 || setup.opponents.empty() ? cars[(first + size_t(i) * 37) % cars.size()].label
                                                          : setup.opponents[size_t(i - 1) % setup.opponents.size()];
-            e.paint = i == 0 ? setup.paint : u32(i);
+            e.paint = size_t(i) < setup.paints.size() ? setup.paints[size_t(i)] : i == 0 ? setup.paint : u32(i);
             e.grid_place = places[size_t(i)];
             if (setup.start == race::StartType::Rolling) e.start_speed = setup.start_speed;
             ws.entries.push_back(e);
@@ -222,6 +230,21 @@ public:
         start_camera_.begin(nullptr, false, 0, {}, world_->cars()[0]);
     }
     bool has_run() const { return !history_.empty(); }
+
+    // The last run as a saved replay, and a saved replay played back.
+    race::ReplayFile replay_file(const std::string& sequence, const std::string& race_label) const {
+        race::ReplayFile f;
+        f.course = setup_.course, f.sequence = sequence, f.race = race_label, f.laps = setup_.laps;
+        for (size_t i = 0; i < world_->car_count(); ++i) f.cars.push_back({world_->setup().entries[i].label, world_->setup().entries[i].paint});
+        f.steps = history_;
+        return f;
+    }
+    void play_saved(race::ReplayFile&& f) {
+        history_ = std::move(f.steps);
+        for (std::vector<race::CarState>& s : history_) s.resize(world_->car_count());
+        ran_ = true;
+        start_replay();
+    }
 
     void begin_start_camera(bool replay) {
         const race::CameraMotion& m = replay ? replay_motion_ : start_motion_;
@@ -563,7 +586,34 @@ public:
             q.race = setup_.race, q.sequence = setup_.sequence;
             q.assist_tcs = 1, q.assist_asm = 1, q.tire = 4;
         }
+        // A saved replay: its course and cars, then its steps played.
+        std::optional<race::ReplayFile> saved;
+        if (!setup_.replay_file.empty()) {
+            try {
+                std::FILE* fp = std::fopen(setup_.replay_file.c_str(), "rb");
+                if (!fp) throw FormatError("cannot open " + setup_.replay_file);
+                Bytes b;
+                u8 buf[65536];
+                for (size_t n; (n = std::fread(buf, 1, sizeof buf, fp)) > 0;) b.insert(b.end(), buf, buf + n);
+                std::fclose(fp);
+                saved = race::ReplayFile::decode(b);
+                setup_.course = saved->course, setup_.laps = std::max(1, saved->laps);
+                setup_.cars = int(saved->cars.size());
+                setup_.opponents.clear(), setup_.paints.clear();
+                for (size_t i = 0; i < saved->cars.size(); ++i) {
+                    if (i == 0) setup_.car = saved->cars[i].label;
+                    else setup_.opponents.push_back(saved->cars[i].label);
+                    setup_.paints.push_back(saved->cars[i].paint);
+                }
+                setup_.skip = 0, setup_.replay = 0, setup_.start = race::StartType::None, setup_.sequence.clear();
+                saved_replay_ = true;
+            } catch (const std::exception& e) {
+                LOG_WARN("Drive: the saved replay: %s", e.what());
+            }
+        }
         if (setup_.scripted) start(app);
+        if (saved && race_) race_->play_saved(std::move(*saved));
+        if (setup_.save_replay && race_ && race_->has_run()) save_replay(app);
         if (menus_ && race_) {
             painter_ = make_menu_painter(app);
             enter_quick(0);
@@ -950,6 +1000,11 @@ private:
         } else if (command == "COMMAND_REPLAY" && race_->has_run()) {
             quick_ = false;
             race_->start_replay();
+        } else if (command == "COMMAND_SAVE_REPLAY" && race_->has_run()) {
+            // Save Replay (the program's labomode project with MODE_SAVE_FULL_REPLAY saves to the
+            // memory card): the run into the data folder's replays, then the menus again.
+            save_replay(app);
+            enter_quick(w.get("canReplay"), !session_over);
         } else if (command == "COMMAND_OPTION" || command == "COMMAND_SETTINGS") {
             // The options, or the car's settings (the project `setting`), then the menus again.
             option_ = true;
@@ -961,6 +1016,27 @@ private:
         } else {
             // (Saving and loading replays and ghosts and the logger are not done here: the menus again.)
             enter_quick(w.get("canReplay"), !session_over);
+        }
+    }
+
+    // The last run as a file of the data folder's `replays` (the Drive screen plays one with
+    // GT4R_RACE="replay_file=<path>").
+    void save_replay(App& app) {
+        const std::string folder = app.data_dir() + "/replays";
+        SDL_CreateDirectory(folder.c_str());
+        char stamp[32];
+        const std::time_t now = std::time(nullptr);
+        std::strftime(stamp, sizeof stamp, "%Y%m%d-%H%M%S", std::localtime(&now));
+        const std::string path = folder + "/" + setup_.course + "-" + stamp + ".gt4rrep";
+        const menu::RaceRequest* q = menus_ ? &menus_->game().race : nullptr;
+        const Bytes b = race_->replay_file(sequence_, q ? q->race : std::string()).encode();
+        if (std::FILE* fp = std::fopen(path.c_str(), "wb")) {
+            std::fwrite(b.data(), 1, b.size(), fp);
+            std::fclose(fp);
+            last_saved_ = path;
+            LOG_INFO("Drive: the replay saved to %s (%zu bytes)", path.c_str(), b.size());
+        } else {
+            LOG_WARN("Drive: cannot write %s", path.c_str());
         }
     }
 
@@ -1025,7 +1101,7 @@ private:
     void finish_run(App& app) {
         result_tried_ = false, result_.reset();
         if (menus_) return run_over();
-        if (from_menus_) {
+        if (from_menus_ || saved_replay_) {
             report();
             app.pop();
             return;
@@ -1146,6 +1222,8 @@ private:
     std::unique_ptr<race::StrobePlayer> pause_;
     std::string pause_result_;
     bool pause_exit_ = false, pause_retry_ = false;
+    bool saved_replay_ = false; // the screen plays a saved replay (then leaves)
+    std::string last_saved_;
     bool demo_ = false, reported_ = false; // the run is a demonstration; its result was given
     int last_can_replay_ = 0;
     std::shared_ptr<const race::StrobeMovie> result_movie_;

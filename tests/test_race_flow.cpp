@@ -9,6 +9,7 @@
 #include "gt4r/race/start_camera.h"
 #include "gt4r/race/start_rule.h"
 #include "gt4r/race/replay_script.h"
+#include "gt4r/race/replay_file.h"
 #include "gt4r/race/picture_settings.h"
 #include "gt4r/formats/db/specdb.h"
 
@@ -427,4 +428,35 @@ TEST(replay_camera_springs) {
     h.reset(100, 3);
     for (int i = 0; i < 60; ++i) h.step(140, 0.0f);
     CHECK(std::fabs(h.value() - 100) < 1e-3f);
+}
+
+TEST(race_replay_file) {
+    race::ReplayFile f;
+    f.course = "tsukuba", f.sequence = "single_race", f.race = "", f.laps = 2;
+    f.cars = {{"_117_coupe_68", 3}, {"nsx_r_02", 0}};
+    for (int s = 0; s < 120; ++s) {
+        std::vector<race::CarState> st(2);
+        for (int c = 0; c < 2; ++c) {
+            st[size_t(c)].position = {float(s) * 0.5f, 1, float(c)};
+            st[size_t(c)].speed = float(s), st[size_t(c)].gear = c + 1, st[size_t(c)].lap = s / 60;
+            st[size_t(c)].wheels[2].spin = float(s) * 0.1f, st[size_t(c)].wheels[3].surface = 7;
+            st[size_t(c)].brake_lamps = s % 2;
+        }
+        f.steps.push_back(st);
+    }
+    const Bytes b = f.encode();
+    CHECK(race::ReplayFile::is_replay(b));
+    const race::ReplayFile g = race::ReplayFile::decode(b);
+    CHECK(g.course == "tsukuba" && g.sequence == "single_race" && g.laps == 2 && g.cars.size() == 2 && g.cars[0].paint == 3 && g.cars[1].label == "nsx_r_02");
+    CHECK(g.steps.size() == 120);
+    CHECK(g.steps[119][1].position.x == 59.5f && g.steps[119][1].gear == 2 && g.steps[119][0].lap == 1 && g.steps[61][0].brake_lamps);
+    CHECK(g.steps[50][0].wheels[2].spin == f.steps[50][0].wheels[2].spin && g.steps[50][1].wheels[3].surface == 7);
+    // A cut file.
+    bool threw = false;
+    try {
+        race::ReplayFile::decode(ByteSpan(b).first(b.size() / 2));
+    } catch (const std::exception&) {
+        threw = true;
+    }
+    CHECK(threw);
 }
