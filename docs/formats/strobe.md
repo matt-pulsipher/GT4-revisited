@@ -303,9 +303,10 @@ the callback 0x3EBE28 -> 0x3AEAE8: the race's text table, the one the race displ
   gradient along the matrix's u); colours are 0xAABBGGRR with 0x80 a full channel, through the
   instances' colour changes (multiply 0x80 = x1, add / 255) from the root down; texts in the
   menus' fonts (`font/menu.fnt`) by the font string `name#palette*x%,y%` (palette 1, the plain
-  glyphs, when none is given), the field's height against the em its font's name ends with
-  (`hm_16`: 16, `hb_24`: 24, `hn_14`: 14; the program scales the glyphs by the height alone,
-  0x479CA0), the words looked up in the race's text table. A picture is placed at the size the
+  glyphs, when none is given), the glyphs at their own pixel size (scale 1) times the font string's percentages and the
+  instance's scale, laid out by Gran Turismo 4's own text layout (`menu/text_layout.h`: its pair
+  spacing and space) in the field's box less its 2-unit gutter, aligned as the field says, the first
+  line at the box's top; the words looked up in the race's text table. A picture is placed at the size the
   movie's texture list gives (a power of two, 128 x 64), the set's texture (its own size, 99 x 34)
   at its top left: the fill matrices map the list's size.
 

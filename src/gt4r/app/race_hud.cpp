@@ -1,4 +1,5 @@
 #include "gt4r/app/race_hud.h"
+#include "gt4r/menu/text_layout.h"
 
 #include "base/log.h"
 #include "disc/core_image.h"
@@ -54,6 +55,7 @@ struct RaceHud::Impl {
     gt3r::text::FontFile fonts;
     std::map<std::string, const gt3r::text::LatinFont*> font_by_name;
     std::map<std::pair<const gt3r::text::LatinFont*, int>, SDL_Texture*> atlases;
+    std::map<std::string, menu::FontSpacing> spacing; // the fonts' GT4 spacing (FT01 +0x14, +0x15) by name
     gt3r::text::FontFile menu_fonts; // the movies' (font/menu.fnt)
     std::map<std::pair<const race::StrobeMovie*, size_t>, SDL_Texture*> movie_textures;
     Bytes pack_file;
@@ -204,9 +206,15 @@ RaceHud::RaceHud(App& app, ByteSpan gtcm) : impl_(std::make_unique<Impl>()) {
     Impl& m = *impl_;
     m.r = app.renderer();
     try {
-        if (const std::optional<Bytes> file = app.vfs()->read("font/system.fnt")) m.fonts = menu::read_fonts(*file);
+        if (const std::optional<Bytes> file = app.vfs()->read("font/system.fnt")) {
+            m.fonts = menu::read_fonts(*file);
+            m.spacing = menu::read_font_spacing(*file);
+        }
         for (const gt3r::text::LatinFont& f : m.fonts.fonts) m.font_by_name.emplace(f.name, &f);
-        if (const std::optional<Bytes> file = app.vfs()->read("font/menu.fnt")) m.menu_fonts = menu::read_fonts(*file);
+        if (const std::optional<Bytes> file = app.vfs()->read("font/menu.fnt")) {
+            m.menu_fonts = menu::read_fonts(*file);
+            for (const auto& [name, sp] : menu::read_font_spacing(*file)) m.spacing.emplace(name, sp);
+        }
         for (const gt3r::text::LatinFont& f : m.menu_fonts.fonts) m.font_by_name.emplace(f.name, &f);
         // The region's pack: the disc's own region first.
         const std::string serial = app.disc()->info().serial;
@@ -344,22 +352,31 @@ void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlaye
                 f.sy = comma == std::string::npos ? f.sx : float(std::atof(sizes.c_str() + comma + 1)) / 100.0f;
             }
             if (!f.font) continue;
-            // The field's em (its height) against the font's own: the number its name ends with
-            // (hm_16: 16, hb_24: 24; the program scales the glyphs by the height alone, 0x479CA0).
-            float em = 16;
-            {
-                const std::string base = spec.substr(0, std::min(star, hash));
-                const size_t us = base.rfind('_');
-                if (us != std::string::npos && us + 1 < base.size() && std::isdigit(static_cast<unsigned char>(base[us + 1]))) em = float(std::atoi(base.c_str() + us + 1));
-                if (!(em > 0)) em = 16;
-            }
-            const float size = t.height / em, sx = std::hypot(d.m[0], d.m[1]), sy = std::hypot(d.m[2], d.m[3]);
-            f.sx *= size * sx, f.sy *= size * sy;
-            const float x = t.align == 2 ? (t.x0 + t.x1) / 2 : t.align == 1 ? t.x1 : t.x0;
-            const float px = d.m[0] * x + d.m[2] * t.y0 + d.m[4], py = d.m[1] * x + d.m[3] * t.y0 + d.m[5];
+            // GT4's own text layout (menu/text_layout.h) at the glyphs' own pixel size: only the font
+            // string's percentages and the instance's scale (the field's height does not scale the
+            // glyphs). The field's box less its 2-unit gutter; Flash's alignment 0 left, 1 right,
+            // 2 center, the first line at the box's top.
+            const float sx = std::hypot(d.m[0], d.m[1]), sy = std::hypot(d.m[2], d.m[3]);
+            menu::TextStyle st;
+            st.font = f.font;
+            if (const auto it = m.spacing.find(f.font->name); it != m.spacing.end()) st.spacing = it->second;
+            st.scale_x = f.sx * sx, st.scale_y = f.sy * sy;
+            const float bx = d.m[0] * (t.x0 + 2) + d.m[2] * (t.y0 + 2) + d.m[4], by = d.m[1] * (t.x0 + 2) + d.m[3] * (t.y0 + 2) + d.m[5];
+            const float bw = std::max(0.0f, t.x1 - t.x0 - 4) * sx, bh = std::max(0.0f, t.y1 - t.y0 - 4) * sy;
+            const int align = t.align == 2 ? 1 : t.align == 1 ? 2 : 0;
+            const menu::TextLayout lay = menu::layout_menu_text_in(word(d.words), st, bx, by, bw, bh, align);
+            SDL_Texture*& atlas = m.atlases[{f.font, f.variant}];
+            if (!atlas) atlas = m.make_texture(f.font->atlas[size_t(std::clamp(f.variant, 0, 1))]);
+            if (!atlas) continue;
             const SDL_FColor c = colour(t.color, d);
-            const u32 rgba = u32(c.r * 255) | u32(c.g * 255) << 8 | u32(c.b * 255) << 16 | u32(c.a * 128) << 24;
-            m.draw_text(f, px, py + 2 * sy + float(f.font->ascent) * f.sy, t.align == 2 ? kCentered : t.align == 1 ? kEndsAtPen : 0, rgba, 1.0f, word(d.words));
+            SDL_SetTextureColorMod(atlas, u8(c.r * 255), u8(c.g * 255), u8(c.b * 255));
+            SDL_SetTextureAlphaMod(atlas, u8(std::clamp(c.a, 0.0f, 1.0f) * 255));
+            for (const menu::PlacedGlyph& g : lay.glyphs) {
+                if (g.font != f.font || !g.sw || !g.sh) continue; // (other fonts' glyphs: the pad's buttons; none in these movies)
+                const SDL_FRect src{float(g.sx), float(g.sy), float(g.sw), float(g.sh)};
+                const SDL_FRect dst = to_ui({g.x, g.y, g.w, g.h});
+                SDL_RenderTexture(m.r, atlas, &src, &dst);
+            }
         }
     }
 }
