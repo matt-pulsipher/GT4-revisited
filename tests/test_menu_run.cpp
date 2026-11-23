@@ -273,7 +273,7 @@ TEST(menu_game_state) {
     h.option_defaults("jp");
     h.options_from_text(g.options_text());
     CHECK(h.option_int("race_laps") == 5 && h.option_text("netconf") == "a \"b\"" && std::get<float>(h.options["some_ratio"]) == 0.25f);
-    CHECK(h.option_text("game_zone") == "us");
+    CHECK(h.option_text("game_zone") == "US"); // the zone by its name (0 UNDEF, 1 JP, 2 US, ...)
 
     menu::Runtime rt(no_files());
     rt.boot();
@@ -291,8 +291,10 @@ TEST(menu_game_state) {
     const std::optional<menu::RaceRequest> race = rt.race_request();
     CHECK(race && race->sequence == "single_race" && race->car == "ka_01" && race->difficulty == "HARD" && race->max_entry == 6);
     CHECK(!rt.advance());
-    // Credits and the garage.
-    CHECK(vm.attribute(game, "money").i == 10000 && call(vm, game, "isEnoughMoney", {Value::integer(10001)}).i == 0);
+    // Credits (the configuration gives a new game 10,000) as the money text, and the garage.
+    CHECK(vm.attribute(game, "money").as_string() == "--"); // nothing yet
+    assign(vm, game, "money", Value::integer(10000));
+    CHECK(vm.attribute(game, "money").as_string() == "10,000" && call(vm, game, "isEnoughMoney", {Value::integer(10001)}).i == 0);
     call(vm, game, "incMoney", {Value::integer(-4000)});
     CHECK(rt.game().money == 6000);
     const Value garage = vm.attribute(game, "garage");
@@ -653,7 +655,8 @@ TEST(disc_menu_new_game_to_gt_mode) {
     // The map's header: the player's credits.
     const std::shared_ptr<menu::LiveWidget> top = f.rt->open_pages().back();
     const std::shared_ptr<menu::LiveWidget> money = top->child("Common") ? top->child("Common")->child("Header")->child("Money")->child("label") : nullptr;
-    CHECK(money && money->data.text("text") == "10000");
+    if (money) std::printf("  credits: %s\n", money->data.text("text").c_str());
+    CHECK(money && money->data.text("text") == "10,000");
     f.press({menu::Key::Accept});
     CHECK(f.page() == "HomeRoot" && f.focus() == "Garage");
     // The home page's numbers: nothing completed, written with one decimal.

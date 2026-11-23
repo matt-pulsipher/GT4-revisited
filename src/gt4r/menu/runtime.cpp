@@ -358,6 +358,18 @@ void Runtime::boot() {
         note(std::string("no common project: ") + e.what());
         common_.reset(), common_widget_.reset();
     }
+    // The program's start ends with the configuration's last_strap (0x108BF8 -> 0x10B268): the
+    // zone, the credits a new game has (10,000), the music lists.
+    // Credits a caller set before the start (a stand-in for a saved game's) are kept.
+    const s64 credits = game_->money;
+    const Value strap = vm_->lookup("last_strap");
+    if (strap.p && strap.p->callable()) try {
+            vm_->instructions = 0, vm_->budget = kCallBudget;
+            vm_->call(strap, {});
+        } catch (const script::ScriptError& e) {
+            note(std::string("last_strap stopped: ") + e.what());
+        }
+    if (credits) game_->money = credits;
 }
 
 std::string Runtime::first_project() {

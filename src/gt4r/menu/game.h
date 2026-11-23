@@ -7,6 +7,9 @@
 
 #include "gt4r/base/types.h"
 
+#include <algorithm>
+#include <array>
+#include <deque>
 #include <map>
 #include <optional>
 #include <set>
@@ -46,16 +49,74 @@ struct RaceRequest {
     int garage_slot = -1, garage_slot_2p = -1;
 };
 
-// A car of the garage.
-struct GarageCar {
-    std::string car; // its label
-    int paint = 0;
-    float odometer = 0; // km
-    int date = 0;       // the game day it was got
-    int ride_order = 0; // larger: ridden later
-    bool used = false;
-    std::map<std::string, std::string> parts; // by parts type: what is fitted (the car's own when absent)
+// A car's record as the garage keeps it: the program's CarGarage (0x4B8 bytes, saved as they
+// are; docs/formats/save.md "The car record"): three settings sheets, each a car equipment record
+// (sim/equipment.h), the wheel chosen for each tire category, the sheet in use, the parts owned
+// and the car's condition.
+struct CarRecord {
+    static constexpr size_t kSize = 0x4B8, kSheet = 0x178;
+    std::array<u8, kSize> bytes{};
+
+    CarRecord(); // no car: every part none (the constructor's record)
+    u8* sheet(int i) { return bytes.data() + kSheet * size_t(std::clamp(i, 0, 2)); }
+    const u8* sheet(int i) const { return bytes.data() + kSheet * size_t(std::clamp(i, 0, 2)); }
+    u8* active() { return sheet(active_sheet()); }
+    const u8* active() const { return sheet(active_sheet()); }
+    int active_sheet() const { return std::clamp(int(u32at(0x488)), 0, 2); }
+    void set_active_sheet(int i) { put32(0x488, u32(i)); }
+    s64 wheel(int category) const { return s64(u64at(0x468 + 8 * size_t(category & 3))); }
+    void set_wheel(int category, s64 id) { put64(0x468 + 8 * size_t(category & 3), u64(id)); }
+    // The parts owned: 96 bits from 0x48C (bit n: byte n / 8, bit n % 8).
+    bool owned(int bit) const { return bit >= 0 && bit < 96 && (bytes[0x48C + size_t(bit) / 8] >> (bit % 8)) & 1; }
+    void set_owned(int bit, bool on) {
+        if (bit < 0 || bit >= 96) return;
+        u8& b = bytes[0x48C + size_t(bit) / 8];
+        b = on ? u8(b | 1 << (bit % 8)) : u8(b & ~(1 << (bit % 8)));
+    }
+    // The condition: odometer (meters), the engine's and the oil's distances (meters; a new
+    // engine starts at -300,000), the dirt (0 .. 0.8), the body's distance; no wear at all.
+    u32 odometer() const { return u32at(0x498); }
+    void set_odometer(u32 m) { put32(0x498, m); }
+    float condition(size_t field) const; // 1 engine, 2 oil, 3 dirt, 4 body
+    void set_condition(size_t field, float v);
+    bool no_wear() const { return bytes[0x4AC] != 0; }
+    void set_no_wear(bool on) { bytes[0x4AC] = on; }
+
+    u32 u32at(size_t o) const { return u32(bytes[o]) | u32(bytes[o + 1]) << 8 | u32(bytes[o + 2]) << 16 | u32(bytes[o + 3]) << 24; }
+    u64 u64at(size_t o) const { return u64(u32at(o)) | u64(u32at(o + 4)) << 32; }
+    void put32(size_t o, u32 v) { bytes[o] = u8(v), bytes[o + 1] = u8(v >> 8), bytes[o + 2] = u8(v >> 16), bytes[o + 3] = u8(v >> 24); }
+    void put64(size_t o, u64 v) { put32(o, u32(v)), put32(o + 4, u32(v >> 32)); }
 };
+
+// A place of the garage's list (the program's 0x20-byte entry; save.md "The garage list"). The
+// list is not compacted: a car keeps its place, a sold car leaves a free one.
+struct GarageEntry {
+    bool used = false;
+    std::string car;     // its label
+    int paint = 0;       // 7 bits
+    u32 power = 0;       // PS x 100, 18 bits: the list's column, from the record
+    u32 weight = 0;      // kg, 13 bits
+    u32 day = 0;         // the day number it was got on
+    u32 odometer = 0;    // meters, as it came (a used car's)
+    int ride_rank = 0x3FF; // 0: the car driven now; each change moves the others up; 0x3FF never driven
+    u64 kept_flags = 0;  // the bit field's bits not named here, as loaded
+    u32 kept_day = 0;  // the day word's top byte, as loaded
+    u64 kept_rank = 0; // the rank word's other bits, as loaded
+    std::optional<CarRecord> record; // the full record: a car that has been driven
+};
+
+// A day of the calendar's diary (16 bytes; save.md "The calendar"): what was done that day.
+struct DayEvent {
+    u8 type = 0; // 0 nothing, 1 GET_CAR, 2 SELL_CAR, 3 RUN_RACE, 4 RUN_LICENSE, 5 RUN_MISSION, 6 BUY_WHEEL, 7 BUY_WING, 8 RUN_COURSE
+    u8 b1 = 0, b2 = 0, b3 = 0;
+    u32 word = 0; // a time in ms
+    u64 code = 0; // a database code
+};
+
+// A ranking (a license test's, a course's): 10 entries, best first, kept as the program's
+// bytes; and a course's unit has its course's code.
+constexpr u32 kNoTime = 359'999'999; // shown "--'--.---"
+constexpr size_t kLicenseUnit = 0x1F8, kLicenseUnits = 125, kCourseUnit = 0x238, kCourseUnits = 128, kMachineUnits = 4;
 
 struct GameState {
     // Which project and page the menus go to and came from (MGame's attributes).
@@ -84,24 +145,61 @@ struct GameState {
     std::string options_text() const;
     void options_from_text(const std::string& text);
 
-    // Gran Turismo mode.
-    s64 money = 10000; // a new game's credits
-    std::vector<GarageCar> garage;
-    int riding_car = -1; // index in the garage; -1: none
-    int day = 0;         // the calendar's day
+    // Gran Turismo mode: the program's Status object as it is saved (docs/formats/save.md).
+    s64 money = 0; // a new game's 10,000 are the scripts'
     std::string username, password, last_entry_name;
-    std::set<std::string> available_cars, available_courses; // arcade's unlocked ones (labels)
+    s64 score = 0, total_prize_money = 0;
+    u32 total_prize_cars = 0;
+    std::array<u32, 7> rank_counts{}; // 0: races not finished; 1 .. 6: finishes in that place
+    s64 aspec_distance = 0, bspec_distance = 0;
+    int withdrawn = 0, withdrawn_gt4p = 0, met_type = 0;
+
+    // The calendar: today's day number and the diary, one event a past day, the latest last.
+    static constexpr u32 kFirstDay = 2'453'462; // 2005-04-02, a new game's first day
+    static constexpr size_t kDiaryDays = 2922;
+    u32 today = kFirstDay;
+    std::deque<DayEvent> diary;
+    void put_day(const DayEvent& e); // a day passes with this event
+
+    // The garage: its list, the car driven, the key and serial that tie the saved files.
+    std::vector<GarageEntry> garage;
+    int riding_car = -1; // the list's place; -1: none
+    u32 garage_key = 0, garage_serial = 0;
+    std::array<s32, 4> garage_kept{}; // the four words after the key (not named)
+    int garage_count() const;
+    int add_car(GarageEntry e); // the first free place; -1 when full
+    static constexpr size_t kGarageSize = 1000;
+
+    // Records: a race's result by its unit (the RACE table's place of its label), the license
+    // tests' and the courses' rankings.
+    std::array<u32, 768> race_units;
+    Bytes license_record, course_record, machine_record;
+
+    // Arcade's unlocked cars and courses (labels), favorites (labels, in order), presents given,
+    // used cars sold this week, the championship left unfinished.
+    std::set<std::string> available_cars, available_courses;
     bool all_available = false;
-    std::set<std::string> favorite_cars, favorite_courses;
-    std::map<std::string, int> race_results; // by race code: the best result (1 gold ... ; absent: not run)
-    s64 total_prize_money = 0;
-    int total_prize_cars = 0, score = 0, races = 0;
+    std::vector<std::string> favorite_cars, favorite_courses;
+    static constexpr size_t kFavoriteLimit = 30;
+    std::array<u32, 29> presents{};
+    std::array<u32, 8> used_sold{};
+    u32 used_week = 0;
+    std::string suspended_racecode;
+    int suspended = 0, suspended_session = 0;
+    Bytes championship_rest; // the context's bytes past the named ones (0x88 in all)
+    // The menus' place kept in the save (Context: the major project and page, the menu stack).
+    int saved_menu_depth = -1;
+    Bytes saved_menu_stack;
+
+    // Everything saved that is not named above, as the last loaded game had it (a new game: as
+    // the program's constructors make it). The save module writes the named fields over it.
+    Bytes saved_image;
+
     bool need_save = false;
     bool during_quick_menu = false;
-    int withdrawn = 0;
-    int met_type = 0;
-    std::string suspended_racecode;
 
+    GameState();
+    void new_game(); // the constructors' values: no car, no records, the first day
     // The memory card as the menus see it. A console with no card answers "not connected";
     // with an empty card, "no file".
     struct MemoryCard {

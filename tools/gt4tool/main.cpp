@@ -57,6 +57,7 @@ namespace gt4tool {
 int cmd_menu_run(Disc& disc, const std::vector<std::string>& args); // cmd_menu.cpp
 int cmd_db_strings(Disc& disc, const std::vector<std::string>& args);
 int cmd_menu_names(Disc& disc, const std::vector<std::string>& args);
+int cmd_save(Disc& disc, const std::vector<std::string>& args); // cmd_save.cpp
 }
 
 namespace {
@@ -596,6 +597,7 @@ const Command kCommands[] = {
     {"menu", "<disc> [project] [all]", 0, cmd_menu},
     {"menu-run", "<disc> <project> [steps...]", 1, cmd_menu_run},
     {"menu-names", "<disc>", 0, [](Disc& d, const Args& a) { return gt4tool::cmd_menu_names(d, a); }},
+    {"save", "<disc> show <card folder> | payload <card folder> <out> | new <out>", 1, [](Disc& d, const Args& a) { return gt4tool::cmd_save(d, a); }},
     {"db-strings", "<disc> <pool> [index...]", 1, [](Disc& d, const Args& a) { return gt4tool::cmd_db_strings(d, a); }},
     {"run", "<disc> [path]", 0, cmd_run},
     {"db", "<disc> [cars | wheels | courses | <table> [rows]]", 0, cmd_db},

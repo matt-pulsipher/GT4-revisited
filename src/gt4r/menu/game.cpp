@@ -1,7 +1,10 @@
 #include "gt4r/menu/game.h"
 
+#include "gt4r/sim/equipment.h"
+
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <sstream>
 
 namespace gt4r::menu {
@@ -19,7 +22,7 @@ struct Default {
 // yet (MOption::setDefault, 0x189A60): they are plain choices that take the scripts down the
 // retail game's paths (no show build, no arcade machine).
 const Default kDefaults[] = {
-    {"game_zone", std::string("us")}, {"language", std::string("US")}, {"wide_mode", 0}, {"race_display_mode", std::string("normal")},
+    {"game_zone", std::string("US")}, {"language", std::string("US")}, {"wide_mode", 0}, {"race_display_mode", std::string("normal")},
     {"screen_adjust_h", 0}, {"screen_adjust_v", 0}, {"monitor_size", std::string("normal")}, {"race_color_correction", 0}, {"replay_color_correction", 0},
     {"physical_monitor_size", 0}, {"sharpness_mode", 0},
     {"menu_bgm", 1}, {"menu_bgm_volume", 100}, {"menu_bgm_volume_raw", 100}, {"menu_se", 1}, {"menu_se_volume", 100}, {"menu_se_volume_raw", 100},
@@ -54,7 +57,9 @@ const Default kDefaults[] = {
 void GameState::option_defaults(const std::string& region) {
     options.clear();
     for (const Default& d : kDefaults) options[d.name] = d.value;
-    options["game_zone"] = region;
+    // MOption::setGameZoneDefault (0x435D48): the zone by the program's region, by its name
+    // (0 UNDEF, 1 JP, 2 US, 3 UK, 4 EU, 5 KR; table 0x622DA8).
+    options["game_zone"] = std::string(region == "us" ? "US" : region == "uk" ? "EU" : region == "kr" ? "KR" : "JP");
     // Miles and horsepower where the game is sold with them (the option pages' own names).
     const bool imperial = region == "us" || region == "uk";
     options["unit_velocity"] = std::string(imperial ? "MPH" : "KMPH");
@@ -146,6 +151,104 @@ void GameState::options_from_text(const std::string& text) {
         } else if (value.find_first_of(".eE") != std::string::npos) options[name] = std::strtof(value.c_str(), nullptr);
         else options[name] = s32(std::strtol(value.c_str(), nullptr, 10));
     }
+}
+
+CarRecord::CarRecord() {
+    // Three cleared equipment records (0x4442B8), no wheels, sheet 0, no wear.
+    const sim::Equipment empty;
+    for (int i = 0; i < 3; ++i) std::memcpy(sheet(i), empty.bytes.data(), kSheet);
+    for (int c = 0; c < 4; ++c) set_wheel(c, -1);
+    bytes[0x4AC] = 1;
+}
+
+float CarRecord::condition(size_t field) const {
+    const u32 v = u32at(0x498 + 4 * field);
+    float f;
+    std::memcpy(&f, &v, 4);
+    return f;
+}
+
+void CarRecord::set_condition(size_t field, float v) {
+    u32 u;
+    std::memcpy(&u, &v, 4);
+    put32(0x498 + 4 * field, u);
+}
+
+GameState::GameState() { new_game(); }
+
+namespace {
+
+void put32(Bytes& b, size_t o, u32 v) { b[o] = u8(v), b[o + 1] = u8(v >> 8), b[o + 2] = u8(v >> 16), b[o + 3] = u8(v >> 24); }
+
+// A ranking's empty entries (the constructors 0x432368, 0x433AA0): no time, the date 0, the
+// pass code "--------".
+void fresh_license_unit(Bytes& b, size_t at) {
+    for (size_t e = 0; e < 10; ++e) {
+        const size_t o = at + e * 0x2C;
+        put32(b, o, kNoTime);
+        b[o + 8] = 15; // no result
+        std::memset(b.data() + o + 9, '-', 8);
+    }
+    for (size_t i = 0; i < 16; ++i) put32(b, at + 0x1B8 + 4 * i, kNoTime);
+}
+
+void fresh_course_unit(Bytes& b, size_t at, bool speed) {
+    std::memset(b.data() + at, 0xFF, 8); // no course
+    for (size_t e = 0; e < 10; ++e) {
+        const size_t o = at + 8 + e * 0x30;
+        put32(b, o, speed ? 0 : kNoTime);
+        std::memset(b.data() + o + 8, 0xFF, 8); // no car
+        std::memset(b.data() + o + 0x10, '-', 8);
+    }
+    for (size_t i = 0; i < 16; ++i) put32(b, at + 0x1E8 + 4 * i, kNoTime);
+}
+
+} // namespace
+
+void GameState::new_game() {
+    money = 0, username.clear(), password.clear(), last_entry_name.clear();
+    score = 0, total_prize_money = 0, total_prize_cars = 0, rank_counts = {}, aspec_distance = 0, bspec_distance = 0;
+    withdrawn = 0, withdrawn_gt4p = 0, met_type = 0;
+    today = kFirstDay, diary.clear();
+    garage.clear(), riding_car = -1, garage_key = 0, garage_serial = 0, garage_kept = {};
+    race_units.fill(0x0000FFF0u); // type none, the three results none, score 0
+    license_record.assign(kLicenseUnit * kLicenseUnits, 0);
+    for (size_t u = 0; u < kLicenseUnits; ++u) fresh_license_unit(license_record, u * kLicenseUnit);
+    course_record.assign(kCourseUnit * kCourseUnits, 0);
+    for (size_t u = 0; u < kCourseUnits; ++u) fresh_course_unit(course_record, u * kCourseUnit, false);
+    machine_record.assign(kCourseUnit * kMachineUnits, 0);
+    for (size_t u = 0; u < kMachineUnits; ++u) fresh_course_unit(machine_record, u * kCourseUnit, u == 2); // ❓ unit 2: the top speed's
+    available_cars.clear(), available_courses.clear(), all_available = false;
+    favorite_cars.clear(), favorite_courses.clear();
+    presents = {}, used_sold = {}, used_week = 0;
+    suspended_racecode.clear(), suspended = 0, suspended_session = 0;
+    championship_rest.assign(0x88 - 0x22, 0);
+    saved_menu_depth = -1, saved_menu_stack.assign(0x100, 0);
+    saved_image.clear();
+}
+
+void GameState::put_day(const DayEvent& e) {
+    if (diary.size() >= kDiaryDays) diary.pop_front();
+    diary.push_back(e);
+    ++today;
+}
+
+int GameState::garage_count() const {
+    int n = 0;
+    for (const GarageEntry& e : garage) n += e.used;
+    return n;
+}
+
+int GameState::add_car(GarageEntry e) {
+    e.used = true;
+    for (size_t i = 0; i < garage.size(); ++i)
+        if (!garage[i].used) {
+            garage[i] = std::move(e);
+            return int(i);
+        }
+    if (garage.size() >= kGarageSize) return -1;
+    garage.push_back(std::move(e));
+    return int(garage.size()) - 1;
 }
 
 } // namespace gt4r::menu
