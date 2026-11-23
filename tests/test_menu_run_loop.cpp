@@ -313,3 +313,42 @@ TEST(disc_gt_mode_loop_license) {
     CHECK(f.page() == "LicenseDetailRoot");
     CHECK(f.clean());
 }
+
+// A driving mission from the map: its race menus, the mission won (first), its prize counted, its
+// record by place, and the map again.
+TEST(disc_gt_mode_loop_mission) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
+    Flow f(*disc);
+    CHECK(f.gt_mode_with_a_car());
+    if (f.page() != "TopRoot") return;
+    menu::GameState& g = f.rt->game();
+    f.map_focus("Mission");
+    f.press({menu::Key::Accept, menu::Key::Accept});
+    const std::optional<menu::RaceRequest> race = f.rt->race_request();
+    CHECK(race && race->sequence == "mission");
+    if (!race) return;
+    Sequence q(f, *race);
+    q.fill(2);
+    const std::string command = q.menus({menu::Key::Accept});
+    std::printf("  %s: %s at %s\n", race->race.c_str(), race->car.c_str(), race->course.c_str());
+    CHECK(command == "COMMAND_START");
+    menu::RaceResult r = q.result(0);
+    r.kind = menu::RaceResult::Kind::Mission;
+    const s64 money = g.money;
+    const s64 prize = q.ran(r);
+    CHECK(prize > 0 && q.work().get("prize") == prize && g.diary.back().type == 5);
+    CHECK(after_race(f, q) && g.money == money + prize);
+    script::Vm& vm = f.rt->vm();
+    const Value record = vm.attribute(vm.lookup("game"), "race_record");
+    const Value label[1] = {Value::string(race->race)};
+    const Value unit = vm.call(vm.attribute(record, "getUnit"), label);
+    CHECK(vm.attribute(unit, "type").as_string() == "mission" && vm.attribute(unit, "result").as_string() == "1");
+    // The present rule's question: missions 1 to 1 cleared in first place.
+    const Value clear[2] = {Value::string("1,1"), Value::string("1")};
+    CHECK(race->race != "l0m0001" || vm.call(vm.attribute(record, "isMissionClear"), clear).i == 1);
+    CHECK(q.leave() && f.rt->project()->name() == "gtmode");
+    std::printf("  back at %s, prize %lld\n", f.page().c_str(), static_cast<long long>(prize));
+    CHECK(f.clean());
+}
