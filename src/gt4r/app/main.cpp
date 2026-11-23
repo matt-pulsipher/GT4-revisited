@@ -20,6 +20,7 @@ SDL_AppResult SDL_AppInit(void** state, int argc, char** argv) {
                         "  --shot <out.png>    save a picture of one frame, then quit\n"
                         "  --shot-frame <n>    which frame --shot saves (default 30)\n"
                         "  --keys <list>       scripted menu presses, e.g. \"down,down,cross,wait60,right\"\n"
+                        "                      (\"shot:<name>\": a picture <name>.png beside --shot's)\n"
                         "  --no-gpu            2D screens only\n");
             return SDL_APP_SUCCESS;
         }

@@ -4,6 +4,7 @@
 
 #include "gt4r/app/app.h"
 #include "gt4r/app/menu_cars.h"
+#include "gt4r/app/menu_cursor.h"
 #include "gt4r/app/menu_models.h"
 #include "gt4r/app/menu_movies.h"
 #include "gt4r/app/menu_page_drawer.h"
@@ -232,6 +233,7 @@ private:
                 else if (face.is("ModelFace")) models->draw(face, project, page, at, dst, opacity);
             };
             menu::text_measure().measure = [drawer](const LiveWidget& face, float& w, float& h) { drawer->measure(face, w, h); };
+            cursor_ = {};
             runtime_->boot();
             if (const script::Value root = runtime_->vm().lookup("MpegRoot"); root.kind == script::Kind::String) movies_->set_root(root.as_string());
             race_.reset();
@@ -243,6 +245,7 @@ private:
         }
     }
     void stop() {
+        if (held_) SDL_DestroyTexture(held_), held_ = nullptr;
         menu::text_measure().measure = nullptr;
         movies_.reset(), cars_.reset(), models_.reset(), live_drawer_.reset(), runtime_.reset(), race_.reset();
         if (app_)
@@ -265,7 +268,7 @@ private:
             // The menus run at the program's 60 pictures a second, whatever the display's rate.
             const int steps = std::min(int(step_time_ * 60.0), 4);
             step_time_ = steps == 4 ? 0.0 : step_time_ - steps / 60.0;
-            for (int i = 0; i < steps; ++i) runtime_->update();
+            for (int i = 0; i < steps; ++i) runtime_->update(), cursor_.step(*runtime_);
             // A script that ended its project names the next one, or asks for a race.
             if (runtime_->finished() && !race_) {
                 race_ = runtime_->race_request();
@@ -308,12 +311,18 @@ private:
             if (movies_) movies_->begin_frame();
             if (cars_) cars_->begin_frame(runtime_->frame());
             if (models_) models_->begin_frame(runtime_->frame());
+            const menu::TransitionPicture tp = menu::transition_picture(runtime_->vm().attribute(runtime_->context(), "transition"));
+            // A cross transition coming in: the pages grown about the screen's middle.
+            Affine grown;
+            grown.a = grown.d = tp.page_scale, grown.e = 320 * (1 - tp.page_scale), grown.f = 240 * (1 - tp.page_scale);
+            live_drawer_->menu_frame = runtime_->frame();
             for (const auto& page : runtime_->open_pages())
-                if (menu::Project* project = runtime_->project_of(*page)) live_drawer_->draw(*project, *page, x, 0, scale, 0);
+                if (menu::Project* project = runtime_->project_of(*page)) live_drawer_->draw(*project, *page, x, 0, scale, 0, grown, tp.page_opacity);
             if (movies_) movies_->end_frame();
             if (cars_) cars_->end_frame();
             if (models_) models_->end_frame();
             draw_cursor(x, scale);
+            draw_blocks(tp, x, scale);
             // The transition's colour over the pages.
             if (timing_) {
                 // The pages' drawing (movies and 3D included) and the whole frame, in ms.
@@ -348,29 +357,39 @@ private:
         }
     }
 
-    // The menus' pointer: the common project's cursor picture, its tip on the focused widget.
-    // ❓ Where on the widget the program puts it (the layouts' cursor_align) is by eye: the
-    // widget's right half, at mid height.
-    void draw_cursor(float x, float scale) {
-        if (!runtime_->cursor_visible() || !runtime_->common_project()) return;
-        LiveWidget* focus = runtime_->focused();
-        const std::shared_ptr<LiveWidget> root = runtime_->common_page("CursorRoot");
-        const std::shared_ptr<LiveWidget> cursor = root ? root->child("Cursor") : nullptr;
-        if (!focus || !cursor || !focus->shown()) return;
-        const Rect at = focus->screen_rect();
-        const std::optional<Rect> size = cursor->data.rect("geometry");
-        const float w = size ? size->w : 32, h = size ? size->h : 32;
-        LiveWidget pointer;
-        pointer.data = cursor->data;
-        pointer.set_property("x", script::Value::number(at.x + at.w * 0.75f));
-        pointer.set_property("y", script::Value::number(at.y + at.h * 0.5f));
-        pointer.set_property("w", script::Value::number(w));
-        pointer.set_property("h", script::Value::number(h));
-        pointer.name = root->name;
-        LiveWidget page;
-        page.name = root->name, page.data.type = "RootWindow";
-        live_drawer_->draw_one(*runtime_->common_project(), root->name, pointer, x, 0, scale);
+    // A block transition: the screen held when it started, in blocks that fade by their timers
+    // (32 x 24 of 20 x 20 page pixels).
+    void draw_blocks(const menu::TransitionPicture& tp, float x, float scale) {
+        if (!tp.blocks) {
+            if (held_) SDL_DestroyTexture(held_), held_ = nullptr;
+            return;
+        }
+        SDL_Renderer* r = app_->renderer();
+        if (tp.capture || !held_) {
+            if (held_) SDL_DestroyTexture(held_), held_ = nullptr;
+            const SDL_Rect page{int(x), 0, int(640 * scale), int(480 * scale)};
+            if (SDL_Surface* shot = SDL_RenderReadPixels(r, &page)) {
+                held_ = SDL_CreateTextureFromSurface(r, shot);
+                SDL_DestroySurface(shot);
+            }
+        }
+        if (!held_) return;
+        float tw = 1, th = 1;
+        SDL_GetTextureSize(held_, &tw, &th);
+        SDL_SetTextureBlendMode(held_, SDL_BLENDMODE_BLEND);
+        for (int row = 0; row < 24; ++row)
+            for (int col = 0; col < 32; ++col) {
+                const float timer = (*tp.blocks)[size_t(row * 32 + col)];
+                if (timer <= 0) continue;
+                SDL_SetTextureAlphaMod(held_, u8(std::min(timer, 1.0f) * 255));
+                const SDL_FRect src{tw * float(col) / 32, th * float(row) / 24, tw / 32, th / 24};
+                const SDL_FRect dst{x + float(col) * 20 * scale, float(row) * 20 * scale, 20 * scale, 20 * scale};
+                SDL_RenderTexture(r, held_, &src, &dst);
+            }
     }
+
+    // The menus' pointer (menu_cursor.h).
+    void draw_cursor(float x, float scale) { cursor_.draw(*runtime_, *live_drawer_, x, scale); }
 
     std::vector<Entry> projects_;
     std::unique_ptr<menu::Project> project_;
@@ -381,6 +400,8 @@ private:
     std::unique_ptr<MenuMovies> movies_; // the running menus' movie faces
     std::unique_ptr<MenuCars> cars_;     // and car faces
     std::unique_ptr<MenuModels> models_; // and model faces
+    MenuCursor cursor_;
+    SDL_Texture* held_ = nullptr; // a block transition's screen
     int project_sel_ = 0, page_sel_ = 0, state_ = 0;
     bool full_ = false, start_run_ = false, start_boot_ = false;
     std::string error_, start_project_, start_page_, card_;
@@ -412,30 +433,20 @@ class RuntimePainter : public MenuPainter {
 public:
     explicit RuntimePainter(App& app) : drawer_(app) {}
     void draw(menu::Runtime& rt, float x, float scale) override {
+        const menu::TransitionPicture tp = menu::transition_picture(rt.vm().attribute(rt.context(), "transition"));
+        Affine grown;
+        grown.a = grown.d = tp.page_scale, grown.e = 320 * (1 - tp.page_scale), grown.f = 240 * (1 - tp.page_scale);
+        drawer_.menu_frame = rt.frame();
         for (const auto& page : rt.open_pages())
-            if (menu::Project* project = rt.project_of(*page)) drawer_.draw(*project, *page, x, 0, scale, 0);
-        // The pointer: the common project's cursor picture at the focused widget (as the viewer).
-        if (rt.cursor_visible() && rt.common_project())
-            if (LiveWidget* focus = rt.focused(); focus && focus->shown()) {
-                const std::shared_ptr<LiveWidget> root = rt.common_page("CursorRoot");
-                const std::shared_ptr<LiveWidget> cursor = root ? root->child("Cursor") : nullptr;
-                if (cursor) {
-                    const Rect at = focus->screen_rect();
-                    const std::optional<Rect> size = cursor->data.rect("geometry");
-                    LiveWidget pointer;
-                    pointer.data = cursor->data;
-                    pointer.set_property("x", script::Value::number(at.x + at.w * 0.75f));
-                    pointer.set_property("y", script::Value::number(at.y + at.h * 0.5f));
-                    pointer.set_property("w", script::Value::number(size ? size->w : 32));
-                    pointer.set_property("h", script::Value::number(size ? size->h : 32));
-                    pointer.name = root->name;
-                    drawer_.draw_one(*rt.common_project(), root->name, pointer, x, 0, scale);
-                }
-            }
+            if (menu::Project* project = rt.project_of(*page)) drawer_.draw(*project, *page, x, 0, scale, 0, grown, tp.page_opacity);
+        // The pointer (menu_cursor.h), a step a picture drawn.
+        cursor_.step(rt);
+        cursor_.draw(rt, drawer_, x, scale);
     }
 
 private:
     PageDrawer drawer_;
+    MenuCursor cursor_;
 };
 
 } // namespace
