@@ -149,7 +149,17 @@ void core_spec(const Spec& s, ex::Spec& to) {
     // The forward gears: seven at most, and only those with a ratio (one car's fifth gear has none).
     u32 gears = 0;
     while (gears < 7 && gears < s.b(0x155) && s.h(0x138 + 2 * (gears + 1)) != 0 && s.sh(0x138 + 2 * (gears + 1)) > 0) ++gears;
-    for (u32 i = 0; i < 8; ++i) h(0xB6 + 2 * i, i <= gears ? s.h(0x138 + 2 * i) : 0xFFFF);
+    // The ratios, with the gearbox's second reduction in them (0x34B1A8; spec +0x152, by the kind at +0x154): kind 1
+    // every gear times it; kind 2 reverse and the gears from the fifth on by it in place of the final drive.
+    const u32 second = s.sh(0x152) >= 500 ? s.h(0x152) : 0, final_drive = s.sh(0x150) >= 500 ? s.h(0x150) : 4000;
+    for (u32 i = 0; i < 8; ++i) {
+        u32 ratio = i <= gears ? s.h(0x138 + 2 * i) : 0xFFFF;
+        if (i <= gears && second != 0) {
+            if (s.b(0x154) == 1) ratio = u32(std::lround(double(ratio) * second / 1000.0));
+            else if (s.b(0x154) == 2 && s.b(0x155) >= 5 && (i == 0 || i >= 5)) ratio = u32(std::lround(double(ratio) * second / final_drive));
+        }
+        h(0xB6 + 2 * i, ratio);
+    }
     h(0xC6, s.h(0x150)), b(0xC8, gears), b(0xC9, s.b(0x160)), b(0xCB, s.b(0x157)), b(0xCC, s.b(0x161));
     h(0xCE, s.h(0x164)), h(0xD0, s.h(0x166)), h(0xD2, s.h(0x174)), h(0xD4, s.h(0x176));
     b(0xD6, s.b(0x168)), b(0xD7, s.b(0x169)), bytes(0xD8, 0x16A, 6);
@@ -173,22 +183,59 @@ void core_spec(const Spec& s, ex::Spec& to) {
     for (int k = 0; k < 6; ++k) tire_block(s, Spec::tire_block(k), to, (k < 3 ? 0x142u : 0x292u) + 0x70u * u32(k % 3));
 }
 
-// 0x361908 (0x362904 .. 0x362D1C): the levers by Gran Turismo 4's rule, in its arithmetic.
-void gt4_levers(const Spec& s, const Program& program, ex::Params& p) {
+// Gran Turismo 4's converter (0x361908) where its rule is not the core's, in its arithmetic and order.
+void gt4_params(const Spec& s, const Program& program, ex::Params& p) {
     using gt3r::ee::F;
-    const F k100 = F::raw(0x42C80000), k001 = F::raw(0x3C23D70A);
+    using gt3r::ee::int_to_f;
+    const F k100 = F::raw(0x42C80000), k001 = F::raw(0x3C23D70A), kMilli = F::raw(0x3A83126E), kHalf = F::raw(0x3F000000);
+    const F kTenth = F::raw(0x3DCCCCCD);
+    // The pitch and roll levers and the pitch's tire term (0x362904 .. 0x362D1C).
     if (s.b(0x25) != 0) {
-        const F inertia = gt3r::ee::int_to_f(s.b(0x25)) * k100;
+        const F inertia = int_to_f(s.b(0x25)) * k100;
         p.pitch_lever[0] = p.dist_front / inertia, p.pitch_lever[1] = p.dist_rear / inertia;
         if (program.known()) {
-            const F tire = gt3r::ee::int_to_f(program.b(Program::kStatic + 7)) * k001;
+            const F tire = int_to_f(program.b(Program::kStatic + 7)) * k001;
             p.pitch_tire[0] = tire / (inertia + (p.mass * p.dist_front) * p.dist_front);
             p.pitch_tire[1] = tire / (inertia + (p.mass * p.dist_rear) * p.dist_rear);
         }
     }
     if (s.b(0x26) != 0) {
-        const F inertia = gt3r::ee::int_to_f(s.b(0x26)) * k100;
+        const F inertia = int_to_f(s.b(0x26)) * k100;
         p.roll_lever[0] = p.half_track[0] / inertia, p.roll_lever[1] = p.half_track[1] / inertia;
+    }
+    // The drag: the downforce's share in it is the static block's byte +0x0A per mille (0x362300), the core's a tenth.
+    if (program.known()) {
+        const F lift = p.downforce_coef[0] + p.downforce_coef[1];
+        p.drag_coef = (p.drag_coef - lift * kTenth) + lift * (int_to_f(program.b(Program::kStatic + 0x0A)) * kMilli);
+    }
+    // The ride heights, each axle's own (0x3629D0), the center of gravity's height and the load transfers (0x362AF4).
+    const F front_share = F::raw(0x3F800000) - p.rear_weight;
+    for (u32 a = 0; a < 2; ++a) {
+        const s16 mm = s.sh(0x9A + 2 * a);
+        p.ride_height[a] = int_to_f(mm != 0 ? mm : s.b(0x8A + a)) * kMilli;
+    }
+    const F old_height = p.cog_height;
+    p.cog_height = p.ride_height[0] * front_share + p.ride_height[1] * p.rear_weight;
+    {
+        // Both transfers are (term + height) / 2 over a length, scaled by the sprung mass: rescaled from the core's.
+        const F term = int_to_f(s.b(0x27)) * kMilli;
+        const F ratio = (term + p.cog_height) / (term + old_height);
+        p.lat_transfer = p.lat_transfer * ratio, p.long_transfer = p.long_transfer * ratio;
+    }
+    // The suspension's places along its travel (0x360DC8): the hub's offset, the bump stop and where the
+    // progressive rate starts.
+    for (u32 a = 0; a < 2; ++a) {
+        ex::Suspension& u = p.susp[a];
+        const F ride = p.ride_height[a];
+        u.offset = (p.tire_radius[a] - ride) + u.x_static;
+        const F base = u.x_static - ride;
+        F travel = int_to_f(s.b(0x92 + a)) * kMilli;
+        if (ride < travel) travel = ride;
+        u.bump_limit = base + travel;
+        const s16 gap_mm = s.sh(0x66 + 0x18 * a);
+        F gap = int_to_f(gap_mm) * kMilli;
+        if (ride < gap) gap = ride;
+        u.knee = gap_mm == 0 || gap <= travel ? u.bump_limit : base + gap;
     }
 }
 

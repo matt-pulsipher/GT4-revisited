@@ -167,7 +167,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
             ex::Car loaded;
             ex::load_image(loaded, image.data());
             c.p = loaded.p;
-            gt4_levers(specs_[i], program, c.p);
+            gt4_params(specs_[i], program, c.p);
         }
         c.pedal_style = e.automatic ? 0 : 1;
         // The start place: the entry's, or one further back along the first place's line when the grid is shorter.

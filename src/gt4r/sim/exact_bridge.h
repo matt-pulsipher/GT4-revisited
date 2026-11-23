@@ -32,7 +32,9 @@ void core_spec(const Spec& from, gt3r::sim::exact::Spec& to);
 
 // Parameters Gran Turismo 4's converter makes by another rule than the core's, put over the core's:
 // the pitch and roll levers (the arm over the inertia byte x 100, without the core's 2 pi) and the
-// pitch's tire term.
-void gt4_levers(const Spec& s, const Program& program, gt3r::sim::exact::Params& p);
+// pitch's tire term; the downforce's share in the drag; each axle's own ride height with the center
+// of gravity's height and the load transfers; the suspension's hub offset, bump stop and the start of
+// its progressive rate. tools/gt4diff checks them against the program's converter on every car.
+void gt4_params(const Spec& s, const Program& program, gt3r::sim::exact::Params& p);
 
 } // namespace gt4r::sim
