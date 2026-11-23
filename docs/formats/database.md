@@ -51,8 +51,11 @@ japanese, korean, big5) holds the names; `UnistrDB` the units and short specific
 | `CAR_VARIATION_<language>` | 722 x 8 | Per car id: the id of its rows in the paint table |
 | `VARIATION<language>` | 3,849 x 52 | A row per paint of a car, the rows of a car sharing an id; labelled `<model>_<n>`, where `<model>` names the car's files (`car/lod/<model>`, `car/menu/<model>`) |
 | `COURSE` / `COURSE_NAME_<language>` | 23 x 4 | The courses; the label is the course file's name (`capri` is "Amalfi") |
-| `ENGINE`, `CHASSIS`, `GEAR`, `DRIVETRAIN`, `LSD`, `SUSPENSION`, `BRAKE`, `TIRESIZE`, `TIRECOMPOUND`, `TIREFORCEVOL`, `TURBINEKIT`, `MUFFLER`, ... | | The parts, a table per kind as in Gran Turismo 3's database ❓ columns |
-| `DEFAULT_PARTS` | 2,990 x 208 | The parts a car has as sold |
+| `CHASSIS` | 722 x 37 | u16 mm: +0x00 length, +0x02 height, +0x04 wheelbase, +0x06 weight (kg), +0x12 / +0x14 width across the front / rear tires, +0x16 / +0x18 front / rear tire diameter (checked on the AC 427 S/C: 3962, 1244, 2286; the Lancer Evolution II: 4310, 1420, 2510, 1250 kg) |
+| `TIRESIZE` | 286 x 4 | +0 u8 aspect / 5, +2 u8 rim inches x 10, +3 u8 width / 5 mm (205/60R15 is `0c 00 96 29`) |
+| `FRONTTIRE`, `REARTIRE` | | Pairs of u32 row id, u32 table id; the first is the tire's `TIRESIZE` row |
+| `ENGINE`, `GEAR`, `DRIVETRAIN`, `LSD`, `SUSPENSION`, `BRAKE`, `TIRESIZE`, `TIRECOMPOUND`, `TIREFORCEVOL`, `TURBINEKIT`, `MUFFLER`, ... | | The parts, a table per kind as in Gran Turismo 3's database ❓ columns |
+| `DEFAULT_PARTS` | 2,990 x 208 | The parts a car has as sold, labelled `df_pt_<car label>`: 26 pairs of u32 row id, u32 table id (the label lists' ids: 6 `CHASSIS`, 12 `ENGINE`, 25 `FRONTTIRE`, ...; -1: none) |
 | `RACE` | 709 x 151 | The events |
 | `ENEMY_CARS` | 2,558 x 24 | The opponents |
 

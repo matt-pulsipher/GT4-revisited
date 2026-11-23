@@ -4,6 +4,7 @@
 
 #include "base/log.h"
 #include "gt4r/formats/course/course_file.h"
+#include "gt4r/formats/model/car_model.h"
 #include "gt4r/formats/model/mdls.h"
 #include "gt4r_version.h"
 
@@ -21,12 +22,18 @@ std::unique_ptr<Screen> make_cars_screen(App& app) {
     for (const db::CarEntry& c : cars) items.push_back(c.name.empty() ? c.label : c.name);
     return make_model_viewer("Cars", std::move(items), [cars](App& a, size_t i) {
         const db::CarEntry& c = cars[i];
+        // The showroom model (its paints inside), else the race model with its paint file.
         for (const char* folder : {"car/menu/", "car/lod/"}) {
             const std::optional<Bytes> data = a.vfs()->read(folder + c.model);
-            if (!data) continue;
-            const std::vector<size_t> sets = mdls::find_model_sets(*data);
-            if (sets.empty()) continue;
-            return mdls::build_model(ByteSpan(*data).subspan(sets[0]), mdls::Options{}, c.label); // the first set: the body
+            if (!data || !car::CarFile::is_car(*data)) continue;
+            const std::optional<Bytes> pat = a.vfs()->read(folder + c.model + ".pat");
+            db::SpecDb::WheelLayout l;
+            car::Wheels w;
+            if (a.db()->car_wheels(c.label, l)) {
+                w.wheelbase = l.wheelbase;
+                for (int k = 0; k < 2; ++k) w.outer_width[k] = l.outer_width[k], w.tire_diameter[k] = l.tire_diameter[k], w.tire_width[k] = l.tire_width[k];
+            }
+            return car::build_car(*data, pat ? ByteSpan(*pat) : ByteSpan{}, &w, car::Options{}, c.label);
         }
         throw FormatError("This car has no model on the disc (" + c.model + ").");
     });

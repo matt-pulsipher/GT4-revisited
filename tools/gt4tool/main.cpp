@@ -308,6 +308,16 @@ int cmd_db(Disc& disc, const Args& a) {
         for (const db::CarEntry& c : sdb.cars()) std::printf("%5u  %-32s %-10s %2u paints  %s\n", c.id, c.label.c_str(), c.model.c_str(), c.paints, c.name.c_str());
         return 0;
     }
+    if (a[0] == "wheels") {
+        for (const db::CarEntry& c : sdb.cars()) {
+            db::SpecDb::WheelLayout l;
+            const bool ok = sdb.car_wheels(c.label, l);
+            std::printf("%-32s %s wheelbase %.3f  width %.3f %.3f  tire diameter %.3f %.3f  tire width %.3f %.3f\n", c.label.c_str(),
+                        ok ? "  " : "no", double(l.wheelbase), double(l.outer_width[0]), double(l.outer_width[1]), double(l.tire_diameter[0]),
+                        double(l.tire_diameter[1]), double(l.tire_width[0]), double(l.tire_width[1]));
+        }
+        return 0;
+    }
     if (a[0] == "courses") {
         for (const db::CourseEntry& c : sdb.courses()) std::printf("%5u  %-24s %s\n", c.id, c.label.c_str(), c.name.c_str());
         return 0;
@@ -341,7 +351,7 @@ const Command kCommands[] = {
     {"survey", "<disc>", 0, cmd_survey},
     {"extract", "<disc> <prefix> <outdir>", 2, cmd_extract},
     {"tex", "<disc> <path> <outdir>", 2, cmd_tex},
-    {"db", "<disc> [cars | courses | <table> [rows]]", 0, cmd_db},
+    {"db", "<disc> [cars | wheels | courses | <table> [rows]]", 0, cmd_db},
     {"model", "<disc> <path>", 1, cmd_model},
     {"runway-survey", "<disc> [prefix]", 0, cmd_runway_survey},
     {"model-survey", "<disc> [prefix] [textures]", 0, cmd_model_survey},

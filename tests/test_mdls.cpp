@@ -5,6 +5,8 @@
 #include "formats/model/gtm1.h"
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/formats/course/runway.h"
+#include "gt4r/formats/db/specdb.h"
+#include "gt4r/formats/model/car_model.h"
 #include "gt4r/formats/model/mdls.h"
 
 #include <cmath>
@@ -282,5 +284,70 @@ TEST(disc_roads_read) {
             if (e.path == "crs/tsukuba") CHECK(r.length > 2000 && r.length < 2200); // a two-kilometre lap (the file: 2115.1 m)
         }
         CHECK(roads == 110 && grids_on_road > 90);
+    }
+}
+
+TEST(paint_patches_apply) {
+    const Bytes set = make_set();
+    // Two paints of two patches: the material's diffuse red and its shininess.
+    Bytes pat(0x20 + 16, 0);
+    std::memcpy(pat.data(), "Pat0", 4);
+    put16(pat, 0x10, 2), put16(pat, 0x12, 2);
+    auto patch = [&](size_t slot, u32 target, float value) {
+        put32(pat, 0x20 + 4 * slot, u32(pat.size()));
+        pat.resize(pat.size() + 12, 0);
+        put32(pat, pat.size() - 12, target), put32(pat, pat.size() - 8, 4), putf(pat, pat.size() - 4, value);
+    };
+    patch(0, 0xC0 + 0x10, 0.25f), patch(1, 0xC0 + 0x40, 8.0f);
+    patch(2, 0xC0 + 0x10, 0.75f), patch(3, 0xC0 + 0x40, 32.0f);
+    CHECK(car::paint_count(pat) == 2 && car::paint_count(set) == 0);
+    for (u32 paint = 0; paint < 2; ++paint) {
+        const Bytes painted = car::apply_paint(set, pat, paint);
+        const gt3r::gtm1::Gtm1 g = gt3r::gtm1::Gtm1::parse(mdls::to_gtm1(painted));
+        CHECK(near(g.materials[0].rows[1][0], paint ? 0.75f : 0.25f) && near(g.materials[0].shininess, paint ? 32.0f : 8.0f));
+    }
+    CHECK(car::apply_paint(set, pat, 5) == Bytes(set.begin(), set.end())); // no such paint: as stored
+}
+
+TEST(disc_cars_assemble) {
+    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    for (const auto& disc : test::discs()) {
+        if (disc->info().game != Game::GT4) continue;
+        gt3r::Volume* vol = &disc->volume();
+        db::SpecDb sdb(
+            [vol](const std::string& path) -> std::optional<Bytes> {
+                const gt3r::Volume::Entry* e = vol->find(path);
+                return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
+            },
+            [vol](const std::string& dir) { return vol->list_dir(dir); });
+        db::SpecDb::WheelLayout l;
+        CHECK(sdb.car_wheels("ac_427_sc_66", l));
+        CHECK(near(l.wheelbase, 2.286f) && near(l.tire_diameter[0], 0.610f) && near(l.tire_diameter[1], 0.620f));
+        CHECK(near(l.tire_width[0], 0.245f) && near(l.tire_width[1], 0.275f) && near(l.outer_width[0], 1.684f));
+        car::Wheels w;
+        w.wheelbase = l.wheelbase;
+        for (int k = 0; k < 2; ++k) w.outer_width[k] = l.outer_width[k], w.tire_diameter[k] = l.tire_diameter[k], w.tire_width[k] = l.tire_width[k];
+        const Bytes file = vol->read(*vol->find("car/lod/ac__0014"));
+        const Bytes pat = vol->read(*vol->find("car/lod/ac__0014.pat"));
+        CHECK(car::CarFile::is_car(file) && car::paint_count(pat) == 16);
+        car::Options o;
+        o.textures = false;
+        const gt3r::scene::Model whole = car::build_car(file, pat, &w, o, "cobra");
+        size_t tires = 0, wheels = 0;
+        for (const gt3r::scene::Mesh& m : whole.meshes) tires += m.name == "tire", wheels += m.name == "wheel";
+        CHECK(tires == 4 && wheels == 4);
+        // The tires stand on the ground and stay within the car's width.
+        CHECK(std::fabs(whole.bounds_min[1]) < 0.15f && whole.bounds_max[0] < 0.95f && whole.bounds_min[0] > -0.95f);
+        // Every car has wheel data and a file that parses.
+        size_t ok = 0;
+        const std::vector<db::CarEntry> cars = sdb.cars();
+        for (const db::CarEntry& c : cars) {
+            db::SpecDb::WheelLayout each;
+            const gt3r::Volume::Entry* e = vol->find("car/lod/" + c.model);
+            if (!e || !sdb.car_wheels(c.label, each)) continue;
+            ok += each.wheelbase > 1.0f && each.wheelbase < 4.5f && each.tire_diameter[0] > 0.3f && each.tire_width[0] > 0.08f;
+        }
+        CHECK(ok + 3 >= cars.size()); // (all but the three oldest cars, whose wheels are narrower than the check allows)
+        std::printf("  %zu of %zu cars have a wheel layout\n", ok, cars.size());
     }
 }

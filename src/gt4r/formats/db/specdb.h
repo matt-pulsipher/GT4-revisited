@@ -91,6 +91,15 @@ public:
     const Strings* strings(const std::string& name);
 
     std::vector<CarEntry> cars();
+    // The row of table `table_id` among the parts a car has as sold (DEFAULT_PARTS, the row
+    // labelled "df_pt_<car label>": pairs of u32 row id, u32 table id); nullopt when it has none.
+    std::optional<u32> default_part(const std::string& car_label, u32 table_id);
+    // A car's wheel layout from its chassis and tire rows (car_model.h Wheels); false when a row
+    // is missing.
+    struct WheelLayout {
+        float wheelbase = 0, outer_width[2] = {}, tire_diameter[2] = {}, tire_width[2] = {};
+    };
+    bool car_wheels(const std::string& car_label, WheelLayout& out);
     std::vector<CourseEntry> courses();
 
 private:

@@ -245,6 +245,58 @@ std::vector<CarEntry> SpecDb::cars() {
     return out;
 }
 
+std::optional<u32> SpecDb::default_part(const std::string& car_label, u32 table_id) {
+    const Labels* l = labels("DEFAULT_PARTS");
+    const Table* t = table("DEFAULT_PARTS");
+    if (!l || !t) return std::nullopt;
+    const std::optional<u32> id = l->id("df_pt_" + car_label);
+    if (!id) return std::nullopt;
+    const ByteSpan row = t->row(*id);
+    for (size_t o = 0; o + 8 <= row.size(); o += 8)
+        if (rd32(row, o + 4) == table_id && rd32(row, o) != 0xFFFFFFFFu) return rd32(row, o);
+    return std::nullopt;
+}
+
+// CHASSIS (table 6) rows, u16 millimetres: +0x00 length, +0x02 height, +0x04 wheelbase, +0x06 weight
+// (kg), +0x12 / +0x14 the width across the front / rear tires' outer faces, +0x16 / +0x18 the front /
+// rear tires' diameter. FRONTTIRE / REARTIRE (25 / 26) rows start with the id of a TIRESIZE row
+// (31): +0x00 u8 aspect / 5, +0x02 u8 rim inches x 10, +0x03 u8 width / 5 mm.
+bool SpecDb::car_wheels(const std::string& car_label, WheelLayout& out) {
+    // A car without a row of default parts: its own rows by label ("ch_<car label>_a").
+    auto own = [&](const char* table_name, const char* prefix) -> std::optional<u32> {
+        const Labels* l = labels(table_name);
+        if (!l) return std::nullopt;
+        const std::string start = prefix + car_label + "_";
+        std::optional<std::pair<std::string, u32>> best;
+        for (const auto& [label, id] : l->entries)
+            if (label.size() == start.size() + 1 && label.compare(0, start.size(), start) == 0 && (!best || label < best->first))
+                best.emplace(label, id);
+        return best ? std::optional<u32>(best->second) : std::nullopt;
+    };
+    std::optional<u32> chassis = default_part(car_label, 6);
+    if (!chassis) chassis = own("CHASSIS", "ch_");
+    const Table* ct = table("CHASSIS");
+    if (!chassis || !ct) return false;
+    const ByteSpan c = ct->row(*chassis);
+    if (c.size() < 0x1A) return false;
+    out.wheelbase = float(rd16(c, 0x04)) * 0.001f;
+    const Table* sizes = table("TIRESIZE");
+    for (int axle = 0; axle < 2; ++axle) {
+        out.outer_width[axle] = float(rd16(c, 0x12 + 2 * size_t(axle))) * 0.001f;
+        out.tire_diameter[axle] = float(rd16(c, 0x16 + 2 * size_t(axle))) * 0.001f;
+        std::optional<u32> tire = default_part(car_label, axle == 0 ? 25 : 26);
+        if (!tire) tire = own(axle == 0 ? "FRONTTIRE" : "REARTIRE", axle == 0 ? "ft_" : "rt_");
+        const Table* tt = table(axle == 0 ? "FRONTTIRE" : "REARTIRE");
+        if (!tire || !tt || !sizes) return false;
+        const ByteSpan tr = tt->row(*tire);
+        if (tr.size() < 4) return false;
+        const ByteSpan sz = sizes->row(rd32(tr, 0));
+        if (sz.size() < 4) return false;
+        out.tire_width[axle] = float(sz[3]) * 0.005f;
+    }
+    return out.wheelbase > 0;
+}
+
 std::vector<CourseEntry> SpecDb::courses() {
     std::vector<CourseEntry> out;
     const Labels* l = labels("COURSE");

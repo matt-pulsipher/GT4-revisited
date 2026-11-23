@@ -102,3 +102,37 @@ A draw program selects a set of the current list with 0x2B / 0x2C. Wheel files (
 sets 0 and 1 are the rim band, 2 an empty set, 3 onwards face pictures, still and turning by
 turns (the file's symbols `NRM` and `ROT` number them 0-3); the face is drawn through slot 2 of
 command 0x50, which the game fills by the wheel's speed.
+
+## Cars: `CAR4`
+
+Code: `car_model.*`. `car/menu/<model>` is a car's showroom model and `car/lod/<model>` its race
+model; `<model>` comes from the database ([database.md](database.md)). Offsets from the file's
+start:
+
+```
+0x00 "CAR4"                      0x08 u32 file size
+0x10 u32 -> car info             lamps, exhausts, camera mounts, the driver's place
+0x14 u32 -> collision shape      u8 count, then count x {f32 x3 point, f32 x3 normal}
+0x18 u32 -> body MDLS            0x1C u32 -> body Pat0 (0: the file <model>.pat next to it)
+0x20 u32 -> wheel MDLS           0x24 u32 -> wheel Pat0
+0x28 u32 -> wing MDLS
+0x2C, 0x30 u32 -> front / rear tire MDLS
+0x34 u32 -> a driver model built into the car
+```
+
+- **Body**: model 0 the body, 1 its light shadow, 2 its contact shadow (flat, at y = 0: the
+  ground), 3 the exhaust flame. Metres, y up, the front at +z.
+- **Paint** (`Pat0`): `+0x10 s16 paints, +0x12 s16 patches per paint`, then `u32 offsets[paints
+  x patches]`, each to `u32 target (from the body set's start), u32 bytes`, the bytes. A paint is
+  put on by copying its patches over the set before it is read: they rewrite material colours
+  and texture palettes.
+- **Wheels and tires** are in units of their own. A tire is one unit wide from its outer face
+  at x = 0 and about 1.3 units in radius; the rim is 0.8 units in radius in the same scale.
+  The wheel set has four models: front left, front right, rear left, rear right; a set's
+  models are left wheels (outer face towards -x). In the game the car's callback draws them
+  (draw commands 0x59 with ids 15-18 and 36-39).
+- **Placement** used here for a still car, from the database: across by the tire's radius
+  (`CHASSIS` +0x16 / +0x18, the tires' diameters) over the tire model's, along by the tire's
+  width (`TIRESIZE` +3 x 5 mm); the outer faces at half of `CHASSIS` +0x12 / +0x14 either side;
+  the axles at +- half the wheelbase (`CHASSIS` +0x04); the tires standing on y = 0.
+  🔎 Fits the wheel arches of the cars looked at; the game's own rule has not been read.
