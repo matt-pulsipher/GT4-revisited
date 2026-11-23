@@ -683,7 +683,7 @@ private:
             const Color c = r.car == 0 ? colors::kAccent : colors::kText;
             ui.text(x + 12, ry, std::to_string(i + 1), c);
             ui.text(x + 40, ry, Ui::clip(race_->car_name(r.car), 200), c);
-            const std::string t = race::format_lap_time(r.finished ? r.total_ms : -1);
+            const std::string t = r.finished ? race::format_lap_time(r.total_ms) : std::string("--'--.---");
             ui.text_right(x + w - 12, ry, t, c);
         }
         ui.text_center(y + h + 4, Ui::expand_prompts("{Cross}: OK"), colors::kDim);
