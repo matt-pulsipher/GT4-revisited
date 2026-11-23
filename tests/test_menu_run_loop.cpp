@@ -503,3 +503,17 @@ TEST(disc_arcade_split_battle) {
     if (r) std::printf("  split battle: %s and %s at %s\n", r->car.c_str(), r->car_2p.c_str(), r->course.c_str());
     CHECK(f.clean());
 }
+
+// Arcade's LAN battle with no network: the game says the Network Adaptor is needed, and stays.
+TEST(disc_arcade_lan_battle_without_network) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    Flow f(*disc);
+    CHECK(f.boot_to_title());
+    f.press({menu::Key::Accept});
+    CHECK(f.page() == "GameRoot" && f.focus_on("LANBattle"));
+    f.press({menu::Key::Accept});
+    CHECK(f.page() == "ConfirmDialog" && f.text_of("message").find("Network Adaptor") != std::string::npos);
+    f.press({menu::Key::Accept});
+    CHECK(f.page() == "GameRoot" && f.focus() == "LANBattle" && !f.rt->finished() && f.clean());
+}
