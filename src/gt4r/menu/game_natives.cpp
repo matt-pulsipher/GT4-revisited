@@ -1113,15 +1113,17 @@ void install_game_natives(Runtime& rt, script::Module& menu) {
         static_fn(*cls, "GetCourseLengthString", [miles](Vm&, const Value&, Args a) {
             char b[32];
             const float m = arg_number(a, 0);
-            if (miles()) std::snprintf(b, sizeof b, "%.2f mi", double(m / 1609.344f));
-            else std::snprintf(b, sizeof b, "%d m", int(m));
+            // 0x1AEE18: hundredths of the unit rounded, "%.2t%s" with "miles" or "km".
+            const int v = int(m * (miles() ? 0.000621371f : 0.001f) * 100.0f + 0.5f);
+            std::snprintf(b, sizeof b, "%d.%02d%s", v / 100, v % 100, miles() ? "miles" : "km");
             return text(b);
         });
         static_fn(*cls, "GetCourseHeightString", [miles](Vm&, const Value&, Args a) {
             char b[32];
             const float m = arg_number(a, 0);
-            if (miles()) std::snprintf(b, sizeof b, "%d ft", int(std::lround(m * 3.28084f)));
-            else std::snprintf(b, sizeof b, "%d m", int(m));
+            // 0x1AEFC0: tenths of the unit rounded, "%.1t%s" with "ft" or "m".
+            const int v = int(m * (miles() ? 3.28084f : 1.0f) * 10.0f + 0.5f);
+            std::snprintf(b, sizeof b, "%d.%d%s", v / 10, v % 10, miles() ? "ft" : "m");
             return text(b);
         });
         static_fn(*cls, "SetUnitSystemByLanguage", [](Vm&, const Value&, Args) { return Value{}; });
