@@ -225,6 +225,7 @@ ParamsResult run_params(Disc& disc, bool print) {
         check("brake torque front", pf(0x1010), p.brake_torque[0].host()), check("brake torque rear", pf(0x1014), p.brake_torque[1].host());
         check("handbrake torque", pf(0x1018), p.handbrake_torque.host());
         check("axle grip front", pf(0xFD0), p.axle_grip[0].host()), check("axle grip rear", pf(0xFD4), p.axle_grip[1].host());
+        check("top speed", pf(0xFD8), p.top_speed.host());
         // The engine (the program's block at +0x134: the curve's points, speeds from +0x0C, torques from +0x6C).
         const u32 E = p_at + 0x134;
         const int n = gt3r::s16(ee.r16(E));
@@ -244,6 +245,34 @@ ParamsResult run_params(Disc& disc, bool print) {
         check("tire radius front", double(ee.rf(D + 0x90)), p.tire_radius[0].host()), check("tire radius rear", double(ee.rf(D + 0x94)), p.tire_radius[1].host());
         check("tire width front", double(ee.rf(D + 0xA0)), p.width[0].host()), check("tire width rear", double(ee.rf(D + 0xA4)), p.width[1].host());
         check("engine inertia", double(ee.rf(D + 0x0C)), p.d.engine_inertia.host());
+        // The rest of the driveline: the engine's block (Gran Turismo 3's, +0x1F8) up to the down-shift speeds, then eight
+        // of them (the gears 2 .. 9), the ratios and speed factors of reverse and nine gears, and the rest 0x14 further on.
+        check("driveline second axle byte", ee.r8(D + 1), p.d.unequal), check("driven axle", ee.r8(D + 3), p.d.driven_axle);
+        check("gearbox kind", ee.r8(D + 0x12), p.d.kind);
+        check("awd split", double(ee.rf(D + 0x04)), p.d.awd_k.host()), check("awd capacity", double(ee.rf(D + 0x08)), p.d.awd_capacity.host());
+        for (u32 a = 0; a < 2; ++a) {
+            check("diff type", ee.r8(D + 0x10 + a), p.d.diff_type[a]);
+            check("diff initial", double(ee.rf(D + 0x14 + 4 * a)), p.d.diff_initial[a].host());
+            check("diff accel", double(ee.rf(D + 0x1C + 4 * a)), p.d.diff_accel[a].host());
+            check("diff decel", double(ee.rf(D + 0x24 + 4 * a)), p.d.diff_decel[a].host());
+            check("inverse tire radius", double(ee.rf(D + 0x98 + 4 * a)), p.inv_tire_radius[a].host());
+            check("wheel gain", double(ee.rf(D + 0xB4 + 4 * a)), p.d.wheel_gain[a].host());
+            check("axle inertia", double(ee.rf(D + 0xBC + 4 * a)), p.d.axle_inertia[a].host());
+        }
+        check("launch rpm", ee.r16(D + 0x2C), p.d.launch_rpm), check("up-shift rpm", ee.r16(D + 0x2E), p.d.up_rpm);
+        for (u32 g = 0; g < 6 && g + 2 <= p.d.gears; ++g) check("down-shift rpm", ee.r16(D + 0x30 + 2 * g), p.d.down_rpm[g]);
+        for (u32 g = 0; g <= ee.r8(D + 2) && g <= p.d.gears && g < 8; ++g) check("gear ratios", double(ee.rf(D + 0x40 + 4 * g)), p.d.ratio[g].host(), 1e-3);
+        check("shift clutch torque", double(ee.rf(D + 0xB0)), p.d.shift_clutch_torque.host());
+        check("inverse axle inertia", double(ee.rf(D + 0xC4)), p.d.inv_axle_inertia.host());
+        check("inverse engine inertia", double(ee.rf(D + 0xC8)), p.d.inv_engine_inertia.host());
+        // The engine's block past its curve: the engine's (+0x138 + 0x94 ..) 0x40 further on (24 points for 16).
+        for (u32 s = 0; s < 2; ++s) {
+            check("turbo knee", gt3r::s16(ee.r16(E + 0xD4 + 2 * s)), p.e.turbo_knee[s]), check("turbo shape", ee.r8(E + 0xD8 + s), p.e.turbo_shape[s]);
+            check("turbo peak", double(ee.rf(E + 0xE4 + 4 * s)), p.e.turbo_peak[s].host()), check("turbo rate", double(ee.rf(E + 0xEC + 4 * s)), p.e.turbo_rate[s].host());
+            check("turbo coefficient", double(ee.rf(E + 0xF4 + 4 * s)), p.e.turbo_coef[s].host());
+        }
+        check("power cap switch", ee.r8(E + 0xDB), p.e.power_cap_on), check("power cap", double(ee.rf(E + 0xDC)), p.e.power_cap.host());
+        check("power cap soft", double(ee.rf(E + 0xE0)), p.e.power_cap_soft.host()), check("boost max", double(ee.rf(E + 0xFC)), p.e.boost_max.host());
         // The tire records (+0x410 + 0x1EC x record; the core's record with 24 surfaces, what follows them 0x24 further on):
         // those the core built (a surface's class names them), surface by surface as the core's rows stand for them.
         for (u32 r = 0; r < 6; ++r) {
