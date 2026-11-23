@@ -48,6 +48,7 @@ private:
 
     App& app_;
     std::unique_ptr<gt3r::render::View3D> view_;
+    std::unique_ptr<gt3r::render::View3D> mirror_view_; // the cars' mirrored copies (`mirror`)
     std::map<std::string, std::unique_ptr<Car>> cars_; // by code#paint
     std::map<const menu::LiveWidget*, Face> faces_;
     u64 frame_ = 0;

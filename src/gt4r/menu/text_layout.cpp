@@ -63,7 +63,10 @@ int hex_digit(char c) {
 
 struct Line {
     std::vector<PlacedGlyph> glyphs;
+    std::vector<int> spaces; // a glyph's spaces before it on its line
+    int space_count = 0;
     float pen = 0;
+    bool soft = false; // broken to fit, not at the text's own line end
 };
 
 } // namespace
@@ -92,7 +95,7 @@ TextLayout layout_menu_text(std::string_view s, const TextStyle& st, float x, fl
         p.x = line.pen + d * scale_x, p.y = float(g.top) * scale_y;
         p.w = float(g.width) * scale_x, p.h = float(g.height) * scale_y;
         p.sx = g.atlas_x, p.sy = g.atlas_y, p.sw = g.width, p.sh = g.height;
-        if (g.width && g.height) line.glyphs.push_back(p);
+        if (g.width && g.height) line.glyphs.push_back(p), line.spaces.push_back(line.space_count);
         line.pen += (d + float(g.advance)) * scale_x;
         prev = &g;
     };
@@ -102,6 +105,7 @@ TextLayout layout_menu_text(std::string_view s, const TextStyle& st, float x, fl
         const FontGlyph* g = font.glyph(' ');
         const float step = g ? float(g->advance) : float(font.size / 2);
         lines.back().pen += step * sx;
+        ++lines.back().space_count;
         prev = nullptr;
     };
 
@@ -143,7 +147,8 @@ TextLayout layout_menu_text(std::string_view s, const TextStyle& st, float x, fl
             }
         }
         if (c == '\r') continue;
-        if (c == '\n') {
+        if (c == '\n' || c == '\v') {
+            lines.back().soft = c == '\v';
             lines.emplace_back();
             prev = nullptr;
             continue;
@@ -163,7 +168,7 @@ TextLayout layout_menu_text(std::string_view s, const TextStyle& st, float x, fl
                 p.x = line.pen + float(font.kanji_dx + (prev ? 1 : 0)) * sx, p.y = float(font.kanji_dy) * sy;
                 p.w = float(font.kanji_width) * sx, p.h = float(font.kanji_height) * sy;
                 p.sw = u16(st.kanji->cell_width), p.sh = u16(st.kanji->cell_height);
-                line.glyphs.push_back(p);
+                line.glyphs.push_back(p), line.spaces.push_back(line.space_count);
                 line.pen += float(st.spacing.wide_advance) * sx;
                 prev = nullptr;
                 continue;
@@ -203,12 +208,17 @@ TextLayout layout_menu_text(std::string_view s, const TextStyle& st, float x, fl
     else if (st.align == gt3r::text::HAlign::Center) lay.x = x - lay.width * 0.5f;
     lay.y = baseline - ascent;
     for (size_t k = 0; k < lines.size(); ++k) {
-        const float w = lines[k].pen - half_space;
+        const Line& l = lines[k];
+        float w = l.pen - half_space, gap = 0;
+        // ❓ `equalized`: a line broken to fit is spread over the width at its spaces (judged
+        // from the license tests' information text).
+        if (st.justify_width > 0 && l.soft && l.space_count > 0 && w < st.justify_width) gap = (st.justify_width - w) / float(l.space_count), w = st.justify_width;
         float ox = x;
         if (st.align == gt3r::text::HAlign::Right) ox = x - w;
         else if (st.align == gt3r::text::HAlign::Center) ox = x - w * 0.5f;
-        for (PlacedGlyph p : lines[k].glyphs) {
-            p.x += ox, p.y += baseline + float(k) * line_advance;
+        for (size_t g = 0; g < l.glyphs.size(); ++g) {
+            PlacedGlyph p = l.glyphs[g];
+            p.x += ox + gap * float(l.spaces[g]), p.y += baseline + float(k) * line_advance;
             lay.glyphs.push_back(p);
         }
     }

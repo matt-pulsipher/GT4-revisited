@@ -54,6 +54,7 @@ MenuCars::MenuCars(App& app) : app_(app) {
 MenuCars::~MenuCars() {
     cars_.clear();
     view_.reset();
+    mirror_view_.reset();
     if (app_.gpu())
         for (auto& [k, t] : env_)
             if (t) app_.gpu()->release_texture(t);
@@ -205,6 +206,21 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
             }
         }
         if (stage_) items_.push_back({stage_.get(), Mat4::identity(), -2});
+    }
+    // `mirror` (normal mode): first the car turned upside down about the floor it stands on,
+    // without its shadow, at 0.3 of its alpha (0x156820, 0x217058); then the car.
+    if (s.mirror && !s.advanced) {
+        std::vector<render::DrawItem> mirrored;
+        c->visual->add_items(mirrored, state, eye);
+        render::DrawOptions mo = o;
+        mo.mirrored = true;
+        mo.composite_alpha = o.composite_alpha * 0.3f;
+        const Mat4 flip = render::scale({1, -1, 1});
+        const Vec3 under{eye.x, -eye.y, eye.z};
+        // Its own view: a view's picture is read when the frame is submitted, so one view
+        // drawn twice a frame would show its last picture twice.
+        if (!mirror_view_) mirror_view_ = std::make_unique<render::View3D>(*app_.gpu());
+        mirror_view_->draw(app_.renderer(), page_rect, view * flip, proj, under, mirrored, mo);
     }
     c->visual->add_shadow_items(items_, state);
     c->visual->add_items(items_, state, eye);

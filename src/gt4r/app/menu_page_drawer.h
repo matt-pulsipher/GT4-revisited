@@ -91,8 +91,8 @@ public:
         menu::TextStyle st = style_of(d);
         w = h = 0;
         if (!st.font || s.empty()) return;
-        // A packed face takes the size of its text; any other breaks its lines at its width.
-        if (const std::optional<Rect> g = d.rect("geometry"); g && g->w > 0 && d.number("multiline") != 0 && d.number("packing") == 0) s = wrapped(s, st, g->w);
+        // A face of several lines (and a text box) breaks its lines at its width.
+        if (const std::optional<Rect> g = d.rect("geometry"); g && g->w > 0 && (d.number("multiline") != 0 || d.type == "TextBoxFace") && d.number("packing") == 0) s = wrapped(s, st, g->w);
         st.align = gt3r::text::HAlign::Left, st.valign = gt3r::text::VAlign::Top;
         const menu::TextLayout lay = menu::layout_menu_text(s, st, 0, 0);
         w = lay.width, h = lay.height;
@@ -289,7 +289,7 @@ private:
             const size_t end = std::min(s.find_first_of(" \n", at), s.size());
             const std::string word = s.substr(at, end - at);
             const std::string tried = line.empty() ? word : line + " " + word;
-            if (!line.empty() && width_of(tried, st) > width) flush(), out += '\n', line = word;
+            if (!line.empty() && width_of(tried, st) > width + 0.5f) flush(), out += '\v', line = word;
             else line = tried;
             if (end < s.size() && s[end] == '\n') flush(), out += '\n';
             at = end + 1;
@@ -315,32 +315,47 @@ private:
     void text(const Widget& w, const Rect& at, float opacity) {
         std::string s = w.text("text");
         if (s.empty()) s = w.text("value"); // a tool tip's, an input's
-        if (s.empty() && w.has("key")) s = project_->translate(w.has("key_page") ? w.text("key_page") : page_, w.text("key"));
+        if (s.empty() && w.has("key")) {
+            const std::string page = w.has("key_page") ? w.text("key_page") : page_;
+            // A tool tip's key names its page's "TOOLTIP|<key>" (0x249B70); ❓ the key's own text
+            // when there is none.
+            if (w.type == "ToolTipFace") s = project_->translate(page, "TOOLTIP|" + w.text("key"));
+            if (s.empty() || s == "TOOLTIP|" + w.text("key")) s = project_->translate(page, w.text("key"));
+        }
         if (s.empty()) return;
         gt3r::text::FontVariant variant = gt3r::text::FontVariant::Plain;
         menu::TextStyle st = style_of(w, &variant);
         if (!st.font) return;
         // adjustScale(): drawn narrower when it would pass the face's width; abbreviate(): cut
         // there and ended in dots.
-        if (at.w > 0 && s.find('\n') == std::string::npos) {
-            const float width = width_of(s, st);
+        if (at.w > 0) {
+            const float width = width_of(s, st); // the widest line's
             if (width > at.w && w.number("adjust_scale") != 0) st.scale_x *= at.w / width;
-            else if (width > at.w && w.number("abbreviate") != 0) {
+            else if (width > at.w && w.number("abbreviate") != 0 && s.find('\n') == std::string::npos) {
                 while (s.size() > 1 && width_of(s + "...", st) > at.w) s.pop_back();
                 s += "...";
             }
         }
-        if (w.number("multiline") != 0 && w.number("packing") == 0 && at.w > 0) s = wrapped(s, st, at.w);
+        if ((w.number("multiline") != 0 || w.type == "TextBoxFace") && w.number("packing") == 0 && at.w > 0) s = wrapped(s, st, at.w);
         // Where in its rectangle: 0..8, rows from the top, columns from the left; the middle (4)
         // when not given (the text style's default).
         const int align = w.has("align") ? int(w.number("align")) : 4;
         const int col = align % 3, row = align / 3;
         st.align = col == 0 ? gt3r::text::HAlign::Left : col == 1 ? gt3r::text::HAlign::Center : gt3r::text::HAlign::Right;
         st.valign = row == 0 ? gt3r::text::VAlign::Top : row == 1 ? gt3r::text::VAlign::Middle : gt3r::text::VAlign::Bottom;
-        const float x = col == 0 ? at.x : col == 1 ? at.x + at.w / 2 : at.x + at.w;
-        const float y = row == 0 ? at.y : row == 1 ? at.y + at.h / 2 : at.y + at.h;
+        float x = col == 0 ? at.x : col == 1 ? at.x + at.w / 2 : at.x + at.w;
+        float y = row == 0 ? at.y : row == 1 ? at.y + at.h / 2 : at.y + at.h;
+        if (w.type == "ToolTipFace") {
+            // A tool tip is not aligned (its style's `aligned` off, 0x248DD0): from the top, in
+            // the middle across when it fits 95 % of the face, else from 5 % in (0x24A2F8; ❓ its
+            // scrolling and the slide up of a new tip are not drawn).
+            const float tw = width_of(s, st);
+            st.align = gt3r::text::HAlign::Left, st.valign = gt3r::text::VAlign::Top;
+            x = at.x + (tw <= at.w * 0.95f ? (at.w - tw) * 0.5f : at.w * 0.05f), y = at.y;
+        }
         const Rgba base = w.color("text_color").value_or(Rgba{212, 212, 212, 255}); // the text style's default
         st.color = {base.r, base.g, base.b, base.a};
+        if (w.number("equalized") != 0 && at.w > 0) st.justify_width = at.w;
         const menu::TextLayout lay = menu::layout_menu_text(s, st, x, y);
 
         // A pass of the glyphs; `shadow`: all in one colour, offset.

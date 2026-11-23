@@ -40,6 +40,8 @@ struct TextStyle {
     gt3r::text::HAlign align = gt3r::text::HAlign::Left;
     gt3r::text::VAlign valign = gt3r::text::VAlign::Top;
     TextColor color;
+    // `equalized`: each line broken at a soft break ('\v') is spread to this width at its spaces.
+    float justify_width = 0;
     // "%Bc" to "%Bf" (the four shape buttons) are drawn in these; other buttons in gray.
     std::array<TextColor, 4> button_colors{};
 };
@@ -65,7 +67,8 @@ std::optional<std::array<TextColor, 4>> find_button_colors(ByteSpan program_imag
 
 // Lays out UTF-8 text from (x, y) as the alignment says: each line on its own. The text's marks:
 // "%%" a percent sign, "%Crgb" a colour (hex digits), "%Bx" the button x of the Gaiji font,
-// "%F<name> " (a font) is skipped; "\r" is left out.
+// "%F<name> " (a font) is skipped; "\r" is left out; "\v" is a line broken to fit (justified with
+// `justify_width`).
 TextLayout layout_menu_text(std::string_view utf8, const TextStyle& style, float x, float y);
 
 } // namespace gt4r::menu
