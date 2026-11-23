@@ -808,9 +808,20 @@ void Runtime::dispatch_key(Key k) {
     (*step)(0); // the calls it starts hold it until they end
 }
 
-// The focus moves to the nearest widget in the key's direction that can take it. ❓ The
-// program's own search (0x270118) is not written yet: the layouts' navigate_target and
-// navigate_source are not followed.
+// The focus moves as the program's search orders the page's widgets (0x26F0A8 the measure,
+// 0x26F2B8 the order, with the page's navigate_clip_angle, navigate_start_front and
+// navigate_wraparound; a page starts with angle 0, wraparound on):
+//   - only a widget whose middle lies further in the key's direction than the focused one's;
+//   - one in line with the focused widget (their extents across the direction overlap) is at
+//     angle 0 and as far as the gap along the direction, from the focused widget's back edge
+//     (its front edge with navigate_start_front), plus one;
+//   - one to the side is at the angle of the gap to it and counts only below the clip angle;
+//   - the smallest angle wins, then the nearest, then the one whose middle is closest across;
+//   - with nothing ahead and wraparound on, the search goes around: everything is taken as
+//     10000 further along.
+// ❓ Which widgets the program collects (0x26F9E0) is not read: here every widget of the page
+// that can take the focus, measured by its navigate_target region when the layout gives one
+// (the focused one by its navigate_source).
 void Runtime::navigate(Key k) {
     LiveWidget* page = current_page();
     if (!page) return;
@@ -822,19 +833,65 @@ void Runtime::navigate(Key k) {
         set_focus(*page, all.front());
         return;
     }
-    const Rect at = focus->screen_rect();
-    const float cx = at.x + at.w / 2, cy = at.y + at.h / 2;
-    const float dx = k == Key::Left ? -1.0f : k == Key::Right ? 1.0f : 0.0f, dy = k == Key::Up ? -1.0f : k == Key::Down ? 1.0f : 0.0f;
+    // A widget's rectangle with the key's direction as +x: {along0, across0, along1, across1}.
+    struct Box {
+        float a0, c0, a1, c1;
+    };
+    auto box_of = [k](const LiveWidget& w, const char* region) {
+        Rect r = w.screen_rect();
+        if (const Property* p = w.data.find(region); p && p->values.size() >= 4) {
+            const float v[4] = {std::strtof(p->values[0].c_str(), nullptr), std::strtof(p->values[1].c_str(), nullptr),
+                                std::strtof(p->values[2].c_str(), nullptr), std::strtof(p->values[3].c_str(), nullptr)};
+            r = {r.x + v[0], r.y + v[1], v[2], v[3]};
+        }
+        switch (k) {
+        case Key::Right: return Box{r.x, r.y, r.x + r.w, r.y + r.h};
+        case Key::Left: return Box{-(r.x + r.w), r.y, -r.x, r.y + r.h};
+        case Key::Down: return Box{r.y, r.x, r.y + r.h, r.x + r.w};
+        default: return Box{-(r.y + r.h), r.x, -r.y, r.x + r.w};
+        }
+    };
+    const float clip_angle = page->data.number("navigate_clip_angle");
+    const bool start_front = page->data.number("navigate_start_front") != 0;
+    const bool wraparound = !page->data.has("navigate_wraparound") || page->data.number("navigate_wraparound") != 0;
+    const Box f = box_of(*focus, "navigate_source");
+    struct Measure {
+        bool valid = false;
+        float angle = 0, distance = 10000, across = 0;
+    };
+    auto measure = [&](const Box& c, float shift) {
+        Measure m;
+        const float a0 = c.a0 + shift, a1 = c.a1 + shift;
+        m.across = std::fabs((c.c0 + c.c1) * 0.5f - (f.c0 + f.c1) * 0.5f);
+        if (!((f.a0 + f.a1) * 0.5f < (a0 + a1) * 0.5f)) return m;
+        const float from = start_front ? f.a1 : f.a0;
+        const float near = a0 - from + 1, far = a1 - from + 1;
+        float gap = -1;
+        if (c.c1 <= f.c0) gap = f.c0 - c.c1;
+        else if (f.c1 <= c.c0) gap = c.c0 - f.c1;
+        if (gap >= 0) { // to the side
+            const float along = std::fabs(near) < std::fabs(far) ? near : far;
+            m.angle = std::atan2(gap, along) / 3.14159274f * 180.0f;
+            m.distance = std::sqrt(along * along + gap * gap);
+            m.valid = m.angle < clip_angle;
+            return m;
+        }
+        if (near >= 0) m.distance = far >= 0 && far < near ? far : near, m.valid = true;
+        else if (far >= 0) m.distance = far, m.valid = true;
+        return m;
+    };
     std::shared_ptr<LiveWidget> best;
-    float best_score = 0;
-    for (const auto& w : all) {
-        if (w == focus) continue;
-        const Rect r = w->screen_rect();
-        const float ox = r.x + r.w / 2 - cx, oy = r.y + r.h / 2 - cy;
-        const float along = ox * dx + oy * dy, across = std::fabs(ox * dy) + std::fabs(oy * dx);
-        if (along <= 0.5f) continue;
-        const float score = along + across * 2;
-        if (!best || score < best_score) best = w, best_score = score;
+    for (int pass = 0; pass < 2 && !best; ++pass) {
+        if (pass == 1 && !wraparound) break;
+        Measure best_m;
+        for (const auto& w : all) {
+            if (w == focus) continue;
+            const Measure m = measure(box_of(*w, "navigate_target"), pass ? 10000.0f : 0.0f);
+            if (!m.valid) continue;
+            const bool better = !best || m.angle < best_m.angle || (m.angle == best_m.angle && (m.distance < best_m.distance ||
+                                (m.distance == best_m.distance && m.across < best_m.across)));
+            if (better) best = w, best_m = m;
+        }
     }
     if (!best) return;
     set_focus(*page, best);
