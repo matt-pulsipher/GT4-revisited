@@ -19,6 +19,11 @@ std::string pages(Flow& f) {
     return out + "[" + f.focus() + "]";
 }
 
+// What the scripts asked of stand-ins (the program's objects not written), listed.
+void print_stubs(Flow& f) {
+    for (const auto& [what, n] : f.rt->vm().stub_uses) std::printf("  stand-in: %s (%u)\n", what.c_str(), n);
+}
+
 // A widget of the page shown by its name (depth first).
 std::shared_ptr<menu::LiveWidget> widget(Flow& f, const std::string& name) {
     std::function<std::shared_ptr<menu::LiveWidget>(const std::shared_ptr<menu::LiveWidget>&)> find = [&](const std::shared_ptr<menu::LiveWidget>& w) {
@@ -182,6 +187,7 @@ TEST(disc_gt_mode_loop_prize_car) {
     }
     f.press({menu::Key::Accept});
     CHECK(f.page() == "EventCourseRoot" && g.garage_count() == 2);
+    print_stubs(f);
     CHECK(f.clean());
 }
 
@@ -228,6 +234,10 @@ TEST(disc_gt_mode_loop_championship) {
             f.press({menu::Key::Accept});
         }
         CHECK(f.page() == "AfterRoot");
+        // The results' title names the race by the text's marks ("{0} Race No. {1}").
+        const std::string title = f.text_of("GridTitle_text");
+        CHECK(!title.empty() && title.find('{') == std::string::npos);
+        if (k == 1) std::printf("  results of %s\n", title.c_str());
         if (k < 5) {
             CHECK(f.focus_on("Next"));
             f.press({menu::Key::Accept});
@@ -247,6 +257,7 @@ TEST(disc_gt_mode_loop_championship) {
     CHECK(vm.attribute(vm.call(vm.attribute(vm.attribute(vm.lookup("game"), "race_record"), "getUnit"), label), "result").as_string() == "1");
     CHECK(q.leave() && f.page() == "PresentRoot" && g.garage_count() == 2);
     if (g.garage.size() >= 2) std::printf("  prize car %s\n", g.garage[1].car.c_str());
+    print_stubs(f);
     CHECK(f.clean());
 }
 
@@ -311,6 +322,7 @@ TEST(disc_gt_mode_loop_license) {
     if (g.garage.size() >= 2) std::printf("  the license's car: %s\n", g.garage[1].car.c_str());
     f.press({menu::Key::Accept});
     CHECK(f.page() == "LicenseDetailRoot");
+    print_stubs(f);
     CHECK(f.clean());
 }
 
@@ -350,5 +362,6 @@ TEST(disc_gt_mode_loop_mission) {
     CHECK(race->race != "l0m0001" || vm.call(vm.attribute(record, "isMissionClear"), clear).i == 1);
     CHECK(q.leave() && f.rt->project()->name() == "gtmode");
     std::printf("  back at %s, prize %lld\n", f.page().c_str(), static_cast<long long>(prize));
+    print_stubs(f);
     CHECK(f.clean());
 }

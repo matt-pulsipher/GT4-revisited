@@ -324,6 +324,25 @@ std::shared_ptr<Reference> string_method(const Value& self, const std::string& n
             return Value::array(std::move(parts));
         });
     if (name == "format") return method("format", self, [](Vm&, V s, Args a) { return Value::string(format(s.as_string(), a)); });
+    // build(args...): each "{n}" is the n-th argument as text (the program splits the text at
+    // "{" and "}", 0x315B78; ❓ a mark with no such argument is left as it is).
+    if (name == "build")
+        return method("build", self, [](Vm&, V s, Args a) {
+            const std::string t = s.as_string();
+            std::string out;
+            size_t at = 0;
+            for (;;) {
+                const size_t open = t.find('{', at), close = open == std::string::npos ? open : t.find('}', open);
+                if (close == std::string::npos) break;
+                const std::string n = t.substr(open + 1, close - open - 1);
+                const bool digits = !n.empty() && n.find_first_not_of("0123456789") == std::string::npos;
+                out += t.substr(at, open - at);
+                if (digits && std::stoul(n) < a.size()) out += a[std::stoul(n)].to_string();
+                else out += t.substr(open, close + 1 - open);
+                at = close + 1;
+            }
+            return Value::string(out + t.substr(at));
+        });
     if (name == "upcase" || name == "downcase") {
         const bool up = name == "upcase";
         return method(up ? "upcase" : "downcase", self, [up](Vm&, V s, Args) {
