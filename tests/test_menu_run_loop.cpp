@@ -19,6 +19,17 @@ std::string pages(Flow& f) {
     return out + "[" + f.focus() + "]";
 }
 
+// A widget of the page shown by its name (depth first).
+std::shared_ptr<menu::LiveWidget> widget(Flow& f, const std::string& name) {
+    std::function<std::shared_ptr<menu::LiveWidget>(const std::shared_ptr<menu::LiveWidget>&)> find = [&](const std::shared_ptr<menu::LiveWidget>& w) {
+        if (w->name == name) return w;
+        for (const auto& c : w->children)
+            if (auto found = find(c)) return found;
+        return std::shared_ptr<menu::LiveWidget>();
+    };
+    return f.rt->current_page() ? find(f.rt->current_page()->self()) : nullptr;
+}
+
 // The prize page has counted its prize into the credits: its OK shows.
 bool prize_counted(Flow& f) {
     const std::shared_ptr<menu::LiveWidget> ok = f.rt->current_page() ? f.rt->current_page()->child("OK") : nullptr;
@@ -236,5 +247,69 @@ TEST(disc_gt_mode_loop_championship) {
     CHECK(vm.attribute(vm.call(vm.attribute(vm.attribute(vm.lookup("game"), "race_record"), "getUnit"), label), "result").as_string() == "1");
     CHECK(q.leave() && f.page() == "PresentRoot" && g.garage_count() == 2);
     if (g.garage.size() >= 2) std::printf("  prize car %s\n", g.garage[1].car.c_str());
+    CHECK(f.clean());
+}
+
+// The B license: its first test from the License Center through the test's own menus (passed
+// with gold), the other fifteen passed; back in Gran Turismo mode the license is given (the
+// present page's license paper), and the License Center shows it held.
+TEST(disc_gt_mode_loop_license) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
+    Flow f(*disc);
+    CHECK(f.gt_mode_with_a_car());
+    if (f.page() != "TopRoot") return;
+    menu::GameState& g = f.rt->game();
+    script::Vm& vm = f.rt->vm();
+    const Value record = vm.attribute(vm.lookup("game"), "race_record");
+    const Value l0b[1] = {Value::string("l0b")};
+    CHECK(vm.call(vm.attribute(record, "isLicensePassed"), l0b).i == 0);
+    f.map_focus("License");
+    f.press({menu::Key::Accept, menu::Key::Accept, menu::Key::Accept});
+    const std::optional<menu::RaceRequest> race = f.rt->race_request();
+    CHECK(race && race->sequence == "license" && race->race == "l0b0001");
+    if (!race) return;
+    Sequence q(f, *race);
+    q.fill(1);
+    CHECK(q.menus({menu::Key::Accept}) == "COMMAND_START");
+    menu::RaceResult r;
+    r.kind = menu::RaceResult::Kind::License, r.race = race->race, r.result = "gold", r.time_ms = 10'010;
+    q.ran(r);
+    f.rt->start_project(q.project);
+    f.rt->settle();
+    // After a run the test's page offers its replay and the next test.
+    CHECK(f.page() == "LicenseRoot" && f.focus_on("Replay") && f.focus_on("Next"));
+    // The other fifteen tests passed.
+    for (int k = 2; k <= 16; ++k) {
+        menu::RaceResult t = r;
+        char label[16];
+        std::snprintf(label, sizeof label, "l0b%04d", k);
+        t.race = label, t.result = k % 2 ? "silver" : "bronze";
+        f.rt->race_finished(t);
+    }
+    CHECK(vm.call(vm.attribute(record, "isLicensePassed"), l0b).i == 1);
+    CHECK(f.focus_on("Exit"));
+    f.press({menu::Key::Accept});
+    CHECK(f.rt->finished() && q.work().take_command() == "COMMAND_EXIT" && q.leave());
+    // The present page: first the license's paper with the player's name, then the license's car.
+    CHECK(f.page() == "PresentRoot");
+    for (int k = 0; k < 900; ++k) f.rt->update();
+    f.rt->settle();
+    const std::shared_ptr<menu::LiveWidget> pane = f.rt->current_page()->child("PaperPane");
+    const std::shared_ptr<menu::LiveWidget> paper = pane ? pane->child("Paper") : nullptr;
+    CHECK(paper && pane->shown() && !f.rt->current_page()->child("CarPane")->shown() && g.garage_count() == 1);
+    if (paper) {
+        const std::string name = paper->child("Name")->data.text("text"), license = paper->child("License")->data.text("text");
+        std::printf("  the license paper: %s, %s\n", name.c_str(), license.c_str());
+        CHECK(name == g.username && license == "B License" && paper->child("bg")->data.text("image_path").find("l0b") != std::string::npos);
+    }
+    f.press({menu::Key::Accept});
+    for (int k = 0; k < 900; ++k) f.rt->update();
+    f.rt->settle();
+    CHECK(f.page() == "PresentRoot" && g.garage_count() == 2);
+    if (g.garage.size() >= 2) std::printf("  the license's car: %s\n", g.garage[1].car.c_str());
+    f.press({menu::Key::Accept});
+    CHECK(f.page() == "LicenseDetailRoot");
     CHECK(f.clean());
 }
