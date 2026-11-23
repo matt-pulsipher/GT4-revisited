@@ -363,13 +363,23 @@ void CarSound::update(const CarSoundState& car, const SoundListener& listener, b
         for (int i = 0; i < 3; ++i) px[i] = x, pz[i] = z;
     }
     const OutputMode mode = mix.mode;
-    const Placement at_engine = place_sound(t.mic(mode, 0), px[0], pz[0]);
-    const Placement at_body = place_sound(t.mic(mode, 2), px[1], pz[1]);
-    const Placement at_exhaust = place_sound(t.mic(mode, 1), px[2], pz[2]);
+    Placement at_engine = place_sound(t.mic(mode, 0), px[0], pz[0]);
+    Placement at_body = place_sound(t.mic(mode, 2), px[1], pz[1]);
+    Placement at_exhaust = place_sound(t.mic(mode, 1), px[2], pz[2]);
     const float master = mix.master;
     const auto held = [&](const Placement& p) { return std::clamp(p.gain * master, -1.0f, 1.0f); };
     const float g_engine = held(at_engine), g_body = held(at_body), g_exhaust = held(at_exhaust);
     report_.engine = at_engine, report_.body = at_body, report_.exhaust = at_exhaust;
+    // The surround cue (the panner's two flags, 0x39A7B0): a sound behind the camera has one side
+    // inverted. The program does it in every output mode; here when the mixer's option is on (the
+    // layer players do the same for their own).
+    const bool cue = mixer_.surround_cue();
+    const auto behind = [&](gt3r::SurroundCue& c, Placement& p) {
+        if (!cue) return;
+        c.update(p.x, p.z);
+        if (c.invert_l) p.left = -p.left;
+        if (c.invert_r) p.right = -p.right;
+    };
 
     // The two banks' levels: each moves half way to its target every step.
     if (!car.live || (car.hybrid && car.rpm < car.idle_rpm)) {
@@ -404,6 +414,7 @@ void CarSound::update(const CarSoundState& car, const SoundListener& listener, b
     if (exhaust_.loaded()) exhaust_.update_at(mixer_, car.rpm, report_.exhaust_gain, at_exhaust.x, at_exhaust.z, layer_pitch);
     if (wind_.loaded()) wind_.update_at(mixer_, wind_rpm, report_.wind_gain, at_engine.x, at_engine.z, layer_pitch);
     if (!effects_) return;
+    behind(cue_[0], at_engine), behind(cue_[1], at_body), behind(cue_[2], at_exhaust);
 
     // The turbo's spool and the gearbox's whine, at the engine.
     report_.turbine = g_engine * gain(SoundChannel::Turbine) * float(car.live ? car.turbine_level : 0) / 128.0f;
@@ -434,7 +445,8 @@ void CarSound::update(const CarSoundState& car, const SoundListener& listener, b
     for (size_t w = 0; w < 4; ++w) {
         const WheelSoundState& wheel = car.wheels[w];
         const race::Vec3 from = sub(wheel.position, listener.position);
-        const Placement at = place_sound(t.mic(mode, 2), dot(from, listener.right), dot(from, listener.forward));
+        Placement at = place_sound(t.mic(mode, 2), dot(from, listener.right), dot(from, listener.forward));
+        behind(wheel_cue_[w], at);
         const float g = held(at) * master;
         float level[kWheelNotes] = {}, pitch[kWheelNotes];
         std::fill(pitch, pitch + kWheelNotes, doppler);

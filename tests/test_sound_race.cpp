@@ -350,6 +350,40 @@ TEST(sound_race_engine_against_original) {
     CHECK(near(side(nose.exhaust_gain) * 12 / nose.exhaust_level, 5464, 5464 * 0.005));
 }
 
+// The surround cue as the original plays it (its stereo output, the nose view: the exhaust behind
+// the camera with its left side inverted): with the mixer's option on, the sides of an in-car
+// rendering correlate far less than without it, and the chase view's (the car ahead) not at all less.
+TEST(sound_race_surround_cue_on_disc) {
+    Disc* disc = nullptr;
+    for (const std::unique_ptr<Disc>& d : test::discs())
+        if (d->info().game == Game::GT4 && d->volume().find("sound/engine/37701")) disc = d.get();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    gt3r::Vfs vfs(&disc->volume());
+    auto library = std::make_shared<audio::SoundLibrary>(vfs);
+    auto mix = std::make_shared<audio::RaceMix>();
+    mix->tables = audio::RaceSoundTables::from_core(disc->read_program());
+    const auto render = [&](bool cue, audio::SoundListener::Kind kind) {
+        audio::OfflineSound s(false);
+        s.mixer().set_surround_cue(cue);
+        audio::CarSound car(vfs, s.mixer(), &s.driver(), library);
+        car.set_mix(mix);
+        CHECK(car.load("ka_01"));
+        audio::SoundListener at;
+        at.kind = kind;
+        s.advance(120, [&](int) {
+            audio::CarSoundState in;
+            in.rpm = 5000, in.throttle = 1, in.torque_full = 3, in.torque_friction = 1;
+            in.position = {0, 0, kind == audio::SoundListener::Kind::Chase ? 5.0f : 0.0f};
+            car.update(in, at, true);
+        });
+        return audio::loudness(audio::slice(audio::signal_from(s.pcm), 0.5, 2)).side_correlation;
+    };
+    const double off = render(false, audio::SoundListener::Kind::InCar), on = render(true, audio::SoundListener::Kind::InCar);
+    const double chase_off = render(false, audio::SoundListener::Kind::Chase), chase_on = render(true, audio::SoundListener::Kind::Chase);
+    std::printf("  sides correlate: in the car %.2f, with the cue %.2f; chase %.2f, with the cue %.2f\n", off, on, chase_off, chase_on);
+    CHECK(off > 0.9 && on < 0.5 && near(chase_on, chase_off, 0.02));
+}
+
 // The gearbox's whine: a car whose gearbox is not the road one (its GEAR row's byte +0x22, the
 // gearbox's grade: 1 close, 2 super close, 3 racing) whines with the clutch in and torque through it.
 TEST(sound_race_gear_whine_on_disc) {

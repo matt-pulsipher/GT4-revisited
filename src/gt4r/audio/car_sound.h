@@ -223,6 +223,7 @@ private:
     Effect turbine_fx_, whine_fx_, cabin_fx_, nitrous_fx_, blow_off_fx_, landing_fx_, backfire_fx_[2], clash_fx_[3];
     std::array<Effect, kWheelNotes> wheel_fx_{};
     Loop turbine_, whine_, cabin_, nitrous_;
+    gt3r::SurroundCue cue_[3], wheel_cue_[4]; // the engine's, the body's, the exhaust's places; each wheel's
     std::array<std::array<Loop, kWheelNotes>, 4> wheels_{};
     Report report_;
 };
