@@ -12,6 +12,11 @@
 #include "gt4r/menu/font.h"
 #include "gt4r/menu/project.h"
 #include "gt4r/menu/runtime.h"
+#include "gt4r/menu/text_layout.h"
+#include "gt4r/menu/transform.h"
+
+#include "disc/core_image.h"
+#include "gt4r/disc/disc.h"
 
 #include <algorithm>
 #include <cmath>
@@ -29,8 +34,25 @@ using menu::kFocus;
 using menu::kPrelight;
 using menu::kInsensitive;
 using menu::LiveWidget;
+using menu::Affine;
 
 inline constexpr int kFocusBits = kFocus | kPrelight; // a focused widget has both
+
+// The shape buttons' colours in texts, from the disc's program (read once).
+inline std::array<menu::TextColor, 4> program_button_colors(App& app) {
+    static std::optional<std::array<menu::TextColor, 4>> found;
+    static bool tried = false;
+    if (!tried && app.disc()) {
+        tried = true;
+        try {
+            const Bytes core = app.disc()->read_program();
+            found = menu::find_button_colors(gt3r::CoreImage::decode(core).program);
+        } catch (const std::exception& e) {
+            LOG_WARN("The program's button colours: %s", e.what());
+        }
+    }
+    return found.value_or(std::array<menu::TextColor, 4>{});
+}
 
 // Draws a page into a rectangle of the screen.
 class PageDrawer {
@@ -41,12 +63,14 @@ public:
             if (!file) continue;
             try {
                 files_.push_back(menu::read_fonts(*file));
+                for (const auto& [name, sp] : menu::read_font_spacing(*file)) spacing_[name] = sp;
             } catch (const std::exception& e) {
                 LOG_WARN("%s: %s", path, e.what());
             }
         }
         for (const gt3r::text::FontFile& f : files_)
             for (const gt3r::text::LatinFont& font : f.fonts) fonts_.emplace(font.name, &font);
+        button_colors_ = program_button_colors(app);
     }
     ~PageDrawer() {
         for (auto& [image, t] : textures_) SDL_DestroyTexture(t);
@@ -64,40 +88,41 @@ public:
         const Widget& d = face.data;
         std::string s = d.text("text");
         if (s.empty()) s = d.text("value");
-        const gt3r::text::LatinFont* font = font_of(d);
+        menu::TextStyle st = style_of(d);
         w = h = 0;
-        if (!font || s.empty()) return;
-        gt3r::text::LayoutOptions opt;
-        opt.scale_x = d.number("scale_x", 1), opt.scale_y = d.number("scale_y", 1);
+        if (!st.font || s.empty()) return;
         // A packed face takes the size of its text; any other breaks its lines at its width.
-        if (const std::optional<Rect> g = d.rect("geometry"); g && g->w > 0 && d.number("multiline") != 0 && d.number("packing") == 0) s = wrapped(s, *font, opt, g->w);
-        const gt3r::text::TextLayout lay = gt3r::text::layout_text(glyphs_of(s, *font), *font, nullptr, 0, 0, opt);
+        if (const std::optional<Rect> g = d.rect("geometry"); g && g->w > 0 && d.number("multiline") != 0 && d.number("packing") == 0) s = wrapped(s, st, g->w);
+        st.align = gt3r::text::HAlign::Left, st.valign = gt3r::text::VAlign::Top;
+        const menu::TextLayout lay = menu::layout_menu_text(s, st, 0, 0);
         w = lay.width, h = lay.height;
     }
 
     // The page's 640 x 480 into (x, y) at `scale`; `state`: the bits every widget is drawn in.
-    // `project`: where the page's pictures and text are.
-    void draw(menu::Project& project, const LiveWidget& page, float x, float y, float scale, int state) {
+    // `project`: where the page's pictures and text are. `base`, `opacity`: the whole page's
+    // (a transition's).
+    void draw(menu::Project& project, const LiveWidget& page, float x, float y, float scale, int state, const Affine& base = {}, float opacity = 1) {
         project_ = &project;
-        ox_ = x, oy_ = y, scale_ = scale, page_ = page.name, widgets_drawn = 0;
+        ox_ = x, oy_ = y, scale_ = scale, page_ = page.name, widgets_drawn = 0, m_ = base;
         const SDL_Rect whole = to_clip({0, 0, 640, 480});
         SDL_SetRenderClipRect(r_, &whole);
         over_.clear();
-        widget(page, {0, 0, 640, 480}, 1.0f, whole, state);
+        widget(page, {0, 0, 640, 480}, opacity, whole, state);
         // An option menu's open list lies over everything else of the page.
         const std::vector<Over> over = std::move(over_);
         over_.clear();
         for (const Over& o : over) {
             SDL_SetRenderClipRect(r_, &whole);
+            m_ = o.m;
             widget(*o.live, o.parent, o.opacity, whole, o.state);
         }
         SDL_SetRenderClipRect(r_, nullptr);
     }
 
-    // One widget by itself (the cursor), its rectangle in the page's 640 x 480.
-    void draw_one(menu::Project& project, const std::string& page, const LiveWidget& w, float x, float y, float scale) {
+    // One widget by itself (the cursor), its rectangle in the page's 640 x 480 through `m`.
+    void draw_one(menu::Project& project, const std::string& page, const LiveWidget& w, float x, float y, float scale, const Affine& m = {}) {
         project_ = &project;
-        ox_ = x, oy_ = y, scale_ = scale, page_ = page;
+        ox_ = x, oy_ = y, scale_ = scale, page_ = page, m_ = m;
         const SDL_Rect whole = to_clip({0, 0, 640, 480});
         SDL_SetRenderClipRect(r_, &whole);
         widget(w, {0, 0, 640, 480}, 1.0f, whole, 0);
@@ -106,6 +131,30 @@ public:
 
 private:
     SDL_FRect to_screen(const Rect& r) const { return {ox_ + r.x * scale_, oy_ + r.y * scale_, r.w * scale_, r.h * scale_}; }
+    // A point of the page through the widgets' transforms, on the screen.
+    SDL_FPoint to_screen(float x, float y) const {
+        const menu::Point p = m_.apply(x, y);
+        return {ox_ + p.x * scale_, oy_ + p.y * scale_};
+    }
+    // A rectangle through the transforms: the box around it.
+    Rect bounds(const Rect& r) const {
+        if (m_.identity()) return r;
+        const menu::Point p[4] = {m_.apply(r.x, r.y), m_.apply(r.x + r.w, r.y), m_.apply(r.x + r.w, r.y + r.h), m_.apply(r.x, r.y + r.h)};
+        float x0 = p[0].x, y0 = p[0].y, x1 = x0, y1 = y0;
+        for (const menu::Point& q : p) x0 = std::min(x0, q.x), y0 = std::min(y0, q.y), x1 = std::max(x1, q.x), y1 = std::max(y1, q.y);
+        return {x0, y0, x1 - x0, y1 - y0};
+    }
+    // A quad of the page, corners clockwise from the top left, through the transforms: a
+    // picture's coordinates `uv` (0..1) and a colour at each corner.
+    void quad(SDL_Texture* t, const Rect& at, const SDL_FPoint uv[4], const SDL_FColor color[4], SDL_BlendMode blend) {
+        const float xs[4] = {at.x, at.x + at.w, at.x + at.w, at.x}, ys[4] = {at.y, at.y, at.y + at.h, at.y + at.h};
+        SDL_Vertex v[4];
+        for (int i = 0; i < 4; ++i) v[i].position = to_screen(xs[i], ys[i]), v[i].color = color[i], v[i].tex_coord = uv[i];
+        const int index[6] = {0, 1, 2, 0, 2, 3};
+        if (t) SDL_SetTextureBlendMode(t, blend);
+        else SDL_SetRenderDrawBlendMode(r_, blend);
+        SDL_RenderGeometry(r_, t, v, 4, index, 6);
+    }
     SDL_Rect to_clip(const Rect& r) const {
         const SDL_FRect f = to_screen(r);
         return {int(std::floor(f.x)), int(std::floor(f.y)), int(std::ceil(f.x + f.w) - std::floor(f.x)), int(std::ceil(f.y + f.h) - std::floor(f.y))};
@@ -125,15 +174,26 @@ private:
         return t;
     }
 
-    void image(const std::string& path, const Rect& at, Rgba tint, float opacity, bool add) {
+    // `uv`: the picture's coordinates of the four corners clockwise from the top left
+    // (mImageFace's `texcoord`); none: the whole picture.
+    void image(const std::string& path, const Rect& at, Rgba tint, float opacity, bool add, const SDL_FPoint* uv = nullptr) {
         const gt3r::Tex1::Image* img = path.empty() ? nullptr : project_->image(page_, path);
         SDL_Texture* t = texture(img);
         if (!t) return;
-        SDL_SetTextureColorMod(t, tint.r, tint.g, tint.b);
-        SDL_SetTextureAlphaMod(t, u8(std::clamp(tint.a * opacity, 0.0f, 255.0f)));
-        SDL_SetTextureBlendMode(t, add ? SDL_BLENDMODE_ADD : SDL_BLENDMODE_BLEND);
-        const SDL_FRect dst = to_screen(at);
-        SDL_RenderTexture(r_, t, nullptr, &dst);
+        SDL_SetTextureColorMod(t, 255, 255, 255);
+        SDL_SetTextureAlphaMod(t, 255);
+        if (m_.identity() && !uv) {
+            SDL_SetTextureColorMod(t, tint.r, tint.g, tint.b);
+            SDL_SetTextureAlphaMod(t, u8(std::clamp(tint.a * opacity, 0.0f, 255.0f)));
+            SDL_SetTextureBlendMode(t, add ? SDL_BLENDMODE_ADD : SDL_BLENDMODE_BLEND);
+            const SDL_FRect dst = to_screen(at);
+            SDL_RenderTexture(r_, t, nullptr, &dst);
+            return;
+        }
+        static const SDL_FPoint whole[4] = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
+        const SDL_FColor c{tint.r / 255.0f, tint.g / 255.0f, tint.b / 255.0f, std::clamp(tint.a * opacity / 255.0f, 0.0f, 1.0f)};
+        const SDL_FColor colors[4] = {c, c, c, c};
+        quad(t, at, uv ? uv : whole, colors, add ? SDL_BLENDMODE_ADD : SDL_BLENDMODE_BLEND);
     }
     SDL_FPoint image_size(const std::string& path) {
         const gt3r::Tex1::Image* img = path.empty() ? nullptr : project_->image(page_, path);
@@ -141,20 +201,37 @@ private:
     }
 
     // One colour, or four for the corners clockwise from the top left.
-    void fill(const Rect& at, const std::vector<Rgba>& colors, float opacity, bool add) {
+    // `round`: with one colour, the corners rounded to that radius (at most half the
+    // rectangle's sides), each a fan of 8 steps (mColorFace, 0x2857C0).
+    void fill(const Rect& at, const std::vector<Rgba>& colors, float opacity, bool add, float round = 0) {
         if (colors.empty()) return;
-        const SDL_FRect d = to_screen(at);
-        const float xs[4] = {d.x, d.x + d.w, d.x + d.w, d.x}, ys[4] = {d.y, d.y, d.y + d.h, d.y + d.h};
-        SDL_Vertex v[4];
-        for (int i = 0; i < 4; ++i) {
-            const Rgba c = colors[colors.size() >= 4 ? size_t(i) : 0];
-            v[i].position = {xs[i], ys[i]};
-            v[i].color = {c.r / 255.0f, c.g / 255.0f, c.b / 255.0f, c.a / 255.0f * opacity};
-            v[i].tex_coord = {0, 0};
+        auto color = [&](size_t i) {
+            const Rgba c = colors[colors.size() >= 4 ? i : 0];
+            return SDL_FColor{c.r / 255.0f, c.g / 255.0f, c.b / 255.0f, c.a / 255.0f * opacity};
+        };
+        const SDL_BlendMode blend = add ? SDL_BLENDMODE_ADD : SDL_BLENDMODE_BLEND;
+        const float r = std::min({round, at.w / 2, at.h / 2});
+        if (colors.size() != 1 || r <= 0) {
+            static const SDL_FPoint none[4] = {};
+            const SDL_FColor c[4] = {color(0), color(1), color(2), color(3)};
+            quad(nullptr, at, none, c, blend);
+            return;
         }
-        const int index[6] = {0, 1, 2, 0, 2, 3};
-        SDL_SetRenderDrawBlendMode(r_, add ? SDL_BLENDMODE_ADD : SDL_BLENDMODE_BLEND);
-        SDL_RenderGeometry(r_, nullptr, v, 4, index, 6);
+        // A fan from the middle round the outline: each corner's arc of 8 steps.
+        std::vector<SDL_Vertex> v;
+        const SDL_FColor c = color(0);
+        v.push_back({to_screen(at.x + at.w / 2, at.y + at.h / 2), c, {0, 0}});
+        const float cx[4] = {at.x + at.w - r, at.x + at.w - r, at.x + r, at.x + r}, cy[4] = {at.y + r, at.y + at.h - r, at.y + at.h - r, at.y + r};
+        for (int k = 0; k < 4; ++k)
+            for (int i = 0; i <= 8; ++i) {
+                const float a = (-90.0f + 90.0f * float(k) + 90.0f * float(i) / 8.0f) * 0.017453292f;
+                v.push_back({to_screen(cx[k] + r * std::cos(a), cy[k] + r * std::sin(a)), c, {0, 0}});
+            }
+        std::vector<int> index;
+        const int n = int(v.size()) - 1;
+        for (int i = 0; i < n; ++i) index.insert(index.end(), {0, 1 + i, 1 + (i + 1) % n});
+        SDL_SetRenderDrawBlendMode(r_, blend);
+        SDL_RenderGeometry(r_, nullptr, v.data(), int(v.size()), index.data(), int(index.size()));
     }
 
     // A frame of nine pictures: the corners at their own size, the sides stretched between
@@ -175,30 +252,36 @@ private:
         image(br, {at.x + at.w - sbr.x, at.y + at.h - sbr.y, sbr.x, sbr.y}, tint, opacity, false);
     }
 
-    // "hm_16", or with a palette "hm_16#1"; a name the files do not have: the menus' body font.
-    const gt3r::text::LatinFont* font_of(const Widget& w, gt3r::text::FontVariant* variant = nullptr) const {
-        std::string name = w.text("font", "hm_16");
+    // "hm_16", or with a palette "hm_16#1"; none: `hn_14`, the text style's default
+    // (0x246F58); ❓ a name the files do not have (`sw_20`): the menus' body font, `hm_16`.
+    const gt3r::text::LatinFont* font_of(const Widget& w, gt3r::text::FontVariant* variant = nullptr, std::string* found = nullptr) const {
+        std::string name = w.text("font", "hn_14");
         if (const size_t hash = name.find('#'); hash != std::string::npos) {
             if (variant) *variant = name.compare(hash, 2, "#0") == 0 ? gt3r::text::FontVariant::Outlined : gt3r::text::FontVariant::Plain;
             name.resize(hash);
         }
         auto it = fonts_.find(name);
         if (it == fonts_.end()) it = fonts_.find("hm_16");
+        if (found && it != fonts_.end()) *found = it->first;
         return it == fonts_.end() ? nullptr : it->second;
     }
-    static std::vector<gt3r::text::GlyphRef> glyphs_of(const std::string& utf8, const gt3r::text::LatinFont& font) {
-        std::u32string wide; // the text's lines end in "\r\n"
-        for (char32_t c : gt3r::text::utf8_decode(utf8))
-            if (c != U'\r') wide += c;
-        return gt3r::text::map_unicode(wide, font, nullptr, nullptr);
+    // A face's text style: its font and scales; the alignment and colour are set by the caller.
+    menu::TextStyle style_of(const Widget& w, gt3r::text::FontVariant* variant = nullptr) const {
+        menu::TextStyle st;
+        std::string name;
+        st.font = font_of(w, variant, &name);
+        if (const auto sp = spacing_.find(name); sp != spacing_.end()) st.spacing = sp->second;
+        if (const auto g = fonts_.find("Gaiji"); g != fonts_.end()) st.gaiji = g->second;
+        st.button_colors = button_colors_;
+        st.scale_x = w.number("scale_x", 1), st.scale_y = w.number("scale_y", 1);
+        return st;
     }
-    float width_of(const std::string& line, const gt3r::text::LatinFont& font, const gt3r::text::LayoutOptions& opt) const {
-        gt3r::text::LayoutOptions plain = opt;
-        plain.align = gt3r::text::HAlign::Left, plain.valign = gt3r::text::VAlign::Top;
-        return gt3r::text::layout_text(glyphs_of(line, font), font, nullptr, 0, 0, plain).width;
+    float width_of(const std::string& line, menu::TextStyle st) const {
+        st.align = gt3r::text::HAlign::Left, st.valign = gt3r::text::VAlign::Top;
+        return menu::layout_menu_text(line, st, 0, 0).width;
     }
     // A text of several lines is broken at spaces where a line would pass the face's width.
-    std::string wrapped(const std::string& s, const gt3r::text::LatinFont& font, const gt3r::text::LayoutOptions& opt, float width) const {
+    std::string wrapped(const std::string& s, const menu::TextStyle& st, float width) const {
         std::string out, line;
         auto flush = [&] { out += line, line.clear(); };
         size_t at = 0;
@@ -206,7 +289,7 @@ private:
             const size_t end = std::min(s.find_first_of(" \n", at), s.size());
             const std::string word = s.substr(at, end - at);
             const std::string tried = line.empty() ? word : line + " " + word;
-            if (!line.empty() && width_of(tried, font, opt) > width) flush(), out += '\n', line = word;
+            if (!line.empty() && width_of(tried, st) > width) flush(), out += '\n', line = word;
             else line = tried;
             if (end < s.size() && s[end] == '\n') flush(), out += '\n';
             at = end + 1;
@@ -215,70 +298,82 @@ private:
         return out;
     }
 
+    SDL_Texture* atlas_of(const gt3r::text::LatinFont& font, gt3r::text::FontVariant variant) {
+        SDL_Texture*& atlas = atlases_[{&font, int(variant)}];
+        if (!atlas) {
+            const gt3r::Tex1::Image& img = font.atlas[size_t(variant)];
+            if (!img.width || !img.height) return nullptr;
+            atlas = SDL_CreateTexture(r_, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, int(img.width), int(img.height));
+            if (!atlas) return nullptr;
+            SDL_UpdateTexture(atlas, nullptr, img.rgba.data(), int(img.width * 4));
+            SDL_SetTextureBlendMode(atlas, SDL_BLENDMODE_BLEND);
+            SDL_SetTextureScaleMode(atlas, SDL_SCALEMODE_LINEAR);
+        }
+        return atlas;
+    }
+
     void text(const Widget& w, const Rect& at, float opacity) {
         std::string s = w.text("text");
         if (s.empty()) s = w.text("value"); // a tool tip's, an input's
         if (s.empty() && w.has("key")) s = project_->translate(w.has("key_page") ? w.text("key_page") : page_, w.text("key"));
         if (s.empty()) return;
-        // A text's marks: of the pad's buttons ("%BG") and of a colour ("%Cfff"), left out;
-        // "%%" is a percent sign (❓ judged from the scripts, which end a percentage with it).
-        for (size_t mark = s.find('%'); mark != std::string::npos && mark + 1 < s.size(); mark = s.find('%', mark)) {
-            const char c = s[mark + 1];
-            if (c == 'B') s.erase(mark, std::min<size_t>(3, s.size() - mark));
-            else if (c == 'C') s.erase(mark, std::min<size_t>(5, s.size() - mark));
-            else if (c == '%') s.erase(mark, 1), ++mark;
-            else ++mark;
-        }
         gt3r::text::FontVariant variant = gt3r::text::FontVariant::Plain;
-        const gt3r::text::LatinFont* found = font_of(w, &variant);
-        if (!found) return;
-        const gt3r::text::LatinFont& font = *found;
-
-        gt3r::text::LayoutOptions opt;
-        opt.scale_x = w.number("scale_x", 1), opt.scale_y = w.number("scale_y", 1);
+        menu::TextStyle st = style_of(w, &variant);
+        if (!st.font) return;
         // adjustScale(): drawn narrower when it would pass the face's width; abbreviate(): cut
         // there and ended in dots.
         if (at.w > 0 && s.find('\n') == std::string::npos) {
-            const float width = width_of(s, font, opt);
-            if (width > at.w && w.number("adjust_scale") != 0) opt.scale_x *= at.w / width;
+            const float width = width_of(s, st);
+            if (width > at.w && w.number("adjust_scale") != 0) st.scale_x *= at.w / width;
             else if (width > at.w && w.number("abbreviate") != 0) {
-                while (s.size() > 1 && width_of(s + "...", font, opt) > at.w) s.pop_back();
+                while (s.size() > 1 && width_of(s + "...", st) > at.w) s.pop_back();
                 s += "...";
             }
         }
-        if (w.number("multiline") != 0 && w.number("packing") == 0 && at.w > 0) s = wrapped(s, font, opt, at.w);
+        if (w.number("multiline") != 0 && w.number("packing") == 0 && at.w > 0) s = wrapped(s, st, at.w);
         // Where in its rectangle: 0..8, rows from the top, columns from the left; the middle (4)
-        // when not given.
+        // when not given (the text style's default).
         const int align = w.has("align") ? int(w.number("align")) : 4;
         const int col = align % 3, row = align / 3;
-        opt.align = col == 0 ? gt3r::text::HAlign::Left : col == 1 ? gt3r::text::HAlign::Center : gt3r::text::HAlign::Right;
-        opt.valign = row == 0 ? gt3r::text::VAlign::Top : row == 1 ? gt3r::text::VAlign::Middle : gt3r::text::VAlign::Bottom;
+        st.align = col == 0 ? gt3r::text::HAlign::Left : col == 1 ? gt3r::text::HAlign::Center : gt3r::text::HAlign::Right;
+        st.valign = row == 0 ? gt3r::text::VAlign::Top : row == 1 ? gt3r::text::VAlign::Middle : gt3r::text::VAlign::Bottom;
         const float x = col == 0 ? at.x : col == 1 ? at.x + at.w / 2 : at.x + at.w;
         const float y = row == 0 ? at.y : row == 1 ? at.y + at.h / 2 : at.y + at.h;
-        const gt3r::text::TextLayout lay = gt3r::text::layout_text(glyphs_of(s, font), font, nullptr, x, y, opt);
+        const Rgba base = w.color("text_color").value_or(Rgba{212, 212, 212, 255}); // the text style's default
+        st.color = {base.r, base.g, base.b, base.a};
+        const menu::TextLayout lay = menu::layout_menu_text(s, st, x, y);
 
-        SDL_Texture*& atlas = atlases_[{&font, int(variant)}];
-        if (!atlas) {
-            const gt3r::Tex1::Image& img = font.atlas[size_t(variant)];
-            if (!img.width || !img.height) return;
-            atlas = SDL_CreateTexture(r_, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, int(img.width), int(img.height));
-            if (!atlas) return;
-            SDL_UpdateTexture(atlas, nullptr, img.rgba.data(), int(img.width * 4));
-            SDL_SetTextureBlendMode(atlas, SDL_BLENDMODE_BLEND);
-            SDL_SetTextureScaleMode(atlas, SDL_SCALEMODE_LINEAR);
-        }
-        auto pass = [&](Rgba c, float dx, float dy) {
-            SDL_SetTextureColorMod(atlas, c.r, c.g, c.b);
-            SDL_SetTextureAlphaMod(atlas, u8(std::clamp(c.a * opacity, 0.0f, 255.0f)));
-            for (const gt3r::text::GlyphQuad& q : lay.quads) {
-                if (q.kanji || !q.sw || !q.sh) continue;
-                const SDL_FRect src{float(q.sx), float(q.sy), float(q.sw), float(q.sh)};
-                const SDL_FRect dst = to_screen({q.x + dx, q.y + dy, q.w, q.h});
-                SDL_RenderTexture(r_, atlas, &src, &dst);
+        // A pass of the glyphs; `shadow`: all in one colour, offset.
+        auto pass = [&](const Rgba* shadow, float dx, float dy) {
+            for (const menu::PlacedGlyph& g : lay.glyphs) {
+                if (!g.font || !g.sw || !g.sh) continue; // ❓ double-byte cells are not drawn yet
+                SDL_Texture* atlas = atlas_of(*g.font, g.font == st.font ? variant : gt3r::text::FontVariant::Plain);
+                if (!atlas) continue;
+                const Rgba c = shadow ? *shadow : Rgba{g.color.r, g.color.g, g.color.b, g.color.a};
+                SDL_SetTextureColorMod(atlas, c.r, c.g, c.b);
+                SDL_SetTextureAlphaMod(atlas, u8(std::clamp(c.a * opacity, 0.0f, 255.0f)));
+                if (m_.identity()) {
+                    const SDL_FRect src{float(g.sx), float(g.sy), float(g.sw), float(g.sh)};
+                    const SDL_FRect dst = to_screen({g.x + dx, g.y + dy, g.w, g.h});
+                    SDL_RenderTexture(r_, atlas, &src, &dst);
+                    continue;
+                }
+                float aw = 1, ah = 1;
+                SDL_GetTextureSize(atlas, &aw, &ah);
+                const float u0 = float(g.sx) / aw, v0 = float(g.sy) / ah, u1 = float(g.sx + g.sw) / aw, v1 = float(g.sy + g.sh) / ah;
+                const SDL_FPoint uv[4] = {{u0, v0}, {u1, v0}, {u1, v1}, {u0, v1}};
+                const SDL_FColor fc{c.r / 255.0f, c.g / 255.0f, c.b / 255.0f, std::clamp(c.a * opacity / 255.0f, 0.0f, 1.0f)};
+                const SDL_FColor fcs[4] = {fc, fc, fc, fc};
+                SDL_SetTextureColorMod(atlas, 255, 255, 255);
+                SDL_SetTextureAlphaMod(atlas, 255);
+                quad(atlas, {g.x + dx, g.y + dy, g.w, g.h}, uv, fcs, SDL_BLENDMODE_BLEND);
             }
         };
-        if (const float shadow = w.number("shadow"); shadow > 0) pass(w.color("shadow_color").value_or(Rgba{0, 0, 0, 255}), shadow, shadow);
-        pass(w.color("text_color").value_or(Rgba{255, 255, 255, 255}), 0, 0);
+        if (const float shadow = w.number("shadow"); shadow > 0) {
+            const Rgba sc = w.color("shadow_color").value_or(Rgba{0, 0, 0, 255});
+            pass(&sc, shadow, shadow);
+        }
+        pass(nullptr, 0, 0);
     }
 
     // A widget is drawn in its own state and its parents' (a focused button's faces light up).
@@ -299,30 +394,48 @@ private:
             at = {at.x - at.w * (sx - 1) / 2, at.y - at.h * (sy - 1) / 2, at.w * sx, at.h * sy};
         const float face = opacity * std::clamp(w.number("alpha", 1), 0.0f, 1.0f); // the face's own, not its children's
         ++widgets_drawn;
+        // Its own transform carries to its children.
+        const Affine outer = m_;
+        if (const Affine own = widget_transform(w, at); !own.identity()) m_ = m_.after(own);
+        struct Restore {
+            Affine& m;
+            Affine was;
+            ~Restore() { m = was; }
+        } restore{m_, outer};
         const std::vector<Rgba> colors = w.colors("color");
         const Rgba tint = colors.empty() ? Rgba{} : colors[0];
         const bool add = w.number("blend") != 0;
         const std::string& t = w.type;
-        if (t == "ColorFace") fill(at, colors, face, add);
-        else if (t == "ImageFace" || t == "ProgressFace") image(w.text("image_path"), at, tint, face, add);
+        if (t == "ColorFace") fill(at, colors, face, add, w.number("round"));
+        else if (t == "ImageFace" || t == "ProgressFace") {
+            // `texcoord`: the picture's corners clockwise from the top left.
+            SDL_FPoint uv[4];
+            const menu::Property* tc = w.find("texcoord");
+            const bool has_uv = tc && tc->items.size() >= 4;
+            if (has_uv)
+                for (size_t i = 0; i < 4; ++i)
+                    uv[i] = {tc->items[i].values.size() > 0 ? std::strtof(tc->items[i].values[0].c_str(), nullptr) : 0,
+                             tc->items[i].values.size() > 1 ? std::strtof(tc->items[i].values[1].c_str(), nullptr) : 0};
+            image(w.text("image_path"), at, tint, face, add, has_uv ? uv : nullptr);
+        }
         else if (t == "FrameImageFace") frame(w, at, tint, face);
         else if (t == "TextFace" || t == "InputTextFace" || t == "InputNumberFace" || t == "ToolTipFace" || t == "TextBoxFace") text(w, at, face);
         else if (t == "ColorChipFace") {
             // A car's paint: its colour under the chip's picture.
             if (w.has("chip_r")) fill(at, {Rgba{u8(w.number("chip_r")), u8(w.number("chip_g")), u8(w.number("chip_b")), 255}}, face, false);
             image(w.text("image_path0"), at, tint, face, false);
-        } else if (draw_live) draw_live(live, project_, page_, at, to_screen(at), face);
+        } else if (draw_live) draw_live(live, project_, page_, at, to_screen(bounds(at)), face);
 
         SDL_Rect inner = clip;
         if (w.number("clip") != 0) {
-            const SDL_Rect own = to_clip(at);
+            const SDL_Rect own = to_clip(bounds(at));
             if (!SDL_GetRectIntersection(&clip, &own, &inner)) return;
             SDL_SetRenderClipRect(r_, &inner);
         }
         const bool open_menu = t == "OptionMenu" && w.number("is_popuped") != 0;
         for (const auto& c : live.children) {
             if (open_menu && c->name == "popup") {
-                over_.push_back({c.get(), at, opacity, state & ~kFocusBits});
+                over_.push_back({c.get(), at, opacity, state & ~kFocusBits, m_});
                 continue;
             }
             widget(*c, at, opacity, inner, state);
@@ -335,15 +448,19 @@ private:
         Rect parent;
         float opacity;
         int state;
+        Affine m;
     };
     std::vector<Over> over_;
     menu::Project* project_ = nullptr;
     SDL_Renderer* r_;
     std::vector<gt3r::text::FontFile> files_;
     std::map<std::string, const gt3r::text::LatinFont*> fonts_;
+    std::map<std::string, menu::FontSpacing> spacing_;
+    std::array<menu::TextColor, 4> button_colors_{};
     std::map<const gt3r::Tex1::Image*, SDL_Texture*> textures_;
     std::map<std::pair<const gt3r::text::LatinFont*, int>, SDL_Texture*> atlases_;
     float ox_ = 0, oy_ = 0, scale_ = 1;
+    Affine m_; // the transforms of the widgets being drawn
     std::string page_;
 };
 

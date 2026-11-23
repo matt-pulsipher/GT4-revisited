@@ -43,6 +43,15 @@ float transition_cover(const script::Value& transition);
 void step_transition(const script::Value& transition);
 // Where a transition is: -1 none or over, 0 covering the page, 1 covered, 2 uncovering.
 int transition_phase(const script::Value& transition);
+// What a transition puts on the screen this picture: a colour's cover; the cross's pages'
+// opacity and size; the block's timers (32 x 24, row by row; a block shows the screen held at
+// the start at alpha min(timer, 1)), and `capture` once when that screen is to be held.
+struct TransitionPicture {
+    float cover = 0, page_opacity = 1, page_scale = 1;
+    const std::vector<float>* blocks = nullptr;
+    bool capture = false;
+};
+TransitionPicture transition_picture(const script::Value& transition);
 
 // ---- widget_classes.cpp
 // A member of the widget's own class (MRootWindow, MSelectBox, MOptionMenu, ...); null when

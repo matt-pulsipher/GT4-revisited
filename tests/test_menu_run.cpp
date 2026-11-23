@@ -238,14 +238,13 @@ TEST(menu_actors_move_as_the_program_does) {
     assign(vm, menu::widget_value(right), "actor", Value{});
     rt.update();
     CHECK(right->data.rect("geometry")->y == 100);
-    // MBlinkActor: period 0.1 s is 6 frames from 1 down to 0, again and again.
+    // MBlinkActor sets a face's own alpha: a composite has none and stays as it is (its blink on
+    // a face: test_menu_draw.cpp).
     const Value blink = call(vm, menu_module, "MBlinkActor", {menu::widget_value(right)});
     assign(vm, menu::widget_value(right), "actor", blink);
     assign(vm, blink, "period", Value::number(0.1f));
-    rt.update();
-    CHECK(std::fabs(right->opacity() - 5.0f / 6.0f) < 1e-4f);
-    for (int i = 0; i < 4; ++i) rt.update();
-    CHECK(std::fabs(right->opacity() - 1.0f / 6.0f) < 1e-4f);
+    for (int i = 0; i < 5; ++i) rt.update();
+    CHECK(right->opacity() == 1 && !right->data.has("alpha"));
     // The transition: a colour over the page in a quarter of a second, and back.
     const Value transition = call(vm, menu_module, "MColorTransition");
     assign(vm, rt.context(), "transition", transition);
