@@ -303,8 +303,11 @@ the callback 0x3EBE28 -> 0x3AEAE8: the race's text table, the one the race displ
   gradient along the matrix's u); colours are 0xAABBGGRR with 0x80 a full channel, through the
   instances' colour changes (multiply 0x80 = x1, add / 255) from the root down; texts in the
   menus' fonts (`font/menu.fnt`) by the font string `name#palette*x%,y%` (palette 1, the plain
-  glyphs, when none is given), the field's height against the font's 16 units, the words looked
-  up in the race's text table.
+  glyphs, when none is given), the field's height against the em its font's name ends with
+  (`hm_16`: 16, `hb_24`: 24, `hn_14`: 14; the program scales the glyphs by the height alone,
+  0x479CA0), the words looked up in the race's text table. A picture is placed at the size the
+  movie's texture list gives (a power of two, 128 x 64), the set's texture (its own size, 99 x 34)
+  at its top left: the fill matrices map the list's size.
 
 ## The results movie (`menu/common/result.strb`)
 
