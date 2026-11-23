@@ -7,6 +7,7 @@
 
 #include "gt4r/formats/course/runway.h"
 
+#include <cmath>
 #include <span>
 
 namespace gt4r::race {
@@ -21,6 +22,7 @@ struct CarInput {
     bool handbrake = false;
     bool shift_up = false, shift_down = false; // held this step (the simulation finds the edges)
     bool reverse = false;
+    float steer_angle = NAN; // a computer driver's road-wheel steering command (radians, + left), used instead of steer when set
 };
 
 struct WheelState {

@@ -587,3 +587,22 @@ TEST(sim_disc_two_cars_meet) {
     }
     CHECK(pushed);
 }
+
+TEST(sim_disc_steer_angle) {
+    Disc* disc = full_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    // A computer driver's road-wheel command is the steering command itself (past the pad's lock
+    // curve), within the full lock; without one the pad's share steers.
+    const std::string cars[] = {"nsx_r_02"};
+    const std::unique_ptr<sim::Session> s = sim::Session::open(*disc, "tsukuba", cars);
+    race::CarInput in;
+    in.throttle = 0.5f, in.steer_angle = 0.2f;
+    for (int i = 0; i < 90; ++i) s->step_once({&in, 1});
+    CHECK(std::fabs(s->record(0).steer_cmd.host() - 0.2f) < 1e-6f);
+    in.steer_angle = 10.0f;
+    s->step_once({&in, 1});
+    CHECK(s->record(0).steer_cmd.host() == s->record(0).p.max_lock.host());
+    in.steer_angle = NAN, in.steer = 0;
+    for (int i = 0; i < 60; ++i) s->step_once({&in, 1});
+    CHECK(std::fabs(s->record(0).steer_cmd.host()) < 0.01f);
+}
