@@ -483,5 +483,6 @@ Measured on Tsukuba: four crowd emitters and no others; the crowds at 1 × M.
 ### Prologue
 
 Prologue's program has the block of numbers but neither the gains' table nor the microphones'
-in this form (`race-tables` finds them "not found"): its race mixes with every gain 1 and
-32 / distance. ❓ Its own tables; its car sounds (the database is the earlier format).
+in this form (`race-tables` says "not found"); `RaceSoundTables` then gives every view gain 1
+and every microphone 32 / distance. ❓ Prologue's own tables; its car sounds (the database is the
+earlier format).
