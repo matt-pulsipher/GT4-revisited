@@ -99,7 +99,9 @@ volume's index bytes (Prologue: its table of contents).
 | MPEG-2 movies (`.pss`), `ipua` stills | `mpeg/` | ✅ shared, unchanged |
 | `ENGN` engine sounds | `sound/engine/` and others | ✅ shared, unchanged; 5 of 3,576 files store their layers out of order, which `audio::parse_engine_bank` reads ([formats/sound.md](formats/sound.md)) |
 | `GTRC` camera scripts | `cameras/` | ✅ shared parser reads them |
-| `.pmb` menu pages | `menu/` (the race pause menus) | ✅ shared parser reads them |
+| `.pmb` menu pages | `menu/pause1..3.pmb`, `replay_panel1, 2.pmb` | ✅ shared parser reads them; unused by the program ([formats/strobe.md](formats/strobe.md)) |
+| `STRB` race movies | `menu/common/*.strb` (the pause menu, the results) | ✅ read and played with their scripts ([formats/strobe.md](formats/strobe.md)) |
+| `Mot1` camera motions | course slots 52, 53 | ✅ the start's shots ([formats/camera.md](formats/camera.md)) |
 | `MLTX` strings, `GTBR` brake parts, `race/flare.bin` | | ✅ shared parsers read them |
 | Course sections `Vls0`, `CRSS` | `crs/` | ✅ shared parsers read them |
 | `INST` instrument banks | `sound/`, `music/` | ✅ programs, tones, effect programs and effect sequences ([formats/sound.md](formats/sound.md)); ❓ two small tables |

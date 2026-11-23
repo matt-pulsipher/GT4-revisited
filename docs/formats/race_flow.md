@@ -78,8 +78,8 @@ of its number (`DynamicsConductor::vf28` 0x34D490: position and heading from the
 goes up at the player's finish (vf7 0x3DFE20); its callbacks `CB_STABLE`, `CB_PLAYERRANK`,
 `CB_GETTIME`, `CB_GETNAME`, `CB_ISVISIBLE`, `CB_ENABLEEXIT`, `CB_RACEEXIT`, `PLAY_SOUND` name what
 it shows; times are written `%d'%02d.%03d` (`fn_003E0198`). Leaving it (`CB_RACEEXIT`) ends the
-run at once. 🔎 Here a plain page with each car's place, name and time stands in for the movie,
-4 s after the finish.
+run at once. The movie and its callbacks: [strobe.md](strobe.md). The pause menu is a movie too
+(`menu/common/pause.strb`, same file).
 
 ## The single race's sequence (`fn_00111498`)
 
