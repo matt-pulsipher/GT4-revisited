@@ -154,8 +154,11 @@ struct Database {
             if (const ByteSpan row = car_paints->row(*car_id); row.size() >= 4) {
                 size_t first = 0;
                 const size_t n = paints->rows(u32at(row, 0), first);
-                for (size_t i = 0; i < n; ++i) {
-                    const ByteSpan r = paints->row_at(first + i);
+                // In the order of their paint numbers (+0x04), as the game lists them.
+                std::vector<ByteSpan> rows;
+                for (size_t i = 0; i < n; ++i) rows.push_back(paints->row_at(first + i));
+                std::stable_sort(rows.begin(), rows.end(), [&u32at](const ByteSpan& a, const ByteSpan& b) { return (a.size() >= 8 ? u32at(a, 4) : 0) < (b.size() >= 8 ? u32at(b, 4) : 0); });
+                for (const ByteSpan& r : rows) {
                     Paint paint;
                     if (names_) paint.name = names_->at(u32at(r, 0x0C));
                     if (r.size() >= 0x27) paint.rgb[0] = r[0x24], paint.rgb[1] = r[0x25], paint.rgb[2] = r[0x26];

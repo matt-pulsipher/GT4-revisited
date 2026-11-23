@@ -3,6 +3,7 @@
 
 #include "test_framework.h"
 
+#include "gt4r/menu/faces_car.h"
 #include "gt4r/menu/faces_movie.h"
 #include "gt4r/menu/layout.h"
 #include "gt4r/menu/project.h"
@@ -12,6 +13,7 @@
 #include "vfs/vfs.h"
 
 #include <algorithm>
+#include <cmath>
 #include <functional>
 #include <set>
 
@@ -142,4 +144,63 @@ TEST(disc_menu_movies) {
             CHECK(movie->next_frame(f) && f.width == 640);
         }
     }
+}
+
+// A car face's view: the program's defaults, and the layout's camera and lights over them.
+TEST(menu_car_face_settings) {
+    const menu::CarFaceSettings d = menu::car_face_settings(menu::parse_layout(std::string_view(R"(CarFace { name string {"CarFace"} })")));
+    CHECK(d.view.view_angle == 50 && d.view.near == 0.1f && d.view.far == 32 && d.view.camera_trans[2] == 4);
+    CHECK(d.view.lights[0].on && !d.view.lights[1].on && d.view.lights[0].pos[1] == 1 && d.view.lights[0].dif[0] == 0.5f);
+    CHECK(d.mirror && d.advanced && d.quality_level == 1 && d.car_color == -1);
+    const menu::CarFaceSettings s = menu::car_face_settings(menu::parse_layout(std::string_view(R"(CarFace {
+        name string {"CarFace"}
+        view_angle digit {25}
+        camera_trans [3] { digit {0} digit {0.98} digit {9} }
+        camera_rotate [3] { digit {-3} digit {0} digit {0} }
+        l1_enable digit {1}
+        l1_dif RGBA {60 60 60 255}
+        action_type string {"normal"}
+    })")));
+    CHECK(s.view.view_angle == 25 && s.view.camera_trans[1] == 0.98f && s.view.camera_trans[2] == 9 && s.view.camera_rotate[0] == -3);
+    CHECK(s.view.lights[1].on && std::fabs(s.view.lights[1].dif[0] - 60 / 255.0f) < 1e-6f && !s.advanced);
+}
+
+// The projection: the face's middle is the picture's; view_angle spans the face's height.
+TEST(menu_face_projection) {
+    const menu::FaceProjection p = menu::FaceProjection::of(90, menu::Rect{100, 40, 200, 100});
+    CHECK(p.cx == 200 && p.cy == 90);
+    CHECK(std::fabs(p.fy - 50 / 1.098f) < 1e-3f && std::fabs(p.fx - 50 * 448.0f / 480.0f) < 1e-3f);
+    float l, r, d, u;
+    p.tangents(l, r, d, u);
+    CHECK(std::fabs(l + 200 / p.fx) < 1e-5f && std::fabs(r - 440 / p.fx) < 1e-5f && std::fabs(u - 90 / p.fy) < 1e-5f && std::fabs(d + 390 / p.fy) < 1e-5f);
+}
+
+// The car model's motion: a set car fades in over 120 pictures; the turntable settles at
+// 18.67 degrees a second; motion 2 follows ry by a fifth a picture; warp() jumps to the targets.
+TEST(menu_car_motion) {
+    menu::CarMotion m;
+    const float trans[3] = {0, 0, 1}, rotate[3] = {0, 90, 0};
+    m.set_car(trans, rotate);
+    CHECK(m.cur[2] == 1 && m.yaw == 90 && m.cur_alpha == 0);
+    for (int i = 0; i < 60; ++i) m.step();
+    CHECK(std::fabs(m.cur_alpha - 0.5f) < 1e-3f);
+    m.motion = 1;
+    for (int i = 0; i < 600; ++i) m.step();
+    CHECK(m.cur_alpha == 1);
+    CHECK(std::fabs(m.spin_velocity - 18.6667f) < 0.01f);
+    m.motion = 2, m.r[1] = 100, m.yaw = 0;
+    m.step();
+    CHECK(std::fabs(m.yaw - 20) < 1e-4f);
+    m.t[0] = 3, m.r[1] = 45;
+    m.warp();
+    CHECK(m.cur[0] == 3 && m.yaw == 45 && m.spin_velocity == 0);
+    // The scripts' object: rotInterpolateSpeed writes the position's speed, as the program's setter does.
+    std::shared_ptr<menu::CarModelObject> o = menu::make_car_model_object();
+    script::Vm vm;
+    o->member(vm, script::Value{}, "rotInterpolateSpeed")->set(vm, script::Value::number(0.5f));
+    CHECK(o->m.pos_speed == 0.5f && o->m.rot_speed == 0.1f);
+    o->member(vm, script::Value{}, "tz")->set(vm, script::Value::number(8.5f));
+    o->member(vm, script::Value{}, "ry")->set(vm, script::Value::number(180));
+    vm.call(o->get("warp"), {});
+    CHECK(o->m.cur[2] == 8.5f && o->m.yaw == 180);
 }

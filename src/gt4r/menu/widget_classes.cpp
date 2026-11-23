@@ -4,6 +4,7 @@
 // read from the program's routines and what is judged from the scripts is in
 // docs/formats/menu.md ("Running").
 
+#include "gt4r/menu/faces_car.h"
 #include "gt4r/menu/runtime_internal.h"
 
 #include <algorithm>
@@ -932,13 +933,8 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
         if (n == "car_model") {
             const auto it = w->extras.find("car_model");
             if (it != w->extras.end()) return it->second;
-            auto model = std::make_shared<Object>("MCarModel");
-            for (const char* f : {"motion", "tx", "ty", "tz", "rx", "ry", "rz", "fadein", "transparentRatio", "independent"}) model->set(f, Value::number(0));
-            for (const char* f : {"posInterpolateSpeed", "rotInterpolateSpeed", "alpha", "alphaInterpolateSpeed", "additionalModelScale"})
-                model->set(f, Value::number(1));
-            for (const char* m : {"warp", "playModelMotion", "stopModelMotion", "setModelMotionLoop"})
-                model->method(m, [](Vm&, const Value&, Args) { return Value{}; });
-            model->method("isPlayingModelMotion", [](Vm&, const Value&, Args) { return Value::integer(0); });
+            // Where the model stands and how it turns (menu/faces_car.cpp).
+            const std::shared_ptr<CarModelObject> model = make_car_model_object();
             return w->extras["car_model"] = std::make_shared<script::Variable>(object_value(model));
         }
         if (n == "setColorIndex")

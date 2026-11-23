@@ -3,6 +3,8 @@
 // pages, from the boot project on. How the properties are drawn is in docs/formats/menu.md.
 
 #include "gt4r/app/app.h"
+#include "gt4r/app/menu_cars.h"
+#include "gt4r/app/menu_models.h"
 #include "gt4r/app/menu_movies.h"
 #include "gt4r/app/menu_page_drawer.h"
 
@@ -216,8 +218,14 @@ private:
                 runtime->push_event(menu::object_value(e));
             };
             MenuMovies* movies = movies_.get();
-            drawer->draw_live = [movies](const LiveWidget& face, const Rect&, const SDL_FRect& dst, float opacity) {
+            cars_ = std::make_unique<MenuCars>(app);
+            MenuCars* cars = cars_.get();
+            models_ = std::make_unique<MenuModels>(app);
+            MenuModels* models = models_.get();
+            drawer->draw_live = [movies, cars, models](const LiveWidget& face, menu::Project* project, const std::string& page, const Rect& at, const SDL_FRect& dst, float opacity) {
                 if (face.is("MovieFace")) movies->draw(face, dst, opacity);
+                else if (face.is("CarFace")) cars->draw(face, project, page, at, dst, opacity);
+                else if (face.is("ModelFace")) models->draw(face, project, page, at, dst, opacity);
             };
             menu::text_measure().measure = [drawer](const LiveWidget& face, float& w, float& h) { drawer->measure(face, w, h); };
             runtime_->boot();
@@ -232,7 +240,7 @@ private:
     }
     void stop() {
         menu::text_measure().measure = nullptr;
-        movies_.reset(), live_drawer_.reset(), runtime_.reset(), race_.reset();
+        movies_.reset(), cars_.reset(), models_.reset(), live_drawer_.reset(), runtime_.reset(), race_.reset();
         if (app_)
             if (audio::AppSound* sound = app_->sound()) sound->stop();
     }
@@ -277,9 +285,13 @@ private:
         ui.fill(0, 0, Ui::kWidth, Ui::kHeight, {0, 0, 0});
         if (live_drawer_) {
             if (movies_) movies_->begin_frame();
+            if (cars_) cars_->begin_frame();
+            if (models_) models_->begin_frame();
             for (const auto& page : runtime_->open_pages())
                 if (menu::Project* project = runtime_->project_of(*page)) live_drawer_->draw(*project, *page, x, 0, scale, 0);
             if (movies_) movies_->end_frame();
+            if (cars_) cars_->end_frame();
+            if (models_) models_->end_frame();
             draw_cursor(x, scale);
             // The transition's colour over the pages.
             if (const float cover = runtime_->fade_cover(); cover > 0) ui.fill(x, 0, 640 * scale, 480 * scale, Color{0, 0, 0, u8(std::clamp(cover, 0.0f, 1.0f) * 255.0f)});
@@ -334,6 +346,8 @@ private:
     std::unique_ptr<menu::Runtime> runtime_;
     std::unique_ptr<PageDrawer> live_drawer_;
     std::unique_ptr<MenuMovies> movies_; // the running menus' movie faces
+    std::unique_ptr<MenuCars> cars_;     // and car faces
+    std::unique_ptr<MenuModels> models_; // and model faces
     int project_sel_ = 0, page_sel_ = 0, state_ = 0;
     bool full_ = false, start_run_ = false, start_boot_ = false;
     std::string error_, start_project_, start_page_, card_;

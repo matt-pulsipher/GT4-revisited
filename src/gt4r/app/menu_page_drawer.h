@@ -56,7 +56,8 @@ public:
     int widgets_drawn = 0;
     // A face whose content is not the layout's pictures and text (a movie, a 3D view): drawn by
     // this in its place in the page (`at`: the page's 640 x 480; `dst`: on the screen).
-    std::function<void(const LiveWidget& face, const Rect& at, const SDL_FRect& dst, float opacity)> draw_live;
+    // `project`, `page`: where its pictures are.
+    std::function<void(const LiveWidget& face, menu::Project* project, const std::string& page, const Rect& at, const SDL_FRect& dst, float opacity)> draw_live;
 
     // A text's size as its face draws it (for the scripts' getTextSize).
     void measure(const LiveWidget& face, float& w, float& h) {
@@ -310,7 +311,7 @@ private:
             // A car's paint: its colour under the chip's picture.
             if (w.has("chip_r")) fill(at, {Rgba{u8(w.number("chip_r")), u8(w.number("chip_g")), u8(w.number("chip_b")), 255}}, face, false);
             image(w.text("image_path0"), at, tint, face, false);
-        } else if (draw_live) draw_live(live, at, to_screen(at), face);
+        } else if (draw_live) draw_live(live, project_, page_, at, to_screen(at), face);
 
         SDL_Rect inner = clip;
         if (w.number("clip") != 0) {
