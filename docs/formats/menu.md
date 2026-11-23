@@ -380,8 +380,10 @@ over it are the program's, with their addresses in save.md and here:
   (0x435690); `setRidingCar(place, car)` is that change with the car's record, `(place, label,
   paint)` the car as sold without the marks (0x435490); `cancelRidingCar(place, car)` acts only
   after a change to a car never driven: that car's record is dropped and the car given is driven
-  again (0x435418). ❓ What `pickup`, `pickupCountry`, `pickupTuner` compare is from the
-  scripts' use.
+  again (0x435418). `pickup(country, tuner, drivetrain)` lists the cars in place order whose
+  country and tuner (the car's columns) and the drivetrain of the sheet in use are those named
+  ("all": any; 0x170088); `pickupCountry()`, `pickupTuner(country)` the ones the garage has, in
+  the order of their numbers (0x170278, 0x1705E0).
 - **MCarGarage** (a car; 0x141B90, 0x14EF00; `game_car.cpp`): its record's three sheets, `slot`
   the sheet in use; the parts that fit it (its file `specdb/<set>/CARS/<the car's code>`: u64
   count, then {u64 part, u8 category, 7 bytes}); a parts type is the table id, type 31 the

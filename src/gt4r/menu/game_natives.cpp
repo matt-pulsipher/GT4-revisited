@@ -714,16 +714,20 @@ g.method("menuRef", [s](Vm&, const Value&, Args a) {
         }
         return text("OK");
     });
-    // pickup(country, tuner, drivetrain): the garage's cars of a country, tuner and drivetrain
-    // ("all" or nil: any), each built from its place; pickupCountry(), pickupTuner(country):
-    // the countries and tuners the garage has cars of. ❓ The natives compare names (0x16EE90,
-    // 0x16F188, 0x16F218, not read): from the garage page's use.
+    // pickup(country, tuner, drivetrain): the garage's cars in place order whose country and
+    // tuner (the car's columns, by their names' numbers) and the drivetrain of the sheet in use
+    // are the ones named ("all" or a name not known: any), each a car object of its place
+    // (0x16EE90 -> 0x170088; the car driven's list columns refreshed first, 0x435630).
+    // pickupCountry(), pickupTuner(country): the countries and tuners the garage has cars of,
+    // in the order of their numbers (0x170278, 0x1705E0).
     auto of_label = [](Vm& vm, const char* fn, const std::string& label) {
         const Value arg[1] = {text(label)};
         return vm.call(vm.attribute(vm.attribute(vm.lookup("menu"), "MCarData"), fn), arg).to_string();
     };
     auto named = [](Args a, size_t i) { return i < a.size() && a[i].kind == Kind::String && !a[i].as_string().empty() && a[i].as_string() != "all"; };
     garage->method("pickup", [self, s, of_label, named](Vm& vm, const Value&, Args a) {
+        if (s->riding_car >= 0 && size_t(s->riding_car) < s->garage.size() && s->garage[size_t(s->riding_car)].record)
+            entry_from_record(self->db(), s->garage[size_t(s->riding_car)]);
         std::vector<Value> out;
         for (size_t i = 0; i < s->garage.size(); ++i) {
             const GarageEntry& e = s->garage[i];
@@ -737,17 +741,24 @@ g.method("menuRef", [s](Vm&, const Value&, Args a) {
         }
         return Value::array(std::move(out));
     });
-    auto distinct = [s, of_label, named](const char* fn, bool by_country) {
-        return [s, of_label, named, fn, by_country](Vm& vm, const Value&, Args a) {
-            std::vector<std::string> seen;
+    auto distinct = [self, s, of_label, named](const char* fn, bool by_country) {
+        return [self, s, of_label, named, fn, by_country](Vm& vm, const Value&, Args a) {
+            const std::map<int, std::string>& numbers = by_country ? self->db().names.tuners : self->db().names.countries;
+            auto number_of = [&numbers](const std::string& name) {
+                for (const auto& [n, v] : numbers)
+                    if (v == name) return n;
+                return 1 << 30;
+            };
+            std::vector<std::pair<int, std::string>> seen;
             for (const GarageEntry& e : s->garage) {
                 if (!e.used) continue;
                 if (by_country && named(a, 0) && of_label(vm, "GetCountry", e.car) != a[0].as_string()) continue;
                 const std::string v = of_label(vm, fn, e.car);
-                if (std::find(seen.begin(), seen.end(), v) == seen.end()) seen.push_back(v);
+                if (std::none_of(seen.begin(), seen.end(), [&v](const auto& x) { return x.second == v; })) seen.emplace_back(number_of(v), v);
             }
+            std::stable_sort(seen.begin(), seen.end(), [](const auto& x, const auto& y) { return x.first < y.first; });
             std::vector<Value> out;
-            for (const std::string& v : seen) out.push_back(text(v));
+            for (const auto& [n, v] : seen) out.push_back(text(v));
             return Value::array(std::move(out));
         };
     };

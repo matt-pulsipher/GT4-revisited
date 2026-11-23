@@ -460,5 +460,17 @@ TEST(disc_gt_mode_riding_car) {
     CHECK(g.riding_car == 0 && !g.riding_fresh && g.garage[1].record && g.garage[1].ride_rank == 1);
     const Value to_demio[2] = {Value::integer(1), Value{}};
     vm.call(vm.attribute(garage, "cancelRidingCar"), to_demio);
-    CHECK(g.riding_car == 0 && g.garage[1].record && f.clean());
+    CHECK(g.riding_car == 0 && g.garage[1].record);
+    // The garage's lists by country: both countries in the order of their numbers, a country's cars.
+    const Value countries = vm.call(vm.attribute(garage, "pickupCountry"), {});
+    CHECK(countries.items() && countries.items()->size() == 2);
+    if (countries.items() && countries.items()->size() == 2) {
+        std::printf("  the garage's countries: %s, %s\n", (*countries.items())[0].to_string().c_str(), (*countries.items())[1].to_string().c_str());
+        const Value jp[3] = {(*countries.items())[0], Value::string("all"), Value::string("all")};
+        const Value cars = vm.call(vm.attribute(garage, "pickup"), jp);
+        CHECK(cars.items() && cars.items()->size() == 1);
+    }
+    const Value all[3] = {Value::string("all"), Value::string("all"), Value::string("all")};
+    const Value cars = vm.call(vm.attribute(garage, "pickup"), all);
+    CHECK(cars.items() && cars.items()->size() == 2 && f.clean());
 }
