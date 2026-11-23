@@ -41,7 +41,5 @@ struct Row {
 };
 const std::vector<Row>& rows();
 
-// (Planned: each area adds its rows through this in layout_<area>.cpp; not defined or called yet.)
-struct Rows;
 
 } // namespace gt4r::sim::layout

@@ -7,6 +7,8 @@
 
 #include "gt4r/sim/exact_bridge.h"
 #include "gt4r/sim/rules.h"
+#include "gt4r/sim/rules_tires.h"
+#include "gt4r/sim/rules_wear.h"
 #include "sim/exact/tick.h"
 
 #include <cmath>
@@ -21,7 +23,25 @@ namespace {
 [[maybe_unused]] u32 car_a0(Ee& e) { return u32(e.a(0)); }
 [[maybe_unused]] u32 car_of_state(Ee& e) { return u32(e.a(0)) - kF; }
 
+// The race's wear rules a car's routines read (its conductor + 4).
+sim::rules::WearRules wear_rules_of(TapCall& t) {
+    u8 b[0x6C];
+    t.ee.read_bytes(t.ee.r32(t.race.car(t.car_index) + 4) + 4, b, sizeof b);
+    return sim::rules::wear_rules(b);
+}
+
 void add_taps(Taps& taps) {
+    using namespace sim::rules;
+    taps.add({0x3658A0, "step length", car_a0, [](TapCall& t) { ex::step_length(t.car); }});
+    taps.add({0x356EF0, "wear grip", car_a0, [](TapCall& t) {
+                  t.ret_i("returns", wear_grip(t.car, t.rec.x.wear, t.rec.x.tires, t.rec.layout, wear_rules_of(t)));
+              }});
+    taps.add({0x357418, "peak force", car_a0, [](TapCall& t) {
+                  const bool wear = wear_grip(t.car, t.rec.x.wear, t.rec.x.tires, t.rec.layout, wear_rules_of(t));
+                  peak_force(t.car, t.rec.x.tires, t.rec.layout, wear);
+              }});
+    taps.add({0x357690, "slip angles", car_a0, [](TapCall& t) { slip_angles(t.car, t.rec.layout); }});
+    taps.add({0x343ED0, "save previous", car_a0, [](TapCall& t) { ex::save_previous(t.car); }});
     taps.add({0x36C9F8, "body axes", [](Ee& e) { return u32(e.a(0)) - 0x110; }, [](TapCall& t) { sim::rules::body_axes(t.car); }});
 }
 
@@ -70,6 +90,31 @@ bool run_step(Disc& disc, bool print) {
             const float f = ee.rf(at + off);
             if (std::fabs(f) > 1e-6f && std::fabs(f) < 1e7f) std::printf("  +%04X %12.6f\n", off, double(f));
             else std::printf("  +%04X %08X\n", off, v);
+        }
+    }
+    // The race's wear switches (the conductor + 4 + 0x68 / 0x69), to run the wear's branches: bit 0 the tread wear, bit 1 the second.
+    if (const char* w = std::getenv("GT4R_STEP_WEAR")) {
+        const int m = std::atoi(w);
+        ee.w8(o.cond + 4 + 0x68, u8(m & 1)), ee.w8(o.cond + 4 + 0x69, u8((m >> 1) & 1));
+        // A made-up curve for each (the race's own are 0 here), and the wheels' wears spread over every branch.
+        const float tread[8] = {-0.5f, 0.1f, 0.2f, 0.05f, 0.5f, 0.15f, 0.8f, 0.3f}, second[6] = {-0.4f, 0.1f, 0.3f, 0.1f, 0.9f, 0.25f};
+        for (u32 k = 0; k < 8; ++k) ee.wf(o.cond + 4 + 4 * k, tread[k]);
+        for (u32 k = 0; k < 6; ++k) ee.wf(o.cond + 4 + 0x50 + 4 * k, second[k]);
+        const float a[4] = {-0.6f, -0.2f, 0.1f, 0.35f}, b[4] = {-0.5f, -0.1f, 0.2f, 0.6f};
+        for (int i = 0; i < o.cars; ++i)
+            for (u32 w = 0; w < 4; ++w) {
+                const u32 W = o.car(i) + sim::layout::kWheel0 + sim::layout::kWheelSize * w;
+                ee.wf(W + 0xAC, a[w] + 0.6f * float(m >> 2)), ee.wf(W + 0xA8, b[w] + 0.5f * float(m >> 2));
+            }
+    }
+    if (std::getenv("GT4R_DUMP_WEAR")) {
+        for (u32 off = 0; off < 0x6C; off += 4) std::printf("  wear +%02X %08X %g\n", off, ee.r32(o.cond + 4 + off), double(ee.rf(o.cond + 4 + off)));
+    }
+    if (std::getenv("GT4R_DUMP_POINTERS")) { // the parameter block's pointers into itself (its tables' arrays)
+        const u32 pb = o.params(0);
+        for (u32 off = 0; off < kParamsSize; off += 4) {
+            const u32 v = ee.r32(pb + off);
+            if (v >= pb && v < pb + kParamsSize) std::printf("  P+%04X -> P+%04X\n", off, v - pb);
         }
     }
     const int steps = std::getenv("GT4R_STEPS") ? std::atoi(std::getenv("GT4R_STEPS")) : 1200;

@@ -53,11 +53,23 @@ std::vector<Row> build() {
     f(0x4E1, 0x01, 0x4AF, "rank");
     f(0x3F0, 0x08, 0x5D0, "distance driven and its carry");
     f(0x3F8, 0x20, 0x5D8, "the engine condition's words");
+    f(0x4F8, 0x08, 0x5FC, "the view's heading and pitch lags");
     r.push_back({0xEC0, 4, C, kState + 0x448, "step length"});
     r.push_back({0x16A8, 8, C, kState + 0x5C4, "speed, highest speed"});
     r.push_back({0x16C4, 4, C, kState + 0x618, "best lap"});
 
     // ---- a wheel ----
+    wheel(0x0C, 4, 0x00, "steer angle");
+    wheel(0x10, 4, 0x04, "camber");
+    wheel(0x04, 4, 0x8C, "ground height");
+    wheel(0x38, 4, 0x24, "spin angle");
+    wheel(0x94, 4, 0xA4, "brake heat");
+    wheel(0x98, 4, 0xC0, "flap");
+    wheel(0x4C, 8, 0x28, "hub velocity along and across the car");
+    wheel(0x78, 4, 0x30, "slip direction");
+    wheel(0x7C, 4, 0x60, "slip direction's low-speed fade");
+    wheel(0xA0, 4, 0xAC, "tread wear");
+    wheel(0x5D, 1, 0xB1, "the HUD's wear level");
     wheel(0x08, 4, 0x48, "load");
     wheel(0x14, 4, 0x08, "half track");
     wheel(0x18, 4, 0x94, "suspension travel");
@@ -79,7 +91,12 @@ std::vector<Row> build() {
     p(0x058, 0x04, 0x054, "steering lock");
     p(0x118, 0x04, 0x114, "yaw inertia");
     p(0x120, 0x18, 0x11C, "pitch and roll levers, the pitch's tire term");
-    (void)ePrev;
+    // ---- the last step's values (0x343ED0) ----
+    r.push_back({ePrev + 0x00, 0x14, C, kPrevious + 0x00, "last attitude and the ground's"});
+    r.push_back({ePrev + 0x14, 0x80, C, kPrevious + 0x14, "last suspension, steer, camber, half track, spin, brake heat, ground values"});
+    r.push_back({ePrev + 0x94, 0x30, C, kPrevious + 0x94, "last hub points"});
+    r.push_back({ePrev + 0xC4, 0x10, C, kPrevious + 0xC4, "last flaps"});
+    r.push_back({ePrev + 0xD8, 0x0C, C, kPrevious + 0xD8, "last heading lag, pitch lag, distance along the course"});
     return r;
 }
 

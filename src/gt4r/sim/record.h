@@ -25,6 +25,7 @@ struct Extra {
 struct Record {
     gt3r::sim::exact::Car car;
     Extra x;
+    rules::WheelLayout layout; // (the program's table, by the parameter block's byte +0x30)
 };
 
 // Every member of Extra with its place in Gran Turismo 4's record: v(name, index, block, offset, member).

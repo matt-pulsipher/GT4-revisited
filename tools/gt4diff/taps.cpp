@@ -15,19 +15,20 @@ using sim::layout::Block;
 const std::vector<Slot>& slots() {
     static const std::vector<Slot> table = [] {
         std::vector<Slot> v;
-        static const ex::Car probe{};
+        static const sim::Record probe{};
         const u8* base = reinterpret_cast<const u8*>(&probe);
-        ex::fields(probe, [&](const char* n, int i, u32 off, const auto& m) {
+        auto add = [&](const char* n, int i, sim::layout::Place place, const auto& m) {
             using T = std::remove_cvref_t<decltype(m)>;
             const bool real = std::is_same_v<T, gt3r::ee::F>;
-            const sim::layout::Place place = sim::layout::place(off);
             if (!place) return;
             Slot s;
             s.name = i < 0 ? std::string(n) : std::string(n) + "[" + std::to_string(i) + "]";
-            s.engine = off, s.size = real ? 4 : u32(sizeof(T)), s.place = place;
+            s.size = real ? 4 : u32(sizeof(T)), s.place = place;
             s.member = size_t(reinterpret_cast<const u8*>(&m) - base), s.real = real;
             v.push_back(std::move(s));
-        });
+        };
+        ex::fields(probe.car, [&](const char* n, int i, u32 off, const auto& m) { add(n, i, sim::layout::place(off), m); });
+        sim::extra_fields(probe.x, [&](const char* n, int i, Block b, u32 off, const auto& m) { add(n, i, {b, off}, m); });
         return v;
     }();
     return table;
@@ -45,7 +46,7 @@ namespace {
 const u8* at(const Image& im, const Slot& s) { return (s.place.block == Block::Car ? im.car.data() : im.params.data()) + s.place.offset; }
 } // namespace
 
-void load(ex::Car& c, const Image& image) {
+void load(sim::Record& c, const Image& image) {
     for (const Slot& s : slots()) std::memcpy(reinterpret_cast<u8*>(&c) + s.member, at(image, s), s.size);
 }
 
@@ -64,11 +65,17 @@ void Taps::enter(size_t tap) {
     for (int i = 0; i < race_.cars; ++i)
         if (race_.car(i) == car) index = i;
     if (index < 0) return;
-    Pending p{tap, ee_.g32(29), car, index, read_image(ee_, car), ex::Car{}};
-    p.mine.behaviour = sim::rules::behaviour();
+    Pending p{tap, ee_.g32(29), car, index, read_image(ee_, car), sim::Record{}, {}};
+    p.mine.car.behaviour = sim::rules::behaviour();
     load(p.mine, p.before);
-    TapCall call{ee_, race_, index, p.mine, inputs_};
+    {
+        u8 row[sim::rules::kWheelLayoutSize];
+        ee_.read_bytes(sim::rules::kWheelLayouts + sim::rules::kWheelLayoutSize * p.before.params[0x30], row, sizeof row);
+        p.mine.layout = sim::rules::wheel_layout(row);
+    }
+    TapCall call{ee_, race_, index, p.mine, p.mine.car, inputs_, {}};
     t.ours(call);
+    p.outs = std::move(call.outs);
     const u32 ra = ee_.g32(31);
     const bool fresh = pending_.find(ra) == pending_.end();
     pending_[ra].push_back(std::move(p));
@@ -86,6 +93,30 @@ void Taps::leave(u32 ra) {
     // What the program wrote, and whether a field of ours has its place.
     std::vector<u8> placed_car(after.car.size(), 0), placed_params(after.params.size(), 0);
     bool clean = true;
+    const std::vector<std::string>& skip = taps_[p.tap].skip;
+    auto note = [&](const std::string& name, bool real, double a, double b) {
+        clean = false;
+        FieldStat& f = st.fields[name];
+        ++f.off;
+        const double d = std::fabs(a - b), rel = real ? d / std::max(std::fabs(a), 1e-6) : d;
+        if (rel >= f.worst) {
+            f.worst = rel;
+            char text[160];
+            std::snprintf(text, sizeof text, "the program's %.9g, ours %.9g (car %d, call %llu)", a, b, p.index, static_cast<unsigned long long>(st.calls));
+            f.example = text;
+        }
+    };
+    for (const Out& o : p.outs) {
+        u32 theirs = 0;
+        if (o.where == Out::F0) theirs = ee_.fpr[0];
+        else if (o.where == Out::V0) theirs = ee_.g32(2);
+        else ee_.read_bytes(o.address, reinterpret_cast<u8*>(&theirs), o.size);
+        if (o.size < 4 && o.where != Out::Mem) theirs &= (1u << (8 * o.size)) - 1;
+        if (theirs == o.bits) continue;
+        gt3r::ee::F x, y;
+        x.bits = theirs, y.bits = o.bits;
+        note(o.name, o.real, o.real ? double(x.host()) : double(theirs), o.real ? double(y.host()) : double(o.bits));
+    }
     for (const Slot& s : slots()) {
         std::vector<u8>& placed = s.place.block == Block::Car ? placed_car : placed_params;
         for (u32 i = 0; i < s.size; ++i) placed[s.place.offset + i] = 1;
@@ -94,9 +125,9 @@ void Taps::leave(u32 ra) {
         const u8* mine = reinterpret_cast<const u8*>(&p.mine) + s.member;
         if (std::memcmp(theirs, was, s.size) != 0) ++st.written[s.name];
         if (std::memcmp(theirs, mine, s.size) == 0) continue;
-        clean = false;
-        FieldStat& f = st.fields[s.name];
-        ++f.off;
+        bool skipped = false;
+        for (const std::string& k : skip) skipped = skipped || s.name.compare(0, k.size(), k) == 0;
+        if (skipped) continue;
         double a = 0, b = 0;
         if (s.real) {
             gt3r::ee::F x, y;
@@ -107,13 +138,7 @@ void Taps::leave(u32 ra) {
             std::memcpy(&x, theirs, s.size), std::memcpy(&y, mine, s.size);
             a = double(x), b = double(y);
         }
-        const double d = std::fabs(a - b), rel = s.real ? d / std::max(std::fabs(a), 1e-6) : d;
-        if (rel >= f.worst) {
-            f.worst = rel;
-            char text[160];
-            std::snprintf(text, sizeof text, "the program's %.9g, ours %.9g (car %d, call %llu)", a, b, p.index, static_cast<unsigned long long>(st.calls));
-            f.example = text;
-        }
+        note(s.name, s.real, a, b);
     }
     for (u32 o = 0; o < after.car.size(); ++o)
         if (after.car[o] != p.before.car[o] && !placed_car[o]) ++st.unplaced_car[o & ~3u];
