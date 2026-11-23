@@ -250,3 +250,47 @@ TEST(strobe_pause_movie_disc) {
     }
     if (!movies) SKIP("no Gran Turismo 4 disc");
 }
+
+TEST(strobe_result_movie_disc) {
+    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    size_t movies = 0;
+    for (const auto& disc : test::discs()) {
+        const gt3r::Volume::Entry* e = disc->volume().find("menu/common/result.strb");
+        if (!e) continue;
+        ++movies;
+        auto movie = std::make_shared<const race::StrobeMovie>(race::StrobeMovie::parse(disc->volume().read(*e)));
+        bool exit = false;
+        // Six rows; the first three finished.
+        auto host = [&](const std::string& name, const std::vector<race::StrobePlayer::Value>& args) {
+            using V = race::StrobePlayer::Value;
+            std::string n = name;
+            for (char& c : n) c = char(std::toupper(static_cast<unsigned char>(c)));
+            const int i = args.empty() ? -1 : int(args[0].to_number());
+            if (n == "CB_ISVISIBLE") return V::boolean(i >= 0 && i < 6);
+            if (n == "CB_STABLE") return V::boolean(i >= 0 && i < 3);
+            if (n == "CB_PLAYERRANK") return V::number(1);
+            if (n == "CB_GETNAME") return V::string("Car " + std::to_string(i + 1));
+            if (n == "CB_GETTIME") return V::string("1'0" + std::to_string(i) + ".000");
+            if (n == "CB_ENABLEEXIT") return V::number(1);
+            if (n == "CB_RACEEXIT") exit = true;
+            return V::number(0);
+        };
+        race::StrobePlayer p(movie, host);
+        p.play();
+        p.advance(2.0f);
+        std::vector<std::string> words;
+        for (const race::StrobePlayer::Draw& d : p.draw_list())
+            if (d.text) words.push_back(d.words);
+        if (std::getenv("GT4R_TEST_VERBOSE")) {
+            for (const std::string& w : words) std::printf("  text [%s]\n", w.c_str());
+        }
+        CHECK(std::find(words.begin(), words.end(), "Car 1") != words.end());
+        CHECK(std::find(words.begin(), words.end(), "1'02.000") != words.end());
+        CHECK(std::find(words.begin(), words.end(), "Car 5") == words.end()); // not finished: its row not filled
+        // Accept leaves the page.
+        p.key(0x20);
+        for (int i = 0; i < 90 && !exit; ++i) p.advance(1.0f / 30);
+        CHECK(exit);
+    }
+    if (!movies) SKIP("no Gran Turismo 4 disc");
+}

@@ -310,15 +310,16 @@ void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlaye
             SDL_RenderGeometry(m.r, tex, v.data(), int(v.size()), nullptr, 0);
         } else if (d.text && !d.words.empty()) {
             const race::StrobeMovie::TextField& t = *d.text;
-            // The font string: "hm_16*80,80" (a name, its scale in percent across and down).
+            // The font string: "hm_16#1*80,80": a name, its palette (1 the plain glyphs, the movies' default:
+            // their colour is the field's), its scale in percent across and down.
             const std::string spec = size_t(t.font) < movie.fonts.size() ? movie.fonts[size_t(t.font)] : std::string("hm_16");
-            const size_t star = spec.find('*');
-            // (The movies' texts take the font's plain glyphs: their colour is the field's.)
-            Impl::FontSpec f = m.font(spec.substr(0, star).c_str(), 100, 1);
+            const size_t star = spec.find('*'), hash = spec.find('#');
+            const int variant = hash != std::string::npos && hash < star ? std::atoi(spec.c_str() + hash + 1) : 1;
+            Impl::FontSpec f = m.font(spec.substr(0, std::min(star, hash)).c_str(), 100, variant);
             if (star != std::string::npos) {
                 const std::string sizes = spec.substr(star + 1);
                 const size_t comma = sizes.find(',');
-                f.sx = std::atof(sizes.c_str()) / 100.0f;
+                f.sx = float(std::atof(sizes.c_str())) / 100.0f;
                 f.sy = comma == std::string::npos ? f.sx : float(std::atof(sizes.c_str() + comma + 1)) / 100.0f;
             }
             if (!f.font) continue;

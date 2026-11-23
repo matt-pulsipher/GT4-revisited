@@ -509,8 +509,19 @@ public:
             if (m.pressed(PadButton::Start) || m.pressed(PadButton::Cross)) race_->stop_replay();
             if (race_->replay_done()) return finish_run(app);
         } else if (results_shown()) {
-            // The results page: Cross leaves it and the run is over.
-            if (m.pressed(PadButton::Cross)) {
+            // The results page (the game's results movie, else a plain page): leaving it ends the run.
+            if (!result_ && !result_tried_) open_results(app);
+            bool leave = false;
+            if (result_) {
+                if (m.vertical()) result_->key(m.vertical() < 0 ? 0x26 : 0x28);
+                if (m.pressed(PadButton::Cross)) result_->key(0x20);
+                result_->advance(float(dt));
+                leave = result_exit_;
+            } else {
+                leave = m.pressed(PadButton::Cross);
+            }
+            if (leave) {
+                result_.reset();
                 race_->end_run();
                 if (!race_->replaying()) return finish_run(app);
             }
@@ -555,7 +566,10 @@ public:
                 draw_overlay(ui);
             }
         }
-        if (results_shown()) draw_results(ui);
+        if (results_shown()) {
+            if (result_ && hud_) hud_->draw_movie(*result_movie_, *result_);
+            else draw_results(ui);
+        }
         if (paused_) {
             if (pause_ && hud_) {
                 hud_->draw_movie(*pause_movie_, *pause_);
@@ -742,14 +756,53 @@ private:
         app.pop();
     }
 
-    // The results page goes up once the player's FINISH has been shown.
-    bool results_shown() const {
-        return race_ && !race_->replaying() && !race_->over() && race_->flow().player_finished() && race_->flow().steps_since_player_finish() >= 4 * 60;
+    // The results page goes up at the player's finish (ResultArcade::vf7).
+    bool results_shown() const { return race_ && !race_->replaying() && !race_->over() && race_->flow().player_finished(); }
+
+    // The results movie (menu/common/result.strb) with the race's rows: its callbacks answer from the
+    // race's results (docs/formats/strobe.md "The results movie").
+    void open_results(App& app) {
+        result_tried_ = true, result_exit_ = false;
+        if (!result_movie_) {
+            try {
+                if (const std::optional<Bytes> file = app.vfs()->read("menu/common/result.strb"); file && race::StrobeMovie::is_movie(*file))
+                    result_movie_ = std::make_shared<const race::StrobeMovie>(race::StrobeMovie::parse(*file));
+            } catch (const std::exception& e) {
+                LOG_WARN("Results: %s", e.what());
+            }
+        }
+        if (!result_movie_) return;
+        auto host = [this, &app](const std::string& name, const std::vector<race::StrobePlayer::Value>& args) {
+            using V = race::StrobePlayer::Value;
+            std::string n = name;
+            for (char& c : n) c = char(std::toupper(static_cast<unsigned char>(c)));
+            const std::vector<race::RaceFlow::ResultRow> rows = race_->flow().results();
+            const int i = args.empty() ? -1 : int(args[0].to_number());
+            const race::RaceFlow::ResultRow* row = i >= 0 && size_t(i) < rows.size() ? &rows[size_t(i)] : nullptr;
+            if (n == "CB_ISVISIBLE") return V::boolean(row != nullptr);
+            if (n == "CB_STABLE") return V::boolean(row && row->finished);
+            if (n == "CB_PLAYERRANK") {
+                for (size_t k = 0; k < rows.size(); ++k)
+                    if (rows[k].car == 0) return V::number(double(k));
+                return V::number(-1);
+            }
+            if (n == "CB_GETNAME") return V::string(row ? race_->car_name(row->car) : std::string());
+            if (n == "CB_GETTIME") return V::string(row && row->finished ? race::format_lap_time(row->total_ms) : std::string());
+            if (n == "CB_ENABLEEXIT") return V::number(1);
+            if (n == "CB_RACEEXIT") result_exit_ = true;
+            if (n == "PLAY_SOUND")
+                if (audio::AppSound* sound = app.sound()) sound->menu().play(args.empty() ? std::string() : args[0].to_string());
+            if (n == "NAVIGATEALL" && result_) result_->navigate(true, true);
+            return V::number(0); // isChampionship, isStage1, ...: no
+        };
+        result_ = std::make_unique<race::StrobePlayer>(result_movie_, host);
+        result_->play(); // the page up: the movie plays on from its first frame
     }
 
     // After the run and its replay: the race's menus, back to the menus that asked for the race, or the
     // same race again.
     void finish_run(App& app) {
+        result_tried_ = false, result_.reset();
         if (menus_) return enter_quick(spectator_ ? 2 : 1);
         if (from_menus_) {
             report();
@@ -871,6 +924,9 @@ private:
     std::unique_ptr<race::StrobePlayer> pause_;
     std::string pause_result_;
     bool pause_exit_ = false;
+    std::shared_ptr<const race::StrobeMovie> result_movie_;
+    std::unique_ptr<race::StrobePlayer> result_;
+    bool result_tried_ = false, result_exit_ = false;
     int screen_[2] = {0, 0}; // the pause's screen settings: brightness, contrast (-5..5) ❓ not applied to the picture
     menu::Runtime* menus_ = nullptr;    // the race's menus run on these (from the menus that asked)
     std::unique_ptr<menu::Runtime> own_menus_; // a scripted run's

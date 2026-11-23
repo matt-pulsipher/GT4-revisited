@@ -82,7 +82,7 @@ struct StrobePlayer::Clip {
     Clip* parent = nullptr;
     size_t track = 0; // its track in the parent's sprite
     int frame = 0;
-    bool playing = true;
+    bool playing = true, visible = true;
     std::map<std::string, Value> vars; // by lower-case name
     std::map<size_t, std::unique_ptr<Clip>> children; // by track
     std::array<std::unique_ptr<Clip>, 3> states;      // a button's: up, over, down
@@ -110,6 +110,9 @@ struct StrobePlayer::Impl {
             c->kind = Clip::SpriteClip;
             if (size_t(t.index) >= movie->sprites.size()) return nullptr;
             enter(*c);
+            // Its load event (clip event 0x01).
+            for (const auto& [mask, block] : t.clip_actions)
+                if ((mask & 0x01) && block >= 0) queue.push_back({c.get(), block});
         } else if (t.kind == Movie::kButton) {
             c->kind = Clip::ButtonClip;
             if (size_t(t.index) >= movie->buttons.size()) return nullptr;
@@ -173,6 +176,11 @@ struct StrobePlayer::Impl {
         }
         for (Clip* k : kids)
             if (std::any_of(c.children.begin(), c.children.end(), [k](const auto& e) { return e.second.get() == k; })) tick(*k);
+        // The children's frame event (clip event 0x02), every frame.
+        if (c.kind == Clip::SpriteClip)
+            for (auto& [i, ch] : c.children)
+                for (const auto& [mask, block] : movie->sprites[size_t(c.index)].tracks[i].clip_actions)
+                    if ((mask & 0x02) && block >= 0) queue.push_back({ch.get(), block});
         for (auto& s : c.states)
             if (s) tick(*s);
     }
@@ -254,6 +262,7 @@ struct StrobePlayer::Impl {
         if (n == "_root") return clip_value(root.get());
         if (n == "text" && c.kind == Clip::TextClip) return Value::string(c.text);
         if (n == "_currentframe") return Value::number(c.frame + 1);
+        if (n == "_visible") return Value::boolean(c.visible);
         if (const auto it = c.vars.find(n); it != c.vars.end()) return it->second;
         if (Clip* ch = child_named(c, name)) return clip_value(ch);
         return {};
@@ -262,6 +271,7 @@ struct StrobePlayer::Impl {
         if (o.kind != Value::ClipRef || !o.clip) return;
         Clip& c = *o.clip;
         if (c.kind == Clip::TextClip && lower(name) == "text") c.text = v.to_string();
+        else if (lower(name) == "_visible") c.visible = v.truthy();
         else c.vars[lower(name)] = v;
     }
 
@@ -467,6 +477,7 @@ struct StrobePlayer::Impl {
 
     void buttons(Clip& c, std::vector<Clip*>& out) {
         for (auto& [i, ch] : c.children) {
+            if (!ch->visible) continue;
             if (ch->kind == Clip::ButtonClip) out.push_back(ch.get());
             else if (ch->kind == Clip::SpriteClip) buttons(*ch, out);
         }
@@ -564,6 +575,7 @@ struct StrobePlayer::Impl {
     // ---- drawing
 
     void draw(const Clip& c, const float* m, const float* mul, const float* add, std::vector<Draw>& out) const {
+        if (!c.visible) return;
         if (c.kind == Clip::ButtonClip) {
             const int state = &c == focus ? (pressed > 0 ? 2 : 1) : 0;
             const Clip* s = c.states[size_t(state)] ? c.states[size_t(state)].get() : c.states[0].get();
@@ -633,7 +645,7 @@ void StrobePlayer::restart() {
 void StrobePlayer::advance(float seconds) {
     Impl& m = *impl_;
     m.clock += seconds * m.movie->fps;
-    for (int n = 0; m.clock >= 1 && n < 8; ++n) {
+    for (int n = 0; m.clock >= 1 && n < 600; ++n) {
         m.clock -= 1;
         m.tick(*m.root);
         m.run_queue();
@@ -681,6 +693,10 @@ std::vector<StrobePlayer::Draw> StrobePlayer::draw_list() const {
 }
 
 int StrobePlayer::frame() const { return impl_->root->frame; }
+
+void StrobePlayer::play() {
+    impl_->root->playing = true;
+}
 
 std::string StrobePlayer::state() const {
     std::string best;
