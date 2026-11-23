@@ -464,7 +464,8 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
         ex::aids(c, race_.aids);
         if (gt4_rules_) rules::dynamics(c, gx_[i], layouts_[i], tables_);
         else ex::dynamics(c, race_.statics, race_.gears, race_.class_grip);
-        ex::brake_heat(c, race_.brake_heat);
+        if (gt4_rules_) rules::brake_heat(c, layouts_[i], tables_.brake_heat, gx_[i].drive.d.tire_radius);
+        else ex::brake_heat(c, race_.brake_heat);
         ex::clear_feedback(c);
     }
     collide();

@@ -100,4 +100,23 @@ bool wear_grip(ex::Car& c, WearExtra& x, const TireExtra& t, const WheelLayout& 
     return true;
 }
 
+void brake_heat(ex::Car& c, const WheelLayout& l, const ex::BrakeHeatConsts& k, const std::array<F, 2>& radius) {
+    const F dt = c.dt;
+    const F zero = F::raw(0), one = F::raw(0x3F800000);
+    for (int w = 0; w < l.count && w < 4; ++w) {
+        ex::Wheel& wh = c.w[size_t(w)];
+        const size_t a = l.axle[size_t(w)] & 1;
+        F v = wh.rim_speed;
+        const F torque = c.p.brake_torque[a] * radius[a];
+        if (v < zero) v = -v;
+        F heat = ((torque * wh.brake) * v) * k.c0;
+        if (c.brake_pedal == zero) heat = zero;
+        const F cool = ((v + k.c2) * k.c1) * (wh.brake_heat + k.c3);
+        F h = wh.brake_heat + (heat - cool) * dt;
+        if (one < h) h = one;
+        else if (h < zero) h = zero;
+        wh.brake_heat = h;
+    }
+}
+
 } // namespace gt4r::sim::rules

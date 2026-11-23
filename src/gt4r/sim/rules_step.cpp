@@ -27,6 +27,16 @@ Tables tables(const Program& program, const ex::Statics&) {
     t.globals.camber_ref = F::raw(program.w(kCamberRef)), t.globals.camber_gain = F::raw(program.w(kCamberGain));
     t.globals.mean_on = 1;
     t.drive = drive_tables(program);
+    // The brake heat's constants (0x3F3808): 1 / (b0 x 9800), 1 / (b1 x 0.1 x 100), b2 km/h in m/s, b3 x 0.01, of the
+    // static block's bytes +0xAC .. +0xAF (the first two 1 when 0).
+    {
+        auto byte = [&](u32 o, bool least) { const u8 v = program.b(Program::kStatic + o); return least && v == 0 ? u8(1) : v; };
+        const F one = F::raw(0x3F800000);
+        t.brake_heat.c0 = one / (gt3r::ee::int_to_f(byte(0xAC, true)) * F::raw(0x46191FFF));
+        t.brake_heat.c1 = one / ((gt3r::ee::int_to_f(byte(0xAD, true)) * F::raw(0x3DCCCCCC)) * F::raw(0x42C80000));
+        t.brake_heat.c2 = gt3r::ee::int_to_f(byte(0xAE, false)) * F::raw(0x3E8E38E3);
+        t.brake_heat.c3 = gt3r::ee::int_to_f(byte(0xAF, false)) * F::raw(0x3C23D70A);
+    }
     return t;
 }
 

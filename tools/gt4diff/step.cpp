@@ -67,6 +67,12 @@ void add_taps(Taps& taps) {
     taps.add({0x36E4B8, "wheel speeds", car_a0, [](TapCall& t) { wheel_speeds(t.car, t.rec.x.drive, t.rec.layout); }});
     taps.add({0x3519B8, "engine speed", car_a0, [](TapCall& t) { engine_speed(t.car, t.rec.x.drive, t.rec.layout); }});
     taps.add({0x351DC8, "gear", car_a0, [](TapCall& t) { gear_step(t.car, t.rec.x.drive, t.rec.layout, t.rec.x.tires, drive_tables(t.ee)); }});
+    taps.add({0x3F38D8, "brake heat", car_a0, [](TapCall& t) {
+                  ex::BrakeHeatConsts k;
+                  k.c0 = gt3r::ee::F::raw(t.ee.r32(kBrakeHeatConsts)), k.c1 = gt3r::ee::F::raw(t.ee.r32(kBrakeHeatConsts + 4));
+                  k.c2 = gt3r::ee::F::raw(t.ee.r32(kBrakeHeatConsts + 8)), k.c3 = gt3r::ee::F::raw(t.ee.r32(kBrakeHeatConsts + 12));
+                  brake_heat(t.car, t.rec.layout, k, t.rec.x.drive.d.tire_radius);
+              }});
     taps.add({0x3554A0, "engine torque", car_a0, [](TapCall& t) { t.ret_f("returns", engine_torque(t.car, t.rec.x.drive, gt3r::ee::F::raw(t.ee.fpr[12]))); }});
     taps.add({0x3658A0, "step length", car_a0, [](TapCall& t) { ex::step_length(t.car); }});
     taps.add({0x356EF0, "wear grip", car_a0, [](TapCall& t) {
@@ -107,6 +113,8 @@ void add_taps(Taps& taps) {
         taps.add({0x36E4B8, "engine: wheel speeds", car_a0, [](TapCall& t) { ex::wheel_speeds(t.car); }});
         taps.add({0x3519B8, "engine: engine speed", car_a0, [](TapCall& t) { ex::engine_speed(t.car, t.inputs.statics.hybrid); }});
         taps.add({0x351DC8, "engine: gear", car_a0, [](TapCall& t) { ex::gear_step(t.car, t.inputs.gears); }});
+        taps.add({0x3F38D8, "engine: brake heat", car_a0, [](TapCall& t) { ex::brake_heat(t.car, t.inputs.brake_heat); }});
+        taps.add({0x3F7EA8, "engine: wheel steer", car_a0, [](TapCall& t) { ex::wheel_steer(t.car); }});
     }
     taps.add({0x36C9F8, "body axes", [](Ee& e) { return u32(e.a(0)) - 0x110; }, [](TapCall& t) { sim::rules::body_axes(t.car); }});
 }
@@ -222,6 +230,24 @@ StepResult run_step(Disc& disc, bool print, const std::string& course_label, con
                         int(theirs_slip.fade == mine.slip.fade && theirs_slip.gain_on == mine.slip.gain_on), int(g.steer_mode), int(mine.globals.steer_mode),
                         g.camber_ref.bits, mine.globals.camber_ref.bits, g.camber_gain.bits, mine.globals.camber_gain.bits, g.mean_on, mine.globals.mean_on,
                         ee.r32(o.car(0) + kF + 0x4D4), ee.r32(o.params(0) + 0x48));
+        for (u32 k = 0; k < 4; ++k) {
+            const u32 theirs_k = ee.r32(sim::rules::kBrakeHeatConsts + 4 * k);
+            const u32 ours_k = (k == 0 ? mine.brake_heat.c0 : k == 1 ? mine.brake_heat.c1 : k == 2 ? mine.brake_heat.c2 : mine.brake_heat.c3).bits;
+            if (theirs_k != ours_k) {
+                same = false;
+                if (print) std::printf("  brake heat constant %u: the program's %08X, ours %08X\n", k, theirs_k, ours_k);
+            }
+        }
+        {
+            const sim::rules::DriveTables a = drive_tables(ee), b = mine.drive;
+            const bool dt = a.awd.fade_start.bits == b.awd.fade_start.bits && a.awd.fade_floor.bits == b.awd.fade_floor.bits &&
+                            a.awd.negative_full == b.awd.negative_full && a.stepless.full.bits == b.stepless.full.bits &&
+                            a.stepless.none.bits == b.stepless.none.bits && a.stepless.down.bits == b.stepless.down.bits &&
+                            a.stepless.up.bits == b.stepless.up.bits && a.gears.mode == b.gears.mode && a.gears.down_throttle == b.gears.down_throttle &&
+                            a.gears.down_lift == b.gears.down_lift && a.gears.down_brake == b.gears.down_brake;
+            if (!dt && print) std::printf("  the driveline's tables differ\n");
+            same = same && dt;
+        }
         road.equal = same ? 1 : 0;
         result.taps.push_back(road);
         if (print) std::printf("  %-28s %s\n", road.name.c_str(), same ? "equal" : "differ");

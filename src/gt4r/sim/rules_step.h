@@ -21,6 +21,7 @@ struct Tables {
     SlipForceGlobals globals;
     WearRules wear; // (all off: the wear rules of the races seen)
     DriveTables drive;
+    ex::BrakeHeatConsts brake_heat; // (0x3F3808 from the static block's +0xAC .. +0xAF)
 };
 // From the program (its static block and globals: each surface's rolling resistance as the race's start
 // 0x35F808 makes it) and the engine's rolling resistance curve (from the same static block).
