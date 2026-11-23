@@ -847,6 +847,8 @@ std::weak_ptr<GameNatives> g_natives_of(Runtime& rt, std::shared_ptr<GameNatives
 }
 } // namespace
 
+std::shared_ptr<GameNatives> natives_of(Runtime& rt) { return g_natives_of(rt).lock(); }
+
 Value make_car_object(Runtime& rt, const std::string& label, int paint) {
     const std::shared_ptr<GameNatives> n = g_natives_of(rt).lock();
     if (!n) return Value{};

@@ -141,6 +141,10 @@ public:
     std::string wanted_project() const;
     // or the race they asked for (`main::game.next_sequence` set to a race's).
     std::optional<RaceRequest> race_request() const;
+    // A race run: what the program writes after it (records, the diary's day, the counters),
+    // as GameState holds them. Answers the prize the scripts pay (the quick menus' `prize`;
+    // the money itself is the scripts' incMoney).
+    s64 race_finished(const RaceResult& result);
     // Starts the project asked for; false when there is none (a race was asked for, or nothing).
     bool advance();
 

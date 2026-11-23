@@ -49,6 +49,25 @@ struct RaceRequest {
     int garage_slot = -1, garage_slot_2p = -1;
 };
 
+// What a race gives back to the menus (the race side fills it): the program's result routines
+// (0x114498 an event, 0x1105A8 a license test, 0x11C328 a mission, 0x115A90 on a course's run)
+// write it into the game's records, the diary and the counters.
+struct RaceResult {
+    enum class Kind { Event, License, Mission, Course };
+    Kind kind = Kind::Event;
+    std::string race;      // the RACE label as the request had it ("am_sunday_0001", "l0b0001")
+    std::string course;    // the course's label (a course's run)
+    int course_kind = 1;   // a course's run: 1 free run, 2 event, 3 practice, 4 photo, 6 machine test, 7 time trial
+    bool finished = true;
+    int place = 0;         // 0: first
+    std::string result;    // a test's: "gold", "silver", "bronze", "failed", ... (the result names)
+    u32 time_ms = 0;       // the whole race's time
+    std::string pass_code; // a ranking entry's (up to 32 characters)
+    float distance_m = 0;  // what the car driven covered
+    int score = -1;        // the race's A-spec points (-1: none)
+    int garage_slot = -1;  // the car driven's place in the garage (-1: not a garage car)
+};
+
 // A car's record as the garage keeps it: the program's CarGarage (0x4B8 bytes, saved as they
 // are; docs/formats/save.md "The car record"): three settings sheets, each a car equipment record
 // (sim/equipment.h), the wheel chosen for each tire category, the sheet in use, the parts owned

@@ -132,3 +132,99 @@ void install_race_classes(GameNatives& n, script::Module& menu) {
 }
 
 } // namespace gt4r::menu
+
+namespace gt4r::menu {
+
+// The program's result routines in outline (docs/formats/menu.md "After a race"): a finished
+// event pays the place's prize (left to the scripts to add) and counts the place; a better
+// place updates the race's record unit; a test keeps its result and its ranking; every run is
+// a day of the diary.
+s64 Runtime::race_finished(const RaceResult& r) {
+    const std::shared_ptr<GameNatives> n = natives_of(*this);
+    GameState& s = game();
+    if (!n) return 0;
+    Database& d = n->db();
+    std::string race = r.race;
+    for (const std::string& tried : {r.race, "us" + r.race, "jp" + r.race})
+        if (!r.race.empty() && d.code(kRaceTable, tried) != kNoCode) {
+            race = tried;
+            break;
+        }
+    const u64 race_code = d.code(kRaceTable, race);
+    const int unit = d.race_unit(race);
+    auto update_unit = [&](u32 type, u32 result) {
+        if (unit < 0) return;
+        u32& w = s.race_units[size_t(unit)];
+        const u32 have = w & 15;
+        if (have == 0) w = (w & ~0xFFFu) | type | result << 4 | result << 8;
+        else if (have == type) {
+            w = (w & ~(15u << 8)) | result << 8;
+            if (result < ((w >> 4) & 15)) w = (w & ~(15u << 4)) | result << 4;
+        }
+        if (r.score >= 0 && ((w >> 16) & 0xFF) < u32(std::min(r.score, 255))) w = (w & ~(0xFFu << 16)) | u32(std::min(r.score, 255)) << 16;
+    };
+    static const char* const kNames[16] = {"1", "2", "3", "4", "5", "6", "7", "8", "abandon", "gold", "silver", "bronze", "red", "failed", "view", "NONE"};
+    auto result_number = [](const std::string& name) {
+        for (u32 i = 0; i < 16; ++i)
+            if (name == kNames[i]) return i;
+        return 15u;
+    };
+    // The car's distance (❓ the adders 0x343518 on are the race's; their callers are not read).
+    if (r.garage_slot >= 0 && size_t(r.garage_slot) < s.garage.size() && s.garage[size_t(r.garage_slot)].record && r.distance_m > 0) {
+        CarRecord& rec = *s.garage[size_t(r.garage_slot)].record;
+        rec.set_odometer(std::min<u32>(rec.odometer() + u32(r.distance_m), 100'000'000));
+        if (!rec.no_wear()) {
+            rec.set_condition(1, std::min(rec.condition(1) + r.distance_m, 11'000'000.0f));
+            rec.set_condition(2, std::min(rec.condition(2) + r.distance_m, 6'000'000.0f));
+            rec.set_condition(4, std::min(rec.condition(4) + r.distance_m, 3'000'000.0f));
+        }
+        s.aspec_distance += s64(r.distance_m);
+    }
+    DayEvent day;
+    s64 prize = 0;
+    switch (r.kind) {
+    case RaceResult::Kind::Event: {
+        if (!r.finished) {
+            ++s.rank_counts[0];
+            day.b1 = 15;
+            day.word = kNoTime;
+        } else {
+            const int p = std::clamp(r.place, 0, 7);
+            const ByteSpan row = d.row("RACE", race);
+            prize = p < 6 && row.size() >= 0x2C ? s64(u16(row[0x20 + 2 * size_t(p)] | row[0x21 + 2 * size_t(p)] << 8)) * 100 : 0;
+            if (p < 6) ++s.rank_counts[size_t(p) + 1];
+            s.total_prize_money += prize;
+            update_unit(2, u32(p));
+            day.b1 = u8(p), day.word = r.time_ms;
+        }
+        day.b2 = 14;
+        if (race == "family") day.type = 8, day.b3 = 2, day.code = d.code(kCourseTable, r.course);
+        else day.type = 3, day.code = race_code;
+        break;
+    }
+    case RaceResult::Kind::License:
+    case RaceResult::Kind::Mission: {
+        const bool license = r.kind == RaceResult::Kind::License;
+        const u32 result = r.finished ? result_number(r.result) : 15;
+        update_unit(license ? 1 : 3, result);
+        day.type = license ? 4 : 5, day.b1 = u8(result), day.b2 = 14, day.word = r.finished ? r.time_ms : kNoTime, day.code = race_code;
+        // The test's ranking (0x4320B8): a finished run with a time.
+        if (r.finished && r.time_ms && result != 15) {
+            const Value args[3] = {Value::integer(s32(r.time_ms)), Value::string(kNames[result]), Value::string(r.pass_code.empty() ? "--------" : r.pass_code)};
+            const Value record = vm().attribute(vm().lookup("game"), "license_record");
+            const Value label[1] = {Value::string(race)};
+            const Value u = record.p ? vm().call(vm().attribute(record, "getUnit"), label) : Value{};
+            if (u.p) vm().call(vm().attribute(u, "insertEntry"), args);
+        }
+        break;
+    }
+    case RaceResult::Kind::Course:
+        day.type = 8, day.b3 = u8(r.course_kind), day.b1 = u8(r.finished ? 0 : 15), day.b2 = 14, day.word = r.finished ? r.time_ms : kNoTime;
+        day.code = d.code(kCourseTable, r.course);
+        break;
+    }
+    s.put_day(day);
+    return prize;
+}
+
+} // namespace gt4r::menu

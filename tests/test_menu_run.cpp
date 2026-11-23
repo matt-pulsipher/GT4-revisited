@@ -974,6 +974,53 @@ TEST(disc_menu_gt_mode_places) {
     CHECK(h.clean());
 }
 
+// What a finished race gives back (made-up results): an event's prize and place, the race's
+// record, a day of the diary; a license test's result and ranking; then GT mode again.
+TEST(disc_menu_race_results) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    Flow f(*disc);
+    CHECK(f.gt_mode_with_a_car());
+    if (f.page() != "TopRoot") return;
+    menu::GameState& g = f.rt->game();
+    script::Vm& vm = f.rt->vm();
+    const u32 today = g.today;
+    const s64 prizes = g.total_prize_money;
+    menu::RaceResult won;
+    won.race = "am_sunday_0001", won.place = 0, won.time_ms = 185'432, won.distance_m = 8'000, won.garage_slot = g.riding_car, won.score = 30;
+    CHECK(f.rt->race_finished(won) == 600);
+    CHECK(g.total_prize_money == prizes + 600 && g.rank_counts[1] == 1 && g.today == today + 1 && g.diary.back().type == 3 && g.diary.back().word == 185'432);
+    CHECK(g.garage[0].record->odometer() == 8'000);
+    const Value record = vm.attribute(vm.lookup("game"), "race_record");
+    const Value label[1] = {Value::string("am_sunday_0001")};
+    const Value unit = vm.call(vm.attribute(record, "getUnit"), label);
+    CHECK(vm.attribute(unit, "result").as_string() == "1" && vm.attribute(unit, "type").as_string() == "event" && vm.attribute(unit, "best_score").i == 30);
+    // Second place later does not undo the win; the diary keeps both days.
+    menu::RaceResult second = won;
+    second.place = 1;
+    CHECK(f.rt->race_finished(second) == 500 && vm.attribute(unit, "result").as_string() == "1" && vm.attribute(unit, "present_result").as_string() == "2");
+    // Not finished: a race counted as such, no prize.
+    menu::RaceResult retired = won;
+    retired.finished = false;
+    CHECK(f.rt->race_finished(retired) == 0 && g.rank_counts[0] == 1 && g.diary.back().b1 == 15);
+    // A license test passed with gold: its unit, its ranking, a day.
+    menu::RaceResult test;
+    test.kind = menu::RaceResult::Kind::License, test.race = "l0b0001", test.result = "gold", test.time_ms = 10'123;
+    f.rt->race_finished(test);
+    const Value tlabel[1] = {Value::string("l0b0001")};
+    CHECK(vm.attribute(vm.call(vm.attribute(record, "getUnit"), tlabel), "result").as_string() == "gold");
+    const Value ranking = vm.call(vm.attribute(vm.attribute(vm.lookup("game"), "license_record"), "getUnit"), tlabel);
+    CHECK(vm.call(vm.attribute(ranking, "getRankNum"), {}).i == 1);
+    const Value first[1] = {Value::integer(0)};
+    CHECK(vm.call(vm.attribute(ranking, "getBestTime"), first).as_string() == "0'10.123" && g.diary.back().type == 4);
+    // The diary's page of those days says what was run.
+    f.map_focus("Home");
+    f.press({menu::Key::Accept});
+    f.focus_on("Diary");
+    f.press({menu::Key::Accept});
+    CHECK(f.page() == "LogRoot" && f.clean());
+}
+
 // Prologue's main script, configuration and projects load, and a project shows a page.
 TEST(disc_menu_prologue_loads) {
     Disc* prologue = nullptr;

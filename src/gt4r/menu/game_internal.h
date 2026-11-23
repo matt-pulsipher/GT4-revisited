@@ -171,4 +171,7 @@ struct GameNatives {
     save::GameSave& card();
 };
 
+// The runtime's game natives (none before install_game_natives).
+std::shared_ptr<GameNatives> natives_of(Runtime& rt);
+
 } // namespace gt4r::menu
