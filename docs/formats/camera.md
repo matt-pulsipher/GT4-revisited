@@ -2,8 +2,9 @@
 
 Code: `src/gt4r/race/drive_camera.*` (the driving views and the mounts), `src/gt4r/race/replay_script.*`
 (the replay script and the camera that plays it: the place, the target or the car, the lens, the
-picture offsets and the roll; not the operator's filter, the lens's spring, the roadside points,
-the marks, or the shots that run on time). Facts from the program (`CORE.GT4`, SCUS-97328 v1.01;
+picture offsets and the roll, the record search; the scenic shots on time; not the operator's
+filter, the lens's spring, the roadside points or the marks), `src/gt4r/race/start_camera.*`
+(the start's shots). Facts from the program (`CORE.GT4`, SCUS-97328 v1.01;
 addresses are the program's) and from the disc's cars and courses. The camera's own angles are
 degrees; a car's attitude angles are radians. 🔎 partly understood, ❓ not investigated; the
 rest is read from the program and, where data is involved, checked on the disc as stated. The shared engine's counterparts: [RACE.md](../../engine/gt3r/docs/dev/RACE.md)
@@ -212,12 +213,15 @@ leftovers.
 | Slot | What | On the disc |
 |---|---|---|
 | 44 | the course's replay script: records by distance along the course | 3 to 162 records; 6,386 in all |
-| 45 | 🔎 a shot round the car: flies in from 30 m ahead and 2 m up to the car's nose, then cuts closer | one record, the same bytes on all 110 courses; the same path as `cameras/start.cam` |
-| 46 | 🔎 shots round the car, cut at 0.8, 0.85, 0.9 of the way | one record; one version on 104 courses, own versions on Assisi, Grand Canyon, Tsukuba |
-| 48 | the course's scenic shots, run on time: the preview | 4 to 6 records, 475 in all |
+| 45 | unused: a shot round the car (flies in from 30 m ahead and 2 m up to the car's nose) | one record, the same bytes on all 110 courses; the same path as `cameras/start.cam` |
+| 46 | unused: shots round the car, cut at 0.8, 0.85, 0.9 of the way | one record; one version on 104 courses, own versions on Assisi, Grand Canyon, Tsukuba |
+| 48 | the course's scenic shots, run on time: the scene behind the race's menus | 4 to 6 records, 475 in all |
 
 There is one replay set per course (slot 44): its lap variants (below) are what changes from
-lap to lap. Which camera reads slots 45 and 46, and when, has not been found.
+lap to lap. **Slots 45 and 46 are not used by the program**: the loader relocates them
+(0x3966D4, 0x3966F0) and `RaceCourse` has getters for them (0x5F73E8, 0x5F73F8), but nothing
+calls those getters and no other code reads header +0xB4 / +0xB8. A race's start is the `Mot1`
+motion of slot 52 (below).
 
 ### Layout
 
@@ -277,9 +281,11 @@ words (0 on all but a few), f32 field of view (30; 90 on 55), two zero words.
   on the disc, 5 on most): field of view = 2 atan(width / (2 x distance)). Without it the
   curve is the **field of view in degrees** (30 on most; down to 1 for the telephoto shots).
   Either way the result is held between the record's smallest and largest.
-- `0x200`: 🔎 the camera looks at the look-at curves until the shot is half way, then at the
-  car (it applies to a shot entered at its start).
-- `0x400`: the shot starts with its progress at 1.
+- `0x200`: a shot entered within its first 5 % (0x3FD940) aims at the look-at curves' point on
+  its **first frame only**; from the second frame the target is the car and the aim's dampers
+  swing the camera onto it. A shot entered past its half ignores 0x200.
+- `0x400`: the roll curve at its full size (each other shot scales its roll by a random 0..1
+  drawn at the cut, 0x376DE0); the scenic shots (camera mode 5) use the full size too.
 
 On the disc (slot 44): 4 (4,709 records), 0x104 (705), 0 (538), 0x204 (361), 0x100, 0x304,
 0x404, 0x200, 0x400 (a few each).
@@ -290,10 +296,26 @@ filter (the shared engine's `course_camera_aim`; GT4 adds the two per-record cur
 0x68); roll from its curve; the field of view through a spring of its own; focus on the target
 (its distance + 0.7 m when it is the car).
 
+**Record +0x18**: the dissolve in seconds when the shot ends (`CameraDesigner::vf25`
+0x37C9C8; 0.5 on every record of slot 48). 🔎 How the program blends the two pictures.
+
+**Which record** (0x3FD980 -> 0x396078 -> 0x3DDFF0): D at or past T wraps by the period; a
+binary search finds the **last record with start <= D**, taken only if D < its end (records are
+in the order of their starts, so an earlier record that still covers D is not found); past the
+last record the search goes on from record 0 with D - period. No record: the on-board camera,
+and the search runs again every frame. The record found plays until its own progress leaves
+0..1 (`CameraDesigner::vf10` 0x37C138); then the next frame searches anew at the car's D. A
+record that starts meanwhile does not cut in.
+
+**The scenic shots** (slot 48; the camera manager's mode 5, 0x375980, forced on screen 0 while the
+race's menus show, `RaceBase::vf40` 0x388880): the records in file order from record 0, each
+run on time for its `end` seconds (t = frames since the cut / (end x 60), 0x3FC9A0), then the
+next, after the last record 0 again, cut with the ended record's dissolve; roll at full size. A
+course with no slot 48 record shows the on-board view.
+
 **D and the lap variants** (slot 44) work as in the shared engine: a car at distance s along
 the lap on lap variant k is at D = k L + s; the script's period is L x (int(T / L) - 1 -
-int(first record's start / L)), and a D past the last record wraps by the period. The search
-returns the records with start <= D < end, at most 32. The first records start a little
+int(first record's start / L)), and a D past the last record wraps by the period. The first records start a little
 before 0 (Tsukuba: -28 m) and cover the standing start. Header +0x1C states the variant count
 (3 on 72 courses; 1 to 6); it equals the formula on 103 of the 110 courses and differs on drag
 strips and short layouts, where the program still uses the formula. Within a record the
@@ -315,15 +337,14 @@ points with their stretches (GTRC's second list had no stretches), the marks as 
 distances. Gone: the on-board mount number (+0x18 in GTRC) — on-board shots are the ride-on
 camera's, from its two tables.
 
-## Camera motions: `Mot1` (course slots 52, 53) 🔎
+## Camera motions: `Mot1` (course slots 52, 53)
 
-A set of named motions keyed with cubic curves. The path-animation camera plays the motion
-`start_camera1` of slot 52 for a race's start and `replay_start_camera1` of slot 53 for a
-replay's (names at 0x69FB60 / 0x69FB48), anchored to the car's place and heading when it
-begins. On Tsukuba `start_camera1` is a sequence of three clips: `start_jingle4` (7 s),
-`start_countdown_B1` (1.0167 s), `start_countdown_A1` (1 s). All 110 courses have both blocks:
-slot 52 holds one of `start_jingle3` .. `start_jingle9` with `start_countdown_B1` / `_A1`;
-slot 53 holds `start_jingle2` and `start_countdown_A2`, `_B2`, `_C1`, `_D1`.
+Code: `src/gt4r/race/start_camera.*`. A set of named clips keyed with cubic curves. The
+path-animation camera (kind 3) plays slot 52's `start_camera1` for a race's start (camera mode 3,
+0x3756D8) and slot 53's `replay_start_camera1` for a replay's (mode 4, 0x375860; names at
+0x69FB60 / 0x69FB48). All 110 courses have both: slot 52 holds one of `start_jingle3` ..
+`start_jingle9` (7 s) with `start_countdown_B1` (1.0167 s) and `_A1` (1 s); slot 53 holds
+`start_jingle2` (7 s) and `start_countdown_A2`, `_B2`, `_C1`, `_D1` (1 s each).
 
 ```
 0x00 "Mot1"
@@ -335,13 +356,33 @@ clip (0x20 bytes): f32 length in seconds, f32 ❓, 0, 0, u32 -> name, u32 channe
                    u32 -> channel pointers, u32 -> the key data
 channel (0x10 bytes): u32 1, 0, 0, u32 -> keys
 keys: u32 n, 0, 0, f32 first value, then (n - 2) / 4 pieces of
-      {f32 control 1, f32 control 2, f32 end time, f32 end value}: a cubic Bezier per piece
+      {f32 control 1, f32 control 2, f32 end time (seconds), f32 end value}
+sequence (0x10 bytes): u32 clips, u32 -> ❓, f32 total seconds (9.0167 in slot 52, 11 in 53), 0
 ```
 
-A camera clip's 10 channels, by their values: eye x, y, z; look-at x, y, z; an up vector
-(unit length); one lens value (0.66 to 0.72 on Tsukuba: ❓ its unit). ❓ The sequence record,
-the third table, the frame the coordinates are in.
+A piece is a cubic Bezier in value from the previous key to its end over the time between them
+(🔎 time taken as linear in the curve's parameter; the disc's controls lie on thirds of a
+straight where a channel moves evenly). A clip's 10 channels: eye x, y, z; look-at x, y, z; the
+up vector (unit length); the field of view in radians (Tsukuba 0.722 = 41 degrees).
 
+### The start's shots
+
+- **How long** (`CameraPathanim` vf39 0x37D338, vf10 0x37D620): entered while the start's hold
+  runs; it runs for the hold less 60 frames (race) or the hold plus 60 (replay), counting its
+  remaining seconds r down. The clip is chosen by r, not by the time played (0x37D5B0; table
+  0x621270 race, 0x621290 replay); the motion advances 1/60 s a frame and restarts at each
+  change of clip. Race: the long clip while r >= 2, the second for 1 <= r < 2, the third for the
+  last second. Replay: the long clip while r >= 4, then one clip a second. A 10 s hold: the
+  whole 7 s clip, B1, A1, and the camera ends 1 s before the start signal (the driver's view
+  takes the last second). An 8 s hold shows only the first 5 s of the long clip.
+- **Where**: the long clip at the course's **start place 0** (0x3FCA08: its place and heading,
+  the height from the road under it); the others at the **followed car's place and heading
+  when the camera began**, mirrored left to right for a car with entry flag +0x3444 bit 0
+  (0x37D874, ❓ that flag). The clips' frame: x across, y up, z toward the back of the anchor
+  (the program's frame has the course's z the other way round). Seen on Tsukuba: the long clip
+  flies from the line back over the grid to the last car, B1 is the player's car from in
+  front, A1 from behind.
+- A skip was not found in the camera's code.
 ## `cameras/attach.cam`, `replay.cam`, `start.cam` 🔎
 
 Three files in the shared engine's `GTRC` layout, which its parser reads. `start.cam` and

@@ -14,6 +14,7 @@
 #include "gt4r/audio/app_sound.h"
 #include "gt4r/menu/font.h"
 #include "gt4r/menu/project.h"
+#include "gt4r/menu/race_natives.h"
 #include "gt4r/menu/runtime.h"
 #include "gt4r/menu/native.h"
 #include "gt4r/menu/runtime_internal.h"
@@ -269,6 +270,19 @@ private:
             if (runtime_->finished() && !race_) {
                 race_ = runtime_->race_request();
                 if (!race_ && !runtime_->advance()) runtime_->note("the menus ended and asked for nothing");
+                // A race with its own menus: the race screen runs them over the race on these menus
+                // and leaves them where the race sequence ends (race_natives.h).
+                if (race_ && !menu::quick_project(race_->sequence).empty() && app.gpu()) {
+                    RaceStart start;
+                    start.course = race_->course, start.car = race_->car, start.paint = race_->paint;
+                    start.cars = std::max(1, race_->max_entry);
+                    if (race_->laps > 0) start.laps = race_->laps;
+                    start.menus = runtime_.get();
+                    start.sequence = race_->sequence;
+                    race_.reset();
+                    if (audio::AppSound* sound = app.sound()) sound->menu().stop_music(), sound->menu().stop_stream();
+                    app.push(make_race_screen(app, start));
+                }
             } else if (race_ && m.pressed(PadButton::Cross)) {
                 // The race the menus asked for, on the course as it is driven forward (a reversed
                 // course's code is the course's with "r_" before it).
@@ -383,5 +397,61 @@ private:
 } // namespace
 
 std::unique_ptr<Screen> make_menu_viewer(App& app) { return std::make_unique<MenuViewer>(app); }
+
+} // namespace gt4r
+
+// ---- The running menus drawn over another screen (menu_painter.h).
+
+#include "gt4r/app/menu_painter.h"
+
+namespace gt4r {
+
+namespace {
+
+class RuntimePainter : public MenuPainter {
+public:
+    explicit RuntimePainter(App& app) : drawer_(app) {}
+    void draw(menu::Runtime& rt, float x, float scale) override {
+        for (const auto& page : rt.open_pages())
+            if (menu::Project* project = rt.project_of(*page)) drawer_.draw(*project, *page, x, 0, scale, 0);
+        // The pointer: the common project's cursor picture at the focused widget (as the viewer).
+        if (rt.cursor_visible() && rt.common_project())
+            if (LiveWidget* focus = rt.focused(); focus && focus->shown()) {
+                const std::shared_ptr<LiveWidget> root = rt.common_page("CursorRoot");
+                const std::shared_ptr<LiveWidget> cursor = root ? root->child("Cursor") : nullptr;
+                if (cursor) {
+                    const Rect at = focus->screen_rect();
+                    const std::optional<Rect> size = cursor->data.rect("geometry");
+                    LiveWidget pointer;
+                    pointer.data = cursor->data;
+                    pointer.set_property("x", script::Value::number(at.x + at.w * 0.75f));
+                    pointer.set_property("y", script::Value::number(at.y + at.h * 0.5f));
+                    pointer.set_property("w", script::Value::number(size ? size->w : 32));
+                    pointer.set_property("h", script::Value::number(size ? size->h : 32));
+                    pointer.name = root->name;
+                    drawer_.draw_one(*rt.common_project(), root->name, pointer, x, 0, scale);
+                }
+            }
+    }
+
+private:
+    PageDrawer drawer_;
+};
+
+} // namespace
+
+std::unique_ptr<MenuPainter> make_menu_painter(App& app) { return std::make_unique<RuntimePainter>(app); }
+
+void send_menu_keys(menu::Runtime& rt, const MenuInput& m) {
+    static const std::pair<PadButton, menu::Key> keys[] = {
+        {PadButton::Cross, menu::Key::Accept}, {PadButton::Triangle, menu::Key::Cancel}, {PadButton::Start, menu::Key::Start},
+        {PadButton::Select, menu::Key::Select}, {PadButton::L1, menu::Key::L1},         {PadButton::R1, menu::Key::R1},
+        {PadButton::L2, menu::Key::L2},         {PadButton::R2, menu::Key::R2},         {PadButton::Square, menu::Key::Square},
+    };
+    if (m.vertical()) rt.key(m.vertical() < 0 ? menu::Key::Up : menu::Key::Down);
+    if (m.horizontal()) rt.key(m.horizontal() < 0 ? menu::Key::Left : menu::Key::Right);
+    for (const auto& [button, key] : keys)
+        if (m.pressed(button)) rt.key(key);
+}
 
 } // namespace gt4r

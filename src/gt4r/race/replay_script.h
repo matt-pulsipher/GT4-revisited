@@ -27,6 +27,7 @@ struct ReplayRecord {
     std::array<ReplayCurve, 2> offset; // where the target sits in the picture, in half fields of view
     ReplayCurve roll;                  // degrees
     float fov_min = 1, fov_max = 100;
+    float dissolve = 0; // +0x18: seconds of the dissolve when the shot ends
 
     bool car_frame() const { return (kind & 3) == 1; }
     bool looks_at_car() const { return (kind & 0xC) != 0; }
@@ -50,7 +51,8 @@ struct ReplayScript {
     int variant_count() const;
     // A script distance for a car `v` metres along the lap on variant `k`, wrapped into the script.
     float distance(int variant, float v) const;
-    // The first record with start <= d < end; null when none.
+    // The record that started last at or before d when it still covers d (start <= d < end); null
+    // otherwise. The records are in the order of their starts.
     const ReplayRecord* find(float d) const;
 };
 
@@ -64,6 +66,28 @@ public:
 
 private:
     const ReplayRecord* record_ = nullptr;
+};
+
+// A shot at its progress t (0..1): for a car shot `car_body` is the car's body frame; without one
+// the shot's own curves are used throughout. False when it has no view there.
+bool shot_pose(const ReplayRecord& r, float t, const gt3r::render::Mat4* car_body, ViewPose& out);
+
+// The scenic shots behind a race's menus (the course's slot 48, the program's camera mode 5): the
+// script's shots on time in the file's order, each for its `end` seconds, then the next (after the
+// last the first), cut with a dissolve of the ended shot's own seconds.
+class ScenicCamera {
+public:
+    void reset(const ReplayScript* script);
+    void step();
+    bool pose(ViewPose& out) const;
+    // The dissolve's part left (1 at the cut, 0 none).
+    float dissolve() const;
+    size_t shot() const { return index_; }
+
+private:
+    const ReplayScript* script_ = nullptr;
+    size_t index_ = 0;
+    int frames_ = 0, dissolve_ = 0, dissolve_length_ = 0;
 };
 
 } // namespace gt4r::race

@@ -62,6 +62,7 @@ ReplayScript ReplayScript::parse(ByteSpan d) {
         r.kind = rd32(d, o), r.start = f32_at(d, o + 4), r.end = f32_at(d, o + 8);
         const float aperture = f32_at(d, o + 0x1C);
         r.aperture = aperture < 1 ? 8.0f : aperture;
+        r.dissolve = f32_at(d, o + 0x18);
         for (size_t k = 0; k < 3; ++k) r.eye[k] = read_curve(d, rd32(d, o + 0x34 + 4 * k)), r.look[k] = read_curve(d, rd32(d, o + 0x40 + 4 * k));
         r.lens = read_curve(d, rd32(d, o + 0x4C));
         r.offset[0] = read_curve(d, rd32(d, o + 0x50)), r.offset[1] = read_curve(d, rd32(d, o + 0x54));
@@ -94,9 +95,14 @@ float ReplayScript::distance(int variant, float v) const {
 }
 
 const ReplayRecord* ReplayScript::find(float d) const {
-    for (const ReplayRecord& r : records)
-        if (r.start <= d && d < r.end) return &r;
-    return nullptr;
+    // The record that started last at or before d, and only while it still covers d (an earlier
+    // record that covers d too is not taken).
+    const ReplayRecord* last = nullptr;
+    for (const ReplayRecord& r : records) {
+        if (r.start > d) break;
+        last = &r;
+    }
+    return last && d < last->end ? last : nullptr;
 }
 
 bool ReplayCamera::pose(const ReplayScript& script, const CarState& car, const render::Mat4& body, ViewPose& out) {
@@ -123,15 +129,21 @@ bool ReplayCamera::pose(const ReplayScript& script, const CarState& car, const r
     }
     const ReplayRecord& r = *record_;
     const float t = r.end > r.start ? std::clamp((at - r.start) / (r.end - r.start), 0.0f, 1.0f) : 0.0f;
+    return shot_pose(r, t, &body, out);
+}
+
+bool shot_pose(const ReplayRecord& r, float t, const render::Mat4* car_body, ViewPose& out) {
+    const render::Mat4 body = car_body ? *car_body : render::Mat4{};
+    const bool car_frame = car_body && r.car_frame();
     const RVec origin{body.at(0, 3), body.at(1, 3), body.at(2, 3)};
     const RVec up_axis{body.at(0, 1), body.at(1, 1), body.at(2, 1)};
     RVec eye{r.eye[0].at(t), r.eye[1].at(t), r.eye[2].at(t)};
-    if (r.car_frame()) eye = body.transform_point(eye);
+    if (car_frame) eye = body.transform_point(eye);
     // The target: the car (a little above its origin), or the shot's own point.
     RVec target = origin + up_axis * 0.4f;
-    if (!r.looks_at_car() && !r.look[0].empty()) {
+    if ((!r.looks_at_car() || !car_body) && !r.look[0].empty()) {
         target = {r.look[0].at(t), r.look[1].at(t), r.look[2].at(t)};
-        if (r.car_frame()) target = body.transform_point(target);
+        if (car_frame) target = body.transform_point(target);
     }
     const RVec to = target - eye;
     const float distance = render::length(to);
@@ -161,5 +173,36 @@ bool ReplayCamera::pose(const ReplayScript& script, const CarState& car, const r
     out.body_hidden = false;
     return true;
 }
+
+} // namespace gt4r::race
+
+namespace gt4r::race {
+
+void ScenicCamera::reset(const ReplayScript* script) {
+    script_ = script && !script->records.empty() ? script : nullptr;
+    index_ = 0, frames_ = 0, dissolve_ = 0, dissolve_length_ = 0;
+}
+
+void ScenicCamera::step() {
+    if (!script_) return;
+    const ReplayRecord& r = script_->records[index_];
+    if (dissolve_ > 0) --dissolve_;
+    // A shot on time runs `end` seconds; the next follows (after the last, the first), with a
+    // dissolve of the ended shot's own length.
+    if (++frames_ >= int(std::max(r.end, 1.0f / 60) * 60)) {
+        index_ = (index_ + 1) % script_->records.size();
+        frames_ = 0;
+        dissolve_length_ = dissolve_ = int(std::max(0.0f, r.dissolve) * 60 + 0.5f);
+    }
+}
+
+bool ScenicCamera::pose(ViewPose& out) const {
+    if (!script_) return false;
+    const ReplayRecord& r = script_->records[index_];
+    const float t = std::clamp(float(frames_) / std::max(1.0f, r.end * 60), 0.0f, 1.0f);
+    return shot_pose(r, t, nullptr, out);
+}
+
+float ScenicCamera::dissolve() const { return dissolve_length_ > 0 ? float(dissolve_) / float(dissolve_length_) : 0.0f; }
 
 } // namespace gt4r::race

@@ -904,6 +904,18 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
                 w->set_property("chip_b", Value::integer(s32(vm.attribute(c, "b").as_float() * 255.0f)));
                 return Value{};
             });
+        // setColor(words): the chip words of a paint (MQuickWork.getColorChipInfo); the first is
+        // its colour, 0x00BBGGRR.
+        if (type == "ColorChipFace" && n == "setColor")
+            return fn([w](Vm&, const Value&, Args a) {
+                const std::vector<Value>* words = a.empty() ? nullptr : a[0].items();
+                if (!words || words->empty() || (*words)[0].kind != Kind::Int) return Value{};
+                const u32 c = u32((*words)[0].i);
+                w->set_property("chip_r", Value::integer(s32(c & 0xFF)));
+                w->set_property("chip_g", Value::integer(s32((c >> 8) & 0xFF)));
+                w->set_property("chip_b", Value::integer(s32((c >> 16) & 0xFF)));
+                return Value{};
+            });
         if (n == "setData" || n == "setColor" || n == "setColorIndex" || n == "syncLoading" || n == "loadModelSet" || n == "loadModelMotion" ||
             n == "loadModelOptionMotion")
             return nothing();

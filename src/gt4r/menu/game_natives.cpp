@@ -931,7 +931,7 @@ void install_game_natives(Runtime& rt, script::Module& menu) {
             return text(b);
         });
         static_fn(*cls, "GetUnitOfPower", [s](Vm&, const Value&, Args) { return text(s->power_unit().name); });
-        static_fn(*cls, "GetPowerForDisplay", [s](Vm&, const Value&, Args a) { return Value::number(arg_number(a, 0) * s->power_unit().factor); });
+        static_fn(*cls, "GetPowerForDisplay", [s](Vm&, const Value&, Args a) { return number(s32(std::lround(arg_number(a, 0) * s->power_unit().factor))); });
         static_fn(*cls, "GetUnitOfTorque", [s](Vm&, const Value&, Args) { return text(s->torque_unit().name); });
         static_fn(*cls, "GetTorqueForDisplay", [s](Vm&, const Value&, Args a) { return Value::number(arg_number(a, 0) * s->torque_unit().factor); });
         static_fn(*cls, "GetUnitOfMass", [miles](Vm&, const Value&, Args) { return text(miles() ? "lbs" : "kg"); });

@@ -54,6 +54,8 @@ struct RaceHud::Impl {
     gt3r::text::FontFile fonts;
     std::map<std::string, const gt3r::text::LatinFont*> font_by_name;
     std::map<std::pair<const gt3r::text::LatinFont*, int>, SDL_Texture*> atlases;
+    gt3r::text::FontFile menu_fonts; // the movies' (font/menu.fnt)
+    std::map<std::pair<const race::StrobeMovie*, size_t>, SDL_Texture*> movie_textures;
     Bytes pack_file;
     std::optional<menu::ImagePack> pack;
     std::map<std::string, Picture> pictures;
@@ -203,6 +205,8 @@ RaceHud::RaceHud(App& app, ByteSpan gtcm) : impl_(std::make_unique<Impl>()) {
     try {
         if (const std::optional<Bytes> file = app.vfs()->read("font/system.fnt")) m.fonts = menu::read_fonts(*file);
         for (const gt3r::text::LatinFont& f : m.fonts.fonts) m.font_by_name.emplace(f.name, &f);
+        if (const std::optional<Bytes> file = app.vfs()->read("font/menu.fnt")) m.menu_fonts = menu::read_fonts(*file);
+        for (const gt3r::text::LatinFont& f : m.menu_fonts.fonts) m.font_by_name.emplace(f.name, &f);
         // The region's pack: the disc's own region first.
         const std::string serial = app.disc()->info().serial;
         m.mph = serial.rfind("SCUS", 0) == 0;
@@ -239,6 +243,96 @@ RaceHud::~RaceHud() {
     for (auto& [key, t] : impl_->atlases)
         if (t) SDL_DestroyTexture(t);
     if (impl_->map_texture) SDL_DestroyTexture(impl_->map_texture);
+    for (auto& [key, t] : impl_->movie_textures)
+        if (t) SDL_DestroyTexture(t);
+}
+
+void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlayer& player) {
+    Impl& m = *impl_;
+    // A colour of the movie (0xAABBGGRR, 0x80 a full channel) through a draw's colour change.
+    auto colour = [](u32 c, const race::StrobePlayer::Draw& d) {
+        SDL_FColor o;
+        float ch[4];
+        for (int j = 0; j < 4; ++j) ch[j] = std::clamp(float((c >> (8 * j)) & 0xFF) / 128.0f * d.mul[j] + d.add[j], 0.0f, 1.0f);
+        o.r = ch[0], o.g = ch[1], o.b = ch[2], o.a = ch[3];
+        return o;
+    };
+    auto texture = [&](size_t i) -> SDL_Texture* {
+        SDL_Texture*& t = m.movie_textures[{&movie, i}];
+        if (t) return t;
+        try {
+            const ByteSpan set = movie.texture_set(i);
+            if (!gt3r::Tex1::is_tex1(set)) return nullptr;
+            const gt3r::Tex1 tex = gt3r::Tex1::parse(set);
+            if (tex.textures.empty()) return nullptr;
+            gt3r::GsMemory gs;
+            tex.upload(set, gs);
+            t = m.make_texture(tex.decode(gs, 0));
+        } catch (const std::exception& e) {
+            LOG_WARN("Race movie: picture %zu: %s", i, e.what());
+        }
+        return t;
+    };
+    for (const race::StrobePlayer::Draw& d : player.draw_list()) {
+        if (d.group && !d.group->triangles.empty() && d.group->fill < movie.fills.size()) {
+            const race::StrobeMovie::Fill& fill = movie.fills[d.group->fill];
+            const std::array<float, 16>* mat = fill.value < movie.matrices.size() ? &movie.matrices[fill.value] : nullptr;
+            SDL_Texture* tex = fill.kind == 4 ? texture(fill.index) : nullptr;
+            const race::StrobeMovie::Gradient* grad = fill.kind == 1 && fill.index < movie.gradients.size() ? &movie.gradients[fill.index] : nullptr;
+            std::vector<SDL_Vertex> v;
+            v.reserve(d.group->triangles.size());
+            for (const race::StrobeMovie::Point& p : d.group->triangles) {
+                SDL_Vertex x{};
+                x.position = to_ui(d.m[0] * p.x + d.m[2] * p.y + d.m[4], d.m[1] * p.x + d.m[3] * p.y + d.m[5]);
+                const float u = mat ? p.x * (*mat)[0] + p.y * (*mat)[4] + (*mat)[12] : 0, w = mat ? p.x * (*mat)[1] + p.y * (*mat)[5] + (*mat)[13] : 0;
+                x.tex_coord = {u, w};
+                if (fill.kind == 0) x.color = colour(fill.value, d);
+                else if (grad && !grad->stops.empty()) {
+                    // A gradient's colour at the point's place along it.
+                    const auto& st = grad->stops;
+                    u32 c = st.front().second;
+                    for (size_t k = 0; k + 1 < st.size(); ++k)
+                        if (u >= st[k].first && u <= st[k + 1].first) {
+                            const float t = st[k + 1].first > st[k].first ? (u - st[k].first) / (st[k + 1].first - st[k].first) : 0;
+                            c = 0;
+                            for (int j = 0; j < 4; ++j) {
+                                const float a = float((st[k].second >> (8 * j)) & 0xFF), b = float((st[k + 1].second >> (8 * j)) & 0xFF);
+                                c |= u32(std::lround(a + (b - a) * t)) << (8 * j);
+                            }
+                        }
+                    if (u > st.back().first) c = st.back().second;
+                    x.color = colour(c, d);
+                } else {
+                    x.color = colour(0x80808080u, d);
+                }
+                v.push_back(x);
+            }
+            SDL_RenderGeometry(m.r, tex, v.data(), int(v.size()), nullptr, 0);
+        } else if (d.text && !d.words.empty()) {
+            const race::StrobeMovie::TextField& t = *d.text;
+            // The font string: "hm_16#1*80,80": a name, its palette (1 the plain glyphs, the movies' default:
+            // their colour is the field's), its scale in percent across and down.
+            const std::string spec = size_t(t.font) < movie.fonts.size() ? movie.fonts[size_t(t.font)] : std::string("hm_16");
+            const size_t star = spec.find('*'), hash = spec.find('#');
+            const int variant = hash != std::string::npos && hash < star ? std::atoi(spec.c_str() + hash + 1) : 1;
+            Impl::FontSpec f = m.font(spec.substr(0, std::min(star, hash)).c_str(), 100, variant);
+            if (star != std::string::npos) {
+                const std::string sizes = spec.substr(star + 1);
+                const size_t comma = sizes.find(',');
+                f.sx = float(std::atof(sizes.c_str())) / 100.0f;
+                f.sy = comma == std::string::npos ? f.sx : float(std::atof(sizes.c_str() + comma + 1)) / 100.0f;
+            }
+            if (!f.font) continue;
+            // The field's own size against the font's (16 units).
+            const float size = t.height / 16.0f, sx = std::hypot(d.m[0], d.m[1]), sy = std::hypot(d.m[2], d.m[3]);
+            f.sx *= size * sx, f.sy *= size * sy;
+            const float x = t.align == 2 ? (t.x0 + t.x1) / 2 : t.align == 1 ? t.x1 : t.x0;
+            const float px = d.m[0] * x + d.m[2] * t.y0 + d.m[4], py = d.m[1] * x + d.m[3] * t.y0 + d.m[5];
+            const SDL_FColor c = colour(t.color, d);
+            const u32 rgba = u32(c.r * 255) | u32(c.g * 255) << 8 | u32(c.b * 255) << 16 | u32(c.a * 128) << 24;
+            m.draw_text(f, px, py + 2 * sy + float(f.font->ascent) * f.sy, t.align == 2 ? kCentered : t.align == 1 ? kEndsAtPen : 0, rgba, 1.0f, word(d.words));
+        }
+    }
 }
 
 bool RaceHud::ready() const { return impl_->layout.valid() && impl_->pack && !impl_->font_by_name.empty(); }

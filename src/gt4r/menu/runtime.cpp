@@ -201,6 +201,7 @@ void Runtime::install_natives() {
         }
         install_actor_natives(*this, into);
         install_game_natives(*this, into);
+        install_race_natives(*this, into);
         into.stubbed = true; // any other name of the program's is a stand-in
     });
     vm.add_native_module("gt4app", [](Vm&, script::Module&) {});

@@ -132,12 +132,20 @@ std::unique_ptr<Screen> make_model_viewer(std::string title, std::vector<std::st
 std::unique_ptr<Screen> make_race_screen(App& app);
 // The same for a race already chosen (the menus' request): no lists, and leaving it returns to
 // the screen below.
+namespace menu {
+class Runtime;
+}
+
 struct RaceStart {
     std::string course; // a course file's name ("tsukuba")
     std::string car;    // a car's label
     int paint = 0;      // the car's paint by index
     int cars = 6;       // on the grid
     int laps = 3;
+    // The running menus the race came from (null: none) and the race sequence they asked for
+    // ("single_race"): the race runs that sequence's own menus on them and leaves them where it ends.
+    menu::Runtime* menus = nullptr;
+    std::string sequence;
 };
 std::unique_ptr<Screen> make_race_screen(App& app, const RaceStart& start);
 
