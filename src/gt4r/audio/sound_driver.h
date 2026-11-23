@@ -13,7 +13,7 @@
 //
 // update() is one step of the game's sound thread (60 a second): the sequences advance, then
 // every voice's level and pitch are worked out again where something changed. Offline, call
-// update() and then mix VoiceMixer::kRate / 60 frames; in the app, MenuSound runs it from the
+// update() and then mix VoiceMixer::kRate / 60 frames; in the app, AppSound runs it from the
 // mixer's tick hook. Every method may be called from any thread (one mutex).
 //
 // The rules (docs/formats/sound.md "The sound driver") follow the game's own driver:

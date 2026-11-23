@@ -304,12 +304,33 @@ sound.play("ok");                 // sound.play(name)
 sound.load("ARCADE");             // sound.load(group) / sound.unload()
 sound.keep_music("ARCADE");       // keepMusic; start_music, stop_music, fade_out_music(seconds),
                                   // fade_in_music(group, seconds)
+sound.keep_music(root.text("bgm", "keep"));   // a page opening: its root window's music
 sound.start_stream("pcm", "get_car", number, repeat, volume);   // startStream / startStreamEx
 sound.stop_stream(); sound.pause_stream(true); sound.is_playing_stream();
 ```
 
-❓ Which group a menu page plays when no script asks (the pages' own music), the options'
-volume values, and the race's music (`RaceBGMPS2`).
+**Which music a page plays** [F] [P]. A page's root window in the layout (`.mproject`) names
+it: `bgm string {"MAP"}` is a group of the sequenced music (any case) or `"keep"`. The root
+window's own code (`mRootWindow`, 0x234D60) hands that string to the same routine as
+`keepMusic`: the group plays on when it is the one playing, starts otherwise, and `keep`
+leaves the music alone. 49 of the US disc's 215 pages name one (`gt4tool sound <disc> pages`):
+
+| Group | Pages |
+|---|---|
+| `MAP` | Gran Turismo mode's map (`TopRoot`), `NationRoot`, `DealerRoot`, `UsedCarRoot`, `BuyCarRoot`, `TuningRoot`, `TuningApplyRoot`, `PhotoTravelRoot` |
+| `HOME` | `HomeRoot`, `LogRoot`, `GarageRoot`, `CarViewRoot`, `StatusRoot` |
+| `GTAUTO` | `GTAutoRoot`, `WheelMakerRoot`, `WheelShopRoot`, `CarWashRoot`, `OilChangeRoot`, `WingShopRoot` |
+| `LICENSE`, `MISSION`, `HALL` | `LicenseRoot`, `LicenseDetailRoot`; `MissionRoot`; `EventHallRoot`, `EventCourseRoot` |
+| `ARCADE` | the arcade project's ten pages from `GameRoot` on |
+| `REPLAYTHEATER` | `labomode`'s `ReplayTheaterRoot` |
+| `keep` | the dialogs and popups (14) |
+
+`POWERSPEED` and `RACE` are started by Gran Turismo mode's script (`keepMusic`). A root window
+may also name a `navigate_sound` (`select`, `license_cursor`), an effect its code plays
+(0x235680) 🔎 when the focus moves. Prologue's layouts name no music.
+
+❓ The options' volume values, when exactly the root window asks for its music (🔎 as the
+page opens), and the race's music (`RaceBGMPS2`).
 
 ## A car's sounds [P] 🔎 (`audio/car_sound.*`)
 

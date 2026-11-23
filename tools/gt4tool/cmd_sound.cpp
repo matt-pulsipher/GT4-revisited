@@ -4,6 +4,7 @@
 //   gt4tool sound <disc> bank <path.ins>            a bank's programs, tones and effect sequences
 //   gt4tool sound <disc> effects                    the effect index: name, bank, what it plays
 //   gt4tool sound <disc> music                      the music indexes: groups, pieces, lengths
+//   gt4tool sound <disc> pages                      the music and the navigation sound each menu page names
 //   gt4tool sound <disc> seq <bank> [n]             a sequence's events (bank: "music/us/arcade")
 //   gt4tool sound <disc> seq-wav <bank> <n> <out.wav> [loops]   a sequence rendered to a WAV file
 //   gt4tool sound <disc> se-wav <name> <out.wav>    an effect of the index rendered to a WAV file
@@ -22,6 +23,7 @@
 #include "gt4r/formats/sound/inst_bank.h"
 #include "gt4r/formats/sound/sound_index.h"
 #include "gt4r/formats/sound/sqt.h"
+#include "gt4r/menu/layout.h"
 #include "vfs/vfs.h"
 
 #include <cmath>
@@ -206,6 +208,37 @@ int music(Disc& disc) {
     return 0;
 }
 
+void page_sounds(const menu::Widget& w, const std::string& project, std::map<std::string, size_t>& music, size_t& pages) {
+    if (w.type == "RootWindow") {
+        ++pages;
+        const std::string bgm = w.text("bgm"), nav = w.text("navigate_sound");
+        if (!bgm.empty()) ++music[bgm];
+        if (!bgm.empty() || !nav.empty())
+            std::printf("  %-22s %-28s music %-12s navigation sound %s\n", project.c_str(), w.name().c_str(), bgm.empty() ? "-" : bgm.c_str(),
+                        nav.empty() ? "-" : nav.c_str());
+    }
+    for (const menu::Widget& c : w.children()) page_sounds(c, project, music, pages);
+}
+
+int pages(Disc& disc) {
+    std::map<std::string, size_t> music;
+    size_t count = 0;
+    for (const ImageFile& f : disc.files()) {
+        if (!starts_with(f.path, "projects/") || !ends_with(f.path, ".mproject")) continue;
+        try {
+            const Bytes d = read(disc, f.path);
+            const std::string project = f.path.substr(9, f.path.find('/', 9) - 9);
+            page_sounds(menu::parse_layout(ByteSpan(d)), project, music, count);
+        } catch (const std::exception& e) {
+            std::fprintf(stderr, "%s: %s\n", f.path.c_str(), e.what());
+        }
+    }
+    std::printf("%zu pages;", count);
+    for (const auto& [name, n] : music) std::printf(" %s x%zu", name.c_str(), n);
+    std::printf("\n");
+    return 0;
+}
+
 int seq(Disc& disc, const Args& a) {
     const sound::SqtBank b = sound::SqtBank::parse(read(disc, a[1] + ".sqt"));
     for (size_t i = 0; i < b.sequences.size(); ++i) {
@@ -299,11 +332,12 @@ int cmd_sound(Disc& disc, const std::vector<std::string>& a) {
     if (what == "bank" && a.size() > 1) return bank(disc, a[1]);
     if (what == "effects") return effects(disc);
     if (what == "music") return music(disc);
+    if (what == "pages") return pages(disc);
     if (what == "seq" && a.size() > 1) return seq(disc, a);
     if (what == "seq-wav" && a.size() > 3) return seq_wav(disc, a);
     if (what == "se-wav" && a.size() > 2) return se_wav(disc, a);
     if ((what == "car" || what == "car-wav") && a.size() > 1) return car(disc, a);
-    std::fprintf(stderr, "usage: gt4tool sound <disc> survey | bank <path.ins> | effects | music | seq <bank> [n] |\n"
+    std::fprintf(stderr, "usage: gt4tool sound <disc> survey | bank <path.ins> | effects | music | pages | seq <bank> [n] |\n"
                          "       seq-wav <bank> <n> <out.wav> [loops] | se-wav <name> <out.wav> | car <label> [out.wav]\n");
     return 2;
 }

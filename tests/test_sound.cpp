@@ -12,6 +12,7 @@
 #include "gt4r/formats/sound/inst_bank.h"
 #include "gt4r/formats/sound/sound_index.h"
 #include "gt4r/formats/sound/sqt.h"
+#include "gt4r/menu/layout.h"
 #include "vfs/vfs.h"
 
 #include <cmath>
@@ -836,5 +837,43 @@ TEST(sound_cars_on_disc) {
         sound.stop();
         s.advance(30);
         CHECK(s.mixer().active_voices() == 0);
+    }
+}
+
+// The music a menu page names is a group of the sequenced music.
+TEST(sound_page_music_on_disc) {
+    if (test::discs().empty()) SKIP("no disc");
+    for (const auto& disc : test::discs()) {
+        if (disc->info().game != Game::GT4) continue; // (Prologue's pages name none)
+        gt3r::Vfs vfs(&disc->volume());
+        audio::SoundLibrary lib(vfs);
+        const Bytes file = disc_file(*disc, "projects/gtmode/gtmode.mproject");
+        CHECK(!file.empty());
+        const menu::Widget project = menu::parse_layout(ByteSpan(file));
+        size_t named = 0, kept = 0;
+        std::string home, map;
+        const std::function<void(const menu::Widget&)> walk = [&](const menu::Widget& w) {
+            if (w.type == "RootWindow") {
+                const std::string bgm = w.text("bgm");
+                if (bgm == "keep") {
+                    ++kept;
+                } else if (!bgm.empty()) {
+                    ++named;
+                    CHECK(lib.music_group(bgm) >= 0);
+                }
+                if (w.name() == "HomeRoot") home = bgm;
+                if (w.name() == "TopRoot") map = bgm;
+            }
+            for (const menu::Widget& c : w.children()) walk(c);
+        };
+        walk(project);
+        CHECK(named >= 20 && kept >= 5);
+        CHECK(home == "HOME" && map == "MAP");
+        // The page's music through the scripts' sound object.
+        audio::OfflineSound s;
+        audio::MenuSound menu(vfs, s.driver());
+        CHECK(menu.keep_music(map) && menu.music_group() == "map");
+        CHECK(menu.keep_music("keep") && menu.music_group() == "map");
+        CHECK(menu.keep_music(home) && menu.music_group() == "home");
     }
 }
