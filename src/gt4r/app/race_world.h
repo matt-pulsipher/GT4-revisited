@@ -78,6 +78,15 @@ public:
     // view's own), -1 for none.
     void render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarState> cars, const race::ViewPose& pose, size_t focus, int hidden);
 
+    // The cars' icons (the results page's): each car standing side-on, its front to the left, drawn
+    // over `canvas` (the 640 x 480 page on the screen) with its middle at (x, y) of the page.
+    struct Icon {
+        size_t car = 0;
+        float x = 0, y = 0;
+        float opacity = 1;
+    };
+    void draw_icons(Ui& ui, const SDL_FRect& canvas, std::span<const Icon> icons);
+
     const race::CourseScene& course() const { return *course_; }
     const race::CarVisual& visual(size_t i) const { return *car_visuals_[i]; }
     const std::string& car_name(size_t i) const { return names_[i]; }

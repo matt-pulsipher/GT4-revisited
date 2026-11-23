@@ -383,6 +383,7 @@ public:
     }
 
     void quiet() { world_->quiet(); }
+    void draw_icons(Ui& ui, const SDL_FRect& canvas, std::span<const RaceWorld::Icon> icons) { world_->draw_icons(ui, canvas, icons); }
     audio::RaceSound* sound() { return world_->sound(); }
 
     const race::CarState& player() const { return shown()[0]; }
@@ -576,7 +577,19 @@ public:
             }
         }
         if (results_shown()) {
-            if (result_ && hud_) hud_->draw_movie(*result_movie_, *result_);
+            if (result_ && hud_) {
+                // The rows' car icons (_EXT_CARICON<row + 1>) over the page.
+                std::vector<RaceHud::MovieExternal> ext;
+                hud_->draw_movie(*result_movie_, *result_, &ext);
+                std::vector<RaceWorld::Icon> icons;
+                const auto& rows = race_->board().rows();
+                for (const RaceHud::MovieExternal& e : ext)
+                    if (e.name.rfind("_EXT_CARICON", 0) == 0) {
+                        const int row = std::atoi(e.name.c_str() + 12) - 1;
+                        if (row >= 0 && size_t(row) < rows.size() && rows[size_t(row)].car >= 0) icons.push_back({size_t(rows[size_t(row)].car), e.x, e.y, e.opacity});
+                    }
+                race_->draw_icons(ui, RaceHud::canvas(), icons);
+            }
             else draw_results(ui);
         }
         if (paused_) {

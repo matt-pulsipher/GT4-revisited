@@ -247,7 +247,9 @@ RaceHud::~RaceHud() {
         if (t) SDL_DestroyTexture(t);
 }
 
-void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlayer& player) {
+SDL_FRect RaceHud::canvas() { return to_ui(DisplayRect{0, 0, 640, 480}); }
+
+void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlayer& player, std::vector<MovieExternal>* externals) {
     Impl& m = *impl_;
     // A colour of the movie (0xAABBGGRR, 0x80 a full channel) through a draw's colour change.
     auto colour = [](u32 c, const race::StrobePlayer::Draw& d) {
@@ -288,6 +290,10 @@ void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlaye
         return t;
     };
     for (const race::StrobePlayer::Draw& d : player.draw_list()) {
+        if (!d.external.empty()) {
+            if (externals) externals->push_back({d.external, d.m[4], d.m[5], std::clamp(d.mul[3], 0.0f, 1.0f)});
+            continue;
+        }
         if (d.group && !d.group->triangles.empty() && d.group->fill < movie.fills.size()) {
             const race::StrobeMovie::Fill& fill = movie.fills[d.group->fill];
             const std::array<float, 16>* mat = fill.value < movie.matrices.size() ? &movie.matrices[fill.value] : nullptr;

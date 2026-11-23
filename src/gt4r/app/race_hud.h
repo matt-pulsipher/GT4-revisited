@@ -51,7 +51,16 @@ public:
     bool mph() const;
     // A race movie (the pause menu, the results) as its player shows it now, over the whole canvas:
     // its shapes, pictures and texts (the texts' words looked up in the race's text table).
-    void draw_movie(const race::StrobeMovie& movie, const race::StrobePlayer& player);
+    // `externals`: the pictures the program supplies (the results' car icons), where they go on the
+    // canvas, for the caller to draw.
+    struct MovieExternal {
+        std::string name;
+        float x = 0, y = 0; // the canvas (640 x 480)
+        float opacity = 1;
+    };
+    void draw_movie(const race::StrobeMovie& movie, const race::StrobePlayer& player, std::vector<MovieExternal>* externals = nullptr);
+    // The 640 x 480 canvas on the screen.
+    static SDL_FRect canvas();
 
 private:
     struct Impl;
