@@ -197,12 +197,14 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
             }
         }
     }
-    // The shadow under the car: model 2, a flat picture at y = 0.
-    if (body_models > 2) {
+    // The shadows: model 1, the body's shape, which the race throws flat along the light, and
+    // model 2, the shadow under the car (flat, at y = 0). Black shapes whose vertex alpha is
+    // their strength.
+    for (u32 k = 0; k < 2 && body_models > k + 1; ++k) {
         mdls::Scene sc = body_scene(false, 0);
         gt3r::gtm1::Options o;
-        o.node = 2;
-        shadow_src_ = mdls::build_model(body, o, sc, name + "/shadow");
+        o.node = int(k + 1);
+        shadow_src_[k] = mdls::build_model(body, o, sc, name + "/shadow");
     }
     // The camera places (info +0x40: count, offset from the file's start; 0x20 bytes each).
     if (c.info && c.info + 0x48 <= file.size()) {
@@ -223,22 +225,25 @@ CarVisual::~CarVisual() = default;
 
 void CarVisual::set_shadow(const Shadow& s) {
     shadow_look_ = s;
-    shadow_.reset();
-    if (!s.on || shadow_src_.meshes.empty()) return;
-    // The picture's own alpha shapes the shadow; its color is the course's.
-    scene::Model m = shadow_src_;
     const u32 rgb = u32(std::clamp(s.rgb[0], 0.0f, 1.0f) * 255) | u32(std::clamp(s.rgb[1], 0.0f, 1.0f) * 255) << 8 | u32(std::clamp(s.rgb[2], 0.0f, 1.0f) * 255) << 16;
-    for (scene::Mesh& mesh : m.meshes) {
-        for (scene::Vertex& v : mesh.vertices) {
-            const u32 a = u32(std::clamp(float(v.color >> 24) * s.alpha, 0.0f, 255.0f));
-            v.color = rgb | a << 24;
+    for (size_t k = 0; k < 2; ++k) {
+        shadow_[k].reset();
+        if (!s.on || shadow_src_[k].meshes.empty()) continue;
+        // The shape's own alpha is the shadow's strength; its color is the course's.
+        scene::Model m = shadow_src_[k];
+        const float factor = s.alpha * (k == 0 ? s.light_factor : 1.0f);
+        for (scene::Mesh& mesh : m.meshes) {
+            for (scene::Vertex& v : mesh.vertices) {
+                const u32 a = u32(std::clamp(float(v.color >> 24) * factor, 0.0f, 255.0f));
+                v.color = rgb | a << 24;
+            }
+            for (scene::Primitive& p : mesh.primitives) {
+                p.flags |= scene::kAlphaBlend | scene::kNoDepthWrite | scene::kUnlit | scene::kDoubleSided;
+                p.flags &= ~u32(scene::kAdditive | scene::kEnvironmentMap | scene::kAlphaTest);
+            }
         }
-        for (scene::Primitive& p : mesh.primitives) {
-            p.flags |= scene::kAlphaBlend | scene::kNoDepthWrite | scene::kUnlit | scene::kDoubleSided;
-            p.flags &= ~u32(scene::kAdditive | scene::kEnvironmentMap | scene::kAlphaTest);
-        }
+        shadow_[k] = std::make_unique<render::GpuModel>(*ctx_, m);
     }
-    shadow_ = std::make_unique<render::GpuModel>(*ctx_, m);
 }
 
 Mat4 CarVisual::body_matrix(const CarState& s) const {
@@ -287,9 +292,8 @@ void CarVisual::add_items(std::vector<render::DrawItem>& items, const CarState& 
 }
 
 void CarVisual::add_shadow_items(std::vector<render::DrawItem>& items, const CarState& s) const {
-    if (!shadow_) return;
+    if (!shadow_[0] && !shadow_[1]) return;
     // On the road under the car: the plane through the tires' contacts, lifted 2 cm.
-    const render::Vec3 right = v3(s.right), forward = v3(s.forward);
     render::Vec3 contact{0, 0, 0};
     render::Vec3 c[4];
     for (int w = 0; w < 4; ++w) {
@@ -298,11 +302,21 @@ void CarVisual::add_shadow_items(std::vector<render::DrawItem>& items, const Car
     }
     const render::Vec3 ahead = render::normalize((c[0] + c[1]) - (c[2] + c[3]));
     render::Vec3 side = render::normalize((c[1] + c[3]) - (c[0] + c[2]));
-    render::Vec3 normal = render::normalize(render::cross(side, ahead));
+    const render::Vec3 normal = render::normalize(render::cross(side, ahead));
     if (!(render::length(ahead) > 0.5f) || !(render::length(side) > 0.5f) || !(normal.y > 0.2f)) return;
     side = render::cross(ahead, normal);
-    (void)right, (void)forward;
-    items.push_back({shadow_.get(), basis(side, normal, ahead * -1.0f, contact + normal * 0.02f), 0});
+    const render::Vec3 back = ahead * -1.0f;
+    const Mat4 ground = basis(side, normal, back, contact + normal * 0.02f);
+    if (shadow_[0]) {
+        // The body's shape flattened onto the road along the light: a point y above the road
+        // lands `shear` x y away. (The model's y = 0 is the ride height above the road.)
+        const float q = (spec_.ride_height[0] + spec_.ride_height[1]) * 0.5f;
+        const float sx = render::dot(shadow_look_.shear, side), sz = render::dot(shadow_look_.shear, back);
+        Mat4 flat;
+        flat.m = {1, 0, 0, 0, sx, 0, sz, 0, 0, 0, 1, 0, sx * q, 0, sz * q, 1};
+        items.push_back({shadow_[0].get(), ground * flat, 0});
+    }
+    if (shadow_[1]) items.push_back({shadow_[1].get(), ground, 0});
 }
 
 } // namespace gt4r::race

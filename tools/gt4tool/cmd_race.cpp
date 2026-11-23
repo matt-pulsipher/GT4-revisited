@@ -3,7 +3,7 @@
 //   gt4tool race <disc> sections <course>          the course file's sections
 //   gt4tool race <disc> rail <course> [seconds]    runs the stand-in simulation on the course's road
 //   gt4tool race <disc> models <course> <slot>     a slot's model set as the race view decodes it
-//   gt4tool race <disc> car <model> [paint]        a race car's body as decoded: materials, pictures, colors
+//   gt4tool race <disc> car <model> [paint] [n]    a race car's body (its model n) as decoded: materials, pictures, colors
 
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/course/course_file.h"
@@ -145,7 +145,7 @@ int race_car(Disc& disc, const Args& a) {
         std::printf("\n");
     }
     gt3r::gtm1::Options o;
-    o.node = 0;
+    o.node = a.size() > 3 ? std::atoi(a[3].c_str()) : 0; // (1 and 2: the shadows)
     mdls::Scene sc;
     sc.resolve_callbacks = true;
     for (u16 id = 11; id <= 39; ++id) sc.callback_values[id] = 99;

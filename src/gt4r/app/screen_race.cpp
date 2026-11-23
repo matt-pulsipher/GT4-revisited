@@ -108,6 +108,11 @@ public:
                     sh.on = true;
                     for (int k = 0; k < 3; ++k) sh.rgb[k] = env.shadow_rgb[size_t(k)];
                     sh.alpha = env.shadow_alpha;
+                    sh.light_factor = env.shadow_f_lit;
+                    // Where the light throws a point a metre up: along the shadow's direction
+                    // (elevation and azimuth in degrees), its length per metre of height.
+                    const float el = -env.shadow_elev * kPi / 180, az = -env.shadow_az * kPi / 180;
+                    sh.shear = RVec{std::sin(az), 0, std::cos(az)} * (env.shadow_len * std::cos(el));
                     visual->set_shadow(sh);
                 }
             }

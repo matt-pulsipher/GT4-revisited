@@ -29,7 +29,6 @@ constexpr float kGrip = 10.0f;      // sideways acceleration a car holds, metres
 constexpr float kBraking = 11.0f;
 constexpr float kMaxRoom = 7.0f;    // the most room used to either side of the line
 constexpr float kTravel = 0.09f;    // a spring's travel either way, metres
-constexpr float kRoadKind = 0;      // Runway::Triangle::kind of the paved road
 
 // A critically underdamped spring toward `target`.
 void spring(float& x, float& rate, float target, float omega, float damping, float dt) {
@@ -92,12 +91,20 @@ RailLine::RailLine(const course::Runway& road) : length(road.length) {
             const float gap = a > 0 ? a : b < 0 ? -b : 0; // how far the run is from the middle
             if (gap < best_gap) best_gap = gap, best_a = a, best_b = b, any = true;
         };
+        // The strip's surface: the material under the middle point (the triangle's low five bits:
+        // 0 tarmac, others the verges, sand, dirt).
+        int strip = 0;
+        {
+            float y;
+            int tri = -1;
+            if (road.height_at(middle.x, middle.z, middle.y + 3.0f, y, &tri) && tri >= 0) strip = road.triangles[size_t(tri)].bits & 0x1F;
+        }
         for (float d = -to_left; d <= to_right + step; d += step) {
             const Vec3 q = middle + across * d;
             float y;
             int tri = -1;
             const bool road_here = d <= to_right && road.height_at(q.x, q.z, middle.y + 3.0f, y, &tri) && tri >= 0 &&
-                                   road.triangles[size_t(tri)].kind == kRoadKind && std::fabs(y - middle.y) < 3.0f;
+                                   (road.triangles[size_t(tri)].bits & 0x1F) == strip && std::fabs(y - middle.y) < 3.0f;
             if (road_here && !in_run) in_run = true, run_a = d;
             if (!road_here && in_run) in_run = false, close_run(run_a, d - step);
         }
@@ -258,6 +265,20 @@ void RailSimulation::step(std::span<const CarInput> inputs, float dt) {
         accel -= moving * over * 0.6f;
         const float before = c.speed;
         c.speed += accel * dt;
+        // Cars do not drive through each other: one closing on a car just ahead in its lane slows to
+        // its speed and eases to the side with more room.
+        for (size_t k = 0; k < cars_.size(); ++k) {
+            if (k == i) continue;
+            const Car& other = cars_[k];
+            float gap = other.v - c.v;
+            if (gap < -line_.length * 0.5f) gap += line_.length;
+            if (gap > line_.length * 0.5f) gap -= line_.length;
+            const float side = other.offset - c.offset;
+            if (gap <= 0 || gap > 5.2f + c.speed * 0.25f || std::fabs(side) > 1.9f) continue;
+            if (gap < 5.2f) c.speed = std::min(c.speed, std::max(other.speed - (5.2f - gap) * 2.0f, 0.0f));
+            else if (c.speed > other.speed) c.speed = std::max(other.speed, c.speed - kBraking * dt);
+            c.lateral_speed += (side > 0 ? -1.0f : 1.0f) * 3.0f * dt;
+        }
         if (moving != 0 && before * c.speed < 0 && throttle < 0.01f) c.speed = 0; // braking stops at rest
         if (moving == 0 && throttle < 0.01f) c.speed = 0;
         const float long_accel = (c.speed - before) / dt;

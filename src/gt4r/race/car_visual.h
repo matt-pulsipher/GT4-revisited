@@ -45,6 +45,7 @@ public:
         bool on = false;
         float rgb[3] = {0, 0, 0};
         float alpha = 0.5f;
+        float light_factor = 1;      // on the alpha of the shadow the light throws
         render::Vec3 shear{0, 0, 0}; // course-space shift per metre of height: where the light throws it
     };
     void set_shadow(const Shadow& s);
@@ -69,8 +70,10 @@ private:
     std::array<std::unique_ptr<render::GpuModel>, 2> body_;        // [brake lamps lit]
     std::array<std::unique_ptr<render::GpuModel>, 4> brakes_;      // the brake parts per wheel
     std::array<std::array<std::unique_ptr<render::GpuModel>, 2>, 4> wheels_; // [wheel][turning]: tire and wheel
-    std::unique_ptr<render::GpuModel> shadow_;
-    gt3r::scene::Model shadow_src_; // the shadow's meshes as read, to recolor
+    // The body's shape thrown flat along the light (model 1) and the shadow under the car (model 2):
+    // as read, to recolor, and as drawn.
+    std::array<gt3r::scene::Model, 2> shadow_src_;
+    std::array<std::unique_ptr<render::GpuModel>, 2> shadow_;
     render::GpuContext* ctx_ = nullptr;
     Shadow shadow_look_;
     std::vector<CameraMount> mounts_;
