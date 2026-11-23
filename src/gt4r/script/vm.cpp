@@ -21,6 +21,29 @@ Value deref(Vm& vm, Value v) {
 
 Value reference(std::shared_ptr<Reference> r) { return Value::of(Kind::Reference, std::move(r)); }
 
+// A variable given as it is, not its value (`f(result)` where f assigns `*result`; the
+// compiled code pushes the variable and leaves the EVAL out): a value that stands for the
+// variable. Read, it gives the variable's value; assigned through, it sets the variable.
+struct Pointer : Reference {
+    std::shared_ptr<Reference> to;
+    Value get(Vm& vm) override { return to->get(vm); }
+    void set(Vm& vm, const Value& v) override { to->set(vm, v); }
+};
+
+// What a value pushed without EVAL is as an argument or as the right side of an assignment:
+// a variable becomes a pointer to it, a pointer stays, anything else is read.
+Value keep_variable(Vm& vm, Value v) {
+    if (v.kind != Kind::Reference) return v;
+    if (dynamic_cast<Pointer*>(v.p.get())) return v;
+    if (auto cell = std::dynamic_pointer_cast<Variable>(v.p)) {
+        if (cell->value.kind == Kind::Reference && dynamic_cast<Pointer*>(cell->value.p.get())) return cell->value; // a pointer handed on
+        auto p = std::make_shared<Pointer>();
+        p->to = std::move(cell);
+        return reference(std::move(p));
+    }
+    return deref(vm, std::move(v));
+}
+
 // An array's element.
 struct Element : Reference {
     std::shared_ptr<Array> array;
@@ -866,7 +889,11 @@ Vm::Step Vm::execute(Task& t, Frame& f) {
                 if (st.empty()) fail(f, pc, "the value stack is empty");
                 if (st.back().kind == Kind::Reference) {
                     f.evaluated = std::static_pointer_cast<Reference>(st.back().p), f.evaluated_at = pc;
-                    st.back() = deref(*this, std::move(st.back()));
+                    // A variable that holds a pointer gives the pointer (`*result = 1` assigns
+                    // through it); everything else its value.
+                    const auto cell = std::dynamic_pointer_cast<Variable>(st.back().p);
+                    if (cell && cell->value.kind == Kind::Reference && dynamic_cast<Pointer*>(cell->value.p.get())) st.back() = cell->value;
+                    else st.back() = deref(*this, std::move(st.back()));
                 }
                 break;
             case Op::AttributePush: {
@@ -887,11 +914,14 @@ Vm::Step Vm::execute(Task& t, Frame& f) {
                 break;
             }
             case Op::Assign: {
-                Value v = deref(*this, pop());
+                Value v = keep_variable(*this, pop());
                 const Value to = pop();
                 if (to.kind != Kind::Reference) fail(f, pc, "assignment to a value");
+                // A pointer is kept only by a variable; anything else takes the value.
+                const bool pointer = v.kind == Kind::Reference;
+                if (pointer && !dynamic_cast<Variable*>(to.p.get())) v = deref(*this, std::move(v));
                 static_cast<Reference*>(to.p.get())->set(*this, v);
-                st.push_back(std::move(v));
+                st.push_back(deref(*this, std::move(v)));
                 break;
             }
             case Op::ListAssign: { // [a, b] = value
@@ -912,9 +942,18 @@ Vm::Step Vm::execute(Task& t, Frame& f) {
                 t.reg = deref(*this, pop());
                 break;
             case Op::Call: {
-                std::vector<Value> args = pop_many(in.value);
+                if (st.size() < in.value) fail(f, pc, "the value stack is short");
+                std::vector<Value> raw(st.end() - in.value, st.end());
+                st.resize(st.size() - in.value);
                 const Value callee = deref(*this, pop());
                 if (!callee.p || !callee.p->callable()) fail(f, pc, "not a function: " + callee.to_string());
+                // A script function takes a variable pushed as it is as a pointer to it; the
+                // program's own functions take values.
+                const auto script_fn = callee.as<Function>();
+                const bool to_script = script_fn && !script_fn->native;
+                std::vector<Value> args;
+                args.reserve(raw.size());
+                for (Value& x : raw) args.push_back(to_script ? keep_variable(*this, std::move(x)) : deref(*this, std::move(x)));
                 // A script function: a frame of its own, so the call can wait.
                 if (auto fn = callee.as<Function>(); fn && !fn->native) {
                     ++pc;

@@ -98,7 +98,7 @@ declares, and the interpreter runs the scripts themselves.
 |---|---|
 | `VARIABLE_PUSH` | Pushes a *reference* to a variable. One name: the block's own variable (made on first use, kept in its slot). A path: a name in reach, looked up once and kept in the slot: the object's own attributes and methods in a method, what `IMPORT` brought, then each module from the current one outward to `main`; the path's further parts are members (`main`, `menu`, `MSound`) |
 | `ATTRIBUTE_PUSH` | Pops an object, pushes a reference to its member of that name. `value` of a number, a string or nil that `EVAL` just read from a variable is the variable itself: `count.value = 3` assigns `count` (numbers are objects in the program) |
-| `EVAL` | Replaces a reference on top of the stack with its value |
+| `EVAL` | Replaces a reference on top of the stack with its value. A variable that holds a pointer (below) gives the pointer |
 | `ASSIGN` | Pops a value and a reference, stores, pushes the value |
 | `LIST_ASSIGN n` | `[a, b] = list`: pops the list and n references, stores an element in each, pushes the list |
 | `POP` | Pops a value into the result register |
@@ -125,6 +125,13 @@ declares, and the interpreter runs the scripts themselves.
 
 A compiled statement can leave a value behind on the stack (an expression whose result is not
 used and not popped), so the stack is the call's own and is dropped with it.
+
+**A variable passed as itself.** Where the source gives a variable and not its value (an
+"out" argument: the caller's `result` that the function sets), the compiled code pushes the
+variable and leaves the `EVAL` out. As an argument of a script function, or as the right side
+of an assignment to a variable, such a push is a *pointer* to the variable: reading it gives
+the variable's value, and `VARIABLE_PUSH p`, `EVAL`, value, `ASSIGN` sets the variable it
+points to (the memory card code's `resultRef`). The program's own functions are given values.
 
 ## Calls that wait
 

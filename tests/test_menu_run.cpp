@@ -668,6 +668,74 @@ TEST(disc_menu_new_game_to_gt_mode) {
     CHECK(f.page() == "TopRoot");
 }
 
+// Gran Turismo mode with a game and credits: the map, a country's dealers, a maker's showroom,
+// a car and its paint, "buy", and the car is the garage's and the one driven.
+TEST(disc_menu_buy_a_car) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    Flow f(*disc);
+    menu::GameState& game = f.rt->game();
+    game.card.has_game_data = true; // a stand-in for a saved game
+    game.username = "Player", game.money = 500000;
+    f.rt->boot();
+    f.rt->start_project(f.rt->first_project());
+    f.rt->settle();
+    CHECK(f.rt->finished() && f.rt->advance()); // the game loads and the title follows
+    f.rt->settle();
+    CHECK(f.page() == "TopRoot");
+    f.press({menu::Key::Down, menu::Key::Accept});
+    CHECK(f.rt->finished() && f.rt->wanted_project() == "gtmode" && f.rt->advance());
+    f.rt->settle();
+    CHECK(f.page() == "TopRoot" && f.focus() == "Home");
+    f.press({menu::Key::Up});
+    CHECK(f.focus() == "DealerItaly");
+    f.press({menu::Key::Accept});
+    CHECK(f.page() == "NationRoot" && f.focus() == "alfaromeo");
+    f.press({menu::Key::Accept});
+    CHECK(f.page() == "DealerRoot" && f.focus() == "New");
+    f.press({menu::Key::Accept});
+    CHECK(f.page() == "BuyCarRoot" && f.focus() == "CarItem");
+    f.press({menu::Key::Accept}); // the car
+    CHECK(f.focus() == "ColItem");
+    f.press({menu::Key::Accept}); // its paint
+    CHECK(f.focus() == "Buy");
+    f.press({menu::Key::Accept});
+    CHECK(f.page() == "BuyCarDialog" && f.focus() == "Cancel");
+    f.press({menu::Key::Right});
+    CHECK(f.focus() == "Buy");
+    f.press({menu::Key::Accept});
+    CHECK(f.page() == "GetCarRoot" && f.focus() == "Yes"); // "ride it now?"
+    CHECK(game.garage.size() == 1);
+    f.press({menu::Key::Accept});
+    CHECK(f.page() == "GetCarRoot" && f.focus() == "OK" && f.clean());
+    if (game.garage.size() == 1) {
+        // The price is the car database's; the car is the one driven.
+        const script::Value label[1] = {script::Value::string(game.garage[0].car)};
+        const script::Value price = f.rt->vm().call(f.rt->vm().attribute(f.rt->vm().attribute(f.rt->vm().lookup("menu"), "MCarData"), "GetPrice"), label);
+        std::printf("  bought %s for %d credits\n", game.garage[0].car.c_str(), price.i);
+        CHECK(price.i > 0 && game.money == 500000 - price.i && game.riding_car == 0);
+        CHECK(game.card.has_game_data && !game.need_save);
+    }
+    f.press({menu::Key::Accept});
+    CHECK(f.page() == "BuyCarRoot");
+    f.press({menu::Key::Cancel});
+    CHECK(f.page() == "DealerRoot");
+    f.press({menu::Key::Cancel});
+    CHECK(f.page() == "NationRoot");
+    f.press({menu::Key::Cancel});
+    CHECK(f.page() == "TopRoot" && f.focus() == "DealerItaly");
+    // Home, and the garage lists the car.
+    const std::shared_ptr<menu::LiveWidget> space = f.rt->current_page()->child("ScrollWindow")->child("clip")->child("space");
+    f.rt->set_focus(*f.rt->current_page(), space->child("Home"));
+    f.press({menu::Key::Accept});
+    CHECK(f.page() == "HomeRoot");
+    f.press({menu::Key::Accept});
+    CHECK(f.page() == "GarageRoot" && f.clean());
+    const std::shared_ptr<menu::LiveWidget> cars = f.rt->current_page()->child("Info") ? f.rt->current_page()->child("Info")->child("cars") : nullptr;
+    CHECK(cars && cars->data.text("text").find("1") != std::string::npos);
+    if (cars) std::printf("  the garage: %s\n", cars->data.text("text").c_str());
+}
+
 // Prologue's main script, configuration and projects load, and a project shows a page.
 TEST(disc_menu_prologue_loads) {
     Disc* prologue = nullptr;

@@ -19,7 +19,8 @@ Done:
       configuration, scripts that wait), the events, keys, focus search, boxes and actors as
       the program has them, the game's state behind `main::game`. Boot to the title, Arcade
       to the race it asks for, the options and back, a new game into Gran Turismo mode's map,
-      home and garage (`gt4tool menu-run`; *Menu pages* in the app, `GT4R_MENU="boot=1"`).
+      home and garage, a car bought at a dealer (`gt4tool menu-run`; *Menu pages* in the app,
+      `GT4R_MENU="boot=1"`).
 - [x] Models (`MDLS`): car bodies, wheels, tires, wings and prize objects decode and draw as
       still models; a 3D viewer from the asset browser (Square on a file with models).
 

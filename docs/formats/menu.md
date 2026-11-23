@@ -78,7 +78,8 @@ running the menus (below).
 
 The program's menu system as the scripts drive it: from power on the game's own scripts run
 to the title page, through Arcade to the point where a race is asked for, through the
-options and back, and through making a game into Gran Turismo mode's map, home and garage
+options and back, through making a game into Gran Turismo mode's map, home and garage, and
+through a dealer to a bought car in the garage
 (`tests/test_menu_run.cpp`; *Menu pages* in the app, `GT4R_MENU="boot=1"`;
 `gt4tool menu-run <disc> boot settle left cross ...`). What the program has that is not
 written is a stand-in that records the call (`gt4tool menu-run ... stubs` lists them).
@@ -293,11 +294,19 @@ formatted card that has no saved game (`card.connected`, `formatted`, `has_game_
 "has a game" and nothing else: no file is written or read. A saved game goes behind
 `GameState`.
 
+**The garage** (`main::game.garage`): the cars, the one driven (`riding_car`; a vacant car
+object when there is none), `addNewCar`, `addUsedCar`, `delCar`, the lists the garage page
+asks for (`pickup(country, tuner, drivetrain)`, `pickupCountry()`, `pickupTuner(country)`)
+and `MCarGarage::sortBy...`. In the program the garage's cars are a file on the memory card:
+`changeRidingCar`, `pushRidingCar` and `popGarageCar` take the card manager and answer as a
+card operation (`OK`). ❓ What the lists and sorts compare is from their names and the garage
+page's use; parts bought for a car are not kept.
+
 **Cars and courses** (`menu::MCarData`, 0x131068; `menu::MCourseData`, 0x1B34D0; the car
 object `menu::MCarGarage`): from the disc's car database ([database.md](database.md)) and
 the program's lists of makers, tuners, countries and categories, found in the disc's
-program file by their content (`program_tables.*`). ❓ Not read: weight, the numbers with
-other parts fitted, which cars have no manual gears, the RACE table's columns
+program file by their content (`program_tables.*`). ❓ Not read: the width, the numbers with
+other parts fitted, used prices, which cars have no manual gears, the RACE table's columns
 (`menu::MRaceData` answers "none" for requirements and prizes), the meaning of
 `IsTireNormal` and `IsDirtRunnable`.
 
@@ -322,9 +331,9 @@ drawn over the page; the cursor is the common project's `CursorRoot` at the focu
 
 ### Not done
 
-Gran Turismo mode beyond the map, home and an empty garage (dealers, events, licenses);
-the garage with cars from a saved game; the option pages' effect on anything but the stored
-values; Prologue's flows (its main script, configuration and projects load and show a first
+Gran Turismo mode beyond the map, home, the garage and buying a new car (used cars, parts,
+events, licenses, the diary); a saved game read from or written to a file; the option pages'
+effect on anything but the stored values; Prologue's flows (its main script, configuration and projects load and show a first
 page; ❓ which page each project starts on); two-player and LAN paths.
 
 ## Pictures (`.gpb`)

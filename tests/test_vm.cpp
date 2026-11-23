@@ -251,6 +251,34 @@ TEST(vm_tasks_wait_and_go_on) {
     CHECK(vm.call(vm.lookup("init"), {}).i == 3);
 }
 
+// A variable pushed without EVAL as an argument is the variable itself: the function sets it.
+//   function set(out) { *out = 7; }            (VARIABLE_PUSH out, EVAL, 7, ASSIGN)
+//   function relay(out) { set(out); }          (the pointer handed on)
+//   function caller() { result = 1; relay(&result); other = result + 1; return other; }
+TEST(vm_variables_passed_as_themselves) {
+    using V = script::Value;
+    script::Vm vm;
+    V seen;
+    vm.root()->define("show", script::Vm::native("show", [&](script::Vm&, const V&, script::Args a) {
+        seen = a[0]; // the program's own functions are given the value
+        return V{};
+    }));
+    vm.run(block(2, {
+        function(Op::FunctionDefine, "set", {"out"}, 2,
+                 {var({"out"}, 0), in(Op::Eval), in(Op::IntConst, 7), in(Op::Assign), in(Op::Pop), in(Op::SetState, 1)}),
+        function(Op::FunctionDefine, "relay", {"out"}, 4,
+                 {name(2, "set"), in(Op::Eval), var({"out"}, 0), in(Op::Eval), in(Op::Call, 1), in(Op::Pop),
+                  name(3, "show"), in(Op::Eval), var({"out"}, 0), in(Op::Eval), in(Op::Call, 1), in(Op::Pop), in(Op::SetState, 1)}),
+        function(Op::FunctionDefine, "caller", {}, 4,
+                 {var({"result"}, 1), in(Op::IntConst, 1), in(Op::Assign), in(Op::Pop),
+                  name(2, "relay"), in(Op::Eval), var({"result"}, 1), in(Op::Call, 1), in(Op::Pop),
+                  var({"other"}, 3), var({"result"}, 1), in(Op::Eval), in(Op::IntConst, 1), in(Op::BinaryOperator, "+"), in(Op::Assign), in(Op::Pop),
+                  var({"other"}, 3), in(Op::Eval), in(Op::Pop), in(Op::SetState, 1)}),
+    }));
+    CHECK(vm.call(vm.lookup("caller"), {}).i == 8);
+    CHECK(seen.kind == script::Kind::Int && seen.i == 7);
+}
+
 // Every script of the discs runs its top level (the program's own classes stood in for), and
 // the boot project's course list is what its script builds.
 TEST(disc_scripts_run) {

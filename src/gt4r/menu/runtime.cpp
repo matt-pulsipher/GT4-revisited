@@ -57,6 +57,7 @@ std::optional<Key> key_by_name(const std::string& name) {
     for (const KeyCode& c : kKeys)
         if (name == c.name) return c.key;
     if (name == "cross") return Key::Accept;
+    if (name == "triangle") return Key::Cancel;
     return std::nullopt;
 }
 

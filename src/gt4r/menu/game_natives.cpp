@@ -104,6 +104,7 @@ struct Database {
         float torque = 0; // kgf.m
         std::string displacement, layout, valves, aspiration, power_rpm, torque_rpm;
         int drivetrain = -1;
+        int length = 0, height = 0, weight = 0; // mm, mm, kg; 0: not known
         std::vector<Paint> paints;
     };
     std::map<std::string, Spec> specs;
@@ -136,6 +137,11 @@ struct Database {
                         sp.aspiration = units->at(u32at(r, 12)), sp.power_rpm = units->at(u32at(r, 16)), sp.torque_rpm = units->at(u32at(r, 20));
                     }
                 }
+        // CHASSIS: +0x06 the weight; +0x08, +0x0A the length and height the menus write (the
+        // program's 0x446038, 0x446068).
+        if (const std::optional<u32> id = part(6))
+            if (const db::Table* chassis = db->table("CHASSIS"))
+                if (const ByteSpan r = chassis->row(*id); r.size() >= 0x0C) sp.weight = u16at(r, 0x06), sp.length = u16at(r, 0x08), sp.height = u16at(r, 0x0A);
         if (const std::optional<u32> id = part(10))
             if (const db::Table* trains = db->table("DRIVETRAIN"))
                 if (const ByteSpan r = trains->row(*id); r.size() > 0x10) sp.drivetrain = r[0x10];
@@ -350,6 +356,30 @@ struct GameNatives {
             const Value args[4] = {fixed_for(a[0].to_string(), v), text(unit.name), text(sp.torque_rpm), text("rpm")};
             return vm.call(vm.attribute(a[0], "format"), args);
         });
+        // The catalog's size in mm as text, "-" when there is none (0x13DBE8, 0x13DD90, 0x13DF38).
+        // ❓ The width is of a part this reader does not follow yet.
+        car->method("getLength", [spec](Vm&, const Value&, Args) { return number(spec().length); });
+        car->method("getCatLength", [spec](Vm&, const Value&, Args) { return text(spec().length ? std::to_string(spec().length) : std::string("-")); });
+        car->method("getCatHeight", [spec](Vm&, const Value&, Args) { return text(spec().height ? std::to_string(spec().height) : std::string("-")); });
+        car->method("getCatWidth", [](Vm&, const Value&, Args) { return text("-"); });
+        // getCatMs(format), getCurrentMs(format): the weight and its unit ("%d%s"). ❓ The
+        // fitted parts do not change it yet.
+        auto weight = [spec](Vm& vm, const Value&, Args a) {
+            if (a.empty()) return number(spec().weight);
+            const Value args[2] = {number(spec().weight), text("kg")};
+            return vm.call(vm.attribute(a[0], "format"), args);
+        };
+        car->method("getCatMs", weight);
+        car->method("getCurrentMs", weight);
+        // getCurrentPWR(format): kg for each PS ("%.3t"). ❓ From the name.
+        car->method("getCurrentPWR", [spec](Vm& vm, const Value&, Args a) {
+            const float pwr = spec().ps > 0 ? float(spec().weight) / float(spec().ps) : 0.0f;
+            if (a.empty()) return Value::number(pwr);
+            const Value args[1] = {fixed_for(a[0].to_string(), pwr)};
+            return vm.call(vm.attribute(a[0], "format"), args);
+        });
+        // ❓ Parts bought for a car are not kept yet: it has none but its own.
+        car->method("isHavingParts", [](Vm&, const Value&, Args) { return number(0); });
         car->method("getCatDisplacement", [spec](Vm&, const Value&, Args) { return text(spec().displacement); });
         car->method("getCatEngineType", [spec](Vm&, const Value&, Args) { return text(spec().layout); });
         car->method("getCatEngineCam", [spec](Vm&, const Value&, Args) { return text(spec().valves); });
@@ -559,17 +589,63 @@ struct GameNatives {
             if (i >= 0 && size_t(i) < s->garage.size()) s->riding_car = i;
             return Value{};
         });
+        // changeRidingCar(index, card manager), pushRidingCar(manager), popGarageCar(index, car,
+        // manager): in the program the garage's cars are a file on the memory card, and these
+        // answer as a card operation does ("OK"). Here the garage is in the state.
         garage->method("changeRidingCar", [s](Vm&, const Value&, Args a) {
             const s32 i = arg_int(a, 0, -1);
-            if (i >= 0 && size_t(i) < s->garage.size()) s->riding_car = i;
-            return Value{};
+            if (i < 0 || size_t(i) >= s->garage.size()) return text("FILE_NOT_FOUND");
+            s->riding_car = i;
+            return text("OK");
         });
+        garage->method("pushRidingCar", [](Vm&, const Value&, Args) { return text("OK"); });
+        garage->method("popGarageCar", [s](Vm& vm, const Value&, Args a) {
+            const s32 i = arg_int(a, 0, -1);
+            if (i < 0 || size_t(i) >= s->garage.size()) return text("FILE_NOT_FOUND");
+            if (a.size() > 1 && a[1].p)
+                if (const std::shared_ptr<script::Reference> code = vm.member(a[1], "car_code")) code->set(vm, text(s->garage[size_t(i)].car));
+            return text("OK");
+        });
+        // pickup(country, tuner, drivetrain): the garage's cars, those of a country, tuner or
+        // drivetrain when one is named; pickupCountry(), pickupTuner(country): the countries
+        // and tuners the garage has cars of. ❓ From the garage page's use.
+        auto of_label = [](Vm& vm, const char* fn, const std::string& label) {
+            const Value arg[1] = {text(label)};
+            return vm.call(vm.attribute(vm.attribute(vm.lookup("menu"), "MCarData"), fn), arg).to_string();
+        };
+        auto named = [](Args a, size_t i) { return i < a.size() && a[i].kind == Kind::String && !a[i].as_string().empty() && a[i].as_string() != "all"; };
+        garage->method("pickup", [this, s, of_label, named](Vm& vm, const Value&, Args a) {
+            std::vector<Value> out;
+            for (size_t i = 0; i < s->garage.size(); ++i) {
+                const GarageCar& c = s->garage[i];
+                if (named(a, 0) && of_label(vm, "GetCountry", c.car) != a[0].as_string()) continue;
+                if (named(a, 1) && of_label(vm, "GetTuner", c.car) != a[1].as_string()) continue;
+                const Value car = make_car(c.car, c.paint, int(i));
+                if (named(a, 2) && vm.call(vm.attribute(car, "getDTrainType"), {}).to_string() != a[2].as_string()) continue;
+                out.push_back(car);
+            }
+            return Value::array(std::move(out));
+        });
+        auto distinct = [s, of_label, named](const char* fn, bool by_country) {
+            return [s, of_label, named, fn, by_country](Vm& vm, const Value&, Args a) {
+                std::vector<std::string> seen;
+                for (const GarageCar& c : s->garage) {
+                    if (by_country && named(a, 0) && of_label(vm, "GetCountry", c.car) != a[0].as_string()) continue;
+                    const std::string v = of_label(vm, fn, c.car);
+                    if (std::find(seen.begin(), seen.end(), v) == seen.end()) seen.push_back(v);
+                }
+                std::vector<Value> out;
+                for (const std::string& v : seen) out.push_back(text(v));
+                return Value::array(std::move(out));
+            };
+        };
+        garage->method("pickupCountry", distinct("GetCountry", false));
+        garage->method("pickupTuner", distinct("GetTuner", true));
         garage->method("cancelRidingCar", [s](Vm&, const Value&, Args) {
             s->riding_car = -1;
             return Value{};
         });
-        for (const char* nothing : {"undelCar", "pushRidingCar", "popGarageCar"}) garage->method(nothing, [](Vm&, const Value&, Args) { return Value{}; });
-        for (const char* list : {"pickup", "pickupCountry", "pickupTuner"}) garage->method(list, [](Vm&, const Value&, Args) { return Value::array({}); });
+        garage->method("undelCar", [](Vm&, const Value&, Args) { return Value{}; });
         g.set("garage", object_value(garage));
 
         // The calendar: the game's day.
@@ -1108,15 +1184,14 @@ void install_game_natives(Runtime& rt, script::Module& menu) {
         auto cls = make_class(menu, "MCarGarage");
         cls->construct = [n](Vm&, Args a) { return n->make_car(arg_text(a, 0), arg_int(a, 1), -1); };
         // sortByDate(list, ascending), ...: a list of cars put in order. ❓ What each compares
-        // is taken from its name; weight and the power to weight ratio are not read from the
-        // car database yet and leave the order as it is.
+        // is taken from its name.
         struct Order {
             const char* name;
             const char* member; // the car object's method or attribute compared; nullptr: none yet
             const char* of_label = nullptr; // or MCarData's function of the car's label
         };
         static const Order orders[] = {
-            {"sortByDate", "getDate"}, {"sortByPower", "getCurrentPs"}, {"sortByWeight", nullptr}, {"sortByPWR", nullptr},
+            {"sortByDate", "getDate"}, {"sortByPower", "getCurrentPs"}, {"sortByWeight", "getCurrentMs"}, {"sortByPWR", "getCurrentPWR"},
             {"sortByName", "name"}, {"sortByPrice", "car_code", "GetPrice"}, {"sortByYear", "car_code", "GetModelYear"},
             {"sortByColor", "getColorIndex"}, {"sortByCountry", "car_code", "GetCountry"}, {"sortByTuner", "car_code", "GetTuner"},
             {"sortByDriveTrain", "getDTrain"},

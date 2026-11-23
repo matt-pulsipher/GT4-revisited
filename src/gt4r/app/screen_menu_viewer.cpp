@@ -355,7 +355,7 @@ public:
         }
         // GT4R_MENU="project=boot,page=LanguageRoot,state=2,full=1,run=1": what a scripted run opens.
         // "boot=1": the menus run from the game's first project, as from power on; "card=none"
-        // (no memory card), "card=saved" (one with a saved game) for that run.
+        // (no memory card), "card=saved" (one with a saved game), "credits=N" for that run.
         if (const char* env = std::getenv("GT4R_MENU")) {
             std::string spec = env;
             size_t at = 0;
@@ -373,6 +373,7 @@ public:
                 else if (key == "run") start_run_ = value != "0";
                 else if (key == "boot") start_boot_ = value != "0";
                 else if (key == "card") card_ = value;
+                else if (key == "credits") credits_ = std::atoll(value.c_str());
             }
         }
     }
@@ -495,6 +496,7 @@ private:
             runtime_ = std::make_unique<menu::Runtime>([vfs](const std::string& path) { return vfs->read(path); }, config);
             if (card_ == "none") runtime_->game().card.connected = false;
             else if (card_ == "saved") runtime_->game().card.has_game_data = true, runtime_->game().username = "Player"; // a stand-in for a saved game
+            if (credits_ >= 0) runtime_->game().money = credits_;
             live_drawer_ = std::make_unique<PageDrawer>(app);
             PageDrawer* drawer = live_drawer_.get();
             menu::text_measure().measure = [drawer](const LiveWidget& face, float& w, float& h) { drawer->measure(face, w, h); };
@@ -598,6 +600,7 @@ private:
     int project_sel_ = 0, page_sel_ = 0, state_ = 0;
     bool full_ = false, start_run_ = false, start_boot_ = false;
     std::string error_, start_project_, start_page_, card_;
+    long long credits_ = -1; // a scripted run's credits; -1: the game's own
     std::optional<menu::RaceRequest> race_; // what the running menus asked for at their end
 };
 

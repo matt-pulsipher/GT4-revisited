@@ -84,6 +84,7 @@ accessors' addresses are the US program's, v1.01). Code: `src/gt4r/menu/game_nat
 | | +0x11 u8 | The most cars on it (0x1B3030) |
 | `ARCADEINFO_NORMAL` (721 x 65) | 8 x {u32 row, u32 table 0x26}, 1 byte | The car's Arcade events, rows of `RACE`: entry [difficulty 0 to 2] on a dry course, [3 + difficulty] otherwise (0x12E150) |
 | `DEFAULT_PARTS` | the pairs of table 12, 10, 6 | The car's `ENGINE`, `DRIVETRAIN`, `CHASSIS` rows |
+| `CHASSIS` | +0x08, +0x0A u16 | The length and height the menus write, mm (0x446038, 0x446068); the width is of another part ❓ |
 
 The accessors of `GENERIC_CAR` are at 0x448868 to 0x4489A0.
 

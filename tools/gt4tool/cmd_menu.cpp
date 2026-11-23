@@ -9,6 +9,7 @@
 //     tree         the pages shown: widgets, their places and texts
 //     state        the game's state: what is available, where the menus go, the race set up
 //     card=none | card=empty | card=saved    the memory card's state (before the project starts)
+//     credits=N                              the player's credits (before the project starts)
 //     all          every car and course available (before the project starts)
 
 #include "gt4r/disc/disc.h"
@@ -97,6 +98,7 @@ int cmd_menu_run(Disc& disc, const std::vector<std::string>& a) {
         else if (k == "card=empty") rt.game().card.connected = true, rt.game().card.has_game_data = false;
         else if (k == "card=saved") rt.game().card.connected = true, rt.game().card.has_game_data = true;
         else if (k == "all") rt.game().all_available = true;
+        else if (k.rfind("credits=", 0) == 0) rt.game().money = std::atoll(k.c_str() + 8);
         else break;
     }
     rt.boot();
