@@ -102,6 +102,7 @@ struct Setup {
     bool save_replay = false; // `save=1`: the run `replay=N` drove saved as a replay file
     std::string race;     // `race=<label>`: the event (the car database's RACE row) the sequence runs
     sim::ai::Pace pace;   // the computer drivers' (the event's)
+    std::vector<u8> event_row; // the event's RACE row (its tire wear's curve); empty: none
     std::map<std::string, std::variant<s32, float, std::string>> options; // the game's (the sound's volumes); empty: a new game's
     std::optional<sim::Equipment> player_equipment;  // a garage car's parts and settings
     std::vector<std::optional<sim::Equipment>> opponent_equipment; // per opponent (as `opponents`): its pool's parts and settings
@@ -234,7 +235,7 @@ void draw_grid(App& app, Setup& setup, const menu::RaceRequest& q) {
             }
         }
         if (!setup.opponents.empty()) setup.cars = int(setup.opponents.size()) + 1;
-        if (const std::optional<db::RaceEvent> e = events.event(q.race)) setup.pace = sim::ai::pace_for(*e);
+        if (const std::optional<db::RaceEvent> e = events.event(q.race)) setup.pace = sim::ai::pace_for(*e), setup.event_row = e->bytes;
     } catch (const std::exception& e) {
         LOG_WARN("Drive: the event's grid: %s", e.what());
     }
@@ -309,6 +310,7 @@ public:
         ws.smoke = setup.smoke, ws.reflection = setup.reflection, ws.rail = setup.rail;
         ws.computer_player = setup.auto_drive || setup.start == race::StartType::Rolling;
         ws.pace = setup.pace;
+        ws.event_row = setup.event_row;
         ws.laps = setup.laps;
         ws.options = setup.options;
         ws.playlist = setup.playlist;

@@ -9,6 +9,7 @@
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/formats/model/car_model.h"
 #include "gt4r/race/car_spec.h"
+#include "gt4r/sim/rules_wear.h"
 #include "gt4r/sim/session.h"
 #include "race/billboards.h"
 #include "race/lamp_glows.h"
@@ -181,6 +182,9 @@ void RaceWorld::build_simulation() {
                 entries[i].asm_on = we.asm_on, entries[i].tcs_on = we.tcs_on;
                 entries[i].start_speed = we.start_speed;
                 entries[i].start_distance = we.start_distance;
+                // An event's race counts fuel (0x35E108 sets the rule block's +0x4C to 80); a run without laps (practice, a
+                // free run) runs on the free-run conductor, whose rule block holds 0 there (the original's Practice state).
+                entries[i].fuel = setup_.event_row.size() > 0x43 && setup_.event_row[0x43] != 0;
             }
             // The player's car's power as built (the replay's card).
             try {
@@ -194,6 +198,11 @@ void RaceWorld::build_simulation() {
             if (!noted_)
                 for (const std::string& note : session_->notes()) LOG_INFO("Drive: %s", note.c_str());
             sim_ = session_.get();
+            if (setup_.event_row.size() >= 0x74) { // the event's tire wear (the rule block's +0x2C .. +0x34, 0x35E108)
+                u8 rule_block[0x80] = {};
+                sim::rules::event_wear_bytes(setup_.event_row.data(), rule_block);
+                session_->set_wear_rules(rule_block, !session_->loose(), program);
+            }
             // The computer drivers: every car but the player's (his too when he watches).
             std::vector<size_t> computer;
             for (size_t i = computer_player_ ? 0 : 1; i < setup_.entries.size(); ++i) computer.push_back(i);

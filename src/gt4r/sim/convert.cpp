@@ -1333,6 +1333,7 @@ void build_record(const Spec& s, const Program& program, const rules::Tables& ra
     r.x.chassis.mass = p.f(0x48);
     r.x.body.sprung_mass = p.f(0x4C);
     if (r.x.drive.d.kind == 3) rules::hybrid_start(r.x.drive.hybrid); // (0x3683C8)
+    if (r.x.drive.d.layout == 7) rules::motor_start(r.x.drive.hybrid, race.drive.motors); // (0x355DC8)
 }
 
 } // namespace gt4r::sim
