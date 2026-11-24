@@ -503,7 +503,7 @@ sequence starts when the scripts that asked for it finish (a new work object, 0x
   championship is won when no other of the first six entrants has as many points as the player
   (0x3EF298): its own record unit gets "1" and `GrandPrize` the row's +0x2C x 100;
   `SeriesRank` is the number of the others with at least the player's points (0x3EF2D8); the
-  diary's note is 0 for a won championship. A championship left in the middle is kept
+  diary's note is 0 for a won championship. The race's menus' rows (0x11A168), in finishing order, carry the place's points (the work's +0x37C + 4 i, read by `getWeight`: Session Results' Pts) and the entrant's points so far (+0x364 + 4 i, `getPower`: Total; the pre-race page's Pts column reads it too, 0 before the first race); the work's race label is the session's race (the series' label with the race's number), whose last two digits the prize page writes as "Race n". A championship left in the middle is kept
   (`GameState::suspend_series`, 0x119BD8) in the save and offered again on the map.
 - **A mission** (0x11C328): the place's prize whatever the run, the record ("mission", the
   place) and its score, the diary's mission day (place, note 15, time).
