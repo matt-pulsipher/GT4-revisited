@@ -480,12 +480,20 @@ against the original (below): the Ford Ka '01's strongest note at 5,650 rpm is 1
   the skid pitch. The notes past the first three ease as above. ❓ Which slots a course allows
   (0x360458 → 0x3922B0) is not applied.
 - **Single notes** (table 0x621418; under 0.001 not played; 0x392EB8): b_off G3 × blow-off at
-  the engine; clash / clash2 / clash4 by the contact's kind 0 / 1 / 2, the camera's car only
-  (the recorder 0x350328, kept at car + 0x104 + 0x608 with the kind at +0x60C and the other car at
-  +0x60D, the step's strongest: kind 0 (a wall, 0x35CF40) force / 50000, kind 1 (another car,
-  0x35CF88 with its index) twice the speed, kind 2 (0x35D0C0) |value / 50| and at least 0.2; at
-  most 1, under 0.2 none; × p[0x26] / 100); `sound_state()` takes the simulation's seam
-  (`CarState::contact`: a wall's force in N, a car's closing speed in m/s; `landed`) that way; on_bound for the in-car own view (the strongest wheel landing, 0.5..1,
+  the engine; clash / clash2 / clash4 by the contact's kind 0 / 1 / 2, the camera's car only.
+  **A contact** goes through 0x350530(car, kind, other, value): the pad's rumble by kind (0x35CF40,
+  0x35CF88, 0x35D0C0), the race's virtual +0x190, then the recorder 0x350328, which keeps the
+  step's strongest at car + 0x104 + 0x608 (the kind at +0x60C, the other car at +0x60D): kind 0
+  value / 50000, kind 1 twice the value, kind 2 |value / 50| and at least 0.2 (while 0x35DF00
+  says so); at most 1, under 0.2 none; × p[0x26] / 100. The callers: the two wall routines
+  (0x45E288, 0x45E768) pass kind 0 with the contact's impulse |j| (N s), after adding |j| / 100000
+  to the body's strength (+0x448); the car-against-car routine 0x45F340 adds |j| / 15000 to both
+  bodies' strength and passes that same number, kind 1, for each of the two cars; 0x3E3C48 passes
+  kind 2 for a course object (the course's objects at [0x6D6054]). So the sound's strength is
+  twice what the contact adds to the body's strength, against a wall and a car alike.
+  `sound_state()` takes the simulation's seam (`CarState::contact`, the body's strength summed
+  over the step, at most 1) that way: min(2 × contact, 1), none under 0.2 (🔎 a step with two
+  contacts: the program keeps the stronger, the seam gives their sum); on_bound for the in-car own view (the strongest wheel landing, 0.5..1,
   × G15 × 2.5); backfire / backfire2 (one at random) at the exhaust, strength 3, when an
   afterfire flame starts (0x3D6D30); heartbeat (P[0x32] = 3) ❓ not played.
 - 🔎 The frame's reverb flag (+4) is never written: the voices send to the reverb.

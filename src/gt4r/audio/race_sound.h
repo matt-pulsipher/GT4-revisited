@@ -99,8 +99,8 @@ public:
     // The replay begins: the replay's two options instead of the race's, the race's first piece
     // from its beginning.
     void replay();
-    // A contact of car `car` (the camera's car only is heard): kind 0 a wall (force N), 1 a car
-    // (its speed against ours, m/s), 2 the third kind; its strength as contact_strength() makes it.
+    // A contact of car `car` (the camera's car only is heard): kind 0 a wall (the impulse |j|, N s),
+    // 1 a car (|j| / 15,000), 2 a course object; its strength as contact_strength() makes it.
     void contact(size_t car, int kind, float force);
     // The race's start jingle (before the count) and finish jingle.
     void intro();
