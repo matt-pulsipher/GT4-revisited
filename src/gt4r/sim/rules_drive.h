@@ -4,6 +4,8 @@
 
 #include "gt4r/sim/car_layout.h"
 #include "gt4r/sim/rules.h"
+#include "gt4r/sim/rules_fuel.h"
+#include "gt4r/sim/rules_hybrid.h"
 #include "gt4r/sim/rules_tires.h"
 
 namespace gt4r::sim::rules {
@@ -56,6 +58,13 @@ struct DriveExtra {
     DrivelineBlock d;
     F ratio_word;                // F +0x518 a stepless gearbox's ratio (1 locked in a gear)
     std::array<gt3r::s8, 4> marks{}; // car +0x774 (0x35A5F8): [0] the last gear change, +1 up, -1 down, 0 none
+    // The fuel and the nitrous (rules_fuel.h), which the engine's torque counts as it runs (mutable: the routines that take the
+    // torque read the rest of this block only).
+    mutable FuelState fuel;
+    F rating;                    // P + 0xFE0 the car's rating (0x3F86E8, the converter's last: the B-spec skill's class)
+    F top_speed;                 // P + 0xFD8 the converter's top speed (0x360520)
+    HybridState hybrid;          // car + 0x788 the hybrid one-speed box's state (gearbox kind 3)
+    u8 shift_factor = 128;       // car +0x83: a B-spec driver's shift speeds x this / 128 (0x3F1E30; Session::set_shift_factor)
 };
 
 // Every member of DriveExtra with its place in Gran Turismo 4's record: v(name, index (-1: single), block, offset, member).
@@ -94,6 +103,10 @@ template <class X, class V> void drive_fields(X& x, V&& v) {
     const Block C = Block::Car;
     v("ratio_word", -1, C, layout::kState + 0x518, x.ratio_word);
     for (u32 k = 0; k < 4; ++k) v("marks", int(k), C, 0x774 + k, x.marks[k]);
+    fuel_fields(x.fuel, v);
+    v("shift_factor", -1, C, 0x83, x.shift_factor);
+    hybrid_fields(x.hybrid, v);
+    v("rating", -1, P, 0xFE0, x.rating), v("top_speed", -1, P, 0xFD8, x.top_speed);
 }
 
 // The race's tables these routines read (the program's globals): the four wheel drive system 5's fade
@@ -106,11 +119,13 @@ struct DriveTables {
     ex::Awd3 awd;
     ex::Stepless stepless;
     ex::GearSettings gears;
+    HybridTables hybrid; // (the hybrid one-speed box's, rules_hybrid.h)
 };
 constexpr u32 kAwdFade = 0x62030A, kSteplessBytes = 0x6220F4, kControllerSettings = 0x622110;
 // From the bytes at those places (14, 14 and 12 of them), or from the program.
 DriveTables drive_tables(const u8* awd, const u8* stepless_bytes, const u8* settings);
 DriveTables drive_tables(const Program& program);
+DriveTables drive_tables_bytes(const Program& program); // (without the hybrid's tables)
 
 // 0x34EB00: a turbo stage's boost at rpm n.
 F turbo_boost(const EngineBlock& e, gt3r::s16 n, int stage);
