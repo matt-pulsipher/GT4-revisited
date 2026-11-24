@@ -146,6 +146,11 @@ s32 championship_points(Database& d, int place) {
     return s32(s8(d.program.b(kChampionshipPoints + u32(place))));
 }
 
+s32 Runtime::points_for_place(int place) {
+    const std::shared_ptr<GameNatives> n = natives_of(*this);
+    return n ? championship_points(n->db(), place) : 0;
+}
+
 // A distance driven added to a car's condition as the race's step does (0x35DE20, 0x35DD00):
 // the odometer (whole meters, capped at 100,000,000; 0x343518), and unless the car has no
 // wear the engine's distance up to its limit (0x3435E8), the oil's (0x343708: from below 0 it

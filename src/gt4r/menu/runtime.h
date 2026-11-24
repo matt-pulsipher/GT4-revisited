@@ -168,6 +168,8 @@ public:
     Project* project_of(const LiveWidget& page);
     LiveWidget* current_page() { return pages_.empty() ? nullptr : pages_.back().get(); }
     LiveWidget* focused();
+    // A championship's points for a place (0 first; the program's table 0x6A6EF0), for the race's points pages.
+    s32 points_for_place(int place);
     // What the cursor points at: the focused widget, a list box's focused row (0x2B3670).
     LiveWidget* cursor_widget();
     // The pages shown, the lowest first.

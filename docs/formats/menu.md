@@ -958,10 +958,19 @@ GT4's own routines, checked against the user's program where the note says so:
   (`updateCurrentStatus` 0x146648, garage entries 0x434FD0, the race menus' grid HP and kg 0x364E90 / 0x364FA8);
 - Arcade's opponent picker (0x1308C8; its sort, search, draw and dirt step equal the program's) and the
   program's generator (0x579330, 0x578598: the draws equal);
+- the option menu (0x2C9098 open, 0x2C98F0 keys, 0x2C9C90 fade and scroll, 0x2C93C0 close, 0x2C9898, 0x2C9B68,
+  0x2C8CC8) and the list box (0x2B29C0, 0x2B3918, 0x2B3670, 0x2B4A00, 0x2B48F0; its drag mode not written);
+- the B-spec driver's book and the Status page's figures (0x468B58, 0x468710, 0x468860; game_bspec.h), equal to
+  the program's and to the original's page;
 - `MCourseData.GetAttrString` (0x1B3320); the options' fields and the screen's figures (0x436D60); the
   license day (0x110800); the gear ranges (0x3553A0, 0x355278); the race result routines (0x114498,
   0x119CB8, 0x11C328, 0x1105A8) and the distance added to a car (0x35DE20) as read.
 
 Still the shared engine's code or a stand-in (file, function → the GT4 routine that should replace it):
+- `widget_classes.cpp` the select box's and scroll window's routines are read (0x2DA2B0 on, 0x2D2720 on); the
+  closed option menu shows its chosen row in place of the program's `selected_item` copy (the same picture);
+- `app/screen_race.cpp` the results movie's points pages (isChampionship, isStage1, getPoint, the ranking's
+  rows): what the host answers in each phase is judged from the movie's calls, not read from the program's
+  result page (0x3E0xxx) ❓;
 - `sim/car_spec.cpp` `computed_gears`: a made gearbox's ratios by the engine's generator → 0x443240 /
   0x354FF8 (the same rule, sim-parts' area).
