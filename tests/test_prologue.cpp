@@ -271,3 +271,20 @@ TEST(disc_prologue_license_target_times) {
     std::printf("  %d of 46 tests have a gold time\n", with_gold);
     CHECK(with_gold == 46);
 }
+
+// The roads keep Gran Turismo 3's road block for the program's own ground query (Runway::gtrw), and a license course's
+// goal distance (the block's header +0x1C) lies inside the lap where its test ends: L_fisco6, test 2, 203 m from the line.
+TEST(disc_prologue_license_goal) {
+    Disc* disc = prologue_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 Prologue disc");
+    const gt3r::Volume::Entry* e = disc->volume().find("crs/L_fisco6");
+    CHECK(e != nullptr);
+    if (!e) return;
+    const Bytes d = disc->volume().read(*e);
+    const course::CourseFile f = course::CourseFile::parse(d);
+    const std::optional<course::Runway> r = course::course_road(f, d);
+    CHECK(r && r->gtrw);
+    if (!r) return;
+    std::printf("  L_fisco6: lap %.1f m, goal %.1f m\n", double(r->length), double(r->goal_v));
+    CHECK(r->goal_v > 200 && r->goal_v < 206 && r->goal_v < r->length - 1);
+}

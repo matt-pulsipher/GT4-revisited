@@ -326,6 +326,11 @@ public:
                 }
             }
         for (const course::Runway::Triangle& t : world_->course().road().triangles) stop_area_ = stop_area_ || (t.kind & 4) != 0;
+        {
+            // (Gran Turismo 3's road, Prologue's: a goal distance inside the lap ends a license test there)
+            const course::Runway& r = world_->course().road();
+            goal_v_ = r.gtrw && r.goal_v > 0 && r.goal_v < r.length - 1 ? r.goal_v : -1;
+        }
         mount_ = setup.view;
         begin_run(setup.bspec);
         // A scripted run that skips ahead: those steps unseen.
@@ -360,6 +365,7 @@ public:
         flow_.begin(fs, world_->cars());
         rolled_ = false;
         in_box_ = license_failed_ = false;
+        goal_prev_ = -1;
         board_.begin(world_->car_count(), 0, lap_words_[0], lap_words_[1]);
         camera_.reset(world_->cars()[0]);
         history_.clear();
@@ -483,7 +489,7 @@ public:
         }
         if (ev.start && flow_.setup().start == race::StartType::Rolling)
             LOG_INFO("Drive: the player's car takes the line at %.1f km/h, %.2f s on the clock", double(world_->cars()[0].speed * 3.6f), double(flow_.time_ms()) / 1000);
-        if (is_license(setup_.sequence)) judge_stop();
+        if (is_license(setup_.sequence)) judge_stop(), judge_goal();
         if (ev.lap_done == 0) event_steps_ = 0, event_lap_ = flow_.car(0).laps_done;
         beeps_ += ev.beep;
         start_camera_.step();
@@ -714,6 +720,21 @@ public:
     }
     bool license_failed() const { return license_failed_; }
 
+    // A license test on a road whose goal distance (Gran Turismo 3's road header +0x1C, Prologue's courses) lies inside the
+    // lap and that has no stopping box: the test ends where the lap's progress crosses it after the line (the line counter
+    // at least 1), the time taken that share of the step (Gran Turismo 3's section test; ❓ Prologue's own judge not read:
+    // its test 2 on L_fisco6, 203 m from the line, has the gold time 0'12.180).
+    void judge_goal() {
+        if (goal_v_ <= 0 || stop_area_ || flow_.steps_since_start() < 0 || flow_.player_finished()) return;
+        const float v = world_->cars()[0].course_v;
+        if (flow_.car(0).counter >= 1 && goal_prev_ >= 0 && goal_prev_ < goal_v_ && goal_v_ <= v && v - goal_prev_ < 100)
+        {
+            flow_.finish_now(0, (goal_v_ - goal_prev_) / std::max(v - goal_prev_, 1e-4f));
+            LOG_INFO("Drive: the license test's goal at %.1f m: %.3f s", double(goal_v_), double(flow_.car(0).finish_units) / 3000.0);
+        }
+        goal_prev_ = flow_.car(0).counter >= 1 ? v : -1;
+    }
+
     // Before a step: the cars and the cameras as they are, for the frames shown before the next.
     void keep_previous() {
         const std::span<const race::CarState> now = shown();
@@ -825,6 +846,7 @@ private:
     std::string race_word_ = "ARCADE_SINGLE_RACE"; // the race's name in the race's words
     bool throttle_held_ = false;
     bool stop_area_ = false, in_box_ = false, license_failed_ = false; // a license test's stopping box
+    float goal_v_ = -1, goal_prev_ = -1;                               // a license test's goal distance (judge_goal)
     int bspec_pace_ = 3, overtake_steps_ = 0;
     bool bspec_help_ = true;
     float lateral_g_ = 0;
@@ -1364,6 +1386,7 @@ private:
             // ❓ The test's grading: the time against the page's gold, silver and bronze times.
             const int level = prize_level();
             r.result = level == 0 ? "gold" : level == 1 ? "silver" : level == 2 ? "bronze" : "failed";
+            r.name = entered_name_;
         } else if (sequence_ == "mission") {
             r.kind = menu::RaceResult::Kind::Mission;
         } else if (sequence_ == "championship") {
@@ -1601,6 +1624,39 @@ private:
         return "License " + cls + "-" + std::to_string(std::atoi(code.c_str() + code.size() - 4));
     }
 
+    // Prologue's license record (prologue_natives.cpp) through the menus' script: the test's unit's method with a number.
+    int license_call(const char* method, s32 arg) {
+        if (!menus_) return -1;
+        script::Vm& vm = menus_->vm();
+        const script::Value lic = vm.attribute(vm.lookup("game"), "license");
+        if (!lic.p) return -1;
+        const script::Value code[1] = {script::Value::string(menus_->game().race.race)};
+        const script::Value get = vm.attribute(lic, "getUnit");
+        const script::Value unit = get.kind == script::Kind::Function ? vm.call(get, code) : script::Value{};
+        const script::Value m = unit.p ? vm.attribute(unit, method) : script::Value{};
+        if (m.kind != script::Kind::Function) return -1;
+        const script::Value a[1] = {script::Value::integer(arg)};
+        const script::Value r = vm.call(m, a);
+        return r.kind == script::Kind::Int ? int(r.i) : -1;
+    }
+    std::string license_name() {
+        if (!menus_) return {};
+        script::Vm& vm = menus_->vm();
+        const script::Value lic = vm.attribute(vm.lookup("game"), "license");
+        const script::Value m = lic.p ? vm.attribute(lic, "getDefaultName") : script::Value{};
+        if (m.kind != script::Kind::Function) return {};
+        const script::Value r = vm.call(m, {});
+        return r.kind == script::Kind::String ? r.as_string() : std::string();
+    }
+    void set_license_name(const std::string& name) {
+        if (!menus_) return;
+        script::Vm& vm = menus_->vm();
+        const script::Value lic = vm.attribute(vm.lookup("game"), "license");
+        const script::Value m = lic.p ? vm.attribute(lic, "setDefaultName") : script::Value{};
+        const script::Value a[1] = {script::Value::string(name)};
+        if (m.kind == script::Kind::Function) vm.call(m, a);
+    }
+
     // The license test's results page is up (its live inset of the race).
     bool license_page() const { return is_license(sequence_) && results_shown() && result_; }
 
@@ -1637,6 +1693,7 @@ private:
     // race's results (docs/formats/strobe.md "The results movie").
     void open_results(App& app) {
         result_tried_ = true, result_exit_ = false;
+        entered_name_.clear();
         if (!result_movie_) {
             try {
                 for (const char* path : {"menu/common/result.strb", "menu/result.strb"}) // (Prologue's: menu/result.strb)
@@ -1653,6 +1710,7 @@ private:
                 try {
                     if (const std::optional<Bytes> file = app.vfs()->read(path); file && race::StrobeMovie::is_movie(*file)) {
                         license_movie_ = std::make_shared<const race::StrobeMovie>(race::StrobeMovie::parse(*file));
+                        prologue_license_ = std::string(path) == "menu/result_license.strb"; // (Prologue's)
                         break;
                     }
                 } catch (const std::exception& e) {
@@ -1695,6 +1753,22 @@ private:
                     return std::string(b);
                 };
                 if (n == "PRIZELEVEL") return V::number(prize_level());
+                if (prologue_license_) {
+                    // Prologue's ResultLicense (0x3D95D8): the time as the program writes it (0x409D88: M'SS.mmm), the
+                    // run's place in the test's ranking (0x3FE3B0, -1 none: no name entry), the name offered (the
+                    // profile's, 0x402428) and the name entered (NameEntry: into the run's record and the profile's).
+                    if (n == "GETTIME") return V::string(race::format_lap_time(t));
+                    if (n == "GETRANK") return V::number(f.player_finished() && prize_level() < 3 ? license_call("getRankOf", s32(t)) : -1);
+                    if (n == "GETDEFAULTNAME") { // (❓ the profile's name before any entry: the page's own "AAA" taken)
+                        const std::string name = license_name();
+                        return V::string(name.empty() ? std::string("AAA") : name);
+                    }
+                    if (n == "NAMEENTRY" && !args.empty()) {
+                        entered_name_ = args[0].to_string();
+                        set_license_name(entered_name_);
+                        return V::number(1);
+                    }
+                }
                 if (n == "GETTIME") return V::string(seconds(t, false));
                 if (n == "GETTIMEDIF") {
                     // The gap to the next grade up (a failed run: to bronze).
@@ -1918,6 +1992,8 @@ private:
     bool result_tried_ = false, result_exit_ = false;
     std::shared_ptr<const race::StrobeMovie> license_movie_;
     bool license_retry_ = false;
+    bool prologue_license_ = false; // the license results movie is Prologue's
+    std::string entered_name_;      // the name entered on Prologue's results page
     RaceHud::MovieExternal inset_{"_EXT", 320, 240, 640.0f / 300.0f, 1};
     menu::Runtime* menus_ = nullptr;    // the race's menus run on these (from the menus that asked)
     std::unique_ptr<menu::Runtime> own_menus_; // a scripted run's
