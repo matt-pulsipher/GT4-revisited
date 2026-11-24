@@ -58,6 +58,7 @@ struct WorldSetup {
     bool reflection = true;
     bool rail = false; // the stand-in simulation instead of the game's
     sim::ai::Pace pace; // the computer drivers' (the event's)
+    std::vector<u8> event_row; // the event's RACE row: the race's tire wear (sim::rules::event_wear_bytes); empty: no wear
     int laps = 0;       // the race's laps (the pit stops' last lap; 0 a run without an end)
     bool computer_player = false; // the computer drivers drive the player's car too
     // The game's options (menu::GameState::options: the sound's volumes and output) and the race

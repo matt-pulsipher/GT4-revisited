@@ -221,6 +221,13 @@ void flaps(ex::Car& c, const WheelLayout& l, u32& random_state) {
     }
 }
 
+void event_wear_bytes(const u8* row, u8* r) {
+    for (u32 k = 0; k < 5; ++k) r[0x2C + k] = row[0x6B + k];
+    r[0x33] = row[0x70], r[0x34] = row[0x71];
+    r[0x31] = row[0x72], r[0x32] = row[0x73];
+    if (row[0x6B] != 0 && row[0x72] == 0) r[0x31] = 4;
+}
+
 std::array<u8, 0x6C> wear_rules_block(const u8* r, bool second_on, const Program& program) {
     using gt3r::ee::int_to_f;
     std::array<u8, 0x6C> b{};

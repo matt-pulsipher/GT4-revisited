@@ -233,6 +233,9 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
 void Session::set_wear_rules(const u8* rule_block, bool second_on, const Program& program) {
     const auto b = rules::wear_rules_block(rule_block, second_on, program);
     tables_.wear = rules::wear_rules(b.data());
+    if (steps_ == 0 && gt4_ready_) // (before the start: the cars' set-up fits new tires by the rules, 0x362E58)
+        for (size_t i = 0; i < cars_.size(); ++i)
+            for (int w = 0; w < 4; ++w) rules::new_tire(cars_[i], gx_[i].wear, w, tables_.wear);
 }
 
 void Session::set_fuel(size_t i, gt3r::ee::F liters) {
@@ -402,7 +405,8 @@ void Session::chassis(size_t i) {
     }
     ex::pad_rumble(c);
     ex::steer_force(c, race_.feel);
-    ex::tyre_effects(c, race_.effects, race_.aids.course_category);
+    if (gt4_rules_) rules::slide_effects(c, layouts_[i], tables_.slide, loose_ ? 2 : 0); // (0x367148)
+    else ex::tyre_effects(c, race_.effects, race_.aids.course_category);
     ex::phase12_stub(c);
     ex::engine_sound(c, race_.sound_scales);
     ex::effects_reset(c, 0, 0);
@@ -564,9 +568,9 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
         ex::Car& c = cars_[i];
         chassis(i);
         if (gt4_rules_) {
-            // Phases 20 .. 22: the tire wear (0x352EA0: nothing while the race's wear rules are off, as in every race seen; with
-            // them on its sliding measure, 0x367148's wheel +0xB4, is not ported), the pit flags (0x353218's: the computer
+            // Phases 20 .. 22: the tire wear (0x352EA0, by the race's wear rules), the pit flags (0x353218's: the computer
             // drivers' pit flow, sim/ai), the flaps (0x35A678).
+            rules::tire_wear(c, gx_[i].wear, gx_[i].tires, layouts_[i], tables_.wear); // (0x352EA0)
             rules::flaps(c, layouts_[i], random_state_);
         } else {
             ex::tire_wear(c, race_.prep.wear);

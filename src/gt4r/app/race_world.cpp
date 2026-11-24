@@ -9,6 +9,7 @@
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/formats/model/car_model.h"
 #include "gt4r/race/car_spec.h"
+#include "gt4r/sim/rules_wear.h"
 #include "gt4r/sim/session.h"
 #include "race/billboards.h"
 #include "race/lamp_glows.h"
@@ -194,6 +195,11 @@ void RaceWorld::build_simulation() {
             if (!noted_)
                 for (const std::string& note : session_->notes()) LOG_INFO("Drive: %s", note.c_str());
             sim_ = session_.get();
+            if (setup_.event_row.size() >= 0x74) { // the event's tire wear (the rule block's +0x2C .. +0x34, 0x35E108)
+                u8 rule_block[0x80] = {};
+                sim::rules::event_wear_bytes(setup_.event_row.data(), rule_block);
+                session_->set_wear_rules(rule_block, !session_->loose(), program);
+            }
             // The computer drivers: every car but the player's (his too when he watches).
             std::vector<size_t> computer;
             for (size_t i = computer_player_ ? 0 : 1; i < setup_.entries.size(); ++i) computer.push_back(i);

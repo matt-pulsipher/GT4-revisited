@@ -80,6 +80,10 @@ void tire_wear(ex::Car& c, WearExtra& x, const TireExtra& t, const WheelLayout& 
 // course or a course whose row byte (conductor + 0x10000 - 0x3420) is not 1); the tread wear's from the rule block's bytes
 // +0x2C .. +0x34 when they make a curve (0x367918: its knees x 10,000, its losses in percent) and the static block's
 // +0xBE / +0xC2 / +0xC3. Both off for a rule block of zeros (the races seen).
+// 0x35E108's wear part: an event's RACE row (its bytes as the database holds them, at least 0x74) into the rule block's
+// tread wear bytes +0x2C .. +0x34: +0x2C .. +0x30 the row's +0x6B .. +0x6F, +0x33 / +0x34 its +0x70 / +0x71, +0x31 / +0x32 its
+// +0x72 / +0x73 (+0x31 4 when the row has a curve, +0x6B, and +0x72 is 0).
+void event_wear_bytes(const u8* row, u8* rule_block);
 std::array<u8, 0x6C> wear_rules_block(const u8* rule_block, bool second_on, const Program& program);
 // 0x362E58: a wheel's new tire (the start, a pit stop): the grip 1, the wears, levels, brake heat cleared; with the tread wear
 // on it starts at the rules' +0x00 and the grip loses +0x04; with the second wear on that starts at +0x50 and the grip loses
