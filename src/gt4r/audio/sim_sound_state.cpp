@@ -1,5 +1,6 @@
 #include "gt4r/audio/sim_sound_state.h"
 
+#include "gt4r/sim/car_spec.h"
 #include "gt4r/sim/session.h"
 
 #include <algorithm>
@@ -16,7 +17,7 @@ int engine_place(const sim::Spec& spec) {
     return place >= 1 && place <= 3 ? place : 1; // (4 is heard as the front)
 }
 
-CarSoundState sound_state(const sim::Session& session, size_t i) {
+CarSoundState sound_state(const sim::Session& session, size_t i, const RaceSoundTables* tables) {
     const race::CarState& car = session.cars()[i];
     const gt3r::sim::exact::Car& c = session.record(i);
     CarSoundState s;
@@ -54,6 +55,9 @@ CarSoundState sound_state(const sim::Session& session, size_t i) {
     s.gear_ratio = c.p.d.ratio[size_t(gear)].host(), s.low_ratio = c.p.d.ratio[1].host();
     const size_t axle = c.p.d.driven_axle ? 2 : 0;
     s.shaft_speed = 0.5f * (std::fabs(car.wheels[axle].spin_rate) + std::fabs(car.wheels[axle + 1].spin_rate));
+    // An afterfire's moment (0x3F3368): the shift's end at full throttle; and the car's chance.
+    s.shift_flame = c.shift_lockout == 11 && c.throttle.host() > 0.9f;
+    if (tables) s.afterfire_chance = tables->afterfire_chance(session.spec(i).b(0x120), c.p.e.boost_max.host() > 0, spec_figures(session.spec(i)).ps);
     // The step's contact and landings, as the seam publishes them.
     const CarSoundState seam = sound_state(car);
     s.contact = seam.contact, s.contact_kind = seam.contact_kind;
