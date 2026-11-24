@@ -59,12 +59,24 @@ by the shared engine's card layout (`formats/ps2/memcard.h`); `src/gt4r/save/car
   the order the game writes them; their directory entries have the modes the game's own card
   has (folder 0x8427, files 0x8497).
 
+- **A game with progress** (for checks against the original): `gt4tool save <disc> progress <data
+  folder> [name] [credits]` runs the menus from power on to a new game on that folder's card,
+  then buys cars at the dealers as the purchase page does (`addNewCar`, the diary's day, the car
+  open in Arcade), drives the last one, passes every license test (the result routine of a
+  license test, with the test's medal time), lets Gran Turismo mode's present page give what the
+  records entitle the player to (the licenses' papers and cars, courses by the weeks gone by),
+  and saves (`src/gt4r/menu/game_progress.*`). `export` then puts it on a card image.
+
 Checked: the reference card made by the running original (a new game and a used car) imports
 and loads (the player, credits, the car with its record; written again the same bytes);
 exported again onto a new card and onto another of the reference cards, both read back file for
-file the same. 🔎 A card made here has not been loaded by the original.
+file the same. A card made here loads in the original (US 1.01; a progressed game from
+`progress`, exported onto a new card): it boots straight to Gran Turismo mode's map with the
+player, credits, day, the 22 cars, the licenses and their rankings as written. Its option block
+then needed the screen's figures (+0x24, below): without them the original's license test drew
+its display over a black picture.
 
-## The game's other saves (🔎 not written here)
+## The game's other saves (🔎 not written here; the Replay Theater lists the race's own replay files)
 
 The card manager's modes (0x179570's table) name the other kinds of save: `MODE_LOAD_REPLAY`,
 `MODE_SAVE_FULL_REPLAY`, `MODE_LOAD_BESTLAP_REPLAY`, `MODE_SAVE_BESTLAP_REPLAY`, the photo
@@ -77,7 +89,8 @@ program's sequence `load_replay` (the title's third item asks for it), which run
 `labomode` in `MODE_LOAD_REPLAY`: its scripts list the card's replays through the manager's
 `list`, `count`, `getFile(i)` and each file's `title`, `racemode`, `racesubmode`, `size`,
 `load`, `remove`, `isInfoValid`, `writeInfo`. Not read further: the folders' names and the
-replay's own layout.
+replay's own layout. Here MODE_LOAD_REPLAY lists the replays the race saved in the data
+folder's `replays/` (`menu/game_replays.cpp`; menu.md "The Replay Theater").
 
 ## Results the scripts see (0x1CBF40)
 
@@ -182,7 +195,7 @@ three match (0x43AA68); there is no version: another size is another program.
 | 0x387F0 | 0x74 | presents given: a bit a race (0 .. 867), then a bit a time present | `presents` |
 | 0x38870 | 0x88 | the championship left (0x119BD8): its label char[0x20], u8 kept (1: left in the middle), u8 races run, u8 race count, 5 bytes, then six entrants {u64 the car's code, s32 paint, s32 points} (the player first; 🔎 for an opponent the program writes its entry's second code, here the car's) | `suspended_*`, `series`, `championship_rest` |
 | 0x38900 | 0x24 | used cars sold: 256 bits, the week they belong to | `used_sold`, `used_week` |
-| 0x38930 | 0x11C0 | the options (Option +8: its size 0x11C0, then the fields; the play lists below) | `options`, `bgm_playlist`, `slide_playlist` |
+| 0x38930 | 0x11C0 | the options (Option +8: its size 0x11C0, then the fields; the play lists and the fields below) | `options`, `bgm_playlist`, `slide_playlist`, `monitor_params` |
 | 0x39AF0 | 4 | the zone (0 UNDEF, 1 JP, 2 US, 3 UK, 4 EU, 5 KR) | `options["game_zone"]` |
 | 0x39B00 | 2 x 0x60 | the two players' button maps (not decoded) | kept |
 | 0x39BC0 | 0xAC | the LAN settings: names "Player1", ... | kept |
@@ -239,6 +252,18 @@ The race's car is the sheet in use: `garage[slot].record->active()` is the
   the code), 10 entries of 0x30 (u32 time ms, or a float speed in the machine test of top
   speed; the date; u64 the car's code; the pass code), 16 u32 section times, 8 bytes, the best
   score at +0x230.
+
+### Options kept other than by number (MOption's accessors, 0x189E38's table)
+
+| Option + | |
+|---|---|
+| 0x14 | `wide_mode` (16:9) |
+| 0x24 .. 0x4F | the screen's figures (11 floats: 0, 1.0, 238.157, 275, 205, 0.97, 1.0, ...) the `monitor_size` setter copies from one of three program tables (0x436D60: "subaru" 0x6A61E8, else 16:9 0x6A61B8, else 0x6A6188); a new game's constructor leaves zeros and every save the original writes has a table's figures. Here they are copied from the user's program whenever the game is saved or the options applied (`GameState::monitor_params`) |
+| 0x1140 | the race display's parts, a bit each (0x437408): 0 `replay_display_enable`, 1 `race_display_map`, 2 `_steering`, 3 `_meter`, 4 `_time`, 5 `_lap`, 6 `_position`, 7 `_car_name`, 8 `_suggested_gear`, 9 `_g_meter`, 10 `race_display_config`; a new game's word 0x3FA |
+| 0x1184, 0x1194 | `race_color_correction`, `replay_color_correction`: four s32 each (brightness, contrast, saturation, color balance; the scripts' arrays, here the text "b c s w"); a new game's 3 0 0 0 and 0 0 0 0 |
+| 0x16B0 | `race_display_mode` (not in the saved block) |
+
+`vibration_1p/2p` and `steering_forcefeedback_1p/2p` are the controller settings' (Option +0x11D0, the saved button maps' block; "VIBRATION", "WHEEL FEEDBACK"), not decoded.
 
 ### The play lists (Option +0x90, +0x8A0; 0x810 each)
 

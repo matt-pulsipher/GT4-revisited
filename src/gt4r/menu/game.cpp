@@ -24,7 +24,7 @@ struct Default {
 // in the program's tables of names (save/game_data.cpp); a new game's are the constructors'.
 const Default kDefaults[] = {
     {"game_zone", std::string("US")}, {"language", std::string("US")}, {"wide_mode", 0}, {"race_display_mode", std::string("normal")},
-    {"screen_adjust_h", 0}, {"screen_adjust_v", 0}, {"monitor_size", std::string("normal")}, {"race_color_correction", 0}, {"replay_color_correction", 0},
+    {"screen_adjust_h", 0}, {"screen_adjust_v", 0}, {"monitor_size", std::string("normal")}, {"race_color_correction", std::string("3 0 0 0")}, {"replay_color_correction", std::string("0 0 0 0")},
     {"physical_monitor_size", 0}, {"sharpness_mode", std::string("MILD")},
     {"menu_bgm", 1}, {"menu_bgm_volume", 115}, {"menu_bgm_volume_raw", 115}, {"menu_se", 1}, {"menu_se_volume", 115}, {"menu_se_volume_raw", 115},
     {"race_bgm", 1}, {"race_bgm_volume", 115}, {"race_bgm_volume_raw", 115}, {"race_se", 1}, {"race_se_volume", 115}, {"race_se_volume_raw", 115},
@@ -38,9 +38,9 @@ const Default kDefaults[] = {
     {"photo_saturation", 0}, {"photo_save_slot", 0}, {"photo_save_method", 2},
     {"vibration_1p", 1}, {"vibration_2p", 1}, {"steering_assist_1p", std::string("AMATEUR")}, {"steering_assist_2p", std::string("AMATEUR")}, {"active_steering_1p", 0},
     {"active_steering_2p", 0}, {"steering_forcefeedback_1p", 0}, {"steering_forcefeedback_2p", 0},
-    {"replay_mode", std::string("NORMAL")}, {"replay_play_mode", std::string("STRAIGHT")}, {"replay_display_enable", 1}, {"race_display_config", 0}, {"race_display_map", 1},
-    {"race_display_steering", 1}, {"race_display_meter", 1}, {"race_display_time", 1}, {"race_display_lap", 1}, {"race_display_position", 1},
-    {"race_display_car_name", 1}, {"race_display_suggested_gear", 1}, {"race_display_g_meter", 0}, {"replay_2p_split", 1},
+    {"replay_mode", std::string("NORMAL")}, {"replay_play_mode", std::string("STRAIGHT")}, {"replay_display_enable", 0}, {"race_display_config", 0}, {"race_display_map", 1},
+    {"race_display_steering", 0}, {"race_display_meter", 1}, {"race_display_time", 1}, {"race_display_lap", 1}, {"race_display_position", 1},
+    {"race_display_car_name", 1}, {"race_display_suggested_gear", 1}, {"race_display_g_meter", 1}, {"replay_2p_split", 1},
     {"replay_memory_card_slot", 0}, {"album_slide_effect", 1}, {"album_slide_play_time", 8}, {"album_slide_transition_time", 4},
     {"album_memory_card_slot", 0}, {"ustorage_photo_quality", std::string("SUPER_FINE")},
     {"timeout_count_to_autodemo", 20}, {"timeout_count_to_topmenu", 600}, {"machine_role", std::string()}, {"special_arcade_tuner", std::string()},
@@ -85,10 +85,9 @@ std::string GameState::option_text(const std::string& name) const {
     return b;
 }
 
-GameState::Unit GameState::velocity_unit() const { return option_text("unit_velocity") == "MPH" ? Unit{0.621371f, "mph"} : Unit{1.0f, "km/h"}; }
+GameState::Unit velocity_unit_of(const std::string& u) { return u == "MPH" ? GameState::Unit{0.621371f, "mph"} : GameState::Unit{1.0f, "km/h"}; }
 
-GameState::Unit GameState::power_unit() const {
-    const std::string u = option_text("unit_power");
+GameState::Unit power_unit_of(const std::string& u) {
     if (u == "HP") return {0.98632f, "HP"};
     if (u == "BHP") return {0.98632f, "BHP"};
     if (u == "KW") return {0.73550f, "kW"};
@@ -98,12 +97,15 @@ GameState::Unit GameState::power_unit() const {
     return {1.0f, "ps"};
 }
 
-GameState::Unit GameState::torque_unit() const {
-    const std::string u = option_text("unit_torque");
+GameState::Unit torque_unit_of(const std::string& u) {
     if (u == "FTLB") return {7.23301f, "ft.lb"};
     if (u == "NM") return {9.80665f, "N.m"};
     return {1.0f, "kgf.m"};
 }
+
+GameState::Unit GameState::velocity_unit() const { return velocity_unit_of(option_text("unit_velocity")); }
+GameState::Unit GameState::power_unit() const { return power_unit_of(option_text("unit_power")); }
+GameState::Unit GameState::torque_unit() const { return torque_unit_of(option_text("unit_torque")); }
 
 // "name = 12", "name = 0.5", "name = \"text\"": a line each, in name order.
 std::string GameState::options_text() const {
@@ -175,6 +177,17 @@ void CarRecord::set_condition(size_t field, float v) {
 }
 
 GameState::GameState() { new_game(); }
+
+// 0x110800 (from the license sequence, 0x114E38): a run's day with its result, the note 14 and
+// its time; a day with nothing in it when the result is 13 (no run, or failed).
+void GameState::end_race_sequence() {
+    if (race_session.license_open) {
+        const DayEvent& d = race_session.license_day;
+        put_day(d.type == 4 && d.b1 != 13 ? d : DayEvent{});
+        race_session.license_open = false;
+    }
+    race_session.sequence.clear();
+}
 
 namespace {
 
