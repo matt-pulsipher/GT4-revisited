@@ -12,6 +12,7 @@
 
 #include <SDL3/SDL_render.h>
 
+#include <future>
 #include <map>
 #include <memory>
 #include <string>
@@ -37,6 +38,11 @@ private:
         std::unique_ptr<race::CarVisual> visual;
         race::CarSpec spec;
         bool failed = false;
+        std::future<std::unique_ptr<race::CarVisual>> loading; // being built on a worker
+        std::unique_ptr<race::CarVisual> building;              // built, being sent to the GPU
+        u64 asked = 0;                                          // when it was asked for (ns)
+        race::CarVisual::Shadow shadow;                         // the shadow's look last set
+        bool shadow_set = false;
     };
     struct Face {
         std::weak_ptr<script::Heap> widget;

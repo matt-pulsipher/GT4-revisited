@@ -88,10 +88,10 @@ void CarVisual::build_gt3(ByteSpan file_in, const Options& opt, const std::strin
                 if (wheels[size_t(w)].meshes.empty()) continue;
                 wheels[size_t(w)].name = name + "/wheel";
                 wheels[size_t(w)].textures = all.textures;
-                wheels_[size_t(w)][0] = std::make_unique<render::GpuModel>(*ctx_, wheels[size_t(w)]);
+                to_gpu(wheels_[size_t(w)][0], wheels[size_t(w)]);
             }
         }
-        body_[size_t(brake)] = std::make_unique<render::GpuModel>(*ctx_, body);
+        to_gpu(body_[size_t(brake)], body);
     }
 }
 

@@ -11,7 +11,10 @@
 #include "gt4r/race/car_spec.h"
 #include "render/gpu_context.h"
 
+#include <chrono>
 #include <cmath>
+#include <cstring>
+#include <future>
 
 namespace gt4r {
 
@@ -75,37 +78,60 @@ void MenuCars::end_frame() {
 MenuCars::Car* MenuCars::car(const std::string& code, int color) {
     const std::string key = code + "#" + std::to_string(color);
     std::unique_ptr<Car>& c = cars_[key];
-    if (c) return c->failed ? nullptr : c.get();
+    if (c) {
+        if (c->failed) return nullptr;
+        if (c->loading.valid()) {
+            // Built on a worker; sent to the GPU here, on the thread that draws, a few models a
+            // picture (about 3 ms of each).
+            if (c->loading.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return nullptr;
+            try {
+                c->building = c->loading.get();
+            } catch (const std::exception& e) {
+                LOG_WARN("Menu car %s: %s", code.c_str(), e.what());
+                c->failed = true;
+                return nullptr;
+            }
+        }
+        if (c->building) {
+            const Uint64 t0 = SDL_GetTicksNS();
+            bool more = true;
+            while (more && SDL_GetTicksNS() - t0 < 3000000) more = c->building->upload_one();
+            if (more) return nullptr;
+            c->visual = std::move(c->building);
+            LOG_INFO("Menu car %s ready %.1f ms after it was asked for", code.c_str(), double(SDL_GetTicksNS() - c->asked) / 1e6);
+        }
+        return c->visual ? c.get() : nullptr;
+    }
     c = std::make_unique<Car>();
-    const Uint64 t0 = SDL_GetTicksNS();
-    struct Took {
-        Uint64 t0;
-        const std::string& code;
-        ~Took() { LOG_INFO("Menu car %s made in %.1f ms", code.c_str(), double(SDL_GetTicksNS() - t0) / 1e6); }
-    } took{t0, code};
+    c->asked = SDL_GetTicksNS();
     db::SpecDb* db = app_.db();
     if (!db || !app_.gpu()) return c->failed = true, nullptr;
     if (models_.empty())
         for (const db::CarEntry& e : db->cars()) models_[e.label] = e.model;
     const auto model = models_.find(code);
     try {
+        // The files and the database here (their readers are this thread's); the models are
+        // built on a worker so that the menus go on moving while a car loads.
         if (model == models_.end()) throw FormatError("no such car in the database");
         const std::string path = "car/menu/" + model->second;
-        const std::optional<Bytes> file = app_.vfs()->read(path);
-        if (!file || !car::CarFile::is_car(*file)) throw FormatError("no showroom model " + path);
-        const std::optional<Bytes> pat = app_.vfs()->read(path + ".pat");
+        std::optional<Bytes> file = app_.vfs()->read(path);
+        if (!file || !(car::CarFile::is_car(*file) || race::CarVisual::is_gt3_car(*file))) throw FormatError("no showroom model " + path);
+        std::optional<Bytes> pat = app_.vfs()->read(path + ".pat");
         c->spec = race::read_car_spec(*db, code);
         const std::vector<u32> paints = race::car_paints(*db, code);
         race::CarVisual::Options o;
         const u32 pick = u32(std::max(color, 0));
         o.paint = paints.empty() ? pick : paints[pick % paints.size()];
-        c->visual = std::make_unique<race::CarVisual>(*app_.gpu(), *file, pat ? ByteSpan(*pat) : ByteSpan{}, c->spec, o, code);
+        render::GpuContext* gpu = app_.gpu();
+        c->loading = std::async(std::launch::async, [gpu, f = std::move(*file), p = pat ? std::move(*pat) : Bytes{}, spec = c->spec, o, code]() {
+            return race::CarVisual::make_unuploaded(*gpu, f, p, spec, o, code);
+        });
+        LOG_INFO("Menu car %s asked for (%.1f ms on the drawing thread)", code.c_str(), double(SDL_GetTicksNS() - c->asked) / 1e6);
     } catch (const std::exception& e) {
         LOG_WARN("Menu car %s: %s", code.c_str(), e.what());
         c->failed = true;
-        return nullptr;
     }
-    return c.get();
+    return nullptr;
 }
 
 SDL_GPUTexture* MenuCars::env_texture(menu::Project* project, const std::string& page, const std::string& path) {
@@ -276,7 +302,8 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
     sh.on = true;
     for (int i = 0; i < 3; ++i) sh.rgb[i] = v.lights[0].sdw[i];
     sh.alpha = v.lights[0].sdw[3];
-    c->visual->set_shadow(sh);
+    // (set_shadow makes the shadows' models anew: only when the look changes.)
+    if (std::memcmp(&sh, &c->shadow, sizeof sh) != 0 || !c->shadow_set) c->visual->set_shadow(sh), c->shadow = sh, c->shadow_set = true;
     items_.clear();
     if (s.advanced)
         // Each backdrop with a weight, cross-faded over black (0x1D5588).

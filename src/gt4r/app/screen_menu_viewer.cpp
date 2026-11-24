@@ -268,7 +268,9 @@ private:
             // The menus run at the program's 60 pictures a second, whatever the display's rate.
             const int steps = std::min(int(step_time_ * 60.0), 4);
             step_time_ = steps == 4 ? 0.0 : step_time_ - steps / 60.0;
+            const Uint64 u0 = SDL_GetTicksNS();
             for (int i = 0; i < steps; ++i) runtime_->update(), cursor_.step(*runtime_);
+            if (timing_ && double(SDL_GetTicksNS() - u0) / 1e6 > 20) LOG_INFO("Menu timing: the scripts took %.1f ms", double(SDL_GetTicksNS() - u0) / 1e6);
             // A script that ended its project names the next one, or asks for a race.
             if (runtime_->finished() && !race_) {
                 race_ = runtime_->race_request();
@@ -329,6 +331,9 @@ private:
                 const Uint64 t1 = SDL_GetTicksNS();
                 draw_ms_ += double(t1 - t0) / 1e6;
                 if (last_frame_) frame_ms_ += double(t1 - last_frame_) / 1e6, frame_max_ = std::max(frame_max_, double(t1 - last_frame_) / 1e6);
+                if (last_frame_ && double(t1 - last_frame_) / 1e6 > 33.4)
+                    LOG_INFO("Menu timing: a frame of %.1f ms on %s (pages drawn in %.1f ms)", double(t1 - last_frame_) / 1e6,
+                             runtime_->current_page() ? runtime_->current_page()->name.c_str() : "-", double(t1 - t0) / 1e6);
                 last_frame_ = t1;
                 if (++timed_ == 300) {
                     LOG_INFO("Menu timing on %s: frame %.2f ms (max %.2f), pages drawn in %.2f ms", runtime_->current_page() ? runtime_->current_page()->name.c_str() : "-",
