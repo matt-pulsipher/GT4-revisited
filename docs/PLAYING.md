@@ -63,19 +63,29 @@ F11 switches full screen.
   the race display (in the units the options set), the B-spec display and commands, the pause
   menu, the results, the replays through the course's cameras.
 - **License tests**: the License Center, a test's page, the test driven with its own display and
-  trophy times, ended when the car stops in the box, its results with Retry and Exit.
+  trophy times, ended when the car stops in the box or fails (cones, walls, off the course), its
+  results with Retry and Exit, the trophy on the license's grid.
+- **Later in Gran Turismo mode**: the halls of Professional Events, a championship of five races
+  (each race's pre-race page with the points so far, Session Results, Next Race, Abandon), the
+  dealers' tune shops (buying a part and fitting it), the calendar going by a day a race.
 
 ## Known problems
 
 The ones a player meets first:
 
-- Arcade's opponents are always five Mercedes-Benz SL 500s (the game's choice of opponents by
-  your car's performance is not built yet).
-- The replay after a B-spec race shows the course without the cars.
-- Your car's row in the race's grid tables is not marked in orange.
-- On some courses an opening shot of the race looks out from inside your car.
-- Prologue keeps its memory card in Gran Turismo 4's folder of the data folder: the two games'
-  saves overwrite each other when both are played with one data folder.
+- A race on Tsukuba Circuit Wet stops the game as it starts.
+- The Toyota Prius does not move.
+- Seoul Central (forward): the computer's cars spin and back up on its long boulevard; race cars
+  driven by the computer spin at Tsukuba.
+- A championship has no Point Ranking page between its races.
+- The prize page after a race has no place number or turning money pouch.
+- An event page's Preview opens a plain page that asks for a race (Cross drives it) instead of
+  the preview.
+- On an event page after its first race, the strip of the series' course logos is drawn twice its
+  size over the title.
+- The license test page's "Best" reads 0'00.000 after a run.
+- In Prologue, Start does not skip the opening movie (Triangle does).
+- A race on the test course takes about 9 s to load.
 - The copyright notice and the "Sony Computer Entertainment America Presents" page before the
   first dialog are not shown.
 
