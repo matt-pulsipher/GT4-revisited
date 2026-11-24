@@ -8,6 +8,7 @@
 #include "gt4r/sim/ai/pit_flow.h"
 
 #include <map>
+#include <set>
 #include <vector>
 
 namespace gt4r::diff {
@@ -21,10 +22,14 @@ public:
     u64 equal() const { return equal_; }
     u64 active() const { return active_; }
     const std::map<int, u64>& counts() const { return counts_; }
+    u64 hold_calls() const { return hold_calls_; }
+    u64 hold_equal() const { return hold_equal_; }
 
 private:
     void enter();
     void leave();
+    void hold_enter(Ee& e);
+    void hold_leave();
     bool depth_ok() const;
     sim::ai::PitCar read_car(u32 F) const;
 
@@ -44,6 +49,13 @@ private:
     sim::ai::PitInputs inputs_;
     u64 calls_ = 0, equal_ = 0, active_ = 0, reported_ = 0;
     std::map<int, u64> counts_;
+    bool hold_in_ = false;
+    int hold_car_ = -1;
+    u32 hold_sp_ = 0;
+    sim::ai::PitCar hold_before_;
+    std::vector<int> hold_tires_;
+    std::set<u32> hold_probed_;
+    u64 hold_calls_ = 0, hold_equal_ = 0, hold_reported_ = 0, hold_new_tires_ = 0;
     int marker_k_ = 0;
     std::map<int, std::pair<u32, u32>> markers_;
     std::map<int, bool> marker_reported_;

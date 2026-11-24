@@ -58,6 +58,9 @@ void PitCheck::install() {
             std::printf("  stop line point %d: the program's %.4f (%08X), ours %.4f (%08X)\n", marker_k_, double(theirs.host()), theirs.bits, double(mine.host()), mine.bits);
         }
     });
+    // The stop's timing (0x35C0B8, phase 4 while the hold counter runs) against pit_hold_step.
+    ee_.add_probe(0x35C0B8, [this](Ee& e) { hold_enter(e); });
+    ee_.add_probe(0x362E58, [this](Ee& e) { if (hold_in_) hold_tires_.push_back(int(e.g32(5))); });
     ee_.add_probe(0x36C9F8, [this](Ee&) { if (in_ && depth_ok()) theirs_.push_back(sim::ai::PitAction::Heading); });
 }
 
@@ -154,7 +157,47 @@ void PitCheck::leave() {
     else ++reported_;
 }
 
+void PitCheck::hold_enter(Ee& e) {
+    const u32 C = u32(e.a(0));
+    hold_car_ = -1;
+    for (int i = 0; i < o_.cars; ++i)
+        if (o_.car(i) == C) hold_car_ = i;
+    if (hold_car_ < 0) return;
+    hold_in_ = true;
+    hold_sp_ = e.g32(29);
+    hold_before_ = read_car(C + kF);
+    hold_tires_.clear();
+    const u32 ra = e.g32(31);
+    if (hold_probed_.insert(ra).second)
+        ee_.add_probe(ra, [this](Ee& x) {
+            if (hold_in_ && x.g32(29) == hold_sp_) hold_leave();
+        });
+}
+
+void PitCheck::hold_leave() {
+    hold_in_ = false;
+    const u32 C = o_.car(hold_car_);
+    // each wheel's layout byte (+0x3C + w of the layout record, 0x359538: 0x620478 + 0x54 x the parameter block's +0x30)
+    std::vector<gt3r::s8> axle;
+    const u32 rec = 0x620478 + 0x54 * u32(ee_.r8(ee_.r32(C + 0x10) + 0x30));
+    const u32 n = rec ? ee_.r8(rec + 1) : 4;
+    for (u32 w = 0; w < n; ++w) axle.push_back(gt3r::s8(ee_.r8(rec + 0x3C + w)));
+    sim::ai::PitCar mine = hold_before_;
+    const sim::ai::HoldEvents ev = sim::ai::pit_hold_step(mine, axle);
+    const sim::ai::PitCar th = read_car(C + kF);
+    ++hold_calls_;
+    const bool same = th.hold == mine.hold && th.service == mine.service && th.x64C == mine.x64C && th.tire_front == mine.tire_front &&
+                      th.tire_rear == mine.tire_rear && ev.new_tires == hold_tires_;
+    if (same) ++hold_equal_;
+    else if (hold_reported_++ < 8)
+        std::printf("  hold car %d: the program's hold %u service %04X tires %zu, ours %u %04X %zu\n", hold_car_, th.hold, th.service, hold_tires_.size(), mine.hold,
+                    mine.service, ev.new_tires.size());
+    hold_new_tires_ += ev.new_tires.size();
+}
+
 void PitCheck::print() const {
+    std::printf("stop timing (0x35C0B8): %llu calls, %llu equal (hold, service, tires, the wheels given new tires: %llu)\n", (unsigned long long)hold_calls_,
+                (unsigned long long)hold_equal_, (unsigned long long)hold_new_tires_);
     std::printf("pit pass (0x359008 / 0x35B060): %llu calls, %llu equal (record, messages, the routines called), %llu with a pit step;", (unsigned long long)calls_,
                 (unsigned long long)equal_, (unsigned long long)active_);
     for (const auto& [k, n] : counts_) std::printf(" %s %llu", action_name(k), (unsigned long long)n);

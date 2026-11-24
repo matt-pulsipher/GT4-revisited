@@ -260,6 +260,45 @@ void pit_need(PitCar& c, const PitNeed& n) {
     if (n.control == 2 || (n.control == 1 && c.x5C1 == 0)) c.flags |= 8;
 }
 
+void pit_refuel(PitCar& c, F& fuel, F tank, F dt, u8 rate_byte) {
+    if (!(c.service & 0x100)) return;
+    const F rate = gt3r::ee::int_to_f(s32(rate_byte)) * F::raw(0x3DCCCCCC);
+    fuel = fuel + rate * dt;
+    if (tank <= fuel) {
+        fuel = tank;
+        c.service ^= 0x100;
+        if (!(c.service & 0xC0)) c.hold = 90;
+    }
+}
+
+HoldEvents pit_hold_step(PitCar& c, const std::vector<s8>& axle) {
+    HoldEvents e;
+    if (c.hold == 0x2D1 && (c.service & 0x10)) {
+        if (c.x64C > 0 && --c.x64C == 0) e.default_choice = true;
+        return e;
+    }
+    if (c.hold == 90 && (c.service & 0x100)) return e;
+    --c.hold;
+    const bool front = c.service & 0x40, rear = c.service & 0x80;
+    if (front || rear) {
+        const bool chosen = c.tire_front < 0xFE || c.tire_rear < 0xFE;
+        if (c.hold == 0x285 && chosen) e.chosen_tires = true;
+        if (c.hold == 0x284 && chosen) {
+            e.chosen_params = true;
+            c.tire_front = c.tire_rear = 0xFF;
+        }
+        if (c.hold == 60) {
+            for (size_t w = 0; w < axle.size(); ++w) {
+                const bool f = axle[w] > 0, r = axle[w] < 0;
+                if ((f && front) || (r && rear) || (!f && !r && (front || rear))) e.new_tires.push_back(int(w));
+            }
+            c.service &= u16(~0xC0);
+        }
+    }
+    if (c.hold == 59) c.service |= 0x200;
+    return e;
+}
+
 u16 service_of(const PitCar& c, const ServiceInputs& s) {
     if (!s.pits_on || c.pad_state != 0 || s.lap_state == 1 || s.layout_kind == 4) return 0;
     u16 v = s.fuel_on ? 0xC : 0x4;

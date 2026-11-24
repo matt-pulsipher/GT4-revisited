@@ -681,7 +681,7 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
                 if (pc >= 0 && pc < o.cars) {
                     const u32 F = o.car(pc) + kF;
                     if (step == ps) ee.w8(F + 0x4B1, u8(ee.r8(F + 0x4B1) | 8));
-                    if (step >= ps && step % 30 == 0)
+                    if (print && step >= ps && step % 30 == 0)
                         std::printf("pit t %.1f d %.1f v %.1f kind %u line %u flags %02X 4B2 %u box %d service %04X hold %u 62E %u 64C %d 5C3 %u 5FA %u/%u\n", step / 60.0,
                                     double(ee.rf(F + kDistance)), double(ee.rf(F + 0x53C)) * 3.6, ee.r8(F + 0x467), ee.r8(o.car(pc) + 0x14 + 0x1C), ee.r8(F + 0x4B1),
                                     ee.r8(F + 0x4B2), int(gt3r::s8(ee.r8(F + 0x4B7))), ee.r16(F + 0x4B8), ee.r16(F + 0x4BA), ee.r8(F + 0x62E), int(s16(ee.r16(F + 0x64C))),
@@ -762,6 +762,12 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
     }
     if (aid_taps && print) aid_taps->print();
     if (pit_check && print) pit_check->print();
+    if (pit_check) {
+        result.pit_calls = pit_check->calls(), result.pit_equal = pit_check->equal();
+        const auto it = pit_check->counts().find(sim::ai::PitAction::CountStop);
+        result.pit_stops = it == pit_check->counts().end() ? 0 : it->second;
+        result.hold_calls = pit_check->hold_calls(), result.hold_equal = pit_check->hold_equal();
+    }
     if (collide_check && print) collide_check->print();
     if (whole && print) whole->print();
     if (collide_check) {

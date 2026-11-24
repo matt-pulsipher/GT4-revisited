@@ -100,6 +100,23 @@ public:
     void pass(PitCar& c, const PitInputs& in, const PitLine& line, std::vector<PitAction>& out, const std::function<u16()>& service) const;
 };
 
+// 0x35C0B8, the stop's own timing (phase 4 while the hold counter runs): the counter held for the player's choice (with a
+// B-spec car's wait) and while the fuel still runs in at 90, else counted down; the tires chosen fitted at 645 / 644, every
+// wheel of an axle being served new tires at 60 (0x362E58), the tire bits cleared, and at 59 the change done (0x200).
+struct HoldEvents {
+    bool default_choice = false;   // 0x35BF08: the player's choice made for him (a B-spec car's wait over) ❓
+    bool chosen_tires = false;     // at 645: the car's spec rebuilt with the tires chosen (0x3F3B68, 0x361570)
+    bool chosen_params = false;    // at 644: its parameters (0x361798)
+    std::vector<int> new_tires;    // at 60: the wheels given new tires (0x362E58)
+};
+// `axle`: each wheel's layout byte (+0x3C + w: > 0 the front, < 0 the rear, 0 either).
+HoldEvents pit_hold_step(PitCar& c, const std::vector<s8>& axle);
+
+// 0x354D60 with rate 0: a step of refuelling while the service has 0x100: the fuel (car +0x5D4) + the program's rate (its byte
+// 0x620E25 x 0.1 a second) x the step (car +0x54C), up to the tank (F +0x4CC); full: the refuelling over and, with no tires
+// still to change, 90 steps more standing.
+void pit_refuel(PitCar& c, F& fuel, F tank, F dt, u8 rate_byte);
+
 // The car's need of a stop (the pit part of 0x353218, the wear and fuel phase): what it reads.
 struct PitNeed {
     bool allowed = false;   // the conductor's virtual +0x180: the race has pit stops
