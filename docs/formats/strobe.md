@@ -356,5 +356,7 @@ stops' lap and front / rear tires, `TIRE_PANEL` of 80 frames), `DISTUNIT`, `MAP_
 course map). Here (`screen_race.cpp` `fill_monitor`): the followed car's name, letter and picture, the
 pace's word and lit key, the total time `h:mm'ss`, the lap, a row per car in race order (its short name, its
 grid letter, its best lap, its gap to the leader: the time since the leader was where it is ❓), the
-player's row lit; the map, its letters, the gap strip, the pit panel are not filled (hidden). The
+player's row lit; the course map drawn in `MAP_PANEL`'s place with each car's grid letter at its place
+(the followed car's orange; ❓ the program moves the movie's `CARPOS_` letters instead); the gap strip and
+the pit panel are not filled (hidden). The
 reference's B-spec race (`03-race/bspec_race_monitor.png`) has the same rows, letters and lit row.

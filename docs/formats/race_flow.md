@@ -266,6 +266,6 @@ engine's Gran Turismo 3 code). The player notices them roughly in this order.
 | Sun, glare, lamp glows, billboards, smoke, wet road, the scenery's fade | `race_world.cpp`, `course_scene.cpp` | **engine** routines on GT4's layouts (`gt3r::race::SunGlare`, `SunDisc`, `LampGlows`, `Billboards`, `CarLampGlows`, `TyreSmoke`, `WetRoad`, `SceneryFade`) | GT4's own effect routines (not read) |
 | The car icons on the map | `race_world.cpp` | angles and size judged (CarIconMaker 0x393B70) | |
 | The section times | `race/sections.*`, `screen_race.cpp` `step_splits` | the points GT4 (the road's list); the gap's partner judged | event 15 (0x359C10) and its display |
-| B-spec's Race Monitor | `screen_race.cpp` `fill_monitor` | the movie GT4; the rows' contents partly (gap judged); the map, letters, gap strip, pit panel not filled | 0x3D8DB8, 0x3DAF60, 0x3DBF90, 0x3DC5D8 |
+| B-spec's Race Monitor | `screen_race.cpp` `fill_monitor` | the movie GT4; the rows' contents partly (gap judged); the map's letters drawn by us (not the movie's `CARPOS_`); the gap strip, pit panel not filled | 0x3D8DB8, 0x3DAF60, 0x3DBF90, 0x3DC5D8 |
 | B-spec's pit command | `RaceWorld::pit`, `sim/ai/pit_stops.*` | GT4 (`ai-drivers`' port of 0x35B060) | |
 | Not built | | the suggested gear, the driver's view's pedal and fuel bars (0x3A8968), far-level wheels, brake disc glow, fitted wings, the driver figure, moving models, animated skies, cone shadows | |
