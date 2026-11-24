@@ -5,6 +5,7 @@
 #include "diff.h"
 #include "base/ee_math.h"
 #include "gt4r/sim/ai/ee_math.h"
+#include "collide_check.h"
 #include "orig.h"
 #include "taps.h"
 
@@ -530,6 +531,14 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
         }
         add_step_taps(*aid_taps);
     }
+    // GT4R_AI_COLLIDE: the collision step and the road query against ours at every call (collide_check.cpp); =1 both,
+    // =2 the collision step only, =3 the road query only.
+    std::unique_ptr<CollideCheck> collide_check;
+    if (const char* c = std::getenv("GT4R_AI_COLLIDE")) {
+        const int mode = std::atoi(c);
+        collide_check = std::make_unique<CollideCheck>(ee, o, disc, course);
+        collide_check->install(mode != 3, mode != 2);
+    }
     if (std::getenv("GT4R_AI_DUMP")) {
         for (u32 a : {0x622080u, 0x622088u, 0x622090u, 0x622098u, 0x6220A0u, 0x6220A8u, 0x6220B0u, 0x6220C8u, 0x6220E0u, 0x623E40u}) {
             std::printf("%06X:", a);
@@ -712,6 +721,7 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
         if (print) std::printf("ai: %s\n", b);
     }
     if (aid_taps && print) aid_taps->print();
+    if (collide_check && print) collide_check->print();
     // GT4R_AI_INCIDENTS (with GT4R_AI_OURS): each car's incidents as the drivers count them (the walls and cars met).
     if (field && std::getenv("GT4R_AI_INCIDENTS"))
         for (int i = 0; i < o.cars; ++i) {

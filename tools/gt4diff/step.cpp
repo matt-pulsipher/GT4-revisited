@@ -2,6 +2,7 @@
 // its own initialisation set up (orig.h), with our routines compared in place at every call (taps.h).
 
 #include "diff.h"
+#include "collide_check.h"
 #include "orig.h"
 #include "taps.h"
 
@@ -205,6 +206,12 @@ StepResult run_step(Disc& disc, bool print, const std::string& course_label, con
     add_taps(taps);
     add_taps_aids(taps);
     add_taps_steer(taps);
+    // GT4R_STEP_COLLIDE: the collision step and the road query against ours at every call (collide_check.cpp).
+    std::unique_ptr<CollideCheck> collide_check;
+    if (std::getenv("GT4R_STEP_COLLIDE")) {
+        collide_check = std::make_unique<CollideCheck>(ee, o, disc, course_name);
+        collide_check->install(true, true);
+    }
     if (std::getenv("GT4R_DUMP")) {
         const u32 at = o.car(0);
         for (u32 off = 0; off < kCarSize; off += 4) {
@@ -325,6 +332,7 @@ StepResult run_step(Disc& disc, bool print, const std::string& course_label, con
         std::printf("step: %d steps of the program's own; the car at %.2f %.2f %.2f, %.1f km/h\n", steps, double(ee.rf(at + kF)), double(ee.rf(at + kF + 4)),
                     double(ee.rf(at + kF + 8)), double(ee.rf(at + kF + 0x53C)) * 3.6);
         taps.print();
+        if (collide_check) collide_check->print();
     }
     for (const TapStat& st : taps.stats()) result.taps.push_back({st.name, size_t(st.calls), size_t(st.clean)});
     result.ran = true;

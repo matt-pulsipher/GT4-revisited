@@ -36,10 +36,11 @@ Vec3 to_course(const ex::Vec3& v) { return {v.x.host(), v.z.host(), -v.y.host()}
 // A surface is loose (the spec's tire block class 1: 2 .. 5 and 13 .. 15).
 bool loose_surface(int s) { return (s >= 2 && s <= 5) || (s >= 13 && s <= 15); }
 
-// The road's answer into a wheel's ground record: the surface as its row of the core's tables.
+// The road's answer into a wheel's ground record (0x3956F8): the surface as its row of the core's tables, +0x0C the
+// triangle and its cluster (cluster << 16 | triangle: wheel 0's is the collision step's hint). A miss only sets +0x30.
 void fill(ex::Ground& g, bool hit, const GroundHit& h) {
     if (!hit) {
-        g.miss = 1, g.height = kNoGround;
+        g.miss = 1;
         return;
     }
     g.miss = 0;
@@ -50,72 +51,13 @@ void fill(ex::Ground& g, bool hit, const GroundHit& h) {
     float d = h.plane_d;
     if (n.y < 0.5f) n = {0, 1, 0}, d = -h.point.y; // 0x344458: too steep a triangle reads as level
     g.normal = {F(n.x), F(n.y), F(n.z)}, g.plane_d = F(d);
-    g.seg = h.cluster;
+    g.seg = s32(u32(u16(s16(h.cluster))) << 16 | u32(u16(h.triangle)));
     g.material = u8(core_surface(surface_index(h.material, h.flags)));
     g.x32 = 0;
     g.flags = u8(h.flags & 1); // the pit lane; the wet variant is in the surface already
 }
 
 } // namespace
-
-// The course's walls for the collision step: the road's wall vertices are its wall point records as
-// they are (position, the chain link in the tag's low half, the flags in its high half). A body's
-// hint is its car's index: the walls and the other cars it can meet are those near its height.
-class Session::Walls final : public gt3r::sim::collide::exact::Course {
-public:
-    using WallPt = gt3r::sim::collide::exact::WallPt;
-    explicit Walls(const course::Runway& r, size_t cars) : heights_(cars, 0.0f) {
-        pts_.reserve(r.wall_vertices.size() + 1);
-        for (const course::Runway::WallVertex& v : r.wall_vertices) {
-            WallPt p;
-            p.x = F(v.pos.x), p.h = F(v.pos.y), p.z = F(v.pos.z);
-            p.link = s16(u16(v.tag)), p.flags = u16(v.tag >> 16);
-            pts_.push_back(p);
-        }
-        min_x_ = r.min.x, min_z_ = r.min.z;
-        nx_ = std::max(1, int((r.max.x - r.min.x) / kCell) + 1), nz_ = std::max(1, int((r.max.z - r.min.z) / kCell) + 1);
-        if (u64(nx_) * u64(nz_) > 4'000'000) nx_ = nz_ = 1;
-        cells_.assign(size_t(nx_) * size_t(nz_), {});
-        if (pts_.empty()) return;
-        for (int i = 0; i < int(pts_.size()); ++i) {
-            const int j = gt3r::sim::collide::exact::wall_next(pts_.data(), i);
-            if (j < 0 || j >= int(pts_.size())) continue;
-            const float ax = pts_[size_t(i)].x.host(), az = pts_[size_t(i)].z.host(), bx = pts_[size_t(j)].x.host(), bz = pts_[size_t(j)].z.host();
-            const int x0 = cell_x(std::min(ax, bx)), x1 = cell_x(std::max(ax, bx)), z0 = cell_z(std::min(az, bz)), z1 = cell_z(std::max(az, bz));
-            for (int z = z0; z <= z1; ++z)
-                for (int x = x0; x <= x1; ++x) cells_[size_t(z) * size_t(nx_) + size_t(x)].push_back(i);
-        }
-    }
-    void set_height(size_t car, float h) { heights_[car] = h; }
-
-    const WallPt* walls() const override { return pts_.data(); }
-    void wall_candidates(F x0, F z0, F x1, F z1, int hint, std::vector<int>& out) const override {
-        if (pts_.empty()) return;
-        const float level = hint >= 0 && size_t(hint) < heights_.size() ? heights_[size_t(hint)] : 0.0f;
-        const int cx0 = cell_x(x0.host() - 8.0f), cx1 = cell_x(x1.host() + 8.0f), cz0 = cell_z(z0.host() - 8.0f), cz1 = cell_z(z1.host() + 8.0f);
-        const size_t first = out.size();
-        for (int z = cz0; z <= cz1; ++z)
-            for (int x = cx0; x <= cx1; ++x)
-                for (int i : cells_[size_t(z) * size_t(nx_) + size_t(x)])
-                    if (std::fabs(pts_[size_t(i)].h.host() - level) < kLevel) out.push_back(i);
-        std::sort(out.begin() + std::ptrdiff_t(first), out.end());
-        out.erase(std::unique(out.begin() + std::ptrdiff_t(first), out.end()), out.end());
-    }
-    bool linked(int a, int b) const override {
-        if (a < 0 || b < 0 || size_t(a) >= heights_.size() || size_t(b) >= heights_.size()) return true;
-        return std::fabs(heights_[size_t(a)] - heights_[size_t(b)]) < kLevel;
-    }
-
-private:
-    static constexpr float kCell = 16.0f, kLevel = 6.0f;
-    int cell_x(float x) const { return std::clamp(int((x - min_x_) / kCell), 0, nx_ - 1); }
-    int cell_z(float z) const { return std::clamp(int((z - min_z_) / kCell), 0, nz_ - 1); }
-    std::vector<WallPt> pts_;
-    std::vector<float> heights_;
-    float min_x_ = 0, min_z_ = 0;
-    int nx_ = 1, nz_ = 1;
-    std::vector<std::vector<int>> cells_;
-};
 
 Session::~Session() = default;
 
@@ -245,16 +187,15 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
         place(i, at);
         publish(i);
     }
-    // The collision bodies (the engine's race start: an octagon from the body's extents, the mass and the yaw inertia).
-    walls_ = std::make_unique<Walls>(*road_, cars_.size());
+    // The collision bodies (0x45B978: an octagon from the body's extents, the mass and the yaw inertia).
+    walls_ = std::make_unique<collide::Walls>(*road_, *ground_);
     bodies_.resize(cars_.size());
+    body_cars_.resize(cars_.size());
     for (size_t i = 0; i < cars_.size(); ++i) {
         const ex::Params& p = cars_[i].p;
-        bodies_[i].behaviour = cars_[i].behaviour;
-        gt3r::sim::collide::exact::build(bodies_[i], p.body_front, p.body_rear, p.body_width, p.mass, p.yaw_inertia, int(i));
-        bodies_[i].course = walls_.get();
+        collide::build(bodies_[i], int(i), p.body_front, p.body_rear, p.body_width, p.mass, p.yaw_inertia);
     }
-    gt3r::sim::collide::exact::pair_tables(bodies_);
+    collide::pair_tables(bodies_);
     // The start's hold: the cars held as during a start's countdown until the engines idle and the
     // bodies have settled on their springs.
     for (int i = 0; i < kHoldSteps; ++i) hold_once({});
@@ -299,7 +240,7 @@ void Session::place(size_t i, const course::Runway::Place& at) {
     const F ground = under ? F(h.point.y) : F(at.pos.y);
     c.pos.x = x, c.pos.y = y;
     c.pitch = k0, c.roll = k0, c.heading = heading;
-    c.road_seg = under ? h.cluster : -1;
+    c.road_seg = -1;
     c.pos.z = ground + c.p.cog_height;
     ex::body_axes(c);
     ex::hub_offsets(c);
@@ -309,6 +250,7 @@ void Session::place(size_t i, const course::Runway::Place& at) {
         g.x = c.pos.x + wheel.hub.x, g.z = -(c.pos.y + wheel.hub.y), g.h = c.pos.z + wheel.hub.z;
         GroundHit wh;
         const bool hit = ground_->under({g.x.host(), g.h.host(), g.z.host()}, wh);
+        g.height = kNoGround;
         fill(g, hit, wh);
         extra_[i].kinds[w] = hit ? wh.flags : 0;
         extra_[i].materials[w] = hit ? wh.material : 0;
@@ -330,6 +272,7 @@ void Session::place(size_t i, const course::Runway::Place& at) {
         wheel.camber = ex::wheel_camber(c.p, w, k0, k0);
         wheel.half_track = ex::hub_half_track(c.behaviour, c.p, w, k0);
     }
+    c.road_seg = c.g[0].miss ? -1 : c.g[0].seg; // (0x36315C: the set-up's hint, wheel 0's triangle)
     ex::ground_frame(c);
     c.pitch = c.ground_pitch, c.roll = c.ground_roll;
     c.pitch = c.pitch + ex::atan2(c.behaviour, c.p.ride_height[0] - c.p.ride_height[1], c.p.wheelbase);
@@ -424,29 +367,34 @@ void Session::chassis(size_t i) {
     ex::wheel_spin(c);
 }
 
-// The collision step (the engine's phase 10: Gran Turismo 3's collision manager, whose routines Gran
-// Turismo 4 keeps): every car's body moved through the step against the walls and the other cars.
+// The collision step (phase 13: 0x3F4B20, 0x45BB60, 0x3F4C18): every car's body moved through the step against the
+// road's walls and the other cars.
 void Session::collide() {
-    namespace cx = gt3r::sim::collide::exact;
-    for (size_t i = 0; i < cars_.size(); ++i) {
-        cx::Body& b = bodies_[i];
-        ex::Car& c = cars_[i];
+    for (size_t i = 0; i < cars_.size(); ++i) { // 0x3F4B20
+        collide::Body& b = bodies_[i];
+        const ex::Car& c = cars_[i];
         b.cx = c.pos.x, b.cy = c.pos.y, b.cz = c.pos.z;
         b.cvx = c.vel.x, b.cvy = c.vel.y, b.cvz = c.vel.z;
-        b.ch = c.heading, b.cw = c.yaw_rate;
-        b.hint = int(i); // the walls' level table (Walls)
-        b.dt_in = c.dt, b.steer = c.steer_pct, b.ghost = c.ghost != 0, b.control = c.control;
-        b.rumble = &c.hit_rumble;
-        walls_->set_height(i, c.pos.z.host());
+        b.pitch = c.pitch, b.roll = c.roll, b.heading = c.heading;
+        b.yaw_rate = c.yaw_rate;
+        b.hint = c.road_seg;
+        collide::CarIn& in = body_cars_[i];
+        in.dt = c.dt;
+        in.ghost = c.ghost != 0;
+        in.player = c.control == 0 && c.driver_kind == 0;
+        // F +0x45C, the steering's value: 0x348800 of the steering command (the command x 12 / pi, within +-1) ❓ the
+        // input phase (0x349FD0) writes it so for the pads' kinds it has been read for
+        const F v = c.steer_cmd * F::raw(0x40747648), one = F::raw(0x3F800000), minus = F::raw(0xBF800000);
+        in.steer = one < v ? one : v < minus ? minus : v;
+        in.rumble = &cars_[i].hit_rumble;
     }
-    cx::step_all(bodies_);
-    for (size_t i = 0; i < cars_.size(); ++i) {
-        cx::Body& b = bodies_[i];
+    collide::step_all(bodies_, body_cars_, *walls_);
+    for (size_t i = 0; i < cars_.size(); ++i) { // 0x3F4C18
+        collide::Body& b = bodies_[i];
         ex::Car& c = cars_[i];
-        b.rumble = nullptr;
         c.pos = {b.cx, b.cy, b.cz};
         c.vel = {b.cvx, b.cvy, b.cvz};
-        c.heading = b.ch, c.yaw_rate = b.cw;
+        c.heading = b.heading, c.yaw_rate = b.yaw_rate;
         // The step's contact as the collision step leaves it on the body: the summed impulses' strength (at most 1),
         // whether a wall or a car was met, and the car: one that was met this step whose edge this body's vertex met
         // (the body's last pair), or whose vertex met this body's edge (that body's last pair), or on whose edge a
@@ -460,7 +408,7 @@ void Session::collide() {
             if (met(b.other) && size_t(bodies_[size_t(b.other)].other) != i) x.contact_car = b.other;
             for (size_t k = 0; x.contact_car < 0 && k < bodies_.size(); ++k)
                 if (met(int(k)) && size_t(bodies_[k].other) == i) x.contact_car = int(k);
-            for (const cx::Point& q : b.p)
+            for (const collide::Point& q : b.p)
                 if (x.contact_car < 0 && (q.flags & 2) && met(q.other)) x.contact_car = q.other;
             if (x.contact_car < 0 && met(b.other)) x.contact_car = b.other;
         }

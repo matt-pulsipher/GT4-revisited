@@ -7,10 +7,10 @@
 
 #include "gt4r/race/simulation.h"
 #include "gt4r/sim/car_spec.h"
+#include "gt4r/sim/collide.h"
 #include "gt4r/sim/ground.h"
 #include "gt4r/sim/record.h"
 #include "gt4r/sim/rules_step.h"
-#include "sim/collision_exact.h"
 #include "sim/exact/tick.h"
 
 #include <limits>
@@ -113,9 +113,9 @@ private:
     std::unique_ptr<gt3r::sim::exact::ProgramData> data_;
     gt3r::sim::exact::RaceInputs race_;
     std::vector<gt3r::sim::exact::Car> cars_;
-    class Walls;
-    std::unique_ptr<Walls> walls_;
-    std::vector<gt3r::sim::collide::exact::Body> bodies_;
+    std::unique_ptr<collide::Walls> walls_;
+    std::vector<collide::Body> bodies_;
+    std::vector<collide::CarIn> body_cars_;
     std::vector<Extra> extra_;
     std::vector<sim::Extra> gx_;
     std::vector<rules::WheelLayout> layouts_;

@@ -21,6 +21,8 @@ int surface_index(u8 material, u8 flags) {
 }
 
 RoadGround::RoadGround(const course::Runway& road) : road_(&road) {
+    vf_.reserve(road.vertices.size());
+    for (const course::Runway::Vertex& v : road.vertices) vf_.push_back({gt3r::ee::F(v.pos.x), gt3r::ee::F(v.pos.y), gt3r::ee::F(v.pos.z)});
     // The checkpoints rise along the list from the one with the least distance (the list starts mid-lap).
     for (size_t i = 1; i < road.checkpoints.size(); ++i)
         if (road.checkpoints[i].v < road.checkpoints[first_].v) first_ = i;
@@ -45,93 +47,160 @@ RoadGround::RoadGround(const course::Runway& road) : road_(&road) {
     }
 }
 
-// One cluster's triangles against the line down from `from` (0x3E5FD8): a triangle counts when the
-// line passes inside it or on its edge, from its upper side; the first met from above wins, an equal
-// one later in the list does not replace it.
-void RoadGround::test_cluster(size_t leaf, const Vec3& from, float y_low, GroundHit& best, float& best_t) const {
+namespace {
+
+using gt3r::ee::F;
+const F kZero = F::raw(0), kOne = F::raw(0x3F800000), kHalf = F::raw(0x3F000000), kSixtyFourth = F::raw(0x3C800000);
+const F k255 = F::raw(0x437F0000), k127 = F::raw(0x42FE0000);
+const F kFar = F::raw(0x7FFFFFFF); // 0x6A39F4: the triangle test's first bound
+
+// 0x3E5F40 / 0x3E5FA8
+void cross(F o[3], const F a[3], const F b[3]) {
+    o[0] = (a[1] * b[2]) - (a[2] * b[1]);
+    o[1] = (a[2] * b[0]) - (a[0] * b[2]);
+    o[2] = (a[0] * b[1]) - (a[1] * b[0]);
+}
+F dot(const F a[3], const F b[3]) { return ((a[0] * b[0]) + (a[1] * b[1])) + (a[2] * b[2]); }
+
+} // namespace
+
+// 0x3E5FD8: the segment a -> b against a cluster's triangles: the earliest along it (the first of equals in the list)
+// that it passes through from the upper side, edges included.
+bool RoadGround::test_cluster(int leaf, const F a[3], const F b[3], GroundHit& out) const {
     const course::Runway& r = *road_;
-    if (leaf >= r.clusters.size()) return;
-    for (u16 ti : r.clusters[leaf].triangles) {
-        if (ti >= r.triangles.size()) continue;
+    if (leaf < 0 || size_t(leaf) >= r.clusters.size()) return false;
+    const F d[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]};
+    F best = kFar, n[3] = {}, wb = kZero, wc = kZero, w0 = kZero;
+    int found = -1;
+    for (u16 ti : r.clusters[size_t(leaf)].triangles) {
         const course::Runway::Triangle& t = r.triangles[ti];
-        const Vec3 &a = r.vertices[t.v[0]].pos, &b = r.vertices[t.v[1]].pos, &c = r.vertices[t.v[2]].pos;
-        // The normal (b - a) x (c - a); only triangles facing up are road.
-        const float e1x = b.x - a.x, e1y = b.y - a.y, e1z = b.z - a.z, e2x = c.x - a.x, e2y = c.y - a.y, e2z = c.z - a.z;
-        const float nx = e1y * e2z - e1z * e2y, ny = e1z * e2x - e1x * e2z, nz = e1x * e2y - e1y * e2x;
-        if (!(ny > 0)) continue;
-        // The point's weights of b and c in the triangle seen from above (ny is twice its area there).
-        const float px = from.x - a.x, pz = from.z - a.z;
-        const float wb = (pz * e2x - px * e2z) / ny, wc = (px * e1z - pz * e1x) / ny;
-        if (wb < 0 || wc < 0 || wb + wc > 1) continue;
-        const float y = a.y + wb * e1y + wc * e2y;
-        if (y > from.y || y < y_low) continue;
-        const float tt = from.y - y; // how far down
-        if (!(tt < best_t)) continue;
-        best_t = tt;
-        best.triangle = int(ti), best.cluster = int(leaf);
-        best.material = u8(t.bits & 0x1F), best.flags = t.kind;
-        const float inv = 1.0f / std::sqrt(nx * nx + ny * ny + nz * nz);
-        best.normal = {nx * inv, ny * inv, nz * inv};
-        auto within = [](float v, float p, float q, float s) { return std::clamp(v, std::min({p, q, s}), std::max({p, q, s})); };
-        best.point = {within(from.x, a.x, b.x, c.x), within(y, a.y, b.y, c.y), within(from.z, a.z, b.z, c.z)};
-        best.plane_d = -(best.normal.x * best.point.x + best.normal.y * best.point.y + best.normal.z * best.point.z);
-        const course::Runway::Vertex &va = r.vertices[t.v[0]], &vb = r.vertices[t.v[1]], &vc = r.vertices[t.v[2]];
-        auto mix = [&](float fa, float fb, float fc) { return std::clamp(fa + (fb - fa) * wb + (fc - fa) * wc, 0.0f, 1.0f); };
-        best.attr_a = mix(float(va.b) / 255.0f, float(vb.b) / 255.0f, float(vc.b) / 255.0f);
-        best.attr_b = mix(float(va.c & 0x7F) / 127.0f, float(vb.c & 0x7F) / 127.0f, float(vc.c & 0x7F) / 127.0f);
+        const F* v0 = vf_[t.v[0]].data();
+        const F* v1 = vf_[t.v[1]].data();
+        const F* v2 = vf_[t.v[2]].data();
+        const F p0[3] = {v0[0] - a[0], v0[1] - a[1], v0[2] - a[2]}, p1[3] = {v1[0] - a[0], v1[1] - a[1], v1[2] - a[2]};
+        F c[3];
+        cross(c, d, p0);
+        const F s2 = dot(p1, c);
+        if (kZero < s2) continue;
+        const F p2[3] = {v2[0] - a[0], v2[1] - a[1], v2[2] - a[2]};
+        const F s1 = dot(p2, c);
+        if (s1 < kZero) continue;
+        cross(c, p1, p2);
+        const F s0 = dot(d, c);
+        if (kZero < s0) continue;
+        const F e1[3] = {v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]}, e2[3] = {v2[0] - v0[0], v2[1] - v0[1], v2[2] - v0[2]};
+        F nn[3];
+        cross(nn, e1, e2);
+        const F den = dot(nn, d);
+        F tt = kZero;
+        if (!(den == kZero)) {
+            const F num = dot(nn, p0);
+            if (kZero < num) continue;
+            if (num < den) continue;
+            tt = num / den;
+        }
+        if (!(tt < best)) continue;
+        best = tt;
+        n[0] = nn[0], n[1] = nn[1], n[2] = nn[2];
+        wb = -s1, wc = s2, w0 = s0;
+        found = int(ti);
     }
-}
-
-// The lookup tree for a vertical line (0x3E5BC8): a node that splits x or z leads to one side, one
-// that splits the height to both.
-void RoadGround::walk(size_t node, size_t leaf, u32 depth, float lo[3], float hi[3], const Vec3& from, float y_low, GroundHit& best, float& best_t) const {
-    const course::Runway& r = *road_;
-    if (depth == 0) {
-        test_cluster(leaf, from, y_low, best, best_t);
-        return;
+    if (found < 0) return false;
+    const course::Runway::Triangle& t = r.triangles[size_t(found)];
+    const std::array<F, 3>* v[3] = {&vf_[t.v[0]], &vf_[t.v[1]], &vf_[t.v[2]]};
+    F p[3];
+    for (int k = 0; k < 3; ++k) p[k] = ((b[k] - a[k]) * best) + a[k];
+    out.triangle = found, out.cluster = leaf;
+    // Clamped into the triangle's box.
+    for (int k = 0; k < 3; ++k) {
+        const F x0 = (*v[0])[size_t(k)], x1 = (*v[1])[size_t(k)], x2 = (*v[2])[size_t(k)];
+        F lo, hi;
+        if (x0 < x1) lo = gt3r::ee::min(x0, x2), hi = gt3r::ee::max(x1, x2);
+        else hi = gt3r::ee::max(x0, x2), lo = gt3r::ee::min(x1, x2);
+        p[k] = gt3r::ee::max(lo, gt3r::ee::min(hi, p[k]));
     }
-    if (node >= r.tree.size()) return;
-    const u8 b = r.tree[node];
-    const u32 axis = b >> 6;
-    const size_t below = (size_t(1) << (depth - 1)) - 1;
-    if (axis >= 3) {
-        walk(node + 1, leaf * 2, depth - 1, lo, hi, from, y_low, best, best_t);
-        return;
+    out.point = {p[0].host(), p[1].host(), p[2].host()};
+    out.material = u8(t.bits & 0x1F), out.flags = t.kind;
+    const F inv = gt3r::ee::rsqrt(kOne, ((n[0] * n[0]) + (n[1] * n[1])) + (n[2] * n[2]));
+    const F un[3] = {n[0] * inv, n[1] * inv, n[2] * inv};
+    out.normal = {un[0].host(), un[1].host(), un[2].host()};
+    const F sum = (wc + w0) + wb;
+    const course::Runway::Vertex* rv[3] = {&r.vertices[t.v[0]], &r.vertices[t.v[1]], &r.vertices[t.v[2]]};
+    {
+        const F a0 = gt3r::ee::int_to_f(rv[0]->b) / k255, a1 = gt3r::ee::int_to_f(rv[1]->b) / k255, a2 = gt3r::ee::int_to_f(rv[2]->b) / k255;
+        const F m = a0 + ((((a1 - a0) * wb) + ((a2 - a0) * wc)) / sum);
+        out.attr_a = gt3r::ee::min(gt3r::ee::max(m, kZero), kOne).host();
     }
-    const float split = lo[axis] + (hi[axis] - lo[axis]) * (float(b & 63) + 0.5f) / 64.0f;
-    const float p[3] = {from.x, from.y, from.z};
-    const bool left = axis == 1 ? y_low < split : p[axis] < split;
-    const bool right = axis == 1 ? from.y >= split : p[axis] >= split;
-    if (right) { // the upper side first: the first triangle met from above wins
-        const float keep = lo[axis];
-        lo[axis] = split;
-        walk(node + 1 + below, leaf * 2 + 1, depth - 1, lo, hi, from, y_low, best, best_t);
-        lo[axis] = keep;
+    {
+        const F b1 = gt3r::ee::int_to_f(rv[1]->c & 0x7F) / k127, b0 = gt3r::ee::int_to_f(rv[0]->c & 0x7F) / k127,
+                b2 = gt3r::ee::int_to_f(rv[2]->c & 0x7F) / k127;
+        const F m = b0 + ((((b1 - b0) * wb) + ((b2 - b0) * wc)) / sum);
+        out.attr_b = gt3r::ee::min(gt3r::ee::max(m, kZero), kOne).host();
     }
-    if (left) {
-        const float keep = hi[axis];
-        hi[axis] = split;
-        walk(node + 1, leaf * 2, depth - 1, lo, hi, from, y_low, best, best_t);
-        hi[axis] = keep;
-    }
-}
-
-bool RoadGround::cast_down(const Vec3& from_in, GroundHit& out) const {
-    const course::Runway& r = *road_;
-    if (from_in.y < r.min.y) return false;
-    Vec3 from = from_in;
-    if (r.max.y < from.y) from.y = r.max.y;
-    GroundHit best;
-    float best_t = std::numeric_limits<float>::max();
-    if (!r.tree.empty() && !r.clusters.empty()) {
-        float lo[3] = {r.min.x, r.min.y, r.min.z}, hi[3] = {r.max.x, r.max.y, r.max.z};
-        walk(0, 0, r.tree_depth, lo, hi, from, r.min.y, best, best_t);
-    } else {
-        for (size_t c = 0; c < r.clusters.size(); ++c) test_cluster(c, from, r.min.y, best, best_t);
-    }
-    if (best.triangle < 0) return false;
-    out = best;
+    out.plane_d = (-dot(un, v[0]->data())).host();
     return true;
+}
+
+// 0x3E5BC8: the lookup tree along the segment a -> b, the near side of each split first; the first cluster with a hit
+// ends the walk. `box` is the node's box (lower corner, upper corner).
+bool RoadGround::walk(u32 node, int depth, u32 leaf, const F box[6], const F a[3], const F b[3], GroundHit& out) const {
+    if (depth < 0) return test_cluster(int(leaf), a, b, out);
+    const course::Runway& r = *road_;
+    if (node >= r.tree.size()) return false;
+    const u8 byte = r.tree[node];
+    const u32 axis = byte >> 6;
+    if (axis > 2) return false;
+    const F f = (gt3r::ee::int_to_f(byte & 63) + kHalf) * kSixtyFourth;
+    const F split = (box[axis] * (kOne - f)) + (box[axis + 3] * f);
+    const F da = a[axis] - split, db = b[axis] - split;
+    F nb[6] = {box[0], box[1], box[2], box[3], box[4], box[5]};
+    const u32 low = node + 1, high = node + (1u << u32(depth)), l2 = leaf * 2;
+    if ((da * db) < kZero) {
+        // The segment crosses the split: the part on a's side first, then the rest.
+        const F inv = kOne / (b[axis] - a[axis]);
+        const F t = (split - a[axis]) * inv, u = (b[axis] - split) * inv;
+        F m[3] = {(u * a[0]) + (t * b[0]), (u * a[1]) + (t * b[1]), (u * a[2]) + (t * b[2])};
+        m[axis] = split;
+        if (da < kZero) {
+            nb[axis + 3] = split;
+            if (walk(low, depth - 1, l2, nb, a, m, out)) return true;
+            nb[axis] = split, nb[axis + 3] = box[axis + 3];
+            return walk(high, depth - 1, l2 + 1, nb, m, b, out);
+        }
+        nb[axis] = split;
+        if (walk(high, depth - 1, l2 + 1, nb, a, m, out)) return true;
+        nb[axis] = box[axis], nb[axis + 3] = split;
+        return walk(low, depth - 1, l2, nb, m, b, out);
+    }
+    if (da < kZero) {
+        nb[axis + 3] = split;
+        return walk(low, depth - 1, l2, nb, a, b, out);
+    }
+    nb[axis] = split;
+    return walk(high, depth - 1, l2 + 1, nb, a, b, out);
+}
+
+bool RoadGround::query(const F p[3], GroundHit& out) const {
+    const course::Runway& r = *road_;
+    const F lo_y = F(r.min.y), hi_y = F(r.max.y);
+    if (p[1] < lo_y) return false;
+    const F a[3] = {p[0], hi_y < p[1] ? hi_y : p[1], p[2]};
+    const F b[3] = {p[0], lo_y, p[2]};
+    const F box[6] = {F(r.min.x), lo_y, F(r.min.z), F(r.max.x), hi_y, F(r.max.z)};
+    GroundHit h;
+    if (r.tree.empty() || r.clusters.empty() || r.tree_depth == 0) {
+        // (a road without a tree: its one cluster)
+        if (!test_cluster(0, a, b, h)) return false;
+    } else if (!walk(0, int(r.tree_depth) - 1, 0, box, a, b, h)) {
+        return false;
+    }
+    out = h;
+    return true;
+}
+
+bool RoadGround::cast_down(const Vec3& from, GroundHit& out) const {
+    const F p[3] = {F(from.x), F(from.y), F(from.z)};
+    return query(p, out);
 }
 
 bool RoadGround::at_place(const Vec3& p, GroundHit& out) const {
