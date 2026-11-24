@@ -6,6 +6,7 @@
 #include "gt4r/sim/rules.h"
 #include "gt4r/sim/rules_fuel.h"
 #include "gt4r/sim/rules_hybrid.h"
+#include "gt4r/sim/rules_motors.h"
 #include "gt4r/sim/rules_tires.h"
 
 namespace gt4r::sim::rules {
@@ -120,6 +121,7 @@ struct DriveTables {
     ex::Stepless stepless;
     ex::GearSettings gears;
     HybridTables hybrid; // (the hybrid one-speed box's, rules_hybrid.h)
+    MotorTables motors;  // (layout 7's motors, rules_motors.h: 0x355978's)
 };
 constexpr u32 kAwdFade = 0x62030A, kSteplessBytes = 0x6220F4, kControllerSettings = 0x622110;
 // From the bytes at those places (14, 14 and 12 of them), or from the program.
@@ -138,6 +140,9 @@ F wheel_side_speed(const ex::Car& c, const DrivelineBlock& d);
 // 0x3554A0: the engine's torque at throttle x: the turbo's lag and boost, the blow-off, the rev
 // limiter (0x355410), the power cap (0x34EA68); the turbo's spool level.
 F engine_torque(ex::Car& c, const DriveExtra& x, F throttle);
+// 0x355410: the rev limiter (on at the rev limit, off 500 rpm below it) and the throttle's torque less the friction under the
+// power cap.
+F engine_output_torque(ex::Car& c, const DriveExtra& x, F throttle);
 // 0x34E9A0 / 0x34EA08 (phase 4): the full-throttle torque at the engine's speed (the 24-point curve)
 // times the condition's factor, and the friction torque.
 void engine_torques(ex::Car& c, const DriveExtra& x, const ex::Condition& cond);
@@ -146,7 +151,8 @@ void engine_torques(ex::Car& c, const DriveExtra& x, const ex::Condition& cond);
 void brakes_and_clutch(ex::Car& c, DriveExtra& x, const WheelLayout& l);
 // 0x36D230: each wheel's net torque from its tire's reaction and its brake.
 void wheel_torques(ex::Car& c, const DriveExtra& x, const WheelLayout& l);
-// 0x36D2F8: torque vectoring of the y / t differentials, per wheel group.
+// 0x36D2F8: torque vectoring of the y / t differentials, per wheel group (layout 7: first its front motors, 0x356418:
+// front_motors, rules_motors.h).
 void vectoring(ex::Car& c, const DriveExtra& x, const WheelLayout& l);
 // 0x36D818: the axle step: the clutch's torque, the four wheel drive's coupling and center clutch, the
 // axles' speeds.
@@ -154,7 +160,7 @@ void axle_step(ex::Car& c, DriveExtra& x, const WheelLayout& l, const DriveTable
 // 0x36E4B8: the wheels' speeds through each group's differential.
 void wheel_speeds(ex::Car& c, const DriveExtra& x, const WheelLayout& l);
 // 0x3519B8: the engine's speed (open, locked or slipping clutch) and rpm (0x350F48).
-void engine_speed(ex::Car& c, DriveExtra& x, const WheelLayout& l);
+void engine_speed(ex::Car& c, DriveExtra& x, const WheelLayout& l, const DriveTables* t = nullptr);
 // 0x36BF68: the gear for speed v (rules_start.h's start_gear on these blocks).
 int gear_for_speed(const ex::Car& c, const DriveExtra& x, F v);
 // 0x351DC8: the gear decision by the pedal style (0x36C8E8: automatic 0x36C160, manual 0x36C690,

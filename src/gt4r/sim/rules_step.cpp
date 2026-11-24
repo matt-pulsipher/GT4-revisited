@@ -83,10 +83,11 @@ void dynamics(ex::Car& c, Extra& x, const WheelLayout& l, const Tables& t, const
     tire_slip_force(c, x.tires, l, t.globals);
     forward_step(c, x.chassis, x.tires, l);
     wheel_torques(c, x.drive, l);
+    if (x.drive.d.layout == 7) front_motors(c, x.drive, x.tires, l, t.drive.motors); // (0x356418, in 0x36D2F8)
     vectoring(c, x.drive, l);
     axle_step(c, x.drive, l, t.drive);
     wheel_speeds(c, x.drive, l);
-    engine_speed(c, x.drive, l);
+    engine_speed(c, x.drive, l, &t.drive);
     gear_step(c, x.drive, l, x.tires, t.drive);
     const bool air = airborne(c, l);
     lateral_yaw(c, x.chassis, x.tires, l, air, t.globals, grip);

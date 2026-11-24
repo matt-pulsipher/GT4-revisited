@@ -66,6 +66,9 @@ sim::rules::DriveTables drive_tables(Ee& ee) {
     ee.read_bytes(sim::rules::kAwdFade, a, 14), ee.read_bytes(sim::rules::kSteplessBytes, st, 14), ee.read_bytes(sim::rules::kControllerSettings, g, 12);
     sim::rules::DriveTables r = sim::rules::drive_tables(a, st, g);
     if (g_program) r.hybrid = sim::rules::hybrid_tables(*g_program);
+    u8 m[0x1B];
+    ee.read_bytes(sim::rules::kMotorBytes, m, sizeof m);
+    r.motors = sim::rules::motor_tables(m);
     return r;
 }
 
@@ -205,10 +208,36 @@ void add_taps(Taps& taps) {
     taps.add({0x36BA88, "bump nudge", car_a0, [](TapCall& t) { bump_nudge(t.car, t.rec.x.body, t.rec.layout); }});
     taps.add({0x3511A0, "brakes and clutch", car_a0, [](TapCall& t) { brakes_and_clutch(t.car, t.rec.x.drive, t.rec.layout); }});
     taps.add({0x36D230, "wheel torques", car_a0, [](TapCall& t) { wheel_torques(t.car, t.rec.x.drive, t.rec.layout); }});
-    taps.add({0x36D2F8, "vectoring", car_a0, [](TapCall& t) { vectoring(t.car, t.rec.x.drive, t.rec.layout); }});
+    // Layout 7's motors' routines (only the Acura DN-X calls them).
+    taps.add({0x3561D0, "motors: demand", car_a0, [](TapCall& t) {
+                  t.ret_f("returns", sim::rules::motor_demand(t.car, t.rec.x.drive.hybrid, drive_tables(t.ee).motors));
+              }});
+    taps.add({0x356168, "motors: level", car_a0, [](TapCall& t) { t.ret_f("returns", sim::rules::motor_level(t.rec.x.drive.hybrid, drive_tables(t.ee).motors)); }});
+    taps.add({0x3560F0, "motors: engine throttle", car_a0, [](TapCall& t) {
+                  t.ret_f("returns", sim::rules::motor_engine_throttle(t.car, drive_tables(t.ee).motors));
+              }});
+    taps.add({0x356300, "motors: wanted lateral", car_a0, [](TapCall& t) {
+                  t.ret_f("returns", sim::rules::motor_wanted_lateral(t.car, t.rec.x.tires, t.rec.layout));
+              }});
+    taps.add({0x356418, "motors: front", car_a0, [](TapCall& t) {
+                  front_motors(t.car, t.rec.x.drive, t.rec.x.tires, t.rec.layout, drive_tables(t.ee).motors);
+              }});
+    taps.add({0x356BB8, "motors: rear", car_a0, [](TapCall& t) {
+                  t.ret_f("returns", sim::rules::rear_motor(t.car, t.rec.x.drive.hybrid, drive_tables(t.ee).motors));
+              }});
+    taps.add({0x355F80, "motors: idle charge", car_a0, [](TapCall& t) {
+                  t.ret_f("returns", sim::rules::idle_charge(t.car, t.rec.x.drive, drive_tables(t.ee).motors));
+              }});
+    taps.add({0x36D2F8, "vectoring", car_a0, [](TapCall& t) {
+                  if (t.rec.x.drive.d.layout == 7) front_motors(t.car, t.rec.x.drive, t.rec.x.tires, t.rec.layout, drive_tables(t.ee).motors);
+                  vectoring(t.car, t.rec.x.drive, t.rec.layout);
+              }});
     taps.add({0x36D818, "axle step", car_a0, [](TapCall& t) { axle_step(t.car, t.rec.x.drive, t.rec.layout, drive_tables(t.ee)); }});
     taps.add({0x36E4B8, "wheel speeds", car_a0, [](TapCall& t) { wheel_speeds(t.car, t.rec.x.drive, t.rec.layout); }});
-    taps.add({0x3519B8, "engine speed", car_a0, [](TapCall& t) { engine_speed(t.car, t.rec.x.drive, t.rec.layout); }});
+    taps.add({0x3519B8, "engine speed", car_a0, [](TapCall& t) {
+                  const sim::rules::DriveTables k = drive_tables(t.ee);
+                  engine_speed(t.car, t.rec.x.drive, t.rec.layout, &k);
+              }});
     taps.add({0x351DC8, "gear", car_a0, [](TapCall& t) { gear_step(t.car, t.rec.x.drive, t.rec.layout, t.rec.x.tires, drive_tables(t.ee)); }});
     taps.add({0x3F38D8, "brake heat", car_a0, [](TapCall& t) {
                   ex::BrakeHeatConsts k;
@@ -498,6 +527,15 @@ StepResult run_step(Disc& disc, bool print, const std::string& course_label, con
         { // the cues' table (0x34F6A0)
             const sim::rules::FeelTables ft = sim::rules::feel_tables(program);
             for (u32 j = 0; j < 32; ++j) cmp(sim::rules::kCueTable + 4 * j, ft.cue[j], "cue", 0, 0, j);
+        }
+        { // layout 7's motors' constants (0x355978, which the converter runs for every car of four wheel drive system 5)
+            const sim::rules::MotorTables m = sim::rules::drive_tables(program).motors;
+            const gt3r::ee::F w[25] = {m.front, m.rear, m.front_drive, m.rear_drive, m.front_regen, m.rear_regen, m.front_scale, m.capacity,
+                                       m.front_charge_cap, m.rear_charge_cap, m.idle_rpm, m.idle_gain, m.idle_share, m.idle_power, m.low, m.high,
+                                       m.reserve, m.front_share, m.drive_accel, m.drive_lat, m.drive_dead, m.regen_accel, m.regen_lat,
+                                       m.regen_dead, m.flow_scale};
+            if (ee.r32(sim::rules::kMotorTables) != 0)
+                for (u32 j = 0; j < 25; ++j) cmp(sim::rules::kMotorTables + 4 * j, w[j], "motors", 0, 0, j);
         }
         const gt3r::ee::F loose[5] = {k.loose_scale, k.loose_x0, k.loose_y0, k.loose_x1, k.loose_y1};
         for (u32 j = 0; j < 5; ++j) cmp(sim::rules::kSlideLoose + 4 * j, loose[j], "loose", 0, 0, j);
