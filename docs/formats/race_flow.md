@@ -258,7 +258,9 @@ engine's Gran Turismo 3 code). The player notices them roughly in this order.
 | The demonstrations | `screen_race.cpp` `begin_demo`, `sim/ai/demo_driver.*` | GT4 (the recordings, `ai-drivers`); the card's tire word is the race's, not the car's ❓ | |
 | The pad's controls | `screen_race.cpp` (`gt3r::race::ControlMapper`) | **engine** (GT3's mapping) | the input phase 0x349FD0 (`sim-step`) |
 | Looking back | `gt3r::race::look_back_held` | **engine** | ❓ not read |
-| The race display: places, numbers, meters | `race_display.*`, `race_hud.*` | GT4 tables (RaceDisplay); how some parts move their pictures judged | the meters' drawing routines |
+| The race display: places, numbers, meters | `race_display.*`, `race_hud.*` | GT4 tables (RaceDisplay); the speedometer's face by the car's top speed estimate (P +0xFD8); how some parts move their pictures judged | the meters' drawing routines |
+| The driver's view's fuel arc and pedal bars | not drawn | | 0x3A8968 (draws `fuel_a0` / `fuel_a1`, `pedal_bar` procedurally, arcs of radii about 52 and 60) |
+| The suggested gear | not drawn | | the value the panel's vf23 (0x3A8430) receives (its source not found) |
 | The license display's trophy times | `race_hud.cpp` | places judged | RaceLicenseDisplay::vf9 |
 | B-spec's display and commands | `race_hud.cpp`, `screen_race.cpp` | display mode 1 GT4; the pace bar, speed plate and help strip places judged; Select Car's order ❓ | the B-spec display's routines |
 | The replay's card, logo, caption timings | `screen_race.cpp` `fill` | **judged** (3 s, 4.5–14 s) | their caller's times |
@@ -268,4 +270,4 @@ engine's Gran Turismo 3 code). The player notices them roughly in this order.
 | The section times | `race/sections.*`, `screen_race.cpp` `step_splits` | the points GT4 (the road's list); the gap's partner judged | event 15 (0x359C10) and its display |
 | B-spec's Race Monitor | `screen_race.cpp` `fill_monitor` | the movie GT4; the rows' contents partly (gap judged); the map's letters drawn by us (not the movie's `CARPOS_`); the gap strip, pit panel not filled | 0x3D8DB8, 0x3DAF60, 0x3DBF90, 0x3DC5D8 |
 | B-spec's pit command | `RaceWorld::pit`, `sim/ai/pit_stops.*` | GT4 (`ai-drivers`' port of 0x35B060) | |
-| Not built | | the suggested gear, the driver's view's pedal and fuel bars (0x3A8968), far-level wheels, brake disc glow, fitted wings, the driver figure, moving models, animated skies, cone shadows | |
+| Not built | | far-level wheels, brake disc glow, fitted wings, the driver figure, moving models, animated skies, cone shadows | |

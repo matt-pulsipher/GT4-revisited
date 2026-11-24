@@ -249,6 +249,8 @@ void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool pla
         if (!hold && session_) field_->apply_time_scales(*session_); // the rubber band's step lengths
         if (computer_player_ && !player_by_computer && !inputs.empty()) driven[0] = inputs[0];
         if (!hold && pits_) pits_->before(*field_, driven); // (a car standing in its box held)
+        // B-spec: the driver's shift speeds into the gearbox (0x3F1E30, control source 1).
+        if (computer_player_ && session_) session_->set_shift_factor(0, field_->shift_factor(0));
         inputs = driven;
     }
     // A rolling start's run-up: every car kept at the start's speed, the throttle eased and a touch
