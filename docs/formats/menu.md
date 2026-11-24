@@ -274,10 +274,35 @@ on (0x2DAD18). A change plays the sound and calls `onValueChanged(context, index
 **ScrollBox** (0x2CF868): children named `pinch`, `inc_arrow`, `dec_arrow` beside its
 scrolling child.
 
-**OptionMenu** (`index`, `setIndex`, `getItem`, `Count`, `applyAppend`, `setInsensitive`):
-the rows are the children of `popup::vbox`; accept opens the list with the focus on the
-chosen row, accept on a row chooses it (`onValueChanged`), cancel closes. ❓ The list's
-place, the keys and `selected_item` (here the chosen row) are from the scripts and by eye.
+**OptionMenu** (mOptionMenu, 0x2C7498; `index`, `setIndex`, `getItem`, `Count`, `applyAppend`,
+`setInsensitive`; a new one is 128 x 24): its children `popup`, `popup::vbox` (the list) and
+`popup::shadow` are found at load and put at y 0 (0x2C84A0). The index is a counter over the
+list's rows (the children that are no faces), held at the ends unless the layout's `repeat`
+(0x2C9DB0; 0x57CF10). Closed, the menu shows a copy of the chosen row named `selected_item` at
+its top left, not active (0x2C8198); the chosen row of the list is active (its dot, 0x2C8410).
+- **Accept opens** (the menu's activate, 0x2C9568 -> 0x2C9098): sound `cursor`, the script's
+  `onPopupOpen(context)` (with `has_script`); the rows stacked from the list's top pad, `spacing`
+  between two, the bottom pad, each row made to fill the list's width (x_expand, x_fill) when the
+  menu does not pack (0x2C8FA8); the list as tall as that; the list moved up by the chosen row's
+  top, so that row lies on the menu. The page's band is its height less a twentieth at each
+  edge (24 to 456 on a 640 x 480 page): a list taller than the band stays where it is and
+  scrolls; else a list above the band is put at its top, one below it moved up to end at its
+  bottom. The shadow lies 4 right and 4 down of the list at its size; the popup's opacity is
+  0 and rises 0.1 a picture to 1 (0x2C9C90); the focus goes to the chosen row; the open popup is
+  drawn over everything.
+- **Open, the menu has every key** (0x2C95E8): up and down step the counter, then to the next
+  row that way that is not insensitive (0x2C9740, 0x2C97E8; none: the index stays); a move plays
+  `cursor` and focuses the row (0x2C8DD0). The chosen row above the band sets the list to scroll
+  down by what is missing, one below it up by what is over (0x2C98F0); the list eases 0.4 of the
+  way a picture. Accept and cancel go to the focused row as events and reach the menu.
+- **Closing** (0x2C93C0): sound `cursor`; cancel puts the index back as it was at opening;
+  accept shows the chosen row and always calls `onValueChanged(context, index)`, changed or
+  not; the focus back on the menu; then `onPopupClosed(context)`.
+- `setIndex(context, i)` (0x2C9898): the first sensitive row at or after i (none: unchanged), no
+  script call. `applyAppend()` (0x2C8CC8): the counter over the rows there now, the list closed.
+  `setInsensitive(context, flags)` (0x2C9B68): a flag per row; the chosen row made insensitive
+  moves the index to the first sensitive row. `getItem(i)` the row (0x2C8100), `getItem()` the
+  chosen one, `Count` the rows.
 
 **ScrollWindow** (0x2D2720; layout `interpolate_ratio`, 0.3 when absent, and `floating`):
 its child `clip` shows a part of `clip::space`. The space wants to be where the page's

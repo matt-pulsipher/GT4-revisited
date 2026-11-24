@@ -45,56 +45,195 @@ std::vector<W> option_items(const LiveWidget& menu) {
 
 bool popup_open(const LiveWidget& w) { return w.data.number("is_popuped") != 0; }
 
-// Where an option menu's rows go: one under the other at their own height, the list moved so
-// the chosen row lies over the menu. ❓ By eye.
+// ---- the option menu (docs/formats/menu.md "OptionMenu"; mOptionMenu, 0x2C7498 on)
+//
+// Its index is a counter over the list's rows (0..count, no wrap unless the layout's `repeat`,
+// 0x2C9DB0). Opening (0x2C9098) stacks the rows of popup::vbox, puts the list so the chosen row
+// lies on the menu, keeps it inside the page's band (a twentieth of the page's height off
+// each edge), and fades the popup in; up and down move the index over the sensitive rows and
+// scroll a list taller than the band (0x2C98F0, eased each picture by 0x2C9C90); accept keeps
+// the index, cancel puts the old one back (0x2C93C0).
+
+void om_play(Runtime& rt, const char* name) {
+    const Value arg = Value::string(name);
+    rt.sound("sound", "play", Args(&arg, 1));
+}
+
+float om_num(const LiveWidget& w, const char* name) { return w.data.number(name); }
+void om_set(LiveWidget& w, const char* name, float v) { w.set_property(name, Value::number(v)); }
+
+// The first sensitive row at or after `from` (0x2C9740), or at or before it (0x2C97E8); -1 none.
+int option_sensitive(const LiveWidget& menu, int from, bool forward) {
+    const std::vector<W> items = option_items(menu);
+    if (forward) {
+        for (int i = std::max(from, 0); i < int(items.size()); ++i)
+            if (!items[size_t(i)]->insensitive()) return i;
+    } else {
+        for (int i = std::min(from, int(items.size()) - 1); i >= 0; --i)
+            if (!items[size_t(i)]->insensitive()) return i;
+    }
+    return -1;
+}
+
+// The index kept in the counter's range (0x57CD48): 0 with no rows, else 0..count - 1.
+int option_clamp(const LiveWidget& menu, int index) {
+    const int n = int(option_items(menu).size());
+    return n <= 0 ? 0 : std::clamp(index, 0, n - 1);
+}
+
+// The counter moved by `step` (0x57CF10): wrapping with `repeat`, else held at the ends; true
+// when it changed.
+bool option_step(LiveWidget& menu, int step) {
+    const int n = int(option_items(menu).size());
+    if (n <= 0) return false;
+    const int before = menu.index();
+    int at = before + step;
+    if (menu.data.number("repeat") != 0) at = ((at % n) + n) % n;
+    else at = std::clamp(at, 0, n - 1);
+    menu.set_property("index", Value::integer(at));
+    return at != before;
+}
+
+// What shows (0x2C8198, 0x2C8410): closed, the chosen row alone at the menu's top left (the
+// program's copy of it, `selected_item`, without its active state); open, every row, the
+// chosen one active (its dot). A row fills the list's width (0x2C8FA8 marks each x_expand and
+// x_fill when the menu does not pack).
 void arrange_option_menu(LiveWidget& menu) {
     const W popup = menu.child("popup");
     const W list = option_list(menu);
     if (!popup || !list) return;
-    float y = 0, chosen_y = 0;
+    const bool open = popup_open(menu);
     const std::vector<W> items = rows_of(*list);
     const int index = menu.index();
     for (size_t i = 0; i < items.size(); ++i) {
-        const float h = items[i]->data.rect("geometry") ? items[i]->data.rect("geometry")->h : 24.0f;
-        items[i]->set_property("x", Value::number(0));
-        items[i]->set_property("y", Value::number(y));
-        if (int(i) == index) chosen_y = y;
-        y += h;
-    }
-    list->set_property("h", Value::number(std::max(y, 1.0f)));
-    for (const auto& c : list->children)
-        if (!c->is_composite()) c->set_property("h", Value::number(std::max(y, 1.0f))); // the list's own background
-    for (const auto& c : popup->children)
-        if (!c->is_composite()) c->set_property("h", Value::number(std::max(y, 1.0f)));
-    popup->set_property("h", Value::number(std::max(y, 1.0f)));
-    popup->set_property("y", Value::number(popup_open(menu) ? -chosen_y : 0.0f));
-    // Closed, only the chosen row shows.
-    for (size_t i = 0; i < items.size(); ++i) {
         const bool chosen = int(i) == index;
-        items[i]->set_property("visible", Value::integer(popup_open(menu) || chosen));
-        if (!popup_open(menu) && chosen) items[i]->set_property("y", Value::number(0));
+        if (menu.data.number("packing") == 0) {
+            items[i]->set_property("pack_expand_x", Value::integer(1));
+            items[i]->set_property("pack_fill_x", Value::integer(1));
+        }
+        items[i]->set_property("visible", Value::integer(open || chosen));
+        items[i]->state = open && chosen ? items[i]->state | kActive : items[i]->state & ~kActive;
     }
     for (const auto& c : list->children)
-        if (!c->is_composite()) c->set_property("visible", Value::integer(popup_open(menu)));
+        if (!c->is_composite()) c->set_property("visible", Value::integer(open));
     for (const auto& c : popup->children)
-        if (!c->is_composite()) c->set_property("visible", Value::integer(popup_open(menu)));
+        if (!c->is_composite()) c->set_property("visible", Value::integer(open));
+    if (!open) list->set_property("y", Value::number(0)), popup->set_property("opacity", Value::number(1));
 }
 
-void set_popup(Runtime& rt, LiveWidget& menu, bool open) {
-    if (popup_open(menu) == open) return;
-    menu.set_property("is_popuped", Value::integer(open));
-    arrange_option_menu(menu);
-    LiveWidget* page = menu.page();
-    if (!page) return;
-    if (open) {
-        const std::vector<W> items = option_items(menu);
-        const int i = std::clamp(menu.index(), 0, std::max(int(items.size()) - 1, 0));
-        rt.call_now(menu, "onPopupOpen", {rt.context()});
-        if (!items.empty()) rt.set_focus(*page, items[size_t(i)]);
-    } else {
-        rt.set_focus(*page, menu.self());
-        rt.call_now(menu, "onPopupClosed", {rt.context()});
+// The list's rows one under the other (0x2C8FA8): the top pad, each row's height, `spacing`
+// between two, the bottom pad. Returns the whole height and the chosen row's top.
+float option_stack(const LiveWidget& menu, float& chosen_y) {
+    const W list = option_list(menu);
+    chosen_y = 0;
+    if (!list) return 0;
+    const float top = list->data.has("pad_top") ? list->data.number("pad_top") : list->data.number("border_height");
+    const float bottom = list->data.has("pad_bottom") ? list->data.number("pad_bottom") : list->data.number("border_height");
+    float y = top;
+    const std::vector<W> items = rows_of(*list);
+    for (size_t i = 0; i < items.size(); ++i) {
+        if (i > 0) y += list->data.number("spacing");
+        if (int(i) == menu.index()) chosen_y = y;
+        const std::optional<Rect> g = items[i]->data.rect("geometry");
+        y += g ? g->h : 128.0f;
     }
+    return y + bottom;
+}
+
+// The list's place on the screen set (its parent's place taken off), and the shadow beside it,
+// 4 to the right and 4 down, at its size.
+void option_place(LiveWidget& menu, float screen_y) {
+    const W popup = menu.child("popup"), list = option_list(menu);
+    if (!popup || !list) return;
+    list->set_property("y", Value::number(screen_y - popup->screen_rect().y));
+    if (const W shadow = popup->child("shadow")) {
+        const std::optional<Rect> g = list->data.rect("geometry");
+        if (!g) return;
+        shadow->set_property("x", Value::number(g->x + 4)), shadow->set_property("y", Value::number(g->y + 4));
+        shadow->set_property("w", Value::number(g->w)), shadow->set_property("h", Value::number(g->h));
+    }
+}
+
+void option_script(Runtime& rt, LiveWidget& menu, const char* name, std::vector<Value> args) {
+    if (menu.data.number("has_script") != 0) rt.call_now(menu, name, std::move(args));
+}
+
+void option_open(Runtime& rt, LiveWidget& menu) {
+    const W popup = menu.child("popup"), list = option_list(menu);
+    om_play(rt, "cursor");
+    option_script(rt, menu, "onPopupOpen", {rt.context()});
+    if (!popup || !list) return;
+    menu.set_property("is_popuped", Value::integer(1));
+    arrange_option_menu(menu);
+    float chosen_y = 0;
+    const float total = option_stack(menu, chosen_y);
+    om_set(menu, "om_total", total);
+    list->set_property("h", Value::number(total));
+    const std::vector<W> items = option_items(menu);
+    LiveWidget* page = menu.page();
+    if (!items.empty() && page) {
+        // The band the list keeps inside: the page's height less a twentieth at each edge.
+        const Rect pr = page->screen_rect();
+        const float margin = pr.h / 20.0f;
+        om_set(menu, "om_min", pr.y + margin), om_set(menu, "om_max", (pr.y + pr.h) - margin);
+        list->set_property("y", Value::number(-chosen_y));
+        float y = list->screen_rect().y;
+        if (pr.h - (margin + margin) < total) {
+            // Taller than the band: it stays, and scrolls with the chosen row.
+            om_set(menu, "om_y", y), om_set(menu, "om_target", y), om_set(menu, "om_moving", 1);
+        } else if (y < om_num(menu, "om_min")) y = om_num(menu, "om_min");
+        else if (om_num(menu, "om_max") < y + total) y -= y + total - om_num(menu, "om_max");
+        option_place(menu, y);
+    }
+    om_set(menu, "om_saved", float(menu.index()));
+    popup->set_property("opacity", Value::number(0));
+    if (page && !items.empty()) rt.set_focus(*page, items[size_t(option_clamp(menu, menu.index()))]);
+}
+
+void option_close(Runtime& rt, LiveWidget& menu, bool cancel) {
+    om_play(rt, "cursor");
+    if (cancel) menu.set_property("index", Value::integer(option_clamp(menu, int(om_num(menu, "om_saved")))));
+    menu.set_property("is_popuped", Value::integer(0));
+    om_set(menu, "om_moving", 0);
+    arrange_option_menu(menu);
+    if (LiveWidget* page = menu.page()) rt.set_focus(*page, menu.self());
+    if (!cancel) option_script(rt, menu, "onValueChanged", {rt.context(), Value::integer(menu.index())});
+    option_script(rt, menu, "onPopupClosed", {rt.context()});
+}
+
+// Up or down in the open list (0x2C98F0): the index steps to the next sensitive row that way,
+// stays when there is none; the chosen row out of the band sets where the list scrolls to.
+// True when the index moved.
+bool option_move(LiveWidget& menu, int step) {
+    const int before = menu.index();
+    bool moved = option_step(menu, step);
+    if (moved) {
+        const int at = option_sensitive(menu, menu.index(), step > 0);
+        if (at >= 0) menu.set_property("index", Value::integer(at));
+        else menu.set_property("index", Value::integer(before)), moved = false;
+    }
+    const std::vector<W> items = option_items(menu);
+    const W list = option_list(menu);
+    if (items.empty() || !list) return moved;
+    const Rect row = items[size_t(option_clamp(menu, menu.index()))]->screen_rect();
+    const float list_y = list->screen_rect().y;
+    if (row.y < om_num(menu, "om_min")) om_set(menu, "om_y", list_y), om_set(menu, "om_target", list_y + (om_num(menu, "om_min") - row.y));
+    else if (om_num(menu, "om_max") < row.y + row.h)
+        om_set(menu, "om_y", list_y), om_set(menu, "om_target", list_y - ((row.y + row.h) - om_num(menu, "om_max")));
+    return moved;
+}
+
+// Each picture (0x2C9C90): the open popup fades in by 0.1, and a list taller than the band
+// eases 0.4 of the way to where it scrolls to.
+void step_option_menu(LiveWidget& menu) {
+    if (!popup_open(menu)) return;
+    const W popup = menu.child("popup");
+    if (!popup) return;
+    if (const float a = popup->opacity(); a < 1.0f) popup->set_property("opacity", Value::number(std::min(a + 0.1f, 1.0f)));
+    if (om_num(menu, "om_moving") == 0) return;
+    const float y = om_num(menu, "om_y") + (om_num(menu, "om_target") - om_num(menu, "om_y")) * 0.4f;
+    om_set(menu, "om_y", y);
+    option_place(menu, y);
 }
 
 // ---- the bars (docs/formats/menu.md "SliderBar, ScaleBar")
@@ -748,12 +887,11 @@ void widget_set_index(Runtime& rt, LiveWidget& w, int index, bool notify) {
         return;
     }
     if (w.is("OptionMenu")) {
-        const int n = int(option_items(w).size());
-        if (n > 0) index = std::clamp(index, 0, n - 1);
-        const int before = w.index();
-        w.set_property("index", Value::integer(index));
+        // setIndex (0x2C9898): the first sensitive row at or after the index (none: as it was);
+        // the script hears nothing (onValueChanged comes from the open list's accept).
+        if (const int at = option_sensitive(w, index, true); at >= 0) w.set_property("index", Value::integer(option_clamp(w, at)));
         arrange_option_menu(w);
-        if (notify && index != before) rt.call_now(w, "onValueChanged", {rt.context(), Value::integer(index)});
+        (void)rt, (void)notify;
         return;
     }
     if (w.is("SliderBar") || w.is("ScaleBar")) {
@@ -789,35 +927,23 @@ bool widget_key(Runtime& rt, LiveWidget& w, Key k) {
         return int(w.data.number("focus_index")) != before;
     }
     if (w.is("OptionMenu")) {
+        // Closed, accept opens the list (the menu's activate, 0x2C9568); open, the menu has
+        // every key (0x2C95E8): up and down move in the list, accept keeps, cancel puts back.
         if (!popup_open(w)) {
-            if (k != Key::Accept || w.insensitive()) return false;
-            set_popup(rt, w, true);
+            if (k != Key::Accept || w.insensitive() || !option_list(w)) return false;
+            option_open(rt, w);
             return true;
         }
-        const std::vector<W> items = option_items(w);
-        LiveWidget* page = w.page();
-        const W at = page ? page->focus.lock() : nullptr;
-        int cursor = -1;
-        for (size_t i = 0; i < items.size(); ++i)
-            if (items[i] == at) cursor = int(i);
         if (k == Key::Up || k == Key::Down) {
-            for (int i = cursor + (k == Key::Up ? -1 : 1); i >= 0 && i < int(items.size()); i += k == Key::Up ? -1 : 1)
-                if (!items[size_t(i)]->insensitive()) {
-                    rt.set_focus(*page, items[size_t(i)]);
-                    break;
-                }
+            if (option_move(w, k == Key::Up ? -1 : 1)) {
+                om_play(rt, "cursor");
+                const std::vector<W> items = option_items(w);
+                if (LiveWidget* page = w.page(); page && !items.empty()) rt.set_focus(*page, items[size_t(option_clamp(w, w.index()))]);
+            }
             return true;
         }
-        if (k == Key::Accept) {
-            set_popup(rt, w, false);
-            if (cursor >= 0) widget_set_index(rt, w, cursor, true);
-            return true;
-        }
-        if (k == Key::Cancel) {
-            set_popup(rt, w, false);
-            return true;
-        }
-        return k == Key::Left || k == Key::Right; // the list keeps the keys while it is open
+        if (k == Key::Accept || k == Key::Cancel) option_close(rt, w, k == Key::Cancel);
+        return true;
     }
     if (w.is("SliderBar") || w.is("ScaleBar")) return bar_key(rt, w, k);
     return false;
@@ -826,6 +952,7 @@ bool widget_key(Runtime& rt, LiveWidget& w, Key k) {
 void step_widgets(Runtime& rt, LiveWidget& w) {
     if (is_select_box(w)) select_box_layout(w, false);
     if (w.is("SliderBar") || w.is("ScaleBar")) arrange_slider(w);
+    if (w.is("OptionMenu")) step_option_menu(w);
     if (w.is("ListBox")) {
         arrange_list(rt, w, false);
         return; // its rows are placed; nothing below them moves by itself
@@ -1027,17 +1154,28 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
                 return i >= 0 && size_t(i) < items.size() ? widget_value(items[size_t(i)]) : Value{};
             });
         if (n == "Count") return fn([w](Vm&, const Value&, Args) { return Value::integer(s32(option_items(*w).size())); });
-        // The rows a script added to popup::vbox are taken up.
+        // The rows a script added to popup::vbox are taken up (0x2C8CC8): the index kept among
+        // them, the list closed, the chosen row shown.
         if (n == "applyAppend")
             return fn([w](Vm&, const Value&, Args) {
+                w->set_property("index", Value::integer(option_clamp(*w, w->index())));
+                w->set_property("is_popuped", Value::integer(0));
                 arrange_option_menu(*w);
                 return Value{};
             });
-        if (n == "setInsensitive") // (context, a flag per row)
-            return fn([w](Vm&, const Value&, Args a) {
+        // (context, a flag per row) (0x2C9B68): the chosen row made insensitive moves the index to
+        // the first sensitive row.
+        if (n == "setInsensitive")
+            return fn([r, w](Vm&, const Value&, Args a) {
                 const std::vector<Value>* flags = a.empty() ? nullptr : a.back().items();
                 const std::vector<W> items = option_items(*w);
-                for (size_t i = 0; flags && i < items.size() && i < flags->size(); ++i) items[i]->set("insensitive", Value::integer((*flags)[i].truthy()));
+                bool chosen_off = false;
+                for (size_t i = 0; flags && i < items.size() && i < flags->size(); ++i) {
+                    const bool off = (*flags)[i].truthy();
+                    if (int(i) == w->index() && off) chosen_off = true;
+                    items[i]->set("insensitive", Value::integer(off));
+                }
+                if (chosen_off) widget_set_index(*r, *w, 0, false);
                 return Value{};
             });
     }
