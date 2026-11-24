@@ -235,3 +235,34 @@ size, u32 its deflated size, then the zlib-deflated body: the course, the sequen
 labels, the laps, the cars (label, paint), the steps (every car's state). The Drive screen plays
 one with `GT4R_RACE="replay_file=<path>"` through the course's replay cameras. ❓ The menus'
 Replay Theater does not list these files yet.
+
+## What runs where (the race screen)
+
+Every piece of the race as the player sees it, by whose code it runs: **GT4** (ported from the program,
+its address), **judged** (a stand-in fitted to the reference's captures), or **engine** (the shared
+engine's Gran Turismo 3 code). The player notices them roughly in this order.
+
+| Piece | Where | Runs | The GT4 routine that should replace a stand-in |
+|---|---|---|---|
+| The rolling start's run-up: the field's speed until the line | `screen_race.cpp` `run_up` / `RaceWorld::set_speed_hold` | **judged**: every car held at the course's speed until the player's car is 80 m from the line | the pace cap 0x3F7880 (ported in `sim/rules_aids` `start_pace`, not engaged: the cars' driver kind F +0x467 is not set to 1 by the set-up 0x3452F0), the release vf20 0x347928 → 0x345228, the per-car countdown K +0xCBFC (0x34DB30): `sim-step` |
+| The rolling start's distance, speed, spacing | `race/start_rule.*` `apply_drivers_file` | GT4 (vf28 0x34D490, 0x466B90) | |
+| The race clock's start in a rolling start, the opening shots' end | `screen_race.cpp` `kRelease`, `kOpeningEnd` | **judged** (80 m / 50 m) | event 4 from vf20 (the player's car, index 0) and the clock flag K +0xCBE4 |
+| A standing start's hold, count, START | `race_flow.*` | GT4 (0x3C0208, 0x39D390, 0x39E9B0); the hold's length for a license test (8 s) from its demonstration, for other races 10 s ❓ | the race information's start type byte +0x40 (its writer) |
+| The opening shots (start motion, replay start) | `start_camera.*` | GT4 (CameraPathanim 0x37D338, 0x37D620) | |
+| The replay cameras (TV shots), their choice by distance | `replay_script.*` | GT4 (0x37C138, 0x3FD980 → 0x3DDFF0); the dissolve's drawing judged | |
+| The scenic shots behind the menus | `replay_script.*` `ScenicCamera` | GT4 (mode 5, 0x375980) | |
+| The driving views | `drive_camera.*` | the car's camera places (CAR4); their springs ❓ | |
+| Laps, crossings, times, finish | `race_flow.*` | GT4 (0x358608, vf21 0x357B98); the race order's comparison judged | the order routine (❓ not found) |
+| License tests' rules | `license_rules.*`, `judge_license` | GT4 (0x3F8D70, 0x369888 → vf49, 0x35FE80); the hits' strengths from the simulation's contact (its sum per step, not the program's per hit), the mass as the spec's weight ❓ | the hit records 0x350530 (`sim-step`) |
+| Cones and boards knocked about | `gadget_bodies.*` | **engine** rules (GT3's pylons: resting, tumbling, a car's box judged: 0.9 m overhangs); the contact report and the kind's once-only latch GT4 (0x3E3C48) | the gadgets' step 0x3E2B28 with 0x3E3290, 0x3E3458, 0x3E29F8, 0x3E3748, the impulse 0x3E3ED0, the cars' five planes 0x621D28 |
+| The demonstrations | `screen_race.cpp` `begin_demo`, `sim/ai/demo_driver.*` | GT4 (the recordings, `ai-drivers`); the card's tire word is the race's, not the car's ❓ | |
+| The pad's controls | `screen_race.cpp` (`gt3r::race::ControlMapper`) | **engine** (GT3's mapping) | the input phase 0x349FD0 (`sim-step`) |
+| Looking back | `gt3r::race::look_back_held` | **engine** | ❓ not read |
+| The race display: places, numbers, meters | `race_display.*`, `race_hud.*` | GT4 tables (RaceDisplay); how some parts move their pictures judged | the meters' drawing routines |
+| The license display's trophy times | `race_hud.cpp` | places judged | RaceLicenseDisplay::vf9 |
+| B-spec's display and commands | `race_hud.cpp`, `screen_race.cpp` | display mode 1 GT4; the pace bar, speed plate and help strip places judged; Select Car's order ❓ | the B-spec display's routines |
+| The replay's card, logo, caption timings | `screen_race.cpp` `fill` | **judged** (3 s, 4.5–14 s) | their caller's times |
+| The results and pause pages | `strobe*`, `screen_race.cpp` | GT4 movies and callbacks | |
+| Sun, glare, lamp glows, billboards, smoke, wet road, the scenery's fade | `race_world.cpp`, `course_scene.cpp` | **engine** routines on GT4's layouts (`gt3r::race::SunGlare`, `SunDisc`, `LampGlows`, `Billboards`, `CarLampGlows`, `TyreSmoke`, `WetRoad`, `SceneryFade`) | GT4's own effect routines (not read) |
+| The car icons on the map | `race_world.cpp` | angles and size judged (CarIconMaker 0x393B70) | |
+| Not built | | the Race Monitor (`racemonitor.strb`), B-spec's pit command, the suggested gear, the driver's view's pedal and fuel bars (0x3A8968), far-level wheels, brake disc glow, fitted wings, the driver figure, moving models, animated skies, cone shadows | |
