@@ -76,6 +76,8 @@ void keep_pace_in_background() {
 
 } // namespace
 
+double App::resident_mb() { return double(resident_bytes()) / (1024.0 * 1024.0); }
+
 std::string user_data_dir() {
     std::string dir;
     if (const char* d = SDL_getenv("GT4R_DATA_DIR"); d && *d) {
@@ -106,7 +108,14 @@ bool App::init(int argc, char** argv) {
     if (auto cfg = gt3r::IniDocument::load(config_path_)) config_ = std::move(*cfg);
     LOG_INFO("GT4 Revisited %s; user data: %s", GT4R_VERSION, data_dir_.c_str());
 
-    window_ = SDL_CreateWindow("GT4 Revisited", 1280, 720, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+    // A scripted run (pictures, a sweep) does not take the keyboard from whoever is at the
+    // machine: its window opens without becoming the active one and cannot be focused.
+    bool scripted = false;
+    for (int i = 1; i < argc; ++i)
+        if (const std::string a = argv[i]; a == "--shot" || a == "--sweep") scripted = true;
+    if (scripted) SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN, "0");
+    window_ = SDL_CreateWindow("GT4 Revisited", 1280, 720,
+                               SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | (scripted ? SDL_WINDOW_NOT_FOCUSABLE : SDL_WindowFlags(0)));
     if (!window_) {
         LOG_ERROR("Window creation failed: %s", SDL_GetError());
         return false;
@@ -146,6 +155,8 @@ bool App::init(int argc, char** argv) {
         else if (a == "--shot-frame" && has_value) shot_frame_ = std::atoi(argv[++i]);
         else if (a == "--stats" && has_value) stats_path_ = argv[++i];
         else if (a == "--fast") paced_ = false;
+        else if (a == "--sweep" && has_value) sweep_ = argv[++i];
+        else if (a == "--sweep-out" && has_value) sweep_out_ = argv[++i];
         else if (a == "--keys" && has_value) {
             // "@<file>" among the keys: the keys of that file there (files may name files).
             std::function<void(const std::string&, int)> add = [&](const std::string& text, int depth) {
@@ -162,12 +173,13 @@ bool App::init(int argc, char** argv) {
             add(argv[++i], 0);
         } else if (!a.empty() && a[0] != '-') disc_path = a;
     }
-    if (!shot_path_.empty()) keep_pace_in_background();
+    if (!shot_path_.empty() || !sweep_.empty()) keep_pace_in_background();
     if (disc_path.empty()) disc_path = config_.get("game", "disc").value_or("");
     if (!disc_path.empty()) last_error_ = open_disc(disc_path);
     if (disc_) {
         push(make_hub_screen());
-        if (!browse_.empty()) push(make_browser_screen(browse_));
+        if (!sweep_.empty()) push(make_sweep_screen(sweep_, sweep_out_.empty() ? std::string("sweep") : sweep_out_));
+        else if (!browse_.empty()) push(make_browser_screen(browse_));
         else if (start_ == "menus") push(make_menu_viewer(*this));
         else if (start_ == "race") push(make_race_screen(*this));
         else if (start_ == "cars" || start_ == "courses") { // (the hub's items: Play, Cars, Courses)
@@ -319,6 +331,7 @@ SDL_AppResult App::iterate() {
     const double wall_ms = double(now - last_ticks_) / 1e6; // since the last frame
     double dt = std::min(wall_ms / 1e3, 0.1);
     last_ticks_ = now;
+    if (!sweep_.empty()) dt = 1.0 / 60.0; // (a sweep's frames: a 60th of a second each, as fast as they come)
     if (!shot_path_.empty()) {
         // Pictures do not depend on the machine's speed: a frame is a 60th of a second, and the
         // frames are held to that pace so what runs by the clock (the menus' movies) keeps step.
@@ -378,6 +391,8 @@ SDL_AppResult App::iterate() {
         save_screenshot((slash == std::string::npos ? std::string() : shot_path_.substr(0, slash + 1)) + key_shot_ + ".png");
         key_shot_.clear();
     }
+    for (const std::string& p : pictures_) save_screenshot(p);
+    pictures_.clear();
     if (!stats_path_.empty()) write_stats(wall_ms);
     if (!shot_path_.empty() && frame_ >= shot_frame_) {
         save_screenshot(shot_path_);

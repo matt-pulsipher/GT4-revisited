@@ -33,6 +33,8 @@ SDL_AppResult SDL_AppInit(void** state, int argc, char** argv) {
                         "                      \"@<file>\": the keys from a file, '#' comments)\n"
                         "  --stats <file>      a line a second: frame, seconds, mean and longest\n"
                         "                      frame work (ms), resident memory (MB)\n"
+                        "  --sweep <list>      run the races of a list one after another, pictures of\n"
+                        "                      each (screen_sweep.cpp); --sweep-out <dir>: where\n"
                         "  --no-gpu            2D screens only\n");
             return SDL_APP_SUCCESS;
         }
