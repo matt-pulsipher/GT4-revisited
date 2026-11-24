@@ -1,5 +1,7 @@
 #include "gt4r/sim/session.h"
 
+#include "sim/exact/course_ground.h"
+
 #include "gt4r/sim/convert.h"
 #include "gt4r/sim/rules_speeds.h"
 #include "gt4r/sim/rules_wheels.h"
@@ -127,6 +129,8 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
     if (!gt4_ready_ && !(rules_env && std::string(rules_env) == "engine")) { // Prologue's own step (rules_prologue.h)
         prologue::Tables t = prologue::tables(program);
         if (t.found) prologue_ = t, prologue_cars_.resize(entries.size());
+        if (prologue_ && road_->gtrw) course_ground_ = std::make_unique<ex::CourseGround>(*road_->gtrw);
+        if (prologue_) prologue::race_inputs(race_, *prologue_);
     }
     // What the aids read of the race: the course's kind (a loose course 1), no speed caps, the lap.
     aid_race_.course_kind = loose_ ? 1 : 0;
@@ -182,6 +186,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
             if (prologue_) {
                 prologue::convert(c.p, specs_[i]);
                 prologue_cars_[i] = prologue::car_part(c, specs_[i], *prologue_);
+                prologue::image_part(prologue_cars_[i], p.data());
             }
         }
         c.pedal_style = e.automatic ? 0 : 1;
@@ -335,11 +340,17 @@ void Session::place(size_t i, const course::Runway::Place& at) {
 // The ground contact (phases 16 .. 18: the query points 0x3697A8, the road under each wheel 0x344458, then 0x369888).
 void Session::ground_contact(ex::Car& c, Extra& x) {
     const size_t car = size_t(&c - cars_.data());
+    if (prologue_ && course_ground_) { // (Prologue's 0x3754D8 on its GTRW road, as the program queries it)
+        prologue::ground_contact(c, prologue_cars_[car], *course_ground_, prologue_->bumps, true);
+        for (size_t i = 0; i < 4; ++i) x.kinds[i] = c.g[i].flags, x.materials[i] = c.g[i].material;
+        return;
+    }
     if (gt4_rules_) rules::query_points(c, gx_[car].body, layouts_[car]);
+    else if (prologue_) prologue::query_points(c, prologue_cars_[car]); // (Prologue's 0x3754D8)
     for (size_t i = 0; i < 4; ++i) {
         ex::Wheel& w = c.w[i];
         ex::Ground& g = c.g[i];
-        if (!gt4_rules_) g.x = c.pos.x + w.hub.x, g.h = c.pos.z + w.hub.z, g.z = -(c.pos.y + w.hub.y);
+        if (!gt4_rules_ && !prologue_) g.x = c.pos.x + w.hub.x, g.h = c.pos.z + w.hub.z, g.z = -(c.pos.y + w.hub.y);
         GroundHit h;
         const F at[3] = {g.x, g.h + F::raw(0x40A00000), g.z}; // (0x395760: from 5 m above)
         const bool hit = ground_->query(at, h);
@@ -353,7 +364,7 @@ void Session::ground_contact(ex::Car& c, Extra& x) {
         x.materials[i] = h.material;
         w.ground0 = g.height, w.ground = g.height;
         w.surface = gt4_rules_ ? u8(surface_index(h.material, h.flags)) : g.material, w.x25 = 0, w.surface_flags = g.flags;
-        if (gt4_rules_) continue; // (the bumps below: rules::road_bumps)
+        if (gt4_rules_ || prologue_) continue; // (the bumps below: rules::road_bumps, prologue::road_bumps)
         const size_t s = w.surface & 15;
         const F amp = race_.bumps.amp[s];
         if (amp == k0) {
@@ -364,6 +375,7 @@ void Session::ground_contact(ex::Car& c, Extra& x) {
         if (race_.bumps.scaled[s]) b = b * w.speed_ramp;
         w.bump = b * amp;
     }
+    if (prologue_) prologue::road_bumps(c, prologue_cars_[car], prologue_->bumps); // (Prologue's 0x3754D8: its own tables)
     // Gran Turismo 4's bumps (0x369888) on its 24 surfaces, from the materials and flags the query found.
     if (gt4_rules_) {
         std::array<u8, 4> surface{}, material{};
@@ -394,10 +406,16 @@ void Session::chassis(size_t i) {
         else rules::attitude(c, g.body, g.chassis, g.tires, l, tables_.body);
         rules::bump_nudge(c, g.body, l);
     } else {
-        ex::terrain_factor(c);
+        if (prologue_) prologue::terrain(c, prologue_cars_[i]); // (Prologue's 0x375D00)
+        else ex::terrain_factor(c);
         ex::suspension(c, nullptr);
-        ex::attitude(c, k0);
-        ex::bump_nudge(c);
+        if (prologue_) { // (Prologue's 0x3765F8 and 0x376EC8)
+            prologue::attitude(c, prologue_cars_[i].layout, *prologue_);
+            prologue::bump_nudge(c, prologue_cars_[i]);
+        } else {
+            ex::attitude(c, k0);
+            ex::bump_nudge(c);
+        }
     }
     ex::pad_rumble(c);
     ex::steer_force(c, race_.feel);
@@ -522,7 +540,7 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
             else if (!gt4_rules_) c.clutch_req = one;
             else if (c.clutch == 0) c.clutch_req = s32(c.rpm) > ((s32(gx_[i].drive.d.up_rpm) * 3) >> 2) ? one : F();
             else c.clutch_req = s32(c.rpm) < s32(c.p.e.idle) ? F() : one;
-        } else if (prologue_) prologue::driver_input_pad(c, race_.pad, f, course_kind, *prologue_);
+        } else if (prologue_) prologue::driver_input_pad(c, race_.pad, f, course_kind, prologue_cars_[i].layout, *prologue_);
         else
             ex::driver_input_pad(c, race_.pad, f, course_kind);
         // A computer driver's own command: the road wheels' angle as the game's drivers set it (0x464F38 writes it into the

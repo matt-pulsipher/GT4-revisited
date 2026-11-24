@@ -382,8 +382,9 @@ s64 Runtime::race_finished(const RaceResult& r) {
             const Value lic = vm().attribute(vm().lookup("game"), "license");
             const Value rec = lic.p ? vm().attribute(lic, "recordResult") : Value{};
             if (rec.kind == script::Kind::Function) {
-                const Value args[4] = {Value::string(r.race), Value::string(kNames[result]), Value::integer(r.finished ? s32(r.time_ms) : s32(kNoTime)),
-                                       Value::integer(r.finished ? prologue_license_points(row, kNames[result], r.time_ms) : 0)};
+                const Value args[5] = {Value::string(r.race), Value::string(kNames[result]), Value::integer(r.finished ? s32(r.time_ms) : s32(kNoTime)),
+                                       Value::integer(r.finished ? prologue_license_points(row, kNames[result], r.time_ms) : 0),
+                                       Value::string(r.name)};
                 vm().call(rec, args);
             }
         }
