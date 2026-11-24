@@ -438,7 +438,42 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
     o.repeated = true;
     o.sort_blended = true;
     o.gt3_lighting = true;
-    menu_face3d::light(v, o);
+    // The stage's lights from light.mot at its time (light 3 is all zero): each one's place as
+    // the direction toward it (❓ the program's lights are not read as points or directions),
+    // ambient, diffuse and specular; its ColorScale on the car's colour; light 0 throws the car's
+    // shadow, shadowDarkness0 its strength, bottomShadow the shadow under the car (❓
+    // shadowBlur0 is not applied).
+    menu::FaceView lit = v;
+    float color_scale = 1;
+    race::CarVisual::Shadow stage_shadow;
+    render::Vec3 shear{0, 0, 0};
+    const bool stage_lights = s.advanced && light_motion_ && !light_motion_->lights.empty();
+    if (stage_lights) {
+        for (int i = 0; i < 3; ++i) {
+            const auto it = light_motion_->lights.find(i);
+            menu::FaceLight& L = lit.lights[i];
+            L.on = it != light_motion_->lights.end();
+            if (!L.on) continue;
+            const menu::StageMotion::Light& ml = it->second;
+            for (int k = 0; k < 3; ++k) {
+                L.pos[k] = light_motion_->at(ml.position[size_t(k)], stage_time_);
+                L.amb[k] = light_motion_->at(ml.ambient[size_t(k)], stage_time_);
+                L.dif[k] = light_motion_->at(ml.diffuse[size_t(k)], stage_time_);
+                L.spe[k] = light_motion_->at(ml.specular[size_t(k)], stage_time_);
+            }
+            L.pos[3] = 0;
+        }
+        for (float& a : lit.world_ambient) a = 0;
+        color_scale = light_motion_->named_at("ColorScale", stage_time_, 1.0f);
+        const render::Vec3 l0 = render::normalize({lit.lights[0].pos[0], lit.lights[0].pos[1], lit.lights[0].pos[2]});
+        if (l0.y > 0.2f) shear = {-l0.x / l0.y, 0, -l0.z / l0.y};
+        const float bottom = std::clamp(light_motion_->named_at("bottomShadow", stage_time_, 0.7f), 0.01f, 1.0f);
+        const float dark = std::clamp(light_motion_->named_at("shadowDarkness0", stage_time_, 0.6f), 0.0f, 1.0f);
+        stage_shadow.on = true;
+        stage_shadow.alpha = std::round(bottom * 64) / 64;
+        stage_shadow.light_factor = std::round(dark / stage_shadow.alpha * 64) / 64;
+    }
+    menu_face3d::light(lit, o);
     if (SDL_GPUTexture* env = env_texture(project, page, s.env_image)) {
         o.env_sphere = env;
         o.reflection_strength = 1.0f; // ❓ the program's reflection parameters (1.3, 1.1) are not read
@@ -448,8 +483,11 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
     sh.on = true;
     for (int i = 0; i < 3; ++i) sh.rgb[i] = v.lights[0].sdw[i];
     sh.alpha = shadow_opacity >= 0 ? shadow_opacity : v.lights[0].sdw[3];
-    // (set_shadow makes the shadows' models anew: only when the look changes.)
+    if (stage_lights) sh = stage_shadow;
+    // (set_shadow makes the shadows' models anew: only when the look changes; the light's
+    // direction is set apart, every picture.)
     if (std::memcmp(&sh, &c->shadow, sizeof sh) != 0 || !c->shadow_set) c->visual->set_shadow(sh), c->shadow = sh, c->shadow_set = true;
+    c->visual->set_shadow_shear(shear);
     items_.clear();
     if (s.advanced)
         // Each backdrop with a weight, cross-faded over black (0x1D5588).
@@ -480,7 +518,9 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
     }
     items_.insert(items_.end(), sets.begin(), sets.end());
     c->visual->add_shadow_items(items_, state);
+    const size_t car_from = items_.size();
     c->visual->add_items(items_, state, eye);
+    for (size_t i = car_from; i < items_.size(); ++i) items_[i].tint *= color_scale;
     view_->draw(app_.renderer(), page_rect, view, proj, eye, items_, o);
 }
 

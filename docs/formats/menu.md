@@ -789,8 +789,15 @@ a named value (u8 flags, the name, 1 value). A value whose flag bit is set is a 
 the clip, else a constant f32 (0x42D688). The camera stands still: eye (0, 1.28, -9.137)
 looking at (0, 0.426, 0.004), up (0, 0.996, 0.093), 0.4495 rad across the page's height (❓
 the axis). `light.mot` (24.15 s) keys `Alpha0`..`Alpha3`, the weights of bg.mdl's four models
-(the backdrops), drawn cross-faded over black; ❓ its `BlackLevel`, `WhiteLevel`,
-`ColorScale`, shadow values and lights, env.mdl and tire.mdl are not used yet.
+(the backdrops), drawn cross-faded over black. Its lights: light 0 and 1 move (place, ambient,
+diffuse, specular keyed), light 2 stands at (3.90, -3.19, -9.43) with ambient and specular 0.2,
+light 3 is all zero; here each light's place is taken as the direction toward it (❓ the
+program's stage lights, CustumLightPosition 0x1D6C98, are not read as points or directions).
+`ColorScale` (1 to 1.06) scales the car's colour; light 0 throws the car's shadow (the stage
+passes its negated place to the shadow, 0x1D6D50), `shadowDarkness0` (0.55 to 0.75) its
+strength, `bottomShadow` (0.7) the shadow under the car. `BlackLevel` 0 and `WhiteLevel` 1 are
+constants (no change to the picture). ❓ `shadowBlur0` (3 to 20), light 3, env.mdl and tire.mdl
+are not used.
 
 #### Models (`ModelFace`; `menu/faces_model.*`, `app/menu_models.*`)
 

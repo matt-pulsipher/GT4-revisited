@@ -54,6 +54,9 @@ public:
         render::Vec3 shear{0, 0, 0}; // course-space shift per metre of height: where the light throws it
     };
     void set_shadow(const Shadow& s);
+    // Where the light throws the shadow (Shadow::shear), without making the shadows anew (a light
+    // that moves: the menus' car stage).
+    void set_shadow_shear(const render::Vec3& shear) { shadow_look_.shear = shear; }
 
     // Appends the car's items for a state as seen from `eye`. `step`: the simulation's step in
     // seconds (the wheels show their turning picture by how far they turn in one).
