@@ -34,6 +34,11 @@ struct ViewPose {
     float fovy() const { return 2 * std::atan(std::tan(fov * 0.5f) * 0.75f); }
 };
 
+// A pose between two steps' for a frame shown between them (`t` 0 at `a`, 1 at `b`): the eye and
+// the view's turn blended (the turn made square again), the lens blended; `b` itself when the two
+// are a cut apart (the eye more than `cut` metres away, or another lens or body setting).
+ViewPose blend_poses(const ViewPose& a, const ViewPose& b, float t, float cut = 3.0f);
+
 class DriveCamera {
 public:
     // The views the change-view button steps through, as camera places of the car.

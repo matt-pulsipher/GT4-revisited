@@ -38,6 +38,8 @@
 #include "gt4r/menu/race_natives.h"
 #include "gt4r/menu/runtime.h"
 #include "race/controls.h"
+#include "race/interp.h"
+#include "gt4r/race/car_pose.h"
 
 #include <algorithm>
 #include <cmath>
@@ -307,6 +309,7 @@ public:
         if (watched) mount_ = race::DriveCamera::kInCar;
         menu_scene_ = false;
         race::FlowSetup fs;
+        prev_cars_.clear();
         fs.start = setup_.skip > 0 ? race::StartType::None : setup_.start;
         fs.start_seconds = setup_.start_seconds;
         fs.laps = setup_.laps;
@@ -329,6 +332,7 @@ public:
         if (ran_) world_->restart();
         ran_ = true;
         menu_scene_ = true, replaying_ = false, over_ = false;
+        prev_cars_.clear();
         world_->quiet();
         world_->clear_effects();
         scenic_.reset(&scenic_script_);
@@ -371,6 +375,7 @@ public:
             step_dissolve();
             return;
         }
+        keep_previous();
         if (replaying_) {
             // The recorded run again; it ends at its end.
             if (replay_at_ + 1 >= history_.size()) {
@@ -472,6 +477,7 @@ public:
     void start_replay() {
         if (history_.empty() || replaying_) return;
         replaying_ = true, replay_done_ = false;
+        prev_cars_.clear();
         if (audio::RaceSound* sound = world_->sound()) sound->replay();
         replay_at_ = 0;
         camera_.reset(history_[0][0]);
@@ -602,11 +608,22 @@ public:
         mount_ = at + 1 < std::size(views) ? views[at + 1] : !replay_script_.records.empty() ? kTvView : views[0];
     }
 
+    // Where the shown frame is between the last two steps (0 .. 1), for the cars and the camera.
+    void set_blend(float t) { blend_ = std::clamp(t, 0.0f, 1.0f); }
+
     void render(Ui& ui, const SDL_FRect& rect, bool look_back) {
-        const std::span<const race::CarState> cars = shown();
+        std::span<const race::CarState> cars = shown();
+        const bool blend = blend_ < 1 && !menu_scene_ && prev_cars_.size() == cars.size() && !cars.empty();
+        if (blend) {
+            // A frame between two steps: the cars and the camera between their two places.
+            blended_.resize(cars.size());
+            for (size_t i = 0; i < cars.size(); ++i) blended_[i] = race::blend_states(prev_cars_[i], cars[i], blend_);
+            cars = blended_;
+        }
         // The racing views' screen settings; the replays' and the B-spec race's their own.
         world_->set_grade(picture_settings(replaying_ || watched_).grade());
-        const race::ViewPose pose = current_pose(cars, look_back);
+        race::ViewPose pose = current_pose(shown(), look_back);
+        if (blend) pose = race::blend_poses(previous_pose(look_back), pose, blend_);
         // A cut's dissolve: the last picture frozen at the cut, over the new one as it fades.
         world_->set_dissolve(snapshot_, dissolve_total_ > 0 ? float(dissolve_left_) / float(dissolve_total_) : 0.0f, replaying_ || menu_scene_ || mount_ == kTvView);
         snapshot_ = false;
@@ -619,6 +636,21 @@ public:
             const float k = c.h / 480.0f;
             world_->render_mirror(ui, {c.x + 190 * k, c.y + 18 * k, 259 * k, 63 * k}, cars, pose, 0);
         }
+    }
+
+    // Before a step: the cars and the cameras as they are, for the frames shown before the next.
+    void keep_previous() {
+        const std::span<const race::CarState> now = shown();
+        prev_cars_.assign(now.begin(), now.end());
+        camera_prev_ = camera_, start_prev_ = start_camera_;
+        tv_prev_ = tv_pose_, tv_prev_valid_ = tv_valid_;
+    }
+    // The camera at the last step but one (its cameras as they were then, on the cars as they were).
+    race::ViewPose previous_pose(bool look_back) {
+        std::swap(camera_, camera_prev_), std::swap(start_camera_, start_prev_), std::swap(tv_pose_, tv_prev_), std::swap(tv_valid_, tv_prev_valid_);
+        const race::ViewPose p = current_pose(prev_cars_, look_back);
+        std::swap(camera_, camera_prev_), std::swap(start_camera_, start_prev_), std::swap(tv_pose_, tv_prev_), std::swap(tv_valid_, tv_prev_valid_);
+        return p;
     }
 
     // A rolling start: the player's car's metres to the line before it takes it (-1: none, or past it).
@@ -698,6 +730,13 @@ private:
     race::ReplayCamera replay_camera_;
     race::ViewPose tv_pose_;
     bool tv_valid_ = false, snapshot_ = false;
+    // The last step but one, for frames shown between steps.
+    std::vector<race::CarState> prev_cars_, blended_;
+    race::DriveCamera camera_prev_;
+    race::StartCamera start_prev_;
+    race::ViewPose tv_prev_;
+    bool tv_prev_valid_ = false;
+    float blend_ = 1;
     int dissolve_total_ = 0, dissolve_left_ = 0;
     race::CameraMotion start_motion_, replay_motion_;
     race::StartCamera start_camera_;
@@ -908,10 +947,13 @@ public:
         look_back_ = gt3r::race::look_back_held(pad, false);
         // Whole simulation steps for the time that has passed (at most four a frame).
         const Uint64 t0 = SDL_GetTicksNS();
-        clock_ += dt;
+        // Whole simulation steps for the time the shown frames advance (paced by the display's
+        // refresh: the shared engine's pacer), the frame drawn between the last two.
+        clock_ += pacer_.step(dt);
         int n = 0;
         for (; clock_ >= kStep && n < 4; ++n) clock_ -= kStep, race_->step(pad, setup_.auto_drive || spectator_);
         if (n == 4) clock_ = 0;
+        race_->set_blend(float(clock_ / kStep));
         step_ns_ += SDL_GetTicksNS() - t0;
     }
 
@@ -1656,6 +1698,7 @@ private:
     std::unique_ptr<MenuPainter> painter_;
     bool quick_ = false, option_ = false, spectator_ = false;
     double clock_ = 0;
+    gt3r::race::FramePacer pacer_;
     Uint64 step_ns_ = 0, last_frame_ns_ = 0, render_end_ns_ = 0, outside_ns_ = 0;
     std::vector<float> work_ms_, interval_ms_;
 };

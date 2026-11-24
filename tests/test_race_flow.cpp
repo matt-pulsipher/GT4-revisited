@@ -6,6 +6,8 @@
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/formats/course/runway.h"
 #include "gt4r/race/race_flow.h"
+#include "gt4r/race/car_pose.h"
+#include "gt4r/race/drive_camera.h"
 #include "gt4r/race/start_camera.h"
 #include "gt4r/race/start_rule.h"
 #include "gt4r/race/replay_script.h"
@@ -504,4 +506,25 @@ TEST(race_next_license_test) {
     CHECK(menu::next_license_test("l0c0006").empty());
     CHECK(menu::next_license_test("am_sunday_0001").empty());
     CHECK(menu::next_license_test("usl0m0025").empty()); // a mission
+}
+
+TEST(race_frame_blend) {
+    // A frame between two steps: the car halfway, its axes square; the camera halfway, a cut not blended.
+    race::CarState a, b;
+    a.position = {0, 0, 0}, b.position = {2, 0, 4};
+    const float c = std::cos(0.2f), s = std::sin(0.2f);
+    b.forward = {s, 0, c}, b.right = {c, 0, -s};
+    a.wheels[0].spin = 1, b.wheels[0].spin = 3;
+    const race::CarState m = race::blend_states(a, b, 0.5f);
+    CHECK(std::fabs(m.position.x - 1) < 1e-5f && std::fabs(m.position.z - 2) < 1e-5f && std::fabs(m.wheels[0].spin - 2) < 1e-5f);
+    CHECK(std::fabs(m.forward.x * m.forward.x + m.forward.z * m.forward.z - 1) < 1e-4f && std::fabs(m.forward.x * m.right.x + m.forward.z * m.right.z) < 1e-4f);
+    CHECK(m.right.x > 0.9f && m.up.y > 0.99f);
+    race::ViewPose p, q;
+    p.view = gt3r::render::Mat4::identity(), q.view = gt3r::render::Mat4::identity();
+    p.eye = {0, 1, 0}, q.eye = {1, 1, 0};
+    q.view.at(0, 3) = -1; // the eye at x 1
+    const race::ViewPose h = race::blend_poses(p, q, 0.5f);
+    CHECK(std::fabs(h.eye.x - 0.5f) < 1e-5f && std::fabs(h.view.at(0, 3) + 0.5f) < 1e-5f && std::fabs(h.view.at(0, 0) - 1) < 1e-5f);
+    q.eye = {10, 1, 0};
+    CHECK(race::blend_poses(p, q, 0.5f).eye.x == 10); // a cut
 }

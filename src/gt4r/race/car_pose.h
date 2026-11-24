@@ -26,6 +26,10 @@ gt3r::render::Mat4 wheel_frame(const CarState& s, const CarSpec& spec, int w);
 // wheel's).
 gt3r::render::Mat4 wheel_matrix(const CarState& s, const CarSpec& spec, int w);
 
+// A state between two steps' for a frame shown between them (`t` 0 at `a`, 1 at `b`): the body's
+// place and axes, the wheels' places, steering, roll and travel blended; the rest is `b`'s.
+CarState blend_states(const CarState& a, const CarState& b, float t);
+
 // Whether a wheel shows its turning pictures: it turns more than 5 degrees in a simulation step.
 bool wheel_turning(const WheelState& w, float step);
 
