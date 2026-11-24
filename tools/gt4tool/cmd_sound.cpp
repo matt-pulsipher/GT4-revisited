@@ -19,8 +19,9 @@
 //                                                   second (its speed the revs over the last number,
 //                                                   200 by default), heard from that view of it, mixed by
 //                                                   the program's tables at the new game's levels
-//   gt4tool sound <disc> stream-wav <path.ads> <out.wav> [seconds] [level]   a streamed piece decoded
-//                                                   (from the start, at its own rate, x level)
+//   gt4tool sound <disc> stream-wav <path.ads> <out.wav> [seconds] [level] [spu]   a streamed piece decoded
+//                                                   (from the start, at its own rate, x level; "spu":
+//                                                   through two SPU2 voices at 48 kHz, as the original)
 //
 // The WAV files are for measuring (length, level, pitch); never commit them.
 
@@ -466,6 +467,36 @@ int stream_wav(Disc& disc, const Args& a) {
     const double seconds = a.size() > 3 ? std::atof(a[3].c_str()) : 1e9;
     const float level = a.size() > 4 ? float(std::atof(a[4].c_str())) : 1.0f;
     const size_t want = size_t(std::min(seconds * h.sample_rate, double(h.total_frames())));
+    if (a.size() > 5 && a[5] == "spu" && h.codec == 0x10 && h.channels > 0 && h.interleave > 0) {
+        // As the original plays it: each side on an SPU2 voice of its own (the stream's two voices
+        // in the saved states: core 1's 22 and 23, ADSR 0x000F / 0x0000, the level on their side).
+        gt3r::VoiceMixer mixer;
+        audio::with_output_level(mixer);
+        const size_t body = std::min<size_t>(h.body_offset, data.size()), size = std::min<size_t>(h.body_size, data.size() - body);
+        const size_t blocks = size / (size_t(h.interleave) * h.channels);
+        std::vector<gt3r::VoiceId> voices;
+        for (u32 c = 0; c < h.channels && c < 2; ++c) {
+            auto mono = std::make_shared<Bytes>();
+            for (size_t k = 0; k < blocks; ++k) {
+                const u8* from = data.data() + body + (k * h.channels + c) * h.interleave;
+                mono->insert(mono->end(), from, from + h.interleave);
+            }
+            for (size_t f = 0; f + 16 <= mono->size(); f += 16) (*mono)[f + 1] = 0; // (the ring buffer's flags: none)
+            if (mono->size() >= 16) (*mono)[mono->size() - 15] = 1;
+            gt3r::VoiceParams p;
+            p.data = mono;
+            p.pitch = u16(std::lround(4096.0 * h.sample_rate / 44100.0));
+            const s16 v = s16(std::clamp(int(level * 16383.0f), 0, 0x3FFF));
+            p.vol_l = c == 0 || h.channels == 1 ? v : 0, p.vol_r = c == 1 || h.channels == 1 ? v : 0;
+            p.adsr1 = 0x000F, p.adsr2 = 0x0000;
+            voices.push_back(mixer.key_on(p));
+        }
+        const size_t frames = size_t(double(want) / h.sample_rate * gt3r::VoiceMixer::kRate);
+        std::vector<s16> out(2 * frames);
+        mixer.mix(out.data(), frames);
+        std::printf("%s: through two SPU2 voices, %.2f s at 48 kHz\n", a[1].c_str(), double(frames) / gt3r::VoiceMixer::kRate);
+        return gt3r::write_host_file(a[2], audio::wav_file(out, gt3r::VoiceMixer::kRate)) ? 0 : 1;
+    }
     std::vector<s16> pcm;
     std::vector<s16> buf(4096 * std::max<u32>(1, h.channels));
     for (size_t got = 0; got < want;) {

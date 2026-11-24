@@ -8,6 +8,7 @@
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/db/specdb.h"
 
+#include <array>
 #include <string>
 #include <vector>
 
@@ -41,6 +42,7 @@ struct Pad {
     float steer = 0;    // -1 left .. +1 right
     float throttle = 0, brake = 0;
     int shift = 0;      // +1 up, -1 down
+    const u8* frame = nullptr; // a recorded pad record (0x20 bytes, a demonstration's) given as it is, instead of the above
 };
 
 struct OrigRace {
@@ -60,8 +62,9 @@ void orig_step(Ee& ee, OrigRace& o);
 // computer driver). Returns false with `err` when the set-up stops.
 // `drivers`: the computer drivers run (the course's driver file in the course object; else their start and decision are
 // left out).
+// `equipment`: each entry's equipment record (0x178 bytes) written over the car as sold (a demonstration's entries).
 bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, const std::vector<std::string>& labels, int human, OrigRace& o,
-                std::string& err, bool drivers = false);
+                std::string& err, bool drivers = false, const std::vector<std::array<u8, 0x178>>* equipment = nullptr);
 // (`o` must stay where it is while the race runs: the pad stub reads it.)
 
 } // namespace gt4r::diff

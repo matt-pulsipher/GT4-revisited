@@ -44,6 +44,7 @@ int main(int argc, char** argv) {
             }
             ok = gt4r::diff::run_ai(*disc, true, argc > 3 ? argv[3] : "tsukuba", cars, argc > 5 ? std::atoi(argv[5]) : 3).ran && ok;
         }
+        if (test == "demo") ok = gt4r::diff::run_demo(*disc, true, argc > 3 ? argv[3] : "usl0b0001").ran && ok; // gt4r_diff <disc> demo [label]
         return ok ? 0 : 1;
     } catch (const std::exception& e) {
         std::fprintf(stderr, "error: %s\n", e.what());

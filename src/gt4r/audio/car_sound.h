@@ -5,7 +5,7 @@
 //
 //   three "ENGN" players   the engine's bank, the exhaust's and the wind's (sound/roadnoiz.es):
 //                          layers recorded at set revs, crossfaded and pitched by the revs
-//                          (the shared engine's layer player; the game's is the same);
+//                          (layer_player.h, the game's own player);
 //   held notes             of the effect banks: the turbo's spool, the gearbox's whine, the
 //                          cabin's rush, nitrous, and for each wheel the squeal, the road's
 //                          roar and the sounds of the surface under it;
@@ -20,7 +20,8 @@
 //   sound/<variant>/<id>        variant: "normal" or "turbo" (the car's TURBINEKIT row has a
 //                               non-zero byte at +9) and the MUFFLER row's byte at +6 (0..3)
 
-#include "audio/engine_sound.h"
+#include "audio/surround_cue.h"
+#include "gt4r/audio/layer_player.h"
 #include "gt4r/audio/race_tables.h"
 #include "gt4r/audio/sound_driver.h"
 #include "gt4r/audio/sound_library.h"
@@ -43,6 +44,7 @@ struct CarSoundFiles {
     bool turbo = false;
     bool whine = false;  // a gearbox that whines: its GEAR row's byte +0x22 (0x4462A0) 🔎 or a car of kind 2 (not read)
     std::string variant; // "normal0" .. "turbo3"
+    static std::string variant_name(int index); // index: muffler + 4 for a turbo
     std::string engine;  // "sound/engine/00123"; empty when the car is not in the database
     std::string exhaust; // "sound/normal0/00123"
     int variant_index() const { return muffler + (turbo ? 4 : 0); }
@@ -94,9 +96,9 @@ struct CarSoundState {
     int turbine_pitch = 0;              // 6144: the recording's pitch
     float blow_off = 0;                 // the valve's strength this step
     bool gear_whine = false;            // a gearbox that whines (or the car's files say it does)
-    float drive_torque = 0;             // through the clutch, N m
+    float drive_torque = 0;             // through the clutch, N m (F +0x51C)
     float gear_ratio = 1, low_ratio = 1; // the gear's ratio and the whine's reference
-    float shaft_speed = 0;              // rad/s
+    float shaft_speed = 0;              // the driven axles' speed, rad/s (0x350DA0)
     bool nitrous = false;               // flowing
     bool afterfire = false;             // a flame started at the exhaust this step
     // ... or the program's rule for one (0x3F3368, 0x3D6D30): the step that ends a shift (the
@@ -170,11 +172,6 @@ public:
     void update(const CarSoundState& car, const SoundListener& listener, bool target);
     void stop();
 
-    // The earlier interface: the car heard from `listener`'s chase camera (null or the car
-    // itself: from its own).
-    void set_view(gt3r::EngineSound::View view);
-    void update(const race::CarState& car, const race::CarState* listener = nullptr);
-
     // What the last step set, for tests and tools.
     struct Report {
         SoundView view = SoundView::Other;
@@ -188,8 +185,10 @@ public:
         int notes = 0; // single notes started
     };
     const Report& report() const { return report_; }
-    const gt3r::EngineUnit& engine() const { return engine_; }
-    const gt3r::EngineUnit& exhaust() const { return exhaust_; }
+    // The three layer players: the engine's, the exhaust's, the wind's.
+    const LayerPlayer& engine() const { return engine_; }
+    const LayerPlayer& exhaust() const { return exhaust_; }
+    const LayerPlayer& wind() const { return wind_; }
 
     // The held notes of a wheel, in the order of Report::wheel.
     enum WheelNote { OnSkill, OnRoad, Rain, OffRoad, OffSkill, Pebble, Sand, Rumble, Rumble2, Rumble3, kWheelNotes };
@@ -212,6 +211,9 @@ private:
     static float ease(Loop& loop, float level);
     void play_once(const Effect& e, float strength, float gain, const Placement& at);
     void stop_loops();
+    // What the race writes to a layer player each step (0x392640): the revs, the two sides of
+    // `level` at `at`, the Doppler factor, the priority.
+    void feed(LayerPlayer& player, float rpm, float level, const Placement& at, float doppler);
 
     gt3r::Vfs& vfs_;
     gt3r::VoiceMixer& mixer_;
@@ -219,12 +221,11 @@ private:
     std::shared_ptr<SoundLibrary> library_;
     std::shared_ptr<const RaceMix> mix_;
     CarSoundFiles files_;
-    gt3r::EngineUnit engine_, exhaust_, wind_;
+    LayerPlayer engine_, exhaust_, wind_;
     bool wind_tried_ = false, resolved_ = false;
     int engine_level_ = 0, exhaust_level_ = 0;
     bool was_afterfire_ = false; // the flame's strength over 0.1 last step
     u32 random_ = 0x2545F491;
-    gt3r::EngineSound::View old_view_ = gt3r::EngineSound::View::ChaseOwn;
 
     Effect turbine_fx_, whine_fx_, cabin_fx_, nitrous_fx_, blow_off_fx_, landing_fx_, backfire_fx_[2], clash_fx_[3];
     std::array<Effect, kWheelNotes> wheel_fx_{};

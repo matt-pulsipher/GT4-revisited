@@ -264,11 +264,12 @@ TEST(sound_race_tables_on_disc) {
             // Prologue: the gains as floats (0x3B3978 reads them), no microphones (its panner is
             // 32 / distance, 0x3A1D38).
             CHECK(t.found_gains && t.found_params && !t.found_mics && !t.found_afterfire && !t.option_level);
+            CHECK(t.layer_adsr1 == audio::LayerPlayer::kPrologueAdsr1);
             CHECK(near(t.view_gain(V::InCarTarget, C::Engine), 5.6, 1e-5) && near(t.view_gain(V::ChaseTarget, C::Exhaust), 6.0, 1e-5));
             CHECK(t.view_gain(V::InCarOther, C::InCar) == 0 && near(t.view_gain(V::Other, C::Exhaust), 6.0, 1e-5));
             continue;
         }
-        CHECK(t.found() && t.option_level);
+        CHECK(t.found() && t.option_level && t.layer_adsr1 == audio::LayerPlayer::kAdsr1);
         // The afterfire's table (0x622320): a road car's own muffler without a boost from 500 PS to
         // 1000, a racing car's from 100 PS to 400.
         CHECK(t.found_afterfire && t.afterfire[0] == 50 && t.afterfire[1] == 100 && t.afterfire[14] == 10 && t.afterfire[15] == 40);
@@ -286,6 +287,37 @@ TEST(sound_race_tables_on_disc) {
         CHECK(near(t.params.engine_level, 0.1, 1e-6) && near(t.params.exhaust_level, 0.1, 1e-6));
         CHECK(near(t.params.turbine_level, 0.2, 1e-6) && near(t.params.blowoff_scale, 2.5, 1e-6));
     }
+}
+
+// The hit sound's recorder (0x350328) in the collision step: straight on into Tsukuba's first corner,
+// every step with a wall contact records the strongest contact's |j| / 50,000 (kind 0), never more
+// than twice the step's summed strength the seam gives (the two are equal for one contact).
+TEST(sound_race_contact_recorder_on_disc) {
+    Disc* disc = full_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    const std::string cars[] = {"nsx_r_02"};
+    const std::unique_ptr<sim::Session> s = sim::Session::open(*disc, "tsukuba", cars);
+    race::CarInput in;
+    in.throttle = 1;
+    int steps = 0, single = 0, stronger = 0, silent = 0;
+    for (int i = 0; i < 40 * 60 && steps < 60; ++i) {
+        s->step_once({&in, 1});
+        const race::CarState& c = s->cars()[0];
+        const audio::CarSoundState st = audio::sound_state(*s, 0);
+        if (c.contact_kind != 1) {
+            CHECK(st.contact == 0);
+            continue;
+        }
+        ++steps;
+        const float doubled = std::min(2 * c.contact, 1.0f);
+        CHECK(st.contact_kind == 0 && st.contact <= doubled + 1e-6f);
+        if (st.contact > 0 && near(st.contact, doubled, 1e-5)) ++single;
+        else if (st.contact > 0) ++stronger; // (two contacts or more: the stronger, not the sum)
+        else if (doubled >= 0.2f) ++silent;  // (several, each under 0.2, that together pass it)
+    }
+    std::printf("  %d steps against the wall: %d the doubled sum (one contact), %d the strongest of several, %d silent where the sum is not\n", steps,
+                single, stronger, silent);
+    CHECK(steps > 0 && single > 0);
 }
 
 // A car rendered as the race mixes it: level against distance, the pan, the Doppler factor.
