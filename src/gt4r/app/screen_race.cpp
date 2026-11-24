@@ -31,6 +31,7 @@
 #include "gt4r/race/replay_script.h"
 #include "gt4r/race/replay_file.h"
 #include "gt4r/race/license_rules.h"
+#include "gt4r/race/sections.h"
 #include "gt4r/race/start_camera.h"
 #include "gt4r/race/start_rule.h"
 #include "gt4r/race/picture_settings.h"
@@ -346,6 +347,7 @@ public:
                 }
             }
         for (const course::Runway::Triangle& t : world_->course().road().triangles) stop_area_ = stop_area_ || (t.kind & 4) != 0;
+        splits_ = race::road_list(world_->course().section(course::kSlotRunway), 0);
         mount_ = setup.view;
         begin_run(setup.bspec);
         // A scripted run that skips ahead: those steps unseen.
@@ -386,6 +388,7 @@ public:
         board_.begin(world_->car_count(), 0, lap_words_[0], lap_words_[1]);
         camera_.reset(world_->cars()[0]);
         history_.clear(), run_dist_.clear();
+        split_prev_.clear(), split_first_.clear(), split_steps_ = -1;
         distance_ = 0;
         replaying_ = false, over_ = false;
         event_steps_ = -1;
@@ -519,15 +522,41 @@ public:
         if (ev.start && flow_.setup().start == race::StartType::Rolling)
             LOG_INFO("Drive: the player's car takes the line at %.1f km/h, %.2f s on the clock", double(world_->cars()[0].speed * 3.6f), double(flow_.time_ms()) / 1000);
         if (is_license(setup_.sequence) || setup_.sequence == "mission") judge_license();
-        if (ev.lap_done == 0) event_steps_ = 0, event_lap_ = flow_.car(0).laps_done;
+        if (ev.lap_done == 0) event_steps_ = 0, event_lap_ = flow_.car(0).laps_done, split_steps_ = -1;
+        step_splits();
         beeps_ += ev.beep;
         start_camera_.step();
         const size_t f = focus();
         camera_.step(world_->cars()[f], kStep);
         if (mount_ == kTvView || opening || demo) step_tv(world_->cars()[f], f);
         if (event_steps_ >= 0) ++event_steps_;
+        if (split_steps_ >= 0) ++split_steps_;
         if (history_.size() < kHistory) history_.emplace_back(world_->cars().begin(), world_->cars().end());
         hear(world_->cars(), true);
+    }
+
+    // The section times: each car through the course's split points (the road's first checkpoint list,
+    // race/sections.h) on its laps from the start; the player's time and his gap to the first car there
+    // (❓ the program's event 15 and its gap's partner, the car ahead or the leader, not read).
+    void step_splits() {
+        if (splits_.empty() || flow_.steps_since_start() < 0) return;
+        const std::span<const race::CarState> cars = world_->cars();
+        split_prev_.resize(cars.size(), -1);
+        for (size_t i = 0; i < cars.size(); ++i) {
+            const float v = cars[i].course_v, before = split_prev_[i];
+            split_prev_[i] = v;
+            const int counter = flow_.car(i).counter;
+            if (before < 0 || counter < 1 || !(v > before) || flow_.car(i).finished) continue;
+            for (size_t k = 0; k < splits_.size(); ++k) {
+                if (!(before < splits_[k] && splits_[k] <= v)) continue;
+                const s64 t = flow_.time_ms();
+                auto [it, first] = split_first_.try_emplace({counter, int(k)}, t);
+                if (i == 0) {
+                    split_index_ = int(k), split_ms_ = flow_.lap_ms(0), split_steps_ = 0;
+                    split_gap_ms_ = first ? 0 : t - it->second;
+                }
+            }
+        }
     }
 
     // The step's smoke and sound, heard from the camera.
@@ -714,7 +743,16 @@ public:
             h.status = hud.word(throttle_held_ ? "AutoDriveReady" : "AutoDriveFullThrottle");
             h.status_opacity = 1;
         }
-        h.event.clear(), h.event_opacity = 0;
+        h.event.clear(), h.event_opacity = 0, h.event_gap.clear(), h.event_gap_opacity = 0;
+        if (!replaying_ && split_steps_ >= 0 && split_steps_ < 200 && (event_steps_ < 0 || event_steps_ >= 200)) {
+            // "T1   0'27.247" for three seconds; the gap to the first car through that split this lap under it.
+            h.event = hud.word("WordOfSectionTime") + std::to_string(split_index_ + 1) + "   " + race::format_lap_time(split_ms_);
+            h.event_opacity = std::min(1.0f, float(split_steps_) / 9.0f) * window(split_steps_, 3.0f, 0.15f);
+            if (split_gap_ms_ > 0) {
+                h.event_gap = "+" + race::format_lap_time(split_gap_ms_);
+                h.event_gap_opacity = h.event_opacity * window(split_steps_, 2.85f, 0.15f);
+            }
+        }
         if (!replaying_ && event_steps_ >= 0 && event_steps_ < 200) {
             // "L1/3   1'23.456" for three seconds.
             h.event = hud.word("WordOfLapTime") + std::to_string(event_lap_) + "/" + std::to_string(setup_.laps) + "   " + race::format_lap_time(flow_.car(0).last_lap_ms);
@@ -1001,6 +1039,10 @@ private:
     bool replaying_ = false, replay_done_ = false, over_ = false, ran_ = false, menu_scene_ = false, watched_ = false;
     size_t replay_at_ = 0;
     int event_steps_ = -1, event_lap_ = 0, beeps_ = 0;
+    std::vector<float> splits_, split_prev_;          // the split points (m along the lap); each car's last place
+    std::map<std::pair<int, int>, s64> split_first_;  // (crossings, split) -> the race clock when the first car passed
+    int split_steps_ = -1, split_index_ = 0;
+    s64 split_ms_ = 0, split_gap_ms_ = 0;
     int mount_ = race::DriveCamera::kChase;
 };
 

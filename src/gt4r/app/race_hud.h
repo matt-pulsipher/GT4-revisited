@@ -33,6 +33,8 @@ struct HudState {
     float message_opacity = 0;
     std::string event;                // the line under the times ("L1/3   1'23.456")
     float event_opacity = 0;
+    std::string event_gap;            // a section time's gap to the car ahead at the split ("+0'05.800"), under the line
+    float event_gap_opacity = 0;
     std::string card_title, card_line; // a replay's opening card: the car, its power, tires and the race
     float card_opacity = 0;
     std::string status;               // the status line over the panel ("FULL THROTTLE"); UTF-8

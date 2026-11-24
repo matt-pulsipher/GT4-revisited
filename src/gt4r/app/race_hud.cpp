@@ -488,8 +488,12 @@ void RaceHud::Impl::draw_top(const HudState& s) {
         if (const DisplayPlace* p = cur->find(element::kLastTime); p && s.show_time)
             draw_text(times, race::place_x(*p, true), float(p->y), kCentered, kTextGray, o, race::format_lap_time(s.last_ms));
     }
-    if (const DisplayPlace* p = cur->find(element::kEventLine))
+    if (const DisplayPlace* p = cur->find(element::kEventLine)) {
         draw_text(times, race::place_x(*p, true), float(p->y), kCentered, kTextGray, o * s.event_opacity, s.event);
+        // A gap to another car (the event line's offset (32, 25); ❓ its red judged from the original's chase race).
+        if (!s.event_gap.empty() && s.event_gap_opacity > 0)
+            draw_text(times, race::place_x(*p, true) + 32, float(p->y) + 25, kCentered, 0x800000E6u, o * s.event_gap_opacity, s.event_gap);
+    }
     if (const DisplayPlace* p = cur->find(element::kMessage))
         draw_text(font("FC_48"), race::place_x(*p, true), float(p->y), kCentered, kTextGray, o * s.message_opacity, s.message);
     // The status line (member 0x228C): over the driver's panel at (320, 348), over the chase views'

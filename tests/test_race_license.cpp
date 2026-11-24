@@ -7,6 +7,10 @@
 #include "gt4r/formats/db/specdb.h"
 #include "gt4r/race/license_rules.h"
 #include "gt4r/race/start_rule.h"
+#include "gt4r/race/sections.h"
+#include "gt4r/formats/course/course_file.h"
+
+#include <cmath>
 
 using namespace gt4r;
 
@@ -125,6 +129,24 @@ TEST(race_license_rules_disc) {
         // The loose courses' kind (COURSE +0x10): Grand Canyon's is 2 or 3, Tsukuba's not.
         const int gc = race::course_start(sdb, "grandcanyon").kind, ts = race::course_start(sdb, "tsukuba").kind;
         CHECK((gc == 2 || gc == 3) && ts != 2 && ts != 3);
+        ++ran;
+    }
+    if (!ran) SKIP("no Gran Turismo 4 US disc");
+}
+
+TEST(race_split_points_disc) {
+    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    size_t ran = 0;
+    for (const auto& disc : test::discs()) {
+        if (disc->info().serial.rfind("SCUS_973.28", 0) != 0) continue;
+        const gt3r::Volume::Entry* e = disc->volume().find("crs/tsukuba");
+        if (!e) continue;
+        const Bytes data = disc->volume().read(*e);
+        const course::CourseFile file = course::CourseFile::parse(data);
+        // Tsukuba's two split points (the original's chase race shows T1 and T2 there).
+        const std::vector<float> s = race::road_list(file.section(data, course::kSlotRunway), 0);
+        CHECK(s.size() == 2 && std::fabs(s[0] - 505.9f) < 0.1f && std::fabs(s[1] - 1072.2f) < 0.1f);
+        CHECK(race::road_list(file.section(data, course::kSlotRunway), 1).empty());
         ++ran;
     }
     if (!ran) SKIP("no Gran Turismo 4 US disc");
