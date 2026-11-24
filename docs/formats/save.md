@@ -59,6 +59,14 @@ by the shared engine's card layout (`formats/ps2/memcard.h`); `src/gt4r/save/car
   the order the game writes them; their directory entries have the modes the game's own card
   has (folder 0x8427, files 0x8497).
 
+- **A game with progress** (for checks against the original): `gt4tool save <disc> progress <data
+  folder> [name] [credits]` runs the menus from power on to a new game on that folder's card,
+  then buys cars at the dealers as the purchase page does (`addNewCar`, the diary's day, the car
+  open in Arcade), drives the last one, passes every license test (the result routine of a
+  license test, with the test's medal time), lets Gran Turismo mode's present page give what the
+  records entitle the player to (the licenses' papers and cars, courses by the weeks gone by),
+  and saves (`src/gt4r/menu/game_progress.*`). `export` then puts it on a card image.
+
 Checked: the reference card made by the running original (a new game and a used car) imports
 and loads (the player, credits, the car with its record; written again the same bytes);
 exported again onto a new card and onto another of the reference cards, both read back file for
