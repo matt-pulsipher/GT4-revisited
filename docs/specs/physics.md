@@ -217,6 +217,53 @@ the same. "As the engine's" names the engine's routine (engine/gt3r/src/sim/exac
   by one knee in the same way, its level 0x40 + u x 63.9 above the knee, u x 63.9 below; its
   grip multiplies the tread's when both are on. Then no wheel's grip below its tire record's
   floor (+0x68).
+- **The tire wear** (0x352EA0, phase 20; ours `rules_wear.*` `tire_wear`; nothing for a car of category 4, P +0x32): the
+  race's wear rules (cond + 4) also hold, after the curves, +0x20 the grip under which a car wants new tires (the pit flow),
+  +0x24 the sliding measure's cap, +0x28 / +0x2C the extra of a braked or driven wheel's slip and the slip ratio (negative)
+  from which it is whole, +0x30 the second wear's rate, +0x34 / +0x38 / +0x3C its weights of the longitudinal force driving
+  and braking and the lateral force (curve A), +0x40 its weight of the sliding measure, +0x44 / +0x48 what it loses a second
+  at its greatest and least, +0x4C the force's scale. With the second wear on, each wheel's (+0xA8) moves by dt x rate x
+  (sqrt(lateral² + longitudinal²) x scale / the axle's tire width (P +0x2D4) + on surface 0 the sliding measure x its weight
+  - the loss at its value, linear between least and greatest), held between them. With the tread wear on: each wheel's
+  display (+0xB0) cleared; off the pit lane (F +0x4B1 bit 4), a wheel off surface 1 and loaded: m = its sliding measure
+  (+0xB4), for a braked or driven wheel (+0x46 & 0xC) with the extra on x (extra + 1) at slip ratios at or below +0x2C, x
+  (extra + 1) x slip / +0x2C between it and 0; at most the cap; x the tire record's wear rate (+0x04); the tread (+0xAC)
+  grows by m x (P +0x1088 + 4 a + load x P +0x1090 + 4 a, at least 0) x dt, the display shows min(m x 255, 255). ✔
+- **The rule block's tread wear** (0x35E108 copies an event's `RACE` row): its +0x2C .. +0x30 from the row's +0x6B .. +0x6F,
+  +0x33 / +0x34 from +0x70 / +0x71, +0x31 / +0x32 from +0x72 / +0x73 (+0x31 4 when the row has a curve and +0x72 is 0). The
+  Family Cup's and Tuning Car Grand Prix's rows make the original's rules (reference `26-endurance`): new tires at -10,000
+  with 95 % grip (scrubbing in to 100 % at 0), full grip to 40,000, 95 % at 50,000, 60 % at 80,000 (held), new tires wanted
+  under 88 %, the cap 1 and the slip extra 1 from any braking slip. The second wear's rules (the program's 0x620B60) are off
+  in every race: its switch byte is 0 in the image. ✔
+- **The sliding measures** (0x367148, phase 19; ours `rules_effects.*`): per wheel a count (+0xB3) set to 6 while loaded,
+  counting down off the ground; at 0 the measures are 0, 1, 0. Otherwise by the kind of surface (jump table 0x69F7B0 on the
+  surface less 2: 2 .. 5, 13, 14 kind 1; 6, 20 .. 22 kind 2; else 0) three measures from the tables the race's start builds
+  (0x366D68 into 0x843A20 / 0x843C30 / 0x843E40 + 0x84 kind from the bytes 0x6224B0 + 0xA0 measure + 0x28 kind, after
+  0x3FAA10's fix-ups): curve a (4 points) at the slip angle or (its row's +0x00 set) the hub's sideways speed in the wheel's
+  frame, curve b (a negative side and a positive) at the slip ratio or (+0x1F) the slide speed, sqrt(b² + a²), plus (speed
+  ramp - knee) x gain above the knee, plus the base when not 0: +0xB4 the sliding measure (the tread wear's input, the skid
+  sound's level), +0xB8 the skid's pitch (the base always added; an odd wheel's x 0.75 at the step its sliding starts from
+  the base), +0xBC smoke and dust (surface 12 as kind 1; 0 on surface 8; at most 1). On surfaces 1, 10, 11 and 21 the first
+  two from the load ((load / 2,450 - 0.25) within 0 .. 1) and the rim's speed instead (0x844050: its scale, and the pitch
+  linear between two speeds). The smoke and dust on surfaces of kind 1 or 2 dirties the car: condition block +0xC += sum x
+  0.0005 (x 4 on a course of kind 0) x dt, at most 0.8, none for a fresh engine (+0x14 set). ✔
+- **The feel and the views** (phase 19; ours `rules_feel.*`): the pad's vibration (0x36CEE8: into cond + 0xCA58 + 0x10 k,
+  byte +1; 0 for a car a computer drives) the strongest of the driving force at the wheels ahead x (their mean squared
+  slip + 0.1) x 0.00065, the braking force there / 19,600 squared (each at most 0.333), a wall's hit (F +0x610 x 8 + 0.25),
+  and the dampers' forces / 19,600 (each at most 1) plus the kerbs under the wheels ahead (load / 2,940 x speed / 64, each
+  at most 0.25), x 256, at most 127; the view's follower (0x345658, state cond + 0xCAB8 + 0x30 k, set at the car's set-up
+  by 0x3455F0): the heading at 120 (gain) / 15 (damping) from the words 0x69F4C8 / 0x69F4D0 (Gran Turismo 3's 30 / 10),
+  the pitch at 20 / 10; the body's sway (0x34A668 / 0x34A788, on by 0x6202B0 / 0x6202B5): the body's pitch (roll) less the
+  ground's, within a limit, followed by a spring (0x34A4B8's constants from the bytes 0x6202B1 .. 0x6202B9); the engine
+  sound's levels (0x350080, on the cues' table 0x843630 that 0x34F6A0 makes from the bytes 0x622690 ..: F +0x604 the
+  engine's, +0x605 the intake's, each averaged with the last step's, +0x606 the spool and F +0x504 the blow-off scaled; a
+  hybrid's halved and silent below idle); the effects' reset of a car not drawn as one in the race (0x366718 by the draw
+  mode 0x366678). ✔
+- **The wheel spin and the drawn car** (0x344040; ours `rules_wheels.*`): each wheel's spin by its layout axle's inverse
+  tire radius (the engine's takes axle i / 2), the drawn points (car +0x888 .. +0x8BB, a special car's raised by the rear
+  tire's radius less the special row's +0x10 and the center of gravity's height), the steering view (layout kind 1: from F
+  +0x65C), and the driver's animation slots 2 / 3 (car +0x780 / +0x784) following the throttle and the brake at 0.45 / 0.3
+  (0x62075C / 0x620760). ✔
 - **Peak force** (0x357418): load x the load curve at (load / the axle's width P +0x2D4),
   x the wear's grip when the wear ran, x the axle's grip (P +0xFD0), x the surface's grip
   (the record's +0x08 + 4 s), x the camber curve (P +0x3B8 + 0xC a) at (roll - the ground's
@@ -842,19 +889,15 @@ program's own):
 - Phase 15, the part that changes with speed (0x3F28B8): not run.
 - Phase 16's speed ramp (`ex::speed_ramp`: equal to 0x345A50 at every call). The hub offsets are Gran Turismo 4's
   (0x3458D0, `rules_wheels.*`: by the wheel layout; the engine's placed four corner wheels).
-- Phase 19 after the bump-stop nudge: the rumble, the steering force (0x353EE8), 0x367148 (each wheel's sliding measures,
-  wheel +0xB4 .. +0xBC, from tables the race's start builds at 0x843A40 ..: the tire wear's input), the engine's sound, the
-  view's follower (0x345658: differs), the wheel spin (0x344040: equal on these layouts; the engine's takes wheel i's radius
-  from axle i / 2, the program's from the layout), the tire effects, 0x34A668, 0x34A788 (`ex::pad_rumble`, `ex::steer_force`,
-  `ex::tyre_effects`, ..., `ex::wheel_spin`); the attitude's start hold (0x36AE20: the engine's spawn hold); the
-  speed-switched part's damping (0x3F2650) and a special car's spring rate (0x35D248). The hub offsets (0x345A20) and the
-  speeds and bookkeeping (0x35DE20: the speeds over the ground, the hubs' velocities by the layout, the odometer, the engine's
-  condition, the speedometer, the lateral acceleration's follower, the free wheels 0x35D990) are Gran Turismo 4's
-  (`rules_wheels.*`, `rules_speeds.*`).
-- Phases 20 and 21, the tire wear (0x352EA0) and the pit flags (0x353218): not run. With the race's wear rules off (every
-  race seen; `Session::set_wear_rules` builds them as 0x367C90 does) the program's do nothing; with them on the tread wear needs
-  0x367148's wheel +0xB4, not ported. The pit flags are the computer drivers' pit flow's (sim/ai). The flaps (phase 22,
-  0x35A678) and new tires (0x362E58) are Gran Turismo 4's (`rules_wear.*`).
+- Phase 19 after the bump-stop nudge: the steering force (0x353EE8: `ex::steer_force`, its output the pad block's, which
+  nothing of ours reads); the attitude's start hold (0x36AE20: the engine's spawn hold); the speed-switched part's damping
+  (0x3F2650) and a special car's spring rate (0x35D248); the tire effects of a category 6 car (0x3668F0: no car of the US
+  disc is one). The rest of phase 19 is Gran Turismo 4's: the pad's vibration, the sliding measures, the engine sound, the
+  effects' reset, the view's follower, the hub offsets, the speeds and bookkeeping, the wheel spin and drawn points, the
+  sway (`rules_feel.*`, `rules_effects.*`, `rules_wheels.*`, `rules_speeds.*`).
+- Phases 20 and 21: the tire wear (0x352EA0) is Gran Turismo 4's (`rules_wear.*`, by the race's wear rules from the event's
+  row, `rules::event_wear_bytes`, set by the race world); the pit flags (0x353218) are the computer drivers' pit flow's
+  (sim/ai `pit_need`). The flaps (phase 22, 0x35A678) and new tires (0x362E58) are Gran Turismo 4's.
 - The start: the engine's pose and standing start, and the session's two-second hold, not 0x363B10 / 0x363560.
 | Start | `session.cpp` `place` | the engine's race start (GT3's pose and standing start) on the first start places; a hold of 2 s before time 0 |
 | Distance along the course, laps | `ground.*` `distance_along` | ours (between the checkpoint gates) |
@@ -971,6 +1014,14 @@ object 0x6235A8 + 0x134 + 4 x table id; the row cache left out), and compares:
   driver's car at Grand Canyon (without it 1 in 6 lower: the course's set gives loose tires 1.2). Each car alone,
   three laps there (the program's / ours): the N360's best 4'11.6 (one lap) / 4'28.4, the Z's 5'17.9 / 5'15.1;
   both crawl over the climb near 2,880 m (without the driver's grip they rolled back for over 1,000 s).
+- **The wear, the sliding measures, the feel and the drawn car** (`step`, `ai` with `GT4R_AI_STEPTAPS`): 0x352EA0, 0x367148,
+  0x36CEE8, 0x345658, 0x34A668, 0x34A788, 0x350080, 0x366718, 0x344040 equal at every call (the conductor's blocks compared
+  as memory) on the NSX, Civic, R34, Impreza, Prius, Midget, Benz Patent Motor Wagen, Insight on Tsukuba, Seoul and Grand
+  Canyon, with `GT4R_STEP_TREAD` (the tread wear's curve in the rule block) and `GT4R_STEP_WEAR` (every wear rule made up),
+  and 177,726 calls each in the six computer drivers' lap of Grand Canyon; the tables of 0x366D68, 0x34F6A0 and 0x34A4B8
+  equal to the race's. Three laps of Apricot Hill Reverse in the R34 with Tuning Car Grand Prix's rules wear its treads
+  15,948 / 13,213 / 15,699 / 12,988 (the original's, from its saved states at the finish: 16,231 / 13,886 / 16,184 /
+  13,621; test `sim_disc_long_race_wear`).
 - **The collision step and the road query** (`collide_check.cpp`: `GT4R_STEP_COLLIDE` with `step`, `GT4R_AI_COLLIDE`
   with `ai`, the test `sim_program_collision_and_road_query_equal`): at 0x45BB60's entry every body record is read
   into ours (wall pointers as indexes), ours steps them on our walls, and at its return every body field (and the
@@ -1000,9 +1051,8 @@ object 0x6235A8 + 0x134 + 4 x table id; the row cache left out), and compares:
 - Everything marked ❓ above; the rewritten routines of §1; the three new phases.
 - The step's routines not yet ported (the start's hold in the attitude (0x36AE20), the speed-switched part's
   damping (0x3F2650), a special car's spring rate (0x35D248), the driver input (0x349FD0, with the nitrous's trigger),
-  the proximity and slipstream (0x3F4638), the new phases 0x355E10, 0x35CA60, 0x35D1D0, phase 19's rumble, steering force,
-  0x367148 (the sliding measures the tire wear reads), view follower, tire effects, 0x34A668, 0x34A788 and the wheel spin's
-  rest, the tire wear 0x352EA0 with the race's wear rules on, the collision step's hit records (0x350530)); our session runs
+  the proximity and slipstream (0x3F4638), the new phases 0x355E10, 0x35CA60, 0x35D1D0, phase 19's steering force
+  (0x353EE8) and a category 6 car's tire effects (0x3668F0), the collision step's hit records (0x350530)); our session runs
   the engine's there or nothing (§8). `gt4r_diff`'s race places cars past the road's grid at the program's fallback (§9).
   Layout 7's motors
   (0x356418, 0x3560F0, 0x356BB8; their constants 0x355978); the economy display's units (0x6244E8, the game's option: km per
