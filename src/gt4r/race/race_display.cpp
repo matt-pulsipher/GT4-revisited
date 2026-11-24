@@ -14,7 +14,7 @@ namespace {
 
 // The single race's tables in SCUS-97328 v1.01's program: the elements every race of that kind
 // shows, then the lap times' side.
-constexpr u32 kTableCommon = 0x6A09A8, kTableTimes = 0x6A0838;
+constexpr u32 kTableCommon = 0x6A09A8, kTableTimes = 0x6A0838, kTableMode1 = 0x6A0BA0;
 constexpr size_t kRow = 0x24;
 
 // Reads a table's rows (ending at a zero first word); false when what is there is not a table.
@@ -73,6 +73,20 @@ DisplayLayout read_single_race_layout(ByteSpan program, u32 load_address) {
     // The tables of this release name the position, the lap count and the map.
     if (!l.find(element::kPosition) || !l.find(element::kLapCount) || !l.find(element::kMap)) l.places.clear();
     return l;
+}
+
+DisplayLayout read_mode1_layout(ByteSpan program, u32 load_address) {
+    DisplayLayout l;
+    if (!read_table(program, load_address, kTableMode1, l.places)) l.places.clear();
+    if (!l.find(element::kPosition) || !l.find(element::kTotalTime) || l.find(element::kBestTime)) l.places.clear();
+    return l;
+}
+
+std::string format_total_time(s64 ms) {
+    if (ms < 0 || ms >= s64(100) * 3600000) return "\x7F:\x7F\x7F'\x7F\x7F.\x7F\x7F\x7F";
+    char b[32];
+    std::snprintf(b, sizeof b, "%d:%02d'%02d.%03d", int(ms / 3600000), int(ms / 60000 % 60), int(ms / 1000 % 60), int(ms % 1000));
+    return b;
 }
 
 namespace {

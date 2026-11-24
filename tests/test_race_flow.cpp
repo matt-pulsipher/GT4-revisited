@@ -6,13 +6,18 @@
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/formats/course/runway.h"
 #include "gt4r/race/race_flow.h"
+#include "gt4r/race/car_pose.h"
+#include "gt4r/race/drive_camera.h"
 #include "gt4r/race/start_camera.h"
 #include "gt4r/race/start_rule.h"
 #include "gt4r/race/replay_script.h"
 #include "gt4r/race/replay_file.h"
 #include "gt4r/race/gadgets.h"
+#include "gt4r/race/gadget_bodies.h"
+#include "gt4r/formats/course/runway_gtrw.h"
 #include "gt4r/race/picture_settings.h"
 #include "gt4r/formats/db/specdb.h"
+#include "gt4r/menu/race_natives.h"
 
 #include <cmath>
 
@@ -487,4 +492,111 @@ TEST(race_gadgets_disc) {
     }
     if (!ran) SKIP("no Gran Turismo 4 US disc");
     CHECK(courses > 100 && placed > 18);
+}
+
+TEST(race_next_license_test) {
+    // NEXT_RACE in the license sequence (0x10FCD0): the next number, the coffee break test after test 8,
+    // the license's test 9 after its coffee break test, none after test 16.
+    CHECK(menu::next_license_test("l0b0001") == "l0b0002");
+    CHECK(menu::next_license_test("usl0a0015") == "usl0a0016");
+    CHECK(menu::next_license_test("l0b0016").empty());
+    CHECK(menu::next_license_test("l0b0008") == "l0c0001");
+    CHECK(menu::next_license_test("lia0008") == "l0c0004");
+    CHECK(menu::next_license_test("usl0s0008") == "usl0c0005");
+    CHECK(menu::next_license_test("l0c0003") == "lib0009");
+    CHECK(menu::next_license_test("l0c0005") == "l0s0009");
+    CHECK(menu::next_license_test("l0c0006").empty());
+    CHECK(menu::next_license_test("am_sunday_0001").empty());
+    CHECK(menu::next_license_test("usl0m0025").empty()); // a mission
+}
+
+TEST(race_frame_blend) {
+    // A frame between two steps: the car halfway, its axes square; the camera halfway, a cut not blended.
+    race::CarState a, b;
+    a.position = {0, 0, 0}, b.position = {2, 0, 4};
+    const float c = std::cos(0.2f), s = std::sin(0.2f);
+    b.forward = {s, 0, c}, b.right = {c, 0, -s};
+    a.wheels[0].spin = 1, b.wheels[0].spin = 3;
+    const race::CarState m = race::blend_states(a, b, 0.5f);
+    CHECK(std::fabs(m.position.x - 1) < 1e-5f && std::fabs(m.position.z - 2) < 1e-5f && std::fabs(m.wheels[0].spin - 2) < 1e-5f);
+    CHECK(std::fabs(m.forward.x * m.forward.x + m.forward.z * m.forward.z - 1) < 1e-4f && std::fabs(m.forward.x * m.right.x + m.forward.z * m.right.z) < 1e-4f);
+    CHECK(m.right.x > 0.9f && m.up.y > 0.99f);
+    race::ViewPose p, q;
+    p.view = gt3r::render::Mat4::identity(), q.view = gt3r::render::Mat4::identity();
+    p.eye = {0, 1, 0}, q.eye = {1, 1, 0};
+    q.view.at(0, 3) = -1; // the eye at x 1
+    const race::ViewPose h = race::blend_poses(p, q, 0.5f);
+    CHECK(std::fabs(h.eye.x - 0.5f) < 1e-5f && std::fabs(h.view.at(0, 3) + 0.5f) < 1e-5f && std::fabs(h.view.at(0, 0) - 1) < 1e-5f);
+    q.eye = {10, 1, 0};
+    CHECK(race::blend_poses(p, q, 0.5f).eye.x == 10); // a cut
+}
+
+TEST(race_gadget_bodies_disc) {
+    // A car driven through Tsukuba's first cone at 15 m/s knocks it away; it comes to rest on the road
+    // again; the cones left alone stay asleep where they stand.
+    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    bool ran = false;
+    for (const auto& disc : test::discs()) {
+        if (disc->info().serial.rfind("SCUS_973.28", 0) != 0) continue;
+        const gt3r::Volume::Entry* e = disc->volume().find("crs/tsukuba");
+        if (!e) continue;
+        const Bytes data = disc->volume().read(*e);
+        const course::CourseFile file = course::CourseFile::parse(data);
+        const std::optional<course::Runway> road = course::course_road(file, data);
+        const race::Gadgets g = race::Gadgets::parse(file.section(data, course::kSlotGadgets), file.section(data, course::kSlotRunway));
+        if (!road || g.placements.size() < 2) continue;
+        ran = true;
+        race::GadgetBodies bodies;
+        bodies.reset(g);
+        const course::Vec3 cone = g.placements[0].position;
+        race::GadgetBodies::Car car;
+        car.forward = {1, 0, 0}, car.right = {0, 0, -1}, car.vel = {15, 0, 0};
+        // (The car at the cone's floor: Tsukuba's pit lane is not in the road file.)
+        const float h = cone.y - 0.11f;
+        car.pos = {cone.x - 5, h, cone.z};
+        unsigned hits = 0;
+        for (int i = 0; i < 60; ++i) {
+            hits |= bodies.step(g, *road, std::span<const race::GadgetBodies::Car>(&car, 1), 1.0f / 60);
+            car.pos.x += car.vel.x / 60;
+        }
+        const race::GadgetBodies::Body& b = bodies.bodies()[0];
+        CHECK(hits == 1 && bodies.moved());
+        CHECK(b.removed || b.pos.x > cone.x + 3);
+        for (int i = 0; i < 600; ++i) bodies.step(g, *road, {}, 1.0f / 60);
+        CHECK(b.removed || !b.awake);
+        const race::GadgetBodies::Body& other = bodies.bodies().back();
+        CHECK(!other.awake && std::fabs(other.pos.x - g.placements.back().position.x) < 1e-4f);
+    }
+    if (!ran) SKIP("no Gran Turismo 4 US disc");
+}
+
+TEST(race_license_stop_box_disc) {
+    // B-1's road (the 100 m test course) has its stopping box: triangles flagged bit 2, past the line.
+    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    bool ran = false;
+    for (const auto& disc : test::discs()) {
+        if (disc->info().serial.rfind("SCUS_973.28", 0) != 0) continue;
+        const gt3r::Volume::Entry* e = disc->volume().find("crs/testcourse_100m");
+        if (!e) continue;
+        const Bytes data = disc->volume().read(*e);
+        const std::optional<course::Runway> road = course::course_road(course::CourseFile::parse(data), data);
+        if (!road) continue;
+        ran = true;
+        size_t box = 0;
+        for (const course::Runway::Triangle& t : road->triangles) box += (t.kind & 4) != 0;
+        std::printf("  testcourse_100m: %zu of %zu triangles in the stopping box\n", box, road->triangles.size());
+        CHECK(box > 0 && box < road->triangles.size());
+    }
+    if (!ran) SKIP("no Gran Turismo 4 US disc");
+}
+
+TEST(race_flow_finish_now) {
+    // A run ended by its own rule: finished at the clock, a share of the step in.
+    Field f({10.0f}, 5);
+    race::FlowSetup fs;
+    fs.start = race::StartType::None, fs.laps = 1, fs.lap_length = kLap;
+    race::RaceFlow flow(fs, f.cars);
+    for (int i = 0; i < 60; ++i) f.step(), flow.step(f.cars);
+    flow.finish_now(0, 0.5f);
+    CHECK(flow.player_finished() && flow.car(0).finish_units == 60 * race::kClockPerStep - race::kClockPerStep / 2);
 }

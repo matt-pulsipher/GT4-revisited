@@ -17,6 +17,32 @@
 
 namespace gt4r::menu {
 
+std::string next_license_test(const std::string& code) {
+    // The class from the letters after "l": "0b" B, "0a" A, "ib" IB, "ia" IA, "0s" S, "0c" a coffee break test.
+    const size_t at = code.size() >= 9 && code[2] == 'l' ? 2 : code.size() >= 7 && code[0] == 'l' ? 0 : std::string::npos;
+    if (at == std::string::npos || code.size() != at + 7) return {};
+    const std::string prefix = code.substr(0, at), cls = code.substr(at + 1, 2), digits = code.substr(at + 3);
+    for (char c : digits)
+        if (c < '0' || c > '9') return {};
+    const int n = std::atoi(digits.c_str());
+    static const char* const kClasses[] = {"0b", "0a", "ib", "ia", "0s"};
+    int k = -1;
+    for (int i = 0; i < 5; ++i)
+        if (cls == kClasses[i]) k = i;
+    char b[32];
+    if (cls == "0c") {
+        // A coffee break test: its license's test 9.
+        if (n < 1 || n > 5) return {};
+        std::snprintf(b, sizeof b, "%sl%s0009", prefix.c_str(), kClasses[n - 1]);
+        return b;
+    }
+    if (k < 0) return {};
+    if (n == 8) std::snprintf(b, sizeof b, "%sl0c%04d", prefix.c_str(), k + 1);
+    else if (n + 1 < 17) std::snprintf(b, sizeof b, "%sl%s%04d", prefix.c_str(), cls.c_str(), n + 1);
+    else return {};
+    return b;
+}
+
 using script::Args;
 using script::Kind;
 using script::Value;

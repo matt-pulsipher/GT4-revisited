@@ -141,4 +141,35 @@ ViewPose DriveCamera::pose(const CarState& car, const Mat4& body, std::span<cons
     return p;
 }
 
+ViewPose blend_poses(const ViewPose& a, const ViewPose& b, float t, float cut) {
+    if (!(t < 1) || a.body_hidden != b.body_hidden) return b;
+    t = std::max(t, 0.0f);
+    const float dx = b.eye.x - a.eye.x, dy = b.eye.y - a.eye.y, dz = b.eye.z - a.eye.z;
+    if (dx * dx + dy * dy + dz * dz > cut * cut || std::fabs(a.fov - b.fov) > 0.2f) return b;
+    ViewPose p = b;
+    p.eye = {a.eye.x + dx * t, a.eye.y + dy * t, a.eye.z + dz * t};
+    p.fov = a.fov + (b.fov - a.fov) * t;
+    // The turn's rows (the view's axes in course space): blended, then made square: the backward
+    // axis, the up axis square to it, the right axis from both.
+    float row[3][3];
+    for (int r = 0; r < 3; ++r)
+        for (int c = 0; c < 3; ++c) row[r][c] = a.view.at(r, c) + (b.view.at(r, c) - a.view.at(r, c)) * t;
+    auto norm = [](float* v) {
+        const float n = std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+        if (n > 1e-9f) v[0] /= n, v[1] /= n, v[2] /= n;
+    };
+    norm(row[2]);
+    const float k = row[1][0] * row[2][0] + row[1][1] * row[2][1] + row[1][2] * row[2][2];
+    for (int c = 0; c < 3; ++c) row[1][c] -= row[2][c] * k;
+    norm(row[1]);
+    const float rx = row[1][1] * row[2][2] - row[1][2] * row[2][1], ry = row[1][2] * row[2][0] - row[1][0] * row[2][2], rz = row[1][0] * row[2][1] - row[1][1] * row[2][0];
+    const float sign = rx * row[0][0] + ry * row[0][1] + rz * row[0][2] >= 0 ? 1.0f : -1.0f;
+    row[0][0] = rx * sign, row[0][1] = ry * sign, row[0][2] = rz * sign;
+    for (int r = 0; r < 3; ++r) {
+        for (int c = 0; c < 3; ++c) p.view.at(r, c) = row[r][c];
+        p.view.at(r, 3) = -(row[r][0] * p.eye.x + row[r][1] * p.eye.y + row[r][2] * p.eye.z);
+    }
+    return p;
+}
+
 } // namespace gt4r::race

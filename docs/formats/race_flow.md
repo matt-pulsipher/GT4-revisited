@@ -66,9 +66,18 @@ last place 400 m before the line and 20 m between places: `sim::Entry::start_spe
 `start_distance` by `sim::rules::rolling_start_distance`) or ❓ a standing start of 10 s with the
 opening shots (the race information's own type byte is not traced to its source; the original's
 Grand Canyon start fits it). In a rolling start the computer drivers drive the player's car too
-until it takes the line; ❓ judged from the original: the course's TV cameras show the field
-running up until the player's car is 130 m from the line, the race clock standing until then. 🔎
-The original's field holds about 50 mph to the line; the computer drivers here speed up.
+until it takes the line. The conductor holds the race clock while its flag K +0xCBE4 is set
+(`DynamicsConductor::vf15` 0x357E80 adds a step to K +0xF898 only when it is clear);
+`DynamicsConductorSinglePlayer::vf27` (0x3477C8) sets it for a rolling start with a spacing, and
+vf20 (0x347928) clears it with the start signal (event 4), handing a car whose state byte F +0x467
+is 1 back to its driver (0x345228: the byte cleared, the driver's line set). The car set-up
+(0x3452F0) gives a rolling car state 1 and the driver line 6 (the start's). ❓ What holds the
+field's speed through the run-up is not read: here every car is held at the start's speed until
+the release, when the player's car is 80 m from the line (the race clock starts there), and the
+course's TV cameras show the field until 50 m (judged from the original's Tsukuba start: the field
+at 50 mph through some 12 s of shots, the clock starting in the last one, the player's view about
+1.5 s later, the line 4.2 s after the clock's start at 56 mph; here 58 mph at 4.5 s with the Ford
+Ka '01).
 
 ## The grid
 
@@ -116,6 +125,33 @@ run at once. The movie and its callbacks: [strobe.md](strobe.md). The pause menu
    - SAVE_REPLAY: the project `labomode` (❓ not done here: the menus again).
    - EXIT and any other: the sequence ends; the menus go on with `last_sequence` = the race's and
      `next_sequence` = menu, at the project the scripts named (`next_menu_project`).
+
+**NEXT_RACE** (command 18) has a case only in the championship's sequence (0x118EF0, its command
+table at 0x68D910) and the license tests' two sequences (0x114E38 for tests 5, 10 and 15 of B, A,
+IB and IA, 0x11CB38 for the others; the choice in 0x10FBD8 by 0x38A3D0's class: B 4, A 5, IB 6, IA
+7, S 8, coffee break 9):
+- A championship (0x119428): when 0x3EF330 says the race run was the series' last, the series is
+  closed (0x119BD8) and the sequence ends; else the next race (0x3EF088), the race rebuilt on its
+  course with the series' entrants (0x3EE9F8), the scene behind the menus (mode 4), MQuickWork
+  filled again (0x119918) with `canReplay` 0 and `IsSessionFinished` 0, and the menus again.
+- A license test: the sequence ends returning 1, and 0x10FCD0 names the next test from the code
+  (`menu::next_license_test`): test 8 → the license's coffee break test (`l0c000k`, k = class - 3),
+  a coffee break test k → `l0b0009`, `l0a0009`, `lib0009`, `lia0009`, `l0s0009`, else the next
+  number up to 16; the game's race code takes it (0x43A220) and the sequence runs again.
+Here the Drive screen rebuilds the race on the next race's course (a test with its own car through
+the menus' request completion) and opens its menus.
+
+**The license tests' failing rules** (🔎 found, not built: the test is graded by its time alone
+here). `DynamicsConductorLicense::vf15` calls the judge 0x3F8D70 each step for the player's car:
+with F +0x4B2 clear, F +0x4B3 bit 2 fails the test with kind 3, bit 4 kind 5, bit 1 kind 4
+(0x3F8980: the run's end 0x343D78 with the kind, event 10). F +0x4B3 is written by
+`DynamicsConductor::vf49` (0x35FA98: a count at F +0x4B6 of steps on a place 0x359538 names,
+then 2 or 4) and by the license's vf50 → 0x35FE80 (a hit, its strength against the race's bytes
+CFG +0x48 / +0x49 by the hit's kind: bit 1). The test's kind is CFG +0x02 (K +0xF81A): 1 a stop
+in an area (0x3F91F0), 3 and 6 end at the lap's line (vf21 → 0x3F8AB0), 2 at vf23. The display's
+words: `ExamFail` (word 6, "Lesson Failed..."), `ExamTimeOver` (7, "Time up"),
+`Disqualification` (0x45, "Disqualified!"), the words' table at 0x621540 ({index, name} pairs).
+❓ What 0x359538's places are, the hit kinds, the stop area.
 
 The other sequences (time trial, events, championships, licenses, missions, machine test, free
 run, practice) and their projects are listed in `race_natives.cpp` (`quick_project`); only the
