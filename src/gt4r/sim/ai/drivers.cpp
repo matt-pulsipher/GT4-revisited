@@ -72,7 +72,6 @@ struct Field::Driver {
     float s = 0;            // the car's distance along the course this step, wrapped into the lap
     bool hit_front = false, hit_rear = false;
     u8 blip = 0;
-    float time_scale = 1;
     float look = 0;
     F eps, aim_x, aim_y;    // the heading's error to the aim, the aim (F +0x61C / +0x620)
     float brake_dist = 0, brake_to = 0;
@@ -169,6 +168,18 @@ void Field::init(const course::AiData& data, const Program& program, std::span<c
     drivers_.resize(n);
     ranks_.assign(n, 0);
     near_.assign(n, Near{});
+    scale_.assign(n, kOne);
+    // The band (0x365480): percents x 0.01, the start gaps in metres, the full gaps x 10 m, the overall percent (0: 100).
+    {
+        const Pace& p = pace_;
+        Band b;
+        b.on = p.slow_pct || p.fast_pct || (p.band_global && p.band_global != 100);
+        b.mode = p.band_mode;
+        b.slow = int_f(p.slow_pct) * kHundredth, b.slow_start = int_f(p.slow_start_m), b.slow_full = int_f(p.slow_full_10m) * F::raw(0x41200000);
+        b.fast = int_f(p.fast_pct) * kHundredth, b.fast_start = int_f(p.fast_start_m), b.fast_full = int_f(p.fast_full_10m) * F::raw(0x41200000);
+        b.global = int_f(p.band_global ? p.band_global : 100) * kHundredth;
+        band_ = b;
+    }
     lat_v_.assign(n, F()), lat_x_.assign(n, F()), rate_.assign(n, F()), last_s_.assign(n, F());
     for (size_t i = 0; i < n; ++i) last_s_[i] = F(session.state(i).course_v);
     for (size_t car : computer) {
@@ -235,7 +246,8 @@ const Params& Field::params(size_t car) const { return drivers_.at(car)->p; }
 const Incidents& Field::incidents(size_t car) const { return drivers_.at(car)->inc; }
 int Field::line(size_t car) const { return drivers_.at(car)->line; }
 int Field::recovery(size_t car) const { return drivers_.at(car)->state; }
-float Field::time_scale(size_t car) const { return car < drivers_.size() && drivers_[car] ? drivers_[car]->time_scale : 1.0f; }
+float Field::time_scale(size_t car) const { return car < scale_.size() ? scale_[car].host() : 1.0f; }
+u32 Field::time_scale_bits(size_t car) const { return car < scale_.size() ? scale_[car].bits : 0x3F800000u; }
 
 Field::Snapshot Field::snapshot(size_t car) const {
     Snapshot o;
@@ -1182,32 +1194,60 @@ void Field::decide(Driver& d) {
     }
 }
 
-// 0x365790 with 0x365688 / 0x365718: each computer car's time scale against the reference car (the first car the field
-// does not drive): ahead of it slowed by up to the slow share, behind it hurried by up to the fast share, ramped from the
-// start gap to the full gap (and fully a lap or more apart), times the overall share, at most 1.3.
+// The rubber band (the conductor's virtual 4, 0x365790, with 0x365910, 0x365688 and 0x365718, in the program's arithmetic):
+// from the reference car (the first of the order the field does not drive; none: car 0) outwards along the order, each car
+// against the car between it and the reference, the factors chained: a car ahead slowed by up to the slowing's share past
+// its start gap, fully past its full gap or a lap ahead; a car behind hurried the same way (not on the pit lane); a finished
+// car keeps the chain's factor; each at most 1.3, times the overall factor.
 void Field::rubber_band() {
     const Cars& cars = *session_;
-    size_t ref = cars.size();
-    for (size_t i = 0; i < cars.size(); ++i)
-        if (!drivers_[i]) {
-            ref = i;
-            break;
+    const size_t n = cars.size();
+    if (!band_.on || n == 0) return;
+    std::vector<size_t> order(n);
+    for (size_t i = 0; i < n; ++i) order[size_t(std::clamp(ranks_[i], 1, int(n))) - 1] = i;
+    size_t ref = n;
+    for (size_t pos = 0; pos < n && ref == n; ++pos)
+        if (!drivers_[order[pos]]) ref = order[pos];
+    if (ref == n) ref = 0;
+    const F lap(lines_.lap()), one = kOne;
+    auto scale = [&](size_t r, size_t car, F prev) {
+        F s = one;
+        if (!cars.finished(car)) {
+            // 0x365910: the reference's lead in whole laps and metres, a lap taken over where the two disagree in sign.
+            int laps = cars.state(r).lap - cars.state(car).lap;
+            F gap = course_s(r) - course_s(car);
+            if (laps > 0) {
+                if (gap < F()) --laps, gap = gap + lap;
+            } else if (laps < 0 && F() < gap) ++laps, gap = gap - lap;
+            if (laps > 0 || (laps == 0 && F() < gap)) {
+                if (band_.fast != F() && !(session_->record(car).x535 & 0x10)) {
+                    if (laps > 0 || band_.fast_full <= gap) s = band_.fast + one;
+                    else if (band_.fast_start < gap) s = band_.fast * ((gap - band_.fast_start) / (band_.fast_full - band_.fast_start)) + one;
+                }
+            } else if (band_.slow != F()) {
+                const F g = -gap;
+                if (-laps > 0 || band_.slow_full <= g) s = one - band_.slow;
+                else if (band_.slow_start < g) s = one - band_.slow * ((g - band_.slow_start) / (band_.slow_full - band_.slow_start));
+            }
         }
-    const float lap = lines_.lap();
-    for (auto& d : drivers_) {
-        if (!d) continue;
-        d->time_scale = 1;
-        if (ref >= cars.size() || (pace_.slow == 0 && pace_.fast == 0)) continue;
-        const double gap = (double(cars.state(ref).lap) - double(cars.state(d->car).lap)) * lap + double(cars.state(ref).course_v) - double(cars.state(d->car).course_v);
-        const int laps_apart = std::abs(cars.state(ref).lap - cars.state(d->car).lap);
-        auto ramp = [&](float start, float full, float g) {
-            if (laps_apart > 0 || g >= full) return 1.0f;
-            if (g <= start) return 0.0f;
-            return full > start ? (g - start) / (full - start) : 1.0f;
-        };
-        float scale = gap > 0 ? 1 + pace_.fast * ramp(pace_.fast_start, pace_.fast_full, float(gap))
-                              : 1 - pace_.slow * ramp(pace_.slow_start, pace_.slow_full, float(-gap));
-        d->time_scale = std::min(scale * pace_.global, 1.3f);
+        s = s * prev;
+        if (F::raw(0x3FA66666) < s) s = F::raw(0x3FA66666);
+        scale_[car] = s * band_.global;
+        return s;
+    };
+    const int r = std::clamp(ranks_[ref], 1, int(n));
+    if (band_.mode == 1) {
+        for (size_t i = 0; i < n; ++i)
+            if (i != ref) scale(ref, i, one);
+    } else if (band_.mode == 2) {
+        for (int i = 0; i < r - 1; ++i) scale(order[size_t(i + 1)], order[size_t(i)], one);
+        for (int i = r; i < int(n); ++i) scale(order[size_t(i - 1)], order[size_t(i)], one);
+    } else if (band_.mode == 0) {
+        const int j = r - 1;
+        F s = one;
+        for (int i = j; i > 0; --i) s = scale(order[size_t(i)], order[size_t(i - 1)], s);
+        s = one;
+        for (int i = j; i < int(n) - 1; ++i) s = scale(order[size_t(i)], order[size_t(i + 1)], s);
     }
 }
 

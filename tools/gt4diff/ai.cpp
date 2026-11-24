@@ -97,6 +97,7 @@ public:
         r = gt3r::s8(ee_.r8(o_.car(int(i)) + kF + 0x4AF));
         return true;
     }
+    bool finished(size_t i) const override { return ee_.r8(o_.car(int(i)) + kF + 0x4B2) != 0; }
     bool clock(u32& c) const override {
         c = ee_.r32(o_.cond + 0xF89C);
         return true;
@@ -517,6 +518,14 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
         sim::ai::Field* f = field.get();
         const OrigRace* race = &o;
         if (checks) check_lines(ee, o, *field, tally), check_params(ee, o, *field, tally), check_math(ee, tally);
+        {
+            // The band as the conductor holds it (+0x7C .. +0x94) and the race's mode (the configuration's +0x22).
+            sim::ai::Field::Band b;
+            auto rf = [&](u32 off) { return gt3r::ee::F::raw(ee.r32(o.cond + off)); };
+            b.slow = rf(0x7C), b.slow_start = rf(0x80), b.slow_full = rf(0x84), b.fast = rf(0x88), b.fast_start = rf(0x8C), b.fast_full = rf(0x90);
+            b.global = rf(0x94), b.mode = gt3r::s8(ee.r8(o.cond + 0xF818 + 0x22)), b.on = true;
+            field->set_band(b);
+        }
         if (checks && !ours) {
             calls = std::make_unique<CallChecks>(ee, o, *field, *pcars, lap_length, tally);
             calls->install();
@@ -550,7 +559,16 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
     int step = 0;
     try {
         for (; step < limit; ++step) {
-            if (field) pcars->refresh(), field->begin_step();
+            if (field) {
+                pcars->refresh(), field->begin_step();
+                // The time scales the program set at the last step's end against ours from the same cars.
+                if (checks && step > 0)
+                    for (int i = 0; i < o.cars; ++i) {
+                        char w[48];
+                        std::snprintf(w, sizeof w, "car %d step %d", i, step);
+                        tally["band time scale"].bits(w, ee.r32(o.car(i) + kF + 0x444), gt3r::ee::F::raw(field->time_scale_bits(size_t(i))));
+                    }
+            }
             if (checks && !ours && step % 120 == 60) check_corners(ee, o, *field, lap_length, tally);
             if (checks && !ours && step % 4 == 1) check_braking(ee, o, *field, lap_length, tally);
             if (checks && !ours && step % 60 == 30) check_places(ee, o, *field, tally);

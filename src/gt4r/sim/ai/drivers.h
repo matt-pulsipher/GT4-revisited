@@ -7,7 +7,7 @@
 //   ai::Field field = ai::Field::open(disc, "tsukuba", session, {1, 2, 3, 4, 5});  // cars 1.. are the computer's
 //   std::vector<race::CarInput> in(session.cars().size());
 //   while (countdown) { field.hold(in); session.hold_once(in); }
-//   for (;;) { /* in[0] = the player's pad */ field.drive(in); session.step_once(in); }
+//   for (;;) { /* in[0] = the player's pad */ field.drive(in); field.apply_time_scales(session); session.step_once(in); }
 //
 // The drivers read the cars through Session's public interface; they write only the entries of the cars
 // they drive.
@@ -62,6 +62,9 @@ struct Pace {
     // The rubber band (RACE row): the cars ahead of the reference slowed, those behind hurried, by up to these shares
     // past `start` metres, fully past `full` metres. All 0: none.
     float slow = 0, slow_start = 0, slow_full = 0, fast = 0, fast_start = 0, fast_full = 0, global = 1;
+    // The same as the event row has them (+0x63 .. +0x6A: the overall percent (0: 100), the mode, the slowing's percent,
+    // start (m) and full gap (x 10 m), the hurrying's): what the race sets the band from (0x365480). All 0: no band.
+    u8 band_global = 0, band_mode = 0, slow_pct = 0, slow_start_m = 0, slow_full_10m = 0, fast_pct = 0, fast_start_m = 0, fast_full_10m = 0;
     bool standing_start = true; // the long look ahead off the grid of a standing start
     // Per grid place, the seconds its car is held at the start (RACE +0x91, +0x8C .. +0x90; the decision's long look
     // ahead lasts that much longer).
@@ -105,6 +108,8 @@ public:
     virtual bool course_rate(size_t, gt3r::ee::F&) const { return false; }
     virtual bool rank(size_t, int&) const { return false; }
     virtual bool clock(u32&) const { return false; }
+    // A car that has finished the race (F +0x4B2).
+    virtual bool finished(size_t) const { return false; }
 };
 
 // A session's cars.
@@ -167,8 +172,22 @@ public:
         float brake_dist = 0, brake_to = 0; // the last braking check: the distance needed and the distance to the point
     };
     Snapshot snapshot(size_t car) const;
-    // The rubber band's time scale for a car (1: none). The session does not apply it (docs/specs/ai.md).
+    // The rubber band's time scale for a car (1: none): what the race sets the car's step length by each step (the record's
+    // time scale, Session::set_time_scale_raw with time_scale_bits). Every car's, driven or not.
     float time_scale(size_t car) const;
+    u32 time_scale_bits(size_t car) const;
+    // Every car's time scale into the session (call after drive(), before the session's step).
+    void apply_time_scales(Session& session) const {
+        for (size_t i = 0; i < session.cars().size(); ++i) session.set_time_scale_raw(i, time_scale_bits(i));
+    }
+    // The band's values as the conductor holds them (+0x7C .. +0x94, for checks against another race) and its mode.
+    struct Band {
+        gt3r::ee::F slow, slow_start, slow_full, fast, fast_start, fast_full, global{1.0f};
+        int mode = 0;
+        bool on = false;
+    };
+    void set_band(const Band& b) { band_ = b; }
+    const Band& band() const { return band_; }
 
     // For checks against another race's drivers: a driver's plan and traffic state set as that race's driver object
     // holds them, and the plan's routines run on it.
@@ -246,6 +265,8 @@ private:
     // Per car: the lateral acceleration's filter (F +0x55C / +0x560) and the speed along the course (F +0x650) where the
     // cars do not give them, and the last course distance.
     std::vector<gt3r::ee::F> lat_v_, lat_x_, rate_, last_s_;
+    std::vector<gt3r::ee::F> scale_; // each car's time scale (F +0x444)
+    Band band_;
     std::array<u32, 24> soft_{}; // a material's soft flag (the program's table)
 };
 

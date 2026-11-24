@@ -81,6 +81,7 @@ FieldRun run_field(Disc& disc, const std::string& course, const std::vector<Fiel
     const int steps = int(limit * 60.0);
     for (int step = 0; step < steps; ++step) {
         field->drive(in);
+        field->apply_time_scales(*session);
         session->step_once(in);
         if (on_step) on_step(*session, *field);
         const double t = session->time();
