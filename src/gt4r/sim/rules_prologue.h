@@ -83,6 +83,12 @@ struct Tables {
     bool pedal_ramps = false;
     F throttle_up, throttle_down, brake_up, brake_down;
     Controls controls; // (its pedal steps are the four above)
+    // The attitude's (0x3765F8): the static block's +0xD9 (the tires' pitch moment at the tire's radius; 0: at its width, as
+    // Gran Turismo 3's) and +0xE0 (the heave's mode: 2 the wheels' loads along their grounds' normals onto the ground's up
+    // axis, 1 the body's up axis onto it, 0 the body forces along the body's up axis; 0 means 1 for the in-line layout), the
+    // in-line layout's roll terms (0x50429C .. 0x5042B0).
+    u8 pitch_radius = 1, normal_mode = 0;
+    std::array<F, 6> in_line;
 };
 Tables tables(const Program& program);
 
@@ -168,6 +174,16 @@ void pad_steering(ex::Car& c, const ex::PadFrame& f, u8 course_kind, const rules
 ex::PadFrame prefilter(ex::Car& c, const ex::PadFrame& f, const Controls& k);
 void driver_input_pad(ex::Car& c, const ex::PadConstants& k, const ex::PadFrame& f, u8 course_kind, const rules::WheelLayout& l,
                       const Tables& t);
+
+// 0x376440: the tires' longitudinal forces' pitch moment and lift (Gran Turismo 4's 0x36AF30 on the wheel layout, the
+// force's lever the tire's radius or, with the static block's +0xD9 0, its width).
+void pitch_terms(const ex::Car& c, const rules::WheelLayout& l, const Tables& t, F& moment, F& lift);
+// 0x3765F8 (phase 19): the start's hold (0x376330: the engine's, with Gran Turismo 4's axes), else the pitch and roll from the
+// body forces and dampers by the wheel layout (the in-line layout's lean), Gran Turismo 4's axes (0x377310) and the heave:
+// Gran Turismo 4's (0x36B0C8) but every damper counted, the sums times the inverse sprung mass, each wheel's whole load
+// (no preload taken off) projected onto the ground's up axis and no speed part's lift. `in_line_lean` is the record's
+// F +0x3AC (the in-line layout's lean term, ❓ not kept: 0).
+void attitude(ex::Car& c, const rules::WheelLayout& l, const Tables& t, F in_line_lean = F());
 
 // 0x3C4D80: the ground's pitch, roll and height as the engine's (Gran Turismo 3's) and its axes as Gran Turismo 4's
 // (0x377310: the pitch before the roll).

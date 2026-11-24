@@ -396,8 +396,10 @@ void Session::chassis(size_t i) {
     } else {
         ex::terrain_factor(c);
         ex::suspension(c, nullptr);
-        ex::attitude(c, k0);
+        if (prologue_) prologue::attitude(c, prologue_cars_[i].layout, *prologue_); // (Prologue's 0x3765F8)
+        else ex::attitude(c, k0);
         ex::bump_nudge(c);
+        if (prologue_) rules::body_axes(c); // (Prologue's 0x376EC8 makes Gran Turismo 4's axes)
     }
     ex::pad_rumble(c);
     ex::steer_force(c, race_.feel);

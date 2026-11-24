@@ -3,6 +3,7 @@
 #include "gt4r/sim/rules_prologue.h"
 
 #include "base/ee_math.h"
+#include "sim/exact/build_math.h"
 
 #include <cstdlib>
 #include "gt4r/sim/program.h"
@@ -91,6 +92,8 @@ Tables tables(const Program& program) {
     t.pedal_ramps = program.b(PrologueProgram::kController + 0x11) != 0;
     t.throttle_up = t.controls.throttle_up, t.throttle_down = t.controls.throttle_down;
     t.brake_up = t.controls.brake_up, t.brake_down = t.controls.brake_down;
+    t.pitch_radius = program.b(s + 0xD9), t.normal_mode = program.b(s + 0xE0);
+    for (u32 k = 0; k < 6; ++k) t.in_line[k] = F::raw(program.w(PrologueProgram::kInLine + 4 * k));
     for (u32 r = 0; r < t.wheel_layouts.size(); ++r)
         for (u32 k = 0; k < rules::kWheelLayoutSize; ++k) t.wheel_layouts[r][k] = program.b(PrologueProgram::kWheelLayouts + rules::kWheelLayoutSize * r + k);
     return t;
@@ -485,6 +488,126 @@ void driver_input_pad(ex::Car& c, const ex::PadConstants& k, const ex::PadFrame&
     }
     c.throttle = c.throttle_pedal;
     ex::set_brake(c, c.brake_pedal);
+}
+
+void pitch_terms(const ex::Car& c, const rules::WheelLayout& l, const Tables& t, F& moment, F& lift) {
+    F m = F(), up = F();
+    const int n = l.count < 4 ? l.count : 4;
+    for (int w = 0; w < n; ++w) {
+        const ex::Wheel& wh = c.w[size_t(w)];
+        const size_t a = l.axle[size_t(w)] & 1u, geo = l.geometry[size_t(w)] & 1u;
+        const F f = (gt3r::ee::cos(wh.steer) * (wh.fx_drive + wh.fx_brake)) * (t.pitch_radius ? c.p.tire_radius[a] : c.p.width[a]);
+        m = m + f * c.p.pitch_tire[geo];
+        const gt3r::s8 fa = gt3r::s8(l.fore_aft[size_t(w)]);
+        const F dist = geo ? c.p.dist_rear : c.p.dist_front;
+        if (fa > 0) up = up + f / dist;
+        else if (fa < 0) up = up - f / dist;
+    }
+    moment = m, lift = up;
+}
+
+void attitude(ex::Car& c, const rules::WheelLayout& l, const Tables& t, F in_line_lean) {
+    using gt3r::ee::cos;
+    using gt3r::ee::sin;
+    const F kRate = F::raw(0x3FC90FDA), kRollRate = F::raw(0x41490FDA), kAngle = F::raw(0x3F490FD9), kGravity = F::raw(0x411CCCCC);
+    const F kHalf = F::raw(0x3F000000);
+    const int n = l.count < 4 ? l.count : 4;
+    const F dt = c.dt;
+    F moment, lift;
+    pitch_terms(c, l, t, moment, lift);
+    // The start's hold (0x376330): the engine's settling and turn toward the box, Gran Turismo 4's axes.
+    if (c.hold != 0 && ex::spawn_hold(c, F())) {
+        rules::body_axes(c);
+        return;
+    }
+    // Pitch: the axles' body forces and dampers about their levers, and the tires' moment.
+    std::array<F, 4> s{};
+    for (int w = 0; w < n; ++w) s[l.axle[size_t(w)] & 3] = s[l.axle[size_t(w)] & 3] + c.body_force[size_t(w)];
+    for (int w = 0; w < n; ++w) s[l.axle[size_t(w)] & 3] = s[l.axle[size_t(w)] & 3] + c.w[size_t(w)].damper_f;
+    F rate = c.pitch_rate + (((s[0] * c.p.pitch_lever[0]) - (s[1] * c.p.pitch_lever[1])) + moment) * dt;
+    if (kRate < rate) rate = kRate;
+    else if (rate < -kRate) rate = -kRate;
+    F angle = c.pitch + rate * dt;
+    if (angle < -kAngle) angle = -kAngle, rate = F();
+    else if (kAngle < angle) angle = kAngle, rate = F();
+    c.pitch = angle, c.pitch_rate = rate;
+    // Roll: the same by side (left plus, right minus) per axle.
+    s = {};
+    for (int pass = 0; pass < 2; ++pass)
+        for (int w = 0; w < n; ++w) {
+            const u8 side = l.side[size_t(w)];
+            const F v = pass == 0 ? c.body_force[size_t(w)] : c.w[size_t(w)].damper_f;
+            F& at = s[l.axle[size_t(w)] & 3];
+            if (side == 0) at = at + v;
+            else if (side == 1) at = at - v;
+        }
+    if (l.kind == 1) { // two wheels in line: a lean of their own
+        F lean = -c.x4d0 * t.in_line[0];
+        const F k = t.in_line[1];
+        if (F() < k) {
+            const F roll = c.roll;
+            const F hw = c.p.width[0] * kHalf;
+            const F tn = gt3r::ee::tan(roll), sn = sin(roll), cs = cos(roll);
+            const F lean_angle = ex::atan2(rules::behaviour(), k * sn - hw * tn, k * cs);
+            const F arm = (k * cos(roll)) / cos(lean_angle);
+            lean = lean + ((c.p.mass * kGravity) * sin(lean_angle)) * arm;
+        }
+        lean = lean - in_line_lean * t.in_line[2];
+        std::array<F, 4> spin{};
+        for (int w = 0; w < n; ++w)
+            spin[size_t(w)] = (c.w[size_t(w)].rim_speed / c.p.tire_radius[l.axle[size_t(w)] & 1u]) * cos(c.w[size_t(w)].steer);
+        lean = lean + (t.in_line[3] * spin[0]) * c.inv_mass_eff;
+        lean = lean + (t.in_line[4] * spin[0]) * c.yaw_rate;
+        lean = lean + (t.in_line[5] * spin[1]) * c.yaw_rate;
+        s[1] = s[1] + lean, s[0] = s[0] + lean;
+    }
+    rate = c.roll_rate + ((s[0] * c.p.roll_lever[0]) + (s[1] * c.p.roll_lever[1])) * dt;
+    if (kRollRate < rate) rate = kRollRate;
+    else if (rate < -kRollRate) rate = -kRollRate;
+    angle = c.roll + rate * dt;
+    if (angle < -kAngle) angle = -kAngle, rate = F();
+    else if (kAngle < angle) angle = kAngle, rate = F();
+    c.roll = angle, c.roll_rate = rate;
+    rules::body_axes(c);
+    // Heave.
+    const u8 mode = t.normal_mode != 0 ? t.normal_mode : l.kind == 1 ? 1 : 0;
+    if (mode == 0) { // the body forces and dampers along the body's up axis
+        F sum = F();
+        for (int w = 0; w < n; ++w) sum = sum + c.body_force[size_t(w)];
+        for (int w = 0; w < n; ++w) sum = sum + c.w[size_t(w)].damper_f;
+        sum = (sum + lift) * c.p.inv_sprung_mass;
+        c.heave_acc = sum - c.up.z * kGravity;
+        const F du = sum * dt;
+        c.vel.x = c.vel.x + c.up.x * du, c.vel.y = c.vel.y + c.up.y * du, c.vel.z = c.vel.z + c.up.z * du;
+        c.vel.z = c.vel.z - dt * kGravity;
+        return;
+    }
+    // Each wheel's load: its ground's normal (mode 2) or the body's up axis against the ground's up axis, along the latter.
+    const std::array<F, 3> g{c.ground_up.x, c.ground_up.y, c.ground_up.z};
+    std::array<F, 3> acc{};
+    for (int w = 0; w < n; ++w) {
+        std::array<F, 3> d;
+        if (mode == 2) {
+            const ex::Vec3& nn = c.g[size_t(w)].normal;
+            d = {nn.x, -nn.z, nn.y};
+        } else d = {c.up.x, c.up.y, c.up.z};
+        F f = F();
+        for (size_t i = 0; i < 3; ++i) f = f + g[i] * d[i];
+        f = f * c.w[size_t(w)].load;
+        for (size_t i = 0; i < 3; ++i) acc[i] = acc[i] + f * g[i];
+    }
+    const F up = lift - (c.downforce[0] + c.downforce[1]);
+    const std::array<F, 3> u{c.up.x, c.up.y, c.up.z};
+    for (size_t i = 0; i < 3; ++i) acc[i] = acc[i] + up * u[i];
+    for (size_t i = 0; i < 3; ++i) acc[i] = acc[i] * c.p.inv_sprung_mass;
+    acc[2] = acc[2] - kGravity;
+    F heave = F();
+    std::array<F*, 3> v{&c.vel.x, &c.vel.y, &c.vel.z};
+    for (size_t i = 0; i < 3; ++i) {
+        *v[i] = *v[i] + acc[i] * dt;
+        heave = heave + acc[i] * u[i];
+    }
+    c.heave_acc = heave;
 }
 
 void ground_frame(ex::Car& c) {

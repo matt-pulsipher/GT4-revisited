@@ -263,9 +263,8 @@ void add_prologue_taps(PTaps& taps, const Disc& disc) {
                   ex::ground_frame(c.car);
                   sim::rules::body_axes(c.car.ground_pitch, c.car.ground_roll, c.car.heading, c.car.ground_fwd, c.car.ground_lat, c.car.ground_up);
               }});
-    taps.add({0x3765F8, "engine's attitude, GT4's axes", [=](PTapCall& c) {
-                  ex::attitude(c.car, gt3r::ee::F());
-                  sim::rules::body_axes(c.car);
+    taps.add({0x3765F8, "Prologue's attitude", [=](PTapCall& c) {
+                  sim::prologue::attitude(c.car, layout(c), t, gt3r::ee::F::raw(c.ee.r32(c.car_addr + 0xD8 + 0x3AC)));
               }});
 }
 
