@@ -11,6 +11,13 @@ Pace pace_for(const db::RaceEvent& e) {
     p.global = float(e.band_global ? e.band_global : 100) * 0.01f;
     p.slow = float(e.slow_pct) * 0.01f, p.slow_start = float(e.slow_start), p.slow_full = float(e.slow_full) * 10.0f;
     p.fast = float(e.fast_pct) * 0.01f, p.fast_start = float(e.fast_start), p.fast_full = float(e.fast_full) * 10.0f;
+    p.band_global = e.band_global, p.band_mode = e.band_mode, p.slow_pct = e.slow_pct, p.slow_start_m = e.slow_start, p.slow_full_10m = e.slow_full;
+    p.fast_pct = e.fast_pct, p.fast_start_m = e.fast_start, p.fast_full_10m = e.fast_full;
+    // The places' held starts (0x447828: place 0 the row's +0x91, places 1 .. 5 its +0x8C .. +0x90), in seconds.
+    if (e.bytes.size() > 0x91) {
+        p.start_delay[0] = s16(e.bytes[0x91]);
+        for (size_t i = 1; i < 6; ++i) p.start_delay[i] = s16(e.bytes[0x8B + i]);
+    }
     return p;
 }
 

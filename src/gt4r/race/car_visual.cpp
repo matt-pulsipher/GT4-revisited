@@ -138,7 +138,7 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
             max_ = {m.bounds_max[0], m.bounds_max[1], m.bounds_max[2]};
             for (const scene::Mesh& mesh : m.meshes) lods_ = std::max(lods_, mesh.lod + 1);
         }
-        body_[size_t(brake)] = std::make_unique<render::GpuModel>(ctx, m);
+        to_gpu(body_[size_t(brake)], m);
     }
     // The brake parts: the shapes the body's program draws in each wheel's frame.
     for (u16 w = 0; w < 4; ++w) {
@@ -152,7 +152,7 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
             std::erase_if(mesh.primitives, [](const scene::Primitive& p) { return (p.flags & scene::kAdditive) != 0; });
             any |= !mesh.primitives.empty();
         }
-        if (any) brakes_[w] = std::make_unique<render::GpuModel>(ctx, m);
+        if (any) to_gpu(brakes_[w], m);
     }
     // Wheels and tires, still and turning. Both sets are in units of the rim's radius, modelled
     // as a left wheel with the outer face at x = 0.
@@ -191,7 +191,7 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
                 }
                 bool any = false;
                 for (const scene::Mesh& mesh : both.meshes) any |= !mesh.indices.empty();
-                if (any) wheels_[w][size_t(turning)] = std::make_unique<render::GpuModel>(ctx, both);
+                if (any) to_gpu(wheels_[w][size_t(turning)], both);
             }
         }
     }
@@ -241,6 +241,37 @@ void CarVisual::set_lamp_strengths(float head, float brake, float tail) {
 }
 
 CarVisual::~CarVisual() = default;
+
+namespace {
+thread_local bool t_unuploaded = false; // make_unuploaded is building
+} // namespace
+
+std::unique_ptr<CarVisual> CarVisual::make_unuploaded(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const CarSpec& spec, const Options& opt,
+                                                      const std::string& name) {
+    struct Flag {
+        Flag() { t_unuploaded = true; }
+        ~Flag() { t_unuploaded = false; }
+    } flag;
+    return std::make_unique<CarVisual>(ctx, file, pat, spec, opt, name);
+}
+
+void CarVisual::to_gpu(std::unique_ptr<render::GpuModel>& slot, const scene::Model& m) {
+    if (t_unuploaded) unuploaded_.emplace_back(&slot, m);
+    else slot = std::make_unique<render::GpuModel>(*ctx_, m);
+}
+
+void CarVisual::upload() {
+    while (upload_one()) {
+    }
+}
+
+bool CarVisual::upload_one() {
+    if (unuploaded_.empty()) return false;
+    auto& [slot, m] = unuploaded_.front();
+    *slot = std::make_unique<render::GpuModel>(*ctx_, m);
+    unuploaded_.erase(unuploaded_.begin());
+    return !unuploaded_.empty();
+}
 
 void CarVisual::set_shadow(const Shadow& s) {
     shadow_look_ = s;

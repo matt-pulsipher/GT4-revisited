@@ -29,6 +29,15 @@ struct Affine {
     }
 };
 
+// Whether a widget of a class cuts its children to its rectangle when its layout does not say:
+// the boxes do (mBox's constructor, 0x200C08, sets `clip`), other composites do not
+// (mComposite's, 0x204F10). The layouts write `clip 0` on boxes and `clip 1` on the others.
+inline bool clips_by_default(std::string_view type) {
+    for (std::string_view box : {"Box", "DBox", "HBox", "VBox", "FBox", "MBox", "RootWindow", "OptionMenu", "ScaleBar", "SliderBar", "PhotoMapWindow"})
+        if (type == box) return true;
+    return false;
+}
+
 // An item of a vector property ("scale vector {1 -1}", or an array the scripts set).
 inline float vector_item(const Widget& w, std::string_view name, size_t i, float otherwise) {
     const menu::Property* p = w.find(name);

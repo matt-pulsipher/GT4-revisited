@@ -168,7 +168,8 @@ void draw_grid(App& app, Setup& setup, const menu::RaceRequest& q) {
                 asked.entries.push_back(q.entries[i]);
                 paints.push_back(i < q.entry_paints.size() ? q.entry_paints[i] : -1);
             }
-        std::vector<sim::ai::GridEntry> grid = sim::ai::grid_for(events, asked, u32(SDL_GetTicks()));
+        const u32 seed = u32(SDL_GetTicks());
+        std::vector<sim::ai::GridEntry> grid = sim::ai::grid_for(events, asked, seed);
         if (!asked.entries.empty())
             for (size_t i = 0; i < grid.size() && i < paints.size(); ++i)
                 if (!grid[i].player && grid[i].paint < 0) grid[i].paint = paints[i];
@@ -179,11 +180,14 @@ void draw_grid(App& app, Setup& setup, const menu::RaceRequest& q) {
                 LOG_WARN("Drive: the program: %s", e.what());
             }
         setup.opponents.clear(), setup.opponent_equipment.clear();
-        for (const sim::ai::GridEntry& g : grid) {
+        // Every car's equipment, the paints the race chooses drawn among the grid's (sim::ai::grid_equipment).
+        const std::vector<sim::Equipment> equipment = program ? sim::ai::grid_equipment(*sdb, *program, events, grid, seed) : std::vector<sim::Equipment>{};
+        for (size_t i = 0; i < grid.size(); ++i) {
+            const sim::ai::GridEntry& g = grid[i];
             if (g.player) continue;
             setup.opponents.push_back(g.car);
-            sim::Equipment eq;
-            if (program && sim::ai::entry_equipment(*sdb, *program, events, g, eq)) {
+            if (i < equipment.size() && equipment[i].part(sim::Equipment::Variation) != db::kNoPart) {
+                const sim::Equipment& eq = equipment[i];
                 setup.opponent_equipment.emplace_back(eq);
                 LOG_INFO("Drive: opponent %s%s%s (output %d per mille, paint %d)", g.car.c_str(), g.enemy.empty() ? "" : " as ", g.enemy.c_str(),
                          int(eq.h(sim::Equipment::OutputFactor)), int(eq.b(0x18)));

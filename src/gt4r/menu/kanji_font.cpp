@@ -97,6 +97,22 @@ const KanjiFace* KanjiFont::face_for_height(int height) const {
     return best;
 }
 
+std::vector<std::string> kanji_font_paths(std::string_view language) {
+    if (language == "JP") return {"font/jp_menu.kf", "font/unicode.kf"};
+    if (language == "TW") return {"font/tw_menu.kf", "font/big5.kf"};
+    if (language == "KR") return {"font/kr_menu.kf"};
+    return {};
+}
+
+std::vector<u32> cell_rgba(const KanjiFont& font, const KanjiFace& face, int cell, size_t palette) {
+    std::vector<u32> out(size_t(face.cell_width) * size_t(face.cell_height), 0);
+    if (cell < 0 || palette >= font.palettes.size()) return out;
+    const std::array<u32, 16>& colors = font.palettes[palette];
+    for (int y = 0; y < face.cell_height; ++y)
+        for (int x = 0; x < face.cell_width; ++x) out[size_t(y) * size_t(face.cell_width) + size_t(x)] = colors[face.pixel(cell, x, y)];
+    return out;
+}
+
 std::u32string decode_utf8(std::string_view s) {
     std::u32string out;
     for (size_t i = 0; i < s.size();) {

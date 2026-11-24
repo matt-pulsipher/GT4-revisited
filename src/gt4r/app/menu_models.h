@@ -43,10 +43,14 @@ private:
 
     App& app_;
     std::unique_ptr<gt3r::render::View3D> view_;
+    // A view of its own for each face: the 2D renderer reads a view's picture when the frame is
+    // submitted, so two faces drawn through one view in a frame both showed the last one's
+    // (Japan's showroom with Korea's flag); kept while the face is shown.
+    std::map<const menu::LiveWidget*, std::unique_ptr<gt3r::render::View3D>> views_;
     std::map<std::string, std::unique_ptr<gt3r::render::GpuModel>> models_; // by page and path (null: did not load)
     std::map<const menu::LiveWidget*, Face> faces_;
     u64 frame_ = 0;
-    std::map<const void*, SDL_GPUTexture*> env_;
+    std::map<u64, SDL_GPUTexture*> env_; // by image_key
     std::vector<gt3r::render::DrawItem> items_;
 };
 

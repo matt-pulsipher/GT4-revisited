@@ -12,6 +12,7 @@
 
 #include <SDL3/SDL_render.h>
 
+#include <future>
 #include <map>
 #include <memory>
 #include <string>
@@ -37,6 +38,11 @@ private:
         std::unique_ptr<race::CarVisual> visual;
         race::CarSpec spec;
         bool failed = false;
+        std::future<std::unique_ptr<race::CarVisual>> loading; // being built on a worker
+        std::unique_ptr<race::CarVisual> building;              // built, being sent to the GPU
+        u64 asked = 0;                                          // when it was asked for (ns)
+        race::CarVisual::Shadow shadow;                         // the shadow's look last set
+        bool shadow_set = false;
     };
     struct Face {
         std::weak_ptr<script::Heap> widget;
@@ -54,7 +60,7 @@ private:
     std::map<const menu::LiveWidget*, Face> faces_;
     u64 frame_ = 0;
     std::map<std::string, std::string> models_; // car label -> model file name
-    std::map<const void*, SDL_GPUTexture*> env_;
+    std::map<u64, SDL_GPUTexture*> env_; // by image_key
     std::vector<gt3r::render::DrawItem> items_;
     void load_stage();
     // The car-selection stage: its backdrops (menu/select/bg.mdl's models), camera and light
@@ -63,6 +69,12 @@ private:
     std::unique_ptr<menu::StageMotion> camera_motion_, light_motion_;
     float stage_time_ = 0;
     bool stage_tried_ = false;
+    // A face's camera motion and model sets (loadModelOptionMotion, loadModelSet), read from the
+    // page's packs once (null: not there).
+    const menu::StageMotion* option_motion(menu::Project* project, const std::string& page, const std::string& path);
+    const std::vector<std::unique_ptr<gt3r::render::GpuModel>>* model_set(menu::Project* project, const std::string& page, const std::string& path);
+    std::map<std::string, std::unique_ptr<menu::StageMotion>> option_motions_;
+    std::map<std::string, std::vector<std::unique_ptr<gt3r::render::GpuModel>>> model_sets_;
 };
 
 } // namespace gt4r

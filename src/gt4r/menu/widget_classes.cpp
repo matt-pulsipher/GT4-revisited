@@ -1208,6 +1208,23 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
     }
 
     if (type == "TextFace" || type == "ToolTipFace" || type == "InputTextFace") {
+        // `value`: what the face shows: the value set, else its text, else its key's text in
+        // the page the layout has it in (the memory card pages' StoreHouse texts).
+        if (n == "value" && type == "TextFace") {
+            auto a = std::make_shared<Accessor>();
+            a->read = [w, r] {
+                if (const std::string v = w->data.text("value"); !v.empty()) return Value::string(v);
+                if (const std::string t = w->data.text("text"); !t.empty()) return Value::string(t);
+                const std::string key = w->data.text("key");
+                if (key.empty()) return Value::string({});
+                LiveWidget* page = w->page();
+                Project* p = page ? r->project_of(*page) : nullptr;
+                const std::string where = w->data.has("key_page") ? w->data.text("key_page") : page ? page->name : std::string();
+                return Value::string(p ? p->translate(where, key) : key);
+            };
+            a->write = [w](const Value& v) { w->set_property("value", v); };
+            return a;
+        }
         if (n == "getTextSize")
             return fn([w](Vm&, const Value&, Args) {
                 float tw = 0, th = 0;
@@ -1234,16 +1251,19 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
             });
     }
     if (type == "ToolTipFace") {
-        // remove() takes the tip's text away; attach() puts the tip on the focused widget.
+        // A tip is its page's when it loads (0x24A020) and shows the focused widget's tool tip
+        // (its `tooltip_key`); remove() takes it off the page (0x249FF0) and its text away,
+        // attach() puts it back (0x249FB8).
         if (n == "remove")
             return fn([w](Vm&, const Value&, Args) {
                 w->set_property("value", Value::string({}));
+                w->set_property("detached", Value::integer(1));
                 return Value{};
             });
-        // attach(): the tip shows the focused widget's tool tip from then on (its `tooltip_key`).
         if (n == "attach")
             return fn([w](Vm&, const Value&, Args) {
                 w->set_property("attached", Value::integer(1));
+                w->set_property("detached", Value::integer(0));
                 return Value{};
             });
         if (n == "resetAction") return nothing();
@@ -1293,6 +1313,21 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
                 w->set_property("chip_b", Value::integer(s32((c >> 16) & 0xFF)));
                 return Value{};
             });
+        if (type == "CarFace" && n == "loadModelOptionMotion")
+            return fn([r, w](Vm&, const Value&, Args a) {
+                w->set_property("option_motion", a.empty() ? Value::string({}) : a[0]);
+                w->set_property("option_motion_frame", Value::number(float(r->frame())));
+                return Value{};
+            });
+        if (type == "CarFace" && n == "loadModelSet")
+            return fn([w](Vm&, const Value&, Args a) {
+                if (a.empty()) return Value{};
+                const std::string path = a[0].to_string(), sets = w->data.text("model_sets");
+                if (("|" + sets + "|").find("|" + path + "|") == std::string::npos)
+                    w->set_property("model_sets", Value::string(sets.empty() ? path : sets + "|" + path));
+                return Value{};
+            });
+        // ❓ loadModelMotion(path, set, clip): the sets' skinned motions are not played.
         if (n == "setData" || n == "setColor" || n == "setColorIndex" || n == "syncLoading" || n == "loadModelSet" || n == "loadModelMotion" ||
             n == "loadModelOptionMotion")
             return nothing();
@@ -1316,6 +1351,14 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
                 const std::string code = v.is_nil() ? std::string() : r->vm().attribute(v, "car_code").to_string();
                 w->set_property("car_code", Value::string(code));
                 if (!code.empty()) w->extras["car_data of " + code] = std::make_shared<script::Variable>(v);
+                // A garage car shows in its own paint (its record's).
+                if (!code.empty()) {
+                    const Value index = r->vm().attribute(v, "getColorIndex");
+                    if (!index.is_nil()) {
+                        const Value paint = r->vm().call(index, {});
+                        if (paint.is_number()) w->set_property("car_color", Value::integer(s32(paint.as_float())));
+                    }
+                }
             };
             return a;
         }
