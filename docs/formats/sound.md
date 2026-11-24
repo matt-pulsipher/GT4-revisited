@@ -682,9 +682,14 @@ the Doppler constant at 0x378B88) but other tables:
   effects option's flag alone (no level, no mix table: Prologue's disc has no `sdvol.dat`); the race's
   setup (RaceBase virtual 22, 0x37BB08, and 0x37D794) sets the second to 1.0. Both read 1.0 in the
   original's saved states of a race and of the pre-race page. `RaceSoundTables::option_level` is
-  false for this program and `RaceSound` takes the option as 1 or 0. ❓ Prologue's menus' music
-  level (ours: the option's 115 / 128; its recording's arcade pages at -11.6 dB, our options
-  sequence at 1.0 -12.7 dB).
+  false for this program and `RaceSound` takes the option as 1 or 0.
+- **Its music's level** is 1.0 in both its saved states (the level 0x421AB8 keeps at [0x50587C]: a
+  sequence through 0x421238, the driver's music master × 16383, a stream through 0x4225B0): the
+  driver's music master is 16383 and on the starting grid page the stream's two voices play at
+  16383, where Gran Turismo 4's carry the options' 115 / 128 (its recording's arcade pages at
+  -11.6 dB agree: our options sequence at 1.0 renders at -12.7 dB). Ours: the menus give
+  `MenuSound` the options' 115 / 128 for Prologue too ❓ (who calls 0x421AB8 with what, and whether
+  Prologue's options only switch it, is not found).
 - **Its car sounds** are read as Gran Turismo 4's from its database presented in Gran Turismo 4's
   layout ([prologue.md](prologue.md)): every engine's file is on the disc.
 
@@ -713,7 +718,7 @@ gain (least squares under 1 kHz, or in `--band`). Renderings to compare come fro
 | Overall level | the menus' `cursor` on the title page: the shared mixer's half-level rendering × 1.795 (correlation 0.998, 99.6% of the power explained) at an effects option of 1, i.e. exactly 2 × that at a new game's 115 / 128 | the SPU2's level ("The output's level") | same |
 | Menu effects | `ok` six times in the Arcade walk: × 1.79..1.91 | as the cursor | same balance |
 | Sequenced music | the Arcade pages' `arcade` sequence: 2.0 dB under our rendering at full level (= 1.3 dB under the expected 0.48 × 115 / 128 x 2) | | within 1 dB 🔎 (by level per second; the sequencer's timing differs too much for a sample fit) |
-| Streamed music | `race_35` in the race: × 0.20..0.24 of the stored samples (five fits) | the stream level 0.3 × 115 / 128 = 0.27 | the original 1.6 dB under ours ❓ |
+| Streamed music | `race_35` in the race: × 0.20..0.24 of the stored samples (five fits) | the stream level 0.3 × 115 / 128 = 0.27 | the fits 1.6 dB under ours ❓; but the SPU2 itself (the saved states' `.spu2`: the stream's two voices, core 1's 22 and 23, pitch 3763, ADSR 0x000F / 0x0000, one side each) holds 4416 = 0.2695 × 16383 in every race and pre-race state, 4915 = 0.3 in the license test's (a jingle group at the stream level alone): exactly the program's levels. Played through two SPU2 voices (`stream-wav ... spu`) `race_35` keeps its level (-10.6 dB both, 1.4 dB less only in the 5 kHz octave). The gap is in the fits, not the level |
 | Count | Grand Canyon: `count_d` at 8.860, 9.861, 10.861 s, `count_s` at 11.862 s (sample fits, correlation 0.31..0.64): 60 frames apart (59.94 Hz); gains × 1.39..1.50 of our menu-level rendering (= the race master 0.40 × 115 / 128) | 180 / 120 / 60 / 0 steps | same |
 | Rolling start | Tsukuba: `count_s` as START shows (19.67 s), no beeps | `start_signal()` | same once the Drive screen calls it |
 | Racing music | `race_35` from the opening shots (rolling), `race_37` 0.25 s after START (standing), `race_36` after `race_35` in the B-spec race, the replay `race_35` again | play list, `rolling()`, `replay()` | same once wired |
