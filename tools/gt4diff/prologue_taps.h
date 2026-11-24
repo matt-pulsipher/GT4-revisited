@@ -89,4 +89,12 @@ void add_prologue_taps(PTaps& taps, const Disc& disc);
 // The engine's driver input (the pad's frame of the race's pad 0) and preparation at Prologue's 0x3DEDE0 / 0x3BF608.
 void add_input_taps(PTaps& taps, const Race& race);
 
+// The test drive (prologue_step.cpp's): a standing start at full throttle, a lift, turns each way, the brakes.
+Pad test_drive(int step);
+
+// Prologue's step run `steps` steps of the test drive on a course with a car, with taps: "engine" (the engine's routines
+// Prologue shares), "prologue" (Prologue's own and Gran Turismo 4's), "input". Empty with `err` set when it cannot run.
+std::vector<PTapStat> check(Disc& disc, const std::string& course, const std::string& car, int steps, const std::string& which,
+                            std::string& err);
+
 } // namespace gt4r::diff::prologue

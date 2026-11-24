@@ -2,6 +2,7 @@
 
 #include "prologue_taps.h"
 
+#include "gt4r/sim/exact_bridge.h"
 #include "gt4r/sim/program.h"
 #include "gt4r/sim/rules.h"
 #include "gt4r/sim/rules_chassis.h"
@@ -279,6 +280,49 @@ void add_input_taps(PTaps& taps, const Race& race) {
                   ex::driver_input_pad(c.car, c.inputs.pad, f, 0);
               }});
     taps.add({0x3BF608, "engine's preparation", [](PTapCall& c) { ex::prep(c.car, c.inputs.prep); }});
+}
+
+Pad test_drive(int i) {
+    Pad p;
+    const int t = i - 150;
+    if (t < 0) return p;
+    p.throttle = 1.0f;
+    if (t > 500 && t < 560) p.throttle = 0.0f;
+    if (t > 600 && t < 700) p.steer = 0.35f;
+    if (t > 760 && t < 860) p.steer = -0.5f;
+    if (t > 900) p.throttle = 0.0f, p.brake = 0.8f;
+    return p;
+}
+
+std::vector<PTapStat> check(Disc& disc, const std::string& course, const std::string& car, int steps, const std::string& which, std::string& err) {
+    if (!is_prologue(disc)) return err = "not Prologue's program", std::vector<PTapStat>{};
+    db::SpecDb sdb(
+        [&disc](const std::string& path) -> std::optional<Bytes> {
+            const gt3r::Volume::Entry* e = disc.volume().find(path);
+            return e ? std::optional<Bytes>(disc.volume().read(*e)) : std::nullopt;
+        },
+        [&disc](const std::string& dir) { return disc.volume().list_dir(dir); }, "american");
+    Ee ee;
+    boot(ee, disc);
+    Race r;
+    if (!setup_race(ee, disc, sdb, course, {car}, 1, r, err)) return {};
+    const sim::Program program = sim::Program::load(disc);
+    const ex::ProgramData data = sim::core_program(program);
+    const ex::RaceInputs inputs = ex::race_inputs(data, ex::Conductor::SinglePlayer, ex::RaceConfig{}, false, 0);
+    PTaps taps(ee, r, inputs);
+    if (which == "prologue") add_prologue_taps(taps, disc);
+    else if (which == "input") add_input_taps(taps, r);
+    else add_engine_taps(taps);
+    try {
+        for (int i = 0; i < steps; ++i) {
+            r.pad[0] = test_drive(i);
+            step(ee, r);
+        }
+    } catch (const std::exception& e) {
+        err = e.what();
+        return {};
+    }
+    return taps.stats();
 }
 
 } // namespace gt4r::diff::prologue

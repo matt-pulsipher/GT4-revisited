@@ -214,3 +214,29 @@ TEST(disc_prologue_race) {
         CHECK(c.finished && !c.laps.empty() && c.laps[0] > 55 && c.laps[0] < 100);
     }
 }
+
+// Prologue's own race step (tools/gt4diff's Prologue harness, rules_prologue.h): its program's step run in the interpreter on
+// a test drive, each of our routines run in place at every call of the program's and every field of the record compared:
+// the engine's routines Prologue shares and Prologue's own, equal at every call.
+#include "prologue_taps.h"
+
+TEST(disc_prologue_step_routines_equal) {
+    Disc* disc = prologue_disc();
+    if (!disc) SKIP("no Prologue disc");
+    for (const char* which : {"engine", "prologue"}) {
+        std::string err;
+        const std::vector<diff::prologue::PTapStat> stats = diff::prologue::check(*disc, "tsukuba", "civic_r_98", 1200, which, err);
+        if (!err.empty()) std::printf("  %s\n", err.c_str());
+        CHECK(err.empty());
+        // (the engine's routines Prologue does not share are tapped too, to show how they differ)
+        static const std::set<std::string> differ = {"slip ratios", "tire slip force", "forward step", "lateral and yaw", "wheel steer",
+                                                     "attitude", "ground frame", "rolling resistance", "brake heat",
+                                                     "engine's attitude, GT4's axes"};
+        for (const diff::prologue::PTapStat& st : stats) {
+            std::printf("  %s: %s %llu of %llu calls equal\n", which, st.name.c_str(), static_cast<unsigned long long>(st.clean),
+                        static_cast<unsigned long long>(st.calls));
+            CHECK(st.calls > 0 || st.name == "engine's attitude, GT4's axes");
+            if (!differ.count(st.name)) CHECK(st.clean == st.calls);
+        }
+    }
+}
