@@ -5,6 +5,7 @@
 // drawn by `draw_live`, called in their place in the page's order.
 
 #include "gt4r/app/app.h"
+#include "gt4r/app/menu_image_key.h"
 
 #include "base/log.h"
 #include "formats/text/charset.h"
@@ -173,7 +174,7 @@ private:
 
     SDL_Texture* texture(const gt3r::Tex1::Image* image) {
         if (!image || !image->width || !image->height) return nullptr;
-        SDL_Texture*& t = textures_[image];
+        SDL_Texture*& t = textures_[image_key(*image)];
         if (!t) {
             t = SDL_CreateTexture(r_, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, int(image->width), int(image->height));
             if (t) {
@@ -580,6 +581,7 @@ private:
     void widget(const LiveWidget& live, const Rect& parent, float opacity, const SDL_Rect& clip, int state) {
         const Widget& w = live.data;
         state |= live.state;
+        if (unfocused_) state &= ~kFocusBits;
         if (w.has("visible") && w.number("visible") == 0) return;
         if (w.has("visible_condition") || w.has("visible_compare")) {
             const int want = int(w.number("visible_condition")), mask = int(w.number("visible_compare", float(want)));
@@ -619,7 +621,7 @@ private:
             image(w.text("image_path"), at, tint, face, add, has_uv ? uv : nullptr, w.number("from_disk") != 0);
         }
         else if (t == "FrameImageFace") frame(w, at, tint, face);
-        else if (t == "ToolTipFace" && w.number("attached") != 0 && w.text("value").empty() && w.text("text").empty()) {
+        else if (t == "ToolTipFace" && w.number("detached") == 0 && w.text("value").empty() && w.text("text").empty() && !w.has("key")) {
             // An attached tip: the focused widget's (or the nearest parent's with one) tool tip.
             Widget tip = w;
             auto put = [&tip](const char* name, const std::string& value) {
@@ -648,7 +650,8 @@ private:
         else if (draw_live) draw_live(live, project_, page_, at, to_screen(bounds(at)), face);
 
         SDL_Rect inner = clip;
-        if (w.number("clip") != 0) {
+        const bool clips = w.has("clip") ? w.number("clip") != 0 : menu::clips_by_default(t);
+        if (clips) {
             const SDL_Rect own = to_clip(bounds(at));
             if (!SDL_GetRectIntersection(&clip, &own, &inner)) return;
             SDL_SetRenderClipRect(r_, &inner);
@@ -659,9 +662,18 @@ private:
                 over_.push_back({c.get(), at, opacity, state & ~kFocusBits, m_});
                 continue;
             }
+            // ❓ A closed option menu shows its chosen item in the item's own state: the menu's
+            // focus lights its button, not the item (the options' dialogs).
+            if (t == "OptionMenu" && c->name == "popup") {
+                const bool was = unfocused_;
+                unfocused_ = true;
+                widget(*c, at, opacity, inner, state & ~kFocusBits);
+                unfocused_ = was;
+                continue;
+            }
             widget(*c, at, opacity, inner, state);
         }
-        if (w.number("clip") != 0) SDL_SetRenderClipRect(r_, &clip);
+        if (clips) SDL_SetRenderClipRect(r_, &clip);
     }
 
     struct Over {
@@ -672,13 +684,14 @@ private:
         Affine m;
     };
     std::vector<Over> over_;
+    bool unfocused_ = false; // drawing a closed option menu's item
     menu::Project* project_ = nullptr;
     SDL_Renderer* r_;
     std::vector<gt3r::text::FontFile> files_;
     std::map<std::string, const gt3r::text::LatinFont*> fonts_;
     std::map<std::string, menu::FontSpacing> spacing_;
     std::array<menu::TextColor, 4> button_colors_{};
-    std::map<const gt3r::Tex1::Image*, SDL_Texture*> textures_;
+    std::map<u64, SDL_Texture*> textures_; // by image_key
     std::map<std::pair<const gt3r::text::LatinFont*, int>, SDL_Texture*> atlases_;
     std::map<std::string, std::optional<menu::KanjiFont>> kanji_fonts_; // by language
     const menu::KanjiFont* kanji_ = nullptr;                           // the drawn project's

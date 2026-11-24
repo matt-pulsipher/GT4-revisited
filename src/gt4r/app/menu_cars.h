@@ -54,7 +54,7 @@ private:
     std::map<const menu::LiveWidget*, Face> faces_;
     u64 frame_ = 0;
     std::map<std::string, std::string> models_; // car label -> model file name
-    std::map<const void*, SDL_GPUTexture*> env_;
+    std::map<u64, SDL_GPUTexture*> env_; // by image_key
     std::vector<gt3r::render::DrawItem> items_;
     void load_stage();
     // The car-selection stage: its backdrops (menu/select/bg.mdl's models), camera and light

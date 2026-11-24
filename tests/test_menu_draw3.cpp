@@ -4,7 +4,10 @@
 
 #include "menu_run_flow.h"
 
+#include "gt4r/menu/faces_car.h"
 #include "gt4r/menu/font.h"
+#include "gt4r/menu/layout.h"
+#include "gt4r/menu/transform.h"
 #include "gt4r/menu/kanji_font.h"
 #include "gt4r/menu/text_layout.h"
 #include "vfs/vfs.h"
@@ -89,6 +92,31 @@ TEST(disc_menu_prologue_double_byte_text) {
         for (const std::string& line : f.rt->log()) std::printf("  log %s\n", line.c_str());
     }
     CHECK(message.find("専用メモリーカード") != std::string::npos);
+}
+
+} // namespace menu_draw3_test
+
+namespace menu_draw3_test {
+
+// The boxes cut their children to their rectangles unless their layout says not (mBox's
+// constructor); other composites do not.
+TEST(menu_boxes_clip_by_default) {
+    for (const char* box : {"Box", "HBox", "VBox", "FBox", "MBox", "RootWindow", "OptionMenu", "SliderBar", "ScaleBar"}) CHECK(menu::clips_by_default(box));
+    for (const char* other : {"Composite", "ScrollBox", "ScrollWindow", "SelectBar", "ListBox", "TextFace", "Button"}) CHECK(!menu::clips_by_default(other));
+}
+
+// A car face keeps what its page's scripts load for it: the camera motion and the model sets.
+TEST(menu_car_face_loaded_motion_and_sets) {
+    menu::Widget w = menu::parse_layout(std::string_view(R"(CarFace {
+        name string {"CarFace"}
+        action_type string {"normal"}
+        option_motion string {"image/gtmode/gtauto/car_wash_cam.mot"}
+        option_motion_frame digit {120}
+        model_sets string {"image/a.mdl|image/b.mdl"}
+    })"));
+    const menu::CarFaceSettings s = menu::car_face_settings(w);
+    CHECK(!s.advanced && s.option_motion == "image/gtmode/gtauto/car_wash_cam.mot" && s.option_motion_frame == 120);
+    CHECK(s.model_sets.size() == 2 && s.model_sets[1] == "image/b.mdl");
 }
 
 } // namespace menu_draw3_test

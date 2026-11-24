@@ -46,7 +46,7 @@ private:
     std::map<std::string, std::unique_ptr<gt3r::render::GpuModel>> models_; // by page and path (null: did not load)
     std::map<const menu::LiveWidget*, Face> faces_;
     u64 frame_ = 0;
-    std::map<const void*, SDL_GPUTexture*> env_;
+    std::map<u64, SDL_GPUTexture*> env_; // by image_key
     std::vector<gt3r::render::DrawItem> items_;
 };
 

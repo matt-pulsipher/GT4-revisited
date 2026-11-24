@@ -1219,16 +1219,19 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
             });
     }
     if (type == "ToolTipFace") {
-        // remove() takes the tip's text away; attach() puts the tip on the focused widget.
+        // A tip is its page's when it loads (0x24A020) and shows the focused widget's tool tip
+        // (its `tooltip_key`); remove() takes it off the page (0x249FF0) and its text away,
+        // attach() puts it back (0x249FB8).
         if (n == "remove")
             return fn([w](Vm&, const Value&, Args) {
                 w->set_property("value", Value::string({}));
+                w->set_property("detached", Value::integer(1));
                 return Value{};
             });
-        // attach(): the tip shows the focused widget's tool tip from then on (its `tooltip_key`).
         if (n == "attach")
             return fn([w](Vm&, const Value&, Args) {
                 w->set_property("attached", Value::integer(1));
+                w->set_property("detached", Value::integer(0));
                 return Value{};
             });
         if (n == "resetAction") return nothing();

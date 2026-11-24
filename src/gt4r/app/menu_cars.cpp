@@ -2,6 +2,7 @@
 
 #include "base/log.h"
 #include "gt4r/app/app.h"
+#include "gt4r/app/menu_image_key.h"
 #include "gt4r/app/menu_face3d.h"
 #include "gt4r/formats/model/car_model.h"
 #include "gt4r/formats/model/mdls.h"
@@ -110,7 +111,7 @@ MenuCars::Car* MenuCars::car(const std::string& code, int color) {
 SDL_GPUTexture* MenuCars::env_texture(menu::Project* project, const std::string& page, const std::string& path) {
     const gt3r::Tex1::Image* img = project && !path.empty() ? project->image(page, path) : nullptr;
     if (!img || !img->width || !img->height || !app_.gpu()) return nullptr;
-    SDL_GPUTexture*& t = env_[img];
+    SDL_GPUTexture*& t = env_[image_key(*img)];
     if (!t) {
         render::Uploader up(app_.gpu()->device());
         t = up.texture_rgba(img->width, img->height, reinterpret_cast<const u32*>(img->rgba.data()), false);
