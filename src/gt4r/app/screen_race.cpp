@@ -402,7 +402,7 @@ public:
         fs.lap_length = world_->lap_length();
         flow_.begin(fs, world_->cars());
         rolled_ = false;
-        license_failed_ = false, goal_prev_ = -1;
+        license_failed_ = false, section_prev_ = -1;
         judge_ = race::LicenseJudge(judge_.rules());
         goal_prev_ = -1;
         board_.begin(world_->car_count(), 0, lap_words_[0], lap_words_[1]);
@@ -920,11 +920,11 @@ public:
         }
         if (judge_.cones_done()) flow_.finish_now(0);
         // The goal of a test on a section (kind 2: vf23 → 0x3F8AB0, timed at the share of the step before it).
-        if (goal_ >= 0 && r.kind == 2 && goal_prev_ >= 0 && goal_prev_ < goal_ && goal_ <= c.course_v && c.course_v - goal_prev_ < 50) {
-            flow_.finish_now(0, (c.course_v - goal_) / std::max(1e-3f, c.course_v - goal_prev_));
+        if (goal_ >= 0 && r.kind == 2 && section_prev_ >= 0 && section_prev_ < goal_ && goal_ <= c.course_v && c.course_v - section_prev_ < 50) {
+            flow_.finish_now(0, (c.course_v - goal_) / std::max(1e-3f, c.course_v - section_prev_));
             license_failed_ = false;
         }
-        goal_prev_ = c.course_v;
+        section_prev_ = c.course_v;
     }
     // The test's rules; a test on a section of the road (CFG +0x21, vf26 0x34CA20 → K +0xCBE2) starts at the
     // section's start when it lies 1 m .. the lap less 1 m along (0x34C3E0: whole metres; the car on the driving
@@ -1121,7 +1121,7 @@ private:
     float goal_v_ = -1, goal_prev_ = -1;              // a license test's goal distance (judge_goal)
     bool gt3_road_ = false;                           // the road is Gran Turismo 3's (Prologue's courses)
     race::LicenseJudge judge_;
-    float goal_ = -1, goal_prev_ = -1, section_start_ = 0; // a test on a road section: its goal and start (m)
+    float goal_ = -1, section_prev_ = -1, section_start_ = 0; // a test on a road section: its goal and start (m)
     bool on_section_ = false;                                // it starts at the section's start
     std::vector<std::vector<float>> run_dist_; // per car, per step since the start: its distance from the line
     size_t focus_ = 0; // B-spec: the car the views follow
