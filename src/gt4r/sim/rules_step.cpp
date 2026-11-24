@@ -31,6 +31,7 @@ Tables tables(const Program& program, const ex::Statics&) {
     t.aids = aid_tables(program);
     t.steer = steer_tables(program);
     t.aero = aero_globals(program);
+    t.pad = pad_tables(program);
     t.globals.steer_mode = t.steer.mode; // (0x3F7BE0 writes it at the race's start)
     // The brake heat's constants (0x3F3808): 1 / (b0 x 9800), 1 / (b1 x 0.1 x 100), b2 km/h in m/s, b3 x 0.01, of the
     // static block's bytes +0xAC .. +0xAF (the first two 1 when 0).
@@ -43,6 +44,14 @@ Tables tables(const Program& program, const ex::Statics&) {
         t.brake_heat.c3 = gt3r::ee::int_to_f(byte(0xAF, false)) * F::raw(0x3C23D70A);
     }
     return t;
+}
+
+void step_params(const Spec& s, Record& r) {
+    InputExtra& in = r.x.input;
+    in.lock_pad = r.car.p.steer_b, in.lock_wheel = r.car.p.steer_a, in.lock_loose = r.car.p.steer_c;
+    in.wheel_ratio = s.b(0x210) >= 150 ? 1 : 0;
+    speed_part_params(r.x.near, s);
+    r.x.phases.body_mass = r.x.body.sprung_mass;
 }
 
 void prep_tires(ex::Car& c, Extra& x, const WheelLayout& l, const Tables& t, const ex::Condition& cond, const std::array<F, 3>* grip) {

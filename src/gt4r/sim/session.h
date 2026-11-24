@@ -128,6 +128,11 @@ private:
     std::vector<std::optional<std::array<gt3r::ee::F, 3>>> driver_grip_; // and its grip by tire class
     rules::AidRace aid_race_;
     rules::NearPairs pairs_; // phase 14's tables of the cars' pairs
+    rules::MoodTables mood_tables_;
+    rules::HitRules hit_rules_;             // (the rule block's +0x46 .. +0x4A: all 0 in a single race)
+    s16 pylons_hit_ = 0;                    // cond + 0x1003C
+    std::vector<rules::PadMail> mail_;      // each car's request to its controller (a pit stop's answer, a B-spec command)
+    std::vector<collide::Hit> hits_;        // the collision step's hits this step
     rules::Tables tables_;
     bool gt4_ready_ = false, gt4_rules_ = false;
     std::vector<Spec> specs_;

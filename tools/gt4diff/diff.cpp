@@ -13,6 +13,7 @@
 #include "gt4r/sim/car_spec.h"
 #include "gt4r/sim/exact_bridge.h"
 #include "gt4r/sim/rules_build.h"
+#include "gt4r/sim/rules_step.h"
 #include "taps.h"
 #include "sim/exact/car_fields.h"
 #include "sim/exact/start.h"
@@ -156,6 +157,7 @@ ParamsResult run_params(Disc& disc, bool print) {
         {
             sim::Record ours{car, {}, {}};
             sim::gt4_extras(spec, program, ours);
+            sim::rules::step_params(spec, ours); // (the step's own routines' words, rules_step.h)
             Image im;
             im.car.assign(sim::layout::kCarSize, 0), im.params.resize(sim::layout::kParamsSize);
             ee.read_bytes(p_at, im.params.data(), u32(im.params.size()));

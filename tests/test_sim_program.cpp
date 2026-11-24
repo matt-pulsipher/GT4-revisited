@@ -79,6 +79,9 @@ TEST(sim_program_params_equal) {
         else if (f.name == "extra body.front_share") allowed = 130;
         else if (f.name == "extra steer.axle_load" || f.name == "extra steer.compliance_per_n") allowed = 220; // (from the shares and masses)
         else if (f.name == "extra steer.toe") allowed = 1;                                                    // (from a tire radius)
+        // (the lock curves the input phase reads: the engine converter's, a unit or two in the last place on most points; GT4's
+        // converter (sim-parts' build_record) makes them bit for bit)
+        else if (f.name.rfind("extra input.lock_", 0) == 0) allowed = 9386;
         if (f.off > allowed) std::printf("  %s: %zu of %zu differ (%s)\n", f.name.c_str(), f.off, f.values, f.where.c_str());
         CHECK(f.values >= r.cars && f.off <= allowed);
     }
@@ -146,7 +149,7 @@ TEST(sim_program_step_routines_equal) {
             // the steering's offset uses rolling backwards or in mode 2: GT4R_STEER_VARY; phase 14's pair routines, which need two
             // cars, and the speed-switched part's routines, on the cars that have one: test_sim_near.cpp; the input phase's taps
             // for other controllers and options: GT4R_INPUT_VARY)
-            const bool rare = t.name.rfind("near:", 0) == 0 || t.name.rfind("speed part:", 0) == 0 || t.name.rfind("input:", 0) == 0 || (t.name == "gear" && std::string(car) == "fit_w_ff_01") || t.name == "aids: hold throttle" || t.name == "aids: rising slip" ||
+            const bool rare = t.name.rfind("near:", 0) == 0 || t.name.rfind("speed part:", 0) == 0 || t.name.rfind("input:", 0) == 0 || t.name.rfind("phases: pod", 0) == 0 || t.name.rfind("phases: pit", 0) == 0 || t.name.rfind("phases: hit", 0) == 0 || (t.name == "gear" && std::string(car) == "fit_w_ff_01") || t.name == "aids: hold throttle" || t.name == "aids: rising slip" ||
                               t.name == "steer: lean angle" || t.name == "steer: angle difference" || t.name == "steer: angle blend";
             CHECK((t.calls > 0 || rare) && t.equal == t.calls);
         }

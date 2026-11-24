@@ -4,6 +4,7 @@
 // what is ported runs in place of the engine's, the rest is the engine's (docs/specs/physics.md "What
 // runs where").
 
+#include "gt4r/sim/car_spec.h"
 #include "gt4r/sim/program.h"
 #include "gt4r/sim/record.h"
 #include "gt4r/sim/rules_aids.h"
@@ -11,6 +12,7 @@
 #include "gt4r/sim/rules_steer.h"
 #include "gt4r/sim/rules_chassis.h"
 #include "gt4r/sim/rules_drive.h"
+#include "gt4r/sim/rules_input.h"
 #include "gt4r/sim/rules_tires.h"
 #include "gt4r/sim/rules_wear.h"
 #include "sim/exact/race_inputs.h"
@@ -30,6 +32,7 @@ struct Tables {
     SteerTables steer;
     BumpTables bumps; // (the session's: by the course's kind)
     AeroGlobals aero;
+    PadTables pad; // the controls' (0x347A00, at the race's start: the course row's byte +0x12 taken as 0)
     // The rule block's +0x18 .. +0x1B (conductor + 0xF830): each drive class's extra grip for a car a computer drives, in
     // percent (phase 10). A single race's conductor sets each 0 to 20 (0x353570).
     std::array<s8, 4> class_grip{20, 20, 20, 20};
@@ -37,6 +40,12 @@ struct Tables {
 // From the program (its static block and globals: each surface's rolling resistance as the race's start
 // 0x35F808 makes it) and the engine's rolling resistance curve (from the same static block).
 Tables tables(const Program& program, const ex::Statics& statics);
+
+// The parameter block's words the step's own routines read that the converter's mirror has no member for (until the
+// converter makes them all): the lock curves the input phase reads (P +0x58 / +0x94 / +0xD0), a kind 6 wheel's ratio
+// (P +0x10D3: 1 for spec +0x210 of 150 or more, 0x361908), the speed-switched part's speeds and rate, the mass less the
+// wheels' own (P +0x4C).
+void step_params(const Spec& s, Record& r);
 
 // Phase 4's engine and tire part after the engine's preparation: the engine's full-throttle and friction
 // torques (the 24-point curve), the wear's grip, peak forces and slip angles.
