@@ -95,7 +95,7 @@ GameState::Unit GameState::power_unit() const {
     if (u == "CH") return {1.0f, "ch"};
     if (u == "CV") return {1.0f, "CV"};
     if (u == "PF") return {1.0f, "PF"};
-    return {1.0f, "ps"};
+    return {1.0f, "PS"}; // (the program's text, 0x6AD370; Prologue's 0x578728)
 }
 
 GameState::Unit GameState::torque_unit() const {

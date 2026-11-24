@@ -91,7 +91,7 @@ MenuCars::Car* MenuCars::car(const std::string& code, int color) {
         if (model == models_.end()) throw FormatError("no such car in the database");
         const std::string path = "car/menu/" + model->second;
         const std::optional<Bytes> file = app_.vfs()->read(path);
-        if (!file || !car::CarFile::is_car(*file)) throw FormatError("no showroom model " + path);
+        if (!file || !(car::CarFile::is_car(*file) || race::CarVisual::is_gt3_car(*file))) throw FormatError("no showroom model " + path); // (Prologue's: Gran Turismo 3's car files)
         const std::optional<Bytes> pat = app_.vfs()->read(path + ".pat");
         c->spec = race::read_car_spec(*db, code);
         const std::vector<u32> paints = race::car_paints(*db, code);
