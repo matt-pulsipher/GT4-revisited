@@ -73,6 +73,8 @@ constexpr size_t kDisplayWord = 0x1140;
 // racing views' at Option +0x1184, the replays' at +0x1194 (the accessors 0x188EA0, 0x189158);
 // kept in the options as text "b c s w".
 const std::pair<const char*, size_t> kPictureSettings[] = {{"race_color_correction", 0x1184}, {"replay_color_correction", 0x1194}};
+// The screen's figures (monitor_size's tables, 0x436D60): Option +0x24, 0x2C bytes.
+constexpr size_t kMonitorParams = 0x24, kMonitorSize = 0x2C;
 const char* const kZones[] = {"UNDEF", "JP", "US", "UK", "EU", "KR"};
 // The options kept as names, by their numbers: the language (0x6AE3F8) at Option +0x0C, and the
 // options MOption gives by name, each through its table of names (0x437758: the tables at
@@ -273,6 +275,7 @@ Bytes write_game(const GameState& s, const Codes& codes) {
                 if (const s32* v = std::get_if<s32>(&it->second)) word = *v ? word | bit : word & ~bit;
         put32(b, option(kDisplayWord), word);
     }
+    if (s.monitor_params.size() == kMonitorSize) std::memcpy(b.data() + option(kMonitorParams), s.monitor_params.data(), kMonitorSize);
     for (const auto& [name, at] : kPictureSettings)
         if (const auto it = s.options.find(name); it != s.options.end())
             if (const std::string* t = std::get_if<std::string>(&it->second)) {
@@ -398,6 +401,8 @@ bool read_game(ByteSpan p, GameState& s, const Codes& codes, std::vector<int>* r
     for (const OptionField& f : kOptionNumbers) s.options[f.name] = s32(get32(p, option(f.at)));
     if (const u32 z = get32(p, kGameZone); z > 0 && z < 6) s.options["game_zone"] = std::string(kZones[z]);
     for (const auto& [name, bit] : kDisplayBits) s.options[name] = s32((get32(p, option(kDisplayWord)) & bit) != 0);
+    s.monitor_params.assign(p.begin() + option(kMonitorParams), p.begin() + option(kMonitorParams) + kMonitorSize);
+    if (std::all_of(s.monitor_params.begin(), s.monitor_params.end(), [](u8 c) { return c == 0; })) s.monitor_params.clear();
     for (const auto& [name, at] : kPictureSettings) {
         std::array<int, 4> v{};
         for (size_t i = 0; i < 4; ++i) v[i] = s32(get32(p, option(at) + 4 * i));

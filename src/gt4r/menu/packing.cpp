@@ -322,7 +322,6 @@ void note_faces(LiveWidget& w) {
 } // namespace
 
 void pack_page(LiveWidget& page) {
-    if (!uses_packing(page)) return;
     note_faces(page);
     Packer p;
     p.update(page);

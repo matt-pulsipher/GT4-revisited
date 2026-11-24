@@ -39,6 +39,7 @@ struct LiveWidget : script::Module {
     Runtime* runtime = nullptr;                                       // the one running it (none for a page only drawn)
     // A list box's rows, made from its template as they are asked for.
     std::vector<std::shared_ptr<LiveWidget>> items;
+    std::vector<u8> items_in_view; // a list box's: the rows in view at its last arrangement
     float scroll = 0, scroll_target = 0; // of a scroll window or list: how far its content is moved
     float item_w = 16, item_h = 16;      // a select box's: the size of its rows (its first row's)
 

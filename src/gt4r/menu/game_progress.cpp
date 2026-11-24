@@ -188,6 +188,7 @@ ProgressReport play_progress(Runtime& rt, const ProgressPlan& plan) {
         g.money = plan.credits;
         g.username = plan.name;
         // Saved by the card manager, as the map's auto save does.
+        if (n) apply_monitor(*n);
         const save::Result saved = n ? n->card().save(g) : save::Result::NoCard;
         if (saved != save::Result::Ok) {
             out.error = std::string("save: ") + save::result_name(saved);

@@ -52,6 +52,9 @@ struct RaceRequest {
     // car (also car / paint), the opponents they chose from 1 to overwrite_enemy_num ("" none).
     std::vector<std::string> entries;
     std::vector<int> entry_paints;
+    // The "replay" sequence (the Replay Theater's Play): the saved replay to show, a file of the
+    // data folder's replays/ (race/replay_file.h).
+    std::string replay_file;
     // The car when it is one of the garage's (-1: a car picked by its label).
     int garage_slot = -1, garage_slot_2p = -1;
 };
@@ -254,6 +257,10 @@ struct GameState {
     int saved_menu_depth = -1; // the kept stack's length in bytes (-1: none kept)
     Bytes saved_menu_stack;
 
+    // The screen's figures the option's monitor_size setter copies from the program's tables
+    // (0x436D60: Option +0x24 .. +0x4F, 0x2C bytes; the 3D view's monitor and aspect). Empty:
+    // not set (a new game's constructor leaves zeros).
+    Bytes monitor_params;
     // Everything saved that is not named above, as the last loaded game had it (a new game: as
     // the program's constructors make it). The save module writes the named fields over it.
     Bytes saved_image;
@@ -295,6 +302,10 @@ struct GameState {
         int free_kb = 8000;
     } card;
     bool valid_game_data = false; // MMemoryCardManager::setExistValidGameData: a game was loaded or made
+    // The card manager's action (setAction: 1 a replay loaded to be shown, 0 none) and the replay
+    // file its last load read (the Replay Theater, the program's load_replay sequence 0x10CA50).
+    int card_action = 0;
+    std::string replay_file;
     // The race's menus' shared object (MQuickWork): race_natives.h.
     std::shared_ptr<QuickWork> quick_work;
 };

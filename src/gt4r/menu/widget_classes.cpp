@@ -361,13 +361,43 @@ void arrange_list(Runtime& rt, LiveWidget& list, bool warp) {
     const bool has_focus = list.page() && list.page()->focus.lock().get() == &list;
     const float justify = across ? (list.data.has("v_justify") ? list.data.number("v_justify") : 0.0f)
                                  : (list.data.has("h_justify") ? list.data.number("h_justify") : 0.0f);
-    const Value update = list_callback(list, "update_callback");
+    // The rows in view (❓ from the scripts' use: labomode's and list_box's callbacks): the ones
+    // that came into view are given to `visible_callback(context, [indexes])`, which makes their
+    // widgets (getItemVisible answers whether a row is in view); then every row in view whose
+    // update flag is set to `update_callback(context, [indexes])` (the scripts clear the flag
+    // when a row is drawn in full).
+    auto call = [&rt](const Value& fn, const std::vector<int>& rows) {
+        if (rows.empty() || !fn.p || !fn.p->callable()) return;
+        std::vector<Value> list;
+        for (int i : rows) list.push_back(Value::integer(i));
+        try {
+            const Value args[2] = {rt.context(), Value::array(std::move(list))};
+            rt.vm().call(fn, args);
+        } catch (const script::ScriptError& e) {
+            rt.note(std::string("script error in a list's callback: ") + e.what());
+        }
+    };
+    std::vector<u8> was = list.items_in_view;
+    list.items_in_view.assign(size_t(n), 0);
+    std::vector<int> appeared;
+    {
+        float at = list.scroll;
+        for (int i = 0; i < n; ++i) {
+            const float length = item * (i == focus ? magnify : 1.0f);
+            if (at + length >= -pitch && at <= extent + pitch) {
+                list.items_in_view[size_t(i)] = 1;
+                if (size_t(i) >= was.size() || !was[size_t(i)]) appeared.push_back(i);
+            }
+            at += length + spacing;
+        }
+    }
+    call(list_callback(list, "visible_callback"), appeared);
+    std::vector<int> updates;
     float at = list.scroll;
     for (int i = 0; i < n; ++i) {
         const float scale = i == focus ? magnify : 1.0f;
         const float length = item * scale;
-        if (at + length >= -pitch && at <= extent + pitch) {
-            const bool fresh = size_t(i) >= list.items.size() || !list.items[size_t(i)];
+        if (list.items_in_view[size_t(i)]) {
             if (const W row = list_item(rt, list, i, true)) {
                 if (!row->data.has("item_w")) row->set_property("item_w", Value::number(item_w)), row->set_property("item_h", Value::number(item_h));
                 const float w = item_w * scale, h = item_h * scale;
@@ -379,19 +409,12 @@ void arrange_list(Runtime& rt, LiveWidget& list, bool warp) {
                 row->state = i == focus ? row->state | kActive : row->state & ~kActive;
                 row->state = i == focus && has_focus ? row->state | (kFocus | kPrelight) : row->state & ~(kFocus | kPrelight);
                 list.children.push_back(row);
-                if ((fresh || row->data.number("item_update") != 0) && update.p && update.p->callable()) {
-                    row->set_property("item_update", Value::integer(0));
-                    try {
-                        const Value args[3] = {rt.context(), Value::integer(i), widget_value(row)};
-                        rt.vm().call(update, args);
-                    } catch (const script::ScriptError& e) {
-                        rt.note(std::string("script error in a list's update: ") + e.what());
-                    }
-                }
+                if (row->data.number("item_update") != 0) updates.push_back(i);
             }
         }
         at += length + spacing;
     }
+    call(list_callback(list, "update_callback"), updates);
 }
 
 void list_focus(Runtime& rt, LiveWidget& list, int index, bool notify) {
@@ -1087,6 +1110,7 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
                 w->set_property("item_count", Value::integer(count));
                 w->items.clear();
                 w->items.resize(size_t(count));
+                w->items_in_view.clear();
                 w->set_property("focus_index", Value::integer(std::clamp(int(w->data.number("focus_index")), 0, std::max(count - 1, 0))));
                 arrange_list(*r, *w, true);
                 return Value{};
@@ -1132,6 +1156,11 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
             const char* set;
             const char* property;
         };
+        if (n == "getItemVisible") // (index): the row is in view
+            return fn([w](Vm&, const Value&, Args a) {
+                const int i = arg_int(a, 0, -1);
+                return Value::integer(i >= 0 && size_t(i) < w->items_in_view.size() && w->items_in_view[size_t(i)]);
+            });
         for (const Flag& f : {Flag{"getItemVisible", "setItemVisible", "visible"}, Flag{"getItemUpdate", "setItemUpdate", "item_update"},
                               Flag{"getItemActive", "setItemActive", "active"}, Flag{"getItemInsensitive", "setItemInsensitive", "insensitive"}}) {
             if (n == f.get)
