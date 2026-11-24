@@ -494,7 +494,13 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
             const gt3r::ee::F lock = c.p.max_lock;
             c.steer_cmd = gt3r::ee::F(std::clamp(in.steer_angle, -lock.host(), lock.host()));
         }
-        ex::wheel_steer(c);
+        if (gt4_rules_) {
+            // Gran Turismo 4's steering (0x3F7EA8): the angles, the follower, the slip angle's offset and the compliance.
+            sim::Extra& g = gx_[i];
+            rules::wheel_steer(c, g.steer, g.tires, layouts_[i], tables_.steer);
+            for (size_t w = 0; w < 4; ++w) // (for the engine's routines that still read them: its start hold)
+                c.t[w].steer_cos = gt3r::ee::cos(c.w[w].steer), c.t[w].steer_sin = gt3r::ee::sin(c.w[w].steer);
+        } else ex::wheel_steer(c);
         if (gt4_rules_) rules::slip_phase(c, gx_[i], layouts_[i], tables_);
         else ex::slip_ratios(c, race_.statics);
         if (gt4_rules_) {

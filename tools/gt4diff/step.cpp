@@ -178,6 +178,7 @@ StepResult run_step(Disc& disc, bool print, const std::string& course_label, con
     Taps taps(ee, o, inputs);
     add_taps(taps);
     add_taps_aids(taps);
+    add_taps_steer(taps);
     if (std::getenv("GT4R_DUMP")) {
         const u32 at = o.car(0);
         for (u32 off = 0; off < kCarSize; off += 4) {

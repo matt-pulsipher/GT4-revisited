@@ -8,6 +8,7 @@
 #include "gt4r/sim/record.h"
 #include "gt4r/sim/rules_aids.h"
 #include "gt4r/sim/rules_body.h"
+#include "gt4r/sim/rules_steer.h"
 #include "gt4r/sim/rules_chassis.h"
 #include "gt4r/sim/rules_drive.h"
 #include "gt4r/sim/rules_tires.h"
@@ -26,6 +27,7 @@ struct Tables {
     ex::BrakeHeatConsts brake_heat; // (0x3F3808 from the static block's +0xAC .. +0xAF)
     BodyGlobals body;
     AidTables aids;
+    SteerTables steer;
 };
 // From the program (its static block and globals: each surface's rolling resistance as the race's start
 // 0x35F808 makes it) and the engine's rolling resistance curve (from the same static block).

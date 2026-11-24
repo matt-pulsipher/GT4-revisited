@@ -316,6 +316,14 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
         aid_taps = std::make_unique<Taps>(ee, o, *aid_inputs);
         add_taps_aids(*aid_taps);
     }
+    // GT4R_AI_STEER: the steering phase's taps (taps_steer.cpp) on the computer drivers' cars.
+    if (std::getenv("GT4R_AI_STEER")) {
+        if (!aid_taps) {
+            aid_inputs = std::make_unique<ex::RaceInputs>(ex::race_inputs(sim::core_program(sim::Program::load(disc)), ex::Conductor::SinglePlayer, ex::RaceConfig{}, false, 0));
+            aid_taps = std::make_unique<Taps>(ee, o, *aid_inputs);
+        }
+        add_taps_steer(*aid_taps);
+    }
     const u32 lap_bits = ee.call(kLapLength, {Arg::ptr(o.cond + kAiCourse)}).f0;
     float lap_length;
     std::memcpy(&lap_length, &lap_bits, 4);

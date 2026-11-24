@@ -21,14 +21,16 @@ Tables tables(const Program& program, const ex::Statics&) {
     // Each surface's factor: the static block's s16 at +0x34 + 2 s, x 0.01.
     for (u32 s = 0; s < 24; ++s)
         t.road.rolling_mu[s] = gt3r::ee::int_to_f(gt3r::s16(program.h(Program::kStatic + 0x34 + 2 * s))) * F::raw(0x3C23D70A);
-    // The steering mode and the mean slip angle's switch as a race's set-up leaves them (both 1 after the
-    // program's own set-up in tools/gt4diff; the image holds 0: ❓ the routine that sets them).
+    // The mean slip angle's switch as a race's set-up leaves it (1 after the program's own set-up in tools/gt4diff;
+    // the image holds 0: ❓ the routine that sets it); the steering mode below (0x3F7BE0).
     t.globals.steer_mode = 1;
     t.globals.camber_ref = F::raw(program.w(kCamberRef)), t.globals.camber_gain = F::raw(program.w(kCamberGain));
     t.globals.mean_on = 1;
     t.drive = drive_tables(program);
     t.body = body_globals(program);
     t.aids = aid_tables(program);
+    t.steer = steer_tables(program);
+    t.globals.steer_mode = t.steer.mode; // (0x3F7BE0 writes it at the race's start)
     // The brake heat's constants (0x3F3808): 1 / (b0 x 9800), 1 / (b1 x 0.1 x 100), b2 km/h in m/s, b3 x 0.01, of the
     // static block's bytes +0xAC .. +0xAF (the first two 1 when 0).
     {

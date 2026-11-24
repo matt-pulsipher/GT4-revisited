@@ -124,5 +124,6 @@ private:
 };
 
 void add_taps_aids(Taps& taps); // the driving aids' phase and routines (taps_aids.cpp)
+void add_taps_steer(Taps& taps); // the steering phase and its routines (taps_steer.cpp)
 
 } // namespace gt4r::diff

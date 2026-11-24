@@ -77,6 +77,8 @@ TEST(sim_program_params_equal) {
         size_t allowed = f.name == "extra tire.grip" ? 250 : 0;
         if (f.name == "extra body.hold_droop" || f.name == "extra aids.abs_peak") allowed = 1444;
         else if (f.name == "extra body.front_share") allowed = 130;
+        else if (f.name == "extra steer.axle_load" || f.name == "extra steer.compliance_per_n") allowed = 220; // (from the shares and masses)
+        else if (f.name == "extra steer.toe") allowed = 1;                                                    // (from a tire radius)
         if (f.off > allowed) std::printf("  %s: %zu of %zu differ (%s)\n", f.name.c_str(), f.off, f.values, f.where.c_str());
         CHECK(f.values >= r.cars && f.off <= allowed);
     }
@@ -122,8 +124,10 @@ TEST(sim_program_step_routines_equal) {
         for (const diff::StepTap& t : r.taps) {
             if (t.equal != t.calls) std::printf("  %s, %s: %zu of %zu calls equal\n", car, t.name.c_str(), t.equal, t.calls);
             // (a stepless box's own gear step; the aids' speed caps' throttle and the TCS's rising slip, which a pad car runs only
-            // under a cap or with its TCS on: gt4r_diff's GT4R_AIDS_VARY runs them)
-            const bool rare = (t.name == "gear" && std::string(car) == "fit_w_ff_01") || t.name == "aids: hold throttle" || t.name == "aids: rising slip";
+            // under a cap or with its TCS on: gt4r_diff's GT4R_AIDS_VARY runs them; the two-wheeler's lean and the angle helpers
+            // the steering's offset uses rolling backwards or in mode 2: GT4R_STEER_VARY)
+            const bool rare = (t.name == "gear" && std::string(car) == "fit_w_ff_01") || t.name == "aids: hold throttle" || t.name == "aids: rising slip" ||
+                              t.name == "steer: lean angle" || t.name == "steer: angle difference" || t.name == "steer: angle blend";
             CHECK((t.calls > 0 || rare) && t.equal == t.calls);
         }
     }

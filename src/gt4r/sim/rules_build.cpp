@@ -383,6 +383,7 @@ void gt4_extras(const Spec& s, const Program& program, Record& r) {
     drive_blocks(s, program, p, r.x.drive);
     body_extras(s, p, r.layout, r.x.body);
     rules::aid_extras(s.bytes.data(), p.brake_torque, r.x.drive.d.tire_radius, r.x.aids);
+    rules::steer_params(r.x.steer, s, r.car.p, r.x.body, r.layout);
 }
 
 } // namespace gt4r::sim
