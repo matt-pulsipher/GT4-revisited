@@ -312,6 +312,7 @@ public:
                     LOG_WARN("Start shots: %s", e.what());
                 }
             }
+        for (const course::Runway::Triangle& t : world_->course().road().triangles) stop_area_ = stop_area_ || (t.kind & 4) != 0;
         mount_ = setup.view;
         begin_run(setup.bspec);
         // A scripted run that skips ahead: those steps unseen.
@@ -345,6 +346,7 @@ public:
         fs.lap_length = world_->line().length;
         flow_.begin(fs, world_->cars());
         rolled_ = false;
+        in_box_ = license_failed_ = false;
         board_.begin(world_->car_count(), 0, lap_words_[0], lap_words_[1]);
         camera_.reset(world_->cars()[0]);
         history_.clear();
@@ -468,6 +470,7 @@ public:
         }
         if (ev.start && flow_.setup().start == race::StartType::Rolling)
             LOG_INFO("Drive: the player's car takes the line at %.1f km/h, %.2f s on the clock", double(world_->cars()[0].speed * 3.6f), double(flow_.time_ms()) / 1000);
+        if (setup_.sequence == "license") judge_stop();
         if (ev.lap_done == 0) event_steps_ = 0, event_lap_ = flow_.car(0).laps_done;
         beeps_ += ev.beep;
         start_camera_.step();
@@ -676,6 +679,28 @@ public:
         }
     }
 
+    // A license test on a road with a stopping box (triangles flagged bit 2, the wheel ground record's
+    // +0x33 bit 2 the program's judge 0x3F91F0 reads): the test ends when all four wheels are on it
+    // and the car is slower than 0.527 m/s (its squared speed under 0.2778), the time taken that
+    // share of a step in (0x3F8D70); ❓ a car that has been in the box and leaves it moving fails
+    // (judged from the original's B-1: running past the box ends on FAIL; that rule is not read).
+    void judge_stop() {
+        if (!stop_area_ || flow_.steps_since_start() < 0 || flow_.player_finished()) return;
+        const race::CarState& c = world_->cars()[0];
+        bool all = true, any = false;
+        for (const race::WheelState& w : c.wheels) (w.surface & 4) ? any = true : all = false;
+        const float v2 = c.velocity.x * c.velocity.x + c.velocity.y * c.velocity.y + c.velocity.z * c.velocity.z;
+        if (all && v2 < 0.27778f) {
+            flow_.finish_now(0, v2 / 0.27778f);
+            license_failed_ = false;
+        } else if (in_box_ && !any && v2 >= 0.27778f) {
+            flow_.finish_now(0);
+            license_failed_ = true;
+        }
+        in_box_ = in_box_ || any;
+    }
+    bool license_failed() const { return license_failed_; }
+
     // Before a step: the cars and the cameras as they are, for the frames shown before the next.
     void keep_previous() {
         const std::span<const race::CarState> now = shown();
@@ -786,6 +811,7 @@ private:
     int tire_index_ = 4;   // the race's tires (the scripts' index: 4 sports medium)
     std::string race_word_ = "ARCADE_SINGLE_RACE"; // the race's name in the race's words
     bool throttle_held_ = false;
+    bool stop_area_ = false, in_box_ = false, license_failed_ = false; // a license test's stopping box
     int bspec_pace_ = 3, overtake_steps_ = 0;
     bool bspec_help_ = true;
     float lateral_g_ = 0;
@@ -1307,7 +1333,7 @@ private:
             r.kind = menu::RaceResult::Kind::License;
             // ❓ The test's grading: the time against the page's gold, silver and bronze times.
             const s32 t = s32(r.time_ms);
-            r.result = !r.finished ? "failed" : t <= w.get("goldTime") ? "gold" : t <= w.get("silverTime") ? "silver" : t <= w.get("bronzeTime") ? "bronze" : "failed";
+            r.result = !r.finished || race_->license_failed() ? "failed" : t <= w.get("goldTime") ? "gold" : t <= w.get("silverTime") ? "silver" : t <= w.get("bronzeTime") ? "bronze" : "failed";
         } else if (sequence_ == "mission") {
             r.kind = menu::RaceResult::Kind::Mission;
         } else if (sequence_ == "championship") {
@@ -1554,7 +1580,7 @@ private:
     int prize_level() const {
         const menu::QuickWork& w = menu::quick_work(menus_->game());
         const race::RaceFlow& f = race_->flow();
-        if (!f.player_finished()) return 3;
+        if (!f.player_finished() || race_->license_failed()) return 3;
         const s64 t = race::clock_ms(f.car(0).finish_units);
         const s32 g = w.get("goldTime"), sv = w.get("silverTime"), b = w.get("bronzeTime");
         auto known = [](s32 v) { return v > 0 && v != menu::QuickWork::kNoTime; };

@@ -569,3 +569,34 @@ TEST(race_gadget_bodies_disc) {
     }
     if (!ran) SKIP("no Gran Turismo 4 US disc");
 }
+
+TEST(race_license_stop_box_disc) {
+    // B-1's road (the 100 m test course) has its stopping box: triangles flagged bit 2, past the line.
+    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    bool ran = false;
+    for (const auto& disc : test::discs()) {
+        if (disc->info().serial.rfind("SCUS_973.28", 0) != 0) continue;
+        const gt3r::Volume::Entry* e = disc->volume().find("crs/testcourse_100m");
+        if (!e) continue;
+        const Bytes data = disc->volume().read(*e);
+        const std::optional<course::Runway> road = course::course_road(course::CourseFile::parse(data), data);
+        if (!road) continue;
+        ran = true;
+        size_t box = 0;
+        for (const course::Runway::Triangle& t : road->triangles) box += (t.kind & 4) != 0;
+        std::printf("  testcourse_100m: %zu of %zu triangles in the stopping box\n", box, road->triangles.size());
+        CHECK(box > 0 && box < road->triangles.size());
+    }
+    if (!ran) SKIP("no Gran Turismo 4 US disc");
+}
+
+TEST(race_flow_finish_now) {
+    // A run ended by its own rule: finished at the clock, a share of the step in.
+    Field f({10.0f}, 5);
+    race::FlowSetup fs;
+    fs.start = race::StartType::None, fs.laps = 1, fs.lap_length = kLap;
+    race::RaceFlow flow(fs, f.cars);
+    for (int i = 0; i < 60; ++i) f.step(), flow.step(f.cars);
+    flow.finish_now(0, 0.5f);
+    CHECK(flow.player_finished() && flow.car(0).finish_units == 60 * race::kClockPerStep - race::kClockPerStep / 2);
+}

@@ -99,6 +99,9 @@ public:
     // The running lap's time.
     s64 lap_ms(size_t car) const;
     bool player_finished() const { return cars_.empty() ? false : cars_[setup_.player].finished; }
+    // A car's run ended by a rule of its own (a license test's stop, a failure) `share` of a step
+    // into the step just run: its finish at the clock then.
+    void finish_now(size_t car, float share = 0);
     bool everyone_finished() const;
     // Steps since the player finished (-1 before).
     int steps_since_player_finish() const { return player_finish_steps_; }
