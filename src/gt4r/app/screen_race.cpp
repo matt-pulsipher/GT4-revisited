@@ -8,7 +8,8 @@
 // first picture (the start's hold is left out then), `paint` the first car's paint, `laps` the
 // race's length, `start` the start: 10 or 8 (a hold of so many seconds with the opening shots),
 // <seconds> (a plain hold), none, rolling, course (the course's own: race/start_rule.h); `view=tv` the course's replay cameras; `replay=N` drives
-// N steps unseen and plays them back through the replay cameras; `bspec=1` a B-spec run; `menus=single_race` the race
+// N steps unseen and plays them back through the replay cameras; `bspec=1` a B-spec run (GT4R_HITCH=<ms>
+// logs every frame longer than that, with the race's work and the present before it); `menus=single_race` the race
 // sequence's own menus (quick-arcade) before and after the race (any sequence: solo_event,
 // championship, license, mission, time_trial, freerun, practice, machinetest), `race=<label>` its event.
 
@@ -811,6 +812,8 @@ public:
     ~RaceScreen() override { report(); }
 
     void update(App& app, double dt) override {
+        // (The time from the last frame's drawing to this update: its present and the events.)
+        if (render_end_ns_) outside_ns_ = SDL_GetTicksNS() - render_end_ns_;
         const MenuInput& m = app.menu();
         if (quick_ && race_) return update_quick(app, m, dt);
         if (!race_) {
@@ -955,8 +958,14 @@ public:
             const double interval = double(now - last_frame_ns_) / 1e6;
             work_ms_.push_back(float(work));
             interval_ms_.push_back(float(interval));
+            // GT4R_HITCH=<ms>: every frame longer than that in the log, with this screen's work in it.
+            static const double hitch = [] { const char* e = SDL_getenv("GT4R_HITCH"); return e ? std::atof(e) : 0.0; }();
+            if (hitch > 0 && interval > hitch)
+                LOG_INFO("Drive: frame %zu took %.1f ms (the race's work %.1f ms, the last present and events %.1f ms)", interval_ms_.size(), interval, work,
+                         double(outside_ns_) / 1e6);
         }
         last_frame_ns_ = now;
+        render_end_ns_ = SDL_GetTicksNS();
         (void)app;
     }
 
@@ -1623,7 +1632,7 @@ private:
     std::unique_ptr<MenuPainter> painter_;
     bool quick_ = false, option_ = false, spectator_ = false;
     double clock_ = 0;
-    Uint64 step_ns_ = 0, last_frame_ns_ = 0;
+    Uint64 step_ns_ = 0, last_frame_ns_ = 0, render_end_ns_ = 0, outside_ns_ = 0;
     std::vector<float> work_ms_, interval_ms_;
 };
 
