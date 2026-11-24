@@ -497,12 +497,53 @@ meets a car once, then no more: 0x3E3C48 sets its +0x45), u8 the hull's points (
 from +0x10 (x, y, z, w = 1), +0x90 f32 radius, +0x94 f32 mass; then at +0x10's offset an `MDLS` of
 2 x kinds models (🔎 model 2k a kind's shape, 2k + 1 its shadow, as the shared engine's pylon
 sets), then its pictures. The cone (kind 5): radius 0.59 m, 15 kg. The race view draws each
-kind's shape where the road puts it (within 400 m). The cars knock them about
-(`race/gadget_bodies.*`): ❓ by the shared engine's rules for Gran Turismo 3's pylons (a car's box
-pushes a body out and hits it; awake bodies fall, tumble and bounce on the road; asleep again
-resting on three hull points), Gran Turismo 4's own routines not read. Tsukuba's cones stand a
+kind's shape where the road puts it (within 400 m). The cars knock them about (`race/gadget_bodies.*`, below). Tsukuba's cones stand a
 metre above the road file's surface under them (on the pit lane, not in the road file): near its
-place a body rests on the floor it stood on. ❓ The shadows are not drawn.
+place a body keeps the floor it stood on (❓ a stand-in for the surface the program finds there). ❓ The shadows are not drawn.
+
+### Cones and boards: the bodies
+
+Gran Turismo 4's own routines (the shared engine's pylons are Gran Turismo 3's: the same impulses, another
+turn and rest rule). A body (`0x3E2710` sets it from its record: kind, place, Euler angles): +0x04 the angles
+a, b, c, +0x10 its place, +0x1C its velocity, +0x28 its turn rate in its own frame, +0x34 the road's plane
+under it (n, d), +0x44 its kind, +0x45 a once-only kind's count after it met a car, +0x48 the road triangle,
++0x4C / +0x50 an added force and torque (none seen), +0x54 the step's impulses, +0x58 a count per hull point.
+The turn matrix from the angles (0x3E24F0): rows (cb cc - sa sb sc, -ca sc, sb cc + sa sc cb), (cb sc + sa cc sb,
+ca cc, sb sc - sa cc cb), (-ca sb, sa, ca cb), the body's axes in course space.
+
+- **Set-up** (0x3E2710): at rest, hull points 0..2 counted 2 (resting), the road's plane found from 1 m above;
+  a kind with flag bit 1 stays as placed; else turned from up (0, 1, 0) onto the plane's normal (0x3E2268), the
+  angles taken back from the matrix (0x3E2600), hull point 0 set on the plane.
+- **Step** (0x3E2B28, every body each frame, 0x3E5040): a once-only kind that met a car counts steps and is
+  removed when they pass 1.7 s; a kind with flag bit 1 never moves. A body with three hull points whose count is
+  exactly 2 rests (not moved; the road and walls not met). Otherwise: the angles stepped by the turn rate
+  (b' = (wx sc - wy cc) / ca, a' = -(wx cc + wy sc), c' = -(b' sa + wz)) and the turn rate by Euler's
+  equations (I w' = (Iy - Iz) wy wz .. plus the torque), in stages: angles x 0.6756036 dt, then three times
+  rates x 1.351207 / -1.702414 / 1.351207 dt (0x6A3960) and angles x -0.1756036 / -0.1756036 / 0.6756036 dt
+  (0x8456B0, set on first use); the angles kept in 0 .. 2 pi; the place moved by the velocity, then gravity
+  9.81 m/s². ✔ No damping and no cap but 0x3E3218: a turn rate over 20 rad/s about any axis is cut to a fifth
+  (after a road or wall contact).
+- **Walls** (0x395A38 over the box from the old to the new place → 0x3E26D0 → 0x3E44E8, the first wall met):
+  a wall segment (RNW4 wall vertices, the next by +0x0C; +0x0E bit 1: skipped). Overlapping (the center within
+  the kind's radius +0x90 of the segment): put at the radius on the side (ez, -ex). Else crossed this step from
+  its negative side: back along the motion onto the line. Then (0x3E4708) the road impulse along the wall's
+  level normal at a hull point (❓ its search starts from 0x6A396C, a NaN, so it is always point 0), and when
+  the body's energy (sum I w² + m v²) rose, its velocity and turn stopped.
+- **Road** (0x3E29F8 → 0x3E5A30 the triangle under it: its plane; 0x3E3748): each hull point below the plane:
+  the deepest so far counts a step more, one above it counts 0; the body is lifted by the deepest depth
+  (measured straight down) and gets the **impulse** 0x3E3840 there: K = 1/m + n . ((r x n_b / I) x r),
+  restitution 0.25 (0 when the point moves slower than 0.9 m/s), j = -(1 + e) v_n / K (none when j < 0),
+  friction 0.5 j / m against the point's sliding speed, at most all of it. ✔ The count rule seldom finds three
+  counts of exactly 2 again (only the deepest point counts up), so a knocked body stays awake, all but still.
+- **Cars** (0x3E3C48, not once a once-only kind met one): each car's five planes (0x3E5108 into 0x621D28,
+  0x50 bytes a car: normals (0, 0.15, -1), (-1, 0.15, 0), (0, 0.15, 1), (1, 0.15, 0), (0, 1, 0) (0x6A3978) turned
+  by the car's heading, through its box's corners: half width +0x494, rear +0x48C, front +0x490 of the car
+  record, the top 1.5 m above its center); a car whose planes are all within the radius of the body's center,
+  then the first hull point inside all five: pushed out through the nearest face (0x3E43B8), an impulse along
+  that face's normal (0x3E3ED0) against the car's point velocity (its velocity and yaw rate), restitution 0.05
+  for a once-only kind (flag bit 0) else 0.01, the moments of inertia x 1.5; the car feels nothing; the counts
+  zeroed (awake); a contact of kind 2 (9) with the impulse reported to the car (0x350530); one car a step.
+  Here the box's extents are the car's collision body's (❓ the car record's not read).
 
 ## Road: `RNW4` (slot 55)
 

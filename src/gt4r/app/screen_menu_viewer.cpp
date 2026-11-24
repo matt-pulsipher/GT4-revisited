@@ -343,7 +343,7 @@ private:
                 }
                 // A race with its own menus: the race screen runs them over the race on these menus
                 // and leaves them where the race sequence ends (race_natives.h).
-                if (race_ && (!menu::quick_project(race_->sequence).empty() || race_->sequence == "replay") && app.gpu()) {
+                if (race_ && (!menu::quick_project(race_->sequence).empty() || race_->sequence == "replay" || race_->sequence == "race_view") && app.gpu()) {
                     RaceStart start;
                     start.course = race_->course, start.car = race_->car, start.paint = race_->paint;
                     start.cars = std::max(1, race_->max_entry);

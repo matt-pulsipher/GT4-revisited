@@ -60,6 +60,7 @@ public:
     struct Events {
         bool beep = false;          // a count beep (3, 2 and 1 s before the start)
         bool start = false;         // the start signal
+        bool clock_started = false; // a rolling start's clock started (the first car took the line)
         int lap_done = -1;          // a car that completed a lap this step (the last such, -1 none)
         std::vector<size_t> finished; // cars that finished this step
         bool player_finished = false;
@@ -86,6 +87,8 @@ public:
     Events step(std::span<const CarState> cars);
 
     s64 clock() const { return clock_; }
+    // The race clock runs (a rolling start's from the first car's crossing of the line).
+    bool clock_running() const { return clock_running_; }
     s64 time_ms() const { return clock_ms(clock_); }
     const CarRecord& car(size_t i) const { return cars_[i]; }
     size_t car_count() const { return cars_.size(); }
@@ -119,6 +122,7 @@ private:
     std::vector<size_t> order_;
     int hold_ = 0, hold_total_ = 0;
     s64 clock_ = 0;
+    bool clock_running_ = true;
     int finishers_ = 0;
     int player_finish_steps_ = -1, started_steps_ = -1;
 };
