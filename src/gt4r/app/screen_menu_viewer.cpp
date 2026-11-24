@@ -14,6 +14,7 @@
 #include "formats/text/text_layout.h"
 #include "gt4r/audio/app_sound.h"
 #include "gt4r/menu/font.h"
+#include "gt4r/menu/game_settings.h"
 #include "gt4r/menu/project.h"
 #include "gt4r/menu/race_natives.h"
 #include "gt4r/menu/runtime.h"
@@ -211,6 +212,10 @@ private:
             app_ = &app;
             runtime_->on_sound = [&app](const menu::SoundCall& call) {
                 if (audio::AppSound* sound = app.sound()) play_sound_call(sound->menu(), call);
+            };
+            // The options' menu volumes (game_settings.h).
+            runtime_->on_options = [&app](const menu::GameSettings& s) {
+                if (audio::AppSound* sound = app.sound()) sound->menu().set_music_option(s.menu.music), sound->menu().set_effect_option(s.menu.effects);
             };
             live_drawer_ = std::make_unique<PageDrawer>(app);
             PageDrawer* drawer = live_drawer_.get();

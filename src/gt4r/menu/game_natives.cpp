@@ -6,6 +6,7 @@
 // docs/formats/menu.md ("The game's state") says what each answers and why.
 
 #include "gt4r/menu/game_internal.h"
+#include "gt4r/menu/game_settings.h"
 #include "gt4r/save/card_image.h"
 
 #include "gt4r/save/memory_card.h"
@@ -16,6 +17,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <cstring>
 #include <ctime>
 
@@ -338,10 +340,29 @@ Value GameNatives::make_option() {
             else s->options[n] = v.kind == Kind::Int ? v.i : s32(v.truthy());
         });
     }
+    // The screen settings: [brightness, contrast, saturation, color balance] as the Picture Quality
+    // page reads and writes them (the program's four numbers at Option +0x1184, +0x1194).
+    for (const char* name : {"race_color_correction", "replay_color_correction"}) {
+        const std::string n = name;
+        option->property(n, [s, n] {
+            const std::array<int, 4> v = picture_from_text(s->option_text(n), {0, 0, 0, 0});
+            return Value::array({number(v[0]), number(v[1]), number(v[2]), number(v[3])});
+        }, [s, n](const Value& v) {
+            const std::vector<Value>* items = v.items();
+            if (!items || items->size() < 4) return;
+            std::array<int, 4> p{};
+            for (size_t i = 0; i < 4; ++i) p[i] = int((*items)[i].as_float());
+            s->options[n] = picture_text(p);
+        });
+    }
     Runtime* r = &rt;
-    // apply(), save(): the settings take effect; here they are kept (under the data folder).
-    auto save = [r](Vm&, const Value&, Args) {
+    // apply(), save(): the settings take effect (Runtime::on_options) and are kept (under the
+    // data folder).
+    GameNatives* np = this;
+    auto save = [r, np](Vm&, const Value&, Args) {
+        apply_monitor(*np);
         r->save_options();
+        r->options_changed();
         return number(1);
     };
     option->method("apply", save);
@@ -350,6 +371,7 @@ Value GameNatives::make_option() {
     option->method("setDefault", [s, r](Vm&, const Value&, Args) {
         const std::string zone = s->option_text("game_zone");
         s->option_defaults(zone.empty() ? r->region() : zone);
+        r->options_changed();
         return Value{};
     });
     // setGameZoneDefault (0x435D48): the zone by the program's region.
@@ -454,16 +476,24 @@ Value GameNatives::make_game() {
     field(g, "vibration_2p", &q->vibration_2p), field(g, "tire_idx_2p", &q->tire_2p);
     g.set("selected_course", Value{}), g.set("selected_car", Value{});
     g.set("car_garage", Value{}), g.set("car_garage_2p", Value{});
-    g.set("last_record", Value{}), g.set("labo_folder", Value{}), g.set("labo_list_index", number(0));
+    g.set("last_record", Value{}), g.set("labo_folder", number(-1)), g.set("labo_list_index", number(-1)); // ❓ none (what the theater's exit leaves)
+    // The race's entry table (MGame getEntryCarCode / setEntryCarCode): [car, paint] by the
+    // entry's number; entry 0 is the player's car (car_code, car_color), the opponents the scripts
+    // chose from 1 (arcade's doGame reads and writes 0 .. overwrite_enemy_num alike).
     g.method("getEntryCarCode", [q](Vm&, const Value&, Args a) {
         const s32 i = arg_int(a, 0, -1);
-        return text(i >= 0 && size_t(i) < q->entries.size() ? q->entries[size_t(i)] : std::string());
+        if (i == 0) return Value::array({text(q->car), number(q->paint)});
+        if (i < 0 || size_t(i) >= q->entries.size() || q->entries[size_t(i)].empty()) return Value::array({Value{}, number(0)});
+        return Value::array({text(q->entries[size_t(i)]), number(size_t(i) < q->entry_paints.size() ? q->entry_paints[size_t(i)] : 0)});
     });
     g.method("setEntryCarCode", [q](Vm&, const Value&, Args a) {
         const s32 i = arg_int(a, 0, -1);
         if (i < 0 || i > 64) return Value{};
         if (q->entries.size() <= size_t(i)) q->entries.resize(size_t(i) + 1);
-        q->entries[size_t(i)] = arg_text(a, 1);
+        if (q->entry_paints.size() <= size_t(i)) q->entry_paints.resize(size_t(i) + 1);
+        const std::string car = a.size() > 1 && !a[1].is_nil() ? a[1].to_string() : std::string();
+        q->entries[size_t(i)] = car, q->entry_paints[size_t(i)] = arg_int(a, 2);
+        if (i == 0 && !car.empty()) q->car = car, q->paint = arg_int(a, 2);
         return Value{};
     });
     // The pages the menus came through: a stack of names (the title page pushes the mode).
@@ -859,7 +889,7 @@ Value GameNatives::make_card_manager(Args a) {
         if (!s->card.connected) return text("DEVICE_ERROR");
         if (!there()) return text(s->card.has_game_data ? "OK" : "FILE_NOT_FOUND");
         const save::Result r = self->card().load(*s);
-        if (r == save::Result::Ok) s->card.has_game_data = true;
+        if (r == save::Result::Ok) s->card.has_game_data = true, self->rt.options_changed();
         return text(r == save::Result::Ok || r == save::Result::DeviceError || r == save::Result::InvalidFile ? save::result_name(r) : "");
     });
     // loadInstance(manager): [result, game] of the card's game beside the one played. ❓ The
@@ -872,6 +902,7 @@ Value GameNatives::make_card_manager(Args a) {
     // saveNew(manager, title): the save made anew; save(manager): written over.
     file->method("saveNew", [self, s, real](Vm&, const Value&, Args a) {
         if (!s->card.connected) return text("DEVICE_ERROR");
+        apply_monitor(*self);
         if (real()) {
             const save::Result r = self->card().save_new(*s, a.size() > 1 ? a[1].to_string() : std::string("Game Data"));
             if (r != save::Result::Ok) return text(r == save::Result::DifferentMemoryCard ? "DIFFERENT_MEMORYCARD" : "DEVICE_ERROR");
@@ -881,6 +912,7 @@ Value GameNatives::make_card_manager(Args a) {
     });
     file->method("save", [self, s, real, there](Vm&, const Value&, Args a) {
         if (!s->card.connected) return text("DEVICE_ERROR");
+        apply_monitor(*self);
         if (real()) {
             const save::Result r = there() ? self->card().save(*s) : self->card().save_new(*s, a.size() > 1 ? a[1].to_string() : std::string("Game Data"));
             if (r != save::Result::Ok) return text(save::result_name(r));
@@ -918,12 +950,24 @@ Value GameNatives::make_card_manager(Args a) {
     // ❓ What the probes of the earlier games' saves read (0x1D4500 on) is not followed: none.
     for (const char* no : {"isExistGT4pData", "isExistGT3Data"}) m->method(no, [](Vm&, const Value&, Args) { return number(0); });
     for (const char* none : {"inheritGT4pData", "inheritGT3Data"}) m->method(none, [](Vm&, const Value&, Args) { return text("FILE_NOT_FOUND"); });
-    m->property("free", [s] { return number(s->card.free_kb); });
-    m->property("realFree", [s] { return number(s->card.free_kb); });
+    // The card's free KB. The scripts take 8,000 for an unformatted card; the data folder's card
+    // is formatted: 8,000 less a KB for its directory, the game's save and the replays kept
+    // (❓ the program's count of a real card's clusters is not followed).
+    auto free_kb = [self, s, real]() -> s32 {
+        if (!real()) return s->card.free_kb;
+        s32 used = 1 + std::max(0, self->card().used_kb());
+        std::error_code ec;
+        for (const std::string& f : saved_replays(self->rt.data_dir())) used += s32((std::filesystem::file_size(f, ec) + 1023) / 1024);
+        return std::max(0, 8000 - used);
+    };
+    m->property("free", [free_kb] { return number(free_kb()); });
+    m->property("realFree", [free_kb] { return number(free_kb()); });
     auto progress = std::make_shared<Object>("MProgress");
     progress->set("value", Value::number(0));
     m->set("count", number(0)), m->set("cursorPos", number(0)), m->set("progress", object_value(progress)), m->set("list", Value::array({}));
     m->set("autoloadPlayList", Value{}), m->set("autoloadPlayListResult", Value{});
+    // The Replay Theater's replays (game_replays.cpp).
+    if (mode == "MODE_LOAD_REPLAY") install_replay_list(*this, *m);
     return object_value(m);
 }
 
@@ -938,6 +982,18 @@ std::weak_ptr<GameNatives> g_natives_of(Runtime& rt, std::shared_ptr<GameNatives
 } // namespace
 
 std::shared_ptr<GameNatives> natives_of(Runtime& rt) { return g_natives_of(rt).lock(); }
+
+// MOption's monitor_size setter (0x436D60) copies the screen's figures (Option +0x24, 0x2C bytes)
+// from one of three tables of the program: "subaru" 0x6A61E8, else 16:9 (wide_mode) 0x6A61B8,
+// else 0x6A6188. A saved game made by the original has them; the 3D view reads them.
+void apply_monitor(GameNatives& n) {
+    Database& d = n.db();
+    if (!d.program.known()) return;
+    GameState& s = n.state();
+    const u32 table = s.option_text("monitor_size") == "subaru" ? 0x6A61E8 : s.option_int("wide_mode") ? 0x6A61B8 : 0x6A6188;
+    s.monitor_params.resize(0x2C);
+    for (u32 i = 0; i < 0x2C; ++i) s.monitor_params[i] = d.program.b(table + i);
+}
 
 Value make_car_object(Runtime& rt, const std::string& label, int paint) {
     const std::shared_ptr<GameNatives> n = g_natives_of(rt).lock();
@@ -955,6 +1011,7 @@ void complete_race_request(Runtime& rt, RaceRequest& r) {
     Database& d = n->db();
     // The race's own label: as given, or with the region's prefix (the license tests and
     // missions are "usl0b0001", the scripts say "l0b0001"; 0x430D20 tries "us" then "jp").
+    if (r.sequence == "replay") r.replay_file = s.replay_file;
     std::string race = r.race;
     for (const std::string& tried : {r.race, "us" + r.race, "jp" + r.race})
         if (!r.race.empty() && d.code(kRaceTable, tried) != kNoCode) {
@@ -1182,8 +1239,11 @@ void install_game_natives(Runtime& rt, script::Module& menu) {
         });
         static_fn(*cls, "getExistValidGameData", [s](Vm&, const Value&, Args) { return number(s->valid_game_data); });
         static_fn(*cls, "getPrintList", [](Vm&, const Value&, Args) { return Value::array({}); });
-        static_fn(*cls, "setAction", [](Vm&, const Value&, Args) { return Value{}; });
-        static_fn(*cls, "getAction", [](Vm&, const Value&, Args) { return number(0); });
+        static_fn(*cls, "setAction", [s](Vm&, const Value&, Args a) {
+            s->card_action = arg_int(a, 0);
+            return Value{};
+        });
+        static_fn(*cls, "getAction", [s](Vm&, const Value&, Args) { return number(s->card_action); });
     }
 
     // ---- The car database: MCarData, MCourseData, MDatabase, MCarGarage

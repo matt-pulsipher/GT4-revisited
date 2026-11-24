@@ -148,6 +148,13 @@ void install_records(GameNatives& n, Object& game, script::Module& menu);
 // Gran Turismo 4 Prologue's main::game.license (prologue_natives.cpp).
 void install_prologue_license(Object& game);
 
+// ---- game_replays.cpp
+// The replays saved in the data folder's replays/, newest first.
+std::vector<std::string> saved_replays(const std::string& data_dir);
+struct GameNatives;
+// The card manager's list in MODE_LOAD_REPLAY (the Replay Theater): those replays as files.
+void install_replay_list(GameNatives& n, Object& manager);
+
 // ---- game_race.cpp
 void install_race_classes(GameNatives& n, script::Module& menu);
 // A distance driven added to a car's condition (odometer, engine, oil, body) as the race does.
@@ -178,6 +185,9 @@ struct GameNatives {
     std::shared_ptr<save::GameSave> card_save;
     save::GameSave& card();
 };
+
+// The screen's figures for the option's monitor_size and wide_mode (0x436D60).
+void apply_monitor(GameNatives& n);
 
 // The runtime's game natives (none before install_game_natives).
 std::shared_ptr<GameNatives> natives_of(Runtime& rt);

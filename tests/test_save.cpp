@@ -3,6 +3,7 @@
 
 #include "test_framework.h"
 
+#include "gt4r/menu/game_settings.h"
 #include "gt4r/save/card_image.h"
 #include "gt4r/save/codec.h"
 #include "gt4r/save/game_data.h"
@@ -240,4 +241,29 @@ TEST(save_card_image) {
     CHECK(save::import_dropped_card((dir / "d").string()).ok && save::GameSave((dir / "d").string(), made_up_codes()).exists() == 0);
     CHECK(!save::import_dropped_card((dir / "d").string()).ok); // the folder has its game now
     fs::remove_all(dir);
+}
+
+// The options a game keeps beside the numbers: the race display's parts as bits of one word (a new
+// game's 0x3FA, as the original's saved game has it), 16:9, the two screen settings of four
+// numbers; and what the rest of the game reads of them (menu/game_settings.h).
+TEST(save_options_display_picture) {
+    const save::Codes codes = made_up_codes();
+    menu::GameState fresh;
+    fresh.option_defaults("us");
+    const Bytes p = save::write_game(fresh, codes);
+    auto word = [&p](size_t at) { return u32(p[at]) | u32(p[at + 1]) << 8 | u32(p[at + 2]) << 16 | u32(p[at + 3]) << 24; };
+    CHECK(word(0x38928 + 0x1140) == 0x3FA && word(0x38928 + 0x1184) == 3 && word(0x38928 + 0x1194) == 0);
+    menu::GameSettings d = menu::settings_of(fresh);
+    CHECK(d.display.map && !d.display.steering && d.display.g_meter && !d.replay_display && d.race_picture[0] == 3 && d.velocity.factor < 1);
+    CHECK(d.menu.music > 0.89f && d.menu.music < 0.9f && d.automatic && d.demo_after_s == 20);
+    menu::GameState s = fresh;
+    s.options["race_display_map"] = 0, s.options["race_display_steering"] = 1, s.options["wide_mode"] = 1;
+    s.options["race_color_correction"] = std::string("-2 1 4 -5"), s.options["menu_bgm"] = 0, s.options["race_se_volume_raw"] = 64;
+    const Bytes q = save::write_game(s, codes);
+    menu::GameState t;
+    CHECK(save::read_game(q, t, codes));
+    const menu::GameSettings e = menu::settings_of(t);
+    CHECK(!e.display.map && e.display.steering && e.wide && e.race_picture == (std::array<int, 4>{-2, 1, 4, -5}) && e.replay_picture[0] == 0);
+    CHECK(e.menu.music == 0 && e.race.effects == 0.5f);
+    CHECK(save::write_game(t, codes) == q);
 }

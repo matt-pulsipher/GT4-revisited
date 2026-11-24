@@ -34,6 +34,7 @@
 #include "gt4r/sim/ai/grid.h"
 #include "gt4r/sim/rules_start.h"
 #include "gt4r/menu/game.h"
+#include "gt4r/menu/game_settings.h"
 #include "gt4r/menu/race_natives.h"
 #include "gt4r/menu/runtime.h"
 #include "race/controls.h"
@@ -145,6 +146,17 @@ Setup setup_from_env() {
 race::PictureSettings& picture_settings(bool replay) {
     static race::PictureSettings race_views, replays{race::PictureSettings::kReplayDefault};
     return replay ? replays : race_views;
+}
+
+// The screen settings from the game's options (the Picture Quality page's race_color_correction,
+// replay_color_correction) at a race's start, and what the pause changed back into them after it.
+void pictures_from_options(const std::map<std::string, menu::OptionValue>& options) {
+    const menu::GameSettings s = menu::settings_from(options);
+    picture_settings(false).v = s.race_picture, picture_settings(true).v = s.replay_picture;
+}
+void pictures_to_options(std::map<std::string, menu::OptionValue>& options) {
+    options["race_color_correction"] = menu::picture_text(picture_settings(false).v);
+    options["replay_color_correction"] = menu::picture_text(picture_settings(true).v);
 }
 
 // The game's play list of the races' music as the race's sound takes it (null: none filled), and
@@ -638,6 +650,7 @@ public:
             if (menus_) {
                 const menu::RaceRequest& q = menus_->game().race;
                 setup_.options = menus_->game().options;
+                pictures_from_options(setup_.options);
                 // The garage car's own parts and settings (the sheet in use).
                 if (q.garage_slot >= 0) setup_.player_equipment = menu::race_equipment(menus_->game(), q.garage_slot);
                 setup_.playlist = playlist_from(menus_->game().bgm_playlist);
@@ -1226,6 +1239,7 @@ private:
         if (menus_) {
             menu::GameState& g = menus_->game();
             if (setup_.playlist) playlist_to(*setup_.playlist, g.bgm_playlist);
+            pictures_to_options(g.options);
             g.during_quick_menu = false;
             g.next_sequence.clear();
             g.last_sequence = sequence_;
