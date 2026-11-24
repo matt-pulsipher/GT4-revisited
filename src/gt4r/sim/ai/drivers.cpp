@@ -622,13 +622,24 @@ F Field::course_s(size_t car) const { return F(session_->state(car).course_v); }
 bool Field::place(int line, int hint, F s, F& x, F& y, F& h) const {
     const std::vector<LinePoint>& p = lines_.line(line);
     if (p.empty()) return false;
-    if (line == CourseLines::kPitStop) { // the stop line (0x46B7B8: not yet in the program's arithmetic)
-        float fx = x.host(), fy = y.host(), fh = h.host();
-        if (!lines_.evaluate(line, hint, s.host(), fx, fy, fh)) return false;
-        x = F(fx), y = F(fy), h = F(fh);
+    const F lap(lines_.lap());
+    if (line == CourseLines::kPitStop) {
+        // 0x46B7B8: the stop line, its distances a lap on in the lap's first half: straight between its points.
+        if (s < k::zero) s = s + lap;
+        else if (lap <= s) s = s - lap;
+        if (s < lap * k::half) s = s + lap;
+        const size_t n = p.size();
+        if (s < F(p[0].dist) || F(p[n - 1].dist) <= s) return false;
+        size_t i = 0;
+        while (i + 1 < n && !(F(p[i].dist) <= s && s < F(p[i + 1].dist))) ++i;
+        if (i + 1 >= n) return false;
+        const LinePoint &a = p[i], &b = p[i + 1];
+        const F t = (s - F(a.dist)) / (F(b.dist) - F(a.dist));
+        x = t * (F(b.x) - F(a.x)) + F(a.x);
+        y = t * (F(b.y) - F(a.y)) + F(a.y);
+        h = t * (F(b.height) - F(a.height)) + F(a.height);
         return true;
     }
-    const F lap(lines_.lap());
     if (s < k::zero) s = s + lap;
     else if (lap <= s) s = s - lap;
     // 0x46B310: the span: before the first point or past the last (the last to the first), else searched from the hint
@@ -822,6 +833,36 @@ void Field::finish(size_t car, int mode, bool player_car) {
 }
 
 int Field::kind(size_t car) const { return car < drivers_.size() && drivers_[car] ? drivers_[car]->kind : 0; }
+
+bool Field::pit_enter(size_t car) {
+    Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
+    if (!d || d->control == 4 || !request_line(*d, CourseLines::kPitLane, true)) return false;
+    d->kind = 2;
+    return true;
+}
+bool Field::pit_stop(size_t car) {
+    Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
+    if (!d || d->control == 4 || !request_line(*d, CourseLines::kPitStop, true)) return false;
+    d->kind = 3;
+    return true;
+}
+bool Field::pit_leave(size_t car) {
+    Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
+    if (!d || d->control == 4 || !request_line(*d, CourseLines::kPitLane, true)) return false;
+    d->kind = 4;
+    return true;
+}
+bool Field::pit_return(size_t car) {
+    Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
+    if (!d) return false;
+    if (d->control == 0) { // a pad car: onto line 7 (its fallback), the computer's kind cleared
+        if (request_line(*d, 7, false)) d->kind = 0;
+        return true;
+    }
+    if (d->kind < 2 || d->kind > 4) return false;
+    if (request_line(*d, CourseLines::kMain, false)) d->kind = 0;
+    return true;
+}
 
 // ---- traffic ---------------------------------------------------------------------------------------------------
 

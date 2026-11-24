@@ -494,8 +494,11 @@ another race's for checks: then its own F+0x560, F+0x650, places, clock and fini
 - **The road's heights** come from our road query in host floats: some line points' heights, slopes
   and banks differ from the program's in their last bits, and so then do the arcs' speeds there (and
   the lines' lengths and pitches, which the drivers do not read).
-- Not done: the pit lane and the stop (lines 3 and 4 are prepared and driven when a car is on them, the
-  stop line's place 0x46B7B8 in host floats; nothing sends a car there), B-spec's pit command and
+- The pit: the drivers' part runs (lines 3 and 4, the pit speed, the stop line's place 0x46B7B8, the
+  steps `Field::pit_enter` / `pit_stop` / `pit_leave` / `pit_return` as 0x3453A0 / 0x345400 / 0x345450 /
+  0x345228 set the line and the kind); the pit flow that decides them (0x35B060, a state machine of the
+  pit lane, the box and the service) is not ported, so nothing sends a car there yet.
+- Not done: B-spec's pit command and
   skill, the line-5 records, the demonstration runs, the aero bonus (P +0x1077 / +0x1084 not mirrored:
   0), the two ❓ flags of §4.2 (P +0x104A, F +0x5C2: 0 on every car checked), the arcs' grip with tire
   wear on, T+0x158's factor (1 throughout in this program), the PD steering of T[2] ≥ 2, the threat

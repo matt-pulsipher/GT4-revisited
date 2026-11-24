@@ -174,6 +174,13 @@ public:
     // The driver's kind after it (8: stopped) is the session's to hold the car by (its clutch open).
     void finish(size_t car, int mode, bool player_car = false);
     int kind(size_t car) const;
+    // The pit's steps for a driven car (the pit flow 0x35B060 decides when; not ported): onto the pit lane (0x3453A0: line 3
+    // at once, kind 2), onto the stop line (0x345400: line 4 at once, kind 3), off it down the pit lane (0x345450: line 3,
+    // kind 4), back to racing (0x345228: from kinds 2 .. 4 line 6 blended, kind 0). False when the car has no such line.
+    bool pit_enter(size_t car);
+    bool pit_stop(size_t car);
+    bool pit_leave(size_t car);
+    bool pit_return(size_t car);
     // The speed limits of kind 5 (the race's configuration +0x42 for the player's car, +0x43 for the computer's; km/h, above
     // 80 none).
     void set_limits(u8 player_kmh, u8 computer_kmh) { limit_player_ = player_kmh, limit_computer_ = computer_kmh; }

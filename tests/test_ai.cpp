@@ -392,3 +392,32 @@ TEST(ai_disc_grid_paints) {
     std::sort(seen.begin(), seen.end());
     if (n >= 10) CHECK(std::adjacent_find(seen.begin(), seen.end()) == seen.end());
 }
+
+TEST(ai_disc_pit_and_finish) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    db::SpecDb db = sim::ai::open_specdb(*disc);
+    const sim::Program program = sim::Program::load(*disc);
+    std::vector<sim::ai::FieldCar> cars(2);
+    cars[0].name = "ka_01", cars[1].name = "s500_63";
+    for (auto& c : cars) CHECK(sim::stock_car(db, program, c.name, c.entry.equipment));
+    // Car 1 sent down the pit lane at 10 s drives its line 3 (kind 2) at the pit speed; car 0's run ended at 20 s with the
+    // stop driver (mode 1) comes to rest (kind 8).
+    int step = 0;
+    bool on_pit_line = false, stopped = false;
+    float pit_top = 0;
+    sim::ai::run_field(*disc, "tsukuba", cars, 3, {}, 60, {}, [&](sim::Session& s, sim::ai::Field& f) {
+        ++step;
+        if (step == 600) CHECK(f.pit_enter(1));
+        if (step == 1200) f.finish(0, 1);
+        if (step > 600 && f.line(1) == 3 && f.kind(1) == 2) {
+            on_pit_line = true;
+            if (step > 1500) pit_top = std::max(pit_top, s.cars()[1].speed);
+        }
+        if (f.kind(0) == 8) stopped = true;
+    });
+    std::printf("  pit lane: %s, its speed after 15 s at most %.0f km/h; the stop driver: %s\n", on_pit_line ? "driven" : "not driven",
+                double(pit_top) * 3.6, stopped ? "stopped" : "not stopped");
+    CHECK(on_pit_line);
+    CHECK(stopped);
+}
