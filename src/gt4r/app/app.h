@@ -56,6 +56,13 @@ public:
 
     void push(std::unique_ptr<Screen> s) { pending_.push_back(std::move(s)); }
     void pop() { ++pops_; }
+    // A pop asked for this frame taken back (true when there was one): for a screen that runs
+    // another inside it (the sweep).
+    bool take_pop() { return pops_ > 0 ? (--pops_, true) : false; }
+    // A picture of this frame saved to `path` once it is drawn.
+    void save_picture(std::string path) { pictures_.push_back(std::move(path)); }
+    // The process's resident memory in MB (0 where it is not read).
+    static double resident_mb();
     void quit() { quit_ = true; }
 
     Disc* disc() { return disc_.get(); }
@@ -133,6 +140,8 @@ private:
     double stats_ms_ = 0, stats_max_ = 0;
     int stats_frames_ = 0;
     Uint64 start_ticks_ = 0, end_ticks_ = 0; // the launch, the last frame's end
+    std::vector<std::string> pictures_; // save_picture's, saved after this frame's drawing
+    std::string sweep_, sweep_out_;     // --sweep <list>, --sweep-out <dir>
 };
 
 // The folder of the config file and mods: GT4R_DATA_DIR, else the executable's folder when it
@@ -141,6 +150,9 @@ std::string user_data_dir();
 
 std::unique_ptr<Screen> make_setup_screen();
 std::unique_ptr<Screen> make_hub_screen();
+// --sweep: the races of a list run one after another in this window, a picture of each
+// (screen_sweep.cpp).
+std::unique_ptr<Screen> make_sweep_screen(const std::string& list, const std::string& out);
 std::unique_ptr<Screen> make_browser_screen(const std::string& open_path = "");
 // The menu projects' pages drawn from the disc's layouts (still pictures).
 std::unique_ptr<Screen> make_menu_viewer(App& app);
