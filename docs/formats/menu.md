@@ -450,8 +450,16 @@ over it are the program's, with their addresses in save.md and here:
   wings, stiffness); the settings pages' ranges and values (`getSuspensionRange`, ...); the
   current figures (`updateCurrentStatus`, 0x146648: the sheet in use built as a showroom car with
   the record's condition block, below "The showroom car"); wheels and wings by label; the condition (odometer, oil, dirt, body); `makeUsed(seed,
-  paint, meters)` (the program's random numbers; meters by model year); used prices by the
-  thousands of km driven (85 % below 1,000 km ... 10 % from 100,000); the sorts, one key each
+  paint, meters)` (0x440FB8; its arguments by their toInt, so the lots' paints given as text count:
+  the program's generator from the seed; a paint below 0 drawn among the car's paints; meters below 0
+  drawn between the program's table 0x6A6910's {least, most} x 1,000,000 for the model year from 1990
+  (0 .. 14), lo + (hi - lo) x draw; then the odometer (at most 100,000 km) and, unless the car has no
+  wear, the engine's, oil's and body's distances the meters, each at most the condition table's +0x0C,
+  +0x1C and the body's limit; the dirt 0); used prices (0x441128) the new price times the factor of the
+  first row of the program's table 0x6A6988 ({s32 thousands of km, f32 factor}, -1 the last) whose
+  distance is above the odometer's (85 % below 1,000 km ... 10 % from 100,000), a quarter of that when
+  sold (0x4411F0). Used Car Showroom II's first rows on 9 APR, 17 JUL and 23 JUL (names, prices,
+  mileage, power, torque) are the reference's (`disc_gt_mode_used_cars_by_day`); the sorts, one key each
   (power, weight, kg/PS, date, order of driving, aspiration, name, price, year, country,
   tuner, drivetrain, the paint's hue). The gears' ranges (`getGearRange`, 0x3553A0): the gears
   the slider and final drive give (0x354FF8), each gear's ends a third of the way to its
@@ -870,6 +878,7 @@ face is drawn over a part of the page three times its rectangle around it.
 ### What runs where (the game's state, Arcade's opponents, the cars' figures)
 
 GT4's own routines, checked against the user's program where the note says so:
+- used cars: makeUsed (0x440FB8), the used price (0x441128, 0x4411F0), from the program's tables;
 - the showroom car's figures and evaluation (0x364868, 0x34F3F8, 0x356EA8, 0x3F86E8; bit for bit on every
   car), the engine's condition (0x350868; equal on made-up blocks), the cars' figures through them
   (`updateCurrentStatus` 0x146648, garage entries 0x434FD0);
@@ -891,8 +900,6 @@ Still the shared engine's code or a stand-in (file, function → the GT4 routine
   truncated) and 0x364FA8 (`Database::stock_showroom` gives both); the menus' file.
 - `menu/faces_graph.cpp` (the settings pages' power and torque charts): the spec's points → 0x148940,
   0x148B60.
-- `menu/game_car.cpp` `make_used_condition`: the setters' limits (0x343578, 0x343978, 0x343698, 0x3438A0
-  in 0x440FB8) judged as 11,000 / 6,000 / 3,000 km.
 
 ### Not done
 
