@@ -249,8 +249,12 @@ public:
         u16 shift_lock = 0;
         gt3r::ee::F aim_x, aim_y; // the aim (F +0x61C / +0x620), after a decision
         int kind = 0;             // F +0x467 the driver's kind
+        std::array<gt3r::ee::F, 5> pd_last{}; // D +0x00 .. +0x10 (the PD steering's last terms)
+        gt3r::ee::F pd_rate;      // F +0x484
     };
     void probe_set(size_t car, const Probe& p);
+    // For checks of a steering mode this program does not use: T[2] set (the PD steering at 2 or more).
+    void set_steer_mode(u8 mode) { tables_.tuning.steer_mode = mode; }
     Probe probe_get(size_t car) const;
     // 0x4674F0: the speed of line point i of the car's line.
     gt3r::ee::F probe_corner_speed(size_t car, int i);
@@ -274,6 +278,7 @@ private:
     gt3r::ee::F ai_grip(const Driver& d, int surface) const;
     void speed_control(Driver& d, gt3r::ee::F target, gt3r::ee::F gain);
     void steer_to(Driver& d, gt3r::ee::F target);
+    void pd_steer(Driver& d, gt3r::ee::F dir, gt3r::ee::F rd, gt3r::ee::F r, gt3r::ee::F amax, gt3r::ee::F ky);
     void set_kind(Driver& d, int kind);
     void stop(Driver& d, gt3r::ee::F steer);
     gt3r::ee::F hold_speed(const Driver& d, gt3r::ee::F target) const;

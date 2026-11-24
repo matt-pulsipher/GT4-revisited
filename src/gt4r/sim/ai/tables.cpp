@@ -42,6 +42,10 @@ Tables Tables::load(const Program& program) {
     Tuning& u = t.tuning;
     u.smooth_throttle = S(0);
     u.steer_mode = S(2);
+    u.pd[0] = I(0x09), u.pd[1] = I(0x0A);
+    for (u32 k = 0; k < 4; ++k) u.pd[2 + k] = I(0x0B + k) * tenth;
+    for (u32 k = 0; k < 7; ++k) u.pd[7 + k] = I(0x10 + k) * tenth;
+    u.pd_bound = I(0x1C) * hundredth;
     u.blend_by_distance = S(0x24);
     u.blend_rate = I(0x25) * tenth;
     u.offset_flags = u8((S(0x28) ? 1 : 0) | (S(0x29) ? 2 : 0) | (S(0x2A) ? 4 : 0));

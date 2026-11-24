@@ -26,7 +26,13 @@ struct Ramp {
 // The tuning block (0x623E50, built at every car's setup by 0x468EE8 from the bytes at 0x623FB8).
 struct Tuning {
     u8 smooth_throttle = 0;   // T[0]: 0 the throttle slews in the arcs, else it is set at once
-    u8 steer_mode = 1;        // T[2]: below 2 the steering slews to its target
+    u8 steer_mode = 1;        // T[2]: below 2 the steering slews to its target, else (racing) the PD steering below
+    // The PD steering's gains (T[2] of 2 or more): T+0x10 / +0x14 / +0x18 / +0x1C / +0x20 the slip direction's, the yaw rate's,
+    // the line heading's (against the travel), the line's offset and the heading's (against the car's) proportional
+    // terms; +0x2C the integrator's own; +0x30 / +0x34 / +0x38 / +0x3C / +0x40 their rates' terms; +0x5C the offset's
+    // bound (m). From S[9], S[0xA] and S[0xB .. 0xE], S[0x10 .. 0x16] tenths, S[0x1C] hundredths.
+    std::array<gt3r::ee::F, 14> pd{}; // T+0x10 .. +0x44 by 4 (+0x28 unused)
+    gt3r::ee::F pd_bound;     // T+0x5C
     u8 blend_by_distance = 0; // T[4]: the line change's blend runs off by distance (else by time)
     gt3r::ee::F blend_rate{2.0f};     // T+0x74 (m/s): that distance's rate
     u8 offset_flags = 0;      // T[5]: bit 0 hold the line's own side, bit 1 keep apart from cars alongside,

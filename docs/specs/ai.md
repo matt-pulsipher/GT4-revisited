@@ -159,7 +159,8 @@ tables' points / 100.0. ✔ The US program's values (read in the running game's 
 | | | value |
 |---|---|---|
 | T[0] = S[0] | 0: the throttle slews in the arcs (0x464F38) | 0 |
-| T[2] = S[2] | below 2: the steering slews to its target (else a PD path on T+0x10 ..) | 1 |
+| T[2] = S[2] | below 2: the steering slews to its target (else the PD steering, §5.2) | 1 |
+| T+0x10 / +0x14 = S[9] / S[0xA], T+0x18 .. +0x24 = S[0xB .. 0xE] / 10, T+0x2C .. +0x44 = S[0x10 .. 0x16] / 10, T+0x5C = S[0x1C] / 100 | the PD steering's gains and the offset's bound | 15, 20, 8.0, 0.2, 0, 10, 5.0, 0, 3.0, 4.0, 0.1, 0, 2.0, 1.0 |
 | T[4] = S[0x24], T+0x74 = S[0x25] / 10 | a line change's blend runs off by distance at that rate (m/s) | 1, 2.0 |
 | T[5] = S[0x28] / S[0x29] / S[0x2A] | the aim's offset: hold the line's own side, keep apart, come back onto the road (§5.3) | all on |
 | T+0x78 / +0x7C / +0x80 / +0x84 | the side share (pit lines' share), the offset's slew (m/s), its limit (m) | 0.1 (1.0), 4.0, 0.5 |
@@ -286,8 +287,15 @@ speed takes a line point's height in its last bits (§9).
   the yaw rate: + (rd − r) gain, and past a its share **over = t / a** is kept and t held at a (paved);
   rd < 0 the same mirrored; + the slip direction, clamped ±45°, negated reversing. Otherwise ±30° past
   ±20°, else ε x 1.4999998. Then the lock (P+0x54). Kind 6: the stop driver with that wheel (§5.5).
-  The wheel slews at PB+0x60 dt (0x464BB0) for a computer, B-spec or non-racing driver (a PD steering
-  for T[2] ≥ 2 in the racing state is not ported: T[2] is 1).
+  The wheel slews at PB+0x60 dt (0x464BB0) for a computer, B-spec or non-racing driver. With T[2] ≥ 2 (never on this
+  disc: T[2] is 1) a racing driver steers by the **PD steering** instead (in the yaw-rate branch, after the gain's
+  scaling): the rate F +0x484 + dt x Σ, Σ = T+0x10 e1 − T+0x30 Δe1 / dt + T+0x34 Δe2 / dt (+ T+0x14 e2 ky when the yaw
+  rate is short of rd) + T+0x38 Δe3 / dt + T+0x18 e3 − T+0x3C Δe4 / dt + T+0x1C e4 amax − T+0x40 Δe5 / dt − T+0x20 e5 −
+  T+0x2C x the rate, with e1 the slip direction less the steering, e2 rd − the yaw rate, e3 the line's heading (0x4649F0)
+  less the travel's, e4 the car's offset from the line's place (x cos + y sin of the heading, within ±T+0x5C), e5 the
+  line's heading less the car's, Δ against the last step's (D +0x00 .. +0x10); the rate within ±PB+0x60; the steering +
+  rate x dt within ±π/4 (there the rate cleared). ✔ Equal to the program's at every decision with T[2] set to 2 in both
+  races (`GT4R_AI_STEERMODE=2 GT4R_AI_CHECK=1`, test `ai_pd_steering_equal_to_the_program`).
 
 ### 5.3 Throttle and brake
 
@@ -515,7 +523,7 @@ another race's for checks: then its own F+0x560, F+0x650, places, clock and fini
 - Not done: B-spec's
   skill, the line-5 records, the aero bonus (P +0x1077 / +0x1084 not mirrored:
   0), the two ❓ flags of §4.2 (P +0x104A, F +0x5C2: 0 on every car checked), the arcs' grip with tire
-  wear on, T+0x158's factor (1 throughout in this program), the PD steering of T[2] ≥ 2, the threat
+  wear on, T+0x158's factor (1 throughout in this program), the threat
   record (D+0x53 / +0x60 / +0x64). The B-spec shift factor (`Field::shift_factor`) is not applied to the
   session's gearbox.
 - Without the mapped program (Prologue, another release) the drivers run with neutral values: no
@@ -652,4 +660,4 @@ shared engine's GT3 drivers. What is still not the program's:
 | `demo_driver.cpp` `pad_input` | the recorded pad record mapped onto `CarInput` (steer, pedals, shift) until the session reads the record itself | the input phase 0x349FD0 on the record (sim-step) |
 | `Field::shift_factor` | not applied in the session's gearbox | 0x3F1E30 (control source 1) |
 | B-spec skill | ported, not wired: the save's record and the car's P +0xFE0 | 0x468C50 (✔), 0x3F86E8 (sim-parts) |
-| the PD steering of T[2] ≥ 2, the threat record | not ported: T[2] is 1 on this disc (the tuning bytes), so the branch never runs | 0x465078's T[2] branch (0x465F88 ..), D +0x53 / +0x60 / +0x64 |
+| the threat record | not ported | D +0x53 / +0x60 / +0x64 |
