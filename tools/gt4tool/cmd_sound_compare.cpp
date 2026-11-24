@@ -209,10 +209,15 @@ int sound_compare(int argc, char** argv) {
     return 0;
 }
 
-// `gt4tool sound compare ...`: handled before the disc is opened. -1: not this command.
+int sound_players(int argc, char** argv); // cmd_sound_players.cpp
+
+// `gt4tool sound compare ...` and `gt4tool sound players ...`: handled before the disc is opened.
+// -1: not these commands.
 int sound_main(int argc, char** argv) {
-    if (argc < 3 || std::strcmp(argv[1], "sound") != 0 || std::strcmp(argv[2], "compare") != 0) return -1;
-    return sound_compare(argc, argv);
+    if (argc < 3 || std::strcmp(argv[1], "sound") != 0) return -1;
+    if (std::strcmp(argv[2], "compare") == 0) return sound_compare(argc, argv);
+    if (std::strcmp(argv[2], "players") == 0) return sound_players(argc, argv);
+    return -1;
 }
 
 } // namespace gt4r::tool
