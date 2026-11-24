@@ -733,7 +733,7 @@ gain (least squares under 1 kHz, or in `--band`). Renderings to compare come fro
 | The finish | the arcade B-spec race: the racing piece stops at FINISH and `goal` (`gt4jg-12a`) starts 2 s later (215.97 s); in Gran Turismo mode's Sunday Cup (FINISH 146 s) no stream of the index is found by spectra or sample fits from 135 to 212 s (results, prize page) | `finish()` | ❓ what Gran Turismo mode plays there |
 
 **The streams in the saved states** (the stream's two SPU2 voices and their ring buffers in the SPU2's
-memory matched against the disc's `.ads`, r5/whichstream.py in the scratch notes; levels × 16383):
+memory matched against the disc's `.ads` by their data; levels × 16383):
 
 | State | Piece (group) | Level |
 |---|---|---|
