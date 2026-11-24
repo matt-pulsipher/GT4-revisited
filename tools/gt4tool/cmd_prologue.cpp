@@ -3,6 +3,7 @@
 //   gt4tool prologue <disc> program    the program's build and the shared engine's tables found in it
 //   gt4tool prologue <disc> survey     the disc's formats against Gran Turismo 3's and Gran Turismo 4's, with counts
 //   gt4tool prologue <disc> drivers    every course's driving lines and driver sets (course slots 31, 37 .. 40)
+//   gt4tool prologue <disc> strobe <path> a race movie's text fields, named tracks and the words its scripts use
 //   gt4tool prologue <disc> hud        the race display's rows by mode (database/racemode_e3.db, racedetail_e3.db)
 //                                       beside Gran Turismo 3's
 
@@ -15,11 +16,13 @@
 #include "gt4r/formats/db/specdb.h"
 #include "gt4r/sim/program_prologue.h"
 #include "formats/menu/imgs.h"
+#include "gt4r/race/strobe.h"
 #include "race/hud_layout.h"
 #include "sim/exact/program_data.h"
 
 #include <cstdio>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -215,6 +218,42 @@ int hud(Disc& disc) {
     return 0;
 }
 
+int strobe(Disc& disc, const std::string& path) {
+    const gt3r::Volume::Entry* e = disc.volume().find(path);
+    if (!e) {
+        std::fprintf(stderr, "error: no file %s\n", path.c_str());
+        return 1;
+    }
+    const Bytes data = disc.volume().read(*e);
+    if (!race::StrobeMovie::is_movie(data)) {
+        std::fprintf(stderr, "error: %s is not a race movie\n", path.c_str());
+        return 1;
+    }
+    const race::StrobeMovie m = race::StrobeMovie::parse(data);
+    std::printf("%zu sprites, %zu shapes, %zu texts, %zu buttons, %zu actions, %zu textures\n", m.sprites.size(), m.shapes.size(), m.texts.size(),
+                m.buttons.size(), m.actions.size(), m.textures.size());
+    for (size_t i = 0; i < m.texts.size(); ++i) std::printf("text %zu: \"%s\"\n", i, m.texts[i].text.c_str());
+    for (size_t s = 0; s < m.sprites.size(); ++s)
+        for (const auto& t : m.sprites[s].tracks)
+            if (!t.name.empty()) std::printf("sprite %zu track \"%s\"\n", s, t.name.c_str());
+    // The words of the scripts (their constants), each once.
+    std::set<std::string> words;
+    for (const Bytes& a : m.actions) {
+        std::string run;
+        for (u8 c : a) {
+            if (c >= 0x20 && c < 0x7F) run += char(c);
+            else {
+                if (run.size() >= 3) words.insert(run);
+                run.clear();
+            }
+        }
+    }
+    std::printf("words:");
+    for (const std::string& w : words) std::printf(" %s", w.c_str());
+    std::printf("\n");
+    return 0;
+}
+
 } // namespace
 
 int cmd_prologue(Disc& disc, const Args& a) {
@@ -222,7 +261,8 @@ int cmd_prologue(Disc& disc, const Args& a) {
     if (a[0] == "survey") return survey(disc);
     if (a[0] == "drivers") return drivers(disc);
     if (a[0] == "hud") return hud(disc);
-    std::fprintf(stderr, "usage: gt4tool prologue <disc> program | survey | drivers | hud\n");
+    if (a[0] == "strobe" && a.size() > 1) return strobe(disc, a[1]);
+    std::fprintf(stderr, "usage: gt4tool prologue <disc> program | survey | drivers | hud | strobe <path>\n");
     return 2;
 }
 
