@@ -687,15 +687,14 @@ frame is submitted, so two faces of one size through one view showed the same pi
 picture's texture is kept by what the picture holds (pictures are freed with their pages).
 
 The title page left alone for the option `timeout_count_to_autodemo` (20 s) asks for the
-sequence `autodemo` (its `onTick`, `context.time_after_last_input`): ❓ here the opening movie
-(`demo_movie` with `opening`, starting with the Polyphony logo as the original's capture
-shows), then back to the title; the configuration lists demo replays (`Rdemo0`..) for it,
-which are not played.
+sequence `autodemo` (its `onTick`, `context.time_after_last_input`): the opening movie
+(`demo_movie` with `opening`, after the Polyphony logo), then back to the title with its focus
+on Arcade Mode, as the original's capture shows (reference 28: no demo race plays from the
+title; the configuration's demo replays, `Rdemo0`.., are the Replay Theater's Demo tab).
 
 ❓ Not drawn: `SceneViewFace`, `SlideShowFace`, `RaceCourseMapFace`, `PhotoViewFace`,
-`PhotoRenderFace`, `EyetoyFace`, `VirtualFace`, `LoggerFace`; the loading page between
-projects (the program's LoadingPS2 with `/advertise/gtloading.img` and the cursor's `load`
-icon).
+`PhotoRenderFace`, `EyetoyFace`, `VirtualFace`, `LoggerFace`; the cursor's `load` icon; the
+loading page's modes other than black (below).
 
 #### Graphs (`GraphFace`; `menu/faces_graph.*`)
 

@@ -311,9 +311,9 @@ private:
             if (runtime_->finished() && !race_) {
                 race_ = runtime_->race_request();
                 // The title left alone (its `timeout_count_to_autodemo`, 20 s) asks for the
-                // "autodemo" sequence: ❓ here the opening movie (demo_movie), then the project
-                // the title named (`next_menu_project`, arcade); the original shows the logo and
-                // the opening, and the configuration lists demo replays (Rdemo*) for it.
+                // "autodemo" sequence: the opening movie (demo_movie, after the Polyphony logo),
+                // then the project the title named (`next_menu_project`, arcade), as the original
+                // does (no demo race plays from the title).
                 if (race_ && race_->sequence == "autodemo") {
                     race_.reset();
                     menu::GameState& g = runtime_->game();
