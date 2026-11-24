@@ -47,9 +47,9 @@ below zero, then runs each phase for every car before the next:
 | 4 | 0x357700 | 0x1EA428 (changed) | preparation: 0x35C0B8 while the hold counter F +0x4BA runs, 0x35ACB0, step length (0x3658A0), 0x354AC0, aerodynamics (0x3F3090), the engine's full-throttle and friction torques at its speed (0x34E9A0 / 0x34EA08 into F +0x4E8 / +0x4EC), F +0x5BC = -(F +0x5B0 + F +0x5A4 - 9.8 x mass x F +0x44), peak force (0x357418, with the wear's grip 0x356EF0), slip angles (0x357690) (§3.3) |
 | 5 | 0x349FD0 | 0x1E4D38 (changed, four times the size) | the driver's input |
 | 6 | 0x35D1D0 | none | ❓ |
-| 7 | 0x3F7EA8 | 0x1E8978 (rewritten) | each wheel's steer angle (0x3F7CA8 is GT3's 0x1E8910) |
+| 7 | 0x3F7EA8 | 0x1E8978 (rewritten) | each wheel's steer angle (0x3F7CA8), the command's follower (0x40CC58), the slip angle's offset and the compliance steer (§3.3) |
 | 8 | 0x351778 | 0x1E7328 (same calls) | slip ratios (0x3513F8, changed; §3.3) |
-| 9 | 0x3F79A0 | 0x1E3B18 (rewritten) | the driving aids: a driven car's own (0x3F77B8) or its computer driver's (0x3F7828); TCS, brakes (0x3F9870), ASCC (0x3F94C0) |
+| 9 | 0x3F79A0 | 0x1E3B18 (rewritten) | the driving aids (§3.3): the indicators (0x3F71E8), a driven car's own aids (0x3F77B8) or its computer driver's (0x3F7828): TCS (0x3F9D00), brakes and ABS (0x3F9870), ASCC (0x3F94C0); the race's speed caps (0x3F7880, 0x3F76E8) |
 | 10 | 0x3535B0 | 0x1E8598 (changed) | in order: brakes and clutch (0x3511A0), rolling resistance (0x3534A0), tire curves (0x351850); for a car a computer drives (control source 1 / 2 or a driver kind), the class grip (below); the longitudinal force (0x3518E8), the lateral forces (0x352408), the speed along the body (0x351FA8), wheel torques (0x36D230), torque vectoring (0x36D2F8), the axles (0x36D818), the wheel speeds (0x36E4B8); then by the driveline's kind 0x3694D0, or engine speed and gear (0x3519B8, 0x351DC8 or 0x351EB0); 0x350ED0; the forces across the car and the yaw (0x352848) and the standstill hold (0x352C90), both with the airborne flag (the wheels' loads sum to 0) (§3.3). The gearbox's step by its kind: a one-speed box (kind 3) 0x3694D0 (the rpm) then 0x351EB0; a stepless box of kind 1, or a special car of kind 2, 0x3519B8 then 0x351EB0; any other 0x3519B8 then 0x351DC8 |
 | 11 | 0x3F38D8 | 0x1E6928 (small change) | brake heat (§3.3) |
 | 12 | 0x350308 | 0x1DFD90 | clears the hit record |
@@ -326,12 +326,67 @@ the same. "As the engine's" names the engine's routine (engine/gt3r/src/sim/exac
   clutch locked and requested; the speed along the body; every wheel's rim and hub speed; each axle at
   the speed over its tire radius (the driven axle's for both with unequal tires).
 
+- **The suspension's places** (0x36A490, 0x36A080, 0x36A1D8): F +0x5B4 = the body's up axis . the ground's
+  up axis; per wheel, wheel +0xC8 = its ground normal (course frame turned into the record's: (x, -z, y))
+  . the body's up axis; the hub's rest drop r_w = -(x_s) - (tire radius - P +0x2DC) + the hub offset
+  (0x3696C8; P +0x2DC + 4 a = the tire's sidewall, width x aspect, less a larger rim's half, at least half
+  an inch: 0x34BA30); the place along the travel F +0x410 + 4 w = ((pos z + hub z + up z x r_w) - (ground
+  + bump)) x ground up z / wheel +0xC8 - tire radius + hub offset - r_w; F +0x4B5 the wheels below their
+  bump stop. Not GT3's (the terrain factor ground up z / up z for all four).
+- **The suspension** (0x36A758): per wheel, wheel +0xD8 = the hub's velocity (the body's, plus the up axis
+  x (± half track x roll rate by side ± the axle's distance x pitch rate)) along its ground normal. Each
+  wheel's travel (0x369DE8) moves on with its own mass (block +0x38: the spec's unsprung kilograms x 0.25;
+  x + (v + (spring + damper) / m x dt / 2) x dt, held within the droop, block +0x44 while the hold counter
+  runs, and the bump stop); a travel more compressed than the ground's place leaves the wheel off the ground
+  (spring -x k, its speed (x - last) / dt within ±1, 0 at the droop, load 0); on the ground GT3's spring,
+  progressive rate, damper (0x369B48: GT3's root fit; with the switch 0x620DD9 a linear fit, block +0x48 /
+  +0x4C; with the word 0x620CB0 eased into a square law at 0x620CB8 ..: both off on the disc) and bump
+  damping; a negative load clears the damper and sets the spring to -the wheel's weight. Wheel +0xDC: 0 off,
+  1 on, 2 landed, 3 left. The half track (0x36A690) and camber (0x36A578) by the layout (GT3's rules; the
+  steering's camber on wheels ahead of the centre of gravity; the in-line layout's camber the steering x
+  P +0x1004 x cos(roll - ground roll)). Anti-roll per wheel group (0x36A048). Each wheel's body force F +0x420
+  + 4 w: its spring (-weight when unloaded), ∓ the bar by side, - the axle's downforce F +0x5A8 / +0x5AC
+  over its wheels, ± the longitudinal transfer P +0x38 x F +0x564 (x 2 / wheels when not 2); and, with the
+  static block's byte +0x139 set (it is), the lateral transfer per wheel: (P +0x1060 + place - hub offset +
+  tire radius) / half track x the wheel's lateral force (wheel +0xD4), ∓ by side (P +0x1060 = the spec's
+  +0x27 x 0.001); without it GT3's P +0x34 x -a_y. A wheel without a partner in its group takes no bar and
+  no lateral transfer.
+- **The attitude** (0x36B0C8; the start's hold 0x36AE20 not ported): pitch and roll from the body forces and
+  dampers by axle about P +0x11C .. +0x128 with the tires' moment (0x36AF30, GT3's), the pitch rate within
+  ±pi / 2, the roll rate within **±4 pi** (GT3 pi / 2), both angles within ±pi / 4; the body axes
+  (0x36C9F8). The heave by the static block's byte +0x114 (2 on the disc): each wheel's load less its own
+  weight, x (its ground normal . up), along its ground normal (1: the ground's up axis; 0: GT3's sum along
+  the body's up axis), plus (the tires' lift - the downforce) along up (the speed-switched part of kind 7
+  adds a lift near the ground), over the sprung mass F +0x4D8 (P +0x4C + fuel x 0.74, 0x354AC0; P +0x4C =
+  the mass less the wheels' own, 0x362B58); gravity; F +0x558 the acceleration along up. The in-line
+  layout's own lean term (0x62076C ..) is ported but no car uses it.
+- **The bump-stop nudge** (0x36BA88): GT3's, on the layout (kinds 1 .. 3 pick the wheels; kind 3 by the
+  front share P +0x24), with GT4's places and the hubs' heights 0x3457B0.
+- **The steering** (0x3F7EA8): each wheel's angle (0x3F7CA8: the command x P +0x10C / +0x110 by side ahead of
+  the centre of gravity; behind it -command x P +0x10CC x the ratio when P +0x10D0 is 1; the axle's toe
+  P +0x1008 + 4 a, atan2((spec +0x8E + a - 0x80) / 2 mm, tire radius), off on the left, on on the right);
+  the command's follower F +0x664 ..; with the mode word 0x845BF0 (the static block's +0xED, made by
+  0x3F7BE0 at the race's start) the slip angle's offset wheel +0x1C (rate +0x18) springing toward half the
+  slip direction's difference from the wheel's angle (0 on the surfaces 0x620288 marks), within ±limit; with
+  0x620AF0 the compliance steer wheel +0xCC (rate +0xD0) from curve A's force x P +0x1058, a dead band and a
+  gain by the car's age F +0x5E8 (tables 0x366100), added to the angle.
+- **The driving aids** (0x3F79A0): by the control source: a pad car its own block (P +0x1098, from spec
+  +0x1B8 / +0x1BA ..), a computer's car its driver's (the driver object at car +0x14, its parameter block
+  +0x24 .., from the course set's s9, s10, s20, s19, s21 .. s23, s11 .. s13, s24, 0x466C20); the indicators
+  F +0x470 .. +0x47C (0x3F71E8); TCS (0x3F9D00) on the driven wheels by layout, the target the tire's driving
+  slip (curve D's rising side with the static byte +0x117), a throttle follower above 100 km/h F +0x644;
+  brakes and ABS (0x3F9870: the target the braking slip, P +0x1024 / +0x102C / +0x1034 per axle; a dirt
+  course's brake cut by the steering, static +0xE5 ..); ASCC (0x3F94C0) through brake shares (0x3F9340);
+  the race's speed caps (rule block +0x42 / +0x43 / +0x4B / +0x4C, the rolling start's pace 0x3F7880, the
+  throttle for a speed 0x3F76E8); F +0x5F8 / +0x5F9 the ASCC's and TCS's states.
+
 ### 3.4 Others read so far
 
-- 0x36A490 (first of phase 19): F +0x5B4 = Σ the up axis x car +0x158 .. (3 words); each
-  wheel's +0xC8 term from its ground record's normal and the body's up axis; the suspension
-  0x36A080 (each wheel's place along its travel, car +0x514 + 4 w); F +0x4B5 = the mask of
-  wheels past their bump stop (0x36A1D8). Not ported.
+- A computer's input (0x3F3400, phase 5 for control sources 1 / 2): the handbrake and shift requests
+  cleared; the clutch request (ordinary gearbox, racing): with the clutch open, set once the rpm passes
+  three quarters of the up-shift speed (P +0x262), with it closed, set down to idle (P +0x202); 0 for a
+  stopped driver (kind 8); a box of kind 4 always 1. The session runs this rule; the rest of the input
+  phase (0x349FD0) is not ported.
 
 ### 3.5 The wheel layout
 
@@ -651,17 +706,26 @@ rules in the PlayStation 2's arithmetic), fed with Gran Turismo 4's data:
 | The engine's torques (phase 4), brakes and clutch, wheel torques, vectoring, the axle step, wheel speeds, engine speed and gearbox (phase 10), brake heat (phase 11) | `rules_drive.*`, `rules_wear.*` through `rules_step.*` | Gran Turismo 4 (§3.3) on the engine and driveline blocks; the four wheel drive's fade, the stepless rates, the controller settings and the brake heat's constants as the program has them (checked, §9). The Priuses' hybrid one-speed box, the box of kind 4 (the MTR GMV) and layout 7's motors (the Acura DN-X) run as an ordinary box; the fuel and nitrous are not counted. A car our computer drivers drive shifts by the engine's gearbox: the program shifts a computer's car at its driver's speeds (0x36BEE0 / 0x36BF28 through 0x3F1E30, the speeds x a driver byte / 128 ❓), and with the program's own speeds an automatic box can hunt (the Volkswagen Beetle 1100's down-shift into third and fourth at 3,500 and 4,000 rpm, its up-shift at 4,000). With the rest of the driveline Gran Turismo 4's, the original's arcade field at Tsukuba laps in 96.4 .. 101.7 s (the original's two-lap race: 92 .. 101 s a lap; the engine's throughout: 99.5 .. 105.4 s) |
 | A rolling start | `rules_start.*`, `session.cpp` | the car set-up's moving start (0x363868) after the session's hold; its places (rules::rolling_start_distance, the race's rule) on the road's middle, not the driving line |
 | The wear's grip, peak forces, slip angles (phase 4's tire part), slip ratios (phase 8), rolling resistance, tire curves, the longitudinal and lateral forces, the speed along the body, the forces across the car and the yaw, the standstill hold (phase 10) | `rules_*.cpp` through `rules_step.*` | Gran Turismo 4 (§3.3); the race's tables (`rules::tables`: the rolling resistance by surface and speed, the slip bytes, the globals) as the program's race set-up makes them (checked, §9); the wear rules off, as in every race seen |
-| The rest of preparation, the input, steering (the wheels' angles are equal; their offset for the slip angle, wheel +0x1C, is not made), aids, suspension, attitude, wear | the engine's routines | GT3 |
+| The suspension's places, suspension, attitude, bump-stop nudge, body axes (phase 19's first four and its axes), the steering (phase 7), the driving aids (phase 9: a computer's car by its driver's block, `Session::set_driver_aids`, as control source 2) | `rules_body.*`, `rules_steer.*`, `rules_aids.*` through `session.cpp` | Gran Turismo 4 (§3.3); while the hold counter runs, the engine's start hold |
+| The rest of preparation, the input (a computer's clutch request is the program's), wear, the new phases, the rest of phase 19 | the engine's routines | GT3 |
 | Collisions | the engine's collision step on the road's walls | the same routines as Gran Turismo 4's; the walls near a body are found by a grid of ours, levels by height |
 | Start | `session.cpp` `place` | the engine's race start (GT3's pose and standing start) on the first start places; a hold of 2 s before time 0 |
 | Distance along the course, laps | `ground.*` `distance_along` | ours (between the checkpoint gates) |
 | The driver of `gt4tool drive` | `line_driver.*` | ours; not a computer driver of the game's |
 
-So a car's weight, power, gearing, tires, springs and aids are its own, and so is how its tires
-and driveline answer the road; the suspension, the body's attitude and the aids answer as Gran
-Turismo 3's until their rewritten routines are ported. With the driveline Gran Turismo 4's the
+So a car's weight, power, gearing, tires, springs and aids are its own, and so is how its tires,
+driveline, suspension, body, steering and aids answer the road. Each car alone at Tsukuba with its computer
+driver, best of three laps from rest (the program's on its own physics, `gt4r_diff ai` / ours, s): Volkswagen
+1100 90.8 / 90.8, Honda S500 89.2 / 89.9, Ford Ka 83.1 / 83.6, MG Midget 91.6 / 92.3, Honda Z 99.6 / 93.9,
+Honda N360 100.4 / 97.2 (with the engine's suspension, attitude and aids: 93.2, 97.0, 89.0, 100.5, 99.6, 102.5;
+the S500's least speeds in the slow corners were 8 .. 18 km/h lower, the engine's ASM and TCS on the car's own
+block cutting in). The Z and N360 are faster than the program's: a computer's car shifts with the engine's
+gearbox (with Gran Turismo 4's, whose routine is equal at every call on the computer drivers' cars too, the Z,
+N360 and Midget lap as the program's, 100.7, 100.7, 91.7, but the Volkswagen hunts between second and third at
+47 km/h, which the program's does only briefly: ❓ the state that differs). With the driveline Gran Turismo 4's the
 figures below do not change: on these four cars its routines are the engine's later builds' to the
-bit (the taps show it). `GT4R_SIM_RULES=engine` runs the
+bit (the taps show it); with the suspension, attitude, steering and aids Gran Turismo 4's: 400 m Civic 16.05 s,
+NSX 13.45 s, Viper 12.50 s; top speed NSX 290.4 km/h, Viper 308.0 km/h. `GT4R_SIM_RULES=engine` runs the
 engine's routines throughout, for comparison. The figures a run gives (the engine's
 throughout → with Gran Turismo 4's routines): standing 400 m Mazda 787B 9.73 → 9.50 s, Dodge
 Viper GTS 12.98 → 12.67 s, Honda NSX Type R 13.70 → 13.55 s, Honda Civic Type R 16.23 →
@@ -739,15 +803,25 @@ object 0x6235A8 + 0x134 + 4 x table id; the row cache left out), and compares:
   set-up. `GT4R_STEP_ENGINE_TAPS=1` taps the engine's routines at the same calls, to see how they
   differ; `GT4R_LIST_DRIVES` / `GT4R_LIST_NEAR` (params) list the unusual drivetrains and the driveline
   values that differ.
-- Not compared yet: the aids' block, the steering curves; the step's routines not in §3.3.
+- The suspension's places, suspension, attitude and nudge (0x36A490, 0x36A758, 0x36B0C8, 0x36BA88) equal at
+  every call on the NSX, Civic, Viper, 787B, Impreza, S500, Ka and Midget; the steering phase and its helpers
+  (0x3F7EA8, 0x3F7CA8, 0x3F7E20, 0x40CC58, 0x36CC40, 0x36CCD8, 0x359568) and the aids' phase and its routines
+  (0x3F79A0, 0x3F71E8, 0x3F77B8, 0x3F7828, 0x3F9D00, 0x3F9870, 0x3F94C0, 0x3F9340, 0x3F92D0, 0x3F76E8,
+  0x3F7880, ...) equal at every call on ten cars, with made-up settings that run their other branches
+  (`GT4R_STEER_VARY`, `GT4R_AIDS_VARY`), and on the computer drivers' cars (`gt4r_diff ai` with
+  `GT4R_AI_STEER`, `GT4R_AI_AIDS`, `GT4R_AI_STEPTAPS`: the drivetrain's taps too). The converter's parts
+  they read (the wheels' masses, sidewalls, roll centre, held droops, speed-switched part, the aid blocks,
+  ABS and steering parameters) equal the program's on all 722 cars, but for a unit in the last place where
+  they take the engine converter's values.
+- Not compared yet: the step's routines not in §3.3.
 
 ## 10. Open
 
 - Everything marked ❓ above; the rewritten routines of §1; the three new phases.
-- The step's routines not yet in §3.3 (the ground contact, suspension and attitude (0x36A490,
-  0x36A758, 0x36B0C8, 0x36BA88), the steering's offset (0x3F7EA8, 300 lines with its helpers), the
-  aids, the driver input, wear, the new phases 0x355E10, 0x35CA60, 0x35D1D0, 0x3F28B8); our
-  session runs the engine's there (§8). The hybrid one-speed box (0x368628, 3,700 bytes with its
+- The step's routines not yet in §3.3 (the ground contact, the start's hold in the attitude (0x36AE20), the
+  speed-switched part's damping (0x3F2650), a special car's spring rate (0x35D248), the driver input
+  (0x349FD0), wear, the new phases 0x355E10, 0x35CA60, 0x35D1D0, 0x3F28B8, the rest of phase 19); our session
+  runs the engine's there (§8). A computer's car on Gran Turismo 4's gearbox (above). The hybrid one-speed box (0x368628, 3,700 bytes with its
   helpers), the box of kind 4 (0x356E58), layout 7's motors (0x356418, 0x3560F0, 0x356BB8, 0x355978),
   the fuel and nitrous (0x354B78, 0x354CE8), the top speed P +0xFD8 (0x360520; ours the engine's on
   644 cars) and the rest of the driveline builder (the tires 0x34BA30, the differentials 0x34AAD8).
