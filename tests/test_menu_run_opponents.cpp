@@ -93,3 +93,25 @@ TEST(disc_menu_arcade_opponents) {
     for (const std::string& c : gt) std::printf("  %s", c.c_str());
     std::printf("\n");
 }
+
+// A new car's figures (0x434E38 -> 0x440F78, 0x434FD0): run in, its showroom car's power; the never-driven
+// Panda Super i.e. '90 the original shows at 44 HP.
+TEST(disc_menu_new_car_power) {
+    Disc* disc = gt4_disc();
+    if (!disc || !sim::Program::load(*disc).known()) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    Flow f(*disc);
+    CHECK(f.boot_to_title());
+    script::Vm& vm = f.rt->vm();
+    const Value garage = vm.attribute(vm.lookup("main::game"), "garage");
+    const std::vector<Value> args{Value::string("panda_super_ie_90"), Value::integer(0)};
+    const Value place = vm.call(vm.attribute(garage, "addNewCar"), args);
+    CHECK(place.is_number() && place.i >= 0);
+    if (!place.is_number() || place.i < 0) return;
+    const menu::GarageEntry& e = f.rt->game().garage[size_t(place.i)];
+    CHECK(e.power == 4454 && e.weight == 730); // 44.545 PS, the showroom car's (sim_program_showroom_equal)
+    // In the player's unit (US: HP) as the car pages write it (getCurrentPs).
+    const menu::GameState::Unit unit = f.rt->game().power_unit();
+    const s32 shown = s32(float(e.power) / 100.0f * unit.factor + 0.5f);
+    std::printf("  Panda: entry power %u, weight %u, shown %d %s\n", e.power, e.weight, shown, unit.name);
+    CHECK(shown == 44);
+}
