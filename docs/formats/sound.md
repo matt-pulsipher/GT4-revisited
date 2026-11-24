@@ -506,8 +506,12 @@ sides' crossfaded levels).
   course's replay script: **in a replay the cars and the course fall to 0.45 on the script's shots
   and come back on the on-board ones**. (The saved state taken in the replay shows kind 1 and the
   flag off.) The second is the free run's (RaceFreeRun 0x3BA6A0, 0x3BA8B8, 0x3BA938, on a change
-  only): on while it plays a recording of its own (`%08d.xsp`, 0x4606D0, through 0x460600 ..
-  0x460758, when the module at [0x84688C] is there) ❓ what that is. 0x391DC8 fades out (0x3E1C80,
+  only): on while it plays a narration clip (`narration/<region>/%08d.xsp`, 0x4606D0 → 0x460658:
+  the narration's level 1.0 through 0x460600, the clip through the stream routines 0x5587C0 /
+  0x558830). The narration module reads `narration/<region>/narration.inf` (0x460580: 16 bytes to
+  0x846880: `"NARR", u32 1, u32 0, u32`) and plays clips only while the last word ([0x84688C]) is
+  not 0; on the US disc it is 0 and the folder holds no `.xsp` (its 56 `.ads` are the event and
+  license narrations, `ev*e.ads`, `l0p*e.ads`): **the free run's duck never turns on** there. 0x391DC8 fades out (0x3E1C80,
   0x3E1EA0 ❓). `RaceSound::fade(target, seconds)` is the routine; `set_replay_shot(designer)`
   (every step of a replay) and `set_free_run_duck(on)` are the ducks; `replay()` starts the
   master from 0 over 3 s.
