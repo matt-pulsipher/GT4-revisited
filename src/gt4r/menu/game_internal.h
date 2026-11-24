@@ -147,6 +147,8 @@ void make_used_condition(Database& d, CarRecord& r, u32 meters);
 void install_records(GameNatives& n, Object& game, script::Module& menu);
 // Gran Turismo 4 Prologue's main::game.license (prologue_natives.cpp).
 void install_prologue_license(Object& game);
+// A Prologue license run's points (0x19F410) from its RACE row (in Gran Turismo 4's columns), its result's name and time.
+s32 prologue_license_points(ByteSpan row, const std::string& result, u32 time_ms);
 
 // ---- game_replays.cpp
 // The replays saved in the data folder's replays/, newest first.

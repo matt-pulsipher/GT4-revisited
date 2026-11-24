@@ -202,3 +202,25 @@ TEST(disc_prologue_race_display) {
     CHECK(disc_file(*disc, "race/JP/display/display.imgs").has_value());
     CHECK(disc_file(*disc, "menu/pause.strb").has_value() && disc_file(*disc, "menu/result.strb").has_value());
 }
+
+// A Prologue license run's points (0x19F410 with 0x19F508 / 0x19F620 / 0x19F670) from a RACE row in Gran Turismo 4's
+// columns: gold 100 x (silver - time) / (silver - gold), silver 50 x (bronze - time) / (bronze - silver), bronze 10; a test
+// without a bronze time gives silver 50; one of kind 4 or more (+0x3E) 100 / 50 / 10.
+#include "gt4r/menu/game_internal.h"
+
+TEST(prologue_license_points) {
+    std::vector<u8> row(0x97, 0);
+    auto put = [&row](size_t k, u32 min, u32 sec, u32 ms) {
+        row[0x76 + 2 * k] = u8(min), row[0x77 + 2 * k] = u8(sec);
+        row[0x1A + 2 * k] = u8(ms), row[0x1B + 2 * k] = u8(ms >> 8);
+    };
+    put(0, 0, 12, 180), put(1, 0, 12, 200), put(2, 0, 13, 0); // l0p0002's
+    CHECK(menu::prologue_license_points(row, "gold", 12000) == 100 * 200 / 20);
+    CHECK(menu::prologue_license_points(row, "silver", 12190) == 50 * 810 / 800);
+    CHECK(menu::prologue_license_points(row, "bronze", 12500) == 10);
+    CHECK(menu::prologue_license_points(row, "failed", 14000) == 0);
+    put(2, 0, 0, 0); // no bronze time
+    CHECK(menu::prologue_license_points(row, "silver", 12190) == 50);
+    row[0x3E] = 4;
+    CHECK(menu::prologue_license_points(row, "gold", 12000) == 100);
+}

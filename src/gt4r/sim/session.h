@@ -10,6 +10,7 @@
 #include "gt4r/sim/collide.h"
 #include "gt4r/sim/ground.h"
 #include "gt4r/sim/record.h"
+#include "gt4r/sim/rules_prologue.h"
 #include "gt4r/sim/rules_step.h"
 #include "sim/exact/tick.h"
 
@@ -75,6 +76,8 @@ public:
     // engine's throughout (Gran Turismo 3's rules on Gran Turismo 4's cars), for comparison.
     void set_gt4_rules(bool on) { gt4_rules_ = on && gt4_ready_; }
     bool gt4_rules() const { return gt4_rules_; }
+    // Whether the session runs Gran Turismo 4 Prologue's own step (its program recognized; rules_prologue.h).
+    bool prologue_rules() const { return prologue_.has_value(); }
     // A car's Gran Turismo 4 part of the record (record.h) and wheel layout.
     const sim::Extra& gt4_record(size_t i) const { return gx_[i]; }
     // The aid block of the computer driver that drives a car (rules::driver_block from the course's set for the car:
@@ -130,6 +133,9 @@ private:
     rules::AidRace aid_race_;
     rules::Tables tables_;
     bool gt4_ready_ = false, gt4_rules_ = false;
+    // Prologue's program: its own step (rules_prologue.h) in place of the engine's routines it does not share.
+    std::optional<prologue::Tables> prologue_;
+    std::vector<prologue::CarPart> prologue_cars_;
     std::vector<Spec> specs_;
     std::vector<race::CarState> states_;
     std::vector<std::string> notes_;

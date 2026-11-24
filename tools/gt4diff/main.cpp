@@ -6,6 +6,10 @@
 #include "base/log.h"
 #include "diff.h"
 
+namespace gt4r::diff::prologue {
+int run(Disc& disc, const std::string& course, const std::string& car, int steps);
+}
+
 #include <cstdio>
 #include <cstdlib>
 #include <algorithm>
@@ -30,6 +34,8 @@ int main(int argc, char** argv) {
         if (test.empty() || test == "params") ok = gt4r::diff::run_params(*disc, true).ran && ok;
         if (test.empty() || test == "leaves") ok = gt4r::diff::run_leaves(*disc, true).ran && ok;
         if (test.empty() || test == "step") ok = gt4r::diff::run_step(*disc, true).ran && ok;
+        if (test == "prologue") // gt4r_diff <prologue disc> prologue [course] [car] [steps] (prologue_step.cpp)
+            return gt4r::diff::prologue::run(*disc, argc > 3 ? argv[3] : "tsukuba", argc > 4 ? argv[4] : "civic_typer_97", argc > 5 ? std::atoi(argv[5]) : 1200);
         if (test == "ai") { // gt4r_diff <disc> ai [course] [car,car,...] [laps]
             std::vector<std::string> cars;
             const std::string list = argc > 4 ? argv[4] : "_1100_standard_type11_49,z_act_70,n360_67,midget2_d_type_98,s500_63,ka_01";

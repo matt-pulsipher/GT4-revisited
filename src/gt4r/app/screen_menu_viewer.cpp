@@ -228,8 +228,14 @@ private:
                 if (audio::AppSound* sound = app.sound()) play_sound_call(sound->menu(), call);
             };
             // The options' menu volumes (game_settings.h).
-            runtime_->on_options = [&app](const menu::GameSettings& s) {
-                if (audio::AppSound* sound = app.sound()) sound->menu().set_music_option(s.menu.music), sound->menu().set_effect_option(s.menu.effects);
+            // Prologue's options have the music on or off only (its option object's menu_bgm, race_bgm, replay_bgm: no volume
+            // property), and its music plays at full level (its saved states' music master 16383).
+            const bool prologue_disc = disc && disc->info().serial.rfind("SCPS", 0) == 0;
+            if (prologue_disc)
+                if (audio::AppSound* sound = app.sound()) sound->menu().set_music_option(1.0f);
+            runtime_->on_options = [&app, prologue_disc](const menu::GameSettings& s) {
+                if (audio::AppSound* sound = app.sound())
+                    sound->menu().set_music_option(prologue_disc ? 1.0f : s.menu.music), sound->menu().set_effect_option(s.menu.effects);
             };
             live_drawer_ = std::make_unique<PageDrawer>(app);
             PageDrawer* drawer = live_drawer_.get();
