@@ -150,6 +150,9 @@ Setup setup_from_env() {
             else s.start = race::StartType::Given, s.start_seconds = std::clamp(std::atoi(v.c_str()), 0, 60);
         }
     }
+    // (A run driven unseen for its replay: the computer drivers drive the player's car too, not the
+    // simple driver.)
+    if (s.replay > 0) s.auto_drive = true;
     return s;
 }
 
@@ -425,6 +428,9 @@ public:
         const course::Runway& road = world_->course().road();
         course::Runway::Place grid;
         if (!road.grid.empty()) grid = road.grid[0];
+        // (The long clip's anchor: the place, its height from the road under it (0x3FCA08); a grid place's
+        // own height is rough on some courses: Apricot Hill's are 4 m under the road, playtest B25.)
+        if (float y; !road.grid.empty() && road.height_at(grid.pos.x, grid.pos.z, grid.pos.y + 50.0f, y)) grid.pos.y = y;
         const int hold = replay ? flow_.hold_total() : flow_.hold_left();
         start_camera_.begin(m.clips.empty() ? nullptr : &m, replay, hold, grid, replay && !history_.empty() ? history_[0][0] : world_->cars()[0]);
     }
