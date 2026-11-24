@@ -166,6 +166,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
                 if (!e.tcs_on) r.x.aids.own.tcs_gain = F();
                 gx_[i] = r.x;
                 layouts_[i] = r.layout;
+                rules::speed_part_params(gx_[i].near, specs_[i]); // (the converter's, 0x3621B0)
             }
         }
         c.pedal_style = e.automatic ? 0 : 1;
@@ -453,7 +454,14 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
 
         ex::save_previous(c);
         const F filter = c.slip_filter;
+        // (the engine's preparation reads the wheels' surfaces as its 16-row index: with Gran Turismo 4's rules they are the
+        // 24-row one, whose wet rows 16 .. 23 lie past the engine's tables; its peak forces are made again below)
+        u8 surface[4];
+        for (size_t w = 0; w < 4; ++w) surface[w] = c.w[w].surface;
+        if (gt4_rules_)
+            for (size_t w = 0; w < 4; ++w) c.w[w].surface = u8(core_surface(c.w[w].surface));
         ex::prep(c, race_.prep);
+        for (size_t w = 0; w < 4; ++w) c.w[w].surface = surface[w];
         if (gt4_rules_) { // Gran Turismo 4's aerodynamics (0x3F3090) in place of the engine's
             c.slip_filter = filter;
             const rules::BodyExtra& b = gx_[i].body;
@@ -509,6 +517,14 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
         ex::clear_feedback(c);
     }
     collide();
+    if (gt4_rules_) {
+        // Phase 14 (0x3F4638): which cars are near which, the slipstream's targets; phase 15 (0x3F28B8): the part that
+        // changes with speed.
+        std::vector<rules::NearCar> near(cars_.size());
+        for (size_t i = 0; i < cars_.size(); ++i) near[i] = {&cars_[i], &gx_[i].near};
+        rules::proximity(near, pairs_, F(road_->length), 0);
+        for (size_t i = 0; i < cars_.size(); ++i) rules::speed_part(cars_[i], gx_[i].near, gx_[i].body.speed_part_kind, gx_[i].chassis.speed_part_state);
+    }
     for (size_t i = 0; i < cars_.size(); ++i) {
         ex::Car& c = cars_[i];
         chassis(i);
@@ -590,6 +606,19 @@ void Session::publish(size_t i) {
             const float d = v - x.last_v;
             if (d < -road_->length * 0.5f) ++s.lap;
             else if (d > road_->length * 0.5f) --s.lap;
+        }
+        // The distance along the course F +0x4A4 and its change a step x 60, F +0x650 (0x358608 after the step: phase 14 reads
+        // both). ❓ ours is measured between the checkpoint gates, not along the program's own line.
+        if (i < gx_.size()) {
+            F rate = F();
+            if (x.has_v && road_->length > 0) {
+                float d = v - x.last_v;
+                if (d < -road_->length * 0.5f) d += road_->length;
+                else if (d > road_->length * 0.5f) d -= road_->length;
+                rate = F(d) * F::raw(0x42700000);
+            }
+            cars_[i].f3e4 = F(v);
+            gx_[i].near.course_rate = rate;
         }
         // A start place behind the line: the first lap begins when the car crosses it.
         if (!x.has_v && road_->length > 0 && v > road_->length * 0.5f) s.lap = -1;

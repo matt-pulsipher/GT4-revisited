@@ -143,8 +143,10 @@ TEST(sim_program_step_routines_equal) {
             if (t.equal != t.calls) std::printf("  %s, %s: %zu of %zu calls equal\n", car, t.name.c_str(), t.equal, t.calls);
             // (a stepless box's own gear step; the aids' speed caps' throttle and the TCS's rising slip, which a pad car runs only
             // under a cap or with its TCS on: gt4r_diff's GT4R_AIDS_VARY runs them; the two-wheeler's lean and the angle helpers
-            // the steering's offset uses rolling backwards or in mode 2: GT4R_STEER_VARY)
-            const bool rare = (t.name == "gear" && std::string(car) == "fit_w_ff_01") || t.name == "aids: hold throttle" || t.name == "aids: rising slip" ||
+            // the steering's offset uses rolling backwards or in mode 2: GT4R_STEER_VARY; phase 14's pair routines, which need two
+            // cars, and the speed-switched part's routines, on the cars that have one: test_sim_near.cpp; the input phase's taps
+            // for other controllers and options: GT4R_INPUT_VARY)
+            const bool rare = t.name.rfind("near:", 0) == 0 || t.name.rfind("speed part:", 0) == 0 || t.name.rfind("input:", 0) == 0 || (t.name == "gear" && std::string(car) == "fit_w_ff_01") || t.name == "aids: hold throttle" || t.name == "aids: rising slip" ||
                               t.name == "steer: lean angle" || t.name == "steer: angle difference" || t.name == "steer: angle blend";
             CHECK((t.calls > 0 || rare) && t.equal == t.calls);
         }

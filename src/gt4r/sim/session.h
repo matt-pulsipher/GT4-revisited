@@ -127,6 +127,7 @@ private:
     std::vector<std::optional<gt3r::sim::exact::Aids>> driver_aids_; // a computer driver's aid block per car
     std::vector<std::optional<std::array<gt3r::ee::F, 3>>> driver_grip_; // and its grip by tire class
     rules::AidRace aid_race_;
+    rules::NearPairs pairs_; // phase 14's tables of the cars' pairs
     rules::Tables tables_;
     bool gt4_ready_ = false, gt4_rules_ = false;
     std::vector<Spec> specs_;

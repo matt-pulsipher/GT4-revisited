@@ -189,7 +189,11 @@ Pad drive(int i) {
 
 } // namespace
 
-void add_step_taps(Taps& taps) { add_taps(taps); }
+void add_step_taps(Taps& taps) {
+    add_taps(taps);
+    add_taps_near(taps);
+    add_taps_phases(taps);
+}
 
 StepResult run_step(Disc& disc, bool print, const std::string& course_label, const std::string& car_label, int step_count) {
     StepResult result;
@@ -220,6 +224,9 @@ StepResult run_step(Disc& disc, bool print, const std::string& course_label, con
     add_taps(taps);
     add_taps_aids(taps);
     add_taps_steer(taps);
+    add_taps_near(taps);
+    add_taps_phases(taps);
+    add_taps_input(taps);
     // GT4R_STEP_COLLIDE: the collision step and the road query against ours at every call (collide_check.cpp).
     std::unique_ptr<CollideCheck> collide_check;
     if (std::getenv("GT4R_STEP_COLLIDE")) {
