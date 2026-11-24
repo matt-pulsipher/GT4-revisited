@@ -263,12 +263,12 @@ TEST(sound_race_tables_on_disc) {
         if (disc->info().game != Game::GT4) {
             // Prologue: the gains as floats (0x3B3978 reads them), no microphones (its panner is
             // 32 / distance, 0x3A1D38).
-            CHECK(t.found_gains && t.found_params && !t.found_mics);
+            CHECK(t.found_gains && t.found_params && !t.found_mics && !t.found_afterfire && !t.option_level);
             CHECK(near(t.view_gain(V::InCarTarget, C::Engine), 5.6, 1e-5) && near(t.view_gain(V::ChaseTarget, C::Exhaust), 6.0, 1e-5));
             CHECK(t.view_gain(V::InCarOther, C::InCar) == 0 && near(t.view_gain(V::Other, C::Exhaust), 6.0, 1e-5));
             continue;
         }
-        CHECK(t.found());
+        CHECK(t.found() && t.option_level);
         // The afterfire's table (0x622320): a road car's own muffler without a boost from 500 PS to
         // 1000, a racing car's from 100 PS to 400.
         CHECK(t.found_afterfire && t.afterfire[0] == 50 && t.afterfire[1] == 100 && t.afterfire[14] == 10 && t.afterfire[15] == 40);
@@ -653,3 +653,23 @@ TEST(sound_race_free_run_duck) {
     CHECK(near(sound.master() / full, 1.0, 1e-3));
 }
 
+
+// Prologue's master: the effects option's flag only (1 with the option on, whatever its level), its
+// two parts 1.0 in the original's saved states of a race and the pre-race page.
+TEST(sound_race_prologue_master) {
+    Disc* disc = nullptr;
+    for (const std::unique_ptr<Disc>& d : test::discs())
+        if (d->info().game == Game::Prologue) disc = d.get();
+    if (!disc) SKIP("needs the Prologue disc (GT4R_DISC)");
+    gt3r::Vfs vfs(&disc->volume());
+    audio::OfflineSound s(false);
+    auto library = std::make_shared<audio::SoundLibrary>(vfs);
+    audio::RaceSound sound(vfs, s.mixer(), s.driver(), library, audio::RaceSoundTables::from_core(disc->read_program()));
+    audio::RaceSoundOptions o;
+    o.effects = 64;
+    sound.set_options(o);
+    for (int i = 0; i < 60; ++i) sound.update(std::span<const audio::CarSoundState>{}, audio::SoundListener{}, -1);
+    const float table = library->levels().level(int(audio::OutputMode::Stereo), sound::VolumeTable::Race);
+    std::printf("  Prologue: the master %.3f (the mix level %.3f)\n", double(sound.master()), double(table));
+    CHECK(near(sound.master(), table, 1e-5));
+}

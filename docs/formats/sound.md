@@ -605,7 +605,13 @@ the Doppler constant at 0x378B88) but other tables:
   32 / distance, then held to -1..1 with the frame's scale, × [0x503978] × [0x50397C] 🔎 (the
   master's parts); the quarter metre, the pan and the surround flags as GT4's. `RaceSoundTables`
   then leaves the microphones off, which is that rule.
-- ❓ Its master's parts and fades.
+- **Its master**: [0x503978] × [0x50397C]. 0x3A13E0 sets the first to 1.0 or 0 by the race
+  effects option's flag alone (no level, no mix table: Prologue's disc has no `sdvol.dat`); the race's
+  setup (RaceBase virtual 22, 0x37BB08, and 0x37D794) sets the second to 1.0. Both read 1.0 in the
+  original's saved states of a race and of the pre-race page. `RaceSoundTables::option_level` is
+  false for this program and `RaceSound` takes the option as 1 or 0. ❓ Prologue's menus' music
+  level (ours: the option's 115 / 128; its recording's arcade pages at -11.6 dB, our options
+  sequence at 1.0 -12.7 dB).
 - **Its car sounds** are read as Gran Turismo 4's from its database presented in Gran Turismo 4's
   layout ([prologue.md](prologue.md)): every engine's file is on the disc.
 
@@ -643,7 +649,12 @@ gain (least squares under 1 kHz, or in `--band`). Renderings to compare come fro
 | Engine by view | the fundamental at -26 dB from nose, chase and bonnet views alike; chase at full throttle (21-23.5 s): -27 dB at 176 Hz, -19.9 dB in 120-400 Hz | the Ka at 5,650 rpm from the chase view: -25 dB at 181 Hz, -18.8 dB in 120-400 Hz | within 2 dB |
 | Title page | no music; `cursor` every move | | same |
 
+| Streamed music, again | `race_36` in the B-spec race (`bspec_race_whole`, from 170.3 s): × 0.206..0.224 of the stored samples (four fits of 5 s, waveforms correlate 0.69..0.79) | 0.2695 | the original 2.3 dB under ours ❓: the level goes to the IOP's stream module as a float (0x461C28 → 0x55C4A8 → 0x55C148), so its conversion is not in `CORE.GT4`; beside it 0x461620 sends the music's master (level × `sdvol` level 1 × the menu music option × 16383, 0x55C458) |
+| Gran Turismo mode's page effects | `oil_jackdown` in the oil change (197.3 s of `home_garage_gtauto_tuneshop_walk`): gain 0.97 / 0.95 (correlation 0.23 under the page's music); the car wash (110 to 121 s) adds -23.2 / -25.7 / -29.4 / -37.0 dB in the octaves at 645 / 322 / 1289 / 2579 Hz | `car_wash` at the menus' level: -25.9 / -27.3 / -29.2 / -36.6 dB | same; the wash 1.5 to 2.7 dB under at 0.3 to 0.65 kHz |
+| Contacts | the Ka scraping the tire wall (`tsukuba_start_chase_view_throttle_held`, 30 to 49 s): bursts at 2 to 8 kHz up to -24 dB; `clash` / `clash2` / `clash4` found there by their spectra (match 0.64 to 0.72) | | the levels not settled (sample fits correlate under 0.19) |
+| Results and prize jingles | not found by spectra or sample fits in `bspec_race_whole` (FINISH 214 s) or the Sunday Cup video (`goal`, `result`, `torophy_*`, `champ_goal`, `etc_goal`): in the arcade race `race_36` plays on to the end | | ❓ what the original plays after the finish |
+
 ❓ Not compared yet: the course ambience (crowds, tunnels: Route 5's recording has no racing piece
-the play list explains), the wheels' notes and contacts (no clean recording of a slide or a hit),
-Grand Canyon's dirt sounds, Gran Turismo mode's pages.
+the play list explains), the wheels' notes (no clean recording of a slide), Grand Canyon's dirt
+sounds, Seattle.
 

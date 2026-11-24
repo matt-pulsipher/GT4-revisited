@@ -82,6 +82,9 @@ struct RaceSoundTables {
     float afterfire_chance(int kind, bool boosted, float ps) const;
 
     bool found_gains = false, found_mics = false, found_params = false, found_afterfire = false;
+    // The master takes the effects option's level (Gran Turismo 4: its raw value / 128). Prologue's
+    // program (its gains as floats) takes only the option's flag: 1 or 0 ([0x503978], 0x3A13E0).
+    bool option_level = true;
     bool found() const { return found_gains && found_mics && found_params; }
 
     float view_gain(SoundView v, SoundChannel c) const { return gain[size_t(v)][size_t(c)]; }

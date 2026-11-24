@@ -174,7 +174,7 @@ RaceSoundTables RaceSoundTables::find(ByteSpan image) {
     size_t gains = 0;
     t.found_gains = find_gains(image, t, &gains);
     t.found_afterfire = t.found_gains && find_afterfire(image, gains, t);
-    if (!t.found_gains) t.found_gains = find_float_gains(image, t);
+    if (!t.found_gains && find_float_gains(image, t)) t.found_gains = true, t.option_level = false;
     t.found_mics = find_mics(image, t);
     t.found_params = find_params(image, t);
     return t;

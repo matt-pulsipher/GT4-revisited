@@ -285,7 +285,7 @@ void RaceSound::update(std::span<const CarSoundState> states, const SoundListene
     fade_ = fade_ < fade_target_ ? std::min(fade_ + fade_step_, fade_target_) : std::max(fade_ - fade_step_, fade_target_);
     const float table = library_ ? library_->levels().level(int(options_.mode), sound::VolumeTable::Race) : 1.0f;
     const bool on = replay_ ? options_.replay_effects_on : options_.effects_on;
-    const float option = on ? float(replay_ ? options_.replay_effects : options_.effects) / 128.0f : 0.0f;
+    const float option = !on ? 0.0f : mix_->tables.option_level ? float(replay_ ? options_.replay_effects : options_.effects) / 128.0f : 1.0f;
     mix_->master = option * fade_ * table;
     const float master = mix_->master;
 
