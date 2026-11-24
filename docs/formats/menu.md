@@ -60,7 +60,7 @@ none compared with the program's own code yet):
 | `visible` 0 | Not drawn, nor its children |
 | `visible_condition`, `visible_compare` | Drawn when `(state & visible_compare) == visible_condition` (either absent: 0, and the mask is the condition). The state's bits by the older files' `cond_active`, `cond_focus`, `cond_prelight`, `cond_insensitive`: 1 active, 2 focus, 4 prelight, 8 insensitive; a focused widget's faces test 2 or 4 (the runtime sets both) |
 | `opacity` | Multiplies the alpha of the widget and its children |
-| `clip` 1 | Children are cut to the rectangle. The boxes (`Box`, `HBox`, `VBox`, `FBox`, `MBox`, `RootWindow`, `OptionMenu`, `ScaleBar`, `SliderBar`) cut by default (mBox's constructor 0x200C08 sets it, 0x206858); other composites do not (0x204F10): the layouts write `clip 0` on boxes and `clip 1` on the others |
+| `clip` 1 | Children are cut to the rectangle. The boxes (`Box`, `HBox`, `VBox`, `FBox`, `MBox`), `RootWindow` (0x232E00) and `SelectBox` (0x2D8C90: the event halls' lists) cut by default (mBox's constructor 0x200C08 sets it, 0x206858); `OptionMenu` (0x2C7498), `ScaleBar` (0x236860) and `SliderBar` (0x2DD820), boxes too, turn it off again; other composites do not (0x204F10): the layouts write `clip 0` on boxes and `clip 1` on the others |
 | `ColorFace` `color` | One colour, or four for the corners clockwise from the top left |
 | `ImageFace` `image_path`, `color` | The picture over the rectangle, tinted; `blend` 1 adds |
 | `FrameImageFace` `tl_`, `t_`, `tr_`, `l_`, `r_`, `bl_`, `b_`, `br_image_path`, `image_path` | Corners at their own size, sides stretched between, the middle over the rest |
@@ -354,8 +354,11 @@ A widget's `actor` is stepped each picture.
   1 / (period x 60). `MColorTransition` (0x286EA0, update 0x287348) covers the screen with its
   color by 1/15 a picture. **MCrossTransition** (0x28A6B0, 0x28A5B8): its out half is done at
   once; coming in, t falls from 1 by 1/30 a picture (one more picture at 0) and every page is
-  drawn at opacity 1 - t and size 1 + t² about the screen's middle. ❓ Its trail (the last
-  picture blended over at `magnify_ratio` with a black veil) is not drawn. **MBlockTransition**
+  drawn at opacity 1 - t and size 1 + t² about the screen's middle, and each picture of the in
+  half takes its trail (0x2182E0): the picture shown last drawn over at `magnify_ratio` (0.5),
+  from its rectangle cut by `magnify_diff` (0) pixels a side, then black at 0.1 (`with_black`,
+  1); `type` "capture" (0) instead holds the captured screen over the new page at alpha t (❓
+  not drawn here: no script sets it). **MBlockTransition**
   (0x27AEE0, 0x27B2A8): the screen as it was is held in 32 x 24 blocks of 20 pixels; each
   block's timer starts at 1 + a random part of `range` (0.125) + its column / 32 x `slope` (2;
   a negative slope from the right) and falls by 2/15 a picture; a block shows at alpha
@@ -670,12 +673,48 @@ A project's script names files of the disc's top beside its own (gtmode's
 ### Drawn in the app
 
 A running page is drawn from the live widgets with the rules of the table above, and:
-a text of several lines (`multiline`) is broken at spaces to its rectangle unless a box
-places it (`equalized`: ❓ such a line spread to the width at its spaces), made narrower when
+a text of several lines (`multiline`) is broken at spaces: one that is not `equalized` when the
+next word would pass the face's width (❓ the renderer's own break, 0x491418, is not ported: the
+event pages' one-line notices fill their 544 units to within a few); an `equalized` one as the
+program's word wrapper does (0x245C90): each word measured by itself, a word starts a new line when the line so far (its
+words each with a space after it) and it reach the face's width less the font's double-byte
+step (❓ that margin is the renderer's right edge, 0x490660, which the four reference texts'
+breaks agree with; the comparison read at 0x245F1C is against the bare width); a face without
+`geometry` takes its parent's width. With `equalized` a line broken to fit is spread at its
+spaces to end a space short of the width, each space at most 2.5 spaces wide (0x24600C); the
+last line and a line ended by a line end keep plain spaces (❓ the program does this only for
+the languages 0x245568 lets through: not index 0 or 9-11); made narrower when
 the script asked (`adjustScale`: the widest line to the face's width), or cut with an ellipsis
 (`abbreviate`); a key is looked up in the page the layout has the widget in, wherever the
 scripts copy it; an open option list is drawn over the page; the cursor and the transitions
 as below.
+
+**Names in the menus' language**: the car database's names come from `CAR_NAME_<language>`
+and `<language>_StrDB` of the menus' language (Prologue, Japan: `japanese`, "フェアレディ 240ZG
+`71"; the US disc: `american`).
+
+**Before the menus** (`app/menu_advertise.h`; GT4FIRSTADVERTISE::DisplayAdvertiseImage,
+0x108F78): `advertise/us/main.img`'s pictures in the middle of the frame buffer on black, each
+brightened in over 15 steps, held the seconds given x 30 steps and darkened out over 15 (a step
+every other field: 0x109048, 0x109080); the program's list (0x618700) holds texture 2 ("Sony
+Computer Entertainment America Presents", 3 s). The copyright notice (texture 0) before it is
+shown here for 1 s (❓ judged from the reference: about 2 s on screen; not found in the list).
+Texture 1 is the Polyphony Digital logo, texture 3 a demo disc's notice. Shown when the app runs
+as the game (scripted runs: `GT4R_MENU=advertise=1`); the boot project starts after them.
+
+**The loading page** (`app/menu_loading.h`; the program's LoadingPS2, 0x102840, its modes
+0x104E30): between two projects the "black" mode: a black quad fades in over the last page in
+1 s; once whole, one of two pictures of `advertise/gtloading.img` chosen at random (0x579358:
+texture 0 the GT logo on the frame buffer's x 220..412, y 168..264; texture 1 the blue and red
+stripes, x 240..400, y 176..256) and the tachometer fade in over 1 s together; at the end the
+page fades out in 0.25 s. The tachometer is a picture of the program (a Tex1 at 0x68C080: texture
+0 a black dial for light pages, texture 1 the needle and its trail for dark ones), 64 x 64 about
+(320, 341) of the 640 x 448 frame buffer, coloured (130, 130, 150), turning clockwise 720 degrees
+a second (0x104150). The program shows it while the disc loads; here the next project starts
+once the black is whole, the page holds 0.5 s after the picture is in (❓ judged) and takes no
+keys. ❓ Not done: the "capture" mode the scripts set before a race (the last picture held under
+the tachometer), "snow", "fade in", "simple", "off"; the tachometer's red while the disc check
+0x548850 fails.
 
 **Text** (`menu/text_layout.*`; the program's 0x491028 a line at a time, 0x4940E8 the marks,
 0x492978 a character). Gran Turismo 4's font record has two bytes past Gran Turismo 3's:
@@ -715,7 +754,7 @@ Checked against the original's first dialog: every word of its lines starts wher
 original's does (to the pixel, `disc_menu_text_layout`).
 
 **Tool tips** (mToolTipFace): the text is the page's `TOOLTIP|<key>` (0x249B70; ❓ the key's
-own text when there is none). A tip is its page's when it loads (0x24A020 calls attach,
+own text when there is none, and nothing when the key has no text either). A tip is its page's when it loads (0x24A020 calls attach,
 0x249FB8: the page's +0xEC), and then shows the focused widget's tool tip (the nearest with
 `tooltip` and a `tooltip_key`); `remove()` takes it off the page (0x249FF0; here its text is
 cleared too) and `attach()` puts it back. It is not aligned (its style's `aligned` off,
@@ -752,15 +791,14 @@ frame is submitted, so two faces of one size through one view showed the same pi
 picture's texture is kept by what the picture holds (pictures are freed with their pages).
 
 The title page left alone for the option `timeout_count_to_autodemo` (20 s) asks for the
-sequence `autodemo` (its `onTick`, `context.time_after_last_input`): ❓ here the opening movie
-(`demo_movie` with `opening`, starting with the Polyphony logo as the original's capture
-shows), then back to the title; the configuration lists demo replays (`Rdemo0`..) for it,
-which are not played.
+sequence `autodemo` (its `onTick`, `context.time_after_last_input`): the opening movie
+(`demo_movie` with `opening`, after the Polyphony logo), then back to the title with its focus
+on Arcade Mode, as the original's capture shows (reference 28: no demo race plays from the
+title; the configuration's demo replays, `Rdemo0`.., are the Replay Theater's Demo tab).
 
 ❓ Not drawn: `SceneViewFace`, `SlideShowFace`, `RaceCourseMapFace`, `PhotoViewFace`,
-`PhotoRenderFace`, `EyetoyFace`, `VirtualFace`, `LoggerFace`; the loading page between
-projects (the program's LoadingPS2 with `/advertise/gtloading.img` and the cursor's `load`
-icon).
+`PhotoRenderFace`, `EyetoyFace`, `VirtualFace`, `LoggerFace`; the cursor's `load` icon; the
+loading page's modes other than black (below).
 
 #### Graphs (`GraphFace`; `menu/faces_graph.*`)
 
@@ -853,13 +891,48 @@ origin is on the body's underside, so the car is raised by its ride height to st
 (❓ judged: the program's ShowRoomCar is not read).
 
 A car given as a garage car (`car_garage`, `car_data` set to an MCarGarage) shows in that
-car's paint (its record's +0x18). The scripts' `loadModelOptionMotion(path)` gives a normal face
+car's paint (its record's +0x18) and stands where the layout says from that moment, so what the
+script does after it holds (Home turns the garage car to its front, ry 180, when yesterday had no
+run that failed: gtmode's `isGarageCarFront`). The scripts' `loadModelOptionMotion(path)` gives a normal face
 a camera motion from the page's packs (`image/gtmode/gtauto/*_cam.mot`: Mot1 files read as the
-stage's below): its eye, the point looked at, up and field of view from the picture it was
-given at, held at its end (GT Auto's pages, the wheel shop); `loadModelSet(path)` more models
-drawn with the car where their files put them (`garageShadow.mdl`, the GT Auto mechanic
-`pitmanFix.mdl`, whose skinned GTM1 the engine's reader refuses). ❓ `loadModelMotion(path,
-set, clip)` (the sets' motions: the mechanic walking, the wash cloths) is not played.
+stage's below): its eye, the point looked at, up and field of view at its clock's time (below;
+0 until the page plays it: the wheel and wing shops never do), and its named values: `fade` the
+model sets' opacity (not drawn under 0.02), `lift` the car raised on the jack (0.276 m in the oil
+change; ❓ the whole car is raised here, the program lets each wheel hang, 0x1569A0),
+`shadowOpacity` the car's shadow (mCarModelPS2::vf58 0x156F18). `loadModelSet(path)` more model
+sets (MCarModel +0x68, in their order: `garageShadow.mdl`, the GT Auto mechanic `pitmanFix.mdl`,
+the wash cloths, the oil change's cart); a skinned set is posed by its motion ([model.md](model.md)
+"Skinned sets").
+
+**Model motions** (`menu/model_motion.*`, `app/menu_cars.cpp`): `loadModelMotion(path, set,
+align = 0, shadow = 0, rot = 0)` (0x139030 → 0x1540C8) appends {motion, set, align, shadow, rot}
+to MCarModel +0x78; every entry is drawn every picture (a set listed twice is drawn twice: the
+split motions park the copy not in use 20 m away). Without entries each set is drawn as stored.
+An entry's motion starts from the car's matrix, moved to a place on the car by `align` and turned
+(0x156AA0, table 0x68FDC0), turned by `rot` degrees and scaled by `additionalModelScale` (flat in
+y with the shadow flag, which the mirror pass leaves out):
+
+| align | place (car frame: x right, the front at -z) | turned |
+|---|---|---|
+| 0 | the car's origin | 0 |
+| 1 / 2 | the left / right tire's outer face at the front axle | 0 / 180 |
+| 3 / 4 | the same at the rear axle | 0 / 180 |
+| 5 / 6 | left / right, midway between the axles | 0 / 180 |
+| 7 / 8 | left / right, three quarters of the way back | 0 / 180 |
+| 9 / 10 | the centre line, at the body's front / rear end (VARIATION +0x18 / +0x1C, mm) | -90 / 90 |
+
+❓ The program reads the axles, track and tire width from the car's simulation geometry (+0x618,
++0x8D4, +0x12, +0x14: their meaning is believed, not read); here they come from the database's
+sizes. The time (mModelMotion, 0x21B398; step 0x21B4F8, before a draw 0x21B528): 1/60 s a
+picture while it plays, 0 before `playModelMotion`; past the clip's length L it goes back by
+L - S (S the clip's loop start) when it loops (the default), else it stops there and holds.
+`playModelMotion` / `stopModelMotion` / `setModelMotionLoop` act on every entry and the camera
+motion; `isPlayingModelMotion` answers for the camera motion alone (0 without one, 0x153FA8).
+GT Auto: the mechanic walks in, stands at the car's left by the front and fades out after 7 s;
+the car wash: after the car's turn, two mechanics wipe it with cloths for 10 s; the oil change:
+the mechanic walks over, lies on the cart and slides under the car on the jack. ❓ A skinned
+set's reflection passes are left out (which picture the program binds to their slot is not
+read), and its clothes' texture alpha is taken as opaque.
 
 Here a car's showroom model is built on a worker thread and sent to the GPU a few models a
 picture (about 3 ms of each), and its shadow made only when its look changes: on the arcade
@@ -877,8 +950,15 @@ a named value (u8 flags, the name, 1 value). A value whose flag bit is set is a 
 the clip, else a constant f32 (0x42D688). The camera stands still: eye (0, 1.28, -9.137)
 looking at (0, 0.426, 0.004), up (0, 0.996, 0.093), 0.4495 rad across the page's height (❓
 the axis). `light.mot` (24.15 s) keys `Alpha0`..`Alpha3`, the weights of bg.mdl's four models
-(the backdrops), drawn cross-faded over black; ❓ its `BlackLevel`, `WhiteLevel`,
-`ColorScale`, shadow values and lights, env.mdl and tire.mdl are not used yet.
+(the backdrops), drawn cross-faded over black. Its lights: light 0 and 1 move (place, ambient,
+diffuse, specular keyed), light 2 stands at (3.90, -3.19, -9.43) with ambient and specular 0.2,
+light 3 is all zero; here each light's place is taken as the direction toward it (❓ the
+program's stage lights, CustumLightPosition 0x1D6C98, are not read as points or directions).
+`ColorScale` (1 to 1.06) scales the car's colour; light 0 throws the car's shadow (the stage
+passes its negated place to the shadow, 0x1D6D50), `shadowDarkness0` (0.55 to 0.75) its
+strength, `bottomShadow` (0.7) the shadow under the car. `BlackLevel` 0 and `WhiteLevel` 1 are
+constants (no change to the picture). ❓ `shadowBlur0` (3 to 20), light 3, env.mdl and tire.mdl
+are not used.
 
 #### Models (`ModelFace`; `menu/faces_model.*`, `app/menu_models.*`)
 
@@ -892,6 +972,24 @@ way a picture; `stopRotate()` stops at home. The Gran Turismo mode map's 37 face
 icons (`image/gtmode/map/panel_*.mdl` of the page's pack); entering a place sets
 `rotate_v = [0, 2, 0]`, leaving it `target_mode = 1` (nine places stop where they are). Here each
 face is drawn over a part of the page three times its rectangle around it.
+
+### What runs where (the drawing)
+
+The menus' drawing is this repository's code throughout; where it still leans on the shared
+engine's Gran Turismo 3 code or on a judgment:
+
+| What | Where | Runs | The Gran Turismo 4 routine to port |
+|---|---|---|---|
+| 3D faces' models (car faces' extra sets, model faces, the car stage's backdrops) | `app/menu_cars.cpp`, `app/menu_models.cpp` via `formats/model/mdls.cpp` `to_gtm1` | the engine's GTM1 decoder and renderer (`gtm1.cpp`, `render::View3D`, its GT3 lighting model) | ModelSet2's draw (0x455528, the shape submit 0x49D328) and the VU1 lighting |
+| A skinned set's blend | `formats/model/mdls_skin.cpp` `pose()` | ours, the weighted sum judged from the data (the program's VU0 micro-routines 0x2E8 / 0x460 are not readable) | (VU0) |
+| The menu car | `app/menu_cars.cpp` | `race::CarVisual` (Gran Turismo 4's car parts) drawn by the engine's renderer; ❓ the reflection strength (1.0 here; the program's 1.3, 1.1 not read), the ride-height raise | mCarModelPS2's draw (0x156AA0, 0x156F18) |
+| The car stage's lights | `app/menu_cars.cpp` | light.mot's lights as directions (❓), no shadow blur, env.mdl and tire.mdl unused | GT4CarSelect::AnimationStage (CustumLightPosition 0x1D6C98) |
+| The car's shadows | `race/car_visual.cpp` | the race's shadow models | the stage's shadow (0x4523B0..) |
+| Movies | `app/menu_movies.cpp` | the engine's MPEG / IPU player | (same format) |
+| Fonts | `menu/font.cpp` | the engine's font reader plus Gran Turismo 4's two bytes; the layout is ours (`text_layout.cpp`, 0x491028) | — |
+| Text breaking | `app/menu_page_drawer.h` `wrapped()` | the program's word wrapper (0x245C90) with a margin judged from the pictures (❓); the non-equalized renderer's own per-character break (0x490660) is not ported | 0x491418's break |
+| The loading page | `app/menu_loading.h` | the black mode; its hold judged; the capture mode before races not done | LoadingPS2's other modes (0x104B68) |
+| The cursor, transitions, actors, tool tips, widget transforms, the 3D faces' cameras | `app/menu_cursor.h`, `menu/actors.cpp`, `menu/faces_*` | ported from the program (addresses in the sections above) | — |
 
 ### What runs where (the game's state, Arcade's opponents, the cars' figures)
 
