@@ -1043,6 +1043,7 @@ public:
             const float scale = float(Ui::kHeight) / 480.0f, x = (Ui::kWidth - 640 * scale) / 2;
             if (painter_) painter_->draw(*menus_, x, scale);
             if (const float cover = menus_->fade_cover(); cover > 0) ui.fill(0, 0, Ui::kWidth, Ui::kHeight, Color{0, 0, 0, u8(std::clamp(cover, 0.0f, 1.0f) * 255.0f)});
+            last_frame_ns_ = 0; // (the race's frame times count the race's frames only)
             return;
         }
         // The results page covers the race display (the program hides it under the page).
