@@ -16,7 +16,45 @@ const F kKmh = F::raw(0x3E8E38E3);                                // 1 / 3.6
 const F kHalfPi = F::raw(0x3FC90FD9);
 
 F speed_of(u8 kmh) { return gt3r::ee::int_to_f(kmh ? kmh : 50) * kKmh; }
+F f_of(u32 v) { return gt3r::ee::int_to_f(s32(v)); }
 } // namespace
+
+Controls controls(const u8* c) {
+    Controls k;
+    const F deg = F::raw(0x3C8EFA34), hundred = F::raw(0x42C80000), sixty = F::raw(0x42700000);
+    auto step = [&](u8 b) {
+        const F v = hundred / (f_of(b) * sixty);
+        return kOne < v ? kOne : v;
+    };
+    k.throttle_up = step(c[0x14]), k.throttle_down = step(c[0x15]), k.brake_up = step(c[0x16]), k.brake_down = step(c[0x17]);
+    k.third_up = step(c[0x18]), k.third_down = step(c[0x19]);
+    k.analog_jump = f_of(c[0x04]) * F::raw(0x3C23D70A);
+    SteerFollow& s = k.follow;
+    for (u32 r = 0; r < 2; ++r) {
+        s.centering[r] = f_of(c[0x1E + r]);
+        s.gain[r] = f_of(c[0x1C + r]);
+        s.toward[r] = c[0x10] ? f_of(c[0x20 + r]) : F();
+        s.damping[r] = f_of(c[0x24 + r]) * F::raw(0x3DCCCCCC);
+        for (u32 m = 0; m < 2; ++m) {
+            const u32 i = 2 * r + m;
+            s.rate[i] = f_of(c[0x34 + i]) * deg, s.rate_back[i] = f_of(c[0x38 + i]) * deg, s.rate_toward[i] = f_of(c[0x3C + i]) * deg;
+            s.fast[i] = f_of(c[0x44 + i]) * deg, s.fast_back[i] = f_of(c[0x48 + i]) * deg, s.fast_toward[i] = f_of(c[0x4C + i]) * deg;
+        }
+        s.by_speed[r] = c[0x2E + r] < c[0x30 + r] ? 1 : 0;
+        s.speed_lo[r] = f_of(c[0x2E + r]) * kKmh, s.speed_hi[r] = f_of(c[0x30 + r]) * kKmh;
+    }
+    k.wheel_slew = f_of(c[0x54]) * deg;
+    k.wheel_lock[0] = f_of(c[0x55]) * deg, k.wheel_lock[1] = f_of(c[0x56]) * deg;
+    for (u32 j = 0; j < 2; ++j) {
+        const u32 o = 0x144 + 4 * j; // (0x504A94 / 0x504A98: the set-up leaves them)
+        k.wheel_lock[2 + j] = F::raw(u32(c[o]) | u32(c[o + 1]) << 8 | u32(c[o + 2]) << 16 | u32(c[o + 3]) << 24);
+        const u8 b = c[0x59 + j];
+        k.jog_scale[j] = b ? F::raw(0x44610000) / (f_of(60u * b) * F::raw(0x45800000)) : F::raw(0x39800000);
+    }
+    for (u32 s2 = 0; s2 < k.surface_class.size(); ++s2) k.surface_class[s2] = c[0x170 + s2];
+    for (u32 r = 0; r < 3; ++r) k.prefilter_mode[r] = c[0x82 + 0x20 * r], k.prefilter_gain[r] = c[0x83 + 0x20 * r];
+    return k;
+}
 
 Tables tables(const Program& program) {
     Tables t;
@@ -45,9 +83,14 @@ Tables tables(const Program& program) {
         for (u32 f = 0; f < 24; ++f) g.fixed_aim[f] = f < 16 ? program.b(PrologueProgram::kFixedAim + f) : 0;
         t.globals.steer_mode = g.mode;
     }
+    {
+        std::array<u8, kControlBytes> c{};
+        for (u32 k = 0; k < kControlBytes; ++k) c[k] = program.b(PrologueProgram::kController + k);
+        t.controls = controls(c.data());
+    }
     t.pedal_ramps = program.b(PrologueProgram::kController + 0x11) != 0;
-    t.throttle_up = F::raw(program.w(PrologueProgram::kPedalSteps)), t.throttle_down = F::raw(program.w(PrologueProgram::kPedalSteps + 4));
-    t.brake_up = F::raw(program.w(PrologueProgram::kPedalSteps + 8)), t.brake_down = F::raw(program.w(PrologueProgram::kPedalSteps + 12));
+    t.throttle_up = t.controls.throttle_up, t.throttle_down = t.controls.throttle_down;
+    t.brake_up = t.controls.brake_up, t.brake_down = t.controls.brake_down;
     for (u32 r = 0; r < t.wheel_layouts.size(); ++r)
         for (u32 k = 0; k < rules::kWheelLayoutSize; ++k) t.wheel_layouts[r][k] = program.b(PrologueProgram::kWheelLayouts + rules::kWheelLayoutSize * r + k);
     return t;
@@ -280,13 +323,153 @@ void wheel_steer(ex::Car& c, CarPart& x, const Tables& t) {
     }
 }
 
-void driver_input_pad(ex::Car& c, const ex::PadConstants& k, const ex::PadFrame& f, u8 course_kind, const Tables& t) {
+void steer_follow(ex::Car& c, const SteerFollow& k, int r, int m, F target, F mean) {
+    const size_t a = size_t(r & 1), i = size_t(2 * (r & 1) + (m & 1));
+    const F cmd = c.steer_cmd, dt = c.dt;
+    F acc = (target - cmd) * k.gain[a] - c.steer_rate * k.damping[a];
+    F lim = k.rate[i], fast = k.fast[i];
+    if (!(k.toward[a] == F()) && ((cmd < target && cmd < mean) || (target < cmd && mean < cmd))) {
+        acc = acc + (mean - cmd) * k.toward[a]; // (toward the slip direction, beyond the command on the target's side)
+        lim = k.rate_toward[i], fast = k.fast_toward[i];
+    } else if ((F() < cmd && target < cmd) || (cmd < F() && cmd < target)) { // returning toward the center
+        acc = acc - cmd * k.centering[a];
+        lim = k.rate_back[i], fast = k.fast_back[i];
+    }
+    F w = c.steer_rate + acc * dt;
+    if (k.by_speed[a] != 0) {
+        const F v = c.speed, lo = k.speed_lo[a], hi = k.speed_hi[a];
+        if (lo < v) lim = hi <= v ? fast : lim + ((fast - lim) * (v - lo)) / (hi - lo);
+    }
+    if (lim < w) w = lim;
+    else if (w < -lim) w = -lim;
+    const F next = cmd + w * dt;
+    if ((cmd <= target && target <= next) || (target <= cmd && next <= target)) {
+        c.steer_cmd = target;
+        c.steer_rate = F();
+        return;
+    }
+    c.steer_rate = w;
+    c.steer_cmd = next;
+}
+
+void pad_steering(ex::Car& c, const ex::PadFrame& f, u8 course_kind, const rules::WheelLayout& l, const Controls& k) {
+    const int n = l.count < 4 ? l.count : 4;
+    // The steered wheels' (ahead of the center of gravity) mean slip direction and least surface class.
+    F mean = F();
+    int steered = 0;
+    for (int w = 0; w < n; ++w)
+        if (gt3r::s8(l.fore_aft[size_t(w)]) > 0) mean = mean + c.w[size_t(w)].slip_dir, ++steered;
+    mean = mean / gt3r::ee::int_to_f(steered);
+    u8 cls = 2;
+    for (int w = 0; w < n; ++w)
+        if (gt3r::s8(l.fore_aft[size_t(w)]) > 0) {
+            const u8 s = c.w[size_t(w)].surface;
+            const u8 v = s < k.surface_class.size() ? k.surface_class[s] : 0;
+            if (v < cls) cls = v;
+        }
+    if (cls >= 2) cls = 0;
+    const bool dirt = course_kind == 2;
+    int rate = dirt ? 1 : 0;
+    F v = c.speed;
+    if (v < F()) v = F();
+    F hi;
+    if (f.kind == 6) hi = c.p.max_lock;
+    else if (f.kind == 4) hi = ex::lookup(dirt ? c.p.steer_c : c.p.steer_a, v);
+    else {
+        rate = cls;
+        hi = ex::lookup(rate == 1 ? c.p.steer_c : c.p.steer_b, v);
+    }
+    bool extend = f.kind != 6; // the slip direction's extension
+    if (f.kind == 4) {
+        const gt3r::s8 type = c.wheel_type;
+        if (type == 1 || type == 2 || type == 3) { // the steering wheel's least lock
+            const F least = k.wheel_lock[size_t((type == 2 ? 2 : 0) + (dirt ? 1 : 0))];
+            if (hi < least) hi = least;
+        }
+        extend = !(type == 3 || type == 4);
+    }
+    F lo = -hi;
+    if (extend && !(lo <= mean && mean <= hi)) {
+        if (F() < mean) hi = mean;
+        else if (mean < F()) lo = mean;
+    }
+    const F max = c.p.max_lock;
+    if (max < hi) hi = max;
+    if (lo < -max) lo = -max;
+
+    const F stick = F::raw(0x39800000); // 1 / 4096
+    if (!(f.flags & 1)) { // digital
+        c.steer_class = 1;
+        c.lock_hi = hi, c.lock_lo = lo;
+        const F target = f.steer > 0 ? hi : f.steer < 0 ? lo : F();
+        steer_follow(c, k.follow, rate, 0, target, mean);
+    } else if (f.kind == 4) { // the steering wheel: its position is the command
+        c.steer_class = 0;
+        const F s = gt3r::ee::int_to_f(f.steer) * stick;
+        const gt3r::s8 type = c.wheel_type;
+        if (type >= 0 && type < 4) {
+            ex::slew(c.lock_hi, hi, k.wheel_slew * c.dt);
+            ex::slew(c.lock_lo, lo, k.wheel_slew * c.dt);
+            c.steer_cmd = F() <= s ? c.lock_hi * s : -c.lock_lo * s;
+        } else if (type == 4) c.steer_cmd = c.p.max_lock * s;
+        else c.steer_cmd = F();
+        return;
+    } else if (f.kind == 6) { // the position scaled, within the full lock
+        c.steer_class = 3;
+        F s = gt3r::ee::int_to_f(f.steer) * k.jog_scale[dirt ? 1 : 0];
+        if (kOne < s) s = kOne;
+        else if (s < kMinusOne) s = kMinusOne;
+        c.steer_cmd = c.p.max_lock * s;
+        return;
+    } else if (f.kind == 2 || f.kind == 3) {
+        c.lock_hi = hi, c.lock_lo = lo;
+        const F s = gt3r::ee::int_to_f(f.steer) * stick;
+        const F target = F() <= s ? hi * s : -lo * s;
+        if (f.steer != 0) c.steer_class = f.kind == 3 ? 1 : 2;
+        steer_follow(c, k.follow, rate, c.steer_class == 1 ? 0 : 1, target, mean);
+    }
+    // The HUD's steering percentage for the followed kinds (0x3DDC40: of 15 degrees, within +-100).
+    if (c.steer_class == 1 || c.steer_class == 2) {
+        F x = c.steer_cmd * F::raw(0x43BEFC68);
+        if (F::raw(0x42C80000) < x) x = F::raw(0x42C80000);
+        else if (x < F::raw(0xC2C80000)) x = F::raw(0xC2C80000);
+        c.steer_pct = gt3r::s8(gt3r::ee::to_int(x));
+    }
+}
+
+ex::PadFrame prefilter(ex::Car& c, const ex::PadFrame& in, const Controls& k) {
+    ex::PadFrame f = in;
+    const size_t row = f.kind == 6 ? 1 : 0; // (❓ row 2 for a car with P +0x33 set: the byte is not kept)
+    const u8 mode = k.prefilter_mode[row];
+    const s32 gain = k.prefilter_gain[row];
+    const s32 pos = c.wheel_pos, prev = c.wheel_pos_prev; // (signed halves)
+    const s32 d1 = mode ? s32(f.steer) - pos : 0, d0 = mode ? pos - prev : 0;
+    c.wheel_pos_prev = c.wheel_pos;
+    c.wheel_pos = f.steer;
+    if (mode == 0) return f;
+    s32 s = s32(f.steer) + gain * d1;
+    if (mode >= 2) s = s + gain * gain * (d1 - d0);
+    f.steer = gt3r::s16(s < -0x1000 ? -0x1000 : s > 0x1000 ? 0x1000 : s);
+    return f;
+}
+
+void driver_input_pad(ex::Car& c, const ex::PadConstants& k, const ex::PadFrame& in, u8 course_kind, const rules::WheelLayout& l,
+                      const Tables& t) {
+    const ex::PadFrame f = prefilter(c, in, t.controls);
     const F throttle = c.throttle_pedal, brake = c.brake_pedal, mean_slip = c.x420, countersteer = c.countersteer;
     c.full_throttle = 1;
     ex::pad_hud(c, f);
+    // (the engine's controls for the pedals, the reverse, shift and clutch requests; Prologue's steering in place of its own)
+    const u8 steer_class = c.steer_class;
+    const F lock_hi = c.lock_hi, lock_lo = c.lock_lo, steer_cmd = c.steer_cmd, steer_rate = c.steer_rate;
+    const gt3r::s8 steer_pct = c.steer_pct;
+    const gt3r::s16 wheel_pos = c.wheel_pos, wheel_pos_prev = c.wheel_pos_prev;
     ex::pad_controls(c, k, f, course_kind);
+    c.steer_class = steer_class, c.lock_hi = lock_hi, c.lock_lo = lock_lo, c.steer_cmd = steer_cmd, c.steer_rate = steer_rate;
+    c.steer_pct = steer_pct, c.wheel_pos = wheel_pos, c.wheel_pos_prev = wheel_pos_prev;
     c.x420 = mean_slip; // (the engine's routine marks F +0x420; Prologue keeps the mean slip angle there)
     c.countersteer = countersteer; // (Prologue keeps no share of the slip-angle extension)
+    if (c.p.special != 4) pad_steering(c, f, course_kind, l, t.controls);
     if (t.pedal_ramps && f.kind != 4 && f.kind != 6) {
         auto ease = [](F from, F to, F up, F down) {
             if (from < to) {

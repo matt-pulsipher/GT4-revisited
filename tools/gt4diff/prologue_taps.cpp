@@ -269,6 +269,47 @@ void add_prologue_taps(PTaps& taps, const Disc& disc) {
               }});
 }
 
+namespace {
+
+// The controls' set-up's results (0x3DD068) in the harness against ours: the pedal steps, the steering wheel's settings,
+// the follower's table.
+void check_controls(Ee& ee, const sim::prologue::Controls& k) {
+    int equal = 0, differ = 0;
+    auto cmp = [&](const char* what, u32 addr, gt3r::ee::F ours) {
+        const u32 theirs = ee.r32(addr);
+        if (theirs == ours.bits) ++equal;
+        else {
+            ++differ;
+            std::printf("    controls: %s (%08X) the program's %08X (%g), ours %08X (%g)\n", what, addr, theirs,
+                        double(gt3r::ee::F::raw(theirs).host()), ours.bits, double(ours.host()));
+        }
+    };
+    cmp("throttle up", 0x504AA8, k.throttle_up), cmp("throttle down", 0x504AAC, k.throttle_down);
+    cmp("brake up", 0x504AB0, k.brake_up), cmp("brake down", 0x504AB4, k.brake_down);
+    cmp("third up", 0x504AB8, k.third_up), cmp("third down", 0x504ABC, k.third_down);
+    cmp("analog jump", 0x504AA4, k.analog_jump), cmp("wheel slew", 0x504A88, k.wheel_slew);
+    for (u32 j = 0; j < 4; ++j) cmp("wheel lock", 0x504A8C + 4 * j, k.wheel_lock[j]);
+    for (u32 j = 0; j < 2; ++j) cmp("kind 6 scale", 0x504A9C + 4 * j, k.jog_scale[j]);
+    const sim::prologue::SteerFollow& s = k.follow;
+    const u32 T = 0x715240;
+    for (u32 r = 0; r < 2; ++r) {
+        cmp("gain", T + 4 * r, s.gain[r]), cmp("centering", T + 0x08 + 4 * r, s.centering[r]);
+        cmp("toward", T + 0x10 + 4 * r, s.toward[r]), cmp("damping", T + 0x18 + 4 * r, s.damping[r]);
+        cmp("by speed", T + 0x50 + 4 * r, gt3r::ee::F::raw(s.by_speed[r]));
+        cmp("speed lo", T + 0x58 + 4 * r, s.speed_lo[r]), cmp("speed hi", T + 0x60 + 4 * r, s.speed_hi[r]);
+    }
+    for (u32 i = 0; i < 4; ++i) {
+        cmp("rate", T + 0x20 + 4 * i, s.rate[i]), cmp("rate back", T + 0x30 + 4 * i, s.rate_back[i]);
+        cmp("rate toward", T + 0x40 + 4 * i, s.rate_toward[i]), cmp("fast", T + 0x68 + 4 * i, s.fast[i]);
+        cmp("fast back", T + 0x78 + 4 * i, s.fast_back[i]), cmp("fast toward", T + 0x88 + 4 * i, s.fast_toward[i]);
+    }
+    std::printf("    controls' set-up: %d words equal to the program's, %d differ; the steering prefilter (mode, gain) %u %u / %u %u / %u %u\n",
+                equal, differ, k.prefilter_mode[0], k.prefilter_gain[0], k.prefilter_mode[1], k.prefilter_gain[1], k.prefilter_mode[2],
+                k.prefilter_gain[2]);
+}
+
+} // namespace
+
 void add_input_taps(PTaps& taps, const Race& race) {
     const Race* r = &race;
     taps.add({0x3DEDE0, "engine's driver input", [r](PTapCall& c) {
@@ -281,23 +322,29 @@ void add_input_taps(PTaps& taps, const Race& race) {
               }});
     taps.add({0x3DEDE0, "Prologue's driver input", [r](PTapCall& c) {
                   static sim::prologue::Tables t;
-                  static bool made = false;
-                  (void)made;
                   const Pad& p = r->pad[c.car_index];
                   auto axis = [](float v) { return s32(std::lround(std::clamp(v, -1.0f, 1.0f) * 4096.0f)); };
                   ex::PadFrame f;
                   f.flags = 1 | 2 | 4, f.kind = 3, f.shift = gt3r::s8(p.shift);
                   f.steer = gt3r::s16(-axis(p.steer)), f.throttle = u16(axis(p.throttle)), f.brake = u16(axis(p.brake));
-                  t.pedal_ramps = c.ee.r8(0x504961) != 0;
-                  t.throttle_up = gt3r::ee::F::raw(c.ee.r32(0x504AA8)), t.throttle_down = gt3r::ee::F::raw(c.ee.r32(0x504AAC));
-                  t.brake_up = gt3r::ee::F::raw(c.ee.r32(0x504AB0)), t.brake_down = gt3r::ee::F::raw(c.ee.r32(0x504AB4));
-                  static int calls = 0;
-                  ++calls;
-                  if (std::getenv("GT4R_SHOW_STEER") && calls >= 855 && calls <= 866)
-                      std::printf("    call %d: speed %g slip_dir %g %g, curve b at speed %g, max lock %g, steer %d\n", calls, double(c.car.speed.host()),
-                                  double(c.car.w[0].slip_dir.host()), double(c.car.w[1].slip_dir.host()), double(ex::lookup(c.car.p.steer_b, c.car.speed).host()),
-                                  double(c.car.p.max_lock.host()), int(f.steer));
-                  sim::prologue::driver_input_pad(c.car, c.inputs.pad, f, 0, t);
+                  // The controls' set-up on the controller settings' bytes as the harness has them (the program's set-up has
+                  // run: its own results are compared once, below).
+                  std::array<u8, sim::prologue::kControlBytes> bytes{};
+                  for (u32 k = 0; k < bytes.size(); ++k) bytes[k] = c.ee.r8(0x504950 + k);
+                  t.controls = sim::prologue::controls(bytes.data());
+                  t.pedal_ramps = bytes[0x11] != 0;
+                  t.throttle_up = t.controls.throttle_up, t.throttle_down = t.controls.throttle_down;
+                  t.brake_up = t.controls.brake_up, t.brake_down = t.controls.brake_down;
+                  static bool checked = false;
+                  if (!checked) {
+                      checked = true;
+                      check_controls(c.ee, t.controls);
+                  }
+                  std::array<u8, sim::rules::kWheelLayoutSize> row{};
+                  const u32 layout = 0x503FA8 + sim::rules::kWheelLayoutSize * c.ee.r8(c.ee.r32(c.car_addr + 0x10) + 0x30);
+                  for (u32 k = 0; k < row.size(); ++k) row[k] = c.ee.r8(layout + k);
+                  sim::prologue::driver_input_pad(c.car, c.inputs.pad, f, c.ee.r8(c.ee.r32(c.car_addr + 4) + 0xDBED) == 0xFF ? 0 : c.ee.r8(c.ee.r32(c.car_addr + 4) + 0xDBED),
+                                                  sim::rules::wheel_layout(row.data()), t);
               }, {"ai."}});
     taps.add({0x3BF608, "engine's preparation", [](PTapCall& c) { ex::prep(c.car, c.inputs.prep); }});
 }

@@ -522,7 +522,7 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
             else if (!gt4_rules_) c.clutch_req = one;
             else if (c.clutch == 0) c.clutch_req = s32(c.rpm) > ((s32(gx_[i].drive.d.up_rpm) * 3) >> 2) ? one : F();
             else c.clutch_req = s32(c.rpm) < s32(c.p.e.idle) ? F() : one;
-        } else if (prologue_) prologue::driver_input_pad(c, race_.pad, f, course_kind, *prologue_);
+        } else if (prologue_) prologue::driver_input_pad(c, race_.pad, f, course_kind, prologue_cars_[i].layout, *prologue_);
         else
             ex::driver_input_pad(c, race_.pad, f, course_kind);
         // A computer driver's own command: the road wheels' angle as the game's drivers set it (0x464F38 writes it into the
