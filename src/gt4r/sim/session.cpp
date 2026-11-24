@@ -485,7 +485,14 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
             c.reverse_req = gt3r::s8(in.reverse ? 1 : 0);
             if (in.shift_lock) c.shift_lockout = in.shift_lock;
             c.shift_req = 0;
-            c.clutch_req = c.race_hold != 0 || c.hold != 0 || c.driver_kind == 8 ? gt3r::ee::F() : gt3r::ee::F::raw(0x3F800000);
+            // The clutch's request (0x3F3400, for an ordinary gearbox): released for a stopped driver (kind 8); racing, with the
+            // clutch open it is requested once the rpm passes three quarters of the up-shift speed, with it closed it stays
+            // requested down to idle. (Under the start's hold and the hold counter the program leaves it as it was: ours 0.)
+            const F one = gt3r::ee::F::raw(0x3F800000);
+            if (c.race_hold != 0 || c.hold != 0 || c.driver_kind == 8) c.clutch_req = F();
+            else if (!gt4_rules_) c.clutch_req = one;
+            else if (c.clutch == 0) c.clutch_req = s32(c.rpm) > ((s32(gx_[i].drive.d.up_rpm) * 3) >> 2) ? one : F();
+            else c.clutch_req = s32(c.rpm) < s32(c.p.e.idle) ? F() : one;
         } else
             ex::driver_input_pad(c, race_.pad, f, course_kind);
         // A computer driver's own command: the road wheels' angle as the game's drivers set it (0x464F38 writes it into the

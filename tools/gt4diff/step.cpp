@@ -150,6 +150,8 @@ Pad drive(int i) {
 
 } // namespace
 
+void add_step_taps(Taps& taps) { add_taps(taps); }
+
 StepResult run_step(Disc& disc, bool print, const std::string& course_label, const std::string& car_label, int step_count) {
     StepResult result;
     db::SpecDb sdb = open_db(disc);

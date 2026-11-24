@@ -522,6 +522,14 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
         }
         add_taps_steer(*aid_taps);
     }
+    // GT4R_AI_STEPTAPS: the step's other ported routines' taps (step.cpp) on the computer drivers' cars.
+    if (std::getenv("GT4R_AI_STEPTAPS")) {
+        if (!aid_taps) {
+            aid_inputs = std::make_unique<ex::RaceInputs>(ex::race_inputs(sim::core_program(sim::Program::load(disc)), ex::Conductor::SinglePlayer, ex::RaceConfig{}, false, 0));
+            aid_taps = std::make_unique<Taps>(ee, o, *aid_inputs);
+        }
+        add_step_taps(*aid_taps);
+    }
     if (std::getenv("GT4R_AI_DUMP")) {
         for (u32 a : {0x622080u, 0x622088u, 0x622090u, 0x622098u, 0x6220A0u, 0x6220A8u, 0x6220B0u, 0x6220C8u, 0x6220E0u, 0x623E40u}) {
             std::printf("%06X:", a);
