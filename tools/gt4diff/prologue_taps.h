@@ -34,6 +34,7 @@ std::vector<u8> gt3_image(Ee& ee, u32 car);
 
 struct PTapCall {
     Ee& ee;
+    u32 car_addr;
     int car_index;
     ex::Car& car;
     const ex::RaceInputs& inputs;
@@ -82,5 +83,8 @@ private:
 
 // The engine's routines at their Prologue counterparts (prologue_taps.cpp).
 void add_engine_taps(PTaps& taps);
+// Gran Turismo 4's routines and Prologue's own (rules_prologue.h) at their Prologue counterparts, on the Gran Turismo 4
+// part of the record made from Prologue's (rules_prologue.h's prologue_extra).
+void add_prologue_taps(PTaps& taps, const Disc& disc);
 
 } // namespace gt4r::diff::prologue

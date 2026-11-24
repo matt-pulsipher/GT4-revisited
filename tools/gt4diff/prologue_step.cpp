@@ -8,7 +8,9 @@
 #include "prologue_taps.h"
 
 #include "gt4r/sim/exact_bridge.h"
+#include "gt4r/sim/rules_prologue.h"
 #include "gt4r/sim/session.h"
+#include "sim/exact/car_fields.h"
 #include "sim/exact/params_build.h"
 
 #include <cmath>
@@ -166,7 +168,8 @@ int run(Disc& disc, const std::string& course, const std::string& car, int steps
     std::unique_ptr<PTaps> taps;
     if (std::getenv("GT4R_TAPS")) {
         taps = std::make_unique<PTaps>(ee, r, inputs);
-        add_engine_taps(*taps);
+        if (std::string(std::getenv("GT4R_TAPS")) == "prologue") add_prologue_taps(*taps, disc);
+        else add_engine_taps(*taps);
     }
     struct Sample {
         float x, y, z, v, rpm;
@@ -191,6 +194,46 @@ int run(Disc& disc, const std::string& course, const std::string& car, int steps
     std::unique_ptr<sim::Session> session = sim::Session::open(disc, course, cars);
     if (const char* rules = std::getenv("GT4R_PROLOGUE_RULES")) session->set_gt4_rules(std::string(rules) == "gt4");
     for (const std::string& n : session->notes()) std::printf("  ours: %s\n", n.c_str());
+    if (!their_spec.empty()) {
+        // The parameter block again with Prologue's converter's own rules (rules_prologue.h convert) on the engine's.
+        std::vector<u8> theirs(kParamsSize);
+        ee.read_bytes(r.params(0), theirs.data(), kParamsSize);
+        const sim::Program program = sim::Program::load(disc);
+        const gt3r::sim::exact::ProgramData data = sim::core_program(program);
+        gt3r::sim::exact::ConvertInputs in;
+        in.data = &data, in.base = r.params(0), in.control = 0;
+        in.physics_globals();
+        gt3r::sim::exact::Spec spec;
+        std::copy(their_spec.begin(), their_spec.begin() + spec.size(), spec.begin());
+        gt3r::sim::exact::ParamImage img{};
+        gt3r::sim::exact::convert_params(spec, in, img);
+        std::vector<u8> rec(gt3r::sim::exact::kCarSize, 0);
+        std::copy(img.begin(), img.end(), rec.begin() + gt3r::sim::exact::kParams);
+        gt3r::sim::exact::Car car;
+        gt3r::sim::exact::load_image(car, rec.data());
+        sim::prologue::convert(car.p, session->spec(0));
+        gt3r::sim::exact::store_image(car, rec.data());
+        int same = 0, close = 0, off = 0;
+        for (u32 o = 0; o + 4 <= img.size(); o += 4) {
+            if (o >= 0xE7C) break; // (the aids: the entries' switches)
+            u32 q = o;
+            if (o >= 0x398 && o < 0xDD0) q = 0x398 + 0x1B8 * ((o - 0x398) / 0x1B4) + (o - 0x398) % 0x1B4;
+            else if (o >= 0xDD0) q = o + (o >= 0xE6C ? 44 : 24);
+            u32 a = 0, b = 0;
+            std::memcpy(&a, &rec[gt3r::sim::exact::kParams + o], 4), std::memcpy(&b, &theirs[q], 4);
+            if (a >= 0x01000000u && a < 0x02000000u) continue; // (pointers into the block)
+            const s64 ulps = s64(s32(a)) - s64(s32(b));
+            if (a == b) ++same;
+            else if (((a ^ b) & 0x80000000u) == 0 && (a & 0x7F800000u) != 0 && ulps >= -8 && ulps <= 8) ++close;
+            else {
+                ++off;
+                float fa, fb;
+                std::memcpy(&fa, &a, 4), std::memcpy(&fb, &b, 4);
+                std::printf("    P+%03X  ours %08X (%g)  the program's %08X (%g)\n", o, a, double(fa), b, double(fb));
+            }
+        }
+        std::printf("  parameters with Prologue's converter rules: %d words equal, %d within 8 units in the last place, %d differ\n", same, close, off);
+    }
     {
         gt3r::sim::exact::Spec mine;
         sim::core_spec(session->spec(0), mine);
@@ -198,6 +241,10 @@ int run(Disc& disc, const std::string& course, const std::string& car, int steps
         for (size_t k = 0; k < mine.size() && k < their_spec.size(); ++k)
             if (mine[k] != their_spec[k]) ++differ;
         std::printf("  spec (the core's layout): %d of %zu bytes differ\n", differ, mine.size());
+        for (int k = 0; k < 6; ++k) {
+            const u32 b = sim::Spec::tire_block(k);
+            std::printf("  our spec's tire block %d kinds: %u %u %u\n", k, session->spec(0).b(b + 3), session->spec(0).b(b + 4), session->spec(0).b(b + 5));
+        }
         if (std::getenv("GT4R_SPEC"))
             for (size_t k = 0; k < mine.size() && k < their_spec.size(); ++k)
                 if (mine[k] != their_spec[k]) std::printf("    +%03zX  the program's %3u  ours %3u\n", k, their_spec[k], mine[k]);

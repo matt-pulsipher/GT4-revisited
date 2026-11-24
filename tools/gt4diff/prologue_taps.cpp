@@ -2,7 +2,10 @@
 
 #include "prologue_taps.h"
 
+#include "gt4r/sim/program.h"
 #include "gt4r/sim/rules.h"
+#include "gt4r/sim/rules_chassis.h"
+#include "gt4r/sim/rules_prologue.h"
 #include "sim/exact/car_fields.h"
 #include "sim/exact/tick.h"
 
@@ -87,7 +90,7 @@ void PTaps::enter(size_t tap) {
     p.before.behaviour = sim::rules::behaviour();
     ex::load_image(p.before, im.data());
     p.mine = p.before;
-    PTapCall call{ee_, index, p.mine, inputs_};
+    PTapCall call{ee_, car, index, p.mine, inputs_};
     taps_[tap].ours(call);
     const u32 ra = ee_.g32(31);
     const bool fresh = pending_.find(ra) == pending_.end();
@@ -184,6 +187,73 @@ void add_engine_taps(PTaps& taps) {
     taps.add({0x376EC8, "bump nudge", [](PTapCall& t) { ex::bump_nudge(t.car); }});
     taps.add({0x3DBB70, "aero", [](PTapCall& t) { ex::aero(t.car, t.inputs.prep.slip); }});
     taps.add({0x3C4D80, "ground frame", [](PTapCall& t) { ex::ground_frame(t.car); }});
+}
+
+namespace {
+
+// The tire records' kind bytes as the program's parameter block has them.
+sim::prologue::TireKinds kinds_of(Ee& ee, u32 car) {
+    sim::prologue::TireKinds k{};
+    const u32 P = ee.r32(car + 0x10);
+    for (u32 r = 0; r < 6; ++r)
+        for (u32 j = 0; j < 3; ++j) k[r][j] = ee.r8(P + 0x398 + 0x1B8 * r + 0x1B4 + j);
+    return k;
+}
+
+} // namespace
+
+void add_prologue_taps(PTaps& taps, const Disc& disc) {
+    static sim::prologue::Tables t;
+    t = sim::prologue::tables(sim::Program::load(const_cast<Disc&>(disc)));
+    auto layout = [](PTapCall& c) { return sim::prologue::wheel_layout(t, c.ee.r8(c.ee.r32(c.car_addr + 0x10) + 0x30)); };
+    // The record's Gran Turismo 4 part as Prologue keeps it at the call: the tire records with their kinds, each wheel's
+    // steering offset (the drive block's +0x1C), its camber force (car +0x4B0 + 4 w), its tire's x1da, the mean slip angle
+    // (the engine's F +0x420).
+    auto extra = [=](PTapCall& c) {
+        sim::rules::TireExtra x = sim::prologue::tire_extra(c.car.p, kinds_of(c.ee, c.car_addr), t);
+        const sim::rules::WheelLayout l = layout(c);
+        for (size_t w = 0; w < 4; ++w) {
+            x.steer_offset[w] = c.car.t[w].steer_cos;
+            x.camber_force[w] = gt3r::ee::F::raw(c.ee.r32(c.car_addr + 0x4B0 + 4 * u32(w)));
+            x.wheel_xdd[w] = sim::rules::tire_record(x, l, int(w), c.car.w[w].surface).x1da;
+        }
+        x.mean_slip = c.car.x420;
+        return x;
+    };
+    auto globals = [](PTapCall& c) {
+        sim::rules::SlipForceGlobals g = t.globals;
+        g.steer_mode = c.ee.r32(0x714880);
+        return g;
+    };
+    taps.add({0x3BA450, "Prologue's slip ratios", [=](PTapCall& c) {
+                  const sim::rules::TireExtra x = extra(c);
+                  sim::prologue::slip_ratios(c.car, x, layout(c), t);
+              }});
+    taps.add({0x3BB138, "GT4's tire slip force", [=](PTapCall& c) {
+                  sim::rules::TireExtra x = extra(c);
+                  sim::rules::tire_slip_force(c.car, x, layout(c), globals(c));
+                  if (t.globals.mean_on) c.car.x420 = x.mean_slip;
+              }});
+    taps.add({0x3BAC98, "GT4's forward step", [=](PTapCall& c) {
+                  const sim::rules::TireExtra x = extra(c);
+                  sim::rules::ChassisExtra ch;
+                  ch.mass = c.car.p.mass;
+                  sim::rules::forward_step(c.car, ch, x, layout(c));
+              }});
+    taps.add({0x3BB5D0, "GT4's lateral and yaw", [=](PTapCall& c) {
+                  const sim::rules::TireExtra x = extra(c);
+                  sim::rules::ChassisExtra ch;
+                  ch.mass = c.car.p.mass;
+                  sim::rules::lateral_yaw(c.car, ch, x, layout(c), c.ee.a(1) != 0, globals(c));
+              }});
+    taps.add({0x3C4D80, "engine's ground frame, GT4's axes", [=](PTapCall& c) {
+                  ex::ground_frame(c.car);
+                  sim::rules::body_axes(c.car.ground_pitch, c.car.ground_roll, c.car.heading, c.car.ground_fwd, c.car.ground_lat, c.car.ground_up);
+              }});
+    taps.add({0x3765F8, "engine's attitude, GT4's axes", [=](PTapCall& c) {
+                  ex::attitude(c.car, gt3r::ee::F());
+                  sim::rules::body_axes(c.car);
+              }});
 }
 
 } // namespace gt4r::diff::prologue
