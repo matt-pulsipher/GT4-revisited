@@ -278,6 +278,7 @@ private:
     }
     void stop() {
         if (held_) SDL_DestroyTexture(held_), held_ = nullptr;
+        if (trail_) SDL_DestroyTexture(trail_), trail_ = nullptr;
         menu::text_measure().measure = nullptr;
         movies_.reset(), cars_.reset(), models_.reset(), loading_.reset(), advertise_.reset(), live_drawer_.reset(), runtime_.reset(), race_.reset();
         if (app_)
@@ -389,6 +390,7 @@ private:
             if (movies_) movies_->end_frame();
             if (cars_) cars_->end_frame();
             if (models_) models_->end_frame();
+            draw_trail(tp, x, scale);
             draw_cursor(x, scale);
             draw_blocks(tp, x, scale);
             // The transition's colour over the pages.
@@ -468,6 +470,39 @@ private:
             }
     }
 
+    // A cross transition's trail (0x2182E0): while the pages come in, the picture shown last is
+    // drawn over the one just drawn at the transition's weight, from its rectangle cut by
+    // `magnify_diff` page pixels a side (so magnified), then black at 0.1 (`with_black`); the
+    // result is the next picture's last. (The first picture of the trail has none before it.)
+    void draw_trail(const menu::TransitionPicture& tp, float x, float scale) {
+        SDL_Renderer* r = app_->renderer();
+        if (!tp.trail) {
+            if (trail_) SDL_DestroyTexture(trail_), trail_ = nullptr;
+            return;
+        }
+        const SDL_Rect page{int(x), 0, int(640 * scale), int(480 * scale)};
+        if (trail_) {
+            float tw = 1, th = 1;
+            SDL_GetTextureSize(trail_, &tw, &th);
+            const float cut = std::clamp(tp.trail_diff * scale, 0.0f, std::min(tw, th) / 2 - 1);
+            const SDL_FRect src{cut, cut * th / tw, tw - 2 * cut, th - 2 * cut * th / tw};
+            const SDL_FRect dst{float(page.x), 0, float(page.w), float(page.h)};
+            SDL_SetTextureBlendMode(trail_, SDL_BLENDMODE_BLEND);
+            SDL_SetTextureAlphaMod(trail_, u8(tp.trail_ratio * 255));
+            SDL_RenderTexture(r, trail_, &src, &dst);
+            if (tp.trail_black) {
+                SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+                SDL_SetRenderDrawColor(r, 0, 0, 0, u8(0.1f * 255));
+                SDL_RenderFillRect(r, &dst);
+            }
+            SDL_DestroyTexture(trail_), trail_ = nullptr;
+        }
+        if (SDL_Surface* shot = SDL_RenderReadPixels(r, &page)) {
+            trail_ = SDL_CreateTextureFromSurface(r, shot);
+            SDL_DestroySurface(shot);
+        }
+    }
+
     // The menus' pointer (menu_cursor.h).
     void draw_cursor(float x, float scale) { cursor_.draw(*runtime_, *live_drawer_, x, scale); }
 
@@ -485,6 +520,7 @@ private:
     bool advertise_on_ = false;
     MenuCursor cursor_;
     SDL_Texture* held_ = nullptr; // a block transition's screen
+    SDL_Texture* trail_ = nullptr; // a cross transition's last picture
     int project_sel_ = 0, page_sel_ = 0, state_ = 0;
     bool player_ = false; // the game itself
     bool full_ = false, start_run_ = false, start_boot_ = false;

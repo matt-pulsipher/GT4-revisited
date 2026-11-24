@@ -105,7 +105,7 @@ public:
         w = h = 0;
         if (!st.font || s.empty()) return;
         // A face of several lines (and a text box) breaks its lines at its width.
-        if (const std::optional<Rect> g = d.rect("geometry"); g && g->w > 0 && (d.number("multiline") != 0 || d.type == "TextBoxFace") && d.number("packing") == 0) s = wrapped(s, st, g->w);
+        if (const std::optional<Rect> g = d.rect("geometry"); g && g->w > 0 && (d.number("multiline") != 0 || d.type == "TextBoxFace") && d.number("packing") == 0) s = wrapped(s, st, g->w, d.number("equalized") != 0);
         // An abbreviated text measures as it is drawn, cut and ended in dots (the header's car name
         // is placed by its width: gtmode's refreshHeaderAlignment).
         if (const std::optional<Rect> g = d.rect("geometry"); g && g->w > 0 && d.number("abbreviate") != 0 && d.number("adjust_scale") == 0 &&
@@ -478,7 +478,9 @@ private:
         return menu::layout_menu_text(line, st, 0, 0).width;
     }
     // A text of several lines is broken at spaces where a line would pass the face's width.
-    std::string wrapped(const std::string& s, const menu::TextStyle& st, float width) const {
+    // `equalized`: the program's word wrapper for spread text; otherwise (❓ the renderer's own
+    // break, 0x491418, is not ported) a line breaks when the next word would pass the width.
+    std::string wrapped(const std::string& s, const menu::TextStyle& st, float width, bool equalized = true) const {
         // ❓ Prologue's texts carry their own line ends and are not broken (its card dialog's
         // first line passes its face's width by 5 pixels in one line).
         if (!fonts_.count("hn_14")) return s;
@@ -493,6 +495,23 @@ private:
         // (A word's width is its pen's: width_of() gives a line's, half a space less.)
         const float pen_extra = float(advance / 2) * st.scale_x;
         const float limit = width - float(st.spacing.wide_advance) * st.scale_x;
+        if (!equalized) {
+            // (The events' one-line notices fill their 544 units within a few: no margin there.)
+            std::string out, line;
+            auto flush = [&] { out += line, line.clear(); };
+            size_t at = 0;
+            while (at <= s.size()) {
+                const size_t end = std::min(s.find_first_of(" \n", at), s.size());
+                const std::string word = s.substr(at, end - at);
+                const std::string tried = line.empty() ? word : line + " " + word;
+                if (!line.empty() && width_of(tried, st) > width + 0.5f) flush(), out += '\v', line = word;
+                else line = tried;
+                if (end < s.size() && s[end] == '\n') flush(), out += '\n';
+                at = end + 1;
+            }
+            flush();
+            return out;
+        }
         std::string out, line;
         float cur = 0;
         auto flush = [&] { out += line, line.clear(), cur = 0; };
@@ -554,7 +573,7 @@ private:
                 s += "...";
             }
         }
-        if ((w.number("multiline") != 0 || w.type == "TextBoxFace") && w.number("packing") == 0 && at.w > 0) s = wrapped(s, st, at.w);
+        if ((w.number("multiline") != 0 || w.type == "TextBoxFace") && w.number("packing") == 0 && at.w > 0) s = wrapped(s, st, at.w, w.number("equalized") != 0);
         // Where in its rectangle: 0..8, rows from the top, columns from the left; the middle (4)
         // when not given (the text style's default).
         const int align = w.has("align") ? int(w.number("align")) : 4;

@@ -354,8 +354,11 @@ A widget's `actor` is stepped each picture.
   1 / (period x 60). `MColorTransition` (0x286EA0, update 0x287348) covers the screen with its
   color by 1/15 a picture. **MCrossTransition** (0x28A6B0, 0x28A5B8): its out half is done at
   once; coming in, t falls from 1 by 1/30 a picture (one more picture at 0) and every page is
-  drawn at opacity 1 - t and size 1 + t² about the screen's middle. ❓ Its trail (the last
-  picture blended over at `magnify_ratio` with a black veil) is not drawn. **MBlockTransition**
+  drawn at opacity 1 - t and size 1 + t² about the screen's middle, and each picture of the in
+  half takes its trail (0x2182E0): the picture shown last drawn over at `magnify_ratio` (0.5),
+  from its rectangle cut by `magnify_diff` (0) pixels a side, then black at 0.1 (`with_black`,
+  1); `type` "capture" (0) instead holds the captured screen over the new page at alpha t (❓
+  not drawn here: no script sets it). **MBlockTransition**
   (0x27AEE0, 0x27B2A8): the screen as it was is held in 32 x 24 blocks of 20 pixels; each
   block's timer starts at 1 + a random part of `range` (0.125) + its column / 32 x `slope` (2;
   a negative slope from the right) and falls by 2/15 a picture; a block shows at alpha
@@ -670,8 +673,10 @@ A project's script names files of the disc's top beside its own (gtmode's
 ### Drawn in the app
 
 A running page is drawn from the live widgets with the rules of the table above, and:
-a text of several lines (`multiline`) is broken at spaces as the program's word wrapper does
-(0x245C90): each word measured by itself, a word starts a new line when the line so far (its
+a text of several lines (`multiline`) is broken at spaces: one that is not `equalized` when the
+next word would pass the face's width (❓ the renderer's own break, 0x491418, is not ported: the
+event pages' one-line notices fill their 544 units to within a few); an `equalized` one as the
+program's word wrapper does (0x245C90): each word measured by itself, a word starts a new line when the line so far (its
 words each with a space after it) and it reach the face's width less the font's double-byte
 step (❓ that margin is the renderer's right edge, 0x490660, which the four reference texts'
 breaks agree with; the comparison read at 0x245F1C is against the bare width); a face without
@@ -683,6 +688,10 @@ the script asked (`adjustScale`: the widest line to the face's width), or cut wi
 (`abbreviate`); a key is looked up in the page the layout has the widget in, wherever the
 scripts copy it; an open option list is drawn over the page; the cursor and the transitions
 as below.
+
+**Names in the menus' language**: the car database's names come from `CAR_NAME_<language>`
+and `<language>_StrDB` of the menus' language (Prologue, Japan: `japanese`, "フェアレディ 240ZG
+`71"; the US disc: `american`).
 
 **Before the menus** (`app/menu_advertise.h`; GT4FIRSTADVERTISE::DisplayAdvertiseImage,
 0x108F78): `advertise/us/main.img`'s pictures in the middle of the frame buffer on black, each
