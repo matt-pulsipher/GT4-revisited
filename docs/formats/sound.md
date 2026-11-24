@@ -77,7 +77,7 @@ The magic and the first 0x20 bytes are Gran Turismo 3's; the tables are new.
 | 1 | velocity map: 2 bytes, then the played velocity for each of the 128 written ones (the identity in every bank) | all |
 | 2 | ❓ 64 bytes; the driver's lookup of an lfo wave reads it as `u16 last, u16 offset[]` to waves of 60 steps, and the one offset points past the header | music banks |
 | 3 | effect sequences | `gt4sys`, `gt4count`, `gt4pod`, `gt4shutter*` |
-| 4 | ❓ 16-byte records, one per effect sequence (`00 nn 00 64 40 00... 04 00 64 00`); no reader found | the same |
+| 4 | ❓ a 16-byte head (`u8 100`, then 0) and 24 records of 16 bytes numbered 0 to 23 (`u8 0, u8 n, u8 0, u8 100, u8 0x40, 7 × 0, u8 4, u8 0, u8 100, u8 0`): 🔎 a default for each of 24 channels or voices (a volume 100, the center pan, 4, 100). The same bytes in every effect bank of both discs (`gt4sys`, `gt4count`, Prologue's `gt4pod` too), whatever their sequences; no reader found in `CORE.GT4`, and the effects' levels match the original without it | the same |
 | 5 | effect programs | the same |
 | 27 | not an offset: 0 in the music banks, where a tone's sample address counts 16 bytes; -1 in the effect banks, where it counts 8 | |
 
