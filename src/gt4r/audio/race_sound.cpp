@@ -329,7 +329,7 @@ void RaceSound::update(std::span<const CarSoundState> states, const SoundListene
 void RaceSound::update(const sim::Session& session, const SoundListener& camera, int target) {
     std::vector<CarSoundState> s;
     s.reserve(session.cars().size());
-    for (size_t i = 0; i < session.cars().size(); ++i) s.push_back(sound_state(session, i));
+    for (size_t i = 0; i < session.cars().size(); ++i) s.push_back(sound_state(session, i, &mix_->tables));
     update(s, camera, target);
 }
 

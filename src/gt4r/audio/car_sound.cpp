@@ -500,7 +500,15 @@ void CarSound::update(const CarSoundState& car, const SoundListener& listener, b
         }
         play_once(landing_fx_, landing * gain(SoundChannel::OnBound) * kLandingGain, g_body, at_body);
     }
-    if (car.afterfire) {
+    // An afterfire: given, or by the program's rule.
+    bool flame = car.afterfire;
+    const bool strong = car.shift_flame && car.afterfire_chance > 0.1f;
+    if (strong && !was_afterfire_) {
+        random_ = random_ * 1103515245u + 12345u;
+        flame |= float(random_ >> 8) / 16777216.0f < car.afterfire_chance;
+    }
+    was_afterfire_ = strong;
+    if (flame) {
         random_ = random_ * 1103515245u + 12345u;
         play_once(backfire_fx_[(random_ >> 16) & 1], kBackfire, g_exhaust, at_exhaust);
     }

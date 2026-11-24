@@ -75,7 +75,13 @@ struct RaceSoundTables {
         float clash_scale = 1, clash_mid = 0, clash_hard = 0;
     } params;
 
-    bool found_gains = false, found_mics = false, found_params = false;
+    // The afterfire's chance (0x622320, the 16 bytes before the views' gains; 0x3F3278): a pair of
+    // powers (x 10 PS) for each of the spec's kind byte +0x120 (0..3) and whether the engine has a
+    // boost (no, yes). Under the first no flame, from it 0.25 rising to 0.75 at the second.
+    std::array<u8, 16> afterfire{};
+    float afterfire_chance(int kind, bool boosted, float ps) const;
+
+    bool found_gains = false, found_mics = false, found_params = false, found_afterfire = false;
     bool found() const { return found_gains && found_mics && found_params; }
 
     float view_gain(SoundView v, SoundChannel c) const { return gain[size_t(v)][size_t(c)]; }

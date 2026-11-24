@@ -269,6 +269,11 @@ TEST(sound_race_tables_on_disc) {
             continue;
         }
         CHECK(t.found());
+        // The afterfire's table (0x622320): a road car's own muffler without a boost from 500 PS to
+        // 1000, a racing car's from 100 PS to 400.
+        CHECK(t.found_afterfire && t.afterfire[0] == 50 && t.afterfire[1] == 100 && t.afterfire[14] == 10 && t.afterfire[15] == 40);
+        CHECK(t.afterfire_chance(0, false, 499) == 0 && near(t.afterfire_chance(0, false, 750), 0.5, 1e-6) && t.afterfire_chance(0, false, 1200) == 0.75f);
+        CHECK(near(t.afterfire_chance(3, true, 100), 0.25, 1e-6) && t.afterfire_chance(9, true, 400) == 0.75f);
         std::printf("  engine / exhaust by view:");
         for (int v = 0; v < 5; ++v) std::printf(" %.2f/%.2f", double(t.view_gain(V(v), C::Engine)), double(t.view_gain(V(v), C::Exhaust)));
         std::printf("\n  wind %.2f..%.2f m/s -> %.0f..%.0f rpm; levels %.2f %.2f, spool %.2f, blow-off %.2f\n", double(t.params.wind_speed_lo),
@@ -466,6 +471,14 @@ TEST(sound_race_session_on_disc) {
     const audio::CarSoundState st = audio::sound_state(*session, 0);
     std::printf("  car 0: engine place %d, drag %.3f, tire widths %.3f / %.3f m, surface %d\n", st.engine_place, double(st.drag),
                 double(st.wheels[0].width), double(st.wheels[3].width), st.wheels[0].surface);
+    {
+        const audio::RaceSoundTables tables = audio::RaceSoundTables::from_core(disc->read_program());
+        for (size_t i = 0; i < 2; ++i) {
+            const audio::CarSoundState a = audio::sound_state(*session, i, &tables);
+            std::printf("  car %zu: spec kind %d, afterfire chance %.3f\n", i, session->spec(i).b(0x120), double(a.afterfire_chance));
+            CHECK(a.afterfire_chance >= 0 && a.afterfire_chance <= 0.75f);
+        }
+    }
     CHECK(st.drag > 0.1f && st.drag < 1.0f && st.wheels[0].width > 0.1f && st.wheels[0].width < 0.5f && st.engine_place == 2); // (the NSX's engine is in the middle)
     std::vector<race::CarInput> in(2);
     for (race::CarInput& i : in) i.brake = 1;
@@ -579,6 +592,42 @@ TEST(sound_race_rolling_start_and_replay) {
     CHECK(near(sound.master() / race_level, expect, 0.01));
     steps(600);
     CHECK(near(sound.master() / race_level, 0.45, 0.01));
+}
+
+// The afterfire by the program's rule: at the shift's end at full throttle, with the car's chance
+// (a certain one fires every time, none never), once per rise.
+TEST(sound_race_afterfire_rule) {
+    Disc* disc = full_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    gt3r::Vfs vfs(&disc->volume());
+    audio::OfflineSound s(false);
+    auto library = std::make_shared<audio::SoundLibrary>(vfs);
+    auto mix = std::make_shared<audio::RaceMix>();
+    mix->tables = audio::RaceSoundTables::from_core(disc->read_program());
+    mix->master = 0.4f;
+    audio::CarSound car(vfs, s.mixer(), &s.driver(), library);
+    car.set_mix(mix);
+    CHECK(car.load("ka_01"));
+    const auto run = [&](float chance, int steps_on) {
+        const int before = s.driver().voices();
+        int most = before;
+        for (int i = 0; i < 4; ++i) {
+            audio::CarSoundState in;
+            in.rpm = 5000, in.throttle = 1, in.position = {0, 0, 5};
+            in.shift_flame = i >= 1 && i < 1 + steps_on, in.afterfire_chance = chance;
+            car.update(in, audio::SoundListener{}, true);
+            s.advance(1);
+            most = std::max(most, s.driver().voices());
+        }
+        return most - before;
+    };
+    run(0, 0);
+    const int quiet = s.driver().voices();
+    CHECK(run(1.0f, 2) >= 1);      // the backfire's note
+    s.advance_seconds(2.0);
+    CHECK(s.driver().voices() <= quiet);
+    CHECK(run(0.05f, 2) == 0);     // too weak a chance to rise past 0.1
+    car.stop();
 }
 
 // The free run's duck: to 0.2 over a second, back over a second.

@@ -22,7 +22,7 @@ s16 s16_at(ByteSpan d, size_t o) { return s16(rd16(d, o)); }
 // and hold 100 in every row, which is what the table is known by.
 constexpr size_t kGainRow = 2 * RaceSoundTables::kChannels, kSpare = 7;
 
-bool find_gains(ByteSpan d, RaceSoundTables& t) {
+bool find_gains(ByteSpan d, RaceSoundTables& t, size_t* where = nullptr) {
     u8 tail[2 * kSpare];
     for (size_t i = 0; i < kSpare; ++i) tail[2 * i] = 100, tail[2 * i + 1] = 0;
     const size_t size = kGainRow * RaceSoundTables::kViews, lead = kGainRow - sizeof tail;
@@ -39,6 +39,7 @@ bool find_gains(ByteSpan d, RaceSoundTables& t) {
             for (int v = 0; v < RaceSoundTables::kViews; ++v)
                 for (int c = 0; c < RaceSoundTables::kChannels; ++c)
                     t.gain[size_t(v)][size_t(c)] = float(s16_at(d, at - lead + kGainRow * size_t(v) + 2 * size_t(c))) * 0.01f;
+            if (where) *where = at - lead;
             return true;
         }
         ++p;
@@ -70,6 +71,17 @@ bool find_float_gains(ByteSpan d, RaceSoundTables& t) {
 
 // The microphones: for each output mode three pairs of floats (slope, reach). The engine's pair
 // is the same in every mode and every reach is the same distance.
+// The afterfire's table: right before the views' gains, eight pairs of powers (x 10 PS), each
+// pair rising.
+bool find_afterfire(ByteSpan d, size_t gains, RaceSoundTables& t) {
+    if (gains < t.afterfire.size()) return false;
+    const u8* p = d.data() + gains - t.afterfire.size();
+    for (size_t k = 0; k < t.afterfire.size(); k += 2)
+        if (p[k] == 0 || p[k] >= p[k + 1]) return false;
+    std::memcpy(t.afterfire.data(), p, t.afterfire.size());
+    return true;
+}
+
 bool find_mics(ByteSpan d, RaceSoundTables& t) {
     constexpr size_t kPairs = RaceSoundTables::kMics * RaceSoundTables::kModes, kRow = 8 * RaceSoundTables::kMics;
     const auto slope_ok = [](float f) { return f > 0.001f && f <= 4.0f; };
@@ -140,6 +152,15 @@ bool find_params(ByteSpan d, RaceSoundTables& t) {
 
 } // namespace
 
+float RaceSoundTables::afterfire_chance(int kind, bool boosted, float ps) const {
+    if (!found_afterfire) return 0;
+    const size_t row = 2 * (2 * size_t(std::clamp(kind, 0, 3)) + (boosted ? 1 : 0));
+    const float lo = float(afterfire[row]) * 10.0f, hi = float(afterfire[row + 1]) * 10.0f;
+    if (ps < lo) return 0;
+    if (ps >= hi) return 0.75f;
+    return (ps - lo) / (hi - lo) * 0.5f + 0.25f;
+}
+
 RaceSoundTables RaceSoundTables::flat() {
     RaceSoundTables t;
     for (auto& row : t.gain) row.fill(1.0f);
@@ -150,7 +171,10 @@ RaceSoundTables RaceSoundTables::flat() {
 
 RaceSoundTables RaceSoundTables::find(ByteSpan image) {
     RaceSoundTables t = flat();
-    t.found_gains = find_gains(image, t) || find_float_gains(image, t);
+    size_t gains = 0;
+    t.found_gains = find_gains(image, t, &gains);
+    t.found_afterfire = t.found_gains && find_afterfire(image, gains, t);
+    if (!t.found_gains) t.found_gains = find_float_gains(image, t);
     t.found_mics = find_mics(image, t);
     t.found_params = find_params(image, t);
     return t;

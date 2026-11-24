@@ -509,7 +509,22 @@ against the original (below): the Ford Ka '01's strongest note at 5,650 rpm is 1
   over the step, at most 1) that way: min(2 × contact, 1), none under 0.2 (🔎 a step with two
   contacts: the program keeps the stronger, the seam gives their sum); on_bound for the in-car own view (the strongest wheel landing, 0.5..1,
   × G15 × 2.5); backfire / backfire2 (one at random) at the exhaust, strength 3, when an
-  afterfire flame starts (0x3D6D30); heartbeat (P[0x32] = 3) ❓ not played.
+  afterfire flame starts (0x3B6B78: the flame object's latch +0x64, read and cleared by
+  0x3D6F30). **The afterfire** (`RaceSound` from the simulation; `CarSoundState::shift_flame`,
+  `afterfire_chance`): 0x3F3368 (each step, from 0x34DB30) sets the car's byte +0x6C4 when the
+  throttle (F +0x494) is over 0.9 and the gearbox's lock-out (F +0x526) is 11, the step after the
+  clutch locks at the end of a shift (it is set to 12 there); 0x3F33A8 makes the flame's strength
+  the parameter block's float +0x10DC while the byte is set, else 0. The flame object
+  (0x3D6D30) starts its flames as the strength rises past 0.1 when the object's random number
+  (0x578598 on its seed +0x68) is not over it. +0x10DC is set when the car is built (0x360780 →
+  0x3F3278) from the car's peak power in PS (0x34F3F8: the torque curve's kgf m × rpm / 716.2 at
+  every 100 rpm, with the boost) by the table at 0x622320 (the 16 bytes before the views' gains):
+  for the spec's kind byte +0x120 (0 a road car with its own muffler, 1 one with another muffler,
+  2 and 3 by the car's kind byte, [database.md](database.md)) and whether the engine has a boost
+  (P +0x230, the boost's cap, over 0), a pair of powers × 10 PS: under the first 0, from it 0.25
+  rising to 0.75 at the second and above. US 1.01: kind 0 500..1000 PS (with a boost 250..500), 1
+  200..400 (150..400), 2 200..400 (150..400), 3 100..400 (100..400). The Ka and the Tsukuba
+  session's two stock cars: 0; heartbeat (P[0x32] = 3) ❓ not played.
 - 🔎 The frame's reverb flag (+4) is never written: the voices send to the reverb.
 
 ### The course (0x398B70)
