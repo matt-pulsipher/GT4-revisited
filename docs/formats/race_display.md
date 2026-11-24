@@ -578,3 +578,29 @@ rear tires, "SM/SM") and the race's name (a word the organization gives, `"%s%d"
 In the original's replay the picture under it is darkened and the course's logo shows bottom right;
 here the card shows the first 3.5 s with fades of 0.5 s over a darkening of 75 % (judged), and the
 course logo is not drawn (❓ its picture was not found).
+
+## B-spec
+
+The original's B-spec race (reference `03-race/bspec_display_a.png`) shows display mode 1's places
+(table 0x6A0BA0: the place, laps, map and lap time as the single race's, "Total Time"
+(`JP/total_time`) with the race's time (member 0x1438, written H:MM'SS.mmm) in place of the best and
+last laps, the middle message at 320, 240) and panel layout 2 (the small speed plate, the help strip
+0x2DA0 along the bottom: the race words' `Tool Tip1`, "%BF Pace %Bc Overtake %Bd Pit %Be Change
+View %BG Select Car %Bh Race Monitor %Bj Display", the pad's buttons from the `Gaiji` font). Over
+them a bar at the top middle: the five paces as keys, the chosen one's digit orange, an overtake
+key and a pit key "P", the pace's word under them (`key_pace1` .. `key_pace5`: Slow Down, Cruise,
+Steady, Fast, Push; `key_overtake` Overtake). ❓ Which part of the program sets display mode 1 for
+B-spec, and the bar's, the plate's and the strip's shapes (drawn here as measured on the
+original's picture: the bar 190, 18, 260 x 58, keys 26 x 26 every 30 units; the plate's bottom at
+431; the strip 438 .. 480) are not read. The commands: Left / Right the pace, Triangle overtake,
+Cross the view, R2 the display; the race opens in the low view from the car's nose.
+
+## License tests
+
+The original's B-1 (reference `05-gtmode/37_license_test_b1_driving.png`): the laps "1/1", the map,
+the lap's time and the best lap as the single race's, no place, and in place of the last lap the
+test's three target times (its RACE row's gold, silver and bronze) each by its trophy (`mark_1st`,
+`mark_2nd`, `mark_3rd`; RaceLicenseDisplay::vf9 names them and `pylon`). ❓ Drawn here at the
+picture's places: trophies centred at x 485, y 100 / 128 / 156, the times ending at x 608 on
+baselines 8 below; the pylon count is not drawn.
+

@@ -73,6 +73,14 @@ CarFaceSettings car_face_settings(const Widget& w) {
     s.advanced = action == "advanced" || (action != "normal" && w.number("action_type", 1) != 0);
     s.car_code = w.text("car_code");
     s.car_color = int(w.number("car_color", -1));
+    s.option_motion = w.text("option_motion");
+    s.option_motion_frame = (long long)w.number("option_motion_frame", 0);
+    const std::string sets = w.text("model_sets");
+    for (size_t at = 0; at < sets.size();) {
+        const size_t end = std::min(sets.find('|', at), sets.size());
+        if (end > at) s.model_sets.push_back(sets.substr(at, end - at));
+        at = end + 1;
+    }
     return s;
 }
 

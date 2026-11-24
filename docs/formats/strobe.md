@@ -91,7 +91,9 @@ picture). **Gradient** (0xC): list stops (8 each `{f32 position 0..1, u32 color}
 font string: `hm_16*80,80` = font `hm_16`, drawn at 80% x 80% (the shared engine's
 `gt3r::menu::FontSpec::parse` reads this form; `docs/formats/race_display.md` "Text").
 
-**Text field** (0x34): f32 box x0, y0, x1, y1 (relative to the track's origin); u32 color; s16 font
+**Text field** (0x34): f32 box x0, y0, x1, y1 (relative to the track's origin); u32 color (its RGB
+shows as it is, 0xFF white: the pause title's 0x7A is the original's mid gray, the results rows'
+0xD4 its near white, measured on the reference pictures; the alpha with 0x80 opaque); s16 font
 index (+0x14); u16 height in twips (+0x16; 320 = 16 px); u16 ❓; u8 flags (+0x1A; bit 0x80 is set by the
 loader once translated); u8 align (+0x1B; 2 in every field here: centered in the box ❓ by Flash's
 numbering 0 left, 1 right, 2 center); +0x1C..0x21 ❓ margins/indent (0); s16 leading in twips (+0x22;

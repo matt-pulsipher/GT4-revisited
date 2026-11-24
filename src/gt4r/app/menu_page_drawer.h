@@ -5,12 +5,14 @@
 // drawn by `draw_live`, called in their place in the page's order.
 
 #include "gt4r/app/app.h"
+#include "gt4r/app/menu_image_key.h"
 
 #include "base/log.h"
 #include "formats/text/charset.h"
 #include "formats/text/text_layout.h"
 #include "gt4r/menu/faces_flash.h"
 #include "gt4r/menu/faces_graph.h"
+#include "gt4r/menu/faces_tooltip.h"
 #include "gt4r/menu/font.h"
 #include "gt4r/menu/project.h"
 #include "gt4r/menu/runtime.h"
@@ -78,7 +80,9 @@ public:
         button_colors_ = program_button_colors(app);
     }
     ~PageDrawer() {
-        for (auto& [image, t] : textures_) SDL_DestroyTexture(t);
+        for (auto& [face, a] : kanji_atlases_)
+            if (a.texture) SDL_DestroyTexture(a.texture);
+        for (auto& [image, t] : textures_) SDL_DestroyTexture(t.texture);
         for (auto& [font, t] : atlases_) SDL_DestroyTexture(t);
         for (auto& [k, f] : flashes_)
             for (SDL_Texture* t : f.textures)
@@ -111,8 +115,15 @@ public:
     // `project`: where the page's pictures and text are. `base`, `opacity`: the whole page's
     // (a transition's).
     void draw(menu::Project& project, const LiveWidget& page, float x, float y, float scale, int state, const Affine& base = {}, float opacity = 1) {
-        project_ = &project;
+        use(project);
         ox_ = x, oy_ = y, scale_ = scale, page_ = page.name, widgets_drawn = 0, m_ = base;
+        if (menu_frame % 60 == 0)
+            for (auto it = textures_.begin(); it != textures_.end();)
+                if (menu_frame > it->second.used + 600) SDL_DestroyTexture(it->second.texture), it = textures_.erase(it);
+                else ++it;
+        for (auto it = tips_.begin(); it != tips_.end();) // tips not shown for ten seconds
+            if (menu_frame > it->second.seen + 600) it = tips_.erase(it);
+            else ++it;
         const SDL_Rect whole = to_clip({0, 0, 640, 480});
         SDL_SetRenderClipRect(r_, &whole);
         over_.clear();
@@ -130,7 +141,7 @@ public:
 
     // One widget by itself (the cursor), its rectangle in the page's 640 x 480 through `m`.
     void draw_one(menu::Project& project, const std::string& page, const LiveWidget& w, float x, float y, float scale, const Affine& m = {}) {
-        project_ = &project;
+        use(project);
         ox_ = x, oy_ = y, scale_ = scale, page_ = page, m_ = m;
         const SDL_Rect whole = to_clip({0, 0, 640, 480});
         SDL_SetRenderClipRect(r_, &whole);
@@ -169,9 +180,14 @@ private:
         return {int(std::floor(f.x)), int(std::floor(f.y)), int(std::ceil(f.x + f.w) - std::floor(f.x)), int(std::ceil(f.y + f.h) - std::floor(f.y))};
     }
 
-    SDL_Texture* texture(const gt3r::Tex1::Image* image) {
+    // By what the picture holds (image_key): a picture freed with its project leaves its
+    // address to the next. `path`: its name (not needed for the key).
+    SDL_Texture* texture(const gt3r::Tex1::Image* image, const std::string& path = {}) {
+        (void)path;
         if (!image || !image->width || !image->height) return nullptr;
-        SDL_Texture*& t = textures_[image];
+        Cached& c = textures_[image_key(*image)];
+        c.used = menu_frame;
+        SDL_Texture*& t = c.texture;
         if (!t) {
             t = SDL_CreateTexture(r_, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, int(image->width), int(image->height));
             if (t) {
@@ -187,7 +203,7 @@ private:
     // (mImageFace's `texcoord`); none: the whole picture.
     void image(const std::string& path, const Rect& at, Rgba tint, float opacity, bool add, const SDL_FPoint* uv = nullptr, bool from_disk = false) {
         const gt3r::Tex1::Image* img = path.empty() ? nullptr : from_disk ? disk_image(path) : project_->image(page_, path);
-        SDL_Texture* t = texture(img);
+        SDL_Texture* t = texture(img, path);
         if (!t) return;
         SDL_SetTextureColorMod(t, 255, 255, 255);
         SDL_SetTextureAlphaMod(t, 255);
@@ -376,13 +392,15 @@ private:
     // "hm_16", or with a palette "hm_16#1"; none: `hn_14`, the text style's default
     // (0x246F58); ❓ a name the files do not have (`sw_20`): the menus' body font, `hm_16`.
     const gt3r::text::LatinFont* font_of(const Widget& w, gt3r::text::FontVariant* variant = nullptr, std::string* found = nullptr) const {
-        std::string name = w.text("font", "hn_14");
+        // The text style's default font: `hn_14` (0x246F58); Prologue's `sw_16` (0x2F75D0).
+        std::string name = w.text("font", fonts_.count("hn_14") ? "hn_14" : "sw_16");
         if (const size_t hash = name.find('#'); hash != std::string::npos) {
             if (variant) *variant = name.compare(hash, 2, "#0") == 0 ? gt3r::text::FontVariant::Outlined : gt3r::text::FontVariant::Plain;
             name.resize(hash);
         }
         auto it = fonts_.find(name);
         if (it == fonts_.end()) it = fonts_.find("hm_16");
+        if (it == fonts_.end()) it = fonts_.find("sw_16");
         if (found && it != fonts_.end()) *found = it->first;
         return it == fonts_.end() ? nullptr : it->second;
     }
@@ -395,7 +413,58 @@ private:
         if (const auto g = fonts_.find("Gaiji"); g != fonts_.end()) st.gaiji = g->second;
         st.button_colors = button_colors_;
         st.scale_x = w.number("scale_x", 1), st.scale_y = w.number("scale_y", 1);
+        // ❓ The double-byte face nearest the font's cell (unicode.kf has one).
+        if (kanji_ && st.font) st.kanji = kanji_->face_for_height(st.font->kanji_height);
         return st;
+    }
+    // The project whose pages are drawn, and its language's double-byte font (read once).
+    void use(menu::Project& project) {
+        project_ = &project;
+        auto [it, fresh] = kanji_fonts_.try_emplace(project.language());
+        if (fresh && vfs_)
+            for (const std::string& path : menu::kanji_font_paths(project.language())) {
+                const std::optional<Bytes> file = vfs_->read(path);
+                if (!file) continue;
+                try {
+                    it->second = menu::KanjiFont::parse(*file);
+                } catch (const std::exception& e) {
+                    LOG_WARN("%s: %s", path.c_str(), e.what());
+                }
+                break;
+            }
+        kanji_ = it->second ? &*it->second : nullptr;
+    }
+    // A double-byte cell in a palette: its place in the face's atlas, filled on first use.
+    SDL_Texture* kanji_cell(const menu::KanjiFace& face, size_t palette, u32 code, SDL_FRect& src) {
+        if (!kanji_) return nullptr;
+        const int cell = face.cell(code);
+        if (cell < 0 || face.cell_width <= 0 || face.cell_height <= 0) return nullptr;
+        KanjiAtlas& a = kanji_atlases_[&face];
+        constexpr int kSide = 2048;
+        // Each cell with a pixel of clear border, so that its neighbours do not bleed in.
+        const int pw = face.cell_width + 2, ph = face.cell_height + 2;
+        const int cols = kSide / pw, rows = kSide / ph;
+        if (!a.texture) {
+            a.texture = SDL_CreateTexture(r_, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, kSide, kSide);
+            if (!a.texture) return nullptr;
+            SDL_SetTextureBlendMode(a.texture, SDL_BLENDMODE_BLEND);
+            SDL_SetTextureScaleMode(a.texture, SDL_SCALEMODE_LINEAR);
+        }
+        auto [it, fresh] = a.slots.try_emplace({palette, code}, int(a.slots.size()));
+        if (fresh) {
+            if (it->second >= cols * rows) { // full: start again
+                a.slots.clear();
+                it = a.slots.try_emplace({palette, code}, 0).first;
+            }
+            const std::vector<u32> px = menu::cell_rgba(*kanji_, face, cell, palette);
+            std::vector<u32> padded(size_t(pw) * size_t(ph), 0);
+            for (int y = 0; y < face.cell_height; ++y)
+                std::copy_n(px.begin() + std::ptrdiff_t(y * face.cell_width), face.cell_width, padded.begin() + std::ptrdiff_t((y + 1) * pw + 1));
+            const SDL_Rect at{(it->second % cols) * pw, (it->second / cols) * ph, pw, ph};
+            SDL_UpdateTexture(a.texture, &at, padded.data(), pw * 4);
+        }
+        src = {float((it->second % cols) * pw + 1), float((it->second / cols) * ph + 1), float(face.cell_width), float(face.cell_height)};
+        return a.texture;
     }
     float width_of(const std::string& line, menu::TextStyle st) const {
         st.align = gt3r::text::HAlign::Left, st.valign = gt3r::text::VAlign::Top;
@@ -403,6 +472,9 @@ private:
     }
     // A text of several lines is broken at spaces where a line would pass the face's width.
     std::string wrapped(const std::string& s, const menu::TextStyle& st, float width) const {
+        // ❓ Prologue's texts carry their own line ends and are not broken (its card dialog's
+        // first line passes its face's width by 5 pixels in one line).
+        if (!fonts_.count("hn_14")) return s;
         std::string out, line;
         auto flush = [&] { out += line, line.clear(); };
         size_t at = 0;
@@ -433,7 +505,8 @@ private:
         return atlas;
     }
 
-    void text(const Widget& w, const Rect& at, float opacity) {
+    // `id`: the live face (a tool tip's motion is kept by it).
+    void text(const Widget& w, const Rect& at, float opacity, const void* id = nullptr) {
         std::string s = w.text("text");
         if (s.empty()) s = w.text("value"); // a tool tip's, an input's
         if (s.empty() && w.has("key")) {
@@ -466,13 +539,26 @@ private:
         st.valign = row == 0 ? gt3r::text::VAlign::Top : row == 1 ? gt3r::text::VAlign::Middle : gt3r::text::VAlign::Bottom;
         float x = col == 0 ? at.x : col == 1 ? at.x + at.w / 2 : at.x + at.w;
         float y = row == 0 ? at.y : row == 1 ? at.y + at.h / 2 : at.y + at.h;
+        std::optional<SDL_Rect> tip_clip;
         if (w.type == "ToolTipFace") {
-            // A tool tip is not aligned (its style's `aligned` off, 0x248DD0): from the top, in
-            // the middle across when it fits 95 % of the face, else from 5 % in (0x24A2F8; ❓ its
-            // scrolling and the slide up of a new tip are not drawn).
+            // A tool tip is not aligned (its style's `aligned` off, 0x248DD0): a new text rises
+            // into the face, in the middle across when it fits 95 % of it, else from 5 % in and
+            // scrolling (menu/faces_tooltip.*); cut to the face.
             const float tw = width_of(s, st);
             st.align = gt3r::text::HAlign::Left, st.valign = gt3r::text::VAlign::Top;
-            x = at.x + (tw <= at.w * 0.95f ? (at.w - tw) * 0.5f : at.w * 0.05f), y = at.y;
+            Tip& tip = tips_[id ? id : &w];
+            if (tip.text != s || tip.w != at.w) {
+                tip.text = s, tip.w = at.w;
+                tip.scroll.start(tw, at.w, at.h);
+                tip.stepped = menu_frame;
+            }
+            for (int n = 0; tip.stepped < menu_frame && n < 600; ++n, ++tip.stepped) tip.scroll.step();
+            tip.stepped = menu_frame;
+            tip.seen = menu_frame;
+            x = at.x + tip.scroll.x(), y = at.y + tip.scroll.y();
+            SDL_Rect now{}, own = to_clip(bounds(at)), cut{};
+            if (SDL_GetRenderClipRect(r_, &now) && now.w > 0 && SDL_GetRectIntersection(&now, &own, &cut)) tip_clip = cut;
+            else tip_clip = own;
         }
         const Rgba base = w.color("text_color").value_or(Rgba{212, 212, 212, 255}); // the text style's default
         st.color = {base.r, base.g, base.b, base.a};
@@ -482,21 +568,27 @@ private:
         // A pass of the glyphs; `shadow`: all in one colour, offset.
         auto pass = [&](const Rgba* shadow, float dx, float dy) {
             for (const menu::PlacedGlyph& g : lay.glyphs) {
-                if (!g.font || !g.sw || !g.sh) continue; // ❓ double-byte cells are not drawn yet
-                SDL_Texture* atlas = atlas_of(*g.font, g.font == st.font ? variant : gt3r::text::FontVariant::Plain);
+                if (!g.sw || !g.sh) continue;
+                SDL_Texture* atlas = nullptr;
+                SDL_FRect src{float(g.sx), float(g.sy), float(g.sw), float(g.sh)};
+                if (g.font) atlas = atlas_of(*g.font, g.font == st.font ? variant : gt3r::text::FontVariant::Plain);
+                else if (st.kanji) {
+                    // A double-byte cell: the face's pair of palettes, the font's variant of it.
+                    const size_t face_index = size_t(st.kanji - kanji_->faces.data());
+                    atlas = kanji_cell(*st.kanji, face_index * 2 + size_t(variant), g.code, src);
+                }
                 if (!atlas) continue;
                 const Rgba c = shadow ? *shadow : Rgba{g.color.r, g.color.g, g.color.b, g.color.a};
                 SDL_SetTextureColorMod(atlas, c.r, c.g, c.b);
                 SDL_SetTextureAlphaMod(atlas, u8(std::clamp(c.a * opacity, 0.0f, 255.0f)));
                 if (m_.identity()) {
-                    const SDL_FRect src{float(g.sx), float(g.sy), float(g.sw), float(g.sh)};
                     const SDL_FRect dst = to_screen({g.x + dx, g.y + dy, g.w, g.h});
                     SDL_RenderTexture(r_, atlas, &src, &dst);
                     continue;
                 }
                 float aw = 1, ah = 1;
                 SDL_GetTextureSize(atlas, &aw, &ah);
-                const float u0 = float(g.sx) / aw, v0 = float(g.sy) / ah, u1 = float(g.sx + g.sw) / aw, v1 = float(g.sy + g.sh) / ah;
+                const float u0 = src.x / aw, v0 = src.y / ah, u1 = (src.x + src.w) / aw, v1 = (src.y + src.h) / ah;
                 const SDL_FPoint uv[4] = {{u0, v0}, {u1, v0}, {u1, v1}, {u0, v1}};
                 const SDL_FColor fc{c.r / 255.0f, c.g / 255.0f, c.b / 255.0f, std::clamp(c.a * opacity / 255.0f, 0.0f, 1.0f)};
                 const SDL_FColor fcs[4] = {fc, fc, fc, fc};
@@ -505,17 +597,22 @@ private:
                 quad(atlas, {g.x + dx, g.y + dy, g.w, g.h}, uv, fcs, SDL_BLENDMODE_BLEND);
             }
         };
+        SDL_Rect before{};
+        const bool had_clip = tip_clip && SDL_GetRenderClipRect(r_, &before) && before.w > 0;
+        if (tip_clip) SDL_SetRenderClipRect(r_, &*tip_clip);
         if (const float shadow = w.number("shadow"); shadow > 0) {
             const Rgba sc = w.color("shadow_color").value_or(Rgba{0, 0, 0, 255});
             pass(&sc, shadow, shadow);
         }
         pass(nullptr, 0, 0);
+        if (tip_clip) SDL_SetRenderClipRect(r_, had_clip ? &before : nullptr);
     }
 
     // A widget is drawn in its own state and its parents' (a focused button's faces light up).
     void widget(const LiveWidget& live, const Rect& parent, float opacity, const SDL_Rect& clip, int state) {
         const Widget& w = live.data;
         state |= live.state;
+        if (unfocused_) state &= ~kFocusBits;
         if (w.has("visible") && w.number("visible") == 0) return;
         if (w.has("visible_condition") || w.has("visible_compare")) {
             const int want = int(w.number("visible_condition")), mask = int(w.number("visible_compare", float(want)));
@@ -555,7 +652,7 @@ private:
             image(w.text("image_path"), at, tint, face, add, has_uv ? uv : nullptr, w.number("from_disk") != 0);
         }
         else if (t == "FrameImageFace") frame(w, at, tint, face);
-        else if (t == "ToolTipFace" && w.number("attached") != 0 && w.text("value").empty() && w.text("text").empty()) {
+        else if (t == "ToolTipFace" && w.number("detached") == 0 && w.text("value").empty() && w.text("text").empty() && !w.has("key")) {
             // An attached tip: the focused widget's (or the nearest parent's with one) tool tip.
             Widget tip = w;
             auto put = [&tip](const char* name, const std::string& value) {
@@ -573,8 +670,8 @@ private:
                     if (LiveWidget* fp = const_cast<LiveWidget*>(f)->page()) put("key_page", fp->name);
                     break;
                 }
-            text(tip, at, face);
-        } else if (t == "TextFace" || t == "InputTextFace" || t == "InputNumberFace" || t == "ToolTipFace" || t == "TextBoxFace") text(w, at, face);
+            text(tip, at, face, &live);
+        } else if (t == "TextFace" || t == "InputTextFace" || t == "InputNumberFace" || t == "ToolTipFace" || t == "TextBoxFace") text(w, at, face, &live);
         else if (t == "ColorChipFace") {
             // A car's paint: its colour under the chip's picture.
             if (w.has("chip_r")) fill(at, {Rgba{u8(w.number("chip_r")), u8(w.number("chip_g")), u8(w.number("chip_b")), 255}}, face, false);
@@ -584,7 +681,8 @@ private:
         else if (draw_live) draw_live(live, project_, page_, at, to_screen(bounds(at)), face);
 
         SDL_Rect inner = clip;
-        if (w.number("clip") != 0) {
+        const bool clips = w.has("clip") ? w.number("clip") != 0 : menu::clips_by_default(t);
+        if (clips) {
             const SDL_Rect own = to_clip(bounds(at));
             if (!SDL_GetRectIntersection(&clip, &own, &inner)) return;
             SDL_SetRenderClipRect(r_, &inner);
@@ -595,9 +693,18 @@ private:
                 over_.push_back({c.get(), at, opacity, state & ~kFocusBits, m_});
                 continue;
             }
+            // ❓ A closed option menu shows its chosen item in the item's own state: the menu's
+            // focus lights its button, not the item (the options' dialogs).
+            if (t == "OptionMenu" && c->name == "popup") {
+                const bool was = unfocused_;
+                unfocused_ = true;
+                widget(*c, at, opacity, inner, state & ~kFocusBits);
+                unfocused_ = was;
+                continue;
+            }
             widget(*c, at, opacity, inner, state);
         }
-        if (w.number("clip") != 0) SDL_SetRenderClipRect(r_, &clip);
+        if (clips) SDL_SetRenderClipRect(r_, &clip);
     }
 
     struct Over {
@@ -608,14 +715,33 @@ private:
         Affine m;
     };
     std::vector<Over> over_;
+    bool unfocused_ = false; // drawing a closed option menu's item
+    struct Tip {
+        std::string text;
+        float w = 0;
+        menu::ToolTipScroll scroll;
+        u64 stepped = 0, seen = 0;
+    };
+    std::map<const void*, Tip> tips_; // by the live tool tip face
     menu::Project* project_ = nullptr;
     SDL_Renderer* r_;
     std::vector<gt3r::text::FontFile> files_;
     std::map<std::string, const gt3r::text::LatinFont*> fonts_;
     std::map<std::string, menu::FontSpacing> spacing_;
     std::array<menu::TextColor, 4> button_colors_{};
-    std::map<const gt3r::Tex1::Image*, SDL_Texture*> textures_;
+    struct Cached {
+        SDL_Texture* texture = nullptr;
+        u64 used = 0; // the menus' picture it was last drawn in
+    };
+    std::map<u64, Cached> textures_; // by image_key; one not drawn for ten seconds is let go
     std::map<std::pair<const gt3r::text::LatinFont*, int>, SDL_Texture*> atlases_;
+    std::map<std::string, std::optional<menu::KanjiFont>> kanji_fonts_; // by language
+    const menu::KanjiFont* kanji_ = nullptr;                           // the drawn project's
+    struct KanjiAtlas {
+        SDL_Texture* texture = nullptr;
+        std::map<std::pair<size_t, u32>, int> slots; // (palette, code point) to a cell's place
+    };
+    std::map<const menu::KanjiFace*, KanjiAtlas> kanji_atlases_;
     float ox_ = 0, oy_ = 0, scale_ = 1;
     Affine m_; // the transforms of the widgets being drawn
     gt3r::Vfs* vfs_ = nullptr;

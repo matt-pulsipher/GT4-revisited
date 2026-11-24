@@ -215,6 +215,7 @@ private:
             config.list = [vfs](const std::string& folder) { return vfs->list_dir(folder); };
             Disc* disc = app.disc();
             if (disc) config.program = [disc] { return disc->read_program(); };
+            if (disc && disc->info().serial.rfind("SCPS", 0) == 0) config.region = "jp"; // (Prologue: its units, PS and kgfm)
             config.data_dir = app.data_dir();
             while (!config.data_dir.empty() && (config.data_dir.back() == '/' || config.data_dir.back() == '\\')) config.data_dir.pop_back();
             if (!projects_.empty()) config.language = projects_[size_t(std::clamp(project_sel_, 0, int(projects_.size()) - 1))].language;
@@ -287,14 +288,31 @@ private:
             // The menus run at the program's 60 pictures a second, whatever the display's rate.
             const int steps = std::min(int(step_time_ * 60.0), 4);
             step_time_ = steps == 4 ? 0.0 : step_time_ - steps / 60.0;
+            const Uint64 u0 = SDL_GetTicksNS();
             for (int i = 0; i < steps; ++i) runtime_->update(), cursor_.step(*runtime_);
+            if (timing_ && double(SDL_GetTicksNS() - u0) / 1e6 > 20) LOG_INFO("Menu timing: the scripts took %.1f ms", double(SDL_GetTicksNS() - u0) / 1e6);
             // A script that ended its project names the next one, or asks for a race.
             if (runtime_->finished() && !race_) {
                 race_ = runtime_->race_request();
-                if (!race_ && !runtime_->advance()) runtime_->note("the menus ended and asked for nothing");
+                // The title left alone (its `timeout_count_to_autodemo`, 20 s) asks for the
+                // "autodemo" sequence: ❓ here the opening movie (demo_movie), then the project
+                // the title named (`next_menu_project`, arcade); the original shows the logo and
+                // the opening, and the configuration lists demo replays (Rdemo*) for it.
+                if (race_ && race_->sequence == "autodemo") {
+                    race_.reset();
+                    menu::GameState& g = runtime_->game();
+                    const std::string back = g.next_menu_project.empty() ? std::string("arcade") : g.next_menu_project;
+                    g.last_menu_project = runtime_->project() ? runtime_->project()->name() : std::string();
+                    g.last_sequence = g.next_sequence, g.next_sequence.clear();
+                    g.next_menu_arg = "opening", g.major_menu_project = back;
+                    runtime_->start_project("demo_movie");
+                    g.next_menu_project.clear(), g.next_menu_arg.clear();
+                }
+                if (!race_ && !runtime_->finished()) {
+                } else if (!race_ && !runtime_->advance()) runtime_->note("the menus ended and asked for nothing");
                 // A race with its own menus: the race screen runs them over the race on these menus
                 // and leaves them where the race sequence ends (race_natives.h).
-                if (race_ && !menu::quick_project(race_->sequence).empty() && app.gpu()) {
+                if (race_ && (!menu::quick_project(race_->sequence).empty() || race_->sequence == "replay") && app.gpu()) {
                     RaceStart start;
                     start.course = race_->course, start.car = race_->car, start.paint = race_->paint;
                     start.cars = std::max(1, race_->max_entry);
@@ -348,6 +366,9 @@ private:
                 const Uint64 t1 = SDL_GetTicksNS();
                 draw_ms_ += double(t1 - t0) / 1e6;
                 if (last_frame_) frame_ms_ += double(t1 - last_frame_) / 1e6, frame_max_ = std::max(frame_max_, double(t1 - last_frame_) / 1e6);
+                if (last_frame_ && double(t1 - last_frame_) / 1e6 > 33.4)
+                    LOG_INFO("Menu timing: a frame of %.1f ms on %s (pages drawn in %.1f ms)", double(t1 - last_frame_) / 1e6,
+                             runtime_->current_page() ? runtime_->current_page()->name.c_str() : "-", double(t1 - t0) / 1e6);
                 last_frame_ = t1;
                 if (++timed_ == 300) {
                     LOG_INFO("Menu timing on %s: frame %.2f ms (max %.2f), pages drawn in %.2f ms", runtime_->current_page() ? runtime_->current_page()->name.c_str() : "-",

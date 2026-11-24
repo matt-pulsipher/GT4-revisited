@@ -6,8 +6,8 @@ cars, roads, drivers' lines and physics tables. This page says what each format 
 shared engine's (Gran Turismo 3's) and this repository's (Gran Turismo 4's), and how Prologue's
 are read. Code: `src/gt4r/formats/db/specdb_prologue.*`, `src/gt4r/formats/course/runway_gtrw.*`,
 `ai_line_course.*`, `src/gt4r/sim/program_prologue.*`, `src/gt4r/race/car_visual_prologue.cpp`,
-`src/gt4r/menu/prologue_natives.cpp`; `gt4tool prologue <disc> program | survey | drivers`;
-tests `tests/test_prologue.cpp`.
+`src/gt4r/menu/prologue_natives.cpp`, `src/gt4r/app/race_hud_prologue.*`; `gt4tool prologue <disc>
+program | survey | drivers | hud | strobe <path>`; tests `tests/test_prologue.cpp`, `tests/test_prologue_menus.cpp`.
 
 ## The disc
 
@@ -127,8 +127,16 @@ view's pieces: the body (lamps unlit and lit), and each wheel with its tire move
 wheel's own frame (units of the rim's radius, a left wheel with its face at x = 0), so they turn
 and steer as Gran Turismo 4's. The paint is the body's paint variant (`VARIATION` +0x04 less 1).
 One car (`toyt0030`, the `mtr_gmv_04`) names its info block `CIF0` for `GTCI`; the reader reads
-nothing else of the block, so it is taken under the other name. ❓ Not done: the shadows, the
-lamps' glows and the brake parts of these cars; the cars' camera mounts.
+nothing else of the block, so it is taken under the other name.
+
+**Shadows and lamps.** The body model's extra nodes are the shadows, as on Gran Turismo 3's cars:
+node 1 the body's shape thrown along the light, node 6 the shadow under the car, node 5 the
+headlamps' light on the road (the shared engine's race takes the same three). They are drawn by
+the race view's shadow pass with the course's look; their y = 0 is the road (Gran Turismo 4's
+models' is the ride height), so the thrown shape is sheared from the road up. The lamps are the
+info block's three lists (`gt3r::race::CarLampSet`). Pictures: `~/gt4re-out/prologue/r4/v1.png`.
+❓ Not done: the brake parts (Gran Turismo 3's cars draw them inside the wheel models), the
+cars' camera mounts. The menus' 3D car (car faces) takes these files too.
 
 ## The program ✅ recognized, 🔎 tables
 
@@ -169,6 +177,30 @@ Gran Turismo 4's own), with Prologue's tables above. A field of computer drivers
 own per-step rules are not compared with the program (the harness runs Gran Turismo 4's
 routines only).
 
+## The race display ✅ (Gran Turismo 3's)
+
+Prologue's race display is Gran Turismo 3's, not Gran Turismo 4's (`RaceDisplay`'s layout tables
+and `display.gpb` are not on the disc): the pictures `race/<region>/display/display.imgs` (43,
+`JP`, `US`, `BR`; Gran Turismo 3's `rev_*` faces renamed `GT4_meter_texture_rev*`, the rank marks,
+`meter_mini`, the Prius panel), the fonts of `font/`, and Gran Turismo 3's layout tables
+`database/racemode_e3.db` and `racedetail_e3.db` (16 modes; 122 rows differ from Gran Turismo
+3's). The race mode puts the place at (32, 69) at 100 %, the lap count at (32, 104), the map at
+(16, 127), the best, last and lap times on the right (614, 50 / 78 / 187), the message at (320,
+300), the title at (320, 224); the license mode adds the three target times (614, 80 / 110 /
+140). `race_hud_prologue.*` draws it with the shared engine's `race::Hud` on these rows
+(`gt4tool prologue <disc> hud` lists them beside Gran Turismo 3's). ❓ judged: the place shows
+in a run without opponents (the original's solo arcade race shows "1st").
+
+Checked against the original (`reference/14-prologue/20_race_nose_view_*.png`, `21_pause_menu.png`):
+the place, lap count and the in-car view's two dials match in kind; the original's time is a
+stopwatch line at the top right; the dials' faces differ (the original's show numbers, Gran
+Turismo 3's drawing of `rev_*` does not find the renamed faces and draws its own band). The
+pause and results are the race movies `menu/pause.strb`, `menu/result.strb`,
+`menu/result_license.strb` (Prologue's: TIME, the medal, a three-letter name entry for a new
+record; its callbacks `GetTime`, `GetRank`, `GetDefaultName`, `PrizeLevel`, `EXIT_MENU`).
+❓ Its pictures 0 and 2 (1024 x 1, 1 x 512) are drawn as a white box; `GetRank` and the name
+entry are not answered.
+
 ## The menus ✅ boot to a race
 
 Power on: `memcard` (the card's warning: with no saved game, "No" goes on), the opening movie
@@ -189,8 +221,45 @@ that Gran Turismo 4's do not:
 - A license test's car is the first of its event's opponents (`demio_sport_03` for `l0p0001` on
   `L_20r60r2`), its grid the event's (1).
 
-Pictures (under `~/gt4re-out/prologue/shots/`, not kept): the card's dialog, the opening movie,
-the title page, the license test on the Driving Park's beginner course, races on Tsukuba and
-Trial Mountain. ❓ Not done: the dialogs' Japanese text (the pages' message text is not drawn),
-the race display (a plain read-out: Prologue's race display tables are not located), the
-arcade mode's flow, the results and the presents after a test.
+**The older layouts.** Prologue's `.mproject` files give a face's states as `cond_active`,
+`cond_focus`, `cond_prelight`, `cond_insensitive` (0 either, 2 the bit off, 3 on), read as the
+visible condition and mask over bits 1, 2, 4, 8 (a license sign's grey face shows until the test
+can be tried). They have no `clip`: a scroll box's select bar shows only what is inside it (the
+title's one item of eight, the arcade's Start, the five course pictures); ❓ judged from the
+original's pages. Their scripts call `getDeepCopy` (a widget's copy), read a text face's `value`
+where it has only its `key` (the car page's formats "%Cfff%d %C222%s/..."), and tint picture faces
+with `setColor(color)` (the paint balls).
+
+**MSwitchActor's colours** (the arcade's settings buttons, the license signs): the update
+0x2EB848 colours the button's `base`, `text` and `ring` by its state each picture: active base
+(0.902, 0.525, 0), idle (0.5, 0.5, 0.5), insensitive (0.451, 0.263, 0) and (0.25, 0.25, 0.25); text
+black when active, white idle, grey insensitive; the ring blinking while focused. The colour
+objects are made by 0x2EBC48 (at 0x70C218 + 0x10 n); `prologue_switch_colors` reads their four
+floats by following that routine's constant loads in the disc's program (the values match the
+original's memory on its pre-race page).
+
+**The title** (`prologue`, `SchoolRoot`): the ring of license signs, the SCE line, one item of
+the select bar at a time with its arrows (School Mode, Arcade Mode, Save, Load Game, Option,
+Replay Theater, Credit). **School Mode**: the item moves the focus into the ring (Status, then
+the tests); a test's sign opens its entry popup and asks for `license_race` with the test's
+event (`l0p0001`: `demio_sport_03` on `L_20r60r2`, one car, one lap). A license test's race
+menus are the project `quick` (`LicenseRoot`: Start, Replay, Guide, Records, Load and Save
+Replay, Exit; `MQuickWork.dispGuidePage` 0 opens it there, 1 on the test's guide film).
+
+**Arcade** (`prologue_arcade`): `TopRoot` (Start / Option / Exit over the film), the course page
+(the course's film, logo, map and five pictures from the store house), the car page (the 3D car on
+the cloud studio, maker and model logos, the spec pills in the region's units: Japan's PS and
+kgf.m), the paint balls, the settings popup (Transmission, Driving assist, Tire grip, START), then
+`single_race`. Its race is its event's: `gt4p_dirt` when not run against opponents (the option
+`run_with_enemies` 0), `RACE` +0x3E the grid (1) and +0x43 the laps (2), which the scripts do not
+set. ❓ The opponents' run (`car.race_code`, `_h`, `_p` by difficulty) is not followed.
+
+Pictures (under `~/gt4re-out/prologue/r4/`, not kept): the title ring (`d1.png`), the arcade
+pages (`f2`, `f3`, `h4`, `h5`, `i6`), the pre-race page (`m1`), the race with its display
+(`m3`, `n1`, `k3`), the pause (`p1`), School Mode's ring (`q1`), the license race (`s3`, `t2`) and
+its results (`u1`). Against the reference: the title, arcade, car, paint, settings and pre-race
+pages match the original's layout; the pre-race page's camera here is the course's scenic shots
+over the field, not the original's shots of the player's car; Japanese words are drawn by
+`menu-draw` (the settings' labels and START are blank here). ❓ Not done: the license tests'
+target times (the `RACE` rows hold none; not located), the results and presents after a test
+(`MPrologueLicense` keeps no result), the dialogs' Japanese text.

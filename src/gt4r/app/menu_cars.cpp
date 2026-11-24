@@ -2,6 +2,7 @@
 
 #include "base/log.h"
 #include "gt4r/app/app.h"
+#include "gt4r/app/menu_image_key.h"
 #include "gt4r/app/menu_face3d.h"
 #include "gt4r/formats/model/car_model.h"
 #include "gt4r/formats/model/mdls.h"
@@ -10,7 +11,10 @@
 #include "gt4r/race/car_spec.h"
 #include "render/gpu_context.h"
 
+#include <chrono>
 #include <cmath>
+#include <cstring>
+#include <future>
 
 namespace gt4r {
 
@@ -74,43 +78,66 @@ void MenuCars::end_frame() {
 MenuCars::Car* MenuCars::car(const std::string& code, int color) {
     const std::string key = code + "#" + std::to_string(color);
     std::unique_ptr<Car>& c = cars_[key];
-    if (c) return c->failed ? nullptr : c.get();
+    if (c) {
+        if (c->failed) return nullptr;
+        if (c->loading.valid()) {
+            // Built on a worker; sent to the GPU here, on the thread that draws, a few models a
+            // picture (about 3 ms of each).
+            if (c->loading.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return nullptr;
+            try {
+                c->building = c->loading.get();
+            } catch (const std::exception& e) {
+                LOG_WARN("Menu car %s: %s", code.c_str(), e.what());
+                c->failed = true;
+                return nullptr;
+            }
+        }
+        if (c->building) {
+            const Uint64 t0 = SDL_GetTicksNS();
+            bool more = true;
+            while (more && SDL_GetTicksNS() - t0 < 3000000) more = c->building->upload_one();
+            if (more) return nullptr;
+            c->visual = std::move(c->building);
+            LOG_INFO("Menu car %s ready %.1f ms after it was asked for", code.c_str(), double(SDL_GetTicksNS() - c->asked) / 1e6);
+        }
+        return c->visual ? c.get() : nullptr;
+    }
     c = std::make_unique<Car>();
-    const Uint64 t0 = SDL_GetTicksNS();
-    struct Took {
-        Uint64 t0;
-        const std::string& code;
-        ~Took() { LOG_INFO("Menu car %s made in %.1f ms", code.c_str(), double(SDL_GetTicksNS() - t0) / 1e6); }
-    } took{t0, code};
+    c->asked = SDL_GetTicksNS();
     db::SpecDb* db = app_.db();
     if (!db || !app_.gpu()) return c->failed = true, nullptr;
     if (models_.empty())
         for (const db::CarEntry& e : db->cars()) models_[e.label] = e.model;
     const auto model = models_.find(code);
     try {
+        // The files and the database here (their readers are this thread's); the models are
+        // built on a worker so that the menus go on moving while a car loads.
         if (model == models_.end()) throw FormatError("no such car in the database");
         const std::string path = "car/menu/" + model->second;
-        const std::optional<Bytes> file = app_.vfs()->read(path);
-        if (!file || !car::CarFile::is_car(*file)) throw FormatError("no showroom model " + path);
-        const std::optional<Bytes> pat = app_.vfs()->read(path + ".pat");
+        std::optional<Bytes> file = app_.vfs()->read(path);
+        if (!file || !(car::CarFile::is_car(*file) || race::CarVisual::is_gt3_car(*file))) throw FormatError("no showroom model " + path); // (Prologue's: Gran Turismo 3's car files)
+        std::optional<Bytes> pat = app_.vfs()->read(path + ".pat");
         c->spec = race::read_car_spec(*db, code);
         const std::vector<u32> paints = race::car_paints(*db, code);
         race::CarVisual::Options o;
         const u32 pick = u32(std::max(color, 0));
         o.paint = paints.empty() ? pick : paints[pick % paints.size()];
-        c->visual = std::make_unique<race::CarVisual>(*app_.gpu(), *file, pat ? ByteSpan(*pat) : ByteSpan{}, c->spec, o, code);
+        render::GpuContext* gpu = app_.gpu();
+        c->loading = std::async(std::launch::async, [gpu, f = std::move(*file), p = pat ? std::move(*pat) : Bytes{}, spec = c->spec, o, code]() {
+            return race::CarVisual::make_unuploaded(*gpu, f, p, spec, o, code);
+        });
+        LOG_INFO("Menu car %s asked for (%.1f ms on the drawing thread)", code.c_str(), double(SDL_GetTicksNS() - c->asked) / 1e6);
     } catch (const std::exception& e) {
         LOG_WARN("Menu car %s: %s", code.c_str(), e.what());
         c->failed = true;
-        return nullptr;
     }
-    return c.get();
+    return nullptr;
 }
 
 SDL_GPUTexture* MenuCars::env_texture(menu::Project* project, const std::string& page, const std::string& path) {
     const gt3r::Tex1::Image* img = project && !path.empty() ? project->image(page, path) : nullptr;
     if (!img || !img->width || !img->height || !app_.gpu()) return nullptr;
-    SDL_GPUTexture*& t = env_[img];
+    SDL_GPUTexture*& t = env_[image_key(*img)];
     if (!t) {
         render::Uploader up(app_.gpu()->device());
         t = up.texture_rgba(img->width, img->height, reinterpret_cast<const u32*>(img->rgba.data()), false);
@@ -140,6 +167,35 @@ void MenuCars::load_stage() {
     } catch (const std::exception& e) {
         LOG_WARN("Car stage: %s", e.what());
     }
+}
+
+const menu::StageMotion* MenuCars::option_motion(menu::Project* project, const std::string& page, const std::string& path) {
+    auto [it, fresh] = option_motions_.try_emplace(page + ":" + path);
+    if (fresh && project) try {
+            if (const std::optional<Bytes> f = project->entry(page, path); f && menu::StageMotion::is_motion(*f))
+                it->second = std::make_unique<menu::StageMotion>(menu::StageMotion::parse(*f));
+        } catch (const std::exception& e) {
+            LOG_WARN("Car face motion %s: %s", path.c_str(), e.what());
+        }
+    return it->second && it->second->camera ? it->second.get() : nullptr;
+}
+
+const std::vector<std::unique_ptr<gt3r::render::GpuModel>>* MenuCars::model_set(menu::Project* project, const std::string& page, const std::string& path) {
+    auto [it, fresh] = model_sets_.try_emplace(page + ":" + path);
+    if (fresh && project && app_.gpu()) try {
+            if (const std::optional<Bytes> f = project->entry(page, path); f && f->size() > 0x18) {
+                const u32 count = rd16(*f, 0x16);
+                for (u32 i = 0; i < count && i < 16; ++i) {
+                    mdls::Options mo;
+                    mo.model = int(i);
+                    gt3r::scene::Model m = mdls::build_model(*f, mo, path + "#" + std::to_string(i));
+                    it->second.push_back(std::make_unique<render::GpuModel>(*app_.gpu(), m));
+                }
+            }
+        } catch (const std::exception& e) {
+            LOG_WARN("Car face models %s: %s", path.c_str(), e.what());
+        }
+    return &it->second;
 }
 
 void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const std::string& page, const menu::Rect& at, const SDL_FRect& dst, float opacity) {
@@ -204,6 +260,21 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
         sv.near = 0.1f, sv.far = 100;
         proj = menu_face3d::projection_of(sv, page_part, page_part);
     }
+    const menu::StageMotion* om = s.advanced || s.option_motion.empty() ? nullptr : option_motion(project, page, s.option_motion);
+    if (om) {
+        // The page's camera motion (loadModelOptionMotion) from the picture it was given at,
+        // held at its end: its eye, the point looked at, its up and field of view.
+        const float len = om->length();
+        const float t = std::clamp(float(s64(frame_) - s64(s.option_motion_frame)) / 60.0f, 0.0f, len > 0 ? len : 0.0f);
+        const auto& c = *om->camera;
+        auto at_t = [&](int i) { return om->at(c[size_t(i)], t); };
+        eye = {at_t(0), at_t(1), at_t(2)};
+        view = render::look_at(eye, {at_t(3), at_t(4), at_t(5)}, {at_t(6), at_t(7), at_t(8)});
+        menu::FaceView sv = v;
+        if (om->fov) sv.view_angle = om->at(*om->fov, t) / kDeg;
+        sv.far = std::max(sv.far, 100.0f);
+        proj = menu_face3d::projection_of(sv, at, page_part);
+    }
     if (s.advanced && light_motion_) {
         // The backdrops' weights at the stage's time (light.mot's Alpha0 .. Alpha3).
         for (size_t i = 0; i < stage_.size(); ++i) weights.push_back(std::clamp(light_motion_->named_at("Alpha" + std::to_string(i), stage_time_, i == 0 ? 1.0f : 0.0f), 0.0f, 1.0f));
@@ -231,7 +302,8 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
     sh.on = true;
     for (int i = 0; i < 3; ++i) sh.rgb[i] = v.lights[0].sdw[i];
     sh.alpha = v.lights[0].sdw[3];
-    c->visual->set_shadow(sh);
+    // (set_shadow makes the shadows' models anew: only when the look changes.)
+    if (std::memcmp(&sh, &c->shadow, sizeof sh) != 0 || !c->shadow_set) c->visual->set_shadow(sh), c->shadow = sh, c->shadow_set = true;
     items_.clear();
     if (s.advanced)
         // Each backdrop with a weight, cross-faded over black (0x1D5588).
@@ -256,6 +328,11 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
         if (!mirror_view_) mirror_view_ = std::make_unique<render::View3D>(*app_.gpu());
         mirror_view_->draw(app_.renderer(), page_rect, view * flip, proj, under, mirrored, mo);
     }
+    // The page's other models (loadModelSet: a mechanic, a shadow) where their files put them.
+    if (!s.advanced)
+        for (const std::string& path : s.model_sets)
+            if (const auto* set = model_set(project, page, path))
+                for (const auto& m : *set) items_.push_back(render::DrawItem{m.get(), Mat4::identity(), 0});
     c->visual->add_shadow_items(items_, state);
     c->visual->add_items(items_, state, eye);
     view_->draw(app_.renderer(), page_rect, view, proj, eye, items_, o);

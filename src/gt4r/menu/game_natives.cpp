@@ -1020,6 +1020,13 @@ void complete_race_request(Runtime& rt, RaceRequest& r) {
         }
     const ByteSpan row = race.empty() ? ByteSpan{} : d.row("RACE", race);
     if (r.course.empty() && row.size() >= 8) r.course = d.label(u64(r32(row, 0)) | u64(r32(row, 4)) << 32);
+    // Prologue's arcade races are their events': the grid (RACE +0x3E, 1 on "gt4p_dirt", the run
+    // without opponents) and the laps (+0x43, 2), which its scripts do not set.
+    // docs/formats/prologue.md "The menus".
+    if (d.db && d.db->prologue() && row.size() > 0x43) {
+        if (row[0x3E]) r.max_entry = std::min(r.max_entry > 0 ? r.max_entry : 99, int(row[0x3E]));
+        if (r.laps <= 0 && row[0x43]) r.laps = row[0x43];
+    }
     if (!r.car.empty()) return;
     const bool test = r.sequence.find("license") != std::string::npos || r.sequence.find("mission") != std::string::npos;
     if (test) {

@@ -36,6 +36,7 @@ namespace element {
 constexpr u32 kPositionWord = 0x1668, kPosition = 0x1398, kLapWord = 0x1684, kLapCount = 0x1300, kMap = 0x1108;
 constexpr u32 kLapTime = 0x15F8, kBestWord = 0x16A0, kBestTime = 0x14A8, kLastWord = 0x16BC, kLastTime = 0x1588;
 constexpr u32 kEventLine = 0x17BC, kMessage = 0x252C, kReplaySign = 0x2A6C;
+constexpr u32 kTotalTime = 0x1438; // display mode 1: the race's total time (under the word at kBestWord)
 } // namespace element
 
 struct DisplayLayout {
@@ -48,6 +49,12 @@ struct DisplayLayout {
 // are read at the addresses of the release this was read on (SCUS-97328 v1.01) and checked for
 // the tables' shape; empty when the program is another one.
 DisplayLayout read_single_race_layout(ByteSpan program, u32 load_address);
+// The layout of display mode 1 (the table 0x6A0BA0: the place, laps, map, the lap's time and the
+// total time, the message lower): the B-spec race's display here.
+DisplayLayout read_mode1_layout(ByteSpan program, u32 load_address);
+
+// A total time as display mode 1 writes it: H:MM'SS.mmm.
+std::string format_total_time(s64 milliseconds);
 
 // A dial's face for a car: the first row of the program's table whose limit is at least the
 // car's value (the last row takes any).
