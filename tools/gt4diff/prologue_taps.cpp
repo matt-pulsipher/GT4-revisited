@@ -2,7 +2,10 @@
 
 #include "prologue_taps.h"
 
+#include "gt4r/formats/course/course_file.h"
+#include "gt4r/formats/course/runway_gtrw.h"
 #include "gt4r/sim/exact_bridge.h"
+#include "sim/exact/course_ground.h"
 #include "gt4r/sim/program.h"
 #include "gt4r/sim/rules.h"
 #include "gt4r/sim/rules_chassis.h"
@@ -15,6 +18,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <memory>
 #include <type_traits>
 
 namespace gt4r::diff::prologue {
@@ -73,6 +77,37 @@ std::vector<u8> gt3_image(Ee& ee, u32 car) {
     return im;
 }
 
+void compare(const ex::Car& after, const ex::Car& mine, PTapStat& st) {
+    const u8* a = reinterpret_cast<const u8*>(&after);
+    const u8* m = reinterpret_cast<const u8*>(&mine);
+    ++st.calls;
+    bool clean = true;
+    for (const Field& f : fields()) {
+        if (std::memcmp(a + f.member, m + f.member, f.size) == 0) continue;
+        clean = false;
+        double x = 0, y = 0;
+        if (f.real) {
+            gt3r::ee::F u, v;
+            std::memcpy(&u, a + f.member, 4), std::memcpy(&v, m + f.member, 4);
+            x = double(u.host()), y = double(v.host());
+        } else {
+            u32 u = 0, v = 0;
+            std::memcpy(&u, a + f.member, f.size), std::memcpy(&v, m + f.member, f.size);
+            x = double(u), y = double(v);
+        }
+        PFieldStat& fs = st.fields[f.name];
+        if (fs.off == 0) {
+            char text[160];
+            std::snprintf(text, sizeof text, "first at step %llu: the program's %.9g, ours %.9g", (unsigned long long)st.calls, x, y);
+            fs.example = text;
+        }
+        ++fs.off;
+        const double d = std::fabs(x - y), rel = f.real ? d / std::max(std::fabs(x), 1e-6) : d;
+        if (rel >= fs.worst) fs.worst = rel;
+    }
+    if (clean) ++st.clean;
+}
+
 void PTaps::add(PTap tap) {
     const size_t i = taps_.size();
     stats_.emplace_back();
@@ -111,6 +146,11 @@ void PTaps::leave(u32 ra) {
     after.behaviour = p.before.behaviour;
     const std::vector<u8> im = gt3_image(ee_, p.car);
     ex::load_image(after, im.data());
+    if (taps_[p.tap].at_exit) { // (ours on the record as the program leaves it: only what ours writes is compared)
+        p.mine = after;
+        PTapCall call{ee_, p.car, p.index, p.mine, inputs_};
+        taps_[p.tap].at_exit(call);
+    }
     const u8* a = reinterpret_cast<const u8*>(&after);
     const u8* b = reinterpret_cast<const u8*>(&p.before);
     const u8* m = reinterpret_cast<const u8*>(&p.mine);
@@ -190,6 +230,21 @@ void add_engine_taps(PTaps& taps) {
     taps.add({0x3DBB70, "aero", [](PTapCall& t) { ex::aero(t.car, t.inputs.prep.slip); }});
     taps.add({0x3C4D80, "ground frame", [](PTapCall& t) { ex::ground_frame(t.car); }});
     taps.add({0x3E0838, "aids", [](PTapCall& t) { ex::aids(t.car, t.inputs.aids); }});
+    // The rest of phase 19 (0x3B29D0) and phases 20 and 21.
+    taps.add({0x3B44B0, "hub offsets xy", [](PTapCall& t) { ex::hub_offsets_xy(t.car); }});
+    taps.add({0x3B4630, "speed ramp", [](PTapCall& t) { ex::speed_ramp(t.car); }});
+    taps.add({0x375D00, "terrain factor", [](PTapCall& t) { ex::terrain_factor(t.car); }});
+    taps.add({0x3CE1A8, "pad rumble", [](PTapCall& t) { ex::pad_rumble(t.car); }});
+    taps.add({0x3BC7F0, "steer force", [](PTapCall& t) { ex::steer_force(t.car, t.inputs.feel); }});
+    taps.add({0x3CB1E0, "tire effects", [](PTapCall& t) { ex::tyre_effects(t.car, t.inputs.effects, t.inputs.aids.course_category); }});
+    taps.add({0x3B9020, "engine sound", [](PTapCall& t) { ex::engine_sound(t.car, t.inputs.sound_scales); }});
+    taps.add({0x3CA7B0, "effects reset", [](PTapCall& t) { ex::effects_reset(t.car, 0, 0); }});
+    taps.add({0x3B4238, "view follow", [](PTapCall& t) { ex::view_follow(t.car); }});
+    taps.add({0x3B4600, "hub offsets", [](PTapCall& t) { ex::hub_offsets(t.car); }});
+    taps.add({0x3C5740, "speed bookkeeping", [](PTapCall& t) { ex::speed_bookkeeping(t.car, t.inputs.prep.condition); }});
+    taps.add({0x3B25F0, "wheel spin", [](PTapCall& t) { ex::wheel_spin(t.car); }});
+    taps.add({0x3BBBB8, "tire wear", [](PTapCall& t) { ex::tire_wear(t.car, t.inputs.prep.wear); }});
+    taps.add({0x3BBD80, "wear flags", [](PTapCall& t) { ex::wear_flags(t.car, t.inputs.prep.wear, {}); }});
 }
 
 namespace {
@@ -205,7 +260,7 @@ sim::prologue::TireKinds kinds_of(Ee& ee, u32 car) {
 
 } // namespace
 
-void add_prologue_taps(PTaps& taps, const Disc& disc) {
+void add_prologue_taps(PTaps& taps, const Disc& disc, const std::string& course) {
     static sim::prologue::Tables t;
     t = sim::prologue::tables(sim::Program::load(const_cast<Disc&>(disc)));
     auto layout = [](PTapCall& c) { return sim::prologue::wheel_layout(t, c.ee.r8(c.ee.r32(c.car_addr + 0x10) + 0x30)); };
@@ -264,6 +319,63 @@ void add_prologue_taps(PTaps& taps, const Disc& disc) {
                   ex::ground_frame(c.car);
                   sim::rules::body_axes(c.car.ground_pitch, c.car.ground_roll, c.car.heading, c.car.ground_fwd, c.car.ground_lat, c.car.ground_up);
               }});
+    // The parts of the parameter block the engine's record has no member for, as the program has them.
+    auto image = [=](PTapCall& c) {
+        sim::prologue::CarPart x;
+        x.layout = layout(c);
+        std::vector<u8> p(kParamsSize);
+        c.ee.read_bytes(c.ee.r32(c.car_addr + 0x10), p.data(), kParamsSize);
+        sim::prologue::image_part(x, p.data());
+        return x;
+    };
+    taps.add({0x3754D8, "Prologue's query points and bumps", [](PTapCall&) {}, {"g.h"},
+              [=](PTapCall& c) {
+                  static bool shown = false;
+                  if (!shown && std::getenv("GT4R_SHOW_BUMPS")) {
+                      shown = true;
+                      for (u32 k = 0; k < 16; ++k)
+                          std::printf("    bumps %2u: amp %08X / ours %08X  freq %08X / ours %08X  scaled %d / %d  mode %d / %d\n", k,
+                                      c.ee.r32(0x504478 + 4 * k), t.bumps.amp[k].bits, c.ee.r32(0x5044B8 + 4 * k),
+                                      t.bumps.freq[k].bits, c.ee.r8(0x5044F8 + k), t.bumps.scaled[k], c.ee.r8(0x504508 + k),
+                                      t.bumps.mode[k]);
+                  }
+                  const sim::prologue::CarPart x = image(c);
+                  sim::prologue::query_points(c.car, x);
+                  sim::prologue::road_bumps(c.car, x, t.bumps);
+              }});
+    // Phase 19 whole (0x3B29D0) as the session runs it, the ground query on the course's GTRW road; the effects, feel, sound,
+    // view and bookkeeping fields (other routines of Prologue's, not ported) not compared.
+    if (!course.empty()) {
+        static std::unique_ptr<ex::CourseGround> ground;
+        Disc& d = const_cast<Disc&>(disc);
+        if (const gt3r::Volume::Entry* e = d.volume().find("crs/" + course)) {
+            const Bytes data = d.volume().read(*e);
+            const course::CourseFile parsed = course::CourseFile::parse(data);
+            if (std::optional<course::Runway> road = course::course_road(parsed, data); road && road->gtrw)
+                ground = std::make_unique<ex::CourseGround>(*road->gtrw);
+        }
+        if (ground)
+            taps.add({0x3B29D0, "phase 19 as the session's", [=](PTapCall& c) {
+                          ex::Car& k = c.car;
+                          const sim::prologue::CarPart x = image(c);
+                          ex::hub_offsets_xy(k);
+                          ex::speed_ramp(k);
+                          sim::prologue::ground_contact(k, x, *ground, t.bumps, true);
+                          sim::prologue::terrain(k, x);
+                          ex::suspension(k, nullptr);
+                          sim::prologue::attitude(k, x.layout, t);
+                          sim::prologue::bump_nudge(k, x);
+                          ex::hub_offsets(k);
+                          sim::rules::body_axes(k);
+                          sim::prologue::ground_frame(k);
+                          ex::speed_bookkeeping(k, c.inputs.prep.condition);
+                          ex::wheel_spin(k);
+                      },
+                      {"rumble", "steer_force", "ffb", "lag_", "w.skid", "w.slip_intensity", "w.smoke", "x4e", "speedo", "engine_wear", "oil",
+                       "odo", "dist_total", "dirt", "max_speed", "speed_abs", "hit_", "feedback", "g.seg", "road_seg", "w.flap"}});
+    }
+    taps.add({0x375D00, "Prologue's terrain", [=](PTapCall& c) { sim::prologue::terrain(c.car, image(c)); }});
+    taps.add({0x376EC8, "Prologue's bump nudge", [=](PTapCall& c) { sim::prologue::bump_nudge(c.car, image(c)); }});
     taps.add({0x3765F8, "Prologue's attitude", [=](PTapCall& c) {
                   sim::prologue::attitude(c.car, layout(c), t, gt3r::ee::F::raw(c.ee.r32(c.car_addr + 0xD8 + 0x3AC)));
               }});
@@ -377,7 +489,7 @@ std::vector<PTapStat> check(Disc& disc, const std::string& course, const std::st
     const ex::ProgramData data = sim::core_program(program);
     const ex::RaceInputs inputs = ex::race_inputs(data, ex::Conductor::SinglePlayer, ex::RaceConfig{}, false, 0);
     PTaps taps(ee, r, inputs);
-    if (which == "prologue") add_prologue_taps(taps, disc);
+    if (which == "prologue") add_prologue_taps(taps, disc, course);
     else if (which == "input") add_input_taps(taps, r);
     else add_engine_taps(taps);
     try {

@@ -89,6 +89,10 @@ struct Tables {
     // in-line layout's roll terms (0x50429C .. 0x5042B0).
     u8 pitch_radius = 1, normal_mode = 0;
     std::array<F, 6> in_line;
+    // The road's bumps by surface, as the race's start makes them (0x504478 .. 0x504508, from the static block): the
+    // amplitude +0x1C + s x 0.001 (0x3A83126E), the wave number 2 pi (0x40C90FDA) / (+0x4C + s x 0.1 (0x3DCCCCCC)), the
+    // speed ramp's switch +0x5C + s, the wave's mode +0x6C + s.
+    ex::SurfaceBumps bumps{};
 };
 Tables tables(const Program& program);
 
@@ -123,12 +127,17 @@ TireKinds tire_kinds(const Spec& spec);
 // divides by (the parameter block's), its wheel layout.
 struct CarPart {
     rules::TireExtra tires;     // (tires.steer_offset: each wheel's steering offset, the drive block's +0x1C)
+    std::array<F, 2> tire_drop; // the parameter block's +0x28C + 4 a: taken off the tire's radius at the hub's rest point
+    F front_share;              // the parameter block's +0x24: the front axle's share of the weight (the bump nudge's kind 3)
     std::array<F, 4> offset_rate; // the offset's rate, the drive block's +0x18
     std::array<F, 2> axle_load;   // the parameter block's +0xE6C + 4 k (the engine's +0xE54: each axle's static load)
     rules::ChassisExtra chassis;
     rules::WheelLayout layout;
 };
 CarPart car_part(const ex::Car& c, const Spec& spec, const Tables& t);
+
+// The parts of the parameter block (its image, Gran Turismo 3's layout) that the engine's record has no member for.
+void image_part(CarPart& x, const u8* params);
 
 // Each wheel's tire's x1da for the forward step and the lateral forces: the record of the wheel's surface (Gran Turismo 4
 // copies it in its peak force, 0x357418; Prologue reads the record).
@@ -184,6 +193,28 @@ void pitch_terms(const ex::Car& c, const rules::WheelLayout& l, const Tables& t,
 // (no preload taken off) projected onto the ground's up axis and no speed part's lift. `in_line_lean` is the record's
 // F +0x3AC (the in-line layout's lean term, ❓ not kept: 0).
 void attitude(ex::Car& c, const rules::WheelLayout& l, const Tables& t, F in_line_lean = F());
+
+// 0x375A38 (Gran Turismo 4's 0x36A080): each wheel's place along its travel: the hub's rest point below it (0x3753C8:
+// -x_static - (radius - tire_drop) + offset) along the body's up axis (0x375458), its height over the ground (the engine's
+// ground0 and bump) times the ground's up z over the terrain factor (one for every wheel, where Gran Turismo 4 takes each
+// wheel's normal).
+void susp_coords(ex::Car& c, const CarPart& x);
+// 0x3754D8's query points (0x375458 per axis, Gran Turismo 4's 0x3697A8): each wheel's ground record's point the hub's
+// moved along the body's up axis by the hub's rest drop, in the course's frame (x, height, -y).
+void query_points(ex::Car& c, const CarPart& x);
+// 0x3754D8's bumps on the ground the query found: each wheel on the road gets its surface's wave at the query point times
+// the amplitude (times the wheel's speed ramp where the surface says so), off the road 0 (the engine's wave, 0x375340).
+void road_bumps(ex::Car& c, const CarPart& x, const ex::SurfaceBumps& b);
+// 0x3754D8: the query points, the course's query of all four (Gran Turismo 3's 0x18FB58 = Prologue's 0x3882D0, the engine's
+// CourseGround), then for each wheel on the road its ground height, surface index (0x3B46C8 = the engine's surface_index),
+// triangle bytes and bump; the road segment hint; F +0x535 bit 4 with a wheel on a pit-lane triangle and `mark_flagged`.
+ex::GroundCounts ground_contact(ex::Car& c, const CarPart& x, const ex::CourseGround& course, const ex::SurfaceBumps& b, bool mark_flagged);
+// 0x375D00: the terrain factor (Gran Turismo 4's: the ground's up axis . the body's), the places (susp_coords) and the mask
+// of the wheels past their bump stop (0x375B88, by the wheel layout).
+void terrain(ex::Car& c, const CarPart& x);
+// 0x376EC8 (Gran Turismo 4's 0x36BA88 on Prologue's places): a wheel past its bump stop lifts and turns the body back over
+// it, by the wheel layout; Gran Turismo 4's axes; the downward speed held to the ground plane's.
+void bump_nudge(ex::Car& c, const CarPart& x);
 
 // 0x3C4D80: the ground's pitch, roll and height as the engine's (Gran Turismo 3's) and its axes as Gran Turismo 4's
 // (0x377310: the pitch before the roll).

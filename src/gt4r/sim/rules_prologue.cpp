@@ -4,6 +4,7 @@
 
 #include "base/ee_math.h"
 #include "sim/exact/build_math.h"
+#include "sim/exact/course_ground.h"
 
 #include <cstdlib>
 #include "gt4r/sim/program.h"
@@ -93,6 +94,11 @@ Tables tables(const Program& program) {
     t.throttle_up = t.controls.throttle_up, t.throttle_down = t.controls.throttle_down;
     t.brake_up = t.controls.brake_up, t.brake_down = t.controls.brake_down;
     t.pitch_radius = program.b(s + 0xD9), t.normal_mode = program.b(s + 0xE0);
+    for (u32 k = 0; k < 16; ++k) {
+        t.bumps.amp[k] = f_of(program.b(s + 0x1C + k)) * F::raw(0x3A83126E);
+        t.bumps.freq[k] = F::raw(0x40C90FDA) / (f_of(program.b(s + 0x4C + k)) * F::raw(0x3DCCCCCC));
+        t.bumps.scaled[k] = gt3r::s8(program.b(s + 0x5C + k)), t.bumps.mode[k] = gt3r::s8(program.b(s + 0x6C + k));
+    }
     for (u32 k = 0; k < 6; ++k) t.in_line[k] = F::raw(program.w(PrologueProgram::kInLine + 4 * k));
     for (u32 r = 0; r < t.wheel_layouts.size(); ++r)
         for (u32 k = 0; k < rules::kWheelLayoutSize; ++k) t.wheel_layouts[r][k] = program.b(PrologueProgram::kWheelLayouts + rules::kWheelLayoutSize * r + k);
@@ -189,6 +195,12 @@ CarPart car_part(const ex::Car& c, const Spec& spec, const Tables& t) {
     x.chassis.mass = c.p.mass;
     x.axle_load = {c.p.xe54, c.p.xe58};
     return x;
+}
+
+void image_part(CarPart& x, const u8* p) {
+    auto word = [&](u32 o) { return F::raw(u32(p[o]) | u32(p[o + 1]) << 8 | u32(p[o + 2]) << 16 | u32(p[o + 3]) << 24); };
+    x.tire_drop = {word(0x28C), word(0x290)};
+    x.front_share = word(0x24);
 }
 
 void wheel_kinds(const ex::Car& c, CarPart& x) {
@@ -608,6 +620,185 @@ void attitude(ex::Car& c, const rules::WheelLayout& l, const Tables& t, F in_lin
         heave = heave + acc[i] * u[i];
     }
     c.heave_acc = heave;
+}
+
+namespace {
+
+// 0x3753C8: the hub's rest point under the wheel's travel at its static place.
+F rest_drop(const ex::Car& c, const CarPart& x, int w) {
+    const rules::WheelLayout& l = x.layout;
+    const size_t a = w < l.count ? (l.axle[size_t(w)] & 1u) : 0;
+    const ex::Suspension& s = c.p.susp[a];
+    return (-s.x_static - (c.p.tire_radius[a] - x.tire_drop[a])) + s.offset;
+}
+
+// 0x3B4390: the hubs' heights from the body's axes, by the wheel layout.
+void hub_heights(ex::Car& c, const rules::WheelLayout& l) {
+    const int n = l.count < 4 ? l.count : 4;
+    for (int w = 0; w < n; ++w) {
+        ex::Wheel& wh = c.w[size_t(w)];
+        const size_t g = l.geometry[size_t(w)] & 1u;
+        const u8 side = l.side[size_t(w)];
+        const F h = c.lat.z * c.p.half_track[g];
+        if (side == 0) wh.hub.z = -h;
+        else if (side == 1) wh.hub.z = h;
+        else wh.hub.z = F();
+        const F d = c.fwd.z * (g ? c.p.dist_rear : c.p.dist_front);
+        const gt3r::s8 fa = gt3r::s8(l.fore_aft[size_t(w)]);
+        if (fa > 0) wh.hub.z = wh.hub.z + d;
+        else if (fa < 0) wh.hub.z = wh.hub.z - d;
+    }
+}
+
+} // namespace
+
+void query_points(ex::Car& c, const CarPart& x) {
+    const rules::WheelLayout& l = x.layout;
+    const int n = l.count < 4 ? l.count : 4;
+    for (int w = 0; w < n; ++w) {
+        const ex::Wheel& wh = c.w[size_t(w)];
+        const F drop = rest_drop(c, x, w);
+        ex::Ground& g = c.g[size_t(w)];
+        g.x = (c.pos.x + wh.hub.x) + c.up.x * drop;
+        g.h = (c.pos.z + wh.hub.z) + c.up.z * drop;
+        g.z = -((c.pos.y + wh.hub.y) + c.up.y * drop);
+    }
+}
+
+void road_bumps(ex::Car& c, const CarPart& x, const ex::SurfaceBumps& b) {
+    const rules::WheelLayout& l = x.layout;
+    const int n = l.count < 4 ? l.count : 4;
+    for (int w = 0; w < n; ++w) {
+        ex::Wheel& wh = c.w[size_t(w)];
+        const ex::Ground& g = c.g[size_t(w)];
+        if (g.miss) {
+            wh.bump = F();
+            continue;
+        }
+        const size_t s = wh.surface & 15;
+        const F amp = b.amp[s];
+        if (amp == F()) {
+            wh.bump = F();
+            continue;
+        }
+        F v = ex::bump_wave(b.mode[s], g.x, g.z, b.freq[s]);
+        if (b.scaled[s]) v = v * wh.speed_ramp;
+        wh.bump = v * amp;
+    }
+}
+
+ex::GroundCounts ground_contact(ex::Car& c, const CarPart& x, const ex::CourseGround& course, const ex::SurfaceBumps& b, bool mark_flagged) {
+    query_points(c, x);
+    course.query(c.g, c.behaviour);
+    const rules::WheelLayout& l = x.layout;
+    const int n = l.count < 4 ? l.count : 4;
+    for (int w = 0; w < n; ++w) {
+        ex::Wheel& wh = c.w[size_t(w)];
+        const ex::Ground& g = c.g[size_t(w)];
+        if (g.miss) continue;
+        wh.ground0 = g.height, wh.ground = g.height;
+        wh.surface = u8(ex::surface_index(g));
+        wh.x25 = g.x32, wh.surface_flags = g.flags;
+    }
+    road_bumps(c, x, b);
+    const ex::GroundCounts k = ex::ground_counts(c, b);
+    c.x535 = u8(c.x535 & 0xEF);
+    c.road_seg = c.g[0].seg;
+    if (k.flagged && mark_flagged) c.x535 = u8(c.x535 | 0x10);
+    return k;
+}
+
+void susp_coords(ex::Car& c, const CarPart& x) {
+    const rules::WheelLayout& l = x.layout;
+    const int n = l.count < 4 ? l.count : 4;
+    for (int w = 0; w < n; ++w) {
+        const ex::Wheel& wh = c.w[size_t(w)];
+        const size_t a = l.axle[size_t(w)] & 1u;
+        const F drop = rest_drop(c, x, w);
+        const F hub = (c.pos.z + wh.hub.z) + c.up.z * drop;
+        F h = (hub - (wh.ground0 + wh.bump)) * c.ground_up.z;
+        h = h / c.terrain;
+        c.susp_x[size_t(w)] = ((h - c.p.tire_radius[a]) + c.p.susp[a].offset) - drop;
+    }
+}
+
+void terrain(ex::Car& c, const CarPart& x) {
+    F d = F();
+    d = d + c.ground_up.x * c.up.x;
+    d = d + c.ground_up.y * c.up.y;
+    d = d + c.ground_up.z * c.up.z;
+    c.terrain = d;
+    susp_coords(c, x);
+    c.bump_mask = u8(rules::bump_mask(c, x.layout, 0));
+}
+
+void bump_nudge(ex::Car& c, const CarPart& x) {
+    const rules::WheelLayout& l = x.layout;
+    const F kHalf = F::raw(0x3F000000);
+    if (c.bump_mask == 0) return;
+    hub_heights(c, l);
+    susp_coords(c, x);
+    const u32 mask = rules::bump_mask(c, l, u32(c.bump_mask) << 4);
+    c.bump_mask = u8(mask);
+    const int n = l.count < 4 ? l.count : 4;
+    if (mask & 0xF) {
+        std::array<F, 4> d{};
+        for (int w = 0; w < n; ++w) {
+            const F p = c.p.susp[w < l.count ? (l.axle[size_t(w)] & 1u) : 0].bump_limit - c.susp_x[size_t(w)];
+            d[size_t(w)] = p < F() ? F() : p;
+        }
+        F front = F(), rear = F(), left = F(), right = F();
+        const F rw = c.p.rear_weight;
+        switch (l.kind) {
+        case 0:
+            left = d[0] + (d[2] - d[0]) * rw, right = d[1] + (d[3] - d[1]) * rw;
+            front = (d[0] + d[1]) * kHalf, rear = (d[2] + d[3]) * kHalf;
+            break;
+        case 1: front = d[0], rear = d[1]; break;
+        case 2:
+            front = d[0];
+            left = front + (d[1] - front) * rw, right = front + (d[2] - front) * rw;
+            rear = (d[1] + d[2]) * kHalf;
+            break;
+        case 3:
+            rear = d[2];
+            left = rear + (d[0] - rear) * x.front_share, right = rear + (d[1] - rear) * x.front_share;
+            front = (d[0] + d[1]) * kHalf;
+            break;
+        default: break;
+        }
+        F lift = F();
+        if (!(left == F() && right == F())) {
+            if (right < left) {
+                c.roll = c.roll + ex::atan2(rules::behaviour(), left - right, c.p.track);
+                lift = right * kHalf;
+            } else if (left < right) {
+                c.roll = c.roll + ex::atan2(rules::behaviour(), left - right, c.p.track);
+                lift = left * kHalf;
+            } else lift = left * kHalf;
+        }
+        if (!(front == F() && rear == F())) {
+            F half;
+            if (rear < front) {
+                c.pitch = c.pitch + ex::atan2(rules::behaviour(), front - rear, c.p.wheelbase);
+                half = rear * kHalf;
+            } else if (front < rear) {
+                c.pitch = c.pitch + ex::atan2(rules::behaviour(), front - rear, c.p.wheelbase);
+                half = front * kHalf;
+            } else half = front * kHalf;
+            lift = lift + half;
+        }
+        c.pos.z = c.pos.z + lift;
+    }
+    rules::body_axes(c);
+    // The downward speed held to the vertical part of the velocity in the ground's plane.
+    F along = F(), side = F();
+    along = along + c.ground_fwd.x * c.vel.x, side = side + c.ground_lat.x * c.vel.x;
+    along = along + c.ground_fwd.y * c.vel.y, side = side + c.ground_lat.y * c.vel.y;
+    along = along + c.ground_fwd.z * c.vel.z, side = side + c.ground_lat.z * c.vel.z;
+    F floor = along * c.ground_fwd.z + side * c.ground_lat.z;
+    if (F() < floor) floor = F();
+    if (c.vel.z < floor) c.vel.z = floor;
 }
 
 void ground_frame(ex::Car& c) {

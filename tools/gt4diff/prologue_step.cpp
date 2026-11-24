@@ -9,10 +9,16 @@
 
 #include "gt4r/sim/exact_bridge.h"
 #include "gt4r/sim/rules_prologue.h"
+#include "gt4r/formats/course/course_file.h"
+#include "gt4r/formats/course/runway_gtrw.h"
+#include "gt4r/sim/collide.h"
+#include "sim/exact/course_ground.h"
 #include "gt4r/sim/session.h"
 #include "sim/exact/car_fields.h"
 #include "sim/exact/params_build.h"
+#include "sim/exact/race_inputs.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -39,11 +45,168 @@ Pad drive(int i) {
 
 } // namespace
 
+// GT4R_WHOLESTEP: every step from the program's state: the record (and Prologue's part of it) loaded into our session, a
+// step of each, every field of the record compared; the fields listed by the step they first differ in.
+int whole_step(Disc& disc, const std::string& course, const std::string& car, int steps) {
+    db::SpecDb sdb = open_db(disc);
+    Ee ee;
+    boot(ee, disc);
+    Race r;
+    std::string err;
+    if (!setup_race(ee, disc, sdb, course, {car}, 1, r, err)) {
+        std::printf("prologue: %s\n", err.c_str());
+        return 1;
+    }
+    const std::vector<std::string> cars{car};
+    std::unique_ptr<sim::Session> session = sim::Session::open(disc, course, cars);
+    if (!session->prologue_rules()) {
+        std::printf("prologue: the session does not run Prologue's step\n");
+        return 1;
+    }
+    {
+        const sim::prologue::CarPart& q = session->prologue_part(0);
+        std::printf("prologue: tire drop ours %08X %08X, the program's %08X %08X; front share ours %08X, the program's %08X\n", q.tire_drop[0].bits,
+                    q.tire_drop[1].bits, ee.r32(r.params(0) + 0x28C), ee.r32(r.params(0) + 0x290), q.front_share.bits, ee.r32(r.params(0) + 0x24));
+    }
+    PTapStat st;
+    st.name = "whole step";
+    auto load = [&](gt3r::sim::exact::Car& c) {
+        const std::vector<u8> im = gt3_image(ee, r.car(0));
+        c.behaviour = sim::rules::behaviour();
+        gt3r::sim::exact::load_image(c, im.data());
+    };
+    const int from = std::getenv("GT4R_WHOLESTEP_FROM") ? std::atoi(std::getenv("GT4R_WHOLESTEP_FROM")) : 0;
+    // (GT4R_WHOLESTEP=front: the session's phases 1 .. 11 on the program's state against the program's record as its phase 19
+    // starts; the collision's outputs and what phases 14 and 15 write are not compared)
+    const bool front = std::string(std::getenv("GT4R_WHOLESTEP")) == "front";
+    const sim::Program program = sim::Program::load(disc);
+    const gt3r::sim::exact::ProgramData data = sim::core_program(program);
+    const gt3r::sim::exact::RaceInputs inputs = gt3r::sim::exact::race_inputs(data, gt3r::sim::exact::Conductor::SinglePlayer, {}, false, 0);
+    const sim::prologue::Tables tables = sim::prologue::tables(program);
+    gt3r::sim::exact::Car at19;
+    bool seen19 = false;
+    gt3r::sim::exact::Car exit19;
+    ee.probe(0x3B746C, [&](Ee& e) {
+        const std::vector<u8> im = gt3_image(e, r.car(0));
+        exit19 = {};
+        exit19.behaviour = sim::rules::behaviour();
+        gt3r::sim::exact::load_image(exit19, im.data());
+    });
+    ee.probe(0x3B29D0, [&](Ee& e) {
+        if (u32(e.a(0)) != r.car(0) || seen19) return;
+        const std::vector<u8> im = gt3_image(e, r.car(0));
+        at19 = {};
+        at19.behaviour = sim::rules::behaviour();
+        gt3r::sim::exact::load_image(at19, im.data());
+        seen19 = true;
+    });
+    for (int i = 0; i < steps; ++i) {
+        const Pad p = drive(i);
+        r.pad[0] = p;
+        if (i >= from) {
+            gt3r::sim::exact::Car before;
+            load(before);
+            sim::prologue::CarPart part = session->prologue_part(0);
+            for (size_t w = 0; w < 4; ++w) part.offset_rate[w] = before.t[w].steer_sin, part.tires.steer_offset[w] = before.t[w].steer_cos;
+            session->load_state(0, before, session->gt4_record(0));
+            session->load_prologue_part(0, part);
+        }
+        if (front && i >= from) {
+            namespace ex = gt3r::sim::exact;
+            ex::Car mine;
+            load(mine);
+            sim::prologue::CarPart part = session->prologue_part(0);
+            for (size_t w = 0; w < 4; ++w) part.offset_rate[w] = mine.t[w].steer_sin, part.tires.steer_offset[w] = mine.t[w].steer_cos;
+            ex::PadFrame f;
+            f.flags = 1 | 2 | 4, f.kind = 3;
+            auto axis = [](float v) { return s32(std::lround(std::clamp(v, -1.0f, 1.0f) * 4096.0f)); };
+            f.steer = gt3r::s16(-axis(p.steer)), f.throttle = u16(axis(p.throttle)), f.brake = u16(axis(p.brake));
+            ex::save_previous(mine);
+            ex::prep(mine, inputs.prep);
+            sim::prologue::driver_input_pad(mine, inputs.pad, f, 0, part.layout, tables);
+            sim::prologue::wheel_steer(mine, part, tables);
+            sim::prologue::slip_ratios(mine, part.tires, part.layout, tables);
+            ex::aids(mine, inputs.aids);
+            sim::prologue::dynamics(mine, part, inputs.statics, inputs.gears, inputs.class_grip, tables);
+            ex::brake_heat(mine, inputs.brake_heat);
+            ex::clear_feedback(mine);
+            seen19 = false;
+            step(ee, r);
+            for (size_t w = 0; w < 4; ++w) mine.t[w].steer_sin = part.offset_rate[w], mine.t[w].steer_cos = part.tires.steer_offset[w];
+            // (the collision's outputs)
+            mine.pos = at19.pos, mine.vel = at19.vel, mine.heading = at19.heading, mine.yaw_rate = at19.yaw_rate;
+            compare(at19, mine, st);
+            continue;
+        }
+        seen19 = false;
+        step(ee, r);
+        race::CarInput in;
+        in.steer = p.steer, in.throttle = p.throttle, in.brake = p.brake;
+        session->step_once({&in, 1});
+        if (i < from) continue;
+        if (std::getenv("GT4R_SHOW_COLLIDE") && i < from + 5) {
+            const sim::collide::Body& b = session->body(0);
+            std::printf("    step %d collision: pos %.9g %.9g %.9g / %.9g %.9g %.9g  vel %.9g %.9g %.9g / %.9g %.9g %.9g  heading %.9g / %.9g  yaw %.9g / %.9g\n", i + 1,
+                        double(at19.pos.x.host()), double(at19.pos.y.host()), double(at19.pos.z.host()), double(b.cx.host()), double(b.cy.host()),
+                        double(b.cz.host()), double(at19.vel.x.host()), double(at19.vel.y.host()), double(at19.vel.z.host()), double(b.cvx.host()),
+                        double(b.cvy.host()), double(b.cvz.host()), double(at19.heading.host()), double(b.heading.host()), double(at19.yaw_rate.host()),
+                        double(b.yaw_rate.host()));
+        }
+        gt3r::sim::exact::Car after;
+        load(after);
+        gt3r::sim::exact::Car mine = session->record(0);
+        // (Prologue keeps the steering offset and its rate where the engine's record has the steer angle's cosine and sine)
+        const sim::prologue::CarPart& q = session->prologue_part(0);
+        for (size_t w = 0; w < 4; ++w) mine.t[w].steer_sin = q.offset_rate[w], mine.t[w].steer_cos = q.tires.steer_offset[w];
+        if (std::getenv("GT4R_AFTER19")) { // (what the program changes in the record after its phase 19)
+            compare(after, exit19, st);
+            continue;
+        }
+        if (std::getenv("GT4R_VS19")) { // (the session's record against phase 19 as the tap runs it on the program's state at its start)
+            namespace ex = gt3r::sim::exact;
+            static std::unique_ptr<ex::CourseGround> ground;
+            if (!ground) {
+                const gt3r::Volume::Entry* e = disc.volume().find("crs/" + course);
+                const Bytes d = disc.volume().read(*e);
+                const course::CourseFile parsed = course::CourseFile::parse(d);
+                ground = std::make_unique<ex::CourseGround>(*course::course_road(parsed, d)->gtrw);
+            }
+            ex::Car k = at19;
+            const sim::prologue::CarPart& x = session->prologue_part(0);
+            ex::hub_offsets_xy(k);
+            ex::speed_ramp(k);
+            sim::prologue::ground_contact(k, x, *ground, tables.bumps, true);
+            sim::prologue::terrain(k, x);
+            ex::suspension(k, nullptr);
+            sim::prologue::attitude(k, x.layout, tables);
+            sim::prologue::bump_nudge(k, x);
+            ex::hub_offsets(k);
+            sim::rules::body_axes(k);
+            sim::prologue::ground_frame(k);
+            ex::speed_bookkeeping(k, inputs.prep.condition);
+            ex::wheel_spin(k);
+            for (size_t w = 0; w < 4; ++w) k.t[w].steer_sin = x.offset_rate[w], k.t[w].steer_cos = x.tires.steer_offset[w];
+            compare(k, mine, st);
+            continue;
+        }
+        compare(after, mine, st);
+    }
+    std::printf("prologue: the whole step from the program's state, %llu steps, %llu with every field equal\n", (unsigned long long)st.calls,
+                (unsigned long long)st.clean);
+    std::vector<std::pair<std::string, PFieldStat>> v(st.fields.begin(), st.fields.end());
+    auto first = [](const PFieldStat& f) { return std::atol(f.example.c_str() + std::strlen("first at step ")); };
+    std::sort(v.begin(), v.end(), [&](const auto& a, const auto& b) { return first(a.second) < first(b.second); });
+    for (const auto& [name, f] : v)
+        std::printf("    %-24s differs in %llu, most by %.3g; %s\n", name.c_str(), (unsigned long long)f.off, f.worst, f.example.c_str());
+    return 0;
+}
+
 int run(Disc& disc, const std::string& course, const std::string& car, int steps) {
     if (!is_prologue(disc)) {
         std::printf("prologue: the disc's program is not Prologue's\n");
         return 1;
     }
+    if (std::getenv("GT4R_WHOLESTEP")) return whole_step(disc, course, car, steps);
     db::SpecDb sdb = open_db(disc);
     Ee ee;
     boot(ee, disc);
@@ -178,7 +341,7 @@ int run(Disc& disc, const std::string& course, const std::string& car, int steps
     std::unique_ptr<PTaps> taps;
     if (std::getenv("GT4R_TAPS")) {
         taps = std::make_unique<PTaps>(ee, r, inputs);
-        if (std::string(std::getenv("GT4R_TAPS")) == "prologue") add_prologue_taps(*taps, disc);
+        if (std::string(std::getenv("GT4R_TAPS")) == "prologue") add_prologue_taps(*taps, disc, course);
         else if (std::string(std::getenv("GT4R_TAPS")) == "input") add_input_taps(*taps, r);
         else add_engine_taps(*taps);
     }
@@ -187,10 +350,23 @@ int run(Disc& disc, const std::string& course, const std::string& car, int steps
         int gear;
     };
     std::vector<Sample> theirs, ours;
+    // (GT4R_GROUND_CHECK: each wheel's ground record as the program's query leaves it, for our road's answer at its point)
+    struct GroundSample {
+        float at[3], height, normal[3];
+        u8 miss, material, flags;
+    };
+    std::vector<GroundSample> grounds;
+    const bool ground_check = std::getenv("GT4R_GROUND_CHECK") != nullptr;
     try {
         for (int i = 0; i < steps; ++i) {
             r.pad[0] = drive(i);
             step(ee, r);
+            if (ground_check)
+                for (u32 w = 0; w < 4; ++w) {
+                    const u32 g = r.car(0) + 0x614 + 0x34 * w;
+                    grounds.push_back({{ee.rf(g), ee.rf(g + 4), ee.rf(g + 8)}, ee.rf(g + 0x10), {ee.rf(g + 0x1C), ee.rf(g + 0x20), ee.rf(g + 0x24)},
+                                       ee.r8(g + 0x30), ee.r8(g + 0x31), ee.r8(g + 0x33)});
+                }
             if (i + 1 == dump_at) dump();
             const u32 F = r.car(0) + 0xD8;
             theirs.push_back({ee.rf(F), ee.rf(F + 4), ee.rf(F + 8), ee.rf(F + 0x450), float(ee.r16(F + 0x494)), int(ee.r32(r.car(0) + 0x510))});
@@ -205,6 +381,36 @@ int run(Disc& disc, const std::string& course, const std::string& car, int steps
     std::unique_ptr<sim::Session> session = sim::Session::open(disc, course, cars);
     if (const char* rules = std::getenv("GT4R_PROLOGUE_RULES")) session->set_gt4_rules(std::string(rules) == "gt4");
     for (const std::string& n : session->notes()) std::printf("  ours: %s\n", n.c_str());
+    if (ground_check) {
+        int same = 0, close = 0, off = 0, miss = 0;
+        double worst = 0;
+        for (size_t k = 0; k < grounds.size(); ++k) {
+            const GroundSample& g = grounds[k];
+            if (g.miss) {
+                ++miss;
+                continue;
+            }
+            // (the program's query: from 5 m above the point, 0x395760; the record's h may be rewritten by it)
+            sim::GroundHit h;
+            const gt3r::ee::F at[3] = {gt3r::ee::F(g.at[0]), gt3r::ee::F(g.height + 5.0f), gt3r::ee::F(g.at[2])};
+            if (!session->ground().query(at, h)) {
+                ++off;
+                std::printf("    ground step %zu wheel %zu: ours misses (program's height %g material %u)\n", k / 4 + 1, k % 4, double(g.height), g.material);
+                continue;
+            }
+            const double d = std::fabs(double(h.point.y) - double(g.height));
+            if (h.point.y == g.height && h.material == g.material) ++same;
+            else if (d < 1e-4 && h.material == g.material) ++close;
+            else {
+                ++off;
+                if (off < 12)
+                    std::printf("    ground step %zu wheel %zu: the program's %.6f mat %u flags %u, ours %.6f mat %u flags %u\n", k / 4 + 1, k % 4, double(g.height),
+                                g.material, g.flags, double(h.point.y), h.material, h.flags);
+            }
+            if (d > worst) worst = d;
+        }
+        std::printf("  ground: %d queries equal, %d within 0.1 mm, %d differ, %d off the road (worst %.6f m)\n", same, close, off, miss, worst);
+    }
     if (!their_spec.empty()) {
         // The parameter block again with Prologue's converter's own rules (rules_prologue.h convert) on the engine's.
         std::vector<u8> theirs(kParamsSize);
