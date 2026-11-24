@@ -517,7 +517,7 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
             sim::Extra& g = gx_[i];
             rules::aids(c, g.aids, g.tires, g.drive, layouts_[i], tables_.aids, aid_race_, driver);
         } else ex::aids(c, race_.aids);
-        if (gt4_rules_) rules::dynamics(c, gx_[i], layouts_[i], tables_, !std::isnan(in.steer_angle));
+        if (gt4_rules_) rules::dynamics(c, gx_[i], layouts_[i], tables_);
         else ex::dynamics(c, race_.statics, race_.gears, race_.class_grip);
         if (gt4_rules_) rules::brake_heat(c, layouts_[i], tables_.brake_heat, gx_[i].drive.d.tire_radius);
         else ex::brake_heat(c, race_.brake_heat);

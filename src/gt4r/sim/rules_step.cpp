@@ -51,7 +51,7 @@ void prep_tires(ex::Car& c, Extra& x, const WheelLayout& l, const Tables& t, con
     slip_angles(c, l);
 }
 
-void dynamics(ex::Car& c, Extra& x, const WheelLayout& l, const Tables& t, bool computer) {
+void dynamics(ex::Car& c, Extra& x, const WheelLayout& l, const Tables& t) {
     brakes_and_clutch(c, x.drive, l);
     rolling_resistance(c, l, t.road);
     tire_curves(c, x.tires, l);
@@ -63,8 +63,7 @@ void dynamics(ex::Car& c, Extra& x, const WheelLayout& l, const Tables& t, bool 
     axle_step(c, x.drive, l, t.drive);
     wheel_speeds(c, x.drive, l);
     engine_speed(c, x.drive, l);
-    if (computer) ex::gear_step(c, t.drive.gears);
-    else gear_step(c, x.drive, l, x.tires, t.drive);
+    gear_step(c, x.drive, l, x.tires, t.drive);
     const bool air = airborne(c, l);
     lateral_yaw(c, x.chassis, x.tires, l, air, t.globals);
     stop_hold(c, l, air);

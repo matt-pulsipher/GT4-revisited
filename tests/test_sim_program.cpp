@@ -84,11 +84,11 @@ TEST(sim_program_params_equal) {
     }
     CHECK(extras > 30);
     // The driveline block by size: equal but for the tank's tires, one car's axle inertia, the down-shift speeds a
-    // stepless box's hold speed sets (0x360780) or a ratio's last digit moves, and the speed factors of the tank.
+    // stepless box's hold speed sets (0x360780) or the tank's tires move, and the speed factors of the tank.
     for (const diff::Field& f : r.fields) {
         if (f.name.rfind("near d.", 0) != 0) continue;
         size_t allowed = 0;
-        if (f.name == "near d.down_rpm") allowed = 160;
+        if (f.name == "near d.down_rpm") allowed = 4;
         else if (f.name == "near d.gear_speed") allowed = 8;
         else if (f.name == "near d.tire_radius" || f.name == "near d.inv_tire_radius" || f.name == "near d.wheel_gain") allowed = 2;
         else if (f.name == "near d.axle_inertia" || f.name == "near d.inv_axle_inertia") allowed = 1;

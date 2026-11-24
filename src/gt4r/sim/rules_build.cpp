@@ -217,7 +217,7 @@ void drive_blocks(const Spec& s, const Program& program, const gt3r::sim::exact:
         s32 v = gt3r::ee::to_int((((turn * d.ratio[g + 1]) / d.ratio[g]) * F::raw(0x42700000)) / F::raw(0x40C90FDA));
         if (program.b(Program::kStatic + 0x112) && g == 1) v = (s32(d.launch_rpm) + v) / 2;
         v -= gt3r::ee::to_int(((d.gear_speed[g + 1] * F::raw(0x4031C71B)) * F::raw(0x42700000)) / F::raw(0x40C90FDA));
-        const s32 least = s32(d.launch_rpm) + 500 * s32(g);
+        const s32 least = s32(d.launch_rpm) + 500; // (the launch speed + 500 for every gear)
         d.down_rpm[g - 1] = u16(v < least ? least : v);
     }
     if (stepless && d.gears >= 2)

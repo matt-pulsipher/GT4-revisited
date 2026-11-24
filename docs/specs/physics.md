@@ -714,15 +714,16 @@ rules in the PlayStation 2's arithmetic), fed with Gran Turismo 4's data:
 | The driver of `gt4tool drive` | `line_driver.*` | ours; not a computer driver of the game's |
 
 So a car's weight, power, gearing, tires, springs and aids are its own, and so is how its tires,
-driveline, suspension, body, steering and aids answer the road. Each car alone at Tsukuba with its computer
-driver, best of three laps from rest (the program's on its own physics, `gt4r_diff ai` / ours, s): Volkswagen
-1100 90.8 / 90.8, Honda S500 89.2 / 89.9, Ford Ka 83.1 / 83.6, MG Midget 91.6 / 92.3, Honda Z 99.6 / 93.9,
-Honda N360 100.4 / 97.2 (with the engine's suspension, attitude and aids: 93.2, 97.0, 89.0, 100.5, 99.6, 102.5;
-the S500's least speeds in the slow corners were 8 .. 18 km/h lower, the engine's ASM and TCS on the car's own
-block cutting in). The Z and N360 are faster than the program's: a computer's car shifts with the engine's
-gearbox (with Gran Turismo 4's, whose routine is equal at every call on the computer drivers' cars too, the Z,
-N360 and Midget lap as the program's, 100.7, 100.7, 91.7, but the Volkswagen hunts between second and third at
-47 km/h, which the program's does only briefly: ❓ the state that differs). With the driveline Gran Turismo 4's the
+driveline, suspension, body, steering and aids answer the road; a computer's car shifts by Gran Turismo 4's
+gearbox as a player's (equal at every call on the computer drivers' cars too). Each car alone at Tsukuba with its
+computer driver, best of three laps from rest (the program's on its own physics, `gt4r_diff ai` / ours, s):
+Volkswagen 1100 90.8 / 90.8, Honda Z 99.6 / 100.7, Honda N360 100.4 / 100.7, MG Midget 91.6 / 92.3, Ford Ka
+83.1 / 83.6, Honda S500 89.2 / 92.0 (❓ the S500's 3 s). With the engine's suspension, attitude and aids:
+93.2, 99.6, 102.5, 100.5, 89.0, 97.0 (the S500's least speeds in the slow corners 8 .. 18 km/h lower, the
+engine's ASM and TCS on the car's own block cutting in); with the engine's gearbox for a computer's car the Z
+and N360 lapped 3 .. 6 s fast and the Z stood on Grand Canyon's climbs. The down-shift speeds' floor is the
+launch speed + 500 rpm for every gear (0x34ACA8 reloads the launch speed each gear): with 500 per gear the
+Volkswagen's automatic box hunted between second and third. With the driveline Gran Turismo 4's the
 figures below do not change: on these four cars its routines are the engine's later builds' to the
 bit (the taps show it); with the suspension, attitude, steering and aids Gran Turismo 4's: 400 m Civic 16.05 s,
 NSX 13.45 s, Viper 12.50 s; top speed NSX 290.4 km/h, Viper 308.0 km/h. `GT4R_SIM_RULES=engine` runs the
