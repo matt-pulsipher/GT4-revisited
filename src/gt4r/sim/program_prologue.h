@@ -40,6 +40,9 @@ public:
     static constexpr u32 kWheelLayouts = 0x503FA8;
     // The surfaces whose steering offset aims at 0 (16 bytes; 0x3B5A20).
     static constexpr u32 kFixedAim = 0x504AC0;
+    // The controller settings (Gran Turismo 4's 0x622110 layout; 0x3DEDE0, 0x3DE270) and the pedals' steps a frame (four
+    // floats: the throttle's up and down, the brake's up and down; 0x3DE270).
+    static constexpr u32 kController = 0x504950, kPedalSteps = 0x504AA8;
 
     // Finds the build's routines in a program image loaded at `load_address`.
     static PrologueProgram locate(ByteSpan image, u32 load_address);

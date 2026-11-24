@@ -210,6 +210,14 @@ void kickdown_level(ex::Car& c) {
 }
 
 // 0x36C160: the automatic gearbox (`kickdown`: pedal style 2).
+// 0x36BEE0 / 0x36BF28 with 0x3F1E30: the up-shift speed, and a down-shift speed, times the car's shift byte (car +0x83) / 128
+// (truncated) for a car its B-spec driver drives (control source 1; the up-shift's with driver kind 0 too).
+s32 up_speed(const ex::Car& c, const DriveExtra& x) {
+    const u32 v = x.d.up_rpm;
+    return c.control == 1 && c.driver_kind == 0 ? s32((v * x.shift_factor) >> 7) : s32(v);
+}
+s32 down_speed(const ex::Car& c, const DriveExtra& x, u16 v) { return c.control == 1 ? s32((u32(v) * x.shift_factor) >> 7) : s32(v); }
+
 int shift_auto(ex::Car& c, const DriveExtra& x, const WheelLayout& l, const TireExtra& tires, const DriveTables& t, bool kickdown) {
     const DrivelineBlock& d = x.d;
     const int g = c.gear;
@@ -254,11 +262,11 @@ int shift_auto(ex::Car& c, const DriveExtra& x, const WheelLayout& l, const Tire
     s32 down, up;
     if (g == 1) {
         if (d.gears == 1) return -1;
-        up = d.up_rpm; // (0x36BEE0: a computer's own when its driver word says so)
+        up = up_speed(c, x);
         down = -20000;
     } else {
-        up = g < d.gears ? s32(d.up_rpm) : 20000;
-        down = d.down_rpm[size_t(g - 2) < 8 ? size_t(g - 2) : 7]; // (0x36BF28)
+        up = g < d.gears ? up_speed(c, x) : 20000;
+        down = down_speed(c, x, d.down_rpm[size_t(g - 2) < 8 ? size_t(g - 2) : 7]);
         if (c.throttle_pedal < F::raw(0x3D4CCCCC)) down += 100 * s32(t.gears.down_lift);
         if (F::raw(0x3F4CCCCC) < c.brake_pedal) down += 100 * s32(t.gears.down_brake);
         if (F::raw(0x3E800000) < c.throttle_pedal) down -= 100 * s32(t.gears.down_throttle);
@@ -360,6 +368,12 @@ DriveTables drive_tables(const u8* awd, const u8* stepless_bytes, const u8* sett
 }
 
 DriveTables drive_tables(const Program& program) {
+    DriveTables r = drive_tables_bytes(program);
+    r.hybrid = hybrid_tables(program);
+    return r;
+}
+
+DriveTables drive_tables_bytes(const Program& program) {
     u8 a[14], s[14], g[12];
     for (u32 i = 0; i < 14; ++i) a[i] = program.b(kAwdFade + i), s[i] = program.b(kSteplessBytes + i);
     for (u32 i = 0; i < 12; ++i) g[i] = program.b(kControllerSettings + i);
@@ -443,7 +457,7 @@ F engine_torque(ex::Car& c, const DriveExtra& x, F throttle) {
             c.turbo_spool = u8(n);
         }
     }
-    // (0x354B78 then counts the fuel and the nitrous: not ported)
+    fuel_use(c, x.fuel, x.d.kind, t); // (0x354B78)
     return t;
 }
 
@@ -568,12 +582,26 @@ void axle_step(ex::Car& c, DriveExtra& x, const WheelLayout& l, const DriveTable
         }
     }
     if (d.kind == 3) {
-        // (0x368628: a one-speed box's torque: not ported; the throttle's torque in its place)
-        tc = engine_torque(c, x, c.throttle);
+        // 0x368628: the hybrid one-speed box's torque (none to the driveline while the clutch is open).
+        tc = hybrid_box(c, x, x.hybrid, t.hybrid, x.e.idle);
         if (c.clutch == 0) tc = k0;
     } else if (c.clutch != 0) {
-        // (layout 7's engine and motors, 0x3560F0 / 0x356BB8, and a box of kind 4's motor, 0x356E58: not ported)
-        const F te = stepless(d) ? stepless_torque(c, x, t) : engine_torque(c, x, c.throttle);
+        // (layout 7's engine and motors, 0x3560F0 / 0x356BB8: not ported)
+        F te;
+        if (stepless(d)) te = stepless_torque(c, x, t);
+        else if (d.layout != 7 && d.x13 == 4) {
+            // An electric car (the car category 5, up-shift class 4): the engine's torque and a motor's (0x356E58): 95,428.4 /
+            // rpm N m, at most 49 (49 below 101 rpm), times the throttle.
+            const F throttle = c.throttle;
+            te = engine_torque(c, x, throttle);
+            F m = F::raw(0x42440000);
+            if (!(s32(c.rpm) < 0x65)) {
+                m = F::raw(0x47BA6233) / gt3r::ee::int_to_f(s32(c.rpm));
+                if (F::raw(0x42440000) < m) m = F::raw(0x42440000);
+            }
+            te = te + m * throttle;
+        } else
+            te = engine_torque(c, x, c.throttle);
         if (c.clutch == 1) tc = te;
         else {
             if (c.clutch == 3) tc = d.shift_clutch_torque;
@@ -585,7 +613,7 @@ void axle_step(ex::Car& c, DriveExtra& x, const WheelLayout& l, const DriveTable
             c.omega = c.omega + ((te - tc) * d.inv_engine_inertia) * dt;
         }
     }
-    // (0x354CE8 then keeps the fuel economy's display: not ported)
+    fuel_economy(c, x.fuel); // (0x354CE8: the fuel economy's display, in the game's km per liter)
     if (d.layout != 7) c.clutch_torque = k0 <= tc ? tc : -tc;
     const size_t g = ratio_gear(c, d) < 10 ? ratio_gear(c, d) : 9;
     const F tg = tc * d.ratio[g];

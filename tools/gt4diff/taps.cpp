@@ -75,6 +75,8 @@ void Taps::enter(size_t tap) {
     }
     TapCall call{ee_, race_, index, p.mine, p.mine.car, inputs_, {}};
     t.ours(call);
+    // (the aids' copy of the fuel follows the fuel's own, as the session keeps it)
+    p.mine.x.aids.fuel = p.mine.x.drive.fuel.fuel, p.mine.x.aids.fuel_capacity = p.mine.x.drive.fuel.capacity;
     p.outs = std::move(call.outs);
     const u32 ra = ee_.g32(31);
     const bool fresh = pending_.find(ra) == pending_.end();

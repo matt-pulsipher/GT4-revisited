@@ -39,6 +39,11 @@ struct Tables {
     // is 0), spring +0xBD + k (x 10) and damping +0xBF + k; the surfaces whose offset aims at 0 (0x504AC0 + surface). No
     // compliance steer.
     rules::SteerTables steer;
+    // The pad's pedals (0x3DE270): with the controller settings' byte +0x11 (0x504961) set, an analog throttle (while
+    // pressed) and brake move toward the pad's value by at most a step a frame (0x504AA8 / 0x504AAC the throttle's up and
+    // down, 0x504AB0 / 0x504AB4 the brake's), except on a steering wheel (controller kinds 4 and 6).
+    bool pedal_ramps = false;
+    F throttle_up, throttle_down, brake_up, brake_down;
 };
 Tables tables(const Program& program);
 
@@ -101,6 +106,11 @@ void dynamics(ex::Car& c, CarPart& x, const ex::Statics& s, const ex::GearSettin
 // scale and limits) but for a wheel without the slip's fade, whose offset aims at 0 (mode 1). No follower of the steering
 // command, no compliance steer.
 void wheel_steer(ex::Car& c, CarPart& x, const Tables& t);
+
+// 0x3DEDE0's pad path (0x3DED50 with 0x3DE270): the engine's (0x1E4D38's pad path: the HUD bytes, the controls, the
+// throttle and brakes) with Prologue's eased pedals (Tables::pedal_ramps). ❓ Its steering bounds and command (0x3DDC98)
+// are the engine's: Prologue's differ while turning.
+void driver_input_pad(ex::Car& c, const ex::PadConstants& k, const ex::PadFrame& f, u8 course_kind, const Tables& t);
 
 // 0x3C4D80: the ground's pitch, roll and height as the engine's (Gran Turismo 3's) and its axes as Gran Turismo 4's
 // (0x377310: the pitch before the roll).
