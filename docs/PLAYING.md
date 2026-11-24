@@ -52,26 +52,30 @@ F11 switches full screen.
   driving options), the race's menus before and after a race, the race itself (A-spec with the pad,
   B-spec watching the computer drive), the results, the replay, back to Arcade for another race.
   Time Trial and the other race kinds reach their races the same way.
-- **Options**: every page opens and keeps its values in the data folder.
+- **Options**: every page opens and keeps its values in the data folder; the laps, the units and
+  the race settings take effect in the races.
 - **Gran Turismo mode**: a new game (name, introduction), the map, the used car and new car
   showrooms (buying a car, getting in it), the events (the Sunday Cup and the others: the event
   page, the regulations, the pre-race page with the drawn field), racing them for real (A-spec or
   B-spec), the results, the prize page paying the prize, the day going by, the game saving itself
   when you come back to the map, and loading it at the next start.
 - **Races**: the courses drawn in full with the computer drivers racing, the three driving views,
-  the race display, the pause menu, the results, the replays through the course's cameras.
+  the race display (in the units the options set), the B-spec display and commands, the pause
+  menu, the results, the replays through the course's cameras.
+- **License tests**: the License Center, a test's page, the test driven with its own display and
+  trophy times, ended when the car stops in the box, its results with Retry and Exit.
 
 ## Known problems
 
-See the project's bug list for details; the ones a player meets first:
+The ones a player meets first:
 
 - Arcade's opponents are always five Mercedes-Benz SL 500s (the game's choice of opponents by
   your car's performance is not built yet).
-- Races from the menus run three laps where the game asks for two.
-- The Arcade settings page shows "No. of Laps 1" while the setting is 2.
-- On Gran Turismo mode's map, Japan's showroom shows Korea's flag while Korea is chosen.
-- The race's menus have no help line under their icons, and your car's row is not marked.
-- B-spec races show the A-spec display (the B-spec commands and display are not built).
+- The replay after a B-spec race shows the course without the cars.
+- Your car's row in the race's grid tables is not marked in orange.
+- On some courses an opening shot of the race looks out from inside your car.
+- Prologue keeps its memory card in Gran Turismo 4's folder of the data folder: the two games'
+  saves overwrite each other when both are played with one data folder.
 - The copyright notice and the "Sony Computer Entertainment America Presents" page before the
   first dialog are not shown.
 
