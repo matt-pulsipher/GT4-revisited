@@ -192,7 +192,7 @@ void CollideCheck::leave_step(u32 ra) {
     it->second.pop_back();
     ++calls_;
     const u32 walls = ee_.r32(race_.runway + 0x84);
-    bool clean = true;
+    bool clean = true, wall = false, car = false;
     char where[64];
     for (size_t i = 0; i < p.bodies.size(); ++i) {
         std::vector<u8> rec(kBodySize);
@@ -200,6 +200,7 @@ void CollideCheck::leave_step(u32 ra) {
         cl::Body theirs = p.bodies[i];
         Loader l{rec, walls};
         body_fields(theirs, l);
+        wall = wall || theirs.wall_hit, car = car || theirs.car_hit;
         std::snprintf(where, sizeof where, "body %zu, call %llu", i, static_cast<unsigned long long>(calls_));
         Cmp cmp{[&](const std::string& n, double a, double b) { clean = false, note(n, a, b, where); }, p.bodies[i], theirs};
         body_fields(theirs, cmp);
@@ -207,6 +208,7 @@ void CollideCheck::leave_step(u32 ra) {
         if (r.bits != p.rumble[i].bits) clean = false, note("car rumble", r.host(), p.rumble[i].host(), where);
     }
     clean_ += clean;
+    wall_contacts_ += wall, car_contacts_ += car;
 }
 
 void CollideCheck::enter_query() {
@@ -266,8 +268,9 @@ void CollideCheck::qnote(const std::string& name, double theirs, double ours, co
 
 void CollideCheck::print() const {
     if (calls_) {
-        std::printf("  collision step (0x45BB60)       %llu calls, %llu with every body field equal\n", static_cast<unsigned long long>(calls_),
-                    static_cast<unsigned long long>(clean_));
+        std::printf("  collision step (0x45BB60)       %llu calls, %llu with every body field equal (%llu with a wall met, %llu a car)\n",
+                    static_cast<unsigned long long>(calls_), static_cast<unsigned long long>(clean_), static_cast<unsigned long long>(wall_contacts_),
+                    static_cast<unsigned long long>(car_contacts_));
         for (const auto& [n, s] : fields_) std::printf("      %-22s differs in %llu: %s\n", n.c_str(), static_cast<unsigned long long>(s.off), s.example.c_str());
     }
     if (qcalls_) {

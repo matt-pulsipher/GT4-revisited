@@ -27,6 +27,8 @@ public:
     void print() const;
     u64 calls() const { return calls_; }
     u64 clean() const { return clean_; }
+    u64 wall_contacts() const { return wall_contacts_; }
+    u64 car_contacts() const { return car_contacts_; }
     u64 query_calls() const { return qcalls_; }
     u64 query_clean() const { return qclean_; }
 
@@ -62,7 +64,7 @@ private:
     std::map<u32, std::vector<Pending>> steps_;
     std::map<u32, std::vector<PendingQuery>> queries_;
     std::map<std::string, Stat> fields_, qfields_;
-    u64 calls_ = 0, clean_ = 0, qcalls_ = 0, qclean_ = 0;
+    u64 calls_ = 0, clean_ = 0, wall_contacts_ = 0, car_contacts_ = 0, qcalls_ = 0, qclean_ = 0;
 };
 
 } // namespace gt4r::diff

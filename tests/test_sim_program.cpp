@@ -107,8 +107,26 @@ TEST(sim_program_leaves_equal) {
     // The C library's sinf, cosf and tanf are the engine's; atan2f is 2002 Tokyo-Geneva's (rules::behaviour()).
     const diff::LeavesResult r = diff::run_leaves(*disc, false);
     CHECK(r.ran && r.samples > 0);
-    CHECK(r.sin_off == 0 && r.cos_off == 0 && r.tan_off == 0);
+    CHECK(r.sin_off == 0 && r.cos_off == 0 && r.tan_off == 0 && r.sincos_off == 0);
     CHECK(r.atan2_off[2] == 0);
+}
+
+TEST(sim_program_collision_and_road_query_equal) {
+    Disc* disc = full_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    // Six computer drivers' cars at Grand Canyon (dirt, close walls) for a minute of the program's own race: at every call of
+    // its collision step (0x45BB60) ours steps the same bodies on our walls, and at every call of its road query (0x3E5A30)
+    // ours answers the same point on our road; every body field and every answer field equal.
+    diff::AiRunOptions opt;
+    opt.ours = true, opt.collide = 1, opt.seconds = 60;
+    const diff::AiRunResult r = diff::run_ai(*disc, false, "grandcanyon",
+                                             {"_1100_standard_type11_49", "z_act_70", "n360_67", "midget2_d_type_98", "s500_63", "ka_01"}, 3, opt);
+    if (!r.ran) std::printf("  %s\n", r.error.c_str());
+    CHECK(r.ran);
+    std::printf("  collision steps %llu (%llu with a wall met), %llu equal; road queries %llu, %llu equal\n", (unsigned long long)r.collide_calls,
+                (unsigned long long)r.collide_walls, (unsigned long long)r.collide_equal, (unsigned long long)r.query_calls, (unsigned long long)r.query_equal);
+    CHECK(r.collide_calls == 3600 && r.collide_walls > 100 && r.collide_equal == r.collide_calls);
+    CHECK(r.query_calls > 100000 && r.query_equal == r.query_calls);
 }
 
 TEST(sim_program_step_routines_equal) {

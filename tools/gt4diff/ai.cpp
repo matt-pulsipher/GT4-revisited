@@ -534,8 +534,9 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
     // GT4R_AI_COLLIDE: the collision step and the road query against ours at every call (collide_check.cpp); =1 both,
     // =2 the collision step only, =3 the road query only.
     std::unique_ptr<CollideCheck> collide_check;
-    if (const char* c = std::getenv("GT4R_AI_COLLIDE")) {
-        const int mode = std::atoi(c);
+    if (const char* c = std::getenv("GT4R_AI_COLLIDE")) options.collide = std::atoi(c);
+    if (options.collide) {
+        const int mode = options.collide;
         collide_check = std::make_unique<CollideCheck>(ee, o, disc, course);
         collide_check->install(mode != 3, mode != 2);
     }
@@ -635,6 +636,7 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
     }
     const int trace = std::getenv("GT4R_AI_TRACE") ? std::atoi(std::getenv("GT4R_AI_TRACE")) : -1;
     int limit = int((std::max(400.0, double(lap_length) / 5.0) * std::max(laps, 1) + 60.0) * 60.0);
+    if (options.seconds > 0) limit = int(options.seconds * 60.0);
     if (const char* l = std::getenv("GT4R_AI_SECONDS")) limit = int(std::atof(l) * 60.0); // a set length of run
     int step = 0;
     try {
@@ -722,6 +724,10 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
     }
     if (aid_taps && print) aid_taps->print();
     if (collide_check && print) collide_check->print();
+    if (collide_check) {
+        result.collide_calls = collide_check->calls(), result.collide_equal = collide_check->clean(), result.collide_walls = collide_check->wall_contacts(), result.collide_cars = collide_check->car_contacts();
+        result.query_calls = collide_check->query_calls(), result.query_equal = collide_check->query_clean();
+    }
     // GT4R_AI_INCIDENTS (with GT4R_AI_OURS): each car's incidents as the drivers count them (the walls and cars met).
     if (field && std::getenv("GT4R_AI_INCIDENTS"))
         for (int i = 0; i < o.cars; ++i) {
