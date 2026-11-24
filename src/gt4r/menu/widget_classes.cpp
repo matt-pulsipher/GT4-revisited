@@ -1480,7 +1480,19 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
             if (n == m) return nothing();
     }
     if (type == "ModelFace") {
-        for (const char* m : {"getModelSetPath", "setModelSetPath", "getEnvImagePath", "setEnvImagePath", "getModelMotionPath", "setModelMotionPath",
+        // setModelSetPath(path, a, from disk, b) (0x2BB220: the path, then three flags of +0x308;
+        // the second is model_set_from_disk, 0x2BE938): the prize page's money pouch,
+        // piece/prize/other.mdl. getModelSetPath: the path.
+        if (n == "setModelSetPath")
+            return fn([w](Vm&, const Value&, Args a) {
+                if (a.empty()) return Value{};
+                w->set_property("model_set_path", Value::string(a[0].to_string()));
+                if (a.size() > 2) w->set_property("model_set_from_disk", Value::integer(a[2].truthy() ? 1 : 0));
+                return Value{};
+            });
+        if (n == "getModelSetPath")
+            return fn([w](Vm&, const Value&, Args) { return Value::string(w->data.text("model_set_path")); });
+        for (const char* m : {"getEnvImagePath", "setEnvImagePath", "getModelMotionPath", "setModelMotionPath",
                               "reset", "stopRotate"})
             if (n == m) return nothing();
     }
