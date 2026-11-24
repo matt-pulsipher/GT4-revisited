@@ -30,6 +30,13 @@ struct ParamsResult {
     bool ran = false;
     size_t cars = 0, unfinished = 0;
     std::vector<Field> fields;
+    // Gran Turismo 4's converter (sim::convert) against the program's, word by word over the whole block: the cars whose
+    // blocks are equal in every word, and per word offset the cars where it differs.
+    size_t block_equal = 0;
+    std::map<u32, size_t> block_off;
+    // The same with a computer's car's inputs, a power cap, a worn engine, ballast and percentages.
+    size_t varied_equal = 0;
+    std::map<u32, size_t> varied_off;
     const Field* field(const std::string& name) const {
         for (const Field& f : fields)
             if (f.name == name) return &f;

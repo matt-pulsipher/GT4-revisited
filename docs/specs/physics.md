@@ -618,6 +618,56 @@ GT3's 0x1DBFD8 (physics §6.4) with the block's fields at new places and these d
   the optimum slips +0x164 / +0x168, the braking peak +0x16C, curve D +0x17C, the load curve
   +0x1B8 / +0x1C8).
 
+**Ours** (`convert.*`) is 0x361908 whole, in the program's order; `gt4r_diff <disc> params` compares the block word by word
+(and once more with a computer's car's inputs, a power cap, a worn engine, ballast and percentages): equal on all 722 cars.
+What it showed past the list above:
+
+- The arguments (0x363B10): a2 the control source (2: the axle grips times the rule block's bytes +0x04 / +0x08 + the drive
+  class, percent, 0 read as 100), t0 the rule block (+0x03 x 10 PS the power cap), t1 the entry's condition block (null: a
+  fresh engine). The converter changes the spec it reads: a drive above 4 reads as 0, the last torque word when 0, the tire
+  blocks' curves' first points (0x361008, 0x361220) and the load curve's first load.
+- The block's tables are a count (s16), two zero bytes and two pointers into the block (0x359A38).
+- **Special cars** (0x35A058: the layout row 1 or the category 6): the wheelbase, the origin's offset, the steering's camber
+  angle and the tires' widths and radii from the program's table 0x6205C8 (0x78 bytes a row, by the spec's +0x23).
+- **The differentials** (0x34AAD8): the type letter's place among the eight at 0x620300 (a letter not among them stays as
+  it is); an axle the layout does not drive (0x34AC48: layouts 0 and 7 the rear, 1 the front, 2 .. 6 and 8 .. 10 both) has
+  none, a driven one at least type 2, a group of one wheel type 1; the settings by type: 3, 4 and 6 the initial torque x 9.8
+  and the shares in percent, 5 the initial squared and the acceleration's x 0.1 x 9.8, 7 all three in percent, 0 .. 2 none.
+- The half tracks are narrowed where the tire stands out past the chassis' width across the tires (spec +0x30, with the
+  tire's width percentage +0x1E4 neither 0 nor 100). The yaw inertia's inverse (+0x118) is of the yaw without the ballast's.
+- **The tire records** are built only for the classes a surface uses (0x361570); a record's base grip is 9.8 x curve D at
+  no slip (0x359568) x its load curve at half its axle's static load plus the unsprung weight over the tire's width (0x361798).
+- **The suspension** (0x360B60): the spring rate the byte x 980 x the motion ratio; the damper's two points x 100 / the
+  motion ratio fitted to a square law (0x360980), or kept as they are with the static byte +0x101.
+- **The top speed** (0x360780, 0x360520): first the rev limit in the top gear (at most 333.3 m/s); then from rest in steps
+  of that / 500 km/h, the highest speed where the engine's torque (its curve x the condition's factor 0x350868, under the
+  power cap 0x34EA68) in the gear it would be in beats the rolling resistance (the race's curve 0x620938 x the paved
+  surface's factor 0x620984 x the weight and the downforces) and the drag; 50 m/s for a one-speed box. A stepless box of
+  kind 1's hold speed (D +0x30) is the lower of the peak power's rpm (0x34F3F8) and the up-shift speed less 500.
+- **P +0x10DC** (0x3F3278): by the spec's kind +0x120 and a turbo, from the table 0x622320's two powers (x 10 PS): 0 below
+  the first, 0.75 from the second, 0.25 .. 0.75 between. **P +0xFE0** (0x3F86E8): the fourth root of the base grip
+  squared x the (peak power + the motors' extra)² x the square root of the peak torque over the mass^1.5, x the downforce's
+  half less the drag plus 1, x the axle grips' mean, / 2.5, within 0.01 .. 1.
+- **The engine condition's limits** (0x350678, the program's 0x620320 ..): L0 = -(byte +0xD0 x 100,000), L1 = +0xD1 x 0.001,
+  L2 = +0xD2 x 100,000, L3 = L2 + +0xD3 x 100,000, L4 = +0xD4 x 0.001, L5 = -(+0xD5 x 100,000) / 2, L6 = +0xD6 x 0.001,
+  L7 = +0xD7 x 100,000, L8 = +0xD8 x 100,000; the factor (0x350868) of the condition block's two words.
+- The globals it writes: the dampers' table (0x360A78), four wheel drive system 5's fade (0x34BC98), layout 7's motors'
+  constants (0x355978, 0x8438C0 ..).
+- `gt4r_diff` runs the static tables' builder 0x35F808 with a conductor (a cleared one: a paved course), as a race's
+  configuration does: without one the per-surface factors stay 0 and the program's top speeds come out higher.
+
+**The hybrid one-speed box** (0x368628, from the axle step for gearbox kind 3; ours `rules_hybrid.*`, equal at every call on
+both Priuses in a long drive, `gt4r_diff step` with `GT4R_STEP_LONG`): its state at car + 0x788 (the engine speed's target, the
+store 0 .. 1, the display's flags, a mode by the store's eighths: 0 full, 1 from below 6.2, 2 below 1.5, back from 2.5 / 6.8).
+The motor's torque on the driveline (0x367FD8: by the driveline's speed, two curves by the up-shift class; the demand from the
+throttle 0x3685A0, or the brake's regeneration when the clutch is requested); the engine runs at a target speed (0x368040's
+by the class, the class 3 car to the speed that gives the power the speed and throttle ask for, 0x3681E0 with the tables
+0x620C80 / 0x620C90 and the power-to-speed table 0x620CA0 that 0x368260 makes once from the race's first hybrid's engine
+curve), followed at 1,047 / 524 rad/s² (5,236 to start or stop it) and blended 1 : 2.5 with the driveline's speed; its torque
+(0x3554A0) splits between the wheels and the store by 104.7 / 209.4 rad/s of margin; its fuel by 0x368128 (0x620BA8 /
+0x620BF8 by rpm, no tank kept); the store moves by the power in and out x 1000 / (500 or 274) / 23,400 a second. The box
+returns the engine's share plus the motor's (none while the clutch is open).
+
 ## 5. The program's tables
 
 Read from the user's `CORE.GT4` when a session is set up (`sim::Program`); the build is
@@ -753,15 +803,15 @@ rules in the PlayStation 2's arithmetic), fed with Gran Turismo 4's data:
 | Part | Runs | Follows |
 |---|---|---|
 | Parts, equipment, default settings, the spec, its fix-ups | `equipment.*`, `car_spec.*` | Gran Turismo 4 (§4.1, §4.2): equal to the program's on all 722 cars, byte for byte (§9); computed gearboxes' ratios by the engine's generator (7 gears at most) |
-| Spec → parameter block | `exact_bridge.*`: `core_spec`, the engine's converter, `gt4_params` | GT3's converter on our spec translated field by field, then Gran Turismo 4's rules where they differ (the levers, drag, ride heights, the suspension's travel). Equal to the program's converter on every car for the fields of §9, but for what the engine's block cannot hold: engine curves beyond 16 points (thinned), gears beyond 7, half-inch rims and tire kinds' changes (one car), the three-wheelers' loads, four wheel drive system 5, the speed-switched part, nitrous, ballast's place, gearboxes without steps (run as stepped) |
-| Program tables | `program.*`, `core_program` | the static block from `CORE.GT4`, folded to the core's 16 surface rows (0 .. 11 as they are, 20 / 21 / 22 → 12 / 13 / 14, 12 → 15), except the slip ratio's bytes; every other table the engine's own (GT3's values) |
+| Spec → parameter block | `convert.*` (`sim::convert`, `sim::build_record`) | Gran Turismo 4 (§4.3): the converter 0x361908 and every routine it calls, in the program's arithmetic: the whole 0x1100-byte block equal to the program's in every word on all 722 cars, as sold and with a computer's car's inputs, a power cap, a worn engine, ballast and the entry's percentages (§9). The step's record is read out of the block: the engine mirror's members by their places, the mirror's members the block keeps in another shape made from Gran Turismo 4's (the 24-point curve thinned to 16 points, 7 forward gears at most, the tire records' 24 surfaces folded to 16 rows, the steering and camber curves, the inverse masses: the engine's routines that still run read these), and Gran Turismo 4's own part. The engine's converter (`exact_bridge.*`: `core_spec`, `gt4_params`, and `gt4_extras`) serves only a program that is not a known build |
+| Program tables | `program.*`, `core_program`, `rules::tables` | Gran Turismo 4's routines read the program's own tables and the globals the race's start makes (`rules::tables`, the converter's, `speed_tables`, `wear_rules_block`); the engine's routines that still run (the list below) read `core_program`: the static block from `CORE.GT4` folded to the core's 16 surface rows (0 .. 11 as they are, 20 / 21 / 22 → 12 / 13 / 14, 12 → 15), and the core's own tables (GT3's values) for the rest: the input's pad and steering tables, the steering force's, the tire effects' and the engine sound's scales, the engine condition's limits (GT4's are `condition_table`) |
 | The road query (0x3E5A30 with 0x3E5BC8 / 0x3E5FD8), surface index | `ground.*` | Gran Turismo 4 (§6), in the PlayStation 2's arithmetic: equal to the program's answer at every call (§9) |
 | The collision step (phase 13: 0x3F4B20, 0x45BB60 and its routines, 0x3F4C18; the walls near a body, 0x395A38 / 0x3E6A58) | `collide.*` through `session.cpp` | Gran Turismo 4 (§7): every body field equal to the program's at every call (§9); the bodies built as 0x45B978 builds them |
 | The query points (phase 16, 0x3697A8), the steep ground's normal (phase 17, 0x344458), the wheels' surfaces as 24-row indexes, wheel 0's triangle as the collision step's hint (phase 18), the ground's frame (phase 19, 0x35D350) | `rules_body.*`, `session.cpp` | Gran Turismo 4 (§6) |
 | The aerodynamics (phase 4, 0x3F3090 with 0x3F2DB8; its globals as 0x3F2F78 and the converter's coefficients as 0x3621B0 make them) and F +0x5BC | `rules_chassis.*`, `exact_bridge.*`, `rules_step.*` | Gran Turismo 4 (§5) |
 | The class grip of a car a computer drives (phase 10; a single race's 20 % for every drive class, 0x353570; `rules::Tables::class_grip`) | `rules_step.*` | Gran Turismo 4 (§2) |
 | Phase order | `session.cpp` | phases 1 .. 13, then 16 .. 22, as the program's step; the engine's remaining routines with the program's C library and constants (`rules::behaviour()`: 2002 Tokyo-Geneva's) |
-| Gran Turismo 4's own part of the record | `rules_build.*` `gt4_extras` | the program's converter (§3.3, §4.3, §9): the tire records with 24 surfaces and their kind bytes, the tire index, widths, axle grips, camber curves, the direct scales, the wheel layout's row; bit for bit on every car but the base grip of 168 of 4,332 records (a unit in the last place: it takes the static loads of the engine's converter). The engine block (24-point curves, friction, turbo) bit for bit on every car; the driveline block's layout, drive, gearbox kind, gears, ratios, splits, capacities, launch and up-shift speeds bit for bit; its tire radii, widths, differentials' settings and axle inertias the engine converter's (a unit or two in the last place; the tank's tires 1.5 % off), so the tank's speed factors and a down-shift speed differ; the down-shift speeds a stepless box's hold speed sets (0x360780: 3 cars) are not made |
+| Gran Turismo 4's own part of the record | `convert.*` `load_params` | the converter's block: every field bit for bit on every car (the tire records' base grip and the driveline block's tires, differentials and inertias too) |
 | The engine's torques (phase 4), brakes and clutch, wheel torques, vectoring, the axle step, wheel speeds, engine speed and gearbox (phase 10), brake heat (phase 11) | `rules_drive.*`, `rules_wear.*` through `rules_step.*` | Gran Turismo 4 (§3.3) on the engine and driveline blocks; the four wheel drive's fade, the stepless rates, the controller settings and the brake heat's constants as the program has them (checked, §9). The Priuses' hybrid one-speed box, the box of kind 4 (the MTR GMV) and layout 7's motors (the Acura DN-X) run as an ordinary box; the fuel and nitrous are not counted. A car our computer drivers drive shifts by the engine's gearbox: the program shifts a computer's car at its driver's speeds (0x36BEE0 / 0x36BF28 through 0x3F1E30, the speeds x a driver byte / 128 ❓), and with the program's own speeds an automatic box can hunt (the Volkswagen Beetle 1100's down-shift into third and fourth at 3,500 and 4,000 rpm, its up-shift at 4,000). With the rest of the driveline Gran Turismo 4's, the original's arcade field at Tsukuba laps in 96.4 .. 101.7 s (the original's two-lap race: 92 .. 101 s a lap; the engine's throughout: 99.5 .. 105.4 s) |
 | A rolling start | `rules_start.*`, `session.cpp` | the car set-up's moving start (0x363868) after the session's hold; its places (rules::rolling_start_distance, the race's rule) on the road's middle, not the driving line |
 | The wear's grip, peak forces, slip angles (phase 4's tire part), slip ratios (phase 8), rolling resistance, tire curves, the longitudinal and lateral forces, the speed along the body, the forces across the car and the yaw, the standstill hold (phase 10) | `rules_*.cpp` through `rules_step.*` | Gran Turismo 4 (§3.3); the race's tables (`rules::tables`: the rolling resistance by surface and speed, the slip bytes, the globals) as the program's race set-up makes them (checked, §9); the wear rules off, as in every race seen |
@@ -773,13 +823,15 @@ program's own):
 
 - Phase 1's last-step values (`ex::save_previous`: the engine's routine, checked equal to 0x343ED0).
 - Phase 2 and 3, 0x355E10 and 0x35CA60: not run at all.
-- Phase 4, the preparation (0x357700) but for its tire part, the aerodynamics and F +0x5BC: `ex::prep` (0x35C0B8,
-  0x35ACB0, the step length; the masses with the fuel, 0x354AC0, not counted).
+- Phase 4, the preparation (0x357700) but for its tire part, the aerodynamics, F +0x5BC and the masses with the fuel
+  (0x354AC0, `rules::masses`): `ex::prep` (0x35C0B8, 0x35ACB0, the step length).
 - Phase 5, the driver's input (0x349FD0): `ex::driver_input_pad` for a pad car (a computer's car takes its
   driver's outputs as 0x464F38 writes them, and the clutch request as 0x3F3400 makes it).
 - Phase 6, 0x35D1D0: not run.
-- Phase 10's gearbox for a stepless box of kind 1 and the hybrid one-speed box (0x368628), a box of kind 4's
-  motor (0x356E58), layout 7's motors: run as an ordinary box; the fuel and nitrous (0x354B78): not counted.
+- Phase 10's layout 7 motors (0x356418, 0x3560F0, 0x356BB8; the Acura DN-X): run as an ordinary box. An electric car's
+  motor (0x356E58: the up-shift class 4, the car category 5; the MTR GMV) is Gran Turismo 4's. The hybrid one-speed box (0x368628, the Toyota Prius G and G Touring) is Gran Turismo 4's
+  (`rules_hybrid.*`), as are a stepless box of kind 1 with the hold speed the converter makes (0x360780) and the fuel and
+  nitrous (0x354B78, 0x354CE8, `rules_fuel.*`; the nitrous's trigger is the input phase's, 0x34A160).
 - Phase 12, the hit record (0x350308): `ex::clear_feedback`.
 - Phase 13's hit records (0x350530, 0x350328: the cars' damage, the conductor's virtual +0x190) and the results'
   velocity change records (cond + 0xCAB8): not made. A body's driver on line 4 (0x343BF0) is not known to the
@@ -788,16 +840,21 @@ program's own):
 - Phase 14, the proximity and slipstream (0x3F4638): not run (the slipstream's target stays 0: it counts only
   above 100 km/h, 0x3F44A0).
 - Phase 15, the part that changes with speed (0x3F28B8): not run.
-- Phase 16's hub offsets and speed ramp (`ex::hub_offsets_xy`, `ex::speed_ramp`: equal to 0x3458D0 / 0x345A50 at
-  every call on four-wheeled layouts, §9).
-- Phase 19 after the bump-stop nudge: the rumble, the steering force (0x353EE8), 0x367148, the engine's sound, the
-  view's follower (0x345658: differs), the hub offsets (equal), the speeds (0x35DE20: the engine's wear, oil and
-  odometer differ), the wheel spin (0x344040: equal), the tire effects,
-  0x34A668, 0x34A788 (`ex::pad_rumble`, `ex::steer_force`, `ex::tyre_effects`, ..., `ex::speed_bookkeeping`,
-  `ex::wheel_spin`); the attitude's start hold (0x36AE20: the engine's spawn hold); the speed-switched part's
-  damping (0x3F2650) and a special car's spring rate (0x35D248).
-- Phases 20 .. 22, the wear (0x352EA0, 0x353218) and the flaps (0x35A678): `ex::tire_wear`, `ex::wear_flags`,
-  `ex::flaps`.
+- Phase 16's speed ramp (`ex::speed_ramp`: equal to 0x345A50 at every call). The hub offsets are Gran Turismo 4's
+  (0x3458D0, `rules_wheels.*`: by the wheel layout; the engine's placed four corner wheels).
+- Phase 19 after the bump-stop nudge: the rumble, the steering force (0x353EE8), 0x367148 (each wheel's sliding measures,
+  wheel +0xB4 .. +0xBC, from tables the race's start builds at 0x843A40 ..: the tire wear's input), the engine's sound, the
+  view's follower (0x345658: differs), the wheel spin (0x344040: equal on these layouts; the engine's takes wheel i's radius
+  from axle i / 2, the program's from the layout), the tire effects, 0x34A668, 0x34A788 (`ex::pad_rumble`, `ex::steer_force`,
+  `ex::tyre_effects`, ..., `ex::wheel_spin`); the attitude's start hold (0x36AE20: the engine's spawn hold); the
+  speed-switched part's damping (0x3F2650) and a special car's spring rate (0x35D248). The hub offsets (0x345A20) and the
+  speeds and bookkeeping (0x35DE20: the speeds over the ground, the hubs' velocities by the layout, the odometer, the engine's
+  condition, the speedometer, the lateral acceleration's follower, the free wheels 0x35D990) are Gran Turismo 4's
+  (`rules_wheels.*`, `rules_speeds.*`).
+- Phases 20 and 21, the tire wear (0x352EA0) and the pit flags (0x353218): not run. With the race's wear rules off (every
+  race seen; `Session::set_wear_rules` builds them as 0x367C90 does) the program's do nothing; with them on the tread wear needs
+  0x367148's wheel +0xB4, not ported. The pit flags are the computer drivers' pit flow's (sim/ai). The flaps (phase 22,
+  0x35A678) and new tires (0x362E58) are Gran Turismo 4's (`rules_wear.*`).
 - The start: the engine's pose and standing start, and the session's two-second hold, not 0x363B10 / 0x363560.
 | Start | `session.cpp` `place` | the engine's race start (GT3's pose and standing start) on the first start places; a hold of 2 s before time 0 |
 | Distance along the course, laps | `ground.*` `distance_along` | ours (between the checkpoint gates) |
@@ -852,6 +909,11 @@ object 0x6235A8 + 0x134 + 4 x table id; the row cache left out), and compares:
   the load curve; the core's is 9.8 x curve D at no slip; ❓ its reader) and the slip angle
   of curve A's peak (the program's 0x353800 finds it more finely than the core's whole
   degrees: 31.06 where the core has 32).
+- **params, the block**: our converter's block against the program's in every word, on all 722 cars as sold and with
+  varied inputs (`GT4R_VARY=cond|cap|spec|grip` one at a time, `GT4R_BLOCK_EXAMPLES`); the test `sim_program_converter_block_equal`.
+  The session's record from it (`build_record`) against the program's block's fields: every field of Gran Turismo 4's own part
+  bit for bit (`sim_program_params_equal`). `GT4R_RECORD_CHECK` lists what changed against the engine converter's record (a
+  unit or two in the last place on most fields).
 - **leaves**: the C library's sinf (0x57D2B8), cosf (0x57D1F0) and tanf (0x57D380) are
   bit-equal to the engine's on 20,000 samples each; atan2f (0x57D118) to the engine's 2002
   Tokyo-Geneva variant (GT3's and the later builds' differ on most samples). So
@@ -937,13 +999,14 @@ object 0x6235A8 + 0x134 + 4 x table id; the row cache left out), and compares:
 
 - Everything marked ❓ above; the rewritten routines of §1; the three new phases.
 - The step's routines not yet ported (the start's hold in the attitude (0x36AE20), the speed-switched part's
-  damping (0x3F2650), a special car's spring rate (0x35D248), the driver input (0x349FD0), the masses with the
-  fuel (0x354AC0), wear, the proximity and slipstream (0x3F4638), the new phases 0x355E10, 0x35CA60, 0x35D1D0,
-  0x3F28B8, the rest of phase 19, the collision step's hit records (0x350530)); our session runs the engine's
-  there or nothing (§8). `gt4r_diff`'s race places cars past the road's grid at the program's fallback (§9). A computer's car on Gran Turismo 4's gearbox (above). The hybrid one-speed box (0x368628, 3,700 bytes with its
-  helpers), the box of kind 4 (0x356E58), layout 7's motors (0x356418, 0x3560F0, 0x356BB8, 0x355978),
-  the fuel and nitrous (0x354B78, 0x354CE8), the top speed P +0xFD8 (0x360520; ours the engine's on
-  644 cars) and the rest of the driveline builder (the tires 0x34BA30, the differentials 0x34AAD8).
+  damping (0x3F2650), a special car's spring rate (0x35D248), the driver input (0x349FD0, with the nitrous's trigger),
+  the proximity and slipstream (0x3F4638), the new phases 0x355E10, 0x35CA60, 0x35D1D0, phase 19's rumble, steering force,
+  0x367148 (the sliding measures the tire wear reads), view follower, tire effects, 0x34A668, 0x34A788 and the wheel spin's
+  rest, the tire wear 0x352EA0 with the race's wear rules on, the collision step's hit records (0x350530)); our session runs
+  the engine's there or nothing (§8). `gt4r_diff`'s race places cars past the road's grid at the program's fallback (§9).
+  Layout 7's motors
+  (0x356418, 0x3560F0, 0x356BB8; their constants 0x355978); the economy display's units (0x6244E8, the game's option: km per
+  liter here). The entry of 0x35DE20 is not reached by `gt4r_diff`'s taps (its parts are; the whole step compares it).
 - The computer drivers (the courses' `.ad` files and `crs/bestline`), the race flow (laps as
   the game counts them, sectors, the finish), pit stops, tire wear's curve per race, the
   rubber band.
