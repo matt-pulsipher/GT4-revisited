@@ -206,7 +206,7 @@ reaching 0 end the run timed. Kinds 3 and 6 end at the lap's line when the laps 
 
 Here the hits come from the simulation's contact (`CarState::contact`: a wall's |j| / 100000, a car's |j| /
 15000) and the cone bodies' contacts per car (`GadgetBodies::contacts`, with the kind's flag latch); the
-mass is the spec's weight (❓ P +0x48 taken as it); the time limit is not counted (no test has one; F
+mass is the car's parameter block's P +0x48 as 0x35FE80 reads it; the time limit is not counted (no test has one; F
 +0x4AF's meaning ❓). Seen here: B-1 run at full throttle past the box ends in FAIL on the row of cones at
 the box's far end (`lic3`), as the original's; braking into the box passes (9.849).
 
@@ -267,7 +267,7 @@ engine's Gran Turismo 3 code). The player notices them roughly in this order.
 | The scenic shots behind the menus | `replay_script.*` `ScenicCamera` | GT4 (mode 5, 0x375980) | |
 | The driving views | `drive_camera.*` | the car's camera places (CAR4); their springs ❓ | |
 | Laps, crossings, times, finish | `race_flow.*` | GT4 (0x358608, vf21 0x357B98); the race order's comparison judged | the order routine (❓ not found) |
-| License tests' rules | `license_rules.*`, `judge_license` | GT4 (0x3F8D70, 0x369888 → vf49, 0x35FE80); the hits' strengths from the simulation's contact (its sum per step, not the program's per hit), the mass as the spec's weight ❓ | the hit records 0x350530 (`sim-step`) |
+| License tests' rules | `license_rules.*`, `judge_license` | GT4 (0x3F8D70, 0x369888 → vf49, 0x35FE80); the hits' strengths from the simulation's contact (its sum per step, not the program's per hit), the mass P +0x48 | the hit records 0x350530 (`sim-step`) |
 | Cones and boards knocked about | `gadget_bodies.*` | GT4 (0x3E2B28 with 0x3E3748 / 0x3E3840, 0x3E44E8 / 0x3E4708, 0x3E3C48 / 0x3E3ED0 / 0x3E43B8, 0x3E5108, set-up 0x3E2710; course.md "Cones and boards: the bodies") in host floats; the road query and the car boxes' extents judged | the road query 0x3E5A30; the car record's box extents (+0x48C .. +0x494) |
 | The demonstrations | `screen_race.cpp` `begin_demo`, `sim/ai/demo_driver.*` | GT4 (the recordings, `ai-drivers`); the card's tire word is the race's, not the car's ❓ | |
 | The pad's controls | `screen_race.cpp` (`gt3r::race::ControlMapper`) | **engine** (GT3's mapping) | the input phase 0x349FD0 (`sim-step`) |
