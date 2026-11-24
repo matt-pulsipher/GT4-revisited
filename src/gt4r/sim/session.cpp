@@ -243,6 +243,11 @@ void Session::set_fuel(size_t i, gt3r::ee::F liters) {
     gx_[i].drive.fuel.fuel = liters, gx_[i].aids.fuel = liters;
 }
 
+int Session::gear_for_speed(size_t i, gt3r::ee::F speed) const {
+    if (i >= cars_.size() || !gt4_ready_) return 0;
+    return rules::gear_for_speed(cars_[i], gx_[i].drive, speed);
+}
+
 void Session::new_tire(size_t i, int wheel) {
     if (i < cars_.size() && wheel >= 0 && wheel < 4) rules::new_tire(cars_[i], gx_[i].wear, wheel, tables_.wear);
 }

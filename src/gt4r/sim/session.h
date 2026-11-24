@@ -119,6 +119,10 @@ public:
     // (control source 1, 0x3F1E30). Holds until set again.
     // The car's rating, the parameter block's +0xFE0 (0x3F86E8: 0.01 .. 1), which the B-spec skill classes cars by.
     float rating(size_t i) const { return gx_[i].drive.rating.host(); }
+    // 0x36BF68: the gear the gearbox picks for a speed (m/s) on car i (the race display's suggested gear): 0 backwards, 1 for a
+    // one-speed or stepless box of kind 1, else the lowest whose up-shift speed (less 2,000 rpm in first, 500 after; a B-spec
+    // driver's factor in it) the speed is under, else the top gear.
+    int gear_for_speed(size_t i, gt3r::ee::F speed) const;
     void set_shift_factor(size_t i, u8 factor) {
         if (i < gx_.size()) gx_[i].drive.shift_factor = factor;
     }

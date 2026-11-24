@@ -909,7 +909,7 @@ int gear_for_speed(const ex::Car& c, const DriveExtra& x, F v) {
     if (d.kind == 3 || d.kind == 1) return 1;
     const int n = d.gears;
     for (int g = 1; g < n && g < 10; ++g) {
-        const s32 rpm = s32(d.up_rpm) - (g == 1 ? 2000 : 500);
+        const s32 rpm = up_speed(c, x) - (g == 1 ? 2000 : 500); // (0x36BEE0: a B-spec driver's factor)
         if (v < (int_to_f(rpm) * kRpm) / d.gear_speed[size_t(g)]) return g;
     }
     return n;
