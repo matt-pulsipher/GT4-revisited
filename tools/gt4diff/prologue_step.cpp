@@ -47,6 +47,8 @@ int run(Disc& disc, const std::string& course, const std::string& car, int steps
     db::SpecDb sdb = open_db(disc);
     Ee ee;
     boot(ee, disc);
+    if (std::getenv("GT4R_MEDAL_NAMES"))
+        for (u32 k = 0; k < 4; ++k) std::printf("prologue: medal name %u: %s\n", k, ee.read_cstr(ee.r32(0x505008 + 4 * k)).c_str());
     std::printf("prologue: the image's mean slip switch %u, steering mode %u\n", ee.r8(0x506612), ee.r32(0x714880));
     Race r;
     std::string err;
