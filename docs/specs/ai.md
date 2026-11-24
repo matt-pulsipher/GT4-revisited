@@ -71,7 +71,9 @@ In the order of the table at 0x624018 (✔ 6, 0, 1, 2, 5, 3, 4, 7), for each poi
 - **The road's height**: probed straight down at the point (0x46A0C8 → the road query
   0x395760 at (x, h, -y)) from 1,000 m for the first point of the first line, else from the last
   height + 0.1 x the chord from the last point + 1 m, then from the last height + 100 m; with no
-  road under it the last height + 3. The next probe starts from trunc(height) + 2.
+  road under it the last height + 3. The next probe starts from trunc(height) + 2. ✔ A line's first point
+  below the last line's end (Suzuka East's stop line: from -1 m, the road at 10.9 m) is found as the
+  program finds it, from 1,000 m.
 - **The kind**: a non-zero kind becomes 1 when the radius is positive (an arc to the left), 2
   otherwise (to the right); on line 5 always 1.
 - **Line 4, points 3 .. count - 4**: moved onto the nearest pit stop of the road (RNW4 +0x90)
@@ -496,11 +498,9 @@ another race's for checks: then its own F+0x560, F+0x650, places, clock and fini
 - **The road's heights** come from our road query in host floats: some line points' heights, slopes
   and banks differ from the program's in their last bits, and so then do the arcs' speeds there (and
   the lines' lengths and pitches, which the drivers do not read).
-- The pit: the drivers' part runs (lines 3 and 4, the pit speed, the stop line's place 0x46B7B8, the
-  steps `Field::pit_enter` / `pit_stop` / `pit_leave` / `pit_return` as 0x3453A0 / 0x345400 / 0x345450 /
-  0x345228 set the line and the kind); the pit flow that decides them (0x35B060, a state machine of the
-  pit lane, the box and the service) is not ported, so nothing sends a car there yet.
-- Not done: B-spec's pit command and
+- **The pits** (§11): the program's pass, request, service and the stop's timing, `PitStops` on the session; the car
+  stands in its box by the brake (no placing in the box without the session's hook), tires and fuel through hooks.
+- Not done: B-spec's
   skill, the line-5 records, the aero bonus (P +0x1077 / +0x1084 not mirrored:
   0), the two ❓ flags of §4.2 (P +0x104A, F +0x5C2: 0 on every car checked), the arcs' grip with tire
   wear on, T+0x158's factor (1 throughout in this program), the PD steering of T[2] ≥ 2, the threat
@@ -559,3 +559,75 @@ recording played on the program's race step (car 0's distance and speed each ste
   where our car's least speeds are 8 .. 18 km/h lower).
 - ✔ Six small cars finish three laps of Tsukuba (circuit), Seattle (city) and Grand Canyon (dirt)
   with no car standing still.
+
+## 11. The pits
+
+A stop is the race's own (`sim/ai/pit_flow.*`, the program's routines; `sim/ai/pit_stops.*` on our session). The car's pit
+record is in its state block F: +0x4B1 flags (bit 0 the line crossed this step, 2 service wanted, 3 the pits asked
+for, 4 on the pit lane: the ground's flag), +0x4B2 ❓, +0x4B7 its box, +0x4B8 the service (0x4 / 0x8 tires / fuel
+wanted, 0x10 the player's choice asked, 0x20 the hose on, 0x40 / 0x80 front / rear tires, 0x100 refuelling, 0x200 the
+change done), +0x4BA the hold counter, +0x5C2 a tire past its wear, +0x5C3 the pit lane's speed (1 over 10 km/h, 2 over
+40 km/h), +0x5FA / +0x5FB the pit message and its time, +0x62E a pad car's own visit, +0x64C a B-spec car's wait.
+
+- **The box** (0x363B10 by 0x46BDA0): the stop line's (line 4) point 8 less the car's grid place (0 without lines).
+- **The request** (0x353218, the wear phase, every step, with the race's pit stops on, the car not asked yet, F +0x4B2
+  0 and racing, 0x343C20 = 0): fuel counted and over 500 m since the last fill, before the stop line's point 1: the fuel
+  to reach it a lap later ((point 1 − d) + lap) / (metres per unit since the fill) x 1.05 more than the fuel left; or the
+  wear switch on and a wheel's tread (+0x50) under the race's limit (+0xAC < 0: the tire gone, F +0x5C2 only); or
+  (0x35FA50 = 4 ❓) a wheel's +0x1AB. Then bit 2, and bit 3 for a computer's car or a B-spec car (F +0x5C1 0).
+- **The pass** (0x359008 after the per-car phases, none during the start's count): the line crossed (0x358608) sets
+  bit 0 and the message 1 (moving over 5 km/h, not touched, a pad car racing) or 0 (under 3 km/h); not crossed clears
+  it, message 0. Then 0x35B060 on the course distance d and the last d' (each a lap on in the lap's first half), with
+  the stop line's points m(k) (k < 0 from the end) and its box b:
+  - a car of kind 2 (down the lane): out of the lane past m(1) back to racing (message 0); crossing m(1) the stop is
+    counted (0x35AD10) and its service decided (0x35AF18); crossing b − 25 m: onto the stop line (kind 3), or on through
+    with message 8 (its race over), 9 (no service) or 7 (100 km/h or more); past m(2) message 10.
+  - kind 3 (on the stop line): crossing b with a service: stood in the box (0x363560) and held 721 steps (12 s); the
+    next step turned to the box's heading, message 11; at the hold's last step the service cleared; held at 645 the hose
+    on; from 554 down a step of refuelling each step (0x354D60); with no service past b + 0.5 m off the stop line (kind 4).
+  - kind 4 (leaving): over the lane's end (m(−1), or m(−2) for a pad car) back to racing (0x345228) and the order
+    recounted (0x35ADF0), or the run ended there (F +0x4B2: 0x343D78 mode 3); before it messages 4 / 5 / 10.
+  - a computer's car asked (bit 3), its race not over: onto the pit lane (kind 2) crossing m(0); on the lane touching
+    another, put back to kind 2 and its driver told (0x463E80). A pad car's own visit (F +0x62E) the same from m(0) / m(1).
+  - over the line and in the lane's first stretch (m(3) .. m(−2)) with the hold over: the speed message (F +0x5C3), the
+    car backing out past m(−3) off the stop line (message 12), moving over 5 km/h message 2 unless touching.
+- **The service** (0x35AF18, the race's pit byte cond + 0xCBE0 = 1, not a pad visit, the race not over, not a layout of
+  kind 4): tires (4), with fuel counted fuel (8), the conductor's virtual +0x198 bit 1 ❓; a computer's car (or a race
+  without the pit menu) gets them at once (0xC0 both axles' tires, 0x100 refuelling), a player's with the menu bit 0
+  (0x35BFE8 then takes the menu's choice: 0x40 / 0x80 / 0x100 and the tires at F +0x64E / +0x64F).
+- **The stop's timing** (0x35C0B8, phase 4 while the hold runs): held at 721 while the player chooses (a B-spec car's
+  wait F +0x64C counted down, then the choice made for him ❓), held at 90 while the fuel still runs in; else counted
+  down; chosen tires fitted at 645 / 644 (the spec and parameters rebuilt); at 60 each wheel of an axle served given a
+  new tire (0x362E58: a layout byte > 0 the front, < 0 the rear, 0 either) and the tire bits cleared; at 59 0x200.
+- **Refuelling** (0x354D60): the fuel + the byte 0x620E25 x 0.1 a second x the step, up to the tank; full: the bit
+  cleared and, with no tires left, the hold set to 90 (1.5 s more).
+- **The messages** (0x35ACD8): a code with a time in the table at 0x6207E4 (6 .. 9 and 12: 120 steps, 13, 14: 255)
+  always replaces the message; one without only once the last one's time has run out.
+
+✔ The pass, the request's flags, the service and the stop's timing equal the program's at every call in its own race
+(`gt4r_diff <disc> ai <course> GT4R_AI_PITCHECK=1 GT4R_AI_PIT=<car>,<s>`: the car's pit request set at that time; the
+record, messages, the routines called and the wheels given new tires compared): Tsukuba, Seattle and Suzuka East, a
+whole stop each (24,000 .. 36,000 calls, 721 timing calls, all equal). The program's stop at Tsukuba (an S500 sent in at
+20 s): the pit lane at 1,365 m, the stop counted at its lane's start, on the stop line, standing 12 s at 58 m, the four
+tires at the stop's last second, out and back on the racing line at 270 m. ✔ On our session (`PitStops`, test
+`ai_pits_on_our_session`) the same car runs the same stop: down the lane, 721 steps held (649 standing), out again.
+Judged: the pit lane flag as the ground's flag bit 0 under wheel 0; a car's contact as a car met; the race's state 2
+(0x343C20) from the car's laps without the winner's finish (0x34C158). ❓ Not wired: the pad car's own visit and the pit
+menu (0x35BFE8), the race's record of the tires fitted (cond + 0xDA20 ..), the order's recount (0x35ADF0), the stop's
+counting in the race (0x35AD10's tables).
+
+## What runs where
+
+Every routine of the drivers runs the program's own code (ported, checked at every call where marked ✔ above), none of the
+shared engine's GT3 drivers. What is still not the program's:
+
+| Where | What | The program's routine |
+|---|---|---|
+| `course_lines.cpp` `prepare` | the road's heights under the lines in host floats (last bits) | the road query 0x3E5A30 in EE floats (sim's `RoadGround`) |
+| `drivers.cpp` the start's hold for missions 25–34 | judged: held on the line until the race clock passes the delay | not found |
+| `grid.cpp` the paint draw | our generator | the race's generator 0x621AE8 |
+| `pit_stops.cpp` | the pit lane flag, contact, lap state as listed in §11; the car stood in its box by braking | 0x369888's flag, the collision body's +0x43C / +0x440, 0x343C20, 0x363560 |
+| `demo_driver.cpp` `pad_input` | the recorded pad record mapped onto `CarInput` (steer, pedals, shift) until the session reads the record itself | the input phase 0x349FD0 on the record (sim-step) |
+| `Field::shift_factor` | not applied in the session's gearbox | 0x3F1E30 (control source 1) |
+| B-spec skill | not read | 0x468C50 from the save's B-spec driver records |
+| line 5's per-point records, the PD steering of T[2] ≥ 2, the threat record | not ported | 0x46A510's line 5 part, 0x465078's T[2] branch, D +0x53 / +0x60 / +0x64 |
