@@ -1,6 +1,8 @@
 #include "gt4r/sim/session.h"
 
 #include "gt4r/sim/convert.h"
+#include "gt4r/sim/rules_speeds.h"
+#include "gt4r/sim/rules_wheels.h"
 #include "gt4r/sim/rules_build.h"
 #include "gt4r/sim/rules_start.h"
 
@@ -116,6 +118,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
     extra_.resize(entries.size());
     gx_.resize(entries.size());
     layouts_.resize(entries.size());
+    speed_tables_.resize(entries.size());
     gt4_ready_ = program.known();
     // (GT4R_SIM_RULES=engine: the engine's rules throughout, for comparison)
     const char* rules_env = std::getenv("GT4R_SIM_RULES");
@@ -153,6 +156,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
             c.p = r.car.p;
             gx_[i] = r.x;
             layouts_[i] = r.layout;
+            speed_tables_[i] = rules::speed_tables(program, r.x.steer.lean_row);
         } else { // (a program that is not a known build: the engine's converter on the core's tables)
             ex::ConvertInputs in;
             in.data = data_.get();
@@ -248,7 +252,8 @@ void Session::place(size_t i, const course::Runway::Place& at) {
     c.road_seg = -1;
     c.pos.z = ground + c.p.cog_height;
     ex::body_axes(c);
-    ex::hub_offsets(c);
+    if (gt4_ready_) rules::hub_offsets(c, layouts_[i]);
+    else ex::hub_offsets(c);
     for (size_t w = 0; w < 4; ++w) {
         ex::Wheel& wheel = c.w[w];
         ex::Ground& g = c.g[w];
@@ -285,7 +290,8 @@ void Session::place(size_t i, const course::Runway::Place& at) {
     c.pitch = c.pitch + ex::atan2(c.behaviour, c.p.ride_height[0] - c.p.ride_height[1], c.p.wheelbase);
     ex::body_axes(c);
     c.pos.z = c.ground_pos.z + c.up.z * c.p.cog_height;
-    ex::hub_offsets(c);
+    if (gt4_ready_) rules::hub_offsets(c, layouts_[i]);
+    else ex::hub_offsets(c);
     c.lag_heading = c.heading, c.lag_pitch = c.pitch;
     ex::standing_start(c);
     ex::tyres_start(c, race_.prep.wear);
@@ -346,7 +352,8 @@ void Session::ground_contact(ex::Car& c, Extra& x) {
 void Session::chassis(size_t i) {
     ex::Car& c = cars_[i];
     Extra& x = extra_[i];
-    ex::hub_offsets_xy(c);
+    if (gt4_rules_) rules::hub_offsets_xy(c, layouts_[i]); // (0x3458D0: by the wheel layout)
+    else ex::hub_offsets_xy(c);
     ex::speed_ramp(c);
     ground_contact(c, x);
     if (gt4_rules_) { // Gran Turismo 4's suspension and attitude (0x36A490 .. 0x36BA88)
@@ -371,7 +378,8 @@ void Session::chassis(size_t i) {
     ex::engine_sound(c, race_.sound_scales);
     ex::effects_reset(c, 0, 0);
     ex::view_follow(c);
-    ex::hub_offsets(c);
+    if (gt4_rules_) rules::hub_offsets(c, layouts_[i]); // (0x345A20)
+    else ex::hub_offsets(c);
     if (gt4_rules_) { // (0x36C9F8: the pitch before the roll; 0x35D350)
         rules::body_axes(c);
         rules::ground_frame(c, layouts_[i]);
@@ -379,7 +387,8 @@ void Session::chassis(size_t i) {
         ex::body_axes(c);
         ex::ground_frame(c);
     }
-    ex::speed_bookkeeping(c, race_.prep.condition);
+    if (gt4_rules_) rules::speeds(c, gx_[i].speeds, layouts_[i], speed_tables_[i], gx_[i].body.in_line_x480); // (0x35DE20)
+    else ex::speed_bookkeeping(c, race_.prep.condition);
     ex::wheel_spin(c);
 }
 

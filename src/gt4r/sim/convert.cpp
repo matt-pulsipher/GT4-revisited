@@ -706,27 +706,6 @@ void base_grips(const Program& program, ParamBlock& p) {
 
 // ---- the top speed (0x360780 with 0x34F3F8, 0x360520, 0x3F3278, 0x3F86E8) ----
 
-// 0x350678: the engine condition's limits (the program's 0x620320 .. 0x620340), from the static block's bytes +0xD0 ..
-// +0xD8.
-struct ConditionLimits {
-    F l[9];
-};
-ConditionLimits condition_limits(const Program& program) {
-    const u32 S = Program::kStatic;
-    ConditionLimits c;
-    auto big = [&](u32 o) { return int_to_f(s32(program.b(S + o)) * 100000); };
-    c.l[1] = int_to_f(program.b(S + 0xD1)) * kMilli;
-    c.l[0] = -big(0xD0);
-    c.l[2] = big(0xD2);
-    c.l[3] = big(0xD3) + c.l[2];
-    c.l[4] = int_to_f(program.b(S + 0xD4)) * kMilli;
-    c.l[6] = int_to_f(program.b(S + 0xD6)) * kMilli;
-    c.l[5] = (-big(0xD5)) * kHalf;
-    c.l[7] = big(0xD7);
-    c.l[8] = big(0xD8);
-    return c;
-}
-
 // 0x350868: the engine's torque factor of its condition (1 for a fresh engine).
 F condition_factor(const ConditionLimits& L, const u8* cond) {
     if (cond == nullptr || cond[0x14] != 0) return kOne;
@@ -931,6 +910,26 @@ void top_and_hold(const Spec& s, const Program& program, ParamBlock& p, const ru
 } // namespace
 
 bool special_car(const Spec& s) { return s.b(0x02) == 1 || s.b(0x01) == 6; }
+
+// 0x350678: the engine condition's limits (the program's 0x620320 .. 0x620340), from the static block's bytes +0xD0 ..
+// +0xD8.
+ConditionLimits condition_limits(const Program& program) {
+    const u32 S = Program::kStatic;
+    ConditionLimits c;
+    auto big = [&](u32 o) { return int_to_f(s32(program.b(S + o)) * 100000); };
+    c.l[1] = int_to_f(program.b(S + 0xD1)) * kMilli;
+    c.l[0] = -big(0xD0);
+    c.l[2] = big(0xD2);
+    c.l[3] = big(0xD3) + c.l[2];
+    c.l[4] = int_to_f(program.b(S + 0xD4)) * kMilli;
+    c.l[6] = int_to_f(program.b(S + 0xD6)) * kMilli;
+    c.l[5] = (-big(0xD5)) * kHalf;
+    c.l[7] = big(0xD7);
+    c.l[8] = big(0xD8);
+    return c;
+}
+
+
 
 void convert(Spec s, const Program& program, const rules::Tables& race, const ConvertIn& in, ParamBlock& p, ConvertGlobals* g) {
     auto sp = [&](u32 o) { return F::raw(program.w(special_row(p.b(0x33)) + o)); };

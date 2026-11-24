@@ -68,6 +68,14 @@ struct ConvertGlobals {
 // them. `p` is built in place over what it holds (the car's set-up clears it first: a fresh block).
 void convert(Spec spec, const Program& program, const rules::Tables& race, const ConvertIn& in, ParamBlock& p, ConvertGlobals* globals = nullptr);
 
+// 0x350678: the engine condition's limits (the program's words 0x620320 .. 0x620340, from the static block's bytes +0xD0 ..
+// +0xD8): l[0] the first wear word's least, l[1] the torque lost there, l[2] / l[3] the span past which it falls by l[4]; the
+// second word's l[5] (negative) and l[6], l[7] its greatest, l[8] where its fall starts.
+struct ConditionLimits {
+    gt3r::ee::F l[9];
+};
+ConditionLimits condition_limits(const Program& program);
+
 // 0x35A058: a special car (the layout row 1, or the car category 6), whose body and tires come from the program's
 // table 0x6205C8 (0x78 bytes a row, by the spec's byte +0x23).
 bool special_car(const Spec& s);

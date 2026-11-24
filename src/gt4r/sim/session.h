@@ -124,6 +124,7 @@ private:
     std::vector<Extra> extra_;
     std::vector<sim::Extra> gx_;
     std::vector<rules::WheelLayout> layouts_;
+    std::vector<rules::SpeedTables> speed_tables_; // (0x35DE20's, per car: its special row)
     std::vector<std::optional<gt3r::sim::exact::Aids>> driver_aids_; // a computer driver's aid block per car
     std::vector<std::optional<std::array<gt3r::ee::F, 3>>> driver_grip_; // and its grip by tire class
     rules::AidRace aid_race_;

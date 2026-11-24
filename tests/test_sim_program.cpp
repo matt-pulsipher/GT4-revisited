@@ -148,7 +148,7 @@ TEST(sim_program_step_routines_equal) {
     // The program's own race step on a drive (a start, the gears, turns, the brakes), with each of our
     // routines run in place at every call and compared field by field: equal at every call, for cars of
     // each drive.
-    for (const char* car : {"nsx_r_02", "civic_r_01", "impreza_wrc_03", "r34_gtr_v2_nur_02", "fit_w_ff_01", "a3_32_quattro_03"}) {
+    for (const char* car : {"nsx_r_02", "civic_r_01", "impreza_wrc_03", "r34_gtr_v2_nur_02", "fit_w_ff_01", "a3_32_quattro_03", "midget_mp5_63"}) {
         const diff::StepResult r = diff::run_step(*disc, false, "tsukuba", car, 900);
         if (!r.ran) std::printf("  %s: %s\n", car, r.error.c_str());
         CHECK(r.ran && !r.taps.empty());

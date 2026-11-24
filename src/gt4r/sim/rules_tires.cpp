@@ -36,7 +36,9 @@ void peak_force(ex::Car& c, TireExtra& x, const WheelLayout& l, bool wear, const
         F f = w.load * table(r.load_curve, load_per_width(x, l, i, w.load));
         if (wear) f = f * w.wear_grip;
         f = f * x.axle_grip[a];
-        const F camber = l.kind == 1 ? F() : (l.side[size_t(i)] ? d : -d) + w.camber;
+        // (the roll against the ground's: minus for a left wheel, plus for a right one, none for a wheel in the middle)
+        const u8 side = l.side[size_t(i)];
+        const F camber = l.kind == 1 ? F() : (side == 0 ? -d : side == 1 ? d : F()) + w.camber;
         const F g = table(x.camber_grip[a], camber);
         w.peak_force = f * r.mu[w.surface % 24] * g;
         w.peak_force = w.peak_force * driver_grip(x, grip, w.surface);

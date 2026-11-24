@@ -15,6 +15,8 @@
 #include "gt4r/sim/rules_step.h"
 #include "gt4r/sim/rules_tires.h"
 #include "gt4r/sim/rules_wear.h"
+#include "gt4r/sim/rules_speeds.h"
+#include "gt4r/sim/rules_wheels.h"
 #include "sim/exact/tick.h"
 
 #include <cmath>
@@ -28,6 +30,7 @@ namespace {
 
 // A routine's car, where it is its first argument: the record, or its state block.
 [[maybe_unused]] u32 car_a0(Ee& e) { return u32(e.a(0)); }
+const sim::Program* g_program = nullptr; // (the run's program, for the taps that read its tables)
 [[maybe_unused]] u32 car_of_state(Ee& e) { return u32(e.a(0)) - kF; }
 
 // The race's wear rules a car's routines read (its conductor + 4).
@@ -93,6 +96,16 @@ void add_taps(Taps& taps) {
                        {gt3r::ee::F::raw(t.ee.r32(kAeroGlobals - 4)), gt3r::ee::F::raw(t.ee.r32(kAeroGlobals)), gt3r::ee::F::raw(t.ee.r32(kAeroGlobals + 4)),
                         gt3r::ee::F::raw(t.ee.r32(kAeroGlobals + 8)), gt3r::ee::F::raw(t.ee.r32(kAeroGlobals + 12))});
               }});
+    taps.add({0x3458D0, "hub offsets xy", car_a0, [](TapCall& t) { sim::rules::hub_offsets_xy(t.car, t.rec.layout); }});
+    // (0x35DE20 itself: the interpreter never stops at its entry; its parts are tapped, and gt4r_diff ai's whole step
+    // compares all of it)
+    taps.add({0x35D920, "hub velocities", car_a0, [](TapCall& t) {
+                  sim::rules::hub_velocities(t.car, t.rec.layout, sim::rules::speed_tables(*g_program, t.rec.x.steer.lean_row), t.rec.x.body.in_line_x480);
+              }});
+    taps.add({0x35D990, "free wheels", car_a0, [](TapCall& t) { sim::rules::free_wheels(t.car, t.rec.layout); }});
+    taps.add({0x345A50, "speed ramp", car_a0, [](TapCall& t) { ex::speed_ramp(t.car); }});
+    taps.add({0x345A20, "hub offsets", car_a0, [](TapCall& t) { sim::rules::hub_offsets(t.car, t.rec.layout); }});
+    taps.add({0x344040, "wheel spin", car_a0, [](TapCall& t) { ex::wheel_spin(t.car); }});
     taps.add({0x35D350, "ground frame", car_a0, [](TapCall& t) { ground_frame(t.car, t.rec.layout); }});
     taps.add({0x3697A8, "query points", car_a0, [](TapCall& t) { query_points(t.car, t.rec.x.body, t.rec.layout); }});
     taps.add({0x36A490, "terrain", car_a0, [](TapCall& t) { terrain(t.car, t.rec.x.body, t.rec.layout); }});
@@ -195,6 +208,7 @@ StepResult run_step(Disc& disc, bool print, const std::string& course_label, con
     StepResult result;
     db::SpecDb sdb = open_db(disc);
     const sim::Program program = sim::Program::load(disc);
+    g_program = &program;
     if (!program.known()) {
         result.error = "the disc's program is not a mapped build";
         if (print) std::printf("step: %s\n", result.error.c_str());
@@ -219,6 +233,17 @@ StepResult run_step(Disc& disc, bool print, const std::string& course_label, con
     Taps taps(ee, o, inputs);
     add_taps(taps);
     add_taps_aids(taps);
+    // GT4R_TAP_WRITES="352EA0,353218": routines of a car (a0) tapped with nothing of ours run, to list what they write.
+    if (const char* list = std::getenv("GT4R_TAP_WRITES")) {
+        static std::vector<std::string> names;
+        for (std::string rest = list; !rest.empty();) {
+            const size_t comma = rest.find(',');
+            const std::string a = rest.substr(0, comma);
+            rest = comma == std::string::npos ? "" : rest.substr(comma + 1);
+            names.push_back("writes of " + a);
+            taps.add({u32(std::stoul(a, nullptr, 16)), names.back().c_str(), car_a0, [](TapCall&) {}});
+        }
+    }
     add_taps_steer(taps);
     // GT4R_STEP_COLLIDE: the collision step and the road query against ours at every call (collide_check.cpp).
     std::unique_ptr<CollideCheck> collide_check;
