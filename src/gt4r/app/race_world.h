@@ -84,10 +84,11 @@ public:
     // brake touched above it); 0 lets them go.
     void set_speed_hold(float mps) { hold_speed_ = mps; }
     // B-spec's commands for a car the computer drives: its pace 1 .. 5 (3 the race's own) and the
-    // overtake. ❓ Kept until the computer drivers take commands: they drive at the race's pace.
+    // overtake, to its driver (sim::ai::Field::command; kept for the next restart).
     void command(size_t car, int pace, bool overtake) {
         if (car >= commands_.size()) commands_.resize(car + 1);
         commands_[car] = {pace, overtake};
+        if (field_) field_->command(car, {pace - 1, overtake ? 1 : 0});
     }
     // What goes with the cars shown in a step, live (the simulation's) or recorded: smoke and dust
     // from the wheels, and the race's sound heard from `camera` (none: no sound) about car `target`.

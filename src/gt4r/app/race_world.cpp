@@ -197,6 +197,9 @@ void RaceWorld::build_simulation() {
             if (!computer.empty()) {
                 try {
                     field_ = sim::ai::Field::open(*app_.disc(), setup_.course, *session_, computer, setup_.pace);
+                    // B-spec: the player's car's driver takes his commands.
+                    if (computer_player_) field_->set_bspec(0);
+                    for (size_t c = 0; c < commands_.size(); ++c) field_->command(c, {commands_[c].pace - 1, commands_[c].overtake ? 1 : 0});
                 } catch (const std::exception& e) {
                     if (!noted_) LOG_WARN("Drive: no computer drivers (%s); the simple driver drives", e.what());
                 }
@@ -229,6 +232,7 @@ void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool pla
         driven.assign(inputs.begin(), inputs.end());
         driven.resize(car_visuals_.size());
         hold ? field_->hold(driven) : field_->drive(driven);
+        if (!hold && session_) field_->apply_time_scales(*session_); // the rubber band's step lengths
         if (computer_player_ && !player_by_computer && !inputs.empty()) driven[0] = inputs[0];
         inputs = driven;
     }
