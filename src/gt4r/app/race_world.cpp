@@ -125,9 +125,9 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
         }
         short_names_.push_back(short_name.empty() ? names_.back() : short_name);
     }
-    line_ = race::RailLine(course_->road());
     gadget_bodies_.reset(course_->gadgets());
     course_->set_gadget_bodies(&gadget_bodies_);
+    line_job_ = std::async(std::launch::async, [road = &course_->road()] { return race::RailLine(*road); });
     build_simulation();
     // The race's sound: every car, the course's ambience, the count and the music.
     if (audio::AppSound* sound = app.sound()) {
@@ -291,6 +291,13 @@ void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool pla
         gadget_hits_ = gadget_bodies_.step(course_->gadgets(), course_->road(), boxes, kStep);
     }
 }
+
+const race::RailLine& RaceWorld::line() const {
+    if (!line_) line_.emplace(line_job_.valid() ? line_job_.get() : race::RailLine(course_->road()));
+    return *line_;
+}
+
+float RaceWorld::lap_length() const { return course_->road().length; }
 
 int RaceWorld::gadget_contacts(size_t i) const {
     const std::vector<int>& c = gadget_bodies_.contacts();

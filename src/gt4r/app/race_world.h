@@ -17,6 +17,7 @@
 #include "gt4r/sim/equipment.h"
 
 #include <array>
+#include <future>
 #include <limits>
 #include <map>
 #include <memory>
@@ -133,7 +134,10 @@ public:
     const std::string& car_short_name(size_t i) const { return short_names_[i]; }
     const std::string& car_label(size_t i) const { return setup_.entries[i].label; }
     size_t car_count() const { return car_visuals_.size(); }
-    const race::RailLine& line() const { return line_; }
+    // The road's line for the simple driver, made on a thread of its own from the race's set-up (it walks
+    // the road across every checkpoint: seconds on the long test course); asking waits for it.
+    const race::RailLine& line() const;
+    float lap_length() const; // the road's lap (m)
     // The cars that touched a cone or board in the last step (a bit each, the first 32).
     unsigned gadget_hits() const { return gadget_hits_; }
     // The cones and boards car `i` met in the last step (each a contact report of kind 2).
@@ -159,7 +163,8 @@ private:
     std::unique_ptr<race::CourseScene> course_;
     std::vector<race::CarVisual*> car_visuals_;
     std::vector<std::string> names_, short_names_;
-    race::RailLine line_; // the road's line: the simple driver's guide, and the lap's length
+    mutable std::optional<race::RailLine> line_; // the road's line: the simple driver's guide
+    mutable std::future<race::RailLine> line_job_;
     race::Simulation* sim_ = nullptr;
     std::unique_ptr<race::RailSimulation> rail_; // the stand-in, when the simulation is not running
     std::unique_ptr<sim::Session> session_;

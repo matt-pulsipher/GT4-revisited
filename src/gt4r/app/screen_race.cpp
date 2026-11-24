@@ -374,7 +374,7 @@ public:
         fs.start_seconds = setup_.start_seconds;
         fs.laps = setup_.laps;
         fs.player = 0;
-        fs.lap_length = world_->line().length;
+        fs.lap_length = world_->lap_length();
         flow_.begin(fs, world_->cars());
         rolled_ = false;
         license_failed_ = false;
@@ -463,7 +463,7 @@ public:
         // the road's line.
         const bool drivers = world_->computer_drivers();
         for (size_t c = 0; c < inputs_.size(); ++c)
-            inputs_[c] = hold || (drivers && (c > 0 || watched_ || setup_.auto_drive)) ? race::CarInput{}
+            inputs_[c] = hold || (drivers && (c > 0 || watched_ || setup_.auto_drive)) || (c == 0 && !auto_drive) ? race::CarInput{}
                                                                                        : race::follow_line(world_->line(), cars[c], c & 1 ? 2.0f : -2.0f, 1.0f - 0.05f * float(c));
         const gt3r::sim::ControlInputs in = mapper_.update(pad, kStep);
         // (What the pad asks during the hand-over: "GET READY TO DRIVE" once the throttle is held.)
@@ -608,7 +608,7 @@ public:
     const race::RaceFlow& flow() const { return flow_; }
     race::ResultBoard& board() { return board_; }
     float player_distance() const { return distance_; } // metres the player's car ran this run
-    float lap_length() const { return world_->line().length; }
+    float lap_length() const { return world_->lap_length(); }
     // The race's words for one lap and several (the results' "+1Lap").
     void set_card(int tire, std::string race_word) { tire_index_ = tire, race_word_ = std::move(race_word); }
     void set_lap_words(std::string one, std::string several) { lap_words_[0] = std::move(one), lap_words_[1] = std::move(several); }
@@ -843,7 +843,7 @@ public:
     float to_line() const {
         if (!handing_over() || setup_.skip > 0) return -1;
         const race::CarState& c = world_->cars()[0];
-        const float len = world_->line().length;
+        const float len = world_->lap_length();
         if (!(len > 0)) return -1;
         return c.course_v > len * 0.5f ? len - c.course_v : (c.lap < 0 ? len - c.course_v : 0.0f);
     }
