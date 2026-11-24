@@ -173,12 +173,14 @@ void RaceWorld::build_simulation() {
             for (u32 m = 0; m < soft_.size(); ++m) soft_[m] = program.w(sim::Program::kSoft + 4 * m);
             std::vector<sim::Entry> entries(setup_.entries.size());
             for (size_t i = 0; i < entries.size(); ++i) {
-                if (setup_.entries[i].equipment) entries[i].equipment = *setup_.entries[i].equipment; // a garage car's own
-                else if (!sim::stock_car(*app_.db(), program, setup_.entries[i].label, entries[i].equipment)) throw std::runtime_error("no parts for " + setup_.entries[i].label);
-                entries[i].grid_place = setup_.entries[i].grid_place;
-                entries[i].automatic = setup_.entries[i].automatic;
-                entries[i].start_speed = setup_.entries[i].start_speed;
-                entries[i].start_distance = setup_.entries[i].start_distance;
+                const WorldEntry& we = i < overrides_.size() && overrides_[i] ? *overrides_[i] : setup_.entries[i];
+                if (we.equipment) entries[i].equipment = *we.equipment; // a garage car's own
+                else if (!sim::stock_car(*app_.db(), program, we.label, entries[i].equipment)) throw std::runtime_error("no parts for " + we.label);
+                entries[i].grid_place = we.grid_place;
+                entries[i].automatic = we.automatic;
+                entries[i].asm_on = we.asm_on, entries[i].tcs_on = we.tcs_on;
+                entries[i].start_speed = we.start_speed;
+                entries[i].start_distance = we.start_distance;
             }
             // The player's car's power as built (the replay's card).
             try {
@@ -219,6 +221,11 @@ void RaceWorld::build_simulation() {
         sim_ = rail_.get();
     }
     noted_ = true;
+}
+
+void RaceWorld::set_entry_overrides(std::vector<std::optional<WorldEntry>> overrides) {
+    overrides_ = std::move(overrides);
+    restart();
 }
 
 void RaceWorld::restart() {

@@ -43,6 +43,7 @@ struct WorldEntry {
     u32 paint = 0;         // by index in the car's paints
     int grid_place = -1;   // the course's start place (-1: the entry's index)
     bool automatic = true; // the gearbox shifts itself
+    bool asm_on = true, tcs_on = true; // the aids (sim::Entry)
     float start_speed = 0; // a rolling start: metres per second at time 0 (sim::Entry::start_speed)
     std::optional<sim::Equipment> equipment; // the car's parts and settings (a garage car's); none: as sold
     float start_distance = std::numeric_limits<float>::quiet_NaN(); // a rolling start's place (sim::Entry::start_distance)
@@ -70,6 +71,9 @@ public:
 
     // The cars back on their start places, at rest; the course's animations from their start.
     void restart();
+    // The entries' cars as a demonstration's file enters them (each its equipment, grid place, gearbox and
+    // aids; sim/ai/demo_driver.h), or back as set up (empty); the world starts again.
+    void set_entry_overrides(std::vector<std::optional<WorldEntry>> overrides);
     // The computer drivers drive the player's car too (B-spec, a scripted run) from the next restart.
     void set_computer_player(bool on) { computer_player_ = on; }
     // The game's computer drivers drive the cars (false: the caller's inputs, e.g. the stand-in's
@@ -165,6 +169,7 @@ private:
     float hold_speed_ = 0;
     race::GadgetBodies gadget_bodies_; // the cones and boards as the cars leave them
     unsigned gadget_hits_ = 0;
+    std::vector<std::optional<WorldEntry>> overrides_;
     std::array<u32, 32> soft_{};
     struct Command {
         int pace = 3;
