@@ -146,6 +146,8 @@ sim::ai::Field::Probe probe_of(Ee& ee, const OrigRace& o, int i, float lap) {
     p.reverse = ee.r8(D + 0x3E) != 0, p.shift_lock = ee.r16(D + 0x3C);
     p.aim_x = F::raw(ee.r32(Fs + 0x61C)), p.aim_y = F::raw(ee.r32(Fs + 0x620));
     p.kind = ee.r8(Fs + 0x467);
+    for (u32 k = 0; k < 5; ++k) p.pd_last[k] = F::raw(ee.r32(D + 4 * k));
+    p.pd_rate = F::raw(ee.r32(Fs + 0x484));
     return p;
 }
 
@@ -387,6 +389,7 @@ private:
     void at_return(u32 ra) {
         if (returns_.insert(ra).second) ee_.add_probe(ra, [this](Ee&) { decision_out(), proximity_out(); });
     }
+    u64 pd_seen_ = 0;
     void decision_in() {
         const u32 D = u32(ee_.a(0));
         int car = -1;
@@ -406,6 +409,11 @@ private:
         char w[64];
         std::snprintf(w, sizeof w, "car %d at %.1f s", p.car, double(ee_.r32(o_.cond + 0xF89C)) / 3000.0);
         t_["decision steer"].bits(w, th.steer.bits, my.steer);
+        for (size_t k = 0; k < 5; ++k) t_["decision pd terms"].bits(w, th.pd_last[k].bits, my.pd_last[k]);
+        t_["decision pd rate"].bits(w, th.pd_rate.bits, my.pd_rate);
+        if (std::getenv("GT4R_AI_PDTRACE") && th.pd_rate.bits != 0 && (++pd_seen_ % 600) == 1)
+            std::printf("  pd %s: rate %g terms %g %g %g %g %g steer %g\n", w, double(th.pd_rate.host()), double(th.pd_last[0].host()), double(th.pd_last[1].host()),
+                        double(th.pd_last[2].host()), double(th.pd_last[3].host()), double(th.pd_last[4].host()), double(th.steer.host()));
         t_["decision throttle"].bits(w, th.throttle.bits, my.throttle);
         t_["decision brake"].bits(w, th.brake.bits, my.brake);
         t_["decision aim x"].bits(w, th.aim_x.bits, my.aim_x);
@@ -580,6 +588,11 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
         std::vector<size_t> computer;
         for (int i = 0; i < o.cars; ++i) computer.push_back(size_t(i));
         field = std::make_unique<sim::ai::Field>(*pcars, *ad, program, computer);
+        // GT4R_AI_STEERMODE=<T[2]>: the steering mode this program leaves unused (2: the PD steering), in both races.
+        if (const char* m = std::getenv("GT4R_AI_STEERMODE")) {
+            ee.w8(0x623E52, u8(std::atoi(m)));
+            field->set_steer_mode(u8(std::atoi(m)));
+        }
         sim::ai::Field* f = field.get();
         const OrigRace* race = &o;
         if (checks) check_lines(ee, o, *field, tally), check_params(ee, o, *field, tally), check_math(ee, tally);
@@ -616,7 +629,12 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
         }
         // GT4R_AI_PITCHECK: the pit pass (0x359008 / 0x35B060) against ours at every call (pit_check.cpp).
         if (std::getenv("GT4R_AI_PITCHECK")) {
+            // (the race information's laps, the conductor's virtual 37: the pits' race state reads them)
+            ee.w32(o.info, u32(laps));
             pit_check = std::make_unique<PitCheck>(ee, o, field->lines(), program, lap_length);
+            // GT4R_AI_WEAR=<limit>: the race's tire wear on (the configuration's switch, conductor + 4 + 0x68) with that limit
+            // (+0x20) for the tread left, so the wear phase asks for the pits.
+            if (const char* w = std::getenv("GT4R_AI_WEAR")) ee.w8(o.cond + 4 + 0x68, 1), ee.wf(o.cond + 4 + 0x20, float(std::atof(w)));
             pit_check->install();
         }
         if (ours) ee.hle(
@@ -767,6 +785,7 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
         const auto it = pit_check->counts().find(sim::ai::PitAction::CountStop);
         result.pit_stops = it == pit_check->counts().end() ? 0 : it->second;
         result.hold_calls = pit_check->hold_calls(), result.hold_equal = pit_check->hold_equal();
+        result.request_calls = pit_check->need_calls(), result.request_equal = pit_check->need_equal(), result.requests = pit_check->need_asked();
     }
     if (collide_check && print) collide_check->print();
     if (whole && print) whole->print();

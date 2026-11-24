@@ -33,7 +33,9 @@ void PitCheck::install() {
     ee_.add_probe(kPass, [this](Ee&) { enter(); });
     // What the pass's callees answer, read at their return into the pass.
     ee_.add_probe(0x359060, [this](Ee& e) { if (in_) counting_ = e.g32(2) != 0; });     // 0x34C210
-    ee_.add_probe(0x359078, [this](Ee& e) { if (in_) crossed_ = e.g32(2) == 1; });     // 0x358608
+    ee_.add_probe(0x359078, [this](Ee& e) { if (in_) crossed_ = e.g32(2) == 1, lap_count_ = false; }); // 0x358608
+    // (the lap count 0x358608 is the race's: what it calls, the end of a car's run among them, is not the pass's)
+    ee_.add_probe(0x358608, [this](Ee&) { if (in_) lap_count_ = true; });
     ee_.add_probe(0x35B2D8, [this](Ee& e) { if (in_) lap_state_ = int(e.g32(2)); });   // 0x343C20
     for (u32 ret : {0x35B3B4u, 0x35B990u, 0x35BA1Cu}) // 0x35AF18
         ee_.add_probe(ret, [this](Ee& e) { if (in_) services_.push_back(u16(e.g32(2))); });
@@ -58,13 +60,17 @@ void PitCheck::install() {
             std::printf("  stop line point %d: the program's %.4f (%08X), ours %.4f (%08X)\n", marker_k_, double(theirs.host()), theirs.bits, double(mine.host()), mine.bits);
         }
     });
+    // The pit request (0x353218, the wear phase) against pit_need: the race's answer (its virtual +0x180) read at its return.
+    ee_.add_probe(0x353218, [this](Ee& e) { need_enter(e); });
+    ee_.add_probe(0x353284, [this](Ee& e) { if (need_in_) need_allowed_ = e.g32(2) != 0; });
+    ee_.add_probe(0x3532B0, [this](Ee& e) { if (need_in_) need_lap_ = int(e.g32(2)); });
     // The stop's timing (0x35C0B8, phase 4 while the hold counter runs) against pit_hold_step.
     ee_.add_probe(0x35C0B8, [this](Ee& e) { hold_enter(e); });
     ee_.add_probe(0x362E58, [this](Ee& e) { if (hold_in_) hold_tires_.push_back(int(e.g32(5))); });
     ee_.add_probe(0x36C9F8, [this](Ee&) { if (in_ && depth_ok()) theirs_.push_back(sim::ai::PitAction::Heading); });
 }
 
-bool PitCheck::depth_ok() const { return true; }
+bool PitCheck::depth_ok() const { return !lap_count_; }
 
 sim::ai::PitCar PitCheck::read_car(u32 F_) const {
     sim::ai::PitCar c;
@@ -108,6 +114,19 @@ void PitCheck::enter() {
 void PitCheck::leave() {
     in_ = false;
     sim::ai::PitInputs in = inputs_;
+    // The race state the pass asked 0x343C20 for, against ours from the same fields.
+    if (lap_state_ >= 0) {
+        sim::ai::LapStateInputs ls;
+        const u32 Fc = o_.car(car_) + kF;
+        ls.finished = ee_.r8(Fc + 0x4B0) != 0;
+        ls.clock_ms = ee_.r32(o_.cond + 0xF898) / 3;
+        ls.limit_minutes = ee_.r16(o_.cond + 0xF850);
+        ls.laps = int(ee_.r32(ee_.r32(o_.cond)));
+        ls.lap = int(s16(ee_.r16(Fc + 0x4AC)));
+        ls.d = inputs_.d, ls.lap_length = inputs_.lap;
+        ++lap_calls_;
+        if (sim::ai::lap_state(ls) == lap_state_) ++lap_equal_;
+    }
     in.counting = counting_, in.crossed = crossed_, in.lap_state = lap_state_ < 0 ? 0 : lap_state_;
     sim::ai::PitCar mine = before_;
     std::vector<sim::ai::PitAction> acts;
@@ -157,6 +176,54 @@ void PitCheck::leave() {
     else ++reported_;
 }
 
+void PitCheck::need_enter(Ee& e) {
+    const u32 C = u32(e.a(0));
+    need_car_ = -1;
+    for (int i = 0; i < o_.cars; ++i)
+        if (o_.car(i) == C) need_car_ = i;
+    if (need_car_ < 0) return;
+    need_in_ = true, need_allowed_ = false, need_lap_ = 0;
+    need_sp_ = e.g32(29);
+    need_before_ = read_car(C + kF);
+    // what the phase reads, as it is at the call
+    sim::ai::PitNeed& n = need_;
+    n = {};
+    const u32 Fp = C + kF, cond = ee_.r32(C + 4);
+    n.fuel_on = ee_.rf(C + 0x5D0) > 0;
+    n.fuel = F::raw(ee_.r32(C + 0x5D4)), n.fuel_distance = F::raw(ee_.r32(Fp + 0x4C8)), n.fuel_used = F::raw(ee_.r32(Fp + 0x4C4));
+    n.d = F::raw(ee_.r32(Fp + 0x4A4)), n.lap = F(lap_), n.pit_marker = line_.marker(1);
+    n.wear_on = ee_.r8(cond + 4 + 0x68) != 0;
+    n.wear_limit = F::raw(ee_.r32(cond + 4 + 0x20));
+    const u32 rec = 0x620478 + 0x54 * u32(ee_.r8(ee_.r32(C + 0x10) + 0x30));
+    const u32 wheels = ee_.r8(rec + 1);
+    for (u32 w = 0; w < wheels; ++w) {
+        n.wear.push_back(F::raw(ee_.r32(C + 0x164 + 0xEC * w + 0x50)));
+        n.burst.push_back(F::raw(ee_.r32(C + 0x164 + 0xEC * w + 0xAC)));
+        n.damaged.push_back(ee_.r8(C + 0x1AB + 0xEC * w));
+    }
+    n.control = gt3r::s8(ee_.r8(Fp + 0x466));
+    const u32 ra = e.g32(31);
+    if (need_probed_.insert(ra).second)
+        ee_.add_probe(ra, [this](Ee& x) {
+            if (need_in_ && x.g32(29) == need_sp_) need_leave();
+        });
+}
+
+void PitCheck::need_leave() {
+    need_in_ = false;
+    sim::ai::PitNeed n = need_;
+    n.allowed = need_allowed_, n.lap_state = need_lap_;
+    n.tire_state_4 = false; // (0x35FA50's answer: the car's +0x56A 0 asks the conductor ❓; checked as 0 here)
+    sim::ai::PitCar mine = need_before_;
+    sim::ai::pit_need(mine, n);
+    const sim::ai::PitCar th = read_car(o_.car(need_car_) + kF);
+    ++need_calls_;
+    if (th.flags == mine.flags && th.tire_out == mine.tire_out) ++need_equal_;
+    else if (need_reported_++ < 6)
+        std::printf("  request car %d: the program's flags %02X out %u, ours %02X %u\n", need_car_, th.flags, th.tire_out, mine.flags, mine.tire_out);
+    if (th.flags & 8 && !(need_before_.flags & 8)) ++need_asked_;
+}
+
 void PitCheck::hold_enter(Ee& e) {
     const u32 C = u32(e.a(0));
     hold_car_ = -1;
@@ -196,6 +263,9 @@ void PitCheck::hold_leave() {
 }
 
 void PitCheck::print() const {
+    std::printf("pit request (0x353218): %llu calls, %llu equal, %llu asked\n", (unsigned long long)need_calls_, (unsigned long long)need_equal_,
+                (unsigned long long)need_asked_);
+    std::printf("race state (0x343C20): %llu calls, %llu equal\n", (unsigned long long)lap_calls_, (unsigned long long)lap_equal_);
     std::printf("stop timing (0x35C0B8): %llu calls, %llu equal (hold, service, tires, the wheels given new tires: %llu)\n", (unsigned long long)hold_calls_,
                 (unsigned long long)hold_equal_, (unsigned long long)hold_new_tires_);
     std::printf("pit pass (0x359008 / 0x35B060): %llu calls, %llu equal (record, messages, the routines called), %llu with a pit step;", (unsigned long long)calls_,

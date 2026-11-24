@@ -488,8 +488,12 @@ void RaceHud::Impl::draw_top(const HudState& s) {
         if (const DisplayPlace* p = cur->find(element::kLastTime); p && s.show_time)
             draw_text(times, race::place_x(*p, true), float(p->y), kCentered, kTextGray, o, race::format_lap_time(s.last_ms));
     }
-    if (const DisplayPlace* p = cur->find(element::kEventLine))
+    if (const DisplayPlace* p = cur->find(element::kEventLine)) {
         draw_text(times, race::place_x(*p, true), float(p->y), kCentered, kTextGray, o * s.event_opacity, s.event);
+        // A gap to another car (the event line's offset (32, 25); ❓ its red judged from the original's chase race).
+        if (!s.event_gap.empty() && s.event_gap_opacity > 0)
+            draw_text(times, race::place_x(*p, true) + 32, float(p->y) + 25, kCentered, 0x800000E6u, o * s.event_gap_opacity, s.event_gap);
+    }
     if (const DisplayPlace* p = cur->find(element::kMessage))
         draw_text(font("FC_48"), race::place_x(*p, true), float(p->y), kCentered, kTextGray, o * s.message_opacity, s.message);
     // The status line (member 0x228C): over the driver's panel at (320, 348), over the chase views'
@@ -521,6 +525,26 @@ void RaceHud::Impl::draw_map(const HudState& s) {
         const float t = float(std::fmod(s.time, 0.5));
         const float b = t < 0.25f ? std::min(1.0f, t / 0.1f) : std::max(0.0f, 1.0f - (t - 0.25f) / 0.3f);
         marker(target, s.cars[0], kNeutral, s.opacity * (0.3f + 0.7f * b));
+    }
+}
+
+void RaceHud::draw_map_box(float cx, float cy, float size, std::span<const Letter> cars, size_t lit) {
+    Impl& m = *impl_;
+    if (!m.map_texture) return;
+    const float w = float(m.map.image.width), h = float(m.map.image.height);
+    if (!(w > 0) || !(h > 0)) return;
+    const float k = size / std::max(w, h);
+    const DisplayRect at{cx - w * k / 2, cy - h * k / 2, w * k, h * k};
+    SDL_SetTextureColorMod(m.map_texture, 255, 255, 255);
+    SDL_SetTextureAlphaMod(m.map_texture, 255);
+    const SDL_FRect dst = to_ui(at);
+    SDL_RenderTexture(m.r, m.map_texture, nullptr, &dst);
+    // The letters in the race's italic face (❓ the program places the movie's CARPOS_ letters).
+    const auto f = m.font("hn_20R", 100, 1);
+    for (size_t i = 0; i < cars.size(); ++i) {
+        float mx, my;
+        m.map.map(cars[i].x, cars[i].z, mx, my);
+        m.draw_text(f, at.x + mx * k, at.y + my * k, kCentered | kMiddleOfLine, i == lit ? 0x800080FFu : 0x80FFFFFFu, 1, std::string(1, cars[i].letter));
     }
 }
 

@@ -194,8 +194,14 @@ struct GameNatives {
     script::Value make_option();
     script::Value make_game();
     script::Value make_card_manager(script::Args a);
-    std::shared_ptr<save::GameSave> card_save;
+    std::shared_ptr<save::GameSave> card_save, card2_save;
     save::GameSave& card();
+    // The card in slot 2 (the data folder's memorycard2/; not connected when there is no such folder).
+    save::GameSave& card2();
+    // The garage object of a state.
+    std::shared_ptr<Object> make_garage(GameState* s);
+    // The games loaded beside the one played (loadInstance, for trading cars), kept while the menus run.
+    std::vector<std::shared_ptr<GameState>> other_games;
     // The program's generator (0x874D50: MRandom.GetValue, the opponent picker), its state from 0x12345678.
     ProgramRandom random{0x12345678u};
 };

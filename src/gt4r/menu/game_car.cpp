@@ -976,18 +976,62 @@ Value make_car_value(GameNatives& n, std::shared_ptr<CarHandle> c) {
         if (db().db && sim::computed_gears(*db().db, db().program, e)) std::memcpy(eq, e.bytes.data(), sim::Equipment::kSize);
         return Value{};
     });
-    // ❓ The charts' points (0x148940, 0x148B60) are for the graph faces: none here.
-    car->method("buildGearRatioData", [](Vm&, const Value&, Args) { return Value{}; });
-    // The graph faces' engine curves (menu-draw's faces_graph.*).
-    car->method("buildEngineCurveData", [c, update, rec, db](Vm&, const Value&, Args) {
-        update();
-        if (!db().db)
-            return Value::array({Value{}, Value{}, Value::number(float(c->power100) / 100.0f), Value::number(float(c->torque100) / 100.0f), Value::number(0), Value::number(0)});
+    // The settings pages' charts (sim::Showroom::charts: 0x34B960 / 0x34B8E8 on the sheet in use with the car's
+    // condition), as the graph faces take them: a point an array [x, y].
+    using gt3r::ee::F;
+    auto point = [](F x, F y) { return Value::array({Value::number(gt3r::ee::to_host(x.bits)), Value::number(gt3r::ee::to_host(y.bits))}); };
+    // buildGearRatioData([automatic]) (0x148940): for each forward gear a pair of points, (the road speed / 100 m/s,
+    // the engine speed over the highest gear's top speed) at the gear's lowest and highest engine speeds.
+    car->method("buildGearRatioData", [rec, db, point](Vm&, const Value&, Args a) {
+        Database& d = db();
+        const sim::Showroom* sr = d.showroom();
+        if (!sr) return Value{};
         sim::Equipment eq;
         std::memcpy(eq.bytes.data(), rec().active(), sim::Equipment::kSize);
-        sim::Spec spec;
-        sim::build_spec(*db().db, db().program, eq, 0, spec);
-        return engine_curve_value(menu::engine_curve(spec));
+        const CarRecord& r = rec();
+        const F factor = sim::engine_condition(d.program, F(r.condition(1)), F(r.condition(2)), r.no_wear());
+        const std::optional<sim::Charts> ch = sr->charts(eq, factor, a.empty() ? -1 : arg_int(a, 0));
+        if (!ch) return Value{};
+        const sim::GearChart& g = ch->gears;
+        F top = F::raw(0x3F800000);
+        for (int i = 1; i <= g.gears && i < 10; ++i)
+            if (const F h = gt3r::ee::int_to_f(g.high_rpm[size_t(i)]); top < h) top = h;
+        const F hundred = F::raw(0x42C80000);
+        std::vector<Value> out;
+        for (int i = 1; i <= g.gears && i < 10; ++i) {
+            const size_t k = size_t(i);
+            out.push_back(point(g.low_speed[k] / hundred, gt3r::ee::int_to_f(g.low_rpm[k]) / top));
+            out.push_back(point(g.high_speed[k] / hundred, gt3r::ee::int_to_f(g.high_rpm[k]) / top));
+        }
+        return Value::array(std::move(out));
+    });
+    // buildEngineCurveData([own peaks = 1, [PS = 1000, [kgf m = 200]]]) (0x148B60): [power points, torque points, peak PS,
+    // peak kgf m, the first point's rpm, the rev limit]; x the engine speed from the first point to the rev limit, y the
+    // power (torque) over its peak, or over the larger of the peak and the given scale when the first argument is 0.
+    car->method("buildEngineCurveData", [rec, db, point](Vm&, const Value&, Args a) {
+        Database& d = db();
+        const sim::Showroom* sr = d.showroom();
+        if (!sr) return Value{};
+        sim::Equipment eq;
+        std::memcpy(eq.bytes.data(), rec().active(), sim::Equipment::kSize);
+        const CarRecord& r = rec();
+        const F factor = sim::engine_condition(d.program, F(r.condition(1)), F(r.condition(2)), r.no_wear());
+        const std::optional<sim::Charts> ch = sr->charts(eq, factor);
+        if (!ch) return Value{};
+        const sim::EngineFigures& e = ch->engine;
+        const bool own = a.empty() || arg_int(a, 0) != 0;
+        auto scale = [&](F peak, F given) { return own ? peak : (given < peak ? peak : given); };
+        const F ps_scale = scale(e.ps, F(a.size() > 1 ? arg_number(a, 1) : 1000.0f)), kgfm_scale = scale(e.kgfm, F(a.size() > 2 ? arg_number(a, 2) : 200.0f));
+        const s32 first = e.rpm.empty() ? 0 : e.rpm.front();
+        const F span = gt3r::ee::int_to_f(s32(e.rev_limit) - first);
+        std::vector<Value> power, torque;
+        for (size_t i = 0; i < e.rpm.size(); ++i) {
+            const F x = gt3r::ee::int_to_f(s32(e.rpm[i]) - first) / span;
+            power.push_back(point(x, (i < e.point_ps.size() ? e.point_ps[i] : F::raw(0)) / ps_scale));
+            torque.push_back(point(x, (i < e.point_kgfm.size() ? e.point_kgfm[i] : F::raw(0)) / kgfm_scale));
+        }
+        return Value::array({Value::array(std::move(power)), Value::array(std::move(torque)), Value::number(gt3r::ee::to_host(e.ps.bits)),
+                             Value::number(gt3r::ee::to_host(e.kgfm.bits)), Value::number(float(first)), Value::number(float(e.rev_limit))});
     });
     // The engine speeds of the spec (+0xBD rev limit, +0xBE shift limit, +0x110 the red line).
     auto engine_speed = [rec, db](u32 at) {

@@ -86,13 +86,11 @@ int ReplayScript::variant_count() const {
     return lap_length > 0 && p > 0 ? std::max(1, int(p / lap_length + 0.5f)) : 1;
 }
 
-float ReplayScript::distance(int variant, float v) const {
-    const int n = variant_count();
-    float d = float(((variant % n) + n) % n) * lap_length + v;
+float ReplayScript::distance(int crossings, float v) const {
+    float d = float(crossings) * lap_length + v;
     const float p = period();
-    if (p > 0 && !records.empty())
-        while (d >= records.back().end && d - p >= records.front().start) d -= p;
-    return d;
+    if (d < 0 || d < end || !(p > 0)) return d;
+    return d - p * float(int(d / p));
 }
 
 const ReplayRecord* ReplayScript::find(float d) const {
@@ -104,6 +102,23 @@ const ReplayRecord* ReplayScript::find(float d) const {
         last = &r;
     }
     return last && d < last->end ? last : nullptr;
+}
+
+const ReplayRecord* ReplayScript::choose(float d) const {
+    if (records.empty() || d < records.front().start) return nullptr;
+    size_t i = 0;
+    for (size_t k = 0; k < records.size() && records[k].start <= d; ++k) i = k;
+    if (d < records[i].end) return &records[i];
+    // On past the last record: from record 0 a period back.
+    if (i + 1 < records.size()) return nullptr;
+    const float p = period();
+    if (!(p > 0)) return nullptr;
+    const float e = d - p;
+    for (const ReplayRecord& r : records) {
+        if (r.start > e) break;
+        if (e < r.end) return &r;
+    }
+    return nullptr;
 }
 
 float CameraSpring::step(float target) {
@@ -159,7 +174,8 @@ float AimDamper::step(float target, float follow) {
 bool ReplayCamera::pose(const ReplayScript& script, const CarState& car, const render::Mat4& body, ViewPose& out) {
     cut_dissolve_ = 0;
     if (script.records.empty()) return false;
-    float d = script.distance(std::max(car.lap, 0), car.course_v);
+    // (`lap` is the laps completed, -1 before the line: the crossings less one.)
+    float d = script.distance(car.lap + 1, car.course_v);
     // The shot holds while the car is in its stretch (brought into it by whole laps); then a cut.
     auto within = [&](const ReplayRecord& r, float& at) {
         at = d;
@@ -172,9 +188,7 @@ bool ReplayCamera::pose(const ReplayScript& script, const CarState& car, const r
     float at = d;
     if (!record_ || !within(*record_, at)) {
         const ReplayRecord* ended = record_;
-        record_ = script.find(d);
-        // (The standing start lies before distance 0: the first records begin a little behind it.)
-        if (!record_ && script.lap_length > 0) record_ = script.find(d - script.lap_length);
+        record_ = script.choose(d);
         if (!record_ || !within(*record_, at)) {
             record_ = nullptr;
             cut_ = true;
