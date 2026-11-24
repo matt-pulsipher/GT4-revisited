@@ -5,7 +5,10 @@
 // docs/formats/menu.md, "Cars".
 
 #include "gt4r/menu/layout.h"
+#include "gt4r/menu/model_motion.h"
 #include "gt4r/menu/native.h"
+
+#include <functional>
 
 #include <memory>
 #include <string>
@@ -81,6 +84,21 @@ struct CarMotion {
     float model_scale = 1;
     bool independent = false;
 
+    // The model sets' motions (loadModelMotion: MCarModel +0x78), each drawn every picture: set
+    // the index of a model set (loadModelSet's order), align where on the car it stands, shadow
+    // flattened onto the floor, rot degrees about the vertical.
+    struct ModelMotion {
+        std::string path;
+        int set = 0, align = 0;
+        bool shadow = false;
+        float rot = 0;
+    };
+    std::vector<ModelMotion> model_motions;
+    // Their clock and the camera motion's (loadModelOptionMotion): played together.
+    MotionClock clock;
+    bool has_option_motion = false;
+    float option_length = 0, option_loop_start = 0; // the camera motion's clip
+
     // A car set on the face: placed where the layout says, faded in over 120 pictures.
     void set_car(const float trans[3], const float rotate[3]);
     void warp();
@@ -94,7 +112,8 @@ struct CarMotion {
 struct CarModelObject : Object {
     CarModelObject();
     CarMotion m;
+    std::function<u64()> now; // the menus' picture count (the motions' clock)
 };
-std::shared_ptr<CarModelObject> make_car_model_object();
+std::shared_ptr<CarModelObject> make_car_model_object(std::function<u64()> now = {});
 
 } // namespace gt4r::menu

@@ -883,6 +883,18 @@ void scroll_into_view(LiveWidget& inside) {
     }
 }
 
+// A car face's car model (face.car_model), made when first asked for: where the model stands, how
+// it turns, the model sets' motions (menu/faces_car.cpp).
+std::shared_ptr<CarModelObject> car_model_of(Runtime* r, const W& w) {
+    const auto it = w->extras.find("car_model");
+    if (it != w->extras.end())
+        if (auto cell = std::dynamic_pointer_cast<script::Variable>(it->second))
+            if (auto m = cell->value.as<CarModelObject>()) return m;
+    const std::shared_ptr<CarModelObject> model = make_car_model_object([r] { return r->frame(); });
+    w->extras["car_model"] = std::make_shared<script::Variable>(object_value(model));
+    return model;
+}
+
 std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, const std::string& n) {
     Runtime* r = &rt;
     auto fn = [&](script::NativeFunction f) { return constant(Vm::native(n, std::move(f))); };
@@ -1325,6 +1337,37 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
             return fn([r, w](Vm&, const Value&, Args a) {
                 w->set_property("option_motion", a.empty() ? Value::string({}) : a[0]);
                 w->set_property("option_motion_frame", Value::number(float(r->frame())));
+                // Its clip's length: isPlayingModelMotion answers for it.
+                const std::shared_ptr<CarModelObject> model = car_model_of(r, w);
+                model->m.has_option_motion = false;
+                LiveWidget* page = w->page();
+                Project* project = page ? r->project_of(*page) : nullptr;
+                if (!a.empty() && project) try {
+                        if (const std::optional<Bytes> f = project->entry(page->name, a[0].to_string()); f && SkeletonMotion::is_motion(*f)) {
+                            const SkeletonMotion sm = SkeletonMotion::parse(*f);
+                            model->m.has_option_motion = true;
+                            model->m.option_length = sm.length(), model->m.option_loop_start = sm.loop_start();
+                        }
+                    } catch (const std::exception&) {
+                    }
+                return Value{};
+            });
+        // loadModelMotion(path, set, align = 0, shadow = 0, rot = 0): a motion for a model set
+        // (0x139030 -> 0x1540C8), appended to the car model's.
+        if (type == "CarFace" && n == "loadModelMotion")
+            return fn([r, w](Vm&, const Value&, Args a) {
+                if (a.empty()) return Value{};
+                CarMotion::ModelMotion e;
+                e.path = a[0].to_string();
+                e.set = a.size() > 1 ? arg_int(a, 1) : 0;
+                e.align = a.size() > 2 ? arg_int(a, 2) : 0;
+                e.shadow = a.size() > 3 && a[3].truthy();
+                e.rot = a.size() > 4 && a[4].is_number() ? a[4].as_float() : 0.0f;
+                std::vector<CarMotion::ModelMotion>& list = car_model_of(r, w)->m.model_motions;
+                // (A page set up again on the same face asks for the same entries again.)
+                for (const CarMotion::ModelMotion& o : list)
+                    if (o.path == e.path && o.set == e.set && o.align == e.align && o.shadow == e.shadow && o.rot == e.rot) return Value{};
+                list.push_back(e);
                 return Value{};
             });
         if (type == "CarFace" && n == "loadModelSet")
@@ -1335,7 +1378,6 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
                     w->set_property("model_sets", Value::string(sets.empty() ? path : sets + "|" + path));
                 return Value{};
             });
-        // ❓ loadModelMotion(path, set, clip): the sets' skinned motions are not played.
         if (n == "setData" || n == "setColor" || n == "setColorIndex" || n == "syncLoading" || n == "loadModelSet" || n == "loadModelMotion" ||
             n == "loadModelOptionMotion")
             return nothing();
@@ -1371,11 +1413,8 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
             return a;
         }
         if (n == "car_model") {
-            const auto it = w->extras.find("car_model");
-            if (it != w->extras.end()) return it->second;
-            // Where the model stands and how it turns (menu/faces_car.cpp).
-            const std::shared_ptr<CarModelObject> model = make_car_model_object();
-            return w->extras["car_model"] = std::make_shared<script::Variable>(object_value(model));
+            car_model_of(r, w);
+            return w->extras["car_model"];
         }
         if (n == "setColorIndex")
             return fn([w](Vm&, const Value&, Args a) {
