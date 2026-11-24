@@ -22,8 +22,8 @@ namespace gt4r::diff::prologue {
 namespace {
 
 // The engine's record: the parameter block P at +0x10 .. +0xEC0; its tire records at P +0x398 + 0x1B4 r, its tire index
-// from P +0xDD0, the wear's load terms from P +0xE6C. Prologue's state from the engine's +0x1320 (F +0x39C) is 4 bytes on.
-constexpr u32 kP = 0x10, kPEnd = 0xEC0, kInsert = 0x1320;
+// from P +0xDD0, the wear's load terms from P +0xE6C. Prologue's state from the engine's +0x1328 (F +0x3A4, the terrain factor) is 4 bytes on.
+constexpr u32 kP = 0x10, kPEnd = 0xEC0, kInsert = 0x1328;
 
 u32 params_offset(u32 q) {
     if (q < 0x398) return q;
@@ -189,6 +189,7 @@ void add_engine_taps(PTaps& taps) {
     taps.add({0x376EC8, "bump nudge", [](PTapCall& t) { ex::bump_nudge(t.car); }});
     taps.add({0x3DBB70, "aero", [](PTapCall& t) { ex::aero(t.car, t.inputs.prep.slip); }});
     taps.add({0x3C4D80, "ground frame", [](PTapCall& t) { ex::ground_frame(t.car); }});
+    taps.add({0x3E0838, "aids", [](PTapCall& t) { ex::aids(t.car, t.inputs.aids); }});
 }
 
 namespace {
