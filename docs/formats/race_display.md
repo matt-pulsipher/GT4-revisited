@@ -510,7 +510,7 @@ name).
 | Start | same | Key `RaceStart` ("START"), 1 s, fade out 0.15 s |
 | Finish | same | Key `RaceFinish` ("FINISH"), 3.7 s, fade out 0.3 s; the whole display then fades |
 | Lap time at the line | Event line: 320, 139, w 580 | `"%s%d/%d   %s"`: key `WordOfLapTime` ("L"), the lap, the laps, the time (`"%s%d   %s"` without a lap count): "L1/3   1'23.456". Font `hn_20R`, color 0x80C8C8C8, 3 s, fades 0.15 s |
-| Section time | Event line | `"%s%d   %s"` with key `WordOfSectionTime` ("T"): "T1   0'35.123", as above |
+| Section time | Event line | `"%s%d   %s"` with key `WordOfSectionTime` ("T"): "T1   0'35.123", as above. The split points are the road's (RNW4) first checkpoint list (`race/sections.*`; ✔ Tsukuba 505.9 and 1072.2 m, where the original's chase race shows T1 and T2); the lap step 0x358608 compares each car's distance with its next point (F +0x4B4) and pushes event 15 with the time (0x359C10). Here the gap under it is to the first car through that split on that lap, in red ❓ (the original's: "T1 0'27.247 / +0'05.800" with a car's picture); the car's picture is not drawn |
 | Gap to another car 🔎 | Event line, offset (32, 25) | The gap, `hn_20R`, 3 s, with a car marker beside it (`RaceCarIconDisplay`, member 0x2D14, placed 82 or 89 left of and 22 below the line, 2.85 s) |
 | Information | Event line | `hn_20R#1`, color 0x80C8C8C8, 3 s: "Final Lap" (key `EnduranceFinal`), "%d laps left", "%s is making a pit stop", ... |
 | Wrong way | Status message 0x228C (320, 430 in the chase views; 320, 348 in the driver's) | The picture `GT4_meter_texture_wrongway` (32 x 32, a no-entry sign), color 0x80FFFFFF, blinking: period 0.2 s, on for 0.3 of it, rise 0.05 s, fall 0.1 s; kept up while the car goes the wrong way |

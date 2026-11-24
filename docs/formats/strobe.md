@@ -340,3 +340,23 @@ then RETRY and EXIT (`EXIT_MENU("retry")` / `EXIT_MENU("exit")`, the RETRY row n
 Here: the grade from the run's time against the page's gold, silver and bronze times (❓ the
 tests' own failing rules are not read), the gap to the next grade up, the title from the race code
 (❓ the program's title routine is not read); RETRY runs the test again at once.
+
+## The race monitor (`racemonitor.strb`)
+
+B-spec's R1 opens it over the race (the pad's bit 0x80 in the B-spec modes). The program fills the movie's
+named instances each frame (0x3D8DB8 → 0x3DAF60 the current car, `BAR%d` rows, `LAP` with the race words
+`RaceMonitorLapFormat1` / `2`, `TOTAL`; 0x3DBF90 / 0x3DC5D8 the rows and `CARPOS_%c`). The instances
+(`gt4tool race <disc> strobe-tree menu/common/racemonitor.strb`): `CURRENTCAR` (text), `CURRENTCAR_ICON`
+(the car's picture, an external), `CURRENTCARGRID` (a letter, sprite of 6 frames A .. F), `TOTAL`, `LAP`,
+`SPEED` (the replay speed "x 1"), `PACEPANEL` with `PACETEXT` and `PACE1` .. `PACE7` (3 frames each),
+`BAR1` .. `BAR6` (2 frames: the second lit, the player's row) each with `NAME`, `GRID` (6 frames), `TIME`,
+`DIFF`, `LAP`, `PIT`, `BEST`, `ICON` (6 frames), `BESTMARK` and two externals; `CARPOS_A` .. `F` (the map's
+letters: `GRID` of 12 frames, `PACEUP_MARK`), `GAP1` .. `GAP5` (`TEXT`: the gap strip), `PITPANEL` (three
+stops' lap and front / rear tires, `TIRE_PANEL` of 80 frames), `DISTUNIT`, `MAP_PANEL` (an external: the
+course map). Here (`screen_race.cpp` `fill_monitor`): the followed car's name, letter and picture, the
+pace's word and lit key, the total time `h:mm'ss`, the lap, a row per car in race order (its short name, its
+grid letter, its best lap, its gap to the leader: the time since the leader was where it is ❓), the
+player's row lit; the course map drawn in `MAP_PANEL`'s place with each car's grid letter at its place
+(the followed car's orange; ❓ the program moves the movie's `CARPOS_` letters instead); the gap strip and
+the pit panel are not filled (hidden). The
+reference's B-spec race (`03-race/bspec_race_monitor.png`) has the same rows, letters and lit row.
