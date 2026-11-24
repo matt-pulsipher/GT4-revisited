@@ -914,13 +914,31 @@ Value make_car_value(GameNatives& n, std::shared_ptr<CarHandle> c) {
         return Value{};
     });
     // getGearRange: [0, 1] the final drive's ends, [2, 3] the slider's, [4] the forward gears,
-    // [7 + 2g], [8 + 2g] each gear's ends. ❓ The gears' ends are made by a routine of the
-    // simulation (0x3553A0) not written here: 0.
-    car->method("getGearRange", [row_of](Vm&, const Value&, Args) {
+    // [7 + 2g], [8 + 2g] gear g's lower and upper ends (0 reverse). The program (0x3553A0) makes
+    // the gears the slider and final drive give (0x354FF8, sim::computed_gears) and puts each
+    // gear's ends a third of the way to its neighbours' ratios, the first gear's top at 9/8 of
+    // its ratio, the last's bottom at 7/8, the reverse gear's at 7/8 and 9/8 (0x355278; whole
+    // thousandths, truncated).
+    car->method("getGearRange", [row_of, rec, db](Vm&, const Value&, Args) {
         const ByteSpan r = row_of(11);
         std::vector<Value> out(23, number(0));
         out[0] = number(r16(r, 0x18)), out[1] = number(r16(r, 0x1A));
-        out[2] = number(r.size() > 0x26 ? r[0x26] : 0), out[3] = number(r.size() > 0x27 ? r[0x27] : 0), out[4] = number(r.size() > 0x24 ? r[0x24] : 0);
+        out[2] = number(r.size() > 0x26 ? r[0x26] : 0), out[3] = number(r.size() > 0x27 ? r[0x27] : 0);
+        const int n = std::clamp(int(r.size() > 0x24 ? r[0x24] : 0), 0, 7);
+        out[4] = number(n);
+        sim::Equipment e;
+        std::memcpy(e.bytes.data(), rec().active(), sim::Equipment::kSize);
+        // (A gearbox that cannot be set has no page of its own: its ratios as they are.)
+        if (n > 0 && db().db) {
+            sim::computed_gears(*db().db, db().program, e);
+            auto ratio = [&e](int g) { return s32(s16(u16(e.bytes[0x110 + 2 * size_t(g)] | e.bytes[0x111 + 2 * size_t(g)] << 8))); };
+            std::array<s32, 8> lo{}, hi{};
+            hi[1] = ratio(1) * 9 / 8;
+            for (int g = 1; g < n; ++g) lo[size_t(g)] = (2 * ratio(g) + ratio(g + 1)) / 3, hi[size_t(g) + 1] = (ratio(g) + 2 * ratio(g + 1)) / 3;
+            lo[size_t(n)] = ratio(n) * 7 / 8;
+            lo[0] = ratio(0) * 7 / 8, hi[0] = ratio(0) * 9 / 8;
+            for (int g = 0; g <= n; ++g) out[size_t(7 + 2 * g)] = number(lo[size_t(g)]), out[size_t(8 + 2 * g)] = number(hi[size_t(g)]);
+        }
         return Value::array(std::move(out));
     });
     car->method("setGearAuto", [rec, db](Vm&, const Value&, Args) {

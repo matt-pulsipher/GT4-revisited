@@ -48,7 +48,13 @@ struct RaceRequest {
     // The second player's (split screen).
     std::string car_2p;
     int paint_2p = 0, assist_type_2p = 0, assist_asm_2p = 0, assist_tcs_2p = 0, manual_2p = 0, vibration_2p = 1, tire_2p = 0;
-    std::vector<std::string> entries; // the opponents' cars when the scripts chose them
+    // The entry table the scripts filled (setEntryCarCode): by the entry's number, 0 the player's
+    // car (also car / paint), the opponents they chose from 1 to overwrite_enemy_num ("" none).
+    std::vector<std::string> entries;
+    std::vector<int> entry_paints;
+    // The "replay" sequence (the Replay Theater's Play): the saved replay to show, a file of the
+    // data folder's replays/ (race/replay_file.h).
+    std::string replay_file;
     // The car when it is one of the garage's (-1: a car picked by its label).
     int garage_slot = -1, garage_slot_2p = -1;
 };
@@ -251,6 +257,10 @@ struct GameState {
     int saved_menu_depth = -1; // the kept stack's length in bytes (-1: none kept)
     Bytes saved_menu_stack;
 
+    // The screen's figures the option's monitor_size setter copies from the program's tables
+    // (0x436D60: Option +0x24 .. +0x4F, 0x2C bytes; the 3D view's monitor and aspect). Empty:
+    // not set (a new game's constructor leaves zeros).
+    Bytes monitor_params;
     // Everything saved that is not named above, as the last loaded game had it (a new game: as
     // the program's constructors make it). The save module writes the named fields over it.
     Bytes saved_image;
@@ -264,7 +274,14 @@ struct GameState {
     // keep between its runs. A sequence starts when the scripts that asked for it finish.
     struct RaceSession {
         int best_place = 15; // the best place finished in it (an event's record follows a better one only, 0x114498)
+        std::string sequence; // the sequence asked for ("" : none under way)
+        // A license test's sequence puts its day in the diary when it ends (0x110800): the last
+        // run's result and time, or a day with nothing in it when no run passed (result 13).
+        bool license_open = false;
+        DayEvent license_day; // type 0 until a run
     } race_session;
+    // The race sequence is over (the menus go on): what the program writes at its end.
+    void end_race_sequence();
     bool sequence_asked = false; // next_sequence was set by the scripts since the last project
     // A championship under way (the program's series object, 0x3EEFE0 on): its label, the races
     // run of its count, and its entrants (0 the player's): the car's code, its paint, the points.
@@ -292,9 +309,19 @@ struct GameState {
         int free_kb = 8000;
     } card;
     bool valid_game_data = false; // MMemoryCardManager::setExistValidGameData: a game was loaded or made
+    // The card manager's action (setAction: 1 a replay loaded to be shown, 0 none) and the replay
+    // file its last load read (the Replay Theater, the program's load_replay sequence 0x10CA50).
+    int card_action = 0;
+    std::string replay_file;
     // The race's menus' shared object (MQuickWork): race_natives.h.
     std::shared_ptr<QuickWork> quick_work;
 };
+
+// A unit by the option's name ("MPH", "HP", "FTLB", ...): what a value in the game's own unit
+// (km/h, PS, kgf.m) is multiplied by, and the unit's name as the menus write it.
+GameState::Unit velocity_unit_of(const std::string& option);
+GameState::Unit power_unit_of(const std::string& option);
+GameState::Unit torque_unit_of(const std::string& option);
 
 // The car a race takes from the garage (RaceRequest::garage_slot): the sheet in use of its
 // record, the program's car equipment record as it is (docs/formats/save.md "The car
