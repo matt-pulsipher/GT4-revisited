@@ -152,7 +152,21 @@ void draw_grid(App& app, Setup& setup, const menu::RaceRequest& q) {
     try {
         gt3r::Vfs* vfs = app.vfs();
         const db::RaceEvents events(*sdb, [vfs](const std::string& path) { return vfs->read(path); });
-        const std::vector<sim::ai::GridEntry> grid = sim::ai::grid_for(events, q, u32(SDL_GetTicks()));
+        // The scripts' entry table: entry 0 the player's car, the opponents 1 .. overwrite_enemy_num
+        // ("" none), their paints in entry_paints.
+        menu::RaceRequest asked = q;
+        std::vector<int> paints;
+        asked.entries.clear();
+        const size_t last = q.overwrite_enemy_num > 0 ? std::min(q.entries.size(), size_t(q.overwrite_enemy_num) + 1) : q.entries.size();
+        for (size_t i = 1; i < last; ++i)
+            if (!q.entries[i].empty() && q.entries[i] != "nil") {
+                asked.entries.push_back(q.entries[i]);
+                paints.push_back(i < q.entry_paints.size() ? q.entry_paints[i] : -1);
+            }
+        std::vector<sim::ai::GridEntry> grid = sim::ai::grid_for(events, asked, u32(SDL_GetTicks()));
+        if (!asked.entries.empty())
+            for (size_t i = 0; i < grid.size() && i < paints.size(); ++i)
+                if (!grid[i].player && grid[i].paint < 0) grid[i].paint = paints[i];
         std::optional<sim::Program> program;
         if (Disc* disc = app.disc()) try {
                 program = sim::Program::load(*disc);
@@ -802,10 +816,9 @@ public:
                 // The garage car's own parts and settings (the sheet in use).
                 if (q.garage_slot >= 0) setup_.player_equipment = menu::race_equipment(menus_->game(), q.garage_slot);
                 setup_.playlist = playlist_from(menus_->game().bgm_playlist);
-                // (The scripts' entry table: entry 0 the player's car when it holds more than the
-                // opponents, then the opponents.)
-                const size_t skip = q.overwrite_enemy_num > 0 && q.entries.size() > size_t(q.overwrite_enemy_num) ? 1 : 0;
-                setup_.opponents.assign(q.entries.begin() + ptrdiff_t(std::min(skip, q.entries.size())), q.entries.end());
+                // The Replay Theater's Play: the saved replay, then the menus again.
+                if (sequence_ == "replay") setup_.replay_file = q.replay_file.empty() ? menus_->game().replay_file : q.replay_file;
+                setup_.opponents.clear();
                 draw_grid(app, setup_, q);
                 // A request without laps: the event's (its RACE row), else the arcade's option
                 // (race_laps, a new game's 2).
@@ -909,7 +922,10 @@ public:
         if (setup_.scripted) start(app);
         if (saved && race_) race_->play_saved(std::move(*saved));
         if (setup_.save_replay && race_ && race_->has_run()) save_replay(app);
-        if (menus_ && race_) {
+        if (menus_ && sequence_ == "replay") {
+            // A saved replay: no race menus; the menus again at its end (or at once without it).
+            if (!saved_replay_ || !race_) leave_to_menus(app);
+        } else if (menus_ && race_) {
             painter_ = make_menu_painter(app);
             enter_quick(0);
         } else if (menus_) {
@@ -1625,6 +1641,7 @@ private:
     // same race again.
     void finish_run(App& app) {
         result_tried_ = false, result_.reset();
+        if (menus_ && saved_replay_) return leave_to_menus(app);
         if (menus_) return run_over();
         if (from_menus_ || saved_replay_) {
             report();
