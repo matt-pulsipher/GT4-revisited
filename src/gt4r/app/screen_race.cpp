@@ -517,6 +517,7 @@ public:
     void start_replay() {
         if (history_.empty() || replaying_) return;
         replaying_ = true, replay_done_ = false;
+        menu_scene_ = false; // (asked for from the race's menus: the scene behind them ends)
         prev_cars_.clear();
         if (audio::RaceSound* sound = world_->sound()) sound->replay();
         replay_at_ = 0;
@@ -678,8 +679,8 @@ public:
         world_->render(ui, rect, cars, pose, 0, pose.body_hidden ? 0 : -1);
         // The in-car view's rear-view mirror at the top (❓ its place, (190, 18) 259 x 63 of the
         // 640 x 480 picture, measured on the original's in-car view): not in replays, the opening
-        // shots or looking back.
-        if (mount_ == race::DriveCamera::kInCar && !replaying_ && !menu_scene_ && !watched_ && !start_camera_.active() && !look_back && !setup_.look_back) {
+        // shots (a standing start's or a rolling start's TV cameras), B-spec or looking back.
+        if (mount_ == race::DriveCamera::kInCar && !replaying_ && !menu_scene_ && !watched_ && !start_camera_.active() && !opening_tv() && !look_back && !setup_.look_back) {
             const SDL_FRect c = RaceHud::canvas();
             const float k = c.h / 480.0f;
             world_->render_mirror(ui, {c.x + 190 * k, c.y + 18 * k, 259 * k, 63 * k}, cars, pose, 0);
