@@ -264,6 +264,26 @@ the same. "As the engine's" names the engine's routine (engine/gt3r/src/sim/exac
   tire's radius less the special row's +0x10 and the center of gravity's height), the steering view (layout kind 1: from F
   +0x65C), and the driver's animation slots 2 / 3 (car +0x780 / +0x784) following the throttle and the brake at 0.45 / 0.3
   (0x62075C / 0x620760). ✔
+- **Layout 7's motors** (four wheel drive system 5: the Acura DN-X; ours `rules_motors.*`): the converter's 0x355978 makes
+  25 floats at 0x8438C0 of the bytes 0x62045A .. 0x620474 (the front motors' and rear motor's ratings 20 / 35 kW, their torque
+  caps driving and regenerating, the store's capacity 15 x (2 front + rear), its marks, the charging caps, the idle charge,
+  the yaw split's gains and dead bands, the flow counter's scale); the set-up fills the store (car +0x788, 0x355DC8), the
+  signed byte car +0x78D counts the flow (0x355E40, -100 .. 100). The motors' demand (0x3561D0): -1 at or below the
+  engine's share of the full power (its power over that plus twice the rear rating), above it twice the rest over the rest
+  of the range x the store's share between its marks (0x356168), held at 1 outside gears 1 .. 7, less 1. In the torque
+  vectoring (0x36D2F8) first the front motors (0x356418): F +0x51C 0; the front wheels' braking reaction x their rim speed
+  charges the store (at most the cap a second each); the wanted share (the engine's output power plus the rear motor's at
+  the demand, x the front share / its rest, over twice the front rating, within -1 .. 1, at most the store's share lifted
+  by the reserve); driving: the share split left and right by the wanted lateral acceleration (0x356300: speed² tan(steer)
+  / wheelbase, at most twice the front tire's grip at 1.5 x the steering) against the car's (F +0x554) beyond a dead band,
+  each wheel's torque the rating x (radius x 2 pi x 9.8 x 716.2 / 44.13) / its rim speed x its share within the cap (a wheel
+  under 1 km/h: the cap with the brake pedal up), the power drawn from the store (0x355F08) scaling them, F +0x51C the
+  power over the front rating; regenerating the same with the regeneration's gains and cap and no store change; reverse
+  gear negates. In the axle step the engine at the throttle over its share (0x3560F0) plus the rear motor (0x356BB8: the
+  rear wheels' braking charge, then the rating's torque at the rpm within its cap x the demand, drawn from or charged into
+  the store). With the clutch open (0x355F80) below a full store the engine's throttle rises (by the rpm under the idle
+  speed and the share of the full torque, at most the idle power) and that torque charges the store. ✔ (every routine
+  tapped, equal at every call on the DN-X's test drive.)
 - **Peak force** (0x357418): load x the load curve at (load / the axle's width P +0x2D4),
   x the wear's grip when the wear ran, x the axle's grip (P +0xFD0), x the surface's grip
   (the record's +0x08 + 4 s), x the camber curve (P +0x3B8 + 0xC a) at (roll - the ground's
@@ -634,7 +654,7 @@ GT3's 0x1DBFD8 (physics §6.4) with the block's fields at new places and these d
   front share of 50 on; capacity +0x12B x 10 x 9.8, 8 when 0), 3 layout 5 (the split the share x 0.36 x
   the program's byte 0x620308 percent (200); the capacity its byte 0x620309 x 98; the fade's start and
   floor 0x62030C / 0x620314 from the bytes 0x620310 / 0x620318 percent), 4 layout 6 (the split 1 / (the
-  share in degrees); capacity 15 when 0), 5 layout 7 (0x355978: the motors, not ported), 6 layout 9 (the
+  share in degrees); capacity 15 when 0), 5 layout 7 (0x355978: the motors' constants, below), 6 layout 9 (the
   front axle driven), 7 layout 8, 8 layout 10; the split otherwise the front share (+0x12A percent).
 - **Tires** (0x34BA30): radius = rim / 2 + width x aspect; the rim in tenths of an inch
   (values below 61: inches); for tire kinds 6 .. 10 the chassis' two bytes change the
@@ -859,7 +879,7 @@ rules in the PlayStation 2's arithmetic), fed with Gran Turismo 4's data:
 | The class grip of a car a computer drives (phase 10; a single race's 20 % for every drive class, 0x353570; `rules::Tables::class_grip`) | `rules_step.*` | Gran Turismo 4 (§2) |
 | Phase order | `session.cpp` | phases 1 .. 13, then 16 .. 22, as the program's step; the engine's remaining routines with the program's C library and constants (`rules::behaviour()`: 2002 Tokyo-Geneva's) |
 | Gran Turismo 4's own part of the record | `convert.*` `load_params` | the converter's block: every field bit for bit on every car (the tire records' base grip and the driveline block's tires, differentials and inertias too) |
-| The engine's torques (phase 4), brakes and clutch, wheel torques, vectoring, the axle step, wheel speeds, engine speed and gearbox (phase 10), brake heat (phase 11) | `rules_drive.*`, `rules_wear.*` through `rules_step.*` | Gran Turismo 4 (§3.3) on the engine and driveline blocks; the four wheel drive's fade, the stepless rates, the controller settings and the brake heat's constants as the program has them (checked, §9). The Priuses' hybrid one-speed box, the box of kind 4 (the MTR GMV) and layout 7's motors (the Acura DN-X) run as an ordinary box; the fuel and nitrous are not counted. A car our computer drivers drive shifts by the engine's gearbox: the program shifts a computer's car at its driver's speeds (0x36BEE0 / 0x36BF28 through 0x3F1E30, the speeds x a driver byte / 128 ❓), and with the program's own speeds an automatic box can hunt (the Volkswagen Beetle 1100's down-shift into third and fourth at 3,500 and 4,000 rpm, its up-shift at 4,000). With the rest of the driveline Gran Turismo 4's, the original's arcade field at Tsukuba laps in 96.4 .. 101.7 s (the original's two-lap race: 92 .. 101 s a lap; the engine's throughout: 99.5 .. 105.4 s) |
+| The engine's torques (phase 4), brakes and clutch, wheel torques, vectoring, the axle step, wheel speeds, engine speed and gearbox (phase 10), brake heat (phase 11) | `rules_drive.*`, `rules_wear.*` through `rules_step.*` | Gran Turismo 4 (§3.3) on the engine and driveline blocks; the four wheel drive's fade, the stepless rates, the controller settings and the brake heat's constants as the program has them (checked, §9). The Priuses' hybrid one-speed box, the box of kind 4 (the MTR GMV) and layout 7's motors (the Acura DN-X) are Gran Turismo 4's; the fuel is counted in an event's race. A car our computer drivers drive shifts by the engine's gearbox: the program shifts a computer's car at its driver's speeds (0x36BEE0 / 0x36BF28 through 0x3F1E30, the speeds x a driver byte / 128 ❓), and with the program's own speeds an automatic box can hunt (the Volkswagen Beetle 1100's down-shift into third and fourth at 3,500 and 4,000 rpm, its up-shift at 4,000). With the rest of the driveline Gran Turismo 4's, the original's arcade field at Tsukuba laps in 96.4 .. 101.7 s (the original's two-lap race: 92 .. 101 s a lap; the engine's throughout: 99.5 .. 105.4 s) |
 | A rolling start | `rules_start.*`, `session.cpp` | the car set-up's moving start (0x363868) after the session's hold; its places (rules::rolling_start_distance, the race's rule) on the road's middle, not the driving line |
 | The wear's grip, peak forces, slip angles (phase 4's tire part), slip ratios (phase 8), rolling resistance, tire curves, the longitudinal and lateral forces, the speed along the body, the forces across the car and the yaw, the standstill hold (phase 10) | `rules_*.cpp` through `rules_step.*` | Gran Turismo 4 (§3.3); the race's tables (`rules::tables`: the rolling resistance by surface and speed, the slip bytes, the globals) as the program's race set-up makes them (checked, §9); the wear rules off, as in every race seen |
 | The suspension's places, suspension, attitude, bump-stop nudge, body axes (phase 19's first four and its axes), the steering (phase 7), the driving aids (phase 9: a computer's car by its driver's block, `Session::set_driver_aids`, as control source 2) | `rules_body.*`, `rules_steer.*`, `rules_aids.*` through `session.cpp` | Gran Turismo 4 (§3.3); while the hold counter runs, the engine's start hold |
@@ -875,7 +895,7 @@ program's own):
 - Phase 5, the driver's input (0x349FD0): `ex::driver_input_pad` for a pad car (a computer's car takes its
   driver's outputs as 0x464F38 writes them, and the clutch request as 0x3F3400 makes it).
 - Phase 6, 0x35D1D0: not run.
-- Phase 10's layout 7 motors (0x356418, 0x3560F0, 0x356BB8; the Acura DN-X): run as an ordinary box. An electric car's
+- Phase 10: everything Gran Turismo 4's, layout 7's motors (the Acura DN-X, `rules_motors.*`) among it. An electric car's
   motor (0x356E58: the up-shift class 4, the car category 5; the MTR GMV) is Gran Turismo 4's. The hybrid one-speed box (0x368628, the Toyota Prius G and G Touring) is Gran Turismo 4's
   (`rules_hybrid.*`), as are a stepless box of kind 1 with the hold speed the converter makes (0x360780) and the fuel and
   nitrous (0x354B78, 0x354CE8, `rules_fuel.*`; the nitrous's trigger is the input phase's, 0x34A160).
@@ -1054,8 +1074,7 @@ object 0x6235A8 + 0x134 + 4 x table id; the row cache left out), and compares:
   the proximity and slipstream (0x3F4638), the new phases 0x355E10, 0x35CA60, 0x35D1D0, phase 19's steering force
   (0x353EE8) and a category 6 car's tire effects (0x3668F0), the collision step's hit records (0x350530)); our session runs
   the engine's there or nothing (§8). `gt4r_diff`'s race places cars past the road's grid at the program's fallback (§9).
-  Layout 7's motors
-  (0x356418, 0x3560F0, 0x356BB8; their constants 0x355978); the economy display's units (0x6244E8, the game's option: km per
+  The economy display's units (0x6244E8, the game's option: km per
   liter here). The entry of 0x35DE20 is not reached by `gt4r_diff`'s taps (its parts are; the whole step compares it).
 - The computer drivers (the courses' `.ad` files and `crs/bestline`), the race flow (laps as
   the game counts them, sectors, the finish), pit stops, tire wear's curve per race, the

@@ -145,3 +145,23 @@ TEST(sim_disc_long_race_wear) {
     CHECK(std::fabs(fuel_start - 79.95f) < 0.1f);
     CHECK(std::fabs((fuel_start - fuel_end) - 6.35f) < 6.35f * 0.2f);
 }
+
+TEST(sim_program_motors_equal) {
+    Disc* disc = wear_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    // Layout 7's motors (the Acura DN-X, the one car of four wheel drive system 5) and every other routine of its step equal to
+    // the program's at every call of the test drive.
+    const diff::StepResult r = diff::run_step(*disc, false, "tsukuba", "acura_dnx_02", 1200);
+    if (!r.ran) std::printf("  %s\n", r.error.c_str());
+    CHECK(r.ran);
+    int motors = 0;
+    for (const diff::StepTap& t : r.taps) {
+        if (t.equal != t.calls) std::printf("  acura_dnx_02, %s: %zu of %zu calls equal\n", t.name.c_str(), t.equal, t.calls);
+        CHECK(t.equal == t.calls);
+        if (t.name.rfind("motors:", 0) == 0) {
+            CHECK(t.calls > 0);
+            ++motors;
+        }
+    }
+    CHECK(motors == 7);
+}
