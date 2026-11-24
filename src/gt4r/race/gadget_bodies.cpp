@@ -137,11 +137,12 @@ void GadgetBodies::ground(Body& b, const Gadgets::Kind& k, const course::Runway&
 unsigned GadgetBodies::step(const Gadgets& g, const course::Runway& road, std::span<const Car> cars, float dt) {
     if (bodies_.size() != g.placements.size()) reset(g);
     unsigned hits = 0;
+    contacts_.assign(cars.size(), 0);
     for (Body& b : bodies_) {
         if (b.removed) continue;
         const Gadgets::Kind& k = g.kinds[size_t(b.kind)];
         const float radius = std::max(k.radius, 0.1f);
-        for (size_t c = 0; c < cars.size() && c < 32; ++c) {
+        for (size_t c = 0; c < cars.size() && c < 32 && !b.spent; ++c) {
             const Car& car = cars[c];
             const V dc = sub(b.pos, car.pos);
             const float reach = radius + car.front + car.rear + car.half_width + 2;
@@ -184,6 +185,9 @@ unsigned GadgetBodies::step(const Gadgets& g, const course::Runway& road, std::s
             }
             if (face < 0) continue;
             hits |= 1u << c;
+            ++contacts_[c];
+            // A kind with flag bit 0 meets a car once (0x3E3C48: body +0x45 set after its report).
+            if (k.flags & 1) b.spent = true;
             const Face& f = faces[face];
             const V n = add(add(mul(across, f.x), V{0, f.y, 0}), mul(fwd, f.u));
             b.pos = add(b.pos, mul(n, depth));

@@ -491,10 +491,10 @@ not re-derived for this game, and see "The picture's scale" for their strength.
 Code: `race/gadgets.*`, drawn by `course_scene.cpp`. The road file lists where they stand (RNW4
 +0x44 u16 count, +0x70 -> 0x20 bytes each): `u32 kind, u32 0, f32 x, y, z, f32 a, b, c` (the
 Euler angles of the shared engine's pylon records: Tsukuba's 18 cones turned by b only). The
-`GDGT` block: `"GDGT"`, +0x08 u32 (0x102AD on tsukuba ❓), +0x10 u32 0x400 (where the models
-start), +0x1C u32 the kinds (6); from +0x20 a kind each 0xA0 bytes: u8 its number, u8 0, u8 2
-❓, u8 the hull's points (8 for the boards, 5 for the cone), f32 x3 inertia, the hull's points
-from +0x10 (x, y, z, w = 1), +0x90 f32 radius, +0x94 f32 mass; then at +0x400 an `MDLS` of
+`GDGT` block: `"GDGT"`, +0x08 u32 (0x102AD on tsukuba ❓), +0x10 u32 where the models
+start (0x400 on Tsukuba, 0xC0 on the test courses' single kind), +0x1C u32 the kinds (6); from +0x20 a kind each 0xA0 bytes: u8 its number, u8 0, u8 flags (bit 0: a body
+meets a car once, then no more: 0x3E3C48 sets its +0x45), u8 the hull's points (8 for the boards, 5 for the cone), f32 x3 inertia, the hull's points
+from +0x10 (x, y, z, w = 1), +0x90 f32 radius, +0x94 f32 mass; then at +0x10's offset an `MDLS` of
 2 x kinds models (🔎 model 2k a kind's shape, 2k + 1 its shadow, as the shared engine's pylon
 sets), then its pictures. The cone (kind 5): radius 0.59 m, 15 kg. The race view draws each
 kind's shape where the road puts it (within 400 m). The cars knock them about
