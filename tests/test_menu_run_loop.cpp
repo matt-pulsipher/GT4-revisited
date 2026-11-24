@@ -604,3 +604,21 @@ TEST(disc_gt_mode_gear_ranges) {
     std::printf("\n");
     CHECK(n >= 4);
 }
+
+// Photo travel: the map's place, its first location's ticket, the photo sequence asked for with
+// the car driven at the location's course.
+TEST(disc_gt_mode_photo_travel) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    Flow f(*disc);
+    CHECK(f.gt_mode_with_a_car());
+    f.map_focus("PhotoTravel");
+    f.press({menu::Key::Accept});
+    CHECK(f.page() == "PhotoTravelRoot");
+    for (int i = 0; i < 60; ++i) f.rt->update();
+    f.press({menu::Key::Accept});
+    const std::optional<menu::RaceRequest> r = f.rt->race_request();
+    CHECK(r && r->sequence == "photo_shoot" && !r->course.empty() && r->car == f.rt->game().garage[0].car);
+    if (r) std::printf("  photo travel asks for %s at %s with %s\n", r->sequence.c_str(), r->course.c_str(), r->car.c_str());
+    CHECK(f.clean());
+}

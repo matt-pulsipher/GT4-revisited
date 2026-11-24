@@ -748,8 +748,8 @@ settings); a race's whole loop runs with a made-up result in place of the race
 (`tests/test_menu_run_loop.cpp`: an event, a championship and one left in the middle, a
 license, a mission, the prize cars, saved and loaded); not checked page by page: trading cars
 between saves (`loadInstance` answers its result and no second game: the trade page needs a
-second MGame over another card's state), the photo travel (its page stops on an actor that is
-not made), the B-spec driver. The Replay Theater's demonstrations and play lists. The options marked 🔎 in "The options
+second MGame over another card's state), the photo travel's own pages after its ticket (the place's page runs to the
+`photo_shoot` sequence it asks for, `disc_gt_mode_photo_travel`), the B-spec driver. The Replay Theater's demonstrations and play lists. The options marked 🔎 in "The options
 and who reads them". Arcade's two-player battle reaches its race with both cars; the LAN battle says
 the Network Adaptor is needed. Prologue's arcade mode and results ([prologue.md](prologue.md) "The menus": boot to a license
 test runs); its scripts ask for `MGame.license` (its own license record), answered with a new
