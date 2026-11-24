@@ -9,6 +9,7 @@
 namespace gt4r::audio {
 
 OfflineSound::OfflineSound(bool reverb) : driver_(mixer_) {
+    with_output_level(mixer_);
     if (reverb) mixer_.set_reverb(gt3r::SpuReverb::StudioC, 0x0FFF, 0x0FFF);
 }
 
@@ -25,8 +26,9 @@ void OfflineSound::advance(int updates, const std::function<void(int)>& each) {
 }
 
 MusicRender render_music(std::shared_ptr<const sound::InstBank> bank, std::shared_ptr<const sound::SqtBank> sequences, int number, int loops,
-                         double max_seconds, double tail_seconds) {
+                         double max_seconds, double tail_seconds, float volume) {
     OfflineSound s;
+    s.driver().set_volume(SoundDriver::Kind::Music, volume);
     s.driver().play_music(std::move(bank), std::move(sequences), number);
     MusicRender out;
     int seen = 0;

@@ -2,11 +2,14 @@
 // 3's (GTCI, a GTM1 body, the GTTR tire picture, the GTTW wheel), decoded by the shared engine's
 // reader and cut into the pieces the race view draws: the body, and each wheel with its tire in
 // the frame Gran Turismo 4's wheels are drawn in (units of the rim's radius, a left wheel with its
-// face at x = 0). docs/formats/prologue.md "Cars".
+// face at x = 0); its shadows (the body's shape thrown along the light, the shadow under the car,
+// the headlamps' light on the road: the model's nodes 1, 6 and 5, as the shared engine's race takes
+// them) and its lamps (the info block's lists). docs/formats/prologue.md "Cars".
 
 #include "gt4r/race/car_visual.h"
 
 #include "formats/model/car_model.h"
+#include "race/lamp_glows.h"
 
 #include <algorithm>
 #include <cmath>
@@ -34,6 +37,11 @@ bool CarVisual::is_gt3_car(ByteSpan file) { return gt3r::CarFile::is_car(file) |
 void CarVisual::build_gt3(ByteSpan file_in, const Options& opt, const std::string& name) {
     const Bytes named = with_info_named(file_in);
     const ByteSpan file(named);
+    gt3_file_ = true;
+    try {
+        lamps_ = gt3r::race::CarLampSet::parse(gt3r::CarFile::parse(file).info);
+    } catch (const std::exception&) {
+    }
     gt3r::WheelSpec ws;
     ws.wheelbase = spec_.wheelbase;
     for (int a = 0; a < 2; ++a) {
@@ -51,7 +59,13 @@ void CarVisual::build_gt3(ByteSpan file_in, const Options& opt, const std::strin
         o.resolve_paint = false;
         o.brake = brake != 0;
         o.wheel_spec = ws;
+        o.effects = brake == 0; // (the shadows' nodes)
         scene::Model all = gt3r::load_car_model(file, o, name);
+        if (brake == 0) {
+            static const char* const kNodes[3] = {"node1", "node6", "node5"};
+            for (size_t k = 0; k < 3; ++k) shadow_src_[k] = scene::extract(all, [k](const scene::Mesh& m) { return m.name == kNodes[k]; });
+            std::erase_if(all.meshes, [](const scene::Mesh& m) { return m.name.rfind("node", 0) == 0; });
+        }
         scene::Model body;
         body.name = name;
         body.textures = all.textures;

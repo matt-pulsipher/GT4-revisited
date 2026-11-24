@@ -356,8 +356,8 @@ TEST(sound_driver_music_notes) {
     CHECK(near(hz(s, 0.2, 0.6), kSquareHz / 2, 0.01));
     CHECK(near(hz(s, 1.2, 0.6), kSquareHz, 0.01));
     CHECK(near(hz(s, 2.2, 0.6), kSquareHz / 2, 0.01));
-    // Full level, centered: the wave's 28672 x 120/127 by the pan table, halved by the mixer's trim.
-    CHECK(near(peak(s.pcm, 1.2, 1.8), 28672 * 120 / 127 / 2, 0.06));
+    // Full level, centered: the wave's 28672 x 120/127 by the pan table, at the SPU2's output level.
+    CHECK(near(peak(s.pcm, 1.2, 1.8), 28672 * 120 / 127, 0.06));
     CHECK(near(peak(s.pcm, 1.2, 1.8, 0), peak(s.pcm, 1.2, 1.8, 1), 0.01));
     // A note ends when its off event comes: silence before the next update's samples are over.
     CHECK(peak(s.pcm, 3.1, 3.2) == 0);
@@ -376,7 +376,7 @@ TEST(sound_driver_music_controls) {
     s.advance_seconds(4.5);
     // Both tones at key 60 = their center: the recording's own pitch.
     CHECK(near(hz(s, 0.3, 0.5), kSquareHz, 0.01));
-    const int full = 28672 / 2;
+    const int full = 28672;
     // Channel pan centered, the tones' pans 0 and 0x7F: each side one tone at the table's 127.
     CHECK(near(peak(s.pcm, 0.3, 0.9, 0), full * 64 / 127, 0.06));
     CHECK(near(peak(s.pcm, 0.3, 0.9, 1), full * 64 / 127, 0.06));
@@ -451,7 +451,7 @@ TEST(sound_driver_effect_sequences) {
     s.advance_seconds(1.0);
     CHECK(!s.driver().effect_playing(id) && s.driver().voices() == 0);
     // Key 0x20 at its center, velocity 100, the sides at half.
-    CHECK(near(peak(s.pcm, 0.02, 0.06), 28672 * 100 / 127 * 120 / 127 / 4, 0.08));
+    CHECK(near(peak(s.pcm, 0.02, 0.06), 28672 * 100 / 127 * 120 / 127 / 2, 0.08));
     // The slide: -120 x 1.2 = -144 steps over a second, each 4/3 of a sixteenth of a semitone: an
     // octave down; at 0.4 s it is 0.4 of the way.
     const double slid = kSquareHz * std::pow(2.0, -0.4);
@@ -498,7 +498,7 @@ TEST(sound_driver_held_notes) {
     const u32 half = s.driver().note_on(bank, 0);
     s.advance_seconds(0.3);
     const std::vector<s16> tail(s.pcm.begin() + long(at), s.pcm.end());
-    CHECK(half && near(peak(tail, 0.1, 0.3), 28672 * 120 / 127 / 4, 0.06));
+    CHECK(half && near(peak(tail, 0.1, 0.3), 28672 * 120 / 127 / 2, 0.06));
     s.driver().set_mono(true);
     s.driver().stop_all();
 }
@@ -700,7 +700,10 @@ TEST(sound_menu_music_on_disc) {
         const int first = menu.music_number();
         s.advance_seconds(20.0);
         const audio::Level level = audio::measure(s.pcm);
-        CHECK(level.peak > 2000 && level.clipped == 0);
+        std::printf("  %s: %s at the menus' level: peak %d, %zu samples at full scale\n", game_name(disc->info().game), group.c_str(), level.peak,
+                    level.clipped);
+        // (Prologue's menus play near full scale: the original's arcade pages at -11.6 dB, reaching it.)
+        CHECK(level.peak > 2000 && (level.clipped == 0 || !gt4));
         CHECK(s.max_voices <= gt3r::VoiceMixer::kVoices);
         // Keeping the group that plays changes nothing; starting it again moves on to its next piece.
         CHECK(menu.keep_music(group) && menu.music_number() == first);
@@ -750,7 +753,9 @@ TEST(sound_music_renders_on_disc) {
         if (!bank) continue;
         const int number = gt4 ? 0 : 5; // (Prologue's shortest: the options')
         const sound::SqtSummary sum = sound::summarize_sequence(*bank.sequences, size_t(number));
-        const audio::MusicRender r = audio::render_music(bank.bank, bank.sequences, number, 2);
+        // At the menus' level: the mix table's sequence level x a new game's music option.
+        const float volume = lib.levels().level(int(audio::OutputMode::Stereo), sound::VolumeTable::Sequence) * 115.0f / 128.0f;
+        const audio::MusicRender r = audio::render_music(bank.bank, bank.sequences, number, 2, 600, 2, volume);
         CHECK(r.loop_frames.size() == 2);
         if (r.loop_frames.size() < 2) continue;
         // The loop comes round where the tempo says, to within an update.
@@ -762,7 +767,9 @@ TEST(sound_music_renders_on_disc) {
         CHECK(std::fabs(period - sum.loop_seconds) <= 2 * update);
         CHECK(r.max_voices <= gt3r::VoiceMixer::kVoices && r.max_voices >= 4);
         const audio::Level level = audio::measure(r.pcm);
-        CHECK(level.rms > 0.01 && level.clipped < 50);
+        std::printf("  at the menus' level %.3f: peak %d, rms %.3f, %zu samples at full scale\n", double(volume), level.peak, level.rms, level.clipped);
+        // (Prologue has no mix table; its menus' music reaches full scale, as the original's recording does.)
+        CHECK(level.rms > 0.01 && (level.clipped == 0 || !gt4));
         // The two passes of the loop sound alike: their levels second by second.
         const size_t a = r.loop_frames[0] - size_t(sum.loop_seconds * rate), b = r.loop_frames[0];
         int compared = 0, alike = 0;

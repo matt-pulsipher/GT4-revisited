@@ -242,7 +242,7 @@ Any widget: its layout properties as attributes; `doCopy()`, `doInitialize(conte
 `interpolate` (0x25BFE0): a value within 1 of its target arrives; otherwise it moves by the
 distance x the ratio.
 
-Boxes (`packing.cpp`) are packed **every picture**, not on a change: the size request bottom
+Boxes (`packing.cpp`) are packed **every picture** on every page, not on a change: the size request bottom
 up as part of a composite's update, the allocation top down as part of its draw. A child takes
 part when it is no face (`is_face` 0; the `...Face` classes are faces), is visible and its
 `packing` equals the box's. What a child asks (0x263B80): its size, or with `packing` its
@@ -305,7 +305,11 @@ the display ends, in the popup while open, else in the bar. `incIndex` / `decInd
 their argument and send nothing. ❓ A ScaleBar's own `onKeyPress` runs before the value moves
 in the program; here after. **ListBox** (`step_min`, `step_max`, `interpolate_ratio`,
 `magnify_ratio`, `focus_active`, `repeat`, `alignment`, `h_justify`, `v_justify`): ❓ its own
-routines are not read; it answers the scripts' calls, laid out as a select box.
+routines are not read; it answers the scripts' calls, laid out as a select box. Its rows are made
+from the template (`setItemTemplate`, `setItemCount`); the rows that come into view are given to
+`visible_callback(context, [indexes])` (`getItemVisible(i)`: the row is in view), then every row
+in view whose update flag is set to `update_callback(context, [indexes])` (labomode's and
+list_box's scripts set the flag until a row is drawn in full; ❓ from their use).
 
 Faces: `TextFace` (`getTextSize`, `abbreviate`, `adjustScale`: the text made narrower to fit
 its rectangle), `ImageFace` (`adjustSize`), `InputTextFace` (`putString`, `backspace`,
@@ -450,8 +454,11 @@ over it are the program's, with their addresses in save.md and here:
   paint, meters)` (the program's random numbers; meters by model year); used prices by the
   thousands of km driven (85 % below 1,000 km ... 10 % from 100,000); the sorts, one key each
   (power, weight, kg/PS, date, order of driving, aspiration, name, price, year, country,
-  tuner, drivetrain, the paint's hue). ❓ The gears' ranges (0x3553A0) and the charts' points
-  (0x148940, 0x148B60) are not written.
+  tuner, drivetrain, the paint's hue). The gears' ranges (`getGearRange`, 0x3553A0): the gears
+  the slider and final drive give (0x354FF8), each gear's ends a third of the way to its
+  neighbours' ratios, the first gear's top 9/8 of its ratio, the last's bottom 7/8, the reverse
+  gear 7/8 and 9/8 (0x355278; thousandths, truncated); in the array [7 + 2g] the lower end of gear
+  g and [8 + 2g] the upper. ❓ The charts' points (0x148940, 0x148B60) are not written.
 - **MRaceData** (0x1A0F80 on; `game_race.cpp`): the RACE row's columns (database.md "RACE"):
   the medal times as text, entries, the course, the opponents' pool (`car_code(i)`), the
   requirements (license, drivetrain, aspiration, car type, tires, power, weight, length,
@@ -494,7 +501,10 @@ sequence starts when the scripts that asked for it finish (a new work object, 0x
 - **A mission** (0x11C328): the place's prize whatever the run, the record ("mission", the
   place) and its score, the diary's mission day (place, note 15, time).
 - **A license test** (0x1105A8) keeps its result in its unit and its ranking (time, result, the
-  real date, the pass code); **a course's run** (0x115A90) is a day of the diary.
+  real date, the pass code). Its day is the sequence's: when the license sequence ends (0x114E38
+  -> 0x110800) the diary gets the last run's day (result, note 14, time), or a day with nothing in
+  it when there was no run or its result is 13: every visit to a test's page is a day, as the
+  original's calendar shows. **A course's run** (0x115A90) is a day of the diary.
 
 The prize page of the quick projects counts the prize into the credits (`incMoney`, ten at a
 time); the presents (prize cars, licenses) are given by Gran Turismo mode's present page on
@@ -504,6 +514,50 @@ unless the car has no wear the engine's distance up to 9,700,000 m, the oil's (f
 to 0, then from 300,000 m; else up to 6,000,000 m) and the body's up to 3,000,000 m, the limits
 read from the program's tables (0x620CD8 +0xD0 on, 0x620AF6; 0x350678, 0x366100). ❓ Added
 once for the race's whole distance.
+
+**The race's entry table** (`getEntryCarCode(i)`, `setEntryCarCode(i, car, paint)`): [car,
+paint] by the entry's number, entry 0 the player's car (`car_code`, `car_color`), the opponents
+the scripts chose from 1 to `overwrite_enemy_num` (`RaceRequest::entries`, `entry_paints`).
+Arcade's single race asks `MCarData.PickUpEnemyCars(car, list, offset, range, count, dirt)`
+(0x1308C8) when its car has no race of its own: the program scores the player's car and each
+car of the list by the showroom car's evaluation (ShowRoomCar 0x364760, 0x364F00), drops those
+whose drive (four-wheel or not) is not the player's, sorts them by score, finds the ones within
+score + offset ± range (0x130618), widens the window until it holds count + 1, draws count of
+them (never the player's car, 0x130690) and a paint each. 🔎 Not built here (the evaluation is
+not): it answers none, and the race's own pool fills the grid.
+
+**The options and who reads them** (`game_settings.h`: `GameSettings settings_from(options)`).
+The scripts read and write MOption; `Runtime::on_options(GameSettings)` is called at the end of
+the start, when a game is loaded and when the scripts apply, save or reset the options.
+
+| Options | GameSettings | Read by | How |
+|---|---|---|---|
+| `menu_bgm`, `menu_se` and their `_volume_raw` | `menu.music`, `menu.effects` (raw / 128, 0 when off) | the menus' sound (`audio::MenuSound`) | the app's `on_options`: `set_music_option`, `set_effect_option` (screen_menu_viewer.cpp) |
+| `race_*`, `replay_*` volumes, `sound_type` | `race`, `replay`, `sound_type` | the race's sound | `audio::race_sound_options(setup.options)` in race_world.cpp |
+| `race_color_correction`, `replay_color_correction` | `race_picture`, `replay_picture` | the race's picture (`race::PictureSettings`) | screen_race.cpp: `pictures_from_options` at a race's start from the menus, `pictures_to_options` after it (the pause's changes kept) |
+| `unit_velocity`, `unit_power`, `unit_torque` | `velocity`, `power`, `torque` | the menus' figures (MUnit, the car pages) | the natives read the state; 🔎 the race display: `settings_from(setup.options).velocity` (race-view) |
+| `race_display_*`, `replay_display_enable` | `display`, `replay_display` | 🔎 the race display (race_hud) | hide the parts switched off |
+| `view_type` | `view` | 🔎 the race's first view | screen_race.cpp's start view |
+| `automatic_gear`, `assist_asm`, `assist_tcs`, `steering_assist_1p`, `active_steering_1p` | `automatic`, `asm_on`, `tcs_on`, ... | Arcade's car page offers them (its script reads the option); the race takes `RaceRequest::manual`, `assist_*` | 🔎 Gran Turismo mode's races: the quick menus' defaults |
+| `race_laps`, `tire_damage`, `penalty_type` | `laps`, `tire_damage`, `penalty` | Arcade's scripts (laps); 🔎 the race's rules | |
+| `timeout_count_to_autodemo` | `demo_after_s` | the title's script (`onTick`: the demo after that many seconds without a key) | runs here (`disc_menu_title_demo_after_option`) |
+| `auto_save`, `opening_after_autoload` | `auto_save`, `opening_after_autoload` | Gran Turismo mode's and the boot project's scripts | run here |
+| `wide_mode`, `monitor_size`, `screen_adjust_h/v`, `sharpness_mode` | `wide`, `screen_adjust_*`, `sharpness` | 🔎 the picture's shape and place | the screen's figures are saved (save.md) |
+| `vibration_*`, `steering_forcefeedback_*` | | 🔎 the pad | the controller block (save.md) |
+
+**The Replay Theater** (the title's third item; the program's sequence `load_replay`,
+0x10CA50): the runtime turns the sequence into the project `labomode` with the menu argument
+`ReplayTheaterRoot` (0x42FC98, 0x10B290). Its card manager in MODE_LOAD_REPLAY lists the replays
+in the data folder's `replays/` (`game_replays.cpp`; newest first; each file's title its name,
+❓ the date the day it was written, the car and course by the database's names, its size in KB).
+Play loads the one chosen (`file.load`, `MMemoryCardManager.setAction(1)`) and closes the page:
+the project ends, and `race_request()` answers the sequence `replay` with `replay_file` (the
+path); after it the theater comes back (the sequence's loop). Exit returns to the title. ❓ The
+demonstrations' folder and the play list are empty; `labo_folder` / `labo_list_index` start at -1.
+The card's free KB: 8,000 less a KB, the game's save and the replays (the scripts take 8,000
+for an unformatted card).
+
+**A game with progress** (`game_progress.*`, `gt4tool save <disc> progress`): save.md.
 
 **Cars and courses** (`menu::MCarData`, 0x131068; `menu::MCourseData`, 0x1B34D0): from the
 disc's car database ([database.md](database.md)) and the program's lists of makers, tuners,
@@ -752,15 +806,12 @@ settings); a race's whole loop runs with a made-up result in place of the race
 (`tests/test_menu_run_loop.cpp`: an event, a championship and one left in the middle, a
 license, a mission, the prize cars, saved and loaded); not checked page by page: trading cars
 between saves (`loadInstance` answers its result and no second game: the trade page needs a
-second MGame over another card's state), the photo travel (its page stops on an actor that is
-not made), the B-spec driver. The Replay Theater (the `load_replay` sequence and labomode's
-card lists: save.md "The game's other saves"). The option pages' effect on anything but the
-stored values. Arcade's two-player battle reaches its race with both cars; the LAN battle says
+second MGame over another card's state), the photo travel's own pages after its ticket (the place's page runs to the
+`photo_shoot` sequence it asks for, `disc_gt_mode_photo_travel`), the B-spec driver. The Replay Theater's demonstrations and play lists. The options marked 🔎 in "The options
+and who reads them". Arcade's two-player battle reaches its race with both cars; the LAN battle says
 the Network Adaptor is needed. Prologue's arcade mode and results ([prologue.md](prologue.md) "The menus": boot to a license
 test runs); its scripts ask for `MGame.license` (its own license record), answered with a new
-game's results. ❓ The gears' ranges on the settings pages (0x3553A0: the ratios
-of 0x354FF8, each gear's ends a third of the way to its neighbours, the first gear's top 9/8,
-the last's bottom 7/8) and the charts' points (0x148940, 0x148B60).
+game's results. ❓ The charts' points on the settings pages (0x148940, 0x148B60).
 
 ## Pictures (`.gpb`)
 

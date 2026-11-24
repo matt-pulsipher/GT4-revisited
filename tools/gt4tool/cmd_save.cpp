@@ -6,20 +6,29 @@
 //   gt4tool save <disc> card <card folder> [name]    a new game saved in a card's folder
 //   gt4tool save <disc> import <card image> <card folder>          the game's folder of a .ps2 / .mcd card image into a card folder
 //   gt4tool save <disc> export <card folder> <out image> [base image]  the card folder's game into a card image (another card's other saves kept)
+//   gt4tool save <disc> progress <data folder> [name] [credits]  a new game played forward through the menus (cars bought, every
+//                                                    license passed, the presents given) and saved in <data folder>/memorycard
 
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/db/specdb.h"
+#include "gt4r/menu/game_progress.h"
+#include "gt4r/menu/program_tables.h"
+#include "gt4r/menu/runtime.h"
 #include "gt4r/save/card_image.h"
 #include "gt4r/save/codec.h"
 #include "gt4r/save/memory_card.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <algorithm>
 #include <fstream>
 
 using namespace gt4r;
 
 namespace gt4tool {
+
+menu::FileReader disc_reader(Disc& disc);   // cmd_menu.cpp
+menu::FolderLister disc_lister(Disc& disc); // cmd_menu.cpp
 
 namespace {
 
@@ -72,6 +81,22 @@ int cmd_save(Disc& disc, const std::vector<std::string>& a) {
         const save::Result r = card.save_new(s, "Game Data");
         std::printf("%s: %s\n", card.folder().c_str(), save::result_name(r));
         return r == save::Result::Ok ? 0 : 1;
+    }
+    if (what == "progress" && a.size() >= 2) {
+        menu::Runtime::Config config;
+        config.list = disc_lister(disc);
+        config.program = [&disc] { return disc.read_program(); };
+        const std::vector<std::string> languages = menu::project_languages(config.list, "boot");
+        if (!languages.empty()) config.language = languages[0];
+        config.data_dir = a[1];
+        menu::Runtime rt(disc_reader(disc), config);
+        menu::ProgressPlan plan = menu::default_progress_plan(rt);
+        if (a.size() >= 3) plan.name = a[2];
+        if (a.size() >= 4) plan.credits = std::atoll(a[3].c_str());
+        const menu::ProgressReport r = menu::play_progress(rt, plan);
+        for (const std::string& line : r.steps) std::printf("%s\n", line.c_str());
+        if (!r.ok) std::fprintf(stderr, "error: %s\n", r.error.c_str());
+        return r.ok ? 0 : 1;
     }
     if (what == "import" && a.size() >= 3) {
         std::ifstream in(a[1], std::ios::binary);
@@ -136,7 +161,7 @@ int cmd_save(Disc& disc, const std::vector<std::string>& a) {
                     s.all_available ? " (all)" : "", s.favorite_cars.size(), s.favorite_courses.size());
         return 0;
     }
-    std::fprintf(stderr, "usage: gt4tool save <disc> show <card folder> | payload <card folder> <out> | new <out> | card <card folder> [name] | import <card image> <card folder> | export <card folder> <out image> [base image]\n");
+    std::fprintf(stderr, "usage: gt4tool save <disc> show <card folder> | payload <card folder> <out> | new <out> | card <card folder> [name] | import <card image> <card folder> | export <card folder> <out image> [base image] | progress <data folder> [name] [credits]\n");
     return 2;
 }
 

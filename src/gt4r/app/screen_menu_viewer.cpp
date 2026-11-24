@@ -14,6 +14,7 @@
 #include "formats/text/text_layout.h"
 #include "gt4r/audio/app_sound.h"
 #include "gt4r/menu/font.h"
+#include "gt4r/menu/game_settings.h"
 #include "gt4r/menu/project.h"
 #include "gt4r/menu/race_natives.h"
 #include "gt4r/menu/runtime.h"
@@ -200,6 +201,7 @@ private:
             config.list = [vfs](const std::string& folder) { return vfs->list_dir(folder); };
             Disc* disc = app.disc();
             if (disc) config.program = [disc] { return disc->read_program(); };
+            if (disc && disc->info().serial.rfind("SCPS", 0) == 0) config.region = "jp"; // (Prologue: its units, PS and kgfm)
             config.data_dir = app.data_dir();
             while (!config.data_dir.empty() && (config.data_dir.back() == '/' || config.data_dir.back() == '\\')) config.data_dir.pop_back();
             if (!projects_.empty()) config.language = projects_[size_t(std::clamp(project_sel_, 0, int(projects_.size()) - 1))].language;
@@ -210,6 +212,10 @@ private:
             app_ = &app;
             runtime_->on_sound = [&app](const menu::SoundCall& call) {
                 if (audio::AppSound* sound = app.sound()) play_sound_call(sound->menu(), call);
+            };
+            // The options' menu volumes (game_settings.h).
+            runtime_->on_options = [&app](const menu::GameSettings& s) {
+                if (audio::AppSound* sound = app.sound()) sound->menu().set_music_option(s.menu.music), sound->menu().set_effect_option(s.menu.effects);
             };
             live_drawer_ = std::make_unique<PageDrawer>(app);
             PageDrawer* drawer = live_drawer_.get();

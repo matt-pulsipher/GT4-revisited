@@ -180,7 +180,10 @@ private:
         return {int(std::floor(f.x)), int(std::floor(f.y)), int(std::ceil(f.x + f.w) - std::floor(f.x)), int(std::ceil(f.y + f.h) - std::floor(f.y))};
     }
 
-    SDL_Texture* texture(const gt3r::Tex1::Image* image) {
+    // By what the picture holds (image_key): a picture freed with its project leaves its
+    // address to the next. `path`: its name (not needed for the key).
+    SDL_Texture* texture(const gt3r::Tex1::Image* image, const std::string& path = {}) {
+        (void)path;
         if (!image || !image->width || !image->height) return nullptr;
         Cached& c = textures_[image_key(*image)];
         c.used = menu_frame;
@@ -200,7 +203,7 @@ private:
     // (mImageFace's `texcoord`); none: the whole picture.
     void image(const std::string& path, const Rect& at, Rgba tint, float opacity, bool add, const SDL_FPoint* uv = nullptr, bool from_disk = false) {
         const gt3r::Tex1::Image* img = path.empty() ? nullptr : from_disk ? disk_image(path) : project_->image(page_, path);
-        SDL_Texture* t = texture(img);
+        SDL_Texture* t = texture(img, path);
         if (!t) return;
         SDL_SetTextureColorMod(t, 255, 255, 255);
         SDL_SetTextureAlphaMod(t, 255);

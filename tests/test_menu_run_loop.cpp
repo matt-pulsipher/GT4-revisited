@@ -533,3 +533,92 @@ TEST(disc_menu_race_playlist) {
     CHECK(list.rows == 65 && enabled == 36 && !list.row[14].enabled && list.row[15].order == 0 && list.row[16].order == 1 && list.row[17].order == 3 && !list.none);
     CHECK(f.rt->game().slide_playlist.rows == 65);
 }
+
+// A license test's page visited and left without a run is a day gone by, with nothing in the
+// diary (the sequence's end, 0x110800; the original's calendar moves a day for each visit); a run
+// passed is that day's license run.
+TEST(disc_gt_mode_license_visit_is_a_day) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    Flow f(*disc);
+    CHECK(f.gt_mode_with_a_car());
+    if (f.page() != "TopRoot") return;
+    menu::GameState& g = f.rt->game();
+    for (int visit = 0; visit < 2; ++visit) {
+        for (int i = 0; i < 6 && f.page() != "TopRoot"; ++i) f.press({menu::Key::Cancel});
+        f.map_focus("License");
+        f.press({menu::Key::Accept, menu::Key::Accept, menu::Key::Accept});
+        const std::optional<menu::RaceRequest> race = f.rt->race_request();
+        CHECK(race && race->sequence == "license");
+        if (!race) return;
+        const u32 today = g.today;
+        const size_t days = g.diary.size();
+        Sequence q(f, *race);
+        q.fill(1);
+        f.rt->game().during_quick_menu = true;
+        f.rt->start_project(q.project);
+        f.rt->settle();
+        if (visit == 1) {
+            menu::RaceResult r;
+            r.kind = menu::RaceResult::Kind::License, r.race = race->race, r.result = "bronze", r.time_ms = 11'166;
+            q.ran(r);
+            CHECK(g.today == today); // not until the sequence ends
+            f.rt->start_project(q.project);
+            f.rt->settle();
+        }
+        CHECK(f.focus_on("Exit"));
+        f.press({menu::Key::Accept});
+        CHECK(f.rt->finished() && q.work().take_command() == "COMMAND_EXIT" && q.leave());
+        std::printf("  visit %d: day %u -> %u, the diary's last kind %d\n", visit, today, g.today, g.diary.empty() ? -1 : g.diary.back().type);
+        CHECK(g.today == today + 1 && g.diary.size() == days + 1);
+        CHECK(g.diary.back().type == (visit == 0 ? 0 : 4));
+        if (visit == 1) CHECK(g.diary.back().b1 == 11 && g.diary.back().word == 11'166);
+    }
+    CHECK(f.clean());
+}
+
+// The gears' settings page's ranges (getGearRange, 0x3553A0): each gear's ends about the ratio
+// the slider and final drive give, a third of the way to its neighbours.
+TEST(disc_gt_mode_gear_ranges) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    Flow f(*disc);
+    CHECK(f.gt_mode_with_a_car());
+    script::Vm& vm = f.rt->vm();
+    const Value car = vm.attribute(vm.attribute(vm.lookup("game"), "garage"), "riding_car");
+    const Value zero[1] = {Value::integer(0)};
+    const Value range = vm.call(vm.attribute(car, "getGearRange"), zero);
+    const std::vector<Value>* v = range.items();
+    CHECK(v && v->size() == 23);
+    if (!v || v->size() < 23) return;
+    const int n = int((*v)[4].i);
+    std::printf("  %d gears:", n);
+    for (int g = 1; g <= n; ++g) {
+        const Value gi[1] = {Value::integer(g)};
+        const s32 ratio = s32(vm.call(vm.attribute(car, "getGearSetting"), gi).i);
+        const s32 lo = s32((*v)[size_t(7 + 2 * g)].i), hi = s32((*v)[size_t(8 + 2 * g)].i);
+        std::printf(" %d<%d<%d", lo, ratio, hi);
+        CHECK(lo > 0 && lo < hi);
+        if (g > 1) CHECK(hi < s32((*v)[size_t(8 + 2 * (g - 1))].i));
+    }
+    std::printf("\n");
+    CHECK(n >= 4);
+}
+
+// Photo travel: the map's place, its first location's ticket, the photo sequence asked for with
+// the car driven at the location's course.
+TEST(disc_gt_mode_photo_travel) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    Flow f(*disc);
+    CHECK(f.gt_mode_with_a_car());
+    f.map_focus("PhotoTravel");
+    f.press({menu::Key::Accept});
+    CHECK(f.page() == "PhotoTravelRoot");
+    for (int i = 0; i < 60; ++i) f.rt->update();
+    f.press({menu::Key::Accept});
+    const std::optional<menu::RaceRequest> r = f.rt->race_request();
+    CHECK(r && r->sequence == "photo_shoot" && !r->course.empty() && r->car == f.rt->game().garage[0].car);
+    if (r) std::printf("  photo travel asks for %s at %s with %s\n", r->sequence.c_str(), r->course.c_str(), r->car.c_str());
+    CHECK(f.clean());
+}

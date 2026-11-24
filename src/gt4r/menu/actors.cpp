@@ -333,11 +333,50 @@ struct TextActor : Actor {
 // MSwitchActor (0x2E2908, update 0x2E2D18; Prologue's license buttons): t toward 1 (`start`)
 // or 0 (`end`) by 0.1 a picture; the button pushed out from its parent's middle by
 // k = 1 + 0.6 (1 - t^2), its children `base` and `text` at alpha t, `ring` too unless the
-// button is insensitive. ❓ The children's colours by the state are not written.
+// button is insensitive. Their colours by the button's state where the program's are known
+// (Prologue's, 0x2EB848: SwitchColors): `base` and `text` by active and insensitive, `ring`
+// blinking while focused (a count of the pictures 1 .. 6, then 0: below 4 the first colour).
 struct SwitchActor : Actor {
     Rect home;
     float t = 0, stride = 0.1f, period = 0;
+    int blink = 0;
+    std::shared_ptr<const std::optional<SwitchColors>> colors;
     using Actor::Actor;
+    static void tint(LiveWidget& face, const std::array<float, 4>& c) {
+        Property rgba;
+        rgba.type = "RGBA";
+        for (float f : c) rgba.values.push_back(std::to_string(int(std::lround(std::clamp(f, 0.0f, 1.0f) * 255.0f))));
+        const char* name = face.data.type == "TextFace" ? "text_color" : "color";
+        Property* p = nullptr;
+        for (Property& q : face.data.properties)
+            if (q.name == name) p = &q;
+        if (!p) face.data.properties.push_back({}), p = &face.data.properties.back(), p->name = name;
+        if (face.data.type == "TextFace") {
+            p->type = "RGBA", p->values = rgba.values, p->items.clear(), p->widgets.clear(), p->is_list = false;
+        } else {
+            p->type.clear(), p->values.clear(), p->widgets.clear(), p->is_list = true, p->items = {std::move(rgba)};
+        }
+    }
+    void paint(LiveWidget& w) {
+        if (!colors || !*colors) return;
+        const SwitchColors& c = **colors;
+        const bool active = (w.state & kActive) != 0, insensitive = w.insensitive(), focused = (w.state & kFocus) != 0;
+        if (const auto base = w.child("base"))
+            tint(*base, insensitive ? (active ? c.base_insensitive_active : c.base_insensitive) : active ? c.base_active : c.base_idle);
+        if (const auto text = w.child("text"))
+            tint(*text, insensitive ? (active ? c.text_insensitive_active : c.text_insensitive) : active ? c.text_active : c.text_idle);
+        if (const auto ring = w.child("ring")) {
+            if (focused) {
+                if (++blink > 6) blink = 0;
+                tint(*ring, blink < 4 ? c.ring_blink_on : c.ring_blink_off);
+            } else if (insensitive) {
+                tint(*ring, c.ring_insensitive);
+            } else {
+                blink = 0;
+                tint(*ring, c.ring_idle);
+            }
+        }
+    }
     void attached(LiveWidget& w) override { home = rect_of(w); }
     void step() override {
         const auto w = widget.lock();
@@ -351,6 +390,7 @@ struct SwitchActor : Actor {
         for (const char* name : {"base", "text", "ring"})
             if (const auto c = w->child(name))
                 if (std::string(name) != "ring" || !w->insensitive()) c->set_property("alpha", Value::number(t));
+        paint(*w);
     }
 };
 
@@ -714,8 +754,11 @@ void install_actor_natives(Runtime& rt, script::Module& menu) {
         return object_value(act);
     }));
 
-    menu.define("MSwitchActor", Vm::native("MSwitchActor", [widget_of](Vm&, const Value&, Args a) {
+    auto switch_colors = std::make_shared<std::shared_ptr<const std::optional<SwitchColors>>>();
+    menu.define("MSwitchActor", Vm::native("MSwitchActor", [widget_of, r, switch_colors](Vm&, const Value&, Args a) {
         auto act = std::make_shared<SwitchActor>("MSwitchActor");
+        if (!*switch_colors) *switch_colors = std::make_shared<const std::optional<SwitchColors>>(prologue_switch_colors(r->config()));
+        act->colors = *switch_colors;
         const std::shared_ptr<LiveWidget> w = widget_of(a);
         act->widget = w;
         if (w) act->attached(*w);

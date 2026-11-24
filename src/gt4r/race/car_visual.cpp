@@ -382,7 +382,7 @@ void CarVisual::add_shadow_items(std::vector<render::DrawItem>& items, const Car
     if (shadow_[0]) {
         // The body's shape flattened onto the road along the light: a point y above the road
         // lands `shear` x y away. (The model's y = 0 is the ride height above the road.)
-        const float q = (spec_.ride_height[0] + spec_.ride_height[1]) * 0.5f;
+        const float q = gt3_file_ ? 0.0f : (spec_.ride_height[0] + spec_.ride_height[1]) * 0.5f;
         const float sx = render::dot(shadow_look_.shear, side), sz = render::dot(shadow_look_.shear, back);
         Mat4 flat;
         flat.m = {1, 0, 0, 0, sx, 0, sz, 0, 0, 0, 1, 0, sx * q, 0, sz * q, 1};
