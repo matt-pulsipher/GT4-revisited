@@ -293,6 +293,17 @@ meter's point runs over two g each way, the trip meter counts whole miles or kil
 race. Not drawn: the suggested gear (it needs the course line's gear), the boost gauge, the
 nitrous gauge.
 
+**The suggested gear** (`RaceSuggestedGearDisplay`, the panels' member 0xA78 / 0x17C; shown with the display's
+flag bit 8, panel vf23): its value (the display's +0x54, set by the panel's vf24 from `RaceDisplay::vf2`
+0x39E14C) is **the computer driver's** byte +0x40 of the shown car's driver object (car +0x14, which every car
+has, the player's too), worked out each step in the input phase (0x349FD0 → 0x469E58): -1 (none) unless the
+car's speed (F +0x53C) is at or over the driver's target speed (+0x28; with the driver's mode +0x1E 4 the
+lower of +0x28 and +0x24; mode 3 and 4 also set +0x41), then 0x36BF68 at that target speed: the lowest gear
+from first whose up-shift engine speed (0x36BEE0) less 500 rpm (2,000 rpm in first) x 2 pi / 60 over the
+gear's speed factor (P +0x2A0 + 4 g) reaches it (a car whose gearbox 0x368398 / 0x3F1F78 answers: 1). So it
+shows ahead of a corner the gear the driver's line would brake to. Not drawn here: it needs the computer
+driver's target speed for the player's car (`sim/ai`, ❓ not kept for a car the player drives).
+
 ### Chase views: `RaceSimplePanel`
 
 The single race's form (the panel's split flag and its reduced flag both clear):
