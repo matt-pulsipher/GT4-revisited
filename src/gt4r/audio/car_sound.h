@@ -99,20 +99,26 @@ struct CarSoundState {
     float shaft_speed = 0;              // rad/s
     bool nitrous = false;               // flowing
     bool afterfire = false;             // a flame started at the exhaust this step
+    // ... or the program's rule for one (0x3F3368, 0x3D6D30): the step that ends a shift (the
+    // gearbox's lock-out at 11, one step after the clutch locks) with the throttle over 0.9 raises
+    // the flame's strength to the car's chance (RaceSoundTables::afterfire_chance); as it rises past
+    // 0.1 a flame starts when a random number under 1 falls under it.
+    bool shift_flame = false;
+    float afterfire_chance = 0;
     float contact = 0;                  // the strongest contact this step, 0..1 (under 0.2: none)
     int contact_kind = 0;               // 0, 1, 2: which of the three contact sounds
     std::array<WheelSoundState, 4> wheels{}; // front left, front right, rear left, rear right
 };
 
-// A contact's strength as the program records it (0x350328): kind 0 (a wall) its force / 50,000 N,
-// kind 1 (another car) twice the closing speed in m/s, kind 2 |value / 50| and at least 0.2; at
-// most 1, and under 0.2 none (0).
+// A contact's strength as the program records it (0x350328): kind 0 (a wall) its impulse |j| (N s)
+// / 50,000, kind 1 (another car) twice |j| / 15,000, kind 2 (a course object) |value / 50| and at
+// least 0.2; at most 1, and under 0.2 none (0).
 float contact_strength(int kind, float value);
 
 // From what the simulation's seam gives. What it lacks is estimated: the skid's pitch from
 // the slip, the rim's speed from the car's, the engine's quietest throttle (3/8); no turbo or
-// whine. The seam's contact (race::CarState::contact: a wall's force in N, another car's closing
-// speed in m/s) is recorded as the program's kinds 0 and 1; a wheel landing is heard at the
+// whine. The seam's contact (race::CarState::contact, the body's strength) is recorded as the
+// program's kinds 0 and 1 (twice the body's strength, contact_strength); a wheel landing is heard at the
 // strength of the car's speed downward (m/s) / 5, under 0.5 not at all. 🔎
 CarSoundState sound_state(const race::CarState& car);
 
@@ -216,7 +222,7 @@ private:
     gt3r::EngineUnit engine_, exhaust_, wind_;
     bool wind_tried_ = false, resolved_ = false;
     int engine_level_ = 0, exhaust_level_ = 0;
-    bool was_afterfire_ = false;
+    bool was_afterfire_ = false; // the flame's strength over 0.1 last step
     u32 random_ = 0x2545F491;
     gt3r::EngineSound::View old_view_ = gt3r::EngineSound::View::ChaseOwn;
 
