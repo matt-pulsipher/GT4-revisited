@@ -16,10 +16,13 @@ Pace pace_for(const db::RaceEvent& e) {
 
 std::vector<GridEntry> grid_for(const db::RaceEvents& events, const menu::RaceRequest& request, u32 seed) {
     std::vector<GridEntry> out;
-    if (!request.entries.empty()) {
-        for (const std::string& car : request.entries) {
+    // The scripts' entry table: entry 0 is the player's car (arcade's doGame shifts it for the
+    // course like the others), entries 1 to overwrite_enemy_num the opponents they chose.
+    if (request.overwrite_enemy_num > 0 && request.entries.size() > 1) {
+        for (size_t i = 1; i < request.entries.size() && i <= size_t(request.overwrite_enemy_num); ++i) {
+            if (request.entries[i].empty() || request.entries[i] == "nil") continue;
             GridEntry g;
-            g.car = car;
+            g.car = request.entries[i];
             out.push_back(g);
         }
     } else if (!request.race.empty()) {

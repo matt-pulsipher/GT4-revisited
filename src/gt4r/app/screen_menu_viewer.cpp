@@ -54,7 +54,10 @@ void play_sound_call(audio::MenuSound& s, const menu::SoundCall& c) {
 
 class MenuViewer : public Screen {
 public:
-    explicit MenuViewer(App& app) {
+    // `player`: the game itself (make_game_screen): from power on, no lists, no log beside the
+    // pages; leaving the menus leaves the screen.
+    explicit MenuViewer(App& app, bool player = false) : player_(player) {
+        start_boot_ = player;
         const auto list = [&app](const std::string& folder) { return app.vfs()->list_dir(folder); };
         for (const std::string& name : menu::list_projects(list)) {
             const std::vector<std::string> languages = menu::project_languages(list, name);
@@ -104,6 +107,10 @@ public:
             if (start_run_ && project_) run(app, false);
         }
         if (runtime_) return update_running(app, m);
+        if (player_) { // the menus left (or failed to start: the error shown until a key)
+            if (error_.empty() || m.pressed(PadButton::Cross) || m.pressed(PadButton::Triangle)) app.pop();
+            return;
+        }
         if (m.pressed(PadButton::Triangle)) {
             if (full_) full_ = false;
             else if (project_) close();
@@ -127,6 +134,13 @@ public:
 
     void render(App&, Ui& ui) override {
         if (runtime_) return render_running(ui);
+        if (player_) {
+            ui.fill(0, 0, Ui::kWidth, Ui::kHeight, {0, 0, 0});
+            float y = Ui::kHeight / 2 - 20;
+            for (const std::string& line : Ui::wrap("The game could not start: " + error_, Ui::kWidth - 80)) ui.text_center(y, line, colors::kBad), y += 12;
+            ui.footer("{Cross}: back");
+            return;
+        }
         const char* states = state_ == kFocusBits ? "focused" : state_ == kActive ? "active" : state_ == kInsensitive ? "unavailable" : "at rest";
         if (project_ && full_ && page_sel_ < int(pages_.size())) {
             // The page over the whole height (4:3).
@@ -338,13 +352,21 @@ private:
             }
             if (const float cover = runtime_->fade_cover(); cover > 0) ui.fill(x, 0, 640 * scale, 480 * scale, Color{0, 0, 0, u8(std::clamp(cover, 0.0f, 1.0f) * 255.0f)});
         }
-        // What the scripts did, beside the page.
+        // What the scripts did, beside the page (the game itself: only what stopped them).
         const std::deque<std::string>& log = runtime_->log();
-        const size_t lines = std::min<size_t>(log.size(), 26);
+        if (player_) {
+            float y = 2;
+            for (size_t i = log.size() > 6 ? log.size() - 6 : 0; i < log.size(); ++i)
+                if (log[i].find("stopped:") != std::string::npos || log[i].find("script error") != std::string::npos)
+                    for (const std::string& line : Ui::wrap(log[i], x - 4)) ui.text(2, y, line, colors::kBad), y += 12;
+        }
+        const size_t lines = player_ ? 0 : std::min<size_t>(log.size(), 26);
         for (size_t i = 0; i < lines; ++i) ui.text(2, 14 + float(i) * 12, Ui::clip(log[log.size() - lines + i], x - 4), colors::kDim);
-        ui.text(2, 2, runtime_->project() ? runtime_->project()->name() : std::string("-"), colors::kAccent);
-        ui.text(x + 640 * scale + 2, 2, "Select+Start:", colors::kDim);
-        ui.text(x + 640 * scale + 2, 14, "stop", colors::kDim);
+        if (!player_) {
+            ui.text(2, 2, runtime_->project() ? runtime_->project()->name() : std::string("-"), colors::kAccent);
+            ui.text(x + 640 * scale + 2, 2, "Select+Start:", colors::kDim);
+            ui.text(x + 640 * scale + 2, 14, "stop", colors::kDim);
+        }
         if (race_) {
             // The menus' work is done: this is what a race would be started from.
             const float px = x + 60 * scale, py = 150 * scale, pw = 520 * scale;
@@ -403,6 +425,7 @@ private:
     MenuCursor cursor_;
     SDL_Texture* held_ = nullptr; // a block transition's screen
     int project_sel_ = 0, page_sel_ = 0, state_ = 0;
+    bool player_ = false; // the game itself
     bool full_ = false, start_run_ = false, start_boot_ = false;
     std::string error_, start_project_, start_page_, card_;
     double step_time_ = 0; // display time not yet stepped by the menus
@@ -418,6 +441,7 @@ private:
 } // namespace
 
 std::unique_ptr<Screen> make_menu_viewer(App& app) { return std::make_unique<MenuViewer>(app); }
+std::unique_ptr<Screen> make_game_screen(App& app) { return std::make_unique<MenuViewer>(app, true); }
 
 } // namespace gt4r
 

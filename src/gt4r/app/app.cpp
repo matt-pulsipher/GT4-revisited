@@ -7,8 +7,16 @@
 #include "gt4r_version.h"
 
 #include <algorithm>
+#include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
+
+#if defined(__APPLE__)
+#include <mach/mach.h>
+#elif defined(__linux__)
+#include <unistd.h>
+#endif
 
 namespace gt4r {
 
@@ -21,6 +29,23 @@ const SDL_DialogFileFilter kDiscFilters[] = {
 
 void SDLCALL on_dialog(void* user, const char* const* files, int) {
     if (files && files[0]) static_cast<App*>(user)->request_disc(files[0]);
+}
+
+// The process's resident memory in bytes (0 where it is not read).
+size_t resident_bytes() {
+#if defined(__APPLE__)
+    mach_task_basic_info info{};
+    mach_msg_type_number_t count = MACH_TASK_BASIC_INFO_COUNT;
+    if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO, reinterpret_cast<task_info_t>(&info), &count) == KERN_SUCCESS) return size_t(info.resident_size);
+#elif defined(__linux__)
+    if (std::FILE* f = std::fopen("/proc/self/statm", "r")) {
+        unsigned long pages = 0, resident = 0;
+        const int n = std::fscanf(f, "%lu %lu", &pages, &resident);
+        std::fclose(f);
+        if (n == 2) return size_t(resident) * size_t(sysconf(_SC_PAGESIZE));
+    }
+#endif
+    return 0;
 }
 
 } // namespace
@@ -93,9 +118,18 @@ bool App::init(int argc, char** argv) {
         else if (a == "--shot" && has_value) shot_path_ = argv[++i];
         else if (a == "--screen" && has_value) start_ = argv[++i];
         else if (a == "--shot-frame" && has_value) shot_frame_ = std::atoi(argv[++i]);
+        else if (a == "--stats" && has_value) stats_path_ = argv[++i];
         else if (a == "--keys" && has_value) {
-            for (std::string_view k : gt3r::split(argv[++i], ','))
-                if (!gt3r::trim(k).empty()) keys_.emplace_back(gt3r::to_lower(gt3r::trim(k)));
+            // "@<file>" among the keys: the keys of that file there.
+            for (std::string& k : parse_key_script(argv[++i])) {
+                if (k[0] != '@') {
+                    keys_.push_back(std::move(k));
+                    continue;
+                }
+                const std::optional<Bytes> file = gt3r::read_host_file(k.substr(1));
+                if (!file) LOG_WARN("--keys: could not read %s", k.c_str() + 1);
+                for (std::string& f : parse_key_script(file ? std::string(file->begin(), file->end()) : std::string())) keys_.push_back(std::move(f));
+            }
         } else if (!a.empty() && a[0] != '-') disc_path = a;
     }
     if (disc_path.empty()) disc_path = config_.get("game", "disc").value_or("");
@@ -105,10 +139,26 @@ bool App::init(int argc, char** argv) {
         if (!browse_.empty()) push(make_browser_screen(browse_));
         else if (start_ == "menus") push(make_menu_viewer(*this));
         else if (start_ == "race") push(make_race_screen(*this));
-        else if (start_ == "cars" || start_ == "courses") keys_.insert(keys_.begin(), start_ == "cars" ? "cross" : "down"), start_ == "courses" ? void(keys_.insert(keys_.begin() + 1, "cross")) : void();
+        else if (start_ == "cars" || start_ == "courses") { // (the hub's items: Play, Cars, Courses)
+            const std::vector<std::string> to = start_ == "cars" ? std::vector<std::string>{"down", "cross"} : std::vector<std::string>{"down", "down", "cross"};
+            keys_.insert(keys_.begin(), to.begin(), to.end());
+        }
+        // A launch with a disc and nothing else asked for: the game from power on, the home
+        // screen under it ([game] start = hub: the home screen).
+        else if (start_ == "game" || (start_.empty() && config_.get("game", "start").value_or("game") != "hub")) push(make_game_screen(*this));
     } else push(make_setup_screen());
-    last_ticks_ = SDL_GetTicksNS();
+    last_ticks_ = start_ticks_ = SDL_GetTicksNS();
     return true;
+}
+
+std::vector<std::string> App::parse_key_script(std::string_view text) {
+    std::vector<std::string> keys;
+    for (std::string_view line : gt3r::split(text, '\n')) {
+        if (const size_t hash = line.find('#'); hash != std::string_view::npos) line = line.substr(0, hash);
+        for (std::string_view k : gt3r::split(line, ','))
+            if (const std::string_view t = gt3r::trim(k); !t.empty()) keys.emplace_back(t[0] == '@' ? std::string(t) : gt3r::to_lower(t)); // (a file's name as written)
+    }
+    return keys;
 }
 
 std::string App::open_disc(const std::string& path) {
@@ -177,9 +227,34 @@ void App::apply_screen_changes() {
 }
 
 // --keys: each name is a pad button held for two frames and let go for six; "waitN" is N
-// frames without a press.
+// frames without a press; "shot:<name>" a picture; "quit" ends the run. The race's controls
+// are held from their token until another changes them: "gas=<0..1>" (the throttle, Cross's
+// pressure), "brake=<0..1>" (Square's), "steer=<-1..1>" (the left stick, left negative),
+// "reverse=<0..1>" (Triangle's), "handbrake=0|1" (Circle), "release" (all let go).
 gt3r::PadState App::scripted_keys() {
     gt3r::PadState pad;
+    while (key_ < keys_.size()) { // the tokens that take no frame
+        const std::string& k = keys_[key_];
+        const size_t eq = k.find('=');
+        if (k == "quit") {
+            quit_ = true, ++key_;
+            return pad;
+        }
+        if (k == "release") {
+            drive_ = {}, ++key_;
+            continue;
+        }
+        if (eq == std::string::npos || k.compare(0, 5, "shot:") == 0) break;
+        const std::string name = k.substr(0, eq);
+        const float v = float(std::atof(k.c_str() + eq + 1));
+        if (name == "gas" || name == "throttle") drive_.gas = std::clamp(v, 0.0f, 1.0f);
+        else if (name == "brake") drive_.brake = std::clamp(v, 0.0f, 1.0f);
+        else if (name == "steer") drive_.steer = std::clamp(v, -1.0f, 1.0f);
+        else if (name == "reverse") drive_.reverse = std::clamp(v, 0.0f, 1.0f);
+        else if (name == "handbrake") drive_.handbrake = v != 0;
+        else LOG_WARN("--keys: no control named %s", name.c_str());
+        ++key_, key_frames_ = 0;
+    }
     if (key_ < keys_.size()) {
         const std::string& k = keys_[key_];
         const bool wait = k.compare(0, 4, "wait") == 0;
@@ -206,7 +281,8 @@ gt3r::PadState App::scripted_keys() {
 
 SDL_AppResult App::iterate() {
     const Uint64 now = SDL_GetTicksNS();
-    double dt = std::min(double(now - last_ticks_) / 1e9, 0.1);
+    const double wall_ms = double(now - last_ticks_) / 1e6; // since the last frame
+    double dt = std::min(wall_ms / 1e3, 0.1);
     last_ticks_ = now;
     if (!shot_path_.empty()) dt = 1.0 / 60.0; // pictures do not depend on the machine's speed
 
@@ -220,11 +296,27 @@ SDL_AppResult App::iterate() {
             screens_.clear();
             pending_.clear();
             push(make_hub_screen());
+            if (config_.get("game", "start").value_or("game") != "hub") push(make_game_screen(*this)); // the game from power on
         }
     }
 
     apply_screen_changes();
     const gt3r::PadState scripted = scripted_keys();
+    {
+        // The script's presses and held race controls reach the race's pad too (as an overlay on
+        // player 1's: a pad plugged in still drives).
+        gt3r::PadState ov = scripted;
+        const auto hold = [&ov](PadButton b, float v) {
+            if (v <= 0) return;
+            ov.buttons |= u16(1u << unsigned(b));
+            ov.pressure[size_t(b)] = std::max(ov.pressure[size_t(b)], u8(std::lround(v * 255)));
+        };
+        hold(PadButton::Cross, drive_.gas), hold(PadButton::Square, drive_.brake), hold(PadButton::Triangle, drive_.reverse);
+        hold(PadButton::Circle, drive_.handbrake ? 1.0f : 0.0f);
+        ov.set_axis(gt3r::PadAxis::LX, drive_.steer);
+        ov.connected = ov.buttons != 0 || drive_.steer != 0;
+        input_->set_overlay(0, ov);
+    }
     input_->update(dt);
     menu_.update(scripted.buttons ? scripted : input_->menu_pad(), dt);
     if (!screens_.empty()) screens_.back()->update(*this, dt);
@@ -240,6 +332,7 @@ SDL_AppResult App::iterate() {
         save_screenshot((slash == std::string::npos ? std::string() : shot_path_.substr(0, slash + 1)) + key_shot_ + ".png");
         key_shot_.clear();
     }
+    if (!stats_path_.empty()) write_stats(wall_ms);
     if (!shot_path_.empty() && frame_ >= shot_frame_) {
         save_screenshot(shot_path_);
         quit_ = true;
@@ -272,6 +365,19 @@ void App::save_screenshot(const std::string& path) {
     const Bytes png = gt3r::encode_png(u32(rgba->w), u32(rgba->h), px);
     SDL_DestroySurface(rgba);
     if (gt3r::write_host_file(path, png)) LOG_INFO("Screenshot saved: %s", path.c_str());
+}
+
+// --stats: a line a second (60 frames): the frame, the seconds since launch, the frames' mean
+// and longest wall time in ms, the process's resident memory in MB.
+void App::write_stats(double frame_ms) {
+    if (frame_ > 1) stats_ms_ += frame_ms, stats_max_ = std::max(stats_max_, frame_ms), ++stats_frames_;
+    if (frame_ % 60 != 0 || !stats_frames_) return;
+    if (std::FILE* f = std::fopen(stats_path_.c_str(), "a")) {
+        std::fprintf(f, "%d %.1f %.2f %.2f %.1f\n", frame_, double(SDL_GetTicksNS() - start_ticks_) / 1e9, stats_ms_ / stats_frames_, stats_max_,
+                     double(resident_bytes()) / (1024.0 * 1024.0));
+        std::fclose(f);
+    }
+    stats_ms_ = stats_max_ = 0, stats_frames_ = 0;
 }
 
 void App::shutdown() {
