@@ -242,25 +242,22 @@ void make_used_condition(Database&, CarRecord& r, u32 meters) {
 }
 
 void car_figures(Database& d, const CarRecord& r, s32& power100, s32& torque100, s32& weight) {
+    // updateCurrentStatus (0x146648) and a garage entry's figures (0x434FD0): the car of the sheet in use built
+    // as a showroom car (sim/showroom.h) with the record's condition block (+0x498: the engine's wear and oil,
+    // 0x350868); the power and torque x 100 truncated (0x364E78, 0x364EB8), the weight (0x364FA8); all 0 when
+    // the car's row hides its figures (GENERIC_CAR +0x12 bit 3).
     power100 = torque100 = weight = 0;
-    if (!d.db) return;
+    const sim::Showroom* sr = d.showroom();
+    if (!sr) return;
     sim::Equipment eq;
     std::memcpy(eq.bytes.data(), r.active(), sim::Equipment::kSize);
-    sim::Spec spec;
-    sim::build_spec(*d.db, d.program, eq, 0, spec);
-    const sim::SpecFigures f = sim::spec_figures(spec);
-    // The engine's wear and oil (0x350868): a new engine 0.97, run in 1.00, old 0.95; fresh
-    // oil 1.05, old 0.95.
-    float factor = 1;
-    if (!r.no_wear()) {
-        const float e = r.condition(1) / 1000.0f, o = r.condition(2) / 1000.0f; // km
-        const float ef = e < -300 ? 0.97f : e < 0 ? 0.97f + 0.03f * (e + 300) / 300 : e < 1000 ? 1.0f : e < 11000 ? 1.0f - 0.05f * (e - 1000) / 10000 : 0.95f;
-        const float of = o < -100 ? 1.05f : o < 0 ? 1.0f - 0.05f * o / 100 : o < 5000 ? 1.0f : o < 6000 ? 1.0f - 0.05f * (o - 5000) / 1000 : 0.95f;
-        factor = ef * of;
-    }
+    const sim::F factor = sim::engine_condition(d.program, sim::F(r.condition(1)), sim::F(r.condition(2)), r.no_wear());
+    const std::optional<sim::ShowroomFigures> f = sr->figures(eq, factor);
+    if (!f) return;
     const ByteSpan car = d.db->table("GENERIC_CAR") ? d.db->table("GENERIC_CAR")->row(u32(r64(r.active()))) : ByteSpan{};
     if (car.size() > 0x12 && (car[0x12] & 8)) return; // the specs are hidden
-    power100 = s32(f.ps * factor * 100), torque100 = s32(f.kgfm * factor * 100), weight = spec.weight_kg();
+    const sim::F hundred = sim::F::raw(0x42C80000);
+    power100 = gt3r::ee::to_int(f->power * hundred), torque100 = gt3r::ee::to_int(f->torque * hundred), weight = f->weight;
 }
 
 void entry_from_record(Database& d, GarageEntry& e) {

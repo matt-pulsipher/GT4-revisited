@@ -1,7 +1,7 @@
 #pragma once
 
 // Gran Turismo 4's showroom car (ShowRoomCar, 0x364760): a car built from its equipment the way the
-// menus build one, for its figures and its evaluation (docs/specs/physics.md "The showroom car").
+// menus build one, for its figures and its evaluation (docs/formats/menu.md "The showroom car").
 // The car's spec (0x3F3B68, a paved course), its parameter block (the converter 0x361908 with the
 // program's rule block 0x6203C8 and a condition that leaves the engine as it is), then:
 //  - the engine's figures (0x34F3F8): the curve's power and torque every 100 rpm with the power cap;
@@ -49,6 +49,13 @@ F capped_torque(const rules::EngineBlock& e, F t, F w);
 // 0x62045B, over 0.7355); a driveline whose byte +0x13 is 4: 13.596193; else none.
 F extra_power(const rules::DrivelineBlock& d, const Program& program);
 
+// 0x350868: the engine condition's factor on the engine's torque, from a car's condition block (its record
+// +0x498: +0x04 the engine's distance, +0x08 the oil's, m; +0x14 no wear), by the limits the program makes
+// once from the static block's bytes +0xD0 .. +0xD8 (0x350678; US 1.01: a new engine from -300,000 m, 0.97
+// rising to 1 at 0; 1 to 1,000 km, then down to 0.95 at 11,000 km; the oil 1.05 at -100,000 m, 1 from 0 to
+// 5,000 km, 0.95 from 6,000 km). 1 with no wear.
+F engine_condition(const Program& program, F engine, F oil, bool no_wear);
+
 // 0x3F86E8: the evaluation of a built car (its parameter block in r) with its engine's peak power `ps`
 // (with the extra) and peak torque `kgfm`.
 F evaluation(const Record& r, F ps, F kgfm);
@@ -60,6 +67,7 @@ struct ShowroomFigures {
     s16 power_rpm = 0, torque_rpm = 0;
     F evaluation;  // P +0xFE0 (0x364F00)
     F mass;        // P +0x48, kg
+    s16 weight = 0; // P +0x1048, kg (0x364FA8): the spec's weight by its percentage, with the ballast
 };
 
 // Builds showroom cars: holds the shared engine's program data the parameter block is made with.
@@ -68,7 +76,8 @@ public:
     Showroom(db::SpecDb& db, const Program& program);
     ~Showroom();
     // The car of an equipment; none when it has no chassis or no engine.
-    std::optional<ShowroomFigures> figures(const Equipment& eq) const;
+    // `condition`: engine_condition's factor (ShowRoomCar's own condition block leaves it 1).
+    std::optional<ShowroomFigures> figures(const Equipment& eq, F condition = F::raw(0x3F800000)) const;
     // A car as sold (sim::stock_car); none when the database has no such car.
     std::optional<ShowroomFigures> stock(const std::string& car_label) const;
     // The parameter block's record of an equipment (record.h), as figures() builds it.

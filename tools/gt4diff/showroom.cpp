@@ -25,7 +25,8 @@ constexpr u32 kQsort = 0x5A4BF8, kOrder = 0x130660, kSearch = 0x130618, kDraw = 
 constexpr u32 kGenerator = 0x874D50; // the program's generator's state
 constexpr u32 kArcadeTables = 0x623800; // the tables the program opens when first asked (0x447A78): ARCADEINFO_NORMAL, _TUNED
 constexpr u32 kTableCtor = 0x448F18, kTableOpen = 0x4490F8;
-constexpr u32 kEntry = 0x44;          // a candidate: its label (0x40 bytes), its evaluation
+constexpr u32 kEntry = 0x44;
+constexpr u32 kConditionFactor = 0x350868, kConditionLimits = 0x620320; // (limits, condition block)          // a candidate: its label (0x40 bytes), its evaluation
 
 double relative(float a, float b) {
     const double d = std::fabs(double(a) - double(b)), m = std::fmax(std::fabs(double(a)), std::fabs(double(b)));
@@ -76,6 +77,44 @@ ShowroomResult run_showroom(Disc& disc, bool print, size_t limit) {
                         double(gt3r::ee::to_host(f->evaluation.bits)), double(pw_t), double(gt3r::ee::to_host(f->power.bits)),
                         double(ee.rf(car + kTorque)), double(gt3r::ee::to_host(f->torque.bits)));
     }
+    // The engine condition's factor on made-up condition blocks.
+    {
+        const u32 cond = ee.alloc(0x20);
+        const float engines[] = {-400000, -300000, -299999, -150000, -1, 0, 500000, 1000000, 1000001, 5000000, 10999999, 11000000, 20000000};
+        const float oils[] = {-200000, -100001, -100000, -50000, 0, 4000000, 5000000, 5500000, 6000000, 9000000};
+        for (float e : engines)
+            for (float o : oils)
+                for (int nw = 0; nw < 2; ++nw) {
+                    for (u32 k = 0; k < 0x20; k += 4) ee.w32(cond + k, 0);
+                    ee.wf(cond + 4, e), ee.wf(cond + 8, o), ee.w8(cond + 0x14, u8(nw));
+                    const auto r = ee.call(kConditionFactor, {Arg::ptr(kConditionLimits), Arg::ptr(cond)}, 1'000'000);
+                    const sim::F ours_f = sim::engine_condition(program, sim::F(e), sim::F(o), nw != 0);
+                    ++result.conditions, result.conditions_equal += r.f0 == ours_f.bits;
+                    if (r.f0 != ours_f.bits && print) std::printf("  condition %g / %g: %g vs ours %g\n", double(e), double(o), double(r.f0_host()), double(gt3r::ee::to_host(ours_f.bits)));
+                }
+        // Cars built with a condition block (a new engine, worn oil; a worn engine, fresh oil): the power.
+        size_t n = 0;
+        for (const db::CarEntry& c : sdb.cars()) {
+            if (n++ >= 60) break;
+            sim::Equipment eq;
+            if (!sim::stock_car(sdb, program, c.label, eq)) continue;
+            for (const auto& [e, o] : {std::pair<float, float>{-300000, 5800000}, {8000000, -60000}}) {
+                for (u32 k = 0; k < 0x20; k += 4) ee.w32(cond + k, 0);
+                ee.wf(cond + 4, e), ee.wf(cond + 8, o);
+                for (u32 k = 0; k < 0x200; k += 4) ee.w32(eq_at + k, 0);
+                for (u32 k = 0; k < kShowroomSize; k += 4) ee.w32(car + k, 0);
+                ee.w32(object, car), ee.w8(object + 4, 0);
+                ee.call(kSetCar, {Arg::ptr(eq_at), Arg::integer(db::part_id(0, c.id))}, 50'000'000);
+                ee.call(kShowroomBuild, {Arg::ptr(object), Arg::ptr(eq_at), Arg::ptr(cond)}, 400'000'000);
+                const std::optional<sim::ShowroomFigures> f = ours.figures(eq, sim::engine_condition(program, sim::F(e), sim::F(o), false));
+                ++result.worn;
+                result.worn_equal += f && ee.r32(car + kPower) == f->power.bits && ee.r32(car + kEvaluation) == f->evaluation.bits &&
+                                     s16(ee.r16(car + 0x1648)) == f->weight;
+            }
+        }
+    }
+    if (print)
+        std::printf("showroom: conditions equal %zu of %zu, worn cars %zu of %zu\n", result.conditions_equal, result.conditions, result.worn_equal, result.worn);
     if (print)
         std::printf("showroom: %zu cars, %zu built; evaluation equal on %zu (worst %.2g), power on %zu (worst %.2g), torque on %zu\n",
                     result.cars, result.built, result.evaluation_equal, result.worst_evaluation, result.power_equal, result.worst_power,

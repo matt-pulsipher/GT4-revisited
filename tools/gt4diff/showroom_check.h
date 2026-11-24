@@ -15,6 +15,8 @@ struct ShowroomResult {
     size_t evaluation_equal = 0, power_equal = 0, torque_equal = 0; // bit for bit
     double worst_evaluation = 0, worst_power = 0;   // the largest relative differences
     std::string first_evaluation, first_power;      // the first car that differs
+    size_t conditions = 0, conditions_equal = 0;    // the engine condition's factor (0x350868) on made-up blocks
+    size_t worn = 0, worn_equal = 0;                // cars built with a worn condition block: power equal
 };
 // The program's set-car (0x444480) and its showroom car build (0x364868 on a ShowRoomCar's 0x1800 bytes),
 // read: the evaluation (+0x15E0, 0x364F00) and the power and torque (+0x1700 / +0x1704); ours by

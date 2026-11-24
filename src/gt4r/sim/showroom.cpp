@@ -87,6 +87,33 @@ F extra_power(const rules::DrivelineBlock& d, const Program& program) {
     return d.x13 == 4 ? kDriveline4 : k0;
 }
 
+F engine_condition(const Program& program, F engine, F oil, bool no_wear) {
+    if (no_wear) return kOne;
+    // The limits (0x350678) from the static block's bytes.
+    const u32 b = Program::kStatic + 0xD0;
+    const F k001 = F::raw(0x3A83126E); // 0.001
+    auto metres = [&](u32 i) { return int_to_f(s32(program.b(b + i)) * 100000); };
+    auto share = [&](u32 i) { return int_to_f(s32(program.b(b + i))) * k001; };
+    const F new_engine = -metres(0), new_loss = share(1), run_in = metres(2), worn = metres(3) + run_in, worn_loss = share(4);
+    const F fresh_oil = -metres(5) * kHalf, oil_gain = share(6), old_oil = metres(7), oil_from = metres(8);
+    F e = kOne;
+    if (engine < new_engine) e = e - new_loss;
+    else if (engine < k0) e = e - (engine * new_loss) / new_engine;
+    else if (!(engine <= run_in)) {
+        if (!(engine < worn)) e = e - worn_loss;
+        else e = e - ((engine - run_in) * worn_loss) / (worn - run_in);
+    }
+    F o = kOne;
+    if (oil < fresh_oil) o = oil_gain + o;
+    else if (oil < k0) o = (oil * oil_gain) / fresh_oil + o;
+    else if (oil_from < oil) {
+        F t = (oil - oil_from) / (old_oil - oil_from);
+        if (kOne < t) t = kOne;
+        o = o - oil_gain * t;
+    }
+    return e * o;
+}
+
 F evaluation(const Record& r, F ps, F kgfm) {
     const ex::Params& p = r.car.p;
     const rules::TireExtra& tires = r.x.tires;
@@ -151,12 +178,11 @@ bool Showroom::record(const Equipment& eq, Spec& spec, Record& out) const {
     return true;
 }
 
-std::optional<ShowroomFigures> Showroom::figures(const Equipment& eq) const {
+std::optional<ShowroomFigures> Showroom::figures(const Equipment& eq, F condition) const {
     Spec spec;
     Record r;
     if (!program_.known() || !record(eq, spec, r)) return std::nullopt;
-    // ShowRoomCar's condition (0x364868: the default block, 0x3433E8) leaves the engine's curve as it is.
-    const EngineFigures e = engine_figures(r.x.drive.e, kOne);
+    const EngineFigures e = engine_figures(r.x.drive.e, condition);
     const F extra = extra_power(r.x.drive.d, program_);
     ShowroomFigures f;
     f.power = e.ps + extra;
@@ -164,6 +190,12 @@ std::optional<ShowroomFigures> Showroom::figures(const Equipment& eq) const {
     f.power_rpm = e.power_rpm, f.torque_rpm = e.torque_rpm;
     f.evaluation = evaluation(r, f.power, e.kgfm);
     f.mass = r.car.p.mass;
+    // P +0x1048 (0x361908): the spec's weight, times its percentage (+0x08) when that is neither 0 nor 100, plus
+    // the ballast (+0x05).
+    s32 w = s16(spec.h(0x20));
+    if (const s32 pct = spec.b(0x08); pct != 0 && pct != 100) w = (w * pct) / 100;
+    if (spec.b(0x05)) w = s16(w) + spec.b(0x05);
+    f.weight = s16(w);
     return f;
 }
 

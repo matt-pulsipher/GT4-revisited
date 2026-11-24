@@ -126,8 +126,8 @@ void day_to_date(u32 day, int& y, int& m, int& d) {
 }
 
 // next01 (0x578598): the draw made into a float in [0, 1) by hand: exponent 126 - z and the
-// bits below the leading one shifted by z + 2 (z: the leading zeros). ❓ One more than a plain
-// conversion (the bit under the leading one is dropped), as read.
+// bits below the leading one shifted by z + 2 (z: the leading zeros): one more than a plain
+// conversion (the bit under the leading one is dropped). Equal to the program's (gt4r_diff picker).
 float ProgramRandom::next01() {
     const u32 x = step();
     if (!x) return 0;
@@ -709,6 +709,9 @@ g.method("menuRef", [s](Vm&, const Value&, Args a) {
                     if (e.car.empty()) return number(-1);
                     e.paint = arg_int(a, 1);
                 } else {
+                    // The entry's car (0x434E38): as sold, with the odometer's condition (0x440F78: a new car's engine
+                    // at 0 m, run in), its figures (0x434FD0).
+                    make_used_condition(self->db(), r, 0);
                     e.record = r;
                     entry_from_record(self->db(), e);
                     e.record.reset(); // a new car is the car as sold until it is driven
