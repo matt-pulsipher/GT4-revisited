@@ -532,6 +532,8 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
             aid_inputs = std::make_unique<ex::RaceInputs>(ex::race_inputs(sim::core_program(sim::Program::load(disc)), ex::Conductor::SinglePlayer, ex::RaceConfig{}, false, 0));
             aid_taps = std::make_unique<Taps>(ee, o, *aid_inputs);
         }
+        static const sim::Program step_program = sim::Program::load(disc); // (the taps that read the program's tables)
+        set_step_program(&step_program);
         add_step_taps(*aid_taps);
     }
     // GT4R_AI_COLLIDE: the collision step and the road query against ours at every call (collide_check.cpp); =1 both,

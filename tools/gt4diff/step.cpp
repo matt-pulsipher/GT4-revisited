@@ -12,6 +12,7 @@
 #include "gt4r/sim/ground.h"
 #include "gt4r/sim/rules_chassis.h"
 #include "gt4r/sim/rules_drive.h"
+#include "gt4r/sim/rules_effects.h"
 #include "gt4r/sim/rules_step.h"
 #include "gt4r/sim/rules_tires.h"
 #include "gt4r/sim/rules_wear.h"
@@ -105,6 +106,16 @@ void add_taps(Taps& taps) {
                   u32 state = t.ee.r32(sim::rules::kRandomState);
                   sim::rules::flaps(t.car, t.rec.layout, state);
                   t.mem_i("random state", sim::rules::kRandomState, state);
+              }});
+    taps.add({0x367148, "sliding measures", car_a0, [](TapCall& t) {
+                  u8 b[0x210];
+                  t.ee.read_bytes(sim::rules::kSlideBytes, b, sizeof b);
+                  const sim::rules::SlideTables k = sim::rules::slide_tables(b);
+                  const u8 kind = t.ee.r8(t.ee.r32(t.race.car(t.car_index) + 4) + 0x10000 - 0x3423);
+                  sim::rules::slide_effects(t.car, t.rec.layout, k, kind);
+              }});
+    taps.add({0x352EA0, "tire wear", car_a0, [](TapCall& t) {
+                  sim::rules::tire_wear(t.car, t.rec.x.wear, t.rec.x.tires, t.rec.layout, wear_rules_of(t));
               }});
     taps.add({0x354AC0, "masses", car_a0, [](TapCall& t) { sim::rules::masses(t.car, t.rec.x.drive.fuel, t.rec.x.chassis.mass, t.rec.x.body.sprung_mass); }});
     taps.add({0x35D920, "hub velocities", car_a0, [](TapCall& t) {
@@ -219,6 +230,7 @@ Pad drive(int i) {
 } // namespace
 
 void add_step_taps(Taps& taps) { add_taps(taps); }
+void set_step_program(const sim::Program* program) { g_program = program; }
 
 StepResult run_step(Disc& disc, bool print, const std::string& course_label, const std::string& car_label, int step_count) {
     StepResult result;
@@ -302,6 +314,10 @@ StepResult run_step(Disc& disc, bool print, const std::string& course_label, con
         const float tread[8] = {-0.5f, 0.1f, 0.2f, 0.05f, 0.5f, 0.15f, 0.8f, 0.3f}, second[6] = {-0.4f, 0.1f, 0.3f, 0.1f, 0.9f, 0.25f};
         for (u32 k = 0; k < 8; ++k) ee.wf(o.cond + 4 + 4 * k, tread[k]);
         for (u32 k = 0; k < 6; ++k) ee.wf(o.cond + 4 + 0x50 + 4 * k, second[k]);
+        // the tread wear's pit grip, cap and slip extra; the second wear's rate, weights, fall and force scale (the program's
+        // table 0x620B60's values, which its switch byte leaves unused)
+        const float mid[12] = {0.6f, 0.8f, 0.5f, -0.1f, 0.05f, 1.0f, 1.0f, 1.0f, 1.0f, 0.5f, 0.02f, 3.06e-5f};
+        for (u32 k = 0; k < 12; ++k) ee.wf(o.cond + 4 + 0x20 + 4 * k, mid[k]);
         const float a[4] = {-0.6f, -0.2f, 0.1f, 0.35f}, b[4] = {-0.5f, -0.1f, 0.2f, 0.6f};
         for (int i = 0; i < o.cars; ++i)
             for (u32 w = 0; w < 4; ++w) {
@@ -385,6 +401,30 @@ StepResult run_step(Disc& disc, bool print, const std::string& course_label, con
         road.equal = same ? 1 : 0;
         result.taps.push_back(road);
         if (print) std::printf("  %-28s %s\n", road.name.c_str(), same ? "equal" : "differ");
+    }
+    { // The sliding measures' tables (0x366D68 at the race's start) against ours from the program's bytes.
+        StepTap st{"sliding measures' tables (ours)", 1, 0};
+        const sim::rules::SlideTables k = sim::rules::slide_tables(program);
+        size_t off = 0;
+        auto cmp = [&](u32 a, gt3r::ee::F v, const char* what, u32 g, u32 kind, u32 j) {
+            if (ee.r32(a) == v.bits) return;
+            ++off;
+            if (print && off < 20) std::printf("  slide table %s [%u][%u] %u: the program's %08X, ours %08X\n", what, g, kind, j, ee.r32(a), v.bits);
+        };
+        for (u32 g = 0; g < 3; ++g)
+            for (u32 kind = 0; kind < 4; ++kind) {
+                const u32 o = sim::rules::kSlideCurves + 0x210 * g + 0x84 * kind;
+                const sim::rules::SlideCurves& c = k.set[g][kind];
+                if (s16(ee.r16(o + 0x20)) != c.a.n || s16(ee.r16(o + 0x6C)) != c.b.n) ++off;
+                for (u32 j = 0; j < u32(c.a.n); ++j) cmp(o + 4 * j, c.a.x[j], "a.x", g, kind, j), cmp(o + 0x10 + 4 * j, c.a.y[j], "a.y", g, kind, j);
+                for (u32 j = 0; j < u32(c.b.n); ++j) cmp(o + 0x2C + 4 * j, c.b.x[j], "b.x", g, kind, j), cmp(o + 0x4C + 4 * j, c.b.y[j], "b.y", g, kind, j);
+                cmp(o + 0x78, c.base, "base", g, kind, 0), cmp(o + 0x7C, c.knee, "knee", g, kind, 0), cmp(o + 0x80, c.gain, "gain", g, kind, 0);
+            }
+        const gt3r::ee::F loose[5] = {k.loose_scale, k.loose_x0, k.loose_y0, k.loose_x1, k.loose_y1};
+        for (u32 j = 0; j < 5; ++j) cmp(sim::rules::kSlideLoose + 4 * j, loose[j], "loose", 0, 0, j);
+        st.equal = off ? 0 : 1;
+        result.taps.push_back(st);
+        if (print) std::printf("  %-28s %s\n", st.name.c_str(), off ? "differ" : "equal");
     }
     const int steps = step_count > 0 ? step_count : std::getenv("GT4R_STEPS") ? std::atoi(std::getenv("GT4R_STEPS")) : 1200;
     try {

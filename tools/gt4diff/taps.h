@@ -126,5 +126,6 @@ private:
 void add_taps_aids(Taps& taps); // the driving aids' phase and routines (taps_aids.cpp)
 void add_taps_steer(Taps& taps); // the steering phase and its routines (taps_steer.cpp)
 void add_step_taps(Taps& taps);  // the step's other ported routines (step.cpp)
+void set_step_program(const sim::Program* program); // the program whose tables those taps read (run_step sets its own)
 
 } // namespace gt4r::diff
