@@ -469,6 +469,9 @@ TEST(disc_menu_arcade_to_race) {
         CHECK(race->sequence == "single_race" && race->car == car_code && race->paint == (paints > 1 ? 1 : 0));
         CHECK(!race->course.empty() && f.rt->game().available_courses.count(race->course) && race->max_entry >= 2);
         CHECK(race->difficulty == "NORMAL" && race->manual == 0 && race->assist_tcs == 1);
+        // The entry table the scripts read and wrote: entry 0 is the player's car, never "nil".
+        CHECK(std::find(race->entries.begin(), race->entries.end(), "nil") == race->entries.end());
+        CHECK(race->entries.empty() || race->entries[0] == race->car);
         std::printf("  race asked for: %s, %s (%s, paint %d) at %s (course %d of %d), %d cars, race \"%s\"\n", race->sequence.c_str(), race->car.c_str(),
                     maker.c_str(), race->paint, race->course.c_str(), course_index, courses, race->max_entry, race->race.c_str());
     }

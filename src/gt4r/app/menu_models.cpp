@@ -2,11 +2,13 @@
 
 #include "base/log.h"
 #include "gt4r/app/app.h"
+#include "gt4r/app/menu_image_key.h"
 #include "gt4r/app/menu_face3d.h"
 #include "gt4r/formats/model/mdls.h"
 #include "gt4r/menu/runtime.h"
 #include "render/gpu_context.h"
 
+#include <cmath>
 #include <cstring>
 
 namespace gt4r {
@@ -20,6 +22,7 @@ MenuModels::MenuModels(App& app) : app_(app) {
 
 MenuModels::~MenuModels() {
     models_.clear();
+    views_.clear();
     view_.reset();
     if (app_.gpu())
         for (auto& [k, t] : env_)
@@ -33,7 +36,7 @@ void MenuModels::begin_frame(u64 frame) {
 
 void MenuModels::end_frame() {
     for (auto it = faces_.begin(); it != faces_.end();)
-        if (!it->second.seen || it->second.widget.expired()) it = faces_.erase(it);
+        if (!it->second.seen || it->second.widget.expired()) views_.erase(it->first), it = faces_.erase(it);
         else ++it;
 }
 
@@ -62,7 +65,7 @@ const render::GpuModel* MenuModels::model(menu::Project* project, const std::str
 SDL_GPUTexture* MenuModels::env_texture(menu::Project* project, const std::string& page, const std::string& path) {
     const gt3r::Tex1::Image* img = project && !path.empty() ? project->image(page, path) : nullptr;
     if (!img || !img->width || !img->height) return nullptr;
-    SDL_GPUTexture*& t = env_[img];
+    SDL_GPUTexture*& t = env_[image_key(*img)];
     if (!t) {
         render::Uploader up(app_.gpu()->device());
         t = up.texture_rgba(img->width, img->height, reinterpret_cast<const u32*>(img->rgba.data()), false);
@@ -128,7 +131,10 @@ void MenuModels::draw(const menu::LiveWidget& face, menu::Project* project, cons
     if (SDL_GPUTexture* env = env_texture(project, page, s.env_image_path)) o.env_sphere = env, o.reflection_strength = 1.0f;
     items_.clear();
     items_.push_back({m, placed, 0});
-    view_->draw(app_.renderer(), menu_face3d::on_screen(part, at, dst), view, proj, eye, items_, o);
+    const SDL_FRect shown = menu_face3d::on_screen(part, at, dst);
+    std::unique_ptr<render::View3D>& v3 = views_[&face];
+    if (!v3) v3 = std::make_unique<render::View3D>(*app_.gpu());
+    v3->draw(app_.renderer(), shown, view, proj, eye, items_, o);
 }
 
 } // namespace gt4r

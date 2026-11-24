@@ -257,7 +257,13 @@ Value LiveWidget::get(const std::string& n) const {
         if (n == "visible") return Value::integer(1);
         if (n == "alpha" || n == "opacity" || n == "scale_x" || n == "scale_y" || n == "sx" || n == "sy") return Value::number(1);
         if (n == "text" || n == "key" || n == "image_path" || n == "movie_name" || n == "car_code" || n == "tooltip_key") return Value::string({});
-        if (n == "value" && (is("TextFace") || is("ToolTipFace") || is("InputTextFace"))) return Value::string({});
+        if (n == "value" && (is("TextFace") || is("ToolTipFace") || is("InputTextFace"))) {
+            // A text face without a value gives its key: Prologue's car page keeps the formats of
+            // its figures there ("%Cfff%d %C222%s") and hands `face.value` to getCatPs and the
+            // others. ❓ From the scripts' use.
+            if (const Property* key = data.find("key"); key && !key->values.empty() && key->type == "string") return Value::string(key->values[0]);
+            return Value::string({});
+        }
         return Value::integer(0);
     }
     if (p->type == "string") return Value::string(p->values[0]);
@@ -412,7 +418,24 @@ std::shared_ptr<script::Reference> common_member(const W& w, const std::string& 
             attach_actor(*w, a.empty() ? Value{} : a[0]);
             return Value{};
         });
-    if (n == "doCopy") return fn([w](Vm&, const Value&, Args) { return widget_value(w->copy()); });
+    // setColor(color) on a picture or text face: its tint, an MColorObject's r, g, b, a (0..1).
+    // (Prologue's paint page tints its color balls so: chip["base"].setColor(car.getColors()[i]).)
+    if (n == "setColor" && (w->is("ImageFace") || w->is("TextFace")))
+        return fn([w](Vm& vm, const Value&, Args a) {
+            if (a.empty() || a[0].kind != Kind::Object) return Value{};
+            auto part = [&](const char* c, float otherwise) {
+                const Value v = vm.attribute(a[0], c);
+                return v.is_number() ? std::clamp(v.as_float(), 0.0f, 1.0f) : otherwise;
+            };
+            Property& p = property(w->data, "color", "");
+            Property rgba;
+            rgba.type = "RGBA";
+            for (float f : {part("r", 1), part("g", 1), part("b", 1), part("a", 1)}) rgba.values.push_back(std::to_string(int(std::lround(f * 255.0f))));
+            p.type.clear(), p.values.clear(), p.widgets.clear(), p.is_list = true, p.items = {std::move(rgba)};
+            return Value{};
+        });
+    // (Prologue's scripts name it getDeepCopy.)
+    if (n == "doCopy" || n == "getDeepCopy") return fn([w](Vm&, const Value&, Args) { return widget_value(w->copy()); });
     // Reads its properties again (a picture's path changed): nothing is kept here that needs it.
     if (n == "doInitialize") return fn([](Vm&, const Value&, Args) { return Value{}; });
     // interpolateX(target, ratio): moves a ratio of the way; within one unit it arrives and

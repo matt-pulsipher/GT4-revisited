@@ -1,4 +1,5 @@
 #include "gt4r/race/course_scene.h"
+#include "gt4r/race/gadget_bodies.h"
 
 #include "gt4r/formats/course/runway_gtrw.h"
 
@@ -253,15 +254,20 @@ void CourseScene::add_items(std::vector<render::DrawItem>& items, const render::
     // The cones and boards near the camera (lit by the course's lights, 🔎 scene light 0 in the
     // program), each kind's shape at its place and turn.
     if (gadget_model_ && !mirror)
-        for (const Gadgets::Placement& p : gadgets_.placements) {
+        for (size_t g = 0; g < gadgets_.placements.size(); ++g) {
+            const Gadgets::Placement& p = gadgets_.placements[g];
             if (p.kind < 0 || size_t(p.kind) >= gadget_nodes_.size()) continue;
-            const float dx = p.position.x - eye.x, dy = p.position.y - eye.y, dz = p.position.z - eye.z;
+            // Where the cars have left it, or at its place.
+            const GadgetBodies::Body* body = gadget_bodies_ && g < gadget_bodies_->bodies().size() ? &gadget_bodies_->bodies()[g] : nullptr;
+            if (body && body->removed) continue;
+            const course::Vec3 pos = body ? body->pos : p.position;
+            const float dx = pos.x - eye.x, dy = pos.y - eye.y, dz = pos.z - eye.z;
             if (dx * dx + dy * dy + dz * dz > 400.0f * 400.0f) continue;
-            const std::array<float, 9> r = Gadgets::rotation(p.angles);
+            const std::array<float, 9> r = body ? body->rot : Gadgets::rotation(p.angles);
             render::Mat4 at;
             for (int i = 0; i < 3; ++i)
                 for (int j = 0; j < 3; ++j) at.at(i, j) = r[size_t(i * 3 + j)];
-            at.at(0, 3) = p.position.x, at.at(1, 3) = p.position.y, at.at(2, 3) = p.position.z;
+            at.at(0, 3) = pos.x, at.at(1, 3) = pos.y, at.at(2, 3) = pos.z;
             render::DrawItem it{gadget_model_.get(), at, 0};
             it.nodes = &gadget_nodes_[size_t(p.kind)];
             it.lights = lights;

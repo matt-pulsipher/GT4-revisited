@@ -20,6 +20,7 @@
 namespace gt4r::menu {
 
 class Runtime;
+struct GameSettings; // game_settings.h
 
 // A widget's states: the bits a face's "visible_condition" is tested against.
 enum WidgetState : int { kActive = 1, kFocus = 2, kPrelight = 4, kInsensitive = 8 };
@@ -38,6 +39,7 @@ struct LiveWidget : script::Module {
     Runtime* runtime = nullptr;                                       // the one running it (none for a page only drawn)
     // A list box's rows, made from its template as they are asked for.
     std::vector<std::shared_ptr<LiveWidget>> items;
+    std::vector<u8> items_in_view; // a list box's: the rows in view at its last arrangement
     float scroll = 0, scroll_target = 0; // of a scroll window or list: how far its content is moved
     float item_w = 16, item_h = 16;      // a select box's: the size of its rows (its first row's)
 
@@ -167,6 +169,11 @@ public:
     // Every sound call, in order (also noted in the log). `on_sound` is called with each.
     const std::vector<SoundCall>& sound_calls() const { return sounds_; }
     std::function<void(const SoundCall&)> on_sound;
+    // The options as the rest of the game reads them (game_settings.h), given each time they may
+    // have changed: at the end of the start, when a game is loaded, and when the scripts apply,
+    // save or reset them. The app sets the menus' sound volumes from it.
+    std::function<void(const GameSettings&)> on_options;
+    void options_changed();
     // Notes every call the event thread makes and every key it handles in the log.
     bool trace_calls = false;
     // The colour and how much of it covers the page: the transition the scripts started.
@@ -262,6 +269,7 @@ private:
     std::deque<std::string> log_;
     std::vector<SoundCall> sounds_;
     u64 frame_ = 0, last_input_frame_ = 0;
+    std::weak_ptr<LiveWidget> entered_; // the widget the cursor last went into (its onEnter)
     bool finished_ = false;
     std::string sequence_ = "boot"; // the part of the game running: "boot", then "menu"
     int pumping_ = 0;

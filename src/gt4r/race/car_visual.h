@@ -35,6 +35,14 @@ public:
     // constructor reads too (car_visual_prologue.cpp): `paint` is then its body's paint variant.
     static bool is_gt3_car(ByteSpan car_file);
     ~CarVisual();
+    // The same made away from the thread that owns the GPU (the menus load a car while they go
+    // on drawing): the models are built and kept; upload() sends them to the GPU on its thread
+    // before the car is drawn. Throws FormatError.
+    static std::unique_ptr<CarVisual> make_unuploaded(render::GpuContext& ctx, ByteSpan car_file, ByteSpan pat, const CarSpec& spec,
+                                                      const Options& opt, const std::string& name);
+    void upload();
+    // One model of them; true while more are left (the menus send a few a picture).
+    bool upload_one();
 
     // The shadow's look on this course (the environment block's values).
     struct Shadow {
@@ -74,6 +82,9 @@ public:
 
 private:
     void build_gt3(ByteSpan car_file, const Options& opt, const std::string& name); // car_visual_prologue.cpp
+    // A model to the GPU now, or kept for upload() when made by make_unuploaded.
+    void to_gpu(std::unique_ptr<render::GpuModel>& slot, const gt3r::scene::Model& m);
+    std::vector<std::pair<std::unique_ptr<render::GpuModel>*, gt3r::scene::Model>> unuploaded_;
     CarSpec spec_;
     std::array<std::unique_ptr<render::GpuModel>, 2> body_;        // [brake lamps lit]
     std::array<std::unique_ptr<render::GpuModel>, 4> brakes_;      // the brake parts per wheel
@@ -89,6 +100,7 @@ private:
     std::vector<CameraMount> mounts_;
     render::Vec3 min_, max_;
     int lods_ = 1;
+    bool gt3_file_ = false; // a Gran Turismo 3 car file (Prologue's): its models' y = 0 is the road
 };
 
 } // namespace gt4r::race

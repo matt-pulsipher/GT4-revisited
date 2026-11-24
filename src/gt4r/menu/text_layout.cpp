@@ -7,7 +7,9 @@ namespace gt4r::menu {
 
 std::map<std::string, FontSpacing> read_font_spacing(ByteSpan d) {
     std::map<std::string, FontSpacing> out;
-    if (d.size() < 0x20 || !gt3r::has_magic(d, "FT01") || rd16(d, 0x12) != 1) return out;
+    if (d.size() < 0x20 || !gt3r::has_magic(d, "FT01")) return out;
+    // Prologue's files (layout 0) have the double-byte step at +0x14 too, and no pair spacing.
+    const bool gt4 = rd16(d, 0x12) == 1;
     const u32 count = rd16(d, 0x10), table = rd32(d, 0x14);
     for (u32 i = 0; i < count && size_t(table) + i * 4 + 4 <= d.size(); ++i) {
         const size_t o = rd32(d, table + i * 4);
@@ -15,7 +17,7 @@ std::map<std::string, FontSpacing> read_font_spacing(ByteSpan d) {
         const size_t name = rd32(d, o);
         std::string n;
         for (size_t k = name; k < d.size() && d[k]; ++k) n += char(d[k]);
-        out[n] = {d[o + 0x14], d[o + 0x15]};
+        out[n] = {d[o + 0x14], gt4 ? d[o + 0x15] : 0, !gt4};
     }
     return out;
 }
@@ -86,7 +88,8 @@ TextLayout layout_menu_text(std::string_view s, const TextStyle& st, float x, fl
     auto latin = [&](const LatinFont& f, int pair, const FontGlyph& g, u32 code, float scale_x, float scale_y, TextColor c) {
         Line& line = lines.back();
         float d = 0;
-        if (prev) {
+        if (st.spacing.gt3) d = float(g.left - (prev ? kern(f, *prev, g) : 0));
+        else if (prev) {
             if (!(code >= '0' && code <= '9') && code != 0x7F) d += float(pair - kern(f, *prev, g));
             d += float(g.left);
         }
@@ -165,7 +168,7 @@ TextLayout layout_menu_text(std::string_view s, const TextStyle& st, float x, fl
                 Line& line = lines.back();
                 PlacedGlyph p;
                 p.font = nullptr, p.code = c, p.color = color;
-                p.x = line.pen + float(font.kanji_dx + (prev ? 1 : 0)) * sx, p.y = float(font.kanji_dy) * sy;
+                p.x = line.pen + float(font.kanji_dx + (prev && !st.spacing.gt3 ? 1 : 0)) * sx, p.y = float(font.kanji_dy) * sy;
                 p.w = float(font.kanji_width) * sx, p.h = float(font.kanji_height) * sy;
                 p.sw = u16(st.kanji->cell_width), p.sh = u16(st.kanji->cell_height);
                 line.glyphs.push_back(p), line.spaces.push_back(line.space_count);

@@ -70,6 +70,8 @@ public:
     const course::Runway& road() const { return road_; }
     // The cones and boards where the road file puts them (still: ❓ the program knocks them about).
     const Gadgets& gadgets() const { return gadgets_; }
+    // The cones and boards where the cars have left them (null: at their places); kept by the caller.
+    void set_gadget_bodies(const class GadgetBodies* bodies) { gadget_bodies_ = bodies; }
     // Opaque scenery and backdrop triangles, for sight tests (the sun's glare, the lamp glows).
     const gt3r::race::Occluder& occluder() const { return occluder_; }
     // The sections other parts of the race view read (copies of the file's bytes; empty: none).
@@ -101,6 +103,7 @@ private:
     std::unique_ptr<render::GpuModel> reflection_sky_;
     std::unique_ptr<render::GpuModel> scenery_, after_, backdrop_, sky_, mirror_sky_, env_scenery_, env_sky_;
     Gadgets gadgets_;
+    const class GadgetBodies* gadget_bodies_ = nullptr;
     std::unique_ptr<render::GpuModel> gadget_model_;
     std::vector<std::vector<u16>> gadget_nodes_; // per kind: its shape's model
     std::array<gt3r::course::Visibility, 2> vis_; // slot 1's lists per View

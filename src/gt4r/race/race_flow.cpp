@@ -122,6 +122,15 @@ RaceFlow::Events RaceFlow::step(std::span<const CarState> cars) {
     return ev;
 }
 
+void RaceFlow::finish_now(size_t car, float share) {
+    if (car >= cars_.size() || cars_[car].finished) return;
+    CarRecord& r = cars_[car];
+    r.finished = true;
+    r.finish_order = finishers_++;
+    r.finish_units = std::max<s64>(0, clock_ - kClockPerStep + s64(std::trunc(std::clamp(share, 0.0f, 1.0f) * float(kClockPerStep))));
+    if (car == setup_.player) player_finish_steps_ = 0;
+}
+
 int RaceFlow::place(size_t car) const {
     for (size_t i = 0; i < order_.size(); ++i)
         if (order_[i] == car) return int(i) + 1;

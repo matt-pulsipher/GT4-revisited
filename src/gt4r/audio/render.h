@@ -41,9 +41,10 @@ struct MusicRender {
     int max_voices = 0;
 };
 // Plays a sequence until its loop has come round `loops` times (or it ends, or `max_seconds`),
-// then lets `tail_seconds` of release and reverb ring.
+// then lets `tail_seconds` of release and reverb ring. `volume`: the music's master volume (0..1;
+// the menus play at the mix table's sequence level x the music option, MenuSound).
 MusicRender render_music(std::shared_ptr<const sound::InstBank> bank, std::shared_ptr<const sound::SqtBank> sequences, int number,
-                         int loops = 1, double max_seconds = 600, double tail_seconds = 2);
+                         int loops = 1, double max_seconds = 600, double tail_seconds = 2, float volume = 1.0f);
 
 // What a rendering measures.
 struct Level {

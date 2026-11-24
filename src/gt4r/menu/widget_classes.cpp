@@ -117,7 +117,10 @@ void bar_init(LiveWidget& w) {
     bar_seti(w, "bar_ready", 1);
     if (w.is("SliderBar")) {
         int lo = 0, hi = 1;
+        // `range` is written as two values or as a list of two digits (`range [2] {digit {1} digit {50}}`).
         if (const Property* r = w.data.find("range"); r && r->values.size() >= 2) lo = std::atoi(r->values[0].c_str()), hi = std::atoi(r->values[1].c_str());
+        else if (r && r->items.size() >= 2 && !r->items[0].values.empty() && !r->items[1].values.empty())
+            lo = std::atoi(r->items[0].values[0].c_str()), hi = std::atoi(r->items[1].values[0].c_str());
         if (hi < lo) hi = lo;
         bar_seti(w, "min", lo), bar_seti(w, "max", hi), bar_seti(w, "display_min", lo), bar_seti(w, "display_max", hi);
         if (!w.data.has("step")) bar_seti(w, "step", 1);
@@ -361,13 +364,43 @@ void arrange_list(Runtime& rt, LiveWidget& list, bool warp) {
     const bool has_focus = list.page() && list.page()->focus.lock().get() == &list;
     const float justify = across ? (list.data.has("v_justify") ? list.data.number("v_justify") : 0.0f)
                                  : (list.data.has("h_justify") ? list.data.number("h_justify") : 0.0f);
-    const Value update = list_callback(list, "update_callback");
+    // The rows in view (❓ from the scripts' use: labomode's and list_box's callbacks): the ones
+    // that came into view are given to `visible_callback(context, [indexes])`, which makes their
+    // widgets (getItemVisible answers whether a row is in view); then every row in view whose
+    // update flag is set to `update_callback(context, [indexes])` (the scripts clear the flag
+    // when a row is drawn in full).
+    auto call = [&rt](const Value& fn, const std::vector<int>& rows) {
+        if (rows.empty() || !fn.p || !fn.p->callable()) return;
+        std::vector<Value> list;
+        for (int i : rows) list.push_back(Value::integer(i));
+        try {
+            const Value args[2] = {rt.context(), Value::array(std::move(list))};
+            rt.vm().call(fn, args);
+        } catch (const script::ScriptError& e) {
+            rt.note(std::string("script error in a list's callback: ") + e.what());
+        }
+    };
+    std::vector<u8> was = list.items_in_view;
+    list.items_in_view.assign(size_t(n), 0);
+    std::vector<int> appeared;
+    {
+        float at = list.scroll;
+        for (int i = 0; i < n; ++i) {
+            const float length = item * (i == focus ? magnify : 1.0f);
+            if (at + length >= -pitch && at <= extent + pitch) {
+                list.items_in_view[size_t(i)] = 1;
+                if (size_t(i) >= was.size() || !was[size_t(i)]) appeared.push_back(i);
+            }
+            at += length + spacing;
+        }
+    }
+    call(list_callback(list, "visible_callback"), appeared);
+    std::vector<int> updates;
     float at = list.scroll;
     for (int i = 0; i < n; ++i) {
         const float scale = i == focus ? magnify : 1.0f;
         const float length = item * scale;
-        if (at + length >= -pitch && at <= extent + pitch) {
-            const bool fresh = size_t(i) >= list.items.size() || !list.items[size_t(i)];
+        if (list.items_in_view[size_t(i)]) {
             if (const W row = list_item(rt, list, i, true)) {
                 if (!row->data.has("item_w")) row->set_property("item_w", Value::number(item_w)), row->set_property("item_h", Value::number(item_h));
                 const float w = item_w * scale, h = item_h * scale;
@@ -379,19 +412,12 @@ void arrange_list(Runtime& rt, LiveWidget& list, bool warp) {
                 row->state = i == focus ? row->state | kActive : row->state & ~kActive;
                 row->state = i == focus && has_focus ? row->state | (kFocus | kPrelight) : row->state & ~(kFocus | kPrelight);
                 list.children.push_back(row);
-                if ((fresh || row->data.number("item_update") != 0) && update.p && update.p->callable()) {
-                    row->set_property("item_update", Value::integer(0));
-                    try {
-                        const Value args[3] = {rt.context(), Value::integer(i), widget_value(row)};
-                        rt.vm().call(update, args);
-                    } catch (const script::ScriptError& e) {
-                        rt.note(std::string("script error in a list's update: ") + e.what());
-                    }
-                }
+                if (row->data.number("item_update") != 0) updates.push_back(i);
             }
         }
         at += length + spacing;
     }
+    call(list_callback(list, "update_callback"), updates);
 }
 
 void list_focus(Runtime& rt, LiveWidget& list, int index, bool notify) {
@@ -1087,6 +1113,7 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
                 w->set_property("item_count", Value::integer(count));
                 w->items.clear();
                 w->items.resize(size_t(count));
+                w->items_in_view.clear();
                 w->set_property("focus_index", Value::integer(std::clamp(int(w->data.number("focus_index")), 0, std::max(count - 1, 0))));
                 arrange_list(*r, *w, true);
                 return Value{};
@@ -1132,6 +1159,11 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
             const char* set;
             const char* property;
         };
+        if (n == "getItemVisible") // (index): the row is in view
+            return fn([w](Vm&, const Value&, Args a) {
+                const int i = arg_int(a, 0, -1);
+                return Value::integer(i >= 0 && size_t(i) < w->items_in_view.size() && w->items_in_view[size_t(i)]);
+            });
         for (const Flag& f : {Flag{"getItemVisible", "setItemVisible", "visible"}, Flag{"getItemUpdate", "setItemUpdate", "item_update"},
                               Flag{"getItemActive", "setItemActive", "active"}, Flag{"getItemInsensitive", "setItemInsensitive", "insensitive"}}) {
             if (n == f.get)
@@ -1176,6 +1208,23 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
     }
 
     if (type == "TextFace" || type == "ToolTipFace" || type == "InputTextFace") {
+        // `value`: what the face shows: the value set, else its text, else its key's text in
+        // the page the layout has it in (the memory card pages' StoreHouse texts).
+        if (n == "value" && type == "TextFace") {
+            auto a = std::make_shared<Accessor>();
+            a->read = [w, r] {
+                if (const std::string v = w->data.text("value"); !v.empty()) return Value::string(v);
+                if (const std::string t = w->data.text("text"); !t.empty()) return Value::string(t);
+                const std::string key = w->data.text("key");
+                if (key.empty()) return Value::string({});
+                LiveWidget* page = w->page();
+                Project* p = page ? r->project_of(*page) : nullptr;
+                const std::string where = w->data.has("key_page") ? w->data.text("key_page") : page ? page->name : std::string();
+                return Value::string(p ? p->translate(where, key) : key);
+            };
+            a->write = [w](const Value& v) { w->set_property("value", v); };
+            return a;
+        }
         if (n == "getTextSize")
             return fn([w](Vm&, const Value&, Args) {
                 float tw = 0, th = 0;
@@ -1202,16 +1251,19 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
             });
     }
     if (type == "ToolTipFace") {
-        // remove() takes the tip's text away; attach() puts the tip on the focused widget.
+        // A tip is its page's when it loads (0x24A020) and shows the focused widget's tool tip
+        // (its `tooltip_key`); remove() takes it off the page (0x249FF0) and its text away,
+        // attach() puts it back (0x249FB8).
         if (n == "remove")
             return fn([w](Vm&, const Value&, Args) {
                 w->set_property("value", Value::string({}));
+                w->set_property("detached", Value::integer(1));
                 return Value{};
             });
-        // attach(): the tip shows the focused widget's tool tip from then on (its `tooltip_key`).
         if (n == "attach")
             return fn([w](Vm&, const Value&, Args) {
                 w->set_property("attached", Value::integer(1));
+                w->set_property("detached", Value::integer(0));
                 return Value{};
             });
         if (n == "resetAction") return nothing();
@@ -1261,6 +1313,21 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
                 w->set_property("chip_b", Value::integer(s32((c >> 16) & 0xFF)));
                 return Value{};
             });
+        if (type == "CarFace" && n == "loadModelOptionMotion")
+            return fn([r, w](Vm&, const Value&, Args a) {
+                w->set_property("option_motion", a.empty() ? Value::string({}) : a[0]);
+                w->set_property("option_motion_frame", Value::number(float(r->frame())));
+                return Value{};
+            });
+        if (type == "CarFace" && n == "loadModelSet")
+            return fn([w](Vm&, const Value&, Args a) {
+                if (a.empty()) return Value{};
+                const std::string path = a[0].to_string(), sets = w->data.text("model_sets");
+                if (("|" + sets + "|").find("|" + path + "|") == std::string::npos)
+                    w->set_property("model_sets", Value::string(sets.empty() ? path : sets + "|" + path));
+                return Value{};
+            });
+        // ❓ loadModelMotion(path, set, clip): the sets' skinned motions are not played.
         if (n == "setData" || n == "setColor" || n == "setColorIndex" || n == "syncLoading" || n == "loadModelSet" || n == "loadModelMotion" ||
             n == "loadModelOptionMotion")
             return nothing();
@@ -1284,6 +1351,14 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
                 const std::string code = v.is_nil() ? std::string() : r->vm().attribute(v, "car_code").to_string();
                 w->set_property("car_code", Value::string(code));
                 if (!code.empty()) w->extras["car_data of " + code] = std::make_shared<script::Variable>(v);
+                // A garage car shows in its own paint (its record's).
+                if (!code.empty()) {
+                    const Value index = r->vm().attribute(v, "getColorIndex");
+                    if (!index.is_nil()) {
+                        const Value paint = r->vm().call(index, {});
+                        if (paint.is_number()) w->set_property("car_color", Value::integer(s32(paint.as_float())));
+                    }
+                }
             };
             return a;
         }

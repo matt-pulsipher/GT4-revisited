@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <array>
 #include <map>
 
 namespace gt4r {
@@ -61,8 +62,11 @@ struct RaceHud::Impl {
     Bytes pack_file;
     std::optional<menu::ImagePack> pack;
     std::map<std::string, Picture> pictures;
-    race::DisplayLayout layout;
-    std::vector<race::DialFace> rev_faces, speed_faces;
+    Picture course_logo;
+    race::DisplayLayout layout, mode1;
+    const race::DisplayLayout* cur = &layout; // the layout drawn now
+    std::array<menu::TextColor, 4> button_colors{};
+    std::vector<race::DialFace> rev_faces, speed_faces, speed_faces_by[2]; // the speedometer's: now, km/h, mph
     race::CourseMap map;
     SDL_Texture* map_texture = nullptr;
     std::optional<menu::TextTable> words;
@@ -195,6 +199,14 @@ struct RaceHud::Impl {
                    float red_from, float& last_angle, float opacity);
     void draw_gear(const DisplayRect& box, const HudState& s);
     void draw_small_parts(const HudState& s, bool driver);
+    void draw_bspec(const HudState& s, const std::string& pace_word, const std::string& help);
+    // Text in GT4's menu layout with the pad's buttons ("%Bc"), from (x, baseline y).
+    void draw_menu_text(const char* font_name, int variant, float x, float y, gt3r::text::HAlign align, u32 color, float opacity, const std::string& s,
+                        float max_width = 0);
+    void fill(const DisplayRect& at, u8 red, u8 green, u8 blue, float alpha) {
+        triangles({vertex(at.x, at.y, red, green, blue, alpha), vertex(at.x + at.w, at.y, red, green, blue, alpha), vertex(at.x + at.w, at.y + at.h, red, green, blue, alpha),
+                   vertex(at.x, at.y, red, green, blue, alpha), vertex(at.x + at.w, at.y + at.h, red, green, blue, alpha), vertex(at.x, at.y + at.h, red, green, blue, alpha)});
+    }
     std::string speed_text(const HudState& s) const {
         char buf[16];
         std::snprintf(buf, sizeof buf, "%3d", int(std::lround(std::fabs(s.speed) * (mph ? 2.2369363f : 3.6f))));
@@ -235,8 +247,11 @@ RaceHud::RaceHud(App& app, ByteSpan gtcm) : impl_(std::make_unique<Impl>()) {
         // The elements' places and the dials' faces are tables of the game's program.
         const gt3r::CoreImage core = gt3r::CoreImage::decode(app.disc()->read_program());
         m.layout = race::read_single_race_layout(core.program, core.load_address);
+        m.mode1 = race::read_mode1_layout(core.program, core.load_address);
+        if (const auto colors = menu::find_button_colors(core.program)) m.button_colors = *colors;
         m.rev_faces = race::read_rev_faces(core.program, core.load_address);
-        m.speed_faces = race::read_speed_faces(core.program, core.load_address, m.mph);
+        for (int k = 0; k < 2; ++k) m.speed_faces_by[k] = race::read_speed_faces(core.program, core.load_address, k == 1);
+        m.speed_faces = m.speed_faces_by[m.mph ? 1 : 0];
         m.map = race::CourseMap::parse(gtcm);
         if (m.map.valid()) m.map_texture = m.make_texture(m.map.image);
     } catch (const std::exception& e) {
@@ -252,8 +267,26 @@ RaceHud::~RaceHud() {
     for (auto& [key, t] : impl_->atlases)
         if (t) SDL_DestroyTexture(t);
     if (impl_->map_texture) SDL_DestroyTexture(impl_->map_texture);
+    if (impl_->course_logo.texture) SDL_DestroyTexture(impl_->course_logo.texture);
     for (auto& [key, t] : impl_->movie_textures)
         if (t) SDL_DestroyTexture(t);
+}
+
+void RaceHud::set_course_logo(ByteSpan set) {
+    Impl& m = *impl_;
+    if (m.course_logo.texture) SDL_DestroyTexture(m.course_logo.texture), m.course_logo = {};
+    try {
+        if (!gt3r::Tex1::is_tex1(set)) return;
+        const gt3r::Tex1 tex = gt3r::Tex1::parse(set);
+        if (tex.textures.empty()) return;
+        gt3r::GsMemory gs;
+        tex.upload(set, gs);
+        const gt3r::Tex1::Image img = tex.decode(gs, 0);
+        m.course_logo.texture = m.make_texture(img);
+        m.course_logo.w = float(img.width), m.course_logo.h = float(img.height);
+    } catch (const std::exception& e) {
+        LOG_WARN("Race display: the course's logo: %s", e.what());
+    }
 }
 
 SDL_FRect RaceHud::canvas() { return to_ui(DisplayRect{0, 0, 640, 480}); }
@@ -368,7 +401,12 @@ void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlaye
             SDL_Texture*& atlas = m.atlases[{f.font, f.variant}];
             if (!atlas) atlas = m.make_texture(f.font->atlas[size_t(std::clamp(f.variant, 0, 1))]);
             if (!atlas) continue;
-            const SDL_FColor c = colour(t.color, d);
+            // A text field's colour is the font's (texels of 0x80) modulated by it: its RGB as it is
+            // (0xFF white; the pause title's 0x79 a mid gray, as the original shows it), its alpha
+            // with 0x80 opaque.
+            SDL_FColor c = colour(t.color, d);
+            float* rgb[3] = {&c.r, &c.g, &c.b};
+            for (int j = 0; j < 3; ++j) *rgb[j] = std::clamp(float((t.color >> (8 * j)) & 0xFF) / 255.0f * d.mul[j] + d.add[j], 0.0f, 1.0f);
             SDL_SetTextureColorMod(atlas, u8(c.r * 255), u8(c.g * 255), u8(c.b * 255));
             SDL_SetTextureAlphaMod(atlas, u8(std::clamp(c.a, 0.0f, 1.0f) * 255));
             for (const menu::PlacedGlyph& g : lay.glyphs) {
@@ -383,25 +421,33 @@ void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlaye
 
 bool RaceHud::ready() const { return impl_->layout.valid() && impl_->pack && !impl_->font_by_name.empty(); }
 bool RaceHud::mph() const { return impl_->mph; }
+void RaceHud::set_mph(bool on) {
+    if (impl_->mph == on) return;
+    impl_->mph = on;
+    impl_->speed_faces = impl_->speed_faces_by[on ? 1 : 0]; // the speedometer's faces are by the unit
+}
 
 std::string RaceHud::word(const std::string& key) const {
-    if (impl_->words)
+    if (impl_->words) {
         if (const std::string* s = impl_->words->find("RaceDisplay", key)) return *s;
+        for (const std::string& page : impl_->words->pages())
+            if (const std::string* s = impl_->words->find(page, key)) return *s;
+    }
     return key;
 }
 
 // Position, lap count and the three times.
 void RaceHud::Impl::draw_top(const HudState& s) {
     const float o = s.opacity;
-    if (const DisplayPlace* p = layout.find(element::kPositionWord)) draw_at("JP/position", *p, kNeutral, o);
-    if (const DisplayPlace* p = layout.find(element::kPosition)) {
+    if (const DisplayPlace* p = cur->find(element::kPositionWord); p && s.show_position && !s.license) draw_at("JP/position", *p, kNeutral, o);
+    if (const DisplayPlace* p = cur->find(element::kPosition); p && s.show_position && !s.license) {
         const DisplayRect at = draw_at("position_base", *p, kNeutral, o);
         const int digit = std::clamp(s.place, 0, 9);
         draw_text(font("FC_26"), at.x + at.w / 2 - 1 + (digit == 1 ? 4.0f : 0.0f), at.y + at.h - 19, kCentered | kMiddleOfLine, kTextGray, o,
                   std::string(1, char('0' + digit)));
     }
-    if (const DisplayPlace* p = layout.find(element::kLapWord)) draw_at("JP/lap", *p, kNeutral, o);
-    if (const DisplayPlace* p = layout.find(element::kLapCount)) {
+    if (const DisplayPlace* p = cur->find(element::kLapWord); p && s.show_lap) draw_at("JP/lap", *p, kNeutral, o);
+    if (const DisplayPlace* p = cur->find(element::kLapCount); p && s.show_lap) {
         char buf[32];
         if (s.laps > 0) std::snprintf(buf, sizeof buf, "%d/%d", std::clamp(s.lap, 0, 999), s.laps);
         else std::snprintf(buf, sizeof buf, "%d", std::clamp(s.lap, 0, 999));
@@ -415,21 +461,36 @@ void RaceHud::Impl::draw_top(const HudState& s) {
         draw_text(f, at.x, float(p->y), 0, kTextGray, o, buf, squeeze);
     }
     const FontSpec times = font("hn_20R");
-    if (const DisplayPlace* p = layout.find(element::kLapTime)) {
+    if (const DisplayPlace* p = cur->find(element::kLapTime); p && s.show_time) {
         const float left = draw_text(times, race::place_x(*p, true), float(p->y), kCentered, kTextGray, o, race::format_lap_time(s.lap_ms));
         // The stopwatch ends 8 units left of the text and 7 below its baseline.
         const Picture& watch = picture("GT4_meter_texture_laptime");
         draw_picture(watch, {left - 8 - watch.w, float(p->y) + 7 - watch.h, watch.w, watch.h}, kNeutral, o);
     }
-    if (const DisplayPlace* p = layout.find(element::kBestWord)) draw_at("JP/best_time", *p, kNeutral, o);
-    if (const DisplayPlace* p = layout.find(element::kBestTime))
+    if (const DisplayPlace* p = cur->find(element::kBestWord); p && s.show_time) draw_at(s.bspec ? "JP/total_time" : "JP/best_time", *p, kNeutral, o);
+    if (const DisplayPlace* p = cur->find(element::kTotalTime); p && s.show_time)
+        draw_text(times, race::place_x(*p, true), float(p->y), kCentered, kTextGray, o, race::format_total_time(s.total_ms));
+    if (const DisplayPlace* p = cur->find(element::kBestTime); p && s.show_time)
         draw_text(times, race::place_x(*p, true), float(p->y), kCentered, kTextGray, o, race::format_lap_time(s.best_ms));
-    if (const DisplayPlace* p = layout.find(element::kLastWord)) draw_at("JP/last_time", *p, kNeutral, o);
-    if (const DisplayPlace* p = layout.find(element::kLastTime))
-        draw_text(times, race::place_x(*p, true), float(p->y), kCentered, kTextGray, o, race::format_lap_time(s.last_ms));
-    if (const DisplayPlace* p = layout.find(element::kEventLine))
+    if (s.license && s.show_time) {
+        // The three target times under the best lap, each by its trophy (mark_1st .. 3rd): ❓ the places
+        // judged from the original's B-1 (RaceLicenseDisplay::vf9 draws them; its places are not read).
+        static const char* const kMarks[3] = {"mark_1st", "mark_2nd", "mark_3rd"};
+        for (int k = 0; k < 3; ++k) {
+            if (s.targets[k] <= 0) continue;
+            const float y = 100.0f + 28.0f * float(k);
+            const Picture& mark = picture(kMarks[k]);
+            draw_picture(mark, {485 - mark.w / 2, y - mark.h / 2, mark.w, mark.h}, kNeutral, o);
+            draw_text(times, 608, y + 8, kEndsAtPen, kTextGray, o, race::format_lap_time(s.targets[k]));
+        }
+    } else {
+        if (const DisplayPlace* p = cur->find(element::kLastWord); p && s.show_time) draw_at("JP/last_time", *p, kNeutral, o);
+        if (const DisplayPlace* p = cur->find(element::kLastTime); p && s.show_time)
+            draw_text(times, race::place_x(*p, true), float(p->y), kCentered, kTextGray, o, race::format_lap_time(s.last_ms));
+    }
+    if (const DisplayPlace* p = cur->find(element::kEventLine))
         draw_text(times, race::place_x(*p, true), float(p->y), kCentered, kTextGray, o * s.event_opacity, s.event);
-    if (const DisplayPlace* p = layout.find(element::kMessage))
+    if (const DisplayPlace* p = cur->find(element::kMessage))
         draw_text(font("FC_48"), race::place_x(*p, true), float(p->y), kCentered, kTextGray, o * s.message_opacity, s.message);
     // The status line (member 0x228C): over the driver's panel at (320, 348), over the chase views'
     // at (320, 430); `hn_20R`.
@@ -439,8 +500,8 @@ void RaceHud::Impl::draw_top(const HudState& s) {
 
 // The course map with the cars on it; it neither turns nor scrolls.
 void RaceHud::Impl::draw_map(const HudState& s) {
-    const DisplayPlace* p = layout.find(element::kMap);
-    if (!p || !map_texture) return;
+    const DisplayPlace* p = cur->find(element::kMap);
+    if (!p || !map_texture || !s.show_map) return;
     const DisplayRect at = race::place_rect(*p, float(map.image.width), float(map.image.height), true);
     auto marker = [&](const Picture& pic, const HudState::Dot& d, u32 tint, float opacity) {
         float mx, my;
@@ -621,6 +682,7 @@ void RaceHud::Impl::draw_driver_panel(const HudState& s) {
 
 void RaceHud::draw(Ui& ui, const HudState& s) {
     if (!ready() || s.opacity <= 0) return;
+    impl_->cur = s.bspec && !s.replay && impl_->mode1.valid() ? &impl_->mode1 : &impl_->layout;
     (void)ui;
     if (s.replay && s.card_opacity > 0) {
         // A replay's opening card (RaceDisplay::vf45, 0x39C838): the car's name in hb_24 at (320, 220),
@@ -634,13 +696,26 @@ void RaceHud::draw(Ui& ui, const HudState& s) {
         impl_->draw_text(impl_->font("hb_24", 100, 1), 320, 220, kCentered, kTextGray, s.opacity * a, s.card_title);
         impl_->draw_text(impl_->font("hm_16", 100, 1), 320, 260, kCentered, kTextGray, s.opacity * a, s.card_line);
     }
+    if (s.replay && s.logo_opacity > 0 && impl_->course_logo.texture) {
+        // The course's logo under the opening card, its right bottom at (604, 441) (❓ the place and
+        // size judged from the original's replay: the logo at its own size there).
+        const Impl::Picture& logo = impl_->course_logo;
+        impl_->draw_picture(logo, race::place_rect({0, 604, 441, 0, 0, 1, 1}, logo.w, logo.h, true), kNeutral, s.opacity * std::clamp(s.logo_opacity, 0.0f, 1.0f));
+    }
+    if (s.replay && s.caption_opacity > 0 && !s.caption_title.empty()) {
+        // The music's caption at the bottom left: the piece's title, its artist smaller under
+        // it (❓ the fonts, places and colour judged from the original's replay).
+        const float a = s.opacity * std::clamp(s.caption_opacity, 0.0f, 1.0f);
+        // (The original's note before the title is not in these fonts: not drawn.)
+        impl_->draw_text(impl_->font("hm_16", 90, 1), 42, 432, 0, kTextGray, a, s.caption_title);
+        if (!s.caption_artist.empty()) impl_->draw_text(impl_->font("hm_16", 70, 1), 42, 449, 0, kTextGray, a, s.caption_artist);
+    }
     if (s.replay && !s.replay_display) {
         // A replay with its display off (the Replay options' Screen Display: Off, the original's
         // default): the small Gran Turismo 4 logo, its right bottom at (604, 441) (member 0x1170),
         // ❓ at about 60 % (judged from the original's replay; its draw colour is not read).
         const Impl::Picture& logo = impl_->picture("JP/gt_logo_mini");
-        // (Under the opening card the original shows the course's logo there instead: ❓ its picture is not found.)
-        if (logo.w > 0 && s.card_opacity <= 0) impl_->draw_picture(logo, race::place_rect({0, 604, 441, 0, 0, 1, 1}, logo.w, logo.h, true), kNeutral, s.opacity * 0.6f);
+        if (logo.w > 0 && s.card_opacity <= 0 && s.logo_opacity <= 0 && s.caption_opacity <= 0) impl_->draw_picture(logo, race::place_rect({0, 604, 441, 0, 0, 1, 1}, logo.w, logo.h, true), kNeutral, s.opacity * 0.6f);
         return;
     }
     if (s.replay) {
@@ -655,8 +730,82 @@ void RaceHud::draw(Ui& ui, const HudState& s) {
         impl_->draw_map(s);
         impl_->draw_top(s);
     }
+    if (s.bspec && !s.replay) {
+        char key[16];
+        std::snprintf(key, sizeof key, "key_pace%d", std::clamp(s.pace, 1, 5));
+        impl_->draw_bspec(s, word(s.overtake ? "key_overtake" : key), word("Tool Tip1"));
+        return;
+    }
+    if (!s.show_meter) return;
     if (s.driver_view) impl_->draw_driver_panel(s);
     else impl_->draw_chase_panel(s);
+}
+
+void RaceHud::Impl::draw_menu_text(const char* font_name, int variant, float x, float y, gt3r::text::HAlign align, u32 color, float opacity, const std::string& text,
+                                   float max_width) {
+    const FontSpec f = font(font_name, 100, variant);
+    if (!f.font || text.empty() || opacity <= 0) return;
+    menu::TextStyle st;
+    st.font = f.font;
+    if (const auto it = spacing.find(f.font->name); it != spacing.end()) st.spacing = it->second;
+    if (const auto g = font_by_name.find("Gaiji"); g != font_by_name.end()) st.gaiji = g->second;
+    st.button_colors = button_colors;
+    st.align = align, st.valign = gt3r::text::VAlign::Baseline;
+    if (max_width > 0) {
+        // Squeezed to fit (the font's size kept up to it).
+        const float w = menu::layout_menu_text(text, st, 0, 0).width;
+        if (w > max_width) st.scale_x = st.scale_y = max_width / w;
+    }
+    const Rgba8 c = text_color(color, opacity);
+    st.color = {c.r, c.g, c.b, c.a};
+    const menu::TextLayout lay = menu::layout_menu_text(text, st, x, y);
+    for (const menu::PlacedGlyph& g : lay.glyphs) {
+        if (!g.font || !g.sw || !g.sh) continue;
+        SDL_Texture*& atlas = atlases[{g.font, g.font == f.font ? f.variant : 1}];
+        if (!atlas) atlas = make_texture(g.font->atlas[size_t(g.font == f.font ? std::clamp(f.variant, 0, 1) : 1)]);
+        if (!atlas) continue;
+        SDL_SetTextureColorMod(atlas, g.color.r, g.color.g, g.color.b);
+        SDL_SetTextureAlphaMod(atlas, u8(float(g.color.a) * std::clamp(opacity, 0.0f, 1.0f)));
+        const SDL_FRect src{float(g.sx), float(g.sy), float(g.sw), float(g.sh)};
+        const SDL_FRect dst = to_ui({g.x, g.y, g.w, g.h});
+        SDL_RenderTexture(r, atlas, &src, &dst);
+    }
+}
+
+// The B-spec display (display mode 1, panel layout 2: docs/formats/race_display.md "B-spec"): the
+// place, laps, map, the lap's time and the race's time at mode 1's places; the commands' bar at the
+// top (the pace 1 .. 5 with the chosen one lit, the overtake and pit keys, the pace's word under
+// them); the speed's small plate; the help strip. ❓ The bar's, the plate's and the strip's shapes
+// and places are judged from the original's B-spec race (their drawing is not read).
+void RaceHud::Impl::draw_bspec(const HudState& s, const std::string& pace_word, const std::string& help) {
+    const float o = s.opacity;
+    // The commands' bar.
+    fill({190, 18, 260, 58}, 0x10, 0x10, 0x14, o * 0.85f);
+    for (int k = 0; k < 7; ++k) {
+        const DisplayRect key{float(198 + k * 30 + (k >= 5 ? 6 : 0)), 24, 26, 26};
+        fill(key, 0xC8, 0xC8, 0xC8, o * (k == 5 ? 0.0f : 0.9f));
+        const float cx = key.x + key.w / 2, base = key.y + 21;
+        if (k < 5) {
+            const bool lit = k + 1 == s.pace && !s.overtake;
+            draw_text(font("hb_24", 100, 1), cx, base, kCentered, lit ? 0x800050F0u : 0x80202020u, o, std::string(1, char('1' + k)));
+        } else if (k == 5) {
+            // The overtake key: the triangle button, lit while the command is on.
+            fill(key, s.overtake ? 0xF0 : 0x58, s.overtake ? 0x80 : 0x58, s.overtake ? 0x20 : 0x60, o * 0.9f);
+            draw_menu_text("hm_16", 1, cx, base - 3, gt3r::text::HAlign::Center, kNeutral, o, "%Bc");
+        } else {
+            draw_text(font("hb_24", 100, 1), cx, base, kCentered, 0x80202020u, o, "P");
+        }
+    }
+    draw_text(font("hn_20R", 80, 1), 320, 71, kCentered, kTextGray, o, pace_word);
+    // The speed's small plate over the help strip.
+    const int R = 640, B = 431;
+    draw_at(mph ? "remote_speed_mph" : "remote_speed_kmph", {0, R - 26, B, 82, 28, 13, 1}, kNeutral, o);
+    draw_text(font("GT4meter", 100, 1), race::place_x({0, R - 59, B - 8, 0, 0, 13, 1}, true), float(B - 8), kEndsAtPen, kMeterBlue, o, speed_text(s));
+    // The help strip (member 0x2DA0: 0, 480, 640 x 42, its bottom at the bottom).
+    if (s.help) {
+        fill({kWideLeft, 438, 640 - 2 * kWideLeft, 42}, 0, 0, 0, o * 0.75f);
+        draw_menu_text("hm_16", 1, 18, 463, gt3r::text::HAlign::Left, kTextGray, o, help, 604);
+    }
 }
 
 } // namespace gt4r
