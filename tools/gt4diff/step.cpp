@@ -86,7 +86,7 @@ void add_taps(Taps& taps) {
                       material[w] = t.car.g[w].material, surface[w] = u8(sim::surface_index(t.car.g[w].material, t.car.g[w].flags));
                   road_bumps(t.car, t.rec.layout, bump_tables([&](u32 a) { return t.ee.r32(a); }, [&](u32 a) { return t.ee.r8(a); }), surface, material);
               },
-              {"w.ground", "w.surface", "w.x25", "w.surface_flags", "road_seg", "flags", "aids."}});
+              {"w.ground", "w.surface", "w.x25", "w.surface_flags", "road_seg", "flags", "x535", "aids."}});
     taps.add({0x36A490, "terrain", car_a0, [](TapCall& t) { terrain(t.car, t.rec.x.body, t.rec.layout); }});
     taps.add({0x36A758, "suspension", car_a0, [](TapCall& t) { suspension(t.car, t.rec.x.body, t.rec.x.chassis, t.rec.layout, body_globals(t.ee)); }});
     // (while the hold counter runs the program's start hold, 0x36AE20, answers instead: not ported)
