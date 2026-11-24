@@ -22,7 +22,15 @@ namespace gt4r::tool {
 
 namespace {
 
-constexpr u32 kPlayers = 0x64FBF8, kPlayerSize = 0x58, kCount = 24;
+// Where the two programs keep their players: Gran Turismo 4 US 1.01 0x64FBF8, 0x58 bytes, started
+// while +0x54 is 2; Prologue (SCPS-15055 v1.01) 0x516278, 0x54 bytes (no reverb flag), started
+// while +0x50 is 2.
+struct Layout {
+    const char* name;
+    u32 players, size, started;
+};
+constexpr Layout kLayouts[] = {{"Gran Turismo 4", 0x64FBF8, 0x58, 0x54}, {"Prologue", 0x516278, 0x54, 0x50}};
+constexpr u32 kCount = 24;
 
 struct Memory {
     Bytes d;
@@ -42,15 +50,26 @@ int players(const std::string& path) {
         return 1;
     }
     Memory m{*data};
-    const bool mono = m.at<u32>(0x6518C8) == 0; // the output mode: 0 mono
-    std::printf("== %s (output mode %u)\n", path.c_str(), m.at<u32>(0x6518C8));
+    // The program: the layout with a started player on a layer table.
+    const Layout* lay = nullptr;
+    for (const Layout& l : kLayouts)
+        for (u32 i = 0; i < kCount && !lay; ++i) {
+            const u32 p = l.players + l.size * i;
+            const s32 n = m.at<s32>(p + 0x34);
+            if (m.at<s32>(p + l.started) == 2 && n > 0 && n <= 64 && m.at<u32>(p + 0x30) && m.ok(m.at<u32>(p + 0x30), 16u * u32(n))) lay = &l;
+        }
+    if (!lay) {
+        std::printf("== %s: no started player\n", path.c_str());
+        return 0;
+    }
+    std::printf("== %s (%s)\n", path.c_str(), lay->name);
     int same = 0, differ = 0;
     for (u32 i = 0; i < kCount; ++i) {
-        const u32 p = kPlayers + kPlayerSize * i;
+        const u32 p = lay->players + lay->size * i;
         const u32 table = m.at<u32>(p + 0x30);
         const s32 count = m.at<s32>(p + 0x34);
         if (!table || count <= 0 || count > 64 || !m.ok(table, 16u * u32(count))) continue;
-        if (m.at<s32>(p + 0x54) != 2) continue; // (stepped only while 2: started)
+        if (m.at<s32>(p + lay->started) != 2) continue; // (stepped only while 2: started)
         std::vector<gt3r::sound::EngineLayer> layers(static_cast<size_t>(count));
         for (s32 k = 0; k < count; ++k) {
             const u32 o = table + 16u * u32(k);
@@ -132,6 +151,7 @@ int players(const std::string& path) {
             }
             std::printf("  slot %d: layer %d (ours %d), pitch %d, sides %d / %d", s, want[s], ours[s], last[s].pitch, last[s].left, last[s].right);
             if (voice && m.ok(voice, 0xA0)) {
+                const bool mono = m.at<u32>(m.at<u32>(voice + 8)) == 0; // (the voice's driver: its output mode, 0 mono)
                 s16 vl, vr;
                 audio::LayerPlayer::voice_levels(m.at<s16>(voice + 0x64), m.at<s16>(voice + 0x66), mono, vl, vr);
                 const auto spu = [](u16 v) { return s16(v & 0x4000 ? int(v & 0x7FFF) - 0x8000 : int(v & 0x7FFF)); };

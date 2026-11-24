@@ -33,7 +33,9 @@ namespace gt4r::audio {
 class LayerPlayer {
 public:
     static constexpr int kMinRpm = 200;
-    static constexpr u16 kAdsr1 = 0x0003, kAdsr2 = 0x000A;
+    // The envelope of a layer's voice: Gran Turismo 4's (0x559268); Prologue's player (0x481588)
+    // keys with ADSR1 0x1003, an attack of about 0.8 ms.
+    static constexpr u16 kAdsr1 = 0x0003, kAdsr2 = 0x000A, kPrologueAdsr1 = 0x1003;
 
     // What the race writes each step (0x392640).
     struct Input {
@@ -42,6 +44,7 @@ public:
         int doppler = 0x1000;    // Q12, 0..0x3FFF
         u32 priority = 0;        // the level's size x 2^31, at most 0x7FFFFFFE
         bool dry = false;        // no reverb send
+        u16 adsr1 = kAdsr1;      // the program's envelope for a new voice
     };
     struct Slot {
         int want = -1, layer = -1; // the layer chosen this step, the layer the voice plays

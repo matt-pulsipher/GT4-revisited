@@ -408,7 +408,13 @@ the original and ours, at 5,076 rpm 164 Hz in both.
 **Checked against the original** (`gt4tool sound players <eeMemory.bin>...`): in 46 saved states
 of Gran Turismo 4 (menus, pre-race pages, races from every view, replays, license tests) every
 started player (594 records, 175 of them crossfading two layers) has the slots `LayerPlayer` works
-out, and every slot's voice the SPU2 levels. In most race states the
+out, and every slot's voice the SPU2 levels.
+
+**Prologue's players** (SCPS-15055 v1.01: 24 of 0x54 bytes at 0x516278, stepped by 0x481588 while
++0x50 is 2; 0x481360 / 0x4813D8 the pitch and the levels) have the same rules and record but no
+reverb flag (every voice sends), and a new layer's voice is keyed with ADSR1 0x1003: an attack of
+about 0.8 ms (`RaceSoundTables::layer_adsr1`). Its saved state of a race: the three started players
+the same, two of them crossfading. In most race states the
 race had already written the next step's inputs; the tool then finds revs and side levels of the
 step before that give both slots at once (the same revs for both pitches, one input for both
 sides' crossfaded levels).

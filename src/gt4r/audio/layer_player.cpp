@@ -157,7 +157,7 @@ void LayerPlayer::step(gt3r::VoiceMixer* mixer, bool mono) {
             p.start = layers[size_t(s.want)].offset;
             p.pitch = pitch;
             p.vol_l = l, p.vol_r = r;
-            p.adsr1 = kAdsr1, p.adsr2 = kAdsr2;
+            p.adsr1 = input_.adsr1, p.adsr2 = kAdsr2;
             p.reverb = !input_.dry;
             p.priority = mixer_priority(input_.priority);
             s.voice = mixer->key_on(p);

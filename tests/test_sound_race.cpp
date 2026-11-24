@@ -264,11 +264,12 @@ TEST(sound_race_tables_on_disc) {
             // Prologue: the gains as floats (0x3B3978 reads them), no microphones (its panner is
             // 32 / distance, 0x3A1D38).
             CHECK(t.found_gains && t.found_params && !t.found_mics && !t.found_afterfire && !t.option_level);
+            CHECK(t.layer_adsr1 == audio::LayerPlayer::kPrologueAdsr1);
             CHECK(near(t.view_gain(V::InCarTarget, C::Engine), 5.6, 1e-5) && near(t.view_gain(V::ChaseTarget, C::Exhaust), 6.0, 1e-5));
             CHECK(t.view_gain(V::InCarOther, C::InCar) == 0 && near(t.view_gain(V::Other, C::Exhaust), 6.0, 1e-5));
             continue;
         }
-        CHECK(t.found() && t.option_level);
+        CHECK(t.found() && t.option_level && t.layer_adsr1 == audio::LayerPlayer::kAdsr1);
         // The afterfire's table (0x622320): a road car's own muffler without a boost from 500 PS to
         // 1000, a racing car's from 100 PS to 400.
         CHECK(t.found_afterfire && t.afterfire[0] == 50 && t.afterfire[1] == 100 && t.afterfire[14] == 10 && t.afterfire[15] == 40);

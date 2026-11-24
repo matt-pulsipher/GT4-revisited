@@ -526,6 +526,7 @@ void CarSound::feed(LayerPlayer& player, float rpm, float level, const Placement
     in.priority = size >= 1.0f ? 0x7FFFFFFEu : u32(std::min(double(size) * 2147483520.0, double(0x7FFFFFFE)));
     in.doppler = std::clamp(int(doppler * 4096.0f), 0, 0x3FFF);
     in.rpm = int(s16(int(rpm)));
+    in.adsr1 = mix_->tables.layer_adsr1;
 }
 
 void CarSound::stop_loops() {
