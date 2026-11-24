@@ -480,6 +480,12 @@ TEST(race_gadgets_disc) {
             const race::Gadgets g = race::Gadgets::parse(file.section(data, course::kSlotGadgets), file.section(data, course::kSlotRunway));
             ++courses, placed += g.placements.size();
             for (const race::Gadgets::Placement& p : g.placements) CHECK(p.kind >= 0 && size_t(p.kind) < std::max<size_t>(g.kinds.size(), 1));
+            // Every course with gadgets has their models, where the header's +0x10 says.
+            if (!g.kinds.empty() && !g.placements.empty()) CHECK(!g.models.empty());
+            if (e.path == "crs/testcourse_100m") {
+                // The stopping box's row of cones: one kind, its models at +0xC0 (after the single kind).
+                CHECK(g.kinds.size() == 1 && g.placements.size() == 12 && !g.models.empty());
+            }
             if (e.path == "crs/tsukuba") {
                 // Tsukuba: 18 cones along its pit lane's ends; six kinds, the cone's a five-point hull.
                 CHECK(g.kinds.size() == 6 && g.placements.size() == 18);
@@ -599,4 +605,37 @@ TEST(race_flow_finish_now) {
     for (int i = 0; i < 60; ++i) f.step(), flow.step(f.cars);
     flow.finish_now(0, 0.5f);
     CHECK(flow.player_finished() && flow.car(0).finish_units == 60 * race::kClockPerStep - race::kClockPerStep / 2);
+}
+
+TEST(strobe_race_monitor_disc) {
+    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    size_t movies = 0;
+    for (const auto& disc : test::discs()) {
+        const gt3r::Volume::Entry* e = disc->volume().find("menu/common/racemonitor.strb");
+        if (!e) continue;
+        ++movies;
+        auto movie = std::make_shared<const race::StrobeMovie>(race::StrobeMovie::parse(disc->volume().read(*e)));
+        race::StrobePlayer p(movie, [](const std::string&, const std::vector<race::StrobePlayer::Value>&) { return race::StrobePlayer::Value{}; });
+        p.restart();
+        // The instances the program fills by name: six rows, the current car, the total, the lap, the pace.
+        const std::vector<std::string> tree = p.tree();
+        auto has = [&](const std::string& path) {
+            for (const std::string& l : tree)
+                if (l.rfind(path + "  ", 0) == 0) return true;
+            return false;
+        };
+        for (const char* path : {"BAR1.NAME", "BAR6.DIFF", "BAR3.GRID", "CURRENTCAR", "TOTAL", "LAP", "PACEPANEL.PACETEXT", "CARPOS_F.GRID", "GAP5.TEXT"}) CHECK(has(path));
+        // Set by path: a text and a row's frame (the lit row is its second).
+        CHECK(p.set("BAR2.NAME", "text", race::StrobePlayer::Value::string("Ford Ka")));
+        CHECK(p.variable("BAR2.NAME").kind == race::StrobePlayer::Value::ClipRef);
+        p.call("BAR2", "gotoAndStop", {race::StrobePlayer::Value::number(2)});
+        bool named = false, lit = false;
+        for (const std::string& l : p.tree()) {
+            named = named || l == "BAR2.NAME  text 17 frame 0 \"Ford Ka\"";
+            lit = lit || l.rfind("BAR2  sprite 26 frame 1", 0) == 0;
+        }
+        CHECK(named && lit);
+        CHECK(!p.set("NO_SUCH", "text", race::StrobePlayer::Value::string("x")));
+    }
+    if (!movies) SKIP("no Gran Turismo 4 disc");
 }

@@ -615,13 +615,17 @@ TEST(replay_script) {
     CHECK(s.period() == 1000 && s.variant_count() == 1);
     CHECK(s.find(0) == &s.records[0] && s.find(499) == &s.records[0] && s.find(500) == &s.records[1] && s.find(2500) == nullptr);
     CHECK(s.distance(0, 250) == 250 && s.distance(3, 250) == 250);
+    // The program's distance (0x3DDF18): crossings x L + v, at or past the end back by whole periods, a
+    // negative distance kept; its choice (0x3DDFF0) as `find`, none before the first record.
+    CHECK(s.distance(1, 250) == 1250 && s.distance(2, 250) == 250 && s.distance(0, -30) == -30);
+    CHECK(s.choose(1250) == &s.records[1] && s.choose(250) == &s.records[0] && s.choose(-30) == nullptr);
     const race::ReplayCurve& c = s.records[1].eye[0];
     CHECK(c.at(-1) == 0 && c.at(0.25f) == 25 && c.at(2) == 100);
     CHECK(s.records[0].looks_at_car() && !s.records[1].looks_at_car() && s.records[1].lens_is_width() && !s.records[0].on_time());
 
     // The first shot: from (10, 2, 0), looking at the car 0.4 m above its origin.
     race::CarState car;
-    car.course_v = 100;
+    car.course_v = 100, car.lap = -1; // (before the line: no crossing yet, the script distance is v)
     gt3r::render::Mat4 body;
     body.at(0, 3) = 10, body.at(1, 3) = 0, body.at(2, 3) = -30;
     race::ReplayCamera cam;

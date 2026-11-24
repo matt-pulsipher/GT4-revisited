@@ -378,6 +378,15 @@ s64 Runtime::race_finished(const RaceResult& r) {
     case RaceResult::Kind::License: {
         const u32 result = r.finished ? result_number(r.result) : 15;
         if (unit >= 0) unit_result(w, 1, result);
+        { // Prologue's license (prologue_natives.cpp): the medal, points and time into its record.
+            const Value lic = vm().attribute(vm().lookup("game"), "license");
+            const Value rec = lic.p ? vm().attribute(lic, "recordResult") : Value{};
+            if (rec.kind == script::Kind::Function) {
+                const Value args[4] = {Value::string(r.race), Value::string(kNames[result]), Value::integer(r.finished ? s32(r.time_ms) : s32(kNoTime)),
+                                       Value::integer(r.finished ? prologue_license_points(row, kNames[result], r.time_ms) : 0)};
+                vm().call(rec, args);
+            }
+        }
         day.type = 4, day.b1 = u8(result), day.b2 = 14, day.word = r.finished ? r.time_ms : kNoTime, day.code = race_code;
         // The test's ranking (0x4320B8): a finished run with a time.
         if (r.finished && r.time_ms && result != 15) {
