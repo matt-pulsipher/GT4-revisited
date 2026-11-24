@@ -1621,8 +1621,10 @@ private:
             w.set("IsFinalSession", g.series.race_count > 0 && g.series.races_run + 1 >= g.series.race_count ? 1 : 0);
             // The grid's Pts column (the page reads getPower: the work's +0x364, which holds each entrant's points so
             // far in a championship, 0x11A168; none before the first race).
-            for (size_t i = 0; i < n; ++i)
-                w.rows[size_t(places[i])].power = i < g.series.entrants.size() ? g.series.entrants[i].points : 0;
+            for (size_t i = 0; i < n; ++i) {
+                const size_t entrant = i == 0 ? 0 : size_t(race_->entry(i).grid_place + 1); // (as report_result numbers them)
+                w.rows[size_t(places[i])].power = entrant < g.series.entrants.size() ? g.series.entrants[entrant].points : 0;
+            }
             w.race_label = championship_race();
         }
         if (sequence_ != "single_race") {
@@ -1726,9 +1728,11 @@ private:
         if (session_kind()) {
             // The rows in finishing order with their times; a run the player did not finish: no times.
             const std::vector<race::RaceFlow::ResultRow> rows = flow.results();
+            const std::vector<menu::QuickRow> kept = w.rows; // (the result routine's: a championship's points, 0x11A168)
             w.rows.assign(rows.size(), menu::QuickRow{});
             for (size_t i = 0; i < rows.size(); ++i) {
                 menu::QuickRow& row = w.rows[i];
+                if (i < kept.size()) row.power = kept[i].power, row.weight = kept[i].weight;
                 row.car = race_->entry(rows[i].car).label, row.paint = int(race_->entry(rows[i].car).paint);
                 row.time_ms = r.finished && rows[i].finished ? rows[i].total_ms : menu::QuickWork::kNoTime;
                 if (rows[i].car == 0) w.set("playerGridNumber", s32(i));
