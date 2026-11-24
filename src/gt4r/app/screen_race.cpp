@@ -1356,13 +1356,22 @@ public:
             else draw_results(ui);
         }
         if (monitor_ && hud_ && race_ && race_->watched() && !race_->replaying()) {
-            // The followed car's picture at the movie's CURRENTCAR_ICON (❓ the rows' two externals each and
-            // MAP_PANEL, the course map with the cars' letters, are not drawn).
+            // The followed car's picture at the movie's CURRENTCAR_ICON, the course map at MAP_PANEL (❓ the rows'
+            // two externals each are not drawn).
             std::vector<RaceHud::MovieExternal> ext;
             hud_->draw_movie(*monitor_movie_, *monitor_, &ext);
             std::vector<RaceWorld::Icon> icons;
-            for (const RaceHud::MovieExternal& e : ext)
+            for (const RaceHud::MovieExternal& e : ext) {
                 if (e.name == "CURRENTCAR_ICON") icons.push_back({race_->focused(), e.x, e.y, e.opacity});
+                if (e.name == "MAP_PANEL") {
+                    // The course map in the panel with each car's grid letter, the followed car's lit.
+                    std::vector<RaceHud::Letter> letters;
+                    const std::span<const race::CarState> cars = race_->shown();
+                    for (size_t i = 0; i < cars.size(); ++i)
+                        letters.push_back({cars[i].position.x, cars[i].position.z, char('A' + std::clamp(race_->grid_place(i), 0, 25))});
+                    hud_->draw_map_box(e.x, e.y, 170, letters, race_->focused());
+                }
+            }
             if (!icons.empty()) race_->draw_icons(ui, RaceHud::canvas(), icons);
         }
         if (paused_) {

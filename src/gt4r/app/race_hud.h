@@ -9,6 +9,7 @@
 #include "gt4r/race/strobe.h"
 
 #include <memory>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -90,6 +91,13 @@ public:
         float opacity = 1;
     };
     void draw_movie(const race::StrobeMovie& movie, const race::StrobePlayer& player, std::vector<MovieExternal>* externals = nullptr);
+    // The course map fitted in a box `size` canvas units across centred on (cx, cy), each car's letter at its
+    // place (`lit` the one drawn orange): the Race Monitor's MAP_PANEL.
+    struct Letter {
+        float x = 0, z = 0;
+        char letter = 'A';
+    };
+    void draw_map_box(float cx, float cy, float size, std::span<const Letter> cars, size_t lit);
     // The course's logo (piece/crs_logo/<course>.img, a Tex1 picture) for the replays' opening.
     void set_course_logo(ByteSpan tex1);
     // The 640 x 480 canvas on the screen.

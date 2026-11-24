@@ -528,6 +528,26 @@ void RaceHud::Impl::draw_map(const HudState& s) {
     }
 }
 
+void RaceHud::draw_map_box(float cx, float cy, float size, std::span<const Letter> cars, size_t lit) {
+    Impl& m = *impl_;
+    if (!m.map_texture) return;
+    const float w = float(m.map.image.width), h = float(m.map.image.height);
+    if (!(w > 0) || !(h > 0)) return;
+    const float k = size / std::max(w, h);
+    const DisplayRect at{cx - w * k / 2, cy - h * k / 2, w * k, h * k};
+    SDL_SetTextureColorMod(m.map_texture, 255, 255, 255);
+    SDL_SetTextureAlphaMod(m.map_texture, 255);
+    const SDL_FRect dst = to_ui(at);
+    SDL_RenderTexture(m.r, m.map_texture, nullptr, &dst);
+    // The letters in the race's italic face (❓ the program places the movie's CARPOS_ letters).
+    const auto f = m.font("hn_20R", 100, 1);
+    for (size_t i = 0; i < cars.size(); ++i) {
+        float mx, my;
+        m.map.map(cars[i].x, cars[i].z, mx, my);
+        m.draw_text(f, at.x + mx * k, at.y + my * k, kCentered | kMiddleOfLine, i == lit ? 0x800080FFu : 0x80FFFFFFu, 1, std::string(1, cars[i].letter));
+    }
+}
+
 // The gear in its pale box: black, in the meters' font ("R" reverse; its "K" draws N).
 void RaceHud::Impl::draw_gear(const DisplayRect& box, const HudState& s) {
     draw_picture(picture("gear_base"), box, 0x80FFFFFFu, s.opacity);
