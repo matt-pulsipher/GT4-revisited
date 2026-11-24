@@ -1297,6 +1297,11 @@ private:
             const menu::GameState& g = menus_->game();
             w.set("SessionNumber", g.series.races_run);
             w.set("IsFinalSession", g.series.race_count > 0 && g.series.races_run + 1 >= g.series.race_count ? 1 : 0);
+            // The grid's Pts column (the page reads getPower: the work's +0x364, which holds each entrant's points so
+            // far in a championship, 0x11A168; none before the first race).
+            for (size_t i = 0; i < n; ++i)
+                w.rows[size_t(places[i])].power = i < g.series.entrants.size() ? g.series.entrants[i].points : 0;
+            w.race_label = championship_race();
         }
         if (sequence_ != "single_race") {
             w.set("IsASpec", 1); // ❓ the license the event asks for is not checked
