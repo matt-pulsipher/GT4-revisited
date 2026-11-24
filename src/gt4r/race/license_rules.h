@@ -22,6 +22,9 @@ struct LicenseRules {
     int car_limit = 0;     // CFG +0x48 <- row +0x8B: a car hit's strength x 100 at or over it fails (0: any, 255: none)
     int wall_limit = 0;    // CFG +0x49 <- row +0x8A: a wall hit's impulse over the car's mass (m/s), likewise
     int x4a = 0;           // CFG +0x4A <- row +0x88 ❓
+    // CFG +0x21 <- row +0x89 (signed; below -1 read as -1): the road's section the race runs on (the course
+    // object's +0xB0, DynamicsConductor::vf26 0x34CA20): its start and goal distances (road.md "Sections"); -1 none.
+    int section = -1;
 
     // From a RACE row (151 bytes); a short row gives the defaults.
     static LicenseRules from_row(std::span<const u8> row);

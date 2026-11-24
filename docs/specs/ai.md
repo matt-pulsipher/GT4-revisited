@@ -439,8 +439,9 @@ avoids the colours already on the grid. ❓ 0x40A338's likeness (not read).
 +0x8C .. +0x90 (0x447828) as seconds at CFG +0x60 + 2 i (s16); ✔ only the ten "catch the cars ahead"
 missions (usl0m0025 .. 0034) set them (e.g. 35, 0, 4, 11, 16, 19). The decision lengthens the
 start's long look ahead by them (5 s + delay); the conductor's virtual 41 (0x34DA58) answers whether
-place 0 has one. 🔎 The cars' held start itself is not found: ours holds such a car on the line (the
-count's engine hold, the brake on) until the race's clock passes its seconds (judged).
+place 0 has one. The held start itself is the conductor's (0x34DB30, [race_flow.md](../formats/race_flow.md) "The held starts"): a count
+of 60 x the seconds per car (K +0xCBFC), the car in the start's hold (F +0x4BC) until it runs out, then its start
+signal. Ours holds such a car on the line (the brake on, the engine blipped) for the same seconds (the hold judged).
 
 **The demonstration runs** (a license test's "View a demo run"): recorded, not computed. The disc keeps one per test
 and region under `replay/license/<event label>`, the program's `Serialize::ReplayData`: the race's header (the

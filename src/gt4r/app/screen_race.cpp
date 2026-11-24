@@ -170,7 +170,15 @@ void apply_course_start(App& app, Setup& setup, bool start) {
     // runs a 480-step hold before the car moves; ❓ other races' 10 s, the race information's type byte's
     // writer not traced.)
     const bool test = setup.sequence == "license" || setup.sequence == "license_race" || setup.sequence == "mission";
-    setup.start = cs.rolling ? race::StartType::Rolling : test ? race::StartType::Eight : race::StartType::Ten;
+    // A license test's conductor (DynamicsConductorLicense, vf6 0x3F5FA0 answering 1) takes away the course's
+    // rolling start (vf28 0x34D490); its tests 5, 10 and 15 run as RaceTraining (the pace car's laps), whose
+    // conductor keeps it, as the missions' do.
+    bool rolling = cs.rolling;
+    if (setup.sequence == "license" && setup.race.size() >= 4) {
+        const int n = std::atoi(setup.race.c_str() + setup.race.size() - 4);
+        if (n != 5 && n != 10 && n != 15) rolling = false;
+    }
+    setup.start = rolling ? race::StartType::Rolling : test ? race::StartType::Eight : race::StartType::Ten;
     setup.start_speed = cs.speed(), setup.start_back = cs.distance_m, setup.start_spacing = cs.spacing_m;
 }
 
@@ -388,7 +396,7 @@ public:
         fs.lap_length = world_->lap_length();
         flow_.begin(fs, world_->cars());
         rolled_ = false;
-        license_failed_ = false;
+        license_failed_ = false, goal_prev_ = -1;
         judge_ = race::LicenseJudge(judge_.rules());
         board_.begin(world_->car_count(), 0, lap_words_[0], lap_words_[1]);
         camera_.reset(world_->cars()[0]);
@@ -494,12 +502,14 @@ public:
         // A demonstration: car 0 by its recording, step by step from the race's first.
         const bool demo = demo_run_.has_value();
         if (demo) inputs_[0] = demo_run_->input(demo_step_++), auto_drive = false;
-        const bool opening = opening_tv(), running_up = run_up();
-        // A rolling start: the field holds the start's speed until the release, then goes.
-        world_->set_speed_hold(running_up && setup_.start_speed > 0 ? setup_.start_speed : 0);
+        const bool opening = opening_tv();
         world_->step(inputs_, hold, !demo && (auto_drive || watched_ || setup_.auto_drive));
-        // (The race clock stands until the release.)
-        const race::RaceFlow::Events ev = running_up ? race::RaceFlow::Events{} : flow_.step(world_->cars());
+        // (A rolling start's clock stands until the first car takes the line: RaceFlow.)
+        const race::RaceFlow::Events ev = flow_.step(world_->cars());
+        // A rolling start: each car released to its driver as it takes the line (vf20 0x347928).
+        if (flow_.setup().start == race::StartType::Rolling)
+            for (size_t i = 0; i < world_->cars().size() && i < flow_.car_count(); ++i)
+                if (flow_.car(i).counter > 0) world_->release_start(i);
         if (!ev.finished.empty()) board_.finished(flow_, ev.finished);
         // Each car's distance from the line (crossings x lap + along) each step from the start: the gaps.
         if (flow_.steps_since_start() >= 0) {
@@ -524,6 +534,9 @@ public:
             if (ev.start && flow_.setup().start == race::StartType::Rolling) sound->start_signal();
             if (ev.player_finished) sound->finish();
         }
+        if (ev.clock_started) LOG_INFO("Drive: the rolling start's clock starts (the first car takes the line); the player %.1f m from it", double(to_line_raw()));
+        if (opening_was_ && !opening_tv()) LOG_INFO("Drive: the opening shots end %.1f m from the line, %.2f s on the clock", double(to_line_raw()), double(flow_.time_ms()) / 1000);
+        opening_was_ = opening_tv();
         if (ev.start && flow_.setup().start == race::StartType::Rolling)
             LOG_INFO("Drive: the player's car takes the line at %.1f km/h, %.2f s on the clock", double(world_->cars()[0].speed * 3.6f), double(flow_.time_ms()) / 1000);
         if (is_license(setup_.sequence) || setup_.sequence == "mission") judge_license();
@@ -635,6 +648,7 @@ public:
             WorldEntry e = world_->setup().entries[i];
             e.equipment = entries[i].equipment, e.grid_place = entries[i].grid_place;
             e.automatic = entries[i].automatic, e.asm_on = entries[i].asm_on, e.tcs_on = entries[i].tcs_on;
+            if (i == 0 && goal_ >= 0) e.start_distance = section_start_; // (a test on a section: its start)
             over[i] = e;
         }
         world_->set_computer_player(false);
@@ -649,7 +663,11 @@ public:
     void end_demo() {
         if (!demo_run_) return;
         demo_run_.reset();
-        world_->set_entry_overrides({});
+        if (goal_ >= 0) {
+            WorldEntry e = world_->setup().entries[0];
+            e.start_distance = section_start_;
+            world_->set_entry_overrides({e});
+        } else world_->set_entry_overrides({});
     }
     bool over() const { return over_; }
     const race::RaceFlow& flow() const { return flow_; }
@@ -877,8 +895,31 @@ public:
             return;
         }
         if (judge_.cones_done()) flow_.finish_now(0);
+        // The goal of a test on a section (kind 2: vf23 → 0x3F8AB0, timed at the share of the step before it).
+        if (goal_ >= 0 && r.kind == 2 && goal_prev_ >= 0 && goal_prev_ < goal_ && goal_ <= c.course_v && c.course_v - goal_prev_ < 50) {
+            flow_.finish_now(0, (c.course_v - goal_) / std::max(1e-3f, c.course_v - goal_prev_));
+            license_failed_ = false;
+        }
+        goal_prev_ = c.course_v;
     }
-    void set_license_rules(const race::LicenseRules& r) { judge_ = race::LicenseJudge(r); }
+    // The test's rules; a test on a section of the road starts at the section's start (the car standing on
+    // the driving line there, 0x363B10 with the start distance vf38) and ends at its goal.
+    void set_license_rules(const race::LicenseRules& r) {
+        judge_ = race::LicenseJudge(r);
+        goal_ = -1;
+        const std::vector<race::RoadSection> sections = race::road_sections(world_->course().section(course::kSlotRunway));
+        if (r.section < 0 || size_t(r.section) >= sections.size()) return;
+        const race::RoadSection& sec = sections[size_t(r.section)];
+        const float lap = world_->lap_length();
+        if (!(sec.goal >= 1 && sec.goal <= lap - 1)) return;
+        goal_ = sec.goal;
+        section_start_ = sec.start > lap * 0.5f ? sec.start - lap : sec.start;
+        WorldEntry e = world_->setup().entries[0];
+        e.start_distance = section_start_;
+        world_->set_entry_overrides({e});
+        begin_run(watched_);
+        LOG_INFO("Drive: the test's section %d: from %.1f m to the goal at %.1f m", r.section, double(sec.start), double(sec.goal));
+    }
     const race::LicenseJudge& license_judge() const { return judge_; }
     bool license_failed() const { return license_failed_; }
 
@@ -897,6 +938,13 @@ public:
         return p;
     }
 
+    // The player's car's metres to the line before its first crossing (for the log).
+    float to_line_raw() const {
+        const race::CarState& c = world_->cars()[0];
+        const float len = world_->lap_length();
+        return len > 0 && c.course_v > len * 0.5f ? len - c.course_v : 0.0f;
+    }
+    bool opening_was_ = false;
     // A rolling start: the player's car's metres to the line before it takes it (-1: none, or past it).
     float to_line() const {
         if (!handing_over() || setup_.skip > 0) return -1;
@@ -905,15 +953,11 @@ public:
         if (!(len > 0)) return -1;
         return c.course_v > len * 0.5f ? len - c.course_v : (c.lap < 0 ? len - c.course_v : 0.0f);
     }
-    // A rolling start's run-up: the field at the start's speed in single file, the race clock standing,
-    // until the release, when the player's car is kRelease metres from the line; the course's TV cameras
-    // show it until kOpeningEnd metres (❓ both judged from the original's Tsukuba start: the field at
-    // 50 mph through some 12 s of shots, the clock starting during the last one, the player's view
-    // about 1.5 s later, the line 4.2 s after the clock's start at 50 -> 56 mph; the program's hold
-    // is not read).
-    static constexpr float kRelease = 80, kOpeningEnd = 50;
-    bool run_up() const { return to_line() > kRelease; }
-    bool opening_tv() const { return to_line() > kOpeningEnd; }
+    // A rolling start's opening: the course's TV cameras show the field while the followed car is held to the
+    // start's pace, more than 3 s at the start's speed short of the line (the camera manager's state 4 from
+    // 0x3FD620, which asks the car's pace 0x3F7880); then the race's own view. ✔ The original's Tsukuba start:
+    // the player's view about 1.5 s after the clock starts and 4.2 s before he takes the line.
+    bool opening_tv() const { return setup_.start_speed > 0 && to_line() > 3 * setup_.start_speed; }
 
     // A rolling start before the player's car takes the line: it is driven for him.
     bool handing_over() const { return flow_.setup().start == race::StartType::Rolling && flow_.steps_since_start() < 0 && !replaying_ && !menu_scene_; }
@@ -1031,6 +1075,7 @@ private:
     bool throttle_held_ = false;
     bool stop_area_ = false, license_failed_ = false; // a license test's stopping box
     race::LicenseJudge judge_;
+    float goal_ = -1, goal_prev_ = -1, section_start_ = 0; // a test on a road section: its goal and start (m)
     std::vector<std::vector<float>> run_dist_; // per car, per step since the start: its distance from the line
     size_t focus_ = 0; // B-spec: the car the views follow
     std::optional<sim::ai::DemoRun> demo_run_; // a demonstration's recording

@@ -641,6 +641,8 @@ void Session::publish(size_t i) {
     }
     float v = 0;
     if (ground_->distance_along(cog, v, &x.checkpoint)) {
+        // (The checkpoint pair across the lap's end answers past the length: the line is at 0.)
+        if (road_->length > 0 && v >= road_->length) v -= road_->length;
         if (x.has_v && road_->length > 0) {
             const float d = v - x.last_v;
             if (d < -road_->length * 0.5f) ++s.lap;

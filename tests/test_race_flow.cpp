@@ -135,6 +135,27 @@ TEST(race_flow_crossing_time) {
     CHECK(started && rolling.steps_since_start() >= 0);
 }
 
+TEST(race_flow_rolling_clock) {
+    // A rolling start: the clock stands until the first car takes the line, then runs; the player's own
+    // crossing is his start signal, later; his first lap is timed from the clock's start.
+    Field f({4.0f, 4.0f}, 10);
+    f.at[1] = -2, f.publish(1); // car 1 ahead, 8 m before the player
+    race::FlowSetup s;
+    s.start = race::StartType::Rolling, s.laps = 2, s.lap_length = kLap;
+    race::RaceFlow flow(s, f.cars);
+    CHECK(!flow.clock_running());
+    int clock_step = -1, start_step = -1;
+    for (int i = 0; i < 10; ++i) {
+        f.step();
+        const race::RaceFlow::Events ev = flow.step(f.cars);
+        if (ev.clock_started) clock_step = i;
+        if (ev.start) start_step = i;
+    }
+    CHECK(clock_step == 0 && start_step == 2);
+    CHECK(flow.clock_running() && flow.clock() == 9 * race::kClockPerStep);
+    CHECK(flow.lap_ms(0) == race::clock_ms(flow.clock()));
+}
+
 TEST(race_result_board) {
     // Three cars, the player (0) the slowest; the page up when the leader finishes.
     Field f({2.0f, 3.0f, 2.5f}, 5);

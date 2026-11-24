@@ -225,6 +225,12 @@ void RaceWorld::build_simulation() {
         sim_ = rail_.get();
     }
     noted_ = true;
+    // A rolling start's cars (0x3452F0 gives each its driver kind 1 and the start's driver line).
+    pace_kmh_.assign(setup_.entries.size(), 0.0f);
+    for (size_t i = 0; i < pace_kmh_.size(); ++i) {
+        const WorldEntry& we = i < overrides_.size() && overrides_[i] ? *overrides_[i] : setup_.entries[i];
+        pace_kmh_[i] = we.start_speed * 3.6f;
+    }
 }
 
 void RaceWorld::set_entry_overrides(std::vector<std::optional<WorldEntry>> overrides) {
@@ -253,15 +259,23 @@ void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool pla
         if (computer_player_ && session_) session_->set_shift_factor(0, field_->shift_factor(0));
         inputs = driven;
     }
-    // A rolling start's run-up: every car kept at the start's speed, the throttle eased and a touch
-    // of brake above it.
+    // A rolling start's pace (0x3F7880, `sim::rules::start_pace`): a car not yet over the line and more than 3 s at
+    // the start's speed short of it is capped at that speed; from 3 s out it runs free. (❓ Stand-in for the cap's
+    // throttle rule 0x3F76E8 in the car's aids, which runs once the session marks the car's driver kind:
+    // the throttle eased toward the speed, a touch of brake above it.)
     std::vector<race::CarInput> capped;
-    if (hold_speed_ > 0 && !hold) {
+    if (!hold && std::any_of(pace_kmh_.begin(), pace_kmh_.end(), [](float k) { return k > 0; })) {
         capped.assign(inputs.begin(), inputs.end());
         capped.resize(car_visuals_.size());
         const std::span<const race::CarState> now = sim_->cars();
-        for (size_t i = 0; i < capped.size() && i < now.size(); ++i) {
-            const float v = now[i].speed, gap = hold_speed_ - v;
+        const float len = lap_length();
+        for (size_t i = 0; i < capped.size() && i < now.size() && i < pace_kmh_.size(); ++i) {
+            if (!(pace_kmh_[i] > 0) || !(len > 0)) continue;
+            const race::CarState& c = now[i];
+            const float to_line = c.course_v > len * 0.5f ? len - c.course_v : 0.0f;
+            const float mps = pace_kmh_[i] / 3.6f;
+            if (!(to_line > 3 * mps)) continue;
+            const float gap = mps - c.speed;
             race::CarInput& in = capped[i];
             in.throttle = std::min(in.throttle, std::clamp(0.3f + gap * 0.5f, 0.0f, 1.0f));
             in.brake = std::max(in.brake, std::clamp((-gap - 1.0f) * 0.15f, 0.0f, 0.4f));
