@@ -22,6 +22,9 @@ struct ParamBlock {
     std::array<u8, kSize> bytes{};
     // The block's address: its tables (a count and two pointers) hold base + the offset of their points.
     u32 base = 0;
+    // The driveline's first down-shift speed (D +0x30) as 0x34ACA8 leaves it, before the hold speed (0x360780) replaces it
+    // for a stepless box of kind 1: what the settings page's gear chart (0x34B8E8, the driveline alone) reads.
+    u16 built_down_rpm0 = 0;
 
     gt3r::ee::F f(u32 o) const { return gt3r::ee::F::raw(w(o)); }
     void set_f(u32 o, gt3r::ee::F v) { set_w(o, v.bits); }

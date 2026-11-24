@@ -1232,6 +1232,7 @@ void convert(Spec s, const Program& program, const rules::Tables& race, const Co
         if (dr < df) p.set_f(0x3A4, p.f(0x368) - (df - dr));
         else if (df < dr) p.set_f(0x34C, p.f(0x310) - (dr - df));
     }
+    p.built_down_rpm0 = p.h(kD + 0x30);
     top_and_hold(s, program, p, race, in);
 }
 
@@ -1332,6 +1333,7 @@ void build_record(const Spec& s, const Program& program, const rules::Tables& ra
     // What the car's set-up gives the record besides the block (0x354AC0 at its first step: the masses with the fuel, 0 here).
     r.x.chassis.mass = p.f(0x48);
     r.x.body.sprung_mass = p.f(0x4C);
+    r.x.drive.d.built_down_rpm0 = p.built_down_rpm0;
     if (r.x.drive.d.kind == 3) rules::hybrid_start(r.x.drive.hybrid); // (0x3683C8)
     if (r.x.drive.d.layout == 7) rules::motor_start(r.x.drive.hybrid, race.drive.motors); // (0x355DC8)
 }
