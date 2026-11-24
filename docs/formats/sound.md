@@ -26,8 +26,8 @@ names `SDDRV::SqSequencer` and `SDDRV::SeSequencer`); [F] from the files; 🔎 i
 | A race heard without its session (a replay, a saved run) | `sound_state(race::CarState)` | judged from what the seam keeps: the quietest throttle 3/8 (torques 1 : 0.6), the skid's pitch from the slip, the rim's speed from the car's, a landing at the downward speed / 5, a contact as twice the step's summed strength; the program replays its cars' records ❓ |
 | The course's ambience (0x398B70, the emitters 0x457918) | `course_sound.*` | Gran Turismo 4's, the `CRSS` section read by the shared reader (the same layout); ❓ which of a wheel's notes a course allows (0x360458 → 0x3922B0) is not applied |
 | The count, the music's messages, the play list (0x39DA80, 0x389758, 0x438170) | `race_sound.*`, `race_playlist.*` | Gran Turismo 4's |
-| The menus' sound object (`menu::MSound`) | `menu_sound.*` | Gran Turismo 4's |
-| Streams (`.ads`): reading, decoding, playing | the shared `gt3r::AudioEngine` stream player | the IOP's stream module (not in `CORE.GT4`); its level is 1.6 to 1.9 dB over the original's ❓ |
+| The menus' sound object (`menu::MSound`) | `menu_sound.*` | Gran Turismo 4's; Prologue's music level ❓ (1.0 in its saved states) |
+| Streams (`.ads`): reading, decoding, playing | the shared `gt3r::AudioEngine` stream player | the IOP's stream module (not in `CORE.GT4`), at the program's levels (the SPU2's registers in the saved states); the original plays a stream on two SPU2 voices with the SPU2's interpolation, ours resamples it apart from the voices |
 | Pit sounds (`wheelgun`, `dropnut`, ...) | | not played |
 
 ## What is on the discs (`gt4tool sound <disc> survey`)
