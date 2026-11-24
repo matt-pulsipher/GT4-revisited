@@ -115,3 +115,42 @@ TEST(disc_menu_new_car_power) {
     std::printf("  Panda: entry power %u, weight %u, shown %d %s\n", e.power, e.weight, shown, unit.name);
     CHECK(shown == 44);
 }
+
+// The settings pages' charts: the engine's (0x34B960) equal to the program's on every car, new and worn; the gear
+// chart's engine speeds and gears equal, its road speeds within the gear speed factors' last digit (the parameter
+// block's driveline is the shared engine's converter's, sim_program_params_equal).
+TEST(sim_program_charts_equal) {
+    Disc* disc = program_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    const diff::ChartsResult r = diff::run_charts(*disc, false);
+    CHECK(r.ran && r.cars > 700);
+    CHECK(r.engine_equal == r.cars);
+    std::printf("  gear charts equal bit for bit on %zu of %zu\n", r.gears_equal, r.cars);
+}
+
+// MCarGarage.buildEngineCurveData / buildGearRatioData as the settings pages call them (0x148B60, 0x148940).
+TEST(disc_menu_car_charts) {
+    Disc* disc = gt4_disc();
+    if (!disc || !sim::Program::load(*disc).known()) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    Flow f(*disc);
+    CHECK(f.boot_to_title());
+    script::Vm& vm = f.rt->vm();
+    const std::vector<Value> car{Value::string("ka_01"), Value::integer(0)};
+    const Value cg = vm.call(vm.lookup("main::menu::MCarGarage"), car);
+    const Value curves = vm.call(vm.attribute(cg, "buildEngineCurveData"), {});
+    const std::vector<Value>* c = curves.items();
+    CHECK(c && c->size() == 6);
+    if (!c || c->size() != 6) return;
+    const std::vector<Value>* power = (*c)[0].items();
+    CHECK(power && power->size() >= 2);
+    float top = 0;
+    if (power)
+        for (const Value& p : *power) top = std::max(top, (*p.items())[1].as_float());
+    CHECK(top > 0.999f && top <= 1.0f);                     // over its own peak
+    CHECK((*c)[2].as_float() > 59 && (*c)[2].as_float() < 62); // the Ka's 60 PS
+    const std::vector<Value> at{Value::integer(1)};
+    const Value gears = vm.call(vm.attribute(cg, "buildGearRatioData"), at);
+    const std::vector<Value>* g = gears.items();
+    CHECK(g && g->size() == 10); // five gears, a pair of points each
+    if (g && g->size() >= 2) CHECK((*g)[1].items() && (*(*g)[1].items())[0].as_float() > (*(*g)[0].items())[0].as_float());
+}

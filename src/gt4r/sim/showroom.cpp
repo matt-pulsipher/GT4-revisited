@@ -163,8 +163,9 @@ Showroom::Showroom(db::SpecDb& db, const Program& program) : db_(db), program_(p
 
 Showroom::~Showroom() = default;
 
-bool Showroom::record(const Equipment& eq, Spec& spec, Record& out) const {
+bool Showroom::record(const Equipment& eq, Spec& spec, Record& out, int x156) const {
     build_spec(db_, program_, eq, 0, spec);
+    if (x156 >= 0) spec.set_b(0x156, u32(x156));
     if (spec.weight_kg() <= 0 || spec.b(0xBF) == 0) return false;
     ex::Spec core;
     core_spec(spec, core);
@@ -203,6 +204,36 @@ std::optional<ShowroomFigures> Showroom::figures(const Equipment& eq, F conditio
     if (spec.b(0x05)) w = s16(w) + spec.b(0x05);
     f.weight = s16(w);
     return f;
+}
+
+GearChart gear_chart(const rules::DrivelineBlock& d, const rules::EngineBlock& e) {
+    GearChart g;
+    g.gears = d.gears;
+    for (int i = 0; i <= g.gears && i < 10; ++i) {
+        const size_t k = size_t(i);
+        const u16 lo = i < 2 ? u16(1000) : d.down_rpm[k - 2];
+        g.low_rpm[k] = lo;
+        F w = int_to_f(lo) * kRpm;
+        if (i == 0) w = -w;
+        g.low_speed[k] = w / d.gear_speed[k];
+        const u16 hi = i == 0 || i == g.gears ? e.rev_limit : d.up_rpm;
+        g.high_rpm[k] = hi;
+        w = int_to_f(hi) * kRpm;
+        if (i == 0) w = -w;
+        g.high_speed[k] = w / d.gear_speed[k];
+    }
+    return g;
+}
+
+std::optional<Charts> Showroom::charts(const Equipment& eq, F condition, int automatic) const {
+    Spec spec;
+    Record r;
+    if (!program_.known() || !record(eq, spec, r, automatic)) return std::nullopt;
+    Charts c;
+    c.engine = engine_figures(r.x.drive.e, condition);
+    c.engine.ps = c.engine.ps + extra_power(r.x.drive.d, program_);
+    c.gears = gear_chart(r.x.drive.d, r.x.drive.e);
+    return c;
 }
 
 std::optional<ShowroomFigures> Showroom::stock(const std::string& car_label) const {

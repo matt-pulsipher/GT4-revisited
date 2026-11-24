@@ -18,6 +18,7 @@
 #include "gt4r/sim/program.h"
 #include "gt4r/sim/record.h"
 
+#include <array>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -68,6 +69,23 @@ ConditionLimits condition_limits(const Program& program);
 // (with the extra) and peak torque `kgfm`.
 F evaluation(const Record& r, F ps, F kgfm);
 
+// 0x34B808: a gearbox's chart: per gear (reverse and 1 .. gears) the engine speeds it runs between (the
+// lowest: 1,000 rpm for reverse and first, else the down-shift speed into it; the highest: the up-shift speed,
+// the rev limit for reverse and the top gear) and the road speeds there (m/s; reverse negative).
+struct GearChart {
+    int gears = 0;                          // +0x00
+    std::array<u16, 10> low_rpm{}, high_rpm{}; // +0x04 / +0x18
+    std::array<F, 10> low_speed, high_speed;   // +0x2C / +0x54
+};
+GearChart gear_chart(const rules::DrivelineBlock& d, const rules::EngineBlock& e);
+
+// The settings pages' charts (0x34B960 for the engine's, 0x34B8E8 for the gears'): the engine's figures with the
+// car's condition (the peak power with the driveline's extra) and the gear chart.
+struct Charts {
+    EngineFigures engine;
+    GearChart gears;
+};
+
 // A showroom car's figures.
 struct ShowroomFigures {
     F power;       // PS: ShowRoomCar +0x1700 (0x364E90 reads it)
@@ -88,8 +106,12 @@ public:
     std::optional<ShowroomFigures> figures(const Equipment& eq, F condition = F::raw(0x3F800000)) const;
     // A car as sold (sim::stock_car); none when the database has no such car.
     std::optional<ShowroomFigures> stock(const std::string& car_label) const;
-    // The parameter block's record of an equipment (record.h), as figures() builds it.
-    bool record(const Equipment& eq, Spec& spec, Record& out) const;
+    // The charts of an equipment; `automatic` (0 / 1, -1: as the spec has it) is put in the spec's +0x156 first, as
+    // the gear chart's argument does (0x148940).
+    std::optional<Charts> charts(const Equipment& eq, F condition, int automatic = -1) const;
+    // The parameter block's record of an equipment (record.h), as figures() builds it; `x156` (0 .. 255) put in
+    // the spec's +0x156 when not -1.
+    bool record(const Equipment& eq, Spec& spec, Record& out, int x156 = -1) const;
 
 private:
     struct Data;
