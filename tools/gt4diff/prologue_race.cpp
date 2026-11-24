@@ -121,6 +121,7 @@ bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, 
                 auto axis = [](float v) { return s32(std::lround(std::clamp(v, -1.0f, 1.0f) * 4096.0f)); };
                 e.w8(frame + 0, 1 | 2 | 4), e.w8(frame + 1, 3), e.w8(frame + 2, u8(gt3r::s8(p.shift)));
                 e.w16(frame + 4, u16(gt3r::s16(-axis(p.steer)))), e.w16(frame + 8, u16(axis(p.throttle))), e.w16(frame + 0xA, u16(axis(p.brake)));
+                e.w8(frame + 3, 0), e.w16(frame + 6, 0), e.w16(frame + 0xC, 0), e.w16(frame + 0xE, 0); // (the back and third axes unused)
                 e.set_v0(0);
             },
             "pad frame");
