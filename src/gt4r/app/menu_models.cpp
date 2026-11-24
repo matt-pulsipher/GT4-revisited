@@ -8,6 +8,7 @@
 #include "gt4r/menu/runtime.h"
 #include "render/gpu_context.h"
 
+#include <cmath>
 #include <cstring>
 
 namespace gt4r {
@@ -21,6 +22,7 @@ MenuModels::MenuModels(App& app) : app_(app) {
 
 MenuModels::~MenuModels() {
     models_.clear();
+    views_.clear();
     view_.reset();
     if (app_.gpu())
         for (auto& [k, t] : env_)
@@ -34,7 +36,7 @@ void MenuModels::begin_frame(u64 frame) {
 
 void MenuModels::end_frame() {
     for (auto it = faces_.begin(); it != faces_.end();)
-        if (!it->second.seen || it->second.widget.expired()) it = faces_.erase(it);
+        if (!it->second.seen || it->second.widget.expired()) views_.erase(it->first), it = faces_.erase(it);
         else ++it;
 }
 
@@ -129,7 +131,10 @@ void MenuModels::draw(const menu::LiveWidget& face, menu::Project* project, cons
     if (SDL_GPUTexture* env = env_texture(project, page, s.env_image_path)) o.env_sphere = env, o.reflection_strength = 1.0f;
     items_.clear();
     items_.push_back({m, placed, 0});
-    view_->draw(app_.renderer(), menu_face3d::on_screen(part, at, dst), view, proj, eye, items_, o);
+    const SDL_FRect shown = menu_face3d::on_screen(part, at, dst);
+    std::unique_ptr<render::View3D>& v3 = views_[&face];
+    if (!v3) v3 = std::make_unique<render::View3D>(*app_.gpu());
+    v3->draw(app_.renderer(), shown, view, proj, eye, items_, o);
 }
 
 } // namespace gt4r
