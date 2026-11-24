@@ -8,6 +8,7 @@
 #include "collide_check.h"
 #include "whole_step.h"
 #include "orig.h"
+#include "pit_check.h"
 #include "taps.h"
 
 #include "gt4r/formats/course/course_file.h"
@@ -205,7 +206,8 @@ void check_lines(Ee& ee, const OrigRace& o, const sim::ai::Field& field, std::ma
             if (std::getenv("GT4R_AI_LINES"))
                 std::printf("  line %d point %2u: distance %9.3f / %9.3f slope %+.5f / %+.5f bank %+.5f / %+.5f x %8.2f / %8.2f y %8.2f / %8.2f\n", k, i,
                             double(ee.rf(P + 0x14)), double(q.dist), double(ee.rf(P + 0x1C)), double(q.slope), double(ee.rf(P + 0x20)), double(q.bank),
-                            double(ee.rf(P + 4)), double(q.x), double(ee.rf(P + 8)), double(q.y));
+                            double(ee.rf(P + 4)), double(q.x), double(ee.rf(P + 8)), double(q.y)),
+                std::printf("      height %9.3f / %9.3f\n", double(ee.rf(P + 0x0C)), double(q.height));
             t["line height"].bits(w, ee.r32(P + 0x0C), gt3r::ee::F(q.height));
             t["line x"].bits(w, ee.r32(P + 0x04), gt3r::ee::F(q.x));
             t["line y"].bits(w, ee.r32(P + 0x08), gt3r::ee::F(q.y));
@@ -557,6 +559,7 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
     std::unique_ptr<ProgramCars> pcars;
     std::unique_ptr<sim::ai::Field> field;
     std::unique_ptr<CallChecks> calls;
+    std::unique_ptr<PitCheck> pit_check;
     int bspec_car = -1, bspec_level = -1, bspec_step = -1, finish_mode = 0, finish_step = -1;
     if (const char* f = std::getenv("GT4R_AI_FINISH")) {
         finish_mode = std::atoi(f);
@@ -565,7 +568,7 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
     const sim::Program program = sim::Program::load(disc);
     const bool ours = options.ours, checks = options.checks;
     std::map<std::string, Tally> tally;
-    if (ours || checks) {
+    if (ours || checks || std::getenv("GT4R_AI_PITCHECK")) {
         const gt3r::Volume::Entry* file = disc.volume().find("crs/" + course);
         const Bytes data = disc.volume().read(*file);
         const course::CourseFile parsed = course::CourseFile::parse(data);
@@ -610,6 +613,11 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
         if (checks && !ours) {
             calls = std::make_unique<CallChecks>(ee, o, *field, *pcars, lap_length, tally);
             calls->install();
+        }
+        // GT4R_AI_PITCHECK: the pit pass (0x359008 / 0x35B060) against ours at every call (pit_check.cpp).
+        if (std::getenv("GT4R_AI_PITCHECK")) {
+            pit_check = std::make_unique<PitCheck>(ee, o, field->lines(), program, lap_length);
+            pit_check->install();
         }
         if (ours) ee.hle(
             0x465078,
@@ -664,6 +672,22 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
                     ee.call(0x343D78, {Arg::ptr(o.car(i)), Arg::integer(finish_mode)});
                     field->finish(size_t(i), finish_mode);
                 }
+            // GT4R_AI_PIT=<car>,<seconds>: that car's pit request (F +0x4B1 bit 3, as B-spec's command 6 and the wear's phase
+            // 0x353218 set it) at that time; its pit fields printed every half second from then.
+            if (const char* pe = std::getenv("GT4R_AI_PIT")) {
+                const int pc = std::atoi(pe);
+                const char* c = std::strchr(pe, ',');
+                const int ps = c ? int(std::atof(c + 1) * 60.0) : 0;
+                if (pc >= 0 && pc < o.cars) {
+                    const u32 F = o.car(pc) + kF;
+                    if (step == ps) ee.w8(F + 0x4B1, u8(ee.r8(F + 0x4B1) | 8));
+                    if (step >= ps && step % 30 == 0)
+                        std::printf("pit t %.1f d %.1f v %.1f kind %u line %u flags %02X 4B2 %u box %d service %04X hold %u 62E %u 64C %d 5C3 %u 5FA %u/%u\n", step / 60.0,
+                                    double(ee.rf(F + kDistance)), double(ee.rf(F + 0x53C)) * 3.6, ee.r8(F + 0x467), ee.r8(o.car(pc) + 0x14 + 0x1C), ee.r8(F + 0x4B1),
+                                    ee.r8(F + 0x4B2), int(gt3r::s8(ee.r8(F + 0x4B7))), ee.r16(F + 0x4B8), ee.r16(F + 0x4BA), ee.r8(F + 0x62E), int(s16(ee.r16(F + 0x64C))),
+                                    ee.r8(F + 0x5C3), ee.r8(F + 0x5FA), ee.r8(F + 0x5FB));
+                }
+            }
             if (step == bspec_step && bspec_car >= 0) {
                 ee.call(0x3F19E0, {Arg::ptr(o.car(bspec_car)), Arg::integer(0), Arg::integer(4), Arg::integer(bspec_level)});
                 field->command(size_t(bspec_car), {bspec_level, -1});
@@ -737,6 +761,7 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
         if (print) std::printf("ai: %s\n", b);
     }
     if (aid_taps && print) aid_taps->print();
+    if (pit_check && print) pit_check->print();
     if (collide_check && print) collide_check->print();
     if (whole && print) whole->print();
     if (collide_check) {
