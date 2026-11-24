@@ -9,6 +9,7 @@
 #include "whole_step.h"
 #include "orig.h"
 #include "pit_check.h"
+#include "gt4r/sim/ai/bspec_skill.h"
 #include "taps.h"
 
 #include "gt4r/formats/course/course_file.h"
@@ -148,6 +149,8 @@ sim::ai::Field::Probe probe_of(Ee& ee, const OrigRace& o, int i, float lap) {
     p.kind = ee.r8(Fs + 0x467);
     for (u32 k = 0; k < 5; ++k) p.pd_last[k] = F::raw(ee.r32(D + 4 * k));
     p.pd_rate = F::raw(ee.r32(Fs + 0x484));
+    for (u32 k = 0; k < 0x40; ++k) p.record[k] = ee.r8(o.car(i) + 0x8C + k);
+    p.car_class = sim::ai::bspec_class(F::raw(ee.r32(ee.r32(o.car(i) + 0x10) + 0xFE0)));
     return p;
 }
 
@@ -441,6 +444,15 @@ private:
         t_["decision steer"].bits(w, th.steer.bits, my.steer);
         for (size_t k = 0; k < 5; ++k) t_["decision pd terms"].bits(w, th.pd_last[k].bits, my.pd_last[k]);
         t_["decision pd rate"].bits(w, th.pd_rate.bits, my.pd_rate);
+        t_["decision bspec record"].add("record", th.record == my.record ? 1 : 0, 1, 0);
+        if (th.record != my.record && std::getenv("GT4R_AI_RECTRACE"))
+            for (u32 k = 0; k < 0x40; k += 2)
+                if (th.record[k] != my.record[k] || th.record[k + 1] != my.record[k + 1])
+                    std::printf("  record %s +%02X: the program's %u, ours %u\n", w, k, th.record[k] | (th.record[k + 1] << 8), my.record[k] | (my.record[k + 1] << 8));
+        if (th.record != rec_last_[p.car]) {
+            rec_last_[p.car] = th.record;
+            t_["decision bspec record (the program's changes)"].add("changes", 1, 1, 0);
+        }
         if (std::getenv("GT4R_AI_PDTRACE") && th.pd_rate.bits != 0 && (++pd_seen_ % 600) == 1)
             std::printf("  pd %s: rate %g terms %g %g %g %g %g steer %g\n", w, double(th.pd_rate.host()), double(th.pd_last[0].host()), double(th.pd_last[1].host()),
                         double(th.pd_last[2].host()), double(th.pd_last[3].host()), double(th.pd_last[4].host()), double(th.steer.host()));
@@ -516,6 +528,8 @@ private:
     u32 prox_sp_ = 0;
     std::set<u32> returns_, sug_rets_;
     u32 sug_d_ = 0, sug_sp_ = 0, sug_n_ = 0, sug_force_ = 0;
+    std::map<int, std::array<u8, 0x40>> rec_last_;
+    u64 rec_changes_ = 0;
     bool sug_on_ = false, sug_firm_ = false;
     int shown_ = 0;
 
