@@ -641,7 +641,9 @@ whole stop each (24,000 .. 36,000 calls, 721 timing calls, all equal). The progr
 20 s): the pit lane at 1,365 m, the stop counted at its lane's start, on the stop line, standing 12 s at 58 m, the four
 tires at the stop's last second, out and back on the racing line at 270 m. ✔ On our session (`PitStops`, test
 `ai_pits_on_our_session`) the same car runs the same stop: down the lane, 721 steps held (649 standing), out again.
-✔ The race state equal at every call too (23,814 .. 32,371 calls with the race's laps set). On our session the pit lane
+✔ The request (0x353218's pit part) equal at every call with the race's wear on (`GT4R_AI_WEAR=<limit>`: the switch and
+limit set; at 1.5, above a new tire's, the cars ask, go in and get new tires: 24,000 calls, 3 requests, 2 whole stops, all
+equal; test `ai_pits_asked_by_the_wear`). ✔ The race state equal at every call too (23,814 .. 32,371 calls with the race's laps set). On our session the pit lane
 flag, the hits (the collision body's +0x43C a wall, +0x440 a car) and the race state are the program's rules on the
 session's values (the car's laps as the race flow counts them, the session's clock). ❓ Not wired: the pad car's own
 visit and the pit menu (0x35BFE8); the car stood in its box (asked of sim-step: braked to a stand meanwhile).

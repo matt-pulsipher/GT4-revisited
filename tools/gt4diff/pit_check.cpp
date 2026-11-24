@@ -60,6 +60,10 @@ void PitCheck::install() {
             std::printf("  stop line point %d: the program's %.4f (%08X), ours %.4f (%08X)\n", marker_k_, double(theirs.host()), theirs.bits, double(mine.host()), mine.bits);
         }
     });
+    // The pit request (0x353218, the wear phase) against pit_need: the race's answer (its virtual +0x180) read at its return.
+    ee_.add_probe(0x353218, [this](Ee& e) { need_enter(e); });
+    ee_.add_probe(0x353284, [this](Ee& e) { if (need_in_) need_allowed_ = e.g32(2) != 0; });
+    ee_.add_probe(0x3532B0, [this](Ee& e) { if (need_in_) need_lap_ = int(e.g32(2)); });
     // The stop's timing (0x35C0B8, phase 4 while the hold counter runs) against pit_hold_step.
     ee_.add_probe(0x35C0B8, [this](Ee& e) { hold_enter(e); });
     ee_.add_probe(0x362E58, [this](Ee& e) { if (hold_in_) hold_tires_.push_back(int(e.g32(5))); });
@@ -172,6 +176,54 @@ void PitCheck::leave() {
     else ++reported_;
 }
 
+void PitCheck::need_enter(Ee& e) {
+    const u32 C = u32(e.a(0));
+    need_car_ = -1;
+    for (int i = 0; i < o_.cars; ++i)
+        if (o_.car(i) == C) need_car_ = i;
+    if (need_car_ < 0) return;
+    need_in_ = true, need_allowed_ = false, need_lap_ = 0;
+    need_sp_ = e.g32(29);
+    need_before_ = read_car(C + kF);
+    // what the phase reads, as it is at the call
+    sim::ai::PitNeed& n = need_;
+    n = {};
+    const u32 Fp = C + kF, cond = ee_.r32(C + 4);
+    n.fuel_on = ee_.rf(C + 0x5D0) > 0;
+    n.fuel = F::raw(ee_.r32(C + 0x5D4)), n.fuel_distance = F::raw(ee_.r32(Fp + 0x4C8)), n.fuel_used = F::raw(ee_.r32(Fp + 0x4C4));
+    n.d = F::raw(ee_.r32(Fp + 0x4A4)), n.lap = F(lap_), n.pit_marker = line_.marker(1);
+    n.wear_on = ee_.r8(cond + 4 + 0x68) != 0;
+    n.wear_limit = F::raw(ee_.r32(cond + 4 + 0x20));
+    const u32 rec = 0x620478 + 0x54 * u32(ee_.r8(ee_.r32(C + 0x10) + 0x30));
+    const u32 wheels = ee_.r8(rec + 1);
+    for (u32 w = 0; w < wheels; ++w) {
+        n.wear.push_back(F::raw(ee_.r32(C + 0x164 + 0xEC * w + 0x50)));
+        n.burst.push_back(F::raw(ee_.r32(C + 0x164 + 0xEC * w + 0xAC)));
+        n.damaged.push_back(ee_.r8(C + 0x1AB + 0xEC * w));
+    }
+    n.control = gt3r::s8(ee_.r8(Fp + 0x466));
+    const u32 ra = e.g32(31);
+    if (need_probed_.insert(ra).second)
+        ee_.add_probe(ra, [this](Ee& x) {
+            if (need_in_ && x.g32(29) == need_sp_) need_leave();
+        });
+}
+
+void PitCheck::need_leave() {
+    need_in_ = false;
+    sim::ai::PitNeed n = need_;
+    n.allowed = need_allowed_, n.lap_state = need_lap_;
+    n.tire_state_4 = false; // (0x35FA50's answer: the car's +0x56A 0 asks the conductor ❓; checked as 0 here)
+    sim::ai::PitCar mine = need_before_;
+    sim::ai::pit_need(mine, n);
+    const sim::ai::PitCar th = read_car(o_.car(need_car_) + kF);
+    ++need_calls_;
+    if (th.flags == mine.flags && th.tire_out == mine.tire_out) ++need_equal_;
+    else if (need_reported_++ < 6)
+        std::printf("  request car %d: the program's flags %02X out %u, ours %02X %u\n", need_car_, th.flags, th.tire_out, mine.flags, mine.tire_out);
+    if (th.flags & 8 && !(need_before_.flags & 8)) ++need_asked_;
+}
+
 void PitCheck::hold_enter(Ee& e) {
     const u32 C = u32(e.a(0));
     hold_car_ = -1;
@@ -211,6 +263,8 @@ void PitCheck::hold_leave() {
 }
 
 void PitCheck::print() const {
+    std::printf("pit request (0x353218): %llu calls, %llu equal, %llu asked\n", (unsigned long long)need_calls_, (unsigned long long)need_equal_,
+                (unsigned long long)need_asked_);
     std::printf("race state (0x343C20): %llu calls, %llu equal\n", (unsigned long long)lap_calls_, (unsigned long long)lap_equal_);
     std::printf("stop timing (0x35C0B8): %llu calls, %llu equal (hold, service, tires, the wheels given new tires: %llu)\n", (unsigned long long)hold_calls_,
                 (unsigned long long)hold_equal_, (unsigned long long)hold_new_tires_);

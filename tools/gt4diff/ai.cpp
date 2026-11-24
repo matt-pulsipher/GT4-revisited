@@ -632,6 +632,9 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
             // (the race information's laps, the conductor's virtual 37: the pits' race state reads them)
             ee.w32(o.info, u32(laps));
             pit_check = std::make_unique<PitCheck>(ee, o, field->lines(), program, lap_length);
+            // GT4R_AI_WEAR=<limit>: the race's tire wear on (the configuration's switch, conductor + 4 + 0x68) with that limit
+            // (+0x20) for the tread left, so the wear phase asks for the pits.
+            if (const char* w = std::getenv("GT4R_AI_WEAR")) ee.w8(o.cond + 4 + 0x68, 1), ee.wf(o.cond + 4 + 0x20, float(std::atof(w)));
             pit_check->install();
         }
         if (ours) ee.hle(
@@ -782,6 +785,7 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
         const auto it = pit_check->counts().find(sim::ai::PitAction::CountStop);
         result.pit_stops = it == pit_check->counts().end() ? 0 : it->second;
         result.hold_calls = pit_check->hold_calls(), result.hold_equal = pit_check->hold_equal();
+        result.request_calls = pit_check->need_calls(), result.request_equal = pit_check->need_equal(), result.requests = pit_check->need_asked();
     }
     if (collide_check && print) collide_check->print();
     if (whole && print) whole->print();

@@ -23,12 +23,17 @@ public:
     u64 active() const { return active_; }
     const std::map<int, u64>& counts() const { return counts_; }
     u64 hold_calls() const { return hold_calls_; }
+    u64 need_calls() const { return need_calls_; }
+    u64 need_equal() const { return need_equal_; }
+    u64 need_asked() const { return need_asked_; }
     u64 hold_equal() const { return hold_equal_; }
 
 private:
     void enter();
     void leave();
     void hold_enter(Ee& e);
+    void need_enter(Ee& e);
+    void need_leave();
     void hold_leave();
     bool depth_ok() const;
     sim::ai::PitCar read_car(u32 F) const;
@@ -57,6 +62,13 @@ private:
     std::set<u32> hold_probed_;
     u64 hold_calls_ = 0, hold_equal_ = 0, hold_reported_ = 0, hold_new_tires_ = 0;
     u64 lap_calls_ = 0, lap_equal_ = 0;
+    bool need_in_ = false, need_allowed_ = false;
+    int need_car_ = -1, need_lap_ = 0;
+    u32 need_sp_ = 0;
+    sim::ai::PitCar need_before_;
+    sim::ai::PitNeed need_;
+    std::set<u32> need_probed_;
+    u64 need_calls_ = 0, need_equal_ = 0, need_reported_ = 0, need_asked_ = 0;
     int marker_k_ = 0;
     std::map<int, std::pair<u32, u32>> markers_;
     std::map<int, bool> marker_reported_;

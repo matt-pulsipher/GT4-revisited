@@ -65,6 +65,24 @@ TEST(ai_pits_equal_to_the_program) {
     CHECK(r.hold_calls >= 721 && r.hold_equal == r.hold_calls);
 }
 
+TEST(ai_pits_asked_by_the_wear) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    // The race's tire wear on with a limit above a new tire's tread: the wear phase asks the cars in, call by call as ours.
+    setenv("GT4R_AI_PITCHECK", "1", 1);
+    setenv("GT4R_AI_WEAR", "1.5", 1);
+    diff::AiRunOptions opt;
+    opt.seconds = 200;
+    const diff::AiRunResult r = diff::run_ai(*disc, false, "tsukuba", {"s500_63", "ka_01"}, 3, opt);
+    unsetenv("GT4R_AI_PITCHECK");
+    unsetenv("GT4R_AI_WEAR");
+    CHECK(r.ran);
+    CHECK(r.request_calls > 20000 && r.request_equal == r.request_calls);
+    CHECK(r.requests >= 2);
+    CHECK(r.pit_equal == r.pit_calls && r.pit_stops >= 2);
+    CHECK(r.hold_equal == r.hold_calls);
+}
+
 TEST(ai_pits_on_our_session) {
     Disc* disc = gt4_disc();
     if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");

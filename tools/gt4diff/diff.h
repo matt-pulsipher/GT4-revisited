@@ -84,6 +84,7 @@ struct AiRunResult {
     // With GT4R_AI_PITCHECK: the pit pass's calls (0x359008) and those equal to ours, the stops counted (0x35AD10), and the stop
     // timing's calls (0x35C0B8) and those equal.
     u64 pit_calls = 0, pit_equal = 0, pit_stops = 0, hold_calls = 0, hold_equal = 0;
+    u64 request_calls = 0, request_equal = 0, requests = 0; // the wear phase's pit request (0x353218)
 };
 // (GT4R_AI_OURS, GT4R_AI_CHECK, GT4R_AI_BAND set the options too; GT4R_AI_TRACE=<car> prints a car's plan.)
 AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std::vector<std::string>& cars, int laps, AiRunOptions options = {});
