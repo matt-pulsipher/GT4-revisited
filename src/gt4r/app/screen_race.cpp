@@ -1129,6 +1129,10 @@ public:
                 setup_.playlist = playlist_from(menus_->game().bgm_playlist);
                 // The Replay Theater's Play: the saved replay, then the menus again.
                 if (sequence_ == "replay") setup_.replay_file = q.replay_file.empty() ? menus_->game().replay_file : q.replay_file;
+                // An event's Preview (the sequence "race_view"): the event's field raced by the computer, every car
+                // its, seen by the course's cameras; no race menus, the event's page again when the player presses
+                // a button (❓ the program's race_view sequence is not read: judged from the event pages' Preview).
+                if (sequence_ == "race_view") setup_.auto_drive = true;
                 setup_.opponents.clear();
                 draw_grid(app, setup_, q);
                 // A request without laps: the event's (its RACE row), else the arcade's option
@@ -1229,6 +1233,7 @@ public:
         // The first view of a race of the menus: the options' (view_type: SUBJECTIVE the nose,
         // BONNET the higher one, OVERLOOK the chase view).
         if (from_menus_) setup_.view = settings_.view == "OVERLOOK" ? race::DriveCamera::kChase : settings_.view == "BONNET" ? race::DriveCamera::kRoof : race::DriveCamera::kInCar;
+        if (sequence_ == "race_view") setup_.view = kTvView;
         // A race without the menus: the races' music by the play list a new game has (the
         // configuration script's, run by menus booted for it).
         if (!setup_.playlist) setup_.playlist = new_game_playlist(app);
@@ -1238,6 +1243,8 @@ public:
         if (menus_ && sequence_ == "replay") {
             // A saved replay: no race menus; the menus again at its end (or at once without it).
             if (!saved_replay_ || !race_) leave_to_menus(app);
+        } else if (menus_ && sequence_ == "race_view") {
+            if (!race_) leave_to_menus(app);
         } else if (menus_ && race_) {
             painter_ = make_menu_painter(app);
             enter_quick(0);
@@ -1252,6 +1259,9 @@ public:
         if (render_end_ns_) outside_ns_ = SDL_GetTicksNS() - render_end_ns_;
         const MenuInput& m = app.menu();
         if (quick_ && race_) return update_quick(app, m, dt);
+        if (menus_ && sequence_ == "race_view" && race_ &&
+            (m.pressed(PadButton::Cross) || m.pressed(PadButton::Circle) || m.pressed(PadButton::Triangle) || m.pressed(PadButton::Start) || race_->flow().everyone_finished()))
+            return leave_to_menus(app);
         if (!race_) {
             if (m.pressed(PadButton::Triangle)) {
                 app.pop();
