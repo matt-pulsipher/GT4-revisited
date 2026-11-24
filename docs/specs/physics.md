@@ -656,6 +656,18 @@ What it showed past the list above:
 - `gt4r_diff` runs the static tables' builder 0x35F808 with a conductor (a cleared one: a paved course), as a race's
   configuration does: without one the per-surface factors stay 0 and the program's top speeds come out higher.
 
+**The hybrid one-speed box** (0x368628, from the axle step for gearbox kind 3; ours `rules_hybrid.*`, equal at every call on
+both Priuses in a long drive, `gt4r_diff step` with `GT4R_STEP_LONG`): its state at car + 0x788 (the engine speed's target, the
+store 0 .. 1, the display's flags, a mode by the store's eighths: 0 full, 1 from below 6.2, 2 below 1.5, back from 2.5 / 6.8).
+The motor's torque on the driveline (0x367FD8: by the driveline's speed, two curves by the up-shift class; the demand from the
+throttle 0x3685A0, or the brake's regeneration when the clutch is requested); the engine runs at a target speed (0x368040's
+by the class, the class 3 car to the speed that gives the power the speed and throttle ask for, 0x3681E0 with the tables
+0x620C80 / 0x620C90 and the power-to-speed table 0x620CA0 that 0x368260 makes once from the race's first hybrid's engine
+curve), followed at 1,047 / 524 rad/s² (5,236 to start or stop it) and blended 1 : 2.5 with the driveline's speed; its torque
+(0x3554A0) splits between the wheels and the store by 104.7 / 209.4 rad/s of margin; its fuel by 0x368128 (0x620BA8 /
+0x620BF8 by rpm, no tank kept); the store moves by the power in and out x 1000 / (500 or 274) / 23,400 a second. The box
+returns the engine's share plus the motor's (none while the clutch is open).
+
 ## 5. The program's tables
 
 Read from the user's `CORE.GT4` when a session is set up (`sim::Program`); the build is
@@ -816,11 +828,10 @@ program's own):
 - Phase 5, the driver's input (0x349FD0): `ex::driver_input_pad` for a pad car (a computer's car takes its
   driver's outputs as 0x464F38 writes them, and the clutch request as 0x3F3400 makes it).
 - Phase 6, 0x35D1D0: not run.
-- Phase 10's hybrid one-speed box (0x368628, with 0x3554A0's hybrid branch and 0x367FD8 .. 0x3685A0; the Toyota Prius G and
-  G Touring), a box of kind 4's motor (0x356E58, the MTR GMV) and layout 7's motors (0x356418, 0x3560F0, 0x356BB8; the Acura
-  DN-X): run as an ordinary box (the Priuses barely move). A stepless box of kind 1 runs Gran Turismo 4's own rules with the
-  hold speed the converter makes (0x360780). The fuel and nitrous (0x354B78, 0x354CE8) are Gran Turismo 4's
-  (`rules_fuel.*`); the nitrous's trigger is the input phase's (0x34A160, below).
+- Phase 10's box of kind 4's motor (0x356E58, the MTR GMV) and layout 7's motors (0x356418, 0x3560F0, 0x356BB8; the Acura
+  DN-X): run as an ordinary box. The hybrid one-speed box (0x368628, the Toyota Prius G and G Touring) is Gran Turismo 4's
+  (`rules_hybrid.*`), as are a stepless box of kind 1 with the hold speed the converter makes (0x360780) and the fuel and
+  nitrous (0x354B78, 0x354CE8, `rules_fuel.*`; the nitrous's trigger is the input phase's, 0x34A160).
 - Phase 12, the hit record (0x350308): `ex::clear_feedback`.
 - Phase 13's hit records (0x350530, 0x350328: the cars' damage, the conductor's virtual +0x190) and the results'
   velocity change records (cond + 0xCAB8): not made. A body's driver on line 4 (0x343BF0) is not known to the
@@ -993,7 +1004,7 @@ object 0x6235A8 + 0x134 + 4 x table id; the row cache left out), and compares:
   0x367148 (the sliding measures the tire wear reads), view follower, tire effects, 0x34A668, 0x34A788 and the wheel spin's
   rest, the tire wear 0x352EA0 with the race's wear rules on, the collision step's hit records (0x350530)); our session runs
   the engine's there or nothing (§8). `gt4r_diff`'s race places cars past the road's grid at the program's fallback (§9).
-  The hybrid one-speed box (0x368628, 3,700 bytes with its helpers), the box of kind 4 (0x356E58), layout 7's motors
+  The box of kind 4 (0x356E58), layout 7's motors
   (0x356418, 0x3560F0, 0x356BB8; their constants 0x355978); the economy display's units (0x6244E8, the game's option: km per
   liter here). The entry of 0x35DE20 is not reached by `gt4r_diff`'s taps (its parts are; the whole step compares it).
 - The computer drivers (the courses' `.ad` files and `crs/bestline`), the race flow (laps as

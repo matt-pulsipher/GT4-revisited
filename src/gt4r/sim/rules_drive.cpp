@@ -368,6 +368,12 @@ DriveTables drive_tables(const u8* awd, const u8* stepless_bytes, const u8* sett
 }
 
 DriveTables drive_tables(const Program& program) {
+    DriveTables r = drive_tables_bytes(program);
+    r.hybrid = hybrid_tables(program);
+    return r;
+}
+
+DriveTables drive_tables_bytes(const Program& program) {
     u8 a[14], s[14], g[12];
     for (u32 i = 0; i < 14; ++i) a[i] = program.b(kAwdFade + i), s[i] = program.b(kSteplessBytes + i);
     for (u32 i = 0; i < 12; ++i) g[i] = program.b(kControllerSettings + i);
@@ -576,8 +582,8 @@ void axle_step(ex::Car& c, DriveExtra& x, const WheelLayout& l, const DriveTable
         }
     }
     if (d.kind == 3) {
-        // (0x368628: a one-speed box's torque: not ported; the throttle's torque in its place)
-        tc = engine_torque(c, x, c.throttle);
+        // 0x368628: the hybrid one-speed box's torque (none to the driveline while the clutch is open).
+        tc = hybrid_box(c, x, x.hybrid, t.hybrid, x.e.idle);
         if (c.clutch == 0) tc = k0;
     } else if (c.clutch != 0) {
         // (layout 7's engine and motors, 0x3560F0 / 0x356BB8, and a box of kind 4's motor, 0x356E58: not ported)

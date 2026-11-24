@@ -125,7 +125,7 @@ TEST(sim_program_step_routines_equal) {
     // The program's own race step on a drive (a start, the gears, turns, the brakes), with each of our
     // routines run in place at every call and compared field by field: equal at every call, for cars of
     // each drive.
-    for (const char* car : {"nsx_r_02", "civic_r_01", "impreza_wrc_03", "r34_gtr_v2_nur_02", "fit_w_ff_01", "a3_32_quattro_03", "midget_mp5_63"}) {
+    for (const char* car : {"nsx_r_02", "civic_r_01", "impreza_wrc_03", "r34_gtr_v2_nur_02", "fit_w_ff_01", "a3_32_quattro_03", "midget_mp5_63", "prius_g_02", "prius_g_touring_03"}) {
         const diff::StepResult r = diff::run_step(*disc, false, "tsukuba", car, 900);
         if (!r.ran) std::printf("  %s: %s\n", car, r.error.c_str());
         CHECK(r.ran && !r.taps.empty());
@@ -134,7 +134,9 @@ TEST(sim_program_step_routines_equal) {
             // (a stepless box's own gear step; the aids' speed caps' throttle and the TCS's rising slip, which a pad car runs only
             // under a cap or with its TCS on: gt4r_diff's GT4R_AIDS_VARY runs them; the two-wheeler's lean and the angle helpers
             // the steering's offset uses rolling backwards or in mode 2: GT4R_STEER_VARY)
-            const bool rare = (t.name == "gear" && std::string(car) == "fit_w_ff_01") || t.name == "aids: hold throttle" || t.name == "aids: rising slip" ||
+            // (a hybrid one-speed box's axle step runs neither the engine speed's step nor the gearbox's)
+            const bool hybrid = std::string(car).rfind("prius", 0) == 0 && (t.name == "gear" || t.name == "engine speed");
+            const bool rare = hybrid || (t.name == "gear" && std::string(car) == "fit_w_ff_01") || t.name == "aids: hold throttle" || t.name == "aids: rising slip" ||
                               t.name == "steer: lean angle" || t.name == "steer: angle difference" || t.name == "steer: angle blend";
             CHECK((t.calls > 0 || rare) && t.equal == t.calls);
         }

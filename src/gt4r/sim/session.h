@@ -114,6 +114,8 @@ public:
     void set_random_state(u32 state) { random_state_ = state; }
     // A car's shift byte (car +0x83; 128: none): its gearbox's shift speeds times it / 128 while a B-spec driver drives it
     // (control source 1, 0x3F1E30). Holds until set again.
+    // The car's rating, the parameter block's +0xFE0 (0x3F86E8: 0.01 .. 1), which the B-spec skill classes cars by.
+    float rating(size_t i) const { return gx_[i].drive.rating.host(); }
     void set_shift_factor(size_t i, u8 factor) {
         if (i < gx_.size()) gx_[i].drive.shift_factor = factor;
     }

@@ -62,7 +62,9 @@ sim::rules::SlipForceGlobals slip_globals(Ee& ee) {
 sim::rules::DriveTables drive_tables(Ee& ee) {
     u8 a[14], st[14], g[12];
     ee.read_bytes(sim::rules::kAwdFade, a, 14), ee.read_bytes(sim::rules::kSteplessBytes, st, 14), ee.read_bytes(sim::rules::kControllerSettings, g, 12);
-    return sim::rules::drive_tables(a, st, g);
+    sim::rules::DriveTables r = sim::rules::drive_tables(a, st, g);
+    if (g_program) r.hybrid = sim::rules::hybrid_tables(*g_program);
+    return r;
 }
 
 // A computer driver's grip by tire class (0x467470: control source 1 / 2 or a driver kind; its parameter block +0xA8).
@@ -199,6 +201,14 @@ Pad drive(int i) {
     const int t = i - 150;
     if (t < 0) return p;
     p.throttle = 1.0f;
+    // GT4R_STEP_LONG: a long run instead: full throttle with lifts every 20 s, light steering, braking from time to time (to
+    // run down and charge a hybrid's store, wear tires, burn fuel).
+    if (std::getenv("GT4R_STEP_LONG")) {
+        const int s = t % 1200;
+        if (s > 1000 && s < 1100) p.throttle = 0.0f, p.brake = s < 1060 ? 0.9f : 0.3f;
+        p.steer = (t / 300) % 2 ? 0.05f : -0.05f;
+        return p;
+    }
     if (t > 500 && t < 560) p.throttle = 0.0f;
     if (t > 600 && t < 700) p.steer = 0.35f;
     if (t > 760 && t < 860) p.steer = -0.5f;

@@ -1332,6 +1332,7 @@ void build_record(const Spec& s, const Program& program, const rules::Tables& ra
     // What the car's set-up gives the record besides the block (0x354AC0 at its first step: the masses with the fuel, 0 here).
     r.x.chassis.mass = p.f(0x48);
     r.x.body.sprung_mass = p.f(0x4C);
+    if (r.x.drive.d.kind == 3) rules::hybrid_start(r.x.drive.hybrid); // (0x3683C8)
 }
 
 } // namespace gt4r::sim
