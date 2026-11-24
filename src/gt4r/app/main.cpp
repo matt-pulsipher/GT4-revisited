@@ -25,13 +25,14 @@ SDL_AppResult SDL_AppInit(void** state, int argc, char** argv) {
                         "                      is a 60th of a second, held to that pace (--fast: not held;\n"
                         "                      the menus' movies then run behind)\n"
                         "  --keys <list>       scripted presses, e.g. \"down,down,cross,wait60,right\"\n"
-                        "                      (\"shot:<name>\": a picture <name>.png beside --shot's;\n"
+                        "                      (\"select+start\": two together;\n"
+                        "                      \"shot:<name>\": a picture <name>.png beside --shot's;\n"
                         "                      \"gas=1\", \"brake=0.5\", \"steer=-0.3\", \"reverse=1\",\n"
                         "                      \"handbrake=1\" hold a race control until changed,\n"
                         "                      \"release\" lets all go; \"quit\" ends the run;\n"
                         "                      \"@<file>\": the keys from a file, '#' comments)\n"
                         "  --stats <file>      a line a second: frame, seconds, mean and longest\n"
-                        "                      frame time (ms), resident memory (MB)\n"
+                        "                      frame work (ms), resident memory (MB)\n"
                         "  --no-gpu            2D screens only\n");
             return SDL_APP_SUCCESS;
         }

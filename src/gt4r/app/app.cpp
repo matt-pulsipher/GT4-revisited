@@ -257,7 +257,8 @@ void App::apply_screen_changes() {
     pending_.clear();
 }
 
-// --keys: each name is a pad button held for two frames and let go for six; "waitN" is N
+// --keys: each name is a pad button held for two frames and let go for six ("select+start": both
+// together); "waitN" is N
 // frames without a press; "shot:<name>" a picture; "quit" ends the run. The race's controls
 // are held from their token until another changes them: "gas=<0..1>" (the throttle, Cross's
 // pressure), "brake=<0..1>" (Square's), "steer=<-1..1>" (the left stick, left negative),
@@ -295,14 +296,17 @@ gt3r::PadState App::scripted_keys() {
         }
         const int frames = wait ? std::max(1, std::atoi(k.c_str() + 4)) : 8;
         if (!wait && key_frames_ < 2) {
-            std::string name = k;
-            name[0] = char(std::toupper(static_cast<unsigned char>(name[0])));
-            if (name.size() == 2) name[1] = char(std::toupper(static_cast<unsigned char>(name[1]))); // "L1"
-            if (const auto b = gt3r::pad_button_from_name(name)) {
-                pad.buttons = u16(1u << unsigned(*b));
-                pad.pressure[size_t(*b)] = 255;
-            } else if (key_frames_ == 0) {
-                LOG_WARN("--keys: no button named %s", k.c_str());
+            for (std::string_view part : gt3r::split(k, '+')) { // "select+start": together
+                std::string name(part);
+                if (name.empty()) continue;
+                name[0] = char(std::toupper(static_cast<unsigned char>(name[0])));
+                if (name.size() == 2) name[1] = char(std::toupper(static_cast<unsigned char>(name[1]))); // "L1"
+                if (const auto b = gt3r::pad_button_from_name(name)) {
+                    pad.buttons |= u16(1u << unsigned(*b));
+                    pad.pressure[size_t(*b)] = 255;
+                } else if (key_frames_ == 0) {
+                    LOG_WARN("--keys: no button named %s", name.c_str());
+                }
             }
         }
         if (++key_frames_ >= frames) ++key_, key_frames_ = 0;
