@@ -12,6 +12,7 @@
 #include "formats/text/text_layout.h"
 #include "gt4r/menu/faces_flash.h"
 #include "gt4r/menu/faces_graph.h"
+#include "gt4r/menu/faces_tooltip.h"
 #include "gt4r/menu/font.h"
 #include "gt4r/menu/project.h"
 #include "gt4r/menu/runtime.h"
@@ -81,7 +82,7 @@ public:
     ~PageDrawer() {
         for (auto& [face, a] : kanji_atlases_)
             if (a.texture) SDL_DestroyTexture(a.texture);
-        for (auto& [image, t] : textures_) SDL_DestroyTexture(t);
+        for (auto& [image, t] : textures_) SDL_DestroyTexture(t.texture);
         for (auto& [font, t] : atlases_) SDL_DestroyTexture(t);
         for (auto& [k, f] : flashes_)
             for (SDL_Texture* t : f.textures)
@@ -116,6 +117,13 @@ public:
     void draw(menu::Project& project, const LiveWidget& page, float x, float y, float scale, int state, const Affine& base = {}, float opacity = 1) {
         use(project);
         ox_ = x, oy_ = y, scale_ = scale, page_ = page.name, widgets_drawn = 0, m_ = base;
+        if (menu_frame % 60 == 0)
+            for (auto it = textures_.begin(); it != textures_.end();)
+                if (menu_frame > it->second.used + 600) SDL_DestroyTexture(it->second.texture), it = textures_.erase(it);
+                else ++it;
+        for (auto it = tips_.begin(); it != tips_.end();) // tips not shown for ten seconds
+            if (menu_frame > it->second.seen + 600) it = tips_.erase(it);
+            else ++it;
         const SDL_Rect whole = to_clip({0, 0, 640, 480});
         SDL_SetRenderClipRect(r_, &whole);
         over_.clear();
@@ -174,7 +182,9 @@ private:
 
     SDL_Texture* texture(const gt3r::Tex1::Image* image) {
         if (!image || !image->width || !image->height) return nullptr;
-        SDL_Texture*& t = textures_[image_key(*image)];
+        Cached& c = textures_[image_key(*image)];
+        c.used = menu_frame;
+        SDL_Texture*& t = c.texture;
         if (!t) {
             t = SDL_CreateTexture(r_, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, int(image->width), int(image->height));
             if (t) {
@@ -492,7 +502,8 @@ private:
         return atlas;
     }
 
-    void text(const Widget& w, const Rect& at, float opacity) {
+    // `id`: the live face (a tool tip's motion is kept by it).
+    void text(const Widget& w, const Rect& at, float opacity, const void* id = nullptr) {
         std::string s = w.text("text");
         if (s.empty()) s = w.text("value"); // a tool tip's, an input's
         if (s.empty() && w.has("key")) {
@@ -525,13 +536,26 @@ private:
         st.valign = row == 0 ? gt3r::text::VAlign::Top : row == 1 ? gt3r::text::VAlign::Middle : gt3r::text::VAlign::Bottom;
         float x = col == 0 ? at.x : col == 1 ? at.x + at.w / 2 : at.x + at.w;
         float y = row == 0 ? at.y : row == 1 ? at.y + at.h / 2 : at.y + at.h;
+        std::optional<SDL_Rect> tip_clip;
         if (w.type == "ToolTipFace") {
-            // A tool tip is not aligned (its style's `aligned` off, 0x248DD0): from the top, in
-            // the middle across when it fits 95 % of the face, else from 5 % in (0x24A2F8; ❓ its
-            // scrolling and the slide up of a new tip are not drawn).
+            // A tool tip is not aligned (its style's `aligned` off, 0x248DD0): a new text rises
+            // into the face, in the middle across when it fits 95 % of it, else from 5 % in and
+            // scrolling (menu/faces_tooltip.*); cut to the face.
             const float tw = width_of(s, st);
             st.align = gt3r::text::HAlign::Left, st.valign = gt3r::text::VAlign::Top;
-            x = at.x + (tw <= at.w * 0.95f ? (at.w - tw) * 0.5f : at.w * 0.05f), y = at.y;
+            Tip& tip = tips_[id ? id : &w];
+            if (tip.text != s || tip.w != at.w) {
+                tip.text = s, tip.w = at.w;
+                tip.scroll.start(tw, at.w, at.h);
+                tip.stepped = menu_frame;
+            }
+            for (int n = 0; tip.stepped < menu_frame && n < 600; ++n, ++tip.stepped) tip.scroll.step();
+            tip.stepped = menu_frame;
+            tip.seen = menu_frame;
+            x = at.x + tip.scroll.x(), y = at.y + tip.scroll.y();
+            SDL_Rect now{}, own = to_clip(bounds(at)), cut{};
+            if (SDL_GetRenderClipRect(r_, &now) && now.w > 0 && SDL_GetRectIntersection(&now, &own, &cut)) tip_clip = cut;
+            else tip_clip = own;
         }
         const Rgba base = w.color("text_color").value_or(Rgba{212, 212, 212, 255}); // the text style's default
         st.color = {base.r, base.g, base.b, base.a};
@@ -570,11 +594,15 @@ private:
                 quad(atlas, {g.x + dx, g.y + dy, g.w, g.h}, uv, fcs, SDL_BLENDMODE_BLEND);
             }
         };
+        SDL_Rect before{};
+        const bool had_clip = tip_clip && SDL_GetRenderClipRect(r_, &before) && before.w > 0;
+        if (tip_clip) SDL_SetRenderClipRect(r_, &*tip_clip);
         if (const float shadow = w.number("shadow"); shadow > 0) {
             const Rgba sc = w.color("shadow_color").value_or(Rgba{0, 0, 0, 255});
             pass(&sc, shadow, shadow);
         }
         pass(nullptr, 0, 0);
+        if (tip_clip) SDL_SetRenderClipRect(r_, had_clip ? &before : nullptr);
     }
 
     // A widget is drawn in its own state and its parents' (a focused button's faces light up).
@@ -639,8 +667,8 @@ private:
                     if (LiveWidget* fp = const_cast<LiveWidget*>(f)->page()) put("key_page", fp->name);
                     break;
                 }
-            text(tip, at, face);
-        } else if (t == "TextFace" || t == "InputTextFace" || t == "InputNumberFace" || t == "ToolTipFace" || t == "TextBoxFace") text(w, at, face);
+            text(tip, at, face, &live);
+        } else if (t == "TextFace" || t == "InputTextFace" || t == "InputNumberFace" || t == "ToolTipFace" || t == "TextBoxFace") text(w, at, face, &live);
         else if (t == "ColorChipFace") {
             // A car's paint: its colour under the chip's picture.
             if (w.has("chip_r")) fill(at, {Rgba{u8(w.number("chip_r")), u8(w.number("chip_g")), u8(w.number("chip_b")), 255}}, face, false);
@@ -685,13 +713,24 @@ private:
     };
     std::vector<Over> over_;
     bool unfocused_ = false; // drawing a closed option menu's item
+    struct Tip {
+        std::string text;
+        float w = 0;
+        menu::ToolTipScroll scroll;
+        u64 stepped = 0, seen = 0;
+    };
+    std::map<const void*, Tip> tips_; // by the live tool tip face
     menu::Project* project_ = nullptr;
     SDL_Renderer* r_;
     std::vector<gt3r::text::FontFile> files_;
     std::map<std::string, const gt3r::text::LatinFont*> fonts_;
     std::map<std::string, menu::FontSpacing> spacing_;
     std::array<menu::TextColor, 4> button_colors_{};
-    std::map<u64, SDL_Texture*> textures_; // by image_key
+    struct Cached {
+        SDL_Texture* texture = nullptr;
+        u64 used = 0; // the menus' picture it was last drawn in
+    };
+    std::map<u64, Cached> textures_; // by image_key; one not drawn for ten seconds is let go
     std::map<std::pair<const gt3r::text::LatinFont*, int>, SDL_Texture*> atlases_;
     std::map<std::string, std::optional<menu::KanjiFont>> kanji_fonts_; // by language
     const menu::KanjiFont* kanji_ = nullptr;                           // the drawn project's

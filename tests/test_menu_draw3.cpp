@@ -5,6 +5,7 @@
 #include "menu_run_flow.h"
 
 #include "gt4r/menu/faces_car.h"
+#include "gt4r/menu/faces_tooltip.h"
 #include "gt4r/menu/font.h"
 #include "gt4r/menu/layout.h"
 #include "gt4r/menu/transform.h"
@@ -117,6 +118,30 @@ TEST(menu_car_face_loaded_motion_and_sets) {
     const menu::CarFaceSettings s = menu::car_face_settings(w);
     CHECK(!s.advanced && s.option_motion == "image/gtmode/gtauto/car_wash_cam.mot" && s.option_motion_frame == 120);
     CHECK(s.model_sets.size() == 2 && s.model_sets[1] == "image/b.mdl");
+}
+
+} // namespace menu_draw3_test
+
+namespace menu_draw3_test {
+
+// A tool tip: one that fits rises into the middle and stays; a longer one starts 5 % in, waits
+// the face's width x 0.4 / 80 seconds, scrolls left at 80 units a second until gone, and comes
+// back from below at the start.
+TEST(menu_tooltip_scrolls_as_the_program) {
+    menu::ToolTipScroll fit;
+    fit.start(200, 640, 34);
+    CHECK(fit.fits() && std::fabs(fit.x() - 220) < 0.01f && std::fabs(fit.y() - 34) < 0.01f);
+    for (int i = 0; i < 60; ++i) fit.step();
+    CHECK(std::fabs(fit.y()) < 0.01f && std::fabs(fit.x() - 220) < 0.01f);
+    menu::ToolTipScroll tip;
+    tip.start(1000, 640, 34);
+    CHECK(!tip.fits() && std::fabs(tip.x() - 32) < 0.01f);
+    for (int i = 0; i < 3 + 192; ++i) tip.step(); // rise, then the wait of 640 x 0.4 / 80 s
+    CHECK(std::fabs(tip.x() - 32) < 0.01f);
+    for (int i = 0; i < 120; ++i) tip.step(); // two seconds across: 160 units, the drawing eased behind
+    CHECK(tip.x() < 32 - 140 && tip.x() > 32 - 160);
+    for (int i = 0; i < 60 * 20; ++i) tip.step(); // gone, a second, back below, a second, risen
+    CHECK(tip.x() > -1000);
 }
 
 } // namespace menu_draw3_test
