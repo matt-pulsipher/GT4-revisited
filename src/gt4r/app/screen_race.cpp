@@ -898,8 +898,11 @@ private:
         race_->pause_sound(true);
         if (!pause_movie_) {
             try {
-                if (const std::optional<Bytes> file = app.vfs()->read("menu/common/pause.strb"); file && race::StrobeMovie::is_movie(*file))
-                    pause_movie_ = std::make_shared<const race::StrobeMovie>(race::StrobeMovie::parse(*file));
+                for (const char* path : {"menu/common/pause.strb", "menu/pause.strb"}) // (Prologue's: menu/pause.strb)
+                    if (const std::optional<Bytes> file = app.vfs()->read(path); file && race::StrobeMovie::is_movie(*file)) {
+                        pause_movie_ = std::make_shared<const race::StrobeMovie>(race::StrobeMovie::parse(*file));
+                        break;
+                    }
             } catch (const std::exception& e) {
                 LOG_WARN("Pause: %s", e.what());
             }
@@ -1278,8 +1281,11 @@ private:
         result_tried_ = true, result_exit_ = false;
         if (!result_movie_) {
             try {
-                if (const std::optional<Bytes> file = app.vfs()->read("menu/common/result.strb"); file && race::StrobeMovie::is_movie(*file))
-                    result_movie_ = std::make_shared<const race::StrobeMovie>(race::StrobeMovie::parse(*file));
+                for (const char* path : {"menu/common/result.strb", "menu/result.strb"}) // (Prologue's: menu/result.strb)
+                    if (const std::optional<Bytes> file = app.vfs()->read(path); file && race::StrobeMovie::is_movie(*file)) {
+                        result_movie_ = std::make_shared<const race::StrobeMovie>(race::StrobeMovie::parse(*file));
+                        break;
+                    }
             } catch (const std::exception& e) {
                 LOG_WARN("Results: %s", e.what());
             }
