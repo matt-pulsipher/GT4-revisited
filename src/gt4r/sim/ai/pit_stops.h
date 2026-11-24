@@ -39,10 +39,13 @@ struct PitHooks {
     std::function<void(size_t car, F heading)> place_in_box;
 };
 
-// The race's part (what the conductor answers): its laps (0: a run without an end), whether it has pit stops.
+// The race's part (what the conductor answers): its laps (0: a run without an end), whether it has pit stops (the
+// conductor's virtual +0x180), its time limit (minutes, 0 none), and each car's result being in (F +0x4B0).
 struct PitRace {
     int laps = 0;
     bool pits = true;
+    u32 limit_minutes = 0;
+    std::function<bool(size_t car)> finished;
     u8 refuel_rate = 20; // the program's byte 0x620E25 (x 0.1 a second), read by PitStops' constructor
 };
 

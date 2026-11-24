@@ -41,7 +41,7 @@ private:
     bool in_ = false, probed_ = false;
     u32 ret_ = 0, sp_ = 0;
     int car_ = -1;
-    bool counting_ = false, crossed_ = false;
+    bool counting_ = false, crossed_ = false, lap_count_ = false;
     int lap_state_ = -1;
     std::vector<u16> services_;
     std::vector<int> theirs_;
@@ -56,6 +56,7 @@ private:
     std::vector<int> hold_tires_;
     std::set<u32> hold_probed_;
     u64 hold_calls_ = 0, hold_equal_ = 0, hold_reported_ = 0, hold_new_tires_ = 0;
+    u64 lap_calls_ = 0, lap_equal_ = 0;
     int marker_k_ = 0;
     std::map<int, std::pair<u32, u32>> markers_;
     std::map<int, bool> marker_reported_;

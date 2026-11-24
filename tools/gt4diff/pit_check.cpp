@@ -33,7 +33,9 @@ void PitCheck::install() {
     ee_.add_probe(kPass, [this](Ee&) { enter(); });
     // What the pass's callees answer, read at their return into the pass.
     ee_.add_probe(0x359060, [this](Ee& e) { if (in_) counting_ = e.g32(2) != 0; });     // 0x34C210
-    ee_.add_probe(0x359078, [this](Ee& e) { if (in_) crossed_ = e.g32(2) == 1; });     // 0x358608
+    ee_.add_probe(0x359078, [this](Ee& e) { if (in_) crossed_ = e.g32(2) == 1, lap_count_ = false; }); // 0x358608
+    // (the lap count 0x358608 is the race's: what it calls, the end of a car's run among them, is not the pass's)
+    ee_.add_probe(0x358608, [this](Ee&) { if (in_) lap_count_ = true; });
     ee_.add_probe(0x35B2D8, [this](Ee& e) { if (in_) lap_state_ = int(e.g32(2)); });   // 0x343C20
     for (u32 ret : {0x35B3B4u, 0x35B990u, 0x35BA1Cu}) // 0x35AF18
         ee_.add_probe(ret, [this](Ee& e) { if (in_) services_.push_back(u16(e.g32(2))); });
@@ -64,7 +66,7 @@ void PitCheck::install() {
     ee_.add_probe(0x36C9F8, [this](Ee&) { if (in_ && depth_ok()) theirs_.push_back(sim::ai::PitAction::Heading); });
 }
 
-bool PitCheck::depth_ok() const { return true; }
+bool PitCheck::depth_ok() const { return !lap_count_; }
 
 sim::ai::PitCar PitCheck::read_car(u32 F_) const {
     sim::ai::PitCar c;
@@ -108,6 +110,19 @@ void PitCheck::enter() {
 void PitCheck::leave() {
     in_ = false;
     sim::ai::PitInputs in = inputs_;
+    // The race state the pass asked 0x343C20 for, against ours from the same fields.
+    if (lap_state_ >= 0) {
+        sim::ai::LapStateInputs ls;
+        const u32 Fc = o_.car(car_) + kF;
+        ls.finished = ee_.r8(Fc + 0x4B0) != 0;
+        ls.clock_ms = ee_.r32(o_.cond + 0xF898) / 3;
+        ls.limit_minutes = ee_.r16(o_.cond + 0xF850);
+        ls.laps = int(ee_.r32(ee_.r32(o_.cond)));
+        ls.lap = int(s16(ee_.r16(Fc + 0x4AC)));
+        ls.d = inputs_.d, ls.lap_length = inputs_.lap;
+        ++lap_calls_;
+        if (sim::ai::lap_state(ls) == lap_state_) ++lap_equal_;
+    }
     in.counting = counting_, in.crossed = crossed_, in.lap_state = lap_state_ < 0 ? 0 : lap_state_;
     sim::ai::PitCar mine = before_;
     std::vector<sim::ai::PitAction> acts;
@@ -196,6 +211,7 @@ void PitCheck::hold_leave() {
 }
 
 void PitCheck::print() const {
+    std::printf("race state (0x343C20): %llu calls, %llu equal\n", (unsigned long long)lap_calls_, (unsigned long long)lap_equal_);
     std::printf("stop timing (0x35C0B8): %llu calls, %llu equal (hold, service, tires, the wheels given new tires: %llu)\n", (unsigned long long)hold_calls_,
                 (unsigned long long)hold_equal_, (unsigned long long)hold_new_tires_);
     std::printf("pit pass (0x359008 / 0x35B060): %llu calls, %llu equal (record, messages, the routines called), %llu with a pit step;", (unsigned long long)calls_,

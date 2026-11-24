@@ -223,6 +223,14 @@ void PitFlow::pass(PitCar& c, const PitInputs& in, const PitLine& line, std::vec
     if (between(dp, line.marker(0), d)) act(PitAction::Enter);
 }
 
+int lap_state(const LapStateInputs& in) {
+    if (in.finished) return 0;
+    if (in.limit_minutes != 0 && in.clock_ms >= in.limit_minutes * 60000u) return 1;
+    if (in.laps == 0 || in.lap < in.laps) return 0;
+    const int n = in.laps + (in.d < in.lap_length * kHalf ? 1 : 0);
+    return in.lap >= n ? 1 : 2;
+}
+
 void pit_need(PitCar& c, const PitNeed& n) {
     c.tire_out = 0;
     if (!n.allowed) return;

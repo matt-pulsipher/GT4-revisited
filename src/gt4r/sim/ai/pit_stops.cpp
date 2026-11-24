@@ -34,9 +34,12 @@ void PitStops::after(const Session& session, Field& field) {
         const race::CarState& st = session.cars()[i];
         const F d(st.course_v);
         const int control = std::max(field.control(i), 0);
-        // 0x343C20: 0 racing, 2 on the last lap, 1 the car's race over (its laps done).
-        int lap_state = 0;
-        if (race_.laps > 0 && st.lap >= race_.laps) lap_state = st.lap >= race_.laps + (d < L * F::raw(0x3F000000) ? 1 : 0) ? 1 : 2;
+        // 0x343C20 (the race clock in ms: the session's steps; the car's laps as the race flow counts them).
+        LapStateInputs ls;
+        ls.finished = race_.finished && race_.finished(i);
+        ls.clock_ms = u32(session.time() * 1000.0);
+        ls.limit_minutes = race_.limit_minutes, ls.laps = race_.laps, ls.lap = st.lap, ls.d = d, ls.lap_length = L;
+        const int lap_state = sim::ai::lap_state(ls);
         // The wear and fuel phase's request (0x353218).
         PitNeed need;
         need.allowed = race_.pits;
@@ -60,17 +63,25 @@ void PitStops::after(const Session& session, Field& field) {
         in.side_speed = F(st.velocity.x * st.right.x + st.velocity.y * st.right.y + st.velocity.z * st.right.z);
         in.control = gt3r::s8(control), in.kind = u8(field.kind(i)), in.index = int(i);
         in.lap_state = lap_state;
-        in.contact = in.contact_43C = st.contact_kind == 2; // ❓ the collision body's +0x43C / +0x440
+        // The collision body's hits this step (0x45CC08: +0x43C a wall or +0x440 a car; 0x45CC30: +0x43C).
+        const collide::Body& body = session.body(i);
+        in.contact = body.wall_hit != 0 || body.car_hit != 0;
+        in.contact_43C = body.wall_hit != 0;
         in.lines = !line_.dist.empty();
         in.crossed = st.lap > last_lap_[i];
-        c.flags = u8((c.flags & ~0x10) | (st.wheels[0].surface & 1 ? 0x10 : 0)); // on the pit lane (the ground's flag bit 0)
+        // On the pit lane (phase 18, 0x369888): a wheel on the ground on a triangle flagged bit 0, in a race with pit stops.
+        bool lane = false;
+        for (const race::WheelState& w : st.wheels) lane = lane || (w.on_ground && (w.surface & 1));
+        c.flags = u8((c.flags & ~0x10) | (lane && race_.pits ? 0x10 : 0));
         std::vector<PitAction> acts;
         ServiceInputs sv;
         sv.pits_on = race_.pits, sv.lap_state = lap_state, sv.fuel_on = need.fuel_on, sv.control = gt3r::s8(control);
         flow_.step(c, in, line_, acts, [&] { return service_of(c, sv); });
         for (const PitAction& a : acts) {
             switch (a.kind) {
-            case PitAction::Enter: field.pit_enter(i); break;
+            case PitAction::Enter: // (0x3453A0 also marks the car as asked for the pits)
+                if (field.pit_enter(i)) c.flags |= 8;
+                break;
             case PitAction::Stop: field.pit_stop(i); break;
             case PitAction::Leave: field.pit_leave(i); break;
             case PitAction::Return: field.pit_return(i); break;

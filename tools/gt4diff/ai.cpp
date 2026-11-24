@@ -616,6 +616,8 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
         }
         // GT4R_AI_PITCHECK: the pit pass (0x359008 / 0x35B060) against ours at every call (pit_check.cpp).
         if (std::getenv("GT4R_AI_PITCHECK")) {
+            // (the race information's laps, the conductor's virtual 37: the pits' race state reads them)
+            ee.w32(o.info, u32(laps));
             pit_check = std::make_unique<PitCheck>(ee, o, field->lines(), program, lap_length);
             pit_check->install();
         }

@@ -117,18 +117,31 @@ HoldEvents pit_hold_step(PitCar& c, const std::vector<s8>& axle);
 // still to change, 90 steps more standing.
 void pit_refuel(PitCar& c, F& fuel, F tank, F dt, u8 rate_byte);
 
+// 0x343C20: the car's race state for the pits: 0 racing, 1 its race over (the race's time limit passed, 0x34C158, or its
+// laps done and past half the lap), 2 its last line just crossed (its laps done, before half the lap). A car whose result
+// is in (F +0x4B0) is racing to the pits' eyes.
+struct LapStateInputs {
+    bool finished = false;   // F +0x4B0
+    u32 clock_ms = 0;        // the race clock (cond + 0xF898 / 3, 0x358440)
+    u32 limit_minutes = 0;   // the race's time limit (cond + 0xF850, 0x34C140: x 60,000 ms; 0 none)
+    int laps = 0;            // the race's laps (the conductor's virtual +0x128; 0: no end)
+    int lap = 0;             // F +0x4AC
+    F d, lap_length;
+};
+int lap_state(const LapStateInputs& in);
+
 // The car's need of a stop (the pit part of 0x353218, the wear and fuel phase): what it reads.
 struct PitNeed {
     bool allowed = false;   // the conductor's virtual +0x180: the race has pit stops
-    bool fuel_on = false;   // F +0x5D0 > 0 (0x354E38)
+    bool fuel_on = false;   // the tank (car +0x5D0 = F +0x4CC) above 0 (0x354E38)
     F fuel_distance, fuel_used; // F +0x4C8 (metres since the fill) / F +0x4C4 (fuel used since)
-    F fuel;                 // car +0x5D4 (0x354E60)
+    F fuel;                 // car +0x5D4 = F +0x4D0 (0x354E60)
     F d;                    // F +0x4A4
     F lap;
     F pit_marker;           // the stop line's point 1 (0x46BDC0)
     bool wear_on = false;   // the race's wear switch (conductor + 4 + 0x68)
     F wear_limit;           // conductor + 4 + 0x20
-    std::vector<F> wear;    // each wheel's wear (+0x50)
+    std::vector<F> wear;    // each wheel's wear grip (+0x50 of the wheel at car +0x164 + 0xEC w)
     std::vector<F> burst;   // each wheel's +0xAC (< 0: the tire gone)
     bool tire_state_4 = false; // 0x35FA50 answers 4 ❓
     std::vector<u8> damaged;   // each wheel's +0x1AB ❓
