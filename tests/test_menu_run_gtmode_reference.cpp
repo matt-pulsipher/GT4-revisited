@@ -74,3 +74,37 @@ TEST(disc_gt_mode_used_cars_by_day) {
     }
     CHECK(f.clean());
 }
+
+// The Professional hall's events in order with their modes, and the Tuning Car Grand Prix's regulations, as the
+// reference's pages (21-gtmode-deep: professional_events_hall_*.png, tuning_car_gp_regulations.png).
+TEST(disc_gt_mode_professional_hall) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    Flow f(*disc);
+    CHECK(f.gt_mode_with_a_car(5000000));
+    if (f.page() != "TopRoot") return;
+    std::string texts;
+    std::function<void(const menu::LiveWidget&)> walk = [&](const menu::LiveWidget& w) {
+        if (w.is("TextFace") && !w.data.text("text").empty() && w.name != "info") texts += w.data.text("text") + "|";
+        for (const auto& c : w.children) walk(*c);
+    };
+    f.map_focus("ProfessionalHall");
+    f.press({menu::Key::Accept});
+    CHECK(f.page() == "EventHallRoot");
+    if (f.rt->current_page()) walk(*f.rt->current_page());
+    const char* hall = "Clubman Cup|Single Race|Tuning Car Grand Prix|Championship Race|Race of NA Sport|Single Race|Race of Turbo Sport|Single Race|"
+                       "Boxer Spirit|Single Race|World Classics|Championship Race|World Compact|Championship Race|Supercar Festival|Single Race|"
+                       "Gran Turismo World Championship|Championship Race|";
+    CHECK(texts.find(hall) != std::string::npos);
+    if (texts.find(hall) == std::string::npos) std::printf("  hall: %s\n", texts.c_str());
+    f.press({menu::Key::Down, menu::Key::Accept});
+    CHECK(f.page() == "EventInfoDialog");
+    texts.clear();
+    if (f.rt->current_page()) walk(*f.rt->current_page());
+    const char* regulations = "Tuning Car Grand Prix|Game Mode|Championship Race\r\nWinning Prize: Cr. 20,000|Tires|No restrictions|Cars\r\nPermitted:|"
+                              "All cars permitted|Required\r\nLicense|A-Spec: National A License";
+    const char* prizes = "1|10,000|2|6,000|3|4,000|4|3,000|5|1,000|6|500|";
+    CHECK(texts.find(regulations) != std::string::npos && texts.find(prizes) != std::string::npos);
+    if (texts.find(regulations) == std::string::npos || texts.find(prizes) == std::string::npos) std::printf("  regulations: %s\n", texts.c_str());
+    CHECK(f.clean());
+}
