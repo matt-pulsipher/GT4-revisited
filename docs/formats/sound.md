@@ -2,7 +2,8 @@
 
 Code: `src/gt4r/formats/sound/` (the files), `src/gt4r/audio/` (what plays them),
 `tools/gt4tool/cmd_sound.cpp` (`gt4tool sound`), `tools/gt4tool/cmd_sound_compare.cpp` (`gt4tool sound compare`),
-`tests/test_sound.cpp`, `tests/test_sound_race.cpp`, `tests/test_sound_compare.cpp`. Everything is
+`tools/gt4tool/cmd_sound_players.cpp` (`gt4tool sound players`), `tests/test_sound.cpp`,
+`tests/test_sound_race.cpp`, `tests/test_sound_layers.cpp`, `tests/test_sound_compare.cpp`. Everything is
 played through the shared engine's SPU2 voice mixer and reverb
 ([engine/gt3r/docs/formats/sound.md](../../engine/gt3r/docs/formats/sound.md),
 [sound_sequencer.md](../../engine/gt3r/docs/specs/sound_sequencer.md)): sample data is
@@ -361,20 +362,56 @@ All 722 cars' two files are on the US disc (383 different numbers; 259 cars are 
 the Isuzu 117 Coupe: `sound/engine/55201` and `sound/normal0/55201`. The wind's bank is
 `sound/roadnoiz.es` [P].
 
-The layers are played by the shared engine's layer player: the game's own (24 players of 0x58
-bytes at 0x64FBF8, stepped by 0x558FD8) follows the same rules [P]: nothing under 200 rpm, one
-layer or a neighbouring pair crossfaded by a sine table (0x64D3F8), the pitch moving at most
-x0.5..x2 a step and the volume by 0x1000 a step, envelope ADSR1 3 / ADSR2 0xA, only the bank's
-first layer table.
+### The layer players [P] (`audio/layer_player.*`)
 
-**The pitch** [P]: the layer's stored pitch x revs / the layer's revs (0x558DB0), then x the
-player's Doppler factor (+0x40, 0x1000 = 1) >> 12 (0x55DF70), straight into the SPU2's pitch
-register: 0x1000 plays the sample at 48 kHz. Gran Turismo 3 took the same field as 44.1 kHz and
-converted (x 0xEB3 >> 12, the shared engine's mixer does the same to everything); the US 1.01
-program has no such conversion, so a layer plays 4096 / 3763 (147 cents) higher than Gran Turismo
-3's rule makes it. `CarSound` scales the factor it gives the shared player by 4096 / 3763. Checked
-against the original (below): the Ford Ka '01's strongest note at 5,650 rpm is 181 Hz in both, at
-5,076 rpm 164 Hz in both.
+The driver has 24 players of 0x58 bytes at 0x64FBF8 (US 1.01), stepped 60 times a second by
+0x5596F8 → 0x558FD8 while their word +0x54 is 2 (0x559330 starts a player, 0x559378 stops it and
+releases its voices). 0x559470 sets one up on a bank's first layer table (+0x30 the table, +0x34
+the count), 0x5593F8 its inputs to 200 rpm, Doppler 0x1000 and silence. A race writes the inputs
+every step (0x392640): +0x48 the revs (s16 of the float), +0x4C / +0x4E the two side levels
+(int(side x level x 16383), at least -0x3FFF and 0x3FFE for anything from 0x3FFF up), +0x40 the
+Doppler factor (int(x 4096) held to 0..0x3FFF), +0x3C the priority (|level| x 2147483520, at most
+0x7FFFFFFE), +0x50 the reverb flag (0: the voices send). The two slots, 0x18 bytes each from +0:
+`+0 voice, +4 layer wanted, +8 layer playing, +0xC s16 left, +0xE s16 right, +0x10 pitch, +0x14
+the sample's address / 8`.
+
+A step:
+
+- **The layers**: revs under 200 count as 200. The first layer i (from 0) whose `lo..hi` holds the
+  revs plays alone, unless before it a pair `hi[i - 1] < revs < lo[i]` is found (the program checks
+  layer i's range, then the pair (i - 1, i), then layer i + 1's ...): the pair crossfades. Outside
+  every range the slots keep what they want. Then when the first wanted layer is the second slot's
+  playing one, or the second wanted is the first's (-1 alike), the two wants swap: a layer stays in
+  its slot.
+- **A slot whose wanted layer is the one it plays and that has a voice**: the pitch (0x558DB0) =
+  layer pitch x revs / layer revs (unsigned, at least 1), held to half .. twice the last; the levels
+  (0x558E28): x = 0x4000, or with the other slot's layer wanted: (revs - other hi) << 14 / (lo -
+  other hi) under this layer's range, (other lo - revs) << 14 / (other lo - hi) over it, at least 0;
+  g = sine[x >> 4] (0x64D3F8, 1,025 halfwords 4096 sin(i / 1024 × π/2): the program's table is
+  exactly that) × 0x3FFF >> 12; level = layer volume × g >> 14; each side = input × level >> 14,
+  its size held to the last size ± 0x1000 with the new sign. The voice gets the pitch, the Doppler
+  factor, the levels, the priority.
+- **A slot whose wanted layer changed**: its voice is released (0x55D688: the ADSR's release), the
+  pitch and levels are worked out without the limits, and a new voice (kind 4) is keyed at the
+  layer's sample with ADSR1 3, ADSR2 0xA: at once to full, a dip to a quarter and straight back (a
+  few samples), released in about 43 ms (linear, rate 0xA). No voice free: the slot plays nothing
+  and tries again the next step.
+
+**The voice** (0x55D890, 0x55DF70): a kind 4 voice has the driver's level rule with base 0x3FFF,
+sequence 0x3FFF, the kind's master (0x3FFF in every saved state), 0x7F everywhere else and the
+center pan (120 / 127 on both sides): each SPU2 level = (15478 × slot side) >> 14, held to
+-0x4000..0x3FFF, and in mono output both the mean of the two sizes. The SPU2 pitch = slot pitch
+(u16) × the Doppler factor >> 12, 0x1000 playing the sample at 48 kHz (Gran Turismo 3 took the
+same number as 44.1 kHz). Checked: the Ford Ka '01's strongest note at 5,650 rpm is 181 Hz in both
+the original and ours, at 5,076 rpm 164 Hz in both.
+
+**Checked against the original** (`gt4tool sound players <eeMemory.bin>...`): in 46 saved states
+of Gran Turismo 4 (menus, pre-race pages, races from every view, replays, license tests) every
+started player (594 records, 175 of them crossfading two layers) has the slots `LayerPlayer` works
+out, and every slot's voice the SPU2 levels. In most race states the
+race had already written the next step's inputs; the tool then finds revs and side levels of the
+step before that give both slots at once (the same revs for both pitches, one input for both
+sides' crossfaded levels).
 
 ## A race's sound [P] (`audio/race_sound.*`, `car_sound.*`, `course_sound.*`, `race_tables.*`)
 
