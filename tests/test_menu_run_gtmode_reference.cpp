@@ -108,3 +108,27 @@ TEST(disc_gt_mode_professional_hall) {
     if (texts.find(regulations) == std::string::npos || texts.find(prizes) == std::string::npos) std::printf("  regulations: %s\n", texts.c_str());
     CHECK(f.clean());
 }
+
+// Driving Missions: the panels as the reference's page (21-gtmode-deep/driving_missions_page.png).
+TEST(disc_gt_mode_missions_page) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    Flow f(*disc);
+    CHECK(f.gt_mode_with_a_car(5000000));
+    if (f.page() != "TopRoot") return;
+    std::string texts;
+    std::function<void(const menu::LiveWidget&)> walk = [&](const menu::LiveWidget& w) {
+        if (w.is("TextFace") && !w.data.text("text").empty()) texts += w.name + "=" + w.data.text("text") + "|";
+        for (const auto& c : w.children) walk(*c);
+    };
+    f.map_focus("Mission");
+    f.press({menu::Key::Accept});
+    CHECK(f.page() == "MissionRoot");
+    if (f.rt->current_page()) walk(*f.rt->current_page());
+    for (const char* want : {"title=The Pass: Deep Forest|doc=This is a mission for improving basic overtaking techniques. Venue is the Deep Forest track "
+                             "with one simple hairpin bend.|crs=Deep Forest: 1st corner",
+                             "title=The Pass: Grand Valley|doc=This is an introduction to race techniques where you practice driving the new BMW 3 "
+                             "series. Brake late and pass smoothly through the inside of the rival car.|crs=Grand Valley: 1st corner|"})
+        CHECK(texts.find(want) != std::string::npos);
+    CHECK(f.clean());
+}
