@@ -47,6 +47,15 @@ struct KanjiFont {
     const KanjiFace* face_for_height(int height) const;
 };
 
+// The double-byte font a language's menus load, the first of these the disc has: Gran Turismo
+// 4 picks `jp_menu.kf`, `kr_menu.kf` or `tw_menu.kf` by its region and none for the US and
+// Europe (0x108D80); Prologue `unicode.kf` for Japanese, `big5.kf` for Chinese (0x4439D8).
+// `language` is a project's language folder ("JP", "TW", "US").
+std::vector<std::string> kanji_font_paths(std::string_view language);
+
+// A cell's pixels in a palette: RGBA8 in memory order, row by row (cell_width x cell_height).
+std::vector<u32> cell_rgba(const KanjiFont& font, const KanjiFace& face, int cell, size_t palette);
+
 // A picture: RGBA8 in memory order, row by row.
 struct KanjiPicture {
     int width = 0, height = 0;

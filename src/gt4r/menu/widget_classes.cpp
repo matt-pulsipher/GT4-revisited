@@ -1176,6 +1176,23 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
     }
 
     if (type == "TextFace" || type == "ToolTipFace" || type == "InputTextFace") {
+        // `value`: what the face shows: the value set, else its text, else its key's text in
+        // the page the layout has it in (the memory card pages' StoreHouse texts).
+        if (n == "value" && type == "TextFace") {
+            auto a = std::make_shared<Accessor>();
+            a->read = [w, r] {
+                if (const std::string v = w->data.text("value"); !v.empty()) return Value::string(v);
+                if (const std::string t = w->data.text("text"); !t.empty()) return Value::string(t);
+                const std::string key = w->data.text("key");
+                if (key.empty()) return Value::string({});
+                LiveWidget* page = w->page();
+                Project* p = page ? r->project_of(*page) : nullptr;
+                const std::string where = w->data.has("key_page") ? w->data.text("key_page") : page ? page->name : std::string();
+                return Value::string(p ? p->translate(where, key) : key);
+            };
+            a->write = [w](const Value& v) { w->set_property("value", v); };
+            return a;
+        }
         if (n == "getTextSize")
             return fn([w](Vm&, const Value&, Args) {
                 float tw = 0, th = 0;
