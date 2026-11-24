@@ -379,9 +379,12 @@ public:
             me.reverse = mapper_.reverse();
             if (me.reverse) me.throttle = std::max(me.throttle, gt3r::race::pressure_to_pedal(pad.press(PadButton::Triangle)));
         }
-        const bool opening = opening_tv();
+        const bool opening = opening_tv(), running_up = run_up();
+        // A rolling start: the field holds the start's speed until the release, then goes.
+        world_->set_speed_hold(running_up && setup_.start_speed > 0 ? setup_.start_speed : 0);
         world_->step(inputs_, hold, auto_drive || watched_ || setup_.auto_drive);
-        const race::RaceFlow::Events ev = opening ? race::RaceFlow::Events{} : flow_.step(world_->cars());
+        // (The race clock stands until the release.)
+        const race::RaceFlow::Events ev = running_up ? race::RaceFlow::Events{} : flow_.step(world_->cars());
         if (!ev.finished.empty()) board_.finished(flow_, ev.finished);
         if (!hold) distance_ += std::fabs(world_->cars()[0].speed) * kStep;
         {
@@ -400,6 +403,8 @@ public:
             if (ev.start && flow_.setup().start == race::StartType::Rolling) sound->start_signal();
             if (ev.player_finished) sound->finish();
         }
+        if (ev.start && flow_.setup().start == race::StartType::Rolling)
+            LOG_INFO("Drive: the player's car takes the line at %.1f km/h, %.2f s on the clock", double(world_->cars()[0].speed * 3.6f), double(flow_.time_ms()) / 1000);
         if (ev.lap_done == 0) event_steps_ = 0, event_lap_ = flow_.car(0).laps_done;
         beeps_ += ev.beep;
         start_camera_.step();
@@ -568,18 +573,23 @@ public:
         }
     }
 
-    // A rolling start's opening shots: the course's TV cameras on the field running up, until the
-    // player's car is 130 m from the line; the race clock stands meanwhile (❓ judged from the
-    // original's Tsukuba start: about 12 s of shots, the clock starting during the last one and the
-    // field taking the line some 4 s later; the program's routine is not read).
-    bool opening_tv() const {
-        if (!handing_over() || setup_.skip > 0) return false;
+    // A rolling start: the player's car's metres to the line before it takes it (-1: none, or past it).
+    float to_line() const {
+        if (!handing_over() || setup_.skip > 0) return -1;
         const race::CarState& c = world_->cars()[0];
         const float len = world_->line().length;
-        if (!(len > 0)) return false;
-        const float to_line = c.course_v > len * 0.5f ? len - c.course_v : (c.lap < 0 ? len - c.course_v : 0.0f);
-        return to_line > 130.0f;
+        if (!(len > 0)) return -1;
+        return c.course_v > len * 0.5f ? len - c.course_v : (c.lap < 0 ? len - c.course_v : 0.0f);
     }
+    // A rolling start's run-up: the field at the start's speed in single file, the race clock standing,
+    // until the release, when the player's car is kRelease metres from the line; the course's TV cameras
+    // show it until kOpeningEnd metres (❓ both judged from the original's Tsukuba start: the field at
+    // 50 mph through some 12 s of shots, the clock starting during the last one, the player's view
+    // about 1.5 s later, the line 4.2 s after the clock's start at 50 -> 56 mph; the program's hold
+    // is not read).
+    static constexpr float kRelease = 80, kOpeningEnd = 50;
+    bool run_up() const { return to_line() > kRelease; }
+    bool opening_tv() const { return to_line() > kOpeningEnd; }
 
     // A rolling start before the player's car takes the line: it is driven for him.
     bool handing_over() const { return flow_.setup().start == race::StartType::Rolling && flow_.steps_since_start() < 0 && !replaying_ && !menu_scene_; }

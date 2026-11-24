@@ -66,9 +66,18 @@ last place 400 m before the line and 20 m between places: `sim::Entry::start_spe
 `start_distance` by `sim::rules::rolling_start_distance`) or ❓ a standing start of 10 s with the
 opening shots (the race information's own type byte is not traced to its source; the original's
 Grand Canyon start fits it). In a rolling start the computer drivers drive the player's car too
-until it takes the line; ❓ judged from the original: the course's TV cameras show the field
-running up until the player's car is 130 m from the line, the race clock standing until then. 🔎
-The original's field holds about 50 mph to the line; the computer drivers here speed up.
+until it takes the line. The conductor holds the race clock while its flag K +0xCBE4 is set
+(`DynamicsConductor::vf15` 0x357E80 adds a step to K +0xF898 only when it is clear);
+`DynamicsConductorSinglePlayer::vf27` (0x3477C8) sets it for a rolling start with a spacing, and
+vf20 (0x347928) clears it with the start signal (event 4), handing a car whose state byte F +0x467
+is 1 back to its driver (0x345228: the byte cleared, the driver's line set). The car set-up
+(0x3452F0) gives a rolling car state 1 and the driver line 6 (the start's). ❓ What holds the
+field's speed through the run-up is not read: here every car is held at the start's speed until
+the release, when the player's car is 80 m from the line (the race clock starts there), and the
+course's TV cameras show the field until 50 m (judged from the original's Tsukuba start: the field
+at 50 mph through some 12 s of shots, the clock starting in the last one, the player's view about
+1.5 s later, the line 4.2 s after the clock's start at 56 mph; here 58 mph at 4.5 s with the Ford
+Ka '01).
 
 ## The grid
 

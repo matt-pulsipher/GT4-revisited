@@ -219,6 +219,21 @@ void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool pla
         if (computer_player_ && !player_by_computer && !inputs.empty()) driven[0] = inputs[0];
         inputs = driven;
     }
+    // A rolling start's run-up: every car kept at the start's speed, the throttle eased and a touch
+    // of brake above it.
+    std::vector<race::CarInput> capped;
+    if (hold_speed_ > 0 && !hold) {
+        capped.assign(inputs.begin(), inputs.end());
+        capped.resize(car_visuals_.size());
+        const std::span<const race::CarState> now = sim_->cars();
+        for (size_t i = 0; i < capped.size() && i < now.size(); ++i) {
+            const float v = now[i].speed, gap = hold_speed_ - v;
+            race::CarInput& in = capped[i];
+            in.throttle = std::min(in.throttle, std::clamp(0.3f + gap * 0.5f, 0.0f, 1.0f));
+            in.brake = std::max(in.brake, std::clamp((-gap - 1.0f) * 0.15f, 0.0f, 0.4f));
+        }
+        inputs = capped;
+    }
     if (hold && session_) session_->hold_once(inputs);
     else if (hold) {
         // The stand-in has no hold: the cars stand on their brakes.

@@ -79,6 +79,9 @@ public:
     // it this step (else its input is the caller's: a rolling start handed over).
     void step(std::span<const race::CarInput> inputs, bool hold = false, bool player_by_computer = true);
     std::span<const race::CarState> cars() const { return sim_->cars(); }
+    // A rolling start's run-up from the next step: every car held at `mps` (its throttle eased, its
+    // brake touched above it); 0 lets them go.
+    void set_speed_hold(float mps) { hold_speed_ = mps; }
     // What goes with the cars shown in a step, live (the simulation's) or recorded: smoke and dust
     // from the wheels, and the race's sound heard from `camera` (none: no sound) about car `target`.
     void present(std::span<const race::CarState> cars, const audio::SoundListener* camera, int target, bool live);
@@ -140,6 +143,7 @@ private:
     std::unique_ptr<sim::ai::Field> field_; // the computer drivers, on the game's simulation
     bool computer_player_ = false;
     float player_ps_ = 0;
+    float hold_speed_ = 0;
     bool night_ = false, noted_ = false;
     gt3r::render::DrawOptions::PostGrade grade_;
     bool snapshot_ = false, keep_last_ = false;
