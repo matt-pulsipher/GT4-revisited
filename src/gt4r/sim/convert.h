@@ -73,7 +73,15 @@ void convert(Spec spec, const Program& program, const rules::Tables& race, const
 bool special_car(const Spec& s);
 
 // The step's record of a car from its block: every member of the engine's mirror and of Gran Turismo 4's own part
-// that has a place in the parameter block (car_layout.h, record.h), and the wheel layout's row.
+// that has a place in the parameter block (car_layout.h, record.h), and the wheel layout's row; then the mirror's members
+// the block keeps in another shape, made from Gran Turismo 4's (its view for the engine's routines that still run: the
+// engine curve thinned to 16 points, 7 forward gears at most, the tire records' 24 surfaces folded to 16 rows, the
+// steering and camber curves, the inverse masses).
 void load_params(const ParamBlock& p, const Program& program, Record& r);
+
+// A car's record as its set-up makes it: the block (convert, at a made-up address), read into r.car.p and r.x
+// (load_params), and the masses the record starts with. `block`: the block too, when wanted.
+void build_record(const Spec& s, const Program& program, const rules::Tables& race, const ConvertIn& in, Record& r, ParamBlock* block = nullptr,
+                  ConvertGlobals* globals = nullptr);
 
 } // namespace gt4r::sim

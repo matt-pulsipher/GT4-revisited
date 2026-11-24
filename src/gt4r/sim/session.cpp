@@ -1,5 +1,6 @@
 #include "gt4r/sim/session.h"
 
+#include "gt4r/sim/convert.h"
 #include "gt4r/sim/rules_build.h"
 #include "gt4r/sim/rules_start.h"
 
@@ -142,7 +143,17 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
         c.behaviour = gt4_ready_ ? rules::behaviour() : data_->behaviour();
         c.index = u8(i);
         c.control = 0, c.driver_kind = 0, c.ghost = 0, c.wheel_type = 0;
-        { // the parameter block from the spec, as the car's set-up makes it
+        if (gt4_ready_) { // the parameter block from the spec, as the car's set-up makes it (Gran Turismo 4's converter)
+            Record r;
+            r.car = c;
+            build_record(specs_[i], program, tables_, ConvertIn{}, r);
+            // The entry's aid switches: ASM's channels and the TCS of the car's own block off.
+            if (!e.asm_on) r.x.aids.own.on = {}, r.car.p.aids.on = {};
+            if (!e.tcs_on) r.x.aids.own.tcs_gain = F(), r.car.p.aids.tcs_gain = F();
+            c.p = r.car.p;
+            gx_[i] = r.x;
+            layouts_[i] = r.layout;
+        } else { // (a program that is not a known build: the engine's converter on the core's tables)
             ex::ConvertInputs in;
             in.data = data_.get();
             const u32 address = 0x01000000u + 0x2000u * u32(i);
@@ -156,17 +167,6 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
             ex::Car loaded;
             ex::load_image(loaded, image.data());
             c.p = loaded.p;
-            gt4_params(specs_[i], program, c.p);
-            if (gt4_ready_) {
-                Record r;
-                r.car = c;
-                gt4_extras(specs_[i], program, r);
-                // The entry's aid switches: ASM's channels and the TCS of the car's own block off.
-                if (!e.asm_on) r.x.aids.own.on = {};
-                if (!e.tcs_on) r.x.aids.own.tcs_gain = F();
-                gx_[i] = r.x;
-                layouts_[i] = r.layout;
-            }
         }
         c.pedal_style = e.automatic ? 0 : 1;
         // The start place: the entry's, or one further back along the first place's line when the grid is shorter;

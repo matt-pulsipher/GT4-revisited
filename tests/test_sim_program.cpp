@@ -28,6 +28,19 @@ TEST(sim_program_spec_equal) {
     CHECK(r.spec_equal == r.cars);
 }
 
+// Gran Turismo 4's converter (sim::convert) against the program's on every car, word by word over the whole block: as
+// sold, and with a computer's car's inputs, a power cap, a worn engine, ballast and the entry's percentages.
+TEST(sim_program_converter_block_equal) {
+    Disc* disc = full_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    const diff::ParamsResult r = diff::run_params(*disc, false);
+    CHECK(r.ran && r.cars > 700 && r.unfinished == 0);
+    for (const auto& [o, n] : r.block_off) std::printf("  block +0x%04X differs on %zu cars\n", o, n);
+    for (const auto& [o, n] : r.varied_off) std::printf("  varied +0x%04X differs on %zu cars\n", o, n);
+    CHECK(r.block_equal == r.cars);
+    CHECK(r.varied_equal == r.cars);
+}
+
 TEST(sim_program_params_equal) {
     Disc* disc = full_disc();
     if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");

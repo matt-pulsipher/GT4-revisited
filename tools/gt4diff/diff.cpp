@@ -18,8 +18,10 @@
 #include "sim/exact/car_fields.h"
 #include "sim/exact/start.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <type_traits>
 
 #include <cstdio>
 #include <cstring>
@@ -130,6 +132,14 @@ ParamsResult run_params(Disc& disc, bool print) {
         return fields.back();
     };
     size_t cars = 0, trapped = 0;
+    if (std::getenv("GT4R_LIST_UNPLACED")) { // the engine mirror's parameter fields without a place in Gran Turismo 4's block
+        ex::Car probe{};
+        ex::fields(probe, [&](const char* n, int i, u32 off, const auto&) {
+            if (off < 0x10 || off >= 0x10 + ex::kParamsSize) return;
+            if (sim::layout::place(off)) return;
+            std::printf("  unplaced P+0x%03X %s[%d]\n", off - 0x10, n, i);
+        });
+    }
     for (const db::CarEntry& c : sdb.cars()) {
         sim::Equipment eq;
         if (!sim::stock_car(sdb, program, c.label, eq)) continue;
@@ -244,6 +254,44 @@ ParamsResult run_params(Disc& disc, bool print) {
         sim::gt4_params(spec, program, car.p);
         const ex::Params& p = car.p;
         ++cars;
+        // The record the session built before (the engine's converter, gt4_params, gt4_extras) against the record from
+        // Gran Turismo 4's block (sim::build_record), field by field: what changes for the step.
+        if (std::getenv("GT4R_RECORD_CHECK")) {
+            static const sim::rules::Tables race = sim::rules::tables(program, ex::Statics{});
+            sim::Record before{car, {}, {}};
+            sim::gt4_extras(spec, program, before);
+            sim::Record after{};
+            sim::build_record(spec, program, race, sim::ConvertIn{}, after);
+            auto cmp = [&](const char* n, const void* a, const void* b, size_t size) {
+                Field& f = field((std::string("record ") + n).c_str());
+                ++f.values;
+                if (std::memcmp(a, b, size) == 0) return;
+                ++f.off;
+                if (f.where.empty()) {
+                    u32 x = 0, y = 0;
+                    std::memcpy(&x, a, std::min<size_t>(size, 4)), std::memcpy(&y, b, std::min<size_t>(size, 4));
+                    char t[200];
+                    std::snprintf(t, sizeof t, "%s: before %08X, now %08X", c.label.c_str(), x, y);
+                    f.where = t;
+                }
+            };
+            const u8* bb = reinterpret_cast<const u8*>(&before);
+            const u8* ab = reinterpret_cast<const u8*>(&after);
+            ex::fields(before.car, [&](const char* n, int, u32 off, const auto& m) {
+                if (off < 0x10 || off >= 0x10 + ex::kParamsSize) return;
+                using T = std::remove_cvref_t<decltype(m)>;
+                const size_t at = size_t(reinterpret_cast<const u8*>(&m) - bb);
+                cmp((std::string("mirror ") + n).c_str(), bb + at, ab + at, std::is_same_v<T, gt3r::ee::F> ? 4 : sizeof(T));
+            });
+            sim::extra_fields(before.x, [&](const char* n, int, sim::layout::Block, u32, const auto& m) {
+                using T = std::remove_cvref_t<decltype(m)>;
+                const size_t at = size_t(reinterpret_cast<const u8*>(&m) - bb);
+                cmp((std::string("extra ") + n).c_str(), bb + at, ab + at, std::is_same_v<T, gt3r::ee::F> ? 4 : sizeof(T));
+            });
+            cmp("layout", &before.layout, &after.layout, sizeof before.layout);
+            cmp("chassis.mass", &before.x.chassis.mass, &after.x.chassis.mass, 4);
+            cmp("body.sprung_mass", &before.x.body.sprung_mass, &after.x.body.sprung_mass, 4);
+        }
         // Gran Turismo 4's own part of the record (rules_build.h), bit for bit, every field the parameter block holds.
         {
             sim::Record ours{car, {}, {}};

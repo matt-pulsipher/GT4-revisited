@@ -6,12 +6,14 @@
 #include "gt4r/sim/convert.h"
 
 #include "gt4r/sim/car_layout.h"
+#include "gt4r/sim/exact_bridge.h"
 #include "base/ee_math.h"
 #include "sim/exact/build_math.h"
 #include "sim/exact/car_fields.h"
 
 #include <vector>
 
+#include <cmath>
 #include <type_traits>
 
 namespace gt4r::sim {
@@ -1234,6 +1236,74 @@ void convert(Spec s, const Program& program, const rules::Tables& race, const Co
     top_and_hold(s, program, p, race, in);
 }
 
+namespace {
+
+// The engine's mirror's members that Gran Turismo 4's block keeps in another shape, from Gran Turismo 4's part of the record
+// (loaded first): the 24-point curve thinned to 16 points (the points whose loss changes the curve least go first), at most
+// 7 forward gears, the tire records with the 24 surfaces folded to the core's 16 rows (row 11 the wear grip's floor), the
+// steering and camber curves, the inverses of the masses.
+template <size_t N, size_t M> void table_into(const gt3r::sim::exact::Table<N>& from, gt3r::sim::exact::Table<M>& to) {
+    to = {};
+    to.n = s16(from.n < s16(M) ? from.n : s16(M));
+    for (size_t k = 0; k < M && k < N; ++k) to.x[k] = from.x[k], to.y[k] = from.y[k];
+}
+
+void mirror(const ParamBlock& p, Record& r) {
+    gt3r::sim::exact::Params& m = r.car.p;
+    const Extra& x = r.x;
+    // The engine's curve: 16 points at most.
+    {
+        struct Point {
+            F x, y;
+        };
+        std::vector<Point> pts;
+        for (s32 k = 0; k < x.drive.e.torque.n && k < 24; ++k) pts.push_back({x.drive.e.torque.x[size_t(k)], x.drive.e.torque.y[size_t(k)]});
+        while (pts.size() > 16) {
+            size_t best = 1;
+            double least = 1e300;
+            for (size_t i = 1; i + 1 < pts.size(); ++i) {
+                const double x0 = pts[i - 1].x.host(), x1 = pts[i + 1].x.host(), y0 = pts[i - 1].y.host(), y1 = pts[i + 1].y.host();
+                const double span = x1 - x0;
+                const double on = span > 0 ? y0 + (y1 - y0) * (pts[i].x.host() - x0) / span : y0;
+                const double loss = std::abs(on - pts[i].y.host()) * span;
+                if (loss < least) least = loss, best = i;
+            }
+            pts.erase(pts.begin() + std::ptrdiff_t(best));
+        }
+        m.e.torque = {};
+        m.e.torque.n = s16(pts.size());
+        for (size_t k = 0; k < pts.size(); ++k) m.e.torque.x[k] = pts[k].x, m.e.torque.y[k] = pts[k].y;
+    }
+    if (m.d.gears > 7) m.d.gears = 7;
+    // The tire records and the tire index by the core's rows.
+    for (size_t t = 0; t < 6; ++t) {
+        const rules::Tire& g = x.tires.tire[t];
+        gt3r::sim::exact::TireRecord& e = m.tire[t];
+        e.grip = g.grip, e.wear_rate = g.wear_rate;
+        for (int row = 0; row < 16; ++row) e.mu[size_t(row)] = g.mu[size_t(surface_of_core_row(row))];
+        e.mu[11] = g.wear_floor;
+        table_into(g.curve_a, e.curve_a), table_into(g.curve_b, e.curve_b), table_into(g.curve_c, e.curve_c);
+        e.peak_slip = g.peak_slip, e.slip_drive = g.slip_drive, e.slip_brake = g.slip_brake, e.brake_peak = g.brake_peak;
+        e.curve_d = g.curve_d;
+        table_into(g.load_curve, e.load_curve);
+    }
+    for (size_t a = 0; a < 2; ++a)
+        for (int row = 0; row < 16; ++row) m.tire_index[a][size_t(row)] = x.tires.tire_index[a][size_t(surface_of_core_row(row))];
+    for (size_t a = 0; a < 2; ++a) table_into(x.tires.camber_grip[a], m.camber_grip[a]);
+    // The steering curves: the pad's (P +0x58, the spec's first), the wheel's (P +0xD0, its second) and the dirt's (P +0x94,
+    // its third).
+    auto steer = [&](u32 at, gt3r::sim::exact::Table<6>& t) {
+        t = {};
+        t.n = s16(p.sh(at) < 6 ? p.sh(at) : 6);
+        for (u32 k = 0; k < 6; ++k) t.x[k] = p.f(at + 0x0C + 4 * k), t.y[k] = p.f(at + 0x24 + 4 * k);
+    };
+    steer(0x58, m.steer_b), steer(0xD0, m.steer_a), steer(0x94, m.steer_c);
+    m.inv_mass = kOne / m.mass;
+    m.inv_sprung_mass = p.f(0x4C) == kZero ? kZero : kOne / p.f(0x4C);
+}
+
+} // namespace
+
 void load_params(const ParamBlock& p, const Program& program, Record& r) {
     using layout::Block;
     gt3r::sim::exact::fields(r.car, [&](const char*, int, u32 off, auto& m) {
@@ -1248,6 +1318,21 @@ void load_params(const ParamBlock& p, const Program& program, Record& r) {
         std::memcpy(&m, &p.bytes[off], std::is_same_v<T, gt3r::ee::F> ? 4 : sizeof(T));
     });
     r.layout = rules::wheel_layout(program, p.b(0x30));
+    mirror(p, r);
+}
+
+void build_record(const Spec& s, const Program& program, const rules::Tables& race, const ConvertIn& in, Record& r, ParamBlock* block,
+                  ConvertGlobals* globals) {
+    ParamBlock own;
+    ParamBlock& p = block ? *block : own;
+    p = ParamBlock{};
+    p.base = 0x01000000;
+    convert(s, program, race, in, p, globals);
+    r.car.p = {};
+    load_params(p, program, r);
+    // What the car's set-up gives the record besides the block (0x354AC0 at its first step: the masses with the fuel, 0 here).
+    r.x.chassis.mass = p.f(0x48);
+    r.x.body.sprung_mass = p.f(0x4C);
 }
 
 } // namespace gt4r::sim
