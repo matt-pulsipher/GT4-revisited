@@ -13,11 +13,6 @@ namespace gt4r::audio {
 namespace {
 
 constexpr const char* kWindBank = "sound/roadnoiz.es";
-// The layer players send a layer's pitch x revs / its revs x the Doppler factor to the SPU2 as it
-// is (0x558DB0, 0x55DF70: 0x1000 plays the sample at 48 kHz). The shared engine's player takes
-// the value in Gran Turismo 3's units (0x1000 = 44.1 kHz) and its mixer converts (x 0xEB3 /
-// 0x1000): this factor undoes the conversion.
-constexpr float kLayerPitch = 4096.0f / 3763.0f;
 constexpr size_t kEngineSoundId = 0x18, kMufflerVariant = 6, kTurboKind = 9, kGearWhine = 0x22;
 
 // A car's part as sold: from its row of default parts, or for a car without one its own
@@ -56,12 +51,17 @@ CarSoundFiles car_sound_files(db::SpecDb& db, const std::string& car) {
             const ByteSpan r = t->row(*id);
             f.whine = r.size() > kGearWhine && r[kGearWhine] != 0;
         }
-    f.variant = gt3r::EngineSound::variant_dir(f.variant_index());
+    f.variant = CarSoundFiles::variant_name(f.variant_index());
     char name[16];
     std::snprintf(name, sizeof name, "%05d", f.id);
     f.engine = std::string("sound/engine/") + name;
     f.exhaust = "sound/" + f.variant + "/" + name;
     return f;
+}
+
+std::string CarSoundFiles::variant_name(int index) {
+    index = std::clamp(index, 0, 7);
+    return (index < 4 ? "normal" : "turbo") + std::to_string(index & 3);
 }
 
 CarSoundFiles car_sound_files(gt3r::Vfs& vfs, const std::string& car) {
@@ -247,7 +247,7 @@ bool CarSound::load(int sound_id, int variant) {
     files_.id = sound_id;
     files_.muffler = variant & 3;
     files_.turbo = (variant & 4) != 0;
-    files_.variant = gt3r::EngineSound::variant_dir(variant);
+    files_.variant = CarSoundFiles::variant_name(variant);
     char name[16];
     std::snprintf(name, sizeof name, "%05d", sound_id);
     files_.engine = std::string("sound/engine/") + name;
@@ -372,8 +372,7 @@ void CarSound::update(const CarSoundState& car, const SoundListener& listener, b
     const float g_engine = held(at_engine), g_body = held(at_body), g_exhaust = held(at_exhaust);
     report_.engine = at_engine, report_.body = at_body, report_.exhaust = at_exhaust;
     // The surround cue (the panner's two flags, 0x39A7B0): a sound behind the camera has one side
-    // inverted. The program does it in every output mode; here when the mixer's option is on (the
-    // layer players do the same for their own).
+    // inverted. The program does it in every output mode; here when the mixer's option is on.
     const bool cue = mixer_.surround_cue();
     const auto behind = [&](gt3r::SurroundCue& c, Placement& p) {
         if (!cue) return;
@@ -381,6 +380,7 @@ void CarSound::update(const CarSoundState& car, const SoundListener& listener, b
         if (c.invert_l) p.left = -p.left;
         if (c.invert_r) p.right = -p.right;
     };
+    behind(cue_[0], at_engine), behind(cue_[1], at_body), behind(cue_[2], at_exhaust);
 
     // The two banks' levels: each moves half way to its target every step.
     if (!car.live || (car.hybrid && car.rpm < car.idle_rpm)) {
@@ -410,12 +410,12 @@ void CarSound::update(const CarSoundState& car, const SoundListener& listener, b
     report_.exhaust_gain = g_exhaust * gain(SoundChannel::Exhaust) * float(exhaust_level_) / 64.0f;
     report_.wind_gain = g_engine * gain(SoundChannel::Wind) * wind;
     report_.wind_rpm = wind_rpm;
-    const float layer_pitch = doppler * kLayerPitch;
-    if (engine_.loaded()) engine_.update_at(mixer_, car.rpm, report_.engine_gain, at_engine.x, at_engine.z, layer_pitch);
-    if (exhaust_.loaded()) exhaust_.update_at(mixer_, car.rpm, report_.exhaust_gain, at_exhaust.x, at_exhaust.z, layer_pitch);
-    if (wind_.loaded()) wind_.update_at(mixer_, wind_rpm, report_.wind_gain, at_engine.x, at_engine.z, layer_pitch);
+    feed(engine_, car.rpm, report_.engine_gain, at_engine, doppler);
+    feed(exhaust_, car.rpm, report_.exhaust_gain, at_exhaust, doppler);
+    feed(wind_, wind_rpm, report_.wind_gain, at_engine, doppler);
+    const bool mono = mode == OutputMode::Mono;
+    engine_.step(&mixer_, mono), exhaust_.step(&mixer_, mono), wind_.step(&mixer_, mono);
     if (!effects_) return;
-    behind(cue_[0], at_engine), behind(cue_[1], at_body), behind(cue_[2], at_exhaust);
 
     // The turbo's spool and the gearbox's whine, at the engine.
     report_.turbine = g_engine * gain(SoundChannel::Turbine) * float(car.live ? car.turbine_level : 0) / 128.0f;
@@ -514,15 +514,19 @@ void CarSound::update(const CarSoundState& car, const SoundListener& listener, b
     }
 }
 
-void CarSound::set_view(gt3r::EngineSound::View view) { old_view_ = view; }
-
-void CarSound::update(const race::CarState& car, const race::CarState* listener) {
-    using View = gt3r::EngineSound::View;
-    const SoundListener::Kind kind = old_view_ == View::OnboardOwn || old_view_ == View::OnboardOther ? SoundListener::Kind::InCar
-                                     : old_view_ == View::Replay ? SoundListener::Kind::Other
-                                     : SoundListener::Kind::Chase;
-    const bool target = !listener || listener == &car;
-    update(sound_state(car), listener_at(listener ? *listener : car, kind), target);
+void CarSound::feed(LayerPlayer& player, float rpm, float level, const Placement& at, float doppler) {
+    if (!player.loaded()) return;
+    LayerPlayer::Input& in = player.input();
+    const auto side = [](float v) {
+        const int i = int(v * 16383.0f);
+        return s16(i >= 0x3FFF ? 0x3FFE : std::max(i, -0x3FFF));
+    };
+    in.left = side(at.left * level), in.right = side(at.right * level);
+    const float size = std::fabs(level);
+    in.priority = size >= 1.0f ? 0x7FFFFFFEu : u32(std::min(double(size) * 2147483520.0, double(0x7FFFFFFE)));
+    in.doppler = std::clamp(int(doppler * 4096.0f), 0, 0x3FFF);
+    in.rpm = int(s16(int(rpm)));
+    in.adsr1 = mix_->tables.layer_adsr1;
 }
 
 void CarSound::stop_loops() {

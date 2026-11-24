@@ -2,7 +2,8 @@
 
 Code: `src/gt4r/formats/sound/` (the files), `src/gt4r/audio/` (what plays them),
 `tools/gt4tool/cmd_sound.cpp` (`gt4tool sound`), `tools/gt4tool/cmd_sound_compare.cpp` (`gt4tool sound compare`),
-`tests/test_sound.cpp`, `tests/test_sound_race.cpp`, `tests/test_sound_compare.cpp`. Everything is
+`tools/gt4tool/cmd_sound_players.cpp` (`gt4tool sound players`), `tests/test_sound.cpp`,
+`tests/test_sound_race.cpp`, `tests/test_sound_layers.cpp`, `tests/test_sound_compare.cpp`. Everything is
 played through the shared engine's SPU2 voice mixer and reverb
 ([engine/gt3r/docs/formats/sound.md](../../engine/gt3r/docs/formats/sound.md),
 [sound_sequencer.md](../../engine/gt3r/docs/specs/sound_sequencer.md)): sample data is
@@ -11,6 +12,23 @@ PS-ADPCM, pitches and envelopes are SPU2 register values.
 Facts marked [P] are read from the game's program (the driver's routines sit at
 0x559330-0x55E600 of `CORE.GT4`, SCUS-97328 v1.01; its two sequencers have the run-time type
 names `SDDRV::SqSequencer` and `SDDRV::SeSequencer`); [F] from the files; 🔎 inferred; ❓ open.
+
+## What runs where
+
+| Part | Runs | Follows |
+|---|---|---|
+| The SPU2: voices, PS-ADPCM, envelopes, interpolation, the reverb unit | the shared `gt3r::VoiceMixer`, `gt3r::SpuReverb` | the hardware (not program code) |
+| The sound driver: the two sequencers, the effect sequences, held notes, each voice's level and pitch (0x559330 .. 0x55E600) | `sound_driver.*` | Gran Turismo 4's; the lfo is not built (no voice of the discs is heard to waver) |
+| The engine, exhaust and wind banks' players (0x558FD8 and its helpers; the voice of kind 4) | `layer_player.*` | Gran Turismo 4's: every started player of 46 saved states the same; Prologue's (0x481588) with its own attack |
+| A car's frame and mix (0x3B5E80, 0x392640): views, gains, microphones, panner, Doppler, the master, its fades and ducks | `car_sound.*`, `race_sound.*`, `race_tables.*` | Gran Turismo 4's, tables from the disc's program |
+| The surround cue (the panner's two flags) | the shared `gt3r::SurroundCue` | the same rule as the program's, in every output mode as the program does it: the shared mixer's option is on while a disc is open (`with_surround_cue`; the shared engine's own screens keep their setting) |
+| The levels (0x350080), wind (0x34FA90), cabin (0x34FBC0), whine (0x34FED0, 0x350DA0), afterfire (0x3F3368, 0x3F3278), the hit sound's recorder (0x350328), landings (0x3FA7B8) | `sim_sound_state.*`, `car_sound.*`, the recorder in `sim/collide.cpp` | Gran Turismo 4's, from the session's records; not built: a stepless gearbox's and a motor's whine (0x369510, 0x356D88), the heartbeat, contacts with the course's objects (kind 2, 0x3E3C48) |
+| A race heard without its session (a replay, a saved run) | `sound_state(race::CarState)` | judged from what the seam keeps: the quietest throttle 3/8 (torques 1 : 0.6), the skid's pitch from the slip, the rim's speed from the car's, a landing at the downward speed / 5, a contact as twice the step's summed strength; the program replays its cars' records ❓ |
+| The course's ambience (0x398B70, the emitters 0x457918) | `course_sound.*` | Gran Turismo 4's, the `CRSS` section read by the shared reader (the same layout); the slots a course allows (0x3922B0) are not applied, as a wheel's notes follow the surface under it |
+| The count, the music's messages, the play list (0x39DA80, 0x389758, 0x438170) | `race_sound.*`, `race_playlist.*` | Gran Turismo 4's |
+| The menus' sound object (`menu::MSound`) | `menu_sound.*` | Gran Turismo 4's; Prologue's music level ❓ (1.0 in its saved states) |
+| Streams (`.ads`): reading, decoding, playing | the shared `gt3r::AudioEngine` stream player | the IOP's stream module (not in `CORE.GT4`), at the program's levels (the SPU2's registers in the saved states); the original plays a stream on two SPU2 voices with the SPU2's interpolation, ours resamples it apart from the voices |
+| Pit sounds (`wheelgun`, `dropnut`, ...) | | not played |
 
 ## What is on the discs (`gt4tool sound <disc> survey`)
 
@@ -59,7 +77,7 @@ The magic and the first 0x20 bytes are Gran Turismo 3's; the tables are new.
 | 1 | velocity map: 2 bytes, then the played velocity for each of the 128 written ones (the identity in every bank) | all |
 | 2 | ❓ 64 bytes; the driver's lookup of an lfo wave reads it as `u16 last, u16 offset[]` to waves of 60 steps, and the one offset points past the header | music banks |
 | 3 | effect sequences | `gt4sys`, `gt4count`, `gt4pod`, `gt4shutter*` |
-| 4 | ❓ 16-byte records, one per effect sequence (`00 nn 00 64 40 00... 04 00 64 00`); no reader found | the same |
+| 4 | ❓ a 16-byte head (`u8 100`, then 0) and 24 records of 16 bytes numbered 0 to 23 (`u8 0, u8 n, u8 0, u8 100, u8 0x40, 7 × 0, u8 4, u8 0, u8 100, u8 0`): 🔎 a default for each of 24 channels or voices (a volume 100, the center pan, 4, 100). The same bytes in every effect bank of both discs (`gt4sys`, `gt4count`, Prologue's `gt4pod` too), whatever their sequences; no reader found in `CORE.GT4`, and the effects' levels match the original without it | the same |
 | 5 | effect programs | the same |
 | 27 | not an offset: 0 in the music banks, where a tone's sample address counts 16 bytes; -1 in the effect banks, where it counts 8 | |
 
@@ -361,20 +379,62 @@ All 722 cars' two files are on the US disc (383 different numbers; 259 cars are 
 the Isuzu 117 Coupe: `sound/engine/55201` and `sound/normal0/55201`. The wind's bank is
 `sound/roadnoiz.es` [P].
 
-The layers are played by the shared engine's layer player: the game's own (24 players of 0x58
-bytes at 0x64FBF8, stepped by 0x558FD8) follows the same rules [P]: nothing under 200 rpm, one
-layer or a neighbouring pair crossfaded by a sine table (0x64D3F8), the pitch moving at most
-x0.5..x2 a step and the volume by 0x1000 a step, envelope ADSR1 3 / ADSR2 0xA, only the bank's
-first layer table.
+### The layer players [P] (`audio/layer_player.*`)
 
-**The pitch** [P]: the layer's stored pitch x revs / the layer's revs (0x558DB0), then x the
-player's Doppler factor (+0x40, 0x1000 = 1) >> 12 (0x55DF70), straight into the SPU2's pitch
-register: 0x1000 plays the sample at 48 kHz. Gran Turismo 3 took the same field as 44.1 kHz and
-converted (x 0xEB3 >> 12, the shared engine's mixer does the same to everything); the US 1.01
-program has no such conversion, so a layer plays 4096 / 3763 (147 cents) higher than Gran Turismo
-3's rule makes it. `CarSound` scales the factor it gives the shared player by 4096 / 3763. Checked
-against the original (below): the Ford Ka '01's strongest note at 5,650 rpm is 181 Hz in both, at
-5,076 rpm 164 Hz in both.
+The driver has 24 players of 0x58 bytes at 0x64FBF8 (US 1.01), stepped 60 times a second by
+0x5596F8 → 0x558FD8 while their word +0x54 is 2 (0x559330 starts a player, 0x559378 stops it and
+releases its voices). 0x559470 sets one up on a bank's first layer table (+0x30 the table, +0x34
+the count), 0x5593F8 its inputs to 200 rpm, Doppler 0x1000 and silence. A race writes the inputs
+every step (0x392640): +0x48 the revs (s16 of the float), +0x4C / +0x4E the two side levels
+(int(side x level x 16383), at least -0x3FFF and 0x3FFE for anything from 0x3FFF up), +0x40 the
+Doppler factor (int(x 4096) held to 0..0x3FFF), +0x3C the priority (|level| x 2147483520, at most
+0x7FFFFFFE), +0x50 the reverb flag (0: the voices send). The two slots, 0x18 bytes each from +0:
+`+0 voice, +4 layer wanted, +8 layer playing, +0xC s16 left, +0xE s16 right, +0x10 pitch, +0x14
+the sample's address / 8`.
+
+A step:
+
+- **The layers**: revs under 200 count as 200. The first layer i (from 0) whose `lo..hi` holds the
+  revs plays alone, unless before it a pair `hi[i - 1] < revs < lo[i]` is found (the program checks
+  layer i's range, then the pair (i - 1, i), then layer i + 1's ...): the pair crossfades. Outside
+  every range the slots keep what they want. Then when the first wanted layer is the second slot's
+  playing one, or the second wanted is the first's (-1 alike), the two wants swap: a layer stays in
+  its slot.
+- **A slot whose wanted layer is the one it plays and that has a voice**: the pitch (0x558DB0) =
+  layer pitch x revs / layer revs (unsigned, at least 1), held to half .. twice the last; the levels
+  (0x558E28): x = 0x4000, or with the other slot's layer wanted: (revs - other hi) << 14 / (lo -
+  other hi) under this layer's range, (other lo - revs) << 14 / (other lo - hi) over it, at least 0;
+  g = sine[x >> 4] (0x64D3F8, 1,025 halfwords 4096 sin(i / 1024 × π/2): the program's table is
+  exactly that) × 0x3FFF >> 12; level = layer volume × g >> 14; each side = input × level >> 14,
+  its size held to the last size ± 0x1000 with the new sign. The voice gets the pitch, the Doppler
+  factor, the levels, the priority.
+- **A slot whose wanted layer changed**: its voice is released (0x55D688: the ADSR's release), the
+  pitch and levels are worked out without the limits, and a new voice (kind 4) is keyed at the
+  layer's sample with ADSR1 3, ADSR2 0xA: at once to full, a dip to a quarter and straight back (a
+  few samples), released in about 43 ms (linear, rate 0xA). No voice free: the slot plays nothing
+  and tries again the next step.
+
+**The voice** (0x55D890, 0x55DF70): a kind 4 voice has the driver's level rule with base 0x3FFF,
+sequence 0x3FFF, the kind's master (0x3FFF in every saved state), 0x7F everywhere else and the
+center pan (120 / 127 on both sides): each SPU2 level = (15478 × slot side) >> 14, held to
+-0x4000..0x3FFF, and in mono output both the mean of the two sizes. The SPU2 pitch = slot pitch
+(u16) × the Doppler factor >> 12, 0x1000 playing the sample at 48 kHz (Gran Turismo 3 took the
+same number as 44.1 kHz). Checked: the Ford Ka '01's strongest note at 5,650 rpm is 181 Hz in both
+the original and ours, at 5,076 rpm 164 Hz in both.
+
+**Checked against the original** (`gt4tool sound players <eeMemory.bin>...`): in 46 saved states
+of Gran Turismo 4 (menus, pre-race pages, races from every view, replays, license tests) every
+started player (594 records, 175 of them crossfading two layers) has the slots `LayerPlayer` works
+out, and every slot's voice the SPU2 levels.
+
+**Prologue's players** (SCPS-15055 v1.01: 24 of 0x54 bytes at 0x516278, stepped by 0x481588 while
++0x50 is 2; 0x481360 / 0x4813D8 the pitch and the levels) have the same rules and record but no
+reverb flag (every voice sends), and a new layer's voice is keyed with ADSR1 0x1003: an attack of
+about 0.8 ms (`RaceSoundTables::layer_adsr1`). Its saved state of a race: the three started players
+the same, two of them crossfading. In most race states the
+race had already written the next step's inputs; the tool then finds revs and side levels of the
+step before that give both slots at once (the same revs for both pitches, one input for both
+sides' crossfaded levels).
 
 ## A race's sound [P] (`audio/race_sound.*`, `car_sound.*`, `course_sound.*`, `race_tables.*`)
 
@@ -420,8 +480,9 @@ against the original (below): the Ford Ka '01's strongest note at 5,650 rpm is 1
   same with the flag's opposite). The program does it in **every** output mode: the original's
   stereo recordings of the nose view carry the exhaust's left side inverted (its players' volumes
   -5464 / +5464 in the saved state; the recording's two sides correlate +0.28 there, +0.90 from
-  the chase view). Here it follows the shared mixer's surround option (off unless chosen), for the
-  layer players and the held and single notes alike. Measured: the engine's gain at 29 m is 1/11 of its gain at 5 m and
+  the chase view). Here the shared mixer's surround option is on while a disc is open (`with_surround_cue`; the
+  shared engine's own screens keep their setting), for the layer players and the held and single
+  notes alike. Measured: the engine's gain at 29 m is 1/11 of its gain at 5 m and
   the exhaust's 1/3; the rendered car 3.16 times quieter (between the two).
 - **The master** M (0x391CD8) = [0x6213D8] × [0x6213DC] × the fade [0x88F2D0] × the mix
   table's race level (`sdvol`, level 2 of the output mode: 0.40 for stereo on the US disc) ×
@@ -446,8 +507,12 @@ against the original (below): the Ford Ka '01's strongest note at 5,650 rpm is 1
   course's replay script: **in a replay the cars and the course fall to 0.45 on the script's shots
   and come back on the on-board ones**. (The saved state taken in the replay shows kind 1 and the
   flag off.) The second is the free run's (RaceFreeRun 0x3BA6A0, 0x3BA8B8, 0x3BA938, on a change
-  only): on while it plays a recording of its own (`%08d.xsp`, 0x4606D0, through 0x460600 ..
-  0x460758, when the module at [0x84688C] is there) ❓ what that is. 0x391DC8 fades out (0x3E1C80,
+  only): on while it plays a narration clip (`narration/<region>/%08d.xsp`, 0x4606D0 → 0x460658:
+  the narration's level 1.0 through 0x460600, the clip through the stream routines 0x5587C0 /
+  0x558830). The narration module reads `narration/<region>/narration.inf` (0x460580: 16 bytes to
+  0x846880: `"NARR", u32 1, u32 0, u32`) and plays clips only while the last word ([0x84688C]) is
+  not 0; on the US disc it is 0 and the folder holds no `.xsp` (its 56 `.ads` are the event and
+  license narrations, `ev*e.ads`, `l0p*e.ads`): **the free run's duck never turns on** there. 0x391DC8 fades out (0x3E1C80,
   0x3E1EA0 ❓). `RaceSound::fade(target, seconds)` is the routine; `set_replay_shot(designer)`
   (every step of a replay) and `set_free_run_duck(on)` are the ducks; `replay()` starts the
   master from 0 over 3 s.
@@ -479,9 +544,12 @@ against the original (below): the Ford Ka '01's strongest note at 5,650 rpm is 1
   the byte is the gearbox's grade: 0 the road car's own (602 of 722 cars), 1 close (every `_b`
   row), 2 super close (`_c`), 3 racing (`_d` and 120 cars' own); 0x34FED0: none while the byte at
   car + 0x104 + 0x522 is 0; level lo + (hi - lo) × |min(torque, p[2] × 9.8) × ratio[gear] /
-  (p[2] × 9.8 × ratio[first])| with the engine's torque (+0x51C) and gear (+0x520, 1 the first),
-  pitch p[4] / 10 + slope × |an axle's speed| (0x350DA0, by the layout); a stepless gearbox
-  (0x369510) and a motor (0x356D88) have their own ❓); in_car G7 at the
+  (p[2] × 9.8 × ratio[first])| with the clutch's torque (F +0x51C), the gear (+0x520, 1 the first)
+  and the driveline block's ratios (P + 0x234 + 0x40 + 4 gear), none while the clutch (F +0x522) is
+  open; pitch p[4] / 10 + slope × |the driven axles' speed| (0x350DA0: by the layout, F +0x52C the
+  front's, +0x530 the rear's, their mean, or the rear's plus the split × the difference), all read by
+  `sound_state(session, i)` from Gran Turismo 4's drive routines; a stepless gearbox (0x369510) and
+  a motor (0x356D88) have their own ❓); in_car G7 at the
   body; nos 1 for the in-car own view while flowing; body_noiz always 0. in_car, body_noiz and
   nos ease: rising at once, falling 0.05 a step.
 - **The wheels** (wheel record car + 0x164 + 0xEC w: +0x89 surface, +0xB4 slip intensity,
@@ -491,8 +559,16 @@ against the original (below): the Ford Ka '01's strongest note at 5,650 rpm is 1
   factor from 0.135 to 0.355 m, its pitch by the rim speed) on 0, 7, 8, 9, 12; rain_noiz G10 on
   6, 20, 22; off_roadnoiz G14 on 5; off_skill G13 on 2, 3, 4; pebble G14 on 13; sand G14 on 14;
   rumble G6 on 1, 21; rumble2 on 10; rumble3 on 11; the slipping notes by the slip intensity at
-  the skid pitch. The notes past the first three ease as above. ❓ Which slots a course allows
-  (0x360458 → 0x3922B0) is not applied.
+  the skid pitch. The notes past the first three ease as above. **The slots a course allows**
+  (0x3922B0, at the race's setup from 0x360458: a mask 0x34D6E0 → 0x360348 makes from the course
+  object's set of the surfaces it has, its word +0x94, bit s for surface s, and its flags +0x98):
+  for each surface under 15 in the set, tarmac (0, 7, 8, 9, 12) allows on_skill and on_road, and
+  rain_noiz too when the flags' bit 1 (wet) is set; 6 rain_noiz; 1 rumble; 2, 3, 4 off_skill; 5
+  off_roadnoiz; 10 rumble2; 11 rumble3 and on_skill; 13 pebble; 14 sand (the mask's bits 0 .. 10
+  → slots 0, 1, 2, 3, 7, 4, 8, 9, 10, 5, 6). Not applied: a wheel's notes follow the surface under
+  it, so a slot whose surfaces the course lacks never sounds; the mask only differs for a wet
+  variant (20, 21, 22) on a course whose set lacks the dry one, which the set's being the course's
+  own makes 🔎 impossible.
 - **Single notes** (table 0x621418; under 0.001 not played; 0x392EB8): b_off G3 × blow-off at
   the engine; clash / clash2 / clash4 by the contact's kind 0 / 1 / 2, the camera's car only.
   **A contact** goes through 0x350530(car, kind, other, value): the pad's rumble by kind (0x35CF40,
@@ -505,10 +581,16 @@ against the original (below): the Ford Ka '01's strongest note at 5,650 rpm is 1
   bodies' strength and passes that same number, kind 1, for each of the two cars; 0x3E3C48 passes
   kind 2 for a course object (the course's objects at [0x6D6054]). So the sound's strength is
   twice what the contact adds to the body's strength, against a wall and a car alike.
-  `sound_state()` takes the simulation's seam (`CarState::contact`, the body's strength summed
-  over the step, at most 1) that way: min(2 × contact, 1), none under 0.2 (🔎 a step with two
-  contacts: the program keeps the stronger, the seam gives their sum); on_bound for the in-car own view (the strongest wheel landing, 0.5..1,
-  × G15 × 2.5); backfire / backfire2 (one at random) at the exhaust, strength 3, when an
+  The race step (0x34DB30) clears the recorder (0x350308, kinds 0 and 1) before the collision
+  step; the sound frame reads it (0x350468; a kind 2 is cleared there). Built in the collision step
+  (`sim::collide::Body::hit_sound`, `hit_kind`, `hit_other`), which `sound_state(session, i)` takes.
+  Without a session, `sound_state(CarState)` takes the seam (`CarState::contact`, the body's
+  strength summed over the step, at most 1) as min(2 × contact, 1), none under 0.2: the same for one
+  contact, the sum where the program keeps the stronger. Measured: driving straight on into
+  Tsukuba's first corner, 60 steps against the wall, one over 0.2; on_bound for the in-car own view (the strongest wheel landing, 0.5..1,
+  × G15 × 2.5; a wheel's landing, 0x3FA7B8: on the step its contact state, wheel + 0xDC, is 2, the
+  hub's speed into the ground, -wheel + 0xD8, from 0.5 at most 1; none on surfaces 1, 2, 3, 4, 6,
+  10, 11, 13, 14; `sound_state(session, i)` reads both from Gran Turismo 4's body routines); backfire / backfire2 (one at random) at the exhaust, strength 3, when an
   afterfire flame starts (0x3B6B78: the flame object's latch +0x64, read and cleared by
   0x3D6F30). **The afterfire** (`RaceSound` from the simulation; `CarSoundState::shift_flame`,
   `afterfire_chance`): 0x3F3368 (each step, from 0x34DB30) sets the car's byte +0x6C4 when the
@@ -609,9 +691,14 @@ the Doppler constant at 0x378B88) but other tables:
   effects option's flag alone (no level, no mix table: Prologue's disc has no `sdvol.dat`); the race's
   setup (RaceBase virtual 22, 0x37BB08, and 0x37D794) sets the second to 1.0. Both read 1.0 in the
   original's saved states of a race and of the pre-race page. `RaceSoundTables::option_level` is
-  false for this program and `RaceSound` takes the option as 1 or 0. ❓ Prologue's menus' music
-  level (ours: the option's 115 / 128; its recording's arcade pages at -11.6 dB, our options
-  sequence at 1.0 -12.7 dB).
+  false for this program and `RaceSound` takes the option as 1 or 0.
+- **Its music's level** is 1.0 in both its saved states (the level 0x421AB8 keeps at [0x50587C]: a
+  sequence through 0x421238, the driver's music master × 16383, a stream through 0x4225B0): the
+  driver's music master is 16383 and on the starting grid page the stream's two voices play at
+  16383, where Gran Turismo 4's carry the options' 115 / 128 (its recording's arcade pages at
+  -11.6 dB agree: our options sequence at 1.0 renders at -12.7 dB). Ours: the menus give
+  `MenuSound` the options' 115 / 128 for Prologue too ❓ (who calls 0x421AB8 with what, and whether
+  Prologue's options only switch it, is not found).
 - **Its car sounds** are read as Gran Turismo 4's from its database presented in Gran Turismo 4's
   layout ([prologue.md](prologue.md)): every engine's file is on the disc.
 
@@ -640,7 +727,7 @@ gain (least squares under 1 kHz, or in `--band`). Renderings to compare come fro
 | Overall level | the menus' `cursor` on the title page: the shared mixer's half-level rendering × 1.795 (correlation 0.998, 99.6% of the power explained) at an effects option of 1, i.e. exactly 2 × that at a new game's 115 / 128 | the SPU2's level ("The output's level") | same |
 | Menu effects | `ok` six times in the Arcade walk: × 1.79..1.91 | as the cursor | same balance |
 | Sequenced music | the Arcade pages' `arcade` sequence: 2.0 dB under our rendering at full level (= 1.3 dB under the expected 0.48 × 115 / 128 x 2) | | within 1 dB 🔎 (by level per second; the sequencer's timing differs too much for a sample fit) |
-| Streamed music | `race_35` in the race: × 0.20..0.24 of the stored samples (five fits) | the stream level 0.3 × 115 / 128 = 0.27 | the original 1.6 dB under ours ❓ |
+| Streamed music | `race_35` in the race: × 0.20..0.24 of the stored samples (five fits) | the stream level 0.3 × 115 / 128 = 0.27 | the fits 1.6 dB under ours ❓; but the SPU2 itself (the saved states' `.spu2`: the stream's two voices, core 1's 22 and 23, pitch 3763, ADSR 0x000F / 0x0000, one side each) holds 4416 = 0.2695 × 16383 in every race and pre-race state, 4915 = 0.3 in the license test's (a jingle group at the stream level alone): exactly the program's levels. Played through two SPU2 voices (`stream-wav ... spu`) `race_35` keeps its level (-10.6 dB both, 1.4 dB less only in the 5 kHz octave). The gap is in the fits, not the level |
 | Count | Grand Canyon: `count_d` at 8.860, 9.861, 10.861 s, `count_s` at 11.862 s (sample fits, correlation 0.31..0.64): 60 frames apart (59.94 Hz); gains × 1.39..1.50 of our menu-level rendering (= the race master 0.40 × 115 / 128) | 180 / 120 / 60 / 0 steps | same |
 | Rolling start | Tsukuba: `count_s` as START shows (19.67 s), no beeps | `start_signal()` | same once the Drive screen calls it |
 | Racing music | `race_35` from the opening shots (rolling), `race_37` 0.25 s after START (standing), `race_36` after `race_35` in the B-spec race, the replay `race_35` again | play list, `rolling()`, `replay()` | same once wired |
@@ -653,6 +740,19 @@ gain (least squares under 1 kHz, or in `--band`). Renderings to compare come fro
 | Gran Turismo mode's page effects | `oil_jackdown` in the oil change (197.3 s of `home_garage_gtauto_tuneshop_walk`): gain 0.97 / 0.95 (correlation 0.23 under the page's music); the car wash (110 to 121 s) adds -23.2 / -25.7 / -29.4 / -37.0 dB in the octaves at 645 / 322 / 1289 / 2579 Hz | `car_wash` at the menus' level: -25.9 / -27.3 / -29.2 / -36.6 dB | same; the wash 1.5 to 2.7 dB under at 0.3 to 0.65 kHz |
 | Contacts | the Ka scraping the tire wall (`tsukuba_start_chase_view_throttle_held`, 30 to 49 s): bursts at 2 to 8 kHz up to -24 dB; `clash` / `clash2` / `clash4` found there by their spectra (match 0.64 to 0.72) | | the levels not settled (sample fits correlate under 0.19) |
 | The finish | the arcade B-spec race: the racing piece stops at FINISH and `goal` (`gt4jg-12a`) starts 2 s later (215.97 s); in Gran Turismo mode's Sunday Cup (FINISH 146 s) no stream of the index is found by spectra or sample fits from 135 to 212 s (results, prize page) | `finish()` | ❓ what Gran Turismo mode plays there |
+
+**The streams in the saved states** (the stream's two SPU2 voices and their ring buffers in the SPU2's
+memory matched against the disc's `.ads` by their data; levels × 16383):
+
+| State | Piece (group) | Level |
+|---|---|---|
+| Arcade single race, time trial and Gran Turismo mode's Sunday Cup pre-race pages; Sunday Cup's result page; the pre-race page after a replay | `gt4qm-01` / `gt4qm-02` (`default_quick`) | 4416: the menus' stream level, 0.3 × 115 / 128 |
+| Tsukuba (start, first corner, replay), Grand Canyon, Gran Turismo mode's free run, Route 5 at night, Seattle at dusk | `race_35`, `race_50` (the arcade race's start), `race_37`, `race_68`, `race_40` (`racing`) | 4416: the racing level 0.3 × the race music option 115 / 128 |
+| License B-1: the count, the result | `gt4jg-19`, `gt4jg-09` (`license_bronze`) | 4915: a race's other pieces at the stream level 0.3 alone (RaceBGMPS2 vf5, 0x33D568: only code 12 takes the option) |
+| Prologue's starting grid page | `str10j` | 16383 |
+
+So the pre-race and result pages' music is `default_quick`'s (two pieces), started as a menu stream
+(the menus' level), not by the race; Route 5 at night plays `race_68`.
 
 ❓ Not compared yet: the course ambience (crowds, tunnels: Route 5's recording has no racing piece
 the play list explains), the wheels' notes (no clean recording of a slide), Grand Canyon's dirt

@@ -89,6 +89,7 @@ public:
     // part), and its collision body.
     void load_state(size_t i, const gt3r::sim::exact::Car& c, const sim::Extra& x) { cars_[i] = c, gx_[i] = x; }
     collide::Body& body(size_t i) { return bodies_[i]; }
+    const collide::Body& body(size_t i) const { return bodies_[i]; }
     const rules::WheelLayout& wheel_layout(size_t i) const { return layouts_[i]; }
     // What the session runs on stand-ins for ("the disc's program is not a build whose tables are mapped").
     const std::vector<std::string>& notes() const { return notes_; }

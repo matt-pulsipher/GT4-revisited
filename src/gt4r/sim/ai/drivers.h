@@ -175,7 +175,9 @@ public:
     // The driver's kind after it (8: stopped) is the session's to hold the car by (its clutch open).
     void finish(size_t car, int mode, bool player_car = false);
     int kind(size_t car) const;
-    // The pit's steps for a driven car (the pit flow 0x35B060 decides when; not ported): onto the pit lane (0x3453A0: line 3
+    // The car's control source as the drivers keep it (F +0x466: 2 the computer, 1 B-spec, 0 the pad; -1 not driven).
+    int control(size_t car) const;
+    // The pit's steps for a driven car (the pit pass 0x35B060 decides when: pit_stops.h): onto the pit lane (0x3453A0: line 3
     // at once, kind 2), onto the stop line (0x345400: line 4 at once, kind 3), off it down the pit lane (0x345450: line 3,
     // kind 4), back to racing (0x345228: from kinds 2 .. 4 line 6 blended, kind 0). False when the car has no such line.
     bool pit_enter(size_t car);

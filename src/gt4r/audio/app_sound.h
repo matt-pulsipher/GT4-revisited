@@ -55,6 +55,7 @@ private:
     SoundDriver driver_;
     std::shared_ptr<SoundLibrary> library_;
     MenuSound menu_;
+    bool surround_cue_before_ = false; // the shared engine's setting, given back when the disc closes
     std::string preview_path_;
     int preview_next_ = 0;
     u32 preview_note_ = 0;

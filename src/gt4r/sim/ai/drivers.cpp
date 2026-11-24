@@ -834,6 +834,7 @@ void Field::finish(size_t car, int mode, bool player_car) {
 }
 
 int Field::kind(size_t car) const { return car < drivers_.size() && drivers_[car] ? drivers_[car]->kind : 0; }
+int Field::control(size_t car) const { return car < drivers_.size() && drivers_[car] ? drivers_[car]->control : -1; }
 
 bool Field::pit_enter(size_t car) {
     Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;

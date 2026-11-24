@@ -10,6 +10,7 @@ namespace gt4r::audio {
 
 OfflineSound::OfflineSound(bool reverb) : driver_(mixer_) {
     with_output_level(mixer_);
+    with_surround_cue(mixer_);
     if (reverb) mixer_.set_reverb(gt3r::SpuReverb::StudioC, 0x0FFF, 0x0FFF);
 }
 
