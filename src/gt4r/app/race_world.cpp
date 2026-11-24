@@ -125,7 +125,7 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
         }
         short_names_.push_back(short_name.empty() ? names_.back() : short_name);
     }
-    gadget_bodies_.reset(course_->gadgets());
+    gadget_bodies_.reset(course_->gadgets(), course_->road());
     course_->set_gadget_bodies(&gadget_bodies_);
     line_job_ = std::async(std::launch::async, [road = &course_->road()] { return race::RailLine(*road); });
     build_simulation();
@@ -225,6 +225,12 @@ void RaceWorld::build_simulation() {
         sim_ = rail_.get();
     }
     noted_ = true;
+    // A rolling start's cars (0x3452F0 gives each its driver kind 1 and the start's driver line).
+    pace_kmh_.assign(setup_.entries.size(), 0.0f);
+    for (size_t i = 0; i < pace_kmh_.size(); ++i) {
+        const WorldEntry& we = i < overrides_.size() && overrides_[i] ? *overrides_[i] : setup_.entries[i];
+        pace_kmh_[i] = we.start_speed * 3.6f;
+    }
 }
 
 void RaceWorld::set_entry_overrides(std::vector<std::optional<WorldEntry>> overrides) {
@@ -234,7 +240,7 @@ void RaceWorld::set_entry_overrides(std::vector<std::optional<WorldEntry>> overr
 
 void RaceWorld::restart() {
     build_simulation();
-    gadget_bodies_.reset(course_->gadgets());
+    gadget_bodies_.reset(course_->gadgets(), course_->road());
     course_->restart_animations();
     clear_effects();
 }
@@ -253,15 +259,23 @@ void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool pla
         if (computer_player_ && session_) session_->set_shift_factor(0, field_->shift_factor(0));
         inputs = driven;
     }
-    // A rolling start's run-up: every car kept at the start's speed, the throttle eased and a touch
-    // of brake above it.
+    // A rolling start's pace (0x3F7880, `sim::rules::start_pace`): a car not yet over the line and more than 3 s at
+    // the start's speed short of it is capped at that speed; from 3 s out it runs free. (❓ Stand-in for the cap's
+    // throttle rule 0x3F76E8 in the car's aids, which runs once the session marks the car's driver kind:
+    // the throttle eased toward the speed, a touch of brake above it.)
     std::vector<race::CarInput> capped;
-    if (hold_speed_ > 0 && !hold) {
+    if (!hold && std::any_of(pace_kmh_.begin(), pace_kmh_.end(), [](float k) { return k > 0; })) {
         capped.assign(inputs.begin(), inputs.end());
         capped.resize(car_visuals_.size());
         const std::span<const race::CarState> now = sim_->cars();
-        for (size_t i = 0; i < capped.size() && i < now.size(); ++i) {
-            const float v = now[i].speed, gap = hold_speed_ - v;
+        const float len = lap_length();
+        for (size_t i = 0; i < capped.size() && i < now.size() && i < pace_kmh_.size(); ++i) {
+            if (!(pace_kmh_[i] > 0) || !(len > 0)) continue;
+            const race::CarState& c = now[i];
+            const float to_line = c.course_v > len * 0.5f ? len - c.course_v : 0.0f;
+            const float mps = pace_kmh_[i] / 3.6f;
+            if (!(to_line > 3 * mps)) continue;
+            const float gap = mps - c.speed;
             race::CarInput& in = capped[i];
             in.throttle = std::min(in.throttle, std::clamp(0.3f + gap * 0.5f, 0.0f, 1.0f));
             in.brake = std::max(in.brake, std::clamp((-gap - 1.0f) * 0.15f, 0.0f, 0.4f));
@@ -278,22 +292,30 @@ void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool pla
     } else sim_->step(inputs, kStep);
     if (!hold && pits_ && session_) pits_->after(*session_, *field_);
     if (!hold) course_->animate(kStep, sim_->cars());
-    // The cones and boards the cars run into: each car's box from its wheels' places.
+    // The cones and boards the cars run into: each car's box (0x3E5108) at its center of mass, by its heading,
+    // its body's extents (❓ the program reads them from its car record +0x48C .. +0x494, taken here as the
+    // collision body's: P +0x00 .. +0x08, half the width).
     gadget_hits_ = 0;
     if (!course_->gadgets().placements.empty()) {
         std::vector<race::GadgetBodies::Car> boxes;
         const std::span<const race::CarState> now = sim_->cars();
         for (size_t i = 0; i < now.size() && i < car_visuals_.size(); ++i) {
             const race::CarState& c = now[i];
-            const race::CarSpec& spec = car_visuals_[i]->spec();
             race::GadgetBodies::Car b;
-            b.pos = {(c.wheels[0].center.x + c.wheels[1].center.x + c.wheels[2].center.x + c.wheels[3].center.x) / 4,
-                     (c.wheels[0].center.y + c.wheels[1].center.y + c.wheels[2].center.y + c.wheels[3].center.y) / 4 - spec.tire_radius[0],
-                     (c.wheels[0].center.z + c.wheels[1].center.z + c.wheels[2].center.z + c.wheels[3].center.z) / 4};
             b.right = c.right, b.up = c.up, b.forward = c.forward, b.vel = c.velocity;
-            // (❓ The body's overhangs: 0.9 m past each axle, judged; the program's box is not read.)
-            b.front = b.rear = spec.wheelbase / 2 + 0.9f;
-            b.half_width = std::max(spec.half_track[0], spec.half_track[1]) + spec.tire_width[0] / 2 + 0.05f;
+            if (session_) {
+                const auto& r = session_->record(i);
+                b.pos = {r.pos.x.host(), r.pos.z.host(), -r.pos.y.host()};
+                b.yaw_rate = r.yaw_rate.host();
+                b.front = r.p.body_front.host(), b.rear = r.p.body_rear.host(), b.half_width = r.p.body_width.host() / 2;
+            } else {
+                const race::CarSpec& spec = car_visuals_[i]->spec();
+                b.pos = {(c.wheels[0].center.x + c.wheels[1].center.x + c.wheels[2].center.x + c.wheels[3].center.x) / 4,
+                         (c.wheels[0].center.y + c.wheels[1].center.y + c.wheels[2].center.y + c.wheels[3].center.y) / 4,
+                         (c.wheels[0].center.z + c.wheels[1].center.z + c.wheels[2].center.z + c.wheels[3].center.z) / 4};
+                b.front = b.rear = spec.wheelbase / 2 + 0.9f;
+                b.half_width = std::max(spec.half_track[0], spec.half_track[1]) + spec.tire_width[0] / 2;
+            }
             boxes.push_back(b);
         }
         gadget_hits_ = gadget_bodies_.step(course_->gadgets(), course_->road(), boxes, kStep);
@@ -316,8 +338,15 @@ float RaceWorld::car_top_speed(size_t i) const {
     return session_ && i < car_visuals_.size() ? session_->record(i).p.top_speed.host() : 0.0f;
 }
 
+float RaceWorld::fuel_share(size_t i) const {
+    if (!session_ || i >= car_visuals_.size()) return 1.0f;
+    const float tank = session_->tank(i);
+    return tank > 0 ? std::clamp(session_->fuel(i) / tank, 0.0f, 1.0f) : 1.0f;
+}
+
 float RaceWorld::car_mass(size_t i) const {
-    return session_ && i < car_visuals_.size() ? float(session_->spec(i).weight_kg()) : 0.0f;
+    // The parameter block's mass, P +0x48 (what the license rule 0x35FE80 divides a wall hit by).
+    return session_ && i < car_visuals_.size() ? session_->record(i).p.mass.host() : 0.0f;
 }
 
 // Smoke and dust from the wheels for a step: a puff where a tire slides on the road, dust and
