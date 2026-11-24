@@ -65,6 +65,7 @@ std::vector<Row> build() {
     f(0x480, 0x08, 0x580, "pitch and roll rates");
     f(0x536, 0x02, 0x4BA, "hold counter");
     f(0x4DC, 0x01, 0x4BC, "the start's hold");
+    f(0x4F0, 0x04, 0x610, "a wall hit's rumble (the collision step's, falling)");
     // the clutch, the engine and the axles
     f(0x437, 0x01, 0x522, "clutch state");
     f(0x418, 0x04, 0x514, "clutch request");

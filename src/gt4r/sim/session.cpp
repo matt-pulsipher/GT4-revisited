@@ -323,6 +323,7 @@ void Session::place(size_t i, const course::Runway::Place& at) {
     if (gt4_ready_) rules::hub_offsets(c, layouts_[i]);
     else ex::hub_offsets(c);
     c.lag_heading = c.heading, c.lag_pitch = c.pitch;
+    rules::view_start(c, gx_[i].feel.view); // (0x3455F0)
     ex::standing_start(c);
     if (gt4_ready_) // (0x362E58 for each wheel: new tires by the race's wear rules)
         for (int w = 0; w < 4; ++w) rules::new_tire(c, gx_[i].wear, w, tables_.wear);
@@ -334,6 +335,7 @@ void Session::place(size_t i, const course::Runway::Place& at) {
     c.dist_total = k0;
     ex::save_previous(c);
     ex::wheel_spin(c);
+    if (gt4_rules_) rules::sway(c, gx_[i].feel.view, tables_.feel, gx_[i].feel.blend); // (0x34A668, 0x34A788)
 }
 
 // The ground contact (phases 16 .. 18: the query points 0x3697A8, the road under each wheel 0x344458, then 0x369888).
@@ -403,14 +405,19 @@ void Session::chassis(size_t i) {
         ex::attitude(c, k0);
         ex::bump_nudge(c);
     }
-    ex::pad_rumble(c);
+    if (gt4_rules_) { // (0x36CEE8: into the conductor's pad block; the record's byte kept with it)
+        rules::pad_rumble(c, layouts_[i], gx_[i].feel.pad);
+        c.rumble = gx_[i].feel.pad[1];
+    } else
+        ex::pad_rumble(c);
     ex::steer_force(c, race_.feel);
     if (gt4_rules_) rules::slide_effects(c, layouts_[i], tables_.slide, loose_ ? 2 : 0); // (0x367148)
     else ex::tyre_effects(c, race_.effects, race_.aids.course_category);
     ex::phase12_stub(c);
     ex::engine_sound(c, race_.sound_scales);
     ex::effects_reset(c, 0, 0);
-    ex::view_follow(c);
+    if (gt4_rules_) rules::view_follow(c, gx_[i].feel.view, tables_.feel); // (0x345658)
+    else ex::view_follow(c);
     if (gt4_rules_) rules::hub_offsets(c, layouts_[i]); // (0x345A20)
     else ex::hub_offsets(c);
     if (gt4_rules_) { // (0x36C9F8: the pitch before the roll; 0x35D350)

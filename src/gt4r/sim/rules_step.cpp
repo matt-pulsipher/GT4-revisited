@@ -32,6 +32,7 @@ Tables tables(const Program& program, const ex::Statics&) {
     t.steer = steer_tables(program);
     t.aero = aero_globals(program);
     t.slide = slide_tables(program);
+    t.feel = feel_tables(program);
     t.globals.steer_mode = t.steer.mode; // (0x3F7BE0 writes it at the race's start)
     // The brake heat's constants (0x3F3808): 1 / (b0 x 9800), 1 / (b1 x 0.1 x 100), b2 km/h in m/s, b3 x 0.01, of the
     // static block's bytes +0xAC .. +0xAF (the first two 1 when 0).
