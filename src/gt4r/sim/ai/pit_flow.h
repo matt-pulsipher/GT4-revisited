@@ -66,8 +66,8 @@ struct PitAction {
         EndRun,     // 0x343D78 (3): the car's run ended in the pits
         PlaceInBox, // 0x363560: the car stood in its box (the standing start's pose), its hold 721
         Heading,    // the car turned to its box's heading (F +0x570, the body's axes 0x36C9F8): `value`
-        CountStop,  // 0x35AD10: the race counts the car's stop (its pit stops, the order of the stops)
-        Recount,    // 0x35ADF0: the race's order updated for a car out of the pits (0x35E000)
+        CountStop,  // 0x35AD10: the race counts the car's stop (its stop count, the stops' record) and tells the display (0x35E000 event 1)
+        Recount,    // 0x35ADF0: the display told the car is out of the pits (0x35E000 event 6; not for a car of layout kind 1 / 2 ❓)
         Refuel,     // 0x354D60 (rate 0): a step of refuelling
         Driver,     // 0x463E80: the driver's object told (a computer car met by another on the pit lane)
     } kind;
@@ -117,18 +117,31 @@ HoldEvents pit_hold_step(PitCar& c, const std::vector<s8>& axle);
 // still to change, 90 steps more standing.
 void pit_refuel(PitCar& c, F& fuel, F tank, F dt, u8 rate_byte);
 
+// 0x343C20: the car's race state for the pits: 0 racing, 1 its race over (the race's time limit passed, 0x34C158, or its
+// laps done and past half the lap), 2 its last line just crossed (its laps done, before half the lap). A car whose result
+// is in (F +0x4B0) is racing to the pits' eyes.
+struct LapStateInputs {
+    bool finished = false;   // F +0x4B0
+    u32 clock_ms = 0;        // the race clock (cond + 0xF898 / 3, 0x358440)
+    u32 limit_minutes = 0;   // the race's time limit (cond + 0xF850, 0x34C140: x 60,000 ms; 0 none)
+    int laps = 0;            // the race's laps (the conductor's virtual +0x128; 0: no end)
+    int lap = 0;             // F +0x4AC
+    F d, lap_length;
+};
+int lap_state(const LapStateInputs& in);
+
 // The car's need of a stop (the pit part of 0x353218, the wear and fuel phase): what it reads.
 struct PitNeed {
     bool allowed = false;   // the conductor's virtual +0x180: the race has pit stops
-    bool fuel_on = false;   // F +0x5D0 > 0 (0x354E38)
+    bool fuel_on = false;   // the tank (car +0x5D0 = F +0x4CC) above 0 (0x354E38)
     F fuel_distance, fuel_used; // F +0x4C8 (metres since the fill) / F +0x4C4 (fuel used since)
-    F fuel;                 // car +0x5D4 (0x354E60)
+    F fuel;                 // car +0x5D4 = F +0x4D0 (0x354E60)
     F d;                    // F +0x4A4
     F lap;
     F pit_marker;           // the stop line's point 1 (0x46BDC0)
     bool wear_on = false;   // the race's wear switch (conductor + 4 + 0x68)
     F wear_limit;           // conductor + 4 + 0x20
-    std::vector<F> wear;    // each wheel's wear (+0x50)
+    std::vector<F> wear;    // each wheel's wear grip (+0x50 of the wheel at car +0x164 + 0xEC w)
     std::vector<F> burst;   // each wheel's +0xAC (< 0: the tire gone)
     bool tire_state_4 = false; // 0x35FA50 answers 4 ❓
     std::vector<u8> damaged;   // each wheel's +0x1AB ❓
@@ -144,10 +157,18 @@ struct ServiceInputs {
     int lap_state = 0;
     bool fuel_on = false;    // 0x354E38
     bool tires_allowed = false; // the conductor's virtual +0x198 ❓ (a tire change offered)
-    bool player_choice = false; // the race's virtual +0x120: the pit menu (for a car not the computer's)
+    bool player_choice = false; // the race's virtual +0x120: the pit menu (for a car not the computer's): the service then
+                                // waits for the choice (0x10 with the wants 0x4 / 0x8; the reference's B-spec stop reads
+                                // 0x1C; 0x35AF18 itself returns the wants | 1 ❓ where 1 becomes 0x10)
     s8 control = 0;
     u8 layout_kind = 0;      // the car's wheel layout byte +0x32 (4: no stop)
 };
 u16 service_of(const PitCar& c, const ServiceInputs& s);
+
+// 0x35BFE8 (the input phase, a pit choice in the controller's frame): command 1 the choice (with the menu asked, F +0x4B8
+// bit 0x10): front / rear tires (0xFF none, 0xFE the kind fitted, else the kind) and fuel (0 none) into the service's bits
+// 0x40 / 0x80 / 0x100 and F +0x64E / +0x64F, the asked bits cleared, the hold over when nothing is left; command 2 the
+// refuelling stopped. 0x35BF08 makes the choice for a B-spec car whose wait ran out: 0xFE, 0xFE, fuel 0xFE.
+void pit_choice(PitCar& c, u8 command, u8 front, u8 rear, u8 fuel);
 
 } // namespace gt4r::sim::ai
