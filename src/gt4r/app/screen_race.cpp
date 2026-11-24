@@ -779,8 +779,29 @@ public:
                 // The garage car's own parts and settings (the sheet in use).
                 if (q.garage_slot >= 0) setup_.player_equipment = menu::race_equipment(menus_->game(), q.garage_slot);
                 setup_.playlist = playlist_from(menus_->game().bgm_playlist);
-                setup_.opponents = q.entries;
+                // (The scripts' entry table: entry 0 the player's car when it holds more than the
+                // opponents, then the opponents.)
+                const size_t skip = q.overwrite_enemy_num > 0 && q.entries.size() > size_t(q.overwrite_enemy_num) ? 1 : 0;
+                setup_.opponents.assign(q.entries.begin() + ptrdiff_t(std::min(skip, q.entries.size())), q.entries.end());
                 draw_grid(app, setup_, q);
+                // A request without laps: the event's (its RACE row), else the arcade's option
+                // (race_laps, a new game's 2).
+                if (q.laps <= 0) {
+                    int laps = 0;
+                    if (db::SpecDb* sdb = app.db(); sdb && !q.race.empty()) {
+                        gt3r::Vfs* vfs = app.vfs();
+                        try {
+                            const db::RaceEvents events(*sdb, [vfs](const std::string& path) { return vfs->read(path); });
+                            if (const std::optional<db::RaceEvent> e = events.event(q.race)) laps = e->laps;
+                        } catch (const std::exception& e) {
+                            LOG_WARN("Drive: the event's laps: %s", e.what());
+                        }
+                    }
+                    if (laps <= 0 && sequence_ == "single_race")
+                        if (const auto it = setup_.options.find("race_laps"); it != setup_.options.end())
+                            if (const s32* v = std::get_if<s32>(&it->second)) laps = *v;
+                    if (laps > 0) setup_.laps = std::clamp(laps, 1, 99);
+                }
             }
             setup_.course_start = true;
             // A reversed layout is its own course file (crs/r_<name>); one the disc does not have is
