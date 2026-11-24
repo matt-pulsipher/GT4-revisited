@@ -193,6 +193,11 @@ void draw_grid(App& app, Setup& setup, const menu::RaceRequest& q) {
                 asked.entries.push_back(q.entries[i]);
                 paints.push_back(i < q.entry_paints.size() ? q.entry_paints[i] : -1);
             }
+        // (grid_for reads the table as the scripts leave it: entry 0 the player's, the opponents from 1)
+        if (!asked.entries.empty()) {
+            asked.entries.insert(asked.entries.begin(), q.car);
+            asked.overwrite_enemy_num = s32(paints.size());
+        }
         const u32 seed = u32(SDL_GetTicks());
         std::vector<sim::ai::GridEntry> grid = sim::ai::grid_for(events, asked, seed);
         if (!asked.entries.empty())
@@ -1603,6 +1608,11 @@ private:
             const menu::GameState& g = menus_->game();
             w.set("SessionNumber", g.series.races_run);
             w.set("IsFinalSession", g.series.race_count > 0 && g.series.races_run + 1 >= g.series.race_count ? 1 : 0);
+            // The grid's Pts column (the page reads getPower: the work's +0x364, which holds each entrant's points so
+            // far in a championship, 0x11A168; none before the first race).
+            for (size_t i = 0; i < n; ++i)
+                w.rows[size_t(places[i])].power = i < g.series.entrants.size() ? g.series.entrants[i].points : 0;
+            w.race_label = championship_race();
         }
         if (sequence_ != "single_race") {
             w.set("IsASpec", 1); // ❓ the license the event asks for is not checked
@@ -2085,6 +2095,11 @@ private:
                     } catch (const std::exception& e) {
                         LOG_WARN("Drive: the test's times: %s", e.what());
                     }
+            // (Prologue's license race writes them into the menus' work from the row as it sets up: 0x409B70 .. 0x409BF0)
+            if (menus_ && is_license(sequence_) && targets_[0] > 0 && menu::quick_work(menus_->game()).get("goldTime") == menu::QuickWork::kNoTime) {
+                const char* names[3] = {"goldTime", "silverTime", "bronzeTime"};
+                for (int k = 0; k < 3; ++k) menu::quick_work(menus_->game()).set(names[k], targets_[k] > 0 ? s32(targets_[k]) : menu::QuickWork::kNoTime);
+            }
             // The options' speed unit (unit_velocity), when the race came with the game's options.
             if (!setup_.options.empty()) hud_->set_mph(std::string(settings_.velocity.name).find("mph") != std::string::npos);
             if (const std::optional<Bytes> logo = app.vfs()->read("piece/crs_logo/" + setup_.course + ".img")) hud_->set_course_logo(*logo);

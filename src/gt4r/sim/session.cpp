@@ -120,6 +120,10 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
     const char* rules_env = std::getenv("GT4R_SIM_RULES");
     gt4_rules_ = gt4_ready_ && !(rules_env && std::string(rules_env) == "engine");
     if (gt4_ready_) tables_ = rules::tables(program, race_.statics);
+    if (!gt4_ready_ && !(rules_env && std::string(rules_env) == "engine")) { // Prologue's own step (rules_prologue.h)
+        prologue::Tables t = prologue::tables(program);
+        if (t.found) prologue_ = t, prologue_cars_.resize(entries.size());
+    }
     // What the aids read of the race: the course's kind (a loose course 1), no speed caps, the lap.
     aid_race_.course_kind = loose_ ? 1 : 0;
     aid_race_.lap_length = F(road_->length);
@@ -139,7 +143,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
         ex::Car& c = cars_[i];
         c = ex::Car{};
         // (the program's C library and constants: 2002 Tokyo-Geneva's, rules::behaviour(); the engine's own build otherwise)
-        c.behaviour = gt4_ready_ ? rules::behaviour() : data_->behaviour();
+        c.behaviour = gt4_ready_ || prologue_ ? rules::behaviour() : data_->behaviour();
         c.index = u8(i);
         c.control = 0, c.driver_kind = 0, c.ghost = 0, c.wheel_type = 0;
         { // the parameter block from the spec, as the car's set-up makes it
@@ -157,6 +161,10 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
             ex::load_image(loaded, image.data());
             c.p = loaded.p;
             gt4_params(specs_[i], program, c.p);
+            if (prologue_) {
+                prologue::convert(c.p, specs_[i]);
+                prologue_cars_[i] = prologue::car_part(c, specs_[i], *prologue_);
+            }
             if (gt4_ready_) {
                 Record r;
                 r.car = c;
@@ -375,6 +383,9 @@ void Session::chassis(size_t i) {
     if (gt4_rules_) { // (0x36C9F8: the pitch before the roll; 0x35D350)
         rules::body_axes(c);
         rules::ground_frame(c, layouts_[i]);
+    } else if (prologue_) { // (Prologue's 0x377310 and 0x3C4D80)
+        rules::body_axes(c);
+        prologue::ground_frame(c);
     } else {
         ex::body_axes(c);
         ex::ground_frame(c);
@@ -492,8 +503,10 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
             rules::wheel_steer(c, g.steer, g.tires, layouts_[i], tables_.steer);
             for (size_t w = 0; w < 4; ++w) // (for the engine's routines that still read them: its start hold)
                 c.t[w].steer_cos = gt3r::ee::cos(c.w[w].steer), c.t[w].steer_sin = gt3r::ee::sin(c.w[w].steer);
-        } else ex::wheel_steer(c);
+        } else if (prologue_) prologue::wheel_steer(c, prologue_cars_[i], *prologue_);
+        else ex::wheel_steer(c);
         if (gt4_rules_) rules::slip_phase(c, gx_[i], layouts_[i], tables_);
+        else if (prologue_) prologue::slip_ratios(c, prologue_cars_[i].tires, prologue_cars_[i].layout, *prologue_);
         else ex::slip_ratios(c, race_.statics);
         if (gt4_rules_) {
             // Gran Turismo 4's aids (0x3F79A0): a computer's car (control source 2) by its driver's block.
@@ -503,6 +516,7 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
             rules::aids(c, g.aids, g.tires, g.drive, layouts_[i], tables_.aids, aid_race_, driver);
         } else ex::aids(c, race_.aids);
         if (gt4_rules_) rules::dynamics(c, gx_[i], layouts_[i], tables_, grip);
+        else if (prologue_) prologue::dynamics(c, prologue_cars_[i], race_.statics, race_.gears, race_.class_grip, *prologue_);
         else ex::dynamics(c, race_.statics, race_.gears, race_.class_grip);
         if (gt4_rules_) rules::brake_heat(c, layouts_[i], tables_.brake_heat, gx_[i].drive.d.tire_radius);
         else ex::brake_heat(c, race_.brake_heat);
