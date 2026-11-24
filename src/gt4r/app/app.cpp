@@ -14,6 +14,7 @@
 #include <functional>
 
 #if defined(__APPLE__)
+#include <dlfcn.h>
 #include <mach/mach.h>
 #elif defined(__linux__)
 #include <unistd.h>
@@ -47,6 +48,30 @@ size_t resident_bytes() {
     }
 #endif
     return 0;
+}
+
+// A scripted run keeps its pace when its window is hidden or covered: on macOS the system
+// otherwise stretches a background app's sleeps (App Nap), by seconds at a time, and the run's
+// frames fall out of step with what goes by the clock. The process says it is doing work the
+// user asked for (NSProcessInfo beginActivityWithOptions:reason:), through the Objective-C
+// runtime the system's frameworks already loaded.
+void keep_pace_in_background() {
+#if defined(__APPLE__)
+    using Id = void*;
+    using GetClass = Id (*)(const char*);
+    using RegisterName = Id (*)(const char*);
+    const auto get_class = reinterpret_cast<GetClass>(dlsym(RTLD_DEFAULT, "objc_getClass"));
+    const auto sel = reinterpret_cast<RegisterName>(dlsym(RTLD_DEFAULT, "sel_registerName"));
+    void* send = dlsym(RTLD_DEFAULT, "objc_msgSend");
+    if (!get_class || !sel || !send) return;
+    const Id info = reinterpret_cast<Id (*)(Id, Id)>(send)(get_class("NSProcessInfo"), sel("processInfo"));
+    const Id reason = reinterpret_cast<Id (*)(Id, Id, const char*)>(send)(get_class("NSString"), sel("stringWithUTF8String:"), "a scripted run");
+    if (!info || !reason) return;
+    // NSActivityUserInitiatedAllowingIdleSystemSleep | NSActivityLatencyCritical
+    const unsigned long long options = (0x00FFFFFFull & ~(1ull << 20)) | 0xFF00000000ull;
+    const Id activity = reinterpret_cast<Id (*)(Id, Id, unsigned long long, Id)>(send)(info, sel("beginActivityWithOptions:reason:"), options, reason);
+    if (activity) reinterpret_cast<Id (*)(Id, Id)>(send)(activity, sel("retain")); // held for the process's life
+#endif
 }
 
 } // namespace
@@ -137,6 +162,7 @@ bool App::init(int argc, char** argv) {
             add(argv[++i], 0);
         } else if (!a.empty() && a[0] != '-') disc_path = a;
     }
+    if (!shot_path_.empty()) keep_pace_in_background();
     if (disc_path.empty()) disc_path = config_.get("game", "disc").value_or("");
     if (!disc_path.empty()) last_error_ = open_disc(disc_path);
     if (disc_) {

@@ -129,7 +129,6 @@ private:
     int key_frames_ = 0;
     std::string key_shot_;              // a "shot:<name>" key reached: saved beside --shot after this frame
     ScriptedDrive drive_;               // the race controls the script holds
-    bool game_ = false;                 // --game (or no --screen / --browse): the game from power on
     std::string stats_path_;            // --stats: frame times and memory, a line a second
     double stats_ms_ = 0, stats_max_ = 0;
     int stats_frames_ = 0;
