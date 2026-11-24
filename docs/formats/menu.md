@@ -779,13 +779,48 @@ origin is on the body's underside, so the car is raised by its ride height to st
 (❓ judged: the program's ShowRoomCar is not read).
 
 A car given as a garage car (`car_garage`, `car_data` set to an MCarGarage) shows in that
-car's paint (its record's +0x18). The scripts' `loadModelOptionMotion(path)` gives a normal face
+car's paint (its record's +0x18) and stands where the layout says from that moment, so what the
+script does after it holds (Home turns the garage car to its front, ry 180, when yesterday had no
+run that failed: gtmode's `isGarageCarFront`). The scripts' `loadModelOptionMotion(path)` gives a normal face
 a camera motion from the page's packs (`image/gtmode/gtauto/*_cam.mot`: Mot1 files read as the
-stage's below): its eye, the point looked at, up and field of view from the picture it was
-given at, held at its end (GT Auto's pages, the wheel shop); `loadModelSet(path)` more models
-drawn with the car where their files put them (`garageShadow.mdl`, the GT Auto mechanic
-`pitmanFix.mdl`, whose skinned GTM1 the engine's reader refuses). ❓ `loadModelMotion(path,
-set, clip)` (the sets' motions: the mechanic walking, the wash cloths) is not played.
+stage's below): its eye, the point looked at, up and field of view at its clock's time (below;
+0 until the page plays it: the wheel and wing shops never do), and its named values: `fade` the
+model sets' opacity (not drawn under 0.02), `lift` the car raised on the jack (0.276 m in the oil
+change; ❓ the whole car is raised here, the program lets each wheel hang, 0x1569A0),
+`shadowOpacity` the car's shadow (mCarModelPS2::vf58 0x156F18). `loadModelSet(path)` more model
+sets (MCarModel +0x68, in their order: `garageShadow.mdl`, the GT Auto mechanic `pitmanFix.mdl`,
+the wash cloths, the oil change's cart); a skinned set is posed by its motion ([model.md](model.md)
+"Skinned sets").
+
+**Model motions** (`menu/model_motion.*`, `app/menu_cars.cpp`): `loadModelMotion(path, set,
+align = 0, shadow = 0, rot = 0)` (0x139030 → 0x1540C8) appends {motion, set, align, shadow, rot}
+to MCarModel +0x78; every entry is drawn every picture (a set listed twice is drawn twice: the
+split motions park the copy not in use 20 m away). Without entries each set is drawn as stored.
+An entry's motion starts from the car's matrix, moved to a place on the car by `align` and turned
+(0x156AA0, table 0x68FDC0), turned by `rot` degrees and scaled by `additionalModelScale` (flat in
+y with the shadow flag, which the mirror pass leaves out):
+
+| align | place (car frame: x right, the front at -z) | turned |
+|---|---|---|
+| 0 | the car's origin | 0 |
+| 1 / 2 | the left / right tire's outer face at the front axle | 0 / 180 |
+| 3 / 4 | the same at the rear axle | 0 / 180 |
+| 5 / 6 | left / right, midway between the axles | 0 / 180 |
+| 7 / 8 | left / right, three quarters of the way back | 0 / 180 |
+| 9 / 10 | the centre line, at the body's front / rear end (VARIATION +0x18 / +0x1C, mm) | -90 / 90 |
+
+❓ The program reads the axles, track and tire width from the car's simulation geometry (+0x618,
++0x8D4, +0x12, +0x14: their meaning is believed, not read); here they come from the database's
+sizes. The time (mModelMotion, 0x21B398; step 0x21B4F8, before a draw 0x21B528): 1/60 s a
+picture while it plays, 0 before `playModelMotion`; past the clip's length L it goes back by
+L - S (S the clip's loop start) when it loops (the default), else it stops there and holds.
+`playModelMotion` / `stopModelMotion` / `setModelMotionLoop` act on every entry and the camera
+motion; `isPlayingModelMotion` answers for the camera motion alone (0 without one, 0x153FA8).
+GT Auto: the mechanic walks in, stands at the car's left by the front and fades out after 7 s;
+the car wash: after the car's turn, two mechanics wipe it with cloths for 10 s; the oil change:
+the mechanic walks over, lies on the cart and slides under the car on the jack. ❓ A skinned
+set's reflection passes are left out (which picture the program binds to their slot is not
+read), and its clothes' texture alpha is taken as opaque.
 
 Here a car's showroom model is built on a worker thread and sent to the GPU a few models a
 picture (about 3 ms of each), and its shadow made only when its look changes: on the arcade
@@ -825,6 +860,24 @@ way a picture; `stopRotate()` stops at home. The Gran Turismo mode map's 37 face
 icons (`image/gtmode/map/panel_*.mdl` of the page's pack); entering a place sets
 `rotate_v = [0, 2, 0]`, leaving it `target_mode = 1` (nine places stop where they are). Here each
 face is drawn over a part of the page three times its rectangle around it.
+
+### What runs where (the drawing)
+
+The menus' drawing is this repository's code throughout; where it still leans on the shared
+engine's Gran Turismo 3 code or on a judgment:
+
+| What | Where | Runs | The Gran Turismo 4 routine to port |
+|---|---|---|---|
+| 3D faces' models (car faces' extra sets, model faces, the car stage's backdrops) | `app/menu_cars.cpp`, `app/menu_models.cpp` via `formats/model/mdls.cpp` `to_gtm1` | the engine's GTM1 decoder and renderer (`gtm1.cpp`, `render::View3D`, its GT3 lighting model) | ModelSet2's draw (0x455528, the shape submit 0x49D328) and the VU1 lighting |
+| A skinned set's blend | `formats/model/mdls_skin.cpp` `pose()` | ours, the weighted sum judged from the data (the program's VU0 micro-routines 0x2E8 / 0x460 are not readable) | (VU0) |
+| The menu car | `app/menu_cars.cpp` | `race::CarVisual` (Gran Turismo 4's car parts) drawn by the engine's renderer; ❓ the reflection strength (1.0 here; the program's 1.3, 1.1 not read), the ride-height raise | mCarModelPS2's draw (0x156AA0, 0x156F18) |
+| The car stage's lights | `app/menu_cars.cpp` | light.mot's lights as directions (❓), no shadow blur, env.mdl and tire.mdl unused | GT4CarSelect::AnimationStage (CustumLightPosition 0x1D6C98) |
+| The car's shadows | `race/car_visual.cpp` | the race's shadow models | the stage's shadow (0x4523B0..) |
+| Movies | `app/menu_movies.cpp` | the engine's MPEG / IPU player | (same format) |
+| Fonts | `menu/font.cpp` | the engine's font reader plus Gran Turismo 4's two bytes; the layout is ours (`text_layout.cpp`, 0x491028) | — |
+| Text breaking | `app/menu_page_drawer.h` `wrapped()` | the program's word wrapper (0x245C90) with a margin judged from the pictures (❓); the non-equalized renderer's own per-character break (0x490660) is not ported | 0x491418's break |
+| The loading page | `app/menu_loading.h` | the black mode; its hold judged; the capture mode before races not done | LoadingPS2's other modes (0x104B68) |
+| The cursor, transitions, actors, tool tips, widget transforms, the 3D faces' cameras | `app/menu_cursor.h`, `menu/actors.cpp`, `menu/faces_*` | ported from the program (addresses in the sections above) | — |
 
 ### Not done
 
