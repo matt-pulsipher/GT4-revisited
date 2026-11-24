@@ -151,6 +151,22 @@ public:
     void decide_car(size_t car, race::CarInput& input);
     void end_step();
 
+    // B-spec (control source 1): the car's computer driver takes the player's commands. Call before the first step.
+    void set_bspec(size_t car);
+    // A B-spec command (0x3F19E0): the pace level 0 .. 4 (the program's five: 2 the even pace, 0 the slowest, 4 the
+    // fastest; -1 unchanged) and passing (0 off, 1 on, -1 unchanged). The driver keeps both until the next command; passing
+    // turned off sends a driver on a passing line back to the main line.
+    struct BSpecCommand {
+        int pace = -1;
+        int overtake = -1;
+    };
+    void command(size_t car, const BSpecCommand& c);
+    int pace_level(size_t car) const;  // the B-spec driver's level (D +0x6D)
+    bool overtaking(size_t car) const; // passing allowed (D +0x6E)
+    // The B-spec driver's shift speeds: the gearbox's up- and down-shift speeds x this / 128 (0x3F1E30; 128 for any other
+    // driver, and for a car with a manual gearbox).
+    u8 shift_factor(size_t car) const;
+
     const CourseLines& lines() const { return lines_; }
     const Tables& tables() const { return tables_; }
     size_t size() const { return drivers_.size(); }
@@ -250,6 +266,8 @@ private:
     void contact(size_t a, size_t b, gt3r::ee::F gap, gt3r::ee::F rate);
 
     void init(const course::AiData& data, const Program& program, std::span<const size_t> computer);
+    void setup(Driver& d);
+    std::array<std::optional<std::array<u8, 0x80>>, 4> sets_; // the course's driver sets by driveline class
 
     std::unique_ptr<SessionCars> own_cars_;
     const Cars* session_;

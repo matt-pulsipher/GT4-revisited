@@ -64,6 +64,15 @@ Tables Tables::load(const Program& program) {
     for (u32 r = 0; r < 8; ++r)
         for (u32 k = 0; k < 6; ++k) t.fallback[r][k] = s8(program.b(kFallback + 6 * r + k));
     for (u32 i = 0; i < 8; ++i) t.order[i] = std::min<u8>(program.b(kOrder + i), 7);
+    // 0x3F1790: the pace levels.
+    for (u32 i = 0; i < 5; ++i) {
+        Tables::PaceLevel& l = t.pace[i];
+        l.shift = u8((s32(s8(program.b(0x622088 + i))) * 128 + 0x3200) / 100);
+        l.brake = gt3r::ee::int_to_f(program.b(0x622090 + i)) / hundred;
+        l.corner = gt3r::ee::int_to_f(program.b(0x622098 + i)) / hundred;
+        l.x20E0 = gt3r::ee::int_to_f(s32(s8(program.b(0x6220A0 + i))) + 100) / hundred;
+    }
+    t.pace_start = {std::min<u8>(program.b(0x622080), 4), std::min<u8>(program.b(0x622081), 4)};
     t.driver_spread = program.b(kDriverSpread);
     t.saturation_cut = program.b(kSaturationCut);
     return t;

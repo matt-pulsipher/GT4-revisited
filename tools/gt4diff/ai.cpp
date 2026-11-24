@@ -491,6 +491,13 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
     // The rubber band off (the race's set-up from an event row is left out: the conductor's own values would hurry the
     // cars behind car 0; GT4R_AI_BAND keeps them).
     if (!options.band) ee.wf(o.cond + 0x7C, 0.0f), ee.wf(o.cond + 0x88, 0.0f), ee.wf(o.cond + 0x94, 1.0f);
+    if (std::getenv("GT4R_AI_DUMP")) {
+        for (u32 a : {0x622080u, 0x622088u, 0x622090u, 0x622098u, 0x6220A0u, 0x6220A8u, 0x6220B0u, 0x6220C8u, 0x6220E0u, 0x623E40u}) {
+            std::printf("%06X:", a);
+            for (u32 k = 0; k < 24; ++k) std::printf(" %02X", ee.r8(a + k));
+            std::printf("\n");
+        }
+    }
     const u32 lap_bits = ee.call(kLapLength, {Arg::ptr(o.cond + kAiCourse)}).f0;
     float lap_length;
     std::memcpy(&lap_length, &lap_bits, 4);
@@ -500,6 +507,7 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
     std::unique_ptr<ProgramCars> pcars;
     std::unique_ptr<sim::ai::Field> field;
     std::unique_ptr<CallChecks> calls;
+    int bspec_car = -1, bspec_level = -1, bspec_step = -1;
     const sim::Program program = sim::Program::load(disc);
     const bool ours = options.ours, checks = options.checks;
     std::map<std::string, Tally> tally;
@@ -525,6 +533,25 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
             b.slow = rf(0x7C), b.slow_start = rf(0x80), b.slow_full = rf(0x84), b.fast = rf(0x88), b.fast_start = rf(0x8C), b.fast_full = rf(0x90);
             b.global = rf(0x94), b.mode = gt3r::s8(ee.r8(o.cond + 0xF818 + 0x22)), b.on = true;
             field->set_band(b);
+        }
+        // GT4R_AI_BSPEC=<car>[,<level>,<seconds>]: that car's driver as B-spec's (control source 1, its setup 0x3F1890), in
+        // the program's race and ours; at <seconds> the pace command <level> (0x3F19E0) to both.
+        if (const char* b = std::getenv("GT4R_AI_BSPEC")) {
+            bspec_car = std::atoi(b);
+            if (const char* c = std::strchr(b, ',')) {
+                bspec_level = std::atoi(c + 1);
+                if (const char* t = std::strchr(c + 1, ',')) bspec_step = int(std::atof(t + 1) * 60.0);
+            }
+            if (bspec_car >= 0 && bspec_car < o.cars) {
+                ee.w8(o.car(bspec_car) + kF + 0x466, 1);
+                ee.call(0x3F1890, {Arg::ptr(o.cond), Arg::integer(bspec_car)});
+                field->set_bspec(size_t(bspec_car));
+                // The program's car was set up as a computer car's: its yaw gain as a B-spec driver's (no spread by the
+                // grid index, 0x467148) and its draws seeded with 1 (0x4639E0), as the race sets a B-spec car up.
+                const u32 PB = ee.r32(o.cond + 0x10024 + 4 * u32(bspec_car));
+                ee.w32(PB + 0x0C, field->params(size_t(bspec_car)).yaw_gain.bits);
+                ee.w16(o.car(bspec_car) + 0x14 + 0x68, field->probe_get(size_t(bspec_car)).rand);
+            }
         }
         if (checks && !ours) {
             calls = std::make_unique<CallChecks>(ee, o, *field, *pcars, lap_length, tally);
@@ -568,6 +595,10 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
                         std::snprintf(w, sizeof w, "car %d step %d", i, step);
                         tally["band time scale"].bits(w, ee.r32(o.car(i) + kF + 0x444), gt3r::ee::F::raw(field->time_scale_bits(size_t(i))));
                     }
+            }
+            if (step == bspec_step && bspec_car >= 0) {
+                ee.call(0x3F19E0, {Arg::ptr(o.car(bspec_car)), Arg::integer(0), Arg::integer(4), Arg::integer(bspec_level)});
+                field->command(size_t(bspec_car), {bspec_level, -1});
             }
             if (checks && !ours && step % 120 == 60) check_corners(ee, o, *field, lap_length, tally);
             if (checks && !ours && step % 4 == 1) check_braking(ee, o, *field, lap_length, tally);

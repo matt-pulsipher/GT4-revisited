@@ -23,15 +23,9 @@ using gt3r::ee::F;
 namespace {
 
 constexpr float kPi = std::numbers::pi_v<float>;
-constexpr float kDeg = kPi / 180.0f;
 constexpr float kKmh = 1.0f / 3.6f;
 constexpr float kStep = Session::kStep;
 
-float wrap(float a) {
-    while (a > kPi) a -= 2 * kPi;
-    while (a < -kPi) a += 2 * kPi;
-    return a;
-}
 
 // The zone cells around a car (0x4694F8's bytes +0x48 ..).
 enum Zone { kFront, kFrontLeft, kFrontRight, kLeft, kRight, kRearLeft, kRearRight, kRear };
@@ -57,6 +51,9 @@ struct Field::Driver {
     int stop_count = 0;     // +0x52 the stop driver's count down
     int pit = 0;            // +0x20 held to the pit speed
     bool overtake = true;   // +0x6E a B-spec driver may pass
+    int pace = 2;           // +0x6D the pace level
+    u8 shift = 128;         // +0x6F the shift speeds' factor / 128
+    F pace_brake{1.0f}, pace_corner{1.0f}; // +0x70 / +0x74 the pace level's braking and arcs' factors (B-spec)
     F offset;               // +0x54 the sideways offset of the aim (m, + right)
     u16 rand = 0;           // +0x68
     F corner_mult{1.0f}, brake_mult{1.0f}, alongside_mult{1.0f}; // +0xB8 / +0xBC / +0xC0
@@ -160,6 +157,7 @@ Field::Field(const Cars& cars, const course::AiData& data, const Program& progra
 
 void Field::init(const course::AiData& data, const Program& program, std::span<const size_t> computer) {
     const Cars& session = *session_;
+    sets_ = data.sets;
     if (program.known())
         for (u32 m = 0; m < 24; ++m) soft_[m] = program.w(Program::kSoft + 4 * m);
     else
@@ -199,34 +197,7 @@ void Field::init(const course::AiData& data, const Program& program, std::span<c
             d->lay = rules::wheel_layout(program, row);
             for (u32 k = 0; k < 0x54; ++k) d->lay_raw[k] = program.b(rules::kWheelLayouts + rules::kWheelLayoutSize * row + k);
         }
-        std::array<u8, 0x80> set{};
-        if (const auto& s = data.sets[size_t(d->drive_class)]) set = *s;
-        else std::copy(tables_.builtin[session.loose() ? 1 : 0].begin(), tables_.builtin[session.loose() ? 1 : 0].end(), set.begin());
-        d->p = params_from(set, d->drive_class, tables_.tuning);
-        const ex::Car& c = session.record(car);
-        // 0x4673D8: the downforce term (the aero bonus's lift part is ❓ not mirrored: 0).
-        if (c.p.mass != F()) d->p.downforce = (c.p.downforce_coef[0] + c.p.downforce_coef[1]) / c.p.mass;
-        // The event's changes (0x467148): each class's percents, then the drivers' spread by grid index.
-        int thr = pace_.throttle[size_t(d->drive_class)], brk = pace_.brake[size_t(d->drive_class)], cs = pace_.corner[size_t(d->drive_class)];
-        if (thr == 0 || thr > 100) thr = 100;
-        if (brk == 0) brk = 100;
-        if (cs == 0) cs = 100;
-        int off = 0;
-        if (tables_.driver_spread && d->control == 2) {
-            const int idx = d->index;
-            if (!tables_.tuning.brake_spread) brk -= (idx % 3) * 7;
-            if (!tables_.tuning.corner_spread) cs -= (idx * 4) & 4, off = -2 * ((idx * 7) % 5);
-            d->p.yaw_gain = d->p.yaw_gain * (int_f(((idx + 1) % 3) * 3 + 97) * kHundredth);
-        }
-        if (thr != 100) d->p.throttle = int_f(thr) * kHundredth;
-        if (brk != 100) d->brake_mult = d->brake_mult * (int_f(brk) * kHundredth);
-        if (cs != 100) d->corner_mult = d->corner_mult * (int_f(cs) * kHundredth);
-        if (off) d->p.corner_offset = d->p.corner_offset + int_f(off) * kPerKmh;
-        // The random draws (0x4639E0): seeded by the grid index for a computer car, then one step.
-        d->rand = u16(d->control == 2 ? d->index + 1 : 1);
-        d->rand = u16(((u32(d->rand) * 0x41C64E6Du + 0x3039u) >> 16) & 0x7FFF);
-        // 0x463AE0: the long look ahead (D +0x1A = 0) for a computer car from a standing start on a paved course.
-        d->start_flag = d->control == 2 && pace_.standing_start && !session.loose() && session.record(car).speed < F::raw(0x41055554) ? 0 : 1;
+        setup(*d);
         // The first line: the main line, or the nearest of the others to the car.
         d->line = d->prev_line = lines_.resolve(6);
         drivers_[car] = std::move(d);
@@ -239,7 +210,77 @@ void Field::init(const course::AiData& data, const Program& program, std::span<c
         }
 }
 
+// A driver's parameters from the course's set for its driveline class (0x466C20), the event's changes (0x467148), its pace
+// level (0x3F1890) and its draws' seed (0x4639E0), by its control source.
+void Field::setup(Driver& d) {
+    d.corner_mult = d.brake_mult = d.alongside_mult = kOne;
+    std::array<u8, 0x80> set{};
+    if (const auto& s = sets_[size_t(d.drive_class)]) set = *s;
+    else std::copy(tables_.builtin[session_->loose() ? 1 : 0].begin(), tables_.builtin[session_->loose() ? 1 : 0].end(), set.begin());
+    d.p = params_from(set, d.drive_class, tables_.tuning);
+    const ex::Car& c = session_->record(d.car);
+    // 0x4673D8: the downforce term (the aero bonus's lift part is ❓ not mirrored: 0).
+    if (c.p.mass != F()) d.p.downforce = (c.p.downforce_coef[0] + c.p.downforce_coef[1]) / c.p.mass;
+    // The event's changes (0x467148): each class's percents, then the drivers' spread by grid index.
+    int thr = pace_.throttle[size_t(d.drive_class)], brk = pace_.brake[size_t(d.drive_class)], cs = pace_.corner[size_t(d.drive_class)];
+    if (thr == 0 || thr > 100) thr = 100;
+    if (brk == 0) brk = 100;
+    if (cs == 0) cs = 100;
+    int off = 0;
+    if (tables_.driver_spread && d.control == 2) {
+        const int idx = d.index;
+        if (!tables_.tuning.brake_spread) brk -= (idx % 3) * 7;
+        if (!tables_.tuning.corner_spread) cs -= (idx * 4) & 4, off = -2 * ((idx * 7) % 5);
+        d.p.yaw_gain = d.p.yaw_gain * (int_f(((idx + 1) % 3) * 3 + 97) * kHundredth);
+    }
+    if (thr != 100) d.p.throttle = int_f(thr) * kHundredth;
+    if (brk != 100) d.brake_mult = d.brake_mult * (int_f(brk) * kHundredth);
+    if (cs != 100) d.corner_mult = d.corner_mult * (int_f(cs) * kHundredth);
+    if (off) d.p.corner_offset = d.p.corner_offset + int_f(off) * kPerKmh;
+    // The pace level (0x3F1890): a computer driver's starting level, passing allowed.
+    {
+        const Tables::PaceLevel& l = tables_.pace[tables_.pace_start[1]];
+        d.pace = tables_.pace_start[1], d.overtake = true, d.pace_brake = l.brake, d.pace_corner = l.corner, d.shift = l.shift;
+    }
+    // The random draws (0x4639E0): seeded by the grid index for a computer car, then one step.
+    d.rand = u16(d.control == 2 ? d.index + 1 : 1);
+    d.rand = u16(((u32(d.rand) * 0x41C64E6Du + 0x3039u) >> 16) & 0x7FFF);
+    // 0x463AE0: the long look ahead (D +0x1A = 0) for a computer car from a standing start on a paved course.
+    d.start_flag = (d.control == 1 || d.control == 2) && pace_.standing_start && !session_->loose() && c.speed < F::raw(0x41055554) ? 0 : 1;
+}
+
 Field::~Field() = default;
+
+void Field::set_bspec(size_t car) {
+    if (car >= drivers_.size() || !drivers_[car]) return;
+    Driver& d = *drivers_[car];
+    d.control = 1;
+    // 0x3F1890: the B-spec driver's starting level, no passing; 0x4639E0: its draws seeded with 1; 0x463AE0: the long
+    // look ahead off a standing start as a computer car's.
+    const Tables::PaceLevel& l = tables_.pace[tables_.pace_start[0]];
+    setup(d);
+    d.pace = tables_.pace_start[0], d.overtake = false, d.pace_brake = l.brake, d.pace_corner = l.corner, d.shift = l.shift;
+}
+
+void Field::command(size_t car, const BSpecCommand& c) {
+    if (car >= drivers_.size() || !drivers_[car]) return;
+    Driver& d = *drivers_[car];
+    if (c.pace >= 0 && c.pace <= 4 && c.pace != d.pace) {
+        const Tables::PaceLevel& l = tables_.pace[size_t(c.pace)];
+        d.pace = c.pace, d.pace_corner = l.corner, d.pace_brake = l.brake, d.shift = l.shift;
+    }
+    if (c.overtake >= 0 && bool(c.overtake) != d.overtake) {
+        d.overtake = c.overtake != 0;
+        if (!d.overtake && d.kind == 0 && (d.line == 1 || d.line == 2)) request_line(d, CourseLines::kMain, false);
+    }
+}
+
+int Field::pace_level(size_t car) const { return car < drivers_.size() && drivers_[car] ? drivers_[car]->pace : -1; }
+bool Field::overtaking(size_t car) const { return car < drivers_.size() && drivers_[car] && drivers_[car]->overtake; }
+u8 Field::shift_factor(size_t car) const {
+    const Driver* d = driver(car);
+    return d && d->control == 1 && d->kind == 0 ? d->shift : 128;
+}
 
 const Field::Driver* Field::driver(size_t car) const { return car < drivers_.size() ? drivers_[car].get() : nullptr; }
 const Params& Field::params(size_t car) const { return drivers_.at(car)->p; }
@@ -382,6 +423,7 @@ F Field::corner_speed(const Driver& d, int i) {
     const Tuning& t = tables_.tuning;
     if (t.corner_spread && (d.control == 1 || d.control == 2) && d.kind == 0) m = m + draw(d.rand, t.corner_lo.at(m), t.corner_hi.at(m));
     F scale = d.p.corner_scale * m;
+    if (d.control == 1 && d.kind == 0) scale = scale * d.pace_corner;
     if (const auto& zc = near_[d.car].zone; t.alongside_slow && (zc[kFrontLeft] || zc[kLeft] || zc[kRight] || zc[kFrontRight]))
         scale = scale * (kOne - t.alongside_share * (d.control == 0 ? kOne : d.alongside_mult));
     const F offset = d.p.corner_offset + int_f(pt.speed_adjust == -128 ? 0 : pt.speed_adjust) * kPerKmh;
@@ -476,6 +518,7 @@ F Field::braking(Driver& d) {
         const Tuning& t = tables_.tuning;
         if (t.brake_spread && (d.control == 1 || d.control == 2) && d.kind == 0) m = m + draw(d.rand, t.brake_lo.at(m), t.brake_hi.at(m));
         kb = kb * m;
+        if (d.control == 1 && d.kind == 0) kb = kb * d.pace_brake;
         const LinePoint& q = pts[size_t(bp)];
         const u8 s = u8(q.surface % 24), axle = d.lay_raw[0x10] & 1;
         const TireView rf = tire_view(*session_, tables_.known, d.car, d.lay, d.lay_raw[0xC], s);
