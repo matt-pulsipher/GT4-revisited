@@ -198,7 +198,9 @@ std::vector<Row> build() {
     r.push_back({ePrev + 0x14, 0x80, C, kPrevious + 0x14, "last suspension, steer, camber, half track, spin, brake heat, ground values"});
     r.push_back({ePrev + 0x94, 0x30, C, kPrevious + 0x94, "last hub points"});
     r.push_back({ePrev + 0xC4, 0x10, C, kPrevious + 0xC4, "last flaps"});
+    r.push_back({ePrev + 0xD4, 0x04, C, kPrevious + 0xD4, "last steering view"});
     r.push_back({ePrev + 0xD8, 0x0C, C, kPrevious + 0xD8, "last heading lag, pitch lag, distance along the course"});
+    r.push_back({0x158C, 0x34, C, 0x888, "the drawn car's body and ground points, the steering view, their last steps' (0x344040)"});
     return r;
 }
 

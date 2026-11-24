@@ -31,8 +31,12 @@ struct FeelExtra {
     F blend; // car + 0x554: the step's blend between the last step's attitude and this one's (0x344858 ..; 0 in the races seen)
     ViewState view;          // (the conductor's, cond + 0xCAB8 + 0x30 k)
     std::array<u8, 2> pad{}; // (the conductor's, cond + 0xCA58 + 0x10 k)
+    std::array<F, 4> anim;   // car + 0x778: the driver's animation's slots (2 the throttle, 3 the brake followed: 0x344040)
 };
-template <class X, class V> void feel_fields(X& x, V&& v) { v("feel.blend", -1, layout::Block::Car, 0x554, x.blend); }
+template <class X, class V> void feel_fields(X& x, V&& v) {
+    v("feel.blend", -1, layout::Block::Car, 0x554, x.blend);
+    for (int k = 0; k < 4; ++k) v("feel.anim", k, layout::Block::Car, 0x778 + 4 * u32(k), x.anim[size_t(k)]);
+}
 
 // What the routines read of the program, as the race's start leaves it.
 struct FeelTables {

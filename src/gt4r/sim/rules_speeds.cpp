@@ -38,6 +38,8 @@ SpeedTables speed_tables(const Program& program, u8 special_row) {
     t.lean_on = program.w(0x620788), t.roll_on = program.w(0x620784);
     const u32 row = 0x6205C8 + 0x78 * (special_row < 3 ? special_row : 0);
     t.lean_row = {F::raw(program.w(row + 0x30)), F::raw(program.w(row + 0x34))};
+    t.special_x10 = F::raw(program.w(row + 0x10));
+    t.throttle_share = F::raw(program.w(0x62075C)), t.brake_share = F::raw(program.w(0x620760));
     return t;
 }
 
