@@ -828,8 +828,8 @@ program's own):
 - Phase 5, the driver's input (0x349FD0): `ex::driver_input_pad` for a pad car (a computer's car takes its
   driver's outputs as 0x464F38 writes them, and the clutch request as 0x3F3400 makes it).
 - Phase 6, 0x35D1D0: not run.
-- Phase 10's box of kind 4's motor (0x356E58, the MTR GMV) and layout 7's motors (0x356418, 0x3560F0, 0x356BB8; the Acura
-  DN-X): run as an ordinary box. The hybrid one-speed box (0x368628, the Toyota Prius G and G Touring) is Gran Turismo 4's
+- Phase 10's layout 7 motors (0x356418, 0x3560F0, 0x356BB8; the Acura DN-X): run as an ordinary box. An electric car's
+  motor (0x356E58: the up-shift class 4, the car category 5; the MTR GMV) is Gran Turismo 4's. The hybrid one-speed box (0x368628, the Toyota Prius G and G Touring) is Gran Turismo 4's
   (`rules_hybrid.*`), as are a stepless box of kind 1 with the hold speed the converter makes (0x360780) and the fuel and
   nitrous (0x354B78, 0x354CE8, `rules_fuel.*`; the nitrous's trigger is the input phase's, 0x34A160).
 - Phase 12, the hit record (0x350308): `ex::clear_feedback`.
@@ -1004,7 +1004,7 @@ object 0x6235A8 + 0x134 + 4 x table id; the row cache left out), and compares:
   0x367148 (the sliding measures the tire wear reads), view follower, tire effects, 0x34A668, 0x34A788 and the wheel spin's
   rest, the tire wear 0x352EA0 with the race's wear rules on, the collision step's hit records (0x350530)); our session runs
   the engine's there or nothing (§8). `gt4r_diff`'s race places cars past the road's grid at the program's fallback (§9).
-  The box of kind 4 (0x356E58), layout 7's motors
+  Layout 7's motors
   (0x356418, 0x3560F0, 0x356BB8; their constants 0x355978); the economy display's units (0x6244E8, the game's option: km per
   liter here). The entry of 0x35DE20 is not reached by `gt4r_diff`'s taps (its parts are; the whole step compares it).
 - The computer drivers (the courses' `.ad` files and `crs/bestline`), the race flow (laps as

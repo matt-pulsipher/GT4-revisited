@@ -586,8 +586,22 @@ void axle_step(ex::Car& c, DriveExtra& x, const WheelLayout& l, const DriveTable
         tc = hybrid_box(c, x, x.hybrid, t.hybrid, x.e.idle);
         if (c.clutch == 0) tc = k0;
     } else if (c.clutch != 0) {
-        // (layout 7's engine and motors, 0x3560F0 / 0x356BB8, and a box of kind 4's motor, 0x356E58: not ported)
-        const F te = stepless(d) ? stepless_torque(c, x, t) : engine_torque(c, x, c.throttle);
+        // (layout 7's engine and motors, 0x3560F0 / 0x356BB8: not ported)
+        F te;
+        if (stepless(d)) te = stepless_torque(c, x, t);
+        else if (d.layout != 7 && d.x13 == 4) {
+            // An electric car (the car category 5, up-shift class 4): the engine's torque and a motor's (0x356E58): 95,428.4 /
+            // rpm N m, at most 49 (49 below 101 rpm), times the throttle.
+            const F throttle = c.throttle;
+            te = engine_torque(c, x, throttle);
+            F m = F::raw(0x42440000);
+            if (!(s32(c.rpm) < 0x65)) {
+                m = F::raw(0x47BA6233) / gt3r::ee::int_to_f(s32(c.rpm));
+                if (F::raw(0x42440000) < m) m = F::raw(0x42440000);
+            }
+            te = te + m * throttle;
+        } else
+            te = engine_torque(c, x, c.throttle);
         if (c.clutch == 1) tc = te;
         else {
             if (c.clutch == 3) tc = d.shift_clutch_torque;
