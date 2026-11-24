@@ -1466,6 +1466,16 @@ void install_game_natives(Runtime& rt, script::Module& menu) {
             static const char* const kinds[] = {"dry", "wet", "dirt", "snow"};
             return text(r.size() > 0x10 && r[0x10] < 4 ? kinds[r[0x10]] : "unknown");
         });
+        // GetAttrString (0x1B3320): the course's attribute text, a string of UnistrDB by the row's +0x08
+        // (0x447F08); its first character '1' a rolling start (Arcade's script reads it): "1ff0" Tsukuba, "0000"
+        // Grand Canyon.
+        static_fn(*cls, "GetAttrString", [row, d, n](Vm&, const Value&, Args a) {
+            const ByteSpan r = row(arg_text(a, 0));
+            db::SpecDb* db = d->get(n->config);
+            const db::Strings* units = db ? db->strings("UnistrDB") : nullptr;
+            if (r.size() < 0x0C || !units) return text("");
+            return text(units->at(u32(r[8]) | u32(r[9]) << 8 | u32(r[10]) << 16 | u32(r[11]) << 24));
+        });
         static_fn(*cls, "GetID", [d, n](Vm&, const Value&, Args a) {
             db::SpecDb* db = d->get(n->config);
             const db::Labels* labels = db ? db->labels("COURSE") : nullptr;

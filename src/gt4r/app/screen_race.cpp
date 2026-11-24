@@ -168,6 +168,11 @@ void draw_grid(App& app, Setup& setup, const menu::RaceRequest& q) {
                 asked.entries.push_back(q.entries[i]);
                 paints.push_back(i < q.entry_paints.size() ? q.entry_paints[i] : -1);
             }
+        // (grid_for reads the table as the scripts leave it: entry 0 the player's, the opponents from 1)
+        if (!asked.entries.empty()) {
+            asked.entries.insert(asked.entries.begin(), q.car);
+            asked.overwrite_enemy_num = s32(paints.size());
+        }
         const u32 seed = u32(SDL_GetTicks());
         std::vector<sim::ai::GridEntry> grid = sim::ai::grid_for(events, asked, seed);
         if (!asked.entries.empty())
