@@ -12,7 +12,8 @@
 //   a rolling start: sound.rolling() on its first step (the racing music), then
 //                sound.start_signal() when the player's car reaches the line (the start's sound)
 //   events:      sound.contact(car, kind, force), sound.finish(), sound.pause(true / false)
-//   the replay:  sound.replay() as it begins (the replay's levels; the race's first piece again)
+//   the replay:  sound.replay() as it begins (the replay's levels; the race's first piece again),
+//                then sound.set_replay_shot(designer) every step (the master's duck)
 //
 // The master level of the race's effects is the race effects option (on / off, 0..128 of 128)
 // x the mix table's race level for the output mode x a fade (in over 0.3 s as the race begins).
@@ -109,6 +110,11 @@ public:
     void stop();
     // The master's fade: toward `target` over `seconds`.
     void fade(float target, float seconds);
+    // The master's two ducks (0x391DF0): in a replay, every step, toward 0.45 while the shot is
+    // one of the course's replay script (the designer camera) and toward 1 otherwise; in a free
+    // run, toward 0.2 while its recording plays (when it changes). Each over 1 s.
+    void set_replay_shot(bool designer) { designer_shot_ = designer; }
+    void set_free_run_duck(bool on);
 
     // The master level now, and what the last step did.
     float master() const { return mix_->master; }
@@ -155,6 +161,8 @@ private:
     int racing_piece_ = -1;
     int first_piece_ = -1; // the race's first racing piece (a replay plays it again)
     bool replay_ = false;
+    bool designer_shot_ = false, free_run_duck_ = false;
+    void duck();
     std::shared_ptr<RacePlaylist> playlist_;
     s16 reverb_before_ = 0;
     Report report_;

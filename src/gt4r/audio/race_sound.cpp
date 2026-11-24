@@ -218,9 +218,20 @@ void RaceSound::rolling() {
     if (!play_racing() && !music_.play) racing_ = false;
 }
 
+void RaceSound::duck() { fade(designer_shot_ && replay_ ? 0.45f : free_run_duck_ ? 0.2f : 1.0f, 1.0f); }
+
+void RaceSound::set_free_run_duck(bool on) {
+    if (on == free_run_duck_) return;
+    free_run_duck_ = on;
+    duck();
+}
+
 void RaceSound::replay() {
     replay_ = true;
     started_ = true;
+    // A replay's master rises from 0 over 3 s (0x391D98 in the race's modes 2 and 3).
+    fade_ = 0;
+    fade(1.0f, 3.0f);
     for (auto& c : cars_) c->stop();
     racing_ = false;
     if (music_.stop) music_.stop();
@@ -268,7 +279,9 @@ void RaceSound::stop() {
 
 void RaceSound::update(std::span<const CarSoundState> states, const SoundListener& camera, int target) {
     if (paused_) return;
-    // The master level.
+    // The master level. In a replay the duck is asked for every step (RaceBase virtual 75): the
+    // step toward it is worked out again from where the master is.
+    if (replay_) duck();
     fade_ = fade_ < fade_target_ ? std::min(fade_ + fade_step_, fade_target_) : std::max(fade_ - fade_step_, fade_target_);
     const float table = library_ ? library_->levels().level(int(options_.mode), sound::VolumeTable::Race) : 1.0f;
     const bool on = replay_ ? options_.replay_effects_on : options_.effects_on;

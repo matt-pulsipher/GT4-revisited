@@ -430,13 +430,27 @@ against the original (below): the Ford Ka '01's strongest note at 5,650 rpm is 1
   original's race (its saved states at the start and on the straight). The fade (0x391D58(target,
   seconds): a step of (target - now) / 60 / seconds each frame) is set up with the race
   (RaceBase virtual 38, 0x387FB0: [0x6213DC] = 1, both ducks off, then 0x391D98: from 0 to 1 over
-  3 s when the race's mode (race + 0xCC8) is 2 or 3, else over 0.3 s). The ducks (0x391DF0): to
-  0.45 while the flag 0x6213EC is set (0x391E50; RaceBase virtual 75, 0x389B08, sets it in modes 2
-  and up to "the first entry's state (+0x148 of a 0x19C-byte entry) is 2" ❓ what that state is),
-  to 0.2 while 0x6213F0 is (0x391E80; the free run, RaceFreeRun virtual 7 0x3BA6A0, 0x3BA8B8,
-  0x3BA938, on its own flags ❓), back to 1 when neither is, each over 1 s. 0x391DC8 fades out
-  (0x3E1C80, 0x3E1EA0 ❓). `RaceSound::fade(target, seconds)` is the routine; nothing calls the
-  ducks yet.
+  3 s when the race's mode (race + 0xCC8) is 2 or 3, else over 0.3 s). The race's mode, read in the
+  original's saved states (the race object 0x80 before its camera manager): 0 racing (the arcade
+  race, Grand Canyon, the license test, Seattle), 1 Gran Turismo mode's free run (Practice), 3 the
+  replay, 4 the pre-race page (the master's parts there 0.05 and 0.056: the cars are all but silent
+  behind it); modes under 2 take the race's options, 2 and up the replay's (0x391ED0, the music's
+  likewise). In the license test's result scene the effects option's part is 0: silent. The ducks
+  (0x391DF0, each a fade over 1 s from where the master is): to 0.45 while the flag 0x6213EC is
+  set, to 0.2 while 0x6213F0 is, else back to 1. RaceBase virtual 75 (0x389B08, every step in
+  modes 2 and up, so the step toward the target is worked out again each step: a sixtieth of
+  what is left) sets the first with 0x373DA0(the camera manager, screen 0): whether the screen's
+  camera kind (the manager + 0x148 + 0x19C × screen; written by each camera as it is chosen:
+  CameraDesigner::vf39 writes 2, the on-board camera 1 or 3, the finish 4, ride-on 5, path 6, pit
+  7, interrupt 8, point 9, auto fix 10, shot 11, round 12, follow 13, heli 14, grid 15) is 2, the
+  course's replay script: **in a replay the cars and the course fall to 0.45 on the script's shots
+  and come back on the on-board ones**. (The saved state taken in the replay shows kind 1 and the
+  flag off.) The second is the free run's (RaceFreeRun 0x3BA6A0, 0x3BA8B8, 0x3BA938, on a change
+  only): on while it plays a recording of its own (`%08d.xsp`, 0x4606D0, through 0x460600 ..
+  0x460758, when the module at [0x84688C] is there) ❓ what that is. 0x391DC8 fades out (0x3E1C80,
+  0x3E1EA0 ❓). `RaceSound::fade(target, seconds)` is the routine; `set_replay_shot(designer)`
+  (every step of a replay) and `set_free_run_duck(on)` are the ducks; `replay()` starts the
+  master from 0 over 3 s.
 - **The levels** (0x350080, 60 a second): n = the friction torque / (the friction torque + the
   full-throttle torque) is the throttle that just holds the revs; e = |throttle - n| + n,
   halved when the clutch (the record's byte, 1 locked) is not locked and for a hybrid; the

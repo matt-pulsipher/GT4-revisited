@@ -562,5 +562,45 @@ TEST(sound_race_rolling_start_and_replay) {
     // The replay: the first piece again, at the replay's level.
     sound.replay();
     CHECK(streams.size() == 3 && streams[2].file == library->stream_file(racing, 20) && near(streams[2].level, table, 1e-6));
+    // The replay's master: up from 0; toward 0.45 of it on the course's script shots, each step a
+    // sixtieth of the way left (the duck asked for every step).
+    const float race_level = library->levels().level(int(audio::OutputMode::Stereo), sound::VolumeTable::Race) * 115.0f / 128.0f;
+    const auto steps = [&](int n) {
+        for (int i = 0; i < n; ++i) sound.update(std::span<const audio::CarSoundState>{}, audio::SoundListener{}, -1);
+    };
+    steps(1);
+    CHECK(sound.master() > 0 && sound.master() < 0.05f * race_level);
+    steps(600);
+    CHECK(near(sound.master(), race_level, 0.01));
+    sound.set_replay_shot(true);
+    steps(60);
+    const double expect = 0.45 + 0.55 * std::pow(59.0 / 60.0, 60.0); // (1 - 1/60)^60 of the way left after a second
+    std::printf("  replay: the master %.3f of the race's level after a second of a script shot (%.3f)\n", double(sound.master() / race_level), expect);
+    CHECK(near(sound.master() / race_level, expect, 0.01));
+    steps(600);
+    CHECK(near(sound.master() / race_level, 0.45, 0.01));
+}
+
+// The free run's duck: to 0.2 over a second, back over a second.
+TEST(sound_race_free_run_duck) {
+    Disc* disc = full_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    gt3r::Vfs vfs(&disc->volume());
+    audio::OfflineSound s(false);
+    auto library = std::make_shared<audio::SoundLibrary>(vfs);
+    audio::RaceSound sound(vfs, s.mixer(), s.driver(), library, audio::RaceSoundTables::from_core(disc->read_program()));
+    const auto steps = [&](int n) {
+        for (int i = 0; i < n; ++i) sound.update(std::span<const audio::CarSoundState>{}, audio::SoundListener{}, -1);
+    };
+    steps(60);
+    const float full = sound.master();
+    sound.set_free_run_duck(true);
+    steps(30);
+    CHECK(near(sound.master() / full, 0.6, 0.02));
+    steps(30);
+    CHECK(near(sound.master() / full, 0.2, 1e-3));
+    sound.set_free_run_duck(false);
+    steps(60);
+    CHECK(near(sound.master() / full, 1.0, 1e-3));
 }
 
