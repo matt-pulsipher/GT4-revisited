@@ -2,9 +2,11 @@
 //
 //   gt4r_diff <disc> [test]      tests: spec (every car's equipment and spec), params (the parameter block's fields)
 //   gt4r_diff <disc> ai [course] [cars] [laps]   the program's own computer drivers run a field (ai.cpp)
+//   gt4r_diff <disc> showroom [cars]             every car's showroom figures and evaluation (showroom.cpp)
 
 #include "base/log.h"
 #include "diff.h"
+#include "showroom_check.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -30,6 +32,8 @@ int main(int argc, char** argv) {
         if (test.empty() || test == "params") ok = gt4r::diff::run_params(*disc, true).ran && ok;
         if (test.empty() || test == "leaves") ok = gt4r::diff::run_leaves(*disc, true).ran && ok;
         if (test.empty() || test == "step") ok = gt4r::diff::run_step(*disc, true).ran && ok;
+        if (test == "showroom") ok = gt4r::diff::run_showroom(*disc, true, argc > 3 ? size_t(std::atoi(argv[3])) : 0).ran && ok;
+        if (test == "showroom" || test == "picker") ok = gt4r::diff::run_picker(*disc, true).ran && ok;
         if (test == "ai") { // gt4r_diff <disc> ai [course] [car,car,...] [laps]
             std::vector<std::string> cars;
             const std::string list = argc > 4 ? argv[4] : "_1100_standard_type11_49,z_act_70,n360_67,midget2_d_type_98,s500_63,ka_01";

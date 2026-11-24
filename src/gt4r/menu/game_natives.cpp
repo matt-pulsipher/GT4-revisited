@@ -6,6 +6,7 @@
 // docs/formats/menu.md ("The game's state") says what each answers and why.
 
 #include "gt4r/menu/game_internal.h"
+#include "gt4r/menu/game_opponents.h"
 #include "gt4r/menu/game_settings.h"
 #include "gt4r/save/card_image.h"
 
@@ -230,6 +231,20 @@ std::string Database::race_unit_label(int unit) {
     if (!t || !l || unit < 0 || size_t(unit) >= t->ids().size()) return {};
     const std::string* s = l->label(t->ids()[size_t(unit)]);
     return s ? *s : std::string();
+}
+
+const sim::Showroom* Database::showroom() {
+    if (!db || !program.known()) return nullptr;
+    if (!showroom_) showroom_ = std::make_unique<sim::Showroom>(*db, program);
+    return showroom_.get();
+}
+
+std::optional<sim::ShowroomFigures> Database::stock_showroom(const std::string& label) {
+    if (const auto it = stock_figures_.find(label); it != stock_figures_.end()) return it->second;
+    const sim::Showroom* s = showroom();
+    std::optional<sim::ShowroomFigures> f = s ? s->stock(label) : std::nullopt;
+    stock_figures_[label] = f;
+    return f;
 }
 
 const Database::Spec& Database::spec(const std::string& label) {
@@ -1219,12 +1234,12 @@ void install_game_natives(Runtime& rt, script::Module& menu) {
         // MRandom (0x2CB888): GetValue(lo, hi) from the program's generator (its state starts at
         // 0x12345678); GetValue(lo, hi, seed) one draw of a generator seeded so.
         auto cls = make_class(menu, "MRandom");
-        auto global = std::make_shared<ProgramRandom>(ProgramRandom{0x12345678u});
+        GameNatives* global = n.get();
         auto roll = [global](Vm&, const Value&, Args a) {
             if (a.size() < 2) return Value{};
             const s32 lo = arg_int(a, 0), hi = arg_int(a, 1);
             ProgramRandom own{u32(arg_int(a, 2))};
-            ProgramRandom& g = a.size() > 2 ? own : *global;
+            ProgramRandom& g = a.size() > 2 ? own : global->random;
             return number(s32(g.next01() * float(hi - lo) + float(lo)));
         };
         static_fn(*cls, "GetValue", roll);
@@ -1377,7 +1392,57 @@ void install_game_natives(Runtime& rt, script::Module& menu) {
         for (const char* same : {"ShiftCarCode", "GetDirtCarCode", "GetSnowCarCode"})
             static_fn(*cls, same, [](Vm&, const Value&, Args a) { return a.empty() ? text("") : text(a[0].to_string()); });
         static_fn(*cls, "GetDescriptionID", [](Vm&, const Value&, Args a) { return a.empty() ? text("") : text(a[0].to_string()); });
-        static_fn(*cls, "PickUpEnemyCars", [](Vm&, const Value&, Args) { return Value::array({}); });
+        // PickUpEnemyCars(car, list, offset, range, count, dirt) (0x1308C8; game_opponents.h): [[car, paint], ...].
+        GameNatives* np = n.get();
+        static_fn(*cls, "PickUpEnemyCars", [d, np](Vm&, const Value&, Args a) {
+            if (a.size() < 2) return Value{};
+            CarHandle* player = car_handle(a[0]);
+            if (!d->get(np->config) || !player) return Value::array({});
+            opponents::PickInput in;
+            in.player_label = player->label;
+            const ByteSpan row = d->car_row(player->label);
+            in.player_category = row.size() > 0x11 ? row[0x11] : 0;
+            sim::Equipment eq;
+            std::memcpy(eq.bytes.data(), player->record().active(), sim::Equipment::kSize);
+            const sim::Showroom* sr = d->showroom();
+            const std::optional<sim::ShowroomFigures> own = sr ? sr->figures(eq) : std::nullopt;
+            in.player_score = own ? own->evaluation : opponents::F::raw(0);
+            if (const std::vector<Value>* items = a[1].items())
+                for (const Value& v : *items) in.list.push_back(v.to_string());
+            in.offset = opponents::F(arg_number(a, 2, 0.0f));
+            in.range = a.size() > 3 ? opponents::F(arg_number(a, 3)) : opponents::F::raw(0x3B03126E); // 0.002
+            in.count = a.size() > 4 ? arg_int(a, 4) : 5;
+            in.dirt = a.size() > 5 && arg_int(a, 5) != 0;
+            in.category = [d](const std::string& label, int& c) {
+                const ByteSpan r = d->car_row(label);
+                if (r.size() <= 0x11) return false;
+                c = r[0x11];
+                return true;
+            };
+            in.score = [d](const std::string& label) {
+                const std::optional<sim::ShowroomFigures> f = d->stock_showroom(label);
+                return f ? f->evaluation : opponents::F::raw(0);
+            };
+            // The car's ARCADEINFO_NORMAL row by its GENERIC_CAR id (0x448AD0 -> 0x448B48): entry 6, the dirt race.
+            in.dirt_race = [d](const std::string& label) {
+                const db::Labels* labels = d->db->labels("GENERIC_CAR");
+                const db::Table* table = d->db->table("ARCADEINFO_NORMAL");
+                const std::optional<u32> id = labels ? labels->id(label) : std::nullopt;
+                const ByteSpan r = table && id ? table->row(*id) : ByteSpan{};
+                if (r.size() < 0x38) return -1;
+                for (size_t i = 0x30; i < 0x38; ++i)
+                    if (r[i] != 0xFF) return 1;
+                return 0;
+            };
+            // getColorNum (0x445828): the paints, less the last when the car's row hides it.
+            in.paints = [d](const std::string& label) {
+                const ByteSpan r = d->car_row(label);
+                return int(d->spec(label).paints.size()) - (r.size() > 0x12 && (r[0x12] & 2) ? 1 : 0);
+            };
+            std::vector<Value> out;
+            for (const opponents::Pick& p : opponents::pick(in, np->random)) out.push_back(Value::array({text(p.car), number(p.paint)}));
+            return Value::array(std::move(out));
+        });
     }
     // MCourseData: a course's row of the COURSE table by its label. The program reads the same
     // row (0x1B2F10, 0x1B3030): +0x10 the surface (0 dry, 1 wet, 2 dirt, 3 snow), +0x11 the most
