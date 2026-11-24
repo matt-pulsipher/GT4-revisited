@@ -45,6 +45,9 @@ Tables tables(const Program& program) {
         for (u32 f = 0; f < 24; ++f) g.fixed_aim[f] = f < 16 ? program.b(PrologueProgram::kFixedAim + f) : 0;
         t.globals.steer_mode = g.mode;
     }
+    t.pedal_ramps = program.b(PrologueProgram::kController + 0x11) != 0;
+    t.throttle_up = F::raw(program.w(PrologueProgram::kPedalSteps)), t.throttle_down = F::raw(program.w(PrologueProgram::kPedalSteps + 4));
+    t.brake_up = F::raw(program.w(PrologueProgram::kPedalSteps + 8)), t.brake_down = F::raw(program.w(PrologueProgram::kPedalSteps + 12));
     for (u32 r = 0; r < t.wheel_layouts.size(); ++r)
         for (u32 k = 0; k < rules::kWheelLayoutSize; ++k) t.wheel_layouts[r][k] = program.b(PrologueProgram::kWheelLayouts + rules::kWheelLayoutSize * r + k);
     return t;
@@ -275,6 +278,30 @@ void wheel_steer(ex::Car& c, CarPart& x, const Tables& t) {
             else if (o < -lim) x.tires.steer_offset[i] = -lim, x.offset_rate[i] = F();
         }
     }
+}
+
+void driver_input_pad(ex::Car& c, const ex::PadConstants& k, const ex::PadFrame& f, u8 course_kind, const Tables& t) {
+    const F throttle = c.throttle_pedal, brake = c.brake_pedal, mean_slip = c.x420, countersteer = c.countersteer;
+    c.full_throttle = 1;
+    ex::pad_hud(c, f);
+    ex::pad_controls(c, k, f, course_kind);
+    c.x420 = mean_slip; // (the engine's routine marks F +0x420; Prologue keeps the mean slip angle there)
+    c.countersteer = countersteer; // (Prologue keeps no share of the slip-angle extension)
+    if (t.pedal_ramps && f.kind != 4 && f.kind != 6) {
+        auto ease = [](F from, F to, F up, F down) {
+            if (from < to) {
+                const F v = from + up;
+                return to < v ? to : v;
+            }
+            const F v = from - down;
+            return v < to ? to : v;
+        };
+        // (the throttle while its analog axis is pressed and the back axis not; the brake whenever it is analog)
+        if ((f.flags & 2) && f.throttle != 0 && f.back == 0) c.throttle_pedal = ease(throttle, c.throttle_pedal, t.throttle_up, t.throttle_down);
+        if (f.flags & 4) c.brake_pedal = ease(brake, c.brake_pedal, t.brake_up, t.brake_down);
+    }
+    c.throttle = c.throttle_pedal;
+    ex::set_brake(c, c.brake_pedal);
 }
 
 void ground_frame(ex::Car& c) {

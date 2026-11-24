@@ -64,6 +64,13 @@ int run(Disc& disc, const std::string& course, const std::string& car, int steps
         std::printf("prologue: %s\n", err.c_str());
         return 1;
     }
+    if (std::getenv("GT4R_PAD_CONSTS")) {
+        std::printf("prologue: pad bytes 0x504950..: ");
+        for (u32 k = 0; k < 0x20; ++k) std::printf("%02X ", ee.r8(0x504950 + k));
+        std::printf("\nprologue: 0x504AA4..: ");
+        for (u32 k = 0; k < 7; ++k) std::printf("%g ", double(ee.rf(0x504AA4 + 4 * k)));
+        std::printf("\n");
+    }
     std::printf("prologue: the race is set up (%s, %s); the mean slip switch %u, steering mode %u\n", course.c_str(), car.c_str(), ee.r8(0x506612), ee.r32(0x714880));
     // The parameter block the program's converter made, against the engine's converter (Gran Turismo 3's, 0x1DBFD8) on the
     // program's own spec: word by word, the program's block read at the engine's offset + 0, 24 or 44.
