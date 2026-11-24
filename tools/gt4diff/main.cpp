@@ -40,6 +40,8 @@ int main(int argc, char** argv) {
             }
             ok = gt4r::diff::run_ai(*disc, true, argc > 3 ? argv[3] : "tsukuba", cars, argc > 5 ? std::atoi(argv[5]) : 3).ran && ok;
         }
+        if (test == "bspec") // gt4r_diff <disc> bspec: the B-spec skill on made-up records
+            ok = gt4r::diff::run_bspec_skill(*disc, true, {"s500_63", "nsx_r_02", "ka_01", "_787b_91", "impreza_wrx_sti_02"}).ran && ok;
         if (test == "demo") ok = gt4r::diff::run_demo(*disc, true, argc > 3 ? argv[3] : "usl0b0001").ran && ok; // gt4r_diff <disc> demo [label]
         return ok ? 0 : 1;
     } catch (const std::exception& e) {

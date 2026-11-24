@@ -14,7 +14,9 @@
 #include "gt4r/sim/ai/drivers.h"
 #include "gt4r/sim/ai/pit_flow.h"
 
+#include <array>
 #include <functional>
+#include <utility>
 #include <span>
 #include <vector>
 
@@ -35,6 +37,10 @@ struct PitHooks {
     std::function<std::vector<F>(size_t car)> tread, burst;
     // A wheel given a new tire (0x362E58), at the stop's 60th step from its end.
     std::function<void(size_t car, int wheel)> new_tire;
+    // The car's tires as the race keeps them (cond + 0xFB20 + 2 i: front, rear kind), for the stops' record.
+    std::function<std::pair<int, int>(size_t car)> tires;
+    // The race display's events (0x35E000): 1 the car into the pits, 6 out of them.
+    std::function<void(size_t car, int event)> display_event;
     // The car stood in its box (0x363560: the standing start's pose there) facing `heading` (the box's, radians).
     std::function<void(size_t car, F heading)> place_in_box;
 };
@@ -64,8 +70,14 @@ public:
     PitCar& car(size_t i) { return cars_[i]; }
     // The pit message (F +0x5FA) for the race display: 0x35ACD8's codes.
     int message(size_t i) const { return cars_[i].status; }
-    // The stops each car made (0x35AD10 counts them).
+    // The stops each car made (0x35AD10: cond + 0xD9E4 + 2 i) and the record of its last four, newest first (cond + 0xD9F0 +
+    // 8 i: the lap of the stop, 0x343B50; + 0xDA20 + 8 i: the tires fitted, front and rear, -1 none).
     int stops(size_t i) const { return stops_[i]; }
+    struct StopRecord {
+        int lap = 0;
+        int front = -1, rear = -1;
+    };
+    const std::array<StopRecord, 4>& stop_record(size_t i) const { return records_[i]; }
 
 private:
     PitFlow flow_;
@@ -75,6 +87,7 @@ private:
     std::vector<PitCar> cars_;
     std::vector<F> last_d_;
     std::vector<int> last_lap_, stops_;
+    std::vector<std::array<StopRecord, 4>> records_;
     std::vector<gt3r::s8> axle_{1, 1, -1, -1};
 };
 

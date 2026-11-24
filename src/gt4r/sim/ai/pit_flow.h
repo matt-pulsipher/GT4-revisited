@@ -66,8 +66,8 @@ struct PitAction {
         EndRun,     // 0x343D78 (3): the car's run ended in the pits
         PlaceInBox, // 0x363560: the car stood in its box (the standing start's pose), its hold 721
         Heading,    // the car turned to its box's heading (F +0x570, the body's axes 0x36C9F8): `value`
-        CountStop,  // 0x35AD10: the race counts the car's stop (its pit stops, the order of the stops)
-        Recount,    // 0x35ADF0: the race's order updated for a car out of the pits (0x35E000)
+        CountStop,  // 0x35AD10: the race counts the car's stop (its stop count, the stops' record) and tells the display (0x35E000 event 1)
+        Recount,    // 0x35ADF0: the display told the car is out of the pits (0x35E000 event 6; not for a car of layout kind 1 / 2 ❓)
         Refuel,     // 0x354D60 (rate 0): a step of refuelling
         Driver,     // 0x463E80: the driver's object told (a computer car met by another on the pit lane)
     } kind;

@@ -103,6 +103,14 @@ struct DemoRunResult {
 };
 DemoRunResult run_demo(Disc& disc, bool print, const std::string& label);
 
+// The B-spec driver's skill (0x468C50) on made-up records against ours (bspec.cpp).
+struct BSpecSkillResult {
+    bool ran = false;
+    std::string error;
+    u64 calls = 0, equal = 0;
+};
+BSpecSkillResult run_bspec_skill(Disc& disc, bool print, const std::vector<std::string>& cars, int records = 64);
+
 // The C library's float routines the step calls, against the shared engine's.
 struct LeavesResult {
     bool ran = false;

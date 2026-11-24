@@ -154,6 +154,9 @@ public:
 
     // B-spec (control source 1): the car's computer driver takes the player's commands. Call before the first step.
     void set_bspec(size_t car);
+    // The B-spec driver's skill (0x468C50, bspec_skill.h): its arcs', braking and alongside multipliers (D +0xB8 / +0xBC /
+    // +0xC0), set at the race's start after set_bspec.
+    void set_bspec_skill(size_t car, gt3r::ee::F corner, gt3r::ee::F brake, gt3r::ee::F alongside);
     // A B-spec command (0x3F19E0): the pace level 0 .. 4 (the program's five: 2 the even pace, 0 the slowest, 4 the
     // fastest; -1 unchanged) and passing (0 off, 1 on, -1 unchanged). The driver keeps both until the next command; passing
     // turned off sends a driver on a passing line back to the main line.

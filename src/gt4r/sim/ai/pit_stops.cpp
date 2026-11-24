@@ -5,7 +5,7 @@
 namespace gt4r::sim::ai {
 
 PitStops::PitStops(const Field& field, const Program& program, size_t cars, PitHooks hooks, PitRace race)
-    : flow_(program), hooks_(std::move(hooks)), race_(race), cars_(cars), last_d_(cars), last_lap_(cars, 0), stops_(cars, 0) {
+    : flow_(program), hooks_(std::move(hooks)), race_(race), cars_(cars), last_d_(cars), last_lap_(cars, 0), stops_(cars, 0), records_(cars) {
     if (program.known()) race_.refuel_rate = program.b(0x620E25);
     for (const LinePoint& p : field.lines().line(CourseLines::kPitStop)) line_.dist.push_back(F(p.dist)), line_.heading.push_back(F(p.heading));
     // A car's box (0x363B10 by 0x46BDA0): the stop line's point 8 less its place on the grid (none without the line).
@@ -18,7 +18,19 @@ void PitStops::before(const Field& field, std::span<race::CarInput> inputs) {
         PitCar& c = cars_[i];
         if (c.hold == 0) continue;
         // The stop's own timing (0x35C0B8, phase 4): the counter, the tires.
+        const u16 svc = c.service;
+        const u8 chose_f = c.tire_front, chose_r = c.tire_rear;
         const HoldEvents e = pit_hold_step(c, std::vector<gt3r::s8>(axle_));
+        // At 645 with tires served: the stop's record takes the tires fitted (0xFE: the car's own kind again; a choice the
+        // kind chosen).
+        if (c.hold == 0x285 && (svc & 0xC0)) {
+            const std::pair<int, int> own = hooks_.tires ? hooks_.tires(i) : std::pair<int, int>{-1, -1};
+            StopRecord& r = records_[i][0];
+            if (chose_f == 0xFE) r.front = own.first;
+            else if (chose_f != 0xFF && e.chosen_tires) r.front = chose_f;
+            if (chose_r == 0xFE) r.rear = own.second;
+            else if (chose_r != 0xFF && e.chosen_tires) r.rear = chose_r;
+        }
         for (int w : e.new_tires)
             if (hooks_.new_tire) hooks_.new_tire(i, w);
         // Standing in the box: the hold counter keeps the car (the preparation's hold, 0x35C0B8 / 0x357700).
@@ -92,7 +104,19 @@ void PitStops::after(const Session& session, Field& field) {
             case PitAction::Heading:
                 if (hooks_.place_in_box) hooks_.place_in_box(i, a.value);
                 break;
-            case PitAction::CountStop: ++stops_[i]; break;
+            case PitAction::CountStop: { // 0x35AD10
+                if (hooks_.display_event) hooks_.display_event(i, 1);
+                ++stops_[i];
+                auto& rec = records_[i];
+                for (size_t k = 3; k > 0; --k) rec[k] = rec[k - 1];
+                // 0x343B50: the car's lap (less one when F +0x4B2), at least 1
+                const int lap = st.lap > 0 ? (c.x4B2 ? st.lap - 1 : st.lap) : 1;
+                rec[0] = {lap, -1, -1};
+                break;
+            }
+            case PitAction::Recount:
+                if (hooks_.display_event) hooks_.display_event(i, 6);
+                break;
             case PitAction::Refuel:
                 if (hooks_.fuel && hooks_.set_fuel && hooks_.tank) {
                     F fuel = hooks_.fuel(i);

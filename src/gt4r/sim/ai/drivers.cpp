@@ -834,6 +834,12 @@ void Field::finish(size_t car, int mode, bool player_car) {
 }
 
 int Field::kind(size_t car) const { return car < drivers_.size() && drivers_[car] ? drivers_[car]->kind : 0; }
+void Field::set_bspec_skill(size_t car, F corner, F brake, F alongside) {
+    Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
+    if (!d) return;
+    d->corner_mult = corner, d->brake_mult = brake, d->alongside_mult = alongside;
+}
+
 int Field::control(size_t car) const { return car < drivers_.size() && drivers_[car] ? drivers_[car]->control : -1; }
 
 bool Field::pit_enter(size_t car) {
