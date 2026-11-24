@@ -197,7 +197,7 @@ void RaceWorld::build_simulation() {
             // The computer drivers: every car but the player's (his too when he watches).
             std::vector<size_t> computer;
             for (size_t i = computer_player_ ? 0 : 1; i < setup_.entries.size(); ++i) computer.push_back(i);
-            field_.reset();
+            field_.reset(), pits_.reset();
             if (!computer.empty()) {
                 try {
                     field_ = sim::ai::Field::open(*app_.disc(), setup_.course, *session_, computer, setup_.pace);
@@ -205,6 +205,10 @@ void RaceWorld::build_simulation() {
                     if (computer_player_) field_->set_bspec(0);
                     for (size_t c = 0; c < commands_.size(); ++c) field_->command(c, {commands_[c].pace - 1, commands_[c].overtake ? 1 : 0});
                     for (size_t car : computer) session_->set_driver_aids(car, field_->params(car).aids, field_->params(car).grip); // (their aids)
+                    // Their pit stops (the program's pit pass, request and stop; no fuel or wear counted here).
+                    sim::ai::PitRace pr;
+                    pr.laps = setup_.laps;
+                    pits_ = std::make_unique<sim::ai::PitStops>(*field_, program, setup_.entries.size(), sim::ai::PitHooks{}, pr);
                 } catch (const std::exception& e) {
                     if (!noted_) LOG_WARN("Drive: no computer drivers (%s); the simple driver drives", e.what());
                 }
@@ -244,6 +248,7 @@ void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool pla
         hold ? field_->hold(driven) : field_->drive(driven);
         if (!hold && session_) field_->apply_time_scales(*session_); // the rubber band's step lengths
         if (computer_player_ && !player_by_computer && !inputs.empty()) driven[0] = inputs[0];
+        if (!hold && pits_) pits_->before(*field_, driven); // (a car standing in its box held)
         inputs = driven;
     }
     // A rolling start's run-up: every car kept at the start's speed, the throttle eased and a touch
@@ -269,6 +274,7 @@ void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool pla
         for (race::CarInput& in : held) in = {}, in.brake = 1;
         sim_->step(held, kStep);
     } else sim_->step(inputs, kStep);
+    if (!hold && pits_ && session_) pits_->after(*session_, *field_);
     if (!hold) course_->animate(kStep, sim_->cars());
     // The cones and boards the cars run into: each car's box from its wheels' places.
     gadget_hits_ = 0;

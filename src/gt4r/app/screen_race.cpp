@@ -292,6 +292,7 @@ public:
         ws.smoke = setup.smoke, ws.reflection = setup.reflection, ws.rail = setup.rail;
         ws.computer_player = setup.auto_drive || setup.start == race::StartType::Rolling;
         ws.pace = setup.pace;
+        ws.laps = setup.laps;
         ws.options = setup.options;
         ws.playlist = setup.playlist;
         // The grid: the player at the back, the others ahead of him in entry order.
@@ -893,6 +894,12 @@ public:
         return pose;
     }
 
+    // B-spec's pit command (Circle: 0x3F19E0's command 6) for the player's car.
+    void bspec_pit() {
+        if (watched_ && world_->pit(0)) LOG_INFO("Drive: B-spec pit command at %.1f s", double(flow_.time_ms()) / 1000);
+    }
+    int pit_message() const { return world_->pit_message(0); }
+
     // B-spec's Select Car (Up / Down): the car the views follow, by race order (the player's car first:
     // 0). ❓ The program's choice by the order is not read: here the next or last car in race order.
     size_t focus() const { return watched_ && !replaying_ && !menu_scene_ && focus_ < world_->car_count() ? focus_ : 0; }
@@ -1181,13 +1188,14 @@ public:
         const gt3r::PadState& pad = app.input().race_pad(0);
         if (race_->watched()) {
             // B-spec's keys (the help strip's): Left / Right the pace, Triangle overtake, Cross the view,
-            // R2 the display, Up / Down the car the views follow. (Circle's pit and R1's race monitor are
-            // not built.)
+            // R2 the display, Up / Down the car the views follow, Circle the pit (the player's car in at the
+            // next pit entry). (R1's race monitor is not built.)
             if (m.horizontal()) race_->bspec_pace(m.horizontal());
             if (m.pressed(PadButton::Triangle)) race_->bspec_overtake();
             if (m.pressed(PadButton::Cross)) race_->next_view();
             if (m.pressed(PadButton::R2)) race_->bspec_display();
             if (m.vertical()) race_->select_car(m.vertical());
+            if (m.pressed(PadButton::Circle)) race_->bspec_pit();
         } else if (m.pressed(PadButton::R1) || m.pressed(PadButton::Select)) race_->next_view();
         look_back_ = gt3r::race::look_back_held(pad, false);
         // Whole simulation steps for the time that has passed (at most four a frame).

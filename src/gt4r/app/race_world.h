@@ -14,6 +14,7 @@
 #include "gt4r/race/replay_script.h"
 #include "gt4r/race/simulation.h"
 #include "gt4r/sim/ai/drivers.h"
+#include "gt4r/sim/ai/pit_stops.h"
 #include "gt4r/sim/equipment.h"
 
 #include <array>
@@ -57,6 +58,7 @@ struct WorldSetup {
     bool reflection = true;
     bool rail = false; // the stand-in simulation instead of the game's
     sim::ai::Pace pace; // the computer drivers' (the event's)
+    int laps = 0;       // the race's laps (the pit stops' last lap; 0 a run without an end)
     bool computer_player = false; // the computer drivers drive the player's car too
     // The game's options (menu::GameState::options: the sound's volumes and output) and the race
     // play list; none: a new game's.
@@ -96,6 +98,16 @@ public:
         commands_[car] = {pace, overtake};
         if (field_) field_->command(car, {pace - 1, overtake ? 1 : 0});
     }
+    // B-spec's pit command (Circle) for a car the computer drives: it takes the pit lane at its entry,
+    // stops in its box 12 s with new tires and goes out again (sim/ai/pit_stops.h). False without the drivers.
+    bool pit(size_t car) {
+        if (!pits_) return false;
+        pits_->request(car);
+        return true;
+    }
+    // The car's pit message (F +0x5FA, 0x35ACD8's codes; 0 none) and its stops made.
+    int pit_message(size_t car) const { return pits_ && car < car_visuals_.size() ? pits_->message(car) : 0; }
+    int pit_stops(size_t car) const { return pits_ && car < car_visuals_.size() ? pits_->stops(car) : 0; }
     // What goes with the cars shown in a step, live (the simulation's) or recorded: smoke and dust
     // from the wheels, and the race's sound heard from `camera` (none: no sound) about car `target`.
     void present(std::span<const race::CarState> cars, const audio::SoundListener* camera, int target, bool live);
@@ -169,6 +181,7 @@ private:
     std::unique_ptr<race::RailSimulation> rail_; // the stand-in, when the simulation is not running
     std::unique_ptr<sim::Session> session_;
     std::unique_ptr<sim::ai::Field> field_; // the computer drivers, on the game's simulation
+    std::unique_ptr<sim::ai::PitStops> pits_; // their pit stops
     bool computer_player_ = false;
     float player_ps_ = 0;
     float hold_speed_ = 0;
