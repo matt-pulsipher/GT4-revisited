@@ -31,11 +31,12 @@ struct Affine {
 
 // Whether a widget of a class cuts its children to its rectangle when its layout does not say:
 // the boxes do (mBox's constructor, 0x200C08, sets `clip`), and so do the select box (0x2D8C90,
-// the event halls' and Photo Travel's lists), the option menu, the scale and slider bars and the
-// root window; other composites do not (mComposite's, 0x204F10). The layouts write `clip 0` on
-// boxes and `clip 1` on the others.
+// the event halls' and Photo Travel's lists) and the root window (0x232E00); the option menu
+// (0x2C7498), the scale bar (0x236860) and the slider bar (0x2DD820), boxes too, turn it off again
+// (the slider's value tag stands above its bar); other composites do not cut (mComposite's,
+// 0x204F10). The layouts write `clip 0` on boxes and `clip 1` on the others.
 inline bool clips_by_default(std::string_view type) {
-    for (std::string_view box : {"Box", "DBox", "HBox", "VBox", "FBox", "MBox", "RootWindow", "OptionMenu", "ScaleBar", "SliderBar", "PhotoMapWindow", "SelectBox"})
+    for (std::string_view box : {"Box", "DBox", "HBox", "VBox", "FBox", "MBox", "RootWindow", "PhotoMapWindow", "SelectBox"})
         if (type == box) return true;
     return false;
 }

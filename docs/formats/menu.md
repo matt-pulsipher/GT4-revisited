@@ -60,7 +60,7 @@ none compared with the program's own code yet):
 | `visible` 0 | Not drawn, nor its children |
 | `visible_condition`, `visible_compare` | Drawn when `(state & visible_compare) == visible_condition` (either absent: 0, and the mask is the condition). The state's bits by the older files' `cond_active`, `cond_focus`, `cond_prelight`, `cond_insensitive`: 1 active, 2 focus, 4 prelight, 8 insensitive; a focused widget's faces test 2 or 4 (the runtime sets both) |
 | `opacity` | Multiplies the alpha of the widget and its children |
-| `clip` 1 | Children are cut to the rectangle. The boxes (`Box`, `HBox`, `VBox`, `FBox`, `MBox`, `RootWindow`, `OptionMenu`, `ScaleBar`, `SliderBar`) and `SelectBox` (0x2D8C90: the event halls' lists) cut by default (mBox's constructor 0x200C08 sets it, 0x206858); other composites do not (0x204F10): the layouts write `clip 0` on boxes and `clip 1` on the others |
+| `clip` 1 | Children are cut to the rectangle. The boxes (`Box`, `HBox`, `VBox`, `FBox`, `MBox`), `RootWindow` (0x232E00) and `SelectBox` (0x2D8C90: the event halls' lists) cut by default (mBox's constructor 0x200C08 sets it, 0x206858); `OptionMenu` (0x2C7498), `ScaleBar` (0x236860) and `SliderBar` (0x2DD820), boxes too, turn it off again; other composites do not (0x204F10): the layouts write `clip 0` on boxes and `clip 1` on the others |
 | `ColorFace` `color` | One colour, or four for the corners clockwise from the top left |
 | `ImageFace` `image_path`, `color` | The picture over the rectangle, tinted; `blend` 1 adds |
 | `FrameImageFace` `tl_`, `t_`, `tr_`, `l_`, `r_`, `bl_`, `b_`, `br_image_path`, `image_path` | Corners at their own size, sides stretched between, the middle over the rest |
