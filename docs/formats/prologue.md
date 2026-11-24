@@ -76,7 +76,7 @@ column ← Prologue's:
 | `CAR_NAME_<language>` (8 / 16) | the name (GT4 +0x00, +0x04, +0x08), the short name (+0x0C ← +0x04) |
 | `VARIATION` (39 / 52) | +0x00 .. +0x26: the texts, the body's box, the color |
 | `COURSE` (9 / 22) | +0x00 .. +0x07 the texts; the surface GT4 +0x10 ← +0x08 |
-| `RACE` (98 / 151) | the course {row, table}; the grid GT4 +0x3E ← +0x22 and the computer drivers' columns GT4 +0x4B .. +0x73 ← +0x31 .. +0x57, +0x5A, +0x5B, where the race's copy of a row reads them (GT4 0x35E108, Prologue 0x3C5978); the laps GT4 +0x43 ← +0x25 ❓ (by the data: 2 on every championship race, 1 or 3 on the tests); ❓ the rest |
+| `RACE` (98 / 151) | the course {row, table}; the grid GT4 +0x3E ← +0x22 and the computer drivers' columns GT4 +0x4B .. +0x73 ← +0x31 .. +0x57, +0x5A, +0x5B, where the race's copy of a row reads them (GT4 0x35E108, Prologue 0x3C5978); the laps GT4 +0x43 ← +0x25 ❓ (by the data: 2 on every championship race, 1 or 3 on the tests); the gold, silver and bronze times GT4 +0x76 .. +0x7B ← +0x5C .. +0x61 (minutes, seconds) and GT4 +0x1A .. +0x1F ← +0x0C .. +0x11 (u16 ms), as 0x409B70 / 0x409BB0 / 0x409BF0 read them (all 0: none; on the license tests +0x5A is the test's number); ❓ the rest |
 
 Values that both discs have but changed between them (Prologue's are kept): brake torques, the
 yaw byte (Prologue's is 1.4 to 1.7 times Gran Turismo 4's), the suspension's travel, bump stops
@@ -272,11 +272,22 @@ that Gran Turismo 4's do not:
   list; `prologue` the school, a present's page or the status.
 - `MScriptWatcher(context, module, "name")`: the function by its module and name.
 - Arrays' `bsearch(value)`: the index in the sorted array, -1 when absent.
-- `main::game.license`: `getUnit(number | race code)` a unit per license test (the code by the
-  scripts' own `main::prologue::getLicenseID`; the main script writes each unit's `category`),
-  with `isPassed`, `getBestTime`, `getRankNum`, `getPassCode`; `isPassedCategory`,
-  `isCompletePassedCategory`, `getDetailCount`, `getTotalPoint`, `forcePassedAll`. The results
-  are a new game's (nothing passed). ❓ A test's result kept and saved.
+- `main::game.license` (the program's license record: 48 units of 0x2E8 bytes from the object's +8, its natives
+  0x1582C0 and 0x15B4D0): `getUnit(number | race code)` a unit per license test (the code by the scripts' own
+  `main::prologue::getLicenseID`; the main script writes each unit's `category`), with `isPassed`, `isCompletePassed`,
+  `getBestTime`, `getRankNum` (the entries in its ranking of ten, 0x3FE548), `getPoint`, `getPassCode`;
+  `isPassedCategory` / `isCompletePassedCategory` (every unit of the category with a medal / gold: 0x3FF000 / 0x3FF080),
+  `getDetailCount(name)` (the units whose medal is that of the names at 0x505008: none, bronze, silver, gold;
+  0x3FEF78), `getTotalPoint` (their points summed, 0x3FEFA8), `forcePassedAll`. A unit keeps its medal (+4: 3 gold,
+  2 silver, 1 bronze; the best, 0x3FE1A0), its points (+8: the most, 0x3FE430) and ten times in order (from +0x20,
+  0x48 bytes each). The license race's end (0x19ED58) records a run: its medal, its time and its points (0x19F410: by
+  the test's RACE +0x22 and +0x5B and whether it has a bronze time, 0x19F508: gold 100 x (silver - time) /
+  (silver - gold), silver 50 x (bronze - time) / (bronze - silver), bronze 10; 0x19F620: 100 / 50 / 10; 0x19F670: gold as
+  0x19F508, silver 50, bronze 10; integer arithmetic, ms). Ours keeps them for the session (`recordResult`, called from
+  the race's end); ❓ their save, the ranking's names and pass codes, `isPassed`'s own native (taken as a medal).
+- A license race's gold, silver and bronze times go into the race menus' work (`MQuickWork` goldTime ..) from its
+  RACE row as the program's race set-up does (0x1A1C10 with 0x409B70 ..): the race display's three medal lines show
+  them (`~/gt4re-out/prologue/r5/lic3.png`: test 1 1'47.600 / 1'48.000 / none; `lic4.png`: test 2 0'12.180 / 0'12.200 / 0'13.000).
 - A license test's car is the first of its event's opponents (`demio_sport_03` for `l0p0001` on
   `L_20r60r2`), its grid the event's (1).
 
@@ -321,4 +332,6 @@ pages match the original's layout; the pre-race page's camera here is the course
 over the field, not the original's shots of the player's car; Japanese words are drawn by
 `menu-draw` (the settings' labels and START are blank here). ❓ Not done: the license tests'
 target times (the `RACE` rows hold none; not located), the results and presents after a test
-(`MPrologueLicense` keeps no result), the dialogs' Japanese text.
+(❓ test 2 on `L_fisco6` runs a whole lap of Fuji in ours: where a test ends is not
+read), the dialogs' Japanese text, the license results movie's two strip pictures (1024 x 1, 1 x 512) drawn white and
+its `GetRank` / `GetDefaultName` / `NameEntry` calls (0x3FE3B0 finds a time's place in the ranking).

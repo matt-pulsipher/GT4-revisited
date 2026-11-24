@@ -265,7 +265,7 @@ TEST(disc_prologue_license_target_times) {
         // (a test's times rise from gold to bronze where it has them)
         if (e->target_ms[1] > 0) CHECK(e->target_ms[0] <= e->target_ms[1]);
         if (e->target_ms[2] > 0) CHECK(e->target_ms[1] <= e->target_ms[2]);
-        if (n <= 6) std::printf("  %s: %u / %u / %u ms\n", label, e->target_ms[0], e->target_ms[1], e->target_ms[2]);
+        if (n <= 6) std::printf("  %s on %s, %d laps: %u / %u / %u ms\n", label, e->course.c_str(), e->laps, e->target_ms[0], e->target_ms[1], e->target_ms[2]);
     }
     std::printf("  %d of 46 tests have a gold time\n", with_gold);
     CHECK(with_gold == 46);
