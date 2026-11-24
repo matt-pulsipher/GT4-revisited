@@ -307,11 +307,32 @@ HoldEvents pit_hold_step(PitCar& c, const std::vector<s8>& axle) {
     return e;
 }
 
+void pit_choice(PitCar& c, u8 command, u8 front, u8 rear, u8 fuel) {
+    if (command == 1) {
+        u16 v = c.service;
+        if (!(v & 0x10)) return;
+        if (v & 4) {
+            if (front != 0xFF) v |= 0x40;
+            if (rear != 0xFF) v |= 0x80;
+            c.tire_front = front, c.tire_rear = rear;
+        }
+        if ((v & 8) && fuel != 0) v |= 0x100;
+        v &= 0xFFE3;
+        c.service = v;
+        if (v == 0) c.hold = 0;
+    } else if (command == 2) {
+        if (c.service & 0x100) {
+            c.service ^= 0x100;
+            if (!(c.service & 0xC0)) c.hold = 90;
+        }
+    }
+}
+
 u16 service_of(const PitCar& c, const ServiceInputs& s) {
     if (!s.pits_on || c.pad_state != 0 || s.lap_state == 1 || s.layout_kind == 4) return 0;
     u16 v = s.fuel_on ? 0xC : 0x4;
     if (s.tires_allowed) v |= 2;
-    if (s.control != 2 && s.player_choice) return (v & 0xC) ? u16(v | 1) : v;
+    if (s.control != 2 && s.player_choice) return (v & 0xC) ? u16((v & 0xC) | 0x10) : v;
     if (v & 4) v = u16((v | 0xC0) & ~4);
     if (v & 8) v = u16((v | 0x100) & ~8);
     return v;

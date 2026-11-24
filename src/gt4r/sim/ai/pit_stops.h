@@ -15,6 +15,7 @@
 #include "gt4r/sim/ai/pit_flow.h"
 
 #include <array>
+#include <optional>
 #include <functional>
 #include <utility>
 #include <span>
@@ -56,6 +57,7 @@ struct PitRace {
     int laps = 0;
     bool pits = true;
     u32 limit_minutes = 0;
+    bool pit_menu = true; // the race's pit menu (its virtual +0x120) for the player's and the B-spec car (Gran Turismo mode)
     std::function<bool(size_t car)> finished;
     u8 refuel_rate = 20; // the program's byte 0x620E25 (x 0.1 a second), read by PitStops' constructor
 };
@@ -66,6 +68,11 @@ public:
 
     // B-spec's pit command (0x3F19E0 command 6) or any request: the car goes in at the pit lane's entry.
     void request(size_t car) { if (car < cars_.size()) cars_[car].flags |= 8; }
+    // The pit menu's choice (the player's, or B-spec's before its wait runs out): front / rear tire kind (0xFF none, 0xFE
+    // the kind fitted), fuel (0 none); command 2 stops the refuelling. Taken at the next step's input (0x35BFE8).
+    void choose(size_t car, u8 front, u8 rear, u8 fuel, u8 command = 1) {
+        if (car < cars_.size()) pending_[car] = Choice{command, front, rear, fuel}, default_choice_[car] = true;
+    }
     // Before the session's step: a car standing in its box held.
     void before(const Field& field, std::span<race::CarInput> inputs);
     // After the session's step.
@@ -94,6 +101,11 @@ private:
     std::vector<int> last_lap_, stops_;
     std::vector<std::array<StopRecord, 4>> records_;
     std::vector<gt3r::s8> axle_{1, 1, -1, -1};
+    struct Choice {
+        u8 command = 1, front = 0xFE, rear = 0xFE, fuel = 0xFE;
+    };
+    std::vector<bool> default_choice_; // a choice to take at the step's input (a B-spec car's wait ran out: 0x35BF08)
+    std::vector<std::optional<Choice>> pending_;
 };
 
 } // namespace gt4r::sim::ai

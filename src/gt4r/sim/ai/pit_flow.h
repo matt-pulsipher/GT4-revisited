@@ -157,10 +157,18 @@ struct ServiceInputs {
     int lap_state = 0;
     bool fuel_on = false;    // 0x354E38
     bool tires_allowed = false; // the conductor's virtual +0x198 ❓ (a tire change offered)
-    bool player_choice = false; // the race's virtual +0x120: the pit menu (for a car not the computer's)
+    bool player_choice = false; // the race's virtual +0x120: the pit menu (for a car not the computer's): the service then
+                                // waits for the choice (0x10 with the wants 0x4 / 0x8; the reference's B-spec stop reads
+                                // 0x1C; 0x35AF18 itself returns the wants | 1 ❓ where 1 becomes 0x10)
     s8 control = 0;
     u8 layout_kind = 0;      // the car's wheel layout byte +0x32 (4: no stop)
 };
 u16 service_of(const PitCar& c, const ServiceInputs& s);
+
+// 0x35BFE8 (the input phase, a pit choice in the controller's frame): command 1 the choice (with the menu asked, F +0x4B8
+// bit 0x10): front / rear tires (0xFF none, 0xFE the kind fitted, else the kind) and fuel (0 none) into the service's bits
+// 0x40 / 0x80 / 0x100 and F +0x64E / +0x64F, the asked bits cleared, the hold over when nothing is left; command 2 the
+// refuelling stopped. 0x35BF08 makes the choice for a B-spec car whose wait ran out: 0xFE, 0xFE, fuel 0xFE.
+void pit_choice(PitCar& c, u8 command, u8 front, u8 rear, u8 fuel);
 
 } // namespace gt4r::sim::ai

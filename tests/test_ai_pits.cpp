@@ -115,3 +115,41 @@ TEST(ai_pits_on_our_session) {
     CHECK(held >= 700 && held <= 730);
     CHECK(stood > 600);
 }
+
+TEST(ai_pits_bspec_stop_as_the_reference) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    // The reference's Family Car Cup stop (26-endurance, fc_pitwindow): the B-spec car asked in, the pit menu's choice waited
+    // for 300 steps at the hold's 721, then made for it (both tires, fuel), 721 steps more; out on the pit lane.
+    const std::vector<std::string> labels{"ka_01", "s500_63"};
+    auto session = sim::Session::open(*disc, "tsukuba", labels);
+    std::vector<size_t> computer{0, 1};
+    auto field = sim::ai::Field::open(*disc, "tsukuba", *session, computer);
+    field->set_bspec(0);
+    const sim::Program program = sim::Program::load(*disc);
+    sim::ai::PitStops pits(*field, program, 2, sim::ai::session_pit_hooks(*session));
+    std::vector<race::CarInput> in(2);
+    for (int k = 0; k < sim::Session::kHoldSteps; ++k) field->hold(in), session->hold_once(in);
+    int held = 0, at_721 = 0;
+    u16 served = 0;
+    bool asked_menu = false, out = false;
+    for (int step = 0; step < 60 * 200; ++step) {
+        if (step == 20 * 60) pits.request(0);
+        field->drive(in);
+        pits.before(*field, in);
+        session->step_once(in);
+        pits.after(*session, *field);
+        const sim::ai::PitCar& c = pits.car(0);
+        asked_menu = asked_menu || (c.service & 0x10);
+        if (c.hold > 0) ++held;
+        if (c.hold == 721) ++at_721;
+        served |= c.service;
+        if (held > 0 && field->kind(0) == 4) out = true;
+    }
+    std::printf("  asked %d, held %d steps (%d at 721), service bits %04X, out %d\n", int(asked_menu), held, at_721, served, int(out));
+    CHECK(asked_menu);
+    CHECK(at_721 >= 300 && at_721 <= 302);
+    CHECK(held >= 1020 && held <= 1023);
+    CHECK((served & 0xC0) == 0xC0);
+    CHECK(out);
+}

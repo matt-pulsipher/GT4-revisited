@@ -35,7 +35,7 @@ PitHooks session_pit_hooks(Session& session) {
 }
 
 PitStops::PitStops(const Field& field, const Program& program, size_t cars, PitHooks hooks, PitRace race)
-    : flow_(program), hooks_(std::move(hooks)), race_(race), cars_(cars), last_d_(cars), last_lap_(cars, 0), stops_(cars, 0), records_(cars) {
+    : flow_(program), hooks_(std::move(hooks)), race_(race), cars_(cars), last_d_(cars), last_lap_(cars, 0), stops_(cars, 0), records_(cars), default_choice_(cars, false), pending_(cars) {
     if (program.known()) race_.refuel_rate = program.b(0x620E25);
     for (const LinePoint& p : field.lines().line(CourseLines::kPitStop)) line_.dist.push_back(F(p.dist)), line_.heading.push_back(F(p.heading));
     // A car's box (0x363B10 by 0x46BDA0): the stop line's point 8 less its place on the grid (none without the line).
@@ -46,11 +46,22 @@ void PitStops::before(const Field& field, std::span<race::CarInput> inputs) {
     (void)field;
     for (size_t i = 0; i < cars_.size() && i < inputs.size(); ++i) {
         PitCar& c = cars_[i];
-        if (c.hold == 0) continue;
-        // The stop's own timing (0x35C0B8, phase 4): the counter, the tires.
+        HoldEvents e;
         const u16 svc = c.service;
         const u8 chose_f = c.tire_front, chose_r = c.tire_rear;
-        const HoldEvents e = pit_hold_step(c, std::vector<gt3r::s8>(axle_));
+        const bool held = c.hold != 0;
+        // The stop's own timing (0x35C0B8, phase 4, while the hold counter runs): the counter, the tires.
+        if (held) e = pit_hold_step(c, std::vector<gt3r::s8>(axle_));
+        // The input phase after it (0x349FD0 → 0x35BFE8): the choice made for a B-spec car whose wait ran out (0x35BF08), or
+        // the player's from the pit menu (choose()).
+        if (e.default_choice) default_choice_[i] = true;
+        if (default_choice_[i]) {
+            default_choice_[i] = false;
+            const Choice ch = pending_[i].value_or(Choice{1, 0xFE, 0xFE, 0xFE});
+            pit_choice(c, ch.command, ch.front, ch.rear, ch.fuel);
+            pending_[i].reset();
+        }
+        if (!held) continue;
         // At 645 with tires served: the stop's record takes the tires fitted (0xFE: the car's own kind again; a choice the
         // kind chosen).
         if (c.hold == 0x285 && (svc & 0xC0)) {
@@ -118,6 +129,7 @@ void PitStops::after(const Session& session, Field& field) {
         std::vector<PitAction> acts;
         ServiceInputs sv;
         sv.pits_on = race_.pits, sv.lap_state = lap_state, sv.fuel_on = need.fuel_on, sv.control = gt3r::s8(control);
+        sv.player_choice = race_.pit_menu;
         flow_.step(c, in, line_, acts, [&] { return service_of(c, sv); });
         for (const PitAction& a : acts) {
             switch (a.kind) {

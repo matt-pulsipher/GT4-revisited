@@ -623,6 +623,11 @@ change done), +0x4BA the hold counter, +0x5C2 a tire past its wear, +0x5C3 the p
   wait F +0x64C counted down, then the choice made for him ❓), held at 90 while the fuel still runs in; else counted
   down; chosen tires fitted at 645 / 644 (the spec and parameters rebuilt); at 60 each wheel of an axle served given a
   new tire (0x362E58: a layout byte > 0 the front, < 0 the rear, 0 either) and the tire bits cleared; at 59 0x200.
+- **The choice** (0x35BFE8 in the input phase, from the controller's frame; command 1 with the menu asked, bit 0x10): the
+  front / rear tires (0xFF none, 0xFE the kind fitted) into 0x40 / 0x80 and F +0x64E / +0x64F, fuel (not 0) into 0x100
+  when wanted, the asked bits 0x1C cleared, the hold ended when nothing is left; command 2 stops the refuelling. A B-spec
+  car's wait (F +0x64C: 300 steps set as it stands in its box) runs out into 0x35BF08's choice for it: both tires as
+  fitted, fuel. `PitStops::choose` for the player's menu.
 - **Refuelling** (0x354D60): the fuel + the byte 0x620E25 x 0.1 a second x the step, up to the tank; full: the bit
   cleared and, with no tires left, the hold set to 90 (1.5 s more).
 - **The race's records** (0x35AD10 when the stop is counted): the stop count (cond + 0xD9E4 + 2 i), a record of the
@@ -643,6 +648,14 @@ whole stop each (24,000 .. 36,000 calls, 721 timing calls, all equal). The progr
 20 s): the pit lane at 1,365 m, the stop counted at its lane's start, on the stop line, standing 12 s at 58 m, the four
 tires at the stop's last second, out and back on the racing line at 270 m. ✔ On our session (`PitStops`, test
 `ai_pits_on_our_session`) the same car runs the same stop: down the lane, 721 steps held (649 standing), out again.
+✔ **Against the original's own stop** (the reference's Family Car Cup at Tsukuba, B-spec R34, `26-endurance/fc_pitwindow_*`,
+the car's record in each state): onto the pit lane between 1,342 and 1,508 m (kind 2), the service decided at the lane's
+start as 0x1C (tires and fuel wanted, the menu asked; 0x35AF18 itself returns the wants | 1 ❓ what makes it 0x10), the
+stop at 58.3 m with the hold at 721 while the B-spec wait counts down (228 left 72 steps in), the choice made for it
+(0x1C0, tires 0xFE / 0xFE), the hold then counted down 70 / 300 / 302 steps between states 5 s apart, the fuel full
+(78.97 → 80.00) before the tires, kind 4 out, kind 0 at 270 m: as ours (the 300-step wait, 721 more; test
+`ai_pits_bspec_stop_as_the_reference`, service 0x10 | the wants for a car with the menu, judged from the state). ❓ The
+change bit 0x200 reads 0 at the hold's 49 in the original's B-spec stop (set at 59 in the program's computer stops).
 ✔ The request (0x353218's pit part) equal at every call with the race's wear on (`GT4R_AI_WEAR=<limit>`: the switch and
 limit set; at 1.5, above a new tire's, the cars ask, go in and get new tires: 24,000 calls, 3 requests, 2 whole stops, all
 equal; test `ai_pits_asked_by_the_wear`). ✔ The race state equal at every call too (23,814 .. 32,371 calls with the race's laps set). On our session the pit lane
