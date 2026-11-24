@@ -559,8 +559,9 @@ TEST(race_frame_blend) {
 }
 
 TEST(race_gadget_bodies_disc) {
-    // A car driven through Tsukuba's first cone at 15 m/s knocks it away; it comes to rest on the road
-    // again; the cones left alone stay asleep where they stand.
+    // A car driven through Tsukuba's first cone at 15 m/s knocks it away (into the pit wall beside it);
+    // it settles on the floor (the program's rest rule seldom puts a knocked body back to rest: it stays
+    // awake, all but still); the cones left alone rest where they stand.
     if (test::discs().empty()) SKIP("set GT4R_DISC");
     bool ran = false;
     for (const auto& disc : test::discs()) {
@@ -574,12 +575,12 @@ TEST(race_gadget_bodies_disc) {
         if (!road || g.placements.size() < 2) continue;
         ran = true;
         race::GadgetBodies bodies;
-        bodies.reset(g);
+        bodies.reset(g, *road);
         const course::Vec3 cone = g.placements[0].position;
         race::GadgetBodies::Car car;
         car.forward = {1, 0, 0}, car.right = {0, 0, -1}, car.vel = {15, 0, 0};
-        // (The car at the cone's floor: Tsukuba's pit lane is not in the road file.)
-        const float h = cone.y - 0.11f;
+        // (The car's center half a metre over the cone's floor: Tsukuba's pit lane is not in the road file.)
+        const float h = cone.y - 0.11f + 0.5f;
         car.pos = {cone.x - 5, h, cone.z};
         unsigned hits = 0;
         for (int i = 0; i < 60; ++i) {
@@ -588,9 +589,9 @@ TEST(race_gadget_bodies_disc) {
         }
         const race::GadgetBodies::Body& b = bodies.bodies()[0];
         CHECK(hits == 1 && bodies.moved());
-        CHECK(b.removed || b.pos.x > cone.x + 3);
+        CHECK(b.removed || std::hypot(b.pos.x - cone.x, b.pos.z - cone.z) > 0.5f);
         for (int i = 0; i < 600; ++i) bodies.step(g, *road, {}, 1.0f / 60);
-        CHECK(b.removed || !b.awake);
+        CHECK(b.removed || (std::sqrt(b.vel.x * b.vel.x + b.vel.y * b.vel.y + b.vel.z * b.vel.z) < 0.5f && std::fabs(b.pos.y - b.floor) < 0.6f));
         const race::GadgetBodies::Body& other = bodies.bodies().back();
         CHECK(!other.awake && std::fabs(other.pos.x - g.placements.back().position.x) < 1e-4f);
     }

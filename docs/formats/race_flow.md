@@ -268,7 +268,7 @@ engine's Gran Turismo 3 code). The player notices them roughly in this order.
 | The driving views | `drive_camera.*` | the car's camera places (CAR4); their springs ❓ | |
 | Laps, crossings, times, finish | `race_flow.*` | GT4 (0x358608, vf21 0x357B98); the race order's comparison judged | the order routine (❓ not found) |
 | License tests' rules | `license_rules.*`, `judge_license` | GT4 (0x3F8D70, 0x369888 → vf49, 0x35FE80); the hits' strengths from the simulation's contact (its sum per step, not the program's per hit), the mass as the spec's weight ❓ | the hit records 0x350530 (`sim-step`) |
-| Cones and boards knocked about | `gadget_bodies.*` | **engine** rules (GT3's pylons: resting, tumbling, a car's box judged: 0.9 m overhangs); the contact report and the kind's once-only latch GT4 (0x3E3C48) | the gadgets' step 0x3E2B28 with 0x3E3290, 0x3E3458, 0x3E29F8, 0x3E3748, the impulse 0x3E3ED0, the cars' five planes 0x621D28 |
+| Cones and boards knocked about | `gadget_bodies.*` | GT4 (0x3E2B28 with 0x3E3748 / 0x3E3840, 0x3E44E8 / 0x3E4708, 0x3E3C48 / 0x3E3ED0 / 0x3E43B8, 0x3E5108, set-up 0x3E2710; course.md "Cones and boards: the bodies") in host floats; the road query and the car boxes' extents judged | the road query 0x3E5A30; the car record's box extents (+0x48C .. +0x494) |
 | The demonstrations | `screen_race.cpp` `begin_demo`, `sim/ai/demo_driver.*` | GT4 (the recordings, `ai-drivers`); the card's tire word is the race's, not the car's ❓ | |
 | The pad's controls | `screen_race.cpp` (`gt3r::race::ControlMapper`) | **engine** (GT3's mapping) | the input phase 0x349FD0 (`sim-step`) |
 | Looking back | `gt3r::race::look_back_held` | **engine** | ❓ not read |

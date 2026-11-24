@@ -125,7 +125,7 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
         }
         short_names_.push_back(short_name.empty() ? names_.back() : short_name);
     }
-    gadget_bodies_.reset(course_->gadgets());
+    gadget_bodies_.reset(course_->gadgets(), course_->road());
     course_->set_gadget_bodies(&gadget_bodies_);
     line_job_ = std::async(std::launch::async, [road = &course_->road()] { return race::RailLine(*road); });
     build_simulation();
@@ -240,7 +240,7 @@ void RaceWorld::set_entry_overrides(std::vector<std::optional<WorldEntry>> overr
 
 void RaceWorld::restart() {
     build_simulation();
-    gadget_bodies_.reset(course_->gadgets());
+    gadget_bodies_.reset(course_->gadgets(), course_->road());
     course_->restart_animations();
     clear_effects();
 }
@@ -292,22 +292,30 @@ void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool pla
     } else sim_->step(inputs, kStep);
     if (!hold && pits_ && session_) pits_->after(*session_, *field_);
     if (!hold) course_->animate(kStep, sim_->cars());
-    // The cones and boards the cars run into: each car's box from its wheels' places.
+    // The cones and boards the cars run into: each car's box (0x3E5108) at its center of mass, by its heading,
+    // its body's extents (❓ the program reads them from its car record +0x48C .. +0x494, taken here as the
+    // collision body's: P +0x00 .. +0x08, half the width).
     gadget_hits_ = 0;
     if (!course_->gadgets().placements.empty()) {
         std::vector<race::GadgetBodies::Car> boxes;
         const std::span<const race::CarState> now = sim_->cars();
         for (size_t i = 0; i < now.size() && i < car_visuals_.size(); ++i) {
             const race::CarState& c = now[i];
-            const race::CarSpec& spec = car_visuals_[i]->spec();
             race::GadgetBodies::Car b;
-            b.pos = {(c.wheels[0].center.x + c.wheels[1].center.x + c.wheels[2].center.x + c.wheels[3].center.x) / 4,
-                     (c.wheels[0].center.y + c.wheels[1].center.y + c.wheels[2].center.y + c.wheels[3].center.y) / 4 - spec.tire_radius[0],
-                     (c.wheels[0].center.z + c.wheels[1].center.z + c.wheels[2].center.z + c.wheels[3].center.z) / 4};
             b.right = c.right, b.up = c.up, b.forward = c.forward, b.vel = c.velocity;
-            // (❓ The body's overhangs: 0.9 m past each axle, judged; the program's box is not read.)
-            b.front = b.rear = spec.wheelbase / 2 + 0.9f;
-            b.half_width = std::max(spec.half_track[0], spec.half_track[1]) + spec.tire_width[0] / 2 + 0.05f;
+            if (session_) {
+                const auto& r = session_->record(i);
+                b.pos = {r.pos.x.host(), r.pos.z.host(), -r.pos.y.host()};
+                b.yaw_rate = r.yaw_rate.host();
+                b.front = r.p.body_front.host(), b.rear = r.p.body_rear.host(), b.half_width = r.p.body_width.host() / 2;
+            } else {
+                const race::CarSpec& spec = car_visuals_[i]->spec();
+                b.pos = {(c.wheels[0].center.x + c.wheels[1].center.x + c.wheels[2].center.x + c.wheels[3].center.x) / 4,
+                         (c.wheels[0].center.y + c.wheels[1].center.y + c.wheels[2].center.y + c.wheels[3].center.y) / 4,
+                         (c.wheels[0].center.z + c.wheels[1].center.z + c.wheels[2].center.z + c.wheels[3].center.z) / 4};
+                b.front = b.rear = spec.wheelbase / 2 + 0.9f;
+                b.half_width = std::max(spec.half_track[0], spec.half_track[1]) + spec.tire_width[0] / 2;
+            }
             boxes.push_back(b);
         }
         gadget_hits_ = gadget_bodies_.step(course_->gadgets(), course_->road(), boxes, kStep);
