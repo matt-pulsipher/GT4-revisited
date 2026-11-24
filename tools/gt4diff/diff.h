@@ -60,6 +60,7 @@ struct AiCarRun {
     double total = 0;
     bool finished = false;
     float top_speed = 0;
+    double stuck = 0; // seconds slower than 5 km/h after the first 10 s
 };
 struct AiRunOptions {
     bool ours = false;   // our drivers in the program's race (the decision 0x465078 replaced)

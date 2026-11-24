@@ -384,7 +384,10 @@ s64 Runtime::race_finished(const RaceResult& r) {
         day.code = d.code(kCourseTable, r.course);
         break;
     }
-    s.put_day(day);
+    // A license test's day is the sequence's, put when it ends (0x110800); a run outside a
+    // sequence puts it at once.
+    if (r.kind == RaceResult::Kind::License && s.race_session.license_open) s.race_session.license_day = day;
+    else s.put_day(day);
     return prize;
 }
 

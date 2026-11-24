@@ -9,6 +9,7 @@
 #include "gt4r/app/app.h"
 #include "gt4r/race/car_visual.h"
 #include "gt4r/race/course_scene.h"
+#include "gt4r/race/gadget_bodies.h"
 #include "gt4r/race/rail_simulation.h"
 #include "gt4r/race/replay_script.h"
 #include "gt4r/race/simulation.h"
@@ -79,6 +80,16 @@ public:
     // it this step (else its input is the caller's: a rolling start handed over).
     void step(std::span<const race::CarInput> inputs, bool hold = false, bool player_by_computer = true);
     std::span<const race::CarState> cars() const { return sim_->cars(); }
+    // A rolling start's run-up from the next step: every car held at `mps` (its throttle eased, its
+    // brake touched above it); 0 lets them go.
+    void set_speed_hold(float mps) { hold_speed_ = mps; }
+    // B-spec's commands for a car the computer drives: its pace 1 .. 5 (3 the race's own) and the
+    // overtake, to its driver (sim::ai::Field::command; kept for the next restart).
+    void command(size_t car, int pace, bool overtake) {
+        if (car >= commands_.size()) commands_.resize(car + 1);
+        commands_[car] = {pace, overtake};
+        if (field_) field_->command(car, {pace - 1, overtake ? 1 : 0});
+    }
     // What goes with the cars shown in a step, live (the simulation's) or recorded: smoke and dust
     // from the wheels, and the race's sound heard from `camera` (none: no sound) about car `target`.
     void present(std::span<const race::CarState> cars, const audio::SoundListener* camera, int target, bool live);
@@ -113,9 +124,13 @@ public:
     const race::CourseScene& course() const { return *course_; }
     const race::CarVisual& visual(size_t i) const { return *car_visuals_[i]; }
     const std::string& car_name(size_t i) const { return names_[i]; }
+    // The short name the results show ("VW Beetle 1100 Standard (Type-11) `49").
+    const std::string& car_short_name(size_t i) const { return short_names_[i]; }
     const std::string& car_label(size_t i) const { return setup_.entries[i].label; }
     size_t car_count() const { return car_visuals_.size(); }
     const race::RailLine& line() const { return line_; }
+    // The cars that touched a cone or board in the last step (a bit each, the first 32).
+    unsigned gadget_hits() const { return gadget_hits_; }
     // The cars move by the game's simulation (false: the stand-in).
     bool simulated() const { return session_ != nullptr; }
     bool night() const { return night_; }
@@ -132,7 +147,7 @@ private:
     WorldSetup setup_;
     std::unique_ptr<race::CourseScene> course_;
     std::vector<race::CarVisual*> car_visuals_;
-    std::vector<std::string> names_;
+    std::vector<std::string> names_, short_names_;
     race::RailLine line_; // the road's line: the simple driver's guide, and the lap's length
     race::Simulation* sim_ = nullptr;
     std::unique_ptr<race::RailSimulation> rail_; // the stand-in, when the simulation is not running
@@ -140,6 +155,14 @@ private:
     std::unique_ptr<sim::ai::Field> field_; // the computer drivers, on the game's simulation
     bool computer_player_ = false;
     float player_ps_ = 0;
+    float hold_speed_ = 0;
+    race::GadgetBodies gadget_bodies_; // the cones and boards as the cars leave them
+    unsigned gadget_hits_ = 0;
+    struct Command {
+        int pace = 3;
+        bool overtake = false;
+    };
+    std::vector<Command> commands_;
     bool night_ = false, noted_ = false;
     gt3r::render::DrawOptions::PostGrade grade_;
     bool snapshot_ = false, keep_last_ = false;

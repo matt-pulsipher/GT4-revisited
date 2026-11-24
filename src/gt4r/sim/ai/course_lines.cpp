@@ -102,7 +102,7 @@ CourseLines::CourseLines(const course::AiData& data, const RoadGround& ground, c
             LinePoint q;
             q.kind = p.kind, q.brake_adjust = p.brake_adjust, q.speed_adjust = p.speed_adjust;
             // The file's frame is the simulation's turned half round: (x, y) there is (-x, -y) here.
-            q.x = -p.x, q.y = -p.y, q.radius = p.radius, q.heading = p.heading + kPi;
+            q.x = -p.x, q.y = -p.y, q.radius = p.radius, q.heading = (F(p.heading) + F::raw(0x40490FDA)).host(); // (0x46B248, in the program's arithmetic)
             lines_[size_t(k)].push_back(q);
         }
     // In the program's order: each line's first height query starts from where the last line's ended.
@@ -138,10 +138,12 @@ void CourseLines::prepare(int k, float& query) {
             if (best >= 0) {
                 const auto& st = stops[size_t(best)];
                 p.x = st.pos.x, p.y = -st.pos.z;
-                float hd = st.heading + kPi;
-                while (hd > kPi) hd -= kTwoPi;
-                while (hd < -kPi) hd += kTwoPi;
-                p.heading = hd;
+                // A half turn added, then into [-pi, pi) (0x36CB90).
+                const F pi = F::raw(0x40490FDA), two_pi = F::raw(0x40C90FDA);
+                F hd = F(st.heading) + pi;
+                if (hd < -pi) hd = hd + two_pi;
+                else if (pi <= hd) hd = hd - two_pi;
+                p.heading = hd.host();
             }
         }
         // The road under the point: from well above the first point, then from a little above the last height (more

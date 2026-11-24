@@ -60,7 +60,7 @@ none compared with the program's own code yet):
 | `visible` 0 | Not drawn, nor its children |
 | `visible_condition`, `visible_compare` | Drawn when `(state & visible_compare) == visible_condition` (either absent: 0, and the mask is the condition). The state's bits by the older files' `cond_active`, `cond_focus`, `cond_prelight`, `cond_insensitive`: 1 active, 2 focus, 4 prelight, 8 insensitive; a focused widget's faces test 2 or 4 (the runtime sets both) |
 | `opacity` | Multiplies the alpha of the widget and its children |
-| `clip` 1 | Children are cut to the rectangle |
+| `clip` 1 | Children are cut to the rectangle. The boxes (`Box`, `HBox`, `VBox`, `FBox`, `MBox`, `RootWindow`, `OptionMenu`, `ScaleBar`, `SliderBar`) cut by default (mBox's constructor 0x200C08 sets it, 0x206858); other composites do not (0x204F10): the layouts write `clip 0` on boxes and `clip 1` on the others |
 | `ColorFace` `color` | One colour, or four for the corners clockwise from the top left |
 | `ImageFace` `image_path`, `color` | The picture over the rectangle, tinted; `blend` 1 adds |
 | `FrameImageFace` `tl_`, `t_`, `tr_`, `l_`, `r_`, `bl_`, `b_`, `br_image_path`, `image_path` | Corners at their own size, sides stretched between, the middle over the rest |
@@ -175,6 +175,16 @@ Other events by name: `onLoad`, `onUnload`, `onKeyRelease`, `onButtonPress`,
 `onButtonRelease`, `onEnter`, `onLeave`, `onFocusEnter`, `onFocusLeave` (the widget's slots
 66 to 82).
 
+The cursor's crossings (0x22FFD0): the render context keeps the widget the cursor aims at
+(+0x88) and the one it last went into (+0x84); when they differ, an `mLeaveEvent` goes to the
+old (`onLeave`) and an `mEnterEvent` to the new (`onEnter`, mWidget slot 76, 0x264928). The
+cursor aims at the shown page's focus, so these follow the focus: the Gran Turismo mode map's
+places spin and show their speech-bubble notices on `onEnter`.
+
+A text face's `value` is what it shows: the value set, else its text, else its key's text in
+the page the layout has it in (the memory card pages hand `StoreHouse::nocard.value` to their
+dialogs).
+
 ### The focus moves
 
 A page's layout properties (mRootWindow, 0x232E00 for the defaults): `navigate_clip_angle`
@@ -232,7 +242,7 @@ Any widget: its layout properties as attributes; `doCopy()`, `doInitialize(conte
 `interpolate` (0x25BFE0): a value within 1 of its target arrives; otherwise it moves by the
 distance x the ratio.
 
-Boxes (`packing.cpp`) are packed **every picture**, not on a change: the size request bottom
+Boxes (`packing.cpp`) are packed **every picture** on every page, not on a change: the size request bottom
 up as part of a composite's update, the allocation top down as part of its draw. A child takes
 part when it is no face (`is_face` 0; the `...Face` classes are faces), is visible and its
 `packing` equals the box's. What a child asks (0x263B80): its size, or with `packing` its
@@ -295,7 +305,11 @@ the display ends, in the popup while open, else in the bar. `incIndex` / `decInd
 their argument and send nothing. ❓ A ScaleBar's own `onKeyPress` runs before the value moves
 in the program; here after. **ListBox** (`step_min`, `step_max`, `interpolate_ratio`,
 `magnify_ratio`, `focus_active`, `repeat`, `alignment`, `h_justify`, `v_justify`): ❓ its own
-routines are not read; it answers the scripts' calls, laid out as a select box.
+routines are not read; it answers the scripts' calls, laid out as a select box. Its rows are made
+from the template (`setItemTemplate`, `setItemCount`); the rows that come into view are given to
+`visible_callback(context, [indexes])` (`getItemVisible(i)`: the row is in view), then every row
+in view whose update flag is set to `update_callback(context, [indexes])` (labomode's and
+list_box's scripts set the flag until a row is drawn in full; ❓ from their use).
 
 Faces: `TextFace` (`getTextSize`, `abbreviate`, `adjustScale`: the text made narrower to fit
 its rectangle), `ImageFace` (`adjustSize`), `InputTextFace` (`putString`, `backspace`,
@@ -440,8 +454,11 @@ over it are the program's, with their addresses in save.md and here:
   paint, meters)` (the program's random numbers; meters by model year); used prices by the
   thousands of km driven (85 % below 1,000 km ... 10 % from 100,000); the sorts, one key each
   (power, weight, kg/PS, date, order of driving, aspiration, name, price, year, country,
-  tuner, drivetrain, the paint's hue). ❓ The gears' ranges (0x3553A0) and the charts' points
-  (0x148940, 0x148B60) are not written.
+  tuner, drivetrain, the paint's hue). The gears' ranges (`getGearRange`, 0x3553A0): the gears
+  the slider and final drive give (0x354FF8), each gear's ends a third of the way to its
+  neighbours' ratios, the first gear's top 9/8 of its ratio, the last's bottom 7/8, the reverse
+  gear 7/8 and 9/8 (0x355278; thousandths, truncated); in the array [7 + 2g] the lower end of gear
+  g and [8 + 2g] the upper. ❓ The charts' points (0x148940, 0x148B60) are not written.
 - **MRaceData** (0x1A0F80 on; `game_race.cpp`): the RACE row's columns (database.md "RACE"):
   the medal times as text, entries, the course, the opponents' pool (`car_code(i)`), the
   requirements (license, drivetrain, aspiration, car type, tires, power, weight, length,
@@ -484,7 +501,10 @@ sequence starts when the scripts that asked for it finish (a new work object, 0x
 - **A mission** (0x11C328): the place's prize whatever the run, the record ("mission", the
   place) and its score, the diary's mission day (place, note 15, time).
 - **A license test** (0x1105A8) keeps its result in its unit and its ranking (time, result, the
-  real date, the pass code); **a course's run** (0x115A90) is a day of the diary.
+  real date, the pass code). Its day is the sequence's: when the license sequence ends (0x114E38
+  -> 0x110800) the diary gets the last run's day (result, note 14, time), or a day with nothing in
+  it when there was no run or its result is 13: every visit to a test's page is a day, as the
+  original's calendar shows. **A course's run** (0x115A90) is a day of the diary.
 
 The prize page of the quick projects counts the prize into the credits (`incMoney`, ten at a
 time); the presents (prize cars, licenses) are given by Gran Turismo mode's present page on
@@ -494,6 +514,50 @@ unless the car has no wear the engine's distance up to 9,700,000 m, the oil's (f
 to 0, then from 300,000 m; else up to 6,000,000 m) and the body's up to 3,000,000 m, the limits
 read from the program's tables (0x620CD8 +0xD0 on, 0x620AF6; 0x350678, 0x366100). ❓ Added
 once for the race's whole distance.
+
+**The race's entry table** (`getEntryCarCode(i)`, `setEntryCarCode(i, car, paint)`): [car,
+paint] by the entry's number, entry 0 the player's car (`car_code`, `car_color`), the opponents
+the scripts chose from 1 to `overwrite_enemy_num` (`RaceRequest::entries`, `entry_paints`).
+Arcade's single race asks `MCarData.PickUpEnemyCars(car, list, offset, range, count, dirt)`
+(0x1308C8) when its car has no race of its own: the program scores the player's car and each
+car of the list by the showroom car's evaluation (ShowRoomCar 0x364760, 0x364F00), drops those
+whose drive (four-wheel or not) is not the player's, sorts them by score, finds the ones within
+score + offset ± range (0x130618), widens the window until it holds count + 1, draws count of
+them (never the player's car, 0x130690) and a paint each. 🔎 Not built here (the evaluation is
+not): it answers none, and the race's own pool fills the grid.
+
+**The options and who reads them** (`game_settings.h`: `GameSettings settings_from(options)`).
+The scripts read and write MOption; `Runtime::on_options(GameSettings)` is called at the end of
+the start, when a game is loaded and when the scripts apply, save or reset the options.
+
+| Options | GameSettings | Read by | How |
+|---|---|---|---|
+| `menu_bgm`, `menu_se` and their `_volume_raw` | `menu.music`, `menu.effects` (raw / 128, 0 when off) | the menus' sound (`audio::MenuSound`) | the app's `on_options`: `set_music_option`, `set_effect_option` (screen_menu_viewer.cpp) |
+| `race_*`, `replay_*` volumes, `sound_type` | `race`, `replay`, `sound_type` | the race's sound | `audio::race_sound_options(setup.options)` in race_world.cpp |
+| `race_color_correction`, `replay_color_correction` | `race_picture`, `replay_picture` | the race's picture (`race::PictureSettings`) | screen_race.cpp: `pictures_from_options` at a race's start from the menus, `pictures_to_options` after it (the pause's changes kept) |
+| `unit_velocity`, `unit_power`, `unit_torque` | `velocity`, `power`, `torque` | the menus' figures (MUnit, the car pages) | the natives read the state; the race display's speed: `RaceHud::set_mph` from `settings_from(setup.options).velocity` (screen_race.cpp) |
+| `race_display_*`, `replay_display_enable` | `display`, `replay_display` | the race display (race_hud): the map, the times, the laps, the place and the meters hidden when off (`HudState::show_*`); a replay's display (`replay_display`) | ❓ the steering, car name, suggested gear and G meter parts are not drawn as parts of their own |
+| `view_type` | `view` | the race's first view (SUBJECTIVE the nose view, BONNET the higher one, OVERLOOK the chase view) | screen_race.cpp, a race from the menus |
+| `automatic_gear`, `assist_asm`, `assist_tcs`, `steering_assist_1p`, `active_steering_1p` | `automatic`, `asm_on`, `tcs_on`, ... | Arcade's car page offers them (its script reads the option); the race takes `RaceRequest::manual`, `assist_*` | 🔎 Gran Turismo mode's races: the quick menus' defaults |
+| `race_laps`, `tire_damage`, `penalty_type` | `laps`, `tire_damage`, `penalty` | Arcade's scripts (laps); 🔎 the race's rules | |
+| `timeout_count_to_autodemo` | `demo_after_s` | the title's script (`onTick`: the demo after that many seconds without a key) | runs here (`disc_menu_title_demo_after_option`) |
+| `auto_save`, `opening_after_autoload` | `auto_save`, `opening_after_autoload` | Gran Turismo mode's and the boot project's scripts | run here |
+| `wide_mode`, `monitor_size`, `screen_adjust_h/v`, `sharpness_mode` | `wide`, `screen_adjust_*`, `sharpness` | 🔎 the picture's shape and place | the screen's figures are saved (save.md) |
+| `vibration_*`, `steering_forcefeedback_*` | | 🔎 the pad | the controller block (save.md) |
+
+**The Replay Theater** (the title's third item; the program's sequence `load_replay`,
+0x10CA50): the runtime turns the sequence into the project `labomode` with the menu argument
+`ReplayTheaterRoot` (0x42FC98, 0x10B290). Its card manager in MODE_LOAD_REPLAY lists the replays
+in the data folder's `replays/` (`game_replays.cpp`; newest first; each file's title its name,
+❓ the date the day it was written, the car and course by the database's names, its size in KB).
+Play loads the one chosen (`file.load`, `MMemoryCardManager.setAction(1)`) and closes the page:
+the project ends, and `race_request()` answers the sequence `replay` with `replay_file` (the
+path); after it the theater comes back (the sequence's loop). Exit returns to the title. ❓ The
+demonstrations' folder and the play list are empty; `labo_folder` / `labo_list_index` start at -1.
+The card's free KB: 8,000 less a KB, the game's save and the replays (the scripts take 8,000
+for an unformatted card).
+
+**A game with progress** (`game_progress.*`, `gt4tool save <disc> progress`): save.md.
 
 **Cars and courses** (`menu::MCarData`, 0x131068; `menu::MCourseData`, 0x1B34D0): from the
 disc's car database ([database.md](database.md)) and the program's lists of makers, tuners,
@@ -531,9 +595,21 @@ as below.
   to 7 bits, odd rows as bytes, then to 7 bits); it stands at pen + d, the pen steps d +
   advance (all times `scale_x`);
 - a code from U+0300 on is a double-byte character: the font's cell (+0x10 size, +0x12 offset,
-  one more across after a glyph) from the kanji font, then the font's wide step. ❓ The US
-  menus load no kanji font; a full-width form is drawn as its Latin letter (the diary's
-  "1～7 days" shows a tilde).
+  one more across after a glyph) from the language's double-byte font, then the font's wide
+  step (+0x14, the cell's width in every font of both discs). The font: Gran Turismo 4 loads
+  `jp_menu.kf`, `kr_menu.kf` or `tw_menu.kf` by its region and none for the US and Europe
+  (0x108D80); Prologue `unicode.kf` (languages 0, 8, 9) or `big5.kf` (10) (0x4439D8). The cell
+  is the face's picture in the face's pair of palettes, the even one for a font's outlined
+  variant (`#0`), the odd one otherwise, in the text's colour; ❓ of a font with two faces, the
+  face whose cells are nearest the font's cell. A full-width form no font has is drawn as its
+  Latin letter (the US diary's "1～7 days" shows a tilde).
+- Prologue's fonts (layout 0, Gran Turismo 3's 16-byte glyphs; +0x14 the wide step, no pair
+  spacing) place every glyph by its left offset less the pair's kerning, digits and the first
+  glyph of a word too, and a cell at the pen: Gran Turismo 3's rule. Checked against the
+  original's first dialog (each line's width within 3 pixels; the gap after a kana before a
+  digit). The text style's default font is `hn_14` (0x246F58), Prologue's `sw_16` (0x2F75D0),
+  both with the colour 0xD4D4D4. ❓ Prologue's texts are not broken to the face's width (they
+  carry their own line ends; the card dialog's first line passes its face by 5 pixels).
 - Each line is aligned by itself; its width is the pen less half a space's advance.
 - Marks: `%%` a percent sign; `%Crgb` a colour (hex digits x 17, 0x493BC0); `%Bx` the button
   x of the `Gaiji` font at scale 1, `c` .. `f` (triangle, circle, cross, square) in the
@@ -544,10 +620,18 @@ Checked against the original's first dialog: every word of its lines starts wher
 original's does (to the pixel, `disc_menu_text_layout`).
 
 **Tool tips** (mToolTipFace): the text is the page's `TOOLTIP|<key>` (0x249B70; ❓ the key's
-own text when there is none). It is not aligned (its style's `aligned` off, 0x248DD0): from
-the face's top, in the middle across when it fits 95 % of the width, else from 5 % in
-(0x24A2F8; ❓ its scrolling and the slide up of a new tip are not drawn). `attach()` makes it
-show the focused widget's tool tip (the nearest with `tooltip` and a `tooltip_key`).
+own text when there is none). A tip is its page's when it loads (0x24A020 calls attach,
+0x249FB8: the page's +0xEC), and then shows the focused widget's tool tip (the nearest with
+`tooltip` and a `tooltip_key`); `remove()` takes it off the page (0x249FF0; here its text is
+cleared too) and `attach()` puts it back. It is not aligned (its style's `aligned` off,
+0x248DD0). Its motion (update 0x24A840, states 0x24A2F8 by the table at 0x699310; constructor
+0x248DD0: +0x148 8, +0x14C 10, +0x10C 1): a new text is measured; when it fits 95 % of the
+face it stands in the middle across, else 5 % in; it starts at the face's height below and
+rises (10,000 units a second with +0x10C set: at once); one that fits stays; a longer one
+waits width x 0.4 / 80 seconds, goes left at 8 x 10 = 80 units a second until it has gone by
+its whole width, waits a second, comes back 5 % in below, waits a second and rises again. It
+is drawn eased toward that place (0x57B088): across by 0.1, up by 0.3 a picture; cut to the
+face. ❓ The pad's button test that holds it (0x24A8C0) is not done.
 
 **The cursor** (0x230B68, 0x230CF8, 0x230378, drawn 0x230558): a pointer that travels to a
 point of the focused widget chosen by its `cursor_align` (default 8; table 0x6987E0), two
@@ -565,9 +649,23 @@ The menus step at the program's 60 pictures a second whatever the display's rate
 with content of their own are drawn in their place in the page's order (`draw_live` of
 `app/menu_page_drawer.h`): movies, cars and models below.
 
+A closed option menu shows its chosen item in the item's own state (the menu's focus lights
+its button, not the item: the options' dialogs); ❓ judged from the original's pictures.
+
+Here: every model face draws through a view of its own (the engine's view is read when the
+frame is submitted, so two faces of one size through one view showed the same picture), and a
+picture's texture is kept by what the picture holds (pictures are freed with their pages).
+
+The title page left alone for the option `timeout_count_to_autodemo` (20 s) asks for the
+sequence `autodemo` (its `onTick`, `context.time_after_last_input`): ❓ here the opening movie
+(`demo_movie` with `opening`, starting with the Polyphony logo as the original's capture
+shows), then back to the title; the configuration lists demo replays (`Rdemo0`..) for it,
+which are not played.
+
 ❓ Not drawn: `SceneViewFace`, `SlideShowFace`, `RaceCourseMapFace`, `PhotoViewFace`,
-`PhotoRenderFace`, `EyetoyFace`, `VirtualFace`, `LoggerFace`; double-byte text (laid out, its
-cells not drawn: Prologue's pages show their pictures and Latin text).
+`PhotoRenderFace`, `EyetoyFace`, `VirtualFace`, `LoggerFace`; the loading page between
+projects (the program's LoadingPS2 with `/advertise/gtloading.img` and the cursor's `load`
+icon).
 
 #### Graphs (`GraphFace`; `menu/faces_graph.*`)
 
@@ -659,6 +757,20 @@ targets; `fadein`, `transparentRatio` as their names say. Model = T(cur) Rz Rx R
 origin is on the body's underside, so the car is raised by its ride height to stand on y = 0
 (❓ judged: the program's ShowRoomCar is not read).
 
+A car given as a garage car (`car_garage`, `car_data` set to an MCarGarage) shows in that
+car's paint (its record's +0x18). The scripts' `loadModelOptionMotion(path)` gives a normal face
+a camera motion from the page's packs (`image/gtmode/gtauto/*_cam.mot`: Mot1 files read as the
+stage's below): its eye, the point looked at, up and field of view from the picture it was
+given at, held at its end (GT Auto's pages, the wheel shop); `loadModelSet(path)` more models
+drawn with the car where their files put them (`garageShadow.mdl`, the GT Auto mechanic
+`pitmanFix.mdl`, whose skinned GTM1 the engine's reader refuses). ❓ `loadModelMotion(path,
+set, clip)` (the sets' motions: the mechanic walking, the wash cloths) is not played.
+
+Here a car's showroom model is built on a worker thread and sent to the GPU a few models a
+picture (about 3 ms of each), and its shadow made only when its look changes: on the arcade
+car page a new car costs about 23 ms in its worst picture, the first one about 39 ms (the stage
+loading), where building it in the picture cost 70 to 140 ms.
+
 The "advanced" stage (0x157378) takes the car at (x, y, -z) turned half round. Its time steps
 1/60 s a picture round the light motion's length. **The stage's motions**
 (`menu/stage_motion.*`): `menu/select/camera.mot` and `light.mot` are `Mot1` files whose scene
@@ -694,15 +806,12 @@ settings); a race's whole loop runs with a made-up result in place of the race
 (`tests/test_menu_run_loop.cpp`: an event, a championship and one left in the middle, a
 license, a mission, the prize cars, saved and loaded); not checked page by page: trading cars
 between saves (`loadInstance` answers its result and no second game: the trade page needs a
-second MGame over another card's state), the photo travel (its page stops on an actor that is
-not made), the B-spec driver. The Replay Theater (the `load_replay` sequence and labomode's
-card lists: save.md "The game's other saves"). The option pages' effect on anything but the
-stored values. Arcade's two-player battle reaches its race with both cars; the LAN battle says
+second MGame over another card's state), the photo travel's own pages after its ticket (the place's page runs to the
+`photo_shoot` sequence it asks for, `disc_gt_mode_photo_travel`), the B-spec driver. The Replay Theater's demonstrations and play lists. The options marked 🔎 in "The options
+and who reads them". Arcade's two-player battle reaches its race with both cars; the LAN battle says
 the Network Adaptor is needed. Prologue's arcade mode and results ([prologue.md](prologue.md) "The menus": boot to a license
 test runs); its scripts ask for `MGame.license` (its own license record), answered with a new
-game's results. ❓ The gears' ranges on the settings pages (0x3553A0: the ratios
-of 0x354FF8, each gear's ends a third of the way to its neighbours, the first gear's top 9/8,
-the last's bottom 7/8) and the charts' points (0x148940, 0x148B60).
+game's results. ❓ The charts' points on the settings pages (0x148940, 0x148B60).
 
 ## Pictures (`.gpb`)
 

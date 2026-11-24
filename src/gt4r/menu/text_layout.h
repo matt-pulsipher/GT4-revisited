@@ -23,6 +23,9 @@ namespace gt4r::menu {
 struct FontSpacing {
     int wide_advance = 0; // the pen's step after a double-byte character
     int pair = 0;         // added between two kerned glyphs
+    // Prologue's files (layout 0): its glyphs are placed by Gran Turismo 3's rule, every glyph
+    // by its left offset less the pair's kerning, digits too, and a double-byte cell at the pen.
+    bool gt3 = false;
 };
 // By font name; empty when the file does not read.
 std::map<std::string, FontSpacing> read_font_spacing(ByteSpan fnt_file);

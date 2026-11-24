@@ -18,7 +18,7 @@ namespace gt4r::audio {
 // when it is not 0, else the drive layout (spec byte 0x128: 3 mid-engined, 4 rear-engined).
 int engine_place(const sim::Spec& spec);
 
-// Car `i` of the session.
-CarSoundState sound_state(const sim::Session& session, size_t i);
+// Car `i` of the session. With the program's tables, its afterfire's chance too.
+CarSoundState sound_state(const sim::Session& session, size_t i, const RaceSoundTables* tables = nullptr);
 
 } // namespace gt4r::audio

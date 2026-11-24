@@ -110,18 +110,30 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
         }
         car_visuals_.push_back(visual.get());
         names_.push_back(entry->name.empty() ? entry->label : entry->name);
+        // The short name (CAR_NAME_<language> +0x08: "VW Beetle 1100 ..."): in the name table whose
+        // first name is the one above.
+        std::string short_name;
+        for (const char* lang : {"american", "british", "japanese", "french", "german", "italian", "spanish"}) {
+            db::SpecDb& sdb = *app.db();
+            const db::Table* t = sdb.table(std::string("CAR_NAME_") + lang);
+            const db::Strings* pool = sdb.strings(std::string(lang) + "_StrDB");
+            if (!t || !pool) continue;
+            const ByteSpan row = t->row(entry->id);
+            if (row.size() < 12 || pool->at(rd32(row, 0)) != entry->name) continue;
+            short_name = pool->at(rd32(row, 8));
+            break;
+        }
+        short_names_.push_back(short_name.empty() ? names_.back() : short_name);
     }
     line_ = race::RailLine(course_->road());
+    gadget_bodies_.reset(course_->gadgets());
+    course_->set_gadget_bodies(&gadget_bodies_);
     build_simulation();
     // The race's sound: every car, the course's ambience, the count and the music.
     if (audio::AppSound* sound = app.sound()) {
         gt3r::AudioEngine& engine = app.audio();
         gt3r::Vfs& vfs = *app.vfs();
-        audio::StreamPlayer music;
-        music.play = [&engine, &vfs](const std::string& path, bool repeat, float level) { return engine.play_music(vfs, path, repeat, level); };
-        music.stop = [&engine] { engine.stop_music(); };
-        music.pause = [&engine](bool paused) { paused ? engine.pause_music() : engine.resume_music(); };
-        music.playing = [&engine] { return engine.music_playing(); };
+        const audio::StreamPlayer music = sound->streams();
         const Bytes program = app.disc() ? app.disc()->read_program() : Bytes{};
         m.sound = std::make_unique<audio::RaceSound>(vfs, engine.voices(), sound->driver(), sound->library_ptr(), audio::RaceSoundTables::from_core(program), music);
         for (const WorldEntry& e : setup.entries)
@@ -185,6 +197,9 @@ void RaceWorld::build_simulation() {
             if (!computer.empty()) {
                 try {
                     field_ = sim::ai::Field::open(*app_.disc(), setup_.course, *session_, computer, setup_.pace);
+                    // B-spec: the player's car's driver takes his commands.
+                    if (computer_player_) field_->set_bspec(0);
+                    for (size_t c = 0; c < commands_.size(); ++c) field_->command(c, {commands_[c].pace - 1, commands_[c].overtake ? 1 : 0});
                     for (size_t car : computer) session_->set_driver_aids(car, field_->params(car).aids); // (their aids)
                 } catch (const std::exception& e) {
                     if (!noted_) LOG_WARN("Drive: no computer drivers (%s); the simple driver drives", e.what());
@@ -206,6 +221,7 @@ void RaceWorld::build_simulation() {
 
 void RaceWorld::restart() {
     build_simulation();
+    gadget_bodies_.reset(course_->gadgets());
     course_->restart_animations();
     clear_effects();
 }
@@ -217,8 +233,24 @@ void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool pla
         driven.assign(inputs.begin(), inputs.end());
         driven.resize(car_visuals_.size());
         hold ? field_->hold(driven) : field_->drive(driven);
+        if (!hold && session_) field_->apply_time_scales(*session_); // the rubber band's step lengths
         if (computer_player_ && !player_by_computer && !inputs.empty()) driven[0] = inputs[0];
         inputs = driven;
+    }
+    // A rolling start's run-up: every car kept at the start's speed, the throttle eased and a touch
+    // of brake above it.
+    std::vector<race::CarInput> capped;
+    if (hold_speed_ > 0 && !hold) {
+        capped.assign(inputs.begin(), inputs.end());
+        capped.resize(car_visuals_.size());
+        const std::span<const race::CarState> now = sim_->cars();
+        for (size_t i = 0; i < capped.size() && i < now.size(); ++i) {
+            const float v = now[i].speed, gap = hold_speed_ - v;
+            race::CarInput& in = capped[i];
+            in.throttle = std::min(in.throttle, std::clamp(0.3f + gap * 0.5f, 0.0f, 1.0f));
+            in.brake = std::max(in.brake, std::clamp((-gap - 1.0f) * 0.15f, 0.0f, 0.4f));
+        }
+        inputs = capped;
     }
     if (hold && session_) session_->hold_once(inputs);
     else if (hold) {
@@ -229,6 +261,26 @@ void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool pla
         sim_->step(held, kStep);
     } else sim_->step(inputs, kStep);
     if (!hold) course_->animate(kStep, sim_->cars());
+    // The cones and boards the cars run into: each car's box from its wheels' places.
+    gadget_hits_ = 0;
+    if (!course_->gadgets().placements.empty()) {
+        std::vector<race::GadgetBodies::Car> boxes;
+        const std::span<const race::CarState> now = sim_->cars();
+        for (size_t i = 0; i < now.size() && i < car_visuals_.size(); ++i) {
+            const race::CarState& c = now[i];
+            const race::CarSpec& spec = car_visuals_[i]->spec();
+            race::GadgetBodies::Car b;
+            b.pos = {(c.wheels[0].center.x + c.wheels[1].center.x + c.wheels[2].center.x + c.wheels[3].center.x) / 4,
+                     (c.wheels[0].center.y + c.wheels[1].center.y + c.wheels[2].center.y + c.wheels[3].center.y) / 4 - spec.tire_radius[0],
+                     (c.wheels[0].center.z + c.wheels[1].center.z + c.wheels[2].center.z + c.wheels[3].center.z) / 4};
+            b.right = c.right, b.up = c.up, b.forward = c.forward, b.vel = c.velocity;
+            // (❓ The body's overhangs: 0.9 m past each axle, judged; the program's box is not read.)
+            b.front = b.rear = spec.wheelbase / 2 + 0.9f;
+            b.half_width = std::max(spec.half_track[0], spec.half_track[1]) + spec.tire_width[0] / 2 + 0.05f;
+            boxes.push_back(b);
+        }
+        gadget_hits_ = gadget_bodies_.step(course_->gadgets(), course_->road(), boxes, kStep);
+    }
 }
 
 // Smoke and dust from the wheels for a step: a puff where a tire slides on the road, dust and

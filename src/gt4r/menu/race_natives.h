@@ -52,6 +52,17 @@ struct QuickWork {
 // concept) and model year (+0x0C); the catalog's power and torque through `player_car`.
 void fill_player_car(Runtime& rt, QuickWork& work, const std::string& car_label);
 
+// A license test's next (NEXT_RACE in the license sequence, 0x10FCD0), from its race code with or
+// without the region's prefix ("l0b0001", "usl0b0001"; kept as given): tests 1 .. 15 go to the next
+// number, test 8 to its license's coffee break test (B l0c0001, A 0002, IB 0003, IA 0004, S 0005), a
+// coffee break test to its license's test 9; test 16 and other codes have none ("").
+std::string next_license_test(const std::string& code);
+
+// A race request completed as the menus complete the one they hand to a race (the event's course,
+// a test's car and grid): menu::Runtime::race_request (runtime_internal.h).
+struct RaceRequest;
+void complete_race_request(Runtime& rt, RaceRequest& request);
+
 // The quick work of the game's state (made on first use).
 QuickWork& quick_work(GameState& game);
 

@@ -14,9 +14,13 @@ bool ends_with(const std::string& s, const char* tail) {
     return s.size() >= n && s.compare(s.size() - n, n, tail) == 0;
 }
 
+} // namespace
+
 StreamPlayer stream_player(gt3r::AudioEngine& audio, gt3r::Vfs& vfs) {
     StreamPlayer p;
-    p.play = [&audio, &vfs](const std::string& path, bool repeat, float level) { return audio.play_music(vfs, path, repeat, level); };
+    p.play = [&audio, &vfs](const std::string& path, bool repeat, float level) {
+        return audio.play_music(vfs, path, repeat, stream_request(level));
+    };
     p.stop = [&audio] { audio.stop_music(); };
     p.pause = [&audio](bool paused) {
         if (paused)
@@ -28,11 +32,12 @@ StreamPlayer stream_player(gt3r::AudioEngine& audio, gt3r::Vfs& vfs) {
     return p;
 }
 
-} // namespace
-
 AppSound::AppSound(gt3r::AudioEngine& audio, gt3r::Vfs& vfs)
     : audio_(audio), vfs_(vfs), driver_(audio.voices()), library_(std::make_shared<SoundLibrary>(vfs)),
       menu_(library_, driver_, stream_player(audio, vfs)) {
+    // The game's output level on the app's mixer while a disc is open (the shared engine's own
+    // screens keep its half level).
+    with_output_level(audio_.voices());
     // The mixer has one tick hook: the shared engine's sequencer keeps its turn in it.
     audio_.voices().set_tick_hook(
         [this] {
@@ -44,6 +49,7 @@ AppSound::AppSound(gt3r::AudioEngine& audio, gt3r::Vfs& vfs)
 
 AppSound::~AppSound() {
     gt3r::AudioEngine& audio = audio_;
+    audio.voices().set_master_volume(gt3r::VoiceMixer::kOutputTrim);
     audio.voices().set_tick_hook([&audio] { audio.sequencer().update(audio.voices()); }, audio.sequencer().samples_per_update());
     driver_.stop_all();
 }
