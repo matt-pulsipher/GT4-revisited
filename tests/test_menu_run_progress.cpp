@@ -59,6 +59,13 @@ TEST(disc_gt_mode_progress_saved_and_exported) {
             const Value a[1] = {Value::string(cat)};
             CHECK(vm.call(vm.attribute(record, "isLicensePerfect"), a).i == 1);
         }
+        // Each test's ranking: its run, just inside the gold time (B-1's gold is 0'10.150).
+        const Value label[1] = {Value::string("l0b0001")};
+        const Value unit = vm.call(vm.attribute(vm.attribute(vm.lookup("game"), "license_record"), "getUnit"), label);
+        const Value first[1] = {Value::integer(0)};
+        const std::string best = unit.p ? vm.call(vm.attribute(unit, "getBestTime"), first).as_string() : std::string();
+        std::printf("  B-1's ranking: %s\n", best.c_str());
+        CHECK(best == "0'10.050");
     }
     // On a card image and back: the same four files.
     const std::filesystem::path card = dir / "memorycard";

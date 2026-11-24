@@ -163,7 +163,11 @@ ProgressReport play_progress(Runtime& rt, const ProgressPlan& plan) {
                 // The medal's time: the RACE row's (+0x76 minutes and seconds, +0x1A ms; gold,
                 // then silver and bronze two bytes further on).
                 const int medal = plan.license_result == "silver" ? 1 : plan.license_result == "bronze" ? 2 : 0;
-                const ByteSpan row = n ? n->db().row("RACE", label) : ByteSpan{};
+                // The RACE table's label has the region in front ("usl0b0001"), as the record's
+                // lookup tries it (0x430D20).
+                ByteSpan row;
+                for (const std::string& tried : {std::string(label), "us" + std::string(label), "jp" + std::string(label)})
+                    if (row.empty() && n) row = n->db().row("RACE", tried);
                 u32 time = 0;
                 const size_t m = 0x76 + 2 * size_t(medal), ms = 0x1A + 2 * size_t(medal);
                 if (row.size() > m + 1 && row.size() > ms + 1) time = u32(row[m]) * 60'000 + u32(row[m + 1]) * 1'000 + u32(row[ms] | row[ms + 1] << 8);
