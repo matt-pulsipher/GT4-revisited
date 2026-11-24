@@ -169,9 +169,11 @@ private:
         return {int(std::floor(f.x)), int(std::floor(f.y)), int(std::ceil(f.x + f.w) - std::floor(f.x)), int(std::ceil(f.y + f.h) - std::floor(f.y))};
     }
 
-    SDL_Texture* texture(const gt3r::Tex1::Image* image) {
+    // By the picture and its path: a picture freed with its project (another project opened)
+    // leaves its address to the next, whose path tells them apart.
+    SDL_Texture* texture(const gt3r::Tex1::Image* image, const std::string& path) {
         if (!image || !image->width || !image->height) return nullptr;
-        SDL_Texture*& t = textures_[image];
+        SDL_Texture*& t = textures_[{image, path}];
         if (!t) {
             t = SDL_CreateTexture(r_, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, int(image->width), int(image->height));
             if (t) {
@@ -187,7 +189,7 @@ private:
     // (mImageFace's `texcoord`); none: the whole picture.
     void image(const std::string& path, const Rect& at, Rgba tint, float opacity, bool add, const SDL_FPoint* uv = nullptr, bool from_disk = false) {
         const gt3r::Tex1::Image* img = path.empty() ? nullptr : from_disk ? disk_image(path) : project_->image(page_, path);
-        SDL_Texture* t = texture(img);
+        SDL_Texture* t = texture(img, path);
         if (!t) return;
         SDL_SetTextureColorMod(t, 255, 255, 255);
         SDL_SetTextureAlphaMod(t, 255);
@@ -614,7 +616,7 @@ private:
     std::map<std::string, const gt3r::text::LatinFont*> fonts_;
     std::map<std::string, menu::FontSpacing> spacing_;
     std::array<menu::TextColor, 4> button_colors_{};
-    std::map<const gt3r::Tex1::Image*, SDL_Texture*> textures_;
+    std::map<std::pair<const gt3r::Tex1::Image*, std::string>, SDL_Texture*> textures_;
     std::map<std::pair<const gt3r::text::LatinFont*, int>, SDL_Texture*> atlases_;
     float ox_ = 0, oy_ = 0, scale_ = 1;
     Affine m_; // the transforms of the widgets being drawn

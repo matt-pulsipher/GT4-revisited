@@ -201,6 +201,7 @@ private:
             config.list = [vfs](const std::string& folder) { return vfs->list_dir(folder); };
             Disc* disc = app.disc();
             if (disc) config.program = [disc] { return disc->read_program(); };
+            if (disc && disc->info().serial.rfind("SCPS", 0) == 0) config.region = "jp"; // (Prologue: its units, PS and kgfm)
             config.data_dir = app.data_dir();
             while (!config.data_dir.empty() && (config.data_dir.back() == '/' || config.data_dir.back() == '\\')) config.data_dir.pop_back();
             if (!projects_.empty()) config.language = projects_[size_t(std::clamp(project_sel_, 0, int(projects_.size()) - 1))].language;

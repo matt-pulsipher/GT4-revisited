@@ -1,5 +1,8 @@
 #pragma once
 
+#include <array>
+#include <optional>
+
 // What the runtime's parts share: the widget classes' own members and keys (widget_classes.cpp),
 // the actors (actors.cpp), the game's objects (game_natives.cpp).
 
@@ -27,6 +30,15 @@ void select_box_layout(LiveWidget& box, bool warp);
 // ---- actors.cpp
 // The program's actors (MFadeActor, MMoveActor, MBlinkActor, ...), transitions and watchers.
 void install_actor_natives(Runtime& rt, script::Module& menu);
+
+// MSwitchActor's colours (r, g, b, a in 0..1) by its button's state, Gran Turismo 4 Prologue's
+// (prologue_natives.cpp): read from the disc's program; none for another program.
+struct SwitchColors {
+    std::array<float, 4> base_active, base_idle, base_insensitive_active, base_insensitive;
+    std::array<float, 4> text_active, text_idle, text_insensitive_active, text_insensitive;
+    std::array<float, 4> ring_blink_on, ring_blink_off, ring_insensitive, ring_idle;
+};
+std::optional<SwitchColors> prologue_switch_colors(const RuntimeConfig& config);
 // `widget.actor = actor` (nil takes it away).
 void attach_actor(LiveWidget& w, const script::Value& actor);
 // One frame of an actor.

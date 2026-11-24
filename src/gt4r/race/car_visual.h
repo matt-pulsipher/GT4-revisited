@@ -89,6 +89,7 @@ private:
     std::vector<CameraMount> mounts_;
     render::Vec3 min_, max_;
     int lods_ = 1;
+    bool gt3_file_ = false; // a Gran Turismo 3 car file (Prologue's): its models' y = 0 is the road
 };
 
 } // namespace gt4r::race

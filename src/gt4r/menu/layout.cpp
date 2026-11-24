@@ -121,6 +121,30 @@ void read_body(Lexer& lx, const std::string& type, Property* value, Widget* widg
     *widget = read_widget(lx, type, depth);
 }
 
+// The older files' conditions (Prologue's): `cond_active`, `cond_focus`, `cond_prelight`,
+// `cond_insensitive`, each 0 (either), 2 (the state's bit off) or 3 (on), become the
+// `visible_condition` / `visible_compare` pair over the bits 1, 2, 4, 8. ❓ Read from the files'
+// use (a license sign's grey face 2 / its colored face 3 on `cond_active`), not from the program.
+void add_visible_condition(Widget& w) {
+    if (w.find("visible_condition") || w.find("visible_compare")) return;
+    static constexpr std::pair<const char*, int> kBits[] = {{"cond_active", 1}, {"cond_focus", 2}, {"cond_prelight", 4}, {"cond_insensitive", 8}};
+    int condition = 0, compare = 0;
+    for (const auto& [name, bit] : kBits) {
+        const Property* p = w.find(name);
+        if (!p || p->values.empty()) continue;
+        const long v = std::strtol(p->values[0].c_str(), nullptr, 10);
+        if (v & 2) compare |= bit, condition |= (v & 1) ? bit : 0;
+    }
+    if (!compare) return;
+    auto digit = [](std::string name, int value) {
+        Property p;
+        p.name = std::move(name), p.type = "digit", p.values = {std::to_string(value)};
+        return p;
+    };
+    w.properties.push_back(digit("visible_condition", condition));
+    w.properties.push_back(digit("visible_compare", compare));
+}
+
 // After "<type> {": properties up to "}".
 Widget read_widget(Lexer& lx, std::string type, int depth) {
     Widget w;
@@ -131,6 +155,7 @@ Widget read_widget(Lexer& lx, std::string type, int depth) {
         if (t.kind != Token::Word) throw FormatError("layout: expected a property in " + w.type);
         w.properties.push_back(read_property(lx, std::move(t.text), depth));
     }
+    add_visible_condition(w);
     return w;
 }
 
@@ -143,6 +168,20 @@ Rgba to_rgba(const Property& p) {
     return c;
 }
 
+// The older files (Prologue's: conditions as `cond_*`) have no `clip`: the select bar of a
+// scroll box shows only what lies inside it (the title's one item of eight, the arcade's first
+// page's Start alone, a course list's five pictures), while the box's arrows and name around it
+// stay. ❓ Judged from the original's pages, not read from the program.
+void clip_select_bars(Widget& w, bool in_scroll_box) {
+    if (in_scroll_box && w.type == "SelectBar" && !w.find("clip")) {
+        Property p;
+        p.name = "clip", p.type = "digit", p.values = {"1"};
+        w.properties.push_back(std::move(p));
+    }
+    for (Property& p : w.properties)
+        for (Widget& c : p.widgets) clip_select_bars(c, w.type == "ScrollBox");
+}
+
 } // namespace
 
 Widget parse_layout(std::string_view text) {
@@ -153,6 +192,7 @@ Widget parse_layout(std::string_view text) {
     lx.expect(Token::Open, "{");
     Widget w = read_widget(lx, type.text, 0);
     if (lx.next().kind != Token::End) throw FormatError("layout: text after the widget");
+    if (text.find("cond_active") != std::string_view::npos && text.find("visible_condition") == std::string_view::npos) clip_select_bars(w, false);
     return w;
 }
 
