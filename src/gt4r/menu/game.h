@@ -48,7 +48,10 @@ struct RaceRequest {
     // The second player's (split screen).
     std::string car_2p;
     int paint_2p = 0, assist_type_2p = 0, assist_asm_2p = 0, assist_tcs_2p = 0, manual_2p = 0, vibration_2p = 1, tire_2p = 0;
-    std::vector<std::string> entries; // the opponents' cars when the scripts chose them
+    // The entry table the scripts filled (setEntryCarCode): by the entry's number, 0 the player's
+    // car (also car / paint), the opponents they chose from 1 to overwrite_enemy_num ("" none).
+    std::vector<std::string> entries;
+    std::vector<int> entry_paints;
     // The car when it is one of the garage's (-1: a car picked by its label).
     int garage_slot = -1, garage_slot_2p = -1;
 };

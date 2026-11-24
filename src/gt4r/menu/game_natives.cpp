@@ -474,15 +474,23 @@ Value GameNatives::make_game() {
     g.set("selected_course", Value{}), g.set("selected_car", Value{});
     g.set("car_garage", Value{}), g.set("car_garage_2p", Value{});
     g.set("last_record", Value{}), g.set("labo_folder", Value{}), g.set("labo_list_index", number(0));
+    // The race's entry table (MGame getEntryCarCode / setEntryCarCode): [car, paint] by the
+    // entry's number; entry 0 is the player's car (car_code, car_color), the opponents the scripts
+    // chose from 1 (arcade's doGame reads and writes 0 .. overwrite_enemy_num alike).
     g.method("getEntryCarCode", [q](Vm&, const Value&, Args a) {
         const s32 i = arg_int(a, 0, -1);
-        return text(i >= 0 && size_t(i) < q->entries.size() ? q->entries[size_t(i)] : std::string());
+        if (i == 0) return Value::array({text(q->car), number(q->paint)});
+        if (i < 0 || size_t(i) >= q->entries.size() || q->entries[size_t(i)].empty()) return Value::array({Value{}, number(0)});
+        return Value::array({text(q->entries[size_t(i)]), number(size_t(i) < q->entry_paints.size() ? q->entry_paints[size_t(i)] : 0)});
     });
     g.method("setEntryCarCode", [q](Vm&, const Value&, Args a) {
         const s32 i = arg_int(a, 0, -1);
         if (i < 0 || i > 64) return Value{};
         if (q->entries.size() <= size_t(i)) q->entries.resize(size_t(i) + 1);
-        q->entries[size_t(i)] = arg_text(a, 1);
+        if (q->entry_paints.size() <= size_t(i)) q->entry_paints.resize(size_t(i) + 1);
+        const std::string car = a.size() > 1 && !a[1].is_nil() ? a[1].to_string() : std::string();
+        q->entries[size_t(i)] = car, q->entry_paints[size_t(i)] = arg_int(a, 2);
+        if (i == 0 && !car.empty()) q->car = car, q->paint = arg_int(a, 2);
         return Value{};
     });
     // The pages the menus came through: a stack of names (the title page pushes the mode).
