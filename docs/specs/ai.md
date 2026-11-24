@@ -395,6 +395,18 @@ unless status 4; a change (0x463C28 blended) sets the cooldown 180 and the conta
 both lines the new one, the offset and the blend 0; else the blend 1, or 1 − blend when the request
 names the line being left, the old line kept for it; then the re-plan (also for the line the car is on).
 
+### 6.1 The player's own driver and the suggested gear
+
+The player's car (control source 0) has a driver object too: the input phase (0x349FD0) runs its decision (0x465078) every
+step while its kind is 0, then the pad's path over its outputs, then **the suggested gear** (0x469E58, only for this car):
+D +0x40 = −1 and +0x41 = 0, then with the target speed D +0x28 (mode 4: the lesser of +0x28 and +0x24) at or below the
+car's speed F +0x53C, D +0x41 = 1 in modes 3 / 4 and D +0x40 = 0x36BF68(car, target): the lowest gear whose up-shift rpm
+(0x36BEE0) less 500 (2,000 in first) reaches that speed (the gearbox's, sim-parts'). `Field::set_shadow(car)` keeps such a
+driver (planned, not driving while kind 0); `Field::suggestion(car)` the speed, set and firm. ✔ Set and firm equal to the
+program's at every call with the targets made up around the car's speed (`GT4R_AI_PAD=<car> GT4R_AI_SUGFORCE=1
+GT4R_AI_CHECK=1`, test `ai_suggested_gear_speed_equal_to_the_program`); the gear itself from the session's gearbox (asked of
+sim-parts-2).
+
 ## 7. Pace
 
 - The **menus' difficulty** picks the event (the car's Arcade rows, `ARCADEINFO_NORMAL`

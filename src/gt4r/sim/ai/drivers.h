@@ -152,7 +152,20 @@ public:
     void decide_car(size_t car, race::CarInput& input);
     void end_step();
 
-    // B-spec (control source 1): the car's computer driver takes the player's commands. Call before the first step.
+    // The player's own car (control source 0) keeps a driver that plans as any other but does not drive (the program runs
+    // its decision 0x465078 each step and the pad's input after it): drive() leaves its input as the caller set it while its
+    // kind is 0. Call before the first step for a car in `computer`. (Field::finish(car, mode, true) hands it to the driver.)
+    void set_shadow(size_t car);
+    // The suggested gear's speed (0x469E58, each step after the decision, for every driven car): the driver's target speed
+    // (D +0x28; mode 4 the lesser of it and D +0x24) when the car is at or above it, else none (D +0x40 = -1). The gear is
+    // the gearbox's lowest whose up-shift rpm less 500 (2,000 in first) reaches that speed (0x36BF68, the session's).
+    // `firm`: modes 3 / 4 (D +0x41).
+    struct Suggestion {
+        bool on = false;
+        gt3r::ee::F speed;
+        bool firm = false;
+    };
+    Suggestion suggestion(size_t car) const;
     void set_bspec(size_t car);
     // The B-spec driver's skill (0x468C50, bspec_skill.h): its arcs', braking and alongside multipliers (D +0xB8 / +0xBC /
     // +0xC0), set at the race's start after set_bspec.

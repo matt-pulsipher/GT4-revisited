@@ -59,6 +59,7 @@ struct Field::Driver {
     F corner_mult{1.0f}, brake_mult{1.0f}, alongside_mult{1.0f}; // +0xB8 / +0xBC / +0xC0
     std::array<F, 5> pd_last{}; // +0x00 .. +0x10 the PD steering's terms at the last step
     F pd_rate;              // F +0x484 the PD steering's rate (its integrator)
+    Suggestion suggest;     // +0x40 / +0x41 the suggested gear's speed (0x469E58)
     // Outputs (+0x30 / +0x34 / +0x38 / +0x3E / +0x3C).
     F steer, throttle, brake;
     bool reverse = false;
@@ -898,6 +899,16 @@ void Field::finish(size_t car, int mode, bool player_car) {
 }
 
 int Field::kind(size_t car) const { return car < drivers_.size() && drivers_[car] ? drivers_[car]->kind : 0; }
+void Field::set_shadow(size_t car) {
+    Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
+    if (d) d->control = 0;
+}
+
+Field::Suggestion Field::suggestion(size_t car) const {
+    const Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
+    return d ? d->suggest : Suggestion{};
+}
+
 void Field::set_bspec_skill(size_t car, F corner, F brake, F alongside) {
     Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
     if (!d) return;
@@ -1631,6 +1642,17 @@ void Field::decide_car(size_t car, race::CarInput& in) {
         }
     }
     d.applied_throttle = thr.host();
+    // 0x469E58: the suggested gear's speed.
+    {
+        Suggestion& g = d.suggest;
+        g = {};
+        F target = d.v_next;
+        if (d.mode == 4 && !(d.v_next < d.v_cur)) target = d.v_cur;
+        if (!(c.speed < target)) {
+            g.on = true, g.speed = target;
+            g.firm = d.mode == 3 || d.mode == 4;
+        }
+    }
     in = race::CarInput{};
     // The steering as the pad's share of the lock it allows at the car's speed (what a pad reads), and the angle.
     const float steer = d.steer.host();
@@ -1648,8 +1670,15 @@ void Field::decide_car(size_t car, race::CarInput& in) {
 
 void Field::drive(std::span<race::CarInput> inputs) {
     begin_step();
-    for (auto& dp : drivers_)
-        if (dp && dp->car < inputs.size()) decide_car(dp->car, inputs[dp->car]);
+    for (auto& dp : drivers_) {
+        if (!dp || dp->car >= inputs.size()) continue;
+        if (dp->control == 0 && dp->kind == 0) { // the player's own car: planned, not driven
+            race::CarInput unused;
+            decide_car(dp->car, unused);
+        } else {
+            decide_car(dp->car, inputs[dp->car]);
+        }
+    }
     // A place with a held start (missions: Pace::start_delay) stays on the line, its engine held as in the count, until
     // the race's clock passes its seconds (❓ judged: the program's hold itself is not found; its decision only lengthens
     // the start's look ahead by the delay).

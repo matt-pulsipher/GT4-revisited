@@ -49,3 +49,27 @@ TEST(ai_pd_steering_equal_to_the_program) {
         CHECK(it != r.checks.end() && it->second.compared > 1000 && it->second.differ == 0);
     }
 }
+
+TEST(ai_suggested_gear_speed_equal_to_the_program) {
+    Disc* disc = nullptr;
+    for (const std::unique_ptr<Disc>& d : test::discs())
+        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d.get();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    // The pad car's suggested gear (0x469E58): whether it is set and firm, with the driver's targets and mode made up around
+    // the car's speed at every call.
+    setenv("GT4R_AI_PAD", "0", 1);
+    setenv("GT4R_AI_SUGFORCE", "1", 1);
+    diff::AiRunOptions opt;
+    opt.checks = true;
+    opt.seconds = 12;
+    const diff::AiRunResult r = diff::run_ai(*disc, false, "tsukuba", {"s500_63", "ka_01"}, 1, opt);
+    unsetenv("GT4R_AI_PAD");
+    unsetenv("GT4R_AI_SUGFORCE");
+    CHECK(r.ran);
+    for (const char* n : {"suggested gear set", "suggested gear firm"}) {
+        const auto it = r.checks.find(n);
+        CHECK(it != r.checks.end() && it->second.compared > 500 && it->second.differ == 0);
+    }
+    const auto set = r.checks.find("suggested gear (the program's set)");
+    CHECK(set != r.checks.end() && set->second.compared > 200);
+}
