@@ -881,7 +881,7 @@ GT4's own routines, checked against the user's program where the note says so:
 - used cars: makeUsed (0x440FB8), the used price (0x441128, 0x4411F0), from the program's tables;
 - the showroom car's figures and evaluation (0x364868, 0x34F3F8, 0x356EA8, 0x3F86E8; bit for bit on every
   car), the engine's condition (0x350868; equal on made-up blocks), the cars' figures through them
-  (`updateCurrentStatus` 0x146648, garage entries 0x434FD0);
+  (`updateCurrentStatus` 0x146648, garage entries 0x434FD0, the race menus' grid HP and kg 0x364E90 / 0x364FA8);
 - Arcade's opponent picker (0x1308C8; its sort, search, draw and dirt step equal the program's) and the
   program's generator (0x579330, 0x578598: the draws equal);
 - `MCourseData.GetAttrString` (0x1B3320); the options' fields and the screen's figures (0x436D60); the
@@ -895,9 +895,6 @@ Still the shared engine's code or a stand-in (file, function → the GT4 routine
   equal, so this changes the path, not the numbers.
 - `sim/car_spec.cpp` `computed_gears`: a made gearbox's ratios by the engine's generator → 0x443240 /
   0x354FF8 (the same rule, sim-parts' area).
-- `menu/race_natives.cpp` `row_figures` (the race menus' grid table, HP and kg): `sim::spec_figures`
-  (peak power over the spec's curve without the cap or the extra power) → ShowRoomCar 0x364E90 (the power
-  truncated) and 0x364FA8 (`Database::stock_showroom` gives both); the menus' file.
 - `menu/faces_graph.cpp` (the settings pages' power and torque charts): the spec's points → 0x148940,
   0x148B60.
 
