@@ -201,6 +201,25 @@ void playlist_to(const audio::RacePlaylist& p, menu::GameState::PlayList& list) 
     for (size_t i = 0; i < p.rows().size() && i < list.row.size(); ++i) list.row[i].played = p.rows()[i].played ? 1 : 0;
 }
 
+// The play list of the races' music a new game has: the configuration script's (init_raceplaylist),
+// from menus booted for it (null when they cannot be).
+std::shared_ptr<audio::RacePlaylist> new_game_playlist(App& app) {
+    if (!app.vfs()) return nullptr;
+    try {
+        menu::Runtime::Config config;
+        gt3r::Vfs* vfs = app.vfs();
+        config.list = [vfs](const std::string& folder) { return vfs->list_dir(folder); };
+        if (Disc* disc = app.disc()) config.program = [disc] { return disc->read_program(); };
+        config.data_dir = app.data_dir();
+        menu::Runtime rt([vfs](const std::string& path) { return vfs->read(path); }, config);
+        rt.boot();
+        return playlist_from(rt.game().bgm_playlist);
+    } catch (const std::exception& e) {
+        LOG_WARN("Drive: the races' play list: %s", e.what());
+        return nullptr;
+    }
+}
+
 // The race itself: the world (race_world.h), its flow (race_flow.h) and the cameras.
 class Race {
 public:
@@ -362,6 +381,8 @@ public:
             start_camera_.step();
             camera_.step(history_[replay_at_][0], kStep);
             step_tv(history_[replay_at_][0]);
+            // The music ducked under the course's replay-script shots (the designer's cameras).
+            if (audio::RaceSound* sound = world_->sound()) sound->set_replay_shot(tv_valid_ && !start_camera_.active());
             hear(history_[replay_at_], false);
             return;
         }
@@ -799,6 +820,9 @@ public:
                 LOG_WARN("Drive: the saved replay: %s", e.what());
             }
         }
+        // A race without the menus: the races' music by the play list a new game has (the
+        // configuration script's, run by menus booted for it).
+        if (!setup_.playlist) setup_.playlist = new_game_playlist(app);
         if (setup_.scripted) start(app);
         if (saved && race_) race_->play_saved(std::move(*saved));
         if (setup_.save_replay && race_ && race_->has_run()) save_replay(app);
