@@ -61,36 +61,27 @@ std::string quick_time_text(s32 ms) {
     return b;
 }
 
-// A grid car's power and weight as the race's car is built (ShowRoomCar 0x364E90: the built car's
-// power float, truncated; 0x364FA8 its weight): the car as sold. The power is 0 (written "--")
-// when the car's row hides its figures (GENERIC_CAR +0x12 bit 3, 0x4489A0).
+// A grid car's power and weight as the race's car is built: its showroom car (Database::stock_showroom,
+// sim/showroom.h), the power truncated (0x364E90) and the weight P +0x1048 (0x364FA8). The power is 0
+// (written "--") when the car's row hides its figures (GENERIC_CAR +0x12 bit 3, 0x4489A0).
 struct RowFigures {
     int power = 0, weight = 0;
     bool known = false;
 };
 RowFigures row_figures(Runtime& rt, const std::string& label) {
-    static std::map<std::string, RowFigures> cache; // ❓ one disc a run: the cars' figures do not change
-    if (const auto it = cache.find(label); it != cache.end()) return it->second;
     RowFigures f;
     try {
         if (std::shared_ptr<GameNatives> n = natives_of(rt)) {
             Database& d = n->db();
-            sim::Equipment eq;
-            if (d.db && sim::stock_car(*d.db, d.program, label, eq)) {
-                sim::Spec spec;
-                sim::build_spec(*d.db, d.program, eq, 0, spec);
-                const sim::SpecFigures fig = sim::spec_figures(spec);
-                f.power = int(fig.ps); // toward zero, as the program's conversion
-                f.weight = spec.weight_kg();
+            if (const std::optional<sim::ShowroomFigures> fig = d.stock_showroom(label)) {
+                f.power = gt3r::ee::to_int(fig->power), f.weight = fig->weight;
                 f.known = true;
-                const db::Table* t = d.db->table("GENERIC_CAR");
-                const ByteSpan car = t ? t->row(u32(eq.bytes[0]) | u32(eq.bytes[1]) << 8 | u32(eq.bytes[2]) << 16 | u32(eq.bytes[3]) << 24) : ByteSpan{};
+                const ByteSpan car = d.car_row(label);
                 if (car.size() > 0x12 && (car[0x12] & 8)) f.power = 0;
             }
         }
     } catch (const std::exception&) {
     }
-    cache[label] = f;
     return f;
 }
 

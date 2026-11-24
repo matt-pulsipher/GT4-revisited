@@ -40,6 +40,7 @@ int main(int argc, char** argv) {
             return gt4r::diff::prologue::run(*disc, argc > 3 ? argv[3] : "tsukuba", argc > 4 ? argv[4] : "civic_typer_97", argc > 5 ? std::atoi(argv[5]) : 1200);
         if (test == "showroom") ok = gt4r::diff::run_showroom(*disc, true, argc > 3 ? size_t(std::atoi(argv[3])) : 0).ran && ok;
         if (test == "showroom" || test == "picker") ok = gt4r::diff::run_picker(*disc, true).ran && ok;
+        if (test == "showroom" || test == "charts") ok = gt4r::diff::run_charts(*disc, true).ran && ok;
         if (test == "ai") { // gt4r_diff <disc> ai [course] [car,car,...] [laps]
             std::vector<std::string> cars;
             const std::string list = argc > 4 ? argv[4] : "_1100_standard_type11_49,z_act_70,n360_67,midget2_d_type_98,s500_63,ka_01";
@@ -50,6 +51,8 @@ int main(int argc, char** argv) {
             }
             ok = gt4r::diff::run_ai(*disc, true, argc > 3 ? argv[3] : "tsukuba", cars, argc > 5 ? std::atoi(argv[5]) : 3).ran && ok;
         }
+        if (test == "bspec") // gt4r_diff <disc> bspec: the B-spec skill on made-up records
+            ok = gt4r::diff::run_bspec_skill(*disc, true, {"s500_63", "nsx_r_02", "ka_01", "_787b_91", "impreza_wrx_sti_02"}).ran && ok;
         if (test == "demo") ok = gt4r::diff::run_demo(*disc, true, argc > 3 ? argv[3] : "usl0b0001").ran && ok; // gt4r_diff <disc> demo [label]
         return ok ? 0 : 1;
     } catch (const std::exception& e) {

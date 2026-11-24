@@ -969,13 +969,18 @@ void Runtime::dispatch_key(Key k) {
         }
         LiveWidget& w = *chain[at];
         if (&w != page.get() && widget_key(*this, w, k)) return;
+        // A ScaleBar moves its value after its script, when that did not take the key (0x238D10).
+        const bool scale = &w != page.get() && w.is("ScaleBar");
+        std::shared_ptr<LiveWidget> held = chain[at];
         const auto it = w.members.find("onKeyPress");
         if (it == w.members.end() || it->second->value.kind != Kind::Function) {
+            if (scale && scale_bar_key_after(*this, w, k)) return;
             if (self) (*self)(at + 1);
             return;
         }
-        run(it->second->value, {render_context_, ev}, w.path() + "::onKeyPress", [self, at](const Value& result) {
+        run(it->second->value, {render_context_, ev}, w.path() + "::onKeyPress", [this, self, at, scale, held, k](const Value& result) {
             if (result.is_number() && result.as_float() != 0) return;
+            if (scale && scale_bar_key_after(*this, *held, k)) return;
             if (self) (*self)(at + 1);
         });
     };
