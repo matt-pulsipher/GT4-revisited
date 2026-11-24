@@ -4,8 +4,12 @@
 
 #include "diff.h"
 #include "gt4r/sim/ai/bspec_skill.h"
+#include "gt4r/sim/ai/drivers.h"
+#include "gt4r/sim/session.h"
 #include "gt4r/sim/program.h"
 
+#include <algorithm>
+#include <cstdio>
 #include <cstdlib>
 
 using namespace gt4r;

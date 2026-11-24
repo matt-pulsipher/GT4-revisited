@@ -485,7 +485,9 @@ decision with a pace command midway (`gt4r_diff ai GT4R_AI_BSPEC=1,4,20`).
 - **Its shift speeds** (0x36BEE0 / 0x36BF28 → 0x3F1E30): the speed x the car's byte +0x83 >> 7 (the driver's shift byte
   copied to the car): the up-shift speeds for control source 1 and kind 0, the down-shift speeds for control source 1; the
   opponents shift at the gearbox's own. In the session's gearbox (sim-parts' `rules_drive`) by
-  `Session::set_shift_factor(car, Field::shift_factor(car))`.
+  `Field::apply_shift_factors(session)` (each driven car's byte, `Session::set_shift_factor`). ❓ The session still runs a
+  computer-driven car as control source 2, the B-spec car's too, so its gearbox does not scale yet (asked of sim-step: the
+  control source through `CarInput`).
 - **Its skill** (0x468C50 from the conductor's virtual 28, for a car of control source 0 or 1 not a ghost, with the switch
   0x623E48 set): the race information's +0x20 .. +0x5F (the B-spec driver's record of its races, from the save: u16 a[8]
   +0x00, b[8] +0x10, c[8] +0x20 by the cars' class, d[4] +0x30 and e[4] +0x38 by half the class) copied to car +0x8C. The
@@ -646,7 +648,9 @@ limit set; at 1.5, above a new tire's, the cars ask, go in and get new tires: 24
 equal; test `ai_pits_asked_by_the_wear`). ✔ The race state equal at every call too (23,814 .. 32,371 calls with the race's laps set). On our session the pit lane
 flag, the hits (the collision body's +0x43C a wall, +0x440 a car) and the race state are the program's rules on the
 session's values (the car's laps as the race flow counts them, the session's clock). ❓ Not wired: the pad car's own
-visit and the pit menu (0x35BFE8); the car stood in its box (asked of sim-step: braked to a stand meanwhile).
+visit and the pit menu (0x35BFE8); the car stood in its box (asked of sim-step: braked to a stand meanwhile). The fuel and
+wear come from the session (`session_pit_hooks`: the tank above 0 counts the fuel, the economy readings, the wear rules'
+switch +0x68 and limit +0x20, each wheel's wear grip +0x50 and tread +0xAC, `Session::new_tire`, `set_fuel`).
 
 ## What runs where
 
