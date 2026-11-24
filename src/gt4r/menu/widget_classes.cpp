@@ -279,12 +279,26 @@ bool bar_key(Runtime& rt, LiveWidget& w, Key k) {
         }
         return popup && open;
     }
-    // ScaleBar: a press of a key along it starts a hold (repeat_start); ❓ the script's
-    // onKeyPress, which the program calls before the value moves, comes after it here.
+    // ScaleBar (0x238D10): a press of a key along it starts a hold (repeat_start, 0x238FF0) and tells the step
+    // (0x238A10); then the widget's own handling (its script's onKeyPress) has the key: the runtime calls
+    // scale_bar_key_after when that did not take it.
     if (dir) {
         bar_set(w, "repeat_start", std::clamp(bar_num(w, "value", 0), bar_num(w, "min", 0), bar_num(w, "max", 100)));
         scale_step_notify(rt, w);
     }
+    return false;
+}
+
+} // namespace
+
+} // namespace
+
+// The ScaleBar's key after its script (0x238D10 from 0x238E14): closed in popup mode, nothing; else the value moves a
+// step along the key (0x239098 / 0x239048) and the value and the step are told (0x238978, 0x238A10).
+bool scale_bar_key_after(Runtime& rt, LiveWidget& w, Key k) {
+    const bool popup = bar_popup_mode(w), open = popup_open(w);
+    const bool along_x = w.data.number("horizontal") != 0;
+    const int dir = along_x ? (k == Key::Left ? -1 : k == Key::Right ? 1 : 0) : (k == Key::Up ? -1 : k == Key::Down ? 1 : 0);
     if (popup && !open) return false;
     if (dir) {
         const float before = bar_num(w, "value", 0);
@@ -298,7 +312,7 @@ bool bar_key(Runtime& rt, LiveWidget& w, Key k) {
     return popup && open;
 }
 
-} // namespace
+namespace {
 
 // ---- the list box: rows made from a template as they come into view ------------------------
 

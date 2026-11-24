@@ -14,8 +14,11 @@
 #include "gt4r/race/replay_script.h"
 #include "gt4r/race/simulation.h"
 #include "gt4r/sim/ai/drivers.h"
+#include "gt4r/sim/ai/pit_stops.h"
 #include "gt4r/sim/equipment.h"
 
+#include <array>
+#include <future>
 #include <limits>
 #include <map>
 #include <memory>
@@ -42,6 +45,7 @@ struct WorldEntry {
     u32 paint = 0;         // by index in the car's paints
     int grid_place = -1;   // the course's start place (-1: the entry's index)
     bool automatic = true; // the gearbox shifts itself
+    bool asm_on = true, tcs_on = true; // the aids (sim::Entry)
     float start_speed = 0; // a rolling start: metres per second at time 0 (sim::Entry::start_speed)
     std::optional<sim::Equipment> equipment; // the car's parts and settings (a garage car's); none: as sold
     float start_distance = std::numeric_limits<float>::quiet_NaN(); // a rolling start's place (sim::Entry::start_distance)
@@ -54,6 +58,7 @@ struct WorldSetup {
     bool reflection = true;
     bool rail = false; // the stand-in simulation instead of the game's
     sim::ai::Pace pace; // the computer drivers' (the event's)
+    int laps = 0;       // the race's laps (the pit stops' last lap; 0 a run without an end)
     bool computer_player = false; // the computer drivers drive the player's car too
     // The game's options (menu::GameState::options: the sound's volumes and output) and the race
     // play list; none: a new game's.
@@ -69,6 +74,9 @@ public:
 
     // The cars back on their start places, at rest; the course's animations from their start.
     void restart();
+    // The entries' cars as a demonstration's file enters them (each its equipment, grid place, gearbox and
+    // aids; sim/ai/demo_driver.h), or back as set up (empty); the world starts again.
+    void set_entry_overrides(std::vector<std::optional<WorldEntry>> overrides);
     // The computer drivers drive the player's car too (B-spec, a scripted run) from the next restart.
     void set_computer_player(bool on) { computer_player_ = on; }
     // The game's computer drivers drive the cars (false: the caller's inputs, e.g. the stand-in's
@@ -90,6 +98,16 @@ public:
         commands_[car] = {pace, overtake};
         if (field_) field_->command(car, {pace - 1, overtake ? 1 : 0});
     }
+    // B-spec's pit command (Circle) for a car the computer drives: it takes the pit lane at its entry,
+    // stops in its box 12 s with new tires and goes out again (sim/ai/pit_stops.h). False without the drivers.
+    bool pit(size_t car) {
+        if (!pits_) return false;
+        pits_->request(car);
+        return true;
+    }
+    // The car's pit message (F +0x5FA, 0x35ACD8's codes; 0 none) and its stops made.
+    int pit_message(size_t car) const { return pits_ && car < car_visuals_.size() ? pits_->message(car) : 0; }
+    int pit_stops(size_t car) const { return pits_ && car < car_visuals_.size() ? pits_->stops(car) : 0; }
     // What goes with the cars shown in a step, live (the simulation's) or recorded: smoke and dust
     // from the wheels, and the race's sound heard from `camera` (none: no sound) about car `target`.
     void present(std::span<const race::CarState> cars, const audio::SoundListener* camera, int target, bool live);
@@ -128,9 +146,21 @@ public:
     const std::string& car_short_name(size_t i) const { return short_names_[i]; }
     const std::string& car_label(size_t i) const { return setup_.entries[i].label; }
     size_t car_count() const { return car_visuals_.size(); }
-    const race::RailLine& line() const { return line_; }
+    // The road's line for the simple driver, made on a thread of its own from the race's set-up (it walks
+    // the road across every checkpoint: seconds on the long test course); asking waits for it.
+    const race::RailLine& line() const;
+    float lap_length() const; // the road's lap (m)
     // The cars that touched a cone or board in the last step (a bit each, the first 32).
     unsigned gadget_hits() const { return gadget_hits_; }
+    // The cones and boards car `i` met in the last step (each a contact report of kind 2).
+    int gadget_contacts(size_t i) const;
+    // A car's mass as the step reads it (the spec's weight, kg; 0 not known): the license tests' wall rule.
+    float car_mass(size_t i) const;
+    // A car's top speed as the program estimates it from the gearing (P +0xFD8, m/s; 0 not known): the
+    // speedometer's face.
+    float car_top_speed(size_t i) const;
+    // The materials a wheel counts as off the course on (the program's 0x622430, a word per material).
+    bool soft_material(u8 material) const { return material < soft_.size() && soft_[material] != 0; }
     // The cars move by the game's simulation (false: the stand-in).
     bool simulated() const { return session_ != nullptr; }
     bool night() const { return night_; }
@@ -148,16 +178,20 @@ private:
     std::unique_ptr<race::CourseScene> course_;
     std::vector<race::CarVisual*> car_visuals_;
     std::vector<std::string> names_, short_names_;
-    race::RailLine line_; // the road's line: the simple driver's guide, and the lap's length
+    mutable std::optional<race::RailLine> line_; // the road's line: the simple driver's guide
+    mutable std::future<race::RailLine> line_job_;
     race::Simulation* sim_ = nullptr;
     std::unique_ptr<race::RailSimulation> rail_; // the stand-in, when the simulation is not running
     std::unique_ptr<sim::Session> session_;
     std::unique_ptr<sim::ai::Field> field_; // the computer drivers, on the game's simulation
+    std::unique_ptr<sim::ai::PitStops> pits_; // their pit stops
     bool computer_player_ = false;
     float player_ps_ = 0;
     float hold_speed_ = 0;
     race::GadgetBodies gadget_bodies_; // the cones and boards as the cars leave them
     unsigned gadget_hits_ = 0;
+    std::vector<std::optional<WorldEntry>> overrides_;
+    std::array<u32, 32> soft_{};
     struct Command {
         int pace = 3;
         bool overtake = false;

@@ -314,6 +314,16 @@ void touch_up(Body& A, Body& B, const F* ra, const F* rb) {
     A.sy = A.sy - my;
 }
 
+// 0x350328: the hit sound's recorder, for kinds 0 (a wall: the impulse's size) and 1 (a car: the strength the
+// contact added). It keeps the step's strongest.
+void record_hit(Body& b, s32 kind, F value, s32 other) {
+    const F k50000 = F::raw(0x47435000), k02 = F::raw(0x3E4CCCCC);
+    F f = kind == 0 ? value / k50000 : value + value;
+    if (kOne < f) f = kOne;
+    if (f < k02) f = kZero;
+    if (b.hit_sound < f) b.hit_sound = f, b.hit_kind = kind, b.hit_other = other;
+}
+
 // 0x45C488: the sweep from the committed state; the start points carry over from the last step's end points.
 void init(Body& b, F dt) {
     b.dt = dt;
@@ -322,6 +332,7 @@ void init(Body& b, F dt) {
     b.vx = b.cvx, b.vy = b.cvy, b.vz = b.cvz, b.w = b.yaw_rate;
     b.front = b.rear = b.car_hit = b.wall_hit = b.sensor_hit = 0;
     b.strength = kZero;
+    b.hit_sound = kZero, b.hit_kind = -1, b.hit_other = -1;
     b.ts = kZero;
     if (b.have_points) {
         for (Point& q : b.p) q.sx = q.ex, q.sy = q.ey;
@@ -663,6 +674,7 @@ void point_response(Body& b, const Walls& walls) {
     if (!(k == kZero)) j = (-(kWallBounce + kOne) * ((vpx * nx) + (vpy * ny))) / k;
     const F jx = j * nx, jy = j * ny;
     b.strength = b.strength + (neg_if_negative(j) / kWallStrength);
+    record_hit(b, 0, neg_if_negative(j), -1);
     F fx, fy, fz;
     friction(b, jx, jy, vpx, vpy, fx, fy, fz);
     const F jlx = (r[0] * jx) + (r[2] * jy), jly = (r[1] * jx) + (r[3] * jy);
@@ -690,6 +702,7 @@ void corner_response(Body& b, const Walls& walls) {
     if (!(k == kZero)) j = (-(kWallBounce + kOne) * ((vpx * nx) + (vpy * ny))) / k;
     const F jx = j * nx, jy = j * ny;
     b.strength = b.strength + (neg_if_negative(j) / kWallStrength);
+    record_hit(b, 0, neg_if_negative(j), -1);
     F fx, fy, fz;
     friction(b, jx, jy, vpx, vpy, fx, fy, fz);
     const F tq = (rx * jy) - (ry * jx);
@@ -715,6 +728,7 @@ void pair_response(std::vector<Body>& bd, int ia) {
     const F s = neg_if_negative(j) / kPairStrength;
     A.strength = A.strength + s;
     B.strength = B.strength + s;
+    record_hit(A, 1, s, A.other), record_hit(B, 1, s, ia);
     touch_up(A, B, ra, rb);
     const F jlx = (ra[0] * jx) + (ra[2] * jy), jly = (ra[1] * jx) + (ra[3] * jy);
     A.vy = A.vy + (jy * A.im);

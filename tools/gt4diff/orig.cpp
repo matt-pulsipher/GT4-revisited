@@ -2,6 +2,8 @@
 
 #include "orig.h"
 
+#include <cstdlib>
+
 #include "disc/core_image.h"
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/formats/db/car_parts.h"
@@ -71,7 +73,7 @@ void boot(Ee& ee, Disc& disc, db::SpecDb& sdb) {
 }
 
 bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, const std::vector<std::string>& labels, int human, OrigRace& o,
-                std::string& err, bool drivers) {
+                std::string& err, bool drivers, const std::vector<std::array<u8, 0x178>>* equipment) {
     o = OrigRace{};
     o.cars = int(labels.size());
     try {
@@ -127,6 +129,11 @@ bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, 
             [race_state](Ee& e) {
                 const u32 obj = u32(e.a(0)), frame = u32(e.a(1));
                 const Pad& p = race_state->pad[e.r32(obj) % 6];
+                if (p.frame) {
+                    for (u32 k = 0; k < 0x20; ++k) e.w8(frame + k, p.frame[k]);
+                    e.set_v0(0);
+                    return;
+                }
                 auto axis = [](float v) { return s32(std::lround(std::clamp(v, -1.0f, 1.0f) * 4096.0f)); };
                 e.w8(frame + 0, 1 | 2 | 4), e.w8(frame + 1, 3), e.w8(frame + 2, u8(gt3r::s8(p.shift)));
                 e.w16(frame + 4, u16(gt3r::s16(-axis(p.steer)))), e.w16(frame + 8, u16(axis(p.throttle))), e.w16(frame + 0xA, u16(axis(p.brake)));
@@ -144,6 +151,8 @@ bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, 
                 if (c.label == labels[size_t(i)]) car_id = c.id;
             if (!car_id) return err = "no car " + labels[size_t(i)], false;
             ee.call(kSetCar, {Arg::ptr(entry + 0x20), Arg::integer(s64(db::part_id(0, car_id)))}, 50'000'000);
+            if (equipment && size_t(i) < equipment->size())
+                for (u32 k = 0; k < 0x178; ++k) ee.w8(entry + 0x20 + k, (*equipment)[size_t(i)][k]);
             ee.w32(entry + 0x3444, u32(i));                // the start place
             ee.w32(entry + 0x344C, i < human ? 0 : 1);     // who drives
             ee.w32(arr + 4 * u32(i), entry);
@@ -162,6 +171,13 @@ bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, 
         ee.hle(0x44A048, [](Ee& e) { e.set_v0(0); }, "parts information row");
         o.cond = ee.alloc(kCondSize, 64);
         ee.call(kConductorCtor, {Arg::ptr(o.cond)}, 50'000'000);
+        // GT4R_STEP_FUEL: the race's fuel rule (the rule block's byte +0x4C) on, every car's tank filled at its set-up.
+        if (std::getenv("GT4R_STEP_FUEL")) ee.w8(o.cond + 0xF818 + 0x4C, 1);
+        // GT4R_STEP_TREAD: a tread wear curve in the rule block (+0x2C .. +0x34), which the configuration makes the wear rules of.
+        if (std::getenv("GT4R_STEP_TREAD")) {
+            const u8 b[9] = {40, 60, 20, 5, 3, 10, 10, 25, 30};
+            for (u32 i = 0; i < 9; ++i) ee.w8(o.cond + 0xF818 + 0x2C + i, b[i]);
+        }
         ee.w32(o.cond, o.info);
         ee.w32(o.cond + kCondCars, u32(o.cars));
         const u32 vt = ee.r32(o.cond + kCondVtable);

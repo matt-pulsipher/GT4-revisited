@@ -302,8 +302,10 @@ calls `onValueChanged(context, index)` at once (with `has_script`); ScaleBar que
 `onValueChanged(context, bar)` and `onStepChanged(context, bar)` (also at focus enter and a
 fresh press). The pinch slides after the value (0.4 a picture, 0.2 for the ScaleBar) between
 the display ends, in the popup while open, else in the bar. `incIndex` / `decIndex` move by
-their argument and send nothing. ❓ A ScaleBar's own `onKeyPress` runs before the value moves
-in the program; here after. **ListBox** (`step_min`, `step_max`, `interpolate_ratio`,
+their argument and send nothing. A ScaleBar's key (0x238D10): in popup mode accept opens or
+closes it and cancel closes it; a fresh press along it sets `repeat_start` to the value and tells the
+step; then its own script (`onKeyPress`) has the key, and only when that does not take it does the
+value move a step (and the value and step are told); closed in popup mode the key goes on. **ListBox** (`step_min`, `step_max`, `interpolate_ratio`,
 `magnify_ratio`, `focus_active`, `repeat`, `alignment`, `h_justify`, `v_justify`): ❓ its own
 routines are not read; it answers the scripts' calls, laid out as a select box. Its rows are made
 from the template (`setItemTemplate`, `setItemCount`); the rows that come into view are given to
@@ -409,8 +411,13 @@ then come from the garage file.
 `isExist`, `readSize`, `remove` and the file's `size` are real; a game survives a restart and
 the boot project loads it. Without a data folder a stand-in answers (`GameState::card`:
 `connected`, `formatted`, `has_game_data`; `gt4tool menu-run ... card=none|empty|saved`).
-❓ `loadInstance` (a second game beside the one played, for trading cars) answers its result
-only; the probes of earlier games' saves answer none.
+**Trading cars** (Home's Trade): `MMemoryCardManager(MODE_LOAD_GAME, 1)` is the card in slot 2,
+the data folder's `memorycard2/` (not connected without that folder); its file's `loadInstance(manager)`
+answers [result, a game object] with the game on that card loaded beside the one played (its garage,
+the cars' records with it). The Garage page lists that garage in its trade mode with each car's used
+price (200,000 when it has none), and buying adds the car to the garage played (`addUsedCar`), pays
+the price and puts a trade day in the diary (`disc_gt_mode_trade_cars`). ❓ The probes of earlier
+games' saves answer none.
 
 **The game's state** (`GameState`) is the program's `Status` as it is saved: the player's
 counters, the calendar and its diary, the garage's list with each driven car's record, the
@@ -448,17 +455,35 @@ over it are the program's, with their addresses in save.md and here:
   fits it with its settings at the row's defaults, on the sheet in use, or on all three for
   the parts that cannot be undone (lightweight, port polish, balancing, displacement, wheels,
   wings, stiffness); the settings pages' ranges and values (`getSuspensionRange`, ...); the
-  current figures (`updateCurrentStatus`: the spec of the sheet in use, `sim::build_spec`, with
-  the engine's wear and oil: a new engine 97 %, run in 100 %, old 95 %; fresh oil 105 %, old
-  95 %); wheels and wings by label; the condition (odometer, oil, dirt, body); `makeUsed(seed,
-  paint, meters)` (the program's random numbers; meters by model year); used prices by the
-  thousands of km driven (85 % below 1,000 km ... 10 % from 100,000); the sorts, one key each
+  current figures (`updateCurrentStatus`, 0x146648: the sheet in use built as a showroom car with
+  the record's condition block, below "The showroom car"); wheels and wings by label; the condition (odometer, oil, dirt, body); `makeUsed(seed,
+  paint, meters)` (0x440FB8; its arguments by their toInt, so the lots' paints given as text count:
+  the program's generator from the seed; a paint below 0 drawn among the car's paints; meters below 0
+  drawn between the program's table 0x6A6910's {least, most} x 1,000,000 for the model year from 1990
+  (0 .. 14), lo + (hi - lo) x draw; then the odometer (at most 100,000 km) and, unless the car has no
+  wear, the engine's, oil's and body's distances the meters, each at most the condition table's +0x0C,
+  +0x1C and the body's limit; the dirt 0); used prices (0x441128) the new price times the factor of the
+  first row of the program's table 0x6A6988 ({s32 thousands of km, f32 factor}, -1 the last) whose
+  distance is above the odometer's (85 % below 1,000 km ... 10 % from 100,000), a quarter of that when
+  sold (0x4411F0). Used Car Showroom II's first rows on 9 APR, 17 JUL and 23 JUL (names, prices,
+  mileage, power, torque) are the reference's (`disc_gt_mode_used_cars_by_day`); the sorts, one key each
   (power, weight, kg/PS, date, order of driving, aspiration, name, price, year, country,
   tuner, drivetrain, the paint's hue). The gears' ranges (`getGearRange`, 0x3553A0): the gears
   the slider and final drive give (0x354FF8), each gear's ends a third of the way to its
   neighbours' ratios, the first gear's top 9/8 of its ratio, the last's bottom 7/8, the reverse
   gear 7/8 and 9/8 (0x355278; thousandths, truncated); in the array [7 + 2g] the lower end of gear
-  g and [8 + 2g] the upper. ❓ The charts' points (0x148940, 0x148B60) are not written.
+  g and [8 + 2g] the upper. The charts (`sim::Showroom::charts`): `buildEngineCurveData([own = 1, [PS
+  = 1000, [kgf m = 200]]])` (0x148B60: the sheet in use's spec 0x4413C8, then 0x34B960: the engine and
+  driveline blocks, the engine's figures 0x34F3F8 with the car's condition, the driveline's extra on the
+  peak) answers [power points, torque points, peak PS, peak kgf m, the first point's rpm, the rev limit],
+  x = (rpm - the first) / (the rev limit - the first), y the point's power (torque) over its peak, or over
+  the larger of the peak and the given scale when the first argument is 0; `buildGearRatioData([automatic])`
+  (0x148940: the argument in the spec's +0x156; 0x34B808) a pair of points per forward gear, (road speed /
+  100 m/s, rpm / the highest gear's top rpm) at the gear's lowest rpm (1,000 for first, else the down-shift
+  speed into it) and its highest (the up-shift speed; the rev limit in top). The engine's chart equals the
+  program's on every car, new and worn (`gt4r_diff <disc> charts`); the gear chart on 719 of 722: ❓ the three
+  cars with a stepless box of kind 1 (the Fit, the Colt, the i concept) show their second gear's lowest rpm as the
+  converter's hold speed (0x360780 sets it after 0x34ACA8), where the chart (0x34B8E8, 0x34ACA8 alone) has 0x34ACA8's.
 - **MRaceData** (0x1A0F80 on; `game_race.cpp`): the RACE row's columns (database.md "RACE"):
   the medal times as text, entries, the course, the opponents' pool (`car_code(i)`), the
   requirements (license, drivetrain, aspiration, car type, tires, power, weight, length,
@@ -496,7 +521,7 @@ sequence starts when the scripts that asked for it finish (a new work object, 0x
   championship is won when no other of the first six entrants has as many points as the player
   (0x3EF298): its own record unit gets "1" and `GrandPrize` the row's +0x2C x 100;
   `SeriesRank` is the number of the others with at least the player's points (0x3EF2D8); the
-  diary's note is 0 for a won championship. A championship left in the middle is kept
+  diary's note is 0 for a won championship. The race's menus' rows (0x11A168), in finishing order, carry the place's points (the work's +0x37C + 4 i, read by `getWeight`: Session Results' Pts) and the entrant's points so far (+0x364 + 4 i, `getPower`: Total; the pre-race page's Pts column reads it too, 0 before the first race); the work's race label is the session's race (the series' label with the race's number), whose last two digits the prize page writes as "Race n". A championship left in the middle is kept
   (`GameState::suspend_series`, 0x119BD8) in the save and offered again on the map.
 - **A mission** (0x11C328): the place's prize whatever the run, the record ("mission", the
   place) and its score, the diary's mission day (place, note 15, time).
@@ -518,13 +543,83 @@ once for the race's whole distance.
 **The race's entry table** (`getEntryCarCode(i)`, `setEntryCarCode(i, car, paint)`): [car,
 paint] by the entry's number, entry 0 the player's car (`car_code`, `car_color`), the opponents
 the scripts chose from 1 to `overwrite_enemy_num` (`RaceRequest::entries`, `entry_paints`).
-Arcade's single race asks `MCarData.PickUpEnemyCars(car, list, offset, range, count, dirt)`
-(0x1308C8) when its car has no race of its own: the program scores the player's car and each
-car of the list by the showroom car's evaluation (ShowRoomCar 0x364760, 0x364F00), drops those
-whose drive (four-wheel or not) is not the player's, sorts them by score, finds the ones within
-score + offset ± range (0x130618), widens the window until it holds count + 1, draws count of
-them (never the player's car, 0x130690) and a paint each. 🔎 Not built here (the evaluation is
-not): it answers none, and the race's own pool fills the grid.
+
+**Arcade's opponents** (`MCarData.PickUpEnemyCars(car, list, offset, range, count, dirt)`, 0x1308C8;
+`game_opponents.*`). Arcade's single race asks for them when its car has no race of its own
+(ARCADEINFO), with its list of cars (`EnemyData::enemy_carlist`, or `dirt_enemy_carlist` on a dirt
+course), offset (the opponents' level - 2.5) x 0.01, less 0.04 for a car without four wheel drive on
+dirt, and on a rolling-start course (`MCourseData.GetAttrString`'s first character '1') less 0.02 for
+a race under 3,000 m and 0.01 under 5,000 m; range 0.005; count `max_entry - 1`. The program:
+- defaults: offset 0, range 0.002 (0x3B03126E), count 5; a count of 6 or more is 5;
+- scores the player's car (the car object's own equipment) and each car of the list, set up as sold
+  (0x4443A8; 0 when it cannot be), by the showroom car's evaluation (below);
+- keeps the list's cars whose category (GENERIC_CAR +0x11 modulo 100, 0x448908; a concept car (3)
+  counts as normal (0)) is the player's car's, or racing (1) for a tuned (2) player's car; a label the
+  database lacks keeps the category last read;
+- sorts them, the highest evaluation first (the C library's qsort 0x5A4BF8, the order 0x130660);
+- finds the window [lo, hi): lo the search (0x130618) for target + range, hi for target - range, target
+  = the player's evaluation + offset; the search halves [lo, hi) until its middle is lo, taking the upper
+  half when the middle's evaluation is not below the value;
+- widens it to count + 1 cars: hi on up to the list's last place but one, then lo back toward 0;
+- excludes the player's own car when it is in the window;
+- draws count places (0x130690): each `(int)(draw x the window's size) + lo` from the program's generator
+  (0x579398 on 0x874D50, the generator MRandom uses), again when it is the player's car or drawn before;
+  -1 when the window runs out (with the player's car in it, one place earlier);
+- on a dirt course (0x1307E8) moves each place on to the first car whose ARCADEINFO_NORMAL row (by its
+  GENERIC_CAR id; the program opens it when first asked, 0x447A78) has a dirt race (entry 6, read as
+  bytes +0x30 .. +0x37 not all 0xFF) and is not the player's; a car with no row stops the step;
+- draws a paint for each place in turn: `(int)(draw x the car's paints)` (0x445828: less the last when
+  GENERIC_CAR +0x12 bit 1 is set);
+- puts the places in falling order (an insertion sort of the places alone: the weakest car first; the
+  paints stay in their turns, so a paint drawn for one car can go with another);
+- answers [[car, paint], ...] without the places of -1.
+The sort, the search, the draw and the dirt step equal the program's on made-up lists
+(`gt4r_diff <disc> picker`, `sim_program_picker_steps_equal`). With the reference's settings (level 0,
+Tsukuba: offset -0.035) the Ford Ka '01's window is the six cars of the reference's four Arcade races
+there (VW Beetle 1100 '49, Honda Z ACT '70, N360 '67, TODAY G '85, Daihatsu Midget II '98, Honda S500
+'63), and a Ford GT '05's at Special Stage Route 5, Normal (-0.025), holds the reference's five
+(`disc_menu_arcade_opponents`); the grid drawn is the reference's grid (`r5/shots/a3.png`).
+❓ The generator's state differs from the original's, which has drawn for other things since power on.
+
+**The showroom car** (ShowRoomCar, 0x364760; `sim/showroom.*`): the car of an equipment built as the
+menus build one: a 0x1800-byte object with the spec at +0, the parameter block at +0x600 (0x364868:
+the spec builder 0x3F3B68 on a paved course, the converter 0x361908 (`sim::build_record`) with the rule block 0x6203C8 and
+the condition block given, else a default one, 0x3433E8: no wear) and the engine's figures at +0x1700
+(0x364818):
+- the engine's figures (0x34F3F8): the curve's points' speeds rounded to 100 rpm; from the first to the
+  rev limit (or the last point when higher), every 100 rpm, the full-throttle torque (0x34E9A0: the
+  curve x the condition's factor) under the power cap (0x34EA68), in kgf m (/ 9.8) and PS (x rpm /
+  716.2); the peak power and torque at or below the rev limit and their speeds; +0x1700 the power,
+  +0x1704 the torque, +0x1708 / +0x170A their speeds;
+- the power the menus show adds the driveline's extra (0x356EA8): a car with motors (layout 7) (2 x the
+  program's byte 0x62045A + 0x62045B) / 0.7355 (0x356E08, 0x355978); a driveline byte +0x13 of 4:
+  13.596193 PS;
+- the weight (0x364FA8): P +0x1048, the spec's weight (+0x20) times its percentage (+0x08) / 100 when that
+  is neither 0 nor 100, plus the ballast (+0x05);
+- the evaluation (P +0xFE0, made at the converter's end, 0x360780 -> 0x3F86E8; 0x364F00 reads it):
+  x = mu² x P² x √T / m^1.5 x (1 + (D_f + D_r) / 2 - C) x (G_f + G_r) / 2, with mu the front paved
+  tire's grip on the first surface (P +0x418), P the power with the extra, T the peak torque (kgf m), m
+  the mass (P +0x48), D the downforce coefficients (+0x106C / +0x1070), C the drag (+0x1068), G the axles'
+  grip (+0xFD0 / +0xFD4), the grip times 1 + the lift (+0x1084) / the weight (+0x103C) for the part that
+  changes with speed of kind 7; the evaluation the eighth root of x (three square roots) / 2.5, at most
+  1, and 0.01 below 0.
+Bit for bit on all 722 cars as sold, and with worn condition blocks (`gt4r_diff <disc> showroom`,
+`sim_program_showroom_equal`). The Panda Super i.e. '90: 44.545 PS, evaluation 0.335.
+
+**The engine's condition** (0x350868; `sim::engine_condition`): a factor on the torque from the
+condition block (the record's +0x498: +0x04 the engine's distance, +0x08 the oil's, +0x14 no wear: 1),
+by limits made once from the static block's bytes +0xD0 .. +0xD8 (0x350678, x 100,000 m and x 0.001;
+US 1.01: below -300,000 m 0.97, rising to 1 at 0; 1 to 1,000 km; falling 0.05 to 11,000 km; the oil
+1.05 at -100,000 m and fresher, to 1 at 0, 1 up to 5,000 km, falling 0.05 to 6,000 km), the engine's
+times the oil's; equal to the program's on 260 made-up blocks. **A car's figures**
+(`updateCurrentStatus` 0x146648, a garage entry's 0x434FD0) are its showroom car's with its record's
+condition: power and torque x 100 truncated, the weight; 0 when GENERIC_CAR +0x12 bit 3 hides them. A
+car added to the garage (0x434E38) is set up as sold and then given its odometer's condition (0x440F78):
+a new car's engine at 0 m is run in, so a never-driven Panda shows 44 HP as in the original.
+
+**A course's attribute** (`MCourseData.GetAttrString`, 0x1B3320): the string of UnistrDB (the
+database's +0x1E0) the COURSE row's +0x08 names (0x447F08): "1ff0" Tsukuba, "1000" Tsukuba Wet, "0000"
+Grand Canyon; Arcade's script takes a first character '1' as a rolling start.
 
 **The options and who reads them** (`game_settings.h`: `GameSettings settings_from(options)`).
 The scripts read and write MOption; `Runtime::on_options(GameSettings)` is called at the end of
@@ -887,106 +982,20 @@ engine's Gran Turismo 3 code or on a judgment:
 | The loading page | `app/menu_loading.h` | the black mode; its hold judged; the capture mode before races not done | LoadingPS2's other modes (0x104B68) |
 | The cursor, transitions, actors, tool tips, widget transforms, the 3D faces' cameras | `app/menu_cursor.h`, `menu/actors.cpp`, `menu/faces_*` | ported from the program (addresses in the sections above) | — |
 
-### Not done
+### What runs where (the game's state, Arcade's opponents, the cars' figures)
 
-Gran Turismo mode: the places run to their pages and to the race asked for (used cars, events,
-license tests, missions, GT Auto, tune shops, the garage, the status, the diary, the car's
-settings); a race's whole loop runs with a made-up result in place of the race
-(`tests/test_menu_run_loop.cpp`: an event, a championship and one left in the middle, a
-license, a mission, the prize cars, saved and loaded); not checked page by page: trading cars
-between saves (`loadInstance` answers its result and no second game: the trade page needs a
-second MGame over another card's state), the photo travel's own pages after its ticket (the place's page runs to the
-`photo_shoot` sequence it asks for, `disc_gt_mode_photo_travel`), the B-spec driver. The Replay Theater's demonstrations and play lists. The options marked 🔎 in "The options
-and who reads them". Arcade's two-player battle reaches its race with both cars; the LAN battle says
-the Network Adaptor is needed. Prologue's arcade mode and results ([prologue.md](prologue.md) "The menus": boot to a license
-test runs); its scripts ask for `MGame.license` (its own license record), answered with a new
-game's results. ❓ The charts' points on the settings pages (0x148940, 0x148B60).
+GT4's own routines, checked against the user's program where the note says so:
+- the settings pages' charts (0x148B60, 0x148940 through 0x34B960, 0x34B808);
+- used cars: makeUsed (0x440FB8), the used price (0x441128, 0x4411F0), from the program's tables;
+- the showroom car's figures and evaluation (0x364868, 0x34F3F8, 0x356EA8, 0x3F86E8; bit for bit on every
+  car), the engine's condition (0x350868; equal on made-up blocks), the cars' figures through them
+  (`updateCurrentStatus` 0x146648, garage entries 0x434FD0, the race menus' grid HP and kg 0x364E90 / 0x364FA8);
+- Arcade's opponent picker (0x1308C8; its sort, search, draw and dirt step equal the program's) and the
+  program's generator (0x579330, 0x578598: the draws equal);
+- `MCourseData.GetAttrString` (0x1B3320); the options' fields and the screen's figures (0x436D60); the
+  license day (0x110800); the gear ranges (0x3553A0, 0x355278); the race result routines (0x114498,
+  0x119CB8, 0x11C328, 0x1105A8) and the distance added to a car (0x35DE20) as read.
 
-## Pictures (`.gpb`)
-
-```
-"gpb2": 8 zero bytes, u32 files; each {u32 name, u32 data, u32 bytes, u32 0}
-"gpb1": 8 zero bytes, u32 files; each {u32 name, u32 data}
-"gpb0" (Prologue): u32 files; each {u32 name, u32 data}
-```
-
-Names are NUL-ended paths as the layout writes them (`image/boot/lang_bg_4.png`). A file is a
-`Tex1` texture set (one picture), often packed like the volume's files (`C5 EE F7 FF`); a few
-are models (`MDLS`), motions (`Mot1`) and `STRB` files.
-
-## Text (`.rt2`)
-
-```
-"RT03", 8 zero bytes, u32 pages          ("RT02", Prologue: u32 pages right after the magic)
-each page: u32 name, u32 pairs, u32 pair table, 4 filler bytes ("^^^^")
-each pair: u32 key, u32 text
-```
-
-All NUL-ended UTF-8, pages and keys in byte order. A page is named for a menu page
-(`BootProject::LanguageRoot`) or a subject (`CourseName`, `MemoryCard`); a widget's `key` is
-looked up in its own page's. `rtext/<LANG>.rt2` is the common table, `rtext/race<LANG>.rt2`
-the race's. Text can hold `%d`, `%s` for the script's `format`, colour marks (`%Cfff`), and
-line ends `\r\n`.
-
-❓ `rtext/US.rtt` (`RT01`, a leftover of an older layout).
-
-## Fonts (`font/*.fnt`, `FT01`)
-
-Gran Turismo 3's font file with one change (Prologue's files are still Gran Turismo 3's
-layout: u16 at 0x12 is 0):
-
-```
-0x10 u16 fonts, u16 layout (1)
-0x14 u32 font offsets, 0x18 u32 texture set offsets (a set per font: 4-bit, two palettes)
-font:  u32 name, u32 glyphs, u16 first code, u16 last code, u8 size, u8 line height, s8 ascent,
-       u8 profile rows, then the double-byte font's cell (u8 w, u8 h, s8 x, s8 y)
-glyph (20 bytes; Gran Turismo 3: 16): s8 left, s8 top, u8 width, u8 height, u8 advance, 3 unused,
-       u16 x, u16 y in the picture, u32 left profile, u32 right profile
-```
-
-Width and height 0xFF: no picture (the space). Codes are Unicode (0x20 to 0x17F in the text
-fonts). `font/system.fnt`: `hm_16` (the menus' body text), `hb_24`, `hc_20`, `hn_14`,
-`hn_20R`, `FC_26`, `FC_48`, `Gaiji`, `GT4meter`, `GT4oddmeter`; `font/menu.fnt`: `tr_30`
-(titles); `font/race.fnt`: the race display's. The program names them as Gran Turismo 3 does
-(`hb_24#1*130,130`: palette 1, scaled 130%). The glyphs are laid out by the shared engine's
-text layout (kerning by the profiles), ❓ assumed unchanged from Gran Turismo 3.
-
-## Double-byte fonts (`font/*.kf`, `KNJI`)
-
-Code: `src/gt4r/menu/kanji_font.*`, `tests/test_kanji_font.cpp`. Gran Turismo 3's kanji font
-file ([engine/gt3r/docs/formats/text.md](../../engine/gt3r/docs/formats/text.md) "Kanji
-fonts") with the cells indexed by **Unicode code point** (the text is UTF-8) in place of a JIS
-code:
-
-```
-0x00 "KNJI"   0x0C u32 0, or 0x80 in the files of two faces
-0x10 u16 faces, u16 palettes (two per face)
-0x14 u32 offset of the faces' offsets (u32 each)   0x18 u32 offset of the palettes
-palette: 16 x RGBA, alpha as the GS has it (0x80 opaque)
-face, 0x18 bytes:
-  +0x00 u16 first code point, u16 last
-  +0x04 u32 offset of the cells   +0x08 u32 bytes from one cell to the next
-  +0x0C u16 cell width, u16 cell height
-  +0x10 u32 offset of the index: u16 cell per code point first..last
-  +0x14 u32 offset of the face's name
-```
-
-A cell is 4 bits a pixel, row by row, low nibble first, (width + 1) / 2 bytes a row. A code
-point without a cell has index 0xFFFF; in the files of two faces it has index 0, a blank cell.
-Even palettes are the outlined look (light grays, a dark edge), odd ones white on a ramp of
-alpha, as in the Latin fonts' two texture variants.
-
-| File | Faces | Cells |
-|---|---|---|
-| `unicode.kf` (both discs) | 22 x 22 `medium` (Prologue: `ShinGoM`), U+0391..U+FFE5 | 7,381 |
-| `big5.kf` (both), `hangul.kf` | 22 x 22 `DFHeiBold-B5`, `AsiaNew` | |
-| `jp_menu.kf`, `jp_race.kf` | 16 x 16 `medium` and 22 x 22 `bold` | 7,260 + 1,412 in `jp_menu` |
-| `cn_`, `kr_`, `tw_` `menu.kf` / `race.kf` | 22 x 22 `medium`: the characters that language's menus or race display use | |
-| `europe.kf` | 22 x 22 `ShinGo-M`: three cells (U+201C..U+25A0) | 3 |
-
-All 14 files of the two discs read (35,892 and 13,174 cells). ASCII and the Latin letters are
-not in these fonts: a line of text takes them from the `FT01` fonts. The `FT01` font record's
-"double-byte font's cell" places a cell of these fonts on that font's line.
-
-❓ Which file each language's menus load (the program names `jp_menu.kf` to `tw_race.kf` in
-one routine, 0x108D80) and `font/jis2uni.dat` (Gran Turismo 3's `UTBL` table).
+Still the shared engine's code or a stand-in (file, function → the GT4 routine that should replace it):
+- `sim/car_spec.cpp` `computed_gears`: a made gearbox's ratios by the engine's generator → 0x443240 /
+  0x354FF8 (the same rule, sim-parts' area).

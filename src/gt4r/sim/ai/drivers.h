@@ -154,6 +154,9 @@ public:
 
     // B-spec (control source 1): the car's computer driver takes the player's commands. Call before the first step.
     void set_bspec(size_t car);
+    // The B-spec driver's skill (0x468C50, bspec_skill.h): its arcs', braking and alongside multipliers (D +0xB8 / +0xBC /
+    // +0xC0), set at the race's start after set_bspec.
+    void set_bspec_skill(size_t car, gt3r::ee::F corner, gt3r::ee::F brake, gt3r::ee::F alongside);
     // A B-spec command (0x3F19E0): the pace level 0 .. 4 (the program's five: 2 the even pace, 0 the slowest, 4 the
     // fastest; -1 unchanged) and passing (0 off, 1 on, -1 unchanged). The driver keeps both until the next command; passing
     // turned off sends a driver on a passing line back to the main line.
@@ -175,7 +178,9 @@ public:
     // The driver's kind after it (8: stopped) is the session's to hold the car by (its clutch open).
     void finish(size_t car, int mode, bool player_car = false);
     int kind(size_t car) const;
-    // The pit's steps for a driven car (the pit flow 0x35B060 decides when; not ported): onto the pit lane (0x3453A0: line 3
+    // The car's control source as the drivers keep it (F +0x466: 2 the computer, 1 B-spec, 0 the pad; -1 not driven).
+    int control(size_t car) const;
+    // The pit's steps for a driven car (the pit pass 0x35B060 decides when: pit_stops.h): onto the pit lane (0x3453A0: line 3
     // at once, kind 2), onto the stop line (0x345400: line 4 at once, kind 3), off it down the pit lane (0x345450: line 3,
     // kind 4), back to racing (0x345228: from kinds 2 .. 4 line 6 blended, kind 0). False when the car has no such line.
     bool pit_enter(size_t car);
@@ -215,6 +220,9 @@ public:
     void apply_time_scales(Session& session) const {
         for (size_t i = 0; i < session.cars().size(); ++i) session.set_time_scale_raw(i, time_scale_bits(i));
     }
+    // Every car's shift byte (the driver's D +0x6F, the car's +0x83) into the session's gearbox, which applies it as 0x3F1E30
+    // for control source 1 (the up-shifts with kind 0 only); 128 for a car not driven.
+    void apply_shift_factors(Session& session) const;
     // The band's values as the conductor holds them (+0x7C .. +0x94, for checks against another race) and its mode.
     struct Band {
         gt3r::ee::F slow, slow_start, slow_full, fast, fast_start, fast_full, global{1.0f};
@@ -244,8 +252,12 @@ public:
         u16 shift_lock = 0;
         gt3r::ee::F aim_x, aim_y; // the aim (F +0x61C / +0x620), after a decision
         int kind = 0;             // F +0x467 the driver's kind
+        std::array<gt3r::ee::F, 5> pd_last{}; // D +0x00 .. +0x10 (the PD steering's last terms)
+        gt3r::ee::F pd_rate;      // F +0x484
     };
     void probe_set(size_t car, const Probe& p);
+    // For checks of a steering mode this program does not use: T[2] set (the PD steering at 2 or more).
+    void set_steer_mode(u8 mode) { tables_.tuning.steer_mode = mode; }
     Probe probe_get(size_t car) const;
     // 0x4674F0: the speed of line point i of the car's line.
     gt3r::ee::F probe_corner_speed(size_t car, int i);
@@ -269,6 +281,7 @@ private:
     gt3r::ee::F ai_grip(const Driver& d, int surface) const;
     void speed_control(Driver& d, gt3r::ee::F target, gt3r::ee::F gain);
     void steer_to(Driver& d, gt3r::ee::F target);
+    void pd_steer(Driver& d, gt3r::ee::F dir, gt3r::ee::F rd, gt3r::ee::F r, gt3r::ee::F amax, gt3r::ee::F ky);
     void set_kind(Driver& d, int kind);
     void stop(Driver& d, gt3r::ee::F steer);
     gt3r::ee::F hold_speed(const Driver& d, gt3r::ee::F target) const;

@@ -150,7 +150,8 @@ void CourseLines::prepare(int k, float& query) {
         // along a longer stretch), then from 100 m above.
         GroundHit hit;
         bool found = false;
-        if (i == 0) found = ground_->cast_down(course_point(p.x, p.y, query), hit);
+        // (a line's first point below the last line's end: from 1000 m, the program's own start)
+        if (i == 0) found = ground_->cast_down(course_point(p.x, p.y, query), hit) || ground_->cast_down(course_point(p.x, p.y, 1000.0f), hit);
         else {
             const LinePoint& q = pts[i - 1];
             const float chord = std::hypot(p.x - q.x, p.y - q.y);

@@ -10,6 +10,7 @@
 #include "gt4r/sim/collide.h"
 #include "gt4r/sim/ground.h"
 #include "gt4r/sim/record.h"
+#include "gt4r/sim/rules_prologue.h"
 #include "gt4r/sim/rules_step.h"
 #include "sim/exact/tick.h"
 
@@ -35,6 +36,9 @@ struct Entry {
     // the road's middle there, facing along the course (NaN: the grid place). The race's rule for it:
     // rules::rolling_start_distance (rules_start.h).
     float start_distance = std::numeric_limits<float>::quiet_NaN();
+    // The race uses fuel (its rule block's byte +0x4C): the tank filled at the start (the car's tank less the program's byte
+    // 0x620E24), burnt by the engine's output, its weight in the mass. Off: no tank (the races seen).
+    bool fuel = false;
 };
 
 class Session final : public race::Simulation {
@@ -75,6 +79,8 @@ public:
     // engine's throughout (Gran Turismo 3's rules on Gran Turismo 4's cars), for comparison.
     void set_gt4_rules(bool on) { gt4_rules_ = on && gt4_ready_; }
     bool gt4_rules() const { return gt4_rules_; }
+    // Whether the session runs Gran Turismo 4 Prologue's own step (its program recognized; rules_prologue.h).
+    bool prologue_rules() const { return prologue_.has_value(); }
     // A car's Gran Turismo 4 part of the record (record.h) and wheel layout.
     const sim::Extra& gt4_record(size_t i) const { return gx_[i]; }
     // The aid block of the computer driver that drives a car (rules::driver_block from the course's set for the car:
@@ -86,9 +92,36 @@ public:
     // part), and its collision body.
     void load_state(size_t i, const gt3r::sim::exact::Car& c, const sim::Extra& x) { cars_[i] = c, gx_[i] = x; }
     collide::Body& body(size_t i) { return bodies_[i]; }
+    const collide::Body& body(size_t i) const { return bodies_[i]; }
     const rules::WheelLayout& wheel_layout(size_t i) const { return layouts_[i]; }
     // What the session runs on stand-ins for ("the disc's program is not a build whose tables are mapped").
     const std::vector<std::string>& notes() const { return notes_; }
+
+    // The race's wear rules (the conductor + 4, 0x367C90) from its rule block (0x80 bytes: the tread wear's curve at +0x2C ..
+    // +0x34) and whether the second wear may run (a single race on a paved course whose row allows it). Set before the start
+    // (new tires take them); all off by default, as in every race seen.
+    void set_wear_rules(const u8* rule_block, bool second_on, const Program& program);
+    // What the computer drivers' pit flow reads and changes (sim/ai/pit_flow.h): the fuel (liters) and tank, the distance and the
+    // fuel since the economy display's last reading (F +0x4C8 / +0x4C4), the fuel counted at all (F +0x5D0's distance > 0 is the
+    // flow's own test), a wheel's tread wear (+0xAC) and wear grip (+0x50); new tires on a wheel (0x362E58); the fuel set.
+    float fuel(size_t i) const { return gx_[i].drive.fuel.fuel.host(); }
+    float tank(size_t i) const { return gx_[i].drive.fuel.capacity.host(); }
+    float fuel_distance(size_t i) const { return gx_[i].drive.fuel.economy_distance.host(); }
+    float fuel_used(size_t i) const { return gx_[i].drive.fuel.economy_used.host(); }
+    void set_fuel(size_t i, gt3r::ee::F liters);
+    float tread(size_t i, int wheel) const { return cars_[i].w[size_t(wheel)].wear.host(); }
+    float wear_grip(size_t i, int wheel) const { return cars_[i].w[size_t(wheel)].wear_grip.host(); }
+    const rules::WearRules& wear_rules() const { return tables_.wear; }
+    void new_tire(size_t i, int wheel);
+    // The flaps' random stream (the program's 0x874D50), for gt4r_diff's whole step.
+    void set_random_state(u32 state) { random_state_ = state; }
+    // A car's shift byte (car +0x83; 128: none): its gearbox's shift speeds times it / 128 while a B-spec driver drives it
+    // (control source 1, 0x3F1E30). Holds until set again.
+    // The car's rating, the parameter block's +0xFE0 (0x3F86E8: 0.01 .. 1), which the B-spec skill classes cars by.
+    float rating(size_t i) const { return gx_[i].drive.rating.host(); }
+    void set_shift_factor(size_t i, u8 factor) {
+        if (i < gx_.size()) gx_[i].drive.shift_factor = factor;
+    }
 
 private:
     struct Extra { // per car, outside the record
@@ -124,15 +157,20 @@ private:
     std::vector<Extra> extra_;
     std::vector<sim::Extra> gx_;
     std::vector<rules::WheelLayout> layouts_;
+    std::vector<rules::SpeedTables> speed_tables_; // (0x35DE20's, per car: its special row)
     std::vector<std::optional<gt3r::sim::exact::Aids>> driver_aids_; // a computer driver's aid block per car
     std::vector<std::optional<std::array<gt3r::ee::F, 3>>> driver_grip_; // and its grip by tire class
     rules::AidRace aid_race_;
     rules::Tables tables_;
     bool gt4_ready_ = false, gt4_rules_ = false;
+    // Prologue's program: its own step (rules_prologue.h) in place of the engine's routines it does not share.
+    std::optional<prologue::Tables> prologue_;
+    std::vector<prologue::CarPart> prologue_cars_;
     std::vector<Spec> specs_;
     std::vector<race::CarState> states_;
     std::vector<std::string> notes_;
     gt3r::Vu0Random rng_;
+    u32 random_state_ = 0; // (the program's shared random stream, 0x874D50, for the flaps: ours from 0)
     bool loose_ = false;
     float pending_ = 0;
     u64 steps_ = 0;

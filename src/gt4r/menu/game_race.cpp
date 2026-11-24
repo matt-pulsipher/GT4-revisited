@@ -324,7 +324,17 @@ s64 Runtime::race_finished(const RaceResult& r) {
             day.b1 = u8(p), day.word = r.time_ms;
             fill_rows(false);
             work.set("playerGridNumber", s32(p));
+            // 0x11A168: each row (finishing order) the place's points (+0x37C + 4 i, getWeight: the Pts column) and the
+            // entrant's points so far (+0x364 + 4 i, getPower: Total).
+            for (size_t i = 0; i < work.rows.size() && i < r.order.size(); ++i) {
+                const int entry = r.order[i].entry;
+                work.rows[i].weight = championship_points(d, int(i));
+                work.rows[i].power = entry >= 0 && size_t(entry) < s.series.entrants.size() ? s.series.entrants[size_t(entry)].points : 0;
+            }
         }
+        // The session's race (the series' label with the race's number, as the sequence asked for it): the prize
+        // page's "<event> Race <n>" reads its last two digits (race_util's getSeriesRaceIndex).
+        if (!r.race.empty()) work.race_label = r.race;
         s64 grand = 0;
         if (last) {
             if (s.series.entrants.empty()) s.series.entrants.resize(1);
@@ -368,6 +378,15 @@ s64 Runtime::race_finished(const RaceResult& r) {
     case RaceResult::Kind::License: {
         const u32 result = r.finished ? result_number(r.result) : 15;
         if (unit >= 0) unit_result(w, 1, result);
+        { // Prologue's license (prologue_natives.cpp): the medal, points and time into its record.
+            const Value lic = vm().attribute(vm().lookup("game"), "license");
+            const Value rec = lic.p ? vm().attribute(lic, "recordResult") : Value{};
+            if (rec.kind == script::Kind::Function) {
+                const Value args[4] = {Value::string(r.race), Value::string(kNames[result]), Value::integer(r.finished ? s32(r.time_ms) : s32(kNoTime)),
+                                       Value::integer(r.finished ? prologue_license_points(row, kNames[result], r.time_ms) : 0)};
+                vm().call(rec, args);
+            }
+        }
         day.type = 4, day.b1 = u8(result), day.b2 = 14, day.word = r.finished ? r.time_ms : kNoTime, day.code = race_code;
         // The test's ranking (0x4320B8): a finished run with a time.
         if (r.finished && r.time_ms && result != 15) {
