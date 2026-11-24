@@ -42,6 +42,9 @@ namespace gt4r::audio {
 // and stream_request() is the level to ask the shared engine for to hear a stream at `level`.
 constexpr float kOutputLevel = 1.0f;
 inline void with_output_level(gt3r::VoiceMixer& mixer) { mixer.set_master_volume(kOutputLevel); }
+// The surround cue (docs/formats/sound.md "The surround cue"): the program inverts one side of a
+// sound behind the camera in every output mode, so a mixer playing the game has it on.
+inline void with_surround_cue(gt3r::VoiceMixer& mixer) { mixer.set_surround_cue(true); }
 inline float stream_request(float level) { return level * kOutputLevel / gt3r::VoiceMixer::kOutputTrim; }
 
 // What the caller sets on an effect sequence or a held note.

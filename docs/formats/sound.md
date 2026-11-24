@@ -21,7 +21,7 @@ names `SDDRV::SqSequencer` and `SDDRV::SeSequencer`); [F] from the files; 🔎 i
 | The sound driver: the two sequencers, the effect sequences, held notes, each voice's level and pitch (0x559330 .. 0x55E600) | `sound_driver.*` | Gran Turismo 4's; the lfo is not built (no voice of the discs is heard to waver) |
 | The engine, exhaust and wind banks' players (0x558FD8 and its helpers; the voice of kind 4) | `layer_player.*` | Gran Turismo 4's: every started player of 46 saved states the same; Prologue's (0x481588) with its own attack |
 | A car's frame and mix (0x3B5E80, 0x392640): views, gains, microphones, panner, Doppler, the master, its fades and ducks | `car_sound.*`, `race_sound.*`, `race_tables.*` | Gran Turismo 4's, tables from the disc's program |
-| The surround cue (the panner's two flags) | the shared `gt3r::SurroundCue` | the same rule as the program's, but applied only when the shared mixer's option is on (off by default): the program does it in every output mode |
+| The surround cue (the panner's two flags) | the shared `gt3r::SurroundCue` | the same rule as the program's, in every output mode as the program does it: the shared mixer's option is on while a disc is open (`with_surround_cue`; the shared engine's own screens keep their setting) |
 | The levels (0x350080), wind (0x34FA90), cabin (0x34FBC0), whine (0x34FED0, 0x350DA0), afterfire (0x3F3368, 0x3F3278), the hit sound's recorder (0x350328), landings (0x3FA7B8) | `sim_sound_state.*`, `car_sound.*`, the recorder in `sim/collide.cpp` | Gran Turismo 4's, from the session's records; not built: a stepless gearbox's and a motor's whine (0x369510, 0x356D88), the heartbeat, contacts with the course's objects (kind 2, 0x3E3C48) |
 | A race heard without its session (a replay, a saved run) | `sound_state(race::CarState)` | judged from what the seam keeps: the quietest throttle 3/8 (torques 1 : 0.6), the skid's pitch from the slip, the rim's speed from the car's, a landing at the downward speed / 5, a contact as twice the step's summed strength; the program replays its cars' records ❓ |
 | The course's ambience (0x398B70, the emitters 0x457918) | `course_sound.*` | Gran Turismo 4's, the `CRSS` section read by the shared reader (the same layout); the slots a course allows (0x3922B0) are not applied, as a wheel's notes follow the surface under it |
@@ -480,8 +480,9 @@ sides' crossfaded levels).
   same with the flag's opposite). The program does it in **every** output mode: the original's
   stereo recordings of the nose view carry the exhaust's left side inverted (its players' volumes
   -5464 / +5464 in the saved state; the recording's two sides correlate +0.28 there, +0.90 from
-  the chase view). Here it follows the shared mixer's surround option (off unless chosen), for the
-  layer players and the held and single notes alike. Measured: the engine's gain at 29 m is 1/11 of its gain at 5 m and
+  the chase view). Here the shared mixer's surround option is on while a disc is open (`with_surround_cue`; the
+  shared engine's own screens keep their setting), for the layer players and the held and single
+  notes alike. Measured: the engine's gain at 29 m is 1/11 of its gain at 5 m and
   the exhaust's 1/3; the rendered car 3.16 times quieter (between the two).
 - **The master** M (0x391CD8) = [0x6213D8] × [0x6213DC] × the fade [0x88F2D0] × the mix
   table's race level (`sdvol`, level 2 of the output mode: 0.40 for stereo on the US disc) ×
