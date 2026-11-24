@@ -1,5 +1,7 @@
 #include "gt4r/menu/runtime.h"
 
+#include "gt4r/menu/game_settings.h"
+
 #include "gt4r/menu/runtime_internal.h"
 
 #include <algorithm>
@@ -378,6 +380,11 @@ void Runtime::boot() {
             note(std::string("last_strap stopped: ") + e.what());
         }
     if (credits) game_->money = credits;
+    options_changed();
+}
+
+void Runtime::options_changed() {
+    if (on_options) on_options(settings_of(*game_));
 }
 
 std::string Runtime::first_project() {

@@ -1,5 +1,7 @@
 #include "gt4r/save/game_data.h"
 
+#include "gt4r/menu/game_settings.h"
+
 #include "gt4r/save/codec.h"
 
 #include <algorithm>
@@ -44,7 +46,7 @@ struct OptionField {
     size_t at;
 };
 const OptionField kOptionNumbers[] = {
-    {"screen_adjust_h", 0x18}, {"screen_adjust_v", 0x1C},
+    {"wide_mode", 0x14}, {"screen_adjust_h", 0x18}, {"screen_adjust_v", 0x1C},
     {"menu_bgm", 0x5C}, {"menu_bgm_volume_raw", 0x60}, {"menu_se", 0x64}, {"menu_se_volume_raw", 0x68}, {"race_bgm", 0x6C}, {"race_bgm_volume_raw", 0x70},
     {"race_se", 0x74}, {"race_se_volume_raw", 0x78}, {"replay_bgm", 0x7C}, {"replay_bgm_volume_raw", 0x80}, {"replay_se", 0x84}, {"replay_se_volume_raw", 0x88},
     {"slide_bgm_volume_raw", 0x8C},
@@ -59,6 +61,18 @@ const OptionField kOptionNumbers[] = {
     {"can_watch_ending", 0x1168}, {"demo_movie_interval", 0x116C}, {"album_slide_effect", 0x1170}, {"album_slide_play_time", 0x1174},
     {"album_memory_card_slot", 0x1178}, {"album_slide_transition_time", 0x1180},
 };
+// The race display's parts: bits of the word at Option +0x1140 (the accessors 0x1851A8 on, the
+// bit set by 0x437408).
+const std::pair<const char*, u32> kDisplayBits[] = {
+    {"replay_display_enable", 0x1}, {"race_display_map", 0x2}, {"race_display_steering", 0x4}, {"race_display_meter", 0x8},
+    {"race_display_time", 0x10}, {"race_display_lap", 0x20}, {"race_display_position", 0x40}, {"race_display_car_name", 0x80},
+    {"race_display_suggested_gear", 0x100}, {"race_display_g_meter", 0x200}, {"race_display_config", 0x400},
+};
+constexpr size_t kDisplayWord = 0x1140;
+// The screen settings (brightness, contrast, saturation, color balance), four s32 each: the
+// racing views' at Option +0x1184, the replays' at +0x1194 (the accessors 0x188EA0, 0x189158);
+// kept in the options as text "b c s w".
+const std::pair<const char*, size_t> kPictureSettings[] = {{"race_color_correction", 0x1184}, {"replay_color_correction", 0x1194}};
 const char* const kZones[] = {"UNDEF", "JP", "US", "UK", "EU", "KR"};
 // The options kept as names, by their numbers: the language (0x6AE3F8) at Option +0x0C, and the
 // options MOption gives by name, each through its table of names (0x437758: the tables at
@@ -252,6 +266,19 @@ Bytes write_game(const GameState& s, const Codes& codes) {
     for (const OptionField& f : kOptionNumbers)
         if (const auto it = s.options.find(f.name); it != s.options.end())
             if (const s32* v = std::get_if<s32>(&it->second)) put32(b, option(f.at), u32(*v));
+    {
+        u32 word = get32(b, option(kDisplayWord));
+        for (const auto& [name, bit] : kDisplayBits)
+            if (const auto it = s.options.find(name); it != s.options.end())
+                if (const s32* v = std::get_if<s32>(&it->second)) word = *v ? word | bit : word & ~bit;
+        put32(b, option(kDisplayWord), word);
+    }
+    for (const auto& [name, at] : kPictureSettings)
+        if (const auto it = s.options.find(name); it != s.options.end())
+            if (const std::string* t = std::get_if<std::string>(&it->second)) {
+                const std::array<int, 4> v = menu::picture_from_text(*t, {0, 0, 0, 0});
+                for (size_t i = 0; i < 4; ++i) put32(b, option(at) + 4 * i, u32(v[i]));
+            }
     // The play lists (Option +0x90 and +0x8A0): u32 rows, u16 position, u8 shuffle, u8 none,
     // u16 seed, a word; 128 rows of 16 bytes: 8 bytes, u8 played, u8 enabled, s8 order, s8 its
     // copy, 4 bytes.
@@ -370,6 +397,12 @@ bool read_game(ByteSpan p, GameState& s, const Codes& codes, std::vector<int>* r
     s.used_week = get32(p, kUsedCar + 0x20);
     for (const OptionField& f : kOptionNumbers) s.options[f.name] = s32(get32(p, option(f.at)));
     if (const u32 z = get32(p, kGameZone); z > 0 && z < 6) s.options["game_zone"] = std::string(kZones[z]);
+    for (const auto& [name, bit] : kDisplayBits) s.options[name] = s32((get32(p, option(kDisplayWord)) & bit) != 0);
+    for (const auto& [name, at] : kPictureSettings) {
+        std::array<int, 4> v{};
+        for (size_t i = 0; i < 4; ++i) v[i] = s32(get32(p, option(at) + 4 * i));
+        s.options[name] = menu::picture_text(v);
+    }
     for (const auto& [at, list] : {std::pair<size_t, GameState::PlayList*>{0x90, &s.bgm_playlist}, {0x8A0, &s.slide_playlist}}) {
         const size_t o = option(at);
         list->rows = get32(p, o), list->position = u16(p[o + 4] | p[o + 5] << 8), list->shuffle = p[o + 6], list->none = p[o + 7];

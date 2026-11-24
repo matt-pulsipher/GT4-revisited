@@ -20,6 +20,7 @@
 namespace gt4r::menu {
 
 class Runtime;
+struct GameSettings; // game_settings.h
 
 // A widget's states: the bits a face's "visible_condition" is tested against.
 enum WidgetState : int { kActive = 1, kFocus = 2, kPrelight = 4, kInsensitive = 8 };
@@ -167,6 +168,11 @@ public:
     // Every sound call, in order (also noted in the log). `on_sound` is called with each.
     const std::vector<SoundCall>& sound_calls() const { return sounds_; }
     std::function<void(const SoundCall&)> on_sound;
+    // The options as the rest of the game reads them (game_settings.h), given each time they may
+    // have changed: at the end of the start, when a game is loaded, and when the scripts apply,
+    // save or reset them. The app sets the menus' sound volumes from it.
+    std::function<void(const GameSettings&)> on_options;
+    void options_changed();
     // Notes every call the event thread makes and every key it handles in the log.
     bool trace_calls = false;
     // The colour and how much of it covers the page: the transition the scripts started.

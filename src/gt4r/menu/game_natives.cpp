@@ -6,6 +6,7 @@
 // docs/formats/menu.md ("The game's state") says what each answers and why.
 
 #include "gt4r/menu/game_internal.h"
+#include "gt4r/menu/game_settings.h"
 #include "gt4r/save/card_image.h"
 
 #include "gt4r/save/memory_card.h"
@@ -338,10 +339,27 @@ Value GameNatives::make_option() {
             else s->options[n] = v.kind == Kind::Int ? v.i : s32(v.truthy());
         });
     }
+    // The screen settings: [brightness, contrast, saturation, color balance] as the Picture Quality
+    // page reads and writes them (the program's four numbers at Option +0x1184, +0x1194).
+    for (const char* name : {"race_color_correction", "replay_color_correction"}) {
+        const std::string n = name;
+        option->property(n, [s, n] {
+            const std::array<int, 4> v = picture_from_text(s->option_text(n), {0, 0, 0, 0});
+            return Value::array({number(v[0]), number(v[1]), number(v[2]), number(v[3])});
+        }, [s, n](const Value& v) {
+            const std::vector<Value>* items = v.items();
+            if (!items || items->size() < 4) return;
+            std::array<int, 4> p{};
+            for (size_t i = 0; i < 4; ++i) p[i] = int((*items)[i].as_float());
+            s->options[n] = picture_text(p);
+        });
+    }
     Runtime* r = &rt;
-    // apply(), save(): the settings take effect; here they are kept (under the data folder).
+    // apply(), save(): the settings take effect (Runtime::on_options) and are kept (under the
+    // data folder).
     auto save = [r](Vm&, const Value&, Args) {
         r->save_options();
+        r->options_changed();
         return number(1);
     };
     option->method("apply", save);
@@ -350,6 +368,7 @@ Value GameNatives::make_option() {
     option->method("setDefault", [s, r](Vm&, const Value&, Args) {
         const std::string zone = s->option_text("game_zone");
         s->option_defaults(zone.empty() ? r->region() : zone);
+        r->options_changed();
         return Value{};
     });
     // setGameZoneDefault (0x435D48): the zone by the program's region.
@@ -859,7 +878,7 @@ Value GameNatives::make_card_manager(Args a) {
         if (!s->card.connected) return text("DEVICE_ERROR");
         if (!there()) return text(s->card.has_game_data ? "OK" : "FILE_NOT_FOUND");
         const save::Result r = self->card().load(*s);
-        if (r == save::Result::Ok) s->card.has_game_data = true;
+        if (r == save::Result::Ok) s->card.has_game_data = true, self->rt.options_changed();
         return text(r == save::Result::Ok || r == save::Result::DeviceError || r == save::Result::InvalidFile ? save::result_name(r) : "");
     });
     // loadInstance(manager): [result, game] of the card's game beside the one played. ❓ The

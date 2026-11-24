@@ -296,6 +296,12 @@ struct GameState {
     std::shared_ptr<QuickWork> quick_work;
 };
 
+// A unit by the option's name ("MPH", "HP", "FTLB", ...): what a value in the game's own unit
+// (km/h, PS, kgf.m) is multiplied by, and the unit's name as the menus write it.
+GameState::Unit velocity_unit_of(const std::string& option);
+GameState::Unit power_unit_of(const std::string& option);
+GameState::Unit torque_unit_of(const std::string& option);
+
 // The car a race takes from the garage (RaceRequest::garage_slot): the sheet in use of its
 // record, the program's car equipment record as it is (docs/formats/save.md "The car
 // record"). Nothing for a place without a driven car's record.
