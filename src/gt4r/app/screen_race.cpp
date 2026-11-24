@@ -1774,6 +1774,11 @@ private:
                     } catch (const std::exception& e) {
                         LOG_WARN("Drive: the test's times: %s", e.what());
                     }
+            // (Prologue's license race writes them into the menus' work from the row as it sets up: 0x409B70 .. 0x409BF0)
+            if (menus_ && is_license(sequence_) && targets_[0] > 0 && menu::quick_work(menus_->game()).get("goldTime") == menu::QuickWork::kNoTime) {
+                const char* names[3] = {"goldTime", "silverTime", "bronzeTime"};
+                for (int k = 0; k < 3; ++k) menu::quick_work(menus_->game()).set(names[k], targets_[k] > 0 ? s32(targets_[k]) : menu::QuickWork::kNoTime);
+            }
             // The options' speed unit (unit_velocity), when the race came with the game's options.
             if (!setup_.options.empty()) hud_->set_mph(std::string(settings_.velocity.name).find("mph") != std::string::npos);
             if (const std::optional<Bytes> logo = app.vfs()->read("piece/crs_logo/" + setup_.course + ".img")) hud_->set_course_logo(*logo);
