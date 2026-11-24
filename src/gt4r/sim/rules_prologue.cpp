@@ -94,6 +94,18 @@ Tables tables(const Program& program) {
     t.throttle_up = t.controls.throttle_up, t.throttle_down = t.controls.throttle_down;
     t.brake_up = t.controls.brake_up, t.brake_down = t.controls.brake_down;
     t.pitch_radius = program.b(s + 0xD9), t.normal_mode = program.b(s + 0xE0);
+    {
+        const u8 heat = program.b(s + 0x7C) ? program.b(s + 0x7C) : 1, cool = program.b(s + 0x7D) ? program.b(s + 0x7D) : 1;
+        t.brake_heat.c0 = kOne / (f_of(heat) * F::raw(0x46191FFF));
+        t.brake_heat.c1 = kOne / ((f_of(cool) * F::raw(0x3DCCCCCC)) * F::raw(0x42C80000));
+        t.brake_heat.c2 = f_of(program.b(s + 0x7E)) * F::raw(0x3E8E38E3);
+        t.brake_heat.c3 = f_of(program.b(s + 0x7F)) * F::raw(0x3C23D70A);
+    }
+    t.rolling_n = program.b(s + 0x0B);
+    for (u32 k = 0; k < 8 && k < t.rolling_n; ++k) {
+        t.rolling_x[k] = f_of(u32(program.b(s + 0x0C + k)) << 1) * F::raw(0x3E8E38E3);
+        t.rolling_y[k] = f_of(program.b(s + 0x14 + k)) * F::raw(0x3A83126E);
+    }
     for (u32 k = 0; k < 16; ++k) {
         t.bumps.amp[k] = f_of(program.b(s + 0x1C + k)) * F::raw(0x3A83126E);
         t.bumps.freq[k] = F::raw(0x40C90FDA) / (f_of(program.b(s + 0x4C + k)) * F::raw(0x3DCCCCCC));
@@ -103,6 +115,18 @@ Tables tables(const Program& program) {
     for (u32 r = 0; r < t.wheel_layouts.size(); ++r)
         for (u32 k = 0; k < rules::kWheelLayoutSize; ++k) t.wheel_layouts[r][k] = program.b(PrologueProgram::kWheelLayouts + rules::kWheelLayoutSize * r + k);
     return t;
+}
+
+void statics(ex::Statics& s, const Tables& t) {
+    if (!t.found) return;
+    for (u32 k = 0; k < 8 && k < t.rolling_n; ++k) s.rolling_curve.x[k] = t.rolling_x[k], s.rolling_curve.y[k] = t.rolling_y[k];
+}
+
+void race_inputs(ex::RaceInputs& r, const Tables& t) {
+    if (!t.found) return;
+    statics(r.statics, t);
+    r.brake_heat = t.brake_heat;
+    r.bumps.amp = t.bumps.amp, r.bumps.freq = t.bumps.freq, r.bumps.scaled = t.bumps.scaled, r.bumps.mode = t.bumps.mode;
 }
 
 rules::WheelLayout wheel_layout(const Tables& t, u8 row) {

@@ -23,6 +23,9 @@
 
 namespace gt4r::diff::prologue {
 
+Disc* g_disc = nullptr; // (the disc the taps run on: set_disc)
+void set_disc(Disc& d) { g_disc = &d; }
+
 namespace {
 
 // The engine's record: the parameter block P at +0x10 .. +0xEC0; its tire records at P +0x398 + 0x1B4 r, its tire index
@@ -222,7 +225,12 @@ void add_engine_taps(PTaps& taps) {
     taps.add({0x3CF740, "wheel speeds", [](PTapCall& t) { ex::wheel_speeds(t.car); }});
     taps.add({0x3BA6C0, "engine speed", [](PTapCall& t) { ex::engine_speed(t.car, t.inputs.statics.hybrid); }});
     taps.add({0x3BAAD8, "gear", [](PTapCall& t) { ex::gear_step(t.car, t.inputs.gears); }});
-    taps.add({0x3B3810, "brake heat", [](PTapCall& t) { ex::brake_heat(t.car, t.inputs.brake_heat); }});
+    taps.add({0x3B3810, "brake heat, Prologue's constants", [](PTapCall& t) {
+                  static const sim::prologue::Tables k = sim::prologue::tables(sim::Program::load(*g_disc));
+                  ex::RaceInputs in = t.inputs;
+                  sim::prologue::race_inputs(in, k);
+                  ex::brake_heat(t.car, in.brake_heat);
+              }});
     taps.add({0x3B5A20, "wheel steer", [](PTapCall& t) { ex::wheel_steer(t.car); }});
     taps.add({0x375F58, "suspension", [](PTapCall& t) { ex::suspension(t.car, nullptr); }});
     taps.add({0x3765F8, "attitude", [](PTapCall& t) { ex::attitude(t.car, gt3r::ee::F()); }});
@@ -374,6 +382,11 @@ void add_prologue_taps(PTaps& taps, const Disc& disc, const std::string& course)
                       {"rumble", "steer_force", "ffb", "lag_", "w.skid", "w.slip_intensity", "w.smoke", "x4e", "speedo", "engine_wear", "oil",
                        "odo", "dist_total", "dirt", "max_speed", "speed_abs", "hit_", "feedback", "g.seg", "road_seg", "w.flap"}});
     }
+    taps.add({0x3BBF18, "rolling resistance, Prologue's curve", [=](PTapCall& c) {
+                  ex::Statics s = c.inputs.statics;
+                  sim::prologue::statics(s, t);
+                  ex::rolling_resistance(c.car, s);
+              }});
     taps.add({0x375D00, "Prologue's terrain", [=](PTapCall& c) { sim::prologue::terrain(c.car, image(c)); }});
     taps.add({0x376EC8, "Prologue's bump nudge", [=](PTapCall& c) { sim::prologue::bump_nudge(c.car, image(c)); }});
     taps.add({0x3765F8, "Prologue's attitude", [=](PTapCall& c) {
@@ -475,6 +488,7 @@ Pad test_drive(int i) {
 
 std::vector<PTapStat> check(Disc& disc, const std::string& course, const std::string& car, int steps, const std::string& which, std::string& err) {
     if (!is_prologue(disc)) return err = "not Prologue's program", std::vector<PTapStat>{};
+    g_disc = &disc;
     db::SpecDb sdb(
         [&disc](const std::string& path) -> std::optional<Bytes> {
             const gt3r::Volume::Entry* e = disc.volume().find(path);

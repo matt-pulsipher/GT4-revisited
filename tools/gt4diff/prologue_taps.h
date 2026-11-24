@@ -87,6 +87,9 @@ private:
 // Each field of the engine's mirror where `a` and `b` differ, counted into `st` (as a tap's call is).
 void compare(const ex::Car& a, const ex::Car& b, PTapStat& st);
 
+// The disc the taps' tables are read from (check sets it).
+void set_disc(Disc& d);
+
 // The engine's routines at their Prologue counterparts (prologue_taps.cpp).
 void add_engine_taps(PTaps& taps);
 // Gran Turismo 4's routines and Prologue's own (rules_prologue.h) at their Prologue counterparts, on the Gran Turismo 4

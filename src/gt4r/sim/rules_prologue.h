@@ -93,7 +93,19 @@ struct Tables {
     // amplitude +0x1C + s x 0.001 (0x3A83126E), the wave number 2 pi (0x40C90FDA) / (+0x4C + s x 0.1 (0x3DCCCCCC)), the
     // speed ramp's switch +0x5C + s, the wave's mode +0x6C + s.
     ex::SurfaceBumps bumps{};
+    // The rolling resistance's curve as the race's start makes it (0x504428 with 0x5043E8 / 0x504408): the static block's
+    // +0x0B points, x +0x0C + k (x 2 km/h) x 1 / 3.6 (0x3E8E38E3), y +0x14 + k x 0.001 (0x3A83126E).
+    u8 rolling_n = 0;
+    std::array<F, 8> rolling_x, rolling_y;
+    ex::BrakeHeatConsts brake_heat;
 };
+// The engine's statics with Prologue's own values where they differ (the rolling resistance's curve; its per-surface
+// coefficients, 0x504438, are the engine's).
+void statics(ex::Statics& s, const Tables& t);
+// The engine's race inputs with Prologue's own where they differ: the statics (above), the brake heat's constants (0x714870,
+// made by 0x3B3740: 1 / (+0x7C x 9800 (0x46191FFF)), 1 / (+0x7D x 0.1 (0x3DCCCCCC) x 100), +0x7E / 3.6 (0x3E8E38E3), +0x7F
+// x 0.01 of the static block, +0x7C and +0x7D 1 when 0), the road's bumps.
+void race_inputs(ex::RaceInputs& r, const Tables& t);
 Tables tables(const Program& program);
 
 // A tire record's kind bytes (Prologue's parameter block: the record's +0x1B4 .. +0x1B6; its spec: the tire block's +0x6C ..
