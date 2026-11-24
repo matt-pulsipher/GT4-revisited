@@ -474,8 +474,10 @@ decision with a pace command midway (`gt4r_diff ai GT4R_AI_BSPEC=1,4,20`).
 - **In the drivers**: the arcs' scale x D+0x74 (after the spread) and the braking factor x D+0x70 for a
   B-spec driver of kind 0; its draws seeded with 1, no spread by grid index (0x467148: computer cars
   only); without passing a lane change is only the return to line 6.
-- **Its shift speeds** (0x36BEE0 / 0x36BF28 → 0x3F1E30): the gearbox's up- and down-shift speeds x the
-  shift byte / 128, only for control source 1 and kind 0; the opponents shift at the gearbox's own.
+- **Its shift speeds** (0x36BEE0 / 0x36BF28 → 0x3F1E30): the speed x the car's byte +0x83 >> 7 (the driver's shift byte
+  copied to the car): the up-shift speeds for control source 1 and kind 0, the down-shift speeds for control source 1; the
+  opponents shift at the gearbox's own. In the session's gearbox (sim-parts' `rules_drive`) by
+  `Session::set_shift_factor(car, Field::shift_factor(car))`.
 - **Its skill** (0x468C50 from the conductor's virtual 28, for a car of control source 0 or 1 not a ghost, with the switch
   0x623E48 set): the race information's +0x20 .. +0x5F (the B-spec driver's record of its races, from the save: u16 a[8]
   +0x00, b[8] +0x10, c[8] +0x20 by the cars' class, d[4] +0x30 and e[4] +0x38 by half the class) copied to car +0x8C. The
