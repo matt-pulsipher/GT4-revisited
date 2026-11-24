@@ -63,6 +63,12 @@ private:
     std::unique_ptr<menu::StageMotion> camera_motion_, light_motion_;
     float stage_time_ = 0;
     bool stage_tried_ = false;
+    // A face's camera motion and model sets (loadModelOptionMotion, loadModelSet), read from the
+    // page's packs once (null: not there).
+    const menu::StageMotion* option_motion(menu::Project* project, const std::string& page, const std::string& path);
+    const std::vector<std::unique_ptr<gt3r::render::GpuModel>>* model_set(menu::Project* project, const std::string& page, const std::string& path);
+    std::map<std::string, std::unique_ptr<menu::StageMotion>> option_motions_;
+    std::map<std::string, std::vector<std::unique_ptr<gt3r::render::GpuModel>>> model_sets_;
 };
 
 } // namespace gt4r

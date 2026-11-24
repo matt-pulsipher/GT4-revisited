@@ -142,6 +142,35 @@ void MenuCars::load_stage() {
     }
 }
 
+const menu::StageMotion* MenuCars::option_motion(menu::Project* project, const std::string& page, const std::string& path) {
+    auto [it, fresh] = option_motions_.try_emplace(page + ":" + path);
+    if (fresh && project) try {
+            if (const std::optional<Bytes> f = project->entry(page, path); f && menu::StageMotion::is_motion(*f))
+                it->second = std::make_unique<menu::StageMotion>(menu::StageMotion::parse(*f));
+        } catch (const std::exception& e) {
+            LOG_WARN("Car face motion %s: %s", path.c_str(), e.what());
+        }
+    return it->second && it->second->camera ? it->second.get() : nullptr;
+}
+
+const std::vector<std::unique_ptr<gt3r::render::GpuModel>>* MenuCars::model_set(menu::Project* project, const std::string& page, const std::string& path) {
+    auto [it, fresh] = model_sets_.try_emplace(page + ":" + path);
+    if (fresh && project && app_.gpu()) try {
+            if (const std::optional<Bytes> f = project->entry(page, path); f && f->size() > 0x18) {
+                const u32 count = rd16(*f, 0x16);
+                for (u32 i = 0; i < count && i < 16; ++i) {
+                    mdls::Options mo;
+                    mo.model = int(i);
+                    gt3r::scene::Model m = mdls::build_model(*f, mo, path + "#" + std::to_string(i));
+                    it->second.push_back(std::make_unique<render::GpuModel>(*app_.gpu(), m));
+                }
+            }
+        } catch (const std::exception& e) {
+            LOG_WARN("Car face models %s: %s", path.c_str(), e.what());
+        }
+    return &it->second;
+}
+
 void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const std::string& page, const menu::Rect& at, const SDL_FRect& dst, float opacity) {
     if (!view_) return;
     const menu::CarFaceSettings s = menu::car_face_settings(face.data);
@@ -204,6 +233,21 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
         sv.near = 0.1f, sv.far = 100;
         proj = menu_face3d::projection_of(sv, page_part, page_part);
     }
+    const menu::StageMotion* om = s.advanced || s.option_motion.empty() ? nullptr : option_motion(project, page, s.option_motion);
+    if (om) {
+        // The page's camera motion (loadModelOptionMotion) from the picture it was given at,
+        // held at its end: its eye, the point looked at, its up and field of view.
+        const float len = om->length();
+        const float t = std::clamp(float(s64(frame_) - s64(s.option_motion_frame)) / 60.0f, 0.0f, len > 0 ? len : 0.0f);
+        const auto& c = *om->camera;
+        auto at_t = [&](int i) { return om->at(c[size_t(i)], t); };
+        eye = {at_t(0), at_t(1), at_t(2)};
+        view = render::look_at(eye, {at_t(3), at_t(4), at_t(5)}, {at_t(6), at_t(7), at_t(8)});
+        menu::FaceView sv = v;
+        if (om->fov) sv.view_angle = om->at(*om->fov, t) / kDeg;
+        sv.far = std::max(sv.far, 100.0f);
+        proj = menu_face3d::projection_of(sv, at, page_part);
+    }
     if (s.advanced && light_motion_) {
         // The backdrops' weights at the stage's time (light.mot's Alpha0 .. Alpha3).
         for (size_t i = 0; i < stage_.size(); ++i) weights.push_back(std::clamp(light_motion_->named_at("Alpha" + std::to_string(i), stage_time_, i == 0 ? 1.0f : 0.0f), 0.0f, 1.0f));
@@ -256,6 +300,11 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
         if (!mirror_view_) mirror_view_ = std::make_unique<render::View3D>(*app_.gpu());
         mirror_view_->draw(app_.renderer(), page_rect, view * flip, proj, under, mirrored, mo);
     }
+    // The page's other models (loadModelSet: a mechanic, a shadow) where their files put them.
+    if (!s.advanced)
+        for (const std::string& path : s.model_sets)
+            if (const auto* set = model_set(project, page, path))
+                for (const auto& m : *set) items_.push_back(render::DrawItem{m.get(), Mat4::identity(), 0});
     c->visual->add_shadow_items(items_, state);
     c->visual->add_items(items_, state, eye);
     view_->draw(app_.renderer(), page_rect, view, proj, eye, items_, o);

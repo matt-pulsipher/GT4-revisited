@@ -1278,6 +1278,21 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
                 w->set_property("chip_b", Value::integer(s32((c >> 16) & 0xFF)));
                 return Value{};
             });
+        if (type == "CarFace" && n == "loadModelOptionMotion")
+            return fn([r, w](Vm&, const Value&, Args a) {
+                w->set_property("option_motion", a.empty() ? Value::string({}) : a[0]);
+                w->set_property("option_motion_frame", Value::number(float(r->frame())));
+                return Value{};
+            });
+        if (type == "CarFace" && n == "loadModelSet")
+            return fn([w](Vm&, const Value&, Args a) {
+                if (a.empty()) return Value{};
+                const std::string path = a[0].to_string(), sets = w->data.text("model_sets");
+                if (("|" + sets + "|").find("|" + path + "|") == std::string::npos)
+                    w->set_property("model_sets", Value::string(sets.empty() ? path : sets + "|" + path));
+                return Value{};
+            });
+        // ❓ loadModelMotion(path, set, clip): the sets' skinned motions are not played.
         if (n == "setData" || n == "setColor" || n == "setColorIndex" || n == "syncLoading" || n == "loadModelSet" || n == "loadModelMotion" ||
             n == "loadModelOptionMotion")
             return nothing();
