@@ -37,6 +37,7 @@
 #include "gt4r/sim/rules_start.h"
 #include "gt4r/menu/game.h"
 #include "gt4r/menu/game_settings.h"
+#include "gt4r/menu/game_settings.h"
 #include "gt4r/menu/race_natives.h"
 #include "gt4r/menu/runtime.h"
 #include "race/controls.h"
@@ -916,6 +917,10 @@ public:
                 LOG_WARN("Drive: the saved replay: %s", e.what());
             }
         }
+        settings_ = menu::settings_from(setup_.options);
+        // The first view of a race of the menus: the options' (view_type: SUBJECTIVE the nose,
+        // BONNET the higher one, OVERLOOK the chase view).
+        if (from_menus_) setup_.view = settings_.view == "OVERLOOK" ? race::DriveCamera::kChase : settings_.view == "BONNET" ? race::DriveCamera::kRoof : race::DriveCamera::kInCar;
         // A race without the menus: the races' music by the play list a new game has (the
         // configuration script's, run by menus booted for it).
         if (!setup_.playlist) setup_.playlist = new_game_playlist(app);
@@ -1044,6 +1049,11 @@ public:
         if (setup_.hud && !results_shown()) {
             if (hud_ && hud_->ready()) {
                 race_->fill(hud_state_, *hud_);
+                // The display's parts the options switch off; a replay's display as they say.
+                const menu::GameSettings::Display& d = settings_.display;
+                hud_state_.show_map = d.map, hud_state_.show_time = d.time, hud_state_.show_lap = d.lap;
+                hud_state_.show_position = d.position, hud_state_.show_meter = d.meter;
+                hud_state_.replay_display = settings_.replay_display;
                 if (race_->replaying()) {
                     if (caption_for_.empty()) music_caption(app);
                     hud_state_.caption_title = caption_title_, hud_state_.caption_artist = caption_artist_;
@@ -1681,6 +1691,8 @@ private:
             if (setup_.bspec) spectator_ = true;
             hud_ = std::make_unique<RaceHud>(app, race_->course().section(course::kSlotMiniMap));
             race_->set_lap_words(hud_->word("WordOfLap"), hud_->word("WordOfLaps"));
+            // The options' speed unit (unit_velocity), when the race came with the game's options.
+            if (!setup_.options.empty()) hud_->set_mph(std::string(settings_.velocity.name).find("mph") != std::string::npos);
             if (const std::optional<Bytes> logo = app.vfs()->read("piece/crs_logo/" + setup_.course + ".img")) hud_->set_course_logo(*logo);
             // The replay card's tires and race name.
             const std::string& seq = setup_.sequence;
@@ -1772,6 +1784,7 @@ private:
     bool pause_exit_ = false, pause_retry_ = false;
     bool saved_replay_ = false; // the screen plays a saved replay (then leaves)
     std::string last_saved_;
+    menu::GameSettings settings_; // the game's options as the race reads them
     std::string caption_for_, caption_title_, caption_artist_; // the replay's music caption (for the piece caption_for_)
     bool demo_ = false, reported_ = false; // the run is a demonstration; its result was given
     int last_can_replay_ = 0;

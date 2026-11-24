@@ -66,7 +66,7 @@ struct RaceHud::Impl {
     race::DisplayLayout layout, mode1;
     const race::DisplayLayout* cur = &layout; // the layout drawn now
     std::array<menu::TextColor, 4> button_colors{};
-    std::vector<race::DialFace> rev_faces, speed_faces;
+    std::vector<race::DialFace> rev_faces, speed_faces, speed_faces_by[2]; // the speedometer's: now, km/h, mph
     race::CourseMap map;
     SDL_Texture* map_texture = nullptr;
     std::optional<menu::TextTable> words;
@@ -250,7 +250,8 @@ RaceHud::RaceHud(App& app, ByteSpan gtcm) : impl_(std::make_unique<Impl>()) {
         m.mode1 = race::read_mode1_layout(core.program, core.load_address);
         if (const auto colors = menu::find_button_colors(core.program)) m.button_colors = *colors;
         m.rev_faces = race::read_rev_faces(core.program, core.load_address);
-        m.speed_faces = race::read_speed_faces(core.program, core.load_address, m.mph);
+        for (int k = 0; k < 2; ++k) m.speed_faces_by[k] = race::read_speed_faces(core.program, core.load_address, k == 1);
+        m.speed_faces = m.speed_faces_by[m.mph ? 1 : 0];
         m.map = race::CourseMap::parse(gtcm);
         if (m.map.valid()) m.map_texture = m.make_texture(m.map.image);
     } catch (const std::exception& e) {
@@ -420,6 +421,11 @@ void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlaye
 
 bool RaceHud::ready() const { return impl_->layout.valid() && impl_->pack && !impl_->font_by_name.empty(); }
 bool RaceHud::mph() const { return impl_->mph; }
+void RaceHud::set_mph(bool on) {
+    if (impl_->mph == on) return;
+    impl_->mph = on;
+    impl_->speed_faces = impl_->speed_faces_by[on ? 1 : 0]; // the speedometer's faces are by the unit
+}
 
 std::string RaceHud::word(const std::string& key) const {
     if (impl_->words) {
@@ -433,15 +439,15 @@ std::string RaceHud::word(const std::string& key) const {
 // Position, lap count and the three times.
 void RaceHud::Impl::draw_top(const HudState& s) {
     const float o = s.opacity;
-    if (const DisplayPlace* p = cur->find(element::kPositionWord)) draw_at("JP/position", *p, kNeutral, o);
-    if (const DisplayPlace* p = cur->find(element::kPosition)) {
+    if (const DisplayPlace* p = cur->find(element::kPositionWord); p && s.show_position) draw_at("JP/position", *p, kNeutral, o);
+    if (const DisplayPlace* p = cur->find(element::kPosition); p && s.show_position) {
         const DisplayRect at = draw_at("position_base", *p, kNeutral, o);
         const int digit = std::clamp(s.place, 0, 9);
         draw_text(font("FC_26"), at.x + at.w / 2 - 1 + (digit == 1 ? 4.0f : 0.0f), at.y + at.h - 19, kCentered | kMiddleOfLine, kTextGray, o,
                   std::string(1, char('0' + digit)));
     }
-    if (const DisplayPlace* p = cur->find(element::kLapWord)) draw_at("JP/lap", *p, kNeutral, o);
-    if (const DisplayPlace* p = cur->find(element::kLapCount)) {
+    if (const DisplayPlace* p = cur->find(element::kLapWord); p && s.show_lap) draw_at("JP/lap", *p, kNeutral, o);
+    if (const DisplayPlace* p = cur->find(element::kLapCount); p && s.show_lap) {
         char buf[32];
         if (s.laps > 0) std::snprintf(buf, sizeof buf, "%d/%d", std::clamp(s.lap, 0, 999), s.laps);
         else std::snprintf(buf, sizeof buf, "%d", std::clamp(s.lap, 0, 999));
@@ -455,19 +461,19 @@ void RaceHud::Impl::draw_top(const HudState& s) {
         draw_text(f, at.x, float(p->y), 0, kTextGray, o, buf, squeeze);
     }
     const FontSpec times = font("hn_20R");
-    if (const DisplayPlace* p = cur->find(element::kLapTime)) {
+    if (const DisplayPlace* p = cur->find(element::kLapTime); p && s.show_time) {
         const float left = draw_text(times, race::place_x(*p, true), float(p->y), kCentered, kTextGray, o, race::format_lap_time(s.lap_ms));
         // The stopwatch ends 8 units left of the text and 7 below its baseline.
         const Picture& watch = picture("GT4_meter_texture_laptime");
         draw_picture(watch, {left - 8 - watch.w, float(p->y) + 7 - watch.h, watch.w, watch.h}, kNeutral, o);
     }
-    if (const DisplayPlace* p = cur->find(element::kBestWord)) draw_at(s.bspec ? "JP/total_time" : "JP/best_time", *p, kNeutral, o);
-    if (const DisplayPlace* p = cur->find(element::kTotalTime))
+    if (const DisplayPlace* p = cur->find(element::kBestWord); p && s.show_time) draw_at(s.bspec ? "JP/total_time" : "JP/best_time", *p, kNeutral, o);
+    if (const DisplayPlace* p = cur->find(element::kTotalTime); p && s.show_time)
         draw_text(times, race::place_x(*p, true), float(p->y), kCentered, kTextGray, o, race::format_total_time(s.total_ms));
-    if (const DisplayPlace* p = cur->find(element::kBestTime))
+    if (const DisplayPlace* p = cur->find(element::kBestTime); p && s.show_time)
         draw_text(times, race::place_x(*p, true), float(p->y), kCentered, kTextGray, o, race::format_lap_time(s.best_ms));
-    if (const DisplayPlace* p = cur->find(element::kLastWord)) draw_at("JP/last_time", *p, kNeutral, o);
-    if (const DisplayPlace* p = cur->find(element::kLastTime))
+    if (const DisplayPlace* p = cur->find(element::kLastWord); p && s.show_time) draw_at("JP/last_time", *p, kNeutral, o);
+    if (const DisplayPlace* p = cur->find(element::kLastTime); p && s.show_time)
         draw_text(times, race::place_x(*p, true), float(p->y), kCentered, kTextGray, o, race::format_lap_time(s.last_ms));
     if (const DisplayPlace* p = cur->find(element::kEventLine))
         draw_text(times, race::place_x(*p, true), float(p->y), kCentered, kTextGray, o * s.event_opacity, s.event);
@@ -482,7 +488,7 @@ void RaceHud::Impl::draw_top(const HudState& s) {
 // The course map with the cars on it; it neither turns nor scrolls.
 void RaceHud::Impl::draw_map(const HudState& s) {
     const DisplayPlace* p = cur->find(element::kMap);
-    if (!p || !map_texture) return;
+    if (!p || !map_texture || !s.show_map) return;
     const DisplayRect at = race::place_rect(*p, float(map.image.width), float(map.image.height), true);
     auto marker = [&](const Picture& pic, const HudState::Dot& d, u32 tint, float opacity) {
         float mx, my;
@@ -717,6 +723,7 @@ void RaceHud::draw(Ui& ui, const HudState& s) {
         impl_->draw_bspec(s, word(s.overtake ? "key_overtake" : key), word("Tool Tip1"));
         return;
     }
+    if (!s.show_meter) return;
     if (s.driver_view) impl_->draw_driver_panel(s);
     else impl_->draw_chase_panel(s);
 }

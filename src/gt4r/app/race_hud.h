@@ -55,6 +55,8 @@ struct HudState {
     bool overtake = false;            // the overtake command is on
     s64 total_ms = -1;                // the race's time
     bool help = true;                 // the help strip along the bottom
+    // The display's parts the options leave on (race_display_*).
+    bool show_map = true, show_time = true, show_lap = true, show_position = true, show_meter = true;
 };
 
 class RaceHud {
@@ -69,6 +71,8 @@ public:
     // The race's words by key ("RaceStart"); the key itself when the table has none.
     std::string word(const std::string& key) const;
     bool mph() const;
+    // The speed in mph (else km/h): the options' unit (unit_velocity); the disc's region by default.
+    void set_mph(bool on);
     // A race movie (the pause menu, the results) as its player shows it now, over the whole canvas:
     // its shapes, pictures and texts (the texts' words looked up in the race's text table).
     // `externals`: the pictures the program supplies (the results' car icons), where they go on the
