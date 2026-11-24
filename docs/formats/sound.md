@@ -558,8 +558,16 @@ sides' crossfaded levels).
   factor from 0.135 to 0.355 m, its pitch by the rim speed) on 0, 7, 8, 9, 12; rain_noiz G10 on
   6, 20, 22; off_roadnoiz G14 on 5; off_skill G13 on 2, 3, 4; pebble G14 on 13; sand G14 on 14;
   rumble G6 on 1, 21; rumble2 on 10; rumble3 on 11; the slipping notes by the slip intensity at
-  the skid pitch. The notes past the first three ease as above. ❓ Which slots a course allows
-  (0x360458 → 0x3922B0) is not applied.
+  the skid pitch. The notes past the first three ease as above. **The slots a course allows**
+  (0x3922B0, at the race's setup from 0x360458: a mask 0x34D6E0 → 0x360348 makes from the course
+  object's set of the surfaces it has, its word +0x94, bit s for surface s, and its flags +0x98):
+  for each surface under 15 in the set, tarmac (0, 7, 8, 9, 12) allows on_skill and on_road, and
+  rain_noiz too when the flags' bit 1 (wet) is set; 6 rain_noiz; 1 rumble; 2, 3, 4 off_skill; 5
+  off_roadnoiz; 10 rumble2; 11 rumble3 and on_skill; 13 pebble; 14 sand (the mask's bits 0 .. 10
+  → slots 0, 1, 2, 3, 7, 4, 8, 9, 10, 5, 6). Not applied: a wheel's notes follow the surface under
+  it, so a slot whose surfaces the course lacks never sounds; the mask only differs for a wet
+  variant (20, 21, 22) on a course whose set lacks the dry one, which the set's being the course's
+  own makes 🔎 impossible.
 - **Single notes** (table 0x621418; under 0.001 not played; 0x392EB8): b_off G3 × blow-off at
   the engine; clash / clash2 / clash4 by the contact's kind 0 / 1 / 2, the camera's car only.
   **A contact** goes through 0x350530(car, kind, other, value): the pad's rumble by kind (0x35CF40,
