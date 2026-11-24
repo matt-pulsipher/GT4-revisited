@@ -1210,6 +1210,14 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
     if (type == "TextFace" || type == "ToolTipFace" || type == "InputTextFace") {
         // `value`: what the face shows: the value set, else its text, else its key's text in
         // the page the layout has it in (the memory card pages' StoreHouse texts).
+        // `color`: the text's colour (`text_color`): the race menus copy a hidden face's to the
+        // player's grid row (quick-arcade's MyGridColor) and to the tires' column.
+        if (n == "color") {
+            auto a = std::make_shared<Accessor>();
+            a->read = [w] { return w->get("text_color"); };
+            a->write = [w](const Value& v) { w->set_property("text_color", v); };
+            return a;
+        }
         if (n == "value" && type == "TextFace") {
             auto a = std::make_shared<Accessor>();
             a->read = [w, r] {
