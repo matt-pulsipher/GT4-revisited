@@ -44,4 +44,12 @@ int slide_kind(u8 surface);
 // kind 0; none for a car whose condition block's byte +0x14 is set). `course_kind`: the conductor's byte (0x34C968).
 void slide_effects(ex::Car& c, const WheelLayout& l, const SlideTables& t, u8 course_kind);
 
+// 0x366678: how a car is drawn (3 a car in the race; a ghost: 0 not drawn, 1 hidden, 2 see-through): a car not in the race
+// (F + 0x441) of control source 4 by F + 0x4B2 (0 when set, else 2); otherwise with neither the race's word +0xE0 nor its
+// course's ghost word (`race_e0`, `ghost_word`) 1; a ghost of control source 2 or driver kind 1, 6 or 8 0; else 2.
+int draw_mode(const ex::Car& c, u8 x4b2, u32 race_e0, u32 ghost_word);
+// 0x366718 (phase 19): a car not drawn as one in the race (draw mode not 3) has its sliding measures cleared (the pitch 1)
+// and the engine sound's levels and the turbo's spool (F + 0x604 .. + 0x606) 0.
+void effects_reset(ex::Car& c, const WheelLayout& l, int draw_mode);
+
 } // namespace gt4r::sim::rules

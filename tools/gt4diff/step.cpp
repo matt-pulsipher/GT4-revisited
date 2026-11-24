@@ -170,6 +170,11 @@ void add_taps(Taps& taps) {
                   sim::rules::pad_rumble(t.car, t.rec.layout, pad);
                   t.mem_i("pad +0", b, pad[0], 1), t.mem_i("pad level", b + 1, pad[1], 1);
               }});
+    taps.add({0x366718, "effects reset", car_a0, [](TapCall& t) {
+                  const u32 car = t.race.car(t.car_index), info = t.ee.r32(car);
+                  const u32 e0 = t.ee.r32(info + 0xE0), ghost = e0 ? 0 : t.ee.r32(t.ee.r32(info + 0x84) + 0x10000 - 0xFB0);
+                  sim::rules::effects_reset(t.car, t.rec.layout, sim::rules::draw_mode(t.car, t.ee.r8(car + kF + 0x4B2), e0, ghost));
+              }});
     taps.add({0x354AC0, "masses", car_a0, [](TapCall& t) { sim::rules::masses(t.car, t.rec.x.drive.fuel, t.rec.x.chassis.mass, t.rec.x.body.sprung_mass); }});
     taps.add({0x35D920, "hub velocities", car_a0, [](TapCall& t) {
                   sim::rules::hub_velocities(t.car, t.rec.layout, sim::rules::speed_tables(*g_program, t.rec.x.steer.lean_row), t.rec.x.body.in_line_x480);

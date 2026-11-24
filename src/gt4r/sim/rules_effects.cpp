@@ -182,4 +182,23 @@ void slide_effects(ex::Car& c, const WheelLayout& l, const SlideTables& t, u8 co
     }
 }
 
+int draw_mode(const ex::Car& c, u8 x4b2, u32 race_e0, u32 ghost_word) {
+    if (c.ghost == 0) return 3;
+    if (c.control == 4) return x4b2 != 0 ? 0 : 2;
+    if (race_e0 == 0 && ghost_word == 0) return 1;
+    if (c.control == 2) return 0;
+    const u8 k = c.driver_kind;
+    return k == 6 || k == 8 || k == 1 ? 0 : 2;
+}
+
+void effects_reset(ex::Car& c, const WheelLayout& l, int mode) {
+    if (mode == 3) return;
+    const int n = l.count < 4 ? l.count : 4;
+    for (int i = 0; i < n; ++i) {
+        ex::Wheel& w = c.w[size_t(i)];
+        w.smoke_emit = kZero, w.slip_intensity = kZero, w.skid_pitch = kOne;
+    }
+    c.x4e4 = 0, c.x4e5 = 0, c.turbo_spool = 0;
+}
+
 } // namespace gt4r::sim::rules

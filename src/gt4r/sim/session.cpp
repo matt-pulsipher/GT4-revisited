@@ -419,7 +419,8 @@ void Session::chassis(size_t i) {
     else ex::tyre_effects(c, race_.effects, race_.aids.course_category);
     ex::phase12_stub(c);
     ex::engine_sound(c, race_.sound_scales);
-    ex::effects_reset(c, 0, 0);
+    if (gt4_rules_) rules::effects_reset(c, layouts_[i], rules::draw_mode(c, 0, 0, 0)); // (0x366718; no ghosts here)
+    else ex::effects_reset(c, 0, 0);
     if (gt4_rules_) rules::view_follow(c, gx_[i].feel.view, tables_.feel); // (0x345658)
     else ex::view_follow(c);
     if (gt4_rules_) rules::hub_offsets(c, layouts_[i]); // (0x345A20)
