@@ -470,7 +470,8 @@ Value make_car_value(GameNatives& n, std::shared_ptr<CarHandle> c) {
     car->method("getOdometer", [rec, st](Vm& vm, const Value&, Args a) {
         const bool miles = st->option_text("unit_velocity") == "MPH";
         const s32 v = s32(std::min<u32>(rec().odometer() / (miles ? 160 : 100), 999'999'999));
-        return a.empty() ? number(v) : format_with(vm, a[0], {number(v), text(miles ? "mile" : "km")});
+        // The unit as the program writes it (0x472898: "miles" or "km").
+        return a.empty() ? number(v) : format_with(vm, a[0], {number(v), text(miles ? "miles" : "km")});
     });
     car->method("getDate", [c](Vm&, const Value&, Args) { return number(s32(c->day)); });
     car->method("getGarageIndex", [c](Vm&, const Value&, Args) { return number(c->garage_slot); });

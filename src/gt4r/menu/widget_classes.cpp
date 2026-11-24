@@ -1329,13 +1329,22 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
                 }
                 return Value{};
             });
-        // setData(car, index): a paint chip takes the car's paint of that index.
+        // setData(car, index): a paint chip takes the car's paint of that index; setData(garage
+        // car): that car's own paint (the header's car, the used cars' rows).
         if (type == "ColorChipFace" && n == "setData")
             return fn([w](Vm& vm, const Value&, Args a) {
-                if (a.size() < 2) return Value{};
+                if (a.empty()) return Value{};
+                s32 i = 0;
+                if (a.size() >= 2) i = arg_int(a, 1);
+                else {
+                    const Value own = vm.attribute(a[0], "getColorIndex");
+                    if (own.is_nil()) return Value{};
+                    const Value v = vm.call(own, {});
+                    if (!v.is_number()) return Value{};
+                    i = s32(v.as_float());
+                }
                 const Value colors = vm.call(vm.attribute(a[0], "getColors"), {});
                 const std::vector<Value>* list = colors.items();
-                const s32 i = arg_int(a, 1);
                 if (!list || i < 0 || size_t(i) >= list->size()) return Value{};
                 const Value& c = (*list)[size_t(i)];
                 w->set_property("chip_r", Value::integer(s32(vm.attribute(c, "r").as_float() * 255.0f)));
