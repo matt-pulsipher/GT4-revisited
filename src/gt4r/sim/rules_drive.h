@@ -60,6 +60,7 @@ struct DriveExtra {
     // The fuel and the nitrous (rules_fuel.h), which the engine's torque counts as it runs (mutable: the routines that take the
     // torque read the rest of this block only).
     mutable FuelState fuel;
+    u8 shift_factor = 128;       // car +0x83: a B-spec driver's shift speeds x this / 128 (0x3F1E30; Session::set_shift_factor)
 };
 
 // Every member of DriveExtra with its place in Gran Turismo 4's record: v(name, index (-1: single), block, offset, member).
@@ -99,6 +100,7 @@ template <class X, class V> void drive_fields(X& x, V&& v) {
     v("ratio_word", -1, C, layout::kState + 0x518, x.ratio_word);
     for (u32 k = 0; k < 4; ++k) v("marks", int(k), C, 0x774 + k, x.marks[k]);
     fuel_fields(x.fuel, v);
+    v("shift_factor", -1, C, 0x83, x.shift_factor);
 }
 
 // The race's tables these routines read (the program's globals): the four wheel drive system 5's fade

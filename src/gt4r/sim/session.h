@@ -111,6 +111,11 @@ public:
     void new_tire(size_t i, int wheel);
     // The flaps' random stream (the program's 0x874D50), for gt4r_diff's whole step.
     void set_random_state(u32 state) { random_state_ = state; }
+    // A car's shift byte (car +0x83; 128: none): its gearbox's shift speeds times it / 128 while a B-spec driver drives it
+    // (control source 1, 0x3F1E30). Holds until set again.
+    void set_shift_factor(size_t i, u8 factor) {
+        if (i < gx_.size()) gx_[i].drive.shift_factor = factor;
+    }
 
 private:
     struct Extra { // per car, outside the record

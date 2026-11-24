@@ -210,6 +210,14 @@ void kickdown_level(ex::Car& c) {
 }
 
 // 0x36C160: the automatic gearbox (`kickdown`: pedal style 2).
+// 0x36BEE0 / 0x36BF28 with 0x3F1E30: the up-shift speed, and a down-shift speed, times the car's shift byte (car +0x83) / 128
+// (truncated) for a car its B-spec driver drives (control source 1; the up-shift's with driver kind 0 too).
+s32 up_speed(const ex::Car& c, const DriveExtra& x) {
+    const u32 v = x.d.up_rpm;
+    return c.control == 1 && c.driver_kind == 0 ? s32((v * x.shift_factor) >> 7) : s32(v);
+}
+s32 down_speed(const ex::Car& c, const DriveExtra& x, u16 v) { return c.control == 1 ? s32((u32(v) * x.shift_factor) >> 7) : s32(v); }
+
 int shift_auto(ex::Car& c, const DriveExtra& x, const WheelLayout& l, const TireExtra& tires, const DriveTables& t, bool kickdown) {
     const DrivelineBlock& d = x.d;
     const int g = c.gear;
@@ -254,11 +262,11 @@ int shift_auto(ex::Car& c, const DriveExtra& x, const WheelLayout& l, const Tire
     s32 down, up;
     if (g == 1) {
         if (d.gears == 1) return -1;
-        up = d.up_rpm; // (0x36BEE0: a computer's own when its driver word says so)
+        up = up_speed(c, x);
         down = -20000;
     } else {
-        up = g < d.gears ? s32(d.up_rpm) : 20000;
-        down = d.down_rpm[size_t(g - 2) < 8 ? size_t(g - 2) : 7]; // (0x36BF28)
+        up = g < d.gears ? up_speed(c, x) : 20000;
+        down = down_speed(c, x, d.down_rpm[size_t(g - 2) < 8 ? size_t(g - 2) : 7]);
         if (c.throttle_pedal < F::raw(0x3D4CCCCC)) down += 100 * s32(t.gears.down_lift);
         if (F::raw(0x3F4CCCCC) < c.brake_pedal) down += 100 * s32(t.gears.down_brake);
         if (F::raw(0x3E800000) < c.throttle_pedal) down -= 100 * s32(t.gears.down_throttle);
