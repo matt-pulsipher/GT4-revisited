@@ -589,6 +589,15 @@ the script asked (`adjustScale`: the widest line to the face's width), or cut wi
 scripts copy it; an open option list is drawn over the page; the cursor and the transitions
 as below.
 
+**Before the menus** (`app/menu_advertise.h`; GT4FIRSTADVERTISE::DisplayAdvertiseImage,
+0x108F78): `advertise/us/main.img`'s pictures in the middle of the frame buffer on black, each
+brightened in over 15 steps, held the seconds given x 30 steps and darkened out over 15 (a step
+every other field: 0x109048, 0x109080); the program's list (0x618700) holds texture 2 ("Sony
+Computer Entertainment America Presents", 3 s). The copyright notice (texture 0) before it is
+shown here for 1 s (❓ judged from the reference: about 2 s on screen; not found in the list).
+Texture 1 is the Polyphony Digital logo, texture 3 a demo disc's notice. Shown when the app runs
+as the game (scripted runs: `GT4R_MENU=advertise=1`); the boot project starts after them.
+
 **The loading page** (`app/menu_loading.h`; the program's LoadingPS2, 0x102840, its modes
 0x104E30): between two projects the "black" mode: a black quad fades in over the last page in
 1 s; once whole, one of two pictures of `advertise/gtloading.img` chosen at random (0x579358:

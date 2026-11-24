@@ -4,6 +4,7 @@
 
 #include "gt4r/app/app.h"
 #include "gt4r/app/menu_cars.h"
+#include "gt4r/app/menu_advertise.h"
 #include "gt4r/app/menu_cursor.h"
 #include "gt4r/app/menu_loading.h"
 #include "gt4r/app/menu_models.h"
@@ -60,6 +61,7 @@ public:
     // pages; leaving the menus leaves the screen.
     explicit MenuViewer(App& app, bool player = false) : player_(player) {
         start_boot_ = player;
+        advertise_on_ = player; // (scripted runs: GT4R_MENU advertise=1)
         const auto list = [&app](const std::string& folder) { return app.vfs()->list_dir(folder); };
         for (const std::string& name : menu::list_projects(list)) {
             const std::vector<std::string> languages = menu::project_languages(list, name);
@@ -88,6 +90,7 @@ public:
                 else if (key == "card") card_ = value;
                 else if (key == "credits") credits_ = std::atoll(value.c_str());
                 else if (key == "timing") timing_ = value != "0";
+                else if (key == "advertise") advertise_on_ = value != "0";
             }
         }
     }
@@ -248,6 +251,7 @@ private:
             MenuCars* cars = cars_.get();
             models_ = std::make_unique<MenuModels>(app);
             loading_ = std::make_unique<MenuLoading>(app);
+            if (from_boot && advertise_on_) advertise_ = std::make_unique<MenuAdvertise>(app);
             MenuModels* models = models_.get();
             drawer->draw_live = [movies, cars, models](const LiveWidget& face, menu::Project* project, const std::string& page, const Rect& at, const SDL_FRect& dst, float opacity) {
                 if (face.is("MovieFace")) movies->draw(face, dst, opacity);
@@ -269,7 +273,7 @@ private:
     void stop() {
         if (held_) SDL_DestroyTexture(held_), held_ = nullptr;
         menu::text_measure().measure = nullptr;
-        movies_.reset(), cars_.reset(), models_.reset(), loading_.reset(), live_drawer_.reset(), runtime_.reset(), race_.reset();
+        movies_.reset(), cars_.reset(), models_.reset(), loading_.reset(), advertise_.reset(), live_drawer_.reset(), runtime_.reset(), race_.reset();
         if (app_)
             if (audio::AppSound* sound = app_->sound()) sound->stop();
     }
@@ -283,6 +287,13 @@ private:
                 {PadButton::Select, menu::Key::Select}, {PadButton::L1, menu::Key::L1},         {PadButton::R1, menu::Key::R1},
                 {PadButton::L2, menu::Key::L2},         {PadButton::R2, menu::Key::R2},         {PadButton::Square, menu::Key::Square},
             };
+            // The pictures before the menus: the menus start after them.
+            if (advertise_ && advertise_->active()) {
+                const int n = std::min(int(step_time_ * 60.0), 4);
+                step_time_ = n == 4 ? 0.0 : step_time_ - n / 60.0;
+                advertise_->step(float(n) / 60.0f);
+                return;
+            }
             // (The loading page takes no keys.)
             const bool keys_on = !loading_ || !loading_->active();
             if (keys_on && m.vertical()) runtime_->key(m.vertical() < 0 ? menu::Key::Up : menu::Key::Down);
@@ -357,6 +368,7 @@ private:
         const float scale = float(Ui::kHeight) / 480.0f, x = (Ui::kWidth - 640 * scale) / 2;
         ui.fill(0, 0, Ui::kWidth, Ui::kHeight, {0, 0, 0});
         const Uint64 t0 = SDL_GetTicksNS();
+        if (advertise_ && advertise_->active()) return advertise_->draw(x, scale);
         if (live_drawer_) {
             if (movies_) movies_->begin_frame();
             if (cars_) cars_->begin_frame(runtime_->frame());
@@ -463,6 +475,8 @@ private:
     std::unique_ptr<MenuCars> cars_;     // and car faces
     std::unique_ptr<MenuModels> models_; // and model faces
     std::unique_ptr<MenuLoading> loading_; // the page between projects
+    std::unique_ptr<MenuAdvertise> advertise_; // the pictures before the first menus
+    bool advertise_on_ = false;
     MenuCursor cursor_;
     SDL_Texture* held_ = nullptr; // a block transition's screen
     int project_sel_ = 0, page_sel_ = 0, state_ = 0;
