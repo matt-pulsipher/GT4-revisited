@@ -440,12 +440,14 @@ start's long look ahead by them (5 s + delay); the conductor's virtual 41 (0x34D
 place 0 has one. 🔎 The cars' held start itself is not found: ours holds such a car on the line (the
 count's engine hold, the brake on) until the race's clock passes its seconds (judged).
 
-**The demonstration runs** (a license test's "View a demo run"): recorded, not computed: the disc keeps
-one per test and region under `replay/license/` (`<region>l0<class><test>`, `%sl0c%04d`, 0x10FCD0: on
-the US disc `usl0a`, `usl0b`, `usl0s`, `uslia`, `uslib` 16 each and `usl0c` 5; the missions' `jpl0m`
-only on the Japanese), each a "Base" header of 0x40 bytes and a coded body of the drivers' controls
-(`Serialize::ReplayData`), which the race runs again. ❓ The body's coding is not read; the drivers do
-not drive the demonstrations.
+**The demonstration runs** (a license test's "View a demo run"): recorded, not computed. The disc keeps one per test
+and region under `replay/license/<event label>`, the program's `Serialize::ReplayData`: the race's header (the
+entries' cars, places, gearboxes and aids) and the drivers' pad records, coded and enciphered
+([formats/replay.md](../formats/replay.md)). The race runs them again: car 0 takes the recorded record every step
+from the race's first, then the empty one; the drivers do not drive a demonstration (a training test's pace car is the
+computer's as in the test). `sim::ai::DemoRun` (`demo_driver.h`) gives the entries and car 0's input per step. ✔ The
+US B-1 recording on the program's own race step and on our session runs the same to the millimetre, the car at rest in
+the stopping box at step 1083 (§10).
 
 **The reference race** (03-race, Arcade, Ford Ka '01 at Tsukuba): the Ka has no Arcade event rows,
 so the race is `sample_entry_6` (every percent 100, no rubber band) with opponents the menu's
@@ -499,7 +501,7 @@ another race's for checks: then its own F+0x560, F+0x650, places, clock and fini
   0x345228 set the line and the kind); the pit flow that decides them (0x35B060, a state machine of the
   pit lane, the box and the service) is not ported, so nothing sends a car there yet.
 - Not done: B-spec's pit command and
-  skill, the line-5 records, the demonstration runs, the aero bonus (P +0x1077 / +0x1084 not mirrored:
+  skill, the line-5 records, the aero bonus (P +0x1077 / +0x1084 not mirrored:
   0), the two ❓ flags of §4.2 (P +0x104A, F +0x5C2: 0 on every car checked), the arcs' grip with tire
   wear on, T+0x158's factor (1 throughout in this program), the PD steering of T[2] ≥ 2, the threat
   record (D+0x53 / +0x60 / +0x64). The B-spec shift factor (`Field::shift_factor`) is not applied to the
@@ -531,7 +533,9 @@ state byte, ours from the driver object and the cars as they are at the call's e
 (0x3F4638), against ours, bit for bit; with `GT4R_AI_BAND=1` every car's time scale every step.
 `GT4R_AI_BSPEC=<car>[,<level>,<s>]`: that car's driver B-spec's in both races, a pace command at <s>;
 `GT4R_AI_FINISH=<mode>,<s>`: every run ended so at <s>; `GT4R_AI_SECONDS=<s>` a set length;
-`GT4R_AI_DECISION=1` prints the first decisions that differ. Results at Tsukuba (US disc):
+`GT4R_AI_DECISION=1` prints the first decisions that differ. `gt4r_diff <disc> demo <label>`: a demonstration's
+recording played on the program's race step (car 0's distance and speed each step); `gt4tool ai <disc> demo-run
+<label> [hold=480]` the same on our session. Results at Tsukuba (US disc):
 
 - ✔ Parameters, braking (multiplier, status, mode, point), the lines' distances, kinds, surfaces,
   crests, positions, radii and headings equal at every call; the arcs' speeds equal but where a point's

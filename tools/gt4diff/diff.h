@@ -85,6 +85,21 @@ struct AiRunResult {
 // (GT4R_AI_OURS, GT4R_AI_CHECK, GT4R_AI_BAND set the options too; GT4R_AI_TRACE=<car> prints a car's plan.)
 AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std::vector<std::string>& cars, int laps, AiRunOptions options = {});
 
+// A demonstration run (replay/license/<label>) played through the program's own race step with its recorded pad records
+// (demo.cpp): car 0's distance from its start and speed every step, and the step it comes to rest after braking.
+struct DemoSample {
+    int step = 0;
+    float distance = 0, speed = 0; // metres from the start (across the ground), m/s
+};
+struct DemoRunResult {
+    bool ran = false;
+    std::string error, course;
+    int recorded_ms = 0;
+    int rest_step = -1;
+    std::vector<DemoSample> samples;
+};
+DemoRunResult run_demo(Disc& disc, bool print, const std::string& label);
+
 // The C library's float routines the step calls, against the shared engine's.
 struct LeavesResult {
     bool ran = false;

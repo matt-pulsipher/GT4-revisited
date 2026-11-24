@@ -116,7 +116,7 @@ volume's index bytes (Prologue: its table of contents).
 | `ADCH` scripts | the menus, game flow, settings | ✅ read, listed and run by the interpreter, waits included ([formats/script.md](formats/script.md)); the menus' classes of the program are written ([formats/menu.md](formats/menu.md)) |
 | Layouts (`.mproject`, `.mwidget`: text), `gpb0` / `gpb1` / `gpb2` pictures, `RT02` / `RT03` text | the menus | ✅ read, drawn, and run from the game's scripts ([formats/menu.md](formats/menu.md)) |
 | The saved game (`BASCUS-97328GAMEDATA`: game data, `garage`, icons) | a memory card | ✅ written and read ([formats/save.md](formats/save.md)); 🔎 not yet tried with a real card's save |
-| Replays, saves | `replay/` | ❓ |
+| Replays, saves | `replay/` | ✅ the license tests' demonstrations: the race's header and the pad records, deciphered ([formats/replay.md](formats/replay.md)); ❓ the memory card's replay files (the same body) not written |
 
 Prologue mixes the two generations: Gran Turismo 4's database files (stored plain, earlier
 columns), `ADCH` scripts and menus next to Gran Turismo 3's car files (`GTM1`), roads (`GTRW`),
