@@ -85,7 +85,6 @@ The ones a player meets first:
   size over the title.
 - The license test page's "Best" reads 0'00.000 after a run.
 - In Prologue, Start does not skip the opening movie (Triangle does).
-- A race on the test course takes about 9 s to load.
 - The copyright notice and the "Sony Computer Entertainment America Presents" page before the
   first dialog are not shown.
 
