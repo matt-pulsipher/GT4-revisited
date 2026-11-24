@@ -548,9 +548,13 @@ sides' crossfaded levels).
   bodies' strength and passes that same number, kind 1, for each of the two cars; 0x3E3C48 passes
   kind 2 for a course object (the course's objects at [0x6D6054]). So the sound's strength is
   twice what the contact adds to the body's strength, against a wall and a car alike.
-  `sound_state()` takes the simulation's seam (`CarState::contact`, the body's strength summed
-  over the step, at most 1) that way: min(2 × contact, 1), none under 0.2 (🔎 a step with two
-  contacts: the program keeps the stronger, the seam gives their sum); on_bound for the in-car own view (the strongest wheel landing, 0.5..1,
+  The race step (0x34DB30) clears the recorder (0x350308, kinds 0 and 1) before the collision
+  step; the sound frame reads it (0x350468; a kind 2 is cleared there). Built in the collision step
+  (`sim::collide::Body::hit_sound`, `hit_kind`, `hit_other`), which `sound_state(session, i)` takes.
+  Without a session, `sound_state(CarState)` takes the seam (`CarState::contact`, the body's
+  strength summed over the step, at most 1) as min(2 × contact, 1), none under 0.2: the same for one
+  contact, the sum where the program keeps the stronger. Measured: driving straight on into
+  Tsukuba's first corner, 60 steps against the wall, one over 0.2; on_bound for the in-car own view (the strongest wheel landing, 0.5..1,
   × G15 × 2.5); backfire / backfire2 (one at random) at the exhaust, strength 3, when an
   afterfire flame starts (0x3B6B78: the flame object's latch +0x64, read and cleared by
   0x3D6F30). **The afterfire** (`RaceSound` from the simulation; `CarSoundState::shift_flame`,

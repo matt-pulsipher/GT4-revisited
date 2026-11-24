@@ -58,9 +58,14 @@ CarSoundState sound_state(const sim::Session& session, size_t i, const RaceSound
     // An afterfire's moment (0x3F3368): the shift's end at full throttle; and the car's chance.
     s.shift_flame = c.shift_lockout == 11 && c.throttle.host() > 0.9f;
     if (tables) s.afterfire_chance = tables->afterfire_chance(session.spec(i).b(0x120), c.p.e.boost_max.host() > 0, spec_figures(session.spec(i)).ps);
-    // The step's contact and landings, as the seam publishes them.
+    // The step's strongest contact as the hit sound's recorder keeps it (0x350328 from the collision
+    // step), and the landings as the seam publishes them.
+    if (i < session.cars().size()) {
+        const sim::collide::Body& b = session.body(i);
+        s.contact = b.hit_kind >= 0 ? b.hit_sound.host() : 0.0f;
+        s.contact_kind = std::max(b.hit_kind, 0);
+    }
     const CarSoundState seam = sound_state(car);
-    s.contact = seam.contact, s.contact_kind = seam.contact_kind;
     for (size_t w = 0; w < 4; ++w) s.wheels[w].landing = seam.wheels[w].landing;
     return s;
 }
