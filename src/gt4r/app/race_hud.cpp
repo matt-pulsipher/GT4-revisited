@@ -62,6 +62,7 @@ struct RaceHud::Impl {
     Bytes pack_file;
     std::optional<menu::ImagePack> pack;
     std::map<std::string, Picture> pictures;
+    Picture course_logo;
     race::DisplayLayout layout, mode1;
     const race::DisplayLayout* cur = &layout; // the layout drawn now
     std::array<menu::TextColor, 4> button_colors{};
@@ -265,8 +266,26 @@ RaceHud::~RaceHud() {
     for (auto& [key, t] : impl_->atlases)
         if (t) SDL_DestroyTexture(t);
     if (impl_->map_texture) SDL_DestroyTexture(impl_->map_texture);
+    if (impl_->course_logo.texture) SDL_DestroyTexture(impl_->course_logo.texture);
     for (auto& [key, t] : impl_->movie_textures)
         if (t) SDL_DestroyTexture(t);
+}
+
+void RaceHud::set_course_logo(ByteSpan set) {
+    Impl& m = *impl_;
+    if (m.course_logo.texture) SDL_DestroyTexture(m.course_logo.texture), m.course_logo = {};
+    try {
+        if (!gt3r::Tex1::is_tex1(set)) return;
+        const gt3r::Tex1 tex = gt3r::Tex1::parse(set);
+        if (tex.textures.empty()) return;
+        gt3r::GsMemory gs;
+        tex.upload(set, gs);
+        const gt3r::Tex1::Image img = tex.decode(gs, 0);
+        m.course_logo.texture = m.make_texture(img);
+        m.course_logo.w = float(img.width), m.course_logo.h = float(img.height);
+    } catch (const std::exception& e) {
+        LOG_WARN("Race display: the course's logo: %s", e.what());
+    }
 }
 
 SDL_FRect RaceHud::canvas() { return to_ui(DisplayRect{0, 0, 640, 480}); }
@@ -658,13 +677,26 @@ void RaceHud::draw(Ui& ui, const HudState& s) {
         impl_->draw_text(impl_->font("hb_24", 100, 1), 320, 220, kCentered, kTextGray, s.opacity * a, s.card_title);
         impl_->draw_text(impl_->font("hm_16", 100, 1), 320, 260, kCentered, kTextGray, s.opacity * a, s.card_line);
     }
+    if (s.replay && s.logo_opacity > 0 && impl_->course_logo.texture) {
+        // The course's logo under the opening card, its right bottom at (604, 441) (❓ the place and
+        // size judged from the original's replay: the logo at its own size there).
+        const Impl::Picture& logo = impl_->course_logo;
+        impl_->draw_picture(logo, race::place_rect({0, 604, 441, 0, 0, 1, 1}, logo.w, logo.h, true), kNeutral, s.opacity * std::clamp(s.logo_opacity, 0.0f, 1.0f));
+    }
+    if (s.replay && s.caption_opacity > 0 && !s.caption_title.empty()) {
+        // The music's caption at the bottom left: the piece's title, its artist smaller under
+        // it (❓ the fonts, places and colour judged from the original's replay).
+        const float a = s.opacity * std::clamp(s.caption_opacity, 0.0f, 1.0f);
+        // (The original's note before the title is not in these fonts: not drawn.)
+        impl_->draw_text(impl_->font("hm_16", 90, 1), 42, 432, 0, kTextGray, a, s.caption_title);
+        if (!s.caption_artist.empty()) impl_->draw_text(impl_->font("hm_16", 70, 1), 42, 449, 0, kTextGray, a, s.caption_artist);
+    }
     if (s.replay && !s.replay_display) {
         // A replay with its display off (the Replay options' Screen Display: Off, the original's
         // default): the small Gran Turismo 4 logo, its right bottom at (604, 441) (member 0x1170),
         // ❓ at about 60 % (judged from the original's replay; its draw colour is not read).
         const Impl::Picture& logo = impl_->picture("JP/gt_logo_mini");
-        // (Under the opening card the original shows the course's logo there instead: ❓ its picture is not found.)
-        if (logo.w > 0 && s.card_opacity <= 0) impl_->draw_picture(logo, race::place_rect({0, 604, 441, 0, 0, 1, 1}, logo.w, logo.h, true), kNeutral, s.opacity * 0.6f);
+        if (logo.w > 0 && s.card_opacity <= 0 && s.logo_opacity <= 0 && s.caption_opacity <= 0) impl_->draw_picture(logo, race::place_rect({0, 604, 441, 0, 0, 1, 1}, logo.w, logo.h, true), kNeutral, s.opacity * 0.6f);
         return;
     }
     if (s.replay) {

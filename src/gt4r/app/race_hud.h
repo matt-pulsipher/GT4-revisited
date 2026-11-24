@@ -37,6 +37,9 @@ struct HudState {
     float card_opacity = 0;
     std::string status;               // the status line over the panel ("FULL THROTTLE"); UTF-8
     float status_opacity = 0;
+    float logo_opacity = 0;           // a replay's opening: the course's logo at the bottom right
+    std::string caption_title, caption_artist; // a replay: the music's caption at the bottom left
+    float caption_opacity = 0;
     bool replay = false;              // a replay: its sign in place of the position, laps and times
     bool replay_display = false;      // the replay's display on (else only the logo)
     float opacity = 1;                // of the whole display
@@ -77,6 +80,8 @@ public:
         float opacity = 1;
     };
     void draw_movie(const race::StrobeMovie& movie, const race::StrobePlayer& player, std::vector<MovieExternal>* externals = nullptr);
+    // The course's logo (piece/crs_logo/<course>.img, a Tex1 picture) for the replays' opening.
+    void set_course_logo(ByteSpan tex1);
     // The 640 x 480 canvas on the screen.
     static SDL_FRect canvas();
 

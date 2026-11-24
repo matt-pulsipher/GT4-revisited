@@ -20,6 +20,7 @@
 #include "gt4r/audio/app_sound.h"
 #include "gt4r/audio/race_playlist.h"
 #include "gt4r/audio/race_sound.h"
+#include "gt4r/audio/sound_library.h"
 
 #include "base/log.h"
 #include "gt4r/formats/course/course_file.h"
@@ -548,6 +549,14 @@ public:
                 if (const size_t at = line.find("%s"); at != std::string::npos) line.replace(at, 2, part);
             h.card_line = line;
         }
+        // The course's logo with the card; the music's caption after it (❓ from 4.5 s to 14 s, judged
+        // from the original's replay; the program's times are not read).
+        h.logo_opacity = replaying_ ? h.card_opacity : 0;
+        h.caption_opacity = 0;
+        if (replaying_) {
+            const float t = float(replay_at_) / 60;
+            h.caption_opacity = std::clamp(std::min((t - 4.5f) / 0.5f, (14.0f - t) / 0.5f), 0.0f, 1.0f);
+        }
         if (replaying_) {
         } else if (flow_.player_finished()) {
             // FINISH: 3.7 s and a fade of 0.3 s.
@@ -1006,6 +1015,12 @@ public:
         if (setup_.hud && !results_shown()) {
             if (hud_ && hud_->ready()) {
                 race_->fill(hud_state_, *hud_);
+                if (race_->replaying()) {
+                    if (caption_for_.empty()) music_caption(app);
+                    hud_state_.caption_title = caption_title_, hud_state_.caption_artist = caption_artist_;
+                } else {
+                    caption_for_.clear();
+                }
                 hud_->draw(ui, hud_state_);
             } else {
                 draw_overlay(ui);
@@ -1408,6 +1423,25 @@ private:
         return true;
     }
 
+    // The music's caption for a replay: the playing piece's title and artist from the streamed
+    // music's index (bgm/<region>/ads.inf).
+    void music_caption(App& app) {
+        caption_title_.clear(), caption_artist_.clear();
+        audio::RaceSound* sound = race_->sound();
+        audio::AppSound* app_sound = app.sound();
+        caption_for_ = sound ? sound->report().music : std::string();
+        if (caption_for_.empty()) caption_for_ = "-";
+        if (!sound || !app_sound) return;
+        const std::string& file = sound->report().music;
+        const std::string base = file.substr(file.find_last_of('/') + 1);
+        for (const auto& group : app_sound->library().streams().groups)
+            for (const sound::MusicRecord& r : group)
+                if (!base.empty() && (r.file == base || r.file + ".ads" == base || base.rfind(r.file, 0) == 0)) {
+                    caption_title_ = r.title, caption_artist_ = r.artist;
+                    return;
+                }
+    }
+
     // The last run as a file of the data folder's `replays` (the Drive screen plays one with
     // GT4R_RACE="replay_file=<path>").
     void save_replay(App& app) {
@@ -1616,6 +1650,7 @@ private:
             if (setup_.bspec) spectator_ = true;
             hud_ = std::make_unique<RaceHud>(app, race_->course().section(course::kSlotMiniMap));
             race_->set_lap_words(hud_->word("WordOfLap"), hud_->word("WordOfLaps"));
+            if (const std::optional<Bytes> logo = app.vfs()->read("piece/crs_logo/" + setup_.course + ".img")) hud_->set_course_logo(*logo);
             // The replay card's tires and race name.
             const std::string& seq = setup_.sequence;
             race_->set_card(menus_ ? menus_->game().race.tire : 4,
@@ -1706,6 +1741,7 @@ private:
     bool pause_exit_ = false, pause_retry_ = false;
     bool saved_replay_ = false; // the screen plays a saved replay (then leaves)
     std::string last_saved_;
+    std::string caption_for_, caption_title_, caption_artist_; // the replay's music caption (for the piece caption_for_)
     bool demo_ = false, reported_ = false; // the run is a demonstration; its result was given
     int last_can_replay_ = 0;
     std::shared_ptr<const race::StrobeMovie> result_movie_;
