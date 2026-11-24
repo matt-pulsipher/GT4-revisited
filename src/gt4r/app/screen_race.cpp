@@ -382,7 +382,7 @@ public:
         judge_ = race::LicenseJudge(judge_.rules());
         board_.begin(world_->car_count(), 0, lap_words_[0], lap_words_[1]);
         camera_.reset(world_->cars()[0]);
-        history_.clear();
+        history_.clear(), run_dist_.clear();
         distance_ = 0;
         replaying_ = false, over_ = false;
         event_steps_ = -1;
@@ -487,6 +487,12 @@ public:
         // (The race clock stands until the release.)
         const race::RaceFlow::Events ev = running_up ? race::RaceFlow::Events{} : flow_.step(world_->cars());
         if (!ev.finished.empty()) board_.finished(flow_, ev.finished);
+        // Each car's distance from the line (crossings x lap + along) each step from the start: the gaps.
+        if (flow_.steps_since_start() >= 0) {
+            const std::span<const race::CarState> now = world_->cars();
+            run_dist_.resize(now.size());
+            for (size_t i = 0; i < now.size(); ++i) run_dist_[i].push_back(float(flow_.car(i).counter) * world_->lap_length() + now[i].course_v);
+        }
         if (!hold) distance_ += std::fabs(world_->cars()[0].speed) * kStep;
         {
             // The player's sideways acceleration (the G meter), smoothed over a few steps.
@@ -894,6 +900,21 @@ public:
         return pose;
     }
 
+    // A car's gap behind the leader now (ms): the time since the leader was where it is (❓ the program's
+    // gap is not read); 0 for the leader, -1 before the start.
+    s64 gap_ms(size_t car) const {
+        const std::vector<size_t>& order = flow_.order();
+        if (order.empty() || car >= run_dist_.size() || run_dist_[car].empty()) return -1;
+        const std::vector<float>& lead = run_dist_[order[0]];
+        const float d = run_dist_[car].back();
+        const auto it = std::lower_bound(lead.begin(), lead.end(), d);
+        const s64 steps = s64(lead.size()) - s64(it - lead.begin());
+        return std::max<s64>(0, steps) * 1000 / 60;
+    }
+    int bspec_pace() const { return bspec_pace_; }
+    int grid_place(size_t car) const { return car < world_->car_count() ? world_->setup().entries[car].grid_place : 0; }
+    size_t focused() const { return focus(); }
+
     // B-spec's pit command (Circle: 0x3F19E0's command 6) for the player's car.
     void bspec_pit() {
         if (watched_ && world_->pit(0)) LOG_INFO("Drive: B-spec pit command at %.1f s", double(flow_.time_ms()) / 1000);
@@ -959,6 +980,7 @@ private:
     bool throttle_held_ = false;
     bool stop_area_ = false, license_failed_ = false; // a license test's stopping box
     race::LicenseJudge judge_;
+    std::vector<std::vector<float>> run_dist_; // per car, per step since the start: its distance from the line
     size_t focus_ = 0; // B-spec: the car the views follow
     std::optional<sim::ai::DemoRun> demo_run_; // a demonstration's recording
     size_t demo_step_ = 0;
@@ -1189,13 +1211,15 @@ public:
         if (race_->watched()) {
             // B-spec's keys (the help strip's): Left / Right the pace, Triangle overtake, Cross the view,
             // R2 the display, Up / Down the car the views follow, Circle the pit (the player's car in at the
-            // next pit entry). (R1's race monitor is not built.)
+            // next pit entry), R1 the Race Monitor.
             if (m.horizontal()) race_->bspec_pace(m.horizontal());
             if (m.pressed(PadButton::Triangle)) race_->bspec_overtake();
             if (m.pressed(PadButton::Cross)) race_->next_view();
             if (m.pressed(PadButton::R2)) race_->bspec_display();
             if (m.vertical()) race_->select_car(m.vertical());
             if (m.pressed(PadButton::Circle)) race_->bspec_pit();
+            if (m.pressed(PadButton::R1)) toggle_monitor(app);
+            if (monitor_) monitor_->advance(float(dt)), fill_monitor();
         } else if (m.pressed(PadButton::R1) || m.pressed(PadButton::Select)) race_->next_view();
         look_back_ = gt3r::race::look_back_held(pad, false);
         // Whole simulation steps for the time that has passed (at most four a frame).
@@ -1278,6 +1302,16 @@ public:
             }
             else draw_results(ui);
         }
+        if (monitor_ && hud_ && race_ && race_->watched() && !race_->replaying()) {
+            // The followed car's picture at the movie's CURRENTCAR_ICON (❓ the rows' two externals each and
+            // MAP_PANEL, the course map with the cars' letters, are not drawn).
+            std::vector<RaceHud::MovieExternal> ext;
+            hud_->draw_movie(*monitor_movie_, *monitor_, &ext);
+            std::vector<RaceWorld::Icon> icons;
+            for (const RaceHud::MovieExternal& e : ext)
+                if (e.name == "CURRENTCAR_ICON") icons.push_back({race_->focused(), e.x, e.y, e.opacity});
+            if (!icons.empty()) race_->draw_icons(ui, RaceHud::canvas(), icons);
+        }
         if (paused_) {
             if (pause_ && hud_) {
                 hud_->draw_movie(*pause_movie_, *pause_);
@@ -1307,6 +1341,85 @@ public:
     }
 
 private:
+    // ---- B-spec's Race Monitor (menu/common/racemonitor.strb, R1): the program fills the movie's named
+    // instances (0x3D8DB8 each frame: 0x3DAF60 the current car, the lap and the total; 0x3DBF90 the rows and
+    // the map's letters; 0x3DC5D8). Here: the followed car's name and pace, the total time, the lap, a row
+    // per car in race order (its name, grid letter, best lap, gap to the leader); ❓ the map's letters, the
+    // gap strip, the pit panel and the replay speed are not filled (hidden).
+
+    void toggle_monitor(App& app) {
+        if (monitor_) {
+            monitor_.reset();
+            return;
+        }
+        if (!monitor_movie_) {
+            try {
+                if (const std::optional<Bytes> file = app.vfs()->read("menu/common/racemonitor.strb"); file && race::StrobeMovie::is_movie(*file))
+                    monitor_movie_ = std::make_shared<const race::StrobeMovie>(race::StrobeMovie::parse(*file));
+            } catch (const std::exception& e) {
+                LOG_WARN("Race monitor: %s", e.what());
+            }
+        }
+        if (!monitor_movie_) return;
+        monitor_ = std::make_unique<race::StrobePlayer>(monitor_movie_, [](const std::string&, const std::vector<race::StrobePlayer::Value>&) {
+            return race::StrobePlayer::Value{};
+        });
+        monitor_->restart();
+        fill_monitor();
+    }
+
+    void fill_monitor() {
+        if (!monitor_ || !race_ || !hud_) return;
+        using V = race::StrobePlayer::Value;
+        race::StrobePlayer& m = *monitor_;
+        const race::RaceFlow& f = race_->flow();
+        const size_t me = race_->focused();
+        auto text = [&](const std::string& path, const std::string& t) { m.set(path, "text", V::string(t)); };
+        auto show = [&](const std::string& path, bool on) { m.set(path, "_visible", V::boolean(on)); };
+        // A car's letter: its place on the grid (A the front; GRID sprites' frames 1 .. 6).
+        auto letter = [&](size_t car) { return std::clamp(race_->grid_place(car), 0, 5) + 1; };
+        text("CURRENTCAR", race_->car_short_name(me));
+        m.call("CURRENTCARGRID", "gotoAndStop", {V::number(letter(me))});
+        {
+            const s64 t = std::max<s64>(0, f.time_ms()) / 1000;
+            char b[32];
+            std::snprintf(b, sizeof b, "%d:%02d'%02d", int(t / 3600), int(t / 60 % 60), int(t % 60));
+            text("TOTAL", b);
+        }
+        {
+            const int lap = f.lap_shown(me), laps = setup_.laps;
+            std::string line = hud_->word(laps > 0 ? "RaceMonitorLapFormat1" : "RaceMonitorLapFormat2");
+            char b[64];
+            if (line.empty()) std::snprintf(b, sizeof b, "Lap %d/%d", lap, laps);
+            else std::snprintf(b, sizeof b, line.c_str(), lap, laps);
+            text("LAP", b);
+        }
+        text("SPEED", "x 1");
+        const int pace = std::clamp(race_->bspec_pace(), 1, 5);
+        text("PACEPANEL.PACETEXT", hud_->word("key_pace" + std::to_string(pace)));
+        for (int k = 1; k <= 7; ++k) m.call("PACEPANEL.PACE" + std::to_string(k), "gotoAndStop", {V::number(k == pace ? 2 : 1)});
+        const std::vector<size_t>& order = f.order();
+        for (int r = 1; r <= 6; ++r) {
+            const std::string bar = "BAR" + std::to_string(r);
+            const bool has = size_t(r - 1) < order.size();
+            show(bar, has);
+            if (!has) continue;
+            const size_t car = order[size_t(r - 1)];
+            text(bar + ".NAME", race_->car_short_name(car));
+            const s64 best = f.car(car).best_lap_ms;
+            text(bar + ".TIME", best > 0 ? race::format_lap_time(best) : "--'--.---");
+            const s64 gap = race_->gap_ms(car);
+            text(bar + ".DIFF", r == 1 || gap < 0 ? "" : race::format_lap_time(gap));
+            m.call(bar + ".GRID", "gotoAndStop", {V::number(letter(car))});
+            m.call(bar, "gotoAndStop", {V::number(car == 0 ? 2 : 1)}); // (the player's row lit)
+            for (const char* part : {".LAP", ".PIT", ".BEST", ".BESTMARK"}) show(bar + part, false);
+        }
+        for (char c = 'A'; c <= 'F'; ++c) show(std::string("CARPOS_") + c, false);
+        for (int g = 1; g <= 5; ++g) show("GAP" + std::to_string(g), false);
+        show("PITPANEL", false);
+        text("DISTUNIT", ""); // (the gap strip's unit: the strip is not filled)
+    }
+
     // ---- The pause: the game's pause movie (menu/common/pause.strb) and its entries.
 
     void open_pause(App& app) {
@@ -2040,7 +2153,8 @@ private:
     HudState hud_state_;
     std::string error_;
     bool paused_ = false, look_back_ = false, from_menus_ = false;
-    std::shared_ptr<const race::StrobeMovie> pause_movie_;
+    std::shared_ptr<const race::StrobeMovie> pause_movie_, monitor_movie_;
+    std::unique_ptr<race::StrobePlayer> monitor_; // B-spec's Race Monitor, while it is up
     std::unique_ptr<race::StrobePlayer> pause_;
     std::string pause_result_;
     bool pause_exit_ = false, pause_retry_ = false;

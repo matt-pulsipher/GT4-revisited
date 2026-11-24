@@ -725,3 +725,43 @@ Value StrobePlayer::variable(const std::string& path) const {
 }
 
 } // namespace gt4r::race
+
+namespace gt4r::race {
+
+bool StrobePlayer::set(const std::string& path, const std::string& member, const Value& v) {
+    Impl::Frame f;
+    f.target = impl_->root.get();
+    const Value o = path.empty() ? Impl::clip_value(impl_->root.get()) : impl_->get_variable(f, path);
+    if (o.kind != Value::ClipRef || !o.clip) return false;
+    impl_->set_member(o, member, v);
+    return true;
+}
+
+StrobePlayer::Value StrobePlayer::call(const std::string& path, const std::string& method, const std::vector<Value>& args) {
+    Impl::Frame f;
+    f.target = impl_->root.get();
+    const Value o = path.empty() ? Impl::clip_value(impl_->root.get()) : impl_->get_variable(f, path);
+    if (o.kind != Value::ClipRef || !o.clip) return {};
+    return impl_->call_method(f, o, method, args);
+}
+
+} // namespace gt4r::race
+
+namespace gt4r::race {
+
+std::vector<std::string> StrobePlayer::tree() const {
+    std::vector<std::string> out;
+    std::function<void(const Clip&, const std::string&)> walk = [&](const Clip& c, const std::string& path) {
+        for (const auto& [t, ch] : c.children) {
+            const std::string p = path.empty() ? (ch->name.empty() ? "#" + std::to_string(t) : ch->name) : path + "." + (ch->name.empty() ? "#" + std::to_string(t) : ch->name);
+            const char* kind = ch->kind == Clip::TextClip ? "text" : ch->kind == Clip::ButtonClip ? "button" : "sprite";
+            out.push_back(p + "  " + kind + " " + std::to_string(ch->index) + " frame " + std::to_string(ch->frame) + (ch->visible ? "" : " hidden") +
+                          (ch->kind == Clip::TextClip ? " \"" + ch->text + "\"" : ""));
+            walk(*ch, p);
+        }
+    };
+    walk(*impl_->root, "");
+    return out;
+}
+
+} // namespace gt4r::race

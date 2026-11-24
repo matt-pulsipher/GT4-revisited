@@ -7,6 +7,7 @@
 //   gt4tool race <disc> script <course> [slot] [ms]  runs a slot's model scripts at a time: the registers they set
 //   gt4tool race <disc> car <model> [paint] [n]    a race car's body (its model n) as decoded: materials, pictures, colors
 //   gt4tool race <disc> starts all                 every course's start: its code, kind, the rolling start's distance, speed, spacing
+//   gt4tool race <disc> strobe-tree <path> [seconds]  a race movie's instances after it plays that long
 //   gt4tool race <disc> license-rules [prefix]     the events' test rules (RACE row bytes the race keeps), a line an event
 
 #include "gt4r/disc/disc.h"
@@ -19,6 +20,7 @@
 #include "gt4r/formats/db/specdb.h"
 #include "gt4r/race/license_rules.h"
 #include "gt4r/race/start_rule.h"
+#include "gt4r/race/strobe.h"
 #include "gt4r/race/rail_simulation.h"
 #include "gt4r/race/replay_script.h"
 
@@ -287,6 +289,26 @@ int race_starts(Disc& disc, const Args&) {
     return 0;
 }
 
+int race_strobe_tree(Disc& disc, const Args& a) {
+    const gt3r::Volume::Entry* e = disc.volume().find(a[1]);
+    if (!e) throw FormatError("no file " + a[1]);
+    auto movie = std::make_shared<const race::StrobeMovie>(race::StrobeMovie::parse(disc.volume().read(*e)));
+    race::StrobePlayer p(movie, [](const std::string& name, const std::vector<race::StrobePlayer::Value>&) {
+        std::printf("(host: %s)\n", name.c_str());
+        return race::StrobePlayer::Value{};
+    });
+    p.restart();
+    p.advance(a.size() > 2 ? float(std::atof(a[2].c_str())) : 0.0f);
+    std::printf("root frame %d, state %s\n", p.frame(), p.state().c_str());
+    for (const std::string& l : p.tree()) std::printf("%s\n", l.c_str());
+    for (size_t i = 0; i < movie->sprites.size(); ++i) {
+        std::printf("sprite %zu: %d frames", i, int(movie->sprites[i].frames));
+        for (const auto& lb : movie->sprites[i].labels) std::printf(" [%s @%d]", lb.second.c_str(), lb.first);
+        std::printf("\n");
+    }
+    return 0;
+}
+
 } // namespace
 
 int cmd_race(Disc& disc, const Args& a) {
@@ -298,6 +320,7 @@ int cmd_race(Disc& disc, const Args& a) {
     if (a[0] == "script") return race_script(disc, a);
     if (a[0] == "license-rules") return race_license_rules(disc, a);
     if (a[0] == "starts") return race_starts(disc, a);
+    if (a[0] == "strobe-tree" && a.size() > 1) return race_strobe_tree(disc, a);
     std::fprintf(stderr, "race: unknown request %s\n", a[0].c_str());
     return 2;
 }
