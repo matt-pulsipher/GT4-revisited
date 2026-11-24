@@ -865,9 +865,14 @@ save::GameSave& GameNatives::card() {
         save::Codes codes{[self](u32 table, const std::string& label) { return self->db().code(table, label); },
                           [self](u64 code) { return self->db().label(code); }};
         (void)d;
+        // Prologue's folder is its own product's, "BI" and "SCPS-15055" (its 0x19BCB0), so its
+        // saves stand apart from Gran Turismo 4's under the same data folder.
+        Database& base = db();
+        base.get(config);
+        const std::string product = base.db && base.db->prologue() ? "BISCPS-15055" : "BASCUS-97328";
         // A card image in the card's folder stands for the card when the folder has no game.
-        if (const save::CardImageResult taken = save::import_dropped_card(dir); taken.ok) rt.note("memory card: " + taken.message);
-        card_save = std::make_shared<save::GameSave>(dir, codes, rt.reader());
+        if (const save::CardImageResult taken = save::import_dropped_card(dir, product); taken.ok) rt.note("memory card: " + taken.message);
+        card_save = std::make_shared<save::GameSave>(dir, codes, rt.reader(), product);
     }
     return *card_save;
 }

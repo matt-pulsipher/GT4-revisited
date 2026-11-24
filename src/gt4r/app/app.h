@@ -78,10 +78,22 @@ public:
     const std::string& last_error() const { return last_error_; }
     int frame() const { return frame_; }
 
+    // The scripted keys' race controls held now ("gas=1", "steer=-0.4", ...: app.cpp), for tests.
+    struct ScriptedDrive {
+        float steer = 0, gas = 0, brake = 0, reverse = 0;
+        bool handbrake = false;
+        bool any() const { return steer != 0 || gas > 0 || brake > 0 || reverse > 0 || handbrake; }
+    };
+    const ScriptedDrive& scripted_drive() const { return drive_; }
+
+    // A script of --keys tokens (comma or line separated, '#' starts a comment): what a run does.
+    static std::vector<std::string> parse_key_script(std::string_view text);
+
 private:
     void apply_screen_changes();
     void save_screenshot(const std::string& path);
     gt3r::PadState scripted_keys(); // this frame's --keys press, none when the script is done
+    void write_stats(double frame_ms);
 
     SDL_Window* window_ = nullptr;
     SDL_Renderer* renderer_ = nullptr; // the 3D device's when there is one
@@ -111,10 +123,16 @@ private:
     std::string start_;                 // --screen cars | courses: the hub's item opened at start
     std::string shot_path_;             // --shot: a picture of one frame, then quit
     int shot_frame_ = 30;               // --shot-frame
+    bool paced_ = true;                 // --shot's frames held to 60 a second (--fast: as fast as they come)
     std::vector<std::string> keys_;     // --keys: scripted menu presses (tests, pictures)
     size_t key_ = 0;
     int key_frames_ = 0;
     std::string key_shot_;              // a "shot:<name>" key reached: saved beside --shot after this frame
+    ScriptedDrive drive_;               // the race controls the script holds
+    std::string stats_path_;            // --stats: frame times and memory, a line a second
+    double stats_ms_ = 0, stats_max_ = 0;
+    int stats_frames_ = 0;
+    Uint64 start_ticks_ = 0, end_ticks_ = 0; // the launch, the last frame's end
 };
 
 // The folder of the config file and mods: GT4R_DATA_DIR, else the executable's folder when it
@@ -126,6 +144,9 @@ std::unique_ptr<Screen> make_hub_screen();
 std::unique_ptr<Screen> make_browser_screen(const std::string& open_path = "");
 // The menu projects' pages drawn from the disc's layouts (still pictures).
 std::unique_ptr<Screen> make_menu_viewer(App& app);
+// The game itself: the menus running from power on, over the whole window, as a player sees
+// them (screen_menu_viewer.cpp). Select and Start together leave it.
+std::unique_ptr<Screen> make_game_screen(App& app);
 // A list of models and a 3D view of the selected one; `load` builds the model of an item.
 using ModelLoader = std::function<gt3r::scene::Model(App& app, size_t index)>;
 std::unique_ptr<Screen> make_model_viewer(std::string title, std::vector<std::string> items, ModelLoader load);

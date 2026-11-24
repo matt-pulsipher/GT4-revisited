@@ -72,6 +72,7 @@ public:
                 case 3: app.show_open_dialog(); break;
                 case 5: app.push(make_menu_viewer(app)); break;
                 case 6: app.push(make_race_screen(app)); break;
+                case 7: app.push(make_game_screen(app)); break;
                 default: app.quit(); break;
                 }
                 error_.clear();
@@ -94,8 +95,10 @@ public:
             ui.text(30, y + 1, items_[i].label, on ? colors::kText : colors::kDim);
             ui.text_right(312, y + 1, items_[i].note, colors::kDim);
         }
-        ui.text(340, 82, "This is an early build: the disc's cars, courses and", colors::kDim);
-        ui.text(340, 94, "files can be looked at. The game itself does not run yet.", colors::kDim);
+        ui.text(340, 82, "Play: the game from power on (Select and Start together", colors::kDim);
+        ui.text(340, 94, "come back here). The rest: the disc's cars, courses, menu", colors::kDim);
+        ui.text(340, 106, "pages and files, and a race set up by hand.", colors::kDim);
+        ui.text(340, 124, "An early build: see docs/PLAYING.md for what works.", colors::kDim);
         if (!error_.empty()) ui.text(24, Ui::kHeight - 44, Ui::clip(error_, Ui::kWidth - 48), colors::kBad);
         ui.footer("{Up/Down}: select  {Cross}: open");
     }
@@ -115,6 +118,7 @@ private:
         } catch (const std::exception& e) {
             error_ = e.what();
         }
+        items_.push_back({"Play", app.disc()->info().description, 7});
         if (cars) items_.push_back({"Cars", std::to_string(cars), 0});
         if (courses) items_.push_back({"Courses", std::to_string(courses), 1});
         if (cars && courses && app.gpu()) items_.push_back({"Drive", "", 6});
