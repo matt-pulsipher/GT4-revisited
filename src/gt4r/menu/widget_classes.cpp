@@ -117,7 +117,10 @@ void bar_init(LiveWidget& w) {
     bar_seti(w, "bar_ready", 1);
     if (w.is("SliderBar")) {
         int lo = 0, hi = 1;
+        // `range` is written as two values or as a list of two digits (`range [2] {digit {1} digit {50}}`).
         if (const Property* r = w.data.find("range"); r && r->values.size() >= 2) lo = std::atoi(r->values[0].c_str()), hi = std::atoi(r->values[1].c_str());
+        else if (r && r->items.size() >= 2 && !r->items[0].values.empty() && !r->items[1].values.empty())
+            lo = std::atoi(r->items[0].values[0].c_str()), hi = std::atoi(r->items[1].values[0].c_str());
         if (hi < lo) hi = lo;
         bar_seti(w, "min", lo), bar_seti(w, "max", hi), bar_seti(w, "display_min", lo), bar_seti(w, "display_max", hi);
         if (!w.data.has("step")) bar_seti(w, "step", 1);

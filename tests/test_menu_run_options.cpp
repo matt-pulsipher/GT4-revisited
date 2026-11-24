@@ -48,3 +48,24 @@ TEST(disc_menu_options_given_on_apply) {
     vm.call(vm.attribute(option, "apply"), {});
     CHECK(calls == 2 && last.menu.music == 0.25f && last.race_picture == (std::array<int, 4>{-1, 2, 0, 5}));
 }
+
+// The options' Arcade page shows the stored laps: the page's script puts the option into the
+// slider's index (`slider.index = option.race_laps`), then writes the slider's label from it.
+TEST(disc_menu_options_arcade_laps_shown) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    Flow f(*disc);
+    CHECK(f.boot_to_title());
+    f.rt->game().options["race_laps"] = 3;
+    f.press({menu::Key::Down, menu::Key::Down, menu::Key::Down, menu::Key::Accept});
+    CHECK(f.rt->finished() && f.rt->advance());
+    f.rt->settle();
+    f.press({menu::Key::Down, menu::Key::Accept});
+    CHECK(f.page() == "ArcadeRoot");
+    std::shared_ptr<menu::LiveWidget> slider = f.rt->focused() ? f.rt->focused()->self() : nullptr;
+    CHECK(slider && slider->is("SliderBar"));
+    if (!slider) return;
+    std::printf("  laps slider: index %g, min %g, max %g, label %s\n", double(slider->data.number("index")), double(slider->data.number("min")),
+                double(slider->data.number("max")), slider->child("label")->data.text("text").c_str());
+    CHECK(slider->child("label")->data.text("text") == "3" && slider->data.number("min") == 1 && slider->data.number("max") == 50);
+}
