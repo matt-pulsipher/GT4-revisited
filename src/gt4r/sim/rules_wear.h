@@ -26,6 +26,18 @@ struct WearRules {
     F tread_loss2;          // +0x14
     F tread_max;            // +0x18 the tread wear's greatest value (the wear is held there)
     F tread_max_loss;       // +0x1C
+    F tread_pit;            // +0x20 the grip under which a car wants new tires (the pit flow, 0x353218)
+    F tread_cap;            // +0x24 the sliding measure's greatest for the tread wear (0x352EA0)
+    F tread_skid;           // +0x28 the extra wear of a braked or driven wheel's slip (0: none)
+    F tread_skid_slip;      // +0x2C the slip ratio (negative) from which that extra is whole
+    F second_rate;          // +0x30 the second wear's rate
+    F second_drive;         // +0x34 its weights of the longitudinal force driving, braking and the lateral force (curve A)
+    F second_brake;         // +0x38
+    F second_lateral;       // +0x3C
+    F second_slide;         // +0x40 its weight of the sliding measure (on surface 0)
+    F second_fall_max;      // +0x44 what it loses a second at its greatest
+    F second_fall_neg;      // +0x48 .. and at its least (linear between)
+    F second_force;         // +0x4C the force's scale (over the axle's tire width)
     F second_neg;           // +0x50
     F second_neg_loss;      // +0x54
     F second_knee;          // +0x58
@@ -37,6 +49,7 @@ struct WearRules {
 };
 // From the block's 0x6C bytes.
 WearRules wear_rules(const u8* block);
+
 
 
 // What these routines keep that the engine's record has no member for.
@@ -52,6 +65,15 @@ template <class X, class V> void wear_fields(X& x, V&& v) {
     }
     v("wear.category", -1, layout::Block::Params, 0x32, x.category);
 }
+
+// 0x352EA0 (phase 20): the tire wear; nothing for a car of category 4 (P + 0x32). With the second wear on, each wheel's
+// (+0xA8) moves by the step x its rate (+0x30) toward where the tire's force (the lateral force and the longitudinal
+// forces weighted, over the axle's tire width P + 0x2D4) and on surface 0 its sliding measure (+0xB4) hold it, within its
+// least and greatest. With the tread wear on, each loaded wheel's display level (+0xB0) is cleared; off the pit lane, a
+// wheel not on surface 1 wears (+0xAC) by its sliding measure (more for a braked or driven wheel's slip, at most +0x24) x
+// its tire record's wear rate x its load term (P + 0x1088 + 4 axle + load x P + 0x1090 + 4 axle, at least 0) x the step,
+// and shows that rate x 255 (at most 255) in its level.
+void tire_wear(ex::Car& c, WearExtra& x, const TireExtra& t, const WheelLayout& l, const WearRules& k);
 
 // 0x367C90 (the conductor's configuration, 0x34CA20): the block cleared (0x3678A8); the second wear's rules from the
 // program's table 0x620B60 when `second_on` (0x367AF8: the conductor's virtual +0x58, 1 for a single race, off on a loose

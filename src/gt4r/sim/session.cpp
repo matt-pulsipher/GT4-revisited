@@ -1,6 +1,7 @@
 #include "gt4r/sim/session.h"
 
 #include "gt4r/sim/convert.h"
+#include "gt4r/sim/rules_hybrid.h"
 #include "gt4r/sim/rules_speeds.h"
 #include "gt4r/sim/rules_wheels.h"
 #include "gt4r/sim/rules_build.h"
@@ -525,6 +526,8 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
         } else if (prologue_) prologue::driver_input_pad(c, race_.pad, f, course_kind, *prologue_);
         else
             ex::driver_input_pad(c, race_.pad, f, course_kind);
+        // A hybrid one-speed box's clutch request, a pad's (0x349418) or a computer's (0x3F3400): 0x348368.
+        if (gt4_rules_ && gx_[i].drive.d.kind == 3) rules::hybrid_clutch_request(c);
         // A computer driver's own command: the road wheels' angle as the game's drivers set it (0x464F38 writes it into the
         // steering command directly), within the full lock, past the pad's lock curve (no later phase reads the bounds).
         if (!std::isnan(in.steer_angle)) {

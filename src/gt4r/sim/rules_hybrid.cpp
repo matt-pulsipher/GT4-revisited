@@ -105,6 +105,15 @@ ex::Table<12> hybrid_engine_speeds(const ex::Table<24>& torque) {
     return e;
 }
 
+void hybrid_clutch_request(ex::Car& c) {
+    const F tenth = F::raw(0x3DCCCCCC);
+    if (c.race_hold != 0 || c.hold != 0 || c.driver_kind == 8) return void(c.clutch_req = k0);
+    if (c.clutch == 0) return void(c.clutch_req = c.brake_pedal < tenth ? k1 : k0);
+    c.clutch_req = k1;
+    if (!(tenth < c.brake_pedal)) return;
+    if (c.speed < F::raw(0x3E8E38E3) && F::raw(0xBE8E38E3) < c.speed) c.clutch_req = k0;
+}
+
 void hybrid_start(HybridState& h) { h.store = k1, h.mode = 0, h.engine_target = k0, h.flags = 0; }
 
 F hybrid_box(ex::Car& c, DriveExtra& x, HybridState& h, const HybridTables& t, u16 idle_rpm) {

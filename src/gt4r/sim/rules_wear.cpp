@@ -25,6 +25,9 @@ WearRules wear_rules(const u8* b) {
     std::memcpy(k.raw.data(), b, 0x6C);
     k.tread_neg = rd(b, 0x00), k.tread_neg_loss = rd(b, 0x04), k.tread_knee1 = rd(b, 0x08), k.tread_loss1 = rd(b, 0x0C);
     k.tread_knee2 = rd(b, 0x10), k.tread_loss2 = rd(b, 0x14), k.tread_max = rd(b, 0x18), k.tread_max_loss = rd(b, 0x1C);
+    k.tread_pit = rd(b, 0x20), k.tread_cap = rd(b, 0x24), k.tread_skid = rd(b, 0x28), k.tread_skid_slip = rd(b, 0x2C);
+    k.second_rate = rd(b, 0x30), k.second_drive = rd(b, 0x34), k.second_brake = rd(b, 0x38), k.second_lateral = rd(b, 0x3C);
+    k.second_slide = rd(b, 0x40), k.second_fall_max = rd(b, 0x44), k.second_fall_neg = rd(b, 0x48), k.second_force = rd(b, 0x4C);
     k.second_neg = rd(b, 0x50), k.second_neg_loss = rd(b, 0x54), k.second_knee = rd(b, 0x58), k.second_loss = rd(b, 0x5C);
     k.second_max = rd(b, 0x60), k.second_max_loss = rd(b, 0x64);
     k.tread_on = b[0x68], k.second_on = b[0x69];
@@ -101,6 +104,56 @@ bool wear_grip(ex::Car& c, WearExtra& x, const TireExtra& t, const WheelLayout& 
         if (w.wear_grip < floor) w.wear_grip = floor;
     }
     return true;
+}
+
+void tire_wear(ex::Car& c, WearExtra& x, const TireExtra& t, const WheelLayout& l, const WearRules& k) {
+    using gt3r::ee::sqrt;
+    using gt3r::ee::to_int;
+    if (x.category == 4) return;
+    const int n = l.count < 4 ? l.count : 4;
+    const F dt = c.dt, zero = F();
+    if (k.second_on) {
+        for (int i = 0; i < n; ++i) {
+            ex::Wheel& w = c.w[size_t(i)];
+            const u8 a = l.axle[size_t(i)] & 1;
+            const F lon = w.fx_drive * k.second_drive + w.fx_brake * k.second_brake;
+            const F lat = w.force_a * k.second_lateral;
+            const F scale = k.second_force / t.width[a];
+            F d = sqrt(lat * lat + lon * lon) * scale;
+            if (w.surface == 0) d = d + w.slip_intensity * k.second_slide;
+            const F e = x.second[size_t(i)];
+            const F fall = (k.second_fall_max - k.second_fall_neg) * (e - k.second_neg) / (k.second_max - k.second_neg) + k.second_fall_neg;
+            d = d - fall;
+            F v = e + d * dt * k.second_rate;
+            if (v < k.second_neg) v = k.second_neg;
+            else if (k.second_max < v) v = k.second_max;
+            x.second[size_t(i)] = v;
+        }
+    }
+    if (!k.tread_on) return;
+    for (int i = 0; i < n; ++i) x.hud[size_t(i)] = 0;
+    if (c.x535 & 0x10) return; // on the pit lane
+    const F one = kOne, full = F::raw(0x437F0000);
+    for (int i = 0; i < n; ++i) {
+        ex::Wheel& w = c.w[size_t(i)];
+        const u8 a = l.axle[size_t(i)] & 1;
+        if (w.surface == 1 || w.load == zero) continue;
+        F load = c.p.wear_load_offset[a] + w.load * c.p.wear_load_gain[a];
+        if (load < zero) load = zero;
+        const Tire& r = tire_record(t, l, i, w.surface);
+        F m = w.slip_intensity;
+        if (zero < k.tread_skid && (w.flags & 0xC)) {
+            const F s = w.slip_ratio;
+            if (s <= k.tread_skid_slip) m = m * (k.tread_skid + one);
+            else if (s < zero) m = m * ((k.tread_skid + one) * s / k.tread_skid_slip);
+        }
+        if (k.tread_cap < m) m = k.tread_cap;
+        m = m * r.wear_rate;
+        w.wear = w.wear + m * load * dt;
+        F level = m * full;
+        if (full < level) level = full;
+        x.hud[size_t(i)] = u8(to_int(level));
+    }
 }
 
 void brake_heat(ex::Car& c, const WheelLayout& l, const ex::BrakeHeatConsts& k, const std::array<F, 2>& radius) {

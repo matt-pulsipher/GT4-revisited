@@ -114,6 +114,10 @@ std::vector<Row> build() {
     wheel(0x7C, 4, 0x60, "slip direction's low-speed fade");
     wheel(0xA0, 4, 0xAC, "tread wear");
     wheel(0x5D, 1, 0xB1, "the HUD's wear level");
+    wheel(0x2A, 1, 0xB3, "steps the sliding measures still run off the ground");
+    wheel(0x30, 4, 0xB4, "the sliding measure (the tread wear's input)");
+    wheel(0x34, 4, 0xB8, "the skid's pitch");
+    wheel(0x2C, 4, 0xBC, "smoke and dust");
     wheel(0x20, 4, 0x20, "rim speed");
     wheel(0x48, 4, 0x3C, "slip gain");
     wheel(0x68, 4, 0x38, "slip ratio");
