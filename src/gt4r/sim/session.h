@@ -63,6 +63,10 @@ public:
     const gt3r::sim::exact::Car& record(size_t i) const { return cars_[i]; }
     // Each car's spec as built for this course.
     const Spec& spec(size_t i) const { return specs_[i]; }
+    // A car's time scale (1: normal; its step is time_scale / 60 s): what a rubber band sets per car
+    // (the record's F +0x524). Set it before a step; it holds until set again. As raw EE float bits,
+    // so a caller's EE arithmetic carries through unchanged.
+    void set_time_scale_raw(size_t i, u32 bits) { if (i < cars_.size()) cars_[i].time_scale = gt3r::ee::F::raw(bits); }
     // The course is a loose one (its first start place is on a loose surface).
     bool loose() const { return loose_; }
     // Gran Turismo 4's own routines where they are ported (rules_step.h; the default), or the shared
