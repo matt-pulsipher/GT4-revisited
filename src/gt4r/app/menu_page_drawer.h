@@ -106,6 +106,13 @@ public:
         if (!st.font || s.empty()) return;
         // A face of several lines (and a text box) breaks its lines at its width.
         if (const std::optional<Rect> g = d.rect("geometry"); g && g->w > 0 && (d.number("multiline") != 0 || d.type == "TextBoxFace") && d.number("packing") == 0) s = wrapped(s, st, g->w);
+        // An abbreviated text measures as it is drawn, cut and ended in dots (the header's car name
+        // is placed by its width: gtmode's refreshHeaderAlignment).
+        if (const std::optional<Rect> g = d.rect("geometry"); g && g->w > 0 && d.number("abbreviate") != 0 && d.number("adjust_scale") == 0 &&
+                                                               s.find('\n') == std::string::npos && width_of(s, st) > g->w) {
+            while (s.size() > 1 && width_of(s + "...", st) > g->w) s.pop_back();
+            s += "...";
+        }
         st.align = gt3r::text::HAlign::Left, st.valign = gt3r::text::VAlign::Top;
         const menu::TextLayout lay = menu::layout_menu_text(s, st, 0, 0);
         w = lay.width, h = lay.height;
