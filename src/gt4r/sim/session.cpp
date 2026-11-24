@@ -220,6 +220,20 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
     }
 }
 
+void Session::set_wear_rules(const u8* rule_block, bool second_on, const Program& program) {
+    const auto b = rules::wear_rules_block(rule_block, second_on, program);
+    tables_.wear = rules::wear_rules(b.data());
+}
+
+void Session::set_fuel(size_t i, gt3r::ee::F liters) {
+    if (i >= cars_.size()) return;
+    gx_[i].drive.fuel.fuel = liters, gx_[i].aids.fuel = liters;
+}
+
+void Session::new_tire(size_t i, int wheel) {
+    if (i < cars_.size() && wheel >= 0 && wheel < 4) rules::new_tire(cars_[i], gx_[i].wear, wheel, tables_.wear);
+}
+
 void Session::set_driver_aids(size_t car, const gt3r::sim::exact::Aids& block) {
     if (car < driver_aids_.size()) driver_aids_[car] = block;
 }
@@ -297,7 +311,9 @@ void Session::place(size_t i, const course::Runway::Place& at) {
     else ex::hub_offsets(c);
     c.lag_heading = c.heading, c.lag_pitch = c.pitch;
     ex::standing_start(c);
-    ex::tyres_start(c, race_.prep.wear);
+    if (gt4_ready_) // (0x362E58 for each wheel: new tires by the race's wear rules)
+        for (int w = 0; w < 4; ++w) rules::new_tire(c, gx_[i].wear, w, tables_.wear);
+    else ex::tyres_start(c, race_.prep.wear);
     ex::step_length(c);
     c.best_lap = 0x157529FF;
     c.rank = gt3r::s8(i + 1);
@@ -528,9 +544,16 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
     for (size_t i = 0; i < cars_.size(); ++i) {
         ex::Car& c = cars_[i];
         chassis(i);
-        ex::tire_wear(c, race_.prep.wear);
-        ex::wear_flags(c, race_.prep.wear, {});
-        ex::flaps(c, rng_);
+        if (gt4_rules_) {
+            // Phases 20 .. 22: the tire wear (0x352EA0: nothing while the race's wear rules are off, as in every race seen; with
+            // them on its sliding measure, 0x367148's wheel +0xB4, is not ported), the pit flags (0x353218's: the computer
+            // drivers' pit flow, sim/ai), the flaps (0x35A678).
+            rules::flaps(c, layouts_[i], random_state_);
+        } else {
+            ex::tire_wear(c, race_.prep.wear);
+            ex::wear_flags(c, race_.prep.wear, {});
+            ex::flaps(c, rng_);
+        }
         publish(i);
     }
     ++steps_;

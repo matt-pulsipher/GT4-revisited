@@ -93,6 +93,25 @@ public:
     // What the session runs on stand-ins for ("the disc's program is not a build whose tables are mapped").
     const std::vector<std::string>& notes() const { return notes_; }
 
+    // The race's wear rules (the conductor + 4, 0x367C90) from its rule block (0x80 bytes: the tread wear's curve at +0x2C ..
+    // +0x34) and whether the second wear may run (a single race on a paved course whose row allows it). Set before the start
+    // (new tires take them); all off by default, as in every race seen.
+    void set_wear_rules(const u8* rule_block, bool second_on, const Program& program);
+    // What the computer drivers' pit flow reads and changes (sim/ai/pit_flow.h): the fuel (liters) and tank, the distance and the
+    // fuel since the economy display's last reading (F +0x4C8 / +0x4C4), the fuel counted at all (F +0x5D0's distance > 0 is the
+    // flow's own test), a wheel's tread wear (+0xAC) and wear grip (+0x50); new tires on a wheel (0x362E58); the fuel set.
+    float fuel(size_t i) const { return gx_[i].drive.fuel.fuel.host(); }
+    float tank(size_t i) const { return gx_[i].drive.fuel.capacity.host(); }
+    float fuel_distance(size_t i) const { return gx_[i].drive.fuel.economy_distance.host(); }
+    float fuel_used(size_t i) const { return gx_[i].drive.fuel.economy_used.host(); }
+    void set_fuel(size_t i, gt3r::ee::F liters);
+    float tread(size_t i, int wheel) const { return cars_[i].w[size_t(wheel)].wear.host(); }
+    float wear_grip(size_t i, int wheel) const { return cars_[i].w[size_t(wheel)].wear_grip.host(); }
+    const rules::WearRules& wear_rules() const { return tables_.wear; }
+    void new_tire(size_t i, int wheel);
+    // The flaps' random stream (the program's 0x874D50), for gt4r_diff's whole step.
+    void set_random_state(u32 state) { random_state_ = state; }
+
 private:
     struct Extra { // per car, outside the record
         int checkpoint = -1; // distance_along's hint
@@ -137,6 +156,7 @@ private:
     std::vector<race::CarState> states_;
     std::vector<std::string> notes_;
     gt3r::Vu0Random rng_;
+    u32 random_state_ = 0; // (the program's shared random stream, 0x874D50, for the flaps: ours from 0)
     bool loose_ = false;
     float pending_ = 0;
     u64 steps_ = 0;

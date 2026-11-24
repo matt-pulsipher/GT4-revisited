@@ -108,6 +108,7 @@ std::vector<Row> build() {
     wheel(0x38, 4, 0x24, "spin angle");
     wheel(0x94, 4, 0xA4, "brake heat");
     wheel(0x98, 4, 0xC0, "flap");
+    wheel(0x9C, 4, 0xC4, "flap rate");
     wheel(0x4C, 8, 0x28, "hub velocity along and across the car");
     wheel(0x78, 4, 0x30, "slip direction");
     wheel(0x7C, 4, 0x60, "slip direction's low-speed fade");

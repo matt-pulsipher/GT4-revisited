@@ -99,6 +99,11 @@ void add_taps(Taps& taps) {
     taps.add({0x3458D0, "hub offsets xy", car_a0, [](TapCall& t) { sim::rules::hub_offsets_xy(t.car, t.rec.layout); }});
     // (0x35DE20 itself: the interpreter never stops at its entry; its parts are tapped, and gt4r_diff ai's whole step
     // compares all of it)
+    taps.add({0x35A678, "flaps", car_a0, [](TapCall& t) {
+                  u32 state = t.ee.r32(sim::rules::kRandomState);
+                  sim::rules::flaps(t.car, t.rec.layout, state);
+                  t.mem_i("random state", sim::rules::kRandomState, state);
+              }});
     taps.add({0x354AC0, "masses", car_a0, [](TapCall& t) { sim::rules::masses(t.car, t.rec.x.drive.fuel, t.rec.x.chassis.mass, t.rec.x.body.sprung_mass); }});
     taps.add({0x35D920, "hub velocities", car_a0, [](TapCall& t) {
                   sim::rules::hub_velocities(t.car, t.rec.layout, sim::rules::speed_tables(*g_program, t.rec.x.steer.lean_row), t.rec.x.body.in_line_x480);
@@ -263,6 +268,23 @@ StepResult run_step(Disc& disc, bool print, const std::string& course_label, con
         }
     }
     // The race's wear switches (the conductor + 4 + 0x68 / 0x69), to run the wear's branches: bit 0 the tread wear, bit 1 the second.
+    { // The wear rules as the configuration made them (conductor + 4) against ours from the same rule block.
+        u8 rb[0x80], prog[0x6C];
+        ee.read_bytes(o.cond + 0xF818, rb, sizeof rb);
+        ee.read_bytes(o.cond + 4, prog, sizeof prog);
+        const bool second = ee.r8(o.cond + 0x10000 - 0x3420) == 1 && ee.r8(o.cond + 0x10000 - 0x3423) == 0;
+        const auto ours = sim::rules::wear_rules_block(rb, second, program);
+        size_t off = 0;
+        for (u32 i = 0; i < 0x6C; ++i) off += prog[i] != ours[i];
+        if (print) std::printf("  wear rules (second wear %s, tread %s): %s\n", second ? "on" : "off", prog[0x68] ? "on" : "off",
+                               off ? "differ" : "equal to the program's");
+        if (off && print)
+            for (u32 i = 0; i < 0x6C; i += 4) {
+                u32 a, b;
+                std::memcpy(&a, prog + i, 4), std::memcpy(&b, &ours[i], 4);
+                if (a != b) std::printf("    +%02X the program's %08X, ours %08X\n", i, a, b);
+            }
+    }
     if (const char* w = std::getenv("GT4R_STEP_WEAR")) {
         const int m = std::atoi(w);
         ee.w8(o.cond + 4 + 0x68, u8(m & 1)), ee.w8(o.cond + 4 + 0x69, u8((m >> 1) & 1));
