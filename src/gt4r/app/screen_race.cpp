@@ -30,6 +30,7 @@
 #include "gt4r/race/rail_simulation.h"
 #include "gt4r/race/replay_script.h"
 #include "gt4r/race/replay_file.h"
+#include "gt4r/race/license_rules.h"
 #include "gt4r/race/start_camera.h"
 #include "gt4r/race/start_rule.h"
 #include "gt4r/race/picture_settings.h"
@@ -89,6 +90,7 @@ struct Setup {
     int start_seconds = 0;
     float start_speed = 0; // a rolling start's (metres per second)
     bool course_start = false; // the start the course's start code gives (race/start_rule.h)
+    int course_kind = 0;       // the course's COURSE row +0x10 (race/start_rule.h CourseStart::kind)
     bool start_given = false;
     std::vector<std::string> opponents; // the other cars by label (empty: from the car list)
     std::string sequence; // `menus=single_race`: the race's own menus (the sequence's quick project) round the race
@@ -354,7 +356,8 @@ public:
         fs.lap_length = world_->line().length;
         flow_.begin(fs, world_->cars());
         rolled_ = false;
-        in_box_ = license_failed_ = false;
+        license_failed_ = false;
+        judge_ = race::LicenseJudge(judge_.rules());
         board_.begin(world_->car_count(), 0, lap_words_[0], lap_words_[1]);
         camera_.reset(world_->cars()[0]);
         history_.clear();
@@ -478,7 +481,7 @@ public:
         }
         if (ev.start && flow_.setup().start == race::StartType::Rolling)
             LOG_INFO("Drive: the player's car takes the line at %.1f km/h, %.2f s on the clock", double(world_->cars()[0].speed * 3.6f), double(flow_.time_ms()) / 1000);
-        if (is_license(setup_.sequence)) judge_stop();
+        if (is_license(setup_.sequence) || setup_.sequence == "mission") judge_license();
         if (ev.lap_done == 0) event_steps_ = 0, event_lap_ = flow_.car(0).laps_done;
         beeps_ += ev.beep;
         start_camera_.step();
@@ -687,26 +690,62 @@ public:
         }
     }
 
-    // A license test on a road with a stopping box (triangles flagged bit 2, the wheel ground record's
-    // +0x33 bit 2 the program's judge 0x3F91F0 reads): the test ends when all four wheels are on it
-    // and the car is slower than 0.527 m/s (its squared speed under 0.2778), the time taken that
-    // share of a step in (0x3F8D70); ❓ a car that has been in the box and leaves it moving fails
-    // (judged from the original's B-1: running past the box ends on FAIL; that rule is not read).
-    void judge_stop() {
-        if (!stop_area_ || flow_.steps_since_start() < 0 || flow_.player_finished()) return;
+    // A license test's or mission's end by its rules (DynamicsConductorLicense::vf15 -> the judge 0x3F8D70,
+    // docs/formats/race_flow.md "The license tests' rules"), each step from the start signal until the
+    // player's car's run ends:
+    // - a test of kind 1 ends when all four wheels are in the stopping box (triangles flagged bit 2, the
+    //   wheel ground record's +0x33 bit 2 that 0x3F91F0 reads) and the car is slower than 0.527 m/s (its
+    //   squared speed under 0.2778), timed that share of a step in;
+    // - it fails (no time) when every wheel on the ground is on a material off the course (but on the
+    //   loose courses) or on the pit lane, on a wall hit or car hit over the test's limits, on a cone
+    //   touched where the test counts none, or (kind 6) when the car leads the race;
+    // - a test that counts cones ends, timed, when that many are knocked down.
+    void judge_license() {
+        if (flow_.steps_since_start() < 0 || flow_.player_finished()) return;
         const race::CarState& c = world_->cars()[0];
-        bool all = true, any = false;
-        for (const race::WheelState& w : c.wheels) (w.surface & 4) ? any = true : all = false;
+        const race::LicenseRules& r = judge_.rules();
         const float v2 = c.velocity.x * c.velocity.x + c.velocity.y * c.velocity.y + c.velocity.z * c.velocity.z;
-        if (all && v2 < 0.27778f) {
-            flow_.finish_now(0, v2 / 0.27778f);
-            license_failed_ = false;
-        } else if (in_box_ && !any && v2 >= 0.27778f) {
+        if ((r.kind == 1 || !r.any()) && stop_area_) {
+            bool all = true;
+            for (const race::WheelState& w : c.wheels) all = all && (w.surface & 4) != 0;
+            if (all && v2 < 0.27778f) {
+                flow_.finish_now(0, v2 / 0.27778f);
+                license_failed_ = false;
+                return;
+            }
+        }
+        race::LicenseStep s;
+        s.wheels = 4;
+        for (const race::WheelState& w : c.wheels) {
+            if (!w.on_ground) continue;
+            if (world_->soft_material(w.material)) ++s.wheels_off;
+            if (w.surface & 1) ++s.wheels_pit;
+        }
+        s.off_counts = setup_.course_kind != 2 && setup_.course_kind != 3;
+        // The collision step's contact: a wall's impulse |j| over the car's mass, a car's strength.
+        if (c.contact > 0 && c.contact_kind == 1) {
+            const float mass = world_->car_mass(0);
+            s.wall_hit = mass > 0 ? c.contact * 100000.0f / mass : 1e9f;
+        } else if (c.contact > 0 && c.contact_kind == 2) s.car_hit = c.contact;
+        s.cones = world_->gadget_contacts(0);
+        if (judge_.step(s) != race::LicenseFail::None) {
+            LOG_INFO("Drive: the test failed (kind %d: wall %.2f, car %.2f, cones %d, wheels off %d, pit %d) at %.3f s", int(judge_.fail()), double(s.wall_hit),
+                     double(s.car_hit), s.cones, s.wheels_off, s.wheels_pit, double(flow_.time_ms()) / 1000);
             flow_.finish_now(0);
             license_failed_ = true;
+            return;
         }
-        in_box_ = in_box_ || any;
+        // Kind 6: the car may not lead (its place byte +0x5B3 at 1 fails, 0x3F8F00).
+        if (r.kind == 6 && world_->car_count() > 1 && flow_.place(0) == 1) {
+            LOG_INFO("Drive: the test failed (kind 6, leading) at %.3f s", double(flow_.time_ms()) / 1000);
+            flow_.finish_now(0);
+            license_failed_ = true;
+            return;
+        }
+        if (judge_.cones_done()) flow_.finish_now(0);
     }
+    void set_license_rules(const race::LicenseRules& r) { judge_ = race::LicenseJudge(r); }
+    const race::LicenseJudge& license_judge() const { return judge_; }
     bool license_failed() const { return license_failed_; }
 
     // Before a step: the cars and the cameras as they are, for the frames shown before the next.
@@ -819,7 +858,8 @@ private:
     int tire_index_ = 4;   // the race's tires (the scripts' index: 4 sports medium)
     std::string race_word_ = "ARCADE_SINGLE_RACE"; // the race's name in the race's words
     bool throttle_held_ = false;
-    bool stop_area_ = false, in_box_ = false, license_failed_ = false; // a license test's stopping box
+    bool stop_area_ = false, license_failed_ = false; // a license test's stopping box
+    race::LicenseJudge judge_;
     int bspec_pace_ = 3, overtake_steps_ = 0;
     bool bspec_help_ = true;
     float lateral_g_ = 0;
@@ -895,10 +935,13 @@ public:
         // at the program's speed, else ❓ a standing start of 10 s with the opening shots (the race
         // information's own type is not traced to its source).
         if (!setup_.start_given && !setup_.sequence.empty()) setup_.course_start = true;
-        if (db::SpecDb* sdb = app.db(); sdb && setup_.course_start) {
+        if (db::SpecDb* sdb = app.db()) {
             const race::CourseStart cs = race::course_start(*sdb, setup_.course);
-            setup_.start = cs.rolling ? race::StartType::Rolling : race::StartType::Ten;
-            setup_.start_speed = cs.speed();
+            setup_.course_kind = cs.kind;
+            if (setup_.course_start) {
+                setup_.start = cs.rolling ? race::StartType::Rolling : race::StartType::Ten;
+                setup_.start_speed = cs.speed();
+            }
         }
         if (db::SpecDb* sdb = app.db()) {
             cars_ = sdb->cars();
@@ -1769,6 +1812,7 @@ private:
                         for (const std::string& label : {code, "us" + code, "jp" + code})
                             if (const std::optional<db::RaceEvent> e = events.event(label)) {
                                 for (int k = 0; k < 3; ++k) targets_[k] = e->target_ms[size_t(k)] > 0 ? s64(e->target_ms[size_t(k)]) : -1;
+                                race_->set_license_rules(race::LicenseRules::from_row(e->bytes));
                                 break;
                             }
                     } catch (const std::exception& e) {

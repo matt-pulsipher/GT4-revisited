@@ -480,6 +480,12 @@ TEST(race_gadgets_disc) {
             const race::Gadgets g = race::Gadgets::parse(file.section(data, course::kSlotGadgets), file.section(data, course::kSlotRunway));
             ++courses, placed += g.placements.size();
             for (const race::Gadgets::Placement& p : g.placements) CHECK(p.kind >= 0 && size_t(p.kind) < std::max<size_t>(g.kinds.size(), 1));
+            // Every course with gadgets has their models, where the header's +0x10 says.
+            if (!g.kinds.empty() && !g.placements.empty()) CHECK(!g.models.empty());
+            if (e.path == "crs/testcourse_100m") {
+                // The stopping box's row of cones: one kind, its models at +0xC0 (after the single kind).
+                CHECK(g.kinds.size() == 1 && g.placements.size() == 12 && !g.models.empty());
+            }
             if (e.path == "crs/tsukuba") {
                 // Tsukuba: 18 cones along its pit lane's ends; six kinds, the cone's a five-point hull.
                 CHECK(g.kinds.size() == 6 && g.placements.size() == 18);

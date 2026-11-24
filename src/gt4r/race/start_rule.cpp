@@ -26,6 +26,7 @@ CourseStart course_start(db::SpecDb& db, const std::string& course) {
     s.known = true;
     s.code = pool->at(rd32(row, 0x08));
     s.rolling = start_code_digit(s.code, 0) > 0;
+    if (row.size() > 0x10) s.kind = row[0x10] == 0xFF ? 0 : row[0x10];
     return s;
 }
 

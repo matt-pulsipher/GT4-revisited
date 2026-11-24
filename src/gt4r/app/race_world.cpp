@@ -169,6 +169,8 @@ void RaceWorld::build_simulation() {
     if (!setup_.rail && app_.disc()) {
         try {
             const sim::Program program = sim::Program::load(*app_.disc());
+            // The materials off the course (0x622430, read by 0x3F4EA0).
+            for (u32 m = 0; m < soft_.size(); ++m) soft_[m] = program.w(sim::Program::kSoft + 4 * m);
             std::vector<sim::Entry> entries(setup_.entries.size());
             for (size_t i = 0; i < entries.size(); ++i) {
                 if (setup_.entries[i].equipment) entries[i].equipment = *setup_.entries[i].equipment; // a garage car's own
@@ -281,6 +283,15 @@ void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool pla
         }
         gadget_hits_ = gadget_bodies_.step(course_->gadgets(), course_->road(), boxes, kStep);
     }
+}
+
+int RaceWorld::gadget_contacts(size_t i) const {
+    const std::vector<int>& c = gadget_bodies_.contacts();
+    return i < c.size() ? c[i] : 0;
+}
+
+float RaceWorld::car_mass(size_t i) const {
+    return session_ && i < car_visuals_.size() ? float(session_->spec(i).weight_kg()) : 0.0f;
 }
 
 // Smoke and dust from the wheels for a step: a puff where a tire slides on the road, dust and

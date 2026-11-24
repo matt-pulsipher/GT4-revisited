@@ -16,6 +16,7 @@
 #include "gt4r/sim/ai/drivers.h"
 #include "gt4r/sim/equipment.h"
 
+#include <array>
 #include <limits>
 #include <map>
 #include <memory>
@@ -131,6 +132,12 @@ public:
     const race::RailLine& line() const { return line_; }
     // The cars that touched a cone or board in the last step (a bit each, the first 32).
     unsigned gadget_hits() const { return gadget_hits_; }
+    // The cones and boards car `i` met in the last step (each a contact report of kind 2).
+    int gadget_contacts(size_t i) const;
+    // A car's mass as the step reads it (the spec's weight, kg; 0 not known): the license tests' wall rule.
+    float car_mass(size_t i) const;
+    // The materials a wheel counts as off the course on (the program's 0x622430, a word per material).
+    bool soft_material(u8 material) const { return material < soft_.size() && soft_[material] != 0; }
     // The cars move by the game's simulation (false: the stand-in).
     bool simulated() const { return session_ != nullptr; }
     bool night() const { return night_; }
@@ -158,6 +165,7 @@ private:
     float hold_speed_ = 0;
     race::GadgetBodies gadget_bodies_; // the cones and boards as the cars leave them
     unsigned gadget_hits_ = 0;
+    std::array<u32, 32> soft_{};
     struct Command {
         int pace = 3;
         bool overtake = false;

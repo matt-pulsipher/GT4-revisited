@@ -6,6 +6,7 @@
 //   gt4tool race <disc> models <course> <slot>     a slot's model set as the race view decodes it
 //   gt4tool race <disc> script <course> [slot] [ms]  runs a slot's model scripts at a time: the registers they set
 //   gt4tool race <disc> car <model> [paint] [n]    a race car's body (its model n) as decoded: materials, pictures, colors
+//   gt4tool race <disc> license-rules [prefix]     the events' test rules (RACE row bytes the race keeps), a line an event
 
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/course/course_file.h"
@@ -13,12 +14,16 @@
 #include "gt4r/formats/model/car_model.h"
 #include "gt4r/formats/model/mdls.h"
 #include "gt4r/formats/model/model_script.h"
+#include "gt4r/formats/db/race_events.h"
+#include "gt4r/formats/db/specdb.h"
+#include "gt4r/race/license_rules.h"
 #include "gt4r/race/rail_simulation.h"
 #include "gt4r/race/replay_script.h"
 
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -240,6 +245,29 @@ int race_script(Disc& disc, const Args& a) {
     return failed ? 1 : 0;
 }
 
+// The test rules of every event whose label starts with `prefix` (all with a rule when none is given).
+int race_license_rules(Disc& disc, const Args& a) {
+    gt3r::Volume* vol = &disc.volume();
+    auto read = [vol](const std::string& path) -> std::optional<Bytes> {
+        const gt3r::Volume::Entry* e = vol->find(path);
+        return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
+    };
+    db::SpecDb sdb(read, [vol](const std::string& dir) { return vol->list_dir(dir); }, "american");
+    const db::RaceEvents ev(sdb, read);
+    const std::string prefix = a.size() > 1 ? a[1] : "";
+    std::printf("%-16s %-22s kind opp x41 secs x4a cones wall car  laps\n", "event", "course");
+    for (const std::string& label : ev.labels()) {
+        if (label.rfind(prefix, 0) != 0) continue;
+        const std::optional<db::RaceEvent> e = ev.event(label);
+        if (!e) continue;
+        const race::LicenseRules r = race::LicenseRules::from_row(e->bytes);
+        if (prefix.empty() && !r.any()) continue;
+        std::printf("%-16s %-22s %4d %3d %3d %4d %3d %5d %4d %4d %4d\n", label.c_str(), e->course.c_str(), r.kind, r.opponents, r.x41, r.time_limit,
+                    r.x4a, r.pylons, r.wall_limit, r.car_limit, e->laps);
+    }
+    return 0;
+}
+
 } // namespace
 
 int cmd_race(Disc& disc, const Args& a) {
@@ -249,6 +277,7 @@ int cmd_race(Disc& disc, const Args& a) {
     if (a[0] == "models") return race_models(disc, a);
     if (a[0] == "car") return race_car(disc, a);
     if (a[0] == "script") return race_script(disc, a);
+    if (a[0] == "license-rules") return race_license_rules(disc, a);
     std::fprintf(stderr, "race: unknown request %s\n", a[0].c_str());
     return 2;
 }

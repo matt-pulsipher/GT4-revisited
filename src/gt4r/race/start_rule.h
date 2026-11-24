@@ -23,6 +23,8 @@ struct CourseStart {
     bool rolling = false;   // its first digit is not 0
     float distance_m = 400; // behind the line (the program's default, -400 in K +0xF884)
     float speed_kmh = 80;   // the program's default (K +0xF886)
+    int kind = 0;           // the row's +0x10 (K +0xCBDD, 0x34C968; 255 reads 0): 2 and 3 the loose courses, where a
+                            // license test does not count the wheels off the course (0x34C998)
     float speed() const { return speed_kmh / 3.6f; } // metres per second
 };
 

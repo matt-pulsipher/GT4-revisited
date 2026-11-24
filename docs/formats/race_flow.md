@@ -141,17 +141,57 @@ IB and IA, 0x11CB38 for the others; the choice in 0x10FBD8 by 0x38A3D0's class: 
 Here the Drive screen rebuilds the race on the next race's course (a test with its own car through
 the menus' request completion) and opens its menus.
 
-**The license tests' failing rules** (🔎 found, not built: the test is graded by its time alone
-here). `DynamicsConductorLicense::vf15` calls the judge 0x3F8D70 each step for the player's car:
-with F +0x4B2 clear, F +0x4B3 bit 2 fails the test with kind 3, bit 4 kind 5, bit 1 kind 4
-(0x3F8980: the run's end 0x343D78 with the kind, event 10). F +0x4B3 is written by
-`DynamicsConductor::vf49` (0x35FA98: a count at F +0x4B6 of steps on a place 0x359538 names,
-then 2 or 4) and by the license's vf50 → 0x35FE80 (a hit, its strength against the race's bytes
-CFG +0x48 / +0x49 by the hit's kind: bit 1). The test's kind is CFG +0x02 (K +0xF81A): 1 a stop
-in an area (0x3F91F0), 3 and 6 end at the lap's line (vf21 → 0x3F8AB0), 2 at vf23. The display's
-words: `ExamFail` (word 6, "Lesson Failed..."), `ExamTimeOver` (7, "Time up"),
-`Disqualification` (0x45, "Disqualified!"), the words' table at 0x621540 ({index, name} pairs).
-❓ What 0x359538's places are, the hit kinds, the stop area.
+### The license tests' rules
+
+Code: `race/license_rules.*` (the rules and the judge), `screen_race.cpp` `judge_license`. The race copies
+the event's `RACE` row into its configuration ("CFG", K +0xF818; 0x35E108): among others CFG +0x01 the
+laps (+0x43), **+0x02 the test's kind (+0x44)**, +0x38 the row's u16 +0x18, +0x40 the other cars
+(+0x3E less one), +0x41 (+0x86), **+0x44 a time limit in seconds (+0x87)**, +0x46 **the cones to knock
+down (+0x75)**, **+0x48 the car-hit limit (+0x8B)**, **+0x49 the wall-hit limit (+0x8A)**, +0x4A (+0x88),
++0x00 (+0x85), +0x4E (+0x42). `gt4tool race <disc> license-rules [prefix]` lists them. On the disc (US):
+B-1, B-2, B-6, B-7 kind 1 (a stop in the box) with a wall limit of 0; tests 5, 10 and 15 of each license
+kind 6 with one other car (the event's pool: the test's car and an R34 GT-R pace car; the drivers slow
+the cars ahead by 50 % from 10 to 50 m); the other tests kind 2, Super License and some IA tests kind 3;
+the coffee breaks kind 1 or 3 with 100 or 50 cones; the missions kind 2 or 3 with 1 to 5 other cars and
+CFG +0x4A 5. Every test: wall limit 8 (B-1/2/6/7: 0), car limit 40. Races: kind 0.
+
+**The judge** (`DynamicsConductorLicense::vf15` → 0x3F8D70, each step for the player's car while its run
+has not ended, F +0x4B2 clear) reads the rule bits F +0x4B3 and fails the test with kind 3 for bit 2, 5 for
+bit 4, 4 for bit 1 (0x3F8980: event 10, the run's time none). Then by the test's kind: 1, the stop in the
+box (0x3F91F0: all four wheels on triangles flagged bit 2 and the squared speed under 0.2778, timed that
+share of a step into it, → 0x3F8AB0); 6, the car's place byte (car +0x5B3, 1 the leader) at 1 fails with
+kind 6 ❓ (read, not seen: a lap behind the pace car that may not be passed); when the test counts cones
+(CFG +0x46 > 0) and the count K +0x1003C reaches it, the run ends timed (0x3F8AB0); with a time limit the
+count K +0x1003E runs a frame a step while the car's byte F +0x4AF is 1 and starts again otherwise
+(0x3FA248 / 0x3FA238), the seconds left (0x3FA2B0, -1 without a count; the license display shows them)
+reaching 0 end the run timed. Kinds 3 and 6 end at the lap's line when the laps are done (vf21 → 0x3F8AB0),
+2 at vf23 (❓ its moment: 0x3F8AB0 at once for the car it names).
+
+**The rule bits**:
+- **The wheels** (0x369888 each step → `vf49` 0x35FA98, while F +0x4B3 is clear): it counts the wheels on
+  the ground (wheel record +0x30 clear) whose road flags bit 0 is set (the pit lane), and those on a
+  material the program's table 0x622430 marks (0x3F4EA0, the material +0x31). When every wheel of the
+  layout (0x359538 +0x01) is on the pit lane, the step's value is vf46 (the license's: 1); when every wheel
+  is off the course, vf47 (the license's: 1 unless the course's kind, COURSE +0x10 → K +0xCBDD via 0x34C968,
+  is 2 or 3: 0x34C998). A value of 1 counts F +0x4B6 up, 2 sets it to -1, 0 clears it; any count sets
+  F +0x4B3 to 4 (the pit lane) or 2 (off the course).
+- **Hits** (0x350530(car, kind, other, value) → the conductor's virtual +0x190 → the license's vf50 →
+  0x35FE80, while the car is not finished, rolling or out): kind 0 (the walls, 0x45E288 / 0x45E768: the
+  contact's impulse |j|) as |j| over the car's mass P +0x48 against CFG +0x49; kind 1 (a car, 0x45F340:
+  |j| / 15000) x 100 against CFG +0x48 when 0x35FBC8(other) is under 3; kind 2 (a cone or board, 0x3E3C48)
+  fails when the test counts no cones, else counts one (0x35DF28, up to the count). A limit (0x35FC10):
+  0 any hit, 255 none, else the truncated value at or over it. A hit sets F +0x4B3 bit 1.
+- **The cones' reports** (0x3E3C48, each step per gadget, skipped once the body's +0x45 is set): each car's
+  five planes (0x621D28, 0x50 bytes a car) against the body's middle with its kind's radius, then its hull
+  points; a hull point inside all five is a contact: the impulse (0x3E3ED0) added to the body's +0x54, the
+  body woken (0x3E29C8), kind 2 reported to the car (other 9), and a kind with flags bit 0 (GDGT kind +0x02)
+  sets the body's +0x45: it meets no car again.
+
+Here the hits come from the simulation's contact (`CarState::contact`: a wall's |j| / 100000, a car's |j| /
+15000) and the cone bodies' contacts per car (`GadgetBodies::contacts`, with the kind's flag latch); the
+mass is the spec's weight (❓ P +0x48 taken as it); the time limit is not counted (no test has one; F
++0x4AF's meaning ❓). Seen here: B-1 run at full throttle past the box ends in FAIL on the row of cones at
+the box's far end (`lic3`), as the original's; braking into the box passes (9.849).
 
 The other sequences (time trial, events, championships, licenses, missions, machine test, free
 run, practice) and their projects are listed in `race_natives.cpp` (`quick_project`); only the
