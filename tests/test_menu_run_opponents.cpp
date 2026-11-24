@@ -117,15 +117,14 @@ TEST(disc_menu_new_car_power) {
 }
 
 // The settings pages' charts: the engine's (0x34B960) equal to the program's on every car, new and worn; the gear
-// chart's engine speeds and gears equal, its road speeds within the gear speed factors' last digit (the parameter
-// block's driveline is the shared engine's converter's, sim_program_params_equal).
+// chart on all but the three cars with a stepless box of kind 1 (menu.md "MCarGarage": the converter's hold speed).
 TEST(sim_program_charts_equal) {
     Disc* disc = program_disc();
     if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
     const diff::ChartsResult r = diff::run_charts(*disc, false);
     CHECK(r.ran && r.cars > 700);
     CHECK(r.engine_equal == r.cars);
-    std::printf("  gear charts equal bit for bit on %zu of %zu\n", r.gears_equal, r.cars);
+    CHECK(r.gears_equal + 3 >= r.cars);
 }
 
 // MCarGarage.buildEngineCurveData / buildGearRatioData as the settings pages call them (0x148B60, 0x148940).

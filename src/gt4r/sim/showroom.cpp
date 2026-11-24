@@ -2,8 +2,7 @@
 
 #include "gt4r/sim/showroom.h"
 
-#include "gt4r/sim/exact_bridge.h"
-#include "gt4r/sim/rules_build.h"
+#include "gt4r/sim/convert.h"
 #include "sim/exact/car_fields.h"
 #include "sim/exact/params_build.h"
 #include "sim/exact/start.h"
@@ -26,7 +25,8 @@ constexpr F kKw = F::raw(0x3F3C49BA);        // 0.7355 (kW per PS)
 constexpr F kDriveline4 = F::raw(0x41598A02); // 13.596193 PS
 constexpr F kScale = F::raw(0x40200000);     // 2.5
 constexpr F kFloor = F::raw(0x3C23D70A);     // 0.01
-constexpr u32 kMotorBytes = 0x62045A;        // the motors' figures (0x355978 -> 0x8438C0 / 0x8438C4)
+constexpr u32 kMotorBytes = 0x62045A;
+constexpr u32 kShowroomRules = 0x6203C8;       // the rule block ShowRoomCar's build passes (0x364868)        // the motors' figures (0x355978 -> 0x8438C0 / 0x8438C4)
 
 } // namespace
 
@@ -154,11 +154,11 @@ F evaluation(const Record& r, F ps, F kgfm) {
 }
 
 struct Showroom::Data {
-    ex::ProgramData core;
+    rules::Tables tables; // the race's tables the converter reads, as the program's start leaves them (0x35F808)
 };
 
 Showroom::Showroom(db::SpecDb& db, const Program& program) : db_(db), program_(program), data_(std::make_unique<Data>()) {
-    data_->core = core_program(program);
+    data_->tables = rules::tables(program, {});
 }
 
 Showroom::~Showroom() = default;
@@ -167,21 +167,12 @@ bool Showroom::record(const Equipment& eq, Spec& spec, Record& out, int x156) co
     build_spec(db_, program_, eq, 0, spec);
     if (x156 >= 0) spec.set_b(0x156, u32(x156));
     if (spec.weight_kg() <= 0 || spec.b(0xBF) == 0) return false;
-    ex::Spec core;
-    core_spec(spec, core);
-    ex::ConvertInputs in;
-    in.data = &data_->core;
-    in.base = 0x01000000u + ex::kParams;
-    in.control = 0;
-    in.physics_globals();
-    ex::ParamImage image{};
-    ex::convert_params(core, in, image);
-    ex::Record whole{};
-    std::copy(image.begin(), image.end(), whole.begin() + ex::kParams);
+    // GT4's converter (0x361908) as ShowRoomCar runs it (0x364868): the program's rule block 0x6203C8, a fresh
+    // engine (the condition's factor is applied by the callers).
+    ConvertIn in;
+    for (u32 i = 0; i < u32(in.rules.size()); ++i) in.rules[i] = program_.b(kShowroomRules + i);
     out = Record{};
-    ex::load_image(out.car, whole.data());
-    gt4_params(spec, program_, out.car.p);
-    gt4_extras(spec, program_, out);
+    build_record(spec, program_, data_->tables, in, out);
     return true;
 }
 

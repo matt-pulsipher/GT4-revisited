@@ -2,8 +2,8 @@
 
 // Gran Turismo 4's showroom car (ShowRoomCar, 0x364760): a car built from its equipment the way the
 // menus build one, for its figures and its evaluation (docs/formats/menu.md "The showroom car").
-// The car's spec (0x3F3B68, a paved course), its parameter block (the converter 0x361908 with the
-// program's rule block 0x6203C8 and a condition that leaves the engine as it is), then:
+// The car's spec (0x3F3B68, a paved course), its parameter block (GT4's converter 0x361908, sim::build_record, with
+// the program's rule block 0x6203C8 and a condition that leaves the engine as it is), then:
 //  - the engine's figures (0x34F3F8): the curve's power and torque every 100 rpm with the power cap;
 //  - the power the menus show (ShowRoomCar +0x1700, 0x364818): the peak power plus the driveline's
 //    extra (0x356EA8);

@@ -481,8 +481,9 @@ over it are the program's, with their addresses in save.md and here:
   (0x148940: the argument in the spec's +0x156; 0x34B808) a pair of points per forward gear, (road speed /
   100 m/s, rpm / the highest gear's top rpm) at the gear's lowest rpm (1,000 for first, else the down-shift
   speed into it) and its highest (the up-shift speed; the rev limit in top). The engine's chart equals the
-  program's on every car, new and worn (`gt4r_diff <disc> charts`); the gear chart's engine speeds too, its
-  road speeds on 177 of 722 cars (the rest a unit in the last place: the gear speed factors, physics.md).
+  program's on every car, new and worn (`gt4r_diff <disc> charts`); the gear chart on 719 of 722: ❓ the three
+  cars with a stepless box of kind 1 (the Fit, the Colt, the i concept) show their second gear's lowest rpm as the
+  converter's hold speed (0x360780 sets it after 0x34ACA8), where the chart (0x34B8E8, 0x34ACA8 alone) has 0x34ACA8's.
 - **MRaceData** (0x1A0F80 on; `game_race.cpp`): the RACE row's columns (database.md "RACE"):
   the medal times as text, entries, the course, the opponents' pool (`car_code(i)`), the
   requirements (license, drivetrain, aspiration, car type, tires, power, weight, length,
@@ -582,7 +583,7 @@ there (VW Beetle 1100 '49, Honda Z ACT '70, N360 '67, TODAY G '85, Daihatsu Midg
 
 **The showroom car** (ShowRoomCar, 0x364760; `sim/showroom.*`): the car of an equipment built as the
 menus build one: a 0x1800-byte object with the spec at +0, the parameter block at +0x600 (0x364868:
-the spec builder 0x3F3B68 on a paved course, the converter 0x361908 with the rule block 0x6203C8 and
+the spec builder 0x3F3B68 on a paved course, the converter 0x361908 (`sim::build_record`) with the rule block 0x6203C8 and
 the condition block given, else a default one, 0x3433E8: no wear) and the engine's figures at +0x1700
 (0x364818):
 - the engine's figures (0x34F3F8): the curve's points' speeds rounded to 100 rpm; from the first to the
@@ -907,9 +908,5 @@ GT4's own routines, checked against the user's program where the note says so:
   0x119CB8, 0x11C328, 0x1105A8) and the distance added to a car (0x35DE20) as read.
 
 Still the shared engine's code or a stand-in (file, function → the GT4 routine that should replace it):
-- `sim/showroom.cpp` `Showroom::record`: the parameter block made by the engine's converter
-  (`exact::convert_params`) with GT4's rules put over it → GT4's whole converter 0x361908
-  (`sim::convert`, sim-parts' branch: equal to the program's in every word); the results are already
-  equal, so this changes the path, not the numbers (and the gear chart's road speeds become the program's).
 - `sim/car_spec.cpp` `computed_gears`: a made gearbox's ratios by the engine's generator → 0x443240 /
   0x354FF8 (the same rule, sim-parts' area).
