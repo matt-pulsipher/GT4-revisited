@@ -262,7 +262,16 @@ void body_extras(const Spec& s, const gt3r::sim::exact::Params& p, const rules::
     }
     b.front_share = F::raw(0x3F800000) - p.rear_weight;
     b.roll_centre = int_to_f(s.b(0x27)) * kMilli;
-    b.speed_part = 0, b.speed_part_kind = 0, b.speed_part_lift = F(); // (the part that changes with speed: not built)
+    // The part that changes with speed (0x361908): its damping row the spec's +0xA8, its kind +0x4C; kind 7's lift
+    // +0x50 x 98 (N), dropped with the kind when the ride heights differ by more than 3 cm (❓ the other kinds' +0x1084:
+    // +0x50 x 0.01 x the drag's area term, 0 here; no reader of it is ported).
+    b.speed_part = s.b(0xA8), b.speed_part_kind = s.b(0x4C), b.speed_part_lift = F();
+    if (b.speed_part_kind == 7) {
+        b.speed_part_lift = int_to_f(s.b(0x50)) * F::raw(0x42C3FFFF);
+        F d = p.ride_height[0] - p.ride_height[1];
+        if (d < F()) d = -d;
+        if (F::raw(0x3CF5C28F) < d) b.speed_part_lift = F(), b.speed_part_kind = 0;
+    }
     // The sprung mass (0x362B58): the mass less each axle's wheels' own.
     const F nf = int_to_f(l.axle_wheels[0]), nr = int_to_f(l.axle_wheels[1]);
     if (l.axle_wheels[0] == 2 && l.axle_wheels[1] == 2) {

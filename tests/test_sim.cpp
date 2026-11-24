@@ -10,6 +10,7 @@
 #include "gt4r/sim/ground.h"
 #include "gt4r/sim/line_driver.h"
 #include "gt4r/sim/session.h"
+#include "gt4r/sim/ai/run.h"
 
 #include <cmath>
 #include <memory>
@@ -605,4 +606,23 @@ TEST(sim_disc_steer_angle) {
     in.steer_angle = NAN, in.steer = 0;
     for (int i = 0; i < 60; ++i) s->step_once({&in, 1});
     CHECK(std::fabs(s->record(0).steer_cmd.host()) < 0.01f);
+}
+
+TEST(sim_disc_tsukuba_pace) {
+    Disc* disc = full_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    // Each car alone at Tsukuba with its computer driver, three laps from rest: the best lap near the program's own on
+    // the program's physics (gt4r_diff ai, s: Volkswagen 1100 90.8, Honda S500 89.2, Ford Ka 83.1, MG Midget 91.6).
+    // The suspension, attitude and aids are Gran Turismo 4's: with Gran Turismo 3's the S500 lost 8 s in the slow corners.
+    const std::pair<const char*, double> cars[] = {{"_1100_standard_type11_49", 90.8}, {"s500_63", 89.2}, {"ka_01", 83.1}, {"midget2_d_type_98", 91.6}};
+    for (const auto& [car, theirs] : cars) {
+        const sim::ai::FieldRun run = sim::ai::run_field(*disc, "tsukuba", {car}, 3);
+        CHECK(run.cars.size() == 1);
+        if (run.cars.empty()) continue;
+        double best = 0;
+        for (double l : run.cars[0].laps)
+            if (best == 0 || l < best) best = l;
+        std::printf("  %-26s best %.3f s (the program's %.1f)\n", car, best, theirs);
+        CHECK(run.cars[0].finished && best > theirs - 1.5 && best < theirs + 1.5);
+    }
 }
