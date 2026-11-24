@@ -674,6 +674,8 @@ public:
         h.trip_m = replaying_ ? 0 : distance_;
         h.lateral_g = replaying_ ? 0 : lateral_g_;
         h.red_line = spec.red_line, h.rev_limit = spec.rev_limit;
+        // The speedometer's face by the car's top speed as the program estimates it (P +0xFD8).
+        if (const float top = world_->car_top_speed(0); top > 0) h.top_speed = top;
         h.driver_view = mount_ != race::DriveCamera::kChase && mount_ != kTvView;
         h.cars.clear();
         for (const race::CarState& c : cars) h.cars.push_back({c.position.x, c.position.z});

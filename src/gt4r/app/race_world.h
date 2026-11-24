@@ -156,6 +156,9 @@ public:
     int gadget_contacts(size_t i) const;
     // A car's mass as the step reads it (the spec's weight, kg; 0 not known): the license tests' wall rule.
     float car_mass(size_t i) const;
+    // A car's top speed as the program estimates it from the gearing (P +0xFD8, m/s; 0 not known): the
+    // speedometer's face.
+    float car_top_speed(size_t i) const;
     // The materials a wheel counts as off the course on (the program's 0x622430, a word per material).
     bool soft_material(u8 material) const { return material < soft_.size() && soft_[material] != 0; }
     // The cars move by the game's simulation (false: the stand-in).

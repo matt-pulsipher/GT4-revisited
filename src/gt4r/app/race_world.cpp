@@ -310,6 +310,10 @@ int RaceWorld::gadget_contacts(size_t i) const {
     return i < c.size() ? c[i] : 0;
 }
 
+float RaceWorld::car_top_speed(size_t i) const {
+    return session_ && i < car_visuals_.size() ? session_->record(i).p.top_speed.host() : 0.0f;
+}
+
 float RaceWorld::car_mass(size_t i) const {
     return session_ && i < car_visuals_.size() ? float(session_->spec(i).weight_kg()) : 0.0f;
 }
