@@ -99,3 +99,37 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
   longest work in ms, the resident memory in MB.
 - `GT4R_MENU` and `GT4R_RACE` set up the menu pages and *Drive* screens for a check (the tops of
   `src/gt4r/app/screen_menu_viewer.cpp` and `screen_race.cpp`).
+- Scripted runs (`--shot`, `--sweep`) open their window without making it the active one, and it
+  cannot take the keyboard's focus.
+
+## Sweeps (for checks)
+
+- `gt4r <disc> --sweep <list> --sweep-out <dir>`: the races of a list, one after another in one
+  window, a picture of each at the frames the list asks for. A line: `<name>` TAB `<GT4R_RACE's
+  setup>` [TAB `<frames, ';' between>`]. `<dir>/results.tsv` gets a line a race: its status, the
+  race screen's setup time, the frames' work, the memory after it, the warnings it logged. Started
+  again with the same list, the run goes on after the last race it finished, and a race it ended
+  inside is written as a crash and passed over (`src/gt4r/app/screen_sweep.cpp`).
+- `gt4tool sweep <disc> courses [filter]`: every course file with a field of computer drivers for a
+  lap: set-up time, lap times, spins (and where they began), contacts, cars stuck.
+- `gt4tool sweep <disc> cars [filter] [course=..] [seconds=..]`: every car of the database driven
+  by the course's computer driver: distance, top speed, 0-100 km/h, spins, stuck time.
+- `gt4tool sweep <disc> pad [courses]`: the player's car driven through the pad's path (an analog
+  stick and pedals following the road), with the automatic and the manual gearbox, the aids on and
+  off, against computer drivers: lap times, contacts, shifts, the place at the end.
+- A Gran Turismo mode game played forward (every license, 22 cars, the presents) for playing the
+  later events: `gt4tool save <disc> progress <data folder> [name] [credits]`, then
+  `GT4R_DATA_DIR=<data folder> gt4r <disc>`.
+
+## What runs where (the app's shell)
+
+- The window, the frame loop, the screens, the scripted keys, the pictures and the sweeps are the
+  app's own (`src/gt4r/app/app.*`, `screen_sweep.cpp`); the home screen, the setup screen and the
+  asset browser are tools of this app, not pages of the game.
+- The pad and keyboard are read by the shared engine's input layer (`gt3r::InputManager`, its
+  button mapping and the "modern" keyboard layout), which hands the race a pad state; from there the
+  race's own path (`sim::Session`, the pad's frame) turns it into the car's controls. The game's
+  own pad reading for the race is being ported (`sim-step`).
+- The 2D drawing toolkit of the home screen, the setup screen and the browser is the shared
+  engine's (`ui.cpp`, `ui_font.cpp`, `button_prompts.cpp`); the game's pages are drawn by the menu
+  code (`src/gt4r/menu`, `screen_menu_viewer.cpp`).
