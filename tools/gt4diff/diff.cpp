@@ -11,6 +11,7 @@
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/db/car_parts.h"
 #include "gt4r/sim/car_spec.h"
+#include "gt4r/sim/convert.h"
 #include "gt4r/sim/exact_bridge.h"
 #include "gt4r/sim/rules_build.h"
 #include "taps.h"
@@ -112,7 +113,13 @@ ParamsResult run_params(Disc& disc, bool print) {
     result.ran = true;
     Ee ee;
     boot(ee, disc, sdb);
-    ee.call(kStatics, {Arg::integer(0)});
+    // The static tables as a race's configuration builds them (with a conductor: its per-surface tables too, which the
+    // converter's top speed reads; a cleared conductor's course kind is a paved course's).
+    {
+        const u32 cond = ee.alloc(0x10200);
+        for (u32 o = 0; o < 0x10200; o += 4) ee.w32(cond + o, 0);
+        ee.call(kStatics, {Arg::ptr(cond)});
+    }
     const ex::ProgramData core = sim::core_program(program);
     const u32 spec_at = ee.alloc(0x600), p_at = ee.alloc(0x1400), rules_at = ee.alloc(0x100), cond_at = ee.alloc(0x100);
     std::vector<Field>& fields = result.fields;
@@ -129,6 +136,7 @@ ParamsResult run_params(Disc& disc, bool print) {
         sim::Spec spec;
         sim::build_spec(sdb, program, eq, 0, spec);
         // The program's: its converter on the same spec.
+        for (u32 o = 0; o < 0x100; o += 4) ee.w32(rules_at + o, 0), ee.w32(cond_at + o, 0);
         ee.write_bytes(spec_at, spec.bytes);
         for (u32 o = 0; o < 0x1400; o += 4) ee.w32(p_at + o, 0);
         try {
@@ -136,6 +144,90 @@ ParamsResult run_params(Disc& disc, bool print) {
         } catch (const std::exception& e) {
             if (trapped++ < 3 && print) std::printf("  %s: %s\n", c.label.c_str(), e.what());
             continue;
+        }
+        // Gran Turismo 4's converter, ours, word by word against the program's block.
+        {
+            static const sim::rules::Tables race = sim::rules::tables(program, ex::Statics{});
+            sim::ParamBlock ours;
+            ours.base = p_at;
+            sim::convert(spec, program, race, sim::ConvertIn{}, ours);
+            std::vector<u8> theirs(sim::ParamBlock::kSize);
+            ee.read_bytes(p_at, theirs.data(), u32(theirs.size()));
+            bool same = true;
+            for (u32 o = 0; o < sim::ParamBlock::kSize; o += 4) {
+                if (std::memcmp(&theirs[o], &ours.bytes[o], 4) == 0) continue;
+                same = false;
+                if (result.block_off[o]++ == 0 && print && std::getenv("GT4R_BLOCK_EXAMPLES")) {
+                    u32 x, y;
+                    std::memcpy(&x, &theirs[o], 4), std::memcpy(&y, &ours.bytes[o], 4);
+                    std::printf("  block +0x%04X %s: the program's %08X, ours %08X\n", o, c.label.c_str(), x, y);
+                }
+            }
+            if (same) ++result.block_equal;
+            // Again with what a race can give besides a car as sold: a computer's car (control source 2) with the rule
+            // block's power cap and axle grips, a worn engine (its two condition words through every branch of the factor),
+            // ballast and the entry's power and weight percentages.
+            {
+                sim::Spec v = spec;
+                const u32 k = u32(cars % 5);
+                v.set_b(0x05, 20 + 10 * k), v.set_b(0x06, u32(s32(-20) + 15 * s32(k))), v.set_b(0x07, 85 + 5 * k), v.set_b(0x08, 120 - 7 * k);
+                sim::ConvertIn in;
+                in.control = 2;
+                in.rules[3] = u8(15 + 9 * k);
+                const u8 grips[8] = {90, 110, 0, 120, 105, 95, 0, 80};
+                for (u32 i = 0; i < 8; ++i) in.rules[4 + i] = grips[(i + k) % 8];
+                std::array<u8, 0x20> cond{};
+                const float w4[5] = {-400000.f, -100000.f, 500000.f, 2e6f, 2e7f}, w8[5] = {-200000.f, -50000.f, 1e6f, 5.5e6f, 9e6f};
+                const gt3r::ee::F f4 = gt3r::ee::F(w4[k]), f8 = gt3r::ee::F(w8[(k + 2) % 5]);
+                std::memcpy(&cond[4], &f4.bits, 4), std::memcpy(&cond[8], &f8.bits, 4);
+                in.condition = cond.data();
+                if (const char* only = std::getenv("GT4R_VARY")) { // (one kind of input varied alone)
+                    const std::string o = only;
+                    if (o != "cond") std::memset(&cond[4], 0, 8);
+                    if (o != "cap") in.rules[3] = 0;
+                    if (o != "spec") v = spec;
+                    if (o != "grip") in.control = 0;
+                }
+                ee.write_bytes(spec_at, v.bytes);
+                for (u32 i = 0; i < 0x80; ++i) ee.w8(rules_at + i, in.rules[i]);
+                for (u32 i = 0; i < 0x20; ++i) ee.w8(cond_at + i, cond[i]);
+                for (u32 o = 0; o < 0x1400; o += 4) ee.w32(p_at + o, 0);
+                ee.call(kConvert, {Arg::ptr(p_at), Arg::ptr(spec_at), Arg::integer(in.control), Arg::integer(0), Arg::ptr(rules_at), Arg::ptr(cond_at)}, 200'000'000);
+                sim::ParamBlock mine;
+                mine.base = p_at;
+                sim::convert(v, program, race, in, mine);
+                std::vector<u8> prog(sim::ParamBlock::kSize);
+                ee.read_bytes(p_at, prog.data(), u32(prog.size()));
+                bool eq2 = true;
+                for (u32 o = 0; o < sim::ParamBlock::kSize; o += 4) {
+                    if (std::memcmp(&prog[o], &mine.bytes[o], 4) == 0) continue;
+                    eq2 = false;
+                    if (result.varied_off[o]++ == 0 && print && std::getenv("GT4R_BLOCK_EXAMPLES")) {
+                        u32 x, y;
+                        std::memcpy(&x, &prog[o], 4), std::memcpy(&y, &mine.bytes[o], 4);
+                        std::printf("  varied +0x%04X %s: the program's %08X, ours %08X\n", o, c.label.c_str(), x, y);
+                    }
+                }
+                if (eq2) ++result.varied_equal;
+                // (the stock block back for the checks below)
+                for (u32 o = 0; o < 0x100; o += 4) ee.w32(rules_at + o, 0), ee.w32(cond_at + o, 0);
+                ee.write_bytes(p_at, theirs);
+            }
+            if (const char* dbg = std::getenv("GT4R_TOP_DEBUG"); dbg && c.label == dbg) {
+                // The program's routines on the program's block: the engine's torque (0x34E9A0) and the rolling resistance's
+                // curve (0x359830 on 0x620938) at a few speeds.
+                for (float v : {20.0f, 50.0f, 80.0f, 89.0f, 90.0f, 94.0f}) {
+                    const auto t = ee.call(0x34E9A0, {Arg::ptr(p_at + 0x134), Arg::ptr(cond_at), Arg::flt(v * 3)});
+                    const auto r = ee.call(0x359830, {Arg::ptr(0x620938), Arg::flt(v)});
+                    std::printf("  v %g: torque(%g) %08X, roll %08X, 0x620984 %08X\n", v, v * 3, t.f0, r.f0, ee.r32(0x620984));
+                }
+                std::printf("  FD8 program %08X ours %08X; D+0x12 %d gears %d up %d\n", ee.r32(p_at + 0xFD8), ours.w(0xFD8), ee.r8(p_at + 0x246), ee.r8(p_at + 0x236), ee.r16(p_at + 0x262));
+                std::printf("  roll ours n %d", race.road.rolling_curve.n);
+                for (int k = 0; k < 8; ++k) std::printf(" %08X/%08X", race.road.rolling_curve.x[k].bits, race.road.rolling_curve.y[k].bits);
+                std::printf("\n  roll prog n %d", ee.r16(0x620938));
+                for (u32 k = 0; k < 8; ++k) std::printf(" %08X/%08X", ee.r32(ee.r32(0x62093C) + 4 * k), ee.r32(ee.r32(0x620940) + 4 * k));
+                std::printf("\n");
+            }
         }
         // Ours: the engine's converter on the translated spec, then Gran Turismo 4's own rules.
         ex::Spec cs;
@@ -346,6 +438,10 @@ ParamsResult run_params(Disc& disc, bool print) {
     result.cars = cars, result.unfinished = trapped;
     if (print) {
         std::printf("params: %zu cars (%zu the program's converter did not finish)\n", cars, trapped);
+        std::printf("  block: %zu of %zu cars equal in every word\n", result.block_equal, cars);
+        for (const auto& [o, n] : result.block_off) std::printf("  block +0x%04X differs on %zu cars\n", o, n);
+        std::printf("  block, varied inputs: %zu of %zu cars equal in every word\n", result.varied_equal, cars);
+        for (const auto& [o, n] : result.varied_off) std::printf("  varied +0x%04X differs on %zu cars\n", o, n);
         for (const Field& f : fields) {
             if (f.off == 0) std::printf("  %-24s equal (%zu values)\n", f.name.c_str(), f.values);
             else std::printf("  %-24s differs on %zu of %zu, most by %.3g%% (%s)\n", f.name.c_str(), f.off, f.values, f.worst * 100, f.where.c_str());
