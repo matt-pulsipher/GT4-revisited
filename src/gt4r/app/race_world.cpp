@@ -182,6 +182,9 @@ void RaceWorld::build_simulation() {
                 entries[i].asm_on = we.asm_on, entries[i].tcs_on = we.tcs_on;
                 entries[i].start_speed = we.start_speed;
                 entries[i].start_distance = we.start_distance;
+                // An event's race counts fuel (0x35E108 sets the rule block's +0x4C to 80); a run without laps (practice, a
+                // free run) does not ❓ (the original's Practice shows no fuel).
+                entries[i].fuel = setup_.event_row.size() > 0x43 && setup_.event_row[0x43] != 0;
             }
             // The player's car's power as built (the replay's card).
             try {

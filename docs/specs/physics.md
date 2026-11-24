@@ -1020,8 +1020,8 @@ object 0x6235A8 + 0x134 + 4 x table id; the row cache left out), and compares:
   Canyon, with `GT4R_STEP_TREAD` (the tread wear's curve in the rule block) and `GT4R_STEP_WEAR` (every wear rule made up),
   and 177,726 calls each in the six computer drivers' lap of Grand Canyon; the tables of 0x366D68, 0x34F6A0 and 0x34A4B8
   equal to the race's. Three laps of Apricot Hill Reverse in the R34 with Tuning Car Grand Prix's rules wear its treads
-  15,948 / 13,213 / 15,699 / 12,988 (the original's, from its saved states at the finish: 16,231 / 13,886 / 16,184 /
-  13,621; test `sim_disc_long_race_wear`).
+  16,190 / 13,637 / 15,859 / 13,238 and burn 6.23 liters (the original's, from its saved states at the finish: 16,231 / 13,886 / 16,184 /
+  13,621 and 6.35 liters; test `sim_disc_long_race_wear`).
 - **The collision step and the road query** (`collide_check.cpp`: `GT4R_STEP_COLLIDE` with `step`, `GT4R_AI_COLLIDE`
   with `ai`, the test `sim_program_collision_and_road_query_equal`): at 0x45BB60's entry every body record is read
   into ours (wall pointers as indexes), ours steps them on our walls, and at its return every body field (and the

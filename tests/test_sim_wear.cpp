@@ -106,21 +106,24 @@ TEST(sim_disc_long_race_wear) {
     sim::ai::FieldCar car;
     car.name = "r34_gtr_v2_nur_02";
     CHECK(sim::stock_car(sdb, program, car.name, car.entry.equipment));
+    car.entry.fuel = true; // (the event's rule block +0x4C)
     // Tuning Car Grand Prix race 1 (Apricot Hill Reverse, 3 laps) for the R34 alone, our session with the computer driver.
     bool set = false;
     std::array<float, 4> start{}, end{};
-    float grip_start = 0, grip_end = 0;
+    float grip_start = 0, grip_end = 0, fuel_start = 0, fuel_end = 0;
     const sim::ai::FieldRun run = sim::ai::run_field(
         *disc, "r_apricot", std::vector<sim::ai::FieldCar>{car}, 3, {}, 0,
         [&](const sim::Session& s, const sim::ai::Field&) {
             for (int w = 0; w < 4; ++w) end[size_t(w)] = s.tread(0, w);
             grip_end = s.wear_grip(0, 0);
+            fuel_end = s.fuel(0);
         },
         [&](sim::Session& s, sim::ai::Field&) {
             if (set) return;
             s.set_wear_rules(block, !s.loose(), program);
             for (int w = 0; w < 4; ++w) start[size_t(w)] = s.tread(0, w);
             grip_start = s.wear_grip(0, 0);
+            fuel_start = s.fuel(0);
             set = true;
         });
     CHECK(set && !run.cars.empty() && run.cars[0].finished);
@@ -128,7 +131,7 @@ TEST(sim_disc_long_race_wear) {
                 double(end[0]), double(end[1]), double(end[2]), double(end[3]), double(start[0]), double(grip_end), double(grip_start));
     // New tires at the rules' least, their grip 95 %; the original's R34 in this race (B-spec, Push) ended its third lap
     // with the treads at 6,231 / 3,886 / 6,184 / 3,621 (the left tires wearing more): each of ours within 20 % of the wear,
-    // and the grip back to 1 (scrubbed in). (Ours: 5,948 / 3,213 / 5,699 / 2,988.)
+    // and the grip back to 1 (scrubbed in). (Ours, with the fuel counted: 6,190 / 3,637 / 5,859 / 3,238.)
     const float original[4] = {6231.0f, 3886.0f, 6184.0f, 3621.0f};
     for (int w = 0; w < 4; ++w) {
         CHECK(start[size_t(w)] == -10000.0f);
@@ -137,4 +140,8 @@ TEST(sim_disc_long_race_wear) {
     }
     CHECK(end[0] > end[1] && end[2] > end[3]);
     CHECK(std::fabs(grip_start - 0.95f) < 1e-4f && grip_end > 0.999f);
+    // The fuel: the original's tank at the green 79.95 liters, at the finish 73.60 (6.35 burnt).
+    std::printf("  fuel %.2f -> %.2f liters\n", double(fuel_start), double(fuel_end));
+    CHECK(std::fabs(fuel_start - 79.95f) < 0.1f);
+    CHECK(std::fabs((fuel_start - fuel_end) - 6.35f) < 6.35f * 0.2f);
 }
