@@ -35,6 +35,15 @@
 
 namespace gt4r::audio {
 
+// The output's level (docs/formats/sound.md "The output's level"): the SPU2's. A voice at side
+// gain 0x3FFF plays its samples at full scale, the voices sum and the sum is held to 16 bits;
+// a stream plays its samples at its level. The shared engine's mixer and streams play at half
+// that (gt3r::VoiceMixer::kOutputTrim); with_output_level() sets a mixer to the SPU2's level
+// and stream_request() is the level to ask the shared engine for to hear a stream at `level`.
+constexpr float kOutputLevel = 1.0f;
+inline void with_output_level(gt3r::VoiceMixer& mixer) { mixer.set_master_volume(kOutputLevel); }
+inline float stream_request(float level) { return level * kOutputLevel / gt3r::VoiceMixer::kOutputTrim; }
+
 // What the caller sets on an effect sequence or a held note.
 struct SoundParams {
     float left = 1.0f, right = 1.0f; // side gains, -1..1 (negative inverts the side); a held note's: up to 2

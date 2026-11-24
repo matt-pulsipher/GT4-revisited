@@ -506,6 +506,11 @@ TEST(sound_race_session_on_disc) {
     const float table = library->levels().level(int(audio::OutputMode::Stereo), sound::VolumeTable::Race);
     std::printf("  the mix table's race level (stereo) %.3f\n", double(table));
     CHECK(near(sound.master(), 115.0 / 128.0 * table, 1e-5) && level > 300);
+    // At the SPU2's output level the race does not reach full scale (the original's race recordings
+    // sit at -17 to -19 dB and reach it only in a few samples).
+    const audio::Level whole = audio::measure(s.pcm);
+    std::printf("  the whole race: peak %d, rms %.1f dB, %zu samples at full scale\n", whole.peak, 20.0 * std::log10(std::max(whole.rms, 1e-9)), whole.clipped);
+    CHECK(whole.clipped == 0);
     sound.pause(true);
     s.advance(60);
     CHECK(s.mixer().active_voices() == 0);

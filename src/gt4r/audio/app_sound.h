@@ -7,6 +7,9 @@
 //   audio::AppSound sound(app.audio(), *app.vfs());
 //   sound.menu().play("ok");            // the scripts' calls: menu_sound.h
 //   audio::CarSound car(vfs, app.audio().voices(), &sound.driver(), sound.library_ptr());
+//   audio::RaceSound race(vfs, app.audio().voices(), sound.driver(), sound.library_ptr(), tables, sound.streams());
+//
+// While it lives the app's voice mixer plays at the game's output level (sound_driver.h).
 
 #include "gt4r/audio/menu_sound.h"
 
@@ -20,6 +23,10 @@ class Vfs;
 
 namespace gt4r::audio {
 
+// The app's music streams for the game's sound objects (MenuSound, RaceSound): the shared engine's
+// AudioEngine at the game's output level (sound_driver.h, stream_request).
+StreamPlayer stream_player(gt3r::AudioEngine& audio, gt3r::Vfs& vfs);
+
 class AppSound {
 public:
     AppSound(gt3r::AudioEngine& audio, gt3r::Vfs& vfs);
@@ -31,6 +38,8 @@ public:
     MenuSound& menu() { return menu_; }
     SoundLibrary& library() { return *library_; }
     std::shared_ptr<SoundLibrary> library_ptr() { return library_; }
+    // The music streams (stream_player() on the app's engine and disc).
+    StreamPlayer streams() { return stream_player(audio_, vfs_); }
 
     // For the asset browser: plays what a sound file holds and says what that is (", sequence
     // 2 of 5, ..."). A sequence bank (.sqt, or its .ins) plays a sequence, the next one each

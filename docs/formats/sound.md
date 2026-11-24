@@ -206,6 +206,21 @@ side gains, pitch factor and pan from whoever started it.
 tone's keys; the caller sets the two side gains, the pitch factor, a pan and a priority
 every frame. It sends to the reverb when any of the tone's flags is set.
 
+**The output's level.** A voice at side gain 0x3FFF plays its samples at full scale; the voices'
+sum is held to 16 bits; a stream plays its samples at its level. Measured: the menus' `cursor`
+and `ok` in the original are our rendering at the same gains (1.79 to 1.91 times the shared
+mixer's half level at a new game's 115 / 128), the race at the same mix (below). The shared
+engine's mixer and streams play at half that (`gt3r::VoiceMixer::kOutputTrim`, kept for Gran
+Turismo 3's own screens), so Gran Turismo 4's code sets its mixer's master to 1
+(`audio::with_output_level`: `AppSound` while a disc is open, `OfflineSound` for every rendering)
+and asks the shared engine for twice a stream's level (`audio::stream_request`, used by
+`audio::stream_player`, which the menus and the race take their streams from). Nothing is
+clipped that the original does not clip: at the game's levels the sequenced music peaks 1.3 to
+2.5 dB under full scale (all ten groups of the US disc; the original's menus 0.8 to 1.9 dB under),
+a six-car race on Tsukuba sits at -18.0 dB with no sample at full scale (the original's race
+recordings -17 to -19 dB, a few samples at full scale). Prologue's menu music at a new game's
+music option reaches full scale, as its recording does (its arcade pages at -11.6 dB).
+
 **Reverb.** The game sets both SPU2 cores to effect mode 4 ("studio C") at depth 0x0FFF when
 the sequenced music's banks load, as Gran Turismo 3 does at boot. ❓ What the races set.
 
@@ -579,7 +594,7 @@ gain (least squares under 1 kHz, or in `--band`). Renderings to compare come fro
 
 | What | The original | Ours | |
 |---|---|---|---|
-| Overall level | the menus' `cursor` on the title page: our rendering's waveform × 1.795 (correlation 0.998, 99.6% of the power explained) at an effects option of 1, i.e. exactly 2 × ours at a new game's 115 / 128 | the shared mixer's output trim 0.5 (`VoiceMixer::kOutputTrim`) | ours 6.0 dB quieter, everything alike |
+| Overall level | the menus' `cursor` on the title page: the shared mixer's half-level rendering × 1.795 (correlation 0.998, 99.6% of the power explained) at an effects option of 1, i.e. exactly 2 × that at a new game's 115 / 128 | the SPU2's level ("The output's level") | same |
 | Menu effects | `ok` six times in the Arcade walk: × 1.79..1.91 | as the cursor | same balance |
 | Sequenced music | the Arcade pages' `arcade` sequence: 2.0 dB under our rendering at full level (= 1.3 dB under the expected 0.48 × 115 / 128 x 2) | | within 1 dB 🔎 (by level per second; the sequencer's timing differs too much for a sample fit) |
 | Streamed music | `race_35` in the race: × 0.20..0.24 of the stored samples (five fits) | the stream level 0.3 × 115 / 128 = 0.27 | the original 1.6 dB under ours ❓ |
@@ -588,7 +603,7 @@ gain (least squares under 1 kHz, or in `--band`). Renderings to compare come fro
 | Racing music | `race_35` from the opening shots (rolling), `race_37` 0.25 s after START (standing), `race_36` after `race_35` in the B-spec race, the replay `race_35` again | play list, `rolling()`, `replay()` | same once wired |
 | Engine pitch | Ka '01: 181 Hz at 5,650 rpm (chase), 164 Hz at 5,076 rpm (nose) | 181.1 / 163.7 Hz | same (was 147 cents low) |
 | Engine levels | players' volumes in the saved states: chase engine 2146 / exhaust 5073 (levels 11 / 12), nose 4651 / 5464 (left inverted) of 16383 a side | 2147 / 4651 and the exhausts at their level | same |
-| Engine by view | the fundamental at -26 dB from nose, chase and bonnet views alike | | same balance (ours -6 dB overall) |
+| Engine by view | the fundamental at -26 dB from nose, chase and bonnet views alike; chase at full throttle (21-23.5 s): -27 dB at 176 Hz, -19.9 dB in 120-400 Hz | the Ka at 5,650 rpm from the chase view: -25 dB at 181 Hz, -18.8 dB in 120-400 Hz | within 2 dB |
 | Title page | no music; `cursor` every move | | same |
 
 ❓ Not compared yet: the course ambience (crowds, tunnels: Route 5's recording has no racing piece
