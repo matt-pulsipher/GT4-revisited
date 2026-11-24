@@ -56,7 +56,7 @@ lines (K +0x08 + 4 k); line 0 is never used.
 | 1, 2 | the passing lines: 1 on the right, 2 on the left (0x46BC00 / 0x46BC40) | 84 / 85 |
 | 3 | the pit lane | 67 |
 | 4 | the pit stop line, a part of the lap | 66 |
-| 5 | per-point run-time records (0x46B9F0 clears them, 0x46BA88 finds one by distance) ❓ its use; not GT3's side map | 4 |
+| 5 | per-point run-time records of 8 bytes at the prepared point's +0x38: 0x46B9F0 clears them at the race's start (the conductor's virtual 28); 0x46BA88, which finds one by distance, is called from nowhere in this program, and nothing else reads them: nothing to run; not GT3's side map | 4 |
 | 6 | the main line: the start's, and the one the drivers return to | 110 |
 | 7 | a variant; asks fall back to 6 | 41 |
 
@@ -476,9 +476,19 @@ decision with a pace command midway (`gt4r_diff ai GT4R_AI_BSPEC=1,4,20`).
   only); without passing a lane change is only the return to line 6.
 - **Its shift speeds** (0x36BEE0 / 0x36BF28 → 0x3F1E30): the gearbox's up- and down-shift speeds x the
   shift byte / 128, only for control source 1 and kind 0; the opponents shift at the gearbox's own.
-- **Its skill** (0x468C50 from the conductor's virtual 28, with 0x623E48 set): D+0xB8 / +0xBC / +0xC0
-  from the save's B-spec driver records (0x467C58 .. 0x468B58, the script natives 0x164400 ..) ❓ not
-  read further.
+- **Its skill** (0x468C50 from the conductor's virtual 28, for a car of control source 0 or 1 not a ghost, with the switch
+  0x623E48 set): the race information's +0x20 .. +0x5F (the B-spec driver's record of its races, from the save: u16 a[8]
+  +0x00, b[8] +0x10, c[8] +0x20 by the cars' class, d[4] +0x30 and e[4] +0x38 by half the class) copied to car +0x8C. The
+  car's class k (0x468458): its parameter block's +0xFE0 (0x3F86E8 at the conversion), (x − 0.35) / 0.55 within [0, 1],
+  x 8, at most 7. Over the classes [max(0, k − 4), min(8, k + 5)) (0x467BE8) with the weights 0x623E40 (8 .. 15): A = Σ
+  min(a, 1024) w x 700 / Σ 1024 w, B likewise from b, C = Σ min(c, 256) w x 700 / Σ 256 w (each at most 700); with the
+  race's byte cond + 0xCBE7 set (0x468A40 ❓ what it marks) D = d[k / 2] >> 8, E = e[k / 2] >> 8, else 255; D' = D x
+  300 / 255, E' likewise (at most 300). Then (0x468BC8: p / 100 + (q / 100) x (x / 1000), the bytes 0x623E4A ..: 90 / 10,
+  90 / 10, 130 / −30): D +0xB8 = f(90, 10, A + D'), D +0xBC = f(90, 10, B + D'), D +0xC0 = f(130, −30, C + E'). So a
+  driver with no record takes the arcs at 90 % and brakes at 90 %, a full one at 100 %. ✔ Equal to the program's
+  (`gt4r_diff <disc> bspec`: 320 made-up records on five cars of classes 0 .. 7, the byte both ways; test
+  `ai_bspec_skill_equal_to_the_program`); `Field::set_bspec_skill` sets it. ❓ Not wired: the save's record (the menus)
+  and the car's +0xFE0 (asked of sim-parts).
 
 ## 9. What our drivers run
 
@@ -569,6 +579,8 @@ wanted, 0x10 the player's choice asked, 0x20 the hose on, 0x40 / 0x80 front / re
 change done), +0x4BA the hold counter, +0x5C2 a tire past its wear, +0x5C3 the pit lane's speed (1 over 10 km/h, 2 over
 40 km/h), +0x5FA / +0x5FB the pit message and its time, +0x62E a pad car's own visit, +0x64C a B-spec car's wait.
 
+- **On the pit lane** (F +0x4B1 bit 4, phase 18 0x369888): any wheel on the ground whose road triangle has its flags
+  bit 0 set, in a race with pit stops (the conductor's virtual +0x180).
 - **The box** (0x363B10 by 0x46BDA0): the stop line's (line 4) point 8 less the car's grid place (0 without lines).
 - **The request** (0x353218, the wear phase, every step, with the race's pit stops on, the car not asked yet, F +0x4B2
   0 and racing, 0x343C20 = 0): fuel counted and over 500 m since the last fill, before the stop line's point 1: the fuel
@@ -601,6 +613,14 @@ change done), +0x4BA the hold counter, +0x5C2 a tire past its wear, +0x5C3 the p
   new tire (0x362E58: a layout byte > 0 the front, < 0 the rear, 0 either) and the tire bits cleared; at 59 0x200.
 - **Refuelling** (0x354D60): the fuel + the byte 0x620E25 x 0.1 a second x the step, up to the tank; full: the bit
   cleared and, with no tires left, the hold set to 90 (1.5 s more).
+- **The race's records** (0x35AD10 when the stop is counted): the stop count (cond + 0xD9E4 + 2 i), a record of the
+  last four stops shifted along (cond + 0xD9F0 + 8 i: the lap, 0x343B50: the car's lap, less one with F +0x4B2, at least
+  1; cond + 0xDA20 + 8 i: the tires, −1, then at the stop's 645th step from its end the tires fitted: the car's own kind
+  (cond + 0xFB20 + 2 i) for a choice of 0xFE, the kind chosen); and the race display's event 1 (0x35E000); out of the lane
+  (0x35ADF0) its event 6 (not for a car whose +0x56A is 1 or 2 ❓). `PitStops::stops`, `stop_record`, `PitHooks::display_event`.
+- **The race state** (0x343C20): 0 when the car's result is in (F +0x4B0); 1 once the race's time limit (cond + 0xF850,
+  minutes) has run (cond + 0xF898 / 3 ms); 0 with no laps (the race information's +0, the conductor's virtual 37) or before
+  the car's laps (F +0x4AC) reach them; then 1 past half the lap, 2 before it.
 - **The messages** (0x35ACD8): a code with a time in the table at 0x6207E4 (6 .. 9 and 12: 120 steps, 13, 14: 255)
   always replaces the message; one without only once the last one's time has run out.
 
@@ -611,10 +631,10 @@ whole stop each (24,000 .. 36,000 calls, 721 timing calls, all equal). The progr
 20 s): the pit lane at 1,365 m, the stop counted at its lane's start, on the stop line, standing 12 s at 58 m, the four
 tires at the stop's last second, out and back on the racing line at 270 m. ✔ On our session (`PitStops`, test
 `ai_pits_on_our_session`) the same car runs the same stop: down the lane, 721 steps held (649 standing), out again.
-Judged: the pit lane flag as the ground's flag bit 0 under wheel 0; a car's contact as a car met; the race's state 2
-(0x343C20) from the car's laps without the winner's finish (0x34C158). ❓ Not wired: the pad car's own visit and the pit
-menu (0x35BFE8), the race's record of the tires fitted (cond + 0xDA20 ..), the order's recount (0x35ADF0), the stop's
-counting in the race (0x35AD10's tables).
+✔ The race state equal at every call too (23,814 .. 32,371 calls with the race's laps set). On our session the pit lane
+flag, the hits (the collision body's +0x43C a wall, +0x440 a car) and the race state are the program's rules on the
+session's values (the car's laps as the race flow counts them, the session's clock). ❓ Not wired: the pad car's own
+visit and the pit menu (0x35BFE8); the car stood in its box (asked of sim-step: braked to a stand meanwhile).
 
 ## What runs where
 
@@ -626,8 +646,8 @@ shared engine's GT3 drivers. What is still not the program's:
 | `course_lines.cpp` `prepare` | the road's heights under the lines in host floats (last bits) | the road query 0x3E5A30 in EE floats (sim's `RoadGround`) |
 | `drivers.cpp` the start's hold for missions 25–34 | judged: held on the line until the race clock passes the delay | not found |
 | `grid.cpp` the paint draw | our generator | the race's generator 0x621AE8 |
-| `pit_stops.cpp` | the pit lane flag, contact, lap state as listed in §11; the car stood in its box by braking | 0x369888's flag, the collision body's +0x43C / +0x440, 0x343C20, 0x363560 |
+| `pit_stops.cpp` | the car held in its box by braking, not placed | 0x363560 and phase 4's hold (sim-step) |
 | `demo_driver.cpp` `pad_input` | the recorded pad record mapped onto `CarInput` (steer, pedals, shift) until the session reads the record itself | the input phase 0x349FD0 on the record (sim-step) |
 | `Field::shift_factor` | not applied in the session's gearbox | 0x3F1E30 (control source 1) |
-| B-spec skill | not read | 0x468C50 from the save's B-spec driver records |
-| line 5's per-point records, the PD steering of T[2] ≥ 2, the threat record | not ported | 0x46A510's line 5 part, 0x465078's T[2] branch, D +0x53 / +0x60 / +0x64 |
+| B-spec skill | ported, not wired: the save's record and the car's P +0xFE0 | 0x468C50 (✔), 0x3F86E8 (sim-parts) |
+| the PD steering of T[2] ≥ 2, the threat record | not ported: T[2] is 1 on this disc (the tuning bytes), so the branch never runs | 0x465078's T[2] branch (0x465F88 ..), D +0x53 / +0x60 / +0x64 |
