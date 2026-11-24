@@ -380,6 +380,8 @@ public:
         history_ = std::move(f.steps);
         for (std::vector<race::CarState>& s : history_) s.resize(world_->car_count());
         ran_ = true;
+        // (The replay's music: the play list's next piece, as a race's first.)
+        if (audio::RaceSound* sound = world_->sound()) sound->rolling();
         start_replay();
     }
 
