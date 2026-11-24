@@ -44,6 +44,9 @@ struct PTap {
     const char* name;
     std::function<void(PTapCall&)> ours;
     std::vector<std::string> skip = {}; // fields not compared (prefixes of their names)
+    // When set: run on the record as the program leaves it (in place of `ours` at the entry), for a routine whose other
+    // outputs ours cannot make in the harness (the course's queries).
+    std::function<void(PTapCall&)> at_exit = {};
 };
 struct PFieldStat {
     u64 off = 0;
@@ -81,11 +84,18 @@ private:
     std::map<u32, std::vector<Pending>> pending_;
 };
 
+// Each field of the engine's mirror where `a` and `b` differ, counted into `st` (as a tap's call is).
+void compare(const ex::Car& a, const ex::Car& b, PTapStat& st);
+
+// The disc the taps' tables are read from (check sets it).
+void set_disc(Disc& d);
+
 // The engine's routines at their Prologue counterparts (prologue_taps.cpp).
 void add_engine_taps(PTaps& taps);
 // Gran Turismo 4's routines and Prologue's own (rules_prologue.h) at their Prologue counterparts, on the Gran Turismo 4
 // part of the record made from Prologue's (rules_prologue.h's prologue_extra).
-void add_prologue_taps(PTaps& taps, const Disc& disc);
+// `course`: the race's course, for the phase-19 tap's ground query (empty: no such tap).
+void add_prologue_taps(PTaps& taps, const Disc& disc, const std::string& course = {});
 // The engine's driver input (the pad's frame of the race's pad 0) and preparation at Prologue's 0x3DEDE0 / 0x3BF608.
 void add_input_taps(PTaps& taps, const Race& race);
 

@@ -1,5 +1,7 @@
 #include "gt4r/formats/course/runway_gtrw.h"
 
+#include <memory>
+
 #include "formats/course/road.h"
 
 #include <algorithm>
@@ -63,8 +65,10 @@ struct TreeBuilder {
 
 Runway runway_from_gtrw(ByteSpan section) {
     if (!is_gtrw(section)) throw FormatError("not a GTRW road");
-    const gt3r::course::Road road = gt3r::course::Road::parse(section);
+    auto shared = std::make_shared<const gt3r::course::Road>(gt3r::course::Road::parse(section));
+    const gt3r::course::Road& road = *shared;
     Runway r;
+    r.gtrw = shared;
     r.version = 9;
     r.flags = road.header_flag;
     r.length = road.length;

@@ -91,6 +91,9 @@ public:
     // For gt4r_diff's whole-step comparison: a car's state set as a whole (the engine's mirror and Gran Turismo 4's
     // part), and its collision body.
     void load_state(size_t i, const gt3r::sim::exact::Car& c, const sim::Extra& x) { cars_[i] = c, gx_[i] = x; }
+    // And Prologue's part of a car (rules_prologue.h; a session running Prologue's step).
+    const prologue::CarPart& prologue_part(size_t i) const { return prologue_cars_[i]; }
+    void load_prologue_part(size_t i, const prologue::CarPart& x) { prologue_cars_[i] = x; }
     collide::Body& body(size_t i) { return bodies_[i]; }
     const collide::Body& body(size_t i) const { return bodies_[i]; }
     const rules::WheelLayout& wheel_layout(size_t i) const { return layouts_[i]; }
@@ -152,6 +155,7 @@ private:
 
     std::shared_ptr<const course::Runway> road_;
     std::unique_ptr<RoadGround> ground_;
+    std::unique_ptr<gt3r::sim::exact::CourseGround> course_ground_; // (Prologue's road: the program's query on its GTRW)
     std::unique_ptr<gt3r::sim::exact::ProgramData> data_;
     gt3r::sim::exact::RaceInputs race_;
     std::vector<gt3r::sim::exact::Car> cars_;
