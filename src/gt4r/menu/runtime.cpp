@@ -868,6 +868,29 @@ void Runtime::queue_focus_events() {
         if (seen) queue(seen, false);
         if (now) queue(now, true);
     }
+    // The cursor's crossings (0x22FFD0): when the widget it aims at (the shown page's focus) is
+    // not the one it last went into, an mLeaveEvent for that one and an mEnterEvent for the new
+    // (the widgets' onLeave / onEnter: the map's places spin and show their notices).
+    const std::shared_ptr<LiveWidget> aim = pages_.empty() ? nullptr : pages_.back()->focus.lock(), was = entered_.lock();
+    if (aim != was) {
+        entered_ = aim;
+        auto cross = [this](const std::shared_ptr<LiveWidget>& w, bool enter) {
+            std::weak_ptr<LiveWidget> weak = w;
+            Event e;
+            e.kind = Event::Kind::Call, e.what = w->path() + (enter ? "::onEnter" : "::onLeave");
+            e.callee = Vm::native(e.what, [this, weak, enter](Vm&, const Value&, Args) {
+                const std::shared_ptr<LiveWidget> target = weak.lock();
+                if (!target) return Value{};
+                auto event = std::make_shared<Object>(enter ? "MEnterEvent" : "MLeaveEvent");
+                event->set("widget", widget_value(target)), event->set("context", render_context_);
+                bubble_now(*target, enter ? "onEnter" : "onLeave", {render_context_, object_value(event)});
+                return Value{};
+            });
+            events_.push_back(std::move(e));
+        };
+        if (was) cross(was, false);
+        if (aim) cross(aim, true);
+    }
 }
 
 void Runtime::key(Key k) {

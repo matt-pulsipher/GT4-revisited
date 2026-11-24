@@ -262,6 +262,7 @@ private:
     std::deque<std::string> log_;
     std::vector<SoundCall> sounds_;
     u64 frame_ = 0, last_input_frame_ = 0;
+    std::weak_ptr<LiveWidget> entered_; // the widget the cursor last went into (its onEnter)
     bool finished_ = false;
     std::string sequence_ = "boot"; // the part of the game running: "boot", then "menu"
     int pumping_ = 0;
