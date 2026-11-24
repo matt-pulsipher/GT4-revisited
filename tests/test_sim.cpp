@@ -480,6 +480,40 @@ TEST(sim_disc_cars_and_courses) {
     }
 }
 
+TEST(sim_disc_wet_courses) {
+    // Every course with wet road (triangle flags bit 1: the surfaces 20 .. 22) opens and drives: the session's first
+    // steps (the start's hold) and 10 s on the line, with the wheels on the wet road.
+    Disc* disc = full_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    db::SpecDb sdb = open_db(*disc);
+    const sim::Program program = sim::Program::load(*disc);
+    size_t wet_courses = 0;
+    for (const std::string& name : disc->volume().list_dir("crs/")) {
+        if (name.empty() || name.back() == '/' || name.find('.') != std::string::npos) continue;
+        const std::shared_ptr<const course::Runway> road = open_road(*disc, name);
+        if (!road || road->grid.empty()) continue;
+        size_t wet = 0;
+        for (const course::Runway::Triangle& t : road->triangles) wet += (t.kind & 2) != 0;
+        if (wet == 0) continue;
+        ++wet_courses;
+        sim::Entry e;
+        CHECK(sim::stock_car(sdb, program, "r34_gtr_v2_nur_02", e.equipment));
+        sim::Session s(sdb, program, road, std::span<const sim::Entry>(&e, 1));
+        bool on_wet = false;
+        sim::LineDriver driver(s, 0);
+        for (int i = 0; i < 600; ++i) {
+            const race::CarInput in = driver.drive(1.0f, true);
+            s.step_once(std::span<const race::CarInput>(&in, 1));
+            for (const race::WheelState& w : s.cars()[0].wheels) on_wet |= (w.surface & 2) != 0;
+        }
+        const race::CarState& c = s.cars()[0];
+        if (!on_wet || !(c.speed > 5)) std::printf("  %s: %zu wet triangles, on them %d, speed %.1f\n", name.c_str(), wet, int(on_wet), double(c.speed));
+        CHECK(on_wet && std::isfinite(c.position.x) && c.speed > 5 && c.up.y > 0.7f);
+    }
+    std::printf("  %zu courses with wet road\n", wet_courses);
+    CHECK(wet_courses >= 1);
+}
+
 TEST(sim_disc_session_open) {
     Disc* disc = full_disc();
     if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");

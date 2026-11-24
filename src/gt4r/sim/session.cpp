@@ -511,7 +511,15 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
 
         ex::save_previous(c);
         const F filter = c.slip_filter;
+        // The engine's prep reads the tire record by the core's 16 surface rows: a wet surface (20 .. 22, Gran
+        // Turismo 4's index) is given its core row for it (GT4's own prep_tires below reads the surface as it is).
+        u8 surfaces[4];
+        for (size_t w = 0; w < 4; ++w) {
+            surfaces[w] = c.w[w].surface;
+            if (gt4_rules_ && c.w[w].surface >= 16) c.w[w].surface = u8(core_surface(c.w[w].surface));
+        }
         ex::prep(c, race_.prep);
+        for (size_t w = 0; w < 4; ++w) c.w[w].surface = surfaces[w];
         if (gt4_rules_) { // Gran Turismo 4's aerodynamics (0x3F3090) in place of the engine's
             c.slip_filter = filter;
             const rules::BodyExtra& b = gx_[i].body;
