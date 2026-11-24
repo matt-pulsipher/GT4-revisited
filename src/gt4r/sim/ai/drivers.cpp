@@ -318,6 +318,7 @@ void Field::probe_set(size_t car, const Probe& p) {
     d.state = p.state, d.prev_line = p.prev_line, d.state_hold = p.state_hold, d.start_flag = p.start_flag, d.stop_count = p.stop_count;
     d.pit = p.pit, d.arc_ticks = p.arc_ticks, d.blend = p.blend, d.offset = p.offset;
     d.steer = p.steer, d.throttle = p.throttle, d.brake = p.brake, d.reverse = p.reverse, d.shift_lock = p.shift_lock;
+    d.kind = p.kind;
     z.follow = p.follow, z.chain = p.chain, z.contact = p.contact, z.zone = p.zone, z.gap_left = p.gap_left, z.gap_right = p.gap_right;
 }
 
@@ -332,6 +333,7 @@ Field::Probe Field::probe_get(size_t car) const {
     p.state = d.state, p.prev_line = d.prev_line, p.state_hold = d.state_hold, p.start_flag = d.start_flag, p.stop_count = d.stop_count;
     p.pit = d.pit, p.arc_ticks = d.arc_ticks, p.blend = d.blend, p.offset = d.offset;
     p.steer = d.steer, p.throttle = d.throttle, p.brake = d.brake, p.reverse = d.reverse, p.shift_lock = d.shift_lock;
+    p.kind = d.kind;
     p.follow = z.follow, p.chain = z.chain, p.contact = z.contact, p.zone = z.zone, p.gap_left = z.gap_left, p.gap_right = z.gap_right;
     return p;
 }
@@ -745,6 +747,82 @@ void Field::steer_to(Driver& d, F t) {
     }
 }
 
+// 0x3F76E8: the throttle that holds a speed: the road's load (F +0x5BC: rolling, drag, the slope's pull) and the engine's
+// friction over its full torque in the gear, less 1 per 5 km/h over the speed (+ 0.5 km/h).
+F Field::hold_speed(const Driver& d, F vt) const {
+    const ex::Car& c = session_->record(d.car);
+    vt = vt + F::raw(0x3E0E38E3);
+    const F v = c.gear == 0 ? -c.speed : c.speed;
+    const F sum = c.torque_wot + c.torque_friction;
+    if (sum <= F()) return kOne;
+    const F load = -((c.rolling + c.drag) + (-((c.ground_fwd.z * c.p.mass) * F::raw(0x411CCCCC))));
+    const F over = (v - vt) / k::kmh5;
+    const F ratio = c.p.d.gear_speed[std::min<size_t>(c.gear, 7)];
+    F t = (load + c.torque_friction * ratio) / (sum * ratio) - over;
+    if (kOne < t) return kOne;
+    return t < F() ? F() : t;
+}
+
+// 0x464C38: a driver's kind; the stop driver's count of 120 steps from kind 6, or kind 5 but after kind 4.
+void Field::set_kind(Driver& d, int kind) {
+    const int was = d.kind;
+    d.kind = kind;
+    if (kind == 6 || (kind < 7 && kind == 5 && was != 4)) d.stop_count = 120;
+}
+
+// 0x464C80: the stop driver: the steering to `steer`, no throttle; stopped (under 0.25 km/h, turning under 3 degrees a
+// second) the brake off and kind 8; else kind 6 holds a speed falling by 1 km/h a step through its count, the brake coming
+// on over its last 30 steps (0.8 after), any other kind brakes at half.
+void Field::stop(Driver& d, F steer) {
+    const ex::Car& c = session_->record(d.car);
+    d.steer = c.steer_cmd, d.throttle = F(), d.brake = F(), d.reverse = false, d.shift_lock = 0;
+    if (tables_.tuning.blend_by_distance == 0 && k::zero < d.blend) {
+        const F b = d.blend - c.dt;
+        d.blend = b < k::zero ? k::zero : b;
+    }
+    steer_to(d, steer);
+    d.throttle = F();
+    const F v = gt3r::ee::sqrt((c.vel.x * c.vel.x + c.vel.y * c.vel.y) + c.vel.z * c.vel.z);
+    const F w = gt3r::ee::sqrt((c.yaw_rate * c.yaw_rate + c.roll_rate * c.roll_rate) + c.pitch_rate * c.pitch_rate);
+    if (v < F::raw(0x3D8E38E3) && w < F::raw(0x3D56774E)) {
+        d.brake = F();
+        if (d.control != 4) d.kind = 8;
+        return;
+    }
+    if (d.kind != 6) {
+        d.brake = k::half;
+        return;
+    }
+    if (d.stop_count == 0) {
+        d.brake = F::raw(0x3F4CCCCC);
+        return;
+    }
+    d.throttle = hold_speed(d, c.speed - k::kmh1);
+    if (d.stop_count < 30) {
+        const F f = int_f(d.stop_count) * F::raw(0x3D088888);
+        d.throttle = d.throttle * f;
+        d.brake = (kOne - f) * F::raw(0x3F4CCCCC);
+    }
+    --d.stop_count;
+}
+
+void Field::finish(size_t car, int mode, bool player_car) {
+    if (car >= drivers_.size() || !drivers_[car]) return;
+    Driver& d = *drivers_[car];
+    if (d.kind >= 2 && d.kind <= 4) return; // (on the pit lane: kept)
+    if (player_car) d.control = 0;
+    if (mode == 0) {
+        // 0x3452F0: the computer drives on (a pad car of kind 0 too), off the passing line 7.
+        if (d.line == 7) request_line(d, CourseLines::kMain, true);
+        d.kind = 1;
+    } else if (mode == 1 || mode == 3) {
+        if (d.line == 7) request_line(d, CourseLines::kMain, true);
+        set_kind(d, mode == 3 ? 5 : 6);
+    } else set_kind(d, 7);
+}
+
+int Field::kind(size_t car) const { return car < drivers_.size() && drivers_[car] ? drivers_[car]->kind : 0; }
+
 // ---- traffic ---------------------------------------------------------------------------------------------------
 
 // 0x4694F8: the zone cells around a car from another at (u ahead, v right), `dist` apart.
@@ -934,6 +1012,7 @@ void Field::decide(Driver& d) {
         d.blend = b < k::zero ? k::zero : b;
     }
     if (holding) d.throttle = kept;
+    if (d.kind == 7) return stop(d, F());
     if (d.line < 0) return;
     const F scale = braking(d);
     const bool hit_front = d.hit_front, hit_rear = d.hit_rear;
@@ -1153,6 +1232,7 @@ void Field::decide(Driver& d) {
     const F lock = c.p.max_lock;
     if (lock < tgt) tgt = lock;
     else if (tgt < -lock) tgt = -lock;
+    if (d.kind == 6) return stop(d, tgt);
     if ((d.control == 1 || d.control == 2 || d.kind != 0) && slew) steer_to(d, tgt);
 
     // Throttle and brake.
@@ -1228,12 +1308,28 @@ void Field::decide(Driver& d) {
     // Past the tires' peak: the throttle cut and the brake by the set's shares (0x620DE7 set: the car's own measure of it,
     // F +0x470, not mirrored; clear in this program, so the steering's overshoot serves).
     if (k::zero < over && c.gear >= 2) {
-        const F e = d.kind == 0 ? over - k::one : over;
+        const F e = tables_.saturation_cut == 0 ? over - k::one : over; // (the car's own measure taken as it is)
         F f = k::one - d.p.sat_throttle * e;
         if (f < k::zero) f = k::zero;
         d.throttle = d.throttle * f;
         const F b = d.brake + e * d.p.sat_brake;
         d.brake = k::one < b ? k::one : b;
+    }
+    // Kind 5 (a run over): the throttle held to the race's limit (0x3F76E8).
+    if (d.kind == 5) {
+        u8 lim = d.control == 2 ? limit_computer_ : limit_player_;
+        if (!(lim < 0x51)) lim = 0;
+        F vt = lim ? int_f(lim) * kPerKmh : F::raw(0x41B1C71B), share = kOne;
+        if (d.stop_count) {
+            // Without a limit: a speed falling by 1 km/h a step, its share over the count's last 30 steps.
+            if (!lim) {
+                vt = c.speed - k::kmh1;
+                if (d.stop_count < 30) share = int_f(d.stop_count) * F::raw(0x3D088888);
+            }
+            --d.stop_count;
+        }
+        const F h = hold_speed(d, vt) * share;
+        if (h < d.throttle) d.throttle = h;
     }
 }
 
@@ -1440,6 +1536,23 @@ void Field::drive(std::span<race::CarInput> inputs) {
     begin_step();
     for (auto& dp : drivers_)
         if (dp && dp->car < inputs.size()) decide_car(dp->car, inputs[dp->car]);
+    // A place with a held start (missions: Pace::start_delay) stays on the line, its engine held as in the count, until
+    // the race's clock passes its seconds (❓ judged: the program's hold itself is not found; its decision only lengthens
+    // the start's look ahead by the delay).
+    for (auto& dp : drivers_)
+        if (dp && dp->car < inputs.size() && dp->index < 32 && pace_.start_delay[size_t(dp->index)] > 0 &&
+            s32(clock_ / 3) < 1000 * pace_.start_delay[size_t(dp->index)]) {
+            Driver& d = *dp;
+            const ex::Car& c = session_->record(d.car);
+            const int up = c.p.d.up_rpm, rpm = c.rpm;
+            if (d.blip == 0) {
+                if (rpm < 3 * up / 4) d.blip = 1;
+            } else if (rpm >= 15 * up / 16) d.blip = 0;
+            d.applied_throttle = std::clamp(d.applied_throttle + (d.blip ? 4.0f : -4.0f) * kStep, 0.0f, 1.0f);
+            race::CarInput in;
+            in.throttle = d.applied_throttle, in.brake = 1, in.computer = true;
+            inputs[d.car] = in;
+        }
     end_step();
 }
 

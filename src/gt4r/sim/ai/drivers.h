@@ -167,6 +167,17 @@ public:
     // driver, and for a car with a manual gearbox).
     u8 shift_factor(size_t car) const;
 
+    // A car's run is over (the conductor's virtual 21, 0x343D78): `mode` the race's way of ending it: 0 the computer keeps
+    // driving (kind 1: the player's car too), 1 it coasts down and stops (kind 6), 2 it brakes to a stop (kind 7), 3 it
+    // cruises at the race's limit or 80 km/h (kind 5). A car on the passing line 7 goes back to the main line. (The race
+    // passes its configuration's +0xCBDE when that is 1 and no mode is asked.)
+    // The driver's kind after it (8: stopped) is the session's to hold the car by (its clutch open).
+    void finish(size_t car, int mode, bool player_car = false);
+    int kind(size_t car) const;
+    // The speed limits of kind 5 (the race's configuration +0x42 for the player's car, +0x43 for the computer's; km/h, above
+    // 80 none).
+    void set_limits(u8 player_kmh, u8 computer_kmh) { limit_player_ = player_kmh, limit_computer_ = computer_kmh; }
+
     const CourseLines& lines() const { return lines_; }
     const Tables& tables() const { return tables_; }
     size_t size() const { return drivers_.size(); }
@@ -224,6 +235,7 @@ public:
         bool reverse = false;
         u16 shift_lock = 0;
         gt3r::ee::F aim_x, aim_y; // the aim (F +0x61C / +0x620), after a decision
+        int kind = 0;             // F +0x467 the driver's kind
     };
     void probe_set(size_t car, const Probe& p);
     Probe probe_get(size_t car) const;
@@ -249,6 +261,9 @@ private:
     gt3r::ee::F ai_grip(const Driver& d, int surface) const;
     void speed_control(Driver& d, gt3r::ee::F target, gt3r::ee::F gain);
     void steer_to(Driver& d, gt3r::ee::F target);
+    void set_kind(Driver& d, int kind);
+    void stop(Driver& d, gt3r::ee::F steer);
+    gt3r::ee::F hold_speed(const Driver& d, gt3r::ee::F target) const;
     void traffic(Driver& d);
     bool request_line(Driver& d, int line, bool at_once);
     // 0x46B480: line k's place at course distance s (any lap), from the span around point `hint`; false (the outputs
@@ -285,6 +300,7 @@ private:
     std::vector<gt3r::ee::F> lat_v_, lat_x_, rate_, last_s_;
     std::vector<gt3r::ee::F> scale_; // each car's time scale (F +0x444)
     Band band_;
+    u8 limit_player_ = 0, limit_computer_ = 0;
     std::array<u32, 24> soft_{}; // a material's soft flag (the program's table)
 };
 

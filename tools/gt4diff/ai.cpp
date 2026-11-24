@@ -140,6 +140,7 @@ sim::ai::Field::Probe probe_of(Ee& ee, const OrigRace& o, int i, float lap) {
     p.steer = F::raw(ee.r32(D + 0x30)), p.throttle = F::raw(ee.r32(D + 0x34)), p.brake = F::raw(ee.r32(D + 0x38));
     p.reverse = ee.r8(D + 0x3E) != 0, p.shift_lock = ee.r16(D + 0x3C);
     p.aim_x = F::raw(ee.r32(Fs + 0x61C)), p.aim_y = F::raw(ee.r32(Fs + 0x620));
+    p.kind = ee.r8(Fs + 0x467);
     return p;
 }
 
@@ -417,6 +418,15 @@ private:
         t_["decision cooldown"].add(w, th.cooldown, my.cooldown, 0);
         t_["decision reverse, shift lock"].add(w, (th.reverse ? 1000 : 0) + th.shift_lock, (my.reverse ? 1000 : 0) + my.shift_lock, 0);
         t_["decision start flag"].add(w, th.start_flag, my.start_flag, 0);
+        t_["decision kind, stop count"].add(w, th.kind * 1000 + th.stop_count, my.kind * 1000 + my.stop_count, 0);
+        if (th.kind) ++kinds_[th.kind];
+        if (std::getenv("GT4R_AI_DBG") && th.throttle.bits != my.throttle.bits && shown_++ < 10) {
+            const auto& c = cars_.record(size_t(p.car));
+            const gt3r::ee::F load = -((c.rolling + c.drag) + (-((c.ground_fwd.z * c.p.mass) * gt3r::ee::F::raw(0x411CCCCC))));
+            std::printf("  %s kind %d: throttle %.4f / %.4f; road load %08X / %08X; limits %d %d gear %d stop %d\n", w, th.kind, th.throttle.value(),
+                        my.throttle.value(), ee_.r32(o_.car(p.car) + kF + 0x5BC), load.bits, ee_.r8(o_.cond + 0xF818 + 0x42),
+                        ee_.r8(o_.cond + 0xF818 + 0x43), int(c.gear), th.stop_count);
+        }
         if (std::getenv("GT4R_AI_DECISION") && (th.steer.bits != my.steer.bits || th.throttle.bits != my.throttle.bits || th.brake.bits != my.brake.bits ||
                                                 th.aim_x.bits != my.aim_x.bits || th.offset.bits != my.offset.bits) && shown_++ < 40) {
             std::printf("  offset %08X / %08X contact %08X kind %d hold %d rank %d cool %d\n", th.offset.bits, my.offset.bits, th.contact.bits,
@@ -462,6 +472,9 @@ private:
     u32 prox_sp_ = 0;
     std::set<u32> returns_;
     int shown_ = 0;
+
+public:
+    std::map<int, u64> kinds_; // the decisions compared by the driver's kind (past the finish)
 };
 
 std::string clock(double s) {
@@ -507,7 +520,11 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
     std::unique_ptr<ProgramCars> pcars;
     std::unique_ptr<sim::ai::Field> field;
     std::unique_ptr<CallChecks> calls;
-    int bspec_car = -1, bspec_level = -1, bspec_step = -1;
+    int bspec_car = -1, bspec_level = -1, bspec_step = -1, finish_mode = 0, finish_step = -1;
+    if (const char* f = std::getenv("GT4R_AI_FINISH")) {
+        finish_mode = std::atoi(f);
+        if (const char* c = std::strchr(f, ',')) finish_step = int(std::atof(c + 1) * 60.0);
+    }
     const sim::Program program = sim::Program::load(disc);
     const bool ours = options.ours, checks = options.checks;
     std::map<std::string, Tally> tally;
@@ -582,7 +599,8 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
         last_s[i] = ee.rf(o.car(int(i)) + kF + kDistance);
     }
     const int trace = std::getenv("GT4R_AI_TRACE") ? std::atoi(std::getenv("GT4R_AI_TRACE")) : -1;
-    const int limit = int((std::max(400.0, double(lap_length) / 5.0) * std::max(laps, 1) + 60.0) * 60.0);
+    int limit = int((std::max(400.0, double(lap_length) / 5.0) * std::max(laps, 1) + 60.0) * 60.0);
+    if (const char* l = std::getenv("GT4R_AI_SECONDS")) limit = int(std::atof(l) * 60.0); // a set length of run
     int step = 0;
     try {
         for (; step < limit; ++step) {
@@ -596,6 +614,12 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
                         tally["band time scale"].bits(w, ee.r32(o.car(i) + kF + 0x444), gt3r::ee::F::raw(field->time_scale_bits(size_t(i))));
                     }
             }
+            // GT4R_AI_FINISH=<mode>,<seconds>: every car's run ended so (0x343D78, the conductor's virtual 21) at that time.
+            if (finish_step == step && field)
+                for (int i = 0; i < o.cars; ++i) {
+                    ee.call(0x343D78, {Arg::ptr(o.car(i)), Arg::integer(finish_mode)});
+                    field->finish(size_t(i), finish_mode);
+                }
             if (step == bspec_step && bspec_car >= 0) {
                 ee.call(0x3F19E0, {Arg::ptr(o.car(bspec_car)), Arg::integer(0), Arg::integer(4), Arg::integer(bspec_level)});
                 field->command(size_t(bspec_car), {bspec_level, -1});
@@ -649,6 +673,8 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
         result.error = b;
         if (print) std::printf("ai: %s\n", b);
     }
+    if (calls && print)
+        for (const auto& [kind, n] : calls->kinds_) std::printf("  decisions of driver kind %d: %llu\n", kind, (unsigned long long)n);
     for (const auto& [name, tl] : tally) {
         result.checks[name] = {tl.n, tl.off};
         if (print) tl.print(name.c_str());
