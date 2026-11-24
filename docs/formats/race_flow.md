@@ -72,16 +72,29 @@ opening shots (the race information's own type byte is not traced to its source;
 Grand Canyon start fits it). In a rolling start the computer drivers drive the player's car too
 until it takes the line. The conductor holds the race clock while its flag K +0xCBE4 is set
 (`DynamicsConductor::vf15` 0x357E80 adds a step to K +0xF898 only when it is clear);
-`DynamicsConductorSinglePlayer::vf27` (0x3477C8) sets it for a rolling start with a spacing, and
-vf20 (0x347928) clears it with the start signal (event 4), handing a car whose state byte F +0x467
-is 1 back to its driver (0x345228: the byte cleared, the driver's line set). The car set-up
-(0x3452F0) gives a rolling car state 1 and the driver line 6 (the start's). ❓ What holds the
-field's speed through the run-up is not read: here every car is held at the start's speed until
-the release, when the player's car is 80 m from the line (the race clock starts there), and the
-course's TV cameras show the field until 50 m (judged from the original's Tsukuba start: the field
-at 50 mph through some 12 s of shots, the clock starting in the last one, the player's view about
-1.5 s later, the line 4.2 s after the clock's start at 56 mph; here 58 mph at 4.5 s with the Ford
-Ka '01).
+`DynamicsConductorSinglePlayer::vf27` (0x3477C8) sets it for a rolling start with a spacing. The car set-up
+(0x3452F0) gives a rolling car the driver kind 1 (F +0x467, the car's +0x56B) and its driver the line 6 (the
+start's). **The pace** (0x3F7880, `sim::rules::start_pace`): a car of driver kind 1 that has not yet taken the
+line (F +0x4AC, its crossings, 0) runs capped at the start's speed (CFG +0x6E, K +0xF886; else per place) while
+it is more than 3 s at that speed short of the line (the lap length less F +0x4A4 over 3 x the speed / 3.6);
+from there on it runs free. **The crossing** (the lap routine 0x358608): a car's first crossing of the line
+calls the conductor's virtual 20 instead of the lap's virtual 21; the single-player conductor's (0x347928) hands
+a car of driver kind 1 back to its driver (0x345228: the kind cleared, the start's driver line dropped; 0x3F37B8
+clears the car's +0x694), sends the start signal (event 4) when the car is the player's (index 0), and clears the
+clock flag whichever car it is: **the clock starts when the first car takes the line**; a car's first lap is
+timed from the clock's start (F +0x614 is left at 0; the lap virtual 21 sets it from the second crossing on).
+**The opening shots**: the camera manager's state (0x3FD620, from its routines 0x374E90, 0x3751F0, 0x3754F0,
+0x376AF0) is 4, the course's TV shots, while its car's pace answers 1, so the shots end when the followed car
+is 3 s at the start's speed short of the line. ✔ Against the original's Tsukuba start (the field at 50 mph,
+the clock starting during the last shot, the player's view about 1.5 s later, the line 4.2 s after the clock's
+start at 56 mph): here (the Ford Ka '01, 6 cars) the view at 1.62 s, the line at 4.47 s and 55 mph.
+(`RaceFlow`'s clock starts at the step after the first crossing: ❓ the order of the clock's step and the
+crossings within a step is not read.) **The held starts** (missions): K +0xCBFC + 4 i, car i's start count,
+is set by vf28 to 60 x the event's seconds for the place (CFG +0x60 + 2 i, K +0xF878; 0 in a rolling start);
+the conductor's step (0x34DB30) holds every car while the start's count runs (0x34C210: F +0x4BC = 1, the
+start's hold), then counts each car's down a step at a time, the car held (F +0x4BC = 1) until it reaches 0,
+when the car gets its start signal (event 4 with F +0x440, its index). Here `sim::ai::Field` holds such a car
+on its brake for the same seconds (the session has no per-car start hold yet).
 
 ## The grid
 
@@ -193,7 +206,7 @@ reaching 0 end the run timed. Kinds 3 and 6 end at the lap's line when the laps 
 
 Here the hits come from the simulation's contact (`CarState::contact`: a wall's |j| / 100000, a car's |j| /
 15000) and the cone bodies' contacts per car (`GadgetBodies::contacts`, with the kind's flag latch); the
-mass is the spec's weight (❓ P +0x48 taken as it); the time limit is not counted (no test has one; F
+mass is the car's parameter block's P +0x48 as 0x35FE80 reads it; the time limit is not counted (no test has one; F
 +0x4AF's meaning ❓). Seen here: B-1 run at full throttle past the box ends in FAIL on the row of cones at
 the box's far end (`lic3`), as the original's; braking into the box passes (9.849).
 
@@ -244,23 +257,24 @@ engine's Gran Turismo 3 code). The player notices them roughly in this order.
 
 | Piece | Where | Runs | The GT4 routine that should replace a stand-in |
 |---|---|---|---|
-| The rolling start's run-up: the field's speed until the line | `screen_race.cpp` `run_up` / `RaceWorld::set_speed_hold` | **judged**: every car held at the course's speed until the player's car is 80 m from the line | the pace cap 0x3F7880 (ported in `sim/rules_aids` `start_pace`, not engaged: the cars' driver kind F +0x467 is not set to 1 by the set-up 0x3452F0), the release vf20 0x347928 → 0x345228, the per-car countdown K +0xCBFC (0x34DB30): `sim-step` |
+| The rolling start's run-up: the field's pace until the line | `RaceWorld` `pace_kmh_`, `release_start` | the rule GT4 (0x3F7880: capped while more than 3 s at the start's speed short of the line, each car released at its crossing, vf20 0x347928); the cap itself **judged** (the throttle eased, a touch of brake) | the car's driver kind 1 (0x3452F0) so that the aids' own cap (0x3F76E8, `sim/rules_aids` `start_pace`) holds it; the release 0x345228 in the session (`sim-step`) |
 | The rolling start's distance, speed, spacing | `race/start_rule.*` `apply_drivers_file` | GT4 (vf28 0x34D490, 0x466B90) | |
-| The race clock's start in a rolling start, the opening shots' end | `screen_race.cpp` `kRelease`, `kOpeningEnd` | **judged** (80 m / 50 m) | event 4 from vf20 (the player's car, index 0) and the clock flag K +0xCBE4 |
+| The race clock's start in a rolling start, the opening shots' end | `race_flow.*` `clock_running`, `screen_race.cpp` `opening_tv` | GT4 (vf20 0x347928: the first car's crossing; the camera state 0x3FD620 by the pace 0x3F7880) | |
+| The held starts (missions' places with a start delay) | `sim/ai/drivers.cpp` `Field::drive` | the seconds GT4 (CFG +0x60, the count K +0xCBFC, 0x34DB30); the hold **judged** (the brake on, the engine blipped) | the start's hold F +0x4BC per car (`sim-step`) |
 | A standing start's hold, count, START | `race_flow.*` | GT4 (0x3C0208, 0x39D390, 0x39E9B0); the hold's length for a license test (8 s) from its demonstration, for other races 10 s ❓ | the race information's start type byte +0x40 (its writer) |
 | The opening shots (start motion, replay start) | `start_camera.*` | GT4 (CameraPathanim 0x37D338, 0x37D620) | |
 | The replay cameras (TV shots), their choice by distance | `replay_script.*` | GT4 (0x37C138, 0x3FD980 → 0x3DDFF0); the dissolve's drawing judged | |
 | The scenic shots behind the menus | `replay_script.*` `ScenicCamera` | GT4 (mode 5, 0x375980) | |
 | The driving views | `drive_camera.*` | the car's camera places (CAR4); their springs ❓ | |
 | Laps, crossings, times, finish | `race_flow.*` | GT4 (0x358608, vf21 0x357B98); the race order's comparison judged | the order routine (❓ not found) |
-| License tests' rules | `license_rules.*`, `judge_license` | GT4 (0x3F8D70, 0x369888 → vf49, 0x35FE80); the hits' strengths from the simulation's contact (its sum per step, not the program's per hit), the mass as the spec's weight ❓ | the hit records 0x350530 (`sim-step`) |
-| Cones and boards knocked about | `gadget_bodies.*` | **engine** rules (GT3's pylons: resting, tumbling, a car's box judged: 0.9 m overhangs); the contact report and the kind's once-only latch GT4 (0x3E3C48) | the gadgets' step 0x3E2B28 with 0x3E3290, 0x3E3458, 0x3E29F8, 0x3E3748, the impulse 0x3E3ED0, the cars' five planes 0x621D28 |
+| License tests' rules | `license_rules.*`, `judge_license` | GT4 (0x3F8D70, 0x369888 → vf49, 0x35FE80); the hits' strengths from the simulation's contact (its sum per step, not the program's per hit), the mass P +0x48 | the hit records 0x350530 (`sim-step`) |
+| Cones and boards knocked about | `gadget_bodies.*` | GT4 (0x3E2B28 with 0x3E3748 / 0x3E3840, 0x3E44E8 / 0x3E4708, 0x3E3C48 / 0x3E3ED0 / 0x3E43B8, 0x3E5108, set-up 0x3E2710; course.md "Cones and boards: the bodies") in host floats; the road query and the car boxes' extents judged | the road query 0x3E5A30; the car record's box extents (+0x48C .. +0x494) |
 | The demonstrations | `screen_race.cpp` `begin_demo`, `sim/ai/demo_driver.*` | GT4 (the recordings, `ai-drivers`); the card's tire word is the race's, not the car's ❓ | |
 | The pad's controls | `screen_race.cpp` (`gt3r::race::ControlMapper`) | **engine** (GT3's mapping) | the input phase 0x349FD0 (`sim-step`) |
 | Looking back | `gt3r::race::look_back_held` | **engine** | ❓ not read |
 | The race display: places, numbers, meters | `race_display.*`, `race_hud.*` | GT4 tables (RaceDisplay); the speedometer's face by the car's top speed estimate (P +0xFD8); how some parts move their pictures judged | the meters' drawing routines |
-| The driver's view's fuel arc and pedal bars | not drawn | | 0x3A8968 (draws `fuel_a0` / `fuel_a1`, `pedal_bar` procedurally, arcs of radii about 52 and 60) |
-| The suggested gear | not drawn | | the value the panel's vf23 (0x3A8430) receives (its source not found) |
+| The driver's view's fuel arc and pedal bars | `race_hud.cpp` `draw_bars` | GT4 (0x3A8968: places, steps, colours); the fuel gauge's flag +0x1B judged (always) | |
+| The suggested gear | not drawn | | the driver's +0x40 by 0x469E58 / 0x36BF68 (race_display.md): the player's car's computer driver's target speed (`ai-drivers`) |
 | The license display's trophy times | `race_hud.cpp` | places judged | RaceLicenseDisplay::vf9 |
 | B-spec's display and commands | `race_hud.cpp`, `screen_race.cpp` | display mode 1 GT4; the pace bar, speed plate and help strip places judged; Select Car's order ❓ | the B-spec display's routines |
 | The replay's card, logo, caption timings | `screen_race.cpp` `fill` | **judged** (3 s, 4.5–14 s) | their caller's times |
