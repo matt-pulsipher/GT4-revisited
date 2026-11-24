@@ -7,8 +7,18 @@
 #include "gt4r_version.h"
 
 #include <algorithm>
+#include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
+
+#if defined(__APPLE__)
+#include <dlfcn.h>
+#include <mach/mach.h>
+#elif defined(__linux__)
+#include <unistd.h>
+#endif
 
 namespace gt4r {
 
@@ -21,6 +31,47 @@ const SDL_DialogFileFilter kDiscFilters[] = {
 
 void SDLCALL on_dialog(void* user, const char* const* files, int) {
     if (files && files[0]) static_cast<App*>(user)->request_disc(files[0]);
+}
+
+// The process's resident memory in bytes (0 where it is not read).
+size_t resident_bytes() {
+#if defined(__APPLE__)
+    mach_task_basic_info info{};
+    mach_msg_type_number_t count = MACH_TASK_BASIC_INFO_COUNT;
+    if (task_info(mach_task_self(), MACH_TASK_BASIC_INFO, reinterpret_cast<task_info_t>(&info), &count) == KERN_SUCCESS) return size_t(info.resident_size);
+#elif defined(__linux__)
+    if (std::FILE* f = std::fopen("/proc/self/statm", "r")) {
+        unsigned long pages = 0, resident = 0;
+        const int n = std::fscanf(f, "%lu %lu", &pages, &resident);
+        std::fclose(f);
+        if (n == 2) return size_t(resident) * size_t(sysconf(_SC_PAGESIZE));
+    }
+#endif
+    return 0;
+}
+
+// A scripted run keeps its pace when its window is hidden or covered: on macOS the system
+// otherwise stretches a background app's sleeps (App Nap), by seconds at a time, and the run's
+// frames fall out of step with what goes by the clock. The process says it is doing work the
+// user asked for (NSProcessInfo beginActivityWithOptions:reason:), through the Objective-C
+// runtime the system's frameworks already loaded.
+void keep_pace_in_background() {
+#if defined(__APPLE__)
+    using Id = void*;
+    using GetClass = Id (*)(const char*);
+    using RegisterName = Id (*)(const char*);
+    const auto get_class = reinterpret_cast<GetClass>(dlsym(RTLD_DEFAULT, "objc_getClass"));
+    const auto sel = reinterpret_cast<RegisterName>(dlsym(RTLD_DEFAULT, "sel_registerName"));
+    void* send = dlsym(RTLD_DEFAULT, "objc_msgSend");
+    if (!get_class || !sel || !send) return;
+    const Id info = reinterpret_cast<Id (*)(Id, Id)>(send)(get_class("NSProcessInfo"), sel("processInfo"));
+    const Id reason = reinterpret_cast<Id (*)(Id, Id, const char*)>(send)(get_class("NSString"), sel("stringWithUTF8String:"), "a scripted run");
+    if (!info || !reason) return;
+    // NSActivityUserInitiatedAllowingIdleSystemSleep | NSActivityLatencyCritical
+    const unsigned long long options = (0x00FFFFFFull & ~(1ull << 20)) | 0xFF00000000ull;
+    const Id activity = reinterpret_cast<Id (*)(Id, Id, unsigned long long, Id)>(send)(info, sel("beginActivityWithOptions:reason:"), options, reason);
+    if (activity) reinterpret_cast<Id (*)(Id, Id)>(send)(activity, sel("retain")); // held for the process's life
+#endif
 }
 
 } // namespace
@@ -93,11 +144,25 @@ bool App::init(int argc, char** argv) {
         else if (a == "--shot" && has_value) shot_path_ = argv[++i];
         else if (a == "--screen" && has_value) start_ = argv[++i];
         else if (a == "--shot-frame" && has_value) shot_frame_ = std::atoi(argv[++i]);
+        else if (a == "--stats" && has_value) stats_path_ = argv[++i];
+        else if (a == "--fast") paced_ = false;
         else if (a == "--keys" && has_value) {
-            for (std::string_view k : gt3r::split(argv[++i], ','))
-                if (!gt3r::trim(k).empty()) keys_.emplace_back(gt3r::to_lower(gt3r::trim(k)));
+            // "@<file>" among the keys: the keys of that file there (files may name files).
+            std::function<void(const std::string&, int)> add = [&](const std::string& text, int depth) {
+                for (std::string& k : parse_key_script(text)) {
+                    if (k[0] != '@') {
+                        keys_.push_back(std::move(k));
+                        continue;
+                    }
+                    const std::optional<Bytes> file = depth < 8 ? gt3r::read_host_file(k.substr(1)) : std::nullopt;
+                    if (!file) LOG_WARN("--keys: could not read %s", k.c_str() + 1);
+                    else add(std::string(file->begin(), file->end()), depth + 1);
+                }
+            };
+            add(argv[++i], 0);
         } else if (!a.empty() && a[0] != '-') disc_path = a;
     }
+    if (!shot_path_.empty()) keep_pace_in_background();
     if (disc_path.empty()) disc_path = config_.get("game", "disc").value_or("");
     if (!disc_path.empty()) last_error_ = open_disc(disc_path);
     if (disc_) {
@@ -105,10 +170,26 @@ bool App::init(int argc, char** argv) {
         if (!browse_.empty()) push(make_browser_screen(browse_));
         else if (start_ == "menus") push(make_menu_viewer(*this));
         else if (start_ == "race") push(make_race_screen(*this));
-        else if (start_ == "cars" || start_ == "courses") keys_.insert(keys_.begin(), start_ == "cars" ? "cross" : "down"), start_ == "courses" ? void(keys_.insert(keys_.begin() + 1, "cross")) : void();
+        else if (start_ == "cars" || start_ == "courses") { // (the hub's items: Play, Cars, Courses)
+            const std::vector<std::string> to = start_ == "cars" ? std::vector<std::string>{"down", "cross"} : std::vector<std::string>{"down", "down", "cross"};
+            keys_.insert(keys_.begin(), to.begin(), to.end());
+        }
+        // A launch with a disc and nothing else asked for: the game from power on, the home
+        // screen under it ([game] start = hub: the home screen).
+        else if (start_ == "game" || (start_.empty() && config_.get("game", "start").value_or("game") != "hub")) push(make_game_screen(*this));
     } else push(make_setup_screen());
-    last_ticks_ = SDL_GetTicksNS();
+    last_ticks_ = start_ticks_ = SDL_GetTicksNS();
     return true;
+}
+
+std::vector<std::string> App::parse_key_script(std::string_view text) {
+    std::vector<std::string> keys;
+    for (std::string_view line : gt3r::split(text, '\n')) {
+        if (const size_t hash = line.find('#'); hash != std::string_view::npos) line = line.substr(0, hash);
+        for (std::string_view k : gt3r::split(line, ','))
+            if (const std::string_view t = gt3r::trim(k); !t.empty()) keys.emplace_back(t[0] == '@' ? std::string(t) : gt3r::to_lower(t)); // (a file's name as written)
+    }
+    return keys;
 }
 
 std::string App::open_disc(const std::string& path) {
@@ -176,10 +257,36 @@ void App::apply_screen_changes() {
     pending_.clear();
 }
 
-// --keys: each name is a pad button held for two frames and let go for six; "waitN" is N
-// frames without a press.
+// --keys: each name is a pad button held for two frames and let go for six ("select+start": both
+// together); "waitN" is N
+// frames without a press; "shot:<name>" a picture; "quit" ends the run. The race's controls
+// are held from their token until another changes them: "gas=<0..1>" (the throttle, Cross's
+// pressure), "brake=<0..1>" (Square's), "steer=<-1..1>" (the left stick, left negative),
+// "reverse=<0..1>" (Triangle's), "handbrake=0|1" (Circle), "release" (all let go).
 gt3r::PadState App::scripted_keys() {
     gt3r::PadState pad;
+    while (key_ < keys_.size()) { // the tokens that take no frame
+        const std::string& k = keys_[key_];
+        const size_t eq = k.find('=');
+        if (k == "quit") {
+            quit_ = true, ++key_;
+            return pad;
+        }
+        if (k == "release") {
+            drive_ = {}, ++key_;
+            continue;
+        }
+        if (eq == std::string::npos || k.compare(0, 5, "shot:") == 0) break;
+        const std::string name = k.substr(0, eq);
+        const float v = float(std::atof(k.c_str() + eq + 1));
+        if (name == "gas" || name == "throttle") drive_.gas = std::clamp(v, 0.0f, 1.0f);
+        else if (name == "brake") drive_.brake = std::clamp(v, 0.0f, 1.0f);
+        else if (name == "steer") drive_.steer = std::clamp(v, -1.0f, 1.0f);
+        else if (name == "reverse") drive_.reverse = std::clamp(v, 0.0f, 1.0f);
+        else if (name == "handbrake") drive_.handbrake = v != 0;
+        else LOG_WARN("--keys: no control named %s", name.c_str());
+        ++key_, key_frames_ = 0;
+    }
     if (key_ < keys_.size()) {
         const std::string& k = keys_[key_];
         const bool wait = k.compare(0, 4, "wait") == 0;
@@ -189,14 +296,17 @@ gt3r::PadState App::scripted_keys() {
         }
         const int frames = wait ? std::max(1, std::atoi(k.c_str() + 4)) : 8;
         if (!wait && key_frames_ < 2) {
-            std::string name = k;
-            name[0] = char(std::toupper(static_cast<unsigned char>(name[0])));
-            if (name.size() == 2) name[1] = char(std::toupper(static_cast<unsigned char>(name[1]))); // "L1"
-            if (const auto b = gt3r::pad_button_from_name(name)) {
-                pad.buttons = u16(1u << unsigned(*b));
-                pad.pressure[size_t(*b)] = 255;
-            } else if (key_frames_ == 0) {
-                LOG_WARN("--keys: no button named %s", k.c_str());
+            for (std::string_view part : gt3r::split(k, '+')) { // "select+start": together
+                std::string name(part);
+                if (name.empty()) continue;
+                name[0] = char(std::toupper(static_cast<unsigned char>(name[0])));
+                if (name.size() == 2) name[1] = char(std::toupper(static_cast<unsigned char>(name[1]))); // "L1"
+                if (const auto b = gt3r::pad_button_from_name(name)) {
+                    pad.buttons |= u16(1u << unsigned(*b));
+                    pad.pressure[size_t(*b)] = 255;
+                } else if (key_frames_ == 0) {
+                    LOG_WARN("--keys: no button named %s", name.c_str());
+                }
             }
         }
         if (++key_frames_ >= frames) ++key_, key_frames_ = 0;
@@ -206,9 +316,21 @@ gt3r::PadState App::scripted_keys() {
 
 SDL_AppResult App::iterate() {
     const Uint64 now = SDL_GetTicksNS();
-    double dt = std::min(double(now - last_ticks_) / 1e9, 0.1);
+    const double wall_ms = double(now - last_ticks_) / 1e6; // since the last frame
+    double dt = std::min(wall_ms / 1e3, 0.1);
     last_ticks_ = now;
-    if (!shot_path_.empty()) dt = 1.0 / 60.0; // pictures do not depend on the machine's speed
+    if (!shot_path_.empty()) {
+        // Pictures do not depend on the machine's speed: a frame is a 60th of a second, and the
+        // frames are held to that pace so what runs by the clock (the menus' movies) keeps step.
+        dt = 1.0 / 60.0;
+        if (paced_ && wall_ms < 1000.0 / 60.0) {
+            SDL_DelayPrecise(Uint64((1000.0 / 60.0 - wall_ms) * 1e6));
+            last_ticks_ = SDL_GetTicksNS();
+            if (const double slept = double(last_ticks_ - now) / 1e6; slept > 250) LOG_WARN("Frame %d: a wait of %.1f ms took %.0f ms", frame_, 1000.0 / 60.0 - wall_ms, slept);
+        }
+    }
+    // A frame that came long after the last one ended: the time went outside the frame's work.
+    if (end_ticks_ && double(now - end_ticks_) / 1e6 > 250) LOG_WARN("Frame %d: %.0f ms between frames", frame_, double(now - end_ticks_) / 1e6);
 
     std::string chosen;
     SDL_LockMutex(dialog_mutex_);
@@ -220,11 +342,27 @@ SDL_AppResult App::iterate() {
             screens_.clear();
             pending_.clear();
             push(make_hub_screen());
+            if (config_.get("game", "start").value_or("game") != "hub") push(make_game_screen(*this)); // the game from power on
         }
     }
 
     apply_screen_changes();
     const gt3r::PadState scripted = scripted_keys();
+    {
+        // The script's presses and held race controls reach the race's pad too (as an overlay on
+        // player 1's: a pad plugged in still drives).
+        gt3r::PadState ov = scripted;
+        const auto hold = [&ov](PadButton b, float v) {
+            if (v <= 0) return;
+            ov.buttons |= u16(1u << unsigned(b));
+            ov.pressure[size_t(b)] = std::max(ov.pressure[size_t(b)], u8(std::lround(v * 255)));
+        };
+        hold(PadButton::Cross, drive_.gas), hold(PadButton::Square, drive_.brake), hold(PadButton::Triangle, drive_.reverse);
+        hold(PadButton::Circle, drive_.handbrake ? 1.0f : 0.0f);
+        ov.set_axis(gt3r::PadAxis::LX, drive_.steer);
+        ov.connected = ov.buttons != 0 || drive_.steer != 0;
+        input_->set_overlay(0, ov);
+    }
     input_->update(dt);
     menu_.update(scripted.buttons ? scripted : input_->menu_pad(), dt);
     if (!screens_.empty()) screens_.back()->update(*this, dt);
@@ -240,12 +378,17 @@ SDL_AppResult App::iterate() {
         save_screenshot((slash == std::string::npos ? std::string() : shot_path_.substr(0, slash + 1)) + key_shot_ + ".png");
         key_shot_.clear();
     }
+    if (!stats_path_.empty()) write_stats(wall_ms);
     if (!shot_path_.empty() && frame_ >= shot_frame_) {
         save_screenshot(shot_path_);
         quit_ = true;
     }
+    const Uint64 before_present = SDL_GetTicksNS();
     SDL_RenderPresent(renderer_);
     if (gpu_) gpu_->frame_presented();
+    end_ticks_ = SDL_GetTicksNS();
+    if (double(end_ticks_ - before_present) / 1e6 > 250) LOG_WARN("Frame %d: presenting took %.0f ms", frame_, double(end_ticks_ - before_present) / 1e6);
+    if (double(before_present - now) / 1e6 > 250) LOG_WARN("Frame %d: its work took %.0f ms", frame_, double(before_present - now) / 1e6);
     return quit_ ? SDL_APP_SUCCESS : SDL_APP_CONTINUE;
 }
 
@@ -272,6 +415,19 @@ void App::save_screenshot(const std::string& path) {
     const Bytes png = gt3r::encode_png(u32(rgba->w), u32(rgba->h), px);
     SDL_DestroySurface(rgba);
     if (gt3r::write_host_file(path, png)) LOG_INFO("Screenshot saved: %s", path.c_str());
+}
+
+// --stats: a line a second (60 frames): the frame, the seconds since launch, the frames' mean
+// and longest wall time in ms, the process's resident memory in MB.
+void App::write_stats(double frame_ms) {
+    if (frame_ > 1) stats_ms_ += frame_ms, stats_max_ = std::max(stats_max_, frame_ms), ++stats_frames_;
+    if (frame_ % 60 != 0 || !stats_frames_) return;
+    if (std::FILE* f = std::fopen(stats_path_.c_str(), "a")) {
+        std::fprintf(f, "%d %.1f %.2f %.2f %.1f\n", frame_, double(SDL_GetTicksNS() - start_ticks_) / 1e9, stats_ms_ / stats_frames_, stats_max_,
+                     double(resident_bytes()) / (1024.0 * 1024.0));
+        std::fclose(f);
+    }
+    stats_ms_ = stats_max_ = 0, stats_frames_ = 0;
 }
 
 void App::shutdown() {

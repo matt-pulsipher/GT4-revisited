@@ -24,7 +24,8 @@ struct GridEntry {
 // The pace settings of an event's row.
 Pace pace_for(const db::RaceEvent& e);
 
-// The grid of a race request, in grid order: the opponents the scripts chose (request.entries), else those drawn from
+// The grid of a race request, in grid order: the opponents the scripts chose (request.entries 1 to
+// overwrite_enemy_num; entry 0 is the player's), else those drawn from
 // the event's pool (request.race) for the event's grid less one (the request's max_entry when the event has none),
 // then the player's car last. `seed` seeds the draw (the race's random numbers).
 std::vector<GridEntry> grid_for(const db::RaceEvents& events, const menu::RaceRequest& request, u32 seed);

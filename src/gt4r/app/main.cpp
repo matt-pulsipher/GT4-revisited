@@ -15,12 +15,24 @@ SDL_AppResult SDL_AppInit(void** state, int argc, char** argv) {
     for (int i = 1; i < argc; ++i)
         if (!std::strcmp(argv[i], "--help") || !std::strcmp(argv[i], "-h")) {
             std::printf("usage: gt4r [disc.iso|disc.chd] [options]\n\n"
+                        "With a disc and no other choice the game starts from power on; Select and\n"
+                        "Start together leave it for the home screen ([game] start = hub in config.ini:\n"
+                        "the home screen first).\n\n"
                         "  --browse <path>     open the asset browser on a file of the disc\n"
-                        "  --screen <name>     open cars, courses or menus at start\n"
+                        "  --screen <name>     open game, hub, cars, courses, menus or race at start\n"
                         "  --shot <out.png>    save a picture of one frame, then quit\n"
-                        "  --shot-frame <n>    which frame --shot saves (default 30)\n"
-                        "  --keys <list>       scripted menu presses, e.g. \"down,down,cross,wait60,right\"\n"
-                        "                      (\"shot:<name>\": a picture <name>.png beside --shot's)\n"
+                        "  --shot-frame <n>    which frame --shot saves (default 30); with --shot a frame\n"
+                        "                      is a 60th of a second, held to that pace (--fast: not held;\n"
+                        "                      the menus' movies then run behind)\n"
+                        "  --keys <list>       scripted presses, e.g. \"down,down,cross,wait60,right\"\n"
+                        "                      (\"select+start\": two together;\n"
+                        "                      \"shot:<name>\": a picture <name>.png beside --shot's;\n"
+                        "                      \"gas=1\", \"brake=0.5\", \"steer=-0.3\", \"reverse=1\",\n"
+                        "                      \"handbrake=1\" hold a race control until changed,\n"
+                        "                      \"release\" lets all go; \"quit\" ends the run;\n"
+                        "                      \"@<file>\": the keys from a file, '#' comments)\n"
+                        "  --stats <file>      a line a second: frame, seconds, mean and longest\n"
+                        "                      frame work (ms), resident memory (MB)\n"
                         "  --no-gpu            2D screens only\n");
             return SDL_APP_SUCCESS;
         }
