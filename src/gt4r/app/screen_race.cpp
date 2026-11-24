@@ -978,6 +978,9 @@ public:
             setup_.cars = std::clamp(chosen->cars, 1, 16), setup_.laps = std::clamp(chosen->laps, 1, 99);
             setup_.scripted = true;
             from_menus_ = true;
+            // GT4R_AUTODRIVE=1: the computer drives the player's car in every race the menus start (scripted
+            // play through Gran Turismo mode, license tests included).
+            if (const char* e = SDL_getenv("GT4R_AUTODRIVE"); e && *e == '1') setup_.auto_drive = true;
             menus_ = chosen->menus, sequence_ = chosen->sequence;
             setup_.sequence = chosen->sequence;
             if (menus_) setup_.race = menus_->game().race.race;
