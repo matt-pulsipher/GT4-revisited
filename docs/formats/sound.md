@@ -732,6 +732,19 @@ gain (least squares under 1 kHz, or in `--band`). Renderings to compare come fro
 | Contacts | the Ka scraping the tire wall (`tsukuba_start_chase_view_throttle_held`, 30 to 49 s): bursts at 2 to 8 kHz up to -24 dB; `clash` / `clash2` / `clash4` found there by their spectra (match 0.64 to 0.72) | | the levels not settled (sample fits correlate under 0.19) |
 | The finish | the arcade B-spec race: the racing piece stops at FINISH and `goal` (`gt4jg-12a`) starts 2 s later (215.97 s); in Gran Turismo mode's Sunday Cup (FINISH 146 s) no stream of the index is found by spectra or sample fits from 135 to 212 s (results, prize page) | `finish()` | ❓ what Gran Turismo mode plays there |
 
+**The streams in the saved states** (the stream's two SPU2 voices and their ring buffers in the SPU2's
+memory matched against the disc's `.ads`, r5/whichstream.py in the scratch notes; levels × 16383):
+
+| State | Piece (group) | Level |
+|---|---|---|
+| Arcade single race, time trial and Gran Turismo mode's Sunday Cup pre-race pages; Sunday Cup's result page; the pre-race page after a replay | `gt4qm-01` / `gt4qm-02` (`default_quick`) | 4416: the menus' stream level, 0.3 × 115 / 128 |
+| Tsukuba (start, first corner, replay), Grand Canyon, Gran Turismo mode's free run, Route 5 at night, Seattle at dusk | `race_35`, `race_50` (the arcade race's start), `race_37`, `race_68`, `race_40` (`racing`) | 4416: the racing level 0.3 × the race music option 115 / 128 |
+| License B-1: the count, the result | `gt4jg-19`, `gt4jg-09` (`license_bronze`) | 4915: a race's other pieces at the stream level 0.3 alone (RaceBGMPS2 vf5, 0x33D568: only code 12 takes the option) |
+| Prologue's starting grid page | `str10j` | 16383 |
+
+So the pre-race and result pages' music is `default_quick`'s (two pieces), started as a menu stream
+(the menus' level), not by the race; Route 5 at night plays `race_68`.
+
 ❓ Not compared yet: the course ambience (crowds, tunnels: Route 5's recording has no racing piece
 the play list explains), the wheels' notes (no clean recording of a slide), Grand Canyon's dirt
 sounds, Seattle.
