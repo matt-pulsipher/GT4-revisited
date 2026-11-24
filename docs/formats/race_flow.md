@@ -273,7 +273,7 @@ engine's Gran Turismo 3 code). The player notices them roughly in this order.
 | The pad's controls | `screen_race.cpp` (`gt3r::race::ControlMapper`) | **engine** (GT3's mapping) | the input phase 0x349FD0 (`sim-step`) |
 | Looking back | `gt3r::race::look_back_held` | **engine** | ❓ not read |
 | The race display: places, numbers, meters | `race_display.*`, `race_hud.*` | GT4 tables (RaceDisplay); the speedometer's face by the car's top speed estimate (P +0xFD8); how some parts move their pictures judged | the meters' drawing routines |
-| The driver's view's fuel arc and pedal bars | not drawn | | 0x3A8968 (draws `fuel_a0` / `fuel_a1`, `pedal_bar` procedurally, arcs of radii about 52 and 60) |
+| The driver's view's fuel arc and pedal bars | `race_hud.cpp` `draw_bars` | GT4 (0x3A8968: places, steps, colours); the fuel gauge's flag +0x1B judged (always) | |
 | The suggested gear | not drawn | | the value the panel's vf23 (0x3A8430) receives (its source not found) |
 | The license display's trophy times | `race_hud.cpp` | places judged | RaceLicenseDisplay::vf9 |
 | B-spec's display and commands | `race_hud.cpp`, `screen_race.cpp` | display mode 1 GT4; the pace bar, speed plate and help strip places judged; Select Car's order ❓ | the B-spec display's routines |

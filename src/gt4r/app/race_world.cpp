@@ -338,6 +338,12 @@ float RaceWorld::car_top_speed(size_t i) const {
     return session_ && i < car_visuals_.size() ? session_->record(i).p.top_speed.host() : 0.0f;
 }
 
+float RaceWorld::fuel_share(size_t i) const {
+    if (!session_ || i >= car_visuals_.size()) return 1.0f;
+    const float tank = session_->tank(i);
+    return tank > 0 ? std::clamp(session_->fuel(i) / tank, 0.0f, 1.0f) : 1.0f;
+}
+
 float RaceWorld::car_mass(size_t i) const {
     // The parameter block's mass, P +0x48 (what the license rule 0x35FE80 divides a wall hit by).
     return session_ && i < car_visuals_.size() ? session_->record(i).p.mass.host() : 0.0f;

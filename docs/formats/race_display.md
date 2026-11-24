@@ -272,8 +272,16 @@ C = 320; B = 452 (driver's views) or 464 (chase views).
 
 So on a 4:3 screen the plate covers x 152-488, y 350-452; the speedometer's face x 152-282,
 y 352-452 (left); the rev counter's x 358-488 (right); the boost gauge x 495-549, y 377-431.
-The panel also draws the pedal bars (`pedal_bar`) and the fuel / nitrous gauges (`fuel_a0`,
-`fuel_a1`, `nos_a0`, `nos_a1`, 38 x 64) with its own code (0x3A8968, ❓ places not read). Sign
+The panel also draws its bars with its own code (0x3A8968), from the speedometer's corner (x, y) =
+(C - 168, B - 100): the brake (panel +0x28, red 0x800000F0) at x + 121 and the throttle (+0x24, light blue
+0x80E3B896) at x + 195, `pedal_bar` 20 x 58 lit from y + 79.5 up by the pedal (0 .. 1); with the panel's
+flag +0x1B the fuel gauge `fuel_a0` 38 x 64 at (x - 22, y + 19) and over it `fuel_a1` lit from the bottom in
+ten steps n = round(fuel / tank x 10) (+0x2C / +0x30): its top at 60 - 5.2 n (4 higher from the sixth),
+red 0x800000C8 under three steps, else light blue; with +0x1C the nitrous gauge (`nos_a0`, `nos_a1`, +0x34 /
++0x38, red 0x800000F0) the same at the rev counter's (x - 16, y + 19). ✔ Against the original's in-car
+view (03-race incar frames): the fuel arc left of the speedometer, the throttle's blue arc right of the
+digits. Drawn here (`RaceHud::Impl::draw_bars`, the gauge always shown: ❓ the flag +0x1B's source not read;
+the nitrous gauge not drawn: no nitrous part yet). Sign
 colors: `sign_asm` 0x80E3B896, the other two 0x800000C8. Draw order: plate, the two dials'
 shadows, trip meter, shift lamp, the two dials, boost gauge, gear, suggested gear, digital
 speed, tire wear, signs, unit, G meter, bars.
@@ -283,7 +291,7 @@ The race display draws the signs, the shift lamp, the G meter and the trip meter
 simulation does not say when an aid works), the lamp lights past 97 % of the red line, the G
 meter's point runs over two g each way, the trip meter counts whole miles or kilometres of the
 race. Not drawn: the suggested gear (it needs the course line's gear), the boost gauge, the
-driver's views' pedal, fuel and nitrous bars (their places are not read).
+nitrous gauge.
 
 ### Chase views: `RaceSimplePanel`
 

@@ -689,6 +689,7 @@ public:
         const race::CarSpec& spec = world_->visual(0).spec();
         h.speed = me.speed, h.rpm = me.engine_rpm, h.gear = me.gear;
         h.throttle = me.throttle, h.brake = me.brake;
+        h.fuel = replaying_ ? 1.0f : world_->fuel_share(0);
         h.trip_m = replaying_ ? 0 : distance_;
         h.lateral_g = replaying_ ? 0 : lateral_g_;
         h.red_line = spec.red_line, h.rev_limit = spec.rev_limit;
