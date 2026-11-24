@@ -497,8 +497,12 @@ start), +0x1C u32 the kinds (6); from +0x20 a kind each 0xA0 bytes: u8 its numbe
 from +0x10 (x, y, z, w = 1), +0x90 f32 radius, +0x94 f32 mass; then at +0x400 an `MDLS` of
 2 x kinds models (🔎 model 2k a kind's shape, 2k + 1 its shadow, as the shared engine's pylon
 sets), then its pictures. The cone (kind 5): radius 0.59 m, 15 kg. The race view draws each
-kind's shape where the road puts it (within 400 m); ❓ the shadows, and the cars knocking them
-over (the shared engine's pylon physics) are not done.
+kind's shape where the road puts it (within 400 m). The cars knock them about
+(`race/gadget_bodies.*`): ❓ by the shared engine's rules for Gran Turismo 3's pylons (a car's box
+pushes a body out and hits it; awake bodies fall, tumble and bounce on the road; asleep again
+resting on three hull points), Gran Turismo 4's own routines not read. Tsukuba's cones stand a
+metre above the road file's surface under them (on the pit lane, not in the road file): near its
+place a body rests on the floor it stood on. ❓ The shadows are not drawn.
 
 ## Road: `RNW4` (slot 55)
 

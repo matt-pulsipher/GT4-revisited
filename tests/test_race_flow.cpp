@@ -13,6 +13,8 @@
 #include "gt4r/race/replay_script.h"
 #include "gt4r/race/replay_file.h"
 #include "gt4r/race/gadgets.h"
+#include "gt4r/race/gadget_bodies.h"
+#include "gt4r/formats/course/runway_gtrw.h"
 #include "gt4r/race/picture_settings.h"
 #include "gt4r/formats/db/specdb.h"
 #include "gt4r/menu/race_natives.h"
@@ -527,4 +529,43 @@ TEST(race_frame_blend) {
     CHECK(std::fabs(h.eye.x - 0.5f) < 1e-5f && std::fabs(h.view.at(0, 3) + 0.5f) < 1e-5f && std::fabs(h.view.at(0, 0) - 1) < 1e-5f);
     q.eye = {10, 1, 0};
     CHECK(race::blend_poses(p, q, 0.5f).eye.x == 10); // a cut
+}
+
+TEST(race_gadget_bodies_disc) {
+    // A car driven through Tsukuba's first cone at 15 m/s knocks it away; it comes to rest on the road
+    // again; the cones left alone stay asleep where they stand.
+    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    bool ran = false;
+    for (const auto& disc : test::discs()) {
+        if (disc->info().serial.rfind("SCUS_973.28", 0) != 0) continue;
+        const gt3r::Volume::Entry* e = disc->volume().find("crs/tsukuba");
+        if (!e) continue;
+        const Bytes data = disc->volume().read(*e);
+        const course::CourseFile file = course::CourseFile::parse(data);
+        const std::optional<course::Runway> road = course::course_road(file, data);
+        const race::Gadgets g = race::Gadgets::parse(file.section(data, course::kSlotGadgets), file.section(data, course::kSlotRunway));
+        if (!road || g.placements.size() < 2) continue;
+        ran = true;
+        race::GadgetBodies bodies;
+        bodies.reset(g);
+        const course::Vec3 cone = g.placements[0].position;
+        race::GadgetBodies::Car car;
+        car.forward = {1, 0, 0}, car.right = {0, 0, -1}, car.vel = {15, 0, 0};
+        // (The car at the cone's floor: Tsukuba's pit lane is not in the road file.)
+        const float h = cone.y - 0.11f;
+        car.pos = {cone.x - 5, h, cone.z};
+        unsigned hits = 0;
+        for (int i = 0; i < 60; ++i) {
+            hits |= bodies.step(g, *road, std::span<const race::GadgetBodies::Car>(&car, 1), 1.0f / 60);
+            car.pos.x += car.vel.x / 60;
+        }
+        const race::GadgetBodies::Body& b = bodies.bodies()[0];
+        CHECK(hits == 1 && bodies.moved());
+        CHECK(b.removed || b.pos.x > cone.x + 3);
+        for (int i = 0; i < 600; ++i) bodies.step(g, *road, {}, 1.0f / 60);
+        CHECK(b.removed || !b.awake);
+        const race::GadgetBodies::Body& other = bodies.bodies().back();
+        CHECK(!other.awake && std::fabs(other.pos.x - g.placements.back().position.x) < 1e-4f);
+    }
+    if (!ran) SKIP("no Gran Turismo 4 US disc");
 }

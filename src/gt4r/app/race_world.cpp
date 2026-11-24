@@ -126,6 +126,8 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
         short_names_.push_back(short_name.empty() ? names_.back() : short_name);
     }
     line_ = race::RailLine(course_->road());
+    gadget_bodies_.reset(course_->gadgets());
+    course_->set_gadget_bodies(&gadget_bodies_);
     build_simulation();
     // The race's sound: every car, the course's ambience, the count and the music.
     if (audio::AppSound* sound = app.sound()) {
@@ -215,6 +217,7 @@ void RaceWorld::build_simulation() {
 
 void RaceWorld::restart() {
     build_simulation();
+    gadget_bodies_.reset(course_->gadgets());
     course_->restart_animations();
     clear_effects();
 }
@@ -253,6 +256,26 @@ void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool pla
         sim_->step(held, kStep);
     } else sim_->step(inputs, kStep);
     if (!hold) course_->animate(kStep, sim_->cars());
+    // The cones and boards the cars run into: each car's box from its wheels' places.
+    gadget_hits_ = 0;
+    if (!course_->gadgets().placements.empty()) {
+        std::vector<race::GadgetBodies::Car> boxes;
+        const std::span<const race::CarState> now = sim_->cars();
+        for (size_t i = 0; i < now.size() && i < car_visuals_.size(); ++i) {
+            const race::CarState& c = now[i];
+            const race::CarSpec& spec = car_visuals_[i]->spec();
+            race::GadgetBodies::Car b;
+            b.pos = {(c.wheels[0].center.x + c.wheels[1].center.x + c.wheels[2].center.x + c.wheels[3].center.x) / 4,
+                     (c.wheels[0].center.y + c.wheels[1].center.y + c.wheels[2].center.y + c.wheels[3].center.y) / 4 - spec.tire_radius[0],
+                     (c.wheels[0].center.z + c.wheels[1].center.z + c.wheels[2].center.z + c.wheels[3].center.z) / 4};
+            b.right = c.right, b.up = c.up, b.forward = c.forward, b.vel = c.velocity;
+            // (❓ The body's overhangs: 0.9 m past each axle, judged; the program's box is not read.)
+            b.front = b.rear = spec.wheelbase / 2 + 0.9f;
+            b.half_width = std::max(spec.half_track[0], spec.half_track[1]) + spec.tire_width[0] / 2 + 0.05f;
+            boxes.push_back(b);
+        }
+        gadget_hits_ = gadget_bodies_.step(course_->gadgets(), course_->road(), boxes, kStep);
+    }
 }
 
 // Smoke and dust from the wheels for a step: a puff where a tire slides on the road, dust and

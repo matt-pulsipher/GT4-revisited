@@ -9,6 +9,7 @@
 #include "gt4r/app/app.h"
 #include "gt4r/race/car_visual.h"
 #include "gt4r/race/course_scene.h"
+#include "gt4r/race/gadget_bodies.h"
 #include "gt4r/race/rail_simulation.h"
 #include "gt4r/race/replay_script.h"
 #include "gt4r/race/simulation.h"
@@ -127,6 +128,8 @@ public:
     const std::string& car_label(size_t i) const { return setup_.entries[i].label; }
     size_t car_count() const { return car_visuals_.size(); }
     const race::RailLine& line() const { return line_; }
+    // The cars that touched a cone or board in the last step (a bit each, the first 32).
+    unsigned gadget_hits() const { return gadget_hits_; }
     // The cars move by the game's simulation (false: the stand-in).
     bool simulated() const { return session_ != nullptr; }
     bool night() const { return night_; }
@@ -152,6 +155,8 @@ private:
     bool computer_player_ = false;
     float player_ps_ = 0;
     float hold_speed_ = 0;
+    race::GadgetBodies gadget_bodies_; // the cones and boards as the cars leave them
+    unsigned gadget_hits_ = 0;
     struct Command {
         int pace = 3;
         bool overtake = false;
