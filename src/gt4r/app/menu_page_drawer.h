@@ -532,9 +532,13 @@ private:
         if (s.empty() && w.has("key")) {
             const std::string page = w.has("key_page") ? w.text("key_page") : page_;
             // A tool tip's key names its page's "TOOLTIP|<key>" (0x249B70); ❓ the key's own text
-            // when there is none.
+            // when there is none, and nothing when the key has no text either (the category
+            // pages' "Real": the original's strip is empty).
             if (w.type == "ToolTipFace") s = project_->translate(page, "TOOLTIP|" + w.text("key"));
-            if (s.empty() || s == "TOOLTIP|" + w.text("key")) s = project_->translate(page, w.text("key"));
+            if (s.empty() || s == "TOOLTIP|" + w.text("key")) {
+                s = project_->translate(page, w.text("key"));
+                if (w.type == "ToolTipFace" && s == w.text("key")) s.clear();
+            }
         }
         if (s.empty()) return;
         gt3r::text::FontVariant variant = gt3r::text::FontVariant::Plain;
