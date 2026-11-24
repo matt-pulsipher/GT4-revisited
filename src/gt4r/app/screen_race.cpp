@@ -51,6 +51,9 @@ namespace gt4r {
 namespace {
 
 namespace render = gt3r::render;
+
+// A license test's sequence: Gran Turismo 4's "license", Prologue's "license_race".
+bool is_license(const std::string& sequence) { return sequence == "license" || sequence == "license_race"; }
 using RVec = render::Vec3;
 
 constexpr float kStep = 1.0f / 60;
@@ -665,7 +668,7 @@ public:
         }
         // The sequences that run the player's car alone (RaceFreeRun, the tests); the free run's race
         // code is "freerun" (0x116E20).
-        if (setup_.sequence == "time_trial" || setup_.sequence == "freerun" || setup_.sequence == "license" || setup_.sequence == "machinetest" ||
+        if (setup_.sequence == "time_trial" || setup_.sequence == "freerun" || is_license(setup_.sequence) || setup_.sequence == "machinetest" ||
             setup_.sequence == "photo_drive")
             setup_.cars = 1, setup_.opponents.clear();
         if (setup_.sequence == "freerun" && setup_.race.empty()) setup_.race = "freerun";
@@ -781,7 +784,7 @@ public:
             } else {
                 leave = m.pressed(PadButton::Cross);
             }
-            if (leave && sequence_ == "license" && license_retry_) {
+            if (leave && is_license(sequence_) && license_retry_) {
                 // RETRY: the result given, the test again at once (end code 4).
                 license_retry_ = false;
                 result_.reset(), result_tried_ = false;
@@ -910,7 +913,7 @@ private:
         if (!pause_movie_) return;
         // The entries by the race's class (docs/formats/strobe.md "Entries per mode"): a retry in the
         // license tests, missions and machine tests; Exit asks first in Gran Turismo mode's races.
-        const bool retry = sequence_ == "license" || sequence_ == "mission" || sequence_ == "machinetest";
+        const bool retry = is_license(sequence_) || sequence_ == "mission" || sequence_ == "machinetest";
         const bool confirm = sequence_ == "solo_event" || sequence_ == "championship";
         auto host = [this, &app, retry, confirm](const std::string& name, const std::vector<race::StrobePlayer::Value>& args) {
             using V = race::StrobePlayer::Value;
@@ -1082,7 +1085,7 @@ private:
         r.place = std::max(0, flow.place(0) - 1);
         r.time_ms = r.finished ? u32(race::clock_ms(flow.car(0).finish_units)) : 0;
         r.distance_m = race_->player_distance();
-        if (sequence_ == "license") {
+        if (is_license(sequence_)) {
             r.kind = menu::RaceResult::Kind::License;
             // ❓ The test's grading: the time against the page's gold, silver and bronze times.
             const s32 t = s32(r.time_ms);
@@ -1119,7 +1122,7 @@ private:
                 LOG_WARN("Race result: %s", e.what());
             }
         }
-        if (sequence_ == "time_trial" || sequence_ == "freerun" || sequence_ == "machinetest" || sequence_ == "license") {
+        if (sequence_ == "time_trial" || sequence_ == "freerun" || sequence_ == "machinetest" || is_license(sequence_)) {
             const s64 best = flow.car(0).best_lap_ms;
             const s32 have = w.get("BestTime");
             if (best > 0 && (have <= 0 || have == menu::QuickWork::kNoTime || best < have)) w.set("BestTime", s32(best));
@@ -1256,7 +1259,7 @@ private:
     }
 
     // The license test's results page is up (its live inset of the race).
-    bool license_page() const { return sequence_ == "license" && results_shown() && result_; }
+    bool license_page() const { return is_license(sequence_) && results_shown() && result_; }
 
     // The test's grade (the movie's PrizeLevel: 0 gold, 1 silver, 2 bronze, 3 failed) by the time
     // against the page's three times; ❓ the test's own rules (a cone touched, the course left, the
@@ -1290,7 +1293,7 @@ private:
                 LOG_WARN("Results: %s", e.what());
             }
         }
-        if (sequence_ == "license" && !license_movie_) {
+        if (is_license(sequence_) && !license_movie_) {
             for (const char* path : {"menu/US/result_license.strb", "menu/result_license.strb"})
                 try {
                     if (const std::optional<Bytes> file = app.vfs()->read(path); file && race::StrobeMovie::is_movie(*file)) {
@@ -1322,7 +1325,7 @@ private:
             if (n == "NAVIGATEALL" && result_) result_->navigate(true, true);
             return V::number(0); // isChampionship, isStage1, ...: no
         };
-        if (sequence_ == "license" && license_movie_) {
+        if (is_license(sequence_) && license_movie_) {
             // ResultLicense (0x3E1BF8: result_license.strb): the grade, the time and its gap, the
             // test's title, RETRY / EXIT.
             auto lhost = [this, &app](const std::string& name, const std::vector<race::StrobePlayer::Value>& args) {
@@ -1479,7 +1482,7 @@ private:
     PrologueHud::Extra prologue_extra() const {
         PrologueHud::Extra e;
         const HudState& h = hud_state_;
-        if (setup_.sequence == "license") e.run = gt3r::race::HudRun::License;
+        if (is_license(setup_.sequence)) e.run = gt3r::race::HudRun::License;
         else if (setup_.sequence == "time_trial") e.run = gt3r::race::HudRun::TimeTrial;
         else if (setup_.sequence == "freerun") e.run = gt3r::race::HudRun::FreeRun;
         e.live = !h.replay;
@@ -1489,6 +1492,13 @@ private:
             else if (!race_->flow().player_finished()) e.countdown = 0;
         }
         if (race_->flow().player_finished()) e.finish_t = double(race_->flow().steps_since_player_finish()) / 60.0;
+        if (menus_ && e.run == gt3r::race::HudRun::License) {
+            // The test's gold, silver and bronze times (the race's menus' work).
+            const menu::QuickWork& w = menu::quick_work(menus_->game());
+            const char* names[3] = {"goldTime", "silverTime", "bronzeTime"};
+            for (int i = 0; i < 3; ++i)
+                if (const s32 t = w.get(names[i]); t > 0 && t != menu::QuickWork::kNoTime) e.license_targets[size_t(i)] = double(t) / 1000.0;
+        }
         return e;
     }
 
