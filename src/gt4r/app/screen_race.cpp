@@ -481,7 +481,6 @@ public:
         camera_.step(world_->cars()[0], kStep);
         if (mount_ == kTvView || opening) step_tv(world_->cars()[0]);
         if (event_steps_ >= 0) ++event_steps_;
-        if (overtake_steps_ > 0) --overtake_steps_;
         if (history_.size() < kHistory) history_.emplace_back(world_->cars().begin(), world_->cars().end());
         hear(world_->cars(), true);
     }
@@ -626,8 +625,8 @@ public:
         }
     }
 
-    // B-spec's commands: the pace (-1 / +1, 1 .. 5), the overtake (on for 10 s, or off again; ❓ its
-    // length is judged), the display shown or hidden. They go to the computer drivers of the
+    // B-spec's commands: the pace (-1 / +1, 1 .. 5), the overtake (on until it is asked off again: the
+    // program's command handler 0x3F19E0 has no timer of its own), the display shown or hidden. They go to the computer drivers of the
     // player's car (RaceWorld::command).
     bool watched() const { return watched_; }
     void bspec_pace(int step) {
@@ -635,7 +634,7 @@ public:
         world_->command(0, bspec_pace_, overtake_steps_ > 0);
     }
     void bspec_overtake() {
-        overtake_steps_ = overtake_steps_ > 0 ? 0 : 600;
+        overtake_steps_ = overtake_steps_ > 0 ? 0 : 1;
         world_->command(0, bspec_pace_, overtake_steps_ > 0);
     }
     void bspec_display() { bspec_help_ = !bspec_help_; }
