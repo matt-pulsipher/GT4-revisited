@@ -488,7 +488,10 @@ sequence starts when the scripts that asked for it finish (a new work object, 0x
 - **A mission** (0x11C328): the place's prize whatever the run, the record ("mission", the
   place) and its score, the diary's mission day (place, note 15, time).
 - **A license test** (0x1105A8) keeps its result in its unit and its ranking (time, result, the
-  real date, the pass code); **a course's run** (0x115A90) is a day of the diary.
+  real date, the pass code). Its day is the sequence's: when the license sequence ends (0x114E38
+  -> 0x110800) the diary gets the last run's day (result, note 14, time), or a day with nothing in
+  it when there was no run or its result is 13: every visit to a test's page is a day, as the
+  original's calendar shows. **A course's run** (0x115A90) is a day of the diary.
 
 The prize page of the quick projects counts the prize into the credits (`incMoney`, ten at a
 time); the presents (prize cars, licenses) are given by Gran Turismo mode's present page on

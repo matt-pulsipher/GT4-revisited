@@ -178,6 +178,17 @@ void CarRecord::set_condition(size_t field, float v) {
 
 GameState::GameState() { new_game(); }
 
+// 0x110800 (from the license sequence, 0x114E38): a run's day with its result, the note 14 and
+// its time; a day with nothing in it when the result is 13 (no run, or failed).
+void GameState::end_race_sequence() {
+    if (race_session.license_open) {
+        const DayEvent& d = race_session.license_day;
+        put_day(d.type == 4 && d.b1 != 13 ? d : DayEvent{});
+        race_session.license_open = false;
+    }
+    race_session.sequence.clear();
+}
+
 namespace {
 
 void put32(Bytes& b, size_t o, u32 v) { b[o] = u8(v), b[o + 1] = u8(v >> 8), b[o + 2] = u8(v >> 16), b[o + 3] = u8(v >> 24); }

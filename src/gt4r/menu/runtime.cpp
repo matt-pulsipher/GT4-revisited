@@ -518,6 +518,8 @@ std::optional<RaceRequest> Runtime::race_request() const {
 bool Runtime::advance() {
     if (!finished_) return false;
     if (race_request()) return false;
+    // A race sequence that was under way is over.
+    if (!game_->race_session.sequence.empty()) game_->end_race_sequence();
     // The program's load_replay sequence (0x10CA50): the next menu argument becomes the page
     // ReplayTheaterRoot (0x42FC98) and the project labomode runs (0x10B290); its card manager in
     // MODE_LOAD_REPLAY lists the replays.
@@ -568,7 +570,10 @@ void Runtime::finish() {
     // The scripts asked for a race: its sequence starts (the program makes the race's menus'
     // work object anew, 0x127E60, and the result routines' session).
     if (race && game_->sequence_asked) {
+        game_->end_race_sequence(); // one not ended by the app
         game_->race_session = {};
+        game_->race_session.sequence = race->sequence;
+        game_->race_session.license_open = race->sequence == "license";
         game_->quick_work.reset();
     }
     game_->sequence_asked = false;
