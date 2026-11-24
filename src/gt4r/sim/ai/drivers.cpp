@@ -126,6 +126,7 @@ static Params params_from(const std::array<u8, 0x80>& s, int cls, const Tuning& 
     p.bonus_ticks = int(s[0x11]) * 10;
     p.pit_speed = int_f(s32(s[0x12] ? s[0x12] : 80)) * kPerKmh;
     p.brake = p.brake * t.brake_global;
+    p.aids = rules::driver_block(s.data());
     if (s[0x1D] && s[0x1C]) {
         p.straight_bonus = true;
         p.bonus_angle = b(0x1C) * kPerDeg;

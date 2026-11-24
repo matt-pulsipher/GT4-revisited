@@ -123,4 +123,6 @@ private:
     std::map<u32, std::vector<Pending>> pending_; // by return address
 };
 
+void add_taps_aids(Taps& taps); // the driving aids' phase and routines (taps_aids.cpp)
+
 } // namespace gt4r::diff

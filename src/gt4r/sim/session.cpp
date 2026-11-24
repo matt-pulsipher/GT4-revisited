@@ -174,6 +174,10 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
     const char* rules_env = std::getenv("GT4R_SIM_RULES");
     gt4_rules_ = gt4_ready_ && !(rules_env && std::string(rules_env) == "engine");
     if (gt4_ready_) tables_ = rules::tables(program, race_.statics);
+    // What the aids read of the race: the course's kind (a loose course 1), no speed caps, the lap.
+    aid_race_.course_kind = loose_ ? 1 : 0;
+    aid_race_.lap_length = F(road_->length);
+    driver_aids_.assign(entries.size(), std::nullopt);
     specs_.resize(entries.size());
     states_.resize(entries.size());
     for (size_t i = 0; i < entries.size(); ++i) {
@@ -208,6 +212,9 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
                 Record r;
                 r.car = c;
                 gt4_extras(specs_[i], program, r);
+                // The entry's aid switches: ASM's channels and the TCS of the car's own block off.
+                if (!e.asm_on) r.x.aids.own.on = {};
+                if (!e.tcs_on) r.x.aids.own.tcs_gain = F();
                 gx_[i] = r.x;
                 layouts_[i] = r.layout;
             }
@@ -256,6 +263,10 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
         rules::moving_start(cars_[i], gx_[i].drive, F(entries[i].start_speed), true);
         publish(i);
     }
+}
+
+void Session::set_driver_aids(size_t car, const gt3r::sim::exact::Aids& block) {
+    if (car < driver_aids_.size()) driver_aids_[car] = block;
 }
 
 void Session::hold_once(std::span<const race::CarInput> inputs) {
@@ -486,7 +497,13 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
         ex::wheel_steer(c);
         if (gt4_rules_) rules::slip_phase(c, gx_[i], layouts_[i], tables_);
         else ex::slip_ratios(c, race_.statics);
-        ex::aids(c, race_.aids);
+        if (gt4_rules_) {
+            // Gran Turismo 4's aids (0x3F79A0): a computer's car (control source 2) by its driver's block.
+            if (in.computer) c.control = 2;
+            const ex::Aids* driver = in.computer && driver_aids_[i] ? &*driver_aids_[i] : nullptr;
+            sim::Extra& g = gx_[i];
+            rules::aids(c, g.aids, g.tires, g.drive, layouts_[i], tables_.aids, aid_race_, driver);
+        } else ex::aids(c, race_.aids);
         if (gt4_rules_) rules::dynamics(c, gx_[i], layouts_[i], tables_, !std::isnan(in.steer_angle));
         else ex::dynamics(c, race_.statics, race_.gears, race_.class_grip);
         if (gt4_rules_) rules::brake_heat(c, layouts_[i], tables_.brake_heat, gx_[i].drive.d.tire_radius);

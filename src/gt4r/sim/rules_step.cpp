@@ -28,6 +28,7 @@ Tables tables(const Program& program, const ex::Statics&) {
     t.globals.mean_on = 1;
     t.drive = drive_tables(program);
     t.body = body_globals(program);
+    t.aids = aid_tables(program);
     // The brake heat's constants (0x3F3808): 1 / (b0 x 9800), 1 / (b1 x 0.1 x 100), b2 km/h in m/s, b3 x 0.01, of the
     // static block's bytes +0xAC .. +0xAF (the first two 1 when 0).
     {

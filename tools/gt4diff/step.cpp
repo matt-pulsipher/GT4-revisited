@@ -177,6 +177,7 @@ StepResult run_step(Disc& disc, bool print, const std::string& course_label, con
     const ex::RaceInputs inputs = ex::race_inputs(data, ex::Conductor::SinglePlayer, config, false, 0);
     Taps taps(ee, o, inputs);
     add_taps(taps);
+    add_taps_aids(taps);
     if (std::getenv("GT4R_DUMP")) {
         const u32 at = o.car(0);
         for (u32 off = 0; off < kCarSize; off += 4) {

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <optional>
+
 // A session's cars stepped on a course: race::Simulation over the shared engine's vehicle step with
 // Gran Turismo 4's cars, tables and road (docs/specs/physics.md "What runs where"). One step is 1/60 s.
 
@@ -75,6 +77,9 @@ public:
     bool gt4_rules() const { return gt4_rules_; }
     // A car's Gran Turismo 4 part of the record (record.h) and wheel layout.
     const sim::Extra& gt4_record(size_t i) const { return gx_[i]; }
+    // The aid block of the computer driver that drives a car (rules::driver_block from the course's set for the car:
+    // 0x466C20), which Gran Turismo 4's aids use while a computer drives it. Without one a computer's car has no aids.
+    void set_driver_aids(size_t car, const gt3r::sim::exact::Aids& block);
     // What the session runs on stand-ins for ("the disc's program is not a build whose tables are mapped").
     const std::vector<std::string>& notes() const { return notes_; }
 
@@ -112,6 +117,8 @@ private:
     std::vector<Extra> extra_;
     std::vector<sim::Extra> gx_;
     std::vector<rules::WheelLayout> layouts_;
+    std::vector<std::optional<gt3r::sim::exact::Aids>> driver_aids_; // a computer driver's aid block per car
+    rules::AidRace aid_race_;
     rules::Tables tables_;
     bool gt4_ready_ = false, gt4_rules_ = false;
     std::vector<Spec> specs_;

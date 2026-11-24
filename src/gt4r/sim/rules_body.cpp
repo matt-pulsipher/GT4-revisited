@@ -6,8 +6,6 @@
 #include "sim/exact/build_math.h"
 #include "gt4r/sim/program.h"
 
-#include <cstdio>
-#include <cstdlib>
 
 namespace gt4r::sim::rules {
 
@@ -448,9 +446,6 @@ void bump_nudge(ex::Car& c, const BodyExtra& x, const WheelLayout& l) {
         default: break;
         }
         F lift = k0;
-        if (std::getenv("GT4R_DEBUG_NUDGE"))
-            std::fprintf(stderr, "nudge mask %02X d %g %g %g %g left %g right %g front %g rear %g roll %g\n", mask, double(d[0].host()), double(d[1].host()),
-                         double(d[2].host()), double(d[3].host()), double(left.host()), double(right.host()), double(front.host()), double(rear.host()), double(c.roll.host()));
         if (!(left == k0 && right == k0)) {
             if (right < left) {
                 c.roll = c.roll + ex::atan2(behaviour(), left - right, c.p.track);

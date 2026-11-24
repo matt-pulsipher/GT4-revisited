@@ -185,6 +185,7 @@ void RaceWorld::build_simulation() {
             if (!computer.empty()) {
                 try {
                     field_ = sim::ai::Field::open(*app_.disc(), setup_.course, *session_, computer, setup_.pace);
+                    for (size_t car : computer) session_->set_driver_aids(car, field_->params(car).aids); // (their aids)
                 } catch (const std::exception& e) {
                     if (!noted_) LOG_WARN("Drive: no computer drivers (%s); the simple driver drives", e.what());
                 }

@@ -10,6 +10,8 @@
 #include "gt4r/sim/ai/drivers.h"
 #include "gt4r/sim/ai/run.h"
 #include "gt4r/sim/car_spec.h"
+#include "gt4r/sim/exact_bridge.h"
+#include "sim/exact/race_inputs.h"
 
 #include <cmath>
 #include <cstdio>
@@ -306,6 +308,14 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
     // The rubber band off (the race's set-up from an event row is left out: the conductor's own values would hurry the
     // cars behind car 0; GT4R_AI_BAND keeps them).
     if (!options.band) ee.wf(o.cond + 0x7C, 0.0f), ee.wf(o.cond + 0x88, 0.0f), ee.wf(o.cond + 0x94, 1.0f);
+    // GT4R_AI_AIDS: the driving aids' taps (taps_aids.cpp) on the computer drivers' cars.
+    std::unique_ptr<ex::RaceInputs> aid_inputs;
+    std::unique_ptr<Taps> aid_taps;
+    if (std::getenv("GT4R_AI_AIDS")) {
+        aid_inputs = std::make_unique<ex::RaceInputs>(ex::race_inputs(sim::core_program(sim::Program::load(disc)), ex::Conductor::SinglePlayer, ex::RaceConfig{}, false, 0));
+        aid_taps = std::make_unique<Taps>(ee, o, *aid_inputs);
+        add_taps_aids(*aid_taps);
+    }
     const u32 lap_bits = ee.call(kLapLength, {Arg::ptr(o.cond + kAiCourse)}).f0;
     float lap_length;
     std::memcpy(&lap_length, &lap_bits, 4);
@@ -409,6 +419,7 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
         result.error = b;
         if (print) std::printf("ai: %s\n", b);
     }
+    if (aid_taps && print) aid_taps->print();
     for (const auto& [name, tl] : tally) {
         result.checks[name] = {tl.n, tl.off};
         if (print) tl.print(name.c_str());
