@@ -74,6 +74,9 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const std::s
 bool widget_key(Runtime& rt, LiveWidget& focus, Key k);
 // A ScaleBar's key after its script did not take it: the value's step (widget_classes.cpp).
 bool scale_bar_key_after(Runtime& rt, LiveWidget& w, Key k);
+bool list_key_after(Runtime& rt, LiveWidget& w, Key k);
+inline bool class_key_after(Runtime& rt, LiveWidget& w, Key k) { return w.is("ListBox") ? list_key_after(rt, w, k) : scale_bar_key_after(rt, w, k); }
+LiveWidget* list_cursor_row(LiveWidget& list);
 // `widget.index = i`; `notify`: the script's onValueChanged is called.
 void widget_set_index(Runtime& rt, LiveWidget& w, int index, bool notify);
 void widget_children_changed(Runtime& rt, LiveWidget& w);

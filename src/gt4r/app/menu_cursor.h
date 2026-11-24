@@ -16,7 +16,7 @@ public:
     // step toward it. `visible`: the scripts' cursor_visible.
     void step(menu::Runtime& rt) {
         const bool visible = rt.cursor_visible() && rt.common_project();
-        LiveWidget* focus = visible ? rt.focused() : nullptr;
+        LiveWidget* focus = visible ? rt.cursor_widget() : nullptr; // a list box: its focused row
         if (focus && focus->shown() && (!focus->data.has("cursor_target") || focus->data.number("cursor_target") != 0)) {
             const Rect at = focus->screen_rect();
             const int align = focus->data.has("cursor_align") ? int(focus->data.number("cursor_align")) : 8;

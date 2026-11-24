@@ -641,6 +641,18 @@ void Runtime::queue_call(LiveWidget& w, const std::string& name, std::vector<Val
     events_.push_back(std::move(e));
 }
 
+void Runtime::queue_function(const Value& callee, std::vector<Value> args, std::string what) {
+    Event e;
+    e.kind = Event::Kind::Call, e.callee = callee, e.args = std::move(args), e.what = std::move(what);
+    events_.push_back(std::move(e));
+}
+
+LiveWidget* Runtime::cursor_widget() {
+    LiveWidget* focus = focused();
+    if (focus && focus->is("ListBox")) return list_cursor_row(*focus);
+    return focus;
+}
+
 void Runtime::push_event(const Value& event) {
     Event e;
     e.kind = Event::Kind::Script, e.value = event;
@@ -969,18 +981,19 @@ void Runtime::dispatch_key(Key k) {
         }
         LiveWidget& w = *chain[at];
         if (&w != page.get() && widget_key(*this, w, k)) return;
-        // A ScaleBar moves its value after its script, when that did not take the key (0x238D10).
-        const bool scale = &w != page.get() && w.is("ScaleBar");
+        // A ScaleBar moves its value (0x238D10) and a ListBox its focus (0x2B3918) after the
+        // widget's script, when that did not take the key.
+        const bool scale = &w != page.get() && (w.is("ScaleBar") || w.is("ListBox"));
         std::shared_ptr<LiveWidget> held = chain[at];
         const auto it = w.members.find("onKeyPress");
         if (it == w.members.end() || it->second->value.kind != Kind::Function) {
-            if (scale && scale_bar_key_after(*this, w, k)) return;
+            if (scale && class_key_after(*this, w, k)) return;
             if (self) (*self)(at + 1);
             return;
         }
         run(it->second->value, {render_context_, ev}, w.path() + "::onKeyPress", [this, self, at, scale, held, k](const Value& result) {
             if (result.is_number() && result.as_float() != 0) return;
-            if (scale && scale_bar_key_after(*this, *held, k)) return;
+            if (scale && class_key_after(*this, *held, k)) return;
             if (self) (*self)(at + 1);
         });
     };

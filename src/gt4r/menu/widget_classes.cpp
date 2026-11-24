@@ -451,25 +451,97 @@ bool scale_bar_key_after(Runtime& rt, LiveWidget& w, Key k) {
 
 namespace {
 
-// ---- the list box: rows made from a template as they come into view ------------------------
+// ---- the list box (mListBox, 0x2AEA98 on; docs/formats/menu.md "ListBox") --------------------
+//
+// Its rows are items (setItemCount): a place and size each, eased toward the row's size (the
+// focused one `magnify_ratio` larger), the list scrolled so the focused row sits at
+// `alignment` of the box (0x2B2400), the rows in range made visible and told to the script
+// (visible_callback), a countdown per row for update_callback, focus_callback(new, old) when
+// the focus changed. A row without a widget of its own is drawn as the template.
 
-int list_count(const LiveWidget& w) { return int(w.data.number("item_count")); }
+using ListItem = LiveWidget::ListItem;
 
-W list_item(Runtime& rt, LiveWidget& list, int i, bool make) {
-    if (i < 0 || i >= list_count(list)) return nullptr;
-    if (list.items.size() < size_t(list_count(list))) list.items.resize(size_t(list_count(list)));
-    W& row = list.items[size_t(i)];
-    if (!row && make) {
-        const auto it = list.extras.find("item_template");
-        const auto tmpl = it == list.extras.end() ? nullptr : std::dynamic_pointer_cast<script::Variable>(it->second);
-        const W from = tmpl ? tmpl->value.as<LiveWidget>() : nullptr;
-        if (!from) return nullptr;
-        row = from->copy();
-        row->parent = std::static_pointer_cast<script::Module>(list.shared_from_this());
-        row->runtime = &rt;
-        row->set_property("visible", Value::integer(1));
+float lb_num(const LiveWidget& w, const char* name, float fallback) { return w.data.has(name) ? w.data.number(name) : fallback; }
+bool lb_vertical(const LiveWidget& w) { return w.data.number("direction") != 0; }
+int list_count(const LiveWidget& w) { return int(w.list_items.size()); }
+int list_focus_index(const LiveWidget& w) { return w.data.has("focus_index") ? int(w.data.number("focus_index")) : -1; }
+// The row's size along the list (0x2B1FE0) and across it.
+float lb_item_along(const LiveWidget& w) { return lb_vertical(w) ? w.item_h : w.item_w; }
+// The box's own length along and across (0x2B1F90, 0x2B1FB8).
+Rect lb_box(const LiveWidget& w) { return w.data.rect("geometry").value_or(Rect{0, 0, 128, 128}); }
+float lb_extent(const LiveWidget& w) { return lb_vertical(w) ? lb_box(w).h : lb_box(w).w; }
+float lb_cross_extent(const LiveWidget& w) { return lb_vertical(w) ? lb_box(w).w : lb_box(w).h; }
+float lb_chosen(const LiveWidget& w) { return lb_item_along(w) * lb_num(w, "magnify_ratio", 1.0f); } // 0x2B2340
+float lb_pitch(const LiveWidget& w) { return lb_item_along(w) + w.data.number("spacing"); }
+// Every row one pitch apart, the focused one magnified (0x2B2390).
+float lb_total(const LiveWidget& w) { return lb_pitch(w) * float(list_count(w) - 1) + lb_chosen(w); }
+
+// Where the list's start goes (0x2B2400): rows longer than the box put the focused row at
+// `alignment` of it, held so neither end leaves a gap; rows that fit start at 0.
+float lb_target(const LiveWidget& w) {
+    const int focus = list_focus_index(w);
+    if (focus < 0) return 0.0f;
+    const float extent = lb_extent(w), total = lb_total(w), align = lb_num(w, "alignment", 0.5f);
+    if (!(extent <= total)) return 0.0f;
+    float at = extent * align - (lb_pitch(w) * float(focus) + lb_chosen(w) * align);
+    if (0.0f < at) at = 0.0f;
+    if (at + total < extent) at = extent - total;
+    return at;
+}
+
+// The focus set (0x2B3AF8): the old row loses its active flag, the index is kept in the rows,
+// the new row is active with `focus_active`.
+void lb_set_focus(LiveWidget& w, int i) {
+    const int n = list_count(w), before = list_focus_index(w);
+    if (before >= 0 && before < n) w.list_items[size_t(before)].active = false;
+    if (i < 0) i = n > 0 ? 0 : i;
+    else if (i >= n) i = n - 1;
+    w.set_property("focus_index", Value::integer(i));
+    if (i >= 0 && i < n) w.list_items[size_t(i)].active = lb_num(w, "focus_active", 1) != 0;
+}
+
+// `step` rows on (0x2B3BC0) or back (0x2B3C88): insensitive rows are passed without counting,
+// the ends wrap with `repeat`, else the move does not happen; true when the focus moved.
+bool lb_step(LiveWidget& w, int step, bool forward) {
+    const int n = list_count(w), focus = list_focus_index(w);
+    if (focus < 0 || step <= 0) return false;
+    int at = focus;
+    while (step > 0) {
+        at += forward ? 1 : -1;
+        if (at >= n || at < 0) at = w.data.number("repeat") != 0 ? (at < 0 ? n - 1 : 0) : -1;
+        if (at < 0) break;
+        if (!w.list_items[size_t(at)].insensitive) --step;
+        if (at == focus) {
+            at = -1;
+            break;
+        }
     }
-    return row;
+    if (at < 0) return false;
+    lb_set_focus(w, at);
+    return true;
+}
+
+// The row's widget, made from the template when asked with `make` (0x2B4DA0).
+W lb_widget(Runtime& rt, LiveWidget& w, int i, bool make) {
+    if (i < 0 || i >= list_count(w)) return nullptr;
+    ListItem& item = w.list_items[size_t(i)];
+    if (!item.widget && make && w.list_template) {
+        item.widget = w.list_template->copy();
+        item.widget->parent = std::static_pointer_cast<script::Module>(w.shared_from_this());
+        item.widget->runtime = &rt;
+    }
+    return item.widget;
+}
+
+// What draws the row: its widget, else a copy of the template kept for it.
+W lb_drawn(Runtime& rt, LiveWidget& w, ListItem& item) {
+    if (item.widget) return item.widget;
+    if (!item.drawn && w.list_template) {
+        item.drawn = w.list_template->copy();
+        item.drawn->parent = std::static_pointer_cast<script::Module>(w.shared_from_this());
+        item.drawn->runtime = &rt;
+    }
+    return item.drawn;
 }
 
 Value list_callback(const LiveWidget& list, const char* name) {
@@ -478,122 +550,132 @@ Value list_callback(const LiveWidget& list, const char* name) {
     return cell ? cell->value : Value{};
 }
 
-// A list box (MListBox): rows made from a template, as many as its item count, one after the
-// other along its direction (across unless `direction` is 1), `spacing` apart, the focused row
-// `magnify_ratio` larger and kept in the middle while the rows are longer than the box.
-// ❓ Laid out as the select box is (the two share MScrollable and these attributes); MListBox's
-// own routines (0x2B24D8 on) are not read: its `h_justify` / `v_justify` are taken as where a
-// row sits across the box (0 start, 0.5 middle, 1 end), `step_min` / `step_max` are not used.
-void arrange_list(Runtime& rt, LiveWidget& list, bool warp) {
-    const std::optional<Rect> box = list.data.rect("geometry");
-    const int n = list_count(list);
-    list.children.clear();
-    if (!box || n <= 0) return;
-    const bool across = list.data.number("direction") == 0;
-    const int focus = std::clamp(int(list.data.number("focus_index")), 0, n - 1);
-    const W first = list_item(rt, list, focus, true);
-    if (!first) return;
-    const std::optional<Rect> size = first->data.has("item_w") ? std::optional<Rect>(Rect{0, 0, first->data.number("item_w"), first->data.number("item_h")})
-                                                              : first->data.rect("geometry");
-    const float item_w = size ? size->w : 32.0f, item_h = size ? size->h : 24.0f;
-    const float magnify = list.data.has("magnify_ratio") ? list.data.number("magnify_ratio") : 1.0f;
-    const float spacing = list.data.number("spacing"), border = list.data.number("border_width");
-    const float item = across ? item_w : item_h, extent = across ? box->w : box->h;
-    const float pitch = item + spacing, chosen = item * magnify, total = pitch * float(n - 1) + chosen;
-    float target = 0;
-    if (total < extent) target = (extent - total) * 0.5f;
-    else {
-        target = extent * 0.5f - (pitch * float(focus) + chosen * 0.5f);
-        target = std::min(target, item * 0.3f);
-        target = std::max(target, extent - item * 0.3f - total);
-    }
-    if (warp) list.scroll = target;
-    else {
-        const float ratio = list.data.has("interpolate_ratio") ? list.data.number("interpolate_ratio") : 0.2f;
-        const float d = (target - list.scroll) * ratio;
-        list.scroll = d >= -0.1f && d <= 0.1f ? target : list.scroll + d;
-    }
-    list.scroll_target = target;
-    const bool has_focus = list.page() && list.page()->focus.lock().get() == &list;
-    const float justify = across ? (list.data.has("v_justify") ? list.data.number("v_justify") : 0.0f)
-                                 : (list.data.has("h_justify") ? list.data.number("h_justify") : 0.0f);
-    // The rows in view (❓ from the scripts' use: labomode's and list_box's callbacks): the ones
-    // that came into view are given to `visible_callback(context, [indexes])`, which makes their
-    // widgets (getItemVisible answers whether a row is in view); then every row in view whose
-    // update flag is set to `update_callback(context, [indexes])` (the scripts clear the flag
-    // when a row is drawn in full).
-    auto call = [&rt](const Value& fn, const std::vector<int>& rows) {
-        if (rows.empty() || !fn.p || !fn.p->callable()) return;
-        std::vector<Value> list;
-        for (int i : rows) list.push_back(Value::integer(i));
-        try {
-            const Value args[2] = {rt.context(), Value::array(std::move(list))};
-            rt.vm().call(fn, args);
-        } catch (const script::ScriptError& e) {
-            rt.note(std::string("script error in a list's callback: ") + e.what());
-        }
-    };
-    std::vector<u8> was = list.items_in_view;
-    list.items_in_view.assign(size_t(n), 0);
-    std::vector<int> appeared;
-    {
-        float at = list.scroll;
-        for (int i = 0; i < n; ++i) {
-            const float length = item * (i == focus ? magnify : 1.0f);
-            if (at + length >= -pitch && at <= extent + pitch) {
-                list.items_in_view[size_t(i)] = 1;
-                if (size_t(i) >= was.size() || !was[size_t(i)]) appeared.push_back(i);
-            }
-            at += length + spacing;
-        }
-    }
-    call(list_callback(list, "visible_callback"), appeared);
-    std::vector<int> updates;
-    float at = list.scroll;
-    for (int i = 0; i < n; ++i) {
-        const float scale = i == focus ? magnify : 1.0f;
-        const float length = item * scale;
-        if (list.items_in_view[size_t(i)]) {
-            if (const W row = list_item(rt, list, i, true)) {
-                if (!row->data.has("item_w")) row->set_property("item_w", Value::number(item_w)), row->set_property("item_h", Value::number(item_h));
-                const float w = item_w * scale, h = item_h * scale;
-                const float cross = ((across ? box->h : box->w) - (across ? h : w) - border) * justify + border * (1.0f - justify);
-                row->set_property("w", Value::number(w));
-                row->set_property("h", Value::number(h));
-                row->set_property("x", Value::number(across ? at : cross));
-                row->set_property("y", Value::number(across ? cross : at));
-                row->state = i == focus ? row->state | kActive : row->state & ~kActive;
-                row->state = i == focus && has_focus ? row->state | (kFocus | kPrelight) : row->state & ~(kFocus | kPrelight);
-                list.children.push_back(row);
-                if (row->data.number("item_update") != 0) updates.push_back(i);
-            }
-        }
-        at += length + spacing;
-    }
-    call(list_callback(list, "update_callback"), updates);
+float lb_ease(float now, float to, float ratio) {
+    if (now == to) return now;
+    const float d = (to - now) * ratio;
+    if (!(-0.1f <= d)) return now + d;
+    return d <= 0.1f ? to : now + d;
 }
 
-void list_focus(Runtime& rt, LiveWidget& list, int index, bool notify) {
-    const int n = list_count(list);
-    if (n <= 0) return;
-    index = list.data.number("repeat") != 0 ? ((index % n) + n) % n : std::clamp(index, 0, n - 1);
-    const int before = int(list.data.number("focus_index"));
-    list.set_property("focus_index", Value::integer(index));
-    arrange_list(rt, list, !notify);
-    if (notify && index != before) {
-        if (LiveWidget* page = list.page()) rt.navigate_sound(*page);
-        // focus_callback(context, index), else the list's own onValueChanged.
-        const Value cb = list_callback(list, "focus_callback");
-        if (cb.p && cb.p->callable()) {
-            try {
-                const Value args[2] = {rt.context(), Value::integer(index)};
-                rt.vm().call(cb, args);
-            } catch (const script::ScriptError& e) {
-                rt.note(std::string("script error in a list's focus: ") + e.what());
-            }
-        } else rt.call_now(list, "onValueChanged", {rt.context(), Value::integer(index)});
+// One picture (mListBox slot 70, 0x2B29C0) and its drawing (slot 93, 0x2B3848 / 0x2B3670).
+void arrange_list(Runtime& rt, LiveWidget& list, bool) {
+    if (list.list_redraw) {
+        for (int i = list.list_first; i <= list.list_last && i < list_count(list); ++i)
+            if (i >= 0) list.list_items[size_t(i)].visible = false;
+        list.list_first = 0, list.list_last = -1, list.list_redraw = false;
+    }
+    list.children.clear();
+    const int focus = list_focus_index(list), n = list_count(list);
+    if (focus < 0 || n <= 0) return;
+    const float pitch = lb_pitch(list), extent = lb_extent(list), total = lb_total(list), target = lb_target(list);
+    // The scroll eases toward where the focus puts it (a jump of more than the box comes in
+    // from a box away).
+    {
+        const float at = list.scroll, d = at - target;
+        if (target == at) {
+        } else if (extent < d) list.scroll = target + extent;
+        else if (d < -extent) list.scroll = target - extent;
+        else list.scroll = lb_ease(at, target, lb_num(list, "interpolate_ratio", 0.2f));
+    }
+    list.scroll_target = target;
+    list.list_was_first = list.list_first, list.list_was_last = list.list_last;
+    // The rows in range: all when they fit, else those within the box on each side of the
+    // focused row (and of where the scroll still is).
+    int first = 0, last = n - 1;
+    if (!(total < extent)) {
+        const float align = lb_num(list, "alignment", 0.5f), chosen = lb_chosen(list);
+        float before = (extent - chosen) * align, after = (extent - chosen) * (1.0f - align);
+        if (target < list.scroll) before += list.scroll - target;
+        if (list.scroll < target) after += target - list.scroll;
+        auto rows = [pitch](float px) {
+            const float q = px / pitch;
+            const int whole = int(q);
+            return whole + (q - float(whole) > 0.0f ? 1 : 0);
+        };
+        first = focus - rows(before), last = focus + rows(after);
+        int shift = first < 0 ? -first : 0;
+        if (!(last < n)) shift = n - last - 1;
+        first += shift, last += shift;
+        if (first < 0) first = 0;
+        if (!(last < n)) last = n - 1;
+    }
+    list.list_first = first, list.list_last = last;
+    // Places: the rows along from the scroll (moved by `h_justify` of the room when they fit),
+    // across at `v_justify` of the room; each row's size eases toward its own.
+    const bool vertical = lb_vertical(list);
+    const float magnify = lb_num(list, "magnify_ratio", 1.0f), ratio = lb_num(list, "interpolate_ratio", 0.2f);
+    const float hj = lb_num(list, "h_justify", 0.0f), vj = lb_num(list, "v_justify", 0.0f), spacing = list.data.number("spacing");
+    float along = list.scroll + float(first) * pitch;
+    if (total < extent) along += (extent - total) * hj;
+    for (int i = first; i <= last; ++i) {
+        ListItem& item = list.list_items[size_t(i)];
+        float tw = list.item_w, th = list.item_h;
+        if (i == focus) tw *= magnify, th *= magnify;
+        float cw = item.w, ch = item.h;
+        if (cw <= 0.0f) cw = list.item_w;
+        if (ch <= 0.0f) ch = list.item_h;
+        item.w = lb_ease(cw, tw, ratio), item.h = lb_ease(ch, th, ratio);
+        const float cross = (lb_cross_extent(list) - (vertical ? item.w : item.h)) * vj;
+        item.x = vertical ? cross : along, item.y = vertical ? along : cross;
+        along += (vertical ? item.h : item.w) + spacing;
+        item.active = false;
+    }
+    list.list_items[size_t(focus)].active = lb_num(list, "focus_active", 1) != 0;
+    // Rows that came into range or left it are told to visible_callback(context, [indexes]).
+    std::vector<Value> changed, updates;
+    for (int i = std::max(list.list_was_first, 0); i <= list.list_was_last && i < n; ++i)
+        if ((i < first || i > last) && list.list_items[size_t(i)].visible) {
+            list.list_items[size_t(i)].visible = false, list.list_items[size_t(i)].update = 0;
+            changed.push_back(Value::integer(i));
+        }
+    for (int i = first; i <= last; ++i)
+        if (!list.list_items[size_t(i)].visible) {
+            list.list_items[size_t(i)].visible = true, list.list_items[size_t(i)].update = 0;
+            changed.push_back(Value::integer(i));
+        }
+    // A row's update countdown (setItemUpdate): reaching 0 tells update_callback.
+    for (int i = first; i <= last; ++i) {
+        int& u = list.list_items[size_t(i)].update;
+        if (u > 0 && --u == 0) updates.push_back(Value::integer(i));
+    }
+    auto queue = [&](const char* name, std::vector<Value> args) {
+        const Value fn = list_callback(list, name);
+        if (fn.p && fn.p->callable()) rt.queue_function(fn, std::move(args), list.path() + "::" + name);
+    };
+    if (!changed.empty()) queue("visible_callback", {rt.context(), Value::array(std::move(changed))});
+    if (focus != list.list_told) {
+        const int was = list.list_told;
+        list.list_told = focus;
+        queue("focus_callback", {rt.context(), Value::integer(focus), Value::integer(was)});
+    }
+    if (!updates.empty()) queue("update_callback", {rt.context(), Value::array(std::move(updates))});
+    // The rows drawn: each in range at its item's place, shown as its item says.
+    const bool has_focus = list.page() && list.page()->focus.lock().get() == &list;
+    for (int i = first; i <= last; ++i) {
+        ListItem& item = list.list_items[size_t(i)];
+        const W row = lb_drawn(rt, list, item);
+        if (!row) continue;
+        row->set_property("x", Value::number(item.x)), row->set_property("y", Value::number(item.y));
+        row->set_property("w", Value::number(item.w)), row->set_property("h", Value::number(item.h));
+        row->set_property("visible", Value::integer(item.visible));
+        row->state = item.active ? row->state | kActive : row->state & ~kActive;
+        row->state = item.insensitive ? row->state | kInsensitive : row->state & ~kInsensitive;
+        row->state = i == focus && has_focus ? row->state | (kFocus | kPrelight) : row->state & ~(kFocus | kPrelight);
+        list.children.push_back(row);
     }
 }
+
+} // namespace
+
+// The row the cursor points at while the list has the focus (0x2B3670 -> 0x230B68).
+LiveWidget* list_cursor_row(LiveWidget& list) {
+    const int focus = list_focus_index(list);
+    if (focus < 0 || focus >= list_count(list)) return nullptr;
+    ListItem& item = list.list_items[size_t(focus)];
+    return item.widget ? item.widget.get() : item.drawn.get();
+}
+
+namespace {
 
 // ---- the scroll window: its content moved so the focused widget shows -----------------------
 
@@ -905,6 +987,18 @@ void widget_set_index(Runtime& rt, LiveWidget& w, int index, bool notify) {
     w.set_property("index", Value::integer(index));
 }
 
+// A list box's key, after its script's onKeyPress (mListBox slot 72, 0x2B3918): back or on
+// along its direction by `step_min` rows (`step_max` once a held key has gone 10 rows); moved,
+// the page's navigate sound plays and the key is the list's; at an end it goes on.
+bool list_key_after(Runtime& rt, LiveWidget& w, Key k) {
+    const bool vertical = lb_vertical(w);
+    const bool back = vertical ? k == Key::Up : k == Key::Left, on = vertical ? k == Key::Down : k == Key::Right;
+    if (!back && !on) return false;
+    if (!lb_step(w, std::max(int(lb_num(w, "step_min", 1)), 0), on)) return false;
+    if (LiveWidget* page = w.page()) rt.navigate_sound(*page);
+    return true;
+}
+
 bool widget_key(Runtime& rt, LiveWidget& w, Key k) {
     // A select box moves its index with the keys along it (the program's 0x2DAD18): moved, the
     // key is dealt with; at an end the script hears onValueDisabled and the key goes on.
@@ -917,14 +1011,6 @@ bool widget_key(Runtime& rt, LiveWidget& w, Key k) {
         if (w.index() != before) return true;
         rt.call_now(w, "onValueDisabled", {rt.context(), Value::integer(before)});
         return false;
-    }
-    if (w.is("ListBox")) {
-        const bool across = w.data.number("direction") == 0;
-        const int step = across ? (k == Key::Left ? -1 : k == Key::Right ? 1 : 0) : (k == Key::Up ? -1 : k == Key::Down ? 1 : 0);
-        if (!step) return false;
-        const int before = int(w.data.number("focus_index"));
-        list_focus(rt, w, before + step, true);
-        return int(w.data.number("focus_index")) != before;
     }
     if (w.is("OptionMenu")) {
         // Closed, accept opens the list (the menu's activate, 0x2C9568); open, the menu has
@@ -964,7 +1050,7 @@ void step_widgets(Runtime& rt, LiveWidget& w) {
             bool more[2] = {false, false};
             if (is_select_box(*c)) more[0] = select_box_more(*c, true), more[1] = select_box_more(*c, false);
             else if (c->is("ListBox")) {
-                const int count = list_count(*c), focus = int(c->data.number("focus_index"));
+                const int count = list_count(*c), focus = list_focus_index(*c);
                 more[0] = focus < count - 1, more[1] = focus > 0;
             } else continue;
             if (const W inc = w.child("inc_arrow")) inc->state = more[0] ? inc->state | kActive : inc->state & ~kActive;
@@ -1253,82 +1339,80 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
     }
 
     if (type == "ListBox") {
-        if (n == "setItemTemplate") // (context, widget)
+        // setItemTemplate(context, widget) (0x2B48F0): a copy kept; the rows take its size.
+        if (n == "setItemTemplate")
             return fn([w](Vm&, const Value&, Args a) {
-                for (const Value& v : a)
-                    if (v.as<LiveWidget>()) w->extras["item_template"] = std::make_shared<script::Variable>(v);
+                const W from = a.empty() ? nullptr : a.back().as<LiveWidget>();
+                w->list_template = from ? from->copy() : nullptr;
+                if (const std::optional<Rect> g = from ? from->data.rect("geometry") : std::nullopt) w->item_w = g->w, w->item_h = g->h;
+                for (ListItem& item : w->list_items) item.drawn.reset();
                 return Value{};
             });
+        // setItemCount(n) (0x2B4A00): rows kept up to n, new ones empty; the focus kept among
+        // them; every row in range enters again.
         if (n == "setItemCount")
-            return fn([r, w](Vm&, const Value&, Args a) {
+            return fn([w](Vm&, const Value&, Args a) {
                 const int count = std::max(arg_int(a, a.size() > 1 ? 1 : 0), 0);
-                w->set_property("item_count", Value::integer(count));
-                w->items.clear();
-                w->items.resize(size_t(count));
-                w->items_in_view.clear();
-                w->set_property("focus_index", Value::integer(std::clamp(int(w->data.number("focus_index")), 0, std::max(count - 1, 0))));
-                arrange_list(*r, *w, true);
+                if (count == list_count(*w)) return Value{};
+                w->list_items.resize(size_t(count));
+                lb_set_focus(*w, list_focus_index(*w));
+                w->list_redraw = true;
                 return Value{};
             });
         if (n == "getItemCount") return fn([w](Vm&, const Value&, Args) { return Value::integer(list_count(*w)); });
-        if (n == "getItemWidget") // (index[, context]): the row, made from the template when it is not there yet
-            return fn([r, w](Vm&, const Value&, Args a) { return widget_value(list_item(*r, *w, arg_int(a, 0, -1), true)); });
+        // getItemWidget(index): the row's widget or nil; getItemWidget(index, context): made
+        // from the template when there is none (0x2AF738).
+        if (n == "getItemWidget")
+            return fn([r, w](Vm&, const Value&, Args a) { return widget_value(lb_widget(*r, *w, arg_int(a, 0, -1), a.size() >= 2)); });
         if (n == "setItemWidget") // (index, context, widget)
-            return fn([r, w](Vm&, const Value&, Args a) {
+            return fn([w](Vm&, const Value&, Args a) {
                 const int i = arg_int(a, 0, -1);
                 if (i >= 0 && i < list_count(*w)) {
-                    if (w->items.size() < size_t(list_count(*w))) w->items.resize(size_t(list_count(*w)));
-                    w->items[size_t(i)] = a.size() > 2 ? a[2].as<LiveWidget>() : nullptr;
-                    arrange_list(*r, *w, true);
+                    const W to = a.size() > 2 ? a[2].as<LiveWidget>() : nullptr;
+                    if (to) to->parent = std::static_pointer_cast<script::Module>(w->shared_from_this());
+                    w->list_items[size_t(i)].widget = to;
                 }
                 return Value{};
             });
         if (n == "postRedraw")
-            return fn([r, w](Vm&, const Value&, Args) {
-                for (const W& row : w->items)
-                    if (row) row->set_property("item_update", Value::integer(1));
-                arrange_list(*r, *w, true);
+            return fn([w](Vm&, const Value&, Args) {
+                w->list_redraw = true;
                 return Value{};
             });
         if (n == "incIndex" || n == "decIndex") {
-            const int step = n == "incIndex" ? 1 : -1;
-            return fn([r, w, step](Vm&, const Value&, Args) {
-                const int before = int(w->data.number("focus_index"));
-                list_focus(*r, *w, before + step, true);
-                return Value::integer(int(w->data.number("focus_index")) != before);
-            });
+            const bool on = n == "incIndex";
+            return fn([w, on](Vm&, const Value&, Args a) { return Value::integer(lb_step(*w, a.empty() ? 1 : arg_int(a, 0, 1), on)); });
         }
         if (n == "focus_index") {
             auto a = std::make_shared<Accessor>();
-            a->read = [w] { return Value::integer(int(w->data.number("focus_index"))); };
-            a->write = [r, w](const Value& v) { list_focus(*r, *w, v.is_number() ? int(v.as_float()) : 0, false); };
+            a->read = [w] { return Value::integer(list_focus_index(*w)); };
+            a->write = [w](const Value& v) { lb_set_focus(*w, v.is_number() ? int(v.as_float()) : 0); };
             return a;
         }
-        if (n == "update_callback" || n == "visible_callback" || n == "focus_callback") return w->extras[n] = std::make_shared<script::Variable>();
-        // A row's flags: (index[, value]).
-        struct Flag {
-            const char* get;
-            const char* set;
-            const char* property;
-        };
-        if (n == "getItemVisible") // (index): the row is in view
-            return fn([w](Vm&, const Value&, Args a) {
-                const int i = arg_int(a, 0, -1);
-                return Value::integer(i >= 0 && size_t(i) < w->items_in_view.size() && w->items_in_view[size_t(i)]);
-            });
-        for (const Flag& f : {Flag{"getItemVisible", "setItemVisible", "visible"}, Flag{"getItemUpdate", "setItemUpdate", "item_update"},
-                              Flag{"getItemActive", "setItemActive", "active"}, Flag{"getItemInsensitive", "setItemInsensitive", "insensitive"}}) {
-            if (n == f.get)
-                return fn([r, w, f](Vm&, const Value&, Args a) {
-                    const W row = list_item(*r, *w, arg_int(a, 0, -1), false);
-                    return row ? row->get(f.property) : Value::integer(0);
-                });
-            if (n == f.set)
-                return fn([r, w, f](Vm&, const Value&, Args a) {
-                    if (const W row = list_item(*r, *w, arg_int(a, 0, -1), true)) row->set(f.property, Value::integer(arg_int(a, 1, 1)));
-                    return Value{};
-                });
+        if (n == "justify") { // the same as v_justify (the registration's 0x2AF470)
+            auto a = std::make_shared<Accessor>();
+            a->read = [w] { return Value::number(lb_num(*w, "v_justify", 0)); };
+            a->write = [w](const Value& v) { w->set_property("v_justify", Value::number(v.is_number() ? v.as_float() : 0)); };
+            return a;
         }
+        if (n == "update_callback" || n == "visible_callback" || n == "focus_callback") {
+            auto& cell = w->extras[n];
+            if (!cell) cell = std::make_shared<script::Variable>();
+            return cell;
+        }
+        // A row's flags: getItemX(index), setItemX(index, value) (0x2AFAD8 on).
+        auto row_of = [w](Args a) -> ListItem* {
+            const int i = arg_int(a, 0, -1);
+            return i >= 0 && i < list_count(*w) ? &w->list_items[size_t(i)] : nullptr;
+        };
+        if (n == "getItemVisible") return fn([row_of](Vm&, const Value&, Args a) { const ListItem* it = row_of(a); return Value::integer(it && it->visible); });
+        if (n == "setItemVisible") return fn([row_of](Vm&, const Value&, Args a) { if (ListItem* it = row_of(a)) it->visible = arg_int(a, 1, 1) != 0; return Value{}; });
+        if (n == "getItemUpdate") return fn([row_of](Vm&, const Value&, Args a) { const ListItem* it = row_of(a); return Value::integer(it ? it->update : 0); });
+        if (n == "setItemUpdate") return fn([row_of](Vm&, const Value&, Args a) { if (ListItem* it = row_of(a)) it->update = arg_int(a, 1, 1); return Value{}; });
+        if (n == "getItemActive") return fn([row_of](Vm&, const Value&, Args a) { const ListItem* it = row_of(a); return Value::integer(it && it->active); });
+        if (n == "setItemActive") return fn([row_of](Vm&, const Value&, Args a) { if (ListItem* it = row_of(a)) it->active = arg_int(a, 1, 1) != 0; return Value{}; });
+        if (n == "getItemInsensitive") return fn([row_of](Vm&, const Value&, Args a) { const ListItem* it = row_of(a); return Value::integer(it && it->insensitive); });
+        if (n == "setItemInsensitive") return fn([row_of](Vm&, const Value&, Args a) { if (ListItem* it = row_of(a)) it->insensitive = arg_int(a, 1, 1) != 0; return Value{}; });
         if (n == "enterDragMode" || n == "leaveDragMode") return nothing();
     }
 

@@ -37,9 +37,20 @@ struct LiveWidget : script::Module {
     std::weak_ptr<LiveWidget> focus;                                  // a page's: the widget of it that has the focus
     std::weak_ptr<LiveWidget> focus_seen;                             // a page's: the focus its last picture had (the focus events)
     Runtime* runtime = nullptr;                                       // the one running it (none for a page only drawn)
-    // A list box's rows, made from its template as they are asked for.
-    std::vector<std::shared_ptr<LiveWidget>> items;
-    std::vector<u8> items_in_view; // a list box's: the rows in view at its last arrangement
+    // A list box's rows (mListBox's items): the widget the scripts gave or made for the row (none:
+    // the template is drawn there, `drawn` its copy for the row), its place and size in the
+    // list, its update countdown and flags.
+    struct ListItem {
+        std::shared_ptr<LiveWidget> widget, drawn;
+        float x = 0, y = 0, w = 0, h = 0;
+        int update = 0;
+        bool visible = false, active = false, insensitive = false;
+    };
+    std::vector<ListItem> list_items;
+    std::shared_ptr<LiveWidget> list_template;
+    int list_first = 0, list_last = -1, list_was_first = 0, list_was_last = -1; // the rows in range, now and the picture before
+    int list_told = -1;                                                       // the focus focus_callback last heard
+    bool list_redraw = false;                                                 // postRedraw: every row in range enters again
     float scroll = 0, scroll_target = 0; // of a scroll window or list: how far its content is moved
     float item_w = 16, item_h = 16;      // a select box's: the size of its rows (its first row's)
 
@@ -157,6 +168,8 @@ public:
     Project* project_of(const LiveWidget& page);
     LiveWidget* current_page() { return pages_.empty() ? nullptr : pages_.back().get(); }
     LiveWidget* focused();
+    // What the cursor points at: the focused widget, a list box's focused row (0x2B3670).
+    LiveWidget* cursor_widget();
     // The pages shown, the lowest first.
     const std::vector<std::shared_ptr<LiveWidget>>& open_pages() const { return pages_; }
     // The page of the common project that draws the cursor, when the scripts show it.
@@ -191,6 +204,8 @@ public:
     // A widget's script function queued as an event (run after the event being dispatched);
     // nothing when the widget has no such function.
     void queue_call(LiveWidget& w, const std::string& name, std::vector<script::Value> args);
+    // A function value queued the same way (a list box's callbacks).
+    void queue_function(const script::Value& callee, std::vector<script::Value> args, std::string what);
     void flush_key_events();
     void enter_event_loop();
     void leave_event_loop();

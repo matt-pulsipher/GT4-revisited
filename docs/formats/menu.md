@@ -330,13 +330,43 @@ the display ends, in the popup while open, else in the bar. `incIndex` / `decInd
 their argument and send nothing. A ScaleBar's key (0x238D10): in popup mode accept opens or
 closes it and cancel closes it; a fresh press along it sets `repeat_start` to the value and tells the
 step; then its own script (`onKeyPress`) has the key, and only when that does not take it does the
-value move a step (and the value and step are told); closed in popup mode the key goes on. **ListBox** (`step_min`, `step_max`, `interpolate_ratio`,
-`magnify_ratio`, `focus_active`, `repeat`, `alignment`, `h_justify`, `v_justify`): ❓ its own
-routines are not read; it answers the scripts' calls, laid out as a select box. Its rows are made
-from the template (`setItemTemplate`, `setItemCount`); the rows that come into view are given to
-`visible_callback(context, [indexes])` (`getItemVisible(i)`: the row is in view), then every row
-in view whose update flag is set to `update_callback(context, [indexes])` (labomode's and
-list_box's scripts set the flag until a row is drawn in full; ❓ from their use).
+value move a step (and the value and step are told); closed in popup mode the key goes on. **ListBox** (mListBox, 0x2AEA98): its rows are items, not children (`setItemCount(n)`,
+0x2B4A00: rows kept up to n, new ones empty; the focus kept among them, -1 on a new list and the
+first row once there are rows). Each item has a place and size, an update countdown and flags
+(in range, active, insensitive), and a widget only when the script makes or gives one
+(`getItemWidget(i, context)` copies the template, `getItemWidget(i)` answers nil until then,
+`setItemWidget(i, context, w)`); a row without one is drawn as the template
+(`setItemTemplate(context, w)`, 0x2B48F0: a copy, whose size is the rows' size; 16 x 16 before).
+Layout and attributes with their defaults (0x2B3D50): `step_min` 1, `step_max` 1,
+`interpolate_ratio` 0.2, `magnify_ratio` 1, `alignment` 0.5, `h_justify` 0, `v_justify` 0
+(also `justify`), `focus_active` 1, `repeat` 0; `direction` 0 lays the rows left to right, 1 top to
+bottom; `spacing` between two.
+- **Each picture** (slot 70, 0x2B29C0): with `postRedraw` pending, every row in range leaves it.
+  The list's start wants (0x2B2400): rows longer than the box (pitch x (n - 1) + the focused
+  row's length, magnified) put the focused row at `alignment` of the box, held so neither end
+  leaves a gap; rows that fit start at 0. The scroll eases `interpolate_ratio` of the way (within
+  0.1 it arrives; more than the box away it starts a box away). The rows in range: all when they
+  fit; else as many pitches (rounded up) as the box's room before and after the focused row
+  (`alignment` of the box less the focused row, the other part after), widened by how far the
+  scroll still has to go, moved back inside the rows. Each row in range is placed along from the
+  scroll (when they fit, moved by `h_justify` of the room left) and across at `v_justify` of the
+  room left; its size eases toward the row's size (magnified for the focused row) by the same
+  ratio; only the focused row is active (with `focus_active`).
+- Rows that came into range or left it change their visible flag, their countdown goes to 0,
+  and they are given to `visible_callback(context, [indexes])`; a row's countdown
+  (`setItemUpdate(i, n)`) falls by one a picture while in range and at 0 the row goes to
+  `update_callback(context, [indexes])`; a focus other than the last one told goes to
+  `focus_callback(context, new, old)`. All three are queued as events (visible, focus, update).
+- **Drawn** (slot 93, 0x2B3848 / 0x2B3670): each row in range, its widget at the item's place and
+  size with the item's flags; while the list has the focus the cursor points at the focused
+  row's widget (0x230B68).
+- **Keys** (slot 72, 0x2B3918), after the list's own script: back (left, or up when vertical) or
+  on by `step_min` rows (`step_max` once a held key has gone 10 rows from where it started),
+  passing insensitive rows without counting them; at an end the move wraps with `repeat`, else
+  does not happen and the key goes on to the page. A move plays the page's `navigate_sound`.
+  `incIndex(n)` / `decIndex(n)` the same; `focus_index = i` sets it (kept among the rows).
+- `getItemVisible`, `getItemUpdate`, `getItemActive`, `getItemInsensitive` and their setters
+  read and write the item's flags. ❓ Drag mode (`enterDragMode`, `drag_index`) is not written.
 
 Faces: `TextFace` (`getTextSize`, `abbreviate`, `adjustScale`: the text made narrower to fit
 its rectangle), `ImageFace` (`adjustSize`), `InputTextFace` (`putString`, `backspace`,
