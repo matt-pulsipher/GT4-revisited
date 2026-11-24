@@ -3,6 +3,8 @@
 // place at every call (docs/specs/ai.md "Checks").
 
 #include "diff.h"
+#include "base/ee_math.h"
+#include "gt4r/sim/ai/ee_math.h"
 #include "orig.h"
 #include "taps.h"
 
@@ -16,6 +18,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <set>
 
 namespace gt4r::diff {
 
@@ -42,6 +45,7 @@ public:
         }
         const sim::Session ours(sdb, program, std::make_shared<const course::Runway>(road), entries);
         for (int i = 0; i < o.cars; ++i) recs_[size_t(i)].car = ours.record(size_t(i)), recs_[size_t(i)].x = ours.gt4_record(size_t(i));
+        loose_ = ee.call(0x34C998, {Arg::ptr(o.cond)}).v0_s32() != 0; // the course's kind: loose (dirt, snow)
         refresh();
     }
     void refresh() {
@@ -73,12 +77,28 @@ public:
     const gt3r::sim::exact::Car& record(size_t i) const override { return recs_[i].car; }
     const race::CarState& state(size_t i) const override { return states_[i]; }
     const sim::Spec& spec(size_t i) const override { return specs_[i]; }
-    bool loose() const override { return false; }
+    bool loose() const override { return loose_; }
     const sim::RoadGround& ground() const override { return ground_; }
     const sim::Extra& extra(size_t i) const override { return recs_[i].x; }
     bool hits(size_t i, bool& front, bool& rear) const override {
         const u32 body = o_.cond + 0xDA6C + 0x4F0 * u32(i) + 0xC;
         front = ee_.r32(body + 0x434) != 0, rear = ee_.r32(body + 0x438) != 0;
+        return true;
+    }
+    bool lat_filter(size_t i, gt3r::ee::F& x) const override {
+        x = gt3r::ee::F::raw(ee_.r32(o_.car(int(i)) + kF + 0x560));
+        return true;
+    }
+    bool course_rate(size_t i, gt3r::ee::F& x) const override {
+        x = gt3r::ee::F::raw(ee_.r32(o_.car(int(i)) + kF + 0x650));
+        return true;
+    }
+    bool rank(size_t i, int& r) const override {
+        r = gt3r::s8(ee_.r8(o_.car(int(i)) + kF + 0x4AF));
+        return true;
+    }
+    bool clock(u32& c) const override {
+        c = ee_.r32(o_.cond + 0xF89C);
         return true;
     }
 
@@ -92,24 +112,33 @@ private:
     std::vector<int> laps_;
     std::vector<float> last_s_;
     float lap_ = 1e9f;
+    bool loose_ = false;
 };
 
 // The driver object D of car i (the car's +0x14) as our drivers' probe state.
 sim::ai::Field::Probe probe_of(Ee& ee, const OrigRace& o, int i, float lap) {
-    const u32 D = o.car(i) + 0x14, F = o.car(i) + kF;
+    using gt3r::ee::F;
+    const u32 D = o.car(i) + 0x14, Fs = o.car(i) + kF;
     sim::ai::Field::Probe p;
-    p.line = ee.r8(D + 0x1C), p.next = ee.r8(D + 0x1D), p.mode = ee.r8(D + 0x1E), p.next_kind = ee.r8(D + 0x1F), p.status = ee.r8(D + 0x43);
+    p.line = ee.r8(D + 0x1C), p.next = ee.r8(D + 0x1D), p.mode = ee.r8(D + 0x1E), p.next_kind = ee.r8(D + 0x1F), p.status = gt3r::s8(ee.r8(D + 0x43));
     p.follow = gt3r::s8(ee.r8(D + 0x51)), p.chain = ee.r8(D + 0x6A);
-    p.v_cur = gt3r::ee::F::raw(ee.r32(D + 0x24)), p.v_next = gt3r::ee::F::raw(ee.r32(D + 0x28)), p.contact = ee.rf(D + 0x44);
-    float s = ee.rf(F + kDistance);
+    p.v_cur = F::raw(ee.r32(D + 0x24)), p.v_next = F::raw(ee.r32(D + 0x28)), p.contact = F::raw(ee.r32(D + 0x44));
+    float s = ee.rf(Fs + kDistance);
     if (s >= lap) s -= lap;
     if (s < 0) s += lap;
     p.s = s;
     p.rand = ee.r16(D + 0x68);
-    p.corner_mult = gt3r::ee::F::raw(ee.r32(D + 0xB8)), p.brake_mult = gt3r::ee::F::raw(ee.r32(D + 0xBC));
-    p.alongside_mult = gt3r::ee::F::raw(ee.r32(D + 0xC0));
+    p.corner_mult = F::raw(ee.r32(D + 0xB8)), p.brake_mult = F::raw(ee.r32(D + 0xBC));
+    p.alongside_mult = F::raw(ee.r32(D + 0xC0));
     for (u32 k = 0; k < 8; ++k) p.zone[k] = ee.r8(D + 0x48 + k);
     p.cooldown = s16(ee.r16(D + 0x18));
+    p.state = ee.r8(D + 0x1B), p.prev_line = ee.r8(D + 0x21), p.state_hold = ee.r8(D + 0x6B), p.start_flag = ee.r8(D + 0x1A);
+    p.stop_count = ee.r8(D + 0x52), p.pit = ee.r8(D + 0x20), p.arc_ticks = ee.r16(D + 0x22);
+    p.blend = F::raw(ee.r32(D + 0x2C)), p.offset = F::raw(ee.r32(D + 0x54));
+    p.gap_left = F::raw(ee.r32(D + 0x58)), p.gap_right = F::raw(ee.r32(D + 0x5C));
+    p.steer = F::raw(ee.r32(D + 0x30)), p.throttle = F::raw(ee.r32(D + 0x34)), p.brake = F::raw(ee.r32(D + 0x38));
+    p.reverse = ee.r8(D + 0x3E) != 0, p.shift_lock = ee.r16(D + 0x3C);
+    p.aim_x = F::raw(ee.r32(Fs + 0x61C)), p.aim_y = F::raw(ee.r32(Fs + 0x620));
     return p;
 }
 
@@ -172,6 +201,10 @@ void check_lines(Ee& ee, const OrigRace& o, const sim::ai::Field& field, std::ma
                             double(ee.rf(P + 0x14)), double(q.dist), double(ee.rf(P + 0x1C)), double(q.slope), double(ee.rf(P + 0x20)), double(q.bank),
                             double(ee.rf(P + 4)), double(q.x), double(ee.rf(P + 8)), double(q.y));
             t["line height"].bits(w, ee.r32(P + 0x0C), gt3r::ee::F(q.height));
+            t["line x"].bits(w, ee.r32(P + 0x04), gt3r::ee::F(q.x));
+            t["line y"].bits(w, ee.r32(P + 0x08), gt3r::ee::F(q.y));
+            t["line radius"].bits(w, ee.r32(P + 0x18), gt3r::ee::F(q.radius));
+            t["line heading"].bits(w, ee.r32(P + 0x24), gt3r::ee::F(q.heading));
             t["line slope"].bits(w, ee.r32(P + 0x1C), gt3r::ee::F(q.slope));
             t["line bank"].bits(w, ee.r32(P + 0x20), gt3r::ee::F(q.bank));
             t["line surface"].add(w, ee.r8(P + 0x12), q.surface, 0);
@@ -279,6 +312,157 @@ void check_braking(Ee& ee, const OrigRace& o, sim::ai::Field& field, float lap, 
     }
 }
 
+// A line's place at a distance (0x46B480) against ours: each car's line at its distance and on to 60 m ahead.
+void check_places(Ee& ee, const OrigRace& o, sim::ai::Field& field, std::map<std::string, Tally>& t) {
+    using gt3r::ee::F;
+    const u32 out = ee.alloc(16);
+    for (int i = 0; i < o.cars; ++i) {
+        const u32 D = o.car(i) + 0x14;
+        const int line = ee.r8(D + 0x1C), hint = ee.r8(D + 0x1D);
+        if (line == 4) continue;
+        const F s0 = F::raw(ee.r32(o.car(i) + kF + kDistance));
+        for (int k = 0; k < 7; ++k) {
+            const F s = s0 + F(float(k * 10) - 3.0f);
+            ee.write_bytes(out, ByteSpan(reinterpret_cast<const u8*>("\0\0\0\0\0\0\0\0\0\0\0\0"), 12));
+            ee.call(0x46B480, {Arg::ptr(o.cond + kAiCourse), Arg::integer(line), Arg::integer(hint), Arg::ptr(out), Arg::ptr(out + 4), Arg::ptr(out + 8),
+                               Arg::integer(0), Arg::integer(0), Arg::fbits(s.bits)});
+            F x, y, h;
+            field.probe_place(line, hint, s, x, y, h);
+            char w[64];
+            std::snprintf(w, sizeof w, "car %d line %d s %.2f", i, line, s.value());
+            t["place x"].bits(w, ee.r32(out), x);
+            t["place y"].bits(w, ee.r32(out + 4), y);
+            t["place height"].bits(w, ee.r32(out + 8), h);
+        }
+    }
+}
+
+// The program's sinf, cosf and atan2f (0x57D2B8, 0x57D1F0, 0x57D118) against the engine's.
+void check_math(Ee& ee, std::map<std::string, Tally>& t) {
+    using gt3r::ee::F;
+    u32 x = 12345;
+    for (int i = 0; i < 4000; ++i) {
+        x = x * 1103515245u + 12345u;
+        const F a = F(float(int(x >> 8) % 20000 - 10000) * 0.00071f);
+        x = x * 1103515245u + 12345u;
+        const F b = F(float(int(x >> 8) % 20000 - 10000) * 0.013f);
+        char w[64];
+        std::snprintf(w, sizeof w, "%.6g %.6g", a.value(), b.value());
+        t["math sin"].bits(w, ee.call(0x57D2B8, {Arg::fbits(a.bits)}).f0, gt3r::ee::sin(a));
+        t["math cos"].bits(w, ee.call(0x57D1F0, {Arg::fbits(a.bits)}).f0, gt3r::ee::cos(a));
+        t["math atan2"].bits(w, ee.call(0x57D118, {Arg::fbits(a.bits), Arg::fbits(b.bits)}).f0, sim::ai::atan2(a, b));
+        t["math atan"].bits(w, ee.call(0x57D008, {Arg::fbits(a.bits)}).f0, gt3r::ee::atan(a));
+    }
+}
+
+// The decision (0x465078) and the proximity pass (0x3F4638) at every call: ours run from the program's state at the
+// call's entry, compared with what the program leaves at the call's exit.
+class CallChecks {
+public:
+    CallChecks(Ee& ee, const OrigRace& o, sim::ai::Field& field, ProgramCars& cars, float lap, std::map<std::string, Tally>& t)
+        : ee_(ee), o_(o), field_(field), cars_(cars), lap_(lap), t_(t) {}
+    void install() {
+        ee_.add_probe(0x465078, [this](Ee&) { decision_in(); });
+        ee_.add_probe(0x3F4638, [this](Ee&) { proximity_in(); });
+    }
+
+private:
+    struct Pending {
+        u32 sp;
+        int car;
+        sim::ai::Field::Probe ours;
+    };
+    void load_all() {
+        cars_.refresh();
+        for (int j = 0; j < o_.cars; ++j) field_.probe_set(size_t(j), probe_of(ee_, o_, j, lap_));
+    }
+    void at_return(u32 ra) {
+        if (returns_.insert(ra).second) ee_.add_probe(ra, [this](Ee&) { decision_out(), proximity_out(); });
+    }
+    void decision_in() {
+        const u32 D = u32(ee_.a(0));
+        int car = -1;
+        for (int i = 0; i < o_.cars; ++i)
+            if (o_.car(i) + 0x14 == D) car = i;
+        if (car < 0) return;
+        load_all();
+        decisions_.push_back({ee_.g32(29), car, field_.probe_decide(size_t(car))});
+        at_return(ee_.g32(31));
+    }
+    void decision_out() {
+        if (decisions_.empty() || decisions_.back().sp != ee_.g32(29)) return;
+        const Pending p = decisions_.back();
+        decisions_.pop_back();
+        const sim::ai::Field::Probe th = probe_of(ee_, o_, p.car, lap_);
+        const sim::ai::Field::Probe& my = p.ours;
+        char w[64];
+        std::snprintf(w, sizeof w, "car %d at %.1f s", p.car, double(ee_.r32(o_.cond + 0xF89C)) / 3000.0);
+        t_["decision steer"].bits(w, th.steer.bits, my.steer);
+        t_["decision throttle"].bits(w, th.throttle.bits, my.throttle);
+        t_["decision brake"].bits(w, th.brake.bits, my.brake);
+        t_["decision aim x"].bits(w, th.aim_x.bits, my.aim_x);
+        t_["decision aim y"].bits(w, th.aim_y.bits, my.aim_y);
+        t_["decision blend"].bits(w, th.blend.bits, my.blend);
+        t_["decision offset"].bits(w, th.offset.bits, my.offset);
+        t_["decision v_cur"].bits(w, th.v_cur.bits, my.v_cur);
+        t_["decision v_next"].bits(w, th.v_next.bits, my.v_next);
+        t_["decision state"].add(w, th.state, my.state, 0);
+        t_["decision state hold"].add(w, th.state_hold, my.state_hold, 0);
+        t_["decision status"].add(w, th.status, my.status, 0);
+        t_["decision line"].add(w, th.line * 10 + th.prev_line, my.line * 10 + my.prev_line, 0);
+        t_["decision next"].add(w, th.next, my.next, 0);
+        t_["decision mode"].add(w, th.mode, my.mode, 0);
+        t_["decision arc ticks"].add(w, th.arc_ticks, my.arc_ticks, 0);
+        t_["decision cooldown"].add(w, th.cooldown, my.cooldown, 0);
+        t_["decision reverse, shift lock"].add(w, (th.reverse ? 1000 : 0) + th.shift_lock, (my.reverse ? 1000 : 0) + my.shift_lock, 0);
+        t_["decision start flag"].add(w, th.start_flag, my.start_flag, 0);
+        if (std::getenv("GT4R_AI_DECISION") && (th.steer.bits != my.steer.bits || th.throttle.bits != my.throttle.bits || th.brake.bits != my.brake.bits ||
+                                                th.aim_x.bits != my.aim_x.bits || th.offset.bits != my.offset.bits) && shown_++ < 40) {
+            std::printf("  offset %08X / %08X contact %08X kind %d hold %d rank %d cool %d\n", th.offset.bits, my.offset.bits, th.contact.bits,
+                        ee_.r8(o_.car(p.car) + kF + 0x467), ee_.r8(o_.car(p.car) + kF + 0x4BC), gt3r::s8(ee_.r8(o_.car(p.car) + kF + 0x4AF)), th.cooldown);
+            std::printf("  %s: steer %.6f/%.6f thr %.4f/%.4f brk %.3f/%.3f aim %.4f,%.4f / %.4f,%.4f state %d/%d status %d/%d mode %d/%d line %d/%d\n", w,
+                        th.steer.value(), my.steer.value(), th.throttle.value(), my.throttle.value(), th.brake.value(), my.brake.value(),
+                        th.aim_x.value(), th.aim_y.value(), my.aim_x.value(), my.aim_y.value(), th.state, my.state, th.status, my.status, th.mode,
+                        my.mode, th.line, my.line);
+        }
+    }
+    void proximity_in() {
+        load_all();
+        field_.probe_proximity();
+        prox_.clear();
+        for (int j = 0; j < o_.cars; ++j) prox_.push_back(field_.probe_get(size_t(j)));
+        prox_sp_ = ee_.g32(29);
+        at_return(ee_.g32(31));
+    }
+    void proximity_out() {
+        if (prox_.empty() || prox_sp_ != ee_.g32(29)) return;
+        for (int j = 0; j < o_.cars; ++j) {
+            const sim::ai::Field::Probe th = probe_of(ee_, o_, j, lap_);
+            const sim::ai::Field::Probe& my = prox_[size_t(j)];
+            char w[48];
+            std::snprintf(w, sizeof w, "car %d", j);
+            for (int k = 0; k < 8; ++k) t_["proximity zone"].add(w, th.zone[size_t(k)] + 10 * k, my.zone[size_t(k)] + 10 * k, 0);
+            t_["proximity contact"].bits(w, th.contact.bits, my.contact);
+            t_["proximity follow"].add(w, th.follow, my.follow, 0);
+            t_["proximity chain"].add(w, th.chain, my.chain, 0);
+            t_["proximity gaps"].bits(w, th.gap_left.bits, my.gap_left);
+            t_["proximity gaps"].bits(w, th.gap_right.bits, my.gap_right);
+        }
+        prox_.clear();
+    }
+    Ee& ee_;
+    const OrigRace& o_;
+    sim::ai::Field& field_;
+    ProgramCars& cars_;
+    float lap_;
+    std::map<std::string, Tally>& t_;
+    std::vector<Pending> decisions_;
+    std::vector<sim::ai::Field::Probe> prox_;
+    u32 prox_sp_ = 0;
+    std::set<u32> returns_;
+    int shown_ = 0;
+};
+
 std::string clock(double s) {
     char b[32];
     const int m = int(s / 60);
@@ -314,6 +498,7 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
     std::unique_ptr<course::Runway> road;
     std::unique_ptr<ProgramCars> pcars;
     std::unique_ptr<sim::ai::Field> field;
+    std::unique_ptr<CallChecks> calls;
     const sim::Program program = sim::Program::load(disc);
     const bool ours = options.ours, checks = options.checks;
     std::map<std::string, Tally> tally;
@@ -331,7 +516,11 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
         field = std::make_unique<sim::ai::Field>(*pcars, *ad, program, computer);
         sim::ai::Field* f = field.get();
         const OrigRace* race = &o;
-        if (checks) check_lines(ee, o, *field, tally), check_params(ee, o, *field, tally);
+        if (checks) check_lines(ee, o, *field, tally), check_params(ee, o, *field, tally), check_math(ee, tally);
+        if (checks && !ours) {
+            calls = std::make_unique<CallChecks>(ee, o, *field, *pcars, lap_length, tally);
+            calls->install();
+        }
         if (ours) ee.hle(
             0x465078,
             [f, race](Ee& e) {
@@ -339,12 +528,12 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
                 const int i = int((D - 0x14 - race->cond - kCar0) / kCarSize);
                 race::CarInput in;
                 f->decide_car(size_t(i), in);
-                const sim::ai::Field::Snapshot sn = f->snapshot(size_t(i));
-                e.wf(D + 0x30, sn.steer), e.wf(D + 0x34, sn.wanted_throttle), e.wf(D + 0x38, sn.brake);
-                e.w8(D + 0x3E, sn.reverse ? 1 : 0), e.w16(D + 0x3C, 0);
-                e.w8(D + 0x1E, u8(sn.mode)), e.w8(D + 0x1B, u8(sn.state)), e.w8(D + 0x1C, u8(sn.line)), e.w8(D + 0x1D, u8(sn.next));
-                e.w8(D + 0x43, u8(sn.status));
-                e.wf(D + 0x24, sn.v_cur), e.wf(D + 0x28, sn.v_next);
+                const sim::ai::Field::Probe p = f->probe_get(size_t(i));
+                e.w32(D + 0x30, p.steer.bits), e.w32(D + 0x34, p.throttle.bits), e.w32(D + 0x38, p.brake.bits);
+                e.w8(D + 0x3E, p.reverse ? 1 : 0), e.w16(D + 0x3C, p.shift_lock);
+                e.w8(D + 0x1E, u8(p.mode)), e.w8(D + 0x1B, u8(p.state)), e.w8(D + 0x1C, u8(p.line)), e.w8(D + 0x1D, u8(p.next));
+                e.w8(D + 0x43, u8(p.status)), e.w8(D + 0x21, u8(p.prev_line)), e.w16(D + 0x22, p.arc_ticks);
+                e.w32(D + 0x24, p.v_cur.bits), e.w32(D + 0x28, p.v_next.bits), e.w32(D + 0x2C, p.blend.bits), e.w32(D + 0x54, p.offset.bits);
             },
             "our decision");
     }
@@ -364,6 +553,7 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
             if (field) pcars->refresh(), field->begin_step();
             if (checks && !ours && step % 120 == 60) check_corners(ee, o, *field, lap_length, tally);
             if (checks && !ours && step % 4 == 1) check_braking(ee, o, *field, lap_length, tally);
+            if (checks && !ours && step % 60 == 30) check_places(ee, o, *field, tally);
             orig_step(ee, o);
             if (field) field->end_step();
             const double t = double(step + 1) / 60.0;
@@ -373,6 +563,7 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
                 const u32 F = o.car(int(i)) + kF;
                 const float s = ee.rf(F + kDistance), v = ee.rf(F + kSpeed);
                 r.top_speed = std::max(r.top_speed, v);
+                if (t > 10.0 && !r.finished && std::fabs(v) < 5.0f / 3.6f) r.stuck += 1.0 / 60.0;
                 if (!r.finished && last_s[i] > 0.75f * lap_length && s < 0.25f * lap_length) {
                     if (started[i]) {
                         r.laps.push_back(t - lap_start[i]);
@@ -420,7 +611,7 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
         for (const AiCarRun& r : result.cars) {
             std::printf("  %-28s %-10s", r.car.c_str(), r.finished ? clock(r.total).c_str() : "-");
             for (double l : r.laps) std::printf(" %s", clock(l).c_str());
-            std::printf("  top %.0f km/h\n", double(r.top_speed) * 3.6);
+            std::printf("  top %.0f km/h, %.1f s below 5 km/h\n", double(r.top_speed) * 3.6, r.stuck);
         }
     }
     return result;

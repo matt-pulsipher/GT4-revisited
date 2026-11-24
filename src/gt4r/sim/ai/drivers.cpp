@@ -1,6 +1,7 @@
 #include "gt4r/sim/ai/drivers.h"
 
 #include "base/ee_math.h"
+#include "gt4r/sim/ai/ee_math.h"
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/course/ai_line_course.h"
 #include "gt4r/sim/exact_bridge.h"
@@ -11,6 +12,8 @@
 #include <cmath>
 #include <numbers>
 #include <stdexcept>
+#include <cstdio>
+#include <cstdlib>
 
 namespace gt4r::sim::ai {
 
@@ -37,47 +40,53 @@ enum Zone { kFront, kFrontLeft, kFrontRight, kLeft, kRight, kRearLeft, kRearRigh
 
 struct Field::Driver {
     size_t car = 0;
-    int control = 2;        // F+0x466: 2 a computer car
+    int control = 2;        // F+0x466: 2 a computer car, 1 the player's car with a computer driver (B-spec)
     int index = 0;          // the car's grid index
     int drive_class = 0;
     Params p;
-    // The plan (0x463C00 ..).
-    int line = 6, prev_line = 6, next = 0, mode = 0, next_kind = 0;
-    F v_cur, v_next;
-    float blend = 0;
-    int arc_ticks = 0;
-    int state = 0;          // recovery: 0 racing, 1 backing out, 2 turning round
-    int status = 0;         // 0x43: 1 nearing a braking point, 2 braking, 3 / 4 / 5 in an arc near the grip's limit
-    int state_hold = 0;     // 0x6B: steps the state machine rests after a change
-    s16 cooldown = 0;       // 0x18: the lane change's cooldown
-    bool long_start = true; // 0x1A == 0: the standing start's long look ahead (5 s)
-    float offset = 0;       // 0x54: the sideways offset of the aim (m, + right)
-    u16 rand = 0;           // 0x68
-    F corner_mult{1.0f}, brake_mult{1.0f}, alongside_mult{1.0f}; // 0xB8 / 0xBC / 0xC0
-    // Proximity, every step (0x4694A0).
-    float contact = 0;
-    std::array<u8, 8> zone{};
-    int follow = -1;        // 0x51: the car ahead it follows
-    float gap_left = 1000, gap_right = 1000; // 0x58 / 0x5C
-    int chain = 0;          // 0x6A: the follow chain's length (m of braking added)
-    // Outputs.
-    float steer = 0, throttle = 0, brake = 0, applied_throttle = 0;
+    // The plan (the driver object D, 0x463C00 ..).
+    int line = 6, prev_line = 6, next = 0, mode = 0, next_kind = 0; // +0x1C / +0x21 / +0x1D / +0x1E / +0x1F
+    F v_cur, v_next;        // +0x24 / +0x28
+    F blend;                // +0x2C the old line's share of the aim
+    u16 arc_ticks = 0;      // +0x22 steps in the arc
+    int state = 0;          // +0x1B recovery: 0 racing, 1 backing out, 2 turning round
+    int status = 0;         // +0x43: 1 nearing a braking point, 2 braking, 3 / 4 / 5 in an arc near the grip's limit
+    int state_hold = 0;     // +0x6B steps the state machine rests after a change
+    s16 cooldown = 0;       // +0x18 the lane change's cooldown
+    int start_flag = 0;     // +0x1A 0: the standing start's long look ahead (5 s)
+    int stop_count = 0;     // +0x52 the stop driver's count down
+    int pit = 0;            // +0x20 held to the pit speed
+    bool overtake = true;   // +0x6E a B-spec driver may pass
+    F offset;               // +0x54 the sideways offset of the aim (m, + right)
+    u16 rand = 0;           // +0x68
+    F corner_mult{1.0f}, brake_mult{1.0f}, alongside_mult{1.0f}; // +0xB8 / +0xBC / +0xC0
+    // Outputs (+0x30 / +0x34 / +0x38 / +0x3E / +0x3C).
+    F steer, throttle, brake;
     bool reverse = false;
+    u16 shift_lock = 0;
+    float applied_throttle = 0;
     // Checks.
     Incidents inc;
     bool was_wall = false, was_car = false, was_off = false;
     int prev_state = 0;
-    float s = 0;            // the car's distance along the course this step
-    int course_hint = -1;
+    float s = 0;            // the car's distance along the course this step, wrapped into the lap
     bool hit_front = false, hit_rear = false;
     u8 blip = 0;
     float time_scale = 1;
     float look = 0;
+    F eps, aim_x, aim_y;    // the heading's error to the aim, the aim (F +0x61C / +0x620)
     float brake_dist = 0, brake_to = 0;
-    u8 shift_lock = 0;      // 0x3C: the gearbox held this many steps (a part throttle)
     rules::WheelLayout lay; // the car's wheels (0x359510)
     std::array<u8, 0x54> lay_raw{0, 4, 0, 0, 2, 2, 0, 0, 0, 0, 0, 0, 0, 2}; // its row of the program's table
     int kind = 0;           // F+0x467: the driver's kind (0 racing)
+};
+
+struct Field::Near {
+    std::array<u8, 8> zone{};
+    F gap_left{1000.0f}, gap_right{1000.0f}; // +0x58 / +0x5C
+    F contact;                               // +0x44
+    int follow = -1;                         // +0x51
+    int chain = 0;                           // +0x6A
 };
 
 std::optional<course::AiData> Field::read(Disc& disc, const std::string& course) {
@@ -159,6 +168,9 @@ void Field::init(const course::AiData& data, const Program& program, std::span<c
     const size_t n = session.size();
     drivers_.resize(n);
     ranks_.assign(n, 0);
+    near_.assign(n, Near{});
+    lat_v_.assign(n, F()), lat_x_.assign(n, F()), rate_.assign(n, F()), last_s_.assign(n, F());
+    for (size_t i = 0; i < n; ++i) last_s_[i] = F(session.state(i).course_v);
     for (size_t car : computer) {
         if (car >= n) continue;
         auto d = std::make_unique<Driver>();
@@ -167,8 +179,11 @@ void Field::init(const course::AiData& data, const Program& program, std::span<c
         const Spec& spec = session.spec(car);
         const int drive = spec.drive(), system = spec.b(0x129);
         d->drive_class = drive == 1 ? 1 : drive == 2 ? (system == 3 ? 3 : system == 0 ? 1 : system == 5 ? 0 : 2) : 0;
-        if (!program.known()) d->lay.fore_aft = {1, 1, 0xFF, 0xFF}; // the front wheels steer
-        else {
+        if (!program.known()) { // the front wheels steer; wheels 0 and 2 on the left
+            d->lay.fore_aft = {1, 1, 0xFF, 0xFF};
+            d->lay_raw[0x3C] = d->lay_raw[0x3D] = 1;
+            d->lay_raw[0x1D] = d->lay_raw[0x1F] = 1;
+        } else {
             const u8 row = wheel_layout_index(spec);
             d->lay = rules::wheel_layout(program, row);
             for (u32 k = 0; k < 0x54; ++k) d->lay_raw[k] = program.b(rules::kWheelLayouts + rules::kWheelLayoutSize * row + k);
@@ -199,10 +214,10 @@ void Field::init(const course::AiData& data, const Program& program, std::span<c
         // The random draws (0x4639E0): seeded by the grid index for a computer car, then one step.
         d->rand = u16(d->control == 2 ? d->index + 1 : 1);
         d->rand = u16(((u32(d->rand) * 0x41C64E6Du + 0x3039u) >> 16) & 0x7FFF);
-        d->long_start = pace_.standing_start && !session.loose();
+        // 0x463AE0: the long look ahead (D +0x1A = 0) for a computer car from a standing start on a paved course.
+        d->start_flag = d->control == 2 && pace_.standing_start && !session.loose() && session.record(car).speed < F::raw(0x41055554) ? 0 : 1;
         // The first line: the main line, or the nearest of the others to the car.
         d->line = d->prev_line = lines_.resolve(6);
-        d->steer = 0;
         drivers_[car] = std::move(d);
     }
     for (auto& d : drivers_)
@@ -226,9 +241,11 @@ Field::Snapshot Field::snapshot(size_t car) const {
     Snapshot o;
     const Driver* d = driver(car);
     if (!d) return o;
-    o.line = d->line, o.next = d->next, o.mode = d->mode, o.status = d->status, o.state = d->state, o.follow = d->follow;
-    o.wanted_throttle = d->throttle, o.reverse = d->reverse, o.look = d->look, o.brake_dist = d->brake_dist, o.brake_to = d->brake_to;
-    o.v_cur = d->v_cur.host(), o.v_next = d->v_next.host(), o.steer = d->steer, o.lock = session_->record(car).lock_hi.host(), o.steer_cmd = session_->record(car).steer_cmd.host(), o.throttle = d->applied_throttle, o.brake = d->brake, o.contact = d->contact;
+    const Near& z = near_[car];
+    o.line = d->line, o.next = d->next, o.mode = d->mode, o.status = d->status, o.state = d->state, o.follow = z.follow;
+    o.wanted_throttle = d->throttle.host(), o.reverse = d->reverse, o.look = d->look, o.brake_dist = d->brake_dist, o.brake_to = d->brake_to;
+    o.v_cur = d->v_cur.host(), o.v_next = d->v_next.host(), o.steer = d->steer.host(), o.lock = session_->record(car).lock_hi.host();
+    o.steer_cmd = session_->record(car).steer_cmd.host(), o.throttle = d->applied_throttle, o.brake = d->brake.host(), o.contact = z.contact.host();
     const ex::Car& c = session_->record(car);
     float x, y, h;
     if (d->line >= 0 && lines_.evaluate(d->line, d->next, d->s, x, y, h)) {
@@ -240,24 +257,53 @@ Field::Snapshot Field::snapshot(size_t car) const {
 
 void Field::probe_set(size_t car, const Probe& p) {
     Driver& d = *drivers_.at(car);
-    d.line = p.line, d.next = p.next, d.mode = p.mode, d.next_kind = p.next_kind, d.status = p.status, d.follow = p.follow, d.chain = p.chain;
-    d.v_cur = p.v_cur, d.v_next = p.v_next, d.contact = p.contact, d.s = p.s, d.rand = p.rand;
+    Near& z = near_.at(car);
+    d.line = p.line, d.next = p.next, d.mode = p.mode, d.next_kind = p.next_kind, d.status = p.status;
+    d.v_cur = p.v_cur, d.v_next = p.v_next, d.s = p.s, d.rand = p.rand;
     d.corner_mult = p.corner_mult, d.brake_mult = p.brake_mult, d.alongside_mult = p.alongside_mult;
-    d.zone = p.zone, d.cooldown = p.cooldown;
+    d.cooldown = p.cooldown;
+    d.state = p.state, d.prev_line = p.prev_line, d.state_hold = p.state_hold, d.start_flag = p.start_flag, d.stop_count = p.stop_count;
+    d.pit = p.pit, d.arc_ticks = p.arc_ticks, d.blend = p.blend, d.offset = p.offset;
+    d.steer = p.steer, d.throttle = p.throttle, d.brake = p.brake, d.reverse = p.reverse, d.shift_lock = p.shift_lock;
+    z.follow = p.follow, z.chain = p.chain, z.contact = p.contact, z.zone = p.zone, z.gap_left = p.gap_left, z.gap_right = p.gap_right;
 }
 
 Field::Probe Field::probe_get(size_t car) const {
     const Driver& d = *drivers_.at(car);
+    const Near& z = near_.at(car);
     Probe p;
-    p.line = d.line, p.next = d.next, p.mode = d.mode, p.next_kind = d.next_kind, p.status = d.status, p.follow = d.follow, p.chain = d.chain;
-    p.v_cur = d.v_cur, p.v_next = d.v_next, p.contact = d.contact, p.s = d.s, p.rand = d.rand;
+    p.line = d.line, p.next = d.next, p.mode = d.mode, p.next_kind = d.next_kind, p.status = d.status;
+    p.v_cur = d.v_cur, p.v_next = d.v_next, p.s = d.s, p.rand = d.rand;
     p.corner_mult = d.corner_mult, p.brake_mult = d.brake_mult, p.alongside_mult = d.alongside_mult;
-    p.zone = d.zone, p.cooldown = d.cooldown;
+    p.cooldown = d.cooldown;
+    p.state = d.state, p.prev_line = d.prev_line, p.state_hold = d.state_hold, p.start_flag = d.start_flag, p.stop_count = d.stop_count;
+    p.pit = d.pit, p.arc_ticks = d.arc_ticks, p.blend = d.blend, p.offset = d.offset;
+    p.steer = d.steer, p.throttle = d.throttle, p.brake = d.brake, p.reverse = d.reverse, p.shift_lock = d.shift_lock;
+    p.follow = z.follow, p.chain = z.chain, p.contact = z.contact, p.zone = z.zone, p.gap_left = z.gap_left, p.gap_right = z.gap_right;
     return p;
 }
 
 F Field::probe_corner_speed(size_t car, int i) { return corner_speed(*drivers_.at(car), i); }
 F Field::probe_braking(size_t car) { return braking(*drivers_.at(car)); }
+
+Field::Probe Field::probe_decide(size_t car) {
+    Driver& d = *drivers_.at(car);
+    if (F x; session_->lat_filter(car, x)) lat_x_[car] = x;
+    if (int r; session_->rank(car, r)) ranks_[car] = r;
+    if (u32 ck; session_->clock(ck)) clock_ = ck;
+    d.s = lines_.wrap_lap(session_->state(car).course_v);
+    incidents_after(d);
+    decide(d);
+    Probe p = probe_get(car);
+    p.aim_x = d.aim_x, p.aim_y = d.aim_y;
+    return p;
+}
+
+void Field::probe_proximity() {
+    for (size_t i = 0; i < near_.size(); ++i)
+        if (F r; session_->course_rate(i, r)) rate_[i] = r;
+    proximity();
+}
 
 // ---- the plan --------------------------------------------------------------------------------------------------
 
@@ -324,7 +370,7 @@ F Field::corner_speed(const Driver& d, int i) {
     const Tuning& t = tables_.tuning;
     if (t.corner_spread && (d.control == 1 || d.control == 2) && d.kind == 0) m = m + draw(d.rand, t.corner_lo.at(m), t.corner_hi.at(m));
     F scale = d.p.corner_scale * m;
-    if (t.alongside_slow && (d.zone[kFrontLeft] || d.zone[kLeft] || d.zone[kRight] || d.zone[kFrontRight]))
+    if (const auto& zc = near_[d.car].zone; t.alongside_slow && (zc[kFrontLeft] || zc[kLeft] || zc[kRight] || zc[kFrontRight]))
         scale = scale * (kOne - t.alongside_share * (d.control == 0 ? kOne : d.alongside_mult));
     const F offset = d.p.corner_offset + int_f(pt.speed_adjust == -128 ? 0 : pt.speed_adjust) * kPerKmh;
     // (on the front's first tire record the scale takes T+0x158's factor of its paved grip: 1 throughout in this program)
@@ -370,16 +416,19 @@ void Field::replan(Driver& d) {
     bookkeeping_shift(d);
 }
 
-// 0x463C28: a line change, blended unless at once.
+// 0x463C28: a line change (the request's fallback resolved), blended unless at once: the old line's share of the aim
+// starts at 1, or at what is left of it when the request is for the line being left.
 bool Field::request_line(Driver& d, int line, bool at_once) {
     const int r = lines_.resolve(line);
-    if (r < 0 || r == d.line) return false;
-    if (at_once) d.prev_line = r, d.blend = 0;
-    else {
-        d.blend = r == d.prev_line ? 1 - d.blend : 1;
+    if (r < 0) return false;
+    if (at_once) { // 0x463C00
+        d.prev_line = d.line = r;
+        d.offset = F(), d.blend = F();
+    } else {
+        d.blend = line == d.prev_line ? kOne - d.blend : kOne;
         d.prev_line = d.line;
+        d.line = r;
     }
-    d.line = r;
     replan(d);
     ++d.inc.lane_changes;
     return true;
@@ -443,10 +492,12 @@ F Field::braking(Driver& d) {
         dist = dist * adj;
         if (kOne < kb) dist = dist / kb;
         if (d.control == 1 || d.control == 2) {
-            dist = dist + int_f(d.chain);
-            if (d.cooldown == 0 && zero < F(d.contact)) {
+            const Near& z = near_[d.car];
+            dist = dist + int_f(z.chain);
+            if (d.cooldown == 0 && zero < z.contact) {
                 dist = dist + F::raw(0x41200000);
-                if (d.follow >= 0 && session_->state(size_t(d.follow)).brake > 0) dist = dist + F::raw(0x41000000);
+                // (+8 m when the car followed is itself in contact: its driver object's +0x44)
+                if (z.follow >= 0 && zero < near_[size_t(z.follow)].contact) dist = dist + F::raw(0x41000000);
             }
         }
         const F dx = F(q.x) - c.pos.x, dy = F(q.y) - c.pos.y;
@@ -470,390 +521,664 @@ F Field::braking(Driver& d) {
     return mult;
 }
 
-// 0x464770: throttle and brake towards a speed.
-void Field::speed_control(Driver& d, float vt, float gain) {
-    const float v = session_->record(d.car).speed.host();
-    const float dv = std::clamp(v - (vt - 2 * kKmh), -10 * kKmh, 10 * kKmh);
-    d.throttle = std::clamp(0.75f + gain * dv, 0.0f, 1.0f);
-    if (d.throttle != 0 && d.throttle != 1) d.shift_lock = 12;
-    float vb = vt;
-    if (d.mode != 3 && d.mode != 4) vb += 20 * kKmh;
-    if (d.throttle == 0 && vb < v) d.brake = 1;
+// ---- the aim -------------------------------------------------------------------------------------------------------
+
+// The program's constants (speeds in m/s, angles in radians).
+namespace k {
+const F zero, one = F::raw(0x3F800000), half = F::raw(0x3F000000), two = F::raw(0x40000000), five = F::raw(0x40A00000);
+const F kmh1 = F::raw(0x3E8E38E3), kmh2 = F::raw(0x3F0E38E3), kmh3 = F::raw(0x3F555554), kmh5 = F::raw(0x3FB1C71B), kmh10 = F::raw(0x4031C71B),
+        kmh20 = F::raw(0x40B1C71B), kmh25 = F::raw(0x40DE38E2), kmh30 = F::raw(0x41055554), kmh50 = F::raw(0x415E38E2);
+const F deg10 = F::raw(0x3E32B8C1), deg20 = F::raw(0x3EB2B8C1), deg30 = F::raw(0x3F060A90), deg40 = F::raw(0x3F32B8C1), deg45 = F::raw(0x3F490FD9),
+        deg50 = F::raw(0x3F5F66F1), deg60 = F::raw(0x3F860A90), deg80 = F::raw(0x3FB2B8C1);
+const F pi = F::raw(0x40490FDA), two_pi = F::raw(0x40C90FDA), three_pi = F::raw(0x4116CBE3);
+} // namespace k
+
+// 0x36CB90: an angle into [-pi, pi) (beyond three half turns by whole turns, 0x36CB20).
+static F angle_in_turn(F x) {
+    if (x < -k::pi) {
+        if (x < -k::three_pi) {
+            const F n = gt3r::ee::int_to_f(gt3r::ee::to_int(((gt3r::ee::abs(x) + k::pi) / k::two_pi).bits));
+            return x + n * k::two_pi;
+        }
+        return x + k::two_pi;
+    }
+    if (k::pi <= x) {
+        if (k::three_pi < x) {
+            const F n = gt3r::ee::int_to_f(gt3r::ee::to_int(((gt3r::ee::abs(x) + k::pi) / k::two_pi).bits));
+            return x + n * (-k::two_pi);
+        }
+        return x - k::two_pi;
+    }
+    return x;
 }
 
-// 0x464868: the aim on a line `look` metres on (at least 5 m from the car), relative to the car.
-void Field::target(const Driver& d, int line, float look, float& dx, float& dy) const {
+// 0x36CC40: a - b as an angle in [-pi, pi].
+static F angle_between(F a, F b) {
+    F d = angle_in_turn(a) - angle_in_turn(b);
+    if (k::pi <= d) d = d - k::two_pi;
+    else if (d < -k::pi) d = d + k::two_pi;
+    return d;
+}
+
+F Field::course_s(size_t car) const { return F(session_->state(car).course_v); }
+
+bool Field::place(int line, int hint, F s, F& x, F& y, F& h) const {
+    const std::vector<LinePoint>& p = lines_.line(line);
+    if (p.empty()) return false;
+    if (line == CourseLines::kPitStop) { // the stop line (0x46B7B8: not yet in the program's arithmetic)
+        float fx = x.host(), fy = y.host(), fh = h.host();
+        if (!lines_.evaluate(line, hint, s.host(), fx, fy, fh)) return false;
+        x = F(fx), y = F(fy), h = F(fh);
+        return true;
+    }
+    const F lap(lines_.lap());
+    if (s < k::zero) s = s + lap;
+    else if (lap <= s) s = s - lap;
+    // 0x46B310: the span: before the first point or past the last (the last to the first), else searched from the hint
+    // outwards (hint, hint + 1, hint - 1, hint + 2, ...).
+    const int n = int(p.size());
+    int from = -1, to = -1, kind = 0;
+    if (s < F(p[0].dist)) from = n - 1, to = 0, kind = 1;
+    else if (F(p[size_t(n - 1)].dist) <= s) from = n - 1, to = 0, kind = 2;
+    else {
+        int at = hint;
+        for (int step = 0; step <= n; ++step) {
+            int cand = (step & 1) ? at + step : at - step;
+            at = cand;
+            if (cand < 0) cand += n;
+            else if (!(cand < n)) cand -= n;
+            if (cand == 0 || cand < 0 || cand >= n) continue;
+            if (F(p[size_t(cand - 1)].dist) <= s && s < F(p[size_t(cand)].dist)) {
+                from = cand - 1, to = cand, kind = 3;
+                break;
+            }
+        }
+    }
+    if (kind == 0) return false;
+    const LinePoint &a = p[size_t(from)], &b = p[size_t(to)];
+    const F ad(a.dist), bd(b.dist);
+    F num, den;
+    if (kind == 1) num = (s + lap) - ad, den = (bd + lap) - ad;
+    else if (kind == 2) num = s - ad, den = (bd + lap) - ad;
+    else num = s - ad, den = bd - ad;
+    const F t = num / den;
+    const F ax(a.x), ay(a.y), bx(b.x), by(b.y);
+    if (a.kind == 0) {
+        x = t * (bx - ax) + ax;
+        y = t * (by - ay) + ay;
+    } else {
+        const F hd(a.heading);
+        const F sn = -gt3r::ee::sin(hd);
+        const F cs = gt3r::ee::cos(hd);
+        F r(a.radius);
+        const F cx = ax - cs * r, cy = ay + sn * r;
+        const F a0 = ai::atan2(cx - ax, ay - cy);
+        F a1 = ai::atan2(cx - bx, by - cy);
+        F from_ang = a0, d;
+        if (k::zero < r) {
+            if (a1 < from_ang) a1 = a1 + k::two_pi;
+            d = a1 - from_ang;
+        } else {
+            r = -r;
+            if (from_ang < a1) from_ang = from_ang + k::two_pi;
+            d = a1 - from_ang;
+        }
+        const F ang = from_ang + t * d;
+        x = cx - gt3r::ee::sin(ang) * r;
+        y = cy + gt3r::ee::cos(ang) * r;
+    }
+    const F ah(a.height), bh(b.height);
+    h = t * (bh - ah) + ah;
+    return true;
+}
+
+F Field::target(const Driver& d, int line, F look, F& ox, F& oy) const {
     const ex::Car& c = session_->record(d.car);
-    const float px = c.pos.x.host(), py = c.pos.y.host();
-    float x = px, y = py, h = 0;
+    const F s = course_s(d.car);
+    F x = c.pos.x, y = c.pos.y, h = c.pos.z, dx, dy;
+    for (int i = 0; i < 10;) {
+        place(line, d.next, s + look, x, y, h);
+        dx = x - c.pos.x, dy = y - c.pos.y;
+        if (k::five <= gt3r::ee::sqrt(dx * dx + dy * dy)) break;
+        if (i < 9) look = look + k::one;
+        ++i;
+    }
+    ox = dx, oy = dy;
+    return look;
+}
+
+F Field::line_heading(const Driver& d, int line, F s) const {
+    const ex::Car& c = session_->record(d.car);
+    F x0 = c.pos.x, y0 = c.pos.y, h0 = c.pos.z;
+    place(line, d.next, s, x0, y0, h0);
+    F x1 = x0, y1 = y0, h1 = h0, dx, dy;
     for (int i = 0; i < 10; ++i) {
-        lines_.evaluate(line, d.next, d.s + look, x, y, h);
-        dx = x - px, dy = y - py;
-        if (std::hypot(dx, dy) >= 5.0f) break;
-        look += 1;
+        s = s + k::half;
+        place(line, d.next, s, x1, y1, h1);
+        dx = x1 - x0, dy = y1 - y0;
+        if (F::raw(0x3E4CCCCC) <= gt3r::ee::sqrt(dx * dx + dy * dy)) break;
+    }
+    return ai::atan2(-dx, dy);
+}
+
+// 0x464770 (0x4646F8): throttle and brake towards a speed.
+void Field::speed_control(Driver& d, F vt, F gain) {
+    const ex::Car& c = session_->record(d.car);
+    const F v = c.speed;
+    F dv = v - (vt - k::kmh2);
+    if (dv < -k::kmh10) dv = -k::kmh10;
+    else if (k::kmh10 < dv) dv = k::kmh10;
+    F thr = F::raw(0x3F400000) + gain * dv;
+    if (k::one < thr) thr = k::one;
+    else if (thr < k::zero) thr = k::zero;
+    d.throttle = thr;
+    if (!(d.mode == 3 || d.mode == 4) && !(d.kind >= 2 && d.kind <= 4)) vt = vt + k::kmh20;
+    if (thr == k::zero && vt < v) d.brake = k::one;
+    if (thr != k::one && thr != k::zero) d.shift_lock = 12;
+}
+
+// 0x464BB0: the steering slews to its target at the set's rate.
+void Field::steer_to(Driver& d, F t) {
+    const F step = d.p.steer_rate * session_->record(d.car).dt;
+    const F s = d.steer;
+    if (s < t) {
+        const F n = s + step;
+        d.steer = t < n ? t : n;
+    } else if (t < s) {
+        const F n = s - step;
+        d.steer = n < t ? t : n;
     }
 }
 
 // ---- traffic ---------------------------------------------------------------------------------------------------
 
-// 0x3F4638 with 0x4694F8 (the zones), 0x3F42D0 (closing on a car ahead) and 0x469918 (the contact).
-void Field::proximity() {
-    const size_t n = drivers_.size();
-    const Cars& cars = *session_;
-    for (auto& d : drivers_)
-        if (d) {
-            d->chain = 0, d->contact = 0, d->zone = {};
-            d->gap_left = d->gap_right = 1000;
-        }
-    const float lap = lines_.lap();
-    struct Body {
-        float x, y, h, hx, hy, front, rear, half_width, speed, s;
+// 0x4694F8: the zone cells around a car from another at (u ahead, v right), `dist` apart.
+void Field::zones(Near& z, F dist, F u, F v, F ahead, F behind, F w) const {
+    auto at_least2 = [&](int cell) {
+        if (gt3r::s8(z.zone[size_t(cell)]) < 2) z.zone[size_t(cell)] = 2;
     };
-    std::vector<Body> b(n);
-    for (size_t i = 0; i < n; ++i) {
-        const ex::Car& c = session_->record(i);
-        const float fx = c.fwd.x.host(), fy = c.fwd.y.host(), l = std::max(std::hypot(fx, fy), 1e-6f);
-        b[i] = {c.pos.x.host(), c.pos.y.host(), c.pos.z.host(), fx / l, fy / l, c.p.body_front.host(), c.p.body_rear.host(), c.p.body_width.host() * 0.5f,
-                c.speed.host(), lines_.wrap_lap(cars.state(i).course_v)};
-    }
-    auto zones = [&](Driver& d, float dist, float u, float v, float ahead, float behind, float w) {
-        auto& z = d.zone;
-        auto mark = [&](int cell, u8 level) {
-            if (z[size_t(cell)] < level) z[size_t(cell)] = level;
+    auto at_least1 = [&](int cell) {
+        if (!(gt3r::s8(z.zone[size_t(cell)]) > 0)) z.zone[size_t(cell)] = 1;
+    };
+    const F twenty = F::raw(0x41A00000);
+    if (twenty < dist) return;
+    const F lim = w + F::raw(0x40400000);
+    if (v < -lim || lim < v) return;
+    if (ahead * F::raw(0x3F666666) < u) {
+        const F w75 = w * F::raw(0x3F400000), gap = u - ahead;
+        auto side = [&](int cell) {
+            if (gap < k::five) at_least2(cell);
+            else if (gap < twenty) at_least1(cell);
         };
-        if (dist > 20 || std::fabs(v) > w + 3) return;
-        if (u > 0.9f * ahead) {
-            const float gap = u - ahead;
-            const u8 near = gap < 5 ? 2 : gap < 20 ? 1 : 0;
-            if (v < -0.75f * w) {
-                if (near) mark(kFrontLeft, near);
-            } else if (v > 0.75f * w) {
-                if (near) mark(kFrontRight, near);
-            } else if (gap < 20) {
-                mark(kFront, 2);
-                if (v < -w * 0.5f && near) mark(kFrontLeft, near);
-                if (v > w * 0.5f && near) mark(kFrontRight, near);
-            }
-        } else if (u < -0.9f * behind) {
-            if (v < -w) mark(kRearLeft, 2);
-            else if (v > w) mark(kRearRight, 2);
-            else mark(kRear, 2), mark(v > 0 ? kRearRight : kRearLeft, 1);
-        } else if (v < 0) {
-            d.gap_left = std::min(d.gap_left, -v - w);
-            mark(kLeft, 2);
-            if (u > ahead * 0.5f) mark(kFrontLeft, 1);
-            if (u < -behind * 0.5f) mark(kRearLeft, 1);
-        } else {
-            d.gap_right = std::min(d.gap_right, v - w);
-            mark(kRight, 2);
-            if (u > ahead * 0.5f) mark(kFrontRight, 1);
-            if (u < -behind * 0.5f) mark(kRearRight, 1);
-        }
-    };
-    // A on B ahead: the gap along the course and the closing speed; false when B is not ahead of A.
-    auto closing = [&](size_t a, size_t bb, float v, float& gap, float& cl) {
-        float sb = b[bb].s;
-        if (b[a].s > 0.75f * lap && sb < 0.25f * lap) sb += lap;
-        gap = sb - b[a].s - b[bb].rear - b[a].front;
-        if (gap <= 0) return false;
-        if (gap < 20 && std::fabs(v) > b[a].half_width + b[bb].half_width) return false;
-        cl = b[a].speed - b[bb].speed;
-        return true;
-    };
-    auto contact = [&](Driver& d, size_t other, float gap, float cl) {
-        if (d.follow == int(other) && gap > 6) d.follow = -1;
-        float cand = 0;
-        int follow = -1;
-        if (d.follow != int(other) && cl > 0 && gap < 5) cand = 2, follow = int(other);
-        else if (cl > 20 * kKmh) cand = 1;
-        else if (cl > 0.1f * kKmh && gap / cl < 5) cand = 0.5f;
-        if (cand == 0) cand = gap < 0.5f ? 0.05f : gap < 4 ? 0.1f : 0;
-        if (d.contact < cand) {
-            if (follow != -1) d.follow = follow, cand = 1;
-            d.contact = cand;
-        }
-    };
+        if (v < -w75) return side(kFrontLeft);
+        if (w75 < v) return side(kFrontRight);
+        if (gap < twenty) at_least2(kFront);
+        if (v < -(w * k::half)) side(kFrontLeft);
+        if (w * k::half < v) side(kFrontRight);
+        return;
+    }
+    if (u < -(behind * F::raw(0x3F666666))) {
+        if (v < -w) return at_least2(kRearLeft);
+        if (w < v) return at_least2(kRearRight);
+        at_least2(kRear);
+        if (k::zero < v) at_least1(kRearRight);
+        else at_least1(kRearLeft);
+        return;
+    }
+    if (v < k::zero) {
+        const F g = -v - w;
+        if (g < z.gap_left) z.gap_left = g;
+        at_least2(kLeft);
+        if (ahead * k::half < u) at_least1(kFrontLeft);
+        else if (u < -(behind * k::half)) at_least1(kRearLeft);
+    } else {
+        const F g = v - w;
+        if (g < z.gap_right) z.gap_right = g;
+        at_least2(kRight);
+        if (ahead * k::half < u) at_least1(kFrontRight);
+        else if (u < -(behind * k::half)) at_least1(kRearRight);
+    }
+}
+
+// 0x3F42D0: car a closing on car b ahead along the course: the gap less the two cars' lengths and the closing speed;
+// false when b is not ahead (or, within 20 m, not overlapping a sideways).
+bool Field::closing(size_t a, size_t b, F v, F& gap, F& rate) const {
+    const ex::Car &ca = session_->record(a), &cb = session_->record(b);
+    const F lap(lines_.lap()), sa = course_s(a), sb = course_s(b);
+    F g = lap * F::raw(0x3F400000) < sa && sb < lap * F::raw(0x3E800000) ? (sb + lap) - sa : sb - sa;
+    g = g - cb.p.body_rear;
+    const F gp = g - ca.p.body_front;
+    if (gp <= k::zero) return false;
+    const F rb = rate_[b], ra = rate_[a];
+    const F diff = rb - ra;
+    if (gp < F::raw(0x41A00000)) {
+        const F h = (ca.p.body_width + cb.p.body_width) * k::half;
+        if (h < v || v < -h) return false;
+    }
+    gap = gp, rate = -diff;
+    return true;
+}
+
+// 0x469918: a's contact with b ahead (a car to follow when closing within 5 m).
+void Field::contact(size_t a, size_t b, F gap, F rate) {
+    Near& z = near_[a];
+    if (z.follow == int(b) && F::raw(0x40C00000) < gap) z.follow = -1;
+    F cand;
+    int follow = -1;
+    if (z.follow != int(b) && k::zero < rate && gap < k::five) cand = k::two, follow = int(b);
+    else if (k::kmh20 < rate) cand = k::one;
+    else if (F::raw(0x3CE38E37) < rate) {
+        if (gap / rate < k::five) cand = k::half;
+    }
+    if (cand == k::zero) {
+        if (gap < k::half) cand = F::raw(0x3D4CCCCC);
+        else if (gap < F::raw(0x40800000)) cand = F::raw(0x3DCCCCCC);
+    }
+    if (z.contact < cand) {
+        if (follow != -1) z.follow = follow, cand = k::one;
+        z.contact = cand;
+    }
+}
+
+// 0x3F4638: every pair of cars (0x3F40F8: both in the race, both on or both off the pit lane, within 100 m and a body's
+// height + 5 m of each other) marks the zone cells and the contacts; then each car's follow count.
+void Field::proximity() {
+    const size_t n = near_.size();
+    for (Near& z : near_) z.contact = F(), z.zone = {}, z.gap_left = z.gap_right = F(1000.0f), z.chain = 0;
     for (size_t i = 0; i < n; ++i)
         for (size_t j = i + 1; j < n; ++j) {
-            const float dx = b[j].x - b[i].x, dy = b[j].y - b[i].y;
-            const float dist = std::hypot(dx, dy);
-            if (dist > 100 || std::fabs(b[j].h - b[i].h) > 5.0f + 1.5f) continue;
-            const float w = b[i].half_width + b[j].half_width;
-            // B on A's axes (forward, right), and A on B's.
-            const float ui = dx * b[i].hx + dy * b[i].hy, vi = dx * b[i].hy - dy * b[i].hx;
-            const float uj = -dx * b[j].hx - dy * b[j].hy, vj = -dx * b[j].hy + dy * b[j].hx;
-            if (Driver* d = drivers_[i].get()) zones(*d, dist, ui, vi, b[i].front + b[j].rear, b[i].rear + b[j].front, w);
-            if (Driver* d = drivers_[j].get()) zones(*d, dist, uj, vj, b[j].front + b[i].rear, b[j].rear + b[i].front, w);
-            float gap, cl;
-            if (Driver* d = drivers_[i].get()) {
-                if (closing(i, j, vi, gap, cl)) contact(*d, j, gap, cl);
-                else if (d->follow == int(j)) d->follow = -1;
-            }
-            if (Driver* d = drivers_[j].get()) {
-                if (closing(j, i, vj, gap, cl)) contact(*d, i, gap, cl);
-                else if (d->follow == int(i)) d->follow = -1;
+            const ex::Car &a = session_->record(i), &b = session_->record(j);
+            if (a.ghost || b.ghost) continue;
+            if ((drivers_[i] && drivers_[i]->line == CourseLines::kPitStop) || (drivers_[j] && drivers_[j]->line == CourseLines::kPitStop)) continue;
+            if ((a.x535 & 0x10) != (b.x535 & 0x10)) continue;
+            const F dx = b.pos.x - a.pos.x, dy = b.pos.y - a.pos.y, dz = b.pos.z - a.pos.z;
+            const F dist = gt3r::ee::sqrt(dx * dx + dy * dy + dz * dz);
+            if (F::raw(0x42C80000) < dist) continue;
+            if (dz < -(b.p.body_height + k::five)) continue;
+            if (a.p.body_height + k::five < dz) continue;
+            F ua, va, ub, vb;
+            ua = ua + a.fwd.x * dx, va = va + a.lat.x * dx, ub = ub - b.fwd.x * dx, vb = vb - b.lat.x * dx;
+            ua = ua + a.fwd.y * dy, va = va + a.lat.y * dy, ub = ub - b.fwd.y * dy, vb = vb - b.lat.y * dy;
+            ua = ua + a.fwd.z * dz, va = va + a.lat.z * dz, ub = ub - b.fwd.z * dz, vb = vb - b.lat.z * dz;
+            const F w = (a.p.body_width + b.p.body_width) * k::half;
+            const F ab = a.p.body_front + b.p.body_rear, ba = a.p.body_rear + b.p.body_front;
+            zones(near_[i], dist, ua, va, ab, ba, w);
+            zones(near_[j], dist, ub, vb, ba, ab, w);
+            F gap, rate;
+            if (pace_.contact) {
+                if (closing(i, j, va, gap, rate)) contact(i, j, gap, rate);
+                else if (near_[i].follow == int(j)) near_[i].follow = -1;
+                if (closing(j, i, vb, gap, rate)) contact(j, i, gap, rate);
+                else if (near_[j].follow == int(i)) near_[j].follow = -1;
+            } else {
+                if (near_[i].follow == int(j)) near_[i].follow = -1;
+                if (near_[j].follow == int(i)) near_[j].follow = -1;
             }
         }
-    // The follow chains: a car following a car that follows brakes that many metres earlier.
-    for (auto& d : drivers_) {
-        if (!d) continue;
-        int k = d->follow, len = 0;
-        while (k >= 0 && len < int(n)) {
-            ++len;
-            const Driver* o = drivers_[size_t(k)].get();
-            k = o ? o->follow : -1;
-        }
-        d->chain = len;
+    // Each car's +0x6A: the length of its follow chain (the car it follows, the car that one follows, ..., at most n).
+    for (size_t i = 0; i < n; ++i) {
+        int len = 0, k = near_[i].follow;
+        while (size_t(len) < n && k != -1) ++len, k = near_[size_t(k)].follow;
+        near_[i].chain = len;
     }
 }
 
 // 0x469AE8: lane changes, the lift behind a car, the return to the main line.
 void Field::traffic(Driver& d) {
-    if (d.cooldown > 0) --d.cooldown;
+    Near& z = near_[d.car];
+    if (d.cooldown > 0) d.cooldown = s16(u16(d.cooldown) - 1);
     if (d.line == CourseLines::kPitStop) return;
     int lanes = 1;
-    const float v = session_->record(d.car).speed.host();
+    const ex::Car& c = session_->record(d.car);
     if (d.line == CourseLines::kPitLane) {
-        lanes = 0;
-        if ((d.zone[kLeft] && d.zone[kFrontLeft]) || (d.zone[kRight] && d.zone[kFrontRight])) {
-            if (v < 30 * kKmh) ++d.cooldown;
-            else d.throttle *= 0.5f;
+        if ((z.zone[kLeft] && z.zone[kFrontLeft]) || (z.zone[kRight] && z.zone[kFrontRight])) {
+            if (c.speed < k::kmh30) d.cooldown = s16(u16(d.cooldown) + 1);
+            else d.throttle = d.throttle * k::half;
         }
+        lanes = 0;
     }
     if (d.status == 1 || d.status == 2 || d.status == 5) lanes = 0;
     else if ((d.status == 3 || d.status == 4) && (d.line == 1 || d.line == 2)) lanes = -1;
-    float c = d.cooldown > 0 ? 0 : d.contact;
-    if (d.blend > 0) lanes = 0;
-    if (lanes > 0 && c > 0) {
+    F cn = d.cooldown > 0 ? F() : z.contact;
+    if (k::zero < d.blend) lanes = 0;
+    if (d.control == 1 && !d.overtake && lanes == 1) lanes = -1;
+    if (lanes > 0 && k::zero < cn) {
         // The farthest line on each side: one beside, then the one beside that if there is one.
         int L = lines_.left(d.line), R = lines_.right(d.line);
-        if (L >= 0 && lines_.left(L) >= 0) L = lines_.left(L);
-        if (R >= 0 && lines_.right(R) >= 0) R = lines_.right(R);
+        if (const int l2 = lines_.left(L); l2 >= 0) L = l2;
+        if (const int r2 = lines_.right(R); r2 >= 0) R = r2;
         int pick = -1;
-        if (d.next_kind == 1) pick = L >= 0 ? L : d.status != 4 ? R : -1;
-        else if (d.next_kind == 2) pick = R >= 0 ? R : d.status != 3 ? L : -1;
-        else {
-            if (d.status != 3) pick = L;
-            if (pick < 0 && d.status != 4) pick = R;
-        }
-        if (pick >= 0 && request_line(d, pick, false)) {
+        if (d.next_kind == 1) pick = L >= 0 ? L : (R >= 0 && d.status != 4) ? R : -1;
+        else if (d.next_kind == 2) pick = R >= 0 ? R : (L >= 0 && d.status != 3) ? L : -1;
+        else pick = (L >= 0 && d.status != 3) ? L : (R >= 0 && d.status != 4) ? R : -1;
+        if (pick >= 0) {
+            request_line(d, pick, false);
             d.cooldown = 180;
-            c = 0;
+            cn = F();
         }
     }
-    d.throttle *= 1 - std::min(c, 1.0f);
-    if (lanes != 0) {
-        const auto& z = d.zone;
-        if (!z[kFront] && !z[kRight] && !z[kFrontRight] && !z[kFrontLeft] && !z[kLeft] && d.line != 6) request_line(d, 6, false);
-    }
+    d.throttle = d.throttle * (k::one - cn);
+    if (lanes == 0) return;
+    const int around = gt3r::s8(z.zone[kFront]) + gt3r::s8(z.zone[kRight]) + gt3r::s8(z.zone[kFrontRight]) + gt3r::s8(z.zone[kFrontLeft]) +
+                       gt3r::s8(z.zone[kLeft]);
+    if (around == 0 && d.line != CourseLines::kMain) request_line(d, CourseLines::kMain, false);
 }
 
-// ---- the decision ----------------------------------------------------------------------------------------------
+// ---- the decision (0x465078) -------------------------------------------------------------------------------------
 
 void Field::decide(Driver& d) {
     const ex::Car& c = session_->record(d.car);
-    const race::CarState& st = session_->state(d.car);
+    const Near& z = near_[d.car];
     const Tuning& t = tables_.tuning;
-    // Begin (0x464ED8): the outputs cleared, the steering from the car's command.
-    d.throttle = 0, d.brake = 0, d.reverse = false, d.shift_lock = 0;
-    d.steer = c.steer_cmd.host();
-    if (!t.blend_by_distance) d.blend = std::max(0.0f, d.blend - kStep);
+    const bool holding = (d.control == 1 || d.control == 2) && c.race_hold != 0;
+    const F kept = d.throttle;
+    // 0x464ED8: the outputs cleared, the steering from the car's command, the blend run off by time.
+    d.steer = c.steer_cmd, d.throttle = F(), d.brake = F(), d.reverse = false, d.shift_lock = 0;
+    if (t.blend_by_distance == 0 && k::zero < d.blend) {
+        const F b = d.blend - c.dt;
+        d.blend = b < k::zero ? k::zero : b;
+    }
+    if (holding) d.throttle = kept;
     if (d.line < 0) return;
-    const float scale = braking(d).host();
-    const float v = c.speed.host();
-    const float px = c.pos.x.host(), py = c.pos.y.host();
-    const float fx = c.fwd.x.host(), fy = c.fwd.y.host();
-    const float heading = std::atan2(-fx, fy);
-    // The right side across the heading.
-    const float rx = std::cos(heading), ry = std::sin(heading);
+    const F scale = braking(d);
+    const bool hit_front = d.hit_front, hit_rear = d.hit_rear;
+    const F heading = c.heading;
+    const F fwd_x = -gt3r::ee::sin(heading), fwd_y = gt3r::ee::cos(heading);
+    const F v = c.speed;
 
     // The look ahead.
-    float look;
-    if (d.state != 0) look = d.state == 1 ? 10.0f : 40.0f;
+    F look = k::five;
+    if (d.kind == 3) look = k::five;
+    else if (d.kind == 4 && d.pit) look = v < k::kmh30 ? k::five : F::raw(0x41200000);
+    else if (d.state != 0) look = d.state == 1 ? F::raw(0x41200000) : F::raw(0x42200000);
     else {
         // 0x464E88
-        const F fv(v), f = d.p.look_speed * fv;
-        look = (fv <= F() ? d.p.look_min : kOne <= f ? d.p.look_max : d.p.look_min + f * (d.p.look_max - d.p.look_min)).host();
-        const float ms = float(steps_) * 1000.0f / 60.0f;
-        if (d.long_start) {
-            if (5000 - ms > 0) look += (5000 - ms) * 200 / 5000;
-        } else if (2000 - ms > 0) look += (2000 - ms) * 40 / 2000;
-    }
-    d.look = look;
-    float ax, ay;
-    target(d, d.line, look, ax, ay);
-    if (d.blend > 0 && lines_.has(d.prev_line)) {
-        float ox, oy;
-        target(d, d.prev_line, look, ox, oy);
-        if (t.blend_by_distance) {
-            const float gap = std::hypot(ox - ax, oy - ay), step = t.blend_rate.host() * kStep;
-            d.blend = gap < step ? 0 : std::max(0.0f, d.blend - step / gap);
+        if (v <= k::zero) look = d.p.look_min;
+        else {
+            const F f = d.p.look_speed * v;
+            look = k::one <= f ? d.p.look_max : d.p.look_min + f * (d.p.look_max - d.p.look_min);
         }
-        ax += (ox - ax) * d.blend, ay += (oy - ay) * d.blend;
+        const bool long_start = d.start_flag == 0;
+        if (!long_start && k::kmh30 <= v) d.start_flag = 1;
+        const s32 ms = s32(clock_ / 3), delay = d.index < 32 ? pace_.start_delay[size_t(d.index)] : 0;
+        const s32 left = (long_start ? 5000 : 2000) - ms + 1000 * delay;
+        if (left > 0) {
+            if (long_start) look = look + (int_f(left) * F::raw(0x43480000)) / F::raw(0x459C4000);
+            else look = look + (int_f(left) * F::raw(0x42200000)) / F::raw(0x44FA0000);
+        }
+        if (d.stop_count) look = look + int_f(d.stop_count) * F::raw(0x3EAAAAAA);
+    }
+    d.look = look.host();
+    F ax, ay;
+    look = target(d, d.line, look, ax, ay);
+    if (k::zero < d.blend) {
+        F ox, oy;
+        target(d, d.prev_line, look, ox, oy);
+        if (t.blend_by_distance == 1) {
+            const F dx = ax - ox, dy = ay - oy;
+            const F step = t.blend_rate * c.dt;
+            const F gap = gt3r::ee::sqrt(dx * dx + dy * dy);
+            if (gap < step) d.blend = F();
+            else {
+                const F b = d.blend - step / gap;
+                d.blend = b < k::zero ? k::zero : b;
+            }
+        }
+        ax = ax + (ox - ax) * d.blend;
+        ay = ay + (oy - ay) * d.blend;
     }
     // The aim's sideways offset (T[5]).
     if (t.offset_flags && d.state == 0) {
-        float o = 0;
+        F o;
         if (t.offset_flags & 1) {
-            float lx = px, ly = py, lh;
-            lines_.evaluate(d.line, d.next, d.s, lx, ly, lh);
-            const float e = rx * (lx - px) + ry * (ly - py);
-            o = e * (d.line == 3 || d.line == 4 ? t.side_share_pit : t.side_share).host();
+            F px, py;
+            target(d, d.line, F(), px, py);
+            if (d.blend != k::zero) {
+                F qx, qy;
+                target(d, d.prev_line, F(), qx, qy);
+                px = px + (qx - px) * d.blend;
+                py = py + (qy - py) * d.blend;
+            }
+            const F e = gt3r::ee::cos(heading) * px + gt3r::ee::sin(heading) * py;
+            const F share = d.line == CourseLines::kPitLane || d.line == CourseLines::kPitStop ? t.side_share_pit : t.side_share;
+            o = share * e + o;
         }
-        if ((t.offset_flags & 2) && d.line != 4) {
-            if (d.gap_left < 2) o += 2 - d.gap_left;
-            if (d.gap_right < 2) o -= 2 - d.gap_right;
+        if ((t.offset_flags & 2) && d.line != CourseLines::kPitStop) {
+            F a;
+            if (z.gap_left < k::two) a = (k::two - z.gap_left) + a;
+            if (z.gap_right < k::two) a = a - (k::two - z.gap_right);
+            o = o + a;
         }
-        if ((t.offset_flags & 4) && !session_->loose() && (d.mode == 0 || d.status == 0)) {
-            int a = 0, b = 0;
-            for (int w = 0; w < 4; ++w)
-                if (st.wheels[w].on_ground && soft_[st.wheels[w].material & 31]) (w % 2 == 0 ? a : b) = 1;
-            o += float(a - b) * 0.5f;
+        if (!session_->loose() && (t.offset_flags & 4) && (d.mode == 0 || d.status == 0)) {
+            int left = 0, right = 0;
+            for (int w = 0; w < int(d.lay_raw[1]) && w < 4; ++w)
+                if (soft_[c.g[size_t(w)].material & 31]) {
+                    if (d.lay_raw[0x1C + size_t(w)] == 0) left = 1;
+                    else if (d.lay_raw[0x1C + size_t(w)] == 1) right = 1;
+                }
+            if (left - right) o = o + int_f(left - right) * k::half;
         }
         if (t.offset_by_grip) {
-            const float g = std::fabs(c.lat_g.host());
-            const float hi = t.grip_hi.host(), lo = t.grip_lo.host(), lm = t.offset_limit.host();
-            const float lim = g >= hi ? 0 : g > lo ? lm * (hi - g) / (hi - lo) : lm;
-            o = std::clamp(o, -lim, lim);
+            F a = c.lat_g;
+            if (a < k::zero) a = -a;
+            F lim;
+            if (t.grip_hi <= a) lim = F();
+            else if (t.grip_lo < a) lim = (t.grip_hi - a) / (t.grip_hi - t.grip_lo);
+            else lim = t.offset_limit;
+            if (o < -lim) o = -lim;
+            else if (lim < o) o = lim;
         }
-        const float step = t.offset_rate.host() * kStep;
-        d.offset += std::clamp(o - d.offset, -step, step);
-        ax += d.offset * rx, ay += d.offset * ry;
+        const F step = t.offset_rate * c.dt, cur = d.offset;
+        if (cur < o) {
+            const F nx = cur + step;
+            d.offset = o < nx ? o : nx;
+        } else if (o < cur) {
+            const F nx = cur - step;
+            d.offset = nx < o ? o : nx;
+        }
+        ax = ax + d.offset * c.lat.x;
+        ay = ay + d.offset * c.lat.y;
     }
-    const float eps = wrap(std::atan2(-ax, ay) - heading);
-    const float aeps = std::fabs(eps);
+    d.aim_x = c.pos.x + ax, d.aim_y = c.pos.y + ay;
+    if (d.control == 0 && (d.kind == 0 || c.hold != 0)) return;
+    if (holding) return;
+
+    const F eps = angle_between(ai::atan2(-ax, ay), heading);
+    const F aeps = eps < k::zero ? -eps : eps;
+    d.eps = eps;
 
     // The drive decision.
-    float theta = 60 * kDeg;
-    if (d.state == 1) {
-        if (v >= 0) theta = 10 * kDeg;
-        else if (v > -30 * kKmh) theta = 10 * kDeg - v * (50 * kDeg) / (30 * kKmh);
-    }
+    F theta = k::deg60;
     int drive = 0;
     bool brakeflag = false;
-    if (d.state == 1) drive = -1;
-    else if (aeps < theta || d.state == 2) {
-        if (v > -2 * kKmh) drive = 1;
-        else brakeflag = true;
+    if (d.state == 1) {
+        if (k::zero <= v) theta = k::deg10;
+        else if (-k::kmh30 < v) theta = k::deg10 - (v * k::deg50) / k::kmh30;
+        drive = -1;
+    } else if (aeps < theta || d.state == 2) {
+        if (-k::kmh2 < v) {
+            drive = 1;
+            if (v < k::zero && c.clutch == 0) brakeflag = true;
+        } else brakeflag = true;
     } else {
-        if (v > 2 * kKmh) brakeflag = true;
+        if (k::kmh2 < v) brakeflag = true;
         else drive = -1;
     }
-    // The recovery state machine, resting 3 s after a change.
-    if (d.state_hold > 0) --d.state_hold;
+    // The recovery state machine, resting 180 steps after a change.
+    if (d.state_hold != 0) --d.state_hold;
     else {
         const int before = d.state;
-        if (d.state == 1) {
-            if (aeps < theta) d.state = v > 3 * kKmh ? 0 : 2;
-            else if (d.hit_rear) d.state = 2;
-        } else if (d.state == 2) {
-            if (aeps < 40 * kDeg && v > 30 * kKmh) d.state = 0;
-            else if (d.hit_front && std::fabs(wrap(lines_.heading_at(d.line, d.next, d.s) - heading)) > 60 * kDeg) d.state = 1;
-            else if (std::fabs(v) < 1 * kKmh) d.state = 1;
-            else if (aeps > 60 * kDeg && d.hit_front) d.state = 1;
+        if (before == 1) {
+            if (aeps < theta) d.state = k::kmh3 < v ? 0 : 2;
+            else if (hit_rear) d.state = 2;
+        } else if (before == 2) {
+            if (aeps < k::deg40 && k::kmh30 < v) d.state = 0;
+            else if (hit_front) {
+                F dh = angle_between(line_heading(d, d.line, course_s(d.car)), heading);
+                if (dh < k::zero) dh = -dh;
+                if (k::deg60 < dh) d.state = 1;
+                else if (v < k::kmh1 && -k::kmh1 < v) d.state = 1;
+                else if (k::deg60 < aeps) d.state = 1;
+            }
         } else {
-            if (aeps >= 60 * kDeg) d.state = 2;
-            else if (d.hit_front && std::fabs(v) < 1 * kKmh) d.state = 1;
-            else if (d.hit_rear && aeps > 45 * kDeg) d.state = 2;
+            if (theta <= aeps) d.state = 2;
+            else if (hit_front && v < k::kmh1 && -k::kmh1 < v) d.state = 1;
+            else if (hit_rear && k::deg45 < aeps) d.state = 2;
         }
         if (d.state != before) d.state_hold = 180;
     }
+    const bool slew = t.steer_mode < 2 || d.state != 0; // (T[2] of 2 or more: a PD steering in state 0, not ported)
+    const int moving = k::kmh2 < v ? 1 : v < -k::kmh2 ? -1 : 0;
 
-    // Steering.
-    const int moving = v > 2 * kKmh ? 1 : v < -2 * kKmh ? -1 : 0;
-    float tgt = 0;
+    // Steering. `over`: how far past the steered wheels' peak slip angle the yaw-rate steering asked to go (its share).
+    F tgt, over;
     if (moving != 0) {
         if (drive == 1) {
-            // The steered wheels' (those ahead of the center of gravity) mean peak slip angle and slip direction.
-            float amax = 0, dir = 0;
+            // The steered wheels' (layout +0x3C above 0) mean peak slip angle and slip direction.
+            F amax, dir_sum;
             int steered = 0;
-            for (int w = 0; w < int(d.lay.count) && w < 4; ++w)
-                if (gt3r::s8(d.lay.fore_aft[size_t(w)]) > 0) {
-                    amax += tire_view(*session_, tables_.known, d.car, d.lay, w, c.w[size_t(w)].surface).peak_slip.host();
-                    dir += c.w[size_t(w)].slip_dir.host();
+            for (int w = 0; w < int(d.lay_raw[1]) && w < 4; ++w)
+                if (gt3r::s8(d.lay_raw[0x3C + size_t(w)]) > 0) {
+                    amax = amax + tire_view(*session_, tables_.known, d.car, d.lay, w, c.w[size_t(w)].surface).peak_slip;
+                    dir_sum = dir_sum + c.w[size_t(w)].slip_dir;
                     ++steered;
                 }
-            if (steered) amax /= float(steered), dir /= float(steered);
+            F dir;
+            if (steered) amax = amax / int_f(steered), dir = dir + dir_sum / int_f(steered);
             if (d.state != 0) {
-                if (eps > 80 * kDeg) tgt = amax;
-                else if (eps < -80 * kDeg) tgt = -amax;
+                if (k::deg80 < eps) tgt = amax;
+                else if (eps < -k::deg80) tgt = -amax;
             }
-            if (tgt == 0) {
-                const float vx = c.vel.x.host(), vy = c.vel.y.host(), vxy = std::hypot(vx, vy);
-                float cx = fx, cy = fy;
-                if (vxy >= 5 * kKmh) cx = vx, cy = vy;
-                const float cl = std::max(std::hypot(cx, cy), 1e-6f);
-                cx /= cl, cy /= cl;
-                // The aim's offset to the left of that direction.
-                const float yl = -cy * ax + cx * ay;
-                const float p2 = std::max(ax * ax + ay * ay, 1e-3f);
-                float rd = 2 * vxy * yl / p2;
-                if (v < 0) rd = -rd;
-                const float r = c.yaw_rate.host();
-                float ky = d.p.yaw_gain.host();
-                // T[2]: the gain falls as the steered wheels' mean slip angle nears their peak.
-                if (t.steer_mode && tables_.known && amax != 0)
-                    ky *= std::clamp((amax - session_->extra(d.car).tires.mean_slip.host()) / amax, -1.0f, 1.0f);
-                if (rd > 0 && r < rd) {
-                    tgt += (rd - r) * ky;
-                    if (tgt > amax && !session_->loose()) tgt = amax;
-                } else if (rd < 0 && rd < r) {
-                    tgt -= (r - rd) * ky;
-                    if (tgt < -amax && !session_->loose()) tgt = -amax;
+            if (tgt == k::zero) {
+                const F vx = c.vel.x, vy = c.vel.y;
+                const F vxy = gt3r::ee::sqrt(vx * vx + vy * vy);
+                const F p2 = ax * ax + ay * ay;
+                F cx = fwd_x, cy = fwd_y;
+                if (!(vxy < k::kmh5)) {
+                    const F a = ai::atan2(-vx, vy);
+                    cx = -gt3r::ee::sin(a), cy = gt3r::ee::cos(a);
+                }
+                F rd = ((vxy * F::raw(0xC0000000)) * (cy * ax - cx * ay)) / p2;
+                if (c.speed < k::zero) rd = -rd;
+                const F r = c.yaw_rate;
+                F ky = d.p.yaw_gain;
+                if (t.steer_mode != 0) {
+                    F q = (-(session_->extra(d.car).tires.mean_slip - amax)) / amax;
+                    if (k::one < q) q = k::one;
+                    if (q < -k::one) q = -k::one;
+                    ky = ky * q;
+                }
+                if (k::zero < rd) {
+                    if (r < rd) {
+                        tgt = tgt + (rd - r) * ky;
+                        if (amax < tgt) {
+                            over = tgt / amax;
+                            if (!session_->loose()) tgt = amax;
+                        }
+                    }
+                } else if (rd < k::zero) {
+                    if (rd < r) {
+                        tgt = tgt - (r - rd) * ky;
+                        if (tgt < -amax) {
+                            over = (-tgt) / amax;
+                            if (!session_->loose()) tgt = -amax;
+                        }
+                    }
                 }
             }
-            tgt = std::clamp(tgt + dir, -45 * kDeg, 45 * kDeg);
+            tgt = tgt + dir;
+            if (k::deg45 < tgt) tgt = k::deg45;
+            else if (tgt < -k::deg45) tgt = -k::deg45;
             if (moving == -1) tgt = -tgt;
         } else {
-            tgt = eps < -20 * kDeg ? -30 * kDeg : eps > 20 * kDeg ? 30 * kDeg : eps * 1.5f;
+            tgt = eps < -k::deg20 ? -k::deg30 : k::deg20 < eps ? k::deg30 : eps * F::raw(0x3FBFFFFE);
             if (moving == -1) tgt = -tgt;
         }
     }
-    const float lock = c.p.max_lock.host();
-    tgt = std::clamp(tgt, -lock, lock);
-    const float step = d.p.steer_rate.host() * kStep;
-    d.steer += std::clamp(tgt - d.steer, -step, step);
+    const F lock = c.p.max_lock;
+    if (lock < tgt) tgt = lock;
+    else if (tgt < -lock) tgt = -lock;
+    if ((d.control == 1 || d.control == 2 || d.kind != 0) && slew) steer_to(d, tgt);
 
     // Throttle and brake.
     if (drive == 1) {
-        if (brakeflag) d.brake = 0.09f;
-        float aim = d.v_cur.host(), next = d.v_next.host();
+        if (brakeflag) d.brake = F::raw(0x3DB851EB);
+        d.pit = 0;
+        F aim = d.v_cur, next = d.v_next;
         int mode = d.mode;
-        if (d.follow >= 0 && d.cooldown < 120) {
-            const float margin = d.status == 1 || d.status == 2 ? 20 * kKmh : d.status >= 3 ? 15 * kKmh : 5 * kKmh;
-            const float vo = std::max(session_->record(size_t(d.follow)).speed.host() - margin, 30 * kKmh);
+        if (d.line == CourseLines::kPitStop) aim = next = k::kmh25, mode = 3, d.pit = 1;
+        else if (d.line == CourseLines::kPitLane) {
+            // Along the pit lane at the set's pit speed between the stop line's second and its fourth point from the end.
+            const std::vector<LinePoint>& stop = lines_.line(CourseLines::kPitStop);
+            const F lap(lines_.lap());
+            F s = course_s(d.car);
+            if (s < lap * k::half) s = s + lap;
+            const int sn = int(stop.size());
+            if (sn >= 4 && !(s < F(stop[1].dist)) && !(s < F(stop[2].dist)) && s < F(stop[size_t(sn - 3)].dist)) {
+                mode = 1;
+                aim = d.p.pit_speed + k::kmh2;
+                d.pit = 1;
+                if (d.v_cur < aim) d.pit = 0, aim = d.v_cur, mode = d.mode;
+                next = d.p.pit_speed + k::kmh2;
+                if (d.v_next < next) next = d.v_next;
+            }
+        } else if (z.follow >= 0 && d.cooldown < 120) {
+            F vo = session_->record(size_t(z.follow)).speed;
+            if (d.status <= 0 || d.status >= 6) vo = vo - k::kmh5;
+            else if (d.status < 3) vo = vo - k::kmh20;
+            else vo = (vo - k::kmh10) - k::kmh5;
+            if (vo < k::kmh30) vo = k::kmh30;
             mode = 4;
             if (vo < next) next = vo;
         }
         if (d.state == 2) {
-            speed_control(d, 50 * kKmh, -0.5f);
+            const bool pit_lines = d.line == CourseLines::kPitStop || d.line == CourseLines::kPitLane;
+            speed_control(d, pit_lines ? aim : k::kmh50, -k::half);
             d.arc_ticks = 0;
         } else if (mode == 0) {
-            d.throttle = 1, d.arc_ticks = 0;
+            d.throttle = k::one, d.arc_ticks = 0;
         } else if (mode == 3) {
-            speed_control(d, next, -2), d.arc_ticks = 0;
+            speed_control(d, next, -k::two), d.arc_ticks = 0;
         } else if (mode == 4) {
-            speed_control(d, next, -1), ++d.arc_ticks;
-        } else {
-            float tv = aim;
-            if (!(st.wheels[0].surface & 1) && d.arc_ticks >= d.p.bonus_ticks) tv += d.p.corner_bonus.host();
-            if (d.p.straight_bonus && aeps < d.p.bonus_angle.host())
-                tv += d.p.bonus_speed.host() * (d.p.bonus_angle.host() - aeps) / d.p.bonus_angle.host();
-            speed_control(d, tv, -0.5f);
+            speed_control(d, next, -k::one), ++d.arc_ticks;
+        } else if (mode == 1 || mode == 2) {
+            F tv = aim;
+            if (!(c.x535 & 0x10) && !(int(d.arc_ticks) < d.p.bonus_ticks)) {
+                tv = tv + d.p.corner_bonus;
+                if (d.p.straight_bonus && aeps < d.p.bonus_angle) tv = tv + (d.p.bonus_speed * (d.p.bonus_angle - aeps)) / d.p.bonus_angle;
+            }
+            speed_control(d, tv, -k::half);
             if (d.status == 0) {
-                const float g = std::fabs(c.lat_g.host());
-                if (g > 0.9f) d.status = 5;
-                else if (g > 0.5f) d.status = mode == 1 ? 4 : 3;
+                F grip;
+                const int count = int(d.lay_raw[1]);
+                for (int w = 0; w < count && w < 4; ++w) grip = grip + tire_view(*session_, tables_.known, d.car, d.lay, w, c.w[size_t(w)].surface).grip;
+                F g = lat_x_[d.car] / (grip / int_f(count));
+                if (g < k::zero) g = -g;
+                if (F::raw(0x3F666666) < g) d.status = 5;
+                else if (k::half < g) d.status = mode == 1 ? 4 : 3;
             }
             ++d.arc_ticks;
         }
-        d.arc_ticks = std::min(d.arc_ticks, 6000);
-        d.throttle *= scale;
-        if (5000.0f + 100.0f * float(ranks_[d.car]) < float(steps_) * 1000.0f / 60.0f) traffic(d);
+        if (!(d.arc_ticks < 6001)) d.arc_ticks = 6000;
+        d.throttle = d.throttle * scale;
+        int rank = ranks_[d.car];
+        session_->rank(d.car, rank);
+        if (5000 + 100 * rank < s32(clock_ / 3)) traffic(d);
     } else {
-        if (drive == -1) d.reverse = true, d.throttle = 1;
-        d.brake = brakeflag ? 1 : 0;
+        if (drive == -1) d.reverse = true, d.throttle = k::one;
+        else d.throttle = F();
+        d.brake = brakeflag ? k::one : F();
         d.arc_ticks = 0;
+    }
+    // Past the tires' peak: the throttle cut and the brake by the set's shares (0x620DE7 set: the car's own measure of it,
+    // F +0x470, not mirrored; clear in this program, so the steering's overshoot serves).
+    if (k::zero < over && c.gear >= 2) {
+        const F e = d.kind == 0 ? over - k::one : over;
+        F f = k::one - d.p.sat_throttle * e;
+        if (f < k::zero) f = k::zero;
+        d.throttle = d.throttle * f;
+        const F b = d.brake + e * d.p.sat_brake;
+        d.brake = k::one < b ? k::one : b;
     }
 }
 
@@ -962,10 +1287,36 @@ void Field::begin_step() {
         });
         for (size_t r = 0; r < order.size(); ++r) ranks_[order[r]] = int(r + 1);
     }
+    for (size_t i = 0; i < cars.size(); ++i) {
+        if (int r; cars.rank(i, r)) ranks_[i] = r;
+        // The filtered lateral acceleration (0x35DC08): a second-order follower of F +0x554 at 1/60 s.
+        if (F x; cars.lat_filter(i, x)) lat_x_[i] = x;
+        else {
+            const F k60 = F::raw(0x3C888888);
+            const F a = (cars.record(i).a_y - lat_x_[i]) * F::raw(0x43480000) - lat_v_[i] * F::raw(0x41A00000);
+            lat_v_[i] = lat_v_[i] + a * k60;
+            lat_x_[i] = lat_x_[i] + lat_v_[i] * k60;
+        }
+        // The speed along the course (0x358608: the distance's change x 60, across the line by a lap).
+        const F s(cars.state(i).course_v);
+        if (F r; cars.course_rate(i, r)) rate_[i] = r;
+        else {
+            const F lap(lines_.lap()), was = last_s_[i];
+            if (was <= s) rate_[i] = (was + lap * kHalf < s ? s - (was + lap) : s - was) * F::raw(0x42700000);
+            else rate_[i] = (s + lap * kHalf < was ? (s + lap) - was : s - was) * F::raw(0x42700000);
+        }
+        last_s_[i] = s;
+    }
+    if (u32 ck; cars.clock(ck)) clock_ = ck;
     for (auto& d : drivers_)
         if (d) d->s = lines_.wrap_lap(cars.state(d->car).course_v);
     rubber_band();
     proximity();
+}
+
+void Field::end_step() {
+    ++steps_;
+    clock_ = std::min<u32>(clock_ + 50, 0x405F7DFD);
 }
 
 void Field::decide_car(size_t car, race::CarInput& in) {
@@ -973,23 +1324,33 @@ void Field::decide_car(size_t car, race::CarInput& in) {
     Driver& d = *drivers_[car];
     incidents_after(d);
     decide(d);
-    // The outputs into the controls (0x464F38): the throttle slews in the arcs.
-    if (tables_.tuning.smooth_throttle == 0 && (d.mode == 1 || d.mode == 2)) {
-        d.applied_throttle += std::clamp(d.throttle - d.applied_throttle, -kStep, kStep);
-    } else d.applied_throttle = d.throttle;
+    // The outputs into the controls (0x464F38): the throttle pedal slews to the wanted throttle by the step in the arcs.
     const ex::Car& c = session_->record(d.car);
+    F thr = d.throttle;
+    if (tables_.tuning.smooth_throttle == 0 && (d.mode == 1 || d.mode == 2)) {
+        const F cur = c.throttle_pedal;
+        if (cur < thr) {
+            const F n = cur + c.dt;
+            thr = thr < n ? thr : n;
+        } else {
+            const F n = cur - c.dt;
+            thr = n < thr ? thr : n;
+        }
+    }
+    d.applied_throttle = thr.host();
     in = race::CarInput{};
     // The steering as the pad's share of the lock it allows at the car's speed (what a pad reads), and the angle.
+    const float steer = d.steer.host();
     const float hi = c.lock_hi.host() > 0.01f ? c.lock_hi.host() : c.p.max_lock.host();
     const float lo = c.lock_lo.host() < -0.01f ? -c.lock_lo.host() : c.p.max_lock.host();
-    const float share = d.steer >= 0 ? d.steer / std::max(hi, 1e-3f) : d.steer / std::max(lo, 1e-3f);
+    const float share = steer >= 0 ? steer / std::max(hi, 1e-3f) : steer / std::max(lo, 1e-3f);
     in.steer = std::clamp(-share, -1.0f, 1.0f);
-    in.steer_angle = d.steer; // the session takes the angle itself, past the pad's lock curve
-    in.throttle = std::clamp(d.applied_throttle, 0.0f, 1.0f);
-    in.brake = std::clamp(d.brake, 0.0f, 1.0f);
+    in.steer_angle = steer; // the session takes the angle itself (the command F +0x468), past the pad's lock curve
+    in.throttle = d.applied_throttle;
+    in.brake = d.brake.host();
     in.reverse = d.reverse;
     in.computer = true;
-    in.shift_lock = d.shift_lock;
+    in.shift_lock = u8(d.shift_lock);
 }
 
 void Field::drive(std::span<race::CarInput> inputs) {

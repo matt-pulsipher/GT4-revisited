@@ -63,6 +63,11 @@ struct Pace {
     // past `start` metres, fully past `full` metres. All 0: none.
     float slow = 0, slow_start = 0, slow_full = 0, fast = 0, fast_start = 0, fast_full = 0, global = 1;
     bool standing_start = true; // the long look ahead off the grid of a standing start
+    // Per grid place, the seconds its car is held at the start (RACE +0x91, +0x8C .. +0x90; the decision's long look
+    // ahead lasts that much longer).
+    std::array<s16, 32> start_delay{};
+    // The race lets the cars follow and avoid each other (CFG +0x02 != 6).
+    bool contact = true;
 };
 
 // What a driver did, for checks and tools.
@@ -93,6 +98,13 @@ public:
         front = rear = false;
         return false;
     }
+    // What the program keeps per car that a session has no place for (false: not known, the field keeps its own):
+    // the filtered lateral acceleration F +0x560, the speed along the course F +0x650 (m/s), the place in the race
+    // F +0x4AF, and the race's clock (the conductor's +0xF89C, 50 a step).
+    virtual bool lat_filter(size_t, gt3r::ee::F&) const { return false; }
+    virtual bool course_rate(size_t, gt3r::ee::F&) const { return false; }
+    virtual bool rank(size_t, int&) const { return false; }
+    virtual bool clock(u32&) const { return false; }
 };
 
 // A session's cars.
@@ -132,7 +144,7 @@ public:
     // decision, then the step's end.
     void begin_step();
     void decide_car(size_t car, race::CarInput& input);
-    void end_step() { ++steps_; }
+    void end_step();
 
     const CourseLines& lines() const { return lines_; }
     const Tables& tables() const { return tables_; }
@@ -163,11 +175,20 @@ public:
     struct Probe {
         int line = 6, next = 0, mode = 0, next_kind = 0, status = 0, follow = -1, chain = 0;
         gt3r::ee::F v_cur, v_next;
-        float contact = 0, s = 0;
+        gt3r::ee::F contact;
+        float s = 0;
         u16 rand = 0;
         gt3r::ee::F corner_mult{1.0f}, brake_mult{1.0f}, alongside_mult{1.0f};
         std::array<u8, 8> zone{};
         s16 cooldown = 0;
+        // The rest of the driver object, for the decision (0x465078).
+        int state = 0, prev_line = 6, state_hold = 0, start_flag = 0, stop_count = 0, pit = 0;
+        u16 arc_ticks = 0;
+        gt3r::ee::F blend, offset, gap_left{1000.0f}, gap_right{1000.0f};
+        gt3r::ee::F steer, throttle, brake; // +0x30 / +0x34 / +0x38 (the outputs)
+        bool reverse = false;
+        u16 shift_lock = 0;
+        gt3r::ee::F aim_x, aim_y; // the aim (F +0x61C / +0x620), after a decision
     };
     void probe_set(size_t car, const Probe& p);
     Probe probe_get(size_t car) const;
@@ -175,6 +196,12 @@ public:
     gt3r::ee::F probe_corner_speed(size_t car, int i);
     // 0x463EA8: the point bookkeeping and the braking; the throttle multiplier (the state changes as the routine's).
     gt3r::ee::F probe_braking(size_t car);
+    // 0x465078: the decision on the state set (the cars' per-car values read again), its outputs and state after.
+    Probe probe_decide(size_t car);
+    // 0x3F4638: the proximity pass on the cars as they are (each car's follow set first by probe_set).
+    void probe_proximity();
+    // 0x46B480: line k's place at course distance s from point `hint`.
+    bool probe_place(int k, int hint, gt3r::ee::F s, gt3r::ee::F& x, gt3r::ee::F& y, gt3r::ee::F& h) const { return place(k, hint, s, x, y, h); }
 
 private:
     void proximity();
@@ -185,11 +212,23 @@ private:
     void replan(Driver& d);
     gt3r::ee::F corner_speed(const Driver& d, int i);
     gt3r::ee::F ai_grip(const Driver& d, int surface) const;
-    void speed_control(Driver& d, float target, float gain);
+    void speed_control(Driver& d, gt3r::ee::F target, gt3r::ee::F gain);
+    void steer_to(Driver& d, gt3r::ee::F target);
     void traffic(Driver& d);
     bool request_line(Driver& d, int line, bool at_once);
-    void target(const Driver& d, int line, float look, float& dx, float& dy) const;
+    // 0x46B480: line k's place at course distance s (any lap), from the span around point `hint`; false (the outputs
+    // kept) where the line has none.
+    bool place(int k, int hint, gt3r::ee::F s, gt3r::ee::F& x, gt3r::ee::F& y, gt3r::ee::F& h) const;
+    // 0x464868: the aim on a line `look` metres on, at least 5 m from the car, relative to it; the look ahead used.
+    gt3r::ee::F target(const Driver& d, int line, gt3r::ee::F look, gt3r::ee::F& dx, gt3r::ee::F& dy) const;
+    // 0x4649F0: the line's heading at course distance s.
+    gt3r::ee::F line_heading(const Driver& d, int line, gt3r::ee::F s) const;
+    gt3r::ee::F course_s(size_t car) const; // the car's course distance as the race has it (F +0x4A4)
     void incidents_after(Driver& d);
+    struct Near;
+    void zones(Near& z, gt3r::ee::F dist, gt3r::ee::F u, gt3r::ee::F v, gt3r::ee::F ahead, gt3r::ee::F behind, gt3r::ee::F w) const;
+    bool closing(size_t a, size_t b, gt3r::ee::F v, gt3r::ee::F& gap, gt3r::ee::F& rate) const;
+    void contact(size_t a, size_t b, gt3r::ee::F gap, gt3r::ee::F rate);
 
     void init(const course::AiData& data, const Program& program, std::span<const size_t> computer);
 
@@ -201,6 +240,12 @@ private:
     std::vector<std::unique_ptr<Driver>> drivers_; // by car index (null: not driven)
     std::vector<int> ranks_;
     u64 steps_ = 0;
+    u32 clock_ = 0; // the race's clock as the conductor keeps it (+0xF89C): 50 a step, a third of it in milliseconds
+    // Per car (every car, driven or not): the proximity pass's results (the driver object's +0x44 .. +0x6A).
+    std::vector<Near> near_;
+    // Per car: the lateral acceleration's filter (F +0x55C / +0x560) and the speed along the course (F +0x650) where the
+    // cars do not give them, and the last course distance.
+    std::vector<gt3r::ee::F> lat_v_, lat_x_, rate_, last_s_;
     std::array<u32, 24> soft_{}; // a material's soft flag (the program's table)
 };
 

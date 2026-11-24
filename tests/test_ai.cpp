@@ -205,11 +205,13 @@ TEST(ai_disc_fields_finish) {
     Disc* disc = gt4_disc();
     if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
     const std::vector<std::string> cars = {"_1100_standard_type11_49", "z_act_70", "n360_67", "midget2_d_type_98", "s500_63", "ka_01"};
-    // A circuit, a city course and a dirt course: six cars finish three laps, none standing still.
+    // A circuit, a city course and a dirt course: six cars finish three laps, none standing still on the paved courses.
+    // On Grand Canyon's climbs the smallest cars crawl and stop as they do in the program's own race with its own drivers
+    // (gt4r_diff ai grandcanyon: the Z, N360 and S500 below 5 km/h for 90 .. 140 s in three laps).
     for (const char* course : {"tsukuba", "seattle", "grandcanyon"}) {
         const sim::ai::FieldRun run = sim::ai::run_field(*disc, course, cars, 3);
         std::string why;
-        const bool ok = reasonable(run, 3, 10.0, why);
+        const bool ok = reasonable(run, 3, std::string(course) == "grandcanyon" ? 240.0 : 10.0, why);
         if (!ok) std::printf("  %s: %s\n", course, why.c_str());
         CHECK(ok);
         int walls = 0;
