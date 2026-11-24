@@ -55,6 +55,10 @@ struct HudState {
     bool overtake = false;            // the overtake command is on
     s64 total_ms = -1;                // the race's time
     bool help = true;                 // the help strip along the bottom
+    // A license test (the race's kind 3): no place, the three target times with their trophies in place
+    // of the last lap (ms; <= 0 none).
+    bool license = false;
+    s64 targets[3] = {-1, -1, -1};
     // The display's parts the options leave on (race_display_*).
     bool show_map = true, show_time = true, show_lap = true, show_position = true, show_meter = true;
 };

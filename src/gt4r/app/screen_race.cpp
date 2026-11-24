@@ -865,6 +865,7 @@ public:
                     if (laps <= 0 && sequence_ == "single_race")
                         if (const auto it = setup_.options.find("race_laps"); it != setup_.options.end())
                             if (const s32* v = std::get_if<s32>(&it->second)) laps = *v;
+                    if (laps <= 0 && (sequence_ == "license" || sequence_ == "mission")) laps = 1; // (a test: one run)
                     if (laps > 0) setup_.laps = std::clamp(laps, 1, 99);
                 }
             }
@@ -1083,6 +1084,9 @@ public:
                 hud_state_.show_map = d.map, hud_state_.show_time = d.time, hud_state_.show_lap = d.lap;
                 hud_state_.show_position = d.position, hud_state_.show_meter = d.meter;
                 hud_state_.replay_display = settings_.replay_display;
+                // A license test: the targets (the page's gold, silver and bronze times).
+                hud_state_.license = sequence_ == "license";
+                for (int k = 0; k < 3; ++k) hud_state_.targets[k] = test_time(k);
                 if (race_->replaying()) {
                     if (caption_for_.empty()) music_caption(app);
                     hud_state_.caption_title = caption_title_, hud_state_.caption_artist = caption_artist_;
@@ -1332,8 +1336,8 @@ private:
         if (sequence_ == "license") {
             r.kind = menu::RaceResult::Kind::License;
             // ❓ The test's grading: the time against the page's gold, silver and bronze times.
-            const s32 t = s32(r.time_ms);
-            r.result = !r.finished || race_->license_failed() ? "failed" : t <= w.get("goldTime") ? "gold" : t <= w.get("silverTime") ? "silver" : t <= w.get("bronzeTime") ? "bronze" : "failed";
+            const int level = prize_level();
+            r.result = level == 0 ? "gold" : level == 1 ? "silver" : level == 2 ? "bronze" : "failed";
         } else if (sequence_ == "mission") {
             r.kind = menu::RaceResult::Kind::Mission;
         } else if (sequence_ == "championship") {
@@ -1582,10 +1586,22 @@ private:
         const race::RaceFlow& f = race_->flow();
         if (!f.player_finished() || race_->license_failed()) return 3;
         const s64 t = race::clock_ms(f.car(0).finish_units);
-        const s32 g = w.get("goldTime"), sv = w.get("silverTime"), b = w.get("bronzeTime");
-        auto known = [](s32 v) { return v > 0 && v != menu::QuickWork::kNoTime; };
+        (void)w;
+        const s64 g = test_time(0), sv = test_time(1), b = test_time(2);
+        auto known = [](s64 v) { return v > 0; };
         if (!known(b)) return 3;
         return known(g) && t <= g ? 0 : known(sv) && t <= sv ? 1 : t <= b ? 2 : 3;
+    }
+
+    // A test's target time k (0 gold, 1 silver, 2 bronze), ms: the page's (MQuickWork goldTime ..),
+    // else the event's row; -1 none.
+    s64 test_time(int k) const {
+        if (menus_) {
+            const char* names[3] = {"goldTime", "silverTime", "bronzeTime"};
+            const s32 v = menu::quick_work(menus_->game()).get(names[k]);
+            if (v > 0 && v != menu::QuickWork::kNoTime) return v;
+        }
+        return targets_[k];
     }
 
     // The results page goes up at the player's finish (ResultArcade::vf7).
@@ -1653,10 +1669,9 @@ private:
                 if (n == "GETTIME") return V::string(seconds(t, false));
                 if (n == "GETTIMEDIF") {
                     // The gap to the next grade up (a failed run: to bronze).
-                    const menu::QuickWork& w = menu::quick_work(menus_->game());
                     const int level = prize_level();
-                    const s32 ref = w.get(level <= 1 ? "goldTime" : level == 2 ? "silverTime" : "bronzeTime");
-                    return V::string(ref > 0 && ref != menu::QuickWork::kNoTime ? seconds(t - ref, true) : std::string());
+                    const s64 ref = test_time(level <= 1 ? 0 : level == 2 ? 1 : 2);
+                    return V::string(ref > 0 ? seconds(t - ref, true) : std::string());
                 }
                 if (n == "GETTITLE") return V::string(license_title());
                 if (n == "EXIT_MENU") {
@@ -1720,6 +1735,21 @@ private:
             if (setup_.bspec) spectator_ = true;
             hud_ = std::make_unique<RaceHud>(app, race_->course().section(course::kSlotMiniMap));
             race_->set_lap_words(hud_->word("WordOfLap"), hud_->word("WordOfLaps"));
+            // A test's gold, silver and bronze times (its RACE row, under the region's prefix).
+            targets_[0] = targets_[1] = targets_[2] = -1;
+            if (sequence_ == "license" || sequence_ == "mission")
+                if (db::SpecDb* sdb = app.db()) try {
+                        gt3r::Vfs* vfs = app.vfs();
+                        const db::RaceEvents events(*sdb, [vfs](const std::string& path) { return vfs->read(path); });
+                        const std::string code = menus_ ? menus_->game().race.race : setup_.race;
+                        for (const std::string& label : {code, "us" + code, "jp" + code})
+                            if (const std::optional<db::RaceEvent> e = events.event(label)) {
+                                for (int k = 0; k < 3; ++k) targets_[k] = e->target_ms[size_t(k)] > 0 ? s64(e->target_ms[size_t(k)]) : -1;
+                                break;
+                            }
+                    } catch (const std::exception& e) {
+                        LOG_WARN("Drive: the test's times: %s", e.what());
+                    }
             // The options' speed unit (unit_velocity), when the race came with the game's options.
             if (!setup_.options.empty()) hud_->set_mph(std::string(settings_.velocity.name).find("mph") != std::string::npos);
             if (const std::optional<Bytes> logo = app.vfs()->read("piece/crs_logo/" + setup_.course + ".img")) hud_->set_course_logo(*logo);
@@ -1814,6 +1844,7 @@ private:
     bool saved_replay_ = false; // the screen plays a saved replay (then leaves)
     std::string last_saved_;
     menu::GameSettings settings_; // the game's options as the race reads them
+    s64 targets_[3] = {-1, -1, -1}; // a test's gold, silver and bronze times from its event (ms)
     std::string caption_for_, caption_title_, caption_artist_; // the replay's music caption (for the piece caption_for_)
     bool demo_ = false, reported_ = false; // the run is a demonstration; its result was given
     int last_can_replay_ = 0;

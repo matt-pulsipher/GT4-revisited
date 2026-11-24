@@ -595,3 +595,12 @@ original's picture: the bar 190, 18, 260 x 58, keys 26 x 26 every 30 units; the 
 431; the strip 438 .. 480) are not read. The commands: Left / Right the pace, Triangle overtake,
 Cross the view, R2 the display; the race opens in the low view from the car's nose.
 
+## License tests
+
+The original's B-1 (reference `05-gtmode/37_license_test_b1_driving.png`): the laps "1/1", the map,
+the lap's time and the best lap as the single race's, no place, and in place of the last lap the
+test's three target times (its RACE row's gold, silver and bronze) each by its trophy (`mark_1st`,
+`mark_2nd`, `mark_3rd`; RaceLicenseDisplay::vf9 names them and `pylon`). ❓ Drawn here at the
+picture's places: trophies centred at x 485, y 100 / 128 / 156, the times ending at x 608 on
+baselines 8 below; the pylon count is not drawn.
+

@@ -439,8 +439,8 @@ std::string RaceHud::word(const std::string& key) const {
 // Position, lap count and the three times.
 void RaceHud::Impl::draw_top(const HudState& s) {
     const float o = s.opacity;
-    if (const DisplayPlace* p = cur->find(element::kPositionWord); p && s.show_position) draw_at("JP/position", *p, kNeutral, o);
-    if (const DisplayPlace* p = cur->find(element::kPosition); p && s.show_position) {
+    if (const DisplayPlace* p = cur->find(element::kPositionWord); p && s.show_position && !s.license) draw_at("JP/position", *p, kNeutral, o);
+    if (const DisplayPlace* p = cur->find(element::kPosition); p && s.show_position && !s.license) {
         const DisplayRect at = draw_at("position_base", *p, kNeutral, o);
         const int digit = std::clamp(s.place, 0, 9);
         draw_text(font("FC_26"), at.x + at.w / 2 - 1 + (digit == 1 ? 4.0f : 0.0f), at.y + at.h - 19, kCentered | kMiddleOfLine, kTextGray, o,
@@ -472,9 +472,22 @@ void RaceHud::Impl::draw_top(const HudState& s) {
         draw_text(times, race::place_x(*p, true), float(p->y), kCentered, kTextGray, o, race::format_total_time(s.total_ms));
     if (const DisplayPlace* p = cur->find(element::kBestTime); p && s.show_time)
         draw_text(times, race::place_x(*p, true), float(p->y), kCentered, kTextGray, o, race::format_lap_time(s.best_ms));
-    if (const DisplayPlace* p = cur->find(element::kLastWord); p && s.show_time) draw_at("JP/last_time", *p, kNeutral, o);
-    if (const DisplayPlace* p = cur->find(element::kLastTime); p && s.show_time)
-        draw_text(times, race::place_x(*p, true), float(p->y), kCentered, kTextGray, o, race::format_lap_time(s.last_ms));
+    if (s.license && s.show_time) {
+        // The three target times under the best lap, each by its trophy (mark_1st .. 3rd): ❓ the places
+        // judged from the original's B-1 (RaceLicenseDisplay::vf9 draws them; its places are not read).
+        static const char* const kMarks[3] = {"mark_1st", "mark_2nd", "mark_3rd"};
+        for (int k = 0; k < 3; ++k) {
+            if (s.targets[k] <= 0) continue;
+            const float y = 100.0f + 28.0f * float(k);
+            const Picture& mark = picture(kMarks[k]);
+            draw_picture(mark, {485 - mark.w / 2, y - mark.h / 2, mark.w, mark.h}, kNeutral, o);
+            draw_text(times, 608, y + 8, kEndsAtPen, kTextGray, o, race::format_lap_time(s.targets[k]));
+        }
+    } else {
+        if (const DisplayPlace* p = cur->find(element::kLastWord); p && s.show_time) draw_at("JP/last_time", *p, kNeutral, o);
+        if (const DisplayPlace* p = cur->find(element::kLastTime); p && s.show_time)
+            draw_text(times, race::place_x(*p, true), float(p->y), kCentered, kTextGray, o, race::format_lap_time(s.last_ms));
+    }
     if (const DisplayPlace* p = cur->find(element::kEventLine))
         draw_text(times, race::place_x(*p, true), float(p->y), kCentered, kTextGray, o * s.event_opacity, s.event);
     if (const DisplayPlace* p = cur->find(element::kMessage))
