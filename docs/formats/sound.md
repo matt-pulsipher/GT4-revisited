@@ -555,7 +555,9 @@ sides' crossfaded levels).
   strength summed over the step, at most 1) as min(2 × contact, 1), none under 0.2: the same for one
   contact, the sum where the program keeps the stronger. Measured: driving straight on into
   Tsukuba's first corner, 60 steps against the wall, one over 0.2; on_bound for the in-car own view (the strongest wheel landing, 0.5..1,
-  × G15 × 2.5); backfire / backfire2 (one at random) at the exhaust, strength 3, when an
+  × G15 × 2.5; a wheel's landing, 0x3FA7B8: on the step its contact state, wheel + 0xDC, is 2, the
+  hub's speed into the ground, -wheel + 0xD8, from 0.5 at most 1; none on surfaces 1, 2, 3, 4, 6,
+  10, 11, 13, 14; `sound_state(session, i)` reads both from Gran Turismo 4's body routines); backfire / backfire2 (one at random) at the exhaust, strength 3, when an
   afterfire flame starts (0x3B6B78: the flame object's latch +0x64, read and cleared by
   0x3D6F30). **The afterfire** (`RaceSound` from the simulation; `CarSoundState::shift_flame`,
   `afterfire_chance`): 0x3F3368 (each step, from 0x34DB30) sets the car's byte +0x6C4 when the

@@ -65,8 +65,16 @@ CarSoundState sound_state(const sim::Session& session, size_t i, const RaceSound
         s.contact = b.hit_kind >= 0 ? b.hit_sound.host() : 0.0f;
         s.contact_kind = std::max(b.hit_kind, 0);
     }
-    const CarSoundState seam = sound_state(car);
-    for (size_t w = 0; w < 4; ++w) s.wheels[w].landing = seam.wheels[w].landing;
+    // A wheel's landing (0x3FA7B8): the step it met the ground (its contact state, wheel + 0xDC, 2),
+    // the hub's speed into the ground (wheel + 0xD8, negated). Without Gran Turismo 4's routines
+    // running, the seam's estimate.
+    if (session.gt4_rules()) {
+        const sim::rules::BodyExtra& b = session.gt4_record(i).body;
+        for (size_t w = 0; w < 4; ++w) s.wheels[w].landing = b.contact[w] == 2 ? -b.normal_speed[w].host() : 0.0f;
+    } else {
+        const CarSoundState seam = sound_state(car);
+        for (size_t w = 0; w < 4; ++w) s.wheels[w].landing = seam.wheels[w].landing;
+    }
     return s;
 }
 
