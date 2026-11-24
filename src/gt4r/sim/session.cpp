@@ -154,6 +154,9 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
             if (!e.asm_on) r.x.aids.own.on = {}, r.car.p.aids.on = {};
             if (!e.tcs_on) r.x.aids.own.tcs_gain = F(), r.car.p.aids.tcs_gain = F();
             c.p = r.car.p;
+            // The fuel and the nitrous at the start (0x354AF8; the race's fuel rule, the rule block's +0x4C: Entry::fuel).
+            rules::fuel_start(c, r.x.drive.fuel, e.fuel ? 1 : 0, program.b(0x620E24), r.x.chassis.mass, r.x.body.sprung_mass);
+            r.x.aids.fuel = r.x.drive.fuel.fuel, r.x.aids.fuel_capacity = r.x.drive.fuel.capacity;
             gx_[i] = r.x;
             layouts_[i] = r.layout;
             speed_tables_[i] = rules::speed_tables(program, r.x.steer.lean_row);
@@ -467,6 +470,10 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
             c.slip_filter = filter;
             const rules::BodyExtra& b = gx_[i].body;
             rules::aero(c, gx_[i].chassis, b.speed_part_kind, b.speed_part_lift, tables_.aero);
+            // The masses with the fuel (0x354AC0), and the fuel the aids read.
+            sim::Extra& g = gx_[i];
+            rules::masses(c, g.drive.fuel, g.chassis.mass, g.body.sprung_mass);
+            g.aids.fuel = g.drive.fuel.fuel, g.aids.fuel_capacity = g.drive.fuel.capacity;
         }
         // (a computer's car: its driver's grip, 0x467470)
         const std::array<F, 3>* grip = in.computer && driver_grip_[i] ? &*driver_grip_[i] : nullptr;

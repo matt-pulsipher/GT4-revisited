@@ -443,7 +443,7 @@ F engine_torque(ex::Car& c, const DriveExtra& x, F throttle) {
             c.turbo_spool = u8(n);
         }
     }
-    // (0x354B78 then counts the fuel and the nitrous: not ported)
+    fuel_use(c, x.fuel, x.d.kind, t); // (0x354B78)
     return t;
 }
 
@@ -585,7 +585,7 @@ void axle_step(ex::Car& c, DriveExtra& x, const WheelLayout& l, const DriveTable
             c.omega = c.omega + ((te - tc) * d.inv_engine_inertia) * dt;
         }
     }
-    // (0x354CE8 then keeps the fuel economy's display: not ported)
+    fuel_economy(c, x.fuel); // (0x354CE8: the fuel economy's display, in the game's km per liter)
     if (d.layout != 7) c.clutch_torque = k0 <= tc ? tc : -tc;
     const size_t g = ratio_gear(c, d) < 10 ? ratio_gear(c, d) : 9;
     const F tg = tc * d.ratio[g];

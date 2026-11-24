@@ -2,6 +2,8 @@
 
 #include "orig.h"
 
+#include <cstdlib>
+
 #include "disc/core_image.h"
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/formats/db/car_parts.h"
@@ -162,6 +164,8 @@ bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, 
         ee.hle(0x44A048, [](Ee& e) { e.set_v0(0); }, "parts information row");
         o.cond = ee.alloc(kCondSize, 64);
         ee.call(kConductorCtor, {Arg::ptr(o.cond)}, 50'000'000);
+        // GT4R_STEP_FUEL: the race's fuel rule (the rule block's byte +0x4C) on, every car's tank filled at its set-up.
+        if (std::getenv("GT4R_STEP_FUEL")) ee.w8(o.cond + 0xF818 + 0x4C, 1);
         ee.w32(o.cond, o.info);
         ee.w32(o.cond + kCondCars, u32(o.cars));
         const u32 vt = ee.r32(o.cond + kCondVtable);

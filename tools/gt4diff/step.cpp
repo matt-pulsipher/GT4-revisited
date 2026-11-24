@@ -99,6 +99,7 @@ void add_taps(Taps& taps) {
     taps.add({0x3458D0, "hub offsets xy", car_a0, [](TapCall& t) { sim::rules::hub_offsets_xy(t.car, t.rec.layout); }});
     // (0x35DE20 itself: the interpreter never stops at its entry; its parts are tapped, and gt4r_diff ai's whole step
     // compares all of it)
+    taps.add({0x354AC0, "masses", car_a0, [](TapCall& t) { sim::rules::masses(t.car, t.rec.x.drive.fuel, t.rec.x.chassis.mass, t.rec.x.body.sprung_mass); }});
     taps.add({0x35D920, "hub velocities", car_a0, [](TapCall& t) {
                   sim::rules::hub_velocities(t.car, t.rec.layout, sim::rules::speed_tables(*g_program, t.rec.x.steer.lean_row), t.rec.x.body.in_line_x480);
               }});

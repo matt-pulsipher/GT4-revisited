@@ -4,6 +4,7 @@
 
 #include "gt4r/sim/car_layout.h"
 #include "gt4r/sim/rules.h"
+#include "gt4r/sim/rules_fuel.h"
 #include "gt4r/sim/rules_tires.h"
 
 namespace gt4r::sim::rules {
@@ -56,6 +57,9 @@ struct DriveExtra {
     DrivelineBlock d;
     F ratio_word;                // F +0x518 a stepless gearbox's ratio (1 locked in a gear)
     std::array<gt3r::s8, 4> marks{}; // car +0x774 (0x35A5F8): [0] the last gear change, +1 up, -1 down, 0 none
+    // The fuel and the nitrous (rules_fuel.h), which the engine's torque counts as it runs (mutable: the routines that take the
+    // torque read the rest of this block only).
+    mutable FuelState fuel;
 };
 
 // Every member of DriveExtra with its place in Gran Turismo 4's record: v(name, index (-1: single), block, offset, member).
@@ -94,6 +98,7 @@ template <class X, class V> void drive_fields(X& x, V&& v) {
     const Block C = Block::Car;
     v("ratio_word", -1, C, layout::kState + 0x518, x.ratio_word);
     for (u32 k = 0; k < 4; ++k) v("marks", int(k), C, 0x774 + k, x.marks[k]);
+    fuel_fields(x.fuel, v);
 }
 
 // The race's tables these routines read (the program's globals): the four wheel drive system 5's fade
