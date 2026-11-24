@@ -129,7 +129,10 @@ QuickWork::QuickWork() {
                              "IsQuickTuned", "IsDryCourse", "IsASpec", "IsBSpec", "BestTime", "BestMaxSpeed", "prize", "GrandPrize", "CanLogger",
                              "DisableLogger", "IsFinalSession", "carYear", "CourseLength", "Laps", "QuickTuneWeightLevel", "QuickTunePowerLevel",
                              "QuickTuneGearMaxSpeed", "QuickTuneGearMaxSpeedMin", "QuickTuneGearMaxSpeedMax", "QuickTuneTransmission",
-                             "QuickTuneDrivingAssist"})
+                             "QuickTuneDrivingAssist",
+                             // Prologue's: whether its license page opens on the test's guide (GuidePage, a demonstration
+                             // in a scene view, ❓ not played here) or on the test's page (LicenseRoot).
+                             "dispGuidePage"})
         ints[zero] = 0;
     for (const char* minus : {"QuickTuneFrontTireType", "QuickTuneRearTireType", "playerGridNumber", "SeriesRank", "PsValue", "TorqueValue",
                               "driveTrainType", "carCategory"})
@@ -158,6 +161,7 @@ std::string quick_project(const std::string& sequence) {
         {"single_race", "quick-arcade"},       {"time_trial", "quick-tt"},       {"solo_event", "quick-event"}, {"championship", "quick-championship"},
         {"machinetest", "quick-mt"},           {"freerun", "quick-freerun"},     {"practice", "quick-practice"}, {"license", "quick-license"},
         {"mission", "quick-mission"},          {"photo_drive", "quick-freerun"},
+        {"license_race", "quick"}, // (Prologue's license tests: its project "quick", LicenseRoot)
     };
     const auto it = by_sequence.find(sequence);
     return it == by_sequence.end() ? std::string() : it->second;
