@@ -6,7 +6,8 @@
 //   gt4tool sound <disc> music                      the music indexes: groups, pieces, lengths
 //   gt4tool sound <disc> pages                      the music and the navigation sound each menu page names
 //   gt4tool sound <disc> seq <bank> [n]             a sequence's events (bank: "music/us/arcade")
-//   gt4tool sound <disc> seq-wav <bank> <n> <out.wav> [loops]   a sequence rendered to a WAV file
+//   gt4tool sound <disc> seq-wav <bank> <n> <out.wav> [loops] [volume]   a sequence rendered to a WAV file
+//                                                   (volume: the music's master, 0..1; 1 by default)
 //   gt4tool sound <disc> se-wav <name> <out.wav>    an effect of the index rendered to a WAV file
 //   gt4tool sound <disc> car <label>                the sound files a car uses
 //   gt4tool sound <disc> car-wav <label> <out.wav>  a car's engine swept through its revs
@@ -274,7 +275,10 @@ int seq_wav(Disc& disc, const Args& a) {
     const auto bank = std::make_shared<const sound::InstBank>(sound::InstBank::parse(read(disc, a[1] + ".ins")));
     const auto seqs = std::make_shared<const sound::SqtBank>(sound::SqtBank::parse(read(disc, a[1] + ".sqt")));
     const int loops = a.size() > 4 ? std::atoi(a[4].c_str()) : 1;
-    const audio::MusicRender r = audio::render_music(bank, seqs, std::atoi(a[2].c_str()), loops);
+    const float volume = a.size() > 5 ? float(std::atof(a[5].c_str())) : 1.0f;
+    const audio::MusicRender r = audio::render_music(bank, seqs, std::atoi(a[2].c_str()), loops, 600, 2, volume);
+    const audio::Level level = audio::measure(r.pcm);
+    std::printf("peak %d, rms %.4f, %zu samples at full scale\n", level.peak, level.rms, level.clipped);
     std::printf("stopped at %.2f s, most voices %d, loop ends at", double(r.end_frame) / gt3r::VoiceMixer::kRate, r.max_voices);
     for (u64 f : r.loop_frames) std::printf(" %.3f s", double(f) / gt3r::VoiceMixer::kRate);
     std::printf("\n");
@@ -498,7 +502,7 @@ int cmd_sound(Disc& disc, const std::vector<std::string>& a) {
     if (what == "drive-wav" && a.size() > 3) return drive_wav(disc, a);
     if (what == "stream-wav" && a.size() > 2) return stream_wav(disc, a);
     std::fprintf(stderr, "usage: gt4tool sound <disc> survey | bank <path.ins> | effects | music | pages | seq <bank> [n] |\n"
-                         "       seq-wav <bank> <n> <out.wav> [loops] | se-wav <name> <out.wav> | car <label> [out.wav] |\n"
+                         "       seq-wav <bank> <n> <out.wav> [loops] [volume] | se-wav <name> <out.wav> | car <label> [out.wav] |\n"
                          "       race-tables | pass-wav <label> <out.wav> [km/h] |\n"
                          "       drive-wav <label> <out.wav> <rpm>[:<rpm>] <seconds> [incar|chase|other] [rpm per m/s] |\n"
                          "       stream-wav <path.ads> <out.wav> [seconds] [level]\n");

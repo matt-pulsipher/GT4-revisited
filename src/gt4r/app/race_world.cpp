@@ -117,11 +117,7 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
     if (audio::AppSound* sound = app.sound()) {
         gt3r::AudioEngine& engine = app.audio();
         gt3r::Vfs& vfs = *app.vfs();
-        audio::StreamPlayer music;
-        music.play = [&engine, &vfs](const std::string& path, bool repeat, float level) { return engine.play_music(vfs, path, repeat, level); };
-        music.stop = [&engine] { engine.stop_music(); };
-        music.pause = [&engine](bool paused) { paused ? engine.pause_music() : engine.resume_music(); };
-        music.playing = [&engine] { return engine.music_playing(); };
+        const audio::StreamPlayer music = sound->streams();
         const Bytes program = app.disc() ? app.disc()->read_program() : Bytes{};
         m.sound = std::make_unique<audio::RaceSound>(vfs, engine.voices(), sound->driver(), sound->library_ptr(), audio::RaceSoundTables::from_core(program), music);
         for (const WorldEntry& e : setup.entries)
