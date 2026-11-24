@@ -279,6 +279,26 @@ void add_input_taps(PTaps& taps, const Race& race) {
                   f.steer = gt3r::s16(-axis(p.steer)), f.throttle = u16(axis(p.throttle)), f.brake = u16(axis(p.brake));
                   ex::driver_input_pad(c.car, c.inputs.pad, f, 0);
               }});
+    taps.add({0x3DEDE0, "Prologue's driver input", [r](PTapCall& c) {
+                  static sim::prologue::Tables t;
+                  static bool made = false;
+                  (void)made;
+                  const Pad& p = r->pad[c.car_index];
+                  auto axis = [](float v) { return s32(std::lround(std::clamp(v, -1.0f, 1.0f) * 4096.0f)); };
+                  ex::PadFrame f;
+                  f.flags = 1 | 2 | 4, f.kind = 3, f.shift = gt3r::s8(p.shift);
+                  f.steer = gt3r::s16(-axis(p.steer)), f.throttle = u16(axis(p.throttle)), f.brake = u16(axis(p.brake));
+                  t.pedal_ramps = c.ee.r8(0x504961) != 0;
+                  t.throttle_up = gt3r::ee::F::raw(c.ee.r32(0x504AA8)), t.throttle_down = gt3r::ee::F::raw(c.ee.r32(0x504AAC));
+                  t.brake_up = gt3r::ee::F::raw(c.ee.r32(0x504AB0)), t.brake_down = gt3r::ee::F::raw(c.ee.r32(0x504AB4));
+                  static int calls = 0;
+                  ++calls;
+                  if (std::getenv("GT4R_SHOW_STEER") && calls >= 855 && calls <= 866)
+                      std::printf("    call %d: speed %g slip_dir %g %g, curve b at speed %g, max lock %g, steer %d\n", calls, double(c.car.speed.host()),
+                                  double(c.car.w[0].slip_dir.host()), double(c.car.w[1].slip_dir.host()), double(ex::lookup(c.car.p.steer_b, c.car.speed).host()),
+                                  double(c.car.p.max_lock.host()), int(f.steer));
+                  sim::prologue::driver_input_pad(c.car, c.inputs.pad, f, 0, t);
+              }, {"ai."}});
     taps.add({0x3BF608, "engine's preparation", [](PTapCall& c) { ex::prep(c.car, c.inputs.prep); }});
 }
 

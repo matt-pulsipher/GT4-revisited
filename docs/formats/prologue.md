@@ -207,7 +207,7 @@ program's on the record as the program has it, every field compared. On a test d
 |---|---|---|
 | 1 | 0x3B2480 | the engine's (Gran Turismo 3's) |
 | 4 | 0x3BF608 (with the peak force 0x3BF338, slip angles 0x3BF598, aerodynamics 0x3DBB70) | the engine's |
-| 5 | 0x3DEDE0 | ❓ not ported: the pad's controls (0x3DE270, Gran Turismo 4's 0x349418 with small changes) ramp the throttle where the engine's take the analog value, and bound the steering otherwise |
+| 5 | 0x3DEDE0 | the pad's path (0x3DED50 with 0x3DE270, Gran Turismo 4's 0x349418 with small changes): the engine's but for the pedals, which with the controller settings' byte +0x11 (0x504950 + 0x11) set move toward an analog pad's value by at most a step a frame (0x504AA8 / AC the throttle's up and down while it is pressed, 0x504AB0 / B4 the brake's; not on a steering wheel, controller kinds 4 and 6), and F +0x420 and the slip-angle extension's share, which Prologue does not write (`prologue::driver_input_pad`): on the test drive 1,000 of 1,200 calls equal (Civic), 961 (Impreza); ❓ the steering bounds (0x3DDC98) differ in about 130 calls while turning |
 | 7 | 0x3B5A20 | the engine's angles; with the steering mode (0x714880: 1 in a race, built by 0x3B57D0 from the static block's +0xB9 .. +0xC0, Gran Turismo 4's rule) Gran Turismo 4's steering offset (0x3F7EA8's) but a wheel without the slip's fade aims at 0; no follower, no compliance steer (`prologue::wheel_steer`) |
 | 8 | 0x3BA450 with 0x3BA070 | Gran Turismo 4's slip ratio but the direct one: (hub less rim speed) / the static block's +0xE6 (driving) or +0xE5 (braking) km/h, each falling back to the other, then 50 (`prologue::slip_ratios`) |
 | 10 | 0x3BBFE0 | the engine's order and routines (brakes and clutch, tire curves, the class grip, longitudinal force, wheel torques, vectoring, axles, wheel speeds, engine speed, gearbox, the hold); Gran Turismo 4's tire slip force (0x3BB138: its direct lateral speed's scale pi / 2 over the static byte +0xE4 km/h; the mean slip angle into F + 0x420 with the switch 0x506612, which the race's set-up leaves 1) and forward step (0x3BAC98); the lateral forces and yaw (0x3BB5D0) Gran Turismo 4's but the lateral acceleration the sum times P + 0x4C (1 / mass), no yaw follower, no computer driver's grip (`prologue::dynamics`); the rolling resistance and the brake heat (phase 11) the engine's within a unit in the last place (another order of operations) |
@@ -218,7 +218,7 @@ slip bytes +0x84, the direct speeds +0xE4 .. +0xE6, the steering offset's +0xB9 
 gain 0x504294 / 0x504298, the wheel layouts 0x503FA8 (Gran Turismo 4's 0x54-byte rows), the surfaces whose offset aims at 0
 0x504AC0, the controller settings 0x504950 (Gran Turismo 4's 0x622110; read by the input phase).
 
-What a test drive gives (the program's / ours, km/h): 9.3 / 10.3 at 1 s of throttle (the program ramps the throttle in),
+What a test drive gives (the program's / ours, km/h): 9.3 / 9.6 at 1 s of throttle,
 46.3 / 47.7 at 3.5 s in first gear (the engine's whole step before: 45.1 in second; it shifted at 33 km/h with its wheels
 spinning), 73.7 / 75.6 at 7.5 s; Impreza WRC 146.7 / 147.3 at 8.5 s.
 
@@ -229,7 +229,7 @@ A session on Prologue's disc (`sim::Session` with `prologue::Tables`, `rules_pro
 `prologue::convert`; the step as the table above. Still the engine's Gran Turismo 3 code where Prologue's differs or is not
 compared:
 
-- Phase 5, the driver's input: `ex::driver_input_pad` (Prologue's 0x3DEDE0 with 0x3DE270).
+- Phase 5, the steering bounds and command of the driver's input: `ex::pad_controls`' (Prologue's 0x3DDC98).
 - Phase 19's attitude: `ex::attitude` (Prologue's 0x3765F8); the rest of phase 19 after the bump nudge (rumble, steering
   force, tire effects, engine sound, view follower, speeds, wheel spin): the engine's, not compared.
 - Phases 2, 3 and 6 (0x3BDEC8, 0x3C3C90, 0x3C4400), the proximity and slipstream (0x3DC1C8), the speed-switched part
