@@ -25,6 +25,7 @@ public:
         course::Vec3 pos, vel, omega;            // omega in course space, radians a second
         std::array<float, 9> rot{1, 0, 0, 0, 1, 0, 0, 0, 1}; // body to course, row-major
         bool awake = false, removed = false;
+        bool spent = false; // met a car once and, by its kind's flag, meets none again (body +0x45)
         int still = 0; // steps resting
         course::Vec3 home; // where it stood, on the floor at `floor` (its lowest hull point's height)
         float floor = 0;
@@ -40,6 +41,8 @@ public:
     void reset(const Gadgets& g);
     // One step of `dt` seconds. Returns a mask of the cars (the first 32) that touched a body.
     unsigned step(const Gadgets& g, const course::Runway& road, std::span<const Car> cars, float dt);
+    // The last step's contacts per car (each a report of kind 2 to the car, 0x3E3C48 -> 0x350530).
+    const std::vector<int>& contacts() const { return contacts_; }
     const std::vector<Body>& bodies() const { return bodies_; }
     // A body has moved from its place (the scene draws it where it is).
     bool moved() const { return moved_; }
@@ -47,6 +50,7 @@ public:
 private:
     void ground(Body& b, const Gadgets::Kind& k, const course::Runway& road);
     std::vector<Body> bodies_;
+    std::vector<int> contacts_;
     bool moved_ = false;
 };
 

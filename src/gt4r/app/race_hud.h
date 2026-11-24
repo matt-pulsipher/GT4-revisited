@@ -9,6 +9,7 @@
 #include "gt4r/race/strobe.h"
 
 #include <memory>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -33,6 +34,8 @@ struct HudState {
     float message_opacity = 0;
     std::string event;                // the line under the times ("L1/3   1'23.456")
     float event_opacity = 0;
+    std::string event_gap;            // a section time's gap to the car ahead at the split ("+0'05.800"), under the line
+    float event_gap_opacity = 0;
     std::string card_title, card_line; // a replay's opening card: the car, its power, tires and the race
     float card_opacity = 0;
     std::string status;               // the status line over the panel ("FULL THROTTLE"); UTF-8
@@ -88,6 +91,13 @@ public:
         float opacity = 1;
     };
     void draw_movie(const race::StrobeMovie& movie, const race::StrobePlayer& player, std::vector<MovieExternal>* externals = nullptr);
+    // The course map fitted in a box `size` canvas units across centred on (cx, cy), each car's letter at its
+    // place (`lit` the one drawn orange): the Race Monitor's MAP_PANEL.
+    struct Letter {
+        float x = 0, z = 0;
+        char letter = 'A';
+    };
+    void draw_map_box(float cx, float cy, float size, std::span<const Letter> cars, size_t lit);
     // The course's logo (piece/crs_logo/<course>.img, a Tex1 picture) for the replays' opening.
     void set_course_logo(ByteSpan tex1);
     // The 640 x 480 canvas on the screen.

@@ -334,13 +334,22 @@ run on time for its `end` seconds (t = frames since the cut / (end x 60), 0x3FC9
 next, after the last record 0 again, cut with the ended record's dissolve; roll at full size. A
 course with no slot 48 record shows the on-board view.
 
-**D and the lap variants** (slot 44) work as in the shared engine: a car at distance s along
-the lap on lap variant k is at D = k L + s; the script's period is L x (int(T / L) - 1 -
-int(first record's start / L)), and a D past the last record wraps by the period. The first records start a little
-before 0 (Tsukuba: -28 m) and cover the standing start. Header +0x1C states the variant count
-(3 on 72 courses; 1 to 6); it equals the formula on 103 of the 110 courses and differs on drag
-strips and short layouts, where the program still uses the formula. Within a record the
-camera brings the car's distance into the record's stretch by whole laps before taking t.
+**D and the lap variants** (slot 44; 0x3FD980 -> 0x396078 -> 0x3DDFF0): the camera manager keeps the
+followed car's place per screen (block at manager + 0x10 + 0x19C x screen: +0x14 its position, +0x2C its
+crossings of the line, +0x30 its distance along the lap, +0x34 the crossings x L + the distance, +0x38
+its speed; ✔ read in the reference's saved states: during Tsukuba's rolling run-up +0x2C 0 and +0x34 =
++0x30 = 1872.7 m, 242 m before the line; just after the start +0x2C 1, +0x30 20.6, +0x34 2135.7 =
+2115.1 + 20.6). D = +0x34 + +0x3C (0 here) x L, L the script's lap length (+0x14). The script's period
+is L x (int(T / L) - 1 - int(first record's start / L)); **a D at or past T becomes D - period x
+int(D / period); a negative D or one under T is kept** (0x3DDF18). So the run-up of a rolling start
+(no crossing yet) takes the records of the end of the first variant, the first lap after the line the
+second variant, and so on; a standing start's cars, behind the line with no crossing, likewise. The
+records are chosen (0x3DDFF0 via 0x3DDF88): none when D is before the first record's start; else the last
+record with start <= D when D is under its end; when that search ran past the last record, the first
+record from record 0 that covers D less the period. Header +0x1C states the variant count (3 on 72
+courses; 1 to 6); it equals the formula on 103 of the 110 courses and differs on drag strips and short
+layouts, where the program still uses the formula. Within a record the camera brings the car's distance
+into the record's stretch by whole laps before taking t.
 
 **Marks** (slot 44's last list): distances D. The manager checks each frame whether the
 followed car has passed one, and one mark, drawn at random when the race is set up, is told
