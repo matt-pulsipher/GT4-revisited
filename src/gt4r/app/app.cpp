@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 
 #if defined(__APPLE__)
 #include <mach/mach.h>
@@ -121,16 +122,19 @@ bool App::init(int argc, char** argv) {
         else if (a == "--stats" && has_value) stats_path_ = argv[++i];
         else if (a == "--fast") paced_ = false;
         else if (a == "--keys" && has_value) {
-            // "@<file>" among the keys: the keys of that file there.
-            for (std::string& k : parse_key_script(argv[++i])) {
-                if (k[0] != '@') {
-                    keys_.push_back(std::move(k));
-                    continue;
+            // "@<file>" among the keys: the keys of that file there (files may name files).
+            std::function<void(const std::string&, int)> add = [&](const std::string& text, int depth) {
+                for (std::string& k : parse_key_script(text)) {
+                    if (k[0] != '@') {
+                        keys_.push_back(std::move(k));
+                        continue;
+                    }
+                    const std::optional<Bytes> file = depth < 8 ? gt3r::read_host_file(k.substr(1)) : std::nullopt;
+                    if (!file) LOG_WARN("--keys: could not read %s", k.c_str() + 1);
+                    else add(std::string(file->begin(), file->end()), depth + 1);
                 }
-                const std::optional<Bytes> file = gt3r::read_host_file(k.substr(1));
-                if (!file) LOG_WARN("--keys: could not read %s", k.c_str() + 1);
-                for (std::string& f : parse_key_script(file ? std::string(file->begin(), file->end()) : std::string())) keys_.push_back(std::move(f));
-            }
+            };
+            add(argv[++i], 0);
         } else if (!a.empty() && a[0] != '-') disc_path = a;
     }
     if (disc_path.empty()) disc_path = config_.get("game", "disc").value_or("");
