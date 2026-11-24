@@ -4,6 +4,36 @@
 
 namespace gt4r::sim::ai {
 
+PitHooks session_pit_hooks(Session& session) {
+    PitHooks h;
+    Session* s = &session;
+    // 0x354E38: the fuel counted when the tank (car +0x5D0 = F +0x4CC) is above 0.
+    h.fuel_on = [s](size_t i) { return s->tank(i) > 0.0f; };
+    h.fuel = [s](size_t i) { return F(s->fuel(i)); };
+    h.tank = [s](size_t i) { return F(s->tank(i)); };
+    h.fuel_distance = [s](size_t i) { return F(s->fuel_distance(i)); };
+    h.fuel_used = [s](size_t i) { return F(s->fuel_used(i)); };
+    h.set_fuel = [s](size_t i, F f) { s->set_fuel(i, f); };
+    // The wear rules: the switch (+0x68) and the limit (+0x20); each wheel's wear grip (+0x50) and tread (+0xAC).
+    h.wear_on = [s] { return s->wear_rules().raw[0x68] != 0; };
+    h.wear_limit = [s] {
+        const auto& r = s->wear_rules().raw;
+        return F::raw(u32(r[0x20]) | (u32(r[0x21]) << 8) | (u32(r[0x22]) << 16) | (u32(r[0x23]) << 24));
+    };
+    h.wear_grip = [s](size_t i) {
+        std::vector<F> v;
+        for (int w = 0; w < 4; ++w) v.push_back(F(s->wear_grip(i, w)));
+        return v;
+    };
+    h.tread = [s](size_t i) {
+        std::vector<F> v;
+        for (int w = 0; w < 4; ++w) v.push_back(F(s->tread(i, w)));
+        return v;
+    };
+    h.new_tire = [s](size_t i, int w) { s->new_tire(i, w); };
+    return h;
+}
+
 PitStops::PitStops(const Field& field, const Program& program, size_t cars, PitHooks hooks, PitRace race)
     : flow_(program), hooks_(std::move(hooks)), race_(race), cars_(cars), last_d_(cars), last_lap_(cars, 0), stops_(cars, 0), records_(cars) {
     if (program.known()) race_.refuel_rate = program.b(0x620E25);
@@ -63,8 +93,8 @@ void PitStops::after(const Session& session, Field& field) {
         need.wear_on = hooks_.wear_on && hooks_.wear_on();
         if (need.wear_on) {
             need.wear_limit = hooks_.wear_limit ? hooks_.wear_limit() : F();
-            need.wear = hooks_.tread ? hooks_.tread(i) : std::vector<F>{};
-            need.burst = hooks_.burst ? hooks_.burst(i) : std::vector<F>{};
+            need.wear = hooks_.wear_grip ? hooks_.wear_grip(i) : std::vector<F>{};
+            need.burst = hooks_.tread ? hooks_.tread(i) : std::vector<F>{};
         }
         need.lap_state = lap_state, need.control = gt3r::s8(control);
         pit_need(c, need);

@@ -30,11 +30,12 @@ struct PitHooks {
     std::function<bool(size_t car)> fuel_on;
     std::function<F(size_t car)> fuel, tank, fuel_distance, fuel_used;
     std::function<void(size_t car, F fuel)> set_fuel;
-    // The wear: whether the race wears tires, its limit (conductor + 4 + 0x20), each wheel's tread left (+0x50) and its
+    // The wear: whether the race wears tires, its limit (conductor + 4 + 0x20), each wheel's wear grip (+0x50: below the
+    // limit, a stop asked) and its tread wear
     // +0xAC (< 0: the tire gone).
     std::function<bool()> wear_on;
     std::function<F()> wear_limit;
-    std::function<std::vector<F>(size_t car)> tread, burst;
+    std::function<std::vector<F>(size_t car)> wear_grip, tread;
     // A wheel given a new tire (0x362E58), at the stop's 60th step from its end.
     std::function<void(size_t car, int wheel)> new_tire;
     // The car's tires as the race keeps them (cond + 0xFB20 + 2 i: front, rear kind), for the stops' record.
@@ -44,6 +45,10 @@ struct PitHooks {
     // The car stood in its box (0x363560: the standing start's pose there) facing `heading` (the box's, radians).
     std::function<void(size_t car, F heading)> place_in_box;
 };
+
+// The hooks filled from a session (its fuel, tank, the economy readings, the wear rules and each wheel's wear, new tires):
+// the program's reads of the car (0x353218, 0x354D60, 0x362E58). Not the box's placing (left empty).
+PitHooks session_pit_hooks(Session& session);
 
 // The race's part (what the conductor answers): its laps (0: a run without an end), whether it has pit stops (the
 // conductor's virtual +0x180), its time limit (minutes, 0 none), and each car's result being in (F +0x4B0).

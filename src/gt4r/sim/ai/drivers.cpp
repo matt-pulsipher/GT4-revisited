@@ -285,6 +285,13 @@ u8 Field::shift_factor(size_t car) const {
     return d && d->control == 1 && d->kind == 0 ? d->shift : 128;
 }
 
+void Field::apply_shift_factors(Session& session) const {
+    for (size_t i = 0; i < session.cars().size(); ++i) {
+        const Driver* d = driver(i);
+        session.set_shift_factor(i, d ? d->shift : 128);
+    }
+}
+
 const Field::Driver* Field::driver(size_t car) const { return car < drivers_.size() ? drivers_[car].get() : nullptr; }
 const Params& Field::params(size_t car) const { return drivers_.at(car)->p; }
 const Incidents& Field::incidents(size_t car) const { return drivers_.at(car)->inc; }

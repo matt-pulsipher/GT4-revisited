@@ -220,6 +220,9 @@ public:
     void apply_time_scales(Session& session) const {
         for (size_t i = 0; i < session.cars().size(); ++i) session.set_time_scale_raw(i, time_scale_bits(i));
     }
+    // Every car's shift byte (the driver's D +0x6F, the car's +0x83) into the session's gearbox, which applies it as 0x3F1E30
+    // for control source 1 (the up-shifts with kind 0 only); 128 for a car not driven.
+    void apply_shift_factors(Session& session) const;
     // The band's values as the conductor holds them (+0x7C .. +0x94, for checks against another race) and its mode.
     struct Band {
         gt3r::ee::F slow, slow_start, slow_full, fast, fast_start, fast_full, global{1.0f};

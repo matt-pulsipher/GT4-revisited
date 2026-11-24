@@ -92,7 +92,7 @@ TEST(ai_pits_on_our_session) {
     std::vector<size_t> computer{0, 1};
     auto field = sim::ai::Field::open(*disc, "tsukuba", *session, computer);
     const sim::Program program = sim::Program::load(*disc);
-    sim::ai::PitStops pits(*field, program, 2);
+    sim::ai::PitStops pits(*field, program, 2, sim::ai::session_pit_hooks(*session));
     std::vector<race::CarInput> in(2);
     for (int k = 0; k < sim::Session::kHoldSteps; ++k) field->hold(in), session->hold_once(in);
     bool lane = false, stop_line = false, out = false;
