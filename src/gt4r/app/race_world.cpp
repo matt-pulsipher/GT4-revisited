@@ -110,6 +110,20 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
         }
         car_visuals_.push_back(visual.get());
         names_.push_back(entry->name.empty() ? entry->label : entry->name);
+        // The short name (CAR_NAME_<language> +0x08: "VW Beetle 1100 ..."): in the name table whose
+        // first name is the one above.
+        std::string short_name;
+        for (const char* lang : {"american", "british", "japanese", "french", "german", "italian", "spanish"}) {
+            db::SpecDb& sdb = *app.db();
+            const db::Table* t = sdb.table(std::string("CAR_NAME_") + lang);
+            const db::Strings* pool = sdb.strings(std::string(lang) + "_StrDB");
+            if (!t || !pool) continue;
+            const ByteSpan row = t->row(entry->id);
+            if (row.size() < 12 || pool->at(rd32(row, 0)) != entry->name) continue;
+            short_name = pool->at(rd32(row, 8));
+            break;
+        }
+        short_names_.push_back(short_name.empty() ? names_.back() : short_name);
     }
     line_ = race::RailLine(course_->road());
     build_simulation();

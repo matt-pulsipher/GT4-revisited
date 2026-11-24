@@ -122,6 +122,8 @@ public:
     const race::CourseScene& course() const { return *course_; }
     const race::CarVisual& visual(size_t i) const { return *car_visuals_[i]; }
     const std::string& car_name(size_t i) const { return names_[i]; }
+    // The short name the results show ("VW Beetle 1100 Standard (Type-11) `49").
+    const std::string& car_short_name(size_t i) const { return short_names_[i]; }
     const std::string& car_label(size_t i) const { return setup_.entries[i].label; }
     size_t car_count() const { return car_visuals_.size(); }
     const race::RailLine& line() const { return line_; }
@@ -141,7 +143,7 @@ private:
     WorldSetup setup_;
     std::unique_ptr<race::CourseScene> course_;
     std::vector<race::CarVisual*> car_visuals_;
-    std::vector<std::string> names_;
+    std::vector<std::string> names_, short_names_;
     race::RailLine line_; // the road's line: the simple driver's guide, and the lap's length
     race::Simulation* sim_ = nullptr;
     std::unique_ptr<race::RailSimulation> rail_; // the stand-in, when the simulation is not running

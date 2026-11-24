@@ -381,7 +381,12 @@ void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlaye
             SDL_Texture*& atlas = m.atlases[{f.font, f.variant}];
             if (!atlas) atlas = m.make_texture(f.font->atlas[size_t(std::clamp(f.variant, 0, 1))]);
             if (!atlas) continue;
-            const SDL_FColor c = colour(t.color, d);
+            // A text field's colour is the font's (texels of 0x80) modulated by it: its RGB as it is
+            // (0xFF white; the pause title's 0x79 a mid gray, as the original shows it), its alpha
+            // with 0x80 opaque.
+            SDL_FColor c = colour(t.color, d);
+            float* rgb[3] = {&c.r, &c.g, &c.b};
+            for (int j = 0; j < 3; ++j) *rgb[j] = std::clamp(float((t.color >> (8 * j)) & 0xFF) / 255.0f * d.mul[j] + d.add[j], 0.0f, 1.0f);
             SDL_SetTextureColorMod(atlas, u8(c.r * 255), u8(c.g * 255), u8(c.b * 255));
             SDL_SetTextureAlphaMod(atlas, u8(std::clamp(c.a, 0.0f, 1.0f) * 255));
             for (const menu::PlacedGlyph& g : lay.glyphs) {

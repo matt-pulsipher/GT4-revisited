@@ -712,6 +712,7 @@ public:
 
     const race::CarState& player() const { return shown()[0]; }
     const std::string& car_name(size_t i) const { return world_->car_name(i); }
+    const std::string& car_short_name(size_t i) const { return world_->car_short_name(i); }
     const WorldEntry& entry(size_t i) const { return world_->setup().entries[i]; }
     size_t car_count() const { return world_->car_count(); }
     const race::CourseScene& course() const { return world_->course(); }
@@ -1522,7 +1523,7 @@ private:
             if (n == "CB_ISVISIBLE") return V::boolean(row != nullptr);
             if (n == "CB_STABLE") return V::boolean(row && board.take_changed(size_t(i)));
             if (n == "CB_PLAYERRANK") return V::number(board.player_row());
-            if (n == "CB_GETNAME") return V::string(row && row->car >= 0 ? race_->car_name(size_t(row->car)) : std::string());
+            if (n == "CB_GETNAME") return V::string(row && row->car >= 0 ? race_->car_short_name(size_t(row->car)) : std::string());
             if (n == "CB_GETTIME") return V::string(row ? row->time : std::string());
             if (n == "CB_ENABLEEXIT") return V::number(1);
             if (n == "CB_RACEEXIT") result_exit_ = true;
