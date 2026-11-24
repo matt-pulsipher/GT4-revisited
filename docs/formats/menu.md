@@ -409,8 +409,13 @@ then come from the garage file.
 `isExist`, `readSize`, `remove` and the file's `size` are real; a game survives a restart and
 the boot project loads it. Without a data folder a stand-in answers (`GameState::card`:
 `connected`, `formatted`, `has_game_data`; `gt4tool menu-run ... card=none|empty|saved`).
-❓ `loadInstance` (a second game beside the one played, for trading cars) answers its result
-only; the probes of earlier games' saves answer none.
+**Trading cars** (Home's Trade): `MMemoryCardManager(MODE_LOAD_GAME, 1)` is the card in slot 2,
+the data folder's `memorycard2/` (not connected without that folder); its file's `loadInstance(manager)`
+answers [result, a game object] with the game on that card loaded beside the one played (its garage,
+the cars' records with it). The Garage page lists that garage in its trade mode with each car's used
+price (200,000 when it has none), and buying adds the car to the garage played (`addUsedCar`), pays
+the price and puts a trade day in the diary (`disc_gt_mode_trade_cars`). ❓ The probes of earlier
+games' saves answer none.
 
 **The game's state** (`GameState`) is the program's `Status` as it is saved: the player's
 counters, the calendar and its diary, the garage's list with each driven car's record, the
