@@ -849,6 +849,11 @@ object 0x6235A8 + 0x134 + 4 x table id; the row cache left out), and compares:
   driver's car at Grand Canyon (without it 1 in 6 lower: the course's set gives loose tires 1.2). Each car alone,
   three laps there (the program's / ours): the N360's best 4'11.6 (one lap) / 4'28.4, the Z's 5'17.9 / 5'15.1;
   both crawl over the climb near 2,880 m (without the driver's grip they rolled back for over 1,000 s).
+- The six-car field at Grand Canyon, three laps, walls met as the drivers count them (`gt4r_diff ai` with
+  `GT4R_AI_OURS`, `GT4R_AI_INCIDENTS`: the drivers' decision is the program's, bit for bit, on the program's
+  physics / ours): Volkswagen 0 / 0, Z 6 / 14, N360 11 / 19, Midget 0 / 11, S500 13 / 13, Ka 4 / 8, in all 34 /
+  65; the program's cars below 5 km/h 0, 160, 143, 0, 30, 0 s, ours stuck 0, 0, 32, 0, 149, 0 s. ❓ The cause
+  (suspects: the collision step's search for the walls near a body and our road query in host floats).
 - Not compared yet: the step's routines not in §3.3.
 
 ## 10. Open

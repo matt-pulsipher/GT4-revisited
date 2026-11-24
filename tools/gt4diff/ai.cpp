@@ -712,6 +712,12 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
         if (print) std::printf("ai: %s\n", b);
     }
     if (aid_taps && print) aid_taps->print();
+    // GT4R_AI_INCIDENTS (with GT4R_AI_OURS): each car's incidents as the drivers count them (the walls and cars met).
+    if (field && std::getenv("GT4R_AI_INCIDENTS"))
+        for (int i = 0; i < o.cars; ++i) {
+            const auto& inc = field->incidents(size_t(i));
+            std::printf("  incidents car %d: walls %d cars %d\n", i, inc.wall_hits, inc.car_hits);
+        }
     if (calls && print)
         for (const auto& [kind, n] : calls->kinds_) std::printf("  decisions of driver kind %d: %llu\n", kind, (unsigned long long)n);
     for (const auto& [name, tl] : tally) {
