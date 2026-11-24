@@ -364,3 +364,31 @@ TEST(ai_disc_rubber_band) {
     CHECK(lo >= 0.64f - 1e-4f && hi <= 1.21f + 1e-4f && hi > 1.0f);
     CHECK(behind_hurried); // the session steps the car by the band's scale
 }
+
+TEST(ai_disc_grid_paints) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    db::SpecDb db = sim::ai::open_specdb(*disc);
+    const sim::Program program = sim::Program::load(*disc);
+    const db::RaceEvents events(db, [disc](const std::string& path) -> std::optional<Bytes> {
+        const gt3r::Volume::Entry* e = disc->volume().find(path);
+        return e ? std::optional<Bytes>(disc->volume().read(*e)) : std::nullopt;
+    });
+    // Six of one car, every paint the race's to choose: each gets one of the car's paints, and with ten or more to choose
+    // from no two share a colour.
+    std::vector<sim::ai::GridEntry> grid(6);
+    for (auto& g : grid) g.car = "ka_01";
+    const std::vector<sim::Equipment> eq = sim::ai::grid_equipment(db, program, events, grid, 12345);
+    CHECK(eq.size() == 6);
+    const int n = sim::ai::paint_count(db, eq[0]);
+    std::printf("  ka_01: %d paints, chosen", n);
+    std::vector<int> seen;
+    for (const auto& e : eq) {
+        std::printf(" %d", e.b(0x18));
+        CHECK(e.b(0x18) < n);
+        seen.push_back(e.b(0x18));
+    }
+    std::printf("\n");
+    std::sort(seen.begin(), seen.end());
+    if (n >= 10) CHECK(std::adjacent_find(seen.begin(), seen.end()) == seen.end());
+}
