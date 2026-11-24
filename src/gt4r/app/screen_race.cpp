@@ -365,7 +365,7 @@ public:
         ran_ = true;
         // B-spec: the pace "Steady", the low view from the car's nose (as the original's B-spec race
         // opens), the help strip shown.
-        bspec_pace_ = 3, overtake_steps_ = 0, bspec_help_ = true;
+        bspec_pace_ = 3, overtake_steps_ = 0, bspec_help_ = true, focus_ = 0;
         if (watched) mount_ = race::DriveCamera::kInCar;
         menu_scene_ = false;
         race::FlowSetup fs;
@@ -509,8 +509,9 @@ public:
         if (ev.lap_done == 0) event_steps_ = 0, event_lap_ = flow_.car(0).laps_done;
         beeps_ += ev.beep;
         start_camera_.step();
-        camera_.step(world_->cars()[0], kStep);
-        if (mount_ == kTvView || opening || demo) step_tv(world_->cars()[0]);
+        const size_t f = focus();
+        camera_.step(world_->cars()[f], kStep);
+        if (mount_ == kTvView || opening || demo) step_tv(world_->cars()[f], f);
         if (event_steps_ >= 0) ++event_steps_;
         if (history_.size() < kHistory) history_.emplace_back(world_->cars().begin(), world_->cars().end());
         hear(world_->cars(), true);
@@ -754,7 +755,7 @@ public:
         // A cut's dissolve: the last picture frozen at the cut, over the new one as it fades.
         world_->set_dissolve(snapshot_, dissolve_total_ > 0 ? float(dissolve_left_) / float(dissolve_total_) : 0.0f, replaying_ || menu_scene_ || mount_ == kTvView);
         snapshot_ = false;
-        world_->render(ui, rect, cars, pose, 0, pose.body_hidden ? 0 : -1);
+        world_->render(ui, rect, cars, pose, focus(), pose.body_hidden ? int(focus()) : -1);
         // The in-car view's rear-view mirror at the top (❓ its place, (190, 18) 259 x 63 of the
         // 640 x 480 picture, measured on the original's in-car view): not in replays, the opening
         // shots (a standing start's or a rolling start's TV cameras), B-spec or looking back.
@@ -861,8 +862,8 @@ public:
 
     // The replay cameras' shot this step (once a step: their dampers and springs move a step at a
     // time); a cut with a dissolve starts it.
-    void step_tv(const race::CarState& car) {
-        const render::Mat4 body = world_->visual(0).body_matrix(car);
+    void step_tv(const race::CarState& car, size_t index = 0) {
+        const render::Mat4 body = world_->visual(index).body_matrix(car);
         tv_valid_ = replay_camera_.pose(replay_script_, car, body, tv_pose_);
         if (const float d = replay_camera_.cut_dissolve(); d > 0) begin_dissolve(int(std::lround(d * 60)));
         step_dissolve();
@@ -879,16 +880,32 @@ public:
 
     // The camera now: the opening shots, the replay cameras, or the car's view.
     race::ViewPose current_pose(std::span<const race::CarState> cars, bool look_back) {
-        const race::CarState& me = cars[0];
-        const render::Mat4 body = world_->visual(0).body_matrix(me);
+        const size_t f = focus() < cars.size() ? focus() : 0;
+        const race::CarState& me = cars[f];
+        const render::Mat4 body = world_->visual(f).body_matrix(me);
         race::ViewPose pose;
         const int view = replaying_ || demo_run_ || (!menu_scene_ && opening_tv()) ? kTvView : mount_;
         bool posed = menu_scene_ && scenic_.pose(pose);
         posed = posed || (start_camera_.active() && start_camera_.pose(pose));
         // The replay cameras' shot for the car; the chase view where the script has none.
         if (!posed && view == kTvView && tv_valid_) pose = tv_pose_, posed = true;
-        if (!posed) pose = camera_.pose(me, body, world_->visual(0).mounts(), view == kTvView ? race::DriveCamera::kChase : view, look_back || setup_.look_back);
+        if (!posed) pose = camera_.pose(me, body, world_->visual(f).mounts(), view == kTvView ? race::DriveCamera::kChase : view, look_back || setup_.look_back);
         return pose;
+    }
+
+    // B-spec's Select Car (Up / Down): the car the views follow, by race order (the player's car first:
+    // 0). ❓ The program's choice by the order is not read: here the next or last car in race order.
+    size_t focus() const { return watched_ && !replaying_ && !menu_scene_ && focus_ < world_->car_count() ? focus_ : 0; }
+    void select_car(int dir) {
+        const std::vector<size_t>& order = flow_.order();
+        if (order.empty()) return;
+        size_t at = 0;
+        for (size_t k = 0; k < order.size(); ++k)
+            if (order[k] == focus_) at = k;
+        at = (at + order.size() + size_t(dir > 0 ? 1 : order.size() - 1)) % order.size();
+        focus_ = order[at];
+        camera_.reset(world_->cars()[focus_]);
+        replay_camera_.reset();
     }
 
     void quiet() { world_->quiet(); }
@@ -935,6 +952,7 @@ private:
     bool throttle_held_ = false;
     bool stop_area_ = false, license_failed_ = false; // a license test's stopping box
     race::LicenseJudge judge_;
+    size_t focus_ = 0; // B-spec: the car the views follow
     std::optional<sim::ai::DemoRun> demo_run_; // a demonstration's recording
     size_t demo_step_ = 0;
     int bspec_pace_ = 3, overtake_steps_ = 0;
@@ -1160,11 +1178,13 @@ public:
         const gt3r::PadState& pad = app.input().race_pad(0);
         if (race_->watched()) {
             // B-spec's keys (the help strip's): Left / Right the pace, Triangle overtake, Cross the view,
-            // R2 the display. (Circle's pit, Up / Down's car and R1's race monitor are not built.)
+            // R2 the display, Up / Down the car the views follow. (Circle's pit and R1's race monitor are
+            // not built.)
             if (m.horizontal()) race_->bspec_pace(m.horizontal());
             if (m.pressed(PadButton::Triangle)) race_->bspec_overtake();
             if (m.pressed(PadButton::Cross)) race_->next_view();
             if (m.pressed(PadButton::R2)) race_->bspec_display();
+            if (m.vertical()) race_->select_car(m.vertical());
         } else if (m.pressed(PadButton::R1) || m.pressed(PadButton::Select)) race_->next_view();
         look_back_ = gt3r::race::look_back_held(pad, false);
         // Whole simulation steps for the time that has passed (at most four a frame).
