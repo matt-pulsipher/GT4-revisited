@@ -239,6 +239,11 @@ TEST(disc_gt_mode_loop_championship) {
             f.press({menu::Key::Accept});
         }
         CHECK(f.page() == "AfterRoot");
+        // Session Results' Pts and Total: the place's points and the points so far (0x11A168).
+        if (k == 1) {
+            const std::vector<menu::QuickRow>& rows = q.work().rows;
+            CHECK(rows.size() == 6 && rows[0].weight == 10 && rows[0].power == 10 && rows[5].weight == 1);
+        }
         // The results' title names the race by the text's marks ("{0} Race No. {1}").
         const std::string title = f.text_of("GridTitle_text");
         CHECK(!title.empty() && title.find('{') == std::string::npos);

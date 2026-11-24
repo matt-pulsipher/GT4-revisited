@@ -91,6 +91,7 @@ struct AiRunResult {
     // With GT4R_AI_PITCHECK: the pit pass's calls (0x359008) and those equal to ours, the stops counted (0x35AD10), and the stop
     // timing's calls (0x35C0B8) and those equal.
     u64 pit_calls = 0, pit_equal = 0, pit_stops = 0, hold_calls = 0, hold_equal = 0;
+    u64 request_calls = 0, request_equal = 0, requests = 0; // the wear phase's pit request (0x353218)
 };
 // (GT4R_AI_OURS, GT4R_AI_CHECK, GT4R_AI_BAND set the options too; GT4R_AI_TRACE=<car> prints a car's plan.)
 AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std::vector<std::string>& cars, int laps, AiRunOptions options = {});
@@ -109,6 +110,14 @@ struct DemoRunResult {
     std::vector<DemoSample> samples;
 };
 DemoRunResult run_demo(Disc& disc, bool print, const std::string& label);
+
+// The B-spec driver's skill (0x468C50) on made-up records against ours (bspec.cpp).
+struct BSpecSkillResult {
+    bool ran = false;
+    std::string error;
+    u64 calls = 0, equal = 0;
+};
+BSpecSkillResult run_bspec_skill(Disc& disc, bool print, const std::vector<std::string>& cars, int records = 64);
 
 // The C library's float routines the step calls, against the shared engine's.
 struct LeavesResult {
