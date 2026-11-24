@@ -648,7 +648,7 @@ public:
             WorldEntry e = world_->setup().entries[i];
             e.equipment = entries[i].equipment, e.grid_place = entries[i].grid_place;
             e.automatic = entries[i].automatic, e.asm_on = entries[i].asm_on, e.tcs_on = entries[i].tcs_on;
-            if (i == 0 && goal_ >= 0) e.start_distance = section_start_; // (a test on a section: its start)
+            if (i == 0 && on_section_) e.start_distance = section_start_; // (a test on a section: its start)
             over[i] = e;
         }
         world_->set_computer_player(false);
@@ -663,7 +663,7 @@ public:
     void end_demo() {
         if (!demo_run_) return;
         demo_run_.reset();
-        if (goal_ >= 0) {
+        if (on_section_) {
             WorldEntry e = world_->setup().entries[0];
             e.start_distance = section_start_;
             world_->set_entry_overrides({e});
@@ -902,22 +902,27 @@ public:
         }
         goal_prev_ = c.course_v;
     }
-    // The test's rules; a test on a section of the road starts at the section's start (the car standing on
-    // the driving line there, 0x363B10 with the start distance vf38) and ends at its goal.
+    // The test's rules; a test on a section of the road (CFG +0x21, vf26 0x34CA20 → K +0xCBE2) starts at the
+    // section's start when it lies 1 m .. the lap less 1 m along (0x34C3E0: whole metres; the car on the driving
+    // line there, 0x363B10) and ends at its goal when that lies in the same range (0x34C470, checked by the lap
+    // routine 0x358608 → vf23).
     void set_license_rules(const race::LicenseRules& r) {
         judge_ = race::LicenseJudge(r);
-        goal_ = -1;
+        goal_ = -1, on_section_ = false;
         const std::vector<race::RoadSection> sections = race::road_sections(world_->course().section(course::kSlotRunway));
         if (r.section < 0 || size_t(r.section) >= sections.size()) return;
         const race::RoadSection& sec = sections[size_t(r.section)];
         const float lap = world_->lap_length();
-        if (!(sec.goal >= 1 && sec.goal <= lap - 1)) return;
-        goal_ = sec.goal;
-        section_start_ = sec.start > lap * 0.5f ? sec.start - lap : sec.start;
-        WorldEntry e = world_->setup().entries[0];
-        e.start_distance = section_start_;
-        world_->set_entry_overrides({e});
-        begin_run(watched_);
+        if (sec.goal >= 1 && sec.goal <= lap - 1) goal_ = sec.goal;
+        if (sec.start >= 1 && sec.start <= lap - 1) {
+            const float start = std::trunc(sec.start);
+            on_section_ = true;
+            section_start_ = start > lap * 0.5f ? start - lap : start;
+            WorldEntry e = world_->setup().entries[0];
+            e.start_distance = section_start_;
+            world_->set_entry_overrides({e});
+            begin_run(watched_);
+        }
         LOG_INFO("Drive: the test's section %d: from %.1f m to the goal at %.1f m", r.section, double(sec.start), double(sec.goal));
     }
     const race::LicenseJudge& license_judge() const { return judge_; }
@@ -1076,6 +1081,7 @@ private:
     bool stop_area_ = false, license_failed_ = false; // a license test's stopping box
     race::LicenseJudge judge_;
     float goal_ = -1, goal_prev_ = -1, section_start_ = 0; // a test on a road section: its goal and start (m)
+    bool on_section_ = false;                                // it starts at the section's start
     std::vector<std::vector<float>> run_dist_; // per car, per step since the start: its distance from the line
     size_t focus_ = 0; // B-spec: the car the views follow
     std::optional<sim::ai::DemoRun> demo_run_; // a demonstration's recording
