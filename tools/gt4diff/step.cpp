@@ -170,6 +170,13 @@ void add_taps(Taps& taps) {
                   sim::rules::pad_rumble(t.car, t.rec.layout, pad);
                   t.mem_i("pad +0", b, pad[0], 1), t.mem_i("pad level", b + 1, pad[1], 1);
               }});
+    taps.add({0x350080, "engine sound", car_a0, [](TapCall& t) {
+                  const u32 car = t.race.car(t.car_index), info = t.ee.r32(car);
+                  const u32 e0 = t.ee.r32(info + 0xE0), ghost = e0 ? 0 : t.ee.r32(t.ee.r32(info + 0x84) + 0x10000 - 0xFB0);
+                  sim::rules::FeelTables k;
+                  for (u32 j = 0; j < 32; ++j) k.cue[j] = gt3r::ee::F::raw(t.ee.r32(sim::rules::kCueTable + 4 * j));
+                  sim::rules::engine_sound(t.car, k, t.rec.x.drive.d.kind, sim::rules::draw_mode(t.car, t.ee.r8(car + kF + 0x4B2), e0, ghost));
+              }});
     taps.add({0x366718, "effects reset", car_a0, [](TapCall& t) {
                   const u32 car = t.race.car(t.car_index), info = t.ee.r32(car);
                   const u32 e0 = t.ee.r32(info + 0xE0), ghost = e0 ? 0 : t.ee.r32(t.ee.r32(info + 0x84) + 0x10000 - 0xFB0);
@@ -487,6 +494,10 @@ StepResult run_step(Disc& disc, bool print, const std::string& course_label, con
             ee.read_bytes(sim::rules::kSwayBytes, sb, 10);
             const std::array<gt3r::ee::F, 8> sk = sim::rules::sway_constants(sb);
             for (u32 j = 0; j < 8; ++j) cmp(0x6202C8 + 4 * j, sk[j], "sway", 0, 0, j);
+        }
+        { // the cues' table (0x34F6A0)
+            const sim::rules::FeelTables ft = sim::rules::feel_tables(program);
+            for (u32 j = 0; j < 32; ++j) cmp(sim::rules::kCueTable + 4 * j, ft.cue[j], "cue", 0, 0, j);
         }
         const gt3r::ee::F loose[5] = {k.loose_scale, k.loose_x0, k.loose_y0, k.loose_x1, k.loose_y1};
         for (u32 j = 0; j < 5; ++j) cmp(sim::rules::kSlideLoose + 4 * j, loose[j], "loose", 0, 0, j);

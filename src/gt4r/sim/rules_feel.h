@@ -45,7 +45,12 @@ struct FeelTables {
     // 0x6202C8 .. (0x34A4B8 from the bytes 0x6202B1 .. 0x6202B9): per sway its limit (x 0.1 degree), gain (x 0.1), spring and
     // damping.
     std::array<F, 4> sway_pitch{}, sway_roll{};
+    std::array<F, 32> cue{}; // 0x843630 ..
 };
+// 0x843630 .. (32 words) as 0x34F6A0 makes them at the race's start from the cue bytes 0x622690 .. (after 0x3FAA10's fix-ups):
+// the engine sound's level scales at +0x64 .. +0x70, the others the steering force's and the cues' ❓.
+constexpr u32 kCueTable = 0x843630, kCueBytes = 0x622690;
+std::array<F, 32> cue_table(const u8* bytes);  // from the 0x30 fixed bytes at kCueBytes
 FeelTables feel_tables(const Program& program);
 constexpr u32 kSwayBytes = 0x6202B0;
 // From the bytes 0x6202B0 .. 0x6202B9.
@@ -59,6 +64,12 @@ void view_follow(ex::Car& c, ViewState& v, const FeelTables& t);
 // 0x34A668 / 0x34A788: the body's pitch (roll) against the ground's at the step's blend (`blend`, car + 0x554), held within
 // the limit, followed by a spring.
 void sway(const ex::Car& c, ViewState& v, const FeelTables& t, F blend);
+
+// 0x350080 (phase 19): the engine sound's levels (F + 0x604 the engine's: the load's distance from the friction's share plus
+// that share, half with the clutch not locked; + 0x605 the intake's: 1 - (1 - the load over the friction's rest)^16 x 0.6 +
+// 0.4; each x 127 x its scale, averaged with the last step's; a hybrid's halved and both 0 while its engine is below idle;
+// + 0x606 the turbo's spool and F + 0x504 the blow-off each times its scale; all 0 for a car not drawn as one in the race.
+void engine_sound(ex::Car& c, const FeelTables& t, u8 gearbox_kind, int draw_mode);
 
 // 0x36CEE8: the pad's vibration into `pad` (cond + 0xCA58 + 0x10 k: +0x01 the level 0 .. 127; a car a computer drives both
 // bytes 0): the strongest of the driving force at the wheels ahead of the center of gravity (x their mean squared slip

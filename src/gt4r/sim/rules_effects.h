@@ -28,7 +28,10 @@ struct SlideTables {
     F loose_scale, loose_x0, loose_y0, loose_x1, loose_y1;
 };
 constexpr u32 kSlideBytes = 0x6224B0, kSlideCurves = 0x843A20, kSlideLoose = 0x844050;
-// From the program's bytes (0x210 from kSlideBytes).
+// The program's bytes 0x6224B0 .. 0x6226B4 with 0x3FAA10's fix-ups (each curve 4 points, the speed knees at most 50 km/h,
+// the second measure's base 50 .. 200, four pairs of the cue bytes in order).
+std::array<u8, 0x210> effect_bytes(const u8* raw);
+// From the program's bytes (0x210 from kSlideBytes, as the image holds them).
 SlideTables slide_tables(const u8* bytes);
 SlideTables slide_tables(const Program& program);
 

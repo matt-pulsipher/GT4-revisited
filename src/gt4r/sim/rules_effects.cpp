@@ -27,8 +27,7 @@ void fix_pair(u8& a, u8& b) {
 }
 } // namespace
 
-SlideTables slide_tables(const u8* bytes) {
-    using gt3r::ee::int_to_f;
+std::array<u8, 0x210> effect_bytes(const u8* bytes) {
     std::array<u8, 0x210> d{};
     for (size_t k = 0; k < d.size(); ++k) d[k] = bytes[k];
     // 0x3FAA10
@@ -43,7 +42,12 @@ SlideTables slide_tables(const u8* bytes) {
     }
     fix_pair(d[0x1E9], d[0x1EA]), fix_pair(d[0x1F0], d[0x1F1]), fix_pair(d[0x1F7], d[0x1F8]), fix_pair(d[0x201], d[0x203]);
     if (d[0x1E2] == 0) d[0x1E2] = 1;
+    return d;
+}
 
+SlideTables slide_tables(const u8* bytes) {
+    using gt3r::ee::int_to_f;
+    const std::array<u8, 0x210> d = effect_bytes(bytes);
     SlideTables t;
     const F scale_y = F::raw(0x451F6000); // 2550
     for (u32 g = 0; g < 3; ++g)

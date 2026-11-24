@@ -418,7 +418,8 @@ void Session::chassis(size_t i) {
     if (gt4_rules_) rules::slide_effects(c, layouts_[i], tables_.slide, loose_ ? 2 : 0); // (0x367148)
     else ex::tyre_effects(c, race_.effects, race_.aids.course_category);
     ex::phase12_stub(c);
-    ex::engine_sound(c, race_.sound_scales);
+    if (gt4_rules_) rules::engine_sound(c, tables_.feel, gx_[i].drive.d.kind, rules::draw_mode(c, 0, 0, 0)); // (0x350080)
+    else ex::engine_sound(c, race_.sound_scales);
     if (gt4_rules_) rules::effects_reset(c, layouts_[i], rules::draw_mode(c, 0, 0, 0)); // (0x366718; no ghosts here)
     else ex::effects_reset(c, 0, 0);
     if (gt4_rules_) rules::view_follow(c, gx_[i].feel.view, tables_.feel); // (0x345658)
