@@ -1963,14 +1963,15 @@ private:
         return label.substr(0, label.size() - 2) + n;
     }
 
-    // The test's title: "License B-1" from its race code (l0b0001: the class letters, the number;
-    // ❓ the program's own title routine is not read).
+    // The test's title: "License B-1" from its race code (usl0b0001 or l0b0001: a region's two letters, 'l', '0' or
+    // 'i' for the international class, the class letter, the number; ❓ the program's own title routine is not read).
     std::string license_title() const {
         const std::string code = menus_ ? menus_->game().race.race : std::string();
-        if (code.size() < 7) return "License";
+        const size_t l = code.size() > 2 && code[2] == 'l' ? 2 : 0;
+        if (code.size() < l + 7 || code[l] != 'l') return "License";
         std::string cls;
-        for (size_t i = 2; i < code.size() && std::isalpha(static_cast<unsigned char>(code[i])); ++i) cls += char(std::toupper(static_cast<unsigned char>(code[i])));
-        if (cls.size() > 1 && cls.back() != 'S') cls = cls.substr(1); // "0B" / "IB" -> B, IB
+        if (code[l + 1] == 'i') cls += 'I';
+        cls += char(std::toupper(static_cast<unsigned char>(code[l + 2])));
         return "License " + cls + "-" + std::to_string(std::atoi(code.c_str() + code.size() - 4));
     }
 
