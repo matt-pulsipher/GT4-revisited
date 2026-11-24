@@ -1432,6 +1432,14 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
                 const std::string code = v.is_nil() ? std::string() : r->vm().attribute(v, "car_code").to_string();
                 w->set_property("car_code", Value::string(code));
                 if (!code.empty()) w->extras["car_data of " + code] = std::make_shared<script::Variable>(v);
+                // A new car stands where the layout says from now: the script's own placing after
+                // it (Home's garage car turned to its front, ry 180 and warp) holds.
+                const std::shared_ptr<CarModelObject> model = car_model_of(r, w);
+                if (!code.empty() && model->m.placed_car != code) {
+                    const CarFaceSettings s = car_face_settings(w->data);
+                    model->m.set_car(s.trans, s.rotate);
+                    model->m.placed_car = code;
+                }
                 // A garage car shows in its own paint (its record's).
                 if (!code.empty()) {
                     const Value index = r->vm().attribute(v, "getColorIndex");

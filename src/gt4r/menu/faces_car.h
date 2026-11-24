@@ -83,6 +83,7 @@ struct CarMotion {
     float rot_speed = 0.1f; // the program's setter of rotInterpolateSpeed writes pos_speed
     float model_scale = 1;
     bool independent = false;
+    std::string placed_car; // the car set_car placed last (a new car is placed where the layout says)
 
     // The model sets' motions (loadModelMotion: MCarModel +0x78), each drawn every picture: set
     // the index of a model set (loadModelSet's order), align where on the car it stands, shadow

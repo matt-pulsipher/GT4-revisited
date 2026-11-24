@@ -355,9 +355,10 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
     }
     Face& f = faces_[&face];
     const std::string key = s.car_code + "#" + std::to_string(s.car_color);
-    if (f.widget.expired() || f.car.substr(0, f.car.find('#')) != s.car_code) {
-        // A car set on the face: placed where the layout says and faded in.
+    if (model->m.placed_car != s.car_code) {
+        // A car set on the face (by its code): placed where the layout says and faded in.
         model->m.set_car(s.trans, s.rotate);
+        model->m.placed_car = s.car_code;
     }
     f.widget = live.weak_from_this();
     f.car = key;
