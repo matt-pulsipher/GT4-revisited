@@ -576,3 +576,31 @@ TEST(disc_gt_mode_license_visit_is_a_day) {
     }
     CHECK(f.clean());
 }
+
+// The gears' settings page's ranges (getGearRange, 0x3553A0): each gear's ends about the ratio
+// the slider and final drive give, a third of the way to its neighbours.
+TEST(disc_gt_mode_gear_ranges) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    Flow f(*disc);
+    CHECK(f.gt_mode_with_a_car());
+    script::Vm& vm = f.rt->vm();
+    const Value car = vm.attribute(vm.attribute(vm.lookup("game"), "garage"), "riding_car");
+    const Value zero[1] = {Value::integer(0)};
+    const Value range = vm.call(vm.attribute(car, "getGearRange"), zero);
+    const std::vector<Value>* v = range.items();
+    CHECK(v && v->size() == 23);
+    if (!v || v->size() < 23) return;
+    const int n = int((*v)[4].i);
+    std::printf("  %d gears:", n);
+    for (int g = 1; g <= n; ++g) {
+        const Value gi[1] = {Value::integer(g)};
+        const s32 ratio = s32(vm.call(vm.attribute(car, "getGearSetting"), gi).i);
+        const s32 lo = s32((*v)[size_t(7 + 2 * g)].i), hi = s32((*v)[size_t(8 + 2 * g)].i);
+        std::printf(" %d<%d<%d", lo, ratio, hi);
+        CHECK(lo > 0 && lo < hi);
+        if (g > 1) CHECK(hi < s32((*v)[size_t(8 + 2 * (g - 1))].i));
+    }
+    std::printf("\n");
+    CHECK(n >= 4);
+}

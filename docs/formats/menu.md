@@ -444,8 +444,11 @@ over it are the program's, with their addresses in save.md and here:
   paint, meters)` (the program's random numbers; meters by model year); used prices by the
   thousands of km driven (85 % below 1,000 km ... 10 % from 100,000); the sorts, one key each
   (power, weight, kg/PS, date, order of driving, aspiration, name, price, year, country,
-  tuner, drivetrain, the paint's hue). ❓ The gears' ranges (0x3553A0) and the charts' points
-  (0x148940, 0x148B60) are not written.
+  tuner, drivetrain, the paint's hue). The gears' ranges (`getGearRange`, 0x3553A0): the gears
+  the slider and final drive give (0x354FF8), each gear's ends a third of the way to its
+  neighbours' ratios, the first gear's top 9/8 of its ratio, the last's bottom 7/8, the reverse
+  gear 7/8 and 9/8 (0x355278; thousandths, truncated); in the array [7 + 2g] the lower end of gear
+  g and [8 + 2g] the upper. ❓ The charts' points (0x148940, 0x148B60) are not written.
 - **MRaceData** (0x1A0F80 on; `game_race.cpp`): the RACE row's columns (database.md "RACE"):
   the medal times as text, entries, the course, the opponents' pool (`car_code(i)`), the
   requirements (license, drivetrain, aspiration, car type, tires, power, weight, length,
@@ -750,9 +753,7 @@ not made), the B-spec driver. The Replay Theater's demonstrations and play lists
 and who reads them". Arcade's two-player battle reaches its race with both cars; the LAN battle says
 the Network Adaptor is needed. Prologue's arcade mode and results ([prologue.md](prologue.md) "The menus": boot to a license
 test runs); its scripts ask for `MGame.license` (its own license record), answered with a new
-game's results. ❓ The gears' ranges on the settings pages (0x3553A0: the ratios
-of 0x354FF8, each gear's ends a third of the way to its neighbours, the first gear's top 9/8,
-the last's bottom 7/8) and the charts' points (0x148940, 0x148B60).
+game's results. ❓ The charts' points on the settings pages (0x148940, 0x148B60).
 
 ## Pictures (`.gpb`)
 
