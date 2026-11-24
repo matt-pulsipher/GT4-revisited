@@ -4,6 +4,8 @@
 // read from the program's routines and what is judged from the scripts is in
 // docs/formats/menu.md ("Running").
 
+#include "formats/gs_memory.h"
+#include "formats/tex1.h"
 #include "gt4r/menu/faces_car.h"
 #include "gt4r/menu/runtime_internal.h"
 
@@ -1301,7 +1303,27 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
             return fn([r, w](Vm&, const Value&, Args) {
                 LiveWidget* page = w->page();
                 Project* project = page ? r->project_of(*page) : nullptr;
-                if (const gt3r::Tex1::Image* image = project ? project->image(page->name, w->data.text("image_path")) : nullptr) {
+                const std::string path = w->data.text("image_path");
+                if (w->data.number("from_disk") != 0) {
+                    // A picture of the disc (`piece/crs_logo/<course>.img`): its size as drawn.
+                    std::string name = path;
+                    while (!name.empty() && name[0] == '/') name.erase(0, 1);
+                    try {
+                        if (const std::optional<Bytes> data = name.empty() ? std::nullopt : r->reader()(name); data && gt3r::Tex1::is_tex1(*data)) {
+                            const gt3r::Tex1 set = gt3r::Tex1::parse(*data);
+                            if (!set.textures.empty()) {
+                                gt3r::GsMemory gs;
+                                set.upload(*data, gs);
+                                const gt3r::Tex1::Image image = set.decode(gs, 0);
+                                w->set_property("w", Value::number(float(image.width)));
+                                w->set_property("h", Value::number(float(image.height)));
+                            }
+                        }
+                    } catch (const std::exception&) {
+                    }
+                    return Value{};
+                }
+                if (const gt3r::Tex1::Image* image = project ? project->image(page->name, path) : nullptr) {
                     w->set_property("w", Value::number(float(image->width)));
                     w->set_property("h", Value::number(float(image->height)));
                 }
