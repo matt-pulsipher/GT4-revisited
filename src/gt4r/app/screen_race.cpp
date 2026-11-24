@@ -356,6 +356,7 @@ public:
             // (Gran Turismo 3's road, Prologue's: a goal distance inside the lap ends a license test there)
             const course::Runway& r = world_->course().road();
             goal_v_ = r.gtrw && r.goal_v > 0 && r.goal_v < r.length - 1 ? r.goal_v : -1;
+            gt3_road_ = r.gtrw != nullptr;
         }
         splits_ = race::road_list(world_->course().section(course::kSlotRunway), 0);
         mount_ = setup.view;
@@ -855,6 +856,9 @@ public:
                 return;
             }
         }
+        // (Prologue's courses, Gran Turismo 3's roads: Gran Turismo 4's judge's rows and rules are not its own; ❓ its own
+        // judge is not read: the stopping box above and the goal distance, judge_goal, only)
+        if (gt3_road_) return;
         race::LicenseStep s;
         s.wheels = 4;
         for (const race::WheelState& w : c.wheels) {
@@ -1053,6 +1057,7 @@ private:
     bool throttle_held_ = false;
     bool stop_area_ = false, license_failed_ = false; // a license test's stopping box
     float goal_v_ = -1, goal_prev_ = -1;              // a license test's goal distance (judge_goal)
+    bool gt3_road_ = false;                           // the road is Gran Turismo 3's (Prologue's courses)
     race::LicenseJudge judge_;
     std::vector<std::vector<float>> run_dist_; // per car, per step since the start: its distance from the line
     size_t focus_ = 0; // B-spec: the car the views follow
