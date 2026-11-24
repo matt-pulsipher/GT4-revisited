@@ -132,7 +132,7 @@ private:
     std::string stats_path_;            // --stats: frame times and memory, a line a second
     double stats_ms_ = 0, stats_max_ = 0;
     int stats_frames_ = 0;
-    Uint64 start_ticks_ = 0;
+    Uint64 start_ticks_ = 0, end_ticks_ = 0; // the launch, the last frame's end
 };
 
 // The folder of the config file and mods: GT4R_DATA_DIR, else the executable's folder when it

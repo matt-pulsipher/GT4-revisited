@@ -322,8 +322,11 @@ SDL_AppResult App::iterate() {
         if (paced_ && wall_ms < 1000.0 / 60.0) {
             SDL_DelayPrecise(Uint64((1000.0 / 60.0 - wall_ms) * 1e6));
             last_ticks_ = SDL_GetTicksNS();
+            if (const double slept = double(last_ticks_ - now) / 1e6; slept > 250) LOG_WARN("Frame %d: a wait of %.1f ms took %.0f ms", frame_, 1000.0 / 60.0 - wall_ms, slept);
         }
     }
+    // A frame that came long after the last one ended: the time went outside the frame's work.
+    if (end_ticks_ && double(now - end_ticks_) / 1e6 > 250) LOG_WARN("Frame %d: %.0f ms between frames", frame_, double(now - end_ticks_) / 1e6);
 
     std::string chosen;
     SDL_LockMutex(dialog_mutex_);
@@ -376,8 +379,12 @@ SDL_AppResult App::iterate() {
         save_screenshot(shot_path_);
         quit_ = true;
     }
+    const Uint64 before_present = SDL_GetTicksNS();
     SDL_RenderPresent(renderer_);
     if (gpu_) gpu_->frame_presented();
+    end_ticks_ = SDL_GetTicksNS();
+    if (double(end_ticks_ - before_present) / 1e6 > 250) LOG_WARN("Frame %d: presenting took %.0f ms", frame_, double(end_ticks_ - before_present) / 1e6);
+    if (double(before_present - now) / 1e6 > 250) LOG_WARN("Frame %d: its work took %.0f ms", frame_, double(before_present - now) / 1e6);
     return quit_ ? SDL_APP_SUCCESS : SDL_APP_CONTINUE;
 }
 
