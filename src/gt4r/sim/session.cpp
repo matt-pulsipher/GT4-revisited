@@ -120,6 +120,9 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
     const char* rules_env = std::getenv("GT4R_SIM_RULES");
     gt4_rules_ = gt4_ready_ && !(rules_env && std::string(rules_env) == "engine");
     if (gt4_ready_) tables_ = rules::tables(program, race_.statics);
+    // (the active steering aims along the driving line, 0x4649F0 on the computer drivers' line object: the session has no
+    // line, so it stays off; ❓ the original runs it for a pad car above 30 km/h, 0x84357C = 1)
+    tables_.pad.active_on = 0;
     // What the aids read of the race: the course's kind (a loose course 1), no speed caps, the lap.
     aid_race_.course_kind = loose_ ? 1 : 0;
     aid_race_.lap_length = F(road_->length);
