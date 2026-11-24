@@ -31,9 +31,9 @@ void forward_step(ex::Car& c, const ChassisExtra& x, const TireExtra& t, const W
 // low-speed hold (0x3522B0, the engine's with 2002 Tokyo-Geneva's constants) and the longitudinal
 // force turned into the car's frame, about the levers the wheel layout gives; the yaw rate within a
 // turn a second; the lateral acceleration over the mass and over the tires' grip.
-// `driver_grip`: the computer driver's grip on a surface (0x467470; 1 for a player's car).
+// `driver_grip`: the computer driver's grip by tire class (0x467470; null for a player's car: 1).
 void lateral_yaw(ex::Car& c, ChassisExtra& x, const TireExtra& t, const WheelLayout& l, bool airborne, const SlipForceGlobals& g,
-                 F driver_grip = F(1.0f));
+                 const std::array<F, 3>* driver_grip = nullptr);
 // 0x352C90: the hold counter's and the start's stops, a braked car's stop near standstill, else the
 // accelerations into the velocity.
 void stop_hold(ex::Car& c, const WheelLayout& l, bool airborne);

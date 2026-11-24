@@ -80,6 +80,8 @@ public:
     // The aid block of the computer driver that drives a car (rules::driver_block from the course's set for the car:
     // 0x466C20), which Gran Turismo 4's aids use while a computer drives it. Without one a computer's car has no aids.
     void set_driver_aids(size_t car, const gt3r::sim::exact::Aids& block);
+    // And its grip by tire class (the parameter block's +0xA8: 0x467470), which scales the car's tires' peak forces.
+    void set_driver_aids(size_t car, const gt3r::sim::exact::Aids& block, const std::array<gt3r::ee::F, 3>& grip);
     // What the session runs on stand-ins for ("the disc's program is not a build whose tables are mapped").
     const std::vector<std::string>& notes() const { return notes_; }
 
@@ -118,6 +120,7 @@ private:
     std::vector<sim::Extra> gx_;
     std::vector<rules::WheelLayout> layouts_;
     std::vector<std::optional<gt3r::sim::exact::Aids>> driver_aids_; // a computer driver's aid block per car
+    std::vector<std::optional<std::array<gt3r::ee::F, 3>>> driver_grip_; // and its grip by tire class
     rules::AidRace aid_race_;
     rules::Tables tables_;
     bool gt4_ready_ = false, gt4_rules_ = false;

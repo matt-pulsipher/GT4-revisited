@@ -8,6 +8,7 @@
 #include "gt4r/sim/exact_bridge.h"
 #include "gt4r/sim/rules.h"
 #include "gt4r/sim/rules_body.h"
+#include "gt4r/sim/ground.h"
 #include "gt4r/sim/rules_chassis.h"
 #include "gt4r/sim/rules_drive.h"
 #include "gt4r/sim/rules_step.h"
@@ -16,6 +17,7 @@
 #include "sim/exact/tick.h"
 
 #include <cmath>
+#include <optional>
 #include <cstdio>
 #include <cstdlib>
 
@@ -59,12 +61,32 @@ sim::rules::DriveTables drive_tables(Ee& ee) {
     return sim::rules::drive_tables(a, st, g);
 }
 
+// A computer driver's grip by tire class (0x467470: control source 1 / 2 or a driver kind; its parameter block +0xA8).
+std::optional<std::array<gt3r::ee::F, 3>> driver_grip_of(TapCall& t) {
+    const u32 car = t.race.car(t.car_index), F = car + kF;
+    const gt3r::s8 control = gt3r::s8(t.ee.r8(F + 0x466));
+    if (control != 1 && control != 2 && t.ee.r8(F + 0x467) == 0) return std::nullopt;
+    const u32 d = car + 0x14, v0 = t.ee.r32(d + 0xE8), a1 = t.ee.r32(d + 0xE4);
+    const u32 pb = t.ee.r32(a1 + 4 * u32(t.ee.r8(v0 + 0x544)) + 0x10024);
+    std::array<gt3r::ee::F, 3> g;
+    for (u32 k = 0; k < 3; ++k) g[k] = gt3r::ee::F::raw(t.ee.r32(pb + 0xA8 + 4 * k));
+    return g;
+}
+
 sim::rules::BodyGlobals body_globals(Ee& ee) {
     return sim::rules::body_globals([&](u32 a) { return ee.r32(a); }, [&](u32 a) { return ee.r8(a); });
 }
 
 void add_taps(Taps& taps) {
     using namespace sim::rules;
+    taps.add({0x369888, "road bumps", car_a0,
+              [](TapCall& t) {
+                  std::array<u8, 4> surface{}, material{};
+                  for (size_t w = 0; w < 4; ++w)
+                      material[w] = t.car.g[w].material, surface[w] = u8(sim::surface_index(t.car.g[w].material, t.car.g[w].flags));
+                  road_bumps(t.car, t.rec.layout, bump_tables([&](u32 a) { return t.ee.r32(a); }, [&](u32 a) { return t.ee.r8(a); }), surface, material);
+              },
+              {"w.ground", "w.surface", "w.x25", "w.surface_flags", "road_seg", "flags", "aids."}});
     taps.add({0x36A490, "terrain", car_a0, [](TapCall& t) { terrain(t.car, t.rec.x.body, t.rec.layout); }});
     taps.add({0x36A758, "suspension", car_a0, [](TapCall& t) { suspension(t.car, t.rec.x.body, t.rec.x.chassis, t.rec.layout, body_globals(t.ee)); }});
     // (while the hold counter runs the program's start hold, 0x36AE20, answers instead: not ported)
@@ -92,7 +114,8 @@ void add_taps(Taps& taps) {
               }});
     taps.add({0x357418, "peak force", car_a0, [](TapCall& t) {
                   const bool wear = wear_grip(t.car, t.rec.x.wear, t.rec.x.tires, t.rec.layout, wear_rules_of(t));
-                  peak_force(t.car, t.rec.x.tires, t.rec.layout, wear);
+                  const auto g = driver_grip_of(t);
+                  peak_force(t.car, t.rec.x.tires, t.rec.layout, wear, g ? &*g : nullptr);
               }});
     taps.add({0x351778, "slip ratios", car_a0, [](TapCall& t) {
                   u8 b[8];
@@ -107,7 +130,8 @@ void add_taps(Taps& taps) {
               }});
     taps.add({0x352408, "tire slip force", car_a0, [](TapCall& t) { tire_slip_force(t.car, t.rec.x.tires, t.rec.layout, slip_globals(t.ee)); }});
     taps.add({0x352848, "lateral and yaw", car_a0, [](TapCall& t) {
-                  lateral_yaw(t.car, t.rec.x.chassis, t.rec.x.tires, t.rec.layout, t.ee.a(1) != 0, slip_globals(t.ee));
+                  const auto g = driver_grip_of(t);
+                  lateral_yaw(t.car, t.rec.x.chassis, t.rec.x.tires, t.rec.layout, t.ee.a(1) != 0, slip_globals(t.ee), g ? &*g : nullptr);
               }});
     taps.add({0x352C90, "stop hold", car_a0, [](TapCall& t) { stop_hold(t.car, t.rec.layout, t.ee.a(1) != 0); }});
     taps.add({0x351FA8, "forward step", car_a0, [](TapCall& t) { forward_step(t.car, t.rec.x.chassis, t.rec.x.tires, t.rec.layout); }});

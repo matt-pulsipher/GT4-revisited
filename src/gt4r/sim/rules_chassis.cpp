@@ -6,7 +6,7 @@
 
 namespace gt4r::sim::rules {
 
-void lateral_yaw(ex::Car& c, ChassisExtra& x, const TireExtra& t, const WheelLayout& l, bool air, const SlipForceGlobals& g, F driver_grip) {
+void lateral_yaw(ex::Car& c, ChassisExtra& x, const TireExtra& t, const WheelLayout& l, bool air, const SlipForceGlobals& g, const std::array<F, 3>* dg) {
     using gt3r::ee::cos;
     using gt3r::ee::sin;
     const int n = l.count < 4 ? l.count : 4;
@@ -67,7 +67,7 @@ void lateral_yaw(ex::Car& c, ChassisExtra& x, const TireExtra& t, const WheelLay
     for (int i = 0; i < n; ++i) {
         const u8 s = c.w[size_t(i)].surface;
         const Tire& r2 = tire_record(t, l, i, s);
-        grip = grip + (r2.mu[s % 24] * driver_grip) * r2.grip;
+        grip = grip + (r2.mu[s % 24] * driver_grip(t, dg, s)) * r2.grip;
     }
     c.lat_g = c.a_y * gt3r::ee::int_to_f(n) / grip;
 }

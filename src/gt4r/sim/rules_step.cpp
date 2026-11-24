@@ -44,14 +44,14 @@ Tables tables(const Program& program, const ex::Statics&) {
     return t;
 }
 
-void prep_tires(ex::Car& c, Extra& x, const WheelLayout& l, const Tables& t, const ex::Condition& cond) {
+void prep_tires(ex::Car& c, Extra& x, const WheelLayout& l, const Tables& t, const ex::Condition& cond, const std::array<F, 3>* grip) {
     engine_torques(c, x.drive, cond);
     const bool wear = wear_grip(c, x.wear, x.tires, l, t.wear);
-    peak_force(c, x.tires, l, wear);
+    peak_force(c, x.tires, l, wear, grip);
     slip_angles(c, l);
 }
 
-void dynamics(ex::Car& c, Extra& x, const WheelLayout& l, const Tables& t) {
+void dynamics(ex::Car& c, Extra& x, const WheelLayout& l, const Tables& t, const std::array<F, 3>* grip) {
     brakes_and_clutch(c, x.drive, l);
     rolling_resistance(c, l, t.road);
     tire_curves(c, x.tires, l);
@@ -65,7 +65,7 @@ void dynamics(ex::Car& c, Extra& x, const WheelLayout& l, const Tables& t) {
     engine_speed(c, x.drive, l);
     gear_step(c, x.drive, l, x.tires, t.drive);
     const bool air = airborne(c, l);
-    lateral_yaw(c, x.chassis, x.tires, l, air, t.globals);
+    lateral_yaw(c, x.chassis, x.tires, l, air, t.globals, grip);
     stop_hold(c, l, air);
 }
 

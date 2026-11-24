@@ -20,7 +20,13 @@ const Tire& tire_record(const TireExtra& x, const WheelLayout& l, int w, u8 surf
 
 F load_per_width(const TireExtra& x, const WheelLayout& l, int w, F load) { return load / x.width[axle_of(l, w)]; }
 
-void peak_force(ex::Car& c, TireExtra& x, const WheelLayout& l, bool wear, F driver_grip) {
+F driver_grip(const TireExtra& x, const std::array<F, 3>* grip, u8 surface) {
+    if (!grip) return F(1.0f);
+    const u8 k = x.tire_index[0][surface % 24];
+    return (*grip)[k < 3 ? k : 2];
+}
+
+void peak_force(ex::Car& c, TireExtra& x, const WheelLayout& l, bool wear, const std::array<F, 3>* grip) {
     const F d = c.roll - c.ground_roll;
     for (int i = 0; i < l.count && i < 4; ++i) {
         ex::Wheel& w = c.w[size_t(i)];
@@ -33,7 +39,7 @@ void peak_force(ex::Car& c, TireExtra& x, const WheelLayout& l, bool wear, F dri
         const F camber = l.kind == 1 ? F() : (l.side[size_t(i)] ? d : -d) + w.camber;
         const F g = table(x.camber_grip[a], camber);
         w.peak_force = f * r.mu[w.surface % 24] * g;
-        w.peak_force = w.peak_force * driver_grip;
+        w.peak_force = w.peak_force * driver_grip(x, grip, w.surface);
     }
 }
 

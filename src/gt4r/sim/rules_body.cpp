@@ -129,6 +129,49 @@ BodyGlobals body_globals(const Program& program) {
     return body_globals([&](u32 a) { return program.w(a); }, [&](u32 a) { return program.b(a); });
 }
 
+BumpTables bump_tables(const Program& program, u8 course_kind) {
+    const u32 S = 0x620CD8;
+    BumpTables t;
+    for (u32 s = 0; s < 24; ++s) {
+        const u32 r = course_kind == 2 && s == 5 ? 15 : s;
+        t.amp[s] = gt3r::ee::int_to_f(program.b(S + 0x1C + r)) * F::raw(0x3A83126E);
+        t.freq[s] = F::raw(0x40C90FDA) / (gt3r::ee::int_to_f(program.b(S + 0x64 + r)) * F::raw(0x3DCCCCCC));
+        t.scaled[s] = program.b(S + 0x7C + r), t.mode[s] = program.b(S + 0x94 + r);
+    }
+    for (u32 m = 0; m < 32; ++m) t.soft[m] = program.w(kSoftMaterials + 4 * m);
+    return t;
+}
+
+void road_bumps(ex::Car& c, const WheelLayout& l, const BumpTables& t, const std::array<u8, 4>& surface, const std::array<u8, 4>& material) {
+    const int n = count(l);
+    int on = 0, soft = 0;
+    for (int w = 0; w < n; ++w) {
+        if (c.g[size_t(w)].miss) continue;
+        ++on;
+        if (t.soft[material[size_t(w)] & 31]) ++soft;
+    }
+    (void)on;
+    const bool all_soft = n == soft;
+    for (int w = 0; w < n; ++w) {
+        ex::Wheel& wh = c.w[size_t(w)];
+        const ex::Ground& g = c.g[size_t(w)];
+        if (g.miss) {
+            wh.bump = k0;
+            continue;
+        }
+        const size_t s = surface[size_t(w)] < 24 ? surface[size_t(w)] : 0;
+        const F amp = t.amp[s];
+        if (amp == k0) {
+            wh.bump = k0;
+            continue;
+        }
+        F b = ex::bump_wave(s8(t.mode[s]), g.x, g.z, t.freq[s]);
+        if (t.soft[material[size_t(w)] & 31] && !all_soft) b = b * kHalf;
+        if (t.scaled[s]) b = b * wh.speed_ramp;
+        wh.bump = b * amp;
+    }
+}
+
 void susp_coords(ex::Car& c, const BodyExtra& x, const WheelLayout& l) {
     for (int w = 0; w < count(l); ++w) {
         const ex::Wheel& wh = c.w[size_t(w)];

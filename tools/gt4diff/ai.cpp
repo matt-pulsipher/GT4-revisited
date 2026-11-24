@@ -658,9 +658,11 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
                 const u32 F = o.car(0) + 0x104;
                 if (step == 0) {
                     const u32 D = ee.r32(o.car(0) + 0x10) + 0x234;
-                    std::printf("up %u down %u %u %u %u\n", ee.r16(D + 0x2E), ee.r16(D + 0x30), ee.r16(D + 0x32), ee.r16(D + 0x34), ee.r16(D + 0x36));
+                    std::printf("up %u down %u %u %u %u course kind %u\n", ee.r16(D + 0x2E), ee.r16(D + 0x30), ee.r16(D + 0x32), ee.r16(D + 0x34), ee.r16(D + 0x36),
+                                ee.r8(o.cond + 0x10000 - 0x3423));
                 }
-                std::printf("t %.2f v %.1f gear %d rpm %d clutch %d req %.2f lock %d hunt %d thr %.2f pedal %.2f\n", step / 60.0, double(ee.rf(F + 0x53C)) * 3.6,
+                std::printf("t %.2f d %.1f tcs %d ascc %d brk %.2f v %.1f gear %d rpm %d clutch %d req %.2f lock %d hunt %d thr %.2f pedal %.2f\n", step / 60.0,
+                            double(ee.rf(F + 0x4A4)), int(ee.r8(F + 0x5F9)), int(ee.r8(F + 0x5F8)), double(ee.rf(F + 0x48C)), double(ee.rf(F + 0x53C)) * 3.6,
                             int(ee.r8(F + 0x520)), int(s16(ee.r16(F + 0x4FA))), int(ee.r8(F + 0x522)), double(ee.rf(F + 0x514)), int(ee.r8(F + 0x526)),
                             int(ee.r16(F + 0x52A)), double(ee.rf(F + 0x494)), double(ee.rf(F + 0x488)));
             }

@@ -81,6 +81,32 @@ template <class X, class V> void body_fields(X& x, V&& v) {
     }
 }
 
+// The road's bumps by surface, as the race's start makes them (0x35F808, from the static block): amplitude (+0x1C + s,
+// mm), wave number 2 pi / (+0x64 + s, dm), scaled by the wheel's speed ramp (+0x7C + s), wave mode (+0x94 + s). On a
+// course of the conductor's kind 2 (the program's raw kind 3) surface 5 takes surface 15's. And the materials' soft
+// flags (0x622430, a word per material).
+struct BumpTables {
+    std::array<F, 24> amp, freq;
+    std::array<u8, 24> scaled{}, mode{};
+    std::array<u32, 32> soft{};
+};
+constexpr u32 kBumpAmp = 0x6209E4, kBumpFreq = 0x620A44, kBumpScaled = 0x620AA4, kBumpMode = 0x620ABC, kSoftMaterials = 0x622430;
+BumpTables bump_tables(const Program& program, u8 course_kind);
+template <class W, class B> BumpTables bump_tables(W&& read, B&& byte) {
+    BumpTables t;
+    for (u32 s = 0; s < 24; ++s) {
+        t.amp[s] = F::raw(read(kBumpAmp + 4 * s)), t.freq[s] = F::raw(read(kBumpFreq + 4 * s));
+        t.scaled[s] = byte(kBumpScaled + s), t.mode[s] = byte(kBumpMode + s);
+    }
+    for (u32 m = 0; m < 32; ++m) t.soft[m] = read(kSoftMaterials + 4 * m);
+    return t;
+}
+// 0x369888's bumps: each wheel on the road (its ground record not a miss) gets its surface's wave at the query
+// point (0x369640: sin(k x) + cos(k z), mode 1 squared with its sign) x the amplitude, halved on a soft material
+// (0x3F4EA0) while not every wheel is on one, x the wheel's speed ramp (wheel +0x40) where the surface says so;
+// off the road 0. `surface`: each wheel's surface index (wheel +0x89), `material`: its ground's material byte.
+void road_bumps(ex::Car& c, const WheelLayout& l, const BumpTables& t, const std::array<u8, 4>& surface, const std::array<u8, 4>& material);
+
 // 0x36A490: the body's up axis against the ground's (F + 0x5B4: their dot product, into the engine's
 // `terrain`), each wheel's ground normal against it (wheel + 0xC8), the suspension's places (0x36A080) and
 // the mask of the wheels past their bump stop (0x36A1D8).

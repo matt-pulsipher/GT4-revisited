@@ -134,6 +134,7 @@ std::vector<Row> build() {
     wheel(0x90, 4, 0x64, "brake pressure");
     drive(0x00, 4, 0x78, "brake torque");
     wheel(0x60, 4, 0x90, "the road's bump");
+    wheel(0x6C, 4, 0x40, "speed ramp");
     wheel(0x1C, 4, 0x98, "travel speed");
     wheel(0x70, 8, 0x9C, "spring and damper forces");
     drive(0x0C, 4, 0x84, "net torque");

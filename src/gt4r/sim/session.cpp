@@ -177,7 +177,9 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
     // What the aids read of the race: the course's kind (a loose course 1), no speed caps, the lap.
     aid_race_.course_kind = loose_ ? 1 : 0;
     aid_race_.lap_length = F(road_->length);
+    if (gt4_ready_) tables_.bumps = rules::bump_tables(program, aid_race_.course_kind);
     driver_aids_.assign(entries.size(), std::nullopt);
+    driver_grip_.assign(entries.size(), std::nullopt);
     specs_.resize(entries.size());
     states_.resize(entries.size());
     for (size_t i = 0; i < entries.size(); ++i) {
@@ -267,6 +269,11 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
 
 void Session::set_driver_aids(size_t car, const gt3r::sim::exact::Aids& block) {
     if (car < driver_aids_.size()) driver_aids_[car] = block;
+}
+
+void Session::set_driver_aids(size_t car, const gt3r::sim::exact::Aids& block, const std::array<F, 3>& grip) {
+    set_driver_aids(car, block);
+    if (car < driver_grip_.size()) driver_grip_[car] = grip;
 }
 
 void Session::hold_once(std::span<const race::CarInput> inputs) {
@@ -367,6 +374,12 @@ void Session::ground_contact(ex::Car& c, Extra& x) {
         F b = ex::bump_wave(race_.bumps.mode[s], g.x, g.z, race_.bumps.freq[s]);
         if (race_.bumps.scaled[s]) b = b * w.speed_ramp;
         w.bump = b * amp;
+    }
+    // Gran Turismo 4's bumps (0x369888) on its 24 surfaces, from the materials and flags the query found.
+    if (gt4_rules_) {
+        std::array<u8, 4> surface{}, material{};
+        for (size_t i = 0; i < 4; ++i) material[i] = x.materials[i], surface[i] = u8(surface_index(x.materials[i], x.kinds[i]));
+        rules::road_bumps(c, layouts_[size_t(&c - cars_.data())], tables_.bumps, surface, material);
     }
     c.x535 = u8(c.x535 & 0xEF);
     c.road_seg = c.g[0].seg;
@@ -476,7 +489,9 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
 
         ex::save_previous(c);
         ex::prep(c, race_.prep);
-        if (gt4_rules_) rules::prep_tires(c, gx_[i], layouts_[i], tables_, race_.prep.condition);
+        // (a computer's car: its driver's grip, 0x467470)
+        const std::array<F, 3>* grip = in.computer && driver_grip_[i] ? &*driver_grip_[i] : nullptr;
+        if (gt4_rules_) rules::prep_tires(c, gx_[i], layouts_[i], tables_, race_.prep.condition, grip);
         if (in.computer) {
             // A computer driver's outputs into the controls as the program's drivers write them (0x464F38).
             c.full_throttle = 1;
@@ -517,7 +532,7 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
             sim::Extra& g = gx_[i];
             rules::aids(c, g.aids, g.tires, g.drive, layouts_[i], tables_.aids, aid_race_, driver);
         } else ex::aids(c, race_.aids);
-        if (gt4_rules_) rules::dynamics(c, gx_[i], layouts_[i], tables_);
+        if (gt4_rules_) rules::dynamics(c, gx_[i], layouts_[i], tables_, grip);
         else ex::dynamics(c, race_.statics, race_.gears, race_.class_grip);
         if (gt4_rules_) rules::brake_heat(c, layouts_[i], tables_.brake_heat, gx_[i].drive.d.tire_radius);
         else ex::brake_heat(c, race_.brake_heat);

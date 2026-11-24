@@ -707,7 +707,37 @@ rules in the PlayStation 2's arithmetic), fed with Gran Turismo 4's data:
 | A rolling start | `rules_start.*`, `session.cpp` | the car set-up's moving start (0x363868) after the session's hold; its places (rules::rolling_start_distance, the race's rule) on the road's middle, not the driving line |
 | The wear's grip, peak forces, slip angles (phase 4's tire part), slip ratios (phase 8), rolling resistance, tire curves, the longitudinal and lateral forces, the speed along the body, the forces across the car and the yaw, the standstill hold (phase 10) | `rules_*.cpp` through `rules_step.*` | Gran Turismo 4 (§3.3); the race's tables (`rules::tables`: the rolling resistance by surface and speed, the slip bytes, the globals) as the program's race set-up makes them (checked, §9); the wear rules off, as in every race seen |
 | The suspension's places, suspension, attitude, bump-stop nudge, body axes (phase 19's first four and its axes), the steering (phase 7), the driving aids (phase 9: a computer's car by its driver's block, `Session::set_driver_aids`, as control source 2) | `rules_body.*`, `rules_steer.*`, `rules_aids.*` through `session.cpp` | Gran Turismo 4 (§3.3); while the hold counter runs, the engine's start hold |
-| The rest of preparation, the input (a computer's clutch request is the program's), wear, the new phases, the rest of phase 19 | the engine's routines | GT3 |
+| The road's bumps (0x369888's: Gran Turismo 4's 24 surfaces, the soft materials' halving) and a computer driver's grip by tire class in the peak forces and the lateral acceleration over the grip (0x467470: the driver's parameter block +0xA8, 1.2 on a loose course's set; `Session::set_driver_aids(car, aids, grip)`) | `rules_body.*`, `rules_tires.*`, `rules_chassis.*` | Gran Turismo 4 |
+
+**What still runs Gran Turismo 3's code** (the engine's routines, through `session.cpp`; each to be replaced by the
+program's own):
+
+- Phase 1's last-step values (`ex::save_previous`: the engine's routine, checked equal to 0x343ED0).
+- Phase 2 and 3, 0x355E10 and 0x35CA60: not run at all.
+- Phase 4, the preparation (0x357700) but for its tire part: `ex::prep` (0x35C0B8, 0x35ACB0, the step length,
+  the mass 0x354AC0 with the fuel, the aerodynamics 0x3F3090, F +0x5BC).
+- Phase 5, the driver's input (0x349FD0): `ex::driver_input_pad` for a pad car (a computer's car takes its
+  driver's outputs as 0x464F38 writes them, and the clutch request as 0x3F3400 makes it).
+- Phase 6, 0x35D1D0: not run.
+- Phase 10's gearbox for a stepless box of kind 1 and the hybrid one-speed box (0x368628), a box of kind 4's
+  motor (0x356E58), layout 7's motors: run as an ordinary box; the fuel and nitrous (0x354B78): not counted.
+- Phase 12, the hit record (0x350308): `ex::clear_feedback`.
+- Phase 13, the collision step: the engine's routines (the same code as 0x45BB60), with our own search for the
+  walls near a body.
+- Phase 14, the proximity and slipstream (0x3F4638): not run (the engine's prep's slipstream terms).
+- Phase 15, the part that changes with speed (0x3F28B8): not run.
+- Phases 16 .. 18: the hub offsets (`ex::hub_offsets_xy`, the speed ramp), the road query (ours in host floats,
+  not 0x3E5A30) and the rest of the ground contact (the ground's frame `ex::ground_frame`).
+- Phase 19 after the bump-stop nudge: the rumble, the steering force (0x353EE8), 0x367148, the engine's sound, the
+  view's follower, the hub offsets, 0x35D350, the speeds (0x35DE20), the wheel spin (0x344040), the tire effects,
+  0x34A668, 0x34A788 (`ex::pad_rumble`, `ex::steer_force`, `ex::tyre_effects`, ..., `ex::speed_bookkeeping`,
+  `ex::wheel_spin`); the attitude's start hold (0x36AE20: the engine's spawn hold); the speed-switched part's
+  damping (0x3F2650) and a special car's spring rate (0x35D248).
+- Phases 20 .. 22, the wear (0x352EA0, 0x353218) and the flaps (0x35A678): `ex::tire_wear`, `ex::wear_flags`,
+  `ex::flaps`.
+- The start: the engine's pose and standing start, and the session's two-second hold, not 0x363B10 / 0x363560.
+- A wheel's surface in the engine's record (`w.surface`) is the engine's 16-row index; Gran Turismo 4's routines
+  read it as a 24-surface index, which differs on the surfaces 12 .. 23 (❓ the wet and special surfaces).
 | Collisions | the engine's collision step on the road's walls | the same routines as Gran Turismo 4's; the walls near a body are found by a grid of ours, levels by height |
 | Start | `session.cpp` `place` | the engine's race start (GT3's pose and standing start) on the first start places; a hold of 2 s before time 0 |
 | Distance along the course, laps | `ground.*` `distance_along` | ours (between the checkpoint gates) |
@@ -814,6 +844,11 @@ object 0x6235A8 + 0x134 + 4 x table id; the row cache left out), and compares:
   they read (the wheels' masses, sidewalls, roll centre, held droops, speed-switched part, the aid blocks,
   ABS and steering parameters) equal the program's on all 722 cars, but for a unit in the last place where
   they take the engine converter's values.
+- The road's bumps (0x369888) equal at every call at Tsukuba and Grand Canyon; with the computer drivers' grip
+  (0x467470) the peak forces and the lateral acceleration over the grip equal at every call on a computer
+  driver's car at Grand Canyon (without it 1 in 6 lower: the course's set gives loose tires 1.2). Each car alone,
+  three laps there (the program's / ours): the N360's best 4'11.6 (one lap) / 4'28.4, the Z's 5'17.9 / 5'15.1;
+  both crawl over the climb near 2,880 m (without the driver's grip they rolled back for over 1,000 s).
 - Not compared yet: the step's routines not in §3.3.
 
 ## 10. Open
