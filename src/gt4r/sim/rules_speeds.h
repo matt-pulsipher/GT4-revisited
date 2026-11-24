@@ -8,14 +8,14 @@
 #include "gt4r/sim/rules.h"
 
 namespace gt4r::sim {
-struct ConditionLimits;
+struct ConditionTable;
 }
 
 namespace gt4r::sim::rules {
 
 // What 0x35DE20 reads of the program's data, as a race's start leaves it.
 struct SpeedTables {
-    F limits[9];         // the engine condition's limits (0x620320; sim::condition_limits)
+    F limits[9];         // the engine condition's limits (0x620320; sim::condition_table)
     F dirt_max;          // 0x620B18: the condition block's +0x10 word's greatest (0x366100 at the race's start: the word
                          // 0x620AF6 x 1000)
     u32 lean_on = 0;     // 0x620788: a two-wheeler's lean in its front hub's sideways speed (0 in the image)

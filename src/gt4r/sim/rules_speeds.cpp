@@ -32,7 +32,7 @@ F odometer_add(u32& odometer, F x) {
 
 SpeedTables speed_tables(const Program& program, u8 special_row) {
     SpeedTables t;
-    const ConditionLimits L = condition_limits(program);
+    const ConditionTable L = condition_table(program);
     for (int i = 0; i < 9; ++i) t.limits[i] = L.l[i];
     t.dirt_max = int_to_f(s16(program.h(0x620AF6))) * F::raw(0x447A0000);
     t.lean_on = program.w(0x620788), t.roll_on = program.w(0x620784);

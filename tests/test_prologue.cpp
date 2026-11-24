@@ -214,3 +214,59 @@ TEST(disc_prologue_race) {
         CHECK(c.finished && !c.laps.empty() && c.laps[0] > 55 && c.laps[0] < 100);
     }
 }
+
+// Prologue's own race step (tools/gt4diff's Prologue harness, rules_prologue.h): its program's step run in the interpreter on
+// a test drive, each of our routines run in place at every call of the program's and every field of the record compared:
+// the engine's routines Prologue shares and Prologue's own, equal at every call.
+#include "prologue_taps.h"
+
+TEST(disc_prologue_step_routines_equal) {
+    Disc* disc = prologue_disc();
+    if (!disc) SKIP("no Prologue disc");
+    for (const char* which : {"engine", "prologue"}) {
+        std::string err;
+        const std::vector<diff::prologue::PTapStat> stats = diff::prologue::check(*disc, "tsukuba", "civic_r_98", 1200, which, err);
+        if (!err.empty()) std::printf("  %s\n", err.c_str());
+        CHECK(err.empty());
+        // (the engine's routines Prologue does not share are tapped too, to show how they differ)
+        static const std::set<std::string> differ = {"slip ratios", "tire slip force", "forward step", "lateral and yaw", "wheel steer",
+                                                     "attitude", "ground frame", "rolling resistance", "brake heat",
+                                                     "engine's attitude, GT4's axes"};
+        for (const diff::prologue::PTapStat& st : stats) {
+            std::printf("  %s: %s %llu of %llu calls equal\n", which, st.name.c_str(), static_cast<unsigned long long>(st.clean),
+                        static_cast<unsigned long long>(st.calls));
+            CHECK(st.calls > 0 || st.name == "engine's attitude, GT4's axes");
+            if (!differ.count(st.name)) CHECK(st.clean == st.calls);
+        }
+    }
+}
+
+// The license tests' gold, silver and bronze times from their RACE rows (Prologue's +0x5C .. +0x61 minutes and seconds,
+// +0x0C .. +0x11 milliseconds, as the program's 0x409B70 / 0x409BB0 / 0x409BF0 read them), in Gran Turismo 4's columns.
+#include "gt4r/formats/db/race_events.h"
+
+TEST(disc_prologue_license_target_times) {
+    Disc* disc = prologue_disc();
+    if (!disc) SKIP("no Prologue disc");
+    db::SpecDb db = open_db(*disc);
+    gt3r::Volume* vol = &disc->volume();
+    db::RaceEvents events(db, [vol](const std::string& path) -> std::optional<Bytes> {
+        const gt3r::Volume::Entry* e = vol->find(path);
+        return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
+    });
+    int with_gold = 0;
+    for (int n = 1; n <= 46; ++n) {
+        char label[16];
+        std::snprintf(label, sizeof label, "l0p%04d", n);
+        const std::optional<db::RaceEvent> e = events.event(label);
+        CHECK(e.has_value());
+        if (!e) continue;
+        if (e->target_ms[0] > 0) ++with_gold;
+        // (a test's times rise from gold to bronze where it has them)
+        if (e->target_ms[1] > 0) CHECK(e->target_ms[0] <= e->target_ms[1]);
+        if (e->target_ms[2] > 0) CHECK(e->target_ms[1] <= e->target_ms[2]);
+        if (n <= 6) std::printf("  %s on %s, %d laps: %u / %u / %u ms\n", label, e->course.c_str(), e->laps, e->target_ms[0], e->target_ms[1], e->target_ms[2]);
+    }
+    std::printf("  %d of 46 tests have a gold time\n", with_gold);
+    CHECK(with_gold == 46);
+}

@@ -707,7 +707,7 @@ void base_grips(const Program& program, ParamBlock& p) {
 // ---- the top speed (0x360780 with 0x34F3F8, 0x360520, 0x3F3278, 0x3F86E8) ----
 
 // 0x350868: the engine's torque factor of its condition (1 for a fresh engine).
-F condition_factor(const ConditionLimits& L, const u8* cond) {
+F condition_factor(const ConditionTable& L, const u8* cond) {
     if (cond == nullptr || cond[0x14] != 0) return kOne;
     F w4, w8;
     std::memcpy(&w4.bits, cond + 4, 4), std::memcpy(&w8.bits, cond + 8, 4);
@@ -895,7 +895,7 @@ void top_and_hold(const Spec& s, const Program& program, ParamBlock& p, const ru
         p.set_f(0x1020, t);
         p.set_f(0x101C, mass / (t + t));
     }
-    const F factor = condition_factor(condition_limits(program), in.condition);
+    const F factor = condition_factor(condition_table(program), in.condition);
     const EnginePeak e = engine_peak(p, factor);
     if (p.b(kD + 0x12) == 1) {
         s32 hold = s32(p.h(kD + 0x2E)) - 500;
@@ -913,9 +913,9 @@ bool special_car(const Spec& s) { return s.b(0x02) == 1 || s.b(0x01) == 6; }
 
 // 0x350678: the engine condition's limits (the program's 0x620320 .. 0x620340), from the static block's bytes +0xD0 ..
 // +0xD8.
-ConditionLimits condition_limits(const Program& program) {
+ConditionTable condition_table(const Program& program) {
     const u32 S = Program::kStatic;
-    ConditionLimits c;
+    ConditionTable c;
     auto big = [&](u32 o) { return int_to_f(s32(program.b(S + o)) * 100000); };
     c.l[1] = int_to_f(program.b(S + 0xD1)) * kMilli;
     c.l[0] = -big(0xD0);
