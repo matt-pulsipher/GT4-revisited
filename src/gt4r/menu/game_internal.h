@@ -178,6 +178,9 @@ int series_race_count(const std::string& label);
 // A race's pool of opponents (its RACES file): the ENEMY_CARS label and paint (-1: any).
 std::vector<std::pair<std::string, int>> race_entries(Database& d, const std::string& race);
 
+// The place of a course's record in the game's course records for the B-spec driver's marks (0x468690, 0x433C10).
+std::optional<size_t> bspec_course_unit(Database& d, const GameState& s, std::string label);
+
 struct GameNatives {
     Runtime& rt;
     RuntimeConfig config;
