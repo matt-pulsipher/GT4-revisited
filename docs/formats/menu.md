@@ -302,8 +302,10 @@ calls `onValueChanged(context, index)` at once (with `has_script`); ScaleBar que
 `onValueChanged(context, bar)` and `onStepChanged(context, bar)` (also at focus enter and a
 fresh press). The pinch slides after the value (0.4 a picture, 0.2 for the ScaleBar) between
 the display ends, in the popup while open, else in the bar. `incIndex` / `decIndex` move by
-their argument and send nothing. ❓ A ScaleBar's own `onKeyPress` runs before the value moves
-in the program; here after. **ListBox** (`step_min`, `step_max`, `interpolate_ratio`,
+their argument and send nothing. A ScaleBar's key (0x238D10): in popup mode accept opens or
+closes it and cancel closes it; a fresh press along it sets `repeat_start` to the value and tells the
+step; then its own script (`onKeyPress`) has the key, and only when that does not take it does the
+value move a step (and the value and step are told); closed in popup mode the key goes on. **ListBox** (`step_min`, `step_max`, `interpolate_ratio`,
 `magnify_ratio`, `focus_active`, `repeat`, `alignment`, `h_justify`, `v_justify`): ❓ its own
 routines are not read; it answers the scripts' calls, laid out as a select box. Its rows are made
 from the template (`setItemTemplate`, `setItemCount`); the rows that come into view are given to
