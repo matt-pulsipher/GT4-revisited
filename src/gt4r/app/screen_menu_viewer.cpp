@@ -274,7 +274,22 @@ private:
             // A script that ended its project names the next one, or asks for a race.
             if (runtime_->finished() && !race_) {
                 race_ = runtime_->race_request();
-                if (!race_ && !runtime_->advance()) runtime_->note("the menus ended and asked for nothing");
+                // The title left alone (its `timeout_count_to_autodemo`, 20 s) asks for the
+                // "autodemo" sequence: ❓ here the opening movie (demo_movie), then the project
+                // the title named (`next_menu_project`, arcade); the original shows the logo and
+                // the opening, and the configuration lists demo replays (Rdemo*) for it.
+                if (race_ && race_->sequence == "autodemo") {
+                    race_.reset();
+                    menu::GameState& g = runtime_->game();
+                    const std::string back = g.next_menu_project.empty() ? std::string("arcade") : g.next_menu_project;
+                    g.last_menu_project = runtime_->project() ? runtime_->project()->name() : std::string();
+                    g.last_sequence = g.next_sequence, g.next_sequence.clear();
+                    g.next_menu_arg = "opening", g.major_menu_project = back;
+                    runtime_->start_project("demo_movie");
+                    g.next_menu_project.clear(), g.next_menu_arg.clear();
+                }
+                if (!race_ && !runtime_->finished()) {
+                } else if (!race_ && !runtime_->advance()) runtime_->note("the menus ended and asked for nothing");
                 // A race with its own menus: the race screen runs them over the race on these menus
                 // and leaves them where the race sequence ends (race_natives.h).
                 if (race_ && !menu::quick_project(race_->sequence).empty() && app.gpu()) {
