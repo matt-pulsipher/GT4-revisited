@@ -45,6 +45,13 @@ struct HudState {
     float throttle = 0, brake = 0;    // the pedals, 0..1
     float trip_m = 0;                 // metres the car ran this race (the trip meter)
     float fuel = 1, tire_wear = 1;    // 0..1 left
+    // B-spec (the player directs, the computer drives his car): display mode 1's places (the total
+    // time in place of the best and last laps), the commands' bar and the help strip.
+    bool bspec = false;
+    int pace = 3;                     // 1 .. 5 (the words key_pace1 .. 5)
+    bool overtake = false;            // the overtake command is on
+    s64 total_ms = -1;                // the race's time
+    bool help = true;                 // the help strip along the bottom
 };
 
 class RaceHud {

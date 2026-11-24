@@ -8,7 +8,7 @@
 // first picture (the start's hold is left out then), `paint` the first car's paint, `laps` the
 // race's length, `start` the start: 10 or 8 (a hold of so many seconds with the opening shots),
 // <seconds> (a plain hold), none, rolling, course (the course's own: race/start_rule.h); `view=tv` the course's replay cameras; `replay=N` drives
-// N steps unseen and plays them back through the replay cameras; `menus=single_race` the race
+// N steps unseen and plays them back through the replay cameras; `bspec=1` a B-spec run; `menus=single_race` the race
 // sequence's own menus (quick-arcade) before and after the race (any sequence: solo_event,
 // championship, license, mission, time_trial, freerun, practice, machinetest), `race=<label>` its event.
 
@@ -65,6 +65,7 @@ struct Setup {
     int view = race::DriveCamera::kChase;
     bool look_back = false;
     bool auto_drive = false;
+    bool bspec = false;   // `bspec=1`: a B-spec run (the computer drives the player's car; its display and commands)
     int skip = 0;
     u32 paint = 0;
     bool hud = true;
@@ -110,6 +111,7 @@ Setup setup_from_env() {
             if (v == "tv") s.view = kTvView;
             if (!v.empty() && std::isdigit(static_cast<unsigned char>(v[0]))) s.view = std::atoi(v.c_str());
         } else if (k == "drive") s.auto_drive = v == "auto";
+        else if (k == "bspec") s.bspec = v != "0";
         else if (k == "skip") s.skip = std::max(0, std::atoi(v.c_str()));
         else if (k == "paint") s.paint = u32(std::max(0, std::atoi(v.c_str())));
         else if (k == "hud") s.hud = v != "0";
@@ -261,7 +263,7 @@ public:
                 }
             }
         mount_ = setup.view;
-        begin_run();
+        begin_run(setup.bspec);
         // A scripted run that skips ahead: those steps unseen.
         for (int i = 0; i < setup.skip; ++i) step(gt3r::PadState{}, true);
         if (setup.replay > 0) {
@@ -279,6 +281,10 @@ public:
         if (ran_ || watched != watched_) world_->restart();
         watched_ = watched;
         ran_ = true;
+        // B-spec: the pace "Steady", the low view from the car's nose (as the original's B-spec race
+        // opens), the help strip shown.
+        bspec_pace_ = 3, overtake_steps_ = 0, bspec_help_ = true;
+        if (watched) mount_ = race::DriveCamera::kInCar;
         menu_scene_ = false;
         race::FlowSetup fs;
         fs.start = setup_.skip > 0 ? race::StartType::None : setup_.start;
@@ -411,6 +417,7 @@ public:
         camera_.step(world_->cars()[0], kStep);
         if (mount_ == kTvView || opening) step_tv(world_->cars()[0]);
         if (event_steps_ >= 0) ++event_steps_;
+        if (overtake_steps_ > 0) --overtake_steps_;
         if (history_.size() < kHistory) history_.emplace_back(world_->cars().begin(), world_->cars().end());
         hear(world_->cars(), true);
     }
@@ -483,6 +490,11 @@ public:
         h.lap_ms = replaying_ ? s64(replay_at_) * 1000 / 60 : flow_.lap_ms(0);
         h.best_ms = flow_.car(0).best_lap_ms, h.last_ms = flow_.car(0).last_lap_ms;
         h.time = double(flow_.time_ms()) / 1000;
+        // B-spec: the commands' bar and the race's time (display mode 1).
+        h.bspec = watched_ && !replaying_ && !menu_scene_;
+        h.pace = bspec_pace_, h.overtake = overtake_steps_ > 0;
+        h.total_ms = flow_.time_ms();
+        h.help = bspec_help_;
         // A window of a line or message: full for `hold` seconds, then fading out.
         auto window = [](int steps, float hold, float fade) {
             const float t = float(steps) / 60;
@@ -541,6 +553,20 @@ public:
         }
     }
 
+    // B-spec's commands: the pace (-1 / +1, 1 .. 5), the overtake (on for 10 s, or off again; ❓ its
+    // length is judged), the display shown or hidden. They go to the computer drivers of the
+    // player's car (RaceWorld::command).
+    bool watched() const { return watched_; }
+    void bspec_pace(int step) {
+        bspec_pace_ = std::clamp(bspec_pace_ + step, 1, 5);
+        world_->command(0, bspec_pace_, overtake_steps_ > 0);
+    }
+    void bspec_overtake() {
+        overtake_steps_ = overtake_steps_ > 0 ? 0 : 600;
+        world_->command(0, bspec_pace_, overtake_steps_ > 0);
+    }
+    void bspec_display() { bspec_help_ = !bspec_help_; }
+
     // The car's three views, then the course's replay cameras (ours: the game shows those in replays only).
     void next_view() {
         const auto& views = race::DriveCamera::kViews;
@@ -566,7 +592,7 @@ public:
         // The in-car view's rear-view mirror at the top (❓ its place, (190, 18) 259 x 63 of the
         // 640 x 480 picture, measured on the original's in-car view): not in replays, the opening
         // shots or looking back.
-        if (mount_ == race::DriveCamera::kInCar && !replaying_ && !menu_scene_ && !start_camera_.active() && !look_back && !setup_.look_back) {
+        if (mount_ == race::DriveCamera::kInCar && !replaying_ && !menu_scene_ && !watched_ && !start_camera_.active() && !look_back && !setup_.look_back) {
             const SDL_FRect c = RaceHud::canvas();
             const float k = c.h / 480.0f;
             world_->render_mirror(ui, {c.x + 190 * k, c.y + 18 * k, 259 * k, 63 * k}, cars, pose, 0);
@@ -660,6 +686,8 @@ private:
     int tire_index_ = 4;   // the race's tires (the scripts' index: 4 sports medium)
     std::string race_word_ = "ARCADE_SINGLE_RACE"; // the race's name in the race's words
     bool throttle_held_ = false;
+    int bspec_pace_ = 3, overtake_steps_ = 0;
+    bool bspec_help_ = true;
     float lateral_g_ = 0;
     course::Vec3 last_v_;
     std::string lap_words_[2] = {"Lap", "Laps"};
@@ -842,7 +870,14 @@ public:
         }
         if (paused_) return update_pause(app, m, dt);
         const gt3r::PadState& pad = app.input().race_pad(0);
-        if (m.pressed(PadButton::R1) || m.pressed(PadButton::Select)) race_->next_view();
+        if (race_->watched()) {
+            // B-spec's keys (the help strip's): Left / Right the pace, Triangle overtake, Cross the view,
+            // R2 the display. (Circle's pit, Up / Down's car and R1's race monitor are not built.)
+            if (m.horizontal()) race_->bspec_pace(m.horizontal());
+            if (m.pressed(PadButton::Triangle)) race_->bspec_overtake();
+            if (m.pressed(PadButton::Cross)) race_->next_view();
+            if (m.pressed(PadButton::R2)) race_->bspec_display();
+        } else if (m.pressed(PadButton::R1) || m.pressed(PadButton::Select)) race_->next_view();
         look_back_ = gt3r::race::look_back_held(pad, false);
         // Whole simulation steps for the time that has passed (at most four a frame).
         const Uint64 t0 = SDL_GetTicksNS();
@@ -1481,6 +1516,7 @@ private:
         }
         try {
             race_ = std::make_unique<Race>(app, setup_, cars_);
+            if (setup_.bspec) spectator_ = true;
             hud_ = std::make_unique<RaceHud>(app, race_->course().section(course::kSlotMiniMap));
             race_->set_lap_words(hud_->word("WordOfLap"), hud_->word("WordOfLaps"));
             // The replay card's tires and race name.

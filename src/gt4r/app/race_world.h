@@ -82,6 +82,12 @@ public:
     // A rolling start's run-up from the next step: every car held at `mps` (its throttle eased, its
     // brake touched above it); 0 lets them go.
     void set_speed_hold(float mps) { hold_speed_ = mps; }
+    // B-spec's commands for a car the computer drives: its pace 1 .. 5 (3 the race's own) and the
+    // overtake. ❓ Kept until the computer drivers take commands: they drive at the race's pace.
+    void command(size_t car, int pace, bool overtake) {
+        if (car >= commands_.size()) commands_.resize(car + 1);
+        commands_[car] = {pace, overtake};
+    }
     // What goes with the cars shown in a step, live (the simulation's) or recorded: smoke and dust
     // from the wheels, and the race's sound heard from `camera` (none: no sound) about car `target`.
     void present(std::span<const race::CarState> cars, const audio::SoundListener* camera, int target, bool live);
@@ -144,6 +150,11 @@ private:
     bool computer_player_ = false;
     float player_ps_ = 0;
     float hold_speed_ = 0;
+    struct Command {
+        int pace = 3;
+        bool overtake = false;
+    };
+    std::vector<Command> commands_;
     bool night_ = false, noted_ = false;
     gt3r::render::DrawOptions::PostGrade grade_;
     bool snapshot_ = false, keep_last_ = false;
