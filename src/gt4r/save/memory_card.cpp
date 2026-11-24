@@ -65,7 +65,9 @@ GameSave::GameSave(std::string card, Codes codes, Reader disc, std::string produ
     : card_(std::move(card)), codes_(std::move(codes)), disc_(std::move(disc)) {
     // The folder: "BA" + the product + "GAMEDATA" (0x1CC958, 0x1CDA48); its data file has the
     // folder's name.
-    name_ = "BA" + product.substr(product.size() > 2 && product[0] == 'B' && product[1] == 'A' ? 2 : 0) + "GAMEDATA";
+    // (A product with its region's letters already, "BISCPS-15055" (Prologue's 0x19BCB0), keeps them.)
+    const bool region = product.size() > 2 && product[0] == 'B' && (product[1] == 'A' || product[1] == 'I' || product[1] == 'E');
+    name_ = (region ? product : "BA" + product) + "GAMEDATA";
     if (!card_.empty()) folder_ = (fs::path(card_) / name_).string() + "/";
 }
 
