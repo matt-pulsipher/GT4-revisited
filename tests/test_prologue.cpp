@@ -223,7 +223,7 @@ TEST(disc_prologue_race) {
 TEST(disc_prologue_step_routines_equal) {
     Disc* disc = prologue_disc();
     if (!disc) SKIP("no Prologue disc");
-    for (const char* which : {"engine", "prologue"}) {
+    for (const char* which : {"engine", "prologue", "input"}) {
         std::string err;
         const std::vector<diff::prologue::PTapStat> stats = diff::prologue::check(*disc, "tsukuba", "civic_r_98", 1200, which, err);
         if (!err.empty()) std::printf("  %s\n", err.c_str());
@@ -231,11 +231,12 @@ TEST(disc_prologue_step_routines_equal) {
         // (the engine's routines Prologue does not share are tapped too, to show how they differ)
         static const std::set<std::string> differ = {"slip ratios", "tire slip force", "forward step", "lateral and yaw", "wheel steer",
                                                      "attitude", "ground frame", "rolling resistance", "brake heat",
-                                                     "engine's attitude, GT4's axes"};
+                                                     "terrain factor", "pad rumble", "steer force", "tire effects", "engine sound",
+                                                     "view follow", "speed bookkeeping", "engine's driver input"};
         for (const diff::prologue::PTapStat& st : stats) {
             std::printf("  %s: %s %llu of %llu calls equal\n", which, st.name.c_str(), static_cast<unsigned long long>(st.clean),
                         static_cast<unsigned long long>(st.calls));
-            CHECK(st.calls > 0 || st.name == "engine's attitude, GT4's axes");
+            CHECK(st.calls > 0 || st.name == "engine's driver input");
             if (!differ.count(st.name)) CHECK(st.clean == st.calls);
         }
     }
@@ -269,4 +270,21 @@ TEST(disc_prologue_license_target_times) {
     }
     std::printf("  %d of 46 tests have a gold time\n", with_gold);
     CHECK(with_gold == 46);
+}
+
+// The roads keep Gran Turismo 3's road block for the program's own ground query (Runway::gtrw), and a license course's
+// goal distance (the block's header +0x1C) lies inside the lap where its test ends: L_fisco6, test 2, 203 m from the line.
+TEST(disc_prologue_license_goal) {
+    Disc* disc = prologue_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 Prologue disc");
+    const gt3r::Volume::Entry* e = disc->volume().find("crs/L_fisco6");
+    CHECK(e != nullptr);
+    if (!e) return;
+    const Bytes d = disc->volume().read(*e);
+    const course::CourseFile f = course::CourseFile::parse(d);
+    const std::optional<course::Runway> r = course::course_road(f, d);
+    CHECK(r && r->gtrw);
+    if (!r) return;
+    std::printf("  L_fisco6: lap %.1f m, goal %.1f m\n", double(r->length), double(r->goal_v));
+    CHECK(r->goal_v > 200 && r->goal_v < 206 && r->goal_v < r->length - 1);
 }

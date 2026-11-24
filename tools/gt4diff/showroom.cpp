@@ -243,4 +243,67 @@ PickerResult run_picker(Disc& disc, bool print) {
     return result;
 }
 
+ChartsResult run_charts(Disc& disc, bool print) {
+    ChartsResult result;
+    db::SpecDb sdb = open_db(disc);
+    const sim::Program program = sim::Program::load(disc);
+    if (!program.known()) return result;
+    result.ran = true;
+    Ee ee;
+    boot(ee, disc, sdb);
+    const sim::Showroom ours(sdb, program);
+    constexpr u32 kSpecBuilder = 0x4413C8, kEngineChart = 0x34B960; // (0x34B960 makes the gear chart 0x34B8E8 makes, too)
+    const u32 eq_at = ee.alloc(0x200), spec_at = ee.alloc(0x600), out = ee.alloc(0x200), gears = ee.alloc(0x100), cond = ee.alloc(0x20);
+    size_t shown = 0;
+    for (const db::CarEntry& c : sdb.cars()) {
+        sim::Equipment eq;
+        if (!sim::stock_car(sdb, program, c.label, eq)) continue;
+        ++result.cars;
+        const bool worn = result.cars % 2 == 0; // every other car with a worn engine and old oil
+        for (u32 o = 0; o < 0x200; o += 4) ee.w32(eq_at + o, 0), ee.w32(out + o, 0);
+        for (u32 o = 0; o < 0x600; o += 4) ee.w32(spec_at + o, 0);
+        for (u32 o = 0; o < 0x100; o += 4) ee.w32(gears + o, 0);
+        for (u32 o = 0; o < 0x20; o += 4) ee.w32(cond + o, 0);
+        ee.wf(cond + 4, worn ? 9000000.0f : 0.0f), ee.wf(cond + 8, worn ? 5600000.0f : 0.0f);
+        try {
+            ee.call(kSetCar, {Arg::ptr(eq_at), Arg::integer(db::part_id(0, c.id))}, 50'000'000);
+            ee.call(kSpecBuilder, {Arg::ptr(eq_at), Arg::ptr(spec_at)}, 50'000'000);
+            ee.call(kEngineChart, {Arg::ptr(spec_at), Arg::ptr(gears), Arg::ptr(out), Arg::ptr(cond)}, 400'000'000);
+        } catch (const std::exception& e) {
+            if (print && shown++ < 5) std::printf("  %s: %s\n", c.label.c_str(), e.what());
+            continue;
+        }
+        const sim::F factor = sim::engine_condition(program, sim::F(worn ? 9000000.0f : 0.0f), sim::F(worn ? 5600000.0f : 0.0f), false);
+        const std::optional<sim::Charts> ch = ours.charts(eq, factor);
+        if (!ch) continue;
+        const sim::EngineFigures& e = ch->engine;
+        bool eok = ee.r32(out) == e.ps.bits && ee.r32(out + 4) == e.kgfm.bits && s16(ee.r16(out + 8)) == e.power_rpm && s16(ee.r16(out + 0xA)) == e.torque_rpm &&
+                   ee.r16(out + 0xC) == e.rev_limit && size_t(ee.r16(out + 0xE)) == e.rpm.size();
+        for (size_t i = 0; eok && i < e.rpm.size(); ++i)
+            eok = s16(ee.r16(out + 0x10 + 2 * u32(i))) == e.rpm[i] && (i >= e.point_ps.size() || (ee.r32(out + 0x40 + 4 * u32(i)) == e.point_ps[i].bits &&
+                                                                                                     ee.r32(out + 0xA0 + 4 * u32(i)) == e.point_kgfm[i].bits));
+        const sim::GearChart& g = ch->gears;
+        bool gok = s32(ee.r32(gears)) == g.gears;
+        for (int i = 0; gok && i <= g.gears && i < 10; ++i) {
+            const u32 k = u32(i);
+            gok = ee.r16(gears + 4 + 2 * k) == g.low_rpm[k] && ee.r16(gears + 0x18 + 2 * k) == g.high_rpm[k] && ee.r32(gears + 0x2C + 4 * k) == g.low_speed[k].bits &&
+                  ee.r32(gears + 0x54 + 4 * k) == g.high_speed[k].bits;
+        }
+        result.engine_equal += eok, result.gears_equal += gok;
+        if (!gok && print && std::getenv("GT4R_CHARTS_GEARS") && result.cars - result.gears_equal < 3)
+            for (int i = 0; i <= g.gears && i < 10; ++i)
+                std::printf("    gear %d: %u-%u %.7g-%.7g / ours %u-%u %.7g-%.7g\n", i, ee.r16(gears + 4 + 2 * u32(i)), ee.r16(gears + 0x18 + 2 * u32(i)),
+                            double(ee.rf(gears + 0x2C + 4 * u32(i))), double(ee.rf(gears + 0x54 + 4 * u32(i))), g.low_rpm[size_t(i)], g.high_rpm[size_t(i)],
+                            double(gt3r::ee::to_host(g.low_speed[size_t(i)].bits)), double(gt3r::ee::to_host(g.high_speed[size_t(i)].bits)));
+        if (!eok && result.first_engine.empty()) result.first_engine = c.label;
+        if (!gok && result.first_gears.empty()) result.first_gears = c.label;
+        if (print && (!eok || !gok) && shown++ < 10)
+            std::printf("  %-26s engine %s (%.6g / %.6g PS, %d pts / %zu), gears %s (%d / %d; top %u / %u rpm %.6g / %.6g)\n", c.label.c_str(), eok ? "ok" : "differs",
+                        double(ee.rf(out)), double(gt3r::ee::to_host(e.ps.bits)), int(ee.r16(out + 0xE)), e.rpm.size(), gok ? "ok" : "differ", s32(ee.r32(gears)), g.gears,
+                        ee.r16(gears + 0x18 + 2), g.high_rpm[1], double(ee.rf(gears + 0x54 + 4)), double(gt3r::ee::to_host(g.high_speed[1].bits)));
+    }
+    if (print) std::printf("charts: %zu cars; the engine's equal on %zu, the gears' on %zu\n", result.cars, result.engine_equal, result.gears_equal);
+    return result;
+}
+
 } // namespace gt4r::diff

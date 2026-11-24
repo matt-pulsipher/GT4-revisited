@@ -57,6 +57,8 @@ struct Field::Driver {
     F offset;               // +0x54 the sideways offset of the aim (m, + right)
     u16 rand = 0;           // +0x68
     F corner_mult{1.0f}, brake_mult{1.0f}, alongside_mult{1.0f}; // +0xB8 / +0xBC / +0xC0
+    std::array<F, 5> pd_last{}; // +0x00 .. +0x10 the PD steering's terms at the last step
+    F pd_rate;              // F +0x484 the PD steering's rate (its integrator)
     // Outputs (+0x30 / +0x34 / +0x38 / +0x3E / +0x3C).
     F steer, throttle, brake;
     bool reverse = false;
@@ -283,6 +285,13 @@ u8 Field::shift_factor(size_t car) const {
     return d && d->control == 1 && d->kind == 0 ? d->shift : 128;
 }
 
+void Field::apply_shift_factors(Session& session) const {
+    for (size_t i = 0; i < session.cars().size(); ++i) {
+        const Driver* d = driver(i);
+        session.set_shift_factor(i, d ? d->shift : 128);
+    }
+}
+
 const Field::Driver* Field::driver(size_t car) const { return car < drivers_.size() ? drivers_[car].get() : nullptr; }
 const Params& Field::params(size_t car) const { return drivers_.at(car)->p; }
 const Incidents& Field::incidents(size_t car) const { return drivers_.at(car)->inc; }
@@ -320,6 +329,7 @@ void Field::probe_set(size_t car, const Probe& p) {
     d.pit = p.pit, d.arc_ticks = p.arc_ticks, d.blend = p.blend, d.offset = p.offset;
     d.steer = p.steer, d.throttle = p.throttle, d.brake = p.brake, d.reverse = p.reverse, d.shift_lock = p.shift_lock;
     d.kind = p.kind;
+    d.pd_last = p.pd_last, d.pd_rate = p.pd_rate;
     z.follow = p.follow, z.chain = p.chain, z.contact = p.contact, z.zone = p.zone, z.gap_left = p.gap_left, z.gap_right = p.gap_right;
 }
 
@@ -335,6 +345,7 @@ Field::Probe Field::probe_get(size_t car) const {
     p.pit = d.pit, p.arc_ticks = d.arc_ticks, p.blend = d.blend, p.offset = d.offset;
     p.steer = d.steer, p.throttle = d.throttle, p.brake = d.brake, p.reverse = d.reverse, p.shift_lock = d.shift_lock;
     p.kind = d.kind;
+    p.pd_last = d.pd_last, p.pd_rate = d.pd_rate;
     p.follow = z.follow, p.chain = z.chain, p.contact = z.contact, p.zone = z.zone, p.gap_left = z.gap_left, p.gap_right = z.gap_right;
     return p;
 }
@@ -746,6 +757,59 @@ void Field::speed_control(Driver& d, F vt, F gain) {
     if (thr != k::one && thr != k::zero) d.shift_lock = 12;
 }
 
+// 0x465078's PD steering (T[2] of 2 or more, racing): the steering moved at a rate summed from five terms and their rates
+// (the slip direction against the steering, the yaw rate short, the line's heading against the travel, the car's offset
+// from the line, the line's heading against the car's), the rate integrated and bounded by the set's steering rate, the
+// steering within 45 degrees. Its terms and rate kept in the driver (D +0x00 .. +0x10, F +0x484).
+void Field::pd_steer(Driver& d, F dir, F rd, F r, F amax, F ky) {
+    const ex::Car& c = session_->record(d.car);
+    const Tuning& t = tables_.tuning;
+    const F inv = c.inv_dt, dt = c.dt;
+    F e = dir - d.steer;
+    F de = e - d.pd_last[0];
+    d.pd_last[0] = e;
+    F sum = k::zero - (t.pd[8] * inv) * de;
+    sum = sum + t.pd[0] * e;
+    e = rd - r;
+    de = e - d.pd_last[1];
+    d.pd_last[1] = e;
+    sum = sum + (t.pd[9] * inv) * de;
+    if ((k::zero < rd && r < rd) || (rd < k::zero && rd < r)) sum = sum + (t.pd[1] * e) * ky;
+    // The line's heading and place at the car's distance (0x4649F0).
+    const F s = course_s(d.car);
+    F px = c.pos.x, py = c.pos.y, ph = c.pos.z;
+    place(d.line, d.next, s, px, py, ph);
+    const F hd = line_heading(d, d.line, s);
+    const F travel = ai::atan2(-c.vel.x, c.vel.y);
+    const F a1 = angle_between(hd, travel), a2 = angle_between(hd, c.heading);
+    F off = (c.pos.x - px) * gt3r::ee::cos(hd);
+    off = off + (c.pos.y - py) * gt3r::ee::sin(hd);
+    if (t.pd_bound < off) off = t.pd_bound;
+    else if (off < -t.pd_bound) off = -t.pd_bound;
+    de = a1 - d.pd_last[2];
+    d.pd_last[2] = a1;
+    sum = sum + (t.pd[10] * inv) * de;
+    const F d3 = off - d.pd_last[3];
+    d.pd_last[3] = off;
+    sum = sum + t.pd[2] * a1;
+    const F d4 = a2 - d.pd_last[4];
+    d.pd_last[4] = a2;
+    sum = sum - (t.pd[11] * inv) * d3;
+    sum = sum + (t.pd[3] * off) * amax;
+    sum = sum - (t.pd[12] * inv) * d4;
+    sum = sum - t.pd[4] * a2;
+    sum = sum - t.pd[7] * d.pd_rate;
+    F rate = d.pd_rate + sum * dt;
+    const F lim = d.p.steer_rate;
+    if (lim < rate) rate = lim;
+    else if (rate < -lim) rate = -lim;
+    const F quarter_pi = F::raw(0x3F490FD9);
+    const F st = d.steer + rate * dt;
+    if (quarter_pi < st) d.steer = quarter_pi, d.pd_rate = k::zero;
+    else if (st < -quarter_pi) d.steer = -quarter_pi, d.pd_rate = k::zero;
+    else d.steer = st, d.pd_rate = rate;
+}
+
 // 0x464BB0: the steering slews to its target at the set's rate.
 void Field::steer_to(Driver& d, F t) {
     const F step = d.p.steer_rate * session_->record(d.car).dt;
@@ -834,6 +898,12 @@ void Field::finish(size_t car, int mode, bool player_car) {
 }
 
 int Field::kind(size_t car) const { return car < drivers_.size() && drivers_[car] ? drivers_[car]->kind : 0; }
+void Field::set_bspec_skill(size_t car, F corner, F brake, F alongside) {
+    Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
+    if (!d) return;
+    d->corner_mult = corner, d->brake_mult = brake, d->alongside_mult = alongside;
+}
+
 int Field::control(size_t car) const { return car < drivers_.size() && drivers_[car] ? drivers_[car]->control : -1; }
 
 bool Field::pit_enter(size_t car) {
@@ -1204,7 +1274,7 @@ void Field::decide(Driver& d) {
         }
         if (d.state != before) d.state_hold = 180;
     }
-    const bool slew = t.steer_mode < 2 || d.state != 0; // (T[2] of 2 or more: a PD steering in state 0, not ported)
+    const bool slew = t.steer_mode < 2 || d.state != 0; // (T[2] of 2 or more, racing: the PD steering, pd_steer)
     const int moving = k::kmh2 < v ? 1 : v < -k::kmh2 ? -1 : 0;
 
     // Steering. `over`: how far past the steered wheels' peak slip angle the yaw-rate steering asked to go (its share).
@@ -1244,6 +1314,7 @@ void Field::decide(Driver& d) {
                     if (k::one < q) q = k::one;
                     if (q < -k::one) q = -k::one;
                     ky = ky * q;
+                    if (!slew) pd_steer(d, dir, rd, r, amax, ky);
                 }
                 if (k::zero < rd) {
                     if (r < rd) {

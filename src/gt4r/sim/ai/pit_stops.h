@@ -14,7 +14,10 @@
 #include "gt4r/sim/ai/drivers.h"
 #include "gt4r/sim/ai/pit_flow.h"
 
+#include <array>
+#include <optional>
 #include <functional>
+#include <utility>
 #include <span>
 #include <vector>
 
@@ -28,21 +31,34 @@ struct PitHooks {
     std::function<bool(size_t car)> fuel_on;
     std::function<F(size_t car)> fuel, tank, fuel_distance, fuel_used;
     std::function<void(size_t car, F fuel)> set_fuel;
-    // The wear: whether the race wears tires, its limit (conductor + 4 + 0x20), each wheel's tread left (+0x50) and its
+    // The wear: whether the race wears tires, its limit (conductor + 4 + 0x20), each wheel's wear grip (+0x50: below the
+    // limit, a stop asked) and its tread wear
     // +0xAC (< 0: the tire gone).
     std::function<bool()> wear_on;
     std::function<F()> wear_limit;
-    std::function<std::vector<F>(size_t car)> tread, burst;
+    std::function<std::vector<F>(size_t car)> wear_grip, tread;
     // A wheel given a new tire (0x362E58), at the stop's 60th step from its end.
     std::function<void(size_t car, int wheel)> new_tire;
+    // The car's tires as the race keeps them (cond + 0xFB20 + 2 i: front, rear kind), for the stops' record.
+    std::function<std::pair<int, int>(size_t car)> tires;
+    // The race display's events (0x35E000): 1 the car into the pits, 6 out of them.
+    std::function<void(size_t car, int event)> display_event;
     // The car stood in its box (0x363560: the standing start's pose there) facing `heading` (the box's, radians).
     std::function<void(size_t car, F heading)> place_in_box;
 };
 
-// The race's part (what the conductor answers): its laps (0: a run without an end), whether it has pit stops.
+// The hooks filled from a session (its fuel, tank, the economy readings, the wear rules and each wheel's wear, new tires):
+// the program's reads of the car (0x353218, 0x354D60, 0x362E58). Not the box's placing (left empty).
+PitHooks session_pit_hooks(Session& session);
+
+// The race's part (what the conductor answers): its laps (0: a run without an end), whether it has pit stops (the
+// conductor's virtual +0x180), its time limit (minutes, 0 none), and each car's result being in (F +0x4B0).
 struct PitRace {
     int laps = 0;
     bool pits = true;
+    u32 limit_minutes = 0;
+    bool pit_menu = true; // the race's pit menu (its virtual +0x120) for the player's and the B-spec car (Gran Turismo mode)
+    std::function<bool(size_t car)> finished;
     u8 refuel_rate = 20; // the program's byte 0x620E25 (x 0.1 a second), read by PitStops' constructor
 };
 
@@ -52,6 +68,11 @@ public:
 
     // B-spec's pit command (0x3F19E0 command 6) or any request: the car goes in at the pit lane's entry.
     void request(size_t car) { if (car < cars_.size()) cars_[car].flags |= 8; }
+    // The pit menu's choice (the player's, or B-spec's before its wait runs out): front / rear tire kind (0xFF none, 0xFE
+    // the kind fitted), fuel (0 none); command 2 stops the refuelling. Taken at the next step's input (0x35BFE8).
+    void choose(size_t car, u8 front, u8 rear, u8 fuel, u8 command = 1) {
+        if (car < cars_.size()) pending_[car] = Choice{command, front, rear, fuel}, default_choice_[car] = true;
+    }
     // Before the session's step: a car standing in its box held.
     void before(const Field& field, std::span<race::CarInput> inputs);
     // After the session's step.
@@ -61,8 +82,14 @@ public:
     PitCar& car(size_t i) { return cars_[i]; }
     // The pit message (F +0x5FA) for the race display: 0x35ACD8's codes.
     int message(size_t i) const { return cars_[i].status; }
-    // The stops each car made (0x35AD10 counts them).
+    // The stops each car made (0x35AD10: cond + 0xD9E4 + 2 i) and the record of its last four, newest first (cond + 0xD9F0 +
+    // 8 i: the lap of the stop, 0x343B50; + 0xDA20 + 8 i: the tires fitted, front and rear, -1 none).
     int stops(size_t i) const { return stops_[i]; }
+    struct StopRecord {
+        int lap = 0;
+        int front = -1, rear = -1;
+    };
+    const std::array<StopRecord, 4>& stop_record(size_t i) const { return records_[i]; }
 
 private:
     PitFlow flow_;
@@ -72,7 +99,13 @@ private:
     std::vector<PitCar> cars_;
     std::vector<F> last_d_;
     std::vector<int> last_lap_, stops_;
+    std::vector<std::array<StopRecord, 4>> records_;
     std::vector<gt3r::s8> axle_{1, 1, -1, -1};
+    struct Choice {
+        u8 command = 1, front = 0xFE, rear = 0xFE, fuel = 0xFE;
+    };
+    std::vector<bool> default_choice_; // a choice to take at the step's input (a B-spec car's wait ran out: 0x35BF08)
+    std::vector<std::optional<Choice>> pending_;
 };
 
 } // namespace gt4r::sim::ai

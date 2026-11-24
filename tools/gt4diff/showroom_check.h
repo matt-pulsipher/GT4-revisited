@@ -32,4 +32,13 @@ struct PickerResult {
 };
 PickerResult run_picker(Disc& disc, bool print);
 
+// The settings pages' charts (sim::Showroom::charts): the program's 0x34B960 (the engine's figures with a
+// condition) and 0x34B8E8 (the gear chart) on every car's spec (0x4413C8) against ours, every field.
+struct ChartsResult {
+    bool ran = false;
+    size_t cars = 0, engine_equal = 0, gears_equal = 0;
+    std::string first_engine, first_gears;
+};
+ChartsResult run_charts(Disc& disc, bool print);
+
 } // namespace gt4r::diff
