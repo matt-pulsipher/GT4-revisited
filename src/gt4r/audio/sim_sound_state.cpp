@@ -1,6 +1,7 @@
 #include "gt4r/audio/sim_sound_state.h"
 
 #include "gt4r/sim/car_spec.h"
+#include "gt4r/sim/rules_drive.h"
 #include "gt4r/sim/session.h"
 
 #include <algorithm>
@@ -47,14 +48,20 @@ CarSoundState sound_state(const sim::Session& session, size_t i, const RaceSound
         o.rim_speed = in.rim_speed.host();
         o.width = c.p.width[w >> 1].host();
     }
-    // The gearbox's whine (0x34FED0): the torque through the clutch, the gear's ratio against the
-    // first's, the driven wheels' speed. 🔎 (the program reads its engine torque, F +0x51C, and an
-    // axle speed by the layout, 0x350DA0)
+    // The gearbox's whine (0x34FED0): the clutch's torque (F +0x51C), the gear's ratio against the
+    // first's (the driveline block's +0x40 + 4 gear), the driven axles' speed (0x350DA0, by the
+    // layout). Without Gran Turismo 4's routines running, the engine's record and the driven wheels.
     s.drive_torque = c.clutch_torque.host();
-    const int gear = std::clamp(int(c.gear), 0, 7);
-    s.gear_ratio = c.p.d.ratio[size_t(gear)].host(), s.low_ratio = c.p.d.ratio[1].host();
-    const size_t axle = c.p.d.driven_axle ? 2 : 0;
-    s.shaft_speed = 0.5f * (std::fabs(car.wheels[axle].spin_rate) + std::fabs(car.wheels[axle + 1].spin_rate));
+    const int gear = std::clamp(int(c.gear), 0, 9);
+    if (session.gt4_rules()) {
+        const sim::rules::DrivelineBlock& d = session.gt4_record(i).drive.d;
+        s.gear_ratio = d.ratio[size_t(gear)].host(), s.low_ratio = d.ratio[1].host();
+        s.shaft_speed = sim::rules::driven_axle_speed(c, d).host();
+    } else {
+        s.gear_ratio = c.p.d.ratio[size_t(std::min(gear, 7))].host(), s.low_ratio = c.p.d.ratio[1].host();
+        const size_t axle = c.p.d.driven_axle ? 2 : 0;
+        s.shaft_speed = 0.5f * (std::fabs(car.wheels[axle].spin_rate) + std::fabs(car.wheels[axle + 1].spin_rate));
+    }
     // An afterfire's moment (0x3F3368): the shift's end at full throttle; and the car's chance.
     s.shift_flame = c.shift_lockout == 11 && c.throttle.host() > 0.9f;
     if (tables) s.afterfire_chance = tables->afterfire_chance(session.spec(i).b(0x120), c.p.e.boost_max.host() > 0, spec_figures(session.spec(i)).ps);

@@ -522,9 +522,12 @@ sides' crossfaded levels).
   the byte is the gearbox's grade: 0 the road car's own (602 of 722 cars), 1 close (every `_b`
   row), 2 super close (`_c`), 3 racing (`_d` and 120 cars' own); 0x34FED0: none while the byte at
   car + 0x104 + 0x522 is 0; level lo + (hi - lo) × |min(torque, p[2] × 9.8) × ratio[gear] /
-  (p[2] × 9.8 × ratio[first])| with the engine's torque (+0x51C) and gear (+0x520, 1 the first),
-  pitch p[4] / 10 + slope × |an axle's speed| (0x350DA0, by the layout); a stepless gearbox
-  (0x369510) and a motor (0x356D88) have their own ❓); in_car G7 at the
+  (p[2] × 9.8 × ratio[first])| with the clutch's torque (F +0x51C), the gear (+0x520, 1 the first)
+  and the driveline block's ratios (P + 0x234 + 0x40 + 4 gear), none while the clutch (F +0x522) is
+  open; pitch p[4] / 10 + slope × |the driven axles' speed| (0x350DA0: by the layout, F +0x52C the
+  front's, +0x530 the rear's, their mean, or the rear's plus the split × the difference), all read by
+  `sound_state(session, i)` from Gran Turismo 4's drive routines; a stepless gearbox (0x369510) and
+  a motor (0x356D88) have their own ❓); in_car G7 at the
   body; nos 1 for the in-car own view while flowing; body_noiz always 0. in_car, body_noiz and
   nos ease: rising at once, falling 0.05 a step.
 - **The wheels** (wheel record car + 0x164 + 0xEC w: +0x89 surface, +0xB4 slip intensity,

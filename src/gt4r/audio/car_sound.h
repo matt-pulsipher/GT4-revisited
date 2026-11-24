@@ -96,9 +96,9 @@ struct CarSoundState {
     int turbine_pitch = 0;              // 6144: the recording's pitch
     float blow_off = 0;                 // the valve's strength this step
     bool gear_whine = false;            // a gearbox that whines (or the car's files say it does)
-    float drive_torque = 0;             // through the clutch, N m
+    float drive_torque = 0;             // through the clutch, N m (F +0x51C)
     float gear_ratio = 1, low_ratio = 1; // the gear's ratio and the whine's reference
-    float shaft_speed = 0;              // rad/s
+    float shaft_speed = 0;              // the driven axles' speed, rad/s (0x350DA0)
     bool nitrous = false;               // flowing
     bool afterfire = false;             // a flame started at the exhaust this step
     // ... or the program's rule for one (0x3F3368, 0x3D6D30): the step that ends a shift (the
