@@ -485,7 +485,6 @@ public:
         camera_.step(world_->cars()[0], kStep);
         if (mount_ == kTvView || opening) step_tv(world_->cars()[0]);
         if (event_steps_ >= 0) ++event_steps_;
-        if (overtake_steps_ > 0) --overtake_steps_;
         if (history_.size() < kHistory) history_.emplace_back(world_->cars().begin(), world_->cars().end());
         hear(world_->cars(), true);
     }
@@ -518,6 +517,7 @@ public:
     void start_replay() {
         if (history_.empty() || replaying_) return;
         replaying_ = true, replay_done_ = false;
+        menu_scene_ = false; // (asked for from the race's menus: the scene behind them ends)
         prev_cars_.clear();
         if (audio::RaceSound* sound = world_->sound()) sound->replay();
         replay_at_ = 0;
@@ -630,8 +630,8 @@ public:
         }
     }
 
-    // B-spec's commands: the pace (-1 / +1, 1 .. 5), the overtake (on for 10 s, or off again; ❓ its
-    // length is judged), the display shown or hidden. They go to the computer drivers of the
+    // B-spec's commands: the pace (-1 / +1, 1 .. 5), the overtake (on until it is asked off again: the
+    // program's command handler 0x3F19E0 has no timer of its own), the display shown or hidden. They go to the computer drivers of the
     // player's car (RaceWorld::command).
     bool watched() const { return watched_; }
     void bspec_pace(int step) {
@@ -639,7 +639,7 @@ public:
         world_->command(0, bspec_pace_, overtake_steps_ > 0);
     }
     void bspec_overtake() {
-        overtake_steps_ = overtake_steps_ > 0 ? 0 : 600;
+        overtake_steps_ = overtake_steps_ > 0 ? 0 : 1;
         world_->command(0, bspec_pace_, overtake_steps_ > 0);
     }
     void bspec_display() { bspec_help_ = !bspec_help_; }
@@ -679,8 +679,8 @@ public:
         world_->render(ui, rect, cars, pose, 0, pose.body_hidden ? 0 : -1);
         // The in-car view's rear-view mirror at the top (❓ its place, (190, 18) 259 x 63 of the
         // 640 x 480 picture, measured on the original's in-car view): not in replays, the opening
-        // shots or looking back.
-        if (mount_ == race::DriveCamera::kInCar && !replaying_ && !menu_scene_ && !watched_ && !start_camera_.active() && !look_back && !setup_.look_back) {
+        // shots (a standing start's or a rolling start's TV cameras), B-spec or looking back.
+        if (mount_ == race::DriveCamera::kInCar && !replaying_ && !menu_scene_ && !watched_ && !start_camera_.active() && !opening_tv() && !look_back && !setup_.look_back) {
             const SDL_FRect c = RaceHud::canvas();
             const float k = c.h / 480.0f;
             world_->render_mirror(ui, {c.x + 190 * k, c.y + 18 * k, 259 * k, 63 * k}, cars, pose, 0);
