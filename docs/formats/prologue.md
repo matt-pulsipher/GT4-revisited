@@ -253,6 +253,14 @@ record into the session every step and compares the step's end (`=front`: phases
 - **Where a test ends**: on a road whose goal distance (the GTRW header +0x1C) lies inside the lap and that has no
   stopping box, where the lap's progress crosses it after the line (`judge_goal`, screen_race.cpp; Gran Turismo 3's
   section test, ❓ Prologue's own judge not read): test 2 on `L_fisco6` ends 203.1 m from the line (its gold 0'12.180).
+- **Failing**: Gran Turismo 4's judge (its rows' rules) is not applied on Prologue's roads; all four wheels on grass,
+  gravel or sand (the road's materials 2, 3, 4, 6; Gran Turismo 3's rule, ❓ Prologue's own judge not read) end the run
+  at once with no time, as the original's lesson 1 does when the car runs onto the grass at the first corner
+  (`~/gt4re-out/reference/14-prologue/round5/`: "TIME -'--.---", retry / EXIT). The clock runs from the start signal
+  whether the car moves or not (the original's too).
+- ❓ **The laps**: the original's lesson 1 (`l0p0001`) runs two laps ("Lap 1/2", "two laps without going off the
+  course"), where the row's byte read as the laps (GT4 +0x43 ← +0x25) is 1 (3 on tests 8 .. 12, whose gold times are
+  12 .. 31 s): that byte is not the laps on the tests; where the tests' laps live is not found (ours runs one).
 - **The results movie** (`menu/result_license.strb`, ResultLicense 0x3D95D8): GetTime the time as 0x409D88 writes it
   (M'SS.mmm), PrizeLevel (the result kind 1, 2 → 0, 3 → 1, 4, 5 → 2, else 3), GetRank the run's place in the test's
   ranking (0x3FE3B0: the first of ten entries that is empty or slower; -1: no name entry), GetDefaultName the user

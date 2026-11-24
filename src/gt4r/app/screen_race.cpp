@@ -856,9 +856,21 @@ public:
                 return;
             }
         }
-        // (Prologue's courses, Gran Turismo 3's roads: Gran Turismo 4's judge's rows and rules are not its own; ❓ its own
-        // judge is not read: the stopping box above and the goal distance, judge_goal, only)
-        if (gt3_road_) return;
+        // (Prologue's courses, Gran Turismo 3's roads: Gran Turismo 4's judge's rows and rules are not its own. ❓ Its own
+        // judge is not read: the stopping box above, the goal distance (judge_goal) and Gran Turismo 3's course-out rule:
+        // all four wheels on grass, gravel or sand (the road's materials 2, 3, 4, 6) but on a loose course fail at once, as
+        // the original's lesson 1 ends when the car runs onto the grass)
+        if (gt3_road_) {
+            int off = 0;
+            for (const race::WheelState& w : c.wheels)
+                if (w.on_ground && (w.material == 2 || w.material == 3 || w.material == 4 || w.material == 6)) ++off;
+            if (off == 4 && setup_.course_kind != 2 && setup_.course_kind != 3) {
+                LOG_INFO("Drive: the test failed (off the course) at %.3f s", double(flow_.time_ms()) / 1000);
+                flow_.finish_now(0);
+                license_failed_ = true;
+            }
+            return;
+        }
         race::LicenseStep s;
         s.wheels = 4;
         for (const race::WheelState& w : c.wheels) {
