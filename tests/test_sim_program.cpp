@@ -75,39 +75,16 @@ TEST(sim_program_params_equal) {
     at_most("front offset", 3), at_most("rear offset", 3);
     at_most("tire radius front", 1), at_most("tire radius rear", 1);
     at_most("engine curve points", 52), at_most("forward gears", 2), at_most("driveline layout", 1), at_most("gear speed factors", 10);
-    // Gran Turismo 4's own part of the record (rules_build.h): bit for bit on every car, but the tire
-    // records' base grip, which takes the static loads of the engine's converter (a unit in the last place
-    // on a few records).
+    // The record as the session builds it from Gran Turismo 4's converter (sim::build_record): every field of its own part
+    // that the parameter block holds, bit for bit on every car, the driveline block's too.
     size_t extras = 0;
     for (const diff::Field& f : r.fields) {
-        if (f.name.rfind("extra ", 0) != 0) continue;
+        if (f.name.rfind("extra ", 0) != 0 && f.name.rfind("near d.", 0) != 0) continue;
         ++extras;
-        // (The driveline block: its tires' radii and widths, the differentials' settings and the axles' inertias are
-        // still the engine's converter's, a unit or two in the last place: compared by size below.)
-        if (f.name.rfind("extra d.", 0) == 0) continue;
-        // (and fields made from the engine converter's values, a unit or two in the last place: the droops while held,
-        // from the droops and hub offsets; the ABS's peak scale, from the tire radii; the front's share, 1 less the rear's)
-        size_t allowed = f.name == "extra tire.grip" ? 250 : 0;
-        if (f.name == "extra body.hold_droop" || f.name == "extra aids.abs_peak") allowed = 1444;
-        else if (f.name == "extra body.front_share") allowed = 130;
-        else if (f.name == "extra steer.axle_load" || f.name == "extra steer.compliance_per_n") allowed = 220; // (from the shares and masses)
-        else if (f.name == "extra steer.toe") allowed = 1;                                                    // (from a tire radius)
-        if (f.off > allowed) std::printf("  %s: %zu of %zu differ (%s)\n", f.name.c_str(), f.off, f.values, f.where.c_str());
-        CHECK(f.values >= r.cars && f.off <= allowed);
+        if (f.off != 0) std::printf("  %s: %zu of %zu differ (%s)\n", f.name.c_str(), f.off, f.values, f.where.c_str());
+        CHECK(f.values >= r.cars && f.off == 0);
     }
     CHECK(extras > 30);
-    // The driveline block by size: equal but for the tank's tires, one car's axle inertia, the down-shift speeds a
-    // stepless box's hold speed sets (0x360780) or the tank's tires move, and the speed factors of the tank.
-    for (const diff::Field& f : r.fields) {
-        if (f.name.rfind("near d.", 0) != 0) continue;
-        size_t allowed = 0;
-        if (f.name == "near d.down_rpm") allowed = 4;
-        else if (f.name == "near d.gear_speed") allowed = 8;
-        else if (f.name == "near d.tire_radius" || f.name == "near d.inv_tire_radius" || f.name == "near d.wheel_gain") allowed = 2;
-        else if (f.name == "near d.axle_inertia" || f.name == "near d.inv_axle_inertia") allowed = 1;
-        if (f.off > allowed) std::printf("  %s: %zu of %zu differ (%s)\n", f.name.c_str(), f.off, f.values, f.where.c_str());
-        CHECK(f.off <= allowed);
-    }
     for (const char* name : {"extra d.layout", "extra d.gears", "extra d.kind", "extra d.ratio", "extra d.awd_k", "extra d.awd_capacity", "extra d.launch_rpm"}) {
         const diff::Field* f = r.field(name);
         CHECK(f && f->off == 0);

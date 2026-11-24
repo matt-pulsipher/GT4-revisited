@@ -294,8 +294,10 @@ ParamsResult run_params(Disc& disc, bool print) {
         }
         // Gran Turismo 4's own part of the record (rules_build.h), bit for bit, every field the parameter block holds.
         {
+            // (the record as the session builds it: Gran Turismo 4's converter, build_record)
+            static const sim::rules::Tables race_tables = sim::rules::tables(program, ex::Statics{});
             sim::Record ours{car, {}, {}};
-            sim::gt4_extras(spec, program, ours);
+            sim::build_record(spec, program, race_tables, sim::ConvertIn{}, ours);
             Image im;
             im.car.assign(sim::layout::kCarSize, 0), im.params.resize(sim::layout::kParamsSize);
             ee.read_bytes(p_at, im.params.data(), u32(im.params.size()));
