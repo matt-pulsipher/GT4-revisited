@@ -55,6 +55,14 @@ F extra_power(const rules::DrivelineBlock& d, const Program& program);
 // rising to 1 at 0; 1 to 1,000 km, then down to 0.95 at 11,000 km; the oil 1.05 at -100,000 m, 1 from 0 to
 // 5,000 km, 0.95 from 6,000 km). 1 with no wear.
 F engine_condition(const Program& program, F engine, F oil, bool no_wear);
+// Those limits (0x350678's table, 0x620320 in the program; m): a new engine's distance (+0x00) and loss
+// (+0x04), run in to (+0x08), worn at (+0x0C: the most an engine's distance is kept at, 0x3507A8) and its
+// loss (+0x10), fresh oil (+0x14) and its gain (+0x18), old oil at (+0x1C: the most the oil's distance is
+// kept at, 0x350808), the oil's loss from (+0x20).
+struct ConditionLimits {
+    F new_engine, new_loss, run_in, worn, worn_loss, fresh_oil, oil_gain, old_oil, oil_from;
+};
+ConditionLimits condition_limits(const Program& program);
 
 // 0x3F86E8: the evaluation of a built car (its parameter block in r) with its engine's peak power `ps`
 // (with the extra) and peak torque `kgfm`.

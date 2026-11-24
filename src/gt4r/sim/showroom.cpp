@@ -87,29 +87,35 @@ F extra_power(const rules::DrivelineBlock& d, const Program& program) {
     return d.x13 == 4 ? kDriveline4 : k0;
 }
 
-F engine_condition(const Program& program, F engine, F oil, bool no_wear) {
-    if (no_wear) return kOne;
-    // The limits (0x350678) from the static block's bytes.
+ConditionLimits condition_limits(const Program& program) {
     const u32 b = Program::kStatic + 0xD0;
     const F k001 = F::raw(0x3A83126E); // 0.001
     auto metres = [&](u32 i) { return int_to_f(s32(program.b(b + i)) * 100000); };
     auto share = [&](u32 i) { return int_to_f(s32(program.b(b + i))) * k001; };
-    const F new_engine = -metres(0), new_loss = share(1), run_in = metres(2), worn = metres(3) + run_in, worn_loss = share(4);
-    const F fresh_oil = -metres(5) * kHalf, oil_gain = share(6), old_oil = metres(7), oil_from = metres(8);
+    ConditionLimits l;
+    l.new_engine = -metres(0), l.new_loss = share(1), l.run_in = metres(2);
+    l.worn = metres(3) + l.run_in, l.worn_loss = share(4);
+    l.fresh_oil = -metres(5) * kHalf, l.oil_gain = share(6), l.old_oil = metres(7), l.oil_from = metres(8);
+    return l;
+}
+
+F engine_condition(const Program& program, F engine, F oil, bool no_wear) {
+    if (no_wear) return kOne;
+    const ConditionLimits l = condition_limits(program);
     F e = kOne;
-    if (engine < new_engine) e = e - new_loss;
-    else if (engine < k0) e = e - (engine * new_loss) / new_engine;
-    else if (!(engine <= run_in)) {
-        if (!(engine < worn)) e = e - worn_loss;
-        else e = e - ((engine - run_in) * worn_loss) / (worn - run_in);
+    if (engine < l.new_engine) e = e - l.new_loss;
+    else if (engine < k0) e = e - (engine * l.new_loss) / l.new_engine;
+    else if (!(engine <= l.run_in)) {
+        if (!(engine < l.worn)) e = e - l.worn_loss;
+        else e = e - ((engine - l.run_in) * l.worn_loss) / (l.worn - l.run_in);
     }
     F o = kOne;
-    if (oil < fresh_oil) o = oil_gain + o;
-    else if (oil < k0) o = (oil * oil_gain) / fresh_oil + o;
-    else if (oil_from < oil) {
-        F t = (oil - oil_from) / (old_oil - oil_from);
+    if (oil < l.fresh_oil) o = l.oil_gain + o;
+    else if (oil < k0) o = (oil * l.oil_gain) / l.fresh_oil + o;
+    else if (l.oil_from < oil) {
+        F t = (oil - l.oil_from) / (l.old_oil - l.oil_from);
         if (kOne < t) t = kOne;
-        o = o - oil_gain * t;
+        o = o - l.oil_gain * t;
     }
     return e * o;
 }
