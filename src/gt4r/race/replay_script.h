@@ -51,11 +51,16 @@ struct ReplayScript {
     float period() const;
     // The lap variants the period holds.
     int variant_count() const;
-    // A script distance for a car `v` metres along the lap on variant `k`, wrapped into the script.
-    float distance(int variant, float v) const;
+    // The script distance for a car `v` metres along the lap after `crossings` crossings of the line
+    // (0 before the first; the camera's block +0x34 with +0x3C = 0): crossings x L + v, a distance at or
+    // past the script's end brought back by whole periods (0x3DDFF0 -> 0x3DDF18; a negative one kept).
+    float distance(int crossings, float v) const;
     // The record that started last at or before d when it still covers d (start <= d < end); null
     // otherwise. The records are in the order of their starts.
     const ReplayRecord* find(float d) const;
+    // The program's choice (0x3DDFF0): the record `find` gives; else, when that search ran past the
+    // last record, the first record from record 0 that covers d less the period.
+    const ReplayRecord* choose(float d) const;
 };
 
 // A camera spring (0x385098): the wanted value moves at most `slew` a second (0: free);

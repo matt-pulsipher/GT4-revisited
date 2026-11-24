@@ -1,5 +1,6 @@
 #include "gt4r/race/start_rule.h"
 
+#include "gt4r/formats/course/ai_line.h"
 #include "gt4r/formats/db/specdb.h"
 
 namespace gt4r::race {
@@ -11,6 +12,20 @@ int start_code_digit(const std::string& code, size_t i) {
     if (c >= 'a' && c <= 'f') return c - 'a' + 10;
     if (c >= 'A' && c <= 'F') return c - 'A' + 10;
     return -1;
+}
+
+void apply_drivers_file(CourseStart& s, ByteSpan ad) {
+    u8 d = 0, v = 0, g = 0;
+    try {
+        if (course::AiData::looks_like(ad)) {
+            const course::AiData a = course::AiData::parse(ad);
+            if (a.sets[0]) d = (*a.sets[0])[0x23], v = (*a.sets[0])[0x24], g = (*a.sets[0])[0x25];
+        }
+    } catch (const std::exception&) {
+    }
+    s.distance_m = d ? float(d) * 10 : 400;
+    s.speed_kmh = v ? float(v) : 80;
+    s.spacing_m = g ? float(g) : 20;
 }
 
 CourseStart course_start(db::SpecDb& db, const std::string& course) {

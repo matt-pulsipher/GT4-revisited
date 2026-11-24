@@ -55,15 +55,19 @@ of `COURSE` (0x447F48): the bytes +0x10 (the surface) .. +0x14, and **the start 
 `UnistrDB` string the row's +0x08 names, a short text of hex digits ("1ff0" for tsukuba, route5,
 seattle, motegi ...; "0ff0" for suzuka, fisco, trialmt, grandvalley ...; "0000" for grandcanyon
 and the other loose and special courses), each digit into K +0xCBE6.. (0..15). **A first digit
-other than 0 gives a rolling start**: the conductor takes the distance, speed and a third value
-from the course object's block for its surface (K +0xCBD8 -> +0xA0 + 4 x surface), else the
-program's table at 0x623DC0 (a row for tarmac, one for dirt and snow), bytes +0x23 (x -10 m),
-+0x24 (km/h), +0x25; the zeros there give the defaults **-400 m, 80 km/h** (the original's 50
-mph field) and 20. ❓ The other digits are not read here; ❓ who reads the course object's block.
+other than 0 gives a rolling start**: the conductor takes the distance, speed and spacing from the course's
+drivers' file (`crs/<course>.ad`): the course object's +0xA0 (0x466B90, the file's slot 2, its first
+driver set; RaceBase::vf38 → 0x395078 keeps the file's slots 1 to 5 at the course object's +0x9C ..
++0xAC), bytes +0x23 (x -10 m), +0x24 (km/h), +0x25 (m); without that set the program's table at 0x623DC0
+(a row for the tarmac courses, one for the loose, all zeros). A zero takes the default **-400 m, 80
+km/h, 20 m** (vf28 0x34D490); the event's own per-car start values (CFG) or vf6 turn the speed to 0. ✔ On
+the disc (`gt4tool race <disc> starts all`): most courses the defaults; Autumn Ring Mini (r_mini) 50
+km/h with 15 m (the original's Sunday Cup field at 31 mph), Laguna Seca, Hong Kong, Monte Carlo, the
+Nürburgring 60 km/h, Motegi 70, Le Mans 750 m, Route 5 500 m, Capri 180 m, Kashiwa and 20R60R 10 m. ❓ The other digits are not read here; ❓ who reads the course object's block.
 
-The race's menus here take the course's start: rolling (every car at 80 km/h in single file, the
-last place 400 m before the line and 20 m between places: `sim::Entry::start_speed` and
-`start_distance` by `sim::rules::rolling_start_distance`) or ❓ a standing start of 10 s with the
+The race's menus here take the course's start: rolling (every car at the course's speed in single
+file, the last place its distance before the line and its spacing between places:
+`sim::Entry::start_speed` and `start_distance` by `sim::rules::rolling_start_distance`) or ❓ a standing start of 10 s with the
 opening shots (the race information's own type byte is not traced to its source; the original's
 Grand Canyon start fits it). In a rolling start the computer drivers drive the player's car too
 until it takes the line. The conductor holds the race clock while its flag K +0xCBE4 is set

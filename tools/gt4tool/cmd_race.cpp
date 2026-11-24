@@ -6,6 +6,7 @@
 //   gt4tool race <disc> models <course> <slot>     a slot's model set as the race view decodes it
 //   gt4tool race <disc> script <course> [slot] [ms]  runs a slot's model scripts at a time: the registers they set
 //   gt4tool race <disc> car <model> [paint] [n]    a race car's body (its model n) as decoded: materials, pictures, colors
+//   gt4tool race <disc> starts all                 every course's start: its code, kind, the rolling start's distance, speed, spacing
 //   gt4tool race <disc> license-rules [prefix]     the events' test rules (RACE row bytes the race keeps), a line an event
 
 #include "gt4r/disc/disc.h"
@@ -17,6 +18,7 @@
 #include "gt4r/formats/db/race_events.h"
 #include "gt4r/formats/db/specdb.h"
 #include "gt4r/race/license_rules.h"
+#include "gt4r/race/start_rule.h"
 #include "gt4r/race/rail_simulation.h"
 #include "gt4r/race/replay_script.h"
 
@@ -268,6 +270,23 @@ int race_license_rules(Disc& disc, const Args& a) {
     return 0;
 }
 
+int race_starts(Disc& disc, const Args&) {
+    gt3r::Volume* vol = &disc.volume();
+    auto read = [vol](const std::string& path) -> std::optional<Bytes> {
+        const gt3r::Volume::Entry* e = vol->find(path);
+        return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
+    };
+    db::SpecDb sdb(read, [vol](const std::string& dir) { return vol->list_dir(dir); }, "american");
+    for (const db::CourseEntry& c : sdb.courses()) {
+        race::CourseStart st = race::course_start(sdb, c.label);
+        const std::optional<Bytes> ad = read("crs/" + c.label + ".ad");
+        if (ad) race::apply_drivers_file(st, *ad);
+        std::printf("%-22s %-5s kind %3d  %s  %4.0f m %3.0f km/h %3.0f m%s\n", c.label.c_str(), st.code.c_str(), st.kind, st.rolling ? "rolling " : "standing",
+                    double(st.distance_m), double(st.speed_kmh), double(st.spacing_m), ad ? "" : "  (no .ad)");
+    }
+    return 0;
+}
+
 } // namespace
 
 int cmd_race(Disc& disc, const Args& a) {
@@ -278,6 +297,7 @@ int cmd_race(Disc& disc, const Args& a) {
     if (a[0] == "car") return race_car(disc, a);
     if (a[0] == "script") return race_script(disc, a);
     if (a[0] == "license-rules") return race_license_rules(disc, a);
+    if (a[0] == "starts") return race_starts(disc, a);
     std::fprintf(stderr, "race: unknown request %s\n", a[0].c_str());
     return 2;
 }

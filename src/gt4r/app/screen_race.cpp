@@ -89,6 +89,7 @@ struct Setup {
     race::StartType start = race::StartType::Ten;
     int start_seconds = 0;
     float start_speed = 0; // a rolling start's (metres per second)
+    float start_back = 400, start_spacing = 20; // a rolling start's last place behind the line and the gap between places (metres)
     bool course_start = false; // the start the course's start code gives (race/start_rule.h)
     int course_kind = 0;       // the course's COURSE row +0x10 (race/start_rule.h CourseStart::kind)
     bool start_given = false;
@@ -149,6 +150,19 @@ Setup setup_from_env() {
         }
     }
     return s;
+}
+
+// The course's start (race/start_rule.h): its kind always; with `start` its start code's start, a
+// rolling start at the distance, speed and spacing of its drivers' file.
+void apply_course_start(App& app, Setup& setup, bool start) {
+    db::SpecDb* sdb = app.db();
+    if (!sdb) return;
+    race::CourseStart cs = race::course_start(*sdb, setup.course);
+    if (const std::optional<Bytes> ad = app.vfs()->read("crs/" + setup.course + ".ad")) race::apply_drivers_file(cs, *ad);
+    setup.course_kind = cs.kind;
+    if (!start) return;
+    setup.start = cs.rolling ? race::StartType::Rolling : race::StartType::Ten;
+    setup.start_speed = cs.speed(), setup.start_back = cs.distance_m, setup.start_spacing = cs.spacing_m;
 }
 
 // The event's grid (the opponents drawn from its pool, the player last), each opponent with its pool's
@@ -284,10 +298,10 @@ public:
             e.paint = size_t(i) < setup.paints.size() ? setup.paints[size_t(i)] : i == 0 ? setup.paint : u32(i);
             e.grid_place = places[size_t(i)];
             if (setup.start == race::StartType::Rolling) {
-                // In single file behind the line: the last place 400 m back, 20 m between places
-                // (the program's defaults: docs/formats/race_flow.md "Which start a course has").
+                // In single file behind the line: the last place the course's distance back, its spacing
+                // between places (docs/formats/race_flow.md "Which start a course has").
                 e.start_speed = setup.start_speed;
-                e.start_distance = float(sim::rules::rolling_start_distance(-400, 20, setup.cars, e.grid_place));
+                e.start_distance = float(sim::rules::rolling_start_distance(-int(std::lround(setup.start_back)), int(std::lround(setup.start_spacing)), setup.cars, e.grid_place));
             }
             if (i == 0) e.equipment = setup.player_equipment;
             else if (size_t(i - 1) < setup.opponent_equipment.size() && setup.opponent_equipment[size_t(i - 1)]) {
@@ -935,14 +949,7 @@ public:
         // at the program's speed, else ❓ a standing start of 10 s with the opening shots (the race
         // information's own type is not traced to its source).
         if (!setup_.start_given && !setup_.sequence.empty()) setup_.course_start = true;
-        if (db::SpecDb* sdb = app.db()) {
-            const race::CourseStart cs = race::course_start(*sdb, setup_.course);
-            setup_.course_kind = cs.kind;
-            if (setup_.course_start) {
-                setup_.start = cs.rolling ? race::StartType::Rolling : race::StartType::Ten;
-                setup_.start_speed = cs.speed();
-            }
-        }
+        apply_course_start(app, setup_, setup_.course_start);
         if (db::SpecDb* sdb = app.db()) {
             cars_ = sdb->cars();
             for (db::CourseEntry& c : sdb->courses())
@@ -1541,11 +1548,7 @@ private:
         if (q.laps > 0) setup_.laps = std::clamp(q.laps, 1, 99);
         if (sequence_ == "license") setup_.car = q.car, setup_.paint = u32(std::max(0, q.paint)), setup_.player_equipment.reset();
         if (!app.vfs()->exists("crs/" + setup_.course) && setup_.course.rfind("r_", 0) == 0) setup_.course = setup_.course.substr(2);
-        if (db::SpecDb* sdb = app.db()) {
-            const race::CourseStart cs = race::course_start(*sdb, setup_.course);
-            setup_.start = cs.rolling ? race::StartType::Rolling : race::StartType::Ten;
-            setup_.start_speed = cs.speed();
-        }
+        apply_course_start(app, setup_, true);
         result_.reset(), result_tried_ = false, reported_ = false;
         hud_.reset(), race_.reset();
         start(app);
