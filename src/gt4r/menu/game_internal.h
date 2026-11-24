@@ -11,9 +11,11 @@
 #include "gt4r/menu/runtime_internal.h"
 #include "gt4r/save/memory_card.h"
 #include "gt4r/sim/program.h"
+#include "gt4r/sim/showroom.h"
 
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -71,6 +73,14 @@ struct Database {
     };
     std::map<std::string, Spec> specs;
     const Spec& spec(const std::string& label);
+
+    // The showroom car (sim/showroom.h: ShowRoomCar's figures and evaluation); none without the
+    // database or for a program whose tables are not mapped.
+    const sim::Showroom* showroom();
+    // A car as sold, built so (kept: the database does not change).
+    std::optional<sim::ShowroomFigures> stock_showroom(const std::string& label);
+    std::unique_ptr<sim::Showroom> showroom_;
+    std::map<std::string, std::optional<sim::ShowroomFigures>> stock_figures_;
 };
 
 inline script::Value text(const std::string& s) { return script::Value::string(s); }
@@ -186,6 +196,8 @@ struct GameNatives {
     script::Value make_card_manager(script::Args a);
     std::shared_ptr<save::GameSave> card_save;
     save::GameSave& card();
+    // The program's generator (0x874D50: MRandom.GetValue, the opponent picker), its state from 0x12345678.
+    ProgramRandom random{0x12345678u};
 };
 
 // The screen's figures for the option's monitor_size and wide_mode (0x436D60).
