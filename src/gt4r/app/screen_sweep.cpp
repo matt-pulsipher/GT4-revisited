@@ -105,8 +105,8 @@ public:
 
     void update(App& app, double dt) override {
         if (!child_) {
-            if (next_ >= items_.size()) {
-                app.pop();
+            if (next_ >= items_.size()) { // (the list done: the run ends)
+                app.quit();
                 return;
             }
             begin(app);
