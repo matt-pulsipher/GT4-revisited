@@ -1301,6 +1301,14 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
                 const std::string code = v.is_nil() ? std::string() : r->vm().attribute(v, "car_code").to_string();
                 w->set_property("car_code", Value::string(code));
                 if (!code.empty()) w->extras["car_data of " + code] = std::make_shared<script::Variable>(v);
+                // A garage car shows in its own paint (its record's).
+                if (!code.empty()) {
+                    const Value index = r->vm().attribute(v, "getColorIndex");
+                    if (!index.is_nil()) {
+                        const Value paint = r->vm().call(index, {});
+                        if (paint.is_number()) w->set_property("car_color", Value::integer(s32(paint.as_float())));
+                    }
+                }
             };
             return a;
         }
