@@ -13,6 +13,23 @@ Facts marked [P] are read from the game's program (the driver's routines sit at
 0x559330-0x55E600 of `CORE.GT4`, SCUS-97328 v1.01; its two sequencers have the run-time type
 names `SDDRV::SqSequencer` and `SDDRV::SeSequencer`); [F] from the files; 🔎 inferred; ❓ open.
 
+## What runs where
+
+| Part | Runs | Follows |
+|---|---|---|
+| The SPU2: voices, PS-ADPCM, envelopes, interpolation, the reverb unit | the shared `gt3r::VoiceMixer`, `gt3r::SpuReverb` | the hardware (not program code) |
+| The sound driver: the two sequencers, the effect sequences, held notes, each voice's level and pitch (0x559330 .. 0x55E600) | `sound_driver.*` | Gran Turismo 4's; the lfo is not built (no voice of the discs is heard to waver) |
+| The engine, exhaust and wind banks' players (0x558FD8 and its helpers; the voice of kind 4) | `layer_player.*` | Gran Turismo 4's: every started player of 46 saved states the same; Prologue's (0x481588) with its own attack |
+| A car's frame and mix (0x3B5E80, 0x392640): views, gains, microphones, panner, Doppler, the master, its fades and ducks | `car_sound.*`, `race_sound.*`, `race_tables.*` | Gran Turismo 4's, tables from the disc's program |
+| The surround cue (the panner's two flags) | the shared `gt3r::SurroundCue` | the same rule as the program's, but applied only when the shared mixer's option is on (off by default): the program does it in every output mode |
+| The levels (0x350080), wind (0x34FA90), cabin (0x34FBC0), whine (0x34FED0, 0x350DA0), afterfire (0x3F3368, 0x3F3278), the hit sound's recorder (0x350328), landings (0x3FA7B8) | `sim_sound_state.*`, `car_sound.*`, the recorder in `sim/collide.cpp` | Gran Turismo 4's, from the session's records; not built: a stepless gearbox's and a motor's whine (0x369510, 0x356D88), the heartbeat, contacts with the course's objects (kind 2, 0x3E3C48) |
+| A race heard without its session (a replay, a saved run) | `sound_state(race::CarState)` | judged from what the seam keeps: the quietest throttle 3/8 (torques 1 : 0.6), the skid's pitch from the slip, the rim's speed from the car's, a landing at the downward speed / 5, a contact as twice the step's summed strength; the program replays its cars' records ❓ |
+| The course's ambience (0x398B70, the emitters 0x457918) | `course_sound.*` | Gran Turismo 4's, the `CRSS` section read by the shared reader (the same layout); ❓ which of a wheel's notes a course allows (0x360458 → 0x3922B0) is not applied |
+| The count, the music's messages, the play list (0x39DA80, 0x389758, 0x438170) | `race_sound.*`, `race_playlist.*` | Gran Turismo 4's |
+| The menus' sound object (`menu::MSound`) | `menu_sound.*` | Gran Turismo 4's |
+| Streams (`.ads`): reading, decoding, playing | the shared `gt3r::AudioEngine` stream player | the IOP's stream module (not in `CORE.GT4`); its level is 1.6 to 1.9 dB over the original's ❓ |
+| Pit sounds (`wheelgun`, `dropnut`, ...) | | not played |
+
 ## What is on the discs (`gt4tool sound <disc> survey`)
 
 | Files | Magic | Gran Turismo 4 | Prologue | What |
