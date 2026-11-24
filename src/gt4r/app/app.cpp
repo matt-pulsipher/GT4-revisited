@@ -119,6 +119,7 @@ bool App::init(int argc, char** argv) {
         else if (a == "--screen" && has_value) start_ = argv[++i];
         else if (a == "--shot-frame" && has_value) shot_frame_ = std::atoi(argv[++i]);
         else if (a == "--stats" && has_value) stats_path_ = argv[++i];
+        else if (a == "--fast") paced_ = false;
         else if (a == "--keys" && has_value) {
             // "@<file>" among the keys: the keys of that file there.
             for (std::string& k : parse_key_script(argv[++i])) {
@@ -284,7 +285,15 @@ SDL_AppResult App::iterate() {
     const double wall_ms = double(now - last_ticks_) / 1e6; // since the last frame
     double dt = std::min(wall_ms / 1e3, 0.1);
     last_ticks_ = now;
-    if (!shot_path_.empty()) dt = 1.0 / 60.0; // pictures do not depend on the machine's speed
+    if (!shot_path_.empty()) {
+        // Pictures do not depend on the machine's speed: a frame is a 60th of a second, and the
+        // frames are held to that pace so what runs by the clock (the menus' movies) keeps step.
+        dt = 1.0 / 60.0;
+        if (paced_ && wall_ms < 1000.0 / 60.0) {
+            SDL_DelayPrecise(Uint64((1000.0 / 60.0 - wall_ms) * 1e6));
+            last_ticks_ = SDL_GetTicksNS();
+        }
+    }
 
     std::string chosen;
     SDL_LockMutex(dialog_mutex_);

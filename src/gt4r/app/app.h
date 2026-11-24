@@ -123,6 +123,7 @@ private:
     std::string start_;                 // --screen cars | courses: the hub's item opened at start
     std::string shot_path_;             // --shot: a picture of one frame, then quit
     int shot_frame_ = 30;               // --shot-frame
+    bool paced_ = true;                 // --shot's frames held to 60 a second (--fast: as fast as they come)
     std::vector<std::string> keys_;     // --keys: scripted menu presses (tests, pictures)
     size_t key_ = 0;
     int key_frames_ = 0;
