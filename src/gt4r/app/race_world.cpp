@@ -125,9 +125,9 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
         }
         short_names_.push_back(short_name.empty() ? names_.back() : short_name);
     }
-    line_ = race::RailLine(course_->road());
     gadget_bodies_.reset(course_->gadgets());
     course_->set_gadget_bodies(&gadget_bodies_);
+    line_job_ = std::async(std::launch::async, [road = &course_->road()] { return race::RailLine(*road); });
     build_simulation();
     // The race's sound: every car, the course's ambience, the count and the music.
     if (audio::AppSound* sound = app.sound()) {
@@ -169,14 +169,18 @@ void RaceWorld::build_simulation() {
     if (!setup_.rail && app_.disc()) {
         try {
             const sim::Program program = sim::Program::load(*app_.disc());
+            // The materials off the course (0x622430, read by 0x3F4EA0).
+            for (u32 m = 0; m < soft_.size(); ++m) soft_[m] = program.w(sim::Program::kSoft + 4 * m);
             std::vector<sim::Entry> entries(setup_.entries.size());
             for (size_t i = 0; i < entries.size(); ++i) {
-                if (setup_.entries[i].equipment) entries[i].equipment = *setup_.entries[i].equipment; // a garage car's own
-                else if (!sim::stock_car(*app_.db(), program, setup_.entries[i].label, entries[i].equipment)) throw std::runtime_error("no parts for " + setup_.entries[i].label);
-                entries[i].grid_place = setup_.entries[i].grid_place;
-                entries[i].automatic = setup_.entries[i].automatic;
-                entries[i].start_speed = setup_.entries[i].start_speed;
-                entries[i].start_distance = setup_.entries[i].start_distance;
+                const WorldEntry& we = i < overrides_.size() && overrides_[i] ? *overrides_[i] : setup_.entries[i];
+                if (we.equipment) entries[i].equipment = *we.equipment; // a garage car's own
+                else if (!sim::stock_car(*app_.db(), program, we.label, entries[i].equipment)) throw std::runtime_error("no parts for " + we.label);
+                entries[i].grid_place = we.grid_place;
+                entries[i].automatic = we.automatic;
+                entries[i].asm_on = we.asm_on, entries[i].tcs_on = we.tcs_on;
+                entries[i].start_speed = we.start_speed;
+                entries[i].start_distance = we.start_distance;
             }
             // The player's car's power as built (the replay's card).
             try {
@@ -193,7 +197,7 @@ void RaceWorld::build_simulation() {
             // The computer drivers: every car but the player's (his too when he watches).
             std::vector<size_t> computer;
             for (size_t i = computer_player_ ? 0 : 1; i < setup_.entries.size(); ++i) computer.push_back(i);
-            field_.reset();
+            field_.reset(), pits_.reset();
             if (!computer.empty()) {
                 try {
                     field_ = sim::ai::Field::open(*app_.disc(), setup_.course, *session_, computer, setup_.pace);
@@ -201,6 +205,10 @@ void RaceWorld::build_simulation() {
                     if (computer_player_) field_->set_bspec(0);
                     for (size_t c = 0; c < commands_.size(); ++c) field_->command(c, {commands_[c].pace - 1, commands_[c].overtake ? 1 : 0});
                     for (size_t car : computer) session_->set_driver_aids(car, field_->params(car).aids, field_->params(car).grip); // (their aids)
+                    // Their pit stops (the program's pit pass, request and stop; no fuel or wear counted here).
+                    sim::ai::PitRace pr;
+                    pr.laps = setup_.laps;
+                    pits_ = std::make_unique<sim::ai::PitStops>(*field_, program, setup_.entries.size(), sim::ai::PitHooks{}, pr);
                 } catch (const std::exception& e) {
                     if (!noted_) LOG_WARN("Drive: no computer drivers (%s); the simple driver drives", e.what());
                 }
@@ -219,6 +227,11 @@ void RaceWorld::build_simulation() {
     noted_ = true;
 }
 
+void RaceWorld::set_entry_overrides(std::vector<std::optional<WorldEntry>> overrides) {
+    overrides_ = std::move(overrides);
+    restart();
+}
+
 void RaceWorld::restart() {
     build_simulation();
     gadget_bodies_.reset(course_->gadgets());
@@ -235,6 +248,9 @@ void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool pla
         hold ? field_->hold(driven) : field_->drive(driven);
         if (!hold && session_) field_->apply_time_scales(*session_); // the rubber band's step lengths
         if (computer_player_ && !player_by_computer && !inputs.empty()) driven[0] = inputs[0];
+        if (!hold && pits_) pits_->before(*field_, driven); // (a car standing in its box held)
+        // B-spec: the driver's shift speeds into the gearbox (0x3F1E30, control source 1).
+        if (computer_player_ && session_) session_->set_shift_factor(0, field_->shift_factor(0));
         inputs = driven;
     }
     // A rolling start's run-up: every car kept at the start's speed, the throttle eased and a touch
@@ -260,6 +276,7 @@ void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool pla
         for (race::CarInput& in : held) in = {}, in.brake = 1;
         sim_->step(held, kStep);
     } else sim_->step(inputs, kStep);
+    if (!hold && pits_ && session_) pits_->after(*session_, *field_);
     if (!hold) course_->animate(kStep, sim_->cars());
     // The cones and boards the cars run into: each car's box from its wheels' places.
     gadget_hits_ = 0;
@@ -281,6 +298,26 @@ void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool pla
         }
         gadget_hits_ = gadget_bodies_.step(course_->gadgets(), course_->road(), boxes, kStep);
     }
+}
+
+const race::RailLine& RaceWorld::line() const {
+    if (!line_) line_.emplace(line_job_.valid() ? line_job_.get() : race::RailLine(course_->road()));
+    return *line_;
+}
+
+float RaceWorld::lap_length() const { return course_->road().length; }
+
+int RaceWorld::gadget_contacts(size_t i) const {
+    const std::vector<int>& c = gadget_bodies_.contacts();
+    return i < c.size() ? c[i] : 0;
+}
+
+float RaceWorld::car_top_speed(size_t i) const {
+    return session_ && i < car_visuals_.size() ? session_->record(i).p.top_speed.host() : 0.0f;
+}
+
+float RaceWorld::car_mass(size_t i) const {
+    return session_ && i < car_visuals_.size() ? float(session_->spec(i).weight_kg()) : 0.0f;
 }
 
 // Smoke and dust from the wheels for a step: a puff where a tire slides on the road, dust and

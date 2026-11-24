@@ -8,6 +8,7 @@
 // (found() false) every gain is 1, a sound fades with distance by the program's other rule
 // (32 m over the distance) and only the engine, the exhaust and the tires sound.
 
+#include "gt4r/audio/layer_player.h"
 #include "gt4r/base/types.h"
 
 #include <array>
@@ -85,6 +86,9 @@ struct RaceSoundTables {
     // The master takes the effects option's level (Gran Turismo 4: its raw value / 128). Prologue's
     // program (its gains as floats) takes only the option's flag: 1 or 0 ([0x503978], 0x3A13E0).
     bool option_level = true;
+    // The layer players' attack (ADSR1 of a new layer's voice): Prologue's program (found by its
+    // float gains, as above) keys its layers with a slower attack than Gran Turismo 4's.
+    u16 layer_adsr1 = LayerPlayer::kAdsr1;
     bool found() const { return found_gains && found_mics && found_params; }
 
     float view_gain(SoundView v, SoundChannel c) const { return gain[size_t(v)][size_t(c)]; }

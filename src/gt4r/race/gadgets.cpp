@@ -21,13 +21,15 @@ Gadgets Gadgets::parse(ByteSpan gdgt, ByteSpan rnw4) {
         for (u32 i = 0; i < n; ++i) {
             const size_t o = 0x20 + 0xA0 * size_t(i);
             Kind k;
-            k.index = gdgt[o], k.hull_points = std::min<int>(gdgt[o + 3], 8);
+            k.index = gdgt[o], k.flags = gdgt[o + 2], k.hull_points = std::min<int>(gdgt[o + 3], 8);
             for (int j = 0; j < 3; ++j) k.inertia[size_t(j)] = f32_at(gdgt, o + 4 + 4 * size_t(j));
             for (int j = 0; j < k.hull_points; ++j) k.hull.push_back({f32_at(gdgt, o + 0x10 + 16 * size_t(j)), f32_at(gdgt, o + 0x14 + 16 * size_t(j)), f32_at(gdgt, o + 0x18 + 16 * size_t(j))});
             k.radius = f32_at(gdgt, o + 0x90), k.mass = f32_at(gdgt, o + 0x94);
             g.kinds.push_back(std::move(k));
         }
-        if (gdgt.size() > 0x404 && gt3r::has_magic(gdgt.subspan(0x400), "MDLS")) g.models = gdgt.subspan(0x400);
+        // The kinds' models where the header's +0x10 says (0x400 on Tsukuba, 0xC0 after a single kind).
+        const u32 at = rd32(gdgt, 0x10);
+        if (at >= 0x20 && size_t(at) + 4 < gdgt.size() && gt3r::has_magic(gdgt.subspan(at), "MDLS")) g.models = gdgt.subspan(at);
     }
     if (rnw4.size() >= 0x74 && gt3r::has_magic(rnw4, "RNW4")) {
         const u32 n = rd16(rnw4, 0x44), at = rd32(rnw4, 0x70);

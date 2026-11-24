@@ -30,6 +30,13 @@ struct ParamsResult {
     bool ran = false;
     size_t cars = 0, unfinished = 0;
     std::vector<Field> fields;
+    // Gran Turismo 4's converter (sim::convert) against the program's, word by word over the whole block: the cars whose
+    // blocks are equal in every word, and per word offset the cars where it differs.
+    size_t block_equal = 0;
+    std::map<u32, size_t> block_off;
+    // The same with a computer's car's inputs, a power cap, a worn engine, ballast and percentages.
+    size_t varied_equal = 0;
+    std::map<u32, size_t> varied_off;
     const Field* field(const std::string& name) const {
         for (const Field& f : fields)
             if (f.name == name) return &f;
@@ -81,9 +88,27 @@ struct AiRunResult {
     std::map<std::string, AiCheck> checks;
     // With options.collide: the calls compared, those equal in every field, and the collision steps with a wall / a car met.
     u64 collide_calls = 0, collide_equal = 0, collide_walls = 0, collide_cars = 0, query_calls = 0, query_equal = 0;
+    // With GT4R_AI_PITCHECK: the pit pass's calls (0x359008) and those equal to ours, the stops counted (0x35AD10), and the stop
+    // timing's calls (0x35C0B8) and those equal.
+    u64 pit_calls = 0, pit_equal = 0, pit_stops = 0, hold_calls = 0, hold_equal = 0;
 };
 // (GT4R_AI_OURS, GT4R_AI_CHECK, GT4R_AI_BAND set the options too; GT4R_AI_TRACE=<car> prints a car's plan.)
 AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std::vector<std::string>& cars, int laps, AiRunOptions options = {});
+
+// A demonstration run (replay/license/<label>) played through the program's own race step with its recorded pad records
+// (demo.cpp): car 0's distance from its start and speed every step, and the step it comes to rest after braking.
+struct DemoSample {
+    int step = 0;
+    float distance = 0, speed = 0; // metres from the start (across the ground), m/s
+};
+struct DemoRunResult {
+    bool ran = false;
+    std::string error, course;
+    int recorded_ms = 0;
+    int rest_step = -1;
+    std::vector<DemoSample> samples;
+};
+DemoRunResult run_demo(Disc& disc, bool print, const std::string& label);
 
 // The C library's float routines the step calls, against the shared engine's.
 struct LeavesResult {

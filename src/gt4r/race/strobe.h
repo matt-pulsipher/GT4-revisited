@@ -151,6 +151,13 @@ public:
     std::string focus() const;
     // A clip's variable by path from the root ("BRIGHTNESS.v"), for tests.
     Value variable(const std::string& path) const;
+    // What the program does to a movie's instances by name (strobe's API): a clip's member by its path
+    // from the root ("BAR1.NAME", "text" / "_visible" / a variable); a clip's method ("gotoAndStop").
+    // False / undefined when the path names no clip.
+    bool set(const std::string& path, const std::string& member, const Value& v);
+    // Every instance on the stage now: "path  kind index frame n [hidden] [\"text\"]", for tools and tests.
+    std::vector<std::string> tree() const;
+    Value call(const std::string& path, const std::string& method, const std::vector<Value>& args);
 
 private:
     struct Impl;
