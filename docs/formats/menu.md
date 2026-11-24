@@ -754,7 +754,7 @@ Checked against the original's first dialog: every word of its lines starts wher
 original's does (to the pixel, `disc_menu_text_layout`).
 
 **Tool tips** (mToolTipFace): the text is the page's `TOOLTIP|<key>` (0x249B70; ❓ the key's
-own text when there is none). A tip is its page's when it loads (0x24A020 calls attach,
+own text when there is none, and nothing when the key has no text either). A tip is its page's when it loads (0x24A020 calls attach,
 0x249FB8: the page's +0xEC), and then shows the focused widget's tool tip (the nearest with
 `tooltip` and a `tooltip_key`); `remove()` takes it off the page (0x249FF0; here its text is
 cleared too) and `attach()` puts it back. It is not aligned (its style's `aligned` off,
