@@ -80,6 +80,7 @@ struct RaceResult {
     std::string result;    // a test's: "gold", "silver", "bronze", "failed", ... (the result names)
     u32 time_ms = 0;       // the whole race's time
     std::string pass_code; // a ranking entry's (up to 32 characters)
+    std::string name;      // a ranking entry's name (Prologue's license results: the three letters entered; empty: none)
     float distance_m = 0;  // what the car driven covered
     int score = -1;        // the race's A-spec points (-1: none)
     int garage_slot = -1;  // the car driven's place in the garage (-1: not a garage car)

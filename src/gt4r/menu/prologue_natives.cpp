@@ -34,10 +34,22 @@ namespace {
 struct LicenseUnit {
     int medal = 0;
     s32 points = 0;
-    std::vector<u32> times; // at most 10, fastest first
+    struct Entry {
+        u32 time = 0;
+        std::string name; // (the name entered on the results page; three letters)
+    };
+    std::vector<Entry> times; // at most 10, fastest first
 };
 constexpr u32 kNoTimeMs = 359'999'999;
 constexpr const char* kMedals[4] = {"none", "bronze", "silver", "gold"};
+
+// 0x3FE3B0: the place (0 ..) a time takes in a unit's ranking: the first entry that is empty or slower than it (an equal
+// time goes after); -1 when all ten are as fast.
+int rank_of(const LicenseUnit& r, u32 t) {
+    for (size_t k = 0; k < 10; ++k)
+        if (k >= r.times.size() || t < r.times[k].time) return int(k);
+    return -1;
+}
 
 } // namespace
 
@@ -55,11 +67,28 @@ void install_prologue_license(Object& game) {
             o->method("isCompletePassed", [records, i](Vm&, const Value&, Args) { return Value::integer((*records)[i].medal == 3 ? 1 : 0); });
             o->method("getBestTime", [records, i](Vm&, const Value&, Args) {
                 const LicenseUnit& r = (*records)[i];
-                return Value::integer(s32(r.times.empty() ? kNoTimeMs : r.times.front()));
+                return Value::integer(s32(r.times.empty() ? kNoTimeMs : r.times.front().time));
             });
             o->method("getRankNum", [records, i](Vm&, const Value&, Args) { return Value::integer(s32((*records)[i].times.size())); });
             o->method("getPoint", [records, i](Vm&, const Value&, Args) { return Value::integer((*records)[i].points); });
             o->method("getPassCode", [](Vm&, const Value&, Args) { return Value::string(""); });
+            // (ours, for the results page) 0x3FE3B0: the place a time would take in the ranking, the first entry it is
+            // faster than or an empty one; -1 past the tenth.
+            o->method("getRankOf", [records, i](Vm&, const Value&, Args a) {
+                if (a.empty() || a[0].kind != script::Kind::Int) return Value::integer(-1);
+                return Value::integer(rank_of((*records)[i], u32(a[0].i)));
+            });
+            // (ours) entry k's time and name.
+            o->method("getRankTime", [records, i](Vm&, const Value&, Args a) {
+                const LicenseUnit& r = (*records)[i];
+                const size_t k = !a.empty() && a[0].kind == script::Kind::Int && a[0].i >= 0 ? size_t(a[0].i) : 99;
+                return Value::integer(s32(k < r.times.size() ? r.times[k].time : kNoTimeMs));
+            });
+            o->method("getRankName", [records, i](Vm&, const Value&, Args a) {
+                const LicenseUnit& r = (*records)[i];
+                const size_t k = !a.empty() && a[0].kind == script::Kind::Int && a[0].i >= 0 ? size_t(a[0].i) : 99;
+                return Value::string(k < r.times.size() ? r.times[k].name : std::string());
+            });
             u = object_value(o);
         }
         return u;
@@ -112,8 +141,16 @@ void install_prologue_license(Object& game) {
         return Value::integer(n);
     });
     license->method("forcePassedAll", [](Vm&, const Value&, Args) { return Value{}; });
-    // A run's result (the license race's end, 0x19ED58): (race code, result name, time ms, points): the medal kept if
-    // better, the points if more, the time into the ranking.
+    // (ours) The name the results page offers (the program's user profile +0x1133C: 0x402428 reads it, the page's
+    // NameEntry writes it, 0x402438): the last one entered; empty at first (the page then shows its own "AAA").
+    auto default_name = std::make_shared<std::string>();
+    license->method("getDefaultName", [default_name](Vm&, const Value&, Args) { return Value::string(*default_name); });
+    license->method("setDefaultName", [default_name](Vm&, const Value&, Args a) {
+        if (!a.empty() && a[0].kind == script::Kind::String) *default_name = a[0].as_string();
+        return Value{};
+    });
+    // A run's result (the license race's end, 0x19ED58): (race code, result name, time ms, points[, name]): the medal kept
+    // if better, the points if more, the time (with the name entered) into the ranking at its place (0x3FE3B0).
     license->method("recordResult", [records, unit, unit_number](Vm& vm, const Value&, Args a) -> Value {
         if (a.size() < 4) return {};
         const int n = unit_number(vm, a[0]);
@@ -125,9 +162,14 @@ void install_prologue_license(Object& game) {
             if (name == kMedals[k] && r.medal < k) r.medal = k;
         if (a[3].kind == script::Kind::Int && s32(a[3].i) > r.points) r.points = s32(a[3].i);
         if (a[2].kind == script::Kind::Int && a[2].i > 0 && u32(a[2].i) < kNoTimeMs) {
-            r.times.push_back(u32(a[2].i));
-            std::sort(r.times.begin(), r.times.end());
-            if (r.times.size() > 10) r.times.resize(10);
+            const int k = rank_of(r, u32(a[2].i));
+            if (k >= 0) {
+                LicenseUnit::Entry e;
+                e.time = u32(a[2].i);
+                if (a.size() > 4 && a[4].kind == script::Kind::String) e.name = a[4].as_string();
+                r.times.insert(r.times.begin() + k, e);
+                if (r.times.size() > 10) r.times.resize(10);
+            }
         }
         return Value::integer(1);
     });
