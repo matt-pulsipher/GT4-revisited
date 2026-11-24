@@ -17,6 +17,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <cstring>
 #include <ctime>
 
@@ -949,8 +950,18 @@ Value GameNatives::make_card_manager(Args a) {
     // ❓ What the probes of the earlier games' saves read (0x1D4500 on) is not followed: none.
     for (const char* no : {"isExistGT4pData", "isExistGT3Data"}) m->method(no, [](Vm&, const Value&, Args) { return number(0); });
     for (const char* none : {"inheritGT4pData", "inheritGT3Data"}) m->method(none, [](Vm&, const Value&, Args) { return text("FILE_NOT_FOUND"); });
-    m->property("free", [s] { return number(s->card.free_kb); });
-    m->property("realFree", [s] { return number(s->card.free_kb); });
+    // The card's free KB. The scripts take 8,000 for an unformatted card; the data folder's card
+    // is formatted: 8,000 less a KB for its directory, the game's save and the replays kept
+    // (❓ the program's count of a real card's clusters is not followed).
+    auto free_kb = [self, s, real]() -> s32 {
+        if (!real()) return s->card.free_kb;
+        s32 used = 1 + std::max(0, self->card().used_kb());
+        std::error_code ec;
+        for (const std::string& f : saved_replays(self->rt.data_dir())) used += s32((std::filesystem::file_size(f, ec) + 1023) / 1024);
+        return std::max(0, 8000 - used);
+    };
+    m->property("free", [free_kb] { return number(free_kb()); });
+    m->property("realFree", [free_kb] { return number(free_kb()); });
     auto progress = std::make_shared<Object>("MProgress");
     progress->set("value", Value::number(0));
     m->set("count", number(0)), m->set("cursorPos", number(0)), m->set("progress", object_value(progress)), m->set("list", Value::array({}));

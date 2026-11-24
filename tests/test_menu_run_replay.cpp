@@ -51,4 +51,31 @@ TEST(disc_menu_replay_theater) {
     for (const auto& line : f.rt->log())
         if (line.find("script error") != std::string::npos) std::printf("  %s\n", line.c_str());
     CHECK(f.rt->project() && f.rt->project()->name() == "labomode" && f.page() == "ReplayTheaterRoot");
+    // The list shows the replay: its course and car as the database names them.
+    CHECK(f.text_of("title") == "tsukuba-20261124-101500");
+    // Right to the list, Accept chooses the replay, right to Play, Accept: the replay is loaded
+    // and the theater's project ends asking for it to be shown.
+    f.press({menu::Key::Right});
+    CHECK(f.focus() == "List");
+    f.press({menu::Key::Accept, menu::Key::Right});
+    CHECK(f.focus() == "Play");
+    f.press({menu::Key::Accept});
+    const std::optional<menu::RaceRequest> replay = f.rt->race_request();
+    CHECK(f.rt->finished() && replay && replay->sequence == "replay");
+    if (replay) CHECK(replay->replay_file == (dir / "replays" / "tsukuba-20261124-101500.gt4rrep").string());
+    // Shown (the app's part), the theater again.
+    menu::GameState& g = f.rt->game();
+    g.next_sequence.clear(), g.last_sequence = "replay";
+    CHECK(f.rt->advance());
+    f.rt->settle();
+    CHECK(f.page() == "ReplayTheaterRoot");
+    // Exit: back to the title.
+    CHECK(f.focus_on("Exit"));
+    f.press({menu::Key::Accept});
+    CHECK(f.rt->finished() && !f.rt->race_request() && f.rt->wanted_project() == "arcade");
+    CHECK(f.rt->advance());
+    f.rt->settle();
+    CHECK(f.page() == "TopRoot");
+    std::printf("  back at %s\n", pages(f).c_str());
+    CHECK(f.clean());
 }
