@@ -38,7 +38,9 @@ bool loose_surface(int s) { return (s >= 2 && s <= 5) || (s >= 13 && s <= 15); }
 
 // The road's answer into a wheel's ground record (0x3956F8): the surface as its row of the core's tables, +0x0C the
 // triangle and its cluster (cluster << 16 | triangle: wheel 0's is the collision step's hint). A miss only sets +0x30.
-void fill(ex::Ground& g, bool hit, const GroundHit& h) {
+// With Gran Turismo 4's rules the record keeps the triangle's material byte (+0x31) and the wheel's surface is the 24-row
+// index (0x3F4E40, as 0x369888 sets wheel +0x89); with the engine's rules both are the core's 16-row index.
+void fill(ex::Ground& g, bool hit, const GroundHit& h, bool gt4) {
     if (!hit) {
         g.miss = 1;
         return;
@@ -46,15 +48,17 @@ void fill(ex::Ground& g, bool hit, const GroundHit& h) {
     g.miss = 0;
     g.height = F(h.point.y);
     g.attr_a = F(h.attr_a), g.attr_b = F(h.attr_b);
-    g.attr_a_raw = u16(h.attr_a * 65535.0f), g.attr_b_raw = u16(h.attr_b * 65535.0f);
-    Vec3 n = h.normal;
-    float d = h.plane_d;
-    if (n.y < 0.5f) n = {0, 1, 0}, d = -h.point.y; // 0x344458: too steep a triangle reads as level
-    g.normal = {F(n.x), F(n.y), F(n.z)}, g.plane_d = F(d);
+    if (!gt4) g.attr_a_raw = u16(h.attr_a * 65535.0f), g.attr_b_raw = u16(h.attr_b * 65535.0f); // (0x3956F8 leaves +0x2C alone)
+    g.normal = {F(h.normal.x), F(h.normal.y), F(h.normal.z)}, g.plane_d = F(h.plane_d);
     g.seg = s32(u32(u16(s16(h.cluster))) << 16 | u32(u16(h.triangle)));
-    g.material = u8(core_surface(surface_index(h.material, h.flags)));
+    g.material = gt4 ? h.material : u8(core_surface(surface_index(h.material, h.flags)));
     g.x32 = 0;
     g.flags = u8(h.flags & 1); // the pit lane; the wet variant is in the surface already
+}
+
+// 0x344458: a record whose normal is too steep (y below 0.5) reads as level (its plane kept).
+void level_steep(ex::Ground& g) {
+    if (g.normal.y < F::raw(0x3F000000)) g.normal = {F(), F::raw(0x3F800000), F()};
 }
 
 } // namespace
@@ -134,7 +138,8 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
         if (!e.tcs_on) spec[0x110] = 0;
         ex::Car& c = cars_[i];
         c = ex::Car{};
-        c.behaviour = data_->behaviour();
+        // (the program's C library and constants: 2002 Tokyo-Geneva's, rules::behaviour(); the engine's own build otherwise)
+        c.behaviour = gt4_ready_ ? rules::behaviour() : data_->behaviour();
         c.index = u8(i);
         c.control = 0, c.driver_kind = 0, c.ghost = 0, c.wheel_type = 0;
         { // the parameter block from the spec, as the car's set-up makes it
@@ -251,12 +256,13 @@ void Session::place(size_t i, const course::Runway::Place& at) {
         GroundHit wh;
         const bool hit = ground_->under({g.x.host(), g.h.host(), g.z.host()}, wh);
         g.height = kNoGround;
-        fill(g, hit, wh);
+        fill(g, hit, wh, gt4_rules_);
+        level_steep(g);
         extra_[i].kinds[w] = hit ? wh.flags : 0;
         extra_[i].materials[w] = hit ? wh.material : 0;
         if (hit) {
             wheel.ground = wheel.ground0 = g.height;
-            wheel.surface = g.material, wheel.x25 = 0, wheel.surface_flags = g.flags;
+            wheel.surface = gt4_rules_ ? u8(surface_index(wh.material, wh.flags)) : g.material, wheel.x25 = 0, wheel.surface_flags = g.flags;
         } else {
             wheel.surface = 0, wheel.x25 = 0, wheel.surface_flags = 0;
             wheel.ground = wheel.ground0 = ground + wheel.hub.z;
@@ -273,7 +279,8 @@ void Session::place(size_t i, const course::Runway::Place& at) {
         wheel.half_track = ex::hub_half_track(c.behaviour, c.p, w, k0);
     }
     c.road_seg = c.g[0].miss ? -1 : c.g[0].seg; // (0x36315C: the set-up's hint, wheel 0's triangle)
-    ex::ground_frame(c);
+    if (gt4_rules_) rules::ground_frame(c, layouts_[i]);
+    else ex::ground_frame(c);
     c.pitch = c.ground_pitch, c.roll = c.ground_roll;
     c.pitch = c.pitch + ex::atan2(c.behaviour, c.p.ride_height[0] - c.p.ride_height[1], c.p.wheelbase);
     ex::body_axes(c);
@@ -291,15 +298,19 @@ void Session::place(size_t i, const course::Runway::Place& at) {
     ex::wheel_spin(c);
 }
 
-// The ground contact (the engine's phase 12 step with our road query: 0x344458 and 0x369888).
+// The ground contact (phases 16 .. 18: the query points 0x3697A8, the road under each wheel 0x344458, then 0x369888).
 void Session::ground_contact(ex::Car& c, Extra& x) {
+    const size_t car = size_t(&c - cars_.data());
+    if (gt4_rules_) rules::query_points(c, gx_[car].body, layouts_[car]);
     for (size_t i = 0; i < 4; ++i) {
         ex::Wheel& w = c.w[i];
         ex::Ground& g = c.g[i];
-        g.x = c.pos.x + w.hub.x, g.h = c.pos.z + w.hub.z, g.z = -(c.pos.y + w.hub.y);
+        if (!gt4_rules_) g.x = c.pos.x + w.hub.x, g.h = c.pos.z + w.hub.z, g.z = -(c.pos.y + w.hub.y);
         GroundHit h;
-        const bool hit = ground_->under({g.x.host(), g.h.host(), g.z.host()}, h);
-        fill(g, hit, h);
+        const F at[3] = {g.x, g.h + F::raw(0x40A00000), g.z}; // (0x395760: from 5 m above)
+        const bool hit = ground_->query(at, h);
+        fill(g, hit, h, gt4_rules_);
+        level_steep(g);
         if (!hit) {
             w.bump = k0;
             continue;
@@ -307,7 +318,8 @@ void Session::ground_contact(ex::Car& c, Extra& x) {
         x.kinds[i] = h.flags;
         x.materials[i] = h.material;
         w.ground0 = g.height, w.ground = g.height;
-        w.surface = g.material, w.x25 = 0, w.surface_flags = g.flags;
+        w.surface = gt4_rules_ ? u8(surface_index(h.material, h.flags)) : g.material, w.x25 = 0, w.surface_flags = g.flags;
+        if (gt4_rules_) continue; // (the bumps below: rules::road_bumps)
         const size_t s = w.surface & 15;
         const F amp = race_.bumps.amp[s];
         if (amp == k0) {
@@ -360,9 +372,13 @@ void Session::chassis(size_t i) {
     ex::effects_reset(c, 0, 0);
     ex::view_follow(c);
     ex::hub_offsets(c);
-    if (gt4_rules_) rules::body_axes(c); // (0x36C9F8: the pitch before the roll)
-    else ex::body_axes(c);
-    ex::ground_frame(c);
+    if (gt4_rules_) { // (0x36C9F8: the pitch before the roll; 0x35D350)
+        rules::body_axes(c);
+        rules::ground_frame(c, layouts_[i]);
+    } else {
+        ex::body_axes(c);
+        ex::ground_frame(c);
+    }
     ex::speed_bookkeeping(c, race_.prep.condition);
     ex::wheel_spin(c);
 }
@@ -436,7 +452,13 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
         f.shift = pressed & 1 ? 1 : pressed & 2 ? -1 : 0;
 
         ex::save_previous(c);
+        const F filter = c.slip_filter;
         ex::prep(c, race_.prep);
+        if (gt4_rules_) { // Gran Turismo 4's aerodynamics (0x3F3090) in place of the engine's
+            c.slip_filter = filter;
+            const rules::BodyExtra& b = gx_[i].body;
+            rules::aero(c, gx_[i].chassis, b.speed_part_kind, b.speed_part_lift, tables_.aero);
+        }
         // (a computer's car: its driver's grip, 0x467470)
         const std::array<F, 3>* grip = in.computer && driver_grip_[i] ? &*driver_grip_[i] : nullptr;
         if (gt4_rules_) rules::prep_tires(c, gx_[i], layouts_[i], tables_, race_.prep.condition, grip);

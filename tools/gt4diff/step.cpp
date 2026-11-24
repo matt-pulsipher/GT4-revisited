@@ -88,6 +88,13 @@ void add_taps(Taps& taps) {
                   road_bumps(t.car, t.rec.layout, bump_tables([&](u32 a) { return t.ee.r32(a); }, [&](u32 a) { return t.ee.r8(a); }), surface, material);
               },
               {"w.ground", "w.surface", "w.x25", "w.surface_flags", "road_seg", "flags", "x535", "aids."}});
+    taps.add({0x3F3090, "aero", car_a0, [](TapCall& t) {
+                  aero(t.car, t.rec.x.chassis, t.rec.x.body.speed_part_kind, t.rec.x.body.speed_part_lift,
+                       {gt3r::ee::F::raw(t.ee.r32(kAeroGlobals - 4)), gt3r::ee::F::raw(t.ee.r32(kAeroGlobals)), gt3r::ee::F::raw(t.ee.r32(kAeroGlobals + 4)),
+                        gt3r::ee::F::raw(t.ee.r32(kAeroGlobals + 8)), gt3r::ee::F::raw(t.ee.r32(kAeroGlobals + 12))});
+              }});
+    taps.add({0x35D350, "ground frame", car_a0, [](TapCall& t) { ground_frame(t.car, t.rec.layout); }});
+    taps.add({0x3697A8, "query points", car_a0, [](TapCall& t) { query_points(t.car, t.rec.x.body, t.rec.layout); }});
     taps.add({0x36A490, "terrain", car_a0, [](TapCall& t) { terrain(t.car, t.rec.x.body, t.rec.layout); }});
     taps.add({0x36A758, "suspension", car_a0, [](TapCall& t) { suspension(t.car, t.rec.x.body, t.rec.x.chassis, t.rec.layout, body_globals(t.ee)); }});
     // (while the hold counter runs the program's start hold, 0x36AE20, answers instead: not ported)
@@ -156,6 +163,13 @@ void add_taps(Taps& taps) {
         taps.add({0x36A758, "engine: suspension", car_a0, [](TapCall& t) { ex::suspension(t.car, nullptr); }});
         taps.add({0x36B0C8, "engine: attitude", car_a0, [](TapCall& t) { ex::attitude(t.car, gt3r::ee::F()); }});
         taps.add({0x36BA88, "engine: bump nudge", car_a0, [](TapCall& t) { ex::bump_nudge(t.car); }});
+        taps.add({0x3F3090, "engine: aero", car_a0, [](TapCall& t) { ex::aero(t.car, t.inputs.prep.slip); }});
+        taps.add({0x35D350, "engine: ground frame", car_a0, [](TapCall& t) { ex::ground_frame(t.car); }});
+        taps.add({0x35DE20, "engine: speeds", car_a0, [](TapCall& t) { ex::speed_bookkeeping(t.car, t.inputs.prep.condition); }});
+        taps.add({0x344040, "engine: wheel spin", car_a0, [](TapCall& t) { ex::wheel_spin(t.car); }});
+        taps.add({0x3458D0, "engine: hub offsets xy", car_a0, [](TapCall& t) { ex::hub_offsets_xy(t.car); }});
+        taps.add({0x345A50, "engine: speed ramp", car_a0, [](TapCall& t) { ex::speed_ramp(t.car); }});
+        taps.add({0x3457B0, "engine: hub heights", car_a0, [](TapCall& t) { ex::hub_offsets_z(t.car); }});
     }
     taps.add({0x36C9F8, "body axes", [](Ee& e) { return u32(e.a(0)) - 0x110; }, [](TapCall& t) { sim::rules::body_axes(t.car); }});
 }

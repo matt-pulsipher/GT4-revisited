@@ -94,6 +94,7 @@ std::vector<Row> build() {
     f(0x3C4, 0x10, 0x420, "each wheel's force on the body");
     f(0x3A4, 0x04, 0x5B4, "the body's up axis . the ground's");
     f(0x4BC, 0x08, 0x5A8, "downforce, front and rear");
+    f(0x528, 0x08, 0x59C, "the slipstream's target and filter");
     f(0x4CC, 0x04, 0x558, "heave acceleration");
     f(0x4DD, 0x01, 0x4B5, "the wheels past their bump stop");
     r.push_back({0xEC0, 4, C, kState + 0x448, "step length"});
@@ -146,6 +147,7 @@ std::vector<Row> build() {
     p(0x000, 0x20, 0x000, "body box, axle distances, wheelbase, track");
     p(0x020, 0x04, 0x020, "the rear axle's share of the weight");
     p(0x028, 0x08, 0x028, "half tracks");
+    p(0x031, 0x01, 0x031, "drive class (the class grip's row)");
     p(0x034, 0x18, 0x034, "load transfers, center of gravity's height, ride heights, mass");
     p(0x054, 0x04, 0x050, "origin offset");
     p(0x058, 0x04, 0x054, "steering lock");
@@ -166,6 +168,7 @@ std::vector<Row> build() {
     p(0x274, 0x18, 0x2C4, "tire radii, their inverses, widths");
     p(0x294, 0x1C, 0x2E4, "shift clutch torque, wheel gains, axle inertias");
     p(0xE28, 0x0C, 0x1010, "brake torques, handbrake torque");
+    p(0xE60, 0x0C, 0x1068, "drag and downforce coefficients");
     p(0xDF8, 0x04, 0xFD8, "top speed");
     p(0x2B8, 0x44, 0x308, "front suspension block");
     p(0x2FC, 0x44, 0x360, "rear suspension block");

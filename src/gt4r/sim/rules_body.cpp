@@ -125,8 +125,84 @@ void wheel(ex::Car& c, BodyExtra& x, const BodyGlobals& g, int w, size_t a, F x_
 
 } // namespace
 
+void ground_frame(ex::Car& c, const WheelLayout& l) {
+    const gt3r::sim::Behaviour b = behaviour();
+    F g[4] = {};
+    for (int w = 0; w < count(l); ++w) g[w] = c.w[size_t(w)].ground;
+    c.ground_pos.x = c.pos.x, c.ground_pos.y = c.pos.y;
+    const ex::Params& p = c.p;
+    switch (l.kind) {
+    case 0: { // four wheels
+        const F front = g[0] + g[1], rear = g[2] + g[3];
+        const F u = g[0] + ((g[2] - g[0]) * p.rear_weight), v = g[1] + ((g[3] - g[1]) * p.rear_weight);
+        const F wheelbase = p.wheelbase * gt3r::ee::cos(c.pitch), track = p.track * gt3r::ee::cos(c.roll);
+        c.ground_pitch = ex::atan2(b, (front - rear) * kHalf, wheelbase);
+        c.ground_roll = ex::atan2(b, u - v, track);
+        c.ground_pos.z = (u + v) * kHalf;
+        break;
+    }
+    case 1: { // two wheels in line: the roll from each wheel's ground normal across the body
+        c.ground_pitch = ex::atan2(b, g[0] - g[1], p.wheelbase);
+        ex::Vec3 fwd, lat, up;
+        body_axes(c.ground_pitch, k0, c.heading, fwd, lat, up);
+        F r[2];
+        for (size_t w = 0; w < 2; ++w) {
+            const ex::Ground& gr = c.g[w];
+            const F nx = gr.normal.x, ny = -gr.normal.z, nz = gr.normal.y; // (the record's frame)
+            const F d = ((nx * fwd.x) + (ny * fwd.y)) + (nz * fwd.z);
+            const F ax = nx - (d * fwd.x), ay = ny - (d * fwd.y), az = nz - (d * fwd.z);
+            r[w] = ex::atan2(b, ((ax * lat.x) + (ay * lat.y)) + (az * lat.z), kOne);
+        }
+        c.ground_roll = r[0] + ((r[1] - r[0]) * p.rear_weight);
+        c.ground_pos.z = g[0] + ((g[1] - g[0]) * p.rear_weight);
+        break;
+    }
+    case 2: { // one wheel ahead, two behind
+        const F mid = (g[1] + g[2]) * kHalf;
+        c.ground_pitch = ex::atan2(b, g[0] - mid, p.wheelbase);
+        c.ground_pos.z = g[0] + ((mid - g[0]) * p.rear_weight);
+        c.ground_roll = ex::atan2(b, g[1] - g[2], p.half_track[1] + p.half_track[1]);
+        break;
+    }
+    case 3: { // two wheels ahead, one behind
+        const F mid = (g[0] + g[1]) * kHalf;
+        c.ground_pitch = ex::atan2(b, mid - g[2], p.wheelbase);
+        c.ground_pos.z = mid + ((g[2] - mid) * p.rear_weight);
+        c.ground_roll = ex::atan2(b, g[0] - g[1], p.half_track[0] + p.half_track[0]);
+        break;
+    }
+    default: break;
+    }
+    body_axes(c.ground_pitch, c.ground_roll, c.heading, c.ground_fwd, c.ground_lat, c.ground_up);
+}
+
+void query_points(ex::Car& c, const BodyExtra& x, const WheelLayout& l) {
+    for (int w = 0; w < count(l); ++w) {
+        const F d = rest_drop(c, x, l, w);
+        const ex::Vec3& h = c.w[size_t(w)].hub;
+        // 0x369760: (position + hub) + up x d, per axis
+        const F px = (c.pos.x + h.x) + (c.up.x * d), py = (c.pos.y + h.y) + (c.up.y * d), pz = (c.pos.z + h.z) + (c.up.z * d);
+        ex::Ground& g = c.g[size_t(w)];
+        g.x = px, g.h = pz, g.z = -py;
+    }
+}
+
+
 BodyGlobals body_globals(const Program& program) {
-    return body_globals([&](u32 a) { return program.w(a); }, [&](u32 a) { return program.b(a); });
+    BodyGlobals g = body_globals([&](u32 a) { return program.w(a); }, [&](u32 a) { return program.b(a); });
+    // The dampers' square-law table as the converter sets it from the static block (0x360A78; the image holds 0): on with
+    // the byte +0x102; each axle's knees +0x105 / +0x109 x 0.01, shares +0x107 / +0x10B / 100.
+    const u32 S = Program::kStatic;
+    g.damper_table = program.b(S + 0x102) != 0 ? 1 : 0;
+    if (g.damper_table)
+        for (u32 a = 0; a < 2; ++a) {
+            const F hundredth = F::raw(0x3C23D70A), hundred = F::raw(0x42C80000);
+            g.bump_knee[a] = gt3r::ee::int_to_f(program.b(S + 0x105 + a)) * hundredth;
+            g.bump_share[a] = gt3r::ee::int_to_f(program.b(S + 0x107 + a)) / hundred;
+            g.rebound_knee[a] = gt3r::ee::int_to_f(program.b(S + 0x109 + a)) * hundredth;
+            g.rebound_share[a] = gt3r::ee::int_to_f(program.b(S + 0x10B + a)) / hundred;
+        }
+    return g;
 }
 
 BumpTables bump_tables(const Program& program, u8 course_kind) {

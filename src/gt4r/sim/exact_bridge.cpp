@@ -208,10 +208,18 @@ void gt4_params(const Spec& s, const Program& program, ex::Params& p) {
         const F inertia = int_to_f(s.b(0x26)) * k100;
         p.roll_lever[0] = p.half_track[0] / inertia, p.roll_lever[1] = p.half_track[1] / inertia;
     }
-    // The drag: the downforce's share in it is the static block's byte +0x0A per mille (0x362300), the core's a tenth.
+    // The drag and downforce coefficients (0x3621B0 .. 0x362374): the frontal area (the spec's s16 +0x40 / 10,000, or the
+    // body's width x height) x the air's density (0x622308: the static block's byte +0 x 0.1) x 0.5, times the spec's bytes +0x42, +0x43, +0x44 x 0.01; the
+    // drag then with the downforces' share, the static block's byte +0x0A per mille.
     if (program.known()) {
-        const F lift = p.downforce_coef[0] + p.downforce_coef[1];
-        p.drag_coef = (p.drag_coef - lift * kTenth) + lift * (int_to_f(program.b(Program::kStatic + 0x0A)) * kMilli);
+        const F rho = int_to_f(program.b(Program::kStatic)) * F::raw(0x3DCCCCCC); // (0x3F2F78 sets 0x622308 so)
+        const F half = F::raw(0x3F000000), hundredth = F::raw(0x3C23D70A);
+        const s16 area = s.sh(0x40);
+        const F q = area != 0 ? (int_to_f(area) / F::raw(0x461C4000)) * (rho * half) : ((p.body_width * p.body_height) * rho) * half;
+        p.drag_coef = q * (int_to_f(s.b(0x42)) * hundredth);
+        p.downforce_coef[0] = q * (int_to_f(s.b(0x43)) * hundredth);
+        p.downforce_coef[1] = q * (int_to_f(s.b(0x44)) * hundredth);
+        p.drag_coef = p.drag_coef + ((p.downforce_coef[0] + p.downforce_coef[1]) * (int_to_f(program.b(Program::kStatic + 0x0A)) * kMilli));
     }
     // The ride heights, each axle's own (0x3629D0), the center of gravity's height and the load transfers (0x362AF4).
     const F front_share = F::raw(0x3F800000) - p.rear_weight;

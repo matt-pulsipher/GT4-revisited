@@ -29,6 +29,10 @@ struct Tables {
     AidTables aids;
     SteerTables steer;
     BumpTables bumps; // (the session's: by the course's kind)
+    AeroGlobals aero;
+    // The rule block's +0x18 .. +0x1B (conductor + 0xF830): each drive class's extra grip for a car a computer drives, in
+    // percent (phase 10). A single race's conductor sets each 0 to 20 (0x353570).
+    std::array<s8, 4> class_grip{20, 20, 20, 20};
 };
 // From the program (its static block and globals: each surface's rolling resistance as the race's start
 // 0x35F808 makes it) and the engine's rolling resistance curve (from the same static block).
@@ -40,6 +44,8 @@ Tables tables(const Program& program, const ex::Statics& statics);
 void prep_tires(ex::Car& c, Extra& x, const WheelLayout& l, const Tables& t, const ex::Condition& cond, const std::array<F, 3>* grip = nullptr);
 // Phase 8: slip ratios.
 inline void slip_phase(ex::Car& c, Extra& x, const WheelLayout& l, const Tables& t) { slip_ratios(c, x.tires, l, t.slip); }
+// 0x353570: a single race's class grips, each 0 (the event leaves it) 20.
+std::array<s8, 4> single_race_class_grip(std::array<s8, 4> event);
 // Phase 10 (0x3535B0), a player's car or a computer's: brakes and clutch, the tire forces, the speed along the
 // body, the wheels' torques, the driveline, engine and gearbox, the lateral forces, yaw and hold.
 void dynamics(ex::Car& c, Extra& x, const WheelLayout& l, const Tables& t, const std::array<F, 3>* grip = nullptr);

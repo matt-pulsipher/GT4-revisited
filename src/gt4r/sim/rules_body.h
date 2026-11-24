@@ -105,6 +105,12 @@ template <class W, class B> BumpTables bump_tables(W&& read, B&& byte) {
 // point (0x369640: sin(k x) + cos(k z), mode 1 squared with its sign) x the amplitude, halved on a soft material
 // (0x3F4EA0) while not every wheel is on one, x the wheel's speed ramp (wheel +0x40) where the surface says so;
 // off the road 0. `surface`: each wheel's surface index (wheel +0x89), `material`: its ground's material byte.
+// 0x3697A8 (phase 16): each wheel's ground record's query point: the hub's point moved along the body's up axis by the
+// hub's rest drop under its travel (0x3696C8), in the course's frame (x, height, -y).
+void query_points(ex::Car& c, const BodyExtra& x, const WheelLayout& l);
+// 0x35D350 (phase 19, after the body's axes): the ground's frame under the car from the wheels' ground heights, by the
+// wheel layout's kind: its pitch, roll and height (F +0x574, +0x578, +0x38) and axes (F +0x3C, as 0x36C9F8 makes them).
+void ground_frame(ex::Car& c, const WheelLayout& l);
 void road_bumps(ex::Car& c, const WheelLayout& l, const BumpTables& t, const std::array<u8, 4>& surface, const std::array<u8, 4>& material);
 
 // 0x36A490: the body's up axis against the ground's (F + 0x5B4: their dot product, into the engine's

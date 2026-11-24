@@ -6,6 +6,7 @@
 #include "base/ee_math.h"
 #include "gt4r/sim/ai/ee_math.h"
 #include "collide_check.h"
+#include "whole_step.h"
 #include "orig.h"
 #include "taps.h"
 
@@ -638,6 +639,12 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
     int limit = int((std::max(400.0, double(lap_length) / 5.0) * std::max(laps, 1) + 60.0) * 60.0);
     if (options.seconds > 0) limit = int(options.seconds * 60.0);
     if (const char* l = std::getenv("GT4R_AI_SECONDS")) limit = int(std::atof(l) * 60.0); // a set length of run
+    std::unique_ptr<WholeStep> whole;
+    int whole_from = 0;
+    if (const char* w = std::getenv("GT4R_AI_WHOLESTEP")) {
+        whole = std::make_unique<WholeStep>(ee, o, disc, course, cars, field.get());
+        whole_from = int(std::atof(w) * 60.0);
+    }
     int step = 0;
     try {
         for (; step < limit; ++step) {
@@ -664,7 +671,14 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
             if (checks && !ours && step % 120 == 60) check_corners(ee, o, *field, lap_length, tally);
             if (checks && !ours && step % 4 == 1) check_braking(ee, o, *field, lap_length, tally);
             if (checks && !ours && step % 60 == 30) check_places(ee, o, *field, tally);
+            // GT4R_AI_WHOLESTEP=<from s>: from that time, every step of ours from the program's state compared (whole_step.cpp).
+            if (whole && step >= whole_from) whole->before();
             orig_step(ee, o);
+            if (whole && step >= whole_from) whole->after();
+            if (std::getenv("GT4R_AI_PLACES") && (step == 0 || step == 600)) // GT4R_AI_PLACES: every car's place (course x, height, z) and heading
+                for (int i = 0; i < o.cars; ++i)
+                    std::printf("place %d step %d: %.2f %.2f %.2f heading %.3f distance %.1f\n", i, step, double(ee.rf(o.car(i) + kF)), double(ee.rf(o.car(i) + kF + 8)),
+                                double(-ee.rf(o.car(i) + kF + 4)), double(ee.rf(o.car(i) + kF + 0x570)), double(ee.rf(o.car(i) + kF + kDistance)));
             if (std::getenv("GT4R_AI_GEARTRACE") && step % 15 == 0) { // car 0's gearbox (F = car + 0x104)
                 const u32 F = o.car(0) + 0x104;
                 if (step == 0) {
@@ -724,6 +738,7 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
     }
     if (aid_taps && print) aid_taps->print();
     if (collide_check && print) collide_check->print();
+    if (whole && print) whole->print();
     if (collide_check) {
         result.collide_calls = collide_check->calls(), result.collide_equal = collide_check->clean(), result.collide_walls = collide_check->wall_contacts(), result.collide_cars = collide_check->car_contacts();
         result.query_calls = collide_check->query_calls(), result.query_equal = collide_check->query_clean();
