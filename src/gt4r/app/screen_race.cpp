@@ -1770,7 +1770,8 @@ private:
             }
         }
         if (sequence_ == "time_trial" || sequence_ == "freerun" || sequence_ == "machinetest" || is_license(sequence_)) {
-            const s64 best = flow.car(0).best_lap_ms;
+            // (A license test's best is its run's time when it passed; the others' their best lap.)
+            const s64 best = is_license(sequence_) ? (r.finished && r.result != "failed" ? s64(r.time_ms) : -1) : flow.car(0).best_lap_ms;
             const s32 have = w.get("BestTime");
             if (best > 0 && (have <= 0 || have == menu::QuickWork::kNoTime || best < have)) w.set("BestTime", s32(best));
         }

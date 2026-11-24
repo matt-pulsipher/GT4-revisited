@@ -126,7 +126,7 @@ const std::vector<std::string>& QuickWork::command_names() {
 QuickWork::QuickWork() {
     // The plain integer attributes and the defaults the program gives them.
     for (const char* zero : {"canReplay", "canLoadGhost", "canSaveGhost", "numberOfEntries", "cursorPosition", "IsSessionFinished", "SessionNumber",
-                             "IsQuickTuned", "IsDryCourse", "IsASpec", "IsBSpec", "BestTime", "BestMaxSpeed", "prize", "GrandPrize", "CanLogger",
+                             "IsQuickTuned", "IsDryCourse", "IsASpec", "IsBSpec", "BestMaxSpeed", "prize", "GrandPrize", "CanLogger",
                              "DisableLogger", "IsFinalSession", "carYear", "CourseLength", "Laps", "QuickTuneWeightLevel", "QuickTunePowerLevel",
                              "QuickTuneGearMaxSpeed", "QuickTuneGearMaxSpeedMin", "QuickTuneGearMaxSpeedMax", "QuickTuneTransmission",
                              "QuickTuneDrivingAssist",
@@ -137,7 +137,8 @@ QuickWork::QuickWork() {
     for (const char* minus : {"QuickTuneFrontTireType", "QuickTuneRearTireType", "playerGridNumber", "SeriesRank", "PsValue", "TorqueValue",
                               "driveTrainType", "carCategory"})
         ints[minus] = -1;
-    for (const char* none : {"goldTime", "silverTime", "bronzeTime"}) ints[none] = kNoTime;
+    // (BestTime: no run yet, shown as dashes on the test page.)
+    for (const char* none : {"goldTime", "silverTime", "bronzeTime", "BestTime"}) ints[none] = kNoTime;
 }
 
 s32 QuickWork::get(const std::string& name) const {
