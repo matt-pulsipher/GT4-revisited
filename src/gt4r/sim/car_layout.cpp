@@ -89,6 +89,13 @@ std::vector<Row> build() {
     f(0x4EC, 0x04, 0x508, "intake");
     f(0x4E6, 0x01, 0x606, "turbo spool");
     f(0x4E7, 0x01, 0x607, "blow-off state");
+    // the suspension and the body (0x36A490 .. 0x36BA88)
+    f(0x3B4, 0x10, 0x410, "each wheel's place along its travel at its ground");
+    f(0x3C4, 0x10, 0x420, "each wheel's force on the body");
+    f(0x3A4, 0x04, 0x5B4, "the body's up axis . the ground's");
+    f(0x4BC, 0x08, 0x5A8, "downforce, front and rear");
+    f(0x4CC, 0x04, 0x558, "heave acceleration");
+    f(0x4DD, 0x01, 0x4B5, "the wheels past their bump stop");
     r.push_back({0xEC0, 4, C, kState + 0x448, "step length"});
     r.push_back({0x16A8, 8, C, kState + 0x5C4, "speed, highest speed"});
     r.push_back({0x16C4, 4, C, kState + 0x618, "best lap"});
@@ -126,6 +133,9 @@ std::vector<Row> build() {
     wheel(0x58, 4, 0x50, "wear grip");
     wheel(0x90, 4, 0x64, "brake pressure");
     drive(0x00, 4, 0x78, "brake torque");
+    wheel(0x60, 4, 0x90, "the road's bump");
+    wheel(0x1C, 4, 0x98, "travel speed");
+    wheel(0x70, 8, 0x9C, "spring and damper forces");
     drive(0x0C, 4, 0x84, "net torque");
 
     // ---- the ground records ----
@@ -133,6 +143,7 @@ std::vector<Row> build() {
 
     // ---- the parameter block ----
     p(0x000, 0x20, 0x000, "body box, axle distances, wheelbase, track");
+    p(0x020, 0x04, 0x020, "the rear axle's share of the weight");
     p(0x028, 0x08, 0x028, "half tracks");
     p(0x034, 0x18, 0x034, "load transfers, center of gravity's height, ride heights, mass");
     p(0x054, 0x04, 0x050, "origin offset");
@@ -155,6 +166,13 @@ std::vector<Row> build() {
     p(0x294, 0x1C, 0x2E4, "shift clutch torque, wheel gains, axle inertias");
     p(0xE28, 0x0C, 0x1010, "brake torques, handbrake torque");
     p(0xDF8, 0x04, 0xFD8, "top speed");
+    p(0x2B8, 0x44, 0x308, "front suspension block");
+    p(0x2FC, 0x44, 0x360, "rear suspension block");
+    p(0x110, 0x08, 0x10C, "the steering's camber ratios");
+    p(0xDFC, 0x08, 0xFE4, "camber");
+    p(0xE04, 0x08, 0xFEC, "camber gain over travel");
+    p(0xE14, 0x08, 0xFFC, "swing arms");
+    p(0xE1C, 0x04, 0x1004, "the steering's camber");
     // ---- the last step's values (0x343ED0) ----
     r.push_back({ePrev + 0x00, 0x14, C, kPrevious + 0x00, "last attitude and the ground's"});
     r.push_back({ePrev + 0x14, 0x80, C, kPrevious + 0x14, "last suspension, steer, camber, half track, spin, brake heat, ground values"});

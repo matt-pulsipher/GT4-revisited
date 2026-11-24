@@ -7,6 +7,7 @@
 
 #include "gt4r/sim/exact_bridge.h"
 #include "gt4r/sim/rules.h"
+#include "gt4r/sim/rules_body.h"
 #include "gt4r/sim/rules_chassis.h"
 #include "gt4r/sim/rules_drive.h"
 #include "gt4r/sim/rules_step.h"
@@ -58,8 +59,19 @@ sim::rules::DriveTables drive_tables(Ee& ee) {
     return sim::rules::drive_tables(a, st, g);
 }
 
+sim::rules::BodyGlobals body_globals(Ee& ee) {
+    return sim::rules::body_globals([&](u32 a) { return ee.r32(a); }, [&](u32 a) { return ee.r8(a); });
+}
+
 void add_taps(Taps& taps) {
     using namespace sim::rules;
+    taps.add({0x36A490, "terrain", car_a0, [](TapCall& t) { terrain(t.car, t.rec.x.body, t.rec.layout); }});
+    taps.add({0x36A758, "suspension", car_a0, [](TapCall& t) { suspension(t.car, t.rec.x.body, t.rec.x.chassis, t.rec.layout, body_globals(t.ee)); }});
+    // (while the hold counter runs the program's start hold, 0x36AE20, answers instead: not ported)
+    taps.add({0x36B0C8, "attitude", car_a0, [](TapCall& t) {
+                  if (t.car.hold == 0) attitude(t.car, t.rec.x.body, t.rec.x.chassis, t.rec.x.tires, t.rec.layout, body_globals(t.ee));
+              }});
+    taps.add({0x36BA88, "bump nudge", car_a0, [](TapCall& t) { bump_nudge(t.car, t.rec.x.body, t.rec.layout); }});
     taps.add({0x3511A0, "brakes and clutch", car_a0, [](TapCall& t) { brakes_and_clutch(t.car, t.rec.x.drive, t.rec.layout); }});
     taps.add({0x36D230, "wheel torques", car_a0, [](TapCall& t) { wheel_torques(t.car, t.rec.x.drive, t.rec.layout); }});
     taps.add({0x36D2F8, "vectoring", car_a0, [](TapCall& t) { vectoring(t.car, t.rec.x.drive, t.rec.layout); }});
@@ -115,6 +127,10 @@ void add_taps(Taps& taps) {
         taps.add({0x351DC8, "engine: gear", car_a0, [](TapCall& t) { ex::gear_step(t.car, t.inputs.gears); }});
         taps.add({0x3F38D8, "engine: brake heat", car_a0, [](TapCall& t) { ex::brake_heat(t.car, t.inputs.brake_heat); }});
         taps.add({0x3F7EA8, "engine: wheel steer", car_a0, [](TapCall& t) { ex::wheel_steer(t.car); }});
+        taps.add({0x36A490, "engine: terrain", car_a0, [](TapCall& t) { ex::terrain_factor(t.car); }});
+        taps.add({0x36A758, "engine: suspension", car_a0, [](TapCall& t) { ex::suspension(t.car, nullptr); }});
+        taps.add({0x36B0C8, "engine: attitude", car_a0, [](TapCall& t) { ex::attitude(t.car, gt3r::ee::F()); }});
+        taps.add({0x36BA88, "engine: bump nudge", car_a0, [](TapCall& t) { ex::bump_nudge(t.car); }});
     }
     taps.add({0x36C9F8, "body axes", [](Ee& e) { return u32(e.a(0)) - 0x110; }, [](TapCall& t) { sim::rules::body_axes(t.car); }});
 }
@@ -185,6 +201,17 @@ StepResult run_step(Disc& disc, bool print, const std::string& course_label, con
                 const u32 W = o.car(i) + sim::layout::kWheel0 + sim::layout::kWheelSize * w;
                 ee.wf(W + 0xAC, a[w] + 0.6f * float(m >> 2)), ee.wf(W + 0xA8, b[w] + 0.5f * float(m >> 2));
             }
+    }
+    if (std::getenv("GT4R_DUMP_BODY")) { // the suspension's and body's values past the engine's
+        const u32 pb = o.params(0), F = o.car(0) + kF;
+        for (u32 a = 0; a < 2; ++a)
+            std::printf("  axle %u: mass +0x38 %g, hold droop +0x44 %g, +0x48 %g, +0x4C %g, +0x50 %g, +0x54 %g, tire drop P+0x2DC %g, radius %g\n", a,
+                        double(ee.rf(pb + 0x308 + 0x58 * a + 0x38)), double(ee.rf(pb + 0x308 + 0x58 * a + 0x44)), double(ee.rf(pb + 0x308 + 0x58 * a + 0x48)),
+                        double(ee.rf(pb + 0x308 + 0x58 * a + 0x4C)), double(ee.rf(pb + 0x308 + 0x58 * a + 0x50)), double(ee.rf(pb + 0x308 + 0x58 * a + 0x54)),
+                        double(ee.rf(pb + 0x2DC + 4 * a)), double(ee.rf(pb + 0x2C4 + 4 * a)));
+        std::printf("  P+0x20 %g P+0x24 %g roll centre P+0x1060 %g, 0x1076 %u 0x1077 %u 0x1084 %g, mass F+0x4D4 %g, F+0x4D8 %g, P+0x48 %g\n", double(ee.rf(pb + 0x20)),
+                    double(ee.rf(pb + 0x24)), double(ee.rf(pb + 0x1060)), ee.r8(pb + 0x1076), ee.r8(pb + 0x1077), double(ee.rf(pb + 0x1084)), double(ee.rf(F + 0x4D4)),
+                    double(ee.rf(F + 0x4D8)), double(ee.rf(pb + 0x48)));
     }
     if (std::getenv("GT4R_DUMP_WEAR")) {
         for (u32 off = 0; off < 0x6C; off += 4) std::printf("  wear +%02X %08X %g\n", off, ee.r32(o.cond + 4 + off), double(ee.rf(o.cond + 4 + off)));

@@ -4,6 +4,7 @@
 // Gran Turismo 4's record keeps that the mirror has no member for (each area's own part: rules_*.h).
 
 #include "gt4r/sim/rules_aids.h"
+#include "gt4r/sim/rules_body.h"
 #include "gt4r/sim/rules_chassis.h"
 #include "gt4r/sim/rules_drive.h"
 #include "gt4r/sim/rules_input.h"
@@ -20,6 +21,7 @@ struct Extra {
     rules::AidExtra aids;
     rules::InputExtra input;
     rules::WearExtra wear;
+    rules::BodyExtra body;
 };
 
 struct Record {
@@ -32,6 +34,7 @@ struct Record {
 template <class X, class V> void extra_fields(X& x, V&& v) {
     rules::tires_fields(x.tires, v), rules::chassis_fields(x.chassis, v), rules::drive_fields(x.drive, v);
     rules::aids_fields(x.aids, v), rules::input_fields(x.input, v), rules::wear_fields(x.wear, v);
+    rules::body_fields(x.body, v);
 }
 
 } // namespace gt4r::sim

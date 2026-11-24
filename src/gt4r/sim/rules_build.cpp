@@ -225,6 +225,51 @@ void drive_blocks(const Spec& s, const Program& program, const gt3r::sim::exact:
     d.x13 = d.up_rpm < 4500 ? 1 : d.up_rpm < 5000 ? 2 : 3;
     if (s.b(0x01) == 5) d.x13 = 4;
 }
+// The suspension's and body's part (0x361908, 0x360B60, 0x34BA30).
+void body_extras(const Spec& s, const gt3r::sim::exact::Params& p, const rules::WheelLayout& l, rules::BodyExtra& b) {
+    const F kQuarter = F::raw(0x3E800000), kMilli = F::raw(0x3A83126E), kInch = F::raw(0x3CD013A9), kHalfInch = F::raw(0x3C5013A9);
+    const F kHalf = F::raw(0x3F000000), kTwentieth = F::raw(0x3D4CCCCC);
+    for (u32 a = 0; a < 2; ++a) {
+        rules::AxleBody& x = b.axle[a];
+        // The wheel's own mass: the spec's unsprung kilograms x 0.25 (0x360B60).
+        x.wheel_mass = int_to_f(s.b((a ? 0x70u : 0x58u) + 3)) * kQuarter;
+        x.linear_bump_max = F(), x.linear_rebound_max = F(); // (the linear damper fit's; ❓ their builder: not used, 0x620DD9 is 0)
+        // The tire's sidewall (0x34BA30): width x aspect; less a rim made larger by the chassis (tire kinds 6 .. 10), at least half an inch.
+        const u8 wb = s.b(0x1C8 + a), rim = s.b(0x1CA + a), aspect = s.b(0x1CC + a);
+        const F width = int_to_f(wb ? s32(wb) * 5 : 10) * kMilli;
+        F half;
+        if (rim < 61) half = (int_to_f(rim) * kInch) * kHalf;
+        else if (rim % 10 == 0) half = (int_to_f(rim / 10) * kInch) * kHalf;
+        else half = (int_to_f(rim) * kInch) * kTwentieth;
+        F drop = (width * int_to_f(aspect)) * kTwentieth;
+        const gt3r::s8 bigger = gt3r::s8(s.b(0x1E2 + a));
+        if (bigger != 0) {
+            F more = (int_to_f(bigger) * kInch) * kHalf;
+            if (half + more < kInch) more = kInch - half;
+            drop = drop - more;
+            if (drop < kHalfInch) drop = kHalfInch;
+        }
+        b.tire_drop[a] = drop;
+    }
+    // The droops while the hold counter runs (0x362D48): each axle's droop, the one whose hub hangs higher
+    // over it moved down to the other's.
+    {
+        const gt3r::sim::exact::Suspension &f = p.susp[0], &r = p.susp[1];
+        b.axle[0].hold_droop = f.droop, b.axle[1].hold_droop = r.droop;
+        const F df = f.offset - f.droop, dr = r.offset - r.droop;
+        if (dr < df) b.axle[1].hold_droop = r.droop - (df - dr);
+        else if (df < dr) b.axle[0].hold_droop = f.droop - (dr - df);
+    }
+    b.front_share = F::raw(0x3F800000) - p.rear_weight;
+    b.roll_centre = int_to_f(s.b(0x27)) * kMilli;
+    b.speed_part = 0, b.speed_part_kind = 0, b.speed_part_lift = F(); // (the part that changes with speed: not built)
+    // The sprung mass (0x362B58): the mass less each axle's wheels' own.
+    const F nf = int_to_f(l.axle_wheels[0]), nr = int_to_f(l.axle_wheels[1]);
+    if (l.axle_wheels[0] == 2 && l.axle_wheels[1] == 2) {
+        const F sum = b.axle[0].wheel_mass + b.axle[1].wheel_mass;
+        b.sprung_mass = p.mass - (sum + sum);
+    } else b.sprung_mass = p.mass - (b.axle[0].wheel_mass * nf + b.axle[1].wheel_mass * nr);
+}
 } // namespace
 
 u8 wheel_layout_index(const Spec& s) { return s.b(0x02); }
@@ -327,6 +372,7 @@ void gt4_extras(const Spec& s, const Program& program, Record& r) {
     t.direct_slip_scale = kOne / speed(0x119);
     r.x.chassis.mass = p.mass;
     drive_blocks(s, program, p, r.x.drive);
+    body_extras(s, p, r.layout, r.x.body);
 }
 
 } // namespace gt4r::sim

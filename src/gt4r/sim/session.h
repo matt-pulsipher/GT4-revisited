@@ -97,7 +97,7 @@ private:
     };
     void place(size_t i, const course::Runway::Place& at);
     void ground_contact(gt3r::sim::exact::Car& c, Extra& x);
-    void chassis(gt3r::sim::exact::Car& c, Extra& x);
+    void chassis(size_t i);
     void collide();
     void publish(size_t i);
 

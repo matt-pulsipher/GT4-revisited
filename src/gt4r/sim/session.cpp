@@ -364,14 +364,27 @@ void Session::ground_contact(ex::Car& c, Extra& x) {
 }
 
 // Phase 12 in the engine's order, the ground contact ours.
-void Session::chassis(ex::Car& c, Extra& x) {
+void Session::chassis(size_t i) {
+    ex::Car& c = cars_[i];
+    Extra& x = extra_[i];
     ex::hub_offsets_xy(c);
     ex::speed_ramp(c);
     ground_contact(c, x);
-    ex::terrain_factor(c);
-    ex::suspension(c, nullptr);
-    ex::attitude(c, k0);
-    ex::bump_nudge(c);
+    if (gt4_rules_) { // Gran Turismo 4's suspension and attitude (0x36A490 .. 0x36BA88)
+        sim::Extra& g = gx_[i];
+        const rules::WheelLayout& l = layouts_[i];
+        rules::terrain(c, g.body, l);
+        rules::suspension(c, g.body, g.chassis, l, tables_.body);
+        // (while the hold counter runs, the engine's start hold: the program's 0x36AE20 is not ported)
+        if (c.hold != 0) ex::attitude(c, k0);
+        else rules::attitude(c, g.body, g.chassis, g.tires, l, tables_.body);
+        rules::bump_nudge(c, g.body, l);
+    } else {
+        ex::terrain_factor(c);
+        ex::suspension(c, nullptr);
+        ex::attitude(c, k0);
+        ex::bump_nudge(c);
+    }
     ex::pad_rumble(c);
     ex::steer_force(c, race_.feel);
     ex::tyre_effects(c, race_.effects, race_.aids.course_category);
@@ -380,7 +393,8 @@ void Session::chassis(ex::Car& c, Extra& x) {
     ex::effects_reset(c, 0, 0);
     ex::view_follow(c);
     ex::hub_offsets(c);
-    ex::body_axes(c);
+    if (gt4_rules_) rules::body_axes(c); // (0x36C9F8: the pitch before the roll)
+    else ex::body_axes(c);
     ex::ground_frame(c);
     ex::speed_bookkeeping(c, race_.prep.condition);
     ex::wheel_spin(c);
@@ -482,7 +496,7 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
     collide();
     for (size_t i = 0; i < cars_.size(); ++i) {
         ex::Car& c = cars_[i];
-        chassis(c, extra_[i]);
+        chassis(i);
         ex::tire_wear(c, race_.prep.wear);
         ex::wear_flags(c, race_.prep.wear, {});
         ex::flaps(c, rng_);
