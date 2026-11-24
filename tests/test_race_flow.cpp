@@ -13,6 +13,7 @@
 #include "gt4r/race/gadgets.h"
 #include "gt4r/race/picture_settings.h"
 #include "gt4r/formats/db/specdb.h"
+#include "gt4r/menu/race_natives.h"
 
 #include <cmath>
 
@@ -487,4 +488,20 @@ TEST(race_gadgets_disc) {
     }
     if (!ran) SKIP("no Gran Turismo 4 US disc");
     CHECK(courses > 100 && placed > 18);
+}
+
+TEST(race_next_license_test) {
+    // NEXT_RACE in the license sequence (0x10FCD0): the next number, the coffee break test after test 8,
+    // the license's test 9 after its coffee break test, none after test 16.
+    CHECK(menu::next_license_test("l0b0001") == "l0b0002");
+    CHECK(menu::next_license_test("usl0a0015") == "usl0a0016");
+    CHECK(menu::next_license_test("l0b0016").empty());
+    CHECK(menu::next_license_test("l0b0008") == "l0c0001");
+    CHECK(menu::next_license_test("lia0008") == "l0c0004");
+    CHECK(menu::next_license_test("usl0s0008") == "usl0c0005");
+    CHECK(menu::next_license_test("l0c0003") == "lib0009");
+    CHECK(menu::next_license_test("l0c0005") == "l0s0009");
+    CHECK(menu::next_license_test("l0c0006").empty());
+    CHECK(menu::next_license_test("am_sunday_0001").empty());
+    CHECK(menu::next_license_test("usl0m0025").empty()); // a mission
 }
