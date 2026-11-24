@@ -47,6 +47,7 @@ int run(Disc& disc, const std::string& course, const std::string& car, int steps
     db::SpecDb sdb = open_db(disc);
     Ee ee;
     boot(ee, disc);
+    std::printf("prologue: the image's mean slip switch %u, steering mode %u\n", ee.r8(0x506612), ee.r32(0x714880));
     Race r;
     std::string err;
     // The spec the program's builder (0x3B3998) made, as the car set-up (0x3C93A0) is handed it.
@@ -61,7 +62,7 @@ int run(Disc& disc, const std::string& course, const std::string& car, int steps
         std::printf("prologue: %s\n", err.c_str());
         return 1;
     }
-    std::printf("prologue: the race is set up (%s, %s)\n", course.c_str(), car.c_str());
+    std::printf("prologue: the race is set up (%s, %s); the mean slip switch %u, steering mode %u\n", course.c_str(), car.c_str(), ee.r8(0x506612), ee.r32(0x714880));
     // The parameter block the program's converter made, against the engine's converter (Gran Turismo 3's, 0x1DBFD8) on the
     // program's own spec: word by word, the program's block read at the engine's offset + 0, 24 or 44.
     if (!their_spec.empty()) {
@@ -169,6 +170,7 @@ int run(Disc& disc, const std::string& course, const std::string& car, int steps
     if (std::getenv("GT4R_TAPS")) {
         taps = std::make_unique<PTaps>(ee, r, inputs);
         if (std::string(std::getenv("GT4R_TAPS")) == "prologue") add_prologue_taps(*taps, disc);
+        else if (std::string(std::getenv("GT4R_TAPS")) == "input") add_input_taps(*taps, r);
         else add_engine_taps(*taps);
     }
     struct Sample {

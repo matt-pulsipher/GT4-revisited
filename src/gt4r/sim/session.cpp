@@ -503,7 +503,8 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
             rules::wheel_steer(c, g.steer, g.tires, layouts_[i], tables_.steer);
             for (size_t w = 0; w < 4; ++w) // (for the engine's routines that still read them: its start hold)
                 c.t[w].steer_cos = gt3r::ee::cos(c.w[w].steer), c.t[w].steer_sin = gt3r::ee::sin(c.w[w].steer);
-        } else ex::wheel_steer(c);
+        } else if (prologue_) prologue::wheel_steer(c, prologue_cars_[i], *prologue_);
+        else ex::wheel_steer(c);
         if (gt4_rules_) rules::slip_phase(c, gx_[i], layouts_[i], tables_);
         else if (prologue_) prologue::slip_ratios(c, prologue_cars_[i].tires, prologue_cars_[i].layout, *prologue_);
         else ex::slip_ratios(c, race_.statics);

@@ -86,5 +86,7 @@ void add_engine_taps(PTaps& taps);
 // Gran Turismo 4's routines and Prologue's own (rules_prologue.h) at their Prologue counterparts, on the Gran Turismo 4
 // part of the record made from Prologue's (rules_prologue.h's prologue_extra).
 void add_prologue_taps(PTaps& taps, const Disc& disc);
+// The engine's driver input (the pad's frame of the race's pad 0) and preparation at Prologue's 0x3DEDE0 / 0x3BF608.
+void add_input_taps(PTaps& taps, const Race& race);
 
 } // namespace gt4r::diff::prologue

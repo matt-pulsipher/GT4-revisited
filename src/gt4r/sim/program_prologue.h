@@ -38,6 +38,8 @@ public:
     // bytes a row, Gran Turismo 4's rows; 0x3C0D80 by the parameter block's +0x30).
     static constexpr u32 kStatic = 0x503208, kCamberRef = 0x504294, kCamberGain = 0x504298, kMeanSlipOn = 0x506612;
     static constexpr u32 kWheelLayouts = 0x503FA8;
+    // The surfaces whose steering offset aims at 0 (16 bytes; 0x3B5A20).
+    static constexpr u32 kFixedAim = 0x504AC0;
 
     // Finds the build's routines in a program image loaded at `load_address`.
     static PrologueProgram locate(ByteSpan image, u32 load_address);

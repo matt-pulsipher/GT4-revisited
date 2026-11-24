@@ -9,6 +9,7 @@
 #include "gt4r/sim/car_spec.h"
 #include "gt4r/sim/record.h"
 #include "gt4r/sim/rules_chassis.h"
+#include "gt4r/sim/rules_steer.h"
 #include "sim/exact/tick.h"
 #include "gt4r/sim/rules.h"
 #include "gt4r/sim/rules_tires.h"
@@ -33,6 +34,11 @@ struct Tables {
                                        // (0x506612), the steering mode (0x714880: 1 in a race; the slip angle takes each wheel's
                                        // offset, the drive block's +0x1C)
     std::array<std::array<u8, rules::kWheelLayoutSize>, 8> wheel_layouts{}; // 0x503FA8, by the parameter block's byte +0x30
+    // The steering offset's settings (0x714880 ..) as the race's start builds them (0x3B57D0, Gran Turismo 4's 0x3F7BE0 rule):
+    // the mode the static byte +0xB9, the scale +0xBA, each axle's limit +0xBB + k (tenths of a degree; the mode 0 when either
+    // is 0), spring +0xBD + k (x 10) and damping +0xBF + k; the surfaces whose offset aims at 0 (0x504AC0 + surface). No
+    // compliance steer.
+    rules::SteerTables steer;
 };
 Tables tables(const Program& program);
 
@@ -66,7 +72,9 @@ TireKinds tire_kinds(const Spec& spec);
 // What a car of Prologue's step keeps beside the engine's record: Gran Turismo 4's tire part, the mass the forward step
 // divides by (the parameter block's), its wheel layout.
 struct CarPart {
-    rules::TireExtra tires;
+    rules::TireExtra tires;     // (tires.steer_offset: each wheel's steering offset, the drive block's +0x1C)
+    std::array<F, 4> offset_rate; // the offset's rate, the drive block's +0x18
+    std::array<F, 2> axle_load;   // the parameter block's +0xE6C + 4 k (the engine's +0xE54: each axle's static load)
     rules::ChassisExtra chassis;
     rules::WheelLayout layout;
 };
@@ -86,6 +94,13 @@ void lateral_yaw(ex::Car& c, const CarPart& x, bool airborne, const Tables& t);
 // Prologue's at every call) with Gran Turismo 4's tire slip force (0x3BB138; its steering mode 1, the wheels' offsets
 // the drive block's +0x1C, the mean slip angle the record's F +0x420) and forward step (0x3BAC98), and its lateral forces.
 void dynamics(ex::Car& c, CarPart& x, const ex::Statics& s, const ex::GearSettings& g, const ex::ClassGrip& grip, const Tables& t);
+
+// 0x3B5A20 (phase 7): each wheel's steer angle as the engine's (equal at every call; it also leaves the angle's sine and
+// cosine in the drive block for the engine's routines that read them, where Prologue keeps the offset's rate and the offset),
+// then with the steering mode on each wheel's steering offset: Gran Turismo 4's (0x3F7EA8's offset, its spring, damping,
+// scale and limits) but for a wheel without the slip's fade, whose offset aims at 0 (mode 1). No follower of the steering
+// command, no compliance steer.
+void wheel_steer(ex::Car& c, CarPart& x, const Tables& t);
 
 // 0x3C4D80: the ground's pitch, roll and height as the engine's (Gran Turismo 3's) and its axes as Gran Turismo 4's
 // (0x377310: the pitch before the roll).

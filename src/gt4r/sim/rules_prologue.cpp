@@ -3,6 +3,8 @@
 #include "gt4r/sim/rules_prologue.h"
 
 #include "base/ee_math.h"
+
+#include <cstdlib>
 #include "gt4r/sim/program.h"
 #include "gt4r/sim/program_prologue.h"
 
@@ -28,8 +30,21 @@ Tables tables(const Program& program) {
     for (u32 k = 0; k < 3; ++k) t.direct_speed[k] = program.b(s + 0xE4 + k);
     t.globals.camber_ref = F::raw(program.w(PrologueProgram::kCamberRef));
     t.globals.camber_gain = F::raw(program.w(PrologueProgram::kCamberGain));
-    t.globals.mean_on = program.b(PrologueProgram::kMeanSlipOn);
-    t.globals.steer_mode = 1;
+    // (the image has 0; the race's set-up leaves it 1, ❓ its writer: a block 0x506610 the computer drivers' routines read)
+    t.globals.mean_on = 1;
+    {
+        rules::SteerTables& g = t.steer;
+        g.mode = program.b(s + 0xB9), g.scale = program.b(s + 0xBA);
+        for (u32 k = 0; k < 2; ++k) {
+            const u8 lim = program.b(s + 0xBB + k);
+            if (lim == 0) g.mode = 0;
+            g.limit[k] = gt3r::ee::int_to_f(lim) * F::raw(0x3AE4C385);
+            g.spring[k] = gt3r::ee::int_to_f(program.b(s + 0xBD + k)) * F::raw(0x41200000);
+            g.damping[k] = gt3r::ee::int_to_f(program.b(s + 0xBF + k));
+        }
+        for (u32 f = 0; f < 24; ++f) g.fixed_aim[f] = f < 16 ? program.b(PrologueProgram::kFixedAim + f) : 0;
+        t.globals.steer_mode = g.mode;
+    }
     for (u32 r = 0; r < t.wheel_layouts.size(); ++r)
         for (u32 k = 0; k < rules::kWheelLayoutSize; ++k) t.wheel_layouts[r][k] = program.b(PrologueProgram::kWheelLayouts + rules::kWheelLayoutSize * r + k);
     return t;
@@ -123,6 +138,7 @@ CarPart car_part(const ex::Car& c, const Spec& spec, const Tables& t) {
     x.layout = wheel_layout(t, spec.b(0x02)); // (Gran Turismo 4's spec +0x02, as rules_build's wheel_layout_index)
     x.tires = tire_extra(c.p, tire_kinds(spec), t);
     x.chassis.mass = c.p.mass;
+    x.axle_load = {c.p.xe54, c.p.xe58};
     return x;
 }
 
@@ -207,6 +223,58 @@ void dynamics(ex::Car& c, CarPart& x, const ex::Statics& s, const ex::GearSettin
     const bool air = ex::airborne(c);
     lateral_yaw(c, x, air, t);
     ex::stop_hold(c, air);
+}
+
+namespace {
+
+const F kHalf = F::raw(0x3F000000), kPi = F::raw(0x40490FDB);
+
+// The aim of wheel w's steering offset.
+F offset_aim(const ex::Car& c, const CarPart& x, const rules::SteerTables& g, int w) {
+    const ex::Wheel& wh = c.w[size_t(w)];
+    const bool fixed = wh.surface < g.fixed_aim.size() && g.fixed_aim[wh.surface] == 1;
+    if (g.mode == 2) {
+        if (fixed) return wh.steer;
+        if (wh.slip_fade == F()) return x.tires.steer_offset[size_t(w)];
+        if (wh.hub_vx < F()) return rules::angle_blend(kHalf, wh.slip_dir - kPi, kHalf, wh.steer);
+        return (wh.slip_dir + wh.steer) * kHalf;
+    }
+    if (fixed || wh.slip_fade == F()) return F();
+    if (wh.hub_vx < F()) return rules::angle_diff(wh.slip_dir - kPi, wh.steer) * kHalf;
+    return (wh.slip_dir - wh.steer) * kHalf;
+}
+
+} // namespace
+
+void wheel_steer(ex::Car& c, CarPart& x, const Tables& t) {
+    ex::wheel_steer(c);
+    const rules::SteerTables& g = t.steer;
+    if (g.mode == 0) return;
+    const rules::WheelLayout& l = x.layout;
+    for (int w = 0; w < l.count && w < 4; ++w) {
+        const size_t i = size_t(w), k = l.geometry[i] & 1u;
+        const ex::Wheel& wh = c.w[i];
+        const F aim = offset_aim(c, x, g, w);
+        const F off = x.tires.steer_offset[i], rate = x.offset_rate[i];
+        F push = g.spring[k] * (aim - off) - g.damping[k] * rate;
+        F lim = g.limit[k];
+        if (g.scale != 0) {
+            const F share = (wh.peak_force * gt3r::ee::int_to_f(l.group_wheels[k])) / x.axle_load[k];
+            if (g.scale == 2 || g.scale == 3) push = push * share;
+            if (g.scale == 1 || g.scale == 3) lim = lim * share;
+        }
+        x.offset_rate[i] = rate + push * c.dt;
+        x.tires.steer_offset[i] = off + x.offset_rate[i] * c.dt;
+        const F o = x.tires.steer_offset[i];
+        if (g.mode == 2) {
+            const F d = o - wh.steer;
+            if (lim < d) x.tires.steer_offset[i] = wh.steer + lim, x.offset_rate[i] = F();
+            else if (d < -lim) x.tires.steer_offset[i] = wh.steer - lim, x.offset_rate[i] = F();
+        } else {
+            if (lim < o) x.tires.steer_offset[i] = lim, x.offset_rate[i] = F();
+            else if (o < -lim) x.tires.steer_offset[i] = -lim, x.offset_rate[i] = F();
+        }
+    }
 }
 
 void ground_frame(ex::Car& c) {
