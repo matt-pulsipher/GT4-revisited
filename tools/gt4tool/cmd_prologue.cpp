@@ -3,6 +3,8 @@
 //   gt4tool prologue <disc> program    the program's build and the shared engine's tables found in it
 //   gt4tool prologue <disc> survey     the disc's formats against Gran Turismo 3's and Gran Turismo 4's, with counts
 //   gt4tool prologue <disc> drivers    every course's driving lines and driver sets (course slots 31, 37 .. 40)
+//   gt4tool prologue <disc> hud        the race display's rows by mode (database/racemode_e3.db, racedetail_e3.db)
+//                                       beside Gran Turismo 3's
 
 #include "disc/core_image.h"
 #include "formats/model/car_model.h"
@@ -12,6 +14,8 @@
 #include "gt4r/formats/course/runway_gtrw.h"
 #include "gt4r/formats/db/specdb.h"
 #include "gt4r/sim/program_prologue.h"
+#include "formats/menu/imgs.h"
+#include "race/hud_layout.h"
 #include "sim/exact/program_data.h"
 
 #include <cstdio>
@@ -168,13 +172,57 @@ int drivers(Disc& disc) {
     return 0;
 }
 
+int hud(Disc& disc) {
+    namespace hr = gt3r::race;
+    auto read = [&disc](const char* path) -> std::optional<Bytes> {
+        const gt3r::Volume::Entry* e = disc.volume().find(path);
+        if (!e) return std::nullopt;
+        return disc.volume().read(*e);
+    };
+    const std::optional<Bytes> modes = read("database/racemode_e3.db"), rows = read("database/racedetail_e3.db");
+    if (!modes || !rows || !hr::set_hud_tables(*modes, *rows)) {
+        std::fprintf(stderr, "error: the display's tables do not read\n");
+        return 1;
+    }
+    for (int m = 0; m <= 15; ++m) {
+        const auto ours_span = hr::hud_layout(hr::HudMode(m));
+        const std::vector<hr::HudRow> ours(ours_span.begin(), ours_span.end());
+        hr::clear_hud_tables();
+        const auto gt3 = hr::hud_layout(hr::HudMode(m));
+        std::vector<hr::HudRow> gt3_rows(gt3.begin(), gt3.end());
+        hr::set_hud_tables(*modes, *rows);
+        std::printf("mode %d: %zu rows (Gran Turismo 3: %zu)\n", m, ours.size(), gt3_rows.size());
+        for (const hr::HudRow& r : ours) {
+            bool same = false;
+            for (const hr::HudRow& g : gt3_rows)
+                same |= g.part == r.part && g.sub == r.sub && g.view == r.view && g.x == r.x && g.y == r.y && g.w == r.w && g.h == r.h && g.align == r.align &&
+                        g.valign == r.valign;
+            std::printf("   part %2d sub %3d view %3d  at %4d,%4d  size %4d,%4d  align %d,%d%s\n", int(r.part), r.sub, r.view, r.x, r.y, r.w, r.h, r.align,
+                        r.valign, same ? "" : "   (not Gran Turismo 3's)");
+        }
+    }
+    hr::clear_hud_tables();
+    // The display's pictures (race/<region>/display/display.imgs).
+    for (const char* region : {"JP", "US", "BR"}) {
+        const std::string path = std::string("race/") + region + "/display/display.imgs";
+        const std::optional<Bytes> imgs = read(path.c_str());
+        if (!imgs || !gt3r::menu::Imgs::is_imgs(*imgs)) continue;
+        const gt3r::menu::Imgs set = gt3r::menu::Imgs::parse(*imgs);
+        std::printf("%s: %zu pictures:", path.c_str(), set.entries.size());
+        for (const auto& e : set.entries) std::printf(" %s", e.name.c_str());
+        std::printf("\n");
+    }
+    return 0;
+}
+
 } // namespace
 
 int cmd_prologue(Disc& disc, const Args& a) {
     if (a[0] == "program") return program(disc, a.size() > 1 && a[1] == "issues");
     if (a[0] == "survey") return survey(disc);
     if (a[0] == "drivers") return drivers(disc);
-    std::fprintf(stderr, "usage: gt4tool prologue <disc> program | survey | drivers\n");
+    if (a[0] == "hud") return hud(disc);
+    std::fprintf(stderr, "usage: gt4tool prologue <disc> program | survey | drivers | hud\n");
     return 2;
 }
 

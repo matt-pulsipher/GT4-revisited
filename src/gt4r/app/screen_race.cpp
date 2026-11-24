@@ -15,6 +15,7 @@
 #include "gt4r/app/app.h"
 #include "gt4r/app/menu_painter.h"
 #include "gt4r/app/race_hud.h"
+#include "gt4r/app/race_hud_prologue.h"
 #include "gt4r/app/race_world.h"
 #include "gt4r/audio/app_sound.h"
 #include "gt4r/audio/race_playlist.h"
@@ -841,6 +842,9 @@ public:
             if (hud_ && hud_->ready()) {
                 race_->fill(hud_state_, *hud_);
                 hud_->draw(ui, hud_state_);
+            } else if (prologue_hud_ && hud_) {
+                race_->fill(hud_state_, *hud_);
+                prologue_hud_->draw(ui, hud_state_, prologue_extra()); // (Prologue's: Gran Turismo 3's display)
             } else {
                 draw_overlay(ui);
             }
@@ -954,6 +958,7 @@ private:
             // Exit: the run ends (end code 2); the sequence's menus again.
             if (menus_) return run_over();
             report();
+            prologue_hud_.reset();
             hud_.reset();
             race_.reset();
             if (setup_.scripted) app.pop();
@@ -1393,6 +1398,11 @@ private:
         try {
             race_ = std::make_unique<Race>(app, setup_, cars_);
             hud_ = std::make_unique<RaceHud>(app, race_->course().section(course::kSlotMiniMap));
+            prologue_hud_.reset();
+            if (!hud_->ready()) { // (Prologue's display: Gran Turismo 3's on its own pictures and rows)
+                auto p = std::make_unique<PrologueHud>(app, race_->course().section(course::kSlotMiniMap));
+                if (p->ready()) prologue_hud_ = std::move(p);
+            }
             race_->set_lap_words(hud_->word("WordOfLap"), hud_->word("WordOfLaps"));
             // The replay card's tires and race name.
             const std::string& seq = setup_.sequence;
@@ -1458,6 +1468,24 @@ private:
         ui.footer("{Left/Right}: course or car  {Up/Down}: select  {L1}/{R1}: a page  {Cross}: drive  {Triangle}: back");
     }
 
+    // What Prologue's display shows besides the race's state: the count from the message the race
+    // writes ("3", "2", "1", then START), the finish, the run's kind.
+    PrologueHud::Extra prologue_extra() const {
+        PrologueHud::Extra e;
+        const HudState& h = hud_state_;
+        if (setup_.sequence == "license") e.run = gt3r::race::HudRun::License;
+        else if (setup_.sequence == "time_trial") e.run = gt3r::race::HudRun::TimeTrial;
+        else if (setup_.sequence == "freerun") e.run = gt3r::race::HudRun::FreeRun;
+        e.live = !h.replay;
+        if (!h.message.empty() && h.message_opacity > 0) {
+            const bool digits = std::all_of(h.message.begin(), h.message.end(), [](char c) { return c >= '0' && c <= '9'; });
+            if (digits) e.countdown = std::atoi(h.message.c_str());
+            else if (!race_->flow().player_finished()) e.countdown = 0;
+        }
+        if (race_->flow().player_finished()) e.finish_t = double(race_->flow().steps_since_player_finish()) / 60.0;
+        return e;
+    }
+
     // A plain read-out until the game's own race display is drawn.
     void draw_overlay(Ui& ui) {
         const race::CarState& s = race_->player();
@@ -1475,6 +1503,7 @@ private:
     int course_sel_ = 0, car_sel_ = 0, column_ = 0;
     std::unique_ptr<Race> race_;
     std::unique_ptr<RaceHud> hud_;
+    std::unique_ptr<PrologueHud> prologue_hud_; // (Prologue's display, when the disc's is not Gran Turismo 4's)
     HudState hud_state_;
     std::string error_;
     bool paused_ = false, look_back_ = false, from_menus_ = false;
