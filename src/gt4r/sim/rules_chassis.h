@@ -13,6 +13,8 @@ struct ChassisExtra {
     F mass;                     // F + 0x4D4: the car's mass as the step reads it
     std::array<F, 4> wheel_lat; // wheel +0xD4: the wheel's force across the car
     F yaw_follow, yaw_follow_v; // F + 0x63C / + 0x640: a follower of the yaw acceleration (0x350D40)
+    u8 aero_mode = 0;           // F + 0x5C3: 2 gives the drag a factor of 20 (0x3F3090) ❓ what sets it
+    F speed_part_state;         // F + 0x594: the part that changes with speed, how far it is out (phase 15, 0x3F28B8: not ported)
 };
 // Every member of ChassisExtra with its place in Gran Turismo 4's record: v(name, index (-1: single), block, offset, member).
 template <class X, class V> void chassis_fields(X& x, V&& v) {
@@ -20,7 +22,23 @@ template <class X, class V> void chassis_fields(X& x, V&& v) {
     v("mass", -1, Block::Car, layout::kState + 0x4D4, x.mass);
     for (int w = 0; w < 4; ++w) v("w.lat", w, Block::Car, layout::kWheel0 + layout::kWheelSize * u32(w) + 0xD4, x.wheel_lat[size_t(w)]);
     v("yaw_follow", -1, Block::Car, layout::kState + 0x63C, x.yaw_follow), v("yaw_follow_v", -1, Block::Car, layout::kState + 0x640, x.yaw_follow_v);
+    v("aero_mode", -1, Block::Car, layout::kState + 0x5C3, x.aero_mode);
+    v("speed_part_state", -1, Block::Car, layout::kState + 0x594, x.speed_part_state);
 }
+
+// The aerodynamics' globals (0x622308 ..), as the race's start sets them (0x3F2F78): the air's density (the static
+// block's byte +0 x 0.1), the drag's and the downforce's shares that a slipstream does not take (+1 and +2 over +0), and the
+// slipstream filter's rates up and down (10 over +5 and +6; 1 and 0.25 without them).
+struct AeroGlobals {
+    F density, drag_share, downforce_share, rate_up, rate_down;
+};
+constexpr u32 kAeroGlobals = 0x62230C;
+AeroGlobals aero_globals(const Program& program);
+// 0x3F3090 (phase 4): the slipstream's filter (F + 0x5A0) toward the target (F + 0x59C); the drag, its share a slipstream
+// takes off (x 20 in the mode F + 0x5C3 = 2); the downforce with the same, faded out with the flow's angle to the body
+// (atan2 of the velocity along the body's up axis over the speed) from 5 to 10 degrees; then the part that changes with
+// speed (0x3F2DB8: kinds 1, 2, 5 and 6 add its lift x its state to the rear).
+void aero(ex::Car& c, const ChassisExtra& x, u8 speed_part_kind, F speed_part_lift, const AeroGlobals& g);
 
 // 0x351FA8: the speed along the body: the driving forces along each wheel's heading, rolling
 // resistance and drag over the mass and the free wheels' (their flag byte 0); then the braking and
@@ -31,9 +49,9 @@ void forward_step(ex::Car& c, const ChassisExtra& x, const TireExtra& t, const W
 // low-speed hold (0x3522B0, the engine's with 2002 Tokyo-Geneva's constants) and the longitudinal
 // force turned into the car's frame, about the levers the wheel layout gives; the yaw rate within a
 // turn a second; the lateral acceleration over the mass and over the tires' grip.
-// `driver_grip`: the computer driver's grip on a surface (0x467470; 1 for a player's car).
+// `driver_grip`: the computer driver's grip by tire class (0x467470; null for a player's car: 1).
 void lateral_yaw(ex::Car& c, ChassisExtra& x, const TireExtra& t, const WheelLayout& l, bool airborne, const SlipForceGlobals& g,
-                 F driver_grip = F(1.0f));
+                 const std::array<F, 3>* driver_grip = nullptr);
 // 0x352C90: the hold counter's and the start's stops, a braked car's stop near standstill, else the
 // accelerations into the velocity.
 void stop_hold(ex::Car& c, const WheelLayout& l, bool airborne);

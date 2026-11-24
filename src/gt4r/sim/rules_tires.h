@@ -98,7 +98,10 @@ F load_per_width(const TireExtra& x, const WheelLayout& l, int w, F load);
 // axle's grip, the surface's grip, the camber's grip at the body's roll over the ground plus the
 // wheel's own camber; times the computer driver's grip for the tire (`driver_grip`, 1 for a player's
 // car: 0x467470).
-void peak_force(ex::Car& c, TireExtra& x, const WheelLayout& l, bool wear, F driver_grip = F(1.0f));
+void peak_force(ex::Car& c, TireExtra& x, const WheelLayout& l, bool wear, const std::array<F, 3>* driver_grip = nullptr);
+// 0x467470: a computer driver's grip for a wheel on a surface: its grip by the front axle's tire record class
+// on that surface (the driver's parameter block +0xA8 + 4 x the index P + 0xF98 + surface); 1 without a driver.
+F driver_grip(const TireExtra& x, const std::array<F, 3>* grip, u8 surface);
 // The static block's slip ratio bytes (0x620CD8 + 0xB4, 8 bytes): the fade speeds (km/h) by the hub's
 // speed (braking) and the rim's (driving), then per side (0 braking, 1 driving) the gain's switch, its
 // value at rest (percent) and the speed it reaches 1 at (km/h).

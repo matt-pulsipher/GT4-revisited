@@ -1,14 +1,16 @@
 #pragma once
 
+#include <optional>
+
 // A session's cars stepped on a course: race::Simulation over the shared engine's vehicle step with
 // Gran Turismo 4's cars, tables and road (docs/specs/physics.md "What runs where"). One step is 1/60 s.
 
 #include "gt4r/race/simulation.h"
 #include "gt4r/sim/car_spec.h"
+#include "gt4r/sim/collide.h"
 #include "gt4r/sim/ground.h"
 #include "gt4r/sim/record.h"
 #include "gt4r/sim/rules_step.h"
-#include "sim/collision_exact.h"
 #include "sim/exact/tick.h"
 
 #include <limits>
@@ -75,6 +77,16 @@ public:
     bool gt4_rules() const { return gt4_rules_; }
     // A car's Gran Turismo 4 part of the record (record.h) and wheel layout.
     const sim::Extra& gt4_record(size_t i) const { return gx_[i]; }
+    // The aid block of the computer driver that drives a car (rules::driver_block from the course's set for the car:
+    // 0x466C20), which Gran Turismo 4's aids use while a computer drives it. Without one a computer's car has no aids.
+    void set_driver_aids(size_t car, const gt3r::sim::exact::Aids& block);
+    // And its grip by tire class (the parameter block's +0xA8: 0x467470), which scales the car's tires' peak forces.
+    void set_driver_aids(size_t car, const gt3r::sim::exact::Aids& block, const std::array<gt3r::ee::F, 3>& grip);
+    // For gt4r_diff's whole-step comparison: a car's state set as a whole (the engine's mirror and Gran Turismo 4's
+    // part), and its collision body.
+    void load_state(size_t i, const gt3r::sim::exact::Car& c, const sim::Extra& x) { cars_[i] = c, gx_[i] = x; }
+    collide::Body& body(size_t i) { return bodies_[i]; }
+    const rules::WheelLayout& wheel_layout(size_t i) const { return layouts_[i]; }
     // What the session runs on stand-ins for ("the disc's program is not a build whose tables are mapped").
     const std::vector<std::string>& notes() const { return notes_; }
 
@@ -97,7 +109,7 @@ private:
     };
     void place(size_t i, const course::Runway::Place& at);
     void ground_contact(gt3r::sim::exact::Car& c, Extra& x);
-    void chassis(gt3r::sim::exact::Car& c, Extra& x);
+    void chassis(size_t i);
     void collide();
     void publish(size_t i);
 
@@ -106,12 +118,15 @@ private:
     std::unique_ptr<gt3r::sim::exact::ProgramData> data_;
     gt3r::sim::exact::RaceInputs race_;
     std::vector<gt3r::sim::exact::Car> cars_;
-    class Walls;
-    std::unique_ptr<Walls> walls_;
-    std::vector<gt3r::sim::collide::exact::Body> bodies_;
+    std::unique_ptr<collide::Walls> walls_;
+    std::vector<collide::Body> bodies_;
+    std::vector<collide::CarIn> body_cars_;
     std::vector<Extra> extra_;
     std::vector<sim::Extra> gx_;
     std::vector<rules::WheelLayout> layouts_;
+    std::vector<std::optional<gt3r::sim::exact::Aids>> driver_aids_; // a computer driver's aid block per car
+    std::vector<std::optional<std::array<gt3r::ee::F, 3>>> driver_grip_; // and its grip by tire class
+    rules::AidRace aid_race_;
     rules::Tables tables_;
     bool gt4_ready_ = false, gt4_rules_ = false;
     std::vector<Spec> specs_;

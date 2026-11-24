@@ -2,11 +2,14 @@
 // its own initialisation set up (orig.h), with our routines compared in place at every call (taps.h).
 
 #include "diff.h"
+#include "collide_check.h"
 #include "orig.h"
 #include "taps.h"
 
 #include "gt4r/sim/exact_bridge.h"
 #include "gt4r/sim/rules.h"
+#include "gt4r/sim/rules_body.h"
+#include "gt4r/sim/ground.h"
 #include "gt4r/sim/rules_chassis.h"
 #include "gt4r/sim/rules_drive.h"
 #include "gt4r/sim/rules_step.h"
@@ -15,6 +18,7 @@
 #include "sim/exact/tick.h"
 
 #include <cmath>
+#include <optional>
 #include <cstdio>
 #include <cstdlib>
 
@@ -58,8 +62,46 @@ sim::rules::DriveTables drive_tables(Ee& ee) {
     return sim::rules::drive_tables(a, st, g);
 }
 
+// A computer driver's grip by tire class (0x467470: control source 1 / 2 or a driver kind; its parameter block +0xA8).
+std::optional<std::array<gt3r::ee::F, 3>> driver_grip_of(TapCall& t) {
+    const u32 car = t.race.car(t.car_index), F = car + kF;
+    const gt3r::s8 control = gt3r::s8(t.ee.r8(F + 0x466));
+    if (control != 1 && control != 2 && t.ee.r8(F + 0x467) == 0) return std::nullopt;
+    const u32 d = car + 0x14, v0 = t.ee.r32(d + 0xE8), a1 = t.ee.r32(d + 0xE4);
+    const u32 pb = t.ee.r32(a1 + 4 * u32(t.ee.r8(v0 + 0x544)) + 0x10024);
+    std::array<gt3r::ee::F, 3> g;
+    for (u32 k = 0; k < 3; ++k) g[k] = gt3r::ee::F::raw(t.ee.r32(pb + 0xA8 + 4 * k));
+    return g;
+}
+
+sim::rules::BodyGlobals body_globals(Ee& ee) {
+    return sim::rules::body_globals([&](u32 a) { return ee.r32(a); }, [&](u32 a) { return ee.r8(a); });
+}
+
 void add_taps(Taps& taps) {
     using namespace sim::rules;
+    taps.add({0x369888, "road bumps", car_a0,
+              [](TapCall& t) {
+                  std::array<u8, 4> surface{}, material{};
+                  for (size_t w = 0; w < 4; ++w)
+                      material[w] = t.car.g[w].material, surface[w] = u8(sim::surface_index(t.car.g[w].material, t.car.g[w].flags));
+                  road_bumps(t.car, t.rec.layout, bump_tables([&](u32 a) { return t.ee.r32(a); }, [&](u32 a) { return t.ee.r8(a); }), surface, material);
+              },
+              {"w.ground", "w.surface", "w.x25", "w.surface_flags", "road_seg", "flags", "x535", "aids."}});
+    taps.add({0x3F3090, "aero", car_a0, [](TapCall& t) {
+                  aero(t.car, t.rec.x.chassis, t.rec.x.body.speed_part_kind, t.rec.x.body.speed_part_lift,
+                       {gt3r::ee::F::raw(t.ee.r32(kAeroGlobals - 4)), gt3r::ee::F::raw(t.ee.r32(kAeroGlobals)), gt3r::ee::F::raw(t.ee.r32(kAeroGlobals + 4)),
+                        gt3r::ee::F::raw(t.ee.r32(kAeroGlobals + 8)), gt3r::ee::F::raw(t.ee.r32(kAeroGlobals + 12))});
+              }});
+    taps.add({0x35D350, "ground frame", car_a0, [](TapCall& t) { ground_frame(t.car, t.rec.layout); }});
+    taps.add({0x3697A8, "query points", car_a0, [](TapCall& t) { query_points(t.car, t.rec.x.body, t.rec.layout); }});
+    taps.add({0x36A490, "terrain", car_a0, [](TapCall& t) { terrain(t.car, t.rec.x.body, t.rec.layout); }});
+    taps.add({0x36A758, "suspension", car_a0, [](TapCall& t) { suspension(t.car, t.rec.x.body, t.rec.x.chassis, t.rec.layout, body_globals(t.ee)); }});
+    // (while the hold counter runs the program's start hold, 0x36AE20, answers instead: not ported)
+    taps.add({0x36B0C8, "attitude", car_a0, [](TapCall& t) {
+                  if (t.car.hold == 0) attitude(t.car, t.rec.x.body, t.rec.x.chassis, t.rec.x.tires, t.rec.layout, body_globals(t.ee));
+              }});
+    taps.add({0x36BA88, "bump nudge", car_a0, [](TapCall& t) { bump_nudge(t.car, t.rec.x.body, t.rec.layout); }});
     taps.add({0x3511A0, "brakes and clutch", car_a0, [](TapCall& t) { brakes_and_clutch(t.car, t.rec.x.drive, t.rec.layout); }});
     taps.add({0x36D230, "wheel torques", car_a0, [](TapCall& t) { wheel_torques(t.car, t.rec.x.drive, t.rec.layout); }});
     taps.add({0x36D2F8, "vectoring", car_a0, [](TapCall& t) { vectoring(t.car, t.rec.x.drive, t.rec.layout); }});
@@ -80,7 +122,8 @@ void add_taps(Taps& taps) {
               }});
     taps.add({0x357418, "peak force", car_a0, [](TapCall& t) {
                   const bool wear = wear_grip(t.car, t.rec.x.wear, t.rec.x.tires, t.rec.layout, wear_rules_of(t));
-                  peak_force(t.car, t.rec.x.tires, t.rec.layout, wear);
+                  const auto g = driver_grip_of(t);
+                  peak_force(t.car, t.rec.x.tires, t.rec.layout, wear, g ? &*g : nullptr);
               }});
     taps.add({0x351778, "slip ratios", car_a0, [](TapCall& t) {
                   u8 b[8];
@@ -95,7 +138,8 @@ void add_taps(Taps& taps) {
               }});
     taps.add({0x352408, "tire slip force", car_a0, [](TapCall& t) { tire_slip_force(t.car, t.rec.x.tires, t.rec.layout, slip_globals(t.ee)); }});
     taps.add({0x352848, "lateral and yaw", car_a0, [](TapCall& t) {
-                  lateral_yaw(t.car, t.rec.x.chassis, t.rec.x.tires, t.rec.layout, t.ee.a(1) != 0, slip_globals(t.ee));
+                  const auto g = driver_grip_of(t);
+                  lateral_yaw(t.car, t.rec.x.chassis, t.rec.x.tires, t.rec.layout, t.ee.a(1) != 0, slip_globals(t.ee), g ? &*g : nullptr);
               }});
     taps.add({0x352C90, "stop hold", car_a0, [](TapCall& t) { stop_hold(t.car, t.rec.layout, t.ee.a(1) != 0); }});
     taps.add({0x351FA8, "forward step", car_a0, [](TapCall& t) { forward_step(t.car, t.rec.x.chassis, t.rec.x.tires, t.rec.layout); }});
@@ -115,6 +159,17 @@ void add_taps(Taps& taps) {
         taps.add({0x351DC8, "engine: gear", car_a0, [](TapCall& t) { ex::gear_step(t.car, t.inputs.gears); }});
         taps.add({0x3F38D8, "engine: brake heat", car_a0, [](TapCall& t) { ex::brake_heat(t.car, t.inputs.brake_heat); }});
         taps.add({0x3F7EA8, "engine: wheel steer", car_a0, [](TapCall& t) { ex::wheel_steer(t.car); }});
+        taps.add({0x36A490, "engine: terrain", car_a0, [](TapCall& t) { ex::terrain_factor(t.car); }});
+        taps.add({0x36A758, "engine: suspension", car_a0, [](TapCall& t) { ex::suspension(t.car, nullptr); }});
+        taps.add({0x36B0C8, "engine: attitude", car_a0, [](TapCall& t) { ex::attitude(t.car, gt3r::ee::F()); }});
+        taps.add({0x36BA88, "engine: bump nudge", car_a0, [](TapCall& t) { ex::bump_nudge(t.car); }});
+        taps.add({0x3F3090, "engine: aero", car_a0, [](TapCall& t) { ex::aero(t.car, t.inputs.prep.slip); }});
+        taps.add({0x35D350, "engine: ground frame", car_a0, [](TapCall& t) { ex::ground_frame(t.car); }});
+        taps.add({0x35DE20, "engine: speeds", car_a0, [](TapCall& t) { ex::speed_bookkeeping(t.car, t.inputs.prep.condition); }});
+        taps.add({0x344040, "engine: wheel spin", car_a0, [](TapCall& t) { ex::wheel_spin(t.car); }});
+        taps.add({0x3458D0, "engine: hub offsets xy", car_a0, [](TapCall& t) { ex::hub_offsets_xy(t.car); }});
+        taps.add({0x345A50, "engine: speed ramp", car_a0, [](TapCall& t) { ex::speed_ramp(t.car); }});
+        taps.add({0x3457B0, "engine: hub heights", car_a0, [](TapCall& t) { ex::hub_offsets_z(t.car); }});
     }
     taps.add({0x36C9F8, "body axes", [](Ee& e) { return u32(e.a(0)) - 0x110; }, [](TapCall& t) { sim::rules::body_axes(t.car); }});
 }
@@ -133,6 +188,8 @@ Pad drive(int i) {
 }
 
 } // namespace
+
+void add_step_taps(Taps& taps) { add_taps(taps); }
 
 StepResult run_step(Disc& disc, bool print, const std::string& course_label, const std::string& car_label, int step_count) {
     StepResult result;
@@ -161,6 +218,14 @@ StepResult run_step(Disc& disc, bool print, const std::string& course_label, con
     const ex::RaceInputs inputs = ex::race_inputs(data, ex::Conductor::SinglePlayer, config, false, 0);
     Taps taps(ee, o, inputs);
     add_taps(taps);
+    add_taps_aids(taps);
+    add_taps_steer(taps);
+    // GT4R_STEP_COLLIDE: the collision step and the road query against ours at every call (collide_check.cpp).
+    std::unique_ptr<CollideCheck> collide_check;
+    if (std::getenv("GT4R_STEP_COLLIDE")) {
+        collide_check = std::make_unique<CollideCheck>(ee, o, disc, course_name);
+        collide_check->install(true, true);
+    }
     if (std::getenv("GT4R_DUMP")) {
         const u32 at = o.car(0);
         for (u32 off = 0; off < kCarSize; off += 4) {
@@ -185,6 +250,17 @@ StepResult run_step(Disc& disc, bool print, const std::string& course_label, con
                 const u32 W = o.car(i) + sim::layout::kWheel0 + sim::layout::kWheelSize * w;
                 ee.wf(W + 0xAC, a[w] + 0.6f * float(m >> 2)), ee.wf(W + 0xA8, b[w] + 0.5f * float(m >> 2));
             }
+    }
+    if (std::getenv("GT4R_DUMP_BODY")) { // the suspension's and body's values past the engine's
+        const u32 pb = o.params(0), F = o.car(0) + kF;
+        for (u32 a = 0; a < 2; ++a)
+            std::printf("  axle %u: mass +0x38 %g, hold droop +0x44 %g, +0x48 %g, +0x4C %g, +0x50 %g, +0x54 %g, tire drop P+0x2DC %g, radius %g\n", a,
+                        double(ee.rf(pb + 0x308 + 0x58 * a + 0x38)), double(ee.rf(pb + 0x308 + 0x58 * a + 0x44)), double(ee.rf(pb + 0x308 + 0x58 * a + 0x48)),
+                        double(ee.rf(pb + 0x308 + 0x58 * a + 0x4C)), double(ee.rf(pb + 0x308 + 0x58 * a + 0x50)), double(ee.rf(pb + 0x308 + 0x58 * a + 0x54)),
+                        double(ee.rf(pb + 0x2DC + 4 * a)), double(ee.rf(pb + 0x2C4 + 4 * a)));
+        std::printf("  P+0x20 %g P+0x24 %g roll centre P+0x1060 %g, 0x1076 %u 0x1077 %u 0x1084 %g, mass F+0x4D4 %g, F+0x4D8 %g, P+0x48 %g\n", double(ee.rf(pb + 0x20)),
+                    double(ee.rf(pb + 0x24)), double(ee.rf(pb + 0x1060)), ee.r8(pb + 0x1076), ee.r8(pb + 0x1077), double(ee.rf(pb + 0x1084)), double(ee.rf(F + 0x4D4)),
+                    double(ee.rf(F + 0x4D8)), double(ee.rf(pb + 0x48)));
     }
     if (std::getenv("GT4R_DUMP_WEAR")) {
         for (u32 off = 0; off < 0x6C; off += 4) std::printf("  wear +%02X %08X %g\n", off, ee.r32(o.cond + 4 + off), double(ee.rf(o.cond + 4 + off)));
@@ -270,6 +346,7 @@ StepResult run_step(Disc& disc, bool print, const std::string& course_label, con
         std::printf("step: %d steps of the program's own; the car at %.2f %.2f %.2f, %.1f km/h\n", steps, double(ee.rf(at + kF)), double(ee.rf(at + kF + 4)),
                     double(ee.rf(at + kF + 8)), double(ee.rf(at + kF + 0x53C)) * 3.6);
         taps.print();
+        if (collide_check) collide_check->print();
     }
     for (const TapStat& st : taps.stats()) result.taps.push_back({st.name, size_t(st.calls), size_t(st.clean)});
     result.ran = true;

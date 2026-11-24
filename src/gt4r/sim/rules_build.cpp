@@ -217,13 +217,67 @@ void drive_blocks(const Spec& s, const Program& program, const gt3r::sim::exact:
         s32 v = gt3r::ee::to_int((((turn * d.ratio[g + 1]) / d.ratio[g]) * F::raw(0x42700000)) / F::raw(0x40C90FDA));
         if (program.b(Program::kStatic + 0x112) && g == 1) v = (s32(d.launch_rpm) + v) / 2;
         v -= gt3r::ee::to_int(((d.gear_speed[g + 1] * F::raw(0x4031C71B)) * F::raw(0x42700000)) / F::raw(0x40C90FDA));
-        const s32 least = s32(d.launch_rpm) + 500 * s32(g);
+        const s32 least = s32(d.launch_rpm) + 500; // (the launch speed + 500 for every gear)
         d.down_rpm[g - 1] = u16(v < least ? least : v);
     }
     if (stepless && d.gears >= 2)
         for (u32 g = 2; g <= d.gears && g < 10; ++g) d.ratio[g] = d.ratio[g] / d.ratio[1];
     d.x13 = d.up_rpm < 4500 ? 1 : d.up_rpm < 5000 ? 2 : 3;
     if (s.b(0x01) == 5) d.x13 = 4;
+}
+// The suspension's and body's part (0x361908, 0x360B60, 0x34BA30).
+void body_extras(const Spec& s, const gt3r::sim::exact::Params& p, const rules::WheelLayout& l, rules::BodyExtra& b) {
+    const F kQuarter = F::raw(0x3E800000), kMilli = F::raw(0x3A83126E), kInch = F::raw(0x3CD013A9), kHalfInch = F::raw(0x3C5013A9);
+    const F kHalf = F::raw(0x3F000000), kTwentieth = F::raw(0x3D4CCCCC);
+    for (u32 a = 0; a < 2; ++a) {
+        rules::AxleBody& x = b.axle[a];
+        // The wheel's own mass: the spec's unsprung kilograms x 0.25 (0x360B60).
+        x.wheel_mass = int_to_f(s.b((a ? 0x70u : 0x58u) + 3)) * kQuarter;
+        x.linear_bump_max = F(), x.linear_rebound_max = F(); // (the linear damper fit's; ❓ their builder: not used, 0x620DD9 is 0)
+        // The tire's sidewall (0x34BA30): width x aspect; less a rim made larger by the chassis (tire kinds 6 .. 10), at least half an inch.
+        const u8 wb = s.b(0x1C8 + a), rim = s.b(0x1CA + a), aspect = s.b(0x1CC + a);
+        const F width = int_to_f(wb ? s32(wb) * 5 : 10) * kMilli;
+        F half;
+        if (rim < 61) half = (int_to_f(rim) * kInch) * kHalf;
+        else if (rim % 10 == 0) half = (int_to_f(rim / 10) * kInch) * kHalf;
+        else half = (int_to_f(rim) * kInch) * kTwentieth;
+        F drop = (width * int_to_f(aspect)) * kTwentieth;
+        const gt3r::s8 bigger = gt3r::s8(s.b(0x1E2 + a));
+        if (bigger != 0) {
+            F more = (int_to_f(bigger) * kInch) * kHalf;
+            if (half + more < kInch) more = kInch - half;
+            drop = drop - more;
+            if (drop < kHalfInch) drop = kHalfInch;
+        }
+        b.tire_drop[a] = drop;
+    }
+    // The droops while the hold counter runs (0x362D48): each axle's droop, the one whose hub hangs higher
+    // over it moved down to the other's.
+    {
+        const gt3r::sim::exact::Suspension &f = p.susp[0], &r = p.susp[1];
+        b.axle[0].hold_droop = f.droop, b.axle[1].hold_droop = r.droop;
+        const F df = f.offset - f.droop, dr = r.offset - r.droop;
+        if (dr < df) b.axle[1].hold_droop = r.droop - (df - dr);
+        else if (df < dr) b.axle[0].hold_droop = f.droop - (dr - df);
+    }
+    b.front_share = F::raw(0x3F800000) - p.rear_weight;
+    b.roll_centre = int_to_f(s.b(0x27)) * kMilli;
+    // The part that changes with speed (0x361908): its damping row the spec's +0xA8, its kind +0x4C; kind 7's lift
+    // +0x50 x 98 (N), dropped with the kind when the ride heights differ by more than 3 cm (❓ the other kinds' +0x1084:
+    // +0x50 x 0.01 x the drag's area term, 0 here; no reader of it is ported).
+    b.speed_part = s.b(0xA8), b.speed_part_kind = s.b(0x4C), b.speed_part_lift = F();
+    if (b.speed_part_kind == 7) {
+        b.speed_part_lift = int_to_f(s.b(0x50)) * F::raw(0x42C3FFFF);
+        F d = p.ride_height[0] - p.ride_height[1];
+        if (d < F()) d = -d;
+        if (F::raw(0x3CF5C28F) < d) b.speed_part_lift = F(), b.speed_part_kind = 0;
+    }
+    // The sprung mass (0x362B58): the mass less each axle's wheels' own.
+    const F nf = int_to_f(l.axle_wheels[0]), nr = int_to_f(l.axle_wheels[1]);
+    if (l.axle_wheels[0] == 2 && l.axle_wheels[1] == 2) {
+        const F sum = b.axle[0].wheel_mass + b.axle[1].wheel_mass;
+        b.sprung_mass = p.mass - (sum + sum);
+    } else b.sprung_mass = p.mass - (b.axle[0].wheel_mass * nf + b.axle[1].wheel_mass * nr);
 }
 } // namespace
 
@@ -327,6 +381,9 @@ void gt4_extras(const Spec& s, const Program& program, Record& r) {
     t.direct_slip_scale = kOne / speed(0x119);
     r.x.chassis.mass = p.mass;
     drive_blocks(s, program, p, r.x.drive);
+    body_extras(s, p, r.layout, r.x.body);
+    rules::aid_extras(s.bytes.data(), p.brake_torque, r.x.drive.d.tire_radius, r.x.aids);
+    rules::steer_params(r.x.steer, s, r.car.p, r.x.body, r.layout);
 }
 
 } // namespace gt4r::sim

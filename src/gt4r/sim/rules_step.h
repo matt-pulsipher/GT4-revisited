@@ -6,6 +6,9 @@
 
 #include "gt4r/sim/program.h"
 #include "gt4r/sim/record.h"
+#include "gt4r/sim/rules_aids.h"
+#include "gt4r/sim/rules_body.h"
+#include "gt4r/sim/rules_steer.h"
 #include "gt4r/sim/rules_chassis.h"
 #include "gt4r/sim/rules_drive.h"
 #include "gt4r/sim/rules_tires.h"
@@ -22,6 +25,14 @@ struct Tables {
     WearRules wear; // (all off: the wear rules of the races seen)
     DriveTables drive;
     ex::BrakeHeatConsts brake_heat; // (0x3F3808 from the static block's +0xAC .. +0xAF)
+    BodyGlobals body;
+    AidTables aids;
+    SteerTables steer;
+    BumpTables bumps; // (the session's: by the course's kind)
+    AeroGlobals aero;
+    // The rule block's +0x18 .. +0x1B (conductor + 0xF830): each drive class's extra grip for a car a computer drives, in
+    // percent (phase 10). A single race's conductor sets each 0 to 20 (0x353570).
+    std::array<s8, 4> class_grip{20, 20, 20, 20};
 };
 // From the program (its static block and globals: each surface's rolling resistance as the race's start
 // 0x35F808 makes it) and the engine's rolling resistance curve (from the same static block).
@@ -29,14 +40,14 @@ Tables tables(const Program& program, const ex::Statics& statics);
 
 // Phase 4's engine and tire part after the engine's preparation: the engine's full-throttle and friction
 // torques (the 24-point curve), the wear's grip, peak forces and slip angles.
-void prep_tires(ex::Car& c, Extra& x, const WheelLayout& l, const Tables& t, const ex::Condition& cond);
+// `grip`: a computer driver's grip by tire class (0x467470), null for a player's car.
+void prep_tires(ex::Car& c, Extra& x, const WheelLayout& l, const Tables& t, const ex::Condition& cond, const std::array<F, 3>* grip = nullptr);
 // Phase 8: slip ratios.
 inline void slip_phase(ex::Car& c, Extra& x, const WheelLayout& l, const Tables& t) { slip_ratios(c, x.tires, l, t.slip); }
-// Phase 10 (0x3535B0) for a car a player drives: brakes and clutch, the tire forces, the speed along the
+// 0x353570: a single race's class grips, each 0 (the event leaves it) 20.
+std::array<s8, 4> single_race_class_grip(std::array<s8, 4> event);
+// Phase 10 (0x3535B0), a player's car or a computer's: brakes and clutch, the tire forces, the speed along the
 // body, the wheels' torques, the driveline, engine and gearbox, the lateral forces, yaw and hold.
-// `computer`: a computer drives the car (our drivers, whose cars the session runs as a player's). The program
-// shifts a computer's car at its driver's speeds (0x36BEE0 / 0x36BF28 through 0x3F1E30, the driver's byte +0x83
-// / 128): not ported, so its gearbox is the engine's (the converter's down-shift speeds).
-void dynamics(ex::Car& c, Extra& x, const WheelLayout& l, const Tables& t, bool computer = false);
+void dynamics(ex::Car& c, Extra& x, const WheelLayout& l, const Tables& t, const std::array<F, 3>* grip = nullptr);
 
 } // namespace gt4r::sim::rules

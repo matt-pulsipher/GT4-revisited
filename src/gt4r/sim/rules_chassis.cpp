@@ -3,10 +3,56 @@
 #include "gt4r/sim/rules_chassis.h"
 
 #include "base/ee_math.h"
+#include "gt4r/sim/program.h"
+#include "sim/exact/build_math.h"
 
 namespace gt4r::sim::rules {
 
-void lateral_yaw(ex::Car& c, ChassisExtra& x, const TireExtra& t, const WheelLayout& l, bool air, const SlipForceGlobals& g, F driver_grip) {
+AeroGlobals aero_globals(const Program& program) {
+    // 0x3F2F78 (the race's start, 0x35F808): from the static block's bytes +0 .. +6 (the image's words are not these)
+    const u32 S = Program::kStatic;
+    const F one = F::raw(0x3F800000), ten = F::raw(0x41200000);
+    AeroGlobals g;
+    g.density = gt3r::ee::int_to_f(program.b(S)) * F::raw(0x3DCCCCCC);
+    if (program.b(S) != 0) {
+        const F base = gt3r::ee::int_to_f(program.b(S));
+        g.downforce_share = gt3r::ee::int_to_f(program.b(S + 2)) / base;
+        g.drag_share = gt3r::ee::int_to_f(program.b(S + 1)) / base;
+    }
+    g.rate_up = program.b(S + 5) != 0 ? ten / gt3r::ee::int_to_f(program.b(S + 5)) : one;
+    g.rate_down = program.b(S + 6) != 0 ? ten / gt3r::ee::int_to_f(program.b(S + 6)) : F::raw(0x3E800000);
+    return g;
+}
+
+void aero(ex::Car& c, const ChassisExtra& x, u8 kind, F lift, const AeroGlobals& g) {
+    const F zero = F(), one = F::raw(0x3F800000);
+    const F v2 = c.speed * c.speed;
+    if (c.slip_target == zero) {
+        const F y = c.slip_filter - (g.rate_down * c.dt);
+        c.slip_filter = y < zero ? zero : y;
+    } else {
+        const F y = c.slip_filter + ((c.slip_target * g.rate_up) * c.dt);
+        c.slip_filter = one < y ? one : y;
+    }
+    const F across = ((c.vel.x * c.up.x) + (c.vel.y * c.up.y)) + (c.vel.z * c.up.z);
+    F angle = ex::atan2(behaviour(), across, c.speed);
+    const F open = one - c.slip_filter;
+    F k = g.drag_share + ((one - g.drag_share) * open);
+    if (x.aero_mode == 2) k = F::raw(0x41A00000);
+    const F d = c.p.drag_coef * (k * v2);
+    c.drag = zero <= c.speed ? -d : d;
+    F down = g.downforce_share + ((one - g.downforce_share) * open);
+    if (angle < zero) angle = -angle;
+    const F ten = F::raw(0x3E32B8C1), five = F::raw(0x3DB2B8C1); // 10 and 5 degrees
+    if (ten < angle) down = zero * v2;
+    else if (five < angle) down = (down * ((ten - angle) / five)) * v2;
+    else down = down * v2;
+    for (size_t a = 0; a < 2; ++a) c.downforce[a] = c.p.downforce_coef[a] * down;
+    // 0x3F2DB8
+    if ((kind >= 1 && kind <= 2) || (kind >= 5 && kind <= 6)) c.downforce[1] = c.downforce[1] + ((lift * down) * x.speed_part_state);
+}
+
+void lateral_yaw(ex::Car& c, ChassisExtra& x, const TireExtra& t, const WheelLayout& l, bool air, const SlipForceGlobals& g, const std::array<F, 3>* dg) {
     using gt3r::ee::cos;
     using gt3r::ee::sin;
     const int n = l.count < 4 ? l.count : 4;
@@ -67,7 +113,7 @@ void lateral_yaw(ex::Car& c, ChassisExtra& x, const TireExtra& t, const WheelLay
     for (int i = 0; i < n; ++i) {
         const u8 s = c.w[size_t(i)].surface;
         const Tire& r2 = tire_record(t, l, i, s);
-        grip = grip + (r2.mu[s % 24] * driver_grip) * r2.grip;
+        grip = grip + (r2.mu[s % 24] * driver_grip(t, dg, s)) * r2.grip;
     }
     c.lat_g = c.a_y * gt3r::ee::int_to_f(n) / grip;
 }

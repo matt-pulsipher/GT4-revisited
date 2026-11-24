@@ -4,7 +4,10 @@
 // road query finds it (docs/specs/physics.md "The ground"), the surface a wheel is on, the walls and
 // the distance along the course.
 
+#include "base/ee_float.h"
 #include "gt4r/formats/course/runway.h"
+
+#include <array>
 
 #include <vector>
 
@@ -35,8 +38,11 @@ public:
     explicit RoadGround(const course::Runway& road);
     const course::Runway& road() const { return *road_; }
 
-    // 0x3E5A30: the first road triangle a line from `from` straight down meets (down to the road's
-    // lowest point). False when the point is below the road's bounds or meets no triangle.
+    // 0x3E5A30 in the PlayStation 2's arithmetic: the first road triangle the line from p (x, y, z) straight down to the
+    // road's lowest point meets (from the road's highest point when p is above it), walking the lookup tree along the
+    // line (0x3E5BC8) and testing each cluster's triangles (0x3E5FD8). False when p is below the road or no triangle is met.
+    bool query(const gt3r::ee::F p[3], GroundHit& out) const;
+    // The same from a point in host floats.
     bool cast_down(const Vec3& from, GroundHit& out) const;
     // The ground under a wheel as the vehicle step asks for it (0x395760): cast_down from 5 m above.
     bool under(const Vec3& p, GroundHit& out) const { return cast_down({p.x, p.y + 5.0f, p.z}, out); }
@@ -68,10 +74,11 @@ public:
     bool nearest_wall(const Vec3& p, float reach, WallHit& out) const;
 
 private:
-    void walk(size_t node, size_t leaf, u32 depth, float lo[3], float hi[3], const Vec3& from, float y_low, GroundHit& best, float& best_t) const;
-    void test_cluster(size_t leaf, const Vec3& from, float y_low, GroundHit& best, float& best_t) const;
+    bool walk(u32 node, int depth, u32 leaf, const gt3r::ee::F box[6], const gt3r::ee::F a[3], const gt3r::ee::F b[3], GroundHit& out) const;
+    bool test_cluster(int leaf, const gt3r::ee::F a[3], const gt3r::ee::F b[3], GroundHit& out) const;
 
     const course::Runway* road_;
+    std::vector<std::array<gt3r::ee::F, 3>> vf_; // the vertices as the program reads them
     size_t first_ = 0; // the checkpoint with the least distance
     // The walls on a grid of cells for the wall search.
     struct WallSeg {

@@ -200,6 +200,7 @@ void RaceWorld::build_simulation() {
                     // B-spec: the player's car's driver takes his commands.
                     if (computer_player_) field_->set_bspec(0);
                     for (size_t c = 0; c < commands_.size(); ++c) field_->command(c, {commands_[c].pace - 1, commands_[c].overtake ? 1 : 0});
+                    for (size_t car : computer) session_->set_driver_aids(car, field_->params(car).aids, field_->params(car).grip); // (their aids)
                 } catch (const std::exception& e) {
                     if (!noted_) LOG_WARN("Drive: no computer drivers (%s); the simple driver drives", e.what());
                 }

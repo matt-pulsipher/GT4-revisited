@@ -163,9 +163,12 @@ ParamsResult run_params(Disc& disc, bool print) {
             load(theirs, im);
             const size_t x0 = size_t(reinterpret_cast<const u8*>(&ours.x) - reinterpret_cast<const u8*>(&ours));
             for (const Slot& sl : slots()) {
-                if (sl.member < x0 || sl.place.block != sim::layout::Block::Params) continue;
+                if (sl.place.block != sim::layout::Block::Params) continue;
+                // (the engine mirror's fields with a place: listed apart, "mirror", and only with GT4R_PARAMS_MIRROR)
+                const bool mirror = sl.member < x0;
+                if (mirror && !std::getenv("GT4R_PARAMS_MIRROR")) continue;
                 const std::string name = sl.name.substr(0, sl.name.find('['));
-                Field& f = field(("extra " + name).c_str());
+                Field& f = field(((mirror ? "mirror " : "extra ") + name).c_str());
                 ++f.values;
                 const u8* a = reinterpret_cast<const u8*>(&theirs) + sl.member;
                 const u8* b = reinterpret_cast<const u8*>(&ours) + sl.member;

@@ -53,6 +53,7 @@ struct Params {
     bool straight_bonus = false; // +0x78 the arcs' speed raised while the heading error is small
     F bonus_angle, bonus_speed;  // +0x7C (rad) / +0x80 (m/s)
     std::array<F, 3> grip{F(1.0f), F(1.0f), F(1.0f)}; // +0xA8 the arcs' grip by tire class
+    gt3r::sim::exact::Aids aids;                      // +0x24 .. the driving aids (rules::driver_block)
 };
 
 // The race's own settings for its computer drivers.

@@ -66,6 +66,8 @@ struct AiRunOptions {
     bool ours = false;   // our drivers in the program's race (the decision 0x465078 replaced)
     bool checks = false; // the lines, parameters, arcs' speeds and braking compared with ours, bit for bit
     bool band = false;   // the conductor's own rubber band kept (else off)
+    int collide = 0;     // the collision step and the road query compared with ours at every call (1: both, 2: the step, 3: the query)
+    double seconds = 0;  // a set length of run (0: until the laps are done)
 };
 struct AiCheck {
     u64 compared = 0, differ = 0;
@@ -77,6 +79,8 @@ struct AiRunResult {
     double seconds = 0;
     std::vector<AiCarRun> cars;
     std::map<std::string, AiCheck> checks;
+    // With options.collide: the calls compared, those equal in every field, and the collision steps with a wall / a car met.
+    u64 collide_calls = 0, collide_equal = 0, collide_walls = 0, collide_cars = 0, query_calls = 0, query_equal = 0;
 };
 // (GT4R_AI_OURS, GT4R_AI_CHECK, GT4R_AI_BAND set the options too; GT4R_AI_TRACE=<car> prints a car's plan.)
 AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std::vector<std::string>& cars, int laps, AiRunOptions options = {});
@@ -86,6 +90,7 @@ struct LeavesResult {
     bool ran = false;
     size_t samples = 0, sin_off = 0, cos_off = 0, tan_off = 0;
     size_t atan2_off[3] = {}; // against Gran Turismo 3's, the later builds' and 2002 Tokyo-Geneva's
+    size_t sincos_off = 0;    // sincosf (0x57D8A0) against the engine's
 };
 LeavesResult run_leaves(Disc& disc, bool print);
 

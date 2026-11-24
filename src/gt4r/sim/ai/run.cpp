@@ -61,6 +61,7 @@ FieldRun run_field(Disc& disc, const std::string& course, const std::vector<Fiel
     Pace p = pace;
     if (rolling) p.standing_start = false;
     std::unique_ptr<Field> field = Field::open(disc, course, *session, computer, p);
+    for (size_t car : computer) session->set_driver_aids(car, field->params(car).aids, field->params(car).grip); // (their aids, 0x3F7828)
     FieldRun out;
     out.course = course;
     out.lap_length = session->ground().road().length;
