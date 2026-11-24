@@ -12,6 +12,7 @@
 #include "gt4r/sim/ground.h"
 #include "gt4r/sim/rules_chassis.h"
 #include "gt4r/sim/rules_drive.h"
+#include "gt4r/sim/rules_phases.h"
 #include "gt4r/sim/rules_step.h"
 #include "gt4r/sim/rules_tires.h"
 #include "gt4r/sim/rules_wear.h"
@@ -85,7 +86,9 @@ void add_taps(Taps& taps) {
                   std::array<u8, 4> surface{}, material{};
                   for (size_t w = 0; w < 4; ++w)
                       material[w] = t.car.g[w].material, surface[w] = u8(sim::surface_index(t.car.g[w].material, t.car.g[w].flags));
-                  road_bumps(t.car, t.rec.layout, bump_tables([&](u32 a) { return t.ee.r32(a); }, [&](u32 a) { return t.ee.r8(a); }), surface, material);
+                  const BumpTables b = bump_tables([&](u32 a) { return t.ee.r32(a); }, [&](u32 a) { return t.ee.r8(a); });
+                  road_bumps(t.car, t.rec.layout, b, surface, material);
+                  course_out(t.car, t.rec.x, t.rec.layout, b.soft);
               },
               {"w.ground", "w.surface", "w.x25", "w.surface_flags", "road_seg", "flags", "x535", "aids."}});
     taps.add({0x3F3090, "aero", car_a0, [](TapCall& t) {

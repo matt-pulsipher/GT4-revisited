@@ -130,6 +130,15 @@ void build(Body& b, int car, F front, F rear, F width, F mass, F iz);
 // 0x45C438: every body's pair tables.
 void pair_tables(std::vector<Body>& bodies);
 // 0x45BB60: the step of all bodies. `cars[i]` for body i.
-void step_all(std::vector<Body>& bodies, const std::vector<CarIn>& cars, const Walls& walls);
+// A hit the step met, as the program hands it to the hit records (0x350530, rules_phases.h): the car, the kind (0 a wall, 1 a
+// car), the part (a wall at a body's point: its index; a wall's corner on a body's side: the side + 8; two cars: the car whose
+// side was met its side + 8, the other its corner's index) and the strength (a wall: the impulse |j|; two cars: |j| / 15,000).
+struct Hit {
+    int car = 0;
+    s32 kind = 0, part = 0;
+    F strength;
+};
+// `hits`: the step's hits in the program's order (none kept when null).
+void step_all(std::vector<Body>& bodies, const std::vector<CarIn>& cars, const Walls& walls, std::vector<Hit>* hits = nullptr);
 
 } // namespace gt4r::sim::collide
