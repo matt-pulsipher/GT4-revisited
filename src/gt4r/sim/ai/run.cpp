@@ -35,7 +35,7 @@ FieldRun run_field(Disc& disc, const std::string& course, const std::vector<std:
 }
 
 FieldRun run_field(Disc& disc, const std::string& course, const std::vector<FieldCar>& field_cars, int laps, const Pace& pace, double limit,
-                   const std::function<void(const Session&, const Field&)>& on_step) {
+                   const std::function<void(const Session&, const Field&)>& on_step, const std::function<void(Session&, Field&)>& control) {
     db::SpecDb db = open_specdb(disc);
     const Program program = Program::load(disc);
     gt3r::Volume* vol = &disc.volume();
@@ -80,7 +80,9 @@ FieldRun run_field(Disc& disc, const std::string& course, const std::vector<Fiel
     for (size_t i = 0; i < cars.size(); ++i) last_lap[i] = session->cars()[i].lap;
     const int steps = int(limit * 60.0);
     for (int step = 0; step < steps; ++step) {
+        if (control) control(*session, *field);
         field->drive(in);
+        field->apply_time_scales(*session);
         session->step_once(in);
         if (on_step) on_step(*session, *field);
         const double t = session->time();

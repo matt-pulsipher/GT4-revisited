@@ -39,8 +39,10 @@ struct FieldCar {
 // set and the session places cars moving). Throws std::runtime_error when the course or a car cannot be set up.
 FieldRun run_field(Disc& disc, const std::string& course, const std::vector<std::string>& cars, int laps, const Pace& pace = {},
                    double limit = 0, const std::function<void(const Session&, const Field&)>& on_step = {});
+// `control`, when given, is called before each step's drivers (for checks that command them: B-spec, the pits, the end).
 FieldRun run_field(Disc& disc, const std::string& course, const std::vector<FieldCar>& cars, int laps, const Pace& pace = {},
-                   double limit = 0, const std::function<void(const Session&, const Field&)>& on_step = {});
+                   double limit = 0, const std::function<void(const Session&, const Field&)>& on_step = {},
+                   const std::function<void(Session&, Field&)>& control = {});
 
 // A disc's car database (the American names) and the program, for building entries.
 db::SpecDb open_specdb(Disc& disc);

@@ -9,7 +9,7 @@ or a run), 🔎 seen but not checked, ❓ not known.
 
 Code: `src/gt4r/formats/course/ai_line.*` (the driver files), `src/gt4r/sim/ai/course_lines.*`
 (the lines as the race prepares them), `tables.*` (the program's values), `drivers.*` (the
-drivers), `grid.*` (who races), `entrant.*` (an opponent's car as entered), `run.*` and `gt4tool
+drivers), `ee_math.*` (the program's own atan2f), `grid.*` (who races), `entrant.*` (an opponent's car as entered), `run.*` and `gt4tool
 ai` (fields run headless), `tools/gt4diff/ai.cpp` (against the program), and
 `src/gt4r/formats/db/race_events.*` (the events). Tests: `tests/test_ai.cpp`, `tests/test_ai_program.cpp`.
 
@@ -98,10 +98,23 @@ In the order of the table at 0x624018 (✔ 6, 0, 1, 2, 5, 3, 4, 7), for each poi
 
 ✔ The file's frame is the simulation's turned half round: a point (x, y) of the file stands at
 (-x, -y) in the car record's frame (course (x, z) = (-x_file, y_file)), its heading h at h + π
+(0x46B248 negates x and y and adds 0x40490FDA to the heading in the EE's arithmetic)
 (the race's distances then rise along every main line, the arcs evaluated end on their next
 points within 0.01 m, and the points lie on the road: `ai_disc_lines_prepared`). The race
-evaluates a line at a distance as GT3 does (ai §2.3: the span around the hint, straights
-interpolated, arcs turned about their centre; the stop line straight).
+evaluates a line at a distance as GT3 does (ai §2.3; the stop line straight). In detail (0x46B480 with
+the span search 0x46B310): the distance is wrapped into the lap once; before the first point the span is
+(last, first) at t = ((s + lap) − d_last) / ((d_first + lap) − d_last), at or past the last point the same
+span at t = (s − d_last) / ((d_first + lap) − d_last); otherwise the points are searched from the hint
+outwards (hint, hint + 1, hint − 1, hint + 2, .., wrapped, n + 1 tries; point 0 never ends a span) for
+d[i−1] ≤ s < d[i], t = (s − d[i−1]) / (d[i] − d[i−1]); no span leaves the outputs as they were. A
+straight interpolates; an arc turns about its centre (x − cos h r, y − sin h r) from its point's angle
+to the next one's by t (+2π where the turn crosses), at |r|; the height interpolates. ✔ Equal to the
+program's at every call checked (`gt4r_diff ai`, "place").
+
+The angles use Gran Turismo 4's own atan2f (0x57D118): 0 at the origin; |y| < |x|: atan(|y| / |x|),
+else π/2 − atan(|x| / |y|) (0x3FC90FDA); π − that for x < 0 (0x40490FDA), negated for y < 0. It is not
+GT3's (whose shortcut returns 0 for any x + y = 0); its atanf, sinf and cosf (0x57D008, 0x57D2B8,
+0x57D1F0) are GT3's arithmetic (✔ 4,000 values each, `gt4r_diff ai`, "math").
 
 ## 3. A driver's parameters
 
@@ -213,55 +226,164 @@ below 1 weighs the full-throttle torque (as GT3's later builds).
 ### 4.4 The speed controller (0x464770)
 
 throttle = clamp(0.75 + G clamp(v - (v_t - 2 km/h), ±10 km/h), 0, 1); the brake full when the
-throttle is 0 and v > v_t, + 20 km/h outside the braking modes (GT3 without the 20).
+throttle is 0 and v > v_t, + 20 km/h outside the braking modes and the kinds 2 .. 4 (GT3 without the
+20); in detail §5.3.
 
 ## 5. The decision (0x465078)
 
-### 5.1 The look ahead and the aim
+✔ Ported in the program's arithmetic and equal to the program's at every call (`gt4r_diff ai` with
+`GT4R_AI_CHECK=1`, §10: the outputs, the aim, the blend, the offset and every state byte, at Tsukuba and
+Grand Canyon, a B-spec driver with a pace command, and the four ends of a run), but where an arc's
+speed takes a line point's height in its last bits (§9).
 
-The look ahead (0x464E88) as GT3's; recovery states 10 / 40 m; the start: for a computer car on
-a paved course from a standing start (below 30 km/h) + 200 m x (5 s - t) / 5 s, else + 40 m x
-(2 s - t) / 2 s (+ the car's start delay ❓). The aim on the line (0x464868, ≥ 5 m) and the blend
-with the old line as GT3's, the blend running off by distance (T[4]).
+### 5.1 The start: the outputs, the look ahead, the aim
 
-### 5.2 Recovery, steering, throttle
+- **Begin** (0x464ED8): the steering D+0x30 from the car's command (F+0x468), throttle, brake, reverse
+  and the gearbox's lock cleared; with T[4] = 0 the blend runs off by the step (dt). A car held at the
+  start (control 1 or 2 and F+0x4BC) keeps its throttle and ends after the aim. Kind 7: the stop driver
+  with a straight wheel (§5.5). Then the braking routine (§4.3) gives the throttle's scale.
+- **The look ahead**: kind 3: 5 m; kind 4 on the pit speed (D+0x20): 5 m below 30 km/h, else 10 m;
+  recovering: 10 m (backing out) or 40 m; else 0x464E88 (PB+0x1C at rest, PB+0x20 from 1 / PB+0x18,
+  linear between), plus the start's: with D+0x1A = 0 (a computer or B-spec car from a standing start on
+  a paved course below 30 km/h, 0x463AE0) left = 5,000 − ms + 1,000 x the place's held seconds,
+  look + left x 200 / 5,000, else 2,000 − ms + 1,000 x the seconds, + left x 40 / 2,000 (left > 0; ms the
+  race's clock, the conductor's +0xF89C / 3, +50 a step); then + D+0x52 / 3.
+- **The aim** (0x464868): from the car's course distance F+0x4A4 (not wrapped) + look, the line's
+  place (§2.2) less the car's position, tried 10 times, 1 m further while nearer than 5 m (no further
+  after the ninth); the look used is returned and the old line's aim takes it. With a blend: T[4] = 1
+  runs the blend off by the gap between the two aims (|d| < T+0x74 dt: 0, else blend − T+0x74 dt / |d|,
+  at least 0); aim + (old − aim) x blend.
+- **The sideways offset** (T[5], racing only): bit 0: the line's aim with look 0 (blended likewise)
+  across the heading (cos h x + sin h y) x T+0x78 (T+0x7C on lines 3 and 4); bit 1 (not line 4):
+  + (2 − the left gap) when under 2 m, − (2 − the right gap); bit 2 (paved, the mode 0 or the status
+  0): + 0.5 x (a wheel on soft ground on the left − one on the right) (the layout's side byte +0x1C + w,
+  the ground record's material through the soft table 0x622430); T[8]: the limit by |F+0x58C|: 0 from
+  T+0x8C on, (T+0x8C − a) / (T+0x8C − T+0x88) above T+0x88, else T+0x84; D+0x54 slews to it at T+0x80
+  dt; the aim + D+0x54 x the car's side axis (F+0x18). F+0x61C / +0x620 = the position + the aim. A pad
+  car of kind 0 or held (F+0x4BA) ends here, as does a held start.
 
-As GT3's (ai §5-§7), with: the yaw-rate steering's gain PB+0x0C scaled by T[2] (on in this
-program) by clamp((a_max − F+0x46C) / a_max, −1, 1), a_max the steered wheels' mean peak slip angle
-(their tire records' +0xB8, the wheels whose layout byte +0x3C is above 0) and F+0x46C their mean
-slip angle: the gain falls to nothing as the front reaches its peak (✔ without it our drivers
-steer up to five times the program's angle into the first corner and scrub off 15 km/h); the
-non-driving branch's eps x 1.4999998 (0x3FBFFFFE); the state machine rests 180 steps (D +0x6B) after a change; turning
-round towards 50 km/h; the yaw-rate steering on GT4's car fields; a pad car's driver ends after
-the aim. The saturation's throttle cut and brake (0x620DE7) is ✔ off in the US program.
-Following a car (D +0x51): the next speed is the car's less 20 km/h (braking), 15 (an arc's
-status) or 5, at least 30 km/h, in mode 4.
+### 5.2 Recovery and steering
 
-### 5.3 The aim's sideways offset (T[5], GT4's own)
+- ε = (0x36CC40) atan2(−aim x, aim y) − heading in [−π, π] (0x36CB90 folds each angle first, by
+  whole turns beyond 3π).
+- θ = 60°; backing out: 10° moving forward, 10° − v 50° / 30 km/h above −30 km/h, and it reverses.
+  Else |ε| < θ or turning round: forward above −2 km/h (and braking when rolling back with the clutch
+  state 0), else braking; else braking above 2 km/h, else reverse.
+- The state machine rests while D+0x6B counts down (180 after a change). Backing out: |ε| < θ: racing
+  above 3 km/h, else turning round; else hit at the rear: turning round. Turning round: |ε| < 40° above
+  30 km/h: racing; else only when hit at the front: the line's heading (0x4649F0: the line's place at s
+  and at s + 0.5 m steps until 0.2 m apart) more than 60° off, |v| < 1 km/h or |ε| > 60°: backing out.
+  Racing: |ε| ≥ 60°: turning round; hit at the front below 1 km/h: backing out; hit at the rear with
+  |ε| > 45°: turning round. (A car whose P+0x32 is 4 never backs out: not mirrored, 0 on every car.) The
+  hit flags are the collision bodies' front and rear words (+0x434 / +0x438); the third (0x45CC40)
+  answers 0.
+- Steering forward: the steered wheels' (layout +0x3C + w above 0) mean peak slip angle a (tire records
+  +0xB8 on their surfaces) and mean slip direction; recovering: ±a past ±80°; else the yaw rate wanted
+  rd = (−2 |v_xy|) (cos·x − sin·y of the aim in the velocity's direction (the heading's below 5 km/h)) /
+  |aim|², negated reversing; the gain PB+0x0C x clamp(−(F+0x46C − a) / a, ±1) with T[2]; rd > 0 above
+  the yaw rate: + (rd − r) gain, and past a its share **over = t / a** is kept and t held at a (paved);
+  rd < 0 the same mirrored; + the slip direction, clamped ±45°, negated reversing. Otherwise ±30° past
+  ±20°, else ε x 1.4999998. Then the lock (P+0x54). Kind 6: the stop driver with that wheel (§5.5).
+  The wheel slews at PB+0x60 dt (0x464BB0) for a computer, B-spec or non-racing driver (a PD steering
+  for T[2] ≥ 2 in the racing state is not ported: T[2] is 1).
 
-With the state 0: the line's own point beside the car x 0.1 (1.0 on the pit lines); 2 m less the
-gap to a car alongside, away from it; half a metre away from the side whose wheels are on soft
-ground (paved courses, outside braking); limited by the sideways load (|F+0x58C| ≥ 0.8: none,
-0.5 .. 0.8: ramped ❓, else 0.5 m); slewed at 4 m/s.
+### 5.3 Throttle and brake
+
+Forward: braking 0.09 when the decision said so; D+0x20 = 0; line 4: 25 km/h both, mode 3, D+0x20 = 1;
+line 3: between the stop line's points 1/2 and its fourth from the end (the distance + a lap in its
+first half): mode 1 at the pit speed PB+0x64 + 2 km/h (D+0x20 = 1; the current speed when lower, its
+own mode, D+0x20 = 0), the next at most that; other lines: a car followed (D+0x51) within the
+cooldown's first 60 steps: its speed − 20 km/h (status 1, 2), − 10 then − 5 km/h (3 .. 5), else − 5,
+at least 30 km/h, mode 4, the next at most that. Turning round: towards 50 km/h (the aim's on lines 3,
+4) at gain −0.5. Mode 0: full throttle; 3: towards the next at −2; 4: at −1 (the arc's count on);
+1, 2: the aim + PB+0x5C once the arc's count reaches PB+0x68 off the pit lane, and then the straight
+bonus PB+0x80 (PB+0x7C − |ε|) / PB+0x7C under PB+0x7C; at −0.5; with the status 0 the filtered
+lateral acceleration F+0x560 over the four wheels' mean grip (+0x00): above 0.9 status 5, above 0.5
+status 4 (mode 1) or 3. The count stops at 6,000. Throttle x the braking's scale; from 5 s + 0.1 s x
+the place (F+0x4AF) the traffic (§6). Not forward: reverse at full throttle or none, the brake full
+when braking.
+
+**The speed controller** (0x464770 / 0x4646F8): throttle = clamp(0.75 + gain x clamp(v − (v_t −
+2 km/h), ±10 km/h), 0, 1); outside the modes 3, 4 and the kinds 2 .. 4 the brake's speed + 20 km/h; the
+brake full at no throttle above it; a part throttle locks the gearbox for 12 steps.
+
+**Past the tires' peak** (0x620DE7 clear, as in this program): with over > 0 in a gear of 2 or more,
+the throttle x max(0, 1 − PB+0x10 (over − 1)), the brake + (over − 1) PB+0x14 (at most 1). (With the
+byte set the measure is F+0x470 instead, taken as it is.)
+
+**F+0x560** is a second-order follower of the lateral acceleration F+0x554 (0x35DC08, at the step's
+end): v += ((a − x) 200 − v 20) / 60, x += v / 60 (0x3C888888).
+
+### 5.4 The outputs (0x464F38)
+
+T[0] = 0: in modes 1, 2 the throttle pedal F+0x488 (and F+0x494) slews to D+0x34 by dt, else takes it;
+the steering command F+0x468 = D+0x30; the brake (0x343D60), the reverse, the gearbox's lock.
+
+### 5.5 The end of a run (the conductor's virtual 21, 0x343D78)
+
+A finished car (F+0x4B2) not on the pit lane (kinds 2 .. 4) by the race's mode (the configuration's
++0xCBDE when 1 and no mode is asked): 0 the computer drives on (kind 1, 0x3452F0: a pad car's too;
+off line 7 at once), 1 the stop driver (kind 6, 0x345520), 2 braking to a stop (kind 7, 0x345598),
+3 cruising (kind 5, 0x3454A8); 1 and 3 leave line 7 for 6 at once. 0x464C38 sets the kind: kind 6, or 5
+after another than 4, count D+0x52 = 120.
+
+- **The stop driver** (0x464C80): the begin, the steering slewed to its wheel, no throttle; under
+  0.25 km/h and 3°/s (|v| over x, y and z; the yaw, roll and pitch rates) the brake off and kind 8
+  (0x3455C8, but for control 4); else kind 6 holds a speed 1 km/h under its own (0x3F76E8) through its
+  count, over the last 30 steps x count / 30 with the brake (1 − count / 30) 0.8, 0.8 after; any other
+  kind brakes at 0.5.
+- **Cruising** (kind 5): the throttle at most what holds the configuration's limit (+0x42 for the
+  player's car, +0x43 for the computer's; above 80 none) or 80 km/h; through the count without a limit
+  a speed 1 km/h under its own, x count / 30 over the last 30 steps.
+- **Holding a speed** (0x3F76E8): (F+0x5BC + friction x the gear's speed factor) / ((full torque +
+  friction) x the factor) − (v − (v_t + 0.5 km/h)) / 5 km/h, in [0, 1] (1 without torque; v negated in
+  reverse). F+0x5BC = −((rolling + drag) − ground forward z x mass x 9.8), the road's load (0x357700).
 
 ## 6. Traffic
 
-The pairs pass (0x3F4638, the pairing 0x3F40F8 as GT3's) fills each car's **zone cells** (0x4694F8:
-front, front left and right, left, right, rear left and right, rear; levels 1 and 2 by the gap)
-and the side gaps (D +0x58 / +0x5C), then **closing** (0x3F42D0: the gap along the course less the
-two cars' lengths; within 20 m only when the cars overlap sideways) and **contact** (0x469918):
-2 and a car to follow when closing within 5 m, else 1.0 closing at over 20 km/h, 0.5 when it
-closes within 5 s, 0.05 / 0.1 within 0.5 / 4 m. A car follows until the gap opens past 6 m;
-the follow chains' lengths (D +0x6A) lengthen the braking.
+✔ In the program's arithmetic, equal at every call (`gt4r_diff ai`, "proximity", and the decision's
+traffic part).
 
-**Lane changes** (0x469AE8, after 5 s + 0.1 s x the place): no change while braking or near a
-braking point (status 1, 2, 5), none from a passing line in an arc near the grip's limit, none
-during a blend, none in the cooldown (180 steps after a change). With contact: the farthest line
-on a side (0x46BC00 / 0x46BC40 then once more), by the next segment: an arc to the left takes the
-left, else the right unless status 4; to the right the reverse; a straight the left unless
-status 3, else the right unless status 4. Without a change the throttle x (1 - contact). With
-nothing around (front, the sides and their fronts) a car returns to line 6. ✔ The program's left
-and right: left of 1 is 6 (2 without it), of 6 is 2; right of 2 is 6 (1 without it), of 6 is 1.
+**The pairs pass** (0x3F4638, every car with every later one): each car's contact cleared, its zone
+cells, the threat record and the side gaps (1,000) reset (0x4694A0); a pair counts when both race
+(not a ghost F+0x441, not on line 4), both are on or both off the pit lane (F+0x4B1 bit 4), within 100 m
+(over x, y and height) and a body's height + 5 m in height. Each on the other's axes: u along the
+forward axis, v along the side axis (3D dot products); w = (wA + wB) / 2, the ahead and behind extents
+front + rear of the two.
+
+**Zone cells** (0x4694F8: bytes +0x48 front, +0x49 front left, +0x4A front right, +0x4B left, +0x4C
+right, +0x4D rear left, +0x4E rear right, +0x4F rear; "≥2": raised to 2, "≥1": set to 1 where not
+above 0), within 20 m and |v| ≤ w + 3: ahead (u > 0.9 ahead), the gap g = u − ahead: |v| > 0.75 w: the
+front left / right ≥2 under 5 m, ≥1 under 20 m; else the front ≥2 under 20 m and the side cell past w / 2
+likewise; behind (u < −0.9 behind): the rear left / right ≥2 past ±w, else the rear ≥2 and the side it
+leans to ≥1; alongside: the left (v < 0) or right ≥2, the side gap −v − w (or v − w) kept at its least,
+and the front side ≥1 past half the ahead extent, else the rear side ≥1 past half the behind extent.
+
+**Closing** (0x3F42D0, unless the race's configuration +0x02 is 6): the gap along the course (a lap
+added across the line from 3/4 to 1/4 of it) less B's rear and A's front; within 20 m only overlapping
+sideways (|v| ≤ (wA + wB) / 2); the closing speed is the difference of the cars' speeds along the course
+(F+0x650: the course distance's change x 60, 0x358608). Else a car followed is let go.
+
+**Contact** (0x469918): a car followed lets go past 6 m; a new car closing within 5 m: 2 and followed
+(the contact 1); closing over 20 km/h: 1; over 0.1 km/h and within 5 s: 0.5; else 0.05 under 0.5 m, 0.1
+under 4 m; kept at the most.
+
+**The follow count** D+0x6A: the length of a car's follow chain (the car it follows, the one that one
+follows, ..; at most the field) adds that many metres to its braking (§4.3); with a contact outside the
+cooldown + 10 m, and + 8 m more when the car followed is itself in contact.
+
+**Lane changes** (0x469AE8, from 5 s + 0.1 s x the place): the cooldown counts down; line 4 none;
+line 3: none, and with a car alongside and ahead on a side below 30 km/h the cooldown + 1, else the
+throttle halved; the status 1, 2, 5: none; 3, 4 on a passing line: only the return; a blend: none; a
+B-spec driver without passing (D+0x6E): only the return. With a contact (none in the cooldown) the
+farthest line on a side (0x46BC80 / 0x46BC98 twice): the next arc to the left takes the left, else the
+right unless status 4; to the right the reverse; a straight the left unless status 3, else the right
+unless status 4; a change (0x463C28 blended) sets the cooldown 180 and the contact 0. The throttle x
+(1 − contact). With nothing at the front, the sides and their fronts a car returns to line 6.
+
+**A line change** (0x463C28): the request's fallback resolved (none: no change); at once (0x463C00):
+both lines the new one, the offset and the blend 0; else the blend 1, or 1 − blend when the request
+names the line being left, the old line kept for it; then the re-plan (also for the line the car is on).
 
 ## 7. Pace
 
@@ -270,9 +392,18 @@ and right: left of 1 is 6 (2 without it), of 6 is 2; right of 2 is 6 (1 without 
   pick's offset (level - 2.5) / 100 around the player's car); neither changes a driver.
 - The **events' percents** (§3.3) are the per-event pace: ✔ e.g. the amateur FF events brake at
   85 % and take the arcs at 90 %.
-- The **rubber band** (0x365790 with 0x365480): a car's time scale against the reference, as GT3's
-  (ai §9.3), from the event row (§8), capped at 1.3. ✔ Only the 12 license-test events of the US
-  disc carry it (slowing by 50 %); no race does.
+- The **rubber band** (0x365790 with 0x365910, 0x365688 / 0x365718; set from the event row by
+  0x365480: percents x 0.01, the start gaps in metres, the full gaps x 10 m, the overall percent (0: 100)
+  x 0.01): the reference is the first car of the order the computer does not drive (none: car 0); in
+  mode 0 from it outwards along the order each car against the car between it and the reference, the
+  factors chained (mode 1: every car against the reference; mode 2: each against its neighbour, not
+  chained): the reference's lead g in whole laps and metres (a lap taken over where they disagree in
+  sign); behind (laps > 0 or g > 0): 1 + fast, ramped (g − start) / (full − start) past the start, full
+  past the full gap or a lap (none on the pit lane); ahead: 1 − slow likewise; a finished car 1; x the
+  chain's factor, at most 1.3 (0x3FA66666); the car's time scale F+0x444 = that x the overall factor.
+  ✔ Equal to the program's for every car at every step (`gt4r_diff ai GT4R_AI_BAND=1 GT4R_AI_CHECK=1`,
+  the conductor's own values: 69,960 compared). ✔ Only the 12 license-test events of the US disc carry
+  it (slowing by 50 %); no race does.
 - Per-car skill: the random spreads (§3.2) and the grid-index spread (§3.3).
 
 ## 8. Who races
@@ -305,8 +436,16 @@ avoids the colours already on the grid. ❓ 0x40A338's likeness (not read).
 **The per-car start delay** (missions): the race keeps per place 0..5 the row's bytes +0x91,
 +0x8C .. +0x90 (0x447828) as seconds at CFG +0x60 + 2 i (s16); ✔ only the ten "catch the cars ahead"
 missions (usl0m0025 .. 0034) set them (e.g. 35, 0, 4, 11, 16, 19). The decision lengthens the
-start's long look ahead by them (5 s + delay); 🔎 the cars' held start itself is elsewhere (not
-found).
+start's long look ahead by them (5 s + delay); the conductor's virtual 41 (0x34DA58) answers whether
+place 0 has one. 🔎 The cars' held start itself is not found: ours holds such a car on the line (the
+count's engine hold, the brake on) until the race's clock passes its seconds (judged).
+
+**The demonstration runs** (a license test's "View a demo run"): recorded, not computed: the disc keeps
+one per test and region under `replay/license/` (`<region>l0<class><test>`, `%sl0c%04d`, 0x10FCD0: on
+the US disc `usl0a`, `usl0b`, `usl0s`, `uslia`, `uslib` 16 each and `usl0c` 5; the missions' `jpl0m`
+only on the Japanese), each a "Base" header of 0x40 bytes and a coded body of the drivers' controls
+(`Serialize::ReplayData`), which the race runs again. ❓ The body's coding is not read; the drivers do
+not drive the demonstrations.
 
 **The reference race** (03-race, Arcade, Ford Ka '01 at Tsukuba): the Ka has no Arcade event rows,
 so the race is `sample_entry_6` (every percent 100, no rubber band) with opponents the menu's
@@ -316,34 +455,55 @@ at +0x160 / +0x161 (4: sports medium, applied by RaceArcade::vf92 when +0x165 is
 The drivers' parameter blocks in those states equal ours (the yaw spread 2.06 / 1.94 / 2.0 by grid
 index, multipliers 1.0).
 
-**B-spec's shift speeds** (0x36BEE0 / 0x36BF28 → 0x3F1E30): the gearbox's up- and down-shift speeds
-x the driver object's byte +0x6F (car +0x83) / 128, only for a car of control source 1 (the
-player's car with a computer driver: B-spec); the opponents (source 2) shift at the gearbox's own.
+**B-spec** (the player's car with a computer driver: control source 1). ✔ Equal to the program's at every
+decision with a pace command midway (`gt4r_diff ai GT4R_AI_BSPEC=1,4,20`).
+
+- **Its pace levels** (0x3F1790 at boot, from the bytes 0x622088 .. 0x6220A4; five levels): ✔ the
+  shift byte (s x 128 + 12,800) / 100 = 115, 121, 128, 129, 129; the braking factor D+0x70 = 0.90, 0.95,
+  1.00, 1.05, 1.10; the arcs' factor D+0x74 the same; a fourth (0x6220E0: 0.8 .. 1.2) ❓ its use. Its
+  setup (0x3F1890): level 0x622080 (✔ 2) for a pad or B-spec car, passing off; 0x622081 (✔ 2) for a
+  computer car, passing on (off where the conductor's virtual at +0x30 says so); the shift byte 128 where
+  F+0x4CC ❓ is not above 0.
+- **Its commands** (0x3F19E0, from the race's per-car step 0x349FD0): 4 the level (the three values
+  above), 5 passing (turned off with kind 0 on a passing line: back to line 6, blended), 6 the pit
+  (F+0x4B1 bit 3), 10 the control source. The driver keeps them until the next.
+- **In the drivers**: the arcs' scale x D+0x74 (after the spread) and the braking factor x D+0x70 for a
+  B-spec driver of kind 0; its draws seeded with 1, no spread by grid index (0x467148: computer cars
+  only); without passing a lane change is only the return to line 6.
+- **Its shift speeds** (0x36BEE0 / 0x36BF28 → 0x3F1E30): the gearbox's up- and down-shift speeds x the
+  shift byte / 128, only for control source 1 and kind 0; the opponents shift at the gearbox's own.
+- **Its skill** (0x468C50 from the conductor's virtual 28, with 0x623E48 set): D+0xB8 / +0xBC / +0xC0
+  from the save's B-spec driver records (0x467C58 .. 0x468B58, the script natives 0x164400 ..) ❓ not
+  read further.
 
 ## 9. What our drivers run
 
-The parameters (§3.1, §3.3), the tuning block (§3.2), an arc's speed (§4.2) and the braking routine
-(§4.3) in the program's arithmetic (`gt3r::ee::F`); the lines' distances, slopes and banks as §2.2;
-the rest of the decision, the traffic and the rubber band still in host floats. Per step: the order
-by distance, the rubber band's scales, the pairs pass, then per driven car the recovery's contact
-flags, the decision and the outputs. The cars are read through `ai::Cars` (a session's, or another
-race's for checks). Departures:
+All of the drivers' arithmetic above runs in the program's (`gt3r::ee::F`): the parameters, the tuning
+block, the arcs' speeds, the braking, the decision, the traffic, the rubber band, B-spec and the end of a
+run. Per step: the order by laps and distance (or the cars' own places), the cars' filtered lateral
+accelerations and speeds along the course, the rubber band's scales, the pairs pass, then per driven car
+its contact flags, the decision and the outputs. The cars are read through `ai::Cars` (a session's, or
+another race's for checks: then its own F+0x560, F+0x650, places, clock and finished flags). Departures:
 
 - **The outputs** go to the session as the program's 0x464F38 writes them (`race::CarInput::computer`:
   throttle and brake pedals, reverse, the gearbox's lock, the clutch engaged; the pad's path not
-  run), the steering as the road-wheel command (`steer_angle`).
+  run), the steering as the road-wheel command (`steer_angle`); the time scales by
+  `Field::apply_time_scales` (`Session::set_time_scale_raw`).
 - **The collision flags**: from the cars when they give them (the program's own in `gt4r_diff`), else
   a wall within the body's ends or a car overlapping.
-- **The time scale** of the rubber band is computed (`Field::time_scale`) but the session does
-  not apply it: it needs a per-car step length (the engine's record has `time_scale`; the session no
-  setter).
 - **The road's heights** come from our road query in host floats: some line points' heights, slopes
-  and banks differ from the program's in their last bits, and so then do the arcs' speeds there.
-- Not done: the pit lane and the stop (lines 3 and 4 are prepared, never asked for), the stop
-  driver and the end of a run, B-spec's commands and shift speeds, the line-5 records, the start's
-  per-car delay, the aero bonus (P +0x1077 / +0x1084 not mirrored: 0), the two ❓ flags of §4.2
-  (P +0x104A, F +0x5C2: 0 on every car checked), the arcs' grip with tire wear on, T+0x158's factor
-  (1 throughout in this program).
+  and banks differ from the program's in their last bits, and so then do the arcs' speeds there (and
+  the lines' lengths and pitches, which the drivers do not read).
+- The pit: the drivers' part runs (lines 3 and 4, the pit speed, the stop line's place 0x46B7B8, the
+  steps `Field::pit_enter` / `pit_stop` / `pit_leave` / `pit_return` as 0x3453A0 / 0x345400 / 0x345450 /
+  0x345228 set the line and the kind); the pit flow that decides them (0x35B060, a state machine of the
+  pit lane, the box and the service) is not ported, so nothing sends a car there yet.
+- Not done: B-spec's pit command and
+  skill, the line-5 records, the demonstration runs, the aero bonus (P +0x1077 / +0x1084 not mirrored:
+  0), the two ❓ flags of §4.2 (P +0x104A, F +0x5C2: 0 on every car checked), the arcs' grip with tire
+  wear on, T+0x158's factor (1 throughout in this program), the PD steering of T[2] ≥ 2, the threat
+  record (D+0x53 / +0x60 / +0x64). The B-spec shift factor (`Field::shift_factor`) is not applied to the
+  session's gearbox.
 - Without the mapped program (Prologue, another release) the drivers run with neutral values: no
   spreads, no offset of the aim, a fallback of the passing lines to the main line, the shared
   engine's tire records (16 surfaces) and no slip scaling of the steering gain; on a road without
@@ -365,15 +525,27 @@ conductor's rubber band off: without the event row its constructor's values hurr
 car 0 by up to 10 %), and prints each car's laps. `GT4R_AI_OURS=1`: our drivers instead, on the
 program's cars and physics (the decision 0x465078 replaced by ours; `ai::Cars` over the program's
 records). `GT4R_AI_CHECK=1`: the prepared lines, every driver's parameters, every line point's
-speed (0x4674F0) every 2 s and the braking routine (0x463EA8) every 4 steps against ours, from the
-program's driver state, bit for bit. Results at Tsukuba (US disc):
+speed (0x4674F0) every 2 s, the braking routine (0x463EA8) every 4 steps, a line's place (0x46B480)
+every second, the math routines, and **at every call** the decision (0x465078: its outputs and every
+state byte, ours from the driver object and the cars as they are at the call's entry) and the pairs pass
+(0x3F4638), against ours, bit for bit; with `GT4R_AI_BAND=1` every car's time scale every step.
+`GT4R_AI_BSPEC=<car>[,<level>,<s>]`: that car's driver B-spec's in both races, a pace command at <s>;
+`GT4R_AI_FINISH=<mode>,<s>`: every run ended so at <s>; `GT4R_AI_SECONDS=<s>` a set length;
+`GT4R_AI_DECISION=1` prints the first decisions that differ. Results at Tsukuba (US disc):
 
-- ✔ Parameters, braking (multiplier, status, mode, point), the lines' distances, kinds, surfaces
-  and crests equal at every call; the arcs' speeds equal but where a point's road height differs in
-  its last bits (§9).
-- ✔ **Our drivers on the program's physics lap as the program's drivers** (from a standing start,
-  three laps, best of the flying laps, s; the program's / ours): Beetle 1100 90.8 / 90.5, Z 97.5 /
-  95.0, N360 99.5 / 99.7, Midget II 91.7 / 91.2, S500 89.0 / 88.9, Ka 83.2 / 83.1. The program's
+- ✔ Parameters, braking (multiplier, status, mode, point), the lines' distances, kinds, surfaces,
+  crests, positions, radii and headings equal at every call; the arcs' speeds equal but where a point's
+  road height differs in its last bits (§9).
+- ✔ The decision: 76,872 calls in a lap of six cars, every output and state equal (the arcs' speeds
+  v_cur / v_next differing in 2 / 92 calls by the line heights); the pairs pass's zones, gaps,
+  contacts, follows and counts at every call; the same at Grand Canyon (177,726 calls), with a B-spec
+  driver, and through each of the four ends of a run (kinds 1, 5, 6, 7, 8).
+- ✔ **Our drivers on the program's physics lap as the program's drivers** (`GT4R_AI_OURS=1`, three
+  laps from a standing start, totals; the program's / ours): Beetle 4'33.17 / 4'32.72, Z 4'56.75 /
+  4'57.77, N360 5'00.52 / 5'00.17, Midget II 4'35.10 / 4'34.98, S500 4'27.43 / 4'27.57, Ka 4'09.97 /
+  4'10.52 (the arcs' speeds at a few points apart, the races part within the first lap). Grand Canyon:
+  Beetle 11'39.82 / 11'39.75, Midget 11'35.38 / 11'35.53, Ka 11'39.83 / 11'40.02; the Z, N360 and S500
+  crawl and stop on the climbs in both (90 .. 160 s under 5 km/h in three laps). The program's
   times reproduce the reference race's gaps (03-race: N360 and Z some 17 s behind the Beetle in two
   laps, the S500 stuck behind the Beetle).
 - **On our own simulation** the same field laps Beetle 92.6, Z 93.6, N360 97.6, Midget 93.6, S500

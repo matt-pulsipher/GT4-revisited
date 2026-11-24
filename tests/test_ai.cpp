@@ -205,11 +205,13 @@ TEST(ai_disc_fields_finish) {
     Disc* disc = gt4_disc();
     if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
     const std::vector<std::string> cars = {"_1100_standard_type11_49", "z_act_70", "n360_67", "midget2_d_type_98", "s500_63", "ka_01"};
-    // A circuit, a city course and a dirt course: six cars finish three laps, none standing still.
+    // A circuit, a city course and a dirt course: six cars finish three laps, none standing still on the paved courses.
+    // On Grand Canyon's climbs the smallest cars crawl and stop as they do in the program's own race with its own drivers
+    // (gt4r_diff ai grandcanyon: the Z, N360 and S500 below 5 km/h for 90 .. 140 s in three laps).
     for (const char* course : {"tsukuba", "seattle", "grandcanyon"}) {
         const sim::ai::FieldRun run = sim::ai::run_field(*disc, course, cars, 3);
         std::string why;
-        const bool ok = reasonable(run, 3, 10.0, why);
+        const bool ok = reasonable(run, 3, std::string(course) == "grandcanyon" ? 240.0 : 10.0, why);
         if (!ok) std::printf("  %s: %s\n", course, why.c_str());
         CHECK(ok);
         int walls = 0;
@@ -336,4 +338,86 @@ TEST(ai_disc_opponent_equipment) {
     g.car = o->car, g.enemy = o->enemy, g.paint = 0;
     sim::Equipment again;
     CHECK(sim::ai::entry_equipment(sdb, program, ev, g, again) && again.h(sim::Equipment::OutputFactor) == 1150 && again.b(0x18) == 0);
+}
+
+TEST(ai_disc_rubber_band) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    // A band that hurries the cars behind car 0 by up to 10 % from 20 m back and slows those ahead by up to 20 %: each
+    // car's time scale follows its gap to the car between it and car 0 (the reference when every car is driven), the factors
+    // chained outwards: with three cars within 0.8 x 0.8 .. 1.1 x 1.1.
+    sim::ai::Pace pace;
+    pace.band_mode = 0, pace.fast_pct = 10, pace.fast_start_m = 20, pace.fast_full_10m = 8, pace.slow_pct = 20, pace.slow_start_m = 20,
+    pace.slow_full_10m = 8;
+    float lo = 2, hi = 0;
+    bool behind_hurried = false;
+    const sim::ai::FieldRun run = sim::ai::run_field(*disc, "tsukuba", {"ka_01", "_1100_standard_type11_49", "s500_63"}, 1, pace, 0,
+                                                     [&](const sim::Session& s, const sim::ai::Field& f) {
+                                                         for (size_t i = 0; i < s.cars().size(); ++i) {
+                                                             const float k = f.time_scale(i);
+                                                             lo = std::min(lo, k), hi = std::max(hi, k);
+                                                             if (k > 1.0f && s.record(i).time_scale.host() == k) behind_hurried = true;
+                                                         }
+                                                     });
+    CHECK(run.cars.size() == 3);
+    std::printf("  time scales %.3f .. %.3f\n", double(lo), double(hi));
+    CHECK(lo >= 0.64f - 1e-4f && hi <= 1.21f + 1e-4f && hi > 1.0f);
+    CHECK(behind_hurried); // the session steps the car by the band's scale
+}
+
+TEST(ai_disc_grid_paints) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    db::SpecDb db = sim::ai::open_specdb(*disc);
+    const sim::Program program = sim::Program::load(*disc);
+    const db::RaceEvents events(db, [disc](const std::string& path) -> std::optional<Bytes> {
+        const gt3r::Volume::Entry* e = disc->volume().find(path);
+        return e ? std::optional<Bytes>(disc->volume().read(*e)) : std::nullopt;
+    });
+    // Six of one car, every paint the race's to choose: each gets one of the car's paints, and with ten or more to choose
+    // from no two share a colour.
+    std::vector<sim::ai::GridEntry> grid(6);
+    for (auto& g : grid) g.car = "ka_01";
+    const std::vector<sim::Equipment> eq = sim::ai::grid_equipment(db, program, events, grid, 12345);
+    CHECK(eq.size() == 6);
+    const int n = sim::ai::paint_count(db, eq[0]);
+    std::printf("  ka_01: %d paints, chosen", n);
+    std::vector<int> seen;
+    for (const auto& e : eq) {
+        std::printf(" %d", e.b(0x18));
+        CHECK(e.b(0x18) < n);
+        seen.push_back(e.b(0x18));
+    }
+    std::printf("\n");
+    std::sort(seen.begin(), seen.end());
+    if (n >= 10) CHECK(std::adjacent_find(seen.begin(), seen.end()) == seen.end());
+}
+
+TEST(ai_disc_pit_and_finish) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    db::SpecDb db = sim::ai::open_specdb(*disc);
+    const sim::Program program = sim::Program::load(*disc);
+    std::vector<sim::ai::FieldCar> cars(2);
+    cars[0].name = "ka_01", cars[1].name = "s500_63";
+    for (auto& c : cars) CHECK(sim::stock_car(db, program, c.name, c.entry.equipment));
+    // Car 1 sent down the pit lane at 10 s drives its line 3 (kind 2) at the pit speed; car 0's run ended at 20 s with the
+    // stop driver (mode 1) comes to rest (kind 8).
+    int step = 0;
+    bool on_pit_line = false, stopped = false;
+    float pit_top = 0;
+    sim::ai::run_field(*disc, "tsukuba", cars, 3, {}, 60, {}, [&](sim::Session& s, sim::ai::Field& f) {
+        ++step;
+        if (step == 600) CHECK(f.pit_enter(1));
+        if (step == 1200) f.finish(0, 1);
+        if (step > 600 && f.line(1) == 3 && f.kind(1) == 2) {
+            on_pit_line = true;
+            if (step > 1500) pit_top = std::max(pit_top, s.cars()[1].speed);
+        }
+        if (f.kind(0) == 8) stopped = true;
+    });
+    std::printf("  pit lane: %s, its speed after 15 s at most %.0f km/h; the stop driver: %s\n", on_pit_line ? "driven" : "not driven",
+                double(pit_top) * 3.6, stopped ? "stopped" : "not stopped");
+    CHECK(on_pit_line);
+    CHECK(stopped);
 }

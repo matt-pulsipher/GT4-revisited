@@ -55,6 +55,15 @@ struct Tables {
     std::array<std::array<s8, 6>, 8> fallback{};
     // 0x624018: the order the lines are prepared in (the heights of one start from the last's).
     std::array<u8, 8> order{6, 0, 1, 2, 5, 3, 4, 7};
+    // B-spec's pace levels (0x3F1790 from the bytes at 0x622088 .. 0x6220A4, five levels): the driver's shift speeds
+    // x shift / 128, its braking factor and its arcs' speed factor; the level a B-spec driver and a computer driver start at
+    // (0x622080 / 0x622081).
+    struct PaceLevel {
+        u8 shift = 128;
+        gt3r::ee::F brake{1.0f}, corner{1.0f}, x20E0{1.0f};
+    };
+    std::array<PaceLevel, 5> pace{};
+    std::array<u8, 2> pace_start{2, 2};
     u8 driver_spread = 0;      // 0x620DE9: the computer drivers differ by their grid index
     u8 saturation_cut = 0;     // 0x620DE7: the throttle cut and brake for a steering past the tires' peak
 
