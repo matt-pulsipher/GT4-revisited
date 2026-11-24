@@ -647,6 +647,11 @@ void Runtime::queue_function(const Value& callee, std::vector<Value> args, std::
     events_.push_back(std::move(e));
 }
 
+bool Runtime::is_prologue() {
+    if (prologue_ < 0) prologue_ = read_("config/config-prologue.adc") && !read_("config/config-main.adc") ? 1 : 0;
+    return prologue_ == 1;
+}
+
 LiveWidget* Runtime::cursor_widget() {
     LiveWidget* focus = focused();
     if (focus && focus->is("ListBox")) return list_cursor_row(*focus);
@@ -967,9 +972,12 @@ void Runtime::dispatch_key(Key k) {
         const auto self = weak_step.lock();
         if (at >= chain.size()) {
             // The page's own handling.
-            if (k == Key::Accept || k == Key::Cancel) {
-                const bool accept = k == Key::Accept;
-                const std::shared_ptr<LiveWidget> target = page->focus.lock() ? page->focus.lock() : (accept ? nullptr : page);
+            // Prologue's page (mRootWindow slot 64, 0x230548) takes Start as Accept, and makes its activate event on
+            // the page itself, so a page without a focus hears onActivate (its opening movie's skip).
+            const bool prologue = is_prologue();
+            if (k == Key::Accept || k == Key::Cancel || (prologue && k == Key::Start)) {
+                const bool accept = k != Key::Cancel;
+                const std::shared_ptr<LiveWidget> target = page->focus.lock() ? page->focus.lock() : (accept && !prologue ? nullptr : page);
                 if (!target) return;
                 auto e = std::make_shared<Object>(accept ? "MActivateEvent" : "MCancelEvent");
                 e->set("widget", widget_value(target)), e->set("context", render_context_);

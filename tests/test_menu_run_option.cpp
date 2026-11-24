@@ -125,3 +125,29 @@ TEST(menu_option_menu_places_its_list) {
     const float end = screen_y(tlist) + 22 * 24;
     CHECK(std::fabs(end - 456) < 0.5f);
 }
+
+// Prologue's page takes Start as Accept and makes its activate event on itself (0x230548): a page without a focus hears
+// onActivate from either (its opening movie is skipped so); Gran Turismo 4's page takes neither without a focus.
+TEST(menu_prologue_start_activates_the_page) {
+    for (const bool prologue : {true, false}) {
+        menu::Runtime rt([prologue](const std::string& path) -> std::optional<Bytes> {
+            if (prologue && path == "config/config-prologue.adc") return Bytes{0};
+            return std::nullopt;
+        });
+        const std::shared_ptr<menu::LiveWidget> top = rt.start_layout(menu::parse_layout(std::string_view(
+                                                                          "Project { name string {\"P\"} children [1] { RootWindow { name string {\"MovieRoot\"} } } }")))
+                                                          ->child("MovieRoot");
+        int activated = 0;
+        top->define("onActivate", script::Vm::native("test", [&](script::Vm&, const Value&, script::Args) {
+                        ++activated;
+                        return Value::integer(1);
+                    }));
+        rt.open_page(top, true);
+        rt.key(menu::Key::Start);
+        rt.settle();
+        CHECK(activated == (prologue ? 1 : 0));
+        rt.key(menu::Key::Accept);
+        rt.settle();
+        CHECK(activated == (prologue ? 2 : 0));
+    }
+}

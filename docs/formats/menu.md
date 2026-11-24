@@ -155,6 +155,7 @@ A key press (mRootWindow, 0x235680): the page's `onKeyPress(context, event)` cha
 |---|---|
 | Accept (0xFF0D) | `onActivate(context, event)` from the focused widget up; nothing without a focus |
 | Cancel (0xFF1B) | `onCancel(context, event, item)` from the focused widget, or the page |
+| Start (0xFF8D), Prologue | Prologue's page (0x230548) takes it as Accept and makes the activate event on the page itself: without a focus the page hears `onActivate` (the opening movie's skip); Gran Turismo 4's (0x235680) has no case for it |
 | The directions (0xFF51 to 0xFF54, diagonals 0xFEE4 to 0xFEE7) | The focus moves (below); the page's `navigate_sound` plays (default `cursor`) |
 
 The pad's buttons as key numbers (table at 0x6192A0): up 0xFF52, down 0xFF54, left 0xFF51,

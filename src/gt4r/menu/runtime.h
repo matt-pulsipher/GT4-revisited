@@ -172,6 +172,8 @@ public:
     s32 points_for_place(int place);
     // What the cursor points at: the focused widget, a list box's focused row (0x2B3670).
     LiveWidget* cursor_widget();
+    // Gran Turismo 4 Prologue's disc (its configuration script config-prologue).
+    bool is_prologue();
     // The pages shown, the lowest first.
     const std::vector<std::shared_ptr<LiveWidget>>& open_pages() const { return pages_; }
     // The page of the common project that draws the cursor, when the scripts show it.
@@ -238,6 +240,7 @@ public:
     void keep_alive(std::shared_ptr<void> p) { kept_.push_back(std::move(p)); }
 
 private:
+    int prologue_ = -1; // is_prologue(): not yet asked
     struct Running {
         std::shared_ptr<script::Task> task;
         std::function<void(const script::Value&)> done;
