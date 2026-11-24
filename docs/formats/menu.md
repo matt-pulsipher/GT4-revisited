@@ -589,6 +589,20 @@ the script asked (`adjustScale`: the widest line to the face's width), or cut wi
 scripts copy it; an open option list is drawn over the page; the cursor and the transitions
 as below.
 
+**The loading page** (`app/menu_loading.h`; the program's LoadingPS2, 0x102840, its modes
+0x104E30): between two projects the "black" mode: a black quad fades in over the last page in
+1 s; once whole, one of two pictures of `advertise/gtloading.img` chosen at random (0x579358:
+texture 0 the GT logo on the frame buffer's x 220..412, y 168..264; texture 1 the blue and red
+stripes, x 240..400, y 176..256) and the tachometer fade in over 1 s together; at the end the
+page fades out in 0.25 s. The tachometer is a picture of the program (a Tex1 at 0x68C080: texture
+0 a black dial for light pages, texture 1 the needle and its trail for dark ones), 64 x 64 about
+(320, 341) of the 640 x 448 frame buffer, coloured (130, 130, 150), turning clockwise 720 degrees
+a second (0x104150). The program shows it while the disc loads; here the next project starts
+once the black is whole, the page holds 0.5 s after the picture is in (❓ judged) and takes no
+keys. ❓ Not done: the "capture" mode the scripts set before a race (the last picture held under
+the tachometer), "snow", "fade in", "simple", "off"; the tachometer's red while the disc check
+0x548850 fails.
+
 **Text** (`menu/text_layout.*`; the program's 0x491028 a line at a time, 0x4940E8 the marks,
 0x492978 a character). Gran Turismo 4's font record has two bytes past Gran Turismo 3's:
 +0x14 the step after a double-byte character and +0x15 a pair spacing (1 for `hn_14`,
