@@ -474,7 +474,7 @@ public:
         }
         if (ev.start && flow_.setup().start == race::StartType::Rolling)
             LOG_INFO("Drive: the player's car takes the line at %.1f km/h, %.2f s on the clock", double(world_->cars()[0].speed * 3.6f), double(flow_.time_ms()) / 1000);
-        if (setup_.sequence == "license") judge_stop();
+        if (is_license(setup_.sequence)) judge_stop();
         if (ev.lap_done == 0) event_steps_ = 0, event_lap_ = flow_.car(0).laps_done;
         beeps_ += ev.beep;
         start_camera_.step();
@@ -869,7 +869,7 @@ public:
                     if (laps <= 0 && sequence_ == "single_race")
                         if (const auto it = setup_.options.find("race_laps"); it != setup_.options.end())
                             if (const s32* v = std::get_if<s32>(&it->second)) laps = *v;
-                    if (laps <= 0 && (sequence_ == "license" || sequence_ == "mission")) laps = 1; // (a test: one run)
+                    if (laps <= 0 && (is_license(sequence_) || sequence_ == "mission")) laps = 1; // (a test: one run)
                     if (laps > 0) setup_.laps = std::clamp(laps, 1, 99);
                 }
             }
@@ -1090,7 +1090,7 @@ public:
                 hud_state_.show_position = d.position, hud_state_.show_meter = d.meter;
                 hud_state_.replay_display = settings_.replay_display;
                 // A license test: the targets (the page's gold, silver and bronze times).
-                hud_state_.license = sequence_ == "license";
+                hud_state_.license = is_license(sequence_);
                 for (int k = 0; k < 3; ++k) hud_state_.targets[k] = test_time(k);
                 if (race_->replaying()) {
                     if (caption_for_.empty()) music_caption(app);
@@ -1757,7 +1757,7 @@ private:
             race_->set_lap_words(hud_->word("WordOfLap"), hud_->word("WordOfLaps"));
             // A test's gold, silver and bronze times (its RACE row, under the region's prefix).
             targets_[0] = targets_[1] = targets_[2] = -1;
-            if (sequence_ == "license" || sequence_ == "mission")
+            if (is_license(sequence_) || sequence_ == "mission")
                 if (db::SpecDb* sdb = app.db()) try {
                         gt3r::Vfs* vfs = app.vfs();
                         const db::RaceEvents events(*sdb, [vfs](const std::string& path) { return vfs->read(path); });
