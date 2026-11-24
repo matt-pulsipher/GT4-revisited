@@ -1,11 +1,15 @@
-// Skinned model sets and their motions: the skin blocks on made-up bytes, the motion clock, then
-// the GT Auto mechanic of the US disc (GT4R_DISC) in its stored pose and walking in.
+// The menus' drawing, round five: skinned model sets and their motions (the skin blocks on made-up
+// bytes, the motion clock, the GT Auto mechanic of the US disc in its stored pose and walking in),
+// equalized text spread as the program does; on the discs of GT4R_DISC.
 
 #include "test_framework.h"
 
 #include "gt4r/formats/model/mdls.h"
 #include "gt4r/formats/model/mdls_skin.h"
+#include "gt4r/menu/font.h"
 #include "gt4r/menu/image_pack.h"
+#include "gt4r/menu/text_layout.h"
+#include "vfs/vfs.h"
 #include "gt4r/menu/model_motion.h"
 
 #include <cmath>
@@ -15,7 +19,7 @@
 using namespace gt4r;
 namespace render = gt3r::render;
 
-namespace menu_draw_skin_test {
+namespace menu_draw5_test {
 
 bool throws(const std::function<void()>& f) {
     try {
@@ -143,4 +147,46 @@ TEST(disc_gtauto_mechanic_skinned_and_walking) {
     }
 }
 
-} // namespace menu_draw_skin_test
+// An equalized line broken to fit ends a space short of the width, each space at most 2.5 spaces
+// wide (0x245C90, 0x24600C); the last line keeps plain spaces.
+TEST(disc_menu_equalized_line_spread) {
+    Disc* gt4 = nullptr;
+    for (const auto& disc : test::discs())
+        if (disc->info().game == Game::GT4) gt4 = disc.get();
+    if (!gt4) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    gt3r::Vfs vfs(&gt4->volume());
+    const std::optional<Bytes> fnt = vfs.read("font/system.fnt");
+    CHECK(fnt.has_value());
+    if (!fnt) return;
+    const gt3r::text::FontFile fonts = menu::read_fonts(*fnt);
+    const std::map<std::string, menu::FontSpacing> spacing = menu::read_font_spacing(*fnt);
+    const gt3r::text::LatinFont* hn = nullptr;
+    for (const auto& f : fonts.fonts)
+        if (f.name == "hn_14") hn = &f;
+    CHECK(hn && spacing.count("hn_14"));
+    if (!hn || !spacing.count("hn_14")) return;
+    menu::TextStyle st;
+    st.font = hn, st.spacing = spacing.at("hn_14");
+    st.align = gt3r::text::HAlign::Left, st.valign = gt3r::text::VAlign::Top;
+    const float space = float(hn->glyph(' ') ? hn->glyph(' ')->advance : 0);
+    auto right = [](const menu::TextLayout& l, float below) {
+        float r = 0;
+        for (const menu::PlacedGlyph& g : l.glyphs)
+            if (g.y < below) r = std::max(r, g.x + g.w);
+        return r;
+    };
+    const menu::TextLayout plain = menu::layout_menu_text("a complete stop. Your elapsed", st, 0, 0);
+    const float natural = right(plain, 1e9f);
+    st.justify_width = natural + 30;
+    const menu::TextLayout wide = menu::layout_menu_text("a complete stop. Your elapsed\vtime", st, 0, 0);
+    // The line's width (plain.width) made the width less a space: its 4 spaces share the rest,
+    // under the cap (9 each).
+    CHECK(std::fabs(right(wide, 10) - natural - (natural + 30 - space - plain.width)) < 1.0f);
+    st.justify_width = natural + 400;
+    const menu::TextLayout capped = menu::layout_menu_text("a complete stop. Your elapsed\vtime", st, 0, 0);
+    CHECK(std::fabs(right(capped, 10) - (natural + 4 * 1.5f * space)) < 1.0f);
+    const menu::TextLayout last = menu::layout_menu_text("a complete stop. Your elapsed", st, 0, 0);
+    CHECK(std::fabs(right(last, 1e9f) - natural) < 0.5f);
+}
+
+} // namespace menu_draw5_test

@@ -575,8 +575,15 @@ A project's script names files of the disc's top beside its own (gtmode's
 ### Drawn in the app
 
 A running page is drawn from the live widgets with the rules of the table above, and:
-a text of several lines (`multiline`) is broken at spaces to its rectangle unless a box
-places it (`equalized`: ❓ such a line spread to the width at its spaces), made narrower when
+a text of several lines (`multiline`) is broken at spaces as the program's word wrapper does
+(0x245C90): each word measured by itself, a word starts a new line when the line so far (its
+words each with a space after it) and it reach the face's width less the font's double-byte
+step (❓ that margin is the renderer's right edge, 0x490660, which the four reference texts'
+breaks agree with; the comparison read at 0x245F1C is against the bare width); a face without
+`geometry` takes its parent's width. With `equalized` a line broken to fit is spread at its
+spaces to end a space short of the width, each space at most 2.5 spaces wide (0x24600C); the
+last line and a line ended by a line end keep plain spaces (❓ the program does this only for
+the languages 0x245568 lets through: not index 0 or 9-11); made narrower when
 the script asked (`adjustScale`: the widest line to the face's width), or cut with an ellipsis
 (`abbreviate`); a key is looked up in the page the layout has the widget in, wherever the
 scripts copy it; an open option list is drawn over the page; the cursor and the transitions

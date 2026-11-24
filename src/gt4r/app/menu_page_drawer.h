@@ -482,15 +482,28 @@ private:
         // ❓ Prologue's texts carry their own line ends and are not broken (its card dialog's
         // first line passes its face's width by 5 pixels in one line).
         if (!fonts_.count("hn_14")) return s;
+        // The program's word wrapper (0x245C90): each word measured by itself; a word starts a new
+        // line when the line so far (its words, each with a space after it) and it reach the
+        // width less the font's double-byte step (❓ that margin: the renderer's own right edge,
+        // 0x490660, which the four reference texts' breaks agree with; the comparison read at
+        // 0x245F1C is against the bare width).
+        const gt3r::text::FontGlyph* space_glyph = st.font ? st.font->glyph(' ') : nullptr;
+        const int advance = space_glyph ? int(space_glyph->advance) : st.font ? int(st.font->size / 2) : 8;
+        const float space = float(advance) * st.scale_x;
+        // (A word's width is its pen's: width_of() gives a line's, half a space less.)
+        const float pen_extra = float(advance / 2) * st.scale_x;
+        const float limit = width - float(st.spacing.wide_advance) * st.scale_x;
         std::string out, line;
-        auto flush = [&] { out += line, line.clear(); };
+        float cur = 0;
+        auto flush = [&] { out += line, line.clear(), cur = 0; };
         size_t at = 0;
         while (at <= s.size()) {
             const size_t end = std::min(s.find_first_of(" \n", at), s.size());
             const std::string word = s.substr(at, end - at);
-            const std::string tried = line.empty() ? word : line + " " + word;
-            if (!line.empty() && width_of(tried, st) > width + 0.5f) flush(), out += '\v', line = word;
-            else line = tried;
+            const float x = word.empty() ? 0.0f : width_of(word, st) + pen_extra;
+            if (!line.empty() && cur + x >= limit) flush(), out += '\v';
+            line = line.empty() ? word : line + " " + word;
+            cur += x + space;
             if (end < s.size() && s[end] == '\n') flush(), out += '\n';
             at = end + 1;
         }
