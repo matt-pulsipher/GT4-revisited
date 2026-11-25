@@ -277,8 +277,28 @@ s64 Runtime::race_finished(const RaceResult& r) {
         for (size_t i = 0; i < r.order.size(); ++i)
             if (r.order[i].entry == 0) first = int(i);
         const bool doubled = r.bspec_doubled || (r.kind != RaceResult::Kind::Course && r.order.size() >= 2 && r.finished && first == 0);
-        bspec::write_back(s.bspec_book, std::clamp(r.bspec_class, 0, 7), *r.bspec_record, doubled, at ? 2 : 0,
-                          at ? s.course_record.data() + *at + 0x228 : nullptr);
+        const u8* marks = at ? s.course_record.data() + *at + 0x228 : nullptr;
+        // Only over the book (and marks) the run started from. And not a doubled change that would go below zero: the
+        // program's 16-bit store would wrap there (❓ whether a run can lower its record is not read; a doubled fall that
+        // stays at or above zero is written as the program writes it).
+        const bool same = r.bspec_start && *r.bspec_start == s.bspec_book && (!marks || std::equal(marks, marks + 8, r.bspec_start_marks.begin()));
+        bool below = false;
+        const int cls = std::clamp(r.bspec_class, 0, 7);
+        for (int t = 0; t < 3 && doubled; ++t)
+            for (int c = 0; c < 8; ++c)
+                if (!(cls == 0 && c == 7)) {
+                    const s32 v = (*r.bspec_record)[size_t(t * 16 + c * 2)] | (*r.bspec_record)[size_t(t * 16 + c * 2 + 1)] << 8;
+                    below = below || 2 * v < s32(s.bspec_book[size_t(t * 64 + c * 8 + cls)]);
+                }
+        for (int m = 0; m < 8 && doubled && marks; ++m) below = below || 2 * s32((*r.bspec_record)[size_t(0x30 + m * 2 + 1)]) < s32(marks[m]);
+        if (!same || below) {
+            note(same ? "B-spec: a doubled change below zero, the book kept" : "B-spec: the run did not start from the saved book, the book kept");
+        } else {
+            bspec::write_back(s.bspec_book, cls, *r.bspec_record, doubled, at ? 2 : 0, at ? s.course_record.data() + *at + 0x228 : nullptr);
+            // The sequence's next run starts from the book as it is now (0x468710 is called before every run).
+            s.race.bspec_book = s.bspec_book;
+            if (at) std::copy_n(s.course_record.data() + *at + 0x228, 8, s.race.bspec_course_marks.begin());
+        }
     }
     // The player's place in the finishing order (0x110570), or the one given.
     int place = r.place;

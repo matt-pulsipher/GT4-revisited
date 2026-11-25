@@ -243,8 +243,10 @@ training, 0x3F7050; a free run 0x3F5518, a license test 0x3F5FA0 and a machine t
 more (cond + 0xF8A0, the car count), that the car finished (its +0x5B6) first (its place byte +0x5B3 at 1). The course's
 marks are read and written (0x468A40) only when the race's byte cond + 0xCBE7 is set: 0x34C7E0 fills cond + 0xCBE6 ..
 +0xCBED from the course's attribute text (0x447F08, `MCourseData.GetAttrString`), a character a value (digits, hex
-letters); +0xCBE7 is the second character's: Tsukuba "1ff0" set, Grand Canyon "0000" not. Test:
-`disc_gt_mode_bspec_book_after_a_race`. The Status
+letters); +0xCBE7 is the second character's: Tsukuba "1ff0" set, Grand Canyon "0000" not. The record is written back only over the book and marks the
+run started from (`RaceResult::bspec_start`), and a doubled change below zero, which the program's 16-bit store would wrap,
+is not written (❓ whether a run can lower its record is not read). Tests: `disc_gt_mode_bspec_book_after_a_race`,
+`disc_race_request_*`. The Status
 page's figures (0x468B58): Machine (0x467C58), Course (0x467D90), Battle (0x467F60), each 0 .. 100, and the B-spec
 Skill (0x4680D8) 0 .. 10000, weighed by the program's 0x623E40 (8 .. 15). ✔ Equal to the program's on made-up books
 (`gt4r_diff <disc> book`) and to the original's Status page on the reference's card (29-bspec-record: 508 / 10 / 7 /

@@ -1181,6 +1181,7 @@ void complete_race_request(Runtime& rt, RaceRequest& r) {
     // "0000" Grand Canyon).
     r.bspec_book = s.bspec_book;
     r.bspec_course_known = false;
+    r.garage_slot = -1; // (only a garage car's request has one, below: not the request before's)
     const std::string attribute = course_attribute(d, r.course);
     if (const std::optional<size_t> at = attribute.size() > 1 && attribute[1] != '0' ? bspec_course_unit(d, s, r.course) : std::nullopt) {
         std::copy_n(s.course_record.data() + *at + 0x228, 8, r.bspec_course_marks.begin());
