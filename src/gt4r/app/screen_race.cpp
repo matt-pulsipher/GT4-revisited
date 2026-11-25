@@ -1761,7 +1761,7 @@ public:
         }
         settings_ = menu::settings_from(setup_.options);
         controllers_ = settings_.controllers;
-        if (menus_) setup_.player = player_choice();
+        if (menus_) setup_.player = player_choice(true);
         // The first view of a race of the menus: the options' (view_type: SUBJECTIVE the nose,
         // BONNET the higher one, OVERLOOK the chase view).
         if (from_menus_) setup_.view = settings_.view == "OVERLOOK" ? race::DriveCamera::kChase : settings_.view == "BONNET" ? race::DriveCamera::kRoof : race::DriveCamera::kInCar;
@@ -2577,12 +2577,16 @@ private:
 
     // What the player chose for his car, as the race's sequence takes it (0x10F770 for every sequence; 0x111DC0 / 0x113248 the
     // arcade's race and time trial from their menus; 0x10F848, 0x10F880 the others from the options).
-    RaceWorld::PlayerChoice player_choice() {
+    // `asked`: before the race's menus (their work not made yet): as the request has them.
+    RaceWorld::PlayerChoice player_choice(bool asked = false) {
         if (!menus_) return setup_.player;
         RaceWorld::PlayerChoice c;
         const menu::GameSettings s = menu::settings_of(menus_->game());
         controllers_ = s.controllers; // (the Key Configuration, the vibration, the wheel's forces: the options' now)
-        if (sequence_ == "single_race" || sequence_ == "time_trial") {
+        if (asked && (sequence_ == "single_race" || sequence_ == "time_trial")) {
+            const menu::RaceRequest& q = menus_->game().race;
+            c.automatic = q.manual == 0, c.asm_on = q.assist_asm != 0, c.tcs_on = q.assist_asm != 0 || q.assist_tcs != 0;
+        } else if (sequence_ == "single_race" || sequence_ == "time_trial") {
             const menu::QuickWork& w = menu::quick_work(menus_->game());
             c.automatic = w.get("QuickTuneTransmission") == 0;
             const int assist = w.get("QuickTuneDrivingAssist"); // (0x110B90)

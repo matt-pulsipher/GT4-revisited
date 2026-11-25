@@ -213,6 +213,8 @@ TEST(input_modern_layout) {
     race = pad_of({PadButton::L2, PadButton::R2});
     CHECK(modern_input({}, race).frame.shift == 0);
     CHECK(modern_input({}, pad_of({PadButton::Down})).frame.nitrous == 1 && modern_input(pad_of({PadButton::L3}), {}).frame.nitrous == 1);
+    CHECK(modern_input(pad_of({PadButton::R1}), {}).frame.nitrous == 1 && modern_input(pad_of({PadButton::R1}), pad_of({PadButton::R2})).frame.nitrous == 0);
+    CHECK(modern_input(pad_of({PadButton::Select}), {}).views == RaceInput::kPlayView);
 }
 
 TEST(input_console_layout) {

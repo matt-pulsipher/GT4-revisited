@@ -90,7 +90,10 @@ RaceInput modern_input(const PadState& menu, const PadState& race) {
     if (race.down(PadButton::R1)) press(in, ButtonAction::PlayView);
     if (race.down(PadButton::L1)) press(in, ButtonAction::BackView);
     if (race.down(PadButton::Up)) press(in, ButtonAction::Ghost);
-    if (race.down(PadButton::Down) || menu.down(PadButton::L3)) press(in, ButtonAction::Special);
+    // The nitrous: the console's R1 (a keyboard's key for it shifts up in races), the direction buttons' Down, the left stick pressed.
+    const bool r1 = menu.down(PadButton::R1) && !race.down(PadButton::R2) && !race.down(PadButton::R1);
+    if (r1 || race.down(PadButton::Down) || menu.down(PadButton::L3)) press(in, ButtonAction::Special);
+    if (menu.down(PadButton::Select)) press(in, ButtonAction::PlayView);
     if (race.down(PadButton::Start)) press(in, ButtonAction::Pause);
     in.stick = {race.axis_fine(PadAxis::LX), -race.axis_fine(PadAxis::LY), race.axis_fine(PadAxis::RX), -race.axis_fine(PadAxis::RY)};
     return in;

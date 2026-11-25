@@ -35,7 +35,7 @@ Triangle goes back). In races, unless you change it:
 | Reverse | L1 | R | Triangle |
 | Change view | Triangle (Y), Select | C, Tab | Select |
 | Look back | right stick pressed | X | the direction buttons' Down |
-| Nitrous | direction buttons' Down, left stick pressed | F | (bind it) |
+| Nitrous | R1, direction buttons' Down | F | (bind it) |
 | Pause | Start | Escape, P | Start |
 
 Menus on a keyboard: arrows move, Enter is Cross, Escape and Backspace Triangle, P Start, Tab
