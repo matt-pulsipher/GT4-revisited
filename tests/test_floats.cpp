@@ -59,6 +59,19 @@ TEST(floats_demo_replays_decipher) {
     CHECK(read == names.size());
 }
 
+// A whole race of the Replay Theater's (Ice Arena, two laps against a computer's car) through the program's step: the recorded time
+// and best lap; our own race from the recording alone the same in every bit of every car's place.
+TEST(floats_demo_replay_race_is_the_recorded_one) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    const diff::ReplayBeside r = diff::run_replay_beside(*disc, "Rdemo2");
+    if (!r.program.ran) std::printf("  %s\n", r.program.error.c_str());
+    CHECK(r.program.ran);
+    CHECK(r.program.race_exact());
+    CHECK(r.first_bits == -1);
+    CHECK(r.ours_exact);
+}
+
 // The race step runs no VU0 arithmetic (a demonstration with its car, a pace car and the computer driver).
 TEST(floats_race_step_runs_no_vu0) {
     Disc* disc = gt4_disc();

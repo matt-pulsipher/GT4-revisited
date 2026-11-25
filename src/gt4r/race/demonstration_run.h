@@ -15,6 +15,9 @@ class Disc;
 namespace db {
 class SpecDb;
 }
+namespace sim::ai {
+struct DemoRun;
+}
 } // namespace gt4r
 
 namespace gt4r::race {
@@ -35,6 +38,7 @@ struct DemonstrationOptions {
     bool cones = true;
     // Each step after it ran (0: the race's first), for traces.
     std::function<void(size_t step, const sim::Session&)> on_step;
+    const sim::ai::DemoRun* run = nullptr; // another recording of the test (a saved replay's), in place of the disc's
 };
 
 // Plays replay/license/<label> ("usl0b0001").

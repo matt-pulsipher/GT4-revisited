@@ -70,7 +70,11 @@ struct DemoScore {
     int ended_ms = -1;      // the program's judged time (0x3F8AB0's), -1 when the run did not end timed
     int ended_step = -1;    // the step the run ended at (timed or failed)
     int fail_kind = -1;     // the judge's failure (0x3F8980's kind), -1 none
-    std::vector<int> laps;  // a race's: the player's line crossings' times (ms) as the conductor's virtual 21 gets them
+    std::vector<int> laps;  // a race's: the player's lap times (ms) as the conductor's virtual 21 gets them
+    int race_laps = 0;      // its laps
+    int best_ms = -1;       // the file's best lap (+0xC4)
+    // A race came out as recorded: the file's time is the race's when its laps were all run, else the last lap's, and its best lap.
+    bool race_exact() const;
     int hold = 0;           // the start's hold the run was given (steps)
     bool exact() const { return ended_ms >= 0 && ended_ms == recorded_ms; }
     // With FloatDemoOptions::ours: our session beside the program's run until its end (OursBeside's figures).
@@ -86,6 +90,8 @@ struct FloatDemoOptions {
     bool ours = false;      // our session beside the program's run (OursBeside)
     // Called once the race is set up, before its first step (to install probes; FloatCensus::attach).
     std::function<void(gt3r::diff::Ee&)> on_setup;
+    // Called after each of the program's steps (0: the race's first).
+    std::function<void(gt3r::diff::Ee&, OrigRace&, int step)> on_step;
 };
 
 // Plays replay/license/<label> (a license test's demonstration) through the program's race step: the event's row
@@ -138,6 +144,15 @@ struct CipherResult {
     u64 bytes = 0;
 };
 CipherResult run_floats_cipher(Disc& disc, bool print);
+// A demo replay through the program's step with our own race (race::RecordedRace) beside it.
+struct ReplayBeside {
+    DemoScore program;
+    int first_bits = -1;   // the first step a car's place differs in a bit (-1 never)
+    bool ours_exact = false;
+};
+// A license demonstration through the program's step, and our own race of it (race::run_demonstration) compared step by step.
+int run_demo_beside(Disc& disc, const std::string& label);
+ReplayBeside run_replay_beside(Disc& disc, const std::string& name);
 int run_floats_replays(Disc& disc, const std::vector<std::string>& args); // the Replay Theater's demo replays (floats_replays.cpp)
 int run_floats(Disc& disc, const std::vector<std::string>& args);
 

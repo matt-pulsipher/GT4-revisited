@@ -24,6 +24,15 @@ struct ReplayFile {
     int laps = 0;
     std::vector<Car> cars;
     std::vector<std::vector<CarState>> steps; // a step's states, one per car
+    std::vector<std::pair<u32, Bytes>> other; // the sections this reader does not know, kept
+
+    // The program's own recording of the run (race/race_recording.h: a card's replay file), in a section "RPLD".
+    static constexpr u32 kRecording = 0x444C5052;
+    const Bytes* recording() const {
+        for (const auto& [tag, b] : other)
+            if (tag == kRecording) return &b;
+        return nullptr;
+    }
 
     Bytes encode() const;
     // Throws FormatError.
