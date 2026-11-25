@@ -18,6 +18,7 @@ menu::RaceResult bspec_result(const menu::RaceRequest& q, int place, u16 delta, 
     const u16 v = u16(rec[0] | rec[1] << 8) + delta;
     rec[0] = u8(v), rec[1] = u8(v >> 8);
     r.bspec_record = rec, r.bspec_class = k, r.bspec_course = q.bspec_course_known;
+    r.bspec_start = q.bspec_book, r.bspec_start_marks = q.bspec_course_marks;
     for (int e = 0; e < 6; ++e) {
         menu::RaceResult::Finisher f;
         f.entry = e == place ? 0 : (e < place ? e + 1 : e), f.car = q.car;
