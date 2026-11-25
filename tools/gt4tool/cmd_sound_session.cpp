@@ -105,7 +105,7 @@ int sound_session_wav(Disc& disc, const std::vector<std::string>& a) {
         for (size_t k = 0; k < sound.course().emitters(ch); ++k) {
             const auto g = sound.course().emitter_gates(ch, k);
             const auto& e = sound.course().emitter(ch, k);
-            std::printf("  %s %zu: gates %.1f .. %.1f m, %zu points", audio::CourseSound::effect_name(ch), k, double(g.first), double(g.second),
+            std::printf("  %s %zu: gates %.1f .. %.1f m, %zu points", audio::CourseSound::effect_name(ch, tables.prologue) ? audio::CourseSound::effect_name(ch, tables.prologue) : "none", k, double(g.first), double(g.second),
                         e.points.size());
             for (const auto& pt : e.points) std::printf(" (%.0f %.0f %.0f w %.2f)", double(pt.x), double(pt.y), double(pt.z), double(pt.weight));
             std::printf("\n");
