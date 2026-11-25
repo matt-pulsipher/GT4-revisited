@@ -316,7 +316,10 @@ void draw_grid(App& app, Setup& setup, const menu::RaceRequest& q) {
             }
         }
         if (!setup.opponents.empty()) setup.cars = int(setup.opponents.size()) + 1;
-        if (const std::optional<db::RaceEvent> e = events.event(q.race)) setup.pace = sim::ai::pace_for(*e), setup.event_row = e->bytes;
+        // (An arcade race of a car without an event's row: sample_entry_6, the original's, whatever its number of cars; it counts fuel.)
+        const std::string race = q.race.empty() && (q.sequence == "single_race" || setup.sequence == "single_race") ? std::string("sample_entry_6") : q.race;
+        if (const std::optional<db::RaceEvent> e = events.event(race)) setup.pace = sim::ai::pace_for(*e), setup.event_row = e->bytes;
+        LOG_INFO("Drive: the event's row %s (%zu bytes)", race.c_str(), setup.event_row.size());
     } catch (const std::exception& e) {
         LOG_WARN("Drive: the event's grid: %s", e.what());
     }
