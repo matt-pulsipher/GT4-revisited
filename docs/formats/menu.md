@@ -1194,6 +1194,8 @@ GT4's own routines, checked against the user's program where the note says so:
   `canEntryEndurance`, `canEntryGTWorldChamp`, `canEntryExtreme`; save.md "A game with progress");
 - Prologue's game data file and its card pages' saving and loading (`save/prologue_data.*`, prologue.md "The saved game";
   the license units by `prologue_license.*`), its new game's payload equal to the program's byte for byte;
+- the event's license in a race's menus (0x110498), Arcade's best A-spec score (0x111E98), the scripts' sort (0x2F03C8),
+  a sibling's free name (0x206888, 0x25ADF8), a replay's particulars on the card (0x1CF628, 0x1CF400);
 - `MCourseData.GetAttrString` (0x1B3320); the options' fields and the screen's figures (0x436D60); the
   license day (0x110800); the gear ranges (0x3553A0, 0x355278); the race result routines (0x114498,
   0x119CB8, 0x11C328, 0x1105A8) and the distance added to a car (0x35DE20) as read.
