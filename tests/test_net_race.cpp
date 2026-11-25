@@ -6,6 +6,7 @@
 
 using namespace gt4r;
 using namespace gt4r::test::net;
+using gt3r::ee::F;
 
 namespace {
 
@@ -64,4 +65,152 @@ TEST(net_race_remote_car_error) {
         CHECK(own.e.rms() * 100 < c.rms_cm && own.e.worst * 100 < c.worst_cm);
         CHECK(own.warnings == 0);
     }
+}
+
+// A car driven into the one ahead: both machines feel the hit (each solves it for its own car), the cars do not pass through
+// each other, and the impulse the other machine sent is not applied where ours saw it too.
+TEST(net_race_contact) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    World w(*disc, "tsukuba");
+    const std::vector<std::string> labels{"nsx_r_02", "r34_gtr_v2_nur_02"};
+    for (const Link& link : {Link{0, 0, 0}, Link{50, 5, 0.02}, Link{100, 10, 0.05}}) {
+        Race r(w, labels, link);
+        r.machines[0]->drive = weaving(0.35f, 0.0f); // ahead, slow
+        r.machines[1]->drive = chasing();            // from behind
+        Errors e, near;
+        s64 first[2] = {-1, -1};
+        double least = 1e9;
+        for (int k = 0; k < 20 * 60; ++k) {
+            r.step_all();
+            for (size_t m = 0; m < 2; ++m)
+                if (first[m] < 0 && r.machines[m]->contact_steps) first[m] = r.machines[m]->clock;
+            e.add(r.error(0, 1)), e.add(r.error(1, 0));
+            const course::Vec3 a = r.place(0, 0), b = r.place(1, 1);
+            least = std::min(least, std::hypot(double(a.x - b.x), double(a.z - b.z)));
+        }
+        const auto &f0 = *r.machines[0]->field, &f1 = *r.machines[1]->field;
+        std::printf("  %3.0f ms: first contact at %.2f s / %.2f s; steps in contact %lld / %lld; hits sent %u / %u, applied %u / %u; least distance between centers %.2f m; error rms %.1f cm, worst %.0f cm; warnings %u %s\n",
+                    link.delay_ms, double(first[0]) / 3000, double(first[1]) / 3000, (long long)r.machines[0]->contact_steps, (long long)r.machines[1]->contact_steps, f0.hits_sent(), f1.hits_sent(),
+                    f0.hits_applied(), f1.hits_applied(), least, e.rms() * 100, e.worst * 100, r.machines[0]->warnings + r.machines[1]->warnings, r.machines[0]->warning.c_str());
+        // (each machine solved the hit, or was told of one it did not see)
+        CHECK((first[0] > 0 || f0.hits_applied() > 0) && (first[1] > 0 || f1.hits_applied() > 0));
+        if (first[0] > 0 && first[1] > 0) CHECK(std::abs(first[0] - first[1]) <= 300 + s64(link.delay_ms * 6));
+        CHECK(least > 1.5); // (never in each other)
+        CHECK(r.machines[0]->warnings + r.machines[1]->warnings == 0);
+    }
+}
+
+// What a posed car does to ours and not to itself, and what a ghost does not.
+TEST(net_race_posed_car) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    World w(*disc, "tsukuba");
+    std::vector<sim::Entry> e = w.entries(std::vector<std::string>{"nsx_r_02", "r34_gtr_v2_nur_02"});
+    for (const bool ghost : {false, true}) {
+        std::unique_ptr<sim::Session> s = w.session(e);
+        for (int k = 0; k < 60; ++k) s->hold_once({});
+        const std::unique_ptr<sim::Session> other = s->solo(1);
+        s->set_posed(1, true);
+        s->set_ghost(1, ghost);
+        // The other car driven at ours from 12 m behind, at 15 m/s, ours standing on its brakes.
+        const auto me = s->record(0);
+        gt3r::sim::exact::Car c = other->record(0);
+        const sim::Extra x = other->gt4_record(0);
+        const gt3r::sim::exact::Vec3 was = c.pos;
+        const F fx = me.fwd.x, fy = me.fwd.y, back(12.0f), v(15.0f);
+        c.pos = {me.pos.x - fx * back, me.pos.y - fy * back, c.pos.z};
+        c.heading = me.heading, c.pitch = me.pitch, c.roll = me.roll;
+        c.vel = {fx * v, fy * v, F()};
+        c.yaw_rate = F();
+        other->load_state(0, c, x);
+        other->settle_moved(0, was);
+        race::CarInput brake;
+        brake.brake = 1;
+        const F dt(1.0f / 60);
+        bool touched = false;
+        float push = 0;
+        for (int k = 0; k < 90; ++k) {
+            gt3r::sim::exact::Car n = other->record(0);
+            const gt3r::sim::exact::Vec3 at = n.pos;
+            n.pos = {n.pos.x + n.vel.x * dt, n.pos.y + n.vel.y * dt, n.pos.z};
+            other->load_state(0, n, other->gt4_record(0));
+            other->settle_moved(0, at);
+            s->pose(1, *other);
+            s->set_ghost(1, ghost);
+            s->step_once({&brake, 1});
+            // Its record keeps the pose, whatever it met.
+            CHECK(s->record(1).pos.x.bits == n.pos.x.bits && s->record(1).vel.x.bits == n.vel.x.bits && s->record(1).index == 1);
+            for (const sim::Session::CarContact& h : s->car_contacts()) {
+                touched = true;
+                // The impulse on ours points along its motion.
+                const float sign = h.struck == 0 ? 1.0f : -1.0f;
+                push += sign * (h.jx * fx.host() - h.jz * fy.host());
+            }
+        }
+        std::printf("  %s: touched %d, impulse on ours along its way %.0f N s, ours at %.2f m/s\n", ghost ? "a ghost" : "a car", touched, push, s->cars()[0].speed);
+        CHECK(touched == !ghost);
+        if (!ghost) CHECK(push > 1000);
+        else CHECK(std::fabs(s->cars()[0].speed) < 0.2f);
+    }
+    // The impulse of a hit another machine saw: the velocity by j / m, the yaw by its moment.
+    std::unique_ptr<sim::Session> s = w.session(e);
+    const float m = s->record(0).p.mass.host();
+    s->apply_impulse(0, s->cars()[0].position.x, s->cars()[0].position.z, m * 2.0f, 0);
+    CHECK(std::fabs(s->record(0).vel.x.host() - 2.0f) < 0.01f);
+}
+
+// Our machine's frames stall and its steps come in a burst: the other car is where it was at our race's time, and no warning.
+TEST(net_race_stalled_machine) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    World w(*disc, "tsukuba");
+    const std::vector<std::string> labels{"nsx_r_02", "r34_gtr_v2_nur_02"};
+    Race r(w, labels, {20, 4, 0});
+    r.machines[0]->drive = weaving(1.0f, 0.2f), r.machines[1]->drive = weaving(1.0f, 0.2f, 1);
+    Errors e;
+    std::vector<std::pair<s64, course::Vec3>> owner; // machine 1's own car by its clock
+    int behind = 0;
+    for (int k = 0; k < 20 * 60; ++k) {
+        r.step(1);
+        owner.push_back({r.machines[1]->clock, r.place(1, 1)});
+        const bool stall = (k % 97) < 12;
+        if (stall) ++behind;
+        else
+            for (int n = behind + 1; n > 0; --n) {
+                if (n == 1) behind = 0;
+                r.step(0);
+                if (k < 60) continue;
+                for (auto o = owner.rbegin(); o != owner.rend(); ++o)
+                    if (o->first == r.machines[0]->clock) {
+                        const course::Vec3 p = r.place(0, 1);
+                        e.add(std::hypot(double(p.x - o->second.x), double(p.z - o->second.z)));
+                        break;
+                    }
+            }
+        r.now_ms += 1000.0 / 60;
+    }
+    std::printf("  stalls of 12 frames: rms %.2f cm, worst %.1f cm; warnings %u\n", e.rms() * 100, e.worst * 100, r.machines[0]->warnings);
+    CHECK(e.n > 800 && e.worst < 0.5 && r.machines[0]->warnings == 0);
+}
+
+// Six machines, a car each, all on one wire.
+TEST(net_race_six_cars) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    World w(*disc, "tsukuba");
+    const std::vector<std::string> labels{"nsx_r_02", "r34_gtr_v2_nur_02", "mtr_gmv_04", "prius_g_02", "s500_63", "civic_r_98"};
+    Race r(w, labels, {40, 8, 0.02}, 120);
+    for (size_t m = 0; m < r.machines.size(); ++m) r.machines[m]->drive = weaving(1.0f, 0.15f, double(m));
+    Errors e;
+    u32 contacts = 0, warnings = 0;
+    for (int k = 0; k < 12 * 60; ++k) {
+        r.step_all();
+        for (size_t m = 0; m < 6; ++m)
+            for (size_t c = 0; c < 6; ++c)
+                if (c != m && k > 10) e.add(r.error(m, c));
+    }
+    for (auto& m : r.machines) contacts += m->field->hits_sent(), warnings += m->warnings;
+    std::printf("  six cars: rms %.2f cm, worst %.1f cm; hits sent %u, warnings %u\n", e.rms() * 100, e.worst * 100, contacts, warnings);
+    CHECK(e.worst < 2.0 && warnings == 0);
 }

@@ -31,7 +31,7 @@ NetRace::NetRace(gt3r::net::Session& net, OnlineRace race) : net_(&net), race_(s
         s.car = w, s.id = c.id, s.player = c.player, s.label = c.label, s.ours = w == 0;
         standing_.push_back(s);
     }
-    seen_.assign(seats_.size(), -1), claimed_.assign(seats_.size(), false);
+    hit_logged_.assign(seats_.size(), -1 << 30), seen_.assign(seats_.size(), -1), claimed_.assign(seats_.size(), false);
     lost_ = !net.joined();
 }
 
@@ -72,8 +72,7 @@ void NetRace::handle(const gt3r::net::Event& e) {
         }
         break;
     case K::Contact:
-        if (w > 0 && field_ && int(e.target) == int(standing_[0].id) && field_->apply_hit(size_t(w), e.contact, clock_))
-            LOG_INFO("Online: %s's machine saw a hit ours missed (%.0f N s), applied", standing_[size_t(w)].player.c_str(), std::hypot(e.contact.jx, e.contact.jz));
+        if (w > 0 && field_ && int(e.target) == int(standing_[0].id)) field_->take_hit(size_t(w), e.contact, clock_);
         break;
     case K::Flag: { // (the host: a warning about a player)
         const int by = world_of(e.flag.reporter);
@@ -181,7 +180,9 @@ void NetRace::after_step(s64 clock, const race::CarInput& ours, int laps) {
         ++states_sent_;
         for (const NetField::Sent& h : field_->hits()) {
             net_->send_contact(standing_[h.car].id, h.hit);
-            LOG_INFO("Online: our car hit %s's (%.0f N s) at %.2f s", standing_[h.car].player.c_str(), std::hypot(h.hit.jx, h.hit.jz), double(clock) / kUnits);
+            s64& last = hit_logged_[h.car];
+            if (clock - last > 3000) LOG_INFO("Online: our car hit %s's (%.0f N s) at %.2f s", standing_[h.car].player.c_str(), std::hypot(h.hit.jx, h.hit.jz), double(clock) / kUnits);
+            last = clock;
         }
         for (const NetField::Flag& f : field_->take_flags()) net_->report_flag(standing_[f.car].id, f.kind, f.value);
         net_->poll(); // (out at once)

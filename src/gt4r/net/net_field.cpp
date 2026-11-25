@@ -7,6 +7,7 @@ namespace gt4r::net {
 
 namespace {
 
+constexpr s64 kHitWait = 150;           // 0.05 s
 constexpr s64 kContactWindow = 600;     // 0.2 s: our own contact this recent makes theirs a duplicate
 constexpr s64 kStartGhost = 3 * 3000;   // the cars do not touch in the race's first three seconds
 constexpr s64 kShove = 3000;            // a contact this recent explains a jump in speed
@@ -35,6 +36,7 @@ int NetField::index_of(u8 id) const {
 
 void NetField::before_step(s64 clock) {
     update_ghosts(clock);
+    apply_hits(clock);
     for (size_t i = 0; i < cars_.size(); ++i) {
         Car& c = cars_[i];
         if (i == ours_ || c.gone) continue;
@@ -73,6 +75,12 @@ CarSnapshot NetField::state(const race::CarInput& input, s64 clock, int laps) {
     const CarInfo& me = cars_[ours_].info;
     CarSnapshot s = make_snapshot(*race_, ours_, car_entry(*race_, ours_, me.asm_on, me.tcs_on), ++tick_, s32(clock), laps, inputs_, input_count_);
     s.player = me.id;
+    // Put somewhere else than its own motion took it (a pit stop's box, 0x363560): no teleport to the others' checks.
+    const Vec3 at{s.state.position.x, s.state.position.y, s.state.position.z}, v{s.state.velocity.x, s.state.velocity.y, s.state.velocity.z};
+    if (placed_ && std::hypot(at.x - place_.x - velocity_.x / 60, at.z - place_.z - velocity_.z / 60) > 3.0f) respawn_ = 30;
+    placed_ = true, place_ = at, velocity_ = v;
+    s.respawned = respawn_ > 0;
+    if (respawn_ > 0) --respawn_;
     return s;
 }
 
@@ -90,19 +98,32 @@ void NetField::receive(size_t car, CarSnapshot s, s64 clock) {
     report(c.check.on_prediction_error(c.remote.last_error(), c.remote.last_horizon(), contact));
 }
 
-bool NetField::apply_hit(size_t car, const Hit& hit, s64 clock) {
-    if (car >= cars_.size() || car == ours_) return false;
-    Car& c = cars_[car];
-    c.reported = clock;
-    if (c.ghost || c.gone || c.contact >= clock - kContactWindow) return false;
-    const float j = std::hypot(hit.jx, hit.jz);
-    if (!(j > 0) || !std::isfinite(j) || !std::isfinite(hit.point_x) || !std::isfinite(hit.point_z)) return false;
-    const course::Vec3 at = race_->cars()[ours_].position;
-    if (std::hypot(hit.point_x - at.x, hit.point_z - at.z) > 10.0f) return false; // (nowhere near our car)
-    const float k = j > kMostImpulse ? kMostImpulse / j : 1.0f;
-    race_->apply_impulse(ours_, hit.point_x, hit.point_z, hit.jx * k, hit.jz * k);
-    ++hits_applied_;
-    return true;
+void NetField::take_hit(size_t car, const Hit& hit, s64 clock) {
+    if (car >= cars_.size() || car == ours_) return;
+    cars_[car].reported = clock;
+    if (waiting_.size() < 64) waiting_.push_back({car, hit, clock + kHitWait});
+}
+
+void NetField::apply_hits(s64 clock) {
+    for (size_t k = 0; k < waiting_.size();) {
+        const Waiting w = waiting_[k];
+        if (w.due > clock) {
+            ++k;
+            continue;
+        }
+        waiting_.erase(waiting_.begin() + std::ptrdiff_t(k));
+        const Car& c = cars_[w.car];
+        const Hit& h = w.hit;
+        if (c.ghost || c.gone || c.contact >= clock - kContactWindow) continue;
+        const float j = std::hypot(h.jx, h.jz);
+        if (!(j > 0) || !std::isfinite(j) || !std::isfinite(h.point_x) || !std::isfinite(h.point_z)) continue;
+        const Vec3 at = race_->cars()[ours_].position;
+        if (std::hypot(h.point_x - at.x, h.point_z - at.z) > 15.0f) continue; // (nowhere near our car)
+        const float f = j > kMostImpulse ? kMostImpulse / j : 1.0f;
+        // (the arm the point had to our car when it was met: the car has moved on since)
+        race_->apply_impulse(ours_, h.point_x + velocity_.x * float(kHitWait) / 3000.0f, h.point_z + velocity_.z * float(kHitWait) / 3000.0f, h.jx * f, h.jz * f);
+        ++hits_applied_;
+    }
 }
 
 void NetField::set_progress(std::span<const double> distance, double lap) {

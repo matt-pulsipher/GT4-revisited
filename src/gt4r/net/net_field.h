@@ -42,8 +42,9 @@ public:
         Hit hit;
     };
     const std::vector<Sent>& hits() const { return hits_; }
-    // A hit on our car that car's machine saw. Applied unless our machine saw one with it within 0.2 s, or it is a ghost here.
-    bool apply_hit(size_t car, const Hit& hit, s64 clock);
+    // A hit on our car that car's machine saw. It waits 0.05 s (between near machines it comes before our own step meets it) and
+    // is applied unless our machine saw one with that car within 0.2 s, or it is a ghost here.
+    void take_hit(size_t car, const Hit& hit, s64 clock);
 
     // The race's length along the course of each car (crossings x the lap + the place in it), and the lap, for the lapped rule.
     void set_progress(std::span<const double> distance, double lap);
@@ -87,6 +88,16 @@ private:
         s64 reported = -1 << 30; // and at the last one another machine reported of it
     };
     void update_ghosts(s64 clock);
+    void apply_hits(s64 clock);
+    struct Waiting {
+        size_t car = 0;
+        Hit hit;
+        s64 due = 0;
+    };
+    std::vector<Waiting> waiting_;
+    bool placed_ = false;       // our car's place and velocity after its last state
+    Vec3 place_{}, velocity_{};
+    int respawn_ = 0;           // states left that say our car was put somewhere (out of its pit box)
 
     sim::Session* race_;
     std::vector<Car> cars_;

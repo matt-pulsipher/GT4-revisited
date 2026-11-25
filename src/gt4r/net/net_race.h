@@ -111,6 +111,7 @@ private:
     gt3r::race::FixedStep pace_{60.0};
     s64 clock_ = -1 << 30;
     std::vector<Finish> finishes_;
+    std::vector<s64> hit_logged_; // (the log's: when a hit with each car was last)
     std::vector<s64> seen_;       // our race's own sight of each car's finish (-1 none)
     std::vector<bool> claimed_;
     std::vector<std::string> messages_;

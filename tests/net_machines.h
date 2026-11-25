@@ -164,7 +164,7 @@ struct Race {
                 continue;
             }
             const size_t car = index_in(mc, g.from);
-            if (g.state.empty()) mc.field->apply_hit(car, g.hit, mc.clock);
+            if (g.state.empty()) mc.field->take_hit(car, g.hit, mc.clock);
             else {
                 gt3r::net::Reader r(g.state);
                 gt3r::net::CarSnapshot s;
@@ -225,6 +225,19 @@ inline std::function<race::CarInput(Machine&)> weaving(float throttle = 1.0f, fl
         if (!*d) *d = std::make_unique<sim::LineDriver>(*m.session, 0);
         race::CarInput in = (*d)->drive(throttle, true);
         in.steer = std::clamp(in.steer + weave * float(std::sin(double(m.clock) / 3000.0 * 5.0 + phase)), -1.0f, 1.0f);
+        return in;
+    };
+}
+
+// A pad driver at the other car of the race, flat out, where this machine shows it.
+inline std::function<race::CarInput(Machine&)> chasing() {
+    return [](Machine& m) {
+        const race::CarState &me = m.session->cars()[0], &them = m.session->cars()[1];
+        const float dx = them.position.x - me.position.x, dz = them.position.z - me.position.z;
+        const float along = dx * me.forward.x + dz * me.forward.z, across = dx * me.right.x + dz * me.right.z;
+        race::CarInput in;
+        in.throttle = 1;
+        in.steer = std::clamp(std::atan2(across, std::max(along, 1.0f)) * 2.5f, -1.0f, 1.0f);
         return in;
     };
 }
