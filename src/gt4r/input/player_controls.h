@@ -47,5 +47,7 @@ std::string engine_word(std::string_view word);
 std::string our_word(std::string_view engine);
 // Those words of a config as the engine reads them; call before InputManager::load.
 void translate_config(gt3r::IniDocument& ini);
+// The input layer's settings into a config, in those words.
+void save_config(const gt3r::InputManager& input, gt3r::IniDocument& ini);
 
 } // namespace gt4r::input
