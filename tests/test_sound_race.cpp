@@ -523,6 +523,38 @@ TEST(sound_race_motor_and_one_speed_whine_on_disc) {
     }
 }
 
+// The Nike One's heartbeat (category 3): 0.8 beats a second standing, faster with the speed (2.2 more
+// at 240 km/h), heard from its own in-car view only; other cars have none.
+TEST(sound_race_heartbeat_on_disc) {
+    Disc* disc = full_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    gt3r::Vfs vfs(&disc->volume());
+    auto mix = std::make_shared<audio::RaceMix>();
+    mix->tables = audio::RaceSoundTables::from_core(disc->read_program());
+    const std::string cars[] = {"nike_one_04", "ka_01"};
+    const std::unique_ptr<sim::Session> session = sim::Session::open(*disc, "tsukuba", cars);
+    CHECK(audio::sound_state(*session, 0).heart && !audio::sound_state(*session, 1).heart);
+    audio::OfflineSound s(false);
+    auto library = std::make_shared<audio::SoundLibrary>(vfs);
+    audio::CarSound nike(vfs, s.mixer(), &s.driver(), library), chased(vfs, s.mixer(), &s.driver(), library);
+    nike.set_mix(mix), chased.set_mix(mix);
+    CHECK(nike.load("nike_one_04") && chased.load("nike_one_04"));
+    audio::CarSoundState st = audio::sound_state(*session, 0);
+    st.speed = 0;
+    int notes = 0, chase_notes = 0;
+    for (int i = 0; i < 600; ++i) {
+        nike.update(st, audio::listener_at(session->cars()[0], audio::SoundListener::Kind::InCar), true);
+        chased.update(st, audio::listener_at(session->cars()[0], audio::SoundListener::Kind::Chase), true);
+        notes += nike.report().notes, chase_notes += chased.report().notes;
+    }
+    std::printf("  standing: %d beats in 10 s, %d heard in the car, %d from the chase view\n", nike.report().heartbeats, notes, chase_notes);
+    CHECK(nike.report().heartbeats >= 7 && nike.report().heartbeats <= 8 && notes == nike.report().heartbeats && chase_notes == 0);
+    st.speed = 70; // (over 66.7 m/s: 3 beats a second)
+    const int before = nike.report().heartbeats;
+    for (int i = 0; i < 600; ++i) nike.update(st, audio::listener_at(session->cars()[0], audio::SoundListener::Kind::InCar), true);
+    CHECK(nike.report().heartbeats - before >= 29 && nike.report().heartbeats - before <= 30);
+}
+
 // A race: a session on Tsukuba with its course sound, the count's beeps at 3, 2 and 1 seconds,
 // the start, then the cars driving.
 TEST(sound_race_session_on_disc) {

@@ -104,6 +104,7 @@ struct CarSoundState {
     // the level and pitch themselves, whatever the gearbox's grade and clutch.
     bool whine_given = false;
     float whine_level = 0, whine_pitch = 1;
+    bool heart = false;                 // a car of category 3 (P + 0x32, the Nike One): its heartbeat in the in-car view
     bool nitrous = false;               // flowing
     bool afterfire = false;             // a flame started at the exhaust this step
     // ... or the program's rule for one (0x3F3368, 0x3D6D30): the step that ends a shift (the
@@ -188,6 +189,7 @@ public:
         float turbine = 0, whine = 0, cabin = 0;
         std::array<std::array<float, 10>, 4> wheel{}; // each wheel's ten held notes
         int notes = 0; // single notes started
+        int heartbeats = 0; // heartbeats so far (heard or not)
     };
     const Report& report() const { return report_; }
     // The three layer players: the engine's, the exhaust's, the wind's.
@@ -231,8 +233,10 @@ private:
     int engine_level_ = 0, exhaust_level_ = 0;
     bool was_afterfire_ = false; // the flame's strength over 0.1 last step
     u32 random_ = 0x2545F491;
+    int heart_count_ = 0;
+    float heart_phase_ = 0; // the heartbeat's phase (car + 0x788 for a car of category 3)
 
-    Effect turbine_fx_, whine_fx_, cabin_fx_, nitrous_fx_, blow_off_fx_, landing_fx_, backfire_fx_[2], clash_fx_[3];
+    Effect turbine_fx_, whine_fx_, cabin_fx_, nitrous_fx_, blow_off_fx_, landing_fx_, backfire_fx_[2], clash_fx_[3], heartbeat_fx_;
     std::array<Effect, kWheelNotes> wheel_fx_{};
     Loop turbine_, whine_, cabin_, nitrous_;
     gt3r::SurroundCue cue_[3], wheel_cue_[4]; // the engine's, the body's, the exhaust's places; each wheel's

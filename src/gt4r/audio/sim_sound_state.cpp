@@ -33,6 +33,7 @@ CarSoundState sound_state(const sim::Session& session, size_t i, const RaceSound
     s.drag = c.p.drag_coef.host();
     s.slipstream = s.cabin_wake = c.slip_filter.host();
     s.engine_place = engine_place(session.spec(i));
+    s.heart = session.spec(i).b(1) == 3; // (the car's category, P + 0x32)
     // (the record's spool level and blow-off already carry the program's two scales)
     s.turbine_level = c.turbo_spool;
     s.turbine_pitch = c.turbo_pitch;
