@@ -73,20 +73,19 @@ F11 switches full screen.
 
 The ones a player meets first:
 
-- A race on Tsukuba Circuit Wet stops the game as it starts.
-- The Toyota Prius does not move.
-- Seoul Central (forward): the computer's cars spin and back up on its long boulevard; race cars
-  driven by the computer spin at Tsukuba.
-- A championship has no Point Ranking page between its races.
-- The prize page after a race has no place number or turning money pouch.
-- An event page's Preview opens a plain page that asks for a race (Cross drives it) instead of
-  the preview.
-- On an event page after its first race, the strip of the series' course logos is drawn twice its
-  size over the title.
-- The license test page's "Best" reads 0'00.000 after a run.
-- In Prologue, Start does not skip the opening movie (Triangle does).
-- The copyright notice and the "Sony Computer Entertainment America Presents" page before the
-  first dialog are not shown.
+- Driving Missions race the wrong cars, one lap, from a standing start, and a wall hit ends the run; the
+  wall penalty is not shown.
+- A time trial (Arcade, World Circuits) ends after two laps, and shows a lap total.
+- More than half of the license tests begin with the car moving in the original (a run-up at 30 to
+  200 km/h); here every test starts from rest.
+- After an Arcade race a license test runs on the Arcade race's course.
+- A B-spec pit stop happens without the PIT STOP menu and the SPEED LIMIT notice.
+- While a championship's Point Ranking comes up, its point column shows race times for a moment.
+- The pre-race pages of Practice and the Arcade time trial have no B-spec icon.
+- The gloss on the used car list's white and yellow paint swatches is too faint.
+- The B-spec driver's Ka is somewhat faster than the original's at Tsukuba (about 2 % over several
+  races; a race varies by more than that with the traffic).
+- Photo Lab (Home) opens a plain page that asks for a race.
 
 ## Scripted play (for checks)
 
@@ -125,7 +124,13 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
   by the course's computer driver: distance, top speed, 0-100 km/h, spins, stuck time.
 - `gt4tool sweep <disc> pad [courses]`: the player's car driven through the pad's path (an analog
   stick and pedals following the road), with the automatic and the manual gearbox, the aids on and
-  off, against computer drivers: lap times, contacts, shifts, the place at the end.
+  off, against computer drivers: lap times, contacts, shifts, the place at the end, spins, the time
+  spent sliding.
+- `gt4tool sweep <disc> stop [course=..] [car=..]`: the player's car driven, braked to a stop, stood
+  and launched at full throttle: gear, speed and engine speed every quarter second.
+- `gt4tool sweep <disc> wall [event=..] [car=..] [steer=..]`: a wall hit under an event's rules: the
+  penalty's seconds and the speed after it.
+- `gt4tool sweep <disc> grid [filter]`: where every course's grid places stand along the course.
 - A Gran Turismo mode game played forward (every license, the Beginner and Professional events
   but the World Championship won, 26.8 % complete, the presents) for playing the
   later events: `gt4tool save <disc> progress <data folder> [name] [credits]`, then
@@ -138,8 +143,10 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
   asset browser are tools of this app, not pages of the game.
 - The pad and keyboard are read by the shared engine's input layer (`gt3r::InputManager`, its
   button mapping and the "modern" keyboard layout), which hands the race a pad state; from there the
-  race's own path (`sim::Session`, the pad's frame) turns it into the car's controls. The game's
-  own pad reading for the race is being ported (`sim-step`).
+  race's own path (`sim::Session`, the pad's frame) turns it into the car's controls: from the frame on
+  that is the game's own input phase (0x349FD0, `docs/specs/physics.md` §3.6). What fills the frame
+  from the pad is not the game's controller (0x426D50): the engine's mapper reads the stick (with a
+  dead zone and a response curve of its own) and the pedals' pressures.
 - The 2D drawing toolkit of the home screen, the setup screen and the browser is the shared
   engine's (`ui.cpp`, `ui_font.cpp`, `button_prompts.cpp`); the game's pages are drawn by the menu
   code (`src/gt4r/menu`, `screen_menu_viewer.cpp`).

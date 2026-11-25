@@ -11,12 +11,21 @@
 //       course's computer driver for [seconds]. Columns: index, label, name, build ms, run ms, metres covered, top km/h,
 //       0-100 km/h s, stuck s, wall hits, spins, off-road, laps, flags, where the spins began, error.
 //
-//   gt4tool sweep <disc> pad [course,course..] [car=nsx_r_02] [cars=4] [laps=2]
+//   gt4tool sweep <disc> pad [course,course..] [car=nsx_r_02] [cars=4] [laps=2] [line=1]
 //       the player's car driven through the pad's path (an analog stick, throttle and brake: steering to the road's
 //       middle, easing and braking for bends; with the manual gearbox, shifting up 300 rpm under the rev limit and
 //       down under 55 % of the power's speed) against computer drivers, in each gearbox (AT, MT) with the aids on
 //       and off. Columns: course, gearbox, aids, laps done, lap times s, top km/h, stuck s, wall contacts, car
-//       contacts, gear changes, place at the end (of `cars`), flags.
+//       contacts, gear changes, place at the end (of `cars`), spins (the slip angle past 80 degrees), seconds sliding
+//       (past 15 degrees), flags.
+//   gt4tool sweep <disc> stop [course=tsukuba] [car=ka_01] [run=8] [idle=4] [hold=1] [launch=8] [manual=0] [aids=1]
+//       the player's car alone through the pad's path: driven, braked to a full stop, stood (the brake held or not),
+//       then a full-throttle launch; a line every quarter second (gear, speed, rpm, the reverse request).
+//   gt4tool sweep <disc> wall [course=tsukuba] [car=integra_r_98] [event=<label>] [run=6] [after=10] [steer=1]
+//       a wall hit under an event's rules (the penalty and its speed cap) and the speed after it.
+//   gt4tool sweep <disc> grid [filter] [cars=6]
+//       where every course's grid places stand along the course (m from the line, negative behind it / the session's
+//       lap there) and how many are past the line.
 //
 // Flags: ERROR (could not be set up), NAN (a car's state not a number), STILL (under 50 m covered), SLOW (top under
 // 60 km/h), STUCK (over 5 s under 5 km/h after the start), SPINS (more than 2), WALLS (more than 10 wall hits),
@@ -25,12 +34,14 @@
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/formats/course/runway_gtrw.h"
+#include "gt4r/formats/db/race_events.h"
 #include "gt4r/formats/db/specdb.h"
 #include "gt4r/sim/ai/drivers.h"
 #include "gt4r/sim/ai/run.h"
 #include "gt4r/sim/car_spec.h"
 #include "gt4r/sim/line_driver.h"
 #include "gt4r/sim/program.h"
+#include "gt4r/sim/race_rules.h"
 #include "gt4r/sim/session.h"
 
 #include <algorithm>
@@ -319,10 +330,11 @@ int sweep_pad(Disc& disc, const Args& a) {
     const std::string car = option_str(a, "car", "nsx_r_02");
     const int ncars = std::clamp(int(option(a, "cars", 4)), 1, 16);
     const int laps = std::max(1, int(option(a, "laps", 2)));
+    const bool line = option(a, "line", 1) != 0; // 0: no line heading, the active steering off
     const std::vector<std::string> field_labels = {"integra_r_98", "civic_r_98", "s2000_a_99", "rx7_r_eu_93", "supra_rz_97", "lancer_evo8_gsr_03"};
     db::SpecDb db = sim::ai::open_specdb(disc);
     const sim::Program program = sim::Program::load(disc);
-    std::printf("#course\tbox\taids\tlaps\tlap_s\ttop_kmh\tstuck_s\twalls\tcar_hits\tshifts\tplace\tflags\n");
+    std::printf("#course\tbox\taids\tlaps\tlap_s\ttop_kmh\tstuck_s\twalls\tcar_hits\tshifts\tplace\tspins\tslide_s\tflags\n");
     for (const std::string& course : courses) {
         std::shared_ptr<const course::Runway> road;
         try {
@@ -334,8 +346,9 @@ int sweep_pad(Disc& disc, const Args& a) {
         for (int manual = 0; manual < 2; ++manual)
             for (int aids = 1; aids >= 0; --aids) {
                 std::string flags, times;
-                int done = 0, walls = 0, cars_hit = 0, shifts = 0, place = 0;
-                double top = 0, stuck = 0;
+                int done = 0, walls = 0, cars_hit = 0, shifts = 0, place = 0, spins = 0;
+                double top = 0, stuck = 0, slide = 0;
+                bool spinning = false;
                 try {
                     std::vector<sim::Entry> entries{size_t(ncars)};
                     for (int i = 0; i < ncars; ++i)
@@ -344,10 +357,13 @@ int sweep_pad(Disc& disc, const Args& a) {
                     entries[0].automatic = !manual;
                     entries[0].asm_on = entries[0].tcs_on = aids != 0;
                     sim::Session session(db, program, road, entries, sim::course_row(db, course));
+                    // (the player's own driver planned beside him, for the line the active steering aims along: race_world.cpp)
                     std::vector<size_t> computer;
-                    for (int i = 1; i < ncars; ++i) computer.push_back(size_t(i));
+                    for (int i = 0; i < ncars; ++i) computer.push_back(size_t(i));
                     std::unique_ptr<sim::ai::Field> field = sim::ai::Field::open(disc, course, session, computer, {});
-                    for (size_t c : computer) session.set_driver_aids(c, field->params(c).aids, field->params(c).grip);
+                    field->set_shadow(0);
+                    for (size_t c : computer)
+                        if (c > 0) session.set_driver_aids(c, field->params(c).aids, field->params(c).grip);
                     sim::LineDriver pad(session, 0);
                     const sim::SpecFigures fig = sim::spec_figures(session.spec(0));
                     std::vector<race::CarInput> in{size_t(ncars)};
@@ -363,6 +379,7 @@ int sweep_pad(Disc& disc, const Args& a) {
                     for (int step = 0; step < int(limit * 60) && done < laps; ++step) {
                         field->drive(in);
                         field->apply_time_scales(session);
+                        if (line) session.set_line_heading(0, field->line_heading_at(0), field->line_mode_at(0));
                         const race::CarState& me = session.cars()[0];
                         race::CarInput p = pad.drive(1.0f, true);
                         if (manual && hold_shift <= 0) {
@@ -382,6 +399,16 @@ int sweep_pad(Disc& disc, const Args& a) {
                         if (t > 5 && std::abs(s.speed) * 3.6f < 5) stuck += 1.0 / 60;
                         if (s.contact > 0 && s.contact_kind == 1) ++walls;
                         if (s.contact > 0 && s.contact_kind == 2) ++cars_hit;
+                        // The slip angle between the body's heading and its course over the ground (level): a slide over
+                        // 15 degrees counts its time, a spin begins past 80 and ends under 30.
+                        if (const float v = std::hypot(s.velocity.x, s.velocity.z); v > 3.0f) {
+                            const float along = (s.velocity.x * s.forward.x + s.velocity.z * s.forward.z) / v;
+                            const float across = (s.velocity.x * s.right.x + s.velocity.z * s.right.z) / v;
+                            const float slip = std::abs(std::atan2(across, along)) * 57.29578f;
+                            if (slip > 15) slide += 1.0 / 60;
+                            if (!spinning && slip > 80) spinning = true, ++spins;
+                            else if (spinning && slip < 30) spinning = false;
+                        }
                         if (s.lap > last_lap) {
                             if (last_lap >= 0) {
                                 char b[16];
@@ -402,17 +429,148 @@ int sweep_pad(Disc& disc, const Args& a) {
                     flags += std::string("ERROR ") + e.what() + " ";
                 }
                 if (!flags.empty()) flags.pop_back();
-                std::printf("%s\t%s\t%s\t%d\t%s\t%.0f\t%.1f\t%d\t%d\t%d\t%d\t%s\n", course.c_str(), manual ? "MT" : "AT", aids ? "on" : "off", done,
-                            times.empty() ? "-" : times.c_str(), top, stuck, walls, cars_hit, shifts, place, flags.empty() ? "-" : flags.c_str());
+                std::printf("%s\t%s\t%s\t%d\t%s\t%.0f\t%.1f\t%d\t%d\t%d\t%d\t%d\t%.1f\t%s\n", course.c_str(), manual ? "MT" : "AT", aids ? "on" : "off", done,
+                            times.empty() ? "-" : times.c_str(), top, stuck, walls, cars_hit, shifts, place, spins, slide, flags.empty() ? "-" : flags.c_str());
                 std::fflush(stdout);
             }
     }
     return 0;
 }
 
+// A wall hit and what follows under an event's rules (event=<label>: its RACE row's hit penalty; none: no rules): the
+// player's car alone drives `run` s, steers into the wall on the right at full throttle until a contact (or 20 s), then
+// drives on along the road at full throttle for `after` s. The strongest contact, the penalty's seconds as the session
+// shows them and the speed, each half second.
+int sweep_wall(Disc& disc, const Args& a) {
+    const std::string course = option_str(a, "course", "tsukuba"), car = option_str(a, "car", "integra_r_98"), label = option_str(a, "event", "");
+    const double run = option(a, "run", 6), after = option(a, "after", 10);
+    db::SpecDb db = sim::ai::open_specdb(disc);
+    const sim::Program program = sim::Program::load(disc);
+    std::shared_ptr<const course::Runway> road = load_road(disc, course);
+    std::vector<sim::Entry> entries{1};
+    if (!sim::stock_car(db, program, car, entries[0].equipment)) return std::fprintf(stderr, "no car %s\n", car.c_str()), 1;
+    sim::Session session(db, program, road, entries);
+    if (!label.empty()) {
+        const db::RaceEvents events(db, [&disc](const std::string& path) { const gt3r::Volume::Entry* f = disc.volume().find(path); return f ? disc.volume().read(*f) : Bytes{}; });
+        const std::optional<db::RaceEvent> e = events.event(label);
+        if (!e) return std::fprintf(stderr, "no event %s\n", label.c_str()), 1;
+        const sim::RaceRules r = sim::race_rules(e->bytes, program);
+        std::printf("# %s: wall limit %d, car limit %d, penalty %d s, cap %d km/h\n", label.c_str(), int(r.hits.wall_limit), int(r.hits.car_limit), int(r.hits.penalty), int(r.penalty_cap));
+        session.set_race_rules(r.hits, r.speed_cap, r.penalty_cap);
+    }
+    sim::LineDriver pad(session, 0);
+    std::vector<race::CarInput> in{1};
+    for (int k = 0; k < sim::Session::kHoldSteps; ++k) session.hold_once(in);
+    for (int k = 0; k < int(run * 60); ++k) in[0] = pad.drive(1.0f, true), session.step_once(in);
+    float worst = 0;
+    int hit_at = -1;
+    for (int k = 0; k < 20 * 60 && hit_at < 0; ++k) {
+        in[0] = {}, in[0].throttle = 1, in[0].steer = float(option(a, "steer", 1));
+        session.step_once(in);
+        if (session.cars()[0].contact > 0) hit_at = k;
+    }
+    for (int k = 0; k < int(after * 60); ++k) {
+        in[0] = pad.drive(1.0f, false);
+        session.step_once(in);
+        const race::CarState& s = session.cars()[0];
+        if (s.contact > 0) worst = std::max(worst, s.contact);
+        if (k % 30 == 29) std::printf("%.1f s  %.1f km/h  penalty %d s  worst contact %.2f\n", double(k + 1) / 60, double(s.speed) * 3.6, session.penalty_seconds(0), double(worst));
+    }
+    std::printf("# hit %s\n", hit_at < 0 ? "none" : "yes");
+    return 0;
+}
+
+// Where every course's grid stands: each place's distance along the course (metres; past half the lap: behind the line),
+// the session's lap there, and how many of the places are past the line.
+int sweep_grid(Disc& disc, const Args& a) {
+    db::SpecDb db = sim::ai::open_specdb(disc);
+    const sim::Program program = sim::Program::load(disc);
+    const int ncars = std::clamp(int(option(a, "cars", 6)), 1, 16);
+    const std::string wanted = filter_of(a);
+    std::printf("#course\tlap_m\tcars\tpast_line\tplaces_m\n");
+    for (const std::string& name : disc.volume().list_dir("crs/")) {
+        if (name.find('.') != std::string::npos || name.find('/') != std::string::npos) continue;
+        if (!wanted.empty() && name.find(wanted) == std::string::npos) continue;
+        try {
+            std::shared_ptr<const course::Runway> road = load_road(disc, name);
+            std::vector<sim::Entry> entries{size_t(ncars)};
+            for (sim::Entry& e : entries)
+                if (!sim::stock_car(db, program, option_str(a, "car", "nsx_r_02"), e.equipment)) throw std::runtime_error("no car");
+            sim::Session session(db, program, road, entries);
+            std::vector<race::CarInput> in{size_t(ncars)};
+            session.hold_once(in);
+            std::string places;
+            int past = 0;
+            for (const race::CarState& c : session.cars()) {
+                const bool behind = c.course_v > road->length * 0.5f;
+                past += !behind;
+                char b[32];
+                std::snprintf(b, sizeof b, "%s%.1f/%d", places.empty() ? "" : ",", double(behind ? c.course_v - road->length : c.course_v), c.lap);
+                places += b;
+            }
+            std::printf("%s\t%.0f\t%d\t%d\t%s\n", name.c_str(), double(road->length), ncars, past, places.c_str());
+        } catch (const std::exception& e) {
+            std::printf("%s\t-\t-\t-\t%s\n", name.c_str(), e.what());
+        }
+        std::fflush(stdout);
+    }
+    return 0;
+}
+
+// A stop on the brake and a launch, the player's car alone through the pad's path: driven `run` s, braked to a stop
+// (the pad's brake full), stood `idle` s (the brake held, or released with hold=0), then full throttle `launch` s.
+// A line every quarter second: phase, time, gear, speed km/h and mph, rpm, the record's reverse request.
+int sweep_stop(Disc& disc, const Args& a) {
+    const std::string course = option_str(a, "course", "tsukuba");
+    const std::string car = option_str(a, "car", "ka_01");
+    const double run = option(a, "run", 8), idle = option(a, "idle", 4), launch = option(a, "launch", 8);
+    const bool hold = option(a, "hold", 1) != 0, manual = option(a, "manual", 0) != 0, aids = option(a, "aids", 1) != 0;
+    db::SpecDb db = sim::ai::open_specdb(disc);
+    const sim::Program program = sim::Program::load(disc);
+    std::shared_ptr<const course::Runway> road = load_road(disc, course);
+    std::vector<sim::Entry> entries{1};
+    if (!sim::stock_car(db, program, car, entries[0].equipment)) {
+        std::fprintf(stderr, "no car %s\n", car.c_str());
+        return 1;
+    }
+    entries[0].automatic = !manual;
+    entries[0].asm_on = entries[0].tcs_on = aids;
+    sim::Session session(db, program, road, entries);
+    sim::LineDriver pad(session, 0);
+    std::vector<race::CarInput> in{1};
+    for (int k = 0; k < sim::Session::kHoldSteps; ++k) session.hold_once(in);
+    std::printf("#phase\tt_s\tgear\tkmh\tmph\trpm\treverse_req\n");
+    const auto line = [&](const char* phase, double t) {
+        const race::CarState& s = session.cars()[0];
+        std::printf("%s\t%.2f\t%d\t%.1f\t%.1f\t%.0f\t%d\n", phase, t, s.gear, double(s.speed) * 3.6, double(s.speed) * 2.23694, double(s.engine_rpm),
+                    int(session.record(0).reverse_req));
+    };
+    int step = 0;
+    const auto go = [&](const char* phase, double seconds, auto input, bool until_stopped) {
+        int still = 0;
+        for (int k = 0; k < int(seconds * 60); ++k, ++step) {
+            in[0] = input();
+            session.step_once(in);
+            if (k % 15 == 14) line(phase, double(k + 1) / 60);
+            if (until_stopped) {
+                still = std::abs(session.cars()[0].speed) < 0.05f ? still + 1 : 0;
+                if (still > 30) break;
+            }
+        }
+    };
+    go("run", run, [&] { return pad.drive(1.0f, true); }, false);
+    go("brake", 30, [&] { race::CarInput p = pad.drive(0.0f, false); p.throttle = 0, p.brake = 1; return p; }, true);
+    go("idle", idle, [&] { race::CarInput p{}; p.brake = hold ? 1.0f : 0.0f; return p; }, false);
+    go("launch", launch, [&] { race::CarInput p = pad.drive(1.0f, false); p.throttle = 1, p.brake = 0; return p; }, false);
+    return 0;
+}
+
 } // namespace
 
 int cmd_sweep(Disc& disc, const std::vector<std::string>& a) {
+    if (a[0] == "stop") return sweep_stop(disc, a);
+    if (a[0] == "grid") return sweep_grid(disc, a);
+    if (a[0] == "wall") return sweep_wall(disc, a);
     if (a.empty()) return 2;
     if (a[0] == "courses") return sweep_courses(disc, a);
     if (a[0] == "cars") return sweep_cars(disc, a);
