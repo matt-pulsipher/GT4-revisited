@@ -2791,7 +2791,7 @@ private:
             // A Gran Turismo mode race already run: the page as before a race, no run.
             enter_quick(0);
         } else if (command == "COMMAND_START") {
-            start_run(false);
+            start_run(setup_.scripted && setup_.bspec);
         } else if (command == "COMMAND_SPECTATOR") {
             start_run(true);
         } else if (command == "COMMAND_DEMONSTRATION") {
