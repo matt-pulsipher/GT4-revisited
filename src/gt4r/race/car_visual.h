@@ -116,7 +116,7 @@ public:
 private:
     void build_gt3(ByteSpan car_file, const Options& opt, const std::string& name); // car_visual_prologue.cpp
     // A model to the GPU now, or kept for upload() when made by make_unuploaded.
-    void to_gpu(std::unique_ptr<render::GpuModel>& slot, const gt3r::scene::Model& m);
+    void to_gpu(std::unique_ptr<render::GpuModel>& slot, gt3r::scene::Model m);
     std::vector<std::pair<std::unique_ptr<render::GpuModel>*, gt3r::scene::Model>> unuploaded_;
     CarSpec spec_;
     std::array<std::unique_ptr<render::GpuModel>, 2> body_;        // [brake lamps lit]

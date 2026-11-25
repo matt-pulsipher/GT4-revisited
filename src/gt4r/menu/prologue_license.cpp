@@ -150,9 +150,10 @@ void install_prologue_license(Object& game, const RuntimeConfig* config) {
     if (game.fields.count("license")) return;
     auto lic = std::make_shared<LicenseRecord>();
     LicenseRecord* r = lic.get();
-    if (config && config->program) {
+    if (config && (config->program || config->program_image)) {
         try {
-            const gt3r::CoreImage core = gt3r::CoreImage::decode(config->program());
+            const std::shared_ptr<const gt3r::CoreImage> image = config->image();
+            const gt3r::CoreImage& core = *image;
             if (sim::PrologueProgram::locate(core.program, core.load_address).recognized()) {
                 r->categories = program_names(core.program, core.load_address, kCategoryNames, kCategoryCount);
                 r->medals = program_names(core.program, core.load_address, kMedalNames, kMedalCount);

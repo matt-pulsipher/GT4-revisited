@@ -1,10 +1,13 @@
 #pragma once
 
+#include "disc/core_image.h"
 #include "disc/iso9660.h"
 #include "disc/volume.h"
 #include "gt4r/disc/archive_image.h"
 
+#include <future>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -57,6 +60,10 @@ public:
     const ImageFile* file(const std::string& path) const;
     // The disc's packed game program (CORE.GT4). Reference data: the engine never executes it.
     Bytes read_program();
+    // The same unpacked: worked out once, at the first call or by prepare_program()'s thread. Throws as decoding does.
+    std::shared_ptr<const gt3r::CoreImage> program_image();
+    // Starts unpacking it on a thread (as the disc opens, while the menus start).
+    void prepare_program();
     // A file's bytes as the disc stores them (still packed when ImageFile::packed).
     Bytes read_stored(const ImageFile& f) { return file_->read_at(f.disc_offset, f.stored_size); }
 
@@ -72,6 +79,8 @@ private:
     std::vector<VolumeInfo> volumes_;
     std::unordered_map<std::string, size_t> by_path_;
     DiscInfo info_;
+    std::mutex program_mutex_;
+    std::shared_future<std::shared_ptr<const gt3r::CoreImage>> program_;
 };
 
 } // namespace gt4r
