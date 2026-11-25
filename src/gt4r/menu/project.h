@@ -49,6 +49,8 @@ public:
     // Any other file of a page's pack by its name (a model face's "image/gtmode/map/panel_x.mdl"),
     // unpacked; nothing when the page's packs have none.
     std::optional<Bytes> entry(const std::string& page, const std::string& path);
+    // Whether the pack of `page`, one loaded since, or one of the packs the scripts loaded has the entry.
+    bool has_entry(const std::string& page, const std::string& path);
     // More pictures a script loads for a page while it shows (`context.loadGpb(folder, name)`:
     // <folder>/<language>/<name>.gpb): looked in after the page's own. False when the file is
     // not there.

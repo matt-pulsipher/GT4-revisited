@@ -95,6 +95,14 @@ std::optional<Bytes> Project::entry(const std::string& page, const std::string& 
     return std::nullopt;
 }
 
+bool Project::has_entry(const std::string& page, const std::string& path) {
+    if (!page.empty()) pack_of(page);
+    for (const auto* packs : {&packs_, &extra_})
+        for (const auto& [name, p] : *packs)
+            if (p.pack && p.pack->find(path)) return true;
+    return false;
+}
+
 bool Project::load_pack(const std::string& folder, const std::string& name) {
     if (extra_.count(name)) return true;
     std::string dir = folder;

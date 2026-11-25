@@ -241,7 +241,15 @@ void Runtime::install_natives() {
     for (const char* zero : {"getPadButtonState", "getLastPadButtonState", "getPadAnalogChannel", "getLastPadAnalogChannel"})
         update->method(zero, [](Vm&, const Value&, Args) { return Value::integer(0); });
     for (const char* nothing : {"loadGpbFromMC", "setStartPage"}) update->method(nothing, [](Vm&, const Value&, Args) { return Value{}; });
-    update->method("existGpbBinary", [](Vm&, const Value&, Args) { return Value::integer(1); });
+    // existGpbBinary(path): the packs loaded have it (the Endurance hall's tickets: its large picture, else the small one).
+    auto exists_fn = [this](Vm&, const Value&, Args a) {
+        if (a.empty() || !project_) return Value::integer(0);
+        const std::string path = a[0].to_string();
+        bool found = project_->has_entry(current_page() ? current_page()->name : std::string(), path);
+        for (const auto& page : open_pages()) found = found || project_->has_entry(page->name, path);
+        return Value::integer(found);
+    };
+    update->method("existGpbBinary", exists_fn);
     update->method("getStartPage", [](Vm&, const Value&, Args) { return Value{}; });
     auto translate_fn = [this](Vm&, const Value&, Args a) {
         // (the page's module, key) or (a module, a page of the text, key)
@@ -323,7 +331,7 @@ void Runtime::install_natives() {
     update->method("loadGpb", load_gpb), update->method("unloadGpb", unload_gpb);
     for (const char* nothing : {"captureScreen", "releaseScreen", "shotScreen", "openOSKeyboard", "closeOSKeyboard", "setMousePositionOnFocus"})
         render->method(nothing, [](Vm&, const Value&, Args) { return Value{}; });
-    render->method("existGpbBinary", [](Vm&, const Value&, Args) { return Value::integer(1); });
+    render->method("existGpbBinary", exists_fn);
     render->set("enable", Value::integer(1));
     render->set("event_mask", Value::integer(0x7FFFFFFF));
     render->set("clear", Value::integer(1));
