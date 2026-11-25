@@ -13,29 +13,15 @@
 #include <SDL3/SDL.h>
 
 #include <algorithm>
-#include <cstdlib>
 #include <ctime>
 #include <fstream>
 #include <memory>
-#include <mutex>
 #include <utility>
 
 namespace gt4r {
 
 namespace {
 
-// A file dialog's answer, kept until the screen takes it (the dialog may outlive the screen).
-struct Chosen {
-    std::mutex lock;
-    std::string path;
-    bool done = false;
-};
-void SDLCALL on_chosen(void* user, const char* const* files, int) {
-    std::unique_ptr<std::shared_ptr<Chosen>> held(static_cast<std::shared_ptr<Chosen>*>(user));
-    const std::lock_guard<std::mutex> lock((*held)->lock);
-    (*held)->path = files && files[0] ? files[0] : "";
-    (*held)->done = true;
-}
 constexpr SDL_DialogFileFilter kCards[] = {{"PlayStation 2 memory card", "ps2;mcd;bin"}, {"All files", "*"}};
 
 std::string date_text(std::time_t t) {
@@ -60,15 +46,11 @@ public:
     }
 
     void update(App& app, double) override {
-        if (waiting_) {
-            std::string path;
-            {
-                const std::lock_guard<std::mutex> lock(waiting_->lock);
-                if (!waiting_->done) return;
-                path = waiting_->path;
-            }
-            waiting_.reset();
+        if (window_.waiting()) {
+            std::string path, error;
+            if (!window_.take(path, error)) return;
             if (!path.empty()) take_file(app, path);
+            else if (!error.empty()) say(error, true);
             return;
         }
         build(app);
@@ -97,7 +79,7 @@ public:
             ui.text(24, 32, (g.name.empty() ? std::string("(no name)") : g.name) + "   " + date_text(g.when), colors::kAccent);
         }
         rows_.render(ui, {20, 46, ui.width() - 40, float(Ui::kHeight) - 46 - 66});
-        if (waiting_) ui.text(24, Ui::kHeight - 58, "Choose a file in the window that opened.", colors::kText);
+        if (window_.waiting()) ui.text(24, Ui::kHeight - 58, "Choose a file in the window that opened.", colors::kText);
         else if (!note_.empty()) ui.text(24, Ui::kHeight - 58, Ui::clip(note_, ui.width() - 48), bad_ ? colors::kBad : colors::kText);
         else if (games_.empty() && chosen_ < 0)
             ui.text(24, Ui::kHeight - 58, prologue_ ? "No game is saved yet: the first progress in the School makes one." : "No game is saved yet: Gran Turismo mode starts one.", colors::kDim);
@@ -165,15 +147,11 @@ private:
         }
     }
 
-    // A file to write or read, chosen in the system's dialog (a scripted run names it: GT4R_SAVES_FILE).
+    // A file to write or read, chosen in the system's window.
     void ask(App& app, bool write, const std::string& name) {
         writing_ = write;
-        if (const char* path = std::getenv("GT4R_SAVES_FILE")) return take_file(app, path);
-        waiting_ = std::make_shared<Chosen>();
-        auto* held = new std::shared_ptr<Chosen>(waiting_);
-        SDL_Window* window = SDL_GetRenderWindow(app.renderer());
-        if (write) SDL_ShowSaveFileDialog(on_chosen, held, window, kCards, SDL_arraysize(kCards), name.c_str());
-        else SDL_ShowOpenFileDialog(on_chosen, held, window, kCards, SDL_arraysize(kCards), nullptr, false);
+        if (write) window_.save_file(app, kCards, SDL_arraysize(kCards), name);
+        else window_.open_file(app, kCards, SDL_arraysize(kCards));
     }
 
     void take_file(App& app, const std::string& path) {
@@ -200,7 +178,7 @@ private:
     bool prologue_ = false, closing_ = false, sure_ = false, writing_ = false, bad_ = false;
     std::unique_ptr<save::SaveLibrary> library_;
     std::vector<save::SavedGame> games_;
-    std::shared_ptr<Chosen> waiting_;
+    FileWindow window_;
     std::string note_, from_;
     PageRows rows_;
     std::function<void()> go_;

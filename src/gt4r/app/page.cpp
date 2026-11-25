@@ -349,6 +349,11 @@ void FileWindow::open_folder(App& app) {
     SDL_ShowOpenFolderDialog(&on_answer<Slot>, new std::shared_ptr<Slot>(slot_), app.window(), nullptr, false);
 }
 
+void FileWindow::save_file(App& app, const SDL_DialogFileFilter* filters, int count, const std::string& name) {
+    if (slot_ || scripted(app)) return;
+    SDL_ShowSaveFileDialog(&on_answer<Slot>, new std::shared_ptr<Slot>(slot_), app.window(), filters, count, name.c_str());
+}
+
 bool FileWindow::take(std::string& path, std::string& error) {
     if (!slot_) return false;
     {
