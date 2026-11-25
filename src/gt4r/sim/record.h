@@ -7,6 +7,7 @@
 #include "gt4r/sim/rules_body.h"
 #include "gt4r/sim/rules_chassis.h"
 #include "gt4r/sim/rules_drive.h"
+#include "gt4r/sim/rules_feel.h"
 #include "gt4r/sim/rules_input.h"
 #include "gt4r/sim/rules_speeds.h"
 #include "gt4r/sim/rules_steer.h"
@@ -26,6 +27,7 @@ struct Extra {
     rules::BodyExtra body;
     rules::SteerExtra steer;
     rules::SpeedExtra speeds;
+    rules::FeelExtra feel;
 };
 
 struct Record {
@@ -41,6 +43,7 @@ template <class X, class V> void extra_fields(X& x, V&& v) {
     rules::body_fields(x.body, v);
     rules::steer_fields(x.steer, v);
     rules::speeds_fields(x.speeds, v);
+    rules::feel_fields(x.feel, v);
 }
 
 } // namespace gt4r::sim

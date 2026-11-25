@@ -3,6 +3,7 @@
 #include "sim/exact/course_ground.h"
 
 #include "gt4r/sim/convert.h"
+#include "gt4r/sim/rules_hybrid.h"
 #include "gt4r/sim/rules_speeds.h"
 #include "gt4r/sim/rules_wheels.h"
 #include "gt4r/sim/rules_build.h"
@@ -236,11 +237,19 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
 void Session::set_wear_rules(const u8* rule_block, bool second_on, const Program& program) {
     const auto b = rules::wear_rules_block(rule_block, second_on, program);
     tables_.wear = rules::wear_rules(b.data());
+    if (steps_ == 0 && gt4_ready_) // (before the start: the cars' set-up fits new tires by the rules, 0x362E58)
+        for (size_t i = 0; i < cars_.size(); ++i)
+            for (int w = 0; w < 4; ++w) rules::new_tire(cars_[i], gx_[i].wear, w, tables_.wear);
 }
 
 void Session::set_fuel(size_t i, gt3r::ee::F liters) {
     if (i >= cars_.size()) return;
     gx_[i].drive.fuel.fuel = liters, gx_[i].aids.fuel = liters;
+}
+
+int Session::gear_for_speed(size_t i, gt3r::ee::F speed) const {
+    if (i >= cars_.size() || !gt4_ready_) return 0;
+    return rules::gear_for_speed(cars_[i], gx_[i].drive, speed);
 }
 
 void Session::new_tire(size_t i, int wheel) {
@@ -323,6 +332,7 @@ void Session::place(size_t i, const course::Runway::Place& at) {
     if (gt4_ready_) rules::hub_offsets(c, layouts_[i]);
     else ex::hub_offsets(c);
     c.lag_heading = c.heading, c.lag_pitch = c.pitch;
+    rules::view_start(c, gx_[i].feel.view); // (0x3455F0)
     ex::standing_start(c);
     if (gt4_ready_) // (0x362E58 for each wheel: new tires by the race's wear rules)
         for (int w = 0; w < 4; ++w) rules::new_tire(c, gx_[i].wear, w, tables_.wear);
@@ -333,7 +343,12 @@ void Session::place(size_t i, const course::Runway::Place& at) {
     c.x16d1 = 1;
     c.dist_total = k0;
     ex::save_previous(c);
-    ex::wheel_spin(c);
+    if (gt4_rules_) { // (0x344040)
+        const rules::SpeedTables& k = speed_tables_[i];
+        rules::wheel_spin(c, gx_[i].feel.anim, layouts_[i], k.special_x10, gx_[i].wear.category, gx_[i].body.in_line_x65c, k.throttle_share, k.brake_share);
+    } else
+        ex::wheel_spin(c);
+    if (gt4_rules_) rules::sway(c, gx_[i].feel.view, tables_.feel, gx_[i].feel.blend); // (0x34A668, 0x34A788)
 }
 
 // The ground contact (phases 16 .. 18: the query points 0x3697A8, the road under each wheel 0x344458, then 0x369888).
@@ -416,13 +431,21 @@ void Session::chassis(size_t i) {
             ex::bump_nudge(c);
         }
     }
-    ex::pad_rumble(c);
+    if (gt4_rules_) { // (0x36CEE8: into the conductor's pad block; the record's byte kept with it)
+        rules::pad_rumble(c, layouts_[i], gx_[i].feel.pad);
+        c.rumble = gx_[i].feel.pad[1];
+    } else
+        ex::pad_rumble(c);
     ex::steer_force(c, race_.feel);
-    ex::tyre_effects(c, race_.effects, race_.aids.course_category);
+    if (gt4_rules_) rules::slide_effects(c, layouts_[i], tables_.slide, loose_ ? 2 : 0); // (0x367148)
+    else ex::tyre_effects(c, race_.effects, race_.aids.course_category);
     ex::phase12_stub(c);
-    ex::engine_sound(c, race_.sound_scales);
-    ex::effects_reset(c, 0, 0);
-    ex::view_follow(c);
+    if (gt4_rules_) rules::engine_sound(c, tables_.feel, gx_[i].drive.d.kind, rules::draw_mode(c, 0, 0, 0)); // (0x350080)
+    else ex::engine_sound(c, race_.sound_scales);
+    if (gt4_rules_) rules::effects_reset(c, layouts_[i], rules::draw_mode(c, 0, 0, 0)); // (0x366718; no ghosts here)
+    else ex::effects_reset(c, 0, 0);
+    if (gt4_rules_) rules::view_follow(c, gx_[i].feel.view, tables_.feel); // (0x345658)
+    else ex::view_follow(c);
     if (gt4_rules_) rules::hub_offsets(c, layouts_[i]); // (0x345A20)
     else ex::hub_offsets(c);
     if (gt4_rules_) { // (0x36C9F8: the pitch before the roll; 0x35D350)
@@ -550,6 +573,8 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
         } else if (prologue_) prologue::driver_input_pad(c, race_.pad, f, course_kind, prologue_cars_[i].layout, *prologue_);
         else
             ex::driver_input_pad(c, race_.pad, f, course_kind);
+        // A hybrid one-speed box's clutch request, a pad's (0x349418) or a computer's (0x3F3400): 0x348368.
+        if (gt4_rules_ && gx_[i].drive.d.kind == 3) rules::hybrid_clutch_request(c);
         // A computer driver's own command: the road wheels' angle as the game's drivers set it (0x464F38 writes it into the
         // steering command directly), within the full lock, past the pad's lock curve (no later phase reads the bounds).
         if (!std::isnan(in.steer_angle)) {
@@ -591,9 +616,9 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
         ex::Car& c = cars_[i];
         chassis(i);
         if (gt4_rules_) {
-            // Phases 20 .. 22: the tire wear (0x352EA0: nothing while the race's wear rules are off, as in every race seen; with
-            // them on its sliding measure, 0x367148's wheel +0xB4, is not ported), the pit flags (0x353218's: the computer
+            // Phases 20 .. 22: the tire wear (0x352EA0, by the race's wear rules), the pit flags (0x353218's: the computer
             // drivers' pit flow, sim/ai), the flaps (0x35A678).
+            rules::tire_wear(c, gx_[i].wear, gx_[i].tires, layouts_[i], tables_.wear); // (0x352EA0)
             rules::flaps(c, layouts_[i], random_state_);
         } else {
             ex::tire_wear(c, race_.prep.wear);

@@ -369,6 +369,7 @@ DriveTables drive_tables(const u8* awd, const u8* stepless_bytes, const u8* sett
 
 DriveTables drive_tables(const Program& program) {
     DriveTables r = drive_tables_bytes(program);
+    r.motors = motor_tables(program);
     r.hybrid = hybrid_tables(program);
     return r;
 }
@@ -403,6 +404,8 @@ F wheel_side_speed(const ex::Car& c, const DrivelineBlock& d) {
     if (w <= k0) w = k0;
     return w;
 }
+
+F engine_output_torque(ex::Car& c, const DriveExtra& x, F throttle) { return engine_output(c, x.e, throttle); }
 
 F engine_torque(ex::Car& c, const DriveExtra& x, F throttle) {
     const EngineBlock& e = x.e;
@@ -518,7 +521,7 @@ void wheel_torques(ex::Car& c, const DriveExtra& x, const WheelLayout& l) {
 }
 
 void vectoring(ex::Car& c, const DriveExtra& x, const WheelLayout& l) {
-    // (layout 7: the front motors first, 0x356418: not ported)
+    // (layout 7: its front motors first, 0x356418: the caller's, rules_motors.h front_motors)
     const DrivelineBlock& d = x.d;
     for (int k = 0; k < l.groups && k < 4; ++k) {
         const int a = l.group_first[size_t(k)] & 3, b = l.partner[size_t(a)];
@@ -586,10 +589,12 @@ void axle_step(ex::Car& c, DriveExtra& x, const WheelLayout& l, const DriveTable
         tc = hybrid_box(c, x, x.hybrid, t.hybrid, x.e.idle);
         if (c.clutch == 0) tc = k0;
     } else if (c.clutch != 0) {
-        // (layout 7's engine and motors, 0x3560F0 / 0x356BB8: not ported)
         F te;
         if (stepless(d)) te = stepless_torque(c, x, t);
-        else if (d.layout != 7 && d.x13 == 4) {
+        else if (d.layout == 7) { // the engine at the throttle the rear motor leaves it (0x3560F0), and the rear motor (0x356BB8)
+            te = engine_torque(c, x, motor_engine_throttle(c, t.motors));
+            te = te + rear_motor(c, x.hybrid, t.motors);
+        } else if (d.x13 == 4) {
             // An electric car (the car category 5, up-shift class 4): the engine's torque and a motor's (0x356E58): 95,428.4 /
             // rpm N m, at most 49 (49 below 101 rpm), times the throttle.
             const F throttle = c.throttle;
@@ -840,14 +845,14 @@ void wheel_speeds(ex::Car& c, const DriveExtra& x, const WheelLayout& l) {
     }
 }
 
-void engine_speed(ex::Car& c, DriveExtra& x, const WheelLayout& l) {
+void engine_speed(ex::Car& c, DriveExtra& x, const WheelLayout& l, const DriveTables* tables) {
     const DrivelineBlock& d = x.d;
     const EngineBlock& e = x.e;
     const F dt = c.dt;
     if (c.clutch == 0) {
         const F idle = int_to_f(e.idle) * kRpm;
-        // (layout 7: the engine charging its store, 0x355F80: not ported)
-        const F t = engine_torque(c, x, c.throttle);
+        // (layout 7: the engine charging its store, 0x355F80)
+        const F t = d.layout == 7 && tables ? idle_charge(c, x, tables->motors) : engine_torque(c, x, c.throttle);
         const F w = c.omega + (t * d.inv_engine_inertia) * dt;
         c.omega = w < idle ? idle : w;
         x.marks[0] = 0;
@@ -904,7 +909,7 @@ int gear_for_speed(const ex::Car& c, const DriveExtra& x, F v) {
     if (d.kind == 3 || d.kind == 1) return 1;
     const int n = d.gears;
     for (int g = 1; g < n && g < 10; ++g) {
-        const s32 rpm = s32(d.up_rpm) - (g == 1 ? 2000 : 500);
+        const s32 rpm = up_speed(c, x) - (g == 1 ? 2000 : 500); // (0x36BEE0: a B-spec driver's factor)
         if (v < (int_to_f(rpm) * kRpm) / d.gear_speed[size_t(g)]) return g;
     }
     return n;

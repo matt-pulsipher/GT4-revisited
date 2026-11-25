@@ -59,6 +59,9 @@ struct Field::Driver {
     F corner_mult{1.0f}, brake_mult{1.0f}, alongside_mult{1.0f}; // +0xB8 / +0xBC / +0xC0
     std::array<F, 5> pd_last{}; // +0x00 .. +0x10 the PD steering's terms at the last step
     F pd_rate;              // F +0x484 the PD steering's rate (its integrator)
+    Suggestion suggest;     // +0x40 / +0x41 the suggested gear's speed (0x469E58)
+    std::array<u8, 0x40> record{}; // car +0x8C: the B-spec driver's record of the race
+    int car_class = 0;      // 0x468458 of the car's +0xFE0
     // Outputs (+0x30 / +0x34 / +0x38 / +0x3E / +0x3C).
     F steer, throttle, brake;
     bool reverse = false;
@@ -330,6 +333,7 @@ void Field::probe_set(size_t car, const Probe& p) {
     d.steer = p.steer, d.throttle = p.throttle, d.brake = p.brake, d.reverse = p.reverse, d.shift_lock = p.shift_lock;
     d.kind = p.kind;
     d.pd_last = p.pd_last, d.pd_rate = p.pd_rate;
+    d.record = p.record, d.car_class = p.car_class;
     z.follow = p.follow, z.chain = p.chain, z.contact = p.contact, z.zone = p.zone, z.gap_left = p.gap_left, z.gap_right = p.gap_right;
 }
 
@@ -346,6 +350,7 @@ Field::Probe Field::probe_get(size_t car) const {
     p.steer = d.steer, p.throttle = d.throttle, p.brake = d.brake, p.reverse = d.reverse, p.shift_lock = d.shift_lock;
     p.kind = d.kind;
     p.pd_last = d.pd_last, p.pd_rate = d.pd_rate;
+    p.record = d.record, p.car_class = d.car_class;
     p.follow = z.follow, p.chain = z.chain, p.contact = z.contact, p.zone = z.zone, p.gap_left = z.gap_left, p.gap_right = z.gap_right;
     return p;
 }
@@ -519,7 +524,12 @@ F Field::braking(Driver& d) {
     else if (n == count && s < lap * 0.5f) n = 0; // the start line crossed: no shift
     else if (n != 0 && n <= count && s < pts[size_t(n - 1)].dist) --n, changed = true;
     d.next = n;
-    if (changed) bookkeeping_shift(d);
+    if (changed) {
+        // A B-spec driver in an arc within 30 km/h of its speed learns (0x4684A8, before the segment's shift).
+        if (d.control == 1 && d.kind == 0 && (d.mode == 1 || d.mode == 2) && d.v_cur - F::raw(0x41055554) < c.speed)
+            bspec_experience(d, 0, d.v_cur);
+        bookkeeping_shift(d);
+    }
     int bp = d.next == count ? 0 : d.next;
     if (pts[size_t(bp)].speed_adjust == -128) bp = (bp + 1) % count;
     // The braking point (in the program's arithmetic).
@@ -898,6 +908,59 @@ void Field::finish(size_t car, int mode, bool player_car) {
 }
 
 int Field::kind(size_t car) const { return car < drivers_.size() && drivers_[car] ? drivers_[car]->kind : 0; }
+void Field::set_bspec_record(size_t car, const std::array<u8, 0x40>& record, int car_class) {
+    Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
+    if (d) d->record = record, d->car_class = car_class;
+}
+
+std::array<u8, 0x40> Field::bspec_record(size_t car) const {
+    const Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
+    return d ? d->record : std::array<u8, 0x40>{};
+}
+
+F Field::line_heading_at(size_t car) const {
+    const Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
+    return d ? line_heading(*d, d->line, course_s(car)) : F();
+}
+
+// 0x4684A8: the B-spec driver's experience. `table` 0 an arc's segment (v its speed, bins 60 .. 220 km/h), 2 a lane change
+// (v the car's speed, bins 60 .. 260 km/h).
+void Field::bspec_experience(Driver& d, int table, F v) {
+    auto add = [&](size_t off, u32 n) {
+        const u32 x = std::min<u32>(u32(d.record[off] | (d.record[off + 1] << 8)) + n, 0xFFFF);
+        d.record[off] = u8(x), d.record[off + 1] = u8(x >> 8);
+    };
+    const F lo = F::raw(0x41855554), hi = table == 0 ? F::raw(0x427471C6) : F::raw(0x429071C6);
+    F x = (v - lo) * (kOne / (hi - lo));
+    if (x < k::zero) x = k::zero;
+    else if (kOne < x) x = kOne;
+    // 0x468478 / 0x4682D0: 64 shared between the two speed bins around the speed
+    const int n = gt3r::ee::to_int((x * F::raw(0x42800000)).bits) - 4;
+    const int bin = n / 8, r = n - bin * 8;
+    int second = 8;
+    u32 first_add = 0x40, second_add = 0;
+    if (r > 0) second = bin + 1, second_add = u32(r) * 8, first_add = u32(8 - r) * 8;
+    if (u32(bin) < 8) add(size_t(table * 16 + bin * 2), first_add);
+    if (u32(second) < 8) add(size_t(table * 16 + second * 2), second_add);
+    // Alone (no car in its cells, or a race of one, or the conductor's virtual +0x30 ❓ set) or in company.
+    bool near = false;
+    if (session_->size() >= 2)
+        for (u8 z : near_.at(d.car).zone) near = near || z != 0;
+    const size_t half = size_t(d.car_class / 2);
+    if (!near) add(0x30 + 2 * half, 0x1000);
+    else add(0x30 + 2 * half, 0x1000 / 3), add(0x38 + 2 * half, 0x2000 / 3);
+}
+
+void Field::set_shadow(size_t car) {
+    Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
+    if (d) d->control = 0;
+}
+
+Field::Suggestion Field::suggestion(size_t car) const {
+    const Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
+    return d ? d->suggest : Suggestion{};
+}
+
 void Field::set_bspec_skill(size_t car, F corner, F brake, F alongside) {
     Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
     if (!d) return;
@@ -1100,6 +1163,7 @@ void Field::traffic(Driver& d) {
         if (pick >= 0) {
             request_line(d, pick, false);
             d.cooldown = 180;
+            if (d.control == 1 && d.kind == 0) bspec_experience(d, 2, session_->record(d.car).speed);
             cn = F();
         }
     }
@@ -1631,6 +1695,17 @@ void Field::decide_car(size_t car, race::CarInput& in) {
         }
     }
     d.applied_throttle = thr.host();
+    // 0x469E58: the suggested gear's speed.
+    {
+        Suggestion& g = d.suggest;
+        g = {};
+        F target = d.v_next;
+        if (d.mode == 4 && !(d.v_next < d.v_cur)) target = d.v_cur;
+        if (!(c.speed < target)) {
+            g.on = true, g.speed = target;
+            g.firm = d.mode == 3 || d.mode == 4;
+        }
+    }
     in = race::CarInput{};
     // The steering as the pad's share of the lock it allows at the car's speed (what a pad reads), and the angle.
     const float steer = d.steer.host();
@@ -1648,8 +1723,15 @@ void Field::decide_car(size_t car, race::CarInput& in) {
 
 void Field::drive(std::span<race::CarInput> inputs) {
     begin_step();
-    for (auto& dp : drivers_)
-        if (dp && dp->car < inputs.size()) decide_car(dp->car, inputs[dp->car]);
+    for (auto& dp : drivers_) {
+        if (!dp || dp->car >= inputs.size()) continue;
+        if (dp->control == 0 && dp->kind == 0) { // the player's own car: planned, not driven
+            race::CarInput unused;
+            decide_car(dp->car, unused);
+        } else {
+            decide_car(dp->car, inputs[dp->car]);
+        }
+    }
     // A place with a held start (missions: Pace::start_delay) stays on the line, its engine held as in the count, until
     // the race's clock passes its seconds (❓ judged: the program's hold itself is not found; its decision only lengthens
     // the start's look ahead by the delay).
