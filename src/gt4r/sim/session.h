@@ -10,6 +10,7 @@
 #include "gt4r/sim/collide.h"
 #include "gt4r/sim/aids_prologue.h"
 #include "gt4r/sim/collide_prologue.h"
+#include "gt4r/sim/feel_prologue.h"
 #include "gt4r/sim/ground.h"
 #include "gt4r/sim/record.h"
 #include "gt4r/sim/rules_prologue.h"
@@ -213,6 +214,7 @@ private:
     // Prologue's program: its own step (rules_prologue.h) in place of the engine's routines it does not share.
     std::optional<prologue::Tables> prologue_;
     std::vector<prologue::CarPart> prologue_cars_;
+    std::vector<prologue::FeelPart> prologue_feel_; // (phase 19's bookkeeping and feel, feel_prologue.h)
     std::unique_ptr<prologue::Collision> prologue_collide_;
     prologue::AidTables prologue_aids_;
     std::vector<prologue::Collision::Contact> prologue_contacts_;

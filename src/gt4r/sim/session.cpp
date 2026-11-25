@@ -133,7 +133,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
     line_heading_.assign(entries.size(), std::nullopt);
     if (!gt4_ready_ && !(rules_env && std::string(rules_env) == "engine")) { // Prologue's own step (rules_prologue.h)
         prologue::Tables t = prologue::tables(program);
-        if (t.found) prologue_ = t, prologue_cars_.resize(entries.size());
+        if (t.found) prologue_ = t, prologue_cars_.resize(entries.size()), prologue_feel_.resize(entries.size());
         if (prologue_ && road_->gtrw) course_ground_ = std::make_unique<ex::CourseGround>(*road_->gtrw);
         if (prologue_) prologue::race_inputs(race_, *prologue_), prologue_aids_ = prologue::aid_tables(program);
     }
@@ -182,8 +182,10 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
             layouts_[i] = r.layout;
             speed_tables_[i] = rules::speed_tables(program, r.x.steer.lean_row);
         } else if (prologue_) { // Prologue's own spec and converter (rules_prologue.h build_car)
+            prologue::Block block{};
             prologue_cars_[i] = prologue::build_car(db, specs_[i], e.equipment, loose_ ? 2 : 0, e.asm_on, e.tcs_on, *prologue_,
-                                                    0x01000000u + 0x2000u * u32(i) + ex::kParams, c);
+                                                    0x01000000u + 0x2000u * u32(i) + ex::kParams, c, &block);
+            speed_tables_[i] = prologue::speed_tables(program, block[0x33]); // (feel_prologue.h)
         } else { // (a program that is not a known build: the engine's converter on the core's tables)
             ex::ConvertInputs in;
             in.data = data_.get();
@@ -554,6 +556,7 @@ void Session::chassis(size_t i) {
         ex::ground_frame(c);
     }
     if (gt4_rules_) rules::speeds(c, gx_[i].speeds, layouts_[i], speed_tables_[i], gx_[i].body.in_line_x480); // (0x35DE20)
+    else if (prologue_) prologue::speeds(c, prologue_feel_[i], prologue_cars_[i].layout, speed_tables_[i], race_.prep.condition); // (0x3C5740)
     else ex::speed_bookkeeping(c, race_.prep.condition);
     ex::wheel_spin(c);
 }

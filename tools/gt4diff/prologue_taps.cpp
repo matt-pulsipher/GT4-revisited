@@ -3,6 +3,7 @@
 #include "prologue_taps.h"
 
 #include "gt4r/sim/aids_prologue.h"
+#include "gt4r/sim/feel_prologue.h"
 
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/formats/course/runway_gtrw.h"
@@ -187,6 +188,21 @@ void PTaps::leave(u32 ra) {
             fs.example = text;
         }
     }
+    if (taps_[p.tap].after)
+        taps_[p.tap].after(ee_, p.car, p.index, [&](const char* name, u32 program, u32 ours) {
+            if (program == ours) return;
+            clean = false;
+            PFieldStat& fs = st.fields[name];
+            ++fs.off;
+            const double x = double(gt3r::ee::F::raw(program).host()), y = double(gt3r::ee::F::raw(ours).host());
+            const double rel = std::fabs(x - y) / std::max(std::fabs(x), 1e-6);
+            if (rel >= fs.worst) {
+                fs.worst = rel;
+                char text[160];
+                std::snprintf(text, sizeof text, "the program's %.9g, ours %.9g (car %d, call %llu)", x, y, p.index, static_cast<unsigned long long>(st.calls));
+                fs.example = text;
+            }
+        });
     st.clean += clean;
 }
 
@@ -397,6 +413,21 @@ void add_prologue_taps(PTaps& taps, const Disc& disc, const std::string& course)
                       },
                       {"rumble", "steer_force", "ffb", "lag_", "w.skid", "w.slip_intensity", "w.smoke", "x4e", "speedo", "engine_wear", "oil",
                        "odo", "dist_total", "dirt", "max_speed", "speed_abs", "hit_", "feedback", "g.seg", "road_seg", "w.flap"}});
+    }
+    // Phase 19's bookkeeping (feel_prologue.h): the speedometer at car + 0xC60, outside the mirror.
+    {
+        static std::map<int, gt3r::ee::F> speedo;
+        static const sim::Program program = sim::Program::load(const_cast<Disc&>(disc));
+        taps.add({0x3C5740, "Prologue's speeds", [=](PTapCall& c) {
+                      sim::prologue::FeelPart x;
+                      x.speedo = gt3r::ee::F::raw(c.ee.r32(c.car_addr + 0xC60));
+                      const sim::rules::SpeedTables k = sim::prologue::speed_tables(program, c.ee.r8(c.ee.r32(c.car_addr + 0x10) + 0x33));
+                      sim::prologue::speeds(c.car, x, layout(c), k, c.inputs.prep.condition);
+                      speedo[c.car_index] = x.speedo;
+                  },
+                  {"speedo"}, {}, [](Ee& ee, u32 car, int index, const std::function<void(const char*, u32, u32)>& field) {
+                      field("speedo (car +0xC60)", ee.r32(car + 0xC60), speedo[index].bits);
+                  }});
     }
     taps.add({0x3BBF18, "rolling resistance, Prologue's curve", [=](PTapCall& c) {
                   ex::Statics s = c.inputs.statics;

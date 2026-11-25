@@ -7,6 +7,8 @@
 #include "prologue_race.h"
 #include "prologue_taps.h"
 
+#include "gt4r/sim/feel_prologue.h"
+
 #include "gt4r/sim/car_spec.h"
 #include "gt4r/sim/exact_bridge.h"
 #include "gt4r/sim/rules_prologue.h"
@@ -191,7 +193,9 @@ int whole_step(Disc& disc, const std::string& course, const std::string& car, in
             ex::hub_offsets(k);
             sim::rules::body_axes(k);
             sim::prologue::ground_frame(k);
-            ex::speed_bookkeeping(k, inputs.prep.condition);
+            sim::prologue::FeelPart feel;
+            feel.speedo = gt3r::ee::F::raw(ee.r32(r.car(0) + 0xC60));
+            sim::prologue::speeds(k, feel, x.layout, sim::prologue::speed_tables(program, ee.r8(ee.r32(r.car(0) + 0x10) + 0x33)), inputs.prep.condition);
             ex::wheel_spin(k);
             for (size_t w = 0; w < 4; ++w) k.t[w].steer_sin = x.offset_rate[w], k.t[w].steer_cos = x.tires.steer_offset[w];
             compare(k, mine, st);
