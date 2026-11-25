@@ -9,6 +9,7 @@
 #include "gt4r/formats/db/specdb.h"
 
 #include <array>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -76,8 +77,9 @@ void orig_step(Ee& ee, OrigRace& o);
 // computer driver). Returns false with `err` when the set-up stops.
 // `drivers`: the computer drivers run (the course's driver file in the course object; else their start and decision are
 // left out).
+// `before_init`: run after the conductor's constructor, before its initialisation (to install probes on the set-up).
 bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, const std::vector<std::string>& labels, int human, OrigRace& o,
-                std::string& err, bool drivers = false);
+                std::string& err, bool drivers = false, const std::function<void()>& before_init = {});
 // (`o` must stay where it is while the race runs: the pad stub reads it.)
 
 } // namespace gt4r::diff

@@ -150,7 +150,8 @@ TEST(sim_program_step_routines_equal) {
             // cars, and the speed-switched part's routines, on the cars that have one: test_sim_near.cpp; the input phase's taps
             // for other controllers and options: GT4R_INPUT_VARY)
             const bool rare = t.name.rfind("near:", 0) == 0 || t.name.rfind("speed part:", 0) == 0 || t.name.rfind("input:", 0) == 0 || t.name.rfind("phases: pod", 0) == 0 || t.name.rfind("phases: pit", 0) == 0 || t.name.rfind("phases: hit", 0) == 0 || (t.name == "gear" && std::string(car) == "fit_w_ff_01") || t.name == "aids: hold throttle" || t.name == "aids: rising slip" ||
-                              t.name == "steer: lean angle" || t.name == "steer: angle difference" || t.name == "steer: angle blend";
+                              t.name == "steer: lean angle" || t.name == "steer: angle difference" || t.name == "steer: angle blend" ||
+                              t.name.rfind("start: hold lift", 0) == 0 || t.name == "start: rolling hold" || t.name == "start: release";
             CHECK((t.calls > 0 || rare) && t.equal == t.calls);
         }
     }

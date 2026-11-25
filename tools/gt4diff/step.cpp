@@ -13,6 +13,7 @@
 #include "gt4r/sim/rules_chassis.h"
 #include "gt4r/sim/rules_drive.h"
 #include "gt4r/sim/rules_phases.h"
+#include "gt4r/sim/rules_start.h"
 #include "gt4r/sim/rules_step.h"
 #include "gt4r/sim/rules_tires.h"
 #include "gt4r/sim/rules_wear.h"
@@ -100,9 +101,10 @@ void add_taps(Taps& taps) {
     taps.add({0x3697A8, "query points", car_a0, [](TapCall& t) { query_points(t.car, t.rec.x.body, t.rec.layout); }});
     taps.add({0x36A490, "terrain", car_a0, [](TapCall& t) { terrain(t.car, t.rec.x.body, t.rec.layout); }});
     taps.add({0x36A758, "suspension", car_a0, [](TapCall& t) { suspension(t.car, t.rec.x.body, t.rec.x.chassis, t.rec.layout, body_globals(t.ee)); }});
-    // (while the hold counter runs the program's start hold, 0x36AE20, answers instead: not ported)
+    // (first the start hold while the hold counter runs, 0x36AE20: the line's heading 0 without lines)
     taps.add({0x36B0C8, "attitude", car_a0, [](TapCall& t) {
-                  if (t.car.hold == 0) attitude(t.car, t.rec.x.body, t.rec.x.chassis, t.rec.x.tires, t.rec.layout, body_globals(t.ee));
+                  if (!attitude_hold(t.car, t.rec.x.body, gt3r::ee::F()))
+                      attitude(t.car, t.rec.x.body, t.rec.x.chassis, t.rec.x.tires, t.rec.layout, body_globals(t.ee));
               }});
     taps.add({0x36BA88, "bump nudge", car_a0, [](TapCall& t) { bump_nudge(t.car, t.rec.x.body, t.rec.layout); }});
     taps.add({0x3511A0, "brakes and clutch", car_a0, [](TapCall& t) { brakes_and_clutch(t.car, t.rec.x.drive, t.rec.layout); }});
@@ -215,14 +217,14 @@ StepResult run_step(Disc& disc, bool print, const std::string& course_label, con
     const char* car = std::getenv("GT4R_STEP_CAR");
     const std::string course_name = !course_label.empty() ? course_label : course ? course : "tsukuba";
     const std::string car_name = !car_label.empty() ? car_label : car ? car : "nsx_r_02";
-    if (!setup_race(ee, disc, sdb, course_name, {car_name}, 1, o, err)) {
+    const ex::ProgramData data = sim::core_program(program);
+    const ex::RaceConfig config{};
+    const ex::RaceInputs inputs = ex::race_inputs(data, ex::Conductor::SinglePlayer, config, false, 0);
+    if (!setup_race(ee, disc, sdb, course_name, {car_name}, 1, o, err, false, [&] { install_setup_taps(ee, o, inputs); })) {
         result.error = err;
         if (print) std::printf("step: %s\n", err.c_str());
         return result;
     }
-    const ex::ProgramData data = sim::core_program(program);
-    const ex::RaceConfig config{};
-    const ex::RaceInputs inputs = ex::race_inputs(data, ex::Conductor::SinglePlayer, config, false, 0);
     Taps taps(ee, o, inputs);
     add_taps(taps);
     add_taps_aids(taps);
@@ -230,6 +232,7 @@ StepResult run_step(Disc& disc, bool print, const std::string& course_label, con
     add_taps_near(taps);
     add_taps_phases(taps);
     add_taps_input(taps);
+    add_taps_start(taps);
     // GT4R_STEP_COLLIDE: the collision step and the road query against ours at every call (collide_check.cpp).
     std::unique_ptr<CollideCheck> collide_check;
     if (std::getenv("GT4R_STEP_COLLIDE")) {
@@ -342,6 +345,7 @@ StepResult run_step(Disc& disc, bool print, const std::string& course_label, con
     try {
         for (int i = 0; i < steps; ++i) {
             o.pad[0] = drive(i);
+            start_before_step(ee, o, i);
             orig_step(ee, o);
         }
     } catch (const std::exception& e) {
@@ -356,9 +360,11 @@ StepResult run_step(Disc& disc, bool print, const std::string& course_label, con
         std::printf("step: %d steps of the program's own; the car at %.2f %.2f %.2f, %.1f km/h\n", steps, double(ee.rf(at + kF)), double(ee.rf(at + kF + 4)),
                     double(ee.rf(at + kF + 8)), double(ee.rf(at + kF + 0x53C)) * 3.6);
         taps.print();
+        print_start_spans();
         if (collide_check) collide_check->print();
     }
     for (const TapStat& st : taps.stats()) result.taps.push_back({st.name, size_t(st.calls), size_t(st.clean)});
+    start_spans([&](const std::string& name, u64 calls, u64 clean) { result.taps.push_back({name, size_t(calls), size_t(clean)}); });
     result.ran = true;
     return result;
 }

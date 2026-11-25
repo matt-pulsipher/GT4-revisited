@@ -40,7 +40,7 @@ struct Entry {
 class Session final : public race::Simulation {
 public:
     static constexpr float kStep = 1.0f / 60.0f;
-    static constexpr int kHoldSteps = 120; // the hold before the session's time 0
+    static constexpr int kHoldSteps = 120; // a standing start's countdown before the session's time 0 (the constructor's)
 
     // Throws std::runtime_error for a session that cannot be set up (no entries, a course without a
     // start place on the road, a car whose parameters cannot be built).
@@ -56,9 +56,24 @@ public:
 
     // One step of 1/60 s.
     void step_once(std::span<const race::CarInput> inputs);
-    // One step with the cars held as during a start's countdown (the engines answer the throttle, the
+    // One step of the race's countdown: every car held (F + 0x4BC, 0x34C210; the engines answer the throttle, the
     // cars stay); the session's time does not advance.
     void hold_once(std::span<const race::CarInput> inputs);
+    // The race's countdown (the race information's +0xBC): `steps` steps from the next, counted down one a step, the
+    // cars held and the session's time standing while it runs. 0 ends it.
+    void set_countdown(u32 steps) { countdown_ = steps; }
+    u32 countdown() const { return countdown_; }
+    // A car held in its rolling start (F + 0x467 = 1: its computer driver drives it, the rolling start's pace caps it,
+    // the input phase takes the car's input as the computer's outputs) let go (the single-player conductor's virtual
+    // +0x14, 0x347928: 0x345228 and 0x3F37B8).
+    void release_start(int car) override;
+    // The car standing at (x, y, z) facing `heading`, in the record's frame (x, y, z up: the record's F + 0x00; the
+    // course's x, -z, y; z the road's height there): the pose (0x3630C0), 0x3455F0 and the standing start (0x363560).
+    // For a pit stop; Gran Turismo 4's rules only.
+    void place_standing(size_t car, gt3r::ee::F x, gt3r::ee::F y, gt3r::ee::F z, gt3r::ee::F heading);
+    // The car's hold counter (F + 0x4BA): the preparation's pit stop counter (0x35C0B8) runs while it is above 0, and the
+    // attitude's start hold (0x36AE20) holds the body over the ground.
+    void set_pit_hold(size_t car, u16 steps);
     double time() const { return double(steps_) * double(kStep); }
     const RoadGround& ground() const { return *ground_; }
     // A car's record in the vehicle step (the engine's mirror of the car record).
@@ -108,6 +123,8 @@ private:
         int contact_car = -1;
     };
     void place(size_t i, const course::Runway::Place& at);
+    void setup(size_t i, const course::Runway::Place& at, int kind, float speed);
+    rules::PoseHooks pose_hooks();
     void ground_contact(gt3r::sim::exact::Car& c, Extra& x);
     void chassis(size_t i);
     void collide();
@@ -134,6 +151,10 @@ private:
     std::vector<rules::PadMail> mail_;      // each car's request to its controller (a pit stop's answer, a B-spec command)
     std::vector<collide::Hit> hits_;        // the collision step's hits this step
     rules::Tables tables_;
+    rules::StartTables start_tables_;
+    std::vector<u32> start_counters_; // each car's own start hold counter (conductor + 0xCBFC + 4 i: 0 in a single race)
+    u32 countdown_ = 0;               // the race's countdown (the race information's +0xBC)
+    bool holding_ = false;            // (hold_once's step)
     bool gt4_ready_ = false, gt4_rules_ = false;
     std::vector<Spec> specs_;
     std::vector<race::CarState> states_;

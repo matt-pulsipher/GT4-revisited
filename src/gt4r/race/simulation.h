@@ -76,6 +76,7 @@ struct CarState {
     u8 contact_kind = 0;
     int contact_car = -1;
     bool landed = false;
+    bool rolling = false; // held in its rolling start (F + 0x467 = 1) until the simulation lets it go (release_start)
 };
 
 // One session's cars. Car 0.. in grid order; `inputs` has one entry per car (a car whose
@@ -85,6 +86,8 @@ public:
     virtual ~Simulation() = default;
     virtual void step(std::span<const CarInput> inputs, float dt) = 0;
     virtual std::span<const CarState> cars() const = 0;
+    // A car held in its rolling start let go (the single-player conductor's virtual 20 (+0xA0): 0x345228).
+    virtual void release_start(int car) {}
 };
 
 } // namespace gt4r::race

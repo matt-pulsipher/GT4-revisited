@@ -10,6 +10,7 @@
 #include "gt4r/sim/rules_input.h"
 #include "gt4r/sim/rules_near.h"
 #include "gt4r/sim/rules_phases.h"
+#include "gt4r/sim/rules_start.h"
 #include "gt4r/sim/rules_steer.h"
 #include "gt4r/sim/rules_tires.h"
 #include "gt4r/sim/rules_wear.h"
@@ -28,6 +29,7 @@ struct Extra {
     rules::SteerExtra steer;
     rules::NearExtra near;
     rules::PhaseExtra phases;
+    rules::StartExtra start;
 };
 
 struct Record {
@@ -44,6 +46,7 @@ template <class X, class V> void extra_fields(X& x, V&& v) {
     rules::steer_fields(x.steer, v);
     rules::near_fields(x.near, v);
     rules::phase_fields(x.phases, v);
+    rules::start_fields(x.start, v);
 }
 
 } // namespace gt4r::sim

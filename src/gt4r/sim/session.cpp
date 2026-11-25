@@ -130,6 +130,11 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
     driver_aids_.assign(entries.size(), std::nullopt);
     mail_.assign(entries.size(), {});
     if (gt4_ready_) mood_tables_ = rules::mood_tables(program);
+    start_tables_ = rules::start_tables(program);
+    start_counters_.assign(entries.size(), 0);
+    // A rolling start's pace (0x3F7880 while a car is held in it): the race's speed (the rule block's +0x6E, km/h).
+    for (const Entry& e : entries)
+        if (e.start_speed > 0 && aid_race_.start_speed == 0) aid_race_.start_speed = u8(std::lround(std::min(e.start_speed * 3.6f, 255.0f)));
     driver_grip_.assign(entries.size(), std::nullopt);
     specs_.resize(entries.size());
     states_.resize(entries.size());
@@ -176,10 +181,14 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
         }
         c.pedal_style = e.automatic ? 0 : 1;
         // The start place: the entry's, or one further back along the first place's line when the grid is shorter;
-        // a rolling start's on the road's middle at its distance along the course.
+        // a rolling start's on the road's middle at its distance along the course (❓ the program's on the course's
+        // driving line there, 0x34C5E0 through the line object 0x46ADE8: the session has no line). The start's kind
+        // (the conductor's virtual +0xF0): 0 the grid, 1 a rolling start at or past the line, 2 before it.
         const int want = e.grid_place >= 0 ? e.grid_place : int(i);
         course::Runway::Place at = places[size_t(want) % places.size()];
+        int kind = 0;
         if (!std::isnan(e.start_distance) && road_->length > 0) {
+            kind = e.start_distance < 0 ? 2 : 1;
             float v = std::fmod(e.start_distance, road_->length);
             if (v < 0) v += road_->length;
             Vec3 point, dir, middle;
@@ -195,7 +204,8 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
             GroundHit h;
             if (ground_->at_place(at.pos, h)) at.pos.y = h.point.y;
         }
-        place(i, at);
+        if (gt4_rules_) setup(i, at, kind, e.start_speed);
+        else place(i, at);
         publish(i);
     }
     // The collision bodies (0x45B978: an octagon from the body's extents, the mass and the yaw inertia).
@@ -207,16 +217,83 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
         collide::build(bodies_[i], int(i), p.body_front, p.body_rear, p.body_width, p.mass, p.yaw_inertia);
     }
     collide::pair_tables(bodies_);
-    // The start's hold: the cars held as during a start's countdown until the engines idle and the
-    // bodies have settled on their springs.
-    for (int i = 0; i < kHoldSteps; ++i) hold_once({});
-    // A rolling start: the cars moving at time 0 (the car's set-up, 0x363868), the throttle open as the computer
-    // that drives every car's run-up leaves it.
-    for (size_t i = 0; i < cars_.size(); ++i) {
-        if (!(entries[i].start_speed > 0)) continue;
-        rules::moving_start(cars_[i], gx_[i].drive, F(entries[i].start_speed), true);
-        publish(i);
-    }
+    // A standing start: the last two seconds of the race's countdown before the session's time 0, the cars held
+    // (F + 0x4BC) while the engines idle and the bodies settle on their springs (the original's countdown runs
+    // longer, through the opening shot and the count: a caller adds its own with hold_once or set_countdown). A
+    // rolling start goes at once, the cars moving from the set-up (0x363868).
+    bool moving = false;
+    for (const Entry& e : entries) moving = moving || e.start_speed > 0;
+    if (!moving)
+        for (int i = 0; i < kHoldSteps; ++i) hold_once({});
+    if (!gt4_rules_) // (the engine's rules: its moving start after the hold)
+        for (size_t i = 0; i < cars_.size(); ++i) {
+            if (!(entries[i].start_speed > 0)) continue;
+            rules::moving_start(cars_[i], gx_[i].drive, F(entries[i].start_speed), true);
+            publish(i);
+        }
+}
+
+rules::PoseHooks Session::pose_hooks() {
+    rules::PoseHooks h;
+    h.query = [this](ex::Ground& g) -> u8 { // 0x395760: from 5 m above the point
+        GroundHit hit;
+        const F at[3] = {g.x, g.h + F::raw(0x40A00000), g.z};
+        const bool found = ground_->query(at, hit);
+        fill(g, found, hit, true);
+        return found ? u8(surface_index(hit.material, hit.flags)) : 0;
+    };
+    h.soft = [this](const ex::Ground& g) { return tables_.bumps.soft[size_t(g.material & 31)] != 0; };
+    h.distance = [this](const ex::Car& c) {
+        float v = 0;
+        return ground_->distance_along(to_course(c.pos), v) ? F(v) : F();
+    };
+    return h;
+}
+
+// Gran Turismo 4's set-up of a car on its start place (0x363B10 from the converter on, rules::car_setup).
+void Session::setup(size_t i, const course::Runway::Place& at, int kind, float speed) {
+    ex::Car& c = cars_[i];
+    rules::SetupArgs a;
+    a.index = int(i);
+    a.control = 0;
+    a.pedal_style = c.pedal_style;
+    a.start_kind = kind;
+    a.speed = F(speed * 3.6f);
+    a.hint = -1;
+    // The place in the record's frame (x, y, z up); the car faces the place's heading turned half a turn.
+    a.x = F(at.pos.x), a.y = F(-at.pos.z), a.z = F(at.pos.y);
+    a.heading = F(at.heading) + kPi;
+    rules::SetupHooks h;
+    h.pose = pose_hooks();
+    rules::car_setup(c, gx_[i], layouts_[i], start_tables_, tables_.wear, a, h);
+    // (the session's own ground records: the kinds and materials publish reads)
+    for (size_t w = 0; w < 4; ++w) extra_[i].kinds[w] = c.g[w].miss ? 0 : c.g[w].flags, extra_[i].materials[w] = c.g[w].miss ? 0 : c.g[w].material;
+    c.x16d1 = 1;
+    c.dist_total = k0;
+    rules::save_previous(c, layouts_[i]);
+    ex::wheel_spin(c);
+}
+
+void Session::release_start(int car) {
+    if (car < 0 || size_t(car) >= cars_.size()) return;
+    // (the session has no line object: the driver's line change is taken as made)
+    rules::release(cars_[size_t(car)], gx_[size_t(car)], true);
+    publish(size_t(car));
+}
+
+void Session::place_standing(size_t car, F x, F y, F z, F heading) {
+    if (car >= cars_.size() || !gt4_rules_) return;
+    ex::Car& c = cars_[car];
+    sim::Extra& g = gx_[car];
+    rules::pose(c, g, layouts_[car], start_tables_, pose_hooks(), c.road_seg, x, y, z, heading);
+    rules::clear_view_lags(c);
+    rules::standing_start(c, g, layouts_[car]);
+    for (size_t w = 0; w < 4; ++w) extra_[car].kinds[w] = c.g[w].miss ? 0 : c.g[w].flags, extra_[car].materials[w] = c.g[w].miss ? 0 : c.g[w].material;
+    publish(car);
+}
+
+void Session::set_pit_hold(size_t car, u16 steps) {
+    if (car < cars_.size()) cars_[car].hold = steps;
 }
 
 void Session::set_driver_aids(size_t car, const gt3r::sim::exact::Aids& block) {
@@ -229,15 +306,13 @@ void Session::set_driver_aids(size_t car, const gt3r::sim::exact::Aids& block, c
 }
 
 void Session::hold_once(std::span<const race::CarInput> inputs) {
-    const u64 steps = steps_;
-    race_.prep.start_count = 1;
+    holding_ = true;
     step_once(inputs);
-    race_.prep.start_count = 0;
-    steps_ = steps;
+    holding_ = false;
 }
 
-// The car at rest on a start place (the engine's race start: the pose on the road, the standing
-// start), with the nose at the place.
+// The car at rest on a start place with the engine's rules (GT4R_SIM_RULES=engine: the engine's race start, the pose
+// on the road and the standing start), with the nose at the place.
 void Session::place(size_t i, const course::Runway::Place& at) {
     ex::Car& c = cars_[i];
     // The record's heading: the place's turned half a turn (forward is (sin, cos) of the place's in x, z).
@@ -361,9 +436,9 @@ void Session::chassis(size_t i) {
         const rules::WheelLayout& l = layouts_[i];
         rules::terrain(c, g.body, l);
         rules::suspension(c, g.body, g.chassis, l, tables_.body);
-        // (while the hold counter runs, the engine's start hold: the program's 0x36AE20 is not ported)
-        if (c.hold != 0) ex::attitude(c, k0);
-        else rules::attitude(c, g.body, g.chassis, g.tires, l, tables_.body);
+        // The attitude (0x36B0C8), first its start hold while the hold counter runs (0x36AE20). (❓ The hold turns the car
+        // toward its driving line's heading; the session has no line: its own heading, no turn.)
+        if (!rules::attitude_hold(c, g.body, c.heading)) rules::attitude(c, g.body, g.chassis, g.tires, l, tables_.body);
         rules::bump_nudge(c, g.body, l);
     } else {
         ex::terrain_factor(c);
@@ -446,6 +521,9 @@ void Session::collide() {
 
 void Session::step_once(std::span<const race::CarInput> inputs) {
     const u8 course_kind = ex::course_category(race_.aids.course_category);
+    // The race's countdown (the race information's +0xBC; 0x34C210): the cars held while it runs.
+    const bool countdown = holding_ || countdown_ > 0;
+    race_.prep.start_count = countdown ? 1 : 0; // (the engine's rules' hold)
     for (size_t i = 0; i < cars_.size(); ++i) {
         ex::Car& c = cars_[i];
         Extra& x = extra_[i];
@@ -494,7 +572,7 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
             rules::save_previous(c, l);                                  // phase 1 (0x343ED0)
             rules::layout7_step(c, g.phases);                            // phase 2 (0x355E10)
             rules::moods(c, g, mood_tables_, l, tables_.bumps.soft, 0);  // phase 3 (0x35CA60; ❓ no pass-by states: no rival)
-            c.race_hold = race_.prep.start_count > 0 ? 1 : 0;            // (0x34C210: the start's countdown holds the cars)
+            rules::start_hold(c, countdown, start_counters_[i]);          // (0x34C210 and the car's own counter)
             rules::prep(c, g, l, tables_, race_.prep.condition, grip);   // phase 4 (0x357700)
             // Phase 5 (0x349FD0): the driver's input, by the control source (a computer's car 2, the B-spec car 1).
             c.control = in.computer ? gt3r::s8(in.control) : 0;
@@ -577,7 +655,9 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
         if (gt4_rules_) rules::hit_steps(gx_[i].phases); // (0x34DB30's end: the recent hit's steps)
         publish(i);
     }
-    ++steps_;
+    // (❓ the race flow counts its countdown down after the step)
+    if (countdown_ > 0) --countdown_;
+    if (!countdown) ++steps_;
 }
 
 void Session::step(std::span<const race::CarInput> inputs, float dt) {
@@ -613,6 +693,7 @@ void Session::publish(size_t i) {
     s.brake_lamps = c.brake_pedal.host() > 0;
     s.reverse_lamps = c.gear == 0;
     s.contact = x.contact, s.contact_kind = x.contact_kind, s.contact_car = x.contact_car;
+    s.rolling = gt4_rules_ && c.driver_kind == 1;
     // A wheel back on the ground: loaded at this step's end after a step without load.
     s.landed = false;
     for (size_t w = 0; w < 4; ++w) {

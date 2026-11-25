@@ -90,7 +90,7 @@ void boot(Ee& ee, Disc& disc, db::SpecDb& sdb) {
 }
 
 bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, const std::vector<std::string>& labels, int human, OrigRace& o,
-                std::string& err, bool drivers) {
+                std::string& err, bool drivers, const std::function<void()>& before_init) {
     o = OrigRace{};
     o.cars = int(labels.size());
     try {
@@ -185,6 +185,7 @@ bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, 
         ee.call(kConductorCtor, {Arg::ptr(o.cond)}, 50'000'000);
         ee.w32(o.cond, o.info);
         ee.w32(o.cond + kCondCars, u32(o.cars));
+        if (before_init) before_init();
         const u32 vt = ee.r32(o.cond + kCondVtable);
         const u32 init = vt + 0xE0;
         ee.call(ee.r32(init + 4), {Arg::ptr(o.cond + u32(s32(s16(ee.r16(init))))), Arg::integer(0)}, 2'000'000'000);
