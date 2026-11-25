@@ -2,6 +2,7 @@
 
 #include "base/ee_float.h"
 #include "base/ee_math.h"
+#include "gt4r/sim/ai/drivers_prologue.h"
 #include "gt4r/sim/ai/ee_math.h"
 
 #include <algorithm>
@@ -106,6 +107,21 @@ bool CourseLines::course_distance(const Vec3& p, int cluster, float& out) const 
 
 CourseLines::CourseLines(const course::AiData& data, const RoadGround& ground, const Tables& tables) : ground_(&ground), fallback_(tables.fallback) {
     lap_ = ground.road().length;
+    if (ground.road().gtrw) { // Prologue's road: its own preparation (0x4292C8)
+        prologue::DriverTables t;
+        t.fallback = fallback_, t.order = tables.order;
+        const gt3r::sim::exact::AiCourse course = prologue::driver_course(gt3r::sim::exact::CourseQuery(*ground.road().gtrw), data, t);
+        lap_ = course.lap_length.host();
+        for (size_t k = 0; k < 8; ++k)
+            for (const gt3r::sim::exact::AiPoint& p : course.lines[k]) {
+                LinePoint q;
+                q.kind = p.kind, q.brake_adjust = p.brake_adjust, q.speed_adjust = p.speed_adjust;
+                q.x = p.x.host(), q.y = p.y.host(), q.height = p.height.host(), q.surface = p.surface, q.pit = (p.x13 & 1) != 0;
+                q.dist = p.dist.host(), q.radius = p.radius.host(), q.slope = p.slope.host(), q.bank = p.bank.host(), q.heading = p.heading.host();
+                lines_[k].push_back(q);
+            }
+        return;
+    }
     for (int k = 0; k < 8; ++k)
         for (const course::AiLinePoint& p : data.lines[size_t(k)]) {
             LinePoint q;
@@ -186,12 +202,6 @@ void CourseLines::prepare(int k) {
             const F at[3] = {x, query, -y};
             bool found = false;
             F s = ground_->course_distance(at, -1, &found);
-            // (a road without the clusters' checkpoint lists, Prologue's: between the checkpoint lines)
-            if (!found && ground_->road().checkpoint_lookup.empty()) {
-                float v = 0;
-                int hint = -1;
-                if (ground_->distance_along(course_point(p.x, p.y, query.host()), v, &hint)) s = F(wrap_lap(v));
-            }
             p.dist = s.host();
         }
         p.height = 0, p.slope = 0, p.bank = 0, p.surface = 0, p.pit = false;

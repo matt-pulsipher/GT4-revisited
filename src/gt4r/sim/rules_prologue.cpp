@@ -3,6 +3,7 @@
 #include "gt4r/sim/rules_prologue.h"
 
 #include "base/ee_math.h"
+#include "sim/exact/start.h"
 #include "sim/exact/build_math.h"
 #include "sim/exact/car_fields.h"
 #include "sim/exact/course_ground.h"
@@ -317,6 +318,37 @@ void hybrid_start(const ex::Car& c, CarPart& x) {
     rules::hybrid_start(x.hybrid);
     x.hybrid_fuel = x.hybrid_fuel_mark = x.hybrid_odo_mark = F();
     x.mileage = 0, x.mileage_steps = 30;
+}
+
+int gear_for_speed(const ex::Car& c, F v) {
+    if (v < F()) return 0;
+    if (c.p.d.kind == 3 || c.p.d.kind == 1) return 1; // (one speed; stepless)
+    const int n = c.p.d.gears;
+    for (int k = 1; k < n; ++k) {
+        const F w = gt3r::ee::int_to_f(s32(c.p.d.up_rpm) - (k == 1 ? 2000 : 500)) * F::raw(0x3DD6774E);
+        if (v < w / c.p.d.gear_speed[size_t(k)]) return k;
+    }
+    return n;
+}
+
+void moving_start(ex::Car& c, F v) {
+    ex::moving_start(c, v); // (the engine's but for the gear)
+    const int g = prologue::gear_for_speed(c, v);
+    if (g == int(c.gear)) return;
+    c.gear = u8(g);
+    const F rpm_to_w = F::raw(0x3DD6774E);
+    const F idle = gt3r::ee::int_to_f(c.p.e.idle) * rpm_to_w, limit = gt3r::ee::int_to_f(c.p.e.rev_limit) * rpm_to_w;
+    F w = v * c.p.d.gear_speed[size_t(g)];
+    if (w < idle) w = idle;
+    else if (limit < w) w = limit;
+    c.omega = w;
+    c.rpm = gt3r::s16(gt3r::ee::to_int((c.omega * F::raw(0x42700000)) / F::raw(0x40C90FDA)));
+    if (!(c.p.e.boost_max == F())) {
+        if (F() < c.p.e.turbo_peak[1]) c.turbo_lag[1] = c.rpm;
+        c.turbo_lag[0] = c.rpm;
+        c.intake = ex::boost(c.p.e, c.rpm, c.rpm);
+        c.turbo_pitch = u16(c.rpm);
+    }
 }
 
 u16 mileage(F fuel, F distance) {

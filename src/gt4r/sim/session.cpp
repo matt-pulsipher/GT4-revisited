@@ -300,7 +300,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
                 if (line->kind >= 2 && line->kind <= 4) c.driver_kind = 1, c.shift_lockout = 12;
                 if (line->speed > 0) {
                     c.ai.mode = !line->open_throttle || line->open_throttle(c.f3e4) ? 0 : 1;
-                    ex::moving_start(c, gt3r::ee::int_to_f(line->speed) * F::raw(0x3E8E38E3));
+                    prologue::moving_start(c, gt3r::ee::int_to_f(line->speed) * F::raw(0x3E8E38E3));
                 }
                 prologue::part_start(c, prologue_cars_[i], prologue_feel_[i]); // (0x3B1BD0)
                 prologue::hybrid_start(c, prologue_cars_[i]);                  // (0x3CC0B8)
@@ -309,7 +309,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
             }
             if (!(entries[i].start_speed > 0)) continue;
             if (prologue_) {
-                ex::moving_start(cars_[i], F(entries[i].start_speed));
+                prologue::moving_start(cars_[i], F(entries[i].start_speed));
                 cars_[i].driver_kind = 1;
                 publish(i);
                 continue;

@@ -168,6 +168,10 @@ struct CarPart {
 };
 // 0x3CC0B8: the hybrid's box at the car's set-up (nothing for another car).
 void hybrid_start(const ex::Car& c, CarPart& x);
+// 0x3CD4C0: the lowest gear whose up-shift speed less 500 rpm (2,000 in first) reaches a speed; 0x3C9108: a moving start at
+// `v` m/s (the throttle open for a driver whose stretch is a straight: c.ai.mode 0).
+int gear_for_speed(const ex::Car& c, F v);
+void moving_start(ex::Car& c, F v);
 // 0x3CC298: the kilometers per liter of a fuel mass (g) over a distance (m): 0 under a millimeter, at most 999.
 u16 mileage(F fuel, F distance);
 // The part from the car's record and Prologue's parameter block: the wheel layout of its +0x30, the tire records' kind bytes.

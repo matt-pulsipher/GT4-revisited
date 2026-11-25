@@ -82,13 +82,17 @@ int run_demo(Disc& disc, const std::string& label, int limit) {
         e.w32(entry + 0x3FB8, n.asm_on), e.w32(entry + 0x3FBC, n.tcs_on);
     };
     if (!setup_race(ee, disc, sdb, ev->course, {pool[0].car}, 1, r, err, true, &lesson)) return std::printf("%s\n", err.c_str()), 1;
+    if (lesson.row.empty()) std::printf("  (no RACE row %u)\n", u32(run->event));
+    const bool rolling = ee.r8(r.cond + 0x107CE) != 0; // (no start hold)
+    std::printf("  rules: start %d km/h at %d m\n", ee.r8(r.cond + 0x107CE), s16(ee.r16(r.cond + 0x107D4)));
     ee.w32(r.info, std::max(1, ev->laps)), ee.w32(r.info + 4, 1);
     const auto& frames = run->streams[0].frames;
     int shown = 0;
     static const u8 kNone[16] = {};
+    const int show = std::getenv("GT4R_DEMO_SHOW") ? std::atoi(std::getenv("GT4R_DEMO_SHOW")) : 12;
     const int every = std::getenv("GT4R_DEMO_EVERY") ? std::atoi(std::getenv("GT4R_DEMO_EVERY")) : 600;
     for (size_t i = 0; i < mine.size(); ++i) {
-        ee.w32(r.info + 0x74, u32(std::max(0, 239 - int(i))));
+        ee.w32(r.info + 0x74, rolling ? 0 : u32(std::max(0, 239 - int(i))));
         r.pad[0].raw = i < frames.size() ? frames[i].bytes.data() : kNone;
         step(ee, r);
         const std::vector<u8> im = gt3_image(ee, r.car(0));
@@ -101,7 +105,8 @@ int run_demo(Disc& disc, const std::string& label, int limit) {
         std::string diff;
         int n = 0;
         for (const auto& [name, f] : st.fields)
-            if (!kSkip.count(name) && name.rfind("ai.", 0) != 0 && name.rfind("lag_", 0) != 0 && name.find("flap") == std::string::npos && ++n <= 12) diff += "\n      " + name + ": " + f.example;
+            if (!kSkip.count(name) && name.rfind("ai.", 0) != 0 && name.rfind("lag_", 0) != 0 && name.find("flap") == std::string::npos &&
+                !(name.rfind("aids.", 0) == 0 && name.ends_with("[1]")) /* (the driver's block: kept outside the record) */ && ++n <= show) diff += "\n      " + name + ": " + f.example;
         if (i % size_t(every) == 0)
             std::printf("  step %zu: the program's (%.3f, %.3f) %.2f km/h  ours (%.3f, %.3f) %.2f km/h; %d fields differ\n", i, double(after.pos.x.host()), double(after.pos.y.host()),
                         double(after.speed.host()) * 3.6, double(mine[i].pos.x.host()), double(mine[i].pos.y.host()), double(mine[i].speed.host()) * 3.6, n);
