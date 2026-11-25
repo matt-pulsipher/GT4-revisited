@@ -592,9 +592,8 @@ void Runtime::finish() {
     // action set (labomode's Play: load, setAction(1), the page closed) is shown, then the theater
     // again (the sequence's loop, 0x10CA50).
     if (sequence_ == "load_replay" && game_->next_sequence.empty() && game_->next_menu_project.empty()) {
-        // ❓ A demo replay (a path on the disc) is not played yet: the theater again.
-        const bool demo = game_->replay_file.compare(0, 7, "replay/") == 0;
-        if (game_->card_action == 1 && !game_->replay_file.empty() && !demo) game_->next_sequence = "replay";
+        // (a demo replay is a path on the disc: replay/<name>/<name>)
+        if (game_->card_action == 1 && !game_->replay_file.empty()) game_->next_sequence = "replay";
         game_->next_menu_project = "labomode", game_->next_menu_arg = "ReplayTheaterRoot";
         game_->card_action = 0;
     }

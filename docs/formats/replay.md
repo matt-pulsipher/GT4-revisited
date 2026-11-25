@@ -2,7 +2,8 @@
 
 Code: `src/gt4r/formats/replay/demonstration.*` (the reader), `src/gt4r/sim/ai/demo_driver.*` (playing one on the
 session); `gt4tool ai <disc> demo <label|all> [frames]`, `gt4tool ai <disc> demo-run <label>`,
-`gt4r_diff <disc> demo <label>`; `tests/test_ai_demo.cpp`. Addresses are the US program's (SCUS-97328 v1.01).
+`gt4r_diff <disc> demo <label>`; a race of ours kept the same way `race/race_recording.*`, run from a file `race/recorded_race.*`
+(`gt4tool race <disc> replays | recording <file> [out]`, `gt4r_diff <disc> floats replays <name | file> run`); `tests/test_ai_demo.cpp`, `test_recorded_races.cpp`. Addresses are the US program's (SCUS-97328 v1.01).
 
 A license test's "View a demo run" is not driven: it is a recorded run played again. The program keeps a run as
 `Serialize::ReplayData` (the memory card's saved replays are the same class): the race's header and the drivers' pad
@@ -71,6 +72,10 @@ entries, the pace car (an R34 Skyline, grid place 0, driven by the computer) sec
 
 **The controls** (from 0x1AA4; `AutomobileControlRecord::Manager`, loaded by 0x346BB8): u32 n. n = 0: one stream,
 recorder 0's (every demonstration); n > 0: n recorders, each a header of 0x14F4 bytes (0x346CA0) then its stream.
+A recorder's header keeps the moment its stream starts at (0x35AB08 writes it, 0x35ABA8 reads it back): +0x00 the recorder's index, +0x02
+u8 the race clock's units (0 .. 50 a step) since the line then, +0x03 u8 the units its whole milliseconds leave (0 .. 2, 0x358468), +0x04 u32 the
+recorder's frame, +0x0C f32 the share of the step after the line, +0x10 u32 the lap's time (ms), +0x54 the car's record (0x10A0 bytes; its
+pointers, its first five words, are not taken back), +0x10F4 the collision body's contacts (0x400 bytes, 0x45CDC8's; all 0: none).
 A stream (0x346528): u32 T, u32 its length with these 8 bytes, then the bits, padded to 4 bytes.
 
 **The stream** (0x345D70, once a race step): a bit stream, most significant bit first (0x57AD58), of changes to the
@@ -83,6 +88,16 @@ then that many byte deltas from +0x10; then the run (gamma - 1). A delta (0x345C
 + 1 bits added to the class's base (0x620218: 0, 2, 10, 42, 170, 682, 2730, 10922), each field adding with its own
 width's wrap. The step's record is the result. Frames 1 .. T - 1 give a record each (T - 1 steps); at T the playback
 is done (+0x38) and the record cleared.
+
+**The recorder** (0x346138 once a step, 0x346498 the end) writes the same: it carries its state's steering on as the player does, compares
+the new record field by field, and on the first record or a change writes the run before (gamma), mask + 1 (gamma), the deltas in the order
+above, with 0x200 (the count differs, or one of the first count bytes from +0x10) count + 1 and that many deltas, unchanged bytes too; the
+whole record becomes the state. The end: the run, then a 1 (gamma); T is the records kept, the length the whole bytes written + 8: the
+last part byte is not in the file (its place is zero), so a playback may read a last change short (its T-th record, which it never hands
+out). A delta's class is the least whose range holds it (under 2, 8, 32, ...). ✔ `encode` writes 441 of the disc's 497 recordings byte for
+byte again (file header, key, cipher, stream); of the others 16 end inside their last records and the 40 copies of `jpl0m` are an older
+recorder's (their first record's bytes from +0x10 take four bits each there), the same frames when written and read again
+(`ai_disc_recordings_written_again`).
 
 ## Playing one
 
@@ -108,14 +123,64 @@ scrambled as the card's files with two other swap fractions (0x3E6B3EF8 and 0x3F
 0x1CFFF8 read; the game data's are 0x3E0B0C88 and 0x3F27A4E7), then a `ReplayData` as above. ✔ All 13 decipher and parse:
 the recorded times, courses and first cars are the reference's list (28-demo-replays), the mode word (+0x0C) is the A (0) /
 B (1) tag, the size the folder's KB plus 2 entries and one (the original's 43, 24, 39 ... KB). The title `DEMO_000` is the
-row's number. The list's course is the label; the page translates it (`CourseNameCaption`); the row's picture is the icon's (save.md "The icon's picture"). ❓ `load` gives the sequence the file's path on the disc; the race plays it as described below. The original answers "Data is corrupted." in the emulator; what a console does is not known.
+row's number. The list's course is the label; the page translates it (`CourseNameCaption`); the row's picture is the icon's (save.md "The icon's picture"). `load` gives the sequence the file's path on the disc; the race plays it as described below. (The original in the emulator answers "Data is corrupted.": its cipher is the console's multiplier and divider.)
 
-**Playing one** (`screen_race.cpp` `load_recorded_race`): the course (+0xB8) and the event's row (+0xB0: `sample_entry_6` for an
-arcade race), the laps (the race information's +0), each entry's equipment, condition, place and aids; the start as the race's own
-(the course's rolling start, else the grid). A-spec (mode 0): car 0 by recorder 0's records from the race's first step. B-spec (mode
-1): its driver, and the records' mail: +0x14 the command (4 the pace, 5 the overtake, 6 the pit, 10 the mode), +0x15 its argument,
-+0x10 the pit menu's choice (1; 2 the refuelling stopped), +0x11 / +0x12 the tires, +0x13 the fuel. A free run's recording is its lap's:
-n is 1, and the recorder's header (0x14F4 bytes, 0x35AB08) holds the car's record at the line (+0x54, 0x10A0 bytes) and its collision
-body (+0x10F4, 0x400): ❓ not read here (Rdemo9; it starts from the run-up instead). +0x148 is the music's play list (0x810 bytes). The
-European disc's own (`p`) run at 50 steps a second. ❓ What comes out of the pad's records here leaves the recorded run (race_flow.md).
+**The race a replay is** (0x10CA50 the Replay Theater's sequence, `RaceReplayInformation` 0x3DD838): the race's class by its name, the event's
+row (+0xB0: 0xA04, `sample_entry_6`, for an arcade race), the course (+0xB8), the race information's first 0x60 bytes as the file has them
+(+0x00 the laps, +0x04 the penalty option, +0x08 the tire damage, +0x0C .. +0x1C two-player options, +0x20 the B-spec driver's record of 0x40
+bytes), each entry's equipment, condition, place, gearbox, driver and aids (0x3DDAD8); the race's mode (+0xCC8) 2, or 3 for a B-spec run's
+(mode word 1 or 3), which gives car 0 to its driver (0x3F1760). The start is the race's own: rolling by the course's start code, else held by the
+row's type (+0x40, 2 in every arcade race: 10 s, 600 steps). The records run from the race's first step, the hold or the run-up included.
+A B-spec run's records carry its commands (0x3F19E0): +0x14 the command (4 the pace, 5 the overtake, 6 the pit, 10 the mode), +0x15 its
+argument; +0x10 the pit menu's choice (0x35BFE8: 1 the choice, 2 the refuelling stopped), +0x11 / +0x12 the tires, +0x13 the fuel: taken only
+while the stop asks (F +0x4B8 bit 0x10). A pit command before the first crossing or on the last lap is not taken.
+**A free run's** (RaceFreeRun's virtual 158 loads its one recorder, its virtual 38 asks 0x359D40): no hold, no run-up; the car put at the
+recorder's moment, its crossings 2, the clock at 100 units, its times from (100 - units + the remainder - 1) / 3 ms, whole.
++0x148 is the music's play list (0x810 bytes) 🔎. The European disc's own (`p`) run at 50 steps a second.
 
+**They come out as recorded.** ✔ Through the program's own race step (`gt4r_diff <disc> floats replays <name> run`) the twelve races, A-spec and
+B-spec, one to five computer cars, pit stops among them, end on their recorded times and best laps to the millisecond, Rdemo9's lap
+(Nürburgring, 472,780 ms, from the recorder's moment) too: 13 of 13. ✔ So does our own race set up from the file alone (`race/recorded_race.*`,
+test `recorded_races_end_on_their_recorded_times`): 13 of 13; beside the program's, every car's place is equal in every bit over the whole run on
+Rdemo1, 2, 5, 8, 9 and wherever else it was compared (`GT4R_FLOATS_ALONE=1`; `GT4R_FLOATS_SAVE` / `GT4R_FLOATS_TRACE` keep the program's
+run in a file and compare with it). The app plays them from the theater's Demo tab (`screen_race.cpp` `load_recorded_race`, `play_demo`).
+`Rdemo15` (the Japanese disc's, the same course and car as Rdemo9) is exact too; the other regions' files name cars and courses by other builds'
+rows and do not come out (a car of theirs is another here, or none).
+`Rtest1`, `Rtest2` and a file `BISCPS-17001R1UWiYUY` in Rdemo2's folder read, but are other builds' too.
+
+## A replay of ours
+
+A saved replay (race_flow.md "Saved replays") of an arcade single race, driven or B-spec's, or of a license test holds beside its states the program's own
+file of it, in a section `RPLD`: the scrambled `ReplayData` a card's replay file is (`race/race_recording.*`). What each part is made of:
+
+- **The header**: the class `RaceArcadeSingle` (a license test's `RaceLicense`, `RaceTraining` behind a pace car), the mode word 0 (A) or 1 (B), the event's and the course's codes, the race information (the
+  laps, the penalty and tire damage options, 2 at +0xC and 1 at +0x1C as every recording of the disc has, the B-spec driver's
+  record), the race time and best lap (an unfinished race's last lap, else 0 and -1), the races' music as the options keep it (+0x148).
+- **The entries**: the equipment, condition (none: the default, 1 at +0x14), place, gearbox, driver kind and aids the race was set up with;
+  +0x198 0x100 for the player and 0 for the computers, the fourth aid byte 2 (a license test's player 0), as every recording. A computer's third aid switch (+0x3458) is
+  1 in every recorded race; the races here give it now too.
+- **The records**: the player's frame each step from the race's first, as the input phase read it, with the step's mail at +0x10 (the count
+  6): B-spec's commands and the pit menu's choice (0x35BFE8, post_mail). Both take effect a step after they are asked, here as there. A
+  B-spec car's pit wait that runs out (300 steps, 0x35C0B8) posts its choice by itself (0x35BF08: 1, 0xFE, 0xFE, 0xFE); a run played from
+  records takes its choices from them alone.
+- Not kept so (states only): runs of other races (events, missions, free runs, time trials), a run whose driver was changed in the pit (command 10), a scripted run driven by the
+  computer.
+
+✔ Made from the disc's twelve arcade recordings' own races, the files are the disc's byte for byte (10; the other two end inside their
+last record). ✔ Races driven in the app and saved, then run from the saved file's `RPLD` alone (`gt4tool race <disc> recording`): a driven
+one into walls and traffic (Tsukuba, six cars, 2,400 steps), B-spec ones with commands (7,500 and 4,900 steps, to the recorded time) and a
+pit stop (13,500): every car's place equal in every bit, every step. ✔ The
+program's own step given such a file (`gt4r_diff <disc> floats replays <file> run`): the 4,900-step B-spec race ends on the recorded time (66,548 ms), and it and the driven
+2,400 steps have every car's place ours in every bit. ✔ License runs driven in the app (B-1, B-5 behind its pace car) come out the same from
+their files.
+`gt4tool race <disc> recording <saved replay> <out>` writes the card's file out; the race screen plays a card's replay file by its path (as the
+Demo tab's: run again from its records).
+
+A saved replay's race is run again behind its states while it plays, for what they do not hold (the sound's hits, wheels and engine torques);
+where a car leaves its kept place by a bit, the states alone are heard (a log line says so).
+
+**The original's card**: its replay folder (`BASCUS-97328BemU5YYY` on the reference card, a license run's) has the replay of the folder's name,
+`icon.sys`, `icon0.ico` and a 256-byte `thumbnail`, as the disc's demo folders. The file unscrambles with the replay class's factors and holds a
+`ReplayData` header, so its container is this one; its body does not decipher to its key here, as none of PCSX2's does (the cipher is the
+console's multiplier and divider: physics.md §9b). A replay saved on a console is not at hand ❓. Nor is a card folder written here: the
+icon, the thumbnail (❓ its layout) and the name's letters (by the class `R`, `B` for a best lap, `P` a photo; 🔎 the rest) are not made.

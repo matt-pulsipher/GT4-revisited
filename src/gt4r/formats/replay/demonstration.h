@@ -17,6 +17,7 @@
 
 #include <array>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -49,10 +50,24 @@ struct PadRecord {
 // i + 1 counted from the recording's start; T - 1 frames for a stream of T, then the playback is done.
 struct ControlStream {
     u32 frame_count = 0; // T, as stored
+    Bytes state;         // the recorder's own header (0x14F4 bytes; a save of several recorders, a free run's lap: a recording from
+                         // a moment of the race on), else empty (RecorderState)
     std::vector<PadRecord> frames;
+    std::optional<PadRecord> last; // the T-th record, which the recorder kept and no playback reaches
     // The record at step i (past the end: an empty record, as the done playback leaves it).
     PadRecord frame(size_t i) const { return i < frames.size() ? frames[i] : PadRecord{}; }
 };
+
+// What a recorder's header holds of the moment its stream starts at (0x35AB08, read back by 0x35ABA8; docs/formats/replay.md).
+struct RecorderState {
+    u8 units = 0;        // +0x02 the race clock's units (0 .. 50) since the line when it was kept
+    u8 remainder = 0;    // +0x03 what the race clock's whole milliseconds leave of its units then (0 .. 2, 0x358468)
+    u32 frame = 0;       // +0x04 the recorder's frame then
+    u32 share = 0;       // +0x0C (f32) the share of the step after the line
+    std::span<const u8> car;  // +0x54 the car's record (0x10A0)
+    std::span<const u8> body; // +0x10F4 its collision body's contacts (0x400; all 0: none)
+};
+std::optional<RecorderState> recorder_state(const ControlStream& s);
 
 // An entry of the race's header (0x228 bytes from +0x960, written from the race entry by RaceBase's virtual 27).
 struct DemoEntry {
@@ -70,6 +85,7 @@ struct Demonstration {
     u32 version = 0;          // the race header's +8 (0x40000)
     u32 race_mode = 0;        // +0xC (the race's +0xCC4)
     std::string race_class;   // +0x10 the race's class ("RaceLicense")
+    Bytes header;             // the body's first 0x1AA4 bytes as read (encode writes the fields below over them; empty: zeros)
     std::array<u8, 0x60> information{}; // +0x50 the race information's first 0x60 bytes ❓
     u64 code_b0 = 0, code_b8 = 0; // +0xB0 / +0xB8 two database codes of the race information (+0x68, +0x78) ❓
     s32 time_ms = 0;          // +0xC0 the first entry's recorded time (ms)
@@ -82,7 +98,14 @@ struct Demonstration {
     // nullopt (with *error) when the file is not a deciphered ReplayData of the program's layout. The cipher's
     // tables are the program's (0x655C90, 0x655888): a program that is not the mapped build gives nullopt.
     static std::optional<Demonstration> parse(ByteSpan file, const sim::Program& program, std::string* error = nullptr);
+    // The file of it as the program writes one (Serialize::ReplayData, then not scrambled): its body enciphered under its key.
+    Bytes encode(const sim::Program& program) const;
 };
+
+// A recorder's stream of records as the program's recorder writes it (0x346138 a step, 0x346498 its end): `frames` then `last`.
+Bytes encode_stream(const std::vector<PadRecord>& frames, const std::optional<PadRecord>& last);
+// A body enciphered (0x579F38); `key` takes its key (CRC-32's low 24 bits, the first byte on top).
+Bytes encipher_body(ByteSpan plain, u32& key, const sim::Program& program);
 
 // The body deciphered (0x579E00): nullopt when the key does not match the deciphered body.
 std::optional<Bytes> decipher_body(ByteSpan cipher, u32 key, const sim::Program& program);
