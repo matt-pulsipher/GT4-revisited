@@ -7,6 +7,7 @@
 #include "gt4r/race/drive_camera.h"
 
 #include <array>
+#include <functional>
 #include <vector>
 
 namespace gt4r::race {
@@ -29,6 +30,7 @@ struct ReplayRecord {
     std::array<ReplayCurve, 2> follow; // +0x64 / +0x68: how closely the aim follows the car, pitch / yaw (over 1: exactly)
     float fov_min = 1, fov_max = 100;
     float dissolve = 0; // +0x18: seconds of the dissolve when the shot ends
+    bool haze = false, depth_of_field = false; // +0x0C, +0x10 over 0: the camera's flags 0x2000, 0x4000
 
     bool car_frame() const { return (kind & 3) == 1; }
     bool looks_at_car() const { return (kind & 0xC) != 0; }
@@ -37,11 +39,21 @@ struct ReplayRecord {
     bool full_roll() const { return (kind & 0x400) != 0; }
 };
 
+// A roadside point (the script's second list): its place, the stretch of the lap it serves, its lens.
+struct ReplayPoint {
+    u32 kind = 0;
+    gt3r::render::Vec3 at;
+    float start = 0, end = 0;
+    float fov = 30;
+};
+
 struct ReplayScript {
     float lap_length = 0;
     float end = 0;       // the largest record end
     u32 variants = 0;    // as the header states them
     std::vector<ReplayRecord> records; // by start
+    std::vector<ReplayPoint> points;
+    std::vector<float> marks; // distances
 
     static bool is_script(ByteSpan d) { return d.size() >= 0x40 && gt3r::has_magic(d, "REP4"); }
     // Throws FormatError.
@@ -62,6 +74,9 @@ struct ReplayScript {
     // last record, the first record from record 0 that covers d less the period.
     const ReplayRecord* choose(float d) const;
 };
+
+// The least focus distance of a lens of `degrees` (0x36EDB0), metres: 16 at 2 and under, 4 at 15, 1 at 30, 0.1 at 90.
+float least_focus(float degrees);
 
 // A camera spring (0x385098): the wanted value moves at most `slew` a second (0: free);
 // v += (k (want - x) - c v) / 60, v kept within [vmin, vmax], x += v / 60.
@@ -98,8 +113,11 @@ class ReplayCamera {
 public:
     void reset() { record_ = nullptr; }
     // The shot for the car this step (call once a step). False when the script has no shot there
-    // (`out` untouched).
-    bool pose(const ReplayScript& script, const CarState& car, const gt3r::render::Mat4& body, ViewPose& out);
+    // (`out` untouched). `nearest`: the depth of the car's nearest point before a view, metres (its focus); none: the
+    // car's origin.
+    bool pose(const ReplayScript& script, const CarState& car, const gt3r::render::Mat4& body, ViewPose& out, const std::function<float(const gt3r::render::Mat4& view)>& nearest = {});
+    // The replay's zoom (held Triangle: 1 to 4), for the shots to come.
+    void set_zoom(float zoom) { zoom_ = zoom; }
     const ReplayRecord* record() const { return record_; }
     // The step's shot is its first (after another shot, or after reset()): the pose does not go on from the last step's.
     bool cut() const { return first_; }
@@ -110,9 +128,11 @@ private:
     const ReplayRecord* record_ = nullptr;
     bool cut_ = true, first_ = false;
     float cut_dissolve_ = 0;
+    float zoom_ = 1;
     float roll_scale_ = 1;
     AimDamper yaw_, pitch_;
     CameraSpring lens_{100, 20, 0, -150, 100}, across_{70, 20, 2, -150, 150}, up_{70, 20, 2, -150, 150}, roll_{300, 40, 0, -150, 150};
+    CameraSpring pull_{50, 20, 2, -25, 25}; // the focus found at a cut
     CameraSpring follow_[2] = {{50, 20, 1.5f, -100, 100}, {50, 20, 1.5f, -100, 100}};
     u32 seed_ = 0x2545F491u;
 };
