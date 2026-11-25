@@ -1000,7 +1000,7 @@ program's own):
 - Phases 20 and 21: the tire wear (0x352EA0) is Gran Turismo 4's (`rules_wear.*`, by the race's wear rules from the event's
   row, `rules::event_wear_bytes`, set by the race world); the pit flags (0x353218) are the computer drivers' pit flow's
   (sim/ai `pit_need`). The flaps (phase 22, 0x35A678) and new tires (0x362E58) are Gran Turismo 4's.
-| Distance along the course, laps | `ground.*` `distance_along` | ours (between the checkpoint gates) |
+| Distance along the course (F +0x4A4 at each step's end: the conductor's virtual +0x108, 0x3585F0 → 0x358558 → 0x3955E8 → 0x3E6858 / 0x3E6610: the point (F +0, F +8, -F +4) in the checkpoints' quads (left, middle) and (middle, right) of the cluster under the hint F +0x4A8, the nearest in height; v_i + (v_j - v_i, + a lap) x u, less a lap past one; 0 outside every quad) and its rate F +0x650 | `ground.*` `RoadGround::course_distance`, `session.cpp` `publish` | Gran Turismo 4: equal at every step (§9); the laps the race view counts are ours (`distance_along`) |
 | The driver of `gt4tool drive` | `line_driver.*` | ours; not a computer driver of the game's |
 
 So a car's weight, power, gearing, tires, springs and aids are its own, and so is how its tires,
@@ -1138,13 +1138,33 @@ object 0x6235A8 + 0x134 + 4 x table id; the row cache left out), and compares:
   and the distance along the course (the engine's routines, §8). This found the class grip, the dampers' table, the
   aerodynamics, the query points and the ground's frame.
 - The six-car field at Grand Canyon, three laps, walls met as the drivers count them (`gt4r_diff ai` with
-  `GT4R_AI_OURS`, `GT4R_AI_INCIDENTS` / `gt4tool ai`): the program's physics (its race as `gt4r_diff` sets it up) /
-  ours: Volkswagen 0 / 0, Z 6 / 4, N360 11 / 5, Midget 0 / 0, S500 13 / 4, Ka 5 / 8, in all 35 / 21; no car of ours
-  below 5 km/h for long (the program's Z, N360 and S500 152, 142 and 27 s). The two races start differently: the
-  harness's set-up places car 0 by the road's grid as the program reads it and cars 1 .. 5 (the road has two grid
-  places) at the program's fallback 100 m up (`GT4R_AI_PLACES`), ours on the grid and 8 m steps behind it, so the
-  counts compare two different races.
-- Not compared yet: the step's routines not in §3.3 and §6, §7.
+  `GT4R_AI_OURS`, `GT4R_AI_INCIDENTS` / `gt4tool ai`): with the harness's grid as the session's the two races are the
+  same race step for step (below) when they start alike; `gt4tool ai`'s own race (26 walls against the harness's 43)
+  holds the cars 240 steps before the start where the harness's has no countdown, and the field's race is chaotic from
+  there. Each car alone the laps agree (Ka 3'17.40 / 3'17.07, Z 5'26.8 / 5'23.5, N360 4'09.97 / 4'09.43).
+- **The whole step running free** (`GT4R_AI_WHOLEFREE=1`: the program's state loaded once, then ours runs on;
+  `=2` our drivers on our session, their outputs compared): six cars at Grand Canyon bit-equal in every position,
+  velocity and placed field for 400 s with the program's drivers' outputs, and over a three-lap race with ours (54,000
+  steps; the harness's grid as the session's, `GT4R_RACE_GRID`: the program reads the places of the course's layout
+  0, the rule block's +0x21, and 0x3952C0 does not bound the index). This found the distance along the course (it
+  departed by up to 4.5 m: the race cars' spins at Seoul, the Honda S500's lap at Tsukuba, 90.73 → 89.22 s against the
+  program's 89.20), the hit's count F +0x631 (it counts down between phase 12 and the collision step, 0x34E040) and,
+  in the computer drivers, the downforce term over the weight P +0x103C (0x4673D8; the race cars' spins at Tsukuba).
+- **The original's saved states** (`gt4r_diff <disc> states <state 0> <state 1> [keys]`, `states.cpp`, the test
+  `sim_states_*`; the reference's sets with the pad held between them): the program's memory of state 0 copied over
+  the interpreter's, the pad read (0x426E80) answering the held keys, 0x34DB30 run once a frame for the boot counters'
+  difference (0x0087FA88). Every pair is reproduced byte for byte by the program's step with a model of the emulator's
+  float arithmetic (add, subtract, multiply rounded toward zero, denormals flushed; divide and square root to nearest;
+  `GT3R_FLOAT_ORACLE`, kept outside the repository): the values in the states were made by the emulator, not the
+  console (e.g. the dampers' knee 0x620CB8 is 0x3DA3D70A there, 0x3DA3D709 by the console's multiplier). Our session
+  from state 0 stays within 0.1 mm and 0.1 mm/s of the program's run on every set, given the driving line's heading
+  for the active steering (the sets with TCS and ASM on). The race information's countdown (+0xBC) counts down before
+  0x34DB30 and the step holds the cars while it is still above 0. The keyboard pad's frame (controller +0x150): Cross
+  `02 00 00 06` with +8 = 0x1000, Square `04 ..` with +0xA = 0x1000, Right / Left `01 03 00 06` with +4 = 0xF000 /
+  0x1000; the controller is RaceInput (0x426D50 the frame read). At Grand Canyon's standing start the launch follows
+  the original's from its state; from our own set-up the first difference is where the rev limiter's cut falls at
+  START (F +0x521), which depends on the countdown's length and when the throttle went down.
+- Not compared yet: the step's routines not in §3.3, §3.6 and §6, §7.
 
 ## 10. Open
 

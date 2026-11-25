@@ -45,10 +45,14 @@ struct PitHooks {
     std::function<void(size_t car, int event)> display_event;
     // The car stood in its box (0x363560: the standing start's pose there) facing `heading` (the box's, radians).
     std::function<void(size_t car, F heading)> place_in_box;
+    // The stop's hold counter (F +0x4BA) handed to the session each step (0 out of a stop): the session holds the car while it
+    // runs (Session::set_pit_hold). Without it the car is braked in its box instead.
+    std::function<void(size_t car, u16 hold)> hold;
 };
 
 // The hooks filled from a session (its fuel, tank, the economy readings, the wear rules and each wheel's wear, new tires):
-// the program's reads of the car (0x353218, 0x354D60, 0x362E58). Not the box's placing (left empty).
+// the program's reads of the car (0x353218, 0x354D60, 0x362E58), the box's placing (Session::place_standing where the car
+// stands) and its hold (Session::set_pit_hold).
 PitHooks session_pit_hooks(Session& session);
 
 // The race's part (what the conductor answers): its laps (0: a run without an end), whether it has pit stops (the

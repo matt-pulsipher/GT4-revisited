@@ -124,6 +124,11 @@ public:
     bool loose() const override { return s_->loose(); }
     const RoadGround& ground() const override { return s_->ground(); }
     const sim::Extra& extra(size_t i) const override { return s_->gt4_record(i); }
+    // The collision step's front and rear flags of the car's body (+0x434 / +0x438) as the last step left them.
+    bool hits(size_t i, bool& front, bool& rear) const override {
+        front = s_->body(i).front != 0, rear = s_->body(i).rear != 0;
+        return true;
+    }
 
 private:
     const Session* s_;

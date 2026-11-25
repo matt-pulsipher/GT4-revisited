@@ -39,6 +39,7 @@ race::CarInput pad_input(const replay::PadRecord& r);
 struct DemoRun {
     std::string label;          // the event: a license test's label ("usl0b0001")
     replay::Demonstration demo; // the file
+    std::vector<race::PadRecord> pads; // car 0's records as the session's input phase reads them (race::CarInput::pad)
 
     // The race's entries as the file has them: each car's equipment, its grid place, its gearbox (pedal style 0: AT)
     // and its aids (+0x3450 ASM, +0x3454 TCS).

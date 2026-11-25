@@ -152,16 +152,18 @@ TEST(sim_disc_start_pit_hold_and_place) {
     std::unique_ptr<sim::Session> s = canyon_start(*disc, sdb, program);
     CHECK(s != nullptr);
     if (!s) return;
-    // The hold counter (F + 0x4BA) of a pit start: 120 steps; the car stays under the throttle while it runs down.
+    // The hold counter (F + 0x4BA) as a caller's pit stop keeps it, 120 steps down to 0: the car stays under the throttle
+    // while it runs.
     std::vector<race::CarInput> in(2);
     in[0].throttle = 1;
-    s->set_pit_hold(0, 120);
     const auto& ka = s->record(0);
-    for (int k = 0; k < 119; ++k) {
+    for (int k = 0; k < 120; ++k) {
+        s->set_pit_hold(0, u16(120 - k));
         s->step_once(in);
         CHECK(ka.speed.host() < 0.5f);
     }
-    for (int k = 0; k < 2; ++k) s->step_once(in);
+    s->set_pit_hold(0, 0);
+    s->step_once(in);
     CHECK(ka.hold == 0);
     for (int k = 0; k < 120; ++k) s->step_once(in);
     CHECK(ka.speed.host() > 2.0f);

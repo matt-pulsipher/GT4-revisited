@@ -135,8 +135,8 @@ into the parameter block PB:
 | +0x0C yaw gain | s3 x 5 / 100 | | +0x64 pit speed (m/s) | s18 / 3.6 (0: 80 km/h) |
 | +0x10 / +0x14 saturation's throttle cut, brake | s4, s5 / 100 | | +0x68 arc bonus delay (steps) | s17 x 10 |
 | +0x18 1 / the full look ahead's speed | 1 / (2 s6 / 3.6) | | +0x6C the event's throttle share | 1 (§3.3) |
-| +0x1C / +0x20 look ahead at rest, at that speed (m) | s7, s8 | | +0x70 downforce term | (lift coefficients) / mass (0x4673D8) |
-| +0x24 .. the driving aids | s9 .. s13, s19 .. s24 as GT3's | | +0x74 an aero bonus | (P+0x1077 = 7) x P+0x1084 x 0.8 / mass, else 0 ❓ |
+| +0x1C / +0x20 look ahead at rest, at that speed (m) | s7, s8 | | +0x70 downforce term | (P+0x106C + P+0x1070) / the weight P+0x103C (mass x 9.8; 0x4673D8) |
+| +0x24 .. the driving aids | s9 .. s13, s19 .. s24 as GT3's | | +0x74 an aero bonus | P+0x1084 x 0.8 / the weight P+0x103C when P+0x1077 is 7 (the Chaparral 2J), else 0 |
 | +0x78 the straight bonus on | s28 and s29 both non-zero | | +0x7C / +0x80 its angle, speed | s28 degrees; s29 / 3.6 x the class's percent at 0x623FD8 unless 0 or 100 |
 | +0xA8 .. +0xB0 the arcs' grip by tire class | 1, or s32 .. s34 / 100 when s27 = 0x20 | | | |
 
