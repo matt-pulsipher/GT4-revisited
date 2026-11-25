@@ -720,7 +720,7 @@ TEST(replay_script_disc) {
                 // What the shots ask of the picture: the depth of field with every opening but 8, the haze on some.
                 if (disc->info().game == Game::GT4)
                     for (const race::ReplayRecord& r : s.records) {
-                        CHECK(r.depth_of_field == (r.aperture != 8));
+                        CHECK(r.depth_of_field || r.aperture == 8); // (an opening under 1 reads as 8 with it on)
                         focused += r.depth_of_field, hazy += r.haze;
                     }
                 // A car driven round the lap has a shot nearly everywhere.

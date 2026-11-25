@@ -1,7 +1,7 @@
 // gt4tool race: the race view's data, for checks from the command line.
 //
 //   gt4tool race <disc> sections <course>          the course file's sections
-//   gt4tool race <disc> replay-script <course>     the course's replay cameras, a line a shot
+//   gt4tool race <disc> replay-script <course> [slot]  the course's replay cameras (slot 48: the scenic shots), a line a shot
 //   gt4tool race <disc> rail <course> [seconds]    runs the stand-in simulation on the course's road
 //   gt4tool race <disc> models <course> <slot>     a slot's model set as the race view decodes it
 //   gt4tool race <disc> script <course> [slot] [ms]  runs a slot's model scripts at a time: the registers they set
@@ -73,7 +73,7 @@ int race_sections(Disc& disc, const Args& a) {
 int race_replay_script(Disc& disc, const Args& a) {
     const Bytes data = read_course(disc, a[1]);
     const course::CourseFile file = course::CourseFile::parse(data);
-    const race::ReplayScript s = race::ReplayScript::parse(file.section(data, course::kSlotReplay));
+    const race::ReplayScript s = race::ReplayScript::parse(file.section(data, a.size() > 2 ? std::atoi(a[2].c_str()) : course::kSlotReplay));
     std::printf("lap %.1f, end %.1f, %u variants, %zu shots\n", double(s.lap_length), double(s.end), s.variants, s.records.size());
     auto first = [](const race::ReplayCurve& c) { return c.empty() ? 0.0 : double(c.keys[0][1]); };
     for (const race::ReplayRecord& r : s.records)
