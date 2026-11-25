@@ -1359,6 +1359,10 @@ public:
         tv_valid_ = replay_camera_.pose(replay_script_, car, body, tv_pose_);
         if (const float d = replay_camera_.cut_dissolve(); d > 0) begin_dissolve(int(std::lround(d * 60)));
         step_dissolve();
+        // GT4R_LENS_LOG=<n>: the replay camera's place and lens every n steps.
+        if (const char* every = SDL_getenv("GT4R_LENS_LOG"); every && std::atoi(every) > 0 && tv_valid_ && ++lens_steps_ % size_t(std::atoi(every)) == 0)
+            LOG_INFO("Drive: lens at d %.1f: %.2f degrees, eye (%.1f, %.1f, %.1f), car (%.1f, %.1f)", double(car.course_v), double(tv_pose_.fov) * 57.29578, double(tv_pose_.eye.x),
+                     double(tv_pose_.eye.y), double(tv_pose_.eye.z), double(car.position.x), double(car.position.z));
     }
     void begin_dissolve(int steps) {
         if (steps <= 0) return;
@@ -1388,7 +1392,13 @@ public:
         // Prologue's shots: a lens of A degrees shows 10 / 7 of the width ours does (✔ against the original's start, grid page and
         // trackside shots at Tsukuba: 1.43; 4/3 x 480/448, the angle up its 448 lines).
         if (posed && gt3_road_) pose.fov = 2 * std::atan(std::tan(pose.fov * 0.5f) * 10 / 7);
-        if (!posed) pose = camera_.pose(me, body, world_->visual(f).mounts(), view == kTvView ? race::DriveCamera::kChase : view, look_back || setup_.look_back);
+        // Gran Turismo 4's lenses are the program's angles.
+        if (posed && !gt3_road_) pose.fov = race::shown_angle(pose.fov);
+        if (!posed) {
+            const int mount = view == kTvView ? race::DriveCamera::kChase : view;
+            pose = camera_.pose(me, body, world_->visual(f).mounts(), mount, look_back || setup_.look_back);
+            if (mount != race::DriveCamera::kChase && mount != race::DriveCamera::kInCar && !gt3_road_) pose.fov = race::shown_angle(pose.fov);
+        }
         return pose;
     }
 
@@ -1498,7 +1508,7 @@ private:
     std::vector<std::vector<float>> run_dist_; // per car, per step since the start: its distance from the line
     size_t focus_ = 0; // B-spec: the car the views follow
     std::optional<sim::ai::DemoRun> demo_run_; // a demonstration's recording
-    size_t run_steps_ = 0;
+    size_t run_steps_ = 0, lens_steps_ = 0;
     int demo_still_ = 0;                       // steps it has stood
     bool demo_lap_ = false;                    // of a free run's lap (its recording from the line)
     bool demo_bspec_ = false;                  // of a B-spec run: its car by its driver
