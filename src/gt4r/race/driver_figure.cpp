@@ -1,71 +1,28 @@
 #include "gt4r/race/driver_figure.h"
 
 #include "gt4r/formats/model/car_model.h"
-#include "gt4r/formats/model/mdls_skin.h"
+#include "gt4r/formats/model/mdls.h"
 
-#include <cmath>
 #include <cstring>
 
 namespace gt4r::race {
 
 namespace {
 
-constexpr float kPi = 3.14159265358979f;
-
-float f32(ByteSpan d, size_t o) {
-    float v = 0;
-    if (o + 4 <= d.size()) std::memcpy(&v, d.data() + o, 4);
-    return v;
-}
-render::Vec3 vec(ByteSpan d, size_t o) { return {f32(d, o), f32(d, o + 4), f32(d, o + 8)}; }
-
-// The bind (stored-pose) matrix of each bone, by name.
-std::vector<std::pair<std::string, render::Mat4>> bind_nodes(ByteSpan set) {
-    std::vector<std::pair<std::string, render::Mat4>> out;
-    for (const mdls::Bone& b : mdls::read_bones(set)) out.emplace_back(b.name, render::inverse(b.inverse_bind));
-    return out;
-}
-
-const render::Mat4* find_node(const std::vector<std::pair<std::string, render::Mat4>>& nodes, const std::string& name) {
-    for (const auto& [n, m] : nodes)
-        if (n == name) return &m;
-    return nullptr;
-}
-
-std::vector<std::pair<std::string, render::Mat4>> skeleton_nodes(ByteSpan set, ByteSpan skeleton) {
-    std::vector<std::pair<std::string, render::Mat4>> nodes = bind_nodes(set);
-    if (nodes.empty() && !skeleton.empty()) nodes = bind_nodes(skeleton);
-    return nodes;
+// A set's extension record (header +0x68: u8 its size in dwords, u24 its id, the data); empty: none.
+ByteSpan extension(ByteSpan set, u32 id) {
+    if (set.size() < 0x6C) return {};
+    for (size_t at = rd32(set, 0x68); at && at + 4 <= set.size();) {
+        const u32 head = rd32(set, at), words = head & 0xFF;
+        if (!words || !(head >> 8)) break;
+        const size_t bytes = size_t(words) * 4;
+        if (head >> 8 == id && at + bytes <= set.size()) return set.subspan(at + 4, bytes - 4);
+        at += bytes;
+    }
+    return {};
 }
 
 } // namespace
-
-CockpitPlaces read_cockpit(ByteSpan file) {
-    const car::CarFile c = car::CarFile::parse(file);
-    if (!c.info || c.info + 0x58 > file.size()) throw FormatError("car file without an info block");
-    CockpitPlaces p;
-    p.cockpit_kind = file[c.info + 2];
-    p.co_driver = file[c.info + 3] != 0;
-    const u32 parts = rd32(file, c.info + 0x50);
-    if (!parts || parts + 0x100 > file.size()) throw FormatError("car file without a parts block");
-    p.wheel = vec(file, parts + 0x00);
-    p.column = vec(file, parts + 0x0C);
-    p.wheel_radius = f32(file, parts + 0x18);
-    p.pedals[0] = vec(file, parts + 0x1C);
-    p.pedals[1] = vec(file, parts + 0x28);
-    p.seat = vec(file, parts + 0x34);
-    p.shifter = vec(file, parts + 0x4C);
-    p.point_6c = vec(file, parts + 0x6C);
-    p.shifter_kind = rd16(file, parts + 0x6A);
-    const render::Vec3 co = vec(file, parts + 0xC4);
-    if (co.x != 0 || co.y != 0 || co.z != 0) p.co_seat = co;
-    return p;
-}
-
-render::Vec3 co_seat_offset(const CockpitPlaces& c) {
-    if (c.co_seat) return *c.co_seat - c.seat;
-    return {-2 * c.seat.x, 0, 0};
-}
 
 std::string character_driver_file(int kind, bool co_driver, int index) {
     const int i = ((index % 3) + 3) % 3;
@@ -85,35 +42,107 @@ std::string character_driver_file(int kind, bool co_driver, int index) {
     }
 }
 
-std::vector<DriverPart> driver_parts(ByteSpan set, ByteSpan skeleton) {
+CockpitBytes read_cockpit_bytes(ByteSpan file) {
+    const car::CarFile c = car::CarFile::parse(file);
+    if (!c.info || c.info + 4 > file.size()) throw FormatError("car file without an info block");
+    return {file[c.info + 2], file[c.info + 3] != 0};
+}
+
+posture::Skeleton driver_skeleton(ByteSpan set) {
+    const ByteSpan d = extension(set, 0x800000);
+    std::array<posture::F, 15> sizes;
+    if (d.size() < 4 * sizes.size()) throw FormatError("driver set without its skeleton's sizes");
+    for (size_t i = 0; i < sizes.size(); ++i) sizes[i] = posture::F::raw(rd32(d, 4 * i));
+    return posture::build_skeleton(sizes);
+}
+
+render::Mat4 node_matrix(const posture::Bone& b) {
+    const posture::V3 x = posture::x_axis(b.q), y = posture::y_axis(b.q), z = posture::z_axis(b.q);
+    render::Mat4 m;
+    m.m = {x.x.host(), x.y.host(), x.z.host(), 0, y.x.host(), y.y.host(), y.z.host(), 0, z.x.host(), z.y.host(), z.z.host(), 0,
+           b.pos.x.host(), b.pos.y.host(), b.pos.z.host(), 1};
+    return m;
+}
+
+std::vector<DriverPart> driver_parts(ByteSpan set) {
     std::vector<DriverPart> out;
     const u32 models = mdls::read_header(set).models;
-    const auto nodes = skeleton_nodes(set, skeleton);
     for (const mdls::Symbol& s : mdls::read_symbols(set)) {
         if (s.value >= models) continue;
         DriverPart p;
         p.model = s.value;
         if (s.name == "SKINNING" || s.name == "CRANIUM2") {
-            // Drawn by the bones (CRANIUM2 by the CRANIUM bone's palette matrix, 0x3B0D18): in the
-            // stored pose each palette matrix is the identity.
             p.skinned = true;
-            out.push_back(p);
-            continue;
+            if (s.name == "CRANIUM2") p.node = posture::kCranium;
+        } else {
+            for (int n = 0; n < posture::kNodes; ++n)
+                if (s.name == posture::kNodeNames[n]) p.node = n;
+            if (p.node < 0) continue;
         }
-        const render::Mat4* n = find_node(nodes, s.name);
-        if (!n) continue;
-        p.node = *n;
         out.push_back(p);
     }
     return out;
 }
 
-render::Mat4 driver_root(const CockpitPlaces& c, ByteSpan set, ByteSpan skeleton, bool co_driver) {
-    const auto nodes = skeleton_nodes(set, skeleton);
-    render::Vec3 pelvis{0, 0, 0};
-    if (const render::Mat4* p = find_node(nodes, "PELVIS")) pelvis = {p->at(0, 3), p->at(1, 3), p->at(2, 3)};
-    const render::Vec3 seat = co_driver ? c.seat + co_seat_offset(c) : c.seat;
-    return render::translate(seat) * render::rotate_y(kPi) * render::translate(pelvis * -1.0f);
+DriverModels::DriverModels(render::GpuContext& ctx, ByteSpan set, const std::string& name, Keep* keep)
+    : ctx_(ctx), parts_(driver_parts(set)), skeleton_(driver_skeleton(set)), bones_(mdls::read_bones(set)) {
+    if (const ByteSpan d = extension(set, 0x800001); d.size() >= 8)
+        for (size_t k = 0; k < 2; ++k) std::memcpy(&level_size_[k], d.data() + 4 * k, 4);
+    models_.resize(parts_.size());
+    stored_.resize(parts_.size());
+    if (!bones_.empty()) skin_ = mdls::SkinTable::of(set);
+    for (size_t i = 0; i < parts_.size(); ++i) {
+        gt3r::gtm1::Options o;
+        o.node = int(parts_[i].model);
+        o.program_alpha_test = true;
+        o.weighted_reflection = true;
+        o.gs_mip_levels = true;
+        gt3r::scene::Model m = mdls::build_model(set, o, mdls::Scene{}, name + "/driver");
+        bool any = false;
+        for (const gt3r::scene::Mesh& mesh : m.meshes) any |= !mesh.indices.empty();
+        if (!any) continue;
+        if (parts_[i].skinned) stored_[i] = m;
+        if (keep) keep->emplace_back(&models_[i], std::move(m));
+        else models_[i] = std::make_unique<render::GpuModel>(ctx, m);
+    }
+}
+
+void DriverFigure::pose(const posture::PostureInput& in) {
+    posture::Controls c = in.controls;
+    posture::solve(c, skeleton_, in.places, in.has_gaze ? &in.gaze : nullptr);
+    if (models_.bones_.empty()) return;
+    // Each bone by the node of its name.
+    u32 slots = 0;
+    for (const mdls::Bone& b : models_.bones_) slots = std::max(slots, b.index + 1);
+    mdls::Palette palette(slots, render::Mat4::identity());
+    for (const mdls::Bone& b : models_.bones_)
+        for (int n = 0; n < posture::kNodes; ++n)
+            if (b.name == posture::kNodeNames[n]) palette[b.index] = node_matrix(skeleton_[n]) * b.inverse_bind;
+    posed_.resize(models_.parts_.size());
+    for (size_t i = 0; i < models_.parts_.size(); ++i) {
+        const DriverPart& p = models_.parts_[i];
+        if (!p.skinned || p.node >= 0 || !models_.models_[i]) continue;
+        std::vector<gt3r::scene::Mesh> meshes;
+        mdls::pose(models_.stored_[i].meshes, models_.skin_, palette, meshes);
+        if (!posed_[i]) posed_[i] = std::make_unique<render::GpuModel>(models_.ctx_, *models_.models_[i]);
+        if (!posed_[i]->update_geometry(meshes)) posed_[i].reset();
+    }
+}
+
+void DriverFigure::add_items(std::vector<render::DrawItem>& items, const render::Mat4& body) const {
+    for (size_t i = 0; i < models_.parts_.size(); ++i) {
+        const DriverPart& p = models_.parts_[i];
+        if (!models_.models_[i]) continue;
+        if (p.skinned && p.node < 0) {
+            if (i < posed_.size() && posed_[i]) items.push_back({posed_[i].get(), body, 0});
+            continue;
+        }
+        render::Mat4 at = node_matrix(skeleton_[p.node]);
+        if (p.skinned) // by the bone's palette matrix: its vertices are the stored pose's
+            for (const mdls::Bone& b : models_.bones_)
+                if (b.name == posture::kNodeNames[p.node]) at = at * b.inverse_bind;
+        items.push_back({models_.models_[i].get(), body * at, 0});
+    }
 }
 
 } // namespace gt4r::race

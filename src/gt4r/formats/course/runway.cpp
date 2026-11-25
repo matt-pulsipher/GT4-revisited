@@ -37,6 +37,16 @@ Runway Runway::parse(ByteSpan d) {
     need(grid_at, u64(grids) * 0x10), need(checkpoint_at, u64(checkpoints) * 0x28), need(lookup_at, u64(lookups) * 2);
     need(vertex_at, u64(vertices) * 0x10), need(triangle_at, u64(triangles) * 0x0C), need(cluster_at, u64(clusters) * 0x10);
     need(wall_at, u64(wall_vertices) * 0x10), need(wall_index_at, u64(wall_indices) * 2), need(pit_at, u64(pit_stops) * 0x10);
+    if (const u32 lamps = rd16(d, 0x40), lists = rd16(d, 0x42), lamp_at = rd32(d, 0x68), list_at = rd32(d, 0x6C); lamps) {
+        need(lamp_at, u64(lamps) * 0x20);
+        for (u32 i = 0; i < lamps; ++i) {
+            const size_t o = lamp_at + 0x20 * size_t(i);
+            r.lamps.push_back({int(rd32(d, o)), vec(d, o + 4), vec(d, o + 0x10), rdf(d, o + 0x1C) != 0});
+        }
+        r.lamps_per_list = std::min<u32>(rd16(d, 0x50), 9);
+        need(list_at, u64(lists) * 2);
+        for (u32 i = 0; i < lists; ++i) r.lamp_lists.push_back(s16(rd16(d, list_at + 2 * size_t(i))));
+    }
     for (u32 i = 0; i < grids; ++i) r.grid.push_back({vec(d, grid_at + 0x10 * size_t(i)), rdf(d, grid_at + 0x10 * size_t(i) + 12)});
     for (u32 i = 0; i < pit_stops; ++i) r.pit_stops.push_back({vec(d, pit_at + 0x10 * size_t(i)), rdf(d, pit_at + 0x10 * size_t(i) + 12)});
     for (u32 i = 0; i < checkpoints; ++i) {
@@ -153,6 +163,22 @@ int Runway::cluster_at(float x, float z) const {
         node += 1 + (right ? below : 0);
     }
     return leaf < clusters.size() ? int(leaf) : -1;
+}
+
+bool Runway::light_at(float x, float z, float y_max, float& sun, float& sky) const {
+    sun = sky = 1;
+    float y = 0;
+    int tri = -1;
+    if (gtrw || !height_at(x, z, y_max, y, &tri) || tri < 0) return false;
+    const Triangle& t = triangles[size_t(tri)];
+    const Vertex *va = &vertices[t.v[0]], *vb = &vertices[t.v[1]], *vc = &vertices[t.v[2]];
+    const Vec3 &a = va->pos, &b = vb->pos, &c = vc->pos;
+    const float det = (b.z - c.z) * (a.x - c.x) + (c.x - b.x) * (a.z - c.z);
+    if (std::fabs(det) < 1e-9f) return false;
+    const float u = ((b.z - c.z) * (x - c.x) + (c.x - b.x) * (z - c.z)) / det, v = ((c.z - a.z) * (x - c.x) + (a.x - c.x) * (z - c.z)) / det, w = 1 - u - v;
+    sun = std::clamp((u * float(va->b) + v * float(vb->b) + w * float(vc->b)) / 255.0f, 0.0f, 1.0f);
+    sky = std::clamp((u * float(va->c & 0x7F) + v * float(vb->c & 0x7F) + w * float(vc->c & 0x7F)) / 127.0f, 0.0f, 1.0f);
+    return true;
 }
 
 bool Runway::height_at(float x, float z, float y_max, float& y, int* triangle) const {
