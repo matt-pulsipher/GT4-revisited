@@ -76,6 +76,7 @@ DemonstrationRun run_demonstration(Disc& disc, db::SpecDb& sdb, const std::strin
             }
             e.grid_place = run->entries[i].grid_place;
             e.automatic = i > 0 || run->entries[i].pedal_style != 1;
+            if (i == 0) e.pedal_style = run->entries[i].pedal_style;
             e.asm_on = run->entries[i].asm_on != 0, e.tcs_on = run->entries[i].tcs_on != 0;
             e.control = i > 0 ? 2 : 0;
         }

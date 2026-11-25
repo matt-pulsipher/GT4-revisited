@@ -166,6 +166,13 @@ int whole_step(Disc& disc, const std::string& course, const std::string& car, in
             load(before);
             sim::prologue::CarPart part = session->prologue_part(0);
             for (size_t w = 0; w < 4; ++w) part.offset_rate[w] = before.t[w].steer_sin, part.tires.steer_offset[w] = before.t[w].steer_cos;
+            if (before.p.d.kind == 3) {
+                const u32 h = r.car(0) + 0x5DC, f = r.car(0) + 0xD8;
+                using gt3r::ee::F;
+                part.hybrid.engine_target = F::raw(ee.r32(h)), part.hybrid.store = F::raw(ee.r32(h + 4)), part.hybrid_fuel = F::raw(ee.r32(h + 8));
+                part.mileage = u16(ee.r16(h + 0xC)), part.hybrid.flags = ee.r8(h + 0xE), part.hybrid.mode = ee.r8(h + 0xF);
+                part.mileage_steps = ee.r8(f + 0x4A0), part.hybrid_fuel_mark = F::raw(ee.r32(f + 0x3B0)), part.hybrid_odo_mark = F::raw(ee.r32(f + 0x3B4));
+            }
             session->load_state(0, before, session->gt4_record(0));
             session->load_prologue_part(0, part);
             session->set_vu0_random(ee.vr); // (the flaps' random stream)
@@ -263,6 +270,16 @@ int whole_step(Disc& disc, const std::string& course, const std::string& car, in
             continue;
         }
         compare(after, mine, st);
+        if (mine.p.d.kind == 3 && i >= from) { // (the hybrid's box)
+            const u32 h = r.car(0) + 0x5DC;
+            const u32 theirs[] = {ee.r32(h), ee.r32(h + 4), ee.r32(h + 8), u32(u16(ee.r16(h + 0xC))), ee.r8(h + 0xE), ee.r8(h + 0xF)};
+            const u32 ours[] = {q.hybrid.engine_target.bits, q.hybrid.store.bits, q.hybrid_fuel.bits, q.mileage, q.hybrid.flags, q.hybrid.mode};
+            for (size_t k = 0; k < std::size(ours); ++k)
+                if (ours[k] != theirs[k]) {
+                    PFieldStat& f = st.fields["hybrid[" + std::to_string(k) + "]"];
+                    if (!f.off++) f.example = "first at step " + std::to_string(i + 1);
+                }
+        }
     }
     if (fields) {
         for (const auto& [name, f] : st.fields) fields->push_back(name);

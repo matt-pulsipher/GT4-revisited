@@ -11,6 +11,8 @@
 #include <cstdlib>
 #include "gt4r/sim/program.h"
 #include "gt4r/sim/program_prologue.h"
+#include "gt4r/sim/rules_hybrid.h"
+#include "gt4r/sim/rules_input.h"
 
 namespace gt4r::sim::prologue {
 
@@ -57,6 +59,7 @@ Controls controls(const u8* c) {
     }
     for (u32 s2 = 0; s2 < k.surface_class.size(); ++s2) k.surface_class[s2] = c[0x170 + s2];
     for (u32 r = 0; r < 3; ++r) k.prefilter_mode[r] = c[0x82 + 0x20 * r], k.prefilter_gain[r] = c[0x83 + 0x20 * r];
+    k.wheel_throttle = rules::pedal_curve_of(c[0x64], c[0x65]), k.wheel_brake = rules::pedal_curve_of(c[0x68], c[0x69]);
     return k;
 }
 
@@ -92,6 +95,7 @@ Tables tables(const Program& program) {
         for (u32 k = 0; k < kControlBytes; ++k) c[k] = program.b(PrologueProgram::kController + k);
         t.controls = controls(c.data());
     }
+    t.hybrid = rules::hybrid_tables(program, 0x504560, 0x5045B0, 0x504638, 0x504648);
     t.pedal_ramps = program.b(PrologueProgram::kController + 0x11) != 0;
     t.throttle_up = t.controls.throttle_up, t.throttle_down = t.controls.throttle_down;
     t.brake_up = t.controls.brake_up, t.brake_down = t.controls.brake_down;
@@ -241,7 +245,7 @@ void image_part(CarPart& x, const u8* p) {
     auto word = [&](u32 o) { return F::raw(u32(p[o]) | u32(p[o + 1]) << 8 | u32(p[o + 2]) << 16 | u32(p[o + 3]) << 24); };
     x.tire_drop = {word(0x28C), word(0x290)};
     x.front_share = word(0x24);
-    x.special_row = p[0x33];
+    x.special_row = p[0x33], x.shift_class = p[0x20B];
     x.part_kind = p[0xE84];
     x.part_lo = word(0xE88), x.part_hi = word(0xE8C), x.part_rate = word(0xE90), x.part_lift = word(0xE94);
 }
@@ -308,8 +312,72 @@ void lateral_yaw(ex::Car& c, const CarPart& x, bool air, const Tables& t) {
     c.lat_g = c.a_y * gt3r::ee::int_to_f(n) / grip;
 }
 
+void hybrid_start(const ex::Car& c, CarPart& x) {
+    if (c.p.d.kind != 3) return;
+    rules::hybrid_start(x.hybrid);
+    x.hybrid_fuel = x.hybrid_fuel_mark = x.hybrid_odo_mark = F();
+    x.mileage = 0, x.mileage_steps = 30;
+}
+
+u16 mileage(F fuel, F distance) {
+    if (distance < F::raw(0x3A83126F)) return 0;
+    const F liters = fuel / F::raw(0x44390000); // (740 g a liter)
+    if (liters < F::raw(0x358637BD)) return 999;
+    const F v = (distance * F::raw(0x3C23D70A)) / liters;
+    return F::raw(0x4479C000) < v ? u16(999) : u16(gt3r::ee::to_int(v));
+}
+
+namespace {
+// The axles with the hybrid's box in place of the engine and clutch (0x3CEAE0 with 0x3CC448): the engine's axle step with the
+// box's torque given it as a slipping clutch's, the engine's speed the box's and its inertia not on the axle.
+void hybrid_axles(ex::Car& c, CarPart& x, const ex::Statics& s, const Tables& t) {
+    ex::Driveline& d = c.p.d;
+    rules::HybridCar k;
+    k.shift_class = x.shift_class, k.driven_axle = u8(d.driven_axle), k.ratio = d.ratio[c.gear];
+    k.torque = [&](F throttle) { return ex::engine_torque(c, throttle); };
+    k.speed = [&](F power) { // (0x3CBF50)
+        ex::Table<24> e;
+        e.n = c.p.e.torque.n;
+        for (size_t i = 0; i < c.p.e.torque.x.size() && i < e.x.size(); ++i) e.x[i] = c.p.e.torque.x[i], e.y[i] = c.p.e.torque.y[i];
+        const ex::Table<12> p = rules::hybrid_engine_speeds(e);
+        return p.n > 0 ? ex::lookup_bisect(p.n, p.x.data(), p.y.data(), power) : F();
+    };
+    k.fuel = &x.hybrid_fuel, k.fuel_hourly = true;
+    k.burnt = [&] {
+        if (--x.mileage_steps != 0) return;
+        x.mileage = mileage(x.hybrid_fuel - x.hybrid_fuel_mark, c.dist_total - x.hybrid_odo_mark);
+        x.hybrid_odo_mark = c.dist_total, x.hybrid_fuel_mark = x.hybrid_fuel, x.mileage_steps = 30;
+    };
+    const F torque = rules::hybrid_box(c, k, x.hybrid, t.hybrid, c.p.e.idle);
+    const u8 clutch = c.clutch;
+    const F omega = c.omega, shift = d.shift_clutch_torque, ce = c.clutch_engine, cw = c.clutch_wheel;
+    const F load = c.turbo_load, load_prev = c.turbo_load_prev;
+    const auto spool = c.turbo_spool;
+    const auto limiter = c.rev_limiter;
+    if (clutch != 0) c.clutch = 3, d.shift_clutch_torque = torque, c.clutch_engine = c.clutch_wheel = F();
+    ex::axle_step(c, s.awd3, s.stepless, s.hybrid);
+    c.clutch = clutch, c.omega = omega, c.clutch_engine = ce, c.clutch_wheel = cw;
+    d.shift_clutch_torque = shift;
+    c.turbo_load = load, c.turbo_load_prev = load_prev, c.turbo_spool = spool, c.rev_limiter = limiter; // (what its own engine torque left)
+}
+
+// 0x3BABC8: the gearbox without steps: forward or reverse alone (the engine's for a stepless box, which also slips its clutch).
+void one_speed_gear(ex::Car& c) {
+    const F walk = F::raw(0x3E8E38E3);
+    int g = -1;
+    if (c.reverse_req != 0) {
+        if (c.gear != 0) g = 0;
+    } else if (walk < c.speed || F() < c.throttle) {
+        if (c.gear == 0) g = 1;
+    } else if (c.speed < -walk && c.gear != 0) g = 0;
+    if (g >= 0) ex::set_gear(c, u8(g));
+}
+} // namespace
+
 void dynamics(ex::Car& c, CarPart& x, const ex::Statics& s, const ex::GearSettings& g, const ex::ClassGrip& grip, const Tables& t) {
     ex::brakes_and_clutch(c);
+    if (c.p.d.kind == 3) c.clutch = c.clutch_req == F() ? 0 : 1; // (0x3B9DE8)
+    if (c.p.special == 8) c.clutch = 1;
     ex::rolling_resistance(c, s);
     ex::tyre_curves(c);
     ex::class_grip_scale(c, grip);
@@ -320,10 +388,17 @@ void dynamics(ex::Car& c, CarPart& x, const ex::Statics& s, const ex::GearSettin
     rules::forward_step(c, x.chassis, x.tires, x.layout);
     ex::wheel_net_torque(c);
     ex::torque_vectoring(c, s.hybrid);
-    ex::axle_step(c, s.awd3, s.stepless, s.hybrid);
+    const bool hybrid = c.p.d.kind == 3;
+    if (hybrid) hybrid_axles(c, x, s, t);
+    else ex::axle_step(c, s.awd3, s.stepless, s.hybrid);
     ex::wheel_speeds(c);
-    ex::engine_speed(c, s.hybrid);
-    ex::gear_step(c, g);
+    if (hybrid) {
+        c.rpm = s16(gt3r::ee::to_int((c.omega * F::raw(0x42700000)) / F::raw(0x40C90FDA))); // (0x3CD338)
+        one_speed_gear(c);
+    } else {
+        ex::engine_speed(c, s.hybrid);
+        ex::gear_step(c, g);
+    }
     const bool air = ex::airborne(c);
     lateral_yaw(c, x, air, t);
     ex::stop_hold(c, air);
@@ -511,36 +586,147 @@ ex::PadFrame prefilter(ex::Car& c, const ex::PadFrame& in, const Controls& k, u8
     return f;
 }
 
-void driver_input_pad(ex::Car& c, const ex::PadConstants& k, const ex::PadFrame& in, u8 course_kind, const rules::WheelLayout& l,
+namespace {
+F analog_pedal(const Controls& k, F p) { return p + k.analog_jump * (kOne - p); }
+F ease(F from, F to, F up, F down) {
+    if (from < to) {
+        const F v = from + up;
+        return to < v ? to : v;
+    }
+    if (!(to < from)) return from;
+    const F v = from - down;
+    return v < to ? to : v;
+}
+F up_to_one(F v, F step) {
+    v = v + step;
+    return kOne < v ? kOne : v;
+}
+F down_to_zero(F v, F step) {
+    v = v - step;
+    return v < F() ? F() : v;
+}
+
+bool stepless(const ex::Driveline& d) { return u8(d.kind - 1) < 2; } // 0x3DB658
+
+// 0x3DD608: the clutch request by the pedal style.
+void clutch_by_style(ex::Car& c, const ex::PadFrame& f, u8 style) {
+    const F held = F::raw(0x3F4CCCCC), walk = F::raw(0x3E8E38E3); // (0.8; 1 km/h)
+    c.clutch_req = F();
+    if (c.race_hold != 0 || c.hold != 0 || c.driver_kind == 8) return;
+    if (style == 3) { // (the brake axis is the clutch pedal)
+        const F b = kOne - c.brake_pedal;
+        c.brake_pedal = F();
+        c.clutch_req = b;
+        if (b == F()) return;
+        c.reverse_req = 0, c.shift_req = 0;
+        return;
+    }
+    if (style == 6 && (f.shift != 0 || s16(f.back) != 0)) return;
+    if (c.p.d.driven_axle == 1 && held < c.handbrake) return;
+    if (stepless(c.p.d) && held < c.handbrake && gt3r::ee::sqrt(c.speed * c.speed + c.lat_speed * c.lat_speed) < walk) return;
+    if (c.clutch == 0) {
+        if (c.brake_pedal < F::raw(0x3E800000)) c.clutch_req = kOne;
+        return;
+    }
+    if (!(s32(c.rpm) < s32(c.p.e.idle))) c.clutch_req = kOne;
+}
+} // namespace
+
+void pad_pedals(ex::Car& c, const ex::PadFrame& f, const Tables& t) {
+    const Controls& k = t.controls;
+    const F kStick = F::raw(0x39800000), walk = F::raw(0x3E8E38E3); // (1 / 4096; 1 km/h)
+    const bool wheel = f.kind == 4 || f.kind == 6, hybrid = c.p.d.kind == 3;
+    const u8 style = c.control != 1 && c.driver_kind == 0 ? c.pedal_style : 0;
+
+    // The throttle and the back axis.
+    bool th_analog = (f.flags & 2) != 0, back_analog = (f.flags & 8) != 0;
+    u32 th = th_analog ? f.throttle : u32(f.throttle) << 12 & 0xFFFF, back = back_analog ? f.back : u32(f.back) << 12 & 0xFFFF;
+    if (c.hold != 0) back = 0;
+    if (style <= 2) { // (the back axis replaces a smaller throttle)
+        if (back < th) back = 0;
+        else th_analog = back_analog, th = back;
+    } else if (style == 5) back = 0;
+    c.reverse_req = back != 0;
+    F p = F();
+    u8 state = 0;
+    if (!th_analog) {
+        p = c.throttle_pedal;
+        if (th != 0) {
+            p = up_to_one(p, k.throttle_up);
+            c.throttle_state = state = back != 0 ? 2 : 1;
+        } else {
+            p = p - k.throttle_down;
+            if (p < F()) c.throttle_state = 0, p = F();
+            state = c.throttle_state;
+            if (state == 2) c.reverse_req = 1;
+        }
+    } else if (th != 0) {
+        p = analog_pedal(k, gt3r::ee::int_to_f(s32(th)) * kStick);
+        if (!wheel && t.pedal_ramps) p = ease(c.throttle_pedal, p, k.throttle_up, k.throttle_down);
+        c.throttle_state = 0;
+    } else if ((state = c.throttle_state) != 0) {
+        p = c.throttle_pedal - k.throttle_down;
+        if (p <= F()) c.throttle_state = state = 0, p = F();
+        if (state == 2) c.reverse_req = 1;
+    }
+    if (state == 0 && wheel && !hybrid) p = rules::pedal_curve(k.wheel_throttle, p);
+    c.throttle_pedal = p;
+
+    // The brake and the third axis.
+    if (!(f.flags & 4)) c.brake_pedal = s16(f.brake) != 0 ? up_to_one(c.brake_pedal, k.brake_up) : down_to_zero(c.brake_pedal, k.brake_down);
+    else {
+        F b = gt3r::ee::int_to_f(s16(f.brake)) * kStick;
+        if (!(b == F())) b = analog_pedal(k, b);
+        if (wheel) b = rules::pedal_curve(k.wheel_brake, b);
+        else if (t.pedal_ramps) b = ease(c.brake_pedal, b, k.brake_up, k.brake_down);
+        c.brake_pedal = b;
+    }
+    c.shift_req = c.hold != 0 ? gt3r::s8(0) : f.shift;
+    if (!(f.flags & 0x10)) c.handbrake = s16(f.third) != 0 ? up_to_one(c.handbrake, k.third_up) : down_to_zero(c.handbrake, k.third_down);
+    else {
+        const F h = gt3r::ee::int_to_f(s16(f.third)) * kStick;
+        c.handbrake = h == F() ? h : analog_pedal(k, h);
+    }
+
+    // The clutch by the car and its gearbox.
+    if (c.p.special == 8) {
+        if (c.race_hold != 0) c.throttle_pedal = F();
+        c.clutch_req = kOne;
+        return;
+    }
+    const bool released = s16(f.throttle) == 0 && s16(f.back) == 0;
+    if (hybrid) {
+        rules::hybrid_clutch_request(c);
+        if (c.clutch_req == F()) return;
+        const F v = c.gear != 0 ? c.speed : -c.speed, walk_top = F::raw(0x40855554); // (15 km/h)
+        if (-walk <= v) { // (0x3CC368)
+            F share = (walk_top - v) / walk_top;
+            if (share < F()) share = F();
+            share = share * F::raw(0x3E999999);
+            c.throttle_pedal = share + (kOne - share) * c.throttle_pedal;
+        }
+        if (released && c.speed < -walk) c.reverse_req = 1;
+        return;
+    }
+    pad_clutch(c, f, style);
+    if (!stepless(c.p.d)) return;
+    if (!(c.handbrake < F::raw(0x3F4CCCCC)) && !(walk <= gt3r::ee::sqrt(c.speed * c.speed + c.lat_speed * c.lat_speed))) return;
+    // (the throttle at least what holds the engine 500 rpm above its idle)
+    const F q = c.torque_friction / (c.torque_wot + c.torque_friction);
+    F floor = ((gt3r::ee::int_to_f(c.p.e.idle) + F::raw(0x43FA0000)) - gt3r::ee::int_to_f(s16(c.rpm))) * F::raw(0x3A03126E) + q;
+    if (floor < F()) floor = F();
+    else if (kOne < floor) floor = kOne;
+    if (c.throttle_pedal < floor) c.throttle_pedal = floor;
+    if (released && c.gear == 0) c.reverse_req = 1;
+}
+
+void driver_input_pad(ex::Car& c, const ex::PadConstants&, const ex::PadFrame& in, u8 course_kind, const rules::WheelLayout& l,
                       const Tables& t, u8 special_row) {
     const ex::PadFrame f = prefilter(c, in, t.controls, special_row);
-    const F throttle = c.throttle_pedal, brake = c.brake_pedal, mean_slip = c.x420, countersteer = c.countersteer;
     c.full_throttle = 1;
     ex::pad_hud(c, f);
-    // (the engine's controls for the pedals, the reverse, shift and clutch requests; Prologue's steering in place of its own)
-    const u8 steer_class = c.steer_class;
-    const F lock_hi = c.lock_hi, lock_lo = c.lock_lo, steer_cmd = c.steer_cmd, steer_rate = c.steer_rate;
-    const gt3r::s8 steer_pct = c.steer_pct;
-    const gt3r::s16 wheel_pos = c.wheel_pos, wheel_pos_prev = c.wheel_pos_prev;
-    ex::pad_controls(c, k, f, course_kind);
-    c.steer_class = steer_class, c.lock_hi = lock_hi, c.lock_lo = lock_lo, c.steer_cmd = steer_cmd, c.steer_rate = steer_rate;
-    c.steer_pct = steer_pct, c.wheel_pos = wheel_pos, c.wheel_pos_prev = wheel_pos_prev;
-    c.x420 = mean_slip; // (the engine's routine marks F +0x420; Prologue keeps the mean slip angle there)
-    c.countersteer = countersteer; // (Prologue keeps no share of the slip-angle extension)
-    if (c.p.special != 4) pad_steering(c, f, course_kind, l, t.controls);
-    if (t.pedal_ramps && f.kind != 4 && f.kind != 6) {
-        auto ease = [](F from, F to, F up, F down) {
-            if (from < to) {
-                const F v = from + up;
-                return to < v ? to : v;
-            }
-            const F v = from - down;
-            return v < to ? to : v;
-        };
-        // (the throttle while its analog axis is pressed and the back axis not; the brake whenever it is analog)
-        if ((f.flags & 2) && f.throttle != 0 && f.back == 0) c.throttle_pedal = ease(throttle, c.throttle_pedal, t.throttle_up, t.throttle_down);
-        if (f.flags & 4) c.brake_pedal = ease(brake, c.brake_pedal, t.brake_up, t.brake_down);
-    }
+    if (c.p.special != 4) pad_steering(c, f, course_kind, l, t.controls); // (4, the in-line lean's 0x3DE310, no car of the disc)
+    pad_pedals(c, f, t);
     c.throttle = c.throttle_pedal;
     ex::set_brake(c, c.brake_pedal);
 }

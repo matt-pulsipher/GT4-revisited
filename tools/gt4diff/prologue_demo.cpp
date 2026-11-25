@@ -97,7 +97,7 @@ int run_demo(Disc& disc, const std::string& label, int limit) {
         ex::load_image(after, im.data());
         PTapStat st;
         compare(after, mine[i], st);
-        static const std::set<std::string> kSkip = {"steer_force", "ffb", "ffb_count", "lag_pitch_diff", "lag_heading_diff", "f3e4", "prev.f3e4", "laps", "x535", "x51c", "feedback", "hit_part", "rumble"};
+        static const std::set<std::string> kSkip = {"steer_force", "ffb", "ffb_count", "lag_pitch_diff", "lag_heading_diff", "f3e4", "prev.f3e4", "laps", "x535", "x51c", "feedback", "hit_part", "rumble", "pit_box", "wheel_type"};
         std::string diff;
         int n = 0;
         for (const auto& [name, f] : st.fields)

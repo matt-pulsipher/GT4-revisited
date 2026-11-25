@@ -188,7 +188,8 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
         // (the program's C library and constants: 2002 Tokyo-Geneva's, rules::behaviour(); the engine's own build otherwise)
         c.behaviour = gt4_ready_ || prologue_ ? rules::behaviour() : data_->behaviour();
         c.index = u8(i);
-        c.control = 0, c.driver_kind = 0, c.ghost = 0, c.wheel_type = 0;
+        c.control = 0, c.driver_kind = 0, c.ghost = 0;
+        c.wheel_type = prologue_ ? 1 : 0; // (Prologue's: the entry's +0x3FB4 plus 1)
         if (gt4_ready_) { // the parameter block from the spec, as the car's set-up makes it (Gran Turismo 4's converter)
             Record r;
             r.car = c;
@@ -236,7 +237,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
             c.p = loaded.p;
             gt4_params(specs_[i], program, c.p);
         }
-        c.pedal_style = e.automatic ? 0 : 1;
+        c.pedal_style = e.pedal_style >= 0 ? u8(e.pedal_style) : e.automatic ? 0 : 1;
         // The start place: the entry's, or one further back along the first place's line when the grid is shorter;
         // a rolling start's on the road's middle at its distance along the course (❓ the program's on the course's
         // driving line there, 0x34C5E0 through the line object 0x46ADE8: the session has no line). The start's kind
@@ -302,6 +303,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
                     ex::moving_start(c, gt3r::ee::int_to_f(line->speed) * F::raw(0x3E8E38E3));
                 }
                 prologue::part_start(c, prologue_cars_[i], prologue_feel_[i]); // (0x3B1BD0)
+                prologue::hybrid_start(c, prologue_cars_[i]);                  // (0x3CC0B8)
                 publish(i);
                 continue;
             }
@@ -618,6 +620,7 @@ void Session::place(size_t i, const course::Runway::Place& at, bool by_front, s3
         c.lag_heading = c.lag_pitch = k0, c.x420 = k0, c.steer_force = 0, c.x16d0 = 1, c.x16d1 = 0;
         c.f3e4 = course_query_->progress(c.pos.x, c.pos.z, -c.pos.y, c.road_seg);
         prologue::part_start(c, prologue_cars_[i], prologue_feel_[i]); // (0x3B1BD0)
+        prologue::hybrid_start(c, prologue_cars_[i]);                  // (0x3CC0B8)
         prologue_feel_[i].force = {};                                  // (0x3BC7B0)
     }
     ex::save_previous(c);

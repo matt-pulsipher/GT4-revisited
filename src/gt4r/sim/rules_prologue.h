@@ -11,6 +11,8 @@
 #include "gt4r/sim/equipment.h"
 #include "gt4r/sim/record.h"
 #include "gt4r/sim/rules_chassis.h"
+#include "gt4r/sim/rules_hybrid.h"
+#include "gt4r/sim/rules_input.h"
 #include "gt4r/sim/rules_steer.h"
 #include "sim/exact/tick.h"
 #include "gt4r/sim/rules.h"
@@ -60,6 +62,9 @@ struct Controls {
     // parameter block's byte +0x33 is set): C[0x82 + 0x20 row] the mode (0 off, 1 the step's change, 2 also its change's
     // change), C[0x83 + 0x20 row] the gain.
     std::array<u8, 3> prefilter_mode{}, prefilter_gain{};
+    // A steering wheel's pedals (0x715220 / 0x715230, made by 0x3C2938): the throttle's curve by C[0x64] (kind) and C[0x65]
+    // (percent), the brake's by C[0x68] and C[0x69].
+    rules::PedalCurve wheel_throttle, wheel_brake;
 };
 // The set-up on the controller settings' bytes from 0x504950 (0x190 bytes: through the surface classes).
 constexpr u32 kControlBytes = 0x190;
@@ -105,6 +110,7 @@ struct Tables {
     // +0xC / +0xD kind 2's down and up, x 0.01: 0x3DB730).
     ex::Awd3 awd3;
     ex::Stepless stepless;
+    rules::HybridTables hybrid; // the hybrid's box's (0x504560, 0x5045B0, 0x504638, 0x504648)
     ConvertData convert; // what the converter reads (convert_prologue.h)
     u8 asm_keep = 0;     // 0x504B04: an entry with the stability control off keeps its switches' bits 6 and 7
 };
@@ -146,6 +152,13 @@ struct CarPart {
     // it moves and the rear downforce it adds; no car of the disc has one.
     u8 part_kind = 0;
     F part_lo, part_hi, part_rate, part_lift;
+    // The hybrid's box (gearbox kind 3; car +0x5DC): its state, the fuel used (+0x8) and the kilometers per liter (+0xC, by
+    // 0x3CC298 each 30th step: F +0x4A0 the steps left, +0x3B0 / +0x3B4 the fuel and the odometer at the last one).
+    rules::HybridState hybrid;
+    F hybrid_fuel, hybrid_fuel_mark, hybrid_odo_mark;
+    u16 mileage = 0;
+    u8 mileage_steps = 30;
+    u8 shift_class = 0;         // the driveline's +0x13 (0x3CBA70: 3 from 5,000 rpm, 2 from 4,500, else 1)
     u8 special_row = 0;         // its +0x33: the special table's row (the steering force's and the prefilter's kind 6 row)
     F front_share;              // the parameter block's +0x24: the front axle's share of the weight (the bump nudge's kind 3)
     std::array<F, 4> offset_rate; // the offset's rate, the drive block's +0x18
@@ -153,6 +166,10 @@ struct CarPart {
     rules::ChassisExtra chassis;
     rules::WheelLayout layout;
 };
+// 0x3CC0B8: the hybrid's box at the car's set-up (nothing for another car).
+void hybrid_start(const ex::Car& c, CarPart& x);
+// 0x3CC298: the kilometers per liter of a fuel mass (g) over a distance (m): 0 under a millimeter, at most 999.
+u16 mileage(F fuel, F distance);
 // The part from the car's record and Prologue's parameter block: the wheel layout of its +0x30, the tire records' kind bytes.
 CarPart car_part(const ex::Car& c, const Block& p, const Tables& t);
 
@@ -210,6 +227,11 @@ void pad_steering(ex::Car& c, const ex::PadFrame& f, u8 course_kind, const rules
 // The input phase's frame (0x3DEDE0): the steering wheel's position kept (+0x16A4, the last one +0x16A6) and the steering
 // prefiltered by its change (Controls::prefilter_*), within +-4096.
 ex::PadFrame prefilter(ex::Car& c, const ex::PadFrame& f, const Controls& k, u8 special_row = 0);
+// 0x3DE270 past its steering: the throttle, brake and third axis, the reverse, shift and clutch requests (0x3DD608; the hybrid's
+// 0x3DD798 and 0x3DD858), a stepless gearbox's creep. Unlike the engine's: digital ramps of its own, an analog pedal eased by
+// them (Tables::pedal_ramps; not a steering wheel's, kinds 4 and 6), the wheels' curves for both kinds (the throttle's not for
+// the hybrid), a special car of kind 8 (P +0x32) without a clutch.
+void pad_pedals(ex::Car& c, const ex::PadFrame& f, const Tables& t);
 void driver_input_pad(ex::Car& c, const ex::PadConstants& k, const ex::PadFrame& f, u8 course_kind, const rules::WheelLayout& l,
                       const Tables& t, u8 special_row = 0); // (`special_row`: P +0x33, a kind 6 wheel's prefilter row)
 

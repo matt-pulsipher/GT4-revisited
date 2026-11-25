@@ -35,6 +35,7 @@ namespace gt4r::sim {
 struct Entry {
     Equipment equipment;   // the car, its parts and settings (stock_car)
     bool automatic = true; // the gearbox shifts itself
+    int pedal_style = -1;  // the entry's own pedal style byte in its place (Prologue's recorded runs); -1: by `automatic`
     bool asm_on = true, tcs_on = true;
     bool wheel_aid = false; // the entry's third aid switch (+0x3458; off for a player in the races seen): a steering wheel's slip aid
     // The entry's condition block (+0x3468, 0x20 bytes: the odometer (u32, m), the engine's and the oil's distances, the dirt,
