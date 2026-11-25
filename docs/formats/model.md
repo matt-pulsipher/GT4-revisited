@@ -105,7 +105,7 @@ texture coordinates (0x40, with the strip table in their fourth lane) and normal
 |---|---|---|
 | positions | V3-32 floats (a shape without the packed mark); V3-16 / V3-8, or V3-32 integers, in a packed shape | integer x the shape's scale (+0x04) |
 | normals | V3-32, or V3-8 | integer / 127 |
-| texture coordinates | V2-32, or V2-16 / V2-8 | integer / 4096 |
+| texture coordinates | V2-32 floats (a shape without the packed mark); V2-16 / V2-8, or V2-32 integers, in a packed shape | integer / 4096 |
 | reflection normals (in the coordinates' place) | V3-32, or V3-8 | integer / 127 |
 | colours | V4-8 | as GTM1 (0x80 = 1.0) |
 
@@ -120,6 +120,9 @@ of its 244 packets; -228,940 x 0.002 = -457.9 m) and 251 packets of its scenery,
 power lines. A shape without the mark (scale 0) has floats there. Checked on nine courses and
 120 cars: every 32-bit position run of a packed shape reads as whole numbers that land on the
 course, none as a float.
+
+Texture coordinates past 8 do not fit 16 bits either: a packed shape's V2-32 runs of them are integers
+too (every one on the 110 courses reads as a whole number, every one of an unpacked shape as a float).
 
 Scales seen: 0.002 (courses), 2 / 32767 (wheels), 5 / 32767 and 6 / 32767 (car bodies).
 

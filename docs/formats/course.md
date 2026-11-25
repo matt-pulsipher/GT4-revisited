@@ -41,7 +41,7 @@ Gran Turismo 3's table of section offsets
 | 47 | `GDGT` | Cones and boards |
 | 49 | `Tex1` | A picture of the race display (256x64 or 256x128 T8; 102 courses) ❓ |
 | 50 | `MDLS` | The sky of the road reflection (35 courses) |
-| 51 | `CRPM` | The 15 `ss_` photo locations only ❓ |
+| 51 | `CRPM` | The 15 `ss_` photo locations: where the camera and the car may stand, the map ([photo.md](photo.md)) |
 | 52, 53 | `Mot1` | Camera motions: the race's start shots (52), a replay's (53) |
 | 55 | `RNW4` | The road: surface, walls, checkpoints, start grid (below) |
 
@@ -91,7 +91,7 @@ on the 110 courses fit Gran Turismo 3's field. Values f32 unless noted.
 | +0x20 | far clip (m): 5000 on 65 courses, 600 to 3330 on the others. A two-player half uses half of it. The sun's glare reads it too (the shared engine puts the sun at far / 2) | read |
 | +0x24, +0x2C, +0x40, +0x44 | ❓ no reader found (+0x24: 1.0 on 55 courses, 0.34 to 1.4; +0x44: 0 or 1). Gran Turismo 3's files have them too | |
 | +0x28 / +0x48 | yaw / pitch (degrees) of the reflection picture's sky (slot 23) | read |
-| +0x30, +0x34 | the reflection factors of the scenery's environment-mapped shapes: at the start of a model set's draw the two color factors of those passes are C0 = +0x34 and C1 = +0x34 x +0x30 (color = vertex color x (C0 + C1 min(cos, 0)), the shared engine's kinds 2 and 3, where cos is negative on a face turned to the camera). +0x30 is 0.8 on 87 courses and +0x34 1.0 on 87: such a shape reflects in full at a grazing angle and 20% head-on. Draw commands 0x56 (these two again) and 0x57 (C0 = 1, C1 = 0) switch within a program. 🔎 Which of the two is C0 is from their places in the renderer's block, not from a picture | read |
+| +0x30, +0x34 | the reflection factors of the scenery's environment-mapped shapes: at the start of a model set's draw the two color factors of those passes are C0 = +0x34 and C1 = +0x34 x +0x30 (color = vertex color x (C0 + C1 min(cos, 0)), the shared engine's kinds 2 and 3, where cos is negative on a face turned to the camera). +0x30 is 0.8 on 87 courses and +0x34 1.0 on 87: such a shape reflects in full at a grazing angle and 20% head-on. Draw commands 0x56 (these two again) and 0x57 (C0 = 1, C1 = 0) switch within a program. Times Square (1.0, 0.85: nothing head-on) bears it out: its glass fronts show no reflection facing the camera in the original's photo. No course's program sets its own factors (0x32, 0x33, 0x36, 0x37, 0x56, 0x57 are on none) | read |
 | +0x38 | the picture's scale, 2.0 on all 110 (below) | read |
 | +0x3C | a second factor on the scenery alone (below); 1.0 on all 110 | read |
 | +0x4C | brake disc glow gain (the car's wheel code reads it with +0x38) | read |
@@ -175,6 +175,13 @@ multiplies what is in the frame (GS blend fixed factor min(255, 128 x +0x38): 25
   second factor t, ambient x ((1 - (1 - s)(1 - [+0xAC8])) (1 - [+0xACC]) t + [+0xACC]) / +0x38;
   diffuse the same with +0xAB4 and +0xABC, specular with +0xAC0 and +0xAC4. This is the shared
   engine's shade rule with the division added.
+- **The light on a car** (0x38E7F8; `race/car_light.*`). On a course without lamps s and t above are the
+  road's two values under it (+0x0E / 255 and +0x0F / 127); the cast shadow's factor is
+  ((+0xAB0 - +0xAB8) s + +0xAB8) t (0x3983E0). Times Square's road has 0 and 0 everywhere: its cars get only the
+  floors +0xACC, +0xABC, +0xAC4 of the lights. The global ambient +0xEF0 (over +0x38) is not shaded. On a course with lamps the car
+  is lit by the strongest four of those its triangle names: weight 1 / (c0 + c1 d + c2 d^2) of the lamp's record,
+  x cos^e inside its cone; each casts a shadow away from itself (+0xA78 long, the record's +0x60 color and alpha), and
+  up to six are drawn into the cars' reflection picture (0x38F5D0; not here).
 - The brake disc glow reads +0x38 with +0x4C.
 - **The sun's glare, the lamp glows and the tire smoke are drawn after the multiply** in the
   one-view draw, so their `Env0` numbers mean what they mean in the shared engine. (The
@@ -593,12 +600,17 @@ Code: `runway.*`. All 110 roads read (`gt4tool runway-survey`). Offsets from the
   [specs/physics.md](../specs/physics.md) "The ground"); ❓ bits 2-5. Triangles are wound so
   that (b - a) x (c - a) points up.
 - **A vertex's bytes** +0x0E and +0x0F (bits 0-6) are two values of the surface, / 255 and
-  / 127, which the road query interpolates across the triangle (❓ their use).
+  / 127, which the road query interpolates across the triangle: the light a car there stands in
+  ("The light on a car"). Its +0x0C is the first of the lamps near it, on the courses with lamps.
 - **The tree** finds the triangles under a point. It is a full binary tree of the given depth
   stored one byte per node, depth first with the left subtree before the right: bits 0-5 a
   place p, bits 6-7 the axis (0 x, 1 y, 2 z). A node splits its box (the root's is the bounds)
   at min + (max - min)(p + 0.5) / 64; the leaves, left to right, are the clusters, each a list
   of triangles. Checked on every course: a triangle's centre leads to a cluster that lists it.
+- **Lamps**: u16 +0x40 how many, u16 +0x50 how many a place names, +0x68 -> 0x20 bytes each {u32 car
+  light record, f32 x3 axis, f32 x3 place, f32 0: the place is a direction}, +0x6C -> u16 lamp
+  numbers; a triangle's first vertex (+0x0C, -1 none) says where its lamps start there. Las Vegas
+  (71), the Paris rally (215), Route 5 (296), `ss_fremont` (8) and `ss_shibuya` (5) have them.
 - **Walls** are closed chains of the wall vertices in order. A chain's first vertex has its
   length in the tag's low 16 bits, and its last vertex minus (length - 1) there: the link to
   the chain's next vertex, as in Gran Turismo 3's wall points, whose collision step reads these
