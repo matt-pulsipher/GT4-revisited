@@ -218,8 +218,8 @@ s64 RaceFlow::lap_ms(size_t car) const {
     const CarRecord& r = cars_[car];
     if (r.finished) return r.last_lap_ms;
     if (hold_ > 0 || !clock_running_) return 0;
-    // (0x357830: a run that starts moving shows none before its clock starts)
-    if (setup_.start == StartType::Moving && (r.counter == 0 || r.mark == 1)) return 0;
+    // (0x357830: a license's run that starts moving shows none before its clock starts; a mission's shows the race's clock, 0x3F6ED0)
+    if (setup_.start == StartType::Moving && !setup_.mission && (r.counter == 0 || r.mark == 1)) return 0;
     if (setup_.start != StartType::Rolling && setup_.start != StartType::Moving && started_steps_ < 0) return 0;
     return clock_ms(clock_) - r.base_ms;
 }

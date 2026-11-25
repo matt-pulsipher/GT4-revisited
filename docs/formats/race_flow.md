@@ -205,7 +205,7 @@ start, the lap step (0x358608) calls virtual 22; the license's (0x3F6760) clears
 (0x3F64D0), as the line's first crossing does on a whole lap: with CFG +0x4E set it keeps the moment (ms) in F +0x614, lets
 the car go from its rolling start (0x345228) and, for car 0, sends event 4 (the start signal); the mark is 2 after. A
 mission's (0x3F6E50) puts F +0x614 back to 0. The run's time is the moment of its end less F +0x614; the display shows none
-before (0x357830: no crossing yet, or the mark 1).
+before (0x357830: no crossing yet, or the mark 1); a mission and a race show the race's clock less the base all the time (0x357800).
 
 **The lap step** (0x358608; `RaceFlow::cross`): with the last step's distance p and this one's d (F +0x4A4), lap length L:
 - p <= d, and p + L / 2 < d: backwards over the line, F +0x4B0 counted up. Else, with no such count, a crossing counted and
@@ -247,6 +247,8 @@ reaching 0 end the run timed. Kinds 3 and 6 end at the lap's line when the laps 
   points; a hull point inside all five is a contact: the impulse (0x3E3ED0) added to the body's +0x54, the
   body woken (0x3E29C8), kind 2 reported to the car (other 9), and a kind with flags bit 0 (GDGT kind +0x02)
   sets the body's +0x45: it meets no car again.
+  The gadgets step (0x3E5040 → 0x3E2B28) after the conductor's whole step (RacePS2Base::vf74: RaceBase::vf74, whose vf75 runs
+  0x34DB30 with the license's judge in it, then 0x3E5040), so a cone met in a step is judged in the next.
 
 Here the hits come from the simulation's contact (`CarState::contact`: a wall's |j| / 100000, a car's |j| /
 15000) and the cone bodies' contacts per car (`GadgetBodies::contacts`, with the kind's flag latch); the

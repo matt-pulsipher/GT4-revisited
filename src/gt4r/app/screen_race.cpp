@@ -215,6 +215,14 @@ void apply_course_start(App& app, Setup& setup, bool start) {
     }
 }
 
+// An event by its label, or by the scripts' code of a test or mission under the region's prefix (0x430D20: "us", then "jp").
+std::optional<db::RaceEvent> find_event(const db::RaceEvents& events, const std::string& label) {
+    if (label.empty()) return std::nullopt;
+    for (const std::string& l : {label, "us" + label, "jp" + label})
+        if (std::optional<db::RaceEvent> e = events.event(l)) return e;
+    return std::nullopt;
+}
+
 // A license test's, pace car test's or mission's event: its row, rules, target times and start. The conductors' starts
 // (0x3F6278) never read the course's start code: a place of the row's own (moving when it has a speed), else the grid; a
 // standing start holds 8 s (start type 1: the demonstrations' recordings run a 480-step hold before the car moves).
@@ -228,10 +236,7 @@ void load_test(App& app, Setup& setup, const std::string& code) {
     try {
         gt3r::Vfs* vfs = app.vfs();
         const db::RaceEvents events(*sdb, [vfs](const std::string& path) { return vfs->read(path); });
-        // (the code under the region's prefix)
-        for (const std::string& label : {code, "us" + code, "jp" + code}) {
-            const std::optional<db::RaceEvent> e = events.event(label);
-            if (!e) continue;
+        if (const std::optional<db::RaceEvent> e = find_event(events, code)) {
             setup.event_row = e->bytes;
             if (!test) { // (an event by its label without the menus: its row and its drivers' pace)
                 setup.pace = sim::ai::pace_for(*e);
@@ -240,7 +245,6 @@ void load_test(App& app, Setup& setup, const std::string& code) {
             for (size_t k = 0; k < 3; ++k) setup.targets[k] = e->target_ms[k] > 0 ? s64(e->target_ms[k]) : -1;
             setup.rules = race::LicenseRules::from_row(e->bytes);
             if (app.disc() && app.disc()->info().serial.rfind("SCPS", 0) != 0) setup.conductor = race::conductor_for(setup.sequence, code);
-            break;
         }
     } catch (const std::exception& e) {
         LOG_WARN("Drive: the test's event: %s", e.what());
@@ -276,17 +280,25 @@ void draw_grid(App& app, Setup& setup, const menu::RaceRequest& q) {
             asked.overwrite_enemy_num = s32(paints.size());
         }
         sim::ai::RaceRandom& random = sim::ai::race_random(); // (the program's one generator, kept while the app runs)
-        std::vector<sim::ai::GridEntry> grid = sim::ai::grid_for(events, asked, random);
+        const std::optional<db::RaceEvent> event = find_event(events, q.race);
+        const std::string& sequence = q.sequence.empty() ? setup.sequence : q.sequence;
+        const bool prologue_test = event && sdb->prologue() && event->label.rfind("l0p", 0) == 0;
+        const bool training = event && !sdb->prologue() && (sequence == "mission" || is_license(sequence)); // (no draw: the pool in its order)
+        std::vector<sim::ai::GridEntry> grid;
+        if (!training) grid = sim::ai::grid_for(events, asked, random);
         if (!asked.entries.empty())
             for (size_t i = 0; i < grid.size() && i < paints.size(); ++i)
                 if (!grid[i].player && grid[i].paint < 0) grid[i].paint = paints[i];
-        // A test of Prologue's with other cars: its pool in order, entry 0 the player's car (its grid 0x3E1C20's places).
-        if (const std::optional<db::RaceEvent> e = events.event(q.race); e && sdb->prologue() && e->label.rfind("l0p", 0) == 0) {
+        // A test or mission with other cars: its pool in order (RaceTrainingInformation 0x3ECB68: car i entry min(i, the pool's last),
+        // without a paint of its own paint 0), entry 0 the player's car, on the grid the others in that order and the player last
+        // (0x3ECC70; Prologue's 0x3E1C20).
+        if (prologue_test || training) {
             grid.clear();
-            const std::vector<db::Opponent> pool = events.pool(*e);
-            for (size_t i = 1; i < pool.size() && int(i) < e->grid; ++i) {
+            const std::vector<db::Opponent> pool = events.pool(*event);
+            for (size_t i = 1; !pool.empty() && int(i) < event->grid && (training || i < pool.size()); ++i) {
+                const db::Opponent& o = pool[std::min(i, pool.size() - 1)];
                 sim::ai::GridEntry g;
-                g.car = pool[i].car, g.paint = pool[i].paint, g.parts = pool[i].parts, g.param = pool[i].param, g.enemy = pool[i].enemy;
+                g.car = o.car, g.paint = training ? std::max(o.paint, 0) : o.paint, g.parts = o.parts, g.param = o.param, g.enemy = o.enemy;
                 grid.push_back(g);
             }
             sim::ai::GridEntry me;
@@ -318,7 +330,7 @@ void draw_grid(App& app, Setup& setup, const menu::RaceRequest& q) {
         if (!setup.opponents.empty()) setup.cars = int(setup.opponents.size()) + 1;
         // (An arcade race of a car without an event's row: sample_entry_6, the original's, whatever its number of cars; it counts fuel.)
         const std::string race = q.race.empty() && (q.sequence == "single_race" || setup.sequence == "single_race") ? std::string("sample_entry_6") : q.race;
-        if (const std::optional<db::RaceEvent> e = events.event(race)) setup.pace = sim::ai::pace_for(*e), setup.event_row = e->bytes;
+        if (const std::optional<db::RaceEvent> e = find_event(events, race)) setup.pace = sim::ai::pace_for(*e), setup.event_row = e->bytes;
         LOG_INFO("Drive: the event's row %s (%zu bytes)", race.c_str(), setup.event_row.size());
     } catch (const std::exception& e) {
         LOG_WARN("Drive: the event's grid: %s", e.what());
@@ -333,7 +345,7 @@ void test_car(App& app, Setup& setup, const menu::RaceRequest& q) {
     try {
         gt3r::Vfs* vfs = app.vfs();
         const db::RaceEvents events(*sdb, [vfs](const std::string& path) { return vfs->read(path); });
-        const std::optional<db::RaceEvent> e = events.event(q.race);
+        const std::optional<db::RaceEvent> e = find_event(events, q.race);
         if (!e) return;
         const std::vector<db::Opponent> pool = events.pool(*e);
         if (pool.empty() || pool[0].car != q.car) return;
@@ -1591,7 +1603,7 @@ public:
                         gt3r::Vfs* vfs = app.vfs();
                         try {
                             const db::RaceEvents events(*sdb, [vfs](const std::string& path) { return vfs->read(path); });
-                            if (const std::optional<db::RaceEvent> e = events.event(q.race)) laps = e->laps;
+                            if (const std::optional<db::RaceEvent> e = find_event(events, q.race)) laps = e->laps;
                         } catch (const std::exception& e) {
                             LOG_WARN("Drive: the event's laps: %s", e.what());
                         }

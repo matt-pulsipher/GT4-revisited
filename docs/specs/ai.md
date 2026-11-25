@@ -436,7 +436,9 @@ copies the row into its configuration block (0x35E108, the conductor's +0xF818, 
 opponents: the event's pool (`RACES/<35, row>`: ENEMY_CARS rows, each a car, its parts and its
 settings); RaceInformation::vf15 (0x3BB5A8) draws one entry per opponent place at random from the
 race's generator (0x621AE8), the next undrawn one from there, skipping cars the race may not use
-(0x448C10 ❓ which).
+(0x448C10 ❓ which). A mission and a license's training tests (RaceTrainingInformation 0x3ECB68) draw nothing: car i takes pool
+entry min(i, the last), entry 0 the player's, -1 for a paint gives paint 0 (0x445880), and the others stand on the first places in
+that order, the player on the last (0x3ECC70). ✔ Mission 21's six Cubes as `31-progress6/state_mission21_*`.
 
 **A place's car** (0x4474B0 → 0x444440 → 0x444690 for an `ENEMY_CARS` id, table 0x26; any other id
 0x444480, the car as sold): the record cleared, the row's car at +0x00, **the `ENEMY_CARS` id itself
