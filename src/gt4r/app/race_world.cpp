@@ -518,11 +518,12 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
     const size_t n = std::min(cars.size(), car_visuals_.size());
     for (size_t i = 0; i < n; ++i) car_visuals_[i]->add_shadow_items(m.items, cars[i]);
     // The cars' levels of detail by their size on screen (race::CarVisual::level): K, the program's
-    // factor of the view, is 721.2 in the original's chase view (its 0x8465E4 in a saved state), the
-    // view this race view draws 90 degrees wide; other lenses by their 1 / tan(angle / 2).
+    // factor of the view (0x456918), one unit's height at depth 1 on a picture 448 lines high x 10 / 7:
+    // 224 / (0.75 tan(A / 2)) x 10 / 7, A the lens across a 4:3 picture's width (721.2 in the original's
+    // chase view, its 0x8465E4 in a saved state).
     race::CarVisual::LodView lod_view;
     lod_view.forward = RVec{-pose.view.at(2, 0), -pose.view.at(2, 1), -pose.view.at(2, 2)};
-    lod_view.k = 721.2f / std::max(std::tan(pose.fov * 0.5f), 1e-3f);
+    lod_view.k = (224.0f / 0.75f) * (10.0f / 7.0f) / std::max(std::tan(pose.fov * 0.5f), 1e-3f);
     for (size_t i = 0; i < n; ++i) {
         if (int(i) == hidden) continue;
         car_visuals_[i]->add_items(m.items, cars[i], pose.eye, kStep, &lod_view);

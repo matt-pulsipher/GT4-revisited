@@ -853,6 +853,7 @@ TEST(animated_models_turning_signs_disc) {
     size_t ran = 0;
     for (const auto& disc : test::discs())
         for (const auto& [name, model] : {std::pair{"crs/seoul", 44u}, std::pair{"crs/lasvegas", 41u}}) {
+            if (disc->info().game != Game::GT4) continue; // (Prologue's courses are other sets)
             const gt3r::Volume::Entry* e = disc->volume().find(name);
             if (!e) continue;
             const Bytes data = disc->volume().read(*e);
