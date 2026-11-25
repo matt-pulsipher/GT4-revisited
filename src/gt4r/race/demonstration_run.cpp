@@ -114,16 +114,11 @@ DemonstrationRun run_demonstration(Disc& disc, db::SpecDb& sdb, const std::strin
             for (CarInput& c : in) c = {};
             in[0] = demo->input(step);
             const bool hold = flow.holding();
-            if (field) {
-                const race::PadRecord* pad = in[0].pad;
-                hold ? field->hold(in) : field->drive(in);
-                in[0].pad = pad;
-                if (!hold) {
-                    field->apply_time_scales(session);
-                    for (size_t i = 0; i < in.size(); ++i) session.set_line_heading(i, field->line_heading_at(i), field->line_mode_at(i));
-                }
-            }
-            hold ? session.hold_once(in) : session.step_once(in);
+            if (hold) {
+                if (field) field->hold(in);
+                session.hold_once(in);
+            } else if (field) field->step(session, in);
+            else session.step_once(in);
             int cones = 0;
             if (!gadgets.placements.empty()) {
                 std::vector<GadgetBodies::Car> boxes;

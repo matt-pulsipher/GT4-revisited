@@ -79,6 +79,8 @@ struct OursBeside::Impl {
     OrigRace* o = nullptr;
     std::unique_ptr<sim::Program> program;
     std::unique_ptr<sim::Session> session;
+    std::unique_ptr<sim::ai::Field> field; // (our own set-up: our drivers beside the program's)
+    int field_prints = 0;
     std::map<u32, F> heading;
     race::PadRecord pad, idle;
     bool rolling0 = false, released = false;
@@ -160,6 +162,18 @@ bool OursBeside::begin(Ee& ee, OrigRace& o, db::SpecDb& sdb, const std::string& 
             m.session = std::make_unique<sim::Session>(sdb, *m.program, std::make_shared<const course::Runway>(*road), entries, sim::course_row(sdb, course), &so);
             for (int i = 0; i < o.cars; ++i)
                 m.session->set_crossings(size_t(i), race::planned_crossings(race, race::plan_start(race, size_t(i), entries[size_t(i)].grid_place), m.session->cars()[size_t(i)].course_v));
+            if (const std::optional<course::AiData> ad = sim::ai::Field::read(m.disc, course)) {
+                std::vector<size_t> cars(size_t(o.cars));
+                for (size_t i = 0; i < cars.size(); ++i) cars[i] = i;
+                sim::ai::Pace pace;
+                pace.solo = c == race::Conductor::License;
+                m.field = std::make_unique<sim::ai::Field>(*m.session, *ad, *m.program, cars, pace);
+                m.field->set_shadow(0);
+                for (size_t i = 0; i < cars.size(); ++i) {
+                    m.field->start_line(i, race::first_line(race, race::plan_start(race, i, entries[i].grid_place), i == 0, entries[i].grid_place, *m.program));
+                    if (m.session->cars()[i].rolling) m.field->hold_rolling(i);
+                }
+            }
         } else
         m.session = std::make_unique<sim::Session>(sdb, *m.program, std::make_shared<const course::Runway>(std::move(*road)), entries);
     } catch (const std::exception& e) {
@@ -282,8 +296,37 @@ void OursBeside::step(Ee& ee, const u8* record) {
         c.computer = true;
         computer(i, c);
     }
-    m.session->step_once(in);
-    if (m.released) m.session->release_start(0), m.released = false;
+    // (our own drivers on our own cars: the player's while its driver drives it, listed where they part)
+    bool rolling_before = false;
+    if (m.field) {
+        const bool before = m.session->cars()[0].rolling;
+        m.field->begin_step();
+        rolling_before = before;
+    }
+    m.session->step_once(in, [&](size_t car, race::CarInput&) {
+        if (!m.field || car != 0) return;
+        race::CarInput unused;
+        m.field->decide_car(0, unused);
+        if (rolling_before && m.field_prints < 20) {
+            const u32 D = o.car(0) + sim::layout::kDriver;
+            const sim::ai::Field::Probe p = m.field->probe_get(0);
+            const u32 a[3] = {ee.r32(D + 0x30), ee.r32(D + 0x34), ee.r32(D + 0x38)}, b[3] = {p.steer.bits, p.throttle.bits, p.brake.bits};
+            if (std::getenv("GT4R_FLOATS_DRIVER") || a[0] != b[0] || a[1] != b[1] || a[2] != b[2]) {
+                ++m.field_prints;
+                std::printf("   now: program yaw %08X slip_dir %08X %08X cmd %08X; ours %08X %08X %08X cmd %08X\n", ee.r32(o.car(0) + kF + 0x5A4), ee.r32(o.car(0) + kF + 0x5AC), 0u, ee.r32(o.car(0) + kF + 0x468), m.session->record(0).yaw_rate.bits,
+                            m.session->record(0).w[0].slip_dir.bits, m.session->record(0).w[1].slip_dir.bits, m.session->record(0).steer_cmd.bits);
+                std::printf("  driver step %d: steer %08X %08X (%g %g) throttle %08X %08X brake %08X %08X; next %u %d mode %u %d look.. line %u %d prev %u %d blend %08X %08X off %08X %08X vcur %08X %08X vnext %08X %08X aim %08X %08X / %08X %08X\n", steps, a[0], b[0],
+                            double(F::raw(a[0]).host()), double(p.steer.host()), a[1], b[1], a[2], b[2], ee.r8(D + 0x1D), p.next, ee.r8(D + 0x1E), p.mode, ee.r8(D + 0x1C), p.line,
+                            ee.r8(D + 0x21), p.prev_line, ee.r32(D + 0x2C), p.blend.bits, ee.r32(D + 0x54), p.offset.bits, ee.r32(D + 0x24), p.v_cur.bits, ee.r32(D + 0x28), p.v_next.bits,
+                            ee.r32(o.car(0) + kF + 0x61C), p.aim_x.bits, ee.r32(o.car(0) + kF + 0x620), p.aim_y.bits);
+            }
+        }
+    });
+    if (m.field) m.field->end_step();
+    if (m.released) {
+        if (m.field) m.field->release_rolling(0);
+        m.session->release_start(0), m.released = false;
+    }
     // Car 0 against the program's: its place (F +0 .. +8) and velocity.
     const ex::Car& c = m.session->record(0);
     const u32 F0 = o.car(0) + kF;

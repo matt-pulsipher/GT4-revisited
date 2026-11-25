@@ -905,7 +905,9 @@ void Field::bspec_experience(Driver& d, int table, F v) {
 
 void Field::set_shadow(size_t car) {
     Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
-    if (d) d->control = 0;
+    if (!d) return;
+    d->control = 0;
+    setup(*d); // (its parameters without a computer driver's spread: 0x467148 runs for control source 2 only)
 }
 
 Field::Suggestion Field::suggestion(size_t car) const {
@@ -1712,6 +1714,32 @@ void Field::decide_car(size_t car, race::CarInput& in) {
     in.computer = d.control != 0 || c.driver_kind != 1;
     in.control = u8(d.control == 1 ? 1 : 2); // (F +0x466: the B-spec car 1)
     in.shift_lock = u8(d.shift_lock);
+}
+
+void Field::step(Session& session, std::span<race::CarInput> inputs, int keep) {
+    begin_step();
+    apply_time_scales(session);
+    auto plans_only = [&](const Driver& d) { return (d.control == 0 && d.kind == 0) || int(d.car) == keep; };
+    for (auto& dp : drivers_)
+        if (dp && dp->car < inputs.size() && !plans_only(*dp)) {
+            race::CarInput& in = inputs[dp->car];
+            in.computer = dp->control != 0 || session_->record(dp->car).driver_kind != 1;
+            in.control = u8(dp->control == 1 ? 1 : 2);
+        }
+    session.step_once(inputs, [&](size_t car, race::CarInput& in) {
+        if (car >= drivers_.size() || !drivers_[car]) return;
+        Driver& d = *drivers_[car];
+        if (plans_only(d)) {
+            race::CarInput unused;
+            decide_car(car, unused);
+        } else {
+            const race::PadRecord* pad = in.pad; // (a player's car in its rolling start: its controller's frame is read all the same)
+            decide_car(car, in);
+            in.pad = pad;
+        }
+        session.set_line_heading(car, line_heading_at(car), line_mode_at(car));
+    });
+    end_step();
 }
 
 void Field::drive(std::span<race::CarInput> inputs) {

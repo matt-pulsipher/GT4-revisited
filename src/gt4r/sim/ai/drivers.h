@@ -155,6 +155,10 @@ public:
     void hold(std::span<race::CarInput> inputs);
     // The inputs for the next step (call once per Session step, before it).
     void drive(std::span<race::CarInput> inputs);
+    // A whole step of a session with its drivers, each deciding where the program's do (Session::Decider): the step's common
+    // part, every car's time scale, the session's step with each driven car's decision after its preparation and its line's
+    // heading for the active steering, the step's end. `keep`: a car whose given input stays (its driver plans only).
+    void step(Session& session, std::span<race::CarInput> inputs, int keep = -1);
     // drive() in its parts: the step's common part (the order, the rubber band, the pairs pass), then each driven car's
     // decision, then the step's end.
     void begin_step();

@@ -383,14 +383,8 @@ void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool pla
     if (field_) {
         driven.assign(inputs.begin(), inputs.end());
         driven.resize(car_visuals_.size());
-        hold ? field_->hold(driven) : field_->drive(driven);
-        if (!hold && session_) field_->apply_time_scales(*session_); // the rubber band's step lengths
-        // The pad cars' active steering aims along their driver's line (0x348850 → 0x4649F0, after their decision).
-        if (!hold && session_)
-            for (size_t i = 0; i < driven.size(); ++i) session_->set_line_heading(i, field_->line_heading_at(i), field_->line_mode_at(i));
-        if (computer_player_ && !player_by_computer && !inputs.empty()) driven[0] = inputs[0];
-        if (!inputs.empty() && inputs[0].pad) driven[0].pad = inputs[0].pad; // (a demonstration's record, kept while its driver drives)
-        if (!hold && pits_) pits_->before(*field_, driven); // (a car standing in its box held)
+        if (hold) field_->hold(driven);
+        else if (pits_) pits_->before(*field_, driven); // (a stop's timing, 0x35C0B8: the car standing in its box held)
         // B-spec: the driver's shift speeds into the gearbox (0x3F1E30, control source 1).
         if (computer_player_ && session_) session_->set_shift_factor(0, field_->shift_factor(0));
         inputs = driven;
@@ -424,7 +418,9 @@ void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool pla
         held.resize(car_visuals_.size());
         for (race::CarInput& in : held) in = {}, in.brake = 1;
         sim_->step(held, kStep);
-    } else sim_->step(inputs, kStep);
+    } else if (field_ && session_) // (each driver deciding within the step; the player's own input kept once he drives)
+        field_->step(*session_, driven, computer_player_ && !player_by_computer ? 0 : -1);
+    else sim_->step(inputs, kStep);
     if (!hold && pits_ && session_) pits_->after(*session_, *field_);
     if (!hold) course_->animate(kStep, sim_->cars());
     // The cones and boards the cars run into: each car's box (0x3E5108) at its center of mass, by its heading,

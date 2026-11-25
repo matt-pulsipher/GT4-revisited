@@ -336,6 +336,8 @@ void Session::setup(size_t i, const course::Runway::Place& at, int kind, float s
     h.pose = pose_hooks();
     if (line && line->open_throttle) h.open_throttle = [&c, line] { return line->open_throttle(c.f3e4); };
     rules::car_setup(c, gx_[i], layouts_[i], start_tables_, tables_.wear, a, h);
+    rules::view_start(c, gx_[i].feel.view); // (0x3455F0's part outside the record)
+    if (line && line->speed > 0) gx_[i].speeds.speedo = c.speed; // (the meter's speed as the moving start leaves it)
     // (the session's own ground records: the kinds and materials publish reads)
     for (size_t w = 0; w < 4; ++w) extra_[i].kinds[w] = c.g[w].miss ? 0 : c.g[w].flags, extra_[i].materials[w] = c.g[w].miss ? 0 : c.g[w].material;
     c.x16d1 = 1;
@@ -364,6 +366,7 @@ void Session::place_standing(size_t car, F x, F y, F z, F heading) {
     sim::Extra& g = gx_[car];
     rules::pose(c, g, layouts_[car], start_tables_, pose_hooks(), c.road_seg, x, y, z, heading);
     rules::clear_view_lags(c);
+    rules::view_start(c, g.feel.view);
     rules::standing_start(c, g, layouts_[car]);
     hold_heading_[car] = heading;
     for (size_t w = 0; w < 4; ++w) extra_[car].kinds[w] = c.g[w].miss ? 0 : c.g[w].flags, extra_[car].materials[w] = c.g[w].miss ? 0 : c.g[w].material;
@@ -732,7 +735,7 @@ void Session::collide() {
     }
 }
 
-void Session::step_once(std::span<const race::CarInput> inputs) {
+void Session::step_once(std::span<const race::CarInput> inputs, const Decider& decide) {
     const u8 course_kind = ex::course_category(race_.aids.course_category);
     // The race's countdown (the race information's +0xBC; 0x34C210): the cars held while it runs.
     const bool countdown = holding_ || countdown_ > 0;
@@ -741,7 +744,7 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
     for (size_t i = 0; i < cars_.size(); ++i) {
         ex::Car& c = cars_[i];
         Extra& x = extra_[i];
-        const race::CarInput in = i < inputs.size() ? inputs[i] : race::CarInput{};
+        race::CarInput in = i < inputs.size() ? inputs[i] : race::CarInput{};
         // The driver's frame: a recorded one, or an analog pad's from the input's fields.
         rules::PadFrame f;
         if (in.pad) f = rules::PadFrame::from_bytes(in.pad->bytes.data());
@@ -796,6 +799,7 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
                 rules::prep(c, g, l, tables_, grip);
                 c.hold = hold;
             }
+            if (decide) decide(i, in);
             // (the masses with the fuel, 0x354AC0, as the fuel's state has them, and the fuel the aids read)
             rules::masses(c, g.drive.fuel, g.chassis.mass, g.body.sprung_mass);
             g.aids.fuel = g.drive.fuel.fuel, g.aids.fuel_capacity = g.drive.fuel.capacity;
@@ -824,6 +828,7 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
         } else {
             ex::save_previous(c);
             ex::prep(c, race_.prep);
+            if (decide) decide(i, in);
             if (in.computer) {
                 computer_outputs();
                 computer_clutch();

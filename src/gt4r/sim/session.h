@@ -99,8 +99,11 @@ public:
     void step(std::span<const race::CarInput> inputs, float dt) override;
     std::span<const race::CarState> cars() const override { return states_; }
 
-    // One step of 1/60 s.
-    void step_once(std::span<const race::CarInput> inputs);
+    // One step of 1/60 s. `decide`: each car's computer driver, asked for its input where the program's drivers decide (0x465078
+    // in the input phase 0x349FD0, after the preparation 0x357700: the step's own slip angles, peak forces and torques); the
+    // inputs given then only say who drives (computer, control).
+    using Decider = std::function<void(size_t car, race::CarInput& input)>;
+    void step_once(std::span<const race::CarInput> inputs, const Decider& decide = {});
     // One step of the race's countdown: every car held (F + 0x4BC, 0x34C210; the engines answer the throttle, the
     // cars stay); the session's time does not advance.
     void hold_once(std::span<const race::CarInput> inputs);
