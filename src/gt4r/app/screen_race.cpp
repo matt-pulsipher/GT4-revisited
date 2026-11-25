@@ -3329,12 +3329,14 @@ private:
 
     // The Quick Tune's values as Arcade's race and time trial fill them once, before their first menus (0x111B50, 0x112FE8; the
     // sequence's work made anew, menu::start_quick_work, the same): no change of power or weight, the race's tire kind (12 on
-    // snow) front and rear, the transmission and the aids as asked, the gearbox's slider of the player's car with its range.
+    // snow) front and rear, the transmission and the aids as asked, the gearbox's slider of the player's car with its range,
+    // whether the course is dry (the page's tire lists offered).
     // They are not filled again after a run: the page shows the choice made (its script reads them back).
     void fill_quick_tune(menu::QuickWork& w) {
         quick_tune_filled_ = true;
         const menu::RaceRequest& q = menus_->game().race;
         const int tire = setup_.course_kind == 3 ? 12 : q.tire;
+        w.set("IsDryCourse", setup_.course_kind == 2 || setup_.course_kind == 3 ? 0 : 1); // (0x111B50's +0x48C: the page's tire lists)
         w.set("QuickTunePowerLevel", 0), w.set("QuickTuneWeightLevel", 0);
         w.set("QuickTuneFrontTireType", tire), w.set("QuickTuneRearTireType", tire);
         w.set("QuickTuneTransmission", q.manual ? 1 : 0);
