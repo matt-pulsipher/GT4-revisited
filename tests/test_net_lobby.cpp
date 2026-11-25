@@ -173,6 +173,43 @@ TEST(net_lobby_host_leaves) {
     CHECK(!p.b.lobby.take_error().empty() && p.b.lobby.take_error().empty());
 }
 
+// A player joining while the others are past the matching page; the seventh, whom the pages have no place for; one the host
+// removes; two of one name.
+TEST(net_lobby_comers) {
+    Session::set_advertise_lan(false);
+    Machine host;
+    std::string error;
+    CHECK(host.session.host(0, "Ann", "", 0, &error));
+    host.lobby.begin("Ann");
+    std::vector<std::unique_ptr<Machine>> guests;
+    std::vector<Machine*> all{&host};
+    auto join = [&](const char* name) {
+        guests.push_back(std::make_unique<Machine>());
+        CHECK(guests.back()->session.join("127.0.0.1:" + std::to_string(host.session.port()), name, "", 0, &error));
+        guests.back()->lobby.begin(name);
+        all.push_back(guests.back().get());
+    };
+    join("Bob");
+    CHECK(pump(all, [&] { return host.lobby.heard(1) && guests[0]->lobby.heard(0); }));
+    host.lobby.change([&](net::Member& m) { m.sequence = 2, m.client_count = 2, m.time = host.lobby.game_time(); });
+    for (Machine* m : all) m->lobby.enter_sync();
+    for (Machine* m : all) m->lobby.change([](net::Member& r) { r.sequence = 3; });
+    CHECK(pump(all, [&] { return host.lobby.synced() && guests[0]->lobby.synced(); }));
+    join("Bob");
+    CHECK(pump(all, [&] { return host.lobby.count() == 3 && host.lobby.heard(2) && guests[1]->lobby.heard(0) && guests[1]->lobby.heard(1); }));
+    // Nobody waits for him at the barrier, and the matching page lets him through at once.
+    CHECK(host.lobby.synced() && guests[0]->lobby.synced());
+    CHECK(pump(all, [&] { return guests[1]->lobby.all_connected(); }));
+    CHECK(host.lobby.name(1) == "Bob" && host.lobby.name(2) == "Bob (2)" && guests[1]->lobby.name(2) == "Bob (2)");
+    for (const char* n : {"Cid", "Dee", "Eve", "Fay"}) join(n);
+    CHECK(pump(all, [&] { return host.lobby.count() == 6 && guests[5]->lobby.closed(); }, 12000));
+    CHECK(guests[5]->lobby.take_error().find("full") != std::string::npos && !guests[4]->lobby.closed());
+    host.session.kick(host.lobby.id_of(1));
+    CHECK(pump(all, [&] { return guests[0]->lobby.closed() && host.lobby.count() == 5 && guests[1]->lobby.count() == 5; }));
+    CHECK(guests[0]->lobby.take_error().find("removed") != std::string::npos);
+    CHECK(host.lobby.name(1) == "Bob");
+}
+
 TEST(net_lobby_identity) {
     DiscInfo gt4, changed, pro;
     gt4.verified = true, gt4.digest = "0011";

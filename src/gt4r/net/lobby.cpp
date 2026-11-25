@@ -304,8 +304,7 @@ void Lobby::enter_sync() {
 bool Lobby::synced() const {
     if (!active()) return true; // (0x1F75D4: an error answers yes)
     for (int i = 0; i < count(); ++i) {
-        if (!members_.count(id_of(i))) return false;
-        // (a player who is still on the way in, its menus not begun, holds nobody)
+        // (a player who is still on the way in, its record not here or its menus not begun, holds nobody)
         if (member(i).sync < mine_.sync && member(i).sync > 0) return false;
     }
     return true;

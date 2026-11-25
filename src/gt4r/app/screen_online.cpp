@@ -93,8 +93,10 @@ std::string car_name(App& app, const std::string& label) {
     return it == names.end() ? label : it->second;
 }
 
-const char* what_he_does(const net::Member& m, bool heard) {
+// `behind`: still in the race our own menus are back from.
+const char* what_he_does(const net::Member& m, bool heard, bool behind) {
     if (!heard) return "joining";
+    if (behind) return "in the race";
     if (m.sequence <= 2) return "waiting";
     if (m.sequence <= 4) return "choosing the course";
     if (m.sequence <= 6) return "choosing a car";
@@ -594,7 +596,7 @@ void OnlineMenus::panel(App& app, Ui& ui, float x, float y, float w, float h, bo
         ui.fill_round(x + 8, ry - 2, w - 16, 16, 3, on ? colors::kHighlight : colors::kPanel);
         ui.text(x + 14, ry, Ui::elide(l.name(i) + (i == 0 ? " (host)" : "") + (i == l.my_index() ? " (you)" : ""), 150), colors::kText);
         const std::string problem = l.car_problem(i);
-        ui.text(x + 170, ry, Ui::elide(!problem.empty() ? problem : m.choice ? car_name(app, m.choice->label) : std::string(what_he_does(m, l.heard(i))), w - 340),
+        ui.text(x + 170, ry, Ui::elide(!problem.empty() ? problem : m.choice ? car_name(app, m.choice->label) : std::string(what_he_does(m, l.heard(i), m.sync > 0 && m.sync < l.mine().sync)), w - 340),
                 !problem.empty() ? colors::kBad : m.choice ? colors::kText : colors::kDim);
         if (m.choice && problem.empty() && m.sequence >= 7) ui.text_right(x + w - 120, ry, "ready", colors::kGood);
         if (i != l.my_index()) {
@@ -641,6 +643,10 @@ void OnlineMenus::render(App& app, Ui& ui, float x, float scale) {
     }
     if (open_ || page == "MatchingRoot") panel(app, ui, cx - 230, page == "MatchingRoot" && !open_ ? 90 : 60, 460, 200, page == "MatchingRoot" && !open_);
     else if (!page.empty() && rt_.project() && rt_.project()->name() == "arcade" && page != "TopRoot" && page != "GameRoot") {
+        if (page == "CourseRoot" && !l.synced()) {
+            ui.fill_round(cx - 130, 150, 260, 24, 5, Color{0, 0, 0, 190});
+            ui.text_center_in(cx - 130, 260, 156, "Waiting for the others' race to end...", colors::kText);
+        }
         // Who is ready, small, in the corner the pages leave empty.
         int ready = 0;
         for (int i = 0; i < l.count(); ++i) ready += l.member(i).sequence >= 7;
