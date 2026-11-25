@@ -58,8 +58,8 @@ void install_race_classes(GameNatives& n, script::Module& menu) {
         auto race = std::make_shared<Object>("MRaceData");
         const std::string label = arg_text(a, 0);
         race->set("race_code", text(label));
-        // The license tests' and missions' rows carry the region ("usl0m0001" for "l0m0001"), as
-        // Runtime::race_finished finds them.
+        // The license tests' and missions' rows carry the region ("usl0m0001" for "l0m0001"): the
+        // labels tried as Database::race_unit does (0x430D20).
         std::string found = label;
         for (const std::string& tried : {label, "us" + label, "jp" + label})
             if (!label.empty() && np->db().code(kRaceTable, tried) != kNoCode) {

@@ -351,7 +351,8 @@ TEST(disc_gt_mode_loop_mission) {
     if (f.page() != "TopRoot") return;
     menu::GameState& g = f.rt->game();
     f.map_focus("Mission");
-    f.press({menu::Key::Accept, menu::Key::Accept});
+    f.press({menu::Key::Accept});
+    f.press_licensed(menu::Key::Accept); // (the first mission asks for the International B license)
     const std::optional<menu::RaceRequest> race = f.rt->race_request();
     CHECK(race && race->sequence == "mission");
     if (!race) return;
