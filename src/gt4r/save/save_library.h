@@ -26,6 +26,7 @@ public:
     // `product`: "BASCUS-97328", Prologue's "BISCPS-15055" (each disc's games apart from the other's).
     SaveLibrary(std::string data_dir, std::string product);
     bool ok() const { return !dir_.empty(); }
+    const std::string& product() const { return product_; }
     // The folder of the game being played (the first one's when none is named or the one named is gone; a folder without a
     // game is where a new one goes).
     std::string current() const;

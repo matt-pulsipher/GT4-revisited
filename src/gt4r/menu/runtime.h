@@ -16,6 +16,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace gt4r::menu {
@@ -137,6 +138,8 @@ struct RuntimeConfig {
         return program ? std::make_shared<const gt3r::CoreImage>(gt3r::CoreImage::decode(program())) : nullptr;
     }
     std::string data_dir;        // where the options are kept ("" : not kept)
+    bool console_card = false;   // a console's memory card and its dialogs (the original's pages), instead of saves of their own (no_card.h)
+    std::string new_card;        // the folder of a new game to make instead of the current one's (save/save_library.h)
 };
 
 class Runtime {
@@ -262,6 +265,10 @@ public:
     const FolderLister& lister() const { return config_.list; }
     const std::string& data_dir() const { return config_.data_dir; }
     const std::string& language() const { return config_.language; }
+    // The project's module as a script has it (nil when none runs).
+    script::Value project_value() const { return widget_value(root_widget_); }
+    // The player asked for the saved games' page (the title's Save Game, Prologue's save and load items): taken once.
+    bool take_saves_asked() { return std::exchange(saves_asked_, false); }
     std::string translate(const script::Value& module, const std::string& page, const std::string& key);
     std::shared_ptr<LiveWidget> common_page(const std::string& name);
     // Calls a widget's script function now, to its end (a wait in it is passed over).
@@ -317,6 +324,7 @@ private:
 
     FileReader read_;
     Config config_;
+    bool saves_asked_ = false, autosave_due_ = false;
     std::unique_ptr<GameState> game_;
     std::unique_ptr<script::Vm> vm_;
     bool booted_ = false;

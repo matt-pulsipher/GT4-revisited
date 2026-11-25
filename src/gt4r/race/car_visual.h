@@ -33,6 +33,9 @@ public:
         // The driver: a character file's set for a car without its own (driver_figure.h
         // character_driver_file). Empty: the car's own set alone / no figure.
         ByteSpan driver_set;
+        // The reflection passes' weight from the draw's own factors (DrawOptions::reflection_strength and _fresnel: the
+        // program's globals [0x6238A0] and [0x62389C], op 0x56), not the constant 1 the shapes get without them.
+        bool reflection_by_draw = false;
         bool driver = false; // draw the driver
     };
     // `car_file`: car/lod/<model>; `pat`: the paint file next to it when the car file has none

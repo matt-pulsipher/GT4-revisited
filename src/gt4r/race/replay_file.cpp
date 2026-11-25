@@ -100,6 +100,11 @@ CarState get_state(Reader& r) {
 
 } // namespace
 
+namespace {
+constexpr u32 tag_of(const char (&t)[5]) { return u32(u8(t[0])) | u32(u8(t[1])) << 8 | u32(u8(t[2])) << 16 | u32(u8(t[3])) << 24; }
+constexpr u32 kInfo = tag_of("INFO"), kPicture = tag_of("PICT");
+} // namespace
+
 Bytes ReplayFile::encode() const {
     Writer body;
     body.str(course), body.str(sequence), body.str(race);
@@ -114,6 +119,16 @@ Bytes ReplayFile::encode() const {
         body.u32v(tag), body.u32v(u32(b.size()));
         body.b.insert(body.b.end(), b.begin(), b.end());
     };
+    if (!title.empty() || !mode.empty() || time_ms) {
+        Writer info;
+        info.str(title), info.str(mode), info.u32v(u32(submode)), info.u32v(time_ms), info.u8v(bspec);
+        section(kInfo, info.b);
+    }
+    if (picture.size() == 64 * 64) {
+        Writer pict;
+        for (u32 c : picture) pict.u32v(c);
+        section(kPicture, pict.b);
+    }
     for (const auto& [tag, b] : other) section(tag, b);
     Writer out;
     for (char ch : std::string("GT4RRPL1")) out.u8v(u8(ch));
@@ -153,7 +168,11 @@ ReplayFile ReplayFile::decode(ByteSpan file) {
         if (r.at + u64(bytes) > body.size()) break;
         const Bytes b(body.begin() + std::ptrdiff_t(r.at), body.begin() + std::ptrdiff_t(r.at + bytes));
         r.at += bytes;
-        f.other.emplace_back(tag, b);
+        Reader in{b};
+        if (tag == kInfo) f.title = in.str(), f.mode = in.str(), f.submode = int(s32(in.u32v())), f.time_ms = in.u32v(), f.bspec = in.u8v() != 0;
+        else if (tag == kPicture && bytes == 64 * 64 * 4) {
+            for (int i = 0; i < 64 * 64; ++i) f.picture.push_back(in.u32v());
+        } else f.other.emplace_back(tag, b);
     }
     return f;
 }

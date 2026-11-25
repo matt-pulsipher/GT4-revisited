@@ -10,14 +10,17 @@ Prologue disc starts the same way.
    4 disc image (`.iso` or `.chd`), or drop the file on the window. Nothing is copied from the
    disc; the game's files are read from the image as they are needed.
    The disc images opened before are offered below it.
-2. With a disc chosen, the game starts as the console does: the memory card's questions, the
+2. With a disc chosen, the game starts as the console does, without its questions about a memory card: the
    Polyphony Digital logo, the opening movie (Start skips it), the title. The disc is remembered:
    the next launch goes straight there. `gt4r <disc image>` starts with that disc.
-3. Your memory card, options and replays are kept in the app's data folder (on macOS
+3. Your saved games, options and replays are kept in the app's data folder (on macOS
    `~/Library/Application Support/GT4Revisited/GT4Revisited/`; a `portable.ini` beside the program
-   keeps them beside it; `GT4R_DATA_DIR` names another folder). A new data folder is a memory
-   card without game data: the game offers to make one (OK), which leads to Gran Turismo mode's
-   name entry and introduction; Cancel and "Start game" play without one (Arcade only).
+   keeps them beside it; `GT4R_DATA_DIR` names another folder). With none saved yet, choosing Gran Turismo mode
+   starts a new game (the name entry); Arcade needs none. The game saves itself after every race and purchase (Options,
+   Miscellaneous, Autosave) and the next launch goes on with it.
+   **Saved games** (the home screen, the title's *Save Game*, Prologue's *Save* and *Load*) lists them: load one, start a new one
+   beside the others, delete one, *Export to PS2* (a memory card image the original loads) and *Import from a PS2 memory card
+   image*.
 4. Select and Start together leave the game for the home screen: the disc's cars, courses, menu
    pages and files, a race set up by hand (*Drive*), *Controls*, *Settings*, *Mods*, the *Save editor*, another disc, and
    *Play* to start the game again. *Settings > Disc & saves > Starts in* opens the home screen first.
@@ -189,7 +192,7 @@ Wheel:
 
 ## What works
 
-- **The boot**: the memory card's dialogs, the logo, the opening movie, the title with its
+- **The boot**: the logo, the opening movie, the title with its
   moving background. A game saved in Gran Turismo mode starts again on its map, as the console
   does.
 - **Arcade**: Single Race (course categories, the course pages, every maker and car, paints, the

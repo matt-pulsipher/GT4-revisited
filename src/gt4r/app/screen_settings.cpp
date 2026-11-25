@@ -3,6 +3,7 @@
 // applied at once, except where a row says when.
 
 #include "gt4r/app/app.h"
+#include "gt4r/app/screen_saves.h"
 #include "gt4r/app/page.h"
 #include "gt4r/app/texture_dump.h"
 #include "gt4r/input/player_controls.h"
@@ -399,6 +400,7 @@ private:
         rows_.heading("Saves");
         PageRow& saves = rows_.action("Save folder", app.save_dir_chosen() ? app.save_dir() : std::string("the data folder"), "choose another", [this, a] { folder_.open_folder(*a); });
         if (app.save_dir_chosen()) saves.other = [this, a] { use_save_folder(*a, ""); }, saves.other_hint = "the data folder";
+        rows_.action("Saved games", "", "open the list", [a] { a->push(make_saves_screen(*a)); });
         rows_.heading("This app");
         rows_.choice("Starts in", {"The game", "The home screen"}, app.config().get("game", "start").value_or("game") == "hub", [a](size_t i) {
             a->config().set("game", "start", i ? "hub" : "game");

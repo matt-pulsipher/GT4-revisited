@@ -51,6 +51,13 @@ gt3r::gtm1::Options car_options() {
     return o;
 }
 
+// The reflection passes without weight rows of their own take the draw's (Options::reflection_by_draw).
+void reflect_by_draw(scene::Model& m) {
+    for (scene::Mesh& mesh : m.meshes)
+        for (scene::Primitive& p : mesh.primitives)
+            if ((p.flags & scene::kEnvironmentMap) && p.env_c0[0] == 1 && p.env_c1[0] == 0) p.env_rows = false;
+}
+
 // A set's model at every level of detail it has (at most `levels`) as one model, the meshes
 // tagged with their level.
 scene::Model build_levels(ByteSpan set, int model, const mdls::Scene& sc, int levels, int texture_list, const std::string& name) {
@@ -216,6 +223,7 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
             ws.resolve_callbacks = true;
             scene::Model m = build_levels(opt.wing, 0, ws, 3, 0, name + "/wing");
             for (const scene::Mesh& mesh : m.meshes) wing_lods_ = std::max(wing_lods_, mesh.lod + 1);
+            if (opt.reflection_by_draw) reflect_by_draw(m);
             if (!m.meshes.empty()) to_gpu(wing_, std::move(m));
         }
     }
@@ -251,6 +259,7 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
             max_ = {m.bounds_max[0], m.bounds_max[1], m.bounds_max[2]};
             for (const scene::Mesh& mesh : m.meshes) lods_ = std::max(lods_, mesh.lod + 1);
         }
+        if (opt.reflection_by_draw) reflect_by_draw(m);
         to_gpu(body_[size_t(brake)], std::move(m));
     }
     // The brake parts: the shapes the body's program draws in each wheel's frame.
