@@ -6,6 +6,7 @@
 #include "prologue_race.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 namespace gt4r::diff::prologue {
@@ -46,6 +47,15 @@ bool run_save_layout(Disc& disc) {
     std::printf("Prologue game data: magic %08X, size (0x402150) 0x%X, written 0x%X, check %d\n", ee.r32(buf), size, length, ok);
     std::printf("  name at 0x%llX, license unit 0 at 0x%llX, unit 47 at 0x%llX, course unit 63 +8 at 0x%llX, options at 0x%llX\n", (long long)name,
                 (long long)find(0xA1A1A1A1), (long long)find(0xA4A4A4A4), (long long)find(0xC3C3C3C3), (long long)find(0xB2B2B2B2));
+    // A fresh Status's save, no marks: written to $GT4R_PROLOGUE_SAVE_OUT when set.
+    const u32 fresh = ee.alloc(0x40000, 64), fresh_buf = ee.alloc(0x40000, 64);
+    std::memset(ee.host_ptr(fresh_buf, 0x40000), 0, 0x40000);
+    ee.call(0x401E90, {Arg::ptr(fresh)});
+    ee.call(0x4021F0, {Arg::ptr(fresh), Arg::ptr(fresh_buf)});
+    const u8* program = ee.host_ptr(fresh_buf, length);
+    if (const char* out = std::getenv("GT4R_PROLOGUE_SAVE_OUT")) {
+        if (FILE* f = std::fopen(out, "wb")) std::fwrite(program, 1, length, f), std::fclose(f);
+    }
     return true;
 }
 

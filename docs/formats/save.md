@@ -63,9 +63,25 @@ by the shared engine's card layout (`formats/ps2/memcard.h`); `src/gt4r/save/car
   folder> [name] [credits]` runs the menus from power on to a new game on that folder's card,
   then buys cars at the dealers as the purchase page does (`addNewCar`, the diary's day, the car
   open in Arcade), drives the last one, passes every license test (the result routine of a
-  license test, with the test's medal time), lets Gran Turismo mode's present page give what the
-  records entitle the player to (the licenses' papers and cars, courses by the weeks gone by),
-  and saves (`src/gt4r/menu/game_progress.*`). `export` then puts it on a card image.
+  license test, with the test's medal time), wins events (each race through the result routine of
+  a race or of a championship's race, first place, a day each: every Beginner and Professional
+  event but the Gran Turismo World Championship, then the Japanese, American and European halls'
+  events until the completion is 26.0 % or more), lets Gran Turismo mode's present page give what
+  the records entitle the player to (the licenses' papers and cars, cars by completion, courses
+  by the weeks gone by), drives the Ford GT '05 and saves (`src/gt4r/menu/game_progress.*`).
+  `export` then puts it on a card image. What that opens, by Gran Turismo mode's own script:
+  - **Completion** (Home's "Complete", `getRaceEventRecordStatistics`): the races won (result
+    "1") per mille of every race of the event lists (`EventData::AllEvents`, each event's races
+    and a championship's own record) and the missions (`l0m0001` on), in integers. The card made
+    this way reads 26.8 %.
+  - **The Endurance hall** (`canEntryEndurance`): completion 250 per mille or more.
+  - **The Gran Turismo World Championship** (`canEntryGTWorldChamp`, on its event's entry):
+    every other Beginner and Professional event won (`wonRace`: a championship's own record, else
+    every race of the event).
+  - **The Extreme hall** (`canEntryExtreme`): the Gran Turismo World Championship won; left shut.
+  - **The Supercar Festival**: 493 HP or more (the reference's message); the Ford GT has 558.
+  - **Missions**: each mission's license. **Photo travel**: its places (`EventData::PhotoStageList`)
+    open as Arcade's courses do; 40 weeks in, all 15 are open.
 
 Checked: the reference card made by the running original (a new game and a used car) imports
 and loads (the player, credits, the car with its record; written again the same bytes);
