@@ -132,6 +132,11 @@ Its size on the card counts each file up to a KB, half a KB an entry, and one mo
 with `gt4tool photo <disc> check <card>` on the reference card: the record, both files scrambled again
 and the icon come out the same bytes; a photo taken here lists, shows and checks the same.
 
+The app's save files are no card: the photo pages' card manager always answers a card, formatted, with room (`free` 8,000), in
+either slot the one folder; the page that asks where to save and as what (`SaveDialog`) is answered without
+showing it (the photo, the save files); a write that fails says so once. The other questions of the scripts about
+a card are answered in the menus.
+
 The **slide show's list** is the folder `BASCUS-97328LSTSLIDE` (76 KB by the program's count): 400
 places of u64 (the folder's number, its letter in the top byte), u32 count at 0xC80, padded to 0xCC0
 bytes and not scrambled (0x1D0F38). The slide show face shows the list's photos, or the disc's

@@ -124,8 +124,10 @@ TEST(disc_photo_shoot_pages) {
         CHECK(menu::photo_render_face(*f.rt) != nullptr);
         picture(f);
         step(f, Pad{}, 5);
+        // Start saves it: no question where, no card to have or to fill.
+        f.rt->game().card.connected = false;
         push(f, menu::Key::Start, Pad::kStart);
-        CHECK(f.page() == "SaveDialog");
+        CHECK(f.page() != "SaveDialog");
         for (int i = 0; i < 4 && f.page() != "PreviewRoot"; ++i) push(f, menu::Key::Accept, Pad::kCross), step(f, Pad{}, 90);
         std::printf("  after saving: %s\n", f.page().c_str());
         CHECK(f.clean());
@@ -168,7 +170,8 @@ TEST(disc_photo_shoot_pages) {
         const script::Value list = vm.call(vm.attribute(vm.lookup("menu"), "MMemoryCardPlayList"), {});
         const script::Value slides = vm.attribute(manager, "autoloadPlayList");
         if (const auto r = vm.member(slides, "list")) r->set(vm, list);
-        CHECK(vm.attribute(manager, "autoloadPlayListResult").to_string() == "FILE_NOT_FOUND");
+        CHECK(vm.attribute(manager, "autoloadPlayListResult").to_string() == "OK"); // (no list yet: an empty one, nothing to ask)
+        CHECK(vm.attribute(manager, "isConnect").p && vm.attribute(manager, "free").as_float() == 8000);
         call(list, "append", {file});
         CHECK(call(slides, "saveNew", {manager, script::Value::string("Slides")}).to_string() == "OK");
         CHECK(menu::slide_folders(*f.rt).size() == 1);

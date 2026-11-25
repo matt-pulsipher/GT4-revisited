@@ -52,6 +52,9 @@ std::shared_ptr<script::Reference> photo_member(Runtime& rt, const std::shared_p
 // The slide show's photos of the memory card, by folder (none: the disc's are shown), and one's JPEG.
 std::vector<std::string> slide_folders(Runtime& rt);
 std::optional<Bytes> slide_photo(Runtime& rt, const std::string& folder);
+// The photo pages' question where to save (a memory card's slot, a USB memory) and whether as a film, answered without its
+// page: the photo, to the game's save files.
+void answer_photo_destination(LiveWidget& project);
 // After a shoot: its day in the diary (0x1C79A8: a course run of kind 5, no result, no time).
 void photo_day(Runtime& rt, const std::string& course);
 // The program's f-numbers (16), empty when its tables are not known.

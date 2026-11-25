@@ -36,27 +36,12 @@ struct PlayListObject : Object {
     bool changed = false;
 };
 
-std::string card_dir(Runtime& rt, int slot) {
-    if (rt.data_dir().empty()) return {};
-    std::string dir = rt.data_dir() + (slot == 1 ? "/memorycard2" : "/memorycard");
-    std::error_code ec;
-    // (The card in slot 2 is there when its folder is.)
-    if (slot == 1 && !std::filesystem::is_directory(dir, ec)) return {};
-    return dir;
-}
+// The photos' folder: the game's save files, one place whatever slot a page names.
+std::string card_dir(Runtime& rt, int) { return rt.data_dir().empty() ? std::string() : rt.data_dir() + "/memorycard"; }
 
 save::PhotoCard photo_card(Runtime& rt, int slot) { return save::PhotoCard(card_dir(rt, slot), rt.reader()); }
 
-int card_free_kb(Runtime& rt, int slot) {
-    const std::string dir = card_dir(rt, slot);
-    if (dir.empty()) return 0;
-    int used = 1;
-    std::error_code ec;
-    for (const auto& e : std::filesystem::recursive_directory_iterator(dir, ec))
-        if (e.is_regular_file(ec)) used += int((e.file_size(ec) + 1023) / 1024);
-        else if (e.is_directory(ec)) used += 3; // (its entries)
-    return std::max(0, 8000 - used);
-}
+constexpr s32 kFreeKb = 8000; // (always room: the save files are not a card's)
 
 std::vector<u16> small_picture(const PhotoPicture& p) {
     std::vector<u8> rgb(size_t(p.width) * size_t(p.height) * 3);
@@ -205,7 +190,7 @@ std::vector<std::string> slide_folders(Runtime& rt) {
     std::vector<std::string> out;
     const save::PhotoCard card = photo_card(rt, 0);
     std::vector<save::PhotoCard::Listed> ids;
-    if (!rt.game().card.connected || card.load_slides(ids) != save::Result::Ok) return out;
+    if (card.load_slides(ids) != save::Result::Ok) return out;
     for (const save::PhotoCard::Listed& id : ids) out.push_back(card.folder(id));
     return out;
 }
@@ -261,6 +246,22 @@ void install_photo_lists(GameNatives& n, script::Module& menu) {
     n.photo_print_list = object_value(make_list());
 }
 
+void answer_photo_destination(LiveWidget& project) {
+    // Where to save (a memory card's slot, a USB memory) and whether as a film: always the photo, to the save files.
+    for (const char* name : {"SaveDialog", "DestinationDialog"})
+        if (const auto dialog = project.child(name); dialog && dialog->members.count("kind"))
+            if (const auto it = dialog->members.find("open"); it != dialog->members.end() && it->second->value.kind == script::Kind::Function) {
+                std::weak_ptr<LiveWidget> weak = dialog;
+                it->second->value = Vm::native("open", [weak](Vm&, const Value&, Args) {
+                    const auto d = weak.lock();
+                    if (!d) return number(0);
+                    for (const auto& [member, value] : {std::pair<const char*, s32>{"slot", 0}, {"kind", 2}})
+                        if (const auto m = d->members.find(member); m != d->members.end()) m->second->value = number(value);
+                    return number(1);
+                });
+            }
+}
+
 bool install_photo_manager(GameNatives& n, Object& manager, const std::string& mode, int slot) {
     const bool save_photo = mode == "MODE_SAVE_PHOTO_PICTURE", save_film = mode == "MODE_SAVE_PHOTO_FILM";
     const bool load_photo = mode == "MODE_LOAD_PHOTO_PICTURE" || mode == "MODE_LOAD_PHOTO_PICTURE_AND_TRANSFER_USB_MEMORY";
@@ -269,23 +270,21 @@ bool install_photo_manager(GameNatives& n, Object& manager, const std::string& m
     if (!save_photo && !save_film && !load_photo && !load_film && !play_list && !print_list) return false;
     GameNatives* np = &n;
     Runtime* rt = &n.rt;
-    auto connected = [rt, slot] { return rt->game().card.connected && photo_card(*rt, slot).connected(); };
     auto progress = std::make_shared<Object>("MProgress");
     progress->set("value", Value::number(0));
     manager.set("progress", object_value(progress));
-    for (const char* q : {"isConnect", "isFormat"}) manager.method(q, [connected](Vm&, const Value&, Args) { return number(connected()); });
+    for (const char* q : {"isConnect", "isFormat"}) manager.method(q, [](Vm&, const Value&, Args) { return number(1); });
     manager.method("isChanged", [](Vm&, const Value&, Args) { return number(0); });
     manager.method("isUseNewFile", [](Vm&, const Value&, Args) { return number(1); });
     manager.method("isAutoSaveDisabled", [](Vm&, const Value&, Args) { return number(0); });
     for (const char* nothing : {"clearAutoSaveDisabled", "requestPause", "waitPause", "start", "restart"})
         manager.method(nothing, [](Vm&, const Value&, Args) { return Value{}; });
-    manager.property("free", [rt, slot] { return number(card_free_kb(*rt, slot)); });
-    manager.property("realFree", [rt, slot] { return number(card_free_kb(*rt, slot)); });
+    manager.set("free", number(kFreeKb)), manager.set("realFree", number(kFreeKb));
     manager.set("cursorPos", number(0));
 
     // The slide show's list: the card's LSTSLIDE file, read into the list the scripts give it.
     auto shown = std::make_shared<std::shared_ptr<PlayListObject>>();
-    auto loaded = std::make_shared<save::Result>(save::Result::FileNotFound);
+    auto loaded = std::make_shared<save::Result>(save::Result::Ok);
     manager.property("autoloadPlayListResult", [loaded] { return text(save::result_name(*loaded)); });
     auto auto_list = std::make_shared<Object>("MMemoryCardFile");
     auto_list->property("list", [shown] { return *shown ? object_value(*shown) : Value{}; }, [np, rt, slot, shown, loaded](const Value& v) {
@@ -294,8 +293,9 @@ bool install_photo_manager(GameNatives& n, Object& manager, const std::string& m
         *shown = l;
         const save::PhotoCard card = photo_card(*rt, slot);
         std::vector<save::PhotoCard::Listed> ids;
-        *loaded = card.load_slides(ids);
-        if (*loaded != save::Result::Ok) return;
+        // (No list yet is an empty one: nothing to ask.)
+        *loaded = card.has_slides() ? card.load_slides(ids) : save::Result::Ok;
+        if (*loaded != save::Result::Ok || !card.has_slides()) return;
         const std::vector<save::PhotoEntry> photos = card.list('P');
         l->files.clear();
         for (const save::PhotoCard::Listed& id : ids) {
@@ -305,7 +305,7 @@ bool install_photo_manager(GameNatives& n, Object& manager, const std::string& m
         }
     });
     auto_list->set("size", number(save::PhotoCard::kListKb));
-    auto_list->method("isExist", [connected, rt, slot](Vm&, const Value&, Args) { return number(!connected() ? -1 : photo_card(*rt, slot).has_slides() ? 0 : 1); });
+    auto_list->method("isExist", [rt, slot](Vm&, const Value&, Args) { return number(photo_card(*rt, slot).has_slides() ? 0 : 1); });
     auto_list->method("readSize", [](Vm&, const Value&, Args) { return number(save::PhotoCard::kListKb); });
     auto_list->method("format", [](Vm&, const Value&, Args) { return number(1); });
     auto_list->method("remove", [rt, slot](Vm&, const Value&, Args) { return number(photo_card(*rt, slot).remove_slides() == save::Result::Ok); });
@@ -334,9 +334,9 @@ bool install_photo_manager(GameNatives& n, Object& manager, const std::string& m
     });
     if (print_list)
         if (const auto l = n.photo_print_list.as<PlayListObject>()) *list = l;
-    auto count = [files, list, play_list, print_list, connected]() -> s32 {
+    auto count = [files, list, play_list, print_list]() -> s32 {
         if (play_list || print_list) return *list ? s32((*list)->files.size()) : 0;
-        return connected() ? s32(files->size()) : 0;
+        return s32(files->size());
     };
     manager.property("count", [count] { return number(count()); });
     manager.method("isNoFile", [count](Vm&, const Value&, Args) { return number(count() == 0); });
@@ -358,7 +358,7 @@ bool install_photo_manager(GameNatives& n, Object& manager, const std::string& m
     // A new photo: the picture the shoot has taken.
     auto file = std::make_shared<Object>("MMemoryCardFile");
     file->set("objectName", text("FilePhoto"));
-    file->method("isExist", [connected](Vm&, const Value&, Args) { return number(connected() ? 1 : -1); });
+    file->method("isExist", [](Vm&, const Value&, Args) { return number(1); }); // (a new one)
     file->method("readSize", [](Vm&, const Value&, Args) { return number(0); });
     file->method("format", [](Vm&, const Value&, Args) { return number(1); });
     file->method("remove", [](Vm&, const Value&, Args) { return number(1); });

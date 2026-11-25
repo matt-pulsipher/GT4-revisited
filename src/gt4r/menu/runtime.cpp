@@ -2,6 +2,7 @@
 #include "gt4r/menu/race_natives.h"
 
 #include "gt4r/menu/game_settings.h"
+#include "gt4r/menu/photo_natives.h"
 
 #include "gt4r/menu/runtime_internal.h"
 
@@ -477,6 +478,7 @@ void Runtime::start_project(const std::string& name, const std::string& language
     note("project " + name + " (" + root_widget_->name + ")");
     vm_->instructions = 0, vm_->budget = kCallBudget;
     vm_->require("/projects/" + name + "/" + name);
+    answer_photo_destination(*root_widget_);
     // A new transition and cursor for each project: the scripts set theirs in onLoad.
     if (auto render = render_context_.as<Object>()) render->set("transition", Value{}), render->set("cursor_visible", Value::integer(1));
     // onLoad on every widget that has one, the children before their parent, the project

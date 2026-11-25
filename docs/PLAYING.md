@@ -141,8 +141,8 @@ Wheel:
 - **Photo Travel and Photo Lab**: the 15 places with the car you drive; the map (place the car and the
   camera: select them with Cross, the left stick moves them, L2 / R2 turn the car, L1 / R1 zoom), the
   camera (hold Cross on a button, or L1, L2, R1, R2, with the left stick), lens, aperture, focus, filters,
-  the wheels' angle, portrait, the aspect and quality options; the photo, saved on the memory card in the
-  original's format; Photo Lab's list, preview, renaming, deleting and the slide show.
+  the wheels' angle, portrait, the aspect and quality options; the photo, saved (Start) with the game's save files in
+  the original's format; Photo Lab's list, preview, renaming, deleting and the slide show.
 
 ## Known problems
 
