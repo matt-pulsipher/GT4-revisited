@@ -40,7 +40,7 @@ PitHooks session_pit_hooks(Session& session) {
 }
 
 PitStops::PitStops(const Field& field, const Program& program, size_t cars, PitHooks hooks, PitRace race)
-    : flow_(program), hooks_(std::move(hooks)), race_(race), cars_(cars), last_d_(cars), last_lap_(cars, 0), stops_(cars, 0), lap_state_(cars, 0), records_(cars), default_choice_(cars, false), pending_(cars) {
+    : flow_(program), hooks_(std::move(hooks)), race_(race), cars_(cars), last_d_(cars), last_lap_(cars, 0), stops_(cars, 0), lap_state_(cars, 0), records_(cars), default_choice_(cars, false), pending_(cars), took_default_(cars, false), recorded_(cars, false) {
     if (program.known()) race_.refuel_rate = program.b(0x620E25);
     for (const LinePoint& p : field.lines().line(CourseLines::kPitStop)) line_.dist.push_back(F(p.dist)), line_.heading.push_back(F(p.heading));
     // A car's box (0x363B10 by 0x46BDA0): the stop line's point 8 less its place on the grid (none without the line).
@@ -60,7 +60,9 @@ void PitStops::before(const Field& field, std::span<race::CarInput> inputs) {
         if (hooks_.hold) hooks_.hold(i, c.hold); // (the session holds the car while the counter runs)
         // The input phase after it (0x349FD0 → 0x35BFE8): the choice made for a B-spec car whose wait ran out (0x35BF08), or
         // the player's from the pit menu (choose()).
-        if (e.default_choice) default_choice_[i] = true;
+        // (A car by a recording: the record has the choice, the one made by the wait too: the mail is not looked at.)
+        took_default_[i] = e.default_choice && !recorded_[i];
+        if (took_default_[i]) default_choice_[i] = true;
         if (default_choice_[i]) {
             default_choice_[i] = false;
             const Choice ch = pending_[i].value_or(Choice{1, 0xFE, 0xFE, 0xFE});

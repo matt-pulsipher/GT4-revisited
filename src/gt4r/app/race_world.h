@@ -213,6 +213,12 @@ public:
     }
     // The player's car put at the moment a free run's recording starts at (its record, formats/replay.md).
     bool resume(const replay::RecorderState& state);
+    // The player's car by a recording: its pit choices by its records alone (after the restart); the choice made in the last step
+    // for a B-spec car whose wait ran out.
+    void pits_by_record() {
+        if (pits_) pits_->set_recorded(0);
+    }
+    bool pit_took_default(size_t car) const { return pits_ && pits_->took_default(car); }
     // The refuelling: just begun (0x35BE10: service 0x20 taken), going on (0x35BEB0), stopped by the player (0x35BFC0).
     bool refuel_begun(size_t car);
     bool refuelling(size_t car) const;

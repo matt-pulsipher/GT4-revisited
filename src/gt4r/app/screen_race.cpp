@@ -887,6 +887,8 @@ public:
         }
         const bool opening = opening_tv();
         world_->step(inputs_, hold, demo ? demo_bspec_ : (auto_drive || watched_ || setup_.auto_drive), u32(std::max(0, flow_.hold_left() - 1)));
+        if (recording_ && !demo && world_->pit_took_default(0) && records_.back().bytes[0x10] == 0)
+            for (size_t k = 0; k < 4; ++k) records_.back().bytes[0x10 + k] = k ? 0xFE : 1; // (0x35BF08 posts it in the step's mail)
         // GT4R_DEMO_LOG=<n>: a demonstration's car every n steps (the record's x, y: the course's x, -z), to compare with a
         // run of the program's own step (gt4r_diff demo).
         if (demo)
@@ -1084,6 +1086,7 @@ public:
         world_->set_entry_overrides(std::move(over));
         demo_step_ = 0, demo_logged_ = false, demo_bspec_ = bspec;
         begin_run(false, true);
+        world_->pits_by_record();
         LOG_INFO("Drive: the demonstration %s: %zu steps recorded (%d ms); wear %d, fuel %.1f of %.1f l, race %s", demo_run_->label.c_str(), demo_run_->steps(), demo_run_->recorded_ms(),
                  int(world_->wears_tires()), double(world_->fuel(0)), double(world_->tank(0)), setup_.race.c_str());
     }

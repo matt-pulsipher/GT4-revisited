@@ -96,6 +96,12 @@ public:
     void choose(size_t car, u8 front, u8 rear, u8 fuel, u8 command = 1) {
         if (car < cars_.size()) pending_[car] = Choice{command, front, rear, fuel}, default_choice_[car] = true;
     }
+    // A car driven by a recording: its choices come from its records alone.
+    void set_recorded(size_t car) {
+        if (car < cars_.size()) recorded_[car] = true;
+    }
+    // A B-spec car's wait ran out in the last step: the choice made for it (a recording's record has it).
+    bool took_default(size_t car) const { return car < cars_.size() && took_default_[car]; }
     // Before the session's step: a car standing in its box held.
     void before(const Field& field, std::span<race::CarInput> inputs);
     // After the session's step.
@@ -129,6 +135,7 @@ private:
     };
     std::vector<bool> default_choice_; // a choice to take at the step's input (a B-spec car's wait ran out: 0x35BF08)
     std::vector<std::optional<Choice>> pending_;
+    std::vector<bool> took_default_, recorded_; // the last step's wait ran out; a car driven by a recording
 };
 
 } // namespace gt4r::sim::ai
