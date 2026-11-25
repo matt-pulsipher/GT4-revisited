@@ -2367,6 +2367,14 @@ private:
                     return e < g.series.entrants.size() ? g.series.entrants[e].points : 0;
                 };
                 auto total_of = [&](size_t r) { return before_of(r) + menus_->points_for_place(int(r)); };
+                // A points text by the race's words ("%c%d pt": a sign or a space, the number).
+                auto point_text = [&](char sign, int n) {
+                    std::string f = hud_->word("ChampionShipPointFormat");
+                    if (f.find("%d") == std::string::npos) f = "%c%d pt";
+                    if (const size_t at = f.find("%c"); at != std::string::npos) f.replace(at, 2, 1, sign);
+                    f.replace(f.find("%d"), 2, std::to_string(n));
+                    return f;
+                };
                 // The rows in order of points (0x40C538): the most first, a tie in this race's order; before this race, or
                 // with its points.
                 auto ranking = [&](bool with_race) {
@@ -2388,8 +2396,8 @@ private:
                     const std::string at = args.empty() ? std::string() : args[0].to_string();
                     const int r = at.size() > 1 && (at[0] == 'R' || at[0] == 'r') ? std::atoi(at.c_str() + 1) - 1 : -1;
                     if (r < 0 || size_t(r) >= board.rows().size()) return V::string({});
-                    if (points_phase_ >= 2) return V::string(" " + std::to_string(total_of(ranking(false)[size_t(r)])) + " pt");
-                    return V::string("+" + std::to_string(menus_->points_for_place(r)) + " pt");
+                    if (points_phase_ >= 2) return V::string(point_text(' ', total_of(ranking(false)[size_t(r)])));
+                    return V::string(point_text('+', menus_->points_for_place(r)));
                 }
                 if (points_phase_ >= 2 && i >= 0 && size_t(i) < board.rows().size()) {
                     const size_t r = ranking(points_phase_ == 3)[size_t(i)];
@@ -2398,8 +2406,8 @@ private:
                         return V::string(car >= 0 ? race_->car_short_name(size_t(car)) : std::string());
                     }
                     if (n == "CB_GETTIME")
-                        return V::string(points_phase_ == 3 ? " " + std::to_string(total_of(r)) + " pt"
-                                                            : std::to_string(before_of(r)) + " + " + std::to_string(menus_->points_for_place(int(r))) + " pt");
+                        return V::string(points_phase_ == 3 ? point_text(' ', total_of(r))
+                                                            : std::to_string(before_of(r)) + " +" + point_text(' ', menus_->points_for_place(int(r))));
                 }
                 if (points_phase_ >= 2 && n == "CB_PLAYERRANK") {
                     const std::vector<size_t> order = ranking(points_phase_ == 3);
