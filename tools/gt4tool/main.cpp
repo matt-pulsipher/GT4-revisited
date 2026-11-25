@@ -51,6 +51,7 @@ namespace gt4r {
 int cmd_sound(Disc& disc, const std::vector<std::string>& args); // cmd_sound.cpp
 int cmd_prologue(Disc& disc, const std::vector<std::string>& args); // cmd_prologue.cpp
 namespace tool { int cmd_ai(Disc& disc, const std::vector<std::string>& args); } // cmd_ai.cpp
+namespace tool { int cmd_sweep(Disc& disc, const std::vector<std::string>& args); } // cmd_sweep.cpp
 }
 using namespace gt4r;
 
@@ -610,16 +611,19 @@ const Command kCommands[] = {
     {"race", "<disc> rail <course> [seconds] | sections <course>", 2, cmd_race},
     {"prologue", "<disc> program | survey | drivers | hud (cmd_prologue.cpp)", 1, cmd_prologue},
     {"ai", "<disc> <course> [cars] [laps] | lines <course> [line] | survey (cmd_ai.cpp)", 1, [](Disc& d, const Args& a) { return gt4r::tool::cmd_ai(d, a); }},
+    {"sweep", "<disc> courses [filter] [cars=4] [laps=1] | cars [filter] [course=tsukuba] [seconds=40] (cmd_sweep.cpp)", 1, [](Disc& d, const Args& a) { return gt4r::tool::cmd_sweep(d, a); }},
 };
 
 } // namespace
 
 namespace gt4r::tool { int sim_main(int argc, char** argv); void sim_usage(); } // cmd_sim.cpp
 namespace gt4r::tool { int sound_main(int argc, char** argv); } // cmd_sound_compare.cpp
+namespace gt4r::tool { int menudraw_main(int argc, char** argv); } // cmd_menudraw.cpp
 
 int main(int argc, char** argv) {
     if (const int r = gt4r::tool::sim_main(argc, argv); r >= 0) return r;
     if (const int r = gt4r::tool::sound_main(argc, argv); r >= 0) return r;
+    if (const int r = gt4r::tool::menudraw_main(argc, argv); r >= 0) return r;
     if (argc >= 3)
         for (const Command& c : kCommands) {
             if (std::strcmp(argv[1], c.name) != 0) continue;

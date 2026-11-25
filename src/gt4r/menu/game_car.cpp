@@ -342,8 +342,8 @@ Value make_car_value(GameNatives& n, std::shared_ptr<CarHandle> c) {
     auto name_at = [c, db](size_t at) {
         Database& dd = db();
         const db::Labels* labels = dd.db ? dd.db->labels("GENERIC_CAR") : nullptr;
-        const db::Table* names = dd.db ? dd.db->table("CAR_NAME_american") : nullptr;
-        const db::Strings* pool = dd.db ? dd.db->strings("american_StrDB") : nullptr;
+        const db::Table* names = dd.db ? dd.db->table("CAR_NAME_" + dd.language) : nullptr;
+        const db::Strings* pool = dd.db ? dd.db->strings(dd.language + "_StrDB") : nullptr;
         const std::optional<u32> id = labels ? labels->id(c->label) : std::nullopt;
         if (!id || !names || !pool) return std::string();
         const ByteSpan row = names->row(*id);

@@ -65,6 +65,7 @@ std::vector<Row> build() {
     f(0x480, 0x08, 0x580, "pitch and roll rates");
     f(0x536, 0x02, 0x4BA, "hold counter");
     f(0x4DC, 0x01, 0x4BC, "the start's hold");
+    f(0x4F0, 0x04, 0x610, "a wall hit's rumble (the collision step's, falling)");
     // the clutch, the engine and the axles
     f(0x437, 0x01, 0x522, "clutch state");
     f(0x418, 0x04, 0x514, "clutch request");
@@ -87,6 +88,7 @@ std::vector<Row> build() {
     f(0x4E2, 0x02, 0x4F8, "turbo pitch (rpm)");
     f(0x4E8, 0x04, 0x504, "blow-off");
     f(0x4EC, 0x04, 0x508, "intake");
+    f(0x4E4, 0x02, 0x604, "the engine sound's levels");
     f(0x4E6, 0x01, 0x606, "turbo spool");
     f(0x4E7, 0x01, 0x607, "blow-off state");
     // the suspension and the body (0x36A490 .. 0x36BA88)
@@ -114,6 +116,10 @@ std::vector<Row> build() {
     wheel(0x7C, 4, 0x60, "slip direction's low-speed fade");
     wheel(0xA0, 4, 0xAC, "tread wear");
     wheel(0x5D, 1, 0xB1, "the HUD's wear level");
+    wheel(0x2A, 1, 0xB3, "steps the sliding measures still run off the ground");
+    wheel(0x30, 4, 0xB4, "the sliding measure (the tread wear's input)");
+    wheel(0x34, 4, 0xB8, "the skid's pitch");
+    wheel(0x2C, 4, 0xBC, "smoke and dust");
     wheel(0x20, 4, 0x20, "rim speed");
     wheel(0x48, 4, 0x3C, "slip gain");
     wheel(0x68, 4, 0x38, "slip ratio");
@@ -193,7 +199,9 @@ std::vector<Row> build() {
     r.push_back({ePrev + 0x14, 0x80, C, kPrevious + 0x14, "last suspension, steer, camber, half track, spin, brake heat, ground values"});
     r.push_back({ePrev + 0x94, 0x30, C, kPrevious + 0x94, "last hub points"});
     r.push_back({ePrev + 0xC4, 0x10, C, kPrevious + 0xC4, "last flaps"});
+    r.push_back({ePrev + 0xD4, 0x04, C, kPrevious + 0xD4, "last steering view"});
     r.push_back({ePrev + 0xD8, 0x0C, C, kPrevious + 0xD8, "last heading lag, pitch lag, distance along the course"});
+    r.push_back({0x158C, 0x34, C, 0x888, "the drawn car's body and ground points, the steering view, their last steps' (0x344040)"});
     return r;
 }
 

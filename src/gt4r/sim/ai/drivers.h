@@ -152,11 +152,33 @@ public:
     void decide_car(size_t car, race::CarInput& input);
     void end_step();
 
-    // B-spec (control source 1): the car's computer driver takes the player's commands. Call before the first step.
+    // The player's own car (control source 0) keeps a driver that plans as any other but does not drive (the program runs
+    // its decision 0x465078 each step and the pad's input after it): drive() leaves its input as the caller set it while its
+    // kind is 0. Call before the first step for a car in `computer`. (Field::finish(car, mode, true) hands it to the driver.)
+    void set_shadow(size_t car);
+    // The suggested gear's speed (0x469E58, each step after the decision, for every driven car): the driver's target speed
+    // (D +0x28; mode 4 the lesser of it and D +0x24) when the car is at or above it, else none (D +0x40 = -1). The gear is
+    // the gearbox's lowest whose up-shift rpm less 500 (2,000 in first) reaches that speed (0x36BF68, the session's).
+    // `firm`: modes 3 / 4 (D +0x41).
+    struct Suggestion {
+        bool on = false;
+        gt3r::ee::F speed;
+        bool firm = false;
+    };
+    Suggestion suggestion(size_t car) const;
     void set_bspec(size_t car);
     // The B-spec driver's skill (0x468C50, bspec_skill.h): its arcs', braking and alongside multipliers (D +0xB8 / +0xBC /
     // +0xC0), set at the race's start after set_bspec.
     void set_bspec_skill(size_t car, gt3r::ee::F corner, gt3r::ee::F brake, gt3r::ee::F alongside);
+    // The B-spec driver's record of the race (car +0x8C, 0x40 bytes: bspec_skill.h's BSpecRecord) as the race starts with it
+    // and the car's class (bspec_class of the parameter block's +0xFE0); during the race it gains experience (0x4684A8):
+    // at each new segment of an arc taken within 30 km/h of its speed, in the speed bins of table a; at each lane change of
+    // traffic, of table c; and each time, d[class / 2] + 0x1000 alone, or + 0x555 and e[class / 2] + 0xAAA with a car near.
+    void set_bspec_record(size_t car, const std::array<u8, 0x40>& record, int car_class);
+    std::array<u8, 0x40> bspec_record(size_t car) const;
+    // The driving line's heading at the car's distance along the course (0x4649F0 on the driver's line and its next point),
+    // for the steering's active aid (sim-step). 0 for a car not driven.
+    gt3r::ee::F line_heading_at(size_t car) const;
     // A B-spec command (0x3F19E0): the pace level 0 .. 4 (the program's five: 2 the even pace, 0 the slowest, 4 the
     // fastest; -1 unchanged) and passing (0 off, 1 on, -1 unchanged). The driver keeps both until the next command; passing
     // turned off sends a driver on a passing line back to the main line.
@@ -254,6 +276,8 @@ public:
         int kind = 0;             // F +0x467 the driver's kind
         std::array<gt3r::ee::F, 5> pd_last{}; // D +0x00 .. +0x10 (the PD steering's last terms)
         gt3r::ee::F pd_rate;      // F +0x484
+        std::array<u8, 0x40> record{}; // car +0x8C (B-spec)
+        int car_class = 0;
     };
     void probe_set(size_t car, const Probe& p);
     // For checks of a steering mode this program does not use: T[2] set (the PD steering at 2 or more).
@@ -281,6 +305,7 @@ private:
     gt3r::ee::F ai_grip(const Driver& d, int surface) const;
     void speed_control(Driver& d, gt3r::ee::F target, gt3r::ee::F gain);
     void steer_to(Driver& d, gt3r::ee::F target);
+    void bspec_experience(Driver& d, int table, gt3r::ee::F v);
     void pd_steer(Driver& d, gt3r::ee::F dir, gt3r::ee::F rd, gt3r::ee::F r, gt3r::ee::F amax, gt3r::ee::F ky);
     void set_kind(Driver& d, int kind);
     void stop(Driver& d, gt3r::ee::F steer);

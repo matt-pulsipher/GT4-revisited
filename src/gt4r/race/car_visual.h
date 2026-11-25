@@ -55,6 +55,9 @@ public:
         render::Vec3 shear{0, 0, 0}; // course-space shift per metre of height: where the light throws it
     };
     void set_shadow(const Shadow& s);
+    // Where the light throws the shadow (Shadow::shear), without making the shadows anew (a light
+    // that moves: the menus' car stage).
+    void set_shadow_shear(const render::Vec3& shear) { shadow_look_.shear = shear; }
 
     // The view the level of detail is chosen for: its forward axis (unit, course space) and K, the
     // program's size factor of the view (0x456918: one unit's height on screen at depth 1 x 10 / 7).

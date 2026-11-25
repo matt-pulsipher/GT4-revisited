@@ -137,7 +137,8 @@ TEST(sim_program_step_routines_equal) {
             // (a hybrid one-speed box's axle step runs neither the engine speed's step nor the gearbox's)
             const bool hybrid = std::string(car).rfind("prius", 0) == 0 && (t.name == "gear" || t.name == "engine speed");
             const bool rare = hybrid || (t.name == "gear" && std::string(car) == "fit_w_ff_01") || t.name == "aids: hold throttle" || t.name == "aids: rising slip" ||
-                              t.name == "steer: lean angle" || t.name == "steer: angle difference" || t.name == "steer: angle blend";
+                              t.name == "steer: lean angle" || t.name == "steer: angle difference" || t.name == "steer: angle blend" ||
+                              t.name.rfind("motors:", 0) == 0; // (layout 7's motors: the DN-X alone, sim_program_motors_equal)
             CHECK((t.calls > 0 || rare) && t.equal == t.calls);
         }
     }

@@ -12,6 +12,8 @@
 #include "gt4r/sim/ground.h"
 #include "gt4r/sim/rules_chassis.h"
 #include "gt4r/sim/rules_drive.h"
+#include "gt4r/sim/rules_effects.h"
+#include "gt4r/sim/rules_feel.h"
 #include "gt4r/sim/rules_step.h"
 #include "gt4r/sim/rules_tires.h"
 #include "gt4r/sim/rules_wear.h"
@@ -64,6 +66,9 @@ sim::rules::DriveTables drive_tables(Ee& ee) {
     ee.read_bytes(sim::rules::kAwdFade, a, 14), ee.read_bytes(sim::rules::kSteplessBytes, st, 14), ee.read_bytes(sim::rules::kControllerSettings, g, 12);
     sim::rules::DriveTables r = sim::rules::drive_tables(a, st, g);
     if (g_program) r.hybrid = sim::rules::hybrid_tables(*g_program);
+    u8 m[0x1B];
+    ee.read_bytes(sim::rules::kMotorBytes, m, sizeof m);
+    r.motors = sim::rules::motor_tables(m);
     return r;
 }
 
@@ -106,6 +111,80 @@ void add_taps(Taps& taps) {
                   sim::rules::flaps(t.car, t.rec.layout, state);
                   t.mem_i("random state", sim::rules::kRandomState, state);
               }});
+    taps.add({0x367148, "sliding measures", car_a0, [](TapCall& t) {
+                  u8 b[0x210];
+                  t.ee.read_bytes(sim::rules::kSlideBytes, b, sizeof b);
+                  const sim::rules::SlideTables k = sim::rules::slide_tables(b);
+                  const u8 kind = t.ee.r8(t.ee.r32(t.race.car(t.car_index) + 4) + 0x10000 - 0x3423);
+                  sim::rules::slide_effects(t.car, t.rec.layout, k, kind);
+              }});
+    taps.add({0x352EA0, "tire wear", car_a0, [](TapCall& t) {
+                  sim::rules::tire_wear(t.car, t.rec.x.wear, t.rec.x.tires, t.rec.layout, wear_rules_of(t));
+              }});
+    // The views' and the pad's blocks in the conductor (cond + 0xCAB8 / + 0xCA58, by the car's index F + 0x440).
+    struct ViewAt {
+        static u32 block(TapCall& t, u32 base, u32 size) {
+            const u32 car = t.race.car(t.car_index);
+            return t.ee.r32(car + 4) + base + size * t.ee.r8(car + kF + 0x440);
+        }
+        static sim::rules::ViewState read(TapCall& t) {
+            const u32 b = block(t, sim::rules::kViewBlock, sim::rules::kViewSize);
+            auto f = [&](u32 o) { return gt3r::ee::F::raw(t.ee.r32(b + o)); };
+            sim::rules::ViewState v;
+            v.heading = f(0), v.heading_rate = f(4), v.heading_acc = f(8), v.pitch = f(0xC), v.pitch_rate = f(0x10);
+            v.sway_pitch_rate = f(0x14), v.sway_pitch = f(0x18), v.sway_roll_rate = f(0x28), v.sway_roll = f(0x2C);
+            return v;
+        }
+        static sim::rules::FeelTables tables(TapCall& t) {
+            sim::rules::FeelTables k;
+            k.view_heading_gain = gt3r::ee::F::raw(t.ee.r32(0x69F4C8)), k.view_heading_damp = gt3r::ee::F::raw(t.ee.r32(0x69F4D0));
+            k.sway_pitch_on = t.ee.r8(sim::rules::kSwayBytes), k.sway_roll_on = t.ee.r8(sim::rules::kSwayBytes + 5);
+            for (u32 j = 0; j < 4; ++j)
+                k.sway_pitch[j] = gt3r::ee::F::raw(t.ee.r32(0x6202C8 + 4 * j)), k.sway_roll[j] = gt3r::ee::F::raw(t.ee.r32(0x6202D8 + 4 * j));
+            return k;
+        }
+    };
+    taps.add({0x345658, "view follower", car_a0, [](TapCall& t) {
+                  sim::rules::ViewState v = ViewAt::read(t);
+                  sim::rules::view_follow(t.car, v, ViewAt::tables(t));
+                  const u32 b = ViewAt::block(t, sim::rules::kViewBlock, sim::rules::kViewSize);
+                  t.mem_f("view heading", b, v.heading), t.mem_f("view heading rate", b + 4, v.heading_rate), t.mem_f("view heading acc", b + 8, v.heading_acc);
+                  t.mem_f("view pitch", b + 0xC, v.pitch), t.mem_f("view pitch rate", b + 0x10, v.pitch_rate);
+              }});
+    taps.add({0x34A668, "sway pitch", car_a0, [](TapCall& t) {
+                  sim::rules::ViewState v = ViewAt::read(t);
+                  sim::rules::FeelTables k = ViewAt::tables(t);
+                  k.sway_roll_on = 0;
+                  sim::rules::sway(t.car, v, k, t.rec.x.feel.blend);
+                  const u32 b = ViewAt::block(t, sim::rules::kViewBlock, sim::rules::kViewSize);
+                  t.mem_f("sway pitch rate", b + 0x14, v.sway_pitch_rate), t.mem_f("sway pitch", b + 0x18, v.sway_pitch);
+              }});
+    taps.add({0x34A788, "sway roll", car_a0, [](TapCall& t) {
+                  sim::rules::ViewState v = ViewAt::read(t);
+                  sim::rules::FeelTables k = ViewAt::tables(t);
+                  k.sway_pitch_on = 0;
+                  sim::rules::sway(t.car, v, k, t.rec.x.feel.blend);
+                  const u32 b = ViewAt::block(t, sim::rules::kViewBlock, sim::rules::kViewSize);
+                  t.mem_f("sway roll rate", b + 0x28, v.sway_roll_rate), t.mem_f("sway roll", b + 0x2C, v.sway_roll);
+              }});
+    taps.add({0x36CEE8, "pad rumble", car_a0, [](TapCall& t) {
+                  const u32 b = ViewAt::block(t, sim::rules::kPadBlock, sim::rules::kPadSize);
+                  std::array<u8, 2> pad{t.ee.r8(b), t.ee.r8(b + 1)};
+                  sim::rules::pad_rumble(t.car, t.rec.layout, pad);
+                  t.mem_i("pad +0", b, pad[0], 1), t.mem_i("pad level", b + 1, pad[1], 1);
+              }});
+    taps.add({0x350080, "engine sound", car_a0, [](TapCall& t) {
+                  const u32 car = t.race.car(t.car_index), info = t.ee.r32(car);
+                  const u32 e0 = t.ee.r32(info + 0xE0), ghost = e0 ? 0 : t.ee.r32(t.ee.r32(info + 0x84) + 0x10000 - 0xFB0);
+                  sim::rules::FeelTables k;
+                  for (u32 j = 0; j < 32; ++j) k.cue[j] = gt3r::ee::F::raw(t.ee.r32(sim::rules::kCueTable + 4 * j));
+                  sim::rules::engine_sound(t.car, k, t.rec.x.drive.d.kind, sim::rules::draw_mode(t.car, t.ee.r8(car + kF + 0x4B2), e0, ghost));
+              }});
+    taps.add({0x366718, "effects reset", car_a0, [](TapCall& t) {
+                  const u32 car = t.race.car(t.car_index), info = t.ee.r32(car);
+                  const u32 e0 = t.ee.r32(info + 0xE0), ghost = e0 ? 0 : t.ee.r32(t.ee.r32(info + 0x84) + 0x10000 - 0xFB0);
+                  sim::rules::effects_reset(t.car, t.rec.layout, sim::rules::draw_mode(t.car, t.ee.r8(car + kF + 0x4B2), e0, ghost));
+              }});
     taps.add({0x354AC0, "masses", car_a0, [](TapCall& t) { sim::rules::masses(t.car, t.rec.x.drive.fuel, t.rec.x.chassis.mass, t.rec.x.body.sprung_mass); }});
     taps.add({0x35D920, "hub velocities", car_a0, [](TapCall& t) {
                   sim::rules::hub_velocities(t.car, t.rec.layout, sim::rules::speed_tables(*g_program, t.rec.x.steer.lean_row), t.rec.x.body.in_line_x480);
@@ -113,7 +192,11 @@ void add_taps(Taps& taps) {
     taps.add({0x35D990, "free wheels", car_a0, [](TapCall& t) { sim::rules::free_wheels(t.car, t.rec.layout); }});
     taps.add({0x345A50, "speed ramp", car_a0, [](TapCall& t) { ex::speed_ramp(t.car); }});
     taps.add({0x345A20, "hub offsets", car_a0, [](TapCall& t) { sim::rules::hub_offsets(t.car, t.rec.layout); }});
-    taps.add({0x344040, "wheel spin", car_a0, [](TapCall& t) { ex::wheel_spin(t.car); }});
+    taps.add({0x344040, "wheel spin", car_a0, [](TapCall& t) {
+                  const sim::rules::SpeedTables k = sim::rules::speed_tables(*g_program, t.rec.x.steer.lean_row);
+                  sim::rules::wheel_spin(t.car, t.rec.x.feel.anim, t.rec.layout, k.special_x10, t.rec.x.wear.category, t.rec.x.body.in_line_x65c,
+                                         k.throttle_share, k.brake_share);
+              }});
     taps.add({0x35D350, "ground frame", car_a0, [](TapCall& t) { ground_frame(t.car, t.rec.layout); }});
     taps.add({0x3697A8, "query points", car_a0, [](TapCall& t) { query_points(t.car, t.rec.x.body, t.rec.layout); }});
     taps.add({0x36A490, "terrain", car_a0, [](TapCall& t) { terrain(t.car, t.rec.x.body, t.rec.layout); }});
@@ -125,10 +208,36 @@ void add_taps(Taps& taps) {
     taps.add({0x36BA88, "bump nudge", car_a0, [](TapCall& t) { bump_nudge(t.car, t.rec.x.body, t.rec.layout); }});
     taps.add({0x3511A0, "brakes and clutch", car_a0, [](TapCall& t) { brakes_and_clutch(t.car, t.rec.x.drive, t.rec.layout); }});
     taps.add({0x36D230, "wheel torques", car_a0, [](TapCall& t) { wheel_torques(t.car, t.rec.x.drive, t.rec.layout); }});
-    taps.add({0x36D2F8, "vectoring", car_a0, [](TapCall& t) { vectoring(t.car, t.rec.x.drive, t.rec.layout); }});
+    // Layout 7's motors' routines (only the Acura DN-X calls them).
+    taps.add({0x3561D0, "motors: demand", car_a0, [](TapCall& t) {
+                  t.ret_f("returns", sim::rules::motor_demand(t.car, t.rec.x.drive.hybrid, drive_tables(t.ee).motors));
+              }});
+    taps.add({0x356168, "motors: level", car_a0, [](TapCall& t) { t.ret_f("returns", sim::rules::motor_level(t.rec.x.drive.hybrid, drive_tables(t.ee).motors)); }});
+    taps.add({0x3560F0, "motors: engine throttle", car_a0, [](TapCall& t) {
+                  t.ret_f("returns", sim::rules::motor_engine_throttle(t.car, drive_tables(t.ee).motors));
+              }});
+    taps.add({0x356300, "motors: wanted lateral", car_a0, [](TapCall& t) {
+                  t.ret_f("returns", sim::rules::motor_wanted_lateral(t.car, t.rec.x.tires, t.rec.layout));
+              }});
+    taps.add({0x356418, "motors: front", car_a0, [](TapCall& t) {
+                  front_motors(t.car, t.rec.x.drive, t.rec.x.tires, t.rec.layout, drive_tables(t.ee).motors);
+              }});
+    taps.add({0x356BB8, "motors: rear", car_a0, [](TapCall& t) {
+                  t.ret_f("returns", sim::rules::rear_motor(t.car, t.rec.x.drive.hybrid, drive_tables(t.ee).motors));
+              }});
+    taps.add({0x355F80, "motors: idle charge", car_a0, [](TapCall& t) {
+                  t.ret_f("returns", sim::rules::idle_charge(t.car, t.rec.x.drive, drive_tables(t.ee).motors));
+              }});
+    taps.add({0x36D2F8, "vectoring", car_a0, [](TapCall& t) {
+                  if (t.rec.x.drive.d.layout == 7) front_motors(t.car, t.rec.x.drive, t.rec.x.tires, t.rec.layout, drive_tables(t.ee).motors);
+                  vectoring(t.car, t.rec.x.drive, t.rec.layout);
+              }});
     taps.add({0x36D818, "axle step", car_a0, [](TapCall& t) { axle_step(t.car, t.rec.x.drive, t.rec.layout, drive_tables(t.ee)); }});
     taps.add({0x36E4B8, "wheel speeds", car_a0, [](TapCall& t) { wheel_speeds(t.car, t.rec.x.drive, t.rec.layout); }});
-    taps.add({0x3519B8, "engine speed", car_a0, [](TapCall& t) { engine_speed(t.car, t.rec.x.drive, t.rec.layout); }});
+    taps.add({0x3519B8, "engine speed", car_a0, [](TapCall& t) {
+                  const sim::rules::DriveTables k = drive_tables(t.ee);
+                  engine_speed(t.car, t.rec.x.drive, t.rec.layout, &k);
+              }});
     taps.add({0x351DC8, "gear", car_a0, [](TapCall& t) { gear_step(t.car, t.rec.x.drive, t.rec.layout, t.rec.x.tires, drive_tables(t.ee)); }});
     taps.add({0x3F38D8, "brake heat", car_a0, [](TapCall& t) {
                   ex::BrakeHeatConsts k;
@@ -219,6 +328,7 @@ Pad drive(int i) {
 } // namespace
 
 void add_step_taps(Taps& taps) { add_taps(taps); }
+void set_step_program(const sim::Program* program) { g_program = program; }
 
 StepResult run_step(Disc& disc, bool print, const std::string& course_label, const std::string& car_label, int step_count) {
     StepResult result;
@@ -302,6 +412,10 @@ StepResult run_step(Disc& disc, bool print, const std::string& course_label, con
         const float tread[8] = {-0.5f, 0.1f, 0.2f, 0.05f, 0.5f, 0.15f, 0.8f, 0.3f}, second[6] = {-0.4f, 0.1f, 0.3f, 0.1f, 0.9f, 0.25f};
         for (u32 k = 0; k < 8; ++k) ee.wf(o.cond + 4 + 4 * k, tread[k]);
         for (u32 k = 0; k < 6; ++k) ee.wf(o.cond + 4 + 0x50 + 4 * k, second[k]);
+        // the tread wear's pit grip, cap and slip extra; the second wear's rate, weights, fall and force scale (the program's
+        // table 0x620B60's values, which its switch byte leaves unused)
+        const float mid[12] = {0.6f, 0.8f, 0.5f, -0.1f, 0.05f, 1.0f, 1.0f, 1.0f, 1.0f, 0.5f, 0.02f, 3.06e-5f};
+        for (u32 k = 0; k < 12; ++k) ee.wf(o.cond + 4 + 0x20 + 4 * k, mid[k]);
         const float a[4] = {-0.6f, -0.2f, 0.1f, 0.35f}, b[4] = {-0.5f, -0.1f, 0.2f, 0.6f};
         for (int i = 0; i < o.cars; ++i)
             for (u32 w = 0; w < 4; ++w) {
@@ -385,6 +499,49 @@ StepResult run_step(Disc& disc, bool print, const std::string& course_label, con
         road.equal = same ? 1 : 0;
         result.taps.push_back(road);
         if (print) std::printf("  %-28s %s\n", road.name.c_str(), same ? "equal" : "differ");
+    }
+    { // The sliding measures' tables (0x366D68 at the race's start) against ours from the program's bytes.
+        StepTap st{"sliding measures' tables (ours)", 1, 0};
+        const sim::rules::SlideTables k = sim::rules::slide_tables(program);
+        size_t off = 0;
+        auto cmp = [&](u32 a, gt3r::ee::F v, const char* what, u32 g, u32 kind, u32 j) {
+            if (ee.r32(a) == v.bits) return;
+            ++off;
+            if (print && off < 20) std::printf("  slide table %s [%u][%u] %u: the program's %08X, ours %08X\n", what, g, kind, j, ee.r32(a), v.bits);
+        };
+        for (u32 g = 0; g < 3; ++g)
+            for (u32 kind = 0; kind < 4; ++kind) {
+                const u32 o = sim::rules::kSlideCurves + 0x210 * g + 0x84 * kind;
+                const sim::rules::SlideCurves& c = k.set[g][kind];
+                if (s16(ee.r16(o + 0x20)) != c.a.n || s16(ee.r16(o + 0x6C)) != c.b.n) ++off;
+                for (u32 j = 0; j < u32(c.a.n); ++j) cmp(o + 4 * j, c.a.x[j], "a.x", g, kind, j), cmp(o + 0x10 + 4 * j, c.a.y[j], "a.y", g, kind, j);
+                for (u32 j = 0; j < u32(c.b.n); ++j) cmp(o + 0x2C + 4 * j, c.b.x[j], "b.x", g, kind, j), cmp(o + 0x4C + 4 * j, c.b.y[j], "b.y", g, kind, j);
+                cmp(o + 0x78, c.base, "base", g, kind, 0), cmp(o + 0x7C, c.knee, "knee", g, kind, 0), cmp(o + 0x80, c.gain, "gain", g, kind, 0);
+            }
+        { // the sway's constants (0x34A4B8)
+            u8 sb[10];
+            ee.read_bytes(sim::rules::kSwayBytes, sb, 10);
+            const std::array<gt3r::ee::F, 8> sk = sim::rules::sway_constants(sb);
+            for (u32 j = 0; j < 8; ++j) cmp(0x6202C8 + 4 * j, sk[j], "sway", 0, 0, j);
+        }
+        { // the cues' table (0x34F6A0)
+            const sim::rules::FeelTables ft = sim::rules::feel_tables(program);
+            for (u32 j = 0; j < 32; ++j) cmp(sim::rules::kCueTable + 4 * j, ft.cue[j], "cue", 0, 0, j);
+        }
+        { // layout 7's motors' constants (0x355978, which the converter runs for every car of four wheel drive system 5)
+            const sim::rules::MotorTables m = sim::rules::drive_tables(program).motors;
+            const gt3r::ee::F w[25] = {m.front, m.rear, m.front_drive, m.rear_drive, m.front_regen, m.rear_regen, m.front_scale, m.capacity,
+                                       m.front_charge_cap, m.rear_charge_cap, m.idle_rpm, m.idle_gain, m.idle_share, m.idle_power, m.low, m.high,
+                                       m.reserve, m.front_share, m.drive_accel, m.drive_lat, m.drive_dead, m.regen_accel, m.regen_lat,
+                                       m.regen_dead, m.flow_scale};
+            if (ee.r32(sim::rules::kMotorTables) != 0)
+                for (u32 j = 0; j < 25; ++j) cmp(sim::rules::kMotorTables + 4 * j, w[j], "motors", 0, 0, j);
+        }
+        const gt3r::ee::F loose[5] = {k.loose_scale, k.loose_x0, k.loose_y0, k.loose_x1, k.loose_y1};
+        for (u32 j = 0; j < 5; ++j) cmp(sim::rules::kSlideLoose + 4 * j, loose[j], "loose", 0, 0, j);
+        st.equal = off ? 0 : 1;
+        result.taps.push_back(st);
+        if (print) std::printf("  %-28s %s\n", st.name.c_str(), off ? "differ" : "equal");
     }
     const int steps = step_count > 0 ? step_count : std::getenv("GT4R_STEPS") ? std::atoi(std::getenv("GT4R_STEPS")) : 1200;
     try {

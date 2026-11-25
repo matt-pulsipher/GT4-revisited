@@ -4,7 +4,9 @@
 // its paint, placed and turned as its car model says, lit by the face's lights, reflecting the
 // face's picture, drawn over the page with the face's camera. docs/formats/menu.md, "Cars".
 
+#include "gt4r/formats/model/mdls_skin.h"
 #include "gt4r/menu/faces_car.h"
+#include "gt4r/menu/model_motion.h"
 #include "gt4r/menu/project.h"
 #include "gt4r/menu/stage_motion.h"
 #include "gt4r/race/car_visual.h"
@@ -49,6 +51,19 @@ private:
         std::string car; // car_code#paint
         bool seen = false;
         u64 stepped = 0; // the picture its motion was last stepped to
+        // The posed copies of its skinned sets, one per model motion (two motions of one set are
+        // two copies in a picture).
+        std::vector<std::unique_ptr<gt3r::render::GpuModel>> posed;
+    };
+    // A model set of a page's packs (loadModelSet): its models as stored, and for a skinned set
+    // its bones and the vertices' weights.
+    struct ModelSet {
+        std::vector<std::unique_ptr<gt3r::render::GpuModel>> models; // by model index
+        std::vector<gt3r::scene::Model> stored;                     // by model index (skinned sets)
+        std::vector<mdls::Bone> bones;
+        std::vector<mdls::Symbol> symbols;
+        mdls::SkinTable skin;
+        int skinned_model = -1; // the model drawn with the bones (symbol SKINNING)
     };
     Car* car(const std::string& code, int color);
     SDL_GPUTexture* env_texture(menu::Project* project, const std::string& page, const std::string& path);
@@ -72,9 +87,17 @@ private:
     // A face's camera motion and model sets (loadModelOptionMotion, loadModelSet), read from the
     // page's packs once (null: not there).
     const menu::StageMotion* option_motion(menu::Project* project, const std::string& page, const std::string& path);
-    const std::vector<std::unique_ptr<gt3r::render::GpuModel>>* model_set(menu::Project* project, const std::string& page, const std::string& path);
+    const ModelSet* model_set(menu::Project* project, const std::string& page, const std::string& path);
+    const menu::SkeletonMotion* skeleton_motion(menu::Project* project, const std::string& page, const std::string& path);
+    // The model sets drawn by their motions (loadModelMotion) into `out` (0x156AA0); `fade` their
+    // opacity.
+    void add_model_motions(Face& f, const menu::CarFaceSettings& s, const menu::CarMotion& m, menu::Project* project, const std::string& page,
+                           const gt3r::render::Mat4& car, const race::CarSpec& spec, float fade, std::vector<gt3r::render::DrawItem>& out);
     std::map<std::string, std::unique_ptr<menu::StageMotion>> option_motions_;
-    std::map<std::string, std::vector<std::unique_ptr<gt3r::render::GpuModel>>> model_sets_;
+    std::map<std::string, std::unique_ptr<ModelSet>> model_sets_;
+    std::map<std::string, std::unique_ptr<menu::SkeletonMotion>> skeleton_motions_;
+    std::array<float, 2> body_length(const std::string& code, const race::CarSpec& spec);
+    std::map<std::string, std::array<float, 2>> body_lengths_; // car code -> metres ahead of and behind its middle
 };
 
 } // namespace gt4r

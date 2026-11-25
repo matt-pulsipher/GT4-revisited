@@ -2,7 +2,8 @@
 
 Code: `src/gt4r/formats/model/mdls.*`. Coverage on the US disc (`gt4tool model-survey`):
 wheels 2,369 of 2,369 model sets, cars 8,348 of 8,366, tires, wings and prize objects all;
-the drivers and pit crews (skinned sets) do not decode yet.
+skinned sets (the GT Auto mechanic, the drivers, the pit crews) decode in their stored pose and
+the menus pose them by their motions (below); the race does not move its drivers yet.
 
 `MDLS` is the successor of Gran Turismo 3's `GTM1`
 ([engine/gt3r/docs/formats/car_model.md](../../engine/gt3r/docs/formats/car_model.md)): the
@@ -129,6 +130,46 @@ outside slots (0x50 / 0x51) that the game fills. A car in a race uses two of the
 all 807 `car/lod` bodies: only slots 0 and 2 appear): slot 0, the picture of the surroundings
 the body and the rim reflect (the race binds it per view 🔎 program 0x4568C0, 0x451A90), and
 slot 2, the wheel's face (below). The car's draw clears slots 1-3 when it ends.
+
+## Skinned sets
+
+Code: `src/gt4r/formats/model/mdls_skin.*` (the bones and vertex blocks; posing), the menus'
+motions in `src/gt4r/menu/model_motion.*`. Checked on GT Auto's `pitmanFix.mdl` (20 bones, 49
+packets), `carwash_cloth.mdl` (4 bones), `man_shadow.mdl` and the 20 skinned packets of the
+race's driver sets.
+
+- **Bones** (header +0x2E count, +0x48 table): 0x50 bytes each, sorted by name (the program
+  searches them by name, 0x454970): +0x00 the inverse bind matrix (16 floats, the program's
+  row-vector form: model space to the bone's space in the stored pose), +0x40 u32 the bone's
+  palette slot (what the packets' bone bytes name), +0x44 u32 its name's offset.
+- **Symbols** (+0x2A count, +0x58 table of {u32 name offset, u32 value}): `SKINNING` = the model
+  drawn with the bones; another name (`careerPos` on the oil change's cart) draws model `value`
+  at the motion node of that name.
+- **Shape flags** (+0x08): 0x8000 a vertex block follows each packet's VIF data (outside the
+  packet's quadword count; the next packet starts at the next 16 bytes); 0x2000 the packed block,
+  else the float one (`man_shadow.mdl`); 0x4000 ❓ the EE-built unpacks' mask (0x49D448). The
+  packets themselves hold the GIF tag, the strips and the texture coordinates (or, for kind 2,
+  the reflection pass's colours).
+- **The packed block** (0x49DA60 → 0x49DCB0 / 0x49DB08): f32 position scale (1.00003e-4), u8
+  vertices (the strips' total), u8 the normals' place (0x80 lit, 0x40 the reflection pass's UV
+  slot, 0 none); then groups until the count: u8 count (| 0x80: another group follows), u8 4, u8
+  bone[4]; per vertex s16 position[3] x scale, s8 normal[3] / 127 (when they have a place), s8
+  weight[4] / 127 (summing to 127): 13 bytes, 10 without normals.
+- **The float block**: u16 vertices, u16 the normals' place; groups: u16 count (| 0x8000), u16 4,
+  u8 bone[4]; per vertex f32 position[3], normal[3], weight[4].
+- The program blends a group's vertices on the EE (VU0 micro-routines: ❓ not readable) with the
+  four bones' palette matrices: position = sum of weight x (position x palette[bone]), the normal
+  the same way; without a palette the set draws as stored. `to_gtm1` writes a skinned packet's
+  stored pose as plain positions and normals, and `pose()` moves the decoded model's vertices
+  (found again by their stored position and normal) by a palette.
+- **Motions** (`Mot1`, docs/formats/camera.md, and the scene program 0x42B440): ops 2 push, 3 pop,
+  4 a node (its name), 5 translate, 6 / 7 / 8 rotate about X / Y / Z (radians), 9 scale, 0x13
+  rotate X then Y then Z (Euler to quaternion 0x48B888 to matrix 0x48A970), 0x0A to 0x10 as the
+  camera motions, 0x11 / 0x12 two- and three-name values; each multiplies the current matrix
+  from the left in the program's row form, a node takes the current matrix (a node after a node
+  without a push is its child). A clip's +0x04 is its loop start. A bone takes the node of its
+  name: palette[slot] = inverse bind x the node's matrix (0x42A660); the first bone's place is
+  taken out of all and put back on the draw (0x4289E0, a precision measure).
 
 ## Cars: `CAR4`
 
@@ -445,7 +486,7 @@ more of the figure; other sizes on the rest. The race gives it to a `RaceDriverM
 for a co-driver when the event has one), which moves it; the driver's model in turn gives
 the car the steering wheel's angle, the pedals and callback 9's matrix. ❓ Where the head
 sits (the parts block is the candidate) and the driver's motion have not been read; the
-skinned sets do not decode yet.
+skinned sets decode (see "Skinned sets"); the race does not pose its drivers yet.
 
 ### Paints in the database
 

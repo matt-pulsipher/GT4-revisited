@@ -4,7 +4,9 @@
 
 #include "gt4r/app/app.h"
 #include "gt4r/app/menu_cars.h"
+#include "gt4r/app/menu_advertise.h"
 #include "gt4r/app/menu_cursor.h"
+#include "gt4r/app/menu_loading.h"
 #include "gt4r/app/menu_models.h"
 #include "gt4r/app/menu_movies.h"
 #include "gt4r/app/menu_page_drawer.h"
@@ -59,6 +61,7 @@ public:
     // pages; leaving the menus leaves the screen.
     explicit MenuViewer(App& app, bool player = false) : player_(player) {
         start_boot_ = player;
+        advertise_on_ = player; // (scripted runs: GT4R_MENU advertise=1)
         const auto list = [&app](const std::string& folder) { return app.vfs()->list_dir(folder); };
         for (const std::string& name : menu::list_projects(list)) {
             const std::vector<std::string> languages = menu::project_languages(list, name);
@@ -87,6 +90,7 @@ public:
                 else if (key == "card") card_ = value;
                 else if (key == "credits") credits_ = std::atoll(value.c_str());
                 else if (key == "timing") timing_ = value != "0";
+                else if (key == "advertise") advertise_on_ = value != "0";
             }
         }
     }
@@ -252,6 +256,8 @@ private:
             cars_ = std::make_unique<MenuCars>(app);
             MenuCars* cars = cars_.get();
             models_ = std::make_unique<MenuModels>(app);
+            loading_ = std::make_unique<MenuLoading>(app);
+            if (from_boot && advertise_on_) advertise_ = std::make_unique<MenuAdvertise>(app);
             MenuModels* models = models_.get();
             drawer->draw_live = [movies, cars, models](const LiveWidget& face, menu::Project* project, const std::string& page, const Rect& at, const SDL_FRect& dst, float opacity) {
                 if (face.is("MovieFace")) movies->draw(face, dst, opacity);
@@ -272,8 +278,9 @@ private:
     }
     void stop() {
         if (held_) SDL_DestroyTexture(held_), held_ = nullptr;
+        if (trail_) SDL_DestroyTexture(trail_), trail_ = nullptr;
         menu::text_measure().measure = nullptr;
-        movies_.reset(), cars_.reset(), models_.reset(), live_drawer_.reset(), runtime_.reset(), race_.reset();
+        movies_.reset(), cars_.reset(), models_.reset(), loading_.reset(), advertise_.reset(), live_drawer_.reset(), runtime_.reset(), race_.reset();
         if (app_)
             if (audio::AppSound* sound = app_->sound()) sound->stop();
     }
@@ -287,23 +294,33 @@ private:
                 {PadButton::Select, menu::Key::Select}, {PadButton::L1, menu::Key::L1},         {PadButton::R1, menu::Key::R1},
                 {PadButton::L2, menu::Key::L2},         {PadButton::R2, menu::Key::R2},         {PadButton::Square, menu::Key::Square},
             };
-            if (m.vertical()) runtime_->key(m.vertical() < 0 ? menu::Key::Up : menu::Key::Down);
-            if (m.horizontal()) runtime_->key(m.horizontal() < 0 ? menu::Key::Left : menu::Key::Right);
+            // The pictures before the menus: the menus start after them.
+            if (advertise_ && advertise_->active()) {
+                const int n = std::min(int(step_time_ * 60.0), 4);
+                step_time_ = n == 4 ? 0.0 : step_time_ - n / 60.0;
+                advertise_->step(float(n) / 60.0f);
+                return;
+            }
+            // (The loading page takes no keys.)
+            const bool keys_on = !loading_ || !loading_->active();
+            if (keys_on && m.vertical()) runtime_->key(m.vertical() < 0 ? menu::Key::Up : menu::Key::Down);
+            if (keys_on && m.horizontal()) runtime_->key(m.horizontal() < 0 ? menu::Key::Left : menu::Key::Right);
             for (const auto& [button, key] : keys)
-                if (m.pressed(button)) runtime_->key(key);
+                if (keys_on && m.pressed(button)) runtime_->key(key);
             // The menus run at the program's 60 pictures a second, whatever the display's rate.
             const int steps = std::min(int(step_time_ * 60.0), 4);
             step_time_ = steps == 4 ? 0.0 : step_time_ - steps / 60.0;
             const Uint64 u0 = SDL_GetTicksNS();
             for (int i = 0; i < steps; ++i) runtime_->update(), cursor_.step(*runtime_);
+            if (loading_) loading_->step(float(steps) / 60.0f);
             if (timing_ && double(SDL_GetTicksNS() - u0) / 1e6 > 20) LOG_INFO("Menu timing: the scripts took %.1f ms", double(SDL_GetTicksNS() - u0) / 1e6);
             // A script that ended its project names the next one, or asks for a race.
             if (runtime_->finished() && !race_) {
                 race_ = runtime_->race_request();
                 // The title left alone (its `timeout_count_to_autodemo`, 20 s) asks for the
-                // "autodemo" sequence: ❓ here the opening movie (demo_movie), then the project
-                // the title named (`next_menu_project`, arcade); the original shows the logo and
-                // the opening, and the configuration lists demo replays (Rdemo*) for it.
+                // "autodemo" sequence: the opening movie (demo_movie, after the Polyphony logo),
+                // then the project the title named (`next_menu_project`, arcade), as the original
+                // does (no demo race plays from the title).
                 if (race_ && race_->sequence == "autodemo") {
                     race_.reset();
                     menu::GameState& g = runtime_->game();
@@ -315,7 +332,15 @@ private:
                     g.next_menu_project.clear(), g.next_menu_arg.clear();
                 }
                 if (!race_ && !runtime_->finished()) {
-                } else if (!race_ && !runtime_->advance()) runtime_->note("the menus ended and asked for nothing");
+                } else if (!race_) {
+                    // Between two projects, the loading page: the next project starts once its
+                    // black covers the last page, and the page fades out over it.
+                    if (loading_ && !loading_->active()) loading_->begin(unsigned(runtime_->frame() / 7));
+                    if (!loading_ || loading_->covered()) {
+                        if (!runtime_->advance()) runtime_->note("the menus ended and asked for nothing");
+                        if (loading_) loading_->end();
+                    }
+                }
                 // A race with its own menus: the race screen runs them over the race on these menus
                 // and leaves them where the race sequence ends (race_natives.h).
                 if (race_ && (!menu::quick_project(race_->sequence).empty() || race_->sequence == "replay" || race_->sequence == "race_view") && app.gpu()) {
@@ -350,6 +375,7 @@ private:
         const float scale = float(Ui::kHeight) / 480.0f, x = (Ui::kWidth - 640 * scale) / 2;
         ui.fill(0, 0, Ui::kWidth, Ui::kHeight, {0, 0, 0});
         const Uint64 t0 = SDL_GetTicksNS();
+        if (advertise_ && advertise_->active()) return advertise_->draw(x, scale);
         if (live_drawer_) {
             if (movies_) movies_->begin_frame();
             if (cars_) cars_->begin_frame(runtime_->frame());
@@ -364,6 +390,7 @@ private:
             if (movies_) movies_->end_frame();
             if (cars_) cars_->end_frame();
             if (models_) models_->end_frame();
+            draw_trail(tp, x, scale);
             draw_cursor(x, scale);
             draw_blocks(tp, x, scale);
             // The transition's colour over the pages.
@@ -383,6 +410,7 @@ private:
                 }
             }
             if (const float cover = runtime_->fade_cover(); cover > 0) ui.fill(x, 0, 640 * scale, 480 * scale, Color{0, 0, 0, u8(std::clamp(cover, 0.0f, 1.0f) * 255.0f)});
+            if (loading_) loading_->draw(x, scale);
         }
         // What the scripts did, beside the page (the game itself: only what stopped them).
         const std::deque<std::string>& log = runtime_->log();
@@ -442,6 +470,39 @@ private:
             }
     }
 
+    // A cross transition's trail (0x2182E0): while the pages come in, the picture shown last is
+    // drawn over the one just drawn at the transition's weight, from its rectangle cut by
+    // `magnify_diff` page pixels a side (so magnified), then black at 0.1 (`with_black`); the
+    // result is the next picture's last. (The first picture of the trail has none before it.)
+    void draw_trail(const menu::TransitionPicture& tp, float x, float scale) {
+        SDL_Renderer* r = app_->renderer();
+        if (!tp.trail) {
+            if (trail_) SDL_DestroyTexture(trail_), trail_ = nullptr;
+            return;
+        }
+        const SDL_Rect page{int(x), 0, int(640 * scale), int(480 * scale)};
+        if (trail_) {
+            float tw = 1, th = 1;
+            SDL_GetTextureSize(trail_, &tw, &th);
+            const float cut = std::clamp(tp.trail_diff * scale, 0.0f, std::min(tw, th) / 2 - 1);
+            const SDL_FRect src{cut, cut * th / tw, tw - 2 * cut, th - 2 * cut * th / tw};
+            const SDL_FRect dst{float(page.x), 0, float(page.w), float(page.h)};
+            SDL_SetTextureBlendMode(trail_, SDL_BLENDMODE_BLEND);
+            SDL_SetTextureAlphaMod(trail_, u8(tp.trail_ratio * 255));
+            SDL_RenderTexture(r, trail_, &src, &dst);
+            if (tp.trail_black) {
+                SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+                SDL_SetRenderDrawColor(r, 0, 0, 0, u8(0.1f * 255));
+                SDL_RenderFillRect(r, &dst);
+            }
+            SDL_DestroyTexture(trail_), trail_ = nullptr;
+        }
+        if (SDL_Surface* shot = SDL_RenderReadPixels(r, &page)) {
+            trail_ = SDL_CreateTextureFromSurface(r, shot);
+            SDL_DestroySurface(shot);
+        }
+    }
+
     // The menus' pointer (menu_cursor.h).
     void draw_cursor(float x, float scale) { cursor_.draw(*runtime_, *live_drawer_, x, scale); }
 
@@ -454,8 +515,12 @@ private:
     std::unique_ptr<MenuMovies> movies_; // the running menus' movie faces
     std::unique_ptr<MenuCars> cars_;     // and car faces
     std::unique_ptr<MenuModels> models_; // and model faces
+    std::unique_ptr<MenuLoading> loading_; // the page between projects
+    std::unique_ptr<MenuAdvertise> advertise_; // the pictures before the first menus
+    bool advertise_on_ = false;
     MenuCursor cursor_;
     SDL_Texture* held_ = nullptr; // a block transition's screen
+    SDL_Texture* trail_ = nullptr; // a cross transition's last picture
     int project_sel_ = 0, page_sel_ = 0, state_ = 0;
     bool player_ = false; // the game itself
     bool full_ = false, start_run_ = false, start_boot_ = false;
