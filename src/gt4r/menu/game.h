@@ -116,6 +116,10 @@ struct RaceResult {
 // for neither), taking the next free place up when that one is taken (in entry order); the player
 // (entry 0) is last. `kg` and `ps` by entry; the places, 0 the front, by entry.
 std::vector<int> championship_grid_places(const std::vector<s32>& kg, const std::vector<s32>& ps);
+class Runtime;
+// The same for a race's entries (entry 0 the player's): each car's label and its race equipment (none: as sold), built
+// as the showroom car; empty when the runtime has no showroom.
+std::vector<int> championship_grid_places(Runtime& rt, const std::vector<std::pair<std::string, std::optional<sim::Equipment>>>& entries);
 
 // A car's record as the garage keeps it: the program's CarGarage (0x4B8 bytes, saved as they
 // are; docs/formats/save.md "The car record"): three settings sheets, each a car equipment record

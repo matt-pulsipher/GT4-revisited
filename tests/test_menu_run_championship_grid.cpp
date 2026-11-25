@@ -63,4 +63,8 @@ TEST(disc_menu_championship_grid_race_two) {
         std::printf("  %-20s %d kg %d PS\n", race1[i], kg.back(), ps.back());
     }
     CHECK((menu::championship_grid_places(kg, ps) == std::vector<int>{5, 3, 0, 1, 2, 4}));
+    // The race side's call: each entry's car and equipment (the player's as sold).
+    std::vector<std::pair<std::string, std::optional<sim::Equipment>>> entries;
+    for (size_t i = 0; i < grid.size(); ++i) entries.emplace_back(race1[i], i == 0 ? std::nullopt : std::optional<sim::Equipment>(eq[i]));
+    CHECK((menu::championship_grid_places(*f.rt, entries) == std::vector<int>{5, 3, 0, 1, 2, 4}));
 }

@@ -5,6 +5,7 @@
 #include "gt4r/menu/game_bspec.h"
 #include "gt4r/menu/game_internal.h"
 #include "gt4r/menu/race_natives.h"
+#include "gt4r/sim/showroom.h"
 
 #include "gt4r/formats/db/specdb_prologue.h"
 
@@ -226,6 +227,18 @@ std::vector<int> championship_grid_places(const std::vector<s32>& kg, const std:
     }
     if (n) places[0] = int(n) - 1;
     return places;
+}
+
+std::vector<int> championship_grid_places(Runtime& rt, const std::vector<std::pair<std::string, std::optional<sim::Equipment>>>& entries) {
+    const std::shared_ptr<GameNatives> n = natives_of(rt);
+    const sim::Showroom* showroom = n ? n->db().showroom() : nullptr;
+    if (!showroom) return {};
+    std::vector<s32> kg, ps;
+    for (const auto& [car, eq] : entries) {
+        const std::optional<sim::ShowroomFigures> fig = eq ? showroom->figures(*eq) : n->db().stock_showroom(car);
+        kg.push_back(fig ? s32(fig->weight) : 0), ps.push_back(fig ? gt3r::ee::to_int(fig->power) : 0);
+    }
+    return championship_grid_places(kg, ps);
 }
 
 // The program's result routines (docs/formats/menu.md "After a race"). The race's menus' work
