@@ -304,7 +304,8 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
 ## What runs where (the app's shell)
 
 - The window, the frame loop, the screens, the scripted keys, the pictures and the sweeps are the
-  app's own (`src/gt4r/app/app.*`, `screen_sweep.cpp`); the home screen, the setup screen and the
+  app's own (`src/gt4r/app/app.*`, `screen_sweep.cpp`; which runs are scripted and what they do not read:
+  `src/gt4r/settings/run_mode.h`); the home screen, the setup screen and the
   asset browser are tools of this app, not pages of the game.
 - The pad, wheel and keyboard are read by the shared engine's input layer (`gt3r::InputManager`: devices,
   hot plug, bindings, the steering's dead zone and response); from its virtual pads on the race's frame is
