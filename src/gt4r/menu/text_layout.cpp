@@ -149,11 +149,13 @@ TextLayout layout_menu_text(std::string_view s, const TextStyle& st, float x, fl
                 continue;
             }
         }
-        if (c == '\r') continue;
-        if (c == '\n' && st.one_line) {
+        // (0x492978: a character the font does not have, "\r" among them, is a space wide; a line
+        // end does nothing in a face of one line, 0x490760.)
+        if (c == '\r') {
             space();
             continue;
         }
+        if (c == '\n' && st.one_line) continue;
         if (c == '\n' || c == '\v') {
             lines.back().soft = c == '\v';
             lines.emplace_back();

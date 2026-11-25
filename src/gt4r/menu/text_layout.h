@@ -45,8 +45,8 @@ struct TextStyle {
     TextColor color;
     // `equalized`: each line broken at a soft break ('\v') is spread to this width at its spaces.
     float justify_width = 0;
-    // A text face that is not `multiline` draws its text on one line (0x491418 with one line,
-    // 0x491220): a '\n' in it takes a space's place (the Nissan hub's "One-make\r\nRaces").
+    // A text face that is not `multiline` draws its text on one line: a '\n' in it does nothing
+    // (0x490760; the Nissan hub's "One-make\r\nRaces", whose "\r" is a space wide).
     bool one_line = false;
     // "%Bc" to "%Bf" (the four shape buttons) are drawn in these; other buttons in gray.
     std::array<TextColor, 4> button_colors{};
@@ -73,7 +73,7 @@ std::optional<std::array<TextColor, 4>> find_button_colors(ByteSpan program_imag
 
 // Lays out UTF-8 text from (x, y) as the alignment says: each line on its own. The text's marks:
 // "%%" a percent sign, "%Crgb" a colour (hex digits), "%Bx" the button x of the Gaiji font,
-// "%F<name> " (a font) is skipped; "\r" is left out; "\v" is a line broken to fit (justified with
+// "%F<name> " (a font) is skipped; "\r" is a space wide; "\v" is a line broken to fit (justified with
 // `justify_width`).
 TextLayout layout_menu_text(std::string_view utf8, const TextStyle& style, float x, float y);
 // The same in a box (x, y, w, h) by a face's `align` 0..8 (rows from the top, columns from the

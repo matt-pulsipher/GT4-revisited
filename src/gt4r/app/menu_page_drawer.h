@@ -104,8 +104,10 @@ public:
         menu::TextStyle st = style_of(d);
         w = h = 0;
         if (!st.font || s.empty()) return;
-        // A face of several lines (and a text box) breaks its lines at its width.
-        if (const std::optional<Rect> g = d.rect("geometry"); g && g->w > 0 && (d.number("multiline") != 0 || d.type == "TextBoxFace") && d.number("packing") == 0) s = wrapped(s, st, g->w, d.number("equalized") != 0);
+        // A face of several lines (and a text box) breaks its lines at its width; an equalized
+        // text is measured by the renderer's own break, not the word wrapper's that draws it
+        // (0x2452A8: the license pages' information box).
+        if (const std::optional<Rect> g = d.rect("geometry"); g && g->w > 0 && (d.number("multiline") != 0 || d.type == "TextBoxFace") && d.number("packing") == 0) s = wrapped(s, st, g->w, d, false);
         // An abbreviated text measures as it is drawn, cut and ended in dots (the header's car name
         // is placed by its width: gtmode's refreshHeaderAlignment).
         if (const std::optional<Rect> g = d.rect("geometry"); g && g->w > 0 && d.number("abbreviate") != 0 && d.number("adjust_scale") == 0 &&
@@ -116,6 +118,13 @@ public:
         st.align = gt3r::text::HAlign::Left, st.valign = gt3r::text::VAlign::Top;
         const menu::TextLayout lay = menu::layout_menu_text(s, st, 0, 0);
         w = lay.width, h = lay.height;
+        // A text that is not `aligned` measures as wide as its rectangle and as high as its pen came
+        // down: its line steps, without the last line (0x491618 to 0x491638).
+        if (d.type == "TextFace" && d.has("aligned") && d.number("aligned") == 0) {
+            const std::optional<Rect> g = d.rect("geometry");
+            w = d.number("multiline") != 0 && g ? g->w : 640.0f;
+            h = float(st.font->line_height) * st.scale_y * float(lay.lines - 1);
+        }
     }
 
     // The page's 640 x 480 into (x, y) at `scale`; `state`: the bits every widget is drawn in.
@@ -477,13 +486,72 @@ private:
         st.align = gt3r::text::HAlign::Left, st.valign = gt3r::text::VAlign::Top;
         return menu::layout_menu_text(line, st, 0, 0).width;
     }
-    // A text of several lines is broken at spaces where a line would pass the face's width.
-    // `equalized`: the program's word wrapper for spread text; otherwise (❓ the renderer's own
-    // break, 0x491418, is not ported) a line breaks when the next word would pass the width.
-    std::string wrapped(const std::string& s, const menu::TextStyle& st, float width, bool equalized = true) const {
-        // ❓ Prologue's texts carry their own line ends and are not broken (its card dialog's
-        // first line passes its face's width by 5 pixels in one line).
+    // Whether the program's word wrapper spreads an `equalized` face's lines: not in Japanese,
+    // Korean and Chinese (0x245568: language 0 and 9 to 11), nor in Prologue.
+    bool word_wrapper() const {
+        if (!fonts_.count("hn_14")) return false;
+        const std::string lang = project_ ? project_->language() : std::string("US");
+        return lang != "JP" && lang != "KR" && lang != "TW" && lang != "CN";
+    }
+    // A text of several lines, broken as its face's text style has it: `equalized` by the word
+    // wrapper; else a face whose text is `aligned` (the default) only at its line ends; one whose
+    // text is not, at the character that would pass its right edge.
+    std::string wrapped(const std::string& s, const menu::TextStyle& st, float width, const Widget& face, bool drawn = true) const {
+        const bool box = face.type == "TextBoxFace";
+        if (drawn && face.number("equalized") != 0 && word_wrapper()) return wrapped_words(s, st, width);
+        if (!box) return face.has("aligned") && face.number("aligned") == 0 ? broken_characters(s, st, width) : s;
+        // ❓ A text box's own break (mTextBoxFace) is not read: at a space where the next word would
+        // pass the width. Prologue's carry their line ends (its card dialog's first line passes
+        // its face's width by 5 pixels in one line).
         if (!fonts_.count("hn_14")) return s;
+        std::string out, line;
+        auto flush = [&] { out += line, line.clear(); };
+        size_t at = 0;
+        while (at <= s.size()) {
+            const size_t end = std::min(s.find_first_of(" \n", at), s.size());
+            const std::string word = s.substr(at, end - at);
+            const std::string tried = line.empty() ? word : line + " " + word;
+            if (!line.empty() && width_of(tried, st) > width + 0.5f) flush(), out += '\v', line = word;
+            else line = tried;
+            if (end < s.size() && s[end] == '\n') flush(), out += '\n';
+            at = end + 1;
+        }
+        flush();
+        return out;
+    }
+    // The renderer's break (0x490660, 0x492748, 0x492E14): when the pen after a character reaches
+    // the width less the font's double-byte step, the next character starts a line, unless it is
+    // one that may not (. , ' and, after a double-byte character, the comma, the full stop, the
+    // closing bracket, the small kana and the full-width dash).
+    std::string broken_characters(const std::string& s, const menu::TextStyle& st, float width) const {
+        const gt3r::text::FontGlyph* space_glyph = st.font ? st.font->glyph(' ') : nullptr;
+        const int advance = space_glyph ? int(space_glyph->advance) : st.font ? int(st.font->size / 2) : 8;
+        const float pen_extra = float(advance / 2) * st.scale_x; // (a line's width is its pen less that)
+        const float limit = width - float(st.spacing.wide_advance) * st.scale_x;
+        std::string out, line;
+        for (size_t at = 0; at < s.size();) {
+            const u8 c = u8(s[at]);
+            size_t n = c >= 0xF0 ? 4 : c >= 0xE0 ? 3 : c >= 0xC0 ? 2 : 1;
+            if (c == '%' && at + 1 < s.size()) n = s[at + 1] == 'C' ? 5 : s[at + 1] == 'B' ? 3 : 2;
+            n = std::min(n, s.size() - at);
+            const std::string ch = s.substr(at, n);
+            at += n;
+            if (c == '\n') {
+                out += line, out += '\n', line.clear();
+                continue;
+            }
+            line += ch;
+            if (at >= s.size() || s[at] == '\n' || width_of(line, st) + pen_extra < limit) continue;
+            const std::string rest = s.substr(at, 3);
+            bool stays = rest[0] == '.' || rest[0] == ',' || rest[0] == '\'';
+            if (c >= 0xE0)
+                for (const char* k : {"\u3001", "\u3002", "\u300C", "\u3083", "\u3085", "\u3087", "\u3063", "\uFF0D"}) stays |= rest == k;
+            if (stays) continue;
+            out += line, out += '\n', line.clear();
+        }
+        return out + line;
+    }
+    std::string wrapped_words(const std::string& s, const menu::TextStyle& st, float width) const {
         // The program's word wrapper (0x245C90): each word measured by itself; a word starts a new
         // line when the line so far (its words, each with a space after it) and it reach the
         // width less the font's double-byte step (❓ that margin: the renderer's own right edge,
@@ -495,23 +563,6 @@ private:
         // (A word's width is its pen's: width_of() gives a line's, half a space less.)
         const float pen_extra = float(advance / 2) * st.scale_x;
         const float limit = width - float(st.spacing.wide_advance) * st.scale_x;
-        if (!equalized) {
-            // (The events' one-line notices fill their 544 units within a few: no margin there.)
-            std::string out, line;
-            auto flush = [&] { out += line, line.clear(); };
-            size_t at = 0;
-            while (at <= s.size()) {
-                const size_t end = std::min(s.find_first_of(" \n", at), s.size());
-                const std::string word = s.substr(at, end - at);
-                const std::string tried = line.empty() ? word : line + " " + word;
-                if (!line.empty() && width_of(tried, st) > width + 0.5f) flush(), out += '\v', line = word;
-                else line = tried;
-                if (end < s.size() && s[end] == '\n') flush(), out += '\n';
-                at = end + 1;
-            }
-            flush();
-            return out;
-        }
         std::string out, line;
         float cur = 0;
         auto flush = [&] { out += line, line.clear(), cur = 0; };
@@ -574,15 +625,16 @@ private:
                 s += "...";
             }
         }
-        if ((w.number("multiline") != 0 || w.type == "TextBoxFace") && w.number("packing") == 0 && at.w > 0) s = wrapped(s, st, at.w, w.number("equalized") != 0);
+        if ((w.number("multiline") != 0 || w.type == "TextBoxFace") && w.number("packing") == 0 && at.w > 0) s = wrapped(s, st, at.w, w);
         // Where in its rectangle: 0..8, rows from the top, columns from the left; the middle (4)
         // when not given (the text style's default).
         // The program's word wrapper (`equalized`, 0x245C90) draws word by word from the pen at the
-        // rectangle's top left (0x490A08, 0x490660, 0x490760): `align` is not used there, the last
-        // line stays at the left and a text taller than its rectangle runs on below it (the
-        // Driving Missions' texts).
-        const bool spread = w.number("equalized") != 0 && at.w > 0;
-        const int align = spread ? 0 : w.has("align") ? int(w.number("align")) : 4;
+        // rectangle's top left (0x490A08, 0x490660, 0x490760), and so does the renderer a text that
+        // is not `aligned` (0x491490): `align` is not used there, and a text taller than its
+        // rectangle runs on below it (the Driving Missions' texts).
+        const bool spread = w.number("equalized") != 0 && at.w > 0 && word_wrapper();
+        const bool unaligned = w.type == "TextFace" && w.has("aligned") && w.number("aligned") == 0;
+        const int align = spread || unaligned ? 0 : w.has("align") ? int(w.number("align")) : 4;
         const int col = align % 3, row = align / 3;
         st.align = col == 0 ? gt3r::text::HAlign::Left : col == 1 ? gt3r::text::HAlign::Center : gt3r::text::HAlign::Right;
         st.valign = row == 0 ? gt3r::text::VAlign::Top : row == 1 ? gt3r::text::VAlign::Middle : gt3r::text::VAlign::Bottom;
