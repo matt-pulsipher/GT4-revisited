@@ -96,6 +96,8 @@ public:
         }
     }
 
+    bool follows_aspect() const override { return runtime_ || player_; }
+
     void update(App& app, double dt) override {
         step_time_ += dt;
         const MenuInput& m = app.menu();
@@ -141,9 +143,9 @@ public:
     void render(App&, Ui& ui) override {
         if (runtime_) return render_running(ui);
         if (player_) {
-            ui.fill(0, 0, Ui::kWidth, Ui::kHeight, {0, 0, 0});
+            ui.fill(0, 0, ui.width(), Ui::kHeight, {0, 0, 0});
             float y = Ui::kHeight / 2 - 20;
-            for (const std::string& line : Ui::wrap("The game could not start: " + error_, Ui::kWidth - 80)) ui.text_center(y, line, colors::kBad), y += 12;
+            for (const std::string& line : Ui::wrap("The game could not start: " + error_, ui.width() - 80)) ui.text_center(y, line, colors::kBad), y += 12;
             ui.footer("{Cross}: back");
             return;
         }
@@ -151,8 +153,8 @@ public:
         if (project_ && full_ && page_sel_ < int(pages_.size())) {
             // The page over the whole height (4:3).
             const float scale = float(Ui::kHeight) / 480.0f;
-            ui.fill(0, 0, Ui::kWidth, Ui::kHeight, {0, 0, 0});
-            drawer_->draw(*project_, *pages_[size_t(page_sel_)], (Ui::kWidth - 640 * scale) / 2, 0, scale, state_);
+            ui.fill(0, 0, ui.width(), Ui::kHeight, {0, 0, 0});
+            drawer_->draw(*project_, *pages_[size_t(page_sel_)], (ui.width() - 640 * scale) / 2, 0, scale, state_);
             return;
         }
         ui.header("MENU PAGES", project_ ? project_->name() + "  (" + project_->module_name() + ", " + project_->language() + ")" : std::string());
@@ -221,7 +223,7 @@ private:
             Disc* disc = app.disc();
             if (disc) config.program_image = [disc] { return disc->program_image(); };
             if (disc && disc->info().serial.rfind("SCPS", 0) == 0) config.region = "jp"; // (Prologue: its units, PS and kgfm)
-            config.data_dir = app.data_dir();
+            config.data_dir = app.save_dir();
             while (!config.data_dir.empty() && (config.data_dir.back() == '/' || config.data_dir.back() == '\\')) config.data_dir.pop_back();
             if (!projects_.empty()) config.language = projects_[size_t(std::clamp(project_sel_, 0, int(projects_.size()) - 1))].language;
             runtime_ = std::make_unique<menu::Runtime>([vfs](const std::string& path) { return vfs->read(path); }, config);
@@ -384,8 +386,8 @@ private:
     }
 
     void render_running(Ui& ui) {
-        const float scale = float(Ui::kHeight) / 480.0f, x = (Ui::kWidth - 640 * scale) / 2;
-        ui.fill(0, 0, Ui::kWidth, Ui::kHeight, {0, 0, 0});
+        const float scale = float(Ui::kHeight) / 480.0f, x = (ui.width() - 640 * scale) / 2;
+        ui.fill(0, 0, ui.width(), Ui::kHeight, {0, 0, 0});
         const Uint64 t0 = SDL_GetTicksNS();
         if (advertise_ && advertise_->active()) return advertise_->draw(x, scale);
         if (live_drawer_) {
