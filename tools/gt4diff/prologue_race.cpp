@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 
 namespace gt4r::diff::prologue {
 
@@ -24,6 +25,8 @@ constexpr u32 kTableNames = 0x5052A0;    // the tables' names (39 pointers)
 constexpr u32 kLanguageTables = 0x505340; // the tables named with the language after them
 constexpr u32 kLanguageNames = 0x505350;
 constexpr u32 kTableCtor = 0x406908;      // a table object (8 bytes: +0 the file's image, +4 its vtable)
+constexpr u32 kLabelsCtor = 0x4065B0;     // a table's label index (8 bytes: +0 the .idi file's image, +4 its vtable)
+constexpr u32 kLabelTables = 0x573D00;    // the tables with a label index (0x27 ends the list)
 constexpr u32 kSetCar = 0x407A08;         // (equipment, car)
 constexpr u32 kCourseRelocate = 0x3A8058; // (the course's container)
 constexpr u32 kConductorCtor = 0x3B5468;  // DynamicsConductorSinglePlayer
@@ -34,7 +37,7 @@ constexpr u32 kStubZero = 0x100000, kStubPad = 0x100004;
 
 // The entry's layout (0x4000 bytes): +0x20 the equipment, +0x3FA4 the controller (+0x184 set: a player's), +0x3FA8 the
 // grid place, +0x3FAC / +0x3FB0 the driver's words the conductor reads, +0x3FCC the condition block.
-constexpr u32 kEntrySize = 0x4000, kEntryController = 0x3FA4, kEntryPlace = 0x3FA8;
+constexpr u32 kEntrySize = 0x4000, kEntryController = 0x3FA4, kEntryPlace = 0x3FA8, kEntryAsm = 0x3FB8, kEntryTcs = 0x3FBC;
 
 } // namespace
 
@@ -70,10 +73,29 @@ void boot(Ee& ee, Disc& disc) {
         ee.w32(table, image);
         ee.w32(kDatabase + 0x124 + 4 * t, table);
     }
+    // The label indexes of the tables listed at 0x573D00 (up to 0x27), each file's (.idi) image under a LabelInformation
+    // object (0x4065B0) at the database's +0x88 + 4 t: what a lookup by label (0x407450) reads, e.g. the spec builder's
+    // special cars (0x3B3998).
+    for (u32 k = 0; k < 40; ++k) {
+        const u32 t = ee.r32(kLabelTables + 4 * k);
+        if (t >= 39) break;
+        std::string name = ee.read_cstr(ee.r32(kTableNames + 4 * t));
+        for (u32 j = 0; j < 3; ++j)
+            if (ee.r32(kLanguageTables + 4 * j) == t) name += language;
+        const gt3r::Volume::Entry* e = disc.volume().find(folder + name + ".idi");
+        if (!e) continue;
+        const Bytes file = disc.volume().read(*e);
+        const u32 image = ee.alloc_bytes(file, 16), labels = ee.alloc(8);
+        ee.call(kLabelsCtor, {Arg::ptr(labels)});
+        ee.w32(labels, image);
+        ee.w32(kDatabase + 0x88 + 4 * t, labels);
+    }
 }
 
+bool aids_from_env() { return !(std::getenv("GT4R_AIDS") && std::string(std::getenv("GT4R_AIDS")) == "0"); }
+
 bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, const std::vector<std::string>& labels, int human, Race& r,
-                std::string& err) {
+                std::string& err, bool aids) {
     r = Race{};
     r.cars = int(labels.size());
     try {
@@ -140,6 +162,8 @@ bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, 
             if (!car_id) return err = "no car " + labels[size_t(i)], false;
             ee.call(kSetCar, {Arg::ptr(entry + 0x20), Arg::integer(s64(db::part_id(0, car_id)))}, 50'000'000);
             ee.w32(entry + kEntryPlace, u32(i));
+            // The entry's stability and traction control switches (+0x3FB8 / +0x3FBC, read by the car's set-up 0x3C93A0).
+            ee.w32(entry + kEntryAsm, aids ? 1 : 0), ee.w32(entry + kEntryTcs, aids ? 1 : 0);
             ee.w32(arr + 4 * u32(i), entry);
             r.entries.push_back(entry);
         }

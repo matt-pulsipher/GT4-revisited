@@ -961,7 +961,9 @@ public:
     void judge_goal() {
         if (goal_v_ <= 0 || stop_area_ || flow_.steps_since_start() < 0 || flow_.player_finished()) return;
         const float v = world_->cars()[0].course_v;
-        if (flow_.car(0).counter >= 1 && goal_prev_ >= 0 && goal_prev_ < goal_v_ && goal_v_ <= v && v - goal_prev_ < 100)
+        // (on the test's last lap: lesson 1 runs two, RACE +0x29)
+        const int last = std::max(1, setup_.laps);
+        if (flow_.car(0).counter >= last && goal_prev_ >= 0 && goal_prev_ < goal_v_ && goal_v_ <= v && v - goal_prev_ < 100)
         {
             flow_.finish_now(0, (goal_v_ - goal_prev_) / std::max(v - goal_prev_, 1e-4f));
             LOG_INFO("Drive: the license test's goal at %.1f m: %.3f s", double(goal_v_), double(flow_.car(0).finish_units) / 3000.0);

@@ -395,6 +395,18 @@ unless status 4; a change (0x463C28 blended) sets the cooldown 180 and the conta
 both lines the new one, the offset and the blend 0; else the blend 1, or 1 − blend when the request
 names the line being left, the old line kept for it; then the re-plan (also for the line the car is on).
 
+### 6.1 The player's own driver and the suggested gear
+
+The player's car (control source 0) has a driver object too: the input phase (0x349FD0) runs its decision (0x465078) every
+step while its kind is 0, then the pad's path over its outputs, then **the suggested gear** (0x469E58, only for this car):
+D +0x40 = −1 and +0x41 = 0, then with the target speed D +0x28 (mode 4: the lesser of +0x28 and +0x24) at or below the
+car's speed F +0x53C, D +0x41 = 1 in modes 3 / 4 and D +0x40 = 0x36BF68(car, target): the lowest gear whose up-shift rpm
+(0x36BEE0) less 500 (2,000 in first) reaches that speed (the gearbox's, sim-parts'). `Field::set_shadow(car)` keeps such a
+driver (planned, not driving while kind 0); `Field::suggestion(car)` the speed, set and firm. ✔ Set and firm equal to the
+program's at every call with the targets made up around the car's speed (`GT4R_AI_PAD=<car> GT4R_AI_SUGFORCE=1
+GT4R_AI_CHECK=1`, test `ai_suggested_gear_speed_equal_to_the_program`); the gear itself from the session's gearbox (asked of
+sim-parts-2).
+
 ## 7. Pace
 
 - The **menus' difficulty** picks the event (the car's Arcade rows, `ARCADEINFO_NORMAL`
@@ -483,6 +495,16 @@ decision with a pace command midway (`gt4r_diff ai GT4R_AI_BSPEC=1,4,20`).
 - **In the drivers**: the arcs' scale x D+0x74 (after the spread) and the braking factor x D+0x70 for a
   B-spec driver of kind 0; its draws seeded with 1, no spread by grid index (0x467148: computer cars
   only); without passing a lane change is only the return to line 6.
+- **Its experience in the race** (0x4684A8, the record at car +0x8C, for a B-spec driver of kind 0 (0x3F33D8)): at each
+  new segment of its line (0x463EA8, before the segment's shift) in modes 1 / 2 with its arc's speed v (D +0x24) less
+  30 km/h below the car's speed: table a by v; at each lane change of traffic (0x469AE8, after 0x463C28): table c by the
+  car's speed. The speed's bin: x = (v − 16.67 m/s) / (61.11 − 16.67) for a (72.11 for c) within [0, 1], n = int(64 x)
+  − 4, bin n / 8 (toward 0), r the rest: r ≤ 0 adds 64 to the bin, else (8 − r) x 8 to it and 8 r to the next (each u16
+  at most 0xFFFF). Then by company: no car in its cells (or one car in the race, or the conductor's virtual +0x30 ❓ set):
+  d[class / 2] + 0x1000; else d + 0x555 and e[class / 2] + 0xAAA. ✔ Equal to the program's after every decision (a
+  B-spec S500, `GT4R_AI_BSPEC=0,4,5 GT4R_AI_CHECK=1`, test `ai_bspec_experience_equal_to_the_program`).
+  `Field::set_bspec_record` / `bspec_record` (the record in and out of the race; the book's side is gt-mode-2's
+  `menu::bspec`).
 - **Its shift speeds** (0x36BEE0 / 0x36BF28 → 0x3F1E30): the speed x the car's byte +0x83 >> 7 (the driver's shift byte
   copied to the car): the up-shift speeds for control source 1 and kind 0, the down-shift speeds for control source 1; the
   opponents shift at the gearbox's own. In the session's gearbox (sim-parts' `rules_drive`) by

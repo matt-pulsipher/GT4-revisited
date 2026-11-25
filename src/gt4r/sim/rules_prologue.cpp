@@ -4,7 +4,9 @@
 
 #include "base/ee_math.h"
 #include "sim/exact/build_math.h"
+#include "sim/exact/car_fields.h"
 #include "sim/exact/course_ground.h"
+#include "gt4r/formats/db/car_parts.h"
 
 #include <cstdlib>
 #include "gt4r/sim/program.h"
@@ -114,6 +116,8 @@ Tables tables(const Program& program) {
     for (u32 k = 0; k < 6; ++k) t.in_line[k] = F::raw(program.w(PrologueProgram::kInLine + 4 * k));
     for (u32 r = 0; r < t.wheel_layouts.size(); ++r)
         for (u32 k = 0; k < rules::kWheelLayoutSize; ++k) t.wheel_layouts[r][k] = program.b(PrologueProgram::kWheelLayouts + rules::kWheelLayoutSize * r + k);
+    t.convert = convert_data(program);
+    t.asm_keep = program.b(PrologueProgram::kAsmKeep);
     return t;
 }
 
@@ -187,38 +191,43 @@ void slip_ratios(ex::Car& c, const rules::TireExtra& x, const rules::WheelLayout
     }
 }
 
-void convert(ex::Params& p, const Spec& spec) {
-    const TireKinds kinds = tire_kinds(spec);
-    for (size_t r = 0; r < 6; ++r) {
-        ex::TireRecord& o = p.tire[r];
-        if (kinds[r][1]) {
-            F best = F(), at = F();
-            for (int k = 0; k < o.curve_a.n && k < 8; ++k)
-                if (best < o.curve_a.y[size_t(k)]) best = o.curve_a.y[size_t(k)], at = o.curve_a.x[size_t(k)];
-            o.peak_slip = at;
-        }
-        if (o.grip == F()) continue;
-        const size_t a = r / 3;
-        const F unsprung = (gt3r::ee::int_to_f(spec.b((a ? 0x70u : 0x58u) + 3)) * F::raw(0x3E800000)) * F::raw(0x411CCCCC);
-        const F load = (a ? p.xe58 : p.xe54) * F::raw(0x3F000000) + unsprung;
-        o.grip = o.grip * rules::table(o.load_curve, load / p.width[a]);
-    }
-}
-
-TireKinds tire_kinds(const Spec& spec) {
+TireKinds tire_kinds(const Block& p) {
     TireKinds k{};
-    for (int r = 0; r < 6; ++r)
-        for (u32 j = 0; j < 3; ++j) k[size_t(r)][j] = spec.b(Spec::tire_block(r) + 3 + j);
+    for (u32 r = 0; r < 6; ++r)
+        for (u32 j = 0; j < 3; ++j) k[r][j] = p[0x398 + 0x1B8 * r + 0x1B4 + j];
     return k;
 }
 
-CarPart car_part(const ex::Car& c, const Spec& spec, const Tables& t) {
+CarPart car_part(const ex::Car& c, const Block& p, const Tables& t) {
     CarPart x;
-    x.layout = wheel_layout(t, spec.b(0x02)); // (Gran Turismo 4's spec +0x02, as rules_build's wheel_layout_index)
-    x.tires = tire_extra(c.p, tire_kinds(spec), t);
+    x.layout = wheel_layout(t, p[0x30]);
+    x.tires = tire_extra(c.p, tire_kinds(p), t);
     x.chassis.mass = c.p.mass;
     x.axle_load = {c.p.xe54, c.p.xe58};
+    image_part(x, p.data());
     return x;
+}
+
+CarPart build_car(db::SpecDb& db, const Spec& s, const Equipment& eq, int course_kind, bool asm_on, bool tcs_on, const Tables& t, u32 base,
+                  ex::Car& c, Block* block) {
+    std::string label;
+    const u32 car = db::part_row_id(eq.part(Equipment::Car));
+    for (const db::CarEntry& e : db.cars())
+        if (e.id == car) label = e.label;
+    ex::Spec spec{};
+    core_spec(s, label, course_kind, t.convert, spec);
+    if (!asm_on) spec[0x109] = t.asm_keep ? u8(spec[0x109] & 0xC0) : 0;
+    if (!tcs_on) spec[0x110] = 0;
+    Block p{};
+    convert(spec, t.convert, ConvertIn{}, base, p);
+    const ex::ParamImage image = engine_image(p, base);
+    std::vector<u8> record(ex::kCarSize, 0);
+    std::copy(image.begin(), image.end(), record.begin() + ex::kParams);
+    ex::Car loaded;
+    ex::load_image(loaded, record.data());
+    c.p = loaded.p;
+    if (block) *block = p;
+    return car_part(c, p, t);
 }
 
 void image_part(CarPart& x, const u8* p) {

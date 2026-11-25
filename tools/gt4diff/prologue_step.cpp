@@ -7,6 +7,7 @@
 #include "prologue_race.h"
 #include "prologue_taps.h"
 
+#include "gt4r/sim/car_spec.h"
 #include "gt4r/sim/exact_bridge.h"
 #include "gt4r/sim/rules_prologue.h"
 #include "gt4r/formats/course/course_file.h"
@@ -53,7 +54,7 @@ int whole_step(Disc& disc, const std::string& course, const std::string& car, in
     boot(ee, disc);
     Race r;
     std::string err;
-    if (!setup_race(ee, disc, sdb, course, {car}, 1, r, err)) {
+    if (!setup_race(ee, disc, sdb, course, {car}, 1, r, err, aids_from_env())) {
         std::printf("prologue: %s\n", err.c_str());
         return 1;
     }
@@ -144,7 +145,14 @@ int whole_step(Disc& disc, const std::string& course, const std::string& car, in
         in.steer = p.steer, in.throttle = p.throttle, in.brake = p.brake;
         session->step_once({&in, 1});
         if (i < from) continue;
-        if (std::getenv("GT4R_SHOW_COLLIDE") && i < from + 5) {
+        if (std::getenv("GT4R_SHOW_COLLIDE") && i < from + 5 && session->prologue_collision()) {
+            const auto& b = session->prologue_collision()->body(0);
+            std::printf("    step %d collision: pos %.9g %.9g %.9g / %.9g %.9g %.9g  vel %.9g %.9g %.9g / %.9g %.9g %.9g  heading %.9g / %.9g  yaw %.9g / %.9g  hint %d wall %d\n", i + 1,
+                        double(at19.pos.x.host()), double(at19.pos.y.host()), double(at19.pos.z.host()), double(b.cx.host()), double(b.cy.host()),
+                        double(b.cz.host()), double(at19.vel.x.host()), double(at19.vel.y.host()), double(at19.vel.z.host()), double(b.cvx.host()),
+                        double(b.cvy.host()), double(b.cvz.host()), double(at19.heading.host()), double(b.ch.host()), double(at19.yaw_rate.host()),
+                        double(b.cw.host()), b.hint, int(b.wall_hit));
+        } else if (std::getenv("GT4R_SHOW_COLLIDE") && i < from + 5) {
             const sim::collide::Body& b = session->body(0);
             std::printf("    step %d collision: pos %.9g %.9g %.9g / %.9g %.9g %.9g  vel %.9g %.9g %.9g / %.9g %.9g %.9g  heading %.9g / %.9g  yaw %.9g / %.9g\n", i + 1,
                         double(at19.pos.x.host()), double(at19.pos.y.host()), double(at19.pos.z.host()), double(b.cx.host()), double(b.cy.host()),
@@ -207,6 +215,7 @@ int run(Disc& disc, const std::string& course, const std::string& car, int steps
         return 1;
     }
     if (std::getenv("GT4R_WHOLESTEP")) return whole_step(disc, course, car, steps);
+    if (std::getenv("GT4R_CONVERT")) return convert_check(disc, course, car);
     set_disc(disc);
     db::SpecDb sdb = open_db(disc);
     Ee ee;
@@ -224,7 +233,7 @@ int run(Disc& disc, const std::string& course, const std::string& car, int steps
             e.read_bytes(u32(e.a(1)), their_spec.data(), u32(their_spec.size()));
         }
     });
-    if (!setup_race(ee, disc, sdb, course, {car}, 1, r, err)) {
+    if (!setup_race(ee, disc, sdb, course, {car}, 1, r, err, aids_from_env())) {
         std::printf("prologue: %s\n", err.c_str());
         return 1;
     }
@@ -413,44 +422,27 @@ int run(Disc& disc, const std::string& course, const std::string& car, int steps
         std::printf("  ground: %d queries equal, %d within 0.1 mm, %d differ, %d off the road (worst %.6f m)\n", same, close, off, miss, worst);
     }
     if (!their_spec.empty()) {
-        // The parameter block again with Prologue's converter's own rules (rules_prologue.h convert) on the engine's.
+        // The parameter block as the session builds it (Prologue's spec and converter, rules_prologue.h build_car) against the
+        // program's, word by word in Prologue's layout (GT4R_CONVERT compares the converter on every car).
         std::vector<u8> theirs(kParamsSize);
         ee.read_bytes(r.params(0), theirs.data(), kParamsSize);
         const sim::Program program = sim::Program::load(disc);
-        const gt3r::sim::exact::ProgramData data = sim::core_program(program);
-        gt3r::sim::exact::ConvertInputs in;
-        in.data = &data, in.base = r.params(0), in.control = 0;
-        in.physics_globals();
-        gt3r::sim::exact::Spec spec;
-        std::copy(their_spec.begin(), their_spec.begin() + spec.size(), spec.begin());
-        gt3r::sim::exact::ParamImage img{};
-        gt3r::sim::exact::convert_params(spec, in, img);
-        std::vector<u8> rec(gt3r::sim::exact::kCarSize, 0);
-        std::copy(img.begin(), img.end(), rec.begin() + gt3r::sim::exact::kParams);
-        gt3r::sim::exact::Car car;
-        gt3r::sim::exact::load_image(car, rec.data());
-        sim::prologue::convert(car.p, session->spec(0));
-        gt3r::sim::exact::store_image(car, rec.data());
-        int same = 0, close = 0, off = 0;
-        for (u32 o = 0; o + 4 <= img.size(); o += 4) {
-            if (o >= 0xE7C) break; // (the aids: the entries' switches)
-            u32 q = o;
-            if (o >= 0x398 && o < 0xDD0) q = 0x398 + 0x1B8 * ((o - 0x398) / 0x1B4) + (o - 0x398) % 0x1B4;
-            else if (o >= 0xDD0) q = o + (o >= 0xE6C ? 44 : 24);
-            u32 a = 0, b = 0;
-            std::memcpy(&a, &rec[gt3r::sim::exact::kParams + o], 4), std::memcpy(&b, &theirs[q], 4);
-            if (a >= 0x01000000u && a < 0x02000000u) continue; // (pointers into the block)
-            const s64 ulps = s64(s32(a)) - s64(s32(b));
-            if (a == b) ++same;
-            else if (((a ^ b) & 0x80000000u) == 0 && (a & 0x7F800000u) != 0 && ulps >= -8 && ulps <= 8) ++close;
-            else {
-                ++off;
-                float fa, fb;
-                std::memcpy(&fa, &a, 4), std::memcpy(&fb, &b, 4);
-                std::printf("    P+%03X  ours %08X (%g)  the program's %08X (%g)\n", o, a, double(fa), b, double(fb));
+        const sim::prologue::Tables pt = sim::prologue::tables(program);
+        sim::Equipment eq;
+        int same = 0, off = 0;
+        if (sim::stock_car(sdb, program, car, eq)) {
+            gt3r::sim::exact::Car c;
+            sim::prologue::Block mine{};
+            sim::prologue::build_car(sdb, session->spec(0), eq, 0, true, true, pt, r.params(0), c, &mine);
+            for (u32 o = 0; o + 4 <= kParamsSize; o += 4) {
+                if (o >= 0xEA8 && o < 0xEDC) continue; // (the aids: the harness's entry switches them off)
+                u32 a = 0, b = 0;
+                std::memcpy(&a, &mine[o], 4), std::memcpy(&b, &theirs[o], 4);
+                if (a == b) ++same;
+                else ++off, std::printf("    P+%03X  ours %08X  the program's %08X\n", o, a, b);
             }
         }
-        std::printf("  parameters with Prologue's converter rules: %d words equal, %d within 8 units in the last place, %d differ\n", same, close, off);
+        std::printf("  parameters as the session builds them: %d words equal, %d differ\n", same, off);
     }
     {
         gt3r::sim::exact::Spec mine;
