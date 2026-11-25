@@ -1276,8 +1276,8 @@ public:
 
     void quiet() { world_->quiet(); }
     void draw_icons(Ui& ui, const SDL_FRect& canvas, std::span<const RaceWorld::Icon> icons) { world_->draw_icons(ui, canvas, icons); }
-    void draw_model(Ui& ui, const SDL_FRect& rect, const render::GpuModel& m, const render::Mat4& place, const render::Mat4& proj, float alpha) {
-        world_->draw_model(ui, rect, m, place, proj, alpha);
+    void draw_model(Ui& ui, const SDL_FRect& rect, const render::GpuModel& m, const render::Mat4& place, const render::Mat4& proj, float alpha, bool own_reflection = false) {
+        world_->draw_model(ui, rect, m, place, proj, alpha, own_reflection);
     }
     audio::RaceSound* sound() { return world_->sound(); }
 
@@ -2838,7 +2838,13 @@ private:
             trophy_motion_.start(kind);
             trophy_ticks_ = SDL_GetTicksNS();
             try {
-                if (const std::optional<Bytes> f = app.vfs()->read("race/trophy.mdl"); f && mdls::is_mdls(*f)) {
+                const std::optional<Bytes> f = app.vfs()->read("race/trophy.mdl");
+                if (f && gt3r::has_magic(*f, "GTM1")) { // (Prologue's: Gran Turismo 3's model, 0x572B68's sets)
+                    gt3r::gtm1::Options o;
+                    o.program_alpha_test = true, o.static_env_maps = true, o.gs_mip_levels = true; // (its reflection picture its own)
+                    o.paint = race::LicenseTrophy::material_for(kind, 3);
+                    trophy_ = std::make_unique<render::GpuModel>(*app.gpu(), gt3r::gtm1::build_model(gt3r::gtm1::Gtm1::parse(*f), o, "trophy"));
+                } else if (f && mdls::is_mdls(*f)) {
                     gt3r::gtm1::Options o; // (as the race's cars: the reflection passes weighted, the course's reflection picture)
                     o.program_alpha_test = true, o.weighted_reflection = true, o.gs_mip_levels = true;
                     o.paint = race::LicenseTrophy::material_for(kind, int(mdls::read_header(*f).variations));
@@ -2858,7 +2864,7 @@ private:
         if (prologue_license_) rect = c;
         const render::Mat4 proj = render::perspective(race::LicenseTrophy::kFovDegrees * 3.14159265f / 180, race::LicenseTrophy::kAspect, race::LicenseTrophy::kNear,
                                                       race::LicenseTrophy::kFar);
-        race_->draw_model(ui, rect, *trophy_, trophy_motion_.matrix(), proj, std::clamp(trophy_motion_.fade.value, 0.0f, 1.0f) * panel.opacity);
+        race_->draw_model(ui, rect, *trophy_, trophy_motion_.matrix(), proj, std::clamp(trophy_motion_.fade.value, 0.0f, 1.0f) * panel.opacity, prologue_license_);
         // Stepped by the time shown, 1/60 s a picture of the original's (two half steps a picture).
         const Uint64 now = SDL_GetTicksNS();
         float dt = std::min(float(double(now - trophy_ticks_) / 1e9), 0.1f);

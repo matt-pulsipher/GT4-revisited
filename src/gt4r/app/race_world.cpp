@@ -714,17 +714,18 @@ void RaceWorld::draw_icons(Ui& ui, const SDL_FRect& canvas, std::span<const Icon
     m.icon_view->draw(ui.renderer(), canvas, render::Mat4::identity(), proj, RVec{0, 0, 100}, items, o);
 }
 
-void RaceWorld::draw_model(Ui& ui, const SDL_FRect& rect, const render::GpuModel& model, const render::Mat4& place, const render::Mat4& proj, float alpha) {
+void RaceWorld::draw_model(Ui& ui, const SDL_FRect& rect, const render::GpuModel& model, const render::Mat4& place, const render::Mat4& proj, float alpha, bool own_reflection) {
     Impl& m = *impl_;
     if (!app_.gpu() || alpha <= 0) return;
     if (!m.icon_view) m.icon_view = std::make_unique<render::View3D>(*app_.gpu());
     std::vector<render::DrawItem> items{render::DrawItem{&model, place, 0}};
+    items[0].sphere_map = own_reflection; // (the reflection picture is in the model)
     render::DrawOptions o = draw_options(*course_, 100);
     o.fog = false;
     o.frustum_cull = false;
     for (float& c : o.clear) c = 0;
     o.composite_alpha = std::clamp(alpha, 0.0f, 1.0f);
-    if (m.view && m.env_ready) o.env_cube = m.view->env_cube(), o.env_gt3_lookup = true;
+    if (!own_reflection && m.view && m.env_ready) o.env_cube = m.view->env_cube(), o.env_gt3_lookup = true;
     m.icon_view->draw(ui.renderer(), rect, render::Mat4::identity(), proj, RVec{0, 0, 0}, items, o);
 }
 
