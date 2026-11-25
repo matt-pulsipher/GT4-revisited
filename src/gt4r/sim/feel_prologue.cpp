@@ -75,6 +75,31 @@ bool hit_penalty(const ex::Car& c, const rules::HitRules& r, int kind, int part,
     return false;
 }
 
+namespace {
+void part_params(const CarPart& x, rules::NearExtra& n) { n.speed_lo = x.part_lo, n.speed_hi = x.part_hi, n.speed_rate = x.part_rate; }
+} // namespace
+
+void part_start(const ex::Car& c, const CarPart& x, FeelPart& f) {
+    f.part_state = f.part.speed_part_state2 = F(), f.part.speed_state = f.part.speed_state2 = 0;
+    part_params(x, f.part);
+    if (x.part_kind == 1) {
+        if (x.part_hi <= c.speed) f.part_state = kOne, f.part.speed_state = 1;
+    } else if (x.part_kind == 2) f.part_state = rules::speed_part_share(f.part, c.speed);
+}
+
+void part_step(ex::Car& c, const CarPart& x, FeelPart& f) {
+    if (x.part_kind == 0) return;
+    part_params(x, f.part);
+    const u8 kind = x.part_kind;
+    rules::speed_part(c, f.part, kind == 1 || kind == 2 || kind == 4 ? kind : 3, f.part_state);
+}
+
+void part_downforce(ex::Car& c, const CarPart& x, const FeelPart& f, const ex::Slipstream& s) {
+    if (x.part_kind < 1 || x.part_kind > 2) return;
+    const F a = (s.downforce_share + (kOne - s.downforce_share) * (kOne - c.slip_filter)) * (c.speed * c.speed);
+    c.downforce[1] = c.downforce[1] + x.part_lift * a * f.part_state;
+}
+
 rules::SlideTables slide_tables(const Program& program) {
     std::array<u8, 0x210> b{};
     for (u32 k = 0; k < b.size(); ++k) b[k] = program.b(kEffectsBlock + k);
@@ -210,6 +235,143 @@ void pad_rumble(const ex::Car& c, const rules::WheelLayout& l, std::array<u8, 2>
     s32 v = gt3r::ee::to_int(level * F::raw(0x43800000));
     if (!(v < 0x80)) v = 0x7F;
     pad[1] = u8(v);
+}
+
+ForceTables force_tables(const Program& program, const Controls& k) {
+    // (the settings as rules::force_mode takes them: its bytes +0x74 .. +0x7A, its rows from +0x7C; no rate table's bytes)
+    std::array<u8, rules::kForceSettingsSize> K{};
+    for (u32 i = 0; i < 7; ++i) K[0x74 + i] = program.b(0x503F20 + i);
+    for (u32 i = 0; i < 0x60; ++i) K[0x7C + i] = program.b(PrologueProgram::kController + 0x74 + i);
+    ForceTables t;
+    for (int m = 0; m < 3; ++m) {
+        t.smooth[size_t(m)] = K[0x7C + 0x20 * size_t(m) + 4];
+        t.mode[size_t(m)] = rules::force_mode(K.data(), k.jog_scale[0], k.jog_scale[1], m);
+    }
+    return t;
+}
+
+void steer_force(const ex::Car& c, ForcePart& o, const CarPart& x, const ForceTables& t, const rules::SteerTables& g, u8 course_kind, int strength_index) {
+    const F kMinus = F::raw(0xBF800000), kHalf = F::raw(0x3F000000), kTwo = F::raw(0x40000000), kEight = F::raw(0x41000000);
+    const int m = c.steer_class == 3 ? (x.special_row ? 2 : 1) : 0;
+    const rules::ForceMode& k = t.mode[size_t(m)];
+    o.wheel = {};
+    if (u8(u8(c.control) - 1) < 2 || c.driver_kind != 0) {
+        s32 v = c.wheel_pos;
+        if (v < 0) v += 0x1F;
+        const s32 out = 0x80 - (v >> 5);
+        o.out = u8(out < 0 ? 0 : out < 0x100 ? out : 0xFF);
+        return;
+    }
+    const rules::WheelLayout& l = x.layout;
+    const int n = l.count < 4 ? l.count : 4;
+    auto ahead = [&](int i) { return gt3r::s8(l.fore_aft[size_t(i)]) > 0; };
+    auto clamp1 = [&](F& v) {
+        if (kOne < v) v = kOne;
+        else if (v < kMinus) v = kMinus;
+    };
+    const bool loose = (course_kind == 0xFF ? 0 : course_kind) == 2;
+    const F front = x.axle_load[0];
+    F f = kZero;
+    for (int i = 0; i < n; ++i) {
+        if (!ahead(i)) continue;
+        const ex::Wheel& w = c.w[size_t(i)];
+        F a = w.force_a;
+        if (k.slip_on) {
+            F s = c.t[size_t(i)].slip_angle;
+            if (s < kZero) s = -s;
+            const F fx = w.fx_drive + w.fx_brake;
+            const F rest = kOne - s * k.slip_inv;
+            F share = k.slip_base + rest * k.slip_share;
+            share = share + (fx / (front * kHalf)) * k.drive_share;
+            if (kTwo < share) share = kTwo;
+            else if (share < kMinus) share = kMinus;
+            a = a * share;
+        }
+        f = f + a;
+    }
+    f = f / front;
+    clamp1(f);
+    f = rules::pedal_curve(k.curve[loose ? 1 : 0], f);
+    const F strength = c.steer_class == 3 && strength_index >= 0 && strength_index < 3 ? k.strength[size_t(strength_index)] : kOne;
+    const F gain = k.gain[loose ? 1 : 0];
+    if (k.limit_kind == 1) {
+        if (gain < f) f = gain;
+        else if (f < -gain) f = -gain;
+        f = f * strength;
+    } else if (k.limit_kind == 2) {
+        if (strength < f) f = strength;
+        else if (f < -strength) f = -strength;
+        f = f * gain;
+    } else {
+        f = f * gain;
+        f = f * strength;
+    }
+    if (g.mode != 0) {
+        for (int i = 0; i < n; ++i) {
+            if (!ahead(i)) continue;
+            F a = kZero;
+            if (g.mode == 1) a = -x.tires.steer_offset[size_t(i)];
+            else if (g.mode == 2) a = -(x.tires.steer_offset[size_t(i)] - c.w[size_t(i)].steer);
+            const F y = rules::pedal_curve(k.offset_curve, a / g.limit[l.geometry[size_t(i)] & 1u]);
+            f = f + k.offset_gain * y;
+            f = f - x.offset_rate[size_t(i)] * k.offset_damp;
+        }
+        clamp1(f);
+    }
+    f = f + gt3r::ee::int_to_f((s32(c.wheel_pos) - s32(c.wheel_pos_prev)) * 60) * k.turn_gain;
+    F st = c.steer_cmd;
+    if (k.steer_max < st) st = k.steer_max;
+    else if (st < -k.steer_max) st = -k.steer_max;
+    f = f + k.steer_gain * st;
+    // The smoothing.
+    F out = kZero;
+    switch (t.smooth[size_t(m)]) {
+    case 0: out = f, o.last = f; break;
+    case 1: out = (o.last + f) * kHalf, o.last = f; break;
+    case 2:
+        out = f;
+        if (kZero <= f ? f < o.last : o.last < f) out = o.last;
+        o.last = f;
+        break;
+    case 3: {
+        if (o.count < 60) ++o.count;
+        const bool up = kZero <= o.last;
+        if (o.count >= 7) {
+            o.last = up ? o.last - c.dt * kEight : o.last + c.dt * kEight;
+            if (up ? o.last < kZero : kZero < o.last) o.last = kZero;
+        }
+        if (up ? (o.last < f || f < kZero) : (f < o.last || kZero < f)) o.last = f, o.count = 0;
+        out = o.last;
+        break;
+    }
+    default: break;
+    }
+    // The front wheels' aligning moment.
+    F align = kZero;
+    for (int i = 0; i < n; ++i) {
+        if (!ahead(i)) continue;
+        const ex::Wheel& w = c.w[size_t(i)];
+        const F cs = gt3r::ee::cos(w.steer), sn = gt3r::ee::sin(w.steer);
+        const F d[3] = {cs * c.lat.x - sn * c.fwd.x, cs * c.lat.y - sn * c.fwd.y, cs * c.lat.z - sn * c.fwd.z};
+        const ex::Vec3& gn = c.g[size_t(i)].normal;
+        const F nv[3] = {gn.x, -gn.z, gn.y};
+        F dot = kZero;
+        for (size_t j = 0; j < 3; ++j) dot = dot + d[j] * nv[j];
+        align = align + dot * w.load;
+    }
+    const F spring = (c.p.susp[0].k + F::raw(0x473F67FF)) / F::raw(0x483F67FF); // 49,000, 196,000
+    align = align * spring;
+    out = out + (align * k.align_gain) / front;
+    const F speed = gt3r::ee::sqrt(c.vel.x * c.vel.x + c.vel.y * c.vel.y);
+    if (speed < F::raw(0x3F0E38E3) && g.mode == 0) { // 2 km/h
+        F s = c.steer_cmd;
+        if (F::raw(0x3DB2B8C1) < s) s = F::raw(0x3DB2B8C1);
+        else if (s < F::raw(0xBDB2B8C1)) s = F::raw(0xBDB2B8C1);
+        out = s * F::raw(0x40B758B5);
+    }
+    if (c.steer_class == 3 && !loose) o.wheel = k.wheel;
+    clamp1(out);
+    o.out = u8(-0x80 - gt3r::ee::to_int(out * F::raw(0x42FE0000)));
 }
 
 } // namespace gt4r::sim::prologue

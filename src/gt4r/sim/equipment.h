@@ -14,6 +14,9 @@ namespace gt4r::sim {
 struct Equipment {
     static constexpr u32 kSize = 0x178;
     std::array<u8, kSize> bytes{};
+    // Prologue's tire grip (its record's byte +0x13E, 0x406258 / 0x406400): the tire rows whose compounds the car's own sizes
+    // take, db::kNoPart the car's own.
+    db::PartId grip_front = db::kNoPart, grip_rear = db::kNoPart;
 
     // The parts' places in the record (8 bytes each: db::PartId).
     enum Slot : u32 {

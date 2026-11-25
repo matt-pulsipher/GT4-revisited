@@ -7,6 +7,8 @@
 #include "gt4r/sim/car_layout.h"
 #include "gt4r/sim/rules.h"
 
+#include <functional>
+
 namespace gt4r::sim {
 class Program;
 }
@@ -34,6 +36,8 @@ struct HybridTables {
     ex::Table<12> fuel_class1, fuel_other, power_up, power_low;
 };
 HybridTables hybrid_tables(const Program& program);
+// ... at another program's places of the four tables (Prologue's).
+HybridTables hybrid_tables(const Program& program, u32 fuel_class1, u32 fuel_other, u32 power_up, u32 power_low);
 // 0x368260: the engine's power (kW) against its speed, from 0, of an engine curve (the program makes it once, for the race's
 // first hybrid car; ours for each).
 ex::Table<12> hybrid_engine_speeds(const ex::Table<24>& torque);
@@ -50,5 +54,16 @@ void hybrid_start(HybridState& h);
 // the fuel counted, the store charged or drawn. `engine_torque` is 0x3554A0 at a throttle.
 struct DriveExtra;
 F hybrid_box(ex::Car& c, DriveExtra& x, HybridState& h, const HybridTables& t, u16 idle_rpm);
+// The same of what it reads of its car (Prologue's 0x3CC448, the same routine).
+struct HybridCar {
+    u8 shift_class = 0, driven_axle = 0; // the driveline's +0x13 and driven axle
+    F ratio;                             // its ratio of the car's gear
+    std::function<F(F)> torque;          // the engine's torque at a throttle
+    std::function<F(F)> speed;           // the engine's speed that gives a power (hybrid_engine_speeds)
+    F* fuel = nullptr;                   // the fuel used
+    bool fuel_hourly = false;            // the fuel tables are an hour's (Prologue's: over 3,600)
+    std::function<void()> burnt;         // (after the fuel is counted)
+};
+F hybrid_box(ex::Car& c, const HybridCar& k, HybridState& h, const HybridTables& t, u16 idle_rpm);
 
 } // namespace gt4r::sim::rules

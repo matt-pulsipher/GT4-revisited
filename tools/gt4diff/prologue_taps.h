@@ -108,6 +108,6 @@ Pad test_drive(int step);
 // Prologue's step run `steps` steps of the test drive on a course with a car, with taps: "engine" (the engine's routines
 // Prologue shares), "prologue" (Prologue's own and Gran Turismo 4's), "input". Empty with `err` set when it cannot run.
 std::vector<PTapStat> check(Disc& disc, const std::string& course, const std::string& car, int steps, const std::string& which,
-                            std::string& err);
+                            std::string& err, u8 kind = 3);
 
 } // namespace gt4r::diff::prologue

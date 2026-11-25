@@ -71,6 +71,8 @@ struct Pace {
     // conductors) by their grid index (0x467148).
     bool random_spread = true;
     bool standing_start = true; // the long look ahead off the grid of a standing start
+    // The race's rolling start's speed (km/h; 0 a standing start): Prologue's drivers look far ahead at a start under 30 km/h.
+    u8 start_speed = 0;
     // Per grid place, the seconds its car is held at the start (RACE +0x91, +0x8C .. +0x90; the decision's long look
     // ahead lasts that much longer).
     std::array<s16, 32> start_delay{};
@@ -121,6 +123,9 @@ public:
     virtual bool course_rate(size_t, gt3r::ee::F&) const { return false; }
     virtual bool rank(size_t, int&) const { return false; }
     virtual bool clock(u32&) const { return false; }
+    // Prologue's part of a car (a session running Prologue's own step: rules_prologue.h), null otherwise; the course's kind.
+    virtual const sim::prologue::CarPart* prologue_part(size_t) const { return nullptr; }
+    virtual u8 course_kind() const { return loose() ? 2 : 0; }
     // A car that has finished the race (F +0x4B2).
     virtual bool finished(size_t) const { return false; }
     // The race's tire wear on (0x367D40: the tread's or the second's, the wear rules' +0x68 / +0x69).
@@ -157,9 +162,12 @@ public:
     bool finished(size_t i) const override { return s_->gt4_record(i).phases.finished != 0; }
     // The collision step's front and rear flags of the car's body (+0x434 / +0x438) as the last step left them.
     bool hits(size_t i, bool& front, bool& rear) const override {
-        front = s_->body(i).front != 0, rear = s_->body(i).rear != 0;
+        if (const prologue::Collision* p = s_->prologue_collision()) front = p->body(i).front, rear = p->body(i).rear;
+        else front = s_->body(i).front != 0, rear = s_->body(i).rear != 0;
         return true;
     }
+    const sim::prologue::CarPart* prologue_part(size_t i) const override { return s_->prologue_rules() ? &s_->prologue_part(i) : nullptr; }
+    u8 course_kind() const override { return s_->course_kind(); }
 
 private:
     const Session* s_;
@@ -275,6 +283,9 @@ public:
     // (0x345228: a pad car's driver onto line 7, the kind cleared). release_rolling false: the line is not there, still held.
     // The line a car's driver starts on (0x4639E0: the line's fallback, at once): before the first step.
     void start_line(size_t car, int line);
+    // Prologue's line for a car off the grid (0x3C93A0): a pad's car line 7, a computer's by its grid place, the sides as the
+    // grid's first two places stand.
+    void start_grid_line(size_t car, int grid_place);
     // A car's marks after a step's wear and pit phases (Cars::marks), from its race's pit stops (PitStops::after).
     void set_marks(size_t car, bool pit_lane, bool tire_out);
     // The race's clock (the conductor's +0xF89C), for a race taken up in its middle (checks).
@@ -413,6 +424,14 @@ private:
 
     std::unique_ptr<SessionCars> own_cars_;
     const Cars* session_;
+    // A Prologue session's drivers are its own (drivers_prologue.h), each car's driver record in its Driver.
+    struct PrologueDrivers;
+    std::unique_ptr<PrologueDrivers> prologue_;
+    u32 hold_count_ = 0; // the start hold's steps left
+    template <class Fn> void with_record(Driver& d, Fn fn);
+    void prologue_setup(Driver& d);
+    void prologue_decide(Driver& d, bool plans_only, race::CarInput& in);
+    void suggest(Driver& d);
     Tables tables_;
     CourseLines lines_;
     Pace pace_;

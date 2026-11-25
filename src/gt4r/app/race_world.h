@@ -50,6 +50,7 @@ struct WorldEntry {
     u32 paint = 0;         // by index in the car's paints
     int grid_place = -1;   // the course's start place (-1: the entry's index)
     bool automatic = true; // the gearbox shifts itself
+    int pedal_style = -1;  // (sim::Entry::pedal_style)
     bool asm_on = true, tcs_on = true; // the aids (sim::Entry)
     bool wheel_aid = false;            // the steering wheel's slip aid (sim::Entry::wheel_aid)
     u8 driver = 0;                     // who drives (sim::Entry::driver)
@@ -136,6 +137,34 @@ public:
     // With the game's simulation the session holds the cars itself (F +0x467 = 1, the aids' start pace 0x3F7880 /
     // 0x3F76E8) and lets each go (0x345228, 0x3F37B8); the stand-in simulation is held here.
     bool count_rolling(size_t car) { return session_ && session_->count_rolling(car); }
+    // A car's run is over (ai::Field::finish; the session's driver kind follows its driver's each step). False: no driver.
+    bool finish_car(size_t car, int mode, bool player) {
+        if (!field_ || !session_ || computer_player_) return false;
+        field_->finish(car, mode, player);
+        if (ended_.size() <= car) ended_.resize(car + 1);
+        ended_[car] = true;
+        return true;
+    }
+    // A car's boost gauge (Prologue's): whether it has a turbocharger, and its pressure (F + 0x4F0).
+    void boost(size_t car, bool& turbo, float& pressure) const {
+        if (!session_) return;
+        const gt3r::sim::exact::Car& c = session_->record(car);
+        turbo = c.p.e.boost_max.host() != 0, pressure = c.intake.host();
+    }
+    // A hybrid's box as the display shows it (Prologue's; false: another car).
+    bool hybrid(size_t car, u8& flags, float& store, float& fuel) const {
+        if (!session_ || !session_->prologue_rules() || session_->record(car).p.d.kind != 3) return false;
+        const sim::prologue::CarPart& p = session_->prologue_part(car);
+        flags = p.hybrid.flags, store = float(int(p.hybrid.store.host() * 8 + 0.5f)) / 8, fuel = p.hybrid_fuel.host() / 740;
+        return true;
+    }
+    // The mileage of a hybrid's run so far (Prologue's 0x3CC320, tenths of a kilometer per liter; 0 for another car).
+    float mileage_now(size_t car) const { return float(session_->prologue_part(car).mileage) * 0.1f; } // (of the last 30 steps)
+    int mileage(size_t car) const {
+        if (!session_ || !session_->prologue_rules()) return 0;
+        const sim::prologue::CarPart& p = session_->prologue_part(car);
+        return session_->record(car).p.d.kind == 3 ? sim::prologue::mileage(p.hybrid_fuel_mark, p.hybrid_odo_mark) : 0;
+    }
     void release_start(size_t car) {
         // (its driver's line first: a driver without it is not let go)
         if (session_ && field_ && rolling(car) && !field_->release_rolling(car)) return;
@@ -247,6 +276,7 @@ public:
     // The race's sound (null without sound): its events (the count, the finish, a pause).
     audio::RaceSound* sound();
 
+    void set_cars_hidden(bool on) { cars_hidden_ = on; } // (a lesson's guide film: the course alone)
     // One frame: `cars` as seen from `pose`; `focus`: the car the view is about (its surroundings
     // make the cars' reflection picture); `hidden`: a car whose body is not drawn (the in-car
     // view's own), -1 for none. `half`: one of the two views of a split screen (0 and 1: the several-view draw
@@ -389,7 +419,8 @@ private:
     std::function<std::pair<int, int>(size_t)> tires_fitted_; // (their hook: the kinds on the car)
     std::shared_ptr<const sim::Program> program_; // (what their tire change reads)
     bool bspec_driven_ = false;               // a B-spec driver drove the player's car (its record set)
-    bool computer_player_ = false;
+    bool computer_player_ = false, cars_hidden_ = false;
+    std::vector<bool> ended_; // the cars whose run is over (finish_car)
     float player_ps_ = 0;
     std::unique_ptr<race::StartCourse> start_course_;
     std::vector<race::PlannedStart> starts_;

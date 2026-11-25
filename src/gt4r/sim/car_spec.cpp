@@ -69,9 +69,11 @@ void tire_block(Spec& s, u32 t, const Row& c, const Row& v) {
 }
 
 // 0x442218 / 0x442358: an axle's three tire blocks and its tire size.
-void tires(db::SpecDb& db, Spec& s, const Row& r, int axle) {
+// (Prologue's 0x406258 / 0x406400: the compounds of another tire row, `grip`.)
+void tires(db::SpecDb& db, Spec& s, const Row& r, int axle, db::PartId grip) {
+    const std::optional<Row> other = grip != db::kNoPart ? std::optional<Row>(Row(db, grip)) : std::nullopt;
     for (int i = 0; i < 3; ++i) {
-        const Row compound(db, r.id(8 + 8 * u32(i))), volume(db, r.id(0x20 + 8 * u32(i)));
+        const Row compound(db, (other ? *other : r).id(8 + 8 * u32(i))), volume(db, r.id(0x20 + 8 * u32(i)));
         tire_block(s, Spec::tire_block(3 * axle + i), compound, volume);
     }
     const Row size(db, r.id(0));
@@ -168,8 +170,8 @@ void builder(db::SpecDb& db, const Program& program, const Equipment& eq, Spec& 
         s.set_b(0x168, r.b(0x03)), s.set_b(0x169, r.b(0x0F));
         for (u32 i = 0; i < 6; ++i) s.set_b(0x16A + i, eq.b(E::LsdSettings + i));
     }
-    tires(db, s, front_tire, 0);
-    tires(db, s, rear_tire, 1);
+    tires(db, s, front_tire, 0, eq.grip_front);
+    tires(db, s, rear_tire, 1, eq.grip_rear);
     if (has(E::Lightweight)) { // 0x4427B8
         const Row r = row(E::Lightweight);
         s.set_h(0x20, u32(int(s.sh(0x20)) * int(r.h(0)) / 1000)), scale_b(s, 0x24, r.b(5));

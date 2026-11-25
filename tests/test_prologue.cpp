@@ -140,6 +140,31 @@ TEST(disc_prologue_database) {
     CHECK(sdb.courses().size() == 64);
 }
 
+// The arcade's tire grip: the street and the sports tires' compounds on the car's own sizes, the street tires with the least grip.
+TEST(disc_prologue_arcade_tires) {
+    Disc* disc = prologue_disc();
+    if (!disc) SKIP("no Prologue disc");
+    db::SpecDb sdb = open_db(*disc);
+    const sim::Program program = sim::Program::load(*disc);
+    sim::Spec own, low, high;
+    sim::Equipment eq;
+    CHECK(sim::stock_equipment(sdb, "demio_sport_03", eq));
+    sim::build_spec(sdb, program, eq, 0, own);
+    CHECK(!sim::prologue::fit_grip_tires(sdb, program, "medium", eq) && !sim::prologue::fit_grip_tires(sdb, program, "unselectable", eq));
+    sim::Equipment e = eq;
+    CHECK(sim::prologue::fit_grip_tires(sdb, program, "low", e));
+    sim::build_spec(sdb, program, e, 0, low);
+    e = eq;
+    CHECK(sim::prologue::fit_grip_tires(sdb, program, "high", e));
+    sim::build_spec(sdb, program, e, 0, high);
+    const auto grip = [](const sim::Spec& s, int axle) { return int(s.b(sim::Spec::tire_block(3 * axle))); };
+    std::printf("  front / rear grips: street %d / %d, its own %d / %d, sports %d / %d\n", grip(low, 0), grip(low, 1), grip(own, 0), grip(own, 1), grip(high, 0), grip(high, 1));
+    for (int axle = 0; axle < 2; ++axle) {
+        CHECK(grip(low, axle) < grip(high, axle) && grip(low, axle) < grip(own, axle));
+        for (const u32 at : {0x1C8u, 0x1CAu, 0x1CCu}) CHECK(low.b(at + u32(axle)) == own.b(at + u32(axle))); // (the sizes)
+    }
+}
+
 // Every course's road (in either table) reads as a Runway: the start grid on the road and
 // facing along the course, the checkpoints rising, every triangle found through the lookup tree.
 TEST(disc_prologue_roads) {
@@ -247,6 +272,20 @@ TEST(disc_prologue_step_routines_equal) {
             if (!differ.count(st.name)) CHECK(st.clean == st.calls);
         }
     }
+    // Steering wheels (the controller kinds 4 and 6) and a digital pad: the input and the steering wheel's force.
+    for (u8 kind : {u8(6), u8(4), u8(0)})
+        for (const char* which : {"prologue", "input"}) {
+            std::string err;
+            const std::vector<diff::prologue::PTapStat> stats = diff::prologue::check(*disc, "tsukuba", "civic_r_98", 700, which, err, kind);
+            CHECK(err.empty());
+            for (const diff::prologue::PTapStat& st : stats) {
+                if (st.name != "Prologue's steering force" && st.name != "Prologue's driver input") continue;
+                std::printf("  controller %d: %s %llu of %llu calls equal\n", kind, st.name.c_str(), static_cast<unsigned long long>(st.clean),
+                            static_cast<unsigned long long>(st.calls));
+                for (const auto& [name, f] : st.fields) std::printf("      %s: %s\n", name.c_str(), f.example.c_str());
+                CHECK(st.calls > 0 && st.clean == st.calls);
+            }
+        }
 }
 
 // The license tests' gold, silver and bronze times from their RACE rows (Prologue's +0x5C .. +0x61 minutes and seconds,
@@ -502,7 +541,7 @@ TEST(disc_prologue_whole_step_equal) {
     CHECK(diff::prologue::whole_step_fields(*disc, "tsukuba", "civic_r_98", 1200, fields));
     static const std::set<std::string> kKnown = {"steer_force", "ffb", "lag_pitch_diff", "lag_heading_diff", "f3e4", "prev.f3e4", "laps", "x535", "x51c", "feedback", "hit_part"};
     for (const std::string& f : fields) {
-        const bool known = kKnown.count(f) || f.rfind("w.flap", 0) == 0 || f.rfind("ai.", 0) == 0;
+        const bool known = kKnown.count(f) || f.rfind("ai.", 0) == 0;
         if (!known) std::printf("  %s differs\n", f.c_str());
         CHECK(known);
     }
@@ -610,4 +649,127 @@ TEST(disc_prologue_name_entry_and_cones) {
     const std::vector<float> splits = race::road_list(road, 0);
     CHECK(splits.size() == 2);
     CHECK(splits.size() == 2 && splits[0] < splits[1] && splits[1] < 4459);
+}
+
+// Prologue's recorded runs (the 46 lessons' demonstrations and ten races'): every file reads.
+#include "gt4r/formats/replay/demonstration_prologue.h"
+
+TEST(disc_prologue_recorded_runs) {
+    Disc* disc = prologue_disc();
+    if (!disc) SKIP("no Prologue disc");
+    const sim::Program program = sim::Program::load(*disc);
+    const std::array<s32, 8> bases = replay::prologue::delta_bases(program);
+    gt3r::Volume* vol = &disc->volume();
+    int read = 0;
+    for (std::string dir : vol->list_dir("replay/JP")) {
+        if (!dir.empty() && dir.back() == '/') dir.pop_back();
+        const gt3r::Volume::Entry* e = vol->find(replay::prologue::run_path(dir));
+        if (!e) continue;
+        std::string error;
+        const auto run = replay::prologue::Run::parse(vol->read(*e), bases, &error);
+        if (!run) {
+            std::printf("  %s: %s\n", dir.c_str(), error.c_str());
+            CHECK(false);
+            continue;
+        }
+        ++read;
+        const auto& f = run->streams[0].frames;
+        std::printf("  %-18s %-14s event %llX course %llX time %d %d  entries %zu  streams %zu T %u kinds", dir.c_str(), run->race_class.c_str(), (unsigned long long)run->event,
+                    (unsigned long long)run->course, run->time_ms, run->time2_ms, run->entries.size(), run->streams.size(), run->streams[0].frame_count);
+        std::set<int> kinds;
+        for (const auto& p : f) kinds.insert(p.kind());
+        for (int k : kinds) std::printf(" %d", k);
+        for (const auto& n : run->entries) std::printf("  [car %llX place %d style %d driver %d aids %d %d %d]", (unsigned long long)n.code(0), n.grid_place, n.pedal_style, n.driver_kind, n.x16a, n.asm_on, n.tcs_on);
+        std::printf("\n");
+    }
+    CHECK(read >= 56);
+}
+
+// The lessons' demonstrations (recorded on the console) played through our race.
+#include "gt4r/race/demonstration_run_prologue.h"
+
+TEST(disc_prologue_demonstrations) {
+    Disc* disc = prologue_disc();
+    if (!disc) SKIP("no Prologue disc");
+    db::SpecDb sdb = open_db(*disc);
+    int exact = 0, ended = 0;
+    const char* only = std::getenv("GT4R_LESSON");
+    for (int k = 1; k <= 46; ++k) {
+        char label[16];
+        std::snprintf(label, sizeof label, "l0p%04d", k);
+        if (only && std::string(only) != label) continue;
+        race::prologue::Options o;
+        if (const char* hold = std::getenv("GT4R_LESSON_HOLD")) o.hold = std::atoi(hold);
+        if (const char* shift = std::getenv("GT4R_LESSON_SHIFT")) o.shift = std::atoi(shift);
+        o.cones = !std::getenv("GT4R_LESSON_NOCONES");
+        o.judge = !std::getenv("GT4R_LESSON_NOJUDGE");
+        if (const char* every = std::getenv("GT4R_LESSON_LOG"))
+            o.on_step = [n = std::atoi(every)](size_t step, const sim::Session& s) {
+                const race::CarState& c = s.cars()[0];
+                if (step % size_t(n) == 0)
+                    std::printf("    step %zu: %.2f km/h at (%.2f, %.2f, %.2f) v %.1f lap %d gear %d thr %.2f brk %.2f steer %.3f contact %d\n", step, double(c.speed) * 3.6, double(c.position.x),
+                                double(c.position.y), double(c.position.z), double(c.course_v), c.lap, c.gear, double(c.throttle), double(c.brake), double(c.steer), c.contact_kind);
+            };
+        const race::DemonstrationRun r = race::prologue::run_demonstration(*disc, sdb, label, o);
+        if (only || std::getenv("GT4R_LESSON_ALL"))
+            std::printf("  %s %-12s %-22s recorded %6d ended %6d fail %d steps %zu kind %d %s\n", label, r.course.c_str(), r.car.c_str(), r.recorded_ms, r.ended_ms, r.fail, r.steps, r.kind, r.error.c_str());
+        if (only && !r.equipment.empty()) std::printf("      %s\n", r.equipment.c_str());
+        exact += r.exact(), ended += r.ended_ms >= 0;
+        if (o.hold >= 0 || o.shift != 0 || !o.cones || !o.judge) continue;
+        // The recordings end as they did on the console, to the millisecond (13 minutes against four cars in lesson 35), but for
+        // lessons 2 and 3 (a step later there, ❓) and 26 (recorded with other parts: its file's traction control is not its
+        // pool's). Lesson 36's keeps no time.
+        static constexpr int kOther[] = {2, 3, 26, 36};
+        if (std::find(std::begin(kOther), std::end(kOther), k) == std::end(kOther)) CHECK(r.ended_ms == r.recorded_ms);
+        if (k == 2 || k == 3) CHECK(r.recorded_ms - r.ended_ms >= 16 && r.recorded_ms - r.ended_ms <= 17);
+        if (k == 36) CHECK(r.ended_ms > 0 && r.fail == 0);
+    }
+    if (!only) std::printf("  %d end timed, %d to the millisecond\n", ended, exact);
+    CHECK(ended > 0);
+}
+
+#include "gt4r/race/license_prologue.h"
+
+// Every lesson's rules as the judge reads them, how its run ends and its grade.
+TEST(disc_prologue_lesson_rules) {
+    Disc* disc = prologue_disc();
+    if (!disc) SKIP("no Prologue disc");
+    db::SpecDb db = open_db(*disc);
+    gt3r::Volume* vol = &disc->volume();
+    db::RaceEvents events(db, [vol](const std::string& path) -> std::optional<Bytes> {
+        const gt3r::Volume::Entry* e = vol->find(path);
+        return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
+    });
+    const sim::Program program = sim::Program::load(*disc);
+    int lessons = 0;
+    for (int n = 1; n <= 46; ++n) {
+        char label[16];
+        std::snprintf(label, sizeof label, "l0p%04d", n);
+        const std::optional<db::RaceEvent> e = events.event(label);
+        CHECK(e.has_value());
+        if (!e) continue;
+        ++lessons;
+        const race::LicenseRules r = race::LicenseRules::from_row(e->bytes);
+        const sim::RaceRules rr = sim::race_rules(e->bytes, program);
+        const bool others = r.opponents > 0;
+        std::printf("  %s %-18s kind %d laps %d others %d cones %d x41 %d time limit %d mileage %d targets %u %u %u: ends %d, off the course %d\n", label, e->course.c_str(), r.kind, e->laps, r.opponents,
+                    r.pylons, r.x41, r.time_limit, rr.mileage, e->target_ms[0], e->target_ms[1], e->target_ms[2], race::prologue::end_mode(r, others),
+                    race::prologue::fail_mode(r, others, race::LicenseFail::OffCourse));
+        CHECK(r.kind >= 0 && r.kind <= 6);
+        CHECK(race::prologue::end_mode(r, others) >= 1 && race::prologue::end_mode(r, others) <= 3);
+        // (a run of the gold time takes the gold with no other car ahead; a minute over the last target nothing, or the first
+        // one that is not set)
+        const std::array<s64, 3> t{s64(e->target_ms[0]), s64(e->target_ms[1]), s64(e->target_ms[2])};
+        CHECK(race::prologue::grade(t, t[0], r, 1, 1000, rr.mileage) == 0);
+        if (t[0] > 0 && t[1] > 0 && t[2] > 0) CHECK(race::prologue::grade(t, t[2] + 1, r, 1, 1000, rr.mileage) == (r.opponents < 3 ? 3 : 0));
+        if (rr.mileage > 0) CHECK(race::prologue::grade(t, t[0], r, 1, rr.mileage - 1, rr.mileage) == 3);
+    }
+    CHECK(lessons == 46);
+    // Lesson 1: two laps, the driver drives on past the line; off the course he coasts down.
+    const std::optional<db::RaceEvent> one = events.event("l0p0001");
+    if (one) {
+        const race::LicenseRules r = race::LicenseRules::from_row(one->bytes);
+        CHECK(race::prologue::end_mode(r, false) == 3);
+        CHECK(race::prologue::fail_mode(r, false, race::LicenseFail::OffCourse) == 1);
+    }
 }

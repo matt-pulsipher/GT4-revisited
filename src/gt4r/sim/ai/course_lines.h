@@ -11,8 +11,10 @@
 #include "gt4r/formats/course/ai_line.h"
 #include "gt4r/sim/ai/tables.h"
 #include "gt4r/sim/ground.h"
+#include "sim/exact/ai_course.h"
 
 #include <array>
+#include <optional>
 #include <vector>
 
 namespace gt4r::sim::ai {
@@ -91,6 +93,7 @@ private:
 
     const RoadGround* ground_ = nullptr;
     float lap_ = 0;
+    std::optional<gt3r::sim::exact::AiCourse> prologue_; // (Prologue's road: its own course object, the queries on it)
     std::array<std::vector<LinePoint>, 8> lines_;
     std::array<std::array<s8, 6>, 8> fallback_{};
 };

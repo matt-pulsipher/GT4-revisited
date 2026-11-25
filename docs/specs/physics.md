@@ -1337,5 +1337,5 @@ The VU0 model is unproven. The cones are not set up.
   start's places on the driving line (0x46ADE8) and the computer driving the player's run-up.
 - Other builds: a program that is not the mapped build serves no tables, and a session then
   runs on the engine's own values and says so (`Session::notes`). Prologue's disc runs a
-  session on its database in Gran Turismo 4's layout, its `GTRW` roads and its own physics
-  tables in the engine's core ([formats/prologue.md](../formats/prologue.md)).
+  session on its database in Gran Turismo 4's layout, its `GTRW` roads and its own step
+  ([formats/prologue.md](../formats/prologue.md)).

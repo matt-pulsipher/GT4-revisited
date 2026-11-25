@@ -24,7 +24,7 @@ namespace gt4r::race {
 
 struct DemonstrationRun {
     bool ran = false;
-    std::string error, course, car;
+    std::string error, course, car, equipment; // (equipment: Prologue's, where the file's parts or settings differ from the event's pool)
     int kind = 0;           // the test's kind (LicenseRules::kind)
     int recorded_ms = -1;   // the file's time
     int ended_ms = -1;      // the run's time (-1: it did not end timed)

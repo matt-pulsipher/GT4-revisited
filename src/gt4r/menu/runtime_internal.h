@@ -53,6 +53,9 @@ void scroll_into_view(LiveWidget& inside);
 // A transition's cover of the page: 0 none, 1 whole.
 float transition_cover(const script::Value& transition);
 void step_transition(const script::Value& transition);
+// A page has been opened (mRootWindow's start, Prologue 0x22FB04 -> 0x24AF40): a panOut that covered
+// the screen is over, the new page shows.
+void transition_page_opened(const script::Value& transition);
 // Where a transition is: -1 none or over, 0 covering the page, 1 covered, 2 uncovering.
 int transition_phase(const script::Value& transition);
 // What a transition puts on the screen this picture: a colour's cover; the cross's pages'

@@ -19,6 +19,7 @@ void MenuMovies::stop_all() { movies_.clear(); }
 
 void MenuMovies::begin_frame() {
     for (auto& [face, m] : movies_) m->seen = false;
+    film_time_.reset();
 }
 
 void MenuMovies::end_frame() {
@@ -54,9 +55,26 @@ SDL_Texture* MenuMovies::still(const std::string& name) {
     return t;
 }
 
+void MenuMovies::draw_film(Playing& m, const menu::LiveWidget& face, const SDL_FRect& dst, float opacity) {
+    if (!film_) film_ = std::make_unique<ExpandedFilm>(r_);
+    const double rate = m.player.info().frame_rate;
+    film_time_ = m.player.picture_time() + (m.player.second_field() && rate > 0 ? 0.5 / rate : 0.0);
+    // (`blend` 2: the colors as they are; else by the alpha.)
+    if (int(face.data.number("blend")) == 2) film_->draw_whole(m.player, dst, opacity);
+    else film_->draw_masked(m.player, dst, opacity);
+}
+
 void MenuMovies::draw(const menu::LiveWidget& face, const SDL_FRect& dst, float opacity) {
     const menu::MovieFaceSettings s = menu::movie_face_settings(face.data);
     if (s.movie_name.empty()) return;
+    const bool film = expand_alpha && expand_alpha();
+    if (film)
+        // Another face of the page that names the same film shows the same picture of it.
+        for (auto& [other, playing] : movies_)
+            if (other != &face && playing && playing->seen && !playing->failed && playing->name == s.movie_name) {
+                draw_film(*playing, face, dst, std::clamp(opacity, 0.0f, 1.0f));
+                return;
+            }
     std::unique_ptr<Playing>& m = movies_[&face];
     // A new face, or the scripts named another movie: it starts from its beginning.
     if (!m || m->name != s.movie_name || m->face.expired()) {
@@ -85,7 +103,9 @@ void MenuMovies::draw(const menu::LiveWidget& face, const SDL_FRect& dst, float 
     if (!m->failed) m->player.update(r_);
 
     const u8 alpha = u8(std::clamp(opacity, 0.0f, 1.0f) * 255.0f);
-    if (SDL_Texture* t = m->failed ? nullptr : m->player.texture()) {
+    if (film) {
+        if (!m->failed && m->player.texture()) draw_film(*m, face, dst, std::clamp(opacity, 0.0f, 1.0f));
+    } else if (SDL_Texture* t = m->failed ? nullptr : m->player.texture()) {
         SDL_SetTextureAlphaMod(t, alpha);
         SDL_SetTextureBlendMode(t, alpha < 255 ? SDL_BLENDMODE_BLEND : SDL_BLENDMODE_NONE);
         if (s.interlace && !m->player.field_split()) {
@@ -115,7 +135,11 @@ void MenuMovies::draw(const menu::LiveWidget& face, const SDL_FRect& dst, float 
     // Ended: the player says so, or no new picture came for a second while its clock ran (the
     // opening's sound does not drain at its end, so the player's own test never passes).
     const bool ended = m->player.finished() || (m->player.texture() && !m->player.paused() && m->player.position() - m->player.picture_time() > 1.0);
-    const menu::MovieFaceEvents e = menu::movie_face_events(s, frame, hook, ended, m->finish_told);
+    // A hook's picture that was passed over (the decoder behind) counts when the next one shows.
+    const long reached = hook >= 0 && m->shown < hook && frame >= hook ? hook : frame;
+    m->shown = frame;
+    const menu::MovieFaceEvents e = menu::movie_face_events(s, reached, hook, ended, m->finish_told);
+    if (e.hook) LOG_INFO("Menu movie %s: the hook of picture %ld at %ld", s.movie_name.c_str(), hook, frame);
     menu::LiveWidget& live = const_cast<menu::LiveWidget&>(face);
     if (e.hook) {
         const std::string name = face.data.text("frame_hook_event");

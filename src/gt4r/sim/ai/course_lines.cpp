@@ -2,7 +2,9 @@
 
 #include "base/ee_float.h"
 #include "base/ee_math.h"
+#include "gt4r/sim/ai/drivers_prologue.h"
 #include "gt4r/sim/ai/ee_math.h"
+#include "sim/exact/build_math.h"
 
 #include <algorithm>
 #include <cmath>
@@ -106,6 +108,22 @@ bool CourseLines::course_distance(const Vec3& p, int cluster, float& out) const 
 
 CourseLines::CourseLines(const course::AiData& data, const RoadGround& ground, const Tables& tables) : ground_(&ground), fallback_(tables.fallback) {
     lap_ = ground.road().length;
+    if (ground.road().gtrw) { // Prologue's road: its own preparation (0x4292C8)
+        prologue::DriverTables t;
+        t.fallback = fallback_, t.order = tables.order;
+        prologue_ = prologue::driver_course(gt3r::sim::exact::CourseQuery(*ground.road().gtrw), data, t);
+        const gt3r::sim::exact::AiCourse& course = *prologue_;
+        lap_ = course.lap_length.host();
+        for (size_t k = 0; k < 8; ++k)
+            for (const gt3r::sim::exact::AiPoint& p : course.lines[k]) {
+                LinePoint q;
+                q.kind = p.kind, q.brake_adjust = p.brake_adjust, q.speed_adjust = p.speed_adjust;
+                q.x = p.x.host(), q.y = p.y.host(), q.height = p.height.host(), q.surface = p.surface, q.pit = (p.x13 & 1) != 0;
+                q.dist = p.dist.host(), q.radius = p.radius.host(), q.slope = p.slope.host(), q.bank = p.bank.host(), q.heading = p.heading.host();
+                lines_[k].push_back(q);
+            }
+        return;
+    }
     for (int k = 0; k < 8; ++k)
         for (const course::AiLinePoint& p : data.lines[size_t(k)]) {
             LinePoint q;
@@ -186,12 +204,6 @@ void CourseLines::prepare(int k) {
             const F at[3] = {x, query, -y};
             bool found = false;
             F s = ground_->course_distance(at, -1, &found);
-            // (a road without the clusters' checkpoint lists, Prologue's: between the checkpoint lines)
-            if (!found && ground_->road().checkpoint_lookup.empty()) {
-                float v = 0;
-                int hint = -1;
-                if (ground_->distance_along(course_point(p.x, p.y, query.host()), v, &hint)) s = F(wrap_lap(v));
-            }
             p.dist = s.host();
         }
         p.height = 0, p.slope = 0, p.bank = 0, p.surface = 0, p.pit = false;
@@ -325,6 +337,7 @@ bool CourseLines::place(int line, int hint, F s, F& x, F& y, F& h) const {
     if (line < 0 || line > 7) return false;
     const std::vector<LinePoint>& p = lines_[size_t(line)];
     if (p.empty()) return false;
+    if (prologue_) return line == kPitStop ? prologue_->evaluate_stop(line, s, x, y, h) >= 0 : prologue_->evaluate(line, hint, s, x, y, h);
     const F zero = F::raw(0), half = F::raw(0x3F000000), two_pi = F::raw(0x40C90FDA), lap(lap_);
     if (line == kPitStop) {
         // 0x46B7B8: the stop line, its distances a lap on in the lap's first half: straight between its points.
@@ -434,6 +447,21 @@ bool CourseLines::start_place(int line, F s, bool one_way, StartPlace& out) cons
     if (!place(k, int(i), s, x, y, h)) return false;
     if (!place(k, int(i), s + F::raw(0x41200000), x1, y1, h1)) x1 = x, y1 = y;
     out.x = x, out.y = y, out.h = h;
+    if (prologue_) { // (0x429860: the road there from the point's segment, else a meter higher from every one)
+        const gt3r::sim::exact::CourseQuery q(*ground_->road().gtrw);
+        auto under = [&](s32 seg, F from) {
+            gt3r::sim::exact::Ground g;
+            g.x = x, g.h = from, g.z = -y, g.seg = seg;
+            q.ground(g);
+            out.h = g.miss ? zero : g.height;
+            if (!g.miss) out.hint = g.seg;
+            return !g.miss;
+        };
+        out.hint = prologue_->lines[size_t(k)][i].seg;
+        if (!under(out.hint, h)) under(-1, h + F::raw(0x3F800000));
+        out.heading = gt3r::sim::exact::atan2(prologue_->behaviour, x - x1, y1 - y);
+        return true;
+    }
     // The road there (0x46A0C8: from 5 m above the line's height), else from a metre higher.
     GroundHit hit;
     auto road = [&](F height) {
