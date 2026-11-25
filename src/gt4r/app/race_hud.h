@@ -118,6 +118,10 @@ public:
         float x = 0, z = 0;
         char letter = 'A';
     };
+    // A paint's chip (its words' colors in bands, the gloss over them) at a place of the canvas.
+    void draw_chip(float x, float y, float w, float h, const std::array<u32, 4>& words);
+    // The help strip with its line (a movie's page).
+    void draw_strip(const std::string& words);
     void draw_map_box(float cx, float cy, float size, std::span<const Letter> cars, size_t lit);
     // The course's logo (piece/crs_logo/<course>.img, a Tex1 picture) for the replays' opening.
     void set_course_logo(ByteSpan tex1);

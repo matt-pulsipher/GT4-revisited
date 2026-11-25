@@ -1850,7 +1850,9 @@ public:
             return;
         }
         // The results page covers the race display (the program hides it under the page).
-        if (setup_.hud && (!results_shown() || (prologue_hud_ && license_page()))) {
+        // (nor is it drawn under the Race Monitor)
+        const bool monitor_up = monitor_ && race_->watched() && !race_->replaying();
+        if (setup_.hud && !monitor_up && (!results_shown() || (prologue_hud_ && license_page()))) {
             if (hud_ && hud_->ready()) {
                 race_->fill(hud_state_, *hud_);
                 // The display's parts the options switch off; a replay's display as they say.
@@ -1901,13 +1903,23 @@ public:
         }
         if (panel_ && hud_ && !results_shown()) hud_->draw_movie(*monitor_movie_, *panel_);
         if (monitor_ && hud_ && race_ && race_->watched() && !race_->replaying()) {
+            ui.fill(0, 0, Ui::kWidth, Ui::kHeight, Color{0, 0, 0, 255}); // (the monitor is the whole picture)
             // The followed car's picture at the movie's CURRENTCAR_ICON, the course map at MAP_PANEL (❓ the rows'
             // two externals each are not drawn).
             std::vector<RaceHud::MovieExternal> ext;
             hud_->draw_movie(*monitor_movie_, *monitor_, &ext);
             std::vector<RaceWorld::Icon> icons;
             for (const RaceHud::MovieExternal& e : ext) {
-                if (e.name == "CURRENTCAR_ICON") icons.push_back({race_->focused(), e.x, e.y, e.opacity});
+                if (e.name == "CURRENTCAR_ICON") icons.push_back({race_->focused(), e.x, e.y, e.opacity, true});
+                // The gap strip's cars, the rows' paint chips.
+                if (e.name.rfind("CARPOS_", 0) == 0) {
+                    const size_t at = size_t(e.name.back() - 'A');
+                    if (at < race_->flow().order().size()) icons.push_back({race_->flow().order()[at], e.x, e.y, e.opacity});
+                }
+                if (e.name == "chip") {
+                    const size_t row = size_t(std::clamp(int(std::lround((e.y - 189) / 32)), 0, 5));
+                    if (row < race_->flow().order().size()) hud_->draw_chip(e.x - 5, e.y - 16, 10, 32, race_->world().paint_chip(race_->flow().order()[row]));
+                }
                 if (e.name == "MAP_PANEL") {
                     // The course map in the panel with each car's grid letter, the followed car's lit.
                     std::vector<RaceHud::Letter> letters;
@@ -1918,6 +1930,7 @@ public:
                 }
             }
             if (!icons.empty()) race_->draw_icons(ui, RaceHud::canvas(), icons);
+            hud_->draw_strip(hud_->word("RaceMonitorToolTip1"));
         }
         if (pit_open_ && pit_ && hud_ && !results_shown() && !race_->replaying()) hud_->draw_movie(*pit_movie_, *pit_);
         if (paused_) {

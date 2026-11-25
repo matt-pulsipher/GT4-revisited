@@ -96,6 +96,26 @@ std::vector<u32> car_paints(db::SpecDb& db, const std::string& car) {
     return out;
 }
 
+std::array<u32, 4> paint_chip(db::SpecDb& db, const std::string& car, u32 paint) {
+    std::array<u32, 4> out{};
+    const db::Labels* cars = db.labels("GENERIC_CAR");
+    const db::Table* link = db.table("CAR_VARIATION_american");
+    const db::Table* rows = db.table("VARIATIONamerican");
+    const std::optional<u32> id = cars ? cars->id(car) : std::nullopt;
+    if (!id || !link || !rows) return out;
+    const ByteSpan l = link->row(*id);
+    if (l.size() < 4) return out;
+    size_t first = 0;
+    const size_t n = rows->rows(rd32(l, 0), first);
+    for (size_t i = 0; i < n; ++i) {
+        const ByteSpan r = rows->row_at(first + i);
+        if (r.size() < 0x27 || rd32(r, 4) != paint + 1) continue;
+        for (size_t k = 0; k < 4 && r.size() >= 0x34; ++k) out[k] = rd32(r, 0x24 + 4 * k);
+        if (!(out[0] & 0x1000000u)) out[0] = u32(r[0x24]) | u32(r[0x25]) << 8 | u32(r[0x26]) << 16 | 0x1000000u; // (Prologue's: one color)
+    }
+    return out;
+}
+
 RailCar rail_car(const CarSpec& spec) {
     RailCar c;
     c.wheelbase = spec.wheelbase;

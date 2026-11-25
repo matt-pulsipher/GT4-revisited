@@ -816,6 +816,11 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
 }
 
 // A car's length and height, metres (its CHASSIS row's +0x08 / +0x0A, mm: 0x445D90 / 0x445DC0).
+std::array<u32, 4> RaceWorld::paint_chip(size_t i) const {
+    if (i >= setup_.entries.size() || !app_.db()) return {};
+    return race::paint_chip(*app_.db(), setup_.entries[i].label, setup_.entries[i].paint);
+}
+
 std::pair<float, float> RaceWorld::car_size(size_t i) const {
     if (session_ && i < setup_.entries.size()) {
         const db::Table* t = app_.db()->table("CHASSIS");
@@ -847,9 +852,24 @@ void RaceWorld::draw_icons(Ui& ui, const SDL_FRect& canvas, std::span<const Icon
         const race::CarSpec& spec = v.spec();
         const auto [length, height] = car_size(ic.car);
         const float units = length / height < kIconWidth / kIconHeight ? kIconHeight / height : kIconWidth / length; // (page units a metre)
-        const float k = units * kFill * kMetre;
+        float k = units * kFill * kMetre;
         const render::Mat4 at = render::translate({ic.x * kMetre, -ic.y * kMetre, -20});
-        const render::Mat4 model = at * render::rotate_y(kPi / 2) * render::translate({0, -height / 2, 0});
+        render::Mat4 turn = render::rotate_y(kPi / 2);
+        if (ic.large) {
+            // Kind 0 (0x394100): 30 units a metre (the lens's 18 degrees taken as none), turned as far as the car fills the picture's
+            // width, 158 degrees at most, and 2 degrees down.
+            k = 30 * kMetre;
+            const float half = 128.0f / 30 / 2, L = length / 2, W = (2 * spec.half_track[0] + 0.25f) / 2, d2 = L * L + W * W;
+            float yaw = 158;
+            if (d2 > half * half) {
+                const float root = std::sqrt(d2 - half * half) * L;
+                float c = (W * half + root) / d2;
+                if (c > 1 || c < -1) c = (W * half - root) / d2;
+                yaw = std::min(158.0f, (180 - std::acos(std::clamp(c, -1.0f, 1.0f)) * 180 / kPi) * 1.05f);
+            }
+            turn = render::rotate_x(2 * kPi / 180) * render::rotate_y(yaw * kPi / 180);
+        }
+        const render::Mat4 model = at * turn * render::translate({0, -height / 2, 0});
         const render::Mat4 scaled = at * render::scale({k, k, k}) * render::translate({-ic.x * kMetre, ic.y * kMetre, 20});
         const size_t first = items.size();
         auto apply = [&](const RVec& p, float w) {

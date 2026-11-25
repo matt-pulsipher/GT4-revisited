@@ -952,6 +952,23 @@ void RaceHud::Impl::draw_menu_text(const char* font_name, int variant, float x, 
     }
 }
 
+void RaceHud::draw_chip(float x, float y, float w, float h, const std::array<u32, 4>& word) {
+    int n = 0;
+    for (u32 v : word) n += (v >> 24) & 1;
+    if (n <= 0) return;
+    static const float ends[4][4] = {{1, 1, 1, 1}, {0.5f, 1, 1, 1}, {0.5f, 0.75f, 1, 1}, {0.5f, 0.75f, 0.875f, 1}};
+    const bool reversed = (word[0] >> 27) & 1;
+    float from = 0;
+    for (int i = 0; i < n; ++i) {
+        const float to = ends[n - 1][i];
+        impl_->fill({x, y + h * (reversed ? 1 - to : from), w, h * (to - from)}, u8(word[size_t(i)]), u8(word[size_t(i)] >> 8), u8(word[size_t(i)] >> 16), 1);
+        from = to;
+    }
+    impl_->draw_picture(impl_->picture((word[0] >> 25) & 1 ? "chip_metalic" : "chip_solid"), {x, y, w, h}, kNeutral, 1);
+}
+
+void RaceHud::draw_strip(const std::string& words) { impl_->draw_tooltip(words, 1); }
+
 // RaceFuelMeter::vf6 (0x3A57A8): the empty bar, the full one over it in ten steps of the fuel left (5.2 wide each, from 15, the
 // second half 4 further).
 void RaceHud::Impl::draw_fuel(const HudState& s, const DisplayPlace& place) {

@@ -232,7 +232,10 @@ public:
         size_t car = 0;
         float x = 0, y = 0;
         float opacity = 1;
+        bool large = false; // the maker's other picture (kind 0: 128 x 64, from the front at an angle)
     };
+    // A car's paint chip's words (race::paint_chip).
+    std::array<u32, 4> paint_chip(size_t car) const;
     std::pair<float, float> car_size(size_t i) const;
     void draw_icons(Ui& ui, const SDL_FRect& canvas, std::span<const Icon> icons);
     // One model in its own view over `rect` (the license results' trophy), in the course's light:
