@@ -1743,7 +1743,7 @@ void Field::blip(Driver& d, u32 count) {
         }
         return;
     }
-    const F q = int_f(rpm - up) / int_f(s32(session_->extra(d.car).drive.e.idle));
+    const F q = int_f(rpm - up) / int_f(s32(session_->extra(d.car).drive.e.rev_limit));
     d.throttle = (F::raw(0x3F200000) - rank * F::raw(0x3B03126E)) - (q + q);
     if (kOne < d.throttle) d.throttle = kOne;
     else if (d.throttle < F()) d.throttle = F();
