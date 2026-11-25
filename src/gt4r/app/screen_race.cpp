@@ -1360,6 +1360,7 @@ public:
 
     // The course's TV cameras (a license test's results page shows the car from the trackside ❓ which
     // of the program's cameras is not read).
+    void set_effect_settings(const race::ReplayEffectSettings& s) { effect_settings_ = s; }
     void tv_view() {
         if (replay_script_.records.empty() || mount_ == kTvView) return;
         before_tv_ = mount_;
@@ -1383,6 +1384,10 @@ public:
         // A cut's dissolve: the last picture frozen at the cut, over the new one as it fades.
         world_->set_dissolve(snapshot_, dissolve_total_ > 0 ? float(dissolve_left_) / float(dissolve_total_) : 0.0f, replaying_ || menu_scene_ || mount_ == kTvView || start_camera_.active() || dissolve_total_ > 0);
         snapshot_ = false;
+        // The passes of the views the player does not drive in (the race's play mode 1 .. 4).
+        race::EffectView fx;
+        fx.replay = replaying_ || watched_ || demo_run_ || menu_scene_;
+        world_->set_effects(fx, effect_settings_);
         world_->render(ui, rect, cars, pose, focus(), pose.body_hidden ? int(focus()) : -1);
         // The in-car view's rear-view mirror at the top (❓ its place, (190, 18) 259 x 63 of the
         // 640 x 480 picture, measured on the original's in-car view): not in replays, demonstrations, under the results pages, the opening
@@ -1554,7 +1559,7 @@ public:
     // time); a cut with a dissolve starts it.
     void step_tv(const race::CarState& car, size_t index = 0) {
         const render::Mat4 body = world_->visual(index).body_matrix(car);
-        tv_valid_ = replay_camera_.pose(replay_script_, car, body, tv_pose_);
+        tv_valid_ = replay_camera_.pose(replay_script_, car, body, tv_pose_, [&](const render::Mat4& view) { return world_->nearest_depth(index, car, view); });
         view_cut_ = view_cut_ || replay_camera_.cut() || tv_valid_ != tv_prev_valid_;
         if (const float d = replay_camera_.cut_dissolve(); d > 0) begin_dissolve(int(std::lround(d * 60)));
         step_dissolve();
@@ -1697,6 +1702,7 @@ private:
     race::ReplayScript replay_script_;
     race::ReplayCamera replay_camera_;
     race::ViewPose tv_pose_;
+    race::ReplayEffectSettings effect_settings_;
     bool tv_valid_ = false, snapshot_ = false;
     // The last step but one, for frames shown between steps.
     std::vector<race::CarState> prev_cars_, blended_;
@@ -1949,6 +1955,7 @@ public:
         // (The time from the last frame's drawing to this update: its present and the events.)
         if (render_end_ns_) outside_ns_ = SDL_GetTicksNS() - render_end_ns_;
         const MenuInput& m = app.menu();
+        if (race_) race_->set_effect_settings(race::ReplayEffectSettings::load(app.config()));
         if (!playing()) feedback_.stop(app.input(), 0);
         if (quick_ && race_) return update_quick(app, m, dt);
         if (menus_ && sequence_ == "race_view" && race_ &&

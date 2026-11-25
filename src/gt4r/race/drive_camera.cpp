@@ -151,6 +151,7 @@ ViewPose blend_poses(const ViewPose& a, const ViewPose& b, float t, float cut) {
     ViewPose p = b;
     p.eye = {a.eye.x + dx * t, a.eye.y + dy * t, a.eye.z + dz * t};
     p.fov = a.fov + (b.fov - a.fov) * t;
+    p.focus = a.focus + (b.focus - a.focus) * t;
     // The turn's rows (the view's axes in course space): blended, then made square: the backward
     // axis, the up axis square to it, the right axis from both.
     float row[3][3];

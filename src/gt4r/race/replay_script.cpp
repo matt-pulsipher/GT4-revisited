@@ -63,6 +63,7 @@ ReplayScript ReplayScript::parse(ByteSpan d) {
         const float aperture = f32_at(d, o + 0x1C);
         r.aperture = aperture < 1 ? 8.0f : aperture;
         r.dissolve = f32_at(d, o + 0x18);
+        r.haze = f32_at(d, o + 0x0C) > 0, r.depth_of_field = f32_at(d, o + 0x10) > 0;
         for (size_t k = 0; k < 3; ++k) r.eye[k] = read_curve(d, rd32(d, o + 0x34 + 4 * k)), r.look[k] = read_curve(d, rd32(d, o + 0x40 + 4 * k));
         r.lens = read_curve(d, rd32(d, o + 0x4C));
         r.offset[0] = read_curve(d, rd32(d, o + 0x50)), r.offset[1] = read_curve(d, rd32(d, o + 0x54));
@@ -171,7 +172,15 @@ float AimDamper::step(float target, float follow) {
     return out_;
 }
 
-bool ReplayCamera::pose(const ReplayScript& script, const CarState& car, const render::Mat4& body, ViewPose& out) {
+float least_focus(float degrees) {
+    if (degrees <= 2) return 16;
+    if (degrees < 15) return std::clamp((15 - degrees) * 12 / 13 + 4, 4.0f, 16.0f);
+    if (degrees < 30) return std::clamp((30 - degrees) * 3 / 15 + 1, 1.0f, 4.0f);
+    if (degrees < 90) return std::clamp(1 - (degrees - 30) * 0.9f / 60, 0.1f, 1.0f);
+    return 0.1f;
+}
+
+bool ReplayCamera::pose(const ReplayScript& script, const CarState& car, const render::Mat4& body, ViewPose& out, const std::function<float(const render::Mat4&)>& nearest) {
     cut_dissolve_ = 0, first_ = false;
     if (script.records.empty()) return false;
     // (`lap` is the laps completed, -1 before the line: the crossings less one.)
@@ -217,9 +226,14 @@ bool ReplayCamera::pose(const ReplayScript& script, const CarState& car, const r
         seed_ = seed_ * 1664525u + 1013904223u;
         roll_scale_ = r.full_roll() ? 1.0f : float(seed_ >> 8) / float(1u << 24);
         lens_.reset(lens), across_.reset(r.offset[0].at(t)), up_.reset(r.offset[1].at(t)), roll_.reset(roll_raw * roll_scale_);
+        // The focus found: at once, or on 16 cuts of 100 from under half of it (0x37C650).
+        auto draw = [&] { return seed_ = seed_ * 1664525u + 1013904223u, float(seed_ >> 8) / float(1u << 24); };
+        pull_.reset(draw() < 0.16f ? draw() - 0.5f : 1.0f);
         for (int k = 0; k < 2; ++k) follow_[k].reset(r.follow[size_t(k)].empty() ? 2.0f : r.follow[size_t(k)].at(t));
     }
-    const float f = std::max(1.0f, lens_.step(lens));
+    const float zoom = car_shot ? zoom_ : 1.0f;
+    const float shown = lens_.step(lens) / zoom;  // (+0xC)
+    const float f = std::max(1.0f, lens / zoom); // (what the aim's shares are of: the lens itself, not its spring)
     const float across = across_.step(r.offset[0].at(t)), up = up_.step(r.offset[1].at(t));
     yaw -= across * f / 2;
     if (car_shot) pitch -= 0.15f * f * std::cos(pitch * kPi / 180);
@@ -247,8 +261,12 @@ bool ReplayCamera::pose(const ReplayScript& script, const CarState& car, const r
     out.eye = raw.eye;
     out.view.m = {right.x, upv.x, -dir.x, 0, right.y, upv.y, -dir.y, 0, right.z, upv.z, -dir.z, 0,
                   -render::dot(right, raw.eye), -render::dot(upv, raw.eye), render::dot(dir, raw.eye), 1};
-    out.fov = f * kPi / 180;
+    out.fov = shown * kPi / 180;
     out.body_hidden = false;
+    // Its focus: the car's nearest point and 0.7 m, as far as it is found, no nearer than the lens allows (0x37C800).
+    out.haze = r.haze, out.depth_of_field = r.depth_of_field, out.f_number = r.aperture;
+    const float sharp = (nearest ? nearest(out.view) : render::length(RVec{body.at(0, 3), body.at(1, 3), body.at(2, 3)} - raw.eye)) + 0.7f;
+    out.focus = std::max(std::clamp(sharp * std::clamp(pull_.step(2), 0.0f, 1.0f), 0.001f, 100000.0f), least_focus(lens_.x));
     return true;
 }
 

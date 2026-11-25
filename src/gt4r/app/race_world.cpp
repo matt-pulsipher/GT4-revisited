@@ -287,6 +287,7 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
     const ByteSpan env0 = course_->section(course::kSlotEnv);
     m.sun.load(*app.vfs(), app.renderer(), &gpu, env0);
     m.sun_disc.load(gpu, m.sun.params());
+    effects_.setup(course_->env());
     m.lamps.load(app.renderer(), &gpu, course_->section(course::kSlotEffects), env0, course_->section(course::kSlotWorldVis),
                  course_->section(course::kSlotFlareShape));
     m.billboards.load(gpu, course_->section(course::kSlotBillboards), setup.course);
@@ -854,6 +855,7 @@ race::posture::Quat turn_of(const race::CarState& c) {
 void RaceWorld::present(std::span<const race::CarState> cars, const audio::SoundListener* camera, int target, bool live, const sim::Session* heard) {
     Impl& m = *impl_;
     m.pit_live = live;
+    effects_.step();
     if (camera && m.sound) {
         if (live && session_) m.sound->update(*session_, *camera, target);
         else if (heard) m.sound->update(*heard, *camera, target);
@@ -1118,7 +1120,8 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
     }
     o.overlay = &m.overlay;
     o.post_grade = grade_;
-    o.snapshot = snapshot_, o.dissolve = dissolve_, o.keep_last = keep_last_;
+    o.snapshot = snapshot_, o.dissolve = dissolve_, o.keep_last = keep_last_ || trail_ > 0, o.trail = trail_;
+    effects_.apply(o, pose, proj, effect_view_, effect_settings_, far);
     if (lens_) o.dof = lens_->dof, o.vignette = lens_->vignette;
     m.view->draw(ui.renderer(), rect, pose.view, proj, pose.eye, m.items, o);
     if (m.frame == 5)
@@ -1126,6 +1129,16 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
                  me.position.y, me.position.z, me.forward.x, me.forward.z, pose.eye.x, pose.eye.y, pose.eye.z, m.view->stats().meshes_drawn,
                  m.view->stats().triangles);
     ++m.frame;
+}
+
+float RaceWorld::nearest_depth(size_t i, const race::CarState& state, const render::Mat4& view) const {
+    if (i >= car_visuals_.size()) return 0;
+    const race::CarVisual& v = *car_visuals_[i];
+    const render::Mat4 to_view = view * v.body_matrix(state);
+    const RVec lo = v.bounds_min(), hi = v.bounds_max();
+    float nearest = 1e9f;
+    for (int k = 0; k < 8; ++k) nearest = std::min(nearest, -to_view.transform_point({k & 1 ? hi.x : lo.x, k & 2 ? hi.y : lo.y, k & 4 ? hi.z : lo.z}).z);
+    return nearest;
 }
 
 // A car's length and height, metres (its CHASSIS row's +0x08 / +0x0A, mm: 0x445D90 / 0x445DC0).

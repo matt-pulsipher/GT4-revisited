@@ -36,6 +36,10 @@ struct ViewPose {
     gt3r::render::Mat4 view;      // course space -> view space (x right, y up, looking along -z)
     float fov = 1.2f;       // radians across a 4:3 picture's width
     bool body_hidden = false; // the camera's own car is not drawn (the in-car view)
+    // What the camera asks of the picture (its +0xEC bits), its focus (+8, metres) and its aperture (an f-number, +0x150 / 100):
+    // the views the player does not drive in take them (race/replay_effects.h).
+    bool haze = false, depth_of_field = false;
+    float focus = 100, f_number = 8;
 
     // The vertical angle for the renderer: a picture wider than 4:3 shows more at the sides.
     float fovy() const { return 2 * std::atan(std::tan(fov * 0.5f) * 0.75f); }
