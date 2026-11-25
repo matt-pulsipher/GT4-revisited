@@ -779,6 +779,11 @@ memory matched against the disc's `.ads` by their data; levels × 16383):
 | License B-1: the count, the result | `gt4jg-19`, `gt4jg-09` (`license_bronze`) | 4915: a race's other pieces at the stream level 0.3 alone (RaceBGMPS2 vf5, 0x33D568: only code 12 takes the option) |
 | Prologue's starting grid page | `str10j` | 16383 |
 
+**A menu stream's level** (0x4608C8, kind -2, 0x460220 → 0x45FFF8 → 0x45FFC0): the script's volume × `sdvol` level 0 (0.3),
+no option; `option.menu_bgm_volume` (0x180AA8) is the raw option / 128, so the pages that pass it play at 0.3 × 115 / 128,
+4416. Kind -1 (0x461978 → 0x461808 → 0x4616E8, which 0x461C28 marks 2) starts a *sequence*, with level 1 (0.48) and the
+menu music option through 0x461620. `startStream` without a volume is taken as 1 ❓.
+
 So the pre-race and result pages' music is `default_quick`'s (two pieces), started as a menu stream
 (the menus' level), not by the race; Route 5 at night plays `race_68`.
 
@@ -797,11 +802,19 @@ the recording's by the level over time (shift dips within 0.1 s), then compared 
 
 The bonnet views' sides correlate as the original's (-0.6 .. -0.7: the exhaust behind the camera on the surround
 cue's inverted side). The chase launches pass the grandstand: the crowds there (Tsukuba's first emitter, gated
-2,081 .. 94 m) bring the highs (without them ours is 5 .. 7 dB under above 2 kHz); what is left under there is
-the curb the original's car runs onto (it steers onto it) and our chase camera's place (6 m behind, 1.5 m up 🔎).
-The idle differs by the session: the original creeps at about 1 mph in D with the revs a little over idle (the
-R390's tach about 1,000), ours stands with the clutch open at 800 rpm (the engine's level 0 by the open clutch's
-halving in both). The Ka's launches are not comparable: the original's Ka left the road while launching.
+2,081 .. 94 m) bring the highs (without them ours is 5 .. 7 dB under above 2 kHz); (our tool's chase camera stands 6 m behind, 1.5 m up 🔎).
+The table leaves out what does not agree: the R390's bonnet launch is +41, -37 and +100 cents and 3 dB over in its
+third to fifth seconds (the shapes match 0.77, 0.58, 0.91 there; laid on at 114.0 instead of 113.8 s the three gears
+are -2, -11 and +6 cents, shapes 0.93, 0.88, 0.95: the fit of the two launches decides it); the chase launches' pitch
+ratios (from -888 to +248 cents, shapes 0.42 .. 0.86) do not settle anything ❓; the Ka's launches (its car held near
+17 mph in first gear, on the road, the warning lamp lit) do not follow ours: at 4,900 rpm from the bonnet ours is
++1 cent off the stretch at 48.5 s, but 3 dB under it, the shapes matching only 0.56, and no rev fits the stretch at
+46.5 s ❓. 🔎 What is under in the chase launches'
+lows (81 .. 161 Hz, 2 .. 4 dB): the pictures show the cars by the curb; not checked.
+**Idle** ❓: the R390's recording has 5 dB more than ours in 322 .. 645 Hz and its sides correlate -0.36 where ours do
+-0.97, so something besides the inverted exhaust sounds there (an engine level over 0, or other revs: its tach reads
+about 1,000 by eye, the car at 1 mph); ours stands at 800 rpm with the clutch open, the engine's level 0 as in the
+original's Grand Canyon start (that saved state: clutch 0, engine 0, exhaust 5). Whose rule differs is not found.
 **Prologue's 240ZG** (`14-prologue/round4`, the chase view: its sides correlate +0.98 as ours): at idle its two
 strongest notes 65 and 94 Hz in both, the same balance (right 1.5 dB under); the launch's level is not settled, the
 recording carrying the race's music.

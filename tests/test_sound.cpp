@@ -683,7 +683,9 @@ TEST(sound_menu_music_on_disc) {
         std::string streamed;
         bool stream_on = false;
         audio::StreamPlayer player;
-        player.play = [&](const std::string& path, bool, float) {
+        float streamed_level = -1;
+        player.play = [&](const std::string& path, bool, float level) {
+            streamed_level = level;
             streamed = path;
             stream_on = true;
             return true;
@@ -736,6 +738,12 @@ TEST(sound_menu_music_on_disc) {
         const std::string drawn = menu.stream_file("pcm", "racing");
         CHECK(!drawn.empty() && disc->volume().find(drawn));
         CHECK(menu.start_stream("pcm", "racing") && streamed == drawn && menu.is_playing_stream());
+        // The level is the script's volume x the stream column, the option not taken again (0x45FFC0).
+        const float column = menu.library().levels().level(int(audio::OutputMode::Stereo), sound::VolumeTable::Stream);
+        menu.set_music_option(0.25f);
+        CHECK(menu.start_stream("pcm", "racing", 0, false, 1.0f) && near(streamed_level, column, 1e-6));
+        CHECK(menu.start_stream("pcm", "racing", 0, false, 115.0f / 128.0f) && near(streamed_level, column * 115.0f / 128.0f, 1e-6));
+        CHECK(menu.start_stream("pcm", "racing", 0, false, 115.0f) && near(streamed_level, column * 115.0f / 128.0f, 1e-6)); // (raw)
         menu.stop_stream();
         CHECK(!menu.is_playing_stream());
         CHECK(!menu.start_stream("pcm", "nothing"));
