@@ -39,7 +39,7 @@ using menu::GameState;
 using menu::SaveEditor;
 
 constexpr float kRowH = 17;
-constexpr int kShown = 15;
+constexpr int kShown = 16;
 constexpr float kListX = 20, kListW = 400, kListY = 46;
 
 std::string with_commas(s64 v) {
@@ -307,7 +307,7 @@ private:
 
     void message(Ui& ui) {
         if (message_.empty()) return;
-        float y = Ui::kHeight - 32 - 12 * float(Ui::wrap(message_, 600).size() - 1);
+        float y = Ui::kHeight - 29 - 12 * float(Ui::wrap(message_, 600).size() - 1);
         for (const std::string& line : Ui::wrap(message_, 600)) ui.text(kListX, y, line, bad_ ? colors::kBad : colors::kGood), y += 12;
     }
     void fail(std::string text) { message_ = std::move(text), bad_ = true; }
@@ -355,8 +355,6 @@ private:
     std::unique_ptr<menu::PrologueSaveEditor> prologue_editor_;
     bool edited_ = false;
     std::string title_;
-    u64 mark_ = 0;
-    std::string card_; // of the library ("" : another place)
 
     bool editing() const { return document_.has_value(); }
     GameState& state() { return editor_->state(); }
@@ -395,7 +393,6 @@ private:
             return fail(std::string("The save could not be opened with this disc: ") + e.what());
         }
         document_ = std::move(d);
-        card_ = card;
         title_ = place.kind == save::EditPlace::Kind::Image ? std::filesystem::path(place.path).filename().string() : card.empty() ? place.path : "Saved game";
         edited_ = false, message_.clear();
         tab_ = 0, stack_.clear(), open_tab(), dirty_ = true;
@@ -647,7 +644,9 @@ private:
     void build_career() {
         SaveEditor& e = *editor_;
         GameState& s = state();
-        link("Name", s.username, "Up to ten letters, as on the game's own name page.", [this] { text_.open("Name", state().username, SaveEditor::kNameLetters, [this](const std::string& v) { editor_->set_name(v), changed(); }); });
+        link("Name", s.username, "Up to ten letters, as on the game's own name page.", [this] { text_.open("Name", state().username, SaveEditor::kNameLetters, [this](const std::string& v) {
+            if (v != state().username) editor_->set_name(v), changed();
+        }); });
         number("Credits", s.money, 0, std::max(SaveEditor::kMaxMoney, s.money), 100'000, [this](s64 v) { editor_->set_money(v); }, "Left and right change it by 100,000.", credits);
         number("Day", e.days() + 1, 1, SaveEditor::kMaxDays + 1, 1, [this](s64 v) { editor_->set_days(int(v) - 1); },
                "The used car lots and some presents go by it. Going back takes the days after it out of the diary.",
@@ -785,8 +784,8 @@ private:
         if (size_t(slot) >= s.garage.size() || !s.garage[size_t(slot)].used) return;
         const menu::GarageEntry& g = s.garage[size_t(slot)];
         info(e.car_name(g.car), car_figures(slot));
-        Row& active = link("Your car now", slot == s.riding_car ? "This one" : "Drive this one", slot == s.riding_car ? "" : "It becomes the car you are driving.", [this, slot] { editor_->set_active(slot), changed(); });
-        active.enabled = slot != s.riding_car, active.accent = slot == s.riding_car;
+        if (slot == s.riding_car) info("Your car now", "This one");
+        else link("Your car now", "Drive this one", "It becomes the car you are driving.", [this, slot] { editor_->set_active(slot), changed(); });
         const std::vector<SaveEditor::Paint> paints = e.paints(g.car);
         const int paint = e.car_paint(slot);
         if (!paints.empty()) {
@@ -940,7 +939,8 @@ private:
                 if (best != menu::kNoTime) n += ", " + time_text(best);
             std::string hint;
             for (int m = 3; m >= 1; --m)
-                if (t.limit[m]) hint += medal_name(m) + " " + time_text(t.limit[m]) + "  ";
+                if (t.limit[m]) hint += (hint.empty() ? "" : ", ") + medal_name(m) + " " + time_text(t.limit[m]);
+            hint += ".";
             Row& r = choice(std::to_string(i + 1) + ". " + t.name, names, now < int(names.size()) ? now : 0, [this, k, i, medals](int c) { editor_->set_medal(editor_->licenses()[k].tests[i], SaveEditor::Medal(medals[size_t(c)])); }, hint);
             r.accent = editor_->medal(t) == SaveEditor::kGold;
             if (const u32 most = t.limit[SaveEditor::kBronze]) {
@@ -1176,7 +1176,7 @@ private:
             for (int m = 0; m < 4; ++m) names.push_back(medal_name(m) + (t.best == menu::kNoTime ? "" : ", " + time_text(t.best)));
             std::string hint;
             for (int m = 3; m >= 1; --m)
-                if (t.limit[m]) hint += medal_name(m) + " " + time_text(t.limit[m]) + "  ";
+                if (t.limit[m]) hint += (hint.empty() ? "" : ", ") + medal_name(m) + " " + time_text(t.limit[m]);
             choice(t.name, names, t.medal, [this, k](int m) { prologue_editor_->set_medal(k, m); }, hint).accent = t.medal == 3;
         }
     }

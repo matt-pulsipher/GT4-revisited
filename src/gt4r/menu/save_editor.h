@@ -39,7 +39,7 @@ public:
     static constexpr u32 kMaxCount = 99'999;
     static constexpr size_t kNameLetters = 10; // the name page's
     void set_money(s64 v) { state().money = std::clamp<s64>(v, 0, kMaxMoney); }
-    void set_name(const std::string& v); // letters the game's name page has, at most ten; an empty one is left out
+    void set_name(const std::string& v); // letters (and digits), at most ten; an empty one is left out
     int days() const { return int(state().today - GameState::kFirstDay); } // days gone by
     // The calendar moved on (each day passed a day with nothing in it, as the calendar's incDate) or back (the days after it
     // taken out of the diary, which holds a day for each day gone by).

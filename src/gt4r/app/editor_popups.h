@@ -31,10 +31,9 @@ inline gt3r::UiRect popup_panel(Ui& ui, gt3r::HitList& hits, float w, float h, c
 
 struct ChoicePopup {
     struct Item {
-        std::string label, note;
+        std::string label{}, note{};
         bool swatch = false, mark = false; // `mark`: the one now
         u8 rgb[3] = {};
-        std::string find; // what a typed letter goes by ("" : the label)
     };
     static constexpr int kRows = 14;
     bool active = false;
@@ -79,7 +78,7 @@ struct ChoicePopup {
         else if (k.key >= 32 && k.key < 127) {
             typed += char(std::tolower(int(k.key)));
             for (size_t i = 0; i < items.size(); ++i) {
-                std::string s = items[i].find.empty() ? items[i].label : items[i].find;
+                std::string s = items[i].label;
                 for (char& c : s) c = char(std::tolower(static_cast<unsigned char>(c)));
                 if (s.find(typed) != std::string::npos) {
                     sel = int(i), show();
@@ -240,6 +239,7 @@ struct TextPopup {
         if (k.scancode == SDL_SCANCODE_ESCAPE) active = false;
         else if (k.scancode == SDL_SCANCODE_RETURN || k.scancode == SDL_SCANCODE_KP_ENTER) finish();
         else if (k.scancode == SDL_SCANCODE_BACKSPACE || k.scancode == SDL_SCANCODE_DELETE) erase();
+        else if (k.key >= SDLK_0 && k.key <= SDLK_9 && !(k.mod & SDL_KMOD_SHIFT)) add(char(k.key));
         else if (k.key >= SDLK_A && k.key <= SDLK_Z) add(char((k.mod & SDL_KMOD_SHIFT ? 'A' : 'a') + (k.key - SDLK_A)));
     }
     void render(Ui& ui, gt3r::HitList& hits) {

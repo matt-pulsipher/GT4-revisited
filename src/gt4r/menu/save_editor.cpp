@@ -124,7 +124,7 @@ void SaveEditor::start(const GameState& loaded) {
 void SaveEditor::set_name(const std::string& v) {
     std::string out;
     for (char c : v)
-        if (std::isalpha(static_cast<unsigned char>(c)) && out.size() < kNameLetters) out += c;
+        if (std::isalnum(static_cast<unsigned char>(c)) && out.size() < kNameLetters) out += c;
     if (!out.empty()) state().username = out;
 }
 
@@ -400,14 +400,15 @@ void SaveEditor::set_series(const Event& e, int p) {
 }
 
 void SaveEditor::set_won(const Event& e, bool on) {
-    for (size_t i = 0; i < e.races.size(); ++i) set_place(e, int(i), on ? 0 : kNotRun);
-    set_series(e, on ? 0 : kNotRun);
+    // (A race already won stays as it is: its prize car may be waiting.)
+    for (size_t i = 0; i < e.races.size(); ++i)
+        if (!on || place(e.races[i].unit) != 0) set_place(e, int(i), on ? 0 : kNotRun);
+    if (!on || place(e.unit) != 0) set_series(e, on ? 0 : kNotRun);
 }
 
 void SaveEditor::win_all(bool on) {
     for (const EventList& l : events_)
-        for (const Event& e : l.events)
-            if (on != won(e) || !on) set_won(e, on);
+        for (const Event& e : l.events) set_won(e, on);
 }
 
 void SaveEditor::set_score(int u, int points) {
@@ -504,7 +505,7 @@ void SaveEditor::read_presents() {
         Present p;
         p.id = int(i), p.kind = kind, p.about = about, p.paint = paint, p.ending = type == "movie" || extra == "ending";
         if (car) p.car = what, p.what = car_name(what);
-        else p.what = type == "paper" ? "The license's paper" : "A movie";
+        else p.what = type == "paper" ? text("PresentRoot", "LicenseName", about.substr(0, 3) + "0000") + ": its certificate" : "A movie";
         auto license = [&](const char* suffix) { p.how = text("PresentRoot", "LicenseName", about.substr(0, 3) + "0000") + suffix; };
         auto missions = [&](const char* place) {
             const size_t comma = about.find(',');
