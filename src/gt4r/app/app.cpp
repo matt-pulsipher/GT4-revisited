@@ -377,7 +377,15 @@ SDL_AppResult App::iterate() {
         input_->set_overlay(0, ov);
     }
     input_->update(dt);
-    menu_.update(scripted.buttons ? scripted : input_->menu_pad(), dt);
+    {
+        // The script's presses on top of the menu pad, not in its place: a control held by the script (gas=1) stays
+        // down under a key pressed meanwhile, where dropping it for a frame made a press of its own afterwards.
+        gt3r::PadState menu_pad = input_->menu_pad();
+        menu_pad.buttons |= scripted.buttons;
+        for (size_t b = 0; b < menu_pad.pressure.size(); ++b) menu_pad.pressure[b] = std::max(menu_pad.pressure[b], scripted.pressure[b]);
+        menu_pad.connected = menu_pad.connected || scripted.buttons != 0;
+        menu_.update(menu_pad, dt);
+    }
     if (!screens_.empty()) screens_.back()->update(*this, dt);
     apply_screen_changes();
     if (screens_.empty()) quit_ = true;
