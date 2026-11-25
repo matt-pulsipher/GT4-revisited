@@ -831,7 +831,15 @@ private:
         else if (t == "ColorChipFace") {
             chip(w, at, face, colors);
         } else if (t == "GraphFace") graph(w, at, face);
-        else if (t == "FlashFace") flash(live, at, face);
+        else if (t == "FlashFace") {
+            // (Cut to the face's rectangle: 0x272C60's clip.)
+            const Rect own = menu::cut(clip, bounds(at));
+            if (own.w > 0 && own.h > 0) {
+                set_clip(own);
+                flash(live, at, face);
+                set_clip(clip);
+            }
+        }
         else if (draw_live) draw_live(live, project_, page_, at, to_screen(bounds(at)), face);
 
         Rect inner = clip;

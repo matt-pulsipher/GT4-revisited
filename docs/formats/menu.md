@@ -59,11 +59,13 @@ none compared with the program's own code yet):
 | `children` | Drawn in order over the widget |
 | `visible` 0 | Not drawn, nor its children |
 | `visible_condition`, `visible_compare` | Which states a widget shows in (0x265DC8): with a compare, when the compared bits equal the condition's; with a condition alone, when any of its bits is on; with neither, always. The bits: 1 active, 2 focus, 4 prelight, 8 insensitive (the older files' `cond_active`, `cond_focus`, `cond_prelight`, `cond_insensitive`). Whose state: "States" under "Running" |
+| A clip's edges | The scissor is in whole lines: the page's 480 on the frame buffer's 448 and a field's 224, the place and the size each cut to a whole line (0x215F78, 0x215FE0, 0x4A2DF8), so a box loses up to a line at its bottom: the gaps of a regulations page's rows (`menu::scissor`). 448 / 480 is rounded toward zero: an exact number of lines comes out one less (the page's own last line is black in the original; kept here). ❓ Prologue's is not read |
 | `opacity` | Multiplies the alpha of the widget and its children |
 | `clip` 1 | Children are cut to the rectangle. The boxes (`Box`, `HBox`, `VBox`, `FBox`, `MBox`), `RootWindow` (0x232E00) and `SelectBox` (0x2D8C90: the event halls' lists) cut by default (mBox's constructor 0x200C08 sets it, 0x206858); `OptionMenu` (0x2C7498), `ScaleBar` (0x236860) and `SliderBar` (0x2DD820), boxes too, turn it off again; so does the list box a layout's is copied from (its constructor 0x2AEA98 does not set it; measured in four saved states, in the same set of widgets whose faces have `is_face`, and the Replay Theater's rows are cut; Arcade's list writes `clip 0`); other composites do not (0x204F10): the layouts write `clip 0` on boxes and `clip 1` on the others |
 | `ColorFace` `color` | One colour, or four for the corners clockwise from the top left |
 | `ImageFace` `image_path`, `color` | The picture over the rectangle, tinted; `blend` 1 adds |
-| `FrameImageFace` `tl_`, `t_`, `tr_`, `l_`, `r_`, `bl_`, `b_`, `br_image_path`, `image_path` | Corners at their own size, sides stretched between, the middle over the rest |
+| `FrameImageFace` `tl_`, `t_`, `tr_`, `l_`, `r_`, `bl_`, `b_`, `br_image_path`, `image_path` | Nine parts about the layout's `frame_width` x `frame_height` (16 x 16 when it gives none: 0x2999C0), whatever the pictures' sizes: the corners that size, the sides between them, the middle over the rest (0x298288); each part its picture stretched over it, or the face's colour where it has none (0x2979A8); four colours (clockwise from the top left) run over the whole face, each part's corners having the colours there |
+| A picture's colour | One: halved, so 255 leaves the picture as it is (0x4AA168). Four, at the corners: whole, so 255 makes it twice as bright, up to white (0x49A150: the Replay Theater's scroll thumb) |
 | `TextFace` `text`, or `key` | The text; a key is looked up in the page's text (below) |
 | `font` | A font's name (below); `hn_14` when absent (the text style's default, 0x246F58); ❓ `hm_16` for a name the files do not have (`sw_20`, `sw_12`) |
 | `align` | Where in the rectangle: 0 to 8, rows from the top, columns from the left; the middle when absent |
@@ -241,9 +243,9 @@ Setting active (0x265FF0), focus (0x266098) or insensitive (0x266200) on a face 
 too, up to the first that is no face. Each picture a widget's focus bit is whether it is the
 focused widget and its prelight bit whether it is the one the cursor points at (0x263A68); a box
 with a child that has one has it too (0x207208, the list's rows 0x2B3518), so all the parents of
-the focused widget have both (measured: five saved states). ❓ Here the pointed widget is the
-focused one, and a list's chosen row has both bits while the list has the focus; the program gives
-the row neither the focus nor, as far as read, more than the cursor's prelight.
+the focused widget have both (measured: five saved states). A list box's chosen row has the cursor's
+prelight while the list has the focus, and no focus bit (0x2B3518). ❓ Else the pointed widget is the
+focused one here.
 
 ### Widgets
 
@@ -254,7 +256,9 @@ mSelectBar, mSelectBox, mTextBoxFace.
 
 Any widget: its layout properties as attributes; `doCopy()`, `doInitialize(context)`,
 `appendChild`, `insertChild`, `removeChild`, `replaceChild`, `clearChildren`, `clearWindow`,
-`countChild`, `getChild`, `movetoLast`, `first`, `last`, `next`, `prev`, `name` (assignable),
+`countChild`, `getChild` (a name a sibling has is made its own when a widget is put in: the name without its last
+digits and the first free number from 0: "Item", "Item0", "Item1", 0x206888 -> 0x25ADF8; the missions' list finds its
+row again by it), `movetoLast`, `first`, `last`, `next`, `prev`, `name` (assignable),
 `actor`, `interpolateX/Y`. `widget["child"]` is nil when the widget has nothing of that name.
 
 `interpolate` (0x25BFE0): a value within 1 of its target arrives; otherwise it moves by the
@@ -551,7 +555,8 @@ over it are the program's, with their addresses in save.md and here:
   sold (0x4411F0). Used Car Showroom II's first rows on 9 APR, 17 JUL and 23 JUL (names, prices,
   mileage, power, torque) are the reference's (`disc_gt_mode_used_cars_by_day`); the sorts, one key each
   (power, weight, kg/PS, date, order of driving, aspiration, name, price, year, country,
-  tuner, drivetrain, the paint's hue). The gears' ranges (`getGearRange`, 0x3553A0): the gears
+  tuner, drivetrain, the paint's hue), by the program's own sort (0x2F03C8, an introsort, not stable:
+`menu/program_sort.h`; a garage of more than 16 cars by a column they share stands newest first, as the original's). The gears' ranges (`getGearRange`, 0x3553A0): the gears
   the slider and final drive give (0x354FF8), each gear's ends a third of the way to its
   neighbours' ratios, the first gear's top 9/8 of its ratio, the last's bottom 7/8, the reverse
   gear 7/8 and 9/8 (0x355278; thousandths, truncated); in the array [7 + 2g] the lower end of gear
@@ -614,6 +619,17 @@ sequence starts when the scripts that asked for it finish (a new work object, 0x
   it when there was no run or its result is 13: every visit to a test's page is a day, as the
   original's calendar shows. **A course's run** (0x115A90) is a day of the diary;
   Arcade's race and time trial are none (0x111498 and 0x112620 reach none of 0x42F0E0's callers).
+
+- **An Arcade single race** (0x111E98): the player drove it and finished: the A-spec points taken are the course record's
+  best score (+0x230) when higher, at most 255, shown on the course page.
+
+The race's menus' `IsASpec` (0x110498; an event's 0x114334, a championship's 0x119A78): 1 when the row asks for no license
+(+0x45), else whether all 16 tests of that license are passed with bronze or better; without it A-spec's Start answers "no
+license" and B-spec's goes on.
+
+❓ **The Arcade penalty option** (`penalty_type`): the program copies it into the race's settings (RaceInformation +0xB4 and
++0xC0, RaceOrganization +0x04 and +0x10, 0x3BFB10; the LAN race's list, 0x161F28) and no reader of those was found; the rule
+block's penalty (+0x4A) is written from the RACE row's +0x88 alone (0x35E2D8). Not built.
 
 The prize page of the quick projects counts the prize into the credits (`incMoney`, ten at a
 time); the presents (prize cars, licenses) are given by Gran Turismo mode's present page on
@@ -746,6 +762,7 @@ countries and categories, found in the disc's program file by their content
 **Other objects**: `menu::MSystem`, `MLocale`, `MUnit` (the calendar's order by language,
 0x48EE00: year first for JP, KR, TW), `MUtility` (`GetMoneyString`, `GetTimeString` as the
 program's text, `GetPriceMagnification` 100 for "jp"), `MNetwork`, `MShell`, `MProgress`,
+`MGamePort` (a controller port's device by name: "USB port1" a wheel's or "DISCONNECT"; Prologue's wheel settings ask it),
 `MGpb` (`context.loadGpb(folder, name)` adds `<folder>/<LANG>/<name>.gpb` to the pictures).
 
 A project's script names files of the disc's top beside its own (gtmode's
@@ -803,7 +820,7 @@ page fades out in 0.25 s. The tachometer is a picture of the program (a Tex1 at 
 a second (0x104150). The program shows it while the disc loads; here the next project starts
 once the black is whole, the page holds 0.5 s after the picture is in (❓ judged) and takes no
 keys. Before a race the scripts set the mode "capture" (MSystem.SetLoadingMode): the last picture is
-kept (here: read back on each picture from the call on, since the menus close their pages as they
+kept (here: the pages are drawn into a picture of their own from the call on, since the menus close their pages as they
 end) and the tachometer fades in over it in 1 s; the race is then read, in which the picture stands
 still, and takes the screen at once (❓ the program fades the page out in 0.25 s). ❓ Not done: "snow",
 "fade in", "simple", "off"; the tachometer's red while the disc check 0x548850 fails.
@@ -910,6 +927,11 @@ added to it, else `image_path1`: ALPHA 0x48, 0x1598B8), bit 26 shaded, bit 27 fr
 ending at 1; 0.5, 1; 0.5, 0.75, 1; 0.5, 0.75, 0.875, 1 of the height; shaded, each runs into the next
 (n = 2 over the whole, 3: 0.5, 1, 4: 0.5, 0.75, 1) (0x159C38). Prologue's rows have the one colour.
 
+#### Beside the page
+
+Over a race's picture wider than the page, a `ColorFace` as wide as the page whose colour does not change across goes on to
+the screen's edges (`PageDrawer::beside`): the race's menus' shades and strips.
+
 #### Graphs (`GraphFace`; `menu/faces_graph.*`)
 
 `mGraphFace` (draw 0x2E88F8): `points` as fractions of the rectangle (the layouts' `scale
@@ -926,7 +948,7 @@ past the rev limit; `buildGearRatioData` is not written.
 `mFlashFace`: `flash_path` an entry of the page's packs (or with `from_disk` a disc file) in
 the program's STRB format; time 1/60 s a picture from the face's start or `reset(t)`, round
 with `repeat` (default 1), else nothing past the end; the frame fitted inside the rectangle
-and centred (0x292D70, 0x292E70, 0x272C60). The menu movies use only: the header (0x10
+and centred (0x292D70, 0x292E70, 0x272C60), cut to the face's rectangle. The menu movies use only: the header (0x10
 stage width, height; 0x1C rate; 0x20 frames), sprite 0's placements (0x28 bytes: kind, first
 frame, end, shape, keys of 0x24 bytes: scale, place, a colour multiply with 0x80 = 1) and
 frame lists, the shapes' bounds and fill styles (kind 3 / 4 a picture through its texture
@@ -1000,9 +1022,10 @@ targets; `fadein`, `transparentRatio` as their names say. Model = T(cur) Rz Rx R
 origin is on the body's underside, so the car is raised by its ride height to stand on y = 0
 (❓ judged: the program's ShowRoomCar is not read).
 
-A car given as a garage car (`car_garage`, `car_data` set to an MCarGarage) shows in that
-car's paint (its record's +0x18) and stands where the layout says from that moment, so what the
-script does after it holds (Home turns the garage car to its front, ry 180, when yesterday had no
+A car set on the face (`car_code`), or given as a garage car (`car_garage`, `car_data` set to an MCarGarage, shown in
+that car's paint, its record's +0x18), stands where the layout says from that moment, so what the
+script does after it holds (the arcade car page brings it in from `tz` 8.5 with its front to the camera at a speed of
+0.025; Home turns the garage car to its front, ry 180, when yesterday had no
 run that failed: gtmode's `isGarageCarFront`). The scripts' `loadModelOptionMotion(path)` gives a normal face
 a camera motion from the page's packs (`image/gtmode/gtauto/*_cam.mot`: Mot1 files read as the
 stage's below): its eye, the point looked at, up and field of view at its clock's time (below;
@@ -1058,13 +1081,17 @@ picture (about 3 ms of each), and its shadow made only when its look changes: on
 car page a new car costs about 23 ms in its worst picture, the first one about 39 ms (the stage
 loading), where building it in the picture cost 70 to 140 ms.
 
+The reflections' factors: weight C0 ([0x6238A0]) + C1 ([0x62389C]) min(V.N, 0), a car face's 1.3 and 1.1 (0x156820), the
+stage's 1.5 and 0.8 (0x1D5C00); the race's are its course's +0x34 and +0x34 x +0x30 (0x397D1C). (Op 0x56 of the models'
+programs; a car built with `CarVisual::Options::reflection_by_draw` takes them from the draw.)
+
 The "advanced" stage (0x157378) takes the car at (x, y, -z) turned half round. Its time steps
-1/60 s a picture round the light motion's length. **The stage's motions**
+1/60 s a picture; past the light motion's length (24.15 s) it goes back to its loop's start (1.07 s). **The stage's motions**
 (`menu/stage_motion.*`): `menu/select/camera.mot` and `light.mot` are `Mot1` files whose scene
 is a byte program of the motion library (0x42B440; the root's +0xC points at it): 0 end, 1..3
 the hierarchy's steps, 4 a name, 0x0A the perspective (u8 flags, the field of view in
 radians), 0x0B the camera (u16 flags; eye, point looked at, up), 0x0C / 0x0D / 0x0E a light's
-ambient / diffuse / specular (u8 light, u8 flags, 4 values), 0x0F its place (3 values), 0x10
+diffuse / ambient / specular (the light parameters 1, 0 and 4, 0x42D024 on; a car face's `lN_amb` is parameter 0, 0x21A988) (u8 light, u8 flags, 4 values), 0x0F its place (3 values), 0x10
 a named value (u8 flags, the name, 1 value). A value whose flag bit is set is a u16 channel of
 the clip, else a constant f32 (0x42D688). The camera stands still: eye (0, 1.28, -9.137)
 looking at (0, 0.426, 0.004), up (0, 0.996, 0.093), 0.4495 rad across the page's height (❓
@@ -1073,9 +1100,7 @@ the axis). `light.mot` (24.15 s) keys `Alpha0`..`Alpha3`, the weights of bg.mdl'
 far, then the whole faded to black by what the sum lacks of 1 (0x1D5588, 0x1D5620). Its lights
 (CustumLightPosition 0x1D6C98): each light's place is the direction toward it, in the world (w 0),
 the global ambient 0; light 0 and 1 move (place, ambient, diffuse, specular keyed), light 2 stands at
-(3.90, -3.19, -9.43) with ambient and specular 0.2, light 3 is all zero and lights nothing (❓ which of
-the two colours set is the ambient and which the diffuse: the program's two light paths pair them
-oppositely). `BlackLevel` 0 and `WhiteLevel` 1 are constants (no change to the picture); `ColorScale`
+(3.90, -3.19, -9.43) with ambient and specular 0.2, light 3 is all zero and lights nothing. `BlackLevel` 0 and `WhiteLevel` 1 are constants (no change to the picture); `ColorScale`
 is not read by the program. `bottomShadow` (0.7) is the strength of the shadow under the car.
 
 Light 0 throws the car's shadow (0x1D6378, 0x1D6968; light 1's `shadowDarkness1` is 0): per sample i
@@ -1084,10 +1109,19 @@ n + tan(shadowBlur0 x (10 + p) / 16 degrees) sin(pi phi) r2, n the unit light, r
 n.x), phi = (i + 0.125) / n + T[p] / 8, T = (-1, 1, -2, 2, -3, 3); pass p writes the one alpha bit
 7 - p of a half-size mask (so 1/2, 1/4 .. 1/32 for p = 1..5), the mask times `shadowDarkness0` darkens
 the background, the samples are averaged. Here the twenty throws are layers one over another, each at
-the alpha that leaves that sum where they all cover. ❓ Not done: the tires' throws (tire.mdl, a unit
-cylinder a wheel), the mask's half size, the 60 % soft focus of the background (0x1D56B0: a 7-tap
-Gaussian of a half-size copy), the sphere map made of env.mdl (0x44EB10; the car reflects the page's
-picture instead).
+the alpha that leaves that sum where they all cover; each the body's shape and the four tires' (tire.mdl, a unit cylinder at
+each wheel's width and radius, 0x452808), no part of it twice. ❓ Not the mask's half size.
+
+**The soft focus** (0x1D56B0) of the backdrops' picture: a copy at half the frame's size, a running average over 7 pixels
+across and then down (weights exp(-j^2 / (2 x 2.5^2)), each shifted copy laid over the last at its part of the sum so far in
+128ths), put over the picture at 0.6 (in 128ths). Here the backdrops are drawn into a picture of their own, softened with a
+320 x 224 copy, and the car and its shadow are put over it at the car's alpha (0x1D6378); while a car loads the stage stands.
+
+**The reflection** (env.mdl, 0x44EB10; `menu/stage_env.*`): a sphere map seen from 0.8 m above the car, the disc's middle the
+direction back toward the camera turned down 15 degrees about the view's x axis (the sign by the captures: the Ka's 20 frames
+of the reference's walk video; up, the original's dark sides shine), the picture 0.9 of the disc while the lookup reads it
+whole; the four models added at the backdrops' weights. The program makes it each picture; here each model's map is made once
+(128 x 128) and added.
 
 #### Models (`ModelFace`; `menu/faces_model.*`, `app/menu_models.*`)
 
@@ -1111,8 +1145,8 @@ engine's Gran Turismo 3 code or on a judgment:
 |---|---|---|---|
 | 3D faces' models (car faces' extra sets, model faces, the car stage's backdrops) | `app/menu_cars.cpp`, `app/menu_models.cpp` via `formats/model/mdls.cpp` `to_gtm1` | the engine's GTM1 decoder and renderer (`gtm1.cpp`, `render::View3D`, its GT3 lighting model) | ModelSet2's draw (0x455528, the shape submit 0x49D328) and the VU1 lighting |
 | A skinned set's blend | `formats/model/mdls_skin.cpp` `blend()` | the program's VU0 micro-routine (0x2E8 / 0x460) operation by operation in the PS2's floats (`ee::F`; ❓ the VU's own rounding of multiply-add and of the reciprocal root is taken as the FPU's: the race step runs no VU0 float instruction, so no recording made on a console judges it); the palette's matrices are host floats | (the palette: 0x4A7698 and the rotations 0x078 / 0x0B8 / 0x0F8) |
-| The menu car | `app/menu_cars.cpp` | `race::CarVisual` (Gran Turismo 4's car parts) drawn by the engine's renderer; ❓ the reflection strength (1.0 here; the program's 1.3, 1.1 not read), the ride-height raise | mCarModelPS2's draw (0x156AA0, 0x156F18) |
-| The car stage | `app/menu_cars.cpp` | the lights, backdrops and the shadow's layers as the program has them; no soft focus, env.mdl, tire.mdl, half-size mask; the engine's lighting model | GT4CarSelect::AnimationStage (0x1D5C00: 0x1D56B0, 0x44EB10, 0x1D6968) |
+| The menu car | `app/menu_cars.cpp` | `race::CarVisual` (Gran Turismo 4's car parts) drawn by the engine's renderer, with the program's reflection factors; ❓ the ride-height raise | mCarModelPS2's draw (0x156AA0, 0x156F18) |
+| The car stage | `app/menu_cars.cpp` | the lights, backdrops, soft focus, reflection picture and the shadow's layers (tires too) as the program has them; no half-size mask; the engine's lighting model | GT4CarSelect::AnimationStage (0x1D5C00: 0x1D56B0, 0x44EB10, 0x1D6968) |
 | The car's shadows | `race/car_visual.cpp` | the race's shadow models | the stage's shadow (0x4523B0..) |
 | A skinned set's reflection | `app/menu_cars.cpp` `weigh_reflections` | the set's picture, weighted at the vertices; the engine's sphere-map kernel (Gran Turismo 3's) | the VU1 lookup, constants of ops 0x56 / 0x57 |
 | Model faces' reflections | `app/menu_models.cpp` | the engine's prize-scene path (`static_env_maps`: Gran Turismo 3's kernel), ALPHA 0x58 as plain addition (the frame alpha's weight left out) | the VU1 lookup |
