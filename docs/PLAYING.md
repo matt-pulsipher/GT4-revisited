@@ -73,19 +73,11 @@ F11 switches full screen.
 
 The ones a player meets first:
 
-- Driving Missions race the wrong cars, one lap, from a standing start, and a wall hit ends the run; the
-  wall penalty is not shown.
-- A time trial (Arcade, World Circuits) ends after two laps, and shows a lap total.
-- More than half of the license tests begin with the car moving in the original (a run-up at 30 to
-  200 km/h); here every test starts from rest.
-- After an Arcade race a license test runs on the Arcade race's course.
-- A B-spec pit stop happens without the PIT STOP menu and the SPEED LIMIT notice.
-- While a championship's Point Ranking comes up, its point column shows race times for a moment.
-- The pre-race pages of Practice and the Arcade time trial have no B-spec icon.
-- The gloss on the used car list's white and yellow paint swatches is too faint.
-- The B-spec driver's Ka is somewhat faster than the original's at Tsukuba (about 2 % over several
-  races; a race varies by more than that with the traffic).
 - Photo Lab (Home) opens a plain page that asks for a race.
+- The Replay Theater's Demo tab lists its 13 demonstrations; Play does not play them.
+- The Penalty option of Arcade's settings does nothing.
+- The B-spec driver's Ka is faster than the original's at Tsukuba (about 4 % in the race compared; the
+  order and the traffic differ).
 
 ## Scripted play (for checks)
 
