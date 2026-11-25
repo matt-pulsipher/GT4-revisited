@@ -442,7 +442,8 @@ bool load_recorded_race(App& app, Setup& setup, const std::optional<Bytes>& file
         race::arcade_rules(setup.event_row, int(rules[0]), int(rules[1]));
     }
     setup.demo_skip = std::exchange(setup.skip, 0), setup.replay = 0, setup.sequence.clear();
-    apply_course_start(app, setup, true);
+    if (d.race_class == "RaceLicense" || d.race_class == "RaceTraining") setup.sequence = "license"; // (its start, rules and conductor: load_test)
+    else apply_course_start(app, setup, true);
     LOG_INFO("Drive: the recorded race %s: %s on %s, %zu cars, %d laps, %zu steps (%d ms, best lap %d ms)", setup.replay_file.c_str(), d.race_class.c_str(), setup.course.c_str(), d.entries.size(),
              setup.laps, run->steps(), d.time_ms, d.time2_ms);
     setup.demo_run = std::make_shared<const sim::ai::DemoRun>(std::move(*run));
@@ -759,23 +760,34 @@ public:
             }
         return f;
     }
-    // Whether a run of this race is kept as the program keeps it too (race/race_recording.h): an arcade single race from its start.
+    // Whether a run of this race is kept as the program keeps it too (race/race_recording.h): an arcade single race or a license test
+    // from its start.
     bool recordable() const {
-        return disc_ && db_ && !db_->prologue() && setup_.sequence == "single_race" && !setup_.event_row.empty() && setup_.skip == 0 && !setup_.auto_drive && world_->simulated() && world_->computer_drivers();
+        if (!disc_ || !db_ || db_->prologue() || setup_.event_row.empty() || setup_.skip != 0 || setup_.auto_drive || !world_->simulated()) return false;
+        if (is_license(setup_.sequence)) return setup_.conductor == race::Conductor::License || setup_.conductor == race::Conductor::Training;
+        return setup_.sequence == "single_race" && world_->computer_drivers();
     }
     Bytes recording() const {
         race::RecordingSetup rs;
         const db::Labels *races = db_->labels("RACE"), *courses = db_->labels("COURSE");
-        const std::optional<u32> event = races ? races->id(setup_.race.empty() ? "sample_entry_6" : setup_.race) : std::nullopt;
+        const std::string name = setup_.race.empty() ? "sample_entry_6" : setup_.race;
+        std::optional<u32> event;
+        for (const std::string& l : {name, "us" + name, "jp" + name}) // (a test's code by its region: find_event)
+            if (!event && races) event = races->id(l);
         const std::optional<u32> course = courses ? courses->id(setup_.course) : std::nullopt;
         if (!event || !course) return {};
         rs.event = u64(races->table_id) << 32 | *event, rs.course = u64(courses->table_id) << 32 | *course;
+        if (is_license(setup_.sequence)) rs.race_class = setup_.conductor == race::Conductor::Training ? "RaceTraining" : "RaceLicense";
         rs.bspec = watched_, rs.laps = setup_.laps;
         rs.penalty = setup_.penalty_option, rs.tire_damage = setup_.tire_damage;
         if (bspec_start_) rs.driver = *bspec_start_;
         const auto& me = flow_.car(0);
         rs.time_ms = flow_.player_finished() ? flow_.run_ms(0) : std::max<s64>(0, me.last_lap_ms);
         rs.best_ms = me.laps_done > 0 ? me.best_lap_ms : -1;
+        if (is_license(setup_.sequence)) { // (a test's time is its best too; a failed one has none)
+            if (license_failed_ || !flow_.player_finished()) rs.time_ms = 0;
+            rs.best_ms = rs.time_ms > 0 ? rs.time_ms : -1;
+        }
         rs.playlist = setup_.playlist_bytes;
         std::vector<sim::Entry> entries = world_->session_entries();
         for (size_t i = 0; i < entries.size(); ++i) entries[i].equipment.bytes[0x18] = u8(world_->setup().entries[i].paint);
@@ -3320,7 +3332,7 @@ private:
         // The B-spec driver's book as it is now (race_finished keeps the request's up to date between a sequence's races).
         if (menus_ && !sequence_.empty()) setup_.bspec_book = menus_->game().race.bspec_book, setup_.bspec_course_marks = menus_->game().race.bspec_course_marks;
         try {
-            load_test(app, setup_, menus_ ? menus_->game().race.race : setup_.race);
+            load_test(app, setup_, menus_ && !setup_.demo_run ? menus_->game().race.race : setup_.race);
             race_ = std::make_unique<Race>(app, setup_, cars_);
             if (setup_.bspec) spectator_ = true;
             hud_ = std::make_unique<RaceHud>(app, race_->course().section(course::kSlotMiniMap));

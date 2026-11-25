@@ -150,26 +150,29 @@ rows and do not come out (a car of theirs is another here, or none).
 
 ## A replay of ours
 
-A saved replay (race_flow.md "Saved replays") of an arcade single race, driven or B-spec's, holds beside its states the program's own
+A saved replay (race_flow.md "Saved replays") of an arcade single race, driven or B-spec's, or of a license test holds beside its states the program's own
 file of it, in a section `RPLD`: the scrambled `ReplayData` a card's replay file is (`race/race_recording.*`). What each part is made of:
 
-- **The header**: the class `RaceArcadeSingle`, the mode word 0 (A) or 1 (B), the event's and the course's codes, the race information (the
-  laps, the penalty and tire damage options, 2 at +0xC and 1 at +0x1C as every arcade recording of the disc has, the B-spec driver's
+- **The header**: the class `RaceArcadeSingle` (a license test's `RaceLicense`, `RaceTraining` behind a pace car), the mode word 0 (A) or 1 (B), the event's and the course's codes, the race information (the
+  laps, the penalty and tire damage options, 2 at +0xC and 1 at +0x1C as every recording of the disc has, the B-spec driver's
   record), the race time and best lap (an unfinished race's last lap, else 0 and -1), the races' music as the options keep it (+0x148).
 - **The entries**: the equipment, condition (none: the default, 1 at +0x14), place, gearbox, driver kind and aids the race was set up with;
-  +0x198 0x100 for the player and 0 for the computers, the fourth aid byte 2, as every recording. A computer's third aid switch (+0x3458) is
+  +0x198 0x100 for the player and 0 for the computers, the fourth aid byte 2 (a license test's player 0), as every recording. A computer's third aid switch (+0x3458) is
   1 in every recorded race; the races here give it now too.
 - **The records**: the player's frame each step from the race's first, as the input phase read it, with the step's mail at +0x10 (the count
   6): B-spec's commands and the pit menu's choice (0x35BFE8, post_mail). Both take effect a step after they are asked, here as there. A
   B-spec car's pit wait that runs out (300 steps, 0x35C0B8) posts its choice by itself (0x35BF08: 1, 0xFE, 0xFE, 0xFE); a run played from
   records takes its choices from them alone.
-- Not kept so (states only): runs of other races, a run whose driver was changed in the pit (command 10), a scripted run driven by the
+- Not kept so (states only): runs of other races (events, missions, free runs, time trials), a run whose driver was changed in the pit (command 10), a scripted run driven by the
   computer.
 
 ✔ Made from the disc's twelve arcade recordings' own races, the files are the disc's byte for byte (10; the other two end inside their
 last record). ✔ Races driven in the app and saved, then run from the saved file's `RPLD` alone (`gt4tool race <disc> recording`): a driven
 one into walls and traffic (Tsukuba, six cars, 2,400 steps), B-spec ones with commands (7,500 and 4,900 steps, to the recorded time) and a
-pit stop (13,500): every car's place equal in every bit, every step. PROGRAM_RESULT
+pit stop (13,500): every car's place equal in every bit, every step. ✔ The
+program's own step given such a file (`gt4r_diff <disc> floats replays <file> run`, the 4,900-step B-spec race) ends on the recorded time
+(66,548 ms) with every car's place ours in every bit. ✔ License runs driven in the app (B-1, B-5 behind its pace car) come out the same from
+their files.
 `gt4tool race <disc> recording <saved replay> <out>` writes the card's file out; the race screen plays a card's replay file by its path (as the
 Demo tab's: run again from its records).
 

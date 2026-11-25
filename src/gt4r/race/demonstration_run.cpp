@@ -22,7 +22,7 @@ DemonstrationRun run_demonstration(Disc& disc, db::SpecDb& sdb, const std::strin
     try {
         const sim::Program program = sim::Program::load(disc);
         std::string error;
-        const std::optional<sim::ai::DemoRun> demo = sim::ai::DemoRun::load(disc, program, label, &error);
+        const std::optional<sim::ai::DemoRun> demo = opt.run ? std::optional<sim::ai::DemoRun>(*opt.run) : sim::ai::DemoRun::load(disc, program, label, &error);
         if (!demo) return r.error = error, r;
         r.recorded_ms = demo->recorded_ms();
         gt3r::Volume* vol = &disc.volume();

@@ -295,10 +295,13 @@ int race_license_rules(Disc& disc, const Args& a) {
 // The disc's recorded races (replay/<name>/<name>): class, event, course, entries and controls.
 int race_replays(gt4r::Disc& disc, const std::vector<std::string>& a) {
     const sim::Program program = sim::Program::load(disc);
-    for (const std::string& dir : disc.volume().list_dir("replay")) {
+    std::vector<std::string> dirs = disc.volume().list_dir("replay");
+    const bool license = a.size() > 1 && disc.volume().find("replay/license/" + a[1]) != nullptr; // (a license file by its label)
+    if (license) dirs = {a[1]};
+    for (const std::string& dir : dirs) {
         const std::string name = dir.substr(0, dir.find('/'));
         if (a.size() > 1 && name.find(a[1]) == std::string::npos) continue;
-        const gt3r::Volume::Entry* e = disc.volume().find("replay/" + name + "/" + name);
+        const gt3r::Volume::Entry* e = disc.volume().find(license ? "replay/license/" + name : "replay/" + name + "/" + name);
         if (!e) continue;
         std::string error;
         Bytes file = disc.volume().read(*e);
@@ -378,20 +381,34 @@ int race_recording(Disc& disc, const Args& a) {
         [vol](const std::string& dir) { return vol->list_dir(dir); }, "american");
     const s32 time = run->demo.time_ms, best = run->demo.time2_ms;
     std::printf("%s: %zu bytes, %s, mode %u, %zu entries, %zu steps, %d ms, best lap %d ms\n", a[1].c_str(), file.size(), run->demo.race_class.c_str(), run->demo.race_mode, run->demo.entries.size(), run->steps(), time, best);
-    race::RecordedRace race(disc, sdb, std::move(*run));
     size_t apart = 0, compared = 0;
-    for (; !race.over();) {
-        race.step();
-        if (!kept || race.steps() > kept->steps.size()) continue;
-        const std::vector<race::CarState>& was = kept->steps[race.steps() - 1];
+    auto compare = [&](size_t step, const sim::Session& session) { // (step from 1)
+        if (!kept || step > kept->steps.size()) return;
+        const std::vector<race::CarState>& was = kept->steps[step - 1];
         ++compared;
-        for (size_t i = 0; i < was.size() && i < race.session().cars().size() && apart == 0; ++i) {
-            const race::CarState& c = race.session().cars()[i];
+        for (size_t i = 0; i < was.size() && i < session.cars().size() && apart == 0; ++i) {
+            const race::CarState& c = session.cars()[i];
             if (std::memcmp(&c.position, &was[i].position, sizeof c.position) != 0)
-                apart = race.steps(), std::printf("  car %zu is %.6f m from the run's at step %zu\n", i, double(std::hypot(c.position.x - was[i].position.x, c.position.z - was[i].position.z)), race.steps());
+                apart = step, std::printf("  car %zu is %.6f m from the run's at step %zu\n", i, double(std::hypot(c.position.x - was[i].position.x, c.position.z - was[i].position.z)), step);
         }
+    };
+    s64 ran = -1;
+    bool exact = false;
+    if (run->demo.race_class == "RaceArcadeSingle" || run->demo.race_class == "RaceFreeRun") {
+        race::RecordedRace race(disc, sdb, std::move(*run));
+        while (!race.over()) race.step(), compare(race.steps(), race.session());
+        ran = race.total_ms(), exact = race.exact();
+    } else { // (a license test's)
+        const db::Labels* races = sdb.labels("RACE");
+        const std::string* label = races ? races->label(u32(run->demo.code_b0)) : nullptr;
+        race::DemonstrationOptions options;
+        options.run = &*run;
+        options.on_step = [&](size_t step, const sim::Session& session) { compare(step + 1, session); };
+        const race::DemonstrationRun r = race::run_demonstration(disc, sdb, label ? *label : std::string(), options);
+        if (!r.ran) return std::printf("  %s\n", r.error.c_str()), 1;
+        ran = r.ended_ms, exact = r.exact();
     }
-    std::printf("  ran to %lld ms (%s)", (long long)race.total_ms(), race.exact() ? "the recorded time" : "not the recorded time");
+    std::printf("  ran to %lld ms (%s)", (long long)ran, exact ? "the recorded time" : "not the recorded time");
     if (kept) std::printf("; %zu of %zu steps compared: %s", compared, kept->steps.size(), apart ? "apart" : "every car's place equal in every bit");
     std::printf("\n");
     return apart ? 1 : 0;

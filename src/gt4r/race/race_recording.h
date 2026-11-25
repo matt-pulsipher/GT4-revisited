@@ -2,7 +2,8 @@
 
 // A race of ours kept as the program keeps one (Serialize::ReplayData: the memory card's saved replay, docs/formats/replay.md
 // "A replay of ours"): the race's header from its set-up, the player's records, one a step from the race's first; and the card
-// file's bytes. An arcade single race (RaceArcadeSingle), driven by the player or by the B-spec driver.
+// file's bytes. An arcade single race (RaceArcadeSingle), driven by the player or by the B-spec driver, or a license test
+// (RaceLicense, RaceTraining behind a pace car).
 
 #include "gt4r/formats/replay/demonstration.h"
 #include "gt4r/race/simulation.h"
@@ -15,6 +16,7 @@
 namespace gt4r::race {
 
 struct RecordingSetup {
+    std::string race_class = "RaceArcadeSingle";
     u64 event = 0, course = 0;           // the database's codes (RACE, COURSE)
     bool bspec = false;                  // the player's car driven by the B-spec driver
     int laps = 0, penalty = 0, tire_damage = 0;

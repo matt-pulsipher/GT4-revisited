@@ -11,9 +11,9 @@ replay::Demonstration make_recording(const RecordingSetup& s, const std::vector<
     replay::Demonstration d;
     d.version = 0x40000;
     d.race_mode = s.bspec ? 1 : 0;
-    d.race_class = "RaceArcadeSingle";
+    d.race_class = s.race_class;
     auto put = [&](size_t at, u32 v) { std::memcpy(d.information.data() + at, &v, 4); };
-    // (+0xC and +0x1C: 2 and 1 in every arcade race of the disc's.)
+    // (+0xC and +0x1C: 2 and 1 in every recording of the disc's.)
     put(0, u32(s.laps)), put(4, u32(s.penalty)), put(8, u32(s.tire_damage)), put(0xC, 2), put(0x1C, 1);
     std::copy(s.driver.begin(), s.driver.end(), d.information.begin() + 0x20);
     d.code_b0 = s.event, d.code_b8 = s.course;
@@ -29,7 +29,7 @@ replay::Demonstration make_recording(const RecordingSetup& s, const std::vector<
         out.x198 = i == 0 ? 0x100 : 0; // (the player's and the computers' in every recording)
         out.grid_place = e.grid_place >= 0 ? e.grid_place : s32(i);
         out.pedal_style = e.automatic ? 0 : 1, out.driver_kind = e.driver;
-        out.aids = {u8(e.asm_on), u8(e.tcs_on), u8(e.wheel_aid), 2};
+        out.aids = {u8(e.asm_on), u8(e.tcs_on), u8(e.wheel_aid), u8(i == 0 && s.race_class != "RaceArcadeSingle" ? 0 : 2)}; // (the last: a license's player's 0)
         d.entries.push_back(out);
     }
     replay::ControlStream stream;

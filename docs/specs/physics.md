@@ -1322,8 +1322,7 @@ test's rolling start runs capped at CFG +0x4E (0x3F7880, the conductor's virtual
 
 ### Not done
 
-The demo replays' races (arcade single races, B-spec and free runs) are read but not run: their start (rolling or
-standing, the free run's flying start) is not set up by the harness. The VU0 model is unproven. The cones are not set up.
+The VU0 model is unproven. The cones are not set up.
 
 ## 10. Open
 

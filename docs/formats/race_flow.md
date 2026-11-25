@@ -336,7 +336,7 @@ rebuild keeps the cars' states instead, step by step, in a file of its own under
 `replays/` (`<course>-<date>-<time>.gt4rrep`; `race/replay_file.*`): `"GT4RRPL1"`, u32 the body's
 size, u32 its deflated size, then the zlib-deflated body: the course, the sequence and the race's
 labels, the laps, the cars (label, paint), the steps (every car's state), then sections (u32 tag, u32
-size, bytes): `DETL` each state's brakes' heat and clutch, `RPLD` an arcade race's run as the program keeps
+size, bytes): `DETL` each state's brakes' heat and clutch, `RPLD` an arcade race's or a license test's run as the program keeps
 it (replay.md "A replay of ours"). The Drive screen plays
 one with `GT4R_RACE="replay_file=<path>"` through the course's replay cameras (a card's own replay file too); `save=<n>` saves a run at
 its step n. The Replay Theater lists them.
