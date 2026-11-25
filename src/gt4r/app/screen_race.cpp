@@ -41,6 +41,7 @@
 #include "gt4r/race/sections.h"
 #include "gt4r/sim/program_prologue.h"
 #include "gt4r/sim/race_rules.h"
+#include "gt4r/sim/race_tires.h"
 #include "gt4r/race/start_camera.h"
 #include "gt4r/race/start_rule.h"
 #include "gt4r/race/picture_settings.h"
@@ -396,6 +397,34 @@ void test_car(App& app, Setup& setup, const menu::RaceRequest& q) {
         LOG_INFO("Drive: the test's car %s as %s (%s, %s)", g.car.c_str(), g.enemy.c_str(), g.parts.c_str(), g.param.c_str());
     } catch (const std::exception& e) {
         LOG_WARN("Drive: the test's car: %s", e.what());
+    }
+}
+
+// The tires Arcade's races put on every entry (RaceArcade's virtual 92 and RaceFreeRun's, sim/race_tires.h): the kind chosen on
+// the driving options (0x111B50, 0x112FE8 give it to all), dirt's or snow's on those courses; a free run's car its own.
+// (❓ The race menus' Quick Tune, which changes the kinds later, is not applied.)
+void arcade_tires(App& app, Setup& setup, const menu::RaceRequest& q) {
+    const bool arcade = setup.sequence == "single_race" || setup.sequence == "time_trial";
+    db::SpecDb* sdb = app.db();
+    if ((!arcade && setup.sequence != "freerun") || !sdb || sdb->prologue() || !app.disc()) return;
+    try {
+        const sim::Program program = sim::Program::load(*app.disc());
+        if (!program.known()) return;
+        const std::optional<sim::CourseRow> row = sim::course_row(*sdb, setup.course);
+        gt3r::Vfs* vfs = app.vfs();
+        const sim::FileReader read = [vfs](const std::string& path) { return vfs->read(path); };
+        auto fit = [&](const std::string& label, std::optional<sim::Equipment>& eq) {
+            sim::Equipment e;
+            if (eq) e = *eq;
+            else if (!sim::stock_car(*sdb, program, label, e)) return;
+            else e.set_b(0x18, 0xFF); // (its paint the race's choice, as without equipment)
+            if (sim::fit_race_tires(*sdb, read, e, row ? row->kind : 0, arcade ? std::clamp(q.tire, 0, 12) : -1)) eq = e;
+        };
+        fit(setup.car, setup.player_equipment);
+        setup.opponent_equipment.resize(setup.opponents.size());
+        for (size_t i = 0; i < setup.opponents.size(); ++i) fit(setup.opponents[i], setup.opponent_equipment[i]);
+    } catch (const std::exception& e) {
+        LOG_WARN("Drive: the race's tires: %s", e.what());
     }
 }
 
@@ -1155,6 +1184,9 @@ public:
         h.driver_view = mount_ != race::DriveCamera::kChase && mount_ != kTvView;
         h.cars.clear();
         for (const race::CarState& c : cars) h.cars.push_back({c.position.x, c.position.z});
+        h.letters.clear();
+        if (net_) // (each car's entry: its place on the grid)
+            for (size_t i = 0; i < cars.size() && i < net_->seats().size(); ++i) h.letters.push_back(int(net_->seats()[i]));
         h.place = flow_.place(0);
         h.lap = flow_.lap_shown(0), h.laps = setup_.laps;
         // (no lap count on a road section and on a course without a lap, 0x34C470 and COURSE +0x12, nor in a test that counts cones)
@@ -1759,6 +1791,7 @@ public:
                 setup_.opponents.clear();
                 test_car(app, setup_, q);
                 draw_grid(app, setup_, q);
+                arcade_tires(app, setup_, q);
                 // A request without laps: the event's (its RACE row), else the arcade's option
                 // (race_laps, a new game's 2).
                 if (q.laps <= 0) {

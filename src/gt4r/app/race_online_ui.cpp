@@ -56,7 +56,8 @@ void OnlineRaceUi::draw_race(Ui& ui, const net::NetRace& net, const std::vector<
     for (size_t k = 0; k < by_place.size(); ++k) {
         const net::NetRace::Standing& c = cars[by_place[k]];
         const Color color = c.retired ? Color{150, 150, 150, 160} : c.ours ? Color{255, 214, 90, 235} : Color{255, 255, 255, 220};
-        std::string line = std::to_string(k + 1) + "  " + Ui::elide(c.player, 92);
+        // (with the map's letter: the car's entry)
+        std::string line = std::to_string(k + 1) + "  " + Ui::elide(c.player, 92) + (by_place[k] < net.seats().size() ? std::string("  ") + char('A' + std::min<size_t>(net.seats()[by_place[k]], 25)) : std::string());
         if (c.retired) line += "  out";
         else if (c.finished) line += "  finished";
         else if (c.ghost) line += "  (no contact)";

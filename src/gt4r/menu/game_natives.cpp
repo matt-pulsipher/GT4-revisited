@@ -987,13 +987,10 @@ Value GameNatives::make_card_manager(Args a) {
     GameNatives* self = this;
     const std::string mode = arg_text(a, 0);
     m->set("mode", text(mode));
-    // MMemoryCardManager(mode, 1): the card in slot 2, read for trading cars: its game is loaded beside the one played
-    // (loadInstance: [result, a game object with that game's garage]).
-    if (arg_int(a, 1) == 1) {
-        save::GameSave& card = card2();
-        auto file = std::make_shared<Object>("MMemoryCardFile");
-        file->method("isExist", [&card](Vm&, const Value&, Args) { return number(!card.connected() ? -1 : card.exists() == 0 ? 0 : 1); });
-        file->method("loadInstance", [self, &card](Vm&, const Value&, Args) {
+    // MMemoryCardFile.loadInstance: a card's game loaded beside the one played, [result, a game object with its garage] (the
+    // trade's, and the 2-Player Battle's garages of either slot).
+    auto load_instance = [self](save::GameSave& card) {
+        return [self, &card](Vm&, const Value&, Args) {
             if (!card.connected()) return Value::array({text("DEVICE_ERROR"), Value{}});
             if (card.exists() != 0) return Value::array({text("FILE_NOT_FOUND"), Value{}});
             auto other = std::make_shared<GameState>();
@@ -1003,7 +1000,15 @@ Value GameNatives::make_card_manager(Args a) {
             auto game = std::make_shared<Object>("MGame");
             game->set("garage", object_value(self->make_garage(other.get())));
             return Value::array({text("OK"), object_value(game)});
-        });
+        };
+    };
+    // MMemoryCardManager(mode, 1): the card in slot 2, read for trading cars: its game is loaded beside the one played
+    // (loadInstance: [result, a game object with that game's garage]).
+    if (arg_int(a, 1) == 1) {
+        save::GameSave& card = card2();
+        auto file = std::make_shared<Object>("MMemoryCardFile");
+        file->method("isExist", [&card](Vm&, const Value&, Args) { return number(!card.connected() ? -1 : card.exists() == 0 ? 0 : 1); });
+        file->method("loadInstance", load_instance(card));
         for (const char* nothing : {"dump", "setNewFile"}) file->method(nothing, [](Vm&, const Value&, Args) { return Value{}; });
         const Value file_value = object_value(file);
         m->method("getNewFile", [file_value](Vm&, const Value&, Args) { return file_value; });
@@ -1033,12 +1038,10 @@ Value GameNatives::make_card_manager(Args a) {
         if (r == save::Result::Ok) s->card.has_game_data = true, prologue_from_state(*self), self->rt.options_changed();
         return text(r == save::Result::Ok || r == save::Result::DeviceError || r == save::Result::InvalidFile ? save::result_name(r) : "");
     });
-    // loadInstance(manager): [result, game] of the card's game beside the one played. ❓ The
-    // second game's object is not made here: the result alone.
-    file->method("loadInstance", [self, s, there](Vm&, const Value&, Args) {
+    // loadInstance(manager): [result, game] of the card's game beside the one played (the 2-Player Battle's garage, slot 1).
+    file->method("loadInstance", [s, there, load = load_instance(card())](Vm& vm, const Value& self_value, Args a) {
         if (!there()) return Value::array({text(s->card.has_game_data ? "OK" : "FILE_NOT_FOUND"), Value{}});
-        GameState other;
-        return Value::array({text(save::result_name(self->card().load_instance(other))), Value{}});
+        return load(vm, self_value, a);
     });
     // saveNew(manager, title): the save made anew; save(manager): written over.
     file->method("saveNew", [self, s, real](Vm&, const Value&, Args a) {

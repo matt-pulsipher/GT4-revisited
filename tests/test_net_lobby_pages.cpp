@@ -5,6 +5,7 @@
 
 #include "gt4r/menu/game.h"
 #include "gt4r/menu/game_network.h"
+#include "gt4r/menu/game_progress.h"
 #include "gt4r/net/lobby.h"
 #include "gt4r/sim/ai/run.h"
 #include "gt4r/sim/pit_tires.h"
@@ -12,6 +13,7 @@
 #include "gt4r/sim/car_spec.h"
 
 #include <chrono>
+#include <filesystem>
 #include <functional>
 #include <thread>
 
@@ -22,7 +24,7 @@ struct Player {
     Flow f;
     gt3r::net::Session session;
     net::Lobby lobby{session};
-    explicit Player(Disc& d) : f(d) {
+    explicit Player(Disc& d, const std::string& data_dir = {}) : f(d, "US", data_dir) {
         session.set_disc({"gt4", "another game"});
         f.rt->network = &lobby;
     }
@@ -55,9 +57,22 @@ struct Table {
 };
 
 // Arcade's LAN Battle chosen, and the connection as our own page leaves it (the `network` project's part).
-bool to_matching(Player& p, bool host, u16 port, int players) {
+bool to_matching(Player& p, bool host, u16 port, int players, bool saved = false) {
     Flow& f = p.f;
-    if (!f.boot_to_title()) return false;
+    if (saved) { // (a game on the card: it is loaded as the game starts)
+        f.rt->boot();
+        f.rt->start_project(f.rt->first_project());
+        f.rt->settle();
+        if (f.page() == "MovieRoot") f.press({menu::Key::Start});
+        // (it goes on where it was saved, in Gran Turismo mode: here to the title)
+        menu::GameState& g = f.rt->game();
+        g.next_menu_project = "arcade", g.major_menu_page.clear(), g.menu_stack.clear();
+        if (!f.rt->finished() || !f.rt->advance()) return false;
+        f.rt->settle();
+        if (f.page() != "TopRoot") return false;
+    } else if (!f.boot_to_title()) {
+        return false;
+    }
     f.press({menu::Key::Accept});
     if (f.page() != "GameRoot" || !f.focus_on("LANBattle")) return false;
     f.press({menu::Key::Accept});
@@ -207,4 +222,83 @@ TEST(disc_net_lan_pages) {
     CHECK(two.page() == "TopRoot" && !two.lobby.active());
     CHECK(t.until([&] { return one.lobby.count() == 1; }));
     CHECK(one.f.clean() && two.f.clean());
+}
+
+// A garage car in the LAN Battle: the card's garage by the makers' page, the car's parts, settings and condition to the
+// other machine; a host that allows cars as sold alone has no garages there.
+TEST(disc_net_lan_garage_car) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    Builder cars(*disc);
+    if (!cars.program.known()) SKIP("the disc's program is not known");
+    const std::filesystem::path dir = std::filesystem::temp_directory_path() / "gt4r-net-test-garage";
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir);
+    std::string label;
+    {
+        Flow f(*disc, "US", dir.string());
+        menu::ProgressPlan plan = menu::default_progress_plan(*f.rt);
+        plan.licenses.clear();
+        CHECK(menu::play_progress(*f.rt, plan).ok);
+        for (const menu::GarageEntry& e : f.rt->game().garage)
+            if (e.used && label.empty()) label = e.car;
+    }
+    Player one(*disc, dir.string()), two(*disc);
+    cars.give(one.lobby), cars.give(two.lobby);
+    CHECK(to_matching(one, true, 0, 2, true));
+    Table t{{&one}};
+    CHECK(to_matching(two, false, one.session.port(), 2));
+    t.players.push_back(&two);
+    CHECK(t.until([&] { return two.lobby.active() && one.lobby.active(); }));
+    CHECK(on_to_arcade(one) && on_to_arcade(two));
+    CHECK(t.until([&] { return one.page() == "CourseRoot" && two.page() == "CourseRoot" && one.lobby.member(1).sequence == 3; }));
+    t.run(60);
+    t.press(one, {menu::Key::Accept});
+    if (one.page() == "CourseRoot") t.press(one, {menu::Key::Accept});
+    CHECK(t.until([&] { return one.page() == "MakerRoot" && two.page() == "MakerRoot"; }));
+    CHECK(one.f.focus_on("Slot1"));
+    t.press(one, {menu::Key::Accept});
+    for (int i = 0; i < 6 && one.page() != "GarageRoot"; ++i) {
+        std::printf("  %s [%s] %s\n", one.page().c_str(), one.f.focus().c_str(), one.f.text_of("message").c_str());
+        t.press(one, {menu::Key::Accept}, 200);
+    }
+    CHECK(one.page() == "GarageRoot" && one.f.focus_on("Line0"));
+    t.press(one, {menu::Key::Accept}, 200);
+    CHECK(t.until([&] { return one.page() == "SettingPopup"; }));
+    t.press(one, {menu::Key::Accept});
+    CHECK(t.until([&] { return one.page() == "PregridRoot"; }));
+    const std::optional<net::CarChoice> mine = menu::choice_of_pages(*one.f.rt);
+    CHECK(mine && mine->garage);
+    if (mine) std::printf("  the garage's car: %s (the garage's first is %s), paint %d\n", mine->label.c_str(), label.c_str(), mine->paint);
+    CHECK(two.f.focus_on("Maker"));
+    t.press(two, {menu::Key::Accept, menu::Key::Accept});
+    CHECK(t.until([&] { return two.page() == "CarRoot"; }));
+    t.run(60);
+    t.press(two, {menu::Key::Accept, menu::Key::Accept});
+    CHECK(t.until([&] { return two.page() == "SettingPopup"; }));
+    t.press(two, {menu::Key::Accept});
+    CHECK(t.until([&] { return one.f.rt->finished() && two.f.rt->finished(); }));
+    const std::string course = one.lobby.host_member().course;
+    one.lobby.want_race(course);
+    std::optional<net::OnlineRace> oa, ob;
+    CHECK(t.until([&] {
+        if (!oa) oa = one.lobby.take_race();
+        if (!ob) ob = two.lobby.take_race();
+        return oa && ob;
+    }));
+    if (oa && ob && mine && oa->cars.size() == 2 && ob->cars.size() == 2) {
+        CHECK(ob->cars[0].label == mine->label && ob->cars[0].condition && *ob->cars[0].condition == mine->condition && ob->cars[0].digest);
+        CHECK(ob->cars[0].equipment && oa->cars[0].equipment && ob->cars[0].equipment->bytes == oa->cars[0].equipment->bytes && !ob->cars[1].condition);
+    }
+    // The limits: a garage car is not a car as sold.
+    if (mine) {
+        net::CarChoice c = *mine;
+        c.digest = cars.builder.digest(c);
+        net::LobbyLimits limits;
+        CHECK(net::limits_problem(cars.builder, c, limits).empty());
+        limits.garage_cars = false;
+        CHECK(!net::limits_problem(cars.builder, c, limits).empty());
+    }
+    CHECK(one.f.clean() && two.f.clean());
+    std::filesystem::remove_all(dir);
 }
