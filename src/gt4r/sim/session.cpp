@@ -226,7 +226,11 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
         const int want = e.grid_place >= 0 ? e.grid_place : int(i);
         course::Runway::Place at = places[size_t(want) % places.size()];
         int kind = 0;
-        if (!std::isnan(e.start_distance) && road_->length > 0) {
+        if (e.place) {
+            at = *e.place; // (the section's own start place: a plain grid start)
+            GroundHit h;
+            if (ground_->at_place(at.pos, h)) at.pos.y = h.point.y;
+        } else if (!std::isnan(e.start_distance) && road_->length > 0) {
             kind = e.start_distance < 0 ? 2 : 1;
             float v = std::fmod(e.start_distance, road_->length);
             if (v < 0) v += road_->length;
