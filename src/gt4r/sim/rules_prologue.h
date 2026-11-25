@@ -11,12 +11,15 @@
 #include "gt4r/sim/equipment.h"
 #include "gt4r/sim/record.h"
 #include "gt4r/sim/rules_chassis.h"
+#include "gt4r/sim/rules_hybrid.h"
+#include "gt4r/sim/rules_input.h"
 #include "gt4r/sim/rules_steer.h"
 #include "sim/exact/tick.h"
 #include "gt4r/sim/rules.h"
 #include "gt4r/sim/rules_tires.h"
 
 #include <array>
+#include <span>
 
 namespace gt4r::sim {
 class Program;
@@ -60,6 +63,9 @@ struct Controls {
     // parameter block's byte +0x33 is set): C[0x82 + 0x20 row] the mode (0 off, 1 the step's change, 2 also its change's
     // change), C[0x83 + 0x20 row] the gain.
     std::array<u8, 3> prefilter_mode{}, prefilter_gain{};
+    // A steering wheel's pedals (0x715220 / 0x715230, made by 0x3C2938): the throttle's curve by C[0x64] (kind) and C[0x65]
+    // (percent), the brake's by C[0x68] and C[0x69].
+    rules::PedalCurve wheel_throttle, wheel_brake;
 };
 // The set-up on the controller settings' bytes from 0x504950 (0x190 bytes: through the surface classes).
 constexpr u32 kControlBytes = 0x190;
@@ -100,6 +106,15 @@ struct Tables {
     u8 rolling_n = 0;
     std::array<F, 8> rolling_x, rolling_y;
     ex::BrakeHeatConsts brake_heat;
+    // Four wheel drive system 3's fade and switch (0x504AD8: +2 the switch, +8 / +0x10 the fade's start and floor, % (0x3DFFD0
+    // makes the floats between them)) and the stepless gearboxes' rates (0x504930: +0 / +1 kind 1's at full and no throttle,
+    // +0xC / +0xD kind 2's down and up, x 0.01: 0x3DB730).
+    ex::Awd3 awd3;
+    ex::Stepless stepless;
+    // The special kind 7's ride (the SL55 AMG; 0x503CB0: on, the travel (mm), the lift (%), each axle's share (%), the drop (mm)
+    // and the two speeds it comes on between (km/h); made by 0x3B14A8, in each wheel's suspension by 0x3B15E8).
+    ex::Kind7Ride ride{};
+    rules::HybridTables hybrid; // the hybrid's box's (0x504560, 0x5045B0, 0x504638, 0x504648)
     ConvertData convert; // what the converter reads (convert_prologue.h)
     u8 asm_keep = 0;     // 0x504B04: an entry with the stability control off keeps its switches' bits 6 and 7
 };
@@ -137,12 +152,40 @@ TireKinds tire_kinds(const Block& p);
 struct CarPart {
     rules::TireExtra tires;     // (tires.steer_offset: each wheel's steering offset, the drive block's +0x1C)
     std::array<F, 2> tire_drop; // the parameter block's +0x28C + 4 a: taken off the tire's radius at the hub's rest point
+    // Its part that changes with speed (the aerodynamic device, +0xE84 ..): the kind, the two speeds it changes at, how fast
+    // it moves and the rear downforce it adds; no car of the disc has one.
+    u8 part_kind = 0;
+    F part_lo, part_hi, part_rate, part_lift;
+    // The hybrid's box (gearbox kind 3; car +0x5DC): its state, the fuel used (+0x8) and the kilometers per liter (+0xC, by
+    // 0x3CC298 each 30th step: F +0x4A0 the steps left, +0x3B0 / +0x3B4 the fuel and the odometer at the last one).
+    rules::HybridState hybrid;
+    F hybrid_fuel, hybrid_fuel_mark, hybrid_odo_mark;
+    u16 mileage = 0;
+    u8 mileage_steps = 30;
+    u8 shift_class = 0;         // the driveline's +0x13 (0x3CBA70: 3 from 5,000 rpm, 2 from 4,500, else 1)
+    u8 special_row = 0;         // its +0x33: the special table's row (the steering force's and the prefilter's kind 6 row)
     F front_share;              // the parameter block's +0x24: the front axle's share of the weight (the bump nudge's kind 3)
     std::array<F, 4> offset_rate; // the offset's rate, the drive block's +0x18
     std::array<F, 2> axle_load;   // the parameter block's +0xE6C + 4 k (the engine's +0xE54: each axle's static load)
     rules::ChassisExtra chassis;
     rules::WheelLayout layout;
 };
+// 0x3CC0B8: the hybrid's box at the car's set-up (nothing for another car).
+void hybrid_start(const ex::Car& c, CarPart& x);
+// The arcade's tire grip on the player's car (0x1A0238 of its race, `type` by the program's names 0x505110): "low" (the street
+// tires) and "high" (the sports tires) the compounds of the stock tires of the cars labeled at 0x505298 and 0x50529C; any other
+// its own. False when it changes nothing.
+bool fit_grip_tires(db::SpecDb& db, const Program& program, const std::string& type, Equipment& eq);
+// 0x3CD4C0: the lowest gear whose up-shift speed less 500 rpm (2,000 in first) reaches a speed; 0x3C9108: a moving start at
+// `v` m/s (the throttle open for a driver whose stretch is a straight: c.ai.mode 0).
+int gear_for_speed(const ex::Car& c, F v);
+void moving_start(ex::Car& c, F v);
+// 0x3CC298: the kilometers per liter of a fuel mass (g) over a distance (m): 0 under a millimeter, at most 999.
+u16 mileage(F fuel, F distance);
+// 0x3DC1C8's part for the drivers (phase 14), into the records' c.ai: the zone cells of the cars around (0x4281E8: at least 2
+// beside, ahead within 5 m and behind, at least 1 farther ahead and at the corners) and, within 20 m, the contact with a car closed
+// on (0x428530: 1 over 5 km/h, 0.5 within 5 s, else 0.05 under half a meter and 0.1 under 4 m).
+void near_drivers(std::span<ex::Car> cars);
 // The part from the car's record and Prologue's parameter block: the wheel layout of its +0x30, the tire records' kind bytes.
 CarPart car_part(const ex::Car& c, const Block& p, const Tables& t);
 
@@ -156,7 +199,7 @@ void image_part(CarPart& x, const u8* params);
 // control off); Prologue's converter at `base` (convert_prologue.h), its block read into c.p (the engine's layout) and the
 // part beside it. `block`: the block too, when wanted.
 CarPart build_car(db::SpecDb& db, const Spec& s, const Equipment& eq, int course_kind, bool asm_on, bool tcs_on, const Tables& t, u32 base,
-                  ex::Car& c, Block* block = nullptr);
+                  ex::Car& c, Block* block = nullptr, const ConvertIn& in = {});
 
 // Each wheel's tire's x1da for the forward step and the lateral forces: the record of the wheel's surface (Gran Turismo 4
 // copies it in its peak force, 0x357418; Prologue reads the record).
@@ -199,9 +242,17 @@ void pad_steering(ex::Car& c, const ex::PadFrame& f, u8 course_kind, const rules
 // (Tables::pedal_ramps).
 // The input phase's frame (0x3DEDE0): the steering wheel's position kept (+0x16A4, the last one +0x16A6) and the steering
 // prefiltered by its change (Controls::prefilter_*), within +-4096.
-ex::PadFrame prefilter(ex::Car& c, const ex::PadFrame& f, const Controls& k);
+ex::PadFrame prefilter(ex::Car& c, const ex::PadFrame& f, const Controls& k, u8 special_row = 0);
+// 0x3DE270 past its steering: the throttle, brake and third axis, the reverse, shift and clutch requests (0x3DD608; the hybrid's
+// 0x3DD798 and 0x3DD858), a stepless gearbox's creep. Unlike the engine's: digital ramps of its own, an analog pedal eased by
+// them (Tables::pedal_ramps; not a steering wheel's, kinds 4 and 6), the wheels' curves for both kinds (the throttle's not for
+// the hybrid), a special car of kind 8 (P +0x32) without a clutch.
+void pad_pedals(ex::Car& c, const ex::PadFrame& f, const Tables& t);
 void driver_input_pad(ex::Car& c, const ex::PadConstants& k, const ex::PadFrame& f, u8 course_kind, const rules::WheelLayout& l,
-                      const Tables& t);
+                      const Tables& t, u8 special_row = 0); // What phase 5 (0x3DEDE0) does of the controller's frame for a car its driver drives: the steering's prefilter and, for a pad's
+// car, the display's values of it.
+void pad_watched(ex::Car& c, const ex::PadFrame& f, const Tables& t, u8 special_row);
+// (`special_row`: P +0x33, a kind 6 wheel's prefilter row)
 
 // 0x376440: the tires' longitudinal forces' pitch moment and lift (Gran Turismo 4's 0x36AF30 on the wheel layout, the
 // force's lever the tire's radius or, with the static block's +0xD9 0, its width).

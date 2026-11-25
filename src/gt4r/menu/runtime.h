@@ -236,6 +236,8 @@ public:
     // have changed: at the end of the start, when a game is loaded, and when the scripts apply,
     // save or reset them. The app sets the menus' sound volumes from it.
     std::function<void(const GameSettings&)> on_options;
+    // MMovieFace::expandAlpha(on): the movies' pictures carry their alpha beside their colors.
+    bool movie_expand_alpha = false;
     void options_changed();
     // The online lobby the network's natives and the LAN Battle's pages use (game_network.h); null: no network.
     net::Lobby* network = nullptr;

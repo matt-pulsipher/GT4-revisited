@@ -31,8 +31,8 @@ struct FlowSetup {
     int laps = 2;          // 0: no lap count (the race ends otherwise)
     size_t player = 0;     // the player's car
     float lap_length = 0;  // metres (the road's)
-    // Prologue's tests (DynamicsConductorLicense's start line 0x3B4C88, the car's lap time from its own crossing F + 0x534):
-    // the clock starts as the player's car takes the line, whoever took it before.
+    // Prologue's tests (DynamicsConductorLicense's start line 0x3B4C88): the clock runs from the race's first step, each car's
+    // times count from its own crossing of the line (F + 0x534, the crossing's moment within its step).
     bool player_clock = false;
     std::vector<bool> past_line; // by car: it starts past the line (its crossings' count 1: 0x3C9838); empty: none
     // The road's split points (the sectors' ends but the last; none on a road section) and the race's goal along the course
@@ -77,6 +77,7 @@ public:
         s64 finish_units = -1;  // the race clock at the finish (the total time)
         s64 seen_units = -1;    // the race clock when it was seen to finish here (an online race's car finishes by its owner's)
         s64 base_ms = 0;        // F + 0x614: the moment its times count from (ms)
+        s64 start_ms = 0;       // (FlowSetup::player_clock: its crossing of the line, the whole run's)
         u8 mark = 0;            // F + 0x65B: 1 before the section's start, 2 past it
         u8 back = 0;            // F + 0x4B0: backward crossings of the line not yet taken back
         s64 last_lap_ms = -1, best_lap_ms = -1;
@@ -122,7 +123,7 @@ public:
     s64 clock() const { return clock_; }
     // The race clock runs (a rolling start's from the first car's crossing of the line).
     bool clock_running() const { return clock_running_; }
-    s64 time_ms() const { return clock_ms(clock_); }
+    s64 time_ms() const { return clock_ms(clock_) - (setup_.player_clock ? cars_[setup_.player].counter == 0 ? clock_ms(clock_) : cars_[setup_.player].start_ms : 0); }
     const CarRecord& car(size_t i) const { return cars_[i]; }
     size_t car_count() const { return cars_.size(); }
     // The cars by their race order now: by crossings of the line, then (equal crossings) a running car

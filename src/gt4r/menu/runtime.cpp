@@ -224,8 +224,12 @@ void Runtime::install_natives() {
         {
             auto movie = std::make_shared<script::Module>();
             movie->name = "MMovieFace", movie->is_class = true;
-            for (const char* f : {"initialize", "terminate", "preload", "loadIpic", "expandAlpha", "asyncSound", "setPause"})
+            for (const char* f : {"initialize", "terminate", "preload", "loadIpic", "asyncSound", "setPause"})
                 movie->define(f, Vm::native(std::string("MMovieFace::") + f, [](Vm&, const Value&, Args) { return Value{}; }));
+            movie->define("expandAlpha", Vm::native("MMovieFace::expandAlpha", [r](Vm&, const Value&, Args a) {
+                              r->movie_expand_alpha = !a.empty() && a[0].truthy();
+                              return Value{};
+                          }));
             into.define("MMovieFace", Value::of(Kind::Module, movie));
         }
         install_actor_natives(*this, into);
@@ -973,7 +977,10 @@ void Runtime::open_page(const std::shared_ptr<LiveWidget>& page, bool replace) {
     std::weak_ptr<LiveWidget> weak = page;
     auto after = [this, weak](Vm&, const Value&) {
         if (auto p = weak.lock())
-            if (std::find(pages_.begin(), pages_.end(), p) != pages_.end()) focus_first(*p);
+            if (std::find(pages_.begin(), pages_.end(), p) != pages_.end()) {
+                focus_first(*p);
+                transition_page_opened(vm_->attribute(render_context_, "transition"));
+            }
         return Value{};
     };
     const auto it = page->members.find("onInitialize");

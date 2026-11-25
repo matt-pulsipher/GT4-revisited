@@ -62,7 +62,7 @@ RaceRules race_rules(ByteSpan row, const Program& program) {
         if (test >= 1 && test <= 36) {
             std::array<u8, 0x80> block{};
             run_case(program, program.w(0x572CC0 + 4 * (test - 1)), block);
-            r.speed_cap[0] = block[0x42];
+            r.speed_cap[0] = block[0x42], r.mileage = block[0x45];
             for (size_t k = 1; k < 6; ++k) r.start_speed[k] = block[0x4E + k], r.start_distance[k] = s16(block[0x54 + 2 * k] | block[0x55 + 2 * k] << 8);
         }
         for (size_t k = 1; k < 6; ++k)

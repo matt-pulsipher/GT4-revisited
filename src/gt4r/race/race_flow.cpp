@@ -54,7 +54,7 @@ void RaceFlow::begin(const FlowSetup& setup, std::span<const CarState> cars) {
     player_finish_steps_ = -1;
     started_steps_ = setup.start == StartType::Rolling || setup.start == StartType::Moving ? -1 : hold_ > 0 ? -1 : 0;
     // A rolling start's clock stands until the first car takes the line (K +0xCBE4, cleared by vf20 0x347928).
-    clock_running_ = setup.start != StartType::Rolling;
+    clock_running_ = setup.start != StartType::Rolling || setup.player_clock;
     order_.resize(cars.size());
     sort_order(cars);
 }
@@ -91,8 +91,8 @@ void RaceFlow::start_car(size_t i, s64 t, Events& ev) {
     }
     if (setup_.start != StartType::Rolling) return;
     // The first car over the line starts a rolling start's clock; the player's crossing is his start signal (event 4, car 0).
-    // (Prologue's tests: the player's crossing, FlowSetup::player_clock.)
-    if (!clock_running_ && (!setup_.player_clock || i == setup_.player)) clock_running_ = true, ev.clock_started = true;
+    if (setup_.player_clock) r.base_ms = r.start_ms = t, ev.clock_started = i == setup_.player; // (Prologue's 0x3B4C88: the car's own)
+    if (!clock_running_) clock_running_ = true, ev.clock_started = true;
     if (i == setup_.player && started_steps_ < 0) ev.start = true, started_steps_ = 0;
 }
 
@@ -251,7 +251,7 @@ int RaceFlow::lap_shown(size_t car) const {
 s64 RaceFlow::lap_ms(size_t car) const {
     const CarRecord& r = cars_[car];
     if (r.finished) return r.last_lap_ms >= 0 ? r.last_lap_ms : clock_ms(r.finish_units) - r.base_ms;
-    if (hold_ > 0 || !clock_running_) return 0;
+    if (hold_ > 0 || !clock_running_ || (setup_.player_clock && r.counter == 0)) return 0;
     // (0x357830: a license's run that starts moving shows none before its clock starts; a mission's shows the race's clock, 0x3F6ED0)
     if (setup_.start == StartType::Moving && !setup_.mission && (r.counter == 0 || r.mark == 1)) return 0;
     if (setup_.start != StartType::Rolling && setup_.start != StartType::Moving && started_steps_ < 0) return 0;
@@ -260,7 +260,7 @@ s64 RaceFlow::lap_ms(size_t car) const {
 
 s64 RaceFlow::run_ms(size_t car) const {
     const CarRecord& r = cars_[car];
-    return clock_ms(r.finish_units) - (setup_.test_kind != 0 ? r.base_ms : 0);
+    return clock_ms(r.finish_units) - (setup_.player_clock ? r.start_ms : setup_.test_kind != 0 ? r.base_ms : 0);
 }
 
 bool RaceFlow::everyone_finished() const {

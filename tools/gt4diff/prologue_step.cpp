@@ -92,6 +92,7 @@ int whole_step(Disc& disc, const std::string& course, const std::string& car, in
         const std::vector<u8> im = gt3_image(ee, r.car(0));
         c.behaviour = sim::rules::behaviour();
         gt3r::sim::exact::load_image(c, im.data());
+        c.later.ratio = gt3r::ee::F::raw(ee.r32(r.car(0) + 0xD8 + 0x3A4));
     };
     const int from = std::getenv("GT4R_WHOLESTEP_FROM") ? std::atoi(std::getenv("GT4R_WHOLESTEP_FROM")) : 0;
     // (GT4R_WHOLESTEP=front: the session's phases 1 .. 11 on the program's state against the program's record as its phase 19
@@ -165,8 +166,16 @@ int whole_step(Disc& disc, const std::string& course, const std::string& car, in
             load(before);
             sim::prologue::CarPart part = session->prologue_part(0);
             for (size_t w = 0; w < 4; ++w) part.offset_rate[w] = before.t[w].steer_sin, part.tires.steer_offset[w] = before.t[w].steer_cos;
+            if (before.p.d.kind == 3) {
+                const u32 h = r.car(0) + 0x5DC, f = r.car(0) + 0xD8;
+                using gt3r::ee::F;
+                part.hybrid.engine_target = F::raw(ee.r32(h)), part.hybrid.store = F::raw(ee.r32(h + 4)), part.hybrid_fuel = F::raw(ee.r32(h + 8));
+                part.mileage = u16(ee.r16(h + 0xC)), part.hybrid.flags = ee.r8(h + 0xE), part.hybrid.mode = ee.r8(h + 0xF);
+                part.mileage_steps = ee.r8(f + 0x4A0), part.hybrid_fuel_mark = F::raw(ee.r32(f + 0x3B0)), part.hybrid_odo_mark = F::raw(ee.r32(f + 0x3B4));
+            }
             session->load_state(0, before, session->gt4_record(0));
             session->load_prologue_part(0, part);
+            session->set_vu0_random(ee.vr); // (the flaps' random stream)
         }
         if (front && i >= from) {
             namespace ex = gt3r::sim::exact;
@@ -261,6 +270,16 @@ int whole_step(Disc& disc, const std::string& course, const std::string& car, in
             continue;
         }
         compare(after, mine, st);
+        if (mine.p.d.kind == 3 && i >= from) { // (the hybrid's box)
+            const u32 h = r.car(0) + 0x5DC;
+            const u32 theirs[] = {ee.r32(h), ee.r32(h + 4), ee.r32(h + 8), u32(u16(ee.r16(h + 0xC))), ee.r8(h + 0xE), ee.r8(h + 0xF)};
+            const u32 ours[] = {q.hybrid.engine_target.bits, q.hybrid.store.bits, q.hybrid_fuel.bits, q.mileage, q.hybrid.flags, q.hybrid.mode};
+            for (size_t k = 0; k < std::size(ours); ++k)
+                if (ours[k] != theirs[k]) {
+                    PFieldStat& f = st.fields["hybrid[" + std::to_string(k) + "]"];
+                    if (!f.off++) f.example = "first at step " + std::to_string(i + 1);
+                }
+        }
     }
     if (fields) {
         for (const auto& [name, f] : st.fields) fields->push_back(name);
@@ -417,8 +436,9 @@ int run(Disc& disc, const std::string& course, const std::string& car, int steps
     // GT4R_TAPS: the engine's routines compared with Prologue's at every call (prologue_taps.h).
     const sim::Program taps_program = sim::Program::load(disc);
     const gt3r::sim::exact::ProgramData taps_data = sim::core_program(taps_program);
-    const gt3r::sim::exact::RaceInputs inputs =
+    gt3r::sim::exact::RaceInputs inputs =
         gt3r::sim::exact::race_inputs(taps_data, gt3r::sim::exact::Conductor::SinglePlayer, gt3r::sim::exact::RaceConfig{}, false, 0);
+    sim::prologue::race_inputs(inputs, sim::prologue::tables(taps_program));
     std::unique_ptr<PTaps> taps;
     if (std::getenv("GT4R_TAPS")) {
         taps = std::make_unique<PTaps>(ee, r, inputs);
