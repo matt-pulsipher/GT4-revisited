@@ -24,7 +24,7 @@ render::Vec3 v3(const course::Vec3& v) { return {v.x, v.y, v.z}; }
 
 // The callback values of a car's body for the race view's draws: the wheels' constructs are left
 // out (the wheels are items of their own), the spoiler is as built.
-mdls::Scene body_scene(bool brake, int lamp_level) {
+mdls::Scene body_scene(bool brake, int lamp_level, int spoiler = 0) {
     mdls::Scene s;
     s.resolve_callbacks = true;
     s.callback_default = 0;
@@ -32,7 +32,7 @@ mdls::Scene body_scene(bool brake, int lamp_level) {
     s.callback_values[7] = lamp_level;
     for (u16 id = 11; id <= 18; ++id) s.callback_values[id] = kSkip;
     for (u16 id = 20; id <= 39; ++id) s.callback_values[id] = kSkip;
-    s.callback_values[47] = 0;
+    s.callback_values[47] = spoiler; // 0 as built, 1 a wing fitted, 2 the spoiler taken off
     return s;
 }
 
@@ -174,6 +174,23 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
             lod_centre_ = {f[0], f[1], f[2]}, lod_size_ = f[3], lod_levels_ = body[pc + 17];
         }
     }
+    // A fitted wing (wing/lod/<label>): the stock spoiler's case 1 of callback 47; the wing set's
+    // model 0 is drawn before the body at the parts block's place (+0xD0), scaled by half its width
+    // (+0xDC) (0x4533A8).
+    const int spoiler = opt.wing.empty() ? 0 : 1;
+    if (!opt.wing.empty() && c.info && c.info + 0x58 <= file.size()) {
+        const u32 parts = rd32(file, c.info + 0x50);
+        if (parts && parts + 0xE0 <= file.size()) {
+            float f[4];
+            std::memcpy(f, file.data() + parts + 0xD0, 16);
+            wing_place_ = {f[0], f[1], f[2]}, wing_scale_ = f[3] * 0.5f;
+            mdls::Scene ws;
+            ws.resolve_callbacks = true;
+            scene::Model m = build_levels(opt.wing, 0, ws, 3, 0, name + "/wing");
+            for (const scene::Mesh& mesh : m.meshes) wing_lods_ = std::max(wing_lods_, mesh.lod + 1);
+            if (!m.meshes.empty()) to_gpu(wing_, m);
+        }
+    }
     // The body with its lamps unlit and lit, at its three levels of detail. The far level draws its
     // wheels as shapes of its own with the picture callback 46 binds to slot 2: the wheel set's last
     // texture set (its far level's turning face), given to the body as a set of its own here.
@@ -188,9 +205,9 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
         if (lod_levels_ >= 3 && last && last + 0x20 <= wheel_set.size()) far_body = with_texture_set(body, wheel_set.subspan(last), far_set);
     }
     for (int brake = 0; brake < 2; ++brake) {
-        scene::Model m = build_levels(body, 0, body_scene(brake != 0, opt.lamp_level), kLevels, 0, name);
+        scene::Model m = build_levels(body, 0, body_scene(brake != 0, opt.lamp_level, spoiler), kLevels, 0, name);
         if (!far_body.empty()) {
-            mdls::Scene sc = body_scene(brake != 0, opt.lamp_level);
+            mdls::Scene sc = body_scene(brake != 0, opt.lamp_level, spoiler);
             sc.outside_sets[mdls::kWheelFaceSlot] = far_set;
             gt3r::gtm1::Options o = car_options();
             o.node = 0;
@@ -302,6 +319,7 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
                 r.test = {f(o + 0x48), f(o + 0x4C), f(o + 0x50)};
                 r.exponent = 1;
                 r.fade = (rd16(file, o + 0x64) & 1) != 0;
+                if ((rd16(file, o + 0x64) & 2) && spoiler != 0) continue; // a lamp of the stock spoiler, which a wing replaces
                 lists[l]->push_back(r);
             }
         }
@@ -406,6 +424,11 @@ int CarVisual::level(const CarState& s, const render::Vec3& eye, const LodView* 
 void CarVisual::add_items(std::vector<render::DrawItem>& items, const CarState& s, const render::Vec3& eye, float step, const LodView* view) const {
     const Mat4 body = body_matrix(s);
     const int lod = level(s, eye, view);
+    if (wing_) {
+        render::DrawItem it{wing_.get(), body * render::translate(wing_place_) * render::scale({wing_scale_, wing_scale_, wing_scale_}), std::min(lod, wing_lods_ - 1)};
+        it.far_whole = true;
+        items.push_back(it);
+    }
     if (const render::GpuModel* m = body_[s.brake_lamps ? 1 : 0].get()) {
         render::DrawItem it{m, body, lod};
         it.far_whole = true;

@@ -27,6 +27,7 @@ public:
     struct Options {
         u32 paint = 0;      // Pat0 paint
         int lamp_level = 0; // 0 lights off, 1 on (a night course)
+        ByteSpan wing;      // a fitted wing's model set (wing/lod/<label>); empty: none
     };
     // `car_file`: car/lod/<model>; `pat`: the paint file next to it when the car file has none
     // inside. Throws FormatError.
@@ -117,6 +118,10 @@ private:
     render::Vec3 min_, max_;
     render::Vec3 lod_centre_{0, 0, 0}; // the body program's level switch (0x07): its centre and size
     float lod_size_ = 0;
+    std::unique_ptr<render::GpuModel> wing_; // a fitted wing, at the parts block's place and scale
+    render::Vec3 wing_place_{0, 0, 0};
+    float wing_scale_ = 1;
+    int wing_lods_ = 1;
     int lod_levels_ = 0;
     int lods_ = 1;
     bool gt3_file_ = false; // a Gran Turismo 3 car file (Prologue's): its models' y = 0 is the road

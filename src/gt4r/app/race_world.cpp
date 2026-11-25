@@ -7,6 +7,7 @@
 #include "gt4r/audio/race_tables.h"
 #include "audio/audio_engine.h"
 #include "gt4r/formats/course/course_file.h"
+#include "gt4r/formats/db/car_parts.h"
 #include "gt4r/formats/model/car_model.h"
 #include "gt4r/race/car_spec.h"
 #include "gt4r/sim/session.h"
@@ -75,7 +76,15 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
             if (c.label == e.label) entry = &c;
         if (!entry) throw FormatError("The car database has no car " + e.label + ".");
         const race::CarSpec spec = race::read_car_spec(*app.db(), entry->label);
-        std::unique_ptr<race::CarVisual>& visual = m.visuals_by_model[entry->model + "#" + std::to_string(e.paint)];
+        // A fitted wing: the entry's, else its equipment's WING part (record +0x100, table 30).
+        std::string wing = e.wing;
+        if (wing.empty() && e.equipment) {
+            const db::PartId part = e.equipment->part(0x100);
+            if (part != db::kNoPart && db::part_table(part) == u32(db::PartTable::Wing))
+                if (const db::Labels* l = app.db()->labels("WING"))
+                    if (const std::string* name = l->label(db::part_row_id(part))) wing = *name;
+        }
+        std::unique_ptr<race::CarVisual>& visual = m.visuals_by_model[entry->model + "#" + std::to_string(e.paint) + "#" + wing];
         if (!visual) {
             const std::optional<Bytes> file = app.vfs()->read("car/lod/" + entry->model);
             if (!file || (!car::CarFile::is_car(*file) && !race::CarVisual::is_gt3_car(*file))) throw FormatError("This car has no race model on the disc (" + entry->model + ").");
@@ -84,6 +93,8 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
             race::CarVisual::Options o;
             o.paint = paints.empty() ? e.paint : paints[e.paint % paints.size()];
             o.lamp_level = night_ ? 1 : 0;
+            const std::optional<Bytes> wing_file = wing.empty() ? std::nullopt : app.vfs()->read("wing/lod/" + wing);
+            if (wing_file) o.wing = *wing_file;
             visual = std::make_unique<race::CarVisual>(gpu, *file, pat ? ByteSpan(*pat) : ByteSpan{}, spec, o, entry->label);
             // The course's strengths of the three lamp lists (Env0 +0x1794: lights, brake, tail).
             if (const ByteSpan e0 = course_->section(course::kSlotEnv); e0.size() >= 0x17A0) {

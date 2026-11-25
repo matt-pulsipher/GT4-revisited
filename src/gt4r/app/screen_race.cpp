@@ -1,7 +1,7 @@
 // Drive: pick a car and a course, then a race on the course's road: the first car driven with
 // the pad, the others by a simple driver, all on the simulation behind race/simulation.h.
 //
-// GT4R_RACE="course=tsukuba,car=<label>,cars=6,view=chase,drive=auto,skip=600,paint=1,hud=1,sim=rail"
+// GT4R_RACE="course=tsukuba,car=<label>,cars=6,view=chase,drive=auto,skip=600,paint=1,wing=p001,hud=1,sim=rail"
 // sets it up without the lists, for pictures: `course` a course file's name, `car` a car's label
 // (or its model's name), `cars` how many on the grid, `view` in | chase | roof | back, `drive`
 // auto (the simple driver takes the first car too) or pad, `skip` simulation steps run before the
@@ -97,6 +97,7 @@ struct Setup {
     bool start_given = false;
     std::vector<std::string> opponents; // the other cars by label (empty: from the car list)
     std::string sequence; // `menus=single_race`: the race's own menus (the sequence's quick project) round the race
+    std::string wing;        // `wing=<label>`: the player's car with that fitted wing (a WING row: "p001")
     std::vector<u32> paints; // every car's paint (a saved replay's); empty: the player's `paint`, the others by number
     std::string replay_file; // `replay_file=<path>`: a saved replay played
     bool save_replay = false; // `save=1`: the run `replay=N` drove saved as a replay file
@@ -129,6 +130,7 @@ Setup setup_from_env() {
         else if (k == "bspec") s.bspec = v != "0";
         else if (k == "skip") s.skip = std::max(0, std::atoi(v.c_str()));
         else if (k == "paint") s.paint = u32(std::max(0, std::atoi(v.c_str())));
+        else if (k == "wing") s.wing = v;
         else if (k == "hud") s.hud = v != "0";
         else if (k == "replay") s.replay = std::max(0, std::atoi(v.c_str()));
         else if (k == "smoke") s.smoke = v != "0";
@@ -326,7 +328,7 @@ public:
                 e.start_speed = setup.start_speed;
                 e.start_distance = float(sim::rules::rolling_start_distance(-int(std::lround(setup.start_back)), int(std::lround(setup.start_spacing)), setup.cars, e.grid_place));
             }
-            if (i == 0) e.equipment = setup.player_equipment;
+            if (i == 0) e.equipment = setup.player_equipment, e.wing = setup.wing;
             else if (size_t(i - 1) < setup.opponent_equipment.size() && setup.opponent_equipment[size_t(i - 1)]) {
                 // An opponent entered as its pool enters it: its parts, settings and the paint the pool
                 // gives (0xFF: the race's choice, here by its number).

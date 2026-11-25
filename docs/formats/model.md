@@ -180,7 +180,12 @@ start:
   (0x06 with id 3, 5 or 7, one case; checked on 786 sets) and draws the face through outside
   slot 2.
 - **Wing**: no race car file carries one (+0x28 is 0 on all 807); fitted wings are the files
-  `wing/lod/<name>`, `wing/menu/<name>`.
+  `wing/lod/<name>`, `wing/menu/<name>`, `<name>` the `WING` row's label (`p001` .. `p021`; a
+  car's record keeps the part at +0x100). The race model's wing (RaceCarModel vf20, 0x390340):
+  no name: callback 47 reads 0 (as built); an empty name: 2 (the spoiler taken off); a name:
+  the set loaded (0x454378) and 1. The draw (0x4533A8, before the body) multiplies by
+  translate(parts block +0xD0) and scale(+0xDC / 2) and draws the set's model 0. R34: (0, 1.10,
+  2.03), 1.6 wide.
 - **Driver**: +0x34, on 801 of the 807 race cars.
 
 ### Car info (+0x10)
