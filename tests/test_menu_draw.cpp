@@ -43,6 +43,7 @@ menu::FolderLister lister(Disc& d) {
 // The disc's main script run as at power on (the configuration's values, MpegRoot).
 std::unique_ptr<menu::Runtime> booted(Disc& d) {
     menu::Runtime::Config config;
+    config.console_card = true;
     config.list = lister(d);
     const std::vector<std::string> languages = menu::project_languages(config.list, "boot");
     if (!languages.empty()) config.language = languages[0];

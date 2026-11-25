@@ -79,11 +79,31 @@ private:
     std::map<u64, SDL_GPUTexture*> env_; // by image_key
     std::vector<gt3r::render::DrawItem> items_;
     void load_stage();
+    // The stage's backdrops at their weights over the page, softened (0x1D5588, 0x1D5620, 0x1D56B0).
+    void draw_backdrops(const std::vector<gt3r::render::DrawItem>& backdrops, const gt3r::render::Mat4& view, const gt3r::render::Mat4& proj,
+                        const gt3r::render::Vec3& eye, const SDL_FRect& page_rect, float opacity);
+    std::unique_ptr<gt3r::render::View3D> stage_view_;
+    // The stage's reflection picture (menu/select/env.mdl) at its time: each model's sphere map made once on a worker, added
+    // at the backdrops' weights (0x1D5AE8). Null until made.
+    SDL_GPUTexture* stage_environment();
+    using SphereMap = std::vector<std::array<float, 3>>;
+    std::future<std::vector<SphereMap>> env_loading_;
+    std::vector<SphereMap> env_maps_;
+    SDL_GPUTexture* env_picture_ = nullptr;
+    u64 env_made_ = 0; // the picture it was last made in
+    SDL_Texture* stage_target_ = nullptr;         // the backdrops' picture
+    SDL_Texture* focus_targets_[2] = {};          // its blurred half-size copies
     // The car-selection stage: its backdrops (menu/select/bg.mdl's models), camera and light
     // motions, and its time.
     std::vector<std::unique_ptr<gt3r::render::GpuModel>> stage_;
     std::unique_ptr<menu::StageMotion> camera_motion_, light_motion_;
+    std::unique_ptr<gt3r::render::GpuModel> stage_tire_; // menu/select/tire.mdl: what a wheel throws its shadow with
     float stage_time_ = 0;
+    u64 stage_stepped_ = 0; // the picture the stage's time was last stepped to
+    void step_stage();
+    // The stage's camera at its time (menu/select/camera.mot); false without one.
+    bool stage_camera(const menu::FaceView& v, gt3r::render::Mat4& view, gt3r::render::Mat4& proj, gt3r::render::Vec3& eye) const;
+    std::vector<gt3r::render::DrawItem> backdrops() const;
     bool stage_tried_ = false;
     // A face's camera motion and model sets (loadModelOptionMotion, loadModelSet), read from the
     // page's packs once (null: not there).

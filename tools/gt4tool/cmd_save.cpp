@@ -89,6 +89,7 @@ int cmd_save(Disc& disc, const std::vector<std::string>& a) {
         const std::vector<std::string> languages = menu::project_languages(config.list, "boot");
         if (!languages.empty()) config.language = languages[0];
         config.data_dir = a[1];
+        config.console_card = true;
         menu::Runtime rt(disc_reader(disc), config);
         menu::ProgressPlan plan = menu::default_progress_plan(rt);
         if (a.size() >= 3) plan.name = a[2];

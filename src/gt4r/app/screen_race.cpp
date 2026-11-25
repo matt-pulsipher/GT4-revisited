@@ -16,6 +16,7 @@
 #include "gt4r/app/app.h"
 #include "gt4r/app/page.h"
 #include "gt4r/app/menu_painter.h"
+#include "gt4r/app/replay_picture.h"
 #include "gt4r/app/race_common.h"
 #include "gt4r/app/race_hud.h"
 #include "gt4r/app/race_hud_prologue.h"
@@ -34,6 +35,7 @@
 #include "gt4r/race/race_flow.h"
 #include "gt4r/race/rail_simulation.h"
 #include "gt4r/race/replay_script.h"
+#include "gt4r/race/replay_view.h"
 #include "gt4r/race/race_recording.h"
 #include "gt4r/race/recorded_race.h"
 #include "gt4r/save/game_data.h"
@@ -662,8 +664,7 @@ public:
         if (!demo) stale_ = false;
         watched_ = watched;
         ran_ = true;
-        // B-spec: the pace "Steady", the low view from the car's nose (as the original's B-spec race
-        // opens), the help strip shown.
+        // B-spec: the pace "Steady", the course's cameras (the camera manager's mode 1), the help strip shown.
         bspec_pace_ = 3, overtake_steps_ = 0, bspec_help_ = true, focus_ = 0;
         mail_ = {}, records_.clear();
         recording_ = !demo && recordable();
@@ -671,7 +672,9 @@ public:
         snapshot_ = false, dissolve_total_ = dissolve_left_ = 0; // (a cut of the menus' scene behind the page ends with it)
         if (before_tv_ && mount_ == kTvView) mount_ = *before_tv_; // (the results page's cameras, back to the player's view)
         before_tv_.reset();
-        if (watched) mount_ = race::DriveCamera::kInCar;
+        if (own_view_ && !watched) mount_ = *own_view_, own_view_.reset();
+        if (watched && !own_view_) own_view_ = mount_;
+        if (watched) mount_ = kTvView;
         menu_scene_ = false;
         race::FlowSetup fs;
         prev_cars_.clear();
@@ -864,9 +867,12 @@ public:
             ++replay_at_;
             step_behind();
             start_camera_.step();
-            camera_.step(history_[replay_at_][0], kStep);
-            step_gear(history_[replay_at_][0]);
-            step_tv(history_[replay_at_][0]);
+            step_view(history_[replay_at_]);
+            const size_t car = focus();
+            camera_.step(history_[replay_at_][car], kStep);
+            step_gear(history_[replay_at_][car]);
+            if (diving()) step_dive(history_[replay_at_]);
+            else step_tv(history_[replay_at_][car], car);
             // The music ducked under the course's replay-script shots (the designer's cameras).
             if (audio::RaceSound* sound = world_->sound()) sound->set_replay_shot(tv_valid_ && !start_camera_.active());
             hear(history_[replay_at_], false);
@@ -989,10 +995,12 @@ public:
         start_camera_.step();
         if (const float d = start_camera_.dissolve(); d > 0) begin_dissolve(int(std::lround(d * 60)));
         if (mount_ != kTvView && !opening && !demo) step_dissolve(); // (else step_tv's)
+        if (demo) step_view(world_->cars());
         const size_t f = focus();
         camera_.step(world_->cars()[f], kStep);
         step_gear(world_->cars()[f]);
-        if (mount_ == kTvView || opening || demo) step_tv(world_->cars()[f], f);
+        if (demo && diving()) step_dive(world_->cars());
+        else if (mount_ == kTvView || opening || demo) step_tv(world_->cars()[f], f);
         if (event_steps_ >= 0) ++event_steps_;
         if (split_steps_ >= 0) ++split_steps_;
         if (history_.size() < kHistory) history_.emplace_back(world_->cars().begin(), world_->cars().end());
@@ -1037,11 +1045,12 @@ public:
         audio::SoundListener l;
         l.position = {pose.eye.x, pose.eye.y, pose.eye.z};
         l.right = {m[0], m[4], m[8]}, l.up = {m[1], m[5], m[9]}, l.forward = {-m[2], -m[6], -m[10]};
-        l.velocity = cars[0].velocity;
+        const size_t heard = viewing() ? focus() : 0;
+        l.velocity = cars[heard].velocity;
         const bool own = !start_camera_.active() && !replaying_ && mount_ != kTvView;
-        l.kind = pose.body_hidden ? audio::SoundListener::Kind::InCar : own && mount_ == race::DriveCamera::kChase ? audio::SoundListener::Kind::Chase
+        l.kind = pose.body_hidden ? audio::SoundListener::Kind::InCar : own && race::DriveCamera::chase(mount_) ? audio::SoundListener::Kind::Chase
                                                                                                                  : audio::SoundListener::Kind::Other;
-        world_->present(cars, &l, 0, live, replaying_ && behind_ ? &behind_->session() : nullptr);
+        world_->present(cars, &l, int(heard), live, replaying_ && behind_ ? &behind_->session() : nullptr);
     }
     void pause_sound(bool paused) {
         if (audio::RaceSound* sound = world_->sound()) sound->pause(paused);
@@ -1058,6 +1067,7 @@ public:
     void start_replay() {
         if (history_.empty() || replaying_) return;
         replaying_ = true, replay_done_ = false;
+        begin_view();
         menu_scene_ = false; // (asked for from the race's menus: the scene behind them ends)
         prev_cars_.clear();
         if (audio::RaceSound* sound = world_->sound()) sound->replay();
@@ -1095,6 +1105,103 @@ public:
                 return behind_.reset();
             }
         if (replay_at_ + 1 == history_.size()) LOG_INFO("Drive: the saved replay's recording ran its %zu steps beside it", history_.size());
+    }
+    // A run watched with a replay's controls (the program's play modes 2 and 3).
+    bool viewing() const { return replaying_ || demo_run_.has_value(); }
+    void set_replay_style(race::ReplayStyle s) { replay_style_ = s; }
+    const race::ReplayView& view() const { return view_; }
+    void begin_view() {
+        view_.begin(replay_style_);
+        if (replay_style_ == race::ReplayStyle::Dive) begin_dive();
+        replay_focus_ = 0, view_pad_ = {}, mode_time_ = -1, music_off_ = false, view_time_ = 0;
+        replay_camera_.set_zoom(1);
+    }
+    // The pad's keys for the next step (the ones that go down are kept until it).
+    void view_input(const race::ReplayPad& pad) {
+        race::ReplayPad& q = view_pad_;
+        q.up |= pad.up, q.down |= pad.down, q.cross |= pad.cross, q.square |= pad.square, q.circle |= pad.circle;
+        q.l1 |= pad.l1, q.r1 |= pad.r1, q.l2 |= pad.l2, q.r2 |= pad.r2, q.l3 |= pad.l3;
+        q.left_held = pad.left_held, q.right_held = pad.right_held, q.triangle_held = pad.triangle_held;
+    }
+    void step_view(std::span<const race::CarState> cars) {
+        view_time_ += kStep / float(view_.speed());
+        if (mode_time_ >= 0) mode_time_ += kStep / float(view_.speed());
+        const race::ReplayView::Events e = view_.step(view_pad_);
+        view_pad_ = {false, false, false, false, false, false, false, false, false, false, view_pad_.left_held, view_pad_.right_held, view_pad_.triangle_held};
+        auto say = [&](const char* word) { mode_word_ = word, mode_time_ = 0; };
+        if (e.style) say(view_.style() == race::ReplayStyle::Display ? "ReplayModeNormalDisplay" : view_.style() == race::ReplayStyle::Dive ? "ReplayModeDive" : "ReplayModeNormal");
+        if (e.speed) say(view_.fast() ? "ReplayModeAccelerate" : "ReplayModeNormalSpeed");
+        if (e.music) {
+            music_off_ = !music_off_;
+            if (audio::RaceSound* sound = world_->sound()) sound->set_music_on(!music_off_);
+            say(music_off_ ? "ReplayModeBGMOff" : "ReplayModeBGMOn");
+        }
+        if (e.select_car != 0) select_replay_car(cars, e.select_car);
+        replay_camera_.set_zoom(view_.zoom());
+        if (e.view || e.style) view_cut_ = true;
+        if (e.style || (e.view && !view_.ride_on())) replay_camera_.reset();
+        step_music();
+        dive_asked_ = e.director || (e.style && view_.style() == race::ReplayStyle::Dive);
+        if (e.style && view_.style() == race::ReplayStyle::Dive) begin_dive();
+    }
+    bool diving() const { return viewing() && view_.style() == race::ReplayStyle::Dive && dive_loaded_ && !start_camera_.active(); }
+    void begin_dive() {
+        if (!dive_tried_) dive_tried_ = true, dive_loaded_ = world_->load_dive(dive_);
+        dive_.reset(u32(SDL_GetTicksNS() >> 10) | 1, focus());
+        dive_clock_.reset();
+        dive_asked_ = true;
+        if (music_off_) { // (Dive's cuts need the music: 0x33C610)
+            music_off_ = false;
+            if (audio::RaceSound* sound = world_->sound()) sound->set_music_on(true);
+        }
+    }
+    // Where the piece of music is, by its own steps since it began (its markers: Dive's cuts).
+    void step_music() {
+        const audio::RaceSound* sound = world_->sound();
+        const std::string playing = sound ? sound->report().music : std::string();
+        if (playing != markers_for_) markers_for_ = playing, markers_ = world_->music_markers(playing), music_time_ = music_before_ = 0;
+        music_before_ = music_time_;
+        if (!music_off_) music_time_ += kStep / float(view_.speed());
+        if (markers_.length > 0 && music_time_ >= markers_.length) music_time_ -= markers_.length;
+    }
+    void step_dive(std::span<const race::CarState> cars) {
+        const bool beat = dive_clock_.step(markers_.next(music_time_), markers_.passed(music_before_, music_time_));
+        race::ViewPose p;
+        race::DiveDirector::World w = world_->dive_world(cars, replay_script_);
+        if (replaying_)
+            w.ahead = [this](size_t car, float seconds) -> std::optional<RVec> {
+                const size_t at = replay_at_ + size_t(std::max(seconds, 0.0f) * 60);
+                if (at >= history_.size() || car >= history_[at].size()) return std::nullopt;
+                return RVec{history_[at][car].position.x, history_[at][car].position.y, history_[at][car].position.z};
+            };
+        tv_valid_ = dive_.step(w, beat || dive_asked_, dive_clock_.length(), p);
+        dive_asked_ = false;
+        if (tv_valid_) {
+            // (kept as the program's angle, as the replay cameras' shots are)
+            p.fov = 2 * std::atan(std::tan(p.fov * 0.5f) * (293.1175f / 426.6667f));
+            tv_pose_ = p;
+        }
+        if (dive_.is_cut()) {
+            view_cut_ = true;
+            if (dive_.car() != replay_focus_) replay_focus_ = dive_.car(), camera_.reset(cars[replay_focus_]), camera_prev_ = camera_;
+        }
+        step_dissolve();
+    }
+    // Up / Down: the car ahead or behind in the race's order (0x3FD5A8), the shot chosen anew.
+    void select_replay_car(std::span<const race::CarState> cars, int dir) {
+        if (cars.size() < 2) return;
+        const float lap = world_->lap_length();
+        std::vector<size_t> order(cars.size());
+        for (size_t i = 0; i < order.size(); ++i) order[i] = i;
+        std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) { return float(cars[a].lap) * lap + cars[a].course_v > float(cars[b].lap) * lap + cars[b].course_v; });
+        size_t at = 0;
+        for (size_t k = 0; k < order.size(); ++k)
+            if (order[k] == focus()) at = k;
+        replay_focus_ = order[(at + order.size() + size_t(dir > 0 ? 1 : order.size() - 1)) % order.size()];
+        camera_.reset(cars[replay_focus_]);
+        camera_prev_ = camera_;
+        replay_camera_.reset();
+        view_cut_ = true;
     }
     bool replaying() const { return replaying_; }
     bool replay_done() const { return replay_done_; }
@@ -1147,6 +1254,7 @@ public:
         world_->set_entry_overrides(std::move(over));
         demo_step_ = 0, demo_logged_ = false, demo_bspec_ = bspec;
         begin_run(false, true);
+        begin_view();
         world_->pits_by_record();
         LOG_INFO("Drive: the demonstration %s: %zu steps recorded (%d ms); wear %d, fuel %.1f of %.1f l, race %s", demo_run_->label.c_str(), demo_run_->steps(), demo_run_->recorded_ms(),
                  int(world_->wears_tires()), double(world_->fuel(0)), double(world_->tank(0)), setup_.race.c_str());
@@ -1187,7 +1295,7 @@ public:
         const bool demo = demo_run_.has_value();
         h.replay = replaying_ || demo;
         // B-spec: the meters are the followed car's (Select Car), as the race display shows its target car.
-        const size_t shown_car = watched_ && !replaying_ ? std::min(focused(), cars.size() - 1) : 0;
+        const size_t shown_car = (watched_ && !replaying_) || viewing() ? std::min(focused(), cars.size() - 1) : 0;
         const race::CarState& me = cars[shown_car];
         const race::CarSpec& spec = world_->visual(shown_car).spec();
         h.speed = me.speed, h.rpm = me.engine_rpm, h.gear = me.gear;
@@ -1208,7 +1316,14 @@ public:
         h.red_line = spec.red_line, h.rev_limit = spec.rev_limit;
         // The speedometer's face by the car's top speed as the program estimates it (P +0xFD8).
         if (const float top = world_->car_top_speed(shown_car); top > 0) h.top_speed = top;
-        h.driver_view = mount_ != race::DriveCamera::kChase && mount_ != kTvView;
+        h.driver_view = !viewing() && !race::DriveCamera::chase(mount_) && mount_ != kTvView; // (a replay's meters are the small panel)
+        h.mode_text.clear(), h.mode_opacity = 0;
+        if (viewing() && mode_time_ >= 0) {
+            // The playback mode's plate (0x39F018): in over 0.25 s, 3 s, out over 0.25 s.
+            const float t = mode_time_;
+            h.mode_opacity = std::clamp(std::min(t / 0.25f, (3.5f - t) / 0.25f), 0.0f, 1.0f);
+            h.mode_text = hud.word(mode_word_);
+        }
         h.cars.clear();
         for (const race::CarState& c : cars) h.cars.push_back({c.position.x, c.position.z});
         h.place = flow_.place(0);
@@ -1232,13 +1347,16 @@ public:
             return t < 0 ? 0.0f : t < hold ? 1.0f : std::max(0.0f, 1 - (t - hold) / fade);
         };
         h.message.clear(), h.message_opacity = 0;
-        // A replay's opening card for its first seconds (❓ 3 s with fades of 0.5 s, judged from the
-        // original's replay; the program's times come from its caller, not read).
-        h.card_opacity = 0;
-        const size_t shown_at = demo ? demo_step_ : replay_at_;
-        if ((replaying_ || demo) && shown_at < 210) {
-            const float t = float(shown_at) / 60;
-            h.card_opacity = std::min({1.0f, t / 0.5f + 0.2f, (3.5f - t) / 0.5f});
+        // A replay's opening card (RaceDisplay::vf30 0x39BEC8): 0.1 s in, over 1 s each way, gone at 6.1 s; its display after it
+        // over 0.5 s. The picture under it: black at first (✔ the original's replays: until about 2.1 s, there by 2.9; its
+        // fader was not read).
+        h.card_opacity = h.replay_cover = 0, h.replay_shown = h.mini_logo = 1;
+        if ((replaying_ || demo) && view_time_ < 20) {
+            const float t = view_time_;
+            h.card_opacity = std::clamp(std::min(t - 0.1f, 6.1f - t), 0.0f, 1.0f);
+            h.replay_cover = std::clamp((2.9f - t) / 0.8f, 0.0f, 1.0f);
+            h.replay_shown = std::clamp((t - 6.1f) / 0.5f, 0.0f, 1.0f);
+            h.mini_logo = replaying_ ? std::clamp(t - 18.0f, 0.0f, 1.0f) : h.replay_shown;
             h.card_title = world_->car_name(0);
             char power[32] = "--";
             const float ps = world_->player_power_ps();
@@ -1264,8 +1382,8 @@ public:
         h.logo_opacity = replaying_ || demo ? h.card_opacity : 0;
         h.caption_opacity = 0;
         if (replaying_) {
-            const float t = float(replay_at_) / 60;
-            h.caption_opacity = std::clamp(std::min((t - 4.5f) / 0.5f, (14.0f - t) / 0.5f), 0.0f, 1.0f);
+            // (✔ the original's replay: from 7.2 s to 17.6, the small logo after it.)
+            h.caption_opacity = std::clamp(std::min(view_time_ - 7.2f, 17.6f - view_time_) / 0.25f, 0.0f, 1.0f);
         }
         if (replaying_ || demo) {
         } else if (flow_.player_finished()) {
@@ -1348,24 +1466,38 @@ public:
     void stop_refuel() { mail_.pit = {2, 0xFF, 0xFF, 0}; }
     void bspec_display() { bspec_help_ = !bspec_help_; }
 
-    // The car's three views, then the course's replay cameras (ours: the game shows those in replays only).
+    // The next view: the car's three, or with ours.
     void next_view() {
-        const auto& views = race::DriveCamera::kViews;
-        if (mount_ == kTvView) {
-            mount_ = views[0];
+        // B-spec's Cross: the course's cameras or the car's own, its nose (0x374618).
+        if (watched_) {
+            mount_ = mount_ == kTvView ? race::DriveCamera::kInCar : kTvView;
+            view_cut_ = true, replay_camera_.reset();
             return;
         }
-        size_t at = 0;
-        for (size_t i = 0; i < std::size(views); ++i)
+        using race::DriveCamera;
+        std::vector<int> views(std::begin(DriveCamera::kViews), std::end(DriveCamera::kViews));
+        if (all_views_) {
+            views = {DriveCamera::kInCar, DriveCamera::kInCarNoMirror, DriveCamera::kBumper, DriveCamera::kChase, DriveCamera::kFarChase, DriveCamera::kRoof};
+            if (!replay_script_.records.empty()) views.push_back(kTvView);
+        }
+        size_t at = views.size() - 1;
+        for (size_t i = 0; i < views.size(); ++i)
             if (views[i] == mount_) at = i;
-        mount_ = at + 1 < std::size(views) ? views[at + 1] : !replay_script_.records.empty() ? kTvView : views[0];
+        mount_ = views[(at + 1) % views.size()];
+        if (mount_ == kTvView) replay_camera_.reset();
+        view_cut_ = true;
     }
+    // [cameras] race_views: the game's three views, or ours as well; in_car_shake.
+    void set_view_options(bool all, bool shake) { all_views_ = all, camera_.set_shake(shake); }
+    // Looking aside: the controller's left and right views, and a free right stick.
+    void set_look(bool left, bool right, float x, float y) { camera_.set_sideways(left, right), camera_.set_stick(x, y); }
 
     // Where the shown frame is between the last two steps (0 .. 1), for the cars and the camera.
     void set_blend(float t) { blend_ = std::clamp(t, 0.0f, 1.0f); }
 
     // The course's TV cameras (a license test's results page shows the car from the trackside ❓ which
     // of the program's cameras is not read).
+    void set_effect_settings(const race::ReplayEffectSettings& s) { effect_settings_ = s; }
     void tv_view() {
         if (replay_script_.records.empty() || mount_ == kTvView) return;
         before_tv_ = mount_;
@@ -1382,19 +1514,26 @@ public:
             cars = blended_;
         }
         // The racing views' screen settings; the replays' and the B-spec race's their own.
-        world_->set_grade(picture_settings(replaying_ || watched_).grade());
+        const bool dive = diving() && tv_valid_;
+        const auto grade = picture_settings(replaying_ || watched_).grade();
+        world_->set_grade(dive ? dive_.grade(grade) : grade);
+        world_->set_trail(dive && effect_settings_.trail ? std::min(dive_.trail(), 0.8f) : 0.0f);
         race::ViewPose pose = current_pose(shown(), look_back);
         // (A cut is shown at once: two shots of one trackside camera stand too close together for blend_poses to tell.)
         if (blend && !view_cut_ && start_prev_.active() == start_camera_.active()) pose = race::blend_poses(previous_pose(look_back), pose, blend_);
         // A cut's dissolve: the last picture frozen at the cut, over the new one as it fades.
         world_->set_dissolve(snapshot_, dissolve_total_ > 0 ? float(dissolve_left_) / float(dissolve_total_) : 0.0f, replaying_ || menu_scene_ || mount_ == kTvView || start_camera_.active() || dissolve_total_ > 0);
         snapshot_ = false;
+        // The passes of the views the player does not drive in (the race's play mode 1 .. 4).
+        race::EffectView fx;
+        fx.replay = replaying_ || watched_ || demo_run_ || menu_scene_;
+        world_->set_effects(fx, effect_settings_);
         world_->render(ui, rect, cars, pose, focus(), pose.body_hidden ? int(focus()) : -1);
         // The in-car view's rear-view mirror at the top (❓ its place, (190, 18) 259 x 63 of the
         // 640 x 480 picture, measured on the original's in-car view): not in replays, demonstrations, under the results pages, the opening
         // shots (a standing start's or a rolling start's TV cameras), B-spec or looking back.
         race::ViewPose pit;
-        if (mount_ == race::DriveCamera::kInCar && !world_->pit_camera(focus(), pit) && !finish_view() && !replaying_ && !demo_run_ && !flow_.player_finished() && !menu_scene_ && !watched_ && !start_camera_.active() && !opening_tv() && !look_back && !setup_.look_back) {
+        if (mount_ == race::DriveCamera::kInCar && !camera_.aside() && !world_->pit_camera(focus(), pit) && !finish_view() && !replaying_ && !demo_run_ && !flow_.player_finished() && !menu_scene_ && !watched_ && !start_camera_.active() && !opening_tv() && !look_back && !setup_.look_back) {
             const SDL_FRect c = RaceHud::canvas();
             const float k = c.h / 480.0f;
             world_->render_mirror(ui, {c.x + 190 * k, c.y + 18 * k, 259 * k, 63 * k}, cars, pose, 0);
@@ -1560,14 +1699,15 @@ public:
     // time); a cut with a dissolve starts it.
     void step_tv(const race::CarState& car, size_t index = 0) {
         const render::Mat4 body = world_->visual(index).body_matrix(car);
-        tv_valid_ = replay_camera_.pose(replay_script_, car, body, tv_pose_);
+        tv_valid_ = replay_camera_.pose(replay_script_, car, body, tv_pose_, [&](const render::Mat4& view) { return world_->nearest_depth(index, car, view); });
         view_cut_ = view_cut_ || replay_camera_.cut() || tv_valid_ != tv_prev_valid_;
         if (const float d = replay_camera_.cut_dissolve(); d > 0) begin_dissolve(int(std::lround(d * 60)));
         step_dissolve();
         // GT4R_LENS_LOG=<n>: the replay camera's place and lens every n steps.
         if (const char* every = SDL_getenv("GT4R_LENS_LOG"); every && std::atoi(every) > 0 && tv_valid_ && ++lens_steps_ % size_t(std::atoi(every)) == 0)
-            LOG_INFO("Drive: lens at d %.1f: %.2f degrees, eye (%.1f, %.1f, %.1f), car (%.1f, %.1f)", double(car.course_v), double(tv_pose_.fov) * 57.29578, double(tv_pose_.eye.x),
-                     double(tv_pose_.eye.y), double(tv_pose_.eye.z), double(car.position.x), double(car.position.z));
+            LOG_INFO("Drive: lens at d %.1f: %.2f degrees, eye (%.1f, %.1f, %.1f), car (%.1f, %.1f), focus %.2f f/%.1f%s%s, record %.1f", double(car.course_v), double(tv_pose_.fov) * 57.29578, double(tv_pose_.eye.x),
+                     double(tv_pose_.eye.y), double(tv_pose_.eye.z), double(car.position.x), double(car.position.z), double(tv_pose_.focus), double(tv_pose_.f_number),
+                     tv_pose_.depth_of_field ? " dof" : "", tv_pose_.haze ? " haze" : "", replay_camera_.record() ? double(replay_camera_.record()->start) : -1.0);
     }
     void begin_dissolve(int steps) {
         if (steps <= 0) return;
@@ -1588,9 +1728,12 @@ public:
         const race::CarState& me = cars[f];
         const render::Mat4 body = world_->visual(f).body_matrix(me);
         race::ViewPose pose;
-        const int view = replaying_ || demo_run_ || (menu_scene_ && preview_) || (!menu_scene_ && opening_tv()) ? kTvView : mount_;
+        const int view = viewing() && view_.ride_on() ? view_.mount() : replaying_ || demo_run_ || (menu_scene_ && preview_) || (!menu_scene_ && opening_tv()) ? kTvView : mount_;
         bool posed = menu_scene_ && !preview_ && scenic_.pose(pose);
-        posed = posed || (start_camera_.active() && start_camera_.pose(pose, &body));
+        // (A scenic shot too is focused on the screen's car, behind it or not: 0x37C800.)
+        if (posed && pose.depth_of_field) pose.focus = std::max(std::clamp(world_->nearest_depth(f, me, pose.view) + 0.7f, 0.001f, 100000.0f), race::least_focus(pose.fov * 57.29578f));
+        // (Cross leaves a replay's start shots for the car's own cameras: 0x374630.)
+        posed = posed || (start_camera_.active() && !(viewing() && view_.ride_on()) && start_camera_.pose(pose, &body));
         // The replay cameras' shot for the car; the chase view where the script has none.
         if (!posed && finish_view()) posed = finish_camera_.pose(RVec{me.position.x, me.position.y, me.position.z}, pose);
         if (!posed && view == kTvView && tv_valid_) pose = tv_pose_, posed = true;
@@ -1602,9 +1745,12 @@ public:
         // Gran Turismo 4's lenses are the program's angles.
         if (posed && !gt3_road_) pose.fov = race::shown_angle(pose.fov);
         if (!posed) {
-            const int mount = view == kTvView ? race::DriveCamera::kChase : view;
-            pose = camera_.pose(me, body, world_->visual(f).mounts(), mount, look_back || setup_.look_back);
-            if (mount != race::DriveCamera::kChase && mount != race::DriveCamera::kInCar && !gt3_road_) pose.fov = race::shown_angle(pose.fov);
+            int mount = view == kTvView ? race::DriveCamera::kChase : view;
+            const std::vector<race::CameraMount>& mounts = world_->visual(f).mounts();
+            const bool own = viewing() && view_.ride_on();
+            if (own && mount != race::DriveCamera::kChase && (size_t(mount) >= mounts.size() || mounts[size_t(mount)].flags == 0)) mount = race::DriveCamera::kInCar; // (a place the car does not have)
+            pose = camera_.pose(me, body, mounts, mount, own ? view_.look_back() : look_back || setup_.look_back);
+            if (!race::DriveCamera::chase(mount) && !race::DriveCamera::in_car(mount) && !gt3_road_) pose.fov = race::shown_angle(pose.fov);
         }
         return pose;
     }
@@ -1637,6 +1783,9 @@ public:
     void set_driving_mode(bool bspec) {
         if (bspec == watched_ || setup_.auto_drive) return;
         watched_ = bspec;
+        if (bspec) own_view_ = mount_, mount_ = kTvView;
+        else if (own_view_) mount_ = *own_view_, own_view_.reset();
+        view_cut_ = true, replay_camera_.reset();
         follow(0);
         recording_ = false; // (❓ the recording of a run whose driver changed, the record's command 10, is not made)
         world_->set_driving_mode(bspec);
@@ -1649,7 +1798,7 @@ public:
 
     // B-spec's Select Car (Up / Down): the car the views follow, by race order (the player's car first:
     // 0). ❓ The program's choice by the order is not read: here the next or last car in race order.
-    size_t focus() const { return watched_ && !replaying_ && !menu_scene_ && focus_ < world_->car_count() ? focus_ : 0; }
+    size_t focus() const { return viewing() ? (replay_focus_ < world_->car_count() ? replay_focus_ : 0) : watched_ && !replaying_ && !menu_scene_ && focus_ < world_->car_count() ? focus_ : 0; }
     void select_car(int dir) {
         const std::vector<size_t>& order = flow_.order();
         if (order.empty()) return;
@@ -1703,6 +1852,20 @@ private:
     race::ReplayScript replay_script_;
     race::ReplayCamera replay_camera_;
     race::ViewPose tv_pose_;
+    race::ReplayEffectSettings effect_settings_;
+    race::ReplayView view_; // watching a replay
+    race::ReplayStyle replay_style_ = race::ReplayStyle::Plain;
+    race::ReplayPad view_pad_;
+    race::DiveDirector dive_;
+    race::DiveClock dive_clock_;
+    race::MusicMarkers markers_; // of the piece `markers_for_`, played for music_time_ seconds
+    std::string markers_for_;
+    float music_time_ = 0, music_before_ = 0;
+    bool dive_tried_ = false, dive_loaded_ = false, dive_asked_ = false;
+    size_t replay_focus_ = 0;
+    std::string mode_word_; // the playback mode's plate, and its seconds shown (-1 none); the seconds watched
+    float mode_time_ = -1, view_time_ = 0;
+    bool music_off_ = false;
     bool tv_valid_ = false, snapshot_ = false;
     // The last step but one, for frames shown between steps.
     std::vector<race::CarState> prev_cars_, blended_;
@@ -1759,6 +1922,8 @@ private:
     int split_steps_ = -1, split_index_ = 0;
     s64 split_ms_ = 0, split_gap_ms_ = 0;
     int mount_ = race::DriveCamera::kChase;
+    bool all_views_ = false;
+    std::optional<int> own_view_; // the player's view before a B-spec run
     std::optional<int> before_tv_; // the view before tv_view
 };
 
@@ -1957,6 +2122,11 @@ public:
         // (The time from the last frame's drawing to this update: its present and the events.)
         if (render_end_ns_) outside_ns_ = SDL_GetTicksNS() - render_end_ns_;
         const MenuInput& m = app.menu();
+        if (race_) {
+            const auto word = [&](const char* key, const char* otherwise) { return gt3r::to_lower(app.config().get("cameras", key).value_or(otherwise)); };
+            race_->set_view_options(word("race_views", "original") == "all", word("in_car_shake", "on") != "off");
+        }
+        if (race_) race_->set_effect_settings(race::ReplayEffectSettings::load(app.config())), race_->set_replay_style(settings_.replay_mode == "DIVE" ? race::ReplayStyle::Dive : settings_.replay_display ? race::ReplayStyle::Display : race::ReplayStyle::Plain);
         if (!playing()) feedback_.stop(app.input(), 0);
         if (quick_ && race_) return update_quick(app, m, dt);
         if (menus_ && sequence_ == "race_view" && race_ &&
@@ -1985,15 +2155,33 @@ public:
             }
             return;
         }
+        // A replay's and a demonstration's keys; Select holds it still (SimplePause: Select again goes on).
+        if (race_->viewing() && !paused_ && !results_shown()) {
+            if (m.pressed(PadButton::Select) && !race_->replay_done()) {
+                replay_paused_ = !replay_paused_;
+                race_->pause_sound(replay_paused_);
+            }
+            if (replay_paused_) return;
+            race::ReplayPad pad;
+            const int v = m.pressed(PadButton::Up) ? -1 : m.pressed(PadButton::Down) ? 1 : 0;
+            pad.up = v < 0, pad.down = v > 0;
+            pad.cross = m.pressed(PadButton::Cross), pad.square = m.pressed(PadButton::Square), pad.circle = m.pressed(PadButton::Circle);
+            pad.l1 = m.pressed(PadButton::L1), pad.r1 = m.pressed(PadButton::R1), pad.l2 = m.pressed(PadButton::L2), pad.r2 = m.pressed(PadButton::R2);
+            pad.l3 = m.pressed(PadButton::L3);
+            pad.left_held = m.held(PadButton::Left), pad.right_held = m.held(PadButton::Right), pad.triangle_held = m.held(PadButton::Triangle);
+            race_->view_input(pad);
+        } else {
+            replay_paused_ = false;
+        }
         // A demonstration ends when its recording runs out, or on Start.
         if (race_->demonstrating() && (race_->demo_over() || m.pressed(PadButton::Start))) {
             race_->end_demo();
             race_->end_run(false);
             return finish_run(app);
         }
-        // A replay: Start (or Cross) ends it; it has no pause.
+        // A replay: Start ends it.
         if (race_->replaying()) {
-            if (m.pressed(PadButton::Start) || m.pressed(PadButton::Cross)) race_->stop_replay();
+            if (m.pressed(PadButton::Start)) race_->stop_replay();
             if (race_->replay_done()) return finish_run(app);
         } else if (results_shown()) {
             if (is_license(sequence_)) race_->license_sound(prize_level());
@@ -2058,7 +2246,7 @@ public:
         // The player's controls: the views and the pause by the controller's own buttons, as they go down.
         const auto [views, menu_buttons] = read_controls(app, pit_menu);
         const bool mine = !race_->watched() && !race_->replaying();
-        if (mine ? (views & input::RaceInput::kPlayView) != 0 : !race_->watched() && (m.pressed(PadButton::R1) || m.pressed(PadButton::Select))) race_->next_view();
+        if (mine ? (views & input::RaceInput::kPlayView) != 0 && !race_->viewing() : !race_->watched() && !race_->viewing() && (m.pressed(PadButton::R1) || m.pressed(PadButton::Select))) race_->next_view();
         if (playing()) {
             // (the player's pad or wheel unplugged: the race waits)
             const std::string device = app.input().kind(0) == gt3r::DeviceKind::Keyboard ? std::string() : app.input().device_name(0);
@@ -2074,6 +2262,13 @@ public:
         if (!pit_menu && race_->world().refuelling(0) && m.pressed(PadButton::Circle) && !race_->replaying()) race_->stop_refuel();
         update_panel(app, dt);
         if (monitor_ && race_->world().pit_stage(0) != 0) monitor_.reset(); // (into the pits: the live view again)
+        if (mine && !race_->viewing()) {
+            const bool free_stick = !app.input().wheel_steering(0) && !input::console_layout(app.input(), 0, controllers_.port[0]);
+            race_->set_look((player_input_.views & input::RaceInput::kLeftView) != 0, (player_input_.views & input::RaceInput::kRightView) != 0, free_stick ? player_input_.stick[2] : 0,
+                            free_stick ? player_input_.stick[3] : 0);
+        } else {
+            race_->set_look(false, false, 0, 0);
+        }
         look_back_ = mine ? (player_input_.views & (input::RaceInput::kBackView | input::RaceInput::kRearView)) != 0 : gt3r::race::look_back_held(app.input().race_pad(0), false);
         // (Settings > Controls: the songs' own controls)
         for (int p = 0; p < gt3r::InputManager::kMaxPlayers; ++p)
@@ -2087,7 +2282,7 @@ public:
         int n = 0;
         for (; clock_ >= kStep && n < 4; ++n) {
             clock_ -= kStep;
-            race_->step(player_input_, setup_.auto_drive || spectator_);
+            for (int k = race_->viewing() ? race_->view().speed() : 1; k-- > 0;) race_->step(player_input_, setup_.auto_drive || spectator_);
             if (const sim::Session* session = race_->world().session(); session && playing()) feedback_.step(input::car_feel(*session, 0), float(kStep));
         }
         if (n == 4) clock_ = 0;
@@ -2155,6 +2350,9 @@ public:
             ui.fill(0, 0, ui.width(), Ui::kHeight, Color{0, 0, 0, 255});
         } else {
             race_->render(ui, {0, 0, ui.width(), float(Ui::kHeight)}, look_back_);
+            // (As the menus come up after a run, before they are drawn: the picture a saved replay shows.)
+            if (menus_ && replay_picture_.empty() && quick_ && race_->has_run() && !race_->replaying())
+                replay_picture_ = replay_picture(app.renderer());
         }
         if (quick_) {
             // The race's menus over the scene.
@@ -2174,7 +2372,8 @@ public:
                 const menu::GameSettings::Display& d = settings_.display;
                 hud_state_.show_map = d.map, hud_state_.show_time = d.time, hud_state_.show_lap = d.lap;
                 hud_state_.show_position = d.position, hud_state_.show_meter = d.meter;
-                hud_state_.replay_display = settings_.replay_display && !race_->demonstrating(); // (a demonstration: no display)
+                hud_state_.replay_display = race_->viewing() && race_->view().style() == race::ReplayStyle::Display;
+                hud_state_.replay_paused = replay_paused_;
                 // A license test: the targets (the page's gold, silver and bronze times).
                 hud_state_.license = is_license(sequence_);
                 for (int k = 0; k < 3; ++k) hud_state_.targets[k] = test_time(k);
@@ -2723,7 +2922,6 @@ private:
             w.race_label = championship_race();
         }
         if (sequence_ != "single_race") {
-            w.set("IsASpec", 1); // ❓ the license the event asks for is not checked
             w.set("prize", 0);
             w.set("IsSessionFinished", 0);
             w.set("CourseLength", s32(race_->lap_length()));
@@ -2743,6 +2941,7 @@ private:
         spectator_ = watched;
         demo_ = demo;
         reported_ = false;
+        replay_picture_.clear();
         if (menus_ && !sequence_.empty()) race_->set_bspec_book(menus_->game().race.bspec_book, menus_->game().race.bspec_course_marks);
         if (menus_ && sequence_ == "championship") {
             const auto& series = menus_->game().series;
@@ -2843,15 +3042,11 @@ private:
             if (row.finished) f.time_ms = u32(row.total_ms);
             r.order.push_back(std::move(f));
         }
-        if (sequence_ == "single_race") {
-            // (The single race keeps its course record only: 0x111E98.)
-        } else {
-            try {
-                const s64 prize = menus_->race_finished(r);
-                if (session_kind()) w.set("prize", s32(std::clamp<s64>(prize, 0, 0x7FFFFFFF)));
-            } catch (const std::exception& e) {
-                LOG_WARN("Race result: %s", e.what());
-            }
+        try {
+            const s64 prize = menus_->race_finished(r); // (the single race keeps its course's best A-spec score: 0x111E98)
+            if (session_kind()) w.set("prize", s32(std::clamp<s64>(prize, 0, 0x7FFFFFFF)));
+        } catch (const std::exception& e) {
+            LOG_WARN("Race result: %s", e.what());
         }
         if (sequence_ == "time_trial" || sequence_ == "freerun" || sequence_ == "machinetest" || is_license(sequence_)) {
             // (A license test's best is its run's time when it passed; the others' their best lap.)
@@ -2888,7 +3083,7 @@ private:
         clock_ = std::min(clock_, double(kStep));
         if (!menus_->finished()) return;
         menu::QuickWork& w = menu::quick_work(menus_->game());
-        if (option_) return enter_quick(w.get("canReplay"), false);
+        if (option_) return menus_->game().pending_replay.reset(), enter_quick(w.get("canReplay"), false);
         // The command the scripts chose (the sequences' tables: docs/formats/race_flow.md).
         const std::string command = w.take_command();
         menus_->game().during_quick_menu = false;
@@ -2909,10 +3104,18 @@ private:
             quick_ = false;
             race_->start_replay();
         } else if (command == "COMMAND_SAVE_REPLAY" && race_->has_run()) {
-            // Save Replay (the program's labomode project with MODE_SAVE_FULL_REPLAY saves to the
-            // memory card): the run into the data folder's replays, then the menus again.
-            save_replay(app);
-            enter_quick(w.get("canReplay"), !session_over);
+            // Save Replay: the program's project labomode on its save page (MODE_SAVE_FULL_REPLAY: "Create new file" or over
+            // one there, a title typed), here into the data folder's replays; then the menus again.
+            pend_replay(app);
+            if (menus_->is_prologue()) { // (no labomode there: its memcard project's page is not run, the file is written at once)
+                menus_->game().pending_replay->save("", "");
+                menus_->game().pending_replay.reset();
+                enter_quick(w.get("canReplay"), !session_over);
+            } else {
+                option_ = true;
+                menus_->game().next_menu_arg = "MODE_SAVE_FULL_REPLAY";
+                menus_->start_project("labomode");
+            }
         } else if (command == "COMMAND_LOAD_GHOST") {
             // Load Best Lap Replay: the program's project labomode on its load page (0x11CF08, 0x10FEE8: next_menu_arg
             // MODE_LOAD_BESTLAP_REPLAY), then the menus again. ❓ No best lap replays are kept here: its list is empty, and a
@@ -3014,25 +3217,65 @@ private:
                 }
     }
 
+    // The run for the menus' save page (menu::GameState::pending_replay; the modes by the program's names, 0x6A0020; ❓ the
+    // number given for the license tests and missions alone).
+    void pend_replay(App& app) {
+        const menu::RaceRequest& q = menus_->game().race;
+        auto pending = std::make_shared<menu::GameState::PendingReplay>();
+        auto file = std::make_shared<race::ReplayFile>(race_->replay_file(sequence_, q.race));
+        static const std::pair<const char*, const char*> kModes[] = {
+            {"single_race", "ARCADE_SINGLE_RACE"}, {"time_trial", "ARCADE_TIME_TRIAL"},    {"solo_event", "GTMODE_EVENT_RACE"}, {"championship", "GTMODE_CHAMPIONSHIP"},
+            {"freerun", "GTMODE_FREE_RUN"},        {"practice", "GTMODE_FREE_PRACTICE"}, {"mission", "GTMODE_LICENSE_MISSION"},
+        };
+        pending->mode = "NOTHING";
+        for (const auto& [sequence, mode] : kModes)
+            if (sequence_ == sequence) pending->mode = mode;
+        if (sequence_ == "machinetest") // ("mt400_testcourse")
+            pending->mode = q.race.find("mt1000") != q.race.npos ? "GTMODE_MACHINE_TEST_0_1000" : q.race.find("mtmax") != q.race.npos ? "GTMODE_MACHINE_TEST_MAX_SPEED" : "GTMODE_MACHINE_TEST_0_400";
+        const std::string label = q.race.size() > 7 ? q.race.substr(q.race.size() - 7) : q.race; // "l0b0001"
+        if (is_license(sequence_)) {
+            static const std::pair<const char*, const char*> kTests[] = {{"l0b", "GTMODE_LICENSE_B"},   {"l0a", "GTMODE_LICENSE_A"}, {"lib", "GTMODE_LICENSE_IB"},
+                                                                        {"lia", "GTMODE_LICENSE_IA"}, {"l0s", "GTMODE_LICENSE_S"}, {"l0c", "GTMODE_LICENSE_COFFEE_BREAK"}};
+            pending->mode = "GTMODE_LICENSE";
+            for (const auto& [prefix, mode] : kTests)
+                if (label.rfind(prefix, 0) == 0) pending->mode = mode;
+        }
+        if ((is_license(sequence_) || sequence_ == "mission") && label.size() == 7) pending->submode = std::atoi(label.c_str() + 3);
+        pending->course = file->course, pending->car = file->cars.empty() ? std::string() : file->cars[0].label;
+        if (race_->flow().player_finished()) pending->time_ms = u32(race_->flow().run_ms(0));
+        pending->bspec = spectator_, pending->picture = replay_picture_;
+        file->mode = pending->mode, file->submode = pending->submode, file->time_ms = pending->time_ms, file->bspec = pending->bspec, file->picture = replay_picture_;
+        pending->kb = int((file->encode().size() + 1023) / 1024);
+        pending->save = [this, &app, file](const std::string& title, const std::string& path) {
+            file->title = title;
+            return write_replay(app, *file, path);
+        };
+        menus_->game().pending_replay = pending;
+    }
+
     // The last run as a file of the data folder's `replays` (the Drive screen plays one with
     // GT4R_RACE="replay_file=<path>").
     void save_replay(App& app) {
+        const menu::RaceRequest* q = menus_ ? &menus_->game().race : nullptr;
+        write_replay(app, race_->replay_file(sequence_, q ? q->race : std::string()), {});
+    }
+    bool write_replay(App& app, const race::ReplayFile& file, const std::string& over) {
         const std::string folder = app.save_dir() + "/replays";
         SDL_CreateDirectory(folder.c_str());
         char stamp[32];
         const std::time_t now = std::time(nullptr);
         std::strftime(stamp, sizeof stamp, "%Y%m%d-%H%M%S", std::localtime(&now));
-        const std::string path = folder + "/" + setup_.course + "-" + stamp + ".gt4rrep";
-        const menu::RaceRequest* q = menus_ ? &menus_->game().race : nullptr;
-        const Bytes b = race_->replay_file(sequence_, q ? q->race : std::string()).encode();
+        const std::string path = over.empty() ? folder + "/" + setup_.course + "-" + stamp + ".gt4rrep" : over;
+        const Bytes b = file.encode();
         if (std::FILE* fp = std::fopen(path.c_str(), "wb")) {
             std::fwrite(b.data(), 1, b.size(), fp);
             std::fclose(fp);
             last_saved_ = path;
             LOG_INFO("Drive: the replay saved to %s (%zu bytes)", path.c_str(), b.size());
-        } else {
-            LOG_WARN("Drive: cannot write %s", path.c_str());
+            return true;
         }
+        LOG_WARN("Drive: cannot write %s", path.c_str());
+        return false;
     }
 
     // The race sequence is over: the menus go on where the scripts said (their next project), as
@@ -3504,6 +3747,7 @@ private:
     HudState hud_state_;
     std::string error_;
     bool paused_ = false, look_back_ = false, from_menus_ = false;
+    bool replay_paused_ = false; // a replay held still (Select)
     std::shared_ptr<const race::StrobeMovie> pause_movie_, monitor_movie_, pit_movie_;
     std::unique_ptr<race::StrobePlayer> panel_; // B-spec's commands over the live race
     std::unique_ptr<race::StrobePlayer> pit_; // the PIT STOP menu
@@ -3592,6 +3836,7 @@ private:
     std::unique_ptr<menu::Runtime> own_menus_; // a scripted run's
     std::string sequence_;              // the race sequence ("single_race")
     std::unique_ptr<MenuPainter> painter_;
+    std::vector<u32> replay_picture_; // the run's, for a saved replay (replay_picture.h)
     bool quick_ = false, option_ = false, spectator_ = false;
     double clock_ = 0;
     gt3r::race::FramePacer pacer_;

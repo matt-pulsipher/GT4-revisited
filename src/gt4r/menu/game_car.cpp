@@ -3,6 +3,7 @@
 // docs/formats/save.md ("The car record") and docs/formats/menu.md ("A car") say what each does.
 
 #include "gt4r/menu/game_internal.h"
+#include "gt4r/menu/program_sort.h"
 #include "gt4r/menu/faces_graph.h"
 
 #include "gt4r/sim/car_spec.h"
@@ -418,7 +419,7 @@ Value make_car_value(GameNatives& n, std::shared_ptr<CarHandle> c) {
     });
     car->method("getCatTq", [spec, st](Vm& vm, const Value&, Args a) {
         const Database::Spec& sp = spec();
-        if (!sp.engine) return text("----");
+        if (!sp.engine || (!a.empty() && (sp.torque_rpm.empty() || sp.torque_rpm[0] == '-'))) return text("----"); // (0x146198)
         const GameState::Unit unit = st->torque_unit();
         // 0x445F70: the engine row's 0.01 kgf m times the unit's factor, truncated; the page's "%.2t" writes it.
         const s32 v = gt3r::ee::to_int(sim::F(float(std::lround(sp.torque * 100.0f))) * sim::F(unit.factor));
@@ -1141,7 +1142,7 @@ void install_car_class(GameNatives& n, script::Module& menu) {
             const bool ascending = a.size() < 2 || a[1].truthy();
             std::vector<std::pair<Value, Value>> keyed;
             for (const Value& car : *a[0].items()) keyed.emplace_back(key(vm, car), car);
-            std::stable_sort(keyed.begin(), keyed.end(), [&](const auto& x, const auto& y) {
+            program_sort(keyed, [&](const auto& x, const auto& y) {
                 const Value& p = ascending ? x.first : y.first;
                 const Value& q = ascending ? y.first : x.first;
                 if (p.kind == Kind::String || q.kind == Kind::String) return p.to_string() < q.to_string();

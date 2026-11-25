@@ -10,14 +10,17 @@ Prologue disc starts the same way.
    4 disc image (`.iso` or `.chd`), or drop the file on the window. Nothing is copied from the
    disc; the game's files are read from the image as they are needed.
    The disc images opened before are offered below it.
-2. With a disc chosen, the game starts as the console does: the memory card's questions, the
+2. With a disc chosen, the game starts as the console does, without its questions about a memory card: the
    Polyphony Digital logo, the opening movie (Start skips it), the title. The disc is remembered:
    the next launch goes straight there. `gt4r <disc image>` starts with that disc.
-3. Your memory card, options and replays are kept in the app's data folder (on macOS
+3. Your saved games, options and replays are kept in the app's data folder (on macOS
    `~/Library/Application Support/GT4Revisited/GT4Revisited/`; a `portable.ini` beside the program
-   keeps them beside it; `GT4R_DATA_DIR` names another folder). A new data folder is a memory
-   card without game data: the game offers to make one (OK), which leads to Gran Turismo mode's
-   name entry and introduction; Cancel and "Start game" play without one (Arcade only).
+   keeps them beside it; `GT4R_DATA_DIR` names another folder). With none saved yet, choosing Gran Turismo mode
+   starts a new game (the name entry); Arcade needs none. The game saves itself after every race and purchase (Options,
+   Miscellaneous, Autosave) and the next launch goes on with it.
+   **Saved games** (the home screen, the title's *Save Game*, Prologue's *Save* and *Load*) lists them: load one, start a new one
+   beside the others, delete one, *Export to PS2* (a memory card image the original loads) and *Import from a PS2 memory card
+   image*.
 4. Select and Start together leave the game for the home screen: the disc's cars, courses, menu
    pages and files, a race set up by hand (*Drive*), *Controls*, *Settings*, *Mods*, the *Save editor*, another disc, and
    *Play* to start the game again. *Settings > Disc & saves > Starts in* opens the home screen first.
@@ -93,6 +96,8 @@ Every change is applied at once and kept in `config.ini`; the 3D renderer is tak
   are sent as the console sends them (one side turned over, for a surround decoder) or plain.
 - *Controls*: both players' controls; whether controllers keep driving while another window is in front; on Windows how
   Xbox controllers are read.
+- *Views & replays*: the views the change-view control goes through and whether the in-car view shakes; in replays the
+  heat haze, the vignette, the motion trail and the depth of field. A race takes these as it starts and as its pause closes.
 - *Disc & saves*: the disc in use, whether its files are a tested release's own and whether the image is complete; the
   disc images opened before (Cross opens one, Square takes it off the list); the folder the games, replays and photos
   are kept in (a new one gets a copy of what it does not have; nothing is written over); what opens at the start; the data
@@ -115,6 +120,13 @@ dynamic_resolution = off ; on | off
 menu_models = screen     ; screen | console
 gpu = auto               ; auto | gles | gles_driver | off
 texture_packs = on       ; on | off
+heat_haze = off          ; on | off (replays, as the three below)
+replay_vignette = on     ; on | off
+replay_trail = on        ; on | off
+depth_of_field = high    ; off | standard | high
+[cameras]
+race_views = original    ; original | all
+in_car_shake = on        ; on | off
 [audio]
 device =                 ; an output device's name; empty: the system's
 music_volume = 0.80
@@ -180,7 +192,7 @@ Wheel:
 
 ## What works
 
-- **The boot**: the memory card's dialogs, the logo, the opening movie, the title with its
+- **The boot**: the logo, the opening movie, the title with its
   moving background. A game saved in Gran Turismo mode starts again on its map, as the console
   does.
 - **Arcade**: Single Race (course categories, the course pages, every maker and car, paints, the
@@ -201,7 +213,7 @@ Wheel:
   when you come back to the map, and loading it at the next start.
 - **Races**: the courses drawn in full with the computer drivers racing, the three driving views,
   the race display (in the units the options set), the B-spec display and commands, the pause
-  menu, the results, the replays through the course's cameras.
+  menu, the results, the replays through the course's cameras or the car's own.
 - **License tests**: the License Center, a test's page, the test driven with its own display and
   trophy times, ended when the car stops in the box or fails (cones, walls, off the course), its
   results with Retry and Exit, the trophy on the license's grid.
@@ -213,6 +225,15 @@ Wheel:
   camera (hold Cross on a button, or L1, L2, R1, R2, with the left stick), lens, aperture, focus, filters,
   the wheels' angle, portrait, the aspect and quality options; the photo, saved (Start) with the game's save files in
   the original's format; Photo Lab's list, preview, renaming, deleting and the slide show.
+
+## Watching a replay
+
+Up and Down follow the car ahead or behind. Cross changes between the course's cameras and the car's own: there R1 goes through its
+places, L1 looks back, L2 and R2 are the cameras beside the cabin, Left and Right held look to the sides. Triangle held zooms in.
+Square changes the playback (without the race display, Dive, with it), Circle switches the music, L3 plays four times as fast (Dive cuts to the music, between all the cars; there Cross cuts),
+Select holds the picture, Start leaves. *Settings > Views & replays* has the depth of field, the vignette, the heat haze and the
+in-car camera's shake; its *Views* "All" adds a view without the mirror, the front bumper, a farther chase view and the course's
+cameras to the race's views. On a pad whose right stick does nothing else it looks around in the in-car and chase views.
 
 ## Known problems
 

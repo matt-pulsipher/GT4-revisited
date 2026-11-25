@@ -272,6 +272,13 @@ void start_quick_work(Runtime& rt, const RaceRequest& q) {
             w.set("IsQuickTuned", 0);
         }
     }
+    // The player's own start of an event (0x114334, a championship's 0x119A78: the event's license).
+    if (const std::shared_ptr<GameNatives> n = natives_of(rt); n && (q.sequence == "solo_event" || q.sequence == "championship")) {
+        ByteSpan row;
+        for (const std::string& label : {q.race, "us" + q.race, "jp" + q.race})
+            if (row.empty() && !label.empty()) row = n->db().row("RACE", label);
+        w.set("IsASpec", event_aspec_allowed(n->db(), s, r8(row, 0x45)) ? 1 : 0);
+    }
     if (q.sequence == "machinetest") w.set("DisableLogger", 1); // 0x116124
     if (q.sequence == "license_race") w.set("BestTime", s32(QuickWork::kNoTime)); // ❓ (Prologue's constructor is not read: dashes, as before)
     if (q.sequence == "license") {
@@ -536,8 +543,19 @@ s64 Runtime::race_finished(const RaceResult& r) {
         day.code = d.code(kCourseTable, r.course);
         break;
     }
-    // Arcade's sequences put no day (0x111498 and 0x112620 reach none of the routines that do).
-    if (r.kind == RaceResult::Kind::Course && r.course_kind == 7) return prize;
+    // Arcade's sequences put no day (0x111498 and 0x112620 reach none of the routines that do). A single race the player
+    // drove and finished keeps its A-spec points when they are the course's best (0x111E98: the course of the race's row,
+    // its record made when it has none, 0x433C10; 0x4336D0: at most 255), shown on the course page.
+    if (r.kind == RaceResult::Kind::Course && r.course_kind == 7) {
+        if (s.race_session.sequence == "single_race" && r.finished && !r.watched && r.score >= 0) {
+            const Value label[1] = {Value::string(r.course)};
+            const Value record = vm().attribute(vm().lookup("game"), "course_record");
+            const Value course = record.p ? vm().call(vm().attribute(record, "getUnit"), label) : Value{};
+            const Value score[1] = {Value::integer(r.score)};
+            if (course.p) vm().call(vm().attribute(course, "updateBestScore"), score);
+        }
+        return prize;
+    }
     // A license test's day is the sequence's, put when it ends (0x110800); a run outside a
     // sequence puts it at once.
     if (r.kind == RaceResult::Kind::License && s.race_session.license_open) s.race_session.license_day = day;

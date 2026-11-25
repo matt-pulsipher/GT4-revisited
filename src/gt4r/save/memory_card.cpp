@@ -161,7 +161,6 @@ Result GameSave::update_header(GameState& s, u32 serial, bool money) {
     u32 stamp = previous + clock_word();
     if (!stamp) stamp = 1;
     put32(h + 0x34, previous), put32(h + 0x3C, stamp);
-    stamp_ = stamp;
     encode_header(h, s.garage_key);
     // The header and the cars' records, each in its slot (the program writes a slot when the
     // car driven changes; here all at once).
@@ -170,7 +169,9 @@ Result GameSave::update_header(GameState& s, u32 serial, bool money) {
             const Bytes slot = encode_slot(ByteSpan(s.garage[i].record->bytes.data(), CarRecord::kSize), s.garage_key, u32(i), clock_word());
             std::memcpy(file->data() + kHeader + i * kSlotSize, slot.data(), kSlotSize);
         }
-    return write("garage", *file) ? Result::Ok : Result::DeviceError;
+    if (!write("garage", *file)) return Result::DeviceError;
+    stamp_ = stamp;
+    return Result::Ok;
 }
 
 Result GameSave::save_new(GameState& s, const std::string& title) {
@@ -284,6 +285,8 @@ Result GameSave::load(GameState& s) {
     s = std::move(loaded);
     return Result::Ok;
 }
+
+Bytes GameSave::payload(const GameState& s) const { return prologue_ ? write_prologue(s) : write_game(s, codes_); }
 
 Result GameSave::remove() {
     if (!connected()) return Result::NoCard;
