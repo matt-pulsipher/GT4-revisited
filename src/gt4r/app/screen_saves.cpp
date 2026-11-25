@@ -46,6 +46,7 @@ public:
     }
 
     void update(App& app, double) override {
+        if (std::exchange(stale_, false)) list(app); // (back from the editor)
         if (window_.waiting()) {
             std::string path, error;
             if (!window_.take(path, error)) return;
@@ -118,6 +119,8 @@ private:
                 from_ = g.card;
                 ask(*ap, true, (g.name.empty() ? std::string("GT4") : g.name) + ".ps2");
             });
+            // (Not while a game runs: it saves by itself.)
+            if (g.readable && !hooks_.load) row("Edit", "the save editor", "open", [this, g, ap] { ap->push(make_save_editor(*ap, g.card)), stale_ = true; });
             row(sure_ ? "Delete: again to take this game away" : "Delete", "", "delete", [this, g] {
                 if (!sure_) return void(sure_ = true);
                 sure_ = false;
@@ -175,7 +178,7 @@ private:
     }
 
     SavesHooks hooks_;
-    bool prologue_ = false, closing_ = false, sure_ = false, writing_ = false, bad_ = false;
+    bool prologue_ = false, closing_ = false, sure_ = false, writing_ = false, stale_ = false, bad_ = false;
     std::unique_ptr<save::SaveLibrary> library_;
     std::vector<save::SavedGame> games_;
     FileWindow window_;

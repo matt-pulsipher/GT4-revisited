@@ -22,10 +22,14 @@ Prologue disc starts the same way.
    beside the others, delete one, *Export to PS2* (a memory card image the original loads) and *Import from a PS2 memory card
    image*.
 4. Select and Start together leave the game for the home screen: the disc's cars, courses, menu
-   pages and files, a race set up by hand (*Drive*), *Controls*, *Settings*, *Mods*, another disc, and
+   pages and files, a race set up by hand (*Drive*), *Controls*, *Settings*, *Mods*, the *Save editor*, another disc, and
    *Play* to start the game again. *Settings > Disc & saves > Starts in* opens the home screen first.
    The home screen and the app's own pages take a pad, the keyboard and the mouse (a click chooses, the
    wheel scrolls, the right button goes back); the game's pages a pad or the keyboard.
+5. The *Save editor* changes a saved game: credits and the day, the garage (any car of the game, its paint, parts and
+   settings), licenses, events, missions, prize cars, records, what Arcade mode has open. Nothing is written until you
+   save, and the save as it was is kept in the save folder's `backups/` first. It also opens PlayStation 2 memory card
+   images. [SAVE_EDITOR.md](SAVE_EDITOR.md).
 
 ## Controls
 
