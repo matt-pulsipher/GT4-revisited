@@ -89,6 +89,8 @@ Every change is applied at once and kept in `config.ini`; the 3D renderer is tak
   are sent as the console sends them (one side turned over, for a surround decoder) or plain.
 - *Controls*: both players' controls; whether controllers keep driving while another window is in front; on Windows how
   Xbox controllers are read.
+- *Views & replays*: the views the change-view control goes through and whether the in-car view shakes; in replays the
+  heat haze, the vignette, the motion trail and the depth of field. A race takes these as it starts and as its pause closes.
 - *Disc & saves*: the disc in use, whether its files are a tested release's own and whether the image is complete; the
   disc images opened before (Cross opens one, Square takes it off the list); the folder the games, replays and photos
   are kept in (a new one gets a copy of what it does not have; nothing is written over); what opens at the start; the data
@@ -111,6 +113,13 @@ dynamic_resolution = off ; on | off
 menu_models = screen     ; screen | console
 gpu = auto               ; auto | gles | gles_driver | off
 texture_packs = on       ; on | off
+heat_haze = on           ; on | off (replays, as the three below)
+replay_vignette = on     ; on | off
+replay_trail = on        ; on | off
+depth_of_field = high    ; off | standard | high
+[cameras]
+race_views = original    ; original | all
+in_car_shake = on        ; on | off
 [audio]
 device =                 ; an output device's name; empty: the system's
 music_volume = 0.80

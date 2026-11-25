@@ -248,7 +248,9 @@ std::unique_ptr<Screen> make_hub_screen();
 std::unique_ptr<Screen> make_sweep_screen(const std::string& list, const std::string& out);
 // The player's controls: the device, the race's layout, rumble and force feedback, the bindings.
 std::unique_ptr<Screen> make_controls_screen(App& app, int player = 0);
-// The app's settings (screen_settings.cpp), from a page on (0 Display, 1 Audio, 2 Controls, 3 Disc & saves, 4 Mods).
+// The app's settings (screen_settings.cpp), from a page on (0 Display, 1 Audio, 2 Controls, 3 Views & replays, 4 Disc & saves,
+// 5 Mods: kModsPage).
+constexpr int kModsPage = 5;
 std::unique_ptr<Screen> make_settings_screen(App& app, int page = 0, const std::string& install = {});
 std::unique_ptr<Screen> make_browser_screen(const std::string& open_path = "");
 // The menu projects' pages drawn from the disc's layouts (still pictures).

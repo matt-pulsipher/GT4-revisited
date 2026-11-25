@@ -80,7 +80,7 @@ public:
                 case 7: app.push(make_game_screen(app)); break;
                 case 8: app.push(make_controls_screen(app)); break;
                 case 20: app.push(make_settings_screen(app)); break;
-                case 21: app.push(make_settings_screen(app, 4)); break;
+                case 21: app.push(make_settings_screen(app, kModsPage)); break;
                 default: app.quit(); break;
                 }
                 error_.clear();
