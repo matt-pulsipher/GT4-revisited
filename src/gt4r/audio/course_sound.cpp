@@ -8,6 +8,7 @@ namespace gt4r::audio {
 namespace {
 
 constexpr float kRise = 1.0f / 120.0f, kFall = 1.0f / 180.0f; // a gated emitter's gain a step
+constexpr float kPrologueStep = 1.0f / 60.0f;                  // Prologue's, both ways (0x40FE80)
 constexpr float kNextCar = 0.8f;                              // each further car between the gates
 constexpr float kNear = 32.0f;                                // full level inside this distance
 constexpr float kSound = 331.45f;                             // m/s
@@ -18,9 +19,9 @@ float dot(const race::Vec3& a, const race::Vec3& b) { return a.x * b.x + a.y * b
 
 } // namespace
 
-const char* CourseSound::effect_name(int c) {
-    static const char* const kNames[kChannels] = {"air", "city", "crowds", "cheer", "sea"};
-    return c >= 0 && c < kChannels ? kNames[c] : nullptr;
+const char* CourseSound::effect_name(int c, bool prologue) {
+    static const char* const kNames[2][kChannels] = {{"air", "city", "crowds", "cheer", "sea"}, {"air", "city", nullptr, "crowds", "sea"}};
+    return c >= 0 && c < kChannels ? kNames[prologue ? 1 : 0][c] : nullptr;
 }
 
 void CourseSound::clear() {
@@ -68,7 +69,8 @@ void CourseSound::update(const std::vector<Listener>& listeners, const std::vect
                 w *= kNextCar;
             }
             target = std::min(target, 1.0f);
-            e.gain = e.gain < target ? std::min(e.gain + kRise, target) : std::max(e.gain - kFall, target);
+            e.gain = e.gain < target ? std::min(e.gain + (prologue_ ? kPrologueStep : kRise), target)
+                                     : std::max(e.gain - (prologue_ ? kPrologueStep : kFall), target);
         }
 
     out_ = {};
@@ -81,7 +83,7 @@ void CourseSound::update(const std::vector<Listener>& listeners, const std::vect
             if (list.empty()) continue;
             if (c == Air || c == City) {
                 const Emitter& e = list.front();
-                const float level = e.src.points.empty() ? 0.0f : e.src.points.front().weight * e.gain;
+                const float level = prologue_ ? 1.0f : e.src.points.empty() ? 0.0f : e.src.points.front().weight * e.gain;
                 o.left += level, o.right += level;
                 continue;
             }
@@ -102,7 +104,7 @@ void CourseSound::update(const std::vector<Listener>& listeners, const std::vect
                 }
                 if (!e.src.points.empty()) doppler_sum += doppler / float(e.src.points.size());
             }
-            if (c == Crowds) o.pitch += doppler_sum / float(list.size());
+            if (c == Crowds || prologue_) o.pitch += doppler_sum / float(list.size());
         }
         switch (at.road_flags & 0x18) {
         case 0x08: tunnel1_ = 1.0f, target = 0.5f; break;

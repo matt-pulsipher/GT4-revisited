@@ -7,8 +7,8 @@
 // auto (the simple driver takes the first car too) or pad, `skip` simulation steps run before the
 // first picture (the start's hold is left out then), `paint` the first car's paint, `laps` the
 // race's length, `start` the start: 10 or 8 (a hold of so many seconds with the opening shots),
-// <seconds> (a plain hold), none, rolling, course (the course's own: race/start_rule.h); `view=tv` the course's replay cameras; `driver=1` the drivers in their stored pose; (GT4R_DEMO_LOG=<n> logs a demonstration's car every n steps); `replay=N` drives
-// N steps unseen and plays them back through the replay cameras; `bspec=1` a B-spec run (GT4R_HITCH=<ms>
+// <seconds> (a plain hold), none, rolling, course (the course's own: race/start_rule.h); `view=tv` the course's replay cameras; `driver=0` no drivers in the cars; (GT4R_DEMO_LOG=<n> logs a demonstration's car every n steps); `replay=N` drives
+// N steps unseen and plays them back through the replay cameras; `bspec=1` a B-spec run, `pit=1` its car asked into the pits from the start (GT4R_HITCH=<ms>
 // logs every frame longer than that, with the race's work and the present before it); `menus=single_race` the race
 // sequence's own menus (quick-arcade) before and after the race (any sequence: solo_event,
 // championship, license, mission, time_trial, freerun, practice, machinetest), `race=<label>` its event.
@@ -89,6 +89,7 @@ struct Setup {
     int view = race::DriveCamera::kChase;
     bool look_back = false;
     bool auto_drive = false;
+    bool pit = false;     // `pit=1`: its car asked into the pits from the start
     RaceWorld::PlayerChoice player; // the gearbox, the aids, the wheel's (`mt=1`, `asm=0`, `tcs=0`; a race of the menus: its choices)
     bool bspec = false;   // `bspec=1`: a B-spec run (the computer drives the player's car; its display and commands)
     int skip = 0;
@@ -97,7 +98,7 @@ struct Setup {
     int laps = 3;
     int replay = 0;
     bool smoke = true;
-    bool drivers = false;
+    bool drivers = true;
     bool reflection = true;
     bool rail = false;     // the stand-in simulation instead of the game's
     bool scripted = false; // from GT4R_RACE: no lists
@@ -160,6 +161,7 @@ Setup setup_from_env() {
             if (!v.empty() && std::isdigit(static_cast<unsigned char>(v[0]))) s.view = std::atoi(v.c_str());
         } else if (k == "drive") s.auto_drive = v == "auto";
         else if (k == "bspec") s.bspec = v != "0";
+        else if (k == "pit") s.pit = v != "0";
         else if (k == "mt") s.player.automatic = v == "0";
         else if (k == "asm") s.player.asm_on = v != "0";
         else if (k == "tcs") s.player.tcs_on = v != "0";
@@ -608,7 +610,9 @@ public:
                      double(world_->start_race().goal));
         mount_ = setup.view;
         begin_run(setup.bspec);
+        built_ = true;
         // A scripted run that skips ahead: those steps unseen.
+        if (setup.pit) world_->pit_command(0);
         for (int i = 0; i < setup.skip; ++i) step({}, true);
         if (setup.replay > 0) {
             // A run driven unseen, then shown through the replay cameras.
@@ -665,7 +669,6 @@ public:
         } else fs.sectors = splits_;
         flow_.begin(fs, world_->cars());
         for (size_t i = 0; i < world_->car_count(); ++i) world_->set_crossings(i, flow_.car(i).counter), world_->set_rank(i, flow_.place(i));
-        rolled_ = false;
         license_failed_ = false, cones_met_ = 0;
         judge_ = race::LicenseJudge(judge_.rules());
         finish_camera_.angle = 0;
@@ -673,7 +676,12 @@ public:
         board_.begin(world_->car_count(), 0, lap_words_[0], lap_words_[1]);
         camera_.reset(world_->cars()[0]);
         history_.clear(), run_dist_.clear();
-        if (audio::RaceSound* sound = world_->sound()) sound->forget_recording();
+        if (audio::RaceSound* sound = world_->sound()) {
+            sound->forget_recording();
+            // (built for its menus, the run is not begun yet: its page comes first)
+            if (built_ || setup_.sequence.empty()) sound->begin_run(audio::race_music(setup_.sequence, setup_.race, last_race_), int(fs.start));
+            license_sounded_ = false;
+        }
         split_prev_.clear(), split_first_.clear(), split_steps_ = -1;
         distance_ = 0, bspec_distance_ = 0, shown_steps_ = 0;
         replaying_ = false, over_ = false;
@@ -867,12 +875,12 @@ public:
         }
         if (audio::RaceSound* sound = world_->sound()) {
             if (hold) sound->count(flow_.hold_left());
-            // A rolling start: the racing music as the field begins to run, the start's sound when
-            // the player's car takes the line.
+            // A rolling start: the racing music with the run's beginning (begin_run), the start's sound when the player's
+            // car takes the line; a moving one its music and the sound then.
             const bool runs_up = flow_.setup().start == race::StartType::Rolling || flow_.setup().start == race::StartType::Moving;
-            if (!rolled_ && runs_up) sound->rolling(), rolled_ = true;
-            if (ev.start && runs_up) sound->start_signal();
-            if (ev.player_finished) sound->finish();
+            if (ev.start && runs_up && flow_.setup().start == race::StartType::Rolling) sound->start_signal();
+            else if (ev.start) sound->start(); // (a standing start: the last held step is let go, so not counted above)
+            if (ev.player_finished && !is_license(setup_.sequence)) sound->finish();
         }
         if (ev.clock_started) LOG_INFO("Drive: the rolling start's clock starts (the first car takes the line); the player %.1f m from it", double(to_line_raw()));
         if (opening_was_ && !opening_tv()) LOG_INFO("Drive: the opening shots end %.1f m from the line, %.2f s on the clock", double(to_line_raw()), double(flow_.time_ms()) / 1000);
@@ -1271,7 +1279,8 @@ public:
         // The in-car view's rear-view mirror at the top (❓ its place, (190, 18) 259 x 63 of the
         // 640 x 480 picture, measured on the original's in-car view): not in replays, demonstrations, under the results pages, the opening
         // shots (a standing start's or a rolling start's TV cameras), B-spec or looking back.
-        if (mount_ == race::DriveCamera::kInCar && !finish_view() && !replaying_ && !demo_run_ && !flow_.player_finished() && !menu_scene_ && !watched_ && !start_camera_.active() && !opening_tv() && !look_back && !setup_.look_back) {
+        race::ViewPose pit;
+        if (mount_ == race::DriveCamera::kInCar && !world_->pit_camera(focus(), pit) && !finish_view() && !replaying_ && !demo_run_ && !flow_.player_finished() && !menu_scene_ && !watched_ && !start_camera_.active() && !opening_tv() && !look_back && !setup_.look_back) {
             const SDL_FRect c = RaceHud::canvas();
             const float k = c.h / 480.0f;
             world_->render_mirror(ui, {c.x + 190 * k, c.y + 18 * k, 259 * k, 63 * k}, cars, pose, 0);
@@ -1349,6 +1358,13 @@ public:
         if (judge_.cones_done()) flow_.finish_now(0, 1); // (at the step's end: the clock + 50)
     }
     const race::LicenseJudge& license_judge() const { return judge_; }
+    // A series' last race has its own jingles.
+    void set_last_race(bool last) { last_race_ = last; }
+    // A license test's result, once: its jingle.
+    void license_sound(int grade) {
+        if (std::exchange(license_sounded_, true)) return;
+        if (audio::RaceSound* sound = world_->sound()) sound->license_result(grade);
+    }
     bool license_failed() const { return license_failed_; }
 
     // A license test on a road whose goal distance (Gran Turismo 3's road header +0x1C, Prologue's courses) lies inside the
@@ -1378,7 +1394,9 @@ public:
     // The camera at the last step but one (its cameras as they were then, on the cars as they were).
     race::ViewPose previous_pose(bool look_back) {
         std::swap(camera_, camera_prev_), std::swap(start_camera_, start_prev_), std::swap(tv_pose_, tv_prev_), std::swap(tv_valid_, tv_prev_valid_);
+        before_ = true;
         const race::ViewPose p = current_pose(prev_cars_, look_back);
+        before_ = false;
         std::swap(camera_, camera_prev_), std::swap(start_camera_, start_prev_), std::swap(tv_pose_, tv_prev_), std::swap(tv_valid_, tv_prev_valid_);
         return p;
     }
@@ -1460,6 +1478,8 @@ public:
         // The replay cameras' shot for the car; the chase view where the script has none.
         if (!posed && finish_view()) posed = finish_camera_.pose(RVec{me.position.x, me.position.y, me.position.z}, pose);
         if (!posed && view == kTvView && tv_valid_) pose = tv_pose_, posed = true;
+        // The pit's own camera from the car's nearing its box until it has left it.
+        if (!posed && !replaying_ && !menu_scene_) posed = world_->pit_camera(f, pose, before_);
         // Prologue's shots: a lens of A degrees shows 10 / 7 of the width ours does (✔ against the original's start, grid page and
         // trackside shots at Tsukuba: 1.43; 4/3 x 480/448, the angle up its 448 lines).
         if (posed && gt3_road_) pose.fov = 2 * std::atan(std::tan(pose.fov * 0.5f) * 10 / 7);
@@ -1558,6 +1578,7 @@ private:
     race::StartCamera start_prev_;
     race::ViewPose tv_prev_;
     bool tv_prev_valid_ = false;
+    bool before_ = false; // the pose asked for is the last step but one's
     float blend_ = 1;
     int dissolve_total_ = 0, dissolve_left_ = 0;
     race::CameraMotion start_motion_, replay_motion_;
@@ -1568,7 +1589,7 @@ private:
     race::ResultBoard board_;
     float distance_ = 0, bspec_distance_ = 0;
     int shown_steps_ = 0; // since the run began, its hold included
-    bool rolled_ = false; // a rolling start's music was started
+    bool built_ = false, last_race_ = false, license_sounded_ = false; // (the race's music: a series' last race, a test's result heard)
     int tire_index_ = 4;   // the race's tires (the scripts' index: 4 sports medium)
     std::string race_word_ = "ARCADE_SINGLE_RACE"; // the race's name in the race's words
     bool throttle_held_ = false;
@@ -1829,6 +1850,7 @@ public:
             if (m.pressed(PadButton::Start) || m.pressed(PadButton::Cross)) race_->stop_replay();
             if (race_->replay_done()) return finish_run(app);
         } else if (results_shown()) {
+            if (is_license(sequence_)) race_->license_sound(prize_level());
             // The results page (the game's results movie, else a plain page): leaving it ends the run.
             if (!result_ && !result_tried_) open_results(app);
             bool leave = false;
@@ -2574,6 +2596,10 @@ private:
         reported_ = false;
         replay_picture_.clear();
         if (menus_ && !sequence_.empty()) race_->set_bspec_book(menus_->game().race.bspec_book, menus_->game().race.bspec_course_marks);
+        if (menus_ && sequence_ == "championship") {
+            const auto& series = menus_->game().series;
+            race_->set_last_race(series.race_count > 0 && series.races_run + 1 >= series.race_count);
+        }
         race_->set_player(player_choice());
         race_->begin_run(watched);
         clock_ = 0;

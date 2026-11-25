@@ -108,7 +108,14 @@ private:
     Gadgets gadgets_;
     const class GadgetBodies* gadget_bodies_ = nullptr;
     std::unique_ptr<render::GpuModel> gadget_model_;
-    std::vector<std::vector<u16>> gadget_nodes_; // per kind: its shape's model
+    std::vector<std::vector<u16>> gadget_nodes_, gadget_shadow_nodes_; // per kind: its shape's model, its shadow's
+    struct GadgetLight {
+        bool known = false;
+        course::Vec3 at;
+        float sun = 1, sky = 1;
+        std::array<float, 4> plane{0, 1, 0, 0};
+    };
+    mutable std::vector<GadgetLight> gadget_light_;
     std::array<gt3r::course::Visibility, 2> vis_; // slot 1's lists per View
     gt3r::course::Visibility env_vis_;            // slot 5's
     gt3r::race::Occluder occluder_;
