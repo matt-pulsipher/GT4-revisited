@@ -194,6 +194,7 @@ public:
         float x = 0, y = 0;
         float opacity = 1;
     };
+    std::pair<float, float> car_size(size_t i) const;
     void draw_icons(Ui& ui, const SDL_FRect& canvas, std::span<const Icon> icons);
     // One model in its own view over `rect` (the license results' trophy), in the course's light:
     // `place` its model matrix in a camera at the origin looking down -z, `proj` the lens.

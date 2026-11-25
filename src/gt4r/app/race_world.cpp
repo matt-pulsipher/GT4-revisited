@@ -712,16 +712,29 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
     ++m.frame;
 }
 
+// A car's length and height, metres (its CHASSIS row's +0x08 / +0x0A, mm: 0x445D90 / 0x445DC0).
+std::pair<float, float> RaceWorld::car_size(size_t i) const {
+    if (session_ && i < setup_.entries.size()) {
+        const db::Table* t = app_.db()->table("CHASSIS");
+        const db::PartId part = session_->equipment(i).part(sim::Equipment::Chassis);
+        if (t && part != db::kNoPart)
+            if (const ByteSpan r = t->row(db::part_row_id(part)); r.size() >= 0x0C && rd16(r, 0x08) > 0 && rd16(r, 0x0A) > 0)
+                return {float(rd16(r, 0x08)) / 1000, float(rd16(r, 0x0A)) / 1000};
+    }
+    return {4.4f, 1.35f};
+}
+
 // The icons: one picture over the whole page, an orthographic camera looking down -z, each car
-// turned side-on (its front to the left, a little toward the camera) and tilted to be seen from
-// slightly above, at its icon's place. ❓ The program renders them once per car with its own camera
-// (CarIconMaker, 0x393B70: a 128 x 64 and a 64 x 32 picture); the angles and the size are judged
-// from the original's results page.
+// side-on, its front to the left, at its icon's place, as the program's small icon stands
+// (CarIconMaker 0x393D20 with its 64 x 32 picture: turned 90 degrees, the middle of its height in the
+// picture's, scaled to 0.85 of the picture's width or height, whichever fills first). ❓ Its picture is
+// drawn once, with its own light (0x394A10's four rows at 0x621470) and an edge darkened (eight
+// faint copies): here in the course's light.
 void RaceWorld::draw_icons(Ui& ui, const SDL_FRect& canvas, std::span<const Icon> icons) {
     Impl& m = *impl_;
     if (icons.empty() || !app_.gpu()) return;
     if (!m.icon_view) m.icon_view = std::make_unique<render::View3D>(*app_.gpu());
-    constexpr float kDegree = kPi / 180;
+    constexpr float kIconWidth = 64, kIconHeight = 32, kFill = 0.85f;
     constexpr float kMetre = 0.085f; // metres a page unit: a car of 4.4 m about 52 units long
     std::vector<render::DrawItem> items;
     float opacity = 0;
@@ -729,9 +742,13 @@ void RaceWorld::draw_icons(Ui& ui, const SDL_FRect& canvas, std::span<const Icon
         if (ic.car >= car_visuals_.size() || ic.opacity <= 0) continue;
         const race::CarVisual& v = *car_visuals_[ic.car];
         const race::CarSpec& spec = v.spec();
-        const render::Mat4 model = render::translate({ic.x * kMetre, -ic.y * kMetre, -20}) *
-                                   render::rotate_x(10 * kDegree) * render::rotate_y(100 * kDegree) *
-                                   render::translate({0, -(spec.ride_height[0] + spec.tire_radius[0]) / 2, 0});
+        const auto [length, height] = car_size(ic.car);
+        const float units = length / height < kIconWidth / kIconHeight ? kIconHeight / height : kIconWidth / length; // (page units a metre)
+        const float k = units * kFill * kMetre;
+        const render::Mat4 at = render::translate({ic.x * kMetre, -ic.y * kMetre, -20});
+        const render::Mat4 model = at * render::rotate_y(kPi / 2) * render::translate({0, -height / 2, 0});
+        const render::Mat4 scaled = at * render::scale({k, k, k}) * render::translate({-ic.x * kMetre, ic.y * kMetre, 20});
+        const size_t first = items.size();
         auto apply = [&](const RVec& p, float w) {
             return RVec{model.at(0, 0) * p.x + model.at(0, 1) * p.y + model.at(0, 2) * p.z + model.at(0, 3) * w,
                         model.at(1, 0) * p.x + model.at(1, 1) * p.y + model.at(1, 2) * p.z + model.at(1, 3) * w,
@@ -750,6 +767,7 @@ void RaceWorld::draw_icons(Ui& ui, const SDL_FRect& canvas, std::span<const Icon
             st.wheels[w].center = cv(apply({x, spec.tire_radius[axle], z}, 1));
         }
         v.add_items(items, st, RVec{st.position.x, st.position.y, st.position.z + 100});
+        for (size_t j = first; j < items.size(); ++j) items[j].transform = scaled * items[j].transform; // (the car's own metres to the icon's)
         opacity = std::max(opacity, ic.opacity);
     }
     if (items.empty()) return;
