@@ -630,7 +630,7 @@ in the high half; -1 none) and the settings. `sim::Equipment` keeps the record's
 | 0x68 | `REARTIRE` | | 0xE0 | `ASCC` |
 | 0x70 | `STEER` | | 0xE8 | `TCSC` |
 | 0x78 | `LIGHTWEIGHT` | | 0xF8 | 🔎 `NOS` (a u16 capacity and a setting) |
-| 0x80 | `RACINGMODIFY` | | 0x100 / 0x108 | 🔎 `WHEEL` (nothing read) / `SUPERCHARGER` (two engine factors) |
+| 0x80 | `RACINGMODIFY` | | 0xF0 / 0x100 / 0x108 | `WHEEL` / `WING` (nothing read of either by the spec; the places by the part setter 0x4468F8) / `SUPERCHARGER` (two engine factors) |
 
 Settings: 0x110 u16 x 12 the gear ratios (reverse, then 1 .. 11; x 1000), 0x128 u16 final
 drive, 0x12A the gearbox slider, 0x12E the torque split, 0x12F / 0x130 brake controller
