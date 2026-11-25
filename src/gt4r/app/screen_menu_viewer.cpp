@@ -607,12 +607,15 @@ public:
         Affine grown;
         grown.a = grown.d = tp.page_scale, grown.e = 320 * (1 - tp.page_scale), grown.f = 240 * (1 - tp.page_scale);
         drawer_.menu_frame = rt.frame();
+        drawer_.beside = scale > 0 ? x / scale : 0;
         cars_.begin_frame(rt.frame()), models_.begin_frame(rt.frame());
         for (const auto& page : rt.open_pages())
             if (menu::Project* project = rt.project_of(*page)) drawer_.draw(*project, *page, x, 0, scale, 0, grown, tp.page_opacity);
         cars_.end_frame(), models_.end_frame();
-        // The pointer (menu_cursor.h), a step a picture drawn.
-        cursor_.step(rt);
+        // The pointer (menu_cursor.h), a step a picture of the menus.
+        if (stepped_ > rt.frame()) stepped_ = 0;
+        for (int n = 0; stepped_ < rt.frame() && n < 10; ++n, ++stepped_) cursor_.step(rt);
+        stepped_ = rt.frame();
         cursor_.draw(rt, drawer_, x, scale);
     }
 
@@ -621,6 +624,7 @@ private:
     MenuCars cars_;     // the prize pages' models
     MenuModels models_;
     MenuCursor cursor_;
+    u64 stepped_ = 0; // the menus' picture the pointer was last stepped to
 };
 
 } // namespace

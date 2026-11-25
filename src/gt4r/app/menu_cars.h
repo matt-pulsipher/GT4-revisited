@@ -97,6 +97,7 @@ private:
     // motions, and its time.
     std::vector<std::unique_ptr<gt3r::render::GpuModel>> stage_;
     std::unique_ptr<menu::StageMotion> camera_motion_, light_motion_;
+    std::unique_ptr<gt3r::render::GpuModel> stage_tire_; // menu/select/tire.mdl: what a wheel throws its shadow with
     float stage_time_ = 0;
     u64 stage_stepped_ = 0; // the picture the stage's time was last stepped to
     void step_stage();

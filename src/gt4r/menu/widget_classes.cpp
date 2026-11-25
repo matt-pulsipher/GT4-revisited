@@ -1813,6 +1813,23 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
             };
             return a;
         }
+        if (n == "car_code") {
+            auto a = std::make_shared<Accessor>();
+            a->read = [w] { return Value::string(w->data.text("car_code")); };
+            a->write = [r, w](const Value& v) {
+                const std::string code = v.is_nil() ? std::string() : v.to_string();
+                w->set_property("car_code", Value::string(code));
+                // (A car set stands where the layout says from now, before the script's own placing: the arcade car page
+                // brings it in from 8.5 m toward the camera, its front first.)
+                const std::shared_ptr<CarModelObject> model = car_model_of(r, w);
+                if (!code.empty() && model->m.placed_car != code) {
+                    const CarFaceSettings s = car_face_settings(w->data);
+                    model->m.set_car(s.trans, s.rotate);
+                    model->m.placed_car = code;
+                }
+            };
+            return a;
+        }
         if (n == "car_model") {
             car_model_of(r, w);
             return w->extras["car_model"];

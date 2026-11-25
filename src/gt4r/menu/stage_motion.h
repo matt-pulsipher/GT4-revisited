@@ -24,7 +24,7 @@ struct StageMotion {
     };
     struct Light {
         std::array<Value, 3> position{};
-        std::array<Value, 4> ambient{}, diffuse{}, specular{}; // opcodes 0x0C, 0x0D, 0x0E
+        std::array<Value, 4> ambient{}, diffuse{}, specular{}; // opcodes 0x0D, 0x0C, 0x0E
         bool has_position = false;
     };
     std::optional<std::array<Value, 9>> camera; // eye, point looked at, up (opcode 0x0B)

@@ -135,6 +135,7 @@ MenuCars::Car* MenuCars::car(const std::string& code, int color) {
         c->spec = race::read_car_spec(*db, code);
         const std::vector<u32> paints = race::car_paints(*db, code);
         race::CarVisual::Options o;
+        o.reflection_by_draw = true;
         const u32 pick = u32(std::max(color, 0));
         o.paint = paints.empty() ? pick : paints[pick % paints.size()];
         render::GpuContext* gpu = app_.gpu();
@@ -177,6 +178,16 @@ void MenuCars::load_stage() {
                     for (gt3r::scene::Primitive& p : mesh.primitives) p.flags |= gt3r::scene::kNoDepthWrite;
                 stage_.push_back(std::make_unique<render::GpuModel>(*app_.gpu(), bg));
             }
+        }
+        if (const std::optional<Bytes> f = app_.vfs()->read("menu/select/tire.mdl")) {
+            // A cylinder of radius 1 and length 1 about x, drawn black with the thrown shadows only.
+            gt3r::scene::Model tire = mdls::build_model(*f, mdls::Options{}, "tire");
+            for (gt3r::scene::Mesh& mesh : tire.meshes) {
+                for (gt3r::scene::Vertex& v : mesh.vertices) v.color = 0xFF000000u;
+                for (gt3r::scene::Primitive& p : mesh.primitives)
+                    p.texture = -1, p.flags = gt3r::scene::kUnlit | gt3r::scene::kDoubleSided;
+            }
+            stage_tire_ = std::make_unique<render::GpuModel>(*app_.gpu(), tire);
         }
         if (const std::optional<Bytes> f = app_.vfs()->read("menu/select/camera.mot"))
             camera_motion_ = std::make_unique<menu::StageMotion>(menu::StageMotion::parse(*f));
@@ -702,7 +713,10 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
     if (!env) env = env_texture(project, page, s.env_image);
     if (env) {
         o.env_sphere = env;
-        o.reflection_strength = 1.0f; // ❓ the program's reflection parameters (1.3, 1.1) are not read
+        // The reflection's factors, C0 ([0x6238A0]) + C1 ([0x62389C]) min(V.N, 0): the stage's 1.5 and 0.8 (0x1D5C00), a car
+        // face's 1.3 and 1.1 (0x156820).
+        o.reflection_strength = s.advanced ? 1.5f : 1.3f;
+        o.reflection_fresnel = s.advanced ? 0.8f / 1.5f : 1.1f / 1.3f;
     }
     // The car's own shadow under it, in light 0's shadow colour.
     race::CarVisual::Shadow sh;
@@ -758,8 +772,9 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
         // The stage's shadow (0x1D6378, 0x1D6968): per sample, five throws of the shape along the
         // light tilted sideways by the blur, weighing 1/2, 1/4 .. 1/32 (the alpha bits they
         // write), all the samples averaged. Here each is a layer over the last, at the alpha that
-        // leaves the sum where they all cover. ❓ Not its tires' own throws (tire.mdl) nor the half
-        // resolution it is made at.
+        // leaves the sum where they all cover; each is the body's shape and the four tires' (tire.mdl at each wheel's width
+        // and radius, 0x452808), no part of it twice: the tires first, a hair above the body's, which the depth test keeps
+        // off them. ❓ Not the half resolution it is made at.
         std::vector<render::DrawItem> thrown;
         c->visual->set_shadow_shear(shear);
         c->visual->add_shadow_items(thrown, state);
@@ -770,6 +785,7 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
             constexpr int kSamples = 4;
             static const float kTurn[6] = {-1, 1, -2, 2, -3, 3}; // (0x6956B8)
             float before = 0;
+            int layer = 0;
             for (int p = 1; p < 6; ++p)
                 for (int i = 0; i < kSamples; ++i) {
                     const float angle = stage_blur * float(10 + p) / 16 * kDeg, phi = (float(i) + 0.125f) / kSamples + kTurn[p] / 8;
@@ -782,6 +798,25 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
                     c->visual->add_shadow_items(one, state);
                     one[0].alpha = w / (1 - before);
                     one[0].in_order = true;
+                    const float height = 0.0005f * float(layer++); // (each layer over the last)
+                    if (stage_tire_) {
+                        // Onto the floor along the light.
+                        Mat4 flat;
+                        flat.m = {1, 0, 0, 0, -l.x / l.y, 0, -l.z / l.y, 0, 0, 0, 1, 0, 0, height + 0.00025f, 0, 1};
+                        for (int k4 = 0; k4 < 4; ++k4) {
+                            const int axle = k4 / 2;
+                            const float width = c->spec.tire_width[axle], radius = c->spec.tire_radius[axle];
+                            const course::Vec3 &right = state.right, &up = state.up, &ahead = state.forward, &at_w = state.wheels[k4].center;
+                            Mat4 wheel;
+                            wheel.m = {right.x * width,  right.y * width,  right.z * width,  0, up.x * radius, up.y * radius, up.z * radius, 0,
+                                       -ahead.x * radius, -ahead.y * radius, -ahead.z * radius, 0, at_w.x - right.x * width / 2,
+                                       at_w.y - right.y * width / 2, at_w.z - right.z * width / 2, 1};
+                            render::DrawItem tire{stage_tire_.get(), flat * wheel, 0};
+                            tire.alpha = one[0].alpha, tire.in_order = true;
+                            items_.push_back(tire);
+                        }
+                        one[0].transform = render::translate({0, height - 0.02f, 0}) * one[0].transform;
+                    }
                     items_.push_back(one[0]);
                     before += w;
                 }

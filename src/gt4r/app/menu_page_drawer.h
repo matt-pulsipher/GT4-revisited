@@ -91,6 +91,9 @@ public:
                 if (t) SDL_DestroyTexture(t);
     }
 
+    // How far the picture behind the pages reaches past them on each side (page units): a colour as wide as the page goes on
+    // to the screen's edges (the race's menus' shades and strips over a wide picture).
+    float beside = 0;
     int widgets_drawn = 0;
     u64 menu_frame = 0; // the menus' picture count (Runtime::frame()): the flash faces' clock
     // A face whose content is not the layout's pictures and text (a movie, a 3D view): drawn by
@@ -173,6 +176,7 @@ public:
     }
 
 private:
+    static bool same(const Rgba& a, const Rgba& b) { return a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a; }
     SDL_FRect to_screen(const Rect& r) const { return {ox_ + r.x * scale_, oy_ + r.y * scale_, r.w * scale_, r.h * scale_}; }
     // A point of the page through the widgets' transforms, on the screen.
     SDL_FPoint to_screen(float x, float y) const {
@@ -778,7 +782,14 @@ private:
         const std::vector<Rgba> colors = w.colors("color");
         const bool add = w.number("blend") != 0;
         const std::string& t = w.type;
-        if (t == "ColorFace") fill(at, colors, face, add, w.number("round"));
+        if (t == "ColorFace") {
+            const bool level = colors.size() < 4 || (same(colors[0], colors[1]) && same(colors[2], colors[3]));
+            if (beside > 0 && m_.identity() && level && w.number("round") == 0 && at.x <= 0.5f && at.x + at.w >= 639.5f && clip.x <= 0 && clip.x + clip.w >= 640) {
+                set_clip({-beside, clip.y, 640 + 2 * beside, clip.h});
+                fill({-beside, at.y, 640 + 2 * beside, at.h}, colors, face, add);
+                set_clip(clip);
+            } else fill(at, colors, face, add, w.number("round"));
+        }
         else if (t == "ImageFace" || t == "ProgressFace") {
             // `texcoord`: the picture's corners clockwise from the top left.
             SDL_FPoint uv[4];

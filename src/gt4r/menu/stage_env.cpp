@@ -30,12 +30,13 @@ std::array<float, 4> texel(const gt3r::scene::Texture& t, float u, float v) {
 } // namespace
 
 std::array<float, 3> sphere_map_direction(float s, float t, const std::array<std::array<float, 3>, 3>& rows, bool& inside) {
-    const float x = 2 * s - 1, y = 1 - 2 * t, rr = x * x + y * y;
-    inside = rr <= 0.81f;
+    // (The picture spans 0.9 of the disc, the kernel the whole picture: theta' = 2 asin(0.9 sin(theta / 2)).)
+    const float x = 0.9f * (2 * s - 1), y = 0.9f * (1 - 2 * t), rr = x * x + y * y;
+    inside = rr <= 1;
     // The kernel's inverse: the normal of a unit sphere at (x, y), the view reflected in it.
     const float nz = std::sqrt(std::max(1 - rr, 0.0f));
     const V r{2 * nz * x, 2 * nz * y, 2 * nz * nz - 1};
-    constexpr float c = 0.9659258f, sn = 0.2588190f; // 15 degrees
+    constexpr float c = 0.9659258f, sn = -0.2588190f; // 15 degrees
     const V p{r[0], c * r[1] + sn * r[2], c * r[2] - sn * r[1]};
     V d{};
     for (size_t k = 0; k < 3; ++k) d[k] = rows[0][k] * p[0] + rows[1][k] * p[1] + rows[2][k] * p[2];

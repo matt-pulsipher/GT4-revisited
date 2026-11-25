@@ -1303,6 +1303,26 @@ void install_game_natives(Runtime& rt, script::Module& menu) {
         return object_value(net);
     };
 
+    // ---- MGamePort: a controller port's device by name (mGamePort; the programs' device tables): "USB port1" a wheel's
+    // ("COUGAR", "JAGUAR", "CHEETAH") or "DISCONNECT". ❓ No wheel is told here.
+    {
+        auto cls = make_class(menu, "MGamePort");
+        cls->construct = [](Vm&, Args) {
+            auto port = std::make_shared<Object>("MGamePort");
+            port->set("port_name", text("PS2 slot1"));
+            port->method("update", [](Vm&, const Value&, Args) { return Value{}; });
+            std::weak_ptr<Object> weak = port;
+            port->property("data", [weak] {
+                auto data = std::make_shared<Object>("GamePortData");
+                const std::shared_ptr<Object> p = weak.lock();
+                const std::string name = p ? p->get("port_name").to_string() : std::string();
+                data->set("name", text(name == "PS2 slot1" || name.empty() ? "DUALSHOCK 2" : "DISCONNECT"));
+                return object_value(data);
+            });
+            return object_value(port);
+        };
+    }
+
     // ---- MSystem
     {
         auto cls = make_class(menu, "MSystem");

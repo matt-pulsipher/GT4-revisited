@@ -78,7 +78,7 @@ StageMotion StageMotion::parse(ByteSpan d) {
             const u8 flags = r.byte();
             Light& l = m.lights[index];
             if (op == 0x0F) l.position = r.values<3>(flags), l.has_position = true;
-            else (op == 0x0C ? l.ambient : op == 0x0D ? l.diffuse : l.specular) = r.values<4>(flags);
+            else (op == 0x0C ? l.diffuse : op == 0x0D ? l.ambient : l.specular) = r.values<4>(flags); // (its light parameters 1, 0 and 4: 0x42D024, 0x42D0F4, 0x42D1C4; a car face's `lN_amb` is parameter 0, 0x21A988)
         } else if (op == 0x10) { // a named value
             const u8 flags = r.byte();
             const std::string name = r.text();

@@ -85,7 +85,7 @@ inline Rect cut(const Rect& a, const Rect& b) {
 // (448 / 480 is the program's quotient, rounded toward zero: an exact number of lines comes out one less.) ❓ The page's
 // own clip, which loses the frame's last line so (black in the original's captures), is kept whole here.
 inline Rect scissor(const Rect& r) {
-    if (r.x <= 0 && r.y <= 0 && r.w >= 640 && r.h >= 480) return r;
+    if (r.x <= 0 && r.y <= 0 && r.x + r.w >= 640 && r.h >= 480) return r;
     constexpr double k = double(0.93333328f) * 0.5; // (0x3F6EEEEE)
     auto line = [](float v) { return float(int(double(v) * k) * (480.0 / 224.0)); };
     return {float(int(r.x)), line(r.y), float(int(r.w)), line(r.h)};

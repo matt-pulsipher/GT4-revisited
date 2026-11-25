@@ -14,9 +14,9 @@
 namespace gt4r::menu {
 
 // A sphere map of size x size, RGB 0..255: texel (s, t) the colour seen along the direction the reflection kernel looks up
-// there (s = 0.5 + 0.5 Rx / m, t = 0.5 - 0.5 Ry / m, m = |R + (0, 0, 1)|), R turned up 15 degrees about the view's x axis (the
-// program's environment camera, 0x44EF18) and into the world by the view's rotation (rows right, up, back). Black outside
-// 0.9 of the disc's radius, which the program's faces do not reach.
+// there (s = 0.5 + 0.5 Rx / m, t = 0.5 - 0.5 Ry / m, m = |R + (0, 0, 1)|), R turned down 15 degrees about the view's x axis (the
+// program's environment camera, 0x44EF18) and into the world by the view's rotation (rows right, up, back). The picture is
+// 0.9 of the map's disc, while the kernel reads it whole.
 std::vector<std::array<float, 3>> sphere_map(const gt3r::scene::Model& model, const std::array<float, 3>& eye,
                                              const std::array<std::array<float, 3>, 3>& view_rows, int size);
 
