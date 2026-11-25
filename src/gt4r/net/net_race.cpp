@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 
 namespace gt4r::net {
 
@@ -167,6 +168,14 @@ void NetRace::after_step(s64 clock, const race::CarInput& ours, int laps) {
     if (!field_) return;
     field_->after_step(clock);
     const CarSnapshot s = field_->state(ours, clock, laps);
+    // GT4R_NET_DEBUG=1: every half second where every car is here, by the race's clock (two machines' logs compare).
+    static const bool debug = std::getenv("GT4R_NET_DEBUG") != nullptr;
+    if (debug && sim_ && clock % (30 * kClockPerStep) == 0)
+        for (size_t w = 0; w < standing_.size(); ++w) {
+            const gt3r::sim::exact::Car& c = sim_->record(w);
+            LOG_INFO("Online: clock %lld player %d at %.4f %.4f %.4f, %.2f km/h%s; a state %lld ms old", (long long)clock, int(standing_[w].id), double(c.pos.x.host()), double(c.pos.y.host()), double(c.pos.z.host()),
+                     double(c.speed.host()) * 3.6, w && field_->ghost(w) ? " (ghost)" : "", w && field_->has_state(w) ? (long long)((clock - s64(field_->remote(w).latest().clock)) / 3) : 0LL);
+        }
     if (!lost_ && net_->joined() && !retired_) {
         net_->send_state(s);
         ++states_sent_;

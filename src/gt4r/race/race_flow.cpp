@@ -100,6 +100,7 @@ void RaceFlow::end_car(size_t i, s64 at, Events& ev) {
     CarRecord& r = cars_[i];
     r.finished = true;
     r.finish_order = finishers_++;
+    r.seen_units = at;
     r.finish_units = i < claims_.size() && claims_[i] >= 0 ? claims_[i] : at;
     if (!claims_.empty()) order_finishers();
     ev.finished.push_back(i);

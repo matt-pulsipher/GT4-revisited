@@ -63,7 +63,12 @@ void NetField::after_step(s64 clock) {
 
 CarSnapshot NetField::state(const race::CarInput& input, s64 clock, int laps) {
     std::copy_backward(inputs_, inputs_ + gt3r::net::kInputHistory - 1, inputs_ + gt3r::net::kInputHistory);
-    inputs_[0] = pad_input(input);
+    const gt3r::sim::exact::Car& rec = race_->record(ours_);
+    if (rec.control != 0) { // (the computer drives it: what he did with the pedals)
+        race::CarInput c;
+        c.computer = true, c.throttle = rec.throttle_pedal.host(), c.brake = rec.brake_pedal.host(), c.reverse = rec.reverse_req != 0;
+        inputs_[0] = pad_input(c);
+    } else inputs_[0] = pad_input(input);
     input_count_ = std::min(input_count_ + 1, gt3r::net::kInputHistory);
     const CarInfo& me = cars_[ours_].info;
     CarSnapshot s = make_snapshot(*race_, ours_, car_entry(*race_, ours_, me.asm_on, me.tcs_on), ++tick_, s32(clock), laps, inputs_, input_count_);

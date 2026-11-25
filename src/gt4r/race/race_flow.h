@@ -75,6 +75,7 @@ public:
         bool finished = false;
         int finish_order = -1;  // 0 the first to finish
         s64 finish_units = -1;  // the race clock at the finish (the total time)
+        s64 seen_units = -1;    // the race clock when it was seen to finish here (an online race's car finishes by its owner's)
         s64 base_ms = 0;        // F + 0x614: the moment its times count from (ms)
         u8 mark = 0;            // F + 0x65B: 1 before the section's start, 2 past it
         u8 back = 0;            // F + 0x4B0: backward crossings of the line not yet taken back
