@@ -42,8 +42,9 @@ Done:
       cannot be set up).
 - [x] Gran Turismo 4 Prologue ([formats/prologue.md](formats/prologue.md)): its database in
       Gran Turismo 4's layout, its roads (`GTRW`) as Runways, its drivers from the course files,
-      its cars in the race view, its program recognized with its own physics tables, its menus
-      from power on through the School Mode into a license test.
+      its cars in the race view, its program recognized, its own step and computer
+      drivers (43 of its 46 recorded lessons end to the millisecond), its menus from power on through
+      the School Mode's 46 lessons.
 - [x] The simulation, a first part (`src/gt4r/sim/`, `gt4tool car`, `road`, `drive`): a car's
       parts, default settings and specification as the game builds them, and its physics
       parameters, checked against the user's own program on every car (`gt4r_diff`); the

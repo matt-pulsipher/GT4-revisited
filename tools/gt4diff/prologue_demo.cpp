@@ -92,6 +92,7 @@ int run_demo(Disc& disc, const std::string& label, int limit) {
     ee.w32(r.info, std::max(1, ev->laps)), ee.w32(r.info + 4, 1);
     const auto& frames = run->streams[0].frames;
     int shown = 0;
+    bool over = false;
     static const u8 kNone[16] = {};
     const int show = std::getenv("GT4R_DEMO_SHOW") ? std::atoi(std::getenv("GT4R_DEMO_SHOW")) : 12;
     const int least = std::getenv("GT4R_DEMO_LEAST") ? std::atoi(std::getenv("GT4R_DEMO_LEAST")) : 0; // (steps with more fields are printed whole)
@@ -100,6 +101,10 @@ int run_demo(Disc& disc, const std::string& label, int limit) {
         ee.w32(r.info + 0x74, rolling ? 0 : u32(std::max(0, 239 - int(i))));
         r.pad[0].raw = i < frames.size() ? frames[i].bytes.data() : kNone;
         step(ee, r);
+        if (!over && ee.r8(r.car(0) + 0xD8 + 0x4E4) != 0) { // (F + 0x4E4: the run over)
+            over = true;
+            std::printf("  step %zu: the program's run is over, its clock %u ms, the start's %d ms\n", i, ee.r32(r.cond + 0x107E0) / 3, s32(ee.r32(r.car(0) + 0xD8 + 0x534)));
+        }
         const std::vector<u8> im = gt3_image(ee, r.car(int(watch)));
         ex::Car after;
         after.behaviour = mine[i].behaviour;
