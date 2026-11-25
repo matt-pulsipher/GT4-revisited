@@ -292,6 +292,7 @@ void CarSound::resolve() {
     cabin_fx_ = effect("in_car"), nitrous_fx_ = effect("nos");
     blow_off_fx_ = effect("b_off"), landing_fx_ = effect("on_bound");
     backfire_fx_[0] = effect("backfire"), backfire_fx_[1] = effect("backfire2");
+    heartbeat_fx_ = effect("heartbeat");
     clash_fx_[0] = effect("clash"), clash_fx_[1] = effect("clash2"), clash_fx_[2] = effect("clash4");
     for (int n = 0; n < kWheelNotes; ++n) wheel_fx_[size_t(n)] = effect(wheel_note_name(n));
 }
@@ -422,7 +423,9 @@ void CarSound::update(const CarSoundState& car, const SoundListener& listener, b
     send(turbine_, turbine_fx_, report_.turbine, at_engine, float(car.turbine_pitch) / 6144.0f);
     {
         float level = 0, pitch = 1.0f;
-        if (car.live && (car.gear_whine || files_.whine) && car.clutch != 0 && k.whine_torque > 0 && car.low_ratio != 0) {
+        if (car.live && car.whine_given) {
+            level = car.whine_level, pitch = car.whine_pitch;
+        } else if (car.live && (car.gear_whine || files_.whine) && car.clutch != 0 && k.whine_torque > 0 && car.low_ratio != 0) {
             const float torque = std::min(std::fabs(car.drive_torque), k.whine_torque);
             const float x = std::fabs(torque * car.gear_ratio / (k.whine_torque * car.low_ratio));
             level = k.whine_gain_lo + (k.whine_gain_hi - k.whine_gain_lo) * x;
@@ -491,6 +494,20 @@ void CarSound::update(const CarSoundState& car, const SoundListener& listener, b
     play_once(blow_off_fx_, gain(SoundChannel::BlowOff) * car.blow_off, g_engine, at_engine);
     if (target && car.contact > 0)
         play_once(clash_fx_[size_t(std::clamp(car.contact_kind, 0, 2))], gain(SoundChannel::Clash) * car.contact * k.clash_scale, g_body, at_body);
+    // The heartbeat (a car of category 3, the Nike One: 0x355868 each step, 0x355950 in the frame): a beat
+    // whenever the phase passes 1, the phase rising (0.8 + 2.2 x) / 60 a step with x = |speed| / 66.67 m/s
+    // (at most 1), at the strength 0.6 + 0.4 x at the body; heard from the car's own in-car view only.
+    report_.heartbeats = heart_count_;
+    if (car.heart) {
+        const float x = std::min(std::fabs(car.speed) / 66.666664f, 1.0f);
+        heart_phase_ += (x * 2.2f + 0.8f) * (1.0f / 60.0f);
+        if (heart_phase_ >= 1.0f) {
+            heart_phase_ -= 1.0f;
+            ++heart_count_;
+            report_.heartbeats = heart_count_;
+            if (view == SoundView::InCarTarget) play_once(heartbeat_fx_, x * 0.4f + 0.6f, g_body, at_body);
+        }
+    }
     if (view == SoundView::InCarTarget) {
         float landing = 0;
         for (const WheelSoundState& wheel : car.wheels) {
