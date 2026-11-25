@@ -116,9 +116,11 @@ the tires it started on. An engine field for it would be a reliable message of t
 
 ### Posed cars
 
-`Session::set_posed`: the car's phases 1 - 12 and 15 - 22 do not run; its record is put in before
-each step as it will be at the step's end (`Session::pose`, the prediction's record whole, but for
-the index, laps, place, finish and ghost flag, and who is near it). It takes part in
+`Session::set_posed`: the car's phases 1 - 12 and 15 - 22 do not run. Its record as it will be at
+the step's end (`Session::pose`, given before each step: the prediction's record whole, but for the
+index, laps, place, finish and ghost flag, the time scale, and who is near it) is taken in **between
+phases 12 and 13**, where the program takes the other machines' cars in (0x3F1368): a driver decides
+(phase 5) while a posed car, as every car, stands where the last step left it. It takes part in
 
 - **phase 13**, the collision step: its body moves along the posed motion (it starts back by the
   velocity and the yaw rate) from its own outline with no contact held; what the step makes of it
