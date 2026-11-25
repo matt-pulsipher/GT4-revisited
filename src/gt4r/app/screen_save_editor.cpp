@@ -170,7 +170,9 @@ public:
         SDL_Event local = e;
         SDL_ConvertEventToRenderCoordinates(app.renderer(), &local);
         if (!scripted_) pointer_.event(local);
-        if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat) {
+        // (A held key repeats in a list to choose from.)
+        const bool held = e.type == SDL_EVENT_KEY_DOWN && e.key.repeat && picker_.active && e.key.scancode != SDL_SCANCODE_RETURN && e.key.scancode != SDL_SCANCODE_ESCAPE;
+        if (e.type == SDL_EVENT_KEY_DOWN && (!e.key.repeat || held)) {
             // Typed into the field in front; its frames are not also the pad's keys.
             if (pad_.active) pad_.key(e.key), typed_wait_ = 12;
             else if (text_.active) text_.key(e.key), typed_wait_ = 12;
@@ -380,7 +382,7 @@ private:
             const float y = 34 + float(i - list_top_) * kRowH;
             const bool on = i == list_sel_, other = i == int(list_.size());
             ui.fill_round(kListX, y - 3, 600, 15, 3, on ? colors::kHighlight : colors::kPanel);
-            ui.text(kListX + 10, y, other ? std::string("Another save: a memory card image (.ps2, .mcd) or a save's folder") : Ui::elide(list_[size_t(i)].label, 270), on ? colors::kText : colors::kDim);
+            ui.text(kListX + 10, y, other ? std::string("Another save: a memory card image (.ps2, .mcd) or a save's game data file") : Ui::elide(list_[size_t(i)].label, 270), on ? colors::kText : colors::kDim);
             if (!other) ui.text_right(kListX + 592, y, Ui::elide(list_[size_t(i)].value, 310), list_[size_t(i)].readable ? colors::kDim : colors::kBad);
             hits_.add({kListX, y - 3, 600, kRowH}, kListItem, i);
         }
@@ -421,7 +423,7 @@ private:
     }
     void ask_path() {
         auto* keep = new std::shared_ptr<Picked>(picked_);
-        static const SDL_DialogFileFilter kFilters[] = {{"Memory card images and saves", "ps2;mcd;*"}, {"All files", "*"}};
+        static const SDL_DialogFileFilter kFilters[] = {{"Memory card images", "ps2;mcd"}, {"All files", "*"}};
         SDL_ShowOpenFileDialog(
             [](void* user, const char* const* files, int) {
                 std::unique_ptr<std::shared_ptr<Picked>> p(static_cast<std::shared_ptr<Picked>*>(user));
