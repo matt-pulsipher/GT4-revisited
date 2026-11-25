@@ -11,6 +11,7 @@
 #include "gt4r/input/race_feedback.h"
 #include "gt4r/menu/game_settings.h"
 #include "gt4r/sim/program.h"
+#include "gt4r/sim/session.h"
 #include "orig.h"
 
 #include <SDL3/SDL.h>
@@ -315,6 +316,66 @@ TEST(input_feedback_models) {
     c.pad_output = false, c.impact = 10;
     f.step(c, 1 / 60.0f);
     CHECK(f.rumble(false, true).large == 0 && f.rumble(true, true).large == 0 && f.force(on).steer_force == 0 && f.force(on).jolt == 0);
+}
+
+// What a car feels on a real course, driven by the controller's own frames: the engine's and program's numbers behind the
+// rumble, the triggers and the wheel.
+TEST(input_feel_from_a_drive) {
+    Disc* disc = full_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    const std::string car = "nsx_r_02";
+    const auto drive = [&](int steps, auto&& pad_at, auto&& each) {
+        const std::unique_ptr<sim::Session> s = sim::Session::open(*disc, "tsukuba", std::span<const std::string>(&car, 1));
+        for (int i = 0; i < steps; ++i) {
+            race::PadRecord record;
+            race::CarInput in;
+            const RaceInput r = modern_input({}, pad_at(i));
+            r.frame.to_bytes(record.bytes.data());
+            in.pad = &record;
+            s->step_once(std::span<const race::CarInput>(&in, 1));
+            each(i, car_feel(*s, 0));
+        }
+        return s->cars()[0].speed;
+    };
+    const auto pedals = [](float gas, float brake, float steer) {
+        PadState p = pad_of({}, steer);
+        if (gas > 0) p.buttons |= gt3r::u16(1u << unsigned(PadButton::Cross)), p.pressure[size_t(PadButton::Cross)] = u8(gas * 255);
+        if (brake > 0) p.buttons |= gt3r::u16(1u << unsigned(PadButton::Square)), p.pressure[size_t(PadButton::Square)] = u8(brake * 255);
+        return p;
+    };
+    // Half and full throttle: proportional. A standing start at full throttle works the driven tires.
+    float half_traction = 0, full_traction = 0;
+    const float half = drive(300, [&](int) { return pedals(0.4f, 0, 0); }, [&](int, const CarFeel& f) { half_traction = std::max(half_traction, f.traction); });
+    const float full = drive(300, [&](int) { return pedals(1, 0, 0); }, [&](int, const CarFeel& f) { full_traction = std::max(full_traction, f.traction); });
+    std::printf("  5 s at 40 %% and full throttle: %.1f and %.1f km/h; the edge of grip %.2f and %.2f\n", double(half) * 3.6, double(full) * 3.6, double(half_traction), double(full_traction));
+    CHECK(half > 5 && full > half * 1.2f && full_traction > 0.3f);
+    // Braking hard from speed: the ABS. Off the pedals it is still.
+    float abs = 0, coast = 0;
+    drive(500, [&](int i) { return i < 300 ? pedals(1, 0, 0) : i < 400 ? pedals(0, 1, 0) : pedals(0, 0, 0); },
+          [&](int i, const CarFeel& f) { (i >= 300 && i < 400 ? abs : coast) = std::max(i >= 300 && i < 400 ? abs : coast, f.abs_level); });
+    std::printf("  the ABS braking: %.2f, not braking %.2f\n", double(abs), double(coast));
+    CHECK(abs > 0.2f && coast == 0);
+    // Steering at speed: the wheel's force pushes back, the other way for the other side (the frame's left is positive, the
+    // force's positive is clockwise).
+    float left = 0, right = 0, straight = 0;
+    drive(280, [&](int i) { return pedals(1, 0, i < 240 ? 0.0f : -0.3f); }, [&](int i, const CarFeel& f) { (i < 240 ? straight : left) = i < 240 ? std::max(straight, i > 120 ? std::fabs(f.steer_force) : 0) : f.steer_force; });
+    drive(280, [&](int i) { return pedals(1, 0, i < 240 ? 0.0f : 0.3f); }, [&](int i, const CarFeel& f) { if (i >= 240) right = f.steer_force; });
+    std::printf("  the wheel's force: straight %.2f at most, steering left %.2f, right %.2f\n", double(straight), double(left), double(right));
+    CHECK(left > 0.1f && right < -0.1f && straight < 0.3f);
+    // Off the road and into the wall: rough ground, then a hit, felt by both rumbles.
+    RaceFeedback feedback;
+    bool rough = false, kerb = false;
+    float impact = 0;
+    int original = 0, modern = 0;
+    drive(900, [&](int i) { return pedals(1, 0, i < 200 ? 0.0f : 0.15f); }, [&](int, const CarFeel& f) {
+        rough = rough || f.offroad, impact = std::max(impact, f.impact);
+        for (const CarFeel::Wheel& w : f.wheels) kerb = kerb || w.kerb;
+        feedback.step(f, 1 / 60.0f);
+        original = std::max(original, int(feedback.rumble(true, false).large)), modern = std::max(modern, int(feedback.rumble(false, false).large));
+        CHECK(feedback.rumble(true, false).small == 0);
+    });
+    std::printf("  off the road: %d, a kerb %d, the hit %.1f m/s; the motor at most %d (original), %d (Modern)\n", rough, kerb, double(impact), original, modern);
+    CHECK(rough && impact > 1.5f && original > 20 && modern > 100);
 }
 
 namespace {

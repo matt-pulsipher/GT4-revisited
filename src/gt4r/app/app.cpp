@@ -196,6 +196,7 @@ bool App::init(int argc, char** argv) {
         else if (!browse_.empty()) push(make_browser_screen(browse_));
         else if (start_ == "menus") push(make_menu_viewer(*this));
         else if (start_ == "race") push(make_race_screen(*this));
+        else if (start_ == "controls") push(make_controls_screen(*this));
         else if (start_ == "cars" || start_ == "courses") { // (the hub's items: Play, Cars, Courses)
             const std::vector<std::string> to = start_ == "cars" ? std::vector<std::string>{"down", "cross"} : std::vector<std::string>{"down", "down", "cross"};
             keys_.insert(keys_.begin(), to.begin(), to.end());
@@ -264,6 +265,10 @@ db::SpecDb* App::db() {
         }
     }
     return db_.get();
+}
+
+void App::save_config() {
+    if (!config_.save(config_path_)) LOG_WARN("Could not save %s", config_path_.c_str());
 }
 
 void App::show_open_dialog() {

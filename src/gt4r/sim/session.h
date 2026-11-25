@@ -178,7 +178,7 @@ public:
     // POWER_ASSIST, the steering change's factor on; 1 and 1 without them). They hold until set again.
     void set_wheel_options(size_t car, gt3r::s16 strength, gt3r::s16 turn_factor) {
         if (car >= wheel_options_.size()) wheel_options_.resize(car + 1, {gt3r::s16(1), gt3r::s16(1)});
-        wheel_options_[car] = {strength, turn_factor};
+        wheel_options_[car] = {std::clamp<gt3r::s16>(strength, 0, 2), turn_factor};
     }
     // The hits of the last step in the program's order (0x350530: the car, 0 a wall, 1 a car, 2 a pylon, the part, the strength).
     const std::vector<collide::Hit>& hits() const { return hits_; }
