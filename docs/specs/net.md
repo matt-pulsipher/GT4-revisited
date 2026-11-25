@@ -149,25 +149,23 @@ collisions use the prediction itself.
 Measured: two machines in one process, states through the wire format, each car driven with the
 pad at Tsukuba (an NSX-R and an R34; `GT4R_NET_TABLE=1 gt4r_tests net_race_remote_car_error`).
 
-60 s of Tsukuba, rms / worst in cm of the posed car against its owner's at the same race clock (the cars touch now
-and then: the worst moments are the delay after a hit, or after the driver changes his mind). One way: the delay,
-up to a fifth more at random. *Smooth*: along the road with a steering weave; *jerky*: steering jabs, pedals let go
-and stabbed at random, one car on the manual gearbox. Dead reckoning (the car carried along its velocity and yaw
-rate) at no loss for comparison. No plausibility warning in any run.
+60 s of Tsukuba, rms / worst in cm of the posed car against its owner's at the same race clock. One way: the delay, up
+to a fifth more at random. *Smooth*: along the road with a steering weave; *jerky*: steering jabs, pedals let go and
+stabbed at random, one car on the manual gearbox. The cars touch now and then (3 to 39 steps of a run); *apart* leaves
+out the two seconds after a contact. No plausibility warning in any run.
 
-| One way | Driving | no loss | 5 % lost | 20 % lost | dead reckoning |
+| One way | Driving | no loss: apart, all | 5 % lost: apart, all | 20 % lost: apart, all | carried along its velocity, no loss: all |
 |---|---|---|---|---|---|
-| 0 ms | smooth | 0.10 / 5.5 | 0.09 / 5.4 | 0.18 / 6.4 | 0.25 / 2.5 |
-| 0 ms | jerky | 0.15 / 8.1 | 0.15 / 8.1 | 0.28 / 14.4 | 0.28 / 8.2 |
-| 50 ms | smooth | 0.67 / 23.2 | 0.64 / 22.5 | 0.57 / 19.1 | 2.63 / 27.7 |
-| 50 ms | jerky | 1.18 / 53.7 | 1.15 / 53.7 | 1.24 / 53.7 | 2.71 / 57.7 |
-| 100 ms | smooth | 1.57 / 41.2 | 1.85 / 50.3 | 2.03 / 60.8 | 7.63 / 51.5 |
-| 100 ms | jerky | 2.89 / 99.3 | 2.88 / 99.3 | 2.90 / 93.0 | 7.68 / 105.8 |
-| 250 ms | smooth | 9.85 / 95.9 | 10.48 / 153.4 | 14.93 / 186.0 | 38.60 / 132.5 |
-| 250 ms | jerky | 16.28 / 253.4 | 17.08 / 278.3 | 18.11 / 298.9 | 37.75 / 265.2 |
+| 0 ms | smooth | 0.00 / 0.0, 0.10 / 5.5 | 0.00 / 0.1, 0.09 / 5.4 | 0.01 / 0.6, 0.18 / 6.4 | 0.25 / 2.5 |
+| 0 ms | jerky | 0.00 / 0.0, 0.15 / 8.1 | 0.00 / 0.1, 0.15 / 8.1 | 0.02 / 1.1, 0.28 / 14.4 | 0.28 / 8.2 |
+| 50 ms | smooth | 0.06 / 0.8, 0.67 / 23.2 | 0.06 / 1.2, 0.64 / 22.5 | 0.08 / 1.2, 0.57 / 19.1 | 2.63 / 27.7 |
+| 50 ms | jerky | 0.13 / 1.8, 1.18 / 53.7 | 0.13 / 1.8, 1.15 / 53.7 | 0.22 / 5.6, 1.24 / 53.7 | 2.71 / 57.7 |
+| 100 ms | smooth | 0.33 / 3.7, 1.57 / 41.2 | 0.35 / 5.3, 1.85 / 50.3 | 0.39 / 5.3, 2.03 / 60.8 | 7.63 / 51.5 |
+| 100 ms | jerky | 0.88 / 11.2, 2.89 / 99.3 | 0.84 / 8.8, 2.88 / 99.3 | 1.04 / 16.9, 2.90 / 93.0 | 7.68 / 105.8 |
+| 250 ms | smooth | 4.05 / 34.5, 9.85 / 95.9 | 3.86 / 31.4, 10.48 / 153.4 | 4.17 / 40.2, 14.93 / 186.0 | 38.60 / 132.5 |
+| 250 ms | jerky | 10.71 / 72.5, 16.28 / 253.4 | 10.62 / 66.0, 17.08 / 278.3 | 11.01 / 83.2, 18.11 / 298.9 | 37.75 / 265.2 |
 
-Without contact (20 s of the same, the test's own cases): 0.00 cm at 0 ms, 0.05 / 0.6 at 50 ms and 5 % lost, 0.29 /
-3.3 at 100 ms and 5 %, jerky 0.96 / 16.9 at 100 ms and 20 %. Two copies of the app on one machine (the B-spec
+Two copies of the app on one machine (the B-spec
 driver driving both cars, one lap of Tsukuba, contacts between them): 0.05 cm rms, 0.3 cm at worst, directly and
 0.1 / 0.8 cm through a relay server here; the same finish times on both (72.718 s and 74.319 s). A step of a
 prediction costs what a step of the car costs (about 50 µs on a loaded M-series Mac, `net_race_prediction_cost`).
