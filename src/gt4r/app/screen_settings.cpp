@@ -351,7 +351,7 @@ private:
         config_row(app, "In-car camera", "cameras", "in_car_shake", {{"off", "Steady"}, {"on", "Shakes as the game's"}}, "on");
         rows_.heading("Replays");
         const std::vector<std::pair<std::string, std::string>> drawn{{"off", "Not drawn"}, {"on", "As the game draws it"}};
-        config_row(app, "Heat haze", "video", "heat_haze", drawn, "on");
+        config_row(app, "Heat haze", "video", "heat_haze", drawn, "off");
         config_row(app, "Vignette", "video", "replay_vignette", drawn, "on");
         config_row(app, "Motion trail", "video", "replay_trail", drawn, "on");
         config_row(app, "Depth of field", "video", "depth_of_field", {{"off", "Not drawn"}, {"standard", "Standard"}, {"high", "High"}}, "high");
