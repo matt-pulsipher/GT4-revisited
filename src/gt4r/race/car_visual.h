@@ -86,7 +86,8 @@ public:
     bool add_mirror_items(std::vector<render::DrawItem>& items, const CarState& s, const render::Vec3& eye) const;
     // That mirror (course space to course space).
     bool road_mirror(const CarState& s, render::Mat4& out) const;
-    void add_shadow_items(std::vector<render::DrawItem>& items, const CarState& s) const;
+    // `light`: how strong the shadow the light throws is, of its strength in the open.
+    void add_shadow_items(std::vector<render::DrawItem>& items, const CarState& s, float light = 1) const;
 
     // The model's frame in course space for a state: the body as drawn.
     render::Mat4 body_matrix(const CarState& s) const;

@@ -85,6 +85,71 @@ struct RaceWorld::Impl {
     std::vector<const char*> pit_sounds;
     int pit_shown = 0;
     std::vector<race::PitScene::Wheel> pit_wheels;
+    struct Lit {
+        float sun = 1, sky = 1;
+    };
+    std::vector<Lit> lit; // per car
+    std::vector<render::ItemLights> lamp_lit; // per car, on a course whose lamps light the cars (count 0: none)
+    // The lamps of the road under a car (0x38E7F8): the triangle's list, each lamp weaker with its distance and outside its
+    // cone, the four strongest.
+    void lamp_lights(const course::Runway& road, const gt3r::race::SunParams& env, const race::CarState& car, render::ItemLights& out) const {
+        out = {};
+        float y;
+        int tri = -1;
+        if (!road.height_at(car.position.x, car.position.z, car.position.y + 1.0f, y, &tri) || tri < 0) return;
+        const s16 at = road.vertices[road.triangles[size_t(tri)].v[0]].a;
+        if (at < 0) return;
+        struct Found {
+            float strength;
+            RVec to;
+            int kind;
+        };
+        std::vector<Found> found;
+        for (u32 k = 0; k < road.lamps_per_list && size_t(at) + k < road.lamp_lists.size(); ++k) {
+            const s16 number = road.lamp_lists[size_t(at) + k];
+            if (number < 0 || size_t(number) >= road.lamps.size()) continue;
+            const course::Runway::Lamp& l = road.lamps[size_t(number)];
+            if (l.kind < 0 || l.kind > 3) continue;
+            if (!l.point) {
+                found.push_back({1, {l.pos.x, l.pos.y, l.pos.z}, l.kind});
+                continue;
+            }
+            const gt3r::race::SunParams::LampType& t = env.lamps[size_t(l.kind)];
+            RVec d{l.pos.x - car.position.x, l.pos.y - car.position.y, l.pos.z - car.position.z};
+            const float r2 = render::dot(d, d), r = std::sqrt(r2);
+            if (!(r > 0)) continue;
+            d = d * (1 / r);
+            float strength = 1 / std::max(t.c0 + t.c1 * r + t.c2 * r2, 1e-6f);
+            if (t.cutoff != 180) {
+                const float c = std::max(0.0f, d.x * l.axis.x + d.y * l.axis.y + d.z * l.axis.z);
+                strength = std::cos(t.cutoff * kPi / 180) <= c ? strength * std::pow(c, t.spot_exp) : 0.0f;
+            }
+            found.push_back({strength, d, l.kind});
+        }
+        std::stable_sort(found.begin(), found.end(), [](const Found& a, const Found& b) { return a.strength > b.strength; });
+        if (found.size() > 4) found.resize(4);
+        for (int i = 0; i < 3; ++i) out.ambient[i] = env.global_ambient[size_t(i)];
+        for (const Found& f : found) {
+            const gt3r::race::SunParams::LampType& t = env.lamps[size_t(f.kind)];
+            const int n = out.count++;
+            out.dir[n][0] = f.to.x, out.dir[n][1] = f.to.y, out.dir[n][2] = f.to.z;
+            for (int i = 0; i < 3; ++i) {
+                out.ambient[i] += t.ambient[size_t(i)] * f.strength;
+                out.diffuse[n][i] = t.diffuse[size_t(i)] * f.strength;
+                out.specular[n][i] = t.specular[size_t(i)] * f.strength;
+            }
+        }
+    }
+    // The items from `first` on lit as the road there is: by its lamps, or by the course's lights as far as they reach there.
+    void light_items(const gt3r::race::SunParams& env, size_t first, const Lit& l, const render::ItemLights& by_lamps) {
+        if (by_lamps.count) {
+            for (size_t i = first; i < items.size(); ++i) items[i].lights = &by_lamps;
+            return;
+        }
+        if (!env.car_light_mask) return;
+        const std::array<float, 3> k = env.light_scale(l.sun, l.sky);
+        for (size_t i = first; i < items.size(); ++i) std::copy(k.begin(), k.end(), items[i].light_scale);
+    }
     void add_pit_crew(std::vector<render::DrawItem>& items, size_t car, const race::CarVisual& visual);
     render::ScreenBatch overlay;
     bool env_ready = false;
@@ -908,7 +973,16 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
         if (SDL_GPUTexture* t = m.wet.render(*m.view, pose.view, proj, pose.eye, m.wet_items, wo)) m.wet.add_frame_items(m.items, pose.view, pose.fovy(), aspect, t);
     }
     const size_t n = std::min(cars.size(), car_visuals_.size());
-    for (size_t i = 0; i < n; ++i) car_visuals_[i]->add_shadow_items(m.items, cars[i]);
+    // The light on the road under each car (0x38E7F8): its lights scaled by it, and the shadow the light throws.
+    m.lit.assign(n, {});
+    m.lamp_lit.assign(n, {});
+    if (!course_->road().lamps.empty())
+        for (size_t i = 0; i < n; ++i) m.lamp_lights(course_->road(), env, cars[i], m.lamp_lit[i]);
+    else for (size_t i = 0; i < n; ++i) course_->road().light_at(cars[i].position.x, cars[i].position.z, cars[i].position.y + 1.0f, m.lit[i].sun, m.lit[i].sky);
+    for (size_t i = 0; i < n; ++i) {
+        const float full = env.shadow_factor(1, 1);
+        car_visuals_[i]->add_shadow_items(m.items, cars[i], full > 0 ? env.shadow_factor(m.lit[i].sun, m.lit[i].sky) / full : 1.0f);
+    }
     // The cars' levels of detail by their size on screen (race::CarVisual::level): K, the program's
     // factor of the view (0x456918), one unit's height at depth 1 on a picture 448 lines high x 10 / 7:
     // 224 / (0.75 tan(A / 2)) x 10 / 7, A the lens across a 4:3 picture's width (721.2 in the original's
@@ -918,10 +992,12 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
     lod_view.k = (224.0f / 0.75f) * (10.0f / 7.0f) / std::max(std::tan(pose.fov * 0.5f), 1e-3f);
     for (size_t i = 0; i < n; ++i) {
         if (int(i) == hidden) continue;
+        const size_t first = m.items.size();
         m.add_drivers(m.items, i, cars[i], pose.eye, &lod_view);
         car_visuals_[i]->add_items(m.items, cars[i], pose.eye, kStep, &lod_view, !(m.pit_scene && m.pit_scene->wheels_off(i)));
+        if (int(i) == m.pit_shown) m.add_pit_crew(m.items, i, *car_visuals_[i]);
+        m.light_items(env, first, m.lit[i], m.lamp_lit[i]);
     }
-    if (m.pit_shown >= 0 && size_t(m.pit_shown) < n) m.add_pit_crew(m.items, size_t(m.pit_shown), *car_visuals_[size_t(m.pit_shown)]);
     course_->add_after_items(m.items);
     if (m.smoke.loaded()) {
         // The puffs after everything else of the scene, facing the camera.

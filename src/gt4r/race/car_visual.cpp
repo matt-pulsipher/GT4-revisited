@@ -522,7 +522,7 @@ bool CarVisual::add_mirror_items(std::vector<render::DrawItem>& items, const Car
     return true;
 }
 
-void CarVisual::add_shadow_items(std::vector<render::DrawItem>& items, const CarState& s) const {
+void CarVisual::add_shadow_items(std::vector<render::DrawItem>& items, const CarState& s, float light) const {
     if (!shadow_[0] && !shadow_[1] && !shadow_[2]) return;
     // On the road under the car: the plane through the tires' contacts, lifted 2 cm.
     render::Vec3 contact{0, 0, 0};
@@ -545,7 +545,9 @@ void CarVisual::add_shadow_items(std::vector<render::DrawItem>& items, const Car
         const float sx = render::dot(shadow_look_.shear, side), sz = render::dot(shadow_look_.shear, back);
         Mat4 flat;
         flat.m = {1, 0, 0, 0, sx, 0, sz, 0, 0, 0, 1, 0, sx * q, 0, sz * q, 1};
-        items.push_back({shadow_[0].get(), ground * flat, 0});
+        render::DrawItem it{shadow_[0].get(), ground * flat, 0};
+        it.alpha = std::clamp(light, 0.0f, 1.0f);
+        items.push_back(it);
     }
     if (shadow_[1]) items.push_back({shadow_[1].get(), ground, 0});
     if (shadow_[2]) items.push_back({shadow_[2].get(), ground, 0});
