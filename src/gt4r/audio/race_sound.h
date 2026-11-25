@@ -103,6 +103,10 @@ public:
     // A contact of car `car` (the camera's car only is heard): kind 0 a wall (the impulse |j|, N s),
     // 1 a car (|j| / 15,000), 2 a course object; its strength as contact_strength() makes it.
     void contact(size_t car, int kind, float force);
+    // A pit stop's sound (0x393428: the effect at the master's level, both sides): "jackdown" as the tires are on
+    // (the stop's bit 0x200, taken by the pit scene), "wheelgun", "dropnut", "droptire", "jackup" by the crew's
+    // motions, "oiltank"; "refueling" is held while the hose runs (0x3934A0).
+    void pit_effect(const char* name) { play_effect(name, master()); }
     // The race's start jingle (before the count) and finish jingle.
     void intro();
     void finish();

@@ -555,6 +555,29 @@ TEST(sound_race_heartbeat_on_disc) {
     CHECK(nike.report().heartbeats - before >= 29 && nike.report().heartbeats - before <= 30);
 }
 
+// The pit stop's sounds are the index's effects of bank 3, played at the race's master level.
+TEST(sound_race_pit_effects_on_disc) {
+    Disc* disc = full_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    gt3r::Vfs vfs(&disc->volume());
+    auto library = std::make_shared<audio::SoundLibrary>(vfs);
+    for (const char* name : {"jackdown", "jackup", "wheelgun", "dropnut", "droptire", "oiltank", "refueling"}) {
+        const sound::EffectEntry* e = library->effects().find(name);
+        CHECK(e != nullptr && e->bank == 3);
+    }
+    audio::OfflineSound s(false);
+    audio::RaceSound sound(vfs, s.mixer(), s.driver(), library, audio::RaceSoundTables::from_core(disc->read_program()));
+    const audio::CarSoundState none[] = {audio::CarSoundState{}};
+    for (int i = 0; i < 30; ++i) sound.update(none, audio::SoundListener{}, -1), s.advance(1); // (the master fades in)
+    const size_t from = s.pcm.size();
+    sound.pit_effect("jackdown");
+    s.advance(60);
+    double peak = 0;
+    for (size_t i = from; i < s.pcm.size(); ++i) peak = std::max(peak, double(std::abs(s.pcm[i])));
+    std::printf("  jackdown at the master %.3f: peak %.0f\n", double(sound.master()), peak);
+    CHECK(sound.master() > 0.3f && peak > 300);
+}
+
 // A race: a session on Tsukuba with its course sound, the count's beeps at 3, 2 and 1 seconds,
 // the start, then the cars driving.
 TEST(sound_race_session_on_disc) {
