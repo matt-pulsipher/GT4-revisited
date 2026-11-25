@@ -119,7 +119,7 @@ public:
     void pit_effect(const char* name) { play_effect(name, master()); }
     // The hose's sound (0x3934A0 effect 70, both sides at the master's level): held from the step a hose of the pits
     // begins to run until none does (0x393528).
-    void refueling(bool on) { refueling_on_ = on; }
+    void refueling(bool on);
     // The sound inputs of every step heard from the session (update(session, ...)) are kept for the run's replay: from
     // replay() on, the steps heard from recorded states (update(cars, ...)) take the kept ones in turn, the first
     // replayed step being the run's second. forget_recording() as a new run begins or another run is played.

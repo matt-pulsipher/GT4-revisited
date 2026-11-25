@@ -285,6 +285,11 @@ void RaceSound::finish() {
     play_stream(race_goal_group(kind_), 0, false);
 }
 
+void RaceSound::refueling(bool on) {
+    if (on != refueling_on_ && sound_log()) LOG_INFO("Sound: refueling %s at %.4f", on ? "on" : "off", double(master()));
+    refueling_on_ = on;
+}
+
 void RaceSound::contact(size_t car, int kind, float force) {
     if (car >= contact_.size()) return;
     const float strength = contact_strength(kind, force);
