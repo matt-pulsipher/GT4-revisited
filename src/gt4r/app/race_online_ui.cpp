@@ -61,7 +61,7 @@ void OnlineRaceUi::draw_race(Ui& ui, const net::NetRace& net, const std::vector<
         if (c.retired) line += "  out";
         else if (c.finished) line += "  finished";
         else if (const std::string why = c.ghost ? c.ghost_reason : ""; !why.empty() && why != "the start" && why != "finished") line += why.rfind("round trip", 0) == 0 ? "  (slow link)" : "  (" + why + ")";
-        shadowed(ui, Ui::kWidth - 8 - Ui::text_width(line), y, line, color);
+        shadowed(ui, ui.width() - 8 - Ui::text_width(line), y, line, color);
         y += 12;
     }
     float my = 262;
@@ -77,12 +77,12 @@ void OnlineRaceUi::draw_waiting(Ui& ui, const net::NetRace& net) {
     if (net.phase() == net::NetRace::Phase::Racing || net.phase() == net::NetRace::Phase::Over || (net.phase() == net::NetRace::Phase::Ready && net.start_in() < 0.3)) return;
     const char* text = net.phase() == net::NetRace::Phase::Loading ? "Waiting for the other players..." : "Everyone is here.";
     const float w = Ui::text_width(text) + 24;
-    ui.fill_round((Ui::kWidth - w) / 2, 250, w, 20, 5, Color{0, 0, 0, 160});
+    ui.fill_round((ui.width() - w) / 2, 250, w, 20, 5, Color{0, 0, 0, 160});
     ui.text_center(254, text, colors::kText);
 }
 
 void OnlineRaceUi::draw_pause(Ui& ui, bool host, bool leaving) {
-    const float w = 340, h = 84, x = (Ui::kWidth - w) / 2, y = 130;
+    const float w = 340, h = 84, x = (ui.width() - w) / 2, y = 130;
     ui.fill_round(x, y, w, h, 6, Color{12, 14, 20, 225});
     ui.frame_round(x, y, w, h, 6, 1, colors::kOutline);
     ui.text_center(y + 10, "The race goes on", colors::kAccent);
@@ -100,7 +100,7 @@ void OnlineRaceUi::draw_results_hint(Ui& ui, const net::NetRace& net, bool host)
     if (net.lost()) line = "The connection was lost.   {Cross}: back to the menus";
     else if (net.all_done()) line = host ? "{Cross}: everyone back to the lobby" : "The host takes everyone back to the lobby.   {Cross}: wait in the menus";
     else line = "Still racing: " + racing_names(net) + (host ? "   {Square}: end the race now" : "   {Cross}: wait in the menus");
-    ui.fill(0, Ui::kHeight - 18, Ui::kWidth, 18, Color{0, 0, 0, 170});
+    ui.fill(0, Ui::kHeight - 18, ui.width(), 18, Color{0, 0, 0, 170});
     ui.text_center(Ui::kHeight - 14, line, colors::kText);
 }
 
@@ -110,7 +110,7 @@ void OnlineRaceUi::draw_left(Ui& ui, const net::NetRace& net, bool host) {
         if (a.finished != b.finished) return a.finished;
         return a.finished && a.time_units < b.time_units;
     });
-    const float w = 360, h = 44 + 16 * float(cars.size()), x = (Ui::kWidth - w) / 2, y = 90;
+    const float w = 360, h = 44 + 16 * float(cars.size()), x = (ui.width() - w) / 2, y = 90;
     ui.fill_round(x, y, w, h, 6, Color{12, 14, 20, 215});
     ui.text_center(y + 10, "You left the race", colors::kAccent);
     for (size_t i = 0; i < cars.size(); ++i) {

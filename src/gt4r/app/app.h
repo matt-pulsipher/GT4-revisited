@@ -252,6 +252,8 @@ std::unique_ptr<Screen> make_sweep_screen(const std::string& list, const std::st
 std::unique_ptr<Screen> make_controls_screen(App& app, int player = 0);
 // The app's settings (screen_settings.cpp), from a page on (0 Display, 1 Audio, 2 Controls, 3 Disc & saves, 4 Mods).
 std::unique_ptr<Screen> make_settings_screen(App& app, int page = 0, const std::string& install = {});
+// The save editor (screen_save_editor.cpp): a saved game of the library by its card's folder (save/save_library.h), "" the list.
+std::unique_ptr<Screen> make_save_editor(App& app, const std::string& card = "");
 std::unique_ptr<Screen> make_browser_screen(const std::string& open_path = "");
 // The menu projects' pages drawn from the disc's layouts (still pictures).
 std::unique_ptr<Screen> make_menu_viewer(App& app);

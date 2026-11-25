@@ -9,6 +9,7 @@
 // relay server; `paint`, `tire`, `mt=1`, `races=2` more; `port`). The race itself reads GT4R_RACE as Drive does.
 
 #include "gt4r/app/online.h"
+#include "gt4r/app/page.h"
 
 #include "app/text_keyboard.h"
 #include "base/file.h"
@@ -172,28 +173,22 @@ public:
         if (page_ == Page::Connecting) return connecting(app, l);
         if (editing_) return edit(app);
         const MenuInput& m = app.menu();
-        sel_ = std::clamp(sel_, 0, std::max(0, int(rows_.size()) - 1));
-        if (m.vertical()) {
-            int next = sel_;
-            do next += m.vertical();
-            while (next >= 0 && next < int(rows_.size()) && !rows_[size_t(next)].act && !rows_[size_t(next)].change);
-            if (next >= 0 && next < int(rows_.size())) sel_ = next;
+        if (rows_page_ != page_) rows_page_ = page_, page_rows_.selected = -1, page_rows_.scroll.first = 0;
+        page_rows_.rows.clear();
+        for (const Row& r : rows_) {
+            PageRow row;
+            row.kind = r.act ? PageRow::Kind::Action : r.change ? PageRow::Kind::Choice : PageRow::Kind::Heading;
+            row.label = r.label, row.value = r.value, row.change = r.change, row.press_hint = "choose";
+            if (r.act) row.press = [this, act = r.act] { message_.clear(), act(); };
+            page_rows_.rows.push_back(std::move(row));
         }
-        if (sel_ < int(rows_.size()) && !rows_[size_t(sel_)].act && !rows_[size_t(sel_)].change)
-            while (sel_ + 1 < int(rows_.size()) && !rows_[size_t(sel_)].act && !rows_[size_t(sel_)].change) ++sel_;
-        if (sel_ < int(rows_.size())) {
-            const Row row = rows_[size_t(sel_)];
-            if (m.horizontal() && row.change) row.change(m.horizontal());
-            else if (m.pressed(PadButton::Cross) && row.act) {
-                message_.clear();
-                row.act();
-                return;
-            }
+        if (page_rows_.update(app).changed) {
+            return;
         }
         if (m.pressed(PadButton::Triangle) || m.pressed(PadButton::Circle)) {
             message_.clear();
             if (page_ == Page::Start) return leave(app);
-            page_ = Page::Start, sel_ = 0;
+            page_ = Page::Start;
         }
     }
 
@@ -211,25 +206,13 @@ public:
             ui.footer("{Triangle}: stop");
             return;
         }
-        float y = 34;
-        for (size_t i = 0; i < rows_.size(); ++i) {
-            const Row& r = rows_[i];
-            if (!r.act && !r.change) {
-                ui.text(24, y + 4, r.label, colors::kAccent);
-                y += 20;
-                continue;
-            }
-            const bool on = int(i) == sel_;
-            ui.fill_round(20, y - 1, 600, 17, 3, on ? colors::kHighlight : colors::kPanel);
-            ui.text(30, y + 2, r.label, on ? colors::kText : colors::kDim);
-            ui.text_right(612, y + 2, Ui::elide(r.value, 330), on ? colors::kText : colors::kDim);
-            y += 19;
-        }
-        float ly = std::max(y + 8, 282.0f);
+        page_rows_.render(ui, {16, 30, 608, 250});
+        float ly = 288;
+        const int sel = page_rows_.selected;
         if (!message_.empty())
             for (const std::string& line : Ui::wrap(message_, 600)) ui.text(24, ly, line, colors::kBad), ly += 12;
-        else if (sel_ < int(rows_.size()))
-            for (const std::string& line : Ui::wrap(rows_[size_t(sel_)].note, 600)) ui.text(24, ly, line, colors::kDim), ly += 12;
+        else if (sel >= 0 && sel < int(rows_.size()))
+            for (const std::string& line : Ui::wrap(rows_[size_t(sel)].note, 600)) ui.text(24, ly, line, colors::kDim), ly += 12;
         if (editing_) {
             if (keys_.is_open()) return keys_.draw(ui, text_);
             ui.fill_round(80, 140, 480, 64, 5, colors::kPanel);
@@ -238,7 +221,7 @@ public:
             ui.footer("Enter: done   Esc: cancel");
             return;
         }
-        ui.footer(page_ == Page::Start ? "{Up/Down}: select  {Cross}: choose  {Triangle}: back" : "{Left/Right}: change  {Cross}: choose  {Triangle}: back");
+        ui.footer("{Up/Down}: select  " + page_rows_.hint() + "  {Triangle}: back");
     }
 
     ~ConnectScreen() override { stop_typing(); }
@@ -265,11 +248,11 @@ private:
                 rows_.push_back({f.name + "'s lobby", std::to_string(f.players) + " of " + std::to_string(f.limit) + (f.open ? "" : ", racing"), "Join it (" + address + ").",
                                  [this, address] { join(address); }, {}});
             }
-            rows_.push_back({"Open a lobby", "", "This machine hosts: the others on the local network find it here, or join its address.", [this] { page_ = Page::Host, through_server_ = false, sel_ = 0; }, {}});
+            rows_.push_back({"Open a lobby", "", "This machine hosts: the others on the local network find it here, or join its address.", [this] { page_ = Page::Host, through_server_ = false; }, {}});
             rows_.push_back({"Join by address", last_address_, "A lobby's address and port, for example 192.168.1.5:" + std::to_string(net::kLanPort) + ".",
                              [this] { type("The lobby's address", last_address_, [this](const std::string& t) { last_address_ = t, join(t); }); }, {}});
             rows_.push_back({"Over the internet", "", "", {}, {}});
-            rows_.push_back({"Open a lobby with a code", "", "The server gives the lobby a code; the others join with it. No port needs to be opened.", [this] { through_server([this] { page_ = Page::Host, through_server_ = true, sel_ = 0; }); }, {}});
+            rows_.push_back({"Open a lobby with a code", "", "The server gives the lobby a code; the others join with it. No port needs to be opened.", [this] { through_server([this] { page_ = Page::Host, through_server_ = true; }); }, {}});
             rows_.push_back({"Join with a code", last_code_, "The code of the lobby's host.", [this] {
                                  through_server([this] { type("The lobby's code", last_code_, [this](const std::string& t) { last_code_ = t, join_code(t); }); });
                              }, {}});
@@ -293,7 +276,7 @@ private:
                                      if (!server_.empty() && approved_) std::exchange(approved_, {})();
                                  });
                              }, {}});
-            rows_.push_back({"No server", "", "The local network and addresses stay.", [this] { page_ = Page::Start, sel_ = 0; }, {}});
+            rows_.push_back({"No server", "", "The local network and addresses stay.", [this] { page_ = Page::Start; }, {}});
         } else if (page_ == Page::Host) {
             menu::GameState& g = rt_.game();
             auto option = [this, &g](const char* label, const char* key, std::vector<std::string> names, const char* note) {
@@ -330,7 +313,7 @@ private:
     void through_server(std::function<void()> then) {
         if (!server_.empty()) return then();
         approved_ = std::move(then);
-        page_ = Page::Approve, sel_ = 1;
+        page_ = Page::Approve;
     }
 
     void begin(bool ok, const std::string& error, bool host, const std::string& text) {
@@ -426,7 +409,9 @@ private:
     net::Discovery search_;
     Page page_ = Page::Start;
     std::vector<Row> rows_;
-    int sel_ = 0, port_ = net::kLanPort, players_ = 2, ghost_ms_ = 150, waiting_ = 0;
+    PageRows page_rows_;
+    Page rows_page_ = Page::Start;
+    int port_ = net::kLanPort, players_ = 2, ghost_ms_ = 150, waiting_ = 0;
     net::LobbyLimits limits_;
     bool through_server_ = false, changed_ = false;
     std::string server_, message_, connecting_text_, last_address_, last_code_;
