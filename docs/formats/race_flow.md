@@ -88,8 +88,7 @@ timed from the clock's start (F +0x614 is left at 0; the lap virtual 21 sets it 
 is 3 s at the start's speed short of the line. ✔ Against the original's Tsukuba start (the field at 50 mph,
 the clock starting during the last shot, the player's view about 1.5 s later, the line 4.2 s after the clock's
 start at 56 mph): here (the Ford Ka '01, 6 cars) the view at 1.62 s, the line at 4.47 s and 55 mph.
-(`RaceFlow`'s clock starts at the step after the first crossing: ❓ the order of the clock's step and the
-crossings within a step is not read.) **The held starts** (missions): K +0xCBFC + 4 i, car i's start count,
+**The held starts** (missions): K +0xCBFC + 4 i, car i's start count,
 is set by vf28 to 60 x the event's seconds for the place (CFG +0x60 + 2 i, K +0xF878; 0 in a rolling start);
 the conductor's step (0x34DB30) holds every car while the start's count runs (0x34C210: F +0x4BC = 1, the
 start's hold), then counts each car's down a step at a time, the car held (F +0x4BC = 1) until it reaches 0,
@@ -178,18 +177,44 @@ the cars ahead by 50 % from 10 to 50 m); the other tests kind 2, Super License a
 the coffee breaks kind 1 or 3 with 100 or 50 cones; the missions kind 2 or 3 with 1 to 5 other cars and
 CFG +0x4A 5. Every test: wall limit 8 (B-1/2/6/7: 0), car limit 40. Races: kind 0.
 
-**The start of a test on a road section** (B-3: CFG +0x21 = 2, vf26 0x34CA20): a plain grid start (start kind 0,
-so the driving-line rule 0x34C5E0 for kinds 1 .. 5 does not apply): the car stands on the place 0x3952C0 reads for
-the section, from the road's section record (+0x9C + 0x20 x section, +0x18) instead of the road's grid (+0x5C):
-Deep Forest's section 2 gives (-8.891, 7.280, -256.900) heading -1.563 rad in the course frame, and the car then
-stands at 3505.52 m along the course (checked against the program's own set-up run in the interpreter, `floats`).
-Its goal is the section's, reached at 0x34C470 when it lies 1 m .. the lap less 1 m along. Here `RoadSection::grid`,
-`WorldEntry::place` and `sim::Entry::place` (`screen_race.cpp` `set_license_rules`); the stand-in of earlier rounds
-(the section's start on the road's middle) was wrong. The count at +0x0A is the number of 16-byte places between the
-record's pointers +0x18 and +0x1C on all 95 sections of the disc that have places; on 77 of them the place is within 60 m of the
-section's start (by the nearest checkpoint), on 18 it is not (a run-up, or a section whose start reads 0). ❓ The mark F +0x65B (from the start's flag): with 1 the lap step waits
-for the car to pass the section's start (0x3589DC .. 0x358ADC) and then calls the conductor's virtual +0xB0 with the
-moment, the mark 2: where such a test's clock starts is not settled here.
+**Where a test's cars start** (the conductors' virtual 30, 0x3F6278: the license's, the pace car tests' (RaceTraining)
+and the missions'; code `race/start_rule.*` `RowStart`, `car_start`, `race/race_start.*`). Two numbers per car, a distance
+(virtual 35, s16 metres) and a speed (virtual 36, km/h), kept in CFG from the event's row (0x35E108): place 0 CFG +0x54 ←
+row i32 +0x14 and CFG +0x4E ← row +0x42; places 1 .. 5 CFG +0x56 + 2 k ← row s16 +0x2E + 2 k (0x4477D0) and CFG +0x4F + k ←
+row +0x80 + k (0x447778). The license's conductor reads place 0's for every car (0x3F6070 / 0x3F6080); the pace car tests'
+and the missions' the car's own, a speed of 0 being place 0's (0x3F7090 / 0x3F70A8). Then:
+- a distance below 0 with a speed: start kind 2; any other distance but 0: kind 1; none: the grid (kind 0);
+- the distance counts from the section's start when the race runs on a road section (CFG +0x21) whose start lies 1 m .. the
+  lap less 1 m along (0x34C3E0, truncated), else from the line; the course's own start code (a rolling start) is not read;
+- the set-up (0x363B10) takes whole laps off it and puts the car on the course's driving line there (0x34C5E0: no more than
+  the lap less 20 m before the line; on a course without a lap, COURSE +0x12 = 1, no further than 20 m short of the last
+  split point), facing the line's place 10 m on, on the road's height (0x46ADE8, `sim::ai::CourseLines::start_place`), at its
+  speed (0x363868); without the line it stands on the grid. A car of kind 2 is driven by its driver (F +0x467 = 1, 0x3452F0)
+  until its start is counted. On the grid it stands on the section's own place (0x3952C0 reads the section record's +0x18
+  when the course object has a section; the count is +0x0A: `RoadSection::grid`), else the road's;
+- **the mark F +0x65B**: on a section, for a place past the line: 1 for kind 2 or a place before the section's start, 2 past
+  it; 0 for a car on the grid or without a section;
+- **the crossings F +0x4AC**: on a driving line 0 before the line, one more than the laps taken off past it; on the grid by
+  the sector (below).
+On the US disc 40 section tests and 9 Super License laps start moving (8.3 to 55.6 m/s), IB-12 stands on the driving line
+(kind 1 without a speed), the rest stand on the grid. A race with a speed for car 0 has no start's hold (virtual 10, 0x3F6090).
+
+**Where a test's clock starts.** The clock runs from the first step after the hold (the step whose count, the race
+information's +0xBC, the frame takes to 0 before it: 8 s hold 479 steps). When a car with the mark 1 passes the section's
+start, the lap step (0x358608) calls virtual 22; the license's (0x3F6760) clears the mark and calls its virtual 20
+(0x3F64D0), as the line's first crossing does on a whole lap: with CFG +0x4E set it keeps the moment (ms) in F +0x614, lets
+the car go from its rolling start (0x345228) and, for car 0, sends event 4 (the start signal); the mark is 2 after. A
+mission's (0x3F6E50) puts F +0x614 back to 0. The run's time is the moment of its end less F +0x614; the display shows none
+before (0x357830: no crossing yet, or the mark 1).
+
+**The lap step** (0x358608; `RaceFlow::cross`): with the last step's distance p and this one's d (F +0x4A4), lap length L:
+- p <= d, and p + L / 2 < d: backwards over the line, F +0x4B0 counted up. Else, with no such count, a crossing counted and
+  the run not over: the section's start (above), and the goal (0x34C470: 1 m .. the lap less 1 m along) passed calls virtual
+  23: the license's ends a test of kind 2 (0x3F67E8 → 0x3F8AB0).
+- p > d, and d + L / 2 < p: forwards over the line: F +0x4B0 counted down if it is not 0, and that is all; else the crossings
+  go up: the first calls virtual 20, the others virtual 21 (the license's, 0x3F6588, ends kinds 3 and 6 when the laps are done).
+- A moment is the clock (50 a step) at the step's start + trunc(the share of the step x 50), over 3 in ms; the clock steps after
+  (virtual 15), so a rolling start's clock takes its first step in the step the line is taken.
 
 **The judge** (`DynamicsConductorLicense::vf15` → 0x3F8D70, each step for the player's car while its run
 has not ended, F +0x4B2 clear) reads the rule bits F +0x4B3 and fails the test with kind 3 for bit 2, 5 for
