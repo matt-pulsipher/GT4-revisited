@@ -503,9 +503,9 @@ void Session::set_driver_aids(size_t car, const gt3r::sim::exact::Aids& block, c
     if (car < driver_grip_.size()) driver_grip_[car] = grip;
 }
 
-void Session::hold_once(std::span<const race::CarInput> inputs, const Decider& decide) {
+void Session::hold_once(std::span<const race::CarInput> inputs, const Decider& decide, const std::function<void()>& near_pass) {
     holding_ = true;
-    step_once(inputs, decide);
+    step_once(inputs, decide, near_pass);
     holding_ = false;
 }
 
@@ -816,7 +816,7 @@ void Session::collide() {
     }
 }
 
-void Session::step_once(std::span<const race::CarInput> inputs, const Decider& decide) {
+void Session::step_once(std::span<const race::CarInput> inputs, const Decider& decide, const std::function<void()>& near_pass) {
     const u8 course_kind = ex::course_category(race_.aids.course_category);
     // The race's countdown (the race information's +0xBC; 0x34C210): the cars held while it runs.
     const bool countdown = holding_ || countdown_ > 0;
@@ -969,6 +969,7 @@ void Session::step_once(std::span<const race::CarInput> inputs, const Decider& d
     if (gt4_rules_)
         for (size_t i = 0; i < cars_.size(); ++i) rules::hit_steps(gx_[i].phases);
     collide();
+    if (near_pass) near_pass();
     if (gt4_rules_) {
         // Phase 14 (0x3F4638): which cars are near which, the slipstream's targets; phase 15 (0x3F28B8): the part that
         // changes with speed.

@@ -109,10 +109,12 @@ public:
     // One step of 1/60 s. `decide`: each car's computer driver, asked for its input where the program's drivers decide (0x465078
     // in the input phase 0x349FD0, after the preparation 0x357700: the step's own slip angles, peak forces and torques); the
     // inputs given then only say who drives (computer, control).
-    void step_once(std::span<const race::CarInput> inputs, const Decider& decide = {});
+    // `near_pass`: the drivers' proximity pass where the program's runs (0x3F4638, phase 14: after the collision step, before the
+    // bodies' phases and the distance along the course).
+    void step_once(std::span<const race::CarInput> inputs, const Decider& decide = {}, const std::function<void()>& near_pass = {});
     // One step of the race's countdown: every car held (F + 0x4BC, 0x34C210; the engines answer the throttle, the
     // cars stay); the session's time does not advance.
-    void hold_once(std::span<const race::CarInput> inputs, const Decider& decide = {});
+    void hold_once(std::span<const race::CarInput> inputs, const Decider& decide = {}, const std::function<void()>& near_pass = {});
     // The steps of its hold a car has left (0x34C1C8: the race's countdown and its own): its own start's hold here.
     u32 start_counter(size_t car) const { return car < start_counters_.size() ? start_counters_[car] : 0; }
     // The race's countdown (the race information's +0xBC): `steps` steps from the next, counted down one a step, the

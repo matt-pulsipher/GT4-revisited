@@ -185,7 +185,8 @@ public:
     void step(Session& session, std::span<race::CarInput> inputs, int keep = -1, u32 count = 0);
     // drive() in its parts: the step's common part (the order, the rubber band, the pairs pass), then each driven car's
     // decision, then the step's end.
-    void begin_step();
+    void begin_step(bool near_pass = true); // `near_pass` off: the proximity pass runs within the session's step (near_pass())
+    void near_pass() { proximity(); }
     void decide_car(size_t car, race::CarInput& input);
     void end_step();
 

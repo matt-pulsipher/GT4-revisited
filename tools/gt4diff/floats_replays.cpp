@@ -134,7 +134,7 @@ struct AloneBeside {
                 const bool pad = ee.r8(F0 + 0x466) == 0 && ee.r8(F0 + 0x467) == 0;
                 if (!pad) bits("steer", ee.r32(D + 0x30), p.steer.bits), bits("throttle", ee.r32(D + 0x34), p.throttle.bits), bits("brake", ee.r32(D + 0x38), p.brake.bits), num("mode", ee.r8(D + 0x1E), p.mode);
                 num("rand", ee.r16(D + 0x68), p.rand), bits("corner", ee.r32(D + 0xB8), p.corner_mult.bits), bits("braking", ee.r32(D + 0xBC), p.brake_mult.bits), bits("gap left", ee.r32(D + 0x58), p.gap_left.bits), bits("gap right", ee.r32(D + 0x5C), p.gap_right.bits);
-                for (u32 k = 0; k < 8; ++k) num("zone", ee.r8(D + 0x48 + k), p.zone[k]);
+                for (u32 k = 0; k < 8; ++k) num(("zone" + std::to_string(k)).c_str(), ee.r8(D + 0x48 + k), p.zone[k]);
                 num("next", ee.r8(D + 0x1D), p.next), num("line", ee.r8(D + 0x1C), p.line), num("prev", ee.r8(D + 0x21), p.prev_line);
                 bits("blend", ee.r32(D + 0x2C), p.blend.bits), bits("offset", ee.r32(D + 0x54), p.offset.bits), bits("v_cur", ee.r32(D + 0x24), p.v_cur.bits), bits("v_next", ee.r32(D + 0x28), p.v_next.bits);
                 if (!out.empty()) std::printf("  driver %d step %d (program ours, mode %d):%s\n", i, step, ee.r8(D + 0x1E), out.c_str()), ++driver_lists;

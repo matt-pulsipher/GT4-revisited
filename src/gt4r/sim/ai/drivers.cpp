@@ -1659,7 +1659,7 @@ void Field::incidents_after(Driver& d) {
     if (steps_ > 600 && std::fabs(st.speed) < 5 * kKmh) d.inc.stuck_seconds += kStep;
 }
 
-void Field::begin_step() {
+void Field::begin_step(bool near_pass) {
     const Cars& cars = *session_;
     // The order by laps and distance (1 first).
     {
@@ -1695,7 +1695,7 @@ void Field::begin_step() {
     for (auto& d : drivers_)
         if (d) d->s = lines_.wrap_lap(cars.state(d->car).course_v);
     rubber_band();
-    proximity();
+    if (near_pass) proximity();
 }
 
 void Field::end_step() {
@@ -1783,7 +1783,7 @@ void Field::blip(Driver& d, u32 count) {
 }
 
 void Field::step(Session& session, std::span<race::CarInput> inputs, int keep, u32 count) {
-    begin_step();
+    begin_step(false);
     // (the band is run at a step's end, for the next: the race's first step runs at the cars' own step length)
     if (first_step_ && session.time() == 0) std::fill(scale_.begin(), scale_.end(), kOne);
     first_step_ = false;
@@ -1812,8 +1812,9 @@ void Field::step(Session& session, std::span<race::CarInput> inputs, int keep, u
         }
         session.set_line_heading(car, line_heading_at(car), line_mode_at(car));
     };
-    if (count > 0) return session.hold_once(inputs, decide_one); // (no step of the race's clock)
-    session.step_once(inputs, decide_one);
+    const auto near_cars = [this] { proximity(); }; // (0x3F4638, within the step)
+    if (count > 0) return session.hold_once(inputs, decide_one, near_cars); // (no step of the race's clock)
+    session.step_once(inputs, decide_one, near_cars);
     end_step();
 }
 
