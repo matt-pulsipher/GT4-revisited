@@ -1324,6 +1324,7 @@ public:
         // A cut's dissolve: the last picture frozen at the cut, over the new one as it fades.
         world_->set_dissolve(snapshot_, dissolve_total_ > 0 ? float(dissolve_left_) / float(dissolve_total_) : 0.0f, replaying_ || menu_scene_ || mount_ == kTvView || start_camera_.active() || dissolve_total_ > 0);
         snapshot_ = false;
+        world_->set_cars_hidden(menu_scene_ && guide_ == 1);
         world_->render(ui, rect, cars, pose, focus(), pose.body_hidden ? int(focus()) : -1);
         // The in-car view's rear-view mirror at the top (❓ its place, (190, 18) 259 x 63 of the
         // 640 x 480 picture, measured on the original's in-car view): not in replays, demonstrations, under the results pages, the opening
@@ -2721,6 +2722,16 @@ private:
         }
     }
 
+    // The guide page's picture of the buttons is not drawn (✔ the original's; ❓ why its face is not).
+    void hide_guide_buttons() {
+        const std::function<void(const std::shared_ptr<menu::LiveWidget>&)> hide = [&](const std::shared_ptr<menu::LiveWidget>& w) {
+            if (!w) return;
+            if (w->is("ImageFace") && w->name == "ButtonTex") w->set_property("visible", script::Value::integer(0));
+            for (const std::shared_ptr<menu::LiveWidget>& c : w->children) hide(c);
+        };
+        for (const std::shared_ptr<menu::LiveWidget>& page : menus_->open_pages()) hide(page);
+    }
+
     // The guide film's page told its scene is over: its script's end (COMMAND_CONTINUE).
     void end_guide() {
         const std::function<bool(const std::shared_ptr<menu::LiveWidget>&)> tell = [&](const std::shared_ptr<menu::LiveWidget>& w) {
@@ -2754,6 +2765,7 @@ private:
         clock_ += dt;
         for (int n = 0; clock_ >= kStep && n < 4; ++n) clock_ -= kStep, race_->step({}, true);
         clock_ = std::min(clock_, double(kStep));
+        if (guide_page_ && !guide_told_) hide_guide_buttons();
         // The guide film ends with the recording or on Start (✔ "スタートボタンを押すと終了します").
         if (guide_page_ && !guide_told_ && (race_->guide_done() || m.pressed(PadButton::Start))) end_guide();
         if (!menus_->finished()) return;

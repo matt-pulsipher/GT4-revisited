@@ -768,7 +768,7 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
         m.wet_items.clear();
         course_->add_reflection_sky_items(m.wet_items, pose.eye);
         // The cars mirrored in the wet road when the course asks for them (Env0 +0x10 bit 16).
-        if (m.wet.params().cars)
+        if (m.wet.params().cars && !cars_hidden_)
             for (size_t i = 0; i < std::min(cars.size(), car_visuals_.size()); ++i)
                 if (int(i) != hidden) car_visuals_[i]->add_mirror_items(m.wet_items, cars[i], pose.eye);
         m.wet.add_buffer_items(m.wet_items, pose.view, pose.eye, {});
@@ -776,7 +776,7 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
         const render::DrawOptions wo = draw_options(*course_, far);
         if (SDL_GPUTexture* t = m.wet.render(*m.view, pose.view, proj, pose.eye, m.wet_items, wo)) m.wet.add_frame_items(m.items, pose.view, pose.fovy(), aspect, t);
     }
-    const size_t n = std::min(cars.size(), car_visuals_.size());
+    const size_t n = cars_hidden_ ? 0 : std::min(cars.size(), car_visuals_.size());
     for (size_t i = 0; i < n; ++i) car_visuals_[i]->add_shadow_items(m.items, cars[i]);
     // The cars' levels of detail by their size on screen (race::CarVisual::level): K, the program's
     // factor of the view (0x456918), one unit's height at depth 1 on a picture 448 lines high x 10 / 7:

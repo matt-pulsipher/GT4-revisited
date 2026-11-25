@@ -243,6 +243,7 @@ public:
     // One frame: `cars` as seen from `pose`; `focus`: the car the view is about (its surroundings
     // make the cars' reflection picture); `hidden`: a car whose body is not drawn (the in-car
     // view's own), -1 for none.
+    void set_cars_hidden(bool on) { cars_hidden_ = on; } // (a lesson's guide film: the course alone)
     void render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarState> cars, const race::ViewPose& pose, size_t focus, int hidden);
     // The rear-view mirror in `rect`: from `pose` (the in-car view) looking back, mirrored; the course
     // by its mirror lists and sky, the cars but `hidden`, the mirror's own fog, 120 m deep.
@@ -339,7 +340,7 @@ private:
     std::function<std::pair<int, int>(size_t)> tires_fitted_; // (their hook: the kinds on the car)
     std::shared_ptr<const sim::Program> program_; // (what their tire change reads)
     bool bspec_driven_ = false;               // a B-spec driver drove the player's car (its record set)
-    bool computer_player_ = false;
+    bool computer_player_ = false, cars_hidden_ = false;
     std::vector<bool> ended_; // the cars whose run is over (finish_car)
     float player_ps_ = 0;
     std::unique_ptr<race::StartCourse> start_course_;
