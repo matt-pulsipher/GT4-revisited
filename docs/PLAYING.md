@@ -214,7 +214,7 @@ Wheel:
 
 Up and Down follow the car ahead or behind. Cross changes between the course's cameras and the car's own: there R1 goes through its
 places, L1 looks back, L2 and R2 are the cameras beside the cabin, Left and Right held look to the sides. Triangle held zooms in.
-Square changes the playback (without the race display, Dive, with it), Circle switches the music, L3 plays four times as fast,
+Square changes the playback (without the race display, Dive, with it), Circle switches the music, L3 plays four times as fast (Dive cuts to the music, between all the cars; there Cross cuts),
 Select holds the picture, Start leaves. *Settings > Views & replays* has the depth of field, the vignette, the heat haze and the
 in-car camera's shake; its *Views* "All" adds a view without the mirror, the front bumper, a farther chase view and the course's
 cameras to the race's views. On a pad whose right stick does nothing else it looks around in the in-car and chase views.

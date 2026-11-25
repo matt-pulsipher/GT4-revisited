@@ -45,9 +45,9 @@ float width_of(float r) { return (((3.0f / 7.0f) * r - 3.0f / 7.0f) * r + 1) * r
 float lens_at(float width, float distance) { return 2 * std::atan(width / (2 * std::max(distance, 0.1f))) * kDegrees; }
 
 // Which camera (0x376638's tables 0x6210B8, 0x6210E0, 0x621108, 0x621130 by the shot's length and the car): nine shares, the last
-// the rest: 0 on board, 1 .. 3 round the car, 4 .. 6 a shot beside the road, 7 from above, 8 a roadside point. The disc's program
+// the rest: 0 on board, 1 .. 3 round the car, 4 .. 6 a fixed camera beside the road, 7 from above, 8 a roadside point. The disc's program
 // holds them; these are the ways through them.
-enum Way { kOnBoard = 0, kRound0 = 1, kRound2 = 3, kShot0 = 4, kShot2 = 6, kHeli = 7, kPoint = 8 };
+enum Way { kOnBoard = 0, kRound0 = 1, kRound2 = 3, kFix0 = 4, kFix2 = 6, kHeli = 7, kPoint = 8 };
 
 } // namespace
 
@@ -155,6 +155,7 @@ bool DiveDirector::step(const World& w, bool cut, float length, ViewPose& out) {
     out.haze = false, out.depth_of_field = false, out.f_number = 8, out.focus = 100, out.body_hidden = false;
     if (kind_ == Kind::Point) ok = point_pose(w, out);
     else if (kind_ == Kind::Round) ok = round_pose(w, out);
+    else if (kind_ == Kind::Above) ok = above_pose(w, out);
     else if (kind_ == Kind::OnBoard) ok = on_board_pose(w, out);
     first_ = false;
     if (!ok) kind_ = Kind::None;
@@ -169,9 +170,9 @@ bool DiveDirector::begin_shot(const World& w, float length) {
     int way = 0;
     for (; way < 8; ++way)
         if ((r -= share[size_t(way)]) <= 0) break;
-    // (The shots beside the road and from above are not here: a roadside point, or round the car in a long shot.)
-    if (way >= kShot0 && way <= kShot2) way = kPoint;
-    if (way == kHeli) way = length_ > 7.8f ? kRound0 : kPoint;
+    // (The fixed cameras it places beside the road, CameraAutoFix 0x381C90, are not here: a roadside point.)
+    if (way >= kFix0 && way <= kFix2) way = kPoint;
+    if (way == kHeli) return begin_above(), true;
     if (way == kPoint && begin_point(w, length_)) return true;
     if (way >= kRound0 && way <= kRound2) return begin_round(w, length_, way - kRound0), true;
     if (way == kOnBoard) return begin_on_board(w, length_), true;
@@ -377,19 +378,7 @@ bool DiveDirector::round_pose(const World& w, ViewPose& out) {
     auto world = [&](const RVec& p) { return origin + right * p.x + RVec{0, p.y, 0} - ahead * p.z; };
     const RVec target = world(look);
     RVec eye = world(look + RVec{std::sin(a) * off.z, off.y, std::cos(a) * off.z});
-    if (w.blocked && w.blocked(target, eye)) {
-        // (a wall between: as near as it lets, and the picture trails)
-        float clear = 0, hidden = 1;
-        for (int i = 0; i < 6; ++i) {
-            const float mid = (clear + hidden) / 2;
-            (w.blocked(target, target + (eye - target) * mid) ? hidden : clear) = mid;
-        }
-        const float whole = std::max(render::length(eye - target), 0.1f);
-        eye = target + (eye - target) * std::clamp(clear * 0.95f, std::min(1.0f, 2.0f / whole), 1.0f);
-        wall_ = 1.4f;
-    } else {
-        wall_ = 0;
-    }
+    eye = clear_eye(w, target, eye);
     float ground = 0;
     if (w.ground && w.ground(eye, origin.y + 3, ground)) eye.y = std::max(eye.y, ground + 0.2f);
     const RVec to = target - eye;
@@ -408,6 +397,69 @@ bool DiveDirector::round_pose(const World& w, ViewPose& out) {
     set_view(out, eye, yaw, pitch, roll);
     out.fov = shown_angle(round_lens_ / kDegrees);
     out.depth_of_field = true, out.f_number = 100, out.focus = distance;
+    return true;
+}
+
+// A wall between the place looked at and the eye (0x3FE7B0): as near as it lets, and the picture trails.
+RVec DiveDirector::clear_eye(const World& w, const RVec& target, const RVec& eye) {
+    wall_ = 0;
+    if (!w.blocked || !w.blocked(target, eye)) return eye;
+    float clear = 0, hidden = 1;
+    for (int i = 0; i < 6; ++i) {
+        const float mid = (clear + hidden) / 2;
+        (w.blocked(target, target + (eye - target) * mid) ? hidden : clear) = mid;
+    }
+    wall_ = 1.4f;
+    const float whole = std::max(render::length(eye - target), 0.1f);
+    return target + (eye - target) * std::clamp(clear * 0.95f, std::min(1.0f, 2.0f / whole), 1.0f);
+}
+
+// --- from above (CameraHeli 0x3834A0, 0x3837C0) -----------------------------------------------
+
+void DiveDirector::begin_above() {
+    kind_ = Kind::Above;
+    auto over = [&] {
+        const float reach = r_.next() * 6 + 1, a = r_.next() * 2 * kPi;
+        const float y = r_.next() * 4 + 3;
+        return RVec{reach * std::cos(a), y, reach * std::sin(a)};
+    };
+    auto look = [&] {
+        const float x = r_.next() * 1.5f - 0.75f, y = r_.next() * 0.6f + 0.4f;
+        return RVec{x, y, r_.next() * 3 - 1.5f};
+    };
+    eye_from_ = over(), eye_to_ = over();
+    look_from_ = look(), look_to_ = look();
+    roll_from_ = r_.next() * 40 - 20;
+    round_lens_ = r_.next() * 30 + 40;
+    round_ease_ = EaseCurve(0.1f, 0.3f, 1, 0.01f);
+    for (auto& n : noise_) n[0] = n[1] = n[2] = 0;
+    wall_ = 0;
+}
+
+bool DiveDirector::above_pose(const World& w, ViewPose& out) {
+    const Car c = w.car(car_);
+    if (!c.state) return false;
+    const float k = round_ease_.at(std::clamp(float(frames_) / (length_ * 60), 0.0f, 1.0f));
+    const RVec off = eye_from_ + (eye_to_ - eye_from_) * k, look = look_from_ + (look_to_ - look_from_) * k;
+    const RVec origin{c.body.at(0, 3), c.body.at(1, 3), c.body.at(2, 3)};
+    const float h = car_heading(*c.state);
+    const RVec ahead{std::sin(h), 0, std::cos(h)}, right = render::cross(ahead, {0, 1, 0});
+    auto world = [&](const RVec& p) { return origin + right * p.x + RVec{0, p.y, 0} - ahead * p.z; };
+    const RVec target = world(look), eye = clear_eye(w, target, world(off));
+    const RVec to = target - eye;
+    float pitch = pitch_of(to), yaw = yaw_of(to);
+    // Its hand follows the car's turn slowly (a share of 0.2).
+    if (first_) yaw_.reset(wrap360(yaw), u32(r_.next() * 4e9f) | 1), yaw = yaw_.value();
+    else yaw = yaw_.step(wrap360(yaw), 0.2f);
+    for (auto& n : noise_) {
+        if (r_.next() < 0.3f) n[1] = (r_.next() * 2 - 1) * 128;
+        n[2] += (115 * (n[1] - n[0]) - 10 * n[2]) / 60;
+        n[0] += n[2] / 60;
+    }
+    pitch += std::clamp(noise_[0][0] / 128, -1.0f, 1.0f) * 0.7f;
+    yaw += std::clamp(noise_[1][0] / 128, -1.0f, 1.0f) * 0.7f;
+    set_view(out, eye, yaw, pitch, roll_from_);
+    out.fov = shown_angle(round_lens_ / kDegrees);
     return true;
 }
 

@@ -394,7 +394,7 @@ the race input's word +0x174, read by 0x3FB1E0) while the play mode is 1 to 4; t
 |---|---|
 | Up / Down | the car followed: the one ahead / behind in the race's order (0x3FD5A8), the shot chosen anew at once |
 | Cross | the course's cameras (mode 1) or the car's own (mode 2, `CameraRideOn`); in Dive a cut |
-| Square | the playback mode (screen +0x138): without the display 1 -> Dive 2 -> with the display 0 -> 1; "Normal Replay", "Dive Replay", "Display" |
+| Square | the playback mode (screen +0x138): without the display 1 -> Dive 2 -> with the display 0 -> 1 ("Normal Replay", "Dive Replay", "Display") |
 | Triangle held | zoom 1 to 4 of the course's car shots (0x3852A0: a spring k 40, c 10 toward 20 while held, x 0.8 a step after; zoom = 1 + 3 x / 20) |
 | Circle | the music on or off (race +0xCFBC; not in Dive, which turns it on), "BGM ON" / "BGM OFF" |
 | L3 | the speed x 4 or x 1 (race +0xD3C), two arrows or one |
@@ -411,7 +411,39 @@ race over changes of camera and car. The plate (`RaceReplayModeDisplay`, 0x39F01
 
 A **B-spec race** (play mode 1) is shown by the same modes: the course's cameras first, Cross the car's nose and back.
 
-Not done: Dive's director (its playback mode shows the course's cameras), the photo drive, a wheel's own keys, ❓ the speed's effect on
+## Dive
+
+Code: `src/gt4r/race/dive_camera.*`; the tables are read from the program. The playback mode 2 (the manager's mode 8, 0x376AF0):
+
+- **When it cuts** (`DiveController` 0x400A18 at manager +0xB80, from the race's music, `RaceBGMPS2::vf3` / `vf4`): at the markers of
+  track 0 of the playing piece (`.adm`, [sound.md](sound.md); read 1/30 s ahead, 0x33D170) while the next is within 8 s, else every
+  8 s; and on Cross. The seconds to the next marker are the new shot's length T.
+- **The car**: from 240 pictures after the mode's start each cut takes a car at random (0x376B84).
+- **The camera** (0x376638) by nine shares: T over 7.8 s 0x621108, under 2 s 0x6210B8, else 0x6210E0 (a car in the pits 0x621130):
+  on board; round the car in three ways; a fixed camera beside the road in three (`CameraAutoFix`); from above; the rest a roadside
+  point of the script.
+- **Roadside point** (0x375F58): the points whose stretch the car is in or within 500 m of, scored (0x3FF1B0) by how the shot's
+  length fits the way to the point and its stretch, those passed within T's middle eight tenths first; of the best the tables
+  0x6210A8 (70 %, 25 %). The shot (`CameraPoint` 0x37E4D8, 0x37EA78): the target 0.4 m up and up to 0.8 m more or less over the
+  stretch; a roll from one to another of ±20 degrees on 60 %; on 15 % a start turned by up to 100 degrees on a spring; the lens from
+  a picture 1.5 to 11.5 m wide at the car at the stretch's start to another at its end, or held from the point on; on 30 % it starts
+  3 to 18 times as wide; the lens changes by 0.91 to 1.03 of itself a picture at most; the operator lets go of the car after half of
+  T on half of them; the aim leads by the target's own motion; aperture f/1.4 to 22 with the depth of field.
+- **Round the car** (`CameraRound` 0x380E48, 0x3814A0): the eye's height and distance and the place looked at go from one to another,
+  in the car's heading; the angle sweeps 100 degrees and up to 220 x 0.6 a second of T more (ways 0, 2), or 20 to 180 (way 1), slower
+  about the nose and the tail (0x381428); a roll of ±20 degrees to another; the lens 25 to 60 degrees.
+- **From above** (`CameraHeli` 0x3834A0): 1 to 7 m round and 3 to 7 m over the car, 40 to 70 degrees, its turn following by a share of 0.2.
+- **On board** (0x376238): the nose or the front bumper three in ten each (60 to 80 degrees, half of them looking back), else another
+  of the car's places; a roll on 40 %.
+- **The picture**: on one cut of ten it trails (0.5 to 1, at most 0.8 drawn); round the car and from above behind a wall too. Its
+  colors (`GammaEffector` 0x4004A8): plain, one of 21 tints (0x622700) or of 12 strong ones (0x6228F8), by what it was; on a fifth of
+  the cuts they ease in, else they stand at once.
+
+Here the program's random numbers are a generator of ours, `CameraAutoFix` is not built (a roadside point in its place, a tenth of the
+cuts), the point's own distance along the course is the middle of its stretch and the lens's distances are taken from the point
+along it (🔎 the program asks the road), a wall is the scenery's, the on-board shots' wobble is not here.
+
+Not done: the photo drive, a wheel's own keys, ❓ the speed's effect on
 the sound (four steps a picture here).
 
 ## Camera motions: `Mot1` (course slots 52, 53)

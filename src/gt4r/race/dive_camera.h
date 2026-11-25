@@ -83,9 +83,9 @@ public:
     size_t car() const { return car_; }
     bool is_cut() const { return cut_; }
     // The trail's weight (a circled car behind a wall trails too: CameraRound's vf27).
-    float trail() const { return kind_ == Kind::Round && wall_ > 0 ? wall_ : trail_; }
+    float trail() const { return (kind_ == Kind::Round || kind_ == Kind::Above) && wall_ > 0 ? wall_ : trail_; }
     gt3r::render::DrawOptions::PostGrade grade(const gt3r::render::DrawOptions::PostGrade& plain) const;
-    enum class Kind { None, OnBoard, Round, Point };
+    enum class Kind { None, OnBoard, Round, Point, Above };
     Kind kind() const { return kind_; }
 
 private:
@@ -97,7 +97,10 @@ private:
     void begin_on_board(const World& w, float length);
     bool point_pose(const World& w, ViewPose& out);
     bool round_pose(const World& w, ViewPose& out);
+    void begin_above();
+    bool above_pose(const World& w, ViewPose& out);
     bool on_board_pose(const World& w, ViewPose& out);
+    gt3r::render::Vec3 clear_eye(const World& w, const gt3r::render::Vec3& target, const gt3r::render::Vec3& eye);
     void color(bool cut);
 
     Draws r_;

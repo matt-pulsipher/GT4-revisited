@@ -1133,6 +1133,7 @@ public:
         if (e.select_car != 0) select_replay_car(cars, e.select_car);
         replay_camera_.set_zoom(view_.zoom());
         if (e.view || e.style) view_cut_ = true;
+        if (e.style || (e.view && !view_.ride_on())) replay_camera_.reset();
         step_music();
         dive_asked_ = e.director || (e.style && view_.style() == race::ReplayStyle::Dive);
         if (e.style && view_.style() == race::ReplayStyle::Dive) begin_dive();
