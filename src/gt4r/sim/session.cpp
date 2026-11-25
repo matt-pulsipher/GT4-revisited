@@ -267,6 +267,10 @@ rules::PoseHooks Session::pose_hooks() {
     };
     h.soft = [this](const ex::Ground& g) { return tables_.bumps.soft[size_t(g.material & 31)] != 0; };
     h.distance = [this](const ex::Car& c) {
+        if (!prologue_) { // (the conductor's virtual +0x108, 0x3955E8, as at each step's end)
+            const F at[3] = {c.pos.x, c.pos.z, -c.pos.y};
+            return ground_->course_distance(at, c.road_seg);
+        }
         float v = 0;
         return ground_->distance_along(to_course(c.pos), v) ? F(v) : F();
     };
@@ -743,6 +747,9 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
         ex::clear_feedback(c); // (the engine's feedback, for its routines that still read it)
         if (gt4_rules_) rules::clear_hit(gx_[i].phases); // phase 12 (0x350308)
     }
+    // (0x34DB30 after phase 12, before the collision step: each car's recent hit's steps counted down)
+    if (gt4_rules_)
+        for (size_t i = 0; i < cars_.size(); ++i) rules::hit_steps(gx_[i].phases);
     collide();
     if (gt4_rules_) {
         // Phase 14 (0x3F4638): which cars are near which, the slipstream's targets; phase 15 (0x3F28B8): the part that
@@ -760,7 +767,6 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
             // drivers' pit flow, sim/ai), the flaps (0x35A678).
             rules::tire_wear(c, gx_[i].wear, gx_[i].tires, layouts_[i], tables_.wear); // (0x352EA0)
             rules::flaps(c, layouts_[i], random_state_);
-            rules::hit_steps(gx_[i].phases); // (0x34DB30's end: the recent hit's steps)
         } else {
             ex::tire_wear(c, race_.prep.wear);
             ex::wear_flags(c, race_.prep.wear, {});
@@ -839,7 +845,17 @@ void Session::publish(size_t i) {
         o.material = x.materials[w];
     }
     float v = 0;
-    if (ground_->distance_along(cog, v, &x.checkpoint)) {
+    bool along = false;
+    if (gt4_rules_ && !prologue_) {
+        // F +0x4A4 at the step's end: the program's distance along the course (0x3955E8 at the center of gravity, the car's
+        // road cell F +0x4A8 its hint; 0 where no gate holds the point). The drivers and the laps read it where it is found.
+        const F at[3] = {c.pos.x, c.pos.z, -c.pos.y};
+        const F d = ground_->course_distance(at, c.road_seg, &along);
+        cars_[i].f3e4 = d;
+        v = d.host();
+    } else
+        along = ground_->distance_along(cog, v, &x.checkpoint);
+    if (along) {
         // (The checkpoint pair across the lap's end answers past the length: the line is at 0.)
         if (road_->length > 0 && v >= road_->length) v -= road_->length;
         if (x.has_v && road_->length > 0) {
@@ -847,17 +863,15 @@ void Session::publish(size_t i) {
             if (d < -road_->length * 0.5f) ++s.lap;
             else if (d > road_->length * 0.5f) --s.lap;
         }
-        // The distance along the course F +0x4A4 and its change a step x 60, F +0x650 (0x358608 after the step: phase 14 reads
-        // both). ❓ ours is measured between the checkpoint gates, not along the program's own line.
+        // The distance's change a step x 60, F +0x650 (0x358608 after the step, across the line by a lap: phase 14 reads it).
         if (i < gx_.size()) {
             F rate = F();
             if (x.has_v && road_->length > 0) {
-                float d = v - x.last_v;
-                if (d < -road_->length * 0.5f) d += road_->length;
-                else if (d > road_->length * 0.5f) d -= road_->length;
-                rate = F(d) * F::raw(0x42700000);
+                const F s(v), was(x.last_v), lap(road_->length), k60 = F::raw(0x42700000);
+                if (was <= s) rate = (was + lap * kHalf < s ? s - (was + lap) : s - was) * k60;
+                else rate = (s + lap * kHalf < was ? (s + lap) - was : s - was) * k60;
             }
-            cars_[i].f3e4 = F(v);
+            if (!gt4_rules_ || prologue_) cars_[i].f3e4 = F(v);
             gx_[i].near.course_rate = rate;
         }
         // A start place behind the line: the first lap begins when the car crosses it.

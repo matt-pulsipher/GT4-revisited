@@ -203,6 +203,86 @@ bool RoadGround::cast_down(const Vec3& from, GroundHit& out) const {
     return query(p, out);
 }
 
+namespace {
+
+// 0x3E6610: point p in the quad a (a gate's first point), b (the next gate's), c (the gate's second), d (the next gate's
+// second) across the ground (x, z): its place u from a to b and v from a to c (the quad's bilinear map inverted: a
+// quadratic with one square root), and p's height above the quad's there. False outside the quad's four edges or for a
+// quad of no extent.
+bool quad_place(const F p[3], const Vec3& aa, const Vec3& bb, const Vec3& cc, const Vec3& dd, F& u, F& v, F& above) {
+    const F px = p[0], pz = p[2], ax(aa.x), az(aa.z), bx(bb.x), bz(bb.z), cx(cc.x), cz(cc.z), dx(dd.x), dz(dd.z);
+    const F acx = cx - ax, acz = cz - az, dbx = bx - dx, dbz = bz - dz;
+    if (acx == kZero && acz == kZero && dbx == kZero && dbz == kZero) return false;
+    const F apx = px - ax, apz = pz - az;
+    const F s1 = apz * acx - apx * acz;
+    if (kZero < s1) return false;
+    const F abx = bx - ax, abz = bz - az;
+    const F s2 = apz * abx - apx * abz;
+    if (s2 < kZero) return false;
+    const F dpx = px - dx, dpz = pz - dz;
+    if (kZero < dpz * dbx - dpx * dbz) return false;
+    const F dcx = cx - dx, dcz = cz - dz;
+    if (dpz * dcx - dpx * dcz < kZero) return false;
+    const F ex = (-dcx) - abx, ez = (-dcz) - abz;
+    const F k = apz * ex - apx * ez;
+    if (acx == kZero && acz == kZero) {
+        u = (-s2) / k;
+        v = k / (abz * ex - abx * ez);
+    } else {
+        const F q = abz * acx - abx * acz;
+        const F r = acz * ex - acx * ez;
+        const F b0 = k + q, b1 = q - k;
+        const F disc = gt3r::ee::sqrt(b0 * b0 + (s2 * F::raw(0x40800000)) * r);
+        v = (s2 * F::raw(0xC0000000)) / (b0 - disc);
+        u = (s1 + s1) / (b1 - disc);
+    }
+    const F ay(aa.y), by(bb.y), cy(cc.y), dy(dd.y);
+    const F h = (kOne - u) * (kOne - v) * ay + u * (kOne - v) * by + (kOne - u) * v * cy + u * v * dy;
+    above = p[1] - h;
+    return true;
+}
+
+} // namespace
+
+F RoadGround::course_distance(const F p[3], s32 hint, bool* found) const {
+    if (found) *found = false;
+    const course::Runway& r = *road_;
+    int cluster = int(hint >> 16);
+    GroundHit h;
+    if (cluster <= 0) { // (0x3955E8: the road under the point, from 1,000 m above it)
+        const F from[3] = {p[0], p[1] + F::raw(0x447A0000), p[2]};
+        if (!query(from, h)) return kZero;
+        cluster = h.cluster;
+        if (cluster <= 0) { // (0x3E6858: the road under the point itself)
+            if (!query(p, h)) return kZero;
+            cluster = h.cluster;
+        }
+    }
+    if (cluster < 0 || size_t(cluster) >= r.clusters.size()) return kZero;
+    const course::Runway::Cluster& c = r.clusters[size_t(cluster)];
+    const size_t n = r.checkpoints.size();
+    F best = kFar, dist = kZero;
+    for (u32 k = c.checkpoint_first; k < u32(c.checkpoint_first) + c.checkpoint_count && k < r.checkpoint_lookup.size(); ++k) {
+        const size_t i = r.checkpoint_lookup[k];
+        if (i >= n) continue;
+        const size_t j = i + 1 == n ? 0 : i + 1;
+        const course::Runway::Checkpoint &a = r.checkpoints[i], &b = r.checkpoints[j];
+        F u, v, above;
+        if (!quad_place(p, a.left, b.left, a.middle, b.middle, u, v, above) && !quad_place(p, a.middle, b.middle, a.right, b.right, u, v, above))
+            continue;
+        const F off = gt3r::ee::abs(above);
+        if (!(off < best)) continue;
+        best = off;
+        if (found) *found = true;
+        const F lap(r.length), from(a.v);
+        F to(b.v);
+        if (to < from) to = to + lap;
+        dist = from + (to - from) * u;
+        if (lap < dist) dist = dist - lap;
+    }
+    return dist;
+}
+
 bool RoadGround::at_place(const Vec3& p, GroundHit& out) const {
     bool found = false;
     float y = road_->max.y;

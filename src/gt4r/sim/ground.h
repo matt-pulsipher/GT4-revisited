@@ -55,6 +55,14 @@ public:
     // lines it lies between, by its place along the line through their middles. `hint`: the
     // checkpoint found last time (-1: none); the search starts around it. False off the course.
     bool distance_along(const Vec3& p, float& v, int* hint = nullptr) const;
+    // The program's distance along the course (0x3955E8 with 0x3E6858; the conductor's virtual +0x108, F +0x4A4 at each
+    // step's end) of a point of the course's frame (x, height, z): the checkpoint gates of the road cluster `hint` names
+    // (cluster << 16 | triangle: the car's F +0x4A8), or with no cluster there (below 1) of the cluster under the point
+    // (the road query from 1,000 m above). Each gate and the next make two quads across the ground, (left, middle) and
+    // (middle, right); of those holding the point the one nearest it in height gives the gate's distance + (the next's -
+    // the gate's, + a lap where it falls) x the point's place along the quad (0x3E6610), less a lap past one. 0 where no
+    // quad holds the point or no road is under it (`found` false).
+    gt3r::ee::F course_distance(const gt3r::ee::F p[3], s32 hint, bool* found = nullptr) const;
     // The checkpoint lines' middle at distance v (wrapped into the lap): the point and the direction of
     // travel. The lines are gates wider than the road; road_middle finds the road in one.
     void middle_at(float v, Vec3& point, Vec3& direction) const;

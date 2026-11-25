@@ -225,8 +225,13 @@ void Field::setup(Driver& d) {
     else std::copy(tables_.builtin[session_->loose() ? 1 : 0].begin(), tables_.builtin[session_->loose() ? 1 : 0].end(), set.begin());
     d.p = params_from(set, d.drive_class, tables_.tuning);
     const ex::Car& c = session_->record(d.car);
-    // 0x4673D8: the downforce term (the aero bonus's lift part is ❓ not mirrored: 0).
-    if (c.p.mass != F()) d.p.downforce = (c.p.downforce_coef[0] + c.p.downforce_coef[1]) / c.p.mass;
+    // 0x4673D8: the downforce term (P +0x106C + P +0x1070) / the weight P +0x103C; the aero bonus 0, or for the lift under the
+    // body (P +0x1077 kind 7) its lift P +0x1084 x 0.8 / the weight.
+    if (c.p.weight != F()) {
+        d.p.downforce = (c.p.downforce_coef[0] + c.p.downforce_coef[1]) / c.p.weight;
+        const rules::BodyExtra& b = session_->extra(d.car).body;
+        d.p.aero_bonus = b.speed_part_kind == 7 ? (b.speed_part_lift * F::raw(0x3F4CCCCC)) / c.p.weight : F();
+    }
     // The event's changes (0x467148): each class's percents, then the drivers' spread by grid index.
     int thr = pace_.throttle[size_t(d.drive_class)], brk = pace_.brake[size_t(d.drive_class)], cs = pace_.corner[size_t(d.drive_class)];
     if (thr == 0 || thr > 100) thr = 100;

@@ -7,6 +7,7 @@
 #include "disc/core_image.h"
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/formats/db/car_parts.h"
+#include "gt4r/sim/ground.h"
 
 #include <algorithm>
 #include <cmath>
@@ -105,6 +106,32 @@ bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, 
         if (road.empty()) return err = "the course has no road", false;
         o.runway = ee.alloc_bytes(road, 64);
         ee.call(kRunwayRelocate, {Arg::ptr(o.runway)}, 50'000'000);
+        // GT4R_RACE_GRID: the road's own grid (no layout: the rule block's +0x21 -1, below) as long as the field, the places
+        // past the road's own as our session makes them (sim::Session: the first place moved back 8 m a place along its
+        // heading, at the road's height there), so the two races start alike. Without it the conductor's virtual 26 takes the
+        // rule block's layout 0 (the road's +0x9C list, +0x18 its places; 0x395220 into the course object's +0xB0) and
+        // 0x3952C0 reads place i past that list's end (it has no bound).
+        if (std::getenv("GT4R_RACE_GRID")) {
+            const course::Runway r = course::Runway::parse(road);
+            const sim::RoadGround g(r);
+            const u32 have = ee.r16(o.runway + 0x3A);
+            if (u32(o.cars) > have && !r.grid.empty()) {
+                const u32 list = ee.alloc(0x10 * u32(o.cars), 16), from = ee.r32(o.runway + 0x5C);
+                for (u32 k = 0; k < 0x10 * have; k += 4) ee.w32(list + k, ee.r32(from + k));
+                course::Runway::Place first = r.grid[0];
+                sim::GroundHit h;
+                if (g.at_place(first.pos, h)) first.pos.y = h.point.y;
+                for (u32 i = have; i < u32(o.cars); ++i) {
+                    course::Runway::Place at = first;
+                    const float back = 8.0f * float(i);
+                    at.pos.x -= std::sin(at.heading) * back, at.pos.z -= std::cos(at.heading) * back;
+                    if (g.at_place(at.pos, h)) at.pos.y = h.point.y;
+                    ee.wf(list + 0x10 * i, at.pos.x), ee.wf(list + 0x10 * i + 4, at.pos.y), ee.wf(list + 0x10 * i + 8, at.pos.z);
+                    ee.wf(list + 0x10 * i + 12, at.heading);
+                }
+                ee.w32(o.runway + 0x5C, list), ee.w16(o.runway + 0x3A, u16(o.cars));
+            }
+        }
         o.container = ee.alloc(0x1600, 64);
         ee.w32(o.container + 4 * u32(course::kSlotRunway), o.runway);
         o.course = ee.alloc(0x200, 64);
@@ -199,8 +226,15 @@ bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, 
             const u8 b[9] = {40, 60, 20, 5, 3, 10, 10, 25, 30};
             for (u32 i = 0; i < 9; ++i) ee.w8(o.cond + 0xF818 + 0x2C + i, b[i]);
         }
+        if (std::getenv("GT4R_RACE_GRID")) ee.w8(o.cond + 0xF818 + 0x21, 0xFF); // (the course's layout: none)
         ee.w32(o.cond, o.info);
         ee.w32(o.cond + kCondCars, u32(o.cars));
+        if (std::getenv("GT4R_AI_PLACES")) // (each car's set-up, 0x363B10: its start kind and place, record frame)
+            ee.probe(0x363B10, [](Ee& e) {
+                float f[4];
+                for (int k = 0; k < 4; ++k) std::memcpy(&f[k], &e.fpr[12 + k], 4);
+                std::printf("set-up car %u: start kind %u, place %.2f %.2f %.2f heading %.3f\n", e.g32(10), e.g32(11), double(f[0]), double(f[1]), double(f[2]), double(f[3]));
+            });
         if (before_init) before_init();
         const u32 vt = ee.r32(o.cond + kCondVtable);
         const u32 init = vt + 0xE0;

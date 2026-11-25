@@ -777,6 +777,10 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
             if (checks && !ours && step % 60 == 30) check_places(ee, o, *field, tally);
             // GT4R_AI_WHOLESTEP=<from s>: from that time, every step of ours from the program's state compared (whole_step.cpp).
             if (whole && step >= whole_from) whole->before();
+            if (std::getenv("GT4R_AI_PLACES") && step == 0) // (and before the first step)
+                for (int i = 0; i < o.cars; ++i)
+                    std::printf("place %d set-up: %.2f %.2f %.2f heading %.3f distance %.1f\n", i, double(ee.rf(o.car(i) + kF)), double(ee.rf(o.car(i) + kF + 8)),
+                                double(-ee.rf(o.car(i) + kF + 4)), double(ee.rf(o.car(i) + kF + 0x570)), double(ee.rf(o.car(i) + kF + kDistance)));
             orig_step(ee, o);
             if (whole && step >= whole_from) whole->after();
             if (std::getenv("GT4R_AI_PLACES") && (step == 0 || step == 600)) // GT4R_AI_PLACES: every car's place (course x, height, z) and heading
@@ -859,7 +863,7 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
     if (field && std::getenv("GT4R_AI_INCIDENTS"))
         for (int i = 0; i < o.cars; ++i) {
             const auto& inc = field->incidents(size_t(i));
-            std::printf("  incidents car %d: walls %d cars %d\n", i, inc.wall_hits, inc.car_hits);
+            std::printf("  incidents car %d: walls %d cars %d spins %d off %d\n", i, inc.wall_hits, inc.car_hits, inc.spins, inc.off_road);
         }
     if (calls && print)
         for (const auto& [kind, n] : calls->kinds_) std::printf("  decisions of driver kind %d: %llu\n", kind, (unsigned long long)n);

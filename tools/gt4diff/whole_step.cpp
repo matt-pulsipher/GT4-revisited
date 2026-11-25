@@ -59,12 +59,23 @@ WholeStep::WholeStep(Ee& ee, const OrigRace& race, Disc& disc, const std::string
         for (u32 a = 0x620000; a < 0x624000; a += 4)
             if (program.w(a) != ee.r32(a)) std::printf("global %06X: image %08X, race %08X\n", a, program.w(a), ee.r32(a));
     }
+    free_ = std::getenv("GT4R_AI_WHOLEFREE") != nullptr;
+    if (free_ && std::atoi(std::getenv("GT4R_AI_WHOLEFREE")) == 2) {
+        std::vector<size_t> computer(cars.size());
+        for (size_t i = 0; i < cars.size(); ++i) computer[i] = i;
+        own_ = sim::ai::Field::open(disc, course, *session_, computer);
+        if (field) own_->set_band(field->band());
+    }
     if (field)
         for (size_t i = 0; i < cars.size(); ++i) session_->set_driver_aids(i, field->params(i).aids, field->params(i).grip);
+    if (own_)
+        for (size_t i = 0; i < cars.size(); ++i) session_->set_driver_aids(i, own_->params(i).aids, own_->params(i).grip);
 }
 WholeStep::~WholeStep() = default;
 
 void WholeStep::before() {
+    if (free_ && loaded_) return;
+    loaded_ = true;
     const u32 walls = ee_.r32(race_.runway + 0x84);
     const u32 manager = race_.cond + 0xDA6C;
     for (int i = 0; i < race_.cars; ++i) {
@@ -108,6 +119,30 @@ void WholeStep::after() {
         c.reverse = ee_.r8(D + 0x3E) != 0;
         c.shift_lock = u8(ee_.r16(D + 0x3C));
     }
+    if (own_) { // our drivers on our session, their outputs against the program's race's
+        std::vector<race::CarInput> mine(in.size());
+        own_->drive(mine);
+        own_->apply_time_scales(*session_);
+        for (int i = 0; i < race_.cars; ++i) {
+            const race::CarInput &a = in[size_t(i)], &b = mine[size_t(i)];
+            auto note = [&](const char* name, double x, double y) {
+                if (x == y) return;
+                Stat& st = inputs_[name];
+                if (st.off++ == 0) {
+                    char t[200];
+                    const sim::ai::Field::Probe p = own_->probe_get(size_t(i));
+                    const u32 D = race_.car(i) + 0x14;
+                    std::snprintf(t, sizeof t, "first at step %llu car %d: the program's %.9g, ours %.9g (mode %u/%d line %u/%d status %d/%d s %.3f)",
+                                  static_cast<unsigned long long>(steps_), i, x, y, ee_.r8(D + 0x1E), p.mode, ee_.r8(D + 0x1C), p.line, int(gt3r::s8(ee_.r8(D + 0x43))),
+                                  p.status, double(p.s));
+                    st.first = t;
+                }
+            };
+            note("input steer", a.steer_angle, b.steer_angle), note("input throttle", a.throttle, b.throttle), note("input brake", a.brake, b.brake);
+            note("input reverse", a.reverse, b.reverse), note("input shift lock", a.shift_lock, b.shift_lock);
+        }
+        in = mine;
+    }
     session_->step_once(in);
     ++steps_;
     bool clean = true;
@@ -137,7 +172,11 @@ void WholeStep::after() {
                 x = ua, y = ub;
             }
             Stat& st = fields_[s.name];
-            ++st.off;
+            if (st.off++ == 0) {
+                char t[160];
+                std::snprintf(t, sizeof t, "first at step %llu car %d: the program's %.9g, ours %.9g", static_cast<unsigned long long>(steps_), i, x, y);
+                st.first = t;
+            }
             const double d = std::fabs(x - y), rel = s.real ? d / std::max(std::fabs(x), 1e-6) : d;
             if (rel >= st.worst) {
                 st.worst = rel;
@@ -153,8 +192,10 @@ void WholeStep::after() {
 void WholeStep::print() const {
     std::printf("  whole step from the program's state  %llu steps, %llu with every placed field equal\n", static_cast<unsigned long long>(steps_),
                 static_cast<unsigned long long>(clean_));
+    for (const auto& [n, s] : inputs_)
+        std::printf("      %-28s differs in %llu: %s\n", n.c_str(), static_cast<unsigned long long>(s.off), s.first.c_str());
     for (const auto& [n, s] : fields_)
-        std::printf("      %-28s differs in %llu, most by %.3g: %s\n", n.c_str(), static_cast<unsigned long long>(s.off), s.worst, s.example.c_str());
+        std::printf("      %-28s differs in %llu, most by %.3g: %s; %s\n", n.c_str(), static_cast<unsigned long long>(s.off), s.worst, s.example.c_str(), s.first.c_str());
 }
 
 } // namespace gt4r::diff
