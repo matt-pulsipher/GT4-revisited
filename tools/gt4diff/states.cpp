@@ -544,6 +544,8 @@ StatesResult run_states(Disc& disc, const std::string& state0, const std::string
                     const u32 D = o.car(i) + sim::layout::kDriver, F = o.car(i) + kF;
                     std::printf("  %7.1f %4.1f l%u m%u %4.1f/%4.1f t%.2f b%.2f", double(ee.rf(F + 0x4A4)), double(ee.rf(F + 0x53C)), ee.r8(D + 0x1C), ee.r8(D + 0x1E), double(ee.rf(D + 0x24)),
                                 double(ee.rf(D + 0x28)), double(ee.rf(D + 0x34)), double(ee.rf(D + 0x38)));
+                    if (std::getenv("GT4R_STATES_STATUS"))
+                        std::printf(" s%d x%.3f g%.3f o%.2f", int(gt3r::s8(ee.r8(D + 0x43))), double(ee.rf(F + 0x560)), double(ee.rf(F + 0x554)), double(ee.rf(D + 0x54)));
                     if (i == 0) std::printf(" f%d c%u", int(gt3r::s8(ee.r8(D + 0x51))), ee.r8(D + 0x6A));
                 }
                 std::printf("\n");
@@ -553,12 +555,20 @@ StatesResult run_states(Disc& disc, const std::string& state0, const std::string
                 for (int i = 0; i < o.cars; ++i) // (the pits' marks as the program's race has them)
                     field->set_marks(size_t(i), (ee.r8(o.car(i) + kF + 0x4B1) & 0x10) != 0, ee.r8(o.car(i) + kF + 0x5C2) != 0);
                 field->step(*session, in, -1, ee.r32(o.info + 0xBC)); // (the race's start hold left)
+                if (step == 1) { // (our cars' published places were the grid's in the first step: the program's again after it)
+                    load_ours();
+                    for (int i = 0; i < o.cars; ++i) field->probe_set(size_t(i), driver_probe(ee, o, i, session->ground().road().length));
+                    field->set_clock(ee.r32(o.cond + 0xF89C));
+                }
                 if (const char* fe = std::getenv("GT4R_STATES_FIELD"); fe && print && step % std::max(1, std::atoi(fe)) == 0) {
                     std::printf("ours %5d:", step);
                     for (int i = 0; i < o.cars; ++i) {
                         const sim::ai::Field::Probe p = field->probe_get(size_t(i));
                         std::printf("  %7.1f %4.1f l%d m%d %4.1f/%4.1f t%.2f b%.2f", double(session->cars()[size_t(i)].course_v), double(session->cars()[size_t(i)].speed), p.line, p.mode,
                                     double(p.v_cur.host()), double(p.v_next.host()), double(p.throttle.host()), double(p.brake.host()));
+                        if (std::getenv("GT4R_STATES_STATUS"))
+                            std::printf(" p%02X t%d b%d s%d x%.3f g%.3f o%.2f", session->record(size_t(i)).x535, p.arc_ticks, field->params(size_t(i)).straight_bonus, p.status, double(session->gt4_record(size_t(i)).speeds.g_follow.host()), double(session->record(size_t(i)).a_y.host()),
+                                        double(p.offset.host()));
                     }
                     std::printf("\n");
                 }

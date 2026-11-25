@@ -140,6 +140,15 @@ public:
     bool loose() const override { return s_->loose(); }
     const RoadGround& ground() const override { return s_->ground(); }
     const sim::Extra& extra(size_t i) const override { return s_->gt4_record(i); }
+    // (the record's own F +0x560 and F +0x650, on Gran Turismo 4's rules)
+    bool lat_filter(size_t i, gt3r::ee::F& x) const override {
+        if (s_->gt4_rules()) x = s_->gt4_record(i).speeds.g_follow;
+        return s_->gt4_rules();
+    }
+    bool course_rate(size_t i, gt3r::ee::F& x) const override {
+        if (s_->gt4_rules()) x = s_->gt4_record(i).near.course_rate;
+        return s_->gt4_rules();
+    }
     bool wear_on() const override { return s_->wear_rules().tread_on != 0 || s_->wear_rules().second_on != 0; }
     // The collision step's front and rear flags of the car's body (+0x434 / +0x438) as the last step left them.
     bool hits(size_t i, bool& front, bool& rear) const override {
@@ -256,6 +265,8 @@ public:
     void start_line(size_t car, int line);
     // A car's marks after a step's wear and pit phases (Cars::marks), from its race's pit stops (PitStops::after).
     void set_marks(size_t car, bool pit_lane, bool tire_out);
+    // The race's clock (the conductor's +0xF89C), for a race taken up in its middle (checks).
+    void set_clock(u32 c) { clock_ = c; }
     bool hold_rolling(size_t car);
     bool release_rolling(size_t car);
     // The speed limits of kind 5 (the race's configuration +0x42 for the player's car, +0x43 for the computer's; km/h, above
