@@ -2017,7 +2017,7 @@ public:
                 if (m.pressed(PadButton::Cross) && !online_) result_->key(0x20);
                 result_->advance(float(dt));
                 // (an online race's page stays until the players leave it: the movie's own end starts it again)
-                if (online_ && result_exit_) result_exit_ = false, result_->restart();
+                if (online_ && result_exit_) result_exit_ = false, result_->restart(), race_->board().touch();
                 leave = result_exit_;
             } else {
                 leave = m.pressed(PadButton::Cross) && !online_;

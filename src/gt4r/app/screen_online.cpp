@@ -614,7 +614,7 @@ void OnlineMenus::panel(App& app, Ui& ui, float x, float y, float w, float h, bo
     else if (confirm_ >= 0) hint = "Remove " + l.name(confirm_) + "? {Cross}: remove  {Triangle}: no";
     else if (compact && l.host()) hint = l.count() >= 2 ? "{Start}: begin with these players   {Triangle}: close the lobby" : "Waiting for the others...   {Triangle}: close the lobby";
     else if (compact) hint = "The host begins when everyone is here.   {Triangle}: leave";
-    else hint = std::string("{Select}: back to the page   ") + (l.host() ? "{Square}: remove a player   " : "") + "{Start}: leave the lobby";
+    else hint = std::string("{Select}: back to the page   ") + (l.host() && sel_ > 0 ? "{Square}: remove this player   " : "") + "{Start}: leave the lobby";
     ui.text(x + 12, y + h - 18, hint, confirm_ >= 0 ? colors::kText : colors::kDim);
 }
 
