@@ -11,6 +11,7 @@
 #include "gt4r/app/menu_movies.h"
 #include "gt4r/app/menu_page_drawer.h"
 #include "gt4r/app/menu_slides.h"
+#include "gt4r/app/online.h"
 
 #include "base/log.h"
 #include "formats/text/charset.h"
@@ -229,6 +230,7 @@ private:
             else if (card_ == "saved") runtime_->game().card.has_game_data = true, runtime_->game().username = "Player"; // a stand-in for a saved game
             if (credits_ >= 0) runtime_->game().money = credits_;
             app_ = &app;
+            online_ = std::make_unique<OnlineMenus>(app, *runtime_);
             runtime_->on_sound = [&app](const menu::SoundCall& call) {
                 if (audio::AppSound* sound = app.sound()) play_sound_call(sound->menu(), call);
             };
@@ -285,7 +287,7 @@ private:
         if (held_) SDL_DestroyTexture(held_), held_ = nullptr;
         if (trail_) SDL_DestroyTexture(trail_), trail_ = nullptr;
         menu::text_measure().measure = nullptr;
-        movies_.reset(), cars_.reset(), models_.reset(), slides_.reset(), loading_.reset(), advertise_.reset(), live_drawer_.reset(), runtime_.reset(), race_.reset();
+        movies_.reset(), cars_.reset(), models_.reset(), slides_.reset(), loading_.reset(), advertise_.reset(), live_drawer_.reset(), online_.reset(), runtime_.reset(), race_.reset();
         if (app_)
             if (audio::AppSound* sound = app_->sound()) sound->stop();
     }
@@ -306,8 +308,9 @@ private:
                 advertise_->step(float(n) / 60.0f);
                 return;
             }
-            // (The loading page takes no keys.)
-            const bool keys_on = !loading_ || !loading_->active();
+            // (The loading page takes no keys; nor do the pages while the players' panel has them.)
+            const bool panel = online_ && online_->frame(app, m);
+            const bool keys_on = !panel && (!loading_ || !loading_->active());
             if (keys_on && m.vertical()) runtime_->key(m.vertical() < 0 ? menu::Key::Up : menu::Key::Down);
             if (keys_on && m.horizontal()) runtime_->key(m.horizontal() < 0 ? menu::Key::Left : menu::Key::Right);
             for (const auto& [button, key] : keys)
@@ -319,6 +322,8 @@ private:
             for (int i = 0; i < steps; ++i) runtime_->update(), cursor_.step(*runtime_);
             if (loading_) loading_->step(float(steps) / 60.0f);
             if (timing_ && double(SDL_GetTicksNS() - u0) / 1e6 > 20) LOG_INFO("Menu timing: the scripts took %.1f ms", double(SDL_GetTicksNS() - u0) / 1e6);
+            // The connection before the LAN Battle's pages, and its race (online.h).
+            if (online_ && online_->finished(app)) return;
             // A script that ended its project names the next one, or asks for a race.
             if (runtime_->finished() && (!race_ || (loading_ && loading_->active()))) {
                 if (!race_) race_ = runtime_->race_request();
@@ -434,6 +439,7 @@ private:
             if (const float cover = runtime_->fade_cover(); cover > 0) ui.fill(x, 0, 640 * scale, 480 * scale, Color{0, 0, 0, u8(std::clamp(cover, 0.0f, 1.0f) * 255.0f)});
             if (loading_ && !loading_->active() && runtime_->game().loading_mode == "capture" && !runtime_->finished()) loading_->keep(x, scale);
             if (loading_) loading_->draw(x, scale);
+            if (online_) online_->render(*app_, ui, x, scale);
         }
         // What the scripts did, beside the page (the game itself: only what stopped them).
         const std::deque<std::string>& log = runtime_->log();
@@ -534,6 +540,7 @@ private:
     std::unique_ptr<PageDrawer> drawer_;
     std::vector<std::shared_ptr<LiveWidget>> pages_;
     std::unique_ptr<menu::Runtime> runtime_;
+    std::unique_ptr<OnlineMenus> online_; // the online races' part of the menus
     std::unique_ptr<PageDrawer> live_drawer_;
     std::unique_ptr<MenuMovies> movies_; // the running menus' movie faces
     std::unique_ptr<MenuCars> cars_;     // and car faces

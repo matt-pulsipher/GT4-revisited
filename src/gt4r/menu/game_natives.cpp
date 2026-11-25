@@ -6,6 +6,7 @@
 // docs/formats/menu.md ("The game's state") says what each answers and why.
 
 #include "gt4r/menu/game_internal.h"
+#include "gt4r/menu/game_network.h"
 #include "gt4r/menu/game_bspec.h"
 #include "gt4r/menu/game_opponents.h"
 #include "gt4r/sim/ai/bspec_skill.h"
@@ -882,8 +883,17 @@ g.method("menuRef", [s](Vm&, const Value&, Args a) {
         return Value{};
     });
     g.method("getAllMusicList", [](Vm&, const Value&, Args) { return Value::array({}); });
-    g.method("getBattleSettingRace", [](Vm&, const Value&, Args) { return Value{}; });
-    g.method("getBattleSettingEntry", [](Vm&, const Value&, Args) { return Value{}; });
+    // The LAN battle's settings (0x161F28, 0x162018: the words as a list, where the program gives its blob).
+    g.method("getBattleSettingRace", [s](Vm&, const Value&, Args) {
+        const net::RaceRules r = rules_from_options(*s);
+        return Value::array({number(r.laps), number(r.handicap), number(r.boost), number(r.tire_wear), number(r.heavy), number(r.penalty)});
+    });
+    g.method("getBattleSettingEntry", [s](Vm&, const Value&, Args) {
+        const RaceRequest& q = s->race;
+        const GameSettings o = settings_of(*s);
+        return Value::array({number(q.manual == 0), number(q.assist_asm), number(q.assist_tcs), number(q.vibration), number(o.active_steering), number(q.tire),
+                             number(o.view == "BONNET" ? 1 : o.view == "OVERLOOK" ? 2 : 0), number(o.display.map ? 1 : 0)});
+    });
     g.property("option", [this] { return make_option(); });
     g.method("getOption", [this](Vm&, const Value&, Args) { return make_option(); });
     g.method("setOption", [](Vm&, const Value&, Args) { return Value{}; });
@@ -1273,24 +1283,8 @@ void install_game_natives(Runtime& rt, script::Module& menu) {
         shell->set("pipe", Value{});
         return object_value(shell);
     };
-    // The network: none. What the scripts ask before they use it answers no.
-    make_class(menu, "MNetwork")->construct = [](Vm&, Args) {
-        auto net = std::make_shared<Object>("MNetwork");
-        for (const char* no : {"isNetworkAdaptorAvailable", "isInterfaceInitialized", "isNetworkInitialized", "isRTIMEInitialized", "isLoggedIn",
-                               "isMGCLworking", "amIhost", "isClientDisconnected", "isDisconnected", "imHaveMessage", "isEnableAbort",
-                               "raceMenuAllConnected", "raceMenuChanged", "getInterfaceCount", "getStyleNumLAN", "getMemberNumLAN", "gameTime"})
-            net->method(no, [](Vm&, const Value&, Args) { return number(0); });
-        for (const char* nothing : {"inLobby", "setLobbyMessageEnable", "terminateNetwork", "terminateRTIME", "disconnect", "logout", "leaveGame",
-                                    "raceMenuStart", "raceMenuEnd", "raceMenuForceEnd", "raceMenuNotifySequence", "raceMenuNotifyCourse",
-                                    "raceMenuNotifyCar", "raceMenuNotifyEntrySetting", "raceMasterNotifyRaceSetting", "raceMasterNotifyCourse",
-                                    "setGameClosed", "enterNetSync", "netSync", "leaveNetSync", "initCommunicator", "exitCommunicator",
-                                    "beginEnableAbort", "endEnableAbort", "setCallbackModule", "imClose"})
-            net->method(nothing, [](Vm&, const Value&, Args) { return Value{}; });
-        net->method("getLastErrorCode", [](Vm&, const Value&, Args) { return text(""); });
-        net->set("network_enable", number(0)), net->set("error_exit", number(0)), net->set("my_id", number(0)), net->set("my_name", text(""));
-        net->set("language", text("")), net->set("pipe", Value{}), net->set("im_pipe", Value{});
-        return object_value(net);
-    };
+    // The network (game_network.h).
+    make_class(menu, "MNetwork")->construct = [r](Vm&, Args) { return make_network(*r); };
 
     // ---- MSystem
     {
