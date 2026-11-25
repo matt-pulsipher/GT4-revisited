@@ -149,7 +149,13 @@ TextLayout layout_menu_text(std::string_view s, const TextStyle& st, float x, fl
                 continue;
             }
         }
-        if (c == '\r') continue;
+        // (0x492978: a character the font does not have, "\r" among them, is a space wide; a line
+        // end does nothing in a face of one line, 0x490760.)
+        if (c == '\r') {
+            space();
+            continue;
+        }
+        if (c == '\n' && st.one_line) continue;
         if (c == '\n' || c == '\v') {
             lines.back().soft = c == '\v';
             lines.emplace_back();
@@ -191,9 +197,10 @@ TextLayout layout_menu_text(std::string_view s, const TextStyle& st, float x, fl
         latin(font, st.spacing.pair, *g, c, sx, sy, color);
     }
 
-    // Each line by itself (0x491028): its width is the pen's less half a space.
+    // Each line by itself (0x491028): its width is the pen's less half a space; a face of one line
+    // the pen's whole (0x4912AC).
     const FontGlyph* sp = font.glyph(' ');
-    const float half_space = float((sp ? int(sp->advance) : int(font.size / 2)) / 2) * sx;
+    const float half_space = st.one_line ? 0.0f : float((sp ? int(sp->advance) : int(font.size / 2)) / 2) * sx;
     const float line_advance = float(font.line_height) * sy;
     lay.lines = int(lines.size());
     lay.height = float(font.line_height) * sy + float(lay.lines - 1) * line_advance;

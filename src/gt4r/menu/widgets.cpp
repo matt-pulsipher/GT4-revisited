@@ -123,6 +123,7 @@ std::shared_ptr<LiveWidget> LiveWidget::build(const Widget& layout, const std::s
             for (auto& c : x.children) mark(*c);
         };
         mark(*w);
+        note_face_sizes(*w);
     }
     if (is_select_box(*w)) {
         for (const auto& c : w->children)

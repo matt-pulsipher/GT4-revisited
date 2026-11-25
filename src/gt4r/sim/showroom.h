@@ -97,6 +97,8 @@ struct ShowroomFigures {
 };
 
 // Builds showroom cars: holds the shared engine's program data the parameter block is made with.
+struct ParamBlock; // sim/convert.h
+
 class Showroom {
 public:
     Showroom(db::SpecDb& db, const Program& program);
@@ -111,7 +113,11 @@ public:
     std::optional<Charts> charts(const Equipment& eq, F condition, int automatic = -1) const;
     // The parameter block's record of an equipment (record.h), as figures() builds it; `x156` (0 .. 255) put in
     // the spec's +0x156 when not -1.
-    bool record(const Equipment& eq, Spec& spec, Record& out, int x156 = -1) const;
+    bool record(const Equipment& eq, Spec& spec, Record& out, int x156 = -1, ParamBlock* block = nullptr) const;
+    // How far each axle's wheels can still hang below where the car sits (metres): the parameter block's
+    // suspension block (+0x308 + 0x58 x axle), the droop +0x08 less the sitting travel +0x10 (0x364B30): what
+    // the menu car on the jack lets a wheel drop (mCarModelPS2 0x156950).
+    std::optional<std::array<F, 2>> droop(const Equipment& eq) const;
 
 private:
     struct Data;

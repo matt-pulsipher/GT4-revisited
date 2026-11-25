@@ -71,6 +71,7 @@ private:
     App& app_;
     std::unique_ptr<gt3r::render::View3D> view_;
     std::unique_ptr<gt3r::render::View3D> mirror_view_; // the cars' mirrored copies (`mirror`)
+    SDL_Texture* mirror_target_ = nullptr; // its picture, added to the page
     std::map<std::string, std::unique_ptr<Car>> cars_; // by code#paint
     std::map<const menu::LiveWidget*, Face> faces_;
     u64 frame_ = 0;
@@ -98,6 +99,12 @@ private:
     std::map<std::string, std::unique_ptr<menu::SkeletonMotion>> skeleton_motions_;
     std::array<float, 2> body_length(const std::string& code, const race::CarSpec& spec);
     std::map<std::string, std::array<float, 2>> body_lengths_; // car code -> metres ahead of and behind its middle
+    // How far each axle's wheels can hang below the body while a jack raises it (metres; the car as
+    // sold built as the program's showroom car, sim/showroom.h): {0, 0} when unknown.
+    std::array<float, 2> wheel_droop(const std::string& code);
+    std::map<std::string, std::array<float, 2>> droops_;
+    struct Sim; // the program and the showroom car's builder (made when a lift first needs them)
+    std::unique_ptr<Sim> sim_;
 };
 
 } // namespace gt4r

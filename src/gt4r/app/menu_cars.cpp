@@ -10,6 +10,9 @@
 #include "gt4r/menu/stage_motion.h"
 #include "gt4r/formats/db/specdb.h"
 #include "gt4r/race/car_spec.h"
+#include "gt4r/sim/equipment.h"
+#include "gt4r/sim/program.h"
+#include "gt4r/sim/showroom.h"
 #include "render/gpu_context.h"
 
 #include <chrono>
@@ -35,7 +38,8 @@ Vec3 apply(const Mat4& m, const Vec3& v, float w) {
 
 // The car standing in the model's frame `model`: its axes and its wheels at rest, so that the
 // body is drawn with its origin (the middle of the wheelbase on its underside) at the frame's.
-race::CarState rest_state(const Mat4& model, const race::CarSpec& spec) {
+// `hang`: how far each axle's wheels hang below the body (the jack's lift).
+race::CarState rest_state(const Mat4& model, const race::CarSpec& spec, const std::array<float, 2>& hang = {0, 0}) {
     race::CarState s;
     s.position = cv(apply(model, {0, 0, 0}, 1));
     s.right = cv(render::normalize(apply(model, {1, 0, 0}, 0)));
@@ -45,7 +49,7 @@ race::CarState rest_state(const Mat4& model, const race::CarSpec& spec) {
         const int axle = w / 2;
         const float x = (w & 1) ? spec.half_track[axle] : -spec.half_track[axle];
         const float z = axle == 0 ? -spec.wheelbase / 2 : spec.wheelbase / 2;
-        s.wheels[w].center = cv(apply(model, {x, spec.tire_radius[axle] - spec.ride_height[axle], z}, 1));
+        s.wheels[w].center = cv(apply(model, {x, spec.tire_radius[axle] - spec.ride_height[axle] - hang[size_t(axle)], z}, 1));
     }
     return s;
 }
@@ -60,6 +64,7 @@ MenuCars::~MenuCars() {
     cars_.clear();
     view_.reset();
     mirror_view_.reset();
+    if (mirror_target_) SDL_DestroyTexture(mirror_target_);
     if (app_.gpu())
         for (auto& [k, t] : env_)
             if (t) app_.gpu()->release_texture(t);
@@ -158,6 +163,9 @@ void MenuCars::load_stage() {
                 mdls::Options mo;
                 mo.model = int(i);
                 gt3r::scene::Model bg = mdls::build_model(*f, mo, "bg" + std::to_string(i));
+                // (Its program writes no depth: the backdrops share their places.)
+                for (gt3r::scene::Mesh& mesh : bg.meshes)
+                    for (gt3r::scene::Primitive& p : mesh.primitives) p.flags |= gt3r::scene::kNoDepthWrite;
                 stage_.push_back(std::make_unique<render::GpuModel>(*app_.gpu(), bg));
             }
         }
@@ -181,6 +189,51 @@ const menu::StageMotion* MenuCars::option_motion(menu::Project* project, const s
     return it->second && it->second->camera ? it->second.get() : nullptr;
 }
 
+// A skinned set's reflection passes (shapes of kind 2, ALPHA 0x58: Cd + Cs x Ad) add the set's own
+// sphere-map picture weighted by the frame alpha its clothes' texture wrote there (pitmanFix.mdl's
+// draw program: alpha test off, the base shape opaque). The weight is put into the pass's vertex
+// colours: the texture's alpha where the base shape has the same vertex.
+void weigh_reflections(gt3r::scene::Model& m) {
+    struct Place {
+        u32 w[3];
+        bool operator<(const Place& o) const { return std::memcmp(w, o.w, sizeof w) < 0; }
+    };
+    for (gt3r::scene::Mesh& mesh : m.meshes) {
+        std::map<Place, float> written;
+        auto place = [](const gt3r::scene::Vertex& v) {
+            Place p;
+            std::memcpy(p.w, v.pos, sizeof p.w);
+            return p;
+        };
+        for (const gt3r::scene::Primitive& p : mesh.primitives) {
+            if ((p.flags & (gt3r::scene::kEnvironmentMap | gt3r::scene::kAlphaBlend)) || p.texture < 0) continue;
+            const gt3r::scene::Texture& t = m.textures[size_t(p.texture)];
+            if (!t.width || !t.height) continue;
+            for (u32 i = p.first_index; i < p.first_index + p.index_count; ++i) {
+                const gt3r::scene::Vertex& v = mesh.vertices[mesh.indices[i]];
+                const int x = int(std::floor((v.uv[0] - std::floor(v.uv[0])) * float(t.width))), y = int(std::floor((v.uv[1] - std::floor(v.uv[1])) * float(t.height)));
+                const u32 c = t.rgba[size_t(std::clamp(y, 0, int(t.height) - 1)) * t.width + size_t(std::clamp(x, 0, int(t.width) - 1))];
+                written[place(v)] = float(c >> 24) / 255.0f;
+            }
+        }
+        std::vector<bool> done(mesh.vertices.size(), false);
+        for (const gt3r::scene::Primitive& p : mesh.primitives) {
+            if (!(p.flags & gt3r::scene::kEnvironmentMap)) continue;
+            for (u32 i = p.first_index; i < p.first_index + p.index_count; ++i) {
+                const u32 k = mesh.indices[i];
+                if (done[k]) continue;
+                done[k] = true;
+                gt3r::scene::Vertex& v = mesh.vertices[k];
+                const auto it = written.find(place(v));
+                const float w = it == written.end() ? 0.0f : it->second;
+                u32 c = v.color & 0xFF000000u;
+                for (int b = 0; b < 3; ++b) c |= u32(float((v.color >> (8 * b)) & 0xFF) * w + 0.5f) << (8 * b);
+                v.color = c;
+            }
+        }
+    }
+}
+
 const MenuCars::ModelSet* MenuCars::model_set(menu::Project* project, const std::string& page, const std::string& path) {
     auto [it, fresh] = model_sets_.try_emplace(page + ":" + path);
     if (fresh) {
@@ -197,18 +250,11 @@ const MenuCars::ModelSet* MenuCars::model_set(menu::Project* project, const std:
                     }
                     const u32 count = rd16(*f, 0x16);
                     for (u32 i = 0; i < count && i < 16; ++i) {
-                        mdls::Options mo;
-                        mo.model = int(i);
-                        gt3r::scene::Model m = mdls::build_model(*f, mo, path + "#" + std::to_string(i));
-                        // ❓ A skinned set's reflection passes (the shapes of kind 2: 0.35 x the
-                        // picture of outside slot 0) are left out: which picture the program binds
-                        // there for these sets is not read, and the face's own (GT Auto's orange
-                        // page) covers or tints the clothes, where the original shows the
-                        // mechanic's yellow shirt and dark brown trousers with a faint sheen.
-                        if (!set.bones.empty())
-                            for (gt3r::scene::Mesh& mesh : m.meshes)
-                                for (gt3r::scene::Primitive& p : mesh.primitives)
-                                    if (p.flags & gt3r::scene::kEnvironmentMap) p.index_count = 0;
+                        gt3r::gtm1::Options mo;
+                        mo.node = int(i);
+                        mo.static_env_maps = !set.bones.empty(); // (the mechanic's own reflection picture)
+                        gt3r::scene::Model m = mdls::build_model(*f, mo, mdls::Scene{}, path + "#" + std::to_string(i));
+                        if (!set.bones.empty()) weigh_reflections(m);
                         // The page sees the face's picture through its alpha: an opaque
                         // primitive's texels are opaque there (the clothes' texture alpha weighs
                         // the reflection passes in the frame, not what shows).
@@ -242,6 +288,30 @@ const menu::SkeletonMotion* MenuCars::skeleton_motion(menu::Project* project, co
             LOG_WARN("Car face motion %s: %s", path.c_str(), e.what());
         }
     return it->second.get();
+}
+
+struct MenuCars::Sim {
+    sim::Program program;
+    sim::Showroom showroom;
+    Sim(db::SpecDb& db, Disc& disc) : program(sim::Program::load(disc)), showroom(db, program) {}
+};
+
+std::array<float, 2> MenuCars::wheel_droop(const std::string& code) {
+    auto [it, fresh] = droops_.try_emplace(code, std::array<float, 2>{0, 0});
+    if (!fresh) return it->second;
+    try {
+        db::SpecDb* db = app_.db();
+        if (!db || !app_.disc()) return it->second;
+        if (!sim_) sim_ = std::make_unique<Sim>(*db, *app_.disc());
+        sim::Equipment eq;
+        if (!sim::stock_equipment(*db, code, eq)) return it->second;
+        if (const auto d = sim_->showroom.droop(eq))
+            for (size_t a = 0; a < 2; ++a) it->second[a] = std::max((*d)[a].host(), 0.0f);
+    } catch (const std::exception& e) {
+        LOG_WARN("Menu car %s: wheel droop: %s", code.c_str(), e.what());
+    }
+    LOG_INFO("Menu car %s: wheels hang %.3f / %.3f m on the jack", code.c_str(), double(it->second[0]), double(it->second[1]));
+    return it->second;
 }
 
 std::array<float, 2> MenuCars::body_length(const std::string& code, const race::CarSpec& spec) {
@@ -330,6 +400,7 @@ void MenuCars::add_model_motions(Face& f, const menu::CarFaceSettings& s, const 
             if (!g) g = std::make_unique<render::GpuModel>(*app_.gpu(), *set->models[size_t(set->skinned_model)]);
             if (g->update_geometry(meshes)) {
                 render::DrawItem it{g.get(), Mat4::identity(), 0};
+                it.sphere_map = true;
                 it.alpha = fade;
                 out.push_back(it);
             }
@@ -429,9 +500,15 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
     // The model's origin is on the body's underside: the tires stand on y = 0 with the body
     // raised by its ride height (❓ judged from the pictures: the program's ShowRoomCar is not read).
     const float ride = (c->spec.ride_height[0] + c->spec.ride_height[1]) / 2;
-    // ❓ On a jack (`lift`) the whole car is raised; the program lets each wheel hang by the
-    // smaller of its travel and the lift (0x1569A0, not read).
-    const race::CarState state = rest_state(placed * render::translate({0, ride + lift, 0}), c->spec);
+    // On a jack (`lift`) the body is raised and each wheel hangs below it by the smaller of the lift
+    // and its axle's travel (0x156950; the showroom car's suspension, 0x364B30): the wheels stay on
+    // the ground until the lift exceeds their travel.
+    std::array<float, 2> hang{0, 0};
+    if (lift > 0) {
+        const std::array<float, 2> travel = wheel_droop(s.car_code);
+        for (size_t a = 0; a < 2; ++a) hang[a] = std::clamp(travel[a], 0.0f, lift);
+    }
+    const race::CarState state = rest_state(placed * render::translate({0, ride + lift, 0}), c->spec, hang);
 
     render::DrawOptions o;
     for (float& k : o.clear) k = 0;
@@ -439,13 +516,13 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
     o.repeated = true;
     o.sort_blended = true;
     o.gt3_lighting = true;
-    // The stage's lights from light.mot at its time (light 3 is all zero): each one's place as
-    // the direction toward it (❓ the program's lights are not read as points or directions),
-    // ambient, diffuse and specular; its ColorScale on the car's colour; light 0 throws the car's
-    // shadow, shadowDarkness0 its strength, bottomShadow the shadow under the car (❓
-    // shadowBlur0 is not applied).
+    // The stage's lights from light.mot at its time (CustumLightPosition 0x1D6C98): each one's place
+    // as the direction toward it, in the world, with its ambient, diffuse and specular; the global
+    // ambient 0. (Light 3, all zero, lights nothing. The file's ColorScale is not read by the
+    // program.) Light 0 throws the car's shadow: shadowDarkness0 its strength, shadowBlur0 how far
+    // its layers spread; bottomShadow is the shadow under the car.
     menu::FaceView lit = v;
-    float color_scale = 1;
+    float stage_dark = 0, stage_blur = 0;
     race::CarVisual::Shadow stage_shadow;
     render::Vec3 shear{0, 0, 0};
     const bool stage_lights = s.advanced && light_motion_ && !light_motion_->lights.empty();
@@ -465,14 +542,14 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
             L.pos[3] = 0;
         }
         for (float& a : lit.world_ambient) a = 0;
-        color_scale = light_motion_->named_at("ColorScale", stage_time_, 1.0f);
         const render::Vec3 l0 = render::normalize({lit.lights[0].pos[0], lit.lights[0].pos[1], lit.lights[0].pos[2]});
         if (l0.y > 0.2f) shear = {-l0.x / l0.y, 0, -l0.z / l0.y};
         const float bottom = std::clamp(light_motion_->named_at("bottomShadow", stage_time_, 0.7f), 0.01f, 1.0f);
         const float dark = std::clamp(light_motion_->named_at("shadowDarkness0", stage_time_, 0.6f), 0.0f, 1.0f);
         stage_shadow.on = true;
         stage_shadow.alpha = std::round(bottom * 64) / 64;
-        stage_shadow.light_factor = std::round(dark / stage_shadow.alpha * 64) / 64;
+        stage_shadow.light_factor = 1 / stage_shadow.alpha; // (the thrown shape whole: its layers weigh it)
+        stage_dark = dark, stage_blur = std::max(light_motion_->named_at("shadowBlur0", stage_time_, 0.0f), 0.0f);
     }
     menu_face3d::light(lit, o);
     if (SDL_GPUTexture* env = env_texture(project, page, s.env_image)) {
@@ -484,6 +561,7 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
     sh.on = true;
     for (int i = 0; i < 3; ++i) sh.rgb[i] = v.lights[0].sdw[i];
     sh.alpha = shadow_opacity >= 0 ? shadow_opacity : v.lights[0].sdw[3];
+    sh.light_factor = 0; // (a car face asks for no thrown shadow, only the car's own under it: 0x451D18)
     if (stage_lights) sh = stage_shadow;
     // (set_shadow makes the shadows' models anew: only when the look changes; the light's
     // direction is set apart, every picture.)
@@ -491,37 +569,93 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
     c->visual->set_shadow_shear(shear);
     items_.clear();
     if (s.advanced)
-        // Each backdrop with a weight, cross-faded over black (0x1D5588).
+    {
+        // The backdrops averaged by their weights, one over another at its part of the sum so far
+        // (0x1D5588), then faded to black by what the sum lacks of 1 (0x1D5620).
+        float whole = 0, sum = 0;
+        for (size_t i = 0; i < stage_.size() && i < weights.size(); ++i) whole += weights[i];
         for (size_t i = 0; i < stage_.size() && i < weights.size(); ++i)
-            if (stage_[i] && weights[i] > 0.004f) {
+            if (stage_[i] && weights[i] > 0) {
+                sum += weights[i];
+                if (weights[i] / sum < 1.0f / 128) continue;
                 render::DrawItem it{stage_[i].get(), Mat4::identity(), -2};
-                it.alpha = weights[i];
+                it.alpha = weights[i] / sum;
+                it.tint = std::min(whole, 1.0f);
+                it.in_order = true;
                 items_.push_back(it);
             }
+    }
     // The page's other models (loadModelSet: a mechanic, a shadow), moved by their motions.
     std::vector<render::DrawItem> sets;
     if (!s.advanced && fade >= 0.02f) add_model_motions(f, s, m, project, page, placed, c->spec, fade, sets);
     // `mirror` (normal mode): first the car and those models turned upside down about the floor
-    // they stand on, without the car's shadow, at 0.3 of its alpha (0x156820, 0x217058); then
-    // the car.
+    // they stand on, without the car's shadow, its picture added to the page at 0.3 of its alpha
+    // (0x156820; the composite's ALPHA 0x68, Cs x FIX + Cd, 0x2175D4); then the car.
     if (s.mirror && !s.advanced) {
         std::vector<render::DrawItem> mirrored = sets;
         c->visual->add_items(mirrored, state, eye);
         render::DrawOptions mo = o;
         mo.mirrored = true;
-        mo.composite_alpha = o.composite_alpha * 0.3f;
+        mo.composite_alpha = 1;
         const Mat4 flip = render::scale({1, -1, 1});
         const Vec3 under{eye.x, -eye.y, eye.z};
         // Its own view: a view's picture is read when the frame is submitted, so one view
         // drawn twice a frame would show its last picture twice.
         if (!mirror_view_) mirror_view_ = std::make_unique<render::View3D>(*app_.gpu());
-        mirror_view_->draw(app_.renderer(), page_rect, view * flip, proj, under, mirrored, mo);
+        SDL_Renderer* r = app_.renderer();
+        const int tw = std::max(1, int(page_rect.w + 0.5f)), th = std::max(1, int(page_rect.h + 0.5f));
+        SDL_Texture*& target = mirror_target_;
+        if (target && (target->w != tw || target->h != th)) SDL_DestroyTexture(target), target = nullptr;
+        if (!target) target = SDL_CreateTexture(r, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_TARGET, tw, th);
+        SDL_Texture* before = SDL_GetRenderTarget(r);
+        if (target && SDL_SetRenderTarget(r, target)) {
+            SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_NONE);
+            SDL_SetRenderDrawColor(r, 0, 0, 0, 255);
+            SDL_RenderClear(r);
+            mirror_view_->draw(r, SDL_FRect{0, 0, float(tw), float(th)}, view * flip, proj, under, mirrored, mo);
+            SDL_SetRenderTarget(r, before);
+            SDL_SetTextureBlendMode(target, SDL_BLENDMODE_ADD);
+            SDL_SetTextureAlphaModFloat(target, o.composite_alpha * 0.3f);
+            SDL_RenderTexture(r, target, nullptr, &page_rect);
+        }
     }
     items_.insert(items_.end(), sets.begin(), sets.end());
-    c->visual->add_shadow_items(items_, state);
-    const size_t car_from = items_.size();
+    if (!stage_lights) c->visual->add_shadow_items(items_, state);
+    else {
+        // The stage's shadow (0x1D6378, 0x1D6968): per sample, five throws of the shape along the
+        // light tilted sideways by the blur, weighing 1/2, 1/4 .. 1/32 (the alpha bits they
+        // write), all the samples averaged. Here each is a layer over the last, at the alpha that
+        // leaves the sum where they all cover. ❓ Not its tires' own throws (tire.mdl) nor the half
+        // resolution it is made at.
+        std::vector<render::DrawItem> thrown;
+        c->visual->set_shadow_shear(shear);
+        c->visual->add_shadow_items(thrown, state);
+        if (thrown.size() < 2) items_.insert(items_.end(), thrown.begin(), thrown.end());
+        else {
+            const float lx = lit.lights[0].pos[0], ly = lit.lights[0].pos[1], lz = lit.lights[0].pos[2];
+            const render::Vec3 n = render::normalize({lx, ly, lz}), r2 = render::normalize({-n.z, 0, n.x});
+            constexpr int kSamples = 4;
+            static const float kTurn[6] = {-1, 1, -2, 2, -3, 3}; // (0x6956B8)
+            float before = 0;
+            for (int p = 1; p < 6; ++p)
+                for (int i = 0; i < kSamples; ++i) {
+                    const float angle = stage_blur * float(10 + p) / 16 * kDeg, phi = (float(i) + 0.125f) / kSamples + kTurn[p] / 8;
+                    const float k = std::tan(angle) * std::sin(3.14159265f * phi);
+                    const render::Vec3 l{n.x + r2.x * k, n.y, n.z + r2.z * k};
+                    if (l.y < 0.1f) continue;
+                    const float w = stage_dark * float(1 << (7 - p)) / 128 / kSamples;
+                    c->visual->set_shadow_shear({-l.x / l.y, 0, -l.z / l.y});
+                    std::vector<render::DrawItem> one;
+                    c->visual->add_shadow_items(one, state);
+                    one[0].alpha = w / (1 - before);
+                    one[0].in_order = true;
+                    items_.push_back(one[0]);
+                    before += w;
+                }
+            items_.insert(items_.end(), thrown.begin() + 1, thrown.end());
+        }
+    }
     c->visual->add_items(items_, state, eye);
-    for (size_t i = car_from; i < items_.size(); ++i) items_[i].tint *= color_scale;
     view_->draw(app_.renderer(), page_rect, view, proj, eye, items_, o);
 }
 

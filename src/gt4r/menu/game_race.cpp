@@ -59,7 +59,15 @@ void install_race_classes(GameNatives& n, script::Module& menu) {
         auto race = std::make_shared<Object>("MRaceData");
         const std::string label = arg_text(a, 0);
         race->set("race_code", text(label));
-        auto row = [np, label]() { return np->db().row("RACE", label); };
+        // The license tests' and missions' rows carry the region ("usl0m0001" for "l0m0001"): the
+        // labels tried as Database::race_unit does (0x430D20).
+        std::string found = label;
+        for (const std::string& tried : {label, "us" + label, "jp" + label})
+            if (!label.empty() && np->db().code(kRaceTable, tried) != kNoCode) {
+                found = tried;
+                break;
+            }
+        auto row = [np, found]() { return np->db().row("RACE", found); };
         // The medal times as text: minutes, seconds (+0x76 ..) and milliseconds (+0x1A ..).
         auto medal = [row](size_t m, size_t ms) {
             return [row, m, ms] {
