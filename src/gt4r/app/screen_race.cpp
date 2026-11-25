@@ -1594,10 +1594,60 @@ private:
             m.call(bar, "gotoAndStop", {V::number(car == me ? 2 : 1)}); // (the followed car's row lit: 0x3DAF60, the monitor's +0x64)
             for (const char* part : {".LAP", ".PIT", ".BEST", ".BESTMARK"}) show(bar + part, false);
         }
-        for (char c = 'A'; c <= 'F'; ++c) show(std::string("CARPOS_") + c, false);
-        for (int g = 1; g <= 5; ++g) show("GAP" + std::to_string(g), false);
+        fill_gap_strip(order, me);
         show("PITPANEL", false);
-        text("DISTUNIT", ""); // (the gap strip's unit: the strip is not filled)
+    }
+
+    // The Race Monitor's gap strip (0x3DBF90): the cars' letters in race order along the bottom, each further right by
+    // the gap to the car ahead (0x3DBE98: 20 canvas units + 38 x clamp((d - 20 m) x 0.0125, 0, 1)), the row centred at
+    // (640 - the sum) / 2 + 20; between two letters the gap (0x3DBDF0: laps x the lap + the distance along, ahead less
+    // behind) in the options' unit (0x3DBEE8: feet x 3.28084, else metres; a lap or more: "N LAP"), the followed car's
+    // letter lit (GRID frame 2 g + 2, else 2 g + 1). ❓ The pace-up marks (0x3FA508) are not worked out (hidden); the
+    // cars' pictures the program draws under the letters are not drawn.
+    void fill_gap_strip(const std::vector<size_t>& order, size_t me) {
+        using V = race::StrobePlayer::Value;
+        race::StrobePlayer& m = *monitor_;
+        const race::RaceFlow& f = race_->flow();
+        const float len = race_->lap_length();
+        const bool feet = hud_->mph();
+        const std::span<const race::CarState> cars = race_->shown();
+        auto progress = [&](size_t car) { return float(f.car(car).counter) * len + (car < cars.size() ? cars[car].course_v : 0.0f); };
+        auto spacing = [](float d) { return std::clamp((d - 20.0f) * 0.0125f, 0.0f, 1.0f) * 38.0f + 20.0f; };
+        for (char c = 'A'; c <= 'F'; ++c) m.set(std::string("CARPOS_") + c, "_visible", V::boolean(false));
+        for (int g = 1; g <= 5; ++g) m.set("GAP" + std::to_string(g), "_visible", V::boolean(false));
+        float sum = 0;
+        for (size_t k = 1; k < order.size() && k < 6; ++k) sum += spacing(progress(order[k - 1]) - progress(order[k]));
+        float x = (640.0f - sum) * 0.5f + 20.0f, prev_x = x;
+        for (size_t k = 0; k < order.size() && k < 6; ++k) {
+            const size_t car = order[k];
+            float d = 0;
+            if (k > 0) d = progress(order[k - 1]) - progress(car), x += spacing(d);
+            const int g = std::clamp(race_->grid_place(car), 0, 5);
+            const std::string pos = std::string("CARPOS_") + char('A' + k); // (the strip's k-th place; its letter the car's)
+            m.set(pos, "_x", V::number(x));
+            m.set(pos, "_visible", V::boolean(true));
+            m.call(pos + ".GRID", "gotoAndStop", {V::number(car == me ? 2 * g + 2 : 2 * g + 1)});
+            m.set(pos + ".PACEUP_MARK", "_visible", V::boolean(false));
+            if (k > 0) {
+                const std::string gap = "GAP" + std::to_string(k);
+                std::string t;
+                if (d > 0) {
+                    char b[32];
+                    if (len > 0 && d >= len) std::snprintf(b, sizeof b, "%d LAP", int(d / len));
+                    else std::snprintf(b, sizeof b, "%d", int(d * (feet ? 3.28084f : 1.0f) + 0.5f));
+                    t = b;
+                }
+                m.set(gap + ".TEXT", "text", V::string(t));
+                m.set(gap, "_x", V::number((x + prev_x) * 0.5f));
+                m.set(gap, "_visible", V::boolean(true));
+            }
+            prev_x = x;
+        }
+        std::string unit = hud_->word("DistanceFormat");
+        char b[64];
+        if (unit.find("%s") != std::string::npos) std::snprintf(b, sizeof b, unit.c_str(), feet ? "ft" : "m");
+        else std::snprintf(b, sizeof b, "(%s)", feet ? "ft" : "m");
+        m.set("DISTUNIT", "text", V::string(b));
     }
 
     // ---- The pause: the game's pause movie (menu/common/pause.strb) and its entries.
