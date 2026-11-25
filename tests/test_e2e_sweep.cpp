@@ -71,17 +71,6 @@ std::vector<double> drive(Disc& disc, db::SpecDb& db, const sim::Program& progra
     return metres;
 }
 
-// Open problems (~/gt4re-out/playtest/BUGS.md) the checks pass over until their fixes reach this
-// branch, each said in the output: delete an entry when its fix is merged.
-// B17: a race on tsukuba_wet crashes in the first step (fixed on agent/sim-step).
-const char* const kKnownCourses[] = {"tsukuba_wet"};
-
-template <size_t N> bool known(const char* const (&list)[N], const std::string& name) {
-    for (const char* k : list)
-        if (name == k) return true;
-    return false;
-}
-
 } // namespace
 
 // Every course file: its road read, a session of two cars set up on it, and where the course has a
@@ -98,10 +87,6 @@ TEST(disc_e2e_sweep_every_course) {
     int courses = 0, raced = 0;
     for (const std::string& name : disc->volume().list_dir("crs/")) {
         if (name.find('.') != std::string::npos || name.find('/') != std::string::npos) continue;
-        if (known(kKnownCourses, name)) {
-            std::printf("  %s: passed over (an open problem, BUGS.md)\n", name.c_str());
-            continue;
-        }
         const std::shared_ptr<const course::Runway> road = road_of(*disc, name);
         if (!road) continue;
         ++courses;
