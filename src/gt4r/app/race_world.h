@@ -57,6 +57,7 @@ struct WorldSetup {
     std::vector<WorldEntry> entries; // the first is the player's
     bool smoke = true;
     bool reflection = true;
+    bool drivers = false; // the drivers in their stored pose (the posture is not ported: for checks)
     bool rail = false; // the stand-in simulation instead of the game's
     sim::ai::Pace pace; // the computer drivers' (the event's)
     std::vector<u8> event_row; // the event's RACE row: the race's tire wear (sim::rules::event_wear_bytes); empty: no wear

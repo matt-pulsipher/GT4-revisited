@@ -7,7 +7,7 @@
 // auto (the simple driver takes the first car too) or pad, `skip` simulation steps run before the
 // first picture (the start's hold is left out then), `paint` the first car's paint, `laps` the
 // race's length, `start` the start: 10 or 8 (a hold of so many seconds with the opening shots),
-// <seconds> (a plain hold), none, rolling, course (the course's own: race/start_rule.h); `view=tv` the course's replay cameras; `replay=N` drives
+// <seconds> (a plain hold), none, rolling, course (the course's own: race/start_rule.h); `view=tv` the course's replay cameras; `driver=1` the drivers in their stored pose; `replay=N` drives
 // N steps unseen and plays them back through the replay cameras; `bspec=1` a B-spec run (GT4R_HITCH=<ms>
 // logs every frame longer than that, with the race's work and the present before it); `menus=single_race` the race
 // sequence's own menus (quick-arcade) before and after the race (any sequence: solo_event,
@@ -85,6 +85,7 @@ struct Setup {
     int laps = 3;
     int replay = 0;
     bool smoke = true;
+    bool drivers = false;
     bool reflection = true;
     bool rail = false;     // the stand-in simulation instead of the game's
     bool scripted = false; // from GT4R_RACE: no lists
@@ -138,6 +139,7 @@ Setup setup_from_env() {
         else if (k == "hud") s.hud = v != "0";
         else if (k == "replay") s.replay = std::max(0, std::atoi(v.c_str()));
         else if (k == "smoke") s.smoke = v != "0";
+        else if (k == "driver") s.drivers = v != "0";
         else if (k == "reflection") s.reflection = v != "0";
         else if (k == "sim") s.rail = v == "rail";
         else if (k == "laps") s.laps = std::clamp(std::atoi(v.c_str()), 1, 99);
@@ -312,7 +314,7 @@ public:
             if (cars[i].label == setup.car || cars[i].model == setup.car) first = i;
         WorldSetup ws;
         ws.course = setup.course;
-        ws.smoke = setup.smoke, ws.reflection = setup.reflection, ws.rail = setup.rail;
+        ws.smoke = setup.smoke, ws.reflection = setup.reflection, ws.drivers = setup.drivers, ws.rail = setup.rail;
         ws.computer_player = setup.auto_drive || setup.start == race::StartType::Rolling;
         ws.pace = setup.pace;
         ws.bspec_book = setup.bspec_book, ws.bspec_course_marks = setup.bspec_course_marks, ws.bspec_course_known = setup.bspec_course_known;
