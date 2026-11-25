@@ -33,10 +33,16 @@ void speeds(ex::Car& c, FeelPart& x, const rules::WheelLayout& l, const rules::S
 constexpr u32 kViewBlock = 0xDB48, kViewSize = 0x14;
 
 // The tables of Prologue's feel (Gran Turismo 4's rules::FeelTables in Prologue's places): the view's heading gain and
-// damping (0x571C98 / 0x571CA0: 30, 10).
-rules::FeelTables feel_tables(const Program& program);
+// damping (0x571C98 / 0x571CA0: 30, 10); the engine sound's level scales (Gran Turismo 4's cue words 25 .. 28: Prologue's
+// 0x7148A0 + 0x64 .. + 0x70, made at the race's start by 0x3B8720 from the effects block 0x504B08 + 0x1E0 + 0x1C .. + 0x1F:
+// / 100, / 100, / 100, / 10, the engine's RaceInputs::sound_scales on Prologue's block).
+rules::FeelTables feel_tables(const Program& program, const std::array<F, 4>& sound_scales);
 
 // 0x3B4238 (phase 19): the view's follower, Gran Turismo 4's 0x345658 (rules::view_follow) with Prologue's gains.
 inline void view_follow(ex::Car& c, rules::ViewState& v, const rules::FeelTables& t) { rules::view_follow(c, v, t); }
+
+// 0x3B9020 (phase 19): the engine sound's levels, Gran Turismo 4's 0x350080 (rules::engine_sound) for every car (Prologue
+// has no draw mode's test); the gearbox's kind the parameter block's +0x20A.
+inline void engine_sound(ex::Car& c, const rules::FeelTables& t) { rules::engine_sound(c, t, c.p.d.kind, 3); }
 
 } // namespace gt4r::sim::prologue

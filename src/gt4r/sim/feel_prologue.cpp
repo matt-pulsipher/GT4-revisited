@@ -21,9 +21,10 @@ rules::SpeedTables speed_tables(const Program& program, u8 special_row) {
     return t;
 }
 
-rules::FeelTables feel_tables(const Program& program) {
+rules::FeelTables feel_tables(const Program& program, const std::array<F, 4>& sound_scales) {
     rules::FeelTables t;
     t.view_heading_gain = F::raw(program.w(0x571C98)), t.view_heading_damp = F::raw(program.w(0x571CA0));
+    for (size_t k = 0; k < 4; ++k) t.cue[25 + k] = sound_scales[k];
     return t;
 }
 

@@ -431,14 +431,24 @@ void add_prologue_taps(PTaps& taps, const Disc& disc, const std::string& course)
     }
     { // The view's follower (its state in the conductor, cond + 0xDB48 + 0x14 k).
         static std::map<int, sim::rules::ViewState> view;
-        static const sim::rules::FeelTables ft = sim::prologue::feel_tables(sim::Program::load(const_cast<Disc&>(disc)));
+        static sim::rules::FeelTables ft;
+        static const sim::Program feel_program = sim::Program::load(const_cast<Disc&>(disc));
+        static bool ft_made = false;
+        auto made = [](const PTapCall& c) {
+            if (!ft_made) ft = sim::prologue::feel_tables(feel_program, c.inputs.sound_scales), ft_made = true;
+        };
         auto block = [](Ee& ee, u32 car) { return ee.r32(car + 4) + sim::prologue::kViewBlock + sim::prologue::kViewSize * ee.r8(car + 0xD8 + 0x3EC); };
+        taps.add({0x3B9020, "Prologue's engine sound", [=](PTapCall& c) {
+                      made(c);
+                      sim::prologue::engine_sound(c.car, ft);
+                  }});
         taps.add({0x3B4238, "Prologue's view follow", [=](PTapCall& c) {
                       sim::rules::ViewState v;
                       const u32 b = block(c.ee, c.car_addr);
                       v.heading = gt3r::ee::F::raw(c.ee.r32(b)), v.heading_rate = gt3r::ee::F::raw(c.ee.r32(b + 4));
                       v.heading_acc = gt3r::ee::F::raw(c.ee.r32(b + 8)), v.pitch = gt3r::ee::F::raw(c.ee.r32(b + 0xC));
                       v.pitch_rate = gt3r::ee::F::raw(c.ee.r32(b + 0x10));
+                      made(c);
                       sim::prologue::view_follow(c.car, v, ft);
                       view[c.car_index] = v;
                   },

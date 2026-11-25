@@ -135,7 +135,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
         prologue::Tables t = prologue::tables(program);
         if (t.found) prologue_ = t, prologue_cars_.resize(entries.size()), prologue_feel_.resize(entries.size());
         if (prologue_ && road_->gtrw) course_ground_ = std::make_unique<ex::CourseGround>(*road_->gtrw);
-        if (prologue_) prologue::race_inputs(race_, *prologue_), prologue_aids_ = prologue::aid_tables(program), prologue_feel_tables_ = prologue::feel_tables(program);
+        if (prologue_) prologue::race_inputs(race_, *prologue_), prologue_aids_ = prologue::aid_tables(program), prologue_feel_tables_ = prologue::feel_tables(program, race_.sound_scales);
     }
     // What the aids read of the race: the course's kind (a loose course 1), no speed caps, the lap.
     aid_race_.course_kind = loose_ ? 1 : 0;
@@ -538,6 +538,7 @@ void Session::chassis(size_t i) {
     else ex::tyre_effects(c, race_.effects, race_.aids.course_category);
     ex::phase12_stub(c);
     if (gt4_rules_) rules::engine_sound(c, tables_.feel, gx_[i].drive.d.kind, rules::draw_mode(c, 0, 0, 0)); // (0x350080)
+    else if (prologue_) prologue::engine_sound(c, prologue_feel_tables_); // (0x3B9020)
     else ex::engine_sound(c, race_.sound_scales);
     if (gt4_rules_) rules::effects_reset(c, layouts_[i], rules::draw_mode(c, 0, 0, 0)); // (0x366718; no ghosts here)
     else ex::effects_reset(c, 0, 0);
