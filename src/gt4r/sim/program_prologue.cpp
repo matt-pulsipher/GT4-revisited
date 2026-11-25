@@ -40,6 +40,7 @@ const std::vector<PrologueProgram::TablePlace>& PrologueProgram::tables() {
         {T::LsdTypes, 0, 8, 0x504AD0, "0x3DF0E0"},
         {T::MachineSectors, 0, 16, 0x503E68, "0x3B511C"},
         {T::EffectParams, 0, 11 * 8, 0x503EA0, "0x3B98A8"},
+        {T::Effects, 0, 0x210, 0x504B08, "0x3CAE00"},
     };
     return k;
 }

@@ -60,7 +60,7 @@ name, u32 name bytes}`); list ❓ (8 each, empty); u32 frame count.
 
 **Track** = one object on a depth for a span of frames (0x28):
 `u16 kind, s16 first frame, s16 end frame (exclusive), u16 index` into the kind's table;
-`u32 depth` (draw order, ascending); `u32` union of the clip-event masks; list clip actions (8 each:
+`u16 depth` (draw order, ascending), `u16 clip depth`: 0 none, else this object is a mask for the tracks of its sprite of depths up to it: it is not drawn itself, and those are drawn through it (0x480518: the object's `lhu 0xA`, drawn by 0x47D660 after 0x474698, the masked ones between 0x474750 and 0x4747B8). Here the mask is its shape's box (its tracks are a bar; `StrobePlayer::Draw::clip`). Seen in Prologue's `result_license.strb`: the bar that wipes in "New Record" (it was drawn as a white box). A `kind 1` track (index 0) sits beside it at the same depth ❓ (a morph shape: none in the list; not drawn); `u32` union of the clip-event masks; list clip actions (8 each:
 `{u32 event mask, s16 action block}`; mask 0x40 = key down, dispatched by 0x47D968); list keys (0x24
 each); list instance name (chars; the count is the byte length). Kind (0x47D510): **2 sprite, 5 text
 field, 6 button, anything else a plain object (0 = shape)**.

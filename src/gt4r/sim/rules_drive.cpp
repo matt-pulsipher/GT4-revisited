@@ -464,8 +464,30 @@ F engine_torque(ex::Car& c, const DriveExtra& x, F throttle) {
     return t;
 }
 
-void engine_torques(ex::Car& c, const DriveExtra& x, const ex::Condition& cond) {
-    c.torque_wot = ex::lookup_bisect(x.e.torque, c.omega) * ex::condition_factor(c.behaviour, cond, c.engine_wear, c.oil);
+F condition_factor(const ex::Car& c, const std::array<F, 9>& l) {
+    const F one = F::raw(0x3F800000), zero;
+    if ((c.x408[1] & 0xFF) != 0) return one; // (the block's +0x14)
+    F a = one, b = one;
+    F x = c.engine_wear;
+    if (x < l[0]) a = a - l[1];
+    else if (x < zero) a = a - ((x * l[1]) / l[0]);
+    else if (!(x <= l[2])) {
+        if (!(x < l[3])) a = a - l[4];
+        else a = a - (((x - l[2]) * l[4]) / (l[3] - l[2]));
+    }
+    x = c.oil;
+    if (x < l[5]) b = l[6] + b;
+    else if (x < zero) b = ((x * l[6]) / l[5]) + b;
+    else if (l[8] < x) {
+        F t = (x - l[8]) / (l[7] - l[8]);
+        if (b < t) t = b;
+        b = b - l[6] * t;
+    }
+    return a * b;
+}
+
+void engine_torques(ex::Car& c, const DriveExtra& x, const std::array<F, 9>& limits) {
+    c.torque_wot = ex::lookup_bisect(x.e.torque, c.omega) * condition_factor(c, limits);
     c.torque_friction = x.e.friction * c.omega; // (0x620E14 0: the friction's other rule unused)
 }
 

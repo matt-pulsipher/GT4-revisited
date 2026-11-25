@@ -111,7 +111,7 @@ of its number (`DynamicsConductor::vf28` 0x34D490: position and heading from the
   sector**; there still 1 short of the section's goal (0x34C470, virtual +0x138) or in the lap's first half,
   else 0 (behind the line: the first crossing is then the start line). A place of more than a lap keeps its own
   count (register s5 there, ❓ its making). Fuji's and Suzuka's standing grids are 166 to 258 m past the line: 1.
-  Here `race::start_crossings` (a section test has no split points; Prologue's cars start at 0, its program not read).
+  Here `race::start_crossings` (a section test has no split points; Prologue's 0x3C9790 counts by its road's split points alone).
   Every later crossing completes a lap. A backward wrap takes one back. The crossing's time = the race clock
   (K +0xF898, **3000 units a second, 50 a tick**) + trunc(the tick's share before the line x 50);
   milliseconds = units / 3. A lap's time runs from the last completed lap's crossing; the first

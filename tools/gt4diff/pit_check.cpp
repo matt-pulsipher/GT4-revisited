@@ -5,9 +5,12 @@
 
 #include "pit_check.h"
 
+#include "gt4r/disc/disc.h"
 #include "gt4r/sim/ai/pit_flow.h"
 
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 
 namespace gt4r::diff {
 
@@ -24,9 +27,126 @@ const char* action_name(int k) {
 } // namespace
 
 PitCheck::PitCheck(Ee& ee, const OrigRace& o, const sim::ai::CourseLines& lines, const sim::Program& program, float lap)
-    : ee_(ee), o_(o), flow_(program), lap_(lap) {
+    : ee_(ee), o_(o), flow_(program), lap_(lap), program_(program) {
     const std::vector<sim::ai::LinePoint>& stop = lines.line(sim::ai::CourseLines::kPitStop);
     for (const sim::ai::LinePoint& p : stop) line_.dist.push_back(F(p.dist)), line_.heading.push_back(F(p.heading));
+    if (const char* t = std::getenv("GT4R_AI_PITTIRES")) {
+        want_front_ = std::atoi(t);
+        const char* c = std::strchr(t, ',');
+        want_rear_ = c ? std::atoi(c + 1) : want_front_;
+    }
+    if (o_.disc) db_ = std::make_unique<db::SpecDb>(open_db(*o_.disc));
+}
+
+namespace {
+
+sim::FileReader disc_reader(Disc& disc) {
+    gt3r::Volume* vol = &disc.volume();
+    return [vol](const std::string& path) -> std::optional<Bytes> {
+        const gt3r::Volume::Entry* e = vol->find(path);
+        return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
+    };
+}
+
+} // namespace
+
+// At 0x35C0B8's entry: the choice given to the car (GT4R_AI_PITTIRES, before the 645th step), its pit tires against ours
+// (once per car), and ours of the 645th / 644th step from the program's block as it is now.
+void PitCheck::change_enter(const sim::ai::PitCar& c0, u32 C) {
+    change_kind_ = 0;
+    if (!db_ || !o_.disc || hold_car_ < 0 || size_t(hold_car_) >= o_.entries.size()) return;
+    const int i = hold_car_;
+    const u32 Fp = C + kF, cond = o_.cond;
+    const u32 idx = ee_.r8(Fp + 0x440);
+    sim::Equipment eq;
+    ee_.read_bytes(o_.entries[size_t(i)] + 0x20, eq.bytes.data(), sim::Equipment::kSize);
+    sim::PitTires t = sim::pit_tires(*db_, program_, eq, sim::fitting_parts(disc_reader(*o_.disc), *db_, eq.part(sim::Equipment::Car)));
+    if (listed_.insert(i).second) {
+        // 0x35C4D8's bytes against ours: the kinds fitted and the choosable kinds. (The harness stubs the parts file, 0x449E10 /
+        // 0x44A048 answer 0: the program's part slots are 0; ours, from the disc's file, are written into them for the change.)
+        bool same = true;
+        for (u32 a = 0; a < 2; ++a) {
+            same = same && ee_.r8(cond + 0xF928 + 4 * idx + 2 * a) == t.least[a] && ee_.r8(cond + 0xF929 + 4 * idx + 2 * a) == t.most[a];
+            same = same && ee_.r8(cond + 0xFB20 + 2 * idx + a) == t.fitted[a];
+            for (u32 k = 0; k + t.least[a] <= t.most[a] && k < 5; ++k) ee_.w64(cond + 0xF940 + 0x50 * idx + 0x28 * a + 8 * k, u64(t.parts[a][k]));
+        }
+        ++list_calls_;
+        if (same) ++list_equal_;
+        else std::printf("  pit tires car %d: the program's front %u (%u .. %u), rear %u (%u .. %u); ours %u (%u .. %u), %u (%u .. %u)\n", i,
+                         ee_.r8(cond + 0xFB20 + 2 * idx), ee_.r8(cond + 0xF928 + 4 * idx), ee_.r8(cond + 0xF929 + 4 * idx), ee_.r8(cond + 0xFB21 + 2 * idx),
+                         ee_.r8(cond + 0xF92A + 4 * idx), ee_.r8(cond + 0xF92B + 4 * idx), t.fitted[0], t.least[0], t.most[0], t.fitted[1], t.least[1], t.most[1]);
+    }
+    sim::ai::PitCar c = c0;
+    if (want_front_ >= 0 && (c.service & 0xC0) && c.hold > 0x286 && c.tire_front == 0xFF && c.tire_rear == 0xFF) {
+        ee_.w8(Fp + 0x64E, u8(want_front_)), ee_.w8(Fp + 0x64F, u8(want_rear_));
+        // (an axle given no tire, 255, is not served: as 0x35BFE8 leaves its bit)
+        ee_.w16(Fp + 0x4B8, u16(c.service & ~((want_front_ == 0xFF ? 0x40 : 0) | (want_rear_ == 0xFF ? 0x80 : 0))));
+        hold_before_ = c = read_car(Fp);
+    }
+    const bool chosen = c.tire_front < 0xFE || c.tire_rear < 0xFE;
+    if (!(c.service & 0xC0) || !chosen || c.hold == 0x2D1 || c.hold == 90) return;
+    const u32 axles = (c.service & 0x40 ? 1 : 0) | (c.service & 0x80 ? 2 : 0);
+    change_block_ = ee_.r32(C + 0x10);
+    change_mine_.base = change_block_;
+    ee_.read_bytes(change_block_, change_mine_.bytes.data(), sim::ParamBlock::kSize);
+    change_before_ = change_mine_.bytes;
+    if (c.hold == 0x286) { // the 645th: the chosen parts, the spec, 0x361570
+        change_kind_ = 1;
+        t.fitted = {ee_.r8(cond + 0xFB20 + 2 * idx), ee_.r8(cond + 0xFB21 + 2 * idx)};
+        u8 rec[2] = {ee_.r8(cond + 0xDA20 + 8 * idx), ee_.r8(cond + 0xDA21 + 8 * idx)};
+        if (c.tire_front == 0xFE) rec[0] = t.fitted[0];
+        if (c.tire_rear == 0xFE) rec[1] = t.fitted[1];
+        const u8 changed = sim::fit_chosen_tires(eq, t, c.tire_front, c.tire_rear);
+        for (u32 a = 0; a < 2; ++a)
+            if (changed & (1 << a)) rec[a] = t.fitted[a];
+        change_cond_ = {t.fitted[0], t.fitted[1], rec[0], rec[1]};
+        const u8 kind = ee_.r8(cond + 0xCBDD);
+        sim::change_tire_records(*db_, program_, eq, kind == 0xFF ? 0 : kind, change_mine_, axles);
+    } else if (c.hold == 0x285) { // the 644th: 0x361798
+        change_kind_ = 2;
+        sim::convert_base_grips(program_, change_mine_, axles);
+    }
+}
+
+void PitCheck::change_leave() {
+    if (change_kind_ == 0) return;
+    const int kind = change_kind_;
+    change_kind_ = 0;
+    std::vector<u8> theirs(sim::ParamBlock::kSize);
+    ee_.read_bytes(change_block_, theirs.data(), sim::ParamBlock::kSize);
+    int diffs = 0;
+    u32 first = 0;
+    for (u32 k = 0; k < sim::ParamBlock::kSize; ++k)
+        if (theirs[k] != change_mine_.bytes[k]) {
+            if (diffs == 0) first = k;
+            ++diffs;
+        }
+    bool same = diffs == 0;
+    int moved = 0;
+    for (u32 k = 0; k < sim::ParamBlock::kSize; ++k) moved += theirs[k] != change_before_[k];
+    std::printf("  tire change car %d (step %s, choice %u / %u): the program changed %d bytes of the block, ours %d bytes unlike it\n", hold_car_,
+                kind == 1 ? "645" : "644", hold_before_.tire_front, hold_before_.tire_rear, moved, diffs);
+    if (kind == 1) {
+        const u32 idx = ee_.r8(o_.car(hold_car_) + kF + 0x440);
+        const std::vector<u8> th = {ee_.r8(o_.cond + 0xFB20 + 2 * idx), ee_.r8(o_.cond + 0xFB21 + 2 * idx), ee_.r8(o_.cond + 0xDA20 + 8 * idx),
+                                    ee_.r8(o_.cond + 0xDA21 + 8 * idx)};
+        if (th != change_cond_) {
+            same = false;
+            std::printf("  tire change car %d: the program's kinds %u %u record %u %u, ours %u %u %u %u\n", hold_car_, th[0], th[1], th[2], th[3], change_cond_[0],
+                        change_cond_[1], change_cond_[2], change_cond_[3]);
+        }
+    }
+    ++change_calls_;
+    if (same) ++change_equal_;
+    if (diffs && change_reported_++ < 6) {
+        std::printf("  tire change car %d (step %s): %d bytes of the block differ, the first at +0x%03X:", hold_car_, kind == 1 ? "645" : "644", diffs, first);
+        for (u32 k = first & ~3u; k < sim::ParamBlock::kSize && k < (first & ~3u) + 16; k += 4) {
+            u32 a, b;
+            std::memcpy(&a, &theirs[k], 4), std::memcpy(&b, &change_mine_.bytes[k], 4);
+            std::printf(" %08X/%08X", a, b);
+        }
+        std::printf("\n");
+    }
 }
 
 void PitCheck::install() {
@@ -234,6 +354,7 @@ void PitCheck::hold_enter(Ee& e) {
     hold_sp_ = e.g32(29);
     hold_before_ = read_car(C + kF);
     hold_tires_.clear();
+    change_enter(hold_before_, C);
     const u32 ra = e.g32(31);
     if (hold_probed_.insert(ra).second)
         ee_.add_probe(ra, [this](Ee& x) {
@@ -260,6 +381,7 @@ void PitCheck::hold_leave() {
         std::printf("  hold car %d: the program's hold %u service %04X tires %zu, ours %u %04X %zu\n", hold_car_, th.hold, th.service, hold_tires_.size(), mine.hold,
                     mine.service, ev.new_tires.size());
     hold_new_tires_ += ev.new_tires.size();
+    change_leave();
 }
 
 void PitCheck::print() const {
@@ -268,6 +390,10 @@ void PitCheck::print() const {
     std::printf("race state (0x343C20): %llu calls, %llu equal\n", (unsigned long long)lap_calls_, (unsigned long long)lap_equal_);
     std::printf("stop timing (0x35C0B8): %llu calls, %llu equal (hold, service, tires, the wheels given new tires: %llu)\n", (unsigned long long)hold_calls_,
                 (unsigned long long)hold_equal_, (unsigned long long)hold_new_tires_);
+    if (list_calls_ || change_calls_)
+        std::printf("tire change (0x35C0B8 at 645 / 644): %llu calls, %llu equal (the parameter block, the kinds fitted, the stops' record); pit tires "
+                    "(0x35C4D8, the kinds; the parts are ours): %llu cars, %llu equal\n",
+                    (unsigned long long)change_calls_, (unsigned long long)change_equal_, (unsigned long long)list_calls_, (unsigned long long)list_equal_);
     std::printf("pit pass (0x359008 / 0x35B060): %llu calls, %llu equal (record, messages, the routines called), %llu with a pit step;", (unsigned long long)calls_,
                 (unsigned long long)equal_, (unsigned long long)active_);
     for (const auto& [k, n] : counts_) std::printf(" %s %llu", action_name(k), (unsigned long long)n);

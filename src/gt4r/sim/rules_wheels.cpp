@@ -2,6 +2,8 @@
 
 #include "gt4r/sim/rules_wheels.h"
 
+#include "base/ee_math.h"
+
 namespace gt4r::sim::rules {
 
 namespace {
@@ -37,6 +39,15 @@ void hub_offsets_z(ex::Car& c, const WheelLayout& l) {
         const s8 fore = s8(l.fore_aft[i]);
         if (0 < fore) w.hub.z = w.hub.z + fz;
         else if (fore < 0) w.hub.z = w.hub.z - fz;
+    }
+}
+
+void speed_ramp(ex::Car& c, const WheelLayout& l) {
+    const F gain = F::raw(0x3CA3D70B), one = F::raw(0x3F800000);
+    for (u32 i = 0; i < l.count && i < 4; ++i) {
+        ex::Wheel& w = c.w[i];
+        const F v = gt3r::ee::sqrt(w.hub_vx * w.hub_vx + w.hub_vy * w.hub_vy) * gain;
+        w.speed_ramp = one < v ? one : v;
     }
 }
 

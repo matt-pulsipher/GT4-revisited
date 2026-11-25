@@ -48,6 +48,7 @@ struct WorldEntry {
     bool asm_on = true, tcs_on = true; // the aids (sim::Entry)
     float start_speed = 0; // a rolling start: metres per second at time 0 (sim::Entry::start_speed)
     std::optional<sim::Equipment> equipment; // the car's parts and settings (a garage car's); none: as sold
+    std::optional<std::array<u8, 0x20>> condition; // a garage car's condition block (sim::Entry::condition)
     std::string wing; // a fitted wing's label (a WING row); empty: the equipment's (record +0x100), else none
     float start_distance = std::numeric_limits<float>::quiet_NaN(); // a rolling start's place (sim::Entry::start_distance)
     std::optional<course::Runway::Place> place; // the car's own start place (a license test's road section: sim::Entry::place)
@@ -61,6 +62,9 @@ struct WorldSetup {
     bool drivers = false; // the drivers in their stored pose (the posture is not ported: for checks)
     bool rail = false; // the stand-in simulation instead of the game's
     sim::ai::Pace pace; // the computer drivers' (the event's)
+    // The event's class grips as they are (a license test's, training's, mission's and practice's conductor); else a byte the
+    // event leaves 0 is 20 (a single race's and the free run's: 0x353570).
+    bool event_grips = false;
     std::vector<u8> event_row; // the event's RACE row: the race's tire wear (sim::rules::event_wear_bytes); empty: no wear
     int laps = 0;       // the race's laps (the pit stops' last lap; 0 a run without an end)
     bool computer_player = false; // the computer drivers drive the player's car too
@@ -175,7 +179,7 @@ public:
     void draw_icons(Ui& ui, const SDL_FRect& canvas, std::span<const Icon> icons);
     // One model in its own view over `rect` (the license results' trophy), in the course's light:
     // `place` its model matrix in a camera at the origin looking down -z, `proj` the lens.
-    void draw_model(Ui& ui, const SDL_FRect& rect, const gt3r::render::GpuModel& model, const gt3r::render::Mat4& place, const gt3r::render::Mat4& proj, float alpha);
+    void draw_model(Ui& ui, const SDL_FRect& rect, const gt3r::render::GpuModel& model, const gt3r::render::Mat4& place, const gt3r::render::Mat4& proj, float alpha, bool own_reflection = false);
 
     const race::CourseScene& course() const { return *course_; }
     const race::CarVisual& visual(size_t i) const { return *car_visuals_[i]; }
@@ -196,6 +200,12 @@ public:
     float gadget_impulse(size_t i) const;
     // A car's mass as the step reads it (the spec's weight, kg; 0 not known): the license tests' wall rule.
     float car_mass(size_t i) const;
+    // The seconds left of a car's penalty (the speed cap a hit gave; 0: none).
+    int penalty_seconds(size_t i) const;
+    // A car's stability and traction controls: 0 off, 1 on, 2 acting (Prologue's record F + 0x524 / 0x525).
+    void aid_status(size_t i, u8& asm_status, u8& tcs_status) const;
+    // A car's limiter and automatic up-shift revolutions (P + 0x1C4 and + 0x226; 0 not known).
+    void rev_marks(size_t i, float& limit, float& shift) const;
     // The suggested gear for a car the player drives (-1 none).
     int suggested_gear(size_t i) const;
     // A car's fuel left as a share of its tank (1 without a tank).
@@ -229,6 +239,7 @@ private:
     std::unique_ptr<sim::Session> session_;
     std::unique_ptr<sim::ai::Field> field_; // the computer drivers, on the game's simulation
     std::unique_ptr<sim::ai::PitStops> pits_; // their pit stops
+    std::shared_ptr<const sim::Program> program_; // (what their tire change reads)
     bool bspec_driven_ = false;               // a B-spec driver drove the player's car (its record set)
     bool computer_player_ = false;
     float player_ps_ = 0;

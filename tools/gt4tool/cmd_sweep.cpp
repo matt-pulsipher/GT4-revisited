@@ -124,7 +124,7 @@ std::string spin_places(const std::vector<Measure>& m) {
 std::vector<Measure> drive(Disc& disc, db::SpecDb& db, const sim::Program& program, const std::string& course,
                            const std::shared_ptr<const course::Runway>& road, const std::vector<sim::Entry>& entries, double seconds,
                            int laps, std::vector<sim::ai::Incidents>& incidents) {
-    sim::Session session(db, program, road, entries);
+    sim::Session session(db, program, road, entries, sim::course_row(db, course));
     std::vector<size_t> computer(entries.size());
     for (size_t i = 0; i < computer.size(); ++i) computer[i] = i;
     std::unique_ptr<sim::ai::Field> field = sim::ai::Field::open(disc, course, session, computer, {});
@@ -224,7 +224,7 @@ int sweep_courses(Disc& disc, const Args& a) {
             load_ms = ms_since(t0);
             if (!has_driver) {
                 // Loaded only: the session set up and held, no drivers.
-                sim::Session session(db, program, road, entries);
+                sim::Session session(db, program, road, entries, sim::course_row(db, course));
                 flags += "NODRIVER ";
             } else {
                 const auto t1 = Clock::now();
@@ -343,7 +343,7 @@ int sweep_pad(Disc& disc, const Args& a) {
                             throw std::runtime_error("no car");
                     entries[0].automatic = !manual;
                     entries[0].asm_on = entries[0].tcs_on = aids != 0;
-                    sim::Session session(db, program, road, entries);
+                    sim::Session session(db, program, road, entries, sim::course_row(db, course));
                     std::vector<size_t> computer;
                     for (int i = 1; i < ncars; ++i) computer.push_back(size_t(i));
                     std::unique_ptr<sim::ai::Field> field = sim::ai::Field::open(disc, course, session, computer, {});

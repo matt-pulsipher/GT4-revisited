@@ -10,6 +10,8 @@
 #include "gt4r/sim/collide.h"
 #include "gt4r/sim/aids_prologue.h"
 #include "gt4r/sim/collide_prologue.h"
+#include "gt4r/sim/feel_prologue.h"
+#include "gt4r/sim/convert.h"
 #include "gt4r/sim/ground.h"
 #include "gt4r/sim/record.h"
 #include "gt4r/sim/rules_prologue.h"
@@ -32,6 +34,10 @@ struct Entry {
     Equipment equipment;   // the car, its parts and settings (stock_car)
     bool automatic = true; // the gearbox shifts itself
     bool asm_on = true, tcs_on = true;
+    bool wheel_aid = false; // the entry's third aid switch (+0x3458; off for a player in the races seen): a steering wheel's slip aid
+    // The entry's condition block (+0x3468, 0x20 bytes: the odometer (u32, m), the engine's and the oil's distances, the dirt,
+    // the body's distance (floats), +0x14 no wear): a garage car's own; none: the program's default, all 0 with no wear (0x3433E8).
+    std::optional<std::array<u8, 0x20>> condition;
     int grid_place = -1;   // the course's start place (-1: the entry's index)
     float start_speed = 0; // a rolling start: metres per second along the place's heading at time 0
     // A rolling start's place: metres along the course from the start line (negative: before it), the car on
@@ -46,14 +52,25 @@ struct Entry {
     bool fuel = false;
 };
 
+// What a race takes of its course's COURSE row: +0x10 the kind (0 dry, 1 wet, 2 dirt, 3 snow; 0xFF reads 0) and +0x12 (2 on
+// the gymkhana and special stages: no active steering, 0x347A00).
+struct CourseRow {
+    u8 kind = 0, road = 0;
+};
+// By the course's label ("tsukuba"); none without a row.
+std::optional<CourseRow> course_row(db::SpecDb& db, const std::string& course);
+
 class Session final : public race::Simulation {
 public:
     static constexpr float kStep = 1.0f / 60.0f;
+    inline static bool skip_hold = false; // (gt4r_diff's comparison of the set-up: the constructor without its hold)
     static constexpr int kHoldSteps = 120; // a standing start's countdown before the session's time 0 (the constructor's)
 
+    // `course`: the course's row; without it the kind is guessed (dirt when the first start place is on a loose surface).
     // Throws std::runtime_error for a session that cannot be set up (no entries, a course without a
     // start place on the road, a car whose parameters cannot be built).
-    Session(db::SpecDb& db, const Program& program, std::shared_ptr<const course::Runway> road, std::span<const Entry> entries);
+    Session(db::SpecDb& db, const Program& program, std::shared_ptr<const course::Runway> road, std::span<const Entry> entries,
+            std::optional<CourseRow> course = {});
     ~Session() override;
     // A session on a disc's course ("tsukuba": the file crs/tsukuba) with cars as sold, by their labels
     // ("nsx_r_02"), in grid order. Throws std::runtime_error (no such course or car, or as the constructor).
@@ -88,6 +105,10 @@ public:
     // timing, 0x35C0B8, on its own record): the car is held (the attitude's start hold 0x36AE20, the input's), and once a
     // car's counter is given so the session's preparation no longer runs 0x35C0B8 for it. Set it each step.
     void set_pit_hold(size_t car, u16 steps);
+    // A car's own start hold (conductor + 0xCBFC + 4 x car, set at the race's set-up from the event's seconds for its place:
+    // 60 x them, the missions' "catch the cars ahead"): the car held (F + 0x4BC) that many steps after the start's count
+    // (0x34DB30, rules_start's start_hold). 0: none.
+    void set_start_delay(size_t car, u32 steps);
     double time() const { return double(steps_) * double(kStep); }
     const RoadGround& ground() const { return *ground_; }
     // A car's record in the vehicle step (the engine's mirror of the car record).
@@ -113,6 +134,9 @@ public:
     bool prologue_rules() const { return prologue_.has_value(); }
     // A car's Gran Turismo 4 part of the record (record.h) and wheel layout.
     const sim::Extra& gt4_record(size_t i) const { return gx_[i]; }
+    // The steering wheel's force of the last step (the pad block's +0x02: 0x80 centered, 0x80 - the force (-1 .. 1) x 127;
+    // rules::steer_force, or the engine's on its own rules).
+    u8 steer_force(size_t i) const { return cars_[i].steer_force; }
     // The aid block of the computer driver that drives a car (rules::driver_block from the course's set for the car:
     // 0x466C20), which Gran Turismo 4's aids use while a computer drives it. Without one a computer's car has no aids.
     void set_driver_aids(size_t car, const gt3r::sim::exact::Aids& block);
@@ -121,7 +145,9 @@ public:
     // The driving line's heading at a car (0x4649F0 on its driver's line at its distance along the course: the computer
     // drivers' Field::line_heading_at): the active steering of a pad car aims along it. Set it before each step; a car never
     // given one runs without the active steering.
-    void set_line_heading(size_t car, gt3r::ee::F heading);
+    // `mode`: the driver's (D +0x1E, Field::line_mode_at: the line point's kind, 3 / 4 at a braking point), kept in the
+    // record: the active steering runs in mode 0 only, on a straight.
+    void set_line_heading(size_t car, gt3r::ee::F heading, std::optional<u8> mode = {});
     // For gt4r_diff's whole-step comparison: a car's state set as a whole (the engine's mirror and Gran Turismo 4's
     // part), and its collision body.
     void load_state(size_t i, const gt3r::sim::exact::Car& c, const sim::Extra& x) { cars_[i] = c, gx_[i] = x; }
@@ -133,6 +159,9 @@ public:
     collide::Body& body(size_t i) { return bodies_[i]; }
     const collide::Body& body(size_t i) const { return bodies_[i]; }
     const rules::WheelLayout& wheel_layout(size_t i) const { return layouts_[i]; }
+    // The wheels' emits of the last step (0x3668F0 in phase 19: the smoke, dust and spray the program hands the course's
+    // effects), car by car in the step's order.
+    const std::vector<rules::TireEmit>& tire_emits() const { return emits_; }
     // What the session runs on stand-ins for ("the disc's program is not a build whose tables are mapped").
     const std::vector<std::string>& notes() const { return notes_; }
 
@@ -140,9 +169,20 @@ public:
     // +0x34) and whether the second wear may run (a single race on a paved course whose row allows it). Set before the start
     // (new tires take them); all off by default, as in every race seen.
     void set_wear_rules(const u8* rule_block, bool second_on, const Program& program);
+    // The race's rules of hits and speed caps (the rule block's +0x46 .. +0x4A, +0x42 / +0x43 and +0x4B, from the race's RACE row:
+    // Gran Turismo 4's 0x35E108, Prologue's 0x3C5978): a hit past the limits caps the car's speed at `penalty_cap` km/h for
+    // `h.penalty` seconds. All 0 (none) by default; holds until set again.
+    void set_race_rules(const rules::HitRules& h, std::array<u8, 2> speed_cap, u8 penalty_cap) {
+        hit_rules_ = h, aid_race_.speed_cap = speed_cap, aid_race_.start_cap = penalty_cap;
+    }
+    // The seconds left of a car's penalty as the race display counts them (Prologue's 0x3C6030, Gran Turismo 4's the same: the counter's
+    // steps + 59 over 60; 0 once the car's race ended).
+    int penalty_seconds(size_t i) const;
     // What the computer drivers' pit flow reads and changes (sim/ai/pit_flow.h): the fuel (liters) and tank, the distance and the
     // fuel since the economy display's last reading (F +0x4C8 / +0x4C4), the fuel counted at all (F +0x5D0's distance > 0 is the
     // flow's own test), a wheel's tread wear (+0xAC) and wear grip (+0x50); new tires on a wheel (0x362E58); the fuel set.
+    // A car's condition block as the race has left it (F + 0x5D8).
+    std::array<u8, 0x20> condition(size_t i) const;
     float fuel(size_t i) const { return gx_[i].drive.fuel.fuel.host(); }
     float tank(size_t i) const { return gx_[i].drive.fuel.capacity.host(); }
     float fuel_distance(size_t i) const { return gx_[i].drive.fuel.economy_distance.host(); }
@@ -154,6 +194,15 @@ public:
     // A wheel's wear level as the race display takes it (wheel +0xB1, -0x80 .. 0x7F).
     int wear_level(size_t i, int wheel) const { return i < cars_.size() ? int(cars_[i].w[size_t(wheel)].wear_level) : -0x80; }
     void new_tire(size_t i, int wheel);
+    // A pit stop's tire change (0x35C0B8, sim/pit_tires.h): at the stop's 645th step from its end the converter's tire part
+    // (0x361570) on the car's parameter block from `spec` (the entry's equipment with the chosen tires, its spec for this
+    // course) for `axles` (1 front, 2 rear, 3 both), at the 644th the records' base grips (0x361798); the car's tire records
+    // in its record read again from the block. Gran Turismo 4's rules only.
+    void change_tires(size_t car, const Spec& spec, const Program& program, u32 axles);
+    void retune_tires(size_t car, const Program& program, u32 axles);
+    // The entry's equipment, and the car's parameter block as its set-up built it and the tire changes since left it.
+    const Equipment& equipment(size_t i) const { return equipment_[i]; }
+    const ParamBlock& params(size_t i) const { return blocks_[i]; }
     // The flaps' random stream (the program's 0x874D50), for gt4r_diff's whole step.
     void set_random_state(u32 state) { random_state_ = state; }
     // A car's shift byte (car +0x83; 128: none): its gearbox's shift speeds times it / 128 while a B-spec driver drives it
@@ -206,6 +255,7 @@ private:
     std::vector<sim::Extra> gx_;
     std::vector<rules::WheelLayout> layouts_;
     std::vector<rules::SpeedTables> speed_tables_; // (0x35DE20's, per car: its special row)
+    std::vector<rules::TireEmit> emits_;           // the last step's wheels' emits (0x3668F0)
     std::vector<std::optional<gt3r::sim::exact::Aids>> driver_aids_; // a computer driver's aid block per car
     std::vector<std::optional<std::array<gt3r::ee::F, 3>>> driver_grip_; // and its grip by tire class
     rules::AidRace aid_race_;
@@ -216,6 +266,7 @@ private:
     std::vector<rules::PadMail> mail_;      // each car's request to its controller (a pit stop's answer, a B-spec command)
     std::vector<collide::Hit> hits_;        // the collision step's hits this step
     u32 active_on_ = 0;                     // the active steering's switch as the controls' tables have it (0x84357C)
+    std::vector<std::optional<gt3r::ee::F>> hold_heading_; // a car stood in its pit box: the box's heading (the hold's, 0x46BE70)
     std::vector<std::optional<gt3r::ee::F>> line_heading_; // each car's driving line's heading, when its caller gives it
     std::vector<u8> pit_by_caller_;         // the car's hold counter is its caller's (set_pit_hold)
     rules::Tables tables_;
@@ -227,16 +278,23 @@ private:
     // Prologue's program: its own step (rules_prologue.h) in place of the engine's routines it does not share.
     std::optional<prologue::Tables> prologue_;
     std::vector<prologue::CarPart> prologue_cars_;
+    std::vector<prologue::FeelPart> prologue_feel_; // (phase 19's bookkeeping and feel, feel_prologue.h)
+    rules::FeelTables prologue_feel_tables_;
+    rules::SlideTables prologue_slide_;
+    gt3r::sim::exact::Proximity prologue_near_{}; // (phase 14's tables of the cars' pairs)
     std::unique_ptr<prologue::Collision> prologue_collide_;
     prologue::AidTables prologue_aids_;
     std::vector<prologue::Collision::Contact> prologue_contacts_;
     std::vector<Spec> specs_;
+    std::vector<Equipment> equipment_; // (each entry's)
+    std::vector<ParamBlock> blocks_;   // each car's parameter block (Gran Turismo 4's rules)
+    void reload_tires(size_t car, const Program& program);
     std::vector<race::CarState> states_;
     std::vector<std::string> notes_;
     gt3r::Vu0Random rng_;
     u32 random_state_ = 0; // (the program's shared random stream, 0x874D50, for the flaps: ours from 0)
     bool loose_ = false;
-    u8 course_kind_ = 0;
+    u8 course_kind_ = 0, course_road_ = 0;
     float pending_ = 0;
     u64 steps_ = 0;
 };

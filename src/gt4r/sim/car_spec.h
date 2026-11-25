@@ -35,6 +35,14 @@ struct Spec {
 // The program's defaults come from `program` (zeros when it is not a known build).
 void build_spec(db::SpecDb& db, const Program& program, const Equipment& eq, int course_kind, Spec& out);
 
+// The entry's aid switches as the car's set-up applies them before the converter (0x363CB8 .. 0x363E0C): `asm_on` and
+// `tcs_on` (the entry's +0x3450 / +0x3454; both off on a loose course) and the car's own have: off takes the spec's ASM
+// channels (+0x1B8; 0x3F1700) or its TCS (+0x1C2; 0x3F1748); returns the record's aid bits F +0x4E5 of a car of control
+// source 0, 1 or 3 (a computer's car has none): 1 TCS, 4 ASM, 2 the cornering throttle hold (the program's byte 0x620E09:
+// 1 with TCS, 2 with ASM, 3 always), 8 `wheel_aid` (the entry's +0x3458: a steering wheel's slip aid), 0x10 the pad's slip
+// aid (the byte 0x620E0B: 1 with ASM, 2 always).
+u8 aid_switches(Spec& s, const Program& program, bool asm_on, bool tcs_on, bool wheel_aid, bool loose);
+
 // 0x443240: a computed gearbox's ratios from its slider into the equipment's gear words. False (nothing
 // done) for a gearbox with stored ratios. The ratios are made by the shared engine's generator (Gran
 // Turismo 3's: 7 forward gears at most).

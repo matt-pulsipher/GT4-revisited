@@ -47,6 +47,9 @@ struct PTap {
     // When set: run on the record as the program leaves it (in place of `ours` at the entry), for a routine whose other
     // outputs ours cannot make in the harness (the course's queries).
     std::function<void(PTapCall&)> at_exit = {};
+    // When set: called at the routine's exit to compare what ours keeps outside the engine's mirror (fields Prologue
+    // keeps elsewhere) with the program's memory: `field(name, program's bits, ours)` counts a difference.
+    std::function<void(Ee&, u32 car, int index, const std::function<void(const char*, u32, u32)>& field)> after = {};
 };
 struct PFieldStat {
     u64 off = 0;

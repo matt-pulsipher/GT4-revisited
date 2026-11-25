@@ -13,7 +13,7 @@ float f32_at(ByteSpan d, size_t o) {
 }
 } // namespace
 
-Gadgets Gadgets::parse(ByteSpan gdgt, ByteSpan rnw4) {
+Gadgets Gadgets::parse(ByteSpan gdgt, ByteSpan road) {
     Gadgets g;
     if (is_gadgets(gdgt)) {
         const u32 n = rd32(gdgt, 0x1C);
@@ -31,18 +31,20 @@ Gadgets Gadgets::parse(ByteSpan gdgt, ByteSpan rnw4) {
         const u32 at = rd32(gdgt, 0x10);
         if (at >= 0x20 && size_t(at) + 4 < gdgt.size() && gt3r::has_magic(gdgt.subspan(at), "MDLS")) g.models = gdgt.subspan(at);
     }
-    if (rnw4.size() >= 0x74 && gt3r::has_magic(rnw4, "RNW4")) {
-        const u32 n = rd16(rnw4, 0x44), at = rd32(rnw4, 0x70);
-        if (n && (at + 0x20 * u64(n) > rnw4.size())) throw FormatError("RNW4: gadgets outside the block");
+    const auto records = [&](u32 n, u32 at) {
+        if (n && (at + 0x20 * u64(n) > road.size())) throw FormatError("the road's gadgets outside the block");
         for (u32 i = 0; i < n; ++i) {
             const size_t o = at + 0x20 * size_t(i);
             Placement p;
-            p.kind = int(rd32(rnw4, o));
-            p.position = {f32_at(rnw4, o + 8), f32_at(rnw4, o + 12), f32_at(rnw4, o + 16)};
-            for (int j = 0; j < 3; ++j) p.angles[size_t(j)] = f32_at(rnw4, o + 20 + 4 * size_t(j));
+            p.kind = int(rd32(road, o));
+            p.position = {f32_at(road, o + 8), f32_at(road, o + 12), f32_at(road, o + 16)};
+            for (int j = 0; j < 3; ++j) p.angles[size_t(j)] = f32_at(road, o + 20 + 4 * size_t(j));
             g.placements.push_back(p);
         }
-    }
+    };
+    if (road.size() >= 0x74 && gt3r::has_magic(road, "RNW4")) records(rd16(road, 0x44), rd32(road, 0x70));
+    // Prologue's road (Gran Turismo 3's GTRW): the same records, +0x50 u32 count and +0x54.
+    if (road.size() >= 0x60 && gt3r::has_magic(road, "GTRW")) records(rd32(road, 0x50), rd32(road, 0x54));
     return g;
 }
 

@@ -72,7 +72,7 @@ public:
     const RoadGround* ground() const { return ground_; }
 
 private:
-    void prepare(int k, float& query_height);
+    void prepare(int k);
     int span(int k, int hint, float s, int& from, int& to) const;
 
     const RoadGround* ground_ = nullptr;

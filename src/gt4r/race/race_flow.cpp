@@ -38,6 +38,7 @@ void RaceFlow::begin(const FlowSetup& setup, std::span<const CarState> cars) {
         cars_[i].prev_v = cars[i].course_v, cars_[i].has_v = true;
         cars_[i].prev_lap = cars[i].lap;
         if (setup.counted && setup.lap_length > 0) cars_[i].counter = start_crossings(cars[i].course_v, setup.lap_length, setup.sectors, setup.goal);
+        if (i < setup.past_line.size() && setup.past_line[i]) cars_[i].counter = 1;
     }
     hold_total_ = hold_ = start_hold_steps(setup.start, setup.start_seconds);
     clock_ = 0;
@@ -103,7 +104,7 @@ RaceFlow::Events RaceFlow::step(std::span<const CarState> cars) {
                     // The start line (vf20 0x347928): the first car over it starts a rolling start's clock (from
                     // the next step: ❓ the conductor's clock step 0x357E80 and the crossings' order in a step not
                     // read); the player's crossing is his start signal (event 4 for car 0).
-                    if (!clock_running_) clock_running_ = true, ev.clock_started = true;
+                    if (!clock_running_ && (!setup_.player_clock || i == setup_.player)) clock_running_ = true, ev.clock_started = true;
                     if (setup_.start == StartType::Rolling && i == setup_.player && started_steps_ < 0) ev.start = true, started_steps_ = 0;
                 } else {
                     r.laps_done += 1;

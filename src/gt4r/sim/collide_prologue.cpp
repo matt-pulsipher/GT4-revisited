@@ -16,6 +16,8 @@ Collision::Collision(const gt3r::course::Road& road, const std::vector<ex::Car>&
     bodies_.resize(cars.size());
     for (size_t i = 0; i < cars.size(); ++i) {
         const ex::Params& p = cars[i].p;
+        // (its octagon's corners cut by 0x3E4CCCCC of the width (0x41C8E0), the later builds' constant in the engine's builder)
+        bodies_[i].behaviour.variant[size_t(gt3r::sim::Rule::BodyBuild)] = gt3r::u8(gt3r::sim::Program::ConceptGenevaEu);
         cx::build(bodies_[i], p.body_front, p.body_rear, p.body_width, p.mass, p.yaw_inertia, int(i));
         bodies_[i].course = course_.get();
         bodies_[i].behaviour = cars[i].behaviour;
@@ -48,6 +50,14 @@ void Collision::step(std::vector<ex::Car>& cars, std::vector<Contact>& contacts)
         k.strength = b.car_hit || b.wall_hit ? std::min(b.strength.host(), 1.0f) : 0.0f;
         k.kind = b.car_hit ? 2 : b.wall_hit ? 1 : 0;
         if (b.car_hit && b.other >= 0 && size_t(b.other) < n && size_t(b.other) != i) k.car = b.other;
+        k.sum = b.strength;
+        if (k.kind == 1) k.part = b.wcorner && !b.wpoint ? b.we + 8 : b.wk;
+        else if (k.kind == 2) {
+            // the car whose side was met keeps the pair (its side + 8); the other its corner
+            k.part = b.hit_edge + 8;
+            for (size_t o = 0; !b.pair && o < n; ++o)
+                if (o != i && bodies_[o].car_hit && bodies_[o].pair && bodies_[o].other == int(i)) k.part = bodies_[o].vertex, k.car = int(o);
+        }
     }
 }
 
