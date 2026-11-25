@@ -1,5 +1,7 @@
 #include "gt4r/formats/model/model_script.h"
 
+#include "base/ee_math.h"
+
 #include <cmath>
 #include <cstring>
 #include <random>
@@ -121,12 +123,13 @@ bool run_script(const Script& s, s32 entry, ScriptState& st, const ScriptCallbac
             continue;
         }
         if (op >= 0x80 && op <= 0x8A) { // f32
-            const float b = as_f(pop()), a = as_f(pop());
+            const gt3r::ee::F eb = gt3r::ee::F::raw(pop()), ea = gt3r::ee::F::raw(pop());
+            const float b = as_f(eb.bits), a = as_f(ea.bits);
             switch (op) {
-            case 0x80: push(bits(a + b)); break;
-            case 0x81: push(bits(a - b)); break;
-            case 0x82: push(bits(a * b)); break;
-            case 0x83: push(bits(a / b)); break;
+            case 0x80: push((ea + eb).bits); break; // (the EE's arithmetic)
+            case 0x81: push((ea - eb).bits); break;
+            case 0x82: push((ea * eb).bits); break;
+            case 0x83: push((ea / eb).bits); break;
             case 0x84: push(bits(std::fmod(a, b))); break;
             case 0x85: push(a < b); break;
             case 0x86: push(a <= b); break;
@@ -210,7 +213,7 @@ bool run_script(const Script& s, s32 entry, ScriptState& st, const ScriptCallbac
         }
         case 0x28: pop(); break;
         case 0x3B: push(u32(-s32(pop()))); break;
-        case 0x3C: push(bits(float(s32(pop())))); break;
+        case 0x3C: push(gt3r::ee::int_to_f(s32(pop())).bits); break;
         case 0x40: { const u32 b = pop(); push(pop() & b); break; }
         case 0x41: { const u32 b = pop(); push(pop() | b); break; }
         case 0x42: { const u32 b = pop(); push(pop() ^ b); break; }
@@ -232,9 +235,8 @@ bool run_script(const Script& s, s32 entry, ScriptState& st, const ScriptCallbac
         case 0xB0: { const float b = as_f(pop()), a = as_f(pop()); push(bits(std::pow(a, b))); break; }
         case 0xB1: { const float b = as_f(pop()), a = as_f(pop()); push(bits(std::atan2(a, b))); break; }
         case 0xB2: { // the fraction of a / b
-            const float b = as_f(pop()), a = as_f(pop());
-            const float q = a / b;
-            push(bits(std::isfinite(q) ? q - std::trunc(q) : 0.0f));
+            const gt3r::ee::F b = gt3r::ee::F::raw(pop()), a = gt3r::ee::F::raw(pop()), q = a / b;
+            push((q - gt3r::ee::int_to_f(gt3r::ee::to_int(q))).bits);
             break;
         }
         case 0xC0: case 0xC1: { // ask the owner: an i32 or an f32 answer
