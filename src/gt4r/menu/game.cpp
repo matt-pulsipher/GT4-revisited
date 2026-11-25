@@ -2,6 +2,7 @@
 
 #include "gt4r/sim/equipment.h"
 
+#include <bit>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -88,9 +89,11 @@ std::string GameState::option_text(const std::string& name) const {
 GameState::Unit velocity_unit_of(const std::string& u) { return u == "MPH" ? GameState::Unit{0.621371f, "mph"} : GameState::Unit{1.0f, "km/h"}; }
 
 GameState::Unit power_unit_of(const std::string& u) {
-    if (u == "HP") return {0.98632f, "HP"};
-    if (u == "BHP") return {0.98632f, "BHP"};
-    if (u == "KW") return {0.73550f, "kW"};
+    // The factors as the program's conversions load them (0x4729A0's table at 0x6AD460: 0x4729D0 for HP and BHP, 0x4729E8
+    // for kW; the torque's 0x472A08).
+    if (u == "HP") return {std::bit_cast<float>(u32(0x3F7C76F2)), "HP"};
+    if (u == "BHP") return {std::bit_cast<float>(u32(0x3F7C76F2)), "BHP"};
+    if (u == "KW") return {std::bit_cast<float>(u32(0x3F3C49BA)), "kW"};
     if (u == "CH") return {1.0f, "ch"};
     if (u == "CV") return {1.0f, "CV"};
     if (u == "PF") return {1.0f, "PF"};
@@ -98,8 +101,8 @@ GameState::Unit power_unit_of(const std::string& u) {
 }
 
 GameState::Unit torque_unit_of(const std::string& u) {
-    if (u == "FTLB") return {7.23301f, "ft.lb"};
-    if (u == "NM") return {9.80665f, "N.m"};
+    if (u == "FTLB") return {std::bit_cast<float>(u32(0x40E773EA)), "ft.lb"};
+    if (u == "NM") return {std::bit_cast<float>(u32(0x411CCCCC)), "N.m"};
     return {1.0f, "kgf.m"};
 }
 

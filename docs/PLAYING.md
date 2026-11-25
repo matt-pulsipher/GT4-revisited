@@ -129,7 +129,9 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
   spent sliding.
 - `gt4tool sweep <disc> stop [course=..] [car=..]`: the player's car driven, braked to a stop, stood
   and launched at full throttle: gear, speed and engine speed every quarter second.
-- A Gran Turismo mode game played forward (every license, 22 cars, the presents) for playing the
+- `gt4tool sweep <disc> grid [filter]`: where every course's grid places stand along the course.
+- A Gran Turismo mode game played forward (every license, the Beginner and Professional events
+  but the World Championship won, 26.8 % complete, the presents) for playing the
   later events: `gt4tool save <disc> progress <data folder> [name] [credits]`, then
   `GT4R_DATA_DIR=<data folder> gt4r <disc>`.
 

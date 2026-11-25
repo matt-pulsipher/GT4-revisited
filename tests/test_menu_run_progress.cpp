@@ -40,8 +40,29 @@ TEST(disc_gt_mode_progress_saved_and_exported) {
         CHECK(r.ok);
         const menu::GameState& g = f.rt->game();
         cars = g.garage_count();
-        // The bought cars and the licenses' prize cars; the last bought is driven.
-        CHECK(cars > int(plan.cars.size()) && g.riding_car == int(plan.cars.size()) - 1 && g.money == 1'234'567);
+        // The bought cars and the prize cars; the plan's car driven.
+        CHECK(cars > int(plan.cars.size()) && g.money == 1'234'567);
+        CHECK(g.riding_car >= 0 && size_t(g.riding_car) < g.garage.size() && g.garage[size_t(g.riding_car)].car == plan.driven);
+        // Gran Turismo mode opened up as the script judges it: the completion past the endurance
+        // hall's 25 %, every Beginner and Professional event but the World Championship won (so it
+        // can be entered), the Extreme hall still shut (the championship not won).
+        const int done = menu::completion_permille(*f.rt);
+        std::printf("  completion %d per mille\n", done);
+        CHECK(done >= 250 && done < 400);
+        script::Vm& vm = f.rt->vm();
+        auto can = [&vm](const char* fn) { return vm.call(vm.lookup(std::string("GTmodeProject::") + fn), {}).truthy(); };
+        CHECK(can("canEntryEndurance") && can("canEntryGTWorldChamp") && !can("canEntryExtreme"));
+        // Photo travel's places: the ones open (the courses the weeks gone by have given).
+        int photo = 0, places = 0;
+        if (const std::vector<Value>* list = vm.lookup("GTmodeProject::EventData::PhotoStageList").items())
+            for (const Value& row : *list)
+                if (const std::vector<Value>* r = row.items(); r && !r->empty()) {
+                    ++places;
+                    const Value a[1] = {(*r)[0]};
+                    photo += vm.call(vm.attribute(vm.lookup("game"), "isCourseAvailable"), a).truthy();
+                }
+        std::printf("  photo travel: %d of %d places open\n", photo, places);
+        CHECK(places > 0 && photo == places);
         CHECK(f.clean());
     }
     {
