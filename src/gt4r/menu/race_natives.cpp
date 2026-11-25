@@ -3,6 +3,8 @@
 
 #include "gt4r/menu/race_natives.h"
 
+#include "gt4r/menu/prologue_license.h"
+
 #include "gt4r/menu/game.h"
 #include "gt4r/menu/game_internal.h"
 #include "gt4r/sim/car_spec.h"
@@ -123,7 +125,10 @@ QuickWork::QuickWork() {
                              "QuickTuneDrivingAssist",
                              // Prologue's: whether its license page opens on the test's guide (GuidePage, a demonstration
                              // in a scene view, ❓ not played here) or on the test's page (LicenseRoot).
-                             "dispGuidePage"})
+                             "dispGuidePage",
+                             // (Prologue's, its quick work's +0x64: 0 from its constructor 0x194AB8; the license page shows its times,
+                             // not the ranks, 0x194A30)
+                             "isRankQualify"})
         ints[zero] = 0;
     for (const char* minus : {"QuickTuneFrontTireType", "QuickTuneRearTireType", "playerGridNumber", "SeriesRank", "PsValue", "TorqueValue",
                               "driveTrainType", "carCategory"})
@@ -171,7 +176,11 @@ void install_race_natives(Runtime& rt, script::Module& menu) {
             const std::string n = name;
             const bool times = n == "goldTime" || n == "silverTime" || n == "bronzeTime";
             if (times) {
-                o->property(n, [work, n] { return text(quick_time_text(work().get(n))); });
+                // (Prologue's by its own writer, 0x409D88: M'SS.mmm, one dash for the minutes of none)
+                o->property(n, [work, n, r] {
+                    const s32 t = work().get(n);
+                    return text(r->is_prologue() ? prologue_time_text(t < 0 ? QuickWork::kNoTime : u32(t)) : quick_time_text(t));
+                });
                 continue;
             }
             o->property(n, [work, n] { return number(work().get(n)); }, [work, n](const Value& v) {
