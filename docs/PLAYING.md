@@ -76,8 +76,7 @@ The ones a player meets first:
 - The prize page after a race has no turning money pouch (its place number and prize are there).
 - A B-spec pit stop happens, without the PIT STOP menu and the SPEED LIMIT notice.
 - A garage car races as sold, without its parts, and its odometer does not move.
-- The used car list's scroll bar does not follow the list, its paint swatches are too bright, and
-  some torques are 0.01 ft.lb too high.
+- The used car list's scroll bar does not follow the list and its paint swatches are too bright.
 - More than half of the license tests begin with the car moving in the original (a run-up at 30 to
   200 km/h); here every test starts from rest.
 - In B-spec the Ka laps Tsukuba about 8 % faster than the original's.
