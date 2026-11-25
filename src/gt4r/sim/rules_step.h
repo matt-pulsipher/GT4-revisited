@@ -17,6 +17,7 @@
 #include "gt4r/sim/rules_wear.h"
 #include "gt4r/sim/rules_effects.h"
 #include "gt4r/sim/rules_feel.h"
+#include "gt4r/sim/rules_force.h"
 #include "sim/exact/race_inputs.h"
 
 namespace gt4r::sim::rules {
@@ -37,6 +38,7 @@ struct Tables {
     PadTables pad; // the controls' (0x347A00, at the race's start: the course row's byte +0x12 taken as 0)
     SlideTables slide; // (0x366D68 at the race's start)
     FeelTables feel;   // (the view follower's gains, 0x34A4B8's sway constants)
+    ForceTables force; // the steering force's (0x353938, at the race's start)
     // The rule block's +0x18 .. +0x1B (conductor + 0xF830): each drive class's extra grip for a car a computer drives, in
     // percent (phase 10). A single race's conductor sets each 0 to 20 (0x353570).
     std::array<s8, 4> class_grip{20, 20, 20, 20};

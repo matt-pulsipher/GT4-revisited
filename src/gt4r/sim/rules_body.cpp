@@ -75,7 +75,7 @@ F camber(const ex::Car& c, const WheelLayout& l, int w, F steer, F travel) {
 // 0x369DE8: the wheel's travel, its spring and damper and its load. `x_ground` is the travel at which it
 // would stand on its ground (0x36A080); its travel moved on by its speed and its own mass's acceleration
 // (held within the droop and the bump stop) more compressed than that leaves it off the ground.
-void wheel(ex::Car& c, BodyExtra& x, const BodyGlobals& g, int w, size_t a, F x_ground, F k) {
+void wheel(ex::Car& c, BodyExtra& x, const BodyGlobals& g, const SuspensionCar& m, int w, size_t a, F x_ground, F k) {
     ex::Wheel& wh = c.w[size_t(w)];
     const ex::Suspension& s = c.p.susp[a];
     const AxleBody& b = x.axle[a];
@@ -110,7 +110,8 @@ void wheel(ex::Car& c, BodyExtra& x, const BodyGlobals& g, int w, size_t a, F x_
         if (v < kMinusOne) v = kMinusOne;
         fd = fd - s.bump_damping * v;
     }
-    // (P + 0x1076, the part that changes with speed, adds 0x3F2650's term here: not ported)
+    // (P + 0x1076 names a row of the part that changes with speed: its term, 0x3F2650)
+    if (x.speed_part != 0) fd = fd + speed_damp(c, g.damp, x.speed_part, m.axle_load[size_t(w >> 1) & 1], w, xc);
     wh.susp = xc;
     wh.spring_f = fs;
     wh.damper_f = fd;
@@ -202,6 +203,7 @@ BodyGlobals body_globals(const Program& program) {
             g.rebound_knee[a] = gt3r::ee::int_to_f(program.b(S + 0x109 + a)) * hundredth;
             g.rebound_share[a] = gt3r::ee::int_to_f(program.b(S + 0x10B + a)) / hundred;
         }
+    g.damp = speed_damp_tables(program); // (as the race's start builds them, 0x3F2390; the image holds 0)
     return g;
 }
 
@@ -321,7 +323,19 @@ F damper(const ex::Suspension& s, const AxleBody& b, const BodyGlobals& g, F v, 
     return f;
 }
 
-void suspension(ex::Car& c, BodyExtra& x, const ChassisExtra& ch, const WheelLayout& l, const BodyGlobals& g) {
+F spring_rate(const ex::Car& c, const WheelLayout& l, int w, u8 category, u8 sit) {
+    const F k = c.p.susp[axle_of(l, w)].k;
+    if (category != 1 || sit == 0) return k; // (0x35C7C8: category 1)
+    const int index = c.index;
+    int turn = (w + index) % 4;
+    if ((index & 7) >= 4) turn = 3 - turn;
+    if (int(sit) < 7 * turn) return k;
+    int n = 1 - (int(sit) - 7 * turn);
+    if (n < 0) n = 0;
+    return k * gt3r::ee::int_to_f(n);
+}
+
+void suspension(ex::Car& c, BodyExtra& x, const ChassisExtra& ch, const WheelLayout& l, const BodyGlobals& g, const SuspensionCar& m) {
     const int n = count(l);
     // The hubs' speeds along their ground's normals.
     for (int w = 0; w < n; ++w) {
@@ -344,8 +358,7 @@ void suspension(ex::Car& c, BodyExtra& x, const ChassisExtra& ch, const WheelLay
         ex::Wheel& wh = c.w[size_t(w)];
         const size_t a = axle_of(l, w);
         u8 state = k0 < wh.load ? 1 : 0;
-        // (0x35D248: the spring rate; a special car of kind 1 scales it by a count of its own ❓)
-        wheel(c, x, g, w, a, c.susp_x[size_t(w)], c.p.susp[a].k);
+        wheel(c, x, g, m, w, a, c.susp_x[size_t(w)], spring_rate(c, l, w, m.category, m.sit));
         if (state == 0) {
             if (k0 < wh.load) state = 2;
         } else if (wh.load == k0) state = 3;

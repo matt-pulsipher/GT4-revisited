@@ -151,9 +151,11 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
         if (e.start_speed > 0 && aid_race_.start_speed == 0) aid_race_.start_speed = u8(std::lround(std::min(e.start_speed * 3.6f, 255.0f)));
     driver_grip_.assign(entries.size(), std::nullopt);
     specs_.resize(entries.size());
+    equipment_.resize(entries.size()), blocks_.resize(entries.size());
     states_.resize(entries.size());
     for (size_t i = 0; i < entries.size(); ++i) {
         const Entry& e = entries[i];
+        equipment_[i] = e.equipment;
         build_spec(db, program, e.equipment, loose_ ? 2 : 0, specs_[i]);
         if (specs_[i].weight_kg() <= 0 || specs_[i].b(0xBF) == 0) throw std::runtime_error("session: a car without a chassis or an engine");
         ex::Spec spec;
@@ -169,7 +171,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
         if (gt4_ready_) { // the parameter block from the spec, as the car's set-up makes it (Gran Turismo 4's converter)
             Record r;
             r.car = c;
-            build_record(specs_[i], program, tables_, ConvertIn{}, r);
+            build_record(specs_[i], program, tables_, ConvertIn{}, r, &blocks_[i]);
             // The entry's aid switches: ASM's channels and the TCS of the car's own block off.
             if (!e.asm_on) r.x.aids.own.on = {}, r.car.p.aids.on = {};
             if (!e.tcs_on) r.x.aids.own.tcs_gain = F(), r.car.p.aids.tcs_gain = F();
@@ -298,7 +300,10 @@ void Session::setup(size_t i, const course::Runway::Place& at, int kind, float s
     c.x16d1 = 1;
     c.dist_total = k0;
     rules::save_previous(c, layouts_[i]);
-    ex::wheel_spin(c);
+    { // (0x344040, after 0x343ED0 as the conductor's start, 0x34D490, runs them for each car)
+        const rules::SpeedTables& k = speed_tables_[i];
+        rules::wheel_spin(c, gx_[i].feel.anim, layouts_[i], k.special_x10, gx_[i].wear.category, gx_[i].body.in_line_x65c, k.throttle_share, k.brake_share);
+    }
 }
 
 void Session::release_start(int car) {
@@ -317,6 +322,10 @@ void Session::place_standing(size_t car, F x, F y, F z, F heading) {
     rules::standing_start(c, g, layouts_[car]);
     for (size_t w = 0; w < 4; ++w) extra_[car].kinds[w] = c.g[w].miss ? 0 : c.g[w].flags, extra_[car].materials[w] = c.g[w].miss ? 0 : c.g[w].material;
     publish(car);
+}
+
+void Session::set_start_delay(size_t car, u32 steps) {
+    if (car < start_counters_.size()) start_counters_[car] = steps;
 }
 
 void Session::set_pit_hold(size_t car, u16 steps) {
@@ -346,6 +355,28 @@ int Session::gear_for_speed(size_t i, gt3r::ee::F speed) const {
 
 void Session::new_tire(size_t i, int wheel) {
     if (i < cars_.size() && wheel >= 0 && wheel < 4) rules::new_tire(cars_[i], gx_[i].wear, wheel, tables_.wear);
+}
+
+void Session::change_tires(size_t car, const Spec& spec, const Program& program, u32 axles) {
+    if (car >= cars_.size() || !gt4_ready_) return;
+    convert_tire_records(spec, program, blocks_[car], axles); // (0x361570)
+    reload_tires(car, program);
+}
+
+void Session::retune_tires(size_t car, const Program& program, u32 axles) {
+    if (car >= cars_.size() || !gt4_ready_) return;
+    convert_base_grips(program, blocks_[car], axles); // (0x361798)
+    reload_tires(car, program);
+}
+
+// The step reads the tire records from the block (P + 0x410 + 0x1EC r, the index P + 0xF98): ours from the record, read again.
+void Session::reload_tires(size_t car, const Program& program) {
+    Record r;
+    r.car = cars_[car];
+    r.car.p = {};
+    load_params(blocks_[car], program, r);
+    gx_[car].tires.tire = r.x.tires.tire, gx_[car].tires.tire_index = r.x.tires.tire_index;
+    cars_[car].p.tire = r.car.p.tire, cars_[car].p.tire_index = r.car.p.tire_index;
 }
 
 void Session::set_line_heading(size_t car, F heading) {
@@ -503,13 +534,14 @@ void Session::chassis(size_t i) {
     Extra& x = extra_[i];
     if (gt4_rules_) rules::hub_offsets_xy(c, layouts_[i]); // (0x3458D0: by the wheel layout)
     else ex::hub_offsets_xy(c);
-    ex::speed_ramp(c);
+    if (gt4_rules_) rules::speed_ramp(c, layouts_[i]); // (0x345A50)
+    else ex::speed_ramp(c);
     ground_contact(c, x);
     if (gt4_rules_) { // Gran Turismo 4's suspension and attitude (0x36A490 .. 0x36BA88)
         sim::Extra& g = gx_[i];
         const rules::WheelLayout& l = layouts_[i];
         rules::terrain(c, g.body, l);
-        rules::suspension(c, g.body, g.chassis, l, tables_.body);
+        rules::suspension(c, g.body, g.chassis, l, tables_.body, {g.steer.axle_load, g.wear.category, g.phases.special[0]});
         // The attitude (0x36B0C8), first its start hold while the hold counter runs (0x36AE20). (❓ The hold turns the car
         // toward its driving line's heading; the session has no line: its own heading, no turn.)
         if (!rules::attitude_hold(c, g.body, c.heading)) rules::attitude(c, g.body, g.chassis, g.tires, l, tables_.body);
@@ -531,10 +563,16 @@ void Session::chassis(size_t i) {
         c.rumble = gx_[i].feel.pad[1];
     } else
         ex::pad_rumble(c);
-    ex::steer_force(c, race_.feel);
+    if (gt4_rules_) { // (0x353EE8: into the pad block; the engine's byte kept with it. A controller's own wheel options: none, 1 / 1)
+        rules::ForceRace fr;
+        fr.loose = aid_race_.course_kind != 0; // (0x34C998)
+        rules::steer_force(c, gx_[i], layouts_[i], tables_.force, tables_.steer, fr);
+        c.steer_force = gx_[i].force.out;
+    } else
+        ex::steer_force(c, race_.feel);
     if (gt4_rules_) rules::slide_effects(c, layouts_[i], tables_.slide, loose_ ? 2 : 0); // (0x367148)
     else ex::tyre_effects(c, race_.effects, race_.aids.course_category);
-    ex::phase12_stub(c);
+    if (!gt4_rules_) ex::phase12_stub(c); // (the engine's 0x1DF148, which returns at once; Gran Turismo 4's phase 19 has none)
     if (gt4_rules_) rules::engine_sound(c, tables_.feel, gx_[i].drive.d.kind, rules::draw_mode(c, 0, 0, 0)); // (0x350080)
     else ex::engine_sound(c, race_.sound_scales);
     if (gt4_rules_) rules::effects_reset(c, layouts_[i], rules::draw_mode(c, 0, 0, 0)); // (0x366718; no ghosts here)
@@ -555,7 +593,15 @@ void Session::chassis(size_t i) {
     }
     if (gt4_rules_) rules::speeds(c, gx_[i].speeds, layouts_[i], speed_tables_[i], gx_[i].body.in_line_x480); // (0x35DE20)
     else ex::speed_bookkeeping(c, race_.prep.condition);
-    ex::wheel_spin(c);
+    if (gt4_rules_) {
+        const rules::SpeedTables& k = speed_tables_[i];
+        rules::wheel_spin(c, gx_[i].feel.anim, layouts_[i], k.special_x10, gx_[i].wear.category, gx_[i].body.in_line_x65c, k.throttle_share, k.brake_share); // (0x344040)
+        std::array<rules::TireEmit, 4> e;
+        const int n = rules::tire_emits(c, layouts_[i], gx_[i].wear.category, e); // (0x3668F0)
+        emits_.insert(emits_.end(), e.begin(), e.begin() + n);
+        rules::sway(c, gx_[i].feel.view, tables_.feel, gx_[i].feel.blend); // (0x34A668, 0x34A788)
+    } else
+        ex::wheel_spin(c);
 }
 
 // The collision step (phase 13: 0x3F4B20, 0x45BB60, 0x3F4C18): every car's body moved through the step against the
@@ -625,6 +671,7 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
     // The race's countdown (the race information's +0xBC; 0x34C210): the cars held while it runs.
     const bool countdown = holding_ || countdown_ > 0;
     race_.prep.start_count = countdown ? 1 : 0; // (the engine's rules' hold)
+    emits_.clear();
     for (size_t i = 0; i < cars_.size(); ++i) {
         ex::Car& c = cars_[i];
         Extra& x = extra_[i];
@@ -733,8 +780,6 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
             // Gran Turismo 4's steering (0x3F7EA8): the angles, the follower, the slip angle's offset and the compliance.
             sim::Extra& g = gx_[i];
             rules::wheel_steer(c, g.steer, g.tires, layouts_[i], tables_.steer);
-            for (size_t w = 0; w < 4; ++w) // (for the engine's routines that still read them: its start hold)
-                c.t[w].steer_cos = gt3r::ee::cos(c.w[w].steer), c.t[w].steer_sin = gt3r::ee::sin(c.w[w].steer);
         } else if (prologue_) prologue::wheel_steer(c, prologue_cars_[i], *prologue_);
         else ex::wheel_steer(c);
         if (gt4_rules_) rules::slip_phase(c, gx_[i], layouts_[i], tables_);
@@ -756,7 +801,7 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
         else ex::dynamics(c, race_.statics, race_.gears, race_.class_grip);
         if (gt4_rules_) rules::brake_heat(c, layouts_[i], tables_.brake_heat, gx_[i].drive.d.tire_radius);
         else ex::brake_heat(c, race_.brake_heat);
-        ex::clear_feedback(c); // (the engine's feedback, for its routines that still read it)
+        if (!gt4_rules_) ex::clear_feedback(c); // (the engine's hit feedback; Gran Turismo 4's hit record is cleared below)
         if (gt4_rules_) rules::clear_hit(gx_[i].phases); // phase 12 (0x350308)
     }
     // (0x34DB30 after phase 12, before the collision step: each car's recent hit's steps counted down)
