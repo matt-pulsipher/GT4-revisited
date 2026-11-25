@@ -240,7 +240,10 @@ ex::PadFrame prefilter(ex::Car& c, const ex::PadFrame& f, const Controls& k, u8 
 // the hybrid), a special car of kind 8 (P +0x32) without a clutch.
 void pad_pedals(ex::Car& c, const ex::PadFrame& f, const Tables& t);
 void driver_input_pad(ex::Car& c, const ex::PadConstants& k, const ex::PadFrame& f, u8 course_kind, const rules::WheelLayout& l,
-                      const Tables& t, u8 special_row = 0); // (`special_row`: P +0x33, a kind 6 wheel's prefilter row)
+                      const Tables& t, u8 special_row = 0); // What phase 5 (0x3DEDE0) does of the controller's frame for a car its driver drives: the steering's prefilter and, for a pad's
+// car, the display's values of it.
+void pad_watched(ex::Car& c, const ex::PadFrame& f, const Tables& t, u8 special_row);
+// (`special_row`: P +0x33, a kind 6 wheel's prefilter row)
 
 // 0x376440: the tires' longitudinal forces' pitch moment and lift (Gran Turismo 4's 0x36AF30 on the wheel layout, the
 // force's lever the tire's radius or, with the static block's +0xD9 0, its width).

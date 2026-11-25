@@ -773,6 +773,12 @@ void driver_input_pad(ex::Car& c, const ex::PadConstants&, const ex::PadFrame& i
     ex::set_brake(c, c.brake_pedal);
 }
 
+void pad_watched(ex::Car& c, const ex::PadFrame& in, const Tables& t, u8 special_row) {
+    const ex::PadFrame f = prefilter(c, in, t.controls, special_row);
+    c.full_throttle = 1;
+    if (c.control == 0) ex::pad_hud(c, f);
+}
+
 void pitch_terms(const ex::Car& c, const rules::WheelLayout& l, const Tables& t, F& moment, F& lift) {
     F m = F(), up = F();
     const int n = l.count < 4 ? l.count : 4;

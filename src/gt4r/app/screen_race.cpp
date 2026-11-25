@@ -686,7 +686,7 @@ public:
         } else fs.sectors = splits_;
         flow_.begin(fs, world_->cars());
         for (size_t i = 0; i < world_->car_count(); ++i) world_->set_crossings(i, flow_.car(i).counter), world_->set_rank(i, flow_.place(i));
-        license_failed_ = false, cones_met_ = 0, run_ended_ = run_driven_ = false;
+        license_failed_ = false, cones_met_ = 0, led_ = false, run_ended_ = run_driven_ = false;
         wrong_way_ = false, wrong_prev_ = -1;
         judge_ = race::LicenseJudge(judge_.rules());
         finish_camera_.angle = 0;
@@ -1389,7 +1389,10 @@ public:
         // Prologue's courses (Gran Turismo 3's roads): the judge's own rules (its DynamicsConductorLicense is Gran Turismo 4's,
         // 0x3C1318 = 0x3F8D70, with its own rows: LicenseRules from them), its own surfaces and pit zone (license_prologue.h).
         if (gt3_road_) {
-            const race::LicenseStep s = race::prologue::license_step(c, pit_zone_, setup_.course_kind, world_->car_mass(0), world_->gadget_contacts(0));
+            // (the judge runs within the race's step: the cones it counts and the car's place are the last step's)
+            const race::LicenseStep s = race::prologue::license_step(c, pit_zone_, setup_.course_kind, world_->car_mass(0), cones_met_);
+            cones_met_ = world_->gadget_contacts(0);
+            const bool led = std::exchange(led_, flow_.place(0) == 1);
             if (judge_.step(s) != race::LicenseFail::None) {
                 LOG_INFO("Drive: the test failed (%s) at %.3f s",
                          judge_.fail() == race::LicenseFail::OffCourse ? "off the course" : judge_.fail() == race::LicenseFail::Hit ? "hit" : "judge",
@@ -1400,7 +1403,7 @@ public:
             }
             if (judge_.cones_done()) flow_.finish_now(0, 1); // (the clock + 50)
             // (0x3C1318's end: a lead held for the rules' seconds ends the run)
-            judge_.count_time(flow_.place(0) == 1);
+            judge_.count_time(led);
             if (judge_.seconds_left() == 0) flow_.finish_now(0, 1);
             return;
         }
@@ -1691,6 +1694,7 @@ private:
     bool demo_lap_ = false;                    // of a free run's lap (its recording from the line)
     bool demo_bspec_ = false;                  // of a B-spec run: its car by its driver
     int cones_met_ = 0;
+    bool led_ = false; // (the place after the last step: the first)
     size_t demo_step_ = 0;
     bool demo_logged_ = false;
     int bspec_pace_ = 3, overtake_steps_ = 0;

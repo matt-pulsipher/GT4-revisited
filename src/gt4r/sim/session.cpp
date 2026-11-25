@@ -773,11 +773,13 @@ void Session::chassis(size_t i) {
         ex::wheel_spin(c);
 }
 
-// The strongest of the step's hits by kind, for the license tests' judge.
+// The strongest of the step's hits by kind, for the license tests' judge (a car's only at the front and its corners: the part's
+// class under 3, 0x35FE80 with 0x35FBC8; Prologue's 0x3C61D8 with 0x3C5F40).
 void Session::judge_hits() {
     for (Extra& x : extra_) x.wall_hit = x.car_hit = 0;
     for (const collide::Hit& h : hits_) {
         Extra& x = extra_[size_t(h.car)];
+        if (h.kind == 1 && rules::part_class(h.part) >= 3) continue;
         float& most = h.kind == 0 ? x.wall_hit : x.car_hit;
         most = std::max(most, h.strength.host());
     }
@@ -882,7 +884,7 @@ void Session::step_once(std::span<const race::CarInput> inputs, const Decider& d
         const std::array<F, 3>* grip = (in.computer || c.driver_kind != 0) && driver_grip_[i] ? &*driver_grip_[i] : nullptr;
         // A computer driver's outputs into the controls as the program's drivers write them (0x464F38).
         auto computer_outputs = [&] {
-            c.full_throttle = 1;
+            if (!prologue_) c.full_throttle = 1; // (Prologue's: pad_watched)
             c.throttle_pedal = c.throttle = gt3r::ee::F(std::clamp(in.throttle, 0.0f, 1.0f));
             if (gt4_rules_) rules::brake_pedal(c, layouts_[i], F(std::clamp(in.brake, 0.0f, 1.0f))); // (0x343D60)
             else ex::set_brake_pedal(c, gt3r::ee::F(std::clamp(in.brake, 0.0f, 1.0f)));
@@ -956,13 +958,14 @@ void Session::step_once(std::span<const race::CarInput> inputs, const Decider& d
             if (prologue_) prologue::part_downforce(c, prologue_cars_[i], prologue_feel_[i], race_.prep.slip); // (0x3DBB70's end)
             if (decide) decide(i, in);
             c.control = in.computer ? gt3r::s8(in.control) : 0;
+            ex::PadFrame e;
+            e.flags = f.flags, e.kind = f.kind == 6 && !prologue_ ? 4 : f.kind, e.shift = f.shift, e.steer = f.steer, e.throttle = f.throttle;
+            e.brake = f.brake, e.back = f.back, e.third = f.third;
             if (in.computer || (prologue_ && c.driver_kind == 1)) { // (a player's car its driver brings to the line: 0x3DED50)
+                if (prologue_) prologue::pad_watched(c, e, *prologue_, prologue_cars_[i].special_row);
                 computer_outputs();
                 computer_clutch();
             } else {
-                ex::PadFrame e;
-                e.flags = f.flags, e.kind = f.kind == 6 && !prologue_ ? 4 : f.kind, e.shift = f.shift, e.steer = f.steer, e.throttle = f.throttle;
-                e.brake = f.brake, e.back = f.back, e.third = f.third;
                 if (prologue_) prologue::driver_input_pad(c, race_.pad, e, course_kind, prologue_cars_[i].layout, *prologue_, prologue_cars_[i].special_row);
                 else ex::driver_input_pad(c, race_.pad, e, course_kind);
             }
@@ -972,6 +975,7 @@ void Session::step_once(std::span<const race::CarInput> inputs, const Decider& d
         if (!std::isnan(in.steer_angle)) {
             const gt3r::ee::F lock = c.p.max_lock;
             c.steer_cmd = prologue_ ? F(in.steer_angle) : F(std::clamp(in.steer_angle, -lock.host(), lock.host())); // (Prologue's: as it is)
+            if (prologue_) ex::ai_steer_pct(c); // (0x3DDC40)
             // (F +0x45C as the computer's path of 0x349FD0 makes it of the command 0x464F38 wrote)
             if (gt4_rules_) gx_[i].input.steer_view = rules::steer_unit(c.steer_cmd) * F::raw(0x3F2AACD9);
         }

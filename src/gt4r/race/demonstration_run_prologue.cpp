@@ -154,6 +154,7 @@ DemonstrationRun run_demonstration(Disc& disc, db::SpecDb& sdb, const std::strin
         for (const course::Runway::Triangle& t : road->triangles) stop_area = stop_area || (t.kind & 4) != 0;
         const float goal = road->goal_v > 0 && road->goal_v < road->length - 1 ? road->goal_v : -1;
         float goal_prev = -1;
+        int cones_met = 0, last_place = -1;
 
         std::vector<PadRecord> pads;
         for (const replay::PadRecord& f : run->streams[0].frames) pads.push_back({f.bytes});
@@ -170,12 +171,13 @@ DemonstrationRun run_demonstration(Disc& disc, db::SpecDb& sdb, const std::strin
             if (field) field->step(session, in, session.record(0).driver_kind == 1 ? -1 : 0, hold ? u32(std::max(1, flow.hold_left() - 1)) : 0);
             else if (hold) session.hold_once(in);
             else session.step_once(in);
-            int cones = 0;
+            // (the judge runs within the race's step: the cones it counts and the car's place are the last step's)
+            const int cones = cones_met, place = last_place;
             if (!gadgets.placements.empty()) {
                 std::vector<GadgetBodies::Car> boxes;
                 for (size_t i = 0; i < entries.size(); ++i) boxes.push_back(gadget_box(session.record(i), session.cars()[i]));
                 bodies.step(gadgets, *road, boxes, sim::Session::kStep);
-                cones = bodies.contacts().empty() ? 0 : bodies.contacts()[0];
+                cones_met = bodies.contacts().empty() ? 0 : bodies.contacts()[0];
             }
             const RaceFlow::Events e = flow.step(session.cars());
             for (const size_t i : e.started)
@@ -192,12 +194,14 @@ DemonstrationRun run_demonstration(Disc& disc, db::SpecDb& sdb, const std::strin
                                   rules.car_limit, cones, double(c.course_v));
                     r.error = t;
                 } else if (judge.cones_done()) flow.finish_now(0, 1); // (the clock + 50)
+                else if (judge.count_time(place == 1); judge.seconds_left() == 0) flow.finish_now(0, 1); // (a lead held for the rules' seconds)
                 else if (goal > 0 && !stop_area) {
                     if (flow.car(0).counter >= fs.laps && goal_prev >= 0 && goal_prev < goal && goal <= c.course_v && c.course_v - goal_prev < 100)
                         flow.finish_now(0, (goal - goal_prev) / std::max(c.course_v - goal_prev, 1e-4f));
                     goal_prev = flow.car(0).counter >= 1 ? c.course_v : -1;
                 }
             }
+            last_place = flow.place(0);
             r.steps = step + 1;
             if (opt.on_step) opt.on_step(step, session);
             if (flow.player_finished()) break;
