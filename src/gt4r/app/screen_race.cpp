@@ -635,6 +635,33 @@ public:
     const WorldSetup& world_setup() const { return world_->setup(); }
     // What the player chose for his car (the next run's).
     void set_player(const RaceWorld::PlayerChoice& c) { stale_ = world_->set_player(c) || stale_; }
+    // The race's flow of a run.
+    race::FlowSetup flow_setup() const {
+        race::FlowSetup fs;
+        fs.start = setup_.skip > 0 ? race::StartType::None : setup_.start;
+        fs.start_seconds = setup_.start_seconds;
+        fs.laps = setup_.laps;
+        fs.player = 0;
+        fs.lap_length = world_->lap_length();
+        fs.player_clock = !setup_.test_starts.empty();
+        for (const std::array<float, 2>& s : setup_.test_starts) fs.past_line.push_back(s[1] > 0);
+        // Where the cars' crossings start, the goal, a test's section (GT4's roads).
+        const course::Runway& road = world_->course().road();
+        // (Prologue, 0x3C9790, counts by the split points alone: a road without any 0.)
+        fs.counted = !road.gtrw || !splits_.empty();
+        fs.goal = road.gtrw ? -1 : world_->start_race().goal;
+        if (!road.gtrw && world_->simulated()) {
+            fs.sectors = world_->start_race().sectors;
+            fs.section_start = world_->start_race().section_start;
+            for (size_t i = 0; i < world_->car_count(); ++i) {
+                fs.crossings.push_back(world_->start_crossings(i));
+                fs.marks.push_back(world_->start_of(i).start.mark);
+            }
+            if (setup_.conductor != race::Conductor::Other) fs.test_kind = setup_.rules.kind, fs.mission = setup_.conductor == race::Conductor::Mission;
+            fs.no_lap = world_->start_race().way == 1;
+        } else fs.sectors = splits_;
+        return fs;
+    }
     void begin_run(bool watched = false, bool demo = false) {
         if (!demo && demo_run_) end_demo();
         // (A demonstration drives the player's car by its recording.)
@@ -660,33 +687,10 @@ public:
         before_tv_.reset();
         if (watched) mount_ = race::DriveCamera::kInCar;
         menu_scene_ = false;
-        race::FlowSetup fs;
         prev_cars_.clear();
-        fs.start = setup_.skip > 0 ? race::StartType::None : setup_.start;
-        fs.start_seconds = setup_.start_seconds;
-        fs.laps = setup_.laps;
-        fs.player = 0;
-        fs.lap_length = world_->lap_length();
-        fs.player_clock = !setup_.test_starts.empty();
-        for (const std::array<float, 2>& s : setup_.test_starts) fs.past_line.push_back(s[1] > 0);
-        // Where the cars' crossings start, the goal, a test's section (GT4's roads).
-        const course::Runway& road = world_->course().road();
-        // (Prologue, 0x3C9790, counts by the split points alone: a road without any 0.)
-        fs.counted = !road.gtrw || !splits_.empty();
-        fs.goal = road.gtrw ? -1 : world_->start_race().goal;
-        if (!road.gtrw && world_->simulated()) {
-            fs.sectors = world_->start_race().sectors;
-            fs.section_start = world_->start_race().section_start;
-            for (size_t i = 0; i < world_->car_count(); ++i) {
-                fs.crossings.push_back(world_->start_crossings(i));
-                fs.marks.push_back(world_->start_of(i).start.mark);
-            }
-            if (setup_.conductor != race::Conductor::Other) fs.test_kind = setup_.rules.kind, fs.mission = setup_.conductor == race::Conductor::Mission;
-            fs.no_lap = world_->start_race().way == 1;
-        } else fs.sectors = splits_;
-        flow_.begin(fs, world_->cars());
+        flow_.begin(flow_setup(), world_->cars());
         for (size_t i = 0; i < world_->car_count(); ++i) world_->set_crossings(i, flow_.car(i).counter), world_->set_rank(i, flow_.place(i));
-        license_failed_ = false, cones_met_ = 0, led_ = false, run_ended_ = run_driven_ = false;
+        license_failed_ = false, cones_met_ = 0, graded_place_ = 0, run_ended_ = run_driven_ = false;
         wrong_way_ = false, wrong_prev_ = -1;
         judge_ = race::LicenseJudge(judge_.rules());
         finish_camera_.angle = 0;
@@ -697,15 +701,14 @@ public:
         if (audio::RaceSound* sound = world_->sound()) {
             sound->forget_recording();
             // (built for its menus, the run is not begun yet: its page comes first)
-            if (built_ || setup_.sequence.empty()) sound->begin_run(audio::race_music(setup_.sequence, setup_.race, last_race_), int(fs.start));
+            if (built_ || setup_.sequence.empty()) sound->begin_run(audio::race_music(setup_.sequence, setup_.race, last_race_), int(flow_.setup().start));
             license_sounded_ = false;
         }
         split_prev_.clear(), split_first_.clear(), split_steps_ = -1;
         distance_ = 0, bspec_distance_ = 0, shown_steps_ = 0;
         replaying_ = false, over_ = false;
         event_steps_ = -1;
-        for (size_t i = 0; i < setup_.test_starts.size() && i < world_->car_count(); ++i) // (the cars that start past the line)
-            if (setup_.test_starts[i][1] >= 0) world_->release_start(i);
+        release_past_line();
         begin_start_camera(false);
     }
 
@@ -715,10 +718,9 @@ public:
         // Prologue's page (Gran Turismo 3's road) runs the race behind it as a replay shows one: the computer drives the
         // player's car too, the start's hold under the replay's start shots, then the course's replay cameras, the cars
         // not heard (the original's Tsukuba page, reference/14-prologue/round5). A lesson's page plays the lesson's recorded run
-        // (✔ the original's lesson 1, its car on our run's line: reference/37-prologue-medal), one that starts on the move
-        // the computer's (❓ its approach is not the program's to the bit, so the recording would leave it).
+        // (✔ the original's lesson 1, its car on our run's line: reference/37-prologue-medal).
         preview_ = gt3_road_ && setup_.skip == 0;
-        preview_pads_ = preview_ && setup_.test_starts.empty() ? &recorded_run() : nullptr;
+        preview_pads_ = preview_ ? &recorded_run() : nullptr;
         if (preview_pads_ && preview_pads_->pads.empty()) preview_pads_ = nullptr;
         preview_at_ = 0;
         // The lesson's guide film: the course's scenic shots once, then the run under the replay's monitors (✔ lesson 1's).
@@ -736,7 +738,12 @@ public:
         scenic_.reset(&scenic_script_);
         start_camera_.begin(nullptr, false, 0, {}, world_->cars()[0]);
         if (preview_) {
-            preview_hold_ = preview_pads_ ? 4 * 60 : 10 * 60;
+            preview_hold_ = preview_start();
+            if (preview_pads_) { // (its crossings of the line: the car let go by the driver that brings it there, the places)
+                preview_flow_.begin(flow_setup(), world_->cars());
+                for (size_t i = 0; i < world_->car_count(); ++i) world_->set_crossings(i, preview_flow_.car(i).counter), world_->set_rank(i, preview_flow_.place(i));
+                release_past_line();
+            }
             camera_.reset(world_->cars()[0]);
             replay_camera_.reset();
             tv_valid_ = false;
@@ -746,7 +753,14 @@ public:
     // The guide film: whether the run is on (not the shots before it), its seconds from its start's end, and its end.
     bool guide_run() const { return menu_scene_ && guide_ == 2; }
     bool guide_done() const { return guide_ != 0 && guide_done_; }
-    float guide_time() const { return std::max(0.0f, float(guide_steps_ - (preview_pads_ ? 4 * 60 : 10 * 60)) / 60); }
+    float guide_time() const { return std::max(0.0f, float(guide_steps_ - preview_start()) / 60); }
+    // The start's hold of the page's run: a lesson's 4 s (none on the move), else 10 s.
+    int preview_start() const { return !preview_pads_ ? 10 * 60 : setup_.test_starts.empty() ? 4 * 60 : 0; }
+    // The cars that start past the line.
+    void release_past_line() {
+        for (size_t i = 0; i < setup_.test_starts.size() && i < world_->car_count(); ++i)
+            if (setup_.test_starts[i][1] > 0) world_->release_start(i);
+    }
     bool has_run() const { return !history_.empty(); }
 
     // The last run as a saved replay, and a saved replay played back.
@@ -816,6 +830,9 @@ public:
                 }
                 ++preview_at_;
                 world_->step(inputs_, hold, false, u32(std::max(0, preview_hold_)));
+                const race::RaceFlow::Events ev = preview_flow_.step(world_->cars());
+                for (const size_t i : ev.started) world_->release_start(i);
+                for (size_t i = 0; i < preview_flow_.car_count(); ++i) world_->set_crossings(i, preview_flow_.car(i).counter), world_->set_rank(i, preview_flow_.place(i));
             } else world_->step(inputs_, hold, true);
             if (preview_pads_ && preview_at_ > preview_pads_->pads.size() && guide_ == 0) { // (the recording has run out: again)
                 stand();
@@ -965,6 +982,7 @@ public:
             LOG_INFO("Drive: the player's car takes the line at %.1f km/h, %.2f s on the clock", double(world_->cars()[0].speed * 3.6f), double(flow_.time_ms()) / 1000);
         if (is_license(setup_.sequence) || setup_.sequence == "mission") judge_license();
         if (is_license(setup_.sequence)) judge_goal();
+        if (!flow_.player_finished()) graded_place_ = flow_.place(0);
         step_wrong_way(auto_drive);
         if (demo_run_ && flow_.player_finished() && !demo_logged_) {
             demo_logged_ = true;
@@ -1392,7 +1410,6 @@ public:
             // (the judge runs within the race's step: the cones it counts and the car's place are the last step's)
             const race::LicenseStep s = race::prologue::license_step(c, pit_zone_, setup_.course_kind, world_->car_mass(0), cones_met_);
             cones_met_ = world_->gadget_contacts(0);
-            const bool led = std::exchange(led_, flow_.place(0) == 1);
             if (judge_.step(s) != race::LicenseFail::None) {
                 LOG_INFO("Drive: the test failed (%s) at %.3f s",
                          judge_.fail() == race::LicenseFail::OffCourse ? "off the course" : judge_.fail() == race::LicenseFail::Hit ? "hit" : "judge",
@@ -1403,7 +1420,7 @@ public:
             }
             if (judge_.cones_done()) flow_.finish_now(0, 1); // (the clock + 50)
             // (0x3C1318's end: a lead held for the rules' seconds ends the run)
-            judge_.count_time(led);
+            judge_.count_time(graded_place_ == 1);
             if (judge_.seconds_left() == 0) flow_.finish_now(0, 1);
             return;
         }
@@ -1438,6 +1455,7 @@ public:
         if (audio::RaceSound* sound = world_->sound()) sound->license_result(grade);
     }
     bool license_failed() const { return license_failed_; }
+    int graded_place() const { return graded_place_; }
 
     // A license test on a road whose goal distance (Gran Turismo 3's road header +0x1C, Prologue's courses) lies inside the
     // lap and that has no stopping box: the test ends where the lap's progress crosses it after the line (the line counter
@@ -1694,7 +1712,7 @@ private:
     bool demo_lap_ = false;                    // of a free run's lap (its recording from the line)
     bool demo_bspec_ = false;                  // of a B-spec run: its car by its driver
     int cones_met_ = 0;
-    bool led_ = false; // (the place after the last step: the first)
+    int graded_place_ = 0; // (the player's place after the last step of his run: what Prologue's judge and grade read)
     size_t demo_step_ = 0;
     bool demo_logged_ = false;
     int bspec_pace_ = 3, overtake_steps_ = 0;
@@ -1742,6 +1760,7 @@ private:
     const RecordedRun* lesson_pads_ = nullptr; // (GT4R_LESSON_DRIVE)
     size_t lesson_at_ = 0;
     const RecordedRun* preview_pads_ = nullptr;
+    race::RaceFlow preview_flow_;
     size_t preview_at_ = 0;
     int guide_ = 0, guide_steps_ = 0; // the guide film: 1 its shots, 2 its run
     bool guide_done_ = false;
@@ -3150,7 +3169,7 @@ private:
         // (Prologue's tests may have no bronze time: any finish is bronze then, as the original's lesson 1; a test of no time
         // at all has no grade)
         if (prologue_hud_) // (0x3C1050)
-            return race::prologue::grade({g, sv, b}, t, race_->license_judge().rules(), f.place(0), race_->mileage(), mileage_wanted_);
+            return race::prologue::grade({g, sv, b}, t, race_->license_judge().rules(), race_->graded_place(), race_->mileage(), mileage_wanted_);
         if (!known(b) && !known(g) && !known(sv)) return 3;
         return known(g) && t <= g ? 0 : known(sv) && t <= sv ? 1 : (prologue_hud_ && !known(b)) || (known(b) && t <= b) ? 2 : 3;
     }
