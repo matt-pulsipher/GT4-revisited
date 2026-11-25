@@ -5,6 +5,7 @@
 #include "taps.h"
 
 #include "gt4r/formats/replay/demonstration.h"
+#include "gt4r/race/demonstration_run.h"
 #include "gt4r/race/recorded_race.h"
 #include "gt4r/sim/ai/drivers.h"
 #include "gt4r/sim/car_layout.h"
@@ -84,20 +85,13 @@ std::vector<Image> images(Ee& ee, const OrigRace& o) {
 }
 
 // Our own race of the recording (race::RecordedRace) beside the program's: every car after each step, the first steps that differ.
-struct AloneBeside {
-    race::RecordedRace race;
+struct Beside {
     int driver_lists = 0;
     int steps_listed = 0, first_bits = -1, first_apart = -1;
     double worst = 0;
     int worst_car = -1;
-    AloneBeside(Disc& disc, db::SpecDb& sdb, sim::ai::DemoRun run) : race(disc, sdb, std::move(run)) {}
-    void report(const std::string& name) {
-        std::printf("%s ours alone: first bit apart at step %d, 1 mm at %d, worst %.6f m (car %d); laps", name.c_str(), first_bits, first_apart, worst, worst_car);
-        for (const s64 ms : race.laps()) std::printf(" %lld", (long long)ms);
-        std::printf(": %s\n", race.exact() ? "EXACT" : "not as recorded");
-    }
     // `cars`: the program's cars' records after the step.
-    void compare(const std::vector<Image>& cars, int step) {
+    void compare(const std::vector<Image>& cars, int step, const sim::Session& session, const sim::ai::Field* field) {
         const int n = int(cars.size());
         auto w32 = [&](int i, u32 at) { u32 v = 0; std::memcpy(&v, &cars[size_t(i)].car[at], 4); return v; };
         auto w16 = [&](int i, u32 at) { u16 v = 0; std::memcpy(&v, &cars[size_t(i)].car[at], 2); return v; };
@@ -107,9 +101,9 @@ struct AloneBeside {
         bool any = false;
         for (int i = 0; i < n; ++i) {
             sim::Record theirs, mine;
-            theirs.car = mine.car = race.session().record(size_t(i));
-            theirs.x = mine.x = race.session().gt4_record(size_t(i));
-            theirs.layout = mine.layout = race.session().wheel_layout(size_t(i));
+            theirs.car = mine.car = session.record(size_t(i));
+            theirs.x = mine.x = session.gt4_record(size_t(i));
+            theirs.layout = mine.layout = session.wheel_layout(size_t(i));
             load(theirs, cars[size_t(i)]);
             const u32 F0 = kF;
             const auto& c = mine.car;
@@ -135,10 +129,10 @@ struct AloneBeside {
                 }
         }
         // The drivers' decisions (their objects' words), the first that part.
-        if (race.field() && step >= (std::getenv("GT4R_FLOATS_LIST_FROM") ? std::atoi(std::getenv("GT4R_FLOATS_LIST_FROM")) : 0) && driver_lists < (std::getenv("GT4R_FLOATS_DRIVER") ? std::atoi(std::getenv("GT4R_FLOATS_DRIVER")) : 0))
+        if (field && step >= (std::getenv("GT4R_FLOATS_LIST_FROM") ? std::atoi(std::getenv("GT4R_FLOATS_LIST_FROM")) : 0) && driver_lists < (std::getenv("GT4R_FLOATS_DRIVER") ? std::atoi(std::getenv("GT4R_FLOATS_DRIVER")) : 0))
             for (int i = 0; i < n; ++i) {
                 const u32 D = sim::layout::kDriver, F0 = kF;
-                const sim::ai::Field::Probe p = race.field()->probe_get(size_t(i));
+                const sim::ai::Field::Probe p = field->probe_get(size_t(i));
                 std::string out;
                 auto bits = [&](const char* what, u32 a, u32 b) {
                     char t[96];
@@ -163,6 +157,17 @@ struct AloneBeside {
                 if (!out.empty()) std::printf("  driver %d step %d (program ours, mode %d):%s\n", i, step, w8(i, D + 0x1E), out.c_str()), ++driver_lists;
             }
         if (any) ++steps_listed;
+    }
+};
+
+struct AloneBeside : Beside {
+    race::RecordedRace race;
+    AloneBeside(Disc& disc, db::SpecDb& sdb, sim::ai::DemoRun run) : race(disc, sdb, std::move(run)) {}
+    void compare(const std::vector<Image>& cars, int step) { Beside::compare(cars, step, race.session(), race.field()); }
+    void report(const std::string& name) {
+        std::printf("%s ours alone: first bit apart at step %d, 1 mm at %d, worst %.6f m (car %d); laps", name.c_str(), first_bits, first_apart, worst, worst_car);
+        for (const s64 ms : race.laps()) std::printf(" %lld", (long long)ms);
+        std::printf(": %s\n", race.exact() ? "EXACT" : "not as recorded");
     }
 };
 
@@ -198,6 +203,24 @@ CipherResult run_floats_cipher(Disc& disc, bool print) {
     if (print)
         std::printf("cipher (0x579E00): %zu of %zu license files and %zu of %zu demo replays pass the key check\n", license_ok, license, r.passed - license_ok, r.files - license);
     return r;
+}
+
+int run_demo_beside(Disc& disc, const std::string& label) {
+    FloatDemoOptions opt;
+    std::vector<std::vector<Image>> kept;
+    opt.on_step = [&](Ee& ee, OrigRace& o, int) { kept.push_back(images(ee, o)); };
+    const DemoScore s = run_float_demo(disc, label, opt);
+    if (!s.ran) return std::printf("%s: %s\n", label.c_str(), s.error.c_str()), 1;
+    Beside beside;
+    db::SpecDb sdb = open_db(disc);
+    race::DemonstrationOptions ro;
+    ro.on_step = [&](size_t step, const sim::Session& session) {
+        if (step < kept.size()) beside.compare(kept[step], int(step), session, nullptr);
+    };
+    const race::DemonstrationRun r = race::run_demonstration(disc, sdb, label, ro);
+    std::printf("%-12s recorded %d ms, the program's %d, ours %d: first bit apart at step %d, 1 mm at %d, worst %.6f m (car %d)\n", label.c_str(), s.recorded_ms, s.ended_ms, r.ended_ms, beside.first_bits,
+                beside.first_apart, beside.worst, beside.worst_car);
+    return 0;
 }
 
 ReplayBeside run_replay_beside(Disc& disc, const std::string& name) {

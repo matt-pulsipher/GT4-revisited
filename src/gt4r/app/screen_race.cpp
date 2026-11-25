@@ -857,6 +857,7 @@ public:
         for (const size_t i : ev.started) world_->release_start(i);
         for (size_t i = 0; i < flow_.car_count(); ++i) world_->set_crossings(i, flow_.car(i).counter), world_->set_rank(i, flow_.place(i));
         if (!ev.finished.empty()) board_.finished(flow_, ev.finished);
+        for (const size_t i : ev.finished) world_->finish_car(i, i == 0 && is_license(setup_.sequence));
         // Each car's distance from the line (crossings x lap + along) each step from the start: the gaps.
         if (flow_.steps_since_start() >= 0) {
             const std::span<const race::CarState> now = world_->cars();

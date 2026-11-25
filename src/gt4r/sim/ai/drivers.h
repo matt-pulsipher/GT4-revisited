@@ -154,6 +154,7 @@ public:
         return s_->gt4_rules();
     }
     bool wear_on() const override { return s_->wear_rules().tread_on != 0 || s_->wear_rules().second_on != 0; }
+    bool finished(size_t i) const override { return s_->gt4_record(i).phases.finished != 0; }
     // The collision step's front and rear flags of the car's body (+0x434 / +0x438) as the last step left them.
     bool hits(size_t i, bool& front, bool& rear) const override {
         front = s_->body(i).front != 0, rear = s_->body(i).rear != 0;
@@ -256,6 +257,10 @@ public:
     // passes its configuration's +0xCBDE when that is 1 and no mode is asked.)
     // The driver's kind after it (8: stopped) is the session's to hold the car by (its clutch open).
     void finish(size_t car, int mode, bool player_car = false);
+    // The same with the car's mark of it (F +0x4B2, 0x343D78), as the races' finish (the conductor's virtual 21) and a test's end do;
+    // and the computer's cars sent to cruise as a test's player has ended it (0x3F88E8).
+    void finish_run(Session& session, size_t car, int mode = 3);
+    void end_computers();
     int kind(size_t car) const;
     // The car's control source as the drivers keep it (F +0x466: 2 the computer, 1 B-spec, 0 the pad; -1 not driven).
     int control(size_t car) const;

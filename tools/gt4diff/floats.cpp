@@ -340,6 +340,10 @@ int run_floats(Disc& disc, const std::vector<std::string>& args) {
     opt.verbose = std::getenv("GT4R_FLOATS_VERBOSE") != nullptr;
     opt.ours = std::getenv("GT4R_FLOATS_OURS") != nullptr;
     if (what == "replays") return run_floats_replays(disc, std::vector<std::string>(args.begin() + 1, args.end()));
+    if (what == "beside") {
+        for (size_t i = 1; i < args.size(); ++i) run_demo_beside(disc, args[i]);
+        return 0;
+    }
     if (what == "cipher") return run_floats_cipher(disc, true).files ? 0 : 1;
     if (what == "list") {
         for (const std::string& l : demonstration_labels(disc)) std::printf("%s\n", l.c_str());

@@ -274,6 +274,9 @@ public:
     void set_driver_kind(size_t car, u8 kind) {
         if (car < cars_.size() && gt4_rules_ && kind != 1 && cars_[car].driver_kind != 1) cars_[car].driver_kind = decltype(cars_[car].driver_kind)(kind);
     }
+    void set_finished(size_t car) { // (F +0x4B2)
+        if (car < cars_.size() && gt4_rules_) cars_[car].finished = 1, gx_[car].phases.finished = 1;
+    }
     void set_pit_flags(size_t car, u8 flags) {
         if (car < cars_.size() && gt4_rules_) cars_[car].x535 = u8((cars_[car].x535 & 0x10) | (flags & ~0x10));
     }

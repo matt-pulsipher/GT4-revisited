@@ -200,6 +200,12 @@ public:
     // Where the car is in a pit visit (0x35BBD8): 0 none, 1 down the lane or waiting for the choice, 2 the stop's start, 3 its work,
     // 4 its end, 5 out of the box to the lane's end.
     int pit_stage(size_t car) const;
+    // A car's race is over (0x343D78: the computer cruises it on); a test's player's: the computer's cars too (0x3F88E8).
+    void finish_car(size_t car, bool test) {
+        if (!field_ || !session_) return;
+        field_->finish_run(*session_, car);
+        if (test) field_->end_computers();
+    }
     // B-spec's pit command taken back or given (0x3F19E0 command 6: sim::ai::PitStops::command).
     void pit_command(size_t car);
     void pit_command(size_t car, bool on) {

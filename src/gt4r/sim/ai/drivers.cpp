@@ -889,6 +889,19 @@ void Field::finish(size_t car, int mode, bool player_car) {
     } else set_kind(d, 7);
 }
 
+void Field::finish_run(Session& session, size_t car, int mode) {
+    session.set_finished(car);
+    finish(car, mode);
+}
+
+void Field::end_computers() {
+    for (const auto& d : drivers_)
+        if (d && d->control == 2 && !(d->kind >= 2 && d->kind <= 4)) {
+            if (d->line == 7) request_line(*d, CourseLines::kMain, true);
+            set_kind(*d, 5);
+        }
+}
+
 int Field::kind(size_t car) const { return car < drivers_.size() && drivers_[car] ? drivers_[car]->kind : 0; }
 void Field::set_bspec_record(size_t car, const std::array<u8, 0x40>& record, int car_class) {
     Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
@@ -1768,8 +1781,9 @@ void Field::decide_car(size_t car, race::CarInput& in) {
     in.throttle = d.applied_throttle;
     in.brake = d.brake.host();
     in.reverse = d.reverse;
-    // (a player's car its driver drives in its rolling start keeps its control source, 0: F +0x467 tells the input)
-    in.computer = d.control != 0 || c.driver_kind != 1;
+    // (a player's car its driver drives, in its rolling start, the pits or after its finish, keeps its control source, 0: F +0x467
+    // tells the input)
+    in.computer = d.control != 0 || c.driver_kind == 0;
     in.control = u8(d.control == 1 ? 1 : 2); // (F +0x466: the B-spec car 1)
     in.shift_lock = u8(d.shift_lock);
 }
@@ -1815,7 +1829,7 @@ void Field::step(Session& session, std::span<race::CarInput> inputs, int keep, u
     for (auto& dp : drivers_)
         if (dp && dp->car < inputs.size() && !plans_only(*dp)) {
             race::CarInput& in = inputs[dp->car];
-            in.computer = dp->control != 0 || session_->record(dp->car).driver_kind != 1;
+            in.computer = dp->control != 0 || session_->record(dp->car).driver_kind == 0;
             in.control = u8(dp->control == 1 ? 1 : 2);
         }
     auto decide_one = [&](size_t car, race::CarInput& in) {

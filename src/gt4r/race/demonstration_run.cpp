@@ -135,6 +135,8 @@ DemonstrationRun run_demonstration(Disc& disc, db::SpecDb& sdb, const std::strin
             for (const size_t i : e.started)
                 if (session.cars()[i].rolling && (!field || field->release_rolling(i))) session.release_start(int(i));
             for (size_t i = 0; i < entries.size(); ++i) session.set_crossings(i, flow.car(i).counter), session.set_rank(i, flow.place(i));
+            if (field)
+                for (const size_t i : e.finished) field->finish_run(session, i);
             if (!hold && !flow.player_finished()) {
                 const CarState& c = session.cars()[0];
                 if (const std::optional<float> share = rules.kind == 1 ? stopped_in_box(c) : std::nullopt) flow.finish_now(0, *share);

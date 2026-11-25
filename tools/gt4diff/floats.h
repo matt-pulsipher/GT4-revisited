@@ -150,6 +150,8 @@ struct ReplayBeside {
     int first_bits = -1;   // the first step a car's place differs in a bit (-1 never)
     bool ours_exact = false;
 };
+// A license demonstration through the program's step, and our own race of it (race::run_demonstration) compared step by step.
+int run_demo_beside(Disc& disc, const std::string& label);
 ReplayBeside run_replay_beside(Disc& disc, const std::string& name);
 int run_floats_replays(Disc& disc, const std::vector<std::string>& args); // the Replay Theater's demo replays (floats_replays.cpp)
 int run_floats(Disc& disc, const std::vector<std::string>& args);
