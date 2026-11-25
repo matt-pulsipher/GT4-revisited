@@ -717,12 +717,12 @@ the start, when a game is loaded and when the scripts apply, save or reset the o
 | `unit_velocity`, `unit_power`, `unit_torque` | `velocity`, `power`, `torque` | the menus' figures (MUnit, the car pages) | the natives read the state; the race display's speed: `RaceHud::set_mph` from `settings_from(setup.options).velocity` (screen_race.cpp) |
 | `race_display_*`, `replay_display_enable` | `display`, `replay_display` | the race display (race_hud): the map, the times, the laps, the place and the meters hidden when off (`HudState::show_*`); a replay's display (`replay_display`) | ❓ the steering, car name, suggested gear and G meter parts are not drawn as parts of their own |
 | `view_type` | `view` | the race's first view (SUBJECTIVE the nose view, BONNET the higher one, OVERLOOK the chase view) | screen_race.cpp, a race from the menus |
-| `automatic_gear`, `assist_asm`, `assist_tcs`, `steering_assist_1p`, `active_steering_1p` | `automatic`, `asm_on`, `tcs_on`, ... | Arcade's car page offers them (its script reads the option); the race takes `RaceRequest::manual`, `assist_*` | 🔎 Gran Turismo mode's races: the quick menus' defaults |
+| `automatic_gear`, `assist_asm`, `assist_tcs`, `steering_assist_1p`, `active_steering_1p` | `automatic`, `asm_on`, `tcs_on`, ... | Arcade's car page and Quick Tune offer the first three (their scripts read and write the option); the race: `RaceScreen::player_choice` | Arcade's race and time trial by their menus' work, the others by `automatic_gear` with the aids on; the wheel's two always (input.md "Which choices a race takes") |
 | `race_laps`, `tire_damage`, `penalty_type` | `laps`, `tire_damage`, `penalty` | Arcade's scripts (laps); 🔎 the race's rules | |
 | `timeout_count_to_autodemo` | `demo_after_s` | the title's script (`onTick`: the demo after that many seconds without a key) | runs here (`disc_menu_title_demo_after_option`) |
 | `auto_save`, `opening_after_autoload` | `auto_save`, `opening_after_autoload` | Gran Turismo mode's and the boot project's scripts | run here |
 | `wide_mode`, `monitor_size`, `screen_adjust_h/v`, `sharpness_mode` | `wide`, `screen_adjust_*`, `sharpness` | 🔎 the picture's shape and place | the screen's figures are saved (save.md) |
-| `vibration_*`, `steering_forcefeedback_*` | | 🔎 the pad | the controller block (save.md) |
+| `vibration_*`, `steering_forcefeedback_*`, the Key Configuration, the wheel's POWER and POWER_ASSIST | `controllers` | the player's controls and what is sent back (`src/gt4r/input`) | the controller block ([input.md](../specs/input.md)); screen_race.cpp `player_choice` |
 
 **The Replay Theater** (the title's third item; the program's sequence `load_replay`,
 0x10CA50): the runtime turns the sequence into the project `labomode` with the menu argument
