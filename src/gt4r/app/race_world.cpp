@@ -14,6 +14,7 @@
 #include "gt4r/formats/model/car_model.h"
 #include "gt4r/race/car_spec.h"
 #include "gt4r/race/driver_figure.h"
+#include "gt4r/race/start_rule.h"
 #include "gt4r/sim/rules_wear.h"
 #include "gt4r/sim/session.h"
 #include "race/billboards.h"
@@ -235,6 +236,12 @@ void RaceWorld::build_simulation() {
             if (!noted_)
                 for (const std::string& note : session_->notes()) LOG_INFO("Drive: %s", note.c_str());
             sim_ = session_.get();
+            { // the race's class grips (the rule block's +0x18 .. +0x1B from the row's +0x53 .. +0x56, 0x35E108)
+                std::array<gt3r::s8, 4> grip{};
+                if (setup_.event_row.size() > 0x56)
+                    for (size_t k = 0; k < 4; ++k) grip[k] = gt3r::s8(setup_.event_row[0x53 + k]);
+                session_->set_class_grip(setup_.event_grips ? grip : sim::rules::single_race_class_grip(grip));
+            }
             if (setup_.event_row.size() >= 0x74) { // the event's tire wear (the rule block's +0x2C .. +0x34, 0x35E108)
                 u8 rule_block[0x80] = {};
                 sim::rules::event_wear_bytes(setup_.event_row.data(), rule_block);
@@ -254,12 +261,15 @@ void RaceWorld::build_simulation() {
                         field_->set_bspec(0);
                         // The driver's record of the book for the car's class (0x468710) and its skill from it (0x468C50).
                         const int k = sim::ai::bspec_class(gt3r::ee::F(session_->rating(0)));
+                        // (the skill weighs the record's course marks where the race's course flag is set: cond + 0xCBE7, the
+                        // start code's second digit, 0x34C7E0; without marks they are 0)
+                        const bool course_flag = race::start_code_digit(race::course_start(*app_.db(), setup_.course).code, 1) > 0;
                         const std::array<u8, 0x40> rec =
                             menu::bspec::race_record(setup_.bspec_book, k, setup_.bspec_course_known ? setup_.bspec_course_marks.data() : nullptr);
                         field_->set_bspec_record(0, rec, k);
                         if (const std::optional<sim::ai::BSpecSkill> sk = sim::ai::bspec_skill(sim::ai::BSpecTables::load(program),
                                                                                                  sim::ai::BSpecRecord::from_bytes(rec.data()),
-                                                                                                 gt3r::ee::F(session_->rating(0)), setup_.bspec_course_known))
+                                                                                                 gt3r::ee::F(session_->rating(0)), course_flag))
                             field_->set_bspec_skill(0, sk->corner, sk->brake, sk->alongside);
                         bspec_driven_ = true;
                     } else field_->set_shadow(0);

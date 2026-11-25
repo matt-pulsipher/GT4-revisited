@@ -740,6 +740,13 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
                 const u32 PB = ee.r32(o.cond + 0x10024 + 4 * u32(bspec_car));
                 ee.w32(PB + 0x0C, field->params(size_t(bspec_car)).yaw_gain.bits);
                 ee.w16(o.car(bspec_car) + 0x14 + 0x68, field->probe_get(size_t(bspec_car)).rand);
+                // GT4R_AI_BSKILL=<corner>,<brake>,<alongside>: its skill's multipliers (D +0xB8 / +0xBC / +0xC0), in both races.
+                if (const char* sk = std::getenv("GT4R_AI_BSKILL")) {
+                    float m[3] = {1, 1, 1};
+                    std::sscanf(sk, "%f,%f,%f", &m[0], &m[1], &m[2]);
+                    for (u32 k = 0; k < 3; ++k) ee.wf(o.car(bspec_car) + 0x14 + 0xB8 + 4 * k, m[k]);
+                    field->set_bspec_skill(size_t(bspec_car), gt3r::ee::F(m[0]), gt3r::ee::F(m[1]), gt3r::ee::F(m[2]));
+                }
             }
         }
         if (checks && !ours) {

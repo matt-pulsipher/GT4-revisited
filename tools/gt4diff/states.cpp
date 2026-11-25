@@ -489,6 +489,17 @@ StatesResult run_states(Disc& disc, const std::string& state0, const std::string
             if (const u32 n = ee.r32(o.info + 0xBC)) ee.w32(o.info + 0xBC, n - 1);
             line_heading.clear();
             ee.call(kRaceStep, {Arg::ptr(o.cond), Arg::integer(0)}, 2'000'000'000);
+            // GT4R_STATES_FIELD=<every>: every car's distance, speed, line, mode and target speeds in the program's run.
+            if (const char* fe = std::getenv("GT4R_STATES_FIELD"); fe && print && step % std::max(1, std::atoi(fe)) == 0) {
+                std::printf("%5d:", step);
+                for (int i = 0; i < o.cars; ++i) {
+                    const u32 D = o.car(i) + sim::layout::kDriver, F = o.car(i) + kF;
+                    std::printf("  %7.1f %4.1f l%u m%u %4.1f/%4.1f t%.2f b%.2f", double(ee.rf(F + 0x4A4)), double(ee.rf(F + 0x53C)), ee.r8(D + 0x1C), ee.r8(D + 0x1E), double(ee.rf(D + 0x24)),
+                                double(ee.rf(D + 0x28)), double(ee.rf(D + 0x34)), double(ee.rf(D + 0x38)));
+                    if (i == 0) std::printf(" f%d c%u", int(gt3r::s8(ee.r8(D + 0x51))), ee.r8(D + 0x6A));
+                }
+                std::printf("\n");
+            }
             if (session && step <= res.frames) {
                 std::vector<race::CarInput> in(size_t(o.cars));
                 for (int i = 0; i < o.cars; ++i) {

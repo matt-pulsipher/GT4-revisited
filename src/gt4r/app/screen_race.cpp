@@ -221,8 +221,8 @@ void draw_grid(App& app, Setup& setup, const menu::RaceRequest& q) {
             asked.entries.insert(asked.entries.begin(), q.car);
             asked.overwrite_enemy_num = s32(paints.size());
         }
-        const u32 seed = u32(SDL_GetTicks());
-        std::vector<sim::ai::GridEntry> grid = sim::ai::grid_for(events, asked, seed);
+        sim::ai::RaceRandom& random = sim::ai::race_random(); // (the program's one generator, kept while the app runs)
+        std::vector<sim::ai::GridEntry> grid = sim::ai::grid_for(events, asked, random);
         if (!asked.entries.empty())
             for (size_t i = 0; i < grid.size() && i < paints.size(); ++i)
                 if (!grid[i].player && grid[i].paint < 0) grid[i].paint = paints[i];
@@ -234,7 +234,7 @@ void draw_grid(App& app, Setup& setup, const menu::RaceRequest& q) {
             }
         setup.opponents.clear(), setup.opponent_equipment.clear();
         // Every car's equipment, the paints the race chooses drawn among the grid's (sim::ai::grid_equipment).
-        const std::vector<sim::Equipment> equipment = program ? sim::ai::grid_equipment(*sdb, *program, events, grid, seed) : std::vector<sim::Equipment>{};
+        const std::vector<sim::Equipment> equipment = program ? sim::ai::grid_equipment(*sdb, *program, events, grid, random) : std::vector<sim::Equipment>{};
         for (size_t i = 0; i < grid.size(); ++i) {
             const sim::ai::GridEntry& g = grid[i];
             if (g.player) continue;
@@ -326,6 +326,12 @@ public:
         ws.pace = setup.pace;
         ws.bspec_book = setup.bspec_book, ws.bspec_course_marks = setup.bspec_course_marks, ws.bspec_course_known = setup.bspec_course_known;
         ws.event_row = setup.event_row;
+        // The race's conductor: a run alone (its virtual 6 answers 1: the time trial and free run, the license tests but the
+        // three trainings, the machine test), and whose class grips the event's row gives.
+        const int license_test = setup.race.size() >= 4 ? std::atoi(setup.race.c_str() + setup.race.size() - 4) : 0;
+        const bool training = license_test == 5 || license_test == 10 || license_test == 15;
+        ws.pace.solo = setup.sequence == "time_trial" || setup.sequence == "freerun" || setup.sequence == "machinetest" || (is_license(setup.sequence) && !training);
+        ws.event_grips = is_license(setup.sequence) || setup.sequence == "mission" || setup.sequence == "practice";
         ws.laps = setup.laps;
         ws.options = setup.options;
         ws.playlist = setup.playlist;

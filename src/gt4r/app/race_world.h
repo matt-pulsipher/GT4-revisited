@@ -61,6 +61,9 @@ struct WorldSetup {
     bool drivers = false; // the drivers in their stored pose (the posture is not ported: for checks)
     bool rail = false; // the stand-in simulation instead of the game's
     sim::ai::Pace pace; // the computer drivers' (the event's)
+    // The event's class grips as they are (a license test's, training's, mission's and practice's conductor); else a byte the
+    // event leaves 0 is 20 (a single race's and the free run's: 0x353570).
+    bool event_grips = false;
     std::vector<u8> event_row; // the event's RACE row: the race's tire wear (sim::rules::event_wear_bytes); empty: no wear
     int laps = 0;       // the race's laps (the pit stops' last lap; 0 a run without an end)
     bool computer_player = false; // the computer drivers drive the player's car too
