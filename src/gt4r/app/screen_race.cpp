@@ -2187,8 +2187,9 @@ private:
         (void)w;
         const s64 g = test_time(0), sv = test_time(1), b = test_time(2);
         auto known = [](s64 v) { return v > 0; };
-        if (!known(b)) return 3;
-        return known(g) && t <= g ? 0 : known(sv) && t <= sv ? 1 : t <= b ? 2 : 3;
+        // (Prologue's tests may have no bronze time: gold or silver, or none; a test of neither time has no grade)
+        if (!known(b) && !known(g) && !known(sv)) return 3;
+        return known(g) && t <= g ? 0 : known(sv) && t <= sv ? 1 : known(b) && t <= b ? 2 : 3;
     }
 
     // A test's target time k (0 gold, 1 silver, 2 bronze), ms: the page's (MQuickWork goldTime ..),
@@ -2317,7 +2318,7 @@ private:
                     // Prologue's ResultLicense (0x3D95D8): the time as the program writes it (0x409D88: M'SS.mmm), the
                     // run's place in the test's ranking (0x3FE3B0, -1 none: no name entry), the name offered (the
                     // profile's, 0x402428) and the name entered (NameEntry: into the run's record and the profile's).
-                    if (n == "GETTIME") return V::string(race::format_lap_time(t));
+                    if (n == "GETTIME") return V::string(race::format_lap_time(race_->license_failed() || !f.player_finished() ? -1 : t)); // (the run's dashes when it failed)
                     if (n == "GETRANK") return V::number(f.player_finished() && prize_level() < 3 ? license_call("getRankOf", s32(t)) : -1);
                     if (n == "GETDEFAULTNAME") { // (❓ the profile's name before any entry: the page's own "AAA" taken)
                         const std::string name = license_name();
