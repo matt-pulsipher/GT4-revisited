@@ -62,6 +62,7 @@ struct Database {
         std::string name;
         u8 rgb[3] = {};
         u8 flags[8] = {}; // the row's bytes +0x24 .. +0x2B
+        u32 chip[4] = {};  // its chip words, +0x24 .. +0x33 (the swatch's colours and their flags: ColorChipFace)
     };
     struct Spec {
         bool engine = false;

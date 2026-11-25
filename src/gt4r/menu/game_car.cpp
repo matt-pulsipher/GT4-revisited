@@ -381,6 +381,10 @@ Value make_car_value(GameNatives& n, std::shared_ptr<CarHandle> c) {
                 col->set("g", Value::number(std::min(1.0f, float(p.rgb[1]) / 255.0f * 1.35f)));
                 col->set("b", Value::number(std::min(1.0f, float(p.rgb[2]) / 255.0f * 1.35f)));
                 col->set("a", Value::number(1));
+                // The paint's swatch words as the row has them (0x445B28), for the color chips.
+                std::vector<Value> chip;
+                for (u32 word : p.chip) chip.push_back(number(s32(word)));
+                col->set("chip", Value::array(std::move(chip)));
                 out.push_back(object_value(col));
             }
             return Value::array(std::move(out));

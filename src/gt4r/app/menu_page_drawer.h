@@ -263,6 +263,35 @@ private:
         return img ? SDL_FPoint{float(img->width), float(img->height)} : SDL_FPoint{0, 0};
     }
 
+    // A car's paint (mColorChipFace 0x159C38): its words' colours in bands down the face (or shaded
+    // from one to the next), the gloss picture over them: the first for a metallic paint, the
+    // second for a solid one. With no colour nothing is drawn.
+    void chip(const Widget& w, const Rect& at, float opacity, const Rgba& tint) {
+        u32 word[4] = {};
+        int n = 0;
+        for (int i = 0; i < 4; ++i) {
+            word[i] = u32(s32(w.number("chip_" + std::to_string(i))));
+            n += (word[i] >> 24) & 1;
+        }
+        if (n <= 0) return;
+        const bool metallic = (word[0] >> 25) & 1, shaded = (word[0] >> 26) & 1, reversed = (word[0] >> 27) & 1;
+        // The bands' ends, as parts of the height from the first color on.
+        static const float ends[4][4] = {{1, 1, 1, 1}, {0.5f, 1, 1, 1}, {0.5f, 0.75f, 1, 1}, {0.5f, 0.75f, 0.875f, 1}};
+        static const float shades[4][4] = {{1, 1, 1, 1}, {1, 1, 1, 1}, {0.5f, 1, 1, 1}, {0.5f, 0.75f, 1, 1}};
+        auto color = [&](int i) { return Rgba{u8(word[i]), u8(word[i] >> 8), u8(word[i] >> 16), 255}; };
+        const int bands = shaded && n > 1 ? n - 1 : n;
+        float from = 0;
+        for (int i = 0; i < bands; ++i) {
+            const float to = (shaded && n > 1 ? shades : ends)[n - 1][i];
+            const float y0 = reversed ? 1 - to : from, y1 = reversed ? 1 - from : to;
+            Rgba top = color(i), bottom = shaded && n > 1 ? color(i + 1) : top;
+            if (reversed) std::swap(top, bottom);
+            fill({at.x, at.y + at.h * y0, at.w, at.h * (y1 - y0)}, {top, top, bottom, bottom}, opacity, false);
+            from = to;
+        }
+        image(w.text(metallic ? "image_path0" : "image_path1"), at, tint, opacity, false);
+    }
+
     // One colour, or four for the corners clockwise from the top left.
     // `round`: with one colour, the corners rounded to that radius (at most half the
     // rectangle's sides), each a fan of 8 steps (mColorFace, 0x2857C0).
@@ -774,9 +803,7 @@ private:
             text(tip, at, face, &live);
         } else if (t == "TextFace" || t == "InputTextFace" || t == "InputNumberFace" || t == "ToolTipFace" || t == "TextBoxFace") text(w, at, face, &live);
         else if (t == "ColorChipFace") {
-            // A car's paint: its colour under the chip's picture.
-            if (w.has("chip_r")) fill(at, {Rgba{u8(w.number("chip_r")), u8(w.number("chip_g")), u8(w.number("chip_b")), 255}}, face, false);
-            image(w.text("image_path0"), at, tint, face, false);
+            chip(w, at, face, tint);
         } else if (t == "GraphFace") graph(w, at, face);
         else if (t == "FlashFace") flash(live, at, face);
         else if (draw_live) draw_live(live, project_, page_, at, to_screen(bounds(at)), face);

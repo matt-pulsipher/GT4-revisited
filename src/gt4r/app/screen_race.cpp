@@ -1421,6 +1421,9 @@ public:
             const SDL_FRect c = RaceHud::canvas();
             const float k = c.h / 480.0f, w = 300 * inset_.scale * k, h = 225 * inset_.scale * k;
             race_->render(ui, {c.x + inset_.x * k - w / 2, c.y + inset_.y * k - h / 2, w, h}, false);
+        } else if (quick_ && is_license(sequence_) && !race_->has_run()) {
+            // (A license test's page before its first run has no scene behind it.)
+            ui.fill(0, 0, Ui::kWidth, Ui::kHeight, Color{0, 0, 0, 255});
         } else {
             race_->render(ui, {0, 0, float(Ui::kWidth), float(Ui::kHeight)}, look_back_);
         }

@@ -1039,6 +1039,18 @@ bool widget_key(Runtime& rt, LiveWidget& w, Key k) {
 
 namespace {
 
+// A color chip's words (0x1588C8, 0x158B78): kept as four numbers; words with no colour present
+// (bit 24 of each) leave the chip as it was.
+void set_chip_words(LiveWidget& w, const Value& words) {
+    const std::vector<Value>* list = words.items();
+    if (!list) return;
+    bool any = false;
+    for (size_t i = 0; i < 4 && i < list->size(); ++i) any |= (*list)[i].kind == Kind::Int && (u32((*list)[i].i) & 0x1000000u);
+    if (!any) return;
+    for (size_t i = 0; i < 4; ++i)
+        w.set_property("chip_" + std::to_string(i), Value::integer(i < list->size() && (*list)[i].kind == Kind::Int ? s32((*list)[i].i) : 0));
+}
+
 // How a scrolling list stands in its box, as fractions of its whole length: where the shown part
 // starts (mScrollable's slot 104: 0x2DB9E8 a select box's, 0x2B45E0 a list box's) and how long it
 // is (slot 105: 0x2DBAD0, 0x2B4668).
@@ -1685,22 +1697,13 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
                 const Value colors = vm.call(vm.attribute(a[0], "getColors"), {});
                 const std::vector<Value>* list = colors.items();
                 if (!list || i < 0 || size_t(i) >= list->size()) return Value{};
-                const Value& c = (*list)[size_t(i)];
-                w->set_property("chip_r", Value::integer(s32(vm.attribute(c, "r").as_float() * 255.0f)));
-                w->set_property("chip_g", Value::integer(s32(vm.attribute(c, "g").as_float() * 255.0f)));
-                w->set_property("chip_b", Value::integer(s32(vm.attribute(c, "b").as_float() * 255.0f)));
+                set_chip_words(*w, vm.attribute((*list)[size_t(i)], "chip"));
                 return Value{};
             });
-        // setColor(words): the chip words of a paint (MQuickWork.getColorChipInfo); the first is
-        // its colour, 0x00BBGGRR.
+        // setColor(words): the chip words of a paint (MQuickWork.getColorChipInfo).
         if (type == "ColorChipFace" && n == "setColor")
             return fn([w](Vm&, const Value&, Args a) {
-                const std::vector<Value>* words = a.empty() ? nullptr : a[0].items();
-                if (!words || words->empty() || (*words)[0].kind != Kind::Int) return Value{};
-                const u32 c = u32((*words)[0].i);
-                w->set_property("chip_r", Value::integer(s32(c & 0xFF)));
-                w->set_property("chip_g", Value::integer(s32((c >> 8) & 0xFF)));
-                w->set_property("chip_b", Value::integer(s32((c >> 16) & 0xFF)));
+                if (!a.empty()) set_chip_words(*w, a[0]);
                 return Value{};
             });
         if (type == "CarFace" && n == "loadModelOptionMotion")
