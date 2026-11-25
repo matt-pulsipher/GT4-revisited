@@ -31,6 +31,9 @@
 #include "gt4r/race/replay_script.h"
 #include "gt4r/race/replay_file.h"
 #include "gt4r/race/license_rules.h"
+#include "gt4r/race/license_trophy.h"
+#include "gt4r/formats/model/mdls.h"
+#include "render/gpu_model.h"
 #include "gt4r/race/sections.h"
 #include "gt4r/race/start_camera.h"
 #include "gt4r/race/start_rule.h"
@@ -851,6 +854,12 @@ public:
     // Where the shown frame is between the last two steps (0 .. 1), for the cars and the camera.
     void set_blend(float t) { blend_ = std::clamp(t, 0.0f, 1.0f); }
 
+    // The course's TV cameras (a license test's results page shows the car from the trackside ❓ which
+    // of the program's cameras is not read).
+    void tv_view() {
+        if (!replay_script_.records.empty()) mount_ = kTvView;
+    }
+
     void render(Ui& ui, const SDL_FRect& rect, bool look_back) {
         std::span<const race::CarState> cars = shown();
         const bool blend = blend_ < 1 && !menu_scene_ && prev_cars_.size() == cars.size() && !cars.empty();
@@ -1109,6 +1118,9 @@ public:
 
     void quiet() { world_->quiet(); }
     void draw_icons(Ui& ui, const SDL_FRect& canvas, std::span<const RaceWorld::Icon> icons) { world_->draw_icons(ui, canvas, icons); }
+    void draw_model(Ui& ui, const SDL_FRect& rect, const render::GpuModel& m, const render::Mat4& place, const render::Mat4& proj, float alpha) {
+        world_->draw_model(ui, rect, m, place, proj, alpha);
+    }
     audio::RaceSound* sound() { return world_->sound(); }
 
     const race::CarState& player() const { return shown()[0]; }
@@ -1440,10 +1452,23 @@ public:
         if (license_page()) {
             // The test's results page: the race in its live inset (the movie's picture, 300 x 225 at
             // its scale; it starts over the whole picture and shrinks into place) on black.
+            // A passed test's page has no inset (no "screen" picture in the movie's PASSED part): the
+            // race fills the picture, the trophy turns in front (0x3E0E38).
             ui.fill(0, 0, Ui::kWidth, Ui::kHeight, Color{0, 0, 0, 255});
             const SDL_FRect c = RaceHud::canvas();
-            const float k = c.h / 480.0f, w = 300 * inset_.scale * k, h = 225 * inset_.scale * k;
-            race_->render(ui, {c.x + inset_.x * k - w / 2, c.y + inset_.y * k - h / 2, w, h}, false);
+            if (inset_shown_) {
+                const float k = c.h / 480.0f, w = 300 * inset_.scale * k, h = 225 * inset_.scale * k;
+                race_->render(ui, {c.x + inset_.x * k - w / 2, c.y + inset_.y * k - h / 2, w, h}, false);
+            } else {
+                race_->render(ui, {0, 0, float(Ui::kWidth), float(Ui::kHeight)}, false);
+            }
+            // The race display's three target times stay over a passed test's page.
+            if (hud_ && hud_->ready() && prize_level() < 3) {
+                HudState t;
+                t.license = true;
+                for (int q = 0; q < 3; ++q) t.targets[q] = test_time(q);
+                hud_->draw_license_targets(ui, t);
+            }
         } else {
             race_->render(ui, {0, 0, float(Ui::kWidth), float(Ui::kHeight)}, look_back_);
         }
@@ -1488,8 +1513,10 @@ public:
                 hud_->draw_movie(license_page() && license_movie_ ? *license_movie_ : *result_movie_, *result_, &ext);
                 std::vector<RaceWorld::Icon> icons;
                 const auto& rows = race_->board().rows();
+                if (license_page()) inset_shown_ = false;
                 for (const RaceHud::MovieExternal& e : ext) {
-                    if (e.name == "_EXT") inset_ = e; // the license page's live inset
+                    if (e.name == "screen" || e.name == "_EXT") inset_ = e, inset_shown_ = true; // the license page's live inset
+                    if (e.name == "TropyPanel" && license_page()) draw_trophy(app, ui, e);
                     if (e.name.rfind("_EXT_CARICON", 0) == 0) {
                         const int row = std::atoi(e.name.c_str() + 12) - 1;
                         if (row >= 0 && size_t(row) < rows.size() && rows[size_t(row)].car >= 0) icons.push_back({size_t(rows[size_t(row)].car), e.x, e.y, e.opacity});
@@ -2233,6 +2260,7 @@ private:
     // race's results (docs/formats/strobe.md "The results movie").
     void open_results(App& app) {
         result_tried_ = true, result_exit_ = false, points_phase_ = 0;
+        trophy_kind_ = -1, inset_shown_ = true;
         entered_name_.clear();
         if (!result_movie_) {
             try {
@@ -2323,6 +2351,7 @@ private:
             return V::number(0); // isChampionship, isStage1, ...: no
         };
         if (is_license(sequence_) && license_movie_) {
+            race_->tv_view();
             // ResultLicense (0x3E1BF8: result_license.strb): the grade, the time and its gap, the
             // test's title, RETRY / EXIT.
             auto lhost = [this, &app](const std::string& name, const std::vector<race::StrobePlayer::Value>& args) {
@@ -2585,6 +2614,48 @@ private:
     bool prologue_license_ = false; // the license results movie is Prologue's
     std::string entered_name_;      // the name entered on Prologue's results page
     RaceHud::MovieExternal inset_{"_EXT", 320, 240, 640.0f / 300.0f, 1};
+    bool inset_shown_ = true;
+    // A passed license test's trophy (race/trophy.mdl in the movie's TropyPanel, 0x3E0FF8).
+    std::unique_ptr<render::GpuModel> trophy_;
+    int trophy_kind_ = -1;
+    race::LicenseTrophy trophy_motion_;
+    Uint64 trophy_ticks_ = 0;
+    void draw_trophy(App& app, Ui& ui, const RaceHud::MovieExternal& panel) {
+        const int kind = race::LicenseTrophy::kind_for(prize_level());
+        if (kind <= 0 || !app.gpu()) return;
+        if (kind != trophy_kind_) {
+            trophy_kind_ = kind, trophy_.reset();
+            trophy_motion_.start(kind);
+            trophy_ticks_ = SDL_GetTicksNS();
+            try {
+                if (const std::optional<Bytes> f = app.vfs()->read("race/trophy.mdl"); f && mdls::is_mdls(*f)) {
+                    gt3r::gtm1::Options o; // (as the race's cars: the reflection passes weighted, the course's reflection picture)
+                    o.program_alpha_test = true, o.weighted_reflection = true, o.gs_mip_levels = true;
+                    o.paint = race::LicenseTrophy::material_for(kind, int(mdls::read_header(*f).variations));
+                    trophy_ = std::make_unique<render::GpuModel>(*app.gpu(), mdls::build_model(*f, o, mdls::Scene{}, "trophy"));
+                }
+            } catch (const std::exception& e) {
+                LOG_WARN("Trophy: %s", e.what());
+            }
+        }
+        if (!trophy_) return;
+        // The panel's box (the movie's external record: 282 x 270 about its place) holds the whole
+        // 640 x 448 picture the trophy is drawn in.
+        const SDL_FRect c = RaceHud::canvas();
+        const float k = c.h / 480.0f, w = 282.3f * panel.scale * k, h = 270.5f * panel.scale * k;
+        const SDL_FRect rect{c.x + panel.x * k - w / 2, c.y + panel.y * k - h / 2, w, h};
+        const render::Mat4 proj = render::perspective(race::LicenseTrophy::kFovDegrees * 3.14159265f / 180, race::LicenseTrophy::kAspect, race::LicenseTrophy::kNear,
+                                                      race::LicenseTrophy::kFar);
+        race_->draw_model(ui, rect, *trophy_, trophy_motion_.matrix(), proj, std::clamp(trophy_motion_.fade.value, 0.0f, 1.0f) * panel.opacity);
+        // Stepped by the time shown, 1/60 s a picture of the original's (two half steps a picture).
+        const Uint64 now = SDL_GetTicksNS();
+        float dt = std::min(float(double(now - trophy_ticks_) / 1e9), 0.1f);
+        trophy_ticks_ = now;
+        while (dt > 0) {
+            const float d = std::min(dt, 1.0f / 120);
+            trophy_motion_.step(d), dt -= d;
+        }
+    }
     menu::Runtime* menus_ = nullptr;    // the race's menus run on these (from the menus that asked)
     std::unique_ptr<menu::Runtime> own_menus_; // a scripted run's
     std::string sequence_;              // the race sequence ("single_race")
