@@ -298,7 +298,7 @@ private:
                 const int now = std::clamp(g.option_int(key), 0, int(names.size()) - 1);
                 rows_.push_back({label, names[size_t(now)], note, {}, [this, &g, key, n = int(names.size()), now](int d) { g.options[key] = s32(std::clamp(now + d, 0, n - 1)), changed_ = true; }});
             };
-            rows_.push_back({"The race (the 2-Player Battle's options)", "", "", {}, {}});
+            rows_.push_back({"The race (the 2 Player Battle's options)", "", "", {}, {}});
             rows_.push_back({"Players", std::to_string(players_), "The race's menus begin once so many are there; or with those who are, by the host's Start.", {}, [this](int d) { players_ = std::clamp(players_ + d, 2, net::kMaxLobbyPlayers), changed_ = true; }});
             rows_.push_back({"Laps", std::to_string(std::clamp(g.option_int("split_race_laps", 2), 1, 99)), "", {}, [this, &g](int d) { g.options["split_race_laps"] = s32(std::clamp(g.option_int("split_race_laps", 2) + d, 1, 99)), changed_ = true; }});
             rows_.push_back({"Tires", g.option_int("split_tire_damage") ? "wear" : "do not wear", "", {}, [this, &g](int) { g.options["split_tire_damage"] = s32(g.option_int("split_tire_damage") ? 0 : 1), changed_ = true; }});
@@ -306,7 +306,7 @@ private:
             rows_.push_back({"What may race", "", "", {}, {}});
             rows_.push_back({"Power", limits_.max_power ? "up to " + power_text(limits_.max_power) : std::string("no limit"), "The car's power as it races, its parts and settings counted.", {},
                              [this](int d) { limits_.max_power = u16(std::clamp(int(limits_.max_power) + 25 * d, 0, 1500)), changed_ = true; }});
-            rows_.push_back({"Garage cars", limits_.garage_cars ? "with their parts and settings" : "not allowed", "Gran Turismo mode's cars off the memory card, as in the 2-Player Battle.", {}, [this](int) { limits_.garage_cars = !limits_.garage_cars, changed_ = true; }});
+            rows_.push_back({"Garage cars", limits_.garage_cars ? "with their parts and settings" : "not allowed", "Gran Turismo mode's cars off the memory cards, as in the 2 Player Battle.", {}, [this](int) { limits_.garage_cars = !limits_.garage_cars, changed_ = true; }});
             rows_.push_back({"Car choice", limits_.any_car ? "every car" : "each player's favorites", "The favorites alone are the original's LAN Battle.", {}, [this](int) { limits_.any_car = !limits_.any_car, changed_ = true; }});
             rows_.push_back({"Contact", ghost_ms_ ? "up to a round trip of " + std::to_string(ghost_ms_) + " ms" : std::string("always"), "Cars whose machines are further apart drive through each other.", {}, [this](int d) { ghost_ms_ = std::clamp(ghost_ms_ + 25 * d, 0, 500), changed_ = true; }});
             rows_.push_back({through_server_ ? "Open it and get a code" : "Open it", "", "", [this, a] { host(*a); }, {}});

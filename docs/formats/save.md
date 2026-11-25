@@ -226,7 +226,7 @@ three match (0x43AA68); there is no version: another size is another program.
 | 0x38930 | 0x11C0 | the options (Option +8: its size 0x11C0, then the fields; the play lists and the fields below) | `options`, `bgm_playlist`, `slide_playlist`, `monitor_params` |
 | 0x39AF0 | 4 | the zone (0 UNDEF, 1 JP, 2 US, 3 UK, 4 EU, 5 KR) | `options["game_zone"]` |
 | 0x39B00 | 2 x 0x60 | the two players' button maps (not decoded) | kept |
-| 0x39BC0 | 0xAC | the LAN settings: names "Player1", ... | kept |
+| 0x39BC0 | 0xAC | the LAN settings (Option +0x1348): the machine's name char[0x40] ("Player1"), the watched one's at +0x44, then u32s from +0x84: monitors, the monitor's place x (1) and y (1), a delay (2), host, the network's load, players (1), automatic connection, its machines (1), this one's index | `options` "LAN_..." |
 | 0x39C6C | 0x258 | the network settings (not decoded) | kept |
 | 0x39ECC | 0x50 | event settings: char name[0x40], u16 Arcade's time limit | kept |
 | 0x39F1C | 5 | the logger's (1 each) | kept |

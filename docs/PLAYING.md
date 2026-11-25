@@ -112,6 +112,32 @@ Wheel:
 6. Options > Steering: the feedback strength Weak and Strong differ; the steering type and active steering (Driving
    Force) change how it feels. Wheel driven as Driving Force: 100 degrees is full lock.
 
+## Racing others (Multi-LAN Race)
+
+Arcade's *Multi-LAN Race* races other copies of the game, up to six players, each with his own car, with the game's own
+pages. Both need the same disc (a modified copy meets only the same modified copy), and Gran Turismo 4: Prologue has no such
+race.
+
+1. Arcade, *Multi-LAN Race*. The page that opens connects: a lobby found on the local network is listed (Cross joins it);
+   *Open a lobby* makes one; *Join by address* takes the address the host's panel shows (UDP port 47634). *Open a lobby with a
+   code* and *Join with a code* go through a server, for players who are not on one network: the first time it asks which
+   server to use, and nothing is sent to any before that. Your own server can be typed.
+2. The host chooses: how many players the menus wait for, laps, tire wear and boost (the 2 Player Battle's options), a power
+   limit, garage cars or cars as sold, every car or the favorites alone (as the original), and above which round trip two
+   cars do not touch.
+3. *Waiting for connection*: a panel lists the players with their links and the rules, and for a lobby with a code the code
+   to pass on. The host's Start begins with those who are there. Select opens the panel on the pages after it: the host
+   removes a player with Square, and Start leaves the lobby.
+4. The course: whoever takes one first takes it for all. Then everyone's car: the makers, the garages of the memory cards
+   (1 and 2), the favorites; its color, gearbox, aids and tires. The race starts when everyone is through. A car the host does
+   not let race is told there; a car that is different on another machine's disc is named on the panel and the race does not
+   start with it.
+5. The race goes on for nobody's pause: Start opens a window to leave it. The names stand over the cars, the map has the
+   players' letters, the list at the right the order. A player whose connection goes leaves the race; the others race on.
+6. After the results the host takes everyone back to the course page for another race.
+
+Copies of two versions of the game may not meet: the page says which must be updated.
+
 ## What works
 
 - **The boot**: the memory card's dialogs, the logo, the opening movie, the title with its
@@ -120,7 +146,8 @@ Wheel:
 - **Arcade**: Single Race (course categories, the course pages, every maker and car, paints, the
   driving options), the race's menus before and after a race, the race itself (A-spec with the pad,
   B-spec watching the computer drive), the results, the replay, back to Arcade for another race.
-  Time Trial and the other race kinds reach their races the same way.
+  Time Trial and the other race kinds reach their races the same way. The tires of the driving options are the race's, on
+  every car of it (dirt and snow courses put on theirs).
 - **Options**: every page opens and keeps its values in the data folder; the laps, the units and
   the race settings (the gearbox among them), the button configurations, the vibration and the wheel's
   settings take effect in the races.
