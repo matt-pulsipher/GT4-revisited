@@ -168,6 +168,7 @@ std::vector<std::string> saved_replays(const std::string& data_dir);
 struct GameNatives;
 // The card manager's list in MODE_LOAD_REPLAY (the Replay Theater): those replays as files.
 void install_replay_list(GameNatives& n, Object& manager);
+void install_demo_list(GameNatives& n, Object& manager, bool sub);
 
 // ---- game_race.cpp
 void install_race_classes(GameNatives& n, script::Module& menu);
