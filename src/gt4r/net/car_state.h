@@ -39,6 +39,9 @@ CarEntry car_entry(const sim::Session& s, size_t car, bool asm_on, bool tcs_on);
 
 // A car's state after a step, `clock` the race's (units of 1/3000 s); `inputs` this step's frame first, then older ones.
 CarSnapshot make_snapshot(const sim::Session& s, size_t car, const CarEntry& entry, u32 tick, s32 clock, int laps, const PadInput* inputs, int n);
+// Whether a state is one a car of `gears` forward gears can be in (a modified game can send anything): its place and speeds within
+// what a course and a car hold, its gear and clutch ones the step knows. Its frames' odd controller kinds are read as a pad's.
+bool sane(CarSnapshot& s, int gears);
 // What the wire leaves out: the race time, the place and velocity in the course's frame, the speed.
 void complete_snapshot(CarSnapshot& s);
 

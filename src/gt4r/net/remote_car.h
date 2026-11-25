@@ -33,9 +33,9 @@ public:
     bool attached() const { return car_ != nullptr; }
     // Dead reckoning instead of the car's own step: for comparison.
     void set_physics(bool on) { physics_ = on; }
-    // What its race knows of the car's surroundings, for its next steps: the slipstream (F + 0x528) and the driving line's heading
-    // and mode (the active steering's), each from the race's last step.
-    void set_surroundings(gt3r::ee::F slipstream, std::optional<gt3r::ee::F> line_heading, u8 line_mode);
+    // What its race knows of the car's surroundings, for its next steps: the slipstream (F + 0x59C) and the driving line's heading
+    // and mode (the active steering's), its time scale (F + 0x444: the boost), each from the race's last step.
+    void set_surroundings(gt3r::ee::F slipstream, std::optional<gt3r::ee::F> line_heading, u8 line_mode, gt3r::ee::F time_scale);
 
     // A state arrived; `clock`: our race's clock (units of 1/3000 s) at the end of its last step.
     void receive(const CarSnapshot& s, s64 clock);
@@ -71,7 +71,7 @@ private:
     PadInput held_{};                 // the newest frame
     s64 base_clock_ = 0, clock_ = 0;  // the state's, and the one the prediction has reached
     u32 states_ = 0;
-    gt3r::ee::F slip_{};
+    gt3r::ee::F slip_{}, scale_ = gt3r::ee::F(1.0f);
     std::optional<gt3r::ee::F> line_;
     u8 line_mode_ = 0;
     Vec3 off_{};                      // shown - predicted at off_clock_

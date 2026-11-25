@@ -407,12 +407,12 @@ TEST(race_course_start_disc) {
 TEST(race_picture_settings) {
     race::PictureSettings p;
     CHECK(p.v[0] == 3 && p.v[1] == 0 && p.v[2] == 0 && p.v[3] == 0);
-    // Brightness +3: a gain of 2^0.3 on every channel.
+    // Brightness +3: a gamma of 2^0.3 on every channel.
     race::PictureSettings::Correction c = p.correction();
-    CHECK(std::fabs(c.gain[1] - std::pow(2.0f, 0.3f)) < 1e-5f && c.gain[0] == c.gain[1] && c.gain[2] == c.gain[1]);
+    CHECK(std::fabs(c.gamma[1] - std::pow(2.0f, 0.3f)) < 1e-5f && c.gamma[0] == c.gamma[1] && c.gamma[2] == c.gamma[1]);
     CHECK(c.contrast == 1 && c.saturation == 1);
     auto g = p.grade();
-    CHECK(g.on && std::fabs(g.white - 1 / std::pow(2.0f, 0.3f)) < 1e-5f && std::fabs(g.black) < 1e-6f);
+    CHECK(g.on && g.white == 1 && g.black == 0 && std::fabs(g.curve[1] - (2 * std::pow(0.5f, std::pow(2.0f, -0.3f)) - 0.5f)) < 1e-5f && g.curve[1] > 0.5f);
     // All zero: no correction.
     race::PictureSettings z{race::PictureSettings::kReplayDefault};
     CHECK(!z.grade().on);
@@ -420,10 +420,10 @@ TEST(race_picture_settings) {
     race::PictureSettings q;
     q.v = {0, 5, -5, 5};
     c = q.correction();
-    CHECK(std::fabs(c.gain[0] - 0.9f) < 1e-5f && std::fabs(c.gain[2] - 1.1f) < 1e-5f);
+    CHECK(std::fabs(c.gamma[0] - 0.9f) < 1e-5f && std::fabs(c.gamma[2] - 1.1f) < 1e-5f);
     CHECK(std::fabs(c.contrast - 0.7f) < 1e-5f && std::fabs(c.saturation - 0.5f) < 1e-5f);
     g = q.grade();
-    CHECK(std::fabs(g.black - 0.15f) < 1e-5f && std::fabs(g.white - 0.85f) < 1e-5f);
+    CHECK(g.black == 0 && std::fabs(g.white - 0.7f) < 1e-5f && g.curve[0] < 0.5f && g.curve[2] > 0.5f);
 }
 
 TEST(replay_camera_springs) {

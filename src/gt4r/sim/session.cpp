@@ -415,7 +415,7 @@ void Session::set_start_delay(size_t car, u32 steps) {
 }
 
 void Session::set_pit_hold(size_t car, u16 steps) {
-    if (car >= cars_.size()) return;
+    if (car >= cars_.size() || posed(car)) return;
     cars_[car].hold = steps;
     if (pit_by_caller_.size() < cars_.size()) pit_by_caller_.resize(cars_.size(), 0);
     pit_by_caller_[car] = 1;

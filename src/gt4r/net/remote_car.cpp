@@ -27,8 +27,8 @@ void RemoteCar::attach(std::unique_ptr<sim::Session> solo) {
     ntrail_ = 0;
 }
 
-void RemoteCar::set_surroundings(gt3r::ee::F slipstream, std::optional<gt3r::ee::F> line_heading, u8 line_mode) {
-    slip_ = slipstream, line_ = line_heading, line_mode_ = line_mode;
+void RemoteCar::set_surroundings(gt3r::ee::F slipstream, std::optional<gt3r::ee::F> line_heading, u8 line_mode, gt3r::ee::F time_scale) {
+    slip_ = slipstream, line_ = line_heading, line_mode_ = line_mode, scale_ = time_scale;
 }
 
 RemoteCar::Place RemoteCar::place(s64 clock) const {
@@ -51,6 +51,7 @@ void RemoteCar::step(const PadInput& p, const CarEntry& e, const CarMotion& m, b
     const race::CarInput in = driver_input(p, e, m, pad, owners);
     if (line_) car_->set_line_heading(0, *line_, line_mode_);
     car_->set_slipstream(0, slip_);
+    car_->set_time_scale_raw(0, scale_.bits);
     if (from < 0) car_->hold_once({&in, 1});
     else car_->step_once({&in, 1});
 }

@@ -7,6 +7,7 @@
 // live or recorded.
 
 #include "gt4r/app/app.h"
+#include "base/ee_float.h"
 #include "gt4r/race/car_visual.h"
 #include "gt4r/race/course_scene.h"
 #include "gt4r/race/gadget_bodies.h"
@@ -64,7 +65,7 @@ struct WorldSetup {
     std::vector<WorldEntry> entries; // the first is the player's
     bool smoke = true;
     bool reflection = true;
-    bool drivers = false; // the drivers in their stored pose (the posture is not ported: for checks)
+    bool drivers = true; // the drivers in their cars
     bool rail = false; // the stand-in simulation instead of the game's
     sim::ai::Pace pace; // the computer drivers' (the event's)
     // The event's class grips as they are (a license test's, training's, mission's and practice's conductor); else a byte the
@@ -76,6 +77,9 @@ struct WorldSetup {
     race::Conductor conductor = race::Conductor::Other;
     int section = -1;
     bool own_hold = false; // the race counts its start's hold itself, from the set-up's state (no steps of the session's own)
+    // An online race's rules (a battle's conductor sets them in place of the event's: net/lan_rules.h): the tire damage (-1: no
+    // such race) and the boost.
+    int lan_wear = -1, lan_boost = 0;
     int laps = 0;       // the race's laps (the pit stops' last lap; 0 a run without an end)
     bool computer_player = false; // the computer drivers drive the player's car too
     // The B-spec driver's book (menu::bspec::Book: three tables of 8 x 8) and the course's marks, which give the race's
@@ -204,6 +208,8 @@ public:
     // The refuelling: just begun (0x35BE10: service 0x20 taken), going on (0x35BEB0), stopped by the player (0x35BFC0).
     bool refuel_begun(size_t car);
     bool refuelling(size_t car) const;
+    // The pit's camera for a car (race/pit_scene.h), now or as it was before the last step; false: the race's view.
+    bool pit_camera(size_t car, race::ViewPose& out, bool before = false) const;
     void stop_refuel(size_t car) {
         if (pits_ && car < car_visuals_.size()) pits_->choose(car, 0xFF, 0xFF, 0, 2);
     }
@@ -310,6 +316,9 @@ public:
     const gt3r::render::DrawStats& draw_stats() const;
 
 private:
+    std::optional<std::array<gt3r::ee::F, 11>> hand_speeds_; // the drivers' (race/driver_state.h), from the program
+    void open_pit_scene();
+    void step_pit_scene();
     struct Impl;
     void build_simulation();
     void arm_bspec(const sim::Program& program);

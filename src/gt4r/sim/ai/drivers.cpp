@@ -1544,7 +1544,7 @@ void Field::rubber_band() {
     for (size_t i = 0; i < n; ++i) order[size_t(std::clamp(ranks_[i], 1, int(n))) - 1] = i;
     size_t ref = n;
     for (size_t pos = 0; pos < n && ref == n; ++pos)
-        if (!drivers_[order[pos]]) ref = order[pos];
+        if (!drivers_[order[pos]] || drivers_[order[pos]]->control == 0) ref = order[pos];
     if (ref == n) ref = 0;
     const F lap(lines_.lap()), one = kOne;
     auto scale = [&](size_t r, size_t car, F prev) {
