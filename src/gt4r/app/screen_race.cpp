@@ -97,6 +97,9 @@ struct Setup {
     bool start_given = false;
     std::vector<std::string> opponents; // the other cars by label (empty: from the car list)
     std::string sequence; // `menus=single_race`: the race's own menus (the sequence's quick project) round the race
+    std::array<u16, 3 * 64> bspec_book{}; // the B-spec driver's book and the course's marks (the request's)
+    std::array<u8, 8> bspec_course_marks{};
+    bool bspec_course_known = false;
     std::string wing;        // `wing=<label>`: the player's car with that fitted wing (a WING row: "p001")
     std::vector<u32> paints; // every car's paint (a saved replay's); empty: the player's `paint`, the others by number
     std::string replay_file; // `replay_file=<path>`: a saved replay played
@@ -312,6 +315,7 @@ public:
         ws.smoke = setup.smoke, ws.reflection = setup.reflection, ws.rail = setup.rail;
         ws.computer_player = setup.auto_drive || setup.start == race::StartType::Rolling;
         ws.pace = setup.pace;
+        ws.bspec_book = setup.bspec_book, ws.bspec_course_marks = setup.bspec_course_marks, ws.bspec_course_known = setup.bspec_course_known;
         ws.event_row = setup.event_row;
         ws.laps = setup.laps;
         ws.options = setup.options;
@@ -1069,6 +1073,8 @@ public:
     }
     int pit_message() const { return world_->pit_message(0); }
     std::array<sim::ai::PitStops::StopRecord, 4> pit_record(size_t car) const { return world_->pit_record(car); }
+    std::optional<std::array<u8, 0x40>> bspec_record() const { return world_->bspec_record(0); }
+    int bspec_class() const { return world_->bspec_class(0); }
 
     // B-spec's Select Car (Up / Down): the car the views follow, by race order (the player's car first:
     // 0). ❓ The program's choice by the order is not read: here the next or last car in race order.
@@ -1176,6 +1182,7 @@ public:
                 pictures_from_options(setup_.options);
                 // The garage car's own parts and settings (the sheet in use).
                 if (q.garage_slot >= 0) setup_.player_equipment = menu::race_equipment(menus_->game(), q.garage_slot);
+                setup_.bspec_book = q.bspec_book, setup_.bspec_course_marks = q.bspec_course_marks, setup_.bspec_course_known = q.bspec_course_known;
                 setup_.playlist = playlist_from(menus_->game().bgm_playlist);
                 // The Replay Theater's Play: the saved replay, then the menus again.
                 if (sequence_ == "replay") setup_.replay_file = q.replay_file.empty() ? menus_->game().replay_file : q.replay_file;
@@ -1902,6 +1909,10 @@ private:
             r.course_kind = sequence_ == "freerun" ? 1 : sequence_ == "practice" ? 3 : sequence_ == "photo_drive" ? 4 : sequence_ == "machinetest" ? 6 : 7;
             if (const s64 best = flow.car(0).best_lap_ms; best > 0) r.time_ms = u32(best);
         }
+        // A B-spec race: the driver's record back for the book (0x468860), the car's class.
+        if (spectator_)
+            if (const std::optional<std::array<u8, 0x40>> rec = race_->bspec_record())
+                r.bspec_record = rec, r.bspec_class = race_->bspec_class(), r.bspec_course = setup_.bspec_course_known; // (❓ the race's cond + 0xCBE7 taken as the course's marks being known)
         // Every car in finishing order.
         for (const race::RaceFlow::ResultRow& row : flow.results()) {
             menu::RaceResult::Finisher f;

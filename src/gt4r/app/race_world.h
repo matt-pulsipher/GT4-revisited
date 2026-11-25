@@ -62,6 +62,11 @@ struct WorldSetup {
     std::vector<u8> event_row; // the event's RACE row: the race's tire wear (sim::rules::event_wear_bytes); empty: no wear
     int laps = 0;       // the race's laps (the pit stops' last lap; 0 a run without an end)
     bool computer_player = false; // the computer drivers drive the player's car too
+    // The B-spec driver's book (menu::bspec::Book: three tables of 8 x 8) and the course's marks, which give the race's
+    // record of the player's driver (0x468710) when B-spec drives his car.
+    std::array<u16, 3 * 64> bspec_book{};
+    std::array<u8, 8> bspec_course_marks{};
+    bool bspec_course_known = false;
     // The game's options (menu::GameState::options: the sound's volumes and output) and the race
     // play list; none: a new game's.
     std::map<std::string, std::variant<s32, float, std::string>> options;
@@ -114,6 +119,10 @@ public:
     }
     // The car's pit message (F +0x5FA, 0x35ACD8's codes; 0 none) and its stops made.
     int pit_message(size_t car) const { return pits_ && car < car_visuals_.size() ? pits_->message(car) : 0; }
+    // The B-spec driver's record after the race (car +0x8C, 0x40 bytes) and the car's class (0x468418); nullopt when
+    // no B-spec driver drove the car.
+    std::optional<std::array<u8, 0x40>> bspec_record(size_t car) const;
+    int bspec_class(size_t car) const;
     int pit_stops(size_t car) const { return pits_ && car < car_visuals_.size() ? pits_->stops(car) : 0; }
     // A car's last pit stops, newest first (the lap, the tires fitted; lap 0 none): the Race Monitor's pit panel.
     std::array<sim::ai::PitStops::StopRecord, 4> pit_record(size_t car) const {
@@ -200,6 +209,7 @@ private:
     std::unique_ptr<sim::Session> session_;
     std::unique_ptr<sim::ai::Field> field_; // the computer drivers, on the game's simulation
     std::unique_ptr<sim::ai::PitStops> pits_; // their pit stops
+    bool bspec_driven_ = false;               // a B-spec driver drove the player's car (its record set)
     bool computer_player_ = false;
     float player_ps_ = 0;
     std::vector<float> pace_kmh_; // each car's rolling start speed until released (0: none)

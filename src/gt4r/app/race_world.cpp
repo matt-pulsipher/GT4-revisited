@@ -8,6 +8,8 @@
 #include "audio/audio_engine.h"
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/formats/db/car_parts.h"
+#include "gt4r/menu/game_bspec.h"
+#include "gt4r/sim/ai/bspec_skill.h"
 #include "gt4r/formats/model/car_model.h"
 #include "gt4r/race/car_spec.h"
 #include "gt4r/sim/rules_wear.h"
@@ -223,13 +225,24 @@ void RaceWorld::build_simulation() {
             // step, the suggested gear from it).
             std::vector<size_t> computer;
             for (size_t i = 0; i < setup_.entries.size(); ++i) computer.push_back(i);
-            field_.reset(), pits_.reset();
+            field_.reset(), pits_.reset(), bspec_driven_ = false;
             if (!computer.empty()) {
                 try {
                     field_ = sim::ai::Field::open(*app_.disc(), setup_.course, *session_, computer, setup_.pace);
                     // B-spec: the player's car's driver takes his commands.
-                    if (computer_player_) field_->set_bspec(0);
-                    else field_->set_shadow(0);
+                    if (computer_player_) {
+                        field_->set_bspec(0);
+                        // The driver's record of the book for the car's class (0x468710) and its skill from it (0x468C50).
+                        const int k = sim::ai::bspec_class(gt3r::ee::F(session_->rating(0)));
+                        const std::array<u8, 0x40> rec =
+                            menu::bspec::race_record(setup_.bspec_book, k, setup_.bspec_course_known ? setup_.bspec_course_marks.data() : nullptr);
+                        field_->set_bspec_record(0, rec, k);
+                        if (const std::optional<sim::ai::BSpecSkill> sk = sim::ai::bspec_skill(sim::ai::BSpecTables::load(program),
+                                                                                                 sim::ai::BSpecRecord::from_bytes(rec.data()),
+                                                                                                 gt3r::ee::F(session_->rating(0)), setup_.bspec_course_known))
+                            field_->set_bspec_skill(0, sk->corner, sk->brake, sk->alongside);
+                        bspec_driven_ = true;
+                    } else field_->set_shadow(0);
                     for (size_t c = 0; c < commands_.size(); ++c) field_->command(c, {commands_[c].pace - 1, commands_[c].overtake ? 1 : 0});
                     for (size_t car : computer)
                         if (car > 0 || computer_player_) session_->set_driver_aids(car, field_->params(car).aids, field_->params(car).grip); // (their aids)
@@ -365,6 +378,13 @@ int RaceWorld::gadget_contacts(size_t i) const {
 float RaceWorld::car_top_speed(size_t i) const {
     return session_ && i < car_visuals_.size() ? session_->record(i).p.top_speed.host() : 0.0f;
 }
+
+std::optional<std::array<u8, 0x40>> RaceWorld::bspec_record(size_t car) const {
+    if (!field_ || car != 0 || !bspec_driven_) return std::nullopt;
+    return field_->bspec_record(car);
+}
+
+int RaceWorld::bspec_class(size_t car) const { return session_ && car < car_visuals_.size() ? sim::ai::bspec_class(gt3r::ee::F(session_->rating(car))) : 0; }
 
 int RaceWorld::suggested_gear(size_t i) const {
     // The car's driver's suggestion (0x469E58) and the gearbox's gear for its speed (0x36BF68); -1 none.
