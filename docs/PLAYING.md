@@ -73,19 +73,14 @@ F11 switches full screen.
 
 The ones a player meets first:
 
-- A championship's Point Ranking page shows "car name" and "00:00" on every row (the totals on
-  Session Results are right).
 - The prize page after a race has no turning money pouch (its place number and prize are there).
-- Holding reverse does not back the car up: the brake is held with it.
-- A passed license test's page has no trophy and no target times, and its scene stays in a small
-  inset.
-- In the license grids, test 8 opens a page titled "B-0" (and shows another test's car), and the
-  tests after it open with the wrong numbers.
-- A B-spec pit stop happens, without the PIT STOP menu, the tire diagram and the fuel bar.
-- Game Status' B-spec Mileage does not move after a B-spec race.
+- A B-spec pit stop happens, without the PIT STOP menu and the SPEED LIMIT notice.
+- A garage car races as sold, without its parts, and its odometer does not move.
 - The used car list's scroll bar does not follow the list, its paint swatches are too bright, and
   some torques are 0.01 ft.lb too high.
-- Races at Fuji Speedway and Suzuka from a standing start run one lap too many.
+- More than half of the license tests begin with the car moving in the original (a run-up at 30 to
+  200 km/h); here every test starts from rest.
+- In B-spec the Ka laps Tsukuba about 8 % faster than the original's.
 - At Apricot Hill Reverse some of the computer's cars are 1 to 3 % faster than the original's.
 
 ## Scripted play (for checks)
