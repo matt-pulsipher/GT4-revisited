@@ -88,7 +88,7 @@ void MenuMovies::draw(const menu::LiveWidget& face, const SDL_FRect& dst, float 
         } else {
             try {
                 m->player.set_audio_device(device_);
-                const float volume = s.audio ? 0.8f : 0.0f;
+                const float volume = s.audio ? volume_ : 0.0f;
                 if (s.repeat) m->player.start_loop([this, path] { return gt3r::video::open_movie(vfs_, path); }, volume);
                 else m->player.start(gt3r::video::open_movie(vfs_, path), volume);
             } catch (const std::exception& e) {

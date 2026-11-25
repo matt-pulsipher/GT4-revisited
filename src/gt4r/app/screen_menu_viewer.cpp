@@ -3,6 +3,7 @@
 // pages, from the boot project on. How the properties are drawn is in docs/formats/menu.md.
 
 #include "gt4r/app/app.h"
+#include "gt4r/app/page.h"
 #include "gt4r/app/menu_cars.h"
 #include "gt4r/app/menu_advertise.h"
 #include "gt4r/app/menu_cursor.h"
@@ -101,6 +102,8 @@ public:
         }
     }
 
+    bool follows_aspect() const override { return runtime_ || player_; }
+
     void update(App& app, double dt) override {
         step_time_ += dt;
         const MenuInput& m = app.menu();
@@ -138,24 +141,26 @@ public:
         if (m.pressed(PadButton::Square)) state_ = state_ == 0 ? kFocusBits : state_ == kFocusBits ? kActive : state_ == kActive ? kInsensitive : 0;
         if (!project_) {
             if (projects_.empty()) return;
+            const bool clicked = mouse_.pick(app, 0, project_sel_, int(projects_.size()));
             const int page = m.pressed(PadButton::L1) ? -kRows : m.pressed(PadButton::R1) ? kRows : 0;
             project_sel_ = std::clamp(project_sel_ + m.vertical() + page, 0, int(projects_.size()) - 1);
-            if (m.pressed(PadButton::Cross)) open(app);
+            if (m.pressed(PadButton::Cross) || clicked) return open(app);
             if (m.pressed(PadButton::Start)) run(app, true);
             return;
         }
         const int pages = int(pages_.size());
+        if (pages && !full_) mouse_.pick(app, 0, page_sel_, pages);
         if (pages) page_sel_ = std::clamp(page_sel_ + m.vertical() + (m.pressed(PadButton::L1) ? -kRows : 0), 0, pages - 1);
         if (m.pressed(PadButton::Cross)) full_ = !full_;
         if (m.pressed(PadButton::R1)) run(app, false);
     }
 
-    void render(App&, Ui& ui) override {
+    void render(App& app, Ui& ui) override {
         if (runtime_) return render_running(ui);
         if (player_) {
-            ui.fill(0, 0, Ui::kWidth, Ui::kHeight, {0, 0, 0});
+            ui.fill(0, 0, ui.width(), Ui::kHeight, {0, 0, 0});
             float y = Ui::kHeight / 2 - 20;
-            for (const std::string& line : Ui::wrap("The game could not start: " + error_, Ui::kWidth - 80)) ui.text_center(y, line, colors::kBad), y += 12;
+            for (const std::string& line : Ui::wrap("The game could not start: " + error_, ui.width() - 80)) ui.text_center(y, line, colors::kBad), y += 12;
             ui.footer("{Cross}: back");
             return;
         }
@@ -163,18 +168,19 @@ public:
         if (project_ && full_ && page_sel_ < int(pages_.size())) {
             // The page over the whole height (4:3).
             const float scale = float(Ui::kHeight) / 480.0f;
-            ui.fill(0, 0, Ui::kWidth, Ui::kHeight, {0, 0, 0});
-            drawer_->draw(*project_, *pages_[size_t(page_sel_)], (Ui::kWidth - 640 * scale) / 2, 0, scale, state_);
+            ui.fill(0, 0, ui.width(), Ui::kHeight, {0, 0, 0});
+            drawer_->draw(*project_, *pages_[size_t(page_sel_)], (ui.width() - 640 * scale) / 2, 0, scale, state_);
             return;
         }
         ui.header("MENU PAGES", project_ ? project_->name() + "  (" + project_->module_name() + ", " + project_->language() + ")" : std::string());
         const int n = project_ ? int(pages_.size()) : int(projects_.size());
         const int sel = project_ ? page_sel_ : project_sel_;
-        const int first = ui.list_window(n, sel, kRows);
+        const int first = ui.list_window(n, sel, kRows), over = mouse_.over(app, 0);
+        mouse_.begin(), mouse_.rows(0, first, std::min(kRows, n - first), 4, 24, 200, 12);
         for (int i = 0; i < kRows && first + i < n; ++i) {
             const int idx = first + i;
             const float y = 26 + float(i) * 12;
-            if (idx == sel) ui.fill(4, y - 2, 200, 12, colors::kHighlight);
+            if (idx == sel || idx == over) ui.fill(4, y - 2, 200, 12, idx == sel ? colors::kHighlight : colors::kPanel);
             ui.text(8, y, Ui::clip(project_ ? pages_[size_t(idx)]->name : projects_[size_t(idx)].name, 190), colors::kText);
         }
         if (n > kRows) ui.text_right(200, Ui::kHeight - 30, std::to_string(sel + 1) + "/" + std::to_string(n), colors::kDim);
@@ -233,7 +239,7 @@ private:
             Disc* disc = app.disc();
             if (disc) config.program_image = [disc] { return disc->program_image(); };
             if (disc && disc->info().serial.rfind("SCPS", 0) == 0) config.region = "jp"; // (Prologue: its units, PS and kgfm)
-            config.data_dir = app.data_dir();
+            config.data_dir = app.save_dir();
             while (!config.data_dir.empty() && (config.data_dir.back() == '/' || config.data_dir.back() == '\\')) config.data_dir.pop_back();
             if (!projects_.empty()) config.language = projects_[size_t(std::clamp(project_sel_, 0, int(projects_.size()) - 1))].language;
             runtime_ = std::make_unique<menu::Runtime>([vfs](const std::string& path) { return vfs->read(path); }, config);
@@ -260,7 +266,7 @@ private:
             live_drawer_ = std::make_unique<PageDrawer>(app);
             PageDrawer* drawer = live_drawer_.get();
             // The movie faces: played in their place; their events go to the scripts' event thread.
-            movies_ = std::make_unique<MenuMovies>(app.renderer(), *vfs, app.audio().output_device_id());
+            movies_ = std::make_unique<MenuMovies>(app.renderer(), *vfs, app.audio().output_device_id(), app.audio().music_volume());
             menu::Runtime* runtime = runtime_.get();
             movies_->on_event = [runtime](LiveWidget& face, const std::string& function) {
                 auto e = std::make_shared<menu::Object>("MScriptEvent");
@@ -419,8 +425,8 @@ private:
     }
 
     void render_running(Ui& ui) {
-        const float scale = float(Ui::kHeight) / 480.0f, x = (Ui::kWidth - 640 * scale) / 2;
-        ui.fill(0, 0, Ui::kWidth, Ui::kHeight, {0, 0, 0});
+        const float scale = float(Ui::kHeight) / 480.0f, x = (ui.width() - 640 * scale) / 2;
+        ui.fill(0, 0, ui.width(), Ui::kHeight, {0, 0, 0});
         const Uint64 t0 = SDL_GetTicksNS();
         if (advertise_ && advertise_->active()) return advertise_->draw(x, scale);
         if (live_drawer_) {
@@ -568,6 +574,7 @@ private:
     std::unique_ptr<menu::Project> project_;
     std::unique_ptr<PageDrawer> drawer_;
     std::vector<std::shared_ptr<LiveWidget>> pages_;
+    RowPointer mouse_; // the lists'
     std::unique_ptr<menu::Runtime> runtime_;
     std::unique_ptr<PageDrawer> live_drawer_;
     std::unique_ptr<MenuMovies> movies_; // the running menus' movie faces
