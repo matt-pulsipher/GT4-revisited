@@ -21,7 +21,7 @@
 //   gt4tool sweep <disc> stop [course=tsukuba] [car=ka_01] [run=8] [idle=4] [hold=1] [launch=8] [manual=0] [aids=1]
 //       the player's car alone through the pad's path: driven, braked to a full stop, stood (the brake held or not),
 //       then a full-throttle launch; a line every quarter second (gear, speed, rpm, the reverse request).
-//   gt4tool sweep <disc> wall [course=tsukuba] [car=integra_r_98] [event=<label>] [run=6] [after=10]
+//   gt4tool sweep <disc> wall [course=tsukuba] [car=integra_r_98] [event=<label>] [run=6] [after=10] [steer=1]
 //       a wall hit under an event's rules (the penalty and its speed cap) and the speed after it.
 //   gt4tool sweep <disc> grid [filter] [cars=6]
 //       where every course's grid places stand along the course (m from the line, negative behind it / the session's
@@ -465,7 +465,7 @@ int sweep_wall(Disc& disc, const Args& a) {
     float worst = 0;
     int hit_at = -1;
     for (int k = 0; k < 20 * 60 && hit_at < 0; ++k) {
-        in[0] = {}, in[0].throttle = 1, in[0].steer = 1;
+        in[0] = {}, in[0].throttle = 1, in[0].steer = float(option(a, "steer", 1));
         session.step_once(in);
         if (session.cars()[0].contact > 0) hit_at = k;
     }
