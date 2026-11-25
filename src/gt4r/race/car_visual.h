@@ -55,9 +55,19 @@ public:
     };
     void set_shadow(const Shadow& s);
 
+    // The view the level of detail is chosen for: its forward axis (unit, course space) and K, the
+    // program's size factor of the view (0x456918: one unit's height on screen at depth 1 x 10 / 7).
+    struct LodView {
+        render::Vec3 forward{0, 0, -1};
+        float k = 0;
+    };
+    // The body's level of detail for a state seen from `eye`: the program's rule with a view, else by
+    // the distance alone (30 m).
+    int level(const CarState& s, const render::Vec3& eye, const LodView* view = nullptr) const;
     // Appends the car's items for a state as seen from `eye`. `step`: the simulation's step in
     // seconds (the wheels show their turning picture by how far they turn in one).
-    void add_items(std::vector<render::DrawItem>& items, const CarState& s, const render::Vec3& eye, float step = 1.0f / 60) const;
+    void add_items(std::vector<render::DrawItem>& items, const CarState& s, const render::Vec3& eye, float step = 1.0f / 60,
+                   const LodView* view = nullptr) const;
     // The shadow under the car: after the course, before any car.
     // The car mirrored in the road under it (a wet road's reflection, the course's flag): the plane
     // through the tires' contacts. False when the car is not on a road it can mirror in.
@@ -74,6 +84,10 @@ public:
     // strengths for each list.
     const gt3r::race::CarLampSet& lamps() const { return lamps_; }
     void set_lamp_strengths(float head, float brake, float tail);
+    // The brake discs' glow on this course: heat^2 x this (Env0 +0x4C over the picture's scale +0x38).
+    void set_brake_glow_gain(float gain) { glow_gain_ = gain; }
+    // A wheel's glow strength for its brake heat, as the race's sponsor gives it (0x3D75F0).
+    float brake_glow(float heat) const { return heat * heat * glow_gain_; }
     const CarSpec& spec() const { return spec_; }
     int lods() const { return lods_; }
     // The body's box in the model's frame.
@@ -88,6 +102,8 @@ private:
     CarSpec spec_;
     std::array<std::unique_ptr<render::GpuModel>, 2> body_;        // [brake lamps lit]
     std::array<std::unique_ptr<render::GpuModel>, 4> brakes_;      // the brake parts per wheel
+    std::array<std::unique_ptr<render::GpuModel>, 4> glows_;       // their glow: the added shapes, drawn at the heat's strength
+    float glow_gain_ = 0;
     std::array<std::array<std::unique_ptr<render::GpuModel>, 2>, 4> wheels_; // [wheel][turning]: tire and wheel
     // The body's shape thrown flat along the light (model 1) and the shadow under the car (model 2):
     // as read, to recolor, and as drawn.
@@ -99,6 +115,9 @@ private:
     Shadow shadow_look_;
     std::vector<CameraMount> mounts_;
     render::Vec3 min_, max_;
+    render::Vec3 lod_centre_{0, 0, 0}; // the body program's level switch (0x07): its centre and size
+    float lod_size_ = 0;
+    int lod_levels_ = 0;
     int lods_ = 1;
     bool gt3_file_ = false; // a Gran Turismo 3 car file (Prologue's): its models' y = 0 is the road
 };

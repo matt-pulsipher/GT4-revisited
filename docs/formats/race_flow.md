@@ -284,4 +284,7 @@ engine's Gran Turismo 3 code). The player notices them roughly in this order.
 | The section times | `race/sections.*`, `screen_race.cpp` `step_splits` | the points GT4 (the road's list); the gap's partner judged | event 15 (0x359C10) and its display |
 | B-spec's Race Monitor | `screen_race.cpp` `fill_monitor` | the movie GT4; the rows' contents partly (gap judged); the map's letters drawn by us (not the movie's `CARPOS_`); the gap strip, pit panel not filled | 0x3D8DB8, 0x3DAF60, 0x3DBF90, 0x3DC5D8 |
 | B-spec's pit command | `RaceWorld::pit`, `sim/ai/pit_stops.*` | GT4 (`ai-drivers`' port of 0x35B060) | |
-| Not built | | far-level wheels, brake disc glow, fitted wings, the driver figure, moving models, animated skies, cone shadows | |
+| The cars' levels of detail | `car_visual.cpp` `CarVisual::level` | GT4 (0x07's size and centre, the car's rule 0x4539A8, T = 200); K, the view's factor (0x456918), from the chase view's measured 721.2 by the lens's angle (judged: the lens) | the race's lens (camera.md) |
+| The far level's wheels | `car_visual.cpp` | GT4 (the body's own shapes with the wheel set's last texture set, callback 46) | |
+| The brake discs' glow | `car_visual.cpp`, `race_world.cpp` | GT4 (heat² x `Env0` +0x4C / +0x38, the sponsor's vf24 0x3D75F0; heat from the simulation); the blend as the renderer's added pass with its alpha 🔎 | |
+| Not built | | fitted wings, the driver figure, moving models, animated skies, cone shadows | |

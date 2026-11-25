@@ -90,6 +90,10 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
                 float v[3];
                 std::memcpy(v, e0.data() + 0x1794, 12);
                 visual->set_lamp_strengths(v[0], v[1], v[2]);
+                // The brake discs' glow: heat^2 x Env0 +0x4C / +0x38 (the race's sponsor, 0x3D75F0).
+                float gain, scale;
+                std::memcpy(&gain, e0.data() + 0x4C, 4), std::memcpy(&scale, e0.data() + 0x38, 4);
+                visual->set_brake_glow_gain(scale > 0 ? gain / scale : 0.0f);
             }
             const gt3r::race::SunParams& env = course_->env();
             if (env.has_shadow) {
@@ -482,9 +486,15 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
     }
     const size_t n = std::min(cars.size(), car_visuals_.size());
     for (size_t i = 0; i < n; ++i) car_visuals_[i]->add_shadow_items(m.items, cars[i]);
+    // The cars' levels of detail by their size on screen (race::CarVisual::level): K, the program's
+    // factor of the view, is 721.2 in the original's chase view (its 0x8465E4 in a saved state), the
+    // view this race view draws 90 degrees wide; other lenses by their 1 / tan(angle / 2).
+    race::CarVisual::LodView lod_view;
+    lod_view.forward = RVec{-pose.view.at(2, 0), -pose.view.at(2, 1), -pose.view.at(2, 2)};
+    lod_view.k = 721.2f / std::max(std::tan(pose.fov * 0.5f), 1e-3f);
     for (size_t i = 0; i < n; ++i) {
         if (int(i) == hidden) continue;
-        car_visuals_[i]->add_items(m.items, cars[i], pose.eye, kStep);
+        car_visuals_[i]->add_items(m.items, cars[i], pose.eye, kStep, &lod_view);
     }
     course_->add_after_items(m.items);
     if (m.smoke.loaded()) {
