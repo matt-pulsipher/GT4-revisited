@@ -51,6 +51,10 @@ public:
         bool turbo = false;                   // the car has a boost gauge
         float boost = 0;                      // its pressure (F + 0x4F0)
         float accelerator = 0, brake = 0;     // the pedals (a replay's monitor)
+        // A hybrid's: the box's flags (sim::rules::HybridState), its store 0 .. 1, the mileage (km per liter) and the fuel (liters).
+        bool hybrid = false;
+        u8 hybrid_flags = 0;
+        float hybrid_store = 0, hybrid_mileage = 0, hybrid_fuel = 0;
         bool guide = false;                   // a lesson's guide film: the recorded run's monitors alone
     };
     void draw(Ui& ui, const HudState& s, const Extra& e);

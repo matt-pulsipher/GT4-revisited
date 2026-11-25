@@ -353,16 +353,17 @@ void draw_grid(App& app, Setup& setup, const menu::RaceRequest& q) {
 // demonstrations' files hold the same for their car), when the request's car is that one and no garage car's.
 void test_car(App& app, Setup& setup, const menu::RaceRequest& q) {
     db::SpecDb* sdb = app.db();
-    if (!sdb || !app.disc() || q.garage_slot >= 0 || q.race.empty() || (!is_license(q.sequence) && q.sequence != "mission")) return;
+    const std::string& sequence = q.sequence.empty() ? setup.sequence : q.sequence; // (the menus' own request names none)
+    if (!sdb || !app.disc() || q.garage_slot >= 0 || q.race.empty() || (!is_license(sequence) && sequence != "mission")) return;
     try {
         gt3r::Vfs* vfs = app.vfs();
         const db::RaceEvents events(*sdb, [vfs](const std::string& path) { return vfs->read(path); });
         const std::optional<db::RaceEvent> e = find_event(events, q.race);
         if (!e) return;
         const std::vector<db::Opponent> pool = events.pool(*e);
-        if (pool.empty() || pool[0].car != q.car) return;
+        if (pool.empty() || pool[0].car != (q.car.empty() ? setup.car : q.car)) return; // (Prologue's lessons name none: the event's)
         sim::ai::GridEntry g;
-        g.car = pool[0].car, g.paint = (sdb->prologue() || q.paint < 0 || q.sequence == "mission") && pool[0].paint >= 0 ? pool[0].paint : q.paint, g.parts = pool[0].parts, g.param = pool[0].param, g.enemy = pool[0].enemy;
+        g.car = pool[0].car, g.paint = (sdb->prologue() || q.paint < 0 || sequence == "mission") && pool[0].paint >= 0 ? pool[0].paint : q.paint, g.parts = pool[0].parts, g.param = pool[0].param, g.enemy = pool[0].enemy;
         sim::Equipment eq;
         if (!sim::ai::entry_equipment(*sdb, sim::Program::load(*app.disc()), events, g, eq)) return;
         setup.player_equipment = eq;
@@ -3511,6 +3512,8 @@ private:
             }
         }
         race_->world().boost(0, e.turbo, e.boost);
+        e.hybrid = race_->world().hybrid(0, e.hybrid_flags, e.hybrid_store, e.hybrid_fuel);
+        if (e.hybrid) e.hybrid_mileage = mileage_wanted_ > 0 ? float(race_->mileage()) * 0.1f : race_->world().mileage_now(0); // (0x3CC1F8)
         return e;
     }
 

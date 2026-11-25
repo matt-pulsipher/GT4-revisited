@@ -88,6 +88,10 @@ struct PrologueHud::Impl {
     SDL_Renderer* r = nullptr;
     std::map<std::string, Picture> pictures;
     Picture logo;
+    Picture flows;                        // the hybrid's monitor: its palette's indices, its colors, the waves' phase
+    std::vector<u8> flow_index;
+    std::array<u32, 256> flow_palette{};
+    float flow_phase = 0;
     gt3r::text::FontFile fonts, more_fonts;
     std::map<std::string, const gt3r::text::LatinFont*> font_by_name;
     std::map<std::pair<const gt3r::text::LatinFont*, int>, SDL_Texture*> atlases;
@@ -214,6 +218,9 @@ struct PrologueHud::Impl {
         draw_dial(b, face, value, min, max, a0, a1, red_from, n, opacity, DialShape{});
     }
     void draw_boost(const Extra& e, float opacity);
+    void draw_hybrid(const HudState& s, const Extra& e, float opacity);
+    void draw_flows(const Extra& e, float opacity);
+    void load_monitor(ByteSpan set);
     void draw_pedals(const hr::HudRow& row, const Extra& e, float opacity);
     void draw_cones(const hr::HudRow& row, const Extra& e, float opacity);
     void draw_onboard(const HudState& s, const Extra& e, float opacity);
@@ -238,6 +245,7 @@ PrologueHud::PrologueHud(App& app, ByteSpan gtcm) : impl_(std::make_unique<Impl>
             const gt3r::Tex1::Image img = imgs.decode(*file, i);
             m.pictures[imgs.entries[i].name] = {m.make_texture(img), float(img.width), float(img.height)};
         }
+        if (const int at = imgs.find("prius_monitor"); at >= 0) m.load_monitor(imgs.set(*file, size_t(at)));
         if (const std::optional<Bytes> f = vfs->read("font/race.fnt")) m.fonts = menu::read_fonts(*f);
         if (const std::optional<Bytes> f = vfs->read("font/system.fnt")) m.more_fonts = menu::read_fonts(*f); // (sw_*)
         for (const gt3r::text::FontFile* file : {&m.fonts, &m.more_fonts})
@@ -291,6 +299,7 @@ PrologueHud::~PrologueHud() {
     for (auto& [key, t] : impl_->atlases)
         if (t) SDL_DestroyTexture(t);
     if (impl_->logo.texture) SDL_DestroyTexture(impl_->logo.texture);
+    if (impl_->flows.texture) SDL_DestroyTexture(impl_->flows.texture);
     if (impl_->map_texture) SDL_DestroyTexture(impl_->map_texture);
 }
 
@@ -447,6 +456,87 @@ void PrologueHud::Impl::draw_boost(const Extra& e, float opacity) {
     DialShape s;
     s.base = "GT4_meter_texture_trb_base", s.down = 0, s.radius = 32, s.tail = -0.53125f, s.tip = 0.90625f;
     draw_dial({508, 418 - 64, 64, 64}, "GT4_meter_texture_trb_scale", std::min(e.boost, 2.0f), 0, 2, 90, 270, 0, needles[2], opacity, s);
+}
+
+// A hybrid's panel in place of the dials (0x3930D8, 0x393300, 0x3933C8): the picture at (617, 428) of 406 x 42, the speed, the mileage
+// and the fuel (thousandths of a liter) over it, the stability lamp at its right end and the brake's at its left.
+void PrologueHud::Impl::draw_hybrid(const HudState& s, const Extra& e, float opacity) {
+    const Picture& base = picture("meter_prius_base");
+    const float x = 617 + kWide, y = 428, w = 406, h = 42;
+    draw_picture(base, {x - base.w, y - base.h, base.w, base.h}, 0x80FFFFFF, opacity);
+    char b[32];
+    std::snprintf(b, sizeof b, "%3d", int(std::fabs(s.speed) * 3.6f + 0.5f));
+    text(font("DC_24_5"), x - 300, y - 12, 0x809CB246, opacity, b, true);
+    const FontSpec f = font("FC_16", 90);
+    std::snprintf(b, sizeof b, "%2.1f", double(std::floor((e.hybrid_mileage + 0.05f) * 10) / 10));
+    text(f, x - 138, y - 12, 0x80B58F43, opacity, b, true);
+    std::snprintf(b, sizeof b, "%4d", std::min(int(e.hybrid_fuel * 1000 + 0.0005f), 9999));
+    text(f, x - 42, y - 12, 0x800363FD, opacity, b, true);
+    const float blink = std::fmod(clock, 0.2) < 0.1 ? 1.0f : 0.0f;
+    const int aid = std::max(e.asm_status, e.tcs_status);
+    const Picture& vsc = picture("meter_prius_vsc");
+    draw_picture(vsc, {x - vsc.w, y - vsc.h, vsc.w, vsc.h}, 0x800099FF, opacity * (aid >= 2 ? blink : aid == 1 ? 0.5f : 0));
+    const Picture& brake = picture("meter_prius_brake");
+    draw_picture(brake, {x - w, y - h, brake.w, brake.h}, 0x800000C8, opacity * (e.parking_brake ? 1.0f : 0.0f));
+}
+
+// The hybrid's monitor's picture: its palette's indices kept, its colors changed each picture.
+void PrologueHud::Impl::load_monitor(ByteSpan set) {
+    Bytes copy(set.begin(), set.end());
+    const gt3r::Tex1 tex = gt3r::Tex1::parse(copy);
+    const gt3r::Tex1::Buffer* clut = nullptr;
+    for (const auto& buffer : tex.buffers)
+        if (buffer.width == 16 && buffer.height == 16) clut = &buffer;
+    if (tex.textures.empty() || !clut || size_t(clut->offset) + 1024 > copy.size()) return;
+    const auto decode = [&] {
+        gt3r::GsMemory gs;
+        tex.upload(copy, gs);
+        return tex.decode(gs, 0);
+    };
+    const gt3r::Tex1::Image image = decode();
+    for (u32 k = 0; k < 256; ++k) {
+        u32 x = 0, y = 0;
+        gt3r::csm1_position(k, x, y);
+        u8* at = &copy[clut->offset + 4 * (y * 16 + x)];
+        flow_palette[k] = u32(at[0]) | u32(at[1]) << 8 | u32(at[2]) << 16 | u32(std::min(255, at[3] * 2)) << 24;
+        at[0] = u8(k), at[1] = at[2] = 0, at[3] = 0x80;
+    }
+    const gt3r::Tex1::Image indices = decode();
+    if (indices.width != image.width || indices.rgba.size() != image.rgba.size()) return;
+    flow_index.resize(size_t(image.width) * image.height);
+    for (size_t k = 0; k < flow_index.size(); ++k) flow_index[k] = indices.rgba[4 * k];
+    flows = {make_texture(image), float(image.width), float(image.height)};
+}
+
+// 0x393718 .. 0x393E50: the energy's flows, lit along their eight colors of the picture's palette in waves (three a second), and the
+// store's eighths, at (26, 425).
+void PrologueHud::Impl::draw_flows(const Extra& e, float opacity) {
+    if (!flows.texture) return;
+    flow_phase = float(std::fmod(double(flow_phase) + 3 * step, 1.0));
+    std::array<u32, 256> colors = flow_palette;
+    struct Flow {
+        u32 row, start, count;
+        bool up;
+        std::array<float, 3> color;
+    };
+    const std::array<float, 3> orange{0.99f, 0.39f, 0.01f}, green{0.2f, 0.93f, 0.11f}, yellow{0.98f, 0.89f, 0}, none{};
+    const int motor = (e.hybrid_flags >> 1) & 3, store = (e.hybrid_flags >> 4) & 3;
+    const Flow list[] = {{0xD, 0, 8, false, e.hybrid_flags & 1 ? orange : none},
+                         {0xC, 0, 8, motor == 1, motor == 1 ? green : motor == 2 ? yellow : none},
+                         {0xB, 0, 8, false, e.hybrid_flags & 8 ? orange : none},
+                         {0xA, 1, 1, false, store == 1 ? green : store == 3 ? yellow : none},
+                         {0xA, 0, 1, false, store == 2 ? yellow : none}};
+    for (const Flow& f : list)
+        for (u32 k = 0; k < f.count; ++k) {
+            const float x = float(k) / float(f.count) + (f.up ? flow_phase : -flow_phase);
+            const float v = (std::sin(x * 2 * kPi) * 0.5f + 0.5f) * 255;
+            colors[f.row * 16 + f.start + k] = u32(v * f.color[0]) | u32(v * f.color[1]) << 8 | u32(v * f.color[2]) << 16 | 0xFF000000u;
+        }
+    for (u32 k = 0; k < 8; ++k) colors[0x90 + k] = float(k + 1) / 8 <= e.hybrid_store ? 0xFF00E3FAu : 0xFF202020u;
+    std::vector<u32> pixels(flow_index.size());
+    for (size_t k = 0; k < pixels.size(); ++k) pixels[k] = colors[flow_index[k]];
+    SDL_UpdateTexture(flows.texture, nullptr, pixels.data(), int(flows.w) * 4);
+    draw_picture(flows, {left_of(26, flows.w, 4), 425 - flows.h, flows.w, flows.h}, 0x80FFFFFF, opacity);
 }
 
 // 0x391110: the pedals of a replay's monitor, the brake left and the throttle right: a dark box each, a bar up it to the lesser of the
@@ -645,7 +735,9 @@ void PrologueHud::draw(Ui& ui, const HudState& s, const Extra& e) {
             break;
         case hr::HudPart::Meters:
             if (!s.show_meter) break;
-            if (row.sub == 0 && view == 0) m.draw_onboard(s, e, opacity);
+            if (e.hybrid) {
+                if (int(row.sub) == view) m.draw_hybrid(s, e, opacity), m.draw_flows(e, opacity);
+            } else if (row.sub == 0 && view == 0) m.draw_onboard(s, e, opacity);
             else if (row.sub == 1 && view == 1) m.draw_simple(s, e, opacity);
             break;
         case hr::HudPart::Map:

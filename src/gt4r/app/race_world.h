@@ -145,7 +145,15 @@ public:
         const gt3r::sim::exact::Car& c = session_->record(car);
         turbo = c.p.e.boost_max.host() != 0, pressure = c.intake.host();
     }
+    // A hybrid's box as the display shows it (Prologue's; false: another car).
+    bool hybrid(size_t car, u8& flags, float& store, float& fuel) const {
+        if (!session_ || !session_->prologue_rules() || session_->record(car).p.d.kind != 3) return false;
+        const sim::prologue::CarPart& p = session_->prologue_part(car);
+        flags = p.hybrid.flags, store = float(int(p.hybrid.store.host() * 8 + 0.5f)) / 8, fuel = p.hybrid_fuel.host() / 740;
+        return true;
+    }
     // The mileage of a hybrid's run so far (Prologue's 0x3CC320, tenths of a kilometer per liter; 0 for another car).
+    float mileage_now(size_t car) const { return float(session_->prologue_part(car).mileage) * 0.1f; } // (of the last 30 steps)
     int mileage(size_t car) const {
         if (!session_ || !session_->prologue_rules()) return 0;
         const sim::prologue::CarPart& p = session_->prologue_part(car);
