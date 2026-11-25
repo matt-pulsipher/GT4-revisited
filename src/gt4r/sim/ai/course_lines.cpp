@@ -403,6 +403,18 @@ bool CourseLines::place(int line, int hint, F s, F& x, F& y, F& h) const {
     return true;
 }
 
+int CourseLines::mode_at(int line, F s) const {
+    const int k = resolve(line);
+    if (k < 0) return 0;
+    const std::vector<LinePoint>& p = lines_[size_t(k)];
+    const size_t n = p.size();
+    size_t i = 0;
+    while (i < n && !(s < F(p[i].dist))) ++i;
+    size_t at = (i + n - 1) % n;
+    if (p[at].speed_adjust == -128) at = (at + n - 1) % n;
+    return p[at].kind;
+}
+
 bool CourseLines::start_place(int line, F s, bool one_way, StartPlace& out) const {
     const int k = resolve(line);
     if (k < 0 || !ground_) return false;

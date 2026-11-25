@@ -919,6 +919,12 @@ void Field::set_bspec_skill(size_t car, F corner, F brake, F alongside) {
     d->corner_mult = corner, d->brake_mult = brake, d->alongside_mult = alongside;
 }
 
+void Field::start_line(size_t car, int line) {
+    Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
+    if (!d) return;
+    if (request_line(*d, line, true)) --d->inc.lane_changes;
+}
+
 bool Field::hold_rolling(size_t car) {
     Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
     if (!d || d->control == 4) return false;
@@ -1700,7 +1706,8 @@ void Field::decide_car(size_t car, race::CarInput& in) {
     in.throttle = d.applied_throttle;
     in.brake = d.brake.host();
     in.reverse = d.reverse;
-    in.computer = true;
+    // (a player's car its driver drives in its rolling start keeps its control source, 0: F +0x467 tells the input)
+    in.computer = d.control != 0 || c.driver_kind != 1;
     in.control = u8(d.control == 1 ? 1 : 2); // (F +0x466: the B-spec car 1)
     in.shift_lock = u8(d.shift_lock);
 }

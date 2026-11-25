@@ -69,6 +69,9 @@ public:
         s32 hint = -1;                // cluster << 16 | triangle (-1 no road)
     };
     bool start_place(int line, gt3r::ee::F s, bool one_way, StartPlace& out) const;
+    // The kind of line `line`'s stretch (0 a straight, 1 / 2 an arc) a driver put on it at course distance s starts in
+    // (0x467AA8 with 0x4679C0: D +0x1E).
+    int mode_at(int line, gt3r::ee::F s) const;
     // The line's heading at distance s: towards the first place at least 0.2 m on, in 0.5 m steps.
     float heading_at(int k, int hint, float s) const;
     // The course distance of a simulation-frame point (the road's checkpoints), false off the course.

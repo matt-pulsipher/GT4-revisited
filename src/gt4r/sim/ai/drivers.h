@@ -233,6 +233,8 @@ public:
     bool pit_return(size_t car);
     // A car driven by its driver in its rolling start (0x3452F0: kind 1, off line 7), its control source kept, and let go
     // (0x345228: a pad car's driver onto line 7, the kind cleared). release_rolling false: the line is not there, still held.
+    // The line a car's driver starts on (0x4639E0: the line's fallback, at once): before the first step.
+    void start_line(size_t car, int line);
     bool hold_rolling(size_t car);
     bool release_rolling(size_t car);
     // The speed limits of kind 5 (the race's configuration +0x42 for the player's car, +0x43 for the computer's; km/h, above

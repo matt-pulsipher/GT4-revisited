@@ -74,7 +74,7 @@ TEST(race_flow_standing_start) {
         if (ev.beep && beeps < 3) beep_at[beeps] = flow.hold_left();
         beeps += ev.beep, starts += ev.start;
     }
-    CHECK(beeps == 3 && starts == 1 && !flow.holding() && flow.clock() == 0);
+    CHECK(beeps == 3 && starts == 1 && !flow.holding() && flow.clock() == race::kClockPerStep); // (the step that counts the hold to 0 is the race's first)
     CHECK(beep_at[0] == 180 && beep_at[1] == 120 && beep_at[2] == 60);
     CHECK(flow.lap_shown(0) == 1);
     // The race: car 1 drives 2 laps first and finishes; the others finish as they next cross the line.
@@ -152,7 +152,7 @@ TEST(race_flow_rolling_clock) {
         if (ev.start) start_step = i;
     }
     CHECK(clock_step == 0 && start_step == 2);
-    CHECK(flow.clock_running() && flow.clock() == 9 * race::kClockPerStep);
+    CHECK(flow.clock_running() && flow.clock() == 10 * race::kClockPerStep); // (from the step of the crossing)
     CHECK(flow.lap_ms(0) == race::clock_ms(flow.clock()));
 }
 

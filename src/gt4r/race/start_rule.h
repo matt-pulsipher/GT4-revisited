@@ -28,6 +28,8 @@ struct CourseStart {
     float spacing_m = 20;   // between places (K +0xF887)
     int kind = 0;           // the row's +0x10 (K +0xCBDD, 0x34C968; 255 reads 0): 2 and 3 the loose courses, where a
                             // license test does not count the wheels off the course (0x34C998)
+    int way = 0;            // the row's +0x12 (K +0xCBDE): 1 a course without a lap, 2 no distance along it
+    bool fuel = false;      // the course's races count fuel (the row's +0x14, K +0xCBE0, on a paved course: 0x34CA20)
     float speed() const { return speed_kmh / 3.6f; } // metres per second
 };
 

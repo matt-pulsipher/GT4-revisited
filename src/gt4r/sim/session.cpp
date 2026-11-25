@@ -249,7 +249,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
             if (ground_->at_place(at.pos, h)) at.pos.y = h.point.y;
         }
         if (e.line_start) at.pos = {e.line_start->x.host(), e.line_start->z.host(), -e.line_start->y.host()}, at.heading = (e.line_start->heading - kPi).host();
-        if (gt4_rules_) setup(i, at, kind, e.start_speed, e.fuel, e.line_start ? &*e.line_start : nullptr, e.start_mark);
+        if (gt4_rules_) setup(i, at, kind, e.start_speed, e.fuel, e.line_start ? &*e.line_start : nullptr, e.control);
         else place(i, at);
         publish(i);
     }
@@ -301,17 +301,16 @@ rules::PoseHooks Session::pose_hooks() {
 }
 
 // Gran Turismo 4's set-up of a car on its start place (0x363B10 from the converter on, rules::car_setup).
-void Session::setup(size_t i, const course::Runway::Place& at, int kind, float speed, bool fuel, const Entry::LineStart* line, u8 mark) {
+void Session::setup(size_t i, const course::Runway::Place& at, int kind, float speed, bool fuel, const Entry::LineStart* line, s8 control) {
     ex::Car& c = cars_[i];
     rules::SetupArgs a;
     a.index = int(i);
-    a.control = 0;
+    a.control = control;
     a.pedal_style = c.pedal_style;
     a.start_kind = kind;
     a.fuel_rule = fuel ? 1 : 0; // (the rule block's +0x4C)
     a.speed = gt3r::ee::int_to_f(s32(std::lround(speed * 3.6f)));
     a.hint = -1;
-    a.start_mark = mark;
     // The place in the record's frame (x, y, z up); the car faces the place's heading turned half a turn.
     a.x = F(at.pos.x), a.y = F(-at.pos.z), a.z = F(at.pos.y);
     a.heading = F(at.heading) + kPi;
@@ -321,6 +320,7 @@ void Session::setup(size_t i, const course::Runway::Place& at, int kind, float s
     }
     rules::SetupHooks h;
     h.pose = pose_hooks();
+    if (line && line->open_throttle) h.open_throttle = [&c, line] { return line->open_throttle(c.f3e4); };
     rules::car_setup(c, gx_[i], layouts_[i], start_tables_, tables_.wear, a, h);
     // (the session's own ground records: the kinds and materials publish reads)
     for (size_t w = 0; w < 4; ++w) extra_[i].kinds[w] = c.g[w].miss ? 0 : c.g[w].flags, extra_[i].materials[w] = c.g[w].miss ? 0 : c.g[w].material;
@@ -331,6 +331,10 @@ void Session::setup(size_t i, const course::Runway::Place& at, int kind, float s
         const rules::SpeedTables& k = speed_tables_[i];
         rules::wheel_spin(c, gx_[i].feel.anim, layouts_[i], k.special_x10, gx_[i].wear.category, gx_[i].body.in_line_x65c, k.throttle_share, k.brake_share);
     }
+}
+
+void Session::set_crossings(size_t car, int n) {
+    if (car < cars_.size()) cars_[car].laps = decltype(cars_[car].laps)(n);
 }
 
 void Session::release_start(int car) {

@@ -17,6 +17,7 @@
 #include "gt4r/sim/rules_step.h"
 #include "sim/exact/tick.h"
 
+#include <functional>
 #include <limits>
 #include <memory>
 #include <string>
@@ -52,9 +53,12 @@ struct Entry {
         s32 hint = -1; // the road triangle there
         int speed = 0;
         u8 mark = 0;
+        // Whether a moving start opens the throttle (0x463B98: the car's driver is on a straight of its line) at the car's
+        // distance along the course; none: open.
+        std::function<bool(gt3r::ee::F)> open_throttle;
     };
     std::optional<LineStart> line_start;
-    u8 start_mark = 0; // F + 0x65B of a car on the grid
+    s8 control = 0;    // F + 0x466 at the set-up: 0 the player's pad, 1 B-spec, 2 the computer
     // The race uses fuel (its rule block's byte +0x4C): the tank filled at the start (the car's tank less the program's byte
     // 0x620E24), burnt by the engine's output, its weight in the mass. Off: no tank (the races seen).
     bool fuel = false;
@@ -104,6 +108,8 @@ public:
     // other conductors (a license test's, ...) keep the event's bytes as they are.
     void set_class_grip(const std::array<gt3r::s8, 4>& grip) { tables_.class_grip = grip; }
     u32 countdown() const { return countdown_; }
+    // A car's crossings of the line as its race counts them (F + 0x4AC: the rolling start's pace and the pad's lap read it).
+    void set_crossings(size_t car, int n);
     // A car held in its rolling start (F + 0x467 = 1: its computer driver drives it, the rolling start's pace caps it,
     // the input phase takes the car's input as the computer's outputs) let go (the single-player conductor's virtual
     // +0x14, 0x347928: 0x345228 and 0x3F37B8).
@@ -235,7 +241,7 @@ private:
         int contact_car = -1;
     };
     void place(size_t i, const course::Runway::Place& at);
-    void setup(size_t i, const course::Runway::Place& at, int kind, float speed, bool fuel, const Entry::LineStart* line, u8 mark);
+    void setup(size_t i, const course::Runway::Place& at, int kind, float speed, bool fuel, const Entry::LineStart* line, s8 control);
     rules::PoseHooks pose_hooks();
     void ground_contact(gt3r::sim::exact::Car& c, Extra& x);
     void chassis(size_t i);

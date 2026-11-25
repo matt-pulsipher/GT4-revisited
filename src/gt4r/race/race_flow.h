@@ -16,7 +16,9 @@ namespace gt4r::race {
 
 // How a race starts (the race information's start type).
 enum class StartType : int {
-    Rolling = -1, // the cars run up to the line; no hold, no count
+    Moving = -2,  // a license test's moving start: no hold, the clock from the first step, the player's run timed from where
+                  // its clock starts (the section's start, else the line)
+    Rolling = -1, // the cars run up to the line; no hold, no count, the clock from the first car's crossing
     Given = 0,    // a hold of the race's own number of seconds
     Eight = 1,    // a hold of 8 s with the opening shots
     Ten = 2,      // a hold of 10 s with the opening shots
@@ -34,6 +36,14 @@ struct FlowSetup {
     std::vector<float> sectors;
     float goal = -1;
     bool counted = false;
+    // A license test's, training's or mission's (the license conductor's rules): its road section's start (-1 none), each
+    // car's crossings and start mark (F + 0x65B) as the set-up leaves them (empty: by start_crossings, 0), the kind of its
+    // end (CFG +0x02: 2 at the goal, 3 and 6 at the laps), a mission (its times from the race's start).
+    float section_start = -1;
+    std::vector<int> crossings;
+    std::vector<u8> marks;
+    int test_kind = 0;
+    bool mission = false;
 };
 
 // A car's crossings of the line where it stands at the start (the set-up 0x363B10, 0x364300 .. 0x36444C: F + 0x4AC), `v`
@@ -60,11 +70,12 @@ public:
         bool finished = false;
         int finish_order = -1;  // 0 the first to finish
         s64 finish_units = -1;  // the race clock at the finish (the total time)
-        s64 lap_start_units = 0;
+        s64 base_ms = 0;        // F + 0x614: the moment its times count from (ms)
+        u8 mark = 0;            // F + 0x65B: 1 before the section's start, 2 past it
+        u8 back = 0;            // F + 0x4B0: backward crossings of the line not yet taken back
         s64 last_lap_ms = -1, best_lap_ms = -1;
         float prev_v = 0;
         bool has_v = false;
-        int prev_lap = 0;
     };
     // What a step brought.
     struct Events {
@@ -74,6 +85,8 @@ public:
         int lap_done = -1;          // a car that completed a lap this step (the last such, -1 none)
         std::vector<size_t> finished; // cars that finished this step
         bool player_finished = false;
+        std::vector<size_t> started; // cars whose start was counted this step (the conductor's virtual 20: the line first
+                                     // taken, or a section's start): let go from a rolling start
     };
     // A row of the results, in finishing order.
     struct ResultRow {
@@ -89,8 +102,9 @@ public:
     void begin(const FlowSetup& setup, std::span<const CarState> cars);
 
     // Before a step: true while the start's hold runs (the cars are held, the clock stands).
-    bool holding() const { return hold_ > 0; }
-    // Steps of the hold left.
+    bool holding() const { return hold_ > 1; }
+    // Steps of the hold left (the race information's +0xBC, counted down a frame at a time before the step: the step that
+    // takes it to 0 is the first of the race).
     int hold_left() const { return hold_; }
     int hold_total() const { return hold_total_; }
     // After a step of the simulation (held or not), with the cars' states it left.
@@ -115,6 +129,8 @@ public:
     // A car's run ended by a rule of its own (a license test's stop, a failure) `share` of a step
     // into the step just run: its finish at the clock then.
     void finish_now(size_t car, float share = 0);
+    // A finished car's time: the race's (the clock at its finish), a test's from where its clock started (F + 0x614).
+    s64 run_ms(size_t car) const;
     bool everyone_finished() const;
     // Steps since the player finished (-1 before).
     int steps_since_player_finish() const { return player_finish_steps_; }
@@ -126,6 +142,9 @@ public:
 private:
     float progress(size_t i, const CarState& c) const;
     void sort_order(std::span<const CarState> cars);
+    void cross(size_t i, float was, float now, Events& ev);
+    void start_car(size_t i, s64 t, Events& ev);
+    void end_car(size_t i, s64 at, Events& ev);
 
     FlowSetup setup_;
     std::vector<CarRecord> cars_;

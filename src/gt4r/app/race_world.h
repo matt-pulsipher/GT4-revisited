@@ -10,6 +10,7 @@
 #include "gt4r/race/car_visual.h"
 #include "gt4r/race/course_scene.h"
 #include "gt4r/race/gadget_bodies.h"
+#include "gt4r/race/race_start.h"
 #include "gt4r/race/rail_simulation.h"
 #include "gt4r/race/replay_script.h"
 #include "gt4r/race/simulation.h"
@@ -65,6 +66,11 @@ struct WorldSetup {
     // event leaves 0 is 20 (a single race's and the free run's: 0x353570).
     bool event_grips = false;
     std::vector<u8> event_row; // the event's RACE row: the race's tire wear (sim::rules::event_wear_bytes); empty: no wear
+    // The race's conductor (as far as its start goes) and its road section (CFG +0x21; -1 none): a license test's, a pace car
+    // test's and a mission's cars start by the event's row (race/start_rule.h RowStart).
+    race::Conductor conductor = race::Conductor::Other;
+    int section = -1;
+    bool own_hold = false; // the race counts its start's hold itself, from the set-up's state (no steps of the session's own)
     int laps = 0;       // the race's laps (the pit stops' last lap; 0 a run without an end)
     bool computer_player = false; // the computer drivers drive the player's car too
     // The B-spec driver's book (menu::bspec::Book: three tables of 8 x 8) and the course's marks, which give the race's
@@ -102,13 +108,23 @@ public:
     // it this step (else its input is the caller's: a rolling start handed over).
     void step(std::span<const race::CarInput> inputs, bool hold = false, bool player_by_computer = true);
     std::span<const race::CarState> cars() const { return sim_->cars(); }
+    // How the cars start (race/race_start.h): what their starts read, each car's, its crossings of the line at the start.
+    const race::StartRace& start_race() const { return start_race_; }
+    const race::PlannedStart& start_of(size_t car) const { return starts_[car]; }
+    int start_crossings(size_t car) const;
+    // The race's count of a car's crossings of the line, for the simulation (F +0x4AC).
+    void set_crossings(size_t car, int n) {
+        if (session_) session_->set_crossings(car, n);
+    }
     // A rolling start (an entry with a start speed): each such car is held to the start's pace until it is
     // released as it takes the line (DynamicsConductorSinglePlayer::vf20 0x347928 → 0x345228). A released car
     // stays released until the next restart.
     // With the game's simulation the session holds the cars itself (F +0x467 = 1, the aids' start pace 0x3F7880 /
     // 0x3F76E8) and lets each go (0x345228, 0x3F37B8); the stand-in simulation is held here.
     void release_start(size_t car) {
-        if (car < pace_kmh_.size() && pace_kmh_[car] > 0 && sim_) sim_->release_start(int(car));
+        // (its driver's line first: a driver without it is not let go)
+        if (session_ && field_ && rolling(car) && !field_->release_rolling(car)) return;
+        if (sim_ && (session_ ? rolling(car) : car < pace_kmh_.size() && pace_kmh_[car] > 0)) sim_->release_start(int(car));
         if (car < pace_kmh_.size()) pace_kmh_[car] = 0;
     }
     // Whether a car is still held to the start's pace (its driver kind 1, F +0x467).
@@ -236,6 +252,13 @@ private:
     bool bspec_driven_ = false;               // a B-spec driver drove the player's car (its record set)
     bool computer_player_ = false;
     float player_ps_ = 0;
+    std::vector<race::RoadSection> sections_;
+    race::StartRace start_race_;
+    std::vector<race::PlannedStart> starts_;
+    std::unique_ptr<sim::RoadGround> lines_ground_; // (the starts' own lines: the drivers' need the session)
+    std::unique_ptr<sim::ai::CourseLines> lines_;
+    void plan_starts(const sim::Program& program, std::vector<sim::Entry>& entries);
+    void first_lines(const sim::Program& program);
     std::vector<float> pace_kmh_; // each car's rolling start speed until released (0: none)
     race::GadgetBodies gadget_bodies_; // the cones and boards as the cars leave them
     unsigned gadget_hits_ = 0;

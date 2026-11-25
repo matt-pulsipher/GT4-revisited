@@ -1,5 +1,8 @@
 #include "gt4r/race/race_flow.h"
 
+#include "base/ee_float.h"
+#include "base/ee_math.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -35,15 +38,17 @@ void RaceFlow::begin(const FlowSetup& setup, std::span<const CarState> cars) {
     setup_ = setup;
     cars_.assign(cars.size(), CarRecord{});
     for (size_t i = 0; i < cars.size(); ++i) {
-        cars_[i].prev_v = cars[i].course_v, cars_[i].has_v = true;
-        cars_[i].prev_lap = cars[i].lap;
-        if (setup.counted && setup.lap_length > 0) cars_[i].counter = start_crossings(cars[i].course_v, setup.lap_length, setup.sectors, setup.goal);
+        CarRecord& r = cars_[i];
+        r.prev_v = cars[i].course_v, r.has_v = true;
+        if (i < setup.crossings.size()) r.counter = setup.crossings[i];
+        else if (setup.counted && setup.lap_length > 0) r.counter = start_crossings(cars[i].course_v, setup.lap_length, setup.sectors, setup.goal);
+        if (i < setup.marks.size()) r.mark = setup.marks[i];
     }
     hold_total_ = hold_ = start_hold_steps(setup.start, setup.start_seconds);
     clock_ = 0;
     finishers_ = 0;
     player_finish_steps_ = -1;
-    started_steps_ = setup.start == StartType::Rolling ? -1 : hold_ > 0 ? -1 : 0;
+    started_steps_ = setup.start == StartType::Rolling || setup.start == StartType::Moving ? -1 : hold_ > 0 ? -1 : 0;
     // A rolling start's clock stands until the first car takes the line (K +0xCBE4, cleared by vf20 0x347928).
     clock_running_ = setup.start != StartType::Rolling;
     order_.resize(cars.size());
@@ -69,67 +74,115 @@ void RaceFlow::sort_order(std::span<const CarState> cars) {
     });
 }
 
+// A car's start counted (the conductor's virtual 20, at ms `t` of the clock): the license's (0x3F64D0) and the single
+// player's (0x347928).
+void RaceFlow::start_car(size_t i, s64 t, Events& ev) {
+    CarRecord& r = cars_[i];
+    ev.started.push_back(i);
+    if (setup_.start == StartType::Moving) {
+        if (r.mark == 0) r.base_ms = setup_.mission ? 0 : t;
+        if (i == setup_.player && started_steps_ < 0) ev.start = true, started_steps_ = 0;
+        return;
+    }
+    if (setup_.start != StartType::Rolling) return;
+    // The first car over the line starts a rolling start's clock; the player's crossing is his start signal (event 4, car 0).
+    if (!clock_running_) clock_running_ = true, ev.clock_started = true;
+    if (i == setup_.player && started_steps_ < 0) ev.start = true, started_steps_ = 0;
+}
+
+void RaceFlow::end_car(size_t i, s64 at, Events& ev) {
+    CarRecord& r = cars_[i];
+    r.finished = true;
+    r.finish_order = finishers_++;
+    r.finish_units = at;
+    ev.finished.push_back(i);
+    if (i == setup_.player) ev.player_finished = true, player_finish_steps_ = 0;
+}
+
+// 0x358608 (the step's end, before the clock's step): a car's distance along the course against its last, in the program's
+// arithmetic.
+void RaceFlow::cross(size_t i, float was, float now, Events& ev) {
+    using gt3r::ee::F;
+    CarRecord& r = cars_[i];
+    const F prev(was), cur(now), lap(setup_.lap_length), half = F::raw(0x3F000000), fifty = F::raw(0x42480000);
+    auto units = [&](F share) { return s64(gt3r::ee::to_int((share * fifty).bits)); };
+    if (prev <= cur) {
+        if (prev + lap * half < cur) { // backwards over the line
+            ++r.back;
+            return;
+        }
+        if (r.back != 0 || r.counter == 0 || r.finished) return;
+        const F run = cur - prev;
+        // A section's start: the license's virtual 22 (the mark cleared, its start counted), then the mark 2.
+        if (r.mark == 1 && setup_.section_start > 0) {
+            const F d(setup_.section_start);
+            if (prev < d && d <= cur) {
+                const s64 t = clock_ms(clock_ + units((d - prev) / run));
+                r.mark = 0;
+                start_car(i, t, ev);
+                r.mark = 2;
+            }
+        }
+        // The goal (virtual 23: a test of kind 2 ends there).
+        if (setup_.goal > 0 && setup_.test_kind == 2) {
+            const F d(setup_.goal);
+            if (prev < d && d <= cur) end_car(i, clock_ + units((d - prev) / run), ev);
+        }
+        return;
+    }
+    if (!(cur + lap * half < prev)) return; // (a little backwards)
+    if (r.back != 0) {
+        --r.back;
+        return;
+    }
+    if (r.finished) return;
+    const F before = lap - prev;
+    const s64 at = clock_ + units(before / (before + cur));
+    const s64 t = clock_ms(at);
+    const int old = r.counter++;
+    if (old == 0) {
+        start_car(i, t, ev);
+        return;
+    }
+    // A lap (virtual 21).
+    r.laps_done += 1;
+    const s64 ms = t - r.base_ms;
+    r.last_lap_ms = ms;
+    if (r.best_lap_ms < 0 || ms < r.best_lap_ms) r.best_lap_ms = ms;
+    ev.lap_done = int(i);
+    if (setup_.test_kind != 0) { // the license's (0x3F6588): kinds 3 and 6 end at the laps
+        if ((setup_.test_kind == 3 || setup_.test_kind == 6) && setup_.laps == old) end_car(i, at, ev);
+        return;
+    }
+    // The finish (0x357B98): the leader has finished, or this car has driven the race's laps.
+    const size_t leader = order_.empty() ? i : order_[0];
+    if (cars_[leader].finished || (setup_.laps > 0 && old >= setup_.laps)) end_car(i, at, ev);
+    r.base_ms = t;
+}
+
 RaceFlow::Events RaceFlow::step(std::span<const CarState> cars) {
     Events ev;
     if (cars.size() != cars_.size()) return ev;
     if (hold_ > 0) {
-        // The hold: the clock stands; a beep at each of the last three whole seconds.
+        // The hold: counted down before the step, the clock stands; a beep at each of the last three whole seconds.
         --hold_;
         if (hold_ > 0 && hold_ < 240 && hold_ % 60 == 0) ev.beep = true;
-        if (hold_ == 0) ev.start = true, started_steps_ = 0;
-        for (size_t i = 0; i < cars.size(); ++i) cars_[i].prev_v = cars[i].course_v, cars_[i].prev_lap = cars[i].lap;
-        return ev;
-    }
-    if (started_steps_ >= 0) ++started_steps_;
-    const s64 clock_before = clock_;
-    if (clock_running_) clock_ += kClockPerStep;
-    const float length = setup_.lap_length;
-    for (size_t i = 0; i < cars.size(); ++i) {
-        CarRecord& r = cars_[i];
-        const CarState& c = cars[i];
-        const int crossings = c.lap - r.prev_lap; // the simulation's count of the line's crossings
-        if (crossings != 0 && !r.finished) {
-            if (crossings > 0) {
-                // The moment the line was passed: the step's share before it.
-                float f = 1;
-                if (length > 0) {
-                    const float before = length - r.prev_v, run = c.course_v + length - r.prev_v;
-                    f = run > 1e-4f ? std::clamp(before / run, 0.0f, 1.0f) : 1.0f;
-                }
-                const s64 at = clock_running_ ? clock_before + s64(std::trunc(f * float(kClockPerStep))) : clock_;
-                const int old = r.counter;
-                r.counter += 1;
-                if (old == 0) {
-                    // The start line (vf20 0x347928): the first car over it starts a rolling start's clock (from
-                    // the next step: ❓ the conductor's clock step 0x357E80 and the crossings' order in a step not
-                    // read); the player's crossing is his start signal (event 4 for car 0).
-                    if (!clock_running_) clock_running_ = true, ev.clock_started = true;
-                    if (setup_.start == StartType::Rolling && i == setup_.player && started_steps_ < 0) ev.start = true, started_steps_ = 0;
-                } else {
-                    r.laps_done += 1;
-                    const s64 lap = clock_ms(at - r.lap_start_units);
-                    r.last_lap_ms = lap;
-                    if (r.best_lap_ms < 0 || lap < r.best_lap_ms) r.best_lap_ms = lap;
-                    ev.lap_done = int(i);
-                    // The finish: the leader has finished, or this car has driven the race's laps.
-                    const size_t leader = order_.empty() ? i : order_[0];
-                    if (cars_[leader].finished || (setup_.laps > 0 && r.laps_done >= setup_.laps)) {
-                        r.finished = true;
-                        r.finish_order = finishers_++;
-                        r.finish_units = at;
-                        ev.finished.push_back(i);
-                        if (i == setup_.player) ev.player_finished = true, player_finish_steps_ = 0;
-                    }
-                    r.lap_start_units = at;
-                }
-            } else if (r.counter > 0) {
-                // Backwards over the line: the lap is taken back.
-                r.counter -= 1;
-                r.laps_done = std::max(0, r.counter - 1);
-            }
+        if (hold_ > 0) {
+            for (size_t i = 0; i < cars.size(); ++i) cars_[i].prev_v = cars[i].course_v;
+            return ev;
         }
-        r.prev_v = c.course_v, r.prev_lap = c.lap;
+        ev.start = true, started_steps_ = -1;
     }
+    const bool was_started = started_steps_ >= 0;
+    if (setup_.lap_length > 0)
+        for (size_t i = 0; i < cars.size(); ++i) {
+            cross(i, cars_[i].prev_v, cars[i].course_v, ev);
+            cars_[i].prev_v = cars[i].course_v;
+        }
+    // The clock's step (virtual 15, after the crossings: a rolling start's first in the step the line is taken).
+    if (clock_running_) clock_ = std::min<s64>(clock_ + kClockPerStep, 0x405F7DFD);
+    if (was_started) ++started_steps_;
+    else if (ev.start) started_steps_ = 0;
     if (player_finish_steps_ >= 0 && !ev.player_finished) ++player_finish_steps_;
     sort_order(cars);
     return ev;
@@ -159,8 +212,16 @@ int RaceFlow::lap_shown(size_t car) const {
 s64 RaceFlow::lap_ms(size_t car) const {
     const CarRecord& r = cars_[car];
     if (r.finished) return r.last_lap_ms;
-    if (holding() || !clock_running_ || (setup_.start != StartType::Rolling && started_steps_ < 0)) return 0;
-    return clock_ms(clock_ - r.lap_start_units);
+    if (hold_ > 0 || !clock_running_) return 0;
+    // (0x357830: a run that starts moving shows none before its clock starts)
+    if (setup_.start == StartType::Moving && (r.counter == 0 || r.mark == 1)) return 0;
+    if (setup_.start != StartType::Rolling && setup_.start != StartType::Moving && started_steps_ < 0) return 0;
+    return clock_ms(clock_) - r.base_ms;
+}
+
+s64 RaceFlow::run_ms(size_t car) const {
+    const CarRecord& r = cars_[car];
+    return clock_ms(r.finish_units) - (setup_.test_kind != 0 ? r.base_ms : 0);
 }
 
 bool RaceFlow::everyone_finished() const {
@@ -176,7 +237,7 @@ std::vector<RaceFlow::ResultRow> RaceFlow::results() const {
         ResultRow row;
         row.car = i;
         row.finished = r.finished;
-        row.total_ms = r.finished ? clock_ms(r.finish_units) : -1;
+        row.total_ms = r.finished ? run_ms(i) : -1;
         row.laps_behind = r.finished ? 0 : std::max(0, winner_laps - r.laps_done);
         row.best_lap_ms = r.best_lap_ms;
         rows.push_back(row);
@@ -229,7 +290,7 @@ void ResultBoard::finished(const RaceFlow& flow, std::span<const size_t> cars) {
         // The time (ResultArcade::vf9, kind 0): the winner's whole time; the others' gap to it, or
         // the laps short of the winner's.
         const RaceFlow::CarRecord& c = flow.car(car);
-        const s64 ms = clock_ms(c.finish_units);
+        const s64 ms = flow.run_ms(car);
         if (row == 0) leader_ms_ = ms, leader_laps_ = c.laps_done;
         if (c.laps_done == leader_laps_) {
             r.time = result_time(row == 0 ? ms : ms - leader_ms_, row != 0);
