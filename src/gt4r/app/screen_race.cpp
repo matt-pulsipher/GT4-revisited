@@ -49,6 +49,7 @@
 #include "render/gpu_model.h"
 #include "gt4r/race/sections.h"
 #include "gt4r/sim/program_prologue.h"
+#include "gt4r/sim/quick_tune.h"
 #include "gt4r/sim/race_rules.h"
 #include "gt4r/sim/race_tires.h"
 #include "gt4r/race/start_camera.h"
@@ -419,7 +420,7 @@ void test_car(App& app, Setup& setup, const menu::RaceRequest& q) {
 
 // The tires Arcade's races put on every entry (RaceArcade's virtual 92 and RaceFreeRun's, sim/race_tires.h): the kind chosen on
 // the driving options (0x111B50, 0x112FE8 give it to all), dirt's or snow's on those courses; a free run's car its own.
-// (❓ The race menus' Quick Tune, which changes the kinds later, is not applied.)
+// (The race menus' Quick Tune changes the player's kinds as a run starts: apply_quick_tune.)
 void arcade_tires(App& app, Setup& setup, const menu::RaceRequest& q) {
     const bool arcade = setup.sequence == "single_race" || setup.sequence == "time_trial";
     db::SpecDb* sdb = app.db();
@@ -736,6 +737,12 @@ public:
     const WorldSetup& world_setup() const { return world_->setup(); }
     // What the player chose for his car (the next run's).
     void set_player(const RaceWorld::PlayerChoice& c) { stale_ = world_->set_player(c) || stale_; }
+    // The player's car's parts and settings from the next run on (Arcade's Quick Tune).
+    void set_player_equipment(const sim::Equipment& eq) {
+        setup_.player_equipment = eq;
+        world_->set_equipment(0, eq);
+        stale_ = true;
+    }
     // The race's flow of a run.
     race::FlowSetup flow_setup() const {
         race::FlowSetup fs;
@@ -3310,6 +3317,7 @@ private:
             }
             w.race_label = championship_race();
         }
+        if ((sequence_ == "single_race" || sequence_ == "time_trial") && !quick_tune_filled_) fill_quick_tune(w);
         if (sequence_ != "single_race") {
             w.set("prize", 0);
             w.set("IsSessionFinished", 0);
@@ -3317,11 +3325,63 @@ private:
             return;
         }
         // (IsBSpec and IsDryCourse: the sequence's start sets them, menu::start_quick_work)
+    }
+
+    // The Quick Tune's values as Arcade's race and time trial fill them once, before their first menus (0x111B50, 0x112FE8; the
+    // sequence's work made anew, menu::start_quick_work, the same): no change of power or weight, the race's tire kind (12 on
+    // snow) front and rear, the transmission and the aids as asked, the gearbox's slider of the player's car with its range.
+    // They are not filled again after a run: the page shows the choice made (its script reads them back).
+    void fill_quick_tune(menu::QuickWork& w) {
+        quick_tune_filled_ = true;
+        const menu::RaceRequest& q = menus_->game().race;
+        const int tire = setup_.course_kind == 3 ? 12 : q.tire;
         w.set("QuickTunePowerLevel", 0), w.set("QuickTuneWeightLevel", 0);
-        w.set("QuickTuneFrontTireType", q.tire), w.set("QuickTuneRearTireType", q.tire);
+        w.set("QuickTuneFrontTireType", tire), w.set("QuickTuneRearTireType", tire);
         w.set("QuickTuneTransmission", q.manual ? 1 : 0);
         w.set("QuickTuneDrivingAssist", q.assist_asm ? 2 : q.assist_tcs ? 1 : 0);
         w.set("IsQuickTuned", 0);
+        sim::GearSliderRange gears;
+        if (db::SpecDb* sdb = app_.db(); sdb && !sdb->prologue() && app_.disc()) {
+            try {
+                const sim::Program program = sim::Program::load(*app_.disc());
+                sim::Equipment eq;
+                if (setup_.player_equipment) eq = *setup_.player_equipment;
+                else if (!sim::stock_car(*sdb, program, setup_.car, eq)) eq = {};
+                gears = sim::quick_tune_gears(*sdb, eq);
+            } catch (const std::exception& e) {
+                LOG_WARN("Drive: the Quick Tune's gears: %s", e.what());
+            }
+        }
+        w.set("QuickTuneGearMaxSpeed", gears.value), w.set("QuickTuneGearMaxSpeedMin", gears.min), w.set("QuickTuneGearMaxSpeedMax", gears.max);
+    }
+
+    // Arcade's race and time trial: the Quick Tune chosen on their menus, onto the player's car as the run starts (0x111DC0,
+    // 0x113248, after the aids: player_choice), when the page's OK set IsQuickTuned; then cleared. The car keeps it for the
+    // sequence's next runs; the other cars are not touched.
+    void apply_quick_tune() {
+        if (!menus_ || (sequence_ != "single_race" && sequence_ != "time_trial")) return;
+        db::SpecDb* sdb = app_.db();
+        menu::QuickWork& w = menu::quick_work(menus_->game());
+        if (!sdb || sdb->prologue() || !app_.disc() || w.get("IsQuickTuned") == 0) return;
+        w.set("IsQuickTuned", 0);
+        try {
+            const sim::Program program = sim::Program::load(*app_.disc());
+            sim::Equipment eq;
+            if (setup_.player_equipment) eq = *setup_.player_equipment;
+            else if (!sim::stock_car(*sdb, program, setup_.car, eq)) return;
+            sim::QuickTune t;
+            t.power_level = w.get("QuickTunePowerLevel"), t.weight_level = w.get("QuickTuneWeightLevel");
+            t.front_tire = w.get("QuickTuneFrontTireType"), t.rear_tire = w.get("QuickTuneRearTireType");
+            t.gear_top_speed = w.get("QuickTuneGearMaxSpeed");
+            gt3r::Vfs* vfs = app_.vfs();
+            sim::apply_quick_tune(*sdb, program, [vfs](const std::string& path) { return vfs->read(path); }, eq, t, setup_.course_kind);
+            setup_.player_equipment = eq;
+            race_->set_player_equipment(eq);
+            LOG_INFO("Drive: the Quick Tune: power %d%%, weight %d%%, tire kinds %d / %d, gearbox slider %d", int(eq.b(sim::Equipment::PowerPct)),
+                     int(eq.b(sim::Equipment::WeightPct)), int(sim::tire_kind(*sdb, eq, 0)), int(sim::tire_kind(*sdb, eq, 1)), int(eq.b(sim::Equipment::GearSlider)));
+        } catch (const std::exception& e) {
+            LOG_WARN("Drive: the Quick Tune: %s", e.what());
+        }
     }
 
     // A run of the race: driven (mode 0), watched (1, B-spec) or a demonstration (watched, no result).
@@ -3521,8 +3581,10 @@ private:
             // A Gran Turismo mode race already run: the page as before a race, no run.
             enter_quick(0);
         } else if (command == "COMMAND_START") {
+            apply_quick_tune();
             start_run(setup_.scripted && setup_.bspec);
         } else if (command == "COMMAND_SPECTATOR") {
+            apply_quick_tune();
             start_run(true);
         } else if (command == "COMMAND_CONTINUE" && guide_page_) {
             enter_quick(last_can_replay_, false);
@@ -4048,6 +4110,10 @@ private:
         prologue_test_start(app);
         // The B-spec driver's book as it is now (race_finished keeps the request's up to date between a sequence's races).
         if (menus_ && !sequence_.empty()) setup_.bspec_book = menus_->game().race.bspec_book, setup_.bspec_course_marks = menus_->game().race.bspec_course_marks;
+        // A standing start's hold as the event's row gives it (the machine tests' 7 s; every other race's row but the tests'
+        // says 10); a rolling start stays one (RaceBase::vf38), a test's start is its conductor's (load_test).
+        if (!setup_.start_given && setup_.start == race::StartType::Ten && app.db() && !app.db()->prologue())
+            race::row_start(setup_.event_row, setup_.start, setup_.start_seconds);
         try {
             load_test(app, setup_, menus_ && !setup_.demo_run ? menus_->game().race.race : setup_.race);
             race_ = std::make_unique<Race>(app, setup_, cars_);
@@ -4232,6 +4298,7 @@ private:
     std::string caption_for_, caption_title_, caption_artist_; // the replay's music caption (for the piece caption_for_)
     bool demo_ = false, reported_ = false; // the run is a demonstration; its result was given
     int last_can_replay_ = 0;
+    bool quick_tune_filled_ = false; // the Quick Tune's values filled for this sequence (fill_quick_tune)
     std::shared_ptr<const race::StrobeMovie> result_movie_;
     std::unique_ptr<race::StrobePlayer> result_;
     bool result_tried_ = false, result_exit_ = false;
