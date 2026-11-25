@@ -206,7 +206,7 @@ TEST(net_lobby_comers) {
     CHECK(guests[5]->lobby.take_error().find("full") != std::string::npos && !guests[4]->lobby.closed());
     host.session.kick(host.lobby.id_of(1));
     CHECK(pump(all, [&] { return guests[0]->lobby.closed() && host.lobby.count() == 5 && guests[1]->lobby.count() == 5; }));
-    CHECK(guests[0]->lobby.take_error().find("removed") != std::string::npos);
+    CHECK(guests[0]->lobby.take_error().find("emoved by the host") != std::string::npos);
     CHECK(host.lobby.name(1) == "Bob");
 }
 
@@ -239,7 +239,7 @@ TEST(net_lobby_identity) {
     CHECK(old.find("must be updated") != std::string::npos && old.find("GT3") == std::string::npos && old.find("http") == std::string::npos);
     CHECK(net::refusal_text("update required: the host has a newer version of the game (online protocol 9, yours 6). Please update GT3 Revisited to play online", false)
               .find("GT3") == std::string::npos);
-    CHECK(net::refusal_text("the session is full", false) == "the session is full");
+    CHECK(net::refusal_text("the session is full", false) == "The lobby is full.");
 }
 
 // A lobby through a rendezvous server of the test's own on the loopback: registered, found by its code, joined; and with
