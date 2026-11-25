@@ -12,6 +12,7 @@
 #include "gt4r/sim/ai/bspec_skill.h"
 #include "gt4r/formats/model/car_model.h"
 #include "gt4r/race/car_spec.h"
+#include "gt4r/sim/race_rules.h"
 #include "gt4r/sim/rules_wear.h"
 #include "gt4r/sim/session.h"
 #include "race/billboards.h"
@@ -215,6 +216,8 @@ void RaceWorld::build_simulation() {
             if (!noted_)
                 for (const std::string& note : session_->notes()) LOG_INFO("Drive: %s", note.c_str());
             sim_ = session_.get();
+            const sim::RaceRules race_rules = sim::race_rules(setup_.event_row, program);
+            session_->set_race_rules(race_rules.hits, race_rules.speed_cap, race_rules.penalty_cap);
             if (setup_.event_row.size() >= 0x74) { // the event's tire wear (the rule block's +0x2C .. +0x34, 0x35E108)
                 u8 rule_block[0x80] = {};
                 sim::rules::event_wear_bytes(setup_.event_row.data(), rule_block);
@@ -397,6 +400,8 @@ float RaceWorld::fuel_share(size_t i) const {
     const float tank = session_->tank(i);
     return tank > 0 ? std::clamp(session_->fuel(i) / tank, 0.0f, 1.0f) : 1.0f;
 }
+
+int RaceWorld::penalty_seconds(size_t i) const { return session_ && i < car_visuals_.size() ? session_->penalty_seconds(i) : 0; }
 
 float RaceWorld::car_mass(size_t i) const {
     // The parameter block's mass, P +0x48 (what the license rule 0x35FE80 divides a wall hit by).

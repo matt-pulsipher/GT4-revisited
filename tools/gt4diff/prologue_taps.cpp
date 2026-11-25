@@ -352,7 +352,8 @@ void add_prologue_taps(PTaps& taps, const Disc& disc, const std::string& course)
                       part.tires.curve_a[w] = gt3r::ee::int_to_f(c.ee.r8(c.car_addr + 0x138 + 0xA4 * w + 0x27)) * gt3r::ee::F::raw(0x3C000000);
                   const u32 rules = c.ee.r32(c.car_addr + 4) + 0x10780;
                   sim::prologue::AidRace r;
-                  r.speed_cap = {c.ee.r8(rules + 0x42), c.ee.r8(rules + 0x43)}, r.start_cap = c.ee.r8(rules + 0x4B);
+                  r.speed_cap = {c.ee.r8(rules + 0x42), c.ee.r8(rules + 0x43)}, r.penalty_cap = c.ee.r8(rules + 0x4B);
+                  r.penalty = c.ee.r8(c.car_addr + 0xD8 + 0x51E) != 0 || c.ee.r8(c.car_addr + 0xD8 + 0x51F) != 0;
                   sim::prologue::aids(c.car, part, g, r, c.inputs.aids);
               }});
     taps.add({0x3C4D80, "engine's ground frame, GT4's axes", [=](PTapCall& c) {

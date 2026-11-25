@@ -7,6 +7,7 @@
 #include "gt4r/sim/rules_prologue.h"
 #include "gt4r/sim/rules_effects.h"
 #include "gt4r/sim/rules_feel.h"
+#include "gt4r/sim/rules_phases.h"
 #include "gt4r/sim/rules_speeds.h"
 
 namespace gt4r::sim::prologue {
@@ -14,7 +15,14 @@ namespace gt4r::sim::prologue {
 // What these routines keep beside the engine's record.
 struct FeelPart {
     F speedo; // car + 0xC60: the speedometer (|speed| followed at 111.1 m/s a second)
+    u16 penalty = 0; // F + 0x51E / 0x51F (low, high): the steps left of the speed cap a hit gave
 };
+
+// 0x3C6078 (the race's judge of a hit, DynamicsConductor's virtual 45; Gran Turismo 4's 0x35FCC8 without its mark): whether a
+// hit gives the car a penalty: control source 0, its race not ended, the rules' +0x4A set and none running; a hit at the front
+// (rules::part_class < 3): a wall's (`kind` 0) change of speed (the impulse over the mass) at or past +0x49, a car's (1)
+// strength x 100 at or past +0x48.
+bool hit_penalty(const ex::Car& c, const rules::HitRules& r, int kind, int part, F strength, bool running);
 
 // The speeds' tables of a car (Gran Turismo 4's rules::SpeedTables in Prologue's places): the two-wheeler's lean and the
 // roll rate's switches (0x5042B8 / 0x5042B4, 0 in the image), the special row's (0x5040F8 + 0x78 row, by the parameter

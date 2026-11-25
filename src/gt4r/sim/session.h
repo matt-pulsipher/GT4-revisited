@@ -129,6 +129,15 @@ public:
     // +0x34) and whether the second wear may run (a single race on a paved course whose row allows it). Set before the start
     // (new tires take them); all off by default, as in every race seen.
     void set_wear_rules(const u8* rule_block, bool second_on, const Program& program);
+    // The race's rules of hits and speed caps (the rule block's +0x46 .. +0x4A, +0x42 / +0x43 and +0x4B, from the race's RACE row:
+    // Gran Turismo 4's 0x35E108, Prologue's 0x3C5978): a hit past the limits caps the car's speed at `penalty_cap` km/h for
+    // `h.penalty` seconds. All 0 (none) by default; holds until set again.
+    void set_race_rules(const rules::HitRules& h, std::array<u8, 2> speed_cap, u8 penalty_cap) {
+        hit_rules_ = h, aid_race_.speed_cap = speed_cap, aid_race_.start_cap = penalty_cap;
+    }
+    // The seconds left of a car's penalty as the race display counts them (Prologue's 0x3C6030, Gran Turismo 4's the same: the counter's
+    // steps + 59 over 60; 0 once the car's race ended).
+    int penalty_seconds(size_t i) const;
     // What the computer drivers' pit flow reads and changes (sim/ai/pit_flow.h): the fuel (liters) and tank, the distance and the
     // fuel since the economy display's last reading (F +0x4C8 / +0x4C4), the fuel counted at all (F +0x5D0's distance > 0 is the
     // flow's own test), a wheel's tread wear (+0xAC) and wear grip (+0x50); new tires on a wheel (0x362E58); the fuel set.

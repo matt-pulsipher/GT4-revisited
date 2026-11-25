@@ -886,19 +886,31 @@ public:
                 return;
             }
         }
-        // (Prologue's courses, Gran Turismo 3's roads: Gran Turismo 4's judge's rows and rules are not its own. ❓ Its own
-        // judge is not read: the stopping box above, the goal distance (judge_goal) and Gran Turismo 3's course-out rule:
-        // all four wheels on grass, gravel or sand (the road's materials 2, 3, 4, 6) but on a loose course fail at once, as
-        // the original's lesson 1 ends when the car runs onto the grass)
+        // Prologue's courses (Gran Turismo 3's roads): the judge's own rules (its DynamicsConductorLicense is Gran Turismo 4's,
+        // 0x3C1318 = 0x3F8D70, with its own rows: LicenseRules from them), but the wheels off the course counted by
+        // Prologue's own table (0x503E28: materials 2, 3, 4 and 6; `gt3_road_`'s flag) and not the pit lane: the program's
+        // rule applies it only inside the pit zone of the course (the distance along the lap, 0x42A670), ❓ not read here
+        // (a car in the pit lane is judged off the course only by its materials, not failed).
         if (gt3_road_) {
-            int off = 0;
+            race::LicenseStep s;
+            s.wheels = 4;
             for (const race::WheelState& w : c.wheels)
-                if (w.on_ground && (w.material == 2 || w.material == 3 || w.material == 4 || w.material == 6)) ++off;
-            if (off == 4 && setup_.course_kind != 2 && setup_.course_kind != 3) {
-                LOG_INFO("Drive: the test failed (off the course) at %.3f s", double(flow_.time_ms()) / 1000);
+                if (w.on_ground && (w.material == 2 || w.material == 3 || w.material == 4 || w.material == 6)) ++s.wheels_off;
+            s.off_counts = setup_.course_kind != 2 && setup_.course_kind != 3;
+            if (c.contact > 0 && c.contact_kind == 1) {
+                const float mass = world_->car_mass(0);
+                s.wall_hit = mass > 0 ? c.contact * 100000.0f / mass : 1e9f;
+            } else if (c.contact > 0 && c.contact_kind == 2) s.car_hit = c.contact;
+            s.cones = world_->gadget_contacts(0);
+            if (judge_.step(s) != race::LicenseFail::None) {
+                LOG_INFO("Drive: the test failed (%s) at %.3f s",
+                         judge_.fail() == race::LicenseFail::OffCourse ? "off the course" : judge_.fail() == race::LicenseFail::Hit ? "hit" : "judge",
+                         double(flow_.time_ms()) / 1000);
                 flow_.finish_now(0);
                 license_failed_ = true;
+                return;
             }
+            if (judge_.cones_done()) flow_.finish_now(0);
             return;
         }
         race::LicenseStep s;
@@ -1260,6 +1272,10 @@ public:
             q.assist_tcs = 1, q.assist_asm = 1, q.tire = 4;
             // An event's grid from its pool (`race=<label>`, no `opponents`).
             if (!setup_.race.empty() && setup_.opponents.empty() && setup_.cars > 1) draw_grid(app, setup_, q);
+            if (!setup_.race.empty() && setup_.event_row.empty()) // (a race of one car: its event's rules)
+                if (db::SpecDb* sdb = app.db())
+                    if (const std::optional<db::RaceEvent> e = db::RaceEvents(*sdb, [vfs](const std::string& path) { return vfs->read(path); }).event(setup_.race))
+                        setup_.event_row = e->bytes;
         }
         // A saved replay: its course and cars, then its steps played.
         std::optional<race::ReplayFile> saved;

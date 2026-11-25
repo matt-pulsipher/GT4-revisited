@@ -275,6 +275,35 @@ TEST(disc_prologue_license_target_times) {
     CHECK(with_gold == 46);
 }
 
+// The license tests' rules from their RACE rows (the race's copy 0x3C5978 and the switch 0x409AB8), in Gran Turismo 4's
+// columns: every test a wall-hit limit, tests with cones a count, tests with a time limit one.
+#include "gt4r/race/license_rules.h"
+
+TEST(disc_prologue_license_rules) {
+    Disc* disc = prologue_disc();
+    if (!disc) SKIP("no Prologue disc");
+    db::SpecDb db = open_db(*disc);
+    gt3r::Volume* vol = &disc->volume();
+    db::RaceEvents events(db, [vol](const std::string& path) -> std::optional<Bytes> {
+        const gt3r::Volume::Entry* e = vol->find(path);
+        return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
+    });
+    int tests = 0, walls = 0, cones = 0, timed = 0;
+    for (int n = 1; n <= 46; ++n) {
+        char label[16];
+        std::snprintf(label, sizeof label, "l0p%04d", n);
+        const std::optional<db::RaceEvent> e = events.event(label);
+        if (!e) continue;
+        const race::LicenseRules r = race::LicenseRules::from_row(e->bytes);
+        ++tests;
+        walls += r.wall_limit > 0, cones += r.pylons > 0, timed += r.time_limit > 0;
+        std::printf("  %s: kind %d, walls %d, cars %d, cones %d, time %d, +41 %d, +4A %d\n", label, r.kind, r.wall_limit, r.car_limit, r.pylons,
+                    r.time_limit, r.x41, r.x4a);
+    }
+    CHECK(tests == 46);
+    CHECK(walls > 0 && cones > 0 && timed > 0);
+}
+
 // The roads keep Gran Turismo 3's road block for the program's own ground query (Runway::gtrw), and a license course's
 // goal distance (the block's header +0x1C) lies inside the lap where its test ends: L_fisco6, test 2, 203 m from the line.
 TEST(disc_prologue_license_goal) {
@@ -327,4 +356,56 @@ TEST(disc_prologue_pairs_pass_equal) {
     CHECK(s.err.empty());
     CHECK(s.records == 6000 && s.clean == s.records);
     CHECK(s.with_slip > 0);
+}
+
+// The race's rules on our session (race_rules.h): lesson 1's speed cap (0x3E1C20: 50 km/h, as the original's lesson 1 drives),
+// and the Lupo cup's penalty: a hit at the wall past its limit, then the cap for ten seconds. Full throttle, no steering.
+#include "gt4r/sim/race_rules.h"
+
+TEST(disc_prologue_race_rules) {
+    Disc* disc = prologue_disc();
+    if (!disc) SKIP("no Prologue disc");
+    db::SpecDb db = open_db(*disc);
+    gt3r::Volume* vol = &disc->volume();
+    db::RaceEvents events(db, [vol](const std::string& path) -> std::optional<Bytes> {
+        const gt3r::Volume::Entry* e = vol->find(path);
+        return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
+    });
+    const sim::Program program = sim::Program::load(*disc);
+    auto run = [&](const char* label, int seconds) {
+        const std::optional<db::RaceEvent> e = events.event(label);
+        CHECK(e.has_value());
+        const sim::RaceRules r = sim::race_rules(e->bytes, program);
+        std::printf("  %s: cap %d, penalty %d s at %d km/h, walls %d, cars %d\n", label, r.speed_cap[0], r.hits.penalty, r.penalty_cap, r.hits.wall_limit, r.hits.car_limit);
+        const std::vector<std::string> labels{"civic_r_98"};
+        auto session = sim::Session::open(*disc, "tsukuba", labels);
+        session->set_race_rules(r.hits, r.speed_cap, r.penalty_cap);
+        std::vector<race::CarInput> in(1);
+        for (int k = 0; k < sim::Session::kHoldSteps; ++k) session->hold_once(in);
+        in[0].throttle = 1;
+        struct {
+            float top = 0, penalty_top = 0;
+            int penalty = 0, steps = 0;
+        } out;
+        for (int k = 0; k < seconds * 60; ++k) {
+            session->step_once(in);
+            const float v = std::fabs(session->cars()[0].speed) * 3.6f;
+            out.top = std::max(out.top, v);
+            const int p = session->penalty_seconds(0);
+            out.penalty = std::max(out.penalty, p);
+            if (p > 0) ++out.steps, in[0].brake = 0;
+            if (p > 0 && p < 5) out.penalty_top = std::max(out.penalty_top, v);
+        }
+        return out;
+    };
+    const auto lesson = run("l0p0001", 12);
+    std::printf("    top %.2f km/h\n", double(lesson.top));
+    CHECK(lesson.top > 49.0f && lesson.top < 51.0f);
+    CHECK(lesson.penalty == 0);
+    const auto cup = run("gt4p_lupo_cup_p", 40);
+    std::printf("    top %.2f km/h, penalty %d s (%d steps), top in its last 5 s %.2f km/h\n", double(cup.top), cup.penalty, cup.steps, double(cup.penalty_top));
+    CHECK(cup.top > 80.0f);
+    CHECK(cup.penalty == 10);
+    CHECK(cup.steps >= 600);
+    CHECK(cup.penalty_top < 52.0f);
 }

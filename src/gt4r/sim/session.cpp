@@ -342,6 +342,12 @@ void Session::set_fuel(size_t i, gt3r::ee::F liters) {
     gx_[i].drive.fuel.fuel = liters, gx_[i].aids.fuel = liters;
 }
 
+int Session::penalty_seconds(size_t i) const {
+    if (i >= cars_.size() || cars_[i].finished != 0) return 0;
+    const int steps = prologue_ ? prologue_feel_[i].penalty : gt4_rules_ ? gx_[i].aids.start_count : 0;
+    return (steps + 59) / 60;
+}
+
 int Session::gear_for_speed(size_t i, gt3r::ee::F speed) const {
     if (i >= cars_.size() || !gt4_ready_) return 0;
     return rules::gear_for_speed(cars_[i], gx_[i].drive, speed);
@@ -575,6 +581,9 @@ void Session::collide() {
         for (size_t i = 0; i < cars_.size() && i < prologue_contacts_.size(); ++i) {
             const prologue::Collision::Contact& k = prologue_contacts_[i];
             extra_[i].contact = k.strength, extra_[i].contact_kind = k.kind, extra_[i].contact_car = k.car;
+            if (k.kind != 0 && prologue::hit_penalty(cars_[i], hit_rules_, k.kind == 1 ? 0 : 1, k.part, k.kind == 1 ? k.sum * F::raw(0x47C35000) : k.sum,
+                                                     prologue_feel_[i].penalty != 0))
+                prologue_feel_[i].penalty = u16(hit_rules_.penalty * 60);
         }
         return;
     }
@@ -757,7 +766,9 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
         } else if (prologue_) { // Prologue's (0x3E0838)
             if (in.computer && driver_aids_[i]) c.ai.aids = *driver_aids_[i];
             prologue::AidRace r;
-            r.dirt = loose_, r.speed_cap = aid_race_.speed_cap, r.start_cap = aid_race_.start_cap;
+            r.dirt = loose_, r.speed_cap = aid_race_.speed_cap, r.penalty_cap = aid_race_.start_cap;
+            r.penalty = c.driver_kind != 5 && prologue_feel_[i].penalty != 0;
+            if (r.penalty) --prologue_feel_[i].penalty; // (0x3C5FE8)
             prologue::aids(c, prologue_cars_[i], prologue_aids_, r, race_.aids);
         } else ex::aids(c, race_.aids);
         if (gt4_rules_) rules::dynamics(c, gx_[i], layouts_[i], tables_, grip);

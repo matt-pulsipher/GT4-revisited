@@ -67,6 +67,14 @@ void speeds(ex::Car& c, FeelPart& x, const rules::WheelLayout& l, const rules::S
     rules::free_wheels(c, l);
 }
 
+bool hit_penalty(const ex::Car& c, const rules::HitRules& r, int kind, int part, F strength, bool running) {
+    if (gt3r::s8(c.control) != 0 || c.finished != 0 || r.penalty == 0 || running) return false;
+    if (rules::part_class(part) >= 3) return false;
+    if (kind == 1) return rules::past_limit(r.car_limit, strength * F::raw(0x42C80000));
+    if (kind == 0) return rules::past_limit(r.wall_limit, strength * c.p.inv_mass);
+    return false;
+}
+
 rules::SlideTables slide_tables(const Program& program) {
     std::array<u8, 0x210> b{};
     for (u32 k = 0; k < b.size(); ++k) b[k] = program.b(kEffectsBlock + k);
