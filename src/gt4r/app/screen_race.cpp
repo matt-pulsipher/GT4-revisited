@@ -3598,7 +3598,7 @@ private:
         if (kind != trophy_kind_) {
             trophy_kind_ = kind, trophy_.reset();
             trophy_motion_.start(kind);
-            trophy_ticks_ = SDL_GetTicksNS();
+            trophy_ticks_ = App::frame_time_ns();
             try {
                 const std::optional<Bytes> f = app.vfs()->read("race/trophy.mdl");
                 if (f && gt3r::has_magic(*f, "GTM1")) { // (Prologue's: Gran Turismo 3's model, 0x572B68's sets)
@@ -3628,7 +3628,7 @@ private:
                                                       race::LicenseTrophy::kFar);
         race_->draw_model(ui, rect, *trophy_, trophy_motion_.matrix(), proj, std::clamp(trophy_motion_.fade.value, 0.0f, 1.0f) * panel.opacity, prologue_license_);
         // Stepped by the time shown, 1/60 s a picture of the original's (two half steps a picture).
-        const Uint64 now = SDL_GetTicksNS();
+        const Uint64 now = App::frame_time_ns();
         float dt = std::min(float(double(now - trophy_ticks_) / 1e9), 0.1f);
         trophy_ticks_ = now;
         while (dt > 0) {
