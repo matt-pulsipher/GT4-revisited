@@ -265,7 +265,7 @@ engine's Gran Turismo 3 code). The player notices them roughly in this order.
 | The opening shots (start motion, replay start) | `start_camera.*` | GT4 (CameraPathanim 0x37D338, 0x37D620) | |
 | The replay cameras (TV shots), their choice by distance | `replay_script.*` | GT4 (0x37C138, 0x3FD980 → 0x3DDFF0); the dissolve's drawing judged | |
 | The scenic shots behind the menus | `replay_script.*` `ScenicCamera` | GT4 (mode 5, 0x375980) | |
-| The driving views | `drive_camera.*` | the car's camera places (CAR4); their springs ❓ | |
+| The driving views | `drive_camera.*` | the car's camera places (CAR4); the on-board lens as the original shows it (61.2 degrees: its K and its chase pictures, camera.md); their springs ❓ | how the program's 90 degrees becomes it (the screen's scale) |
 | Laps, crossings, times, finish | `race_flow.*` | GT4 (0x358608, vf21 0x357B98); the race order's comparison judged | the order routine (❓ not found) |
 | License tests' rules | `license_rules.*`, `judge_license` | GT4 (0x3F8D70, 0x369888 → vf49, 0x35FE80); the hits' strengths from the simulation's contact (its sum per step, not the program's per hit), the mass P +0x48 | the hit records 0x350530 (`sim-step`) |
 | Cones and boards knocked about | `gadget_bodies.*` | GT4 (0x3E2B28 with 0x3E3748 / 0x3E3840, 0x3E44E8 / 0x3E4708, 0x3E3C48 / 0x3E3ED0 / 0x3E43B8, 0x3E5108, set-up 0x3E2710; course.md "Cones and boards: the bodies") in host floats; the road query and the car boxes' extents judged | the road query 0x3E5A30; the car record's box extents (+0x48C .. +0x494) |
@@ -276,7 +276,8 @@ engine's Gran Turismo 3 code). The player notices them roughly in this order.
 | The driver's view's fuel arc and pedal bars | `race_hud.cpp` `draw_bars` | GT4 (0x3A8968: places, steps, colours); the fuel gauge's flag +0x1B judged (always) | |
 | The suggested gear | `race_hud.cpp` `draw_suggested_gear`, `RaceWorld::suggested_gear` | GT4 (the driver's suggestion 0x469E58, `ai-drivers`; the gear 0x36BF68, the session's); its drawing judged | the display's vf5 0x3A7108 |
 | The license display's trophy times | `race_hud.cpp` | places judged | RaceLicenseDisplay::vf9 |
-| B-spec's display and commands | `race_hud.cpp`, `screen_race.cpp` | display mode 1 GT4; the pace bar, speed plate and help strip places judged; Select Car's order ❓ | the B-spec display's routines |
+| B-spec's display and commands | `race_hud.cpp`, `screen_race.cpp` | display mode 1 GT4; the meters the followed car's; the pace bar, speed plate and help strip places judged; Select Car's order ❓ | the B-spec display's routines |
+| B-spec's driver record and skill | `race_world.cpp` | GT4 (the book's record 0x468710, `gt-mode-2`; the skill 0x468C50 and the experience, `ai-drivers`); the skill's course flag (cond + 0xCBE7) taken as the course's marks being known ❓ | the flag's writer |
 | The replay's card, logo, caption timings | `screen_race.cpp` `fill` | **judged** (3 s, 4.5–14 s) | their caller's times |
 | The results and pause pages | `strobe*`, `screen_race.cpp` | GT4 movies and callbacks | |
 | Sun, glare, lamp glows, billboards, smoke, wet road, the scenery's fade | `race_world.cpp`, `course_scene.cpp` | **engine** routines on GT4's layouts (`gt3r::race::SunGlare`, `SunDisc`, `LampGlows`, `Billboards`, `CarLampGlows`, `TyreSmoke`, `WetRoad`, `SceneryFade`) | GT4's own effect routines (not read) |
