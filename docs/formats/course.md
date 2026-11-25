@@ -574,7 +574,10 @@ Code: `runway.*`. All 110 roads read (`gt4tool runway-survey`). Offsets from the
 0x4E u16 wall vertices      0x84 u32 -> 0x10 bytes: f32 x, y, z, u32 tag
 0x88 u32 wall lookups       0x8C u32 -> s16[]
 0x52 u16 pit stops          0x90 u32 -> as grid places
-0x54 u16 sections           0x9C u32 -> the sections
+0x54 u16 sections           0x9C u32 -> the sections, 0x20 bytes each: f32 start, f32 goal (distances along
+                                         the course), then u16 ❓, u16 (a count of 1 on these) and three
+                                         pointers: +0x18 -> the section's own start places, as a grid place
+                                         {f32 x, y, z, heading}
 ```
 
 - **A triangle's surface**: its byte +0x06, bits 0-4, is the material (US disc, all courses:

@@ -683,7 +683,8 @@ public:
             WorldEntry e = world_->setup().entries[i];
             e.equipment = entries[i].equipment, e.grid_place = entries[i].grid_place;
             e.automatic = entries[i].automatic, e.asm_on = entries[i].asm_on, e.tcs_on = entries[i].tcs_on;
-            if (i == 0 && on_section_) e.start_distance = section_start_; // (a test on a section: its start)
+            if (i == 0 && on_section_) e.place = section_place_; // (a test on a section: its start place)
+            if (i == 0 && on_section_ && !section_place_) e.start_distance = section_start_;
             over[i] = e;
         }
         world_->set_computer_player(false);
@@ -700,7 +701,8 @@ public:
         demo_run_.reset();
         if (on_section_) {
             WorldEntry e = world_->setup().entries[0];
-            e.start_distance = section_start_;
+            e.place = section_place_;
+            if (!section_place_) e.start_distance = section_start_;
             world_->set_entry_overrides({e});
         } else world_->set_entry_overrides({});
     }
@@ -727,6 +729,11 @@ public:
         h.speed = me.speed, h.rpm = me.engine_rpm, h.gear = me.gear;
         h.throttle = me.throttle, h.brake = me.brake;
         h.fuel = replaying_ ? 1.0f : world_->fuel_share(shown_car);
+        // The tire diagram: only in a race that wears its tires (the display's flag), each wheel in the color of its
+        // wear level; B-spec's pit command waiting.
+        h.tires_on = !replaying_ && !demo && world_->wears_tires();
+        for (int w = 0; w < 4; ++w) h.tire_rgb[w] = h.tires_on ? race::tire_color(world_->tire_level(shown_car, w)) : 0;
+        h.pit_command = watched_ && !replaying_ && world_->pit_requested(shown_car);
         h.suggested_gear = replaying_ || watched_ || demo ? -1 : world_->suggested_gear(0);
         h.trip_m = replaying_ ? 0 : distance_;
         h.lateral_g = replaying_ ? 0 : lateral_g_;
@@ -963,9 +970,9 @@ public:
         section_prev_ = c.course_v;
     }
     // The test's rules; a test on a section of the road (CFG +0x21, vf26 0x34CA20 → K +0xCBE2) starts at the
-    // section's start when it lies 1 m .. the lap less 1 m along (0x34C3E0: whole metres; the car on the driving
-    // line there, 0x363B10) and ends at its goal when that lies in the same range (0x34C470, checked by the lap
-    // routine 0x358608 → vf23).
+    // section's start, on the section's own grid place (a plain grid start: RoadSection::grid, 0x3952C0; ❓ else the
+    // road's distance to the line) and ends at its goal when that lies 1 m .. the lap less 1 m along (0x34C470, checked
+    // by the lap routine 0x358608 → vf23).
     void set_license_rules(const race::LicenseRules& r) {
         judge_ = race::LicenseJudge(r);
         goal_ = -1, on_section_ = false;
@@ -978,8 +985,10 @@ public:
             const float start = std::trunc(sec.start);
             on_section_ = true;
             section_start_ = start > lap * 0.5f ? start - lap : start;
+            section_place_ = sec.grid.empty() ? std::nullopt : std::optional<course::Runway::Place>(sec.grid[0]);
             WorldEntry e = world_->setup().entries[0];
-            e.start_distance = section_start_;
+            e.place = section_place_;
+            if (!section_place_) e.start_distance = section_start_;
             world_->set_entry_overrides({e});
             begin_run(watched_);
         }
@@ -1173,6 +1182,7 @@ private:
     bool gt3_road_ = false;                           // the road is Gran Turismo 3's (Prologue's courses)
     race::LicenseJudge judge_;
     float goal_ = -1, section_prev_ = -1, section_start_ = 0; // a test on a road section: its goal and start (m)
+    std::optional<course::Runway::Place> section_place_; // ... and its own start place
     bool on_section_ = false;                                // it starts at the section's start
     std::vector<std::vector<float>> run_dist_; // per car, per step since the start: its distance from the line
     size_t focus_ = 0; // B-spec: the car the views follow

@@ -216,6 +216,7 @@ void RaceWorld::build_simulation() {
                 entries[i].asm_on = we.asm_on, entries[i].tcs_on = we.tcs_on;
                 entries[i].start_speed = we.start_speed;
                 entries[i].start_distance = we.start_distance;
+                entries[i].place = we.place;
                 // An event's race counts fuel (0x35E108 sets the rule block's +0x4C to 80); a run without laps (practice, a
                 // free run) runs on the free-run conductor, whose rule block holds 0 there (the original's Practice state).
                 entries[i].fuel = setup_.event_row.size() > 0x43 && setup_.event_row[0x43] != 0;
@@ -267,7 +268,6 @@ void RaceWorld::build_simulation() {
                     sim::ai::PitRace pr;
                     pr.laps = setup_.laps;
                     pits_ = std::make_unique<sim::ai::PitStops>(*field_, program, setup_.entries.size(), sim::ai::PitHooks{}, pr);
-                    place_on_line(entries);
                 } catch (const std::exception& e) {
                     if (!noted_) LOG_WARN("Drive: no computer drivers (%s); the simple driver drives", e.what());
                 }
@@ -289,25 +289,6 @@ void RaceWorld::build_simulation() {
     for (size_t i = 0; i < pace_kmh_.size(); ++i) {
         const WorldEntry& we = i < overrides_.size() && overrides_[i] ? *overrides_[i] : setup_.entries[i];
         pace_kmh_[i] = we.start_speed * 3.6f;
-    }
-}
-
-// A car started standing at a distance along the course (a license test on a road section) stands on the course's
-// driving line there, not the road's middle (0x363B10 for start kinds 1 .. 5 → 0x34C5E0 → 0x46ADE8): line 6 (the
-// main line) at that distance wrapped into the lap, facing the line's place 10 m on.
-void RaceWorld::place_on_line(std::span<const sim::Entry> entries) {
-    if (!field_ || !session_) return;
-    const sim::ai::CourseLines& lines = field_->lines();
-    const int k = lines.resolve(6);
-    if (k < 0) return;
-    for (size_t i = 0; i < entries.size(); ++i) {
-        const sim::Entry& e = entries[i];
-        if (std::isnan(e.start_distance) || e.start_speed > 0) continue; // (a rolling start: the session's own place)
-        float x = 0, y = 0, h = 0, x10 = 0, y10 = 0, h10 = 0;
-        if (!lines.evaluate(k, 0, e.start_distance, x, y, h) || !lines.evaluate(k, 0, e.start_distance + 10, x10, y10, h10)) continue;
-        // The record's heading: the course frame's (x, h, -y) heading of the way on, turned half a turn (Session::setup).
-        const float heading = std::atan2(x10 - x, -(y10 - y)) + kPi;
-        session_->place_standing(i, gt3r::ee::F(x), gt3r::ee::F(y), gt3r::ee::F(h), gt3r::ee::F(heading));
     }
 }
 

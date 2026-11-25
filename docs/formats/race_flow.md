@@ -172,6 +172,16 @@ the cars ahead by 50 % from 10 to 50 m); the other tests kind 2, Super License a
 the coffee breaks kind 1 or 3 with 100 or 50 cones; the missions kind 2 or 3 with 1 to 5 other cars and
 CFG +0x4A 5. Every test: wall limit 8 (B-1/2/6/7: 0), car limit 40. Races: kind 0.
 
+**The start of a test on a road section** (B-3: CFG +0x21 = 2, vf26 0x34CA20): a plain grid start (start kind 0,
+so the driving-line rule 0x34C5E0 for kinds 1 .. 5 does not apply): the car stands on the place 0x3952C0 reads for
+the section, from the road's section record (+0x9C + 0x20 x section, +0x18) instead of the road's grid (+0x5C):
+Deep Forest's section 2 gives (-8.891, 7.280, -256.900) heading -1.563 rad in the course frame, and the car then
+stands at 3505.52 m along the course (checked against the program's own set-up run in the interpreter, `floats`).
+Its goal is the section's, reached at 0x34C470 when it lies 1 m .. the lap less 1 m along. Here `RoadSection::grid`,
+`WorldEntry::place` and `sim::Entry::place` (`screen_race.cpp` `set_license_rules`); the stand-in of earlier rounds
+(the section's start on the driving line) was wrong. B-3's demonstration recording, played through it, takes the corner
+and returns to the test's page (the car's whole path bit-identical to the program's from this pose, `floats`).
+
 **The judge** (`DynamicsConductorLicense::vf15` → 0x3F8D70, each step for the player's car while its run
 has not ended, F +0x4B2 clear) reads the rule bits F +0x4B3 and fails the test with kind 3 for bit 2, 5 for
 bit 4, 4 for bit 1 (0x3F8980: event 10, the run's time none). Then by the test's kind: 1, the stop in the
@@ -269,7 +279,7 @@ engine's Gran Turismo 3 code). The player notices them roughly in this order.
 | Laps, crossings, times, finish | `race_flow.*` | GT4 (0x358608, vf21 0x357B98); the race order's comparison judged | the order routine (❓ not found) |
 | License tests' rules | `license_rules.*`, `judge_license` | GT4 (0x3F8D70, 0x369888 → vf49, 0x35FE80); the hits' strengths from the simulation's contact (its sum per step, not the program's per hit), the mass P +0x48 | the hit records 0x350530 (`sim-step`) |
 | Cones and boards knocked about | `gadget_bodies.*` | GT4 (0x3E2B28 with 0x3E3748 / 0x3E3840, 0x3E44E8 / 0x3E4708, 0x3E3C48 / 0x3E3ED0 / 0x3E43B8, 0x3E5108, set-up 0x3E2710; course.md "Cones and boards: the bodies") in host floats; the road query and the car boxes' extents judged | the road query 0x3E5A30; the car record's box extents (+0x48C .. +0x494) |
-| The demonstrations | `screen_race.cpp` `begin_demo`, `sim/ai/demo_driver.*` | GT4 (the recordings, `ai-drivers`); the card's tire word is the race's, not the car's ❓ | |
+| The demonstrations | `screen_race.cpp` `begin_demo`, `sim/ai/demo_driver.*` | GT4 (the recordings, `ai-drivers`; a section test's start at the section's grid place); the card's tire word is the race's, not the car's ❓ | |
 | The pad's controls | `screen_race.cpp` (`gt3r::race::ControlMapper`) | **engine** (GT3's mapping) | the input phase 0x349FD0 (`sim-step`) |
 | Looking back | `gt3r::race::look_back_held` | **engine** | ❓ not read |
 | The race display: places, numbers, meters | `race_display.*`, `race_hud.*` | GT4 tables (RaceDisplay); the speedometer's face by the car's top speed estimate (P +0xFD8); how some parts move their pictures judged | the meters' drawing routines |
