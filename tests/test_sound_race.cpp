@@ -298,7 +298,7 @@ TEST(sound_race_contact_recorder_on_disc) {
     const std::string cars[] = {"nsx_r_02"};
     const std::unique_ptr<sim::Session> s = sim::Session::open(*disc, "tsukuba", cars);
     race::CarInput in;
-    in.throttle = 1;
+    in.throttle = 1, in.steer = 0.05f; // (a touch of steering: straight on, the car meets the wall on two points at once)
     int steps = 0, single = 0, stronger = 0, silent = 0;
     for (int i = 0; i < 40 * 60 && steps < 60; ++i) {
         s->step_once({&in, 1});
