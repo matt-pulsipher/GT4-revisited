@@ -5,6 +5,7 @@
 
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/formats/course/runway.h"
+#include "gt4r/race/aspec_points.h"
 #include "gt4r/race/race_flow.h"
 #include "gt4r/race/car_pose.h"
 #include "gt4r/race/drive_camera.h"
@@ -688,4 +689,33 @@ TEST(race_flow_start_crossings) {
         }
         CHECK(flow.car(0).finished && crossings == (past ? 1 : 2));
     }
+}
+
+TEST(race_aspec_points) {
+    using gt3r::ee::F;
+    const std::vector<F> equal{F(0.5f), F(0.5f), F(0.5f)};
+    CHECK(race::aspec_points(equal, 0, false, false) == 60);  // 0.03 x 200 x 10
+    CHECK(race::aspec_points(equal, 0, false, true) == 140);  // (0.07)
+    CHECK(race::aspec_points(equal, 0, true, false) == 250 && race::aspec_points({equal.data(), 1}, 0, false, false) == 0);
+    const std::vector<F> stronger{F(0.6f), F(0.5f)}, strongest{F(0.9f), F(0.1f)}, weaker{F(0.2f), F(0.9f)};
+    CHECK(race::aspec_points(stronger, 0, false, false) == 3); // (-0.07 x 10 + 1) x 10
+    CHECK(race::aspec_points(strongest, 0, false, false) == 1 && race::aspec_points(weaker, 0, false, false) == 200);
+}
+
+TEST(race_flow_goal_places_and_laps) {
+    // A test with another car that ends at its goal: the finished car is placed ahead of the one still running, and a lap on the
+    // way keeps no time.
+    Field f({2.0f, 2.5f}, 5);
+    race::FlowSetup s;
+    s.start = race::StartType::None, s.laps = 1, s.lap_length = kLap;
+    s.test_kind = 2, s.goal = kLap * 0.6f;
+    race::RaceFlow flow(s, f.cars);
+    for (int i = 0; i < 4000 && !flow.car(0).finished; ++i) f.step(), flow.step(f.cars);
+    CHECK(flow.car(0).finished && flow.car(1).finished);
+    CHECK(flow.place(1) == 1 && flow.place(0) == 2);
+    Field g({2.5f, 2.0f}, 5);
+    race::RaceFlow first(s, g.cars);
+    for (int i = 0; i < 4000 && !first.car(0).finished; ++i) g.step(), first.step(g.cars);
+    CHECK(first.car(0).finished && !first.car(1).finished && first.place(0) == 1);
+    CHECK(first.car(0).last_lap_ms < 0);
 }

@@ -903,6 +903,7 @@ public:
     // (❓ the program's event 15 and its gap's partner, the car ahead or the leader, not read).
     void step_splits() {
         if (splits_.empty() || flow_.steps_since_start() < 0) return;
+        if (const int kind = flow_.setup().test_kind; kind != 0 && kind != 6 && world_->car_count() > 1) return; // (0x3F63A0: no section times in a test with other cars)
         const std::span<const race::CarState> cars = world_->cars();
         split_prev_.resize(cars.size(), -1);
         for (size_t i = 0; i < cars.size(); ++i) {

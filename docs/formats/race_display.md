@@ -197,6 +197,8 @@ opaque. Setting a color also sets the outlined fonts' outline: black, with alpha
 
 - Text `"%d/%d"`: the lap being driven (at most 999) and the race's laps; `"%d"` alone when the
   race has no lap count.
+- Not drawn (the byte +0x3A: 0x39B874) on a road section (0x34C470: its start 1 m .. the lap less 1 m along), on a course without
+  a lap (COURSE +0x12) and in a license test that counts cones (0x3BCE70).
 - Font `FC_26*80,80`, color 0x80C8C8C8, plain draw: left edge from the anchor (middle at
   x 135, tied left) using the text's width, baseline at y (74: the vertical anchor 1 puts the
   line's bottom, top + line height, at y). When the text is wider than the element's width
@@ -536,6 +538,7 @@ name).
 | Information | Event line | `hn_20R#1`, color 0x80C8C8C8, 3 s: "Final Lap" (key `EnduranceFinal`), "%d laps left", "%s is making a pit stop", ... |
 | Wrong way | Status message 0x228C (320, 430 in the chase views; 320, 348 in the driver's) | The picture `GT4_meter_texture_wrongway` (32 x 32, a no-entry sign), color 0x80FFFFFF, blinking: period 0.2 s, on for 0.3 of it, rise 0.05 s, fall 0.1 s; kept up while the car goes the wrong way |
 | Other status lines | 0x228C | Text in `hn_20R`, color 0x80C8C8C8 ("AUTO DRIVE", pit messages, ...) |
+| A penalty | 0x228C | The word `Penalty` with the seconds left (0x35FC80), color 0x800000C8 (RaceDisplay::vf27); before the pit messages |
 | Replays | 0x2A6C; 0x1170 | `JP/replay` (144 x 32) at 32, 34; the logo `JP/gt_logo_mini` (188 x 50) with its right bottom corner at (604, 441), tied right |
 
 The lap-time and best-time elements blink / fade through the same helpers when a lap is

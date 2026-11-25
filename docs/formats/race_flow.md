@@ -85,7 +85,8 @@ clock flag whichever car it is: **the clock starts when the first car takes the 
 timed from the clock's start (F +0x614 is left at 0; the lap virtual 21 sets it from the second crossing on).
 **The opening shots**: the camera manager's state (0x3FD620, from its routines 0x374E90, 0x3751F0, 0x3754F0,
 0x376AF0) is 4, the course's TV shots, while its car's pace answers 1, so the shots end when the followed car
-is 3 s at the start's speed short of the line. ✔ Against the original's Tsukuba start (the field at 50 mph,
+is 3 s at the start's speed short of the line; a car already past the line (a section's start) has no shots. ✔ Mission 21's end
+between 3.68 and 4.18 s in the original's picture, 3.85 s here; mission 1 has none. ✔ Against the original's Tsukuba start (the field at 50 mph,
 the clock starting during the last shot, the player's view about 1.5 s later, the line 4.2 s after the clock's
 start at 56 mph): here (the Ford Ka '01, 6 cars) the view at 1.62 s, the line at 4.47 s and 55 mph.
 **The held starts** (missions): K +0xCBFC + 4 i, car i's start count,
@@ -242,6 +243,15 @@ reaching 0 end the run timed. Kinds 3 and 6 end at the lap's line when the laps 
   |j| / 15000) x 100 against CFG +0x48 when 0x35FBC8(other) is under 3; kind 2 (a cone or board, 0x3E3C48)
   fails when the test counts no cones, else counts one (0x35DF28, up to the count). A limit (0x35FC10):
   0 any hit, 255 none, else the truncated value at or over it. A hit sets F +0x4B3 bit 1.
+- **A mission** (DynamicsConductorMission over the training's conductor): its virtuals 46 and 47 answer 0 (wheels off the
+  course and on the pit lane count nothing) and its 50 is a race's (0x35FCC8: a hit past the row's limits gives the penalty's
+  seconds, CFG +0x4A), so nothing but its end stops it; the judge's other ends are the test's. ✔ Mission 1's wall hit goes on
+  under "5 sec. penalty" as `21-gtmode-deep`.
+- **Lap and section times with other cars** (0x3F6588, 0x3F63A0: CFG +0x40, the cars less one, not 0 and the kind not 6): not kept
+  and not shown; the lap still counts.
+- **The places** (0x365BC0, the comparison 0x3659E8): more crossings first; two finished cars by the moment (F +0x614), two
+  running ones by the distance; of one finished and one running on equal crossings the running one, but the finished one in a
+  test of kind 2 (the goal) or on a course without a lap (K +0xCBDE = 1).
 - **The cones' reports** (0x3E3C48, each step per gadget, skipped once the body's +0x45 is set): each car's
   five planes (0x621D28, 0x50 bytes a car) against the body's middle with its kind's radius, then its hull
   points; a hull point inside all five is a contact: the impulse (0x3E3ED0) added to the body's +0x54, the
@@ -259,6 +269,18 @@ the box's far end (`lic3`), as the original's; braking into the box passes (9.84
 The other sequences (time trial, events, championships, licenses, missions, machine test, free
 run, practice) and their projects are listed in `race_natives.cpp` (`quick_project`); only the
 single race's commands are run here.
+
+## A-spec points
+
+Offered by a race (0x3C0FF8) with other cars: 250 in a mission (the race's virtual 95 is 10); else from the cars' ratings (the
+parameter blocks' +0xFE0): the others' mean + 0.03 (0.07 on a course of kind 2, COURSE +0x10, for a car whose DRIVETRAIN +0x10 is not
+2, four wheel drive) less the car's own; below 0 that x 10 + 1 and at least 0.1, else x 200 and at least 1; x 10, at most 200,
+rounded. Taken at the end (0x3C1220, the race's +0x96C, what the result pages read): the same when the car's place is 1 and the
+B-spec driver drove none of it (car +0x7B0 0), else 0. The display's two lines (RaceDisplay::vf43 0x39C570, vf44 0x39C6D0; its
+virtual 42 asks the race's kind: the single race, missions, Gran Turismo mode's events): `AspecRaceFormat1` / `AspecRaceFormat2` as the
+race begins (0x39C33C a moving start: 0.2 s in, 2 s, fades 0.1 / 0.3 s; 0x39C18C a hold: 0.5 s in, the hold less 3.5 s within
+2 .. 5 s, fades 0.5 / 1 s), `AspecPointGet` / `AspecPointFormat` at the finish (1 s in, 2.7 s); `hb_24#1` at (320, 264) and, a 130 % and
+orange, (320, 304). ✔ "250 pt. Race" at 0'00.7 of missions 1 and 21.
 
 ## MQuickWork (`race_natives.*`)
 
@@ -354,4 +376,6 @@ engine's Gran Turismo 3 code). The player notices them roughly in this order.
 | Fitted wings | `car_visual.cpp`, `race_world.cpp` (the entry's WING part) | GT4 (0x4533A8's place and scale, callback 47 = 1); "spoiler taken off" (2) not reached: no part names it ❓ | |
 | Moving models | `race/animated_models.cpp` | GT4 (the models' scripts and their programs' register moves 0x44 .. 0x4B: seoul's and lasvegas's turning signs; programs with two switches of their own registers, Ice Arena's people: each pair of cases is a key; 37 more of its models move, their motion not compared with the original's; the skies' aeroplanes, not compared with the original's either) | which models the race draws at once |
 | The driver figure | `race/driver_figure.*`, `car_visual.cpp` (`GT4R_RACE` `driver=1`, off by default) | GT4 (the set: the car's own +0x34 or a character file by the cockpit kind 0x3B5438; its parts at the skeleton's nodes 0x3B1070; PELVIS at the seat, parts block +0x34, as saved states show on road cars; not checked on the open racers); the nodes the **stored pose** (judged: the posture not ported) | the posture 0x3B2708 and its solver 0x416FD8 (model.md "The driver in the car") |
+| Missions | `load_test`, `draw_grid` (the pool in its order), `judge_license`, `race_flow.*` | GT4. ✔ Mission 21 driven by the computers: 3'55.346, 3'57.123, 3'58.953, 4'00.795, 4'02.956 against the original's 3'55.340, 3'57.122, 3'58.953, 4'00.757, 4'02.952 (`31-progress6`, another player's car) | the win's page (no original) |
+| A-spec points | `race/aspec_points.*`, `RaceWorld::aspec_points`, `fill` | GT4 (0x3C0FF8, 0x3C1220, 0x39C570, 0x39C6D0) | the points of an event not compared with the original's |
 | Not built | | cone shadows | |
