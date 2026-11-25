@@ -106,6 +106,7 @@ int StartCamera::choose(float r) const {
 }
 
 void StartCamera::begin(const CameraMotion* motion, bool replay, int hold_steps, const course::Runway::Place& grid, const CarState& car) {
+    prologue_.begin(nullptr, false, 0);
     motion_ = motion && !motion->clips.empty() ? motion : nullptr;
     replay_ = replay;
     left_ = std::max(0, replay ? hold_steps + 60 : hold_steps - 60);
@@ -116,7 +117,8 @@ void StartCamera::begin(const CameraMotion* motion, bool replay, int hold_steps,
 }
 
 bool StartCamera::step() {
-    if (!active()) return false;
+    if (prologue_.step()) return true;
+    if (!motion_ || left_ <= 0) return false;
     --left_;
     const int c = choose(float(left_) / 60);
     if (c != clip_) clip_ = c, t_ = 0;
@@ -124,7 +126,8 @@ bool StartCamera::step() {
     return left_ > 0;
 }
 
-bool StartCamera::pose(ViewPose& out) const {
+bool StartCamera::pose(ViewPose& out, const gt3r::render::Mat4* car_body) const {
+    if (prologue_.active()) return car_body && prologue_.pose(*car_body, out);
     if (!active() || clip_ < 0) return false;
     const MotionClip& clip = motion_->clips[size_t(clip_)];
     const MotionPose m = motion_pose(clip, t_);

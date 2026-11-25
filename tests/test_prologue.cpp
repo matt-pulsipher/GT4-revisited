@@ -409,3 +409,43 @@ TEST(disc_prologue_race_rules) {
     CHECK(cup.steps >= 600);
     CHECK(cup.penalty_top < 52.0f);
 }
+
+// Prologue's opening shots (race/start_camera_prologue.h): the paths of slots 45 and 46 on every course that has them, cut in
+// the replay's last seconds (the original's grid page: one shot a second from 4 s before its end), each shot near the car.
+#include "gt4r/race/start_camera_prologue.h"
+
+TEST(disc_prologue_start_camera) {
+    Disc* disc = prologue_disc();
+    if (!disc) SKIP("no Prologue disc");
+    const gt3r::Volume::Entry* e = disc->volume().find("crs/tsukuba");
+    CHECK(e != nullptr);
+    if (!e) return;
+    const Bytes d = disc->volume().read(*e);
+    const course::CourseFile f = course::CourseFile::parse(d);
+    for (int k = 0; k < 2; ++k) {
+        const ByteSpan s = f.section(d, size_t(k ? race::kSlotPrologueReplayStart : race::kSlotPrologueStart));
+        CHECK(race::ReplayScript::is_script(s));
+        if (!race::ReplayScript::is_script(s)) return;
+        const race::ReplayScript script = race::ReplayScript::parse(s);
+        race::PrologueStartCamera cam;
+        cam.begin(&script, k == 1, 600);
+        gt3r::render::Mat4 body; // (the car at the origin)
+        int steps = 0, cuts = 0, dissolves = 0;
+        std::vector<int> at;
+        gt3r::render::Vec3 last{};
+        for (; cam.active() && steps < 2000; cam.step(), ++steps) {
+            race::ViewPose p;
+            CHECK(cam.pose(body, p));
+            CHECK(std::fabs(p.eye.x) < 60 && std::fabs(p.eye.y) < 20 && std::fabs(p.eye.z) < 60);
+            const gt3r::render::Vec3 to = p.eye - last;
+            if (steps && gt3r::render::length(to) > 1.0f) ++cuts, at.push_back(steps);
+            if (cam.dissolve() > 0) ++dissolves;
+            last = p.eye;
+        }
+        std::printf("  %s: %d steps, %d cuts%s%s, %d dissolves\n", k ? "replay" : "race", steps, cuts, at.empty() ? "" : ", the first at step ",
+                    at.empty() ? "" : std::to_string(at[0]).c_str(), dissolves);
+        CHECK(steps == (k ? 661 : 541));
+        CHECK(cuts >= (k ? 3 : 2));
+        CHECK(dissolves == (k ? 0 : 3));
+    }
+}

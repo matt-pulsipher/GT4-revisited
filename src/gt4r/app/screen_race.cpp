@@ -367,6 +367,15 @@ public:
                     LOG_WARN("Start shots: %s", e.what());
                 }
             }
+        if (start_motion_.clips.empty())
+            for (int k = 0; k < 2; ++k) // (Prologue's start cameras, race/start_camera_prologue.h)
+                if (const ByteSpan rep = world_->course().section(k ? race::kSlotPrologueReplayStart : race::kSlotPrologueStart); race::ReplayScript::is_script(rep)) {
+                    try {
+                        start_paths_[k] = race::ReplayScript::parse(rep);
+                    } catch (const std::exception& e) {
+                        LOG_WARN("Start shots: %s", e.what());
+                    }
+                }
         for (const course::Runway::Triangle& t : world_->course().road().triangles) stop_area_ = stop_area_ || (t.kind & 4) != 0;
         {
             // (Gran Turismo 3's road, Prologue's: a goal distance inside the lap ends a license test there)
@@ -426,7 +435,12 @@ public:
     // The scene behind the race's menus: the cars standing on the grid, the course's scenic shots
     // (the last run is kept for its replay).
     void stand() {
-        if (ran_) world_->restart();
+        // Prologue's page (Gran Turismo 3's road) runs the race behind it as a replay shows one: the computer drives the
+        // player's car too, the start's hold under the replay's start shots, then the course's replay cameras, the cars
+        // not heard (the original's Tsukuba page, reference/14-prologue/round5).
+        preview_ = gt3_road_ && setup_.skip == 0;
+        if (preview_) world_->set_computer_player(true);
+        if (ran_ || preview_) world_->restart();
         ran_ = true;
         menu_scene_ = true, replaying_ = false, over_ = false;
         prev_cars_.clear();
@@ -434,6 +448,13 @@ public:
         world_->clear_effects();
         scenic_.reset(&scenic_script_);
         start_camera_.begin(nullptr, false, 0, {}, world_->cars()[0]);
+        if (preview_) {
+            preview_hold_ = 10 * 60;
+            camera_.reset(world_->cars()[0]);
+            replay_camera_.reset();
+            tv_valid_ = false;
+            begin_start_camera(true, preview_hold_);
+        }
     }
     bool has_run() const { return !history_.empty(); }
 
@@ -454,7 +475,7 @@ public:
         start_replay();
     }
 
-    void begin_start_camera(bool replay) {
+    void begin_start_camera(bool replay, int hold_steps = -1) {
         const race::CameraMotion& m = replay ? replay_motion_ : start_motion_;
         const course::Runway& road = world_->course().road();
         course::Runway::Place grid;
@@ -462,13 +483,28 @@ public:
         // (The long clip's anchor: the place, its height from the road under it (0x3FCA08); a grid place's
         // own height is rough on some courses: Apricot Hill's are 4 m under the road, playtest B25.)
         if (float y; !road.grid.empty() && road.height_at(grid.pos.x, grid.pos.z, grid.pos.y + 50.0f, y)) grid.pos.y = y;
-        const int hold = replay ? flow_.hold_total() : flow_.hold_left();
-        start_camera_.begin(m.clips.empty() ? nullptr : &m, replay, hold, grid, replay && !history_.empty() ? history_[0][0] : world_->cars()[0]);
+        const int hold = hold_steps >= 0 ? hold_steps : replay ? flow_.hold_total() : flow_.hold_left();
+        if (m.clips.empty() && !start_paths_[replay ? 1 : 0].records.empty()) {
+            start_camera_.begin_prologue(&start_paths_[replay ? 1 : 0], replay, hold);
+            return;
+        }
+        start_camera_.begin(m.clips.empty() ? nullptr : &m, replay, hold, grid, replay && hold_steps < 0 && !history_.empty() ? history_[0][0] : world_->cars()[0]);
     }
 
     // One simulation step: the player's car from the pad (or the simple driver), the others by the
     // simple driver, each on its own side of the line.
     void step(const gt3r::PadState& pad, bool auto_drive) {
+        if (menu_scene_ && preview_) {
+            keep_previous();
+            const bool hold = preview_hold_ > 0;
+            if (hold) --preview_hold_;
+            for (race::CarInput& in : inputs_) in = {};
+            world_->step(inputs_, hold, true);
+            start_camera_.step();
+            camera_.step(world_->cars()[0], kStep);
+            step_tv(world_->cars()[0], 0);
+            return;
+        }
         if (menu_scene_) {
             const size_t shot = scenic_.shot();
             scenic_.step();
@@ -560,6 +596,8 @@ public:
         step_splits();
         beeps_ += ev.beep;
         start_camera_.step();
+        if (const float d = start_camera_.dissolve(); d > 0) begin_dissolve(int(std::lround(d * 60)));
+        if (start_paths_[0].records.size() && !demo && mount_ != kTvView) step_dissolve();
         const size_t f = focus();
         camera_.step(world_->cars()[f], kStep);
         if (mount_ == kTvView || opening || demo) step_tv(world_->cars()[f], f);
@@ -837,7 +875,7 @@ public:
 
     void render(Ui& ui, const SDL_FRect& rect, bool look_back) {
         std::span<const race::CarState> cars = shown();
-        const bool blend = blend_ < 1 && !menu_scene_ && prev_cars_.size() == cars.size() && !cars.empty();
+        const bool blend = blend_ < 1 && (!menu_scene_ || preview_) && prev_cars_.size() == cars.size() && !cars.empty();
         if (blend) {
             // A frame between two steps: the cars and the camera between their two places.
             blended_.resize(cars.size());
@@ -849,7 +887,7 @@ public:
         race::ViewPose pose = current_pose(shown(), look_back);
         if (blend) pose = race::blend_poses(previous_pose(look_back), pose, blend_);
         // A cut's dissolve: the last picture frozen at the cut, over the new one as it fades.
-        world_->set_dissolve(snapshot_, dissolve_total_ > 0 ? float(dissolve_left_) / float(dissolve_total_) : 0.0f, replaying_ || menu_scene_ || mount_ == kTvView);
+        world_->set_dissolve(snapshot_, dissolve_total_ > 0 ? float(dissolve_left_) / float(dissolve_total_) : 0.0f, replaying_ || menu_scene_ || mount_ == kTvView || start_camera_.active() || dissolve_total_ > 0);
         snapshot_ = false;
         world_->render(ui, rect, cars, pose, focus(), pose.body_hidden ? int(focus()) : -1);
         // The in-car view's rear-view mirror at the top (❓ its place, (190, 18) 259 x 63 of the
@@ -1055,9 +1093,9 @@ public:
         const race::CarState& me = cars[f];
         const render::Mat4 body = world_->visual(f).body_matrix(me);
         race::ViewPose pose;
-        const int view = replaying_ || demo_run_ || (!menu_scene_ && opening_tv()) ? kTvView : mount_;
-        bool posed = menu_scene_ && scenic_.pose(pose);
-        posed = posed || (start_camera_.active() && start_camera_.pose(pose));
+        const int view = replaying_ || demo_run_ || (menu_scene_ && preview_) || (!menu_scene_ && opening_tv()) ? kTvView : mount_;
+        bool posed = menu_scene_ && !preview_ && scenic_.pose(pose);
+        posed = posed || (start_camera_.active() && start_camera_.pose(pose, &body));
         // The replay cameras' shot for the car; the chase view where the script has none.
         if (!posed && view == kTvView && tv_valid_) pose = tv_pose_, posed = true;
         if (!posed) pose = camera_.pose(me, body, world_->visual(f).mounts(), view == kTvView ? race::DriveCamera::kChase : view, look_back || setup_.look_back);
@@ -1137,6 +1175,7 @@ private:
     float blend_ = 1;
     int dissolve_total_ = 0, dissolve_left_ = 0;
     race::CameraMotion start_motion_, replay_motion_;
+    std::array<race::ReplayScript, 2> start_paths_; // Prologue's: the race's and the replay's
     race::StartCamera start_camera_;
     race::RaceFlow flow_;
     race::ResultBoard board_;
@@ -1164,6 +1203,8 @@ private:
     race::ScenicCamera scenic_;
     std::vector<std::vector<race::CarState>> history_;
     bool replaying_ = false, replay_done_ = false, over_ = false, ran_ = false, menu_scene_ = false, watched_ = false;
+    bool preview_ = false; // the scene behind the menus is Prologue's run (stand)
+    int preview_hold_ = 0;
     size_t replay_at_ = 0;
     int event_steps_ = -1, event_lap_ = 0, beeps_ = 0;
     std::vector<float> splits_, split_prev_;          // the split points (m along the lap); each car's last place
