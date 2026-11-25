@@ -619,6 +619,7 @@ public:
         // B-spec: the pace "Steady", the low view from the car's nose (as the original's B-spec race
         // opens), the help strip shown.
         bspec_pace_ = 3, overtake_steps_ = 0, bspec_help_ = true, focus_ = 0;
+        snapshot_ = false, dissolve_total_ = dissolve_left_ = 0; // (a cut of the menus' scene behind the page ends with it)
         if (before_tv_ && mount_ == kTvView) mount_ = *before_tv_; // (the results page's cameras, back to the player's view)
         before_tv_.reset();
         if (watched) mount_ = race::DriveCamera::kInCar;
@@ -881,7 +882,7 @@ public:
         beeps_ += ev.beep;
         start_camera_.step();
         if (const float d = start_camera_.dissolve(); d > 0) begin_dissolve(int(std::lround(d * 60)));
-        if (start_paths_[0].records.size() && !demo && mount_ != kTvView) step_dissolve();
+        if (mount_ != kTvView && !opening && !demo) step_dissolve(); // (else step_tv's)
         const size_t f = focus();
         camera_.step(world_->cars()[f], kStep);
         step_gear(world_->cars()[f]);
