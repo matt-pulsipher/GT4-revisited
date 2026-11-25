@@ -249,6 +249,29 @@ std::vector<int> championship_grid_places(Runtime& rt, const std::vector<std::pa
     return championship_grid_places(kg, ps);
 }
 
+void start_quick_work(Runtime& rt, const RaceRequest& q) {
+    GameState& s = rt.game();
+    s.quick_work.reset();
+    QuickWork& w = quick_work(s);
+    if (q.sequence == "time_trial" || q.sequence == "freerun" || q.sequence == "machinetest") w.set("BestTime", s32(QuickWork::kNoTime)); // 0x112E78, 0x117718, 0x116070
+    if (q.sequence == "freerun") w.set("canLoadGhost", 1); // 0x117718
+    if (q.sequence == "machinetest") w.set("DisableLogger", 1); // 0x116124
+    if (q.sequence == "license_race") w.set("BestTime", s32(QuickWork::kNoTime)); // ❓ (Prologue's constructor is not read: dashes, as before)
+    if (q.sequence == "license") {
+        // Tests 5, 10 and 15 of B, A, IB and IA run in 0x114E38 (its fill 0x115310: no ghost to load, no Analyzer), the others
+        // in 0x11CB38 (0x11D340: a ghost to load unless the RACE row's byte +0x75 is set; ❓ the Analyzer's two other cases,
+        // 0x11D400, are not read).
+        const std::shared_ptr<GameNatives> n = natives_of(rt);
+        ByteSpan row;
+        for (const std::string& label : {q.race, "us" + q.race, "jp" + q.race})
+            if (row.empty() && n && !q.race.empty()) row = n->db().row("RACE", label);
+        const int test = q.race.size() >= 7 ? std::atoi(q.race.c_str() + 3) : 0;
+        const bool short_one = q.race.compare(0, 3, "l0s") != 0 && q.race.compare(0, 3, "l0c") != 0 && (test == 5 || test == 10 || test == 15);
+        if (short_one) w.set("DisableLogger", 1);
+        else w.set("canLoadGhost", row.size() > 0x75 && row[0x75] ? 0 : 1);
+    }
+}
+
 // The program's result routines (docs/formats/menu.md "After a race"). The race's menus' work
 // (MQuickWork) gets what the routines write into it: the prize, the rows in finishing order
 // (0x114390, 0x11A168, 0x11C1D8), the player's place, and a championship's grand prize and rank.
@@ -276,11 +299,14 @@ s64 Runtime::race_finished(const RaceResult& r) {
         return 15u;
     };
     // The B-spec driver's record back into its book (0x468AF0 -> 0x468860), and the course's marks.
-    if (r.bspec_record && (r.kind == RaceResult::Kind::Event || r.kind == RaceResult::Kind::Championship || r.kind == RaceResult::Kind::Course)) {
+    // (0x468AF0 is called by the event's sequence 0x113B48, the championship's 0x118EF0, the free run's 0x116E20 and photo
+    // drive's 0x11ABE0; not by practice's 0x1181C8 or the machine test's 0x115A90.)
+    const bool course_book = r.kind == RaceResult::Kind::Course && (r.course_kind == 1 || r.course_kind == 4);
+    if (r.bspec_record && (r.kind == RaceResult::Kind::Event || r.kind == RaceResult::Kind::Championship || course_book)) {
         std::optional<size_t> at = r.bspec_course ? bspec_course_unit(d, s, r.course) : std::nullopt;
-        // Doubled (0x468A60): a run whose conductor's vf6 gives 0 (a race; a free run's 0x3F5518, a license test's and a
-        // machine test's give 1. ❓ Free practice's gives 0 too: here every course's run is single), of two cars or more
-        // (cond + 0xF8A0), that the car finished (+0x5B6) in first place (its place byte +0x5B3 at 1).
+        // Doubled (0x468A60): a run whose conductor's vf6 gives 0 (a race; a free run's 0x3F5518 gives 1, photo drive's is a
+        // race's, but has one car), of two cars or more (cond + 0xF8A0), that the car finished (+0x5B6) in first place (its
+        // place byte +0x5B3 at 1).
         int first = r.place;
         for (size_t i = 0; i < r.order.size(); ++i)
             if (r.order[i].entry == 0) first = int(i);
@@ -333,12 +359,13 @@ s64 Runtime::race_finished(const RaceResult& r) {
     // The car's distance: what the race's step adds to the car's condition (0x35DE20).
     if (r.garage_slot >= 0 && size_t(r.garage_slot) < s.garage.size() && s.garage[size_t(r.garage_slot)].record && r.distance_m > 0)
         add_distance(d, *s.garage[size_t(r.garage_slot)].record, r.distance_m);
-    // The player's totals (0x10FA58, called by the event's sequence 0x113B48, the course's 0x115A90, the championship's
-    // 0x118EF0 and three more, not by the license tests' or the missions'; added at the sequence's end, 0x114058): the meters the B-spec driver drove (the car's +0x7B0) to
-    // the B-spec total, the rest (+0x6D4 less those) to the A-spec one, truncated, whatever the car. ❓ A run is taken as
-    // all one driver's: the race gives no split.
-    if (r.kind != RaceResult::Kind::License && r.kind != RaceResult::Kind::Mission && r.distance_m > 0)
-        (r.bspec_record ? s.bspec_distance : s.aspec_distance) += s64(r.distance_m);
+    // The player's totals (0x10FA58, called by the event's sequence 0x113B48, the machine test's 0x115A90, the free run's
+    // 0x116E20, practice's 0x1181C8, the championship's 0x118EF0 and photo drive's 0x11ABE0; not by the license tests',
+    // the missions' or Arcade's; added at the sequence's end, 0x114058): the meters the B-spec driver drove (the car's
+    // +0x7B0) to the B-spec total, the rest (+0x6D4 less those) to the A-spec one, truncated. ❓ A run is taken as all one
+    // driver's: the race gives no split.
+    const bool counted = r.kind == RaceResult::Kind::Event || r.kind == RaceResult::Kind::Championship || (r.kind == RaceResult::Kind::Course && r.course_kind != 7);
+    if (counted && r.distance_m > 0) (r.bspec_record ? s.bspec_distance : s.aspec_distance) += s64(r.distance_m);
     DayEvent day;
     s64 prize = 0;
     switch (r.kind) {

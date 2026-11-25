@@ -128,8 +128,8 @@ QuickWork::QuickWork() {
     for (const char* minus : {"QuickTuneFrontTireType", "QuickTuneRearTireType", "playerGridNumber", "SeriesRank", "PsValue", "TorqueValue",
                               "driveTrainType", "carCategory"})
         ints[minus] = -1;
-    // (BestTime: no run yet, shown as dashes on the test page.)
-    for (const char* none : {"goldTime", "silverTime", "bronzeTime", "BestTime"}) ints[none] = kNoTime;
+    for (const char* none : {"goldTime", "silverTime", "bronzeTime"}) ints[none] = kNoTime;
+    ints["BestTime"] = 0; // (+0x498: "0'00.000" on a license test's page before a run, as the original's)
 }
 
 s32 QuickWork::get(const std::string& name) const {
@@ -194,7 +194,7 @@ void install_race_natives(Runtime& rt, script::Module& menu) {
         o->method("getGridCarName", [r, row](Vm& vm, const Value&, Args a) {
             const QuickRow* q = row(a);
             if (!q || q->car.empty()) return text("");
-            return text(vm.attribute(make_car_object(*r, q->car, q->paint), "name").to_string());
+            return text(vm.attribute(make_car_object(*r, q->car, q->paint), "short_name").to_string()); // (0x120238 -> 0x445450: CAR_NAME +0x08)
         });
         o->property("licenseCarName", [r, work]() {
             const QuickWork& w = work();
