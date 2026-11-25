@@ -64,7 +64,7 @@ struct Pace {
     // past `start` metres, fully past `full` metres. All 0: none.
     float slow = 0, slow_start = 0, slow_full = 0, fast = 0, fast_start = 0, fast_full = 0, global = 1;
     // The same as the event row has them (+0x63 .. +0x6A: the overall percent (0: 100), the mode, the slowing's percent,
-    // start (m) and full gap (x 10 m), the hurrying's): what the race sets the band from (0x365480). All 0: no band.
+    // start (m) and full gap (x 10 m), the hurrying's): what the race sets the band from (0x365480). All 0: no change but the overall 100 x 0.01's.
     u8 band_global = 0, band_mode = 0, slow_pct = 0, slow_start_m = 0, slow_full_10m = 0, fast_pct = 0, fast_start_m = 0, fast_full_10m = 0;
     // The computer drivers differ by draws as they drive (the conductor's virtual 52: a single race's 0x3475B0 and the free
     // run's 0x3F5520 answer 1, and 0x469468 sets the tuning's bytes); off (the license tests', pace car tests', missions'
@@ -364,6 +364,7 @@ public:
 private:
     void proximity();
     void rubber_band();
+    static u16 seed(const Driver& d); // (0x4639E0's draw: seeded, one step)
     void decide(Driver& d);
     gt3r::ee::F braking(Driver& d);
     void bookkeeping_shift(Driver& d);

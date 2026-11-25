@@ -8,6 +8,7 @@
 
 #include "gt4r/formats/db/race_events.h"
 #include "gt4r/formats/replay/demonstration.h"
+#include "gt4r/race/start_rule.h"
 #include "gt4r/sim/program.h"
 
 #include <cmath>
@@ -25,9 +26,16 @@ constexpr u32 kConfigure = 0x34D418;       // (conductor, race information): the
 constexpr u32 kRunTimed = 0x3F8AB0;        // (conductor, car, time ms): the run ends timed
 constexpr u32 kRunFailed = 0x3F8980;       // (conductor, car, kind): the run ends failed
 constexpr u32 kCfg = 0xF818;               // the conductor's configuration (CFG)
-constexpr int kLicenseHold = 480;          // the license tests' start: 8 s
+constexpr u32 kStartCode = 0x447F08;       // (course): its start code's text (the UnistrDB string its row names)
 
 } // namespace
+
+bool DemoScore::race_exact() const {
+    if (laps.empty()) return false;
+    int total = 0, best = laps[0];
+    for (const int ms : laps) total += ms, best = std::min(best, ms);
+    return recorded_ms == (race_laps > 0 && int(laps.size()) >= race_laps ? total : laps.back()) && (best_ms < 0 || best == best_ms);
+}
 
 std::vector<std::string> demonstration_labels(Disc& disc) {
     db::SpecDb sdb = open_db(disc);
@@ -76,7 +84,7 @@ DemoScore run_recording(Disc& disc, const replay::Demonstration& recording, cons
     // (another region's file of a test: this disc's row of the same test, the label's first two letters changed)
     if (!ev && label.size() > 2) ev = events.event("us" + label.substr(2));
     if (!ev) return r.error = "the demonstration's event is not in the database", r;
-    r.race_class = d->race_class, r.course = ev->course, r.recorded_ms = d->time_ms;
+    r.race_class = d->race_class, r.course = ev->course, r.recorded_ms = d->time_ms, r.best_ms = d->time2_ms;
     r.frames = int(d->streams[0].frames.size());
 
     std::vector<std::string> labels;
@@ -107,6 +115,21 @@ DemoScore run_recording(Disc& disc, const replay::Demonstration& recording, cons
     boot(ee, disc, sdb);
     OrigRace o;
     const auto before_init = [&] {
+        // The course's start code (the strings' tables are not loaded: the answer given in place): a rolling start's digit and the
+        // marks' (K +0xCBE6 ..).
+        if (!license || std::getenv("GT4R_FLOATS_CODE")) {
+            const std::string code = race::course_start(sdb, course).code;
+            Bytes text(code.begin(), code.end());
+            text.push_back(0);
+            const u32 at = ee.alloc_bytes(text, 16);
+            ee.hle(kStartCode, [at](Ee& x) { x.set_v0(at); }, "course start code");
+        }
+        // A replay's mode (2, 3 a B-spec run's) as the race object's and the conductor's set-up have it (0x3F1760: 3 gives car 0 to
+        // its driver).
+        if (!license) {
+            o.mode = d->race_mode == 1 || d->race_mode == 3 ? 3 : 2;
+            ee.w32(ee.r32(o.info + 0x84) + 0xCC8, o.mode);
+        }
         if (print && opt.verbose) {
             ee.probe(0x3640DC, [&o](Ee& x) { std::printf("  set-up: 0x46B108 gives line %u, cond +0xCBDE %u\n", x.g32(2), x.r8(o.cond + 0xCBDE)); });
             ee.probe(0x34C5E0, [](Ee& x) { std::printf("  set-up: 0x34C5E0 a0 %08X a1 %08X a2 %d a3 %08X f12 %.3f f13 %.3f (from %08X)\n", x.g32(4), x.g32(5), s32(x.g32(6)), x.g32(7),
@@ -177,6 +200,7 @@ DemoScore run_recording(Disc& disc, const replay::Demonstration& recording, cons
         // A race: the player's line crossings as the conductor's virtual 21 gets them (a1 car index, a2 the laps done, t1 the
         // time in ms); the run ends at the race's laps (the race information's first word), or at the recording's end.
         const u32 vt = ee.r32(o.cond + kCondVtable), vf21 = ee.r32(vt + 8 * 21 + 4), laps = ee.r32(o.info);
+        r.race_laps = int(laps);
         ee.probe(vf21, [&end, &r, laps](Ee& x) {
             if (x.g32(5) != 0) return;
             r.laps.push_back(s32(x.g32(9)));
@@ -203,13 +227,17 @@ DemoScore run_recording(Disc& disc, const replay::Demonstration& recording, cons
     }
     if (opt.on_setup) opt.on_setup(ee);
 
-    // The start's hold: a standing start's 8 s (the race information's count, 0x3C0208: its seconds x 60, counted down a
-    // frame at a time before the step); a test that starts moving (the event's start speed) runs at once. ❓ The
-    // program's choice between them (the race organization's state at info +0xB0 / +0xB4) is not read: taken here from
-    // the car's speed after the set-up.
-    const bool moving = std::fabs(ee.rf(o.car(0) + kF + 0x53C)) > 0.01f;
+    // The start's hold (0x3C0208): none when the conductor's virtual 10 answers a moving start (RaceBase::vf38), else by the event row's
+    // type (+0x40): 0 its own seconds (+0x41), 1 8 s, 2 10 s, 3 none; x 60, counted down a frame at a time before the step.
     if (const char* e = std::getenv("GT4R_FLOATS_RANDOM")) ee.w32(0x874D50, u32(std::strtoul(e, nullptr, 16))); // (experiment: the shared random stream's state)
-    r.hold = opt.hold >= 0 ? opt.hold : moving ? 0 : kLicenseHold;
+    {
+        const u32 vt = ee.r32(o.cond + kCondVtable), slot = vt + 8 * 10;
+        const u32 start = u32(ee.call(ee.r32(slot + 4), {Arg::ptr(o.cond + u32(s32(s16(ee.r16(slot)))))}, 5'000'000).v0.lo);
+        const u32 row = ee.r32(o.info + 0x70), type = ee.r8(row + 0x40);
+        const int seconds = start != 1 ? 0 : type == 0 ? ee.r8(row + 0x41) : type == 1 ? 8 : type == 2 ? 10 : 0;
+        r.hold = opt.hold >= 0 ? opt.hold : seconds * 60;
+        if (print && opt.verbose) std::printf("  start: virtual 10 %u, the row's type %u, seconds %u: a hold of %d\n", start, type, ee.r8(row + 0x41), r.hold);
+    }
     ee.w32(o.info + 0xBC, u32(r.hold));
     const replay::ControlStream& s = d->streams[0];
     int steps = int(s.frames.size()) + opt.extra;
@@ -244,6 +272,7 @@ DemoScore run_recording(Disc& disc, const replay::Demonstration& recording, cons
             if (ours) ours->before_step(ee);
             orig_step(ee, o);
             if (ours) ours->step(ee, rec[0].bytes.data());
+            if (opt.on_step) opt.on_step(ee, o, i);
             if (end.done) r.ended_step = i;
             const char* from = std::getenv("GT4R_FLOATS_FROM"); // (from this step on every step, 60 of them)
             if (print && opt.verbose && (i % 60 == 0 || end.done || (from && i >= std::atoi(from) && i < std::atoi(from) + 60)))
@@ -274,7 +303,7 @@ DemoScore run_recording(Disc& disc, const replay::Demonstration& recording, cons
     if (print && !license) {
         std::printf("  laps:");
         for (const int ms : r.laps) std::printf(" %d", ms);
-        std::printf("\n");
+        std::printf(" (recorded %d, best %d): %s\n", r.recorded_ms, r.best_ms, r.race_exact() ? "EXACT" : "not as recorded");
     }
     if (print)
         std::printf("demo %s: %s at step %d: %s (recorded %d ms)\n", label.c_str(),

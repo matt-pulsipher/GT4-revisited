@@ -181,7 +181,9 @@ void Field::init(const course::AiData& data, const Program& program, std::span<c
     {
         const Pace& p = pace_;
         Band b;
-        b.on = p.slow_pct || p.fast_pct || (p.band_global && p.band_global != 100);
+        // (0x365480 is asked by the conductor's virtual 12: 1 for the races, the pace car tests and the missions, 0 for a run
+        // alone. Without percents it still runs: 100 x 0.01 is just below 1 in the console's arithmetic.)
+        b.on = program.known() ? !p.solo : p.slow_pct || p.fast_pct || (p.band_global && p.band_global != 100);
         b.mode = p.band_mode;
         b.slow = int_f(p.slow_pct) * kHundredth, b.slow_start = int_f(p.slow_start_m), b.slow_full = int_f(p.slow_full_10m) * F::raw(0x41200000);
         b.fast = int_f(p.fast_pct) * kHundredth, b.fast_start = int_f(p.fast_start_m), b.fast_full = int_f(p.fast_full_10m) * F::raw(0x41200000);
@@ -258,11 +260,12 @@ void Field::setup(Driver& d) {
         d.pace = tables_.pace_start[1], d.overtake = !pace_.solo, d.pace_brake = l.brake, d.pace_corner = l.corner, d.shift = l.shift;
     }
     // The random draws (0x4639E0): seeded by the grid index for a computer car, then one step.
-    d.rand = u16(d.control == 2 ? d.index + 1 : 1);
-    d.rand = u16(((u32(d.rand) * 0x41C64E6Du + 0x3039u) >> 16) & 0x7FFF);
+    d.rand = seed(d);
     // 0x463AE0: the long look ahead (D +0x1A = 0) for a computer car from a standing start on a paved course.
     d.start_flag = (d.control == 1 || d.control == 2) && pace_.standing_start && !session_->loose() && c.speed < F::raw(0x41055554) ? 0 : 1;
 }
+
+u16 Field::seed(const Driver& d) { return u16((((d.control == 2 ? u32(d.index) + 1 : 1u) * 0x41C64E6Du + 0x3039u) >> 16) & 0x7FFF); }
 
 Field::~Field() = default;
 
@@ -953,6 +956,8 @@ void Field::set_bspec_skill(size_t car, F corner, F brake, F alongside) {
 void Field::start_line(size_t car, int line) {
     Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
     if (!d) return;
+    // (0x4639E0 seeds the draws and makes the plan once, on the start's line: the constructor's plan took a draw)
+    d->rand = seed(*d);
     if (request_line(*d, line, true)) --d->inc.lane_changes;
 }
 
