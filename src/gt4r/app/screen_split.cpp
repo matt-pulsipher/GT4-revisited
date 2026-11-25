@@ -102,6 +102,7 @@ Setup setup_from_env() {
         else if (k == "mt2") s.choice[1].automatic = v == "0";
         else if (k == "skip") s.skip = std::max(0, std::atoi(v.c_str()));
         else if (k == "replay") s.replay = std::max(0, std::atoi(v.c_str()));
+        else if (k == "split") s.replay_split = v != "0"; // (the replay's halves)
         else if (k == "hud") s.hud = v != "0";
     }
     return s;
