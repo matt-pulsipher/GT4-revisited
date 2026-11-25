@@ -7,6 +7,7 @@
 #include "formats/gs_memory.h"
 #include "formats/tex1.h"
 #include "gt4r/menu/faces_car.h"
+#include "gt4r/menu/photo_natives.h"
 #include "gt4r/menu/runtime_internal.h"
 
 #include <algorithm>
@@ -421,7 +422,7 @@ bool bar_key(Runtime& rt, LiveWidget& w, Key k) {
     // ScaleBar (0x238D10): a press of a key along it starts a hold (repeat_start, 0x238FF0) and tells the step
     // (0x238A10); then the widget's own handling (its script's onKeyPress) has the key: the runtime calls
     // scale_bar_key_after when that did not take it.
-    if (dir) {
+    if (dir && !rt.key_repeated()) {
         bar_set(w, "repeat_start", std::clamp(bar_num(w, "value", 0), bar_num(w, "min", 0), bar_num(w, "max", 100)));
         scale_step_notify(rt, w);
     }
@@ -1223,6 +1224,9 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
     auto fn = [&](script::NativeFunction f) { return constant(Vm::native(n, std::move(f))); };
     auto nothing = [&] { return fn([](Vm&, const Value&, Args) { return Value{}; }); };
     const std::string& type = w->data.type;
+    // The photo mode's (photo_natives.cpp).
+    if (type == "PhotoMapWindow" || type == "PhotoRenderFace")
+        if (auto m = photo_member(rt, w, n)) return m;
 
     if (type == "RootWindow") {
         if (n == "setFocus" || n == "setFocusWidget")

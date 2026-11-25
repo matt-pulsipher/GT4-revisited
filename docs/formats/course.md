@@ -41,7 +41,7 @@ Gran Turismo 3's table of section offsets
 | 47 | `GDGT` | Cones and boards |
 | 49 | `Tex1` | A picture of the race display (256x64 or 256x128 T8; 102 courses) ❓ |
 | 50 | `MDLS` | The sky of the road reflection (35 courses) |
-| 51 | `CRPM` | The 15 `ss_` photo locations only ❓ |
+| 51 | `CRPM` | The 15 `ss_` photo locations: where the camera and the car may stand, the map ([photo.md](photo.md)) |
 | 52, 53 | `Mot1` | Camera motions: the race's start shots (52), a replay's (53) |
 | 55 | `RNW4` | The road: surface, walls, checkpoints, start grid (below) |
 
@@ -91,7 +91,7 @@ on the 110 courses fit Gran Turismo 3's field. Values f32 unless noted.
 | +0x20 | far clip (m): 5000 on 65 courses, 600 to 3330 on the others. A two-player half uses half of it. The sun's glare reads it too (the shared engine puts the sun at far / 2) | read |
 | +0x24, +0x2C, +0x40, +0x44 | ❓ no reader found (+0x24: 1.0 on 55 courses, 0.34 to 1.4; +0x44: 0 or 1). Gran Turismo 3's files have them too | |
 | +0x28 / +0x48 | yaw / pitch (degrees) of the reflection picture's sky (slot 23) | read |
-| +0x30, +0x34 | the reflection factors of the scenery's environment-mapped shapes: at the start of a model set's draw the two color factors of those passes are C0 = +0x34 and C1 = +0x34 x +0x30 (color = vertex color x (C0 + C1 min(cos, 0)), the shared engine's kinds 2 and 3, where cos is negative on a face turned to the camera). +0x30 is 0.8 on 87 courses and +0x34 1.0 on 87: such a shape reflects in full at a grazing angle and 20% head-on. Draw commands 0x56 (these two again) and 0x57 (C0 = 1, C1 = 0) switch within a program. 🔎 Which of the two is C0 is from their places in the renderer's block, not from a picture | read |
+| +0x30, +0x34 | the reflection factors of the scenery's environment-mapped shapes: at the start of a model set's draw the two color factors of those passes are C0 = +0x34 and C1 = +0x34 x +0x30 (color = vertex color x (C0 + C1 min(cos, 0)), the shared engine's kinds 2 and 3, where cos is negative on a face turned to the camera). +0x30 is 0.8 on 87 courses and +0x34 1.0 on 87: such a shape reflects in full at a grazing angle and 20% head-on. Draw commands 0x56 (these two again) and 0x57 (C0 = 1, C1 = 0) switch within a program. Times Square (1.0, 0.85: nothing head-on) bears it out: its glass fronts show no reflection facing the camera in the original's photo. No course's program sets its own factors (0x32, 0x33, 0x36, 0x37, 0x56, 0x57 are on none) | read |
 | +0x38 | the picture's scale, 2.0 on all 110 (below) | read |
 | +0x3C | a second factor on the scenery alone (below); 1.0 on all 110 | read |
 | +0x4C | brake disc glow gain (the car's wheel code reads it with +0x38) | read |
@@ -175,6 +175,13 @@ multiplies what is in the frame (GS blend fixed factor min(255, 128 x +0x38): 25
   second factor t, ambient x ((1 - (1 - s)(1 - [+0xAC8])) (1 - [+0xACC]) t + [+0xACC]) / +0x38;
   diffuse the same with +0xAB4 and +0xABC, specular with +0xAC0 and +0xAC4. This is the shared
   engine's shade rule with the division added.
+- **The light on a car** (0x38E7F8; `race/car_light.*`). On a course without lamps s and t above are the
+  road's two values under it (+0x0E / 255 and +0x0F / 127); the cast shadow's factor is
+  ((+0xAB0 - +0xAB8) s + +0xAB8) t (0x3983E0). Times Square's road has 0 and 0 everywhere: its cars get only the
+  floors +0xACC, +0xABC, +0xAC4 of the lights. The global ambient +0xEF0 (over +0x38) is not shaded. On a course with lamps the car
+  is lit by the strongest four of those its triangle names: weight 1 / (c0 + c1 d + c2 d^2) of the lamp's record,
+  x cos^e inside its cone; each casts a shadow away from itself (+0xA78 long, the record's +0x60 color and alpha), and
+  up to six are drawn into the cars' reflection picture (0x38F5D0; not here).
 - The brake disc glow reads +0x38 with +0x4C.
 - **The sun's glare, the lamp glows and the tire smoke are drawn after the multiply** in the
   one-view draw, so their `Env0` numbers mean what they mean in the shared engine. (The
@@ -602,16 +609,15 @@ Code: `runway.*`. All 110 roads read (`gt4tool runway-survey`). Offsets from the
   that (b - a) x (c - a) points up.
 - **A vertex's bytes** +0x0E / 255 and +0x0F (bits 0-6) / 127 are **the light on the road**, the sun's and the sky's: the
   road query interpolates them across the triangle (1 and 1 in the open, 0 under a roof). They scale the lights of a car on
-  it ("Car lights" above: s and t) and the shadow the light throws: F = (f_shade + (f_lit - f_shade) s) t (Env0 +0xAB8,
-  +0xAB0). 0x38E7F8; `Runway::light_at`. (Here: at the car's place; the program's value for a car with a driver's record ❓ a
-  stored one.)
+  it ("The light on a car" above) and the shadow the light throws. 0x38E7F8; `Runway::light_at`, `race/car_light.*`. (Here: at
+  the car's place; the program's value for a car with a driver's record ❓ a stored one.)
 - **The lamps of the night's courses** (lasvegas, paris_rally, route5, route5_club and their reverses, ss_fremont,
   ss_shibuya: +0x40 u16 lamps, +0x68 -> 0x20 bytes each: u32 kind (a car-light record of Env0, 0xD0 + 0x80 x kind), f32 x3 its
   axis, f32 x3 its place, f32 1 (0: the place is a direction)). A vertex's +0x0C (s16, >= 0) is where its list begins in the
   numbers at +0x6C (+0x42 of them), +0x50 (6) to a list. A car takes the list of its triangle's first vertex: each lamp's
   strength 1 / (c0 + c1 r + c2 r²), times cos^exponent inside its cone, 0 outside; the four strongest light it (ambient,
   diffuse and specular times the strength), the Env0's global ambient with them. 0x38E7F8, 0x3E6C60. ✔ By eye: Special Stage
-  Route 5's tunnel (`route5_night_chase`). ❓ Not built: a shadow and a highlight for each lamp (0x38F168, +0x140).
+  Route 5's tunnel (`route5_night_chase`). Each throws a shadow (0x38F168). ❓ Not built: their highlights (0x38F5D0, +0x140).
 - **The tree** finds the triangles under a point. It is a full binary tree of the given depth
   stored one byte per node, depth first with the left subtree before the right: bits 0-5 a
   place p, bits 6-7 the axis (0 x, 1 y, 2 z). A node splits its box (the root's is the bounds)

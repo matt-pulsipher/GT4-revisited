@@ -94,7 +94,7 @@ player, credits, day, the 22 cars, the licenses and their rankings as written. I
 then needed the screen's figures (+0x24, below): without them the original's license test drew
 its display over a black picture.
 
-## The game's other saves (🔎 not written here; the Replay Theater lists the race's own replay files)
+## The game's other saves (photos and the slide show's list: [photo.md](photo.md); 🔎 the others are not written here; the Replay Theater lists the race's own replay files)
 
 The card manager's modes (0x179570's table) name the other kinds of save: `MODE_LOAD_REPLAY`,
 `MODE_SAVE_FULL_REPLAY`, `MODE_LOAD_BESTLAP_REPLAY`, `MODE_SAVE_BESTLAP_REPLAY`, the photo
