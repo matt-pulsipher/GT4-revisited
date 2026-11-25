@@ -148,7 +148,29 @@ collisions use the prediction itself.
 
 Measured: two machines in one process, states through the wire format, each car driven with the
 pad at Tsukuba (an NSX-R and an R34; `GT4R_NET_TABLE=1 gt4r_tests net_race_remote_car_error`).
-TABLE_HERE
+
+60 s of Tsukuba, rms / worst in cm of the posed car against its owner's at the same race clock (the cars touch now
+and then: the worst moments are the delay after a hit, or after the driver changes his mind). One way: the delay,
+up to a fifth more at random. *Smooth*: along the road with a steering weave; *jerky*: steering jabs, pedals let go
+and stabbed at random, one car on the manual gearbox. Dead reckoning (the car carried along its velocity and yaw
+rate) at no loss for comparison. No plausibility warning in any run.
+
+| One way | Driving | no loss | 5 % lost | 20 % lost | dead reckoning |
+|---|---|---|---|---|---|
+| 0 ms | smooth | 0.10 / 5.5 | 0.09 / 5.4 | 0.18 / 6.4 | 0.25 / 2.5 |
+| 0 ms | jerky | 0.15 / 8.1 | 0.15 / 8.1 | 0.28 / 14.4 | 0.28 / 8.2 |
+| 50 ms | smooth | 0.67 / 23.2 | 0.64 / 22.5 | 0.57 / 19.1 | 2.63 / 27.7 |
+| 50 ms | jerky | 1.18 / 53.7 | 1.15 / 53.7 | 1.24 / 53.7 | 2.71 / 57.7 |
+| 100 ms | smooth | 1.57 / 41.2 | 1.85 / 50.3 | 2.03 / 60.8 | 7.63 / 51.5 |
+| 100 ms | jerky | 2.89 / 99.3 | 2.88 / 99.3 | 2.90 / 93.0 | 7.68 / 105.8 |
+| 250 ms | smooth | 9.85 / 95.9 | 10.48 / 153.4 | 14.93 / 186.0 | 38.60 / 132.5 |
+| 250 ms | jerky | 16.28 / 253.4 | 17.08 / 278.3 | 18.11 / 298.9 | 37.75 / 265.2 |
+
+Without contact (20 s of the same, the test's own cases): 0.00 cm at 0 ms, 0.05 / 0.6 at 50 ms and 5 % lost, 0.29 /
+3.3 at 100 ms and 5 %, jerky 0.96 / 16.9 at 100 ms and 20 %. Two copies of the app on one machine (the B-spec
+driver driving both cars, one lap of Tsukuba, contacts between them): 0.05 cm rms, 0.3 cm at worst, directly and
+0.1 / 0.8 cm through a relay server here; the same finish times on both (72.718 s and 74.319 s). A step of a
+prediction costs what a step of the car costs (about 50 µs on a loaded M-series Mac, `net_race_prediction_cost`).
 
 ### Contacts
 
@@ -193,9 +215,10 @@ machines compare.
 
 `tests/net_machines.h` (machines in one process, states with delay, jitter and loss):
 `net_state_round_trip`, `net_race_remote_car_error`, `net_race_contact`, `net_race_posed_car`,
-`net_race_stalled_machine`, `net_race_six_cars`, `net_lan_rules`; over loopback sockets
+`net_race_stalled_machine`, `net_race_six_cars`, `net_race_car_put`, `net_race_hostile_states`,
+`net_lan_rules`; over loopback sockets
 (`tests/test_net_session.cpp`): `net_session_race` (direct, with datagrams lost, through a relay
-server in the process; the clocks 5 s apart) and `net_session_finish_and_loss`.
+server in the process; the clocks 5 s apart), `net_session_finish_and_loss` and `net_session_120hz`.
 
 ## What runs where
 
