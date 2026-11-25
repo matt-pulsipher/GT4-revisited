@@ -442,6 +442,10 @@ void add_prologue_taps(PTaps& taps, const Disc& disc, const std::string& course)
                       made(c);
                       sim::prologue::engine_sound(c.car, ft);
                   }});
+        taps.add({0x3CB1E0, "Prologue's tire effects", [=](PTapCall& c) {
+                      static const sim::rules::SlideTables st = sim::prologue::slide_tables(feel_program);
+                      sim::prologue::tire_effects(c.car, layout(c), st, c.inputs.aids.course_category);
+                  }});
         taps.add({0x3B4238, "Prologue's view follow", [=](PTapCall& c) {
                       sim::rules::ViewState v;
                       const u32 b = block(c.ee, c.car_addr);

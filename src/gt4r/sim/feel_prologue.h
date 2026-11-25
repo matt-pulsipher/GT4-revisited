@@ -5,6 +5,7 @@
 // Addresses are SCPS-15055 v1.01's.
 
 #include "gt4r/sim/rules_prologue.h"
+#include "gt4r/sim/rules_effects.h"
 #include "gt4r/sim/rules_feel.h"
 #include "gt4r/sim/rules_speeds.h"
 
@@ -44,5 +45,22 @@ inline void view_follow(ex::Car& c, rules::ViewState& v, const rules::FeelTables
 // 0x3B9020 (phase 19): the engine sound's levels, Gran Turismo 4's 0x350080 (rules::engine_sound) for every car (Prologue
 // has no draw mode's test); the gearbox's kind the parameter block's +0x20A.
 inline void engine_sound(ex::Car& c, const rules::FeelTables& t) { rules::engine_sound(c, t, c.p.d.kind, 3); }
+
+// The tire effects' tables: Gran Turismo 4's rules::SlideTables as Prologue's race start builds them (0x3CAE00 with the
+// fix-ups 0x3E1E10, Gran Turismo 4's 0x366D68 and 0x3FAA10) from its effects block 0x504B08 (0x210 bytes, the engine's
+// Effects table): into 0x714B60 / 0x714D70 / 0x714F80, the loose ground's measures 0x715190.
+constexpr u32 kEffectsBlock = 0x504B08;
+rules::SlideTables slide_tables(const Program& program);
+
+// The kind of surface (0 .. 2) of Prologue's 16 surfaces by its index (the jump table 0x571E10 on index - 2): 2 .. 5
+// kind 1; 6 and 12 .. 14 kind 2; the others 0.
+int slide_kind(u8 surface);
+
+// 0x3CB1E0 (phase 19): each wheel's sliding measures (the slip intensity, the skid's pitch, the smoke) and the car's dirt:
+// Gran Turismo 4's 0x367148 (rules::slide_effects) on Prologue's surfaces: the load and rim speed's measures on surfaces 1
+// and 13 (Gran Turismo 4: 1, 10, 11, 21), its own kinds (slide_kind; no surface 12 as kind 1 for the smoke), the dirt the
+// smoke of the wheels on surfaces of kind 1 or 2 x 8 on a course of kind 0 (the conductor's byte + 0xDBED, 0xFF as 0;
+// 0x3B63B0) x 0.001 x dt, into the condition block's +0xC at most 0.8 (0x3B1B00) whatever the engine's state.
+void tire_effects(ex::Car& c, const rules::WheelLayout& l, const rules::SlideTables& t, u8 course_kind);
 
 } // namespace gt4r::sim::prologue
