@@ -205,6 +205,14 @@ void install_race_natives(Runtime& rt, script::Module& menu) {
             if (!q || q->car.empty()) return text("");
             return text(vm.attribute(make_car_object(*r, q->car, q->paint), "name").to_string());
         });
+        // Prologue's: grid1CarName .. grid6CarName, the cars' names without the year (the original's grid page).
+        for (int k = 0; k < 6; ++k)
+            o->property("grid" + std::to_string(k + 1) + "CarName", [r, work, k] {
+                const QuickWork& w = work();
+                if (size_t(k) >= w.rows.size() || w.rows[size_t(k)].car.empty()) return text("");
+                const QuickRow& q = w.rows[size_t(k)];
+                return text(r->vm().attribute(make_car_object(*r, q.car, q.paint), "short_name_no_year").to_string());
+            });
         o->property("licenseCarName", [r, work]() {
             const QuickWork& w = work();
             return text(w.rows.empty() ? std::string() : w.rows[0].car);
