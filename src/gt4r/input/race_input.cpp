@@ -41,9 +41,8 @@ void dual_shock(RaceInput& in, const GamePort& port, const DeviceConfig& c, Mode
         if (left == 0 && right == 0) f.kind = 0, f.flags &= u8(~1), f.steer = 0;
         else f.kind = 3, f.flags |= 1, f.steer = s16((left - right) << 4);
     }
-    // The sticks (a pad with fewer axes: a digital pad none, the analog ones the four).
-    const size_t axes = port.pad == GamePort::Pad::Digital ? 0 : 12;
-    for (size_t i = 0; i < axes; ++i) {
+    // The sticks and their halves (a pad without sticks reports them centered).
+    for (size_t i = 0; i < 12; ++i) {
         const u8 at = kPadAxis[i];
         const AxisAction a = AxisAction(c.axes[i]);
         s32 v;
