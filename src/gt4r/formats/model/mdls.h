@@ -79,6 +79,8 @@ struct Scene {
     // are left as they are and must not be decoded): one animated model's pose without the
     // whole set's work.
     std::vector<u32> only_models;
+    // With it: the other models draw nothing in the block, so the block can be decoded whole.
+    bool others_empty = false;
     // The values of the script's registers the draw programs read (segment 0 cells), when the
     // set's script has been run for this draw: a 0x4D switch takes its register's case (none: it
     // goes on after the table). Empty: every register reads 0.

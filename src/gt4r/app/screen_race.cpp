@@ -484,7 +484,7 @@ std::shared_ptr<audio::RacePlaylist> new_game_playlist(App& app) {
         menu::Runtime::Config config;
         gt3r::Vfs* vfs = app.vfs();
         config.list = [vfs](const std::string& folder) { return vfs->list_dir(folder); };
-        if (Disc* disc = app.disc()) config.program = [disc] { return disc->read_program(); };
+        if (Disc* disc = app.disc()) config.program_image = [disc] { return disc->program_image(); };
         config.data_dir = app.data_dir();
         menu::Runtime rt([vfs](const std::string& path) { return vfs->read(path); }, config);
         rt.boot();
@@ -1270,7 +1270,8 @@ public:
         // The racing views' screen settings; the replays' and the B-spec race's their own.
         world_->set_grade(picture_settings(replaying_ || watched_).grade());
         race::ViewPose pose = current_pose(shown(), look_back);
-        if (blend) pose = race::blend_poses(previous_pose(look_back), pose, blend_);
+        // (A cut is shown at once: two shots of one trackside camera stand too close together for blend_poses to tell.)
+        if (blend && !view_cut_ && start_prev_.active() == start_camera_.active()) pose = race::blend_poses(previous_pose(look_back), pose, blend_);
         // A cut's dissolve: the last picture frozen at the cut, over the new one as it fades.
         world_->set_dissolve(snapshot_, dissolve_total_ > 0 ? float(dissolve_left_) / float(dissolve_total_) : 0.0f, replaying_ || menu_scene_ || mount_ == kTvView || start_camera_.active() || dissolve_total_ > 0);
         snapshot_ = false;
@@ -1389,6 +1390,7 @@ public:
         prev_cars_.assign(now.begin(), now.end());
         camera_prev_ = camera_, start_prev_ = start_camera_;
         tv_prev_ = tv_pose_, tv_prev_valid_ = tv_valid_;
+        view_cut_ = false;
     }
     // The camera at the last step but one (its cameras as they were then, on the cars as they were).
     race::ViewPose previous_pose(bool look_back) {
@@ -1445,6 +1447,7 @@ public:
     void step_tv(const race::CarState& car, size_t index = 0) {
         const render::Mat4 body = world_->visual(index).body_matrix(car);
         tv_valid_ = replay_camera_.pose(replay_script_, car, body, tv_pose_);
+        view_cut_ = view_cut_ || replay_camera_.cut() || tv_valid_ != tv_prev_valid_;
         if (const float d = replay_camera_.cut_dissolve(); d > 0) begin_dissolve(int(std::lround(d * 60)));
         step_dissolve();
         // GT4R_LENS_LOG=<n>: the replay camera's place and lens every n steps.
@@ -1519,7 +1522,8 @@ public:
     // mode follows; the pace stays as it was (0x3F19E0's command 10).
     void set_driving_mode(bool bspec) {
         if (bspec == watched_ || setup_.auto_drive) return;
-        watched_ = bspec, focus_ = 0;
+        watched_ = bspec;
+        follow(0);
         world_->set_driving_mode(bspec);
         LOG_INFO("Drive: the driving mode at %.1f s: %s", double(flow_.time_ms()) / 1000, bspec ? "B-spec" : "A-spec");
     }
@@ -1538,9 +1542,15 @@ public:
         for (size_t k = 0; k < order.size(); ++k)
             if (order[k] == focus_) at = k;
         at = (at + order.size() + size_t(dir > 0 ? 1 : order.size() - 1)) % order.size();
-        focus_ = order[at];
-        camera_.reset(world_->cars()[focus_]);
+        follow(order[at]);
+    }
+    // The views follow another car: they start on it, with nothing of the last car's motion.
+    void follow(size_t car) {
+        if (car == focus_) return;
+        focus_ = car;
+        camera_.reset(world_->cars()[car]);
         replay_camera_.reset();
+        prev_cars_.clear(); // (no frame between the two cars' views)
     }
 
     void quiet() { world_->quiet(); }
@@ -1577,6 +1587,7 @@ private:
     race::StartCamera start_prev_;
     race::ViewPose tv_prev_;
     bool tv_prev_valid_ = false;
+    bool view_cut_ = false; // the last step cut the replay cameras' view
     bool before_ = false; // the pose asked for is the last step but one's
     float blend_ = 1;
     int dissolve_total_ = 0, dissolve_left_ = 0;
@@ -1728,7 +1739,7 @@ public:
             menu::Runtime::Config config;
             gt3r::Vfs* vfs = app.vfs();
             config.list = [vfs](const std::string& folder) { return vfs->list_dir(folder); };
-            if (Disc* disc = app.disc()) config.program = [disc] { return disc->read_program(); };
+            if (Disc* disc = app.disc()) config.program_image = [disc] { return disc->program_image(); };
             if (Disc* disc = app.disc(); disc && disc->info().serial.rfind("SCPS", 0) == 0) config.region = "jp", config.language = "JP"; // (Prologue: its text is Japan's)
             config.data_dir = app.data_dir();
             own_menus_ = std::make_unique<menu::Runtime>([vfs](const std::string& path) { return vfs->read(path); }, config);

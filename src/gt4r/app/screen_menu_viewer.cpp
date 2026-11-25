@@ -231,7 +231,7 @@ private:
             gt3r::Vfs* vfs = app.vfs();
             config.list = [vfs](const std::string& folder) { return vfs->list_dir(folder); };
             Disc* disc = app.disc();
-            if (disc) config.program = [disc] { return disc->read_program(); };
+            if (disc) config.program_image = [disc] { return disc->program_image(); };
             if (disc && disc->info().serial.rfind("SCPS", 0) == 0) config.region = "jp"; // (Prologue: its units, PS and kgfm)
             config.data_dir = app.data_dir();
             while (!config.data_dir.empty() && (config.data_dir.back() == '/' || config.data_dir.back() == '\\')) config.data_dir.pop_back();

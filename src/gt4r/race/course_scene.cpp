@@ -149,7 +149,8 @@ CourseScene::CourseScene(render::GpuContext& ctx, ByteSpan course_file, const st
         if (!gadgets_.models.empty() && !gadgets_.placements.empty() && mdls::is_mdls(gadgets_.models)) {
             mdls::Scene sc;
             sc.color_scale = color_scale_;
-            const gt3r::gtm1::Gtm1 g = gt3r::gtm1::Gtm1::parse(mdls::to_gtm1(gadgets_.models, nullptr, sc));
+            const Bytes block = mdls::to_gtm1(gadgets_.models, nullptr, sc); // (the parsed set points into it)
+            const gt3r::gtm1::Gtm1 g = gt3r::gtm1::Gtm1::parse(block);
             gt3r::gtm1::Options o;
             o.alpha_test = true;
             o.gs_state = true;

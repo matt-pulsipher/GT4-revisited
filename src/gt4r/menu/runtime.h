@@ -6,6 +6,7 @@
 // own event loop) while the pages go on drawing. docs/formats/menu.md ("Running") has what
 // follows the program and what is still judged from how the scripts use it.
 
+#include "disc/core_image.h"
 #include "gt4r/menu/game.h"
 #include "gt4r/menu/native.h"
 #include "gt4r/menu/project.h"
@@ -129,6 +130,12 @@ struct RuntimeConfig {
     std::string language = "US"; // the projects' language folder
     FolderLister list;           // the disc's folders (the car database's)
     std::function<Bytes()> program; // the disc's program file (CORE.GT4): the name lists the scripts read through MCarData
+    std::function<std::shared_ptr<const gt3r::CoreImage>()> program_image; // the same unpacked (Disc::program_image), read before `program`
+    // The program's image by the one or the other; null without a program. Throws as they do.
+    std::shared_ptr<const gt3r::CoreImage> image() const {
+        if (program_image) return program_image();
+        return program ? std::make_shared<const gt3r::CoreImage>(gt3r::CoreImage::decode(program())) : nullptr;
+    }
     std::string data_dir;        // where the options are kept ("" : not kept)
 };
 
