@@ -2,8 +2,8 @@
 
 Code: `src/gt4r/race/drive_camera.*` (the driving views and the mounts), `src/gt4r/race/replay_script.*`
 (the replay script and the camera that plays it: the place, the target or the car, the lens, the
-picture offsets and the roll, the record search; the scenic shots on time; not the operator's
-filter, the lens's spring, the roadside points or the marks), `src/gt4r/race/start_camera.*`
+picture offsets, the roll, the operator's filter, the lens's spring, the focus, the record search; the scenic shots on time; not the
+roadside points or the marks), `src/gt4r/race/replay_view.*` (watching a replay), `src/gt4r/race/start_camera.*`
 (the start's shots). Facts from the program (`CORE.GT4`, SCUS-97328 v1.01;
 addresses are the program's) and from the disc's cars and courses. The camera's own angles are
 degrees; a car's attitude angles are radians. 🔎 partly understood, ❓ not investigated; the
@@ -174,11 +174,11 @@ eye):
    and three shifts (clamped to 0.6, 0.1 and 0.3 m) are driven through springs
    x'' = 750 (u - x) - 17 x' from the impact's two components, scaled by random draws.
    🔎 The exact inputs.
-3. **Looking sideways**: an angle that eases towards -60, 0 or +60 degrees by 0.2 of the
+3. **Looking sideways** (not while the car's +0x546 is 6 ❓): an angle that eases towards -60, 0 or +60 degrees by 0.2 of the
    difference per frame while a look-left / look-right button is held (0x37AF94); yaw about
    the eye.
 4. the mount's place.
-5. **Lean**: the view rolls by -15 x degrees, x following the car's sideways acceleration in g
+5. **Lean** (place 25 only, which is place 0 with it: 0x37B384; ❓ who asks for it; not in the driving views): the view rolls by -15 x degrees, x following the car's sideways acceleration in g
    (clamped to 3 each way; 🔎 the car record's field) through a spring: the input may change by
    at most 8 / 60 a frame; v += (60 (u - x) - 20 v) / 60, v held within 35; x += v / 60.
 6. the body's roll, pitch and heading. The pitch has **the nod** added: x, where
@@ -255,8 +255,8 @@ record (0x7C bytes), sorted by start
 0x00 u32 kind
 0x04 f32 start, 0x08 f32 end: distances D along the script (slot 44); 0 and 1 (slots 45, 46);
      0 and the shot's length in seconds (slot 48)
-0x0C f32 > 0: the camera's flag 0x2000 (227 records)
-0x10 f32 > 0: flag 0x4000 (2,109 records: exactly those whose aperture is not 8)
+0x0C f32 > 0: the camera's flag 0x2000: the heat haze (227 records)
+0x10 f32 > 0: flag 0x4000: the depth of field (2,109 records: exactly those whose aperture is not 8 in the file)
 0x14 f32 > 0: flag 0x8000 (57 records)
 0x18 f32 🔎 0 on 5,034 records, else 0.1 to 1.0 (0.5 on every record of slot 48): by its
      values the seconds of dissolve at the cut; its reader was not found
@@ -373,6 +373,46 @@ picture offsets, the operator curves, the roll curve, the stated variant count, 
 points with their stretches (GTRC's second list had no stretches), the marks as plain
 distances. Gone: the on-board mount number (+0x18 in GTRC) — on-board shots are the ride-on
 camera's, from its two tables.
+
+**The lens spring and the aim's shares**: the offsets' shares, the 0.15 and the yaw's are of the lens angle before its spring, over the
+zoom, at least 1 degree (0x37C53C); what is shown is the spring's over the zoom (0x37C880).
+
+**Focus** (0x37C7F0): on the screen's car whatever the record looks at: its model's nearest point's depth (0x3FD260) + 0.7 m, x a share
+that a cut starts at 1 (on 16 of 100 cuts at -0.5 .. 0.5) and a spring (k 50, c 20, slew 2) takes to 2, held within 0 .. 1; within
+0.001 .. 100,000 m and no nearer than the lens lets (0x36EDB0: 16 m at 2 degrees and under, 4 at 15, 1 at 30, 0.1 at 90). Here the
+nearest corner of the car's box (🔎 the program's set of points of the model).
+
+**Marks** are the moments of the saved replay's picture: when the followed car passes the one drawn at the set-up, the next frame is
+copied to 64 x 64 (0x33E25C -> 0x330AE8).
+
+## Watching a replay
+
+Code: `src/gt4r/race/replay_view.*` (the keys and what they do), `Race::step_view` in `app/screen_race.cpp`. The replay's pad (0x43D288,
+the race input's word +0x174, read by 0x3FB1E0) while the play mode is 1 to 4; the words of the plates are the race texts'.
+
+| Key | Does |
+|---|---|
+| Up / Down | the car followed: the one ahead / behind in the race's order (0x3FD5A8), the shot chosen anew at once |
+| Cross | the course's cameras (mode 1) or the car's own (mode 2, `CameraRideOn`); in Dive a cut |
+| Square | the playback mode (screen +0x138): without the display 1 -> Dive 2 -> with the display 0 -> 1; "Normal Replay", "Dive Replay", "Display" |
+| Triangle held | zoom 1 to 4 of the course's car shots (0x3852A0: a spring k 40, c 10 toward 20 while held, x 0.8 a step after; zoom = 1 + 3 x / 20) |
+| Circle | the music on or off (race +0xCFBC; not in Dive, which turns it on), "BGM ON" / "BGM OFF" |
+| L3 | the speed x 4 or x 1 (race +0xD3C), two arrows or one |
+| R1, L1, L2, R2, Left / Right held | on the car's own cameras: the next of five places, ahead or back, the cameras beside the cabin, the looks to the sides (the two tables 0x621200 / 0x621228, 0x621250 .. 0x621268: places 0, 1, 20, 7, 5; back 0, 1, 20 turned and 8, 9; 11 and 10; 4 and 3) |
+| Select | holds it still (`SimplePause`: the black strip from 438 of 480 with "Press SELECT to resume"); from the Replay Theater the photo drive instead (`PhotoPause`, not built) |
+| Start | ends it |
+
+The mode starts by the options: Dive with `replay_mode` DIVE, else by `replay_display_enable`. The place on the car is kept for the
+race over changes of camera and car. The plate (`RaceReplayModeDisplay`, 0x39F018): black words in `hm_16` at 0.8 on `replay_plate`
+(230, 134, 0), 0.25 s in and out round 3 s; while it shows, the "REPLAY" sign does not. **The opening** (`RaceDisplay::vf30`
+0x39BEC8): the card and the course's logo from 0.1 s to 6.1, a second in and out, the rest of the display from 6.1 s over 0.5;
+✔ the original's replays: black under the card until about 2.1 s, the picture there at 2.9 (❓ its fader); the music's caption from
+7.2 to 17.6 s, the small logo after it (❓ the program's own times).
+
+A **B-spec race** (play mode 1) is shown by the same modes: the course's cameras first, Cross the car's nose and back.
+
+Not done: Dive's director (its playback mode shows the course's cameras), the photo drive, a wheel's own keys, ❓ the speed's effect on
+the sound (four steps a picture here).
 
 ## Camera motions: `Mot1` (course slots 52, 53)
 

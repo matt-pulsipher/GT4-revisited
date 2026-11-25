@@ -105,7 +105,7 @@ on the 110 courses fit Gran Turismo 3's field. Values f32 unless noted.
 | +0xD0 + 0x80 i | car light i (4): direction towards the light, +0x10 ambient, +0x20 diffuse, +0x30 specular (RGB, w 1), then the rest of the shared engine's record (+0x40..+0x7C) | read |
 | +0x4D0 + 0x44 i | six tire smoke / dust kinds (RGB, opacity, size, growth, ...) | data |
 | +0x914 / +0x91C | u32 smoke picture divisors (1; 2 on two wet courses) | data |
-| +0x930..+0x938 | replay depth of field: f-number, focal length (mm), nearest focus (m) | read (+0x938) |
+| +0x930..+0x938 | the depth of field: +0x938 the nearest focus (m); +0x930 an f-number and +0x934 a focal length (mm) with no reader: the lens is the camera's ("The passes of a replay") | read (+0x938) |
 | +0x950..+0x974 | vignette: outer / inner radius, outer RGBA, inner RGBA | read |
 | +0x980..+0x994 | color grade: g per channel, black, white, saturation | read |
 | +0x9C0..+0x9E8 | sun: RGB, occlusion weight, glare size, disc size, disc gain, elevation, azimuth (degrees), i32 style (0 on 96 courses, 2 on 12, 1 on 2), occlusion box | read |
@@ -137,7 +137,7 @@ on the 110 courses fit Gran Turismo 3's field. Values f32 unless noted.
 | 5 | heat haze (83 courses) | read |
 | 6 | vignette (all 110) | read |
 | 7 | color grade (`ss_sagano` only) | read |
-| 8 | replay depth of field (all 110) | data |
+| 8 | set on all 110; no reader: the camera asks for the depth of field | |
 | 10 | sun disc and glare (85 courses) | read |
 | 11-14 | scene lights 0-3 (bit 11 on 100 courses; 12 on hongkong and seattle) | read |
 | 15 | night: the cars get time zone 1 (their models' script variable `timezone`: lamps on) and their lamp glows. 24 courses: route5, hongkong, seattle, lasvegas, paris_rally, the three motegi layouts, sarthe, sarthe24, sarthe_old24, seven `ss_` | read |
@@ -262,6 +262,28 @@ screens) that differs where noted.
 11. The frame is multiplied by +0x38, then the glow filter (+0x1750) runs.
 12. Heat haze (flag bit 5), the tire smoke, the collected glare and glows, the color grade
     (bit 7), the vignette (bit 6), then the race display.
+
+### The passes of a replay
+
+Code: `race/replay_effects.*` (when, and the numbers), drawn by the shared engine's passes (`View3D::DrawOptions`). They belong
+to the race's play modes but 0 (race +0xCC8: 1 a B-spec race, 2 / 3 a replay, 4 the scene behind the menus), in the one-view draw:
+
+| Pass | When | What |
+|---|---|---|
+| Depth of field (0x33E520 -> 0x399998; `RacePS2Base::vf140` 0x3431B8) | the play mode is not 0 and the camera's flags have 0x4000 (a replay record's +0x10 over 0); **no flag of `Env0`** | Gran Turismo 3's pass, step for step: near blurs of 4, 2, 1 lines at the levels 2, 1, 0 of the pyramid, the sharp picture, far ones 2^(k/2) up to 8; the blur unit film / the picture's lines. The lens: 24 mm x the screen's aspect (`CameraManager::vf13` 0x371CA8: 1 in a race) on the film 1.333 times as wide as high, the camera's f-number (its +0x150 / 100), its focus no nearer than `Env0` +0x938 |
+| Heat haze (0x496638, the lenses' step 0x4965D8 every picture) | `Env0` bit 5 and the camera's flag 0x2000 (a record's +0x0C); any play mode | Gran Turismo 3's lenses; the vertex order differs, the arithmetic does not |
+| Grade | the screen settings of the replays (`replay_color_correction`) unless the camera manager has its own (Dive's, its +0xBFD) or `Env0` bit 7 | [race_display.md](race_display.md) |
+| Vignette (0x3BBBC0) | the play mode is not 0, `Env0` bit 6 and the race's `vf24` 0 (all but the linked races) | a ring of 32 steps over the 640 x 448 frame |
+| Dissolve, then trail (`RacePS2Base::vf106` 0x33F890) | a cut's dissolve seconds; the trail only in Dive ([camera.md](camera.md)) | the frozen picture at 1 - t / T; the last picture shown at min(weight, 0.8) |
+
+Seen in the original's saved states: the only states with flag 0x4000 (Tsukuba's shot at (-173, 11, -47), f/2.8) have 4.36, 11.43
+and 14.80 degrees and the focus at 75.7, 34.5 and 21.4 m; ours there 76.0, 34.1 and 21.4, the pictures blurred the same. Of the 6,386
+records 2,109 ask for the depth of field and 227 for the haze (Trial Mountain 84 of 98, Grand Valley East 10 ...); of the 475 scenic
+shots 18 and none.
+
+The player's switches ([video] `depth_of_field`, `heat_haze`, `replay_vignette`, `replay_trail`): all as the game's but the haze, off
+unless chosen (in a sharp picture its lenses read as jitter). What runs where: the rules and numbers are Gran Turismo 4's, the
+drawing the shared engine's (above 448 lines its blur follows the level's spread; the haze shifts the picture's field-sized part).
 
 The several-view draw differs: no slot 17, no road reflection (flag bit 24), the glows without
 occlusion tests, and the smoke and glows drawn before the picture is multiplied by +0x38 as it

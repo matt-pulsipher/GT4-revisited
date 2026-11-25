@@ -193,7 +193,7 @@ Wheel:
   when you come back to the map, and loading it at the next start.
 - **Races**: the courses drawn in full with the computer drivers racing, the three driving views,
   the race display (in the units the options set), the B-spec display and commands, the pause
-  menu, the results, the replays through the course's cameras.
+  menu, the results, the replays through the course's cameras or the car's own.
 - **License tests**: the License Center, a test's page, the test driven with its own display and
   trophy times, ended when the car stops in the box or fails (cones, walls, off the course), its
   results with Retry and Exit, the trophy on the license's grid.
@@ -205,6 +205,15 @@ Wheel:
   camera (hold Cross on a button, or L1, L2, R1, R2, with the left stick), lens, aperture, focus, filters,
   the wheels' angle, portrait, the aspect and quality options; the photo, saved (Start) with the game's save files in
   the original's format; Photo Lab's list, preview, renaming, deleting and the slide show.
+
+## Watching a replay
+
+Up and Down follow the car ahead or behind. Cross changes between the course's cameras and the car's own: there R1 goes through its
+places, L1 looks back, L2 and R2 are the cameras beside the cabin, Left and Right held look to the sides. Triangle held zooms in.
+Square changes the playback (without the race display, Dive, with it), Circle switches the music, L3 plays four times as fast,
+Select holds the picture, Start leaves. *Settings > Views & replays* has the depth of field, the vignette, the heat haze and the
+in-car camera's shake; its *Views* "All" adds a view without the mirror, the front bumper, a farther chase view and the course's
+cameras to the race's views. On a pad whose right stick does nothing else it looks around in the in-car and chase views.
 
 ## Known problems
 
