@@ -88,6 +88,9 @@ struct Field::Near {
     F contact;                               // +0x44
     int follow = -1;                         // +0x51
     int chain = 0;                           // +0x6A
+    // The threat record (0x469888): the car closed on soonest, its gap and closing speed (+0x53 / +0x60 / +0x64).
+    int threat = -1;
+    F threat_gap{1000.0f}, threat_rate{-1000.0f};
 };
 
 std::optional<course::AiData> Field::read(Disc& disc, const std::string& course) {
@@ -248,10 +251,10 @@ void Field::setup(Driver& d) {
     if (brk != 100) d.brake_mult = d.brake_mult * (int_f(brk) * kHundredth);
     if (cs != 100) d.corner_mult = d.corner_mult * (int_f(cs) * kHundredth);
     if (off) d.p.corner_offset = d.p.corner_offset + int_f(off) * kPerKmh;
-    // The pace level (0x3F1890): a computer driver's starting level, passing allowed.
+    // The pace level (0x3F1890): a computer driver's starting level, passing allowed but in a run alone.
     {
         const Tables::PaceLevel& l = tables_.pace[tables_.pace_start[1]];
-        d.pace = tables_.pace_start[1], d.overtake = true, d.pace_brake = l.brake, d.pace_corner = l.corner, d.shift = l.shift;
+        d.pace = tables_.pace_start[1], d.overtake = !pace_.solo, d.pace_brake = l.brake, d.pace_corner = l.corner, d.shift = l.shift;
     }
     // The random draws (0x4639E0): seeded by the grid index for a computer car, then one step.
     d.rand = u16(d.control == 2 ? d.index + 1 : 1);
@@ -291,6 +294,13 @@ bool Field::overtaking(size_t car) const { return car < drivers_.size() && drive
 u8 Field::shift_factor(size_t car) const {
     const Driver* d = driver(car);
     return d && d->control == 1 && d->kind == 0 ? d->shift : 128;
+}
+
+void Field::apply_start_delays(Session& session) {
+    for (const auto& dp : drivers_)
+        if (dp && dp->index < 32 && pace_.start_delay[size_t(dp->index)] > 0 && pace_.standing_start)
+            session.set_start_delay(dp->car, u32(60 * pace_.start_delay[size_t(dp->index)]));
+    start_delays_held_ = true;
 }
 
 void Field::apply_shift_factors(Session& session) const {
@@ -340,6 +350,7 @@ void Field::probe_set(size_t car, const Probe& p) {
     d.pd_last = p.pd_last, d.pd_rate = p.pd_rate;
     d.record = p.record, d.car_class = p.car_class;
     z.follow = p.follow, z.chain = p.chain, z.contact = p.contact, z.zone = p.zone, z.gap_left = p.gap_left, z.gap_right = p.gap_right;
+    z.threat = p.threat, z.threat_gap = p.threat_gap, z.threat_rate = p.threat_rate;
 }
 
 Field::Probe Field::probe_get(size_t car) const {
@@ -357,6 +368,7 @@ Field::Probe Field::probe_get(size_t car) const {
     p.pd_last = d.pd_last, p.pd_rate = d.pd_rate;
     p.record = d.record, p.car_class = d.car_class;
     p.follow = z.follow, p.chain = z.chain, p.contact = z.contact, p.zone = z.zone, p.gap_left = z.gap_left, p.gap_right = z.gap_right;
+    p.threat = z.threat, p.threat_gap = z.threat_gap, p.threat_rate = z.threat_rate;
     return p;
 }
 
@@ -575,7 +587,8 @@ F Field::braking(Driver& d) {
         if (adj < F::raw(0x3DCCCCCC)) adj = F::raw(0x3DCCCCCC);
         dist = dist * adj;
         if (kOne < kb) dist = dist / kb;
-        if (d.control == 1 || d.control == 2) {
+        // (not in a run alone: the conductor's virtual 6)
+        if (!pace_.solo && (d.control == 1 || d.control == 2)) {
             const Near& z = near_[d.car];
             dist = dist + int_f(z.chain);
             if (d.cooldown == 0 && zero < z.contact) {
@@ -595,6 +608,8 @@ F Field::braking(Driver& d) {
         } else {
             d.mode = d.mode ? 4 : 3;
             d.status = 2;
+            // A B-spec driver learns at each braking point by the car's speed (0x4684A8).
+            if (d.control == 1 && d.kind == 0) bspec_experience(d, 1, v);
         }
     }
     // The event's throttle share as a share of the full-throttle torque.
@@ -928,8 +943,15 @@ F Field::line_heading_at(size_t car) const {
     return d ? line_heading(*d, d->line, course_s(car)) : F();
 }
 
-// 0x4684A8: the B-spec driver's experience. `table` 0 an arc's segment (v its speed, bins 60 .. 220 km/h), 2 a lane change
-// (v the car's speed, bins 60 .. 260 km/h).
+// 0x34AA88: the threat record as the on-board camera asks for it (none with CFG +0x02 = 6), the speed negated.
+std::optional<Field::Threat> Field::threat(size_t car) const {
+    if (!pace_.contact || car >= near_.size() || near_[car].threat == -1) return std::nullopt;
+    const Near& z = near_[car];
+    return Threat{z.threat, z.threat_gap, -z.threat_rate};
+}
+
+// 0x4684A8: the B-spec driver's experience. `table` 0 an arc's segment (v its speed, bins 60 .. 220 km/h), 1 a braking point,
+// 2 a lane change (v the car's speed, bins 60 .. 260 km/h).
 void Field::bspec_experience(Driver& d, int table, F v) {
     auto add = [&](size_t off, u32 n) {
         const u32 x = std::min<u32>(u32(d.record[off] | (d.record[off + 1] << 8)) + n, 0xFFFF);
@@ -947,9 +969,9 @@ void Field::bspec_experience(Driver& d, int table, F v) {
     if (r > 0) second = bin + 1, second_add = u32(r) * 8, first_add = u32(8 - r) * 8;
     if (u32(bin) < 8) add(size_t(table * 16 + bin * 2), first_add);
     if (u32(second) < 8) add(size_t(table * 16 + second * 2), second_add);
-    // Alone (no car in its cells, or a race of one, or the conductor's virtual +0x30 ❓ set) or in company.
+    // Alone (a run alone: the conductor's virtual 6; a race of one; no car in its cells) or in company.
     bool near = false;
-    if (session_->size() >= 2)
+    if (!pace_.solo && session_->size() >= 2)
         for (u8 z : near_.at(d.car).zone) near = near || z != 0;
     const size_t half = size_t(d.car_class / 2);
     if (!near) add(0x30 + 2 * half, 0x1000);
@@ -1076,6 +1098,14 @@ bool Field::closing(size_t a, size_t b, F v, F& gap, F& rate) const {
 // 0x469918: a's contact with b ahead (a car to follow when closing within 5 m).
 void Field::contact(size_t a, size_t b, F gap, F rate) {
     Near& z = near_[a];
+    // 0x469888, the threat record: closing on b, the car reached soonest (gap / speed) since the last closing one; with
+    // none closing yet, the nearest that is not.
+    {
+        bool take;
+        if (k::zero < rate) take = !(k::zero < z.threat_rate) || gap / rate < z.threat_gap / z.threat_rate;
+        else take = !(k::zero < z.threat_rate) && gap < z.threat_gap;
+        if (take) z.threat = int(b), z.threat_gap = gap, z.threat_rate = rate;
+    }
     if (z.follow == int(b) && F::raw(0x40C00000) < gap) z.follow = -1;
     F cand;
     int follow = -1;
@@ -1098,7 +1128,7 @@ void Field::contact(size_t a, size_t b, F gap, F rate) {
 // height + 5 m of each other) marks the zone cells and the contacts; then each car's follow count.
 void Field::proximity() {
     const size_t n = near_.size();
-    for (Near& z : near_) z.contact = F(), z.zone = {}, z.gap_left = z.gap_right = F(1000.0f), z.chain = 0;
+    for (Near& z : near_) z.contact = F(), z.zone = {}, z.gap_left = z.gap_right = F(1000.0f), z.chain = 0, z.threat = -1, z.threat_gap = F::raw(0x447A0000), z.threat_rate = F::raw(0xC47A0000);
     for (size_t i = 0; i < n; ++i)
         for (size_t j = i + 1; j < n; ++j) {
             const ex::Car &a = session_->record(i), &b = session_->record(j);
@@ -1738,11 +1768,11 @@ void Field::drive(std::span<race::CarInput> inputs) {
             decide_car(dp->car, inputs[dp->car]);
         }
     }
-    // A place with a held start (missions: Pace::start_delay) stays on the line, its engine held as in the count, until
-    // the race's clock passes its seconds (❓ judged: the program's hold itself is not found; its decision only lengthens
-    // the start's look ahead by the delay).
+    // A place with a held start (missions: Pace::start_delay), where the session does not hold it (apply_start_delays: the
+    // program's own, a hold of 60 x the seconds per car, K + 0xCBFC, ran at the race's set-up by vf28 / 0x34DB30): the car
+    // stays on the line, its engine held as in the count, until the race's clock passes its seconds (judged).
     for (auto& dp : drivers_)
-        if (dp && dp->car < inputs.size() && dp->index < 32 && pace_.start_delay[size_t(dp->index)] > 0 &&
+        if (!start_delays_held_ && dp && dp->car < inputs.size() && dp->index < 32 && pace_.start_delay[size_t(dp->index)] > 0 &&
             s32(clock_ / 3) < 1000 * pace_.start_delay[size_t(dp->index)]) {
             Driver& d = *dp;
             const ex::Car& c = session_->record(d.car);

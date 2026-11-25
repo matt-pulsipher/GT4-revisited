@@ -62,6 +62,16 @@ int paint_count(db::SpecDb& db, const Equipment& eq) {
     return int(rows->rows(db::part_row_id(v), first));
 }
 
+int choice_count(db::SpecDb& db, const Equipment& eq) {
+    int n = paint_count(db, eq);
+    const db::PartId car = eq.part(Equipment::Car);
+    if (const db::Table* cars = car == db::kNoPart ? nullptr : db.table("GENERIC_CAR")) {
+        const ByteSpan row = cars->row(db::part_row_id(car));
+        if (n > 0 && row.size() > 0x12 && (row[0x12] & 2)) --n;
+    }
+    return n;
+}
+
 bool opponent_equipment(db::SpecDb& db, const Program& program, const db::Opponent& o, Equipment& out) {
     const db::Table* cars = db.table("GENERIC_CAR");
     const db::Table* sets = db.table("DEFAULT_PARTS");
@@ -109,8 +119,15 @@ PaintColour paint_colour(db::SpecDb& db, const Equipment& eq, int paint) {
     const db::PartId v = eq.part(Equipment::Variation);
     const db::Table* rows = v == db::kNoPart ? nullptr : db.table("VARIATIONamerican");
     size_t first = 0;
-    if (!rows || paint < 0 || size_t(paint) >= rows->rows(db::part_row_id(v), first)) return c;
-    const ByteSpan row = rows->row_at(first + size_t(paint));
+    if (!rows || paint < 0) return c;
+    const size_t n = rows->rows(db::part_row_id(v), first);
+    if (size_t(paint) >= n) return c;
+    // 0x4458D0: the car's paint row whose number (+0x04) is the paint + 1.
+    ByteSpan row;
+    for (size_t i = 0; i < n && row.empty(); ++i) {
+        const ByteSpan r = rows->row_at(first + i);
+        if (r.size() >= 0x28 && rd32(r, 0x04) == u32(paint + 1)) row = r;
+    }
     if (row.size() < 0x28) return c;
     const u32 word = rd32(row, 0x24);
     const F k255 = F::raw(0x437F0000);
@@ -158,7 +175,7 @@ void choose_paints(db::SpecDb& db, std::vector<Equipment>& grid, const std::func
                 cands[j].push_back({int(fixed), paint_colour(db, grid[j], fixed), one});
                 continue;
             }
-            const int n = paint_count(db, grid[j]);
+            const int n = choice_count(db, grid[j]);
             F w = one, sum;
             for (int i = 0; i < n; ++i) {
                 cands[j].push_back({i, paint_colour(db, grid[j], i), w});
@@ -206,6 +223,12 @@ void choose_paints(db::SpecDb& db, std::vector<Equipment>& grid, const std::func
 
 std::vector<Equipment> grid_equipment(db::SpecDb& db, const Program& program, const db::RaceEvents& events, const std::vector<GridEntry>& grid,
                                       u32 seed, const Equipment* player) {
+    RaceRandom r(seed ? seed : RaceRandom::kStart);
+    return grid_equipment(db, program, events, grid, r, player);
+}
+
+std::vector<Equipment> grid_equipment(db::SpecDb& db, const Program& program, const db::RaceEvents& events, const std::vector<GridEntry>& grid,
+                                      RaceRandom& random, const Equipment* player) {
     std::vector<Equipment> out(grid.size());
     for (size_t i = 0; i < grid.size(); ++i) {
         if (grid[i].player && player) out[i] = *player;
@@ -213,11 +236,7 @@ std::vector<Equipment> grid_equipment(db::SpecDb& db, const Program& program, co
         // A car a script entered without a paint: the race's to choose (0x445880 with a paint word of 0), as a pool's.
         if (!grid[i].player && grid[i].enemy.empty() && grid[i].paint < 0 && paint_count(db, out[i]) > 0) out[i].set_b(0x18, 0xFF);
     }
-    u32 state = seed ? seed : 1;
-    choose_paints(db, out, [&state]() {
-        state = state * 1664525u + 1013904223u;
-        return float(state >> 8) / float(1u << 24);
-    });
+    choose_paints(db, out, [&random]() { return random.next().host(); });
     return out;
 }
 
