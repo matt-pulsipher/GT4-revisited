@@ -2,6 +2,7 @@
 
 #include "base/log.h"
 #include "gt4r/formats/db/specdb.h"
+#include "gt4r/sim/equipment.h"
 #include "vfs/vfs.h"
 
 #include <algorithm>
@@ -28,35 +29,39 @@ std::optional<u32> part(db::SpecDb& db, const std::string& car, const char* tabl
 
 } // namespace
 
-CarSoundFiles car_sound_files(db::SpecDb& db, const std::string& car) {
+namespace {
+
+// The files the four parts' rows name (an empty row: no such part).
+CarSoundFiles files_of(ByteSpan engine, ByteSpan muffler, ByteSpan turbine, ByteSpan gear) {
     CarSoundFiles f;
-    const db::Table* engines = db.table("ENGINE");
-    const std::optional<u32> engine = part(db, car, "ENGINE", "en_");
-    if (!engines || !engine) return f;
-    const ByteSpan row = engines->row(*engine);
-    if (row.size() < kEngineSoundId + 2) return f;
-    f.id = rd16(row, kEngineSoundId);
-    if (const db::Table* t = db.table("MUFFLER"))
-        if (const auto id = part(db, car, "MUFFLER", "mu_")) {
-            const ByteSpan r = t->row(*id);
-            if (r.size() > kMufflerVariant) f.muffler = r[kMufflerVariant] & 3;
-        }
-    if (const db::Table* t = db.table("TURBINEKIT"))
-        if (const auto id = part(db, car, "TURBINEKIT", "tk_")) {
-            const ByteSpan r = t->row(*id);
-            f.turbo = r.size() > kTurboKind && r[kTurboKind] != 0;
-        }
-    if (const db::Table* t = db.table("GEAR"))
-        if (const auto id = part(db, car, "GEAR", "ge_")) {
-            const ByteSpan r = t->row(*id);
-            f.whine = r.size() > kGearWhine && r[kGearWhine] != 0;
-        }
+    if (engine.size() < kEngineSoundId + 2) return f;
+    f.id = rd16(engine, kEngineSoundId);
+    if (muffler.size() > kMufflerVariant) f.muffler = muffler[kMufflerVariant] & 3;
+    f.turbo = turbine.size() > kTurboKind && turbine[kTurboKind] != 0;
+    f.whine = gear.size() > kGearWhine && gear[kGearWhine] != 0;
     f.variant = CarSoundFiles::variant_name(f.variant_index());
     char name[16];
     std::snprintf(name, sizeof name, "%05d", f.id);
     f.engine = std::string("sound/engine/") + name;
     f.exhaust = "sound/" + f.variant + "/" + name;
     return f;
+}
+
+} // namespace
+
+CarSoundFiles car_sound_files(db::SpecDb& db, const std::string& car) {
+    const auto row = [&](const char* table, const char* prefix) -> ByteSpan {
+        const db::Table* t = db.table(table);
+        const std::optional<u32> id = t ? part(db, car, table, prefix) : std::nullopt;
+        return id ? t->row(*id) : ByteSpan();
+    };
+    return files_of(row("ENGINE", "en_"), row("MUFFLER", "mu_"), row("TURBINEKIT", "tk_"), row("GEAR", "ge_"));
+}
+
+CarSoundFiles car_sound_files(db::SpecDb& db, const sim::Equipment& eq) {
+    using E = sim::Equipment;
+    const auto row = [&](u32 slot) { return db::part_row(db, eq.part(slot)); };
+    return files_of(row(E::Engine), row(E::Muffler), row(E::TurbineKit), row(E::Gear));
 }
 
 std::string CarSoundFiles::variant_name(int index) {
@@ -68,6 +73,15 @@ CarSoundFiles car_sound_files(gt3r::Vfs& vfs, const std::string& car) {
     try {
         db::SpecDb db([&vfs](const std::string& path) { return vfs.read(path); }, [&vfs](const std::string& dir) { return vfs.list_dir(dir); });
         return car_sound_files(db, car);
+    } catch (const std::exception&) {
+        return {};
+    }
+}
+
+CarSoundFiles car_sound_files(gt3r::Vfs& vfs, const sim::Equipment& equipment) {
+    try {
+        db::SpecDb db([&vfs](const std::string& path) { return vfs.read(path); }, [&vfs](const std::string& dir) { return vfs.list_dir(dir); });
+        return car_sound_files(db, equipment);
     } catch (const std::exception&) {
         return {};
     }
@@ -242,6 +256,12 @@ bool CarSound::load(const std::string& car_label) {
     return load(files_.id, files_.variant_index());
 }
 
+bool CarSound::load(const sim::Equipment& equipment) {
+    files_ = car_sound_files(vfs_, equipment);
+    if (files_.engine.empty()) return false;
+    return load(files_.id, files_.variant_index());
+}
+
 bool CarSound::load(int sound_id, int variant) {
     stop();
     files_.id = sound_id;
@@ -327,6 +347,7 @@ void CarSound::play_once(const Effect& e, float strength, float gain, const Plac
     SoundParams p;
     p.left = at.left * level, p.right = at.right * level;
     p.priority = note_priority(level);
+    if (sound_log()) LOG_INFO("Sound: a car's single note of program %d at %.4f", e.program, double(level));
     if (effects_->note_on(e.bank, e.program, p)) ++report_.notes;
 }
 
@@ -356,8 +377,8 @@ void CarSound::update(const CarSoundState& car, const SoundListener& listener, b
     // view they are around the driver's head; from anywhere else all three are the car's.
     float px[3], pz[3];
     if (view == SoundView::InCarTarget) {
-        const float engine = car.engine_place == 2 ? kHere : car.engine_place == 3 ? -kAhead : kAhead;
-        const float ahead[3] = {engine, kHere, -kAhead};
+        const float engine = t.prologue ? 0.0f : car.engine_place == 2 ? kHere : car.engine_place == 3 ? -kAhead : kAhead;
+        const float ahead[3] = {engine, t.prologue ? 0.0f : kHere, t.prologue ? 0.0f : -kAhead};
         const float c = std::cos(listener.look), s = std::sin(listener.look);
         for (int i = 0; i < 3; ++i) px[i] = -ahead[i] * s, pz[i] = ahead[i] * c;
     } else {
@@ -369,7 +390,9 @@ void CarSound::update(const CarSoundState& car, const SoundListener& listener, b
     Placement at_body = place_sound(t.mic(mode, 2), px[1], pz[1]);
     Placement at_exhaust = place_sound(t.mic(mode, 1), px[2], pz[2]);
     const float master = mix.master;
-    const auto held = [&](const Placement& p) { return std::clamp(p.gain * master, -1.0f, 1.0f); };
+    const auto held = [&](const Placement& p) {
+        return t.prologue ? std::clamp(p.gain, -1.0f, 1.0f) * master : std::clamp(p.gain * master, -1.0f, 1.0f);
+    };
     const float g_engine = held(at_engine), g_body = held(at_body), g_exhaust = held(at_exhaust);
     report_.engine = at_engine, report_.body = at_body, report_.exhaust = at_exhaust;
     // The surround cue (the panner's two flags, 0x39A7B0): a sound behind the camera has one side
@@ -386,6 +409,8 @@ void CarSound::update(const CarSoundState& car, const SoundListener& listener, b
     // The two banks' levels: each moves half way to its target every step.
     if (!car.live || (car.hybrid && car.rpm < car.idle_rpm)) {
         engine_level_ = exhaust_level_ = 0;
+    } else if (car.engine_level >= 0 && car.exhaust_level >= 0) {
+        engine_level_ = car.engine_level, exhaust_level_ = car.exhaust_level;
     } else {
         const float sum = car.torque_full + car.torque_friction;
         const float quiet = sum > 0 ? car.torque_friction / sum : 0.0f; // the throttle that just holds the revs
@@ -439,9 +464,10 @@ void CarSound::update(const CarSoundState& car, const SoundListener& listener, b
     {
         const float level = car.live ? std::min(k.incar_gain * car.drag * speed * speed * (1.0f - car.cabin_wake), k.incar_max) : 0.0f;
         const float pitch = lerp_clamped(std::fabs(speed), k.incar_speed_lo, k.incar_speed_hi, k.incar_pitch_lo, k.incar_pitch_hi);
-        report_.cabin = ease(cabin_, g_body * gain(SoundChannel::InCar) * level);
+        const float rush = g_body * gain(SoundChannel::InCar) * level;
+        report_.cabin = t.prologue ? rush : ease(cabin_, rush);
         send(cabin_, cabin_fx_, report_.cabin, at_body, doppler * pitch);
-        const float flowing = view == SoundView::InCarTarget && car.live && car.nitrous ? 1.0f : 0.0f;
+        const float flowing = !t.prologue && view == SoundView::InCarTarget && car.live && car.nitrous ? 1.0f : 0.0f;
         send(nitrous_, nitrous_fx_, ease(nitrous_, g_body * flowing), at_body, 1.0f);
     }
 
@@ -451,7 +477,7 @@ void CarSound::update(const CarSoundState& car, const SoundListener& listener, b
         const race::Vec3 from = sub(wheel.position, listener.position);
         Placement at = place_sound(t.mic(mode, 2), dot(from, listener.right), dot(from, listener.forward));
         behind(wheel_cue_[w], at);
-        const float g = held(at) * master;
+        const float g = t.prologue ? held(at) : held(at) * master;
         float level[kWheelNotes] = {}, pitch[kWheelNotes];
         std::fill(pitch, pitch + kWheelNotes, doppler);
         if (car.live) {
@@ -483,7 +509,7 @@ void CarSound::update(const CarSoundState& car, const SoundListener& listener, b
         for (int n = 0; n < kWheelNotes; ++n) {
             Loop& loop = wheels_[w][size_t(n)];
             float v = g * level[n];
-            if (n > Rain) v = ease(loop, v); // (the squeal, the roar and the rain follow at once)
+            if (n > Rain && !t.prologue) v = ease(loop, v); // (the squeal, the roar and the rain follow at once)
             report_.wheel[w][size_t(n)] = v;
             send(loop, wheel_fx_[size_t(n)], v, at, pitch[n]);
         }
@@ -498,6 +524,7 @@ void CarSound::update(const CarSoundState& car, const SoundListener& listener, b
     // whenever the phase passes 1, the phase rising (0.8 + 2.2 x) / 60 a step with x = |speed| / 66.67 m/s
     // (at most 1), at the strength 0.6 + 0.4 x at the body; heard from the car's own in-car view only.
     report_.heartbeats = heart_count_;
+    if (t.prologue) return;
     if (car.heart) {
         const float x = std::min(std::fabs(car.speed) / 66.666664f, 1.0f);
         heart_phase_ += (x * 2.2f + 0.8f) * (1.0f / 60.0f);

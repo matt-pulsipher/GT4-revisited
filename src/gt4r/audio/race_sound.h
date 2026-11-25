@@ -54,7 +54,16 @@ struct RaceSoundOptions {
 RaceSoundOptions race_sound_options(const std::map<std::string, std::variant<s32, float, std::string>>& options);
 
 // Which pair of jingles a race plays at its start and its finish (the race type sets them).
-enum class RaceMusic : u8 { Race, Championship, TimeTrial, License, Coffee, Other, Last };
+// (Race: the races of the arcade and the events; Championship and Last: a series' races and its last; TimeTrial: the free
+// runs and the machine test; License: the tests and the driving trainings; Coffee: the license center's coffee breaks;
+// Mission: the missions; Other: the free practice.)
+enum class RaceMusic : u8 { Race, Championship, TimeTrial, License, Coffee, Other, Last, Mission };
+// A race's kind: the sequence's name (as the menus name it), the event's label (a license's letter: a coffee break's is c),
+// whether it is a series' last race.
+RaceMusic race_music(const std::string& sequence, const std::string& label, bool last_race);
+// Whether the racing music starts at the start (the race's virtual +79, 0x389D48; the licenses' and trainings' is empty:
+// 0x3BC528, 0x3ED180).
+bool racing_music(RaceMusic kind);
 // The streamed music groups (sound_index.h) of a kind's start and finish.
 const char* race_start_group(RaceMusic kind);
 const char* race_goal_group(RaceMusic kind);
@@ -68,7 +77,8 @@ public:
     RaceSound& operator=(const RaceSound&) = delete;
 
     // The cars in grid order. False when the car has no engine sound (it stays silent).
-    bool add_car(const std::string& label);
+    // With `equipment` the car as it is equipped (its engine, muffler, turbine kit and gearbox), else as sold.
+    bool add_car(const std::string& label, const sim::Equipment* equipment = nullptr);
     bool add_car(int sound_id, int variant);
     size_t cars() const { return cars_.size(); }
     CarSound& car(size_t i) { return *cars_[i]; }
@@ -105,16 +115,27 @@ public:
     void contact(size_t car, int kind, float force);
     // A pit stop's sound (0x393428: the effect at the master's level, both sides): "jackdown" as the tires are on
     // (the stop's bit 0x200, taken by the pit scene), "wheelgun", "dropnut", "droptire", "jackup" by the crew's
-    // motions, "oiltank"; "refueling" is held while the hose runs (0x3934A0).
+    // motions (their channels "wheel_gun", "wheel_nut", "tire_sound2", "jack_up"), "oiltank" as the crew's fifth changes motion.
     void pit_effect(const char* name) { play_effect(name, master()); }
+    // The hose's sound (0x3934A0 effect 70, both sides at the master's level): held from the step a hose of the pits
+    // begins to run until none does (0x393528).
+    void refueling(bool on);
     // The sound inputs of every step heard from the session (update(session, ...)) are kept for the run's replay: from
     // replay() on, the steps heard from recorded states (update(cars, ...)) take the kept ones in turn, the first
     // replayed step being the run's second. forget_recording() as a new run begins or another run is played.
     void forget_recording() { recorded_.clear(), replay_step_ = 0; }
     size_t recorded_steps() const { return recorded_.size(); }
-    // The race's start jingle (before the count) and finish jingle.
+    // A run begins (also a retry): its kind of music, and by its start (the race information's +0xB4, 0x3C0208): 1 and 2 (a
+    // hold of 8 or 10 s) the kind's start jingle, -1 (rolling) the racing music at once (rolling()), any other nothing until
+    // the start.
+    void begin_run(RaceMusic kind, int start);
+    // The race's start jingle (before the count) and finish jingle (0x3A0228; the license tests' display, 0x3BD330, plays
+    // none at their finish).
     void intro();
     void finish();
+    // A license test's result (0x3E1C80, 0x3E1EA0): the grade's jingle (0 gold, 1 silver, 2 bronze, anything else failed; a
+    // coffee break's the kind's goal jingle), the cars and the course faded out over a second (0x391DC8).
+    void license_result(int grade);
     void pause(bool paused);
     void stop();
     // The master's fade: toward `target` over `seconds`.
@@ -164,8 +185,8 @@ private:
     CourseSound course_;
     std::shared_ptr<const course::Runway> road_;
     std::unique_ptr<sim::RoadGround> ground_;
-    Held ambience_[CourseSound::kChannels], tunnel_[4], heri_;
-    bool helicopter_ = false, paused_ = false, racing_ = false, started_ = false;
+    Held ambience_[CourseSound::kChannels], tunnel_[4], heri_, refueling_;
+    bool helicopter_ = false, refueling_on_ = false, paused_ = false, racing_ = false, started_ = false;
     float fade_ = 0, fade_target_ = 1, fade_step_ = 1.0f / 18.0f;
     int racing_piece_ = -1;
     int first_piece_ = -1; // the race's first racing piece (a replay plays it again)

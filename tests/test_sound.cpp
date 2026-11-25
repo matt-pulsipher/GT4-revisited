@@ -13,6 +13,7 @@
 #include "gt4r/formats/sound/sound_index.h"
 #include "gt4r/formats/sound/sqt.h"
 #include "gt4r/menu/layout.h"
+#include "gt4r/sim/equipment.h"
 #include "vfs/vfs.h"
 
 #include <cmath>
@@ -892,4 +893,37 @@ TEST(sound_page_music_on_disc) {
         CHECK(menu.keep_music("keep") && menu.music_group() == "map");
         CHECK(menu.keep_music(home) && menu.music_group() == "home");
     }
+}
+
+// A car's sound files from the parts it carries: the stock parts name the files as sold (every car), another muffler another
+// exhaust bank.
+TEST(sound_equipped_cars_on_disc) {
+    Disc* disc = nullptr;
+    for (const auto& d : test::discs())
+        if (d->info().game == Game::GT4 && d->volume().find("sound/engine/37701")) disc = d.get();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    gt3r::Vfs vfs(&disc->volume());
+    db::SpecDb db([&](const std::string& path) { return vfs.read(path); }, [&](const std::string& dir) { return vfs.list_dir(dir); });
+    size_t cars = 0, same = 0, other = 0;
+    const db::Labels* mufflers = db.labels("MUFFLER");
+    CHECK(mufflers != nullptr);
+    for (const auto& car : db.cars()) {
+        sim::Equipment eq;
+        if (!sim::stock_equipment(db, car.label, eq)) continue;
+        ++cars;
+        const audio::CarSoundFiles sold = audio::car_sound_files(db, car.label), carried = audio::car_sound_files(db, eq);
+        same += sold.engine == carried.engine && sold.exhaust == carried.exhaust && sold.whine == carried.whine;
+        for (const char* grade : {"_b", "_c", "_d", "_e"})
+            if (const auto id = mufflers->id("mu_" + car.label + grade)) {
+                eq.set_part(sim::Equipment::Muffler, db::part_id(mufflers->table_id, *id));
+                const audio::CarSoundFiles tuned = audio::car_sound_files(db, eq);
+                if (tuned.exhaust != sold.exhaust) {
+                    ++other;
+                    CHECK(tuned.engine == sold.engine && vfs.exists(tuned.exhaust));
+                    break;
+                }
+            }
+    }
+    std::printf("  %zu cars: %zu the same from their stock parts, %zu another exhaust bank with another muffler\n", cars, same, other);
+    CHECK(cars > 700 && same == cars && other > 100);
 }

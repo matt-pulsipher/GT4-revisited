@@ -628,6 +628,7 @@ public:
                      double(world_->start_race().goal));
         mount_ = setup.view;
         begin_run(setup.bspec);
+        built_ = true;
         // A scripted run that skips ahead: those steps unseen.
         for (int i = 0; i < setup.skip; ++i) step({}, true);
         if (setup.replay > 0) {
@@ -694,7 +695,6 @@ public:
                 flow_.resume(0, 2, (100 - s64(st->units) + s64(st->remainder) - 1) / 3, 100, world_->cars()[0].course_v);
                 world_->set_crossings(0, flow_.car(0).counter);
             }
-        rolled_ = false;
         license_failed_ = false, cones_met_ = 0;
         judge_ = race::LicenseJudge(judge_.rules());
         finish_camera_.angle = 0;
@@ -702,7 +702,12 @@ public:
         board_.begin(world_->car_count(), 0, lap_words_[0], lap_words_[1]);
         camera_.reset(world_->cars()[0]);
         history_.clear(), run_dist_.clear(), saved_recording_.clear(), behind_.reset();
-        if (audio::RaceSound* sound = world_->sound()) sound->forget_recording();
+        if (audio::RaceSound* sound = world_->sound()) {
+            sound->forget_recording();
+            // (built for its menus, the run is not begun yet: its page comes first)
+            if (built_ || setup_.sequence.empty()) sound->begin_run(audio::race_music(setup_.sequence, setup_.race, last_race_), int(fs.start));
+            license_sounded_ = false;
+        }
         split_prev_.clear(), split_first_.clear(), split_steps_ = -1;
         distance_ = 0, bspec_distance_ = 0, shown_steps_ = 0;
         replaying_ = false, over_ = false;
@@ -936,12 +941,12 @@ public:
         }
         if (audio::RaceSound* sound = world_->sound()) {
             if (hold) sound->count(flow_.hold_left());
-            // A rolling start: the racing music as the field begins to run, the start's sound when
-            // the player's car takes the line.
+            // A rolling start: the racing music with the run's beginning (begin_run), the start's sound when the player's
+            // car takes the line; a moving one its music and the sound then.
             const bool runs_up = flow_.setup().start == race::StartType::Rolling || flow_.setup().start == race::StartType::Moving;
-            if (!rolled_ && runs_up) sound->rolling(), rolled_ = true;
-            if (ev.start && runs_up) sound->start_signal();
-            if (ev.player_finished) sound->finish();
+            if (ev.start && runs_up && flow_.setup().start == race::StartType::Rolling) sound->start_signal();
+            else if (ev.start) sound->start(); // (a standing start: the last held step is let go, so not counted above)
+            if (ev.player_finished && !is_license(setup_.sequence)) sound->finish();
         }
         if (ev.clock_started) LOG_INFO("Drive: the rolling start's clock starts (the first car takes the line); the player %.1f m from it", double(to_line_raw()));
         if (opening_was_ && !opening_tv()) LOG_INFO("Drive: the opening shots end %.1f m from the line, %.2f s on the clock", double(to_line_raw()), double(flow_.time_ms()) / 1000);
@@ -1444,6 +1449,13 @@ public:
         if (judge_.cones_done()) flow_.finish_now(0, 1); // (at the step's end: the clock + 50)
     }
     const race::LicenseJudge& license_judge() const { return judge_; }
+    // A series' last race has its own jingles.
+    void set_last_race(bool last) { last_race_ = last; }
+    // A license test's result, once: its jingle.
+    void license_sound(int grade) {
+        if (std::exchange(license_sounded_, true)) return;
+        if (audio::RaceSound* sound = world_->sound()) sound->license_result(grade);
+    }
     bool license_failed() const { return license_failed_; }
 
     // A license test on a road whose goal distance (Gran Turismo 3's road header +0x1C, Prologue's courses) lies inside the
@@ -1672,7 +1684,7 @@ private:
     race::ResultBoard board_;
     float distance_ = 0, bspec_distance_ = 0;
     int shown_steps_ = 0; // since the run began, its hold included
-    bool rolled_ = false; // a rolling start's music was started
+    bool built_ = false, last_race_ = false, license_sounded_ = false; // (the race's music: a series' last race, a test's result heard)
     int tire_index_ = 4;   // the race's tires (the scripts' index: 4 sports medium)
     std::string race_word_ = "ARCADE_SINGLE_RACE"; // the race's name in the race's words
     bool throttle_held_ = false;
@@ -1939,6 +1951,7 @@ public:
             if (m.pressed(PadButton::Start) || m.pressed(PadButton::Cross)) race_->stop_replay();
             if (race_->replay_done()) return finish_run(app);
         } else if (results_shown()) {
+            if (is_license(sequence_)) race_->license_sound(prize_level());
             // The results page (the game's results movie, else a plain page): leaving it ends the run.
             if (!result_ && !result_tried_) open_results(app);
             bool leave = false;
@@ -2682,6 +2695,10 @@ private:
         demo_ = demo;
         reported_ = false;
         if (menus_ && !sequence_.empty()) race_->set_bspec_book(menus_->game().race.bspec_book, menus_->game().race.bspec_course_marks);
+        if (menus_ && sequence_ == "championship") {
+            const auto& series = menus_->game().series;
+            race_->set_last_race(series.race_count > 0 && series.races_run + 1 >= series.race_count);
+        }
         race_->set_player(player_choice());
         race_->begin_run(watched);
         clock_ = 0;
