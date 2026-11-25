@@ -111,7 +111,7 @@ struct FieldCheck {
     int bad = 0;
     bool verbose;
     void operator()(const char* name, rp::F a, rp::F b) {
-        if (a.bits == b.bits || !((a.bits | b.bits) & 0x7FFFFFFF)) return;
+        if (a.bits == b.bits || !((a.bits | b.bits) & 0x7F800000)) return;
         ++bad;
         if (verbose) std::printf("    %s ours %.7g (%08X) program %.7g (%08X)\n", name, a.host(), a.bits, b.host(), b.bits);
     }
@@ -248,6 +248,8 @@ int run_posture(Disc& disc, const std::vector<std::string>& paths) {
                                         p.gesture.host(), c.phase.host(), c.wheel_angle.host(), c.grip_from[0].host(), c.grip_from[1].host(), c.recline.host(),
                                         c.lean.host(), g.at.x.host(), g.at.y.host(), g.at.z.host(), p.seat.x.host(), p.seat.y.host(), p.seat.z.host(), p.pos.x.host(), p.pos.y.host(), p.pos.z.host());
                         // The inputs, from the car's parts block, its place and the record of its driver.
+                        const bool second = at == model + kSecondHuman + 0x10;
+                        const u32 human = model + (second ? kSecondHuman : kHuman);
                         if (car_file) {
                             // (the file as it is on the disc: its offsets are addresses in memory)
                             Bytes car_bytes(e.r32(car_file + 8));
@@ -261,16 +263,16 @@ int run_posture(Disc& disc, const std::vector<std::string>& paths) {
                             };
                             for (u32 at = 0x14; at < 0x38; at += 4) rebase(at);
                             rebase(rebase(0x10) + 0x50);
-                            const rp::Cockpit cockpit = rp::read_posture_cockpit(ByteSpan(car_bytes), false);
+                            const rp::Cockpit cockpit = rp::read_posture_cockpit(ByteSpan(car_bytes), second);
                             rp::PostureInput in;
                             if (e.r32(human + 0x7B4)) {
                                 in = rp::still_posture(cockpit);
                             } else {
                                 Reader r{e};
-                                const u32 block = e.r32(model + 4) + 0x9A0;
+                                const u32 block = e.r32(model + 4) + 0x9A0 + (second ? 0x370 : 0);
                                 rp::DriverRecord before, after;
                                 for (u32 n = 0; n < 64; ++n) before.v[n] = r.f(block + 0x160 + 4 * n), after.v[n] = r.f(block + 0x260 + 4 * n);
-                                in = rp::driving_posture(cockpit, rp::blend_records(before, after, rp::F(alpha)), r.v(human + 0x7C4), r.v(human + 0x7D0), false);
+                                in = rp::driving_posture(cockpit, rp::blend_records(before, after, rp::F(alpha)), r.v(human + 0x7C4), r.v(human + 0x7D0), second);
                                 if (!recorded) { // (a call with no reduction by class)
                                     const rp::Controls keep = in.controls;
                                     in.controls.arms = in.controls.legs = 1;
