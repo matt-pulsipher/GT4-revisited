@@ -56,6 +56,8 @@ struct DeviceConfig {
 // A device's settings as a new game has them; a preset's axes and buttons (0x43B808, 0x43B8D8, 0x43B928, 0x43B9D8: 0 as 1).
 DeviceConfig default_config(Device d);
 void set_preset(DeviceConfig& c, Device d, int preset);
+// A device's keys differ from its first preset's (the Key Configuration page's OK leaves the preset 0 without a change too).
+bool keys_changed(const DeviceConfig& c, Device d);
 
 // A port's settings, and their saved form (0x43D8A8: four pieces of 0x20, 0xC, 0x18 and 0x1C bytes).
 struct PortConfig {

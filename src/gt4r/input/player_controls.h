@@ -5,8 +5,8 @@
 //
 // Two layouts, as the player chooses ([player1] race in config.ini):
 // - "modern" (the default): triggers accelerate and brake, the buttons as the engine's modern race layout has them. Once the
-//   player has changed the game's own Key Configuration page for the DualShock 2 by hand (its preset is 0), the pad is read
-//   through that page instead.
+//   player has changed the game's own Key Configuration for the DualShock 2, the pad is read through it instead (its page's
+//   Default brings the modern layout back).
 // - "original": the pad as the console's DualShock 2, always through the Key Configuration page.
 // A steering wheel is the console's Driving Force Pro (or a GT FORCE), through its own Key Configuration page either way.
 // What differs from the console, here: the sticks' fineness and dead zone, the triggers' travel, a wheel's rotation.

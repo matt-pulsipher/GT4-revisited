@@ -62,6 +62,7 @@ TEST(input_key_config) {
     CHECK(keys_with(p, Device::DualShock2, AxisAction::Steer) == std::vector<std::string>{"LX"});
     set_button(p, Device::DualShock2, "CROSS", ButtonAction::None);
     set_button(p, Device::DualShock2, "R2", ButtonAction::Accel);
+    CHECK(keys_changed(p, Device::DualShock2));
     CHECK(p.preset == 0 && keys_with(p, Device::DualShock2, ButtonAction::Accel) == std::vector<std::string>{"R2"});
     set_preset(p, Device::DualShock2, 1);
     CHECK(p == c.of(Device::DualShock2));
@@ -527,6 +528,14 @@ TEST(input_option_pages) {
         CHECK(accel.size() == 1 && accel[0] != "CROSS");
         CHECK(settings(f).controllers.port[0].of(Device::DualShock2).preset == 0 && settings(f).controllers.port[1] == PortConfig() && f.clean());
     }
+    { // The page left by OK as it was.
+        Flow f(*disc);
+        CHECK(open(f, {Key::Down, Key::Down, Key::Down, Key::Right, Key::Accept}) && f.page() == "KeyconfigRoot");
+        CHECK(focus_on(f, "Buttons::OK"));
+        f.press({Key::Accept});
+        const PortConfig c = settings(f).controllers.port[0];
+        CHECK(f.page() == "OptionRoot" && c.of(Device::DualShock2).preset == 0 && !keys_changed(c.of(Device::DualShock2), Device::DualShock2));
+    }
     { // Vibration 1P off.
         Flow f(*disc);
         CHECK(open(f, {Key::Down, Key::Down, Key::Down, Key::Accept}) && f.page() == "ControllerRoot");
@@ -543,7 +552,6 @@ TEST(input_option_pages) {
         f.press({Key::Accept, was ? Key::Down : Key::Up, Key::Accept});
         CHECK(focus_on(f, "Feedback1"));
         f.press({Key::Accept});
-        std::printf("  at %s\n", f.rt->focused()->self()->path().c_str());
         f.press({Key::Up, Key::Accept});
         CHECK(focus_on(f, "OK"));
         f.press({Key::Accept});

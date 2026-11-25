@@ -102,6 +102,11 @@ DeviceConfig default_config(Device d) {
     return c;
 }
 
+bool keys_changed(const DeviceConfig& c, Device d) {
+    const DeviceConfig fresh = default_config(d);
+    return c.axes != fresh.axes || c.buttons != fresh.buttons;
+}
+
 void PortConfig::read(const u8* b) {
     for (size_t i = 0; i < kDeviceCount; b += kPieces[i], ++i) {
         DeviceConfig& c = device[i];

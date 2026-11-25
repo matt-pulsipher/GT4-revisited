@@ -34,7 +34,7 @@ void translate_config(gt3r::IniDocument& ini) {
 }
 
 bool console_layout(const gt3r::InputManager& input, int player, const PortConfig& config) {
-    return input.race_uses_menu_pad(player) || config.of(Device::DualShock2).preset == 0;
+    return input.race_uses_menu_pad(player) || keys_changed(config.of(Device::DualShock2), Device::DualShock2);
 }
 
 GamePort pad_port(const PadState& menu, const PadState& race) {
