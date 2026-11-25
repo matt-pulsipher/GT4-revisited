@@ -471,7 +471,9 @@ page. Read by 0x1FFCB0 / 0x200E70, sampled by 0x1FFE70 / 0x1FFD00 (`menu/model_s
 | frames, 0x30 each | eye x y z, rotation x y z and field of view (degrees), each light's scale (its ambient, diffuse, specular and its shadow's alpha times it), 0 |
 
 ❓ What follows the frames in the files (0xB50 .. 0x21A0 bytes; the program's loader does not point at it).
-❓ The stream's clock without `sync_mpeg`.
+❓ The stream's clock without `sync_mpeg`. ❓ The original shows the page's dark picture (`Veil.bg`, `best_bg.png`) behind the words
+until the film's frame 90, though its layout hides it (`visible` 0) and no script shows it: what does is not found, and here the car
+stands on black for those three seconds (the film itself is black until then).
 
 **Arcade's settings** (0x10A360, 0x1A0130): the stability control by the driving assist (0x402348; the traction control by an
 option word), the gearbox by the game's bit 0, and the tire grip (`tire_type`, the names 0x505110) as the player's equipment's
