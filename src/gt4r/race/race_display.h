@@ -12,6 +12,11 @@
 
 namespace gt4r::race {
 
+// The tire diagram's color of a wheel by its wear level (0x3677F8): from a level under -0x3F black, -0x3F
+// .. -1 blue turning green, 0 .. 0x1F green turning yellow, 0x20 .. 0x3F yellow turning red, 0x40 on red.
+// 0xBBGGRR.
+u32 tire_color(int level);
+
 // An element's place on the display's 640 x 480 canvas, as a row of the program's layout tables
 // gives it.
 struct DisplayPlace {
