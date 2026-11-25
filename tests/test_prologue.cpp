@@ -229,7 +229,7 @@ TEST(disc_prologue_step_routines_equal) {
         if (!err.empty()) std::printf("  %s\n", err.c_str());
         CHECK(err.empty());
         // (the engine's routines Prologue does not share are tapped too, to show how they differ)
-        static const std::set<std::string> differ = {"slip ratios", "tire slip force", "forward step", "lateral and yaw", "wheel steer",
+        static const std::set<std::string> differ = {"slip ratios", "tire slip force", "forward step", "lateral and yaw", "wheel steer", "aids",
                                                      "attitude", "ground frame", "rolling resistance", "brake heat",
                                                      "terrain factor", "pad rumble", "steer force", "tire effects", "engine sound",
                                                      "view follow", "speed bookkeeping", "engine's driver input"};

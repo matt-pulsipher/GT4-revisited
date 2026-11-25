@@ -8,6 +8,7 @@
 #include "gt4r/race/simulation.h"
 #include "gt4r/sim/car_spec.h"
 #include "gt4r/sim/collide.h"
+#include "gt4r/sim/aids_prologue.h"
 #include "gt4r/sim/collide_prologue.h"
 #include "gt4r/sim/ground.h"
 #include "gt4r/sim/record.h"
@@ -174,6 +175,7 @@ private:
     std::optional<prologue::Tables> prologue_;
     std::vector<prologue::CarPart> prologue_cars_;
     std::unique_ptr<prologue::Collision> prologue_collide_;
+    prologue::AidTables prologue_aids_;
     std::vector<prologue::Collision::Contact> prologue_contacts_;
     std::vector<Spec> specs_;
     std::vector<race::CarState> states_;

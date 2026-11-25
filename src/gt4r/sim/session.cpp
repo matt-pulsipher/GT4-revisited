@@ -130,7 +130,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
         prologue::Tables t = prologue::tables(program);
         if (t.found) prologue_ = t, prologue_cars_.resize(entries.size());
         if (prologue_ && road_->gtrw) course_ground_ = std::make_unique<ex::CourseGround>(*road_->gtrw);
-        if (prologue_) prologue::race_inputs(race_, *prologue_);
+        if (prologue_) prologue::race_inputs(race_, *prologue_), prologue_aids_ = prologue::aid_tables(program);
     }
     // What the aids read of the race: the course's kind (a loose course 1), no speed caps, the lap.
     aid_race_.course_kind = loose_ ? 1 : 0;
@@ -573,6 +573,11 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
             const ex::Aids* driver = in.computer && driver_aids_[i] ? &*driver_aids_[i] : nullptr;
             sim::Extra& g = gx_[i];
             rules::aids(c, g.aids, g.tires, g.drive, layouts_[i], tables_.aids, aid_race_, driver);
+        } else if (prologue_) { // Prologue's (0x3E0838)
+            if (in.computer && driver_aids_[i]) c.ai.aids = *driver_aids_[i];
+            prologue::AidRace r;
+            r.dirt = loose_, r.speed_cap = aid_race_.speed_cap, r.start_cap = aid_race_.start_cap;
+            prologue::aids(c, prologue_cars_[i], prologue_aids_, r, race_.aids);
         } else ex::aids(c, race_.aids);
         if (gt4_rules_) rules::dynamics(c, gx_[i], layouts_[i], tables_, grip);
         else if (prologue_) prologue::dynamics(c, prologue_cars_[i], race_.statics, race_.gears, race_.class_grip, *prologue_);
