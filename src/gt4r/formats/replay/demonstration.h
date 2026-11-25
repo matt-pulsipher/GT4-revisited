@@ -53,6 +53,7 @@ struct ControlStream {
     Bytes state;         // the recorder's own header (0x14F4 bytes; a save of several recorders, a free run's lap: a recording from
                          // a moment of the race on), else empty (RecorderState)
     std::vector<PadRecord> frames;
+    std::optional<PadRecord> last; // the T-th record, which the recorder kept and no playback reaches
     // The record at step i (past the end: an empty record, as the done playback leaves it).
     PadRecord frame(size_t i) const { return i < frames.size() ? frames[i] : PadRecord{}; }
 };
@@ -84,6 +85,7 @@ struct Demonstration {
     u32 version = 0;          // the race header's +8 (0x40000)
     u32 race_mode = 0;        // +0xC (the race's +0xCC4)
     std::string race_class;   // +0x10 the race's class ("RaceLicense")
+    Bytes header;             // the body's first 0x1AA4 bytes as read (encode writes the fields below over them; empty: zeros)
     std::array<u8, 0x60> information{}; // +0x50 the race information's first 0x60 bytes ❓
     u64 code_b0 = 0, code_b8 = 0; // +0xB0 / +0xB8 two database codes of the race information (+0x68, +0x78) ❓
     s32 time_ms = 0;          // +0xC0 the first entry's recorded time (ms)
@@ -96,7 +98,14 @@ struct Demonstration {
     // nullopt (with *error) when the file is not a deciphered ReplayData of the program's layout. The cipher's
     // tables are the program's (0x655C90, 0x655888): a program that is not the mapped build gives nullopt.
     static std::optional<Demonstration> parse(ByteSpan file, const sim::Program& program, std::string* error = nullptr);
+    // The file of it as the program writes one (Serialize::ReplayData, then not scrambled): its body enciphered under its key.
+    Bytes encode(const sim::Program& program) const;
 };
+
+// A recorder's stream of records as the program's recorder writes it (0x346138 a step, 0x346498 its end): `frames` then `last`.
+Bytes encode_stream(const std::vector<PadRecord>& frames, const std::optional<PadRecord>& last, const sim::Program& program);
+// A body enciphered (0x579F38); `key` takes its key (CRC-32's low 24 bits, the first byte on top).
+Bytes encipher_body(ByteSpan plain, u32& key, const sim::Program& program);
 
 // The body deciphered (0x579E00): nullopt when the key does not match the deciphered body.
 std::optional<Bytes> decipher_body(ByteSpan cipher, u32 key, const sim::Program& program);

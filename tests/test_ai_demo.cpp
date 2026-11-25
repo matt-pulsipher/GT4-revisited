@@ -7,6 +7,8 @@
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/formats/course/runway_gtrw.h"
 #include "gt4r/formats/db/race_events.h"
+#include "gt4r/formats/replay/demonstration.h"
+#include "gt4r/save/codec.h"
 #include "gt4r/sim/ai/demo_driver.h"
 #include "gt4r/sim/ai/run.h"
 #include "gt4r/sim/program.h"
@@ -116,4 +118,46 @@ TEST(ai_demo_played_as_the_program) {
     CHECK((rest) == (theirs.rest_step));
     CHECK(worst < 0.02f);
     CHECK(worst_speed < 0.01f);
+}
+
+// The writer: every recording of the disc read and written again is the file's own bytes (the stream's bits, the header, the cipher
+// and its key), the license files and the Replay Theater's (unscrambled). A few streams end inside a last record (the part byte is
+// not in a file), and the 40 files of the Japanese missions' names are one older recording, not written by this recorder: those are
+// the same frames when written and read again.
+TEST(ai_disc_recordings_written_again) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    const sim::Program program = sim::Program::load(*disc);
+    size_t files = 0, same = 0, frames = 0, odd = 0;
+    auto one = [&](const std::string& name, ByteSpan file) {
+        const auto d = replay::Demonstration::parse(file, program);
+        if (!d) return;
+        ++files;
+        const Bytes again = d->encode(program);
+        // (a file's bytes past the Serialize header's length are padding)
+        if (again.size() <= file.size() && std::equal(again.begin(), again.end(), file.begin())) {
+            ++same;
+            return;
+        }
+        const auto e = replay::Demonstration::parse(again, program);
+        bool alike = e && e->streams.size() == d->streams.size() && e->entries.size() == d->entries.size();
+        for (size_t i = 0; alike && i < d->streams.size(); ++i) {
+            alike = e->streams[i].frames.size() == d->streams[i].frames.size() && e->streams[i].state == d->streams[i].state;
+            for (size_t f = 0; alike && f + 1 < d->streams[i].frames.size(); ++f) alike = e->streams[i].frames[f].bytes == d->streams[i].frames[f].bytes;
+        }
+        frames += alike;
+        if (name.rfind("jpl0m", 0) != 0 && d->streams[0].last) ++odd, std::printf("  %s is not the file's bytes\n", name.c_str());
+    };
+    for (const std::string& n : disc->volume().list_dir("replay/license"))
+        if (const gt3r::Volume::Entry* e = disc->volume().find("replay/license/" + n)) one(n, disc->volume().read(*e));
+    for (const std::string& n : disc->volume().list_dir("replay"))
+        if (n.rfind("Rdemo", 0) == 0) {
+            const std::string name = n.substr(0, n.find('/'));
+            if (const gt3r::Volume::Entry* e = disc->volume().find("replay/" + name + "/" + name))
+                if (const std::optional<Bytes> plain = save::unscramble(disc->volume().read(*e), 0, save::FileKind::Replay)) one(name, *plain);
+        }
+    std::printf("  %zu of %zu recordings written byte for byte, %zu the same frames\n", same, files, frames);
+    CHECK(same > 440);
+    CHECK(odd == 0);
+    CHECK(same + frames == files);
 }

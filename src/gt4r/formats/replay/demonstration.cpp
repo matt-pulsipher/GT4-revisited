@@ -60,6 +60,41 @@ void add16(PadRecord& r, size_t o, s32 v) {
     r.bytes[o] = u8(x), r.bytes[o + 1] = u8(x >> 8);
 }
 
+// The recorder's bit writer (0x57ADE0): most significant bit first; a byte is kept once it is whole.
+class BitWriter {
+public:
+    void write(u32 v, int n) {
+        for (int i = n - 1; i >= 0; --i) {
+            byte_ = u8(byte_ << 1 | ((v >> i) & 1));
+            if (++have_ == 8) out_.push_back(byte_), byte_ = 0, have_ = 0;
+        }
+    }
+    // 0x345FD0: k one bits, a zero, the rest in k bits.
+    void gamma(u32 v) {
+        u32 rest = v ? v - 1 : 0;
+        int k = 0;
+        while (rest >= (1u << k)) rest -= 1u << k, ++k;
+        for (int i = 0; i < k; ++i) write(1, 1);
+        write(0, 1);
+        write(rest, k);
+    }
+    // 0x346080: a class of 3 bits, a sign, 2k + 1 bits.
+    void delta(s32 d) {
+        const u32 neg = d < 0;
+        u32 v = u32(neg ? -d : d);
+        int bits = 1;
+        while (v >= (1u << bits)) v -= 1u << bits, bits += 2;
+        write(u32(bits >> 1), 3), write(neg, 1), write(v, bits);
+    }
+    // The whole bytes (a last part one is not in the file: its bits are the run's closing code, which no playback reads).
+    const Bytes& bytes() const { return out_; }
+
+private:
+    Bytes out_;
+    u8 byte_ = 0;
+    int have_ = 0;
+};
+
 // One recorder's stream at `d` (u32 T, u32 the length with these 8 bytes, the bits) played as 0x345D70 plays it.
 std::optional<ControlStream> read_stream(ByteSpan d, const std::array<s32, 8>& base, size_t* used) {
     if (d.size() < 8) return std::nullopt;
@@ -73,7 +108,7 @@ std::optional<ControlStream> read_stream(ByteSpan d, const std::array<s32, 8>& b
     s32 prev = 0; // the steering before (recorder +0x14)
     u32 run = 0;
     s.frames.reserve(s.frame_count);
-    for (u32 f = 1; f < s.frame_count; ++f) {
+    for (u32 f = 1; f <= s.frame_count; ++f) {
         // 0x345C38: the steering carried on as 2x - the one before, within +-4096, while |x| >= 16.
         const s16 x = rec.steer();
         const s32 next = 2 * s32(x) - prev;
@@ -102,12 +137,131 @@ std::optional<ControlStream> read_stream(ByteSpan d, const std::array<s32, 8>& b
             }
             run = bits.gamma() - 1;
         }
-        s.frames.push_back(rec);
+        if (f < s.frame_count) s.frames.push_back(rec);
+        else if (bits.bits() <= size_t(len - 8) * 8) s.last = rec; // (its bits may be in the part byte the file leaves out)
     }
     return s;
 }
 
 } // namespace
+
+Bytes encode_stream(const std::vector<PadRecord>& frames, const std::optional<PadRecord>& last, const sim::Program&) {
+    BitWriter w;
+    PadRecord state;
+    s32 prev = 0;
+    u32 count = 0, run = 0;
+    auto step = [&](const PadRecord& r) {
+        const s16 x = state.steer();
+        const s32 next = 2 * s32(x) - prev;
+        prev = x;
+        if (std::abs(s32(x)) >= 16) {
+            const s16 c = s16(std::clamp(next, -0x1000, 0x1000));
+            state.bytes[4] = u8(c), state.bytes[5] = u8(u16(c) >> 8);
+        }
+        const std::array<u8, 0x20>&a = state.bytes, &b = r.bytes;
+        auto h = [](const std::array<u8, 0x20>& v, size_t o) { return s32(s16(v[o] | v[o + 1] << 8)); };
+        u32 mask = 0;
+        if (a[0] != b[0]) mask |= 0x100;
+        if (a[1] != b[1]) mask |= 0x80;
+        if (a[2] != b[2]) mask |= 0x10;
+        if (h(a, 4) != h(b, 4)) mask |= 2;
+        if (a[7] != b[7]) mask |= 1;
+        if (h(a, 8) != h(b, 8)) mask |= 4;
+        if (h(a, 0xA) != h(b, 0xA)) mask |= 8;
+        if (h(a, 0xC) != h(b, 0xC)) mask |= 0x40;
+        if (h(a, 0xE) != h(b, 0xE)) mask |= 0x20;
+        if (a[3] != b[3]) mask |= 0x200;
+        else
+            for (size_t i = 0; i < b[3] && 0x10 + i < b.size(); ++i)
+                if (a[0x10 + i] != b[0x10 + i]) mask |= 0x200;
+        ++count;
+        if (count == 1 || mask != 0) {
+            if (run != 0) w.gamma(run);
+            w.gamma(mask + 1);
+            if (mask & 0x100) w.delta(s32(b[0]) - s32(a[0]));
+            if (mask & 0x080) w.delta(s32(b[1]) - s32(a[1]));
+            if (mask & 0x010) w.delta(s32(s8(b[2])) - s32(s8(a[2])));
+            if (mask & 0x002) w.delta(h(b, 4) - h(a, 4));
+            if (mask & 0x001) w.delta(s32(b[7]) - s32(a[7]));
+            if (mask & 0x004) w.delta(h(b, 8) - h(a, 8));
+            if (mask & 0x008) w.delta(h(b, 0xA) - h(a, 0xA));
+            if (mask & 0x040) w.delta(h(b, 0xC) - h(a, 0xC));
+            if (mask & 0x020) w.delta(h(b, 0xE) - h(a, 0xE));
+            if (mask & 0x200) {
+                w.gamma(u32(b[3]) + 1);
+                for (size_t i = 0; i < b[3] && 0x10 + i < b.size(); ++i) w.delta(s32(b[0x10 + i]) - s32(a[0x10 + i]));
+            }
+            run = 0;
+        }
+        ++run;
+        state = r;
+    };
+    for (const PadRecord& r : frames) step(r);
+    if (last) step(*last);
+    else if (!frames.empty()) step(frames.back());
+    if (count != 0) w.gamma(run), w.gamma(1);
+    const u32 len = u32(w.bytes().size()) + 8;
+    Bytes out(8);
+    for (int k = 0; k < 4; ++k) out[size_t(k)] = u8(count >> (8 * k)), out[size_t(4 + k)] = u8(len >> (8 * k));
+    out.insert(out.end(), w.bytes().begin(), w.bytes().end());
+    out.resize(size_t(len + 3) & ~size_t(3));
+    return out;
+}
+
+Bytes encipher_body(ByteSpan plain, u32& key, const sim::Program& program) {
+    key = (save::crc32(plain) & 0xFFFFFFu) | (plain.empty() ? 0u : u32(plain[0]) << 24);
+    Bytes out(plain.size());
+    u32 a = (key & 0xFFFFFFu) | 0x3F000000u;
+    for (size_t i = 0; i < plain.size(); ++i) {
+        const u8 c = u8(plain[i] ^ (a >> 8) ^ (a ^ (a >> 16)));
+        out[i] = c;
+        const u32 g = 0x3F000000u | (u32(program.b(kCipherPerm + (a & 0xFF))) << 16) | (u32(program.b(kCipherPerm + ((a >> 8) & 0xFF))) << 8) | program.b(kCipherPerm + ((a >> 16) & 0xFF));
+        a = gt3r::ee::div(gt3r::ee::mul(program.w(kCipherFactors + 4 * u32(c)), a), g);
+    }
+    return out;
+}
+
+Bytes Demonstration::encode(const sim::Program& program) const {
+    Bytes b = header;
+    b.resize(kHeader);
+    auto w32 = [](Bytes& to, size_t at, u32 v) {
+        for (int k = 0; k < 4; ++k) to[at + size_t(k)] = u8(v >> (8 * k));
+    };
+    std::memcpy(&b[4], "GT4M", 4);
+    w32(b, 8, version ? version : 0x40000), w32(b, 0xC, race_mode);
+    std::fill(b.begin() + 0x10, b.begin() + 0x50, u8(0));
+    std::copy_n(race_class.begin(), std::min<size_t>(race_class.size(), 0x3F), b.begin() + 0x10);
+    std::copy(information.begin(), information.end(), b.begin() + 0x50);
+    w32(b, 0xB0, u32(code_b0)), w32(b, 0xB4, u32(code_b0 >> 32)), w32(b, 0xB8, u32(code_b8)), w32(b, 0xBC, u32(code_b8 >> 32));
+    w32(b, 0xC0, u32(time_ms)), w32(b, 0xC4, u32(time2_ms));
+    w32(b, 0x958, u32(entries.size()));
+    for (size_t i = 0; i < entries.size() && i < kMaxEntries; ++i) {
+        const DemoEntry& en = entries[i];
+        const size_t e = kEntries + kEntrySize * i;
+        std::copy(en.equipment.bytes.begin(), en.equipment.bytes.end(), b.begin() + std::ptrdiff_t(e));
+        std::copy(en.condition.begin(), en.condition.end(), b.begin() + std::ptrdiff_t(e + 0x178));
+        w32(b, e + 0x198, en.x198), w32(b, e + 0x19C, u32(en.grid_place));
+        b[e + 0x1A0] = en.pedal_style, b[e + 0x1A1] = en.driver_kind;
+        std::copy(en.aids.begin(), en.aids.end(), b.begin() + std::ptrdiff_t(e + 0x1A2));
+    }
+    w32(b, 0x1AA0, 1);
+    const bool several = !streams.empty() && !streams[0].state.empty();
+    b.resize(kHeader + 4);
+    w32(b, kHeader, several ? u32(streams.size()) : 0);
+    for (const ControlStream& s : streams) {
+        if (several) b.insert(b.end(), s.state.begin(), s.state.end());
+        const Bytes bits = encode_stream(s.frames, s.last, program);
+        b.insert(b.end(), bits.begin(), bits.end());
+    }
+    w32(b, 0, u32(b.size()));
+    u32 k = 0;
+    const Bytes cipher = encipher_body(b, k, program);
+    Bytes out(0x40);
+    w32(out, 0, 0x40), w32(out, 4, u32(b.size())), out[0xA] = 4, w32(out, 0xC, k);
+    std::memcpy(&out[0x10], "Base", 4);
+    out.insert(out.end(), cipher.begin(), cipher.end());
+    return out;
+}
 
 std::optional<Bytes> decipher_body(ByteSpan cipher, u32 key, const sim::Program& program) {
     if (!program.known()) return std::nullopt;
@@ -148,6 +302,7 @@ std::optional<Demonstration> Demonstration::parse(ByteSpan file, const sim::Prog
     const Bytes& b = *body;
     if (b.size() < kHeader + 4 || std::memcmp(&b[4], "GT4M", 4) != 0) return fail("not a race header (GT4M)");
     d.version = rd32(b, 8);
+    d.header.assign(b.begin(), b.begin() + std::ptrdiff_t(kHeader));
     d.race_mode = rd32(b, 0xC);
     d.race_class.assign(reinterpret_cast<const char*>(&b[0x10]), strnlen(reinterpret_cast<const char*>(&b[0x10]), 0x40));
     std::memcpy(d.information.data(), &b[0x50], d.information.size());
