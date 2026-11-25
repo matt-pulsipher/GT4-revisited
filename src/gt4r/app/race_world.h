@@ -82,6 +82,7 @@ struct WorldSetup {
     // such race) and the boost.
     int lan_wear = -1, lan_boost = 0;
     int laps = 0;       // the race's laps (the pit stops' last lap; 0 a run without an end)
+    int players = 1;    // the first cars are players' (two in the two-player battle), the others the computer's
     bool computer_player = false; // the computer drivers drive the player's car too
     // The B-spec driver's book (menu::bspec::Book: three tables of 8 x 8) and the course's marks, which give the race's
     // record of the player's driver (0x468710) when B-spec drives his car.
@@ -240,6 +241,8 @@ public:
     // from the wheels, and the race's sound heard from `camera` (none: no sound) about car `target`.
     // `heard`: a recorded step's simulation run again (a saved replay's recording): heard in place of the states.
     void present(std::span<const race::CarState> cars, const audio::SoundListener* camera, int target, bool live, const sim::Session* heard = nullptr);
+    // The same with the cameras of a split screen's views, each about the car of its number.
+    void present(std::span<const race::CarState> cars, std::span<const audio::SoundListener> cameras, bool live);
     void clear_effects();
     // The race's sound stopped (a menu).
     void quiet();
@@ -248,11 +251,13 @@ public:
 
     // One frame: `cars` as seen from `pose`; `focus`: the car the view is about (its surroundings
     // make the cars' reflection picture); `hidden`: a car whose body is not drawn (the in-car
-    // view's own), -1 for none.
-    void render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarState> cars, const race::ViewPose& pose, size_t focus, int hidden);
+    // view's own), -1 for none. `half`: one of the two views of a split screen (0 and 1: the several-view draw
+    // 0x33FD88: the course's own lists and flags for it, its far plane half as far), -1 the race's one view.
+    void render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarState> cars, const race::ViewPose& pose, size_t focus, int hidden, int half = -1);
     // The rear-view mirror in `rect`: from `pose` (the in-car view) looking back, mirrored; the course
-    // by its mirror lists and sky, the cars but `hidden`, the mirror's own fog, 120 m deep.
-    void render_mirror(Ui& ui, const SDL_FRect& rect, std::span<const race::CarState> cars, const race::ViewPose& pose, int hidden);
+    // by its mirror lists and sky, the cars but `hidden`, the mirror's own fog, 120 m deep (a split screen's half 60);
+    // `zoom`: its lens against the view's (0x341E50: 1.3, a stacked half's 2).
+    void render_mirror(Ui& ui, const SDL_FRect& rect, std::span<const race::CarState> cars, const race::ViewPose& pose, int hidden, int half = -1, float zoom = 1.3f);
     // The picture's correction (the screen settings, race/picture_settings.h) from the next frame.
     void set_grade(const gt3r::render::DrawOptions::PostGrade& g) { grade_ = g; }
     // The next frame's dissolve: `snapshot` freezes the last picture shown, drawn over the new one at
@@ -349,7 +354,7 @@ public:
         gt3r::s16 wheel_strength = 1, wheel_assist = 1;
         bool operator==(const PlayerChoice&) const = default;
     };
-    bool set_player(const PlayerChoice& c);
+    bool set_player(const PlayerChoice& c, size_t player = 0);
     // The player's car's power as built, PS (0: not known).
     float player_power_ps() const { return player_ps_; }
     const gt3r::render::DrawStats& draw_stats() const;
@@ -392,7 +397,11 @@ private:
     unsigned gadget_hits_ = 0;
     std::vector<std::optional<WorldEntry>> overrides_;
     std::vector<float> alpha_; // set_car_alpha
-    PlayerChoice player_;
+    std::vector<PlayerChoice> choices_{1}; // by player
+    // The car is a player's, driven by his pad (not by the B-spec driver or a scripted run's computer).
+    bool pad_car(size_t i) const { return i < size_t(setup_.players) && !(i == 0 && computer_player_); }
+    // Or another player's, on his own machine (an online race).
+    bool players_car(size_t i) const { return pad_car(i) || (i < setup_.entries.size() && setup_.entries[i].remote); }
     std::array<u32, 32> soft_{};
     struct Command {
         int pace = 3;

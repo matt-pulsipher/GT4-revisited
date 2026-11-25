@@ -33,7 +33,8 @@ public:
     CourseScene(render::GpuContext& ctx, ByteSpan course_file, const std::string& name);
     ~CourseScene();
 
-    enum class View { Race, Mirror };
+    // A race's view, its mirror; a split screen's half and its mirror (their own lists: slots 4 and 7).
+    enum class View { Race, Mirror, Half, HalfMirror };
     // Appends the draw items for a camera at `eye`, in the game's order: sky, backdrop (the depth
     // is reset after it), then the scenery's models named by the view's list for `eye` (with
     // `fade`: those drawn whole and, dithered, those coming or going).
@@ -116,7 +117,7 @@ private:
         std::array<float, 4> plane{0, 1, 0, 0};
     };
     mutable std::vector<GadgetLight> gadget_light_;
-    std::array<gt3r::course::Visibility, 2> vis_; // slot 1's lists per View
+    std::array<gt3r::course::Visibility, 4> vis_; // slot 1's lists per View
     gt3r::course::Visibility env_vis_;            // slot 5's
     gt3r::race::Occluder occluder_;
     render::ItemLights lights_;

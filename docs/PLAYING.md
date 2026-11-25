@@ -227,6 +227,10 @@ ghost_ms = 150           ; contact up to this round trip; 0: always
   B-spec watching the computer drive), the results, the replay, back to Arcade for another race.
   Time Trial and the other race kinds reach their races the same way. The tires of the driving options are the race's, on
   every car of it (dirt and snow courses put on theirs).
+- **2 Player Battle**: the course, each player's car, paint and driving options, the race on a split screen (one half above the
+  other, or side by side with the options at a 16:9 screen) with its handicap, boost, tire damage and laps from the options, the
+  results, the replay. The second player's controller is the second one connected (Controls); without one, his keys of the
+  keyboard. The first player's Start pauses.
 - **Options**: every page opens and keeps its values in the data folder; the laps, the units and
   the race settings (the gearbox among them), the button configurations, the vibration and the wheel's
   settings take effect in the races.
@@ -283,7 +287,8 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
   picture beside `--shot`'s), `quit`; the mouse on the app's pages (`click:x:y`, `move:x:y`, `back:x:y`,
   `wheel:turns:x:y`, `drag:x:y:x:y` in 640 x 360 units), `drop:<file>`, `f12`; race controls held until changed: `gas=0..1`,
   `brake=0..1`, `steer=-1..1`, `reverse=0..1`, `handbrake=0|1`, `lx=` `ly=` `rx=` `ry=` (the sticks, -1..1),
-  `l1=0|1` and any other button so (held), `release`; `@<file>` reads keys
+  `l1=0|1` and any other button so (held), `release`; the second player's pad: `gas2=` `brake2=` `steer2=`
+  `reverse2=` `handbrake2=` and `p2:<button>`; `@<file>` reads keys
   from a file (`#` comments; files may name files).
 - With `--shot` a frame is a 60th of a second and the frames are held to that pace, so the
   movies keep step with the keys (`--fast`: not held).

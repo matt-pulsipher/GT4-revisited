@@ -83,9 +83,14 @@ void arcade_rules(std::vector<u8>& r, int penalty, int damage) {
     r[0x88] = penalty == 1 ? 10 : penalty == 2 ? 0xFF : 0;
     r[0x8A] = penalty == 1 || penalty == 2 ? 8 : 0xFF;
     r[0x8B] = penalty == 1 || penalty == 2 ? 40 : 0xFF;
-    // The tire wear's curve (rule block +0x2C .. +0x34 from the row's +0x6B .. +0x73).
-    static constexpr u8 kWear[3][9] = {{0, 0, 0, 0, 0, 0, 0, 0, 0}, {8, 40, 12, 5, 5, 5, 5, 4, 0}, {6, 40, 12, 1, 5, 4, 5, 3, 0}};
-    std::copy(std::begin(kWear[std::clamp(damage, 0, 2)]), std::end(kWear[std::clamp(damage, 0, 2)]), r.begin() + 0x6B);
+    put_tire_damage(r, damage);
+}
+
+void put_tire_damage(std::vector<u8>& r, int damage) {
+    if (r.size() < 0x74) return;
+    static constexpr u8 kWear[3][9] = {{0, 0, 0, 0, 0, 0, 0, 0, 0}, {8, 40, 12, 1, 5, 5, 5, 4, 0}, {6, 40, 12, 1, 5, 4, 5, 3, 0}};
+    const u8(&k)[9] = kWear[damage == 1 || damage == 2 ? damage : 0];
+    std::copy(std::begin(k), std::end(k), r.begin() + 0x6B);
 }
 
 Conductor conductor_for(const std::string& sequence, const std::string& event) {
