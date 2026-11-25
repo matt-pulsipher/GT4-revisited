@@ -290,6 +290,12 @@ void CourseScene::add_items(std::vector<render::DrawItem>& items, const render::
                     if (n.y < 0) n = n * -1.0f;
                     if (n.y > 0.2f) l.plane = {n.x, n.y, n.z, -render::dot(n, a)};
                 }
+                // (A cone that stands above the road file's surface, Tsukuba's pit lane: on the level it stands on.)
+                float low = 0;
+                for (const Gadgets::Kind& k : gadgets_.kinds)
+                    if (k.index == p.kind)
+                        for (const course::Vec3& h : k.hull) low = std::min(low, h.y);
+                if (l.plane[0] * pos.x + l.plane[1] * (pos.y + low) + l.plane[2] * pos.z + l.plane[3] > 0.3f) l.plane = {0, 1, 0, -(pos.y + low)};
             }
             if (env_.has_shadow && size_t(p.kind) < gadget_shadow_nodes_.size()) {
                 // Its shadow: the kind's second model thrown onto the road's plane along the light (0x3E4968), as strong as the
