@@ -129,6 +129,19 @@ void put_codes(Bytes& b, size_t o, size_t n, std::vector<u64> codes, bool sorted
 
 } // namespace
 
+Bytes playlist_block(const GameState::PlayList& list) {
+    Bytes b(0x810);
+    put32(b, 0, list.rows), b[4] = u8(list.position), b[5] = u8(list.position >> 8), b[6] = list.shuffle, b[7] = list.none;
+    b[8] = u8(list.seed), b[9] = u8(list.seed >> 8), put32(b, 0xC, list.kept);
+    for (size_t i = 0; i < 128; ++i) {
+        const GameState::PlayList::Row& r = list.row[i];
+        const size_t at = 0x10 + 16 * i;
+        put32(b, at, u32(r.kept)), put32(b, at + 4, u32(r.kept >> 32));
+        b[at + 8] = r.played, b[at + 9] = r.enabled, b[at + 10] = u8(r.order), b[at + 11] = u8(r.order2), put32(b, at + 12, r.kept_tail);
+    }
+    return b;
+}
+
 Codes database_codes(db::SpecDb& db) {
     auto labels = [&db](u32 table) -> const db::Labels* {
         switch (table) {
@@ -294,15 +307,8 @@ Bytes write_game(const GameState& s, const Codes& codes) {
     // u16 seed, a word; 128 rows of 16 bytes: 8 bytes, u8 played, u8 enabled, s8 order, s8 its
     // copy, 4 bytes.
     for (const auto& [at, list] : {std::pair<size_t, const GameState::PlayList*>{0x90, &s.bgm_playlist}, {0x8A0, &s.slide_playlist}}) {
-        const size_t o = option(at);
-        put32(b, o, list->rows), b[o + 4] = u8(list->position), b[o + 5] = u8(list->position >> 8), b[o + 6] = list->shuffle, b[o + 7] = list->none;
-        b[o + 8] = u8(list->seed), b[o + 9] = u8(list->seed >> 8), put32(b, o + 0xC, list->kept);
-        for (size_t i = 0; i < 128; ++i) {
-            const GameState::PlayList::Row& r = list->row[i];
-            const size_t at_row = o + 0x10 + 16 * i;
-            put32(b, at_row, u32(r.kept)), put32(b, at_row + 4, u32(r.kept >> 32));
-            b[at_row + 8] = r.played, b[at_row + 9] = r.enabled, b[at_row + 10] = u8(r.order), b[at_row + 11] = u8(r.order2), put32(b, at_row + 12, r.kept_tail);
-        }
+        const Bytes block = playlist_block(*list);
+        std::copy(block.begin(), block.end(), b.begin() + std::ptrdiff_t(option(at)));
     }
     for (const NamedOption& o : kNamedOptions) {
         const std::string v = s.option_text(o.name);

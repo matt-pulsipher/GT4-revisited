@@ -127,6 +127,13 @@ void RaceFlow::order_finishers() {
     for (size_t k = 0; k < f.size(); ++k) cars_[f[k]].finish_order = int(k);
 }
 
+void RaceFlow::resume(size_t car, int crossings, s64 base_ms, s64 clock, float v) {
+    if (car >= cars_.size()) return;
+    CarRecord& r = cars_[car];
+    r.counter = crossings, r.base_ms = base_ms, r.prev_v = v, r.back = 0;
+    hold_ = 0, clock_ = clock, clock_running_ = true, started_steps_ = 0;
+}
+
 // 0x358608 (the step's end, before the clock's step): a car's distance along the course against its last, in the program's
 // arithmetic.
 void RaceFlow::cross(size_t i, float was, float now, Events& ev) {

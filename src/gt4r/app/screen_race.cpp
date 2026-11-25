@@ -33,6 +33,9 @@
 #include "gt4r/race/race_flow.h"
 #include "gt4r/race/rail_simulation.h"
 #include "gt4r/race/replay_script.h"
+#include "gt4r/race/race_recording.h"
+#include "gt4r/race/recorded_race.h"
+#include "gt4r/save/game_data.h"
 #include "gt4r/race/replay_file.h"
 #include "gt4r/race/license_rules.h"
 #include "gt4r/race/license_trophy.h"
@@ -120,6 +123,7 @@ struct Setup {
     // (0x3EE9F8 / 0x3EE7C0: the entries keep their order, only their places change).
     std::vector<int> grid_slots;
     std::string sequence; // `menus=single_race`: the race's own menus (the sequence's quick project) round the race
+    std::optional<std::array<u8, 0x40>> bspec_info; // a recorded race's (WorldSetup)
     std::array<u16, 3 * 64> bspec_book{}; // the B-spec driver's book and the course's marks (the request's)
     std::array<u8, 8> bspec_course_marks{};
     bool bspec_course_known = false;
@@ -130,7 +134,7 @@ struct Setup {
     std::string entries_file; // `entries=<path>`: the entries' equipment records and grid places from a file (a captured race's)
     int demo_skip = 0;       // its steps run unseen first (`skip`)
     bool solo = false;       // a run alone (a recorded free run's)
-    bool save_replay = false; // `save=1`: the run `replay=N` drove saved as a replay file
+    int save_replay = 0; // `save=1`: the run `replay=N` drove saved as a replay file; `save=N`: the run at its step N
     std::string race;     // `race=<label>`: the event (the car database's RACE row) the sequence runs
     sim::ai::Pace pace;   // the computer drivers' (the event's)
     std::vector<u8> event_row; // the event's RACE row (its tire wear's curve); empty: none
@@ -145,6 +149,8 @@ struct Setup {
     std::shared_ptr<audio::RacePlaylist> playlist;   // the races' music (the game's play list)
     std::shared_ptr<const net::OnlineRace> online;   // an online race (its cars in grid order); online_order: our entries' places in it
     std::vector<size_t> online_order;                // (entry 0 is ours, the others follow in grid order)
+    Bytes playlist_bytes;                            // as the options' block keeps it (a recording's header has it)
+    int penalty_option = 0, tire_damage = 0;         // an arcade race's options (race::arcade_rules)
 };
 
 // An online race's set-up: our car entry 0, the others in grid order, every car as its owner sent it on its place of the grid.
@@ -211,7 +217,7 @@ Setup setup_from_env() {
             for (std::string_view o : gt3r::split(v, '/')) s.opponents.emplace_back(gt3r::trim(o));
         else if (k == "replay_file") s.replay_file = v;
         else if (k == "entries") s.entries_file = v;
-        else if (k == "save") s.save_replay = v != "0";
+        else if (k == "save") s.save_replay = std::atoi(v.c_str());
         else if (k == "start") {
             s.start_given = true;
             if (v == "course") s.course_start = true;
@@ -433,7 +439,7 @@ void arcade_tires(App& app, Setup& setup, const menu::RaceRequest& q) {
 
 // A recorded race of the disc's (the Replay Theater's Demo tab: docs/formats/replay.md): its course, laps, cars with their
 // parts, settings and places, its event's row; false when the disc has none by that path.
-bool load_recorded_race(App& app, Setup& setup);
+bool load_recorded_race(App& app, Setup& setup, const std::optional<Bytes>& file);
 // The entries of a file: u32 the cars, then each its equipment record (0x178 bytes) and its grid place (u32).
 void load_entries(App& app, Setup& setup) {
     std::FILE* fp = std::fopen(setup.entries_file.c_str(), "rb");
@@ -456,10 +462,9 @@ void load_entries(App& app, Setup& setup) {
     }
     std::fclose(fp);
 }
-bool load_recorded_race(App& app, Setup& setup) {
+bool load_recorded_race(App& app, Setup& setup, const std::optional<Bytes>& file) {
     db::SpecDb* sdb = app.db();
     Disc* disc = app.disc();
-    const std::optional<Bytes> file = app.vfs()->read(setup.replay_file);
     if (!file || !sdb || !disc) return false;
     const sim::Program program = sim::Program::load(*disc);
     std::string error;
@@ -476,6 +481,8 @@ bool load_recorded_race(App& app, Setup& setup) {
     std::memcpy(&laps, d.information.data(), 4);
     setup.laps = int(laps);
     setup.cars = int(d.entries.size());
+    setup.bspec_info.emplace();
+    std::memcpy(setup.bspec_info->data(), d.information.data() + 0x20, 0x40);
     setup.solo = d.race_class == "RaceFreeRun" || d.race_class == "RaceSolitaire";
     setup.bspec = false;
     setup.opponents.clear(), setup.opponent_equipment.clear(), setup.paints.clear(), setup.grid_slots.clear();
@@ -493,8 +500,14 @@ bool load_recorded_race(App& app, Setup& setup) {
     gt3r::Vfs* vfs = app.vfs();
     if (const std::optional<db::RaceEvent> e = db::RaceEvents(*sdb, [vfs](const std::string& path) { return vfs->read(path); }).event(setup.race))
         setup.pace = sim::ai::pace_for(*e), setup.event_row = e->bytes;
+    if (d.race_class == "RaceArcadeSingle") { // (the options as the recording's race had them: the race information's +4, +8)
+        u32 rules[2];
+        std::memcpy(rules, d.information.data() + 4, 8);
+        race::arcade_rules(setup.event_row, int(rules[0]), int(rules[1]));
+    }
     setup.demo_skip = std::exchange(setup.skip, 0), setup.replay = 0, setup.sequence.clear();
-    apply_course_start(app, setup, true);
+    if (d.race_class == "RaceLicense" || d.race_class == "RaceTraining") setup.sequence = "license"; // (its start, rules and conductor: load_test)
+    else apply_course_start(app, setup, true);
     LOG_INFO("Drive: the recorded race %s: %s on %s, %zu cars, %d laps, %zu steps (%d ms, best lap %d ms)", setup.replay_file.c_str(), d.race_class.c_str(), setup.course.c_str(), d.entries.size(),
              setup.laps, run->steps(), d.time_ms, d.time2_ms);
     setup.demo_run = std::make_shared<const sim::ai::DemoRun>(std::move(*run));
@@ -507,6 +520,13 @@ bool load_recorded_race(App& app, Setup& setup) {
 race::PictureSettings& picture_settings(bool replay) {
     static race::PictureSettings race_views, replays{race::PictureSettings::kReplayDefault};
     return replay ? replays : race_views;
+}
+
+// An arcade single race by the game's options, whatever its row holds.
+void apply_arcade_options(Setup& setup) {
+    const menu::GameSettings o = menu::settings_from(setup.options);
+    setup.penalty_option = o.penalty == "SPEED_LIMITATION" ? 1 : o.penalty == "PASSING_PITLANE" ? 2 : 0, setup.tire_damage = o.tire_damage;
+    race::arcade_rules(setup.event_row, setup.penalty_option, setup.tire_damage);
 }
 
 // The screen settings from the game's options (the Picture Quality page's race_color_correction,
@@ -560,7 +580,7 @@ std::shared_ptr<audio::RacePlaylist> new_game_playlist(App& app) {
 // The race itself: the world (race_world.h), its flow (race_flow.h) and the cameras.
 class Race {
 public:
-    Race(App& app, const Setup& setup, const std::vector<db::CarEntry>& cars) : setup_(setup) {
+    Race(App& app, const Setup& setup, const std::vector<db::CarEntry>& cars) : setup_(setup), disc_(app.disc()), db_(app.db()) {
         // The first car is the one asked for; the others follow it in the car list.
         size_t first = 0;
         for (size_t i = 0; i < cars.size(); ++i)
@@ -574,6 +594,7 @@ public:
         ws.pace = setup.pace;
         if (setup.online) ws.lan_wear = setup.online->rules.tire_wear ? 1 : 0, ws.lan_boost = setup.online->rules.boost;
         ws.bspec_book = setup.bspec_book, ws.bspec_course_marks = setup.bspec_course_marks, ws.bspec_course_known = setup.bspec_course_known;
+        ws.bspec_info = setup.bspec_info;
         ws.event_row = setup.event_row;
         // The race's conductor: a run alone (its virtual 6 answers 1: the time trial and free run, the license tests but the
         // three trainings, the machine test), and whose class grips the event's row gives.
@@ -606,6 +627,7 @@ public:
                 e.automatic = setup.player.automatic, e.asm_on = setup.player.asm_on, e.tcs_on = setup.player.tcs_on;
                 e.wheel_aid = setup.player.wheel_aid, e.driver = setup.player.wheel_lock;
             }
+            else e.wheel_aid = app.db() && !app.db()->prologue(); // (a computer's entry has it: every recorded race's, replay.md)
             if (i == 0) e.equipment = setup.player_equipment, e.condition = setup.player_condition, e.wing = setup.wing;
             else if (size_t(i - 1) < setup.opponent_equipment.size() && setup.opponent_equipment[size_t(i - 1)]) {
                 // An opponent entered as its pool enters it: its parts, settings and the paint the pool
@@ -705,6 +727,9 @@ public:
         // B-spec: the pace "Steady", the low view from the car's nose (as the original's B-spec race
         // opens), the help strip shown.
         bspec_pace_ = 3, overtake_steps_ = 0, bspec_help_ = true, focus_ = 0;
+        mail_ = {}, records_.clear();
+        recording_ = !demo && recordable();
+        bspec_start_ = watched ? world_->bspec_record(0) : std::nullopt;
         snapshot_ = false, dissolve_total_ = dissolve_left_ = 0; // (a cut of the menus' scene behind the page ends with it)
         if (before_tv_ && mount_ == kTvView) mount_ = *before_tv_; // (the results page's cameras, back to the player's view)
         before_tv_.reset();
@@ -736,13 +761,19 @@ public:
         } else fs.sectors = splits_;
         flow_.begin(fs, world_->cars());
         for (size_t i = 0; i < world_->car_count(); ++i) world_->set_crossings(i, flow_.car(i).counter), world_->set_rank(i, flow_.place(i));
+        // A recorded free run starts at its lap's line (the recorder's state: the clock two steps on, its times from the line, 0x359D40).
+        if (demo && demo_run_ && setup_.solo && !demo_run_->demo.streams.empty())
+            if (const std::optional<replay::RecorderState> st = replay::recorder_state(demo_run_->demo.streams[0]); st && world_->resume(*st)) {
+                flow_.resume(0, 2, (100 - s64(st->units) + s64(st->remainder) - 1) / 3, 100, world_->cars()[0].course_v);
+                world_->set_crossings(0, flow_.car(0).counter);
+            }
         license_failed_ = false, cones_met_ = 0;
         judge_ = race::LicenseJudge(judge_.rules());
         finish_camera_.angle = 0;
         goal_prev_ = -1;
         board_.begin(world_->car_count(), 0, lap_words_[0], lap_words_[1]);
         camera_.reset(world_->cars()[0]);
-        history_.clear(), run_dist_.clear();
+        history_.clear(), run_dist_.clear(), saved_recording_.clear(), behind_.reset();
         if (audio::RaceSound* sound = world_->sound()) {
             sound->forget_recording();
             // (built for its menus, the run is not begun yet: its page comes first)
@@ -784,6 +815,7 @@ public:
         }
     }
     bool has_run() const { return !history_.empty(); }
+    size_t run_steps() const { return history_.size(); }
 
     // The last run as a saved replay, and a saved replay played back.
     race::ReplayFile replay_file(const std::string& sequence, const std::string& race_label) const {
@@ -791,10 +823,53 @@ public:
         f.course = setup_.course, f.sequence = sequence, f.race = race_label, f.laps = setup_.laps;
         for (size_t i = 0; i < world_->car_count(); ++i) f.cars.push_back({world_->setup().entries[i].label, world_->setup().entries[i].paint});
         f.steps = history_;
+        f.other.emplace_back(race::kReplayDetails, race::replay_details(history_));
+        if (recording_ && !records_.empty()) try {
+                const Bytes b = recording();
+                if (!b.empty()) f.other.emplace_back(race::ReplayFile::kRecording, b);
+            } catch (const std::exception& e) {
+                LOG_WARN("Drive: the run's recording: %s", e.what());
+            }
         return f;
+    }
+    // Whether a run of this race is kept as the program keeps it too (race/race_recording.h): an arcade single race or a license test
+    // from its start.
+    bool recordable() const {
+        if (!disc_ || !db_ || db_->prologue() || setup_.event_row.empty() || setup_.skip != 0 || setup_.auto_drive || !world_->simulated()) return false;
+        if (is_license(setup_.sequence)) return setup_.conductor == race::Conductor::License || setup_.conductor == race::Conductor::Training;
+        return setup_.sequence == "single_race" && world_->computer_drivers();
+    }
+    Bytes recording() const {
+        race::RecordingSetup rs;
+        const db::Labels *races = db_->labels("RACE"), *courses = db_->labels("COURSE");
+        const std::string name = setup_.race.empty() ? "sample_entry_6" : setup_.race;
+        std::optional<u32> event;
+        for (const std::string& l : {name, "us" + name, "jp" + name}) // (a test's code by its region: find_event)
+            if (!event && races) event = races->id(l);
+        const std::optional<u32> course = courses ? courses->id(setup_.course) : std::nullopt;
+        if (!event || !course) return {};
+        rs.event = u64(races->table_id) << 32 | *event, rs.course = u64(courses->table_id) << 32 | *course;
+        if (is_license(setup_.sequence)) rs.race_class = setup_.conductor == race::Conductor::Training ? "RaceTraining" : "RaceLicense";
+        rs.bspec = watched_, rs.laps = setup_.laps;
+        rs.penalty = setup_.penalty_option, rs.tire_damage = setup_.tire_damage;
+        if (bspec_start_) rs.driver = *bspec_start_;
+        const auto& me = flow_.car(0);
+        rs.time_ms = flow_.player_finished() ? flow_.run_ms(0) : std::max<s64>(0, me.last_lap_ms);
+        rs.best_ms = me.laps_done > 0 ? me.best_lap_ms : -1;
+        if (is_license(setup_.sequence)) { // (a test's time is its best too; a failed one has none)
+            if (license_failed_ || !flow_.player_finished()) rs.time_ms = 0;
+            rs.best_ms = rs.time_ms > 0 ? rs.time_ms : -1;
+        }
+        rs.playlist = setup_.playlist_bytes;
+        std::vector<sim::Entry> entries = world_->session_entries();
+        for (size_t i = 0; i < entries.size(); ++i) entries[i].equipment.bytes[0x18] = u8(world_->setup().entries[i].paint);
+        return race::recording_file(race::make_recording(rs, entries, records_), sim::Program::load(*disc_), u32(std::time(nullptr)));
     }
     void play_saved(race::ReplayFile&& f) {
         history_ = std::move(f.steps);
+        for (const auto& [tag, b] : f.other)
+            if (tag == race::kReplayDetails) race::apply_details(history_, b);
+        saved_recording_ = f.recording() ? *f.recording() : Bytes{};
         if (audio::RaceSound* sound = world_->sound()) sound->forget_recording(); // (a saved run: heard from its states)
         for (std::vector<race::CarState>& s : history_) s.resize(world_->car_count());
         ran_ = true;
@@ -850,6 +925,7 @@ public:
                 return;
             }
             ++replay_at_;
+            step_behind();
             start_camera_.step();
             camera_.step(history_[replay_at_][0], kStep);
             step_gear(history_[replay_at_][0]);
@@ -871,7 +947,9 @@ public:
             inputs_[c] = hold || (drivers && (c > 0 || watched_ || setup_.auto_drive)) || (c == 0 && !auto_drive) ? race::CarInput{}
                                                                                        : race::follow_line(world_->line(), cars[c], c & 1 ? 2.0f : -2.0f, 1.0f - 0.05f * float(c));
         // (What the pad asks during the hand-over: "GET READY TO DRIVE" once the throttle is held.)
-        const sim::rules::PadFrame& pad = player.frame;
+        // (The request's part of the input phase: B-spec's commands and the pit menu's choice in the frame, taken as a recording's are.)
+        sim::rules::PadFrame pad = watched_ ? sim::rules::PadFrame{} : player.frame;
+        sim::rules::post_mail(pad, mail_, watched_ ? 1 : 0, true);
         const auto pedal = [](bool analog, u16 v) { return analog ? float(v) / 4096.0f : v ? 1.0f : 0.0f; };
         if (handing_over()) throttle_held_ = pedal(pad.flags & 2, pad.throttle) > 0.5f;
         if (!auto_drive) {
@@ -885,25 +963,28 @@ public:
             me.throttle = std::max(pedal(pad.flags & 2, pad.throttle), pedal(pad.flags & 8, pad.back)), me.brake = pedal(pad.flags & 4, pad.brake);
             me.handbrake = pad.third != 0, me.shift_up = pad.shift > 0, me.shift_down = pad.shift < 0;
         }
+        if (!demo_run_) {
+            if (recording_) {
+                replay::PadRecord& r = records_.emplace_back();
+                pad.to_bytes(r.bytes.data());
+            }
+            demo_commands({pad.buttons[0], pad.buttons[1], pad.buttons[2], pad.buttons[3], pad.buttons[4], pad.buttons[5]});
+        }
         // Prologue's license test ended: the car brakes to a stand (✔ the original's lesson 1 off the course; ❓ its routine not read).
         if (finish_view()) inputs_[0] = {}, inputs_[0].brake = 1, auto_drive = false;
         // A demonstration: car 0 by its recording, step by step from the race's first.
         const bool demo = demo_run_.has_value();
         if (demo) {
             auto_drive = false;
-            // (A free run's recording is its lap's: it starts as the car takes the line, the run-up its driver's.)
-            const bool before = demo_lap_ && flow_.car(0).counter == 0;
-            if (before) inputs_[0] = {};
-            else if (demo_bspec_) demo_commands(demo_run_->mail(demo_step_++));
-            else inputs_[0] = demo_run_->input(demo_step_++);
+            demo_commands(demo_run_->mail(demo_step_));
+            if (!demo_bspec_) inputs_[0] = demo_run_->input(demo_step_);
+            ++demo_step_;
         }
-        // (❓ A recorded race driven with the pad does not come out as recorded to its end: off its line the car comes to a stand, and
-        // the replay ends there.)
-        if (demo && !hold && demo_run_->demo.race_class != "RaceLicense" && demo_run_->demo.race_class != "RaceTraining" && flow_.car(0).counter > 0)
-            demo_still_ = std::fabs(world_->cars()[0].speed) < 1.0f ? demo_still_ + 1 : 0;
         const bool opening = opening_tv();
         if (net_) net_->before_step(net_clock());
         world_->step(inputs_, hold, demo ? demo_bspec_ : (auto_drive || watched_ || setup_.auto_drive), u32(std::max(0, flow_.hold_left() - 1)));
+        if (recording_ && !demo && world_->pit_took_default(0) && records_.back().bytes[0x10] == 0)
+            for (size_t k = 0; k < 4; ++k) records_.back().bytes[0x10 + k] = k ? 0xFE : 1; // (0x35BF08 posts it in the step's mail)
         // GT4R_DEMO_LOG=<n>: a demonstration's car every n steps (the record's x, y: the course's x, -z), to compare with a
         // run of the program's own step (gt4r_diff demo).
         if (demo)
@@ -928,6 +1009,7 @@ public:
         for (const size_t i : ev.started) world_->release_start(i);
         for (size_t i = 0; i < flow_.car_count(); ++i) world_->set_crossings(i, flow_.car(i).counter), world_->set_rank(i, flow_.place(i));
         if (!ev.finished.empty()) board_.finished(flow_, ev.finished);
+        for (const size_t i : ev.finished) world_->finish_car(i, i == 0 && is_license(setup_.sequence));
         // Each car's distance from the line (crossings x lap + along) each step from the start: the gaps.
         if (flow_.steps_since_start() >= 0) {
             const std::span<const race::CarState> now = world_->cars();
@@ -1048,7 +1130,7 @@ public:
         const bool own = !start_camera_.active() && !replaying_ && mount_ != kTvView;
         l.kind = pose.body_hidden ? audio::SoundListener::Kind::InCar : own && mount_ == race::DriveCamera::kChase ? audio::SoundListener::Kind::Chase
                                                                                                                  : audio::SoundListener::Kind::Other;
-        world_->present(cars, &l, 0, live);
+        world_->present(cars, &l, 0, live, replaying_ && behind_ ? &behind_->session() : nullptr);
     }
     void pause_sound(bool paused) {
         if (audio::RaceSound* sound = world_->sound()) sound->pause(paused);
@@ -1069,10 +1151,39 @@ public:
         prev_cars_.clear();
         if (audio::RaceSound* sound = world_->sound()) sound->replay();
         replay_at_ = 0;
+        begin_behind();
         camera_.reset(history_[0][0]);
         replay_camera_.reset();
         world_->clear_effects();
         begin_start_camera(true);
+    }
+    // A saved replay's race run again behind it from its recording, for what its states do not hold (the sound's inputs: hits, wheels,
+    // the engine's torques); left when the states are not its.
+    void begin_behind() {
+        behind_.reset();
+        if (saved_recording_.empty() || !disc_ || !db_) return;
+        try {
+            std::string error;
+            std::optional<sim::ai::DemoRun> run = sim::ai::DemoRun::load_replay(saved_recording_, sim::Program::load(*disc_), "saved", &error);
+            if (!run) throw FormatError(error);
+            behind_ = std::make_unique<race::RecordedRace>(*disc_, *db_, std::move(*run));
+            step_behind();
+        } catch (const std::exception& e) {
+            LOG_WARN("Drive: the saved replay's recording: %s", e.what());
+            behind_.reset();
+        }
+    }
+    void step_behind() {
+        if (!behind_) return;
+        behind_->step();
+        const std::span<const race::CarState> cars = behind_->session().cars();
+        const std::vector<race::CarState>& shown = history_[replay_at_];
+        for (size_t i = 0; i < cars.size() && i < shown.size(); ++i)
+            if (std::memcmp(&cars[i].position, &shown[i].position, sizeof cars[i].position) != 0) {
+                LOG_WARN("Drive: the saved replay's recording leaves its states at step %zu (car %zu): heard from the states", replay_at_ + 1, i);
+                return behind_.reset();
+            }
+        if (replay_at_ + 1 == history_.size()) LOG_INFO("Drive: the saved replay's recording ran its %zu steps beside it", history_.size());
     }
     bool replaying() const { return replaying_; }
     bool replay_done() const { return replay_done_; }
@@ -1123,18 +1234,19 @@ public:
         }
         world_->set_computer_player(bspec);
         world_->set_entry_overrides(std::move(over));
-        demo_step_ = 0, demo_still_ = 0, demo_logged_ = false, demo_bspec_ = bspec, demo_lap_ = demo_run_->demo.race_class == "RaceFreeRun";
+        demo_step_ = 0, demo_logged_ = false, demo_bspec_ = bspec;
         begin_run(false, true);
+        world_->pits_by_record();
         LOG_INFO("Drive: the demonstration %s: %zu steps recorded (%d ms); wear %d, fuel %.1f of %.1f l, race %s", demo_run_->label.c_str(), demo_run_->steps(), demo_run_->recorded_ms(),
                  int(world_->wears_tires()), double(world_->fuel(0)), double(world_->tank(0)), setup_.race.c_str());
     }
     bool demonstrating() const { return demo_run_.has_value(); }
-    bool demo_over() const { return demo_run_ && (demo_run_->over(demo_step_) || demo_still_ > 480); }
+    bool demo_over() const { return demo_run_ && demo_run_->over(demo_step_); }
     // A recorded B-spec race's commands (DemoRun::mail).
     void demo_commands(const std::array<u8, 6>& m) {
         if (m[4] == 4) bspec_pace_ = std::clamp(int(m[5]) + 1, 1, 5), world_->command(0, bspec_pace_, overtake_steps_ > 0);
         else if (m[4] == 5) overtake_steps_ = m[5] ? 1 : 0, world_->command(0, bspec_pace_, overtake_steps_ > 0);
-        else if (m[4] == 6 && world_->pit_requested(0) != (m[5] != 0)) world_->pit_command(0);
+        else if (m[4] == 6) world_->pit_command(0, m[5] != 0);
         if (m[0] == 1) world_->pit_choose(0, m[1], m[2], m[3] != 0);
         else if (m[0] == 2) world_->stop_refuel(0);
     }
@@ -1322,14 +1434,10 @@ public:
     // player's car (RaceWorld::command).
     bool watched() const { return watched_; }
     bool bspec_overtaking() const { return overtake_steps_ > 0; }
-    void bspec_pace(int step) {
-        bspec_pace_ = std::clamp(bspec_pace_ + step, 1, 5);
-        world_->command(0, bspec_pace_, overtake_steps_ > 0);
-    }
-    void bspec_overtake() {
-        overtake_steps_ = overtake_steps_ > 0 ? 0 : 1;
-        world_->command(0, bspec_pace_, overtake_steps_ > 0);
-    }
+    void bspec_pace(int step) { mail_.command = {4, u8(std::clamp(bspec_pace_ + step, 1, 5) - 1)}; }
+    void bspec_overtake() { mail_.command = {5, u8(overtake_steps_ > 0 ? 0 : 1)}; }
+    void pit_choose(u8 front, u8 rear, bool fuel) { mail_.pit = {1, front, rear, u8(fuel)}; }
+    void stop_refuel() { mail_.pit = {2, 0xFF, 0xFF, 0}; }
     void bspec_display() { bspec_help_ = !bspec_help_; }
 
     // The car's three views, then the course's replay cameras (ours: the game shows those in replays only).
@@ -1631,7 +1739,7 @@ public:
     void bspec_pit() {
         // Not before the car's first crossing (F +0x4AC) nor on its last lap (0x343C20).
         if (!watched_ || flow_.car(0).counter <= 0 || (setup_.laps > 0 && flow_.car(0).counter >= setup_.laps)) return;
-        world_->pit_command(0);
+        mail_.command = {6, u8(!world_->pit_requested(0))};
         LOG_INFO("Drive: B-spec pit command at %.1f s", double(flow_.time_ms()) / 1000);
     }
     int pit_message() const { return world_->pit_message(0); }
@@ -1641,6 +1749,7 @@ public:
         if (bspec == watched_ || setup_.auto_drive) return;
         watched_ = bspec;
         follow(0);
+        recording_ = false; // (❓ the recording of a run whose driver changed, the record's command 10, is not made)
         world_->set_driving_mode(bspec);
         LOG_INFO("Drive: the driving mode at %.1f s: %s", double(flow_.time_ms()) / 1000, bspec ? "B-spec" : "A-spec");
     }
@@ -1694,6 +1803,14 @@ private:
     Setup setup_;
     std::unique_ptr<RaceWorld> world_;
     std::vector<race::CarInput> inputs_;
+    Disc* disc_ = nullptr;
+    db::SpecDb* db_ = nullptr;
+    Bytes saved_recording_; // a saved replay's own (race/race_recording.h)
+    std::unique_ptr<race::RecordedRace> behind_;
+    sim::rules::PadMail mail_; // what the player asks for the next step (B-spec's commands, the pit menu's choice)
+    std::vector<replay::PadRecord> records_; // the run's records, one a step
+    bool recording_ = false;
+    std::optional<std::array<u8, 0x40>> bspec_start_; // the B-spec driver's record at the run's start
     race::PadRecord player_frame_; // the player's frame of this step (inputs_[0].pad)
     race::DriveCamera camera_;
     race::ReplayScript replay_script_;
@@ -1736,8 +1853,6 @@ private:
     size_t focus_ = 0; // B-spec: the car the views follow
     std::optional<sim::ai::DemoRun> demo_run_; // a demonstration's recording
     size_t run_steps_ = 0, lens_steps_ = 0;
-    int demo_still_ = 0;                       // steps it has stood
-    bool demo_lap_ = false;                    // of a free run's lap (its recording from the line)
     bool demo_bspec_ = false;                  // of a B-spec run: its car by its driver
     int cones_met_ = 0;
     size_t demo_step_ = 0;
@@ -1797,6 +1912,7 @@ public:
                 }
                 setup_.bspec_book = q.bspec_book, setup_.bspec_course_marks = q.bspec_course_marks, setup_.bspec_course_known = q.bspec_course_known;
                 setup_.playlist = playlist_from(menus_->game().bgm_playlist);
+                setup_.playlist_bytes = save::playlist_block(menus_->game().bgm_playlist);
                 // The Replay Theater's Play: the saved replay, then the menus again.
                 if (sequence_ == "replay") setup_.replay_file = q.replay_file.empty() ? menus_->game().replay_file : q.replay_file;
                 // An event's Preview (the sequence "race_view"): the event's field raced by the computer, every car
@@ -1807,6 +1923,7 @@ public:
                 test_car(app, setup_, q);
                 draw_grid(app, setup_, q);
                 arcade_tires(app, setup_, q);
+                if (sequence_ == "single_race") apply_arcade_options(setup_);
                 // A request without laps: the event's (its RACE row), else the arcade's option
                 // (race_laps, a new game's 2).
                 if (q.laps <= 0) {
@@ -1890,6 +2007,7 @@ public:
             menus_ = own_menus_.get(), sequence_ = setup_.sequence;
             setup_.options = menus_->game().options;
             setup_.playlist = playlist_from(menus_->game().bgm_playlist);
+            setup_.playlist_bytes = save::playlist_block(menus_->game().bgm_playlist);
             menu::RaceRequest& q = menus_->game().race;
             q.course = setup_.course, q.car = setup_.car, q.paint = int(setup_.paint), q.laps = setup_.laps, q.max_entry = setup_.cars;
             q.race = setup_.race, q.sequence = setup_.sequence;
@@ -1897,6 +2015,7 @@ public:
             test_car(app, setup_, q);
             // An event's grid from its pool (`race=<label>`, no `opponents`).
             if (!setup_.race.empty() && setup_.opponents.empty() && setup_.cars > 1) draw_grid(app, setup_, q);
+            if (sequence_ == "single_race" && !setup_.event_row.empty()) apply_arcade_options(setup_);
             if (!setup_.race.empty() && setup_.event_row.empty()) // (a race of one car: its event's rules)
                 if (db::SpecDb* sdb = app.db())
                     if (const std::optional<db::RaceEvent> e = db::RaceEvents(*sdb, [vfs](const std::string& path) { return vfs->read(path); }).event(setup_.race))
@@ -1907,7 +2026,7 @@ public:
         if (!setup_.entries_file.empty()) load_entries(app, setup_);
         if (setup_.replay_file.rfind("replay/", 0) == 0) {
             try {
-                saved_replay_ = load_recorded_race(app, setup_);
+                saved_replay_ = load_recorded_race(app, setup_, app.vfs()->read(setup_.replay_file));
             } catch (const std::exception& e) {
                 LOG_WARN("Drive: the recorded race: %s", e.what());
             }
@@ -1919,17 +2038,21 @@ public:
                 u8 buf[65536];
                 for (size_t n; (n = std::fread(buf, 1, sizeof buf, fp)) > 0;) b.insert(b.end(), buf, buf + n);
                 std::fclose(fp);
-                saved = race::ReplayFile::decode(b);
-                setup_.course = saved->course, setup_.laps = std::max(1, saved->laps);
-                setup_.cars = int(saved->cars.size());
-                setup_.opponents.clear(), setup_.paints.clear();
-                for (size_t i = 0; i < saved->cars.size(); ++i) {
-                    if (i == 0) setup_.car = saved->cars[i].label;
-                    else setup_.opponents.push_back(saved->cars[i].label);
-                    setup_.paints.push_back(saved->cars[i].paint);
+                // (a replay of the original's, from its memory card: run again from its records)
+                if (!race::ReplayFile::is_replay(b)) saved_replay_ = load_recorded_race(app, setup_, b);
+                else {
+                    saved = race::ReplayFile::decode(b);
+                    setup_.course = saved->course, setup_.laps = std::max(1, saved->laps);
+                    setup_.cars = int(saved->cars.size());
+                    setup_.opponents.clear(), setup_.paints.clear();
+                    for (size_t i = 0; i < saved->cars.size(); ++i) {
+                        if (i == 0) setup_.car = saved->cars[i].label;
+                        else setup_.opponents.push_back(saved->cars[i].label);
+                        setup_.paints.push_back(saved->cars[i].paint);
+                    }
+                    setup_.skip = 0, setup_.replay = 0, setup_.start = race::StartType::None, setup_.sequence.clear();
+                    saved_replay_ = true;
                 }
-                setup_.skip = 0, setup_.replay = 0, setup_.start = race::StartType::None, setup_.sequence.clear();
-                saved_replay_ = true;
             } catch (const std::exception& e) {
                 LOG_WARN("Drive: the saved replay: %s", e.what());
             }
@@ -2067,6 +2190,7 @@ public:
             if (online_) player_input_ = {}, run_steps(app, dt); // (an online race waits for nobody)
             return update_pause(app, m, dt);
         }
+        if (setup_.save_replay > 1 && race_->run_steps() >= size_t(setup_.save_replay)) setup_.save_replay = 0, save_replay(app);
         const bool pit_menu = update_pit_menu(app, m, dt);
         if (race_->watched() && pit_menu) {
             if (monitor_) monitor_->advance(float(dt)), fill_monitor();
@@ -2099,7 +2223,7 @@ public:
             }
         }
         // The refuelling stopped (0x3BAC80: the bar's accept, the help strip's "%Be").
-        if (!pit_menu && race_->world().refuelling(0) && m.pressed(PadButton::Circle) && !race_->replaying()) race_->world().stop_refuel(0);
+        if (!pit_menu && race_->world().refuelling(0) && m.pressed(PadButton::Circle) && !race_->replaying()) race_->stop_refuel();
         update_panel(app, dt);
         if (monitor_ && race_->world().pit_stage(0) != 0) monitor_.reset(); // (into the pits: the live view again)
         look_back_ = mine ? (player_input_.views & (input::RaceInput::kBackView | input::RaceInput::kRearView)) != 0 : gt3r::race::look_back_held(app.input().race_pad(0), false);
@@ -2608,7 +2732,7 @@ private:
             } else if (n == "EXIT") {
                 auto chosen = [&](size_t a) { return u8(size_t(c.tire[a]) < c.kinds[a].size() && c.tires ? c.kinds[a][size_t(c.tire[a])] : 0xFF); };
                 LOG_INFO("Drive: the pit stop's choice at %.1f s: tires %d / %d, fuel %d", double(race_->flow().time_ms()) / 1000, chosen(0), chosen(1), c.feed);
-                race_->world().pit_choose(0, chosen(0), chosen(1), c.feed != 0);
+                race_->pit_choose(chosen(0), chosen(1), c.feed != 0);
                 if (c.mode && !setup_.auto_drive) spectator_ = c.bspec != 0, race_->set_driving_mode(spectator_);
                 pit_open_ = false;
             }
@@ -2970,7 +3094,7 @@ private:
             // A Gran Turismo mode race already run: the page as before a race, no run.
             enter_quick(0);
         } else if (command == "COMMAND_START") {
-            start_run(false);
+            start_run(setup_.scripted && setup_.bspec);
         } else if (command == "COMMAND_SPECTATOR") {
             start_run(true);
         } else if (command == "COMMAND_DEMONSTRATION") {
@@ -3442,7 +3566,7 @@ private:
         // The B-spec driver's book as it is now (race_finished keeps the request's up to date between a sequence's races).
         if (menus_ && !sequence_.empty()) setup_.bspec_book = menus_->game().race.bspec_book, setup_.bspec_course_marks = menus_->game().race.bspec_course_marks;
         try {
-            load_test(app, setup_, menus_ ? menus_->game().race.race : setup_.race);
+            load_test(app, setup_, menus_ && !setup_.demo_run ? menus_->game().race.race : setup_.race);
             race_ = std::make_unique<Race>(app, setup_, cars_);
             if (setup_.online) {
                 online_ = std::make_unique<net::NetRace>(gt3r::net::online(), *setup_.online);

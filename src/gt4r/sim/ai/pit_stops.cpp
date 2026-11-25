@@ -31,17 +31,16 @@ PitHooks session_pit_hooks(Session& session) {
         return v;
     };
     h.new_tire = [s](size_t i, int w) { s->new_tire(i, w); };
-    // 0x35B060 → 0x363560: the car stood where it is, facing the box's heading (the record's frame: x, y, the ground's z).
-    h.place_in_box = [s](size_t i, F heading) {
-        const gt3r::sim::exact::Car& c = s->record(i);
-        s->place_standing(i, c.pos.x, c.pos.y, c.ground_pos.z, heading);
-    };
+    // 0x35B060 → 0x363560: the car's standing state where it is; at the next step its box's heading.
+    h.place_in_box = [s](size_t i, F heading) { s->stop_in_box(i, heading); };
+    h.face_box = [s](size_t i, F heading) { s->face(i, heading); };
     h.hold = [s](size_t i, u16 steps) { s->set_pit_hold(i, steps); };
+    h.flags = [s](size_t i, u8 flags) { s->set_pit_flags(i, flags); };
     return h;
 }
 
 PitStops::PitStops(const Field& field, const Program& program, size_t cars, PitHooks hooks, PitRace race)
-    : flow_(program), hooks_(std::move(hooks)), race_(race), cars_(cars), last_d_(cars), last_lap_(cars, 0), stops_(cars, 0), records_(cars), default_choice_(cars, false), pending_(cars) {
+    : flow_(program), hooks_(std::move(hooks)), race_(race), cars_(cars), last_d_(cars), last_lap_(cars, 0), stops_(cars, 0), lap_state_(cars, 0), records_(cars), default_choice_(cars, false), pending_(cars), took_default_(cars, false), recorded_(cars, false) {
     if (program.known()) race_.refuel_rate = program.b(0x620E25);
     for (const LinePoint& p : field.lines().line(CourseLines::kPitStop)) line_.dist.push_back(F(p.dist)), line_.heading.push_back(F(p.heading));
     // A car's box (0x363B10 by 0x46BDA0): the stop line's point 8 less its place on the grid (none without the line).
@@ -61,7 +60,9 @@ void PitStops::before(const Field& field, std::span<race::CarInput> inputs) {
         if (hooks_.hold) hooks_.hold(i, c.hold); // (the session holds the car while the counter runs)
         // The input phase after it (0x349FD0 → 0x35BFE8): the choice made for a B-spec car whose wait ran out (0x35BF08), or
         // the player's from the pit menu (choose()).
-        if (e.default_choice) default_choice_[i] = true;
+        // (A car by a recording: the record has the choice, the one made by the wait too: the mail is not looked at.)
+        took_default_[i] = e.default_choice && !recorded_[i];
+        if (took_default_[i]) default_choice_[i] = true;
         if (default_choice_[i]) {
             default_choice_[i] = false;
             const Choice ch = pending_[i].value_or(Choice{1, 0xFE, 0xFE, 0xFE});
@@ -111,13 +112,14 @@ void PitStops::after(const Session& session, Field& field) {
         PitCar& c = cars_[i];
         const race::CarState& st = session.cars()[i];
         const F d(st.course_v);
+        const int crossings = session.crossings(i); // (F +0x4AC)
         const int control = std::max(field.control(i), 0);
         // 0x343C20 (the race clock in ms: the session's steps; the car's laps as the race flow counts them).
         LapStateInputs ls;
         ls.finished = race_.finished && race_.finished(i);
         ls.clock_ms = u32(session.time() * 1000.0);
-        ls.limit_minutes = race_.limit_minutes, ls.laps = race_.laps, ls.lap = st.lap, ls.d = d, ls.lap_length = L;
-        const int lap_state = sim::ai::lap_state(ls);
+        ls.limit_minutes = race_.limit_minutes, ls.laps = race_.laps, ls.lap = crossings, ls.d = d, ls.lap_length = L;
+        const int lap_state = lap_state_[i] = sim::ai::lap_state(ls);
         // The wear and fuel phase's request (0x353218).
         PitNeed need;
         need.allowed = race_.pits;
@@ -137,8 +139,8 @@ void PitStops::after(const Session& session, Field& field) {
         // The pass (0x359008 → 0x35B060).
         PitInputs in;
         in.d = d, in.d_prev = last_d_[i], in.lap = L;
-        in.speed = F(st.speed);
-        in.side_speed = F(st.velocity.x * st.right.x + st.velocity.y * st.right.y + st.velocity.z * st.right.z);
+        in.speed = session.record(i).speed;
+        in.side_speed = session.record(i).lat_speed;
         in.control = gt3r::s8(control), in.kind = u8(field.kind(i)), in.index = int(i);
         in.lap_state = lap_state;
         // The collision body's hits this step (0x45CC08: +0x43C a wall or +0x440 a car; 0x45CC30: +0x43C).
@@ -146,7 +148,7 @@ void PitStops::after(const Session& session, Field& field) {
         in.contact = body.wall_hit != 0 || body.car_hit != 0;
         in.contact_43C = body.wall_hit != 0;
         in.lines = !line_.dist.empty();
-        in.crossed = st.lap > last_lap_[i];
+        in.crossed = crossings > last_lap_[i];
         // On the pit lane (phase 18, 0x369888): a wheel on the ground on a triangle flagged bit 0, in a race with pit stops.
         bool lane = false;
         // (The road's record alone: a car held in its box has its wheels flagged off the ground and stays on the lane.)
@@ -171,7 +173,7 @@ void PitStops::after(const Session& session, Field& field) {
                 if (hooks_.place_in_box) hooks_.place_in_box(i, line_.box_heading(c.box));
                 break;
             case PitAction::Heading:
-                if (hooks_.place_in_box) hooks_.place_in_box(i, a.value);
+                if (hooks_.face_box) hooks_.face_box(i, a.value);
                 break;
             case PitAction::CountStop: { // 0x35AD10
                 if (hooks_.display_event) hooks_.display_event(i, 1);
@@ -179,7 +181,7 @@ void PitStops::after(const Session& session, Field& field) {
                 auto& rec = records_[i];
                 for (size_t k = 3; k > 0; --k) rec[k] = rec[k - 1];
                 // 0x343B50: the car's lap (less one when F +0x4B2), at least 1
-                const int lap = st.lap > 0 ? (c.x4B2 ? st.lap - 1 : st.lap) : 1;
+                const int lap = crossings > 0 ? (c.x4B2 ? crossings - 1 : crossings) : 1;
                 rec[0] = {lap, -1, -1};
                 break;
             }
@@ -198,7 +200,8 @@ void PitStops::after(const Session& session, Field& field) {
             default: break;
             }
         }
-        last_d_[i] = d, last_lap_[i] = st.lap;
+        if (hooks_.flags) hooks_.flags(i, c.flags);
+        last_d_[i] = d, last_lap_[i] = crossings;
     }
 }
 

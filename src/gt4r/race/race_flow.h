@@ -113,6 +113,9 @@ public:
     // takes it to 0 is the first of the race).
     int hold_left() const { return hold_; }
     int hold_total() const { return hold_total_; }
+    // A run taken up at a moment of it (a free run's recording, at its lap's line): the car's crossings, where its times count from
+    // (F + 0x614, ms) and the race's clock; no hold.
+    void resume(size_t car, int crossings, s64 base_ms, s64 clock, float v);
     // After a step of the simulation (held or not), with the cars' states it left.
     Events step(std::span<const CarState> cars);
 

@@ -64,6 +64,7 @@ struct OrigRace {
     u32 car(int i) const { return cond + kCar0 + kCarSize * u32(i); }
     u32 params(int i) const { return cond + kParams0 + kParamsSize * u32(i); }
     Pad pad[6]; // read by the pad stub at each step
+    u32 mode = 0;            // the race's mode the conductor is set up with (0 driven, 1 B-spec, 2 / 3 their replays; before_init may set it)
     Disc* disc = nullptr;    // the disc and course the race was set up from
     std::string course_label;
 };

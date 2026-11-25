@@ -109,6 +109,12 @@ Bytes ReplayFile::encode() const {
     body.u32v(u32(steps.size()));
     for (const std::vector<CarState>& s : steps)
         for (size_t i = 0; i < cars.size(); ++i) put_state(body, i < s.size() ? s[i] : CarState{});
+    // The tagged sections: u32 tag, u32 size, the bytes, until the body ends.
+    auto section = [&body](u32 tag, const Bytes& b) {
+        body.u32v(tag), body.u32v(u32(b.size()));
+        body.b.insert(body.b.end(), b.begin(), b.end());
+    };
+    for (const auto& [tag, b] : other) section(tag, b);
     Writer out;
     for (char ch : std::string("GT4RRPL1")) out.u8v(u8(ch));
     out.u32v(u32(body.b.size()));
@@ -141,6 +147,13 @@ ReplayFile ReplayFile::decode(ByteSpan file) {
     for (std::vector<CarState>& s : f.steps) {
         s.reserve(n);
         for (u32 i = 0; i < n; ++i) s.push_back(get_state(r));
+    }
+    while (r.at + 8 <= body.size()) {
+        const u32 tag = r.u32v(), bytes = r.u32v();
+        if (r.at + u64(bytes) > body.size()) break;
+        const Bytes b(body.begin() + std::ptrdiff_t(r.at), body.begin() + std::ptrdiff_t(r.at + bytes));
+        r.at += bytes;
+        f.other.emplace_back(tag, b);
     }
     return f;
 }

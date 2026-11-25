@@ -349,6 +349,14 @@ void enable(Body& b, bool on) {
     b.enabled = on;
 }
 
+// The pair's radius squared (0x4C4's table: six bodies, the most a race of the game has; a field of more, which only
+// our own set-ups make, computes it from the radii).
+F pair_r2(const Body& a, int io, const Body& o) {
+    if (io < kMaxBodies) return a.r2[size_t(io)];
+    const F sum = a.radius + o.radius;
+    return sum * sum;
+}
+
 // 0x45FAD0: the start points of o inside t's outline: the deepest along the line of the centres moves both bodies
 // half that each.
 void separate(std::vector<Body>& bd, int it, int io) {
@@ -358,7 +366,7 @@ void separate(std::vector<Body>& bd, int it, int io) {
     if (!o.enabled) return;
     if (!same_level(t, o)) return;
     const F dcx = o.sx - t.sx, dcy = o.sy - t.sy;
-    if (t.r2[size_t(io)] < (dcx * dcx) + (dcy * dcy)) return;
+    if (pair_r2(t, io, o) < (dcx * dcx) + (dcy * dcy)) return;
     F best = kZero, bx = kZero, by = kZero;
     for (const Point& v : o.p) {
         bool found = false;
@@ -581,7 +589,7 @@ bool pair_sweep(std::vector<Body>& bd, int ia, int ib) {
             cx = c0x + (dx * q);
         }
     }
-    if (A.r2[size_t(ib)] < (cx * cx) + (cy * cy)) return false;
+    if (pair_r2(A, ib, B) < (cx * cx) + (cy * cy)) return false;
     const F dx1 = B.ex - A.ex, dy1 = B.ey - A.ey, rs = B.sh - A.sh, re = B.eh - A.eh;
     const F s0 = ee::sin(-A.sh), c0 = ee::cos(-A.sh), s1 = ee::sin(-A.eh), c1 = ee::cos(-A.eh);
     const F p0y = (s0 * c0x) + (c0 * c0y), p0x = (c0 * c0x) - (s0 * c0y);

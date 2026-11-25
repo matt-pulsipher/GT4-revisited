@@ -276,6 +276,23 @@ The other sequences (time trial, events, championships, licenses, missions, mach
 run, practice) and their projects are listed in `race_natives.cpp` (`quick_project`); only the
 single race's commands are run here.
 
+## An arcade single race's options
+
+The conductor's set-up (virtual 26, 0x34CA20, for a RaceArcadeSingle: 0x3BFD00) takes two of the options over the event's row
+(`race::arcade_rules`):
+- `penalty_type` (the race information's +0x04; 0 in a run alone): 0 no penalty (rule block +0x4A 0, the limits +0x48 / +0x49 255);
+  1 the speed limit, 10 s (+0x4A), past a wall's 8 m/s (+0x49) or a car's 40 (+0x48); 2 the pit lane: the same limits, the mark (+0x4A
+  0xFF; none on a course without pits). ❓ What the mark asks of the driver (a pass through the pit lane) is not done here.
+- `tire_damage` (+0x08; virtual 11, 0x354F30): 0 no wear; 1 and 2 the wear's curve (+0x2C .. +0x34): 8, 40, 12, 5, 5, 4, 0, 5, 5 and 6, 40, 12,
+  1, 5, 3, 0, 4, 5.
+Any race's wear runs only on a course that counts fuel (COURSE +0x14, not loose: 0x34CCD4).
+
+## A car's finish
+
+At its finish (virtual 21, 0x357B98, the license's 0x3F8AB0) a car is marked (F +0x4B2) and its driver takes over (0x343D78, mode 3: kind 5):
+it cruises on at the race's limit or 80 km/h, the player's car too (`Field::finish_run`, `RaceWorld::finish_car`). A test ended by the player
+sends the computer's cars off the same way (0x3F88E8). A car on the pit lane (kinds 2 .. 4) keeps its driver.
+
 ## A-spec points
 
 Offered by a race (0x3C0FF8) with other cars: 250 in a mission (the race's virtual 95 is 10); else from the cars' ratings (the
@@ -321,9 +338,11 @@ The program's Save Replay runs the project `labomode` with `next_menu_arg` =
 rebuild keeps the cars' states instead, step by step, in a file of its own under the data folder's
 `replays/` (`<course>-<date>-<time>.gt4rrep`; `race/replay_file.*`): `"GT4RRPL1"`, u32 the body's
 size, u32 its deflated size, then the zlib-deflated body: the course, the sequence and the race's
-labels, the laps, the cars (label, paint), the steps (every car's state). The Drive screen plays
-one with `GT4R_RACE="replay_file=<path>"` through the course's replay cameras. ❓ The menus'
-Replay Theater does not list these files yet.
+labels, the laps, the cars (label, paint), the steps (every car's state), then sections (u32 tag, u32
+size, bytes): `DETL` each state's brakes' heat and clutch, `RPLD` an arcade race's or a license test's run as the program keeps
+it (replay.md "A replay of ours"). The Drive screen plays
+one with `GT4R_RACE="replay_file=<path>"` through the course's replay cameras (a card's own replay file too); `save=<n>` saves a run at
+its step n. The Replay Theater lists them.
 
 ## A free run's start, and the arcade's start against the original
 
@@ -359,8 +378,9 @@ engine's Gran Turismo 3 code). The player notices them roughly in this order.
 | Laps, crossings, times, finish | `race_flow.*` | GT4 (0x358608, vf21 0x357B98); the race order's comparison judged | the order routine (❓ not found) |
 | License tests' rules | `license_rules.*` (`stopped_in_box`, `license_step`), `judge_license` | GT4 (0x3F8D70, 0x369888 → vf49, 0x35FE80; the stop in the box at or under 1 km/h, the share of the step before it; cones judged a step after they moved); the hits' strengths from the simulation's contact (its sum per step, not the program's per hit), the mass P +0x48 | the hit records 0x350530 |
 | Cones and boards knocked about | `gadget_bodies.*` | GT4 (0x3E2B28 with 0x3E3748 / 0x3E3840, 0x3E44E8 / 0x3E4708, 0x3E3C48 / 0x3E3ED0 / 0x3E43B8, 0x3E5108, set-up 0x3E2710; course.md "Cones and boards: the bodies") in host floats; the road query and the car boxes' extents judged | the road query 0x3E5A30; the car record's box extents (+0x48C .. +0x494) |
-| The demonstrations | `screen_race.cpp` `begin_demo`, `sim/ai/demo_driver.*`; headless `race/demonstration_run.*` (`gt4tool race <disc> demos us`) | GT4 (the recordings on our own race: starts, hold, run-up by the driver, rules, cones). ✔ 66 of the 70 US tests with a recorded time end on it to the millisecond; the other four (B-6 34 ms early, B-10, IA-15 and IB-15 failing at steps 4317, 2985 and 1868) end where the program's own run of the same file ends (physics.md). B-8's car is not in the US database; 14 files record no time | |
-| The disc's recorded races (the Replay Theater's Demo tab) | `screen_race.cpp` `load_recorded_race`, `play_demo` | the race set up from the file (replay.md): GT4's start, cars, drivers; a pad run by its records, a B-spec run by its driver and the recorded commands. ❓ None of them comes out on its recorded times: the B-spec laps are 0.5 to 5 % off, the pad runs leave their line after 5 to 90 s (the replay ends once the car has stood 8 s) | what differs is not found: the set-up equals the original's states (below) |
+| The demonstrations | `screen_race.cpp` `begin_demo`, `sim/ai/demo_driver.*`; headless `race/demonstration_run.*` (`gt4tool race <disc> demos us`) | GT4 (the recordings on our own race: starts, hold, run-up by the driver, rules, cones). ✔ 69 of the 70 US tests with a recorded time end on it to the millisecond (B-6 is 34 ms early, as in the program's own run of the file). B-8's car is not in the US database; 14 files record no time | |
+| The disc's recorded races (the Replay Theater's Demo tab) | `screen_race.cpp` `load_recorded_race`, `play_demo`; headless `race/recorded_race.*` | GT4: the race set up from the file (replay.md): start, cars, drivers, pit stops; a pad run by its records, a B-spec run by its driver and the recorded commands, a free run from the recorder's moment. ✔ All thirteen of the US disc's end on their recorded times and best laps, in the app too | the replay's own play list (+0x148) |
+| A run of ours kept as the program's, a card's replay file played | `race/race_recording.*`, `formats/replay/demonstration.*` (`encode`), `screen_race.cpp` `recording`, `begin_behind`; `gt4tool race <disc> recording` | GT4: the recorder's stream, the race's header, the cipher and the card's scrambling (replay.md "A replay of ours"); arcade single races and license tests. Ours: the saved replay file round it (states, details) |
 | Free runs: time trial, free run, Gran Turismo mode's practice | `screen_race.cpp` `free_run`, `apply_course_start`, `Session::count_rolling` | GT4 (DynamicsConductorFreeRun: vf30 0x3F5670 the run-up, vf14 the hand-over, vf37 no laps) | the best lap's ghost |
 | The pad's controls | `screen_race.cpp` (`gt3r::race::ControlMapper`) | **engine** (GT3's mapping) | the input phase 0x349FD0 (`sim-step`) |
 | Looking back | `gt3r::race::look_back_held` | **engine** | ❓ not read |

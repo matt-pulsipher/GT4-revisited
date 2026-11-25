@@ -98,6 +98,7 @@ void RemoteCar::apply(const CarSnapshot& s, s64 clock) {
         }
     }
     put_motion(*car_, 0, s.motion);
+    car_->set_driver_kind(0, s.entry.driver_kind);
     snap_ = s;
     have_ = true;
     held_ = s.input_count ? s.inputs[0] : PadInput{};
