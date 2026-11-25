@@ -32,6 +32,7 @@
 #include "gt4r/race/replay_file.h"
 #include "gt4r/race/license_rules.h"
 #include "gt4r/race/sections.h"
+#include "gt4r/sim/program_prologue.h"
 #include "gt4r/race/start_camera.h"
 #include "gt4r/race/start_rule.h"
 #include "gt4r/race/picture_settings.h"
@@ -49,6 +50,7 @@
 #include "gt4r/race/car_pose.h"
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cstring>
 #include <ctime>
@@ -382,6 +384,12 @@ public:
             const course::Runway& r = world_->course().road();
             goal_v_ = r.gtrw && r.goal_v > 0 && r.goal_v < r.length - 1 ? r.goal_v : -1;
             gt3_road_ = r.gtrw != nullptr;
+            if (gt3_road_ && app.disc()) try { // (Prologue's camera on a finished license test)
+                    const sim::Program program = sim::Program::load(*app.disc());
+                    const auto real = [&](u32 at) { return std::bit_cast<float>(program.w(at)); };
+                    if (sim::PrologueProgram::locate(program).recognized()) finish_camera_.fov = real(0x504674), finish_camera_.pitch = real(0x504678), finish_camera_.distance = real(0x50467C);
+                } catch (const std::exception&) {
+                }
         }
         splits_ = race::road_list(world_->course().section(course::kSlotRunway), 0);
         mount_ = setup.view;
@@ -421,6 +429,7 @@ public:
         rolled_ = false;
         license_failed_ = false, section_prev_ = -1;
         judge_ = race::LicenseJudge(judge_.rules());
+        finish_camera_.angle = 0;
         goal_prev_ = -1;
         board_.begin(world_->car_count(), 0, lap_words_[0], lap_words_[1]);
         camera_.reset(world_->cars()[0]);
@@ -594,6 +603,7 @@ public:
         if (is_license(setup_.sequence)) judge_goal();
         if (ev.lap_done == 0) event_steps_ = 0, event_lap_ = flow_.car(0).laps_done, split_steps_ = -1;
         step_splits();
+        if (finish_view()) finish_camera_.angle += 0.5f;
         beeps_ += ev.beep;
         start_camera_.step();
         if (const float d = start_camera_.dissolve(); d > 0) begin_dissolve(int(std::lround(d * 60)));
@@ -896,7 +906,7 @@ public:
         // The in-car view's rear-view mirror at the top (❓ its place, (190, 18) 259 x 63 of the
         // 640 x 480 picture, measured on the original's in-car view): not in replays, the opening
         // shots (a standing start's or a rolling start's TV cameras), B-spec or looking back.
-        if (mount_ == race::DriveCamera::kInCar && !replaying_ && !menu_scene_ && !watched_ && !start_camera_.active() && !opening_tv() && !look_back && !setup_.look_back) {
+        if (mount_ == race::DriveCamera::kInCar && !finish_view() && !replaying_ && !menu_scene_ && !watched_ && !start_camera_.active() && !opening_tv() && !look_back && !setup_.look_back) {
             const SDL_FRect c = RaceHud::canvas();
             const float k = c.h / 480.0f;
             world_->render_mirror(ui, {c.x + 190 * k, c.y + 18 * k, 259 * k, 63 * k}, cars, pose, 0);
@@ -1090,6 +1100,9 @@ public:
         if (dissolve_left_ == 0) dissolve_total_ = 0;
     }
 
+    // Prologue's license test ended: the camera circles the car (race/start_camera_prologue.h).
+    bool finish_view() const { return gt3_road_ && finish_camera_.distance > 0 && is_license(setup_.sequence) && flow_.player_finished() && !replaying_ && !menu_scene_; }
+
     // The camera now: the opening shots, the replay cameras, or the car's view.
     race::ViewPose current_pose(std::span<const race::CarState> cars, bool look_back) {
         const size_t f = focus() < cars.size() ? focus() : 0;
@@ -1100,7 +1113,11 @@ public:
         bool posed = menu_scene_ && !preview_ && scenic_.pose(pose);
         posed = posed || (start_camera_.active() && start_camera_.pose(pose, &body));
         // The replay cameras' shot for the car; the chase view where the script has none.
+        if (!posed && finish_view()) posed = finish_camera_.pose(RVec{me.position.x, me.position.y, me.position.z}, pose);
         if (!posed && view == kTvView && tv_valid_) pose = tv_pose_, posed = true;
+        // Prologue's shots: a lens of A degrees shows 10 / 7 of the width ours does (✔ against the original's start, grid page and
+        // trackside shots at Tsukuba: 1.43; 4/3 x 480/448, the angle up its 448 lines).
+        if (posed && gt3_road_) pose.fov = 2 * std::atan(std::tan(pose.fov * 0.5f) * 10 / 7);
         if (!posed) pose = camera_.pose(me, body, world_->visual(f).mounts(), view == kTvView ? race::DriveCamera::kChase : view, look_back || setup_.look_back);
         return pose;
     }
@@ -1179,6 +1196,7 @@ private:
     int dissolve_total_ = 0, dissolve_left_ = 0;
     race::CameraMotion start_motion_, replay_motion_;
     std::array<race::ReplayScript, 2> start_paths_; // Prologue's: the race's and the replay's
+    race::PrologueFinishCamera finish_camera_;
     race::StartCamera start_camera_;
     race::RaceFlow flow_;
     race::ResultBoard board_;
@@ -1474,7 +1492,7 @@ public:
             return;
         }
         const Uint64 t0 = SDL_GetTicksNS();
-        if (license_page()) {
+        if (license_page() && !prologue_hud_) {
             // The test's results page: the race in its live inset (the movie's picture, 300 x 225 at
             // its scale; it starts over the whole picture and shrinks into place) on black.
             ui.fill(0, 0, Ui::kWidth, Ui::kHeight, Color{0, 0, 0, 255});

@@ -32,4 +32,13 @@ private:
     void set();
 };
 
+// Prologue's camera on a car that has finished (CameraSys::CameraFinishType1, 0x3D4018): it circles the car's place half a degree a
+// step, from the course's own axes, `distance` away and `pitch` degrees above, with the lens `fov` (the program's 0x50467C,
+// 0x504678 and 0x504674).
+struct PrologueFinishCamera {
+    float distance = 0, pitch = 0, fov = 0; // (0 distance: not known)
+    float angle = 0;                        // degrees
+    bool pose(const gt3r::render::Vec3& car, ViewPose& out) const;
+};
+
 } // namespace gt4r::race
