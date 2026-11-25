@@ -1319,7 +1319,12 @@ public:
         }
         // The sequences that run the player's car alone (RaceFreeRun, the tests); the free run's race
         // code is "freerun" (0x116E20).
-        const bool prologue_test = is_license(setup_.sequence) && app.db() && app.db()->prologue() && (!setup_.opponents.empty() || (!chosen && setup_.cars > 1)); // (tests 26 .. 35)
+        bool prologue_test = false; // (a test of Prologue's with other cars: 26 .. 35)
+        if (db::SpecDb* sdb = app.db(); sdb && sdb->prologue() && is_license(setup_.sequence)) {
+            gt3r::Vfs* vfs = app.vfs();
+            const std::optional<db::RaceEvent> e = db::RaceEvents(*sdb, [vfs](const std::string& path) { return vfs->read(path); }).event(setup_.race);
+            if (e && e->grid > 1) prologue_test = true, setup_.cars = e->grid;
+        }
         if (setup_.sequence == "time_trial" || setup_.sequence == "freerun" || (is_license(setup_.sequence) && !prologue_test) || setup_.sequence == "machinetest" ||
             setup_.sequence == "photo_drive")
             setup_.cars = 1, setup_.opponents.clear();
