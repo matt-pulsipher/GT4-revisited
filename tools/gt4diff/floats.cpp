@@ -129,6 +129,7 @@ DemoScore run_recording(Disc& disc, const replay::Demonstration& recording, cons
         if (!license) {
             o.mode = d->race_mode == 1 || d->race_mode == 3 ? 3 : 2;
             ee.w32(ee.r32(o.info + 0x84) + 0xCC8, o.mode);
+            if (d->race_class == "RaceArcadeSingle") ee.hle(0x3BFD00, [](Ee& x) { x.set_v0(1); }, "is the race an arcade single race");
         }
         if (print && opt.verbose) {
             ee.probe(0x3640DC, [&o](Ee& x) { std::printf("  set-up: 0x46B108 gives line %u, cond +0xCBDE %u\n", x.g32(2), x.r8(o.cond + 0xCBDE)); });

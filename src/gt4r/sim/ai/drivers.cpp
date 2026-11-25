@@ -1502,7 +1502,7 @@ void Field::decide(Driver& d) {
         d.throttle = d.throttle * scale;
         int rank = ranks_[d.car];
         session_->rank(d.car, rank);
-        if (5000 + 100 * rank < s32(clock_ / 3)) traffic(d);
+        if (5000 + 100 * rank < s32(clock_ / 3) && !pace_.strip) traffic(d);
     } else {
         if (drive == -1) d.reverse = true, d.throttle = k::one;
         else d.throttle = F();

@@ -43,7 +43,7 @@ struct GameSettings {
     std::string steering_assist = "AMATEUR"; // steering_assist_1p
     bool active_steering = false;            // active_steering_1p
     int laps = 2;                            // race_laps (Arcade)
-    bool tire_damage = false;                // tire_damage (Arcade)
+    int tire_damage = 0;                     // tire_damage (Arcade): 0 .. 2
     std::string penalty = "NONE";            // penalty_type: NONE, SPEED_LIMITATION, PASSING_PITLANE
     std::string view = "SUBJECTIVE";         // view_type: the first view of a race (SUBJECTIVE, BONNET, OVERLOOK)
 

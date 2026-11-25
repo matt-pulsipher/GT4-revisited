@@ -264,6 +264,8 @@ void RaceWorld::build_simulation() {
             if (setup_.event_row.size() >= 0x74) { // the event's tire wear (the rule block's +0x2C .. +0x34, 0x35E108)
                 u8 rule_block[0x80] = {};
                 sim::rules::event_wear_bytes(setup_.event_row.data(), rule_block);
+                // (vf26 sets the wear's rules on a course that counts fuel alone)
+                if (!race::course_start(*app_.db(), setup_.course).fuel && !app_.db()->prologue()) std::memset(rule_block, 0, sizeof rule_block);
                 session_->set_wear_rules(rule_block, !session_->loose(), program);
             }
             // The computer drivers: every car but the player's (his too when he watches).
@@ -274,7 +276,9 @@ void RaceWorld::build_simulation() {
             field_.reset(), pits_.reset(), bspec_driven_ = false;
             if (!computer.empty()) {
                 try {
-                    field_ = sim::ai::Field::open(*app_.disc(), setup_.course, *session_, computer, setup_.pace);
+                    sim::ai::Pace pace = setup_.pace;
+                    pace.strip = race::course_start(*app_.db(), setup_.course).strip;
+                    field_ = sim::ai::Field::open(*app_.disc(), setup_.course, *session_, computer, pace);
                     // B-spec: the player's car's driver takes his commands.
                     if (computer_player_) {
                         field_->set_bspec(0);

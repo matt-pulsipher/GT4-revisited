@@ -80,6 +80,8 @@ struct Pace {
     // for DynamicsConductorFreeRun, License and MachineTest, 0 for the races, battles, free practice, training and
     // missions). Its computer drivers do not pass (0x3F1890) and a B-spec driver's experience counts no company (0x4684A8).
     bool solo = false;
+    // The drag strip (K +0xCBE1: COURSE +0x13 of 2 and more): no lane changes and no lift behind a car (0x465078's 0x4668EC).
+    bool strip = false;
 };
 
 // What a driver did, for checks and tools.

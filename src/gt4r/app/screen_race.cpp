@@ -423,6 +423,11 @@ bool load_recorded_race(App& app, Setup& setup) {
     gt3r::Vfs* vfs = app.vfs();
     if (const std::optional<db::RaceEvent> e = db::RaceEvents(*sdb, [vfs](const std::string& path) { return vfs->read(path); }).event(setup.race))
         setup.pace = sim::ai::pace_for(*e), setup.event_row = e->bytes;
+    if (d.race_class == "RaceArcadeSingle") { // (the options as the recording's race had them: the race information's +4, +8)
+        u32 rules[2];
+        std::memcpy(rules, d.information.data() + 4, 8);
+        race::arcade_rules(setup.event_row, int(rules[0]), int(rules[1]));
+    }
     setup.demo_skip = std::exchange(setup.skip, 0), setup.replay = 0, setup.sequence.clear();
     apply_course_start(app, setup, true);
     LOG_INFO("Drive: the recorded race %s: %s on %s, %zu cars, %d laps, %zu steps (%d ms, best lap %d ms)", setup.replay_file.c_str(), d.race_class.c_str(), setup.course.c_str(), d.entries.size(),
@@ -1640,6 +1645,11 @@ public:
                 setup_.opponents.clear();
                 test_car(app, setup_, q);
                 draw_grid(app, setup_, q);
+                // (an arcade single race by the game's options, whatever its row holds)
+                if (sequence_ == "single_race") {
+                    const menu::GameSettings o = menu::settings_from(setup_.options);
+                    race::arcade_rules(setup_.event_row, o.penalty == "SPEED_LIMITATION" ? 1 : o.penalty == "PASSING_PITLANE" ? 2 : 0, o.tire_damage);
+                }
                 // A request without laps: the event's (its RACE row), else the arcade's option
                 // (race_laps, a new game's 2).
                 if (q.laps <= 0) {

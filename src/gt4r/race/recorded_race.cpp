@@ -50,7 +50,7 @@ RecordedRace::RecordedRace(Disc& disc, db::SpecDb& sdb, sim::ai::DemoRun run) : 
         return f ? std::optional<Bytes>(vol->read(*f)) : std::nullopt;
     };
     const db::RaceEvents events(sdb, read);
-    const std::optional<db::RaceEvent> ev = events.event(u32(d.code_b0));
+    std::optional<db::RaceEvent> ev = events.event(u32(d.code_b0));
     if (!ev) throw std::runtime_error("the recording's event is not in the database");
     for (const db::CourseEntry& c : sdb.courses())
         if (c.id == u32(d.code_b8)) course_ = c.label;
@@ -59,8 +59,9 @@ RecordedRace::RecordedRace(Disc& disc, db::SpecDb& sdb, sim::ai::DemoRun run) : 
     const course::CourseFile file = course::CourseFile::parse(*data);
     const std::optional<course::Runway> road = course::course_road(file, *data);
     if (!road) throw std::runtime_error("the course has no road");
-    u32 laps = 0;
-    std::memcpy(&laps, d.information.data(), 4);
+    u32 laps = 0, rules[2]; // (the race information's laps, penalty and tire damage)
+    std::memcpy(&laps, d.information.data(), 4), std::memcpy(rules, d.information.data() + 4, 8);
+    if (d.race_class == "RaceArcadeSingle") arcade_rules(ev->bytes, int(rules[0]), int(rules[1]));
     const bool solo = d.race_class == "RaceFreeRun" || d.race_class == "RaceSolitaire";
     p.bspec = d.race_mode == 1 || d.race_mode == 3;
 
@@ -114,11 +115,12 @@ RecordedRace::RecordedRace(Disc& disc, db::SpecDb& sdb, sim::ai::DemoRun run) : 
     if (ev->bytes.size() >= 0x74) {
         u8 rule_block[0x80] = {};
         sim::rules::event_wear_bytes(ev->bytes.data(), rule_block);
+        if (!cs.fuel) std::memset(rule_block, 0, sizeof rule_block);
         session.set_wear_rules(rule_block, !session.loose(), program);
     }
     if (ad) {
         sim::ai::Pace pace = sim::ai::pace_for(*ev);
-        pace.solo = solo, pace.random_spread = true;
+        pace.solo = solo, pace.random_spread = true, pace.strip = cs.strip;
         std::vector<size_t> cars(entries.size());
         for (size_t i = 0; i < cars.size(); ++i) cars[i] = i;
         p.field = std::make_unique<sim::ai::Field>(session, *ad, program, cars, pace);

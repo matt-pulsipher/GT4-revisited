@@ -77,6 +77,12 @@ std::optional<replay::Demonstration> theater_replay(Disc& disc, const sim::Progr
     return replay::Demonstration::parse(*payload, program, error);
 }
 
+std::vector<Image> images(Ee& ee, const OrigRace& o) {
+    std::vector<Image> m;
+    for (int i = 0; i < o.cars; ++i) m.push_back(read_image(ee, o.car(i)));
+    return m;
+}
+
 // Our own race of the recording (race::RecordedRace) beside the program's: every car after each step, the first steps that differ.
 struct AloneBeside {
     race::RecordedRace race;
@@ -85,22 +91,33 @@ struct AloneBeside {
     double worst = 0;
     int worst_car = -1;
     AloneBeside(Disc& disc, db::SpecDb& sdb, sim::ai::DemoRun run) : race(disc, sdb, std::move(run)) {}
-    void compare(Ee& ee, OrigRace& o, int step) {
+    void report(const std::string& name) {
+        std::printf("%s ours alone: first bit apart at step %d, 1 mm at %d, worst %.6f m (car %d); laps", name.c_str(), first_bits, first_apart, worst, worst_car);
+        for (const s64 ms : race.laps()) std::printf(" %lld", (long long)ms);
+        std::printf(": %s\n", race.exact() ? "EXACT" : "not as recorded");
+    }
+    // `cars`: the program's cars' records after the step.
+    void compare(const std::vector<Image>& cars, int step) {
+        const int n = int(cars.size());
+        auto w32 = [&](int i, u32 at) { u32 v = 0; std::memcpy(&v, &cars[size_t(i)].car[at], 4); return v; };
+        auto w16 = [&](int i, u32 at) { u16 v = 0; std::memcpy(&v, &cars[size_t(i)].car[at], 2); return v; };
+        auto w8 = [&](int i, u32 at) { return cars[size_t(i)].car[at]; };
+        auto real = [&](int i, u32 at) { return double(gt3r::ee::F::raw(w32(i, at)).host()); };
         const int list = std::getenv("GT4R_FLOATS_OURS_LIST") ? std::atoi(std::getenv("GT4R_FLOATS_OURS_LIST")) : 0;
         bool any = false;
-        for (int i = 0; i < o.cars; ++i) {
+        for (int i = 0; i < n; ++i) {
             sim::Record theirs, mine;
             theirs.car = mine.car = race.session().record(size_t(i));
             theirs.x = mine.x = race.session().gt4_record(size_t(i));
             theirs.layout = mine.layout = race.session().wheel_layout(size_t(i));
-            load(theirs, read_image(ee, o.car(i)));
-            const u32 F0 = o.car(i) + kF;
+            load(theirs, cars[size_t(i)]);
+            const u32 F0 = kF;
             const auto& c = mine.car;
-            const double dx = double(c.pos.x.host()) - ee.rf(F0), dy = double(c.pos.y.host()) - ee.rf(F0 + 4), dz = double(c.pos.z.host()) - ee.rf(F0 + 8);
+            const double dx = double(c.pos.x.host()) - real(i, F0), dy = double(c.pos.y.host()) - real(i, F0 + 4), dz = double(c.pos.z.host()) - real(i, F0 + 8);
             const double d = std::sqrt(dx * dx + dy * dy + dz * dz);
             if (d > worst) worst = d, worst_car = i;
             if (d > 0.001 && first_apart < 0) first_apart = step, std::printf("  ours: car %d 1 mm apart after step %d\n", i, step);
-            const bool same = c.pos.x.bits == ee.r32(F0) && c.pos.y.bits == ee.r32(F0 + 4) && c.pos.z.bits == ee.r32(F0 + 8);
+            const bool same = c.pos.x.bits == w32(i, F0) && c.pos.y.bits == w32(i, F0 + 4) && c.pos.z.bits == w32(i, F0 + 8);
             if (!same && first_bits < 0) first_bits = step, std::printf("  ours: car %d's place differs after step %d\n", i, step);
             if (steps_listed < list && step >= (std::getenv("GT4R_FLOATS_LIST_FROM") ? std::atoi(std::getenv("GT4R_FLOATS_LIST_FROM")) : 0))
                 for (const Slot& sl : slots()) {
@@ -119,8 +136,8 @@ struct AloneBeside {
         }
         // The drivers' decisions (their objects' words), the first that part.
         if (race.field() && step >= (std::getenv("GT4R_FLOATS_LIST_FROM") ? std::atoi(std::getenv("GT4R_FLOATS_LIST_FROM")) : 0) && driver_lists < (std::getenv("GT4R_FLOATS_DRIVER") ? std::atoi(std::getenv("GT4R_FLOATS_DRIVER")) : 0))
-            for (int i = 0; i < o.cars; ++i) {
-                const u32 D = o.car(i) + sim::layout::kDriver, F0 = o.car(i) + kF;
+            for (int i = 0; i < n; ++i) {
+                const u32 D = sim::layout::kDriver, F0 = kF;
                 const sim::ai::Field::Probe p = race.field()->probe_get(size_t(i));
                 std::string out;
                 auto bits = [&](const char* what, u32 a, u32 b) {
@@ -131,19 +148,19 @@ struct AloneBeside {
                     char t[64];
                     if (a != b) std::snprintf(t, sizeof t, " %s %d %d", what, a, b), out += t;
                 };
-                const bool pad = ee.r8(F0 + 0x466) == 0 && ee.r8(F0 + 0x467) == 0;
+                const bool pad = w8(i, F0 + 0x466) == 0 && w8(i, F0 + 0x467) == 0;
                 if (pad && !std::getenv("GT4R_FLOATS_SHADOW")) continue; // (a pad car's driver only plans)
-                if (!pad) bits("steer", ee.r32(D + 0x30), p.steer.bits), bits("throttle", ee.r32(D + 0x34), p.throttle.bits), bits("brake", ee.r32(D + 0x38), p.brake.bits), num("mode", ee.r8(D + 0x1E), p.mode);
-                num("arc ticks", ee.r16(D + 0x22), p.arc_ticks), num("status", gt3r::s8(ee.r8(D + 0x43)), p.status), num("cooldown", gt3r::s8(0) + s16(ee.r16(D + 0x18)), p.cooldown), num("state", ee.r8(D + 0x1B), p.state);
-                num("follow", gt3r::s8(ee.r8(D + 0x51)), p.follow), bits("contact", ee.r32(D + 0x44), p.contact.bits), num("start flag", ee.r8(D + 0x1A), p.start_flag), num("stop count", ee.r8(D + 0x52), p.stop_count), num("kind", ee.r8(F0 + 0x467), p.kind);
-                num("rand", ee.r16(D + 0x68), p.rand);
-                if (ee.r8(F0 + 0x466) != 0) bits("corner", ee.r32(D + 0xB8), p.corner_mult.bits), bits("braking", ee.r32(D + 0xBC), p.brake_mult.bits);
-                bits("gap left", ee.r32(D + 0x58), p.gap_left.bits), bits("gap right", ee.r32(D + 0x5C), p.gap_right.bits);
-                for (u32 k = 0; k < 8; ++k) num(("zone" + std::to_string(k)).c_str(), ee.r8(D + 0x48 + k), p.zone[k]);
-                num("next", ee.r8(D + 0x1D), p.next), num("line", ee.r8(D + 0x1C), p.line), num("prev", ee.r8(D + 0x21), p.prev_line);
-                bits("blend", ee.r32(D + 0x2C), p.blend.bits), bits("offset", ee.r32(D + 0x54), p.offset.bits), bits("v_cur", ee.r32(D + 0x24), p.v_cur.bits), bits("v_next", ee.r32(D + 0x28), p.v_next.bits);
-                if (!pad) bits("aim x", ee.r32(F0 + 0x61C), p.aim_x.bits), bits("aim y", ee.r32(F0 + 0x620), p.aim_y.bits);
-                if (!out.empty()) std::printf("  driver %d step %d (program ours, mode %d):%s\n", i, step, ee.r8(D + 0x1E), out.c_str()), ++driver_lists;
+                if (!pad) bits("steer", w32(i, D + 0x30), p.steer.bits), bits("throttle", w32(i, D + 0x34), p.throttle.bits), bits("brake", w32(i, D + 0x38), p.brake.bits), num("mode", w8(i, D + 0x1E), p.mode);
+                num("arc ticks", w16(i, D + 0x22), p.arc_ticks), num("status", gt3r::s8(w8(i, D + 0x43)), p.status), num("cooldown", gt3r::s8(0) + s16(w16(i, D + 0x18)), p.cooldown), num("state", w8(i, D + 0x1B), p.state);
+                num("follow", gt3r::s8(w8(i, D + 0x51)), p.follow), bits("contact", w32(i, D + 0x44), p.contact.bits), num("start flag", w8(i, D + 0x1A), p.start_flag), num("stop count", w8(i, D + 0x52), p.stop_count), num("kind", w8(i, F0 + 0x467), p.kind);
+                num("rand", w16(i, D + 0x68), p.rand);
+                if (w8(i, F0 + 0x466) != 0) bits("corner", w32(i, D + 0xB8), p.corner_mult.bits), bits("braking", w32(i, D + 0xBC), p.brake_mult.bits);
+                bits("gap left", w32(i, D + 0x58), p.gap_left.bits), bits("gap right", w32(i, D + 0x5C), p.gap_right.bits);
+                for (u32 k = 0; k < 8; ++k) num(("zone" + std::to_string(k)).c_str(), w8(i, D + 0x48 + k), p.zone[k]);
+                num("next", w8(i, D + 0x1D), p.next), num("line", w8(i, D + 0x1C), p.line), num("prev", w8(i, D + 0x21), p.prev_line);
+                bits("blend", w32(i, D + 0x2C), p.blend.bits), bits("offset", w32(i, D + 0x54), p.offset.bits), bits("v_cur", w32(i, D + 0x24), p.v_cur.bits), bits("v_next", w32(i, D + 0x28), p.v_next.bits);
+                if (!pad) bits("aim x", w32(i, F0 + 0x61C), p.aim_x.bits), bits("aim y", w32(i, F0 + 0x620), p.aim_y.bits);
+                if (!out.empty()) std::printf("  driver %d step %d (program ours, mode %d):%s\n", i, step, w8(i, D + 0x1E), out.c_str()), ++driver_lists;
             }
         if (any) ++steps_listed;
     }
@@ -233,8 +250,31 @@ int run_floats_replays(Disc& disc, const std::vector<std::string>& args) {
                 alone = std::make_unique<AloneBeside>(disc, sdb, std::move(run));
                 opt.on_step = [&](Ee& ee, OrigRace& o, int step) {
                     alone->race.step();
-                    alone->compare(ee, o, step);
+                    alone->compare(images(ee, o), step);
                 };
+                // GT4R_FLOATS_TRACE=<file>: the program's run as GT4R_FLOATS_SAVE=<file> kept it, instead of running it.
+                if (const char* trace = std::getenv("GT4R_FLOATS_TRACE")) {
+                    std::ifstream f(trace, std::ios::binary);
+                    u32 cars = 0;
+                    f.read(reinterpret_cast<char*>(&cars), 4);
+                    std::vector<Image> now(cars);
+                    const int from = std::getenv("GT4R_FLOATS_STEPS") ? std::atoi(std::getenv("GT4R_FLOATS_STEPS")) : 1 << 30;
+                    for (int step = 0; step < from && !alone->race.over(); ++step) {
+                        for (Image& m : now) {
+                            u32 sizes[2] = {};
+                            f.read(reinterpret_cast<char*>(sizes), 8);
+                            if (!f) break;
+                            m.car.resize(sizes[0]);
+                            f.read(reinterpret_cast<char*>(m.car.data()), sizes[0]);
+                            if (sizes[1]) m.params.resize(sizes[1]), f.read(reinterpret_cast<char*>(m.params.data()), sizes[1]);
+                        }
+                        if (!f) break;
+                        alone->race.step();
+                        alone->compare(now, step);
+                    }
+                    alone->report(n);
+                    continue;
+                }
                 if (std::atoi(e) == 2) {
                     while (!alone->race.over()) alone->race.step();
                     std::printf("%s ours alone: laps", n.c_str());
@@ -243,12 +283,29 @@ int run_floats_replays(Disc& disc, const std::vector<std::string>& args) {
                     continue;
                 }
             }
-            const DemoScore s = run_recording(disc, *d, n, opt, true);
-            if (alone) {
-                std::printf("%s ours alone: first bit apart at step %d, 1 mm at %d, worst %.6f m (car %d); laps", n.c_str(), alone->first_bits, alone->first_apart, alone->worst, alone->worst_car);
-                for (const s64 ms : alone->race.laps()) std::printf(" %lld", (long long)ms);
-                std::printf(": %s\n", alone->race.exact() ? "EXACT" : "not as recorded");
+            // GT4R_FLOATS_SAVE=<file>: every car's record and parameter block of the program's run after each step.
+            std::ofstream save;
+            std::vector<Image> last;
+            if (const char* to = std::getenv("GT4R_FLOATS_SAVE")) {
+                save.open(to, std::ios::binary);
+                const u32 cars = u32(d->entries.size());
+                save.write(reinterpret_cast<const char*>(&cars), 4);
+                last.resize(cars);
+                auto before = opt.on_step;
+                opt.on_step = [&, before](Ee& ee, OrigRace& o, int step) {
+                    const std::vector<Image> now = images(ee, o);
+                    for (size_t i = 0; i < now.size(); ++i) {
+                        const u32 sizes[2] = {u32(now[i].car.size()), now[i].params == last[i].params ? 0u : u32(now[i].params.size())};
+                        save.write(reinterpret_cast<const char*>(sizes), 8);
+                        save.write(reinterpret_cast<const char*>(now[i].car.data()), sizes[0]);
+                        if (sizes[1]) save.write(reinterpret_cast<const char*>(now[i].params.data()), sizes[1]);
+                    }
+                    last = now;
+                    if (before) before(ee, o, step);
+                };
             }
+            const DemoScore s = run_recording(disc, *d, n, opt, true);
+            if (alone) alone->report(n);
             if (!s.ran) std::printf("%s: %s\n", n.c_str(), s.error.c_str());
             if (s.ours_ran)
                 std::printf("%s ours: first bit apart at step %d, 1 mm apart at %d, worst %.6f m\n", n.c_str(), s.ours_first_bits, s.ours_first_apart, s.ours_worst);

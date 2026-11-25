@@ -71,7 +71,7 @@ GameSettings settings_from(const std::map<std::string, OptionValue>& options) {
     s.steering_assist = r.text("steering_assist_1p", "AMATEUR");
     s.active_steering = r.flag("active_steering_1p", false);
     s.laps = std::max(1, r.number("race_laps", 2));
-    s.tire_damage = r.flag("tire_damage", false);
+    s.tire_damage = r.number("tire_damage", 0);
     s.penalty = r.text("penalty_type", "NONE");
     s.view = r.text("view_type", "SUBJECTIVE");
 
