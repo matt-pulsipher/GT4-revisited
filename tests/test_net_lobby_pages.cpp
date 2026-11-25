@@ -15,6 +15,7 @@
 #include <chrono>
 #include <filesystem>
 #include <functional>
+#include <random>
 #include <thread>
 
 namespace {
@@ -231,7 +232,7 @@ TEST(disc_net_lan_garage_car) {
     if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
     Builder cars(*disc);
     if (!cars.program.known()) SKIP("the disc's program is not known");
-    const std::filesystem::path dir = std::filesystem::temp_directory_path() / "gt4r-net-test-garage";
+    const std::filesystem::path dir = std::filesystem::temp_directory_path() / ("gt4r-net-test-garage-" + std::to_string(std::random_device{}()));
     std::filesystem::remove_all(dir);
     std::filesystem::create_directories(dir);
     std::string label;
