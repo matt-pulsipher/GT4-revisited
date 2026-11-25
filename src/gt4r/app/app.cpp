@@ -510,10 +510,15 @@ SDL_AppResult App::iterate() {
     scripted_pointer_.clear();
     if (!menu_pad_.connected) menu_pad_ = input_->menu_pad();
     const bool sticks = drive_.sticks[0] != 0 || drive_.sticks[1] != 0;
-    if (sticks) scripted.set_axis(gt3r::PadAxis::LX, drive_.sticks[0]), scripted.set_axis(gt3r::PadAxis::LY, drive_.sticks[1]);
     {
         Screen* top = screens_.empty() ? nullptr : screens_.back().get();
-        gt3r::PadState pad = scripted.buttons || sticks ? scripted : top && top->menu_input_any_device() ? input_->any_device_pad() : input_->menu_pad();
+        // The script's presses on top of the menu pad, not in its place: a control held by the script (gas=1) stays
+        // down under a key pressed meanwhile, where dropping it for a frame made a press of its own afterwards.
+        gt3r::PadState pad = top && top->menu_input_any_device() ? input_->any_device_pad() : input_->menu_pad();
+        pad.buttons |= scripted.buttons;
+        for (size_t b = 0; b < pad.pressure.size(); ++b) pad.pressure[b] = std::max(pad.pressure[b], scripted.pressure[b]);
+        if (sticks) pad.set_axis(gt3r::PadAxis::LX, drive_.sticks[0]), pad.set_axis(gt3r::PadAxis::LY, drive_.sticks[1]);
+        pad.connected = pad.connected || scripted.buttons != 0 || sticks;
         // The mouse's right button goes back on the app's own pages.
         if (top && !top->follows_aspect())
             for (const gt3r::PointerInput::Action& a : pointer_actions_)

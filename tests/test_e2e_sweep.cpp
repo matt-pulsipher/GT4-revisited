@@ -55,15 +55,10 @@ std::vector<double> drive(Disc& disc, db::SpecDb& db, const sim::Program& progra
     std::unique_ptr<sim::ai::Field> field = sim::ai::Field::open(disc, course, session, computer, {});
     for (size_t c : computer) session.set_driver_aids(c, field->params(c).aids, field->params(c).grip);
     std::vector<race::CarInput> in(entries.size());
-    for (int k = 0; k < sim::Session::kHoldSteps; ++k) {
-        field->hold(in);
-        session.hold_once(in);
-    }
+    for (int k = 0; k < sim::Session::kHoldSteps; ++k) field->step(session, in, -1, u32(sim::Session::kHoldSteps - k)); // (as the race steps)
     std::vector<double> metres(entries.size(), 0.0);
     for (int step = 0; step < int(seconds * 60); ++step) {
-        field->drive(in);
-        field->apply_time_scales(session);
-        session.step_once(in);
+        field->step(session, in);
         for (size_t i = 0; i < entries.size(); ++i) {
             const race::CarState& s = session.cars()[i];
             if (metres[i] < 0) continue;
