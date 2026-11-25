@@ -165,8 +165,8 @@ public:
     // The pad as it is held now (the program's mask) and its sticks (-1 .. 1: right x, right y, left x, left y): once a
     // picture. What the scripts ask of it (getPadButtonState, getPadAnalogChannel); a button let go queues its key release.
     struct Pad {
-        static constexpr u32 kUp = 1, kDown = 2, kLeft = 4, kRight = 8, kTriangle = 0x10, kCircle = 0x20, kStart = 0x40, kCross = 0x80, kL1 = 0x100,
-                             kL2 = 0x200, kR1 = 0x800, kR2 = 0x1000, kSquare = 0x40000;
+        static constexpr u32 kUp = 1, kDown = 2, kLeft = 4, kRight = 8, kTriangle = 0x10, kCircle = 0x20, kSquare = 0x40, kCross = 0x80, kL1 = 0x100,
+                             kL2 = 0x200, kR1 = 0x800, kR2 = 0x1000, kStart = 0x4000;
         u32 buttons = 0;
         float sticks[4] = {};
     };

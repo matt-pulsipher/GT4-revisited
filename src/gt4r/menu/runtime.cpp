@@ -1015,7 +1015,7 @@ void Runtime::queue_focus_events() {
 void Runtime::set_pad(const Pad& pad) {
     static const std::pair<u32, Key> buttons[] = {
         {Pad::kUp, Key::Up}, {Pad::kDown, Key::Down}, {Pad::kLeft, Key::Left},   {Pad::kRight, Key::Right}, {Pad::kL1, Key::L1},     {Pad::kL2, Key::L2},
-        {Pad::kR1, Key::R1}, {Pad::kR2, Key::R2},     {Pad::kCross, Key::Accept}, {Pad::kTriangle, Key::Cancel}, {Pad::kSquare, Key::Square}, {Pad::kStart, Key::Start},
+        {Pad::kR1, Key::R1}, {Pad::kR2, Key::R2},     {Pad::kCross, Key::Accept}, {Pad::kTriangle, Key::Cancel}, {Pad::kSquare, Key::Cancel}, {Pad::kStart, Key::Start},
     };
     const u32 released = pad_.buttons & ~pad.buttons;
     pad_last_ = pad_, pad_ = pad;

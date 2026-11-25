@@ -318,7 +318,7 @@ private:
             static const std::pair<PadButton, menu::Key> keys[] = {
                 {PadButton::Cross, menu::Key::Accept}, {PadButton::Triangle, menu::Key::Cancel}, {PadButton::Start, menu::Key::Start},
                 {PadButton::Select, menu::Key::Select}, {PadButton::L1, menu::Key::L1},         {PadButton::R1, menu::Key::R1},
-                {PadButton::L2, menu::Key::L2},         {PadButton::R2, menu::Key::R2},         {PadButton::Square, menu::Key::Square},
+                {PadButton::L2, menu::Key::L2},         {PadButton::R2, menu::Key::R2},         {PadButton::Square, menu::Key::Cancel},
             };
             // The pictures before the menus: the menus start after them.
             if (advertise_ && advertise_->active()) {
@@ -672,7 +672,7 @@ void send_menu_keys(menu::Runtime& rt, const MenuInput& m) {
     static const std::pair<PadButton, menu::Key> keys[] = {
         {PadButton::Cross, menu::Key::Accept}, {PadButton::Triangle, menu::Key::Cancel}, {PadButton::Start, menu::Key::Start},
         {PadButton::Select, menu::Key::Select}, {PadButton::L1, menu::Key::L1},         {PadButton::R1, menu::Key::R1},
-        {PadButton::L2, menu::Key::L2},         {PadButton::R2, menu::Key::R2},         {PadButton::Square, menu::Key::Square},
+        {PadButton::L2, menu::Key::L2},         {PadButton::R2, menu::Key::R2},         {PadButton::Square, menu::Key::Cancel},
     };
     send_menu_directions(rt, m, true);
     for (const auto& [button, key] : keys)

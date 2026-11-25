@@ -52,7 +52,6 @@ public:
         rt_.photo_picture.reset();
         menu::text_measure().measure = measure_before_;
         if (target_) SDL_DestroyTexture(target_);
-        for (SDL_Texture* t : corner_) if (t) SDL_DestroyTexture(t);
     }
 
     void update(App& app, double dt) override {
@@ -166,7 +165,7 @@ private:
         static const std::pair<PadButton, menu::Key> keys[] = {
             {PadButton::Cross, menu::Key::Accept}, {PadButton::Triangle, menu::Key::Cancel}, {PadButton::Start, menu::Key::Start}, {PadButton::Select, menu::Key::Select},
             {PadButton::L1, menu::Key::L1},        {PadButton::R1, menu::Key::R1},           {PadButton::L2, menu::Key::L2},       {PadButton::R2, menu::Key::R2},
-            {PadButton::Square, menu::Key::Square},
+            {PadButton::Square, menu::Key::Cancel},
         };
         // (The photo page's own modes take the directions: the page's script keeps them from the focus.)
         const bool map_mode = rt_.photo && rt_.photo->mode != photo::Mode::None && rt_.photo->mode != photo::Mode::MapZoom;
@@ -354,6 +353,10 @@ private:
         auto eye = [&](int i) {
             return v.transform_point(b.at + b.right * ((i & 1 ? 0.5f : -0.5f) * b.width) + b.up * (i & 2 ? b.height : 0.0f) + b.forward * (i & 4 ? b.front : -b.rear));
         };
+        SDL_Rect clip_before{};
+        const bool had = SDL_GetRenderClipRect(r, &clip_before) && clip_before.w > 0;
+        const SDL_Rect clip{int(dst.x), int(dst.y), int(dst.w), int(dst.h)};
+        SDL_SetRenderClipRect(r, &clip);
         SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_ADD);
         SDL_SetRenderDrawColor(r, 204, 204, 128, 255);
         for (int i = 0; i < 8; ++i)
@@ -370,6 +373,7 @@ private:
                 SDL_RenderLine(r, a.x, a.y, c.x, c.y);
             }
         SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+        SDL_SetRenderClipRect(r, had ? &clip_before : nullptr);
     }
 
     // The map (PhotoMapWindow, 0x194AD0): the location's model from above, the places the camera and the car may take, the view.
@@ -639,7 +643,6 @@ private:
     std::vector<u8> sum_, dark_; // the average so far; the vignettes' alpha, 128 whole
     u8 lut_[3][256] = {};
     SDL_Texture* target_ = nullptr;
-    SDL_Texture* corner_[1] = {};
 };
 
 } // namespace

@@ -96,7 +96,7 @@ visible list), the cars' nearest level. Over each picture go the color correctio
 vignette (Env0 +0x950) and the photo's own, and the picture is blended **under the average so far** with
 the GS's fixed weight trunc(128 (1 - 1 / (k + 1))) of 128, rounded down: the average loses half a
 level each time, so a photo comes out about 8 levels darker than its pictures (`photo::expose`).
-The course's animations run on over a second during it (0x397568; ❓ not done here).
+The course's animations run on over a second during it (0x397568; here a picture, 1/60 s, a sample).
 
 **Correction** (0x3C7DA8, 0x3EFC10, 0x4A8CB8): per channel a gamma of 2^(brightness / 8), red and blue
 moved by the white balance (x (1 -/+ balance x 400 x 0.2 / 2000)), white 1 - 0.1 contrast, saturation 1,
