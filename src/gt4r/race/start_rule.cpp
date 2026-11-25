@@ -3,6 +3,8 @@
 #include "gt4r/formats/course/ai_line.h"
 #include "gt4r/formats/db/specdb.h"
 
+#include <cstdlib>
+
 namespace gt4r::race {
 
 int start_code_digit(const std::string& code, size_t i) {
@@ -44,5 +46,45 @@ CourseStart course_start(db::SpecDb& db, const std::string& course) {
     if (row.size() > 0x10) s.kind = row[0x10] == 0xFF ? 0 : row[0x10];
     return s;
 }
+
+Conductor conductor_for(const std::string& sequence, const std::string& event) {
+    if (sequence == "mission") return Conductor::Mission;
+    if (sequence != "license" && sequence != "license_race") return Conductor::Other;
+    if (event.size() < 4) return Conductor::License;
+    const int n = std::atoi(event.c_str() + event.size() - 4);
+    return n == 5 || n == 10 || n == 15 ? Conductor::Training : Conductor::License;
+}
+
+RowStart RowStart::from_row(std::span<const u8> r) {
+    RowStart s;
+    if (r.size() < 0x92) return s;
+    auto half = [&](size_t o) { return s16(u16(r[o] | r[o + 1] << 8)); };
+    s.distance[0] = half(0x14), s.speed[0] = r[0x42];
+    for (size_t k = 1; k < 6; ++k) s.distance[k] = half(0x2E + 2 * (k - 1)), s.speed[k] = r[0x80 + (k - 1)];
+    return s;
+}
+
+int RowStart::distance_of(Conductor c, size_t car) const {
+    return c == Conductor::License ? distance[0] : car < distance.size() ? distance[car] : 0;
+}
+
+int RowStart::speed_of(Conductor c, size_t car) const {
+    if (c == Conductor::License) return speed[0];
+    const int own = car < speed.size() ? speed[car] : 0;
+    return own ? own : speed[0];
+}
+
+CarStart car_start(const RowStart& row, Conductor c, size_t car, int section_start) {
+    CarStart s;
+    const int distance = row.distance_of(c, car), speed = row.speed_of(c, car);
+    if (distance < 0 && speed > 0) s.kind = 2; // (0x34D168)
+    else if (distance != 0) s.kind = 1;        // (0x34D070)
+    if (s.kind) s.distance = distance + section_start;
+    s.speed = speed;
+    if (section_start != 0 && s.distance > 0) s.mark = s.kind == 2 || s.distance < section_start ? 1 : 2;
+    return s;
+}
+
+int section_start_metres(float start, float lap) { return start >= 1 && start <= lap - 1 ? int(start) : 0; }
 
 } // namespace gt4r::race
