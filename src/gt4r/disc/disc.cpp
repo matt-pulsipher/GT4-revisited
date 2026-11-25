@@ -32,7 +32,19 @@ constexpr KnownDisc kKnownDiscs[] = {
 
 const char* game_name(Game g) { return g == Game::Prologue ? "Gran Turismo 4 Prologue" : "Gran Turismo 4"; }
 
+// An image whose files cannot be read because it is cut short says that.
 std::unique_ptr<Disc> Disc::open(const std::string& path) {
+    std::string problem;
+    try {
+        return open_image(path, problem);
+    } catch (const std::exception& e) {
+        if (problem.empty()) throw;
+        LOG_WARN("%s: %s", path.c_str(), e.what());
+        throw FormatError(problem);
+    }
+}
+
+std::unique_ptr<Disc> Disc::open_image(const std::string& path, std::string& problem) {
     std::unique_ptr<Disc> disc(new Disc());
     auto file = gt3r::File::open(path);
     if (!file) throw FormatError("Could not open file: " + path);
@@ -46,7 +58,7 @@ std::unique_ptr<Disc> Disc::open(const std::string& path) {
     info.volume_id = disc->layers_[0]->volume_id();
     u64 volume_end = 0;
     for (const auto& l : disc->layers_) volume_end = std::max(volume_end, l->base_sector() * gt3r::kSectorSize + l->volume_bytes());
-    info.problem = gt3r::incomplete_image(image.size(), volume_end);
+    problem = info.problem = gt3r::incomplete_image(image.size(), volume_end);
     if (!info.problem.empty()) LOG_WARN("%s (%s)", info.problem.c_str(), path.c_str());
     if (auto cnf = disc->find_file("SYSTEM.CNF")) {
         const Bytes b = cnf->first->read(cnf->second);

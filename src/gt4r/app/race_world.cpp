@@ -18,6 +18,7 @@
 #include "gt4r/formats/model/car_model.h"
 #include "gt4r/race/car_spec.h"
 #include "gt4r/sim/race_rules.h"
+#include "gt4r/sim/record_image.h"
 #include "gt4r/race/driver_figure.h"
 #include "gt4r/race/driver_state.h"
 #include "gt4r/race/pit_scene.h"
@@ -335,6 +336,7 @@ void RaceWorld::build_simulation() {
             }
             counts_fuel_ = !entries.empty() && entries[0].fuel;
             plan_starts(program, entries);
+            entries_ = entries;
             // The player's car's power as built (the replay's card).
             try {
                 sim::Spec spec;
@@ -364,6 +366,8 @@ void RaceWorld::build_simulation() {
             if (setup_.event_row.size() >= 0x74) { // the event's tire wear (the rule block's +0x2C .. +0x34, 0x35E108)
                 u8 rule_block[0x80] = {};
                 sim::rules::event_wear_bytes(setup_.event_row.data(), rule_block);
+                // (vf26 sets the wear's rules on a course that counts fuel alone)
+                if (!race::course_start(*app_.db(), setup_.course).fuel && !app_.db()->prologue()) std::memset(rule_block, 0, sizeof rule_block);
                 session_->set_wear_rules(rule_block, !session_->loose(), program);
             }
             // The computer drivers: every car but the player's (his too when he watches).
@@ -374,7 +378,10 @@ void RaceWorld::build_simulation() {
             field_.reset(), pits_.reset(), bspec_driven_ = false;
             if (!computer.empty()) {
                 try {
-                    field_ = sim::ai::Field::open(*app_.disc(), setup_.course, *session_, computer, setup_.pace);
+                    sim::ai::Pace pace = setup_.pace;
+                    const race::CourseStart cs = race::course_start(*app_.db(), setup_.course);
+                    pace.strip = cs.strip, pace.start_look = u8(std::max(0, race::start_code_digit(cs.code, 3)));
+                    field_ = sim::ai::Field::open(*app_.disc(), setup_.course, *session_, computer, pace);
                     // B-spec: the player's car's driver takes his commands.
                     if (computer_player_) {
                         field_->set_bspec(0);
@@ -596,7 +603,7 @@ void RaceWorld::arm_bspec(const sim::Program& program) {
     // (the skill weighs the record's course marks where the race's course flag is set: cond + 0xCBE7, the
     // start code's second digit, 0x34C7E0; without marks they are 0)
     const bool course_flag = race::start_code_digit(race::course_start(*app_.db(), setup_.course).code, 1) > 0;
-    const std::array<u8, 0x40> rec = menu::bspec::race_record(setup_.bspec_book, k, setup_.bspec_course_known ? setup_.bspec_course_marks.data() : nullptr);
+    const std::array<u8, 0x40> rec = setup_.bspec_info ? *setup_.bspec_info : menu::bspec::race_record(setup_.bspec_book, k, setup_.bspec_course_known ? setup_.bspec_course_marks.data() : nullptr);
     field_->set_bspec_record(0, rec, k);
     if (const std::optional<sim::ai::BSpecSkill> sk =
             sim::ai::bspec_skill(sim::ai::BSpecTables::load(program), sim::ai::BSpecRecord::from_bytes(rec.data()), gt3r::ee::F(session_->rating(0)), course_flag))
@@ -700,6 +707,19 @@ int RaceWorld::pit_stage(size_t car) const {
     return c.hold == 0x2D1 ? 1 : c.hold >= 0x285 ? 2 : c.hold >= 0x3C ? 3 : 4;
 }
 
+void RaceWorld::pit_command(size_t car) { pit_command(car, !pit_requested(car)); }
+
+bool RaceWorld::resume(const replay::RecorderState& state) {
+    if (!session_) return false;
+    sim::Record r;
+    r.car = session_->record(0), r.x = session_->gt4_record(0), r.layout = session_->wheel_layout(0);
+    sim::load_car_record(r, state.car);
+    if (field_) field_->release_rolling(0);
+    session_->load_moment(0, r.car, r.x);
+    if (!pace_kmh_.empty()) pace_kmh_[0] = 0;
+    return true;
+}
+
 // The pit's crew (race/pit_scene.h), on a course with a pit to stop in.
 void RaceWorld::open_pit_scene() {
     Impl& m = *impl_;
@@ -764,16 +784,6 @@ bool RaceWorld::pit_camera(size_t car, race::ViewPose& out, bool before) const {
     out = {};
     out.eye = shot.eye, out.view = shot.view, out.fov = shot.angle;
     return true;
-}
-
-void RaceWorld::pit_command(size_t car) {
-    if (!pits_ || car >= pit_asked_.size()) return;
-    sim::ai::PitCar& c = pits_->car(car);
-    if (!(c.flags & 8)) c.flags |= 8, c.x5C1 = 0;
-    else {
-        c.flags = u8(c.flags & ~8);
-        if (c.flags & 4) c.x5C1 = 1;
-    }
 }
 
 bool RaceWorld::refuel_begun(size_t car) {
@@ -841,11 +851,12 @@ race::posture::Quat turn_of(const race::CarState& c) {
 // Smoke and dust from the wheels for a step: a puff where a tire slides on the road, dust and
 // spray from any wheel that turns on a loose or wet surface. The kind of puff is the course's,
 // by the surface under the wheel.
-void RaceWorld::present(std::span<const race::CarState> cars, const audio::SoundListener* camera, int target, bool live) {
+void RaceWorld::present(std::span<const race::CarState> cars, const audio::SoundListener* camera, int target, bool live, const sim::Session* heard) {
     Impl& m = *impl_;
     m.pit_live = live;
     if (camera && m.sound) {
         if (live && session_) m.sound->update(*session_, *camera, target);
+        else if (heard) m.sound->update(*heard, *camera, target);
         else m.sound->update(cars, *camera, target);
         // The pit scene of the car shown (0x3CFA98 through 0x35BE38): the stop's "tires on" bit (F +0x4B8 0x200) taken
         // and cleared, the jack let down.
