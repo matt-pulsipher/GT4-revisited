@@ -627,9 +627,9 @@ The race's menus' `IsASpec` (0x110498; an event's 0x114334, a championship's 0x1
 (+0x45), else whether all 16 tests of that license are passed with bronze or better; without it A-spec's Start answers "no
 license" and B-spec's goes on.
 
-❓ **The Arcade penalty option** (`penalty_type`): the program copies it into the race's settings (RaceInformation +0xB4 and
-+0xC0, RaceOrganization +0x04 and +0x10, 0x3BFB10; the LAN race's list, 0x161F28) and no reader of those was found; the rule
-block's penalty (+0x4A) is written from the RACE row's +0x88 alone (0x35E2D8). Not built.
+**Arcade's penalty and tire damage options** go from MOption (+0x10E4, +0x10C4) into the race's settings (RaceInformation
++0xB4 / +0xB8, RaceOrganization +0x04 / +0x08, 0x3BFB10), where the race's conductor takes them (0x34CA20, 0x354F30):
+race_flow.md.
 
 The prize page of the quick projects counts the prize into the credits (`incMoney`, ten at a
 time); the presents (prize cars, licenses) are given by Gran Turismo mode's present page on
