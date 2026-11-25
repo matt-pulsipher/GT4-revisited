@@ -977,3 +977,60 @@ TEST(sound_race_prologue_crowds) {
                 double(gates.second), sound.course().emitter(3, 0).points.size(), rms(s.pcm, 48000, 24000));
     CHECK(sound.report().ambience[3] > 0.1f && rms(s.pcm, 48000, 24000) > 50);
 }
+
+// Which music a run plays, by its kind and start (0x3C0208, 0x389D48, 0x3A0228, 0x3E1C80): the original's recordings have
+// the arcade's standing start gt4jg-12b then a racing piece, its finish gt4jg-12a; a championship gt4jg-06 and gt4jg-04a; a
+// license test gt4jg-19 and no racing piece, gt4jg-09 for a bronze, gt4jglf for a fail.
+TEST(sound_race_music_by_kind) {
+    CHECK(audio::race_music("license", "usl0b0001", false) == audio::RaceMusic::License);
+    CHECK(audio::race_music("license", "usl0c0002", false) == audio::RaceMusic::Coffee);
+    CHECK(audio::race_music("license_race", "l0b0001", false) == audio::RaceMusic::License);
+    CHECK(audio::race_music("championship", "x", false) == audio::RaceMusic::Championship && audio::race_music("championship", "x", true) == audio::RaceMusic::Last);
+    CHECK(audio::race_music("single_race", "", false) == audio::RaceMusic::Race && audio::race_music("", "", false) == audio::RaceMusic::Race);
+    Disc* disc = full_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    gt3r::Vfs vfs(&disc->volume());
+    audio::OfflineSound s(false);
+    auto library = std::make_shared<audio::SoundLibrary>(vfs);
+    std::vector<std::string> played;
+    audio::StreamPlayer music;
+    music.play = [&](const std::string& path, bool, float) { return played.push_back(path.substr(path.rfind('/') + 1)), true; };
+    music.playing = [] { return true; };
+    audio::RaceSound sound(vfs, s.mixer(), s.driver(), library, audio::RaceSoundTables::from_core(disc->read_program()), music);
+    const auto run = [&](audio::RaceMusic kind, int start) {
+        played.clear();
+        sound.begin_run(kind, start);
+        if (start == -1) sound.start_signal();
+        else sound.start();
+        sound.finish();
+        std::string all;
+        for (const std::string& p : played) all += (p.rfind("race_", 0) == 0 || p.rfind("photo_", 0) == 0 ? std::string("racing") : p.substr(0, p.find('.'))) + " ";
+        return all;
+    };
+    using M = audio::RaceMusic;
+    const std::string standing = run(M::Race, 2), rolling = run(M::Race, -1), series = run(M::Championship, 2), last = run(M::Last, 1);
+    std::printf("  standing: %s| rolling: %s| championship: %s| last: %s\n", standing.c_str(), rolling.c_str(), series.c_str(), last.c_str());
+    CHECK(standing == "gt4jg-12b racing gt4jg-12a ");
+    CHECK(rolling == "racing gt4jg-12a ");
+    CHECK(series == "gt4jg-06 racing gt4jg-04a ");
+    CHECK(last == "gt4jg-06ex racing gt4jg-04ex ");
+    CHECK(run(M::TimeTrial, -1) == "racing gt4jg-02 " && run(M::Mission, 0) == "racing gt4jg-15b ");
+    for (int grade = 0; grade < 4; ++grade) {
+        played.clear();
+        sound.begin_run(M::License, 1);
+        sound.start();
+        sound.license_result(grade);
+        const char* want[] = {"gt4jg-10.ads", "gt4jg-11.ads", "gt4jg-09.ads", "gt4jglf.ads"};
+        CHECK(played.size() == 2 && played[0] == "gt4jg-19.ads" && played[1] == want[grade]);
+    }
+    // The cars and the course fall silent over the second after a test's result; a new run's master rises again.
+    for (int i = 0; i < 60; ++i) sound.update(std::span<const audio::CarSoundState>{}, audio::SoundListener{}, -1);
+    CHECK(sound.master() == 0);
+    played.clear();
+    sound.begin_run(M::License, 1);
+    CHECK(played.size() == 1);
+    for (int i = 0; i < 30; ++i) sound.update(std::span<const audio::CarSoundState>{}, audio::SoundListener{}, -1);
+    CHECK(sound.master() > 0.3f);
+    sound.count(180), sound.count(120), sound.count(60);
+    CHECK(sound.report().beeps >= 3); // (a retry counts again)
+}

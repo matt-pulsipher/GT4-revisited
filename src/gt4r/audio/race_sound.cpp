@@ -44,7 +44,8 @@ const char* race_start_group(RaceMusic k) {
     switch (k) {
     case RaceMusic::Championship: return "champ_start";
     case RaceMusic::TimeTrial: return "timeattack_start";
-    case RaceMusic::License: return "license_start";
+    case RaceMusic::License:
+    case RaceMusic::Mission: return "license_start";
     case RaceMusic::Coffee: return "coffee_start";
     case RaceMusic::Other: return "etc_start";
     case RaceMusic::Last: return "last_start";
@@ -56,13 +57,29 @@ const char* race_goal_group(RaceMusic k) {
     switch (k) {
     case RaceMusic::Championship: return "champ_goal";
     case RaceMusic::TimeTrial: return "timeattack_goal";
-    case RaceMusic::License: return "license_gold";
+    case RaceMusic::License:
+    case RaceMusic::Mission: return "license_gold";
     case RaceMusic::Coffee: return "coffee_goal";
     case RaceMusic::Other: return "etc_goal";
     case RaceMusic::Last: return "last_goal";
     default: return "goal";
     }
 }
+
+RaceMusic race_music(const std::string& sequence, const std::string& label, bool last_race) {
+    if (sequence == "championship") return last_race ? RaceMusic::Last : RaceMusic::Championship;
+    if (sequence == "license" || sequence == "license_race") {
+        // ("usl0c0002" or "l0c0002": after the region's two letters, 'l', '0' or 'i', the class)
+        const size_t l = label.find('l', label.size() > 8 ? 2 : 0);
+        return l != std::string::npos && l + 2 < label.size() && label[l + 2] == 'c' ? RaceMusic::Coffee : RaceMusic::License;
+    }
+    if (sequence == "mission") return RaceMusic::Mission;
+    if (sequence == "time_trial" || sequence == "freerun" || sequence == "machinetest") return RaceMusic::TimeTrial;
+    if (sequence == "practice") return RaceMusic::Other;
+    return RaceMusic::Race;
+}
+
+bool racing_music(RaceMusic kind) { return kind != RaceMusic::License && kind != RaceMusic::Coffee; }
 
 RaceSound::RaceSound(gt3r::Vfs& vfs, gt3r::VoiceMixer& mixer, SoundDriver& driver, std::shared_ptr<SoundLibrary> library,
                      const RaceSoundTables& tables, StreamPlayer music)
@@ -205,7 +222,25 @@ bool RaceSound::play_racing() {
 
 void RaceSound::start() {
     start_signal();
-    rolling();
+    if (racing_music(kind_)) rolling();
+}
+
+void RaceSound::begin_run(RaceMusic kind, int start) {
+    kind_ = kind;
+    started_ = racing_ = replay_ = false;
+    first_piece_ = -1;
+    if (music_.stop) music_.stop();
+    fade_ = 0;
+    fade(1.0f, kFadeIn);
+    if (start == 1 || start == 2) intro();
+    else if (start == -1) rolling();
+}
+
+void RaceSound::license_result(int grade) {
+    fade(0.0f, 1.0f);
+    const char* const groups[] = {"license_goal", "license_silver", "license_bronze"};
+    const bool passed = grade >= 0 && grade < 3;
+    play_stream(!passed ? "license_failed" : kind_ == RaceMusic::Coffee ? race_goal_group(kind_) : groups[grade], 0, false);
 }
 
 void RaceSound::start_signal() {
@@ -294,18 +329,22 @@ void RaceSound::update(std::span<const CarSoundState> states, const SoundListene
     const float master = mix_->master;
 
     // The cars.
-    std::vector<float> distances;
-    distances.reserve(states.size());
+    std::vector<std::pair<int, float>> places; // (each car's race position and distance)
+    places.reserve(states.size());
     for (size_t i = 0; i < states.size() && i < cars_.size(); ++i) {
         CarSoundState s = states[i];
         // (the recorder keeps the step's strongest of every kind)
         if (contact_[i] > s.contact) s.contact = contact_[i], s.contact_kind = contact_kind_[i];
         contact_[i] = 0;
         cars_[i]->update(s, camera, int(i) == target);
-        distances.push_back(s.course_distance);
+        places.emplace_back(s.rank, s.course_distance);
     }
 
-    // The course.
+    // The course. The crowds' gates count the cars in the race's order (the program's list of the race's cars, sorted by
+    // position: the first counts 1, each further 0.8 of the last); cars without a position stay in the grid's order.
+    std::stable_sort(places.begin(), places.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+    std::vector<float> distances;
+    for (const auto& p : places) distances.push_back(p.second);
     CourseSound::Listener at;
     at.position = camera.position, at.velocity = camera.velocity, at.right = camera.right;
     if (ground_) {

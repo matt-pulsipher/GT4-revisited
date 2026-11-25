@@ -25,6 +25,7 @@ CarSoundState sound_state(const sim::Session& session, size_t i, const RaceSound
     CarSoundState s;
     s.position = car.position, s.velocity = car.velocity;
     s.course_distance = car.course_v;
+    s.rank = c.rank;
     s.rpm = c.omega.host() * 9.549297f;
     // The engine's load (F +0x4F0, a boosted engine's throttle times its boost) and the two levels the step
     // itself works out from it (0x350080: F +0x604, +0x605).

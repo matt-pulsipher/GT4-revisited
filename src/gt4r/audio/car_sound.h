@@ -79,6 +79,7 @@ struct CarSoundState {
     bool live = true;                   // a car out of the session is silent
     race::Vec3 position, velocity;      // course space; metres, metres per second
     float course_distance = 0;          // metres along the course (the crowds' gates)
+    int rank = 0;                       // the race position, 1 first (the crowds weigh the cars in this order); 0: not known
     float rpm = 0;
     float throttle = 0;                 // the engine's load, 0..1: the throttle, a boosted engine's times its boost (F +0x4F0)
     // The two banks' levels as the simulation keeps them (0x350080's bytes F +0x604 and +0x605), 0..127;
