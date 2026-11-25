@@ -515,6 +515,9 @@ with `setColor(color)` (the paint balls).
 **Its pictures' alpha.** A picture face draws in a vertex alpha of 63 (mImageFace::vf63 0x2B4BA8 halves the color's alpha, 0x1D7240
 halves what goes to the GS), so its pictures keep alpha as 0 .. 255, where Gran Turismo 4's have 128 for whole: the board's
 background (130 .. 250) lets the film behind it show. A frame's parts (0x2A4E80) are drawn without that. `Project::set_face_alpha`.
+**Arcade's pages.** The paint's name is a text of `UnistrDB` (`VARIATION` +0x0C). The settings begin with the driving assist on and the
+medium tires (0x401AD8; the tires' names 0x401C20: unselectable, low, high, medium, racing; `game.assist_type`, `game.tire_type`).
+The disc has no `menu/select`: a car face stands before the page's own film, with its picture on the floor (`mirror`).
 
 **MSwitchActor's colours** (the arcade's settings buttons, the license signs): the update
 0x2EB848 colours the button's `base`, `text` and `ring` by its state each picture: active base

@@ -131,7 +131,7 @@ struct BlinkActor : Actor {
     bool repeat = true, reverse_phase = false, wave_form = false;
 
     using Actor::Actor;
-    void attached(LiveWidget& w) override { shown_before = w.data.number("alpha", 1); }
+    void attached(LiveWidget& w) override { shown_before = own_alpha(w); }
     void set_period(float seconds) {
         stride = (destination - source) / std::max(seconds * 60.0f, 1e-3f);
         rewind();
@@ -325,7 +325,7 @@ struct ButtonActor : Actor {
     using Actor::Actor;
     void attached(LiveWidget& w) override {
         home = rect_of(w);
-        if (const auto a = w.child("Active")) active_alpha = a->data.number("alpha", 1);
+        if (const auto a = w.child("Active")) active_alpha = own_alpha(*a);
     }
     void step() override {
         const auto w = widget.lock();
@@ -680,7 +680,7 @@ void install_actor_natives(Runtime& rt, script::Module& menu) {
     menu.define("MBlinkActor", Vm::native("MBlinkActor", [widget_of](Vm&, const Value&, Args a) {
         auto act = std::make_shared<BlinkActor>("MBlinkActor");
         act->widget = widget_of(a);
-        if (const auto w = act->widget.lock()) act->shown_before = w->data.number("alpha", 1);
+        if (const auto w = act->widget.lock()) act->shown_before = own_alpha(*w);
         BlinkActor* p = act.get();
         common_methods(act);
         flag_field(*act, "repeat", &p->repeat);

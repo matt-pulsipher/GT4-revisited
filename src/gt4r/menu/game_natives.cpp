@@ -292,7 +292,8 @@ const Database::Spec& Database::spec(const std::string& label) {
     const db::Labels* cars_ = db->labels("GENERIC_CAR");
     const db::Table* car_paints = db->table("CAR_VARIATION_american");
     const db::Table* paints = db->table("VARIATIONamerican");
-    const db::Strings* names_ = db->strings("american_StrDB");
+    // (Prologue has one table for every language: its names are the unit pool's.)
+    const db::Strings* names_ = db->strings(db->prologue() ? "UnistrDB" : "american_StrDB");
     const std::optional<u32> car_id = cars_ ? cars_->id(label) : std::nullopt;
     if (car_id && car_paints && paints)
         if (const ByteSpan row = car_paints->row(*car_id); row.size() >= 4) {
@@ -692,6 +693,9 @@ Value GameNatives::make_game() {
     field(g, "car_code_2p", &q->car_2p), field(g, "car_color_2p", &q->paint_2p), field(g, "assist_type_2p", &q->assist_type_2p);
     field(g, "assist_asm_2p", &q->assist_asm_2p), field(g, "assist_tcs_2p", &q->assist_tcs_2p), field(g, "manual_2p", &q->manual_2p);
     field(g, "vibration_2p", &q->vibration_2p), field(g, "tire_idx_2p", &q->tire_2p);
+    // Prologue's settings to begin with (0x401AD8): the driving assist on, the medium tires.
+    field(g, "tire_type", &q->tire_type);
+    if (rt.is_prologue()) q->assist_type = 1;
     g.set("selected_course", Value{}), g.set("selected_car", Value{});
     g.set("car_garage", Value{}), g.set("car_garage_2p", Value{});
     g.set("last_record", Value{}), g.set("labo_folder", number(-1)), g.set("labo_list_index", number(-1)); // ❓ none (what the theater's exit leaves)

@@ -47,6 +47,7 @@ struct RaceRequest {
     int manual = 0;    // 1: manual gears
     int vibration = 1; // the pad's
     int tire = 0;      // tire_idx
+    std::string tire_type = "medium"; // Prologue's tire grip by its names ("unselectable", "low", "high", "medium", "racing": 0x401C20)
     // The second player's (split screen).
     std::string car_2p;
     int paint_2p = 0, assist_type_2p = 0, assist_asm_2p = 0, assist_tcs_2p = 0, manual_2p = 0, vibration_2p = 1, tire_2p = 0;

@@ -1774,7 +1774,7 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
                     w->set_property("model_sets", Value::string(sets.empty() ? path : sets + "|" + path));
                 return Value{};
             });
-        if (n == "setData" || n == "setColor" || n == "setColorIndex" || n == "syncLoading" || n == "loadModelSet" || n == "loadModelMotion" ||
+        if (n == "setData" || n == "setColor" || (n == "setColorIndex" && type != "CarFace") || n == "syncLoading" || n == "loadModelSet" || n == "loadModelMotion" ||
             n == "loadModelOptionMotion")
             return nothing();
     }
@@ -1844,7 +1844,7 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
             });
     }
     if (type == "ColorFace" || type == "ColorWindow") {
-        if (n == "getAlpha") return fn([w](Vm&, const Value&, Args) { return w->get("alpha"); });
+        if (n == "getAlpha") return fn([w](Vm&, const Value&, Args) { return Value::number(own_alpha(*w)); });
         if (n == "setAlpha")
             return fn([w](Vm&, const Value&, Args a) {
                 if (!a.empty()) w->set_property("alpha", a[0]);

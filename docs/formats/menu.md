@@ -419,7 +419,8 @@ A widget's `actor` is stepped each picture.
   `linear`: by the whole distance x ratio; `repeat`, `flip`.
 - **MBlinkActor** (0x278E98, update 0x279908, period 0x279870): 0 to 1 and back at 1/30 a
   picture, repeating. It sets the face's own alpha (mWidget slot 58: a colour, picture, frame
-  or text face's colours; a composite has none and stays as it is), not the opacity.
+  or text face's colours; a composite has none and stays as it is), not the opacity. A colored face's `alpha` is that of its
+  colors (mColorFace 0x2862C0, 0x2862F8): what a script or an actor sets takes the place of what the layout gave.
 - **MRotateActor**(widget, destination, cw) (0x2CCBE8, update 0x2CDCE0): the widget's `rotate`
   toward `destination` (`out` on) or 0 by `ratio` (0.2) of the way the way round `cw` says,
   kept in 0..360; with `velocity` set, velocity / 60 degrees a picture. `warp`, `doFlip`.

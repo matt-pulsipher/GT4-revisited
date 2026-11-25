@@ -296,7 +296,8 @@ Value LiveWidget::get(const std::string& n) const {
     const Property* p = data.find(n);
     if (!p || p->values.empty()) {
         if (n == "visible") return Value::integer(1);
-        if (n == "alpha" || n == "opacity" || n == "scale_x" || n == "scale_y" || n == "sx" || n == "sy") return Value::number(1);
+        if (n == "alpha") return Value::number(own_alpha(*this));
+        if (n == "opacity" || n == "scale_x" || n == "scale_y" || n == "sx" || n == "sy") return Value::number(1);
         if (n == "text" || n == "key" || n == "image_path" || n == "movie_name" || n == "car_code" || n == "tooltip_key") return Value::string({});
         if (n == "value" && (is("TextFace") || is("ToolTipFace") || is("InputTextFace"))) {
             // A text face without a value gives its key: Prologue's car page keeps the formats of

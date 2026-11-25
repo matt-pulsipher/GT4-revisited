@@ -786,7 +786,12 @@ private:
         // A widget made larger (a move actor's, a list's chosen row) grows about its middle.
         if (const float sx = w.number("sx", 1), sy = w.number("sy", 1); sx != 1 || sy != 1)
             at = {at.x - at.w * (sx - 1) / 2, at.y - at.h * (sy - 1) / 2, at.w * sx, at.h * sy};
-        const float face = opacity * std::clamp(w.number("alpha", 1), 0.0f, 1.0f); // the face's own, not its children's
+        // The face's own alpha, not its children's (mWidget's slots 56 to 59): the alpha of its colors, whatever the layout gave
+        // them (mColorFace 0x2862F8).
+        const std::string& t = w.type;
+        const bool colored = t == "ColorFace" || t == "ImageFace" || t == "ProgressFace" || t == "FrameImageFace";
+        const float own_alpha = std::clamp(w.number("alpha", 1), 0.0f, 1.0f);
+        const float face = colored ? opacity : opacity * own_alpha;
         ++widgets_drawn;
         // Its own transform carries to its children.
         const Affine outer = m_;
@@ -796,9 +801,12 @@ private:
             Affine was;
             ~Restore() { m = was; }
         } restore{m_, outer};
-        const std::vector<Rgba> colors = w.colors("color");
+        std::vector<Rgba> colors = w.colors("color");
+        if (colored && w.has("alpha")) {
+            if (colors.empty()) colors.push_back(Rgba{});
+            for (Rgba& c : colors) c.a = u8(std::lround(own_alpha * 255));
+        }
         const bool add = w.number("blend") != 0;
-        const std::string& t = w.type;
         if (t == "ColorFace") {
             const bool level = colors.size() < 4 || (same(colors[0], colors[1]) && same(colors[2], colors[3]));
             if (beside > 0 && m_.identity() && level && w.number("round") == 0 && at.x <= 0.5f && at.x + at.w >= 639.5f && clip.x <= 0 && clip.x + clip.w >= 640) {

@@ -322,3 +322,29 @@ TEST(menu_prologue_face_alpha) {
     const Bytes out = menu::Project::face_alpha(set, Bytes{255, 255, 255, 255, 255, 255, 255, 255, 1, 2, 3, 255, 4, 5, 6, 128, 7, 8, 9, 255});
     CHECK(out == (Bytes{255, 255, 255, 255, 255, 255, 255, 255, 1, 2, 3, 125, 4, 5, 6, 63, 7, 8, 9, 255}));
 }
+
+// A car face's setColorIndex is the paint it shows; a colored face's own alpha is its color's until a script sets it.
+TEST(menu_face_paint_and_alpha) {
+    menu::Runtime rt([](const std::string&) -> std::optional<Bytes> { return std::nullopt; });
+    const std::shared_ptr<menu::LiveWidget> top = rt.start_layout(menu::parse_layout(std::string_view(R"(Project {
+	name string {"TestProject"}
+	children [1] {
+		RootWindow {
+			name string {"Top"}
+			children [2] {
+				CarFace { name string {"car"} }
+				ColorFace { name string {"veil"} color [1] { RGBA {0 0 0 51} } }
+			}
+		}
+	}
+})")))->child("Top");
+    rt.open_page(top, true);
+    script::Vm& vm = rt.vm();
+    const Value two[1] = {Value::integer(2)}, some[1] = {Value::number(0.5f)};
+    vm.call(vm.attribute(menu::widget_value(top->child("car")), "setColorIndex"), two);
+    CHECK(int(top->child("car")->data.number("car_color", -1)) == 2);
+    const Value veil = menu::widget_value(top->child("veil"));
+    CHECK(std::fabs(vm.call(vm.attribute(veil, "getAlpha"), {}).as_float() - 0.2f) < 1e-6f);
+    vm.call(vm.attribute(veil, "setAlpha"), some);
+    CHECK(vm.call(vm.attribute(veil, "getAlpha"), {}).as_float() == 0.5f && vm.attribute(veil, "alpha").as_float() == 0.5f);
+}

@@ -583,9 +583,12 @@ void MenuCars::draw_backdrops(const std::vector<render::DrawItem>& backdrops, co
 
 void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const std::string& page, const menu::Rect& at, const SDL_FRect& dst, float opacity) {
     if (!view_) return;
-    const menu::CarFaceSettings s = menu::car_face_settings(face.data);
+    menu::CarFaceSettings s = menu::car_face_settings(face.data);
     if (s.car_code.empty()) return;
-    if (s.advanced) load_stage(), step_stage();
+    if (s.advanced) {
+        load_stage(), step_stage();
+        if (stage_.empty()) s.advanced = false; // (a disc without the stage, Prologue's: its car faces know no such action)
+    }
     Car* c = car(s.car_code, s.car_color);
     if (!c) {
         // (The stage stands there while a car loads.)
