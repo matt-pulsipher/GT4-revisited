@@ -194,7 +194,7 @@ void add_taps(Taps& taps) {
                   sim::rules::hub_velocities(t.car, t.rec.layout, sim::rules::speed_tables(*g_program, t.rec.x.steer.lean_row), t.rec.x.body.in_line_x480);
               }});
     taps.add({0x35D990, "free wheels", car_a0, [](TapCall& t) { sim::rules::free_wheels(t.car, t.rec.layout); }});
-    taps.add({0x345A50, "speed ramp", car_a0, [](TapCall& t) { ex::speed_ramp(t.car); }});
+    taps.add({0x345A50, "speed ramp", car_a0, [](TapCall& t) { sim::rules::speed_ramp(t.car, t.rec.layout); }});
     taps.add({0x345A20, "hub offsets", car_a0, [](TapCall& t) { sim::rules::hub_offsets(t.car, t.rec.layout); }});
     taps.add({0x344040, "wheel spin", car_a0, [](TapCall& t) {
                   const sim::rules::SpeedTables k = sim::rules::speed_tables(*g_program, t.rec.x.steer.lean_row);
@@ -204,7 +204,10 @@ void add_taps(Taps& taps) {
     taps.add({0x35D350, "ground frame", car_a0, [](TapCall& t) { ground_frame(t.car, t.rec.layout); }});
     taps.add({0x3697A8, "query points", car_a0, [](TapCall& t) { query_points(t.car, t.rec.x.body, t.rec.layout); }});
     taps.add({0x36A490, "terrain", car_a0, [](TapCall& t) { terrain(t.car, t.rec.x.body, t.rec.layout); }});
-    taps.add({0x36A758, "suspension", car_a0, [](TapCall& t) { suspension(t.car, t.rec.x.body, t.rec.x.chassis, t.rec.layout, body_globals(t.ee)); }});
+    taps.add({0x36A758, "suspension", car_a0, [](TapCall& t) {
+                  suspension(t.car, t.rec.x.body, t.rec.x.chassis, t.rec.layout, body_globals(t.ee),
+                             {t.rec.x.steer.axle_load, t.rec.x.wear.category, t.rec.x.phases.special[0]});
+              }});
     // (first the start hold while the hold counter runs, 0x36AE20: the line's heading 0 without lines)
     taps.add({0x36B0C8, "attitude", car_a0, [](TapCall& t) {
                   if (!attitude_hold(t.car, t.rec.x.body, gt3r::ee::F()))
@@ -336,6 +339,8 @@ void add_step_taps(Taps& taps) {
     add_taps(taps);
     add_taps_near(taps);
     add_taps_phases(taps);
+    add_taps_parts(taps);
+    add_taps_force(taps);
 }
 void set_step_program(const sim::Program* program) { g_program = program; }
 
@@ -384,6 +389,16 @@ StepResult run_step(Disc& disc, bool print, const std::string& course_label, con
     add_taps_phases(taps);
     add_taps_input(taps);
     add_taps_start(taps);
+    add_taps_force(taps);
+    add_taps_parts(taps);
+    parts_before_run(ee, o);
+    // GT4R_STEP_CONDITION=<engine m>,<oil m>: the car's condition (F + 0x5DC / + 0x5E0, +0x5EC 0): its torque by it (0x34E9A0).
+    if (const char* k = std::getenv("GT4R_STEP_CONDITION")) {
+        float en = 0, oil = 0;
+        std::sscanf(k, "%f,%f", &en, &oil);
+        const u32 F = o.car(0) + 0x104;
+        ee.wf(F + 0x5DC, en), ee.wf(F + 0x5E0, oil), ee.w8(F + 0x5EC, 0);
+    }
     // GT4R_STEP_COLLIDE: the collision step and the road query against ours at every call (collide_check.cpp).
     std::unique_ptr<CollideCheck> collide_check;
     if (std::getenv("GT4R_STEP_COLLIDE")) {
@@ -560,6 +575,7 @@ StepResult run_step(Disc& disc, bool print, const std::string& course_label, con
     try {
         for (int i = 0; i < steps; ++i) {
             o.pad[0] = drive(i);
+            parts_before_step(i, o.pad[0]);
             start_before_step(ee, o, i);
             orig_step(ee, o);
         }

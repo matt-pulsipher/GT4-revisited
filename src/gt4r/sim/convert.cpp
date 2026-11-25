@@ -661,9 +661,13 @@ void grips(Spec& s, ParamBlock& p, u32 R, u32 blk, F floor) {
     p.set_f(R + 0x00, lookup_bisect(p, R + 0x170, kZero) * kG);
 }
 
-void tire_records(Spec& s, const Program& program, ParamBlock& p) {
+// The records of `axles` (1 the front's 0 .. 2, 2 the rear's 3 .. 5, else all six; the program's a2).
+u32 first_record(u32 axles) { return axles == 2 ? 3 : 0; }
+u32 end_record(u32 axles) { return axles == 1 ? 3 : 6; }
+
+void tire_records(Spec& s, const Program& program, ParamBlock& p, u32 axles = 3) {
     // The tire index per surface (P +0xF98 + s front, +0xFB0 + s rear): the surface's block class (spec +0x1F0 + s; 0 past
-    // 2), the rear's three on; the records any surface uses are built.
+    // 2), the rear's three on; the records any surface uses are built (of `axles` only; the indices always all).
     u8 used[6] = {};
     for (u32 sf = 0; sf < 24; ++sf) {
         u8 k = s.b(0x1F0 + sf);
@@ -671,7 +675,7 @@ void tire_records(Spec& s, const Program& program, ParamBlock& p) {
         p.set_b(0xF98 + sf, k), p.set_b(0xFB0 + sf, k + 3);
         ++used[k], ++used[k + 3];
     }
-    for (u32 r = 0; r < 6; ++r) {
+    for (u32 r = first_record(axles); r < end_record(axles); ++r) {
         if (s8(used[r]) == 0) continue;
         const u32 blk_index = s.b(0x1E0) ? r : r % 3;
         const u32 R = 0x410 + 0x1EC * r;
@@ -689,9 +693,9 @@ void tire_records(Spec& s, const Program& program, ParamBlock& p) {
 
 // 0x361798: each record's base grip by its load curve at its axle's static load per wheel (half the axle's, plus the
 // unsprung weight) over the tire's width; P +0x104A when the front's and the rear's paved grips differ.
-void base_grips(const Program& program, ParamBlock& p) {
+void base_grips(const Program& program, ParamBlock& p, u32 axles = 3) {
     const u32 row = layout_row(p);
-    for (u32 r = 0; r < 6; ++r) {
+    for (u32 r = first_record(axles); r < end_record(axles); ++r) {
         const u32 R = 0x410 + 0x1EC * r;
         if (p.f(R) == kZero) continue;
         const u32 axle = r / 3;
@@ -1235,6 +1239,10 @@ void convert(Spec s, const Program& program, const rules::Tables& race, const Co
     p.built_down_rpm0 = p.h(kD + 0x30);
     top_and_hold(s, program, p, race, in);
 }
+
+void convert_tire_records(Spec spec, const Program& program, ParamBlock& p, u32 axles) { tire_records(spec, program, p, axles); }
+
+void convert_base_grips(const Program& program, ParamBlock& p, u32 axles) { base_grips(program, p, axles); }
 
 namespace {
 

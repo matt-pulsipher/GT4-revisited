@@ -8,6 +8,7 @@
 #include "gt4r/sim/rules_chassis.h"
 #include "gt4r/sim/rules_drive.h"
 #include "gt4r/sim/rules_feel.h"
+#include "gt4r/sim/rules_force.h"
 #include "gt4r/sim/rules_input.h"
 #include "gt4r/sim/rules_near.h"
 #include "gt4r/sim/rules_phases.h"
@@ -34,6 +35,7 @@ struct Extra {
     rules::StartExtra start;
     rules::SpeedExtra speeds;
     rules::FeelExtra feel;
+    rules::ForceExtra force; // (the conductor's pad block, as FeelExtra::pad: no place in the record)
 };
 
 struct Record {

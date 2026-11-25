@@ -48,6 +48,11 @@ struct PitHooks {
     // The stop's hold counter (F +0x4BA) handed to the session each step (0 out of a stop): the session holds the car while it
     // runs (Session::set_pit_hold). Without it the car is braked in its box instead.
     std::function<void(size_t car, u16 hold)> hold;
+    // The tire change (0x35C0B8) with a kind chosen below 0xFE (F +0x64E / +0x64F, 0xFF none, 0xFE as fitted): at the stop's
+    // 645th step from its end the chosen kinds fitted and the car's tire records rebuilt for the axles served (1 front, 2
+    // rear, 3 both), at the 644th their base grips (sim/ai/pit_tire_change.h fills them from a session).
+    std::function<void(size_t car, u8 front, u8 rear, u8 axles)> change_tires;
+    std::function<void(size_t car, u8 axles)> retune_tires;
 };
 
 // The hooks filled from a session (its fuel, tank, the economy readings, the wear rules and each wheel's wear, new tires):

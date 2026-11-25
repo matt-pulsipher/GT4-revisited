@@ -347,11 +347,11 @@ StatesResult run_states(Disc& disc, const std::string& state0, const std::string
             for (int i = 0; i < o.cars; ++i) {
                 ee.read_bytes(o.entries[size_t(i)] + 0x20, entries[size_t(i)].equipment.bytes.data(), sim::Equipment::kSize);
                 entries[size_t(i)].grid_place = int(ee.r32(o.entries[size_t(i)] + 0x3444));
-                // (the pedal style +0x3448: 0 automatic; the aids' switches +0x3450 / +0x3454, both on with TCS & ASM and both off
-                // with Driving Aids None in every state seen: ❓ which is which)
+                // (the pedal style +0x3448: 0 automatic; the aids' switches +0x3450 ASM, +0x3454 TCS)
                 entries[size_t(i)].automatic = ee.r32(o.entries[size_t(i)] + 0x3448) == 0;
-                entries[size_t(i)].tcs_on = ee.r32(o.entries[size_t(i)] + 0x3450) != 0;
-                entries[size_t(i)].asm_on = ee.r32(o.entries[size_t(i)] + 0x3454) != 0;
+                entries[size_t(i)].asm_on = ee.r32(o.entries[size_t(i)] + 0x3450) != 0;
+                entries[size_t(i)].tcs_on = ee.r32(o.entries[size_t(i)] + 0x3454) != 0;
+                entries[size_t(i)].wheel_aid = ee.r32(o.entries[size_t(i)] + 0x3458) != 0;
             }
             session = std::make_unique<sim::Session>(sdb, program, std::make_shared<const course::Runway>(std::move(*road)), entries);
         } catch (const std::exception& e) {
@@ -489,6 +489,17 @@ StatesResult run_states(Disc& disc, const std::string& state0, const std::string
             if (const u32 n = ee.r32(o.info + 0xBC)) ee.w32(o.info + 0xBC, n - 1);
             line_heading.clear();
             ee.call(kRaceStep, {Arg::ptr(o.cond), Arg::integer(0)}, 2'000'000'000);
+            // GT4R_STATES_FIELD=<every>: every car's distance, speed, line, mode and target speeds in the program's run.
+            if (const char* fe = std::getenv("GT4R_STATES_FIELD"); fe && print && step % std::max(1, std::atoi(fe)) == 0) {
+                std::printf("%5d:", step);
+                for (int i = 0; i < o.cars; ++i) {
+                    const u32 D = o.car(i) + sim::layout::kDriver, F = o.car(i) + kF;
+                    std::printf("  %7.1f %4.1f l%u m%u %4.1f/%4.1f t%.2f b%.2f", double(ee.rf(F + 0x4A4)), double(ee.rf(F + 0x53C)), ee.r8(D + 0x1C), ee.r8(D + 0x1E), double(ee.rf(D + 0x24)),
+                                double(ee.rf(D + 0x28)), double(ee.rf(D + 0x34)), double(ee.rf(D + 0x38)));
+                    if (i == 0) std::printf(" f%d c%u", int(gt3r::s8(ee.r8(D + 0x51))), ee.r8(D + 0x6A));
+                }
+                std::printf("\n");
+            }
             if (session && step <= res.frames) {
                 std::vector<race::CarInput> in(size_t(o.cars));
                 for (int i = 0; i < o.cars; ++i) {

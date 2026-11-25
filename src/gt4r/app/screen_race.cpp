@@ -117,6 +117,7 @@ struct Setup {
     std::vector<u8> event_row; // the event's RACE row (its tire wear's curve); empty: none
     std::map<std::string, std::variant<s32, float, std::string>> options; // the game's (the sound's volumes); empty: a new game's
     std::optional<sim::Equipment> player_equipment;  // a garage car's parts and settings
+    std::optional<std::array<u8, 0x20>> player_condition; // and its condition block
     std::vector<std::optional<sim::Equipment>> opponent_equipment; // per opponent (as `opponents`): its pool's parts and settings
     std::shared_ptr<audio::RacePlaylist> playlist;   // the races' music (the game's play list)
 };
@@ -221,8 +222,8 @@ void draw_grid(App& app, Setup& setup, const menu::RaceRequest& q) {
             asked.entries.insert(asked.entries.begin(), q.car);
             asked.overwrite_enemy_num = s32(paints.size());
         }
-        const u32 seed = u32(SDL_GetTicks());
-        std::vector<sim::ai::GridEntry> grid = sim::ai::grid_for(events, asked, seed);
+        sim::ai::RaceRandom& random = sim::ai::race_random(); // (the program's one generator, kept while the app runs)
+        std::vector<sim::ai::GridEntry> grid = sim::ai::grid_for(events, asked, random);
         if (!asked.entries.empty())
             for (size_t i = 0; i < grid.size() && i < paints.size(); ++i)
                 if (!grid[i].player && grid[i].paint < 0) grid[i].paint = paints[i];
@@ -234,7 +235,7 @@ void draw_grid(App& app, Setup& setup, const menu::RaceRequest& q) {
             }
         setup.opponents.clear(), setup.opponent_equipment.clear();
         // Every car's equipment, the paints the race chooses drawn among the grid's (sim::ai::grid_equipment).
-        const std::vector<sim::Equipment> equipment = program ? sim::ai::grid_equipment(*sdb, *program, events, grid, seed) : std::vector<sim::Equipment>{};
+        const std::vector<sim::Equipment> equipment = program ? sim::ai::grid_equipment(*sdb, *program, events, grid, random) : std::vector<sim::Equipment>{};
         for (size_t i = 0; i < grid.size(); ++i) {
             const sim::ai::GridEntry& g = grid[i];
             if (g.player) continue;
@@ -326,6 +327,12 @@ public:
         ws.pace = setup.pace;
         ws.bspec_book = setup.bspec_book, ws.bspec_course_marks = setup.bspec_course_marks, ws.bspec_course_known = setup.bspec_course_known;
         ws.event_row = setup.event_row;
+        // The race's conductor: a run alone (its virtual 6 answers 1: the time trial and free run, the license tests but the
+        // three trainings, the machine test), and whose class grips the event's row gives.
+        const int license_test = setup.race.size() >= 4 ? std::atoi(setup.race.c_str() + setup.race.size() - 4) : 0;
+        const bool training = license_test == 5 || license_test == 10 || license_test == 15;
+        ws.pace.solo = setup.sequence == "time_trial" || setup.sequence == "freerun" || setup.sequence == "machinetest" || (is_license(setup.sequence) && !training);
+        ws.event_grips = is_license(setup.sequence) || setup.sequence == "mission" || setup.sequence == "practice";
         ws.laps = setup.laps;
         ws.options = setup.options;
         ws.playlist = setup.playlist;
@@ -344,7 +351,7 @@ public:
                 e.start_speed = setup.start_speed;
                 e.start_distance = float(sim::rules::rolling_start_distance(-int(std::lround(setup.start_back)), int(std::lround(setup.start_spacing)), setup.cars, e.grid_place));
             }
-            if (i == 0) e.equipment = setup.player_equipment, e.wing = setup.wing;
+            if (i == 0) e.equipment = setup.player_equipment, e.condition = setup.player_condition, e.wing = setup.wing;
             else if (size_t(i - 1) < setup.opponent_equipment.size() && setup.opponent_equipment[size_t(i - 1)]) {
                 // An opponent entered as its pool enters it: its parts, settings and the paint the pool
                 // gives (0xFF: the race's choice, here by its number).
@@ -1254,7 +1261,10 @@ public:
                 setup_.options = menus_->game().options;
                 pictures_from_options(setup_.options);
                 // The garage car's own parts and settings (the sheet in use).
-                if (q.garage_slot >= 0) setup_.player_equipment = menu::race_equipment(menus_->game(), q.garage_slot);
+                if (q.garage_slot >= 0) {
+                    setup_.player_equipment = menu::race_equipment(menus_->game(), q.garage_slot);
+                    setup_.player_condition = menu::race_condition(menus_->game(), q.garage_slot);
+                }
                 setup_.bspec_book = q.bspec_book, setup_.bspec_course_marks = q.bspec_course_marks, setup_.bspec_course_known = q.bspec_course_known;
                 setup_.playlist = playlist_from(menus_->game().bgm_playlist);
                 // The Replay Theater's Play: the saved replay, then the menus again.
@@ -2005,9 +2015,10 @@ private:
         }
         // A B-spec race: the driver's record back for the book (0x468860), the car's class.
         if (spectator_)
-            if (const std::optional<std::array<u8, 0x40>> rec = race_->bspec_record())
+            if (const std::optional<std::array<u8, 0x40>> rec = race_->bspec_record()) {
                 r.bspec_record = rec, r.bspec_class = race_->bspec_class(), r.bspec_course = setup_.bspec_course_known;
                 r.bspec_start = race_->world_setup().bspec_book, r.bspec_start_marks = race_->world_setup().bspec_course_marks;
+            }
         // Every car in finishing order.
         for (const race::RaceFlow::ResultRow& row : flow.results()) {
             menu::RaceResult::Finisher f;
@@ -2135,6 +2146,8 @@ private:
             q.race = next, q.course.clear(), q.car.clear(), q.garage_slot = -1;
             menu::complete_race_request(*menus_, q);
             if (q.course.empty() || q.car.empty()) return false;
+            q.sequence = sequence_;
+            menu::start_quick_work(*menus_, q);
         } else {
             return false;
         }
@@ -2143,7 +2156,7 @@ private:
         report();
         setup_.course = q.course, setup_.race = q.race;
         if (q.laps > 0) setup_.laps = std::clamp(q.laps, 1, 99);
-        if (sequence_ == "license") setup_.car = q.car, setup_.paint = u32(std::max(0, q.paint)), setup_.player_equipment.reset();
+        if (sequence_ == "license") setup_.car = q.car, setup_.paint = u32(std::max(0, q.paint)), setup_.player_equipment.reset(), setup_.player_condition.reset();
         if (sequence_ == "championship") { // the start places from the second race on (0x3EE9F8); the entries keep their numbers
             std::vector<std::pair<std::string, std::optional<sim::Equipment>>> entries{{setup_.car, setup_.player_equipment}};
             for (size_t i = 0; i < setup_.opponents.size(); ++i)

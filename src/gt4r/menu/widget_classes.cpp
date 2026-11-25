@@ -1580,7 +1580,19 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
         if (n == "color") {
             auto a = std::make_shared<Accessor>();
             a->read = [w] { return w->get("text_color"); };
-            a->write = [w](const Value& v) { w->set_property("text_color", v); };
+            a->write = [w, r](const Value& v) {
+                // A color object (MColorObject: its r, g, b, a, 0 .. 1), as the diary's days give it.
+                if (v.kind == Kind::Object && r->vm().attribute(v, "r").is_number()) {
+                    std::vector<Value> rgba;
+                    for (const char* part : {"r", "g", "b", "a"}) {
+                        const Value p = r->vm().attribute(v, part);
+                        rgba.push_back(Value::integer(s32(std::lround((p.is_number() ? std::clamp(p.as_float(), 0.0f, 1.0f) : 1.0f) * 255.0f))));
+                    }
+                    w->set_property("text_color", Value::array(std::move(rgba)));
+                    return;
+                }
+                w->set_property("text_color", v);
+            };
             return a;
         }
         if (n == "value" && type == "TextFace") {

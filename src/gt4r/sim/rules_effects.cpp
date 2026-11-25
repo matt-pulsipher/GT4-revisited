@@ -7,6 +7,7 @@
 #include "gt4r/sim/rules_wear.h"
 
 #include <array>
+#include <utility>
 
 namespace gt4r::sim::rules {
 
@@ -184,6 +185,47 @@ void slide_effects(ex::Car& c, const WheelLayout& l, const SlideTables& t, u8 co
         c.dirt = c.dirt + add;
         if (F::raw(0x3F4CCCCC) < c.dirt) c.dirt = F::raw(0x3F4CCCCC);
     }
+}
+
+namespace {
+// 0x3667A8: wheel w's emit at `point` with the car's velocity `v`.
+TireEmit emit(const ex::Car& c, int w, const std::array<F, 3>& point, const std::array<F, 3>& v) {
+    const ex::Wheel& wh = c.w[size_t(w)];
+    const ex::Ground& g = c.g[size_t(w)];
+    TireEmit e;
+    e.wheel = w, e.surface = wh.surface;
+    e.point = point;
+    e.heading = c.heading + wh.steer;
+    e.attr = g.attr_a;
+    e.normal = {g.normal.x, g.normal.y, g.normal.z};
+    e.plane = g.plane_d - g.normal.y * F::raw(0x3D4CCCCC);
+    e.smoke = wh.smoke_emit, e.slip_ratio = wh.slip_ratio, e.hub_speed = wh.hub_vx, e.rim_speed = wh.rim_speed;
+    e.velocity = v;
+    e.car = c.index;
+    e.spray = (g.flags & 0x20) != 0;
+    return e;
+}
+} // namespace
+
+int tire_emits(const ex::Car& c, const WheelLayout& l, u8 category, std::array<TireEmit, 4>& out) {
+    const std::array<F, 3> v = {c.vel.x, c.vel.z, -c.vel.y};
+    int n = 0;
+    if (category == 6) {
+        const F half = F::raw(0x3F000000);
+        for (size_t k = 0; k < 2; ++k) {
+            int a = l.group_first[k], b = l.partner[size_t(a) & 7];
+            if (c.g[size_t(a) & 3].attr_a < c.g[size_t(b) & 3].attr_a) std::swap(a, b);
+            const ex::Wheel &p = c.w[size_t(a) & 3], &q = c.w[size_t(b) & 3];
+            const F y = (p.hub.y + q.hub.y) * half, x = (p.hub.x + q.hub.x) * half, h = (p.ground + q.ground) * half;
+            out[size_t(n++)] = emit(c, a & 3, {c.pos.x + x, h, -(c.pos.y + y)}, v);
+        }
+        return n;
+    }
+    for (int w = 0; w < l.count && w < 4; ++w) {
+        const ex::Wheel& wh = c.w[size_t(w)];
+        out[size_t(n++)] = emit(c, w, {c.pos.x + wh.hub.x, wh.ground, -(c.pos.y + wh.hub.y)}, v);
+    }
+    return n;
 }
 
 int draw_mode(const ex::Car& c, u8 x4b2, u32 race_e0, u32 ghost_word) {

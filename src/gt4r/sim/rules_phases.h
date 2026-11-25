@@ -198,7 +198,7 @@ void pit_step(ex::Car& c, Extra& x, const WheelLayout& l, const WearRules& r, co
 // (rules_step.h prep_tires). `grip`: a computer driver's grip by tire class (0x467470), null for a player's car. The pit
 // stop's fresh tires take the race's wear rules (Tables::wear). The start's hold (F + 0x4BC) is not set here: the step
 // sets it before the phase (0x34C210 and the car's own start counter, conductor + 0xCBFC + 4 i).
-void prep(ex::Car& c, Extra& x, const WheelLayout& l, const Tables& t, const ex::Condition& cond, const std::array<F, 3>* grip = nullptr,
+void prep(ex::Car& c, Extra& x, const WheelLayout& l, const Tables& t, const std::array<F, 3>* grip = nullptr,
           const PitHooks* hooks = nullptr);
 
 // ---- phases 12 and 13: the hit records ----------------------------------------------------------------------------

@@ -45,8 +45,9 @@ struct Equipment {
         Intercooler = 0xD8,
         Ascc = 0xE0,
         Tcsc = 0xE8,
+        Wheel = 0xF0, // (the setter's jump table 0x6A6DE0, 0x4468F8: table 29 here, 30 at +0x100)
         Nos = 0xF8,
-        Wheel = 0x100,
+        Wing = 0x100,
         Supercharger = 0x108,
     };
     // The settings' places.
