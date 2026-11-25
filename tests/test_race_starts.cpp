@@ -3,6 +3,9 @@
 
 #include "test_framework.h"
 
+#include "gt4r/disc/disc.h"
+#include "gt4r/formats/course/course_file.h"
+#include "gt4r/formats/course/runway_gtrw.h"
 #include "gt4r/formats/db/race_events.h"
 #include "gt4r/race/demonstration_run.h"
 #include "gt4r/race/license_rules.h"
@@ -36,6 +39,12 @@ TEST(race_start_rows) {
     CHECK(race::car_start(r, race::Conductor::License, 1, 1900).distance == 1700);
     const race::CarStart b = race::car_start(r, race::Conductor::Mission, 1, 1900);
     CHECK(b.kind == 1 && b.distance == 1950 && b.speed == 90 && b.mark == 2);
+    // A place of 0 m is the grid's, with the speed all the same (0x34D0F8): the car's own, else place 0's.
+    put16(row, 0x2E, 0);
+    const race::CarStart still = race::car_start(race::RowStart::from_row(row), race::Conductor::Mission, 1, 1900);
+    CHECK(still.kind == 0 && still.speed == 90 && still.mark == 0);
+    row[0x80] = 65;
+    CHECK(race::car_start(race::RowStart::from_row(row), race::Conductor::Mission, 1, 1900).speed == 65);
     // Without a section: from the line, no mark.
     const race::CarStart c = race::car_start(r, race::Conductor::License, 0, 0);
     CHECK(c.kind == 2 && c.distance == -200 && c.mark == 0);
@@ -142,4 +151,57 @@ TEST(race_driving_mode_changed_in_the_race) {
     run(600);
     CHECK(std::fabs(session->cars()[0].speed) < 0.1f);
     std::printf("  %.1f m driven by the B-spec driver\n", double(driven));
+}
+
+TEST(race_mission_rival_moves_from_the_grid) {
+    Disc* disc = nullptr;
+    for (const std::unique_ptr<Disc>& d : test::discs())
+        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d.get();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    // Missions 2 .. 5 and 8: the rival's place is 0 m, the section's grid, and it moves from there at its own speed or the
+    // player's, driven by its driver from the first step; the player comes from behind at the row's.
+    gt3r::Volume* vol = &disc->volume();
+    const auto read = [vol](const std::string& path) -> std::optional<Bytes> {
+        const gt3r::Volume::Entry* e = vol->find(path);
+        return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
+    };
+    db::SpecDb db(read, [vol](const std::string& dir) { return vol->list_dir(dir); }, "american");
+    const sim::Program program = sim::Program::load(*disc);
+    const db::RaceEvents events(db, read);
+    const std::pair<const char*, int> kRivals[] = {{"usl0m0002", 80}, {"usl0m0003", 70}, {"usl0m0004", 100}, {"usl0m0005", 90}, {"usl0m0008", 65}};
+    for (const auto& [label, kmh] : kRivals) {
+        const std::optional<db::RaceEvent> ev = events.event(label);
+        CHECK(ev.has_value());
+        if (!ev) continue;
+        const std::optional<Bytes> data = read("crs/" + ev->course);
+        CHECK(data.has_value());
+        if (!data) continue;
+        const course::CourseFile file = course::CourseFile::parse(*data);
+        const std::optional<course::Runway> road = course::course_road(file, *data);
+        CHECK(road.has_value());
+        if (!road) continue;
+        race::StartCourse starts(*road, file.section(*data, course::kSlotRunway), race::course_start(db, ev->course).way);
+        const race::StartRace& r = starts.set_race(race::Conductor::Mission, ev->bytes, race::LicenseRules::from_row(ev->bytes).section);
+        CHECK(starts.may_need_lines(2));
+        if (const std::optional<course::AiData> ad = sim::ai::Field::read(*disc, ev->course)) starts.add_lines(*ad, sim::ai::Tables::load(program));
+        const std::vector<db::Opponent> pool = events.pool(*ev);
+        std::vector<sim::Entry> entries(2);
+        bool cars = pool.size() == 2;
+        for (size_t i = 0; i < 2 && cars; ++i) {
+            cars = sim::stock_car(db, program, pool[i].car, entries[i].equipment);
+            entries[i].grid_place = i == 0 ? 1 : 0, entries[i].control = i == 0 ? 0 : 2;
+            race::put_start(entries[i], r, race::plan_start(r, i, entries[i].grid_place), i == 0, entries[i].grid_place, program);
+        }
+        CHECK(cars);
+        if (!cars) continue;
+        sim::Session session(db, program, std::make_shared<const course::Runway>(*road), entries, sim::course_row(db, ev->course));
+        const race::CarState &me = session.cars()[0], &rival = session.cars()[1];
+        std::printf("  %s: the rival %.1f km/h at %.1f m, the player %.1f km/h at %.1f m\n", label, double(rival.speed * 3.6f), double(rival.course_v),
+                    double(me.speed * 3.6f), double(me.course_v));
+        CHECK(std::fabs(rival.speed * 3.6f - float(kmh)) < 0.5f && !rival.rolling);
+        CHECK(std::fabs(me.speed * 3.6f - float(ev->bytes[0x42])) < 0.5f && me.rolling);
+        float ahead = rival.course_v - me.course_v;
+        if (ahead < -road->length / 2) ahead += road->length;
+        CHECK(ahead > 5 && ahead < 120);
+    }
 }

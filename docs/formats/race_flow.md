@@ -185,6 +185,9 @@ row i32 +0x14 and CFG +0x4E ← row +0x42; places 1 .. 5 CFG +0x56 + 2 k ← row
 row +0x80 + k (0x447778). The license's conductor reads place 0's for every car (0x3F6070 / 0x3F6080); the pace car tests'
 and the missions' the car's own, a speed of 0 being place 0's (0x3F7090 / 0x3F70A8). Then:
 - a distance below 0 with a speed: start kind 2; any other distance but 0: kind 1; none: the grid (kind 0);
+- **the speed holds for every kind** (0x34D0F8 sets it whatever the distance; the set-up gives it at 0x3646A8 to 0x363868 when it is not
+  0): a place of 0 m with a speed, the rivals of missions 2 .. 5 and 8, stands on the section's grid place and moves from it, its own
+  driver driving from the first step (no driver kind 1, no pace); the start count of such a car is 0 (0x34D8F4);
 - the distance counts from the section's start when the race runs on a road section (CFG +0x21) whose start lies 1 m .. the
   lap less 1 m along (0x34C3E0, truncated), else from the line; the course's own start code (a rolling start) is not read;
 - the set-up (0x363B10) takes whole laps off it and puts the car on the course's driving line there (0x34C5E0: no more than
@@ -378,6 +381,6 @@ engine's Gran Turismo 3 code). The player notices them roughly in this order.
 | Fitted wings | `car_visual.cpp`, `race_world.cpp` (the entry's WING part) | GT4 (0x4533A8's place and scale, callback 47 = 1); "spoiler taken off" (2) not reached: no part names it ❓ | |
 | Moving models | `race/animated_models.cpp` | GT4 (the models' scripts and their programs' register moves 0x44 .. 0x4B: seoul's and lasvegas's turning signs; programs with two switches of their own registers, Ice Arena's people: each pair of cases is a key; 37 more of its models move, their motion not compared with the original's; the skies' aeroplanes, not compared with the original's either) | which models the race draws at once |
 | The driver figure | `race/driver_figure.*`, `car_visual.cpp` (`GT4R_RACE` `driver=1`, off by default) | GT4 (the set: the car's own +0x34 or a character file by the cockpit kind 0x3B5438; its parts at the skeleton's nodes 0x3B1070; PELVIS at the seat, parts block +0x34, as saved states show on road cars; not checked on the open racers); the nodes the **stored pose** (judged: the posture not ported) | the posture 0x3B2708 and its solver 0x416FD8 (model.md "The driver in the car") |
-| Missions | `load_test`, `draw_grid` (the pool in its order), `judge_license`, `race_flow.*` | GT4. ✔ Mission 21 driven by the computers: 3'55.346, 3'57.123, 3'58.953, 4'00.795, 4'02.956 against the original's 3'55.340, 3'57.122, 3'58.953, 4'00.757, 4'02.952 (`31-progress6`, another player's car) | the win's page (no original) |
+| Missions | `load_test`, `draw_grid` (the pool in its order), `judge_license`, `race_flow.*` | GT4. ✔ Mission 21 driven by the computers: 3'55.346, 3'57.123, 3'58.953, 4'00.795, 4'02.956 against the original's 3'55.340, 3'57.122, 3'58.953, 4'00.757, 4'02.952 (`31-progress6`, another player's car) | the win's page and missions 2 .. 5 and 8 (no original's picture) |
 | A-spec points | `race/aspec_points.*`, `RaceWorld::aspec_points`, `fill` | GT4 (0x3C0FF8, 0x3C1220, 0x39C570, 0x39C6D0) | in a standing start the original hides the rest of the display and shows the course's logo until about 5 s in: here it shows |
 | Not built | | cone shadows | |

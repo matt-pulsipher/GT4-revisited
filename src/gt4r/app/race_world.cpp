@@ -345,8 +345,8 @@ void RaceWorld::plan_starts(const sim::Program& program, std::vector<sim::Entry>
         }
         starts_.push_back(race::plan_start(r, i, we.grid_place >= 0 ? we.grid_place : int(i), rolling));
         const race::PlannedStart& p = starts_.back();
-        entries[i].line_start = p.line, entries[i].place = p.place;
         entries[i].start_speed = p.line ? 0.0f : we.start_speed;
+        race::put_start(entries[i], r, p, i == 0 && !computer_player_, we.grid_place >= 0 ? we.grid_place : int(i), program);
         if (rolling && !p.line) entries[i].start_distance = we.start_distance; // (no driving line: the road's middle)
     }
 }

@@ -34,7 +34,7 @@ const StartRace& StartCourse::set_race(Conductor conductor, std::span<const u8> 
 bool StartCourse::may_need_lines(size_t cars) const {
     if (race_.conductor == Conductor::Other) return false;
     for (size_t i = 0; i < cars; ++i)
-        if (car_start(race_.row, race_.conductor, i, 0).on_line()) return true;
+        if (const CarStart s = car_start(race_.row, race_.conductor, i, 0); s.on_line() || s.speed > 0) return true;
     return false;
 }
 
@@ -94,6 +94,16 @@ int first_line(const StartRace& r, const PlannedStart& p, bool pad, int grid_pla
     const F side = (F(a.pos.x) - F(b.pos.x)) * gt3r::ee::cos(h) - (-gt3r::ee::sin(h)) * (-(F(a.pos.z) - F(b.pos.z)));
     if (!(side < F()) && (line == 1 || line == 2)) line = 3 - line;
     return line;
+}
+
+void put_start(sim::Entry& entry, const StartRace& race, const PlannedStart& p, bool pad, int grid_place, const sim::Program& program) {
+    entry.line_start = p.line, entry.place = p.place;
+    if (p.line || p.start.kind != 0 || p.start.speed <= 0) return;
+    entry.start_speed = float(p.start.speed) / 3.6f;
+    if (!race.lines) return;
+    const sim::ai::CourseLines* lines = race.lines;
+    const int line = first_line(race, p, pad, grid_place, program);
+    entry.open_throttle = [lines, line](F at) { return lines->mode_at(line, at) == 0; };
 }
 
 int planned_crossings(const StartRace& r, const PlannedStart& p, float v) {
