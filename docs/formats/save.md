@@ -80,6 +80,8 @@ by the shared engine's card layout (`formats/ps2/memcard.h`); `src/gt4r/save/car
     every race of the event).
   - **The Extreme hall** (`canEntryExtreme`): the Gran Turismo World Championship won; left shut.
   - **The Supercar Festival**: 493 HP or more (the reference's message); the Ford GT has 558.
+  Checked in the original with this card: Complete 26.8 %, the Endurance hall's 16 races, the Supercar Festival and the
+  World Championship enterable (a won event's entry asks whether to clear its records first).
   - **Missions**: each mission's license. **Photo travel**: its places (`EventData::PhotoStageList`)
     open as Arcade's courses do; 40 weeks in, all 15 are open.
 
