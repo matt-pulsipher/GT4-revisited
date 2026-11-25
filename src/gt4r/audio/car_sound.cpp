@@ -2,6 +2,7 @@
 
 #include "base/log.h"
 #include "gt4r/formats/db/specdb.h"
+#include "gt4r/sim/equipment.h"
 #include "vfs/vfs.h"
 
 #include <algorithm>
@@ -28,35 +29,39 @@ std::optional<u32> part(db::SpecDb& db, const std::string& car, const char* tabl
 
 } // namespace
 
-CarSoundFiles car_sound_files(db::SpecDb& db, const std::string& car) {
+namespace {
+
+// The files the four parts' rows name (an empty row: no such part).
+CarSoundFiles files_of(ByteSpan engine, ByteSpan muffler, ByteSpan turbine, ByteSpan gear) {
     CarSoundFiles f;
-    const db::Table* engines = db.table("ENGINE");
-    const std::optional<u32> engine = part(db, car, "ENGINE", "en_");
-    if (!engines || !engine) return f;
-    const ByteSpan row = engines->row(*engine);
-    if (row.size() < kEngineSoundId + 2) return f;
-    f.id = rd16(row, kEngineSoundId);
-    if (const db::Table* t = db.table("MUFFLER"))
-        if (const auto id = part(db, car, "MUFFLER", "mu_")) {
-            const ByteSpan r = t->row(*id);
-            if (r.size() > kMufflerVariant) f.muffler = r[kMufflerVariant] & 3;
-        }
-    if (const db::Table* t = db.table("TURBINEKIT"))
-        if (const auto id = part(db, car, "TURBINEKIT", "tk_")) {
-            const ByteSpan r = t->row(*id);
-            f.turbo = r.size() > kTurboKind && r[kTurboKind] != 0;
-        }
-    if (const db::Table* t = db.table("GEAR"))
-        if (const auto id = part(db, car, "GEAR", "ge_")) {
-            const ByteSpan r = t->row(*id);
-            f.whine = r.size() > kGearWhine && r[kGearWhine] != 0;
-        }
+    if (engine.size() < kEngineSoundId + 2) return f;
+    f.id = rd16(engine, kEngineSoundId);
+    if (muffler.size() > kMufflerVariant) f.muffler = muffler[kMufflerVariant] & 3;
+    f.turbo = turbine.size() > kTurboKind && turbine[kTurboKind] != 0;
+    f.whine = gear.size() > kGearWhine && gear[kGearWhine] != 0;
     f.variant = CarSoundFiles::variant_name(f.variant_index());
     char name[16];
     std::snprintf(name, sizeof name, "%05d", f.id);
     f.engine = std::string("sound/engine/") + name;
     f.exhaust = "sound/" + f.variant + "/" + name;
     return f;
+}
+
+} // namespace
+
+CarSoundFiles car_sound_files(db::SpecDb& db, const std::string& car) {
+    const auto row = [&](const char* table, const char* prefix) -> ByteSpan {
+        const db::Table* t = db.table(table);
+        const std::optional<u32> id = t ? part(db, car, table, prefix) : std::nullopt;
+        return id ? t->row(*id) : ByteSpan();
+    };
+    return files_of(row("ENGINE", "en_"), row("MUFFLER", "mu_"), row("TURBINEKIT", "tk_"), row("GEAR", "ge_"));
+}
+
+CarSoundFiles car_sound_files(db::SpecDb& db, const sim::Equipment& eq) {
+    using E = sim::Equipment;
+    const auto row = [&](u32 slot) { return db::part_row(db, eq.part(slot)); };
+    return files_of(row(E::Engine), row(E::Muffler), row(E::TurbineKit), row(E::Gear));
 }
 
 std::string CarSoundFiles::variant_name(int index) {
@@ -68,6 +73,15 @@ CarSoundFiles car_sound_files(gt3r::Vfs& vfs, const std::string& car) {
     try {
         db::SpecDb db([&vfs](const std::string& path) { return vfs.read(path); }, [&vfs](const std::string& dir) { return vfs.list_dir(dir); });
         return car_sound_files(db, car);
+    } catch (const std::exception&) {
+        return {};
+    }
+}
+
+CarSoundFiles car_sound_files(gt3r::Vfs& vfs, const sim::Equipment& equipment) {
+    try {
+        db::SpecDb db([&vfs](const std::string& path) { return vfs.read(path); }, [&vfs](const std::string& dir) { return vfs.list_dir(dir); });
+        return car_sound_files(db, equipment);
     } catch (const std::exception&) {
         return {};
     }
@@ -238,6 +252,12 @@ void CarSound::set_mix(std::shared_ptr<const RaceMix> mix) {
 
 bool CarSound::load(const std::string& car_label) {
     files_ = car_sound_files(vfs_, car_label);
+    if (files_.engine.empty()) return false;
+    return load(files_.id, files_.variant_index());
+}
+
+bool CarSound::load(const sim::Equipment& equipment) {
+    files_ = car_sound_files(vfs_, equipment);
     if (files_.engine.empty()) return false;
     return load(files_.id, files_.variant_index());
 }

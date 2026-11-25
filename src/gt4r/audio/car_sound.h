@@ -34,10 +34,13 @@
 namespace gt4r::db {
 class SpecDb;
 }
+namespace gt4r::sim {
+struct Equipment;
+}
 
 namespace gt4r::audio {
 
-// The sound files of a car as sold.
+// The sound files of a car.
 struct CarSoundFiles {
     int id = 0;          // the engine sound's number
     int muffler = 0;     // 0..3
@@ -49,7 +52,10 @@ struct CarSoundFiles {
     std::string exhaust; // "sound/normal0/00123"
     int variant_index() const { return muffler + (turbo ? 4 : 0); }
 };
-CarSoundFiles car_sound_files(db::SpecDb& db, const std::string& car_label);
+CarSoundFiles car_sound_files(db::SpecDb& db, const std::string& car_label); // as sold
+// ... with the parts it carries (0x445518, 0x445548, 0x445650, 0x4462A0: its ENGINE, MUFFLER, TURBINEKIT and GEAR rows).
+CarSoundFiles car_sound_files(db::SpecDb& db, const sim::Equipment& equipment);
+CarSoundFiles car_sound_files(gt3r::Vfs& vfs, const sim::Equipment& equipment);
 // The same, opening the database of the disc behind `vfs`; empty when it has none.
 CarSoundFiles car_sound_files(gt3r::Vfs& vfs, const std::string& car_label);
 
@@ -171,6 +177,7 @@ public:
 
     // The banks of a car of the database, or by number. False when neither bank reads.
     bool load(const std::string& car_label);
+    bool load(const sim::Equipment& equipment); // the car as it is equipped
     bool load(int sound_id, int variant);
     bool loaded() const { return engine_.loaded() || exhaust_.loaded(); }
     const CarSoundFiles& files() const { return files_; }

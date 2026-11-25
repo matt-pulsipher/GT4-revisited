@@ -57,6 +57,7 @@ CarSoundState sound_state(const sim::Session& session, size_t i, const RaceSound
         o.rim_speed = in.rim_speed.host();
         o.width = c.p.width[w >> 1].host();
     }
+    s.nitrous = session.gt4_rules() && session.gt4_record(i).drive.fuel.nitrous_power.host() != 0; // (F +0x4DC, 0x354EB0)
     // The gearbox's whine (0x34FED0): the clutch's torque (F +0x51C), the gear's ratio against the
     // first's (the driveline block's +0x40 + 4 gear), the driven axles' speed (0x350DA0, by the
     // layout). Without Gran Turismo 4's routines running, the engine's record and the driven wheels.

@@ -77,7 +77,8 @@ public:
     RaceSound& operator=(const RaceSound&) = delete;
 
     // The cars in grid order. False when the car has no engine sound (it stays silent).
-    bool add_car(const std::string& label);
+    // With `equipment` the car as it is equipped (its engine, muffler, turbine kit and gearbox), else as sold.
+    bool add_car(const std::string& label, const sim::Equipment* equipment = nullptr);
     bool add_car(int sound_id, int variant);
     size_t cars() const { return cars_.size(); }
     CarSound& car(size_t i) { return *cars_[i]; }
