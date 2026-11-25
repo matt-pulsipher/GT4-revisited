@@ -1064,6 +1064,7 @@ public:
         if (watched_ && world_->pit(0)) LOG_INFO("Drive: B-spec pit command at %.1f s", double(flow_.time_ms()) / 1000);
     }
     int pit_message() const { return world_->pit_message(0); }
+    std::array<sim::ai::PitStops::StopRecord, 4> pit_record(size_t car) const { return world_->pit_record(car); }
 
     // B-spec's Select Car (Up / Down): the car the views follow, by race order (the player's car first:
     // 0). ❓ The program's choice by the order is not read: here the next or last car in race order.
@@ -1582,8 +1583,14 @@ private:
         for (int r = 1; r <= 6; ++r) {
             const std::string bar = "BAR" + std::to_string(r);
             const bool has = size_t(r - 1) < order.size();
-            show(bar, has);
-            if (!has) continue;
+            show(bar, true); // (a row without a car stays, blank: the original's one-car Practice)
+            if (!has) {
+                for (const char* part : {".NAME", ".TIME", ".DIFF"}) text(bar + part, "");
+                for (const char* part : {".GRID", ".ICON", ".LAP", ".PIT", ".BEST", ".BESTMARK"}) show(bar + part, false);
+                m.call(bar, "gotoAndStop", {V::number(1)});
+                continue;
+            }
+            show(bar + ".GRID", true);
             const size_t car = order[size_t(r - 1)];
             text(bar + ".NAME", race_->car_short_name(car));
             const s64 best = f.car(car).best_lap_ms;
@@ -1595,7 +1602,30 @@ private:
             for (const char* part : {".LAP", ".PIT", ".BEST", ".BESTMARK"}) show(bar + part, false);
         }
         fill_gap_strip(order, me);
-        show("PITPANEL", false);
+        // The pit panel (0x3DB7B8): the followed car's stops, up to three, the oldest first: the lap ("-" none) and the
+        // tires fitted front and rear (TireShort_nn, "-" none). ❓ The tire wear diagram (TIRE_PANEL) it alternates with
+        // is not shown.
+        {
+            const std::array<sim::ai::PitStops::StopRecord, 4> rec = race_->pit_record(me);
+            int count = 0;
+            for (int k = 0; k < 3; ++k) count += rec[size_t(k)].lap > 0;
+            auto tire = [&](int code) {
+                if (code < 0 || code > 12) return std::string("-");
+                char b[32];
+                std::snprintf(b, sizeof b, "TireShort_%02d", code);
+                const std::string w = hud_->word(b);
+                return w.empty() ? std::string("-") : w;
+            };
+            for (int row = 1; row <= 3; ++row) {
+                const std::string p = "PITPANEL.PIT" + std::to_string(row);
+                const sim::ai::PitStops::StopRecord* r = row - 1 < count ? &rec[size_t(count - row)] : nullptr;
+                text(p + "LAP", r && r->lap > 0 ? std::to_string(r->lap) : "-");
+                text(p + "F", r ? tire(r->front) : "-");
+                text(p + "R", r ? tire(r->rear) : "-");
+            }
+            show("PITPANEL", true);
+            show("PITPANEL.TIRE_PANEL", false);
+        }
     }
 
     // The Race Monitor's gap strip (0x3DBF90): the cars' letters in race order along the bottom, each further right by

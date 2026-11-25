@@ -115,6 +115,10 @@ public:
     // The car's pit message (F +0x5FA, 0x35ACD8's codes; 0 none) and its stops made.
     int pit_message(size_t car) const { return pits_ && car < car_visuals_.size() ? pits_->message(car) : 0; }
     int pit_stops(size_t car) const { return pits_ && car < car_visuals_.size() ? pits_->stops(car) : 0; }
+    // A car's last pit stops, newest first (the lap, the tires fitted; lap 0 none): the Race Monitor's pit panel.
+    std::array<sim::ai::PitStops::StopRecord, 4> pit_record(size_t car) const {
+        return pits_ && car < car_visuals_.size() ? pits_->stop_record(car) : std::array<sim::ai::PitStops::StopRecord, 4>{};
+    }
     // What goes with the cars shown in a step, live (the simulation's) or recorded: smoke and dust
     // from the wheels, and the race's sound heard from `camera` (none: no sound) about car `target`.
     void present(std::span<const race::CarState> cars, const audio::SoundListener* camera, int target, bool live);
