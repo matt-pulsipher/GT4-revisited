@@ -423,6 +423,9 @@ void arcade_tires(App& app, Setup& setup, const menu::RaceRequest& q) {
         fit(setup.car, setup.player_equipment);
         setup.opponent_equipment.resize(setup.opponents.size());
         for (size_t i = 0; i < setup.opponents.size(); ++i) fit(setup.opponents[i], setup.opponent_equipment[i]);
+        if (setup.player_equipment)
+            LOG_INFO("Drive: the race's tires: kinds %d and %d on the player's car (%d chosen)", int(sim::tire_kind(*sdb, *setup.player_equipment, 0)),
+                     int(sim::tire_kind(*sdb, *setup.player_equipment, 1)), arcade ? q.tire : -1);
     } catch (const std::exception& e) {
         LOG_WARN("Drive: the race's tires: %s", e.what());
     }
