@@ -533,19 +533,24 @@ solver 0x416FD8 → 0x4173B0, 0x41C3F8 → 0x41F560 (about 30 KB with its handle
 - six motion values of the sponsor at the frame's time (0x344798 .. 0x3448B8: blends of +0x8A4 ..
   +0x8C4 and +0x888 .. +0x674) kept at HumanModel +0x7C4 .. +0x7D8 (0x3B2508).
 
-**Checked in a saved state** (03-race `state_before_first_corner_chase`, the six cars of the Tsukuba
-race): every PELVIS node is exactly at its car's seat (+0x34), turned half a turn about y
-(quaternion (0, 1, 0, 0)), and the feet exactly on the pedals; the Ka-class car with the seat at
-(-0.329, 0.276, 0.031) has its CRANIUM at (-0.329, 0.852, 0.178), 0.576 above and 0.147 behind
-the pelvis, the hands at (-0.501 / -0.156, 0.588, -0.360) on the rim of the wheel centred at
-(-0.329, 0.640, -0.439), the lower spine leaning 46° back from upright, the middle 23°.
+**Checked in saved states.** On the road cars (cockpit kind 0x20: the six of 03-race
+`state_before_first_corner_chase`, and those of 36-driver-sky) the nodes are in the car's frame and every
+PELVIS is at its car's seat (+0x34) to the last digit; on the one whose nodes were listed it is turned half a
+turn about y (quaternion (0, 1, 0, 0)). The feet are on the pedals to the last digit on five of the six, 15 mm and
+3 mm off on the sixth. The head stands 0.56 to 0.58 above the pelvis and 0.14 to 0.20 behind it. One of them, seat
+(-0.329, 0.276, 0.031): CRANIUM (-0.329, 0.852, 0.178), the hands (-0.501 / -0.156, 0.588, -0.360) on the rim of the
+wheel centred at (-0.329, 0.640, -0.439), the lower spine leaning 46° back from upright, the middle 23°.
+**The open racers (kind 0x11) differ**: in 36-driver-sky (the Chaparral 2J, the Pescarolo C60) their upper body's nodes
+hold places in the **course's** frame (chap_02: PELVIS (-291.9, 22.0, -151.6)), the feet keep (+-0.089, -0.920, 0), as
+if never posed, and the head stands 0.55 to 0.59 above the pelvis. ❓ Where in their car the figure sits was not worked
+out from these, nor which routine moves it into the course's frame.
 `~/gt4re-out/race-view/r6/stpose.py <state>` lists them (a scratch tool; the RaceDriverModel
 vtable 0x0067FB50 sits at HumanModel +0x7DC).
 
 **What the race view draws** (`GT4R_RACE` `driver=1`, off by default): the set's parts at the
 nodes of the **stored pose** (the bind matrices of the set's bones, else character/driver.mdl's:
 every skeleton is built from the same sizes), the figure's frame turned half a turn about y with
-its PELVIS at the seat (as the saved state shows). The stored pose leans back further than the
+its PELVIS at the seat (as the road cars' saved states show; for the open racers this is taken over from them, not checked). The stored pose leans back further than the
 posture (the head 0.29 m behind the pelvis, not 0.15 m): in the closed cars the head board sits
 inside the headrest; in the open racers the helmet shows in the cockpit. ❓ The posture
 (0x3B2708 and the solver) is not ported; the driver's model also gives the car the steering
