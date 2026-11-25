@@ -19,6 +19,7 @@
 #include "gt4r/sim/rules_tires.h"
 
 #include <array>
+#include <span>
 
 namespace gt4r::sim {
 class Program;
@@ -177,6 +178,10 @@ int gear_for_speed(const ex::Car& c, F v);
 void moving_start(ex::Car& c, F v);
 // 0x3CC298: the kilometers per liter of a fuel mass (g) over a distance (m): 0 under a millimeter, at most 999.
 u16 mileage(F fuel, F distance);
+// 0x3DC1C8's part for the drivers (phase 14), into the records' c.ai: the zone cells of the cars around (0x4281E8: at least 2
+// beside, ahead within 5 m and behind, at least 1 farther ahead and at the corners) and, within 20 m, the contact with a car closed
+// on (0x428530: 1 over 5 km/h, 0.5 within 5 s, else 0.05 under half a meter and 0.1 under 4 m).
+void near_drivers(std::span<ex::Car> cars);
 // The part from the car's record and Prologue's parameter block: the wheel layout of its +0x30, the tire records' kind bytes.
 CarPart car_part(const ex::Car& c, const Block& p, const Tables& t);
 

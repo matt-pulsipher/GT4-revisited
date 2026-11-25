@@ -316,7 +316,7 @@ void Field::prologue_decide(Driver& d, bool plans_only, race::CarInput& in) {
     s.start_count = s32(hold_count_), s.clock = clock_;
     s.hit_front = d.hit_front, s.hit_rear = d.hit_rear;
     s.dirt = session_->course_kind() == 2, s.start_speed = pace_.start_speed;
-    d.ai.zone = near_[d.car].zone, d.ai.contact = near_[d.car].contact;
+    d.ai.zone = session_->record(d.car).ai.zone, d.ai.contact = session_->record(d.car).ai.contact;
     with_record(d, [&](ex::Car& c) {
         if (plans_only) prologue::braking(c, s);
         else prologue::step(c, s);
@@ -332,37 +332,6 @@ void Field::prologue_decide(Driver& d, bool plans_only, race::CarInput& in) {
     in.computer = d.control != 0 || c.driver_kind != 1;
     in.control = u8(d.control == 1 ? 1 : 2);
     in.shift_lock = u8(d.shift_lock);
-}
-
-// 0x3DC1C8's part for the drivers: the zone cells (0x4281E8) and, within 20 m, the contact with a car closed on (0x428530).
-void Field::prologue_proximity() {
-    const size_t n = near_.size();
-    for (Near& z : near_) z.contact = F(), z.zone = {}, z.gap_left = z.gap_right = F(1000.0f);
-    auto meet = [&](size_t a, size_t b, F u, F v) {
-        ex::Car ca = session_->record(a);
-        if (drivers_[a]) ca.control = s8(drivers_[a]->control), ca.driver_kind = u8(drivers_[a]->kind);
-        F gap, rate;
-        if (!ex::gap_closing(ca, session_->record(b), u, v, gap, rate)) return;
-        F x;
-        if (F::raw(0x3FB1C71B) < rate) x = kOne; // 5 km/h
-        else if (F::raw(0x3CE38E37) < rate && gap / rate < F::raw(0x40A00000)) x = kHalf;
-        if (x == F()) {
-            if (gap < kHalf) x = F::raw(0x3D4CCCCC);
-            else if (gap < F::raw(0x40800000)) x = F::raw(0x3DCCCCCC);
-        }
-        if (near_[a].contact < x) near_[a].contact = x;
-    };
-    for (size_t i = 0; i < n; ++i)
-        for (size_t j = i + 1; j < n; ++j) {
-            const ex::Car &a = session_->record(i), &b = session_->record(j);
-            ex::PairView pv;
-            if (!ex::pair_view(a, b, pv)) continue;
-            const F w = (a.p.body_width + b.p.body_width) * kHalf;
-            const F ab = a.p.body_front + b.p.body_rear, ba = a.p.body_rear + b.p.body_front;
-            zones(near_[i], pv.dist, pv.ua, pv.va, ab, ba, w);
-            zones(near_[j], pv.dist, pv.ub, pv.vb, ba, ab, w);
-            if (pv.dist < F::raw(0x41A00000)) meet(i, j, pv.ua, pv.va), meet(j, i, pv.ub, pv.vb);
-        }
 }
 
 Field::~Field() = default;
@@ -1833,8 +1802,7 @@ void Field::begin_step() {
     for (auto& d : drivers_)
         if (d) d->s = lines_.wrap_lap(cars.state(d->car).course_v);
     rubber_band();
-    if (prologue_) prologue_proximity();
-    else proximity();
+    if (!prologue_) proximity(); // (Prologue's: the session's phase 14 leaves them in the records)
 }
 
 void Field::end_step() {

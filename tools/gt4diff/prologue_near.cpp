@@ -8,6 +8,7 @@
 #include "prologue_taps.h"
 
 #include "gt4r/sim/rules.h"
+#include "gt4r/sim/rules_prologue.h"
 #include "sim/exact/car_fields.h"
 #include "sim/exact/tick.h"
 
@@ -50,6 +51,7 @@ NearStats near_check(Disc& disc, const std::string& course, const std::string& c
         }
         mine = before;
         ex::proximity(mine, k);
+        sim::prologue::near_drivers(mine);
         pending = true;
         const u32 ra = e.g32(31);
         if (exit_at) return;
@@ -63,7 +65,7 @@ NearStats near_check(Disc& disc, const std::string& course, const std::string& c
                 after.behaviour = sim::rules::behaviour();
                 ex::load_image(after, im.data());
                 compare(after, mine[size_t(i)], st);
-                ex::Car rest = mine[size_t(i)]; // (the drivers' zone cells and contact aside, which Prologue's own drivers read)
+                ex::Car rest = mine[size_t(i)]; // (the drivers' zone cells and contact aside)
                 rest.ai.contact = after.ai.contact, rest.ai.zone = after.ai.zone;
                 compare(after, rest, st_rest);
                 nonzero += !(after.slip_target == gt3r::ee::F());
@@ -74,7 +76,7 @@ NearStats near_check(Disc& disc, const std::string& course, const std::string& c
         r.pad[0] = test_drive(i);
         step(ee, r);
     }
-    out.records = st_rest.calls, out.clean = st_rest.clean, out.with_slip = nonzero;
+    out.records = st.calls, out.clean = st.clean, out.with_slip = nonzero;
     if (print) {
         std::printf("prologue-near: %s, %d cars, %d steps: %llu car records, %llu with every field equal, %llu but for the drivers' zones and "
                     "contact (%llu with a slipstream)\n",

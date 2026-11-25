@@ -1025,6 +1025,7 @@ void Session::step_once(std::span<const race::CarInput> inputs, const Decider& d
     } else if (prologue_)
     {
         ex::proximity(cars_, prologue_near_); // phase 14 (Prologue's 0x3DC1C8: Gran Turismo 3's 0x1EC098 in another layout)
+        prologue::near_drivers(cars_);
         for (size_t i = 0; i < cars_.size(); ++i) prologue::part_step(cars_[i], prologue_cars_[i], prologue_feel_[i]); // phase 15 (0x3B1C58)
     }
     for (size_t i = 0; i < cars_.size(); ++i) {

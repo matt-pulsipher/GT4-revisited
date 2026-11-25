@@ -328,6 +328,67 @@ void hybrid_start(const ex::Car& c, CarPart& x) {
     x.mileage = 0, x.mileage_steps = 30;
 }
 
+void near_drivers(std::span<ex::Car> cars) {
+    const F kHalf = F::raw(0x3F000000), five = F::raw(0x40A00000), twenty = F::raw(0x41A00000);
+    for (ex::Car& c : cars) c.ai.contact = F(), c.ai.zone = {};
+    // 0x4281E8: the cells (front, front left, front right, left, right, rear left, rear right, rear) from a car at (u ahead, v right).
+    const auto zones = [&](std::array<u8, 8>& z, F dist, F u, F v, F ahead, F behind, F w) {
+        enum { kFront, kFrontLeft, kFrontRight, kLeft, kRight, kRearLeft, kRearRight, kRear };
+        const auto least = [&](int cell, gt3r::s8 n) {
+            if (gt3r::s8(z[size_t(cell)]) < n) z[size_t(cell)] = u8(n);
+        };
+        if (twenty < dist) return;
+        const F lim = w + F::raw(0x40400000);
+        if (v < -lim || lim < v) return;
+        const F nine = F::raw(0x3F666666);
+        if (ahead * nine < u) {
+            const F w75 = w * F::raw(0x3F400000), gap = u - ahead;
+            const auto side = [&](int cell) {
+                if (gap < five) least(cell, 2);
+                else if (gap < twenty) least(cell, 1);
+            };
+            if (v < -w75) return side(kFrontLeft);
+            if (w75 < v) return side(kFrontRight);
+            if (gap < twenty) least(kFront, 2);
+            if (v < -(w * kHalf)) side(kFrontLeft);
+            if (w * kHalf < v) side(kFrontRight);
+        } else if (u < -(behind * nine)) {
+            if (v < -w) return least(kRearLeft, 2);
+            if (w < v) return least(kRearRight, 2);
+            least(kRear, 2);
+            least(F() < v ? kRearRight : kRearLeft, 1);
+        } else {
+            const bool left = v < F();
+            least(left ? kLeft : kRight, 2);
+            if (ahead * kHalf < u) least(left ? kFrontLeft : kFrontRight, 1);
+            else if (u < -(behind * kHalf)) least(left ? kRearLeft : kRearRight, 1);
+        }
+    };
+    const auto meet = [&](ex::Car& a, const ex::Car& b, F u, F v) {
+        F gap, rate;
+        if (!ex::gap_closing(a, b, u, v, gap, rate)) return; // (0x3DBEE8)
+        F x;
+        if (F::raw(0x3FB1C71B) < rate) x = F::raw(0x3F800000);
+        else if (F::raw(0x3CE38E37) < rate && gap / rate < five) x = kHalf;
+        if (x == F()) {
+            if (gap < kHalf) x = F::raw(0x3D4CCCCC);
+            else if (gap < F::raw(0x40800000)) x = F::raw(0x3DCCCCCC);
+        }
+        if (a.ai.contact < x) a.ai.contact = x;
+    };
+    for (size_t i = 0; i < cars.size(); ++i)
+        for (size_t j = i + 1; j < cars.size(); ++j) {
+            ex::Car &a = cars[i], &b = cars[j];
+            ex::PairView pv;
+            if (!ex::pair_view(a, b, pv)) continue;
+            const F w = (a.p.body_width + b.p.body_width) * kHalf;
+            const F ab = a.p.body_front + b.p.body_rear, ba = a.p.body_rear + b.p.body_front;
+            zones(a.ai.zone, pv.dist, pv.ua, pv.va, ab, ba, w);
+            zones(b.ai.zone, pv.dist, pv.ub, pv.vb, ba, ab, w);
+            if (pv.dist < twenty) meet(a, b, pv.ua, pv.va), meet(b, a, pv.ub, pv.vb);
+        }
+}
+
 int gear_for_speed(const ex::Car& c, F v) {
     if (v < F()) return 0;
     if (c.p.d.kind == 3 || c.p.d.kind == 1) return 1; // (one speed; stepless)

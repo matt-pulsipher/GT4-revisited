@@ -74,7 +74,7 @@ bool run_passcode(Disc& disc, int count);
 // Phase 14 (prologue_near.cpp) in a race of `cars` (labels, comma-separated) against the engine's pairs pass.
 int run_near(Disc& disc, const std::string& course, const std::string& cars, int steps);
 struct NearStats {
-    u64 records = 0, clean = 0, with_slip = 0; // car records compared; those equal but for the drivers' zones and contact; those with a slipstream
+    u64 records = 0, clean = 0, with_slip = 0; // car records compared; those equal, the drivers' zones and contact too; those with a slipstream
     std::string err;
 };
 NearStats near_check(Disc& disc, const std::string& course, const std::string& cars, int steps, bool print);

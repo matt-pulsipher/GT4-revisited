@@ -419,7 +419,6 @@ private:
     template <class Fn> void with_record(Driver& d, Fn fn);
     void prologue_setup(Driver& d);
     void prologue_decide(Driver& d, bool plans_only, race::CarInput& in);
-    void prologue_proximity();
     void suggest(Driver& d);
     Tables tables_;
     CourseLines lines_;
