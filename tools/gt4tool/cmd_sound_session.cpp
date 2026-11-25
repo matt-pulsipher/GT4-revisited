@@ -24,6 +24,7 @@
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/formats/course/runway.h"
+#include "gt4r/formats/course/runway_gtrw.h"
 #include "gt4r/sim/session.h"
 #include "vfs/vfs.h"
 
@@ -75,7 +76,12 @@ int sound_session_wav(Disc& disc, const std::vector<std::string>& a) {
     }
     const Bytes data = disc.volume().read(*e);
     const course::CourseFile file = course::CourseFile::parse(data);
-    auto road = std::make_shared<const course::Runway>(course::Runway::parse(file.section(data, course::kSlotRunway)));
+    std::optional<course::Runway> parsed = course::course_road(file, data); // (RNW4, or Prologue's GTRW)
+    if (!parsed) {
+        std::fprintf(stderr, "error: crs/%s has no road\n", course_name.c_str());
+        return 1;
+    }
+    auto road = std::make_shared<const course::Runway>(std::move(*parsed));
     std::unique_ptr<sim::Session> session;
     try {
         const std::string labels[] = {label};
