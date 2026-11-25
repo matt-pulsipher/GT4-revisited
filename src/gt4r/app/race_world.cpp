@@ -95,6 +95,7 @@ struct RaceWorld::Impl {
     gt3r::race::WetRoad wet;
     render::ScreenBatch overlay;
     bool env_ready = false;
+    RVec env_at; // where the cars' reflection picture was last drawn from
     int frame = 0;
 };
 
@@ -863,7 +864,10 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
             eo.quantize_rgb5 = true;
             for (float& c : eo.clear) c = 0;
             eo.clear[3] = 1;
-            const unsigned faces = m.env_ready ? 1u << (m.frame % 6) : 0x3Fu;
+            // (Whole when it starts and after a jump: another car, a restart, a replay's start.)
+            const bool whole = !m.env_ready || render::length(at - m.env_at) > 20;
+            m.env_at = at;
+            const unsigned faces = whole ? 0x3Fu : 1u << (m.frame % 6);
             if (m.view->render_env_cube(at, m.env_items, eo, 128, faces)) o.env_cube = m.view->env_cube(), o.env_gt3_lookup = true, m.env_ready = true;
         }
     }
