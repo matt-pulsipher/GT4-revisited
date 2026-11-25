@@ -14,6 +14,7 @@
 // championship, license, mission, time_trial, freerun, practice, machinetest), `race=<label>` its event.
 
 #include "gt4r/app/app.h"
+#include "gt4r/app/page.h"
 #include "gt4r/app/menu_painter.h"
 #include "gt4r/app/race_hud.h"
 #include "gt4r/app/race_hud_prologue.h"
@@ -1844,7 +1845,12 @@ public:
             sel = std::clamp(sel + m.vertical(), 0, n - 1);
             if (m.pressed(PadButton::L1)) sel = std::max(0, sel - 12);
             if (m.pressed(PadButton::R1)) sel = std::min(n - 1, sel + 12);
-            if (m.pressed(PadButton::Cross)) {
+            // (the mouse: a click selects, a click on a list's selected row drives)
+            bool clicked = false;
+            for (const RowPointer::Hit& h : mouse_.read(app))
+                if (h.click) column_ = h.list;
+            for (int c = 0; c < 2; ++c) clicked = mouse_.pick(app, c, c == 0 ? course_sel_ : car_sel_, int(c == 0 ? courses_.size() : cars_.size())) || clicked;
+            if (m.pressed(PadButton::Cross) || clicked) {
                 setup_.course = courses_[size_t(course_sel_)].label;
                 setup_.car = cars_[size_t(car_sel_)].label;
                 start(app);
@@ -3301,9 +3307,11 @@ private:
         ui.header("DRIVE", "");
         const float top = 34, row = 12;
         const int rows = int((Ui::kHeight - 30 - top) / row);
+        mouse_.begin();
         auto list = [&](float x, float w, int n, int sel, bool active, const std::function<std::string(int)>& label, const char* title) {
             ui.text(x, top - 12, title, active ? colors::kAccent : colors::kDim);
             const int first = std::clamp(sel - rows / 2, 0, std::max(0, n - rows));
+            mouse_.rows(x < 200 ? 0 : 1, first, std::min(rows, n - first), x - 4, top + 2, w, row);
             for (int i = 0; i < rows && first + i < n; ++i) {
                 const int idx = first + i;
                 const float y = top + 4 + float(i) * row;
@@ -3360,6 +3368,7 @@ private:
     std::vector<db::CarEntry> cars_;
     std::vector<db::CourseEntry> courses_;
     int course_sel_ = 0, car_sel_ = 0, column_ = 0;
+    RowPointer mouse_; // Drive's lists'
     std::unique_ptr<Race> race_;
     std::unique_ptr<RaceHud> hud_;
     std::unique_ptr<PrologueHud> prologue_hud_; // (Prologue's display, when the disc's is not Gran Turismo 4's)

@@ -307,6 +307,10 @@ void App::save_config() {
 }
 
 void App::show_open_dialog() {
+    if (scripted_) { // (no window over whoever is at the machine: GT4R_DIALOG is the answer)
+        if (const char* path = SDL_getenv("GT4R_DIALOG")) request_disc(path);
+        return;
+    }
     SDL_ShowOpenFileDialog(on_dialog, this, window_, kDiscFilters, SDL_arraysize(kDiscFilters), nullptr, false);
 }
 
@@ -398,7 +402,8 @@ SDL_AppResult App::iterate() {
     double dt = std::min(wall_ms / 1e3, 0.1);
     last_ticks_ = now;
     idle_cursor(now);
-    ++fps_frames_, fps_time_ += wall_ms / 1e3;
+    if (fps_last_) ++fps_frames_, fps_time_ += double(now - fps_last_) / 1e9; // (a picture's frame: with the wait in it)
+    fps_last_ = now;
     if (fps_time_ >= 0.5) fps_shown_ = fps_frames_ / fps_time_, fps_frames_ = 0, fps_time_ = 0;
     if (!sweep_.empty()) dt = 1.0 / 60.0; // (a sweep's frames: a 60th of a second each, as fast as they come)
     if (!shot_path_.empty()) {
@@ -451,7 +456,15 @@ SDL_AppResult App::iterate() {
     pointer_actions_ = pointer_.take();
     pointer_actions_.insert(pointer_actions_.end(), scripted_pointer_.begin(), scripted_pointer_.end());
     scripted_pointer_.clear();
-    menu_.update(scripted.buttons ? scripted : !screens_.empty() && screens_.back()->menu_input_any_device() ? input_->any_device_pad() : input_->menu_pad(), dt);
+    {
+        Screen* top = screens_.empty() ? nullptr : screens_.back().get();
+        gt3r::PadState pad = scripted.buttons ? scripted : top && top->menu_input_any_device() ? input_->any_device_pad() : input_->menu_pad();
+        // The mouse's right button goes back on the app's own pages.
+        if (top && !top->follows_aspect())
+            for (const gt3r::PointerInput::Action& a : pointer_actions_)
+                if (a.kind == gt3r::PointerInput::Action::Kind::Back) pad.buttons |= u16(1u << unsigned(PadButton::Triangle)), pad.connected = true;
+        menu_.update(pad, dt);
+    }
     if (!screens_.empty()) screens_.back()->update(*this, dt);
     apply_screen_changes();
     if (screens_.empty()) quit_ = true;
@@ -494,7 +507,7 @@ SDL_AppResult App::iterate() {
     // A graphics driver that gave up never comes back, and the frames that never finish fill the memory: closed with a message.
     if (gpu_ && std::strstr(SDL_GetError(), "DEVICE_LOST")) {
         LOG_ERROR("The graphics device was lost: %s", SDL_GetError());
-        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "GT4 Revisited", "The graphics driver stopped responding, so the game has to close.", window_);
+        if (!scripted_) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "GT4 Revisited", "The graphics driver stopped responding, so the game has to close.", window_);
         return SDL_APP_FAILURE;
     }
     if (dynamic_on_)

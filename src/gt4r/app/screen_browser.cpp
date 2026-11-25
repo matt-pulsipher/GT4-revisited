@@ -3,6 +3,7 @@
 // streams, movies; everything else shows its size, kind and first bytes.
 
 #include "gt4r/app/app.h"
+#include "gt4r/app/page.h"
 
 #include "base/log.h"
 #include "formats/gs_memory.h"
@@ -89,6 +90,7 @@ public:
             const int page = m.pressed(PadButton::L1) ? -kRows : m.pressed(PadButton::R1) ? kRows : 0;
             sel_ = std::clamp(sel_ + m.vertical() + page, 0, n - 1);
         }
+        const bool clicked = mouse_.pick(app, 0, sel_, n);
         if (!preview_.textures.empty() && m.horizontal())
             preview_.current = (preview_.current + m.horizontal() + int(preview_.textures.size())) % int(preview_.textures.size());
         if (m.pressed(PadButton::Triangle) && dir_.empty()) {
@@ -105,7 +107,7 @@ public:
             sel_ = it == entries_.end() ? 0 : int(it - entries_.begin());
             return;
         }
-        if (m.pressed(PadButton::Cross) && n > 0) {
+        if ((m.pressed(PadButton::Cross) || clicked) && n > 0) {
             const std::string& e = entries_[size_t(sel_)];
             if (e.back() == '/') {
                 dir_ += e;
@@ -127,11 +129,12 @@ public:
     void render(App& app, Ui& ui) override {
         ui.header("ASSET BROWSER", app.disc()->info().description + "   /" + dir_);
         const int n = int(entries_.size());
-        const int first = ui.list_window(n, sel_, kRows);
+        const int first = ui.list_window(n, sel_, kRows), over = mouse_.over(app, 0);
+        mouse_.begin(), mouse_.rows(0, first, std::min(kRows, n - first), 4, 24, 250, 12);
         for (int i = 0; i < kRows && first + i < n; ++i) {
             const int idx = first + i;
             const float y = 26 + i * 12.0f;
-            if (idx == sel_) ui.fill(4, y - 2, 250, 12, colors::kHighlight);
+            if (idx == sel_ || idx == over) ui.fill(4, y - 2, 250, 12, idx == sel_ ? colors::kHighlight : colors::kPanel);
             const std::string& name = entries_[size_t(idx)];
             const bool is_dir = name.back() == '/';
             const std::string src = is_dir ? "" : app.vfs()->source_of(dir_ + name);
@@ -348,6 +351,7 @@ private:
         }
     }
 
+    RowPointer mouse_;
     std::string open_path_;
     std::string dir_;
     std::vector<std::string> entries_;

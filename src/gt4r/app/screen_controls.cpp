@@ -40,9 +40,7 @@ public:
             return;
         }
         build(app);
-        bool back = m.pressed(PadButton::Triangle);
-        for (const gt3r::PointerInput::Action& a : app.pointer()) back = back || a.kind == gt3r::PointerInput::Action::Kind::Back;
-        if (back) {
+        if (m.pressed(PadButton::Triangle)) {
             if (changed_) save(app);
             in.set_rumble(player_, {});
             app.pop();

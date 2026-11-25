@@ -78,7 +78,7 @@ class SettingsScreen : public Screen {
 public:
     enum Page { kDisplay, kAudio, kControls, kDisc, kMods, kPages };
 
-    SettingsScreen(int page, std::string install) : page_(std::clamp(page, 0, int(kPages) - 1)), install_(std::move(install)) {}
+    SettingsScreen(App& app, int page, std::string install) : scripted_(app.scripted()), page_(std::clamp(page, 0, int(kPages) - 1)), install_(std::move(install)) {}
 
     bool menu_input_any_device() const override { return true; }
     bool takes_dropped_file(const std::string& path) const override { return path.size() > 4 && gt3r::to_lower(path.substr(path.size() - 4)) == ".zip"; }
@@ -106,7 +106,6 @@ public:
         const MenuInput& m = app.menu();
         build(app);
         for (const Pointer& a : app.pointer()) {
-            if (a.kind == Pointer::Kind::Back) return back(app);
             if (a.kind != Pointer::Kind::Click) continue;
             for (int i = 0; i < kPages; ++i)
                 if (tabs_[i].contains(a.x, a.y)) return turn_to(i);
@@ -155,7 +154,8 @@ private:
     void back(App& app) {
         if (dump_.running()) return dump_.cancel();
         if (!mod_.empty()) {
-            mod_.clear();
+            mod_.clear(), message_.clear();
+            rows_.selected = list_row_, rows_.scroll.first = list_first_;
             return;
         }
         stop_preview(app);
@@ -400,7 +400,7 @@ private:
         for (const std::string& p : {before, now})
             if (const auto b = gt3r::read_host_file(p)) text += "--- " + fs::path(p).filename().string() + "\n" + std::string(b->begin(), b->end()) + "\n";
         // (the clipboard of a scripted run is left alone)
-        if (SDL_getenv("GT4R_DIALOG") || SDL_SetClipboardText(text.c_str())) say("Copied (" + std::to_string(text.size() / 1024 + 1) + " KB).");
+        if (scripted_ || SDL_SetClipboardText(text.c_str())) say("Copied (" + std::to_string(text.size() / 1024 + 1) + " KB).");
         else say(std::string("Not copied: ") + SDL_GetError(), true);
     }
 
@@ -439,7 +439,7 @@ private:
                     r.value = (m.for_disc ? r.value : "For another disc") + "   " + contents(m);
                     r.enabled = true;
                     if (!m.for_disc) r.change = nullptr;
-                    r.press = [this, id = m.id] { mod_ = id, list_row_ = rows_.selected, rows_.selected = 0, rows_.scroll.first = 0; }, r.press_hint = "open";
+                    r.press = [this, id = m.id] { mod_ = id, message_.clear(), list_row_ = rows_.selected, list_first_ = rows_.scroll.first, rows_.selected = 0, rows_.scroll.first = 0; }, r.press_hint = "open";
                     r.other = [this, a, id = m.id] { ask_remove(*a, id); }, r.other_hint = "remove";
                 }
     }
@@ -580,7 +580,8 @@ private:
         std::optional<gt3r::platform::DiscRecord> record;
     };
 
-    int page_ = 0, list_row_ = 0;
+    bool scripted_ = false;
+    int page_ = 0, list_row_ = 0, list_first_ = 0;
     bool on_tabs_ = false, look_again_ = true, discs_known_ = false, message_bad_ = false, previewing_ = false, asked_ = false;
     PageRows rows_;
     UiRect tabs_[kPages];
@@ -594,6 +595,6 @@ private:
 
 } // namespace
 
-std::unique_ptr<Screen> make_settings_screen(App&, int page, const std::string& install) { return std::make_unique<SettingsScreen>(page, install); }
+std::unique_ptr<Screen> make_settings_screen(App& app, int page, const std::string& install) { return std::make_unique<SettingsScreen>(app, page, install); }
 
 } // namespace gt4r

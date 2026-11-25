@@ -40,6 +40,10 @@ public:
     std::vector<Hit> read(App& app) const;
     // The wheel's turns over a list (0 when the mouse is not on it).
     float wheel(App& app, int list) const;
+    // For a list that keeps its selection in the middle: a click selects a row (true: the row that was selected already, to open
+    // it), the wheel moves the selection among `count`. The row the mouse is on, -1: none.
+    bool pick(App& app, int list, int& selected, int count) const;
+    int over(App& app, int list) const;
 
 private:
     struct Area {
@@ -128,7 +132,7 @@ public:
 
 private:
     struct Slot;
-    bool scripted();
+    bool scripted(App& app);
     std::shared_ptr<Slot> slot_;
 };
 

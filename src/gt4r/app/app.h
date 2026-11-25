@@ -105,6 +105,7 @@ public:
 
     // What the mouse did since the last frame (UI units), for the page on top.
     const std::vector<gt3r::PointerInput::Action>& pointer() const { return pointer_actions_; }
+    bool mouse_at(float& x, float& y) const { return !cursor_hidden_ && pointer_.hover_pos(x, y); }
     SDL_Window* window() { return window_; }
     bool scripted() const { return scripted_; } // a --shot or --sweep run: opens nothing outside its own window
     const std::string& config_path() const { return config_path_; }
@@ -182,6 +183,7 @@ private:
     bool gamma_frame_ = false;
     int fps_frames_ = 0;
     double fps_time_ = 0, fps_shown_ = 0;
+    Uint64 fps_last_ = 0;
     Uint64 mouse_used_ns_ = 0;
     bool cursor_hidden_ = false, screenshot_wanted_ = false;
     gt3r::PointerInput pointer_;

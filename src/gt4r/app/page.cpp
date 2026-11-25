@@ -58,6 +58,23 @@ float RowPointer::wheel(App& app, int list) const {
     return turns;
 }
 
+bool RowPointer::pick(App& app, int list, int& selected, int count) const {
+    bool open = false;
+    if (const float turns = wheel(app, list); turns != 0) selected -= turns > 0 ? std::max(1, int(std::lround(turns))) : std::min(-1, int(std::lround(turns)));
+    for (const Hit& h : read(app))
+        if (h.click && h.list == list) open = h.row == selected, selected = h.row;
+    selected = std::clamp(selected, 0, std::max(0, count - 1));
+    return open;
+}
+
+int RowPointer::over(App& app, int list) const {
+    float x = 0, y = 0;
+    if (!app.mouse_at(x, y)) return -1;
+    for (const Area& a : areas_)
+        if (a.list == list && a.r.contains(x, y)) return a.first + std::clamp(int((y - a.r.y) / (a.r.h / float(a.count))), 0, a.count - 1);
+    return -1;
+}
+
 // --- rows ---
 
 PageRow& PageRows::heading(std::string label) {
@@ -313,21 +330,22 @@ template <class Slot> void SDLCALL on_answer(void* user, const char* const* file
 
 } // namespace
 
-bool FileWindow::scripted() {
+// A scripted run (and GT4R_DIALOG) answers by itself: no window opens over whoever is at the machine.
+bool FileWindow::scripted(App& app) {
     slot_ = std::make_shared<Slot>();
     const char* path = std::getenv("GT4R_DIALOG");
-    if (!path) return false;
-    slot_->path = path, slot_->answered = true;
+    if (!path && !app.scripted()) return false;
+    slot_->path = path ? path : "", slot_->answered = true;
     return true;
 }
 
 void FileWindow::open_file(App& app, const SDL_DialogFileFilter* filters, int count) {
-    if (slot_ || scripted()) return;
+    if (slot_ || scripted(app)) return;
     SDL_ShowOpenFileDialog(&on_answer<Slot>, new std::shared_ptr<Slot>(slot_), app.window(), filters, count, nullptr, false);
 }
 
 void FileWindow::open_folder(App& app) {
-    if (slot_ || scripted()) return;
+    if (slot_ || scripted(app)) return;
     SDL_ShowOpenFolderDialog(&on_answer<Slot>, new std::shared_ptr<Slot>(slot_), app.window(), nullptr, false);
 }
 
