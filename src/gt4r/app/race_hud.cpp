@@ -369,9 +369,21 @@ void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlaye
             const race::StrobeMovie::Gradient* grad = fill.kind == 1 && fill.index < movie.gradients.size() ? &movie.gradients[fill.index] : nullptr;
             std::vector<SDL_Vertex> v;
             v.reserve(d.group->triangles.size());
+            // (Prologue's movies: a shape across the whole 640 covers a wide picture too, as its 4:3 one.)
+            bool across = !m.race_fonts.fonts.empty();
+            if (across) {
+                float x0 = 1e9f, x1 = -1e9f;
+                for (const race::StrobeMovie::Point& p : d.group->triangles) {
+                    const float x = d.m[0] * p.x + d.m[2] * p.y + d.m[4];
+                    x0 = std::min(x0, x), x1 = std::max(x1, x);
+                }
+                across = x0 <= 0.5f && x1 >= 639.5f;
+            }
             for (const race::StrobeMovie::Point& p : d.group->triangles) {
                 SDL_Vertex x{};
-                x.position = to_ui(d.m[0] * p.x + d.m[2] * p.y + d.m[4], d.m[1] * p.x + d.m[3] * p.y + d.m[5]);
+                float px = d.m[0] * p.x + d.m[2] * p.y + d.m[4];
+                if (across) px = px <= 0.5f ? std::min(px, -107.0f) : px >= 639.5f ? std::max(px, 747.0f) : px;
+                x.position = to_ui(px, d.m[1] * p.x + d.m[3] * p.y + d.m[5]);
                 const float u = mat ? p.x * (*mat)[0] + p.y * (*mat)[4] + (*mat)[12] : 0, w = mat ? p.x * (*mat)[1] + p.y * (*mat)[5] + (*mat)[13] : 0;
                 x.tex_coord = {u, w};
                 if (fill.kind == 0) x.color = colour(fill.value, d);
