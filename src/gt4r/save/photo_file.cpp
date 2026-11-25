@@ -315,6 +315,14 @@ Result PhotoCard::save(const PhotoInfo& info, ByteSpan jpeg, const std::vector<u
     return Result::Ok;
 }
 
+Result PhotoCard::write_info(const std::string& folder, const PhotoInfo& info) {
+    if (card_.empty()) return Result::NoCard;
+    std::error_code ec;
+    const fs::path dir = fs::path(card_) / folder;
+    if (folder.find('/') != std::string::npos || !fs::is_directory(dir, ec)) return Result::FileNotFound;
+    return write_file(dir / "thumbnail", scramble(info.encode(), 0, chance(), FileKind::Info)) ? Result::Ok : Result::DeviceError;
+}
+
 Result PhotoCard::remove(const std::string& folder) {
     if (card_.empty()) return Result::NoCard;
     if (folder.empty() || folder.find('/') != std::string::npos || folder.rfind(product_, 0) != 0) return Result::FileNotFound;

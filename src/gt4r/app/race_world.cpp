@@ -453,6 +453,14 @@ const race::RailLine& RaceWorld::line() const {
     return *line_;
 }
 
+void RaceWorld::stand_car(size_t car, float x, float z, float heading) {
+    if (!session_ || course_->road().gtrw) return;
+    float y = 0;
+    if (!course_->road().height_at(x, z, 1000, y)) y = 0;
+    using gt3r::ee::F;
+    session_->place_standing(car, F(x), F(-z), F(y), F(heading));
+}
+
 float RaceWorld::lap_length() const { return course_->road().length; }
 
 int RaceWorld::gadget_contacts(size_t i) const {
@@ -729,7 +737,8 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
     const gt3r::race::SunParams& env = course_->env();
     const float far = env.has_env && env.far_clip > 0 ? env.far_clip : 5000.0f;
     // (The backdrop's far plane lies a hundred times as far as the scenery's.)
-    const render::Mat4 proj = render::perspective(pose.fovy(), aspect, 0.1f, far * 100.0f);
+    render::Mat4 proj = render::perspective(pose.fovy(), aspect, 0.1f, far * 100.0f);
+    if (lens_) proj.at(0, 2) += lens_->shear_x, proj.at(1, 2) += lens_->shear_y;
 
     course_->upload_animations(cars);
     m.fade.update(course_->visible_nodes(pose.eye), pose.eye, kStep);
@@ -774,7 +783,7 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
     lod_view.k = (224.0f / 0.75f) * (10.0f / 7.0f) / std::max(std::tan(pose.fov * 0.5f), 1e-3f);
     for (size_t i = 0; i < n; ++i) {
         if (int(i) == hidden) continue;
-        car_visuals_[i]->add_items(m.items, cars[i], pose.eye, kStep, &lod_view);
+        car_visuals_[i]->add_items(m.items, cars[i], pose.eye, kStep, lens_ && lens_->full_detail ? nullptr : &lod_view);
     }
     course_->add_after_items(m.items);
     if (m.smoke.loaded()) {
@@ -831,6 +840,7 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
     o.overlay = &m.overlay;
     o.post_grade = grade_;
     o.snapshot = snapshot_, o.dissolve = dissolve_, o.keep_last = keep_last_;
+    if (lens_) o.dof = lens_->dof, o.vignette = lens_->vignette;
     m.view->draw(ui.renderer(), rect, pose.view, proj, pose.eye, m.items, o);
     if (m.frame == 5)
         LOG_INFO("Drive: the car at (%.1f, %.1f, %.1f) heading (%.2f, %.2f), eye (%.1f, %.1f, %.1f); %d meshes drawn, %zu triangles", me.position.x,

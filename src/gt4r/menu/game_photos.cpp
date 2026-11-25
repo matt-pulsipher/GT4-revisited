@@ -1,0 +1,354 @@
+// The photos on the memory card as the scripts see them: the card manager's photo modes (the
+// shoot's saving, Photo Lab's lists: GT4MC's device and files) and the play lists made of them.
+// The files themselves are save/photo_file.*; docs/formats/photo.md.
+
+#include "gt4r/menu/game_internal.h"
+#include "gt4r/menu/photo_natives.h"
+#include "gt4r/save/card_icon.h"
+#include "gt4r/save/photo_file.h"
+
+#include <algorithm>
+#include <cstdio>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+
+namespace gt4r::menu {
+
+using script::Args;
+using script::Value;
+using script::Vm;
+
+namespace {
+
+// A photo of the card as a file object: what it stands for, and the picture its load read.
+struct PhotoFileObject : Object {
+    PhotoFileObject() : Object("MMemoryCardFile") {}
+    save::PhotoEntry entry;
+    int slot = 0;
+    Bytes jpeg; // after load
+};
+
+// The photos chosen for the slide show or the printer: the files of both cards by folder.
+struct PlayListObject : Object {
+    PlayListObject() : Object("MMemoryCardPlayList") {}
+    std::vector<std::shared_ptr<PhotoFileObject>> files;
+    bool changed = false;
+};
+
+std::string card_dir(Runtime& rt, int slot) {
+    if (rt.data_dir().empty()) return {};
+    std::string dir = rt.data_dir() + (slot == 1 ? "/memorycard2" : "/memorycard");
+    std::error_code ec;
+    // (The card in slot 2 is there when its folder is.)
+    if (slot == 1 && !std::filesystem::is_directory(dir, ec)) return {};
+    return dir;
+}
+
+save::PhotoCard photo_card(Runtime& rt, int slot) { return save::PhotoCard(card_dir(rt, slot), rt.reader()); }
+
+int card_free_kb(Runtime& rt, int slot) {
+    const std::string dir = card_dir(rt, slot);
+    if (dir.empty()) return 0;
+    int used = 1;
+    std::error_code ec;
+    for (const auto& e : std::filesystem::recursive_directory_iterator(dir, ec))
+        if (e.is_regular_file(ec)) used += int((e.file_size(ec) + 1023) / 1024);
+        else if (e.is_directory(ec)) used += 3; // (its entries)
+    return std::max(0, 8000 - used);
+}
+
+std::vector<u16> small_picture(const PhotoPicture& p) {
+    std::vector<u8> rgb(size_t(p.width) * size_t(p.height) * 3);
+    for (size_t i = 0; i < p.rgba.size() && i * 3 + 2 < rgb.size(); ++i)
+        for (int k = 0; k < 3; ++k) rgb[i * 3 + size_t(k)] = u8(p.rgba[i] >> (8 * k));
+    return photo::icon_pixels(rgb, p.width, p.height);
+}
+
+Value file_value(GameNatives& n, const save::PhotoEntry& e, int slot);
+
+std::shared_ptr<PhotoFileObject> make_file(GameNatives& n, const save::PhotoEntry& e, int slot) {
+    auto f = std::make_shared<PhotoFileObject>();
+    f->entry = e, f->slot = slot;
+    Runtime* rt = &n.rt;
+    std::weak_ptr<PhotoFileObject> weak = f;
+    f->set("objectName", text("FilePhoto"));
+    f->property("title", [weak] {
+        const auto p = weak.lock();
+        return text(p && p->entry.info ? p->entry.info->name : std::string());
+    }, [weak](const Value& v) {
+        const auto p = weak.lock();
+        if (p && p->entry.info) p->entry.info->name = v.to_string().substr(0, 63);
+    });
+    f->set("carName", text(e.info ? e.info->car_name : std::string()));
+    f->set("courseName", text(e.info ? e.info->course_file : std::string()));
+    f->set("time", text(""));
+    char date[32] = "--/--/--";
+    if (e.date[0]) std::snprintf(date, sizeof date, "%02d/%02d/%02d", e.date[0] - 2000, e.date[1], e.date[2]);
+    f->set("date", text(date));
+    f->set("size", number(e.kb)), f->set("portrait", number(e.portrait)), f->set("dispstep", number(0));
+    f->set("spectatorMode", number(0)), f->set("racemode", number(0)), f->set("racesubmode", number(0));
+    f->method("isInfoValid", [ok = e.info.has_value()](Vm&, const Value&, Args) { return number(ok); });
+    const std::string name = "photo:" + std::to_string(slot) + ":" + e.folder;
+    const bool icon = photo_card(*rt, slot).icon(e.folder).has_value();
+    f->method("isIconValid", [icon](Vm&, const Value&, Args) { return number(icon); });
+    f->method("getIconTexture", [rt, name, folder = e.folder, slot](Vm&, const Value&, Args) {
+        if (!rt->game().chunk_pictures.count(name)) {
+            std::optional<std::vector<u32>> px = photo_card(*rt, slot).icon(folder);
+            if (!px) return text("");
+            rt->game().chunk_pictures[name] = {save::kIconPicture, save::kIconPicture, std::move(*px)};
+        }
+        return text(name);
+    });
+    f->method("writeInfo", [rt, weak](Vm&, const Value&, Args) {
+        const auto p = weak.lock();
+        if (!p || !p->entry.info) return text("INVALID_FILE");
+        return text(save::result_name(photo_card(*rt, p->slot).write_info(p->entry.folder, *p->entry.info)));
+    });
+    f->method("load", [rt, weak](Vm&, const Value&, Args) {
+        const auto p = weak.lock();
+        if (!p) return text("INVALID_FILE");
+        if (p->entry.kind != 'P') return text("INVALID_FILE"); // ❓ a film is not developed here
+        std::optional<Bytes> jpeg = photo_card(*rt, p->slot).picture(p->entry.folder);
+        if (!jpeg) return text("INVALID_FILE");
+        p->jpeg = std::move(*jpeg);
+        return text("OK");
+    });
+    f->method("remove", [rt, weak](Vm&, const Value&, Args) {
+        const auto p = weak.lock();
+        return number(p && photo_card(*rt, p->slot).remove(p->entry.folder) == save::Result::Ok);
+    });
+    f->method("isExist", [](Vm&, const Value&, Args) { return number(0); });
+    f->method("readSize", [kb = e.kb](Vm&, const Value&, Args) { return number(kb); });
+    f->method("dump", [](Vm&, const Value&, Args) { return Value{}; });
+    return f;
+}
+
+Value file_value(GameNatives& n, const save::PhotoEntry& e, int slot) { return object_value(make_file(n, e, slot)); }
+
+int find_file(const PlayListObject& l, const Value& v) {
+    const auto f = v.as<PhotoFileObject>();
+    if (!f) return -1;
+    for (size_t i = 0; i < l.files.size(); ++i)
+        if (l.files[i]->entry.folder == f->entry.folder && l.files[i]->slot == f->slot) return int(i);
+    return -1;
+}
+
+std::shared_ptr<PlayListObject> make_list() {
+    auto l = std::make_shared<PlayListObject>();
+    std::weak_ptr<PlayListObject> weak = l;
+    auto with = [weak](auto f) {
+        return [weak, f](Vm&, const Value&, Args a) -> Value {
+            const auto p = weak.lock();
+            return p ? f(*p, a) : Value{};
+        };
+    };
+    l->property("size", [weak] {
+        const auto p = weak.lock();
+        return number(p ? s32(p->files.size()) : 0);
+    });
+    l->method("append", with([](PlayListObject& p, Args a) -> Value {
+                  if (!a.empty())
+                      if (const auto f = a[0].as<PhotoFileObject>(); f && find_file(p, a[0]) < 0) p.files.push_back(f), p.changed = true;
+                  return Value{};
+              }));
+    l->method("remove", with([](PlayListObject& p, Args a) -> Value {
+                  const s32 i = arg_int(a, 0, -1);
+                  if (i >= 0 && size_t(i) < p.files.size()) p.files.erase(p.files.begin() + i), p.changed = true;
+                  return Value{};
+              }));
+    l->method("search", with([](PlayListObject& p, Args a) -> Value { return number(a.empty() ? -1 : find_file(p, a[0])); }));
+    l->method("isChanged", with([](PlayListObject& p, Args) -> Value {
+                  const bool c = p.changed;
+                  p.changed = false;
+                  return number(c);
+              }));
+    l->method("clear", with([](PlayListObject& p, Args) -> Value {
+                  p.files.clear(), p.changed = true;
+                  return Value{};
+              }));
+    // order(table): the files in that order (the list's rows dragged).
+    l->method("order", with([](PlayListObject& p, Args a) -> Value {
+                  const std::vector<Value>* t = a.empty() ? nullptr : a[0].items();
+                  if (!t || t->size() != p.files.size()) return Value{};
+                  std::vector<std::shared_ptr<PhotoFileObject>> out;
+                  for (const Value& v : *t) {
+                      const int i = v.is_number() ? int(v.as_float()) : -1;
+                      if (i < 0 || size_t(i) >= p.files.size()) return Value{};
+                      out.push_back(p.files[size_t(i)]);
+                  }
+                  p.files = std::move(out), p.changed = true;
+                  return Value{};
+              }));
+    l->method("rotate", with([](PlayListObject& p, Args a) -> Value {
+                  const int n = int(p.files.size());
+                  if (n) std::rotate(p.files.begin(), p.files.begin() + ((arg_int(a, 0) % n) + n) % n, p.files.end());
+                  return Value{};
+              }));
+    l->method("getFile", with([](PlayListObject& p, Args a) -> Value {
+                  const s32 i = arg_int(a, 0, -1);
+                  return i >= 0 && size_t(i) < p.files.size() ? object_value(p.files[size_t(i)]) : Value{};
+              }));
+    return l;
+}
+
+} // namespace
+
+int photos_kb(Runtime& rt) {
+    int kb = 0;
+    for (char kind : {'P', 'F'})
+        for (const save::PhotoEntry& e : photo_card(rt, 0).list(kind)) kb += e.kb;
+    return kb;
+}
+
+void photo_day(Runtime& rt, const std::string& course) {
+    DayEvent day;
+    day.type = 8, day.b3 = 5, day.b1 = 15, day.b2 = 14, day.word = kNoTime;
+    if (const auto n = natives_of(rt)) day.code = n->db().code(kCourseTable, course);
+    rt.game().put_day(day);
+}
+
+std::vector<float> photo_apertures(Runtime& rt) {
+    std::vector<float> out;
+    const auto n = natives_of(rt);
+    if (!n) return out;
+    n->db();
+    const sim::Program& program = n->database->program;
+    if (!program.known()) return out;
+    constexpr u32 kApertures = 0x620E70;
+    for (u32 i = 0; i < 16; ++i) {
+        const u32 w = program.w(kApertures + i * 4);
+        float f;
+        std::memcpy(&f, &w, 4);
+        out.push_back(f);
+    }
+    return out;
+}
+
+void photo_file_picture(Runtime& rt, Object& file) {
+    auto* f = dynamic_cast<PhotoFileObject*>(&file);
+    if (!rt.photo_picture) rt.photo_picture = std::make_shared<PhotoPicture>();
+    PhotoPicture& p = *rt.photo_picture;
+    const u64 version = p.version + 1;
+    p = PhotoPicture{};
+    p.version = version;
+    if (!f || f->jpeg.empty()) return;
+    try {
+        JpegPicture j = decode_jpeg(f->jpeg);
+        p.width = j.width, p.height = j.height, p.rgba = std::move(j.rgba), p.focus = j.focus;
+        p.jpeg = f->jpeg;
+        // (The file's padding past the picture's end is not part of it.)
+        while (p.jpeg.size() > 2 && !p.jpeg.back()) p.jpeg.pop_back();
+    } catch (const std::exception& e) {
+        rt.note(std::string("photo: ") + e.what());
+    }
+}
+
+void install_photo_lists(GameNatives& n, script::Module& menu) {
+    auto cls = make_class(menu, "MMemoryCardPlayList");
+    cls->construct = [](Vm&, Args) { return object_value(make_list()); };
+    n.photo_print_list = object_value(make_list());
+}
+
+bool install_photo_manager(GameNatives& n, Object& manager, const std::string& mode, int slot) {
+    const bool save_photo = mode == "MODE_SAVE_PHOTO_PICTURE", save_film = mode == "MODE_SAVE_PHOTO_FILM";
+    const bool load_photo = mode == "MODE_LOAD_PHOTO_PICTURE" || mode == "MODE_LOAD_PHOTO_PICTURE_AND_TRANSFER_USB_MEMORY";
+    const bool load_film = mode == "MODE_LOAD_PHOTO_FILM";
+    const bool play_list = mode == "MODE_PHOTO_PLAYLIST", print_list = mode == "MODE_PHOTO_PRINTLIST";
+    if (!save_photo && !save_film && !load_photo && !load_film && !play_list && !print_list) return false;
+    GameNatives* np = &n;
+    Runtime* rt = &n.rt;
+    auto connected = [rt, slot] { return rt->game().card.connected && photo_card(*rt, slot).connected(); };
+    auto progress = std::make_shared<Object>("MProgress");
+    progress->set("value", Value::number(0));
+    manager.set("progress", object_value(progress));
+    for (const char* q : {"isConnect", "isFormat"}) manager.method(q, [connected](Vm&, const Value&, Args) { return number(connected()); });
+    manager.method("isChanged", [](Vm&, const Value&, Args) { return number(0); });
+    manager.method("isUseNewFile", [](Vm&, const Value&, Args) { return number(1); });
+    manager.method("isAutoSaveDisabled", [](Vm&, const Value&, Args) { return number(0); });
+    for (const char* nothing : {"clearAutoSaveDisabled", "requestPause", "waitPause", "start", "restart"})
+        manager.method(nothing, [](Vm&, const Value&, Args) { return Value{}; });
+    manager.property("free", [rt, slot] { return number(card_free_kb(*rt, slot)); });
+    manager.property("realFree", [rt, slot] { return number(card_free_kb(*rt, slot)); });
+    manager.set("cursorPos", number(0));
+    manager.set("autoloadPlayListResult", text("OK"));
+
+    // The slide show's list: kept as the file the scripts save (❓ the program's LSTSLIDE file is not written).
+    auto shown = std::make_shared<std::shared_ptr<PlayListObject>>();
+    auto auto_list = std::make_shared<Object>("MMemoryCardFile");
+    auto_list->property("list", [shown] { return *shown ? object_value(*shown) : Value{}; }, [shown](const Value& v) {
+        if (const auto l = v.as<PlayListObject>()) *shown = l;
+    });
+    auto_list->set("size", number(4));
+    auto_list->method("save", [](Vm&, const Value&, Args) { return text("OK"); });
+    manager.set("autoloadPlayList", object_value(auto_list));
+
+    // The list: the card's photos or films, or the play list's files.
+    auto files = std::make_shared<std::vector<save::PhotoEntry>>();
+    auto list = std::make_shared<std::shared_ptr<PlayListObject>>();
+    auto cache = std::make_shared<std::map<std::string, std::shared_ptr<PhotoFileObject>>>();
+    const char kind = load_film || save_film ? 'F' : 'P';
+    auto read = [rt, slot, files, kind] { *files = photo_card(*rt, slot).list(kind); };
+    if (load_photo || load_film) read();
+    manager.property("list", [list] { return *list ? object_value(*list) : Value{}; }, [list](const Value& v) {
+        if (const auto l = v.as<PlayListObject>()) *list = l;
+    });
+    if (print_list)
+        if (const auto l = n.photo_print_list.as<PlayListObject>()) *list = l;
+    auto count = [files, list, play_list, print_list, connected]() -> s32 {
+        if (play_list || print_list) return *list ? s32((*list)->files.size()) : 0;
+        return connected() ? s32(files->size()) : 0;
+    };
+    manager.property("count", [count] { return number(count()); });
+    manager.method("isNoFile", [count](Vm&, const Value&, Args) { return number(count() == 0); });
+    manager.method("clear", [read, cache, load_photo, load_film](Vm&, const Value&, Args) {
+        if (load_photo || load_film) read(), cache->clear();
+        return Value{};
+    });
+    manager.method("getFile", [np, slot, files, list, cache, play_list, print_list](Vm&, const Value&, Args a) -> Value {
+        const s32 i = arg_int(a, 0, -1);
+        if (i < 0) return Value{};
+        if (play_list || print_list) return *list && size_t(i) < (*list)->files.size() ? object_value((*list)->files[size_t(i)]) : Value{};
+        if (size_t(i) >= files->size()) return Value{};
+        const save::PhotoEntry& e = (*files)[size_t(i)];
+        auto& f = (*cache)[e.folder];
+        if (!f) f = make_file(*np, e, slot);
+        return object_value(f);
+    });
+
+    // A new photo: the picture the shoot has taken.
+    auto file = std::make_shared<Object>("MMemoryCardFile");
+    file->set("objectName", text("FilePhoto"));
+    file->method("isExist", [connected](Vm&, const Value&, Args) { return number(connected() ? 1 : -1); });
+    file->method("readSize", [](Vm&, const Value&, Args) { return number(0); });
+    file->method("format", [](Vm&, const Value&, Args) { return number(1); });
+    file->method("remove", [](Vm&, const Value&, Args) { return number(1); });
+    file->method("isInfoValid", [](Vm&, const Value&, Args) { return number(0); });
+    for (const char* nothing : {"dump", "setNewFile"}) file->method(nothing, [](Vm&, const Value&, Args) { return Value{}; });
+    file->property("size", [rt, slot] {
+        if (!rt->photo_picture || rt->photo_picture->jpeg.empty()) return number(0);
+        const PhotoPicture& p = *rt->photo_picture;
+        return number(photo_card(*rt, slot).needed_kb(p.jpeg, small_picture(p), p.height > p.width));
+    });
+    file->method("saveNew", [np, rt, slot, save_film](Vm&, const Value&, Args a) {
+        if (!rt->photo_picture || rt->photo_picture->jpeg.empty() || !rt->photo) return text("INVALID_FILE");
+        // ❓ A film (the scene itself, developed in Photo Lab) is not written.
+        if (save_film) return text("DEVICE_ERROR");
+        const PhotoPicture& p = *rt->photo_picture;
+        Database& d = np->db();
+        save::PhotoInfo info;
+        info.course_file = rt->photo->course;
+        info.course = d.code(kCourseTable, info.course_file);
+        info.car = d.code(kCarTable, rt->photo->car_label);
+        if (const db::CarEntry* c = d.car(rt->photo->car_label)) info.car_name = c->name;
+        const Value car = make_car_object(*rt, rt->photo->car_label, 0);
+        if (car.p) info.car_name = rt->vm().attribute(car, "short_name").to_string();
+        info.portrait = p.height > p.width;
+        return text(save::result_name(photo_card(*rt, slot).save(info, p.jpeg, small_picture(p), a.size() > 1 ? a[1].to_string() : std::string("Photo data"))));
+    });
+    const Value new_file = object_value(file);
+    manager.method("getNewFile", [new_file](Vm&, const Value&, Args) { return new_file; });
+    return true;
+}
+
+} // namespace gt4r::menu

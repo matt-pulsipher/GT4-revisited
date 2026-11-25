@@ -63,6 +63,8 @@ public:
     // A new photo; `title`: icon.sys's second line ("Photo data").
     Result save(const PhotoInfo& info, ByteSpan jpeg, const std::vector<u16>& small, const std::string& title);
     Result remove(const std::string& folder);
+    // The record written again (a photo renamed: 0x1CF578).
+    Result write_info(const std::string& folder, const PhotoInfo& info);
 
 private:
     std::string card_, product_;

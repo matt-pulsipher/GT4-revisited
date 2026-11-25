@@ -230,7 +230,10 @@ private:
             if (credits_ >= 0) runtime_->game().money = credits_;
             app_ = &app;
             runtime_->on_sound = [&app](const menu::SoundCall& call) {
-                if (audio::AppSound* sound = app.sound()) play_sound_call(sound->menu(), call);
+                audio::AppSound* sound = app.sound();
+                // (The photo mode's camera: its shutter's effect bank.)
+                if (sound && call.object == "sound" && call.method == "loadShutter") sound->library_ptr()->set_shutter(call.args.empty() ? std::string() : call.args[0].to_string());
+                else if (sound) play_sound_call(sound->menu(), call);
             };
             // The options' menu volumes (game_settings.h).
             // Prologue's options have the music on or off only (its option object's menu_bgm, race_bgm, replay_bgm: no volume
@@ -346,6 +349,11 @@ private:
                         if (loading_) loading_->end();
                     }
                 }
+                // A photo shoot runs its own project on these menus (screen_photo.cpp).
+                if (race_ && race_->sequence == "photo_shoot" && app.gpu()) {
+                    rt_photo(app);
+                    return;
+                }
                 // A race with its own menus: the race screen runs them over the race on these menus
                 // and leaves them where the race sequence ends (race_natives.h).
                 if (race_ && (!menu::quick_project(race_->sequence).empty() || race_->sequence == "replay" || race_->sequence == "race_view") && app.gpu()) {
@@ -381,6 +389,12 @@ private:
         } catch (const std::exception& ex) {
             runtime_->note(std::string("stopped: ") + ex.what());
         }
+    }
+
+    void rt_photo(App& app) {
+        race_.reset();
+        if (audio::AppSound* sound = app.sound()) sound->menu().stop_music(), sound->menu().stop_stream();
+        app.push(make_photo_screen(app, *runtime_));
     }
 
     void render_running(Ui& ui) {

@@ -89,6 +89,8 @@ public:
     struct ScriptedDrive {
         float steer = 0, gas = 0, brake = 0, reverse = 0;
         bool handbrake = false;
+        float sticks[4] = {}; // lx, ly, rx, ry ("lx=0.5")
+        u16 held = 0;         // buttons held ("l1=1")
         bool any() const { return steer != 0 || gas > 0 || brake > 0 || reverse > 0 || handbrake; }
     };
     const ScriptedDrive& scripted_drive() const { return drive_; }
@@ -182,5 +184,8 @@ struct RaceStart {
     std::string sequence;
 };
 std::unique_ptr<Screen> make_race_screen(App& app, const RaceStart& start);
+// The photo shoot the menus ask for (the sequence "photo_shoot"): the location and the car of the running menus' request; it runs the
+// project photo_shoot on them and leaves them where that project ends (screen_photo.cpp).
+std::unique_ptr<Screen> make_photo_screen(App& app, menu::Runtime& menus);
 
 } // namespace gt4r

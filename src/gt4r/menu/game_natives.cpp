@@ -754,7 +754,12 @@ g.method("menuRef", [s](Vm&, const Value&, Args a) {
         s->menu_stack.clear();
         return Value{};
     });
-    for (const char* nothing : {"setReturnToLastMenuProject", "loadShutterSound", "dumpAvailable"})
+    // loadShutterSound(type): the camera whose shutter the "shutter" effect is ("typea" ..): told to the sound player.
+    g.method("loadShutterSound", [r = &rt](Vm&, const Value&, Args a) {
+        r->sound("sound", "loadShutter", a);
+        return Value{};
+    });
+    for (const char* nothing : {"setReturnToLastMenuProject", "dumpAvailable"})
         g.method(nothing, [](Vm&, const Value&, Args) { return Value{}; });
 
     // The menus' place kept in the save (Context: the major project and page, the stack).
@@ -988,6 +993,8 @@ Value GameNatives::make_card_manager(Args a) {
     GameNatives* self = this;
     const std::string mode = arg_text(a, 0);
     m->set("mode", text(mode));
+    // The photos of a card (game_photos.cpp).
+    if (install_photo_manager(*this, *m, mode, arg_int(a, 1))) return object_value(m);
     // MMemoryCardManager(mode, 1): the card in slot 2, read for trading cars: its game is loaded beside the one played
     // (loadInstance: [result, a game object with that game's garage]).
     if (arg_int(a, 1) == 1) {
@@ -1102,6 +1109,7 @@ Value GameNatives::make_card_manager(Args a) {
         s32 used = 1 + std::max(0, self->card().used_kb());
         std::error_code ec;
         for (const std::string& f : saved_replays(self->rt.data_dir())) used += s32((std::filesystem::file_size(f, ec) + 1023) / 1024);
+        used += photos_kb(self->rt);
         return std::max(0, 8000 - used);
     };
     m->property("free", [free_kb] { return number(free_kb()); });
@@ -1429,7 +1437,8 @@ void install_game_natives(Runtime& rt, script::Module& menu) {
             return Value{};
         });
         static_fn(*cls, "getExistValidGameData", [s](Vm&, const Value&, Args) { return number(s->valid_game_data); });
-        static_fn(*cls, "getPrintList", [](Vm&, const Value&, Args) { return Value::array({}); });
+        install_photo_lists(*n, menu);
+        static_fn(*cls, "getPrintList", [n](Vm&, const Value&, Args) { return n->photo_print_list; });
         static_fn(*cls, "setAction", [s](Vm&, const Value&, Args a) {
             s->card_action = arg_int(a, 0);
             return Value{};

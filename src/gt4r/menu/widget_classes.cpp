@@ -7,6 +7,7 @@
 #include "formats/gs_memory.h"
 #include "formats/tex1.h"
 #include "gt4r/menu/faces_car.h"
+#include "gt4r/menu/photo_natives.h"
 #include "gt4r/menu/runtime_internal.h"
 
 #include <algorithm>
@@ -1223,6 +1224,9 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
     auto fn = [&](script::NativeFunction f) { return constant(Vm::native(n, std::move(f))); };
     auto nothing = [&] { return fn([](Vm&, const Value&, Args) { return Value{}; }); };
     const std::string& type = w->data.type;
+    // The photo mode's (photo_natives.cpp).
+    if (type == "PhotoMapWindow" || type == "PhotoRenderFace")
+        if (auto m = photo_member(rt, w, n)) return m;
 
     if (type == "RootWindow") {
         if (n == "setFocus" || n == "setFocusWidget")
