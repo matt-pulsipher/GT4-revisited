@@ -109,3 +109,13 @@ scrambled as the card's files with two other swap fractions (0x3E6B3EF8 and 0x3F
 the recorded times, courses and first cars are the reference's list (28-demo-replays), the mode word (+0x0C) is the A (0) /
 B (1) tag, the size the folder's KB plus 2 entries and one (the original's 43, 24, 39 ... KB). The title `DEMO_000` is the
 row's number. The list's course is the label; the page translates it (`CourseNameCaption`). ❓ Playing one is not done.
+
+**Playing one** (`screen_race.cpp` `load_recorded_race`): the course (+0xB8) and the event's row (+0xB0: `sample_entry_6` for an
+arcade race), the laps (the race information's +0), each entry's equipment, condition, place and aids; the start as the race's own
+(the course's rolling start, else the grid). A-spec (mode 0): car 0 by recorder 0's records from the race's first step. B-spec (mode
+1): its driver, and the records' mail: +0x14 the command (4 the pace, 5 the overtake, 6 the pit, 10 the mode), +0x15 its argument,
++0x10 the pit menu's choice (1; 2 the refuelling stopped), +0x11 / +0x12 the tires, +0x13 the fuel. A free run's recording is its lap's:
+n is 1, and the recorder's header (0x14F4 bytes, 0x35AB08) holds the car's record at the line (+0x54, 0x10A0 bytes) and its collision
+body (+0x10F4, 0x400): ❓ not read here (Rdemo9; it starts from the run-up instead). +0x148 is the music's play list (0x810 bytes). The
+European disc's own (`p`) run at 50 steps a second. ❓ What comes out of the pad's records here leaves the recorded run (race_flow.md).
+

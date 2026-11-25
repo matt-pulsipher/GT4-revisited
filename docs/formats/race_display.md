@@ -583,7 +583,7 @@ doubles and saturates), 🔎 by the GS's rule, not compared with the original ru
   functions for the classes named (`RaceDisplay` 0x39A908-0x3A2718, the element classes
   0x3A3900-0x3AF300, the meters 0x3BE1D8-0x3BF670 and 0x3EB7A0-0x3ECAD0, 0x407568).
 - The pack, the fonts, the text table, the `ENGINE` rows and the course maps: the disc's files.
-- ❓ Not read: the lap-time list, the refuel bar, the tire wear and fuel gauges' drawing, the
+- ❓ Not read: the lap-time list, the
   tool tips, the two-player and license displays' own classes (`RaceSplitDisplay`,
   `RaceLicenseDisplay`), the hybrid panel, the replay displays, the pause menu.
 
@@ -600,6 +600,26 @@ In the original's replay the picture under it is darkened and the course's logo 
 here the card shows the first 3.5 s with fades of 0.5 s over a darkening of 75 % (judged), and the
 course logo is not drawn (❓ its picture was not found).
 
+## The small gauges
+
+A picture "in its tint" below: the pack's picture is white where drawn and the original shows the tint itself, not the tint over 0x80.
+
+- **Fuel** (`RaceFuelMeter::vf6` 0x3A57A8; on the chase views and B-spec only when the race counts fuel): `fuel_b0`, over it `fuel_b1`
+  in the tint 0x80E3B896 as far as n = int(share x 10 + 0.5) steps: 5.2 n + 15 units, 4 more from the sixth step (the gap).
+- **Tire diagram** (`RaceTireWearDisplay::vf6` 0x3A5FD8): `tire_wear` in the tint 0x80877B80, the wheels' boxes 6 x 11 over it.
+- **Pedals** (`RaceABMonitor` 0x3A54F8): `pedals`, the brake's bar 4 x 56 at (x + 1, y + 4) in 0x800000F0, the throttle's at
+  (x + w - 5, y + 4) in 0x80E3B896, from the bottom (`RaceSimpleBarMeter` 0x3AB570).
+- **Signs** (`RaceIndicator::vf5` 0x3A6C28): a tint (0x80E3B896 the aids', 0x800000C8 the brake's and the oil's) scaled by a level, the
+  greater of this frame's and the last's: state 0 black, 1 half, 2 full, 3 blinking (0.2 s: 0.1 s on, then out at 1 / 0.07 a second).
+  The states (RaceDisplay::vf2, 0x39E280): the greater of F +0x5F8 and +0x5F9 (ASCC's and TCS's status) through the table 0x6A0690
+  (on 1, acting 3); the handbrake F +0x490 over 0.25 → 2; the oil's distance at its limit (0x3437B0) → 2.
+- **Refuel bar** (`RaceRefuelMeter::vf6` 0x3A59D8, member 0x2D78, shown while 0x35BEB0): `refuel_bg` 256 x 26 centered at (320, 58), from
+  x + 15 `refuel_bar` 155 x the share wide in 0x805EA8F2, `refuel_scale` 157 x 12 at (x + 14, y + 7), "%d/%d" (liters, rounded) in
+  `hn_20R` ending at x + 241, its baseline at y + 18.
+- **Pit messages** (RaceDisplay::vf28 0x39D7C8, by F +0x5FA, on the status line 0x228C): 4 `AutoDriveFullThrottle`, 5 `AutoDriveReady`,
+  6 `AutoDriveGo`, 7 `PitTooFast`, 8 `PitLastLap`, 9 `PitNoTireWear`, 10 `PitSpeedLimit`, 11 `PitWork`, 12 `PitGetOut`; 1 .. 3 the
+  wrong way. (7 .. 9, 11 and 12 without the letters' extra 1.2.)
+
 ## B-spec
 
 The original's B-spec race (reference `03-race/bspec_display_a.png`) shows display mode 1's places
@@ -608,12 +628,14 @@ The original's B-spec race (reference `03-race/bspec_display_a.png`) shows displ
 last laps, the middle message at 320, 240) and panel layout 2 (the small speed plate, the help strip
 0x2DA0 along the bottom: the race words' `Tool Tip1`, "%BF Pace %Bc Overtake %Bd Pit %Be Change
 View %BG Select Car %Bh Race Monitor %Bj Display", the pad's buttons from the `Gaiji` font). Over
-them a bar at the top middle: the five paces as keys, the chosen one's digit orange, an overtake
-key and a pit key "P", the pace's word under them (`key_pace1` .. `key_pace5`: Slow Down, Cruise,
-Steady, Fast, Push; `key_overtake` Overtake). ❓ Which part of the program sets display mode 1 for
-B-spec, and the bar's, the plate's and the strip's shapes (drawn here as measured on the
-original's picture: the bar 190, 18, 260 x 58, keys 26 x 26 every 30 units; the plate's bottom at
-431; the strip 438 .. 480) are not read. The commands: Left / Right the pace, Triangle overtake,
+them the commands' panel: the Race Monitor's movie at its root's second frame (0x3D92B0), whose
+`PACEPANEL` has the five paces as keys, the chosen one's digit orange, an overtake key and a pit
+key "P", and the word of what is asked under them (`key_pace1` .. `key_pace5`: Slow Down, Cruise,
+Steady, Fast, Push; `key_overtake` Overtake; `key_pitin` Pit Stop); it is down while the car is in
+the pits (strobe.md). **The strip** (RaceTooltipDisplay::vf5 0x3AE138): a black plate 640 x 42 at
+the bottom, the line centered, its baseline 22 down, squeezed sideways into 15/16 of the width.
+❓ Which part of the program sets display mode 1 for B-spec, and the plate's place (its bottom at 431
+as measured), are not read. The commands: Left / Right the pace, Triangle overtake,
 Cross the view, R2 the display; the race opens in the low view from the car's nose.
 
 ## License tests

@@ -377,3 +377,16 @@ player's row lit; the course map drawn in `MAP_PANEL`'s place with each car's gr
 (the followed car's orange; ❓ the program moves the movie's `CARPOS_` letters instead); the gap strip and
 the pit panel are not filled (hidden). The
 reference's B-spec race (`03-race/bspec_race_monitor.png`) has the same rows, letters and lit row.
+## The PIT STOP menu (`menu/common/pitmenu.strb`)
+
+Opened (RaceBasic::vf74) in the step 0x35BC70 finds the player's car asked for its choice (F +0x4B8 bit 0, set by 0x35AF18 as the car
+comes onto the pit lane; made 0x10 there): tires when its bit 2, fuel when its bit 3, the driving mode when the race allows B-spec
+(race +0x970: the event row's byte +0x45, a license 1 .. 5 or 0 none). In arcade, free run, Gran Turismo mode and championship races. The
+race goes on under it. Instances `FTIRE`, `RTIRE`, `FEED`, `DMODE`; the movie asks, by the instance's name, `nItem` (tires: the kinds + 1,
+fuel and mode 2; 1 where not allowed), `defaultVal`, `item(name, i)` (a tire's word `Tire_%02d`, past them `Tire_NoChange`; `DoFeed` /
+`DontFeed`; `BSpecMode` / `ASpecMode`; "---" where not allowed) and gives `returnVal(name, i)`; `exit` makes the choice (0x35BF08: the
+kinds, 0xFF for no change, the fuel). The kinds (0x4076E0): those of the fitted kind's class (0x441300: 0 .. 5, 6 .. 10, 11, 12), in a
+Gran Turismo mode race only those the garage's car owns (0x4078D0: the record's bits 0x40 and 0x4D on) and the fitted. A key while it is up
+stops B-spec's 300-step wait (0x35BCC8); it closes with the choice, off the lane, or a step before the wait runs out (0x35BCE8). The help
+line is the race words' `TOOLTIP|PitMenu`, while refuelling `TOOLTIP|Refuel` (Circle stops it: command 2, 0x35BFC0).
+

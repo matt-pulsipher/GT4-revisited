@@ -568,6 +568,17 @@ another race's for checks: then its own F+0x560, F+0x650, places, clock and fini
   disc has no driver files (`crs/*.ad`): its courses carry the lines and sets in slots 31 and
   37 .. 40 ([formats/prologue.md](../formats/prologue.md) "The drivers").
 
+Facts of the step our drivers keep:
+
+- **When they decide**: in the race's per-car step 0x349FD0 (after phase 4, 0x357700), inside the simulation's step, from that
+  step's slip angles (`Field::step`, `Session::Decider`). In a hold each car's hold decision is made there too.
+- **The hold** (0x463CD8): the engine blipped by the rev limit (P +0x200), the throttle pedal moved by its slew.
+- **The corner and brake spreads** are drawn only where the conductor's virtual 52 answers 1 (the single race's and free run's
+  conductors; not a license's, a training's, a mission's).
+- **The rubber band** acts from the race's second step. **Ranks** (F +0x442) are the race's places after every step.
+- **The grid's first lines** (0x620AD8 by the grid place; 1 and 2 changed by the side the grid's first place is on); a pad car on a
+  grid takes line 7, a car placed on a line the main line.
+
 ## 10. Checks
 
 `gt4tool ai <disc> <course> [cars] [laps] [rolling=<km/h>] [trace=<car>]` runs a field and prints
@@ -682,7 +693,7 @@ tires at the stop's last second, out and back on the racing line at 270 m. ✔ O
 `ai_pits_on_our_session`) the same car runs the same stop: down the lane, 721 steps held (649 standing), out again.
 ✔ **Against the original's own stop** (the reference's Family Car Cup at Tsukuba, B-spec R34, `26-endurance/fc_pitwindow_*`,
 the car's record in each state): onto the pit lane between 1,342 and 1,508 m (kind 2), the service decided at the lane's
-start as 0x1C (tires and fuel wanted, the menu asked; 0x35AF18 itself returns the wants | 1 ❓ what makes it 0x10), the
+start as 0x1C (tires and fuel wanted, the menu asked; 0x35AF18 itself returns the wants | 1, which the race's step makes 0x10 as it opens the menu, 0x35BC70), the
 stop at 58.3 m with the hold at 721 while the B-spec wait counts down (228 left 72 steps in), the choice made for it
 (0x1C0, tires 0xFE / 0xFE), the hold then counted down 70 / 300 / 302 steps between states 5 s apart, the fuel full
 (78.97 → 80.00) before the tires, kind 4 out, kind 0 at 270 m: as ours (the 300-step wait, 721 more; test
