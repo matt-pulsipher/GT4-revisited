@@ -18,6 +18,9 @@
 #include "gt4r/sim/program_prologue.h"
 #include "gt4r/sim/session.h"
 
+#include "gt4r/race/gadgets.h"
+#include "gt4r/race/sections.h"
+#include "gt4r/race/strobe.h"
 #include "gt4r/sim/ai/demo_driver.h"
 #include "gt4r/sim/ai/entrant.h"
 #include "gt4r/sim/ai/grid.h"
@@ -548,4 +551,63 @@ TEST(disc_license_car_is_the_pools) {
     std::printf("  %d demonstrations, %d equal in every part and setting\n", runs, equal);
     CHECK(runs > 50);
     CHECK(equal >= 44);
+}
+
+// A passed lesson's name entry in the results movie: one letter at a time when no name is kept, Down the next letter, accept
+// the next box, cancel one back, the third letter the name; the cones of a lesson and its road's split points.
+TEST(disc_prologue_name_entry_and_cones) {
+    Disc* disc = prologue_disc();
+    if (!disc) SKIP("no Prologue disc");
+    gt3r::Volume* vol = &disc->volume();
+    const gt3r::Volume::Entry* e = vol->find("menu/result_license.strb");
+    CHECK(e != nullptr);
+    if (!e) return;
+    auto movie = std::make_shared<const race::StrobeMovie>(race::StrobeMovie::parse(vol->read(*e)));
+    using V = race::StrobePlayer::Value;
+    std::string entered;
+    race::StrobePlayer player(movie, [&](const std::string& name, const std::vector<V>& args) {
+        if (name == "GetRank") return V::number(0);
+        if (name == "PrizeLevel") return V::number(2);
+        if (name == "GetTime") return V::string("1'49.301");
+        if (name == "GetDefaultName") return V::string("");
+        if (name == "NameEntry" && !args.empty()) entered = args[0].to_string();
+        return V{};
+    });
+    player.restart();
+    auto run = [&](float seconds) {
+        for (float t = 0; t < seconds; t += 1.0f / 60) player.advance(1.0f / 60);
+    };
+    run(12);
+    auto letters = [&] {
+        std::string out;
+        for (const race::StrobePlayer::Draw& d : player.draw_list())
+            if (d.text && d.words.size() == 1) out += d.words;
+        return out;
+    };
+    CHECK(letters() == "A");
+    for (int k = 0; k < 2; ++k) player.key(0x28), run(0.3f);
+    player.key(0x26), run(0.3f);
+    CHECK(letters() == "B");
+    player.key(0x20), run(0.5f);
+    CHECK(letters() == "BA");
+    player.key(0x1B), run(0.5f);
+    player.key(0x20), run(0.5f), player.key(0x20), run(0.5f);
+    CHECK(letters() == "BAA");
+    CHECK(entered.empty());
+    player.key(0x20), run(0.5f);
+    CHECK(entered == "BAA");
+
+    const gt3r::Volume::Entry* c = vol->find("crs/L_fisco6");
+    CHECK(c != nullptr);
+    if (!c) return;
+    const Bytes data = vol->read(*c);
+    const course::CourseFile file = course::CourseFile::parse(data);
+    const ByteSpan road = file.section(data, course::kSlotRoadGtrw);
+    const race::Gadgets g = race::Gadgets::parse(file.section(data, course::kSlotGadgets), road);
+    CHECK(g.placements.size() == 64);
+    CHECK(g.kinds.size() == 3);
+    for (const race::Gadgets::Placement& p : g.placements) CHECK(p.kind >= 0 && size_t(p.kind) < g.kinds.size());
+    const std::vector<float> splits = race::road_list(road, 0);
+    CHECK(splits.size() == 2);
+    CHECK(splits.size() == 2 && splits[0] < splits[1] && splits[1] < 4459);
 }
