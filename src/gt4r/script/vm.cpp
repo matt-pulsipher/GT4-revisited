@@ -282,7 +282,8 @@ std::shared_ptr<Reference> value_method(const Value& self, const std::string& na
     if (name == "toString") return method("toString", self, [](Vm&, const Value& v, Args) { return Value::string(v.to_string()); });
     if (name == "toInt")
         return method("toInt", self, [](Vm&, const Value& v, Args) {
-            if (v.kind == Kind::String) return Value::integer(s32(std::strtol(v.as_string().c_str(), nullptr, 0)));
+            // A string's: decimal, as atoi (hString's 0x314A40 -> 0x5A2F88: strtol base 10), so "0008" is 8.
+            if (v.kind == Kind::String) return Value::integer(s32(std::strtol(v.as_string().c_str(), nullptr, 10)));
             return Value::integer(v.kind == Kind::Float ? s32(v.f) : v.i);
         });
     if (name == "toFloat")

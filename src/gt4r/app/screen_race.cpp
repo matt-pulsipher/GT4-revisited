@@ -2136,6 +2136,12 @@ private:
         setup_.course = q.course, setup_.race = q.race;
         if (q.laps > 0) setup_.laps = std::clamp(q.laps, 1, 99);
         if (sequence_ == "license") setup_.car = q.car, setup_.paint = u32(std::max(0, q.paint)), setup_.player_equipment.reset();
+        if (sequence_ == "championship") { // the start places from the second race on (0x3EE9F8); the entries keep their numbers
+            std::vector<std::pair<std::string, std::optional<sim::Equipment>>> entries{{setup_.car, setup_.player_equipment}};
+            for (size_t i = 0; i < setup_.opponents.size(); ++i)
+                entries.emplace_back(setup_.opponents[i], i < setup_.opponent_equipment.size() ? setup_.opponent_equipment[i] : std::nullopt);
+            setup_.grid_slots = g.series.races_run >= 1 ? menu::championship_grid_places(*menus_, entries) : std::vector<int>{};
+        }
         if (!app.vfs()->exists("crs/" + setup_.course) && setup_.course.rfind("r_", 0) == 0) setup_.course = setup_.course.substr(2);
         apply_course_start(app, setup_, true);
         result_.reset(), result_tried_ = false, reported_ = false;

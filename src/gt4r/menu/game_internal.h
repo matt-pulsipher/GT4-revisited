@@ -8,6 +8,7 @@
 #include "gt4r/formats/db/car_parts.h"
 #include "gt4r/formats/db/specdb.h"
 #include "gt4r/menu/program_tables.h"
+#include "gt4r/menu/prologue_license.h"
 #include "gt4r/menu/runtime_internal.h"
 #include "gt4r/save/memory_card.h"
 #include "gt4r/sim/program.h"
@@ -156,8 +157,7 @@ void make_used_condition(Database& d, CarRecord& r, u32 meters);
 
 // ---- game_records.cpp
 void install_records(GameNatives& n, Object& game, script::Module& menu);
-// Gran Turismo 4 Prologue's main::game.license (prologue_natives.cpp).
-void install_prologue_license(Object& game);
+// Gran Turismo 4 Prologue's main::game.license: install_prologue_license (prologue_license.h).
 // A Prologue license run's points (0x19F410) from its RACE row (in Gran Turismo 4's columns), its result's name and time.
 s32 prologue_license_points(ByteSpan row, const std::string& result, u32 time_ms);
 
@@ -176,6 +176,8 @@ void add_distance(Database& d, CarRecord& rec, float meters);
 constexpr u32 kChampionshipPoints = 0x6A6EF0;
 s32 championship_points(Database& d, int place);
 int series_race_count(const std::string& label);
+// A course's attribute text (MCourseData.GetAttrString, 0x447F08: the UnistrDB string the COURSE row's +0x08 names).
+std::string course_attribute(Database& d, const std::string& course);
 // A race's pool of opponents (its RACES file): the ENEMY_CARS label and paint (-1: any).
 std::vector<std::pair<std::string, int>> race_entries(Database& d, const std::string& race);
 
