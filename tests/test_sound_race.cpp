@@ -16,6 +16,7 @@
 #include "gt4r/audio/sound_library.h"
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/formats/course/runway.h"
+#include "gt4r/formats/course/runway_gtrw.h"
 #include "gt4r/formats/sound/sound_index.h"
 #include "gt4r/sim/program.h"
 #include "gt4r/sim/session.h"
@@ -323,6 +324,45 @@ TEST(sound_race_contact_recorder_on_disc) {
     CHECK(steps > 0 && single > 0);
 }
 
+// A boosted car's levels: the step keeps the two bytes itself (0x350080) from the engine's load, which a boost raises over
+// the throttle; the sound plays those bytes, and its own rule gives the same from the load it is handed. The wind and the
+// cabin take the body's drag coefficient alone.
+TEST(sound_race_boosted_levels_on_disc) {
+    Disc* disc = full_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    const std::string cars[] = {"r390_race_98"};
+    const std::unique_ptr<sim::Session> s = sim::Session::open(*disc, "tsukuba", cars);
+    gt3r::Vfs vfs(&disc->volume());
+    audio::OfflineSound out(false);
+    auto library = std::make_shared<audio::SoundLibrary>(vfs);
+    auto mix = std::make_shared<audio::RaceMix>();
+    mix->tables = audio::RaceSoundTables::from_core(disc->read_program());
+    audio::CarSound given(vfs, out.mixer(), &out.driver(), library), worked(vfs, out.mixer(), &out.driver(), library);
+    given.set_mix(mix), worked.set_mix(mix);
+    CHECK(given.load(cars[0]) && worked.load(cars[0]));
+    race::CarInput in;
+    int boosted = 0, same = 0, steps = 0;
+    for (int i = 0; i < 60 * 8; ++i) {
+        in.throttle = i < 120 ? 1.0f : 0.5f; // (launch, then half throttle on the boost)
+        s->step_once({&in, 1});
+        audio::CarSoundState st = audio::sound_state(*s, 0);
+        const audio::SoundListener at = audio::listener_at(s->cars()[0], audio::SoundListener::Kind::InCar);
+        given.update(st, at, true);
+        CHECK(given.report().engine_level == st.engine_level && given.report().exhaust_level == st.exhaust_level);
+        const float load = st.throttle;
+        st.engine_level = st.exhaust_level = -1;
+        worked.update(st, at, true);
+        if (i < 30) continue; // (the program's levels start at 127)
+        ++steps;
+        if (load > 0.6f && i > 200) ++boosted;
+        same += std::abs(worked.report().engine_level - given.report().engine_level) <= 1 && worked.report().exhaust_level == given.report().exhaust_level;
+        if (i == 60) CHECK(near(st.drag, float(s->spec(0).b(0x42)) * 0.01f, 1e-6) && st.slipstream == 0);
+        out.advance(1);
+    }
+    std::printf("  %d steps: the rule's levels as the step's at %d, the load over 0.6 at half throttle at %d\n", steps, same, boosted);
+    CHECK(boosted > 60 && same > steps * 95 / 100);
+}
+
 // A car rendered as the race mixes it: level against distance, the pan, the Doppler factor.
 TEST(sound_race_car_mix_on_disc) {
     if (test::discs().empty()) SKIP("no disc");
@@ -579,6 +619,33 @@ TEST(sound_race_pit_effects_on_disc) {
     for (size_t i = from; i < s.pcm.size(); ++i) peak = std::max(peak, double(std::abs(s.pcm[i])));
     std::printf("  jackdown at the master %.3f: peak %.0f\n", double(sound.master()), peak);
     CHECK(sound.master() > 0.3f && peak > 300);
+    // The crew's, each once; the hose held while it runs.
+    const auto loudest = [&](int steps, bool update) {
+        const size_t at = s.pcm.size();
+        for (int i = 0; i < steps; ++i) {
+            if (update) sound.update(none, audio::SoundListener{}, -1);
+            s.advance(1);
+        }
+        int p = 0;
+        for (size_t i = at; i < s.pcm.size(); ++i) p = std::max(p, std::abs(int(s.pcm[i])));
+        return p;
+    };
+    for (const char* name : {"jackup", "wheelgun", "dropnut", "droptire", "oiltank"}) {
+        loudest(180, true); // (the last one's end)
+        sound.pit_effect(name);
+        const int p = loudest(45, true);
+        std::printf("  %s: peak %d\n", name, p);
+        CHECK(p > 300);
+    }
+    loudest(300, true);
+    sound.refueling(true);
+    loudest(60, true);
+    const int held = loudest(240, true);
+    sound.refueling(false);
+    loudest(60, true);
+    const int after = loudest(60, true);
+    std::printf("  refueling: peak %d from the second to the fifth second, %d after\n", held, after);
+    CHECK(held > 300 && after == 0);
 }
 
 // The run's replay is heard from the sound inputs the session gave each step (the engine's torques, the wheels,
@@ -844,4 +911,136 @@ TEST(sound_race_prologue_master) {
     const float table = library->levels().level(int(audio::OutputMode::Stereo), sound::VolumeTable::Race);
     std::printf("  Prologue: the master %.3f (the mix level %.3f)\n", double(sound.master()), double(table));
     CHECK(near(sound.master(), table, 1e-5));
+    // Its races run without music (the racing level is 0 in its options, 0.9 in a replay); the jingles play at 1.
+    std::vector<std::pair<std::string, float>> played;
+    audio::StreamPlayer music;
+    music.play = [&](const std::string& path, bool, float level) { return played.emplace_back(path, level), true; };
+    audio::RaceSound race(vfs, s.mixer(), s.driver(), library, audio::RaceSoundTables::from_core(disc->read_program()), music);
+    race.begin_run(audio::RaceMusic::Race, 2);
+    race.start();
+    CHECK(played.size() == 1 && played[0].first.find("str01j") != std::string::npos && played[0].second == 1.0f && race.report().starts == 1);
+    race.replay();
+    CHECK(played.size() == 2 && near(played[1].second, 0.9, 1e-6));
+}
+
+// Prologue's own in-car view: every sound of the car at the camera, so the exhaust is not behind it (no inverted side), and
+// the players' inputs of its saved state of a race (the 240ZG at 5,217 rpm, both levels 15).
+TEST(sound_race_prologue_in_car) {
+    Disc* disc = nullptr;
+    for (const std::unique_ptr<Disc>& d : test::discs())
+        if (d->info().game == Game::Prologue) disc = d.get();
+    if (!disc) SKIP("needs the Prologue disc (GT4R_DISC)");
+    gt3r::Vfs vfs(&disc->volume());
+    audio::OfflineSound s(false);
+    audio::with_surround_cue(s.mixer());
+    auto library = std::make_shared<audio::SoundLibrary>(vfs);
+    auto mix = std::make_shared<audio::RaceMix>();
+    mix->tables = audio::RaceSoundTables::from_core(disc->read_program());
+    CHECK(mix->tables.prologue);
+    audio::CarSound car(vfs, s.mixer(), &s.driver(), library);
+    car.set_mix(mix);
+    CHECK(car.load("fairlady_240zg_71"));
+    audio::SoundListener at;
+    at.kind = audio::SoundListener::Kind::InCar;
+    audio::CarSoundState in;
+    in.rpm = 5217, in.engine_level = in.exhaust_level = 15;
+    in.speed = 25, in.heart = true;
+    in.wheels[0].landing = 1; // (its frame has no landing)
+    for (int i = 0; i < 150; ++i) car.update(in, at, true), s.advance(1);
+    const audio::LayerPlayer::Input &e = car.engine().input(), &x = car.exhaust().input();
+    std::printf("  engine %d / %d, exhaust %d / %d, single notes %d\n", e.left, e.right, x.left, x.right, car.report().notes);
+    CHECK(std::abs(e.left - 15204) <= 2 && std::abs(e.right - 15204) <= 2 && std::abs(x.left - 12489) <= 2 && std::abs(x.right - 12489) <= 2);
+    CHECK(car.report().notes == 0 && car.report().heartbeats == 0);
+}
+
+// Prologue's ambience: its crowds are the fourth list (Citta di Aria's one emitter), heard on its disc.
+TEST(sound_race_prologue_crowds) {
+    Disc* disc = nullptr;
+    for (const std::unique_ptr<Disc>& d : test::discs())
+        if (d->info().game == Game::Prologue) disc = d.get();
+    if (!disc) SKIP("needs the Prologue disc (GT4R_DISC)");
+    gt3r::Vfs vfs(&disc->volume());
+    audio::OfflineSound s(false);
+    auto library = std::make_shared<audio::SoundLibrary>(vfs);
+    audio::RaceSound sound(vfs, s.mixer(), s.driver(), library, audio::RaceSoundTables::from_core(disc->read_program()));
+    Bytes data;
+    course::CourseFile file;
+    CHECK(sound.add_car("fairlady_240zg_71"));
+    data = disc->volume().read(*disc->volume().find("crs/assisi"));
+    file = course::CourseFile::parse(data);
+    std::optional<course::Runway> parsed = course::course_road(file, data); // (a GTRW road)
+    CHECK(parsed.has_value());
+    const auto road = std::make_shared<const course::Runway>(std::move(*parsed));
+    sound.set_course(file.section(data, course::kSlotSound), road);
+    CHECK(sound.course().emitters(2) == 0 && sound.course().emitters(3) == 1);
+    const auto gates = sound.course().emitter_gates(3, 0);
+    auto p = sound.course().emitter(3, 0).points.front();
+    for (const auto& q : sound.course().emitter(3, 0).points)
+        if (q.weight > p.weight) p = q;
+    audio::CarSoundState car;
+    car.course_distance = gates.first + 1;
+    car.live = false; // (the car itself silent)
+    audio::SoundListener at;
+    at.position = {p.x, p.y, p.z - 10};
+    for (int i = 0; i < 90; ++i) sound.update(std::span<const audio::CarSoundState>(&car, 1), at, -1), s.advance(1);
+    std::printf("  crowds %.3f (gates %.0f .. %.0f m, %zu points), rms %.0f\n", double(sound.report().ambience[3]), double(gates.first),
+                double(gates.second), sound.course().emitter(3, 0).points.size(), rms(s.pcm, 48000, 24000));
+    CHECK(sound.report().ambience[3] > 0.1f && rms(s.pcm, 48000, 24000) > 50);
+}
+
+// Which music a run plays, by its kind and start (0x3C0208, 0x389D48, 0x3A0228, 0x3E1C80): the original's recordings have
+// the arcade's standing start gt4jg-12b then a racing piece, its finish gt4jg-12a; a championship gt4jg-06 and gt4jg-04a; a
+// license test gt4jg-19 and no racing piece, gt4jg-09 for a bronze, gt4jglf for a fail.
+TEST(sound_race_music_by_kind) {
+    CHECK(audio::race_music("license", "usl0b0001", false) == audio::RaceMusic::License);
+    CHECK(audio::race_music("license", "usl0c0002", false) == audio::RaceMusic::Coffee);
+    CHECK(audio::race_music("license_race", "l0b0001", false) == audio::RaceMusic::License);
+    CHECK(audio::race_music("championship", "x", false) == audio::RaceMusic::Championship && audio::race_music("championship", "x", true) == audio::RaceMusic::Last);
+    CHECK(audio::race_music("single_race", "", false) == audio::RaceMusic::Race && audio::race_music("", "", false) == audio::RaceMusic::Race);
+    Disc* disc = full_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    gt3r::Vfs vfs(&disc->volume());
+    audio::OfflineSound s(false);
+    auto library = std::make_shared<audio::SoundLibrary>(vfs);
+    std::vector<std::string> played;
+    audio::StreamPlayer music;
+    music.play = [&](const std::string& path, bool, float) { return played.push_back(path.substr(path.rfind('/') + 1)), true; };
+    music.playing = [] { return true; };
+    audio::RaceSound sound(vfs, s.mixer(), s.driver(), library, audio::RaceSoundTables::from_core(disc->read_program()), music);
+    const auto run = [&](audio::RaceMusic kind, int start) {
+        played.clear();
+        sound.begin_run(kind, start);
+        if (start == -1) sound.start_signal();
+        else sound.start();
+        sound.finish();
+        std::string all;
+        for (const std::string& p : played) all += (p.rfind("race_", 0) == 0 || p.rfind("photo_", 0) == 0 ? std::string("racing") : p.substr(0, p.find('.'))) + " ";
+        return all;
+    };
+    using M = audio::RaceMusic;
+    const std::string standing = run(M::Race, 2), rolling = run(M::Race, -1), series = run(M::Championship, 2), last = run(M::Last, 1);
+    std::printf("  standing: %s| rolling: %s| championship: %s| last: %s\n", standing.c_str(), rolling.c_str(), series.c_str(), last.c_str());
+    CHECK(standing == "gt4jg-12b racing gt4jg-12a ");
+    CHECK(rolling == "racing gt4jg-12a ");
+    CHECK(series == "gt4jg-06 racing gt4jg-04a ");
+    CHECK(last == "gt4jg-06ex racing gt4jg-04ex ");
+    CHECK(run(M::TimeTrial, -1) == "racing gt4jg-02 " && run(M::Mission, 0) == "racing gt4jg-15b ");
+    for (int grade = 0; grade < 4; ++grade) {
+        played.clear();
+        sound.begin_run(M::License, 1);
+        sound.start();
+        sound.license_result(grade);
+        const char* want[] = {"gt4jg-10.ads", "gt4jg-11.ads", "gt4jg-09.ads", "gt4jglf.ads"};
+        CHECK(played.size() == 2 && played[0] == "gt4jg-19.ads" && played[1] == want[grade]);
+    }
+    // The cars and the course fall silent over the second after a test's result; a new run's master rises again.
+    for (int i = 0; i < 60; ++i) sound.update(std::span<const audio::CarSoundState>{}, audio::SoundListener{}, -1);
+    CHECK(sound.master() == 0);
+    played.clear();
+    sound.begin_run(M::License, 1);
+    CHECK(played.size() == 1);
+    for (int i = 0; i < 30; ++i) sound.update(std::span<const audio::CarSoundState>{}, audio::SoundListener{}, -1);
+    CHECK(sound.master() > 0.3f);
+    sound.count(180), sound.count(120), sound.count(60);
+    CHECK(sound.report().beeps >= 3); // (a retry counts again)
 }
