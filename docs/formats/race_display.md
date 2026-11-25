@@ -533,7 +533,7 @@ name).
 | Start | same | Key `RaceStart` ("START"), 1 s, fade out 0.15 s |
 | Finish | same | Key `RaceFinish` ("FINISH"), 3.7 s, fade out 0.3 s; the whole display then fades |
 | Lap time at the line | Event line: 320, 139, w 580 | `"%s%d/%d   %s"`: key `WordOfLapTime` ("L"), the lap, the laps, the time (`"%s%d   %s"` without a lap count): "L1/3   1'23.456". Font `hn_20R`, color 0x80C8C8C8, 3 s, fades 0.15 s |
-| Section time | Event line | `"%s%d   %s"` with key `WordOfSectionTime` ("T"): "T1   0'35.123", as above. The split points are the road's (RNW4) first checkpoint list (`race/sections.*`; ✔ Tsukuba 505.9 and 1072.2 m, where the original's chase race shows T1 and T2); the lap step 0x358608 compares each car's distance with its next point (F +0x4B4) and pushes event 15 with the time (0x359C10). Here the gap under it is to the first car through that split on that lap, in red ❓ (the original's: "T1 0'27.247 / +0'05.800" with a car's picture); the car's picture is not drawn |
+| Section time | Event line | `"%s%d   %s"` with key `WordOfSectionTime` ("T"): "T1   0'35.123", as above. The split points are the road's (RNW4) first checkpoint list (`race/sections.*`; ✔ Tsukuba 505.9 and 1072.2 m, where the original's chase race shows T1 and T2); the lap step 0x358608 compares each car's distance with its next point (F +0x4B4) and pushes event 15 with the time (0x359C10). Here the gap under it is to the first car through that split on that lap, in red (the single race's; who is told which gap: race_flow.md "2 Player Battle"; the original's: "T1 0'27.247 / +0'05.800" with a car's picture); the car's picture is not drawn |
 | Gap to another car 🔎 | Event line, offset (32, 25) | The gap, `hn_20R`, 3 s, with a car marker beside it (`RaceCarIconDisplay`, member 0x2D14, placed 82 or 89 left of and 22 below the line, 2.85 s) |
 | Information | Event line | `hn_20R#1`, color 0x80C8C8C8, 3 s: "Final Lap" (key `EnduranceFinal`), "%d laps left", "%s is making a pit stop", ... |
 | Wrong way | Status message 0x228C (320, 430 in the chase views; 320, 348 in the driver's) | The picture `GT4_meter_texture_wrongway` (32 x 32, a no-entry sign), color 0x80FFFFFF, blinking: period 0.2 s, on for 0.3 of it, rise 0.05 s, fall 0.1 s; kept up while the car goes the wrong way |
@@ -640,6 +640,25 @@ the bottom, the line centered, its baseline 22 down, squeezed sideways into 15/1
 ❓ Which part of the program sets display mode 1 for B-spec, and the plate's place (its bottom at 431
 as measured), are not read. The commands: Left / Right the pace, Triangle overtake,
 Cross the view, R2 the display; the race opens in the low view from the car's nose.
+
+## The two-player halves
+
+`RaceSplitDisplayBase` (vf9 0x3A29A0), one for each half; kind 8 above / below, kind 9 side by side (with the wide-screen
+option).
+
+- **Canvas**: kind 8's is 640 wide, the first player's half shown as y -10 .. 230 of it and the second's as 0 .. 240; kind 9's is x
+  -106.667 .. 320, 480 high. The elements' places: the tables 0x6A0DE0 and 0x6A0FD8 above (`race::read_split_layout`).
+- **The panel** is the simple one whatever the view: layout 1 drawn 240 units higher in kind 8 (the display's +0x6C), layout 3 in
+  kind 9. The map is x 0.75 (0x39B714).
+- **The middle message** in `FC_48*75,75` (0x3A1460).
+- **The lap's line** names the lap with the laps in every race of it (0x3A0AD8), the gap under it blue (0x80E3B896) for a lead and
+  red (0x800000C8) behind.
+- **The display's opacity**: hidden until 6.1 s into the 10 s hold, then in over 0.5 s (0x39BEC8). At its own car's finish full
+  for 1 s, then out over 0.25 s; the FINISH message 3.7 s with a fade of 0.3 s (0x3A1568). The other half goes on.
+- Which gap each display is told: [race_flow.md](race_flow.md) "2 Player Battle".
+
+Here `RaceHud::draw` with `HudState::split` 1 (stacked) or 2 (side by side). A picture wider than 16:9 or a stacked half's on a wide
+screen: the stacked half's sides are tied to the screen's sides as the single race's are (judged).
 
 ## License tests
 
