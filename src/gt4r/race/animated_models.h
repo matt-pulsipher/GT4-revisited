@@ -57,6 +57,7 @@ private:
     struct Animated {
         u32 model = 0;
         int switch_cell = -1, weight_cell = -1; // the registers its program reads; -1: none
+        int switch2_cell = -1, cases2 = 1;      // a second switch on another register, and its cases
         std::vector<Move> moves;                // its moves by register, in program order
         std::array<float, 16> pivot{}, pivot_inverse{}; // the program's matrix at its first move, and its inverse
         std::vector<Key> keys;                  // one per case of the switch (one without a switch)
