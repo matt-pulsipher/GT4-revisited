@@ -55,11 +55,25 @@ public:
     // The views the change-view button steps through, as camera places of the car.
     static constexpr int kViews[3] = {0, 1, 6};
     static constexpr int kInCar = 0, kChase = 1, kRoof = 6;
+    // Ours: the in-car view without the mirror, and a chase view from farther back.
+    static constexpr int kInCarNoMirror = 100, kFarChase = 101;
+    // The front bumper's place.
+    static constexpr int kBumper = 5;
+    static bool chase(int view) { return view == kChase || view == kFarChase; }
+    static bool in_car(int view) { return view == kInCar || view == kInCarNoMirror; }
 
     // The start of a race, or a car placed anew.
     void reset(const CarState& car);
     // Once per simulation step (h seconds), after the car has moved.
     void step(const CarState& car, float h);
+    // Looking sideways in the in-car view (0x37AF94): left or right held, 60 degrees. And ours, for a pad whose right stick is
+    // free: the stick's direction (x right, y up, -1 .. 1) is where the view turns, in the in-car and chase views.
+    void set_sideways(bool left, bool right) { side_held_ = (right ? 60.0f : 0.0f) - (left && !right ? 60.0f : 0.0f); }
+    void set_stick(float x, float y) { stick_x_ = x, stick_y_ = y; }
+    // The in-car view's shake with the speed and the tires' slips (0x37A7A8); off: steady.
+    void set_shake(bool on) { shake_on_ = on; }
+    // Turned aside (no mirror).
+    bool aside() const;
     // The view from the car's place `mount` of `mounts`, for the body's frame `body`
     // (car_pose.h body_matrix). `look_back`: held.
     ViewPose pose(const CarState& car, const gt3r::render::Mat4& body, std::span<const CameraMount> mounts, int mount, bool look_back) const;
@@ -71,6 +85,16 @@ private:
     // The in-car view's nod: the body's pitch against the road's, on a spring.
     float nod_ = 0, nod_rate_ = 0;
     float road_pitch_ = 0;
+    // The sideways look, degrees (+ right), and the stick's, radians.
+    float side_held_ = 0, side_ = 0, stick_x_ = 0, stick_y_ = 0, look_ = 0;
+    struct Shaker {
+        float x = 0, v = 0, u = 0;
+        void step(float input); // 0x384B70
+    } shake_pitch_, shake_yaw_;
+    float shake_speed_ = 0;
+    bool shake_on_ = true;
+    u32 seed_ = 0x87654321u;
+    float draw();
 };
 
 // A car's heading (radians about the vertical, + to the right of +z... as atan2 of its forward

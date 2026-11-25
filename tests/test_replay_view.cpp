@@ -2,6 +2,7 @@
 #include "race/sun_glare.h"
 
 #include "base/config.h"
+#include "gt4r/race/drive_camera.h"
 #include "gt4r/race/replay_effects.h"
 #include "gt4r/race/replay_script.h"
 #include "gt4r/race/replay_view.h"
@@ -132,4 +133,44 @@ TEST(replay_effects_gates) {
     pose.depth_of_field = false;
     fx.apply(plain, pose, proj, v, {}, 5000);
     CHECK(!plain.dof.on && plain.vignette);
+}
+
+// Looking aside and the in-car view's shake.
+TEST(drive_camera_look_and_shake) {
+    race::DriveCamera cam;
+    race::CarState car;
+    car.velocity = {0, 0, 30};
+    gt3r::render::Mat4 body;
+    std::vector<race::CameraMount> mounts(8);
+    mounts[0] = {{0, 1, 0}, 0, 0, 0, 2.05f, 5};
+    mounts[1] = {{0, 1.7f, 6}, 8, 0, 0, 2.7f, 2};
+    cam.reset(car);
+    const auto ahead = [&](int mount) {
+        const race::ViewPose p = cam.pose(car, body, mounts, mount, false);
+        return gt3r::render::Vec3{-p.view.at(2, 0), -p.view.at(2, 1), -p.view.at(2, 2)};
+    };
+    for (int i = 0; i < 60; ++i) cam.step(car, 1.0f / 60);
+    CHECK_NEAR(ahead(0).x, 0, 1e-4); // gripping tires: still
+    cam.set_sideways(true, false);
+    for (int i = 0; i < 60; ++i) cam.step(car, 1.0f / 60);
+    CHECK(cam.aside());
+    CHECK_NEAR(ahead(0).x, std::sin(60 * 0.0174532925), 1e-3); // (ahead +z, the right -x: left is +x)
+    cam.set_sideways(false, false), cam.set_stick(1, 0);
+    for (int i = 0; i < 120; ++i) cam.step(car, 1.0f / 60);
+    CHECK_NEAR(ahead(0).x, -1, 1e-3);
+    CHECK_NEAR(ahead(1).x, -1, 1e-3); // (the chase view goes round the car)
+    cam.set_stick(0, 0);
+    for (int i = 0; i < 120; ++i) cam.step(car, 1.0f / 60);
+    CHECK(!cam.aside());
+    for (race::WheelState& w : car.wheels) w.slip_ratio = 1;
+    float most = 0, steady = 0;
+    for (int i = 0; i < 120; ++i) {
+        cam.step(car, 1.0f / 60);
+        most = std::max(most, std::fabs(ahead(0).x));
+        cam.set_shake(false);
+        steady = std::max(steady, std::fabs(ahead(0).x));
+        cam.set_shake(true);
+    }
+    CHECK(most > 1e-3 && most < std::sin(2.01 * 0.0174532925));
+    CHECK_NEAR(steady, 0, 1e-4);
 }

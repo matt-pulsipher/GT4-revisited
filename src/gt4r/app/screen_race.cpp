@@ -658,8 +658,7 @@ public:
         if (!demo) stale_ = false;
         watched_ = watched;
         ran_ = true;
-        // B-spec: the pace "Steady", the low view from the car's nose (as the original's B-spec race
-        // opens), the help strip shown.
+        // B-spec: the pace "Steady", the course's cameras (the camera manager's mode 1), the help strip shown.
         bspec_pace_ = 3, overtake_steps_ = 0, bspec_help_ = true, focus_ = 0;
         mail_ = {}, records_.clear();
         recording_ = !demo && recordable();
@@ -667,7 +666,9 @@ public:
         snapshot_ = false, dissolve_total_ = dissolve_left_ = 0; // (a cut of the menus' scene behind the page ends with it)
         if (before_tv_ && mount_ == kTvView) mount_ = *before_tv_; // (the results page's cameras, back to the player's view)
         before_tv_.reset();
-        if (watched) mount_ = race::DriveCamera::kInCar;
+        if (own_view_ && !watched) mount_ = *own_view_, own_view_.reset();
+        if (watched && !own_view_) own_view_ = mount_;
+        if (watched) mount_ = kTvView;
         menu_scene_ = false;
         race::FlowSetup fs;
         prev_cars_.clear();
@@ -1039,7 +1040,7 @@ public:
         const size_t heard = viewing() ? focus() : 0;
         l.velocity = cars[heard].velocity;
         const bool own = !start_camera_.active() && !replaying_ && mount_ != kTvView;
-        l.kind = pose.body_hidden ? audio::SoundListener::Kind::InCar : own && mount_ == race::DriveCamera::kChase ? audio::SoundListener::Kind::Chase
+        l.kind = pose.body_hidden ? audio::SoundListener::Kind::InCar : own && race::DriveCamera::chase(mount_) ? audio::SoundListener::Kind::Chase
                                                                                                                  : audio::SoundListener::Kind::Other;
         world_->present(cars, &l, int(heard), live, replaying_ && behind_ ? &behind_->session() : nullptr);
     }
@@ -1259,7 +1260,7 @@ public:
         h.red_line = spec.red_line, h.rev_limit = spec.rev_limit;
         // The speedometer's face by the car's top speed as the program estimates it (P +0xFD8).
         if (const float top = world_->car_top_speed(shown_car); top > 0) h.top_speed = top;
-        h.driver_view = !viewing() && mount_ != race::DriveCamera::kChase && mount_ != kTvView; // (a replay's meters are the small panel)
+        h.driver_view = !viewing() && !race::DriveCamera::chase(mount_) && mount_ != kTvView; // (a replay's meters are the small panel)
         h.mode_text.clear(), h.mode_opacity = 0;
         if (viewing() && mode_time_ >= 0) {
             // The playback mode's plate (0x39F018): in over 0.25 s, 3 s, out over 0.25 s.
@@ -1409,18 +1410,31 @@ public:
     void stop_refuel() { mail_.pit = {2, 0xFF, 0xFF, 0}; }
     void bspec_display() { bspec_help_ = !bspec_help_; }
 
-    // The car's three views, then the course's replay cameras (ours: the game shows those in replays only).
+    // The next view: the car's three, or with ours.
     void next_view() {
-        const auto& views = race::DriveCamera::kViews;
-        if (mount_ == kTvView) {
-            mount_ = views[0];
+        // B-spec's Cross: the course's cameras or the car's own, its nose (0x374618).
+        if (watched_) {
+            mount_ = mount_ == kTvView ? race::DriveCamera::kInCar : kTvView;
+            view_cut_ = true, replay_camera_.reset();
             return;
         }
-        size_t at = 0;
-        for (size_t i = 0; i < std::size(views); ++i)
+        using race::DriveCamera;
+        std::vector<int> views(std::begin(DriveCamera::kViews), std::end(DriveCamera::kViews));
+        if (all_views_) {
+            views = {DriveCamera::kInCar, DriveCamera::kInCarNoMirror, DriveCamera::kBumper, DriveCamera::kChase, DriveCamera::kFarChase, DriveCamera::kRoof};
+            if (!replay_script_.records.empty()) views.push_back(kTvView);
+        }
+        size_t at = views.size() - 1;
+        for (size_t i = 0; i < views.size(); ++i)
             if (views[i] == mount_) at = i;
-        mount_ = at + 1 < std::size(views) ? views[at + 1] : !replay_script_.records.empty() ? kTvView : views[0];
+        mount_ = views[(at + 1) % views.size()];
+        if (mount_ == kTvView) replay_camera_.reset();
+        view_cut_ = true;
     }
+    // [cameras] race_views: the game's three views, or ours as well; in_car_shake.
+    void set_view_options(bool all, bool shake) { all_views_ = all, camera_.set_shake(shake); }
+    // Looking aside: the controller's left and right views, and a free right stick.
+    void set_look(bool left, bool right, float x, float y) { camera_.set_sideways(left, right), camera_.set_stick(x, y); }
 
     // Where the shown frame is between the last two steps (0 .. 1), for the cars and the camera.
     void set_blend(float t) { blend_ = std::clamp(t, 0.0f, 1.0f); }
@@ -1460,7 +1474,7 @@ public:
         // 640 x 480 picture, measured on the original's in-car view): not in replays, demonstrations, under the results pages, the opening
         // shots (a standing start's or a rolling start's TV cameras), B-spec or looking back.
         race::ViewPose pit;
-        if (mount_ == race::DriveCamera::kInCar && !world_->pit_camera(focus(), pit) && !finish_view() && !replaying_ && !demo_run_ && !flow_.player_finished() && !menu_scene_ && !watched_ && !start_camera_.active() && !opening_tv() && !look_back && !setup_.look_back) {
+        if (mount_ == race::DriveCamera::kInCar && !camera_.aside() && !world_->pit_camera(focus(), pit) && !finish_view() && !replaying_ && !demo_run_ && !flow_.player_finished() && !menu_scene_ && !watched_ && !start_camera_.active() && !opening_tv() && !look_back && !setup_.look_back) {
             const SDL_FRect c = RaceHud::canvas();
             const float k = c.h / 480.0f;
             world_->render_mirror(ui, {c.x + 190 * k, c.y + 18 * k, 259 * k, 63 * k}, cars, pose, 0);
@@ -1676,7 +1690,7 @@ public:
             const bool own = viewing() && view_.ride_on();
             if (own && mount != race::DriveCamera::kChase && (size_t(mount) >= mounts.size() || mounts[size_t(mount)].flags == 0)) mount = race::DriveCamera::kInCar; // (a place the car does not have)
             pose = camera_.pose(me, body, mounts, mount, own ? view_.look_back() : look_back || setup_.look_back);
-            if (mount != race::DriveCamera::kChase && mount != race::DriveCamera::kInCar && !gt3_road_) pose.fov = race::shown_angle(pose.fov);
+            if (!race::DriveCamera::chase(mount) && !race::DriveCamera::in_car(mount) && !gt3_road_) pose.fov = race::shown_angle(pose.fov);
         }
         return pose;
     }
@@ -1709,6 +1723,9 @@ public:
     void set_driving_mode(bool bspec) {
         if (bspec == watched_ || setup_.auto_drive) return;
         watched_ = bspec;
+        if (bspec) own_view_ = mount_, mount_ = kTvView;
+        else if (own_view_) mount_ = *own_view_, own_view_.reset();
+        view_cut_ = true, replay_camera_.reset();
         follow(0);
         recording_ = false; // (❓ the recording of a run whose driver changed, the record's command 10, is not made)
         world_->set_driving_mode(bspec);
@@ -1839,6 +1856,8 @@ private:
     int split_steps_ = -1, split_index_ = 0;
     s64 split_ms_ = 0, split_gap_ms_ = 0;
     int mount_ = race::DriveCamera::kChase;
+    bool all_views_ = false;
+    std::optional<int> own_view_; // the player's view before a B-spec run
     std::optional<int> before_tv_; // the view before tv_view
 };
 
@@ -2037,6 +2056,10 @@ public:
         // (The time from the last frame's drawing to this update: its present and the events.)
         if (render_end_ns_) outside_ns_ = SDL_GetTicksNS() - render_end_ns_;
         const MenuInput& m = app.menu();
+        if (race_) {
+            const auto word = [&](const char* key, const char* otherwise) { return gt3r::to_lower(app.config().get("cameras", key).value_or(otherwise)); };
+            race_->set_view_options(word("race_views", "original") == "all", word("in_car_shake", "on") != "off");
+        }
         if (race_) race_->set_effect_settings(race::ReplayEffectSettings::load(app.config())), race_->set_replay_style(settings_.replay_mode == "DIVE" ? race::ReplayStyle::Dive : settings_.replay_display ? race::ReplayStyle::Display : race::ReplayStyle::Plain);
         if (!playing()) feedback_.stop(app.input(), 0);
         if (quick_ && race_) return update_quick(app, m, dt);
@@ -2173,6 +2196,13 @@ public:
         if (!pit_menu && race_->world().refuelling(0) && m.pressed(PadButton::Circle) && !race_->replaying()) race_->stop_refuel();
         update_panel(app, dt);
         if (monitor_ && race_->world().pit_stage(0) != 0) monitor_.reset(); // (into the pits: the live view again)
+        if (mine && !race_->viewing()) {
+            const bool free_stick = !app.input().wheel_steering(0) && !input::console_layout(app.input(), 0, controllers_.port[0]);
+            race_->set_look((player_input_.views & input::RaceInput::kLeftView) != 0, (player_input_.views & input::RaceInput::kRightView) != 0, free_stick ? player_input_.stick[2] : 0,
+                            free_stick ? player_input_.stick[3] : 0);
+        } else {
+            race_->set_look(false, false, 0, 0);
+        }
         look_back_ = mine ? (player_input_.views & (input::RaceInput::kBackView | input::RaceInput::kRearView)) != 0 : gt3r::race::look_back_held(app.input().race_pad(0), false);
         // (Settings > Controls: the songs' own controls)
         for (int p = 0; p < gt3r::InputManager::kMaxPlayers; ++p)
