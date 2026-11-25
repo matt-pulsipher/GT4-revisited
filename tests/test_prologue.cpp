@@ -692,11 +692,10 @@ TEST(disc_prologue_demonstrations) {
         exact += r.exact(), ended += r.ended_ms >= 0;
         if (o.hold >= 0 || o.shift != 0 || !o.cones || !o.judge) continue;
         // The recordings that start at rest end as they did on the console: to the millisecond, or (recorded with an earlier
-        // clock, ❓) a step later in lessons 2 and 3, two in the training lessons 37 to 40. Lesson 36's keeps no time.
+        // clock, ❓) a step later in lessons 2 and 3 and in the training lessons 37 to 40. Lesson 36's keeps no time.
         static constexpr int kExact[] = {1, 4, 5, 6, 7, 13, 16, 19, 20, 23, 25, 44, 45, 46};
         if (std::find(std::begin(kExact), std::end(kExact), k) != std::end(kExact)) CHECK(r.ended_ms == r.recorded_ms);
-        if (k == 2 || k == 3) CHECK(r.recorded_ms - r.ended_ms >= 16 && r.recorded_ms - r.ended_ms <= 17);
-        if (k >= 37 && k <= 40) CHECK(r.recorded_ms - r.ended_ms >= 33 && r.recorded_ms - r.ended_ms <= 34);
+        if (k == 2 || k == 3 || (k >= 37 && k <= 40)) CHECK(r.recorded_ms - r.ended_ms >= 16 && r.recorded_ms - r.ended_ms <= 17);
         if (k == 36) CHECK(r.ended_ms > 0 && r.fail == 0);
     }
     if (!only) std::printf("  %d end timed, %d to the millisecond\n", ended, exact);

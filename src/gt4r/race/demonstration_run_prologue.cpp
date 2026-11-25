@@ -189,7 +189,7 @@ DemonstrationRun run_demonstration(Disc& disc, db::SpecDb& sdb, const std::strin
                     std::snprintf(t, sizeof t, "(wall %.2f m/s of %d, car %.2f of %d, cones %d at %.1f m)", double(c.wall_hit / session.record(0).p.mass.host()), rules.wall_limit, double(c.car_hit),
                                   rules.car_limit, cones, double(c.course_v));
                     r.error = t;
-                } else if (judge.cones_done()) flow.finish_now(0);
+                } else if (judge.cones_done()) flow.finish_now(0, 1); // (the clock + 50)
                 else if (goal > 0 && !stop_area) {
                     if (flow.car(0).counter >= fs.laps && goal_prev >= 0 && goal_prev < goal && goal <= c.course_v && c.course_v - goal_prev < 100)
                         flow.finish_now(0, (goal - goal_prev) / std::max(c.course_v - goal_prev, 1e-4f));
