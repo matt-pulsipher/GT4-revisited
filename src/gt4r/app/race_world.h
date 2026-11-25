@@ -53,6 +53,7 @@ struct WorldEntry {
     std::optional<sim::Equipment> equipment; // the car's parts and settings (a garage car's); none: as sold
     std::optional<std::array<u8, 0x20>> condition; // a garage car's condition block (sim::Entry::condition)
     std::string wing; // a fitted wing's label (a WING row); empty: the equipment's (record +0x100), else none
+    int start_kind = 0; // a rolling start's kind (RaceFlow's; 0: 2 behind the line, 1 past it)
     float start_distance = std::numeric_limits<float>::quiet_NaN(); // a rolling start's place (sim::Entry::start_distance)
     std::optional<course::Runway::Place> place; // the car's own start place (a license test's road section: sim::Entry::place)
 };

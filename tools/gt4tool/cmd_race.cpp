@@ -306,6 +306,18 @@ int race_replays(gt4r::Disc& disc, const std::vector<std::string>& a) {
         std::printf("%s: %s mode %u event %llx course %llx time %d / %d, %zu entries, controls %u, %zu streams:", name.c_str(), d->race_class.c_str(), d->race_mode,
                     (unsigned long long)d->code_b0, (unsigned long long)d->code_b8, d->time_ms, d->time2_ms, d->entries.size(), d->controls_flag, d->streams.size());
         for (const auto& st : d->streams) std::printf(" %zu", st.frames.size());
+        if (a.size() > 3 && !d->streams.empty()) {
+            std::printf("\n");
+            replay::PadRecord last;
+            int shown = 0;
+            for (size_t k = 0; k < d->streams[0].frames.size() && shown < std::atoi(a[3].c_str()); ++k)
+                if (const replay::PadRecord& f = d->streams[0].frames[k]; k == 0 || !(f == last)) {
+                    std::printf("  %zu:", k);
+                    for (u8 b : f.bytes) std::printf(" %02x", b);
+                    std::printf("\n");
+                    last = f, ++shown;
+                }
+        }
         if (a.size() > 2) {
             const Bytes body = file;
             const u32 hdr = u32(file[0]) | u32(file[1]) << 8, len = u32(file[4]) | u32(file[5]) << 8 | u32(file[6]) << 16;

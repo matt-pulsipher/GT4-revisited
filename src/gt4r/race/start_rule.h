@@ -26,6 +26,8 @@ struct CourseStart {
     float distance_m = 400; // behind the line (the program's default, -400 in K +0xF884)
     float speed_kmh = 80;   // the program's default (K +0xF886)
     float spacing_m = 20;   // between places (K +0xF887)
+    float free_distance_m = 0; // a free run's (the free run's and the time trial's conductor: 0x34D288) run-up behind the line,
+    float free_speed_kmh = 0;  // and its speed; 0: it starts from the grid
     int kind = 0;           // the row's +0x10 (K +0xCBDD, 0x34C968; 255 reads 0): 2 and 3 the loose courses, where a
                             // license test does not count the wheels off the course (0x34C998)
     int way = 0;            // the row's +0x12 (K +0xCBDE): 1 a course without a lap, 2 no distance along it
@@ -40,7 +42,7 @@ CourseStart course_start(db::SpecDb& db, const std::string& course);
 // its first driver set (the file's slot 2; the course object's +0xA0, 0x466B90) bytes +0x23 (x 10 m
 // behind the line), +0x24 (km/h), +0x25 (m); without that set the program's table at 0x623DC0 (a row for
 // the tarmac courses, one for the loose: zeros); a zero takes the default (400 m, 80 km/h, 20 m: vf28
-// 0x34D490).
+// 0x34D490). A free run's: its bytes +0x19 (x 10 m) and +0x1A (x 5 km/h), no defaults.
 void apply_drivers_file(CourseStart& s, ByteSpan ad);
 
 // ---- an event's own start places (the race information's row in the conductor's configuration CFG, 0x35E108) ----------

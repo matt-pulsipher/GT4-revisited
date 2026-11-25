@@ -244,6 +244,7 @@ void RaceWorld::build_simulation() {
             sim::Session::Options options;
             if (setup_.own_hold) options.hold_steps = 0;
             options.rules = race::event_rule_block(setup_.event_row);
+            if (!setup_.event_row.empty()) options.rules[0x40] = u8(entries.size() - 1); // (the cars on the grid less one: 5 of six, 1 of two in the original's states)
             session_ = std::make_unique<sim::Session>(*app_.db(), program, std::make_shared<const course::Runway>(course_->road()), entries,
                                                       sim::course_row(*app_.db(), setup_.course), &options);
             if (!noted_)
@@ -348,7 +349,7 @@ void RaceWorld::plan_starts(const sim::Program& program, std::vector<sim::Entry>
         std::optional<race::CarStart> rolling;
         if (we.start_speed > 0 && !std::isnan(we.start_distance)) { // a single race's rolling start (0x347618)
             rolling.emplace();
-            rolling->kind = we.start_distance < 0 ? 2 : 1;
+            rolling->kind = we.start_kind ? we.start_kind : we.start_distance < 0 ? 2 : 1;
             rolling->distance = int(we.start_distance), rolling->speed = int(std::lround(we.start_speed * 3.6f));
         }
         starts_.push_back(race::plan_start(r, i, we.grid_place >= 0 ? we.grid_place : int(i), rolling));
