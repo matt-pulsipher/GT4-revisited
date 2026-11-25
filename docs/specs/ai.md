@@ -561,8 +561,7 @@ another race's for checks: then its own F+0x560, F+0x650, places, clock and fini
   a wall within the body's ends or a car overlapping.
 - **The pits** (§11): the program's pass, request, service and the stop's timing, `PitStops` on the session; the car
   stands in its box by the brake (no placing in the box without the session's hook), tires and fuel through hooks.
-- Not done: the line-5 records, the aero bonus (P +0x1077 / +0x1084 not mirrored:
-  0), T+0x158's factor (1 throughout in this program).
+- Not done: the line-5 records, T+0x158's factor (1 throughout in this program).
 - Without the mapped program (Prologue, another release) the drivers run with neutral values: no
   spreads, no offset of the aim, a fallback of the passing lines to the main line, the shared
   engine's tire records (16 surfaces) and no slip scaling of the steering gain; on a road without
