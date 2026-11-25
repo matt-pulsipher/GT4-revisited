@@ -5,6 +5,7 @@
 // file's bytes. An arcade single race (RaceArcadeSingle), driven by the player or by the B-spec driver.
 
 #include "gt4r/formats/replay/demonstration.h"
+#include "gt4r/race/simulation.h"
 #include "gt4r/sim/session.h"
 
 #include <optional>
@@ -33,5 +34,11 @@ struct RecordMail {
     u8 command = 0, argument = 0;              // +0x14 4 the pace (0 ..), 5 the overtake, 6 the pit
 };
 replay::PadRecord mail_record(const RecordMail& m);
+
+// What a saved replay's states leave out (race/replay_file.h), in a section of its own: each step's and car's brakes' heat and
+// clutch. apply_details does nothing with another size.
+constexpr u32 kReplayDetails = 0x4C544544; // "DETL"
+Bytes replay_details(const std::vector<std::vector<CarState>>& steps);
+void apply_details(std::vector<std::vector<CarState>>& steps, ByteSpan details);
 
 } // namespace gt4r::race

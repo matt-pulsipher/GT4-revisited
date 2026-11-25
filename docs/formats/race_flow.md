@@ -335,9 +335,11 @@ The program's Save Replay runs the project `labomode` with `next_menu_arg` =
 rebuild keeps the cars' states instead, step by step, in a file of its own under the data folder's
 `replays/` (`<course>-<date>-<time>.gt4rrep`; `race/replay_file.*`): `"GT4RRPL1"`, u32 the body's
 size, u32 its deflated size, then the zlib-deflated body: the course, the sequence and the race's
-labels, the laps, the cars (label, paint), the steps (every car's state). The Drive screen plays
-one with `GT4R_RACE="replay_file=<path>"` through the course's replay cameras. ❓ The menus'
-Replay Theater does not list these files yet.
+labels, the laps, the cars (label, paint), the steps (every car's state), then sections (u32 tag, u32
+size, bytes): `DETL` each state's brakes' heat and clutch, `RPLD` an arcade race's run as the program keeps
+it (replay.md "A replay of ours"). The Drive screen plays
+one with `GT4R_RACE="replay_file=<path>"` through the course's replay cameras (a card's own replay file too); `save=<n>` saves a run at
+its step n. The Replay Theater lists them.
 
 ## A free run's start, and the arcade's start against the original
 

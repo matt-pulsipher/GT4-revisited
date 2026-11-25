@@ -231,7 +231,8 @@ public:
     float tank(size_t car) const { return session_ && car < car_visuals_.size() ? session_->tank(car) : 0; }
     // What goes with the cars shown in a step, live (the simulation's) or recorded: smoke and dust
     // from the wheels, and the race's sound heard from `camera` (none: no sound) about car `target`.
-    void present(std::span<const race::CarState> cars, const audio::SoundListener* camera, int target, bool live);
+    // `heard`: a recorded step's simulation run again (a saved replay's recording): heard in place of the states.
+    void present(std::span<const race::CarState> cars, const audio::SoundListener* camera, int target, bool live, const sim::Session* heard = nullptr);
     void clear_effects();
     // The race's sound stopped (a menu).
     void quiet();

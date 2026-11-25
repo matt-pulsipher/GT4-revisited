@@ -650,10 +650,11 @@ float RaceWorld::car_mass(size_t i) const {
 // Smoke and dust from the wheels for a step: a puff where a tire slides on the road, dust and
 // spray from any wheel that turns on a loose or wet surface. The kind of puff is the course's,
 // by the surface under the wheel.
-void RaceWorld::present(std::span<const race::CarState> cars, const audio::SoundListener* camera, int target, bool live) {
+void RaceWorld::present(std::span<const race::CarState> cars, const audio::SoundListener* camera, int target, bool live, const sim::Session* heard) {
     Impl& m = *impl_;
     if (camera && m.sound) {
         if (live && session_) m.sound->update(*session_, *camera, target);
+        else if (heard) m.sound->update(*heard, *camera, target);
         else m.sound->update(cars, *camera, target);
         // The pit scene of the car shown (0x3CFA98 through 0x35BE38): the stop's "tires on" bit (F +0x4B8 0x200) taken
         // and cleared, the jack let down.

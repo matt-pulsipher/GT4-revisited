@@ -33,6 +33,7 @@
 #include "gt4r/race/rail_simulation.h"
 #include "gt4r/race/replay_script.h"
 #include "gt4r/race/race_recording.h"
+#include "gt4r/race/recorded_race.h"
 #include "gt4r/save/game_data.h"
 #include "gt4r/race/replay_file.h"
 #include "gt4r/race/license_rules.h"
@@ -700,7 +701,7 @@ public:
         goal_prev_ = -1;
         board_.begin(world_->car_count(), 0, lap_words_[0], lap_words_[1]);
         camera_.reset(world_->cars()[0]);
-        history_.clear(), run_dist_.clear();
+        history_.clear(), run_dist_.clear(), saved_recording_.clear(), behind_.reset();
         if (audio::RaceSound* sound = world_->sound()) sound->forget_recording();
         split_prev_.clear(), split_first_.clear(), split_steps_ = -1;
         distance_ = 0, bspec_distance_ = 0, shown_steps_ = 0;
@@ -744,6 +745,7 @@ public:
         f.course = setup_.course, f.sequence = sequence, f.race = race_label, f.laps = setup_.laps;
         for (size_t i = 0; i < world_->car_count(); ++i) f.cars.push_back({world_->setup().entries[i].label, world_->setup().entries[i].paint});
         f.steps = history_;
+        f.other.emplace_back(race::kReplayDetails, race::replay_details(history_));
         if (recording_ && !records_.empty()) try {
                 const Bytes b = recording();
                 if (!b.empty()) f.other.emplace_back(race::ReplayFile::kRecording, b);
@@ -776,6 +778,9 @@ public:
     }
     void play_saved(race::ReplayFile&& f) {
         history_ = std::move(f.steps);
+        for (const auto& [tag, b] : f.other)
+            if (tag == race::kReplayDetails) race::apply_details(history_, b);
+        saved_recording_ = f.recording() ? *f.recording() : Bytes{};
         if (audio::RaceSound* sound = world_->sound()) sound->forget_recording(); // (a saved run: heard from its states)
         for (std::vector<race::CarState>& s : history_) s.resize(world_->car_count());
         ran_ = true;
@@ -831,6 +836,7 @@ public:
                 return;
             }
             ++replay_at_;
+            step_behind();
             start_camera_.step();
             camera_.step(history_[replay_at_][0], kStep);
             step_gear(history_[replay_at_][0]);
@@ -1009,7 +1015,7 @@ public:
         const bool own = !start_camera_.active() && !replaying_ && mount_ != kTvView;
         l.kind = pose.body_hidden ? audio::SoundListener::Kind::InCar : own && mount_ == race::DriveCamera::kChase ? audio::SoundListener::Kind::Chase
                                                                                                                  : audio::SoundListener::Kind::Other;
-        world_->present(cars, &l, 0, live);
+        world_->present(cars, &l, 0, live, replaying_ && behind_ ? &behind_->session() : nullptr);
     }
     void pause_sound(bool paused) {
         if (audio::RaceSound* sound = world_->sound()) sound->pause(paused);
@@ -1030,10 +1036,39 @@ public:
         prev_cars_.clear();
         if (audio::RaceSound* sound = world_->sound()) sound->replay();
         replay_at_ = 0;
+        begin_behind();
         camera_.reset(history_[0][0]);
         replay_camera_.reset();
         world_->clear_effects();
         begin_start_camera(true);
+    }
+    // A saved replay's race run again behind it from its recording, for what its states do not hold (the sound's inputs: hits, wheels,
+    // the engine's torques); left when the states are not its.
+    void begin_behind() {
+        behind_.reset();
+        if (saved_recording_.empty() || !disc_ || !db_) return;
+        try {
+            std::string error;
+            std::optional<sim::ai::DemoRun> run = sim::ai::DemoRun::load_replay(saved_recording_, sim::Program::load(*disc_), "saved", &error);
+            if (!run) throw FormatError(error);
+            behind_ = std::make_unique<race::RecordedRace>(*disc_, *db_, std::move(*run));
+            step_behind();
+        } catch (const std::exception& e) {
+            LOG_WARN("Drive: the saved replay's recording: %s", e.what());
+            behind_.reset();
+        }
+    }
+    void step_behind() {
+        if (!behind_) return;
+        behind_->step();
+        const std::span<const race::CarState> cars = behind_->session().cars();
+        const std::vector<race::CarState>& shown = history_[replay_at_];
+        for (size_t i = 0; i < cars.size() && i < shown.size(); ++i)
+            if (std::memcmp(&cars[i].position, &shown[i].position, sizeof cars[i].position) != 0) {
+                LOG_WARN("Drive: the saved replay's recording leaves its states at step %zu (car %zu): heard from the states", replay_at_ + 1, i);
+                return behind_.reset();
+            }
+        if (replay_at_ + 1 == history_.size()) LOG_INFO("Drive: the saved replay's recording ran its %zu steps beside it", history_.size());
     }
     bool replaying() const { return replaying_; }
     bool replay_done() const { return replay_done_; }
@@ -1609,6 +1644,8 @@ private:
     std::vector<race::CarInput> inputs_;
     Disc* disc_ = nullptr;
     db::SpecDb* db_ = nullptr;
+    Bytes saved_recording_; // a saved replay's own (race/race_recording.h)
+    std::unique_ptr<race::RecordedRace> behind_;
     sim::rules::PadMail mail_; // what the player asks for the next step (B-spec's commands, the pit menu's choice)
     std::vector<replay::PadRecord> records_; // the run's records, one a step
     bool recording_ = false;

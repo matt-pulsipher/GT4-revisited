@@ -1256,12 +1256,18 @@ turns off the computer driver's long look ahead at a standing start, the cause o
 |---|---|
 | 85 | named for the US tests; B-8's car is not in this disc's database (no car), 84 run |
 | 14 | record no time (0): they end timed by the program, in no recorded time to compare |
-| 70 | with a recorded time: **63 end on it to the millisecond** (runs of 10 .. 419 s, all sixteen Super License laps but S-3, which records no time, among them) |
+| 70 | with a recorded time: **66 end on it to the millisecond** (runs of 10 .. 419 s, all sixteen Super License laps but S-3, which records no time, among them) |
 | 3 | coffee breaks with cones (C-2, C-3, C-5): the harness sets up no cones, so they are not judged (they run past their end) |
-| 4 | miss: B-6 (-34 ms), the training tests B-10, IA-15 and IB-15 (the pace car drives; they end off the road or on a wall) |
+| 1 | misses: B-6 (-34 ms) |
+
+**The Replay Theater's demo replays** (`gt4r_diff <disc> floats replays <name> run`; formats/replay.md): the disc's own 13, twelve arcade
+races of two and six cars (A-spec and B-spec, standing and rolling starts, pit stops; 81 .. 221 s) and a free run's lap of the Nürburgring
+(472 s), all end on their recorded times and best laps to the millisecond through the program's step: **13 of 13**. Our own race set up from
+each file alone does too, so the computer drivers, the collisions, the tire wear and the pit stops they run are the console's. The harness
+had them wrong before by the start code, the start's hold, the race's replay mode and the free run's moment.
 
 **The controls** (the interpreter's FPU arithmetic replaced from outside, `GT3R_FLOAT_ORACLE`; a scratch model of PCSX2 2.8.2's
-EE FPU, outside the repository): with its multiplier, divider, square root and adder all replaced 9 of the 70 end on their times; with
+EE FPU, outside the repository): (measured when 63 of the 70 were exact) with its multiplier, divider, square root and adder all replaced 9 of the 70 end on their times; with
 its multiplier alone 13, its divider alone 10, its square root alone 11, its adder alone 63 (it does not differ from ours
 on these runs). So the demonstrations do discriminate the multiplier, the divider and the square root, and the adder's
 difference between the two models is not exercised by them.
@@ -1270,21 +1276,18 @@ difference between the two models is not exercised by them.
 - B-6 ends at 22,715 ms under our model and under PCSX2's alike (the recording 22,749), so it does not turn on the float model.
   Its stop is at the same step with holds of 476, 478, 479, 480 and 481; a hold of 478 gives 22,748. ❓ Not explained, and 478 is
   not used: it would be a value fitted to this one file.
-- The training tests B-10, IA-15 and IB-15 leave the road or meet a wall under both models (steps 4,317 / 3,986, 2,985 / 2,973,
-  1,868 / 1,861). Failing under PCSX2's model too says nothing about ours, so the cause is open: the pace car's computer driver,
-  something of the set-up, or an operation. Changing the shared random stream's start state changes nothing (tried on IB-15).
-  ❓ The other nine training tests are exact.
+- The training tests B-10, IA-15 and IB-15 missed before the start code was given to the set-up (above); they are exact now.
 
 **The other regions' files** do not play on this program. 99 Japanese and Korean recordings that differ from every US-named one were run
 with this disc's row of the same test (12 cars and 6 events are not in its database; the 34 missions run are copies of one two-car
 run on different events and are left out): of 43 with a recorded time **5 are exact**, 8 are 5 to 89 ms off, 30 fail or do not end.
-Two European files tried (B-1, A-1) do not end or fail. So 63 of 70 is the
+Two European files tried (B-1, A-1) do not end or fail. So 66 of 70 is the
 score of the files this disc's program itself asks for, not of every console recording on it.
 ❓ Why: the recordings may be of other builds (the European at 50 steps a second). Fitting that, the 85 US-named files are either the
 Japanese recording unchanged, under the Japanese row (32 of 32), or recorded again, under their own (53 of 53), as if those that
-still played were kept; with a recorded time 25 of 27 of the first kind and 38 of 43 of the second are exact. It is not proven: the other
+still played were kept; with a recorded time 25 of 27 of the first kind and 41 of 43 of the second are exact. It is not proven: the other
 builds' programs are not on this disc, and the same was once supposed of Gran Turismo 3's demonstrations, whose cause was the
-float model. B-6 is of the first kind; the three training tests are of the second, recorded for this build.
+float model. B-6 is of the first kind, its miss (-34 ms) of the size of the other regions' near misses.
 
 ### The operations (a census of the race step)
 

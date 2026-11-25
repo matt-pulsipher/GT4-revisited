@@ -2,7 +2,8 @@
 
 Code: `src/gt4r/formats/replay/demonstration.*` (the reader), `src/gt4r/sim/ai/demo_driver.*` (playing one on the
 session); `gt4tool ai <disc> demo <label|all> [frames]`, `gt4tool ai <disc> demo-run <label>`,
-`gt4r_diff <disc> demo <label>`; `tests/test_ai_demo.cpp`. Addresses are the US program's (SCUS-97328 v1.01).
+`gt4r_diff <disc> demo <label>`; a race of ours kept the same way `race/race_recording.*`, run from a file `race/recorded_race.*`
+(`gt4tool race <disc> replays | recording <file> [out]`, `gt4r_diff <disc> floats replays <name | file> run`); `tests/test_ai_demo.cpp`, `test_recorded_races.cpp`. Addresses are the US program's (SCUS-97328 v1.01).
 
 A license test's "View a demo run" is not driven: it is a recorded run played again. The program keeps a run as
 `Serialize::ReplayData` (the memory card's saved replays are the same class): the race's header and the drivers' pad
@@ -88,6 +89,16 @@ then that many byte deltas from +0x10; then the run (gamma - 1). A delta (0x345C
 width's wrap. The step's record is the result. Frames 1 .. T - 1 give a record each (T - 1 steps); at T the playback
 is done (+0x38) and the record cleared.
 
+**The recorder** (0x346138 once a step, 0x346498 the end) writes the same: it carries its state's steering on as the player does, compares
+the new record field by field, and on the first record or a change writes the run before (gamma), mask + 1 (gamma), the deltas in the order
+above, with 0x200 (the count differs, or one of the first count bytes from +0x10) count + 1 and that many deltas, unchanged bytes too; the
+whole record becomes the state. The end: the run, then a 1 (gamma); T is the records kept, the length the whole bytes written + 8: the
+last part byte is not in the file (its place is zero), so a playback may read a last change short (its T-th record, which it never hands
+out). A delta's class is the least whose range holds it (under 2, 8, 32, ...). ✔ `encode` writes 441 of the disc's 497 recordings byte for
+byte again (file header, key, cipher, stream); of the others 16 end inside their last records and the 40 copies of `jpl0m` are an older
+recorder's (their first record's bytes from +0x10 take four bits each there), the same frames when written and read again
+(`ai_disc_recordings_written_again`).
+
 ## Playing one
 
 The race steps from its first step with car 0's record from the stream (the start's hold and count included: the
@@ -131,7 +142,42 @@ recorder's moment, its crossings 2, the clock at 100 units, its times from (100 
 B-spec, one to five computer cars, pit stops among them, end on their recorded times and best laps to the millisecond, Rdemo9's lap
 (Nürburgring, 472,780 ms, from the recorder's moment) too: 13 of 13. ✔ So does our own race set up from the file alone (`race/recorded_race.*`,
 test `recorded_races_end_on_their_recorded_times`): 13 of 13; beside the program's, every car's place is equal in every bit over the whole run on
-Rdemo1, 2, 5, 8 (compared over the run) and wherever else it was compared (`GT4R_FLOATS_ALONE=1`; `GT4R_FLOATS_SAVE` / `GT4R_FLOATS_TRACE` keep the program's
+Rdemo1, 2, 5, 8, 9 and wherever else it was compared (`GT4R_FLOATS_ALONE=1`; `GT4R_FLOATS_SAVE` / `GT4R_FLOATS_TRACE` keep the program's
 run in a file and compare with it). The app plays them from the theater's Demo tab (`screen_race.cpp` `load_recorded_race`, `play_demo`).
 `Rdemo15` (the Japanese disc's, the same course and car as Rdemo9) is exact too; the other regions' files name cars and courses by other builds'
 rows and do not come out (a car of theirs is another here, or none).
+`Rtest1`, `Rtest2` and a file `BISCPS-17001R1UWiYUY` in Rdemo2's folder read, but are other builds' too.
+
+## A replay of ours
+
+A saved replay (race_flow.md "Saved replays") of an arcade single race, driven or B-spec's, holds beside its states the program's own
+file of it, in a section `RPLD`: the scrambled `ReplayData` a card's replay file is (`race/race_recording.*`). What each part is made of:
+
+- **The header**: the class `RaceArcadeSingle`, the mode word 0 (A) or 1 (B), the event's and the course's codes, the race information (the
+  laps, the penalty and tire damage options, 2 at +0xC and 1 at +0x1C as every arcade recording of the disc has, the B-spec driver's
+  record), the race time and best lap (an unfinished race's last lap, else 0 and -1), the races' music as the options keep it (+0x148).
+- **The entries**: the equipment, condition (none: the default, 1 at +0x14), place, gearbox, driver kind and aids the race was set up with;
+  +0x198 0x100 for the player and 0 for the computers, the fourth aid byte 2, as every recording. A computer's third aid switch (+0x3458) is
+  1 in every recorded race; the races here give it now too.
+- **The records**: the player's frame each step from the race's first, as the input phase read it, with the step's mail at +0x10 (the count
+  6): B-spec's commands and the pit menu's choice (0x35BFE8, post_mail). Both take effect a step after they are asked, here as there. A
+  B-spec car's pit wait that runs out (300 steps, 0x35C0B8) posts its choice by itself (0x35BF08: 1, 0xFE, 0xFE, 0xFE); a run played from
+  records takes its choices from them alone.
+- Not kept so (states only): runs of other races, a run whose driver was changed in the pit (command 10), a scripted run driven by the
+  computer.
+
+✔ Made from the disc's twelve arcade recordings' own races, the files are the disc's byte for byte (10; the other two end inside their
+last record). ✔ Races driven in the app and saved, then run from the saved file's `RPLD` alone (`gt4tool race <disc> recording`): a driven
+one into walls and traffic (Tsukuba, six cars, 2,400 steps), B-spec ones with commands (7,500 and 4,900 steps, to the recorded time) and a
+pit stop (13,500): every car's place equal in every bit, every step. PROGRAM_RESULT
+`gt4tool race <disc> recording <saved replay> <out>` writes the card's file out; the race screen plays a card's replay file by its path (as the
+Demo tab's: run again from its records).
+
+A saved replay's race is run again behind its states while it plays, for what they do not hold (the sound's hits, wheels and engine torques);
+where a car leaves its kept place by a bit, the states alone are heard (a log line says so).
+
+**The original's card**: its replay folder (`BASCUS-97328BemU5YYY` on the reference card, a license run's) has the replay of the folder's name,
+`icon.sys`, `icon0.ico` and a 256-byte `thumbnail`, as the disc's demo folders. The file unscrambles with the replay class's factors and holds a
+`ReplayData` header, so its container is this one; its body does not decipher to its key here, as none of PCSX2's does (the cipher is the
+console's multiplier and divider: physics.md §9b). A replay saved on a console is not at hand ❓. Nor is a card folder written here: the
+icon, the thumbnail (❓ its layout) and the name's letters (by the class `R`, `B` for a best lap, `P` a photo; 🔎 the rest) are not made.

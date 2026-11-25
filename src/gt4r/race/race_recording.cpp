@@ -49,4 +49,33 @@ replay::PadRecord mail_record(const RecordMail& m) {
     return r;
 }
 
+namespace {
+constexpr size_t kDetail = 17; // a car's: four wheels' brake heat (f32), a byte (1 the clutch is locked, 2 held in its rolling start)
+}
+
+Bytes replay_details(const std::vector<std::vector<CarState>>& steps) {
+    Bytes b;
+    for (const std::vector<CarState>& s : steps)
+        for (const CarState& c : s) {
+            const size_t at = b.size();
+            b.resize(at + kDetail);
+            for (size_t w = 0; w < 4; ++w) std::memcpy(&b[at + 4 * w], &c.wheels[w].brake_heat, 4);
+            b[at + 16] = u8((c.clutch_closed ? 1 : 0) | (c.rolling ? 2 : 0));
+        }
+    return b;
+}
+
+void apply_details(std::vector<std::vector<CarState>>& steps, ByteSpan details) {
+    size_t cars = 0;
+    for (const std::vector<CarState>& s : steps) cars += s.size();
+    if (details.size() != cars * kDetail) return;
+    size_t at = 0;
+    for (std::vector<CarState>& s : steps)
+        for (CarState& c : s) {
+            for (size_t w = 0; w < 4; ++w) std::memcpy(&c.wheels[w].brake_heat, &details[at + 4 * w], 4);
+            c.clutch_closed = details[at + 16] & 1, c.rolling = details[at + 16] & 2;
+            at += kDetail;
+        }
+}
+
 } // namespace gt4r::race

@@ -96,3 +96,26 @@ TEST(a_race_kept_as_the_program_keeps_it) {
     CHECK(equal == files);
     CHECK(read == files);
 }
+
+// A saved replay's details beside its states (the brakes' heat, the clutch): back as they were; another size leaves the states.
+TEST(a_saved_replays_details) {
+    race::ReplayFile f;
+    f.course = "tsukuba", f.cars = {{"a", 1}, {"b", 2}};
+    for (int i = 0; i < 5; ++i) {
+        std::vector<race::CarState> s(2);
+        s[0].wheels[2].brake_heat = 0.25f * float(i), s[1].clutch_closed = i & 1, s[0].rolling = i > 2;
+        f.steps.push_back(s);
+    }
+    f.other.emplace_back(race::kReplayDetails, race::replay_details(f.steps));
+    race::ReplayFile g = race::ReplayFile::decode(f.encode());
+    CHECK(g.other.size() == 1);
+    CHECK(g.steps[3][0].wheels[2].brake_heat == 0.0f);
+    race::apply_details(g.steps, ByteSpan(g.other[0].second).first(20));
+    CHECK(g.steps[3][0].wheels[2].brake_heat == 0.0f);
+    race::apply_details(g.steps, g.other[0].second);
+    for (size_t i = 0; i < 5; ++i) {
+        CHECK(g.steps[i][0].wheels[2].brake_heat == f.steps[i][0].wheels[2].brake_heat);
+        CHECK(g.steps[i][1].clutch_closed == f.steps[i][1].clutch_closed);
+        CHECK(g.steps[i][0].rolling == f.steps[i][0].rolling);
+    }
+}
