@@ -403,6 +403,18 @@ float RaceWorld::fuel_share(size_t i) const {
 
 int RaceWorld::penalty_seconds(size_t i) const { return session_ && i < car_visuals_.size() ? session_->penalty_seconds(i) : 0; }
 
+void RaceWorld::aid_status(size_t i, u8& asm_status, u8& tcs_status) const {
+    asm_status = tcs_status = 0;
+    if (!session_ || i >= car_visuals_.size()) return;
+    asm_status = u8(session_->record(i).ascc_status), tcs_status = u8(session_->record(i).tcs_status);
+}
+
+void RaceWorld::rev_marks(size_t i, float& limit, float& shift) const {
+    limit = shift = 0;
+    if (!session_ || i >= car_visuals_.size()) return;
+    limit = float(session_->record(i).p.e.rev_limit), shift = float(session_->record(i).p.d.up_rpm);
+}
+
 float RaceWorld::car_mass(size_t i) const {
     // The parameter block's mass, P +0x48 (what the license rule 0x35FE80 divides a wall hit by).
     return session_ && i < car_visuals_.size() ? session_->record(i).p.mass.host() : 0.0f;

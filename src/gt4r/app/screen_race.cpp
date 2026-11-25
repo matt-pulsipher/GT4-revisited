@@ -725,6 +725,9 @@ public:
     }
     bool over() const { return over_; }
     const race::RaceFlow& flow() const { return flow_; }
+    int penalty_seconds() const { return world_->penalty_seconds(0); }
+    void rev_marks(float& limit, float& shift) const { world_->rev_marks(0, limit, shift); }
+    void aid_status(u8& asm_status, u8& tcs_status) const { world_->aid_status(0, asm_status, tcs_status); }
     race::ResultBoard& board() { return board_; }
     float player_distance() const { return distance_; } // metres the player's car ran this run
     float lap_length() const { return world_->lap_length(); }
@@ -1510,7 +1513,7 @@ public:
                 hud_->draw(ui, hud_state_);
             } else if (prologue_hud_ && hud_) {
                 race_->fill(hud_state_, *hud_);
-                prologue_hud_->draw(ui, hud_state_, prologue_extra()); // (Prologue's: Gran Turismo 3's display)
+                prologue_hud_->draw(ui, hud_state_, prologue_extra()); // (Prologue's own display)
             } else {
                 draw_overlay(ui);
             }
@@ -2456,9 +2459,11 @@ private:
             if (setup_.bspec) spectator_ = true;
             hud_ = std::make_unique<RaceHud>(app, race_->course().section(course::kSlotMiniMap));
             prologue_hud_.reset();
-            if (!hud_->ready()) { // (Prologue's display: Gran Turismo 3's on its own pictures and rows)
+            if (!hud_->ready()) { // (Prologue's display)
                 auto p = std::make_unique<PrologueHud>(app, race_->course().section(course::kSlotMiniMap));
                 if (p->ready()) prologue_hud_ = std::move(p);
+                if (prologue_hud_)
+                    if (const std::optional<Bytes> logo = app.vfs()->read("piece/crs_logo/" + setup_.course + ".img")) prologue_hud_->set_course_logo(*logo);
             }
             race_->set_lap_words(hud_->word("WordOfLap"), hud_->word("WordOfLaps"));
             // A test's gold, silver and bronze times (its RACE row, under the region's prefix).
@@ -2557,23 +2562,19 @@ private:
     PrologueHud::Extra prologue_extra() const {
         PrologueHud::Extra e;
         const HudState& h = hud_state_;
-        if (is_license(setup_.sequence)) e.run = gt3r::race::HudRun::License;
+        if (is_license(setup_.sequence) || is_license(sequence_)) e.run = gt3r::race::HudRun::License;
         else if (setup_.sequence == "time_trial") e.run = gt3r::race::HudRun::TimeTrial;
         else if (setup_.sequence == "freerun") e.run = gt3r::race::HudRun::FreeRun;
         e.live = !h.replay;
-        if (!h.message.empty() && h.message_opacity > 0) {
-            const bool digits = std::all_of(h.message.begin(), h.message.end(), [](char c) { return c >= '0' && c <= '9'; });
-            if (digits) e.countdown = std::atoi(h.message.c_str());
-            else if (!race_->flow().player_finished()) e.countdown = 0;
-        }
-        if (race_->flow().player_finished()) e.finish_t = double(race_->flow().steps_since_player_finish()) / 60.0;
-        if (menus_ && e.run == gt3r::race::HudRun::License) {
-            // The test's gold, silver and bronze times (the race's menus' work).
-            const menu::QuickWork& w = menu::quick_work(menus_->game());
-            const char* names[3] = {"goldTime", "silverTime", "bronzeTime"};
-            for (int i = 0; i < 3; ++i)
-                if (const s32 t = w.get(names[i]); t > 0 && t != menu::QuickWork::kNoTime) e.license_targets[size_t(i)] = double(t) / 1000.0;
-        }
+        const race::RaceFlow& flow = race_->flow();
+        if (flow.holding()) e.start_left = double(flow.hold_left()) / 60, e.start_total = double(flow.hold_total()) / 60;
+        else e.since_start = double(flow.steps_since_start()) / 60;
+        if (flow.player_finished()) e.finish_t = double(flow.steps_since_player_finish()) / 60.0;
+        for (int k = 0; k < 3; ++k) e.targets[size_t(k)] = test_time(k);
+        e.penalty = h.replay ? 0 : race_->penalty_seconds();
+        race_->aid_status(e.asm_status, e.tcs_status);
+        if (float limit = 0, shift = 0; race_->rev_marks(limit, shift), limit > 0 && shift > 0) e.rev_limit = limit, e.shift_rpm = shift;
+        e.onboard = h.driver_view && !race_->opening() && !h.replay;
         return e;
     }
 

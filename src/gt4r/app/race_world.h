@@ -184,6 +184,10 @@ public:
     float car_mass(size_t i) const;
     // The seconds left of a car's penalty (the speed cap a hit gave; 0: none).
     int penalty_seconds(size_t i) const;
+    // A car's stability and traction controls: 0 off, 1 on, 2 acting (Prologue's record F + 0x524 / 0x525).
+    void aid_status(size_t i, u8& asm_status, u8& tcs_status) const;
+    // A car's limiter and automatic up-shift revolutions (P + 0x1C4 and + 0x226; 0 not known).
+    void rev_marks(size_t i, float& limit, float& shift) const;
     // The suggested gear for a car the player drives (-1 none).
     int suggested_gear(size_t i) const;
     // A car's fuel left as a share of its tank (1 without a tank).
