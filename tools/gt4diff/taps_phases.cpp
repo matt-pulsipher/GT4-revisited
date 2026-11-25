@@ -295,7 +295,7 @@ void add_taps_phases(Taps& taps) {
         split_run() = {};
         add_split({"phases: prep", 0x357700, 0x3577E4, 0x30, car_a0, [](TapCall& t) {
                        const auto g = driver_grip_of(t);
-                       rules::prep(t.car, t.rec.x, t.rec.layout, tables(t), t.inputs.prep.condition, g ? &*g : nullptr);
+                       rules::prep(t.car, t.rec.x, t.rec.layout, tables(t), g ? &*g : nullptr);
                    },
                    {"w.slip_dir", "w.slip_fade"}}); // (the slip angles: the tail call 0x357690, the step's own tap)
         add_split({"phases: hit", 0x350530, 0x350654, 0x30, car_a0, [](TapCall& t) {

@@ -34,6 +34,9 @@ struct Entry {
     bool automatic = true; // the gearbox shifts itself
     bool asm_on = true, tcs_on = true;
     bool wheel_aid = false; // the entry's third aid switch (+0x3458; off for a player in the races seen): a steering wheel's slip aid
+    // The entry's condition block (+0x3468, 0x20 bytes: the odometer (u32, m), the engine's and the oil's distances, the dirt,
+    // the body's distance (floats), +0x14 no wear): a garage car's own; none: the program's default, all 0 with no wear (0x3433E8).
+    std::optional<std::array<u8, 0x20>> condition;
     int grid_place = -1;   // the course's start place (-1: the entry's index)
     float start_speed = 0; // a rolling start: metres per second along the place's heading at time 0
     // A rolling start's place: metres along the course from the start line (negative: before it), the car on
@@ -167,6 +170,8 @@ public:
     // What the computer drivers' pit flow reads and changes (sim/ai/pit_flow.h): the fuel (liters) and tank, the distance and the
     // fuel since the economy display's last reading (F +0x4C8 / +0x4C4), the fuel counted at all (F +0x5D0's distance > 0 is the
     // flow's own test), a wheel's tread wear (+0xAC) and wear grip (+0x50); new tires on a wheel (0x362E58); the fuel set.
+    // A car's condition block as the race has left it (F + 0x5D8).
+    std::array<u8, 0x20> condition(size_t i) const;
     float fuel(size_t i) const { return gx_[i].drive.fuel.fuel.host(); }
     float tank(size_t i) const { return gx_[i].drive.fuel.capacity.host(); }
     float fuel_distance(size_t i) const { return gx_[i].drive.fuel.economy_distance.host(); }

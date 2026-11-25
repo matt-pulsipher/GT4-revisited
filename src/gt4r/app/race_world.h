@@ -48,6 +48,7 @@ struct WorldEntry {
     bool asm_on = true, tcs_on = true; // the aids (sim::Entry)
     float start_speed = 0; // a rolling start: metres per second at time 0 (sim::Entry::start_speed)
     std::optional<sim::Equipment> equipment; // the car's parts and settings (a garage car's); none: as sold
+    std::optional<std::array<u8, 0x20>> condition; // a garage car's condition block (sim::Entry::condition)
     std::string wing; // a fitted wing's label (a WING row); empty: the equipment's (record +0x100), else none
     float start_distance = std::numeric_limits<float>::quiet_NaN(); // a rolling start's place (sim::Entry::start_distance)
     std::optional<course::Runway::Place> place; // the car's own start place (a license test's road section: sim::Entry::place)

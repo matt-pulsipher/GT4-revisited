@@ -359,5 +359,7 @@ GameState::Unit torque_unit_of(const std::string& option);
 // record, the program's car equipment record as it is (docs/formats/save.md "The car
 // record"). Nothing for a place without a driven car's record.
 std::optional<sim::Equipment> race_equipment(const GameState& game, int garage_slot);
+// And its condition block (0x20 bytes from the record's +0x498: the race entry's +0x3468).
+std::optional<std::array<u8, 0x20>> race_condition(const GameState& game, int garage_slot);
 
 } // namespace gt4r::menu

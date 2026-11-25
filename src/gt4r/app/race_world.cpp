@@ -213,6 +213,7 @@ void RaceWorld::build_simulation() {
                 const WorldEntry& we = i < overrides_.size() && overrides_[i] ? *overrides_[i] : setup_.entries[i];
                 if (we.equipment) entries[i].equipment = *we.equipment; // a garage car's own
                 else if (!sim::stock_car(*app_.db(), program, we.label, entries[i].equipment)) throw std::runtime_error("no parts for " + we.label);
+                entries[i].condition = we.condition;
                 entries[i].grid_place = we.grid_place;
                 entries[i].automatic = we.automatic;
                 entries[i].asm_on = we.asm_on, entries[i].tcs_on = we.tcs_on;

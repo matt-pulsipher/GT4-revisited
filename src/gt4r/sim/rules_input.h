@@ -288,6 +288,8 @@ void pad_controls(ex::Car& c, sim::Extra& x, const WheelLayout& l, const PadTabl
 // 0x349F48: the pad's controls, the throttle F + 0x494 = the pedal, the brake pedal onto the layout's wheels (0x343CF8).
 void pad_input(ex::Car& c, sim::Extra& x, const WheelLayout& l, const PadTables& t, const SteerTables& g, const InputRace& race,
                const PadFrame& f);
+// 0x343D60: a computer driver's brake pedal (F + 0x48C) onto the layout's wheels.
+void brake_pedal(ex::Car& c, const WheelLayout& l, F p);
 // 0x35BFE8: a pit stop's answer (frame +0x10 .. +0x13: 1 the tires chosen, 2 go) into the pit flags F + 0x4B8.
 void pit_answer(ex::Car& c, sim::Extra& x, const PadFrame& f);
 // 0x3F19E0: a B-spec command (frame +0x14: 4 pace, 5 overtaking, 6 pit, 10 who drives; +0x15 its value).
