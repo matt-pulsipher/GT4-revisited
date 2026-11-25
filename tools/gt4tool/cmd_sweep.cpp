@@ -11,7 +11,7 @@
 //       course's computer driver for [seconds]. Columns: index, label, name, build ms, run ms, metres covered, top km/h,
 //       0-100 km/h s, stuck s, wall hits, spins, off-road, laps, flags, where the spins began, error.
 //
-//   gt4tool sweep <disc> pad [course,course..] [car=nsx_r_02] [cars=4] [laps=2]
+//   gt4tool sweep <disc> pad [course,course..] [car=nsx_r_02] [cars=4] [laps=2] [line=1]
 //       the player's car driven through the pad's path (an analog stick, throttle and brake: steering to the road's
 //       middle, easing and braking for bends; with the manual gearbox, shifting up 300 rpm under the rev limit and
 //       down under 55 % of the power's speed) against computer drivers, in each gearbox (AT, MT) with the aids on
@@ -326,6 +326,7 @@ int sweep_pad(Disc& disc, const Args& a) {
     const std::string car = option_str(a, "car", "nsx_r_02");
     const int ncars = std::clamp(int(option(a, "cars", 4)), 1, 16);
     const int laps = std::max(1, int(option(a, "laps", 2)));
+    const bool line = option(a, "line", 1) != 0; // 0: no line heading, the active steering off
     const std::vector<std::string> field_labels = {"integra_r_98", "civic_r_98", "s2000_a_99", "rx7_r_eu_93", "supra_rz_97", "lancer_evo8_gsr_03"};
     db::SpecDb db = sim::ai::open_specdb(disc);
     const sim::Program program = sim::Program::load(disc);
@@ -352,10 +353,13 @@ int sweep_pad(Disc& disc, const Args& a) {
                     entries[0].automatic = !manual;
                     entries[0].asm_on = entries[0].tcs_on = aids != 0;
                     sim::Session session(db, program, road, entries, sim::course_row(db, course));
+                    // (the player's own driver planned beside him, for the line the active steering aims along: race_world.cpp)
                     std::vector<size_t> computer;
-                    for (int i = 1; i < ncars; ++i) computer.push_back(size_t(i));
+                    for (int i = 0; i < ncars; ++i) computer.push_back(size_t(i));
                     std::unique_ptr<sim::ai::Field> field = sim::ai::Field::open(disc, course, session, computer, {});
-                    for (size_t c : computer) session.set_driver_aids(c, field->params(c).aids, field->params(c).grip);
+                    field->set_shadow(0);
+                    for (size_t c : computer)
+                        if (c > 0) session.set_driver_aids(c, field->params(c).aids, field->params(c).grip);
                     sim::LineDriver pad(session, 0);
                     const sim::SpecFigures fig = sim::spec_figures(session.spec(0));
                     std::vector<race::CarInput> in{size_t(ncars)};
@@ -371,6 +375,7 @@ int sweep_pad(Disc& disc, const Args& a) {
                     for (int step = 0; step < int(limit * 60) && done < laps; ++step) {
                         field->drive(in);
                         field->apply_time_scales(session);
+                        if (line) session.set_line_heading(0, field->line_heading_at(0), field->line_mode_at(0));
                         const race::CarState& me = session.cars()[0];
                         race::CarInput p = pad.drive(1.0f, true);
                         if (manual && hold_shift <= 0) {
