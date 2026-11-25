@@ -1507,6 +1507,9 @@ public:
                 for (int q = 0; q < 3; ++q) t.targets[q] = test_time(q);
                 hud_->draw_license_targets(ui, t);
             }
+        } else if (quick_ && is_license(sequence_) && !race_->has_run()) {
+            // (A license test's page before its first run has no scene behind it.)
+            ui.fill(0, 0, Ui::kWidth, Ui::kHeight, Color{0, 0, 0, 255});
         } else {
             race_->render(ui, {0, 0, float(Ui::kWidth), float(Ui::kHeight)}, look_back_);
         }

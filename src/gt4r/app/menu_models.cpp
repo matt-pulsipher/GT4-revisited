@@ -54,7 +54,11 @@ const render::GpuModel* MenuModels::model(menu::Project* project, const std::str
         } else if (project)
             file = project->entry(page, s.model_set_path);
         if (!file) throw FormatError("not found");
-        const gt3r::scene::Model built = mdls::build_model(*file, mdls::Options{}, s.model_set_path);
+        // A model's reflection passes look up the set's own pictures by the normal in view (the prize
+        // pages' pouch and cups), added to what is drawn.
+        gt3r::gtm1::Options mo;
+        mo.static_env_maps = true;
+        const gt3r::scene::Model built = mdls::build_model(*file, mo, mdls::Scene{}, s.model_set_path);
         m = std::make_unique<render::GpuModel>(*app_.gpu(), built);
     } catch (const std::exception& e) {
         LOG_WARN("Menu model %s: %s", s.model_set_path.c_str(), e.what());
@@ -131,6 +135,7 @@ void MenuModels::draw(const menu::LiveWidget& face, menu::Project* project, cons
     if (SDL_GPUTexture* env = env_texture(project, page, s.env_image_path)) o.env_sphere = env, o.reflection_strength = 1.0f;
     items_.clear();
     items_.push_back({m, placed, 0});
+    items_.back().sphere_map = true;
     const SDL_FRect shown = menu_face3d::on_screen(part, at, dst);
     std::unique_ptr<render::View3D>& v3 = views_[&face];
     if (!v3) v3 = std::make_unique<render::View3D>(*app_.gpu());

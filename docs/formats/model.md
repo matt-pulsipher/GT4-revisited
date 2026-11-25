@@ -157,11 +157,16 @@ race's driver sets.
   weight[4] / 127 (summing to 127): 13 bytes, 10 without normals.
 - **The float block**: u16 vertices, u16 the normals' place; groups: u16 count (| 0x8000), u16 4,
   u8 bone[4]; per vertex f32 position[3], normal[3], weight[4].
-- The program blends a group's vertices on the EE (VU0 micro-routines: ❓ not readable) with the
-  four bones' palette matrices: position = sum of weight x (position x palette[bone]), the normal
-  the same way; without a palette the set draws as stored. `to_gtm1` writes a skinned packet's
-  stored pose as plain positions and normals, and `pose()` moves the decoded model's vertices
-  (found again by their stored position and normal) by a palette.
+- The program blends a group's vertices in VU0 (micro-routine 0x2E8, 0x460 without normals; the micro
+  program, 0xA80 bytes at 0x6D3280, is loaded once at 0x4A03C0) with the four bones' palette matrices
+  P_k (row vectors): w = int x 1/127 (a multiply by 0x3C010204; the weights are never made to sum to
+  1), p = int x scale, the normal's ints as they are; b_k = p x w_k, a_k = n x w_k; then one
+  multiply-add chain over the bones 0 to 3 and in each the rows x, y, z and (positions) the translation
+  row x w_k; the normal times 1 / sqrt((x x + y y) + z z). The float layout enters after the conversions
+  (0x308, 0x478) with scale 1. Without a palette the four bones are the identity. `to_gtm1` writes a
+  skinned packet's stored pose as plain positions and normals, and `pose()` moves the decoded model's
+  vertices (found again by their stored position and normal) by a palette, each by `blend()`: those
+  operations in that order in the PS2's floats.
 - **Motions** (`Mot1`, docs/formats/camera.md, and the scene program 0x42B440): ops 2 push, 3 pop,
   4 a node (its name), 5 translate, 6 / 7 / 8 rotate about X / Y / Z (radians), 9 scale, 0x13
   rotate X then Y then Z (Euler to quaternion 0x48B888 to matrix 0x48A970), 0x0A to 0x10 as the
