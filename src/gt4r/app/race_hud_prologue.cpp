@@ -1,4 +1,5 @@
 #include "gt4r/app/race_hud_prologue.h"
+#include "gt4r/app/game_area.h"
 
 #include "base/log.h"
 #include "formats/gs_memory.h"
@@ -27,8 +28,9 @@ namespace {
 constexpr float kPi = 3.14159265f;
 // The display's frame: 640 x 448, on a wide picture -106.667 .. 746.667 across (the program's 0x3956A0: alignment bit 4 is the
 // wide picture's edge). The in-car panel's parts are in a frame of 480 lines (0x38BEEC: 32 down, 448 / 480 high).
-constexpr float kWide = 106.6667f;
-constexpr float kScaleX = float(Ui::kWidth) / (640 + 2 * kWide), kScaleY = float(Ui::kHeight) / 448.0f;
+// (Other shapes of the picture: game_area.h.)
+float wide_side() { return game_area::side(); }
+constexpr float kScaleX = 360.0f / 480.0f, kScaleY = float(Ui::kHeight) / 448.0f;
 
 // The display's colors (its program's constants; the GS order, alpha 0x80 opaque).
 constexpr u32 kOrange = 0x805EA8F2, kGray = 0x80B3B3B3, kRed = 0x800000C8, kGreen = 0x809CB246, kEvent = 0x802BCC49;
@@ -36,10 +38,10 @@ constexpr u32 kOrange = 0x805EA8F2, kGray = 0x80B3B3B3, kRed = 0x800000C8, kGree
 struct Box {
     float x = 0, y = 0, w = 0, h = 0;
 };
-SDL_FRect to_ui(const Box& b) { return {(b.x + kWide) * kScaleX, b.y * kScaleY, b.w * kScaleX, b.h * kScaleY}; }
+SDL_FRect to_ui(const Box& b) { return {(b.x + wide_side()) * kScaleX, b.y * kScaleY, b.w * kScaleX, b.h * kScaleY}; }
 // 0x3956A0 / 0x395638: a box's left edge by the alignment: 0 left, 1 right, 2 centered, + 4 to the wide picture's edge.
 float left_of(float x, float w, int align) {
-    const float wide = (align & 4) ? kWide : 0;
+    const float wide = (align & 4) ? wide_side() : 0;
     switch (align & 3) {
     case 0: return x - wide;
     case 1: return x + wide - w;
@@ -176,7 +178,7 @@ struct PrologueHud::Impl {
     void triangles(const std::vector<SDL_Vertex>& v) { SDL_RenderGeometry(r, nullptr, v.data(), int(v.size()), nullptr, 0); }
     static SDL_Vertex vertex(float x, float y, const Rgba8& c) {
         SDL_Vertex v{};
-        v.position = {(x + kWide) * kScaleX, y * kScaleY};
+        v.position = {(x + wide_side()) * kScaleX, y * kScaleY};
         v.color = {float(c.r) / 255, float(c.g) / 255, float(c.b) / 255, float(c.a) / 255};
         return v;
     }
@@ -342,7 +344,7 @@ void PrologueHud::Impl::draw_lap(const hr::HudRow& row, int lap, int laps, float
 // 0x38FC40: a time in FC_16 at 0.9 ending at the pen, its icon (right and bottom at an offset from the time's left) or its label in
 // DC_12 ending 10 left of at least 70.
 void PrologueHud::Impl::draw_time(float x, float y, int ha, s64 ms, const std::string& label, const char* icon, float ix, float iy, float opacity) {
-    const float pen = x + (ha == 5 ? kWide : ha == 4 ? -kWide : 0);
+    const float pen = x + (ha == 5 ? wide_side() : ha == 4 ? -wide_side() : 0);
     const FontSpec f = font("FC_16", 90);
     const std::string t = time_text(ms);
     text(f, pen, y, kOrange, opacity, t, true);
@@ -497,7 +499,7 @@ void PrologueHud::Impl::draw_onboard(const HudState& s, const Extra& e, float op
 
 // The other views' panel (0x3928A0 / 0x3929D8): the speed, the gear and a small tachometer on a dark box at (615, 425).
 void PrologueHud::Impl::draw_simple(const HudState& s, const Extra& e, float opacity) {
-    const float x = 615 + kWide, y = 425, bar = 64; // (a wide picture's: 48 on 4:3)
+    const float x = 615 + wide_side(), y = 425, bar = 64; // (a wide picture's: 48 on 4:3)
     cut_box({x - 121, y - 29, 126, 35}, 3, 0x50000000, opacity);
     const float at = x - bar;
     // The gear and the suggested one.

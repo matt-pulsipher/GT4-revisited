@@ -811,6 +811,12 @@ TEST(sound_race_rolling_start_and_replay) {
     playing = false;
     sound.update(std::span<const audio::CarSoundState>{}, audio::SoundListener{}, -1);
     CHECK(streams.size() == 2 && streams[1].file == library->stream_file(racing, 16));
+    // The player's song controls: the one before, the first again (none is before it), the play list's next.
+    CHECK(sound.skip_song(-1) && streams.back().file == library->stream_file(racing, 20));
+    CHECK(sound.skip_song(-1) && streams.back().file == library->stream_file(racing, 20));
+    CHECK(sound.skip_song(1) && streams.back().file == library->stream_file(racing, 20)); // (a new round of the two)
+    CHECK(sound.skip_song(1) && streams.back().file == library->stream_file(racing, 16));
+    streams.resize(2);
     // The replay: the first piece again, at the replay's level.
     sound.replay();
     CHECK(streams.size() == 3 && streams[2].file == library->stream_file(racing, 20) && near(streams[2].level, table, 1e-6));

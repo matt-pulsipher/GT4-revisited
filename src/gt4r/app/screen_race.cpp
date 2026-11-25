@@ -14,6 +14,7 @@
 // championship, license, mission, time_trial, freerun, practice, machinetest), `race=<label>` its event.
 
 #include "gt4r/app/app.h"
+#include "gt4r/app/page.h"
 #include "gt4r/app/menu_painter.h"
 #include "gt4r/app/race_hud.h"
 #include "gt4r/app/race_hud_prologue.h"
@@ -505,7 +506,7 @@ std::shared_ptr<audio::RacePlaylist> new_game_playlist(App& app) {
         gt3r::Vfs* vfs = app.vfs();
         config.list = [vfs](const std::string& folder) { return vfs->list_dir(folder); };
         if (Disc* disc = app.disc()) config.program_image = [disc] { return disc->program_image(); };
-        config.data_dir = app.data_dir();
+        config.data_dir = app.save_dir();
         menu::Runtime rt([vfs](const std::string& path) { return vfs->read(path); }, config);
         rt.boot();
         return playlist_from(rt.game().bgm_playlist);
@@ -1858,7 +1859,7 @@ public:
             config.list = [vfs](const std::string& folder) { return vfs->list_dir(folder); };
             if (Disc* disc = app.disc()) config.program_image = [disc] { return disc->program_image(); };
             if (Disc* disc = app.disc(); disc && disc->info().serial.rfind("SCPS", 0) == 0) config.region = "jp", config.language = "JP"; // (Prologue: its text is Japan's)
-            config.data_dir = app.data_dir();
+            config.data_dir = app.save_dir();
             own_menus_ = std::make_unique<menu::Runtime>([vfs](const std::string& path) { return vfs->read(path); }, config);
             own_menus_->boot();
             menus_ = own_menus_.get(), sequence_ = setup_.sequence;
@@ -1945,6 +1946,8 @@ public:
         report();
     }
 
+    bool follows_aspect() const override { return race_ != nullptr; } // (Drive's lists are the app's own page)
+
     void update(App& app, double dt) override {
         // (The time from the last frame's drawing to this update: its present and the events.)
         if (render_end_ns_) outside_ns_ = SDL_GetTicksNS() - render_end_ns_;
@@ -1965,7 +1968,12 @@ public:
             sel = std::clamp(sel + m.vertical(), 0, n - 1);
             if (m.pressed(PadButton::L1)) sel = std::max(0, sel - 12);
             if (m.pressed(PadButton::R1)) sel = std::min(n - 1, sel + 12);
-            if (m.pressed(PadButton::Cross)) {
+            // (the mouse: a click selects, a click on a list's selected row drives)
+            bool clicked = false;
+            for (const RowPointer::Hit& h : mouse_.read(app))
+                if (h.click) column_ = h.list;
+            for (int c = 0; c < 2; ++c) clicked = mouse_.pick(app, c, c == 0 ? course_sel_ : car_sel_, int(c == 0 ? courses_.size() : cars_.size())) || clicked;
+            if (m.pressed(PadButton::Cross) || clicked) {
                 setup_.course = courses_[size_t(course_sel_)].label;
                 setup_.car = cars_[size_t(car_sel_)].label;
                 start(app);
@@ -2062,6 +2070,10 @@ public:
         update_panel(app, dt);
         if (monitor_ && race_->world().pit_stage(0) != 0) monitor_.reset(); // (into the pits: the live view again)
         look_back_ = mine ? (player_input_.views & (input::RaceInput::kBackView | input::RaceInput::kRearView)) != 0 : gt3r::race::look_back_held(app.input().race_pad(0), false);
+        // (Settings > Controls: the songs' own controls)
+        for (int p = 0; p < gt3r::InputManager::kMaxPlayers; ++p)
+            if (const int song = int(app.input().action_pressed(p, gt3r::PadAction::NextSong)) - int(app.input().action_pressed(p, gt3r::PadAction::PreviousSong)))
+                if (audio::RaceSound* sound = race_->world().sound()) sound->skip_song(song);
         // Whole simulation steps for the time that has passed (at most four a frame).
         const Uint64 t0 = SDL_GetTicksNS();
         // Whole simulation steps for the time the shown frames advance (paced by the display's
@@ -2118,13 +2130,13 @@ public:
             // its scale; it starts over the whole picture and shrinks into place) on black.
             // A passed test's page has no inset (no "screen" picture in the movie's PASSED part): the
             // race fills the picture, the trophy turns in front (0x3E0E38).
-            ui.fill(0, 0, Ui::kWidth, Ui::kHeight, Color{0, 0, 0, 255});
+            ui.fill(0, 0, ui.width(), Ui::kHeight, Color{0, 0, 0, 255});
             const SDL_FRect c = RaceHud::canvas();
             if (inset_shown_) {
                 const float k = c.h / 480.0f, w = 300 * inset_.scale * k, h = 225 * inset_.scale * k;
                 race_->render(ui, {c.x + inset_.x * k - w / 2, c.y + inset_.y * k - h / 2, w, h}, false);
             } else {
-                race_->render(ui, {0, 0, float(Ui::kWidth), float(Ui::kHeight)}, false);
+                race_->render(ui, {0, 0, ui.width(), float(Ui::kHeight)}, false);
             }
             // The race display's three target times stay over a passed test's page.
             if (hud_ && hud_->ready() && prize_level() < 3) {
@@ -2135,15 +2147,15 @@ public:
             }
         } else if (quick_ && is_license(sequence_) && !race_->has_run()) {
             // (A license test's page before its first run has no scene behind it.)
-            ui.fill(0, 0, Ui::kWidth, Ui::kHeight, Color{0, 0, 0, 255});
+            ui.fill(0, 0, ui.width(), Ui::kHeight, Color{0, 0, 0, 255});
         } else {
-            race_->render(ui, {0, 0, float(Ui::kWidth), float(Ui::kHeight)}, look_back_);
+            race_->render(ui, {0, 0, ui.width(), float(Ui::kHeight)}, look_back_);
         }
         if (quick_) {
             // The race's menus over the scene.
-            const float scale = float(Ui::kHeight) / 480.0f, x = (Ui::kWidth - 640 * scale) / 2;
+            const float scale = float(Ui::kHeight) / 480.0f, x = (ui.width() - 640 * scale) / 2;
             if (painter_) painter_->draw(*menus_, x, scale);
-            if (const float cover = menus_->fade_cover(); cover > 0) ui.fill(0, 0, Ui::kWidth, Ui::kHeight, Color{0, 0, 0, u8(std::clamp(cover, 0.0f, 1.0f) * 255.0f)});
+            if (const float cover = menus_->fade_cover(); cover > 0) ui.fill(0, 0, ui.width(), Ui::kHeight, Color{0, 0, 0, u8(std::clamp(cover, 0.0f, 1.0f) * 255.0f)});
             last_frame_ns_ = 0; // (the race's frame times count the race's frames only)
             return;
         }
@@ -2203,7 +2215,7 @@ public:
         }
         if (panel_ && hud_ && !results_shown()) hud_->draw_movie(*monitor_movie_, *panel_);
         if (monitor_ && hud_ && race_ && race_->watched() && !race_->replaying()) {
-            ui.fill(0, 0, Ui::kWidth, Ui::kHeight, Color{0, 0, 0, 255}); // (the monitor is the whole picture)
+            ui.fill(0, 0, ui.width(), Ui::kHeight, Color{0, 0, 0, 255}); // (the monitor is the whole picture)
             // The followed car's picture at the movie's CURRENTCAR_ICON, the course map at MAP_PANEL (❓ the rows'
             // two externals each are not drawn).
             std::vector<RaceHud::MovieExternal> ext;
@@ -2237,7 +2249,7 @@ public:
             if (pause_ && hud_) {
                 hud_->draw_movie(*pause_movie_, *pause_);
             } else {
-                ui.fill(0, 0, Ui::kWidth, Ui::kHeight, Color{0, 0, 0, 120});
+                ui.fill(0, 0, ui.width(), Ui::kHeight, Color{0, 0, 0, 120});
                 ui.text_center(Ui::kHeight / 2 - 10, "PAUSED", colors::kText);
                 ui.text_center(Ui::kHeight / 2 + 6, Ui::expand_prompts("{Start}: go on   {Triangle}: leave the race"), colors::kDim);
             }
@@ -3000,7 +3012,7 @@ private:
     // The last run as a file of the data folder's `replays` (the Drive screen plays one with
     // GT4R_RACE="replay_file=<path>").
     void save_replay(App& app) {
-        const std::string folder = app.data_dir() + "/replays";
+        const std::string folder = app.save_dir() + "/replays";
         SDL_CreateDirectory(folder.c_str());
         char stamp[32];
         const std::time_t now = std::time(nullptr);
@@ -3311,7 +3323,7 @@ private:
     // the game's results movie.)
     void draw_results(Ui& ui) {
         const std::vector<race::RaceFlow::ResultRow> rows = race_->flow().results();
-        const float w = 360, row = 16, h = 40 + row * float(rows.size()), x = (Ui::kWidth - w) / 2, y = (Ui::kHeight - h) / 2;
+        const float w = 360, row = 16, h = 40 + row * float(rows.size()), x = (ui.width() - w) / 2, y = (Ui::kHeight - h) / 2;
         ui.fill(x, y, w, h, Color{0, 0, 0, 170});
         ui.text_center(y + 8, hud_ ? hud_->word("RaceResult") : std::string("RESULT"), colors::kText);
         for (size_t i = 0; i < rows.size(); ++i) {
@@ -3419,9 +3431,11 @@ private:
         ui.header("DRIVE", "");
         const float top = 34, row = 12;
         const int rows = int((Ui::kHeight - 30 - top) / row);
+        mouse_.begin();
         auto list = [&](float x, float w, int n, int sel, bool active, const std::function<std::string(int)>& label, const char* title) {
             ui.text(x, top - 12, title, active ? colors::kAccent : colors::kDim);
             const int first = std::clamp(sel - rows / 2, 0, std::max(0, n - rows));
+            mouse_.rows(x < 200 ? 0 : 1, first, std::min(rows, n - first), x - 4, top + 2, w, row);
             for (int i = 0; i < rows && first + i < n; ++i) {
                 const int idx = first + i;
                 const float y = top + 4 + float(i) * row;
@@ -3469,15 +3483,16 @@ private:
         char line[160];
         std::snprintf(line, sizeof line, "%3.0f km/h   gear %s   %4.0f rpm   lap %d", std::fabs(s.speed) * 3.6f,
                       s.gear < 0 ? "R" : s.gear == 0 ? "N" : std::to_string(s.gear).c_str(), s.engine_rpm, s.lap + 1);
-        ui.fill(0, Ui::kHeight - 16, Ui::kWidth, 16, Color{10, 11, 14, 150});
+        ui.fill(0, Ui::kHeight - 16, ui.width(), 16, Color{10, 11, 14, 150});
         ui.text(8, Ui::kHeight - 13, line, colors::kText);
-        ui.text_right(Ui::kWidth - 8, Ui::kHeight - 13, race_->car_name(0), colors::kDim);
+        ui.text_right(ui.width() - 8, Ui::kHeight - 13, race_->car_name(0), colors::kDim);
     }
 
     Setup setup_;
     std::vector<db::CarEntry> cars_;
     std::vector<db::CourseEntry> courses_;
     int course_sel_ = 0, car_sel_ = 0, column_ = 0;
+    RowPointer mouse_; // Drive's lists'
     std::unique_ptr<Race> race_;
     std::unique_ptr<RaceHud> hud_;
     std::unique_ptr<PrologueHud> prologue_hud_; // (Prologue's display, when the disc's is not Gran Turismo 4's)
