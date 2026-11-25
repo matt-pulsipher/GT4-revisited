@@ -43,7 +43,8 @@ struct Lcg {
 // A data file's size for a payload of n bytes: 8 bytes of head, rounded up to 64.
 constexpr size_t scrambled_size(size_t n) { return (n + 0x47) & ~size_t(0x3F); }
 // The file of a payload (the game data: key 0). `random`: the head's first word (any value).
-enum class FileKind { GameData, Replay }; // (which the two 4-byte swaps' places follow)
+// (Which the two 4-byte swaps' places follow; a film's and a record's bytes past the first four are shuffled too.)
+enum class FileKind { GameData, Replay, Photo, Film, Info };
 Bytes scramble(ByteSpan payload, u32 key, u32 random, FileKind kind = FileKind::GameData);
 // The payload back (with the zero padding up to the file's end); none when the CRC fails.
 std::optional<Bytes> unscramble(ByteSpan file, u32 key, FileKind kind = FileKind::GameData);

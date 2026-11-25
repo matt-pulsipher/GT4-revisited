@@ -278,8 +278,8 @@ bool rewrite_packet(ByteSpan packet, float scale, bool packed_shape, float color
             packed |= u.vl != 0 || packed_shape;
             known = place(pos, 0x00, u, scale, row, packed_shape);
         } else if (a >= 0x40 && a < 0x80 && u.vn == 1) {
-            packed |= u.vl != 0;
-            known = place(uv, 0x40, u, kUvScale, row);
+            packed |= u.vl != 0 || packed_shape;
+            known = place(uv, 0x40, u, kUvScale, row, packed_shape);
         } else if (a >= 0x40 && a < 0x80 && u.vn == 2) {
             packed |= u.vl != 0;
             known = place(env, 0x40, u, kNormalScale, row);
