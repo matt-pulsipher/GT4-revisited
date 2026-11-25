@@ -1812,6 +1812,16 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
             });
         if (n == "getColor" || n == "setColor") return nothing();
     }
+    if (type == "SlideShowFace") {
+        // doPlay(), doStop(), isPlaying() (the state at +0xAC): the photos are the drawing's
+        // (app/menu_slides.h); `shuffle` and `demo` are plain attributes.
+        if (n == "doPlay" || n == "doStop")
+            return fn([w, n](Vm&, const Value&, Args) {
+                w->set_property("slide_playing", Value::integer(n == "doPlay" ? 1 : 0));
+                return Value{};
+            });
+        if (n == "isPlaying") return fn([w](Vm&, const Value&, Args) { return Value::integer(w->data.number("slide_playing") != 0); });
+    }
     if (type == "MovieFace") {
         // setFrameHook(frame, function name): that function of the face is called when the
         // movie shows that frame; setUnUpdate(): the movie stops moving (app/menu_movies.cpp).

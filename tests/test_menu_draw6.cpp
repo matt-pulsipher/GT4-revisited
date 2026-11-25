@@ -4,12 +4,17 @@
 
 #include "gt4r/formats/model/mdls.h"
 #include "gt4r/formats/model/mdls_skin.h"
+#include "gt4r/menu/jpeg.h"
 #include "gt4r/sim/ai/run.h"
 #include "gt4r/sim/equipment.h"
 #include "gt4r/sim/program.h"
 #include "gt4r/sim/showroom.h"
 
+#include "vfs/vfs.h"
+
 #include <cmath>
+#include <cstdlib>
+#include <optional>
 #include <cstdio>
 #include <memory>
 
@@ -79,4 +84,34 @@ TEST(disc_menu_wheel_droop) {
         std::printf("  %s: front %.3f rear %.3f m\n", label, double((*d)[0].host()), double((*d)[1].host()));
         CHECK((*d)[0].host() > 0 && (*d)[0].host() < 0.2f && (*d)[1].host() > 0 && (*d)[1].host() < 0.2f);
     }
+}
+
+// The slide show's photos: baseline pictures of 1280 x 960, the first with its focus record; bytes
+// that are none are refused.
+TEST(disc_menu_slide_photos) {
+    Disc* gt4 = nullptr;
+    for (const auto& disc : test::discs())
+        if (disc->info().game == Game::GT4) gt4 = disc.get();
+    if (!gt4) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    gt3r::Vfs vfs(&gt4->volume());
+    for (const char* path : {"photo/000.JPG", "photo/037.JPG", "photo/061.JPG"}) {
+        const std::optional<Bytes> f = vfs.read(path);
+        CHECK(f.has_value());
+        if (!f) continue;
+        const menu::JpegPicture p = menu::decode_jpeg(*f);
+        CHECK(p.width == 1280 && p.height == 960 && p.rgba.size() == 1280u * 960u);
+        u64 sum = 0, steps = 0;
+        for (size_t i = 1; i < p.rgba.size(); ++i) sum += p.rgba[i] & 0xFF, steps += u64(std::abs(int(p.rgba[i] & 0xFF) - int(p.rgba[i - 1] & 0xFF)));
+        std::printf("  %s: mean %llu, mean step %.2f, focus %d\n", path, (unsigned long long)(sum / p.rgba.size()), double(steps) / double(p.rgba.size()), int(p.focus.has_value()));
+        CHECK(sum / p.rgba.size() > 10 && sum / p.rgba.size() < 245 && double(steps) / double(p.rgba.size()) < 25);
+        CHECK(!p.focus || (std::fabs(p.focus->x) <= 1 && std::fabs(p.focus->y) <= 1));
+    }
+    const Bytes none(64, u8(0));
+    bool refused = false;
+    try {
+        menu::decode_jpeg(none);
+    } catch (const FormatError&) {
+        refused = true;
+    }
+    CHECK(refused);
 }

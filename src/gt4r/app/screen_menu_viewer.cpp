@@ -10,6 +10,7 @@
 #include "gt4r/app/menu_models.h"
 #include "gt4r/app/menu_movies.h"
 #include "gt4r/app/menu_page_drawer.h"
+#include "gt4r/app/menu_slides.h"
 
 #include "base/log.h"
 #include "formats/text/charset.h"
@@ -259,15 +260,19 @@ private:
             loading_ = std::make_unique<MenuLoading>(app);
             if (from_boot && advertise_on_) advertise_ = std::make_unique<MenuAdvertise>(app);
             MenuModels* models = models_.get();
-            drawer->draw_live = [movies, cars, models](const LiveWidget& face, menu::Project* project, const std::string& page, const Rect& at, const SDL_FRect& dst, float opacity) {
+            slides_ = std::make_unique<MenuSlides>(app);
+            MenuSlides* slides = slides_.get();
+            drawer->draw_live = [movies, cars, models, slides](const LiveWidget& face, menu::Project* project, const std::string& page, const Rect& at, const SDL_FRect& dst, float opacity) {
                 if (face.is("MovieFace")) movies->draw(face, dst, opacity);
                 else if (face.is("CarFace")) cars->draw(face, project, page, at, dst, opacity);
                 else if (face.is("ModelFace")) models->draw(face, project, page, at, dst, opacity);
+                else if (face.is("SlideShowFace")) slides->draw(face, at, dst, opacity);
             };
             menu::text_measure().measure = [drawer](const LiveWidget& face, float& w, float& h) { drawer->measure(face, w, h); };
             cursor_ = {};
             runtime_->boot();
             if (const script::Value root = runtime_->vm().lookup("MpegRoot"); root.kind == script::Kind::String) movies_->set_root(root.as_string());
+            if (const script::Value n = runtime_->vm().lookup("DemonstrationSlideNum"); n.is_number()) slides_->set_count(int(n.as_float()));
             race_.reset();
             runtime_->start_project(from_boot || projects_.empty() ? runtime_->first_project() : projects_[size_t(project_sel_)].name);
         } catch (const std::exception& ex) {
@@ -280,7 +285,7 @@ private:
         if (held_) SDL_DestroyTexture(held_), held_ = nullptr;
         if (trail_) SDL_DestroyTexture(trail_), trail_ = nullptr;
         menu::text_measure().measure = nullptr;
-        movies_.reset(), cars_.reset(), models_.reset(), loading_.reset(), advertise_.reset(), live_drawer_.reset(), runtime_.reset(), race_.reset();
+        movies_.reset(), cars_.reset(), models_.reset(), slides_.reset(), loading_.reset(), advertise_.reset(), live_drawer_.reset(), runtime_.reset(), race_.reset();
         if (app_)
             if (audio::AppSound* sound = app_->sound()) sound->stop();
     }
@@ -387,6 +392,15 @@ private:
             if (movies_) movies_->begin_frame();
             if (cars_) cars_->begin_frame(runtime_->frame());
             if (models_) models_->begin_frame(runtime_->frame());
+            if (slides_) {
+                auto option = [this](const char* name, int otherwise) {
+                    const auto& o = runtime_->game().options;
+                    const auto it = o.find(name);
+                    return it != o.end() && std::holds_alternative<s32>(it->second) ? int(std::get<s32>(it->second)) : otherwise;
+                };
+                slides_->set_options(option("album_slide_play_time", 8), option("album_slide_transition_time", 4), option("album_slide_effect", 1) != 0);
+                slides_->begin_frame(runtime_->frame());
+            }
             const menu::TransitionPicture tp = menu::transition_picture(runtime_->vm().attribute(runtime_->context(), "transition"));
             // A cross transition coming in: the pages grown about the screen's middle.
             Affine grown;
@@ -397,6 +411,7 @@ private:
             if (movies_) movies_->end_frame();
             if (cars_) cars_->end_frame();
             if (models_) models_->end_frame();
+            if (slides_) slides_->end_frame();
             draw_trail(tp, x, scale);
             draw_cursor(x, scale);
             draw_blocks(tp, x, scale);
@@ -523,6 +538,7 @@ private:
     std::unique_ptr<MenuMovies> movies_; // the running menus' movie faces
     std::unique_ptr<MenuCars> cars_;     // and car faces
     std::unique_ptr<MenuModels> models_; // and model faces
+    std::unique_ptr<MenuSlides> slides_; // and slide shows
     std::unique_ptr<MenuLoading> loading_; // the page between projects
     std::unique_ptr<MenuAdvertise> advertise_; // the pictures before the first menus
     bool advertise_on_ = false;
