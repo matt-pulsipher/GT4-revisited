@@ -24,7 +24,7 @@ public:
     ~PrologueHud();
     // False when the disc has no Prologue display (its pictures, its layout tables or its program).
     bool ready() const { return ready_; }
-    // The course's logo (piece/crs_logo/<course>.img, a Tex1 picture) of the race's opening.
+    // The course's logo (the course file's slot 49, a Tex1 picture) of the race's opening.
     void set_course_logo(ByteSpan tex1);
 
     // What the display shows besides the race's HudState.

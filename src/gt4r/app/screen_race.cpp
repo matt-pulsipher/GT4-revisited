@@ -71,6 +71,7 @@ using RVec = render::Vec3;
 constexpr float kStep = 1.0f / 60;
 constexpr int kTvView = -1; // the course's replay cameras, after the car's three views
 constexpr size_t kHistory = 60 * 60 * 10; // steps of a run kept for its replay
+constexpr int kSlotLogo = 49;              // the course's logo (Tex1)
 constexpr int kSlotScenic = 48;            // the course's scenic shots (REP4): behind the race's menus
 
 struct Setup {
@@ -2483,7 +2484,7 @@ private:
                 auto p = std::make_unique<PrologueHud>(app, race_->course().section(course::kSlotMiniMap));
                 if (p->ready()) prologue_hud_ = std::move(p);
                 if (prologue_hud_)
-                    if (const std::optional<Bytes> logo = app.vfs()->read("piece/crs_logo/" + setup_.course + ".img")) prologue_hud_->set_course_logo(*logo);
+                    if (const ByteSpan logo = race_->course().section(kSlotLogo); gt3r::has_magic(logo, "Tex1")) prologue_hud_->set_course_logo(logo);
             }
             race_->set_lap_words(hud_->word("WordOfLap"), hud_->word("WordOfLaps"));
             // A test's gold, silver and bronze times (its RACE row, under the region's prefix).
