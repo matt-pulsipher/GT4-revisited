@@ -782,7 +782,8 @@ memory matched against the disc's `.ads` by their data; levels × 16383):
 **A menu stream's level** (0x4608C8, kind -2, 0x460220 → 0x45FFF8 → 0x45FFC0): the script's volume × `sdvol` level 0 (0.3),
 no option; `option.menu_bgm_volume` (0x180AA8) is the raw option / 128, so the pages that pass it play at 0.3 × 115 / 128,
 4416. Kind -1 (0x461978 → 0x461808 → 0x4616E8, which 0x461C28 marks 2) starts a *sequence*, with level 1 (0.48) and the
-menu music option through 0x461620. `startStream` without a volume is taken as 1 ❓.
+menu music option through 0x461620. The kind is the script's word (0x4607A0): `pcm` -2, `narration` -3, anything else -1. `startStream` without a volume
+is taken as 1 ❓.
 
 So the pre-race and result pages' music is `default_quick`'s (two pieces), started as a menu stream
 (the menus' level), not by the race; Route 5 at night plays `race_68`.
@@ -811,7 +812,7 @@ ratios (from -888 to +248 cents, shapes 0.42 .. 0.86) do not settle anything ❓
 +1 cent off the stretch at 48.5 s, but 3 dB under it, the shapes matching only 0.56, and no rev fits the stretch at
 46.5 s ❓. 🔎 What is under in the chase launches'
 lows (81 .. 161 Hz, 2 .. 4 dB): the pictures show the cars by the curb; not checked.
-**Idle** ❓: the R390's recording has 5 dB more than ours in 322 .. 645 Hz and its sides correlate -0.36 where ours do
+**Idle** ❓: the R390's recording is over ours by 6 dB in the octave at 161 Hz, 16 dB at 322 Hz and 12 dB at 645 Hz (3 dB over all), and its sides correlate -0.36 where ours do
 -0.97, so something besides the inverted exhaust sounds there (an engine level over 0, or other revs: its tach reads
 about 1,000 by eye, the car at 1 mph); ours stands at 800 rpm with the clutch open, the engine's level 0 as in the
 original's Grand Canyon start (that saved state: clutch 0, engine 0, exhaust 5). Whose rule differs is not found.
