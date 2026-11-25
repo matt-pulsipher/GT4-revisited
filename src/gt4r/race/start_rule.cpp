@@ -3,6 +3,7 @@
 #include "gt4r/formats/course/ai_line.h"
 #include "gt4r/formats/db/specdb.h"
 
+#include <algorithm>
 #include <cstdlib>
 
 namespace gt4r::race {
@@ -48,6 +49,7 @@ CourseStart course_start(db::SpecDb& db, const std::string& course) {
     s.rolling = start_code_digit(s.code, 0) > 0;
     if (row.size() > 0x10) s.kind = row[0x10] == 0xFF ? 0 : row[0x10];
     if (row.size() > 0x12) s.way = row[0x12];
+    if (row.size() > 0x13) s.strip = row[0x13] >= 2;
     if (row.size() > 0x14) s.fuel = row[0x14] != 0 && s.kind != 2 && s.kind != 3;
     return s;
 }
@@ -73,6 +75,17 @@ std::array<u8, 0x80> event_rule_block(std::span<const u8> r) {
     const s8 section = s8(r[0x89]);
     c[0x21] = u8(section < -1 ? -1 : section);
     return c;
+}
+
+void arcade_rules(std::vector<u8>& r, int penalty, int damage) {
+    if (r.size() < 0x8C) return;
+    // Hits: the penalty's seconds (0xFF the pit lane's mark), the wall's and the car's limits.
+    r[0x88] = penalty == 1 ? 10 : penalty == 2 ? 0xFF : 0;
+    r[0x8A] = penalty == 1 || penalty == 2 ? 8 : 0xFF;
+    r[0x8B] = penalty == 1 || penalty == 2 ? 40 : 0xFF;
+    // The tire wear's curve (rule block +0x2C .. +0x34 from the row's +0x6B .. +0x73).
+    static constexpr u8 kWear[3][9] = {{0, 0, 0, 0, 0, 0, 0, 0, 0}, {8, 40, 12, 5, 5, 5, 5, 4, 0}, {6, 40, 12, 1, 5, 4, 5, 3, 0}};
+    std::copy(std::begin(kWear[std::clamp(damage, 0, 2)]), std::end(kWear[std::clamp(damage, 0, 2)]), r.begin() + 0x6B);
 }
 
 Conductor conductor_for(const std::string& sequence, const std::string& event) {

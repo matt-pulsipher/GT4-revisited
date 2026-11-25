@@ -4,22 +4,18 @@
 // back). Pad, keyboard and mouse: up and down choose, left and right change, Cross opens or sets, L1 and R1 turn the page,
 // Triangle goes back, Start saves.
 //
-// GT4R_SAVE_EDITOR="open=<path>;click=<frame>:<x>:<y>;move=<frame>:<x>:<y>", for scripted runs: that save opened at once (a card
-// image, a save's folder), the mouse clicked or moved at a frame (in the 640 x 360 picture). A scripted run's window takes no
-// other mouse.
+// GT4R_SAVE_EDITOR="open=<path>", for scripted runs: that save opened at once (a card image, a save's folder).
 
 #include "gt4r/app/app.h"
 #include "gt4r/app/editor_popups.h"
+#include "gt4r/app/page.h"
 #include "gt4r/menu/save_editor.h"
 #include "gt4r/menu/save_editor_prologue.h"
 #include "gt4r/save/card_image.h"
 #include "gt4r/save/save_edit.h"
 #include "gt4r/save/save_library.h"
 
-#include "base/config.h"
 #include "formats/tex1.h"
-
-#include <SDL3/SDL_dialog.h>
 
 #include <algorithm>
 #include <cctype>
@@ -144,32 +140,29 @@ class SaveEditorScreen : public Screen {
 public:
     SaveEditorScreen(App& app, std::string card) : app_(app), prologue_(app.disc() && app.disc()->info().serial.rfind("SCPS", 0) == 0) {
         product_ = prologue_ ? "BISCPS-15055" : "BASCUS-97328";
-        std::string data = app.data_dir();
+        std::string data = app.save_dir();
         while (data.size() > 1 && (data.back() == '/' || data.back() == '\\')) data.pop_back();
         data_dir_ = data;
         if (db::SpecDb* sdb = app.db()) codes_ = save::database_codes(*sdb);
         read_list();
         if (!card.empty()) open_card(card);
-        scripted_ = (SDL_GetWindowFlags(SDL_GetRenderWindow(app.renderer())) & SDL_WINDOW_NOT_FOCUSABLE) != 0;
         if (const char* env = std::getenv("GT4R_SAVE_EDITOR"))
-            for (std::string_view part : gt3r::split(env, ';')) {
-                const std::string t(part);
-                ScriptedMouse m;
-                if (t.rfind("open=", 0) == 0) open_path(t.substr(5));
-                else if (std::sscanf(t.c_str(), "click=%d:%f:%f", &m.frame, &m.x, &m.y) == 3) m.click = true, mouse_.push_back(m);
-                else if (std::sscanf(t.c_str(), "move=%d:%f:%f", &m.frame, &m.x, &m.y) == 3) mouse_.push_back(m);
-            }
+            if (const std::string e = env; e.rfind("open=", 0) == 0) open_path(e.substr(5));
     }
 
-    void on_event(App& app, const SDL_Event& e) override {
+    // A memory card image or a save's game data file.
+    bool takes_dropped_file(const std::string& path) const override {
+        std::string name = std::filesystem::path(path).filename().string();
+        for (char& c : name) c = char(std::tolower(static_cast<unsigned char>(c)));
+        auto ends = [&name](const char* e) { return name.size() >= std::strlen(e) && name.compare(name.size() - std::strlen(e), std::string::npos, e) == 0; };
+        return ends(".ps2") || ends(".mcd") || ends("gamedata");
+    }
+
+    void on_event(App&, const SDL_Event& e) override {
         if (e.type == SDL_EVENT_DROP_FILE && e.drop.data) {
-            app.request_disc(""); // (a save dropped here is no disc)
-            picked(e.drop.data);
+            if (takes_dropped_file(e.drop.data)) dropped_ = e.drop.data;
             return;
         }
-        SDL_Event local = e;
-        SDL_ConvertEventToRenderCoordinates(app.renderer(), &local);
-        if (!scripted_) pointer_.event(local);
         // (A held key repeats in a list to choose from.)
         const bool held = e.type == SDL_EVENT_KEY_DOWN && e.key.repeat && picker_.active && e.key.scancode != SDL_SCANCODE_RETURN && e.key.scancode != SDL_SCANCODE_ESCAPE;
         if (e.type == SDL_EVENT_KEY_DOWN && (!e.key.repeat || held)) {
@@ -182,6 +175,7 @@ public:
 
     void update(App& app, double) override {
         take_picked();
+        if (files_.waiting()) return;
         const MenuInput& m = app.menu();
         // Keys typed into a field are not also the pad's.
         if (typed_wait_ > 0) --typed_wait_;
@@ -230,7 +224,6 @@ private:
 
     enum Hit { kRow = 1, kTab, kBack, kSave, kLess, kMore, kListItem };
     HitList hits_;
-    PointerInput pointer_;
     int typed_wait_ = 0;
     CarPictures pictures_;
     ChoicePopup picker_;
@@ -238,31 +231,8 @@ private:
     TextPopup text_;
     QuestionPopup confirm_;
 
-    struct ScriptedMouse {
-        int frame = 0;
-        float x = 0, y = 0;
-        bool click = false;
-    };
-    bool scripted_ = false;
-    std::vector<ScriptedMouse> mouse_;
-    void scripted_mouse(int frame) {
-        for (const ScriptedMouse& m : mouse_) {
-            if (m.frame != frame) continue;
-            SDL_Event e{};
-            e.type = SDL_EVENT_MOUSE_MOTION, e.motion.x = m.x, e.motion.y = m.y;
-            pointer_.event(e);
-            if (!m.click) continue;
-            for (const Uint32 type : {SDL_EVENT_MOUSE_BUTTON_DOWN, SDL_EVENT_MOUSE_BUTTON_UP}) {
-                SDL_Event b{};
-                b.type = type, b.button.button = SDL_BUTTON_LEFT, b.button.down = type == SDL_EVENT_MOUSE_BUTTON_DOWN, b.button.x = m.x, b.button.y = m.y;
-                pointer_.event(b);
-            }
-        }
-    }
-
     void pointer(App& app) {
-        if (!mouse_.empty()) scripted_mouse(app.frame());
-        for (const PointerInput::Action& a : pointer_.take()) {
+        for (const PointerInput::Action& a : app.pointer()) {
             const gt3r::HitArea* h = hits_.at(a.x, a.y);
             using K = PointerInput::Action::Kind;
             const bool popup = picker_.active || pad_.active || text_.active || confirm_.active;
@@ -270,7 +240,7 @@ private:
                 const int steps = int(std::lround(a.wheel)) * 2;
                 if (picker_.active) picker_.wheel(steps);
                 else if (!popup && editing()) page().top = std::clamp(page().top - steps, 0, std::max(0, int(rows_.size()) - kShown));
-                else if (!popup) list_sel_ = std::clamp(list_sel_ - steps / 2, 0, int(list_.size()));
+                else if (!popup) list_sel_ = std::clamp(list_sel_ - steps / 2, 0, int(list_.size()) + 1);
                 continue;
             }
             if (a.kind == K::Back) {
@@ -359,11 +329,11 @@ private:
                 }
                 list_.push_back(std::move(l));
             }
-        list_sel_ = std::clamp(list_sel_, 0, int(list_.size()));
+        list_sel_ = std::clamp(list_sel_, 0, int(list_.size()) + 1);
     }
 
     void update_list(App& app, const MenuInput& m) {
-        const int count = int(list_.size()) + 1;
+        const int count = int(list_.size()) + 2;
         if (const int v = m.vertical()) list_sel_ = std::clamp(list_sel_ + v, 0, count - 1);
         if (m.pressed(PadButton::Triangle) || m.pressed(PadButton::Circle)) return app.pop();
         if (m.pressed(PadButton::Cross)) choose_listed();
@@ -371,22 +341,25 @@ private:
     void choose_listed() {
         message_.clear(), bad_ = false;
         if (list_sel_ < int(list_.size())) open_card(list_[size_t(list_sel_)].card);
-        else ask_path();
+        else if (list_sel_ == int(list_.size())) {
+            static const SDL_DialogFileFilter kFilters[] = {{"Memory card images", "ps2;mcd"}, {"All files", "*"}};
+            files_.open_file(app_, kFilters, 2);
+        } else files_.open_folder(app_);
     }
 
     void render_list(Ui& ui) {
         ui.header("SAVE EDITOR", app_.disc() ? app_.disc()->info().description : std::string());
-        const int count = int(list_.size()) + 1;
+        const int count = int(list_.size()) + 2;
         list_top_ = std::clamp(list_top_, std::max(0, list_sel_ - kShown + 1), list_sel_);
         for (int i = list_top_; i < std::min(count, list_top_ + kShown); ++i) {
             const float y = 34 + float(i - list_top_) * kRowH;
-            const bool on = i == list_sel_, other = i == int(list_.size());
+            const bool on = i == list_sel_, other = i >= int(list_.size());
             ui.fill_round(kListX, y - 3, 600, 15, 3, on ? colors::kHighlight : colors::kPanel);
-            ui.text(kListX + 10, y, other ? std::string("Another save: a memory card image (.ps2, .mcd) or a save's game data file") : Ui::elide(list_[size_t(i)].label, 270), on ? colors::kText : colors::kDim);
+            ui.text(kListX + 10, y, other ? std::string(i == int(list_.size()) ? "Another save: a memory card image (.ps2, .mcd) or a save's game data file" : "Another save: its folder") : Ui::elide(list_[size_t(i)].label, 270), on ? colors::kText : colors::kDim);
             if (!other) ui.text_right(kListX + 592, y, Ui::elide(list_[size_t(i)].value, 310), list_[size_t(i)].readable ? colors::kDim : colors::kBad);
             hits_.add({kListX, y - 3, 600, kRowH}, kListItem, i);
         }
-        if (list_.empty()) ui.text(kListX + 10, 34 + kRowH * 1.5f, "There is no saved game here yet.", colors::kDim);
+        if (list_.empty()) ui.text(kListX + 10, 34 + kRowH * 2.5f, "There is no saved game here yet.", colors::kDim);
         message(ui);
         ui.footer("{Up/Down}: select  {Cross}: open  {Triangle}: back");
     }
@@ -399,40 +372,18 @@ private:
     void fail(std::string text) { message_ = std::move(text), bad_ = true; }
     void done(std::string text) { message_ = std::move(text), bad_ = false; }
 
-    // A path from the system's dialog or a file dropped on the window (given on another thread).
-    struct Picked {
-        SDL_Mutex* mutex = SDL_CreateMutex();
-        std::string path;
-        ~Picked() { SDL_DestroyMutex(mutex); }
-    };
-    std::shared_ptr<Picked> picked_ = std::make_shared<Picked>();
-    void picked(const std::string& path) {
-        SDL_LockMutex(picked_->mutex);
-        picked_->path = path;
-        SDL_UnlockMutex(picked_->mutex);
-    }
+    // A path from the system's window or a file dropped on ours.
+    FileWindow files_;
+    std::string dropped_;
     void take_picked() {
-        std::string path;
-        SDL_LockMutex(picked_->mutex);
-        path.swap(picked_->path);
-        SDL_UnlockMutex(picked_->mutex);
+        std::string path, error;
+        if (files_.take(path, error) && !error.empty()) return fail(error);
+        if (path.empty()) path.swap(dropped_);
         if (path.empty()) return;
+        dropped_.clear();
         if (editing() && edited_) return fail("Save or leave this save first.");
         close();
         open_path(path);
-    }
-    void ask_path() {
-        auto* keep = new std::shared_ptr<Picked>(picked_);
-        static const SDL_DialogFileFilter kFilters[] = {{"Memory card images", "ps2;mcd"}, {"All files", "*"}};
-        SDL_ShowOpenFileDialog(
-            [](void* user, const char* const* files, int) {
-                std::unique_ptr<std::shared_ptr<Picked>> p(static_cast<std::shared_ptr<Picked>*>(user));
-                if (!files || !files[0]) return;
-                SDL_LockMutex((*p)->mutex);
-                (*p)->path = files[0];
-                SDL_UnlockMutex((*p)->mutex);
-            },
-            keep, SDL_GetRenderWindow(app_.renderer()), kFilters, 2, nullptr, false);
     }
 
     // ---- A save open ---------------------------------------------------------------------------------------------------

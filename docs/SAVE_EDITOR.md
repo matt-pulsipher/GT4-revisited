@@ -8,9 +8,9 @@ save <folder or card image>` (`tools/gt4diff/save_check.*`). The saved game's la
 
 ## Using it
 
-The first page lists the saved games of the data folder (`save/save_library.h`: each with its player, credits, cars and date)
-and *Another save*: a PlayStation 2 memory card image (`.ps2`, `.mcd`) or the game data file in a save's folder; a file dropped on
-the window is opened too. A save opens on its pages; up and down choose a row, left and right change it, Cross (Enter) opens it or
+The first page lists the saved games of the save folder (`save/save_library.h`: each with its player, credits, cars and date)
+and *Another save*: a PlayStation 2 memory card image (`.ps2`, `.mcd`) the game data file of a save, or its folder; a
+card image or game data file dropped on the window is opened too. A save opens on its pages; up and down choose a row, left and right change it, Cross (Enter) opens it or
 types its value, L1 and R1 (Q and E) turn the page, Triangle (Escape) goes back, Start (P) saves. The mouse clicks rows, their
 arrows, the tabs and Save; the wheel scrolls; letters typed in a list go to the first name that has them. A car's
 picture is the disc's own (`piece/car_pict/<label>.img`, in the paint the disc has it in; a few cars have none).
@@ -34,7 +34,7 @@ calendar or presents ([prologue.md](formats/prologue.md) "The saved game"); its 
 - **Nothing is written until Save**, and leaving with changes asks. The game is not running beside it: the home screen is reached
   by leaving the game, which reads its save again at the next start.
 - **A backup first**: before a save's first write since it was opened its files (or the card image) are copied whole into
-  `<data>/backups/<date and time> <name>`. A backup's folder or image opens in the editor as any save, and goes back by copying it.
+  `<save folder>/backups/<date and time> <name>`. A backup's folder or image opens in the editor as any save, and goes back by copying it.
 - **Refused, with why**: a save whose checksums are wrong, a garage file of another game, a save of another release, a save that
   something else wrote since it was opened, a backup that cannot be made. A failed write leaves each file the old one whole.
 - **Only what the change is of changes.** The payload takes the bytes that the changed state writes differently from the state

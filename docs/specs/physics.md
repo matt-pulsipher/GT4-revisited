@@ -1017,7 +1017,7 @@ rules in the PlayStation 2's arithmetic), fed with Gran Turismo 4's data:
 | The query points (phase 16, 0x3697A8), the steep ground's normal (phase 17, 0x344458), the wheels' surfaces as 24-row indexes, wheel 0's triangle as the collision step's hint (phase 18), the ground's frame (phase 19, 0x35D350) | `rules_body.*`, `session.cpp` | Gran Turismo 4 (§6) |
 | The aerodynamics (phase 4, 0x3F3090 with 0x3F2DB8; its globals as 0x3F2F78 and the converter's coefficients as 0x3621B0 make them) and F +0x5BC | `rules_chassis.*`, `exact_bridge.*`, `rules_step.*` | Gran Turismo 4 (§5) |
 | The class grip of a car a computer drives (phase 10; a single race's 20 % for every drive class, 0x353570; `rules::Tables::class_grip`) | `rules_step.*` | Gran Turismo 4 (§2) |
-| Phase order | `session.cpp` | phases 1 .. 13, then 16 .. 22, as the program's step; the engine's remaining routines with the program's C library and constants (`rules::behaviour()`: 2002 Tokyo-Geneva's) |
+| Phase order | `session.cpp` | phases 1 .. 22 as the program's step (each over every car before the next: the phases before the driver's decision, the decision and input, the rest to the hits' clearing, then the collision step on); the engine's remaining routines with the program's C library and constants (`rules::behaviour()`: 2002 Tokyo-Geneva's) |
 | Gran Turismo 4's own part of the record | `convert.*` `load_params` | the converter's block: every field bit for bit on every car (the tire records' base grip and the driveline block's tires, differentials and inertias too) |
 | The engine's torques (phase 4), brakes and clutch, wheel torques, vectoring, the axle step, wheel speeds, engine speed and gearbox (phase 10), brake heat (phase 11) | `rules_drive.*`, `rules_wear.*` through `rules_step.*` | Gran Turismo 4 (§3.3) on the engine and driveline blocks; the four wheel drive's fade, the stepless rates, the controller settings and the brake heat's constants as the program has them (checked, §9). The Priuses' hybrid one-speed box, the box of kind 4 (the MTR GMV) and layout 7's motors (the Acura DN-X) are Gran Turismo 4's; the fuel is counted in an event's race. A car our computer drivers drive shifts by the engine's gearbox: the program shifts a computer's car at its driver's speeds (0x36BEE0 / 0x36BF28 through 0x3F1E30, the speeds x a driver byte / 128 ❓), and with the program's own speeds an automatic box can hunt (the Volkswagen Beetle 1100's down-shift into third and fourth at 3,500 and 4,000 rpm, its up-shift at 4,000). With the rest of the driveline Gran Turismo 4's, the original's arcade field at Tsukuba laps in 96.4 .. 101.7 s (the original's two-lap race: 92 .. 101 s a lap; the engine's throughout: 99.5 .. 105.4 s) |
 | A rolling start | `rules_start.*`, `session.cpp` | the car set-up's moving start (0x363868) after the session's hold; its places (rules::rolling_start_distance, the race's rule) on the road's middle, not the driving line |
@@ -1247,20 +1247,27 @@ fidelity is judged only by recordings made on the console.
 
 How the harness was settled, for weighing the score: its set-up was completed by looking at failing files (the laps in the
 race information from S-1, the judge's car from B-5, the pace car's lead from B-5), and the start's hold, 480 steps when the
-car stands after its set-up and 0 when it moves, was chosen on B-1 and A-1 (A-1 is exact with 0, fails with 60 .. 420). Each
-was then used unchanged on all the files. No choice was made per file. ❓ The program's own choice (the race
-organization's state at info +0xB0 / +0xB4) is not read.
+car stands after its set-up and 0 when it moves, was chosen on B-1 and A-1. Both are now read: the hold is 0x3C0208's (none
+when the conductor's virtual 10 answers a moving start, else the row's type +0x40: 1 8 s, 2 10 s), and the course's start code (0x447F08: the
+UnistrDB string its row names, K +0xCBE6 ..) is given to the set-up, which the harness left out before: its fourth digit (K +0xCBE9, 0x463AE0)
+turns off the computer driver's long look ahead at a standing start, the cause of the three training tests' misses. No choice is made per file.
 
 | Files | |
 |---|---|
 | 85 | named for the US tests; B-8's car is not in this disc's database (no car), 84 run |
 | 14 | record no time (0): they end timed by the program, in no recorded time to compare |
-| 70 | with a recorded time: **63 end on it to the millisecond** (runs of 10 .. 419 s, all sixteen Super License laps but S-3, which records no time, among them) |
+| 70 | with a recorded time: **66 end on it to the millisecond** (runs of 10 .. 419 s, all sixteen Super License laps but S-3, which records no time, among them) |
 | 3 | coffee breaks with cones (C-2, C-3, C-5): the harness sets up no cones, so they are not judged (they run past their end) |
-| 4 | miss: B-6 (-34 ms), the training tests B-10, IA-15 and IB-15 (the pace car drives; they end off the road or on a wall) |
+| 1 | misses: B-6 (-34 ms) |
+
+**The Replay Theater's demo replays** (`gt4r_diff <disc> floats replays <name> run`; formats/replay.md): the disc's own 13, twelve arcade
+races of two and six cars (A-spec and B-spec, standing and rolling starts, pit stops; 81 .. 221 s) and a free run's lap of the Nürburgring
+(472 s), all end on their recorded times and best laps to the millisecond through the program's step: **13 of 13**. Our own race set up from
+each file alone does too, so the computer drivers, the collisions, the tire wear and the pit stops they run are the console's. The harness
+had them wrong before by the start code, the start's hold, the race's replay mode and the free run's moment.
 
 **The controls** (the interpreter's FPU arithmetic replaced from outside, `GT3R_FLOAT_ORACLE`; a scratch model of PCSX2 2.8.2's
-EE FPU, outside the repository): with its multiplier, divider, square root and adder all replaced 9 of the 70 end on their times; with
+EE FPU, outside the repository): (measured when 63 of the 70 were exact) with its multiplier, divider, square root and adder all replaced 9 of the 70 end on their times; with
 its multiplier alone 13, its divider alone 10, its square root alone 11, its adder alone 63 (it does not differ from ours
 on these runs). So the demonstrations do discriminate the multiplier, the divider and the square root, and the adder's
 difference between the two models is not exercised by them.
@@ -1269,21 +1276,18 @@ difference between the two models is not exercised by them.
 - B-6 ends at 22,715 ms under our model and under PCSX2's alike (the recording 22,749), so it does not turn on the float model.
   Its stop is at the same step with holds of 476, 478, 479, 480 and 481; a hold of 478 gives 22,748. ❓ Not explained, and 478 is
   not used: it would be a value fitted to this one file.
-- The training tests B-10, IA-15 and IB-15 leave the road or meet a wall under both models (steps 4,317 / 3,986, 2,985 / 2,973,
-  1,868 / 1,861). Failing under PCSX2's model too says nothing about ours, so the cause is open: the pace car's computer driver,
-  something of the set-up, or an operation. Changing the shared random stream's start state changes nothing (tried on IB-15).
-  ❓ The other nine training tests are exact.
+- The training tests B-10, IA-15 and IB-15 missed before the start code was given to the set-up (above); they are exact now.
 
 **The other regions' files** do not play on this program. 99 Japanese and Korean recordings that differ from every US-named one were run
 with this disc's row of the same test (12 cars and 6 events are not in its database; the 34 missions run are copies of one two-car
 run on different events and are left out): of 43 with a recorded time **5 are exact**, 8 are 5 to 89 ms off, 30 fail or do not end.
-Two European files tried (B-1, A-1) do not end or fail. So 63 of 70 is the
+Two European files tried (B-1, A-1) do not end or fail. So 66 of 70 is the
 score of the files this disc's program itself asks for, not of every console recording on it.
 ❓ Why: the recordings may be of other builds (the European at 50 steps a second). Fitting that, the 85 US-named files are either the
 Japanese recording unchanged, under the Japanese row (32 of 32), or recorded again, under their own (53 of 53), as if those that
-still played were kept; with a recorded time 25 of 27 of the first kind and 38 of 43 of the second are exact. It is not proven: the other
+still played were kept; with a recorded time 25 of 27 of the first kind and 41 of 43 of the second are exact. It is not proven: the other
 builds' programs are not on this disc, and the same was once supposed of Gran Turismo 3's demonstrations, whose cause was the
-float model. B-6 is of the first kind; the three training tests are of the second, recorded for this build.
+float model. B-6 is of the first kind, its miss (-34 ms) of the size of the other regions' near misses.
 
 ### The operations (a census of the race step)
 
@@ -1309,8 +1313,8 @@ record of them each step, car 0's place equals the program's in every bit over t
 all 84 runs (cars other than car 0, in the twelve training tests, loaded from the program's records every step; left to run free, the pace
 car's path and so car 0's part from the program's from step 730 to 1,360 on; the test `floats_demonstrations_end_on_their_recorded_times`
 plays seven). ✔ Our own set-up of a license race (race/race_start.*, race/demonstration_run.*) run alone, with no state of
-the program's, ends 66 of the 70 recorded runs on their times (63 and the three cone coffee breaks, whose cones it has), the
-other four where the program's runs end (race_flow.md). Two session settings a license race needs, found here:
+the program's, ends 69 of the 70 recorded runs on their times (the program's 66 and the three cone coffee breaks, whose cones it has),
+B-6 where the program's run ends (race_flow.md), and the 13 demo replays. Two session settings a license race needs, found here:
 `Session::set_class_grip` (the license conductor keeps the event's drive-class grip bytes, CFG +0x18 .. +0x1B) and
 `set_course_kind` (dirt and snow by the COURSE row's kind, K +0xCBDD: the bump tables' surface 5 takes row 15 on snow), and
 a player's car in its rolling start (driver kind not 0) takes its driver's aid block and grip (0x3F79A0, 0x467470). A license
@@ -1318,8 +1322,7 @@ test's rolling start runs capped at CFG +0x4E (0x3F7880, the conductor's virtual
 
 ### Not done
 
-The demo replays' races (arcade single races, B-spec and free runs) are read but not run: their start (rolling or
-standing, the free run's flying start) is not set up by the harness. The VU0 model is unproven. The cones are not set up.
+The VU0 model is unproven. The cones are not set up.
 
 ## 10. Open
 

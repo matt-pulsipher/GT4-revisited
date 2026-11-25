@@ -9,6 +9,7 @@ Prologue disc starts the same way.
 1. Start `gt4r`. Without a disc it asks for one: press Enter (Cross) to choose your Gran Turismo
    4 disc image (`.iso` or `.chd`), or drop the file on the window. Nothing is copied from the
    disc; the game's files are read from the image as they are needed.
+   The disc images opened before are offered below it.
 2. With a disc chosen, the game starts as the console does: the memory card's questions, the
    Polyphony Digital logo, the opening movie (Start skips it), the title. The disc is remembered:
    the next launch goes straight there. `gt4r <disc image>` starts with that disc.
@@ -18,11 +19,13 @@ Prologue disc starts the same way.
    card without game data: the game offers to make one (OK), which leads to Gran Turismo mode's
    name entry and introduction; Cancel and "Start game" play without one (Arcade only).
 4. Select and Start together leave the game for the home screen: the disc's cars, courses, menu
-   pages and files, a race set up by hand (*Drive*), the *Save editor*, another disc, and *Play* to start the game
-   again. `[game] start = hub` in `config.ini` opens the home screen first.
+   pages and files, a race set up by hand (*Drive*), *Controls*, *Settings*, *Mods*, the *Save editor*, another disc, and
+   *Play* to start the game again. *Settings > Disc & saves > Starts in* opens the home screen first.
+   The home screen and the app's own pages take a pad, the keyboard and the mouse (a click chooses, the
+   wheel scrolls, the right button goes back); the game's pages a pad or the keyboard.
 5. The *Save editor* changes a saved game: credits and the day, the garage (any car of the game, its paint, parts and
    settings), licenses, events, missions, prize cars, records, what Arcade mode has open. Nothing is written until you
-   save, and the save as it was is kept in the data folder's `backups/` first. It also opens PlayStation 2 memory card
+   save, and the save as it was is kept in the save folder's `backups/` first. It also opens PlayStation 2 memory card
    images. [SAVE_EDITOR.md](SAVE_EDITOR.md).
 
 ## Controls
@@ -43,7 +46,8 @@ Triangle and Square go back). In races, unless you change it:
 | Pause | Start | Escape, P | Start |
 
 Menus on a keyboard: arrows move, Enter is Cross, Escape and Backspace Triangle, P Start, Tab
-Select. F11 switches full screen.
+Select. F11 switches full screen (remembered), F12 saves a screenshot in `screenshots/` in the data folder. The
+mouse's arrow goes after two seconds without it.
 
 **The game's own Options** work as the console's. *DUALSHOCK 2 button config 1P*: once you change it,
 races read your pad through that page, button for button (Cross accelerates unless the page says
@@ -54,14 +58,17 @@ steering, the steering type (Amateur to Simulation), the power assist and the fo
 race's options: the gearbox for Gran Turismo mode's races, license tests and missions; Arcade asks on its
 own pages.
 
-**The home screen's Controls** (Select and Start together, then Controls) has what a computer's devices
-need: which device drives; the race controls, Modern (the table above) or Gran Turismo 4 original
-(always the console's pad); the steering's dead zone and response; the rumble, Modern (Automatic is
-Modern too: hits, rough ground, kerbs, slides, on both motors) or Gran Turismo 4 original (the console's
-one level on the large motor, as the game sends it); the triggers' effects (a DualSense's brake
-resistance and the edge of grip under the throttle, an Xbox pad's impulse triggers); for a wheel which
-of the console's wheels it is, how far it turns, and its force feedback; what each control is bound to;
-and bars that show what the race reads. It is kept in `config.ini` when you leave the page:
+**The home screen's Controls** (Select and Start together, then Controls; player 2's in Settings > Controls) has
+what a computer's devices need: which device drives; the race controls, Modern (the table above), Gran Turismo 4
+original (always the console's pad) or your own bindings (Custom, once there are any); the steering's dead zone and
+response; the rumble, Modern (Automatic is Modern too: hits, rough ground, kerbs, slides, on both motors) or Gran
+Turismo 4 original (the console's one level on the large motor, as the game sends it); the triggers' effects (a
+DualSense's brake resistance and the edge of grip under the throttle, an Xbox pad's impulse triggers); tilting a
+controller to steer; for a wheel which of the console's wheels it is, how far it turns, and its force feedback; what
+each control is bound to; the songs' controls; the menu buttons; and bars that show what the race reads. On a
+control, Cross binds it, Square adds one more input to it, Select (Delete) clears it. *Songs*: the next song of the
+race's music and the one before, on any buttons or keys held together (none to begin with). Every controller and the
+keyboard work on this page, whichever device is chosen. It is kept in `config.ini` when you leave the page:
 
 ```
 [player1]
@@ -73,6 +80,61 @@ rotation = 900           ; how far your wheel turns, lock to lock, as its own dr
 [ffb]                    ; wheel, wheel_mode (auto | modern | original), strength, steering, spring, understeer,
                          ; triggers, trigger_force, invert
 ```
+
+**Settings** (the home screen) has pages for the display, the sound, the controls, the disc and the saves, and the mods.
+Every change is applied at once and kept in `config.ini`; the 3D renderer is taken at the next start (the row says so).
+
+- *Display*: window or full screen; the aspect ratio (16:9, 4:3, or the whole screen: races fill it, the game's
+  pages stay 4:3 in the middle); vsync; the frame rate (the display's, or about 60 on a faster one); a frame
+  rate counter; gamma over the whole picture; anti-aliasing; anisotropic filtering; the 3D views' resolution, and
+  whether it is lowered while the GPU is too slow; the menus' cars and prizes at the screen's resolution or the
+  console's 640x448; the 3D renderer.
+- *Audio*: the output device; the music's and the effects' volume, on top of the game's own options; whether sounds behind you
+  are sent as the console sends them (one side turned over, for a surround decoder) or plain.
+- *Controls*: both players' controls; whether controllers keep driving while another window is in front; on Windows how
+  Xbox controllers are read.
+- *Disc & saves*: the disc in use, whether its files are a tested release's own and whether the image is complete; the
+  disc images opened before (Cross opens one, Square takes it off the list); the folder the games, replays and photos
+  are kept in (a new one gets a copy of what it does not have; nothing is written over); what opens at the start; the data
+  folder; the log of this session and of the one before (`gt3r.log`, `gt3r.prev.log` in the data folder: an uncaught error or
+  a crash is its last line; your name is taken out of the paths); the version.
+- *Mods*: below.
+
+```
+[video]
+fullscreen = off         ; on | off
+aspect = 16:9            ; 16:9 | 4:3 | fill
+vsync = on               ; on | off
+limit_60fps = off        ; on: about 60 frames a second on a faster display
+show_fps = off           ; on | off
+gamma = 1.00             ; 0.50 .. 2.00
+msaa = 4                 ; 1 | 2 | 4 | 8
+anisotropy = 4           ; 1 | 2 | 4 | 8 | 16
+render_scale = auto      ; auto | 0.5 .. 4.0
+dynamic_resolution = off ; on | off
+menu_models = screen     ; screen | console
+gpu = auto               ; auto | gles | gles_driver | off
+texture_packs = on       ; on | off
+[audio]
+device =                 ; an output device's name; empty: the system's
+music_volume = 0.80
+effects_volume = 0.80
+rear_cue = on            ; on | off
+[saves]
+folder =                 ; empty: the data folder
+[game]
+start = game             ; game | hub
+```
+
+**Mods** are folders in `mods/` in the data folder: `mods/<name>/mod.ini` (`[mod]` with `name`, `version`, `author`, `description`,
+`priority`, `discs`), `files/` with files that stand in for the disc's (or add to them) under the same paths, and
+`textures/` with pictures. *Install a mod* takes a `.zip`, as does dropping one on the app's own pages. Each mod is
+used or not for each disc, and where two change the same file the upper one of the list wins (*Move up* and *Move
+down* on a mod's page write its `priority`). A texture pack's pictures (PNG, any size up to 4096 a side) are named by
+the texture they replace: *Save the game's textures* writes every car's, course's and figure's texture under that name
+(`gt4tool textures <disc> <folder> car/lod/fdeu0006` a few of them). Packs change what is loaded from then on. They replace
+the textures of the 3D models; the menus' pictures, the fonts and the race display are not replaced. Mods'
+cars, events and liveries are not read.
 
 A race pauses when its window loses the focus (unless the controller is set to keep driving) and when
 the pad or wheel is unplugged. Rumble, triggers and force feedback are sent only while you drive: they
@@ -178,7 +240,8 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
 ```
 
 - `--keys`: presses (`cross`, `down`, `start`, ...), `waitN` (N frames), `shot:<name>` (a
-  picture beside `--shot`'s), `quit`; race controls held until changed: `gas=0..1`,
+  picture beside `--shot`'s), `quit`; the mouse on the app's pages (`click:x:y`, `move:x:y`, `back:x:y`,
+  `wheel:turns:x:y`, `drag:x:y:x:y` in 640 x 360 units), `drop:<file>`, `f12`; race controls held until changed: `gas=0..1`,
   `brake=0..1`, `steer=-1..1`, `reverse=0..1`, `handbrake=0|1`, `lx=` `ly=` `rx=` `ry=` (the sticks, -1..1),
   `l1=0|1` and any other button so (held), `release`; `@<file>` reads keys
   from a file (`#` comments; files may name files).
@@ -191,7 +254,9 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
 - `GT4R_MENU` and `GT4R_RACE` set up the menu pages and *Drive* screens for a check (the tops of
   `src/gt4r/app/screen_menu_viewer.cpp` and `screen_race.cpp`).
 - Scripted runs (`--shot`, `--sweep`) open their window without making it the active one, and it
-  cannot take the keyboard's focus.
+  cannot take the keyboard's focus; they open no file windows, folders or full screen (`GT4R_DIALOG=<path>` is a file
+  window's answer). `GT4R_WINDOW=1600x700` is the window's size, `GT4R_SHOT_GAMMA=1` takes the pictures with the
+  gamma, `GT4R_CRASH_TEST=throw` (`segv`, `abort`) closes the app as a fault would.
 
 ## Sweeps (for checks)
 
@@ -230,6 +295,11 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
   step makes of it (0x349FD0). The original rumble's level and the wheel's force are the game's; the Modern
   rumble, the triggers and the Modern wheel force are the shared engine's, fed from the game's step
   (`docs/specs/input.md`).
+- Settings, Mods, Controls and the mouse are the app's own (`src/gt4r/settings`, `app_settings.cpp`, `page.*`,
+  `screen_settings.cpp`, `screen_controls.cpp`) over the shared engine's parts: the GPU device's options, dynamic
+  resolution, the gamma pass, the output devices, the log file and crash notes, the disc list, the mods' archives,
+  the texture packs. The race display's place on a 4:3 picture is the program's; on one wider than 16:9 its parts go out
+  with the picture's edge (ours: `race/game_area.h`).
 - The 2D drawing toolkit of the home screen, the setup screen and the browser is the shared
   engine's (`ui.cpp`, `ui_font.cpp`, `button_prompts.cpp`); the game's pages are drawn by the menu
   code (`src/gt4r/menu`, `screen_menu_viewer.cpp`).

@@ -2,6 +2,7 @@
 // browser.
 
 #include "gt4r/app/app.h"
+#include "gt4r/app/page.h"
 
 #include "base/log.h"
 #include "gt4r/formats/course/course_file.h"
@@ -59,11 +60,15 @@ std::unique_ptr<Screen> make_courses_screen(App& app) {
 
 class HubScreen : public Screen {
 public:
+    bool menu_input_any_device() const override { return true; } // (a way to Settings whatever the controllers are set to)
+
     void update(App& app, double) override {
         const MenuInput& m = app.menu();
-        if (items_.empty()) build(app);
+        if (items_.empty() || disc_ != app.disc()) build(app);
         sel_ = std::clamp(sel_ + m.vertical(), 0, int(items_.size()) - 1);
-        if (m.pressed(PadButton::Cross)) {
+        bool press = m.pressed(PadButton::Cross);
+        for (const RowPointer::Hit& h : mouse_.read(app)) sel_ = h.row, press = press || h.click;
+        if (press) {
             try {
                 switch (items_[size_t(sel_)].action) {
                 case 0: app.push(make_cars_screen(app)); break;
@@ -75,9 +80,12 @@ public:
                 case 7: app.push(make_game_screen(app)); break;
                 case 8: app.push(make_controls_screen(app)); break;
                 case 9: app.push(make_save_editor(app)); break;
+                case 20: app.push(make_settings_screen(app)); break;
+                case 21: app.push(make_settings_screen(app, 4)); break;
                 default: app.quit(); break;
                 }
                 error_.clear();
+                items_.clear(); // (the notes as they are when this page is back)
             } catch (const std::exception& e) {
                 error_ = e.what();
                 LOG_WARN("Hub: %s", e.what());
@@ -90,18 +98,25 @@ public:
         const DiscInfo& d = app.disc()->info();
         ui.text(24, 34, d.description, colors::kAccent);
         ui.text(24, 46, d.serial + "  version " + d.version + (d.verified ? "" : d.modified ? "  (a modified copy)" : "  (not a tested release)"), colors::kDim);
+        const float row = items_.size() > 11 ? 20.0f : 22.0f;
+        mouse_.begin();
         for (size_t i = 0; i < items_.size(); ++i) {
-            const float y = 78 + float(i) * 22;
+            const float y = 78 + float(i) * row;
             const bool on = int(i) == sel_;
-            ui.fill_round(20, y - 4, 300, 19, 4, on ? colors::kHighlight : colors::kPanel);
+            ui.fill_round(20, y - 4, 300, row - 3, 4, on ? colors::kHighlight : colors::kPanel);
             ui.text(30, y + 1, items_[i].label, on ? colors::kText : colors::kDim);
-            ui.text_right(312, y + 1, items_[i].note, colors::kDim);
+            ui.text_right(312, y + 1, Ui::elide(items_[i].note, 190), colors::kDim);
         }
+        mouse_.rows(0, 0, int(items_.size()), 20, 74, 300, row);
         ui.text(340, 82, "Play: the game from power on (Select and Start together", colors::kDim);
         ui.text(340, 94, "come back here). The rest: the disc's cars, courses, menu", colors::kDim);
         ui.text(340, 106, "pages and files, and a race set up by hand.", colors::kDim);
         ui.text(340, 124, "An early build: see docs/PLAYING.md for what works.", colors::kDim);
-        if (!error_.empty()) ui.text(24, Ui::kHeight - 44, Ui::clip(error_, Ui::kWidth - 48), colors::kBad);
+        float y = 148;
+        if (!d.problem.empty())
+            for (const std::string& line : Ui::wrap(d.problem, 280)) ui.text(340, y, line, colors::kBad), y += 12;
+        const std::string error = error_.empty() ? app.last_error() : error_; // (or the disc image that could not be opened)
+        for (const std::string& line : Ui::wrap(error, 280)) ui.text(340, y + 8, line, colors::kBad), y += 12;
         ui.footer("{Up/Down}: select  {Cross}: open");
     }
 
@@ -111,6 +126,8 @@ private:
         int action;
     };
     void build(App& app) {
+        items_.clear();
+        disc_ = app.disc();
         size_t cars = 0, courses = 0;
         try {
             if (db::SpecDb* sdb = app.db()) {
@@ -129,10 +146,14 @@ private:
         items_.push_back({"Asset browser", std::to_string(app.disc()->files().size()) + " files", 2});
         items_.push_back({"Controls", app.input().device_name(0), 8});
         items_.push_back({"Save editor", "", 9});
+        items_.push_back({"Settings", "", 20});
+        items_.push_back({"Mods", app.vfs()->mods().empty() ? std::string() : std::to_string(app.vfs()->mods().size()), 21});
         items_.push_back({"Another disc", "", 3});
         items_.push_back({"Quit", "", 4});
     }
     std::vector<Item> items_;
+    const Disc* disc_ = nullptr;
+    RowPointer mouse_;
     int sel_ = 0;
     std::string error_;
 };

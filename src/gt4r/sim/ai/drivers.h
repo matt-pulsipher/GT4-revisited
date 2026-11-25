@@ -64,7 +64,7 @@ struct Pace {
     // past `start` metres, fully past `full` metres. All 0: none.
     float slow = 0, slow_start = 0, slow_full = 0, fast = 0, fast_start = 0, fast_full = 0, global = 1;
     // The same as the event row has them (+0x63 .. +0x6A: the overall percent (0: 100), the mode, the slowing's percent,
-    // start (m) and full gap (x 10 m), the hurrying's): what the race sets the band from (0x365480). All 0: no band.
+    // start (m) and full gap (x 10 m), the hurrying's): what the race sets the band from (0x365480). All 0: no change but the overall 100 x 0.01's.
     u8 band_global = 0, band_mode = 0, slow_pct = 0, slow_start_m = 0, slow_full_10m = 0, fast_pct = 0, fast_start_m = 0, fast_full_10m = 0;
     // The computer drivers differ by draws as they drive (the conductor's virtual 52: a single race's 0x3475B0 and the free
     // run's 0x3F5520 answer 1, and 0x469468 sets the tuning's bytes); off (the license tests', pace car tests', missions'
@@ -80,6 +80,10 @@ struct Pace {
     // for DynamicsConductorFreeRun, License and MachineTest, 0 for the races, battles, free practice, training and
     // missions). Its computer drivers do not pass (0x3F1890) and a B-spec driver's experience counts no company (0x4684A8).
     bool solo = false;
+    // The drag strip (K +0xCBE1: COURSE +0x13 of 2 and more): no lane changes and no lift behind a car (0x465078's 0x4668EC).
+    bool strip = false;
+    // The course's start code's fourth digit (K +0xCBE9, 0x463AE0): not 0, no long look ahead off a standing start.
+    u8 start_look = 0;
 };
 
 // What a driver did, for checks and tools.
@@ -150,6 +154,7 @@ public:
         return s_->gt4_rules();
     }
     bool wear_on() const override { return s_->wear_rules().tread_on != 0 || s_->wear_rules().second_on != 0; }
+    bool finished(size_t i) const override { return s_->gt4_record(i).phases.finished != 0; }
     // The collision step's front and rear flags of the car's body (+0x434 / +0x438) as the last step left them.
     bool hits(size_t i, bool& front, bool& rear) const override {
         front = s_->body(i).front != 0, rear = s_->body(i).rear != 0;
@@ -185,7 +190,8 @@ public:
     void step(Session& session, std::span<race::CarInput> inputs, int keep = -1, u32 count = 0);
     // drive() in its parts: the step's common part (the order, the rubber band, the pairs pass), then each driven car's
     // decision, then the step's end.
-    void begin_step();
+    void begin_step(bool near_pass = true); // `near_pass` off: the proximity pass runs within the session's step (near_pass())
+    void near_pass() { proximity(); }
     void decide_car(size_t car, race::CarInput& input);
     void end_step();
 
@@ -251,6 +257,10 @@ public:
     // passes its configuration's +0xCBDE when that is 1 and no mode is asked.)
     // The driver's kind after it (8: stopped) is the session's to hold the car by (its clutch open).
     void finish(size_t car, int mode, bool player_car = false);
+    // The same with the car's mark of it (F +0x4B2, 0x343D78), as the races' finish (the conductor's virtual 21) and a test's end do;
+    // and the computer's cars sent to cruise as a test's player has ended it (0x3F88E8).
+    void finish_run(Session& session, size_t car, int mode = 3);
+    void end_computers();
     int kind(size_t car) const;
     // The car's control source as the drivers keep it (F +0x466: 2 the computer, 1 B-spec, 0 the pad; -1 not driven).
     int control(size_t car) const;
@@ -364,6 +374,7 @@ public:
 private:
     void proximity();
     void rubber_band();
+    static u16 seed(const Driver& d); // (0x4639E0's draw: seeded, one step)
     void decide(Driver& d);
     gt3r::ee::F braking(Driver& d);
     void bookkeeping_shift(Driver& d);
@@ -377,6 +388,7 @@ private:
     void set_kind(Driver& d, int kind);
     void blip(Driver& d, u32 count);
     gt3r::ee::F pedal(const Driver& d) const;
+    void idle(Driver& d);
     void stop(Driver& d, gt3r::ee::F steer);
     gt3r::ee::F hold_speed(const Driver& d, gt3r::ee::F target) const;
     void traffic(Driver& d);
