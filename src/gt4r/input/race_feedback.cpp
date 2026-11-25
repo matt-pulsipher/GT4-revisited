@@ -136,7 +136,7 @@ gt3r::ForceFeedbackState RaceFeedback::force(const FeedbackOptions& options) con
 }
 
 void RaceFeedback::frame(gt3r::InputManager& input, int player, const FeedbackOptions& options, double dt) {
-    if (!feeling()) return stop(input, player);
+    if (!feeling() || !feel_.pad_output) return stop(input, player);
     age_ += dt;
     sent_ = true;
     input.set_rumble(player, options.vibration ? model_.rumble(input.gt3_rumble(player), input.dualsense(player)) : gt3r::PadRumble{});

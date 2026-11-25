@@ -2,12 +2,14 @@
 // port, against the user's own program (OptionRaceInputPortPS2: 0x43CCD0, 0x43CF90, 0x43D8A8, 0x43D520); our own layouts on
 // the engine's pads, with simulated devices (SDL's virtual joysticks: no real device is opened); what a race sends back.
 
+#include "menu_run_flow.h"
 #include "test_framework.h"
 
 #include "base/config.h"
 #include "diff.h"
 #include "gt4r/input/player_controls.h"
 #include "gt4r/input/race_feedback.h"
+#include "gt4r/menu/game_settings.h"
 #include "gt4r/sim/program.h"
 #include "orig.h"
 
@@ -425,4 +427,67 @@ TEST(input_simulated_devices) {
         }
     }
     SDL_QuitSubSystem(SDL_INIT_GAMEPAD | SDL_INIT_JOYSTICK);
+}
+TEST(input_option_pages) {
+    Disc* disc = full_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    using menu::Key;
+    // Each page from the title's Options, changed and left by its OK button; what the races read then.
+    const auto open = [&](Flow& f, std::initializer_list<Key> to) {
+        bool ok = f.boot_to_title();
+        f.press({Key::Down, Key::Down, Key::Down, Key::Accept});
+        ok = ok && f.rt->finished() && f.rt->advance();
+        f.rt->settle();
+        f.press(to);
+        return ok;
+    };
+    const auto focus_on = [](Flow& f, const std::string& part) {
+        for (int i = 0; i < 24 && (!f.rt->focused() || f.rt->focused()->self()->path().find(part) == std::string::npos); ++i) f.press({Key::Down});
+        return f.rt->focused() && f.rt->focused()->self()->path().find(part) != std::string::npos;
+    };
+    const auto settings = [](Flow& f) { return menu::settings_of(f.rt->game()); };
+    { // Key Configuration, DUALSHOCK 2 1P: the accelerator from Cross to R2 (three rows down its list).
+        Flow f(*disc);
+        CHECK(open(f, {Key::Down, Key::Down, Key::Down, Key::Right, Key::Accept}) && f.page() == "KeyconfigRoot");
+        const auto keys = [&](ButtonAction a) { return keys_with(settings(f).controllers.port[0].of(Device::DualShock2), Device::DualShock2, a); };
+        CHECK(keys(ButtonAction::Accel) == std::vector<std::string>{"CROSS"});
+        // The next key of its list until one that nothing else has (the page refuses a key taken twice).
+        int tries = 0, refused = 0;
+        for (; tries < 14 && f.page() == "KeyconfigRoot"; ++tries) {
+            CHECK(focus_on(f, "Accel"));
+            f.press({Key::Accept, Key::Down, Key::Accept});
+            CHECK(focus_on(f, "Buttons::OK"));
+            f.press({Key::Accept});
+            if (f.page() == "ConfirmDialog") f.press({Key::Accept}), ++refused;
+        }
+        std::printf("  %d keys tried, %d refused\n", tries, refused);
+        const std::vector<std::string> accel = keys(ButtonAction::Accel);
+        std::printf("  the accelerator: %s\n", accel.empty() ? "none" : accel[0].c_str());
+        CHECK(accel.size() == 1 && accel[0] != "CROSS");
+        CHECK(settings(f).controllers.port[0].of(Device::DualShock2).preset == 0 && settings(f).controllers.port[1] == PortConfig() && f.clean());
+    }
+    { // Vibration 1P off.
+        Flow f(*disc);
+        CHECK(open(f, {Key::Down, Key::Down, Key::Down, Key::Accept}) && f.page() == "ControllerRoot");
+        f.press({Key::Accept, Key::Down, Key::Accept});
+        CHECK(focus_on(f, "OK"));
+        f.press({Key::Accept});
+        CHECK(!FeedbackOptions::from(settings(f).controllers.port[0], 3).vibration && FeedbackOptions::from(settings(f).controllers.port[1], 3).vibration && f.clean());
+    }
+    { // The steering wheel's page: active steering on, the force's strength.
+        Flow f(*disc);
+        CHECK(open(f, {Key::Down, Key::Down, Key::Down, Key::Right, Key::Right, Key::Right, Key::Accept}) && f.page() == "SteeringRoot");
+        const bool was = settings(f).active_steering;
+        const int power = get_feedback(settings(f).controllers.port[0].of(Device::Cheetah), Device::Cheetah, "POWER");
+        f.press({Key::Accept, was ? Key::Down : Key::Up, Key::Accept});
+        CHECK(focus_on(f, "Feedback1"));
+        f.press({Key::Accept});
+        std::printf("  at %s\n", f.rt->focused()->self()->path().c_str());
+        f.press({Key::Up, Key::Accept});
+        CHECK(focus_on(f, "OK"));
+        f.press({Key::Accept});
+        const int now = get_feedback(settings(f).controllers.port[0].of(Device::Cheetah), Device::Cheetah, "POWER");
+        std::printf("  active steering %d -> %d, the force's strength %d -> %d\n", was, settings(f).active_steering, power, now);
+        CHECK(settings(f).active_steering != was && now != power && f.clean());
+    }
 }
