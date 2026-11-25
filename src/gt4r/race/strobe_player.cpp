@@ -289,6 +289,13 @@ struct StrobePlayer::Impl {
         return {};
     }
     void set_member(const Value& o, const std::string& name, const Value& v) {
+        if (o.kind == Value::ArrayRef && o.array) {
+            if (const double at = Value::string(name).to_number(); at >= 0 && at < 1000) {
+                if (at >= double(o.array->size())) o.array->resize(size_t(at) + 1);
+                (*o.array)[size_t(at)] = v;
+            }
+            return;
+        }
         if (o.kind != Value::ClipRef || !o.clip) return;
         Clip& c = *o.clip;
         if (c.kind == Clip::TextClip && lower(name) == "text") c.text = v.to_string();
@@ -321,6 +328,15 @@ struct StrobePlayer::Impl {
     Value call_method(Frame& fr, const Value& obj, const std::string& name, const std::vector<Value>& args) {
         const std::string n = lower(name);
         if (obj.kind == Value::String && obj.s == kKeyObject) return n == "getcode" ? Value::number(key_code) : Value{};
+        if (obj.kind == Value::ArrayRef && obj.array) {
+            if (n == "push") obj.array->insert(obj.array->end(), args.begin(), args.end());
+            else if (n == "pop" && !obj.array->empty()) {
+                const Value v = obj.array->back();
+                obj.array->pop_back();
+                return v;
+            }
+            return Value::number(double(obj.array->size()));
+        }
         if (obj.kind == Value::String && n == "substr") {
             const double at = args.empty() ? 0 : args[0].to_number(), len = args.size() > 1 ? args[1].to_number() : double(obj.s.size());
             const size_t from = size_t(std::clamp(at < 0 ? at + double(obj.s.size()) : at, 0.0, double(obj.s.size())));
@@ -415,9 +431,12 @@ struct StrobePlayer::Impl {
             case 0x0B: { const Value b = pop(), a = pop(); st.push_back(Value::number(a.to_number() - b.to_number())); break; }
             case 0x0C: { const Value b = pop(), a = pop(); st.push_back(Value::number(a.to_number() * b.to_number())); break; }
             case 0x0D: { const Value b = pop(), a = pop(); st.push_back(Value::number(a.to_number() / b.to_number())); break; }
+            case 0x40:   // NewObject (an Array, empty)
             case 0x42: { // InitArray: the first element on the top
+                if (op == 0x40) pop();
                 Value v;
                 v.kind = Value::ArrayRef, v.array = std::make_shared<std::vector<Value>>(pop_args());
+                if (op == 0x40) v.array->clear();
                 st.push_back(std::move(v));
                 break;
             }
@@ -794,6 +813,13 @@ std::vector<StrobePlayer::Draw> StrobePlayer::draw_list() const {
 }
 
 int StrobePlayer::frame() const { return impl_->root->frame; }
+
+void StrobePlayer::go_to(int frame) {
+    Impl& m = *impl_;
+    m.go(*m.root, frame, false);
+    m.run_queue();
+    m.check_focus();
+}
 
 void StrobePlayer::play() {
     impl_->root->playing = true;

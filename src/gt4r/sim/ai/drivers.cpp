@@ -166,6 +166,7 @@ Field::Field(const Cars& cars, const course::AiData& data, const Program& progra
 
 void Field::init(const course::AiData& data, const Program& program, std::span<const size_t> computer) {
     const Cars& session = *session_;
+    if (!pace_.random_spread) tables_.tuning.corner_spread = 0, tables_.tuning.brake_spread = 0;
     sets_ = data.sets;
     if (program.known())
         for (u32 m = 0; m < 24; ++m) soft_[m] = program.w(Program::kSoft + 4 * m);
@@ -274,6 +275,11 @@ void Field::set_bspec(size_t car) {
     const Tables::PaceLevel& l = tables_.pace[tables_.pace_start[0]];
     setup(d);
     d.pace = tables_.pace_start[0], d.overtake = false, d.pace_brake = l.brake, d.pace_corner = l.corner, d.shift = l.shift;
+}
+
+void Field::set_control(size_t car, int control) {
+    Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
+    if (d) d->control = control, d->suggest = {}; // (0x469E48)
 }
 
 void Field::command(size_t car, const BSpecCommand& c) {
@@ -660,86 +666,7 @@ static F angle_between(F a, F b) {
 
 F Field::course_s(size_t car) const { return F(session_->state(car).course_v); }
 
-bool Field::place(int line, int hint, F s, F& x, F& y, F& h) const {
-    const std::vector<LinePoint>& p = lines_.line(line);
-    if (p.empty()) return false;
-    const F lap(lines_.lap());
-    if (line == CourseLines::kPitStop) {
-        // 0x46B7B8: the stop line, its distances a lap on in the lap's first half: straight between its points.
-        if (s < k::zero) s = s + lap;
-        else if (lap <= s) s = s - lap;
-        if (s < lap * k::half) s = s + lap;
-        const size_t n = p.size();
-        if (s < F(p[0].dist) || F(p[n - 1].dist) <= s) return false;
-        size_t i = 0;
-        while (i + 1 < n && !(F(p[i].dist) <= s && s < F(p[i + 1].dist))) ++i;
-        if (i + 1 >= n) return false;
-        const LinePoint &a = p[i], &b = p[i + 1];
-        const F t = (s - F(a.dist)) / (F(b.dist) - F(a.dist));
-        x = t * (F(b.x) - F(a.x)) + F(a.x);
-        y = t * (F(b.y) - F(a.y)) + F(a.y);
-        h = t * (F(b.height) - F(a.height)) + F(a.height);
-        return true;
-    }
-    if (s < k::zero) s = s + lap;
-    else if (lap <= s) s = s - lap;
-    // 0x46B310: the span: before the first point or past the last (the last to the first), else searched from the hint
-    // outwards (hint, hint + 1, hint - 1, hint + 2, ...).
-    const int n = int(p.size());
-    int from = -1, to = -1, kind = 0;
-    if (s < F(p[0].dist)) from = n - 1, to = 0, kind = 1;
-    else if (F(p[size_t(n - 1)].dist) <= s) from = n - 1, to = 0, kind = 2;
-    else {
-        int at = hint;
-        for (int step = 0; step <= n; ++step) {
-            int cand = (step & 1) ? at + step : at - step;
-            at = cand;
-            if (cand < 0) cand += n;
-            else if (!(cand < n)) cand -= n;
-            if (cand == 0 || cand < 0 || cand >= n) continue;
-            if (F(p[size_t(cand - 1)].dist) <= s && s < F(p[size_t(cand)].dist)) {
-                from = cand - 1, to = cand, kind = 3;
-                break;
-            }
-        }
-    }
-    if (kind == 0) return false;
-    const LinePoint &a = p[size_t(from)], &b = p[size_t(to)];
-    const F ad(a.dist), bd(b.dist);
-    F num, den;
-    if (kind == 1) num = (s + lap) - ad, den = (bd + lap) - ad;
-    else if (kind == 2) num = s - ad, den = (bd + lap) - ad;
-    else num = s - ad, den = bd - ad;
-    const F t = num / den;
-    const F ax(a.x), ay(a.y), bx(b.x), by(b.y);
-    if (a.kind == 0) {
-        x = t * (bx - ax) + ax;
-        y = t * (by - ay) + ay;
-    } else {
-        const F hd(a.heading);
-        const F sn = -gt3r::ee::sin(hd);
-        const F cs = gt3r::ee::cos(hd);
-        F r(a.radius);
-        const F cx = ax - cs * r, cy = ay + sn * r;
-        const F a0 = ai::atan2(cx - ax, ay - cy);
-        F a1 = ai::atan2(cx - bx, by - cy);
-        F from_ang = a0, d;
-        if (k::zero < r) {
-            if (a1 < from_ang) a1 = a1 + k::two_pi;
-            d = a1 - from_ang;
-        } else {
-            r = -r;
-            if (from_ang < a1) from_ang = from_ang + k::two_pi;
-            d = a1 - from_ang;
-        }
-        const F ang = from_ang + t * d;
-        x = cx - gt3r::ee::sin(ang) * r;
-        y = cy + gt3r::ee::cos(ang) * r;
-    }
-    const F ah(a.height), bh(b.height);
-    h = t * (bh - ah) + ah;
-    return true;
-}
+bool Field::place(int line, int hint, F s, F& x, F& y, F& h) const { return lines_.place(line, hint, s, x, y, h); }
 
 F Field::target(const Driver& d, int line, F look, F& ox, F& oy) const {
     const ex::Car& c = session_->record(d.car);
@@ -984,7 +911,11 @@ void Field::bspec_experience(Driver& d, int table, F v) {
 
 void Field::set_shadow(size_t car) {
     Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
-    if (d) d->control = 0;
+    if (!d) return;
+    d->control = 0;
+    setup(*d); // (its parameters without a computer driver's spread: 0x467148 runs for control source 2 only)
+    const Tables::PaceLevel& l = tables_.pace[tables_.pace_start[0]]; // (0x3F1890: the player's starting level, whoever drives)
+    d->pace = tables_.pace_start[0], d->overtake = false, d->pace_brake = l.brake, d->pace_corner = l.corner, d->shift = l.shift;
 }
 
 Field::Suggestion Field::suggestion(size_t car) const {
@@ -996,6 +927,35 @@ void Field::set_bspec_skill(size_t car, F corner, F brake, F alongside) {
     Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
     if (!d) return;
     d->corner_mult = corner, d->brake_mult = brake, d->alongside_mult = alongside;
+}
+
+void Field::start_line(size_t car, int line) {
+    Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
+    if (!d) return;
+    if (request_line(*d, line, true)) --d->inc.lane_changes;
+}
+
+bool Field::hold_rolling(size_t car) {
+    Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
+    if (!d || d->control == 4) return false;
+    // 0x3452F0: off the passing line 7 (a pad car's), the computer driving.
+    const bool driven = (d->kind >= 2 && d->kind <= 4) || (d->control == 0 && d->kind == 0);
+    if (driven && d->line == 7) request_line(*d, CourseLines::kMain, true);
+    d->kind = 1;
+    return true;
+}
+
+bool Field::release_rolling(size_t car) {
+    Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
+    if (!d) return true; // (no driver: let go)
+    // 0x345228: a pad car's driver onto line 7 (its fallback), one on the pit lane's lines onto the main line; the kind cleared.
+    if (d->control == 0) {
+        if (!request_line(*d, 7, false)) return false;
+    } else if (d->kind >= 2 && d->kind <= 4) {
+        if (!request_line(*d, CourseLines::kMain, false)) return false;
+    }
+    d->kind = 0;
+    return true;
 }
 
 int Field::control(size_t car) const { return car < drivers_.size() && drivers_[car] ? drivers_[car]->control : -1; }
@@ -1613,6 +1573,7 @@ void Field::hold(std::span<race::CarInput> inputs) {
     for (auto& dp : drivers_) {
         if (!dp || dp->car >= inputs.size()) continue;
         Driver& d = *dp;
+        if (d.control == 0 && d.kind == 0) continue; // (a pad's car: its own input, the engine answering its throttle)
         const ex::Car& c = session_->record(d.car);
         // 0x463CD8: a blip between 3/4 and 15/16 of the shift speed.
         const int up = c.p.d.up_rpm, rpm = c.rpm;
@@ -1622,6 +1583,7 @@ void Field::hold(std::span<race::CarInput> inputs) {
         d.applied_throttle = std::clamp(d.applied_throttle + (d.blip ? 4.0f : -4.0f) * kStep, 0.0f, 1.0f);
         race::CarInput in;
         in.throttle = d.applied_throttle;
+        in.computer = d.control != 0, in.control = u8(d.control == 1 ? 1 : 2);
         inputs[d.car] = in;
     }
 }
@@ -1715,12 +1677,8 @@ void Field::end_step() {
     clock_ = std::min<u32>(clock_ + 50, 0x405F7DFD);
 }
 
-void Field::decide_car(size_t car, race::CarInput& in) {
-    if (car >= drivers_.size() || !drivers_[car]) return;
-    Driver& d = *drivers_[car];
-    incidents_after(d);
-    decide(d);
-    // The outputs into the controls (0x464F38): the throttle pedal slews to the wanted throttle by the step in the arcs.
+// The throttle pedal the driver's wanted throttle makes (0x464F38): slewed by the step in the arcs.
+F Field::pedal(const Driver& d) const {
     const ex::Car& c = session_->record(d.car);
     F thr = d.throttle;
     if (tables_.tuning.smooth_throttle == 0 && (d.mode == 1 || d.mode == 2)) {
@@ -1733,6 +1691,17 @@ void Field::decide_car(size_t car, race::CarInput& in) {
             thr = n < thr ? thr : n;
         }
     }
+    return thr;
+}
+
+void Field::decide_car(size_t car, race::CarInput& in) {
+    if (car >= drivers_.size() || !drivers_[car]) return;
+    Driver& d = *drivers_[car];
+    incidents_after(d);
+    decide(d);
+    // The outputs into the controls (0x464F38): the throttle pedal slews to the wanted throttle by the step in the arcs.
+    const ex::Car& c = session_->record(d.car);
+    const F thr = pedal(d);
     d.applied_throttle = thr.host();
     // 0x469E58: the suggested gear's speed.
     {
@@ -1756,9 +1725,70 @@ void Field::decide_car(size_t car, race::CarInput& in) {
     in.throttle = d.applied_throttle;
     in.brake = d.brake.host();
     in.reverse = d.reverse;
-    in.computer = true;
+    // (a player's car its driver drives in its rolling start keeps its control source, 0: F +0x467 tells the input)
+    in.computer = d.control != 0 || c.driver_kind != 1;
     in.control = u8(d.control == 1 ? 1 : 2); // (F +0x466: the B-spec car 1)
     in.shift_lock = u8(d.shift_lock);
+}
+
+// 0x463CD8: the engine held through the start's hold, `count` steps of it left: 13 and more the throttle up and down at 5 and
+// 10 a second less the car's rank's shares between 3/4 and 15/16 of the up-shift speed; then held by the speed.
+void Field::blip(Driver& d, u32 count) {
+    const ex::Car& c = session_->record(d.car);
+    const F rank = int_f(c.rank);
+    const int up = s32(session_->extra(d.car).drive.d.up_rpm), rpm = s32(c.rpm);
+    if (count >= 13) {
+        if (d.blip == 0) {
+            if (rpm < ((3 * up) >> 2)) d.blip = 1;
+        } else if (!(rpm < (15 * up) / 16)) d.blip = 0;
+        if (d.blip != 0) {
+            d.throttle = d.throttle + c.dt * (F::raw(0x40A00000) - rank * F::raw(0x3E4CCCCC));
+            if (kOne < d.throttle) d.throttle = kOne;
+        } else {
+            d.throttle = d.throttle - c.dt * (F::raw(0x41200000) - rank * F::raw(0x3ECCCCCC));
+            if (d.throttle < F()) d.throttle = F();
+        }
+        return;
+    }
+    const F q = int_f(rpm - up) / int_f(s32(session_->extra(d.car).drive.e.rev_limit));
+    d.throttle = (F::raw(0x3F200000) - rank * F::raw(0x3B03126E)) - (q + q);
+    if (kOne < d.throttle) d.throttle = kOne;
+    else if (d.throttle < F()) d.throttle = F();
+}
+
+void Field::step(Session& session, std::span<race::CarInput> inputs, int keep, u32 count) {
+    begin_step();
+    // (the band is run at a step's end, for the next: the race's first step runs at the cars' own step length)
+    if (first_step_ && session.time() == 0) std::fill(scale_.begin(), scale_.end(), kOne);
+    first_step_ = false;
+    apply_time_scales(session);
+    auto plans_only = [&](const Driver& d) { return (d.control == 0 && d.kind == 0) || int(d.car) == keep; };
+    for (auto& dp : drivers_)
+        if (dp && dp->car < inputs.size() && !plans_only(*dp)) {
+            race::CarInput& in = inputs[dp->car];
+            in.computer = dp->control != 0 || session_->record(dp->car).driver_kind != 1;
+            in.control = u8(dp->control == 1 ? 1 : 2);
+        }
+    auto decide_one = [&](size_t car, race::CarInput& in) {
+        if (car >= drivers_.size() || !drivers_[car]) return;
+        Driver& d = *drivers_[car];
+        if (plans_only(d)) {
+            race::CarInput unused;
+            decide_car(car, unused);
+        } else {
+            const race::PadRecord* pad = in.pad; // (a player's car in its rolling start: its controller's frame is read all the same)
+            decide_car(car, in);
+            in.pad = pad;
+            if (d.control != 0 && session_->record(car).race_hold != 0) { // (0x3F3400)
+                blip(d, count + session.start_counter(car));
+                in.throttle = pedal(d).host(), in.brake = 0, in.steer_angle = 0;
+            }
+        }
+        session.set_line_heading(car, line_heading_at(car), line_mode_at(car));
+    };
+    if (count > 0) return session.hold_once(inputs, decide_one); // (no step of the race's clock)
+    session.step_once(inputs, decide_one);
+    end_step();
 }
 
 void Field::drive(std::span<race::CarInput> inputs) {

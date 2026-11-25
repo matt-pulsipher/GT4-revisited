@@ -1307,8 +1307,9 @@ pad records, the driving line's heading the program's active steering read and, 
 record of them each step, car 0's place equals the program's in every bit over the whole run (`FloatDemoOptions::ours`) on
 all 84 runs (cars other than car 0, in the twelve training tests, loaded from the program's records every step; left to run free, the pace
 car's path and so car 0's part from the program's from step 730 to 1,360 on; the test `floats_demonstrations_end_on_their_recorded_times`
-plays seven). That holds only for the state the program's set-up leaves: our own set-up of a
-license race is the race screen's. Two session settings a license race needs, found here:
+plays seven). ✔ Our own set-up of a license race (race/race_start.*, race/demonstration_run.*) run alone, with no state of
+the program's, ends 66 of the 70 recorded runs on their times (63 and the three cone coffee breaks, whose cones it has), the
+other four where the program's runs end (race_flow.md). Two session settings a license race needs, found here:
 `Session::set_class_grip` (the license conductor keeps the event's drive-class grip bytes, CFG +0x18 .. +0x1B) and
 `set_course_kind` (dirt and snow by the COURSE row's kind, K +0xCBDD: the bump tables' surface 5 takes row 15 on snow), and
 a player's car in its rolling start (driver kind not 0) takes its driver's aid block and grip (0x3F79A0, 0x467470). A license

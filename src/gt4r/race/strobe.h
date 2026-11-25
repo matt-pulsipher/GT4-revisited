@@ -149,6 +149,8 @@ public:
     void restart();
     // The root timeline plays on from where it stopped (a page the program starts).
     void play();
+    // The root timeline at a frame (from 0), stopped there, its scripts run (the program's 0x4751D0).
+    void go_to(int frame);
     // Time passes: a movie frame for every 1/fps seconds.
     void advance(float seconds);
     // A key (Flash's codes: 0x25 left, 0x26 up, 0x27 right, 0x28 down, 0x20 accept, 0x1B cancel).

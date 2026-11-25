@@ -1,5 +1,7 @@
 #include "gt4r/race/gadget_bodies.h"
 
+#include "sim/exact/car_record.h"
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -375,6 +377,15 @@ unsigned GadgetBodies::step(const Gadgets& g, const course::Runway& road, std::s
         }
     }
     return hits;
+}
+
+GadgetBodies::Car gadget_box(const gt3r::sim::exact::Car& r, const CarState& c) {
+    GadgetBodies::Car b;
+    b.right = c.right, b.up = c.up, b.forward = c.forward, b.vel = c.velocity;
+    b.pos = {r.pos.x.host(), r.pos.z.host(), -r.pos.y.host()};
+    b.yaw_rate = r.yaw_rate.host();
+    b.front = r.p.body_front.host(), b.rear = r.p.body_rear.host(), b.half_width = r.p.body_width.host() / 2;
+    return b;
 }
 
 } // namespace gt4r::race

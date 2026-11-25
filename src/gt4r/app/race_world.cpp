@@ -1,4 +1,8 @@
 #include "gt4r/app/race_world.h"
+
+#include "gt4r/race/aspec_points.h"
+
+#include "gt4r/sim/showroom.h"
 #include "gt4r/sim/car_spec.h"
 
 #include "base/log.h"
@@ -204,6 +208,9 @@ void RaceWorld::build_simulation() {
     sim_ = nullptr;
     field_.reset();
     session_.reset(), rail_.reset();
+    starts_.assign(setup_.entries.size(), {});
+    if (!start_course_) start_course_ = std::make_unique<race::StartCourse>(course_->road(), course_->section(course::kSlotRunway), race::course_start(*app_.db(), setup_.course).way);
+    start_course_->set_race(setup_.conductor, setup_.event_row, setup_.section);
     if (!setup_.rail && app_.disc()) {
         try {
             const sim::Program program = sim::Program::load(*app_.disc());
@@ -217,14 +224,18 @@ void RaceWorld::build_simulation() {
                 entries[i].condition = we.condition;
                 entries[i].grid_place = we.grid_place;
                 entries[i].automatic = we.automatic;
-                entries[i].asm_on = we.asm_on, entries[i].tcs_on = we.tcs_on;
-                entries[i].start_speed = we.start_speed;
-                entries[i].start_distance = we.start_distance;
-                entries[i].place = we.place;
-                // An event's race counts fuel (0x35E108 sets the rule block's +0x4C to 80); a run without laps (practice, a
-                // free run) runs on the free-run conductor, whose rule block holds 0 there (the original's Practice state).
-                entries[i].fuel = setup_.event_row.size() > 0x43 && setup_.event_row[0x43] != 0;
+                entries[i].asm_on = we.asm_on, entries[i].tcs_on = we.tcs_on, entries[i].wheel_aid = we.wheel_aid;
+                entries[i].driver = we.driver;
+                entries[i].control = i > 0 ? 2 : computer_player_ ? 1 : 0;
+                // An event's race counts fuel (0x35E108 sets the rule block's +0x4C to 80; vf26 0x34CA20 clears it on a course
+                // whose row's +0x14 is 0, a loose course and in a run alone, 0x3F7058 a training's and a mission's); a run
+                // without laps (practice, a free run) runs on the free-run conductor, whose rule block holds 0 there (the
+                // original's Practice state).
+                entries[i].fuel = setup_.event_row.size() > 0x43 && setup_.event_row[0x43] != 0 && setup_.conductor == race::Conductor::Other &&
+                                  !setup_.pace.solo && race::course_start(*app_.db(), setup_.course).fuel;
             }
+            counts_fuel_ = !entries.empty() && entries[0].fuel;
+            plan_starts(program, entries);
             // The player's car's power as built (the replay's card).
             try {
                 sim::Spec spec;
@@ -233,8 +244,12 @@ void RaceWorld::build_simulation() {
             } catch (const std::exception&) {
                 player_ps_ = 0;
             }
+            sim::Session::Options options;
+            if (setup_.own_hold) options.hold_steps = 0;
+            options.rules = race::event_rule_block(setup_.event_row);
+            if (!setup_.event_row.empty()) options.rules[0x40] = u8(entries.size() - 1); // (the cars on the grid less one: 5 of six, 1 of two in the original's states)
             session_ = std::make_unique<sim::Session>(*app_.db(), program, std::make_shared<const course::Runway>(course_->road()), entries,
-                                                      sim::course_row(*app_.db(), setup_.course));
+                                                      sim::course_row(*app_.db(), setup_.course), &options);
             if (!noted_)
                 for (const std::string& note : session_->notes()) LOG_INFO("Drive: %s", note.c_str());
             sim_ = session_.get();
@@ -263,23 +278,12 @@ void RaceWorld::build_simulation() {
                     // B-spec: the player's car's driver takes his commands.
                     if (computer_player_) {
                         field_->set_bspec(0);
-                        // The driver's record of the book for the car's class (0x468710) and its skill from it (0x468C50).
-                        const int k = sim::ai::bspec_class(gt3r::ee::F(session_->rating(0)));
-                        // (the skill weighs the record's course marks where the race's course flag is set: cond + 0xCBE7, the
-                        // start code's second digit, 0x34C7E0; without marks they are 0)
-                        const bool course_flag = race::start_code_digit(race::course_start(*app_.db(), setup_.course).code, 1) > 0;
-                        const std::array<u8, 0x40> rec =
-                            menu::bspec::race_record(setup_.bspec_book, k, setup_.bspec_course_known ? setup_.bspec_course_marks.data() : nullptr);
-                        field_->set_bspec_record(0, rec, k);
-                        if (const std::optional<sim::ai::BSpecSkill> sk = sim::ai::bspec_skill(sim::ai::BSpecTables::load(program),
-                                                                                                 sim::ai::BSpecRecord::from_bytes(rec.data()),
-                                                                                                 gt3r::ee::F(session_->rating(0)), course_flag))
-                            field_->set_bspec_skill(0, sk->corner, sk->brake, sk->alongside);
-                        bspec_driven_ = true;
+                        arm_bspec(program);
                     } else field_->set_shadow(0);
                     for (size_t c = 0; c < commands_.size(); ++c) field_->command(c, {commands_[c].pace - 1, commands_[c].overtake ? 1 : 0});
-                    for (size_t car : computer)
-                        if (car > 0 || computer_player_) session_->set_driver_aids(car, field_->params(car).aids, field_->params(car).grip); // (their aids)
+                    // (their aids: the player's too, which a car its driver drives in its rolling start takes)
+                    for (size_t car : computer) session_->set_driver_aids(car, field_->params(car).aids, field_->params(car).grip);
+                    first_lines(program);
                     field_->apply_start_delays(*session_); // (a mission's held places)
                     // Their pit stops (the program's pit pass, request and stop, the fuel, wear and tires the session's).
                     sim::ai::PitHooks pit_hooks;
@@ -294,6 +298,8 @@ void RaceWorld::build_simulation() {
                     }
                     sim::ai::PitRace pr;
                     pr.laps = setup_.laps;
+                    pit_asked_.assign(setup_.entries.size(), 0);
+                    tires_fitted_ = pit_hooks.tires;
                     pits_ = std::make_unique<sim::ai::PitStops>(*field_, program, setup_.entries.size(), pit_hooks, pr);
                 } catch (const std::exception& e) {
                     if (!noted_) LOG_WARN("Drive: no computer drivers (%s); the simple driver drives", e.what());
@@ -319,6 +325,46 @@ void RaceWorld::build_simulation() {
     }
 }
 
+// The cars' starts by the race's rule, into the session's entries.
+void RaceWorld::plan_starts(const sim::Program& program, std::vector<sim::Entry>& entries) {
+    const course::Runway& road = course_->road();
+    const race::StartRace& r = start_course_->race();
+    // The driving lines, when a car may start on one (the drivers' own need the session).
+    bool on_line = start_course_->may_need_lines(entries.size());
+    for (size_t i = 0; i < entries.size(); ++i) on_line = on_line || (i < overrides_.size() && overrides_[i] ? *overrides_[i] : setup_.entries[i]).start_speed > 0;
+    if (on_line && !start_course_->has_lines() && !road.gtrw && app_.disc())
+        if (const std::optional<course::AiData> data = sim::ai::Field::read(*app_.disc(), setup_.course)) start_course_->add_lines(*data, sim::ai::Tables::load(program));
+    starts_.clear();
+    for (size_t i = 0; i < entries.size(); ++i) {
+        const WorldEntry& we = i < overrides_.size() && overrides_[i] ? *overrides_[i] : setup_.entries[i];
+        std::optional<race::CarStart> rolling;
+        if (we.start_speed > 0 && !std::isnan(we.start_distance)) { // a single race's rolling start (0x347618)
+            rolling.emplace();
+            rolling->kind = we.start_kind ? we.start_kind : we.start_distance < 0 ? 2 : 1;
+            rolling->distance = int(we.start_distance), rolling->speed = int(std::lround(we.start_speed * 3.6f));
+        }
+        starts_.push_back(race::plan_start(r, i, we.grid_place >= 0 ? we.grid_place : int(i), rolling));
+        const race::PlannedStart& p = starts_.back();
+        entries[i].line_start = p.line, entries[i].place = p.place;
+        entries[i].start_speed = p.line ? 0.0f : we.start_speed;
+        if (rolling && !p.line) entries[i].start_distance = we.start_distance; // (no driving line: the road's middle)
+    }
+}
+
+int RaceWorld::start_crossings(size_t car) const {
+    return car < starts_.size() ? race::planned_crossings(start_course_->race(), starts_[car], sim_->cars()[car].course_v) : 0;
+}
+
+// The line each car's driver starts on, and the cars their drivers hold in a rolling start.
+void RaceWorld::first_lines(const sim::Program& program) {
+    if (!program.known() || !field_ || course_->road().gtrw) return;
+    for (size_t i = 0; i < starts_.size(); ++i) {
+        const WorldEntry& we = i < overrides_.size() && overrides_[i] ? *overrides_[i] : setup_.entries[i];
+        field_->start_line(i, race::first_line(start_course_->race(), starts_[i], i == 0 && !computer_player_, we.grid_place >= 0 ? we.grid_place : int(i), program));
+        if (session_->cars()[i].rolling) field_->hold_rolling(i);
+    }
+}
+
 void RaceWorld::set_entry_overrides(std::vector<std::optional<WorldEntry>> overrides) {
     overrides_ = std::move(overrides);
     restart();
@@ -331,19 +377,13 @@ void RaceWorld::restart() {
     clear_effects();
 }
 
-void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool player_by_computer) {
+void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool player_by_computer, u32 hold_left) {
     // The computer drivers write their own cars' inputs (the player's too while they drive it).
     std::vector<race::CarInput> driven;
     if (field_) {
         driven.assign(inputs.begin(), inputs.end());
         driven.resize(car_visuals_.size());
-        hold ? field_->hold(driven) : field_->drive(driven);
-        if (!hold && session_) field_->apply_time_scales(*session_); // the rubber band's step lengths
-        // The pad cars' active steering aims along their driver's line (0x348850 → 0x4649F0, after their decision).
-        if (!hold && session_)
-            for (size_t i = 0; i < driven.size(); ++i) session_->set_line_heading(i, field_->line_heading_at(i), field_->line_mode_at(i));
-        if (computer_player_ && !player_by_computer && !inputs.empty()) driven[0] = inputs[0];
-        if (!hold && pits_) pits_->before(*field_, driven); // (a car standing in its box held)
+        if (!hold && pits_) pits_->before(*field_, driven); // (a stop's timing, 0x35C0B8: the car standing in its box held)
         // B-spec: the driver's shift speeds into the gearbox (0x3F1E30, control source 1).
         if (computer_player_ && session_) session_->set_shift_factor(0, field_->shift_factor(0));
         inputs = driven;
@@ -370,7 +410,9 @@ void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool pla
         }
         inputs = capped;
     }
-    if (hold && session_) session_->hold_once(inputs);
+    if (field_ && session_) // (each driver deciding within the step; the player's own input kept once he drives)
+        field_->step(*session_, driven, computer_player_ && !player_by_computer ? 0 : -1, hold ? std::max(1u, hold_left) : 0);
+    else if (hold && session_) session_->hold_once(inputs);
     else if (hold) {
         // The stand-in has no hold: the cars stand on their brakes.
         std::vector<race::CarInput> held(inputs.begin(), inputs.end());
@@ -391,12 +433,8 @@ void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool pla
             const race::CarState& c = now[i];
             race::GadgetBodies::Car b;
             b.right = c.right, b.up = c.up, b.forward = c.forward, b.vel = c.velocity;
-            if (session_) {
-                const auto& r = session_->record(i);
-                b.pos = {r.pos.x.host(), r.pos.z.host(), -r.pos.y.host()};
-                b.yaw_rate = r.yaw_rate.host();
-                b.front = r.p.body_front.host(), b.rear = r.p.body_rear.host(), b.half_width = r.p.body_width.host() / 2;
-            } else {
+            if (session_) b = race::gadget_box(session_->record(i), c);
+            else {
                 const race::CarSpec& spec = car_visuals_[i]->spec();
                 b.pos = {(c.wheels[0].center.x + c.wheels[1].center.x + c.wheels[2].center.x + c.wheels[3].center.x) / 4,
                          (c.wheels[0].center.y + c.wheels[1].center.y + c.wheels[2].center.y + c.wheels[3].center.y) / 4,
@@ -431,6 +469,40 @@ float RaceWorld::car_top_speed(size_t i) const {
     return session_ && i < car_visuals_.size() ? session_->record(i).p.top_speed.host() : 0.0f;
 }
 
+void RaceWorld::arm_bspec(const sim::Program& program) {
+    // The driver's record of the book for the car's class (0x468710) and its skill from it (0x468C50).
+    const int k = sim::ai::bspec_class(gt3r::ee::F(session_->rating(0)));
+    // (the skill weighs the record's course marks where the race's course flag is set: cond + 0xCBE7, the
+    // start code's second digit, 0x34C7E0; without marks they are 0)
+    const bool course_flag = race::start_code_digit(race::course_start(*app_.db(), setup_.course).code, 1) > 0;
+    const std::array<u8, 0x40> rec = menu::bspec::race_record(setup_.bspec_book, k, setup_.bspec_course_known ? setup_.bspec_course_marks.data() : nullptr);
+    field_->set_bspec_record(0, rec, k);
+    if (const std::optional<sim::ai::BSpecSkill> sk =
+            sim::ai::bspec_skill(sim::ai::BSpecTables::load(program), sim::ai::BSpecRecord::from_bytes(rec.data()), gt3r::ee::F(session_->rating(0)), course_flag))
+        field_->set_bspec_skill(0, sk->corner, sk->brake, sk->alongside);
+    bspec_driven_ = true;
+}
+
+int RaceWorld::aspec_points(bool mission) const {
+    if (!session_) return 0;
+    std::vector<gt3r::ee::F> ratings;
+    for (size_t i = 0; i < car_visuals_.size(); ++i) ratings.push_back(gt3r::ee::F(session_->rating(i)));
+    // (0x445E20: the DRIVETRAIN row's +0x10, 2 four wheel drive; 0x447550: the COURSE row's +0x10)
+    bool loose = race::course_start(*app_.db(), setup_.course).kind == 2;
+    if (const db::PartId train = session_->equipment(0).part(sim::Equipment::Drivetrain); loose && train != db::kNoPart)
+        if (const db::Table* t = app_.db()->table("DRIVETRAIN"))
+            if (const ByteSpan r = t->row(db::part_row_id(train)); r.size() > 0x10) loose = r[0x10] != 2;
+    return race::aspec_points(ratings, 0, mission, loose);
+}
+
+void RaceWorld::set_driving_mode(bool bspec) {
+    if (!field_ || !session_ || !program_ || computer_player_ == bspec) return;
+    computer_player_ = bspec;
+    if (bspec && !bspec_driven_) arm_bspec(*program_);
+    field_->set_control(0, bspec ? 1 : 0);
+    session_->set_shift_factor(0, field_->shift_factor(0));
+}
+
 std::optional<std::array<u8, 0x40>> RaceWorld::bspec_record(size_t car) const {
     if (!field_ || car != 0 || !bspec_driven_) return std::nullopt;
     return field_->bspec_record(car);
@@ -443,6 +515,90 @@ int RaceWorld::suggested_gear(size_t i) const {
     if (!field_ || !session_ || i >= car_visuals_.size()) return -1;
     const sim::ai::Field::Suggestion sg = field_->suggestion(i);
     return sg.on ? session_->gear_for_speed(i, sg.speed) : -1;
+}
+
+std::optional<RaceWorld::PitOffer> RaceWorld::pit_offer(size_t car) {
+    if (!pits_ || car >= pit_asked_.size()) return std::nullopt;
+    const sim::ai::PitCar& c = pits_->car(car);
+    const bool asked = (c.service & 0x10) != 0, was = std::exchange(pit_asked_[car], asked) != 0;
+    if (!asked || was) return std::nullopt;
+    return PitOffer{(c.service & 4) != 0, (c.service & 8) != 0, field_ && field_->control(car) == 1};
+}
+
+bool RaceWorld::pit_offer_over(size_t car) const {
+    if (!pits_ || car >= pit_asked_.size()) return true;
+    const sim::ai::PitCar& c = pits_->car(car);
+    return !(c.flags & 0x10) || c.x64C == 1;
+}
+
+void RaceWorld::pit_wait(size_t car) {
+    if (!pits_ || car >= pit_asked_.size()) return;
+    sim::ai::PitCar& c = pits_->car(car);
+    c.x64C = c.x64C <= 0 ? -1 : 0;
+}
+
+int RaceWorld::fitted_tire(size_t car, int axle) const {
+    if (!tires_fitted_ || car >= pit_asked_.size()) return -1;
+    const std::pair<int, int> t = tires_fitted_(car);
+    return axle == 0 ? t.first : t.second;
+}
+
+std::vector<int> RaceWorld::pit_tire_kinds(size_t car, int axle) const {
+    constexpr u32 kClassOf = 0x6A69E0; // (0x441300: a kind's class, by its branch)
+    constexpr int kKinds = 13;
+    const int own = fitted_tire(car, axle);
+    if (own < 0 || own >= kKinds || !program_) return {};
+    std::vector<int> out;
+    for (int k = 0; k < kKinds; ++k)
+        if (program_->w(kClassOf + u32(k) * 4) == program_->w(kClassOf + u32(own) * 4)) out.push_back(k);
+    return out;
+}
+
+std::array<int, 3> RaceWorld::signs(size_t i) const {
+    std::array<int, 3> out{};
+    if (!session_ || i >= car_visuals_.size()) return out;
+    const sim::rules::AidExtra& a = session_->gt4_record(i).aids;
+    const int aid = std::max(a.ascc_status, a.tcs_status);
+    out[0] = aid == 2 ? 3 : aid == 1 ? 1 : 0;
+    const auto& c = session_->record(i);
+    out[1] = c.handbrake.host() > 0.25f ? 2 : 0;
+    if (program_ && !oil_from_) oil_from_ = sim::condition_limits(*program_).oil_from.host();
+    out[2] = oil_from_ && c.oil.host() >= *oil_from_ ? 2 : 0;
+    return out;
+}
+
+int RaceWorld::pit_stage(size_t car) const {
+    if (!pits_ || !field_ || car >= pit_asked_.size()) return 0;
+    const sim::ai::PitCar& c = pits_->car(car);
+    const int kind = field_->kind(car);
+    if (kind == 0 || !(c.flags & 0x10)) return 0;
+    if (kind == 2) return 1;
+    if (kind == 4) return 5;
+    if (kind != 3) return 0;
+    if (c.hold == 0) return c.service ? 1 : 5;
+    return c.hold == 0x2D1 ? 1 : c.hold >= 0x285 ? 2 : c.hold >= 0x3C ? 3 : 4;
+}
+
+void RaceWorld::pit_command(size_t car) {
+    if (!pits_ || car >= pit_asked_.size()) return;
+    sim::ai::PitCar& c = pits_->car(car);
+    if (!(c.flags & 8)) c.flags |= 8, c.x5C1 = 0;
+    else {
+        c.flags = u8(c.flags & ~8);
+        if (c.flags & 4) c.x5C1 = 1;
+    }
+}
+
+bool RaceWorld::refuel_begun(size_t car) {
+    if (!pits_ || car >= pit_asked_.size() || !(pits_->car(car).service & 0x20)) return false;
+    pits_->car(car).service ^= 0x20;
+    return true;
+}
+
+bool RaceWorld::refuelling(size_t car) const {
+    if (!pits_ || car >= pit_asked_.size()) return false;
+    const sim::ai::PitCar& c = pits_->car(car);
+    return (c.service & 0x100) && u32(c.hold - 0x5A) < 0x22C;
 }
 
 float RaceWorld::fuel_share(size_t i) const {
@@ -683,16 +839,34 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
     ++m.frame;
 }
 
+// A car's length and height, metres (its CHASSIS row's +0x08 / +0x0A, mm: 0x445D90 / 0x445DC0).
+std::array<u32, 4> RaceWorld::paint_chip(size_t i) const {
+    if (i >= setup_.entries.size() || !app_.db()) return {};
+    return race::paint_chip(*app_.db(), setup_.entries[i].label, setup_.entries[i].paint);
+}
+
+std::pair<float, float> RaceWorld::car_size(size_t i) const {
+    if (session_ && i < setup_.entries.size()) {
+        const db::Table* t = app_.db()->table("CHASSIS");
+        const db::PartId part = session_->equipment(i).part(sim::Equipment::Chassis);
+        if (t && part != db::kNoPart)
+            if (const ByteSpan r = t->row(db::part_row_id(part)); r.size() >= 0x0C && rd16(r, 0x08) > 0 && rd16(r, 0x0A) > 0)
+                return {float(rd16(r, 0x08)) / 1000, float(rd16(r, 0x0A)) / 1000};
+    }
+    return {4.4f, 1.35f};
+}
+
 // The icons: one picture over the whole page, an orthographic camera looking down -z, each car
-// turned side-on (its front to the left, a little toward the camera) and tilted to be seen from
-// slightly above, at its icon's place. ❓ The program renders them once per car with its own camera
-// (CarIconMaker, 0x393B70: a 128 x 64 and a 64 x 32 picture); the angles and the size are judged
-// from the original's results page.
+// side-on, its front to the left, at its icon's place, as the program's small icon stands
+// (CarIconMaker 0x393D20 with its 64 x 32 picture: turned 90 degrees, the middle of its height in the
+// picture's, scaled to 0.85 of the picture's width or height, whichever fills first). ❓ Its picture is
+// drawn once, with its own light (0x394A10's four rows at 0x621470) and an edge darkened (eight
+// faint copies): here in the course's light.
 void RaceWorld::draw_icons(Ui& ui, const SDL_FRect& canvas, std::span<const Icon> icons) {
     Impl& m = *impl_;
     if (icons.empty() || !app_.gpu()) return;
     if (!m.icon_view) m.icon_view = std::make_unique<render::View3D>(*app_.gpu());
-    constexpr float kDegree = kPi / 180;
+    constexpr float kIconWidth = 64, kIconHeight = 32, kFill = 0.85f;
     constexpr float kMetre = 0.085f; // metres a page unit: a car of 4.4 m about 52 units long
     std::vector<render::DrawItem> items;
     float opacity = 0;
@@ -700,9 +874,28 @@ void RaceWorld::draw_icons(Ui& ui, const SDL_FRect& canvas, std::span<const Icon
         if (ic.car >= car_visuals_.size() || ic.opacity <= 0) continue;
         const race::CarVisual& v = *car_visuals_[ic.car];
         const race::CarSpec& spec = v.spec();
-        const render::Mat4 model = render::translate({ic.x * kMetre, -ic.y * kMetre, -20}) *
-                                   render::rotate_x(10 * kDegree) * render::rotate_y(100 * kDegree) *
-                                   render::translate({0, -(spec.ride_height[0] + spec.tire_radius[0]) / 2, 0});
+        const auto [length, height] = car_size(ic.car);
+        const float units = length / height < kIconWidth / kIconHeight ? kIconHeight / height : kIconWidth / length; // (page units a metre)
+        float k = units * kFill * kMetre;
+        const render::Mat4 at = render::translate({ic.x * kMetre, -ic.y * kMetre, -20});
+        render::Mat4 turn = render::rotate_y(kPi / 2);
+        if (ic.large) {
+            // Kind 0 (0x394100): 30 units a metre (the lens's 18 degrees taken as none), turned as far as the car fills the picture's
+            // width, 158 degrees at most, and 2 degrees down.
+            k = 30 * kMetre;
+            const float half = 128.0f / 30 / 2, L = length / 2, W = (2 * spec.half_track[0] + 0.25f) / 2, d2 = L * L + W * W;
+            float yaw = 158;
+            if (d2 > half * half) {
+                const float root = std::sqrt(d2 - half * half) * L;
+                float c = (W * half + root) / d2;
+                if (c > 1 || c < -1) c = (W * half - root) / d2;
+                yaw = std::min(158.0f, (180 - std::acos(std::clamp(c, -1.0f, 1.0f)) * 180 / kPi) * 1.05f);
+            }
+            turn = render::rotate_x(2 * kPi / 180) * render::rotate_y(yaw * kPi / 180);
+        }
+        const render::Mat4 model = at * turn * render::translate({0, -height / 2, 0});
+        const render::Mat4 scaled = at * render::scale({k, k, k}) * render::translate({-ic.x * kMetre, ic.y * kMetre, 20});
+        const size_t first = items.size();
         auto apply = [&](const RVec& p, float w) {
             return RVec{model.at(0, 0) * p.x + model.at(0, 1) * p.y + model.at(0, 2) * p.z + model.at(0, 3) * w,
                         model.at(1, 0) * p.x + model.at(1, 1) * p.y + model.at(1, 2) * p.z + model.at(1, 3) * w,
@@ -721,6 +914,7 @@ void RaceWorld::draw_icons(Ui& ui, const SDL_FRect& canvas, std::span<const Icon
             st.wheels[w].center = cv(apply({x, spec.tire_radius[axle], z}, 1));
         }
         v.add_items(items, st, RVec{st.position.x, st.position.y, st.position.z + 100});
+        for (size_t j = first; j < items.size(); ++j) items[j].transform = scaled * items[j].transform; // (the car's own metres to the icon's)
         opacity = std::max(opacity, ic.opacity);
     }
     if (items.empty()) return;

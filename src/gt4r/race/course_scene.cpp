@@ -15,7 +15,7 @@ namespace gt4r::race {
 namespace scene = gt3r::scene;
 
 std::unique_ptr<render::GpuModel> CourseScene::build(render::GpuContext& ctx, int slot, const std::string& label, bool keep,
-                                                     bool sheen, scene::Model* out, bool animated) {
+                                                     bool sheen, scene::Model* out, AnimatedSet* animated) {
     const ByteSpan s = file_.section(data_, slot);
     const bool gtm1 = gt3r::has_magic(s, "GTM1"); // (Prologue's courses in Gran Turismo 3's table)
     if (!mdls::is_mdls(s) && !gtm1) return nullptr;
@@ -25,7 +25,7 @@ std::unique_ptr<render::GpuModel> CourseScene::build(render::GpuContext& ctx, in
     mdls::Scene sc;
     sc.color_scale = color_scale_;
     const Bytes block = gtm1 ? Bytes(s.begin(), s.end()) : mdls::to_gtm1(s, nullptr, sc);
-    animated = animated && !gtm1;
+    if (gtm1) animated = nullptr;
     const gt3r::gtm1::Gtm1 g = gt3r::gtm1::Gtm1::parse(block);
     gt3r::gtm1::Options o;
     o.reflection = sheen;
@@ -40,23 +40,23 @@ std::unique_ptr<render::GpuModel> CourseScene::build(render::GpuContext& ctx, in
         // The set's animated models are drawn apart, posed each frame; a set whose scripts do not
         // read stays whole and still.
         try {
-            animated_ = AnimatedModels(s, color_scale_, o);
+            animated->models = AnimatedModels(s, color_scale_, o);
         } catch (const std::exception& e) {
             LOG_WARN("Course %s: its animated models stay still (%s)", label.c_str(), e.what());
-            animated_ = {};
+            animated->models = {};
         }
-        const std::vector<u32> moving = animated_.models();
+        const std::vector<u32> moving = animated->models.models();
         std::erase_if(m.meshes, [&](const scene::Mesh& mesh) { return mesh.node >= 0 && std::binary_search(moving.begin(), moving.end(), u32(mesh.node)); });
-        if (!animated_.empty()) {
-            scene::Model holder = animated_.textures();
+        if (!animated->models.empty()) {
+            scene::Model holder = animated->models.textures();
             holder.name = label + "/animated";
-            animated_textures_ = std::make_unique<render::GpuModel>(ctx, holder);
-            animated_gpu_ = std::make_unique<render::GpuModel>(ctx, *animated_textures_);
-            animated_gpu_->keep_geometry();
+            animated->textures = std::make_unique<render::GpuModel>(ctx, holder);
+            animated->gpu = std::make_unique<render::GpuModel>(ctx, *animated->textures);
+            animated->gpu->keep_geometry();
         }
     }
-    if (m.meshes.empty()) return nullptr;
-    auto gpu = std::make_unique<render::GpuModel>(ctx, m, keep);
+    std::unique_ptr<render::GpuModel> gpu;
+    if (!m.meshes.empty()) gpu = std::make_unique<render::GpuModel>(ctx, m, keep);
     if (out) *out = std::move(m);
     return gpu;
 }
@@ -69,7 +69,7 @@ CourseScene::CourseScene(render::GpuContext& ctx, ByteSpan course_file, const st
     if (std::optional<course::Runway> road = course::course_road(file_, data_)) road_ = std::move(*road); // (RNW4, or Prologue's GTRW)
 
     scene::Model scenery;
-    scenery_ = build(ctx, course::kSlotWorld, name + "/scenery", true, true, &scenery, true);
+    scenery_ = build(ctx, course::kSlotWorld, name + "/scenery", true, true, &scenery, &animated_);
     if (!scenery_) throw FormatError("The course has no scenery.");
     stats_.models = scenery.meshes.size();
     stats_.textures = scenery.textures.size();
@@ -101,8 +101,8 @@ CourseScene::CourseScene(render::GpuContext& ctx, ByteSpan course_file, const st
     occluder_.build();
 
     scene::Model sky;
-    sky_ = build(ctx, course::kSlotSky, name + "/sky", false, false, &sky);
-    if (sky_) {
+    sky_ = build(ctx, course::kSlotSky, name + "/sky", false, false, &sky, &animated_sky_);
+    if (sky_ || animated_sky_.gpu) {
         auto mean_rows = [&](float out[3], bool lower) {
             double acc[3] = {}, n = 0;
             for (const scene::Texture& t : sky.textures)
@@ -199,10 +199,11 @@ CourseScene::~CourseScene() = default;
 
 ByteSpan CourseScene::section(int slot) const { return file_.section(data_, slot); }
 
-void CourseScene::restart_animations() { animated_.restart(); }
-void CourseScene::animate(float seconds, std::span<const CarState> cars) { animated_.tick(seconds, cars); }
+void CourseScene::restart_animations() { animated_.models.restart(), animated_sky_.models.restart(); }
+void CourseScene::animate(float seconds, std::span<const CarState> cars) { animated_.models.tick(seconds, cars), animated_sky_.models.tick(seconds, cars); }
 void CourseScene::upload_animations(std::span<const CarState> cars) {
-    if (animated_gpu_) animated_gpu_->update_geometry(animated_.meshes(cars));
+    if (animated_.gpu) animated_.gpu->update_geometry(animated_.models.meshes(cars));
+    if (animated_sky_.gpu) animated_sky_.gpu->update_geometry(animated_sky_.models.meshes(cars));
 }
 
 void CourseScene::add_items(std::vector<render::DrawItem>& items, const render::Vec3& eye, View view,
@@ -211,12 +212,15 @@ void CourseScene::add_items(std::vector<render::DrawItem>& items, const render::
     const bool mirror = view == View::Mirror;
     // The sky is drawn round the camera with the view's translation taken off.
     const render::GpuModel* sky = mirror && mirror_sky_ ? mirror_sky_.get() : sky_.get();
-    if (sky) {
+    const render::GpuModel* planes = !(mirror && mirror_sky_) && animated_sky_.gpu && animated_sky_.gpu->valid() ? animated_sky_.gpu.get() : nullptr;
+    for (const render::GpuModel* model : {sky, planes}) {
+        if (!model) continue;
         // With its own depth (the dome's flat top lies behind its upper ring and must not cover
         // it), cleared after it; no fog.
-        render::DrawItem it{sky, render::translate(eye), 0};
+        render::DrawItem it{model, render::translate(eye), 0};
         it.in_order = true;
-        it.depth_reset = true;
+        it.in_order_join = model == planes && sky;
+        it.depth_reset = model == planes || !planes;
         it.no_fog = true;
         it.draw_distance = 0;
         it.lights = lights;
@@ -247,8 +251,8 @@ void CourseScene::add_items(std::vector<render::DrawItem>& items, const render::
         it.guard_band = true;
         items.push_back(it);
         // The animated models with the scenery they were taken from.
-        if (animated_gpu_ && animated_gpu_->valid()) {
-            it.model = animated_gpu_.get();
+        if (animated_.gpu && animated_.gpu->valid()) {
+            it.model = animated_.gpu.get();
             it.in_order_join = true;
             items.push_back(it);
         }

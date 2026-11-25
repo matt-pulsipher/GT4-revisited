@@ -10,6 +10,7 @@
 //   gt4tool race <disc> motion <course> [replay]   the start's camera clips: eye, look, up and lens at their ends
 //   gt4tool race <disc> strobe-tree <path> [seconds]  a race movie's instances after it plays that long
 //   gt4tool race <disc> license-rules [prefix]     the events' test rules (RACE row bytes the race keeps), a line an event
+//   gt4tool race <disc> demos [prefix] [every]     the license tests' demonstrations played by our own race against their times
 //   gt4tool race <disc> driver <model | path>      a car's cockpit places and driver set (or a character file's set)
 
 #include "gt4r/disc/disc.h"
@@ -21,6 +22,9 @@
 #include "gt4r/formats/model/model_script.h"
 #include "gt4r/formats/db/race_events.h"
 #include "gt4r/formats/db/specdb.h"
+#include "gt4r/formats/replay/demonstration.h"
+#include "gt4r/save/codec.h"
+#include "gt4r/race/demonstration_run.h"
 #include "gt4r/race/license_rules.h"
 #include "gt4r/race/start_camera.h"
 #include "gt4r/race/start_rule.h"
@@ -67,7 +71,7 @@ int race_replay_script(Disc& disc, const Args& a) {
     std::printf("lap %.1f, end %.1f, %u variants, %zu shots\n", double(s.lap_length), double(s.end), s.variants, s.records.size());
     auto first = [](const race::ReplayCurve& c) { return c.empty() ? 0.0 : double(c.keys[0][1]); };
     for (const race::ReplayRecord& r : s.records)
-        std::printf("%8.1f %8.1f  kind %04x%s  eye (%.2f %.2f %.2f) look (%.2f %.2f %.2f) lens %.1f roll %.1f .. %.1f\n", double(r.start), double(r.end), r.kind,
+        std::printf("%8.1f %8.1f  kind %04x%s  eye (%.2f %.2f %.2f) look (%.2f %.2f %.2f) lens %.4f roll %.1f .. %.1f\n", double(r.start), double(r.end), r.kind,
                     r.car_frame() ? " car" : "    ", first(r.eye[0]), first(r.eye[1]), first(r.eye[2]), first(r.look[0]), first(r.look[1]), first(r.look[2]),
                     first(r.lens), r.roll.empty() ? 0.0 : double(r.roll.at(0)), r.roll.empty() ? 0.0 : double(r.roll.at(1)));
     return 0;
@@ -264,16 +268,122 @@ int race_license_rules(Disc& disc, const Args& a) {
     db::SpecDb sdb(read, [vol](const std::string& dir) { return vol->list_dir(dir); }, "american");
     const db::RaceEvents ev(sdb, read);
     const std::string prefix = a.size() > 1 ? a[1] : "";
-    std::printf("%-16s %-22s kind opp x41 secs x4a cones wall car  laps sect\n", "event", "course");
+    std::printf("%-16s %-22s kind opp x41 secs x4a cones wall car  laps sect  start m  km/h  (places 1 .. 5: m, km/h)\n", "event", "course");
     for (const std::string& label : ev.labels()) {
         if (label.rfind(prefix, 0) != 0) continue;
         const std::optional<db::RaceEvent> e = ev.event(label);
         if (!e) continue;
         const race::LicenseRules r = race::LicenseRules::from_row(e->bytes);
         if (prefix.empty() && !r.any()) continue;
-        std::printf("%-16s %-22s %4d %3d %3d %4d %3d %5d %4d %4d %4d %4d\n", label.c_str(), e->course.c_str(), r.kind, r.opponents, r.x41, r.time_limit,
+        std::printf("%-16s %-22s %4d %3d %3d %4d %3d %5d %4d %4d %4d %4d", label.c_str(), e->course.c_str(), r.kind, r.opponents, r.x41, r.time_limit,
                     r.x4a, r.pylons, r.wall_limit, r.car_limit, e->laps, r.section);
+        const race::RowStart rs = race::RowStart::from_row(e->bytes);
+        std::printf("  %7d  %4d ", rs.distance[0], rs.speed[0]);
+        for (size_t k = 1; k < 6; ++k) std::printf(" %d,%d", rs.distance[k], rs.speed[k]);
+        std::printf("\n");
     }
+    return 0;
+}
+
+// The license tests' demonstrations played by our own race (no picture), against their recorded times.
+// The disc's recorded races (replay/<name>/<name>): class, event, course, entries and controls.
+int race_replays(gt4r::Disc& disc, const std::vector<std::string>& a) {
+    const sim::Program program = sim::Program::load(disc);
+    for (const std::string& dir : disc.volume().list_dir("replay")) {
+        const std::string name = dir.substr(0, dir.find('/'));
+        if (a.size() > 1 && name.find(a[1]) == std::string::npos) continue;
+        const gt3r::Volume::Entry* e = disc.volume().find("replay/" + name + "/" + name);
+        if (!e) continue;
+        std::string error;
+        Bytes file = disc.volume().read(*e);
+        if (std::optional<Bytes> plain = save::unscramble(file, 0, save::FileKind::Replay)) file = std::move(*plain);
+        const std::optional<replay::Demonstration> d = replay::Demonstration::parse(file, program, &error);
+        if (!d) {
+            for (size_t k = 0; k < 0x60 && k < file.size(); ++k) std::printf("%02x%s", file[k], k % 16 == 15 ? "\n" : " ");
+            std::printf("%s: %s\n", name.c_str(), error.c_str());
+            continue;
+        }
+        std::printf("%s: %s mode %u event %llx course %llx time %d / %d, %zu entries, controls %u, %zu streams:", name.c_str(), d->race_class.c_str(), d->race_mode,
+                    (unsigned long long)d->code_b0, (unsigned long long)d->code_b8, d->time_ms, d->time2_ms, d->entries.size(), d->controls_flag, d->streams.size());
+        for (const auto& st : d->streams) std::printf(" %zu", st.frames.size());
+        if (a.size() > 3 && !d->streams.empty()) {
+            std::printf("\n");
+            replay::PadRecord last;
+            int shown = 0;
+            for (size_t k = 0; k < d->streams[0].frames.size() && shown < std::atoi(a[3].c_str()); ++k)
+                if (const replay::PadRecord& f = d->streams[0].frames[k]; k == 0 || !(f == last)) {
+                    std::printf("  %zu:", k);
+                    for (u8 b : f.bytes) std::printf(" %02x", b);
+                    std::printf("\n");
+                    last = f, ++shown;
+                }
+        }
+        if (a.size() > 2) {
+            const Bytes body = file;
+            const u32 hdr = u32(file[0]) | u32(file[1]) << 8, len = u32(file[4]) | u32(file[5]) << 8 | u32(file[6]) << 16;
+            const u32 key = u32(file[0xC]) | u32(file[0xD]) << 8 | u32(file[0xE]) << 16 | u32(file[0xF]) << 24;
+            if (const std::optional<Bytes> plain = replay::decipher_body(ByteSpan(file.data() + hdr, len), key, program)) {
+                std::printf("\n");
+                for (size_t k = 0xC0; k < 0x960; k += 4) {
+                    u32 v;
+                    std::memcpy(&v, plain->data() + k, 4);
+                    if (v) std::printf(" [%zx] %x", k, v);
+                }
+            }
+        }
+        std::printf("\n   info");
+        for (size_t k = 0; k < 0x60; k += 4) {
+            u32 v;
+            std::memcpy(&v, d->information.data() + k, 4);
+            std::printf(" %x", v);
+        }
+        std::printf("\n");
+        for (const auto& en : d->entries)
+            std::printf("   place %d kind %d pedals %d aids %d %d %d %d x198 %x var %llx\n", en.grid_place, en.driver_kind, en.pedal_style, en.aids[0], en.aids[1], en.aids[2], en.aids[3], en.x198,
+                        (unsigned long long)en.equipment.part(sim::Equipment::Variation));
+    }
+    return 0;
+}
+
+int race_demos(Disc& disc, const Args& a) {
+    gt3r::Volume* vol = &disc.volume();
+    auto read = [vol](const std::string& path) -> std::optional<Bytes> {
+        const gt3r::Volume::Entry* e = vol->find(path);
+        return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
+    };
+    db::SpecDb sdb(read, [vol](const std::string& dir) { return vol->list_dir(dir); }, "american");
+    const db::RaceEvents ev(sdb, read);
+    const std::string prefix = a.size() > 1 ? a[1] : "us";
+    const int trace = a.size() > 2 ? std::atoi(a[2].c_str()) : 0;
+    int ran = 0, exact = 0, timed = 0;
+    for (const std::string& label : vol->list_dir("replay/license")) {
+        if (label.rfind(prefix, 0) != 0 || !ev.event(label)) continue;
+        race::DemonstrationOptions o;
+        if (trace > 0)
+            o.on_step = [&](size_t step, const sim::Session& s) {
+                if (step % size_t(trace)) return;
+                const race::CarState& c = s.cars()[0];
+                std::printf("  %5zu  %7.2f km/h  at %.3f %.3f %.3f  dist %.2f%s\n", step, double(c.speed) * 3.6, double(s.record(0).pos.x.host()), double(s.record(0).pos.y.host()),
+                            double(s.record(0).pos.z.host()), double(c.course_v), c.rolling ? "  rolling" : "");
+                if (s.cars().size() > 1)
+                    std::printf("         car 1 %7.2f km/h  dist %.2f  thr %.3f brk %.2f steer %.5f place %d scale %.4f\n", double(s.cars()[1].speed) * 3.6, double(s.cars()[1].course_v), double(s.record(1).throttle_pedal.host()),
+                                double(s.record(1).brake_pedal.host()), double(s.record(1).steer_cmd.host()), int(s.record(1).rank), double(s.record(1).time_scale.host()));
+            };
+        const race::DemonstrationRun r = race::run_demonstration(disc, sdb, label, o);
+        if (!r.ran) {
+            std::printf("%-12s error: %s\n", label.c_str(), r.error.c_str());
+            continue;
+        }
+        ++ran, exact += r.exact(), timed += r.recorded_ms > 0;
+        char got[48];
+        if (r.ended_ms >= 0) std::snprintf(got, sizeof got, "%d ms", r.ended_ms);
+        else if (r.fail) std::snprintf(got, sizeof got, "FAIL %d", r.fail);
+        else std::snprintf(got, sizeof got, "no end");
+        std::printf("%-12s kind %d %-24s recorded %7d  ours %-10s step %5zu  %s%s\n", label.c_str(), r.kind, r.course.c_str(), r.recorded_ms, got, r.steps - 1,
+                    r.exact() ? "EXACT" : r.ended_ms >= 0 ? (std::to_string(r.ended_ms - r.recorded_ms) + " ms").c_str() : "", r.error.empty() ? "" : ("  " + r.error).c_str());
+        std::fflush(stdout);
+    }
+    std::printf("demos: %d ran, %d with a recorded time, %d end on it\n", ran, timed, exact);
     return 0;
 }
 
@@ -430,6 +540,8 @@ int cmd_race(Disc& disc, const Args& a) {
     if (a[0] == "script") return race_script(disc, a);
     if (a[0] == "license-rules") return race_license_rules(disc, a);
     if (a[0] == "starts") return race_starts(disc, a);
+    if (a[0] == "demos") return race_demos(disc, a);
+    if (a[0] == "replays") return race_replays(disc, a);
     if (a[0] == "motion" && a.size() > 1) return race_motion(disc, a);
     if (a[0] == "strobe-tree" && a.size() > 1) return race_strobe_tree(disc, a);
     std::fprintf(stderr, "race: unknown request %s\n", a[0].c_str());

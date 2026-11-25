@@ -7,6 +7,7 @@
 #include "gt4r/formats/db/specdb.h"
 #include "gt4r/race/rail_simulation.h"
 
+#include <array>
 #include <string>
 #include <vector>
 
@@ -27,6 +28,8 @@ CarSpec read_car_spec(db::SpecDb& db, const std::string& car_label);
 
 // The Pat0 paint of each of a car's paint rows, in the rows' order (VARIATION +0x04, less 1).
 std::vector<u32> car_paints(db::SpecDb& db, const std::string& car_label);
+// A paint's chip words (its row's +0x24 .. +0x33, 0x445B28): its colors and their flags, as the menus' color chips take them.
+std::array<u32, 4> paint_chip(db::SpecDb& db, const std::string& car_label, u32 paint);
 
 // The stand-in simulation's car of those sizes.
 RailCar rail_car(const CarSpec& spec);

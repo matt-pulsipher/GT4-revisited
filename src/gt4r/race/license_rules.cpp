@@ -1,5 +1,8 @@
 #include "gt4r/race/license_rules.h"
 
+#include "base/ee_float.h"
+#include "base/ee_math.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -24,6 +27,32 @@ bool hit_over(int limit, float value) {
     if (limit == 0) return true;
     if (limit == 0xFF) return false;
     return int(std::trunc(value)) >= limit;
+}
+
+LicenseStep license_step(const CarState& c, const std::function<bool(u8)>& soft, int course_kind, float mass, int cones) {
+    LicenseStep s;
+    s.wheels = 4;
+    for (const WheelState& w : c.wheels) {
+        if (!w.on_ground) continue;
+        if (soft(w.material)) ++s.wheels_off;
+        if (w.surface & 1) ++s.wheels_pit;
+    }
+    s.off_counts = course_kind != 2 && course_kind != 3;
+    if (c.contact > 0 && c.contact_kind == 1) s.wall_hit = mass > 0 ? c.contact * 100000.0f / mass : 1e9f;
+    else if (c.contact > 0 && c.contact_kind == 2) s.car_hit = c.contact;
+    s.cones = cones;
+    return s;
+}
+
+std::optional<float> stopped_in_box(const CarState& c) {
+    using gt3r::ee::F;
+    for (const WheelState& w : c.wheels)
+        if ((w.surface & 4) == 0) return std::nullopt;
+    // (the record's x, y, z: the course's x, -z, y)
+    const F x(c.velocity.x), y(c.velocity.z), z(c.velocity.y), limit = F::raw(0x3E8E38E3);
+    const F v = gt3r::ee::sqrt((x * x + y * y) + z * z);
+    if (limit < v) return std::nullopt;
+    return (v / limit).host();
 }
 
 LicenseFail LicenseJudge::step(const LicenseStep& s) {

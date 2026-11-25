@@ -6,7 +6,10 @@
 // docs/formats/race_flow.md "The license tests' rules".
 
 #include "gt4r/base/types.h"
+#include "gt4r/race/simulation.h"
 
+#include <functional>
+#include <optional>
 #include <span>
 
 namespace gt4r::race {
@@ -53,6 +56,11 @@ struct LicenseStep {
     int cones = 0;
 };
 
+// A step from the car's state: the wheels by the road under them (`soft`: the program's table 0x622430), the collision step's
+// contact (a wall's impulse |j| over the car's mass P +0x48, a car's strength), the cones met; `course_kind` the COURSE row's
+// +0x10 (2 and 3: off-course does not count).
+LicenseStep license_step(const CarState& c, const std::function<bool(u8)>& soft, int course_kind, float mass, int cones);
+
 // The judge's state for the player's car (F +0x4B3, the cone counter K +0x1003C, the time-limit counter
 // K +0x1003E).
 class LicenseJudge {
@@ -82,6 +90,11 @@ private:
     int frames_ = 0;
     LicenseFail fail_ = LicenseFail::None;
 };
+
+// 0x3F91F0: the car stopped in the stopping box: every wheel on a triangle flagged bit 2 and the speed no more than
+// 0.2778 m/s (1 km/h), in the program's arithmetic; the step's share at which it counts (the speed over 0.2778), none while
+// it is not.
+std::optional<float> stopped_in_box(const CarState& c);
 
 // 0x35FC10: a hit of `value` against a limit byte: 0 any hit fails, 255 none, else value (truncated) at or over it.
 bool hit_over(int limit, float value);

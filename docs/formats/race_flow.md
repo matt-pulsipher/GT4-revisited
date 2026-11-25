@@ -85,11 +85,11 @@ clock flag whichever car it is: **the clock starts when the first car takes the 
 timed from the clock's start (F +0x614 is left at 0; the lap virtual 21 sets it from the second crossing on).
 **The opening shots**: the camera manager's state (0x3FD620, from its routines 0x374E90, 0x3751F0, 0x3754F0,
 0x376AF0) is 4, the course's TV shots, while its car's pace answers 1, so the shots end when the followed car
-is 3 s at the start's speed short of the line. ✔ Against the original's Tsukuba start (the field at 50 mph,
+is 3 s at the start's speed short of the line; a car already past the line (a section's start) has no shots. ✔ Mission 21's end
+between 3.68 and 4.18 s in the original's picture, 3.85 s here; mission 1 has none. ✔ Against the original's Tsukuba start (the field at 50 mph,
 the clock starting during the last shot, the player's view about 1.5 s later, the line 4.2 s after the clock's
 start at 56 mph): here (the Ford Ka '01, 6 cars) the view at 1.62 s, the line at 4.47 s and 55 mph.
-(`RaceFlow`'s clock starts at the step after the first crossing: ❓ the order of the clock's step and the
-crossings within a step is not read.) **The held starts** (missions): K +0xCBFC + 4 i, car i's start count,
+**The held starts** (missions): K +0xCBFC + 4 i, car i's start count,
 is set by vf28 to 60 x the event's seconds for the place (CFG +0x60 + 2 i, K +0xF878; 0 in a rolling start);
 the conductor's step (0x34DB30) holds every car while the start's count runs (0x34C210: F +0x4BC = 1, the
 start's hold), then counts each car's down a step at a time, the car held (F +0x4BC = 1) until it reaches 0,
@@ -178,24 +178,50 @@ the cars ahead by 50 % from 10 to 50 m); the other tests kind 2, Super License a
 the coffee breaks kind 1 or 3 with 100 or 50 cones; the missions kind 2 or 3 with 1 to 5 other cars and
 CFG +0x4A 5. Every test: wall limit 8 (B-1/2/6/7: 0), car limit 40. Races: kind 0.
 
-**The start of a test on a road section** (B-3: CFG +0x21 = 2, vf26 0x34CA20): a plain grid start (start kind 0,
-so the driving-line rule 0x34C5E0 for kinds 1 .. 5 does not apply): the car stands on the place 0x3952C0 reads for
-the section, from the road's section record (+0x9C + 0x20 x section, +0x18) instead of the road's grid (+0x5C):
-Deep Forest's section 2 gives (-8.891, 7.280, -256.900) heading -1.563 rad in the course frame, and the car then
-stands at 3505.52 m along the course (checked against the program's own set-up run in the interpreter, `floats`).
-Its goal is the section's, reached at 0x34C470 when it lies 1 m .. the lap less 1 m along. Here `RoadSection::grid`,
-`WorldEntry::place` and `sim::Entry::place` (`screen_race.cpp` `set_license_rules`); the stand-in of earlier rounds
-(the section's start on the road's middle) was wrong. The count at +0x0A is the number of 16-byte places between the
-record's pointers +0x18 and +0x1C on all 95 sections of the disc that have places; on 77 of them the place is within 60 m of the
-section's start (by the nearest checkpoint), on 18 it is not (a run-up, or a section whose start reads 0). ❓ The mark F +0x65B (from the start's flag): with 1 the lap step waits
-for the car to pass the section's start (0x3589DC .. 0x358ADC) and then calls the conductor's virtual +0xB0 with the
-moment, the mark 2: where such a test's clock starts is not settled here.
+**Where a test's cars start** (the conductors' virtual 30, 0x3F6278: the license's, the pace car tests' (RaceTraining)
+and the missions'; code `race/start_rule.*` `RowStart`, `car_start`, `race/race_start.*`). Two numbers per car, a distance
+(virtual 35, s16 metres) and a speed (virtual 36, km/h), kept in CFG from the event's row (0x35E108): place 0 CFG +0x54 ←
+row i32 +0x14 and CFG +0x4E ← row +0x42; places 1 .. 5 CFG +0x56 + 2 k ← row s16 +0x2E + 2 k (0x4477D0) and CFG +0x4F + k ←
+row +0x80 + k (0x447778). The license's conductor reads place 0's for every car (0x3F6070 / 0x3F6080); the pace car tests'
+and the missions' the car's own, a speed of 0 being place 0's (0x3F7090 / 0x3F70A8). Then:
+- a distance below 0 with a speed: start kind 2; any other distance but 0: kind 1; none: the grid (kind 0);
+- the distance counts from the section's start when the race runs on a road section (CFG +0x21) whose start lies 1 m .. the
+  lap less 1 m along (0x34C3E0, truncated), else from the line; the course's own start code (a rolling start) is not read;
+- the set-up (0x363B10) takes whole laps off it and puts the car on the course's driving line there (0x34C5E0: no more than
+  the lap less 20 m before the line; on a course without a lap, COURSE +0x12 = 1, no further than 20 m short of the last
+  split point), facing the line's place 10 m on, on the road's height (0x46ADE8, `sim::ai::CourseLines::start_place`), at its
+  speed (0x363868); without the line it stands on the grid. A car of kind 2 is driven by its driver (F +0x467 = 1, 0x3452F0)
+  until its start is counted. On the grid it stands on the section's own place (0x3952C0 reads the section record's +0x18
+  when the course object has a section; the count is +0x0A: `RoadSection::grid`), else the road's;
+- **the mark F +0x65B**: on a section, for a place past the line: 1 for kind 2 or a place before the section's start, 2 past
+  it; 0 for a car on the grid or without a section;
+- **the crossings F +0x4AC**: on a driving line 0 before the line, one more than the laps taken off past it; on the grid by
+  the sector (below).
+On the US disc 40 section tests and 9 Super License laps start moving (8.3 to 55.6 m/s), IB-12 stands on the driving line
+(kind 1 without a speed), the rest stand on the grid. A race with a speed for car 0 has no start's hold (virtual 10, 0x3F6090).
+
+**Where a test's clock starts.** The clock runs from the first step after the hold (the step whose count, the race
+information's +0xBC, the frame takes to 0 before it: 8 s hold 479 steps). When a car with the mark 1 passes the section's
+start, the lap step (0x358608) calls virtual 22; the license's (0x3F6760) clears the mark and calls its virtual 20
+(0x3F64D0), as the line's first crossing does on a whole lap: with CFG +0x4E set it keeps the moment (ms) in F +0x614, lets
+the car go from its rolling start (0x345228) and, for car 0, sends event 4 (the start signal); the mark is 2 after. A
+mission's (0x3F6E50) puts F +0x614 back to 0. The run's time is the moment of its end less F +0x614; the display shows none
+before (0x357830: no crossing yet, or the mark 1); a mission and a race show the race's clock less the base all the time (0x357800).
+
+**The lap step** (0x358608; `RaceFlow::cross`): with the last step's distance p and this one's d (F +0x4A4), lap length L:
+- p <= d, and p + L / 2 < d: backwards over the line, F +0x4B0 counted up. Else, with no such count, a crossing counted and
+  the run not over: the section's start (above), and the goal (0x34C470: 1 m .. the lap less 1 m along) passed calls virtual
+  23: the license's ends a test of kind 2 (0x3F67E8 → 0x3F8AB0).
+- p > d, and d + L / 2 < p: forwards over the line: F +0x4B0 counted down if it is not 0, and that is all; else the crossings
+  go up: the first calls virtual 20, the others virtual 21 (the license's, 0x3F6588, ends kinds 3 and 6 when the laps are done).
+- A moment is the clock (50 a step) at the step's start + trunc(the share of the step x 50), over 3 in ms; the clock steps after
+  (virtual 15), so a rolling start's clock takes its first step in the step the line is taken.
 
 **The judge** (`DynamicsConductorLicense::vf15` → 0x3F8D70, each step for the player's car while its run
 has not ended, F +0x4B2 clear) reads the rule bits F +0x4B3 and fails the test with kind 3 for bit 2, 5 for
 bit 4, 4 for bit 1 (0x3F8980: event 10, the run's time none). Then by the test's kind: 1, the stop in the
-box (0x3F91F0: all four wheels on triangles flagged bit 2 and the squared speed under 0.2778, timed that
-share of a step into it, → 0x3F8AB0); 6, the car's place byte (car +0x5B3, 1 the leader) at 1 fails with
+box (0x3F91F0: all four wheels on triangles flagged bit 2 and the speed at most 0.2778 m/s, 1 km/h, timed the
+speed's share of that of a step into it, → 0x3F8AB0); 6, the car's place byte (car +0x5B3, 1 the leader) at 1 fails with
 kind 6 ❓ (read, not seen: a lap behind the pace car that may not be passed); when the test counts cones
 (CFG +0x46 > 0) and the count K +0x1003C reaches it, the run ends timed (0x3F8AB0); with a time limit the
 count K +0x1003E runs a frame a step while the car's byte F +0x4AF is 1 and starts again otherwise
@@ -217,11 +243,22 @@ reaching 0 end the run timed. Kinds 3 and 6 end at the lap's line when the laps 
   |j| / 15000) x 100 against CFG +0x48 when 0x35FBC8(other) is under 3; kind 2 (a cone or board, 0x3E3C48)
   fails when the test counts no cones, else counts one (0x35DF28, up to the count). A limit (0x35FC10):
   0 any hit, 255 none, else the truncated value at or over it. A hit sets F +0x4B3 bit 1.
+- **A mission** (DynamicsConductorMission over the training's conductor): its virtuals 46 and 47 answer 0 (wheels off the
+  course and on the pit lane count nothing) and its 50 is a race's (0x35FCC8: a hit past the row's limits gives the penalty's
+  seconds, CFG +0x4A), so nothing but its end stops it; the judge's other ends are the test's. ✔ Mission 1's wall hit goes on
+  under "5 sec. penalty" as `21-gtmode-deep`.
+- **Lap and section times with other cars** (0x3F6588, 0x3F63A0: CFG +0x40, the cars less one, not 0 and the kind not 6): not kept
+  and not shown; the lap still counts.
+- **The places** (0x365BC0, the comparison 0x3659E8): more crossings first; two finished cars by the moment (F +0x614), two
+  running ones by the distance; of one finished and one running on equal crossings the running one, but the finished one in a
+  test of kind 2 (the goal) or on a course without a lap (K +0xCBDE = 1).
 - **The cones' reports** (0x3E3C48, each step per gadget, skipped once the body's +0x45 is set): each car's
   five planes (0x621D28, 0x50 bytes a car) against the body's middle with its kind's radius, then its hull
   points; a hull point inside all five is a contact: the impulse (0x3E3ED0) added to the body's +0x54, the
   body woken (0x3E29C8), kind 2 reported to the car (other 9), and a kind with flags bit 0 (GDGT kind +0x02)
   sets the body's +0x45: it meets no car again.
+  The gadgets step (0x3E5040 → 0x3E2B28) after the conductor's whole step (RacePS2Base::vf74: RaceBase::vf74, whose vf75 runs
+  0x34DB30 with the license's judge in it, then 0x3E5040), so a cone met in a step is judged in the next.
 
 Here the hits come from the simulation's contact (`CarState::contact`: a wall's |j| / 100000, a car's |j| /
 15000) and the cone bodies' contacts per car (`GadgetBodies::contacts`, with the kind's flag latch); the
@@ -232,6 +269,19 @@ the box's far end (`lic3`), as the original's; braking into the box passes (9.84
 The other sequences (time trial, events, championships, licenses, missions, machine test, free
 run, practice) and their projects are listed in `race_natives.cpp` (`quick_project`); only the
 single race's commands are run here.
+
+## A-spec points
+
+Offered by a race (0x3C0FF8) with other cars: 250 in a mission (the race's virtual 95 is 10); else from the cars' ratings (the
+parameter blocks' +0xFE0): the others' mean + 0.03 (0.07 on a course of kind 2, COURSE +0x10, for a car whose DRIVETRAIN +0x10 is not
+2, four wheel drive) less the car's own; below 0 that x 10 + 1 and at least 0.1, else x 200 and at least 1; x 10, at most 200,
+rounded. Taken at the end (0x3C1220, the race's +0x96C, what the result pages read): the same when the car's place is 1 and the
+B-spec driver drove none of it (car +0x7B0 0), else 0. The display's two lines (RaceDisplay::vf43 0x39C570, vf44 0x39C6D0; its
+virtual 42 asks the race's kind: the single race, missions, Gran Turismo mode's events): `AspecRaceFormat1` / `AspecRaceFormat2` as the
+race begins (0x39C33C a moving start: 0.2 s in, 2 s, fades 0.1 / 0.3 s; 0x39C18C a hold: 0.5 s in, the hold less 3.5 s within
+2 .. 5 s, fades 0.5 / 1 s), `AspecPointGet` / `AspecPointFormat` at the finish (1 s in, 2.7 s); `hb_24#1` at (320, 264) and, a 130 % and
+orange, (320, 304). ✔ "250 pt. Race" at 0'00.7 of missions 1 and 21. ✔ The points of the original's two arcade races: the Ka '01 at Tsukuba
+(Beetle 1100, Z ACT, N360, Midget II D, S500) 9, at Grand Canyon (the Beetle 1100) 24, the same here.
 
 ## MQuickWork (`race_natives.*`)
 
@@ -269,6 +319,20 @@ labels, the laps, the cars (label, paint), the steps (every car's state). The Dr
 one with `GT4R_RACE="replay_file=<path>"` through the course's replay cameras. ❓ The menus'
 Replay Theater does not list these files yet.
 
+## A free run's start, and the arcade's start against the original
+
+- **A free run** (DynamicsConductorFreeRun, the arcade's time trial, the free run and Gran Turismo mode's practice): its
+  virtual 30 (0x3F5670) asks 0x34D288 first: the driver set's bytes +0x19 (x 10 m behind the line) and +0x1A (x 5 km/h), kind 3
+  (Tsukuba 640 m, 50 km/h; Nürburgring 30 km/h); without a speed the grid. vf28 clears the rolling start's pace (K +0xF886) for a run
+  alone, so the driver drives at its own pace from the first step; the car is handed over 180 steps from the set-up (F +0x590, counted
+  by vf14 through 0x3F37C0: the line's return 0x345228 and event 4, "START"). No opening shots, "FULL THROTTLE" until then. The race
+  has no number of laps (virtual 37: 0); a lap's time counts from its crossing (vf20 writes F +0x614). ✔ the order and the times of
+  the original's (`11-license-tt/arcade_time_trial_tsukuba_ka_start.mp4`).
+- ✔ **The arcade's rolling start** against saved states of the original's (`03-race`, the Ka at Tsukuba, its six cars' equipment read
+  from the state and raced with `GT4R_RACE` `entries=<file>`): 393 steps from the set-up all six cars' distances are equal to the
+  millimetre and their speeds to 0.0003 km/h; 298 steps after the clock's start the four cars behind the leader are still within 1 mm
+  and 0.0001 km/h (the leader, whose pace follows the player's place, 6 mm off: the player's pad differs).
+
 ## What runs where (the race screen)
 
 Every piece of the race as the player sees it, by whose code it runs: **GT4** (ported from the program,
@@ -282,34 +346,38 @@ engine's Gran Turismo 3 code). The player notices them roughly in this order.
 | The race clock's start in a rolling start, the opening shots' end | `race_flow.*` `clock_running`, `screen_race.cpp` `opening_tv` | GT4 (vf20 0x347928: the first car's crossing; the camera state 0x3FD620 by the pace 0x3F7880) | |
 | The held starts (missions' places with a start delay) | `sim/ai/drivers.cpp` `Field::drive` | the seconds GT4 (CFG +0x60, the count K +0xCBFC, 0x34DB30); the hold **judged** (the brake on, the engine blipped) | the start's hold F +0x4BC per car (`sim-step`) |
 | A standing start's hold, count, START | `race_flow.*`; the hold in `sim::Session` (`hold_once`: the countdown's flag a step at a time, the race information's +0xBC, 0x34C210 / the car's start hold) | GT4 (0x3C0208, 0x39D390, 0x39E9B0); the hold's length for a license test (8 s) from its demonstration, for other races 10 s ❓ | the race information's start type byte +0x40 (its writer) |
-| The opening shots (start motion, replay start) | `start_camera.*` | GT4 (CameraPathanim 0x37D338, 0x37D620) | |
-| The replay cameras (TV shots), their choice by distance | `replay_script.*` | GT4 (0x37C138, 0x3FD980 → 0x3DDFF0); the dissolve's drawing judged | |
+| The opening shots (start motion, replay start) | `start_camera.*` | GT4 (CameraPathanim 0x37D338, 0x37D620); none in a free run (its pace 0x3F7880 is 0) | |
+| The replay cameras (TV shots), their choice by distance, their lens | `replay_script.*`, `drive_camera.h` `shown_angle` | GT4 (0x37C138, 0x3FD980 → 0x3DDFF0); ✔ the lens and the picture against 47 of the original's replay states (camera.md); the dissolve's drawing judged | |
 | The scenic shots behind the menus | `replay_script.*` `ScenicCamera` | GT4 (mode 5, 0x375980) | |
-| The driving views | `drive_camera.*` | the car's camera places (CAR4); the on-board lens as the original shows it (61.2 degrees: its K and its chase pictures, camera.md); their springs ❓ | how the program's 90 degrees becomes it (the screen's scale) |
+| The driving views | `drive_camera.*` | the car's camera places (CAR4); the on-board lens as the original shows it (61.2 degrees: its K and its chase pictures, camera.md), the roof view's by its mount as the program's angles show (`shown_angle`); their springs ❓ | the on-board camera's own lens |
 | Laps, crossings, times, finish | `race_flow.*` | GT4 (0x358608, vf21 0x357B98); the race order's comparison judged | the order routine (❓ not found) |
-| License tests' rules | `license_rules.*`, `judge_license` | GT4 (0x3F8D70, 0x369888 → vf49, 0x35FE80); the hits' strengths from the simulation's contact (its sum per step, not the program's per hit), the mass P +0x48 | the hit records 0x350530 (`sim-step`) |
+| License tests' rules | `license_rules.*` (`stopped_in_box`, `license_step`), `judge_license` | GT4 (0x3F8D70, 0x369888 → vf49, 0x35FE80; the stop in the box at or under 1 km/h, the share of the step before it; cones judged a step after they moved); the hits' strengths from the simulation's contact (its sum per step, not the program's per hit), the mass P +0x48 | the hit records 0x350530 |
 | Cones and boards knocked about | `gadget_bodies.*` | GT4 (0x3E2B28 with 0x3E3748 / 0x3E3840, 0x3E44E8 / 0x3E4708, 0x3E3C48 / 0x3E3ED0 / 0x3E43B8, 0x3E5108, set-up 0x3E2710; course.md "Cones and boards: the bodies") in host floats; the road query and the car boxes' extents judged | the road query 0x3E5A30; the car record's box extents (+0x48C .. +0x494) |
-| The demonstrations | `screen_race.cpp` `begin_demo`, `sim/ai/demo_driver.*` | GT4 (the recordings, `ai-drivers`; a section test's start at the section's grid place); ❓ not all play out: B-3's reaches its goal at 30.772 s (the program's own run 30.794), B-4's leaves the road and fails at 28.816 s (recorded 29.752); the card's tire word is the race's, not the car's ❓ | |
+| The demonstrations | `screen_race.cpp` `begin_demo`, `sim/ai/demo_driver.*`; headless `race/demonstration_run.*` (`gt4tool race <disc> demos us`) | GT4 (the recordings on our own race: starts, hold, run-up by the driver, rules, cones). ✔ 66 of the 70 US tests with a recorded time end on it to the millisecond; the other four (B-6 34 ms early, B-10, IA-15 and IB-15 failing at steps 4317, 2985 and 1868) end where the program's own run of the same file ends (physics.md). B-8's car is not in the US database; 14 files record no time | |
+| The disc's recorded races (the Replay Theater's Demo tab) | `screen_race.cpp` `load_recorded_race`, `play_demo` | the race set up from the file (replay.md): GT4's start, cars, drivers; a pad run by its records, a B-spec run by its driver and the recorded commands. ❓ None of them comes out on its recorded times: the B-spec laps are 0.5 to 5 % off, the pad runs leave their line after 5 to 90 s (the replay ends once the car has stood 8 s) | what differs is not found: the set-up equals the original's states (below) |
+| Free runs: time trial, free run, Gran Turismo mode's practice | `screen_race.cpp` `free_run`, `apply_course_start`, `Session::count_rolling` | GT4 (DynamicsConductorFreeRun: vf30 0x3F5670 the run-up, vf14 the hand-over, vf37 no laps) | the best lap's ghost |
 | The pad's controls | `screen_race.cpp` (`gt3r::race::ControlMapper`) | **engine** (GT3's mapping) | the input phase 0x349FD0 (`sim-step`) |
 | Looking back | `gt3r::race::look_back_held` | **engine** | ❓ not read |
 | The race display: places, numbers, meters | `race_display.*`, `race_hud.*` | GT4 tables (RaceDisplay); the speedometer's face by the car's top speed estimate (P +0xFD8); how some parts move their pictures judged | the meters' drawing routines |
 | The driver's view's fuel arc and pedal bars | `race_hud.cpp` `draw_bars` | GT4 (0x3A8968: places, steps, colours); the fuel gauge's flag +0x1B judged (always) | |
 | The suggested gear | `race_hud.cpp` `draw_suggested_gear`, `RaceWorld::suggested_gear` | GT4 (the driver's suggestion 0x469E58, `ai-drivers`; the gear 0x36BF68, the session's); its drawing judged | the display's vf5 0x3A7108 |
 | The license display's trophy times | `race_hud.cpp` | places judged | RaceLicenseDisplay::vf9 |
-| B-spec's display and commands | `race_hud.cpp`, `screen_race.cpp` | display mode 1 GT4; the meters the followed car's; the pace bar, speed plate and help strip places judged; Select Car's order ❓ | the B-spec display's routines |
+| B-spec's display and commands | `race_hud.cpp`, `screen_race.cpp` `update_panel` | display mode 1 GT4; the commands' panel the Race Monitor's movie at its second frame (0x3D92B0, `PACEPANEL` 0x3DB520), down while the car is in the pits (0x3D9998, 0x35BBD8); the help strip GT4 (RaceTooltipDisplay 0x3AE138); the speed plate's place judged; Select Car's order ❓ | the plate's place |
 | B-spec's driver record and skill | `race_world.cpp` | GT4 (the book's record 0x468710, `gt-mode-2`; the skill 0x468C50 and the experience, `ai-drivers`); the skill's course flag (cond + 0xCBE7) taken as the course's marks being known ❓ | the flag's writer |
 | The replay's card, logo, caption timings | `screen_race.cpp` `fill` | **judged** (3 s, 4.5–14 s) | their caller's times |
 | The results and pause pages | `strobe*`, `screen_race.cpp` | GT4 movies and callbacks; a passed license test's page also the trophy (0x3E18D0 / 0x3E1A80, race/license_trophy.*), drawn once a frame (no averaged passes), the program's camera for its live picture judged (the course's TV cameras), the trophy's kind by the grade judged | ResultLicense's result kind (+0x88) and its camera |
-| The tire diagram of the race display | `race_hud.cpp` `draw_tires`, `race_display.cpp` `tire_color` | GT4 (0x3A5FD8's picture, boxes, 0x3677F8 colors from the wheel's wear level +0xB1; drawn when the race wears tires) | the panel's flag (+0x18, 0x3451D8) and the other drivetrain kinds' mapping (0x359538) not read |
+| The race display's small parts | `race_hud.cpp` `draw_small_parts`, `draw_tires`, `draw_fuel` | GT4: the tire diagram (0x3A5FD8's picture, boxes, 0x3677F8 colors from the wheel's wear level +0xB1; drawn when the race wears tires), the fuel gauge (0x3A57A8; drawn when fuel is counted), the pedals (0x3A54F8, 0x3AB570), the signs (0x3A6C28, lit as 0x39E280: the aids' status, the handbrake, the oil), the gear digit (0x3A6DE0, 0x3A6D60) | the other drivetrain kinds' tire mapping (0x359538) not read |
 | Sun, glare, lamp glows, billboards, smoke, wet road, the scenery's fade | `race_world.cpp`, `course_scene.cpp` | **engine** routines on GT4's layouts (`gt3r::race::SunGlare`, `SunDisc`, `LampGlows`, `Billboards`, `CarLampGlows`, `TyreSmoke`, `WetRoad`, `SceneryFade`) | GT4's own effect routines (not read) |
 | The car icons on the map | `race_world.cpp` | angles and size judged (CarIconMaker 0x393B70) | |
 | The section times | `race/sections.*`, `screen_race.cpp` `step_splits` | the points GT4 (the road's list); the gap's partner judged | event 15 (0x359C10) and its display |
-| B-spec's Race Monitor | `screen_race.cpp` `fill_monitor`, `fill_gap_strip` | the movie GT4; the rows (names fitted with "..." 0x3DA668, the followed car lit 0x3DAF60), the gap strip GT4 (0x3DBF90: places 0x3DBE98, gaps 0x3DBDF0, their text 0x3DBEE8, the unit); the gap column judged; the map's letters drawn by us; the strip's car pictures, its pace-up marks (0x3FA508) and the pit panel not filled | 0x3D8DB8, 0x3DB7B8 (pit panel), 0x3FA508 |
-| B-spec's pit command | `RaceWorld::pit`, `sim/ai/pit_stops.*`; the box (P lit, "Pit Stop") | GT4 (`ai-drivers`' port of 0x35B060); the command box (P and words `key_pitin`) | the PIT STOP Menu (pitmenu.strb), SPEED LIMIT |
+| B-spec's Race Monitor | `screen_race.cpp` `fill_monitor`, `fill_gap_strip` | the movie GT4; the rows (names fitted with "..." 0x3DA668, the followed car lit 0x3DAF60), the gap strip GT4 (0x3DBF90: places 0x3DBE98, gaps 0x3DBDF0, their text 0x3DBEE8, the unit), its cars' pictures at the movie's `CARPOS_` externals, the rows' paint chips at `chip` (the paint's words; the place judged by 1 unit), the followed car's picture (CarIconMaker's kind 0: 30 units a metre, turned by the car's size, at most 158 degrees) without the lens's 18 degrees; the help line `RaceMonitorToolTip1`; the gap column judged; the map's letters drawn by us | the pace-up marks (0x3FA508), the tire panel, the view's speed (L1 + Left / Right), Show Map (Cross), the `sector` externals |
+| The pit stops | `RaceWorld::pit_command` / `pit_offer` / `pit_stage`, `sim/ai/pit_stops.*`; `screen_race.cpp` `update_pit_menu`, `race_hud.cpp` (the messages, the refuel bar) | GT4: the pass (0x35B060), the command (0x3F19E0: not before the first crossing nor on the last lap, taken back by a second press), the PIT STOP menu (0x3DCC50, 0x3DCFB0, 0x3DD540, 0x3DD5D8; strobe.md), the messages (RaceDisplay::vf28), the refuel bar (0x3A59D8) and its stop (0x35BFC0), the driving mode's choice (0x3F19E0 command 10). ✔ The stages, messages, panel and menu beside the original's stop (`26-endurance/fc_pitwindow_*`) | the crew and the pit's cameras (`pit/pit_001`, 0x3CFA98) |
 | The cars' levels of detail | `car_visual.cpp` `CarVisual::level` | GT4 (0x07's size and centre, the car's rule 0x4539A8, T = 200); K, the view's factor (0x456918), from the chase view's measured 721.2 by the lens's angle (judged: the lens) | the race's lens (camera.md) |
 | The far level's wheels | `car_visual.cpp` | GT4 (the body's own shapes with the wheel set's last texture set, callback 46) | |
 | The brake discs' glow | `car_visual.cpp`, `race_world.cpp` | GT4 (heat² x `Env0` +0x4C / +0x38, the sponsor's vf24 0x3D75F0; heat from the simulation); the blend as the renderer's added pass with its alpha 🔎 | |
 | Fitted wings | `car_visual.cpp`, `race_world.cpp` (the entry's WING part) | GT4 (0x4533A8's place and scale, callback 47 = 1); "spoiler taken off" (2) not reached: no part names it ❓ | |
-| Moving models | `race/animated_models.cpp` | GT4 (the models' scripts and their programs' register moves 0x44 .. 0x4B: seoul's and lasvegas's turning signs; programs with two switches of their own registers, Ice Arena's people: each pair of cases is a key; 37 more of its models move, their motion not compared with the original's) | the animated skies (two morph weights per model), which models the race draws at once |
+| Moving models | `race/animated_models.cpp` | GT4 (the models' scripts and their programs' register moves 0x44 .. 0x4B: seoul's and lasvegas's turning signs; programs with two switches of their own registers, Ice Arena's people: each pair of cases is a key; 37 more of its models move, their motion not compared with the original's; the skies' aeroplanes, not compared with the original's either) | which models the race draws at once |
 | The driver figure | `race/driver_figure.*`, `car_visual.cpp` (`GT4R_RACE` `driver=1`, off by default) | GT4 (the set: the car's own +0x34 or a character file by the cockpit kind 0x3B5438; its parts at the skeleton's nodes 0x3B1070; PELVIS at the seat, parts block +0x34, as saved states show on road cars; not checked on the open racers); the nodes the **stored pose** (judged: the posture not ported) | the posture 0x3B2708 and its solver 0x416FD8 (model.md "The driver in the car") |
-| Not built | | animated skies, cone shadows | |
+| Missions | `load_test`, `draw_grid` (the pool in its order), `judge_license`, `race_flow.*` | GT4. ✔ Mission 21 driven by the computers: 3'55.346, 3'57.123, 3'58.953, 4'00.795, 4'02.956 against the original's 3'55.340, 3'57.122, 3'58.953, 4'00.757, 4'02.952 (`31-progress6`, another player's car) | the win's page (no original) |
+| A-spec points | `race/aspec_points.*`, `RaceWorld::aspec_points`, `fill` | GT4 (0x3C0FF8, 0x3C1220, 0x39C570, 0x39C6D0) | in a standing start the original hides the rest of the display and shows the course's logo until about 5 s in: here it shows |
+| Not built | | cone shadows | |

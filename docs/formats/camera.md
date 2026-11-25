@@ -117,9 +117,13 @@ at depth 1 on screen x 10 / 7; kept at 0x8465E4) is 721.2 in a saved state of th
 chase view, and for a picture 448 lines high K = 224 / (0.75 tan(A / 2)) x 10 / 7, so
 tan(A / 2) = 0.5916; and the cars in the original's chase pictures are as wide as this lens
 draws them (the Ka in 20-race-chase, the R390 in 25-sound-cars: about 300 of 640 pixels for its
-2 m). The other states' K (121.4 a wide start shot, 1851.6 a replay shot, 3905.6 a telephoto
-opening pass) give those lenses the same way: 2 atan(426.7 / K). 🔎 How the program's 90 becomes
-this (the screen's scale) has not been read; the in-car view is taken to use the same lens.
+2 m). **What a lens shows** ✔: for every camera whose lens the disc gives (the replay shots, the scenic shots behind the menus, the
+start clips, the roof view), the original's states hold K = 293.1175 / tan(A / 2) with A the program's angle exactly (the 30, 50.7,
+65.4, 41.37, 52 ... degrees of the disc), so across a 4:3 picture's width an angle A shows 2 atan(1.4556 tan(A / 2)): 7.43 degrees
+shows 10.8 (`race::shown_angle`). All 47 replay states of the Tuning Car GP's race 1 (`30-championship/race1_replay`, r_apricot, the
+script's second lap) have the lens ours has at that distance (to 0.01 degrees where the record's lens is fixed, 2 % where it
+follows the car), and the pictures are the same size (the Dunlop bridge, the R34 under it). The chase view's 721.2 is 44.25 degrees by
+that rule; the in-car view is taken to use the same lens.
 
 ### Chase view (view 1)
 

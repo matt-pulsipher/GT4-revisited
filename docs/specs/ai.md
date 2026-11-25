@@ -436,7 +436,9 @@ copies the row into its configuration block (0x35E108, the conductor's +0xF818, 
 opponents: the event's pool (`RACES/<35, row>`: ENEMY_CARS rows, each a car, its parts and its
 settings); RaceInformation::vf15 (0x3BB5A8) draws one entry per opponent place at random from the
 race's generator (0x621AE8), the next undrawn one from there, skipping cars the race may not use
-(0x448C10 ❓ which).
+(0x448C10 ❓ which). A mission and a license's training tests (RaceTrainingInformation 0x3ECB68) draw nothing: car i takes pool
+entry min(i, the last), entry 0 the player's, -1 for a paint gives paint 0 (0x445880), and the others stand on the first places in
+that order, the player on the last (0x3ECC70). ✔ Mission 21's six Cubes as `31-progress6/state_mission21_*`.
 
 **A place's car** (0x4474B0 → 0x444440 → 0x444690 for an `ENEMY_CARS` id, table 0x26; any other id
 0x444480, the car as sold): the record cleared, the row's car at +0x00, **the `ENEMY_CARS` id itself
@@ -568,6 +570,17 @@ another race's for checks: then its own F+0x560, F+0x650, places, clock and fini
   disc has no driver files (`crs/*.ad`): its courses carry the lines and sets in slots 31 and
   37 .. 40 ([formats/prologue.md](../formats/prologue.md) "The drivers").
 
+Facts of the step our drivers keep:
+
+- **When they decide**: in the race's per-car step 0x349FD0 (after phase 4, 0x357700), inside the simulation's step, from that
+  step's slip angles (`Field::step`, `Session::Decider`). In a hold each car's hold decision is made there too.
+- **The hold** (0x463CD8): the engine blipped by the rev limit (P +0x200), the throttle pedal moved by its slew.
+- **The corner and brake spreads** are drawn only where the conductor's virtual 52 answers 1 (the single race's and free run's
+  conductors; not a license's, a training's, a mission's).
+- **The rubber band** acts from the race's second step. **Ranks** (F +0x442) are the race's places after every step.
+- **The grid's first lines** (0x620AD8 by the grid place; 1 and 2 changed by the side the grid's first place is on); a pad car on a
+  grid takes line 7, a car placed on a line the main line.
+
 ## 10. Checks
 
 `gt4tool ai <disc> <course> [cars] [laps] [rolling=<km/h>] [trace=<car>]` runs a field and prints
@@ -682,7 +695,7 @@ tires at the stop's last second, out and back on the racing line at 270 m. ✔ O
 `ai_pits_on_our_session`) the same car runs the same stop: down the lane, 721 steps held (649 standing), out again.
 ✔ **Against the original's own stop** (the reference's Family Car Cup at Tsukuba, B-spec R34, `26-endurance/fc_pitwindow_*`,
 the car's record in each state): onto the pit lane between 1,342 and 1,508 m (kind 2), the service decided at the lane's
-start as 0x1C (tires and fuel wanted, the menu asked; 0x35AF18 itself returns the wants | 1 ❓ what makes it 0x10), the
+start as 0x1C (tires and fuel wanted, the menu asked; 0x35AF18 itself returns the wants | 1, which the race's step makes 0x10 as it opens the menu, 0x35BC70), the
 stop at 58.3 m with the hold at 721 while the B-spec wait counts down (228 left 72 steps in), the choice made for it
 (0x1C0, tires 0xFE / 0xFE), the hold then counted down 70 / 300 / 302 steps between states 5 s apart, the fuel full
 (78.97 → 80.00) before the tires, kind 4 out, kind 0 at 270 m: as ours (the 300-step wait, 721 more; test

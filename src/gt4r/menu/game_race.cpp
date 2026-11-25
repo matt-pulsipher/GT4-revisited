@@ -379,10 +379,9 @@ s64 Runtime::race_finished(const RaceResult& r) {
     // The player's totals (0x10FA58, called by the event's sequence 0x113B48, the machine test's 0x115A90, the free run's
     // 0x116E20, practice's 0x1181C8, the championship's 0x118EF0 and photo drive's 0x11ABE0; not by the license tests',
     // the missions' or Arcade's; added at the sequence's end, 0x114058): the meters the B-spec driver drove (the car's
-    // +0x7B0) to the B-spec total, the rest (+0x6D4 less those) to the A-spec one, truncated. ❓ A run is taken as all one
-    // driver's: the race gives no split.
+    // +0x7B0) to the B-spec total, the rest (+0x6D4 less those) to the A-spec one, truncated.
     const bool counted = r.kind == RaceResult::Kind::Event || r.kind == RaceResult::Kind::Championship || (r.kind == RaceResult::Kind::Course && r.course_kind != 7);
-    if (counted && r.distance_m > 0) (r.bspec_record ? s.bspec_distance : s.aspec_distance) += s64(r.distance_m);
+    if (counted && r.distance_m > 0) s.bspec_distance += s64(r.bspec_distance_m), s.aspec_distance += s64(r.distance_m - r.bspec_distance_m);
     DayEvent day;
     s64 prize = 0;
     switch (r.kind) {

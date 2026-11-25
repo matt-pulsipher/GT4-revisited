@@ -66,6 +66,10 @@ struct Pace {
     // The same as the event row has them (+0x63 .. +0x6A: the overall percent (0: 100), the mode, the slowing's percent,
     // start (m) and full gap (x 10 m), the hurrying's): what the race sets the band from (0x365480). All 0: no band.
     u8 band_global = 0, band_mode = 0, slow_pct = 0, slow_start_m = 0, slow_full_10m = 0, fast_pct = 0, fast_start_m = 0, fast_full_10m = 0;
+    // The computer drivers differ by draws as they drive (the conductor's virtual 52: a single race's 0x3475B0 and the free
+    // run's 0x3F5520 answer 1, and 0x469468 sets the tuning's bytes); off (the license tests', pace car tests', missions'
+    // conductors) by their grid index (0x467148).
+    bool random_spread = true;
     bool standing_start = true; // the long look ahead off the grid of a standing start
     // Per grid place, the seconds its car is held at the start (RACE +0x91, +0x8C .. +0x90; the decision's long look
     // ahead lasts that much longer).
@@ -155,6 +159,12 @@ public:
     void hold(std::span<race::CarInput> inputs);
     // The inputs for the next step (call once per Session step, before it).
     void drive(std::span<race::CarInput> inputs);
+    // A whole step of a session with its drivers, each deciding where the program's do (Session::Decider): the step's common
+    // part, every car's time scale, the session's step with each driven car's decision after its preparation and its line's
+    // heading for the active steering, the step's end. `keep`: a car whose given input stays (its driver plans only).
+    // `count`: the steps left of the race's start hold (the race information's +0xBC in this step; 0 none): the session's held
+    // step, the computer drivers deciding through it (their throttle the engines' blips, 0x463CD8), the race's clock standing.
+    void step(Session& session, std::span<race::CarInput> inputs, int keep = -1, u32 count = 0);
     // drive() in its parts: the step's common part (the order, the rubber band, the pairs pass), then each driven car's
     // decision, then the step's end.
     void begin_step();
@@ -176,6 +186,8 @@ public:
     };
     Suggestion suggestion(size_t car) const;
     void set_bspec(size_t car);
+    // The control source changed in the race (F +0x466 by 0x3F19E0's command 10: 0 the pad, 1 the B-spec driver), its pace as it was.
+    void set_control(size_t car, int control);
     // The B-spec driver's skill (0x468C50, bspec_skill.h): its arcs', braking and alongside multipliers (D +0xB8 / +0xBC /
     // +0xC0), set at the race's start after set_bspec.
     void set_bspec_skill(size_t car, gt3r::ee::F corner, gt3r::ee::F brake, gt3r::ee::F alongside);
@@ -231,6 +243,12 @@ public:
     bool pit_stop(size_t car);
     bool pit_leave(size_t car);
     bool pit_return(size_t car);
+    // A car driven by its driver in its rolling start (0x3452F0: kind 1, off line 7), its control source kept, and let go
+    // (0x345228: a pad car's driver onto line 7, the kind cleared). release_rolling false: the line is not there, still held.
+    // The line a car's driver starts on (0x4639E0: the line's fallback, at once): before the first step.
+    void start_line(size_t car, int line);
+    bool hold_rolling(size_t car);
+    bool release_rolling(size_t car);
     // The speed limits of kind 5 (the race's configuration +0x42 for the player's car, +0x43 for the computer's; km/h, above
     // 80 none).
     void set_limits(u8 player_kmh, u8 computer_kmh) { limit_player_ = player_kmh, limit_computer_ = computer_kmh; }
@@ -335,6 +353,8 @@ private:
     void bspec_experience(Driver& d, int table, gt3r::ee::F v);
     void pd_steer(Driver& d, gt3r::ee::F dir, gt3r::ee::F rd, gt3r::ee::F r, gt3r::ee::F amax, gt3r::ee::F ky);
     void set_kind(Driver& d, int kind);
+    void blip(Driver& d, u32 count);
+    gt3r::ee::F pedal(const Driver& d) const;
     void stop(Driver& d, gt3r::ee::F steer);
     gt3r::ee::F hold_speed(const Driver& d, gt3r::ee::F target) const;
     void traffic(Driver& d);
@@ -365,6 +385,7 @@ private:
     std::vector<std::unique_ptr<Driver>> drivers_; // by car index (null: not driven)
     std::vector<int> ranks_;
     u64 steps_ = 0;
+    bool first_step_ = true;
     u32 clock_ = 0; // the race's clock as the conductor keeps it (+0xF89C): 50 a step, a third of it in milliseconds
     // Per car (every car, driven or not): the proximity pass's results (the driver object's +0x44 .. +0x6A).
     std::vector<Near> near_;

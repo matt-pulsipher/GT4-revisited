@@ -18,6 +18,7 @@
 #include "gt4r/sim/rules_step.h"
 #include "sim/exact/tick.h"
 
+#include <functional>
 #include <limits>
 #include <memory>
 #include <string>
@@ -47,6 +48,22 @@ struct Entry {
     // The car's own start place, in place of its grid place (a license test's road section has its own: 0x3952C0); a plain
     // grid start (start kind 0).
     std::optional<course::Runway::Place> place;
+    // The car's start on a driving line (the set-up's start kinds 1 and 2: race::car_start, CourseLines::start_place), in place
+    // of its grid place and of start_distance: the place and heading in the record's frame (x, y, z up), the speed (km/h,
+    // whole; 0 standing), F + 0x65B.
+    struct LineStart {
+        int kind = 1;
+        gt3r::ee::F x, y, z, heading;
+        s32 hint = -1; // the road triangle there
+        int speed = 0;
+        u8 mark = 0;
+        // Whether a moving start opens the throttle (0x463B98: the car's driver is on a straight of its line) at the car's
+        // distance along the course; none: open.
+        std::function<bool(gt3r::ee::F)> open_throttle;
+    };
+    std::optional<LineStart> line_start;
+    u8 driver = 0;     // the entry's +0x344C: 0 a pad, 1 and 2 the steering wheels (F + 0x547 2 and 3), any other a computer's
+    gt3r::s8 control = 0; // F + 0x466 at the set-up: 0 the player's pad, 1 B-spec, 2 the computer
     // The race uses fuel (its rule block's byte +0x4C): the tank filled at the start (the car's tank less the program's byte
     // 0x620E24), burnt by the engine's output, its weight in the mass. Off: no tank (the races seen).
     bool fuel = false;
@@ -62,15 +79,22 @@ std::optional<CourseRow> course_row(db::SpecDb& db, const std::string& course);
 
 class Session final : public race::Simulation {
 public:
+    // A computer driver's decision for a car, within the step (step_once).
+    using Decider = std::function<void(size_t car, race::CarInput& input)>;
     static constexpr float kStep = 1.0f / 60.0f;
     inline static bool skip_hold = false; // (gt4r_diff's comparison of the set-up: the constructor without its hold)
     static constexpr int kHoldSteps = 120; // a standing start's countdown before the session's time 0 (the constructor's)
+    // Further settings of a session.
+    struct Options {
+        int hold_steps = kHoldSteps; // the constructor's countdown (0: the caller's own hold, from the set-up's state)
+        std::array<u8, 0x80> rules{}; // the race's rule block (race::event_rule_block: the computer cars' axle grips)
+    };
 
     // `course`: the course's row; without it the kind is guessed (dirt when the first start place is on a loose surface).
     // Throws std::runtime_error for a session that cannot be set up (no entries, a course without a
     // start place on the road, a car whose parameters cannot be built).
     Session(db::SpecDb& db, const Program& program, std::shared_ptr<const course::Runway> road, std::span<const Entry> entries,
-            std::optional<CourseRow> course = {});
+            std::optional<CourseRow> course = {}, const Options* options = nullptr);
     ~Session() override;
     // A session on a disc's course ("tsukuba": the file crs/tsukuba) with cars as sold, by their labels
     // ("nsx_r_02"), in grid order. Throws std::runtime_error (no such course or car, or as the constructor).
@@ -80,11 +104,15 @@ public:
     void step(std::span<const race::CarInput> inputs, float dt) override;
     std::span<const race::CarState> cars() const override { return states_; }
 
-    // One step of 1/60 s.
-    void step_once(std::span<const race::CarInput> inputs);
+    // One step of 1/60 s. `decide`: each car's computer driver, asked for its input where the program's drivers decide (0x465078
+    // in the input phase 0x349FD0, after the preparation 0x357700: the step's own slip angles, peak forces and torques); the
+    // inputs given then only say who drives (computer, control).
+    void step_once(std::span<const race::CarInput> inputs, const Decider& decide = {});
     // One step of the race's countdown: every car held (F + 0x4BC, 0x34C210; the engines answer the throttle, the
     // cars stay); the session's time does not advance.
-    void hold_once(std::span<const race::CarInput> inputs);
+    void hold_once(std::span<const race::CarInput> inputs, const Decider& decide = {});
+    // The steps of its hold a car has left (0x34C1C8: the race's countdown and its own): its own start's hold here.
+    u32 start_counter(size_t car) const { return car < start_counters_.size() ? start_counters_[car] : 0; }
     // The race's countdown (the race information's +0xBC): `steps` steps from the next, counted down one a step, the
     // cars held and the session's time standing while it runs. 0 ends it.
     void set_countdown(u32 steps) { countdown_ = steps; }
@@ -93,10 +121,17 @@ public:
     // other conductors (a license test's, ...) keep the event's bytes as they are.
     void set_class_grip(const std::array<gt3r::s8, 4>& grip) { tables_.class_grip = grip; }
     u32 countdown() const { return countdown_; }
+    // A car's crossings of the line as its race counts them (F + 0x4AC: the rolling start's pace and the pad's lap read it).
+    void set_crossings(size_t car, int n);
+    // A car's place in the race (F + 0x4AF, 1 the leader).
+    void set_rank(size_t car, int place);
     // A car held in its rolling start (F + 0x467 = 1: its computer driver drives it, the rolling start's pace caps it,
     // the input phase takes the car's input as the computer's outputs) let go (the single-player conductor's virtual
     // +0x14, 0x347928: 0x345228 and 0x3F37B8).
     void release_start(int car) override;
+    // A free run's count to the hand-over (F +0x590: 180 steps from the set-up; 0x3F37C0 in DynamicsConductorFreeRun::vf14), a step
+    // of it: true in the step it runs out.
+    bool count_rolling(size_t car);
     // The car standing at (x, y, z) facing `heading`, in the record's frame (x, y, z up: the record's F + 0x00; the
     // course's x, -z, y; z the road's height there): the pose (0x3630C0), 0x3455F0 and the standing start (0x363560).
     // For a pit stop; Gran Turismo 4's rules only.
@@ -178,6 +213,8 @@ public:
     // The seconds left of a car's penalty as the race display counts them (Prologue's 0x3C6030, Gran Turismo 4's the same: the counter's
     // steps + 59 over 60; 0 once the car's race ended).
     int penalty_seconds(size_t i) const;
+    // Whether a car is held to a rolling start's pace (0x3F7880 answering 1), which the opening shots ask.
+    bool held_to_pace(size_t i) const;
     // What the computer drivers' pit flow reads and changes (sim/ai/pit_flow.h): the fuel (liters) and tank, the distance and the
     // fuel since the economy display's last reading (F +0x4C8 / +0x4C4), the fuel counted at all (F +0x5D0's distance > 0 is the
     // flow's own test), a wheel's tread wear (+0xAC) and wear grip (+0x50); new tires on a wheel (0x362E58); the fuel set.
@@ -235,7 +272,7 @@ private:
         int contact_car = -1;
     };
     void place(size_t i, const course::Runway::Place& at);
-    void setup(size_t i, const course::Runway::Place& at, int kind, float speed, bool fuel);
+    void setup(size_t i, const course::Runway::Place& at, int kind, float speed, bool fuel, const Entry::LineStart* line, gt3r::s8 control, u8 driver);
     rules::PoseHooks pose_hooks();
     void ground_contact(gt3r::sim::exact::Car& c, Extra& x);
     void chassis(size_t i);
@@ -272,6 +309,7 @@ private:
     rules::Tables tables_;
     rules::StartTables start_tables_;
     std::vector<u32> start_counters_; // each car's own start hold counter (conductor + 0xCBFC + 4 i: 0 in a single race)
+    std::vector<u8> pace_kmh_;        // each car's rolling start's pace (0x3F7880: the entry's speed, km/h)
     u32 countdown_ = 0;               // the race's countdown (the race information's +0xBC)
     bool holding_ = false;            // (hold_once's step)
     bool gt4_ready_ = false, gt4_rules_ = false;

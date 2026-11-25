@@ -140,7 +140,8 @@ void PitStops::after(const Session& session, Field& field) {
         in.crossed = st.lap > last_lap_[i];
         // On the pit lane (phase 18, 0x369888): a wheel on the ground on a triangle flagged bit 0, in a race with pit stops.
         bool lane = false;
-        for (const race::WheelState& w : st.wheels) lane = lane || (w.on_ground && (w.surface & 1));
+        // (The road's record alone: a car held in its box has its wheels flagged off the ground and stays on the lane.)
+        for (const auto& g : session.record(i).g) lane = lane || (!g.miss && (g.flags & 1));
         c.flags = u8((c.flags & ~0x10) | (lane && race_.pits ? 0x10 : 0));
         std::vector<PitAction> acts;
         ServiceInputs sv;
