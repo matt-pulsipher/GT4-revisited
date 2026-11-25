@@ -90,6 +90,14 @@ struct StrobeMovie {
     std::vector<Button> buttons;
     std::vector<Bytes> actions;
     std::vector<Texture> textures;
+    // The pictures the program draws (header +0xB8: 0x18 bytes each, f32 x0, y0, x1, y1 the box about
+    // the track's origin, u32 name, u32 length): an external track's index picks one; its name
+    // tells the program what to draw there ("screen", "TropyPanel").
+    struct External {
+        float x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+        std::string name;
+    };
+    std::vector<External> externals;
     Bytes data; // the file (the textures' sets are read from it)
 
     static bool is_movie(ByteSpan d) { return d.size() >= 0xC0 && gt3r::has_magic(d, "STRB"); }

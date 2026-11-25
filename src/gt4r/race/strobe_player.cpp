@@ -649,7 +649,9 @@ struct StrobePlayer::Impl {
                 out.push_back(std::move(d));
             } else if (t.kind == Movie::kExternal) {
                 Draw d;
-                d.external = !t.name.empty() ? t.name : !c.name.empty() ? c.name : std::string("_EXT"); // the picture's own name, else its clip's
+                // The picture's own name, else its clip's, else its name in the movie's table.
+                const std::string listed = size_t(t.index) < movie->externals.size() ? movie->externals[t.index].name : std::string();
+                d.external = !t.name.empty() ? t.name : !c.name.empty() ? c.name : !listed.empty() ? listed : std::string("_EXT");
                 std::memcpy(d.m, w, sizeof w), std::memcpy(d.mul, wm, sizeof wm), std::memcpy(d.add, wa, sizeof wa);
                 set_clip(d, clip);
                 out.push_back(std::move(d));

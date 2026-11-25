@@ -7,6 +7,7 @@
 
 #include "base/log.h"
 #include "diff.h"
+#include "floats.h"
 #include "prologue_race.h"
 #include "showroom_check.h"
 #include "states.h"
@@ -72,6 +73,7 @@ int main(int argc, char** argv) {
             if (!r.ran) std::printf("states: %s\n", r.error.c_str());
             return r.ran ? 0 : 1;
         }
+        if (test == "floats") return gt4r::diff::run_floats(*disc, std::vector<std::string>(argv + 3, argv + argc)); // (floats.h)
         if (test == "demo") ok = gt4r::diff::run_demo(*disc, true, argc > 3 ? argv[3] : "usl0b0001").ran && ok; // gt4r_diff <disc> demo [label]
         return ok ? 0 : 1;
     } catch (const std::exception& e) {

@@ -305,7 +305,10 @@ const Database::Spec& Database::spec(const std::string& label) {
                 Paint& paint = sp.paints[at >= 1 && at <= n ? at - 1 : i];
                 if (names_) paint.name = names_->at(r32(r, 0x0C));
                 if (r.size() >= 0x2C) std::memcpy(paint.flags, r.data() + 0x24, 8);
+                if (r.size() >= 0x34) std::memcpy(paint.chip, r.data() + 0x24, 16);
                 if (r.size() >= 0x27) paint.rgb[0] = r[0x24], paint.rgb[1] = r[0x25], paint.rgb[2] = r[0x26];
+                // (Rows without the words, Prologue's: the one colour.)
+                if (!(paint.chip[0] & 0x1000000u)) paint.chip[0] = u32(paint.rgb[0]) | u32(paint.rgb[1]) << 8 | u32(paint.rgb[2]) << 16 | 0x1000000u;
             }
         }
     return sp;
@@ -358,6 +361,13 @@ Value GameNatives::make_option() {
             else if (v.kind == Kind::Float) s->options[n] = v.f;
             else s->options[n] = v.kind == Kind::Int ? v.i : s32(v.truthy());
         });
+    }
+    // The volumes as the scripts pass them on: the raw option / 128 (menu_bgm_volume's 0x180AA8 and its six likes 0x180DA0,
+    // 0x181098, 0x181390, 0x181688, 0x181980, 0x181B80, the same routine but for the field); written, x 128 truncated.
+    for (const char* name : {"menu_bgm_volume", "menu_se_volume", "race_bgm_volume", "race_se_volume", "replay_bgm_volume", "replay_se_volume", "slide_bgm_volume"}) {
+        const std::string raw = std::string(name) + "_raw";
+        option->property(name, [s, raw] { return Value::number(option_value(s->options[raw]).as_float() / 128.0f); },
+                         [s, raw](const Value& v) { s->options[raw] = s32(v.as_float() * 128.0f); });
     }
     // The screen settings: [brightness, contrast, saturation, color balance] as the Picture Quality
     // page reads and writes them (the program's four numbers at Option +0x1184, +0x1194).
@@ -942,6 +952,36 @@ save::GameSave& GameNatives::card2() {
     return *card2_save;
 }
 
+namespace {
+
+// Gran Turismo 4 Prologue's save (save/prologue_data.h): the license record's units and the profile's name
+// (the license object's default name, the profile's +0x1133C) into the state before a save, and back after a load.
+bool prologue_game(GameNatives& n) {
+    Database& d = n.db();
+    return d.db && d.db->prologue() && n.game;
+}
+void prologue_into_state(GameNatives& n) {
+    if (!prologue_game(n)) return;
+    GameState& s = n.state();
+    s.prologue_license = prologue_license_units(*n.game);
+    Vm& vm = n.rt.vm();
+    const Value license = vm.attribute(object_value(n.game), "license");
+    const Value get = license.p ? vm.attribute(license, "getDefaultName") : Value{};
+    if (get.kind == script::Kind::Function) s.username = vm.call(get, {}).to_string();
+}
+void prologue_from_state(GameNatives& n) {
+    if (!prologue_game(n)) return;
+    GameState& s = n.state();
+    if (!s.prologue_license.empty()) prologue_license_load(*n.game, ByteSpan(s.prologue_license.data(), s.prologue_license.size()));
+    Vm& vm = n.rt.vm();
+    const Value license = vm.attribute(object_value(n.game), "license");
+    const Value set = license.p ? vm.attribute(license, "setDefaultName") : Value{};
+    const Value name[1] = {Value::string(s.username)};
+    if (set.kind == script::Kind::Function) vm.call(set, name);
+}
+
+} // namespace
+
 Value GameNatives::make_card_manager(Args a) {
     auto m = std::make_shared<Object>("MMemoryCardManager");
     GameState* s = &state();
@@ -991,7 +1031,7 @@ Value GameNatives::make_card_manager(Args a) {
         if (!s->card.connected) return text("DEVICE_ERROR");
         if (!there()) return text(s->card.has_game_data ? "OK" : "FILE_NOT_FOUND");
         const save::Result r = self->card().load(*s);
-        if (r == save::Result::Ok) s->card.has_game_data = true, self->rt.options_changed();
+        if (r == save::Result::Ok) s->card.has_game_data = true, prologue_from_state(*self), self->rt.options_changed();
         return text(r == save::Result::Ok || r == save::Result::DeviceError || r == save::Result::InvalidFile ? save::result_name(r) : "");
     });
     // loadInstance(manager): [result, game] of the card's game beside the one played. ❓ The
@@ -1005,6 +1045,7 @@ Value GameNatives::make_card_manager(Args a) {
     file->method("saveNew", [self, s, real](Vm&, const Value&, Args a) {
         if (!s->card.connected) return text("DEVICE_ERROR");
         apply_monitor(*self);
+        prologue_into_state(*self);
         if (real()) {
             const save::Result r = self->card().save_new(*s, a.size() > 1 ? a[1].to_string() : std::string("Game Data"));
             if (r != save::Result::Ok) return text(r == save::Result::DifferentMemoryCard ? "DIFFERENT_MEMORYCARD" : "DEVICE_ERROR");
@@ -1015,6 +1056,7 @@ Value GameNatives::make_card_manager(Args a) {
     file->method("save", [self, s, real, there](Vm&, const Value&, Args a) {
         if (!s->card.connected) return text("DEVICE_ERROR");
         apply_monitor(*self);
+        prologue_into_state(*self);
         if (real()) {
             const save::Result r = there() ? self->card().save(*s) : self->card().save_new(*s, a.size() > 1 ? a[1].to_string() : std::string("Game Data"));
             if (r != save::Result::Ok) return text(save::result_name(r));
@@ -1116,6 +1158,14 @@ std::optional<size_t> bspec_course_unit(Database& d, const GameState& s, std::st
     return std::nullopt;
 }
 
+std::string course_attribute(Database& d, const std::string& course) {
+    const ByteSpan r = d.row("COURSE", course);
+    db::SpecDb* db = d.db.get();
+    const db::Strings* units = db ? db->strings("UnistrDB") : nullptr;
+    if (r.size() < 0x0C || !units) return {};
+    return units->at(u32(r[8]) | u32(r[9]) << 8 | u32(r[10]) << 16 | u32(r[11]) << 24);
+}
+
 void complete_race_request(Runtime& rt, RaceRequest& r) {
     const std::shared_ptr<GameNatives> n = g_natives_of(rt).lock();
     if (!n) return;
@@ -1141,9 +1191,14 @@ void complete_race_request(Runtime& rt, RaceRequest& r) {
     }
     // The B-spec driver's book and the course's marks (0x468690: a label ending in "24" is looked up without it;
     // 0x433C10 finds the course's record, none: no marks).
+    // The race's course flag (cond + 0xCBE7, 0x468A40; set by 0x34C7E0 from the course's attribute text, 0x447F08: its
+    // second character's value, '0' none): the marks are read and written back only when it is set ("1ff0" Tsukuba,
+    // "0000" Grand Canyon).
     r.bspec_book = s.bspec_book;
     r.bspec_course_known = false;
-    if (const std::optional<size_t> at = bspec_course_unit(d, s, r.course)) {
+    r.garage_slot = -1; // (only a garage car's request has one, below: not the request before's)
+    const std::string attribute = course_attribute(d, r.course);
+    if (const std::optional<size_t> at = attribute.size() > 1 && attribute[1] != '0' ? bspec_course_unit(d, s, r.course) : std::nullopt) {
         std::copy_n(s.course_record.data() + *at + 0x228, 8, r.bspec_course_marks.begin());
         r.bspec_course_known = true;
     }
@@ -1255,7 +1310,11 @@ void install_game_natives(Runtime& rt, script::Module& menu) {
         static_fn(*cls, "GetMaxMemorySize", [](Vm&, const Value&, Args) { return number(32 * 1024 * 1024); });
         static_fn(*cls, "IsOEM", [](Vm&, const Value&, Args) { return number(0); });
         static_fn(*cls, "IsDrawPerfMeter", [](Vm&, const Value&, Args) { return number(0); });
-        for (const char* nothing : {"SetDrawPerfMeter", "SetLoadingMode", "DumpMemoryBlock", "SyncUnitWithLanguage", "Reboot"})
+        static_fn(*cls, "SetLoadingMode", [r](Vm&, const Value&, Args a) {
+            r->game().loading_mode = arg_text(a, 0);
+            return Value{};
+        });
+        for (const char* nothing : {"SetDrawPerfMeter", "DumpMemoryBlock", "SyncUnitWithLanguage", "Reboot"})
             static_fn(*cls, nothing, [](Vm&, const Value&, Args) { return Value{}; });
         auto now = [] {
             const std::time_t t = std::time(nullptr);

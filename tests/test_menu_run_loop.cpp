@@ -336,6 +336,16 @@ TEST(disc_gt_mode_loop_license) {
     if (g.garage.size() >= 2) std::printf("  the license's car: %s\n", g.garage[1].car.c_str());
     f.press({menu::Key::Accept});
     CHECK(f.page() == "LicenseDetailRoot");
+    // Test 8's and test 10's cones: the page reads the test's number from "l0b0008" as a decimal (the string's toInt,
+    // atoi), the test's own car shown (playtest's B36: an octal reading showed test 8 of no car and test 10 as 8).
+    for (const char* test : {"l0008", "l0010"}) {
+        CHECK(f.focus_on(test));
+        const std::shared_ptr<menu::LiveWidget> pane = f.rt->current_page()->child("Pane");
+        const std::shared_ptr<menu::LiveWidget> name = pane ? pane->child("CarName") : nullptr;
+        const std::string car = name ? name->data.text("text") : std::string();
+        std::printf("  %s: %s\n", test, car.c_str());
+        CHECK(!car.empty());
+    }
     print_stubs(f);
     CHECK(f.clean());
 }
@@ -351,7 +361,8 @@ TEST(disc_gt_mode_loop_mission) {
     if (f.page() != "TopRoot") return;
     menu::GameState& g = f.rt->game();
     f.map_focus("Mission");
-    f.press({menu::Key::Accept, menu::Key::Accept});
+    f.press({menu::Key::Accept});
+    f.press_licensed(menu::Key::Accept); // (the first mission asks for the International B license)
     const std::optional<menu::RaceRequest> race = f.rt->race_request();
     CHECK(race && race->sequence == "mission");
     if (!race) return;

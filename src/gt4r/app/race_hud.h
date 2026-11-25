@@ -53,6 +53,12 @@ struct HudState {
     int suggested_gear = -1;          // the gear the car's driver would take for the corner ahead (-1 none)
     float trip_m = 0;                 // metres the car ran this race (the trip meter)
     float fuel = 1, tire_wear = 1;    // 0..1 left
+    // The tire diagram, drawn only in a race that wears its tires (RaceTireWearDisplay's flag):
+    // each wheel's color by its wear level (front left, front right, rear left, rear right), and
+    // B-spec's pit command waiting ("P" lit, the box saying "Pit Stop").
+    bool tires_on = false;
+    u32 tire_rgb[4] = {0, 0, 0, 0}; // 0xBBGGRR
+    bool pit_command = false;
     // B-spec (the player directs, the computer drives his car): display mode 1's places (the total
     // time in place of the best and last laps), the commands' bar and the help strip.
     bool bspec = false;
@@ -77,6 +83,8 @@ public:
     // missing: nothing is drawn.
     bool ready() const;
     void draw(Ui& ui, const HudState& s);
+    // Only a license test's three target times with their trophies (over its results page).
+    void draw_license_targets(Ui& ui, const HudState& s);
     // The race's words by key ("RaceStart"); the key itself when the table has none.
     std::string word(const std::string& key) const;
     bool mph() const;

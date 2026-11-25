@@ -33,7 +33,17 @@ struct FlowSetup {
     // the clock starts as the player's car takes the line, whoever took it before.
     bool player_clock = false;
     std::vector<bool> past_line; // by car: it starts past the line (its crossings' count 1: 0x3C9838); empty: none
+    // The road's split points (the sectors' ends but the last; none on a road section) and the race's goal along the course
+    // (-1 none), for where the cars' crossings start. `counted` off: every car starts at 0 (Prologue, not read).
+    std::vector<float> sectors;
+    float goal = -1;
+    bool counted = false;
 };
+
+// A car's crossings of the line where it stands at the start (the set-up 0x363B10, 0x364300 .. 0x36444C: F + 0x4AC), `v`
+// its distance along the course: 1 (past the line) unless it stands in the lap's last sector; there still 1 short of the
+// goal or in the lap's first half; else 0 (behind the line).
+int start_crossings(float v, float lap_length, std::span<const float> sectors, float goal);
 
 // The race clock: 3000 units a second, 50 a step.
 constexpr int kClockPerStep = 50;
@@ -151,6 +161,8 @@ public:
     // While the page is up: the running cars' rows from the race's order now.
     void follow(const RaceFlow& flow);
     // The page's question for a row: changed since it last asked (the mark is taken).
+    // Every row as changed: the results movie reads them all again (the points pages of a championship).
+    void touch();
     bool take_changed(size_t row);
     const std::vector<Row>& rows() const { return rows_; }
     int player_row() const { return player_row_; }

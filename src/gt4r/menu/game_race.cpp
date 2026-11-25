@@ -5,6 +5,7 @@
 #include "gt4r/menu/game_bspec.h"
 #include "gt4r/menu/game_internal.h"
 #include "gt4r/menu/race_natives.h"
+#include "gt4r/sim/showroom.h"
 
 #include "gt4r/formats/db/specdb_prologue.h"
 
@@ -58,7 +59,15 @@ void install_race_classes(GameNatives& n, script::Module& menu) {
         auto race = std::make_shared<Object>("MRaceData");
         const std::string label = arg_text(a, 0);
         race->set("race_code", text(label));
-        auto row = [np, label]() { return np->db().row("RACE", label); };
+        // The license tests' and missions' rows carry the region ("usl0m0001" for "l0m0001"): the
+        // labels tried as Database::race_unit does (0x430D20).
+        std::string found = label;
+        for (const std::string& tried : {label, "us" + label, "jp" + label})
+            if (!label.empty() && np->db().code(kRaceTable, tried) != kNoCode) {
+                found = tried;
+                break;
+            }
+        auto row = [np, found]() { return np->db().row("RACE", found); };
         // The medal times as text: minutes, seconds (+0x76 ..) and milliseconds (+0x1A ..).
         auto medal = [row](size_t m, size_t ms) {
             return [row, m, ms] {
@@ -207,6 +216,39 @@ void unit_score(u32& w, int score) {
 
 } // namespace
 
+std::vector<int> championship_grid_places(const std::vector<s32>& kg, const std::vector<s32>& ps) {
+    const size_t n = std::min(kg.size(), ps.size());
+    std::vector<s32> ratio(n, 0);
+    for (size_t i = 0; i < n; ++i) ratio[i] = ps[i] > 0 ? kg[i] / ps[i] : 0;
+    std::vector<int> rank(n, 0), places(n, int(n) - 1);
+    for (size_t i = 1; i < n; ++i)
+        for (size_t j = i + 1; j < n; ++j) {
+            if (ratio[i] == ratio[j]) continue;
+            ++rank[ratio[j] < ratio[i] ? i : j];
+        }
+    std::vector<bool> taken(n, false);
+    for (size_t k = 1; k < n; ++k) {
+        size_t at = size_t(rank[k]);
+        while (at < n && taken[at]) ++at;
+        if (at >= n) at = n - 1;
+        places[k] = int(at), taken[at] = true;
+    }
+    if (n) places[0] = int(n) - 1;
+    return places;
+}
+
+std::vector<int> championship_grid_places(Runtime& rt, const std::vector<std::pair<std::string, std::optional<sim::Equipment>>>& entries) {
+    const std::shared_ptr<GameNatives> n = natives_of(rt);
+    const sim::Showroom* showroom = n ? n->db().showroom() : nullptr;
+    if (!showroom) return {};
+    std::vector<s32> kg, ps;
+    for (const auto& [car, eq] : entries) {
+        const std::optional<sim::ShowroomFigures> fig = eq ? showroom->figures(*eq) : n->db().stock_showroom(car);
+        kg.push_back(fig ? s32(fig->weight) : 0), ps.push_back(fig ? gt3r::ee::to_int(fig->power) : 0);
+    }
+    return championship_grid_places(kg, ps);
+}
+
 // The program's result routines (docs/formats/menu.md "After a race"). The race's menus' work
 // (MQuickWork) gets what the routines write into it: the prize, the rows in finishing order
 // (0x114390, 0x11A168, 0x11C1D8), the player's place, and a championship's grand prize and rank.
@@ -236,8 +278,35 @@ s64 Runtime::race_finished(const RaceResult& r) {
     // The B-spec driver's record back into its book (0x468AF0 -> 0x468860), and the course's marks.
     if (r.bspec_record && (r.kind == RaceResult::Kind::Event || r.kind == RaceResult::Kind::Championship || r.kind == RaceResult::Kind::Course)) {
         std::optional<size_t> at = r.bspec_course ? bspec_course_unit(d, s, r.course) : std::nullopt;
-        bspec::write_back(s.bspec_book, std::clamp(r.bspec_class, 0, 7), *r.bspec_record, r.bspec_doubled, at ? 2 : 0,
-                          at ? s.course_record.data() + *at + 0x228 : nullptr);
+        // Doubled (0x468A60): a run whose conductor's vf6 gives 0 (a race; a free run's 0x3F5518, a license test's and a
+        // machine test's give 1. ❓ Free practice's gives 0 too: here every course's run is single), of two cars or more
+        // (cond + 0xF8A0), that the car finished (+0x5B6) in first place (its place byte +0x5B3 at 1).
+        int first = r.place;
+        for (size_t i = 0; i < r.order.size(); ++i)
+            if (r.order[i].entry == 0) first = int(i);
+        const bool doubled = r.bspec_doubled || (r.kind != RaceResult::Kind::Course && r.order.size() >= 2 && r.finished && first == 0);
+        const u8* marks = at ? s.course_record.data() + *at + 0x228 : nullptr;
+        // Only over the book (and marks) the run started from. And not a doubled change that would go below zero: the
+        // program's 16-bit store would wrap there (❓ whether a run can lower its record is not read; a doubled fall that
+        // stays at or above zero is written as the program writes it).
+        const bool same = r.bspec_start && *r.bspec_start == s.bspec_book && (!marks || std::equal(marks, marks + 8, r.bspec_start_marks.begin()));
+        bool below = false;
+        const int cls = std::clamp(r.bspec_class, 0, 7);
+        for (int t = 0; t < 3 && doubled; ++t)
+            for (int c = 0; c < 8; ++c)
+                if (!(cls == 0 && c == 7)) {
+                    const s32 v = (*r.bspec_record)[size_t(t * 16 + c * 2)] | (*r.bspec_record)[size_t(t * 16 + c * 2 + 1)] << 8;
+                    below = below || 2 * v < s32(s.bspec_book[size_t(t * 64 + c * 8 + cls)]);
+                }
+        for (int m = 0; m < 8 && doubled && marks; ++m) below = below || 2 * s32((*r.bspec_record)[size_t(0x30 + m * 2 + 1)]) < s32(marks[m]);
+        if (!same || below) {
+            note(same ? "B-spec: a doubled change below zero, the book kept" : "B-spec: the run did not start from the saved book, the book kept");
+        } else {
+            bspec::write_back(s.bspec_book, cls, *r.bspec_record, doubled, at ? 2 : 0, at ? s.course_record.data() + *at + 0x228 : nullptr);
+            // The sequence's next run starts from the book as it is now (0x468710 is called before every run).
+            s.race.bspec_book = s.bspec_book;
+            if (at) std::copy_n(s.course_record.data() + *at + 0x228, 8, s.race.bspec_course_marks.begin());
+        }
     }
     // The player's place in the finishing order (0x110570), or the one given.
     int place = r.place;
@@ -262,10 +331,14 @@ s64 Runtime::race_finished(const RaceResult& r) {
         work.set("numberOfEntries", s32(r.order.size()));
     };
     // The car's distance: what the race's step adds to the car's condition (0x35DE20).
-    if (r.garage_slot >= 0 && size_t(r.garage_slot) < s.garage.size() && s.garage[size_t(r.garage_slot)].record && r.distance_m > 0) {
+    if (r.garage_slot >= 0 && size_t(r.garage_slot) < s.garage.size() && s.garage[size_t(r.garage_slot)].record && r.distance_m > 0)
         add_distance(d, *s.garage[size_t(r.garage_slot)].record, r.distance_m);
-        s.aspec_distance += s64(r.distance_m);
-    }
+    // The player's totals (0x10FA58, called by the event's sequence 0x113B48, the course's 0x115A90, the championship's
+    // 0x118EF0 and three more, not by the license tests' or the missions'; added at the sequence's end, 0x114058): the meters the B-spec driver drove (the car's +0x7B0) to
+    // the B-spec total, the rest (+0x6D4 less those) to the A-spec one, truncated, whatever the car. ❓ A run is taken as
+    // all one driver's: the race gives no split.
+    if (r.kind != RaceResult::Kind::License && r.kind != RaceResult::Kind::Mission && r.distance_m > 0)
+        (r.bspec_record ? s.bspec_distance : s.aspec_distance) += s64(r.distance_m);
     DayEvent day;
     s64 prize = 0;
     switch (r.kind) {

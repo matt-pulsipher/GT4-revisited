@@ -193,6 +193,8 @@ struct RaceHud::Impl {
     }
 
     void draw_top(const HudState& s);
+    void draw_targets(const HudState& s);
+    void draw_tires(const HudState& s, const DisplayPlace& place);
     void draw_map(const HudState& s);
     void draw_chase_panel(const HudState& s);
     void draw_driver_panel(const HudState& s);
@@ -489,6 +491,28 @@ std::string RaceHud::word(const std::string& key) const {
     return key;
 }
 
+// A license test's three target times, each by its trophy (mark_1st .. 3rd): ❓ the places judged
+// from the original's B-1 (RaceLicenseDisplay::vf9 draws them; its places are not read). They stay
+// over the results page (the original's pass page shows them over the live scene).
+void RaceHud::Impl::draw_targets(const HudState& s) {
+    const float o = s.opacity;
+    const FontSpec times = font("hn_20R");
+    static const char* const kMarks[3] = {"mark_1st", "mark_2nd", "mark_3rd"};
+    for (int k = 0; k < 3; ++k) {
+        if (s.targets[k] <= 0) continue;
+        const float y = 100.0f + 28.0f * float(k);
+        const Picture& mark = picture(kMarks[k]);
+        draw_picture(mark, {485 - mark.w / 2, y - mark.h / 2, mark.w, mark.h}, kNeutral, o);
+        draw_text(times, 608, y + 8, kEndsAtPen, kTextGray, o, race::format_lap_time(s.targets[k]));
+    }
+}
+
+void RaceHud::draw_license_targets(Ui&, const HudState& s) {
+    if (!ready() || s.opacity <= 0) return;
+    impl_->cur = &impl_->layout;
+    impl_->draw_targets(s);
+}
+
 // Position, lap count and the three times.
 void RaceHud::Impl::draw_top(const HudState& s) {
     const float o = s.opacity;
@@ -526,16 +550,7 @@ void RaceHud::Impl::draw_top(const HudState& s) {
     if (const DisplayPlace* p = cur->find(element::kBestTime); p && s.show_time)
         draw_text(times, race::place_x(*p, true), float(p->y), kCentered, kTextGray, o, race::format_lap_time(s.best_ms));
     if (s.license && s.show_time) {
-        // The three target times under the best lap, each by its trophy (mark_1st .. 3rd): ❓ the places
-        // judged from the original's B-1 (RaceLicenseDisplay::vf9 draws them; its places are not read).
-        static const char* const kMarks[3] = {"mark_1st", "mark_2nd", "mark_3rd"};
-        for (int k = 0; k < 3; ++k) {
-            if (s.targets[k] <= 0) continue;
-            const float y = 100.0f + 28.0f * float(k);
-            const Picture& mark = picture(kMarks[k]);
-            draw_picture(mark, {485 - mark.w / 2, y - mark.h / 2, mark.w, mark.h}, kNeutral, o);
-            draw_text(times, 608, y + 8, kEndsAtPen, kTextGray, o, race::format_lap_time(s.targets[k]));
-        }
+        draw_targets(s);
     } else {
         if (const DisplayPlace* p = cur->find(element::kLastWord); p && s.show_time) draw_at("JP/last_time", *p, kNeutral, o);
         if (const DisplayPlace* p = cur->find(element::kLastTime); p && s.show_time)
@@ -647,6 +662,21 @@ void RaceHud::Impl::draw_chase_panel(const HudState& s) {
 // G meter's point by the sideways g against two either way, a sign unlit at a third (the aids'
 // work is not given by the simulation), the shift lamp lit past 97 % of the red line, the bars
 // filled by their share.
+// The tire diagram (RaceTireWearDisplay 0x3A5FD8): the car's picture and over it each wheel as a 6 x 11 box at its
+// place in the 40 x 68 picture (table 0x6A1520: (4, 8), (30, 8), (4, 50), (30, 50)), in the color of its wear level.
+void RaceHud::Impl::draw_tires(const HudState& s, const DisplayPlace& place) {
+    if (!s.tires_on) return;
+    const float o = s.opacity;
+    const DisplayRect at = draw_at("tire_wear", place, kNeutral, o);
+    if (at.w <= 0 || at.h <= 0) return;
+    static const int kAt[4][2] = {{4, 8}, {30, 8}, {4, 50}, {30, 50}};
+    const float sx = at.w / 40, sy = at.h / 68;
+    for (int w = 0; w < 4; ++w) {
+        const u32 c = s.tire_rgb[w];
+        fill({at.x + kAt[w][0] * sx, at.y + kAt[w][1] * sy, 6 * sx, 11 * sy}, u8(c), u8(c >> 8), u8(c >> 16), o);
+    }
+}
+
 void RaceHud::Impl::draw_small_parts(const HudState& s, bool driver) {
     const float o = s.opacity;
     const int C = 320, B = driver ? 452 : 464, L = 0;
@@ -696,7 +726,7 @@ void RaceHud::Impl::draw_small_parts(const HudState& s, bool driver) {
         bar(at.x, s.throttle, 0x40, 0xC0, 0x40);
         bar(at.x + bw + 2, s.brake, 0xC0, 0x30, 0x30);
     }
-    draw_at("tire_wear", {0, L + 58, B, 40, 68, 4, 1}, kNeutral, o * (0.5f + 0.5f * std::clamp(s.tire_wear, 0.0f, 1.0f)));
+    draw_tires(s, {0, L + 58, B, 40, 68, 4, 1});
     // The fuel gauge: the empty bar, the full one over it by what is left.
     draw_at("fuel_b0", {0, L + 107, B - 30, 86, 11, 4, 1}, kNeutral, o);
     draw_at("fuel_b1", {0, L + 107, B - 30, 86, 11, 4, 1}, kNeutral, o, std::clamp(s.fuel, 0.0f, 1.0f));
@@ -853,7 +883,7 @@ void RaceHud::draw(Ui& ui, const HudState& s) {
     if (s.bspec && !s.replay) {
         char key[16];
         std::snprintf(key, sizeof key, "key_pace%d", std::clamp(s.pace, 1, 5));
-        impl_->draw_bspec(s, word(s.overtake ? "key_overtake" : key), word("Tool Tip1"));
+        impl_->draw_bspec(s, word(s.pit_command ? "key_pitin" : s.overtake ? "key_overtake" : key), word("Tool Tip1"));
         return;
     }
     if (!s.show_meter) return;
@@ -913,10 +943,15 @@ void RaceHud::Impl::draw_bspec(const HudState& s, const std::string& pace_word, 
             fill(key, s.overtake ? 0xF0 : 0x58, s.overtake ? 0x80 : 0x58, s.overtake ? 0x20 : 0x60, o * 0.9f);
             draw_menu_text("hm_16", 1, cx, base - 3, gt3r::text::HAlign::Center, kNeutral, o, "%Bc");
         } else {
-            draw_text(font("hb_24", 100, 1), cx, base, kCentered, 0x80202020u, o, "P");
+            draw_text(font("hb_24", 100, 1), cx, base, kCentered, s.pit_command ? 0x800050F0u : 0x80202020u, o, "P");
         }
     }
     draw_text(font("hn_20R", 80, 1), 320, 71, kCentered, kTextGray, o, pace_word);
+    // The tire diagram and the fuel bar at the bottom left (the reduced form: L + 26 and L + 74, the bar ❓ its
+    // height judged from the original's B-spec display).
+    draw_tires(s, {0, 26, 431, 40, 68, 4, 1});
+    draw_at("fuel_b0", {0, 74, 427, 86, 11, 4, 1}, kNeutral, o);
+    draw_at("fuel_b1", {0, 74, 427, 86, 11, 4, 1}, kNeutral, o, std::clamp(s.fuel, 0.0f, 1.0f));
     // The speed's small plate over the help strip.
     const int R = 640, B = 431;
     draw_at(mph ? "remote_speed_mph" : "remote_speed_kmph", {0, R - 26, B, 82, 28, 13, 1}, kNeutral, o);

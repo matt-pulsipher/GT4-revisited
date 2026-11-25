@@ -157,11 +157,16 @@ race's driver sets.
   weight[4] / 127 (summing to 127): 13 bytes, 10 without normals.
 - **The float block**: u16 vertices, u16 the normals' place; groups: u16 count (| 0x8000), u16 4,
   u8 bone[4]; per vertex f32 position[3], normal[3], weight[4].
-- The program blends a group's vertices on the EE (VU0 micro-routines: ❓ not readable) with the
-  four bones' palette matrices: position = sum of weight x (position x palette[bone]), the normal
-  the same way; without a palette the set draws as stored. `to_gtm1` writes a skinned packet's
-  stored pose as plain positions and normals, and `pose()` moves the decoded model's vertices
-  (found again by their stored position and normal) by a palette.
+- The program blends a group's vertices in VU0 (micro-routine 0x2E8, 0x460 without normals; the micro
+  program, 0xA80 bytes at 0x6D3280, is loaded once at 0x4A03C0) with the four bones' palette matrices
+  P_k (row vectors): w = int x 1/127 (a multiply by 0x3C010204; the weights are never made to sum to
+  1), p = int x scale, the normal's ints as they are; b_k = p x w_k, a_k = n x w_k; then one
+  multiply-add chain over the bones 0 to 3 and in each the rows x, y, z and (positions) the translation
+  row x w_k; the normal times 1 / sqrt((x x + y y) + z z). The float layout enters after the conversions
+  (0x308, 0x478) with scale 1. Without a palette the four bones are the identity. `to_gtm1` writes a
+  skinned packet's stored pose as plain positions and normals, and `pose()` moves the decoded model's
+  vertices (found again by their stored position and normal) by a palette, each by `blend()`: those
+  operations in that order in the PS2's floats.
 - **Motions** (`Mot1`, docs/formats/camera.md, and the scene program 0x42B440): ops 2 push, 3 pop,
   4 a node (its name), 5 translate, 6 / 7 / 8 rotate about X / Y / Z (radians), 9 scale, 0x13
   rotate X then Y then Z (Euler to quaternion 0x48B888 to matrix 0x48A970), 0x0A to 0x10 as the
@@ -275,9 +280,11 @@ Offsets inside the block are from the block's start; the offsets it holds are fr
   sets), 2 a point in link `index`'s frame. The game builds a matrix per link each frame (at
   most 16): origin at the first point, x axis towards the second, the third fixing the roll;
   the body's program draws the link's part under it (callback 20 + link).
-- **Parts block** (0x100 bytes): `+0xD0 f32 x3` where a fitted wing goes, `+0xDC f32` its
-  width (the wing model is drawn scaled by half of it); the rest ❓ (the driver's place is
-  expected here: R34 +0x00 = (0.382, 0.735, -0.241), on the right-hand-drive car's right).
+- **Parts block** (0x100 bytes): the cockpit's places the driver's posture reads (below, "The
+  driver in the car"), `+0xD0 f32 x3` where a fitted wing goes, `+0xDC f32` its width (the wing
+  model is drawn scaled by half of it).
+- **Info +0x02** is the cockpit kind (0x20 on 787 cars, 0x11 on the single-seat racers, 1, 0x0F,
+  0 on a few), **+0x03** a co-driver (1 on 29 cars, the rally cars).
 - **Wing list**: `u32 count` (8 on every car), then count x two 8-character names
   (`pdi_0003`...), files of `wing/`.
 
@@ -480,13 +487,74 @@ entry points, which a car leaves at their defaults (0).
 
 ### The driver in the car (+0x34)
 
-A model set: 3,464 bytes on 771 of the 801 cars that have one (the R34's: one model, one
-shape, bound to one bone named `CRANIUM`: the driver's head); 21,927 bytes on six cars 🔎
-more of the figure; other sizes on the rest. The race gives it to a `RaceDriverModel` (a second one
-for a co-driver when the event has one), which moves it; the driver's model in turn gives
-the car the steering wheel's angle, the pedals and callback 9's matrix. ❓ Where the head
-sits (the parts block is the candidate) and the driver's motion have not been read; the
-skinned sets decode (see "Skinned sets"); the race does not pose its drivers yet.
+Code: `src/gt4r/race/driver_figure.*`, `gt4tool race <disc> driver <model>`.
+
+**Which set.** The car's own set (+0x34, on 801 of the 807 race cars; 0x38FE30 gives it to the
+car's `RaceDriverModel`, a `HumanModel`, at RaceCarModel +0x5E0, and to a second one at +0xE20 for a
+co-driver). On most cars it is a 3,464-byte set: one dark head-and-shoulders board (R34: 27
+vertices, 0.5 m wide) whose symbol `CRANIUM` = 0 draws it at the skeleton's node of that name;
+the ten single-seat racers (cockpit kind 0x11, `pscl0001`, `audi0015`...) carry a whole figure:
+`SKINNING` = 0 (the suit, by the bones), `SCAPULA` = 1 (empty), `CRANIUM` = 2 (the helmet). A car
+without a set (0x3B5438, by the info block's cockpit kind) takes a file of `character/`: kind 1
+one of {driver2, driver, driver3} by the car's number mod 3, 2 driver4, 5 and 7 classic1, 6
+classic2, 0x0A driver_nike, 0x0E driver, 0x0F driver_mtr with a co-driver, else driver_nike;
+other kinds none (0x20 never comes here: those cars have their own set). On this disc only
+`cthm0001` (kind 1) and `toyt0030` (0x0F) go that way. `character/driver.mdl`: five models,
+`RHAND_BONE` 0 and `LHAND_BONE` 1 (the gloves), `SKINNING` 2, `CRANIUM2` 3, `CRANIUM` 4, 20 bones.
+
+**The skeleton** (HumanModel +0x10, the "pdiRiderman" body library 0x414000-0x424000): 20 nodes,
+names in program table 0x622A50: PELVIS, L/RTHIGH, L/RSHANK, L/RFOOT, LOWER_SPINE, MIDDLE_SPINE,
+SCAPULA, L/RUPARM, L/RFOREARM, CRANIUM, L/RCLAVICLE, L/RHAND, NECK (`_BONE` on the limbs); node i
+at the skeleton + {0, 0x70, 0x110, 0x1B0, 0xC0, 0x160, 0x200, 0x250, 0x2A0, 0x2F0, 0x360, 0x400,
+0x3B0, 0x450, 0x4A0, 0x4F0, 0x540, 0x590, 0x5E0, 0x630} (0x41A988): f32 x3 position, then a unit
+quaternion (x, y, z, w) at +0x10 (to a matrix by 0x4875B0), **in the car's frame**. It is built
+(0x419F80) from 15 sizes in every driver set's extension record 0x800000 (the same on all:
+0.177, 0.4513, 0.469, 0.25, 0.01, 0.1239, 0.16, 0.112, 0.0797, 0.1416, 0.1505, 0.39, 0.292, 0.262,
+0.0974) and record 0x800001 (two floats to +0x708 / +0x70C, else 0.5 / 0.25). The bones of a set
+are matched to the nodes by name (0x3B0D18); a model named by a symbol is drawn at its node's
+matrix (0x3B1070), the skinned model by the palette (node x inverse bind); the extra symbol
+`CRANIUM2` (0x6219C0) is drawn by the CRANIUM bone's palette matrix (its coordinates are the
+stored pose's, like the skinned model's).
+
+**The posture** (each frame: StandardComputeDriverPostureCaller → 0x3B19F0 → 0x3B2568: a recorded
+posture 0x3B4040 in replays, else 0x3B2708, 6.4 KB, which fills a target block and runs the
+solver 0x416FD8 → 0x4173B0, 0x41C3F8 → 0x41F560 (about 30 KB with its handle solvers). Its inputs:
+- the car's geometry (CarGeometry / NormalCarGeometry, the parts block; vtable slot: offset):
+  2-4 the seat +0x34 (moved by a value of the car's motion 0x44F4C0), 8-10 the pedals +0x1C + 12 x
+  index, 11-13 the steering wheel's centre +0x00, 14-16 the column's axis +0x0C (unit, towards
+  the driver; R34 (0, 0.275, 0.962)), 18-20 +0x4C ❓ (the gear lever), 21-23 +0x6C ❓, 33 the
+  cockpit kind; +0x18 ❓ the wheel's size (R34 0.150), +0x6A u16 the shift lever's kind (0, 1,
+  2; the per-frame record builder 0x402320 sets the hands' rest angles by it: 1 = ±π/2, 3 =
+  -π/2 with ±2.356, 4 = ±π); the co-driver's places are moved by (+0xC4 - +0x34), or, with +0xC4
+  all zero, the seat mirrored (x - 2 x seat.x) (0x38CDE8);
+- a 0x100-byte record of the car per frame (sponsor +0x9A0 + 0x370 x seat, two kept at +0x160
+  and +0x260 and blended by the frame's time, 0x386818 / 0x407238; written by 0x402320 from the
+  car and the driver's inputs: 64 floats read by the accessors 0x385688 .. 0x385AD0);
+- six motion values of the sponsor at the frame's time (0x344798 .. 0x3448B8: blends of +0x8A4 ..
+  +0x8C4 and +0x888 .. +0x674) kept at HumanModel +0x7C4 .. +0x7D8 (0x3B2508).
+
+**Checked in saved states.** On the road cars (cockpit kind 0x20: the six of 03-race
+`state_before_first_corner_chase`, and those of 36-driver-sky) the nodes are in the car's frame and every
+PELVIS is at its car's seat (+0x34) to the last digit; on the one whose nodes were listed it is turned half a
+turn about y (quaternion (0, 1, 0, 0)). The feet are on the pedals to the last digit on five of the six, 15 mm and
+3 mm off on the sixth. The head stands 0.56 to 0.58 above the pelvis and 0.14 to 0.20 behind it. One of them, seat
+(-0.329, 0.276, 0.031): CRANIUM (-0.329, 0.852, 0.178), the hands (-0.501 / -0.156, 0.588, -0.360) on the rim of the
+wheel centred at (-0.329, 0.640, -0.439), the lower spine leaning 46° back from upright, the middle 23°.
+**The open racers (kind 0x11) differ**: in 36-driver-sky (the Chaparral 2J, the Pescarolo C60) their upper body's nodes
+hold places in the **course's** frame (chap_02: PELVIS (-291.9, 22.0, -151.6)), the feet keep (+-0.089, -0.920, 0), as
+if never posed, and the head stands 0.55 to 0.59 above the pelvis. ❓ Where in their car the figure sits was not worked
+out from these, nor which routine moves it into the course's frame.
+`~/gt4re-out/race-view/r6/stpose.py <state>` lists them (a scratch tool; the RaceDriverModel
+vtable 0x0067FB50 sits at HumanModel +0x7DC).
+
+**What the race view draws** (`GT4R_RACE` `driver=1`, off by default): the set's parts at the
+nodes of the **stored pose** (the bind matrices of the set's bones, else character/driver.mdl's:
+every skeleton is built from the same sizes), the figure's frame turned half a turn about y with
+its PELVIS at the seat (as the road cars' saved states show; for the open racers this is taken over from them, not checked). The stored pose leans back further than the
+posture (the head 0.29 m behind the pelvis, not 0.15 m): in the closed cars the head board sits
+inside the headrest; in the open racers the helmet shows in the cockpit. ❓ The posture
+(0x3B2708 and the solver) is not ported; the driver's model also gives the car the steering
+wheel's angle, the pedals and callback 9's matrix.
 
 ### Paints in the database
 

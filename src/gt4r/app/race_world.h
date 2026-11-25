@@ -50,6 +50,7 @@ struct WorldEntry {
     std::optional<sim::Equipment> equipment; // the car's parts and settings (a garage car's); none: as sold
     std::string wing; // a fitted wing's label (a WING row); empty: the equipment's (record +0x100), else none
     float start_distance = std::numeric_limits<float>::quiet_NaN(); // a rolling start's place (sim::Entry::start_distance)
+    std::optional<course::Runway::Place> place; // the car's own start place (a license test's road section: sim::Entry::place)
 };
 
 struct WorldSetup {
@@ -57,6 +58,7 @@ struct WorldSetup {
     std::vector<WorldEntry> entries; // the first is the player's
     bool smoke = true;
     bool reflection = true;
+    bool drivers = false; // the drivers in their stored pose (the posture is not ported: for checks)
     bool rail = false; // the stand-in simulation instead of the game's
     sim::ai::Pace pace; // the computer drivers' (the event's)
     std::vector<u8> event_row; // the event's RACE row: the race's tire wear (sim::rules::event_wear_bytes); empty: no wear
@@ -75,6 +77,8 @@ struct WorldSetup {
 
 class RaceWorld {
 public:
+    // The B-spec driver's book and the course's marks the next run's driver starts from (a run again in the same sequence).
+    void set_bspec_book(const std::array<u16, 3 * 64>& book, const std::array<u8, 8>& marks) { setup_.bspec_book = book, setup_.bspec_course_marks = marks; }
     // Throws FormatError (no such course, a car without a race model).
     RaceWorld(App& app, const WorldSetup& setup);
     ~RaceWorld();
@@ -129,6 +133,11 @@ public:
     // no B-spec driver drove the car.
     std::optional<std::array<u8, 0x40>> bspec_record(size_t car) const;
     int bspec_class(size_t car) const;
+    // The race wears its tires (its rules on), and a wheel's wear level as the display takes it (-0x80 .. 0x7F).
+    bool wears_tires() const { return session_ && (session_->wear_rules().tread_on || session_->wear_rules().second_on); }
+    int tire_level(size_t car, int wheel) const { return session_ ? session_->wear_level(car, wheel) : -0x80; }
+    // B-spec's pit command waiting for this car (0x3F19E0 command 6: F +0x4B1 bit 3).
+    bool pit_requested(size_t car) const { return pits_ && car < car_visuals_.size() && (pits_->car(car).flags & 8) != 0; }
     int pit_stops(size_t car) const { return pits_ && car < car_visuals_.size() ? pits_->stops(car) : 0; }
     // A car's last pit stops, newest first (the lap, the tires fitted; lap 0 none): the Race Monitor's pit panel.
     std::array<sim::ai::PitStops::StopRecord, 4> pit_record(size_t car) const {
@@ -164,6 +173,9 @@ public:
         float opacity = 1;
     };
     void draw_icons(Ui& ui, const SDL_FRect& canvas, std::span<const Icon> icons);
+    // One model in its own view over `rect` (the license results' trophy), in the course's light:
+    // `place` its model matrix in a camera at the origin looking down -z, `proj` the lens.
+    void draw_model(Ui& ui, const SDL_FRect& rect, const gt3r::render::GpuModel& model, const gt3r::render::Mat4& place, const gt3r::render::Mat4& proj, float alpha);
 
     const race::CourseScene& course() const { return *course_; }
     const race::CarVisual& visual(size_t i) const { return *car_visuals_[i]; }
@@ -180,6 +192,8 @@ public:
     unsigned gadget_hits() const { return gadget_hits_; }
     // The cones and boards car `i` met in the last step (each a contact report of kind 2).
     int gadget_contacts(size_t i) const;
+    // The strongest impulse |j| of car i's contacts with the course's objects this step (0: none).
+    float gadget_impulse(size_t i) const;
     // A car's mass as the step reads it (the spec's weight, kg; 0 not known): the license tests' wall rule.
     float car_mass(size_t i) const;
     // The seconds left of a car's penalty (the speed cap a hit gave; 0: none).

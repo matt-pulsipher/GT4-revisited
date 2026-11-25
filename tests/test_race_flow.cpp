@@ -661,3 +661,33 @@ TEST(strobe_race_monitor_disc) {
     }
     if (!movies) SKIP("no Gran Turismo 4 disc");
 }
+
+// Where the cars' crossings of the line start (0x363B10): 0 only in the lap's last sector, past the goal and half the lap.
+TEST(race_flow_start_crossings) {
+    const std::vector<float> tsukuba{505.883f, 1072.191f};
+    CHECK(race::start_crossings(1872.7f, 2115.1f, tsukuba, -1) == 0); // the rolling run-up, behind the line
+    CHECK(race::start_crossings(20.6f, 2115.1f, tsukuba, -1) == 1);   // past the line
+    CHECK(race::start_crossings(800.0f, 2115.1f, tsukuba, -1) == 1);  // the second sector
+    CHECK(race::start_crossings(1080.0f, 2115.1f, tsukuba, -1) == 0); // the last sector, past half the lap
+    CHECK(race::start_crossings(1060.0f, 2115.1f, std::vector<float>{300.0f, 1000.0f}, -1) == 0);
+    CHECK(race::start_crossings(1010.0f, 2115.1f, std::vector<float>{300.0f, 1000.0f}, -1) == 1); // ... in the lap's first half
+    CHECK(race::start_crossings(3505.5f, 3576.6f, {}, 659.3f) == 0); // B-3: a section, one sector, past its goal
+    CHECK(race::start_crossings(400.0f, 3576.6f, {}, 659.3f) == 1);
+    // A standing grid past the line (Fuji, 200 m): the first crossing completes a lap; one behind it is the start line.
+    for (const bool past : {true, false}) {
+        race::FlowSetup fs;
+        fs.start = race::StartType::None, fs.laps = 1, fs.lap_length = 1000, fs.counted = true, fs.sectors = {300, 600};
+        std::vector<race::CarState> cars(1);
+        cars[0].course_v = past ? 200.0f : 950.0f, cars[0].lap = 0;
+        race::RaceFlow flow;
+        flow.begin(fs, cars);
+        int crossings = 0;
+        for (int step = 0; step < 400 && !flow.car(0).finished; ++step) {
+            float v = cars[0].course_v + 10;
+            if (v >= 1000) v -= 1000, ++cars[0].lap, ++crossings;
+            cars[0].course_v = v;
+            flow.step(cars);
+        }
+        CHECK(flow.car(0).finished && crossings == (past ? 1 : 2));
+    }
+}

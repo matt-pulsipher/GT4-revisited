@@ -100,12 +100,29 @@ struct RaceResult {
     };
     std::vector<Finisher> order;
     // The B-spec driver's record after the race (the car's +0x8C), when the race kept one: written back into
-    // the book for the car's class (bspec::write_back, 0x468860), the change doubled with `bspec_doubled`
-    // (0x468A60), the course's marks too with `bspec_course` (the race's byte cond + 0xCBE7, 0x468A40).
+    // the book for the car's class (bspec::write_back, 0x468860), the change doubled (0x468A60: race_finished works it
+    // out from the result, a race of two cars or more won; `bspec_doubled` forces it), the course's marks too with
+    // `bspec_course` (the race's byte cond + 0xCBE7, 0x468A40: the request's bspec_course_known, from the course's
+    // attribute text).
     std::optional<std::array<u8, 0x40>> bspec_record;
     int bspec_class = 0;
     bool bspec_doubled = false, bspec_course = false;
+    // The book and the course's marks the run's driver started from: the record is written back only over those.
+    std::optional<std::array<u16, 3 * 64>> bspec_start;
+    std::array<u8, 8> bspec_start_marks{};
 };
+
+// A championship's grid from its second race on (0x3EE9F8, the championship's race information when its
+// entrants are kept, and NEXT_RACE's 0x118EF0): each entry's showroom car (0x364868 with a fresh condition)
+// gives its weight (kg, 0x364FA8) over its power (PS truncated, 0x364E90), an integer quotient; each
+// opponent (entries 1 ..) is placed by how many other opponents have a smaller quotient (a tie counts
+// for neither), taking the next free place up when that one is taken (in entry order); the player
+// (entry 0) is last. `kg` and `ps` by entry; the places, 0 the front, by entry.
+std::vector<int> championship_grid_places(const std::vector<s32>& kg, const std::vector<s32>& ps);
+class Runtime;
+// The same for a race's entries (entry 0 the player's): each car's label and its race equipment (none: as sold), built
+// as the showroom car; empty when the runtime has no showroom.
+std::vector<int> championship_grid_places(Runtime& rt, const std::vector<std::pair<std::string, std::optional<sim::Equipment>>>& entries);
 
 // A car's record as the garage keeps it: the program's CarGarage (0x4B8 bytes, saved as they
 // are; docs/formats/save.md "The car record"): three settings sheets, each a car equipment record
@@ -180,6 +197,7 @@ struct GameState {
     std::string major_menu_project, major_menu_page, major_menu_widget;
     std::string last_sequence = "boot", next_sequence;
     std::string last_menu_project, next_menu_project, last_menu_arg, next_menu_arg, menu_result;
+    std::string loading_mode = "default"; // MSystem::SetLoadingMode's (0x104E30): what the next loading page shows
     std::vector<std::string> menu_stack; // menuPush / menuPop / menuRef
 
     RaceRequest race; // the race being set up
@@ -256,6 +274,8 @@ struct GameState {
     // tests' and the courses' rankings.
     std::array<u32, 768> race_units;
     Bytes license_record, course_record, machine_record;
+    // Gran Turismo 4 Prologue's license units as its save holds them (48 x 0x2E0; save/prologue_data.h); empty: none.
+    Bytes prologue_license;
 
     // Arcade's unlocked cars and courses (labels), favorites (labels, in order), presents given,
     // used cars sold this week, the championship left unfinished.

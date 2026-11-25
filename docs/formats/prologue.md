@@ -395,7 +395,7 @@ box the page drew was the mask's bar. A passing run shows `TIME 0'07.866`, "New 
 (`~/gt4re-out/prologue/r6/shots/pass6.png`); ❓ the medal's picture (`kind 7`, the host's: "_EXT"), and the view behind the
 page (the original's: the car from a trackside camera) are not drawn.
 
-## The saved game (🔎 layout read, not written yet)
+## The saved game ✔ written and read (`src/gt4r/save/prologue_data.*`)
 
 Prologue's game data (`GT4MC::FileGT4GameData`, "GAMEDATA", the card's `BISCPS-15055` folder) is its
 `GranTurismo4::Status` (ctor 0x401E90; size 0x402150, save 0x4021F0, check 0x4021A8, load 0x402288) written as raw
@@ -416,12 +416,39 @@ copies, each part padded to 16 bytes (0x401D20), in this order:
 
 Measured on the program's own save of a constructed Status (`gt4r_diff <prologue disc> prologue-save`): 0x1E7A0
 bytes (its size routine says the same, and its check accepts them); the name at 0x20, license unit k at 0x30 +
-0x2E0 k, the options at 0x1DE20: the options begin 16 bytes before the course units end (the profile's size,
-0x402460, counts the name but not the cars' count block's own padding the same way), so they are written over the
-last course unit's last 16 bytes; the load (0x402288) reads them in the same order. ❓ Not written here yet: our
-Prologue keeps its license results for the session only (`prologue_natives.cpp`); a save in this layout and the
-GameSave / GameLoad / AutoSave pages writing it are next (a new game's option bytes: the program's own save of a fresh
-Status, as above).
+0x2E0 k, course unit k at 0x8A30 + 0x550 k, the options at 0x1DE20: the options begin 16 bytes before the course units
+end (the profile's size, 0x402460, counts the name but not the cars' count block's own padding the same way), so they
+are written over the last course unit's last 16 bytes; the load (0x402288) reads them in the same order.
+
+**A new game** (the constructors' values; ours, `new_prologue_payload`, is the program's byte for byte, CRC included,
+`gt4r_diff <prologue disc> prologue-save`): every ranking entry empty (a license unit's ten of 0x48 from +0x10, a course
+unit's ten of 0x88 from +0x00: the time 359,999,999 at the entry's +0x10, the pass code "--------" at +0x24 / +0x68);
+the options' block: its size 0x6B8 first, then (offsets from 0x1DE20) words 1 at +0x10, +0x14, +0x18, +0x20, +0x24,
++0x2C, +0x38 .. +0x48, +0x60, +0x70; 0.9 at +0x28; 2 at +0x34 and +0x54; 1,200 at +0x74; bytes 1 at +0xAE, +0xAF;
+0xC63 at +0xB0; 0x100 at +0xC0 + 0x10 k for 64 rows; the two controller settings at +0x6C0 and +0x714 (the same 0x54
+bytes, 0x4041F0); the LAN settings at +0x770 ("machine01", 1 at +0x7F4 .. +0x7FC, 2 at +0x840, 6 at +0x84C); the network
+settings at +0x850 ("default setting", 1 at +0x870 and +0x8D4, the addresses 192.168.0.2, 255.255.255.0,
+192.168.0.1, 192.168.0.100, 192.168.0.101, 192.168.0.200 at +0x874, +0x894, +0x8B4, +0x8D8, +0x8F8, +0x91C). ❓ What
+the option words mean is not followed: a loaded game's options are kept as they were read and written back.
+
+**The file**: the card's folder `BISCPS-15055GAMEDATA` (the product, 0x19BCB0, and "GAMEDATA", 0x19D250) holds the game
+data file of the folder's name (the file path as Gran Turismo 4's, File::vf15), `icon0.ico` (the disc's
+`icon/gamedata.ico`) and `icon.sys` (the disc's, with the title). The game data file is the payload as it is: the read (0x19C9D0) makes a buffer of the file's size
+rounded up to 64 (0x4CC708, a vector's resize, the same routine as Gran Turismo 4's 0x5D0F50), reads the file into it and
+nothing else, and the load (0x19D2F8) hands that buffer to the Status's check and load, where Gran Turismo 4's read
+(0x1CDAC8) calls its decoder (0x1D4E60) in between. ❓ The write side (0x19C0F0) is not followed past its virtual calls,
+nor the file's padded size on the card;
+there is no garage file (the count is 0). ❓ The title's text in
+icon.sys (the program builds it at +0xC0 in 0x19C488 with a "[%d]" number): here the title the page gives.
+Not checked against a card the original wrote (no Prologue save from the console here).
+
+**Saving and loading** (`menu/game_natives.cpp`, the card manager as Gran Turismo 4's): before a save the license
+record's units (`prologue_license_units`, `menu/prologue_license.h`) and the license's default name (the profile's name)
+go into the state; after a load they go back (`prologue_license_load`, `setDefaultName`). The title's Save and Load
+Game start `memcard` with `save_game` / `load_game` (its GameSave and GameLoad pages); power on with a saved game loads
+it (AutoLoad). Test: `disc_prologue_game_saved_and_loaded` (a gold run and its name saved through GameSave, back
+through GameLoad on the next start). ❓ The course units (Prologue's course records) are kept as loaded: nothing of
+ours fills them yet.
 
 ## The menus ✅ boot to a race
 

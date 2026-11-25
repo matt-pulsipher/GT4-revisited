@@ -13,6 +13,7 @@
 #include "gt4r/formats/model/car_model.h"
 #include "gt4r/race/car_spec.h"
 #include "gt4r/sim/race_rules.h"
+#include "gt4r/race/driver_figure.h"
 #include "gt4r/sim/rules_wear.h"
 #include "gt4r/sim/session.h"
 #include "race/billboards.h"
@@ -74,6 +75,9 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
     night_ = (flags & 0x8000) != 0;
 
     const std::vector<db::CarEntry>& cars = app.db()->cars();
+    // The drivers' skeleton in its stored pose (every driver set's skeleton has the same sizes).
+    const std::optional<Bytes> driver_skeleton = app.vfs()->read("character/driver.mdl");
+    std::map<std::string, std::optional<Bytes>> character_files;
     for (const WorldEntry& e : setup.entries) {
         const db::CarEntry* entry = nullptr;
         for (const db::CarEntry& c : cars)
@@ -99,6 +103,19 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
             o.lamp_level = night_ ? 1 : 0;
             const std::optional<Bytes> wing_file = wing.empty() ? std::nullopt : app.vfs()->read("wing/lod/" + wing);
             if (wing_file) o.wing = *wing_file;
+            if (driver_skeleton) o.driver_skeleton = *driver_skeleton;
+            o.driver = setup.drivers;
+            if (setup.drivers && car::CarFile::is_car(*file) && !car::CarFile::parse(*file).driver) try {
+                    // A car without a driver of its own: a character file by its cockpit kind (0x3B5438).
+                    const race::CockpitPlaces cp = race::read_cockpit(*file);
+                    const std::string path = race::character_driver_file(cp.cockpit_kind, cp.co_driver, int(car_visuals_.size()));
+                    if (!path.empty()) {
+                        auto [it, fresh] = character_files.try_emplace(path);
+                        if (fresh) it->second = app.vfs()->read(path);
+                        if (it->second) o.driver_set = *it->second;
+                    }
+                } catch (const std::exception&) {
+                }
             visual = std::make_unique<race::CarVisual>(gpu, *file, pat ? ByteSpan(*pat) : ByteSpan{}, spec, o, entry->label);
             // The course's strengths of the three lamp lists (Env0 +0x1794: lights, brake, tail).
             if (const ByteSpan e0 = course_->section(course::kSlotEnv); e0.size() >= 0x17A0) {
@@ -200,6 +217,7 @@ void RaceWorld::build_simulation() {
                 entries[i].asm_on = we.asm_on, entries[i].tcs_on = we.tcs_on;
                 entries[i].start_speed = we.start_speed;
                 entries[i].start_distance = we.start_distance;
+                entries[i].place = we.place;
                 // An event's race counts fuel (0x35E108 sets the rule block's +0x4C to 80); a run without laps (practice, a
                 // free run) runs on the free-run conductor, whose rule block holds 0 there (the original's Practice state).
                 entries[i].fuel = setup_.event_row.size() > 0x43 && setup_.event_row[0x43] != 0;
@@ -377,6 +395,11 @@ int RaceWorld::gadget_contacts(size_t i) const {
     return i < c.size() ? c[i] : 0;
 }
 
+float RaceWorld::gadget_impulse(size_t i) const {
+    const std::vector<float>& j = gadget_bodies_.impulses();
+    return i < j.size() ? j[i] : 0.0f;
+}
+
 float RaceWorld::car_top_speed(size_t i) const {
     return session_ && i < car_visuals_.size() ? session_->record(i).p.top_speed.host() : 0.0f;
 }
@@ -428,6 +451,12 @@ void RaceWorld::present(std::span<const race::CarState> cars, const audio::Sound
     if (camera && m.sound) {
         if (live && session_) m.sound->update(*session_, *camera, target);
         else m.sound->update(cars, *camera, target);
+        // The pit scene of the car shown (0x3CFA98 through 0x35BE38): the stop's "tires on" bit (F +0x4B8 0x200) taken
+        // and cleared, the jack let down.
+        if (live && pits_ && target >= 0 && size_t(target) < car_visuals_.size()) {
+            sim::ai::PitCar& pc = pits_->car(size_t(target));
+            if (pc.service & 0x200) pc.service = u16(pc.service ^ 0x200), m.sound->pit_effect("jackdown");
+        }
     }
     if (!m.smoke.loaded()) return;
     const course::Runway& road = course_->road();
@@ -683,6 +712,20 @@ void RaceWorld::draw_icons(Ui& ui, const SDL_FRect& canvas, std::span<const Icon
     o.composite_alpha = std::clamp(opacity, 0.0f, 1.0f);
     if (m.view && m.env_ready) o.env_cube = m.view->env_cube(), o.env_gt3_lookup = true;
     m.icon_view->draw(ui.renderer(), canvas, render::Mat4::identity(), proj, RVec{0, 0, 100}, items, o);
+}
+
+void RaceWorld::draw_model(Ui& ui, const SDL_FRect& rect, const render::GpuModel& model, const render::Mat4& place, const render::Mat4& proj, float alpha) {
+    Impl& m = *impl_;
+    if (!app_.gpu() || alpha <= 0) return;
+    if (!m.icon_view) m.icon_view = std::make_unique<render::View3D>(*app_.gpu());
+    std::vector<render::DrawItem> items{render::DrawItem{&model, place, 0}};
+    render::DrawOptions o = draw_options(*course_, 100);
+    o.fog = false;
+    o.frustum_cull = false;
+    for (float& c : o.clear) c = 0;
+    o.composite_alpha = std::clamp(alpha, 0.0f, 1.0f);
+    if (m.view && m.env_ready) o.env_cube = m.view->env_cube(), o.env_gt3_lookup = true;
+    m.icon_view->draw(ui.renderer(), rect, render::Mat4::identity(), proj, RVec{0, 0, 0}, items, o);
 }
 
 // The rear-view mirror (docs/formats/course.md "Drawing", step 9: the mirror's fog, its sky,

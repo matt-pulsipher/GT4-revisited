@@ -218,21 +218,16 @@ void install_race_natives(Runtime& rt, script::Module& menu) {
             return text(w.rows.empty() ? std::string() : w.rows[0].car);
             (void)r;
         });
-        // getColorChipInfo(i): the paint's chip words; ❓ only the first (the paint's colour,
-        // 0x00BBGGRR) is filled.
+        // getColorChipInfo(i): the paint's four chip words (0x445B28).
         o->method("getColorChipInfo", [r, row](Vm& vm, const Value&, Args a) {
             const QuickRow* q = row(a);
-            std::vector<Value> words(4, number(0));
             if (q && !q->car.empty()) {
                 const Value car = make_car_object(*r, q->car, q->paint);
                 const Value colors = vm.call(vm.attribute(car, "getColors"), {});
-                if (const std::vector<Value>* list = colors.items(); list && q->paint >= 0 && size_t(q->paint) < list->size()) {
-                    const Value& c = (*list)[size_t(q->paint)];
-                    auto byte = [&](const char* k) { return u32(std::clamp(vm.attribute(c, k).as_float(), 0.0f, 1.0f) * 255.0f + 0.5f); };
-                    words[0] = number(s32(byte("r") | byte("g") << 8 | byte("b") << 16));
-                }
+                if (const std::vector<Value>* list = colors.items(); list && q->paint >= 0 && size_t(q->paint) < list->size())
+                    if (const Value chip = vm.attribute((*list)[size_t(q->paint)], "chip"); chip.items()) return chip;
             }
-            return Value::array(std::move(words));
+            return Value::array(std::vector<Value>(4, number(0)));
         });
         // The catalog's power (PS) and weight of a row's car when the sequence gave none.
         // The power (PS, whole) and weight of a row's car as the race builds it, when the sequence

@@ -7,7 +7,7 @@
 // auto (the simple driver takes the first car too) or pad, `skip` simulation steps run before the
 // first picture (the start's hold is left out then), `paint` the first car's paint, `laps` the
 // race's length, `start` the start: 10 or 8 (a hold of so many seconds with the opening shots),
-// <seconds> (a plain hold), none, rolling, course (the course's own: race/start_rule.h); `view=tv` the course's replay cameras; `replay=N` drives
+// <seconds> (a plain hold), none, rolling, course (the course's own: race/start_rule.h); `view=tv` the course's replay cameras; `driver=1` the drivers in their stored pose; (GT4R_DEMO_LOG=<n> logs a demonstration's car every n steps); `replay=N` drives
 // N steps unseen and plays them back through the replay cameras; `bspec=1` a B-spec run (GT4R_HITCH=<ms>
 // logs every frame longer than that, with the race's work and the present before it); `menus=single_race` the race
 // sequence's own menus (quick-arcade) before and after the race (any sequence: solo_event,
@@ -25,12 +25,16 @@
 
 #include "base/log.h"
 #include "gt4r/formats/course/course_file.h"
+#include "gt4r/formats/course/runway_gtrw.h"
 #include "gt4r/race/drive_camera.h"
 #include "gt4r/race/race_flow.h"
 #include "gt4r/race/rail_simulation.h"
 #include "gt4r/race/replay_script.h"
 #include "gt4r/race/replay_file.h"
 #include "gt4r/race/license_rules.h"
+#include "gt4r/race/license_trophy.h"
+#include "gt4r/formats/model/mdls.h"
+#include "render/gpu_model.h"
 #include "gt4r/race/sections.h"
 #include "gt4r/sim/program_prologue.h"
 #include "gt4r/sim/race_rules.h"
@@ -89,6 +93,7 @@ struct Setup {
     int laps = 3;
     int replay = 0;
     bool smoke = true;
+    bool drivers = false;
     bool reflection = true;
     bool rail = false;     // the stand-in simulation instead of the game's
     bool scripted = false; // from GT4R_RACE: no lists
@@ -101,6 +106,10 @@ struct Setup {
     int course_kind = 0;       // the course's COURSE row +0x10 (race/start_rule.h CourseStart::kind)
     bool start_given = false;
     std::vector<std::string> opponents; // the other cars by label (empty: from the car list)
+    // Each entry's start place (0 the front), by the entry's number (0 the player); empty: the player
+    // at the back, the others ahead in entry order. A championship's races from the second on
+    // (0x3EE9F8 / 0x3EE7C0: the entries keep their order, only their places change).
+    std::vector<int> grid_slots;
     std::string sequence; // `menus=single_race`: the race's own menus (the sequence's quick project) round the race
     std::array<u16, 3 * 64> bspec_book{}; // the B-spec driver's book and the course's marks (the request's)
     std::array<u8, 8> bspec_course_marks{};
@@ -143,6 +152,7 @@ Setup setup_from_env() {
         else if (k == "hud") s.hud = v != "0";
         else if (k == "replay") s.replay = std::max(0, std::atoi(v.c_str()));
         else if (k == "smoke") s.smoke = v != "0";
+        else if (k == "driver") s.drivers = v != "0";
         else if (k == "reflection") s.reflection = v != "0";
         else if (k == "sim") s.rail = v == "rail";
         else if (k == "laps") s.laps = std::clamp(std::atoi(v.c_str()), 1, 99);
@@ -354,7 +364,7 @@ public:
             if (cars[i].label == setup.car || cars[i].model == setup.car) first = i;
         WorldSetup ws;
         ws.course = setup.course;
-        ws.smoke = setup.smoke, ws.reflection = setup.reflection, ws.rail = setup.rail;
+        ws.smoke = setup.smoke, ws.reflection = setup.reflection, ws.drivers = setup.drivers, ws.rail = setup.rail;
         ws.computer_player = setup.auto_drive || setup.start == race::StartType::Rolling;
         ws.pace = setup.pace;
         ws.bspec_book = setup.bspec_book, ws.bspec_course_marks = setup.bspec_course_marks, ws.bspec_course_known = setup.bspec_course_known;
@@ -363,7 +373,8 @@ public:
         ws.options = setup.options;
         ws.playlist = setup.playlist;
         // The grid: the player at the back, the others ahead of him in entry order.
-        const std::vector<int> places = race::grid_places(size_t(setup.cars), 0);
+        std::vector<int> places = race::grid_places(size_t(setup.cars), 0);
+        if (setup.grid_slots.size() == places.size()) places = setup.grid_slots;
         for (int i = 0; i < setup.cars; ++i) {
             WorldEntry e;
             e.label = i == 0 || setup.opponents.empty() ? cars[(first + size_t(i) * 37) % cars.size()].label
@@ -432,7 +443,10 @@ public:
                 } catch (const std::exception&) {
                 }
         }
-        splits_ = race::road_list(world_->course().section(course::kSlotRunway), 0);
+        ByteSpan road_section = world_->course().section(course::kSlotRunway);
+        if (road_section.empty()) road_section = world_->course().section(course::kSlotRoadGtrw); // (Prologue's)
+        splits_ = race::road_list(road_section, 0);
+        if (splits_.size() > 3 && gt3_road_) splits_.resize(3); // (0x3B5FF8: four sectors at most)
         mount_ = setup.view;
         begin_run(setup.bspec);
         // A scripted run that skips ahead: those steps unseen.
@@ -446,6 +460,8 @@ public:
 
     // The cars on the grid and the start's hold from the beginning; `watched`: the computer drives the
     // player's car too (B-spec).
+    void set_bspec_book(const std::array<u16, 3 * 64>& book, const std::array<u8, 8>& marks) { world_->set_bspec_book(book, marks); }
+    const WorldSetup& world_setup() const { return world_->setup(); }
     void begin_run(bool watched = false, bool demo = false) {
         if (!demo && demo_run_) end_demo();
         // (A rolling start: the computer drivers drive the player's car up to the line; a demonstration
@@ -457,6 +473,8 @@ public:
         // B-spec: the pace "Steady", the low view from the car's nose (as the original's B-spec race
         // opens), the help strip shown.
         bspec_pace_ = 3, overtake_steps_ = 0, bspec_help_ = true, focus_ = 0;
+        if (before_tv_ && mount_ == kTvView) mount_ = *before_tv_; // (the results page's cameras, back to the player's view)
+        before_tv_.reset();
         if (watched) mount_ = race::DriveCamera::kInCar;
         menu_scene_ = false;
         race::FlowSetup fs;
@@ -468,6 +486,12 @@ public:
         fs.lap_length = world_->lap_length();
         fs.player_clock = !setup_.test_starts.empty();
         for (const std::array<float, 2>& s : setup_.test_starts) fs.past_line.push_back(s[1] >= 0);
+        // Where the cars' crossings start: a section test has no split points of its own. Prologue (0x3C9790) counts by the
+        // split points alone (a road without any: 0).
+        const course::Runway& road = world_->course().road();
+        fs.counted = !road.gtrw || !splits_.empty();
+        if (!on_section_) fs.sectors = splits_;
+        fs.goal = road.gtrw ? -1 : goal_ > 0 ? goal_ : road.goal_v >= 1 && road.goal_v <= fs.lap_length - 1 ? road.goal_v : -1;
         flow_.begin(fs, world_->cars());
         rolled_ = false;
         license_failed_ = false, section_prev_ = -1;
@@ -477,6 +501,7 @@ public:
         board_.begin(world_->car_count(), 0, lap_words_[0], lap_words_[1]);
         camera_.reset(world_->cars()[0]);
         history_.clear(), run_dist_.clear();
+        if (audio::RaceSound* sound = world_->sound()) sound->forget_recording();
         split_prev_.clear(), split_first_.clear(), split_steps_ = -1;
         distance_ = 0;
         replaying_ = false, over_ = false;
@@ -522,6 +547,7 @@ public:
     }
     void play_saved(race::ReplayFile&& f) {
         history_ = std::move(f.steps);
+        if (audio::RaceSound* sound = world_->sound()) sound->forget_recording(); // (a saved run: heard from its states)
         for (std::vector<race::CarState>& s : history_) s.resize(world_->car_count());
         ran_ = true;
         // (The replay's music: the play list's next piece, as a race's first.)
@@ -602,7 +628,16 @@ public:
             me.steer = in.steer, me.throttle = in.throttle, me.brake = in.brake, me.handbrake = in.handbrake;
             me.shift_up = in.shift_up, me.shift_down = in.shift_down;
             me.reverse = mapper_.reverse();
-            if (me.reverse) me.throttle = std::max(me.throttle, gt3r::race::pressure_to_pedal(pad.press(PadButton::Triangle)));
+            if (me.reverse) {
+                // The back axis alone (GT4's pad controls 0x349418 take it over a smaller throttle),
+                // the brake from its own button: not the shared mapping's automatic swap, which puts
+                // the back axis on the brake.
+                const auto pedal = [&](PadButton b) {
+                    return !pad.down(b) ? 0.0f : pad.press(b) ? gt3r::race::pressure_to_pedal(pad.press(b), mapper_.config()) : 1.0f;
+                };
+                me.throttle = std::max(pedal(PadButton::Cross), pedal(PadButton::Triangle));
+                me.brake = pedal(PadButton::Square);
+            }
         }
         // Prologue's license test ended: the car brakes to a stand (✔ the original's lesson 1 off the course; ❓ its routine not read).
         if (finish_view()) inputs_[0] = {}, inputs_[0].brake = 1, auto_drive = false;
@@ -611,6 +646,14 @@ public:
         if (demo) inputs_[0] = demo_run_->input(demo_step_++), auto_drive = false;
         const bool opening = opening_tv();
         world_->step(inputs_, hold, !demo && (auto_drive || watched_ || setup_.auto_drive));
+        // GT4R_DEMO_LOG=<n>: a demonstration's car every n steps (the record's x, y: the course's x, -z), to compare with a
+        // run of the program's own step (gt4r_diff demo).
+        if (demo)
+            if (const char* every = SDL_getenv("GT4R_DEMO_LOG"); every && std::atoi(every) > 0 && (demo_step_ - 1) % size_t(std::atoi(every)) == 0) {
+                const race::CarState& c = world_->cars()[0];
+                LOG_INFO("Drive: demo step %zu: %.2f km/h at (%.3f, %.3f) v %.2f%s", demo_step_ - 1, double(c.speed) * 3.6, double(c.position.x), double(-c.position.z),
+                         double(c.course_v), hold ? " held" : "");
+            }
         // (A rolling start's clock stands until the first car takes the line: RaceFlow.)
         const race::RaceFlow::Events ev = flow_.step(world_->cars());
         // A rolling start: each car released to its driver as it takes the line (vf20 0x347928).
@@ -759,7 +802,8 @@ public:
             WorldEntry e = world_->setup().entries[i];
             e.equipment = entries[i].equipment, e.grid_place = entries[i].grid_place;
             e.automatic = entries[i].automatic, e.asm_on = entries[i].asm_on, e.tcs_on = entries[i].tcs_on;
-            if (i == 0 && on_section_) e.start_distance = section_start_; // (a test on a section: its start)
+            if (i == 0 && on_section_) e.place = section_place_; // (a test on a section: its start place)
+            if (i == 0 && on_section_ && !section_place_) e.start_distance = section_start_;
             over[i] = e;
         }
         world_->set_computer_player(false);
@@ -776,7 +820,8 @@ public:
         demo_run_.reset();
         if (on_section_) {
             WorldEntry e = world_->setup().entries[0];
-            e.start_distance = section_start_;
+            e.place = section_place_;
+            if (!section_place_) e.start_distance = section_start_;
             world_->set_entry_overrides({e});
         } else world_->set_entry_overrides({});
     }
@@ -806,6 +851,11 @@ public:
         h.speed = me.speed, h.rpm = me.engine_rpm, h.gear = me.gear;
         h.throttle = me.throttle, h.brake = me.brake;
         h.fuel = replaying_ ? 1.0f : world_->fuel_share(shown_car);
+        // The tire diagram: only in a race that wears its tires (the display's flag), each wheel in the color of its
+        // wear level; B-spec's pit command waiting.
+        h.tires_on = !replaying_ && !demo && world_->wears_tires();
+        for (int w = 0; w < 4; ++w) h.tire_rgb[w] = h.tires_on ? race::tire_color(world_->tire_level(shown_car, w)) : 0;
+        h.pit_command = watched_ && !replaying_ && world_->pit_requested(shown_car);
         h.suggested_gear = replaying_ || watched_ || demo ? -1 : world_->suggested_gear(0);
         h.trip_m = replaying_ ? 0 : distance_;
         h.lateral_g = replaying_ ? 0 : lateral_g_;
@@ -933,6 +983,14 @@ public:
     // Where the shown frame is between the last two steps (0 .. 1), for the cars and the camera.
     void set_blend(float t) { blend_ = std::clamp(t, 0.0f, 1.0f); }
 
+    // The course's TV cameras (a license test's results page shows the car from the trackside ❓ which
+    // of the program's cameras is not read).
+    void tv_view() {
+        if (replay_script_.records.empty() || mount_ == kTvView) return;
+        before_tv_ = mount_;
+        mount_ = kTvView;
+    }
+
     void render(Ui& ui, const SDL_FRect& rect, bool look_back) {
         std::span<const race::CarState> cars = shown();
         const bool blend = blend_ < 1 && (!menu_scene_ || preview_) && prev_cars_.size() == cars.size() && !cars.empty();
@@ -951,9 +1009,9 @@ public:
         snapshot_ = false;
         world_->render(ui, rect, cars, pose, focus(), pose.body_hidden ? int(focus()) : -1);
         // The in-car view's rear-view mirror at the top (❓ its place, (190, 18) 259 x 63 of the
-        // 640 x 480 picture, measured on the original's in-car view): not in replays, the opening
+        // 640 x 480 picture, measured on the original's in-car view): not in replays, demonstrations, under the results pages, the opening
         // shots (a standing start's or a rolling start's TV cameras), B-spec or looking back.
-        if (mount_ == race::DriveCamera::kInCar && !finish_view() && !replaying_ && !menu_scene_ && !watched_ && !start_camera_.active() && !opening_tv() && !look_back && !setup_.look_back) {
+        if (mount_ == race::DriveCamera::kInCar && !finish_view() && !replaying_ && !demo_run_ && !flow_.player_finished() && !menu_scene_ && !watched_ && !start_camera_.active() && !opening_tv() && !look_back && !setup_.look_back) {
             const SDL_FRect c = RaceHud::canvas();
             const float k = c.h / 480.0f;
             world_->render_mirror(ui, {c.x + 190 * k, c.y + 18 * k, 259 * k, 63 * k}, cars, pose, 0);
@@ -1025,6 +1083,10 @@ public:
             s.wall_hit = mass > 0 ? c.contact * 100000.0f / mass : 1e9f;
         } else if (c.contact > 0 && c.contact_kind == 2) s.car_hit = c.contact;
         s.cones = world_->gadget_contacts(0);
+        // A cone's contact is heard (kind 2, clash4) only while the test counts cones knocked down (the
+        // rule block's +0x46 not 0: 0x350328 asks 0x35DF00).
+        if (r.pylons > 0 && s.cones > 0)
+            if (audio::RaceSound* sound = world_->sound()) sound->contact(0, 2, world_->gadget_impulse(0));
         if (judge_.step(s) != race::LicenseFail::None) {
             LOG_INFO("Drive: the test failed (kind %d: wall %.2f, car %.2f, cones %d, wheels off %d, pit %d) at %.3f s", int(judge_.fail()), double(s.wall_hit),
                      double(s.car_hit), s.cones, s.wheels_off, s.wheels_pit, double(flow_.time_ms()) / 1000);
@@ -1044,13 +1106,15 @@ public:
         if (goal_ >= 0 && r.kind == 2 && section_prev_ >= 0 && section_prev_ < goal_ && goal_ <= c.course_v && c.course_v - section_prev_ < 50) {
             flow_.finish_now(0, (c.course_v - goal_) / std::max(1e-3f, c.course_v - section_prev_));
             license_failed_ = false;
+            if (demo_run_) LOG_INFO("Drive: the demonstration %s reached the goal at %lld ms on our clock (recorded %d ms)", demo_run_->label.c_str(),
+                                    (long long)race::clock_ms(flow_.car(0).finish_units), demo_run_->recorded_ms());
         }
         section_prev_ = c.course_v;
     }
     // The test's rules; a test on a section of the road (CFG +0x21, vf26 0x34CA20 → K +0xCBE2) starts at the
-    // section's start when it lies 1 m .. the lap less 1 m along (0x34C3E0: whole metres; the car on the driving
-    // line there, 0x363B10) and ends at its goal when that lies in the same range (0x34C470, checked by the lap
-    // routine 0x358608 → vf23).
+    // section's start, on the section's own grid place (a plain grid start: RoadSection::grid, 0x3952C0; ❓ else the
+    // road's distance to the line) and ends at its goal when that lies 1 m .. the lap less 1 m along (0x34C470, checked
+    // by the lap routine 0x358608 → vf23).
     void set_license_rules(const race::LicenseRules& r) {
         judge_ = race::LicenseJudge(r);
         goal_ = -1, on_section_ = false;
@@ -1063,8 +1127,10 @@ public:
             const float start = std::trunc(sec.start);
             on_section_ = true;
             section_start_ = start > lap * 0.5f ? start - lap : start;
+            section_place_ = sec.grid.empty() ? std::nullopt : std::optional<course::Runway::Place>(sec.grid[0]);
             WorldEntry e = world_->setup().entries[0];
-            e.start_distance = section_start_;
+            e.place = section_place_;
+            if (!section_place_) e.start_distance = section_start_;
             world_->set_entry_overrides({e});
             begin_run(watched_);
         }
@@ -1210,6 +1276,9 @@ public:
 
     void quiet() { world_->quiet(); }
     void draw_icons(Ui& ui, const SDL_FRect& canvas, std::span<const RaceWorld::Icon> icons) { world_->draw_icons(ui, canvas, icons); }
+    void draw_model(Ui& ui, const SDL_FRect& rect, const render::GpuModel& m, const render::Mat4& place, const render::Mat4& proj, float alpha) {
+        world_->draw_model(ui, rect, m, place, proj, alpha);
+    }
     audio::RaceSound* sound() { return world_->sound(); }
 
     const race::CarState& player() const { return shown()[0]; }
@@ -1227,7 +1296,14 @@ private:
     Setup setup_;
     std::unique_ptr<RaceWorld> world_;
     std::vector<race::CarInput> inputs_;
-    gt3r::race::ControlMapper mapper_;
+    // The pad's raw stick: GT4's input phase (0x349FD0) makes its own analog path, so no dead zone
+    // or curve of the shared mapping goes before it.
+    static gt3r::race::ControlConfig raw_controls() {
+        gt3r::race::ControlConfig c;
+        c.stick_deadzone = 0, c.stick_exponent = 1;
+        return c;
+    }
+    gt3r::race::ControlMapper mapper_{raw_controls()};
     race::DriveCamera camera_;
     race::ReplayScript replay_script_;
     race::ReplayCamera replay_camera_;
@@ -1257,6 +1333,7 @@ private:
     bool gt3_road_ = false;                           // the road is Gran Turismo 3's (Prologue's courses)
     race::LicenseJudge judge_;
     float goal_ = -1, section_prev_ = -1, section_start_ = 0; // a test on a road section: its goal and start (m)
+    std::optional<course::Runway::Place> section_place_; // ... and its own start place
     bool on_section_ = false;                                // it starts at the section's start
     std::vector<std::vector<float>> run_dist_; // per car, per step since the start: its distance from the line
     size_t focus_ = 0; // B-spec: the car the views follow
@@ -1280,6 +1357,7 @@ private:
     int split_steps_ = -1, split_index_ = 0;
     s64 split_ms_ = 0, split_gap_ms_ = 0;
     int mount_ = race::DriveCamera::kChase;
+    std::optional<int> before_tv_; // the view before tv_view
 };
 
 class RaceScreen : public Screen {
@@ -1550,10 +1628,26 @@ public:
         if (license_page() && !prologue_hud_) {
             // The test's results page: the race in its live inset (the movie's picture, 300 x 225 at
             // its scale; it starts over the whole picture and shrinks into place) on black.
+            // A passed test's page has no inset (no "screen" picture in the movie's PASSED part): the
+            // race fills the picture, the trophy turns in front (0x3E0E38).
             ui.fill(0, 0, Ui::kWidth, Ui::kHeight, Color{0, 0, 0, 255});
             const SDL_FRect c = RaceHud::canvas();
-            const float k = c.h / 480.0f, w = 300 * inset_.scale * k, h = 225 * inset_.scale * k;
-            race_->render(ui, {c.x + inset_.x * k - w / 2, c.y + inset_.y * k - h / 2, w, h}, false);
+            if (inset_shown_) {
+                const float k = c.h / 480.0f, w = 300 * inset_.scale * k, h = 225 * inset_.scale * k;
+                race_->render(ui, {c.x + inset_.x * k - w / 2, c.y + inset_.y * k - h / 2, w, h}, false);
+            } else {
+                race_->render(ui, {0, 0, float(Ui::kWidth), float(Ui::kHeight)}, false);
+            }
+            // The race display's three target times stay over a passed test's page.
+            if (hud_ && hud_->ready() && prize_level() < 3) {
+                HudState t;
+                t.license = true;
+                for (int q = 0; q < 3; ++q) t.targets[q] = test_time(q);
+                hud_->draw_license_targets(ui, t);
+            }
+        } else if (quick_ && is_license(sequence_) && !race_->has_run()) {
+            // (A license test's page before its first run has no scene behind it.)
+            ui.fill(0, 0, Ui::kWidth, Ui::kHeight, Color{0, 0, 0, 255});
         } else {
             race_->render(ui, {0, 0, float(Ui::kWidth), float(Ui::kHeight)}, look_back_);
         }
@@ -1598,8 +1692,10 @@ public:
                 hud_->draw_movie(license_page() && license_movie_ ? *license_movie_ : *result_movie_, *result_, &ext);
                 std::vector<RaceWorld::Icon> icons;
                 const auto& rows = race_->board().rows();
+                if (license_page()) inset_shown_ = false;
                 for (const RaceHud::MovieExternal& e : ext) {
-                    if (e.name == "_EXT") inset_ = e; // the license page's live inset
+                    if (e.name == "screen" || e.name == "_EXT") inset_ = e, inset_shown_ = true; // the license page's live inset
+                    if (e.name == "TropyPanel" && license_page()) draw_trophy(app, ui, e);
                     if (e.name.rfind("_EXT_CARICON", 0) == 0) {
                         const int row = std::atoi(e.name.c_str() + 12) - 1;
                         if (row >= 0 && size_t(row) < rows.size() && rows[size_t(row)].car >= 0) icons.push_back({size_t(rows[size_t(row)].car), e.x, e.y, e.opacity});
@@ -1885,6 +1981,7 @@ private:
         if (!paused_ && pause_retry_) {
             // Retry (end code 4): the run again at once, without the menus.
             pause_retry_ = false;
+            if (menus_ && !sequence_.empty()) race_->set_bspec_book(menus_->game().race.bspec_book, menus_->game().race.bspec_course_marks);
             race_->begin_run(spectator_);
             result_tried_ = false, result_.reset(), reported_ = false;
             clock_ = 0;
@@ -1939,7 +2036,8 @@ private:
         menu::QuickWork& w = menu::quick_work(menus_->game());
         const menu::RaceRequest& q = menus_->game().race;
         const size_t n = race_->car_count();
-        const std::vector<int> places = race::grid_places(n, 0);
+        std::vector<int> places(n);
+        for (size_t i = 0; i < n; ++i) places[i] = std::clamp(race_->entry(i).grid_place, 0, int(n) - 1);
         w.rows.assign(n, menu::QuickRow{});
         for (size_t i = 0; i < n; ++i) {
             menu::QuickRow& row = w.rows[size_t(places[i])];
@@ -1962,7 +2060,7 @@ private:
             // The grid's Pts column (the page reads getPower: the work's +0x364, which holds each entrant's points so
             // far in a championship, 0x11A168; none before the first race).
             for (size_t i = 0; i < n; ++i) {
-                const size_t entrant = i == 0 ? 0 : size_t(race_->entry(i).grid_place + 1); // (as report_result numbers them)
+                const size_t entrant = i; // (the car's number is its entry's, as report_result numbers them)
                 w.rows[size_t(places[i])].power = entrant < g.series.entrants.size() ? g.series.entrants[entrant].points : 0;
             }
             w.race_label = championship_race();
@@ -1991,6 +2089,7 @@ private:
         spectator_ = watched;
         demo_ = demo;
         reported_ = false;
+        if (menus_ && !sequence_.empty()) race_->set_bspec_book(menus_->game().race.bspec_book, menus_->game().race.bspec_course_marks);
         race_->begin_run(watched);
         clock_ = 0;
     }
@@ -2045,11 +2144,12 @@ private:
         // A B-spec race: the driver's record back for the book (0x468860), the car's class.
         if (spectator_)
             if (const std::optional<std::array<u8, 0x40>> rec = race_->bspec_record())
-                r.bspec_record = rec, r.bspec_class = race_->bspec_class(), r.bspec_course = setup_.bspec_course_known; // (❓ the race's cond + 0xCBE7 taken as the course's marks being known)
+                r.bspec_record = rec, r.bspec_class = race_->bspec_class(), r.bspec_course = setup_.bspec_course_known;
+                r.bspec_start = race_->world_setup().bspec_book, r.bspec_start_marks = race_->world_setup().bspec_course_marks;
         // Every car in finishing order.
         for (const race::RaceFlow::ResultRow& row : flow.results()) {
             menu::RaceResult::Finisher f;
-            f.entry = row.car == 0 ? 0 : race_->entry(row.car).grid_place + 1;
+            f.entry = int(row.car); // the car's number is its entry's (0 the player)
             f.car = race_->entry(row.car).label, f.paint = int(race_->entry(row.car).paint);
             f.finished = row.finished;
             if (row.finished) f.time_ms = u32(row.total_ms);
@@ -2182,6 +2282,12 @@ private:
         setup_.course = q.course, setup_.race = q.race;
         if (q.laps > 0) setup_.laps = std::clamp(q.laps, 1, 99);
         if (sequence_ == "license") setup_.car = q.car, setup_.paint = u32(std::max(0, q.paint)), setup_.player_equipment.reset(), test_car(app, setup_, q);
+        if (sequence_ == "championship") { // the start places from the second race on (0x3EE9F8); the entries keep their numbers
+            std::vector<std::pair<std::string, std::optional<sim::Equipment>>> entries{{setup_.car, setup_.player_equipment}};
+            for (size_t i = 0; i < setup_.opponents.size(); ++i)
+                entries.emplace_back(setup_.opponents[i], i < setup_.opponent_equipment.size() ? setup_.opponent_equipment[i] : std::nullopt);
+            setup_.grid_slots = g.series.races_run >= 1 ? menu::championship_grid_places(*menus_, entries) : std::vector<int>{};
+        }
         if (!app.vfs()->exists("crs/" + setup_.course) && setup_.course.rfind("r_", 0) == 0) setup_.course = setup_.course.substr(2);
         apply_course_start(app, setup_, true);
         result_.reset(), result_tried_ = false, reported_ = false;
@@ -2343,6 +2449,7 @@ private:
     // race's results (docs/formats/strobe.md "The results movie").
     void open_results(App& app) {
         result_tried_ = true, result_exit_ = false, points_phase_ = 0;
+        trophy_kind_ = -1, inset_shown_ = true;
         entered_name_.clear();
         if (!result_movie_) {
             try {
@@ -2380,7 +2487,7 @@ private:
             // the rows in order of the points so far with this race's added ("20 pt" in the time's place).
             if (sequence_ == "championship" && menus_) {
                 const menu::GameState& g = menus_->game();
-                auto entrant_of = [this](int car) { return car <= 0 ? size_t(0) : size_t(race_->entry(size_t(car)).grid_place + 1); };
+                auto entrant_of = [](int car) { return car <= 0 ? size_t(0) : size_t(car); };
                 auto total_of = [&](size_t r) {
                     const int car = board.rows()[r].car;
                     const size_t e = entrant_of(car);
@@ -2396,8 +2503,8 @@ private:
                 if (n == "ISCHAMPIONSHIP") return V::boolean(true);
                 if (n == "ISSTAGE1") return V::boolean(g.series.races_run == 0);
                 if (n == "TOPOINTDISP") points_phase_ = 1;
-                if (n == "TOPOINTADDPHASE") points_phase_ = 2;
-                if (n == "TOPOINTRANKINGPHASE") points_phase_ = 3;
+                if (n == "TOPOINTADDPHASE") points_phase_ = 2, board.touch(); // (the rows read again for this part)
+                if (n == "TOPOINTRANKINGPHASE") points_phase_ = 3, board.touch();
                 if (n == "GETPOINT") {
                     const std::string at = args.empty() ? std::string() : args[0].to_string();
                     const int r = at.size() > 1 && (at[0] == 'R' || at[0] == 'r') ? std::atoi(at.c_str() + 1) - 1 : -1;
@@ -2433,6 +2540,7 @@ private:
             return V::number(0); // isChampionship, isStage1, ...: no
         };
         if (is_license(sequence_) && license_movie_) {
+            race_->tv_view();
             // ResultLicense (0x3E1BF8: result_license.strb): the grade, the time and its gap, the
             // test's title, RETRY / EXIT.
             auto lhost = [this, &app](const std::string& name, const std::vector<race::StrobePlayer::Value>& args) {
@@ -2544,6 +2652,8 @@ private:
             return;
         }
         prologue_test_start(app);
+        // The B-spec driver's book as it is now (race_finished keeps the request's up to date between a sequence's races).
+        if (menus_ && !sequence_.empty()) setup_.bspec_book = menus_->game().race.bspec_book, setup_.bspec_course_marks = menus_->game().race.bspec_course_marks;
         try {
             race_ = std::make_unique<Race>(app, setup_, cars_);
             if (setup_.bspec) spectator_ = true;
@@ -2710,6 +2820,48 @@ private:
     bool prologue_license_ = false; // the license results movie is Prologue's
     std::string entered_name_;      // the name entered on Prologue's results page
     RaceHud::MovieExternal inset_{"_EXT", 320, 240, 640.0f / 300.0f, 1};
+    bool inset_shown_ = true;
+    // A passed license test's trophy (race/trophy.mdl in the movie's TropyPanel, 0x3E0FF8).
+    std::unique_ptr<render::GpuModel> trophy_;
+    int trophy_kind_ = -1;
+    race::LicenseTrophy trophy_motion_;
+    Uint64 trophy_ticks_ = 0;
+    void draw_trophy(App& app, Ui& ui, const RaceHud::MovieExternal& panel) {
+        const int kind = race::LicenseTrophy::kind_for(prize_level());
+        if (kind <= 0 || !app.gpu()) return;
+        if (kind != trophy_kind_) {
+            trophy_kind_ = kind, trophy_.reset();
+            trophy_motion_.start(kind);
+            trophy_ticks_ = SDL_GetTicksNS();
+            try {
+                if (const std::optional<Bytes> f = app.vfs()->read("race/trophy.mdl"); f && mdls::is_mdls(*f)) {
+                    gt3r::gtm1::Options o; // (as the race's cars: the reflection passes weighted, the course's reflection picture)
+                    o.program_alpha_test = true, o.weighted_reflection = true, o.gs_mip_levels = true;
+                    o.paint = race::LicenseTrophy::material_for(kind, int(mdls::read_header(*f).variations));
+                    trophy_ = std::make_unique<render::GpuModel>(*app.gpu(), mdls::build_model(*f, o, mdls::Scene{}, "trophy"));
+                }
+            } catch (const std::exception& e) {
+                LOG_WARN("Trophy: %s", e.what());
+            }
+        }
+        if (!trophy_) return;
+        // The panel's box (the movie's external record: 282 x 270 about its place) holds the whole
+        // 640 x 448 picture the trophy is drawn in.
+        const SDL_FRect c = RaceHud::canvas();
+        const float k = c.h / 480.0f, w = 282.3f * panel.scale * k, h = 270.5f * panel.scale * k;
+        const SDL_FRect rect{c.x + panel.x * k - w / 2, c.y + panel.y * k - h / 2, w, h};
+        const render::Mat4 proj = render::perspective(race::LicenseTrophy::kFovDegrees * 3.14159265f / 180, race::LicenseTrophy::kAspect, race::LicenseTrophy::kNear,
+                                                      race::LicenseTrophy::kFar);
+        race_->draw_model(ui, rect, *trophy_, trophy_motion_.matrix(), proj, std::clamp(trophy_motion_.fade.value, 0.0f, 1.0f) * panel.opacity);
+        // Stepped by the time shown, 1/60 s a picture of the original's (two half steps a picture).
+        const Uint64 now = SDL_GetTicksNS();
+        float dt = std::min(float(double(now - trophy_ticks_) / 1e9), 0.1f);
+        trophy_ticks_ = now;
+        while (dt > 0) {
+            const float d = std::min(dt, 1.0f / 120);
+            trophy_motion_.step(d), dt -= d;
+        }
+    }
     menu::Runtime* menus_ = nullptr;    // the race's menus run on these (from the menus that asked)
     std::unique_ptr<menu::Runtime> own_menus_; // a scripted run's
     std::string sequence_;              // the race sequence ("single_race")

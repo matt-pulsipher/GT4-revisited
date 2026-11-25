@@ -117,6 +117,13 @@ struct Flow {
         for (int i = 0; i < 6 && page() != "TopRoot"; ++i) press({menu::Key::Cancel});
         return page() == "TopRoot" && rt->game().garage_count() == 1 && rt->game().riding_car == 0;
     }
+    // `key` pressed with every license passed (each record a license test's gold for that one press).
+    void press_licensed(menu::Key key) {
+        const auto before = rt->game().race_units;
+        for (u32& unit : rt->game().race_units) unit = (unit & ~0xFFu) | 0x91u;
+        press({key});
+        rt->game().race_units = before;
+    }
     // A widget of the page shown by its name (depth first), focused.
     bool focus_on(const std::string& name) {
         std::function<std::shared_ptr<menu::LiveWidget>(const std::shared_ptr<menu::LiveWidget>&)> find = [&](const std::shared_ptr<menu::LiveWidget>& w) {
