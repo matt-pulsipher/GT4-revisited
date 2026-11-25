@@ -1,4 +1,6 @@
 #include "gt4r/app/race_hud_prologue.h"
+
+#include "gt4r/app/app.h"
 #include "gt4r/app/game_area.h"
 
 #include "base/log.h"
@@ -693,7 +695,7 @@ void PrologueHud::draw(Ui& ui, const HudState& s, const Extra& e) {
     if (!ready_) return;
     Impl& m = *impl_;
     m.r = ui.renderer();
-    const Uint64 now = SDL_GetTicksNS();
+    const Uint64 now = App::frame_time_ns();
     m.step = m.last_ns ? std::min(0.1, double(now - m.last_ns) / 1e9) : 0;
     m.clock += m.step;
     m.last_ns = now;
