@@ -1566,8 +1566,9 @@ public:
         step_dissolve();
         // GT4R_LENS_LOG=<n>: the replay camera's place and lens every n steps.
         if (const char* every = SDL_getenv("GT4R_LENS_LOG"); every && std::atoi(every) > 0 && tv_valid_ && ++lens_steps_ % size_t(std::atoi(every)) == 0)
-            LOG_INFO("Drive: lens at d %.1f: %.2f degrees, eye (%.1f, %.1f, %.1f), car (%.1f, %.1f)", double(car.course_v), double(tv_pose_.fov) * 57.29578, double(tv_pose_.eye.x),
-                     double(tv_pose_.eye.y), double(tv_pose_.eye.z), double(car.position.x), double(car.position.z));
+            LOG_INFO("Drive: lens at d %.1f: %.2f degrees, eye (%.1f, %.1f, %.1f), car (%.1f, %.1f), focus %.2f f/%.1f%s%s, record %.1f", double(car.course_v), double(tv_pose_.fov) * 57.29578, double(tv_pose_.eye.x),
+                     double(tv_pose_.eye.y), double(tv_pose_.eye.z), double(car.position.x), double(car.position.z), double(tv_pose_.focus), double(tv_pose_.f_number),
+                     tv_pose_.depth_of_field ? " dof" : "", tv_pose_.haze ? " haze" : "", replay_camera_.record() ? double(replay_camera_.record()->start) : -1.0);
     }
     void begin_dissolve(int steps) {
         if (steps <= 0) return;
