@@ -9,6 +9,9 @@
 #include "gt4r/app/menu_loading.h"
 #include "gt4r/app/menu_models.h"
 #include "gt4r/app/menu_movies.h"
+#include "gt4r/app/screen_saves.h"
+#include "gt4r/menu/game_internal.h"
+#include "gt4r/menu/no_card.h"
 #include "gt4r/app/menu_page_drawer.h"
 #include "gt4r/app/menu_slides.h"
 
@@ -60,7 +63,7 @@ class MenuViewer : public Screen {
 public:
     // `player`: the game itself (make_game_screen): from power on, no lists, no log beside the
     // pages; leaving the menus leaves the screen.
-    explicit MenuViewer(App& app, bool player = false) : player_(player) {
+    explicit MenuViewer(App& app, bool player = false, std::string new_card = {}) : player_(player), new_card_(std::move(new_card)) {
         start_boot_ = player;
         advertise_on_ = player; // (scripted runs: GT4R_MENU advertise=1)
         const auto list = [&app](const std::string& folder) { return app.vfs()->list_dir(folder); };
@@ -222,6 +225,8 @@ private:
             if (disc) config.program = [disc] { return disc->read_program(); };
             if (disc && disc->info().serial.rfind("SCPS", 0) == 0) config.region = "jp"; // (Prologue: its units, PS and kgfm)
             config.data_dir = app.data_dir();
+            config.console_card = !card_.empty(); // (GT4R_MENU card=: the original's card pages)
+            config.new_card = new_card_;
             while (!config.data_dir.empty() && (config.data_dir.back() == '/' || config.data_dir.back() == '\\')) config.data_dir.pop_back();
             if (!projects_.empty()) config.language = projects_[size_t(std::clamp(project_sel_, 0, int(projects_.size()) - 1))].language;
             runtime_ = std::make_unique<menu::Runtime>([vfs](const std::string& path) { return vfs->read(path); }, config);
@@ -274,12 +279,27 @@ private:
             if (const script::Value root = runtime_->vm().lookup("MpegRoot"); root.kind == script::Kind::String) movies_->set_root(root.as_string());
             if (const script::Value n = runtime_->vm().lookup("DemonstrationSlideNum"); n.is_number()) slides_->set_count(int(n.as_float()));
             race_.reset();
+            // A new game chosen on the saved games' page: Gran Turismo 4's boot at its name entry (Prologue has no such page).
+            if (from_boot && !new_card_.empty() && !runtime_->is_prologue()) runtime_->game().next_menu_arg = "EntryRoot";
             runtime_->start_project(from_boot || projects_.empty() ? runtime_->first_project() : projects_[size_t(project_sel_)].name);
+            new_card_.clear();
         } catch (const std::exception& ex) {
             stop();
             error_ = ex.what();
             LOG_WARN("Menu viewer: %s", ex.what());
         }
+    }
+    // The game from its start again with another game (`load`: its folder) or a new one (`new_card`), the one played saved before.
+    void restart(const std::string& load, const std::string& new_card) {
+        if (!runtime_ || !app_) return;
+        App& app = *app_;
+        menu::autosave(*runtime_);
+        if (!load.empty())
+            if (const auto n = menu::natives_of(*runtime_)) n->library().set_current(load);
+        stop();
+        new_card_ = new_card;
+        advertise_on_ = false, skip_opening_ = true;
+        run(app, true);
     }
     void stop() {
         if (held_) SDL_DestroyTexture(held_), held_ = nullptr;
@@ -320,6 +340,17 @@ private:
             for (int i = 0; i < steps; ++i) runtime_->update(), cursor_.step(*runtime_);
             if (loading_) loading_->step(float(steps) / 60.0f);
             if (timing_ && double(SDL_GetTicksNS() - u0) / 1e6 > 20) LOG_INFO("Menu timing: the scripts took %.1f ms", double(SDL_GetTicksNS() - u0) / 1e6);
+            // Started again from the saved games' page: without the opening movie.
+            if (skip_opening_ && !runtime_->finished() && runtime_->current_page() && runtime_->current_page()->name == "MovieRoot") skip_opening_ = false, runtime_->key(menu::Key::Start);
+            // The saved games' page (the title's Save Game, Prologue's save and load items).
+            if (runtime_->take_saves_asked()) {
+                SavesHooks hooks;
+                hooks.save_now = [this]() { return menu::save_game_now(*runtime_); };
+                hooks.load = [this](const std::string& card) { restart(card, {}); };
+                hooks.new_game = [this](const std::string& card) { restart({}, card); };
+                app.push(make_saves_screen(app, hooks));
+                return;
+            }
             // A script that ended its project names the next one, or asks for a race.
             if (runtime_->finished() && (!race_ || (loading_ && loading_->active()))) {
                 if (!race_) race_ = runtime_->race_request();
@@ -555,6 +586,8 @@ private:
     std::unique_ptr<menu::Runtime> runtime_;
     std::unique_ptr<PageDrawer> live_drawer_;
     std::unique_ptr<MenuMovies> movies_; // the running menus' movie faces
+    std::string new_card_;               // a new game to make there (started so)
+    bool skip_opening_ = false;
     std::unique_ptr<MenuCars> cars_;     // and car faces
     std::unique_ptr<MenuModels> models_; // and model faces
     std::unique_ptr<MenuSlides> slides_; // and slide shows
@@ -582,7 +615,7 @@ private:
 } // namespace
 
 std::unique_ptr<Screen> make_menu_viewer(App& app) { return std::make_unique<MenuViewer>(app); }
-std::unique_ptr<Screen> make_game_screen(App& app) { return std::make_unique<MenuViewer>(app, true); }
+std::unique_ptr<Screen> make_game_screen(App& app, const std::string& new_card) { return std::make_unique<MenuViewer>(app, true, new_card); }
 
 } // namespace gt4r
 

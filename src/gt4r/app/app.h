@@ -161,7 +161,8 @@ std::unique_ptr<Screen> make_browser_screen(const std::string& open_path = "");
 std::unique_ptr<Screen> make_menu_viewer(App& app);
 // The game itself: the menus running from power on, over the whole window, as a player sees
 // them (screen_menu_viewer.cpp). Select and Start together leave it.
-std::unique_ptr<Screen> make_game_screen(App& app);
+// (`new_card`: a new game, to be made in this folder: save/save_library.h.)
+std::unique_ptr<Screen> make_game_screen(App& app, const std::string& new_card = {});
 // A list of models and a 3D view of the selected one; `load` builds the model of an item.
 using ModelLoader = std::function<gt3r::scene::Model(App& app, size_t index)>;
 std::unique_ptr<Screen> make_model_viewer(std::string title, std::vector<std::string> items, ModelLoader load);

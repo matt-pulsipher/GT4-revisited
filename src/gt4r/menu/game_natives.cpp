@@ -911,40 +911,6 @@ g.method("menuRef", [s](Vm&, const Value&, Args a) {
 // ---- MMemoryCardManager(mode[, slot]): the card in slot 1 as the game's own files under the
 // data folder (save/memory_card.h); without a data folder, a stand-in (GameState::card) that
 // answers as a console whose card has a game or none.
-save::GameSave& GameNatives::card() {
-    if (!card_save) {
-        const std::string dir = config.data_dir.empty() ? std::string() : config.data_dir + "/memorycard";
-        Database* d = database.get();
-        GameNatives* self = this;
-        save::Codes codes{[self](u32 table, const std::string& label) { return self->db().code(table, label); },
-                          [self](u64 code) { return self->db().label(code); }};
-        (void)d;
-        // Prologue's folder is its own product's, "BI" and "SCPS-15055" (its 0x19BCB0), so its
-        // saves stand apart from Gran Turismo 4's under the same data folder.
-        Database& base = db();
-        base.get(config);
-        const std::string product = base.db && base.db->prologue() ? "BISCPS-15055" : "BASCUS-97328";
-        // A card image in the card's folder stands for the card when the folder has no game.
-        if (const save::CardImageResult taken = save::import_dropped_card(dir, product); taken.ok) rt.note("memory card: " + taken.message);
-        card_save = std::make_shared<save::GameSave>(dir, codes, rt.reader(), product);
-    }
-    return *card_save;
-}
-
-save::GameSave& GameNatives::card2() {
-    if (!card2_save) {
-        std::string dir = config.data_dir.empty() ? std::string() : config.data_dir + "/memorycard2";
-        std::error_code ec;
-        if (!dir.empty() && !std::filesystem::is_directory(dir, ec)) dir.clear();
-        save::Codes codes{[this](u32 table, const std::string& label) { return db().code(table, label); }, [this](u64 code) { return db().label(code); }};
-        card().connected(); // (the first card's set-up: the product)
-        Database& base = db();
-        const std::string product = base.db && base.db->prologue() ? "BISCPS-15055" : "BASCUS-97328";
-        card2_save = std::make_shared<save::GameSave>(dir, codes, rt.reader(), product);
-    }
-    return *card2_save;
-}
-
 namespace {
 
 // Gran Turismo 4 Prologue's save (save/prologue_data.h): the license record's units and the profile's name
@@ -975,6 +941,85 @@ void prologue_from_state(GameNatives& n) {
 
 } // namespace
 
+save::Codes GameNatives::codes() {
+    GameNatives* self = this;
+    return {[self](u32 table, const std::string& label) { return self->db().code(table, label); }, [self](u64 code) { return self->db().label(code); }};
+}
+
+// Prologue's folder is its own product's, "BI" and "SCPS-15055" (its 0x19BCB0), so its saves stand apart from Gran Turismo 4's
+// under the same data folder.
+save::SaveLibrary GameNatives::library() {
+    Database& base = db();
+    base.get(config);
+    return save::SaveLibrary(config.data_dir, base.db && base.db->prologue() ? "BISCPS-15055" : "BASCUS-97328");
+}
+
+save::GameSave& GameNatives::card() {
+    if (!card_save) {
+        const save::SaveLibrary games = library();
+        const std::string first = config.data_dir.empty() ? std::string() : config.data_dir + "/memorycard";
+        // A card image in the card's folder stands for the card when the folder has no game.
+        if (const save::CardImageResult taken = save::import_dropped_card(first, games.product()); taken.ok) rt.note("memory card: " + taken.message);
+        const std::string dir = rt.config().console_card || first.empty() ? first : !rt.config().new_card.empty() ? rt.config().new_card : games.current();
+        card_save = std::make_shared<save::GameSave>(games.open(dir, codes(), rt.reader()));
+    }
+    return *card_save;
+}
+
+void GameNatives::collect() {
+    apply_monitor(*this);
+    prologue_into_state(*this);
+}
+
+save::Result GameNatives::write_game(const std::string& title) {
+    GameState& s = state();
+    collect();
+    save::SaveLibrary games = library();
+    save::Result r = save::Result::DifferentMemoryCard;
+    if (card().exists() == 0 && !unreadable) {
+        r = card().save(s);
+    } else if (card().exists() != 0) {
+        r = card().save_new(s, title);
+    }
+    // Files that cannot be read, or that another part wrote since: they stay as they are, and the game goes into a folder of its own.
+    if (r == save::Result::DifferentMemoryCard || r == save::Result::InvalidFile) {
+        *card_save = games.open(games.new_card(), codes(), rt.reader());
+        r = card().save_new(s, title);
+    }
+    if (r == save::Result::Ok) {
+        games.set_current(card().card());
+        s.card.has_game_data = true, s.need_save = false, unreadable = false;
+    }
+    return r;
+}
+
+save::Result GameNatives::load_game() {
+    GameState& s = state();
+    const save::Result r = card().load(s);
+    if (r == save::Result::Ok) s.card.has_game_data = true, s.valid_game_data = true, saved_print = 0, prologue_from_state(*this), rt.options_changed();
+    else unreadable = true;
+    return r;
+}
+
+save::GameSave& GameNatives::card2() {
+    if (!card2_save) {
+        std::string dir = config.data_dir.empty() ? std::string() : config.data_dir + "/memorycard2";
+        std::error_code ec;
+        if (!dir.empty() && !std::filesystem::is_directory(dir, ec)) dir.clear();
+        card().connected(); // (the first card's set-up: the product)
+        const save::SaveLibrary games = library();
+        // Without a console's card: another saved game, the one saved last.
+        if (!rt.config().console_card && dir.empty())
+            for (const std::string& other : games.cards())
+                if (other != card().card()) {
+                    dir = other;
+                    break;
+                }
+        card2_save = std::make_shared<save::GameSave>(games.open(dir, codes(), rt.reader()));
+    }
+    return *card2_save;
+}
+
 Value GameNatives::make_card_manager(Args a) {
     auto m = std::make_shared<Object>("MMemoryCardManager");
     GameState* s = &state();
@@ -983,7 +1028,9 @@ Value GameNatives::make_card_manager(Args a) {
     m->set("mode", text(mode));
     // MMemoryCardManager(mode, 1): the card in slot 2, read for trading cars: its game is loaded beside the one played
     // (loadInstance: [result, a game object with that game's garage]).
-    if (arg_int(a, 1) == 1) {
+    const bool console = rt.config().console_card;
+    if (arg_int(a, 1) == 1 && (console || mode == "MODE_LOAD_GAME")) {
+        if (!console) card2_save.reset(); // (the games there are now)
         save::GameSave& card = card2();
         auto file = std::make_shared<Object>("MMemoryCardFile");
         file->method("isExist", [&card](Vm&, const Value&, Args) { return number(!card.connected() ? -1 : card.exists() == 0 ? 0 : 1); });
@@ -1018,25 +1065,44 @@ Value GameNatives::make_card_manager(Args a) {
     auto real = [self, s] { return s->card.connected && self->card().connected(); };
     auto there = [self, s, real] { return real() && self->card().exists() == 0; };
     // isExist(manager): 0 the game's data is on the card, 1 it is not, -1 no card (0x1765C8).
-    file->method("isExist", [s, there](Vm&, const Value&, Args) { return number(!s->card.connected ? -1 : there() || s->card.has_game_data ? 0 : 1); });
+    file->method("isExist", [self, s, there, console](Vm&, const Value&, Args) {
+        if (!console) return number((there() && !self->unreadable) || (s->card.has_game_data && !self->card().connected()) ? 0 : 1);
+        return number(!s->card.connected ? -1 : there() || s->card.has_game_data ? 0 : 1);
+    });
     // load(manager): "OK", "DEVICE_ERROR", "INVALID_FILE"; any other result "" (0x1756A0).
-    file->method("load", [self, s, there](Vm&, const Value&, Args) {
+    file->method("load", [self, s, there, console](Vm&, const Value&, Args) {
         if (!s->card.connected) return text("DEVICE_ERROR");
         if (!there()) return text(s->card.has_game_data ? "OK" : "FILE_NOT_FOUND");
         const save::Result r = self->card().load(*s);
-        if (r == save::Result::Ok) s->card.has_game_data = true, prologue_from_state(*self), self->rt.options_changed();
+        if (r == save::Result::Ok) s->card.has_game_data = true, self->saved_print = 0, prologue_from_state(*self), self->rt.options_changed();
+        else if (!console) self->unreadable = true;
         return text(r == save::Result::Ok || r == save::Result::DeviceError || r == save::Result::InvalidFile ? save::result_name(r) : "");
     });
     // loadInstance(manager): [result, game] of the card's game beside the one played. ❓ The
     // second game's object is not made here: the result alone.
-    file->method("loadInstance", [self, s, there](Vm&, const Value&, Args) {
+    file->method("loadInstance", [self, s, there, console](Vm&, const Value&, Args) {
+        if (!console && there()) { // (Arcade's garage of the game being played)
+            auto other = std::make_shared<GameState>();
+            const save::Result r = self->library().open(self->card().card(), self->codes()).load(*other);
+            if (r != save::Result::Ok) return Value::array({text(save::result_name(r)), Value{}});
+            self->other_games.push_back(other);
+            auto game = std::make_shared<Object>("MGame");
+            game->set("garage", object_value(self->make_garage(other.get())));
+            return Value::array({text("OK"), object_value(game)});
+        }
         if (!there()) return Value::array({text(s->card.has_game_data ? "OK" : "FILE_NOT_FOUND"), Value{}});
         GameState other;
         return Value::array({text(save::result_name(self->card().load_instance(other))), Value{}});
     });
     // saveNew(manager, title): the save made anew; save(manager): written over.
-    file->method("saveNew", [self, s, real](Vm&, const Value&, Args a) {
+    file->method("saveNew", [self, s, real, there, console](Vm&, const Value&, Args a) {
         if (!s->card.connected) return text("DEVICE_ERROR");
+        if (!console && real()) { // (a new game beside the one there)
+            if (there()) *self->card_save = self->library().open(self->library().new_card(), self->codes(), self->rt.reader());
+            const bool ok = self->write_game(a.size() > 1 ? a[1].to_string() : std::string("Game Data")) == save::Result::Ok;
+            self->saved_print = 0;
+            return text(ok ? "OK" : "DEVICE_ERROR");
+        }
         apply_monitor(*self);
         prologue_into_state(*self);
         if (real()) {
@@ -1046,8 +1112,13 @@ Value GameNatives::make_card_manager(Args a) {
         s->card.has_game_data = true, s->need_save = false;
         return text("OK");
     });
-    file->method("save", [self, s, real, there](Vm&, const Value&, Args a) {
+    file->method("save", [self, s, real, there, console](Vm&, const Value&, Args a) {
         if (!s->card.connected) return text("DEVICE_ERROR");
+        if (!console && real()) {
+            const bool ok = self->write_game(a.size() > 1 ? a[1].to_string() : std::string("Game Data")) == save::Result::Ok;
+            if (ok) self->save_failure_told = false, self->saved_print = 0;
+            return text(ok ? "OK" : "DEVICE_ERROR");
+        }
         apply_monitor(*self);
         prologue_into_state(*self);
         if (real()) {
@@ -1057,7 +1128,8 @@ Value GameNatives::make_card_manager(Args a) {
         s->card.has_game_data = true, s->need_save = false;
         return text("OK");
     });
-    file->method("remove", [self, s, real](Vm&, const Value&, Args) {
+    file->method("remove", [self, s, real, console](Vm&, const Value&, Args) {
+        if (!console) return text("OK"); // (a game goes only from the saved games' page)
         if (real()) self->card().remove();
         s->card.has_game_data = false;
         return text("OK");
@@ -1075,8 +1147,8 @@ Value GameNatives::make_card_manager(Args a) {
     const Value file_value = object_value(file);
     m->method("getNewFile", [file_value](Vm&, const Value&, Args) { return file_value; });
     m->method("getFile", [file_value](Vm&, const Value&, Args) { return file_value; });
-    m->method("isConnect", [s](Vm&, const Value&, Args) { return number(s->card.connected); });
-    m->method("isFormat", [s](Vm&, const Value&, Args) { return number(s->card.connected && s->card.formatted); });
+    m->method("isConnect", [s, console](Vm&, const Value&, Args) { return number(!console || s->card.connected); });
+    m->method("isFormat", [s, console](Vm&, const Value&, Args) { return number(!console || (s->card.connected && s->card.formatted)); });
     m->method("isChanged", [](Vm&, const Value&, Args) { return number(0); });
     m->method("isUseNewFile", [](Vm&, const Value&, Args) { return number(1); });
     m->method("isNoFile", [s, there](Vm&, const Value&, Args) { return number(!there() && !s->card.has_game_data); });
@@ -1091,7 +1163,8 @@ Value GameNatives::make_card_manager(Args a) {
     // is formatted: 8,000 less a KB for its directory, the game's save and Gran Turismo 4's own replays on it (❓ the
     // program's count of a real card's clusters is not followed). The replays the race keeps are in the data folder's
     // replays/, not on the card: as many as the player likes.
-    auto free_kb = [self, s, real]() -> s32 {
+    auto free_kb = [self, s, real, console]() -> s32 {
+        if (!console) return 8000;
         if (!real()) return s->card.free_kb;
         s32 used = 1 + std::max(0, self->card().used_kb());
         std::error_code ec;

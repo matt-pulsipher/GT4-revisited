@@ -3,6 +3,7 @@
 
 #include "gt4r/menu/game_settings.h"
 
+#include "gt4r/menu/no_card.h"
 #include "gt4r/menu/runtime_internal.h"
 
 #include <algorithm>
@@ -145,6 +146,8 @@ void Runtime::note(std::string line) {
 }
 
 void Runtime::sound(const std::string& object, const std::string& method, Args args) {
+    // (The boot's check of the card plays its sound with the question, which is not asked.)
+    if (!config_.console_card && object == "sound" && method == "play" && project_name_ == "boot" && current_page() && current_page()->name == "CheckRoot") return;
     SoundCall call{object, method, std::vector<Value>(args.begin(), args.end())};
     note(call.text());
     if (on_sound) on_sound(call);
@@ -314,7 +317,32 @@ void Runtime::install_natives() {
         return Value{};
     });
     render->method("filterEvent", [](Vm&, const Value&, Args) { return Value{}; });
-    render->method("getCommonPage", [this](Vm&, const Value&, Args a) { return widget_value(common_page(arg_text(a, 0))); });
+    render->method("getCommonPage", [this](Vm&, const Value&, Args a) {
+        const Value page = widget_value(common_page(arg_text(a, 0)));
+        if (arg_text(a, 0) != "ConfirmDialog" || config_.console_card || page.is_nil()) return page;
+        // The dialog's open(context, type, message, title, root, yes, no): what only a card would ask is answered here (no_card.h).
+        auto dialog = std::make_shared<Object>("ConfirmDialog");
+        dialog->method("open", [this, page](Vm& vm, const Value&, Args a) {
+            std::vector<Value> args(a.begin(), a.end());
+            if (args.size() >= 3)
+                if (const std::optional<CardAnswer> answer = card_answer(*this, args[2].to_string())) {
+                    if (!answer->shown.empty()) {
+                        args.resize(3);
+                        args[1] = Value::integer(2), args[2] = Value::string(answer->shown);
+                        vm.then_call(vm.attribute(page, "open"), args, [what = answer->answer](Vm&, const Value&) { return Value::integer(what); });
+                        return Value{};
+                    }
+                    return Value::integer(answer->answer);
+                }
+            vm.then_call(vm.attribute(page, "open"), args, {});
+            return Value{};
+        });
+        dialog->method("forceCancel", [page](Vm& vm, const Value&, Args a) {
+            vm.then_call(vm.attribute(page, "forceCancel"), std::vector<Value>(a.begin(), a.end()), {});
+            return Value{};
+        });
+        return object_value(dialog);
+    });
     render->method("getCursorProject", [this](Vm&, const Value&, Args) { return widget_value(common_widget_); });
     render->method("getPrelightWidget", [this](Vm&, const Value&, Args) { return widget_value(focused() ? focused()->self() : nullptr); });
     // loadGpb(folder, name): more pictures for the pages shown (a maker's cars); unloadGpb(name).
@@ -405,6 +433,7 @@ std::string Runtime::first_project() {
 std::shared_ptr<Project> Runtime::load_project_files(const std::string& name, const std::string& language) {
     auto project = std::make_shared<Project>(read_, name, language);
     project->set_face_alpha(is_prologue());
+    if (!config_.console_card) reword_card_texts(*project, language);
     return project;
 }
 
@@ -457,8 +486,19 @@ void Runtime::unload_project() {
     finished_ = false;
 }
 
-void Runtime::start_project(const std::string& name, const std::string& language) {
+void Runtime::start_project(const std::string& asked, const std::string& language) {
     boot();
+    std::string name = asked;
+    // Prologue's card project (its boot's check and load, its save and load pages) without a card: the game there is loaded, the
+    // pages are the saved games' (no_card.h), and the title comes.
+    if (name == "memcard" && !config_.console_card && is_prologue()) {
+        if (game_->next_menu_arg.empty()) load_saved_game(*this);
+        else if (game_->next_menu_arg == "save_game" || game_->next_menu_arg == "load_game") saves_asked_ = true;
+        const Value top = vm_->lookup("TopProject");
+        name = top.kind == Kind::String && !top.as_string().empty() ? top.as_string() : std::string("prologue");
+        game_->next_menu_arg.clear(), game_->last_menu_project = asked;
+        if (sequence_ == "boot") game_->last_sequence = "boot", sequence_ = "menu";
+    }
     unload_project();
     if (!language.empty()) config_.language = language;
     project_ = load_project_files(name, config_.language);
@@ -622,6 +662,12 @@ void Runtime::run_chain(std::vector<std::shared_ptr<LiveWidget>> chain, size_t a
         if (it == chain[at]->members.end() || it->second->value.kind != Kind::Function) continue;
         const Value callee = it->second->value;
         const std::string what = chain[at]->path() + "::" + name;
+        // The title's Save Game is the saved games' page (no_card.h).
+        if (!config_.console_card && name == "onActivate" && project_name_ == "arcade" && chain[at]->name == "Save" && current_page() && current_page()->name == "TopRoot") {
+            saves_asked_ = true;
+            if (done) done(true);
+            return;
+        }
         // An activate or cancel function also gets the widget it belongs to (the scripts'
         // `object.getFocusedWidget()` on a page). ❓ From the scripts' use.
         std::vector<Value> call_args = args;
@@ -810,6 +856,10 @@ void Runtime::update() {
     step_frame_objects();
     queue_focus_events();
     pump();
+    if (autosave_due_ && running_.empty() && events_.empty()) {
+        autosave_due_ = false;
+        if (!config_.console_card) autosave(*this);
+    }
 }
 
 bool Runtime::settle(int max_frames) {
@@ -857,6 +907,7 @@ void Runtime::open_page(const std::shared_ptr<LiveWidget>& page, bool replace) {
         while (!pages_.empty()) close_page(pages_.back());
     if (std::find(pages_.begin(), pages_.end(), page) != pages_.end()) return;
     pages_.push_back(page);
+    autosave_due_ = true;
     note("page " + page->name);
     // A page that names its music: the same as the scripts' keepMusic of it.
     if (page->data.has("bgm")) {
@@ -887,6 +938,7 @@ void Runtime::close_page(const std::shared_ptr<LiveWidget>& page) {
     call_now(*page, "onFinalize", {render_context_});
     const auto again = std::find(pages_.begin(), pages_.end(), page);
     if (again != pages_.end()) pages_.erase(again);
+    autosave_due_ = true;
     note("page " + page->name + " closed");
 }
 

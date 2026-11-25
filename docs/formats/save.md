@@ -94,6 +94,35 @@ player, credits, day, the 22 cars, the licenses and their rankings as written. I
 then needed the screen's figures (+0x24, below): without them the original's license test drew
 its display over a black picture.
 
+## Several games
+
+A data folder holds any number of games (`save/save_library.*`): each in a folder as a card's is (the game's folder inside it), the
+first in `memorycard/`, the others in `games/<number>/`; `games/current-<product>` names the one being played (Gran Turismo 4's
+and Prologue's games stand beside each other by their products). Each stays in the game's own format, so any of them goes onto a
+card (`export_card`) and a card's comes in (`import_card`) as before; the saved games' page (`app/screen_saves.*`: the home screen,
+the title's Save Game, Prologue's save and load items) lists them, loads, starts a new one, exports, imports and deletes.
+`SaveLibrary::change_mark` tells a part that another one wrote a game.
+
+## Without a card
+
+The player has no card that could be missing, full, unformatted or another one (`menu/no_card.*`; `RuntimeConfig::console_card` gives a
+console's card and its dialogs instead, as the original shows them: `GT4R_MENU card=none|empty|saved` and the tests use it):
+
+- The natives: both slots connected and formatted, 8,000 KB free, `isChanged` 0; slot 2 in MODE_LOAD_GAME is the other game saved
+  last (trading, Arcade's slot 2 garage; not connected when there is none); `saveNew` beside a game makes a folder of its own and
+  it becomes the current one; `remove` takes nothing away; a game that cannot be read counts as none and is never written over.
+- The common `ConfirmDialog`'s `open` (the scripts reach it through `context.getCommonPage`) answers the texts a card would ask,
+  found by the disc's own page and key (`kRules`), without opening the page; a real failure is told once with the save's folder.
+- Texts that only speak of a card are reworded (English: `reword_card_texts`).
+- The boot: CheckRoot's questions are answered, so an empty folder goes to the opening movie and the title with no game loaded;
+  Gran Turismo mode then goes to the name entry (`startCreateGameData`), and `createGameData` writes the game. The program's own
+  boot goes to the project the game was saved in (`endBoot`): Gran Turismo mode's map for a game saved there.
+- Prologue's `memcard` project is not run: its boot loads the game there and the title comes; its save and load items are the saved
+  games' page. It has no new game's page: its first change makes the game.
+- Saving by itself (`autosave`): at each page opened or closed, with no script running, when the bytes a save would write differ
+  from those last saved or loaded (where the menus stand left out); Gran Turismo 4's option Autosave is kept (off: only the
+  scripts' own saves, the car's change), Prologue has none. The program's own (`doAutoSave` on the map, isNeedSave) runs too.
+
 ## The game's other saves (🔎 read, not written: the Replay Theater lists them beside the race's own replay files)
 
 The card manager's modes (0x179570's table) name the other kinds of save: `MODE_LOAD_REPLAY`,

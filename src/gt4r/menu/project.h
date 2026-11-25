@@ -40,6 +40,8 @@ public:
     // Its pages: the root windows.
     const std::vector<Widget>& pages() const { return layout_.children(); }
     const TextTable& text() const { return text_; }
+    // Another text for a key the table has.
+    void reword(const std::string& page, const std::string& key, const std::string& text) { text_.reword(page, key, text); }
 
     // A widget's text for a key: the page's own ("BootProject::LanguageRoot"), else the key.
     std::string translate(const std::string& page, const std::string& key) const;

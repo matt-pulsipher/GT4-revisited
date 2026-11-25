@@ -24,6 +24,10 @@ public:
     // A page's pairs in key order; null when it is not there.
     const std::map<std::string, std::string, std::less<>>* page(std::string_view name) const;
     size_t size() const; // pairs in all pages
+    // Another text for a key of a page there is.
+    void reword(std::string_view page, std::string_view key, const std::string& text) {
+        if (const auto p = pages_.find(page); p != pages_.end()) p->second[std::string(key)] = text;
+    }
     // Another table's pages added to this one's (a project's own text over the common one).
     void merge(const TextTable& other);
 

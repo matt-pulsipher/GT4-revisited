@@ -11,6 +11,7 @@
 #include "gt4r/menu/prologue_license.h"
 #include "gt4r/menu/runtime_internal.h"
 #include "gt4r/save/memory_card.h"
+#include "gt4r/save/save_library.h"
 #include "gt4r/sim/program.h"
 #include "gt4r/sim/showroom.h"
 
@@ -213,7 +214,20 @@ struct GameNatives {
     script::Value make_game();
     script::Value make_card_manager(script::Args a);
     std::shared_ptr<save::GameSave> card_save, card2_save;
+    std::string card2_folder;
     save::GameSave& card();
+    // The saved games (no console's card).
+    save::SaveLibrary library();
+    save::Codes codes();
+    // The game written: over the one there, or made anew (and then the one being played).
+    save::Result write_game(const std::string& title);
+    // What the scripts keep put into the state a save writes (Prologue's license record).
+    void collect();
+    // The game there read into the state.
+    save::Result load_game();
+    bool save_failure_told = false, load_failure_told = false, unreadable = false;
+    bool checked = false; // Prologue: the boot looked for a game (a state that no boot set up is never saved over one)
+    u32 saved_print = 0; // of the game as it was last saved or loaded (no_card.cpp)
     // The card in slot 2 (the data folder's memorycard2/; not connected when there is no such folder).
     save::GameSave& card2();
     // The garage object of a state.

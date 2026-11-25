@@ -26,6 +26,7 @@ public:
 
     bool connected() const { return !card_.empty(); }
     const std::string& folder() const { return folder_; } // the save's folder, with its slash
+    const std::string& card() const { return card_; }     // the card's
     // 0 the game's data is there, 1 not, -1 the card cannot be read (the program's isExist).
     int exists() const;
     // KB the save uses on the card (readSize), -1 none; KB a new one needs (the file's `size`).
@@ -42,6 +43,8 @@ public:
     // The game data alone (loadInstance): into `into`, without the garage file.
     Result load_instance(menu::GameState& into) const;
     Result remove();
+    // The game data a save of the state would hold, unscrambled.
+    Bytes payload(const menu::GameState& s) const;
 
 private:
     std::string card_, folder_, name_;
