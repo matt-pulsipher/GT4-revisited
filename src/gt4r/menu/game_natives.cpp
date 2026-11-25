@@ -1189,7 +1189,7 @@ Value GameNatives::make_card_manager(Args a) {
     // program's count of a real card's clusters is not followed). The replays the race keeps are in the data folder's
     // replays/, not on the card: as many as the player likes.
     auto free_kb = [self, s, real, console]() -> s32 {
-        if (!console) return 8000;
+        if (!console) return 7999; // (8,000 is the scripts' unformatted card)
         if (!real()) return s->card.free_kb;
         s32 used = 1 + std::max(0, self->card().used_kb());
         std::error_code ec;

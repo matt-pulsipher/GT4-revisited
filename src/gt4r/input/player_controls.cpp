@@ -33,6 +33,13 @@ void translate_config(gt3r::IniDocument& ini) {
         if (const auto v = ini.get(section, key); v && *v == "original") ini.set(section, key, engine_word(*v));
 }
 
+void save_config(const gt3r::InputManager& input, gt3r::IniDocument& ini) {
+    input.save(ini);
+    constexpr std::pair<const char*, const char*> kWords[] = {{"player1", "race"}, {"player1", "rumble"}, {"player2", "race"}, {"player2", "rumble"}, {"ffb", "wheel_mode"}};
+    for (const auto& [section, key] : kWords)
+        if (const auto v = ini.get(section, key)) ini.set(section, key, our_word(*v));
+}
+
 bool console_layout(const gt3r::InputManager& input, int player, const PortConfig& config) {
     return input.race_uses_menu_pad(player) || keys_changed(config.of(Device::DualShock2), Device::DualShock2);
 }

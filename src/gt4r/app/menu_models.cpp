@@ -139,6 +139,7 @@ void MenuModels::draw(const menu::LiveWidget& face, menu::Project* project, cons
     const SDL_FRect shown = menu_face3d::on_screen(part, at, dst);
     std::unique_ptr<render::View3D>& v3 = views_[&face];
     if (!v3) v3 = std::make_unique<render::View3D>(*app_.gpu());
+    if (const SDL_Point px = app_.menu_model_size(shown); px.x > 0) o.fixed_width = px.x, o.fixed_height = px.y;
     v3->draw(app_.renderer(), shown, view, proj, eye, items_, o);
 }
 

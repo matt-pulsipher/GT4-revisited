@@ -1,8 +1,9 @@
-// The home screen's Controls: the player's device, how the race reads it, its motors, triggers and force feedback, and what
-// each race control is bound to. The game's own pages (Options: Key Configuration, Controllers, Steering) keep what the
-// console's do; these are what a computer's pads and wheels need beside them. Kept in config.ini.
+// A player's controls: the device, how the race reads it, its motors, triggers and force feedback, what each race control and each
+// menu button is bound to, and the songs' controls. The game's own pages (Options: Key Configuration, Controllers, Steering) keep
+// what the console's do; these are what a computer's pads and wheels need beside them. Kept in config.ini.
 
 #include "gt4r/app/app.h"
+#include "gt4r/app/page.h"
 #include "gt4r/input/player_controls.h"
 
 #include <algorithm>
@@ -16,79 +17,50 @@ namespace {
 
 using gt3r::PadTarget;
 
-std::string percent(float v) { return std::to_string(int(std::lround(v * 100))) + " %"; }
+std::string percent(float v) { return std::to_string(int(std::lround(v * 100))) + "%"; }
 
 class ControlsScreen : public Screen {
 public:
-    explicit ControlsScreen(App& app) : wheel_(input::WheelSettings::load(app.config())) {}
+    ControlsScreen(App& app, int player) : player_(player), wheel_(input::WheelSettings::load(app.config())) {}
+
+    // (a wrong choice of device can be taken back with any other)
+    bool menu_input_any_device() const override { return true; }
 
     void update(App& app, double dt) override {
         gt3r::InputManager& in = app.input();
         if (test_left_ > 0) { // the motors' test
             test_left_ -= dt;
-            in.set_rumble(0, test_left_ > 0 ? gt3r::PadRumble{160, 160} : gt3r::PadRumble{});
+            in.set_rumble(player_, test_left_ > 0 ? gt3r::PadRumble{160, 160} : gt3r::PadRumble{});
         }
-        if (capturing_ >= 0) {
-            if (const auto got = in.poll_capture()) {
-                const Binding& b = bindings(in)[size_t(capturing_)];
-                if (b.menu) in.bind(0, b.target, got->source, true, got->rest);
-                else in.bind_race(0, b.target, got->source, true, got->rest);
-                capturing_ = -1, changed_ = true, settle_ = true;
-            } else if (!in.capturing()) {
-                capturing_ = -1, settle_ = true;
-            }
-            return;
-        }
+        if (capturing_) return capture(in);
         const MenuInput& m = app.menu();
-        build(app);
-        const std::vector<Binding> keys = bindings(in);
-        const int count = int(rows_.size() + keys.size());
-        if (m.vertical()) sel_ = std::clamp(sel_ + m.vertical(), 0, count - 1);
-        sel_ = std::clamp(sel_, 0, std::max(0, count - 1));
         if (settle_) { // (the key just bound is let go first)
-            settle_ = m.held(PadButton::Cross) || m.held(PadButton::Triangle);
+            settle_ = m.held(PadButton::Cross) || m.held(PadButton::Triangle) || m.held(PadButton::Square);
+            build(app);
             return;
         }
-        if (sel_ < int(rows_.size())) {
-            const int d = m.horizontal() ? m.horizontal() : m.pressed(PadButton::Cross) ? 1 : 0;
-            if (d) rows_[size_t(sel_)].change(d), changed_ = true;
-        } else if (m.pressed(PadButton::Cross)) {
-            in.begin_capture(0);
-            capturing_ = sel_ - int(rows_.size());
-        } else if (m.pressed(PadButton::Square)) {
-            in.reset_bindings(0), in.set_race_layout(0, "modern");
-            changed_ = true;
-        }
+        build(app);
         if (m.pressed(PadButton::Triangle)) {
             if (changed_) save(app);
+            in.set_rumble(player_, {});
             app.pop();
+            return;
         }
+        if (m.pressed(PadButton::Select) && rows_.selected >= 0 && rows_.selected < int(bound_.size()) && bound_[size_t(rows_.selected)]) {
+            clear(in, *bound_[size_t(rows_.selected)]);
+            changed_ = true;
+        } else if (rows_.update(app).changed) changed_ = true;
+        build(app);
     }
 
     void render(App& app, Ui& ui) override {
         gt3r::InputManager& in = app.input();
-        ui.header("CONTROLS", in.device_name(0));
-        const std::vector<Binding> keys = bindings(in);
-        const int count = int(rows_.size() + keys.size());
-        constexpr int kShown = 15;
-        const int top = std::clamp(sel_ - kShown / 2, 0, std::max(0, count - kShown));
-        for (int i = top; i < std::min(count, top + kShown); ++i) {
-            const float y = 34 + float(i - top) * 17;
-            const bool on = i == sel_;
-            ui.fill_round(20, y - 3, 400, 15, 3, on ? colors::kHighlight : colors::kPanel);
-            std::string label, value;
-            if (i < int(rows_.size())) label = rows_[size_t(i)].label, value = rows_[size_t(i)].value;
-            else {
-                const Binding& b = keys[size_t(i) - rows_.size()];
-                label = b.label, value = capturing_ == i - int(rows_.size()) ? std::string("press it now (Esc: leave it)") : bound(in, b);
-            }
-            ui.text(30, y, label, on ? colors::kText : colors::kDim);
-            ui.text_right(412, y, Ui::elide(value, 220), on ? colors::kText : colors::kDim);
-        }
+        ui.header("PLAYER " + std::to_string(player_ + 1) + "'S CONTROLS", in.device_name(player_));
+        rows_.render(ui, {20, 28, 410, 17 * 18 + 1});
         // What the race would be given now.
-        const input::RaceInput now = input::read_player(in, 0, input::PortConfig{}, wheel_);
+        const input::RaceInput now = input::read_player(in, player_, input::PortConfig{}, wheel_);
         const sim::rules::PadFrame& f = now.frame;
-        const float x = 440, w = 180;
+        const float x = 446, w = 180;
         ui.text(x, 34, "What the race reads", colors::kDim);
         const auto bar = [&](float y, const char* name, float v, bool center) {
             ui.text(x, y, name, colors::kDim);
@@ -110,58 +82,84 @@ public:
         if (now.views & (input::RaceInput::kBackView | input::RaceInput::kRearView)) more += ", look back";
         ui.text(x, 156, Ui::elide(more, w), colors::kText);
         float y = 182;
-        for (const std::string& line : Ui::wrap("The game's own Options keep the rest: the button configurations, the vibration, the steering wheel's page. Once its "
-                                                "DUALSHOCK 2 button config is changed, races read the pad through it.", w))
+        for (const std::string& line : Ui::wrap("The game's Options hold its own button configurations: once changed there, races read a pad through them.", w))
             ui.text(x, y, line, colors::kDim), y += 12;
-        ui.footer(sel_ < int(rows_.size()) ? "{Left/Right}: change  {Triangle}: keep and go back" : "{Cross}: bind  {Square}: every binding as it was  {Triangle}: keep and go back");
+        std::string hint = rows_.hint();
+        if (rows_.selected >= 0 && rows_.selected < int(bound_.size()) && bound_[size_t(rows_.selected)]) hint += "  {Select|Delete}: clear";
+        ui.footer(capturing_ ? std::string("Press it now (Esc: leave it as it is)") : hint + (hint.empty() ? "" : "  ") + "{Triangle}: keep and go back");
+        if (capturing_ && chord_ >= 0) {
+            std::string held;
+            for (const gt3r::InputSource& s : in.chord_so_far()) held += (held.empty() ? "" : " + ") + in.describe(player_, s);
+            ui.text_right(626, 330, held, colors::kAccent);
+        }
     }
 
-    ~ControlsScreen() override = default;
-
 private:
-    struct Row {
-        std::string label, value;
-        std::function<void(int)> change;
-    };
     struct Binding {
         std::string label;
         PadTarget target;
-        bool menu = false; // the menus' binding, not the race's
+        bool menu = false;  // the menus' binding, not the race's
+        int action = -1;    // a song's control
     };
 
-    void choice(std::string label, const std::vector<std::pair<std::string, std::string>>& options, const std::string& now, std::function<void(const std::string&)> set) {
-        int at = 0;
-        for (size_t i = 0; i < options.size(); ++i)
-            if (options[i].first == now) at = int(i);
-        rows_.push_back({std::move(label), options[size_t(at)].second, [options, at, set = std::move(set)](int d) {
-                             set(options[size_t((at + d + int(options.size())) % int(options.size()))].first);
-                         }});
+    void capture(gt3r::InputManager& in) {
+        if (chord_ >= 0) {
+            if (const auto got = in.poll_chord()) {
+                in.bind_action(player_, gt3r::PadAction(chord_), *got, replace_);
+                changed_ = true;
+            } else if (in.capturing()) return;
+        } else if (const auto got = in.poll_capture()) {
+            if (target_.menu) in.bind(player_, target_.target, got->source, replace_, got->rest);
+            else in.bind_race(player_, target_.target, got->source, replace_, got->rest);
+            changed_ = true;
+        } else if (in.capturing()) return;
+        capturing_ = false, chord_ = -1, settle_ = true;
     }
-    void slider(std::string label, float now, float lo, float hi, float step, std::function<std::string(float)> text, std::function<void(float)> set) {
-        rows_.push_back({std::move(label), text(now), [=, set = std::move(set)](int d) { set(std::clamp(std::round((now + float(d) * step) / step) * step, lo, hi)); }});
+
+    void begin(gt3r::InputManager& in, const Binding& b, bool replace) {
+        target_ = b, replace_ = replace, capturing_ = true, chord_ = b.action;
+        if (chord_ >= 0) in.begin_chord_capture(player_);
+        else in.begin_capture(player_);
+    }
+
+    void clear(gt3r::InputManager& in, const Binding& b) {
+        for (const gt3r::BindingSet s : {gt3r::BindingSet::Controller, gt3r::BindingSet::Keyboard}) {
+            if (b.action >= 0) in.clear_action(player_, gt3r::PadAction(b.action), s);
+            else if (b.menu) in.clear_target(player_, b.target, s);
+            else in.clear_race_target(player_, b.target, s);
+        }
     }
 
     void build(App& app) {
         gt3r::InputManager& in = app.input();
-        rows_.clear();
+        const int p = player_;
+        rows_.rows.clear();
+        bound_.clear();
         std::vector<std::pair<std::string, std::string>> devices{{"auto", "Automatic"}};
         for (const std::string& n : in.device_names())
             if (std::none_of(devices.begin(), devices.end(), [&](const auto& d) { return d.first == n; })) devices.emplace_back(n, n);
-        if (in.device_filter(0) != "auto" && !in.keyboard_only(0) && std::none_of(devices.begin(), devices.end(), [&](const auto& d) { return d.first == in.device_filter(0); }))
-            devices.emplace_back(in.device_filter(0), in.device_filter(0) + " (not connected)");
+        if (in.device_filter(p) != "auto" && !in.keyboard_only(p) && std::none_of(devices.begin(), devices.end(), [&](const auto& d) { return d.first == in.device_filter(p); }))
+            devices.emplace_back(in.device_filter(p), in.device_filter(p) + " (not connected)");
         devices.emplace_back(gt3r::InputManager::kKeyboardOnly, "Keyboard only");
-        choice("Controller", devices, in.device_filter(0), [&in](const std::string& v) { in.set_device_filter(0, v); });
-        const bool wheel = in.wheel_steering(0);
-        if (!wheel)
-            choice("Race controls", {{"modern", "Modern"}, {"gt3", "Gran Turismo 4 original"}}, in.race_layout(0), [&in](const std::string& v) { in.set_race_layout(0, v); });
-        slider("Steering dead zone", in.steering_deadzone(0), 0, gt3r::InputManager::kSteeringDeadzoneMax, 0.01f, percent, [&in](float v) { in.set_steering_deadzone(0, v); });
-        slider("Steering response", in.steering_curve(0), gt3r::InputManager::kSteeringCurveMin, gt3r::InputManager::kSteeringCurveMax, 0.05f,
-               [](float v) {
-                   char b[48];
-                   std::snprintf(b, sizeof b, v > 1.001f ? "%.2f, finer near the center" : v < 0.999f ? "%.2f, quicker off the center" : "%.2f, as you steer", double(v));
-                   return std::string(b);
-               },
-               [&in](float v) { in.set_steering_curve(0, v); });
+        rows_.pick("Controller", devices, in.device_filter(p), [&in, p](const std::string& v) { in.set_device_filter(p, v); });
+        const bool wheel = in.wheel_steering(p);
+        if (!wheel) {
+            std::vector<std::pair<std::string, std::string>> layouts{{"modern", "Modern"}, {"gt3", "Gran Turismo 4 original"}};
+            const bool custom = in.is_race_custom(p);
+            if (custom || in.has_custom(p, true)) layouts.emplace_back("custom", "Custom");
+            rows_.pick("Race controls", layouts, custom ? "custom" : in.race_layout(p), [&in, p](const std::string& v) {
+                if (v == "custom") in.use_custom(p, true);
+                else in.set_race_layout(p, v);
+            });
+        }
+        rows_.slider("Steering dead zone", in.steering_deadzone(p), 0, gt3r::InputManager::kSteeringDeadzoneMax, 0.01f, percent, [&in, p](float v) { in.set_steering_deadzone(p, v); });
+        rows_.slider("Steering response", in.steering_curve(p), gt3r::InputManager::kSteeringCurveMin, gt3r::InputManager::kSteeringCurveMax, 0.05f,
+                     [](float v) {
+                         char b[48];
+                         std::snprintf(b, sizeof b, v > 1.001f ? "%.2f, finer near the center" : v < 0.999f ? "%.2f, quicker off the center" : "%.2f, as you steer", double(v));
+                         return std::string(b);
+                     },
+                     [&in, p](float v) { in.set_steering_curve(p, v); });
         gt3r::ForceFeedbackConfig ffb = in.ffb_config();
         const auto set_ffb = [&in, ffb](auto&& change) {
             gt3r::ForceFeedbackConfig c = ffb;
@@ -169,88 +167,132 @@ private:
             in.set_ffb_config(c);
         };
         if (wheel) {
-            choice("Wheel driven as", {{"3", "Driving Force Pro (900 degrees)"}, {"2", "Driving Force (200 degrees)"}}, std::to_string(int(wheel_.wheel)),
-                   [this](const std::string& v) { wheel_.wheel = u8(std::atoi(v.c_str())); });
-            slider("Wheel's rotation, as its driver has it", wheel_.rotation, 180, 1440, 30, [](float v) { return std::to_string(int(v)) + " degrees"; }, [this](float v) { wheel_.rotation = v; });
-            choice("Force feedback", {{"on", "From the road"}, {"off", "None"}}, ffb.wheel ? "on" : "off", [set_ffb](const std::string& v) { set_ffb([&](auto& c) { c.wheel = v == "on"; }); });
-            choice("Force model", {{"auto", "Automatic (Modern)"}, {"modern", "Modern"}, {"gt3", "Gran Turismo 4 original"}}, ffb.wheel_mode,
-                   [set_ffb](const std::string& v) { set_ffb([&](auto& c) { c.wheel_mode = v; }); });
-            slider("Strength", ffb.strength, 0, 2, 0.05f, percent, [set_ffb](float v) { set_ffb([&](auto& c) { c.strength = v; }); });
-            slider("Steering force", ffb.steering, 0, 1, 0.05f, percent, [set_ffb](float v) { set_ffb([&](auto& c) { c.steering = v; }); });
-            slider("Centering spring", ffb.spring, 0, 1, 0.05f, percent, [set_ffb](float v) { set_ffb([&](auto& c) { c.spring = v; }); });
-            if (!ffb.gt3_wheel()) slider("Lighter in understeer by", ffb.understeer, 0, 1, 0.05f, percent, [set_ffb](float v) { set_ffb([&](auto& c) { c.understeer = v; }); });
-            choice("Force's direction", {{"off", "As the wheel gives it"}, {"on", "The other way"}}, ffb.invert ? "on" : "off",
-                   [set_ffb](const std::string& v) { set_ffb([&](auto& c) { c.invert = v == "on"; }); });
+            rows_.pick("Wheel driven as", {{"3", "Driving Force Pro (900 degrees)"}, {"2", "Driving Force (200 degrees)"}}, std::to_string(int(wheel_.wheel)),
+                       [this](const std::string& v) { wheel_.wheel = u8(std::atoi(v.c_str())); });
+            rows_.slider("Wheel's rotation, as its driver has it", wheel_.rotation, 180, 1440, 30, [](float v) { return std::to_string(int(v)) + " degrees"; }, [this](float v) { wheel_.rotation = v; });
+            rows_.pick("Force feedback", {{"off", "None"}, {"on", "From the road"}}, ffb.wheel ? "on" : "off", [set_ffb](const std::string& v) { set_ffb([&](auto& c) { c.wheel = v == "on"; }); });
+            rows_.pick("Force model", {{"auto", "Automatic (Modern)"}, {"modern", "Modern"}, {"gt3", "Gran Turismo 4 original"}}, ffb.wheel_mode,
+                       [set_ffb](const std::string& v) { set_ffb([&](auto& c) { c.wheel_mode = v; }); });
+            rows_.slider("Strength", ffb.strength, 0, 2, 0.05f, percent, [set_ffb](float v) { set_ffb([&](auto& c) { c.strength = v; }); });
+            rows_.slider("Steering force", ffb.steering, 0, 1, 0.05f, percent, [set_ffb](float v) { set_ffb([&](auto& c) { c.steering = v; }); });
+            rows_.slider("Centering spring", ffb.spring, 0, 1, 0.05f, percent, [set_ffb](float v) { set_ffb([&](auto& c) { c.spring = v; }); });
+            if (!ffb.gt3_wheel()) rows_.slider("Lighter in understeer by", ffb.understeer, 0, 1, 0.05f, percent, [set_ffb](float v) { set_ffb([&](auto& c) { c.understeer = v; }); });
+            rows_.pick("Force's direction", {{"off", "As the wheel gives it"}, {"on", "The other way"}}, ffb.invert ? "on" : "off",
+                       [set_ffb](const std::string& v) { set_ffb([&](auto& c) { c.invert = v == "on"; }); });
         }
-        choice("Rumble", {{"auto", "Automatic (Modern)"}, {"modern", "Modern"}, {"gt3", "Gran Turismo 4 original"}}, in.rumble_mode(0),
-               [&in](const std::string& v) { in.set_rumble_mode(0, v); });
+        rows_.pick("Rumble", {{"auto", "Automatic (Modern)"}, {"modern", "Modern"}, {"gt3", "Gran Turismo 4 original"}}, in.rumble_mode(p),
+                   [&in, p](const std::string& v) { in.set_rumble_mode(p, v); });
         if (!wheel) {
-            choice("Triggers", {{"on", "Brake resistance, the edge of grip"}, {"off", "Free"}}, ffb.triggers ? "on" : "off",
-                   [set_ffb](const std::string& v) { set_ffb([&](auto& c) { c.triggers = v == "on"; }); });
-            if (ffb.triggers) slider("Brake trigger's resistance", ffb.trigger_force, 0, 1, 0.05f, percent, [set_ffb](float v) { set_ffb([&](auto& c) { c.trigger_force = v; }); });
-            rows_.push_back({"Try the motors", "half a second", [this](int) { test_left_ = 0.5; }});
+            rows_.pick("Triggers", {{"off", "Free"}, {"on", "Brake resistance, the edge of grip"}}, ffb.triggers ? "on" : "off",
+                       [set_ffb](const std::string& v) { set_ffb([&](auto& c) { c.triggers = v == "on"; }); });
+            if (ffb.triggers) rows_.slider("Brake trigger's resistance", ffb.trigger_force, 0, 1, 0.05f, percent, [set_ffb](float v) { set_ffb([&](auto& c) { c.trigger_force = v; }); });
+            rows_.action("Try the motors", "half a second", "try", [this] { test_left_ = 0.5; });
+            const Binding steer = axis("", gt3r::InputSource::Half::Full);
+            const bool tilts = tilt_bound(in, steer.target);
+            if (in.kind(p) == gt3r::DeviceKind::Pad)
+                rows_.pick("Tilting the controller", {{"off", "Does nothing"}, {"on", "Steers"}}, tilts ? "on" : "off", [&in, p, steer](const std::string& v) {
+                    gt3r::InputSource tilt;
+                    tilt.kind = gt3r::InputSource::Kind::Tilt;
+                    if (v == "on") in.bind_race(p, steer.target, tilt, false);
+                    else in.clear_race_target(p, steer.target, gt3r::BindingSet::Keyboard);
+                });
         }
-        choice("Another window in front", {{"off", "The race pauses"}, {"on", "The controller keeps driving"}}, in.background() ? "on" : "off",
-               [&in](const std::string& v) { in.set_background(v == "on"); });
-        choice("Keyboard", {{"on", "Also drives"}, {"off", "Does nothing while a controller is there"}}, in.keyboard_enabled(0) ? "on" : "off", [&in](const std::string& v) { in.set_keyboard(0, v == "on"); });
+        rows_.pick("Keyboard", {{"off", "Does nothing while a controller is there"}, {"on", "Also drives"}}, in.keyboard_enabled(p) ? "on" : "off", [&in, p](const std::string& v) { in.set_keyboard(p, v == "on"); });
+
+        rows_.heading("Race controls");
+        const auto add = [&](const Binding& b) {
+            bound_.resize(rows_.rows.size());
+            PageRow& r = rows_.action(b.label, bound(in, b), "bind", [this, &in, b] { begin(in, b, true); });
+            r.other = [this, &in, b] { begin(in, b, false); }, r.other_hint = "bind one more";
+            if (capturing_ && target_.label == b.label && target_.menu == b.menu && target_.action == b.action) r.value = "press it now";
+            bound_.push_back(b);
+        };
+        if (!wheel && in.race_uses_menu_pad(p)) rows_.info("The game's button configurations (Options)", "");
+        for (const Binding& b : bindings(in)) add(b);
+        rows_.action("Every race control", in.is_race_custom(p) ? "as bound here" : "as it comes", "as it comes", [&in, p] { in.set_race_layout(p, in.race_layout(p)); });
+        rows_.heading("Songs (any buttons or keys, held together)");
+        for (const gt3r::PadAction a : {gt3r::PadAction::NextSong, gt3r::PadAction::PreviousSong}) {
+            Binding b;
+            b.label = a == gt3r::PadAction::NextSong ? "Next song" : "Song before", b.action = int(a);
+            add(b);
+        }
+        rows_.heading("Menu buttons");
+        for (const auto& [name, button] : {std::pair<const char*, PadButton>{"Cross (confirm)", PadButton::Cross}, {"Triangle (back)", PadButton::Triangle}, {"Circle", PadButton::Circle},
+                                           {"Square", PadButton::Square}, {"Up", PadButton::Up}, {"Down", PadButton::Down}, {"Left", PadButton::Left}, {"Right", PadButton::Right},
+                                           {"L1", PadButton::L1}, {"R1", PadButton::R1}, {"L2", PadButton::L2}, {"R2", PadButton::R2}, {"Start", PadButton::Start}, {"Select", PadButton::Select}})
+            add(this->button(name, button, true));
+        rows_.action("Every menu button", in.is_custom(p) ? "as bound here" : "as it comes", "as it comes", [&in, p] { in.reset_bindings(p); });
+        bound_.resize(rows_.rows.size());
+    }
+
+    static Binding button(const char* label, PadButton b, bool menu = false) {
+        Binding x;
+        x.label = label, x.menu = menu;
+        x.target.kind = PadTarget::Kind::Button, x.target.button = b;
+        return x;
+    }
+    static Binding axis(const char* label, gt3r::InputSource::Half half) {
+        Binding x;
+        x.label = label;
+        x.target.kind = PadTarget::Kind::Axis, x.target.axis = gt3r::PadAxis::LX, x.target.half = half;
+        return x;
     }
 
     std::vector<Binding> bindings(const gt3r::InputManager& in) const {
         // (the "original" layout's buttons are the game's own Key Configuration page's)
-        if (!in.wheel_steering(0) && in.race_uses_menu_pad(0)) return {};
-        const auto button = [](const char* label, PadButton b, bool menu = false) {
-            Binding x;
-            x.label = label, x.menu = menu;
-            x.target.kind = PadTarget::Kind::Button, x.target.button = b;
-            return x;
-        };
-        const auto axis = [](const char* label, gt3r::InputSource::Half half) {
-            Binding x;
-            x.label = label;
-            x.target.kind = PadTarget::Kind::Axis, x.target.axis = gt3r::PadAxis::LX, x.target.half = half;
-            return x;
-        };
+        const bool wheel = in.wheel_steering(player_);
+        if (!wheel && in.race_uses_menu_pad(player_)) return {};
         std::vector<Binding> out{axis("Steer (an axis)", gt3r::InputSource::Half::Full), axis("Steer left", gt3r::InputSource::Half::Negative), axis("Steer right", gt3r::InputSource::Half::Positive),
                                  button("Accelerate", PadButton::Cross), button("Brake", PadButton::Square), button("Handbrake", PadButton::Circle), button("Reverse", PadButton::Triangle)};
-        if (in.wheel_steering(0)) {
-            for (Binding b : {button("Right paddle", PadButton::R1), button("Left paddle", PadButton::L1), button("Lever: shift up", PadButton::R2), button("Lever: shift down", PadButton::L2),
-                              button("Change view", PadButton::Select, true), button("Look back (wheel's Down)", PadButton::Down), button("Pause", PadButton::Start)})
+        if (wheel) {
+            for (const Binding& b : {button("Right paddle", PadButton::R1), button("Left paddle", PadButton::L1), button("Lever: shift up", PadButton::R2), button("Lever: shift down", PadButton::L2),
+                                     button("Change view", PadButton::Select, true), button("Look back (wheel's Down)", PadButton::Down), button("Pause", PadButton::Start)})
                 out.push_back(b);
         } else {
-            for (Binding b : {button("Shift up", PadButton::R2), button("Shift down", PadButton::L2), button("Change view", PadButton::R1), button("Look back", PadButton::L1),
-                              button("Nitrous", PadButton::Down), button("Pause", PadButton::Start)})
+            for (const Binding& b : {button("Shift up", PadButton::R2), button("Shift down", PadButton::L2), button("Change view", PadButton::R1), button("Look back", PadButton::L1),
+                                     button("Nitrous", PadButton::Down), button("Pause", PadButton::Start)})
                 out.push_back(b);
         }
         return out;
     }
 
-    static std::string bound(const gt3r::InputManager& in, const Binding& b) {
-        const gt3r::Profile& p = b.menu ? in.profile(0) : in.race_profile(0);
+    bool tilt_bound(const gt3r::InputManager& in, const PadTarget& target) const {
+        for (const gt3r::Binding& x : in.race_profile(player_).bindings)
+            if (x.target == target && x.source.kind == gt3r::InputSource::Kind::Tilt) return true;
+        return false;
+    }
+
+    std::string bound(const gt3r::InputManager& in, const Binding& b) const {
         std::string out;
+        if (b.action >= 0) {
+            for (const gt3r::Chord& c : in.actions(player_).of(gt3r::PadAction(b.action))) out += (out.empty() ? "" : ", ") + in.describe(player_, c);
+            return out.empty() ? "-" : out;
+        }
+        const gt3r::Profile& p = b.menu ? in.profile(player_) : in.race_profile(player_);
         for (const gt3r::Binding& x : p.bindings)
-            if (x.target == b.target) out += (out.empty() ? "" : ", ") + in.describe(0, x.source);
+            if (x.target == b.target) out += (out.empty() ? "" : ", ") + in.describe(player_, x.source);
         return out.empty() ? "-" : out;
     }
 
     void save(App& app) {
-        gt3r::IniDocument& c = app.config();
-        app.input().save(c);
-        wheel_.save(c);
-        for (const auto& [section, key] : {std::pair<const char*, const char*>{"player1", "race"}, {"player1", "rumble"}, {"player2", "race"}, {"player2", "rumble"}, {"ffb", "wheel_mode"}})
-            if (const auto v = c.get(section, key)) c.set(section, key, input::our_word(*v));
+        input::save_config(app.input(), app.config());
+        wheel_.save(app.config());
         app.save_config();
         changed_ = false;
     }
 
+    int player_ = 0;
     input::WheelSettings wheel_;
-    std::vector<Row> rows_;
-    int sel_ = 0, capturing_ = -1;
-    bool changed_ = false, settle_ = false;
+    PageRows rows_;
+    std::vector<std::optional<Binding>> bound_; // per row: what it binds
+    Binding target_;                            // being captured
+    int chord_ = -1;
+    bool replace_ = true, capturing_ = false, changed_ = false, settle_ = false;
     double test_left_ = 0;
 };
 
 } // namespace
 
-std::unique_ptr<Screen> make_controls_screen(App& app) { return std::make_unique<ControlsScreen>(app); }
+std::unique_ptr<Screen> make_controls_screen(App& app, int player) { return std::make_unique<ControlsScreen>(app, std::clamp(player, 0, gt3r::InputManager::kMaxPlayers - 1)); }
 
 } // namespace gt4r

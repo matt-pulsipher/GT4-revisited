@@ -3,6 +3,7 @@
 // title's Save Game, and from Prologue's save and load items.
 
 #include "gt4r/app/app.h"
+#include "gt4r/app/page.h"
 #include "gt4r/app/screen_saves.h"
 
 #include "base/log.h"
@@ -17,6 +18,7 @@
 #include <fstream>
 #include <memory>
 #include <mutex>
+#include <utility>
 
 namespace gt4r {
 
@@ -51,14 +53,13 @@ class SavesScreen : public Screen {
 public:
     SavesScreen(App& app, SavesHooks hooks) : hooks_(std::move(hooks)) {
         prologue_ = app.disc() && app.disc()->info().game == Game::Prologue;
-        std::string dir = app.data_dir();
+        std::string dir = app.save_dir();
         while (!dir.empty() && (dir.back() == '/' || dir.back() == '\\')) dir.pop_back();
         library_ = std::make_unique<save::SaveLibrary>(dir, prologue_ ? "BISCPS-15055" : "BASCUS-97328");
         list(app);
     }
 
     void update(App& app, double) override {
-        const MenuInput& m = app.menu();
         if (waiting_) {
             std::string path;
             {
@@ -70,51 +71,40 @@ public:
             if (!path.empty()) take_file(app, path);
             return;
         }
-        std::vector<Row> rows = now();
-        sel_ = std::clamp(sel_ + m.vertical(), 0, std::max(0, int(rows.size()) - 1));
-        if (m.vertical()) sure_ = false;
-        if (m.pressed(PadButton::Cross) && sel_ < int(rows.size())) {
+        build(app);
+        const int before = rows_.selected;
+        rows_.update(app);
+        if (rows_.selected != before) sure_ = false;
+        if (go_) {
+            const std::function<void()> go = std::exchange(go_, {});
             note_.clear();
-            rows[size_t(sel_)].act(app);
+            go();
             if (!closing_) list(app);
         }
-        if (m.pressed(PadButton::Triangle)) {
+        if (app.menu().pressed(PadButton::Triangle)) {
             sure_ = false;
-            if (chosen_ >= 0) sel_ = first_game() + chosen_, chosen_ = -1;
+            if (chosen_ >= 0) rows_.selected = first_game() + chosen_, chosen_ = -1;
             else app.pop();
         }
         if (closing_) app.pop();
     }
 
-    void render(App&, Ui& ui) override {
+    void render(App& app, Ui& ui) override {
         ui.header("SAVED GAMES", prologue_ ? "Gran Turismo 4 Prologue" : "Gran Turismo 4");
-        const std::vector<Row> rows = now();
-        constexpr int kShown = 14;
-        const int count = int(rows.size()), top = std::clamp(sel_ - kShown / 2, 0, std::max(0, count - kShown));
+        build(app);
         if (chosen_ >= 0 && chosen_ < int(games_.size())) {
             const save::SavedGame& g = games_[size_t(chosen_)];
             ui.text(24, 32, (g.name.empty() ? std::string("(no name)") : g.name) + "   " + date_text(g.when), colors::kAccent);
         }
-        for (int i = top; i < std::min(count, top + kShown); ++i) {
-            const float y = 52 + float(i - top) * 19;
-            const bool on = i == sel_;
-            ui.fill_round(20, y - 4, Ui::kWidth - 40, 17, 3, on ? colors::kHighlight : colors::kPanel);
-            ui.text(30, y, rows[size_t(i)].label, on ? colors::kText : colors::kDim);
-            ui.text_right(Ui::kWidth - 30, y, rows[size_t(i)].value, on ? colors::kText : colors::kDim);
-        }
-        if (games_.empty() && chosen_ < 0)
-            ui.text(24, 52 + float(count) * 19 + 8, prologue_ ? "No game is saved yet: the first progress in the School makes one." : "No game is saved yet: Gran Turismo mode starts one.", colors::kDim);
-        if (waiting_) ui.text(24, Ui::kHeight - 60, "Choose a file in the window that opened.", colors::kText);
-        else if (!note_.empty()) ui.text(24, Ui::kHeight - 60, Ui::clip(note_, Ui::kWidth - 48), bad_ ? colors::kBad : colors::kText);
-        ui.footer(chosen_ >= 0 ? "{Cross}: choose  {Triangle}: back to the list" : "{Up/Down}: select  {Cross}: open  {Triangle}: back");
+        rows_.render(ui, {20, 46, ui.width() - 40, float(Ui::kHeight) - 46 - 66});
+        if (waiting_) ui.text(24, Ui::kHeight - 58, "Choose a file in the window that opened.", colors::kText);
+        else if (!note_.empty()) ui.text(24, Ui::kHeight - 58, Ui::clip(note_, ui.width() - 48), bad_ ? colors::kBad : colors::kText);
+        else if (games_.empty() && chosen_ < 0)
+            ui.text(24, Ui::kHeight - 58, prologue_ ? "No game is saved yet: the first progress in the School makes one." : "No game is saved yet: Gran Turismo mode starts one.", colors::kDim);
+        ui.footer(rows_.hint() + (chosen_ >= 0 ? "  {Triangle}: back to the list" : "  {Triangle}: back"));
     }
 
 private:
-    struct Row {
-        std::string label, value;
-        std::function<void(App&)> act;
-    };
-
     void list(App& app) {
         games_.clear();
         try {
@@ -127,49 +117,52 @@ private:
     void say(std::string text, bool bad = false) { note_ = std::move(text), bad_ = bad; }
     int first_game() const { return (hooks_.save_now ? 1 : 0) + 2; }
 
-    std::vector<Row> now() {
-        std::vector<Row> rows;
+    // The page's rows as they are now; what one does is done after the rows' own turn (go_).
+    void build(App& app) {
+        App* ap = &app;
+        rows_.rows.clear();
+        const auto row = [this](std::string label, std::string value, std::string hint, std::function<void()> what) {
+            rows_.action(std::move(label), std::move(value), std::move(hint), [this, what = std::move(what)] { go_ = what; });
+        };
         if (chosen_ >= 0 && chosen_ < int(games_.size())) {
             const save::SavedGame g = games_[size_t(chosen_)];
             if (g.readable)
-                rows.push_back({hooks_.load ? "Load" : "Play this game", g.current ? "the game being played" : "", [this, g](App&) {
-                                    if (hooks_.load) hooks_.load(g.card), closing_ = true;
-                                    else if (library_->set_current(g.card)) chosen_ = -1, say("Play goes on with this game.");
-                                    else say("The choice could not be kept in the data folder.", true);
-                                }});
-            rows.push_back({"Export to PS2", "a memory card image", [this, g](App& app) {
-                                from_ = g.card;
-                                ask(app, true, (g.name.empty() ? std::string("GT4") : g.name) + ".ps2");
-                            }});
-            rows.push_back({sure_ ? "Delete: press again to take this game away" : "Delete", "", [this, g](App&) {
-                                if (!sure_) return void(sure_ = true);
-                                sure_ = false;
-                                const bool gone = !g.current || !hooks_.load ? library_->remove(g.card) : false;
-                                if (g.current && hooks_.load) say("The game being played cannot be deleted: load another first.", true);
-                                else if (gone) say("Deleted."), chosen_ = -1, sel_ = 0;
-                                else say("The game could not be deleted: " + g.card, true);
-                            }});
-            rows.push_back({"Back", "", [this](App&) { sel_ = first_game() + chosen_, chosen_ = -1; }});
-            return rows;
+                row(hooks_.load ? "Load" : "Play this game", g.current ? "the game being played" : "", "choose", [this, g] {
+                    if (hooks_.load) hooks_.load(g.card), closing_ = true;
+                    else if (library_->set_current(g.card)) chosen_ = -1, rows_.selected = 0, say("Play goes on with this game.");
+                    else say("The choice could not be kept in the save folder.", true);
+                });
+            row("Export to PS2", "a memory card image", "choose the file", [this, g, ap] {
+                from_ = g.card;
+                ask(*ap, true, (g.name.empty() ? std::string("GT4") : g.name) + ".ps2");
+            });
+            row(sure_ ? "Delete: again to take this game away" : "Delete", "", "delete", [this, g] {
+                if (!sure_) return void(sure_ = true);
+                sure_ = false;
+                if (g.current && hooks_.load) say("The game being played cannot be deleted: load another first.", true);
+                else if (library_->remove(g.card)) say("Deleted."), chosen_ = -1, rows_.selected = 0;
+                else say("The game could not be deleted: " + g.card, true);
+            });
+            row("Back", "", "back to the list", [this] { rows_.selected = first_game() + chosen_, chosen_ = -1; });
+            return;
         }
         if (hooks_.save_now)
-            rows.push_back({"Save now", "", [this](App&) {
-                                const std::string why = hooks_.save_now();
-                                if (why.empty()) say("The game has been saved.");
-                                else say(why, true);
-                            }});
-        rows.push_back({"New game", "the games below stay", [this](App& app) {
-                            if (hooks_.new_game) hooks_.new_game(library_->new_card()), closing_ = true;
-                            else app.push(make_game_screen(app, library_->new_card()));
-                        }});
-        rows.push_back({"Import from a PS2 memory card image", "", [this](App& app) { ask(app, false, {}); }});
+            row("Save now", "", "save", [this] {
+                const std::string why = hooks_.save_now();
+                if (why.empty()) say("The game has been saved.");
+                else say(why, true);
+            });
+        row("New game", "the games below stay", "start", [this, ap] {
+            if (hooks_.new_game) hooks_.new_game(library_->new_card()), closing_ = true;
+            else ap->push(make_game_screen(*ap, library_->new_card()));
+        });
+        row("Import from a PS2 memory card image", "", "choose the file", [this, ap] { ask(*ap, false, {}); });
         for (size_t i = 0; i < games_.size(); ++i) {
             const save::SavedGame& g = games_[i];
             std::string label = g.readable ? (g.name.empty() ? std::string("(no name)") : g.name) : std::string("(cannot be read)");
             if (g.readable && !prologue_) label += "   Cr. " + grouped(g.money) + "   day " + std::to_string(g.day) + "   " + std::to_string(g.cars) + (g.cars == 1 ? " car" : " cars");
-            rows.push_back({label, (g.current ? "being played   " : "") + date_text(g.when), [this, i](App&) { chosen_ = int(i), sel_ = 0; }});
+            row(label, (g.current ? "being played   " : "") + date_text(g.when), "open", [this, i] { chosen_ = int(i), rows_.selected = 0; });
         }
-        return rows;
     }
 
     // A file to write or read, chosen in the system's dialog (a scripted run names it: GT4R_SAVES_FILE).
@@ -209,7 +202,9 @@ private:
     std::vector<save::SavedGame> games_;
     std::shared_ptr<Chosen> waiting_;
     std::string note_, from_;
-    int sel_ = 0, chosen_ = -1;
+    PageRows rows_;
+    std::function<void()> go_;
+    int chosen_ = -1;
 };
 
 } // namespace

@@ -828,6 +828,7 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
         }
     }
     c->visual->add_items(items_, state, eye);
+    if (const SDL_Point px = app_.menu_model_size(page_rect); px.x > 0) o.fixed_width = px.x, o.fixed_height = px.y;
     view_->draw(app_.renderer(), page_rect, view, proj, eye, items_, o);
 }
 

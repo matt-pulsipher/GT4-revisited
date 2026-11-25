@@ -108,7 +108,7 @@ the title's Save Game, Prologue's save and load items) lists them, loads, starts
 The player has no card that could be missing, full, unformatted or another one (`menu/no_card.*`; `RuntimeConfig::console_card` gives a
 console's card and its dialogs instead, as the original shows them: `GT4R_MENU card=none|empty|saved` and the tests use it):
 
-- The natives: both slots connected and formatted, 8,000 KB free, `isChanged` 0; slot 2 in MODE_LOAD_GAME is the other game saved
+- The natives: both slots connected and formatted, 7,999 KB free (8,000 is the scripts' unformatted card), `isChanged` 0; slot 2 in MODE_LOAD_GAME is the other game saved
   last (trading, Arcade's slot 2 garage; not connected when there is none); `saveNew` beside a game makes a folder of its own and
   it becomes the current one; `remove` takes nothing away; a game that cannot be read counts as none and is never written over.
 - The common `ConfirmDialog`'s `open` (the scripts reach it through `context.getCommonPage`) answers the texts a card would ask,
