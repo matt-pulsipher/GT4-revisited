@@ -17,6 +17,16 @@ const Member kNobody{};
 
 } // namespace
 
+std::string limits_problem(const CarBuilder& builder, const CarChoice& c, const LobbyLimits& limits) {
+    if (c.garage && !limits.garage_cars) return "this race is for cars as sold";
+    if (const std::string why = builder.problem(c); !why.empty()) return why;
+    if (limits.max_power) {
+        const int ps = builder.power(c);
+        if (ps > int(limits.max_power)) return "the car has " + std::to_string(ps) + " PS: the host's limit is " + std::to_string(limits.max_power) + " PS";
+    }
+    return {};
+}
+
 bool Member::operator==(const Member& o) const {
     return encode_member(*this, true) == encode_member(o, true);
 }

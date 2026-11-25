@@ -34,6 +34,9 @@ struct LobbyLimits {
     bool operator==(const LobbyLimits&) const = default;
 };
 
+// Why a car may not race by the host's limits, or cannot be built here ("" : it races).
+std::string limits_problem(const CarBuilder& builder, const CarChoice& c, const LobbyLimits& limits);
+
 // A machine's record. Names as the program's natives have them.
 struct Member {
     std::string account, style = "play", target, course, car; // NotifyAccountName, Style, Target, Course, Car
@@ -107,8 +110,9 @@ public:
     // cars cannot race. `waiting_for` says what it waits for.
     void want_race(const std::string& course) { wanted_ = course; }
     std::string waiting_for();
-    // The disc's side (net/car_choice.h), set by whoever has the disc: why a car cannot race here ("" : it can), and its
-    // equipment as raced on a course.
+    // The disc's side (net/car_choice.h), set by whoever has the disc: a car's digest, why a car cannot race here ("" : it
+    // can), and its equipment as raced on a course.
+    std::function<u64(const CarChoice&)> digest_car;
     std::function<std::string(const CarChoice&, const LobbyLimits&)> check_car;
     std::function<std::optional<sim::Equipment>(const CarChoice&, const std::string& course)> build_car;
     std::string car_problem(int index); // ("" : none, or it has no car yet)
