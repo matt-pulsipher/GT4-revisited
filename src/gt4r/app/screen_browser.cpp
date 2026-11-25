@@ -281,7 +281,7 @@ private:
             try {
                 app.audio().stop_music();
                 movie_.set_audio_device(app.audio().output_device_id());
-                movie_.start(gt3r::video::open_movie(*app.vfs(), path));
+                movie_.start(gt3r::video::open_movie(*app.vfs(), path), app.audio().music_volume());
                 const gt3r::video::MovieInfo& info = movie_.info();
                 char b[96];
                 std::snprintf(b, sizeof b, ", movie %dx%d %.2f fps", info.width, info.height, info.frame_rate);

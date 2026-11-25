@@ -114,12 +114,12 @@ public:
         for (const Pointer& a : app.pointer()) {
             if (a.kind != Pointer::Kind::Click) continue;
             for (int i = 0; i < kPages; ++i)
-                if (tabs_[i].contains(a.x, a.y)) return turn_to(i);
+                if (tabs_[i].contains(a.x, a.y)) return turn_to(app, i);
         }
         if (m.pressed(PadButton::Triangle)) return back(app);
-        if (m.pressed(PadButton::L1) || m.pressed(PadButton::R1)) return turn_to((page_ + (m.pressed(PadButton::R1) ? 1 : kPages - 1)) % kPages);
+        if (m.pressed(PadButton::L1) || m.pressed(PadButton::R1)) return turn_to(app, (page_ + (m.pressed(PadButton::R1) ? 1 : kPages - 1)) % kPages);
         if (on_tabs_) {
-            if (m.horizontal()) return turn_to((page_ + m.horizontal() + kPages) % kPages, true);
+            if (m.horizontal()) return turn_to(app, (page_ + m.horizontal() + kPages) % kPages, true);
             if (m.vertical() > 0 || m.pressed(PadButton::Cross)) on_tabs_ = false;
             return;
         }
@@ -150,8 +150,9 @@ public:
     }
 
 private:
-    void turn_to(int page, bool keep_tabs = false) {
+    void turn_to(App& app, int page, bool keep_tabs = false) {
         if (page == page_) return;
+        stop_preview(app);
         page_ = page, mod_.clear(), message_.clear();
         rows_.selected = 0, rows_.scroll.first = 0;
         on_tabs_ = keep_tabs;

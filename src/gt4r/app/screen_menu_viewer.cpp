@@ -266,7 +266,7 @@ private:
             live_drawer_ = std::make_unique<PageDrawer>(app);
             PageDrawer* drawer = live_drawer_.get();
             // The movie faces: played in their place; their events go to the scripts' event thread.
-            movies_ = std::make_unique<MenuMovies>(app.renderer(), *vfs, app.audio().output_device_id());
+            movies_ = std::make_unique<MenuMovies>(app.renderer(), *vfs, app.audio().output_device_id(), app.audio().music_volume());
             menu::Runtime* runtime = runtime_.get();
             movies_->on_event = [runtime](LiveWidget& face, const std::string& function) {
                 auto e = std::make_shared<menu::Object>("MScriptEvent");
