@@ -696,6 +696,11 @@ public:
         }
         net::Lobby& l = net::lobby();
         c.digest = l.digest_car(c);
+        if (!c.digest) {
+            status_ = "this disc has no car " + c.label;
+            LOG_WARN("Online script: %s", status_.c_str());
+            return;
+        }
         choice_ = c;
         name_ = name, server_ = server;
         std::string error;
