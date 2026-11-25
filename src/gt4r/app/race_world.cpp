@@ -85,6 +85,7 @@ struct RaceWorld::Impl {
     std::vector<race::PitScene::Car> pit_cars;
     std::vector<const char*> pit_sounds;
     int pit_shown = 0;
+    bool pit_live = true; // (a replay's cars have no stops)
     std::vector<race::PitScene::Wheel> pit_wheels;
     struct Lit {
         float sun = 1, sky = 1;
@@ -846,6 +847,7 @@ race::posture::Quat turn_of(const race::CarState& c) {
 // by the surface under the wheel.
 void RaceWorld::present(std::span<const race::CarState> cars, const audio::SoundListener* camera, int target, bool live) {
     Impl& m = *impl_;
+    m.pit_live = live;
     if (camera && m.sound) {
         if (live && session_) m.sound->update(*session_, *camera, target);
         else m.sound->update(cars, *camera, target);
@@ -1043,8 +1045,8 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
         if (int(i) == hidden) continue;
         const size_t first = m.items.size();
         m.add_drivers(m.items, i, cars[i], pose.eye, &lod_view);
-        car_visuals_[i]->add_items(m.items, cars[i], pose.eye, kStep, &lod_view, !(m.pit_scene && m.pit_scene->wheels_off(i)));
-        if (int(i) == m.pit_shown) m.add_pit_crew(m.items, i, *car_visuals_[i]);
+        car_visuals_[i]->add_items(m.items, cars[i], pose.eye, kStep, &lod_view, !(m.pit_live && m.pit_scene && int(i) == m.pit_shown && m.pit_scene->wheels_off(i)));
+        if (m.pit_live && int(i) == m.pit_shown) m.add_pit_crew(m.items, i, *car_visuals_[i]);
         m.light_items(env, first, m.lit[i], m.lamp_lit[i]);
     }
     course_->add_after_items(m.items);
