@@ -33,7 +33,7 @@ public:
     bool attached() const { return car_ != nullptr; }
     // Dead reckoning instead of the car's own step: for comparison.
     void set_physics(bool on) { physics_ = on; }
-    // What its race knows of the car's surroundings, for its next steps: the slipstream (F + 0x528) and the driving line's heading
+    // What its race knows of the car's surroundings, for its next steps: the slipstream (F + 0x59C) and the driving line's heading
     // and mode (the active steering's), its time scale (F + 0x444: the boost), each from the race's last step.
     void set_surroundings(gt3r::ee::F slipstream, std::optional<gt3r::ee::F> line_heading, u8 line_mode, gt3r::ee::F time_scale);
 

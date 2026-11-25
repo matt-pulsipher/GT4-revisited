@@ -283,7 +283,7 @@ public:
     void set_ghost(size_t car, bool on);
     // A car alone on this course as it stands now: its record, its body and the race's tables (a prediction runs on from it).
     std::unique_ptr<Session> solo(size_t car) const;
-    // What phase 14 gave a car as its slipstream (F + 0x528), and to give a car: a prediction runs alone, its race knows who is
+    // What phase 14 gave a car as its slipstream (F + 0x59C), and to give a car: a prediction runs alone, its race knows who is
     // ahead of it. And the driving line's heading and mode as the car's caller gave them.
     gt3r::ee::F slipstream(size_t car) const { return car < cars_.size() ? cars_[car].slip_target : gt3r::ee::F(); }
     void set_slipstream(size_t car, gt3r::ee::F x) {
