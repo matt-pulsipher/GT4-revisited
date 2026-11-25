@@ -193,6 +193,7 @@ unsigned GadgetBodies::step(const Gadgets& g, const course::Runway& road, std::s
     if (bodies_.size() != g.placements.size()) reset(g, road);
     unsigned hits = 0;
     contacts_.assign(cars.size(), 0);
+    impulses_.assign(cars.size(), 0.0f);
     std::vector<CarPlanes> planes;
     planes.reserve(cars.size());
     for (const Car& c : cars) planes.push_back(car_planes(c));
@@ -364,6 +365,7 @@ unsigned GadgetBodies::step(const Gadgets& g, const course::Runway& road, std::s
             b.contact = {}; // (0x3E29C8: woken)
             if (c < 32) hits |= 1u << c;
             ++contacts_[c];
+            impulses_[c] = std::max(impulses_[c], std::fabs(j)); // (0x3E3C48 hands j to 0x350530, kind 2)
             moved_ = true, b.awake = true;
             if (k.flags & 1) b.spent = 1;
             break;

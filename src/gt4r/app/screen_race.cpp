@@ -7,7 +7,7 @@
 // auto (the simple driver takes the first car too) or pad, `skip` simulation steps run before the
 // first picture (the start's hold is left out then), `paint` the first car's paint, `laps` the
 // race's length, `start` the start: 10 or 8 (a hold of so many seconds with the opening shots),
-// <seconds> (a plain hold), none, rolling, course (the course's own: race/start_rule.h); `view=tv` the course's replay cameras; `replay=N` drives
+// <seconds> (a plain hold), none, rolling, course (the course's own: race/start_rule.h); `view=tv` the course's replay cameras; `driver=1` the drivers in their stored pose; `replay=N` drives
 // N steps unseen and plays them back through the replay cameras; `bspec=1` a B-spec run (GT4R_HITCH=<ms>
 // logs every frame longer than that, with the race's work and the present before it); `menus=single_race` the race
 // sequence's own menus (quick-arcade) before and after the race (any sequence: solo_event,
@@ -85,6 +85,7 @@ struct Setup {
     int laps = 3;
     int replay = 0;
     bool smoke = true;
+    bool drivers = false;
     bool reflection = true;
     bool rail = false;     // the stand-in simulation instead of the game's
     bool scripted = false; // from GT4R_RACE: no lists
@@ -96,6 +97,10 @@ struct Setup {
     int course_kind = 0;       // the course's COURSE row +0x10 (race/start_rule.h CourseStart::kind)
     bool start_given = false;
     std::vector<std::string> opponents; // the other cars by label (empty: from the car list)
+    // Each entry's start place (0 the front), by the entry's number (0 the player); empty: the player
+    // at the back, the others ahead in entry order. A championship's races from the second on
+    // (0x3EE9F8 / 0x3EE7C0: the entries keep their order, only their places change).
+    std::vector<int> grid_slots;
     std::string sequence; // `menus=single_race`: the race's own menus (the sequence's quick project) round the race
     std::array<u16, 3 * 64> bspec_book{}; // the B-spec driver's book and the course's marks (the request's)
     std::array<u8, 8> bspec_course_marks{};
@@ -138,6 +143,7 @@ Setup setup_from_env() {
         else if (k == "hud") s.hud = v != "0";
         else if (k == "replay") s.replay = std::max(0, std::atoi(v.c_str()));
         else if (k == "smoke") s.smoke = v != "0";
+        else if (k == "driver") s.drivers = v != "0";
         else if (k == "reflection") s.reflection = v != "0";
         else if (k == "sim") s.rail = v == "rail";
         else if (k == "laps") s.laps = std::clamp(std::atoi(v.c_str()), 1, 99);
@@ -312,7 +318,7 @@ public:
             if (cars[i].label == setup.car || cars[i].model == setup.car) first = i;
         WorldSetup ws;
         ws.course = setup.course;
-        ws.smoke = setup.smoke, ws.reflection = setup.reflection, ws.rail = setup.rail;
+        ws.smoke = setup.smoke, ws.reflection = setup.reflection, ws.drivers = setup.drivers, ws.rail = setup.rail;
         ws.computer_player = setup.auto_drive || setup.start == race::StartType::Rolling;
         ws.pace = setup.pace;
         ws.bspec_book = setup.bspec_book, ws.bspec_course_marks = setup.bspec_course_marks, ws.bspec_course_known = setup.bspec_course_known;
@@ -321,7 +327,8 @@ public:
         ws.options = setup.options;
         ws.playlist = setup.playlist;
         // The grid: the player at the back, the others ahead of him in entry order.
-        const std::vector<int> places = race::grid_places(size_t(setup.cars), 0);
+        std::vector<int> places = race::grid_places(size_t(setup.cars), 0);
+        if (setup.grid_slots.size() == places.size()) places = setup.grid_slots;
         for (int i = 0; i < setup.cars; ++i) {
             WorldEntry e;
             e.label = i == 0 || setup.opponents.empty() ? cars[(first + size_t(i) * 37) % cars.size()].label
@@ -416,6 +423,7 @@ public:
         board_.begin(world_->car_count(), 0, lap_words_[0], lap_words_[1]);
         camera_.reset(world_->cars()[0]);
         history_.clear(), run_dist_.clear();
+        if (audio::RaceSound* sound = world_->sound()) sound->forget_recording();
         split_prev_.clear(), split_first_.clear(), split_steps_ = -1;
         distance_ = 0;
         replaying_ = false, over_ = false;
@@ -447,6 +455,7 @@ public:
     }
     void play_saved(race::ReplayFile&& f) {
         history_ = std::move(f.steps);
+        if (audio::RaceSound* sound = world_->sound()) sound->forget_recording(); // (a saved run: heard from its states)
         for (std::vector<race::CarState>& s : history_) s.resize(world_->car_count());
         ran_ = true;
         // (The replay's music: the play list's next piece, as a race's first.)
@@ -512,7 +521,16 @@ public:
             me.steer = in.steer, me.throttle = in.throttle, me.brake = in.brake, me.handbrake = in.handbrake;
             me.shift_up = in.shift_up, me.shift_down = in.shift_down;
             me.reverse = mapper_.reverse();
-            if (me.reverse) me.throttle = std::max(me.throttle, gt3r::race::pressure_to_pedal(pad.press(PadButton::Triangle)));
+            if (me.reverse) {
+                // The back axis alone (GT4's pad controls 0x349418 take it over a smaller throttle),
+                // the brake from its own button: not the shared mapping's automatic swap, which puts
+                // the back axis on the brake.
+                const auto pedal = [&](PadButton b) {
+                    return !pad.down(b) ? 0.0f : pad.press(b) ? gt3r::race::pressure_to_pedal(pad.press(b), mapper_.config()) : 1.0f;
+                };
+                me.throttle = std::max(pedal(PadButton::Cross), pedal(PadButton::Triangle));
+                me.brake = pedal(PadButton::Square);
+            }
         }
         // A demonstration: car 0 by its recording, step by step from the race's first.
         const bool demo = demo_run_.has_value();
@@ -915,6 +933,10 @@ public:
             s.wall_hit = mass > 0 ? c.contact * 100000.0f / mass : 1e9f;
         } else if (c.contact > 0 && c.contact_kind == 2) s.car_hit = c.contact;
         s.cones = world_->gadget_contacts(0);
+        // A cone's contact is heard (kind 2, clash4) only while the test counts cones knocked down (the
+        // rule block's +0x46 not 0: 0x350328 asks 0x35DF00).
+        if (r.pylons > 0 && s.cones > 0)
+            if (audio::RaceSound* sound = world_->sound()) sound->contact(0, 2, world_->gadget_impulse(0));
         if (judge_.step(s) != race::LicenseFail::None) {
             LOG_INFO("Drive: the test failed (kind %d: wall %.2f, car %.2f, cones %d, wheels off %d, pit %d) at %.3f s", int(judge_.fail()), double(s.wall_hit),
                      double(s.car_hit), s.cones, s.wheels_off, s.wheels_pit, double(flow_.time_ms()) / 1000);
@@ -1110,7 +1132,14 @@ private:
     Setup setup_;
     std::unique_ptr<RaceWorld> world_;
     std::vector<race::CarInput> inputs_;
-    gt3r::race::ControlMapper mapper_;
+    // The pad's raw stick: GT4's input phase (0x349FD0) makes its own analog path, so no dead zone
+    // or curve of the shared mapping goes before it.
+    static gt3r::race::ControlConfig raw_controls() {
+        gt3r::race::ControlConfig c;
+        c.stick_deadzone = 0, c.stick_exponent = 1;
+        return c;
+    }
+    gt3r::race::ControlMapper mapper_{raw_controls()};
     race::DriveCamera camera_;
     race::ReplayScript replay_script_;
     race::ReplayCamera replay_camera_;
@@ -1806,7 +1835,8 @@ private:
         menu::QuickWork& w = menu::quick_work(menus_->game());
         const menu::RaceRequest& q = menus_->game().race;
         const size_t n = race_->car_count();
-        const std::vector<int> places = race::grid_places(n, 0);
+        std::vector<int> places(n);
+        for (size_t i = 0; i < n; ++i) places[i] = std::clamp(race_->entry(i).grid_place, 0, int(n) - 1);
         w.rows.assign(n, menu::QuickRow{});
         for (size_t i = 0; i < n; ++i) {
             menu::QuickRow& row = w.rows[size_t(places[i])];
@@ -1829,7 +1859,7 @@ private:
             // The grid's Pts column (the page reads getPower: the work's +0x364, which holds each entrant's points so
             // far in a championship, 0x11A168; none before the first race).
             for (size_t i = 0; i < n; ++i) {
-                const size_t entrant = i == 0 ? 0 : size_t(race_->entry(i).grid_place + 1); // (as report_result numbers them)
+                const size_t entrant = i; // (the car's number is its entry's, as report_result numbers them)
                 w.rows[size_t(places[i])].power = entrant < g.series.entrants.size() ? g.series.entrants[entrant].points : 0;
             }
             w.race_label = championship_race();
@@ -1916,7 +1946,7 @@ private:
         // Every car in finishing order.
         for (const race::RaceFlow::ResultRow& row : flow.results()) {
             menu::RaceResult::Finisher f;
-            f.entry = row.car == 0 ? 0 : race_->entry(row.car).grid_place + 1;
+            f.entry = int(row.car); // the car's number is its entry's (0 the player)
             f.car = race_->entry(row.car).label, f.paint = int(race_->entry(row.car).paint);
             f.finished = row.finished;
             if (row.finished) f.time_ms = u32(row.total_ms);
@@ -2049,6 +2079,12 @@ private:
         setup_.course = q.course, setup_.race = q.race;
         if (q.laps > 0) setup_.laps = std::clamp(q.laps, 1, 99);
         if (sequence_ == "license") setup_.car = q.car, setup_.paint = u32(std::max(0, q.paint)), setup_.player_equipment.reset();
+        if (sequence_ == "championship") { // the start places from the second race on (0x3EE9F8); the entries keep their numbers
+            std::vector<std::pair<std::string, std::optional<sim::Equipment>>> entries{{setup_.car, setup_.player_equipment}};
+            for (size_t i = 0; i < setup_.opponents.size(); ++i)
+                entries.emplace_back(setup_.opponents[i], i < setup_.opponent_equipment.size() ? setup_.opponent_equipment[i] : std::nullopt);
+            setup_.grid_slots = g.series.races_run >= 1 ? menu::championship_grid_places(*menus_, entries) : std::vector<int>{};
+        }
         if (!app.vfs()->exists("crs/" + setup_.course) && setup_.course.rfind("r_", 0) == 0) setup_.course = setup_.course.substr(2);
         apply_course_start(app, setup_, true);
         result_.reset(), result_tried_ = false, reported_ = false;
@@ -2246,7 +2282,7 @@ private:
             // the rows in order of the points so far with this race's added ("20 pt" in the time's place).
             if (sequence_ == "championship" && menus_) {
                 const menu::GameState& g = menus_->game();
-                auto entrant_of = [this](int car) { return car <= 0 ? size_t(0) : size_t(race_->entry(size_t(car)).grid_place + 1); };
+                auto entrant_of = [](int car) { return car <= 0 ? size_t(0) : size_t(car); };
                 auto total_of = [&](size_t r) {
                     const int car = board.rows()[r].car;
                     const size_t e = entrant_of(car);

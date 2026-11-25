@@ -133,12 +133,11 @@ bool MenuSound::start_stream(const std::string& kind, const std::string& code, i
     const std::string path = stream_file(kind, code, number);
     if (number == -1 && kind == "pcm") draw(1); // (the draw stream_file() looked at is taken)
     if (path.empty() || !streams_.play) return false;
-    // A volume above 1 is a level of the options' 0 .. 128 scale: the pre-race and result pages pass the menus'
-    // music option itself (`startStreamEx("pcm", "default_quick", -1, 1, option.menu_bgm_volume)`), and the
-    // original's stream then plays at the stream level x that / 128 (sound.md "Which stream plays": 0.3 x
-    // 115 / 128), the option not taken twice. ❓ The program's call goes on to the sound processor (0x23E740 ->
-    // 0x2C3CF8 -> 0x4608C8), where the scaling is not read.
-    const float given = volume > 1.0f ? volume / 128.0f : volume * music_option_;
+    // The level (0x4608C8, kind -2 -> 0x460220 -> 0x45FFF8 -> 0x45FFC0): the script's volume x the mix table's
+    // stream level, no option of its own. The pages that follow the menus' music option pass it themselves
+    // (`option.menu_bgm_volume`, raw / 128: 0x180AA8): 0.3 x 115 / 128, the 4416 of the saved states. A volume
+    // above 1 is that option given raw (0 .. 128), as our own option object may give it.
+    const float given = volume > 1.0f ? volume / 128.0f : volume;
     const float level = given * library_->levels().level(kStereo, sound::VolumeTable::Stream);
     return streams_.play(path, repeat, level);
 }
