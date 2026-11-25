@@ -6,6 +6,8 @@
 #include "menu_run_flow.h"
 
 #include "gt4r/menu/layout.h"
+#include "gt4r/menu/native.h"
+#include "gt4r/menu/prologue_license.h"
 #include "gt4r/menu/runtime_internal.h"
 #include "race/hud_layout.h"
 
@@ -223,4 +225,54 @@ TEST(prologue_license_points) {
     CHECK(menu::prologue_license_points(row, "silver", 12190) == 50);
     row[0x3E] = 4;
     CHECK(menu::prologue_license_points(row, "gold", 12000) == 100);
+}
+
+// The license record in the program's layout (prologue_license.h): a result keeps the best medal, a run with a time goes
+// into the ranking at its place with its name, points and date; isPassed is a medal; the units' bytes for the saved game
+// read back as they were.
+TEST(disc_prologue_license_record) {
+    Disc* disc = prologue_menu_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 Prologue disc");
+    Flow f(*disc, "JP");
+    f.rt->game().card.connected = false;
+    f.rt->boot();
+    script::Vm& vm = f.rt->vm();
+    const script::Value game = vm.lookup("game");
+    const script::Value lic = vm.attribute(game, "license");
+    CHECK(lic.p != nullptr);
+    if (!lic.p) return;
+    auto call = [&vm](const script::Value& o, const char* m, std::vector<script::Value> a) { return vm.call(vm.attribute(o, m), a); };
+    using script::Value;
+    const Value unit = call(lic, "getUnit", {Value::string("l0p0001")});
+    CHECK(unit.p != nullptr);
+    if (!unit.p) return;
+    CHECK(call(unit, "isPassed", {}).i == 0);
+    CHECK(call(unit, "getBestTime", {}).as_string() == "\x7F'\x7F\x7F.\x7F\x7F\x7F");
+    call(lic, "recordResult", {Value::string("l0p0001"), Value::string("silver"), Value::integer(107900), Value::integer(30), Value::string("ABC")});
+    call(lic, "recordResult", {Value::string("l0p0001"), Value::string("bronze"), Value::integer(107500), Value::integer(10), Value::string("XYZ")});
+    call(lic, "recordResult", {Value::string("l0p0001"), Value::string("failed"), Value::integer(359999999), Value::integer(0)});
+    CHECK(call(unit, "isPassed", {}).i == 1 && call(unit, "isCompletePassed", {}).i == 0);
+    CHECK(call(unit, "getRankNum", {}).i == 2);
+    CHECK(call(unit, "getBestTime", {Value::integer(0)}).as_string() == "1'47.500");
+    CHECK(call(unit, "getEntryName", {Value::integer(0)}).as_string() == "XYZ");
+    CHECK(call(unit, "getEntryName", {Value::integer(1)}).as_string() == "ABC");
+    CHECK(call(unit, "getPoint", {Value::integer(1)}).i == 30 && call(unit, "getMaxPoint", {}).i == 30);
+    CHECK(vm.attribute(unit, "detail").as_string() == "silver");
+    CHECK(call(lic, "getDetailCount", {Value::string("silver")}).i == 1);
+    CHECK(call(lic, "getTotalPoint", {}).i == 30);
+    CHECK(call(unit, "getDate", {Value::integer(0)}).as_string().size() == 19);
+    std::vector<u8> bytes = menu::prologue_license_units(*game.as<menu::Object>());
+    CHECK(bytes.size() == 48 * 0x2E0);
+    if (bytes.size() != 48 * 0x2E0) return;
+    auto u32_at = [&bytes](size_t o) { return u32(bytes[o]) | u32(bytes[o + 1]) << 8 | u32(bytes[o + 2]) << 16 | u32(bytes[o + 3]) << 24; };
+    CHECK(u32_at(4) == 2 && u32_at(8) == 30);                                // the medal, the most points
+    CHECK(u32_at(0x20) == 107500 && u32_at(0x20 + 0x48) == 107900);          // the entries' times
+    CHECK(u32_at(0x20 + 2 * 0x48) == 359999999);                             // an empty one
+    CHECK(std::string(reinterpret_cast<const char*>(&bytes[0x34 + 2 * 0x48])) == "--------"); // its pass code
+    CHECK(bytes[0x10] == 'X' && u32_at(0x30) == 10);
+    // A unit changed and read back.
+    bytes[0x2E0 + 4] = 3;
+    CHECK(menu::prologue_license_load(*game.as<menu::Object>(), bytes));
+    CHECK(call(call(lic, "getUnit", {Value::integer(1)}), "isCompletePassed", {}).i == 1);
+    CHECK(menu::prologue_license_units(*game.as<menu::Object>()) == bytes);
 }
