@@ -516,45 +516,51 @@ matrix (0x3B1070), the skinned model by the palette (node x inverse bind); the e
 `CRANIUM2` (0x6219C0) is drawn by the CRANIUM bone's palette matrix (its coordinates are the
 stored pose's, like the skinned model's).
 
-**The posture** (each frame: StandardComputeDriverPostureCaller → 0x3B19F0 → 0x3B2568: a recorded
-posture 0x3B4040 in replays, else 0x3B2708, 6.4 KB, which fills a target block and runs the
-solver 0x416FD8 → 0x4173B0, 0x41C3F8 → 0x41F560 (about 30 KB with its handle solvers). Its inputs:
-- the car's geometry (CarGeometry / NormalCarGeometry, the parts block; vtable slot: offset):
-  2-4 the seat +0x34 (moved by a value of the car's motion 0x44F4C0), 8-10 the pedals +0x1C + 12 x
-  index, 11-13 the steering wheel's centre +0x00, 14-16 the column's axis +0x0C (unit, towards
-  the driver; R34 (0, 0.275, 0.962)), 18-20 +0x4C ❓ (the gear lever), 21-23 +0x6C ❓, 33 the
-  cockpit kind; +0x18 ❓ the wheel's size (R34 0.150), +0x6A u16 the shift lever's kind (0, 1,
-  2; the per-frame record builder 0x402320 sets the hands' rest angles by it: 1 = ±π/2, 3 =
-  -π/2 with ±2.356, 4 = ±π); the co-driver's places are moved by (+0xC4 - +0x34), or, with +0xC4
-  all zero, the seat mirrored (x - 2 x seat.x) (0x38CDE8);
-- a 0x100-byte record of the car per frame (sponsor +0x9A0 + 0x370 x seat, two kept at +0x160
-  and +0x260 and blended by the frame's time, 0x386818 / 0x407238; written by 0x402320 from the
-  car and the driver's inputs: 64 floats read by the accessors 0x385688 .. 0x385AD0);
-- six motion values of the sponsor at the frame's time (0x344798 .. 0x3448B8: blends of +0x8A4 ..
-  +0x8C4 and +0x888 .. +0x674) kept at HumanModel +0x7C4 .. +0x7D8 (0x3B2508).
+**The posture** (`race/driver_posture.*`, `posture_solver.*`, `posture_hands.*`, `posture_math.*`): each frame
+StandardComputeDriverPostureCaller → 0x3B19F0 → 0x3B2568, with a flag that is 1 in a race (RaceCarModel's virtual 30,
+0x390F70 → 0x38DB30). The class of a figure by the cockpit kind (0x38D710 ...): 0 none, 0x10 / 0x11 *torso* (the
+single-seaters), 0x20 / 0x21 *board* (the closed cars' head and shoulders), else whole.
+- **A board sits still**: one posture when the car is made (0x3B4040: hands on the wheel, feet on the pedals, the eyes 5 m
+  ahead), in the car's frame. ✔ Every bone of the six closed cars of `03-race/state_before_first_corner_chase`.
+- **A torso moves** (0x3B2708), in the **course's** frame: the legs off, plain hands on the wheel, no twist of the body, the
+  head by the gaze. So the feet keep (+-0.089, -0.920, 0) in saved states, as if never posed, and the upper body holds places
+  in the course.
+- Its inputs: the car's geometry, the parts block (NormalCarGeometry: wheel +0x00, column +0x0C, the wheel's radius +0x18,
+  pedals +0x1C, seat +0x34, recline +0x40, lever +0x4C, its pivot +0x58 and scale +0x64, its kind +0x6A, +0x6C, +0x78, +0x7C,
+  the co-driver's seat +0xC4; SpecialCarGeometry's and MTRGeometry's own numbers for kinds 0x0A and 0x0F); the tuning object
+  0x846468 (0x44F5A0; its cockpit offsets are zero); the driver's record, two kept a step apart (car +0x9A0 + 0x370 x seat,
+  +0x160 and +0x260) and blended by the frame's time (0x386818 with the wheel's and hands' round-trip rules of 0x403BD8);
+  the car's place and turn.
+- The solver 0x416FD8 → 0x4173B0 → 0x41CB20 / 0x41D140 / 0x41E678 / 0x41EFE0: pelvis, spine, clavicles and arms to the
+  handles, legs to the pedals, neck and head to the gaze, on quaternions (0x4872xx .. 0x4895xx) in the program's order of
+  operations, EE floats.
+- A figure shows while the view's size factor / depth / 420 is 0.025 at least (0x3B1750, the set's record 0x800001 beside it).
 
-**Checked in saved states.** On the road cars (cockpit kind 0x20: the six of 03-race
-`state_before_first_corner_chase`, and those of 36-driver-sky) the nodes are in the car's frame and every
-PELVIS is at its car's seat (+0x34) to the last digit; on the one whose nodes were listed it is turned half a
-turn about y (quaternion (0, 1, 0, 0)). The feet are on the pedals to the last digit on five of the six, 15 mm and
-3 mm off on the sixth. The head stands 0.56 to 0.58 above the pelvis and 0.14 to 0.20 behind it. One of them, seat
-(-0.329, 0.276, 0.031): CRANIUM (-0.329, 0.852, 0.178), the hands (-0.501 / -0.156, 0.588, -0.360) on the rim of the
-wheel centred at (-0.329, 0.640, -0.439), the lower spine leaning 46° back from upright, the middle 23°.
-**The open racers (kind 0x11) differ**: in 36-driver-sky (the Chaparral 2J, the Pescarolo C60) their upper body's nodes
-hold places in the **course's** frame (chap_02: PELVIS (-291.9, 22.0, -151.6)), the feet keep (+-0.089, -0.920, 0), as
-if never posed, and the head stands 0.55 to 0.59 above the pelvis. ❓ Where in their car the figure sits was not worked
-out from these, nor which routine moves it into the course's frame.
-`~/gt4re-out/race-view/r6/stpose.py <state>` lists them (a scratch tool; the RaceDriverModel
-vtable 0x0067FB50 sits at HumanModel +0x7DC).
+✔ `gt4r_diff <disc> posture <eeMemory.bin>...`: the program's own routines run on saved states' memory against ours, 264
+solves in eight states (36-driver-sky's Chaparral 2J, Pescarolo C60 and MGF, 25-sound-cars, 20-race-chase): every bone and
+every input bit for bit. (The program leaves two floats of `wrist_phase` unwritten; not compared.)
 
-**What the race view draws** (`GT4R_RACE` `driver=1`, off by default): the set's parts at the
-nodes of the **stored pose** (the bind matrices of the set's bones, else character/driver.mdl's:
-every skeleton is built from the same sizes), the figure's frame turned half a turn about y with
-its PELVIS at the seat (as the road cars' saved states show; for the open racers this is taken over from them, not checked). The stored pose leans back further than the
-posture (the head 0.29 m behind the pelvis, not 0.15 m): in the closed cars the head board sits
-inside the headrest; in the open racers the helmet shows in the cockpit. ❓ The posture
-(0x3B2708 and the solver) is not ported; the driver's model also gives the car the steering
-wheel's angle, the pedals and callback 9's matrix.
+**What the driver does** (`race/driver_state.*`; the record's step 0x403260, every simulation step; the newest record is
++0x160, the one before it +0x260; the filters +0x40, the hands' states +0x30):
+- *the wheel* (0x403F90): -0.4 x the steering command's follower (F +0x664), 480 degrees each way (90 in a car with a yoke,
+  lever kind 1); its rate kept over four steps;
+- *the hands* (0x410E60 → 0x40FC78 a hand): with the wheel until the end of their turn (2.98 / 2.83 rad less a tenth of the
+  wheel's rate, the outer sides the longer); then to a new place on the rim, near the top while the wheel turns under half a
+  turn a second, across it when faster, the way over or along the rim by where the other hand is, at 1.1 x the wheel's rate
+  (14.05 .. 28.1 rad/s) x a table over the way (0x622A20); the other hand follows beside it (1.885 rad). Hands a quarter
+  turn apart for 0.25 s, or crossed for 2 s, go back (0x411150);
+- *the elbows* (0x406388) and *the clavicles* (0x4053A8) by the hands' angles;
+- *the body* (0x40D0A0: the seat's velocity and acceleration from step to step, turned into the car; springs of 90 with a
+  damper of 20, a push under 3 m/s² none, over a cap of 4,000 (along) or 1,000 (across) x the step kept for later): the nod
+  (0x4043C8: +0x0C 0 .. 5 degrees from a rest of 1.25, +0x04), the lean (0x404890: +0x08 toward what is down for the seat,
+  4 degrees at most, +0x00, +0x64, +0x68), the heave (0x4051E0: +0x10, 2 cm off the seat at most).
+
+✔ 1,920 steps of the Pescarolo, the Chaparral and their like in four states, the car shaken and turned and the follower swung
+from lock to lock
+(`gt4r_diff posture`): every field of these bit for bit. Not ported: the gaze (0x40DDC0: 6 KB, it looks at the cars around),
+the eyes, the gear change (0x411FB0 ...), the feet; the
+other cockpit styles (motorcycles and lever cars) keep the rest. Here the follower is of the front wheels' mean angle (the
+same in a replay); the program's is of the steering command.
 
 ### Paints in the database
 

@@ -96,6 +96,14 @@ void PitStops::before(const Field& field, std::span<race::CarInput> inputs) {
     }
 }
 
+bool PitStops::in_stretch(size_t car, float lap) const {
+    if (car >= last_d_.size() || line_.dist.empty()) return false;
+    const F L(lap);
+    F d = last_d_[car];
+    if (d < L * F(0.5f)) d = d + L;
+    return !(d < line_.marker(1)) && !(line_.marker(-1) < d);
+}
+
 void PitStops::after(const Session& session, Field& field) {
     const F L(field.lines().lap());
     for (size_t i = 0; i < cars_.size() && i < session.cars().size(); ++i) {
