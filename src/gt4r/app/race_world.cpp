@@ -20,6 +20,7 @@
 #include "gt4r/sim/race_rules.h"
 #include "gt4r/race/driver_figure.h"
 #include "gt4r/race/driver_state.h"
+#include "gt4r/race/pit_scene.h"
 #include "gt4r/race/start_rule.h"
 #include "gt4r/sim/rules_wear.h"
 #include "gt4r/sim/session.h"
@@ -77,6 +78,14 @@ struct RaceWorld::Impl {
     };
     std::vector<MovingDriver> drivers;
     void add_drivers(std::vector<render::DrawItem>& items, size_t car, const race::CarState& s, const RVec& eye, const race::CarVisual::LodView* view);
+    // The pit crew, and what each car's is told; the sounds its steps asked for (the car last watched's).
+    std::unique_ptr<race::PitScene> pit_scene;
+    std::vector<race::PitScene::CarSizes> pit_sizes;
+    std::vector<race::PitScene::Car> pit_cars;
+    std::vector<const char*> pit_sounds;
+    int pit_shown = 0;
+    std::vector<race::PitScene::Wheel> pit_wheels;
+    void add_pit_crew(std::vector<render::DrawItem>& items, size_t car, const race::CarVisual& visual);
     render::ScreenBatch overlay;
     bool env_ready = false;
     int frame = 0;
@@ -161,6 +170,15 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
             }
         }
         car_visuals_.push_back(visual.get());
+        // What the pit crew needs of it.
+        race::PitScene::CarSizes sizes;
+        for (int a = 0; a < 2; ++a) sizes.tire_width[a] = spec.tire_width[a], sizes.tire_radius[a] = spec.tire_radius[a];
+        if (const auto box = race::car_box(*app.db(), entry->label)) sizes.width = (*box)[1], sizes.front = (*box)[2], sizes.rear = (*box)[3];
+        if (const std::optional<Bytes> file = app.vfs()->read("car/lod/" + entry->model); file && car::CarFile::is_car(*file)) try {
+                race::PitScene::read_car_file(*file, sizes);
+            } catch (const std::exception&) {
+            }
+        m.pit_sizes.push_back(sizes);
         if (const race::DriverModels* models = visual->moving_driver()) {
             for (size_t seat = 0; seat < visual->cockpits().size(); ++seat) {
                 Impl::MovingDriver d;
@@ -323,6 +341,7 @@ void RaceWorld::build_simulation() {
                     pit_asked_.assign(setup_.entries.size(), 0);
                     tires_fitted_ = pit_hooks.tires;
                     pits_ = std::make_unique<sim::ai::PitStops>(*field_, program, setup_.entries.size(), pit_hooks, pr);
+                    open_pit_scene();
                 } catch (const std::exception& e) {
                     if (!noted_) LOG_WARN("Drive: no computer drivers (%s); the simple driver drives", e.what());
                 }
@@ -443,6 +462,7 @@ void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool pla
         sim_->step(held, kStep);
     } else sim_->step(inputs, kStep);
     if (!hold && pits_ && session_) pits_->after(*session_, *field_);
+    if (!hold) step_pit_scene();
     if (!hold) course_->animate(kStep, sim_->cars());
     // The cones and boards the cars run into: each car's box (0x3E5108) at its center of mass, by its heading,
     // its body's extents (❓ the program reads them from its car record +0x48C .. +0x494, taken here as the
@@ -601,6 +621,47 @@ int RaceWorld::pit_stage(size_t car) const {
     return c.hold == 0x2D1 ? 1 : c.hold >= 0x285 ? 2 : c.hold >= 0x3C ? 3 : 4;
 }
 
+// The pit's crew (race/pit_scene.h), on a course with a pit to stop in.
+void RaceWorld::open_pit_scene() {
+    Impl& m = *impl_;
+    if (!m.pit_scene && app_.gpu() && field_ && field_->lines().has(sim::ai::CourseLines::kPitStop)) {
+        const std::optional<Bytes> file = app_.vfs()->read("pit/pit_001");
+        if (!file) return;
+        try {
+            m.pit_scene = std::make_unique<race::PitScene>(app_.gpu(), *file);
+        } catch (const std::exception& e) {
+            LOG_WARN("Drive: no pit crew (%s)", e.what());
+            return;
+        }
+        for (size_t i = 0; i < m.pit_sizes.size(); ++i) m.pit_scene->set_car(i, m.pit_sizes[i]);
+    }
+    if (m.pit_scene) m.pit_scene->reset();
+}
+
+void RaceWorld::step_pit_scene() {
+    Impl& m = *impl_;
+    if (!m.pit_scene || !pits_ || !field_) return;
+    const std::span<const race::CarState> now = sim_->cars();
+    const auto& stop = field_->lines().line(sim::ai::CourseLines::kPitStop);
+    m.pit_cars.resize(std::min(now.size(), car_visuals_.size()));
+    for (size_t i = 0; i < m.pit_cars.size(); ++i) {
+        race::PitScene::Car& c = m.pit_cars[i];
+        const sim::ai::PitCar& pc = pits_->car(i);
+        c.stage = pit_stage(i);
+        c.kind = u8(field_->kind(i));
+        c.service = pc.service;
+        c.refuelling = refuelling(i);
+        race::PitScene::place_car(c, *car_visuals_[i], now[i]);
+        // Its box: the point of the stop line the car stops at.
+        c.has_box = pc.box >= 0 && size_t(pc.box) < stop.size();
+        if (c.has_box) {
+            const sim::ai::LinePoint& p = stop[size_t(pc.box)];
+            c.box = {p.x, p.height, -p.y}, c.box_heading = p.heading;
+        }
+    }
+    m.pit_scene->step(m.pit_cars, m.pit_shown, kStep, [&](const char* name) { m.pit_sounds.push_back(name); });
+}
+
 void RaceWorld::pit_command(size_t car) {
     if (!pits_ || car >= pit_asked_.size()) return;
     sim::ai::PitCar& c = pits_->car(car);
@@ -653,6 +714,7 @@ float RaceWorld::car_mass(size_t i) const {
 // by the surface under the wheel.
 void RaceWorld::present(std::span<const race::CarState> cars, const audio::SoundListener* camera, int target, bool live) {
     Impl& m = *impl_;
+    m.pit_shown = target;
     if (camera && m.sound) {
         if (live && session_) m.sound->update(*session_, *camera, target);
         else m.sound->update(cars, *camera, target);
@@ -661,8 +723,10 @@ void RaceWorld::present(std::span<const race::CarState> cars, const audio::Sound
         if (live && pits_ && target >= 0 && size_t(target) < car_visuals_.size()) {
             sim::ai::PitCar& pc = pits_->car(size_t(target));
             if (pc.service & 0x200) pc.service = u16(pc.service ^ 0x200), m.sound->pit_effect("jackdown");
+            for (const char* name : m.pit_sounds) m.sound->pit_effect(name);
         }
     }
+    m.pit_sounds.clear();
     if (!m.smoke.loaded()) return;
     const course::Runway& road = course_->road();
     for (size_t c = 0; c < cars.size() && c < car_visuals_.size(); ++c) {
@@ -757,6 +821,14 @@ void RaceWorld::Impl::add_drivers(std::vector<render::DrawItem>& out, size_t car
     }
 }
 
+// The car's pit crew and the wheels they have.
+void RaceWorld::Impl::add_pit_crew(std::vector<render::DrawItem>& out, size_t car, const race::CarVisual& visual) {
+    if (!pit_scene) return;
+    pit_wheels.clear();
+    pit_scene->add_items(out, pit_wheels, car);
+    for (const race::PitScene::Wheel& w : pit_wheels) visual.add_loose_wheel(out, w.wheel, w.frame);
+}
+
 void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarState> cars, const race::ViewPose& pose, size_t focus, int hidden) {
     Impl& m = *impl_;
     const race::CarState& me = cars[std::min(focus, cars.size() - 1)];
@@ -811,8 +883,9 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
     for (size_t i = 0; i < n; ++i) {
         if (int(i) == hidden) continue;
         m.add_drivers(m.items, i, cars[i], pose.eye, &lod_view);
-        car_visuals_[i]->add_items(m.items, cars[i], pose.eye, kStep, &lod_view);
+        car_visuals_[i]->add_items(m.items, cars[i], pose.eye, kStep, &lod_view, !(m.pit_scene && m.pit_scene->wheels_off(i)));
     }
+    if (m.pit_shown >= 0 && size_t(m.pit_shown) < n) m.add_pit_crew(m.items, size_t(m.pit_shown), *car_visuals_[size_t(m.pit_shown)]);
     course_->add_after_items(m.items);
     if (m.smoke.loaded()) {
         // The puffs after everything else of the scene, facing the camera.

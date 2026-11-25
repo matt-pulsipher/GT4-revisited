@@ -454,7 +454,7 @@ int CarVisual::level(const CarState& s, const render::Vec3& eye, const LodView* 
     return std::min(level, lods_ - 1);
 }
 
-void CarVisual::add_items(std::vector<render::DrawItem>& items, const CarState& s, const render::Vec3& eye, float step, const LodView* view) const {
+void CarVisual::add_items(std::vector<render::DrawItem>& items, const CarState& s, const render::Vec3& eye, float step, const LodView* view, bool wheels) const {
     const Mat4 body = body_matrix(s);
     const int lod = level(s, eye, view);
     if (wing_) {
@@ -480,10 +480,18 @@ void CarVisual::add_items(std::vector<render::DrawItem>& items, const CarState& 
             it.alpha = glow;
             items.push_back(it);
         }
+        if (!wheels) continue;
         const bool turning = wheel_turning(s.wheels[w], step);
         const render::GpuModel* wheel = wheels_[size_t(w)][turning ? 1 : 0] ? wheels_[size_t(w)][turning ? 1 : 0].get() : wheels_[size_t(w)][0].get();
         if (wheel) items.push_back({wheel, wheel_matrix(s, spec_, w), lod});
     }
+}
+
+void CarVisual::add_loose_wheel(std::vector<render::DrawItem>& items, int wheel, const Mat4& hub) const {
+    const size_t w = size_t(wheel) & 3;
+    if (!wheels_[w][0]) return;
+    const float r = spec_.rim_radius[w / 2];
+    items.push_back({wheels_[w][0].get(), hub * render::translate({-0.5f * spec_.tire_width[w / 2], 0, 0}) * render::scale({r, r, r}), 0});
 }
 
 bool CarVisual::road_mirror(const CarState& s, Mat4& out) const {

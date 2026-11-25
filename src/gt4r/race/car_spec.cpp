@@ -1,5 +1,6 @@
 #include "gt4r/race/car_spec.h"
 
+#include <cstring>
 #include <algorithm>
 
 namespace gt4r::race {
@@ -71,6 +72,24 @@ CarSpec read_car_spec(db::SpecDb& db, const std::string& car) {
     }
     s.from_database = ok;
     return s;
+}
+
+std::optional<std::array<float, 4>> car_box(db::SpecDb& db, const std::string& car) {
+    const db::Labels* cars = db.labels("GENERIC_CAR");
+    const db::Table* link = db.table("CAR_VARIATION_american");
+    const db::Table* rows = db.table("VARIATIONamerican");
+    if (!cars || !link || !rows) return std::nullopt;
+    const std::optional<u32> id = cars->id(car);
+    if (!id) return std::nullopt;
+    const ByteSpan l = link->row(*id);
+    if (l.size() < 4) return std::nullopt;
+    size_t first = 0;
+    if (!rows->rows(rd32(l, 0), first)) return std::nullopt;
+    const ByteSpan r = rows->row_at(first);
+    if (r.size() < 0x20) return std::nullopt;
+    std::array<float, 4> out{};
+    for (size_t i = 0; i < 4; ++i) std::memcpy(&out[i], r.data() + 0x10 + 4 * i, 4), out[i] *= 0.001f;
+    return out;
 }
 
 std::vector<u32> car_paints(db::SpecDb& db, const std::string& car) {

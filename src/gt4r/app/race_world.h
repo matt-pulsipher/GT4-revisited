@@ -296,6 +296,8 @@ public:
     const gt3r::render::DrawStats& draw_stats() const;
 
 private:
+    void open_pit_scene();
+    void step_pit_scene();
     struct Impl;
     void build_simulation();
     void arm_bspec(const sim::Program& program);

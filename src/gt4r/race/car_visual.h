@@ -75,8 +75,11 @@ public:
     int level(const CarState& s, const render::Vec3& eye, const LodView* view = nullptr) const;
     // Appends the car's items for a state as seen from `eye`. `step`: the simulation's step in
     // seconds (the wheels show their turning picture by how far they turn in one).
+    // `wheels` false: its wheels are off (the pit crew has them).
     void add_items(std::vector<render::DrawItem>& items, const CarState& s, const render::Vec3& eye, float step = 1.0f / 60,
-                   const LodView* view = nullptr) const;
+                   const LodView* view = nullptr, bool wheels = true) const;
+    // A wheel away from the car: in a hub's frame, made as a left one (its outer face at -x).
+    void add_loose_wheel(std::vector<render::DrawItem>& items, int wheel, const render::Mat4& hub) const;
     // The shadow under the car: after the course, before any car.
     // The car mirrored in the road under it (a wet road's reflection, the course's flag): the plane
     // through the tires' contacts. False when the car is not on a road it can mirror in.

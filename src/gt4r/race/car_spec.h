@@ -8,6 +8,7 @@
 #include "gt4r/race/rail_simulation.h"
 
 #include <array>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -30,6 +31,9 @@ CarSpec read_car_spec(db::SpecDb& db, const std::string& car_label);
 std::vector<u32> car_paints(db::SpecDb& db, const std::string& car_label);
 // A paint's chip words (its row's +0x24 .. +0x33, 0x445B28): its colors and their flags, as the menus' color chips take them.
 std::array<u32, 4> paint_chip(db::SpecDb& db, const std::string& car_label, u32 paint);
+
+// The body's box (VARIATION +0x10, metres): height above the model's y = 0, width, length ahead of and behind its origin.
+std::optional<std::array<float, 4>> car_box(db::SpecDb& db, const std::string& car_label);
 
 // The stand-in simulation's car of those sizes.
 RailCar rail_car(const CarSpec& spec);

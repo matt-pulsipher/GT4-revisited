@@ -35,17 +35,48 @@ struct SkeletonMotion {
         std::vector<Piece> pieces;
         float at(float t) const; // a cubic Bezier in value between each two keys
     };
+    // Something a clip says at a time (the pit crew's sounds): a name's times and values.
+    struct Event {
+        std::string name;
+        std::vector<std::pair<float, float>> at; // time, value
+    };
     struct Clip {
         std::string name;
         float length = 0, loop_start = 0; // seconds
         std::vector<Channel> channels;
+        std::vector<Event> events;
+    };
+    // Clips played one after another, held where the caller's number has not come yet.
+    struct Sequence {
+        struct Entry {
+            std::vector<int> clips; // blended, by the caller's place between them
+            float start = 0, offset = 0, duration = 0;
+            bool reversed = false;
+            u8 mode = 0;     // 0 played through, 1 left as soon as the number is past it, 2 the same at once
+            bool hold = false; // at its end (else it goes round)
+            std::string name;
+            int number = 0;
+        };
+        std::vector<Entry> entries;
+        float length = 0;
+        const Entry* at(float t) const;
+        // The first entry whose number is at least `number` (0x429AD8): its start; 0 without one.
+        float start_of(int number) const;
+        // The time a step later (0x429BC0): an entry with the number asked for, or past it, is held.
+        float advance(float t, float dt, int number) const;
     };
     std::vector<Clip> clips;
+    std::vector<Sequence> sequences;
     std::vector<Op> program;
 
     static bool is_motion(ByteSpan d);
     // Throws FormatError.
     static SkeletonMotion parse(ByteSpan file);
+    // Every object of a file (the pit's: the tire men, the sign's holder, the refueller), and its names.
+    struct Name {
+        int object = -1, clip = -1, sequence = -1;
+    };
+    static std::vector<SkeletonMotion> parse_all(ByteSpan file, std::map<std::string, Name>& names);
 
     float length() const { return clips.empty() ? 0 : clips[0].length; }
     float loop_start() const { return clips.empty() ? 0 : clips[0].loop_start; }
@@ -56,6 +87,22 @@ struct SkeletonMotion {
     // every operation multiplies onto the current matrix on the right (the program's row form on the
     // left), a node takes the current matrix, a node after a node without a push is its child.
     std::map<std::string, gt3r::render::Mat4> nodes(float t, const gt3r::render::Mat4& start) const;
+    // Where a sequence stands at t: two clips (the same when there is one), how far between them by
+    // `between` (0 the entry's first clip, 1 its second ...), and their time (0x42C348).
+    struct Pose {
+        int a = 0, b = 0;
+        float mix = 0, time = 0;
+    };
+    Pose pose(int sequence, float t, float between) const;
+    // The nodes and a named value there: values between the two clips, turns (0x13) between their
+    // quaternions (0x42B440).
+    std::map<std::string, gt3r::render::Mat4> nodes(const Pose& p, const gt3r::render::Mat4& start) const;
+    float named(const std::string& name, const Pose& p, float otherwise) const;
+    // The sum of a name's events from t0 to t1, a step of dt (0x429740).
+    float events(int sequence, const std::string& name, float t0, float t1, float dt) const;
+
+private:
+    static SkeletonMotion parse_object(ByteSpan d, size_t root);
 };
 
 // The bones' palette for nodes (bones matched to nodes by name; palette[index] = node x inverse

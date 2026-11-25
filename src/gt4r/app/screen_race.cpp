@@ -8,7 +8,7 @@
 // first picture (the start's hold is left out then), `paint` the first car's paint, `laps` the
 // race's length, `start` the start: 10 or 8 (a hold of so many seconds with the opening shots),
 // <seconds> (a plain hold), none, rolling, course (the course's own: race/start_rule.h); `view=tv` the course's replay cameras; `driver=0` no drivers in the cars; (GT4R_DEMO_LOG=<n> logs a demonstration's car every n steps); `replay=N` drives
-// N steps unseen and plays them back through the replay cameras; `bspec=1` a B-spec run (GT4R_HITCH=<ms>
+// N steps unseen and plays them back through the replay cameras; `bspec=1` a B-spec run, `pit=1` its car asked into the pits from the start (GT4R_HITCH=<ms>
 // logs every frame longer than that, with the race's work and the present before it); `menus=single_race` the race
 // sequence's own menus (quick-arcade) before and after the race (any sequence: solo_event,
 // championship, license, mission, time_trial, freerun, practice, machinetest), `race=<label>` its event.
@@ -86,6 +86,7 @@ struct Setup {
     int view = race::DriveCamera::kChase;
     bool look_back = false;
     bool auto_drive = false;
+    bool pit = false;     // `pit=1`: its car asked into the pits from the start
     bool bspec = false;   // `bspec=1`: a B-spec run (the computer drives the player's car; its display and commands)
     int skip = 0;
     u32 paint = 0;
@@ -156,6 +157,7 @@ Setup setup_from_env() {
             if (!v.empty() && std::isdigit(static_cast<unsigned char>(v[0]))) s.view = std::atoi(v.c_str());
         } else if (k == "drive") s.auto_drive = v == "auto";
         else if (k == "bspec") s.bspec = v != "0";
+        else if (k == "pit") s.pit = v != "0";
         else if (k == "skip") s.skip = std::max(0, std::atoi(v.c_str()));
         else if (k == "paint") s.paint = u32(std::max(0, std::atoi(v.c_str())));
         else if (k == "wing") s.wing = v;
@@ -597,6 +599,7 @@ public:
         mount_ = setup.view;
         begin_run(setup.bspec);
         // A scripted run that skips ahead: those steps unseen.
+        if (setup.pit) world_->pit_command(0);
         for (int i = 0; i < setup.skip; ++i) step(gt3r::PadState{}, true);
         if (setup.replay > 0) {
             // A run driven unseen, then shown through the replay cameras.
