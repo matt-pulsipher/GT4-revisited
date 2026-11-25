@@ -645,6 +645,10 @@ void RaceWorld::open_pit_scene() {
             return;
         }
         for (size_t i = 0; i < m.pit_sizes.size(); ++i) m.pit_scene->set_car(i, m.pit_sizes[i]);
+        if (const gt3r::race::SunParams& env = course_->env(); env.has_shadow) {
+            const float el = -env.shadow_elev * kPi / 180, az = -env.shadow_az * kPi / 180;
+            m.pit_scene->set_shadow_shear(RVec{std::sin(az), 0, std::cos(az)} * (env.shadow_len * std::cos(el)));
+        }
     }
     if (m.pit_scene) m.pit_scene->reset();
 }
@@ -671,6 +675,15 @@ void RaceWorld::step_pit_scene() {
         if (c.has_box) {
             const sim::ai::LinePoint& p = stop[size_t(pc.box)];
             c.box = {p.x, p.height, -p.y}, c.box_heading = p.heading;
+            // The pit's stand: the course's nearest pit stop, else the box itself (0x3CB070).
+            c.gantry = c.box, c.gantry_heading = c.box_heading;
+            float best = -1;
+            for (const course::Runway::Place& at : course_->road().pit_stops) {
+                const RVec d{at.pos.x - c.box.x, at.pos.y - c.box.y, at.pos.z - c.box.z};
+                if (best >= 0 && !(render::dot(d, d) < best)) continue;
+                best = render::dot(d, d);
+                c.gantry = {at.pos.x, at.pos.y, at.pos.z}, c.gantry_heading = at.heading + 3.1415f;
+            }
         }
     }
     m.pit_scene->step(m.pit_cars, m.pit_shown, kStep, [&](const char* name) { m.pit_sounds.push_back(name); });

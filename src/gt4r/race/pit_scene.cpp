@@ -52,26 +52,32 @@ PitScene::PitScene(render::GpuContext* ctx, ByteSpan file) : ctx_(ctx) {
     }
     if (const u32 cams = rd32(file, 8); cams && cams < file.size() && menu::SkeletonMotion::is_motion(file.subspan(cams)))
         cameras_ = menu::SkeletonMotion::parse_all(file.subspan(cams), camera_names_);
-    const ByteSpan set = file.subspan(crew);
+    build_set(file.subspan(crew), bones_, symbols_, skin_, skinned_, models_, stored_, "pit crew");
+    if (const u32 shadow = rd32(file, 16); shadow && shadow < file.size() && mdls::is_mdls(file.subspan(shadow)))
+        build_set(file.subspan(shadow), shadow_bones_, shadow_symbols_, shadow_skin_, shadow_skinned_, shadow_models_, shadow_stored_, "pit crew's shadow");
+}
+
+void PitScene::build_set(ByteSpan set, std::vector<mdls::Bone>& bones, std::vector<mdls::Symbol>& symbols, mdls::SkinTable& skin, int& skinned,
+                         std::vector<std::unique_ptr<render::GpuModel>>& models, scene::Model& stored, const char* name) {
     if (!mdls::is_mdls(set)) throw FormatError("pit file without its crew");
-    bones_ = mdls::read_bones(set);
-    symbols_ = mdls::read_symbols(set);
-    skin_ = mdls::SkinTable::of(set);
-    for (const mdls::Symbol& s : symbols_)
-        if (s.name == "SKINNING") skinned_ = int(s.value);
+    bones = mdls::read_bones(set);
+    symbols = mdls::read_symbols(set);
+    skin = mdls::SkinTable::of(set);
+    for (const mdls::Symbol& s : symbols)
+        if (s.name == "SKINNING") skinned = int(s.value);
     const u32 count = mdls::read_header(set).models;
-    models_.resize(count);
-    for (u32 i = 0; i < count && ctx; ++i) {
+    models.resize(count);
+    for (u32 i = 0; i < count && ctx_; ++i) {
         gt3r::gtm1::Options o;
         o.node = int(i);
         o.program_alpha_test = true;
         o.gs_mip_levels = true;
-        scene::Model m = mdls::build_model(set, o, mdls::Scene{}, "pit crew");
+        scene::Model m = mdls::build_model(set, o, mdls::Scene{}, name);
         bool any = false;
         for (const scene::Mesh& mesh : m.meshes) any |= !mesh.indices.empty();
         if (!any) continue;
-        if (int(i) == skinned_) stored_ = m;
-        models_[i] = std::make_unique<render::GpuModel>(*ctx, m);
+        if (int(i) == skinned) stored = m;
+        models[i] = std::make_unique<render::GpuModel>(*ctx_, m);
     }
 }
 
@@ -309,7 +315,7 @@ void PitScene::step(std::span<const Car> cars, int shown, float dt, const std::f
                 m.idle_next = false;
                 m.done = false;
                 if (k == 4) c.fuelled = false;
-                if (k < 4) c.turn_out[k] = 1, c.turn_in[k] = 0;
+                if (k < 4) c.turn_out[k] = 1, c.turn_in[k] = 0, c.sway[k] = {};
                 continue;
             }
             if (k < 4 && !m.done) {
@@ -352,6 +358,19 @@ void PitScene::step(std::span<const Car> cars, int shown, float dt, const std::f
             if (!move || m.idle) continue;
             const float before = m.time;
             m.time = q.advance(before, dt, want);
+            if (k < 4) {
+                // The air hose's swing (0x3CF938), pushed by the motion's own values.
+                const auto p = pose_of(c, k);
+                float ax = motion.named("cable_accel_x", p, 0), az = motion.named("cable_accel_z", p, 0);
+                if (std::fabs(ax) < 0.00999999978f) ax = 0;
+                if (std::fabs(az) < 0.00999999978f) az = 0;
+                Stop::Sway& w = c.sway[k];
+                w.vx += ((ax - w.x * 10) - w.vx * 2.58999991f) * dt;
+                w.vz += ((az - w.z * 10) - w.vz * 2.58999991f) * dt;
+                w.x += w.vx * dt, w.z += w.vz * dt;
+                if (std::fabs(w.x) >= 1) w.x = w.x < 0 ? -1.0f : 1.0f, w.vx = 0;
+                if (std::fabs(w.z) >= 1) w.z = w.z < 0 ? -1.0f : 1.0f, w.vz = 0;
+            }
             if (int(i) != shown || !sound) continue;
             static constexpr const char* kChannels[4][2] = {
                 {"wheel_gun", "wheelgun"}, {"wheel_nut", "dropnut"}, {"tire_sound2", "droptire"}, {"jack_up", "jackup"}};
@@ -558,29 +577,137 @@ bool PitScene::wheel_frame(const Stop& c, int k, int which, Mat4& out) const {
     return true;
 }
 
+// The air hoses from the pit's stand to the wheel guns (0x3CA698, 0x3CAAC8, 0x3CA168): along the ground between, two crossed
+// ribbons 2 cm wide, black, four fifths opaque.
+void PitScene::add_hoses(std::vector<render::DrawItem>& items, const Stop& c, const std::array<render::Vec3, 4>& guns, const std::array<bool, 4>& with) {
+    if (!ctx_) return;
+    static constexpr float kTops[4] = {-1.5f, 1.5f, -1.375f, 1.375f};
+    constexpr float kHeight = 2.125f, kSway = 6.23999977f;
+    constexpr int kSamples = 24;
+    const Mat4 stand = render::translate(c.now.gantry) * render::rotate_y(c.now.gantry_heading);
+    scene::Mesh mesh;
+    mesh.name = "hoses";
+    const auto curve = [](const std::array<float, 4>& p, bool height) {
+        menu::SkeletonMotion::Channel ch;
+        ch.start = 0, ch.first = p[0];
+        if (height) ch.pieces = {{p[1], p[0] * 0.1f + p[1] * 0.9f, 0.4f, p[1]}, {p[1] * 0.667f + p[2] * 0.333f, p[1] * 0.334f + p[2] * 0.666f, 0.6f, p[2]}, {p[2] * 0.9f + p[3] * 0.1f, p[2], 1, p[3]}};
+        else ch.pieces = {{p[0], p[0] * 0.5f + p[1] * 0.5f, 0.4f, p[1]}, {p[1] * 0.667f + p[2] * 0.333f, p[1] * 0.334f + p[2] * 0.666f, 0.6f, p[2]}, {p[2] * 0.5f + p[3] * 0.5f, p[3], 1, p[3]}};
+        return ch;
+    };
+    for (int k = 0; k < 4; ++k) {
+        if (!with[size_t(k)]) continue;
+        const render::Vec3 p0 = stand.transform_point({kTops[k], kHeight, 0}), p3 = guns[size_t(k)];
+        const float ground = c.now.box.y + 0.02f;
+        render::Vec3 p1{p0.x * 0.6f + p3.x * 0.4f, ground, p0.z * 0.6f + p3.z * 0.4f}, p2{p0.x * 0.4f + p3.x * 0.6f, ground, p0.z * 0.4f + p3.z * 0.6f};
+        float a = c.sway[k].x * kSway, b = c.sway[k].z * kSway;
+        const float dx = p3.x - p0.x, dz = p3.z - p0.z, l2 = dx * dx + dz * dz;
+        if ((a != 0 || b != 0) && l2 >= 9.99999902e-05f) {
+            const float by = 1 / std::sqrt(l2), ux = dx * by, uz = dz * by;
+            if (l2 < 0.00249999948f) {
+                const float less = (l2 - 9.99999902e-05f) / 0.00239999942f;
+                a *= less, b *= less;
+            }
+            const float ox = uz * a + ux * b, oz = -ux * a + uz * b;
+            p1.x += ox, p1.z += oz, p2.x += ox * 0.5f, p2.z += oz * 0.5f;
+        }
+        const auto cx = curve({p0.x, p1.x, p2.x, p3.x}, false), cy = curve({p0.y, p1.y, p2.y, p3.y}, true), cz = curve({p0.z, p1.z, p2.z, p3.z}, false);
+        std::array<render::Vec3, kSamples> line;
+        for (int i = 0; i < kSamples; ++i) {
+            const float t = i == kSamples - 1 ? 1.0f : float(i) * 0.043478258f;
+            line[size_t(i)] = {cx.at(t), cy.at(t), cz.at(t)};
+        }
+        render::Vec3 side{1, 0, 0}, other{0, 0, -1};
+        const u32 first = u32(mesh.vertices.size());
+        const auto push = [&](const render::Vec3& p) {
+            scene::Vertex v;
+            v.pos[0] = p.x, v.pos[1] = p.y, v.pos[2] = p.z;
+            v.normal[1] = 1;
+            v.color = 0xCC000000u; // (alpha 0.8)
+            mesh.vertices.push_back(v);
+        };
+        for (int i = 0; i < kSamples; ++i) {
+            if (i + 1 < kSamples) {
+                render::Vec3 d = line[size_t(i + 1)] - line[size_t(i)];
+                if (const float l = render::length(d); l > 0) {
+                    d = d * (1 / l);
+                    if (d.x != 0) side = {-d.y, d.x, 0};
+                    else if (d.y != 0) side = {0, -d.z, d.y};
+                    else side = {side.x, 0, -d.x};
+                    side = render::normalize(side);
+                    other = render::cross(d, side);
+                }
+            }
+            const render::Vec3 p = line[size_t(i)];
+            push(p + side * 0.01f), push(p - side * 0.01f), push(p + other * 0.01f), push(p - other * 0.01f);
+        }
+        for (u32 i = 0; i + 1 < u32(kSamples); ++i)
+            for (u32 r = 0; r < 2; ++r) {
+                const u32 v = first + 4 * i + 2 * r;
+                for (const u32 x : {v, v + 1, v + 4, v + 1, v + 5, v + 4}) mesh.indices.push_back(x);
+            }
+    }
+    if (mesh.indices.empty()) return;
+    scene::Primitive prim;
+    prim.index_count = u32(mesh.indices.size());
+    prim.flags = scene::kAlphaBlend | scene::kDoubleSided | scene::kUnlit;
+    mesh.primitives.push_back(prim);
+    if (!hose_model_) {
+        scene::Model m;
+        m.name = "pit hoses";
+        m.meshes.push_back(mesh);
+        hose_model_ = std::make_unique<render::GpuModel>(*ctx_, m);
+        hose_lines_ = std::make_unique<render::GpuModel>(*ctx_, *hose_model_);
+    }
+    std::vector<scene::Mesh> meshes{std::move(mesh)};
+    if (hose_lines_->update_geometry(meshes)) items.push_back({hose_lines_.get(), Mat4::identity(), 0});
+}
+
 void PitScene::add_items(std::vector<render::DrawItem>& items, std::vector<Wheel>& wheels, size_t car) {
     if (car >= cars_.size()) return;
     Stop& c = cars_[car];
     if (!active(car)) return;
     const Mat4 root = render::translate(c.place) * render::rotate_y(c.heading);
+    std::array<render::Vec3, 4> guns;
+    std::array<bool, 4> with{};
+    std::vector<scene::Mesh> meshes;
     for (int k = 0; k < kMen; ++k) {
         const Man& m = c.men[size_t(k)];
         if (number(c, k) < 0 || m.idle) continue;
         const Mat4 at = root * render::translate(m.pos) * render::rotate_y(m.heading) * render::scale({kScale, kScale, kScale});
         const auto nodes = motions_[size_t(seq_[k].object)].nodes(pose_of(c, k), Mat4::identity());
-        // The models named for a node are drawn at it (the helmet, the wheel gun, the nozzle, the sign), the men by their bones.
-        for (const mdls::Symbol& s : symbols_) {
-            const auto it = nodes.find(s.name);
-            if (it == nodes.end() || s.value >= models_.size() || !models_[s.value]) continue;
-            items.push_back({models_[s.value].get(), at * it->second, 0});
+        if (const auto it = nodes.find("gun"); k < 4 && it != nodes.end()) {
+            const Mat4 g = at * it->second;
+            guns[size_t(k)] = {g.m[12], g.m[13], g.m[14]}, with[size_t(k)] = true;
         }
-        if (skinned_ < 0 || !models_[size_t(skinned_)]) continue;
-        std::vector<scene::Mesh> meshes;
-        mdls::pose(stored_.meshes, skin_, menu::palette(bones_, nodes), meshes);
-        std::unique_ptr<render::GpuModel>& g = posed_[size_t(k)];
-        if (!g) g = std::make_unique<render::GpuModel>(*ctx_, *models_[size_t(skinned_)]);
-        if (g->update_geometry(meshes)) items.push_back({g.get(), at, 0});
+        // The models named for a node are drawn at it (the helmet, the wheel gun, the nozzle, the sign), the men by their bones.
+        const auto figure = [&](const Mat4& to, const std::vector<mdls::Symbol>& symbols, const std::vector<mdls::Bone>& bones, const mdls::SkinTable& skin, int skinned,
+                                const std::vector<std::unique_ptr<render::GpuModel>>& models, const scene::Model& stored,
+                                std::array<std::unique_ptr<render::GpuModel>, kMen>& posed) {
+            for (const mdls::Symbol& s : symbols) {
+                const auto it = nodes.find(s.name);
+                if (it == nodes.end() || s.value >= models.size() || !models[s.value]) continue;
+                items.push_back({models[s.value].get(), to * it->second, 0});
+            }
+            if (skinned < 0 || size_t(skinned) >= models.size() || !models[size_t(skinned)]) return;
+            mdls::pose(stored.meshes, skin, menu::palette(bones, nodes), meshes);
+            std::unique_ptr<render::GpuModel>& g = posed[size_t(k)];
+            if (!g) g = std::make_unique<render::GpuModel>(*ctx_, *models[size_t(skinned)]);
+            if (g->update_geometry(meshes)) items.push_back({g.get(), to, 0});
+        };
+        if (shadows_ && shadow_skinned_ >= 0) {
+            // The shadow's figure thrown flat along the light, at most 1.5 m a metre (0x3D1BE0).
+            float sx = at.m[0] * shear_.x + at.m[2] * shear_.z, sz = at.m[8] * shear_.x + at.m[10] * shear_.z;
+            if (const float l2 = sx * sx + sz * sz; l2 >= 2.25f) {
+                const float by = 1.5f / std::sqrt(l2);
+                sx *= by, sz *= by;
+            }
+            Mat4 flat;
+            flat.m = {1, 0, 0, 0, sx, 0, sz, 0, 0, 0, 1, 0, 0, 0.01f, 0, 1};
+            figure(at * flat, shadow_symbols_, shadow_bones_, shadow_skin_, shadow_skinned_, shadow_models_, shadow_stored_, shadow_posed_);
+        }
+        figure(at, symbols_, bones_, skin_, skinned_, models_, stored_, posed_);
     }
+    add_hoses(items, c, guns, with);
     for (int k = 0; k < 4; ++k)
         for (int which = 0; which < 2; ++which) {
             Wheel w;

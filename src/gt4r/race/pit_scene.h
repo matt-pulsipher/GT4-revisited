@@ -39,6 +39,8 @@ public:
         render::Vec3 box{0, 0, 0}; // the car's box on the road, and its heading about the up axis (0: facing -z)
         float box_heading = 0;
         bool has_box = false;
+        render::Vec3 gantry{0, 0, 0}; // the pit's stand the air hoses hang from (the course's pit stop nearest the box)
+        float gantry_heading = 0;
     };
     // What it knows of a car for the whole race.
     struct CarSizes {
@@ -58,6 +60,8 @@ public:
     // Without a GPU the crew is stepped, not drawn. Throws FormatError.
     PitScene(render::GpuContext* ctx, ByteSpan file);
     void set_car(size_t i, const CarSizes& s);
+    // Where the light throws a shadow (course-space shift per metre of height); without it no shadows.
+    void set_shadow_shear(const render::Vec3& shear) { shear_ = shear, shadows_ = true; }
     void reset();
 
     // A simulation step of `dt` for all the cars; `shown` the car watched (-1 none): its crew's sounds are told to
@@ -121,6 +125,9 @@ private:
         float shake[2] = {0, 0}, shake_to[2] = {0, 0};
         CameraShot shot, shot_before;
         bool shot_on = false, shot_before_on = false;
+        struct Sway {
+            float x = 0, vx = 0, z = 0, vz = 0;
+        } sway[4]; // the air hoses'
         float turn_out[4] = {1, 1, 1, 1}, turn_in[4] = {0, 0, 0, 0}; // how far the wheels taken off / put on follow the hub's turn
     };
     int number(const Stop& c, int k) const; // the motion's number a man is sent to (-1: not there)
@@ -151,6 +158,20 @@ private:
     std::vector<std::unique_ptr<render::GpuModel>> models_;
     gt3r::scene::Model stored_;
     std::array<std::unique_ptr<render::GpuModel>, kMen> posed_;
+    // The shadow's figure, and the air hoses.
+    std::vector<mdls::Bone> shadow_bones_;
+    std::vector<mdls::Symbol> shadow_symbols_;
+    mdls::SkinTable shadow_skin_;
+    int shadow_skinned_ = -1;
+    std::vector<std::unique_ptr<render::GpuModel>> shadow_models_;
+    gt3r::scene::Model shadow_stored_;
+    std::array<std::unique_ptr<render::GpuModel>, kMen> shadow_posed_;
+    render::Vec3 shear_{0, 0, 0};
+    bool shadows_ = false;
+    std::unique_ptr<render::GpuModel> hose_model_, hose_lines_;
+    void add_hoses(std::vector<render::DrawItem>& items, const Stop& c, const std::array<render::Vec3, 4>& guns, const std::array<bool, 4>& with);
+    void build_set(ByteSpan set, std::vector<mdls::Bone>& bones, std::vector<mdls::Symbol>& symbols, mdls::SkinTable& skin, int& skinned,
+                   std::vector<std::unique_ptr<render::GpuModel>>& models, gt3r::scene::Model& stored, const char* name);
     std::vector<Stop> cars_;
     u32 seed_ = 1;
     bool hose_ = false;
