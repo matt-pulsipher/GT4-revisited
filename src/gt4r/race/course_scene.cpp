@@ -210,6 +210,11 @@ CourseScene::CourseScene(render::GpuContext& ctx, ByteSpan course_file, const st
     // The lights of the course's own lit shapes: the environment's scene lights.
     if (env_.has_env) {
         env_.course_lights(lights_);
+        // (A light color a hair below 0 (Togakushi Kogen's blue, -9e-7) is 0 in the program's whole numbers, rounded
+        // toward 0; the shared renderer's, rounded down, would be 255.)
+        for (auto& color : lights_.specular)
+            for (float& c : color)
+                if (c < 0 && c > -1e-3f) c = 0;
         has_lights_ = true;
     }
     LOG_INFO("Course %s: %zu scenery models, %zu triangles, %zu textures; far %.0f m, fog %.0f / %.2f, color scale %.2f", name.c_str(),
