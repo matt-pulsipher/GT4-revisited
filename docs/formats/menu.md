@@ -756,7 +756,7 @@ A line's width, for its alignment, is its pen's less half a space (0x491028), bu
 face of one line (0x4912AC).
 ❓ `TextBoxFace`'s own break is not read: at spaces, where the next word would pass the width. A face
 without `geometry` takes its parent's width. A text is made narrower when
-the script asked (`adjustScale`: the widest line to the face's width), or cut with an ellipsis
+the script asked (`adjustScale`, 0x2455C0: the widest line to the face's width, and by itself the height to the face's), or cut with an ellipsis
 (`abbreviate`); a key is looked up in the page the layout has the widget in, wherever the
 scripts copy it; an open option list is drawn over the page; the cursor and the transitions
 as below.

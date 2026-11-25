@@ -108,7 +108,11 @@ public:
         // A face of several lines (and a text box) breaks its lines at its width; an equalized
         // text is measured by the renderer's own break, not the word wrapper's that draws it
         // (0x2452A8: the license pages' information box).
-        if (const std::optional<Rect> g = d.rect("geometry"); g && g->w > 0 && (d.number("multiline") != 0 || d.type == "TextBoxFace") && d.number("packing") == 0) s = wrapped(s, st, g->w, d, false);
+        // (A face without a rectangle of its own fills its parent's.)
+        std::optional<Rect> own = d.rect("geometry");
+        if (!own && d.number("multiline") != 0 && d.number("packing") == 0)
+            if (const LiveWidget* parent = face.parent_widget()) own = parent->data.rect("geometry");
+        if (const std::optional<Rect>& g = own; g && g->w > 0 && (d.number("multiline") != 0 || d.type == "TextBoxFace") && d.number("packing") == 0) s = wrapped(s, st, g->w, d, false);
         // An abbreviated text measures as it is drawn, cut and ended in dots (the header's car name
         // is placed by its width: gtmode's refreshHeaderAlignment).
         if (const std::optional<Rect> g = d.rect("geometry"); g && g->w > 0 && d.number("abbreviate") != 0 && d.number("adjust_scale") == 0 &&
@@ -122,8 +126,7 @@ public:
         // A text that is not `aligned` measures as wide as its rectangle and as high as its pen came
         // down: its line steps, without the last line (0x491618 to 0x491638).
         if (d.type == "TextFace" && d.has("aligned") && d.number("aligned") == 0) {
-            const std::optional<Rect> g = d.rect("geometry");
-            w = d.number("multiline") != 0 && g ? g->w : 640.0f;
+            w = d.number("multiline") != 0 && own ? own->w : 640.0f;
             h = float(st.font->line_height) * st.scale_y * float(lay.lines - 1);
         }
     }
@@ -649,8 +652,14 @@ private:
         // there and ended in dots.
         if (at.w > 0) {
             const float width = width_of(s, st); // the widest line's
-            if (width > at.w && w.number("adjust_scale") != 0) st.scale_x *= at.w / width;
-            else if (width > at.w && w.number("abbreviate") != 0 && s.find('\n') == std::string::npos) {
+            if (w.number("adjust_scale") != 0) {
+                // (0x2455C0: each axis by itself, where the text passes the face.)
+                menu::TextStyle plain = st;
+                plain.align = gt3r::text::HAlign::Left, plain.valign = gt3r::text::VAlign::Top;
+                const float height = menu::layout_menu_text(s, plain, 0, 0).height;
+                if (width > at.w) st.scale_x *= at.w / width;
+                if (height > at.h && at.h > 0) st.scale_y *= at.h / height;
+            } else if (width > at.w && w.number("abbreviate") != 0 && s.find('\n') == std::string::npos) {
                 while (s.size() > 1 && width_of(s + "...", st) > at.w) s.pop_back();
                 s += "...";
             }
