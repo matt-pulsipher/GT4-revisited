@@ -207,6 +207,27 @@ void unit_score(u32& w, int score) {
 
 } // namespace
 
+std::vector<int> championship_grid_places(const std::vector<s32>& kg, const std::vector<s32>& ps) {
+    const size_t n = std::min(kg.size(), ps.size());
+    std::vector<s32> ratio(n, 0);
+    for (size_t i = 0; i < n; ++i) ratio[i] = ps[i] > 0 ? kg[i] / ps[i] : 0;
+    std::vector<int> rank(n, 0), places(n, int(n) - 1);
+    for (size_t i = 1; i < n; ++i)
+        for (size_t j = i + 1; j < n; ++j) {
+            if (ratio[i] == ratio[j]) continue;
+            ++rank[ratio[j] < ratio[i] ? i : j];
+        }
+    std::vector<bool> taken(n, false);
+    for (size_t k = 1; k < n; ++k) {
+        size_t at = size_t(rank[k]);
+        while (at < n && taken[at]) ++at;
+        if (at >= n) at = n - 1;
+        places[k] = int(at), taken[at] = true;
+    }
+    if (n) places[0] = int(n) - 1;
+    return places;
+}
+
 // The program's result routines (docs/formats/menu.md "After a race"). The race's menus' work
 // (MQuickWork) gets what the routines write into it: the prize, the rows in finishing order
 // (0x114390, 0x11A168, 0x11C1D8), the player's place, and a championship's grand prize and rank.

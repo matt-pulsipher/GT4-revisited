@@ -107,6 +107,14 @@ struct RaceResult {
     bool bspec_doubled = false, bspec_course = false;
 };
 
+// A championship's grid from its second race on (0x3EE9F8, the championship's race information when its
+// entrants are kept, and NEXT_RACE's 0x118EF0): each entry's showroom car (0x364868 with a fresh condition)
+// gives its weight (kg, 0x364FA8) over its power (PS truncated, 0x364E90), an integer quotient; each
+// opponent (entries 1 ..) is placed by how many other opponents have a smaller quotient (a tie counts
+// for neither), taking the next free place up when that one is taken (in entry order); the player
+// (entry 0) is last. `kg` and `ps` by entry; the places, 0 the front, by entry.
+std::vector<int> championship_grid_places(const std::vector<s32>& kg, const std::vector<s32>& ps);
+
 // A car's record as the garage keeps it: the program's CarGarage (0x4B8 bytes, saved as they
 // are; docs/formats/save.md "The car record"): three settings sheets, each a car equipment record
 // (sim/equipment.h), the wheel chosen for each tire category, the sheet in use, the parts owned
