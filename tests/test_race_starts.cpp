@@ -8,6 +8,12 @@
 #include "gt4r/race/license_rules.h"
 #include "gt4r/race/race_flow.h"
 #include "gt4r/race/race_start.h"
+#include "gt4r/sim/ai/drivers.h"
+#include "gt4r/sim/program.h"
+#include "gt4r/sim/session.h"
+
+#include <cmath>
+#include <cstdio>
 
 using namespace gt4r;
 
@@ -102,4 +108,38 @@ TEST(race_demonstrations_disc) {
         }
     }
     if (!ran) SKIP("no Gran Turismo 4 US disc");
+}
+
+TEST(race_driving_mode_changed_in_the_race) {
+    Disc* disc = nullptr;
+    for (const std::unique_ptr<Disc>& d : test::discs())
+        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d.get();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    // The PIT STOP menu's driving mode (0x3F19E0 command 10): a pad's car standing on its brake, given to the B-spec driver, drives
+    // on along the road; given back, it stops on its pad's brake.
+    const std::vector<std::string> labels{"ka_01", "s500_63"};
+    auto session = sim::Session::open(*disc, "tsukuba", labels);
+    std::vector<size_t> cars{0, 1};
+    auto field = sim::ai::Field::open(*disc, "tsukuba", *session, cars);
+    field->set_shadow(0);
+    std::vector<race::CarInput> in(2);
+    for (int k = 0; k < sim::Session::kHoldSteps; ++k) field->step(*session, in, -1, u32(sim::Session::kHoldSteps - k));
+    auto run = [&](int steps) {
+        float run_m = 0;
+        for (int k = 0; k < steps; ++k) {
+            in[0] = {}, in[0].brake = 1;
+            field->step(*session, in, -1, 0);
+            run_m += session->cars()[0].speed * sim::Session::kStep;
+        }
+        return run_m;
+    };
+    CHECK(std::fabs(run(300)) < 1);
+    CHECK(field->control(0) == 0);
+    field->set_control(0, 1);
+    const float driven = run(900);
+    CHECK(driven > 150 && session->cars()[0].speed > 10);
+    field->set_control(0, 0);
+    run(600);
+    CHECK(std::fabs(session->cars()[0].speed) < 0.1f);
+    std::printf("  %.1f m driven by the B-spec driver\n", double(driven));
 }
