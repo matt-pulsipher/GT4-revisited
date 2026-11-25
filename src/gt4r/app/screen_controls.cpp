@@ -110,8 +110,8 @@ public:
         if (now.views & (input::RaceInput::kBackView | input::RaceInput::kRearView)) more += ", look back";
         ui.text(x, 156, Ui::elide(more, w), colors::kText);
         float y = 182;
-        for (const std::string& line : Ui::wrap("The game's own Options keep the rest: Key Configuration, vibration, the steering wheel's page. Once its "
-                                                "Key Configuration for the DUALSHOCK 2 is changed, races read the pad through it.", w))
+        for (const std::string& line : Ui::wrap("The game's own Options keep the rest: the button configurations, the vibration, the steering wheel's page. Once its "
+                                                "DUALSHOCK 2 button config is changed, races read the pad through it.", w))
             ui.text(x, y, line, colors::kDim), y += 12;
         ui.footer(sel_ < int(rows_.size()) ? "{Left/Right}: change  {Triangle}: keep and go back" : "{Cross}: bind  {Square}: every binding as it was  {Triangle}: keep and go back");
     }

@@ -41,13 +41,14 @@ Triangle goes back). In races, unless you change it:
 Menus on a keyboard: arrows move, Enter is Cross, Escape and Backspace Triangle, P Start, Tab
 Select. F11 switches full screen.
 
-**The game's own Options** work as the console's. *Key Configuration*: once you change the
-DUALSHOCK 2's there, races read your pad through that page, button for button (Cross accelerates
-unless the page says otherwise; a trigger set to a pedal works by its travel); the page's Default
-brings the layout above back. The wheels' pages (the Driving Force Pro's unless you choose the other,
-below) hold for a wheel. *Controllers*: the vibration. *Steering*: for a wheel, the active steering, the
-steering type (Amateur to Simulation), the power assist and the force's strength. *Race Settings*: the
-gearbox for Gran Turismo mode's races, license tests and missions; Arcade asks on its own pages.
+**The game's own Options** work as the console's. *DUALSHOCK 2 button config 1P*: once you change it,
+races read your pad through that page, button for button (Cross accelerates unless the page says
+otherwise; a trigger set to Gas or Brake works by its travel); the page's Default brings the layout above
+back. *Driving Force Pro button config 1P* (or *Driving Force*'s, if you choose that wheel below) holds
+for a wheel. *Vibration*: the rumble and the triggers on or off. *Steering*: for a wheel, the active
+steering, the steering type (Amateur to Simulation), the power assist and the force's strength. The
+race's options: the gearbox for Gran Turismo mode's races, license tests and missions; Arcade asks on its
+own pages.
 
 **The home screen's Controls** (Select and Start together, then Controls) has what a computer's devices
 need: which device drives; the race controls, Modern (the table above) or Gran Turismo 4 original
@@ -91,9 +92,9 @@ Pad (a DualSense and, if there is one, an Xbox pad):
 5. Triggers on a DualSense: resistance on the brake from a fifth of its travel, a buzz with the ABS, a
    buzz under the throttle near the grip's edge (aids off, a powerful car). Triggers: Free stops them.
 6. Each stops at once on Start (pause), at the finish, in the replay, on leaving the race, when another
-   window comes to the front; Options > Controllers > Vibration off silences it (the triggers too).
-7. Key Configuration > DUALSHOCK 2 1P: swap two controls, OK, race: the pad follows the page. Default
-   there: the Modern layout again.
+   window comes to the front; Options > Vibration off silences it (the triggers too).
+7. Options > DUALSHOCK 2 button config 1P: swap two controls, OK, race: the pad follows the page.
+   Default there, then OK: the Modern layout again.
 
 Wheel:
 1. *Controls*: it says the wheel's name; set "Wheel's rotation" to what its driver has; the steering bar
@@ -108,7 +109,7 @@ Wheel:
 4. It keeps working for minutes, through a pause and back, and after a wall.
 5. Nothing is left pulling on the pause, at the finish, in the replay, in the menus, with another window
    in front, or after quitting.
-6. Options > Steering: POWER weak and strong differ; the steering type and active steering (Driving
+6. Options > Steering: the feedback strength Weak and Strong differ; the steering type and active steering (Driving
    Force) change how it feels. Wheel driven as Driving Force: 100 degrees is full lock.
 
 ## What works
@@ -121,8 +122,8 @@ Wheel:
   B-spec watching the computer drive), the results, the replay, back to Arcade for another race.
   Time Trial and the other race kinds reach their races the same way.
 - **Options**: every page opens and keeps its values in the data folder; the laps, the units and
-  the race settings (the gearbox among them), Key Configuration, the vibration and the wheel's settings
-  take effect in the races.
+  the race settings (the gearbox among them), the button configurations, the vibration and the wheel's
+  settings take effect in the races.
 - **Gran Turismo mode**: a new game (name, introduction), the map, the used car and new car
   showrooms (buying a car, getting in it), the events (the Sunday Cup and the others: the event
   page, the regulations, the pre-race page with the drawn field), racing them for real (A-spec or
