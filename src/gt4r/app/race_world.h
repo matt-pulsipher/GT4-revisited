@@ -58,6 +58,7 @@ struct WorldSetup {
     bool reflection = true;
     bool rail = false; // the stand-in simulation instead of the game's
     sim::ai::Pace pace; // the computer drivers' (the event's)
+    std::vector<u8> event_row; // the event's RACE row: the race's tire wear (sim::rules::event_wear_bytes); empty: no wear
     int laps = 0;       // the race's laps (the pit stops' last lap; 0 a run without an end)
     bool computer_player = false; // the computer drivers drive the player's car too
     // The game's options (menu::GameState::options: the sound's volumes and output) and the race
@@ -88,9 +89,14 @@ public:
     // it this step (else its input is the caller's: a rolling start handed over).
     void step(std::span<const race::CarInput> inputs, bool hold = false, bool player_by_computer = true);
     std::span<const race::CarState> cars() const { return sim_->cars(); }
-    // A rolling start's run-up from the next step: every car held at `mps` (its throttle eased, its
-    // brake touched above it); 0 lets them go.
-    void set_speed_hold(float mps) { hold_speed_ = mps; }
+    // A rolling start (an entry with a start speed): each such car is held to the start's pace until it is
+    // released as it takes the line (DynamicsConductorSinglePlayer::vf20 0x347928 → 0x345228). A released car
+    // stays released until the next restart.
+    void release_start(size_t car) {
+        if (car < pace_kmh_.size()) pace_kmh_[car] = 0;
+    }
+    // Whether a car is still held to the start's pace (its driver kind 1, F +0x467).
+    bool rolling(size_t car) const { return car < pace_kmh_.size() && pace_kmh_[car] > 0; }
     // B-spec's commands for a car the computer drives: its pace 1 .. 5 (3 the race's own) and the
     // overtake, to its driver (sim::ai::Field::command; kept for the next restart).
     void command(size_t car, int pace, bool overtake) {
@@ -156,6 +162,8 @@ public:
     int gadget_contacts(size_t i) const;
     // A car's mass as the step reads it (the spec's weight, kg; 0 not known): the license tests' wall rule.
     float car_mass(size_t i) const;
+    // A car's fuel left as a share of its tank (1 without a tank).
+    float fuel_share(size_t i) const;
     // A car's top speed as the program estimates it from the gearing (P +0xFD8, m/s; 0 not known): the
     // speedometer's face.
     float car_top_speed(size_t i) const;
@@ -187,7 +195,7 @@ private:
     std::unique_ptr<sim::ai::PitStops> pits_; // their pit stops
     bool computer_player_ = false;
     float player_ps_ = 0;
-    float hold_speed_ = 0;
+    std::vector<float> pace_kmh_; // each car's rolling start speed until released (0: none)
     race::GadgetBodies gadget_bodies_; // the cones and boards as the cars leave them
     unsigned gadget_hits_ = 0;
     std::vector<std::optional<WorldEntry>> overrides_;

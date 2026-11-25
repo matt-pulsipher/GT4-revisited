@@ -21,6 +21,8 @@ struct SpeedTables {
     u32 lean_on = 0;     // 0x620788: a two-wheeler's lean in its front hub's sideways speed (0 in the image)
     u32 roll_on = 0;     // 0x620784: the roll rate in each hub's sideways speed (0 in the image)
     std::array<F, 2> lean_row{}; // the special row's +0x30 / +0x34 (0x359F50)
+    F special_x10;                // the special row's +0x10 (the drawn car's height, 0x344040)
+    F throttle_share, brake_share; // 0x62075C / 0x620760: the driver's animation's following of the pedals (0x344040)
 };
 SpeedTables speed_tables(const Program& program, u8 special_row);
 

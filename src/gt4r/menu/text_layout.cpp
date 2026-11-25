@@ -213,9 +213,14 @@ TextLayout layout_menu_text(std::string_view s, const TextStyle& st, float x, fl
     for (size_t k = 0; k < lines.size(); ++k) {
         const Line& l = lines[k];
         float w = l.pen - half_space, gap = 0;
-        // ❓ `equalized`: a line broken to fit is spread over the width at its spaces (judged
-        // from the license tests' information text).
-        if (st.justify_width > 0 && l.soft && l.space_count > 0 && w < st.justify_width) gap = (st.justify_width - w) / float(l.space_count), w = st.justify_width;
+        // `equalized` (0x245C90): a line broken to fit is spread at its spaces so that it ends a
+        // space short of the width, each space at most 2.5 spaces wide (0x24600C); the last line
+        // and a line ended by a line end keep plain spaces.
+        if (st.justify_width > 0 && l.soft && l.space_count > 0) {
+            const float space = float(sp ? int(sp->advance) : int(font.size / 2)) * sx;
+            gap = std::min((st.justify_width - space - w) / float(l.space_count), 1.5f * space);
+            w += gap * float(l.space_count);
+        }
         float ox = x;
         if (st.align == gt3r::text::HAlign::Right) ox = x - w;
         else if (st.align == gt3r::text::HAlign::Center) ox = x - w * 0.5f;

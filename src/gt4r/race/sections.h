@@ -15,4 +15,14 @@ namespace gt4r::race {
 // u32 -> f32[count]} each): its distances; empty without it.
 std::vector<float> road_list(ByteSpan rnw4, size_t list);
 
+// The road's sections (RNW4 +0x54 u16 the count, +0x9C -> 0x20 bytes each): the stretch a license test or
+// mission runs on, f32 +0x00 its start and +0x04 its goal, distances along the lap (DynamicsConductor::vf38 /
+// vf39 → 0x395528 / 0x395588 take them when the course object's section +0xB0 is set, else the road's +0x18 /
+// +0x1C). A race with a goal (1 m .. the lap less 1 m, 0x34C470) ends a car's run of kind 2 where it passes it
+// (0x358608 → vf23). ❓ The rest of the record (+0x08 .. +0x1C: counts and three pointers, a place among them).
+struct RoadSection {
+    float start = 0, goal = 0;
+};
+std::vector<RoadSection> road_sections(ByteSpan rnw4);
+
 } // namespace gt4r::race
