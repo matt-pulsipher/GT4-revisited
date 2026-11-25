@@ -532,7 +532,9 @@ void Session::chassis(size_t i) {
     if (gt4_rules_) { // (0x36CEE8: into the conductor's pad block; the record's byte kept with it)
         rules::pad_rumble(c, layouts_[i], gx_[i].feel.pad);
         c.rumble = gx_[i].feel.pad[1];
-    } else
+    } else if (prologue_) // (0x3CE1A8: into the conductor's pad block; the engine's record byte not Prologue's)
+        prologue::pad_rumble(c, prologue_cars_[i].layout, gx_[i].feel.pad);
+    else
         ex::pad_rumble(c);
     ex::steer_force(c, race_.feel);
     if (gt4_rules_) rules::slide_effects(c, layouts_[i], tables_.slide, loose_ ? 2 : 0); // (0x367148)

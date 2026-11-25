@@ -63,4 +63,12 @@ int slide_kind(u8 surface);
 // 0x3B63B0) x 0.001 x dt, into the condition block's +0xC at most 0.8 (0x3B1B00) whatever the engine's state.
 void tire_effects(ex::Car& c, const rules::WheelLayout& l, const rules::SlideTables& t, u8 course_kind);
 
+// The pad's vibration block of car k in the conductor: cond + 0xDAC8 + 0x10 k (k the record's F + 0x4C4; Gran Turismo 4's
+// cond + 0xCA58 + 0x10 k), +0x01 the level.
+constexpr u32 kPadBlock = 0xDAC8, kPadSize = 0x10;
+
+// 0x3CE1A8 (phase 19): the pad's vibration, Gran Turismo 4's 0x36CEE8 (rules::pad_rumble) but a wall's hit counted from
+// above 0 (Gran Turismo 4: 0.01) and the kerb strips Prologue's surfaces 1 and 13.
+void pad_rumble(const ex::Car& c, const rules::WheelLayout& l, std::array<u8, 2>& pad);
+
 } // namespace gt4r::sim::prologue

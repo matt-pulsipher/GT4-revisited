@@ -153,4 +153,55 @@ void tire_effects(ex::Car& c, const rules::WheelLayout& l, const rules::SlideTab
     if (F::raw(0x3F4CCCCC) < c.dirt) c.dirt = F::raw(0x3F4CCCCC);
 }
 
+void pad_rumble(const ex::Car& c, const rules::WheelLayout& l, std::array<u8, 2>& pad) {
+    if (u8(u8(c.control) - 1) < 2 || c.driver_kind != 0) {
+        pad = {0, 0};
+        return;
+    }
+    const F kQuarter = F::raw(0x3E800000);
+    const int n = l.count < 4 ? l.count : 4;
+    F drive = kZero, brake = kZero, slip = kZero;
+    int ahead = 0;
+    for (int i = 0; i < n; ++i) {
+        if (gt3r::s8(l.fore_aft[size_t(i)]) <= 0) continue;
+        const ex::Wheel& w = c.w[size_t(i)];
+        ++ahead;
+        brake = brake + w.fx_brake;
+        drive = drive + w.fx_drive;
+        slip = slip + w.slip_ratio * w.slip_ratio;
+    }
+    if (ahead != 0) drive = drive * (slip / gt3r::ee::int_to_f(ahead) + F::raw(0x3DCCCCCC));
+    if (drive < kZero) drive = -drive;
+    const F cap = F::raw(0x3EAA7EF9), scale = F::raw(0x46991FFF); // 0.333, 19,600
+    drive = drive * F::raw(0x3A2A7EF9);
+    if (cap < drive) drive = cap;
+    brake = brake / scale;
+    brake = brake * brake;
+    if (cap < brake) brake = cap;
+    F hit = kZero;
+    if (kZero < c.hit_rumble) hit = c.hit_rumble * F::raw(0x41000000) + kQuarter;
+    const F forces = drive + brake;
+    F bump = kZero, kerb = kZero;
+    for (int i = 0; i < n; ++i) {
+        if (c.race_hold != 0) continue;
+        const ex::Wheel& w = c.w[size_t(i)];
+        if (kZero < w.damper_f) {
+            const F x = w.damper_f / scale;
+            bump = bump + (kOne < x ? kOne : x);
+        }
+        if (gt3r::s8(l.fore_aft[size_t(i)]) <= 0) continue;
+        const u8 s = w.surface;
+        if (s != 1 && s != 13) continue;
+        F k = w.load / F::raw(0x4537BFFF) * (c.speed * F::raw(0x3C800000)); // 2,940 N, / 64
+        if (k < kZero) k = -k;
+        kerb = kerb + (kQuarter < k ? kQuarter : k);
+    }
+    F level = bump + kerb;
+    if (level < forces) level = forces;
+    if (level < hit) level = hit;
+    s32 v = gt3r::ee::to_int(level * F::raw(0x43800000));
+    if (!(v < 0x80)) v = 0x7F;
+    pad[1] = u8(v);
+}
+
 } // namespace gt4r::sim::prologue

@@ -446,6 +446,18 @@ void add_prologue_taps(PTaps& taps, const Disc& disc, const std::string& course)
                       static const sim::rules::SlideTables st = sim::prologue::slide_tables(feel_program);
                       sim::prologue::tire_effects(c.car, layout(c), st, c.inputs.aids.course_category);
                   }});
+        { // the pad block, cond + 0xDAC8 + 0x10 k (k the record's F + 0x4C4)
+            static std::map<int, std::array<u8, 2>> pads;
+            auto pad_at = [](Ee& ee, u32 car) { return ee.r32(car + 4) + sim::prologue::kPadBlock + sim::prologue::kPadSize * ee.r8(car + 0xD8 + 0x4C4); };
+            taps.add({0x3CE1A8, "Prologue's pad rumble", [=](PTapCall& c) {
+                          std::array<u8, 2> p{c.ee.r8(pad_at(c.ee, c.car_addr)), c.ee.r8(pad_at(c.ee, c.car_addr) + 1)};
+                          sim::prologue::pad_rumble(c.car, layout(c), p);
+                          pads[c.car_index] = p;
+                      },
+                      {}, {}, [=](Ee& ee, u32 car, int index, const std::function<void(const char*, u32, u32)>& field) {
+                          field("pad[0]", ee.r8(pad_at(ee, car)), pads[index][0]), field("pad[1]", ee.r8(pad_at(ee, car) + 1), pads[index][1]);
+                      }});
+        }
         taps.add({0x3B4238, "Prologue's view follow", [=](PTapCall& c) {
                       sim::rules::ViewState v;
                       const u32 b = block(c.ee, c.car_addr);
