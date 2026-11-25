@@ -151,7 +151,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
     if (!gt4_ready_ && !(rules_env && std::string(rules_env) == "engine")) { // Prologue's own step (rules_prologue.h)
         prologue::Tables t = prologue::tables(program);
         if (t.found) prologue_ = t, prologue_cars_.resize(entries.size()), prologue_feel_.resize(entries.size());
-        if (prologue_ && road_->gtrw) course_ground_ = std::make_unique<ex::CourseGround>(*road_->gtrw);
+        if (prologue_ && road_->gtrw) course_ground_ = std::make_unique<ex::CourseGround>(*road_->gtrw), course_query_ = std::make_unique<ex::CourseQuery>(*road_->gtrw);
         if (prologue_) prologue::race_inputs(race_, *prologue_), prologue_aids_ = prologue::aid_tables(program), prologue_feel_tables_ = prologue::feel_tables(program, race_.sound_scales),
                        prologue_slide_ = prologue::slide_tables(program), prologue_force_ = prologue::force_tables(program, prologue_->controls);
     }
@@ -267,9 +267,10 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
             GroundHit h;
             if (ground_->at_place(at.pos, h)) at.pos.y = h.point.y;
         }
+        if (prologue_ && kind == 0 && !e.place && !road_->grid.empty()) at.heading = road_->grid[0].heading; // (0x3B6D5C: every car the first place's)
         if (e.line_start) at.pos = {e.line_start->x.host(), e.line_start->z.host(), -e.line_start->y.host()}, at.heading = (e.line_start->heading - kPi).host();
         if (gt4_rules_) setup(i, at, kind, e.start_speed, e.fuel, e.line_start ? &*e.line_start : nullptr, e.control, e.driver, e.line_start ? e.line_start->open_throttle : e.open_throttle);
-        else place(i, at, !e.line_start);
+        else place(i, at, !e.line_start, e.line_start ? e.line_start->hint : -1);
         publish(i);
     }
     // The collision bodies (0x45B978: an octagon from the body's extents, the mass and the yaw inertia).
@@ -523,7 +524,7 @@ void Session::hold_once(std::span<const race::CarInput> inputs, const Decider& d
 
 // The car at rest on a start place with the engine's rules (GT4R_SIM_RULES=engine: the engine's race start, the pose
 // on the road and the standing start), with the nose at the place.
-void Session::place(size_t i, const course::Runway::Place& at, bool by_front) {
+void Session::place(size_t i, const course::Runway::Place& at, bool by_front, s32 hint) {
     ex::Car& c = cars_[i];
     // The record's heading: the place's turned half a turn (forward is (sin, cos) of the place's in x, z).
     // (Prologue's half turn is 0x40490FDA: 0x388138)
@@ -545,11 +546,12 @@ void Session::place(size_t i, const course::Runway::Place& at, bool by_front) {
     // its ground frame.
     const bool own = prologue_ && course_ground_;
     const auto axes = [&] { own ? rules::body_axes(c.pitch, c.roll, c.heading, c.fwd, c.lat, c.up) : ex::body_axes(c); };
-    if (own) {
-        std::array<ex::Ground, 4> q{};
-        for (ex::Ground& g : q) g.x = x, g.z = -y, g.h = F(at.pos.y), g.seg = -1;
-        course_ground_->query(q, c.behaviour);
-        if (!q[0].miss) c.pos.z = q[0].height + c.p.cog_height;
+    ex::Ground q;
+    if (own) { // (the place's ground by the course's single-point query, 0x3881F8 = Gran Turismo 3's 0x18FA80; its segment is the car's)
+        q.x = x, q.z = -y, q.h = F(at.pos.y), q.seg = hint;
+        course_query_->ground(q);
+        if (!q.miss) c.pos.z = q.height + c.p.cog_height;
+        c.road_seg = q.seg;
     }
     axes();
     if (gt4_ready_) rules::hub_offsets(c, layouts_[i]);
@@ -559,7 +561,11 @@ void Session::place(size_t i, const course::Runway::Place& at, bool by_front) {
         ex::Ground& g = c.g[w];
         g.x = c.pos.x + wheel.hub.x, g.z = -(c.pos.y + wheel.hub.y), g.h = c.pos.z + wheel.hub.z;
         if (own) {
-            g.seg = -1;
+            g.seg = c.road_seg;
+            course_query_->ground(g);
+            wheel.ground = wheel.ground0 = g.miss ? q.height + wheel.hub.z : g.height;
+            wheel.surface = g.miss ? 0 : u8(ex::surface_index(g)), wheel.x25 = g.miss ? 0 : g.x32, wheel.surface_flags = g.miss ? 0 : g.flags;
+            extra_[i].kinds[w] = g.miss ? 0 : g.flags, extra_[i].materials[w] = g.miss ? 0 : g.material;
             continue;
         }
         GroundHit wh;
@@ -577,16 +583,6 @@ void Session::place(size_t i, const course::Runway::Place& at, bool by_front) {
             wheel.ground = wheel.ground0 = ground + wheel.hub.z;
         }
     }
-    if (own) {
-        course_ground_->query(c.g, c.behaviour);
-        for (size_t w = 0; w < 4; ++w) {
-            ex::Wheel& wheel = c.w[w];
-            const ex::Ground& g = c.g[w];
-            wheel.ground = wheel.ground0 = g.miss ? ground + wheel.hub.z : g.height;
-            wheel.surface = g.miss ? 0 : u8(ex::surface_index(g)), wheel.x25 = g.miss ? 0 : g.x32, wheel.surface_flags = g.miss ? 0 : g.flags;
-            extra_[i].kinds[w] = g.miss ? 0 : g.flags, extra_[i].materials[w] = g.miss ? 0 : g.material;
-        }
-    }
     for (int w = 0; w < 4; ++w) {
         ex::Wheel& wheel = c.w[size_t(w)];
         const size_t a = size_t(w >> 1);
@@ -597,7 +593,7 @@ void Session::place(size_t i, const course::Runway::Place& at, bool by_front) {
         wheel.camber = ex::wheel_camber(c.p, w, k0, k0);
         wheel.half_track = ex::hub_half_track(c.behaviour, c.p, w, k0);
     }
-    c.road_seg = c.g[0].miss ? -1 : c.g[0].seg; // (0x36315C: the set-up's hint, wheel 0's triangle)
+    if (!own) c.road_seg = c.g[0].miss ? -1 : c.g[0].seg; // (0x36315C: the set-up's hint, wheel 0's triangle)
     if (gt4_rules_) rules::ground_frame(c, layouts_[i]);
     else if (own) prologue::ground_frame(c);
     else ex::ground_frame(c);
@@ -620,7 +616,7 @@ void Session::place(size_t i, const course::Runway::Place& at, bool by_front) {
     c.dist_total = k0;
     if (own) { // (0x3B41E8, 0x3C8E10: the view's lags, the torque's share and the steering force's byte at rest)
         c.lag_heading = c.lag_pitch = k0, c.x420 = k0, c.steer_force = 0, c.x16d0 = 1, c.x16d1 = 0;
-        if (float v = 0; ground_->distance_along(to_course(c.pos), v)) c.f3e4 = F(v);
+        c.f3e4 = course_query_->progress(c.pos.x, c.pos.z, -c.pos.y, c.road_seg);
         prologue::part_start(c, prologue_cars_[i], prologue_feel_[i]); // (0x3B1BD0)
         prologue_feel_[i].force = {};                                  // (0x3BC7B0)
     }
@@ -1108,11 +1104,17 @@ void Session::publish(size_t i) {
         const F d = ground_->course_distance(at, c.road_seg, &along);
         cars_[i].f3e4 = d;
         v = d.host();
+    } else if (prologue_ && course_query_) {
+        // Prologue's (F + 0x3E8, the conductor's virtual 30: 0x388198 = Gran Turismo 3's 0x18FA20 at the center of gravity; a little
+        // below 0 just before the line on some roads, 0 where no checkpoint pair holds the point).
+        const F d = course_query_->progress(c.pos.x, c.pos.z, -c.pos.y, c.road_seg);
+        cars_[i].f3e4 = d;
+        v = d.host(), along = d.bits != 0;
     } else
         along = ground_->distance_along(cog, v, &x.checkpoint);
     if (along) {
         // (The checkpoint pair across the lap's end answers past the length: the line is at 0.)
-        if (road_->length > 0 && v >= road_->length) v -= road_->length;
+        if (road_->length > 0 && v >= road_->length && !course_query_) v -= road_->length;
         if (x.has_v && road_->length > 0) {
             const float d = v - x.last_v;
             if (d < -road_->length * 0.5f) ++s.lap;
@@ -1126,7 +1128,7 @@ void Session::publish(size_t i) {
                 if (was <= s) rate = (was + lap * kHalf < s ? s - (was + lap) : s - was) * k60;
                 else rate = (s + lap * kHalf < was ? (s + lap) - was : s - was) * k60;
             }
-            if (!gt4_rules_ || prologue_) cars_[i].f3e4 = F(v);
+            if ((!gt4_rules_ || prologue_) && !course_query_) cars_[i].f3e4 = F(v);
             gx_[i].near.course_rate = rate;
         }
         // A start place behind the line: the first lap begins when the car crosses it.

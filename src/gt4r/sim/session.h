@@ -16,6 +16,7 @@
 #include "gt4r/sim/record.h"
 #include "gt4r/sim/rules_prologue.h"
 #include "gt4r/sim/rules_step.h"
+#include "sim/exact/course_query.h"
 #include "sim/exact/tick.h"
 
 #include <functional>
@@ -276,7 +277,7 @@ private:
         int contact_car = -1;
         float wall_hit = 0, car_hit = 0; // (race::CarState::wall_hit, car_hit)
     };
-    void place(size_t i, const course::Runway::Place& at, bool by_front = true);
+    void place(size_t i, const course::Runway::Place& at, bool by_front = true, s32 hint = -1);
     void setup(size_t i, const course::Runway::Place& at, int kind, float speed, bool fuel, const Entry::LineStart* line, gt3r::s8 control, u8 driver,
                const std::function<bool(gt3r::ee::F)>& open_throttle);
     rules::PoseHooks pose_hooks();
@@ -289,6 +290,7 @@ private:
     std::shared_ptr<const course::Runway> road_;
     std::unique_ptr<RoadGround> ground_;
     std::unique_ptr<gt3r::sim::exact::CourseGround> course_ground_; // (Prologue's road: the program's query on its GTRW)
+    std::unique_ptr<gt3r::sim::exact::CourseQuery> course_query_;   // (and its single-point queries: the set-up's ground 0x3881F8, the progress 0x388198)
     std::unique_ptr<gt3r::sim::exact::ProgramData> data_;
     gt3r::sim::exact::RaceInputs race_;
     std::vector<gt3r::sim::exact::Car> cars_;

@@ -9,6 +9,7 @@
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/db/specdb.h"
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -32,6 +33,7 @@ struct Pad {
     float throttle = 0, brake = 0;
     int shift = 0;
     u8 kind = 3; // the controller (PadFrame::kind)
+    const u8* raw = nullptr; // a recorded frame (16 bytes) in place of the rest
 };
 
 struct Race {
@@ -51,8 +53,17 @@ void boot(Ee& ee, Disc& disc);
 // initialisation); `human` entries are driven by the pad. False with `err` when the set-up stops. (`r` must stay where it
 // is while the race runs: the pad stub reads it.)
 // `aids`: the entries' stability and traction control switches (on, as our sessions' entries have them).
+// A lesson's race in place of a single race: its conductor's constructor, its RACE row (Prologue's 98 bytes: the rules, by the
+// conductor's 0x3B6B20) and each entry's bytes from its equipment to its switches before the set-up.
+struct Lesson {
+    u32 conductor = 0x3B4750; // DynamicsConductorLicense
+    std::vector<u8> row;
+    std::function<void(Ee&, u32 entry, int car)> entry;
+};
 bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, const std::vector<std::string>& labels, int human, Race& r,
-                std::string& err, bool aids = true);
+                std::string& err, bool aids = true, const Lesson* lesson = nullptr);
+// A lesson's demonstration (prologue_demo.cpp) through the program's own step beside ours: the first step that differs.
+int run_demo(Disc& disc, const std::string& label, int steps);
 // The switches gt4r_diff's runs give the entries: on, GT4R_AIDS=0 off.
 bool aids_from_env();
 // The game data's layout as the program writes it (prologue_save.cpp): printed.

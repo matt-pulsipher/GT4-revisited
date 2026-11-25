@@ -44,6 +44,7 @@ int main(int argc, char** argv) {
             return gt4r::diff::prologue::run_near(*disc, argc > 3 ? argv[3] : "tsukuba", argc > 4 ? argv[4] : "civic_r_98,impreza_wrc_03,civic_r_98", argc > 5 ? std::atoi(argv[5]) : 1200);
         if (test == "prologue-passcode") return gt4r::diff::prologue::run_passcode(*disc, argc > 3 ? std::atoi(argv[3]) : 200) ? 0 : 1;
         if (test == "prologue-save") return gt4r::diff::prologue::run_save_layout(*disc) ? 0 : 1; // gt4r_diff <prologue disc> prologue-save
+        if (test == "prologue-demo") return gt4r::diff::prologue::run_demo(*disc, argc > 3 ? argv[3] : "l0p0005", argc > 4 ? std::atoi(argv[4]) : 100000); // <label> [steps] (prologue_demo.cpp)
         if (test == "prologue") // gt4r_diff <prologue disc> prologue [course] [car] [steps] (prologue_step.cpp)
             return gt4r::diff::prologue::run(*disc, argc > 3 ? argv[3] : "tsukuba", argc > 4 ? argv[4] : "civic_typer_97", argc > 5 ? std::atoi(argv[5]) : 1200);
         if (test == "showroom") ok = gt4r::diff::run_showroom(*disc, true, argc > 3 ? size_t(std::atoi(argv[3])) : 0).ran && ok;

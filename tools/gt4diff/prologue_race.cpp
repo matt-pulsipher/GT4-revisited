@@ -95,7 +95,7 @@ void boot(Ee& ee, Disc& disc) {
 bool aids_from_env() { return !(std::getenv("GT4R_AIDS") && std::string(std::getenv("GT4R_AIDS")) == "0"); }
 
 bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, const std::vector<std::string>& labels, int human, Race& r,
-                std::string& err, bool aids) {
+                std::string& err, bool aids, const Lesson* lesson) {
     r = Race{};
     r.cars = int(labels.size());
     try {
@@ -140,6 +140,11 @@ bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, 
             [race](Ee& e) {
                 const u32 obj = u32(e.a(0)), frame = u32(e.a(1));
                 const Pad& p = race->pad[e.r32(obj) % 6];
+                if (p.raw) {
+                    for (u32 k = 0; k < 16; ++k) e.w8(frame + k, p.raw[k]);
+                    e.set_v0(0);
+                    return;
+                }
                 auto axis = [](float v) { return s32(std::lround(std::clamp(v, -1.0f, 1.0f) * 4096.0f)); };
                 e.w8(frame + 0, 1 | 2 | 4), e.w8(frame + 1, p.kind), e.w8(frame + 2, u8(gt3r::s8(p.shift)));
                 e.w16(frame + 4, u16(gt3r::s16(-axis(p.steer)))), e.w16(frame + 8, u16(axis(p.throttle))), e.w16(frame + 0xA, u16(axis(p.brake)));
@@ -164,12 +169,18 @@ bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, 
             ee.w32(entry + kEntryPlace, u32(i));
             // The entry's stability and traction control switches (+0x3FB8 / +0x3FBC, read by the car's set-up 0x3C93A0).
             ee.w32(entry + kEntryAsm, aids ? 1 : 0), ee.w32(entry + kEntryTcs, aids ? 1 : 0);
+            if (lesson && lesson->entry) lesson->entry(ee, entry, i);
             ee.w32(arr + 4 * u32(i), entry);
             r.entries.push_back(entry);
         }
         r.cond = ee.alloc(kCondSize, 64);
-        ee.call(kConductorCtor, {Arg::ptr(r.cond)}, 50'000'000);
+        ee.call(lesson ? lesson->conductor : kConductorCtor, {Arg::ptr(r.cond)}, 50'000'000);
         ee.w32(r.cond, r.info);
+        if (lesson && !lesson->row.empty()) {
+            const u32 row = ee.alloc_bytes(ByteSpan(lesson->row.data(), lesson->row.size()), 16);
+            ee.w32(r.info + 0x28, row);
+            ee.call(0x3B6B20, {Arg::ptr(r.cond), Arg::ptr(r.info)}, 50'000'000);
+        }
         ee.w32(r.cond + kCondCars, u32(r.cars));
         const u32 vt = ee.r32(r.cond + kCondVtable);
         const u32 init = vt + 0xC8;

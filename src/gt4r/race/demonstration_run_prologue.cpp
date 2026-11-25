@@ -129,8 +129,8 @@ DemonstrationRun run_demonstration(Disc& disc, db::SpecDb& sdb, const std::strin
 
         std::vector<float> splits = road_list(section, 0);
         if (splits.size() > 3) splits.resize(3);
-        fs.start = rolling ? StartType::Rolling : opt.hold >= 0 ? StartType::Given : StartType::Eight;
-        fs.start_seconds = opt.hold;
+        fs.start = rolling ? StartType::Rolling : StartType::Given;
+        fs.start_seconds = opt.hold >= 0 ? opt.hold : 4; // (the race information's start type 1: 4 seconds, 0x37A7B8)
         fs.laps = std::max(1, ev->laps);
         fs.lap_length = road->length;
         fs.player_clock = rolling;
