@@ -31,6 +31,9 @@ void select_box_layout(LiveWidget& box, bool warp);
 // The program's actors (MFadeActor, MMoveActor, MBlinkActor, ...), transitions and watchers.
 void install_actor_natives(Runtime& rt, script::Module& menu);
 
+// MGamePort (prologue_natives.cpp): a controller port as Prologue's option page asks it (port_name, update(), data.name).
+void install_game_port(script::Module& menu);
+
 // MSwitchActor's colours (r, g, b, a in 0..1) by its button's state, Gran Turismo 4 Prologue's
 // (prologue_natives.cpp): read from the disc's program; none for another program.
 struct SwitchColors {

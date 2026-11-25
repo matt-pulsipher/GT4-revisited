@@ -210,6 +210,7 @@ void Runtime::install_natives() {
             into.define("MMovieFace", Value::of(Kind::Module, movie));
         }
         install_actor_natives(*this, into);
+        install_game_port(into);
         install_game_natives(*this, into);
         install_race_natives(*this, into);
         into.stubbed = true; // any other name of the program's is a stand-in
