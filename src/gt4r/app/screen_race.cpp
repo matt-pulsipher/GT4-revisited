@@ -1284,7 +1284,7 @@ public:
         h.event.clear(), h.event_opacity = 0, h.event_gap.clear(), h.event_gap_opacity = 0;
         if (!replaying_ && split_steps_ >= 0 && split_steps_ < 200 && (event_steps_ < 0 || event_steps_ >= 200)) {
             // "T1   0'27.247" for three seconds; the gap to the first car through that split this lap under it.
-            h.event = hud.word("WordOfSectionTime") + std::to_string(split_index_ + 1) + "   " + race::format_lap_time(split_ms_);
+            h.event = (gt3_road_ ? std::string() : hud.word("WordOfSectionTime") + std::to_string(split_index_ + 1) + "   ") + race::format_lap_time(split_ms_); // (Prologue: the time alone, 0x38CB50)
             h.event_opacity = std::min(1.0f, float(split_steps_) / 9.0f) * window(split_steps_, 3.0f, 0.15f);
             if (split_gap_ms_ > 0) {
                 h.event_gap = "+" + race::format_lap_time(split_gap_ms_);
@@ -1293,7 +1293,7 @@ public:
         }
         if (!replaying_ && event_steps_ >= 0 && event_steps_ < 200) {
             // "L1/3   1'23.456" for three seconds.
-            h.event = hud.word("WordOfLapTime") + std::to_string(event_lap_) + (setup_.laps > 0 ? "/" + std::to_string(setup_.laps) : std::string()) + "   " + race::format_lap_time(flow_.car(0).last_lap_ms);
+            h.event = (gt3_road_ ? std::string() : hud.word("WordOfLapTime") + std::to_string(event_lap_) + (setup_.laps > 0 ? "/" + std::to_string(setup_.laps) : std::string()) + "   ") + race::format_lap_time(flow_.car(0).last_lap_ms);
             h.event_opacity = std::min(1.0f, float(event_steps_) / 9.0f) * window(event_steps_, 3.0f, 0.15f);
         }
     }

@@ -504,7 +504,7 @@ void PrologueHud::Impl::load_monitor(ByteSpan set) {
     const gt3r::Tex1::Image indices = decode();
     if (indices.width != image.width || indices.rgba.size() != image.rgba.size()) return;
     flow_index.resize(size_t(image.width) * image.height);
-    for (size_t k = 0; k < flow_index.size(); ++k) flow_index[k] = indices.rgba[4 * k];
+    for (size_t k = 0; k < flow_index.size(); ++k) flow_index[k] = u8(indices.rgba[k]);
     flows = {make_texture(image), float(image.width), float(image.height)};
 }
 
@@ -767,14 +767,18 @@ void PrologueHud::draw(Ui& ui, const HudState& s, const Extra& e) {
         case hr::HudPart::Messages:
             // 0x386740: the seconds left of a test's lead; 0x38A890: the wrong-way sign, its blink of 0.2 s lit for 0.06 (in 0.05 s, out
             // 0.1), not in a test of cones; AUTO DRIVE while the car's driver brings it to the line.
-            if (e.time_left > 0) m.draw_message(row.x, row.y, m.font("sw_16"), kOrange, opacity, std::to_string(e.time_left));
+            if (e.time_left > 0) {
+                std::string t = m.words.count("KeepLeader") ? m.words["KeepLeader"] : "%d";
+                if (const size_t at = t.find("%d"); at != std::string::npos) t.replace(at, 2, std::to_string(e.time_left));
+                m.draw_message(row.x, row.y, m.font("sw_16"), kOrange, opacity, t);
+            }
             else if (e.penalty <= 0 && e.wrong_way && e.cones_total <= 0) {
                 m.sign += (std::fmod(m.clock, 0.2) < 0.06 ? 1 / 0.05f : -1 / 0.1f) * float(m.step);
                 m.sign = std::clamp(m.sign, 0.0f, 1.0f);
                 const Impl::Picture& p = m.picture("GT4_meter_texture_wrongway");
                 m.draw_picture(p, {row.x - p.w / 2, row.y - p.h / 2, p.w, p.h}, 0x80FFFFFF, opacity * m.sign);
             } else if (e.penalty <= 0 && e.auto_drive) {
-                const auto it = m.words.find("AUTO DRIVE");
+                const auto it = m.words.find("AutoDrive");
                 m.draw_message(row.x, row.y, m.font("sw_16"), kOrange, opacity, it != m.words.end() ? it->second : std::string("AUTO DRIVE"));
             }
             // 0x38A7B8: the penalty's seconds.
@@ -786,8 +790,8 @@ void PrologueHud::draw(Ui& ui, const HudState& s, const Extra& e) {
             }
             break;
         case hr::HudPart::Events:
-            if (!s.event.empty()) m.draw_message(row.x, row.y, m.font("sw_16"), kEvent, opacity * s.event_opacity, s.event);
-            if (!s.event_gap.empty()) m.draw_message(row.x, row.y + 20, m.font("sw_16"), kEvent, opacity * s.event_gap_opacity, s.event_gap);
+            if (!s.event.empty()) m.draw_message(row.x, row.y, m.font("FC_16", 90), kEvent, opacity * s.event_opacity, s.event);
+            if (!s.event_gap.empty()) m.draw_message(row.x, row.y + 20, m.font("FC_16", 90), kEvent, opacity * s.event_gap_opacity, s.event_gap);
             break;
         case hr::HudPart::AccelBrake:
             if (row.sub == 0 && !e.live) m.draw_pedals(row, e, opacity);
