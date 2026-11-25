@@ -3351,7 +3351,8 @@ private:
         controllers_ = s.controllers; // (the Key Configuration, the vibration, the wheel's forces: the options' now)
         if (sequence_ == "single_race" && app_.db() && app_.db()->prologue()) {
             // Prologue's arcade, its settings popup's (0x10A360 with 0x402348): the stability control by the driving assist, the
-            // traction control by the option (on; ❓ which of the option page's sets it).
+            // traction control by the option word Status + 0x2F560 (the options' +0x50): 1 from their constructor (0x3FFA50)
+            // and no other store to it found, so on.
             const menu::RaceRequest& q = menus_->game().race;
             c.automatic = q.manual == 0, c.asm_on = q.assist_type != 0, c.tcs_on = true;
         } else if (asked && (sequence_ == "single_race" || sequence_ == "time_trial")) {

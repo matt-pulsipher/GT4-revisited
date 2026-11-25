@@ -489,8 +489,9 @@ page. Read by 0x1FFCB0 / 0x200E70, sampled by 0x1FFE70 / 0x1FFD00 (`menu/model_s
 until the film's frame 90, though its layout hides it (`visible` 0) and no script shows it: what does is not found, and here the car
 stands on black for those three seconds (the film itself is black until then).
 
-**Arcade's settings** (0x10A360, 0x1A0130): the stability control by the driving assist (0x402348; the traction control by an
-option word), the gearbox by the game's bit 0, and the tire grip (`tire_type`, the names 0x505110) as the player's equipment's
+**Arcade's settings** (0x10A360, 0x1A0130): the stability control by the driving assist (0x402348: Status +0x110 not 0; the traction control by
+the option word Status + 0x2F560, the option object's (Status + 0x2F510) +0x50, the saved options' +0x48: 1 from the
+constructor 0x3FFA50, read back from a card, and no other store to it found (the one other instruction at that offset, 0x32AFC0, writes 0x70F560), so on; its own page has no such choice), the gearbox by the game's bit 0, and the tire grip (`tire_type`, the names 0x505110) as the player's equipment's
 byte +0x13E: "low" 0, "high" 1, any other 3, its own. With 0 or 1 the spec takes the compounds of the tires of the ENEMY_CARS rows
 labeled at 0x505298 / 0x50529C on the car's own sizes (0x406258, 0x406400; `prologue::fit_grip_tires`, test
 `disc_prologue_arcade_tires`).
