@@ -75,11 +75,11 @@ const std::vector<Layout>& layouts() {
         // The course's texts and its surface (+0x10: 0 dry, 1 wet, 2 dirt, 3 snow).
         {"COURSE", 22, {{0, 0, 8}, {0x10, 8, 1}}, {}},
         // The course {row, table}; the grid's size and the computer drivers' columns where the
-        // race's copy of a row (Gran Turismo 4 0x35E108, Prologue 0x3C5978) reads them; the laps
-        // (❓ +0x25 by the data: 2 on every championship race, 1 or 3 on the tests); the gold, silver and bronze times as
+        // race's copy of a row (Gran Turismo 4 0x35E108, Prologue 0x3C5978) reads them; the laps (+0x29, the race's
+        // getter 0x37CFD0: 2, 3 or 5 on the championship races by their variant, 2 on lesson 1); the gold, silver and bronze times as
         // the program reads them (0x409B70 / 0x409BB0 / 0x409BF0: minutes +0x5C / +0x5E / +0x60, seconds +0x5D / +0x5F /
         // +0x61, u16 milliseconds +0x0C / +0x0E / +0x10; all 0: none); ❓ the rest.
-        {"RACE", 151, {{0, 0, 8}, {0x3E, 0x22, 1}, {0x43, 0x25, 1}, {0x4B, 0x31, 0x27}, {0x72, 0x5A, 2}, {0x76, 0x5C, 6}, {0x1A, 0x0C, 6}}, {4}},
+        {"RACE", 151, {{0, 0, 8}, {0x3E, 0x22, 1}, {0x43, 0x29, 1}, {0x4B, 0x31, 0x27}, {0x72, 0x5A, 2}, {0x76, 0x5C, 6}, {0x1A, 0x0C, 6}}, {4}},
     };
     return k;
 }

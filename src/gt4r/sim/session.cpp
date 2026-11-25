@@ -131,7 +131,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
         prologue::Tables t = prologue::tables(program);
         if (t.found) prologue_ = t, prologue_cars_.resize(entries.size());
         if (prologue_ && road_->gtrw) course_ground_ = std::make_unique<ex::CourseGround>(*road_->gtrw);
-        if (prologue_) prologue::race_inputs(race_, *prologue_);
+        if (prologue_) prologue::race_inputs(race_, *prologue_), prologue_aids_ = prologue::aid_tables(program);
     }
     // What the aids read of the race: the course's kind (a loose course 1), no speed caps, the lap.
     aid_race_.course_kind = loose_ ? 1 : 0;
@@ -169,6 +169,9 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
             gx_[i] = r.x;
             layouts_[i] = r.layout;
             speed_tables_[i] = rules::speed_tables(program, r.x.steer.lean_row);
+        } else if (prologue_) { // Prologue's own spec and converter (rules_prologue.h build_car)
+            prologue_cars_[i] = prologue::build_car(db, specs_[i], e.equipment, loose_ ? 2 : 0, e.asm_on, e.tcs_on, *prologue_,
+                                                    0x01000000u + 0x2000u * u32(i) + ex::kParams, c);
         } else { // (a program that is not a known build: the engine's converter on the core's tables)
             ex::ConvertInputs in;
             in.data = data_.get();
@@ -184,11 +187,6 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
             ex::load_image(loaded, image.data());
             c.p = loaded.p;
             gt4_params(specs_[i], program, c.p);
-            if (prologue_) {
-                prologue::convert(c.p, specs_[i]);
-                prologue_cars_[i] = prologue::car_part(c, specs_[i], *prologue_);
-                prologue::image_part(prologue_cars_[i], p.data());
-            }
         }
         c.pedal_style = e.automatic ? 0 : 1;
         // The start place: the entry's, or one further back along the first place's line when the grid is shorter;
@@ -223,6 +221,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
         collide::build(bodies_[i], int(i), p.body_front, p.body_rear, p.body_width, p.mass, p.yaw_inertia);
     }
     collide::pair_tables(bodies_);
+    if (prologue_ && road_->gtrw) prologue_collide_ = std::make_unique<prologue::Collision>(*road_->gtrw, cars_); // (Prologue's: Gran Turismo 3's step)
     // The start's hold: the cars held as during a start's countdown until the engines idle and the
     // bodies have settled on their springs.
     for (int i = 0; i < kHoldSteps; ++i) hold_once({});
@@ -467,6 +466,14 @@ void Session::chassis(size_t i) {
 // The collision step (phase 13: 0x3F4B20, 0x45BB60, 0x3F4C18): every car's body moved through the step against the
 // road's walls and the other cars.
 void Session::collide() {
+    if (prologue_collide_) { // Prologue's (0x3B6FB8 with 0x41CA90)
+        prologue_collide_->step(cars_, prologue_contacts_);
+        for (size_t i = 0; i < cars_.size() && i < prologue_contacts_.size(); ++i) {
+            const prologue::Collision::Contact& k = prologue_contacts_[i];
+            extra_[i].contact = k.strength, extra_[i].contact_kind = k.kind, extra_[i].contact_car = k.car;
+        }
+        return;
+    }
     for (size_t i = 0; i < cars_.size(); ++i) { // 0x3F4B20
         collide::Body& b = bodies_[i];
         const ex::Car& c = cars_[i];
@@ -591,6 +598,11 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
             const ex::Aids* driver = in.computer && driver_aids_[i] ? &*driver_aids_[i] : nullptr;
             sim::Extra& g = gx_[i];
             rules::aids(c, g.aids, g.tires, g.drive, layouts_[i], tables_.aids, aid_race_, driver);
+        } else if (prologue_) { // Prologue's (0x3E0838)
+            if (in.computer && driver_aids_[i]) c.ai.aids = *driver_aids_[i];
+            prologue::AidRace r;
+            r.dirt = loose_, r.speed_cap = aid_race_.speed_cap, r.start_cap = aid_race_.start_cap;
+            prologue::aids(c, prologue_cars_[i], prologue_aids_, r, race_.aids);
         } else ex::aids(c, race_.aids);
         if (gt4_rules_) rules::dynamics(c, gx_[i], layouts_[i], tables_, grip);
         else if (prologue_) prologue::dynamics(c, prologue_cars_[i], race_.statics, race_.gears, race_.class_grip, *prologue_);
