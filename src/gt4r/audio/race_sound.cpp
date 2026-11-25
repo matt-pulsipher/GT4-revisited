@@ -72,7 +72,8 @@ RaceSound::RaceSound(gt3r::Vfs& vfs, gt3r::VoiceMixer& mixer, SoundDriver& drive
     fade(1.0f, kFadeIn);
     set_options(options_);
     if (library_)
-        for (int c = 0; c < CourseSound::kChannels; ++c) ambience_[c] = held(CourseSound::effect_name(c));
+        for (int c = 0; c < CourseSound::kChannels; ++c) ambience_[c] = held(CourseSound::effect_name(c, tables.prologue));
+    course_.set_prologue(tables.prologue);
     if (library_) {
         tunnel_[0] = held("tunnel1_l"), tunnel_[1] = held("tunnel1_r"), tunnel_[2] = held("tunnel2_l"), tunnel_[3] = held("tunnel2_r");
         heri_ = held("heri"), refueling_ = held("refueling");
@@ -284,6 +285,7 @@ void RaceSound::update(std::span<const CarSoundState> states, const SoundListene
     // The master level. In a replay the duck is asked for every step (RaceBase virtual 75): the
     // step toward it is worked out again from where the master is.
     if (replay_) duck();
+    if (mix_->tables.prologue) fade_ = fade_target_ = 1.0f; // (Prologue's master has no fade and no duck: [0x50397C] is 1)
     fade_ = fade_ < fade_target_ ? std::min(fade_ + fade_step_, fade_target_) : std::max(fade_ - fade_step_, fade_target_);
     const float table = library_ ? library_->levels().level(int(options_.mode), sound::VolumeTable::Race) : 1.0f;
     const bool on = replay_ ? options_.replay_effects_on : options_.effects_on;

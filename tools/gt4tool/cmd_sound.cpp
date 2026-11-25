@@ -9,6 +9,7 @@
 //   gt4tool sound <disc> seq-wav <bank> <n> <out.wav> [loops] [volume]   a sequence rendered to a WAV file
 //                                                   (volume: the music's master, 0..1; 1 by default)
 //   gt4tool sound <disc> se-wav <name> <out.wav>    an effect of the index rendered to a WAV file
+//   gt4tool sound <disc> crss                       every course's ambience: the emitters of its five lists (gated)
 //   gt4tool sound <disc> car <label>                the sound files a car uses
 //   gt4tool sound <disc> car-wav <label> <out.wav>  a car's engine swept through its revs
 //   gt4tool sound <disc> race-tables                the program's tables that mix a race's sound
@@ -40,6 +41,7 @@
 #include "gt4r/audio/race_tables.h"
 #include "gt4r/audio/render.h"
 #include "gt4r/disc/disc.h"
+#include "gt4r/formats/course/course_file.h"
 #include "gt4r/formats/sound/inst_bank.h"
 #include "gt4r/formats/sound/sound_index.h"
 #include "gt4r/formats/sound/sqt.h"
@@ -494,6 +496,30 @@ int drive_wav(Disc& disc, const Args& a) {
     return write_wav(a[2], s.pcm) ? 0 : 1;
 }
 
+// Every course's ambience emitters by list (CRSS).
+int crss_lists(Disc& disc) {
+    for (const std::string& name : disc.volume().list_dir("crs/")) {
+        const gt3r::Volume::Entry* e = disc.volume().find("crs/" + name);
+        if (!e) continue;
+        try {
+            const Bytes data = disc.volume().read(*e);
+            const course::CourseFile file = course::CourseFile::parse(data);
+            const ByteSpan s = file.section(data, course::kSlotSound);
+            if (s.empty()) continue;
+            const gt3r::sound::CrssData c = gt3r::sound::CrssData::parse(s);
+            std::printf("  %-24s", name.c_str());
+            for (int k = 0; k < gt3r::sound::CrssData::kChannels; ++k) {
+                size_t gated = 0;
+                for (const auto& m : c.channels[size_t(k)]) gated += m.gated();
+                std::printf(" %zu(%zu)", c.channels[size_t(k)].size(), gated);
+            }
+            std::printf("\n");
+        } catch (const std::exception&) {
+        }
+    }
+    return 0;
+}
+
 int stream_wav(Disc& disc, const Args& a) {
     const Bytes data = read(disc, a[1]);
     const gt3r::AdsHeader h = gt3r::AdsHeader::parse(data);
@@ -574,6 +600,7 @@ int cmd_sound(Disc& disc, const std::vector<std::string>& a) {
     if (what == "drive-wav" && a.size() > 3) return drive_wav(disc, a);
     if (what == "stream-wav" && a.size() > 2) return stream_wav(disc, a);
     if (what == "session-wav" && a.size() > 3) return sound_session_wav(disc, a);
+    if (what == "crss") return crss_lists(disc);
     std::fprintf(stderr, "usage: gt4tool sound <disc> survey | bank <path.ins> | effects | music | pages | seq <bank> [n] |\n"
                          "       seq-wav <bank> <n> <out.wav> [loops] [volume] | se-wav <name> <out.wav> | car <label> [out.wav] |\n"
                          "       race-tables | pass-wav <label> <out.wav> [km/h] |\n"

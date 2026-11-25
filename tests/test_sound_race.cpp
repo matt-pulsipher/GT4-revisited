@@ -16,6 +16,7 @@
 #include "gt4r/audio/sound_library.h"
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/formats/course/runway.h"
+#include "gt4r/formats/course/runway_gtrw.h"
 #include "gt4r/formats/sound/sound_index.h"
 #include "gt4r/sim/program.h"
 #include "gt4r/sim/session.h"
@@ -940,4 +941,39 @@ TEST(sound_race_prologue_in_car) {
     std::printf("  engine %d / %d, exhaust %d / %d, single notes %d\n", e.left, e.right, x.left, x.right, car.report().notes);
     CHECK(std::abs(e.left - 15204) <= 2 && std::abs(e.right - 15204) <= 2 && std::abs(x.left - 12489) <= 2 && std::abs(x.right - 12489) <= 2);
     CHECK(car.report().notes == 0 && car.report().heartbeats == 0);
+}
+
+// Prologue's ambience: its crowds are the fourth list (Citta di Aria's one emitter), heard on its disc.
+TEST(sound_race_prologue_crowds) {
+    Disc* disc = nullptr;
+    for (const std::unique_ptr<Disc>& d : test::discs())
+        if (d->info().game == Game::Prologue) disc = d.get();
+    if (!disc) SKIP("needs the Prologue disc (GT4R_DISC)");
+    gt3r::Vfs vfs(&disc->volume());
+    audio::OfflineSound s(false);
+    auto library = std::make_shared<audio::SoundLibrary>(vfs);
+    audio::RaceSound sound(vfs, s.mixer(), s.driver(), library, audio::RaceSoundTables::from_core(disc->read_program()));
+    Bytes data;
+    course::CourseFile file;
+    CHECK(sound.add_car("fairlady_240zg_71"));
+    data = disc->volume().read(*disc->volume().find("crs/assisi"));
+    file = course::CourseFile::parse(data);
+    std::optional<course::Runway> parsed = course::course_road(file, data); // (a GTRW road)
+    CHECK(parsed.has_value());
+    const auto road = std::make_shared<const course::Runway>(std::move(*parsed));
+    sound.set_course(file.section(data, course::kSlotSound), road);
+    CHECK(sound.course().emitters(2) == 0 && sound.course().emitters(3) == 1);
+    const auto gates = sound.course().emitter_gates(3, 0);
+    auto p = sound.course().emitter(3, 0).points.front();
+    for (const auto& q : sound.course().emitter(3, 0).points)
+        if (q.weight > p.weight) p = q;
+    audio::CarSoundState car;
+    car.course_distance = gates.first + 1;
+    car.live = false; // (the car itself silent)
+    audio::SoundListener at;
+    at.position = {p.x, p.y, p.z - 10};
+    for (int i = 0; i < 90; ++i) sound.update(std::span<const audio::CarSoundState>(&car, 1), at, -1), s.advance(1);
+    std::printf("  crowds %.3f (gates %.0f .. %.0f m, %zu points), rms %.0f\n", double(sound.report().ambience[3]), double(gates.first),
+                double(gates.second), sound.course().emitter(3, 0).points.size(), rms(s.pcm, 48000, 24000));
+    CHECK(sound.report().ambience[3] > 0.1f && rms(s.pcm, 48000, 24000) > 50);
 }
