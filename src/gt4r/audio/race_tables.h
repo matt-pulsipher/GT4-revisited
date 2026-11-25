@@ -104,6 +104,8 @@ struct RaceSoundTables {
     static RaceSoundTables find(ByteSpan image);
     // From the packed program file of the disc (CORE.GT4); flat when it does not read.
     static RaceSoundTables from_core(ByteSpan core_file);
+    // The same from the program unpacked.
+    static RaceSoundTables from_program(ByteSpan program);
 };
 
 } // namespace gt4r::audio

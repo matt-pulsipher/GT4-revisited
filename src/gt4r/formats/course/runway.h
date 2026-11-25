@@ -25,7 +25,7 @@ struct Runway {
     struct Vertex {
         Vec3 pos;
         s16 a = 0; // +0x0C
-        u8 b = 0, c = 0;
+        u8 b = 0, c = 0; // +0x0E, +0x0F: the light on it
     };
     struct Triangle {
         std::array<u16, 3> v{};
@@ -60,6 +60,17 @@ struct Runway {
     std::vector<Checkpoint> checkpoints;
     std::vector<u16> checkpoint_lookup;
     std::vector<Place> grid, pit_stops;
+    // The lamps that light the cars on the courses of the night (+0x40 / +0x68): each a kind (a car-light record of Env0), its
+    // axis, its place (or, without `point`, the direction to it). A vertex's `a` (+0x0C, >= 0) is where its list of
+    // `lamps_per_list` lamp numbers begins in `lamp_lists` (+0x50, +0x6C).
+    struct Lamp {
+        int kind = 0;
+        Vec3 axis, pos;
+        bool point = true;
+    };
+    std::vector<Lamp> lamps;
+    std::vector<s16> lamp_lists;
+    u32 lamps_per_list = 0;
     std::vector<WallVertex> wall_vertices;
     // The walls are chains of `wall_vertices` in order. A chain's first vertex has its length in
     // the tag's low 16 bits, its last vertex minus (length - 1) there (the link back to the first:
@@ -87,6 +98,22 @@ struct Runway {
     // The height of the road under (x, z) and the triangle there: the highest surface at or
     // below `y_max`. False when no triangle is under the point.
     bool height_at(float x, float z, float y_max, float& y, int* triangle = nullptr) const;
+    // The light on the road under a point, from its vertices (+0x0E / 255 the sun's, +0x0F bits 0-6 / 127 the sky's, between
+    // the triangle's corners; 0x3E5A30): 1 and 1 in the open. False (and 1, 1) without a triangle or on a GTRW road.
+    // (`triangle`: the road triangle under it, -1 none.)
+    bool light_at(float x, float z, float y_max, float& sun, float& sky) const;
+
+    // Made by parse(): the triangles by square cells of the ground, for a height no triangle of the point's cluster gives
+    // (a point beside the road would ask them all). Without it (a road put together by hand) all are asked.
+    void index_triangles();
+    struct Cells {
+        float x = 0, z = 0, size = 0; // the first cell's corner, a cell's side
+        int nx = 0, nz = 0;
+        std::vector<u32> start; // nx x nz + 1, into `list`
+        std::vector<u16> list;  // ascending within a cell
+        std::vector<u16> thin;  // triangles with hardly any area seen from above: asked everywhere
+        size_t triangles = 0;   // of the road it was made from
+    } cells;
 };
 
 // The road as a mesh: its triangles flat shaded by kind, a little above the surface.
