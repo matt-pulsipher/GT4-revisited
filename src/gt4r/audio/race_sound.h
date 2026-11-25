@@ -103,6 +103,15 @@ public:
     // A contact of car `car` (the camera's car only is heard): kind 0 a wall (the impulse |j|, N s),
     // 1 a car (|j| / 15,000), 2 a course object; its strength as contact_strength() makes it.
     void contact(size_t car, int kind, float force);
+    // A pit stop's sound (0x393428: the effect at the master's level, both sides): "jackdown" as the tires are on
+    // (the stop's bit 0x200, taken by the pit scene), "wheelgun", "dropnut", "droptire", "jackup" by the crew's
+    // motions, "oiltank"; "refueling" is held while the hose runs (0x3934A0).
+    void pit_effect(const char* name) { play_effect(name, master()); }
+    // The sound inputs of every step heard from the session (update(session, ...)) are kept for the run's replay: from
+    // replay() on, the steps heard from recorded states (update(cars, ...)) take the kept ones in turn, the first
+    // replayed step being the run's second. forget_recording() as a new run begins or another run is played.
+    void forget_recording() { recorded_.clear(), replay_step_ = 0; }
+    size_t recorded_steps() const { return recorded_.size(); }
     // The race's start jingle (before the count) and finish jingle.
     void intro();
     void finish();
@@ -164,6 +173,9 @@ private:
     bool designer_shot_ = false, free_run_duck_ = false;
     void duck();
     std::shared_ptr<RacePlaylist> playlist_;
+    static constexpr size_t kRecordSteps = 60 * 60 * 10;
+    std::vector<std::vector<CarSoundState>> recorded_;
+    size_t replay_step_ = 0;
     s16 reverb_before_ = 0;
     Report report_;
 };

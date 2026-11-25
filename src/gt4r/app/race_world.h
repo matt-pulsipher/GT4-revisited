@@ -180,6 +180,8 @@ public:
     unsigned gadget_hits() const { return gadget_hits_; }
     // The cones and boards car `i` met in the last step (each a contact report of kind 2).
     int gadget_contacts(size_t i) const;
+    // The strongest impulse |j| of car i's contacts with the course's objects this step (0: none).
+    float gadget_impulse(size_t i) const;
     // A car's mass as the step reads it (the spec's weight, kg; 0 not known): the license tests' wall rule.
     float car_mass(size_t i) const;
     // The suggested gear for a car the player drives (-1 none).
