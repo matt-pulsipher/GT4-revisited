@@ -69,6 +69,7 @@ public:
 
     // The cars in grid order. False when the car has no engine sound (it stays silent).
     bool add_car(const std::string& label);
+    bool add_car(db::SpecDb& db, const std::string& label); // (the car database already open: the files' names are its rows')
     bool add_car(int sound_id, int variant);
     size_t cars() const { return cars_.size(); }
     CarSound& car(size_t i) { return *cars_[i]; }
@@ -137,6 +138,7 @@ public:
     const Report& report() const { return report_; }
 
 private:
+    bool add_car(const std::string& label, const CarSoundFiles& files);
     struct Held {
         std::shared_ptr<const sound::InstBank> bank;
         int program = -1;
@@ -154,6 +156,7 @@ private:
     gt3r::VoiceMixer& mixer_;
     SoundDriver& driver_;
     std::shared_ptr<SoundLibrary> library_;
+    std::shared_ptr<EngineBanks> banks_ = std::make_shared<EngineBanks>(); // the cars' banks, each read once
     StreamPlayer music_;
     std::shared_ptr<RaceMix> mix_;
     RaceSoundOptions options_;

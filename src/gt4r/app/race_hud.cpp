@@ -260,7 +260,8 @@ RaceHud::RaceHud(App& app, ByteSpan gtcm) : impl_(std::make_unique<Impl>()) {
                 break;
             }
         // The elements' places and the dials' faces are tables of the game's program.
-        const gt3r::CoreImage core = gt3r::CoreImage::decode(app.disc()->read_program());
+        const std::shared_ptr<const gt3r::CoreImage> image = app.disc()->program_image();
+        const gt3r::CoreImage& core = *image;
         m.layout = race::read_single_race_layout(core.program, core.load_address);
         m.mode1 = race::read_mode1_layout(core.program, core.load_address);
         if (const auto colors = menu::find_button_colors(core.program)) m.button_colors = *colors;

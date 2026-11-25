@@ -86,6 +86,30 @@ void reshape_tire(scene::Model& tire, float width, float rim_radius, float tire_
         }
 }
 
+// A model put together from several decodes of a set (its levels of detail, its lit and unlit lamps) holds the set's
+// pictures once for each: the pictures its shapes use, each kept once.
+void share_textures(scene::Model& m) {
+    const auto same = [](const scene::Texture& a, const scene::Texture& b) {
+        return a.width == b.width && a.height == b.height && a.clamp_u == b.clamp_u && a.clamp_v == b.clamp_v && a.no_mips == b.no_mips && a.nearest == b.nearest &&
+               a.livery_cover == b.livery_cover && a.rgba == b.rgba;
+    };
+    std::vector<int> to(m.textures.size(), -1);
+    std::vector<scene::Texture> kept;
+    for (scene::Mesh& mesh : m.meshes)
+        for (scene::Primitive& p : mesh.primitives) {
+            if (p.texture < 0 || size_t(p.texture) >= to.size()) continue;
+            int& at = to[size_t(p.texture)];
+            if (at < 0) {
+                scene::Texture& t = m.textures[size_t(p.texture)];
+                const auto it = std::find_if(kept.begin(), kept.end(), [&](const scene::Texture& k) { return same(k, t); });
+                at = int(it - kept.begin());
+                if (it == kept.end()) kept.push_back(std::move(t));
+            }
+            p.texture = at;
+        }
+    m.textures = std::move(kept);
+}
+
 // Mirrors a model front to back (a wheel whose right side is the left's mirror image).
 void mirror_z(scene::Model& m) {
     for (scene::Mesh& mesh : m.meshes) {
@@ -190,7 +214,7 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
             ws.resolve_callbacks = true;
             scene::Model m = build_levels(opt.wing, 0, ws, 3, 0, name + "/wing");
             for (const scene::Mesh& mesh : m.meshes) wing_lods_ = std::max(wing_lods_, mesh.lod + 1);
-            if (!m.meshes.empty()) to_gpu(wing_, m);
+            if (!m.meshes.empty()) to_gpu(wing_, std::move(m));
         }
     }
     // The body with its lamps unlit and lit, at its three levels of detail. The far level draws its
@@ -225,7 +249,7 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
             max_ = {m.bounds_max[0], m.bounds_max[1], m.bounds_max[2]};
             for (const scene::Mesh& mesh : m.meshes) lods_ = std::max(lods_, mesh.lod + 1);
         }
-        to_gpu(body_[size_t(brake)], m);
+        to_gpu(body_[size_t(brake)], std::move(m));
     }
     // The brake parts: the shapes the body's program draws in each wheel's frame.
     for (u16 w = 0; w < 4; ++w) {
@@ -245,8 +269,8 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
             std::erase_if(mesh.primitives, [](const scene::Primitive& p) { return (p.flags & scene::kAdditive) == 0; });
             any_glow |= !mesh.primitives.empty();
         }
-        if (any) to_gpu(brakes_[w], m);
-        if (any_glow) to_gpu(glows_[w], glow);
+        if (any) to_gpu(brakes_[w], std::move(m));
+        if (any_glow) to_gpu(glows_[w], std::move(glow));
     }
     // Wheels and tires, still and turning. Both sets are in units of the rim's radius, modelled
     // as a left wheel with the outer face at x = 0.
@@ -285,7 +309,7 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
                 }
                 bool any = false;
                 for (const scene::Mesh& mesh : both.meshes) any |= !mesh.indices.empty();
-                if (any) to_gpu(wheels_[w][size_t(turning)], both);
+                if (any) to_gpu(wheels_[w][size_t(turning)], std::move(both));
             }
         }
     }
@@ -384,8 +408,9 @@ std::unique_ptr<CarVisual> CarVisual::make_unuploaded(render::GpuContext& ctx, B
     return std::make_unique<CarVisual>(ctx, file, pat, spec, opt, name);
 }
 
-void CarVisual::to_gpu(std::unique_ptr<render::GpuModel>& slot, const scene::Model& m) {
-    if (t_unuploaded) unuploaded_.emplace_back(&slot, m);
+void CarVisual::to_gpu(std::unique_ptr<render::GpuModel>& slot, scene::Model m) {
+    share_textures(m);
+    if (t_unuploaded) unuploaded_.emplace_back(&slot, std::move(m));
     else slot = std::make_unique<render::GpuModel>(*ctx_, m);
 }
 

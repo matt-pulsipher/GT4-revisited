@@ -87,6 +87,18 @@ struct Runway {
     // The height of the road under (x, z) and the triangle there: the highest surface at or
     // below `y_max`. False when no triangle is under the point.
     bool height_at(float x, float z, float y_max, float& y, int* triangle = nullptr) const;
+
+    // Made by parse(): the triangles by square cells of the ground, for a height no triangle of the point's cluster gives
+    // (a point beside the road would ask them all). Without it (a road put together by hand) all are asked.
+    void index_triangles();
+    struct Cells {
+        float x = 0, z = 0, size = 0; // the first cell's corner, a cell's side
+        int nx = 0, nz = 0;
+        std::vector<u32> start; // nx x nz + 1, into `list`
+        std::vector<u16> list;  // ascending within a cell
+        std::vector<u16> thin;  // triangles with hardly any area seen from above: asked everywhere
+        size_t triangles = 0;   // of the road it was made from
+    } cells;
 };
 
 // The road as a mesh: its triangles flat shaded by kind, a little above the surface.

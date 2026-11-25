@@ -75,9 +75,10 @@ std::map<u32, std::array<float, 4>> colors_made(ByteSpan image, u32 load) {
 } // namespace
 
 std::optional<SwitchColors> prologue_switch_colors(const RuntimeConfig& config) {
-    if (!config.program) return std::nullopt;
+    if (!config.program && !config.program_image) return std::nullopt;
     try {
-        const gt3r::CoreImage core = gt3r::CoreImage::decode(config.program());
+        const std::shared_ptr<const gt3r::CoreImage> image = config.image();
+        const gt3r::CoreImage& core = *image;
         if (!sim::PrologueProgram::locate(core.program, core.load_address).recognized()) return std::nullopt;
         const std::map<u32, std::array<float, 4>> made = colors_made(core.program, core.load_address);
         // The update's choices (0x2EB848): by the button's active (1) and insensitive (8) bits;

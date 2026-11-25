@@ -217,6 +217,7 @@ std::string App::open_disc(const std::string& path) {
     vfs_.reset();
     db_.reset(), db_tried_ = false;
     disc_ = std::move(disc);
+    disc_->prepare_program(); // (on a thread: the menus and the races read its tables)
     vfs_ = std::make_unique<gt3r::Vfs>(&disc_->volume());
     vfs_->scan_mods(mods_dir(), &config_);
     // Remembered as an absolute path, so a launch from another folder finds it.

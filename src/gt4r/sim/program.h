@@ -7,8 +7,10 @@
 // other program (Prologue, another release) known() is false and the simulation runs on the shared
 // engine's own values (Prologue's own tables where program_prologue.h places them).
 
+#include "disc/core_image.h"
 #include "gt4r/base/types.h"
 
+#include <memory>
 #include <string>
 
 namespace gt4r {
@@ -24,13 +26,14 @@ public:
     static Program load(Disc& disc);
     // From a program image loaded at `load_address`.
     static Program from_image(Bytes image, u32 load_address);
+    static Program from_core(std::shared_ptr<const gt3r::CoreImage> core);
 
     bool known() const { return known_; }
     // Why the tables are not the disc's ("the disc's program is not a build whose tables are mapped").
     const std::string& issue() const { return issue_; }
 
     // The image as loaded at base() (kept for a build that is not known too: program_prologue.h).
-    ByteSpan image() const { return image_; }
+    ByteSpan image() const { return core_ ? ByteSpan(core_->program) : ByteSpan{}; }
     u32 base() const { return base_; }
     // The image's bytes at a program address (0 outside it).
     u8 b(u32 addr) const;
@@ -54,7 +57,7 @@ public:
     static constexpr u32 kSoft = 0x622430;
 
 private:
-    Bytes image_;
+    std::shared_ptr<const gt3r::CoreImage> core_; // (shared: every Program of a disc holds the one image)
     u32 base_ = 0;
     bool known_ = false;
     std::string issue_ = "no program";

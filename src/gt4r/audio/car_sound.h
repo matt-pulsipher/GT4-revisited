@@ -28,6 +28,7 @@
 #include "gt4r/race/simulation.h"
 
 #include <array>
+#include <map>
 #include <memory>
 #include <string>
 
@@ -159,6 +160,10 @@ struct Placement {
 // `x` to the right and `z` ahead of the camera, metres.
 Placement place_sound(const RaceSoundTables::Mic& mic, float x, float z);
 
+// "ENGN" banks read and parsed, by path (nullptr: none on the disc, or bad): a race's cars share the wind's and often an
+// engine's.
+using EngineBanks = std::map<std::string, std::shared_ptr<const gt3r::sound::EngineBank>>;
+
 class CarSound {
 public:
     // `effects` and `library`: for everything but the three "ENGN" players.
@@ -168,6 +173,9 @@ public:
     // The banks of a car of the database, or by number. False when neither bank reads.
     bool load(const std::string& car_label);
     bool load(int sound_id, int variant);
+    bool load(const CarSoundFiles& files);
+    // Banks already read, taken from here and added to it (a race's cars').
+    void share_banks(std::shared_ptr<EngineBanks> banks) { banks_ = std::move(banks); }
     bool loaded() const { return engine_.loaded() || exhaust_.loaded(); }
     const CarSoundFiles& files() const { return files_; }
 
@@ -229,6 +237,7 @@ private:
     std::shared_ptr<const RaceMix> mix_;
     CarSoundFiles files_;
     LayerPlayer engine_, exhaust_, wind_;
+    std::shared_ptr<EngineBanks> banks_;
     bool wind_tried_ = false, resolved_ = false;
     int engine_level_ = 0, exhaust_level_ = 0;
     bool was_afterfire_ = false; // the flame's strength over 0.1 last step

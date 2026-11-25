@@ -33,7 +33,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <future>
 #include <map>
+#include <thread>
 
 namespace gt4r {
 
@@ -44,6 +46,33 @@ using RVec = render::Vec3;
 
 constexpr float kStep = 1.0f / 60;
 constexpr float kPi = 3.14159265f;
+
+// A car being made for the race: what it is made from, and its shapes while a thread decodes them.
+struct CarJob {
+    std::string key, label;
+    std::optional<Bytes> file, pat, wing;
+    race::CarSpec spec;
+    race::CarVisual::Options options;
+    std::future<std::unique_ptr<race::CarVisual>> made; // (after what it reads: it ends before that goes)
+};
+
+// Starts job `at`'s car and the next few (no more: each waits in memory).
+void start_cars(render::GpuContext& gpu, std::vector<std::unique_ptr<CarJob>>& jobs, size_t at) {
+    const size_t ahead = std::clamp<size_t>(std::thread::hardware_concurrency() / 3, 1, 4);
+    for (size_t k = at; k < jobs.size() && k <= at + ahead; ++k) {
+        CarJob& j = *jobs[k];
+        if (j.made.valid() || !j.file) continue;
+        j.made = std::async([&gpu, &j] { return race::CarVisual::make_unuploaded(gpu, *j.file, j.pat ? ByteSpan(*j.pat) : ByteSpan{}, j.spec, j.options, j.label); });
+    }
+}
+// Job `at`'s car, on the GPU; the next few cars' shapes are decoded meanwhile.
+std::unique_ptr<race::CarVisual> take_car(render::GpuContext& gpu, std::vector<std::unique_ptr<CarJob>>& jobs, size_t at) {
+    start_cars(gpu, jobs, at);
+    std::unique_ptr<race::CarVisual> car = jobs[at]->made.get();
+    car->upload();
+    jobs[at].reset(); // (its files)
+    return car;
+}
 
 } // namespace
 
@@ -74,17 +103,22 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
     render::GpuContext& gpu = *app.gpu();
     const std::optional<Bytes> course = app.vfs()->read("crs/" + setup.course);
     if (!course || !course::CourseFile::looks_like_course(*course)) throw FormatError("There is no course file crs/" + setup.course + ".");
-    course_ = std::make_unique<race::CourseScene>(gpu, *course, setup.course);
-    if (course_->road().checkpoints.size() < 3) throw FormatError("This place has no lap to drive.");
     if (setup.entries.empty()) throw FormatError("A race needs a car.");
-    const u32 flags = course_->section(course::kSlotEnv).size() >= 0x14 ? rd32(course_->section(course::kSlotEnv), 0x10) : 0;
-    night_ = (flags & 0x8000) != 0;
+    {
+        const ByteSpan env = course::CourseFile::parse(*course).section(*course, course::kSlotEnv);
+        night_ = env.size() >= 0x14 && (rd32(env, 0x10) & 0x8000) != 0;
+    }
 
     const std::vector<db::CarEntry>& cars = app.db()->cars();
     // The drivers' skeleton in its stored pose (every driver set's skeleton has the same sizes).
     const std::optional<Bytes> driver_skeleton = app.vfs()->read("character/driver.mdl");
     std::map<std::string, std::optional<Bytes>> character_files;
+    // The cars' shapes: decoded on threads, a few cars ahead of the one the main thread hands to the GPU.
+    std::vector<std::unique_ptr<CarJob>> jobs;
+    std::map<std::string, size_t> job_of;
+    std::vector<std::pair<const db::CarEntry*, std::string>> entries; // each entry's car and its visual's key
     for (const WorldEntry& e : setup.entries) {
+        const size_t index = size_t(&e - setup.entries.data());
         const db::CarEntry* entry = nullptr;
         for (const db::CarEntry& c : cars)
             if (c.label == e.label) entry = &c;
@@ -98,23 +132,27 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
                 if (const db::Labels* l = app.db()->labels("WING"))
                     if (const std::string* name = l->label(db::part_row_id(part))) wing = *name;
         }
-        std::unique_ptr<race::CarVisual>& visual = m.visuals_by_model[entry->model + "#" + std::to_string(e.paint) + "#" + wing];
-        if (!visual) {
-            const std::optional<Bytes> file = app.vfs()->read("car/lod/" + entry->model);
+        const std::string key = entry->model + "#" + std::to_string(e.paint) + "#" + wing;
+        if (const auto [at, fresh] = job_of.try_emplace(key, jobs.size()); fresh) {
+            jobs.push_back(std::make_unique<CarJob>());
+            CarJob& job = *jobs.back();
+            job.key = key, job.label = entry->label, job.spec = spec;
+            job.file = app.vfs()->read("car/lod/" + entry->model);
+            job.pat = app.vfs()->read("car/lod/" + entry->model + ".pat");
+            const std::optional<Bytes>& file = job.file;
             if (!file || (!car::CarFile::is_car(*file) && !race::CarVisual::is_gt3_car(*file))) throw FormatError("This car has no race model on the disc (" + entry->model + ").");
-            const std::optional<Bytes> pat = app.vfs()->read("car/lod/" + entry->model + ".pat");
             const std::vector<u32> paints = race::car_paints(*app.db(), entry->label);
-            race::CarVisual::Options o;
+            race::CarVisual::Options& o = job.options;
             o.paint = paints.empty() ? e.paint : paints[e.paint % paints.size()];
             o.lamp_level = night_ ? 1 : 0;
-            const std::optional<Bytes> wing_file = wing.empty() ? std::nullopt : app.vfs()->read("wing/lod/" + wing);
-            if (wing_file) o.wing = *wing_file;
+            if (!wing.empty()) job.wing = app.vfs()->read("wing/lod/" + wing);
+            if (job.wing) o.wing = *job.wing;
             if (driver_skeleton) o.driver_skeleton = *driver_skeleton;
             o.driver = setup.drivers;
             if (setup.drivers && car::CarFile::is_car(*file) && !car::CarFile::parse(*file).driver) try {
                     // A car without a driver of its own: a character file by its cockpit kind (0x3B5438).
                     const race::CockpitPlaces cp = race::read_cockpit(*file);
-                    const std::string path = race::character_driver_file(cp.cockpit_kind, cp.co_driver, int(car_visuals_.size()));
+                    const std::string path = race::character_driver_file(cp.cockpit_kind, cp.co_driver, int(index));
                     if (!path.empty()) {
                         auto [it, fresh] = character_files.try_emplace(path);
                         if (fresh) it->second = app.vfs()->read(path);
@@ -122,7 +160,16 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
                     }
                 } catch (const std::exception&) {
                 }
-            visual = std::make_unique<race::CarVisual>(gpu, *file, pat ? ByteSpan(*pat) : ByteSpan{}, spec, o, entry->label);
+        }
+        entries.push_back({entry, key});
+    }
+    start_cars(gpu, jobs, 0); // (the first cars while the course is read)
+    course_ = std::make_unique<race::CourseScene>(gpu, *course, setup.course);
+    if (course_->road().checkpoints.size() < 3) throw FormatError("This place has no lap to drive.");
+    for (const auto& [entry, key] : entries) {
+        std::unique_ptr<race::CarVisual>& visual = m.visuals_by_model[key];
+        if (!visual) {
+            visual = take_car(gpu, jobs, job_of[key]);
             // The course's strengths of the three lamp lists (Env0 +0x1794: lights, brake, tail).
             if (const ByteSpan e0 = course_->section(course::kSlotEnv); e0.size() >= 0x17A0) {
                 float v[3];
@@ -176,10 +223,14 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
         gt3r::AudioEngine& engine = app.audio();
         gt3r::Vfs& vfs = *app.vfs();
         const audio::StreamPlayer music = sound->streams();
-        const Bytes program = app.disc() ? app.disc()->read_program() : Bytes{};
-        m.sound = std::make_unique<audio::RaceSound>(vfs, engine.voices(), sound->driver(), sound->library_ptr(), audio::RaceSoundTables::from_core(program), music);
+        std::shared_ptr<const gt3r::CoreImage> program;
+        try {
+            if (app.disc()) program = app.disc()->program_image();
+        } catch (const std::exception&) { // (the sound's tables stay flat)
+        }
+        m.sound = std::make_unique<audio::RaceSound>(vfs, engine.voices(), sound->driver(), sound->library_ptr(), audio::RaceSoundTables::from_program(program ? ByteSpan(program->program) : ByteSpan{}), music);
         for (const WorldEntry& e : setup.entries)
-            if (!m.sound->add_car(e.label)) LOG_WARN("Drive: no engine sound for %s", e.label.c_str());
+            if (!m.sound->add_car(*app.db(), e.label)) LOG_WARN("Drive: no engine sound for %s", e.label.c_str());
         m.sound->set_course(course_->section(course::kSlotSound), std::make_shared<const course::Runway>(course_->road()));
         // The volumes and output of the game's options, and the player's play list of racing music.
         m.sound->set_options(audio::race_sound_options(setup.options));

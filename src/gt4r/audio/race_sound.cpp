@@ -84,10 +84,15 @@ RaceSound::~RaceSound() {
     mixer_.set_reverb_depth(reverb_before_, reverb_before_);
 }
 
-bool RaceSound::add_car(const std::string& label) {
+bool RaceSound::add_car(const std::string& label) { return add_car(label, car_sound_files(vfs_, label)); }
+
+bool RaceSound::add_car(db::SpecDb& db, const std::string& label) { return add_car(label, car_sound_files(db, label)); }
+
+bool RaceSound::add_car(const std::string& label, const CarSoundFiles& files) {
     auto s = std::make_unique<CarSound>(vfs_, mixer_, &driver_, library_);
     s->set_mix(mix_);
-    const bool ok = s->load(label);
+    s->share_banks(banks_);
+    const bool ok = s->load(files);
     if (!ok) LOG_WARN("Race sound: no engine sound for %s", label.c_str());
     cars_.push_back(std::move(s));
     contact_.push_back(0), contact_kind_.push_back(0);
@@ -97,6 +102,7 @@ bool RaceSound::add_car(const std::string& label) {
 bool RaceSound::add_car(int sound_id, int variant) {
     auto s = std::make_unique<CarSound>(vfs_, mixer_, &driver_, library_);
     s->set_mix(mix_);
+    s->share_banks(banks_);
     const bool ok = s->load(sound_id, variant);
     cars_.push_back(std::move(s));
     contact_.push_back(0), contact_kind_.push_back(0);
