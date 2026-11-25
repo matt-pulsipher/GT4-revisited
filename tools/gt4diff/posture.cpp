@@ -226,22 +226,46 @@ static void compare_steps(Ee& ee, const Bytes& mem, u32 model, int& steps, int& 
         }
         s.idle = r.f(k + 0x74);
         for (u32 n = 0; n < 4; ++n) s.rates[n] = r.f(k + 0xAC + 4 * n);
+        s.seat = r.v(k + 0x3C), s.seat_rate = r.v(k + 0x48), s.seat_accel = r.v(k + 0x54);
+        s.lean_neck_rate = r.f(k), s.nod_neck_rate = r.f(k + 4), s.lean_rate = r.f(k + 8), s.nod_rate = r.f(k + 0xC), s.heave_rate = r.f(k + 0x10);
+        s.height = r.f(k + 0x60), s.lean_left = r.f(k + 0x64), s.nod_left = r.f(k + 0x68);
+        s.tilt = r.f(k + 0xD0), s.tilt_rate = r.f(k + 0xD4), s.head_rate = r.f(k + 0xD8);
+        s.first = ee.r32(block + 0x28) == 1;
     };
     load();
     for (int step = 0; step < 240; ++step) {
         const float follow = 12.0f * std::sin(float(step) * 0.06f) * std::sin(float(step) * 0.013f);
         ee.w32(car + 0x768, rp::F(follow).bits);
         for (u32 n = 0; n < 64; ++n) ee.w32(block + 0x160 + 4 * n, s.after.v[n].bits);
+        // The car moved along, shaken and turned.
+        const rp::F part = r.f(car + 0x554), rest = rp::F(1.0f) - part;
+        const auto mixed = [&](u32 now, u32 then) { return (r.f(car + now) * part) + (r.f(car + then) * rest); };
+        const float wave = std::sin(float(step) * 0.11f), slow = std::sin(float(step) * 0.023f);
+        for (u32 at : {0x888u, 0x8A4u}) {
+            ee.w32(car + at, (r.f(car + at) + rp::F(0.5f + 0.3f * wave)).bits);
+            ee.w32(car + at + 4, (r.f(car + at + 4) + rp::F(0.02f * wave * slow)).bits);
+            ee.w32(car + at + 8, (r.f(car + at + 8) + rp::F(0.4f * slow)).bits);
+        }
+        for (u32 at : {0x66Cu, 0x8BCu}) {
+            ee.w32(car + at, rp::F(0.02f * wave).bits);
+            ee.w32(car + at + 4, rp::F(0.03f * wave + 1.2f * slow).bits);
+            ee.w32(car + at + 8, rp::F(0.9f + 0.4f * slow).bits);
+        }
+        rp::DriverMotion motion;
+        motion.pos = {mixed(0x8A4, 0x888), mixed(0x8A8, 0x88C), mixed(0x8AC, 0x890)};
+        motion.roll = mixed(0x8C0, 0x670);
+        motion.turn = rp::from_euler(mixed(0x8BC, 0x66C), mixed(0x8C4, 0x674), -motion.roll);
+        motion.velocity = {r.f(car + 0x648), r.f(car + 0x650), -r.f(car + 0x64C)};
         try {
             ee.call(0x403260, {Arg::ptr(block), Arg::ptr(car)}, 50'000'000);
         } catch (const std::exception& e) {
             std::printf("  model %06X step %d: %s\n", model, step, e.what());
             return;
         }
-        s.step(cockpit, rp::F(follow), r.f(car + 0x54C), speeds);
+        s.step(cockpit, rp::F(follow), r.f(car + 0x54C), speeds, &motion);
         ++steps;
         int bad = 0;
-        for (u32 at : {0x34u, 0x38u, 0x3Cu, 0x40u, 0x44u, 0x48u, 0x4Cu, 0x50u, 0x54u, 0x78u, 0x7Cu, 0x8Cu, 0x90u}) {
+        for (u32 at : {0x00u, 0x04u, 0x08u, 0x0Cu, 0x10u, 0x64u, 0x68u, 0x34u, 0x38u, 0x3Cu, 0x40u, 0x44u, 0x48u, 0x4Cu, 0x50u, 0x54u, 0x78u, 0x7Cu, 0x8Cu, 0x90u}) {
             const rp::F theirs = r.f(block + 0x160 + at);
             if (s.after.at(at) == theirs) continue;
             if (!bad++) std::printf("  model %06X step %d:", model, step);
@@ -281,7 +305,7 @@ int run_posture(Disc& disc, const std::vector<std::string>& paths) {
         std::printf("%s: %zu models\n", path.c_str(), models.size());
         int steps = 0, steps_equal = 0;
         for (u32 model : models) compare_steps(ee, mem, model, steps, steps_equal);
-        std::printf("  the driver's step: %d, %d with the wheel, the hands, the elbows and the clavicles equal\n", steps, steps_equal);
+        std::printf("  the driver's step: %d, %d with the wheel, the body, the hands, the elbows and the clavicles equal\n", steps, steps_equal);
         for (u32 model : models)
             for (int recorded = 0; recorded < 2; ++recorded)
                 for (float alpha : {0.0f, 0.37f, 1.0f}) {

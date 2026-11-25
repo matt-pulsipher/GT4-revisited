@@ -48,9 +48,42 @@ void DriverState::reset(const Cockpit& c) {
     for (int h = 0; h < 2; ++h) hand[h] = r.at(0x48 + 4 * u32(h)), way[h] = f(0), state[h] = was[h] = 0;
     idle = f(0);
     rates.fill(f(0));
+    seat = seat_rate = seat_accel = V3{f(0), f(0), f(0)};
+    lean_neck_rate = nod_neck_rate = lean_rate = nod_rate = heave_rate = height = lean_left = nod_left = tilt = tilt_rate = head_rate = f(0);
+    first = true;
 }
 
 namespace {
+
+// A spring and its damper, the rate at most `limit` (`limit2` its square).
+void spring(F force, F& rate, F& x, F target, F k, F damp, F limit, F limit2, F dt) {
+    force = force + ((target - x) * k);
+    force = force - (rate * damp);
+    rate = rate + (force * dt);
+    if (limit2 < rate * rate) rate = f(0) < rate ? limit : -limit;
+    x = x + (rate * dt);
+}
+// A push of less than 3 is none, a greater one 3 less.
+F beyond(F a) {
+    if ((a * a) < f(9)) return f(0);
+    return f(0) < a ? a - f(3) : a + f(3);
+}
+// A push no greater than `cap`, the rest kept for the next steps (at most `keep`).
+F shared(F push, F& left, F cap, F keep, bool& over) {
+    const F sum = push + left;
+    if (cap < sum) {
+        left = min(keep, sum - cap);
+        over = true;
+        return cap;
+    }
+    if (sum < -cap) {
+        left = max(-keep, sum + cap);
+        over = true;
+        return -cap;
+    }
+    left = f(0);
+    return sum;
+}
 
 F clamped(F v, F least, F most) { return min(max(v, least), most); }
 // 0x40F7C8: up and down again over the way.
@@ -220,9 +253,84 @@ void DriverState::hand_step(int h, bool regrip, F turned, F dt, F rate, const Ha
     }
 }
 
-void DriverState::step(const Cockpit& c, F follow, F dt, const HandSpeeds& speeds) {
+// The seat's motion and what it does to the body (0x40D0A0, 0x4043C8, 0x404890, 0x4051E0).
+void DriverState::body_step(const Cockpit& c, const DriverMotion& m, F dt) {
+    const F zero = f(0), one = f(1), rate_of = one / dt;
+    const Quat q = m.turn, back = conjugate(q);
+    const V3 offset = rotate(q, c.seat);
+    const V3 at{offset.x + m.pos.x, offset.y + m.pos.y, offset.z + m.pos.z};
+    const V3 rate = first ? m.velocity : V3{(at.x - seat.x) * rate_of, (at.y - seat.y) * rate_of, (at.z - seat.z) * rate_of};
+    const V3 accel{(rate.x - seat_rate.x) * rate_of, (rate.y - seat_rate.y) * rate_of, (rate.z - seat_rate.z) * rate_of};
+    const V3 a = rotate(back, accel);
+    if (first) heave_rate = zero, height = at.y;
+    const F fast = f(31.4159241f), fast2 = f(986.960266f), stiff = f(89.9999924f), damp = f(20);
+    const bool torso = figure_class(c.kind) == FigureClass::Torso;
+    // The nod.
+    {
+        const F most = torso || c.kind == 1 || c.kind == 2 ? F::raw(0x3DB2B8C1) : F::raw(0x3E860A90), rest = torso || c.kind == 1 || c.kind == 2 ? F::raw(0x3CB2B8C1) : F::raw(0x3D32B8C1);
+        bool over = false;
+        const F push = shared(a.z, nod_left, dt * f(4000), f(2000), over);
+        F &nod = after.at(0x0C), &neck = after.at(0x04);
+        spring(beyond(zero + push), nod_rate, nod, rest + zero, stiff, damp, fast, fast2, dt);
+        if (most < nod) nod_rate = zero, nod = most;
+        else if (nod < zero) nod_rate = zero, nod = zero;
+        F force = zero;
+        if ((most * f(0.25f)) <= nod || nod == zero) force = force + push;
+        spring(beyond(force), nod_neck_rate, neck, zero, stiff, damp, fast, fast2, dt);
+        const F limit = f(0.261799335f);
+        if (limit < neck) nod_neck_rate = zero, neck = limit;
+        else if (neck < -limit) nod_neck_rate = zero, neck = -limit;
+    }
+    // The lean: toward what is down for the seat, and away from the push.
+    {
+        const F most = F::raw(0x3D8EFA34), roll = m.roll;
+        F sn, cs;
+        gt3r::ee::sincos(roll, sn, cs);
+        const F side = -a.x, g = f(9.79999924f);
+        const F down = posture::atan2(-((side * cs) + (sn * g)), -((side * sn) + (cs * -g)));
+        const F slow = f(0.314159214f), slow2 = f(0.0986960083f);
+        spring(zero, tilt_rate, tilt, min(max(down, -most), most), f(100), damp, slow, slow2, dt);
+        spring(zero, head_rate, after.at(0x68), min(max(down + roll, f(-0.34906581f)), f(0.34906581f)), f(100), damp, slow, slow2, dt);
+        bool over = false;
+        const F push = shared(-a.x, lean_left, dt * f(1000), f(500), over);
+        F &lean = after.at(0x08), &neck = after.at(0x00);
+        spring(beyond(zero + push), lean_rate, lean, tilt, stiff, damp, fast, fast2, dt);
+        if (most < lean) lean_rate = zero, lean = most;
+        else if (lean < -most) lean_rate = zero, lean = -most;
+        spring(beyond(zero + push), lean_neck_rate, neck, zero, stiff, damp, fast, fast2, dt);
+        const F limit = f(0.0872664526f);
+        if (limit < neck) lean_neck_rate = zero, neck = limit;
+        else if (neck < -limit) lean_neck_rate = zero, neck = -limit;
+        const F want = min(max((f(0.795774639f) * abs(roll)) + f(0.37499994f), f(0.375f)), one);
+        const F pace = min(max((f(5.72957754f) * (abs(after.at(0x08) - before.at(0x08)) * rate_of)) + f(0.49999994f), f(0.5f)), f(5));
+        F& hold = after.at(0x64);
+        if (hold < want) {
+            hold = hold + (pace * dt);
+            if (want < hold) hold = want;
+        } else {
+            hold = hold - (pace * dt);
+            if (hold < want) hold = want;
+        }
+    }
+    // The heave: off the seat and down on it, 2 cm at most.
+    {
+        const F room = f(0.0199999996f), t = after.at(0x10) / room;
+        F force = zero + (((one - t) * f(-9.79999924f)) - (t * f(48.9999962f)));
+        force = force - (heave_rate * zero);
+        heave_rate = heave_rate + (force * dt);
+        height = height + (heave_rate * dt);
+        if (height <= at.y) height = at.y, heave_rate = rate.y;
+        else if ((at.y + room) < height) height = at.y + room;
+        after.at(0x10) = height - at.y;
+    }
+    seat = at, seat_rate = rate, seat_accel = accel;
+    first = false;
+}
+
+void DriverState::step(const Cockpit& c, F follow, F dt, const HandSpeeds& speeds, const DriverMotion* motion) {
     before = after;
     if (c.style != 0) return;
+    if (motion) body_step(c, *motion, dt);
     const F rate_of = f(1) / dt;
     // The wheel (0x403F90): 0.4 of the follower, 480 degrees each way (90 in a car with a yoke).
     const bool yoke = c.lever_kind == 1;

@@ -816,6 +816,31 @@ float RaceWorld::car_mass(size_t i) const {
     return session_ && i < car_visuals_.size() ? session_->record(i).p.mass.host() : 0.0f;
 }
 
+namespace {
+
+// A car's axes (right, up, back: the columns) as a quaternion.
+race::posture::Quat turn_of(const race::CarState& c) {
+    const float m[3][3] = {{c.right.x, c.up.x, -c.forward.x}, {c.right.y, c.up.y, -c.forward.y}, {c.right.z, c.up.z, -c.forward.z}};
+    float w, x, y, z;
+    if (const float t = m[0][0] + m[1][1] + m[2][2]; t > 0) {
+        const float s = std::sqrt(t + 1) * 2;
+        w = s / 4, x = (m[2][1] - m[1][2]) / s, y = (m[0][2] - m[2][0]) / s, z = (m[1][0] - m[0][1]) / s;
+    } else if (m[0][0] > m[1][1] && m[0][0] > m[2][2]) {
+        const float s = std::sqrt(1 + m[0][0] - m[1][1] - m[2][2]) * 2;
+        w = (m[2][1] - m[1][2]) / s, x = s / 4, y = (m[0][1] + m[1][0]) / s, z = (m[0][2] + m[2][0]) / s;
+    } else if (m[1][1] > m[2][2]) {
+        const float s = std::sqrt(1 + m[1][1] - m[0][0] - m[2][2]) * 2;
+        w = (m[0][2] - m[2][0]) / s, x = (m[0][1] + m[1][0]) / s, y = s / 4, z = (m[1][2] + m[2][1]) / s;
+    } else {
+        const float s = std::sqrt(1 + m[2][2] - m[0][0] - m[1][1]) * 2;
+        w = (m[1][0] - m[0][1]) / s, x = (m[0][2] + m[2][0]) / s, y = (m[1][2] + m[2][1]) / s, z = s / 4;
+    }
+    using F = race::posture::F;
+    return {F(x), F(y), F(z), F(w)};
+}
+
+} // namespace
+
 // Smoke and dust from the wheels for a step: a puff where a tire slides on the road, dust and
 // spray from any wheel that turns on a loose or wet surface. The kind of puff is the course's,
 // by the surface under the wheel.
@@ -842,7 +867,14 @@ void RaceWorld::present(std::span<const race::CarState> cars, const audio::Sound
             const F aim(-11.25f * 0.5f * (cars[d.car].wheels[0].steer + cars[d.car].wheels[1].steer)), dt(kStep);
             d.follow_rate = d.follow_rate + (((aim - d.follow) * F(200.0f)) - (d.follow_rate * F(20.0f))) * dt;
             d.follow = d.follow + d.follow_rate * dt;
-            d.state.step(d.cockpit, d.follow, dt, *hand_speeds_);
+            // The car's place and turn (a quaternion of its axes).
+            const race::CarState& car = cars[d.car];
+            race::posture::DriverMotion motion;
+            motion.pos = {F(car.position.x), F(car.position.y), F(car.position.z)};
+            motion.velocity = {F(car.velocity.x), F(car.velocity.y), F(car.velocity.z)};
+            motion.turn = turn_of(car);
+            motion.roll = F(-std::atan2(car.right.y, car.up.y));
+            d.state.step(d.cockpit, d.follow, dt, *hand_speeds_, &motion);
         }
     if (!m.smoke.loaded()) return;
     const course::Runway& road = course_->road();
