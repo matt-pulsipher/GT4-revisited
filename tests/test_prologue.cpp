@@ -267,6 +267,9 @@ TEST(disc_prologue_license_target_times) {
         if (e->target_ms[1] > 0) CHECK(e->target_ms[0] <= e->target_ms[1]);
         if (e->target_ms[2] > 0) CHECK(e->target_ms[1] <= e->target_ms[2]);
         if (n <= 6) std::printf("  %s on %s, %d laps: %u / %u / %u ms\n", label, e->course.c_str(), e->laps, e->target_ms[0], e->target_ms[1], e->target_ms[2]);
+        // (the laps, RACE +0x29: lesson 1 two, as the original runs it; lesson 2 one, its road's section)
+        if (n == 1) CHECK(e->laps == 2);
+        if (n == 2) CHECK(e->laps == 1);
     }
     std::printf("  %d of 46 tests have a gold time\n", with_gold);
     CHECK(with_gold == 46);

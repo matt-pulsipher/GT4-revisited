@@ -291,9 +291,11 @@ Still the engine's Gran Turismo 3 code, a stand-in or not run:
   at once with no time, as the original's lesson 1 does when the car runs onto the grass at the first corner
   (`~/gt4re-out/reference/14-prologue/round5/`: "TIME -'--.---", retry / EXIT). The clock runs from the start signal
   whether the car moves or not (the original's too).
-- ❓ **The laps**: the original's lesson 1 (`l0p0001`) runs two laps ("Lap 1/2", "two laps without going off the
-  course"), where the row's byte read as the laps (GT4 +0x43 ← +0x25) is 1 (3 on tests 8 .. 12, whose gold times are
-  12 .. 31 s): that byte is not the laps on the tests; where the tests' laps live is not found (ours runs one).
+- **The laps**: the RACE row's +0x29 (the race's getter 0x37CFD0 reads it through the race information's row pointer +0x28):
+  2 on lesson 1 (`l0p0001`, "Lap 1/2" in the original), 1 on lesson 2, 2, 3 or 5 on the championship races by their
+  variant; it is Gran Turismo 4's column +0x43 in our database (the byte +0x25 read before is not the laps). A test whose
+  road's goal lies inside the lap ends there on its last lap. The lesson's race keeps more in the conductor's rule block
+  (+0x10780): +0x42 and +0x4B 50 on lesson 1 (the speed caps of the aids' phase, 0x3E0838; ❓ who writes them).
 - **The results movie** (`menu/result_license.strb`, ResultLicense 0x3D95D8): GetTime the time as 0x409D88 writes it
   (M'SS.mmm), PrizeLevel (the result kind 1, 2 → 0, 3 → 1, 4, 5 → 2, else 3), GetRank the run's place in the test's
   ranking (0x3FE3B0: the first of ten entries that is empty or slower; -1: no name entry), GetDefaultName the user
