@@ -117,7 +117,7 @@ DemoScore run_recording(Disc& disc, const replay::Demonstration& recording, cons
     const auto before_init = [&] {
         // The course's start code (the strings' tables are not loaded: the answer given in place): a rolling start's digit and the
         // marks' (K +0xCBE6 ..).
-        if (!license || std::getenv("GT4R_FLOATS_CODE")) {
+        {
             const std::string code = race::course_start(sdb, course).code;
             Bytes text(code.begin(), code.end());
             text.push_back(0);

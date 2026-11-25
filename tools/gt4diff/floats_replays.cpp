@@ -200,6 +200,27 @@ CipherResult run_floats_cipher(Disc& disc, bool print) {
     return r;
 }
 
+ReplayBeside run_replay_beside(Disc& disc, const std::string& name) {
+    ReplayBeside r;
+    const sim::Program program = sim::Program::load(disc);
+    const auto d = theater_replay(disc, program, name, &r.program.error);
+    if (!d) return r;
+    db::SpecDb sdb = open_db(disc);
+    sim::ai::DemoRun run;
+    run.label = name, run.demo = *d;
+    for (const replay::PadRecord& f : run.demo.streams[0].frames) run.pads.push_back({f.bytes});
+    AloneBeside alone(disc, sdb, std::move(run));
+    FloatDemoOptions opt;
+    opt.extra = 60;
+    opt.on_step = [&](Ee& ee, OrigRace& o, int step) {
+        alone.race.step();
+        alone.compare(images(ee, o), step);
+    };
+    r.program = run_recording(disc, *d, name, opt);
+    r.first_bits = alone.first_bits, r.ours_exact = alone.race.exact();
+    return r;
+}
+
 int run_floats_replays(Disc& disc, const std::vector<std::string>& args) {
     const gt3r::Volume& vol = disc.volume();
     const sim::Program program = sim::Program::load(disc);

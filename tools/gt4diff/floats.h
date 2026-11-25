@@ -144,6 +144,13 @@ struct CipherResult {
     u64 bytes = 0;
 };
 CipherResult run_floats_cipher(Disc& disc, bool print);
+// A demo replay through the program's step with our own race (race::RecordedRace) beside it.
+struct ReplayBeside {
+    DemoScore program;
+    int first_bits = -1;   // the first step a car's place differs in a bit (-1 never)
+    bool ours_exact = false;
+};
+ReplayBeside run_replay_beside(Disc& disc, const std::string& name);
 int run_floats_replays(Disc& disc, const std::vector<std::string>& args); // the Replay Theater's demo replays (floats_replays.cpp)
 int run_floats(Disc& disc, const std::vector<std::string>& args);
 
