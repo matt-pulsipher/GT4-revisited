@@ -195,6 +195,8 @@ public:
     // For gt4r_diff's whole-step comparison: a car's state set as a whole (the engine's mirror and Gran Turismo 4's
     // part), and its collision body.
     void load_state(size_t i, const gt3r::sim::exact::Car& c, const sim::Extra& x) { cars_[i] = c, gx_[i] = x; }
+    // A car put at a moment of a recorded race (a free run's recording: its record at the line); its laps from 0.
+    void load_moment(size_t i, const gt3r::sim::exact::Car& c, const sim::Extra& x);
     // And Prologue's part of a car (rules_prologue.h; a session running Prologue's step).
     const prologue::CarPart& prologue_part(size_t i) const { return prologue_cars_[i]; }
     void load_prologue_part(size_t i, const prologue::CarPart& x) { prologue_cars_[i] = x; }

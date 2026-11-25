@@ -60,7 +60,7 @@ struct ControlStream {
 // What a recorder's header holds of the moment its stream starts at (0x35AB08, read back by 0x35ABA8; docs/formats/replay.md).
 struct RecorderState {
     u8 units = 0;        // +0x02 the race clock's units (0 .. 50) since the line when it was kept
-    u8 laps = 0;         // +0x03
+    u8 remainder = 0;    // +0x03 what the race clock's whole milliseconds leave of its units then (0 .. 2, 0x358468)
     u32 frame = 0;       // +0x04 the recorder's frame then
     u32 share = 0;       // +0x0C (f32) the share of the step after the line
     std::span<const u8> car;  // +0x54 the car's record (0x10A0)

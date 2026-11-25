@@ -11,6 +11,7 @@
 #include "gt4r/sim/ai/pit_stops.h"
 #include "gt4r/sim/ai/pit_tire_change.h"
 #include "gt4r/sim/race_rules.h"
+#include "gt4r/sim/record_image.h"
 #include "gt4r/sim/rules_start.h"
 #include "gt4r/sim/rules_step.h"
 #include "gt4r/sim/rules_wear.h"
@@ -165,6 +166,17 @@ RecordedRace::RecordedRace(Disc& disc, db::SpecDb& sdb, sim::ai::DemoRun run) : 
     flow_.begin(fs, session.cars());
     for (size_t i = 0; i < entries.size(); ++i) session.set_crossings(i, flow_.car(i).counter), session.set_rank(i, flow_.place(i));
     p.inputs.resize(entries.size());
+    // A free run's recording starts at its lap's line: the car's record as the recorder kept it, the clock two steps on, its times
+    // from the line (0x359D40).
+    if (const std::optional<replay::RecorderState> st = replay::recorder_state(d.streams[0]); solo && st) {
+        sim::Record r;
+        r.car = session.record(0), r.x = session.gt4_record(0), r.layout = session.wheel_layout(0);
+        sim::load_car_record(r, st->car);
+        if (p.field) p.field->release_rolling(0);
+        session.load_moment(0, r.car, r.x);
+        flow_.resume(0, 2, (100 - s64(st->units) + s64(st->remainder) - 1) / 3, 100, session.cars()[0].course_v);
+        session.set_crossings(0, flow_.car(0).counter);
+    }
 }
 
 void RecordedRace::step() {

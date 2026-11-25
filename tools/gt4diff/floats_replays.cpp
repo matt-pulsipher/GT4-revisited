@@ -276,7 +276,7 @@ int run_floats_replays(Disc& disc, const std::vector<std::string>& args) {
                     continue;
                 }
                 if (std::atoi(e) == 2) {
-                    while (!alone->race.over()) alone->race.step();
+                    for (size_t k = 0, n = alone->race.run().steps() + 60; k < n; ++k) alone->race.step();
                     std::printf("%s ours alone: laps", n.c_str());
                     for (const s64 ms : alone->race.laps()) std::printf(" %lld", (long long)ms);
                     std::printf(" total %lld (recorded %d, best %d): %s\n", (long long)alone->race.total_ms(), d->time_ms, d->time2_ms, alone->race.exact() ? "EXACT" : "not as recorded");

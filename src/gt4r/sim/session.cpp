@@ -406,6 +406,16 @@ void Session::place_standing(size_t car, F x, F y, F z, F heading) {
     publish(car);
 }
 
+void Session::load_moment(size_t i, const ex::Car& c, const sim::Extra& x) {
+    if (i >= cars_.size()) return;
+    cars_[i] = c, gx_[i] = x;
+    start_counters_[i] = 0;
+    extra_[i].has_v = false;
+    publish(i);
+    states_[i].lap = 0;
+    gx_[i].near.course_rate = x.near.course_rate;
+}
+
 void Session::stop_in_box(size_t car, F heading) {
     if (car >= cars_.size() || !gt4_rules_) return;
     rules::standing_start(cars_[car], gx_[car], layouts_[car]);
