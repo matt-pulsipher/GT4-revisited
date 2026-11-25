@@ -668,7 +668,7 @@ public:
         fs.player = 0;
         fs.lap_length = world_->lap_length();
         fs.player_clock = !setup_.test_starts.empty();
-        for (const std::array<float, 2>& s : setup_.test_starts) fs.past_line.push_back(s[1] >= 0);
+        for (const std::array<float, 2>& s : setup_.test_starts) fs.past_line.push_back(s[1] > 0);
         // Where the cars' crossings start, the goal, a test's section (GT4's roads).
         const course::Runway& road = world_->course().road();
         // (Prologue, 0x3C9790, counts by the split points alone: a road without any 0.)

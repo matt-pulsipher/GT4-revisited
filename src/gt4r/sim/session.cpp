@@ -312,7 +312,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
             }
             if (!(entries[i].start_speed > 0)) continue;
             if (prologue_) {
-                prologue::moving_start(cars_[i], F(entries[i].start_speed));
+                prologue::moving_start(cars_[i], gt3r::ee::int_to_f(s32(std::lround(entries[i].start_speed * 3.6f))) * F::raw(0x3E8E38E3)); // (the rule's km/h)
                 if (entries[i].control == 0) cars_[i].driver_kind = 1;
                 publish(i);
                 continue;

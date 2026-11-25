@@ -94,7 +94,7 @@ DemonstrationRun run_demonstration(Disc& disc, db::SpecDb& sdb, const std::strin
                 s.kind = s.distance < 0 && s.speed > 0 ? 2 : s.distance != 0 ? 1 : 0;
                 planned[i] = plan_start(sr, i, entries[i].grid_place, s);
                 put_start(entries[i], sr, planned[i], i == 0, entries[i].grid_place, program);
-                fs.past_line.push_back(s.distance >= 0);
+                fs.past_line.push_back(s.distance > 0);
             }
         r.car = pool[0].car;
         sim::Session::Options so;

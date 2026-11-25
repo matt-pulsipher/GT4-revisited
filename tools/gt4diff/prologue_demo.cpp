@@ -94,6 +94,7 @@ int run_demo(Disc& disc, const std::string& label, int limit) {
     int shown = 0;
     static const u8 kNone[16] = {};
     const int show = std::getenv("GT4R_DEMO_SHOW") ? std::atoi(std::getenv("GT4R_DEMO_SHOW")) : 12;
+    const int least = std::getenv("GT4R_DEMO_LEAST") ? std::atoi(std::getenv("GT4R_DEMO_LEAST")) : 0; // (steps with more fields are printed whole)
     const int every = std::getenv("GT4R_DEMO_EVERY") ? std::atoi(std::getenv("GT4R_DEMO_EVERY")) : 600;
     for (size_t i = 0; i < mine.size(); ++i) {
         ee.w32(r.info + 0x74, rolling ? 0 : u32(std::max(0, 239 - int(i))));
@@ -114,7 +115,7 @@ int run_demo(Disc& disc, const std::string& label, int limit) {
         if (i % size_t(every) == 0)
             std::printf("  step %zu: the program's (%.3f, %.3f) %.2f km/h  ours (%.3f, %.3f) %.2f km/h; %d fields differ\n", i, double(after.pos.x.host()), double(after.pos.y.host()),
                         double(after.speed.host()) * 3.6, double(mine[i].pos.x.host()), double(mine[i].pos.y.host()), double(mine[i].speed.host()) * 3.6, n);
-        if (n > 0 && shown < 3) {
+        if (n > least && shown < 3) {
             ++shown;
             std::printf("  step %zu: %d fields differ%s\n", i, n, diff.c_str());
         }
