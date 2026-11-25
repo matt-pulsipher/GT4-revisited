@@ -433,14 +433,17 @@ Code: `src/gt4r/race/dive_camera.*`; the tables are read from the program. The p
   in the car's heading; the angle sweeps 100 degrees and up to 220 x 0.6 a second of T more (ways 0, 2), or 20 to 180 (way 1), slower
   about the nose and the tail (0x381428); a roll of ±20 degrees to another; the lens 25 to 60 degrees.
 - **From above** (`CameraHeli` 0x3834A0): 1 to 7 m round and 3 to 7 m over the car, 40 to 70 degrees, its turn following by a share of 0.2.
+- **Fixed** (`CameraAutoFix` 0x381C90), standing still and rolled by up to 15 degrees, 0.1 to 1.7 m over the ground, 50 to 80 degrees:
+  way 0 ahead of the car by up to half a second, looking its way (it comes past); way 1 beside the line ahead (T x 0.5 to 0.85), 2 to
+  7 m off it, looking back; way 2 beside the car, the lens' edge where the car will be in 1 to 3 s.
 - **On board** (0x376238): the nose or the front bumper three in ten each (60 to 80 degrees, half of them looking back), else another
   of the car's places; a roll on 40 %.
 - **The picture**: on one cut of ten it trails (0.5 to 1, at most 0.8 drawn); round the car and from above behind a wall too. Its
   colors (`GammaEffector` 0x4004A8): plain, one of 21 tints (0x622700) or of 12 strong ones (0x6228F8), by what it was; on a fifth of
   the cuts they ease in, else they stand at once.
 
-Here the program's random numbers are a generator of ours, `CameraAutoFix` is not built (a roadside point in its place, a tenth of the
-cuts), the point's own distance along the course is the middle of its stretch and the lens's distances are taken from the point
+Here the program's random numbers are a generator of ours, the line ahead is the recorded run's own (a demonstration's: straight on;
+the program's is the driving line), the point's own distance along the course is the middle of its stretch and the lens's distances are taken from the point
 along it (🔎 the program asks the road), a wall is the scenery's, the on-board shots' wobble is not here.
 
 Not done: the photo drive, a wheel's own keys, ❓ the speed's effect on

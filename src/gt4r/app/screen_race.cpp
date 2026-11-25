@@ -1161,7 +1161,14 @@ public:
     void step_dive(std::span<const race::CarState> cars) {
         const bool beat = dive_clock_.step(markers_.next(music_time_), markers_.passed(music_before_, music_time_));
         race::ViewPose p;
-        tv_valid_ = dive_.step(world_->dive_world(cars, replay_script_), beat || dive_asked_, dive_clock_.length(), p);
+        race::DiveDirector::World w = world_->dive_world(cars, replay_script_);
+        if (replaying_)
+            w.ahead = [this](size_t car, float seconds) -> std::optional<RVec> {
+                const size_t at = replay_at_ + size_t(std::max(seconds, 0.0f) * 60);
+                if (at >= history_.size() || car >= history_[at].size()) return std::nullopt;
+                return RVec{history_[at][car].position.x, history_[at][car].position.y, history_[at][car].position.z};
+            };
+        tv_valid_ = dive_.step(w, beat || dive_asked_, dive_clock_.length(), p);
         dive_asked_ = false;
         if (tv_valid_) {
             // (kept as the program's angle, as the replay cameras' shots are)

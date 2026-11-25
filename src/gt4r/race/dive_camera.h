@@ -76,6 +76,8 @@ public:
         float lap_length = 0;
         std::function<bool(const gt3r::render::Vec3& at, float y_max, float& y)> ground;
         std::function<bool(const gt3r::render::Vec3& a, const gt3r::render::Vec3& b)> blocked;
+        // Where a car is in so many seconds (a recorded run's); none: straight on from where it is.
+        std::function<std::optional<gt3r::render::Vec3>(size_t car, float seconds)> ahead;
     };
     void reset(u32 seed, size_t car);
     // One step: `cut` the clock's (or asked for), `length` the shot's if it is one. The pose of this step.
@@ -85,7 +87,7 @@ public:
     // The trail's weight (a circled car behind a wall trails too: CameraRound's vf27).
     float trail() const { return (kind_ == Kind::Round || kind_ == Kind::Above) && wall_ > 0 ? wall_ : trail_; }
     gt3r::render::DrawOptions::PostGrade grade(const gt3r::render::DrawOptions::PostGrade& plain) const;
-    enum class Kind { None, OnBoard, Round, Point, Above };
+    enum class Kind { None, OnBoard, Round, Point, Above, Fixed };
     Kind kind() const { return kind_; }
 
 private:
@@ -97,6 +99,8 @@ private:
     void begin_on_board(const World& w, float length);
     bool point_pose(const World& w, ViewPose& out);
     bool round_pose(const World& w, ViewPose& out);
+    bool begin_fixed(const World& w, float length, int way);
+    gt3r::render::Vec3 ahead_of(const World& w, const Car& c, float seconds) const;
     void begin_above();
     bool above_pose(const World& w, ViewPose& out);
     bool on_board_pose(const World& w, ViewPose& out);
@@ -139,6 +143,10 @@ private:
     gt3r::render::Vec3 look_from_, look_to_, eye_from_, eye_to_;
     float noise_[2][3] = {}; // value, target, rate
     float wall_ = 0;
+
+    // The fixed cameras (CameraAutoFix 0x381C90).
+    gt3r::render::Vec3 fixed_eye_;
+    float fixed_yaw_ = 0, fixed_pitch_ = 0, fixed_roll_ = 0, fixed_lens_ = 60;
 
     // On board.
     int mount_ = 0;

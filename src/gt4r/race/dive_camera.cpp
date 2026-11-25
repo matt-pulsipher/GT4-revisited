@@ -156,7 +156,11 @@ bool DiveDirector::step(const World& w, bool cut, float length, ViewPose& out) {
     if (kind_ == Kind::Point) ok = point_pose(w, out);
     else if (kind_ == Kind::Round) ok = round_pose(w, out);
     else if (kind_ == Kind::Above) ok = above_pose(w, out);
-    else if (kind_ == Kind::OnBoard) ok = on_board_pose(w, out);
+    else if (kind_ == Kind::Fixed) {
+        set_view(out, fixed_eye_, fixed_yaw_, fixed_pitch_, fixed_roll_);
+        out.fov = shown_angle(fixed_lens_ / kDegrees);
+        ok = true;
+    } else if (kind_ == Kind::OnBoard) ok = on_board_pose(w, out);
     first_ = false;
     if (!ok) kind_ = Kind::None;
     return ok;
@@ -170,8 +174,8 @@ bool DiveDirector::begin_shot(const World& w, float length) {
     int way = 0;
     for (; way < 8; ++way)
         if ((r -= share[size_t(way)]) <= 0) break;
-    // (The fixed cameras it places beside the road, CameraAutoFix 0x381C90, are not here: a roadside point.)
-    if (way >= kFix0 && way <= kFix2) way = kPoint;
+    // (A fixed camera that finds no place: one of a long shot's, 0x376A94.)
+    if (way >= kFix0 && way <= kFix2) return begin_fixed(w, length_, way - kFix0) || (begin_round(w, length_, r_.below(3)), true);
     if (way == kHeli) return begin_above(), true;
     if (way == kPoint && begin_point(w, length_)) return true;
     if (way >= kRound0 && way <= kRound2) return begin_round(w, length_, way - kRound0), true;
@@ -412,6 +416,69 @@ RVec DiveDirector::clear_eye(const World& w, const RVec& target, const RVec& eye
     wall_ = 1.4f;
     const float whole = std::max(render::length(eye - target), 0.1f);
     return target + (eye - target) * std::clamp(clear * 0.95f, std::min(1.0f, 2.0f / whole), 1.0f);
+}
+
+// --- fixed cameras (CameraAutoFix 0x381D88, 0x3821F0, 0x382708) ---------------------------------
+
+RVec DiveDirector::ahead_of(const World& w, const Car& c, float seconds) const {
+    if (w.ahead)
+        if (const std::optional<RVec> at = w.ahead(car_, seconds)) return *at;
+    const RVec origin{c.body.at(0, 3), c.body.at(1, 3), c.body.at(2, 3)};
+    return origin + RVec{c.state->velocity.x, c.state->velocity.y, c.state->velocity.z} * seconds;
+}
+
+bool DiveDirector::begin_fixed(const World& w, float length, int way) {
+    const Car c = w.car(car_);
+    if (!c.state) return false;
+    const RVec origin{c.body.at(0, 3), c.body.at(1, 3), c.body.at(2, 3)}, velocity{c.state->velocity.x, c.state->velocity.y, c.state->velocity.z};
+    const float lens = r_.next() * 30 + 50;
+    RVec eye;
+    float yaw = 0;
+    if (way == 0) {
+        // Just ahead of the car and looking its way: it comes past at once.
+        const float seconds = std::min(length * (r_.next() * 0.15f + 0.05f), 0.5f);
+        eye = origin + velocity * seconds;
+        eye.x += r_.next() * 2 - 1, eye.z += r_.next() * 2 - 1;
+        yaw = yaw_of(eye - origin) + r_.next() * 20 - 10;
+    } else if (way == 1) {
+        // Beside the line it will take, looking back at it.
+        const float seconds = length * (r_.next() * 0.35f + 0.5f);
+        const RVec at = ahead_of(w, c, seconds), before = ahead_of(w, c, std::max(seconds - 0.1f, 0.0f));
+        const RVec back = before - at;
+        if (render::length(back) < 1e-3f) return false;
+        yaw = yaw_of(back);
+        float side = r_.next() * 5 + 2;
+        if (r_.next() < 0.5f) side = -side;
+        eye = at + render::normalize(render::cross(back, {0, 1, 0})) * side;
+        if (w.blocked && w.blocked(at + RVec{0, 1, 0}, eye + RVec{0, 1, 0})) eye = at + (eye - at) * 0.4f;
+        yaw += r_.next() * 20 - 10;
+        if (std::fabs(wrap180(yaw_of(origin - eye) - yaw)) > lens / 2) return false;
+    } else {
+        // Beside the car, turned where it will be in one to three seconds, which comes in from an edge.
+        const RVec size = c.box_max - c.box_min;
+        const float h = car_heading(*c.state);
+        const RVec ahead{std::sin(h), 0, std::cos(h)}, right = render::cross(ahead, {0, 1, 0});
+        float x = size.x * (r_.next() * 1.5f + 0.7f), z = size.z * r_.next();
+        if (r_.next() < 0.5f) x = -x;
+        if (r_.next() < 0.5f) z = -z;
+        eye = origin + right * x + ahead * z;
+        const RVec to = ahead_of(w, c, r_.next() * 2 + 1) - eye, now = origin - eye;
+        const float way_round = now.z * to.x - now.x * to.z < 0 ? -1.0f : 1.0f;
+        yaw = yaw_of(to) + lens * way_round / 2;
+    }
+    // On the ground there, 0.1 m over it and up to 1.6 more.
+    float ground = 0;
+    if (w.ground) {
+        if (!w.ground(eye, origin.y + 3, ground) || std::fabs(ground - origin.y) > 5) return false;
+    } else {
+        ground = origin.y;
+    }
+    const float up = r_.next() + 0.1f;
+    eye.y = ground + up + r_.next() * 0.6f;
+    kind_ = Kind::Fixed;
+    fixed_eye_ = eye, fixed_yaw_ = yaw, fixed_lens_ = lens;
+    fixed_pitch_ = r_.next() * 20 - 15, fixed_roll_ = r_.next() * 30 - 15;
+    return true;
 }
 
 // --- from above (CameraHeli 0x3834A0, 0x3837C0) -----------------------------------------------
