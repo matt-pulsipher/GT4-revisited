@@ -26,6 +26,8 @@
 #include "base/log.h"
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/formats/course/runway_gtrw.h"
+#include "gt4r/input/player_controls.h"
+#include "gt4r/input/race_feedback.h"
 #include "gt4r/race/drive_camera.h"
 #include "gt4r/race/race_flow.h"
 #include "gt4r/race/rail_simulation.h"
@@ -86,6 +88,7 @@ struct Setup {
     int view = race::DriveCamera::kChase;
     bool look_back = false;
     bool auto_drive = false;
+    RaceWorld::PlayerChoice player; // the gearbox, the aids, the wheel's (`mt=1`, `asm=0`, `tcs=0`; a race of the menus: its choices)
     bool bspec = false;   // `bspec=1`: a B-spec run (the computer drives the player's car; its display and commands)
     int skip = 0;
     u32 paint = 0;
@@ -156,6 +159,9 @@ Setup setup_from_env() {
             if (!v.empty() && std::isdigit(static_cast<unsigned char>(v[0]))) s.view = std::atoi(v.c_str());
         } else if (k == "drive") s.auto_drive = v == "auto";
         else if (k == "bspec") s.bspec = v != "0";
+        else if (k == "mt") s.player.automatic = v == "0";
+        else if (k == "asm") s.player.asm_on = v != "0";
+        else if (k == "tcs") s.player.tcs_on = v != "0";
         else if (k == "skip") s.skip = std::max(0, std::atoi(v.c_str()));
         else if (k == "paint") s.paint = u32(std::max(0, std::atoi(v.c_str())));
         else if (k == "wing") s.wing = v;
@@ -531,6 +537,10 @@ public:
                 e.start_distance = float(sim::rules::rolling_start_distance(-int(std::lround(setup.start_back)), int(std::lround(setup.start_spacing)), setup.cars, e.grid_place));
             }
             if (size_t(i) < setup.test_starts.size()) e.start_speed = setup.test_starts[size_t(i)][0] / 3.6f, e.start_distance = setup.test_starts[size_t(i)][1];
+            if (i == 0) { // (what the player chose: RaceWorld::PlayerChoice)
+                e.automatic = setup.player.automatic, e.asm_on = setup.player.asm_on, e.tcs_on = setup.player.tcs_on;
+                e.wheel_aid = setup.player.wheel_aid, e.driver = setup.player.wheel_lock;
+            }
             if (i == 0) e.equipment = setup.player_equipment, e.condition = setup.player_condition, e.wing = setup.wing;
             else if (size_t(i - 1) < setup.opponent_equipment.size() && setup.opponent_equipment[size_t(i - 1)]) {
                 // An opponent entered as its pool enters it: its parts, settings and the paint the pool
@@ -541,6 +551,7 @@ public:
             ws.entries.push_back(e);
         }
         world_ = std::make_unique<RaceWorld>(app, ws);
+        world_->set_player(setup.player);
         inputs_.resize(size_t(setup.cars));
         if (const ByteSpan rep = world_->course().section(course::kSlotReplay); race::ReplayScript::is_script(rep)) {
             try {
@@ -597,10 +608,10 @@ public:
         mount_ = setup.view;
         begin_run(setup.bspec);
         // A scripted run that skips ahead: those steps unseen.
-        for (int i = 0; i < setup.skip; ++i) step(gt3r::PadState{}, true);
+        for (int i = 0; i < setup.skip; ++i) step({}, true);
         if (setup.replay > 0) {
             // A run driven unseen, then shown through the replay cameras.
-            for (int i = 0; i < setup.replay; ++i) step(gt3r::PadState{}, true);
+            for (int i = 0; i < setup.replay; ++i) step({}, true);
             start_replay();
         }
     }
@@ -609,11 +620,14 @@ public:
     // player's car too (B-spec).
     void set_bspec_book(const std::array<u16, 3 * 64>& book, const std::array<u8, 8>& marks) { world_->set_bspec_book(book, marks); }
     const WorldSetup& world_setup() const { return world_->setup(); }
+    // What the player chose for his car (the next run's).
+    void set_player(const RaceWorld::PlayerChoice& c) { stale_ = world_->set_player(c) || stale_; }
     void begin_run(bool watched = false, bool demo = false) {
         if (!demo && demo_run_) end_demo();
         // (A demonstration drives the player's car by its recording.)
         world_->set_computer_player(demo ? demo_bspec_ : watched || setup_.auto_drive);
-        if (!demo && (ran_ || watched != watched_)) world_->restart();
+        if (!demo && (ran_ || watched != watched_ || stale_)) world_->restart();
+        if (!demo) stale_ = false;
         watched_ = watched;
         ran_ = true;
         // B-spec: the pace "Steady", the low view from the car's nose (as the original's B-spec race
@@ -730,7 +744,8 @@ public:
 
     // One simulation step: the player's car from the pad (or the simple driver), the others by the
     // simple driver, each on its own side of the line.
-    void step(const gt3r::PadState& pad, bool auto_drive) {
+    // `player`: the controller's answer (input/player_controls.h).
+    void step(const input::RaceInput& player, bool auto_drive) {
         if (menu_scene_ && preview_) {
             keep_previous();
             const bool hold = preview_hold_ > 0;
@@ -778,25 +793,20 @@ public:
         for (size_t c = 0; c < inputs_.size(); ++c)
             inputs_[c] = hold || (drivers && (c > 0 || watched_ || setup_.auto_drive)) || (c == 0 && !auto_drive) ? race::CarInput{}
                                                                                        : race::follow_line(world_->line(), cars[c], c & 1 ? 2.0f : -2.0f, 1.0f - 0.05f * float(c));
-        const gt3r::sim::ControlInputs in = mapper_.update(pad, kStep);
         // (What the pad asks during the hand-over: "GET READY TO DRIVE" once the throttle is held.)
-        if (handing_over()) throttle_held_ = in.throttle > 0.5f;
+        const sim::rules::PadFrame& pad = player.frame;
+        const auto pedal = [](bool analog, u16 v) { return analog ? float(v) / 4096.0f : v ? 1.0f : 0.0f; };
+        if (handing_over()) throttle_held_ = pedal(pad.flags & 2, pad.throttle) > 0.5f;
         if (!auto_drive) {
+            // The program's own frame, read by the input phase as it is; the fields beside it are the stand-in simulation's.
+            pad.to_bytes(player_frame_.bytes.data());
             race::CarInput& me = inputs_[0];
             me = {};
-            me.steer = in.steer, me.throttle = in.throttle, me.brake = in.brake, me.handbrake = in.handbrake;
-            me.shift_up = in.shift_up, me.shift_down = in.shift_down;
-            me.reverse = mapper_.reverse();
-            if (me.reverse) {
-                // The back axis alone (GT4's pad controls 0x349418 take it over a smaller throttle),
-                // the brake from its own button: not the shared mapping's automatic swap, which puts
-                // the back axis on the brake.
-                const auto pedal = [&](PadButton b) {
-                    return !pad.down(b) ? 0.0f : pad.press(b) ? gt3r::race::pressure_to_pedal(pad.press(b), mapper_.config()) : 1.0f;
-                };
-                me.throttle = std::max(pedal(PadButton::Cross), pedal(PadButton::Triangle));
-                me.brake = pedal(PadButton::Square);
-            }
+            me.pad = &player_frame_;
+            me.steer = pad.flags & 1 ? -float(pad.steer) / 4096.0f : pad.steer > 0 ? -1.0f : pad.steer < 0 ? 1.0f : 0.0f;
+            me.reverse = pad.back != 0 && pedal(pad.flags & 8, pad.back) >= pedal(pad.flags & 2, pad.throttle);
+            me.throttle = std::max(pedal(pad.flags & 2, pad.throttle), pedal(pad.flags & 8, pad.back)), me.brake = pedal(pad.flags & 4, pad.brake);
+            me.handbrake = pad.third != 0, me.shift_up = pad.shift > 0, me.shift_down = pad.shift < 0;
         }
         // Prologue's license test ended: the car brakes to a stand (✔ the original's lesson 1 off the course; ❓ its routine not read).
         if (finish_view()) inputs_[0] = {}, inputs_[0].brake = 1, auto_drive = false;
@@ -996,7 +1006,7 @@ public:
     void play_demo(const sim::ai::DemoRun& run, int unseen) {
         demo_run_ = run;
         enter_demo(run.demo.race_mode == 1);
-        for (int i = 0; i < unseen && !demo_over(); ++i) step(gt3r::PadState{}, false);
+        for (int i = 0; i < unseen && !demo_over(); ++i) step({}, false);
     }
     void enter_demo(bool bspec) {
         const std::vector<sim::Entry> entries = demo_run_->entries();
@@ -1535,14 +1545,7 @@ private:
     Setup setup_;
     std::unique_ptr<RaceWorld> world_;
     std::vector<race::CarInput> inputs_;
-    // The pad's raw stick: GT4's input phase (0x349FD0) makes its own analog path, so no dead zone
-    // or curve of the shared mapping goes before it.
-    static gt3r::race::ControlConfig raw_controls() {
-        gt3r::race::ControlConfig c;
-        c.stick_deadzone = 0, c.stick_exponent = 1;
-        return c;
-    }
-    gt3r::race::ControlMapper mapper_{raw_controls()};
+    race::PadRecord player_frame_; // the player's frame of this step (inputs_[0].pad)
     race::DriveCamera camera_;
     race::ReplayScript replay_script_;
     race::ReplayCamera replay_camera_;
@@ -1568,6 +1571,7 @@ private:
     int tire_index_ = 4;   // the race's tires (the scripts' index: 4 sports medium)
     std::string race_word_ = "ARCADE_SINGLE_RACE"; // the race's name in the race's words
     bool throttle_held_ = false;
+    bool stale_ = false; // the cars were set up before the player's last choice
     int gear_shown_ = 1;
     float gear_flash_ = 0;
     bool stop_area_ = false, license_failed_ = false; // a license test's stopping box
@@ -1607,7 +1611,8 @@ private:
 
 class RaceScreen : public Screen {
 public:
-    explicit RaceScreen(App& app, const RaceStart* chosen = nullptr) : setup_(chosen ? Setup{} : setup_from_env()) {
+    explicit RaceScreen(App& app, const RaceStart* chosen = nullptr) : setup_(chosen ? Setup{} : setup_from_env()), app_(app) {
+        wheel_ = input::WheelSettings::load(app.config());
         if (chosen) {
             setup_.course = chosen->course, setup_.car = chosen->car;
             setup_.paint = u32(std::max(0, chosen->paint));
@@ -1755,6 +1760,8 @@ public:
             }
         }
         settings_ = menu::settings_from(setup_.options);
+        controllers_ = settings_.controllers;
+        if (menus_) setup_.player = player_choice(true);
         // The first view of a race of the menus: the options' (view_type: SUBJECTIVE the nose,
         // BONNET the higher one, OVERLOOK the chase view).
         if (from_menus_) setup_.view = settings_.view == "OVERLOOK" ? race::DriveCamera::kChase : settings_.view == "BONNET" ? race::DriveCamera::kRoof : race::DriveCamera::kInCar;
@@ -1778,12 +1785,16 @@ public:
             leave_to_menus(app);
         }
     }
-    ~RaceScreen() override { report(); }
+    ~RaceScreen() override {
+        feedback_.stop(app_.input(), 0);
+        report();
+    }
 
     void update(App& app, double dt) override {
         // (The time from the last frame's drawing to this update: its present and the events.)
         if (render_end_ns_) outside_ns_ = SDL_GetTicksNS() - render_end_ns_;
         const MenuInput& m = app.menu();
+        if (!playing()) feedback_.stop(app.input(), 0);
         if (quick_ && race_) return update_quick(app, m, dt);
         if (menus_ && sequence_ == "race_view" && race_ &&
             (m.pressed(PadButton::Cross) || m.pressed(PadButton::Circle) || m.pressed(PadButton::Triangle) || m.pressed(PadButton::Start) || race_->flow().everyone_finished()))
@@ -1838,6 +1849,7 @@ public:
                 license_retry_ = false;
                 result_.reset(), result_tried_ = false;
                 report_result();
+                race_->set_player(player_choice());
                 race_->begin_run(false);
                 reported_ = false;
                 clock_ = 0;
@@ -1853,8 +1865,10 @@ public:
             open_pause(app);
             return;
         }
-        if (paused_) return update_pause(app, m, dt);
-        const gt3r::PadState& pad = app.input().race_pad(0);
+        if (paused_) {
+            read_controls(app, false); // (what is held as the pause ends is not pressed anew)
+            return update_pause(app, m, dt);
+        }
         const bool pit_menu = update_pit_menu(app, m, dt);
         if (race_->watched() && pit_menu) {
             if (monitor_) monitor_->advance(float(dt)), fill_monitor();
@@ -1870,22 +1884,70 @@ public:
             if (m.pressed(PadButton::Circle)) race_->bspec_pit();
             if (m.pressed(PadButton::R1)) toggle_monitor(app);
             if (monitor_) monitor_->advance(float(dt)), fill_monitor();
-        } else if (m.pressed(PadButton::R1) || m.pressed(PadButton::Select)) race_->next_view();
+        }
+        // The player's controls: the views and the pause by the controller's own buttons, as they go down.
+        const auto [views, menu_buttons] = read_controls(app, pit_menu);
+        const bool mine = !race_->watched() && !race_->replaying();
+        if (mine ? (views & input::RaceInput::kPlayView) != 0 : !race_->watched() && (m.pressed(PadButton::R1) || m.pressed(PadButton::Select))) race_->next_view();
+        if (playing()) {
+            // (the player's pad or wheel unplugged: the race waits)
+            const std::string device = app.input().kind(0) == gt3r::DeviceKind::Keyboard ? std::string() : app.input().device_name(0);
+            const bool lost = !device_.empty() && device != device_;
+            device_ = device;
+            if (lost) LOG_INFO("Drive: the player's controller is gone: paused");
+            if (lost || (menu_buttons & input::RaceInput::kPause)) {
+                open_pause(app);
+                return;
+            }
+        }
         // The refuelling stopped (0x3BAC80: the bar's accept, the help strip's "%Be").
         if (!pit_menu && race_->world().refuelling(0) && m.pressed(PadButton::Circle) && !race_->replaying()) race_->world().stop_refuel(0);
         update_panel(app, dt);
         if (monitor_ && race_->world().pit_stage(0) != 0) monitor_.reset(); // (into the pits: the live view again)
-        look_back_ = gt3r::race::look_back_held(pad, false);
+        look_back_ = mine ? (player_input_.views & (input::RaceInput::kBackView | input::RaceInput::kRearView)) != 0 : gt3r::race::look_back_held(app.input().race_pad(0), false);
         // Whole simulation steps for the time that has passed (at most four a frame).
         const Uint64 t0 = SDL_GetTicksNS();
         // Whole simulation steps for the time the shown frames advance (paced by the display's
         // refresh: the shared engine's pacer), the frame drawn between the last two.
         clock_ += pacer_.step(dt);
         int n = 0;
-        for (; clock_ >= kStep && n < 4; ++n) clock_ -= kStep, race_->step(pad, setup_.auto_drive || spectator_);
+        for (; clock_ >= kStep && n < 4; ++n) {
+            clock_ -= kStep;
+            race_->step(player_input_, setup_.auto_drive || spectator_);
+            if (const sim::Session* session = race_->world().session(); session && playing()) feedback_.step(input::car_feel(*session, 0), float(kStep));
+        }
         if (n == 4) clock_ = 0;
+        if (playing()) feedback_.frame(app.input(), 0, input::FeedbackOptions::from(controllers_.port[0], wheel_.wheel), dt);
+        else feedback_.stop(app.input(), 0);
         race_->set_blend(float(clock_ / kStep));
         step_ns_ += SDL_GetTicksNS() - t0;
+    }
+
+    // Another window in front: the player's input stops coming, so the race he drives waits (with the motors and the wheel
+    // still), unless his controllers are read in the background.
+    void on_event(App& app, const SDL_Event& e) override {
+        if (e.type != SDL_EVENT_WINDOW_FOCUS_LOST || !playing()) return;
+        SDL_Window* window = SDL_GetWindowFromID(e.window.windowID);
+        if (window && (SDL_GetWindowFlags(window) & SDL_WINDOW_NOT_FOCUSABLE)) return; // (a scripted run's)
+        if (gt3r::race::focus_loss(true, app.input().reads_background(), false) != gt3r::race::FocusLoss::Pause) return;
+        LOG_INFO("Drive: paused, the window lost the focus");
+        feedback_.stop(app.input(), 0);
+        open_pause(app);
+    }
+
+    // The player drives now: not a menu, a pause, a replay or demonstration, B-spec or a scripted run, nor a run that is over.
+    bool playing() const {
+        return race_ && !quick_ && !paused_ && !demo_ && !setup_.auto_drive && !race_->watched() && !race_->replaying() && !race_->demonstrating() && !race_->over() &&
+               !race_->flow().player_finished();
+    }
+
+    // The player's controller this frame (player_input_), and its views and menu buttons that went down.
+    std::pair<u32, u32> read_controls(App& app, bool directions_taken) {
+        const bool mine = !race_->watched() && !race_->replaying();
+        player_input_ = input::read_player(app.input(), 0, controllers_.port[0], wheel_, !mine ? input::Mode::Watch : directions_taken ? input::Mode::DriveNoDirections : input::Mode::Drive);
+        const std::pair<u32, u32> down{player_input_.views & ~last_views_, player_input_.menu & ~last_menu_};
+        last_views_ = player_input_.views, last_menu_ = player_input_.menu;
+        return down;
     }
 
     void render(App& app, Ui& ui) override {
@@ -2402,6 +2464,7 @@ private:
             // Retry (end code 4): the run again at once, without the menus.
             pause_retry_ = false;
             if (menus_ && !sequence_.empty()) race_->set_bspec_book(menus_->game().race.bspec_book, menus_->game().race.bspec_course_marks);
+            race_->set_player(player_choice());
             race_->begin_run(spectator_);
             result_tried_ = false, result_.reset(), reported_ = false;
             clock_ = 0;
@@ -2506,8 +2569,36 @@ private:
         demo_ = demo;
         reported_ = false;
         if (menus_ && !sequence_.empty()) race_->set_bspec_book(menus_->game().race.bspec_book, menus_->game().race.bspec_course_marks);
+        race_->set_player(player_choice());
         race_->begin_run(watched);
         clock_ = 0;
+    }
+
+    // What the player chose for his car, as the race's sequence takes it (0x10F770 for every sequence; 0x111DC0 / 0x113248 the
+    // arcade's race and time trial from their menus; 0x10F848, 0x10F880 the others from the options).
+    // `asked`: before the race's menus (their work not made yet): as the request has them.
+    RaceWorld::PlayerChoice player_choice(bool asked = false) {
+        if (!menus_) return setup_.player;
+        RaceWorld::PlayerChoice c;
+        const menu::GameSettings s = menu::settings_of(menus_->game());
+        controllers_ = s.controllers; // (the Key Configuration, the vibration, the wheel's forces: the options' now)
+        if (asked && (sequence_ == "single_race" || sequence_ == "time_trial")) {
+            const menu::RaceRequest& q = menus_->game().race;
+            c.automatic = q.manual == 0, c.asm_on = q.assist_asm != 0, c.tcs_on = q.assist_asm != 0 || q.assist_tcs != 0;
+        } else if (sequence_ == "single_race" || sequence_ == "time_trial") {
+            const menu::QuickWork& w = menu::quick_work(menus_->game());
+            c.automatic = w.get("QuickTuneTransmission") == 0;
+            const int assist = w.get("QuickTuneDrivingAssist"); // (0x110B90)
+            c.asm_on = assist == 2, c.tcs_on = assist == 1 || assist == 2;
+        } else {
+            c.automatic = app_.db() && app_.db()->prologue() && is_license(sequence_) ? !s.license_manual : s.automatic;
+        }
+        if (setup_.scripted) c.automatic = c.automatic && setup_.player.automatic, c.asm_on = c.asm_on && setup_.player.asm_on, c.tcs_on = c.tcs_on && setup_.player.tcs_on;
+        c.wheel_lock = s.steering_assist_kind(), c.wheel_aid = s.active_steering;
+        const input::DeviceConfig& wheel = s.controllers.port[0].of(input::Device::Cheetah);
+        c.wheel_strength = gt3r::s16(std::clamp(input::get_feedback(wheel, input::Device::Cheetah, "POWER"), 0, 2));
+        c.wheel_assist = gt3r::s16(input::get_feedback(wheel, input::Device::Cheetah, "POWER_ASSIST"));
+        return c;
     }
 
     // The run is over (its results page left and its replay played, or the pause's Exit): its
@@ -3239,6 +3330,14 @@ private:
     bool saved_replay_ = false; // the screen plays a saved replay (then leaves)
     std::string last_saved_;
     menu::GameSettings settings_; // the game's options as the race reads them
+    App& app_;
+    // The player's controls and what is sent back to them (src/gt4r/input).
+    input::Controllers controllers_;
+    input::WheelSettings wheel_;
+    input::RaceInput player_input_;
+    u32 last_views_ = 0, last_menu_ = 0;
+    input::RaceFeedback feedback_;
+    std::string device_; // the player's pad or wheel as last seen while driving
     s64 targets_[3] = {-1, -1, -1}; // a test's gold, silver and bronze times from its event (ms)
     std::string caption_for_, caption_title_, caption_artist_; // the replay's music caption (for the piece caption_for_)
     bool demo_ = false, reported_ = false; // the run is a demonstration; its result was given
