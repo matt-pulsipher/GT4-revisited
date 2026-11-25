@@ -1222,6 +1222,17 @@ difference between the two models is not exercised by them.
   something of the set-up, or an operation. Changing the shared random stream's start state changes nothing (tried on IB-15).
   ❓ The other nine training tests are exact.
 
+**The other regions' files** do not play on this program. 99 Japanese and Korean recordings that differ from every US-named one were run
+with this disc's row of the same test (12 cars and 6 events are not in its database; the 34 missions run are copies of one two-car
+run on different events and are left out): of 43 with a recorded time **5 are exact**, 8 are 5 to 89 ms off, 30 fail or do not end.
+Two European files tried (B-1, A-1) do not end or fail. So 63 of 70 is the
+score of the files this disc's program itself asks for, not of every console recording on it.
+❓ Why: the recordings may be of other builds (the European at 50 steps a second). Fitting that, the 85 US-named files are either the
+Japanese recording unchanged, under the Japanese row (32 of 32), or recorded again, under their own (53 of 53), as if those that
+still played were kept; with a recorded time 25 of 27 of the first kind and 38 of 43 of the second are exact. It is not proven: the other
+builds' programs are not on this disc, and the same was once supposed of Gran Turismo 3's demonstrations, whose cause was the
+float model. B-6 is of the first kind; the three training tests are of the second, recorded for this build.
+
 ### The operations (a census of the race step)
 
 `gt4r_diff <disc> floats census <label>` counts every FPU and VU0 float instruction the program executes (a probe at each
