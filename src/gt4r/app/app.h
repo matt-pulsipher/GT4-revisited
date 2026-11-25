@@ -10,6 +10,7 @@
 #include "gt4r/audio/app_sound.h"
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/db/specdb.h"
+#include "gt4r/settings/run_mode.h"
 #include "gt4r/settings/video.h"
 #include "input/input_manager.h"
 #include "platform/recent_discs.h"
@@ -107,7 +108,7 @@ public:
     const std::vector<gt3r::PointerInput::Action>& pointer() const { return pointer_actions_; }
     bool mouse_at(float& x, float& y) const { return !cursor_hidden_ && pointer_.hover_pos(x, y); }
     SDL_Window* window() { return window_; }
-    bool scripted() const { return scripted_; } // a --shot or --sweep run: opens nothing outside its own window
+    bool scripted() const { return scripted_; } // opens nothing on the screen, reads no real input (settings/run_mode.h)
     const std::string& config_path() const { return config_path_; }
 
     void push(std::unique_ptr<Screen> s) { pending_.push_back(std::move(s)); }
@@ -143,6 +144,9 @@ public:
     std::string mods_dir() const { return data_dir_ + "mods"; }
     const std::string& last_error() const { return last_error_; }
     int frame() const { return frame_; }
+    // The time the frames have taken, for what moves by itself on a page: the machine's, but in pictures (--shot, --sweep) a 60th of
+    // a second a frame.
+    static Uint64 frame_time_ns() { return frame_time_ns_; }
 
     // The scripted keys' race controls held now ("gas=1", "steer=-0.4", ...: app.cpp), for tests.
     struct ScriptedDrive {
@@ -180,7 +184,8 @@ private:
     settings::Video video_;
     settings::Gpu video_started_ = settings::Gpu::Automatic;
     Sound sound_settings_;
-    bool scripted_ = false; // --shot, --sweep
+    settings::RunMode run_;
+    bool scripted_ = false; // run_'s
     double frame_limit_ = 0;
     gt3r::render::DynamicScale dynamic_;
     bool dynamic_on_ = false;
@@ -213,6 +218,7 @@ private:
     int pops_ = 0;
     bool quit_ = false;
     Uint64 last_ticks_ = 0;
+    static inline Uint64 frame_time_ns_ = 1; // (never 0, which the pages take as not read yet)
     int frame_ = 0;
 
     SDL_Mutex* dialog_mutex_ = nullptr;
@@ -230,7 +236,8 @@ private:
     std::string key_shot_;              // a "shot:<name>" key reached: saved beside --shot after this frame
     ScriptedDrive drive_;               // the race controls the script holds
     std::string stats_path_;            // --stats: frame times and memory, a line a second
-    double stats_ms_ = 0, stats_max_ = 0;
+    double stats_ms_ = 0, stats_max_ = 0, stats_wait_ms_ = 0;
+    double gpu_wait_ms_ = 0;            // a windowless run's last frame: the wait for what it drew
     int stats_frames_ = 0;
     Uint64 start_ticks_ = 0, end_ticks_ = 0; // the launch, the last frame's end
     std::vector<std::string> pictures_; // save_picture's, saved after this frame's drawing

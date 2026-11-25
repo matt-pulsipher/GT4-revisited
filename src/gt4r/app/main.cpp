@@ -38,6 +38,12 @@ SDL_AppResult SDL_AppInit(void** state, int argc, char** argv) {
                         "                      frame work (ms), resident memory (MB)\n"
                         "  --sweep <list>      run the races of a list one after another, pictures of\n"
                         "                      each (screen_sweep.cpp); --sweep-out <dir>: where\n"
+                        "  --visible           a scripted run (--shot, --keys, --sweep, --stats, GT4R_RACE,\n"
+                        "                      GT4R_MENU, GT4R_VIEWER) with its window; without it nothing\n"
+                        "                      is shown or heard and no real input read (GT4R_VISIBLE=1)\n"
+                        "  --headless          any run without a window (GT4R_HEADLESS=1)\n"
+                        "  --pace <n>          frames a second of a run without a window that goes by\n"
+                        "                      the clock (default 60; display: its rate; off: not held)\n"
                         "  --no-gpu            2D screens only\n");
             return SDL_APP_SUCCESS;
         }

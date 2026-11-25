@@ -244,13 +244,26 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
 - With `--shot` a frame is a 60th of a second and the frames are held to that pace, so the
   movies keep step with the keys (`--fast`: not held).
 - `--stats <file>`: a line a second: the frame, the seconds since launch, the frames' mean and
-  longest work in ms, the resident memory in MB.
+  longest work in ms, the resident memory in MB; without a window also the frames' mean wait for the GPU in ms,
+  which the work is then without. With a window the work has the presenting in it, and in a run nothing paces that is
+  the wait for the display.
 - `GT4R_MENU="boot=1,photo=ss_times,car=ford_gt_05"` starts a photo shoot at once; `GT4R_MENU_LOG=1` logs
   what the menus do (`calls`: each script call too).
 - `GT4R_MENU` and `GT4R_RACE` set up the menu pages and *Drive* screens for a check (the tops of
   `src/gt4r/app/screen_menu_viewer.cpp` and `screen_race.cpp`).
-- Scripted runs (`--shot`, `--sweep`) open their window without making it the active one, and it
-  cannot take the keyboard's focus; they open no file windows, folders or full screen (`GT4R_DIALOG=<path>` is a file
+- Scripted runs (`--shot`, `--sweep`, `--keys`, `--stats`, or `GT4R_RACE`, `GT4R_MENU` or `GT4R_VIEWER` set) show
+  nothing: no window, no Dock icon, nothing to take the focus; they play no sound (`SDL_AUDIODRIVER` names another
+  driver), leave the display to sleep, and read no key, mouse, touch, pen or controller but the script's (no controller is
+  opened, so none rumbles). The pictures are the same as with the window. They draw with the same GPU into the same
+  size of picture, so they need a signed-in session with a GPU; nothing is presented, so neither the display nor its
+  rate holds them: `--shot` keeps its 60 frames a second, `--fast` and `--sweep` go as fast as the machine draws, and a
+  run that goes by the clock (`--keys` or `--stats` alone) is held to 60 (`--pace 120`, `--pace display`: the display's rate,
+  `--pace off`). A run whose script has no end stays until it is ended (`quit` among the keys, SIGTERM).
+- `--visible` (`GT4R_VISIBLE=1`) shows a scripted run: a `--shot` or `--sweep` window is not made the active one, cannot
+  take the keyboard's focus and reads no real input either; a window with `--keys`, `--stats` or `GT4R_RACE` alone is
+  played as any other. `--headless` (`GT4R_HEADLESS=1`) hides a run that would have shown one; the command line
+  comes before the environment.
+- Scripted runs open no file windows, folders or full screen (`GT4R_DIALOG=<path>` is a file
   window's answer). `GT4R_WINDOW=1600x700` is the window's size, `GT4R_SHOT_GAMMA=1` takes the pictures with the
   gamma, `GT4R_CRASH_TEST=throw` (`segv`, `abort`) closes the app as a fault would.
 
