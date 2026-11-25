@@ -734,9 +734,13 @@ course's emitters by list.
   `jackup` (66) when the crew's motion channels `wheel_gun`, `wheel_nut`, `tire_sound2` and `jack_up` (0x429740, between
   the last frame and this one) are above 0; `jackdown` (65, at 1) when the stop's service has its bit 0x200 (the tires on,
   set at the stop's 59th step from the end): 0x35BE38 clears it as it plays (so the original's B-spec stop reads it 0 ten
-  steps later); `oiltank` (69) at a crew state change (0x3CC960: state 4); `refueling` (70) held while any of the scene's
-  six hoses (+0x98B8) runs (0x3D3358). Built: `jackdown`, for the camera's car. The crews, their motions and the hoses
-  are not built, so the others are not played.
+  steps later); `oiltank` (69) when the crew's fifth man (0x3CC960: index 4) takes another motion, his words +0x170 and +0x174 both 0;
+  `refueling` (70) held from the step one of the scene's six hoses (+0x98B8 + 8 k, the last step's value 4 bytes after) starts until
+  none runs (0x3D06A0, released by 0x393528). Built: `jackdown`, for the camera's car, and the two calls the crews' scene makes
+  (`RaceSound::pit_effect` for the others, `RaceSound::refueling`). In the original's recording of the Family Cup's stop (its music taken
+  out, each effect found by its own samples, video seconds) `jackup` 102.79, `oiltank` 104.04, `wheelgun` 104.29 .. 104.76, `dropnut`
+  105.48 and 105.56, `oiltank` 105.74, `droptire` 107.33 .. 107.73 (pairs at once), `wheelgun` 111.17 .. 111.60, `jackdown` 113.81, each at 0.78 .. 0.81 of the
+  menu-level rendering where the master's is 0.80 (`jackup`, `oiltank`, `wheelgun`; `jackdown`'s first quarter second 0.75; the overlapping ones do not tell).
 
 ### Prologue
 
@@ -869,5 +873,5 @@ ground's notes ours or by the eased level's own 0.025 over it; the rumble strips
 the revs, 720 Hz .. 5.8 kHz within 1.1 dB mid and 2.1 side, most within 0.3, 90 .. 180 Hz within 1.4 (mid); 180 .. 360 Hz swings by up to
 8 dB either way, the engine's and the exhaust's banks holding the same note there (🔎 their phases meet differently).
 
-❓ Not compared: the blow-off's and the contacts' levels (no clean recording), the heartbeat (none), the pit crew's sounds, what the
+❓ Not compared: the blow-off's and the contacts' levels (no clean recording), the heartbeat (none), what the
 license display's word +0x20 is.
