@@ -32,6 +32,8 @@ Tables tables(const Program& program, const ex::Statics&) {
     t.steer = steer_tables(program);
     t.aero = aero_globals(program);
     t.pad = pad_tables(program);
+    t.slide = slide_tables(program);
+    t.feel = feel_tables(program);
     t.globals.steer_mode = t.steer.mode; // (0x3F7BE0 writes it at the race's start)
     // The brake heat's constants (0x3F3808): 1 / (b0 x 9800), 1 / (b1 x 0.1 x 100), b2 km/h in m/s, b3 x 0.01, of the
     // static block's bytes +0xAC .. +0xAF (the first two 1 when 0).
@@ -48,10 +50,9 @@ Tables tables(const Program& program, const ex::Statics&) {
 
 void step_params(const Spec& s, Record& r) {
     InputExtra& in = r.x.input;
-    in.lock_pad = r.car.p.steer_b, in.lock_wheel = r.car.p.steer_a, in.lock_loose = r.car.p.steer_c;
+    in.lock_pad = r.car.p.steer_b, in.lock_wheel = r.car.p.steer_c, in.lock_loose = r.car.p.steer_a; // (P +0x58, +0x94, +0xD0 as the mirror holds them)
     in.wheel_ratio = s.b(0x210) >= 150 ? 1 : 0;
     speed_part_params(r.x.near, s);
-    r.x.phases.body_mass = r.x.body.sprung_mass;
 }
 
 void prep_tires(ex::Car& c, Extra& x, const WheelLayout& l, const Tables& t, const ex::Condition& cond, const std::array<F, 3>* grip) {
@@ -90,10 +91,11 @@ void dynamics(ex::Car& c, Extra& x, const WheelLayout& l, const Tables& t, const
     tire_slip_force(c, x.tires, l, t.globals);
     forward_step(c, x.chassis, x.tires, l);
     wheel_torques(c, x.drive, l);
+    if (x.drive.d.layout == 7) front_motors(c, x.drive, x.tires, l, t.drive.motors); // (0x356418, in 0x36D2F8)
     vectoring(c, x.drive, l);
     axle_step(c, x.drive, l, t.drive);
     wheel_speeds(c, x.drive, l);
-    engine_speed(c, x.drive, l);
+    engine_speed(c, x.drive, l, &t.drive);
     gear_step(c, x.drive, l, x.tires, t.drive);
     const bool air = airborne(c, l);
     lateral_yaw(c, x.chassis, x.tires, l, air, t.globals, grip);

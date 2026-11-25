@@ -818,7 +818,7 @@ void bspec_command(ex::Car& c, sim::Extra& xx, const PadTables& t, const InputHo
         xx.aids.tcs_class = value;
         const size_t v = value < 5 ? value : 4; // ❓ (the program reads past its five levels for a value over 4)
         x.pace_corner = t.pace_corner[v], x.pace_brake = t.pace_brake[v];
-        if (k0 < xx.aids.fuel_capacity) x.pace_shift = t.pace_shift[v]; // (0x354E38)
+        if (k0 < xx.aids.fuel_capacity) xx.drive.shift_factor = t.pace_shift[v]; // (0x354E38: car +0x83)
     } else if (kind == 5) {
         if (x.overtake == value) return;
         x.overtake = value;
@@ -867,9 +867,9 @@ void driver_input(ex::Car& c, sim::Extra& x, const WheelLayout& l, const PadTabl
     if (u8(c.control) < 2 && f.buttons[4] != 0) bspec_command(c, x, t, hk, f.buttons[4], f.buttons[5]);
     // (not a ghost: the conductor's virtual 25, nothing in a single player's race)
     // the nitrous
-    if (f.nitrous != 0 && c.driver_kind == 0 && k0 < x.input.nitrous_gain && k0 < x.input.nitrous) {
-        x.input.nitrous_state = 6;
-        c.torque_wot = c.torque_wot * (x.input.nitrous_gain + kOne);
+    if (f.nitrous != 0 && c.driver_kind == 0 && k0 < x.drive.fuel.nitrous_share && k0 < x.drive.fuel.nitrous_left) {
+        x.drive.fuel.nitrous_steps = 6;
+        c.torque_wot = c.torque_wot * (x.drive.fuel.nitrous_share + kOne);
     }
     c.full_throttle = 1;
     steer_prefilter(c, x.input, t, race, f);

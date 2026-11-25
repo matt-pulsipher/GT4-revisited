@@ -272,8 +272,16 @@ C = 320; B = 452 (driver's views) or 464 (chase views).
 
 So on a 4:3 screen the plate covers x 152-488, y 350-452; the speedometer's face x 152-282,
 y 352-452 (left); the rev counter's x 358-488 (right); the boost gauge x 495-549, y 377-431.
-The panel also draws the pedal bars (`pedal_bar`) and the fuel / nitrous gauges (`fuel_a0`,
-`fuel_a1`, `nos_a0`, `nos_a1`, 38 x 64) with its own code (0x3A8968, ❓ places not read). Sign
+The panel also draws its bars with its own code (0x3A8968), from the speedometer's corner (x, y) =
+(C - 168, B - 100): the brake (panel +0x28, red 0x800000F0) at x + 121 and the throttle (+0x24, light blue
+0x80E3B896) at x + 195, `pedal_bar` 20 x 58 lit from y + 79.5 up by the pedal (0 .. 1); with the panel's
+flag +0x1B the fuel gauge `fuel_a0` 38 x 64 at (x - 22, y + 19) and over it `fuel_a1` lit from the bottom in
+ten steps n = round(fuel / tank x 10) (+0x2C / +0x30): its top at 60 - 5.2 n (4 higher from the sixth),
+red 0x800000C8 under three steps, else light blue; with +0x1C the nitrous gauge (`nos_a0`, `nos_a1`, +0x34 /
++0x38, red 0x800000F0) the same at the rev counter's (x - 16, y + 19). ✔ Against the original's in-car
+view (03-race incar frames): the fuel arc left of the speedometer, the throttle's blue arc right of the
+digits. Drawn here (`RaceHud::Impl::draw_bars`, the gauge always shown: ❓ the flag +0x1B's source not read;
+the nitrous gauge not drawn: no nitrous part yet). Sign
 colors: `sign_asm` 0x80E3B896, the other two 0x800000C8. Draw order: plate, the two dials'
 shadows, trip meter, shift lamp, the two dials, boost gauge, gear, suggested gear, digital
 speed, tire wear, signs, unit, G meter, bars.
@@ -283,7 +291,18 @@ The race display draws the signs, the shift lamp, the G meter and the trip meter
 simulation does not say when an aid works), the lamp lights past 97 % of the red line, the G
 meter's point runs over two g each way, the trip meter counts whole miles or kilometres of the
 race. Not drawn: the suggested gear (it needs the course line's gear), the boost gauge, the
-driver's views' pedal, fuel and nitrous bars (their places are not read).
+nitrous gauge.
+
+**The suggested gear** (`RaceSuggestedGearDisplay`, the panels' member 0xA78 / 0x17C; shown with the display's
+flag bit 8, panel vf23): its value (the display's +0x54, set by the panel's vf24 from `RaceDisplay::vf2`
+0x39E14C) is **the computer driver's** byte +0x40 of the shown car's driver object (car +0x14, which every car
+has, the player's too), worked out each step in the input phase (0x349FD0 → 0x469E58): -1 (none) unless the
+car's speed (F +0x53C) is at or over the driver's target speed (+0x28; with the driver's mode +0x1E 4 the
+lower of +0x28 and +0x24; mode 3 and 4 also set +0x41), then 0x36BF68 at that target speed: the lowest gear
+from first whose up-shift engine speed (0x36BEE0) less 500 rpm (2,000 rpm in first) x 2 pi / 60 over the
+gear's speed factor (P +0x2A0 + 4 g) reaches it (a car whose gearbox 0x368398 / 0x3F1F78 answers: 1). So it
+shows ahead of a corner the gear the driver's line would brake to. Not drawn here: it needs the computer
+driver's target speed for the player's car (`sim/ai`, ❓ not kept for a car the player drives).
 
 ### Chase views: `RaceSimplePanel`
 
@@ -510,7 +529,7 @@ name).
 | Start | same | Key `RaceStart` ("START"), 1 s, fade out 0.15 s |
 | Finish | same | Key `RaceFinish` ("FINISH"), 3.7 s, fade out 0.3 s; the whole display then fades |
 | Lap time at the line | Event line: 320, 139, w 580 | `"%s%d/%d   %s"`: key `WordOfLapTime` ("L"), the lap, the laps, the time (`"%s%d   %s"` without a lap count): "L1/3   1'23.456". Font `hn_20R`, color 0x80C8C8C8, 3 s, fades 0.15 s |
-| Section time | Event line | `"%s%d   %s"` with key `WordOfSectionTime` ("T"): "T1   0'35.123", as above |
+| Section time | Event line | `"%s%d   %s"` with key `WordOfSectionTime` ("T"): "T1   0'35.123", as above. The split points are the road's (RNW4) first checkpoint list (`race/sections.*`; ✔ Tsukuba 505.9 and 1072.2 m, where the original's chase race shows T1 and T2); the lap step 0x358608 compares each car's distance with its next point (F +0x4B4) and pushes event 15 with the time (0x359C10). Here the gap under it is to the first car through that split on that lap, in red ❓ (the original's: "T1 0'27.247 / +0'05.800" with a car's picture); the car's picture is not drawn |
 | Gap to another car 🔎 | Event line, offset (32, 25) | The gap, `hn_20R`, 3 s, with a car marker beside it (`RaceCarIconDisplay`, member 0x2D14, placed 82 or 89 left of and 22 below the line, 2.85 s) |
 | Information | Event line | `hn_20R#1`, color 0x80C8C8C8, 3 s: "Final Lap" (key `EnduranceFinal`), "%d laps left", "%s is making a pit stop", ... |
 | Wrong way | Status message 0x228C (320, 430 in the chase views; 320, 348 in the driver's) | The picture `GT4_meter_texture_wrongway` (32 x 32, a no-entry sign), color 0x80FFFFFF, blinking: period 0.2 s, on for 0.3 of it, rise 0.05 s, fall 0.1 s; kept up while the car goes the wrong way |

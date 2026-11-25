@@ -50,8 +50,8 @@ void save_previous(ex::Car& c, const WheelLayout& l) {
 
 // ---- phase 2 ----
 
-void layout7_step(const ex::Car& c, PhaseExtra& x) {
-    if (c.p.d.layout == 7) x.special[5] = 0;
+void layout7_step(const ex::Car& c, Extra& x) {
+    if (c.p.d.layout == 7) x.drive.hybrid.store.bits &= ~0xFF00u; // (car +0x78D: the motors' state, rules_hybrid.h)
 }
 
 // ---- phases 3 and 6 ----
@@ -182,9 +182,7 @@ void step_length(ex::Car& c) {
 }
 
 void masses(const ex::Car& c, Extra& x) {
-    const F fuel = x.aids.fuel * kFuelMass;
-    x.chassis.mass = c.p.mass + fuel;
-    x.body.sprung_mass = x.phases.body_mass + fuel;
+    rules::masses(c, x.drive.fuel, x.chassis.mass, x.body.sprung_mass); // (the fuel's state: rules_fuel.h)
 }
 
 void fresh_tires(ex::Car& c, Extra& x, int w, const WearRules& r) {
@@ -193,7 +191,7 @@ void fresh_tires(ex::Car& c, Extra& x, int w, const WearRules& r) {
     wh.wear_grip = kOne;
     wh.wear = k0;
     wh.wear_level = 0;
-    x.phases.wheel_b0[size_t(w)] = 0;
+    x.wear.hud[size_t(w)] = 0; // (wheel +0xB0, the tread wear's display)
     wh.brake_heat = k0;
     second = k0;
     if (r.tread_on) {

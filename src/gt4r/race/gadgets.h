@@ -14,6 +14,7 @@ namespace gt4r::race {
 struct Gadgets {
     struct Kind {
         int index = 0;               // byte +0x00
+        u8 flags = 0;                // byte +0x02: bit 0, a body that meets a car once and then no more (0x3E3C48 latches it)
         int hull_points = 0;         // byte +0x03
         std::array<float, 3> inertia{}; // +0x04
         std::vector<course::Vec3> hull; // +0x10, x y z w each

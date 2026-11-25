@@ -8,12 +8,14 @@
 //                                       beside Gran Turismo 3's
 
 #include "disc/core_image.h"
+#include <cstdlib>
 #include "formats/model/car_model.h"
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/course/ai_line_course.h"
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/formats/course/runway_gtrw.h"
 #include "gt4r/formats/db/specdb.h"
+#include "gt4r/sim/program.h"
 #include "gt4r/sim/program_prologue.h"
 #include "formats/menu/imgs.h"
 #include "gt4r/race/strobe.h"
@@ -232,6 +234,28 @@ int strobe(Disc& disc, const std::string& path) {
     const race::StrobeMovie m = race::StrobeMovie::parse(data);
     std::printf("%zu sprites, %zu shapes, %zu texts, %zu buttons, %zu actions, %zu textures\n", m.sprites.size(), m.shapes.size(), m.texts.size(),
                 m.buttons.size(), m.actions.size(), m.textures.size());
+    for (size_t i = 0; i < m.textures.size(); ++i) {
+        const ByteSpan set = m.texture_set(i);
+        std::printf("texture %zu: %u x %u, %u bytes at 0x%X, %s", i, m.textures[i].width, m.textures[i].height, m.textures[i].size, m.textures[i].offset,
+                    gt3r::Tex1::is_tex1(set) ? "Tex1" : "not Tex1");
+        if (gt3r::Tex1::is_tex1(set)) {
+            const gt3r::Tex1 tex = gt3r::Tex1::parse(set);
+            for (const auto& t : tex.textures) std::printf(" [%u x %u psm %u]", t.tex0.width(), t.tex0.height(), t.tex0.psm);
+            if (std::getenv("GT4R_STROBE_PIXELS")) {
+                gt3r::GsMemory gs;
+                tex.upload(set, gs);
+                const gt3r::Tex1::Image img = tex.decode(gs, 0);
+                std::printf(" decoded %u x %u:", img.width, img.height);
+                const size_t n = img.rgba.size();
+                for (size_t k = 0; k < n; k += std::max<size_t>(1, n / 16)) std::printf(" %08X", img.rgba[k]);
+            }
+        } else if (set.size() >= 16) {
+            std::printf(" (");
+            for (size_t k = 0; k < 16; ++k) std::printf("%02X", set[k]);
+            std::printf(")");
+        }
+        std::printf("\n");
+    }
     for (size_t i = 0; i < m.texts.size(); ++i) std::printf("text %zu: \"%s\"\n", i, m.texts[i].text.c_str());
     for (size_t s = 0; s < m.sprites.size(); ++s)
         for (const auto& t : m.sprites[s].tracks)
@@ -254,15 +278,34 @@ int strobe(Disc& disc, const std::string& path) {
     return 0;
 }
 
+// Words (or a string) of the program's image at an address, for reading its tables.
+int peek(Disc& disc, u32 at, u32 n, bool text) {
+    const sim::Program program = sim::Program::load(disc);
+    if (text) {
+        std::string s;
+        for (u32 k = 0; k < n; ++k) {
+            const u8 c = program.b(at + k);
+            if (!c) break;
+            s += char(c);
+        }
+        std::printf("%08X: \"%s\"\n", at, s.c_str());
+        return 0;
+    }
+    for (u32 k = 0; k < n; ++k) std::printf("%08X: %08X\n", at + 4 * k, program.w(at + 4 * k));
+    return 0;
+}
+
 } // namespace
 
 int cmd_prologue(Disc& disc, const Args& a) {
+    if ((a[0] == "peek" || a[0] == "peeks") && a.size() > 1)
+        return peek(disc, u32(std::strtoul(a[1].c_str(), nullptr, 16)), a.size() > 2 ? u32(std::strtoul(a[2].c_str(), nullptr, 0)) : 1, a[0] == "peeks");
     if (a[0] == "program") return program(disc, a.size() > 1 && a[1] == "issues");
     if (a[0] == "survey") return survey(disc);
     if (a[0] == "drivers") return drivers(disc);
     if (a[0] == "hud") return hud(disc);
     if (a[0] == "strobe" && a.size() > 1) return strobe(disc, a[1]);
-    std::fprintf(stderr, "usage: gt4tool prologue <disc> program | survey | drivers | hud | strobe <path>\n");
+    std::fprintf(stderr, "usage: gt4tool prologue <disc> program | survey | drivers | hud | strobe <path> | peek <hex address> [words] | peeks <hex address>\n");
     return 2;
 }
 

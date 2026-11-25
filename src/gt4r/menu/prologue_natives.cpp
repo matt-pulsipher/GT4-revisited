@@ -5,8 +5,8 @@
 // A unit per license test, by its number (0 ..) or its race code ("l0p0001": the number the
 // scripts' own main::prologue::getLicenseID gives it; another code has none, nil). The main
 // script writes each unit's category. The results of a game not yet played: no test passed, no
-// time, no rank, no category passed, no points. ❓ A result kept when a test is run, and the save
-// of them.
+// time, no rank, no category passed, no points; a run's result is kept for the session (its race's end
+// records it: Runtime::race_finished). ❓ The save of them.
 
 #include "gt4r/menu/game_internal.h"
 #include "gt4r/menu/runtime_internal.h"
@@ -14,6 +14,7 @@
 #include "disc/core_image.h"
 #include "gt4r/sim/program_prologue.h"
 
+#include <algorithm>
 #include <cstring>
 #include <map>
 #include <optional>
@@ -24,34 +25,179 @@ using script::Args;
 using script::Value;
 using script::Vm;
 
+namespace {
+
+// A test's record (the program's license unit, 0x2E8 bytes, 48 of them from the license object's +8; the unit's natives
+// 0x1582C0): +0 its category, +4 its medal (0 none, 1 bronze, 2 silver, 3 gold: the names at 0x505008; a result keeps
+// the best, 0x3FE1A0), +8 its points (the best kept, 0x3FE430), from +0x20 ten ranking entries of 0x48 bytes in time
+// order (+0x20 the time, ms; 359,999,999 none; 0x3FE3B0 finds a time's place).
+struct LicenseUnit {
+    int medal = 0;
+    s32 points = 0;
+    struct Entry {
+        u32 time = 0;
+        std::string name; // (the name entered on the results page; three letters)
+    };
+    std::vector<Entry> times; // at most 10, fastest first
+};
+constexpr u32 kNoTimeMs = 359'999'999;
+constexpr const char* kMedals[4] = {"none", "bronze", "silver", "gold"};
+
+// 0x3FE3B0: the place (0 ..) a time takes in a unit's ranking: the first entry that is empty or slower than it (an equal
+// time goes after); -1 when all ten are as fast.
+int rank_of(const LicenseUnit& r, u32 t) {
+    for (size_t k = 0; k < 10; ++k)
+        if (k >= r.times.size() || t < r.times[k].time) return int(k);
+    return -1;
+}
+
+} // namespace
+
 void install_prologue_license(Object& game) {
     if (game.fields.count("license")) return;
     auto license = std::make_shared<Object>("MPrologueLicense");
     auto units = std::make_shared<std::map<int, Value>>();
-    auto unit = [units](int i) {
+    auto records = std::make_shared<std::map<int, LicenseUnit>>();
+    auto unit = [units, records](int i) {
         Value& u = (*units)[i];
         if (u.kind == script::Kind::Nil) {
             auto o = std::make_shared<Object>("MPrologueLicenseUnit");
             o->set("category", Value::string(""));
-            for (const char* none : {"isPassed", "getBestTime", "getRankNum"}) o->method(none, [](Vm&, const Value&, Args) { return Value::integer(0); });
+            o->method("isPassed", [records, i](Vm&, const Value&, Args) { return Value::integer((*records)[i].medal > 0 ? 1 : 0); });
+            o->method("isCompletePassed", [records, i](Vm&, const Value&, Args) { return Value::integer((*records)[i].medal == 3 ? 1 : 0); });
+            o->method("getBestTime", [records, i](Vm&, const Value&, Args) {
+                const LicenseUnit& r = (*records)[i];
+                return Value::integer(s32(r.times.empty() ? kNoTimeMs : r.times.front().time));
+            });
+            o->method("getRankNum", [records, i](Vm&, const Value&, Args) { return Value::integer(s32((*records)[i].times.size())); });
+            o->method("getPoint", [records, i](Vm&, const Value&, Args) { return Value::integer((*records)[i].points); });
             o->method("getPassCode", [](Vm&, const Value&, Args) { return Value::string(""); });
+            // (ours, for the results page) 0x3FE3B0: the place a time would take in the ranking, the first entry it is
+            // faster than or an empty one; -1 past the tenth.
+            o->method("getRankOf", [records, i](Vm&, const Value&, Args a) {
+                if (a.empty() || a[0].kind != script::Kind::Int) return Value::integer(-1);
+                return Value::integer(rank_of((*records)[i], u32(a[0].i)));
+            });
+            // (ours) entry k's time and name.
+            o->method("getRankTime", [records, i](Vm&, const Value&, Args a) {
+                const LicenseUnit& r = (*records)[i];
+                const size_t k = !a.empty() && a[0].kind == script::Kind::Int && a[0].i >= 0 ? size_t(a[0].i) : 99;
+                return Value::integer(s32(k < r.times.size() ? r.times[k].time : kNoTimeMs));
+            });
+            o->method("getRankName", [records, i](Vm&, const Value&, Args a) {
+                const LicenseUnit& r = (*records)[i];
+                const size_t k = !a.empty() && a[0].kind == script::Kind::Int && a[0].i >= 0 ? size_t(a[0].i) : 99;
+                return Value::string(k < r.times.size() ? r.times[k].name : std::string());
+            });
             u = object_value(o);
         }
         return u;
     };
-    license->method("getUnit", [unit](Vm& vm, const Value&, Args a) -> Value {
-        if (a.empty()) return {};
-        if (a[0].kind == script::Kind::Int) return a[0].i >= 0 ? unit(a[0].i) : Value{};
-        if (a[0].kind != script::Kind::String || a[0].as_string().empty()) return {};
+    // A unit by its number or its race code (the scripts' prologue::getLicenseID); -1 for another.
+    auto unit_number = [](Vm& vm, const Value& v) -> int {
+        if (v.kind == script::Kind::Int) return v.i >= 0 ? int(v.i) : -1;
+        if (v.kind != script::Kind::String || v.as_string().empty()) return -1;
         const Value find = vm.lookup("prologue::getLicenseID");
-        if (find.kind != script::Kind::Function) return {};
-        const Value id = vm.call(find, Args(&a[0], 1));
-        return id.kind == script::Kind::Int && id.i >= 0 ? unit(id.i) : Value{};
+        if (find.kind != script::Kind::Function) return -1;
+        const Value id = vm.call(find, Args(&v, 1));
+        return id.kind == script::Kind::Int && id.i >= 0 ? int(id.i) : -1;
+    };
+    license->method("getUnit", [unit, unit_number](Vm& vm, const Value&, Args a) -> Value {
+        if (a.empty()) return {};
+        const int n = unit_number(vm, a[0]);
+        return n >= 0 ? unit(n) : Value{};
     });
-    for (const char* none : {"isPassedCategory", "isCompletePassedCategory", "getDetailCount", "getTotalPoint"})
-        license->method(none, [](Vm&, const Value&, Args) { return Value::integer(0); });
+    // A unit's category as the main script wrote it.
+    auto category = [units](int i) -> std::string {
+        const auto it = units->find(i);
+        if (it == units->end() || !it->second.p) return "";
+        const Value c = it->second.as<Object>()->get("category");
+        return c.kind == script::Kind::String ? c.as_string() : "";
+    };
+    // 0x3FF000 / 0x3FF080: every test of the category passed (a medal) / every one gold.
+    auto every = [units, records, category](const std::string& name, int least) {
+        for (const auto& [i, u] : *units)
+            if (category(i) == name && (*records)[i].medal < least) return 0;
+        return 1;
+    };
+    license->method("isPassedCategory", [every](Vm&, const Value&, Args a) {
+        return Value::integer(!a.empty() && a[0].kind == script::Kind::String ? every(a[0].as_string(), 1) : 0);
+    });
+    license->method("isCompletePassedCategory", [every](Vm&, const Value&, Args a) {
+        return Value::integer(!a.empty() && a[0].kind == script::Kind::String ? every(a[0].as_string(), 3) : 0);
+    });
+    // 0x3FEF78: the tests with the medal of that name; 0x3FEFA8: the points of every test.
+    license->method("getDetailCount", [records](Vm&, const Value&, Args a) {
+        int medal = -1;
+        for (int k = 0; k < 4; ++k)
+            if (!a.empty() && a[0].kind == script::Kind::String && a[0].as_string() == kMedals[k]) medal = k;
+        int n = 0;
+        for (const auto& [i, r] : *records) n += r.medal == medal;
+        return Value::integer(n);
+    });
+    license->method("getTotalPoint", [records](Vm&, const Value&, Args) {
+        s32 n = 0;
+        for (const auto& [i, r] : *records) n += r.points;
+        return Value::integer(n);
+    });
     license->method("forcePassedAll", [](Vm&, const Value&, Args) { return Value{}; });
+    // (ours) The name the results page offers (the program's user profile +0x1133C: 0x402428 reads it, the page's
+    // NameEntry writes it, 0x402438): the last one entered; empty at first (the page then shows its own "AAA").
+    auto default_name = std::make_shared<std::string>();
+    license->method("getDefaultName", [default_name](Vm&, const Value&, Args) { return Value::string(*default_name); });
+    license->method("setDefaultName", [default_name](Vm&, const Value&, Args a) {
+        if (!a.empty() && a[0].kind == script::Kind::String) *default_name = a[0].as_string();
+        return Value{};
+    });
+    // A run's result (the license race's end, 0x19ED58): (race code, result name, time ms, points[, name]): the medal kept
+    // if better, the points if more, the time (with the name entered) into the ranking at its place (0x3FE3B0).
+    license->method("recordResult", [records, unit, unit_number](Vm& vm, const Value&, Args a) -> Value {
+        if (a.size() < 4) return {};
+        const int n = unit_number(vm, a[0]);
+        if (n < 0) return {};
+        unit(n);
+        LicenseUnit& r = (*records)[n];
+        const std::string name = a[1].kind == script::Kind::String ? a[1].as_string() : "";
+        for (int k = 1; k < 4; ++k)
+            if (name == kMedals[k] && r.medal < k) r.medal = k;
+        if (a[3].kind == script::Kind::Int && s32(a[3].i) > r.points) r.points = s32(a[3].i);
+        if (a[2].kind == script::Kind::Int && a[2].i > 0 && u32(a[2].i) < kNoTimeMs) {
+            const int k = rank_of(r, u32(a[2].i));
+            if (k >= 0) {
+                LicenseUnit::Entry e;
+                e.time = u32(a[2].i);
+                if (a.size() > 4 && a[4].kind == script::Kind::String) e.name = a[4].as_string();
+                r.times.insert(r.times.begin() + k, e);
+                if (r.times.size() > 10) r.times.resize(10);
+            }
+        }
+        return Value::integer(1);
+    });
     game.set("license", object_value(license));
+}
+
+s32 prologue_license_points(ByteSpan row, const std::string& result, u32 t) {
+    if (row.size() < 0x7C) return 0;
+    auto target = [&row](size_t k) {
+        const u32 ms = u32(row[0x76 + 2 * k]) * 60000u + u32(row[0x77 + 2 * k]) * 1000u + u32(row[0x1A + 2 * k] | row[0x1B + 2 * k] << 8);
+        return ms ? ms : kNoTimeMs;
+    };
+    const int r = result == "gold" ? 2 : result == "silver" ? 3 : result == "bronze" ? 4 : 0;
+    if (r == 0) return 0;
+    const u32 g = target(0), sv = target(1), b = target(2);
+    // 0x19F410: by the test's kind (Prologue's row +0x22, Gran Turismo 4's columns +0x3E) and its byte +0x5B (+0x73).
+    int kind = row[0x3E] >= 4 ? 1 : 0;
+    if (row[0x73] > 0 && b == kNoTimeMs) kind = 2;
+    if (b == kNoTimeMs && kind == 0) kind = 2;
+    auto ratio = [](u32 scale, u32 above, u32 span) { return span ? s32((scale * above) / span) : 0; };
+    if (kind == 1) return r == 2 ? 100 : r == 3 ? 50 : 10; // 0x19F620
+    if (kind == 0) { // 0x19F508
+        if (r == 2) return ratio(100, sv - t, sv - g);
+        if (r == 3) return ratio(50, b - t, b - sv);
+        return 10;
+    }
+    if (r == 2) return ratio(100, sv - t, sv - g); // 0x19F670
+    return r == 3 ? 50 : 10;
 }
 
 // ---- The switch actor's colours (MSwitchActor's update, 0x2EB848): its button's `base`,

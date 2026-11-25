@@ -32,6 +32,19 @@ public:
         const char* addressed_by; // the routine that addresses it (Prologue's address, for rechecking)
     };
     static const std::vector<TablePlace>& tables();
+    // Its own tables of the race step that the core's ProgramData has no place for (rules_prologue.h), each checked against
+    // the routine that reads it: the static physics block (Gran Turismo 3's layout, 0x120 bytes; 0x3BA070, 0x3BB138), the
+    // camber force's reference angle and gain (0x3BB138), the mean slip angle's switch (0x3BB138), the wheel layouts (0x54
+    // bytes a row, Gran Turismo 4's rows; 0x3C0D80 by the parameter block's +0x30).
+    static constexpr u32 kStatic = 0x503208, kCamberRef = 0x504294, kCamberGain = 0x504298, kMeanSlipOn = 0x506612;
+    static constexpr u32 kWheelLayouts = 0x503FA8;
+    // The surfaces whose steering offset aims at 0 (16 bytes; 0x3B5A20).
+    static constexpr u32 kFixedAim = 0x504AC0;
+    // The controller settings (Gran Turismo 4's 0x622110 layout; 0x3DEDE0, 0x3DE270) and the pedals' steps a frame (four
+    // floats: the throttle's up and down, the brake's up and down; 0x3DE270).
+    static constexpr u32 kController = 0x504950, kPedalSteps = 0x504AA8;
+    // The in-line wheel layout's roll terms (six floats; the attitude 0x3765F8).
+    static constexpr u32 kInLine = 0x50429C;
 
     // Finds the build's routines in a program image loaded at `load_address`.
     static PrologueProgram locate(ByteSpan image, u32 load_address);

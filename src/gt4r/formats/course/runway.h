@@ -7,8 +7,13 @@
 #include "scene/model.h"
 
 #include <array>
+#include <memory>
 #include <utility>
 #include <vector>
+
+namespace gt3r::course {
+struct Road;
+}
 
 namespace gt4r::course {
 
@@ -68,6 +73,9 @@ struct Runway {
     // min + (max - min) (place + 0.5) / 64; the leaves, left to right, are `clusters`.
     Bytes tree;
     u32 tree_depth = 0;
+    // A road read from Gran Turismo 3's "GTRW" (Prologue's courses; runway_gtrw.h): that road as it reads, for the queries
+    // that run on it as the program does.
+    std::shared_ptr<const gt3r::course::Road> gtrw;
 
     static bool is_runway(ByteSpan d) { return d.size() >= 0xA0 && gt3r::has_magic(d, "RNW4"); }
     // Throws FormatError.

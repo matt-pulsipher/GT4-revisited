@@ -1,4 +1,5 @@
 #include "gt4r/formats/model/mdls.h"
+#include "gt4r/formats/model/mdls_skin.h"
 
 #include "formats/model/gtm1.h"
 #include "formats/ps2/vif.h"
@@ -203,7 +204,8 @@ struct Stream {
 // frames splits each range in half. An array may come as several UNPACKs of different widths, each
 // continuing at the address the last one stopped, and a packed run may be offsets from the VIF
 // row registers (STROW, with STMOD 1; STMOD 2 also moves the row).
-bool rewrite_packet(ByteSpan packet, float scale, bool packed_shape, float color_scale, float morph_weight, Stream& out, ConvertStats& st) {
+bool rewrite_packet(ByteSpan packet, float scale, bool packed_shape, float color_scale, float morph_weight, Stream& out, ConvertStats& st,
+                    const SkinBlock* skin = nullptr) {
     using Vec = std::array<float, 4>;
     struct Array {
         std::vector<Vec> v;
@@ -296,6 +298,18 @@ bool rewrite_packet(ByteSpan packet, float scale, bool packed_shape, float color
             std::snprintf(name, sizeof name, "%s-%d @%02x", kNames[u.vn], 32 >> u.vl, a);
             ++st.unknown_kinds[name];
         }
+    }
+    // A skinned packet: its vertices in the stored pose from the block after the VIF data, the
+    // normals where the block says (lit: 0x80; the reflection pass: 0x40, in the UV's place).
+    if (skin) {
+        pos[0] = {}, nrm[0] = {}, env[0] = {};
+        for (const SkinVertex& v : skin->vertices) {
+            pos[0].v.push_back({v.pos[0], v.pos[1], v.pos[2], 1}), pos[0].set.push_back(true);
+            Array& normals = skin->dest == 0x40 ? env[0] : nrm[0];
+            if (skin->dest) normals.v.push_back({v.normal[0], v.normal[1], v.normal[2], 0}), normals.set.push_back(true), normals.any = true;
+        }
+        pos[0].any = !skin->vertices.empty();
+        packed = true;
     }
     // The shape between the two key shapes, when the draw's weight is known.
     if (morph_weight >= 0 && pos[1].any) {
@@ -417,15 +431,20 @@ Bytes to_gtm1(ByteSpan mdls, ConvertStats* stats, const Scene& scene) {
             const u32 po = so + rd32(src, e), qwc = rd16(src, e + 4);
             if (po > h.size || h.size - po < u64(qwc) * 16) throw FormatError("MDLS: packet out of range");
             ++st.packets;
-            const bool p = rewrite_packet(src.subspan(po, size_t(qwc) * 16), scale, (rd16(src, so + 8) & 0x80) != 0 && scale > 0, scene.color_scale,
-                                          scene.morph_weight, packets[k], st);
+            const u32 shape_flags = rd16(src, so + 8);
+            std::optional<SkinBlock> skin;
+            if (shape_flags & kShapeSkinned) skin = read_skin_block(src, po + size_t(qwc) * 16, (shape_flags & kShapeSkinPacked) != 0);
+            const bool p = rewrite_packet(src.subspan(po, size_t(qwc) * 16), scale, (shape_flags & 0x80) != 0 && scale > 0, scene.color_scale,
+                                          scene.morph_weight, packets[k], st, skin ? &*skin : nullptr);
             st.packed_packets += p;
             packed |= p || scene.color_scale != 1.0f; // (scaled colours are written again too)
             morph |= has_second_key(packets[k].b);
         }
         // The kind (bits 0-4) as GTM1 has it, with its mark of a shape with two key frames.
         const u32 flags = rd16(src, so + 8);
-        const u32 gtm1_flags = (flags & 0xFF1F) | (morph ? 0x40u : 0u);
+        // (A skinned shape's marks 0x8000 / 0x4000 / 0x2000 say how its blocks are stored: they
+        // are written out as plain vertices.)
+        const u32 gtm1_flags = (flags & ((flags & kShapeSkinned) ? 0x1F1F : 0xFF1F)) | (morph ? 0x40u : 0u);
         if (!packed) {
             chunks[s] = so;
             put16(out, so + 8, gtm1_flags);

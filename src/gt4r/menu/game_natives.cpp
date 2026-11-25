@@ -6,6 +6,7 @@
 // docs/formats/menu.md ("The game's state") says what each answers and why.
 
 #include "gt4r/menu/game_internal.h"
+#include "gt4r/menu/game_opponents.h"
 #include "gt4r/menu/game_settings.h"
 #include "gt4r/save/card_image.h"
 
@@ -125,8 +126,8 @@ void day_to_date(u32 day, int& y, int& m, int& d) {
 }
 
 // next01 (0x578598): the draw made into a float in [0, 1) by hand: exponent 126 - z and the
-// bits below the leading one shifted by z + 2 (z: the leading zeros). ❓ One more than a plain
-// conversion (the bit under the leading one is dropped), as read.
+// bits below the leading one shifted by z + 2 (z: the leading zeros): one more than a plain
+// conversion (the bit under the leading one is dropped). Equal to the program's (gt4r_diff picker).
 float ProgramRandom::next01() {
     const u32 x = step();
     if (!x) return 0;
@@ -157,8 +158,10 @@ db::SpecDb* Database::get(const RuntimeConfig& config) {
     try {
         // The menus' lister takes a folder with its slash; the database names it without.
         const FolderLister list = config.list;
-        db = std::make_unique<db::SpecDb>(rt->reader(), [list](const std::string& dir) { return list(!dir.empty() && dir.back() == '/' ? dir : dir + "/"); },
-                                          "american");
+        // The names in the menus' language: Prologue (Japan) shows its cars' Japanese names
+        // (CAR_NAME_japanese: "フェアレディ 240ZG '71"), the US disc the American ones.
+        language = config.language == "JP" ? "japanese" : "american";
+        db = std::make_unique<db::SpecDb>(rt->reader(), [list](const std::string& dir) { return list(!dir.empty() && dir.back() == '/' ? dir : dir + "/"); }, language);
         cars = db->cars();
         for (size_t i = 0; i < cars.size(); ++i) by_label[cars[i].label] = i;
         courses = db->courses();
@@ -230,6 +233,20 @@ std::string Database::race_unit_label(int unit) {
     if (!t || !l || unit < 0 || size_t(unit) >= t->ids().size()) return {};
     const std::string* s = l->label(t->ids()[size_t(unit)]);
     return s ? *s : std::string();
+}
+
+const sim::Showroom* Database::showroom() {
+    if (!db || !program.known()) return nullptr;
+    if (!showroom_) showroom_ = std::make_unique<sim::Showroom>(*db, program);
+    return showroom_.get();
+}
+
+std::optional<sim::ShowroomFigures> Database::stock_showroom(const std::string& label) {
+    if (const auto it = stock_figures_.find(label); it != stock_figures_.end()) return it->second;
+    const sim::Showroom* s = showroom();
+    std::optional<sim::ShowroomFigures> f = s ? s->stock(label) : std::nullopt;
+    stock_figures_[label] = f;
+    return f;
 }
 
 const Database::Spec& Database::spec(const std::string& label) {
@@ -439,6 +456,194 @@ for (const char* nothing : {"applyRaceDisplayMode", "applyMenuDisplayMode", "set
         option->set(list_name, object_value(p));
     }
     return object_value(option);
+}
+
+// ---- The garage (GranTurismo4::GarageScratch; save.md "The garage") of a game's state: the game played's,
+// or another card's for trading cars (loadInstance).
+std::shared_ptr<Object> GameNatives::make_garage(GameState* s) {
+    auto garage = std::make_shared<Object>("MGarage");
+    GameNatives* self = this;
+    auto valid = [s](s32 i) { return i >= 0 && size_t(i) < s->garage.size() && s->garage[size_t(i)].used; };
+    garage->property("count", [s] { return number(s->garage_count()); });
+    garage->method("isFull", [s](Vm&, const Value&, Args) { return number(s->garage_count() >= int(GameState::kGarageSize)); });
+    garage->method("hasRidingCar", [s, valid](Vm&, const Value&, Args) { return number(valid(s->riding_car)); });
+    // The car driven: an object on the garage's own record (a vacant car when there is none).
+    garage->property("riding_car", [self, s, valid] {
+        if (!valid(s->riding_car)) {
+            auto c = std::make_shared<CarHandle>();
+            c->state = s;
+            return make_car_value(*self, c);
+        }
+        auto c = car_from_entry(self->db(), *s, s->riding_car, true);
+        car_figures(self->db(), c->record(), c->power100, c->torque100, c->weight);
+        return make_car_value(*self, c);
+    });
+    // addCar(car): the car's record at the first free place (0x435780); addNewCar(label,
+    // paint): a new car (0x435800, the day it was got); addUsedCar(car): a used car's. The
+    // place, -1 when the garage is full.
+    auto add = [self, s](bool used) {
+        return [self, s, used](Vm& vm, const Value&, Args a) {
+            GarageEntry e;
+            e.day = s->today;
+            if (CarHandle* h = a.empty() ? nullptr : car_handle(a[0])) {
+                e.car = h->label, e.record = h->record();
+                entry_from_record(self->db(), e);
+                if (!used) e.odometer = 0;
+            } else {
+                e.car = arg_text(a, 0);
+                CarRecord r;
+                if (!set_car(self->db(), r, e.car, arg_int(a, 1))) {
+                    if (e.car.empty()) return number(-1);
+                    e.paint = arg_int(a, 1);
+                } else {
+                    // The entry's car (0x434E38): as sold, with the odometer's condition (0x440F78: a new car's engine
+                    // at 0 m, run in), its figures (0x434FD0).
+                    make_used_condition(self->db(), r, 0);
+                    e.record = r;
+                    entry_from_record(self->db(), e);
+                    e.record.reset(); // a new car is the car as sold until it is driven
+                }
+            }
+            (void)vm;
+            if (e.car.empty()) return number(-1);
+            return number(s->add_car(std::move(e)));
+        };
+    };
+    garage->method("addCar", add(false));
+    garage->method("addNewCar", add(false));
+    garage->method("addUsedCar", add(true));
+    // delCar(place): sold; the place stays (undelCar puts it back). 1 when it was the car driven.
+    garage->method("delCar", [s, valid](Vm&, const Value&, Args a) {
+        const s32 i = arg_int(a, 0, -1);
+        if (!valid(i)) return number(0);
+        s->garage[size_t(i)].used = false;
+        if (s->riding_car != i) return number(0);
+        s->riding_car = -1;
+        return number(1);
+    });
+    garage->method("undelCar", [s](Vm&, const Value&, Args a) {
+        const s32 i = arg_int(a, 0, -1);
+        if (i < 0 || size_t(i) >= s->garage.size()) return Value{};
+        s->garage[size_t(i)].used = true;
+        if (arg_int(a, 1)) s->riding_car = i;
+        return Value{};
+    });
+    garage->method("delAllCarExceptRidingCar", [s](Vm&, const Value&, Args) {
+        for (size_t i = 0; i < s->garage.size(); ++i)
+            if (int(i) != s->riding_car) s->garage[i].used = false;
+        return Value{};
+    });
+    // A change of the car driven (0x435388): its record (the car's given, or, from the card,
+    // the place's own: one never driven is made as sold, with its odometer, 0x435568, and the
+    // change is marked as such), the place has a record, and the order of driving: the place
+    // first, every car driven more recently than it one further (0x435690).
+    auto ride = [self, s, valid](s32 i, CarHandle* with) {
+        if (!valid(i)) return false;
+        GarageEntry& e = s->garage[size_t(i)];
+        if (with) e.record = with->record();
+        else {
+            s->riding_fresh = !e.record;
+            if (!e.record) e.record = car_from_entry(self->db(), *s, i, false)->own;
+        }
+        if (const int old = e.ride_rank & 0x3FF; old != 0) {
+            for (GarageEntry& o : s->garage)
+                if ((o.ride_rank & 0x3FF) < old) o.ride_rank = (o.ride_rank + 1) & 0x3FF;
+            e.ride_rank = 0;
+        }
+        s->riding_car = i;
+        return true;
+    };
+    // setRidingCar(place, car): the car given is driven from that place (0x16E108 -> 0x435388).
+    // setRidingCar(place, label, paint): the car driven is that car as sold, from that place,
+    // the place's marks and the order left as they are (0x435490).
+    garage->method("setRidingCar", [self, s, ride, valid](Vm&, const Value&, Args a) {
+        if (a.size() >= 3) {
+            const s32 i = arg_int(a, 0, -1);
+            if (!valid(i)) return Value{};
+            CarRecord r;
+            if (set_car(self->db(), r, arg_text(a, 1), arg_int(a, 2))) s->garage[size_t(i)].record = r;
+            s->riding_car = i;
+            return Value{};
+        }
+        ride(arg_int(a, 0, -1), a.size() > 1 ? car_handle(a[1]) : nullptr);
+        return Value{};
+    });
+    // cancelRidingCar(place, car): only after a change to a car never driven (0x435418): that
+    // car's record is dropped again and the car given is driven from its place.
+    garage->method("cancelRidingCar", [s, ride](Vm&, const Value&, Args a) {
+        if (!s->riding_fresh) return Value{};
+        if (s->riding_car >= 0 && size_t(s->riding_car) < s->garage.size()) s->garage[size_t(s->riding_car)].record.reset();
+        ride(arg_int(a, 0, -1), a.size() > 1 ? car_handle(a[1]) : nullptr);
+        s->riding_fresh = false;
+        return Value{};
+    });
+    // changeRidingCar(place, manager), pushRidingCar(manager), popGarageCar(place, car,
+    // manager): the program writes and reads the car's slot of the garage file here; the
+    // cars' records are in the state and go to the card when the game is saved. They answer as
+    // a card operation does.
+    garage->method("changeRidingCar", [ride](Vm&, const Value&, Args a) { return text(ride(arg_int(a, 0, -1), nullptr) ? "OK" : "INVALID_FILE"); });
+    garage->method("pushRidingCar", [](Vm&, const Value&, Args) { return text("OK"); });
+    garage->method("popGarageCar", [self, s, valid](Vm&, const Value&, Args a) {
+        const s32 i = arg_int(a, 0, -1);
+        if (!valid(i)) return text("INVALID_FILE");
+        if (CarHandle* into = a.size() > 1 ? car_handle(a[1]) : nullptr) {
+            auto c = car_from_entry(self->db(), *s, i, false);
+            *into = *c;
+            car_figures(self->db(), into->record(), into->power100, into->torque100, into->weight);
+        }
+        return text("OK");
+    });
+    // pickup(country, tuner, drivetrain): the garage's cars in place order whose country and
+    // tuner (the car's columns, by their names' numbers) and the drivetrain of the sheet in use
+    // are the ones named ("all" or a name not known: any), each a car object of its place
+    // (0x16EE90 -> 0x170088; the car driven's list columns refreshed first, 0x435630).
+    // pickupCountry(), pickupTuner(country): the countries and tuners the garage has cars of,
+    // in the order of their numbers (0x170278, 0x1705E0).
+    auto of_label = [](Vm& vm, const char* fn, const std::string& label) {
+        const Value arg[1] = {text(label)};
+        return vm.call(vm.attribute(vm.attribute(vm.lookup("menu"), "MCarData"), fn), arg).to_string();
+    };
+    auto named = [](Args a, size_t i) { return i < a.size() && a[i].kind == Kind::String && !a[i].as_string().empty() && a[i].as_string() != "all"; };
+    garage->method("pickup", [self, s, of_label, named](Vm& vm, const Value&, Args a) {
+        if (s->riding_car >= 0 && size_t(s->riding_car) < s->garage.size() && s->garage[size_t(s->riding_car)].record)
+            entry_from_record(self->db(), s->garage[size_t(s->riding_car)]);
+        std::vector<Value> out;
+        for (size_t i = 0; i < s->garage.size(); ++i) {
+            const GarageEntry& e = s->garage[i];
+            if (!e.used) continue;
+            if (named(a, 0) && of_label(vm, "GetCountry", e.car) != a[0].as_string()) continue;
+            if (named(a, 1) && of_label(vm, "GetTuner", e.car) != a[1].as_string()) continue;
+            auto c = car_from_entry(self->db(), *s, int(i), false);
+            const Value car = make_car_value(*self, c);
+            if (named(a, 2) && vm.call(vm.attribute(car, "getDTrainType"), {}).to_string() != a[2].as_string()) continue;
+            out.push_back(car);
+        }
+        return Value::array(std::move(out));
+    });
+    auto distinct = [self, s, of_label, named](const char* fn, bool by_country) {
+        return [self, s, of_label, named, fn, by_country](Vm& vm, const Value&, Args a) {
+            const std::map<int, std::string>& numbers = by_country ? self->db().names.tuners : self->db().names.countries;
+            auto number_of = [&numbers](const std::string& name) {
+                for (const auto& [n, v] : numbers)
+                    if (v == name) return n;
+                return 1 << 30;
+            };
+            std::vector<std::pair<int, std::string>> seen;
+            for (const GarageEntry& e : s->garage) {
+                if (!e.used) continue;
+                if (by_country && named(a, 0) && of_label(vm, "GetCountry", e.car) != a[0].as_string()) continue;
+                const std::string v = of_label(vm, fn, e.car);
+                if (std::none_of(seen.begin(), seen.end(), [&v](const auto& x) { return x.second == v; })) seen.emplace_back(number_of(v), v);
+            }
+            std::stable_sort(seen.begin(), seen.end(), [](const auto& x, const auto& y) { return x.first < y.first; });
+            std::vector<Value> out;
+            for (const auto& [n, v] : seen) out.push_back(text(v));
+            return Value::array(std::move(out));
+        };
+    };
+    garage->method("pickupCountry", distinct("GetCountry", false));
+    garage->method("pickupTuner", distinct("GetTuner", true));
+    return garage;
 }
 
 Value GameNatives::make_game() {
@@ -658,187 +863,7 @@ g.method("menuRef", [s](Vm&, const Value&, Args a) {
     g.method("getOption", [this](Vm&, const Value&, Args) { return make_option(); });
     g.method("setOption", [](Vm&, const Value&, Args) { return Value{}; });
 
-    // ---- The garage (GranTurismo4::GarageScratch; save.md "The garage").
-    auto garage = std::make_shared<Object>("MGarage");
-    GameNatives* self = this;
-    auto valid = [s](s32 i) { return i >= 0 && size_t(i) < s->garage.size() && s->garage[size_t(i)].used; };
-    garage->property("count", [s] { return number(s->garage_count()); });
-    garage->method("isFull", [s](Vm&, const Value&, Args) { return number(s->garage_count() >= int(GameState::kGarageSize)); });
-    garage->method("hasRidingCar", [s, valid](Vm&, const Value&, Args) { return number(valid(s->riding_car)); });
-    // The car driven: an object on the garage's own record (a vacant car when there is none).
-    garage->property("riding_car", [self, s, valid] {
-        if (!valid(s->riding_car)) {
-            auto c = std::make_shared<CarHandle>();
-            c->state = s;
-            return make_car_value(*self, c);
-        }
-        auto c = car_from_entry(self->db(), *s, s->riding_car, true);
-        car_figures(self->db(), c->record(), c->power100, c->torque100, c->weight);
-        return make_car_value(*self, c);
-    });
-    // addCar(car): the car's record at the first free place (0x435780); addNewCar(label,
-    // paint): a new car (0x435800, the day it was got); addUsedCar(car): a used car's. The
-    // place, -1 when the garage is full.
-    auto add = [self, s](bool used) {
-        return [self, s, used](Vm& vm, const Value&, Args a) {
-            GarageEntry e;
-            e.day = s->today;
-            if (CarHandle* h = a.empty() ? nullptr : car_handle(a[0])) {
-                e.car = h->label, e.record = h->record();
-                entry_from_record(self->db(), e);
-                if (!used) e.odometer = 0;
-            } else {
-                e.car = arg_text(a, 0);
-                CarRecord r;
-                if (!set_car(self->db(), r, e.car, arg_int(a, 1))) {
-                    if (e.car.empty()) return number(-1);
-                    e.paint = arg_int(a, 1);
-                } else {
-                    e.record = r;
-                    entry_from_record(self->db(), e);
-                    e.record.reset(); // a new car is the car as sold until it is driven
-                }
-            }
-            (void)vm;
-            if (e.car.empty()) return number(-1);
-            return number(s->add_car(std::move(e)));
-        };
-    };
-    garage->method("addCar", add(false));
-    garage->method("addNewCar", add(false));
-    garage->method("addUsedCar", add(true));
-    // delCar(place): sold; the place stays (undelCar puts it back). 1 when it was the car driven.
-    garage->method("delCar", [s, valid](Vm&, const Value&, Args a) {
-        const s32 i = arg_int(a, 0, -1);
-        if (!valid(i)) return number(0);
-        s->garage[size_t(i)].used = false;
-        if (s->riding_car != i) return number(0);
-        s->riding_car = -1;
-        return number(1);
-    });
-    garage->method("undelCar", [s](Vm&, const Value&, Args a) {
-        const s32 i = arg_int(a, 0, -1);
-        if (i < 0 || size_t(i) >= s->garage.size()) return Value{};
-        s->garage[size_t(i)].used = true;
-        if (arg_int(a, 1)) s->riding_car = i;
-        return Value{};
-    });
-    garage->method("delAllCarExceptRidingCar", [s](Vm&, const Value&, Args) {
-        for (size_t i = 0; i < s->garage.size(); ++i)
-            if (int(i) != s->riding_car) s->garage[i].used = false;
-        return Value{};
-    });
-    // A change of the car driven (0x435388): its record (the car's given, or, from the card,
-    // the place's own: one never driven is made as sold, with its odometer, 0x435568, and the
-    // change is marked as such), the place has a record, and the order of driving: the place
-    // first, every car driven more recently than it one further (0x435690).
-    auto ride = [self, s, valid](s32 i, CarHandle* with) {
-        if (!valid(i)) return false;
-        GarageEntry& e = s->garage[size_t(i)];
-        if (with) e.record = with->record();
-        else {
-            s->riding_fresh = !e.record;
-            if (!e.record) e.record = car_from_entry(self->db(), *s, i, false)->own;
-        }
-        if (const int old = e.ride_rank & 0x3FF; old != 0) {
-            for (GarageEntry& o : s->garage)
-                if ((o.ride_rank & 0x3FF) < old) o.ride_rank = (o.ride_rank + 1) & 0x3FF;
-            e.ride_rank = 0;
-        }
-        s->riding_car = i;
-        return true;
-    };
-    // setRidingCar(place, car): the car given is driven from that place (0x16E108 -> 0x435388).
-    // setRidingCar(place, label, paint): the car driven is that car as sold, from that place,
-    // the place's marks and the order left as they are (0x435490).
-    garage->method("setRidingCar", [self, s, ride, valid](Vm&, const Value&, Args a) {
-        if (a.size() >= 3) {
-            const s32 i = arg_int(a, 0, -1);
-            if (!valid(i)) return Value{};
-            CarRecord r;
-            if (set_car(self->db(), r, arg_text(a, 1), arg_int(a, 2))) s->garage[size_t(i)].record = r;
-            s->riding_car = i;
-            return Value{};
-        }
-        ride(arg_int(a, 0, -1), a.size() > 1 ? car_handle(a[1]) : nullptr);
-        return Value{};
-    });
-    // cancelRidingCar(place, car): only after a change to a car never driven (0x435418): that
-    // car's record is dropped again and the car given is driven from its place.
-    garage->method("cancelRidingCar", [s, ride](Vm&, const Value&, Args a) {
-        if (!s->riding_fresh) return Value{};
-        if (s->riding_car >= 0 && size_t(s->riding_car) < s->garage.size()) s->garage[size_t(s->riding_car)].record.reset();
-        ride(arg_int(a, 0, -1), a.size() > 1 ? car_handle(a[1]) : nullptr);
-        s->riding_fresh = false;
-        return Value{};
-    });
-    // changeRidingCar(place, manager), pushRidingCar(manager), popGarageCar(place, car,
-    // manager): the program writes and reads the car's slot of the garage file here; the
-    // cars' records are in the state and go to the card when the game is saved. They answer as
-    // a card operation does.
-    garage->method("changeRidingCar", [ride](Vm&, const Value&, Args a) { return text(ride(arg_int(a, 0, -1), nullptr) ? "OK" : "INVALID_FILE"); });
-    garage->method("pushRidingCar", [](Vm&, const Value&, Args) { return text("OK"); });
-    garage->method("popGarageCar", [self, s, valid](Vm&, const Value&, Args a) {
-        const s32 i = arg_int(a, 0, -1);
-        if (!valid(i)) return text("INVALID_FILE");
-        if (CarHandle* into = a.size() > 1 ? car_handle(a[1]) : nullptr) {
-            auto c = car_from_entry(self->db(), *s, i, false);
-            *into = *c;
-            car_figures(self->db(), into->record(), into->power100, into->torque100, into->weight);
-        }
-        return text("OK");
-    });
-    // pickup(country, tuner, drivetrain): the garage's cars in place order whose country and
-    // tuner (the car's columns, by their names' numbers) and the drivetrain of the sheet in use
-    // are the ones named ("all" or a name not known: any), each a car object of its place
-    // (0x16EE90 -> 0x170088; the car driven's list columns refreshed first, 0x435630).
-    // pickupCountry(), pickupTuner(country): the countries and tuners the garage has cars of,
-    // in the order of their numbers (0x170278, 0x1705E0).
-    auto of_label = [](Vm& vm, const char* fn, const std::string& label) {
-        const Value arg[1] = {text(label)};
-        return vm.call(vm.attribute(vm.attribute(vm.lookup("menu"), "MCarData"), fn), arg).to_string();
-    };
-    auto named = [](Args a, size_t i) { return i < a.size() && a[i].kind == Kind::String && !a[i].as_string().empty() && a[i].as_string() != "all"; };
-    garage->method("pickup", [self, s, of_label, named](Vm& vm, const Value&, Args a) {
-        if (s->riding_car >= 0 && size_t(s->riding_car) < s->garage.size() && s->garage[size_t(s->riding_car)].record)
-            entry_from_record(self->db(), s->garage[size_t(s->riding_car)]);
-        std::vector<Value> out;
-        for (size_t i = 0; i < s->garage.size(); ++i) {
-            const GarageEntry& e = s->garage[i];
-            if (!e.used) continue;
-            if (named(a, 0) && of_label(vm, "GetCountry", e.car) != a[0].as_string()) continue;
-            if (named(a, 1) && of_label(vm, "GetTuner", e.car) != a[1].as_string()) continue;
-            auto c = car_from_entry(self->db(), *s, int(i), false);
-            const Value car = make_car_value(*self, c);
-            if (named(a, 2) && vm.call(vm.attribute(car, "getDTrainType"), {}).to_string() != a[2].as_string()) continue;
-            out.push_back(car);
-        }
-        return Value::array(std::move(out));
-    });
-    auto distinct = [self, s, of_label, named](const char* fn, bool by_country) {
-        return [self, s, of_label, named, fn, by_country](Vm& vm, const Value&, Args a) {
-            const std::map<int, std::string>& numbers = by_country ? self->db().names.tuners : self->db().names.countries;
-            auto number_of = [&numbers](const std::string& name) {
-                for (const auto& [n, v] : numbers)
-                    if (v == name) return n;
-                return 1 << 30;
-            };
-            std::vector<std::pair<int, std::string>> seen;
-            for (const GarageEntry& e : s->garage) {
-                if (!e.used) continue;
-                if (by_country && named(a, 0) && of_label(vm, "GetCountry", e.car) != a[0].as_string()) continue;
-                const std::string v = of_label(vm, fn, e.car);
-                if (std::none_of(seen.begin(), seen.end(), [&v](const auto& x) { return x.second == v; })) seen.emplace_back(number_of(v), v);
-            }
-            std::stable_sort(seen.begin(), seen.end(), [](const auto& x, const auto& y) { return x.first < y.first; });
-            std::vector<Value> out;
-            for (const auto& [n, v] : seen) out.push_back(text(v));
-            return Value::array(std::move(out));
-        };
-    };
-    garage->method("pickupCountry", distinct("GetCountry", false));
-    garage->method("pickupTuner", distinct("GetTuner", true));
-    g.set("garage", object_value(garage));
+    g.set("garage", object_value(make_garage(s)));
 
     // The demonstrations the title page falls back to.
     auto demo = std::make_shared<Object>("MDemonstration");
@@ -877,12 +902,58 @@ save::GameSave& GameNatives::card() {
     return *card_save;
 }
 
+save::GameSave& GameNatives::card2() {
+    if (!card2_save) {
+        std::string dir = config.data_dir.empty() ? std::string() : config.data_dir + "/memorycard2";
+        std::error_code ec;
+        if (!dir.empty() && !std::filesystem::is_directory(dir, ec)) dir.clear();
+        save::Codes codes{[this](u32 table, const std::string& label) { return db().code(table, label); }, [this](u64 code) { return db().label(code); }};
+        card().connected(); // (the first card's set-up: the product)
+        Database& base = db();
+        const std::string product = base.db && base.db->prologue() ? "BISCPS-15055" : "BASCUS-97328";
+        card2_save = std::make_shared<save::GameSave>(dir, codes, rt.reader(), product);
+    }
+    return *card2_save;
+}
+
 Value GameNatives::make_card_manager(Args a) {
     auto m = std::make_shared<Object>("MMemoryCardManager");
     GameState* s = &state();
     GameNatives* self = this;
     const std::string mode = arg_text(a, 0);
     m->set("mode", text(mode));
+    // MMemoryCardManager(mode, 1): the card in slot 2, read for trading cars: its game is loaded beside the one played
+    // (loadInstance: [result, a game object with that game's garage]).
+    if (arg_int(a, 1) == 1) {
+        save::GameSave& card = card2();
+        auto file = std::make_shared<Object>("MMemoryCardFile");
+        file->method("isExist", [&card](Vm&, const Value&, Args) { return number(!card.connected() ? -1 : card.exists() == 0 ? 0 : 1); });
+        file->method("loadInstance", [self, &card](Vm&, const Value&, Args) {
+            if (!card.connected()) return Value::array({text("DEVICE_ERROR"), Value{}});
+            if (card.exists() != 0) return Value::array({text("FILE_NOT_FOUND"), Value{}});
+            auto other = std::make_shared<GameState>();
+            const save::Result r = card.load(*other);
+            if (r != save::Result::Ok) return Value::array({text(save::result_name(r)), Value{}});
+            self->other_games.push_back(other);
+            auto game = std::make_shared<Object>("MGame");
+            game->set("garage", object_value(self->make_garage(other.get())));
+            return Value::array({text("OK"), object_value(game)});
+        });
+        for (const char* nothing : {"dump", "setNewFile"}) file->method(nothing, [](Vm&, const Value&, Args) { return Value{}; });
+        const Value file_value = object_value(file);
+        m->method("getNewFile", [file_value](Vm&, const Value&, Args) { return file_value; });
+        m->method("getFile", [file_value](Vm&, const Value&, Args) { return file_value; });
+        m->method("isConnect", [&card](Vm&, const Value&, Args) { return number(card.connected()); });
+        m->method("isFormat", [&card](Vm&, const Value&, Args) { return number(card.connected()); });
+        m->method("isChanged", [](Vm&, const Value&, Args) { return number(0); });
+        m->method("isNoFile", [&card](Vm&, const Value&, Args) { return number(card.exists() != 0); });
+        for (const char* nothing : {"clearAutoSaveDisabled", "requestPause", "waitPause", "start", "restart", "clear"})
+            m->method(nothing, [](Vm&, const Value&, Args) { return Value{}; });
+        auto progress = std::make_shared<Object>("MProgress");
+        progress->set("value", Value::number(0));
+        m->set("progress", object_value(progress));
+        return object_value(m);
+    }
     auto file = std::make_shared<Object>("MMemoryCardFile");
     // A real card: a data folder; and the stand-in's card "connected".
     auto real = [self, s] { return s->card.connected && self->card().connected(); };
@@ -1219,12 +1290,12 @@ void install_game_natives(Runtime& rt, script::Module& menu) {
         // MRandom (0x2CB888): GetValue(lo, hi) from the program's generator (its state starts at
         // 0x12345678); GetValue(lo, hi, seed) one draw of a generator seeded so.
         auto cls = make_class(menu, "MRandom");
-        auto global = std::make_shared<ProgramRandom>(ProgramRandom{0x12345678u});
+        GameNatives* global = n.get();
         auto roll = [global](Vm&, const Value&, Args a) {
             if (a.size() < 2) return Value{};
             const s32 lo = arg_int(a, 0), hi = arg_int(a, 1);
             ProgramRandom own{u32(arg_int(a, 2))};
-            ProgramRandom& g = a.size() > 2 ? own : *global;
+            ProgramRandom& g = a.size() > 2 ? own : global->random;
             return number(s32(g.next01() * float(hi - lo) + float(lo)));
         };
         static_fn(*cls, "GetValue", roll);
@@ -1377,7 +1448,57 @@ void install_game_natives(Runtime& rt, script::Module& menu) {
         for (const char* same : {"ShiftCarCode", "GetDirtCarCode", "GetSnowCarCode"})
             static_fn(*cls, same, [](Vm&, const Value&, Args a) { return a.empty() ? text("") : text(a[0].to_string()); });
         static_fn(*cls, "GetDescriptionID", [](Vm&, const Value&, Args a) { return a.empty() ? text("") : text(a[0].to_string()); });
-        static_fn(*cls, "PickUpEnemyCars", [](Vm&, const Value&, Args) { return Value::array({}); });
+        // PickUpEnemyCars(car, list, offset, range, count, dirt) (0x1308C8; game_opponents.h): [[car, paint], ...].
+        GameNatives* np = n.get();
+        static_fn(*cls, "PickUpEnemyCars", [d, np](Vm&, const Value&, Args a) {
+            if (a.size() < 2) return Value{};
+            CarHandle* player = car_handle(a[0]);
+            if (!d->get(np->config) || !player) return Value::array({});
+            opponents::PickInput in;
+            in.player_label = player->label;
+            const ByteSpan row = d->car_row(player->label);
+            in.player_category = row.size() > 0x11 ? row[0x11] : 0;
+            sim::Equipment eq;
+            std::memcpy(eq.bytes.data(), player->record().active(), sim::Equipment::kSize);
+            const sim::Showroom* sr = d->showroom();
+            const std::optional<sim::ShowroomFigures> own = sr ? sr->figures(eq) : std::nullopt;
+            in.player_score = own ? own->evaluation : opponents::F::raw(0);
+            if (const std::vector<Value>* items = a[1].items())
+                for (const Value& v : *items) in.list.push_back(v.to_string());
+            in.offset = opponents::F(arg_number(a, 2, 0.0f));
+            in.range = a.size() > 3 ? opponents::F(arg_number(a, 3)) : opponents::F::raw(0x3B03126E); // 0.002
+            in.count = a.size() > 4 ? arg_int(a, 4) : 5;
+            in.dirt = a.size() > 5 && arg_int(a, 5) != 0;
+            in.category = [d](const std::string& label, int& c) {
+                const ByteSpan r = d->car_row(label);
+                if (r.size() <= 0x11) return false;
+                c = r[0x11];
+                return true;
+            };
+            in.score = [d](const std::string& label) {
+                const std::optional<sim::ShowroomFigures> f = d->stock_showroom(label);
+                return f ? f->evaluation : opponents::F::raw(0);
+            };
+            // The car's ARCADEINFO_NORMAL row by its GENERIC_CAR id (0x448AD0 -> 0x448B48): entry 6, the dirt race.
+            in.dirt_race = [d](const std::string& label) {
+                const db::Labels* labels = d->db->labels("GENERIC_CAR");
+                const db::Table* table = d->db->table("ARCADEINFO_NORMAL");
+                const std::optional<u32> id = labels ? labels->id(label) : std::nullopt;
+                const ByteSpan r = table && id ? table->row(*id) : ByteSpan{};
+                if (r.size() < 0x38) return -1;
+                for (size_t i = 0x30; i < 0x38; ++i)
+                    if (r[i] != 0xFF) return 1;
+                return 0;
+            };
+            // getColorNum (0x445828): the paints, less the last when the car's row hides it.
+            in.paints = [d](const std::string& label) {
+                const ByteSpan r = d->car_row(label);
+                return int(d->spec(label).paints.size()) - (r.size() > 0x12 && (r[0x12] & 2) ? 1 : 0);
+            };
+            std::vector<Value> out;
+            for (const opponents::Pick& p : opponents::pick(in, np->random)) out.push_back(Value::array({text(p.car), number(p.paint)}));
+            return Value::array(std::move(out));
+        });
     }
     // MCourseData: a course's row of the COURSE table by its label. The program reads the same
     // row (0x1B2F10, 0x1B3030): +0x10 the surface (0 dry, 1 wet, 2 dirt, 3 snow), +0x11 the most
@@ -1400,6 +1521,16 @@ void install_game_natives(Runtime& rt, script::Module& menu) {
             const ByteSpan r = row(arg_text(a, 0));
             static const char* const kinds[] = {"dry", "wet", "dirt", "snow"};
             return text(r.size() > 0x10 && r[0x10] < 4 ? kinds[r[0x10]] : "unknown");
+        });
+        // GetAttrString (0x1B3320): the course's attribute text, a string of UnistrDB by the row's +0x08
+        // (0x447F08); its first character '1' a rolling start (Arcade's script reads it): "1ff0" Tsukuba, "0000"
+        // Grand Canyon.
+        static_fn(*cls, "GetAttrString", [row, d, n](Vm&, const Value&, Args a) {
+            const ByteSpan r = row(arg_text(a, 0));
+            db::SpecDb* db = d->get(n->config);
+            const db::Strings* units = db ? db->strings("UnistrDB") : nullptr;
+            if (r.size() < 0x0C || !units) return text("");
+            return text(units->at(u32(r[8]) | u32(r[9]) << 8 | u32(r[10]) << 16 | u32(r[11]) << 24));
         });
         static_fn(*cls, "GetID", [d, n](Vm&, const Value&, Args a) {
             db::SpecDb* db = d->get(n->config);

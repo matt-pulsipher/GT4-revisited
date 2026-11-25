@@ -268,7 +268,7 @@ void install_setup_taps(Ee& ee, const OrigRace& race, const ex::RaceInputs& inpu
     // from the place the race's; the computer driver's part of the record its own, with the B-spec driver's pace and TCS
     // class the race's command 2 sets, 0x3F1BD8)
     add_span(ee, {"start: car set-up", 0x363FB8, 0x364718, [](Ee& e) { return u32(e.g32(19)); }, setup_ours,
-                  {"f3e4", "laps", "lap_base", "near.", "aids.tcs_class", "input.pace_"}});
+                  {"f3e4", "laps", "lap_base", "near.", "aids.tcs_class", "input.pace_", "shift_factor", "phases.special"}}); // (shift_factor: car +0x83, the pace's; phases.special: car +0x788 .., the hybrid's and the motors' state on their cars, compared under their own names)
     // The race step's start hold, per car (0x34DDA0: $v0 the car).
     add_span(ee, {"start: countdown hold", 0x34DDA0, 0x34DDF8, [](Ee& e) { return u32(e.g32(2)); }, hold_ours, {}});
     if (std::getenv("GT4R_START_DELAY")) ee.hle(0x35DF80, [](Ee&) {}, "the race's message"); // (the race's part: left out)

@@ -52,8 +52,6 @@ struct PhaseExtra {
     s16 pit_wait = 0;             // F + 0x64C: the steps the pit's wait has left (flag 0x10, the counter at 721)
     std::array<u8, 2> pit_tires{}; // F + 0x64E / + 0x64F: the tires chosen for the front and rear (0xFE: as they are,
                                   // 0xFF: none)
-    F body_mass;                  // P + 0x4C: the mass less the wheels' own (0x362B58); F + 0x4D8 is it with the fuel
-    std::array<u8, 4> wheel_b0{}; // wheel + 0xB0: cleared with fresh tires (0x362E58) ❓ its readers
 };
 template <class X, class V> void phase_fields(X& x, V&& v) {
     using layout::Block;
@@ -70,8 +68,6 @@ template <class X, class V> void phase_fields(X& x, V&& v) {
     v("phases.soft_wheels", -1, C, S + 0x62C, x.soft_wheels), v("phases.pit_wheels", -1, C, S + 0x62D, x.pit_wheels);
     v("phases.pit_wait", -1, C, S + 0x64C, x.pit_wait);
     v("phases.pit_tires", 0, C, S + 0x64E, x.pit_tires[0]), v("phases.pit_tires", 1, C, S + 0x64F, x.pit_tires[1]);
-    v("phases.body_mass", -1, P, 0x4C, x.body_mass);
-    for (int w = 0; w < 4; ++w) v("w.b0", w, C, layout::kWheel0 + layout::kWheelSize * u32(w) + 0xB0, x.wheel_b0[size_t(w)]);
 }
 
 // The category byte (P + 0x32, AidExtra::mark_mode) of a car with moods (none on the disc).
@@ -89,8 +85,8 @@ void save_previous(ex::Car& c, const WheelLayout& l);
 
 // ---- phase 2 ------------------------------------------------------------------------------------------------------
 
-// 0x355E10 (0x355D48: the driveline's layout, P + 0x234, is 7): special[5] cleared.
-void layout7_step(const ex::Car& c, PhaseExtra& x);
+// 0x355E10 (0x355D48: the driveline's layout, P + 0x234, is 7): car +0x78D (a byte of the motors' state) cleared.
+void layout7_step(const ex::Car& c, Extra& x);
 
 // ---- phases 3 and 6: the moods ------------------------------------------------------------------------------------
 

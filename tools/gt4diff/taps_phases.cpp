@@ -264,7 +264,7 @@ void install_splits(TapCall& t) {
     // and 6 and the hits' moods.
     if (std::getenv("GT4R_PHASES_POD"))
         for (int i = 0; i < t.race.cars; ++i) t.ee.w8(t.race.params(i) + 0x32, sim::rules::kPodCategory);
-    if (std::getenv("GT4R_PHASES_POD")) t.rec.x.aids.mark_mode = sim::rules::kPodCategory;
+    if (std::getenv("GT4R_PHASES_POD")) t.rec.x.aids.mark_mode = t.rec.x.wear.category = sim::rules::kPodCategory;
     for (size_t k = 0; k < splits().size(); ++k) {
         t.ee.add_probe(splits()[k].entry, [k](Ee& ee) { split_enter(ee, k); });
         t.ee.add_probe(splits()[k].jump, [k](Ee& ee) { split_jump(ee, k); });
@@ -326,7 +326,7 @@ void add_taps_phases(Taps& taps) {
     // (and the run's race and inputs for the checks at a tail jump, with their probes, at its first call)
     taps.add({0x355E10, "phases: layout 7", car_a0, [](TapCall& t) {
                   install_splits(t);
-                  rules::layout7_step(t.car, t.rec.x.phases);
+                  rules::layout7_step(t.car, t.rec.x);
               }});
     // ---- phase 3: the moods (with the rival's level from the race's pass-by states) ----
     taps.add({0x35CA60, "phases: moods", car_a0, [](TapCall& t) {
@@ -368,7 +368,7 @@ void add_taps_phases(Taps& taps) {
                   rules::pit_step(t.car, t.rec.x, t.rec.layout, wear_rules(t.ee, cond_of(t.ee, t.race.car(t.car_index))));
               }});
     taps.add({0x35ACB0, "phases: message timer", car_a0, [](TapCall& t) { rules::message_timer(t.rec.x.phases); }});
-    taps.add({0x354AC0, "phases: masses", car_a0, [](TapCall& t) { rules::masses(t.car, t.rec.x); }});
+    // (the masses, 0x354AC0: step.cpp's "masses" tap; one tap an address)
     taps.add({0x362E58, "phases: pit fresh tires", car_a0, [](TapCall& t) {
                   rules::fresh_tires(t.car, t.rec.x, s32(t.ee.a(1)), wear_rules(t.ee, cond_of(t.ee, t.race.car(t.car_index))));
               }});

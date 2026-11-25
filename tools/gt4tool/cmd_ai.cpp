@@ -14,11 +14,18 @@
 //   gt4tool ai <disc> entrant <enemy label>    an ENEMY_CARS row: its car, parts and settings against the car as sold
 //   gt4tool ai <disc> entrants                 every ENEMY_CARS row so
 //   gt4tool ai <disc> equipment <label>        the equipment record of a car as sold or of an ENEMY_CARS row, in hex
+//   gt4tool ai <disc> demo <label|all> [frames] a demonstration run (replay/license/<label>): its race header, entries
+//                                              and controls; [frames] every change of the pad record
+//   gt4tool ai <disc> demo-run <label> [hold=480] the demonstration played on our session (sim::ai::DemoRun): car 0's
+//                                              distance and speed, and where it comes to rest after braking
 //
 // Options anywhere: rolling=<km/h> starts the field moving (Entry::start_speed), trace=<car> prints a car's plan.
 
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/course/course_file.h"
+#include "gt4r/formats/course/runway_gtrw.h"
+#include "gt4r/formats/replay/demonstration.h"
+#include "gt4r/sim/ai/demo_driver.h"
 #include "gt4r/sim/ai/entrant.h"
 #include "gt4r/sim/ai/grid.h"
 #include "gt4r/sim/ai/run.h"
@@ -269,6 +276,116 @@ int entrants(Disc& disc) {
     return 0;
 }
 
+// A demonstration run's header, entries and controls (replay/license/<label>; "all": every file there, one line each).
+int demo(Disc& disc, const Args& a) {
+    const sim::Program program = sim::Program::load(disc);
+    db::SpecDb sdb = open_db(disc);
+    gt3r::Volume& vol = disc.volume();
+    std::vector<std::string> labels;
+    if (a[1] == "all") {
+        for (const std::string& n : vol.list_dir("replay/license")) labels.push_back(n);
+    } else {
+        labels.push_back(a[1]);
+    }
+    const bool frames = a.size() > 2 && a[2] == "frames";
+    int bad = 0;
+    for (const std::string& label : labels) {
+        const gt3r::Volume::Entry* e = vol.find(replay::demonstration_path(label));
+        if (!e) {
+            std::printf("%s: no file\n", label.c_str());
+            ++bad;
+            continue;
+        }
+        const Bytes file = vol.read(*e);
+        std::string err;
+        const auto d = replay::Demonstration::parse(file, program, &err);
+        if (!d) {
+            std::printf("%s: %s\n", label.c_str(), err.c_str());
+            ++bad;
+            continue;
+        }
+        auto car_label = [&](const sim::Equipment& eq) {
+            const db::Labels* l = sdb.labels("GENERIC_CAR");
+            const std::string* s = l ? l->label(u32(u64(eq.part(sim::Equipment::Car)))) : nullptr;
+            return s ? *s : std::string("?");
+        };
+        std::printf("%-12s %-12s mode %u time %d.%03d s (%d) codes %llx %llx entries %zu", label.c_str(), d->race_class.c_str(), d->race_mode,
+                    d->time_ms / 1000, d->time_ms % 1000, d->time2_ms, (unsigned long long)d->code_b0, (unsigned long long)d->code_b8, d->entries.size());
+        for (const replay::DemoEntry& en : d->entries)
+            std::printf(" [%s grid %d pedal %u kind %u aids %u%u%u%u]", car_label(en.equipment).c_str(), en.grid_place, en.pedal_style, en.driver_kind,
+                        en.aids[0], en.aids[1], en.aids[2], en.aids[3]);
+        for (const replay::ControlStream& s : d->streams) {
+            std::printf(" stream %u frames", s.frame_count);
+            if (!s.frames.empty()) std::printf(" kind %u", s.frames.back().kind());
+        }
+        std::printf("\n");
+        if (!frames) continue;
+        for (const replay::ControlStream& s : d->streams) {
+            const replay::PadRecord* last = nullptr;
+            for (size_t i = 0; i < s.frames.size(); ++i) {
+                const replay::PadRecord& r = s.frames[i];
+                if (last && *last == r) continue;
+                std::printf("  %5zu flags %02x kind %u shift %d steer %d throttle %d brake %d axes %d %d b7 %u buttons", i, r.flags(), r.kind(), r.shift(),
+                            r.steer(), r.throttle(), r.brake(), r.axis_c(), r.axis_e(), r.bytes[7]);
+                for (u32 k = 0; k < r.bytes[3] && k < 16; ++k) std::printf(" %02x", r.bytes[0x10 + k]);
+                std::printf("\n");
+                last = &r;
+            }
+        }
+    }
+    return bad ? 1 : 0;
+}
+
+// A demonstration played on our session: the file's entries on the event's course, the start's hold (a license test's
+// type-1 start: 8 s), then car 0 given the recording step by step.
+int demo_run(Disc& disc, const Args& a, int hold) {
+    const sim::Program program = sim::Program::load(disc);
+    std::string err;
+    const auto run = sim::ai::DemoRun::load(disc, program, a[1], &err);
+    if (!run) {
+        std::printf("%s: %s\n", a[1].c_str(), err.c_str());
+        return 1;
+    }
+    db::SpecDb sdb = open_db(disc);
+    const db::RaceEvents ev(sdb, reader(disc));
+    auto event = ev.event(a[1]);
+    if (!event) event = ev.event(u32(run->demo.code_b0));
+    if (!event) {
+        std::printf("%s: no event\n", a[1].c_str());
+        return 1;
+    }
+    gt3r::Volume* vol = &disc.volume();
+    const gt3r::Volume::Entry* file = vol->find("crs/" + event->course);
+    if (!file) return 1;
+    const Bytes data = vol->read(*file);
+    const course::CourseFile parsed = course::CourseFile::parse(data);
+    std::optional<course::Runway> road = course::course_road(parsed, data);
+    if (!road) return 1;
+    std::vector<sim::Entry> entries = run->entries();
+    entries.resize(1); // (car 0: the recording's)
+    sim::Session session(sdb, program, std::make_shared<const course::Runway>(std::move(*road)), entries);
+    std::vector<race::CarInput> in(1);
+    const race::CarState& c = session.cars()[0];
+    const course::Vec3 start = c.position;
+    bool braked = false;
+    int rest = -1;
+    const int steps = int(run->steps()) + 120;
+    for (int i = 0; i < steps; ++i) {
+        in[0] = run->input(size_t(i));
+        if (i < hold) session.hold_once(in);
+        else session.step_once(in);
+        const float d = std::hypot(c.position.x - start.x, c.position.z - start.z);
+        if (run->record(size_t(i)).brake() > 0) braked = true;
+        if (braked && rest < 0 && std::fabs(c.speed) < 0.01f) rest = i;
+        if (i % 60 == 0 || i == rest)
+            std::printf("  %5d  %8.3f m  %7.2f km/h  gear %d  throttle %.3f brake %.3f%s\n", i, double(d), double(c.speed) * 3.6, c.gear, double(in[0].throttle),
+                        double(in[0].brake), i == rest ? "  at rest" : "");
+    }
+    std::printf("%s on %s: recorded %d ms; at rest after braking at step %d (%.3f s after the hold)\n", a[1].c_str(), event->course.c_str(),
+                run->recorded_ms(), rest, rest >= 0 ? (rest - hold) / 60.0 : 0.0);
+    return 0;
+}
+
 } // namespace
 
 int cmd_ai(Disc& disc, const Args& args) {
@@ -291,6 +408,8 @@ int cmd_ai(Disc& disc, const Args& args) {
         return 0;
     }
     if (a[0] == "survey") return survey(disc);
+    if (a[0] == "demo" && a.size() > 1) return demo(disc, a);
+    if (a[0] == "demo-run" && a.size() > 1) return demo_run(disc, a, int(option(args, "hold", 480)));
     if (a[0] == "events" || a[0] == "event" || a[0] == "race") {
         db::SpecDb sdb = open_db(disc);
         const db::RaceEvents ev(sdb, reader(disc));

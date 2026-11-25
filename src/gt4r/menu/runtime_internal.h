@@ -62,6 +62,10 @@ struct TransitionPicture {
     float cover = 0, page_opacity = 1, page_scale = 1;
     const std::vector<float>* blocks = nullptr;
     bool capture = false;
+    // A cross transition coming in (0x2182E0): the picture shown last drawn over the new one at
+    // `trail_ratio`, its source cut by `trail_diff` pixels a side, then black at 0.1.
+    bool trail = false, trail_black = false;
+    float trail_ratio = 0, trail_diff = 0;
 };
 TransitionPicture transition_picture(const script::Value& transition);
 
@@ -72,6 +76,8 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const std::s
 // A key the focused widget's class deals with itself (a select box's index, an option menu's
 // list, a slider). True when it did.
 bool widget_key(Runtime& rt, LiveWidget& focus, Key k);
+// A ScaleBar's key after its script did not take it: the value's step (widget_classes.cpp).
+bool scale_bar_key_after(Runtime& rt, LiveWidget& w, Key k);
 // `widget.index = i`; `notify`: the script's onValueChanged is called.
 void widget_set_index(Runtime& rt, LiveWidget& w, int index, bool notify);
 void widget_children_changed(Runtime& rt, LiveWidget& w);

@@ -139,9 +139,10 @@ void CarMotion::step() {
 
 CarModelObject::CarModelObject() : Object("MCarModel") {}
 
-std::shared_ptr<CarModelObject> make_car_model_object() {
+std::shared_ptr<CarModelObject> make_car_model_object(std::function<u64()> now) {
     auto o = std::make_shared<CarModelObject>();
     CarModelObject* self = o.get();
+    self->now = std::move(now);
     using script::Value;
     auto number = [](const Value& v, float fallback) { return v.is_number() ? v.as_float() : fallback; };
     auto bind = [&](const char* name, float* field) {
@@ -167,8 +168,27 @@ std::shared_ptr<CarModelObject> make_car_model_object() {
         self->m.warp();
         return Value{};
     });
-    for (const char* f : {"playModelMotion", "stopModelMotion", "setModelMotionLoop"}) o->method(f, [](script::Vm&, const Value&, script::Args) { return Value{}; });
-    o->method("isPlayingModelMotion", [](script::Vm&, const Value&, script::Args) { return Value::integer(0); });
+    // The model motions and the camera motion play together (0x153E20, 0x153EA8, 0x153F28);
+    // isPlayingModelMotion answers for the camera motion alone, 0 without one (0x153FA8).
+    auto frame = [self] { return self->now ? self->now() : u64(0); };
+    o->method("playModelMotion", [self, frame](script::Vm&, const Value&, script::Args) {
+        self->m.clock.play(frame());
+        return Value{};
+    });
+    o->method("stopModelMotion", [self, frame](script::Vm&, const Value&, script::Args) {
+        self->m.clock.stop(frame());
+        return Value{};
+    });
+    o->method("setModelMotionLoop", [self](script::Vm&, const Value&, script::Args a) {
+        self->m.clock.loop = !a.empty() && a[0].truthy();
+        return Value{};
+    });
+    o->method("isPlayingModelMotion", [self, frame](script::Vm&, const Value&, script::Args) {
+        if (!self->m.has_option_motion) return Value::integer(0);
+        bool playing = false;
+        self->m.clock.time(frame(), self->m.option_length, self->m.option_loop_start, &playing);
+        return Value::integer(playing ? 1 : 0);
+    });
     return o;
 }
 

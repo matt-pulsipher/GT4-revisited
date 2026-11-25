@@ -136,5 +136,6 @@ void install_setup_taps(Ee& ee, const OrigRace& race, const ex::RaceInputs& inpu
 void start_before_step(Ee& ee, OrigRace& o, int step);
 void print_start_spans();
 void start_spans(const std::function<void(const std::string& name, u64 calls, u64 clean)>& each);
+void set_step_program(const sim::Program* program); // the program whose tables those taps read (run_step sets its own)
 
 } // namespace gt4r::diff

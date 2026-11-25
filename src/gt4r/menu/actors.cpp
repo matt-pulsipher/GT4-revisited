@@ -444,6 +444,9 @@ struct Transition : Object {
     float t = 0;      // cross: the in half's progress, 1 to 0
     bool at_end = false;
     float range = 0.125f, slope = 2;
+    // cross (0x289888): `type` 1 "opacity" (0 "capture"), the trail's `magnify_ratio` (the
+    // last picture's weight), `magnify_diff` (pixels cut from its edges) and `with_black`.
+    float type = 1, magnify_ratio = 0.5f, magnify_diff = 0, with_black = 1;
     std::vector<float> timers; // block: 32 x 24, row by row
     bool capture_wanted = false;
     u32 seed = 0x12345678;
@@ -557,6 +560,7 @@ TransitionPicture transition_picture(const Value& transition) {
     else if (t->kind == Transition::kCross && t->state == 2) {
         p.page_opacity = std::clamp(1 - t->t, 0.0f, 1.0f);
         p.page_scale = std::clamp(1 + t->t * t->t, 1.0f, 2.0f);
+        if (t->type != 0) p.trail = true, p.trail_ratio = std::clamp(t->magnify_ratio, 0.0f, 1.0f), p.trail_diff = t->magnify_diff, p.trail_black = t->with_black != 0;
     } else if (t->kind == Transition::kBlock) {
         p.blocks = &t->timers;
         p.capture = t->capture_wanted;
@@ -811,8 +815,12 @@ void install_actor_natives(Runtime& rt, script::Module& menu) {
                         [p](const Value& v) { p->stride = 1.0f / std::max(v.as_float() * 60.0f, 1e-3f); });
             number_field(*t, "range", &p->range);
             number_field(*t, "slope", &p->slope);
-            // ❓ No script sets these: the cross transition's capture type and trail.
-            for (const char* f : {"type", "magnify_ratio", "magnify_diff", "with_black"}) t->set(f, Value::integer(0));
+            // The cross transition's type and trail (defaults of 0x289888; no script sets them).
+            t->property("type", [p] { return Value::string(p->type != 0 ? "opacity" : "capture"); },
+                        [p](const Value& v) { p->type = v.kind == script::Kind::String ? (v.as_string() == "capture" ? 0.0f : 1.0f) : v.as_float(); });
+            number_field(*t, "magnify_ratio", &p->magnify_ratio);
+            number_field(*t, "magnify_diff", &p->magnify_diff);
+            number_field(*t, "with_black", &p->with_black);
             (void)r;
             return object_value(t);
         }));

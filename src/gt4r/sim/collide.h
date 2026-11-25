@@ -113,6 +113,12 @@ struct Body {
     F rumble_level;                     // +0x4E4
     s32 sound_steps = 0;                // +0x4E8
     F sound_level;                      // +0x4EC
+    // The hit sound's recorder (0x350530 -> 0x350328, the car's F +0x608 / +0x60C / +0x60D): each
+    // contact of the step converted to the sound's strength (a wall's |j| / 50,000, a car's twice its
+    // |j| / 15,000, at most 1, under 0.2 none), the strongest kept with its kind (0 wall, 1 car) and
+    // the other car; cleared as the step starts (0x34DB30 -> 0x350308).
+    F hit_sound;
+    s32 hit_kind = -1, hit_other = -1;
 };
 
 // What the step reads of a body's car.

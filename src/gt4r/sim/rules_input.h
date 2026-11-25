@@ -177,8 +177,6 @@ struct InputExtra {
                                   // 2 stick, 3 a kind 6 wheel
     F steer_rate;                 // F + 0x484: the follower's rate
     F active_last;                // F + 0x4A0: the active steering's last heading error
-    F nitrous;                    // F + 0x4E0: the nitrous left (fuel and nitrous: sim-parts' FuelState)
-    u8 nitrous_state = 0;         // F + 0x4E4: 6 while the button holds it
     u8 pit_request = 0;           // F + 0x5C1
     std::array<F, 2> line_point;  // F + 0x61C / + 0x620: a point (x, y) of the driving line by the car (the driver object's)
     F line_height;                // F + 0x624: the road's height there (0x350C20)
@@ -190,14 +188,13 @@ struct InputExtra {
                                   // the active steering's car + 0x32)
     s8 driver_40 = 0;             // car + 0x54 (driver +0x40): -1 after a B-spec car's driver takes over (0x469E48, with
                                   // driver +0x41, AidExtra::scale_on, 0)
-    u8 overtake = 0, pace_shift = 0; // car + 0x82 / + 0x83 (driver +0x6E / +0x6F): a B-spec driver's overtaking and its pace's
-                                  // shift factor (car + 0x81, AidExtra::tcs_class, the pace level)
+    u8 overtake = 0;              // car + 0x82 (driver +0x6E): a B-spec driver's overtaking (its pace level: car + 0x81,
+                                  // AidExtra::tcs_class; its shift factor: car + 0x83, DriveExtra::shift_factor)
     F pace_brake, pace_corner;    // car + 0x84 / + 0x88 (driver +0x70 / +0x74): its pace's braking and cornering factors
     // the parameter block
     ex::Table<6> lock_pad, lock_wheel, lock_loose; // P + 0x58 / + 0x94 / + 0xD0 (x +0xC, y +0x24): the lock by speed: a pad,
                                   // a wheel (kind 4), a loose surface (a pad on a marked surface, a wheel on a loose course)
     u8 wheel_ratio = 0;           // P + 0x10D3: a kind 6 wheel's steering ratio and its curve
-    F nitrous_gain;               // P + 0x10D4: the engine's full-throttle torque x (1 + gain) while the nitrous holds
 };
 // Every member of InputExtra with its place in Gran Turismo 4's record: v(name, index (-1: single), block, offset, member).
 template <class X, class V> void input_fields(X& x, V&& v) {
@@ -210,21 +207,20 @@ template <class X, class V> void input_fields(X& x, V&& v) {
     v("input.steer_view", -1, C, S + 0x45C, x.steer_view);
     v("input.throttle_state", -1, C, S + 0x464, x.throttle_state), v("input.steer_kind", -1, C, S + 0x465, x.steer_kind);
     v("input.steer_rate", -1, C, S + 0x484, x.steer_rate), v("input.active_last", -1, C, S + 0x4A0, x.active_last);
-    v("input.nitrous", -1, C, S + 0x4E0, x.nitrous), v("input.nitrous_state", -1, C, S + 0x4E4, x.nitrous_state);
     v("input.pit_request", -1, C, S + 0x5C1, x.pit_request);
     for (int k = 0; k < 2; ++k) v("input.line_point", k, C, S + 0x61C + 4 * u32(k), x.line_point[size_t(k)]);
     v("input.line_height", -1, C, S + 0x624, x.line_height), v("input.line_triangle", -1, C, S + 0x628, x.line_triangle);
     v("input.lean_rate", -1, C, S + 0x660, x.lean_rate), v("input.special_steer", -1, C, 0x77C, x.special_steer);
     v("input.driver_31", -1, C, 0x31, x.driver_31), v("input.driver_32", -1, C, 0x32, x.driver_32);
     v("input.driver_40", -1, C, 0x54, x.driver_40);
-    v("input.overtake", -1, C, 0x82, x.overtake), v("input.pace_shift", -1, C, 0x83, x.pace_shift);
+    v("input.overtake", -1, C, 0x82, x.overtake);
     v("input.pace_brake", -1, C, 0x84, x.pace_brake), v("input.pace_corner", -1, C, 0x88, x.pace_corner);
     auto table = [&](const char* n, u32 at, auto& t) {
         v(n, -1, P, at, t.n);
         for (int k = 0; k < 6; ++k) v(n, k, P, at + 0xC + 4 * u32(k), t.x[size_t(k)]), v(n, 6 + k, P, at + 0x24 + 4 * u32(k), t.y[size_t(k)]);
     };
     table("input.lock_pad", 0x58, x.lock_pad), table("input.lock_wheel", 0x94, x.lock_wheel), table("input.lock_loose", 0xD0, x.lock_loose);
-    v("input.wheel_ratio", -1, P, 0x10D3, x.wheel_ratio), v("input.nitrous_gain", -1, P, 0x10D4, x.nitrous_gain);
+    v("input.wheel_ratio", -1, P, 0x10D3, x.wheel_ratio);
 }
 
 // ---- the routines ----------------------------------------------------------------------------------------------

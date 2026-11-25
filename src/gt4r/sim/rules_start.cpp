@@ -2,6 +2,10 @@
 
 #include "gt4r/sim/rules_start.h"
 
+#include "gt4r/sim/rules_fuel.h"
+#include "gt4r/sim/rules_hybrid.h"
+#include "gt4r/sim/rules_wheels.h"
+
 #include "base/ee_math.h"
 #include "gt4r/sim/program.h"
 #include "gt4r/sim/record.h"
@@ -117,7 +121,7 @@ void pose(ex::Car& c, Extra& x, const WheelLayout& l, const StartTables& t, cons
     c.pitch = k0, c.roll = k0, c.heading = heading;
     c.pos.z = ground + c.p.cog_height;
     rules::body_axes(c);
-    ex::hub_offsets(c);
+    rules::hub_offsets(c, l); // (0x345A20: by the wheel layout)
     // Each wheel's ground record at its hub.
     u8 soft = 0, pit = 0;
     for (int w = 0; w < wheels(l); ++w) {
@@ -159,7 +163,7 @@ void pose(ex::Car& c, Extra& x, const WheelLayout& l, const StartTables& t, cons
     c.pitch = c.pitch + ex::atan2(c.behaviour, c.p.ride_height[0] - c.p.ride_height[1], c.p.wheelbase);
     rules::body_axes(c);
     c.pos.z = c.ground_pos.z + c.up.z * c.p.cog_height;
-    ex::hub_offsets(c);
+    rules::hub_offsets(c, l); // (0x345A20: by the wheel layout)
     c.f3e4 = h.distance ? h.distance(c) : k0;
     x.input.line_triangle = u32(c.road_seg);
     x.input.line_height = c.ground_pos.z;
@@ -223,18 +227,11 @@ void standing_start(ex::Car& c, Extra& x, const WheelLayout& l) {
 }
 
 void start_fuel(ex::Car& c, Extra& x, u8 fuel_rule, const StartTables& t) {
-    (void)c;
     StartExtra& s = x.start;
     s.fuel_on = 1, s.fuel_least = k0, s.x4be = 0, s.x4c4 = k0, s.x4c8 = k0;
-    const u8 tank = fuel_rule != 0 ? s.tank : 0;
-    const F full = gt3r::ee::int_to_f(s32(tank));
-    x.aids.fuel = full, x.aids.fuel_capacity = full;
-    if (tank != 0) {
-        const F f = full - gt3r::ee::int_to_f(s32(t.fuel_less));
-        x.aids.fuel = f;
-        if (f < s.fuel_least) x.aids.fuel = s.fuel_least;
-    }
-    masses(c, x);
+    // (0x354AF8 itself and the masses with the fuel, 0x354AC0: rules_fuel.h)
+    fuel_start(c, x.drive.fuel, fuel_rule, t.fuel_less, x.chassis.mass, x.body.sprung_mass);
+    x.aids.fuel = x.drive.fuel.fuel, x.aids.fuel_capacity = x.drive.fuel.capacity;
 }
 
 namespace {
@@ -282,14 +279,13 @@ void car_setup(ex::Car& c, Extra& x, const WheelLayout& l, const StartTables& t,
     x.aids.start_count = 0;                                           // 0x35FC48
     x.phases.penalty_marked = 0, x.aids.pit_limit = 0, x.phases.incidents = 0, x.phases.incident_flags = 0, x.phases.hit_steps = 0;
     start_fuel(c, x, a.fuel_rule, t);
-    x.input.nitrous = k0 < x.input.nitrous_gain ? x.start.nitrous_full : k0;
-    x.input.nitrous_state = 0, x.start.x4dc = 0;
+    x.drive.fuel.nitrous_left = k0 < x.drive.fuel.nitrous_share ? x.start.nitrous_full : k0;
+    x.drive.fuel.nitrous_steps = 0, x.start.x4dc = 0;
     x.start.x6c4 = 0;                                                  // 0x3F3360
     if (x.aids.mark_mode == 3) x.phases.special.fill(0);               // 0x355840: a category 3 car's words cleared
-    if (c.p.d.layout == 7) {                                           // 0x355DC8: layout 7's motors
-        const F v = k1 * t.motor_scale;
-        std::memcpy(x.phases.special.data(), &v.bits, 4);
-        x.phases.special[5] = 0, x.phases.special[4] = 0;
+    if (c.p.d.layout == 7) {                                           // 0x355DC8: layout 7's motors (rules_motors.h motor_start)
+        x.drive.hybrid.engine_target = k1 * t.motor_scale;             // (the store, car +0x788)
+        x.drive.hybrid.store.bits &= ~0xFFFFu;                         // (car +0x78C, +0x78D cleared)
     }
     if (x.aids.mark_mode == 1) x.phases.special[0] = 0;                // 0x35D108(car, 0)
     rules::step_length(c);
@@ -323,6 +319,7 @@ void car_setup(ex::Car& c, Extra& x, const WheelLayout& l, const StartTables& t,
         x.phases.special[6] = 0, x.phases.special[2] = 0x3C;
         x.phases.special[1] = 0, x.phases.special[3] = 0, x.phases.special[4] = 0, x.phases.special[5] = 0;
     }
+    if (x.drive.d.kind == 3) hybrid_start(x.drive.hybrid); // (0x3683C8: a hybrid one-speed box's state, rules_hybrid.h)
 }
 
 bool rolling_hold(ex::Car& c, Extra& x) {

@@ -89,7 +89,7 @@ TEST(sim_phases_equal_in_the_step) {
         CHECK(r.ran);
         check_run("nsx_r_02", r,
                   {"phases: save previous", "phases: layout 7", "phases: moods", "phases: stop count", "phases: prep", "phases: message timer",
-                   "phases: masses", "phases: course out", "phases: clear hit", "phases: hit record", "phases: hit"});
+                   "phases: course out", "phases: clear hit", "phases: hit record", "phases: hit"});
     }
     // The same car given the category with moods (no car of the disc has it) and its handbrake pulled while it stands
     // (gt4r_diff's GT4R_PHASES_POD and GT4R_PHASES_HANDBRAKE): the moods, the rival's level, the stop count.

@@ -230,37 +230,40 @@ bool set_car(Database& d, CarRecord& r, const std::string& label, int paint) {
     return true;
 }
 
-void make_used_condition(Database&, CarRecord& r, u32 meters) {
-    // 0x440F78: the odometer, and the engine's, the oil's and the body's distances from it.
+void make_used_condition(Database& d, CarRecord& r, u32 meters) {
+    // 0x440FB8's end: the odometer (at most 100,000 km, 0x3434A8); unless the car has no wear, the engine's,
+    // the oil's and the body's distances the meters, each at most its limit (0x343578: the condition table's
+    // +0x0C; 0x343698: +0x1C; 0x343978: the body's table +0x18, from 0x620AF6 x 1,000 m); the dirt 0 (0x3438A0).
     r.set_odometer(std::min<u32>(meters, 100'000'000));
-    if (!r.no_wear()) {
-        r.set_condition(1, std::min(float(meters), 11'000'000.0f));
-        r.set_condition(2, std::min(float(meters), 6'000'000.0f));
-        r.set_condition(4, std::min(float(meters), 3'000'000.0f));
+    if (!r.no_wear() && d.program.known()) { // (❓ another program's tables are not placed: the distances stay)
+        const sim::ConditionLimits l = sim::condition_limits(d.program);
+        const float m = gt3r::ee::to_host(gt3r::ee::int_to_f(s32(meters)).bits);
+        const float body_max = float(s16(d.program.h(0x620AF6))) * 1000.0f;
+        auto capped = [m](float limit) { return limit < m ? limit : m; };
+        r.set_condition(1, capped(l.worn.host()));
+        r.set_condition(2, capped(l.old_oil.host()));
+        r.set_condition(4, capped(body_max));
     }
     r.set_condition(3, 0);
 }
 
 void car_figures(Database& d, const CarRecord& r, s32& power100, s32& torque100, s32& weight) {
+    // updateCurrentStatus (0x146648) and a garage entry's figures (0x434FD0): the car of the sheet in use built
+    // as a showroom car (sim/showroom.h) with the record's condition block (+0x498: the engine's wear and oil,
+    // 0x350868); the power and torque x 100 truncated (0x364E78, 0x364EB8), the weight (0x364FA8); all 0 when
+    // the car's row hides its figures (GENERIC_CAR +0x12 bit 3).
     power100 = torque100 = weight = 0;
-    if (!d.db) return;
+    const sim::Showroom* sr = d.showroom();
+    if (!sr) return;
     sim::Equipment eq;
     std::memcpy(eq.bytes.data(), r.active(), sim::Equipment::kSize);
-    sim::Spec spec;
-    sim::build_spec(*d.db, d.program, eq, 0, spec);
-    const sim::SpecFigures f = sim::spec_figures(spec);
-    // The engine's wear and oil (0x350868): a new engine 0.97, run in 1.00, old 0.95; fresh
-    // oil 1.05, old 0.95.
-    float factor = 1;
-    if (!r.no_wear()) {
-        const float e = r.condition(1) / 1000.0f, o = r.condition(2) / 1000.0f; // km
-        const float ef = e < -300 ? 0.97f : e < 0 ? 0.97f + 0.03f * (e + 300) / 300 : e < 1000 ? 1.0f : e < 11000 ? 1.0f - 0.05f * (e - 1000) / 10000 : 0.95f;
-        const float of = o < -100 ? 1.05f : o < 0 ? 1.0f - 0.05f * o / 100 : o < 5000 ? 1.0f : o < 6000 ? 1.0f - 0.05f * (o - 5000) / 1000 : 0.95f;
-        factor = ef * of;
-    }
+    const sim::F factor = sim::engine_condition(d.program, sim::F(r.condition(1)), sim::F(r.condition(2)), r.no_wear());
+    const std::optional<sim::ShowroomFigures> f = sr->figures(eq, factor);
+    if (!f) return;
     const ByteSpan car = d.db->table("GENERIC_CAR") ? d.db->table("GENERIC_CAR")->row(u32(r64(r.active()))) : ByteSpan{};
     if (car.size() > 0x12 && (car[0x12] & 8)) return; // the specs are hidden
-    power100 = s32(f.ps * factor * 100), torque100 = s32(f.kgfm * factor * 100), weight = spec.weight_kg();
+    const sim::F hundred = sim::F::raw(0x42C80000);
+    power100 = gt3r::ee::to_int(f->power * hundred), torque100 = gt3r::ee::to_int(f->torque * hundred), weight = f->weight;
 }
 
 void entry_from_record(Database& d, GarageEntry& e) {
@@ -295,6 +298,10 @@ std::shared_ptr<CarHandle> car_from_entry(Database& d, GameState& s, int slot, b
 }
 
 namespace {
+
+// The program's used-car tables (US 1.01): the thousands of km a used car has driven by its model year, and the
+// used price's factor by the thousands of km.
+constexpr u32 kUsedMeters = 0x6A6910, kUsedPrices = 0x6A6988;
 
 // The current sheet's row of a part type.
 ByteSpan sheet_row(Database& d, const CarRecord& r, int type) {
@@ -335,8 +342,8 @@ Value make_car_value(GameNatives& n, std::shared_ptr<CarHandle> c) {
     auto name_at = [c, db](size_t at) {
         Database& dd = db();
         const db::Labels* labels = dd.db ? dd.db->labels("GENERIC_CAR") : nullptr;
-        const db::Table* names = dd.db ? dd.db->table("CAR_NAME_american") : nullptr;
-        const db::Strings* pool = dd.db ? dd.db->strings("american_StrDB") : nullptr;
+        const db::Table* names = dd.db ? dd.db->table("CAR_NAME_" + dd.language) : nullptr;
+        const db::Strings* pool = dd.db ? dd.db->strings(dd.language + "_StrDB") : nullptr;
         const std::optional<u32> id = labels ? labels->id(c->label) : std::nullopt;
         if (!id || !names || !pool) return std::string();
         const ByteSpan row = names->row(*id);
@@ -470,7 +477,7 @@ Value make_car_value(GameNatives& n, std::shared_ptr<CarHandle> c) {
     car->method("getOdometer", [rec, st](Vm& vm, const Value&, Args a) {
         const bool miles = st->option_text("unit_velocity") == "MPH";
         const s32 v = s32(std::min<u32>(rec().odometer() / (miles ? 160 : 100), 999'999'999));
-        return a.empty() ? number(v) : format_with(vm, a[0], {number(v), text(miles ? "mile" : "km")});
+        return a.empty() ? number(v) : format_with(vm, a[0], {number(v), text(miles ? "miles" : "km")}); // (the reference: "32355.3miles")
     });
     car->method("getDate", [c](Vm&, const Value&, Args) { return number(s32(c->day)); });
     car->method("getGarageIndex", [c](Vm&, const Value&, Args) { return number(c->garage_slot); });
@@ -733,37 +740,57 @@ Value make_car_value(GameNatives& n, std::shared_ptr<CarHandle> c) {
     });
     car->property("odometer", [rec] { return number(s32(rec().odometer())); }, [rec](const Value& v) { rec().set_odometer(std::min<u32>(u32(std::max<s32>(arg_int(Args(&v, 1), 0), 0)), 100'000'000)); });
 
-    // ---- Used cars: makeUsed(seed, [paint = -1], [meters = -1]) (0x440FB8).
-    car->method("makeUsed", [c, rec, db, spec](Vm&, const Value&, Args a) {
-        ProgramRandom random{u32(arg_int(a, 0))};
-        s32 paint = arg_int(a, 1, -1), meters = arg_int(a, 2, -1);
+    // ---- Used cars: makeUsed(seed, [paint = -1], [meters = -1]) (0x440FB8). The arguments as the program
+    // takes them (their toInt: the lots pass their paints as text, "3").
+    car->method("makeUsed", [c, rec, db](Vm&, const Value&, Args a) {
+        auto whole = [&a](size_t i, s32 otherwise) {
+            if (i < a.size() && a[i].kind == script::Kind::String) return s32(std::strtol(a[i].as_string().c_str(), nullptr, 10));
+            return arg_int(a, i, otherwise);
+        };
+        using gt3r::ee::F;
+        ProgramRandom random{u32(whole(0, 0))};
+        // 0x5792F0: lo + (hi - lo) x a draw.
+        auto between = [&random](F lo, F hi) { return (hi - lo) * F(random.next01()) + lo; };
+        s32 paint = whole(1, -1), meters = whole(2, -1);
         CarRecord& r = rec();
-        if (paint < 0) paint = s32(random.next01() * float(spec().paints.size()));
-        if (paint >= 0 && size_t(paint) < spec().paints.size())
+        Database& d = db();
+        if (paint < 0) paint = gt3r::ee::to_int(between(F::raw(0), gt3r::ee::int_to_f(s32(d.spec(c->label).paints.size()))));
+        if (paint >= 0 && size_t(paint) < d.spec(c->label).paints.size())
             for (int s = 0; s < 3; ++s) r.sheet(s)[0x18] = u8(paint);
-        if (meters < 0) {
-            // Thousands of km driven by the model year (0x6A6910).
-            static const int lo[15] = {60, 55, 50, 50, 45, 45, 40, 35, 30, 25, 20, 15, 15, 10, 3};
-            static const int hi[15] = {100, 95, 90, 85, 80, 75, 70, 65, 60, 55, 50, 40, 30, 20, 10};
-            const ByteSpan row = db().car_row(c->label);
-            const int year = std::clamp(int(s16(r16(row, 0x0C))) - 1990, 0, 14);
-            meters = s32(float(lo[year]) * 1'000'000.0f + float(hi[year] - lo[year]) * 1'000'000.0f * random.next01());
+        if (meters < 0 && d.program.known()) {
+            // Thousands of km by the model year from 1990 (0 .. 14): the program's table 0x6A6910, {least, most} each.
+            const ByteSpan row = d.car_row(c->label);
+            int year = int(s16(r16(row, 0x0C))) - 1990;
+            if (year < 0) year = 0;
+            if (year > 14) year = 14;
+            const u32 at = kUsedMeters + 8 * u32(year);
+            const F lo = gt3r::ee::int_to_f(s32(d.program.w(at)) * 1'000'000), hi = gt3r::ee::int_to_f(s32(d.program.w(at + 4)) * 1'000'000);
+            meters = gt3r::ee::to_int(between(lo, hi));
         }
-        make_used_condition(db(), r, u32(meters));
+        make_used_condition(d, r, u32(meters));
         return Value{};
     });
-    // getUsedPrice (0x441128): the new price times a factor by the thousands of km driven.
+    // getUsedPrice (0x441128): the new price (GENERIC_CAR +0x08) times the factor of the first row of the program's
+    // table 0x6A6988 ({s32 thousands of km, f32 factor} x 10; -1 the last) whose distance is above the odometer's.
     auto used_price = [c, rec, db]() -> s32 {
-        static const u32 below[9] = {1, 3, 5, 10, 15, 25, 40, 60, 100};
-        static const float factor[10] = {0.85f, 0.80f, 0.78f, 0.77f, 0.76f, 0.75f, 0.65f, 0.50f, 0.35f, 0.10f};
+        Database& d = db();
         const u32 k = rec().odometer() / 1'000'000;
-        size_t i = 0;
-        while (i < 9 && k >= below[i]) ++i;
-        const u32 price = r32(db().car_row(c->label), 0x08);
-        return s32(float(price) * factor[i]);
+        gt3r::ee::F factor = gt3r::ee::F::raw(0);
+        for (u32 i = 0; i < 10 && d.program.known(); ++i) {
+            const s32 below = s32(d.program.w(kUsedPrices + 8 * i));
+            if (s32(k) < below || below < 0) {
+                factor = gt3r::ee::F::raw(d.program.w(kUsedPrices + 8 * i + 4));
+                break;
+            }
+        }
+        const s32 price = s32(r32(d.car_row(c->label), 0x08));
+        return gt3r::ee::to_int(gt3r::ee::int_to_f(price) * factor);
     };
     car->method("getUsedPrice", [used_price](Vm&, const Value&, Args) { return number(used_price()); });
-    car->method("getUsedSellPrice", [used_price](Vm&, const Value&, Args) { return number(s32(float(used_price()) * 0.25f)); });
+    // getUsedSellPrice (0x4411F0): a quarter of it.
+    car->method("getUsedSellPrice", [used_price](Vm&, const Value&, Args) {
+        return number(gt3r::ee::to_int(gt3r::ee::int_to_f(used_price()) * gt3r::ee::F::raw(0x3E800000)));
+    });
 
     // ---- The settings pages (0x1490B0 on): each a range of the fitted part's row and the
     // sheet's values. Levels are stored as they are shown (1 .. steps).
@@ -949,18 +976,62 @@ Value make_car_value(GameNatives& n, std::shared_ptr<CarHandle> c) {
         if (db().db && sim::computed_gears(*db().db, db().program, e)) std::memcpy(eq, e.bytes.data(), sim::Equipment::kSize);
         return Value{};
     });
-    // ❓ The charts' points (0x148940, 0x148B60) are for the graph faces: none here.
-    car->method("buildGearRatioData", [](Vm&, const Value&, Args) { return Value{}; });
-    // The graph faces' engine curves (menu-draw's faces_graph.*).
-    car->method("buildEngineCurveData", [c, update, rec, db](Vm&, const Value&, Args) {
-        update();
-        if (!db().db)
-            return Value::array({Value{}, Value{}, Value::number(float(c->power100) / 100.0f), Value::number(float(c->torque100) / 100.0f), Value::number(0), Value::number(0)});
+    // The settings pages' charts (sim::Showroom::charts: 0x34B960 / 0x34B8E8 on the sheet in use with the car's
+    // condition), as the graph faces take them: a point an array [x, y].
+    using gt3r::ee::F;
+    auto point = [](F x, F y) { return Value::array({Value::number(gt3r::ee::to_host(x.bits)), Value::number(gt3r::ee::to_host(y.bits))}); };
+    // buildGearRatioData([automatic]) (0x148940): for each forward gear a pair of points, (the road speed / 100 m/s,
+    // the engine speed over the highest gear's top speed) at the gear's lowest and highest engine speeds.
+    car->method("buildGearRatioData", [rec, db, point](Vm&, const Value&, Args a) {
+        Database& d = db();
+        const sim::Showroom* sr = d.showroom();
+        if (!sr) return Value{};
         sim::Equipment eq;
         std::memcpy(eq.bytes.data(), rec().active(), sim::Equipment::kSize);
-        sim::Spec spec;
-        sim::build_spec(*db().db, db().program, eq, 0, spec);
-        return engine_curve_value(menu::engine_curve(spec));
+        const CarRecord& r = rec();
+        const F factor = sim::engine_condition(d.program, F(r.condition(1)), F(r.condition(2)), r.no_wear());
+        const std::optional<sim::Charts> ch = sr->charts(eq, factor, a.empty() ? -1 : arg_int(a, 0));
+        if (!ch) return Value{};
+        const sim::GearChart& g = ch->gears;
+        F top = F::raw(0x3F800000);
+        for (int i = 1; i <= g.gears && i < 10; ++i)
+            if (const F h = gt3r::ee::int_to_f(g.high_rpm[size_t(i)]); top < h) top = h;
+        const F hundred = F::raw(0x42C80000);
+        std::vector<Value> out;
+        for (int i = 1; i <= g.gears && i < 10; ++i) {
+            const size_t k = size_t(i);
+            out.push_back(point(g.low_speed[k] / hundred, gt3r::ee::int_to_f(g.low_rpm[k]) / top));
+            out.push_back(point(g.high_speed[k] / hundred, gt3r::ee::int_to_f(g.high_rpm[k]) / top));
+        }
+        return Value::array(std::move(out));
+    });
+    // buildEngineCurveData([own peaks = 1, [PS = 1000, [kgf m = 200]]]) (0x148B60): [power points, torque points, peak PS,
+    // peak kgf m, the first point's rpm, the rev limit]; x the engine speed from the first point to the rev limit, y the
+    // power (torque) over its peak, or over the larger of the peak and the given scale when the first argument is 0.
+    car->method("buildEngineCurveData", [rec, db, point](Vm&, const Value&, Args a) {
+        Database& d = db();
+        const sim::Showroom* sr = d.showroom();
+        if (!sr) return Value{};
+        sim::Equipment eq;
+        std::memcpy(eq.bytes.data(), rec().active(), sim::Equipment::kSize);
+        const CarRecord& r = rec();
+        const F factor = sim::engine_condition(d.program, F(r.condition(1)), F(r.condition(2)), r.no_wear());
+        const std::optional<sim::Charts> ch = sr->charts(eq, factor);
+        if (!ch) return Value{};
+        const sim::EngineFigures& e = ch->engine;
+        const bool own = a.empty() || arg_int(a, 0) != 0;
+        auto scale = [&](F peak, F given) { return own ? peak : (given < peak ? peak : given); };
+        const F ps_scale = scale(e.ps, F(a.size() > 1 ? arg_number(a, 1) : 1000.0f)), kgfm_scale = scale(e.kgfm, F(a.size() > 2 ? arg_number(a, 2) : 200.0f));
+        const s32 first = e.rpm.empty() ? 0 : e.rpm.front();
+        const F span = gt3r::ee::int_to_f(s32(e.rev_limit) - first);
+        std::vector<Value> power, torque;
+        for (size_t i = 0; i < e.rpm.size(); ++i) {
+            const F x = gt3r::ee::int_to_f(s32(e.rpm[i]) - first) / span;
+            power.push_back(point(x, (i < e.point_ps.size() ? e.point_ps[i] : F::raw(0)) / ps_scale));
+            torque.push_back(point(x, (i < e.point_kgfm.size() ? e.point_kgfm[i] : F::raw(0)) / kgfm_scale));
+        }
+        return Value::array({Value::array(std::move(power)), Value::array(std::move(torque)), Value::number(gt3r::ee::to_host(e.ps.bits)),
+                             Value::number(gt3r::ee::to_host(e.kgfm.bits)), Value::number(float(first)), Value::number(float(e.rev_limit))});
     });
     // The engine speeds of the spec (+0xBD rev limit, +0xBE shift limit, +0x110 the red line).
     auto engine_speed = [rec, db](u32 at) {

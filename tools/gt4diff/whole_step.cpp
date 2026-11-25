@@ -74,6 +74,7 @@ void WholeStep::before() {
         r.layout = session_->wheel_layout(size_t(i));
         load(r, read_image(ee_, race_.car(i)));
         session_->load_state(size_t(i), r.car, r.x);
+        if (i == 0) session_->set_random_state(ee_.r32(0x874D50)); // (the program's shared random stream: the flaps')
         std::vector<u8> rec(kBodySize);
         ee_.read_bytes(manager + 0xC + kBodySize * u32(i), rec.data(), kBodySize);
         load_body(session_->body(size_t(i)), rec, walls);

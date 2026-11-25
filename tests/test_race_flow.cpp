@@ -135,6 +135,27 @@ TEST(race_flow_crossing_time) {
     CHECK(started && rolling.steps_since_start() >= 0);
 }
 
+TEST(race_flow_rolling_clock) {
+    // A rolling start: the clock stands until the first car takes the line, then runs; the player's own
+    // crossing is his start signal, later; his first lap is timed from the clock's start.
+    Field f({4.0f, 4.0f}, 10);
+    f.at[1] = -2, f.publish(1); // car 1 ahead, 8 m before the player
+    race::FlowSetup s;
+    s.start = race::StartType::Rolling, s.laps = 2, s.lap_length = kLap;
+    race::RaceFlow flow(s, f.cars);
+    CHECK(!flow.clock_running());
+    int clock_step = -1, start_step = -1;
+    for (int i = 0; i < 10; ++i) {
+        f.step();
+        const race::RaceFlow::Events ev = flow.step(f.cars);
+        if (ev.clock_started) clock_step = i;
+        if (ev.start) start_step = i;
+    }
+    CHECK(clock_step == 0 && start_step == 2);
+    CHECK(flow.clock_running() && flow.clock() == 9 * race::kClockPerStep);
+    CHECK(flow.lap_ms(0) == race::clock_ms(flow.clock()));
+}
+
 TEST(race_result_board) {
     // Three cars, the player (0) the slowest; the page up when the leader finishes.
     Field f({2.0f, 3.0f, 2.5f}, 5);
@@ -480,6 +501,12 @@ TEST(race_gadgets_disc) {
             const race::Gadgets g = race::Gadgets::parse(file.section(data, course::kSlotGadgets), file.section(data, course::kSlotRunway));
             ++courses, placed += g.placements.size();
             for (const race::Gadgets::Placement& p : g.placements) CHECK(p.kind >= 0 && size_t(p.kind) < std::max<size_t>(g.kinds.size(), 1));
+            // Every course with gadgets has their models, where the header's +0x10 says.
+            if (!g.kinds.empty() && !g.placements.empty()) CHECK(!g.models.empty());
+            if (e.path == "crs/testcourse_100m") {
+                // The stopping box's row of cones: one kind, its models at +0xC0 (after the single kind).
+                CHECK(g.kinds.size() == 1 && g.placements.size() == 12 && !g.models.empty());
+            }
             if (e.path == "crs/tsukuba") {
                 // Tsukuba: 18 cones along its pit lane's ends; six kinds, the cone's a five-point hull.
                 CHECK(g.kinds.size() == 6 && g.placements.size() == 18);
@@ -532,8 +559,9 @@ TEST(race_frame_blend) {
 }
 
 TEST(race_gadget_bodies_disc) {
-    // A car driven through Tsukuba's first cone at 15 m/s knocks it away; it comes to rest on the road
-    // again; the cones left alone stay asleep where they stand.
+    // A car driven through Tsukuba's first cone at 15 m/s knocks it away (into the pit wall beside it);
+    // it settles on the floor (the program's rest rule seldom puts a knocked body back to rest: it stays
+    // awake, all but still); the cones left alone rest where they stand.
     if (test::discs().empty()) SKIP("set GT4R_DISC");
     bool ran = false;
     for (const auto& disc : test::discs()) {
@@ -547,12 +575,12 @@ TEST(race_gadget_bodies_disc) {
         if (!road || g.placements.size() < 2) continue;
         ran = true;
         race::GadgetBodies bodies;
-        bodies.reset(g);
+        bodies.reset(g, *road);
         const course::Vec3 cone = g.placements[0].position;
         race::GadgetBodies::Car car;
         car.forward = {1, 0, 0}, car.right = {0, 0, -1}, car.vel = {15, 0, 0};
-        // (The car at the cone's floor: Tsukuba's pit lane is not in the road file.)
-        const float h = cone.y - 0.11f;
+        // (The car's center half a metre over the cone's floor: Tsukuba's pit lane is not in the road file.)
+        const float h = cone.y - 0.11f + 0.5f;
         car.pos = {cone.x - 5, h, cone.z};
         unsigned hits = 0;
         for (int i = 0; i < 60; ++i) {
@@ -561,9 +589,9 @@ TEST(race_gadget_bodies_disc) {
         }
         const race::GadgetBodies::Body& b = bodies.bodies()[0];
         CHECK(hits == 1 && bodies.moved());
-        CHECK(b.removed || b.pos.x > cone.x + 3);
+        CHECK(b.removed || std::hypot(b.pos.x - cone.x, b.pos.z - cone.z) > 0.5f);
         for (int i = 0; i < 600; ++i) bodies.step(g, *road, {}, 1.0f / 60);
-        CHECK(b.removed || !b.awake);
+        CHECK(b.removed || (std::sqrt(b.vel.x * b.vel.x + b.vel.y * b.vel.y + b.vel.z * b.vel.z) < 0.5f && std::fabs(b.pos.y - b.floor) < 0.6f));
         const race::GadgetBodies::Body& other = bodies.bodies().back();
         CHECK(!other.awake && std::fabs(other.pos.x - g.placements.back().position.x) < 1e-4f);
     }
@@ -599,4 +627,37 @@ TEST(race_flow_finish_now) {
     for (int i = 0; i < 60; ++i) f.step(), flow.step(f.cars);
     flow.finish_now(0, 0.5f);
     CHECK(flow.player_finished() && flow.car(0).finish_units == 60 * race::kClockPerStep - race::kClockPerStep / 2);
+}
+
+TEST(strobe_race_monitor_disc) {
+    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    size_t movies = 0;
+    for (const auto& disc : test::discs()) {
+        const gt3r::Volume::Entry* e = disc->volume().find("menu/common/racemonitor.strb");
+        if (!e) continue;
+        ++movies;
+        auto movie = std::make_shared<const race::StrobeMovie>(race::StrobeMovie::parse(disc->volume().read(*e)));
+        race::StrobePlayer p(movie, [](const std::string&, const std::vector<race::StrobePlayer::Value>&) { return race::StrobePlayer::Value{}; });
+        p.restart();
+        // The instances the program fills by name: six rows, the current car, the total, the lap, the pace.
+        const std::vector<std::string> tree = p.tree();
+        auto has = [&](const std::string& path) {
+            for (const std::string& l : tree)
+                if (l.rfind(path + "  ", 0) == 0) return true;
+            return false;
+        };
+        for (const char* path : {"BAR1.NAME", "BAR6.DIFF", "BAR3.GRID", "CURRENTCAR", "TOTAL", "LAP", "PACEPANEL.PACETEXT", "CARPOS_F.GRID", "GAP5.TEXT"}) CHECK(has(path));
+        // Set by path: a text and a row's frame (the lit row is its second).
+        CHECK(p.set("BAR2.NAME", "text", race::StrobePlayer::Value::string("Ford Ka")));
+        CHECK(p.variable("BAR2.NAME").kind == race::StrobePlayer::Value::ClipRef);
+        p.call("BAR2", "gotoAndStop", {race::StrobePlayer::Value::number(2)});
+        bool named = false, lit = false;
+        for (const std::string& l : p.tree()) {
+            named = named || l == "BAR2.NAME  text 17 frame 0 \"Ford Ka\"";
+            lit = lit || l.rfind("BAR2  sprite 26 frame 1", 0) == 0;
+        }
+        CHECK(named && lit);
+        CHECK(!p.set("NO_SUCH", "text", race::StrobePlayer::Value::string("x")));
+    }
+    if (!movies) SKIP("no Gran Turismo 4 disc");
 }

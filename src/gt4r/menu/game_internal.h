@@ -11,9 +11,11 @@
 #include "gt4r/menu/runtime_internal.h"
 #include "gt4r/save/memory_card.h"
 #include "gt4r/sim/program.h"
+#include "gt4r/sim/showroom.h"
 
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -31,6 +33,7 @@ constexpr u32 kCarTable = 0, kWheelTable = 29, kWingTable = 30, kCourseTable = 0
 struct Database {
     Runtime* rt = nullptr;
     std::unique_ptr<db::SpecDb> db;
+    std::string language = "american"; // its name tables' (the menus' language)
     bool tried = false;
     std::vector<db::CarEntry> cars;
     std::map<std::string, size_t> by_label;
@@ -71,6 +74,14 @@ struct Database {
     };
     std::map<std::string, Spec> specs;
     const Spec& spec(const std::string& label);
+
+    // The showroom car (sim/showroom.h: ShowRoomCar's figures and evaluation); none without the
+    // database or for a program whose tables are not mapped.
+    const sim::Showroom* showroom();
+    // A car as sold, built so (kept: the database does not change).
+    std::optional<sim::ShowroomFigures> stock_showroom(const std::string& label);
+    std::unique_ptr<sim::Showroom> showroom_;
+    std::map<std::string, std::optional<sim::ShowroomFigures>> stock_figures_;
 };
 
 inline script::Value text(const std::string& s) { return script::Value::string(s); }
@@ -147,6 +158,8 @@ void make_used_condition(Database& d, CarRecord& r, u32 meters);
 void install_records(GameNatives& n, Object& game, script::Module& menu);
 // Gran Turismo 4 Prologue's main::game.license (prologue_natives.cpp).
 void install_prologue_license(Object& game);
+// A Prologue license run's points (0x19F410) from its RACE row (in Gran Turismo 4's columns), its result's name and time.
+s32 prologue_license_points(ByteSpan row, const std::string& result, u32 time_ms);
 
 // ---- game_replays.cpp
 // The replays saved in the data folder's replays/, newest first.
@@ -182,8 +195,16 @@ struct GameNatives {
     script::Value make_option();
     script::Value make_game();
     script::Value make_card_manager(script::Args a);
-    std::shared_ptr<save::GameSave> card_save;
+    std::shared_ptr<save::GameSave> card_save, card2_save;
     save::GameSave& card();
+    // The card in slot 2 (the data folder's memorycard2/; not connected when there is no such folder).
+    save::GameSave& card2();
+    // The garage object of a state.
+    std::shared_ptr<Object> make_garage(GameState* s);
+    // The games loaded beside the one played (loadInstance, for trading cars), kept while the menus run.
+    std::vector<std::shared_ptr<GameState>> other_games;
+    // The program's generator (0x874D50: MRandom.GetValue, the opponent picker), its state from 0x12345678.
+    ProgramRandom random{0x12345678u};
 };
 
 // The screen's figures for the option's monitor_size and wide_mode (0x436D60).

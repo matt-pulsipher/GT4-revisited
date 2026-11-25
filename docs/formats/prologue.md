@@ -76,7 +76,7 @@ column ← Prologue's:
 | `CAR_NAME_<language>` (8 / 16) | the name (GT4 +0x00, +0x04, +0x08), the short name (+0x0C ← +0x04) |
 | `VARIATION` (39 / 52) | +0x00 .. +0x26: the texts, the body's box, the color |
 | `COURSE` (9 / 22) | +0x00 .. +0x07 the texts; the surface GT4 +0x10 ← +0x08 |
-| `RACE` (98 / 151) | the course {row, table}; the grid GT4 +0x3E ← +0x22 and the computer drivers' columns GT4 +0x4B .. +0x73 ← +0x31 .. +0x57, +0x5A, +0x5B, where the race's copy of a row reads them (GT4 0x35E108, Prologue 0x3C5978); the laps GT4 +0x43 ← +0x25 ❓ (by the data: 2 on every championship race, 1 or 3 on the tests); ❓ the rest |
+| `RACE` (98 / 151) | the course {row, table}; the grid GT4 +0x3E ← +0x22 and the computer drivers' columns GT4 +0x4B .. +0x73 ← +0x31 .. +0x57, +0x5A, +0x5B, where the race's copy of a row reads them (GT4 0x35E108, Prologue 0x3C5978); the laps GT4 +0x43 ← +0x25 ❓ (by the data: 2 on every championship race, 1 or 3 on the tests); the gold, silver and bronze times GT4 +0x76 .. +0x7B ← +0x5C .. +0x61 (minutes, seconds) and GT4 +0x1A .. +0x1F ← +0x0C .. +0x11 (u16 ms), as 0x409B70 / 0x409BB0 / 0x409BF0 read them (all 0: none; on the license tests +0x5A is the test's number); ❓ the rest |
 
 Values that both discs have but changed between them (Prologue's are kept): brake torques, the
 yaw byte (Prologue's is 1.4 to 1.7 times Gran Turismo 4's), the suspension's travel, bump stops
@@ -164,18 +164,111 @@ Its own tables, at fixed places in the recognized build, each addressed by the r
 | the tire effect parameters | 0x503EA0 | 0x3B98A8 | 87 of 88 |
 
 They replace Gran Turismo 3's in the shared engine's race core when a session runs on
-Prologue's disc (`exact_bridge`). ❓ Not located: the controller settings, the surface classes,
-the soft materials, the gear kinds, the stick curve, the tire effect kinds and scales (the
-engine's values serve), the race display's places, the race sound's gains and microphones.
+Prologue's disc (`exact_bridge`). The controller settings are at 0x504950 (Gran Turismo 4's 0x622110 layout ❓ checked only for the row; the input
+phase 0x3DEDE0 reads the steering prefilter row at +0x70); ❓ not located: the surface classes, the soft materials, the gear
+kinds, the stick curve, the tire effect kinds and scales (the engine's values serve), the race sound's gains and
+microphones.
 `gt4tool prologue <disc> program` prints the build's routines, these tables and, for each table
 not located, the place in the data most like Gran Turismo 3's values.
 
-**What runs.** A session on Prologue's disc runs Gran Turismo 4's spec builder on the database
-in Gran Turismo 4's layout and the shared engine's per-step rules (`known()` is false, so not
-Gran Turismo 4's own), with Prologue's tables above. A field of computer drivers laps Tsukuba
-(Subaru Impreza rally car 1'14 .. 1'16, Civic Type R 1'14 .. 1'18 on two-car runs); ❓ Prologue's
-own per-step rules are not compared with the program (the harness runs Gran Turismo 4's
-routines only).
+## The race step ✔
+
+Prologue's step (0x3B7020, the conductor's car i at conductor + 0x77A8 + 0xC64 i, its parameter block at + 0xC8 + 0xEDC i,
+the count at + 0x107E4) has Gran Turismo 4's phases in Gran Turismo 4's order (the same three phases Gran Turismo 3 has not,
+0x3BDEC8, 0x3C3C90, 0x3C4400). Its routines are a mix: some are Gran Turismo 3's, some Gran Turismo 4's, some its own.
+
+**The record.** The car record is Gran Turismo 3's without the parameter block: an offset of Gran Turismo 3's record from
++0xEC0 is Prologue's + 0xEAC (the state block F at car + 0xD8, the wheels at car + 0x138 + 0xA4 w, the drive blocks at
+car + 0x3C8 + 0x24 w), and from Gran Turismo 3's F + 0x39C on + 0xEA8 (4 bytes inserted after the rolling resistance; the
+ground records at car + 0x614 + 0x34 w); then 0x430 bytes more to 0xC64. car + 0x10 points at the parameter block (0xEDC
+bytes): Gran Turismo 3's (0xEB0) with each tire record 4 bytes longer (0x1B8; its +0x1B4 .. +0x1B6 the record's kind bytes,
+Gran Turismo 4's direct slip ratio, direct lateral speed and x1da), what follows the six records 24 bytes on, and 20 more
+bytes (0 in every race seen) before the wear's load terms (Gran Turismo 3's P + 0xE6C, Prologue's + 0xE98). The drive
+block's +0x18 / +0x1C hold the steering offset's rate and the offset (Gran Turismo 3's: the steer angle's sine and cosine).
+
+**The spec and the converter.** The spec builder (0x3B3998 with 0x404620) makes Gran Turismo 3's spec layout (0x3E2 bytes):
+on the Civic Type R, ours (Gran Turismo 4's spec from the database in Gran Turismo 4's layout, `core_spec`) differs in 36
+bytes: the tire blocks' kind bytes +0x6C .. +0x6E (ours has them in Gran Turismo 4's spec), the pitch inertia byte, two aid
+bytes, surface rows 10, 11 and 15 of the tire blocks. The converter (0x3C74B8) is Gran Turismo 3's (0x1DBFD8) in another
+compiler's arithmetic (most words within a few units in the last place) with two of Gran Turismo 4's rules: each tire
+record's base grip times its load curve at the axle's static load per wheel (0x361798's rule), and for a record read at its
+sideways speed the slip angle of curve A's peak the axis point of its greatest value (0x353800's). With both
+(`prologue::convert`), every word of the block equals the program's within 8 units in the last place but the driveline's
+byte +0x13 (3; no reader found), a differential's decel ratio and the front droop.
+
+**The routines** (`gt4r_diff <prologue disc> prologue [course] [car] [steps]` with `GT4R_TAPS=engine | prologue | input`;
+the test `disc_prologue_step_routines_equal`): Prologue's step runs in the interpreter (its database's table objects
+{image, vtable} at 0x505358 + 0x124 + 4 t, the course's container relocated by 0x3A8058, entries of 0x4000 bytes: +0x20 the
+equipment, +0x3FA4 the controller (+0x184 set: a player's; its frame read car + 0x0C → +0xD0 → +0x28), +0x3FA8 the grid
+place; the conductor 0x3B5468, its initialisation virtual 25 0x3B6BA0) and each of ours runs in place at every call of the
+program's on the record as the program has it, every field compared. On a test drive (Civic Type R, Tsukuba, 1,200 steps):
+
+| Phase | Prologue | Equal at every call |
+|---|---|---|
+| 1 | 0x3B2480 | the engine's (Gran Turismo 3's) |
+| 4 | 0x3BF608 (with the peak force 0x3BF338, slip angles 0x3BF598, aerodynamics 0x3DBB70) | the engine's |
+| 5 | 0x3DEDE0 | Prologue's (`prologue::driver_input_pad`): the input phase's steering prefilter (row 0 of the controller settings' +0x70 rows; kind 6 rows 1 / 2), the pad path 0x3DED50 with 0x3DE270: the engine's pedals, reverse, shift and clutch with Prologue's eased pedals, and its steering 0x3DDC98 (`prologue::pad_steering`): the lock curve by speed (a pad: curve B, C on a loose surface: the steered wheels' least class of 0x504AC0, 2 counted as 0; a wheel: A, C on a dirt course), the steering wheel's least lock, the steered wheels' mean slip direction's extension, the full lock; the follower 0x3DDA10 (Gran Turismo 4's 0x3485D0) with its own gains and limits by rate class and mode, a pull toward the mean slip direction, limits moving with the speed; the HUD percentage. Its settings are the controls' set-up 0x3DD068 (Gran Turismo 4's 0x347A00, `prologue::controls`) on the controller settings' bytes. 1,200 of 1,200 calls equal (Civic, Impreza) |
+| 7 | 0x3B5A20 | the engine's angles; with the steering mode (0x714880: 1 in a race, built by 0x3B57D0 from the static block's +0xB9 .. +0xC0, Gran Turismo 4's rule) Gran Turismo 4's steering offset (0x3F7EA8's) but a wheel without the slip's fade aims at 0; no follower, no compliance steer (`prologue::wheel_steer`) |
+| 8 | 0x3BA450 with 0x3BA070 | Gran Turismo 4's slip ratio but the direct one: (hub less rim speed) / the static block's +0xE6 (driving) or +0xE5 (braking) km/h, each falling back to the other, then 50 (`prologue::slip_ratios`) |
+| 10 | 0x3BBFE0 | the engine's order and routines (brakes and clutch, tire curves, the class grip, longitudinal force, wheel torques, vectoring, axles, wheel speeds, engine speed, gearbox, the hold); Gran Turismo 4's tire slip force (0x3BB138: its direct lateral speed's scale pi / 2 over the static byte +0xE4 km/h; the mean slip angle into F + 0x420 with the switch 0x506612, which the race's set-up leaves 1) and forward step (0x3BAC98); the lateral forces and yaw (0x3BB5D0) Gran Turismo 4's but the lateral acceleration the sum times P + 0x4C (1 / mass), no yaw follower, no computer driver's grip (`prologue::dynamics`); the rolling resistance and the brake heat (phase 11) the engine's within a unit in the last place (another order of operations) |
+| 19 | 0x3B29D0 | Prologue's ground contact 0x3754D8 (`prologue::ground_contact`: the query points along the body's up axis by the hub's rest drop, Gran Turismo 3's road query 0x3882D0 = 0x18FB58 on the course's GTRW road (the engine's `CourseGround`, bit-exact), its own bump tables), terrain 0x375D00 (Gran Turismo 4's dot product) with its places 0x375A38 (one terrain factor for every wheel, the parameter block's +0x28C tire drop), the suspension (0x375F58) the engine's, its attitude 0x3765F8 (Gran Turismo 4's 0x36B0C8 but every damper counted, the sums times P +0x50, each wheel's whole load onto the ground's up axis, no speed part's lift; its pitch terms 0x376440 at the tire's radius by the static byte +0xD9; the start's hold 0x376330 the engine's with Gran Turismo 4's axes), its bump nudge 0x376EC8 (Gran Turismo 4's 0x36BA88 on these places), the ground frame (0x3C4D80) the engine's pitch, roll and height with Gran Turismo 4's axes; the hub offsets, speed ramp, speeds and wheel spin the engine's. The whole phase as the session runs it equal at every call but the effects' fields (below) |
+
+| 9 | 0x3E0838 | the engine's aids (equal at every call; the harness's car has its aids off) |
+| 8, 11 | 0x3B3810, 0x3BBF18 | the engine's brake heat and rolling resistance on Prologue's own race-start constants (0x3B3740's brake heat constants, 0x3C5BC0's rolling curve: the later builds' roundings, 0x46191FFF, 0x3DCCCCCC, 0x3E8E38E3, 0x3A83126E): equal at every call |
+| 20, 21 | 0x3BBBB8, 0x3BBD80 | the engine's tire wear and wear flags: equal at every call |
+
+Prologue's tables these read, at fixed places (`PrologueProgram`): the static block 0x503208 (Gran Turismo 3's layout: the
+slip bytes +0x84, the direct speeds +0xE4 .. +0xE6, the steering offset's +0xB9 .. +0xC0), the camber force's reference and
+gain 0x504294 / 0x504298, the wheel layouts 0x503FA8 (Gran Turismo 4's 0x54-byte rows), the surfaces whose offset aims at 0
+0x504AC0, the controller settings 0x504950 (Gran Turismo 4's 0x622110; read by the input phase).
+
+What a test drive gives (the program's / ours, km/h): 9.3 / 9.6 at 1 s of throttle,
+46.3 / 47.7 at 3.5 s in first gear (the engine's whole step before: 45.1 in second; it shifted at 33 km/h with its wheels
+spinning), 73.7 / 75.6 at 7.5 s; Impreza WRC 146.7 / 147.3 at 8.5 s.
+
+### What runs where
+
+A session on Prologue's disc (`sim::Session` with `prologue::Tables`, `rules_prologue.*`): the car's spec is Gran Turismo
+4's builder on the database in Gran Turismo 4's layout; the parameter block the engine's converter with
+`prologue::convert`; the step as the table above. `gt4r_diff <disc> prologue` with `GT4R_WHOLESTEP=1` loads the program's
+record into the session every step and compares the step's end (`=front`: phases 1 .. 11 alone; `GT4R_VS19`,
+`GT4R_AFTER19`, `GT4R_GROUND_CHECK`, `GT4R_SHOW_COLLIDE`). Still the engine's Gran Turismo 3 code, a stand-in or not run:
+
+- The converter (0x3C74B8): the engine's (Gran Turismo 3's 0x1DBFD8) with `prologue::convert`; about 250 words a few
+  units in the last place off (another compiler), e.g. the tire drop P +0x28C 3 units: the whole step's suspension
+  differs in the last place from the first step for it. Port 0x3C74B8 whole.
+- The collision step (0x3B6FB8 with 0x41CA90, Gran Turismo 4's 0x45BB60 "calls only"): Gran Turismo 4's (`collide`) on
+  the walls of the `Runway`; equal on the test drive but for a wall touched at step 863.
+- The start: the engine's pose and standing start, not Prologue's car set-up 0x3C93A0.
+- Phases 2, 3 and 6 (0x3BDEC8, 0x3C3C90, 0x3C4400: a special car's part 7 and the special car kind 1's moods): not run
+  (no Prologue car has them ❓).
+- Phase 14 (0x3DC1C8, Gran Turismo 4's 0x3F4638 "small arithmetic edit") and 15 (0x3B1C58, Gran Turismo 4's 0x3F28B8):
+  not run; to follow `sim-step`'s Gran Turismo 4 port once merged.
+- Phase 19's effects, feel, sound, view and bookkeeping: the engine's and they differ from Prologue's: pad rumble
+  0x3CE1A8, steering force 0x3BC7F0, tire effects 0x3CB1E0, engine sound 0x3B9020, view follower 0x3B4238, the speedometer
+  and odometer of 0x3C5740; the flaps 0x3C26F0 (phase 22) the engine's.
+
+## The license tests
+
+- **Where a test ends**: on a road whose goal distance (the GTRW header +0x1C) lies inside the lap and that has no
+  stopping box, where the lap's progress crosses it after the line (`judge_goal`, screen_race.cpp; Gran Turismo 3's
+  section test, ❓ Prologue's own judge not read): test 2 on `L_fisco6` ends 203.1 m from the line (its gold 0'12.180).
+- **Failing**: Gran Turismo 4's judge (its rows' rules) is not applied on Prologue's roads; all four wheels on grass,
+  gravel or sand (the road's materials 2, 3, 4, 6; Gran Turismo 3's rule, ❓ Prologue's own judge not read) end the run
+  at once with no time, as the original's lesson 1 does when the car runs onto the grass at the first corner
+  (`~/gt4re-out/reference/14-prologue/round5/`: "TIME -'--.---", retry / EXIT). The clock runs from the start signal
+  whether the car moves or not (the original's too).
+- ❓ **The laps**: the original's lesson 1 (`l0p0001`) runs two laps ("Lap 1/2", "two laps without going off the
+  course"), where the row's byte read as the laps (GT4 +0x43 ← +0x25) is 1 (3 on tests 8 .. 12, whose gold times are
+  12 .. 31 s): that byte is not the laps on the tests; where the tests' laps live is not found (ours runs one).
+- **The results movie** (`menu/result_license.strb`, ResultLicense 0x3D95D8): GetTime the time as 0x409D88 writes it
+  (M'SS.mmm), PrizeLevel (the result kind 1, 2 → 0, 3 → 1, 4, 5 → 2, else 3), GetRank the run's place in the test's
+  ranking (0x3FE3B0: the first of ten entries that is empty or slower; -1: no name entry), GetDefaultName the user
+  profile's name (0x402428, +0x1133C; ❓ before any entry: the page's "AAA"), NameEntry the name into the run's record
+  (0x37B378) and the profile (0x402438). The ranking keeps each run with its name at its place.
+- ❓ Not done: the license record's save to the card, the pass codes (the unit's getPassCode is a virtual of the license
+  unit, not followed), `isPassed`'s own native; the movie's two strip pictures (1024 x 1 and 1 x 512, PSMCT32) decode
+  (a black row and an orange column), yet the box under the name entry draws white.
 
 ## The race display ✅ (Gran Turismo 3's)
 
@@ -213,11 +306,22 @@ that Gran Turismo 4's do not:
   list; `prologue` the school, a present's page or the status.
 - `MScriptWatcher(context, module, "name")`: the function by its module and name.
 - Arrays' `bsearch(value)`: the index in the sorted array, -1 when absent.
-- `main::game.license`: `getUnit(number | race code)` a unit per license test (the code by the
-  scripts' own `main::prologue::getLicenseID`; the main script writes each unit's `category`),
-  with `isPassed`, `getBestTime`, `getRankNum`, `getPassCode`; `isPassedCategory`,
-  `isCompletePassedCategory`, `getDetailCount`, `getTotalPoint`, `forcePassedAll`. The results
-  are a new game's (nothing passed). ❓ A test's result kept and saved.
+- `main::game.license` (the program's license record: 48 units of 0x2E8 bytes from the object's +8, its natives
+  0x1582C0 and 0x15B4D0): `getUnit(number | race code)` a unit per license test (the code by the scripts' own
+  `main::prologue::getLicenseID`; the main script writes each unit's `category`), with `isPassed`, `isCompletePassed`,
+  `getBestTime`, `getRankNum` (the entries in its ranking of ten, 0x3FE548), `getPoint`, `getPassCode`;
+  `isPassedCategory` / `isCompletePassedCategory` (every unit of the category with a medal / gold: 0x3FF000 / 0x3FF080),
+  `getDetailCount(name)` (the units whose medal is that of the names at 0x505008: none, bronze, silver, gold;
+  0x3FEF78), `getTotalPoint` (their points summed, 0x3FEFA8), `forcePassedAll`. A unit keeps its medal (+4: 3 gold,
+  2 silver, 1 bronze; the best, 0x3FE1A0), its points (+8: the most, 0x3FE430) and ten times in order (from +0x20,
+  0x48 bytes each). The license race's end (0x19ED58) records a run: its medal, its time and its points (0x19F410: by
+  the test's RACE +0x22 and +0x5B and whether it has a bronze time, 0x19F508: gold 100 x (silver - time) /
+  (silver - gold), silver 50 x (bronze - time) / (bronze - silver), bronze 10; 0x19F620: 100 / 50 / 10; 0x19F670: gold as
+  0x19F508, silver 50, bronze 10; integer arithmetic, ms). Ours keeps them for the session (`recordResult`, called from
+  the race's end) with the name entered on the results page; ❓ their save, the pass codes, `isPassed`'s own native (taken as a medal).
+- A license race's gold, silver and bronze times go into the race menus' work (`MQuickWork` goldTime ..) from its
+  RACE row as the program's race set-up does (0x1A1C10 with 0x409B70 ..): the race display's three medal lines show
+  them (`~/gt4re-out/prologue/r5/lic3.png`: test 1 1'47.600 / 1'48.000 / none; `lic4.png`: test 2 0'12.180 / 0'12.200 / 0'13.000).
 - A license test's car is the first of its event's opponents (`demio_sport_03` for `l0p0001` on
   `L_20r60r2`), its grid the event's (1).
 
@@ -261,5 +365,4 @@ its results (`u1`). Against the reference: the title, arcade, car, paint, settin
 pages match the original's layout; the pre-race page's camera here is the course's scenic shots
 over the field, not the original's shots of the player's car; Japanese words are drawn by
 `menu-draw` (the settings' labels and START are blank here). ❓ Not done: the license tests'
-target times (the `RACE` rows hold none; not located), the results and presents after a test
-(`MPrologueLicense` keeps no result), the dialogs' Japanese text.
+target times (the `RACE` rows hold none; not located), the dialogs' Japanese text; the license results (see "The license tests").
