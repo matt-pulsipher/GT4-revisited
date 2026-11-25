@@ -36,6 +36,8 @@ public:
         double since_start = 1e9;             // seconds since the start
         double finish_t = -1;                 // seconds since the player finished
         std::array<s64, 3> targets{-1, -1, -1}; // a test's gold, silver and bronze times (ms)
+        float over_t = -1;   // seconds since a test's run ended (-1 not): the display fades out
+        bool passed = false; // ... with a medal: its target times stay
         int penalty = 0;                      // the seconds left of the player's penalty
         u8 asm_status = 0, tcs_status = 0;    // 0 off, 1 on, 2 acting
         float rev_limit = 7000, shift_rpm = 6500; // the limiter's and the automatic up-shift's revolutions (P + 0x1C4, + 0x226)

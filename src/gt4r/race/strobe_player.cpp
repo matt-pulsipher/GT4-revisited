@@ -83,6 +83,7 @@ struct StrobePlayer::Clip {
     size_t track = 0; // its track in the parent's sprite
     int frame = 0;
     bool playing = true, visible = true;
+    std::optional<float> set_x, set_y;  // its place in its parent as a script set it (_x, _y), past its track's
     std::map<std::string, Value> vars; // by lower-case name
     std::map<size_t, std::unique_ptr<Clip>> children; // by track
     std::array<std::unique_ptr<Clip>, 3> states;      // a button's: up, over, down
@@ -253,10 +254,30 @@ struct StrobePlayer::Impl {
         }
         if (f.target) f.target->vars[n] = v;
     }
+    // A clip's place in its parent: as a script set it, else its track's now.
+    float place_in(const Clip& c, bool x) const {
+        if (x ? c.set_x.has_value() : c.set_y.has_value()) return x ? *c.set_x : *c.set_y;
+        if (!c.parent || c.parent->kind != Clip::SpriteClip) return 0;
+        const Movie::Key& key = movie->sprites[size_t(c.parent->index)].tracks[c.track].key_at(c.parent->frame);
+        return x ? key.x : key.y;
+    }
+    // The properties of GetProperty / SetProperty by number (Flash's): those the race's movies use.
+    static const char* property(int index) { return index == 0 ? "_x" : index == 1 ? "_y" : index == 7 ? "_visible" : index == 13 ? "_name" : ""; }
     Value get_member(const Value& o, const std::string& name) {
+        if (o.kind == Value::String && o.s == kKeyObject) { // (the Key object's codes)
+            static const std::map<std::string, int> kCodes{{"left", 0x25}, {"up", 0x26}, {"right", 0x27}, {"down", 0x28}, {"space", 0x20}, {"enter", 0x0D}, {"escape", 0x1B}, {"shift", 0x10}};
+            const auto it = kCodes.find(lower(name));
+            return it != kCodes.end() ? Value::number(it->second) : Value{};
+        }
+        if (o.kind == Value::ArrayRef && o.array) {
+            if (lower(name) == "length") return Value::number(double(o.array->size()));
+            const double at = Value::string(name).to_number();
+            return at >= 0 && at < double(o.array->size()) ? (*o.array)[size_t(at)] : Value{};
+        }
         if (o.kind != Value::ClipRef || !o.clip) return {};
         Clip& c = *o.clip;
         const std::string n = lower(name);
+        if (n == "_x" || n == "_y") return Value::number(place_in(c, n == "_x"));
         if (n == "_name") return Value::string(c.name);
         if (n == "_parent") return clip_value(c.parent);
         if (n == "_root") return clip_value(root.get());
@@ -272,6 +293,9 @@ struct StrobePlayer::Impl {
         Clip& c = *o.clip;
         if (c.kind == Clip::TextClip && lower(name) == "text") c.text = v.to_string();
         else if (lower(name) == "_visible") c.visible = v.truthy();
+        else if (lower(name) == "_x" || lower(name) == "_y") { // (not a number: left as it was)
+            if (const double at = v.to_number(); !std::isnan(at)) (lower(name) == "_x" ? c.set_x : c.set_y) = float(at);
+        }
         else c.vars[lower(name)] = v;
     }
 
@@ -297,6 +321,11 @@ struct StrobePlayer::Impl {
     Value call_method(Frame& fr, const Value& obj, const std::string& name, const std::vector<Value>& args) {
         const std::string n = lower(name);
         if (obj.kind == Value::String && obj.s == kKeyObject) return n == "getcode" ? Value::number(key_code) : Value{};
+        if (obj.kind == Value::String && n == "substr") {
+            const double at = args.empty() ? 0 : args[0].to_number(), len = args.size() > 1 ? args[1].to_number() : double(obj.s.size());
+            const size_t from = size_t(std::clamp(at < 0 ? at + double(obj.s.size()) : at, 0.0, double(obj.s.size())));
+            return Value::string(obj.s.substr(from, size_t(std::max(0.0, len))));
+        }
         if (obj.kind == Value::ClipRef && obj.clip) {
             Clip& c = *obj.clip;
             if (n == "gotoandplay" || n == "gotoandstop") {
@@ -371,7 +400,25 @@ struct StrobePlayer::Impl {
                 const int index = int(pop().to_number());
                 const Value t = pop();
                 Clip* c = t.kind == Value::ClipRef ? t.clip : t.to_string().empty() ? target : get_variable(f, t.to_string()).clip;
-                st.push_back(index == 13 && c ? Value::string(c->name) : Value{});
+                st.push_back(c && *property(index) ? get_member(clip_value(c), property(index)) : Value{});
+                break;
+            }
+            case 0x23: { // SetProperty(target, index, value)
+                const Value v = pop();
+                const int index = int(pop().to_number());
+                const Value t = pop();
+                Clip* c = t.kind == Value::ClipRef ? t.clip : t.to_string().empty() ? target : get_variable(f, t.to_string()).clip;
+                if (c && *property(index)) set_member(clip_value(c), property(index), v);
+                break;
+            }
+            case 0x0A: { const Value b = pop(), a = pop(); st.push_back(Value::number(a.to_number() + b.to_number())); break; }
+            case 0x0B: { const Value b = pop(), a = pop(); st.push_back(Value::number(a.to_number() - b.to_number())); break; }
+            case 0x0C: { const Value b = pop(), a = pop(); st.push_back(Value::number(a.to_number() * b.to_number())); break; }
+            case 0x0D: { const Value b = pop(), a = pop(); st.push_back(Value::number(a.to_number() / b.to_number())); break; }
+            case 0x42: { // InitArray: the first element on the top
+                Value v;
+                v.kind = Value::ArrayRef, v.array = std::make_shared<std::vector<Value>>(pop_args());
+                st.push_back(std::move(v));
                 break;
             }
             case 0x3D: { // CallFunction
@@ -495,6 +542,8 @@ struct StrobePlayer::Impl {
             const Movie::Key& key = t.key_at(k.parent->frame);
             float l[6];
             local(key, l);
+            if (k.set_x) l[4] = *k.set_x;
+            if (k.set_y) l[5] = *k.set_y;
             float r[6];
             multiply(m, l, r);
             std::memcpy(m, r, sizeof m);
@@ -609,6 +658,10 @@ struct StrobePlayer::Impl {
             const Movie::Key& k = t.key_at(c.frame);
             float l[6], w[6];
             local(k, l);
+            if (const auto it = c.children.find(i); it != c.children.end()) { // (placed by a script)
+                if (it->second->set_x) l[4] = *it->second->set_x;
+                if (it->second->set_y) l[5] = *it->second->set_y;
+            }
             multiply(m, l, w);
             float km[4], ka[4], wm[4], wa[4];
             for (int j = 0; j < 4; ++j) {

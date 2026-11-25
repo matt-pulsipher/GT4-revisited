@@ -293,7 +293,7 @@ void install_prologue_license(Object& game, const RuntimeConfig* config) {
     });
     lic->method("forcePassedAll", [](Vm&, const Value&, Args) { return Value{}; }); // (0x3FEF38: nothing)
     // (ours) The name the results page offers (the user profile's +0x1133C: 0x402428 reads it, the page's NameEntry writes
-    // it, 0x402438): the last one entered; empty at first (the page then shows its own "AAA").
+    // it, 0x402438): the last one entered; empty at first (the page then takes one letter at a time).
     lic->method("getDefaultName", [r](Vm&, const Value&, Args) { return Value::string(r->default_name); });
     lic->method("setDefaultName", [r](Vm&, const Value&, Args a) {
         if (!a.empty() && a[0].kind == script::Kind::String) r->default_name = a[0].as_string();

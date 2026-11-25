@@ -1565,6 +1565,10 @@ public:
             if (result_) {
                 race_->board().follow(race_->flow());
                 if (m.vertical()) result_->key(m.vertical() < 0 ? 0x26 : 0x28);
+                if (prologue_license_ && license_page()) { // (its RETRY and EXIT side by side; a letter of the name taken back)
+                    if (m.horizontal()) result_->key(m.horizontal() < 0 ? 0x25 : 0x27);
+                    if (m.pressed(PadButton::Triangle)) result_->key(0x1B);
+                }
                 if (m.pressed(PadButton::Cross)) result_->key(0x20);
                 result_->advance(float(dt));
                 leave = result_exit_;
@@ -1660,7 +1664,7 @@ public:
             return;
         }
         // The results page covers the race display (the program hides it under the page).
-        if (setup_.hud && !results_shown()) {
+        if (setup_.hud && (!results_shown() || (prologue_hud_ && license_page()))) {
             if (hud_ && hud_->ready()) {
                 race_->fill(hud_state_, *hud_);
                 // The display's parts the options switch off; a replay's display as they say.
@@ -1696,6 +1700,7 @@ public:
                 for (const RaceHud::MovieExternal& e : ext) {
                     if (e.name == "screen" || e.name == "_EXT") inset_ = e, inset_shown_ = true; // the license page's live inset
                     if (e.name == "TropyPanel" && license_page()) draw_trophy(app, ui, e);
+                    if (e.name == "BRONZ" && license_page() && prologue_license_) draw_trophy(app, ui, e);
                     if (e.name.rfind("_EXT_CARICON", 0) == 0) {
                         const int row = std::atoi(e.name.c_str() + 12) - 1;
                         if (row >= 0 && size_t(row) < rows.size() && rows[size_t(row)].car >= 0) icons.push_back({size_t(rows[size_t(row)].car), e.x, e.y, e.opacity});
@@ -2426,9 +2431,10 @@ private:
         (void)w;
         const s64 g = test_time(0), sv = test_time(1), b = test_time(2);
         auto known = [](s64 v) { return v > 0; };
-        // (Prologue's tests may have no bronze time: gold or silver, or none; a test of neither time has no grade)
+        // (Prologue's tests may have no bronze time: any finish is bronze then, as the original's lesson 1; a test of no time
+        // at all has no grade)
         if (!known(b) && !known(g) && !known(sv)) return 3;
-        return known(g) && t <= g ? 0 : known(sv) && t <= sv ? 1 : known(b) && t <= b ? 2 : 3;
+        return known(g) && t <= g ? 0 : known(sv) && t <= sv ? 1 : (prologue_hud_ && !known(b)) || (known(b) && t <= b) ? 2 : 3;
     }
 
     // A test's target time k (0 gold, 1 silver, 2 bronze), ms: the page's (MQuickWork goldTime ..),
@@ -2561,10 +2567,7 @@ private:
                     // profile's, 0x402428) and the name entered (NameEntry: into the run's record and the profile's).
                     if (n == "GETTIME") return V::string(race::format_lap_time(race_->license_failed() || !f.player_finished() ? -1 : t)); // (the run's dashes when it failed)
                     if (n == "GETRANK") return V::number(f.player_finished() && prize_level() < 3 ? license_call("getRankOf", s32(t)) : -1);
-                    if (n == "GETDEFAULTNAME") { // (❓ the profile's name before any entry: the page's own "AAA" taken)
-                        const std::string name = license_name();
-                        return V::string(name.empty() ? std::string("AAA") : name);
-                    }
+                    if (n == "GETDEFAULTNAME") return V::string(license_name()); // (none before any entry: one letter at a time from A)
                     if (n == "NAMEENTRY" && !args.empty()) {
                         entered_name_ = args[0].to_string();
                         set_license_name(entered_name_);
@@ -2766,6 +2769,7 @@ private:
         else if (setup_.sequence == "time_trial") e.run = gt3r::race::HudRun::TimeTrial;
         else if (setup_.sequence == "freerun") e.run = gt3r::race::HudRun::FreeRun;
         e.live = !h.replay;
+        if (race_ && results_shown() && is_license(sequence_)) e.over_t = float(race_->flow().steps_since_player_finish()) / 60, e.passed = prize_level() < 3;
         const race::RaceFlow& flow = race_->flow();
         if (flow.holding()) e.start_left = double(flow.hold_left()) / 60, e.start_total = double(flow.hold_total()) / 60;
         else e.since_start = double(flow.steps_since_start()) / 60;
@@ -2849,7 +2853,9 @@ private:
         // 640 x 448 picture the trophy is drawn in.
         const SDL_FRect c = RaceHud::canvas();
         const float k = c.h / 480.0f, w = 282.3f * panel.scale * k, h = 270.5f * panel.scale * k;
-        const SDL_FRect rect{c.x + panel.x * k - w / 2, c.y + panel.y * k - h / 2, w, h};
+        SDL_FRect rect{c.x + panel.x * k - w / 2, c.y + panel.y * k - h / 2, w, h};
+        // Prologue's (0x3D99C0: the same motion, 0x3DA130) is drawn over the whole picture.
+        if (prologue_license_) rect = c;
         const render::Mat4 proj = render::perspective(race::LicenseTrophy::kFovDegrees * 3.14159265f / 180, race::LicenseTrophy::kAspect, race::LicenseTrophy::kNear,
                                                       race::LicenseTrophy::kFar);
         race_->draw_model(ui, rect, *trophy_, trophy_motion_.matrix(), proj, std::clamp(trophy_motion_.fade.value, 0.0f, 1.0f) * panel.opacity);

@@ -116,11 +116,12 @@ public:
     struct Clip; // a sprite's instance
     struct Function;
     struct Value {
-        enum Kind : u8 { Undefined, Null, Bool, Number, String, ClipRef, FunctionRef } kind = Undefined;
+        enum Kind : u8 { Undefined, Null, Bool, Number, String, ClipRef, FunctionRef, ArrayRef } kind = Undefined;
         double n = 0;
         std::string s;
         Clip* clip = nullptr;
         std::shared_ptr<Function> fn;
+        std::shared_ptr<std::vector<Value>> array;
         static Value number(double v) { Value x; x.kind = Number, x.n = v; return x; }
         static Value boolean(bool v) { Value x; x.kind = Bool, x.n = v ? 1 : 0; return x; }
         static Value string(std::string v) { Value x; x.kind = String, x.s = std::move(v); return x; }

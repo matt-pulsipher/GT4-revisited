@@ -571,6 +571,10 @@ void PrologueHud::draw(Ui& ui, const HudState& s, const Extra& e) {
             m.draw_picture(m.logo, m.place(m.logo, 604, 412, 5, 1), 0x80808080, a);
         }
     }
+    // A test's run over: the display gone in a quarter of a second, a passed one's target times kept (✔ the original's; ❓ the
+    // routine not read).
+    const float target_opacity = opacity;
+    if (e.over_t >= 0) opacity *= std::clamp(1 - e.over_t / 0.25f, 0.0f, 1.0f);
     const int view = e.onboard ? 0 : 1;
     for (const hr::HudRow& row : hr::hud_layout(mode)) {
         if (row.view != hr::kAnyView && int(row.view) != view) continue;
@@ -605,7 +609,7 @@ void PrologueHud::draw(Ui& ui, const HudState& s, const Extra& e) {
         }
         case hr::HudPart::Target: {
             static const char* const kMarks[] = {"mark_1st", "mark_2nd", "mark_3rd"};
-            if (row.sub < 3) m.draw_time(row.x, row.y, row.align, e.targets[row.sub] > 0 ? e.targets[row.sub] : -1, "", kMarks[row.sub], 2, 8, opacity);
+            if (row.sub < 3) m.draw_time(row.x, row.y, row.align, e.targets[row.sub] > 0 ? e.targets[row.sub] : -1, "", kMarks[row.sub], 2, 8, e.passed ? target_opacity : opacity);
             break;
         }
         case hr::HudPart::Messages:
