@@ -78,6 +78,9 @@ struct CarState {
     float contact = 0;
     u8 contact_kind = 0;
     int contact_car = -1;
+    // And the step's hits each on its own, as the race's judge is handed them: the strongest against a wall (its impulse
+    // |j|, N s) and against another car (its strength |j| / 15,000).
+    float wall_hit = 0, car_hit = 0;
     bool landed = false;
     bool rolling = false; // held in its rolling start (F + 0x467 = 1) until the simulation lets it go (release_start)
 };

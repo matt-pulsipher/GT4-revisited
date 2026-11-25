@@ -1,6 +1,7 @@
 #include "gt4r/sim/ai/drivers.h"
 
 #include "base/ee_math.h"
+#include "gt4r/sim/ai/drivers_prologue.h"
 #include "gt4r/sim/ai/ee_math.h"
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/course/ai_line_course.h"
@@ -80,6 +81,17 @@ struct Field::Driver {
     rules::WheelLayout lay; // the car's wheels (0x359510)
     std::array<u8, 0x54> lay_raw{0, 4, 0, 0, 2, 2, 0, 0, 0, 0, 0, 0, 0, 2}; // its row of the program's table
     int kind = 0;           // F+0x467: the driver's kind (0 racing)
+    ex::Driver ai;          // Prologue's driver record (the fields above follow it)
+    bool event_done = false; // (the event's percents on a pad's car its driver took over)
+};
+
+struct Field::PrologueDrivers {
+    prologue::DriverTables tables;
+    ex::CourseQuery query;
+    ex::AiCourse course;
+    ex::WearParams wear{};
+    PrologueDrivers(const prologue::DriverTables& t, const gt3r::course::Road& road, const course::AiData& data)
+        : tables(t), query(road), course(prologue::driver_course(query, data, t)) {}
 };
 
 struct Field::Near {
@@ -173,6 +185,10 @@ void Field::init(const course::AiData& data, const Program& program, std::span<c
     else
         soft_[2] = soft_[3] = soft_[4] = soft_[6] = 1;
     const size_t n = session.size();
+    if (!program.known() && n > 0 && session.prologue_part(0) && session.ground().road().gtrw)
+        if (const prologue::DriverTables t = prologue::driver_tables(program); t.found)
+            prologue_ = std::make_unique<PrologueDrivers>(t, *session.ground().road().gtrw, data);
+    if (prologue_ && session.wear_on()) prologue_->wear.max = kOne;
     drivers_.resize(n);
     ranks_.assign(n, 0);
     near_.assign(n, Near{});
@@ -182,8 +198,9 @@ void Field::init(const course::AiData& data, const Program& program, std::span<c
         const Pace& p = pace_;
         Band b;
         // (0x365480 is asked by the conductor's virtual 12: 1 for the races, the pace car tests and the missions, 0 for a run
-        // alone. Without percents it still runs: 100 x 0.01 is just below 1 in the console's arithmetic.)
-        b.on = program.known() ? !p.solo : p.slow_pct || p.fast_pct || (p.band_global && p.band_global != 100);
+        // alone. Without percents it still runs: 100 x 0.01 is just below 1 in the console's arithmetic.) Prologue's: in every
+        // race of several.
+        b.on = program.known() ? !p.solo : p.slow_pct || p.fast_pct || (p.band_global && p.band_global != 100) || (prologue_ && n > 1);
         b.mode = p.band_mode;
         b.slow = int_f(p.slow_pct) * kHundredth, b.slow_start = int_f(p.slow_start_m), b.slow_full = int_f(p.slow_full_10m) * F::raw(0x41200000);
         b.fast = int_f(p.fast_pct) * kHundredth, b.fast_start = int_f(p.fast_start_m), b.fast_full = int_f(p.fast_full_10m) * F::raw(0x41200000);
@@ -218,7 +235,8 @@ void Field::init(const course::AiData& data, const Program& program, std::span<c
         if (d && d->line >= 0) {
             const race::CarState& st = session.state(d->car);
             d->s = lines_.wrap_lap(st.course_v);
-            replan(*d);
+            if (prologue_) with_record(*d, [&](ex::Car& c) { prologue::driver_start(c, prologue_->course, prologue_->tables, CourseLines::kMain); });
+            else replan(*d);
         }
 }
 
@@ -263,6 +281,59 @@ void Field::setup(Driver& d) {
     d.rand = seed(d);
     // 0x463AE0: the long look ahead (D +0x1A = 0) for a computer car from a standing start on a paved course.
     d.start_flag = (d.control == 1 || d.control == 2) && pace_.standing_start && !session_->loose() && c.speed < F::raw(0x41055554) ? pace_.start_look : 1;
+    if (prologue_) prologue_setup(d);
+}
+
+// ---- Prologue's drivers ------------------------------------------------------------------------------------------
+
+// `fn` on the car's record with the driver's own record, kind and control in it, what it leaves of them kept.
+template <class Fn> void Field::with_record(Driver& d, Fn fn) {
+    ex::Car c = session_->record(d.car);
+    c.ai = d.ai;
+    c.driver_kind = u8(d.kind), c.control = s8(d.control), c.blip = d.blip;
+    fn(c);
+    d.ai = c.ai;
+    d.kind = c.driver_kind, d.blip = c.blip;
+    const ex::Driver& a = d.ai;
+    d.line = a.line, d.prev_line = a.prev_line, d.next = a.next, d.mode = a.mode, d.next_kind = a.next_kind, d.v_cur = a.v_cur, d.v_next = a.v_next;
+    d.blend = a.blend, d.state = a.state, d.status = a.status, d.cooldown = a.cooldown, d.pit = a.pit_limit, d.arc_ticks = a.arc_ticks;
+    d.steer = a.steer, d.throttle = a.throttle, d.brake = a.brake, d.reverse = a.reverse != 0, d.shift_lock = u16(a.shift_lock);
+}
+
+// The set-up's (0x3C93A0): the set, the event's percents for a car no pad drives, the downforce.
+void Field::prologue_setup(Driver& d) {
+    const auto& set = sets_[size_t(d.drive_class)];
+    d.ai = {};
+    prologue::driver_set(d.ai, set ? set->data() : prologue_->tables.builtin[session_->course_kind() == 1 ? 1 : session_->course_kind() == 2 ? 2 : 0].data());
+    const size_t k = size_t(d.drive_class);
+    if (d.control != 0) prologue::driver_event(d.ai, pace_.throttle[k], pace_.brake[k], pace_.corner[k], d.control, d.index);
+    prologue::driver_downforce(d.ai, session_->record(d.car).p);
+    d.p.aids = d.ai.aids;
+}
+
+void Field::prologue_decide(Driver& d, bool plans_only, race::CarInput& in) {
+    prologue::Step s;
+    s.course = &prologue_->course, s.tables = &prologue_->tables, s.wear = prologue_->wear;
+    s.part = session_->prologue_part(d.car);
+    s.start_count = s32(hold_count_), s.clock = clock_;
+    s.hit_front = d.hit_front, s.hit_rear = d.hit_rear;
+    s.dirt = session_->course_kind() == 2, s.start_speed = pace_.start_speed;
+    d.ai.zone = session_->record(d.car).ai.zone, d.ai.contact = session_->record(d.car).ai.contact;
+    with_record(d, [&](ex::Car& c) {
+        if (plans_only) prologue::braking(c, s);
+        else prologue::step(c, s);
+    });
+    in = race::CarInput{};
+    in.steer_angle = d.steer.host();
+    const ex::Car& c = session_->record(d.car);
+    const float hi = c.lock_hi.host() > 0.01f ? c.lock_hi.host() : c.p.max_lock.host(), lo = c.lock_lo.host() < -0.01f ? -c.lock_lo.host() : c.p.max_lock.host();
+    in.steer = std::clamp(-(in.steer_angle >= 0 ? in.steer_angle / std::max(hi, 1e-3f) : in.steer_angle / std::max(lo, 1e-3f)), -1.0f, 1.0f);
+    const F thr = pedal(d); // (0x425DC0: slewed by the step in the arcs)
+    d.applied_throttle = thr.host();
+    in.throttle = d.applied_throttle, in.brake = d.brake.host(), in.reverse = d.reverse;
+    in.computer = d.control != 0 || c.driver_kind != 1;
+    in.control = u8(d.control == 1 ? 1 : 2);
+    in.shift_lock = u8(d.shift_lock);
 }
 
 u16 Field::seed(const Driver& d) { return u16((((d.control == 2 ? u32(d.index) + 1 : 1u) * 0x41C64E6Du + 0x3039u) >> 16) & 0x7FFF); }
@@ -539,6 +610,12 @@ void Field::replan(Driver& d) {
 // 0x463C28: a line change (the request's fallback resolved), blended unless at once: the old line's share of the aim
 // starts at 1, or at what is left of it when the request is for the line being left.
 bool Field::request_line(Driver& d, int line, bool at_once) {
+    if (prologue_) { // (0x424C48)
+        bool done = false;
+        with_record(d, [&](ex::Car& c) { done = ex::ai_request_line(c, prologue_->course, prologue_->wear, line, at_once); });
+        d.inc.lane_changes += done;
+        return done;
+    }
     const int r = lines_.resolve(line);
     if (r < 0) return false;
     if (at_once) { // 0x463C00
@@ -879,6 +956,19 @@ void Field::finish(size_t car, int mode, bool player_car) {
     Driver& d = *drivers_[car];
     if (d.kind >= 2 && d.kind <= 4) return; // (on the pit lane: kept)
     if (player_car) d.control = 0;
+    if (prologue_) { // (0x3B2358: the event's percents for a pad's car its driver takes; its line the main one, blended)
+        if (d.control == 0 && !d.event_done) {
+            const size_t k = size_t(d.drive_class);
+            prologue::driver_event(d.ai, pace_.throttle[k], pace_.brake[k], pace_.corner[k], 0, d.index);
+        }
+        d.event_done = true;
+        if (mode == 0) {
+            if (!(d.control == 0 && d.kind == 0) || request_line(d, CourseLines::kMain, false)) d.kind = 1;
+        } else if (mode == 1 || mode == 3) {
+            if (request_line(d, CourseLines::kMain, false)) d.kind = mode == 3 ? 5 : 6;
+        } else d.kind = 7;
+        return;
+    }
     if (mode == 0) {
         // 0x3452F0: the computer drives on (a pad car of kind 0 too), off the passing line 7.
         if (d.line == 7) request_line(d, CourseLines::kMain, true);
@@ -981,9 +1071,27 @@ void Field::set_bspec_skill(size_t car, F corner, F brake, F alongside) {
 void Field::start_line(size_t car, int line) {
     Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
     if (!d) return;
+    if (prologue_) { // (0x424AB8)
+        with_record(*d, [&](ex::Car& c) { prologue::driver_start(c, prologue_->course, prologue_->tables, line); });
+        return;
+    }
     // (0x4639E0 seeds the draws and makes the plan once, on the start's line: the constructor's plan took a draw)
     d->rand = seed(*d);
     if (request_line(*d, line, true)) --d->inc.lane_changes;
+}
+
+void Field::start_grid_line(size_t car, int grid_place) {
+    const Driver* d = driver(car);
+    if (!d || !prologue_) return;
+    if (d->control == 0) return start_line(car, 7);
+    int line = prologue_->tables.grid_line[size_t(std::max(grid_place, 0)) % 6];
+    const auto& grid = prologue_->query.grid();
+    if (grid.size() >= 2) { // (the second place to the first's other side: lines 1 and 2 the other way round)
+        const F h = grid[0].yaw + F::raw(0x40490FDA);
+        const F side = (grid[0].x - grid[1].x) * gt3r::ee::cos(h) - gt3r::ee::sin(h) * (grid[0].z - grid[1].z);
+        if (!(side < F()) && (line == 1 || line == 2)) line = 3 - line;
+    }
+    start_line(car, line);
 }
 
 bool Field::hold_rolling(size_t car) {
@@ -991,7 +1099,10 @@ bool Field::hold_rolling(size_t car) {
     if (!d || d->control == 4) return false;
     // 0x3452F0: off the passing line 7 (a pad car's), the computer driving.
     const bool driven = (d->kind >= 2 && d->kind <= 4) || (d->control == 0 && d->kind == 0);
-    if (driven && d->line == 7) request_line(*d, CourseLines::kMain, true);
+    if (prologue_) { // (0x3C99E4: a pad's car; 0x3B3FD0: onto the main line, blended)
+        if (d->control != 0) return false;
+        if (driven && !request_line(*d, CourseLines::kMain, false)) return false;
+    } else if (driven && d->line == 7) request_line(*d, CourseLines::kMain, true);
     d->kind = 1;
     return true;
 }
@@ -999,6 +1110,7 @@ bool Field::hold_rolling(size_t car) {
 bool Field::release_rolling(size_t car) {
     Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
     if (!d) return true; // (no driver: let go)
+    if (prologue_) d->ai.state = 0; // (0x3B3F40)
     // 0x345228: a pad car's driver onto line 7 (its fallback), one on the pit lane's lines onto the main line; the kind cleared.
     if (d->control == 0) {
         if (!request_line(*d, 7, false)) return false;
@@ -1240,6 +1352,7 @@ void Field::decide(Driver& d) {
     }
     if (holding) d.throttle = kept;
     if (d.kind == 7) return stop(d, F());
+    if (d.kind == 8) return steer_to(d, F()), void(d.throttle = F()); // (parked: 0x3F3400)
     if (d.line < 0) return;
     const F scale = braking(d);
     const bool hit_front = d.hit_front, hit_rear = d.hit_rear;
@@ -1720,7 +1833,8 @@ void Field::begin_step(bool near_pass) {
     for (auto& d : drivers_)
         if (d) d->s = lines_.wrap_lap(cars.state(d->car).course_v);
     rubber_band();
-    if (near_pass) proximity();
+    // (Prologue's: the session's phase 14 leaves them in the records)
+    if (near_pass && !prologue_) proximity();
 }
 
 void Field::end_step() {
@@ -1745,10 +1859,27 @@ F Field::pedal(const Driver& d) const {
     return thr;
 }
 
+// 0x469E58: the suggested gear's speed.
+void Field::suggest(Driver& d) {
+    Suggestion& g = d.suggest;
+    g = {};
+    F target = d.v_next;
+    if (d.mode == 4 && !(d.v_next < d.v_cur)) target = d.v_cur;
+    if (!(session_->record(d.car).speed < target)) {
+        g.on = true, g.speed = target;
+        g.firm = d.mode == 3 || d.mode == 4;
+    }
+}
+
 void Field::decide_car(size_t car, race::CarInput& in) {
     if (car >= drivers_.size() || !drivers_[car]) return;
     Driver& d = *drivers_[car];
     incidents_after(d);
+    if (prologue_) {
+        prologue_decide(d, d.control == 0 && d.kind == 0, in);
+        suggest(d);
+        return;
+    }
     // (0x3F3400: a driven car stood in its pit box, F +0x4BA, or stopped for good, kind 8, decides nothing)
     {
         const ex::Car& c = session_->record(d.car);
@@ -1759,17 +1890,7 @@ void Field::decide_car(size_t car, race::CarInput& in) {
     const ex::Car& c = session_->record(d.car);
     const F thr = pedal(d);
     d.applied_throttle = thr.host();
-    // 0x469E58: the suggested gear's speed.
-    {
-        Suggestion& g = d.suggest;
-        g = {};
-        F target = d.v_next;
-        if (d.mode == 4 && !(d.v_next < d.v_cur)) target = d.v_cur;
-        if (!(c.speed < target)) {
-            g.on = true, g.speed = target;
-            g.firm = d.mode == 3 || d.mode == 4;
-        }
-    }
+    suggest(d);
     in = race::CarInput{};
     // The steering as the pad's share of the lock it allows at the car's speed (what a pad reads), and the angle.
     const float steer = d.steer.host();
@@ -1815,6 +1936,7 @@ void Field::blip(Driver& d, u32 count) {
 
 void Field::step(Session& session, std::span<race::CarInput> inputs, int keep, u32 count) {
     begin_step(false);
+    hold_count_ = count;
     // (the band is run at a step's end, for the next: the race's first step runs at the cars' own step length)
     if (first_step_ && session.time() == 0) std::fill(scale_.begin(), scale_.end(), kOne);
     first_step_ = false;
@@ -1842,14 +1964,16 @@ void Field::step(Session& session, std::span<race::CarInput> inputs, int keep, u
             const race::PadRecord* pad = in.pad; // (a player's car in its rolling start: its controller's frame is read all the same)
             decide_car(car, in);
             in.pad = pad;
-            if (d.control != 0 && session_->record(car).race_hold != 0) { // (0x3F3400)
+            if (!prologue_ && d.control != 0 && session_->record(car).race_hold != 0) { // (0x3F3400)
                 blip(d, count + session.start_counter(car));
                 in.throttle = pedal(d).host(), in.brake = 0, in.steer_angle = 0;
             }
         }
         session.set_line_heading(car, line_heading_at(car), line_mode_at(car));
     };
-    const auto near_cars = [this] { proximity(); }; // (0x3F4638, within the step)
+    const auto near_cars = [this] { // (0x3F4638, within the step; Prologue's: the session's phase 14)
+        if (!prologue_) proximity();
+    };
     if (count > 0) return session.hold_once(inputs, decide_one, near_cars); // (no step of the race's clock)
     session.step_once(inputs, decide_one, near_cars);
     end_step();

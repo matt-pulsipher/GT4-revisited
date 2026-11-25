@@ -310,6 +310,7 @@ void RaceWorld::build_simulation() {
     field_.reset();
     session_.reset(), rail_.reset();
     starts_.assign(setup_.entries.size(), {});
+    ended_.clear();
     if (!start_course_) start_course_ = std::make_unique<race::StartCourse>(course_->road(), course_->section(course::kSlotRunway), race::course_start(*app_.db(), setup_.course).way);
     start_course_->set_race(setup_.conductor, setup_.event_row, setup_.section);
     if (!setup_.rail && app_.disc()) {
@@ -328,7 +329,7 @@ void RaceWorld::build_simulation() {
                 else if (!sim::stock_car(*app_.db(), program, we.label, entries[i].equipment)) throw std::runtime_error("no parts for " + we.label);
                 entries[i].condition = we.condition;
                 entries[i].grid_place = we.grid_place;
-                entries[i].automatic = we.automatic;
+                entries[i].automatic = we.automatic, entries[i].pedal_style = we.pedal_style;
                 entries[i].asm_on = we.asm_on, entries[i].tcs_on = we.tcs_on, entries[i].wheel_aid = we.wheel_aid;
                 entries[i].driver = we.driver;
                 entries[i].control = pad_car(i) ? 0 : i == 0 ? 1 : 2;
@@ -384,6 +385,8 @@ void RaceWorld::build_simulation() {
             if (!computer.empty()) {
                 try {
                     sim::ai::Pace pace = setup_.pace;
+                    const WorldEntry& first = !overrides_.empty() && overrides_[0] ? *overrides_[0] : setup_.entries[0];
+                    pace.start_speed = u8(std::lround(std::clamp(first.start_speed * 3.6f, 0.0f, 255.0f)));
                     const race::CourseStart cs = race::course_start(*app_.db(), setup_.course);
                     pace.strip = cs.strip, pace.start_look = u8(std::max(0, race::start_code_digit(cs.code, 3)));
                     field_ = sim::ai::Field::open(*app_.disc(), setup_.course, *session_, computer, pace);
@@ -451,7 +454,7 @@ void RaceWorld::plan_starts(const sim::Program& program, std::vector<sim::Entry>
         const WorldEntry& we = i < overrides_.size() && overrides_[i] ? *overrides_[i] : setup_.entries[i];
         on_line = on_line || we.start_speed > 0 || !std::isnan(we.start_distance);
     }
-    if (on_line && !start_course_->has_lines() && !road.gtrw && app_.disc())
+    if (on_line && !start_course_->has_lines() && app_.disc())
         if (const std::optional<course::AiData> data = sim::ai::Field::read(*app_.disc(), setup_.course)) start_course_->add_lines(*data, sim::ai::Tables::load(program));
     starts_.clear();
     for (size_t i = 0; i < entries.size(); ++i) {
@@ -459,7 +462,7 @@ void RaceWorld::plan_starts(const sim::Program& program, std::vector<sim::Entry>
         std::optional<race::CarStart> rolling;
         if ((we.start_speed > 0 || we.start_kind == 1) && !std::isnan(we.start_distance)) { // a single race's rolling start (0x347618), a two-player battle's handicap (0x347108)
             rolling.emplace();
-            rolling->kind = we.start_kind ? we.start_kind : we.start_distance < 0 ? 2 : 1;
+            rolling->kind = we.start_kind ? we.start_kind : we.start_distance < 0 ? 2 : road.gtrw && we.start_distance == 0 ? 0 : 1; // (Prologue: at the line the grid)
             rolling->distance = int(we.start_distance), rolling->speed = int(std::lround(we.start_speed * 3.6f));
         }
         starts_.push_back(race::plan_start(r, i, we.grid_place >= 0 ? we.grid_place : int(i), rolling));
@@ -476,7 +479,18 @@ int RaceWorld::start_crossings(size_t car) const {
 
 // The line each car's driver starts on, and the cars their drivers hold in a rolling start.
 void RaceWorld::first_lines(const sim::Program& program) {
-    if (!program.known() || !field_ || course_->road().gtrw) return;
+    if (!field_) return;
+    if (course_->road().gtrw) { // (Prologue, 0x3C93A0: kinds 2 .. 5 the main line, else by the grid place)
+        for (size_t i = 0; i < starts_.size(); ++i) {
+            const WorldEntry& we = i < overrides_.size() && overrides_[i] ? *overrides_[i] : setup_.entries[i];
+            const int kind = starts_[i].line ? starts_[i].start.kind : 0;
+            if (kind >= 2 && kind <= 5) field_->start_line(i, sim::ai::CourseLines::kMain);
+            else field_->start_grid_line(i, we.grid_place >= 0 ? we.grid_place : int(i));
+            if (kind == 2) field_->hold_rolling(i);
+        }
+        return;
+    }
+    if (!program.known()) return;
     for (size_t i = 0; i < starts_.size(); ++i) {
         const WorldEntry& we = i < overrides_.size() && overrides_[i] ? *overrides_[i] : setup_.entries[i];
         field_->start_line(i, race::first_line(start_course_->race(), starts_[i], pad_car(i), we.grid_place >= 0 ? we.grid_place : int(i), program));
@@ -541,6 +555,8 @@ void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool pla
         }
         inputs = capped;
     }
+    for (size_t i = 0; field_ && session_ && i < ended_.size(); ++i)
+        if (ended_[i]) session_->set_ended_kind(i, u8(field_->kind(i)));
     if (field_ && session_) // (each driver deciding within the step; the player's own input kept once he drives)
         field_->step(*session_, driven, computer_player_ && !player_by_computer ? 0 : -1, hold ? std::max(1u, hold_left) : 0);
     else if (hold && session_) session_->hold_once(inputs);
@@ -1059,7 +1075,7 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
         m.wet_items.clear();
         course_->add_reflection_sky_items(m.wet_items, pose.eye);
         // The cars mirrored in the wet road when the course asks for them (Env0 +0x10 bit 16).
-        if (m.wet.params().cars)
+        if (m.wet.params().cars && !cars_hidden_)
             for (size_t i = 0; i < std::min(cars.size(), car_visuals_.size()); ++i)
                 if (int(i) != hidden) car_visuals_[i]->add_mirror_items(m.wet_items, cars[i], pose.eye);
         m.wet.add_buffer_items(m.wet_items, pose.view, pose.eye, {});
@@ -1067,7 +1083,7 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
         const render::DrawOptions wo = draw_options(*course_, far);
         if (SDL_GPUTexture* t = m.wet.render(*v.view, pose.view, proj, pose.eye, m.wet_items, wo)) m.wet.add_frame_items(m.items, pose.view, pose.fovy(), aspect, t);
     }
-    const size_t n = std::min(cars.size(), car_visuals_.size());
+    const size_t n = cars_hidden_ ? 0 : std::min(cars.size(), car_visuals_.size());
     m.lights.resize(n);
     for (size_t i = 0; i < n; ++i) {
         const RVec at{cars[i].position.x, cars[i].position.y, cars[i].position.z};

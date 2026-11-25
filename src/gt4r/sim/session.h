@@ -16,6 +16,7 @@
 #include "gt4r/sim/record.h"
 #include "gt4r/sim/rules_prologue.h"
 #include "gt4r/sim/rules_step.h"
+#include "sim/exact/course_query.h"
 #include "sim/exact/tick.h"
 
 #include <functional>
@@ -34,6 +35,7 @@ namespace gt4r::sim {
 struct Entry {
     Equipment equipment;   // the car, its parts and settings (stock_car)
     bool automatic = true; // the gearbox shifts itself
+    int pedal_style = -1;  // the entry's own pedal style byte in its place (Prologue's recorded runs); -1: by `automatic`
     bool asm_on = true, tcs_on = true;
     bool wheel_aid = false; // the entry's third aid switch (+0x3458; off for a player in the races seen): a steering wheel's slip aid
     // The entry's condition block (+0x3468, 0x20 bytes: the odometer (u32, m), the engine's and the oil's distances, the dirt,
@@ -176,6 +178,8 @@ public:
     bool gt4_rules() const { return gt4_rules_; }
     // Whether the session runs Gran Turismo 4 Prologue's own step (its program recognized; rules_prologue.h).
     bool prologue_rules() const { return prologue_.has_value(); }
+    // The driver's kind F +0x467 (Prologue's +0x538) as its driver has it after the car's run (ai::Field::kind; 8 parked).
+    void set_ended_kind(size_t i, u8 kind) { cars_[i].driver_kind = kind; }
     // A car's Gran Turismo 4 part of the record (record.h) and wheel layout.
     const sim::Extra& gt4_record(size_t i) const { return gx_[i]; }
     // The steering wheel's force of the last step (the pad block's +0x02: 0x80 centered, 0x80 - the force (-1 .. 1) x 127;
@@ -261,6 +265,8 @@ public:
     const ParamBlock& params(size_t i) const { return blocks_[i]; }
     // The flaps' random stream (the program's 0x874D50), for gt4r_diff's whole step.
     void set_random_state(u32 state) { random_state_ = state; }
+    // Prologue's (the VU0's R), likewise.
+    void set_vu0_random(u32 r) { rng_.r = r; }
     // A car's shift byte (car +0x83; 128: none): its gearbox's shift speeds times it / 128 while a B-spec driver drives it
     // (control source 1, 0x3F1E30). Holds until set again.
     // The car's rating, the parameter block's +0xFE0 (0x3F86E8: 0.01 .. 1), which the B-spec skill classes cars by.
@@ -304,19 +310,22 @@ private:
         float contact = 0;
         u8 contact_kind = 0;
         int contact_car = -1;
+        float wall_hit = 0, car_hit = 0; // (race::CarState::wall_hit, car_hit)
     };
-    void place(size_t i, const course::Runway::Place& at);
+    void place(size_t i, const course::Runway::Place& at, bool by_front = true, s32 hint = -1, const gt3r::ee::F* line_heading = nullptr);
     void setup(size_t i, const course::Runway::Place& at, int kind, float speed, bool fuel, const Entry::LineStart* line, gt3r::s8 control, u8 driver,
                const std::function<bool(gt3r::ee::F)>& open_throttle);
     rules::PoseHooks pose_hooks();
     void ground_contact(gt3r::sim::exact::Car& c, Extra& x);
     void chassis(size_t i);
     void collide();
+    void judge_hits();
     void publish(size_t i);
 
     std::shared_ptr<const course::Runway> road_;
     std::unique_ptr<RoadGround> ground_;
     std::unique_ptr<gt3r::sim::exact::CourseGround> course_ground_; // (Prologue's road: the program's query on its GTRW)
+    std::unique_ptr<gt3r::sim::exact::CourseQuery> course_query_;   // (and its single-point queries: the set-up's ground 0x3881F8, the progress 0x388198)
     std::unique_ptr<gt3r::sim::exact::ProgramData> data_;
     gt3r::sim::exact::RaceInputs race_;
     std::vector<gt3r::sim::exact::Car> cars_;
@@ -355,6 +364,7 @@ private:
     std::vector<prologue::FeelPart> prologue_feel_; // (phase 19's bookkeeping and feel, feel_prologue.h)
     rules::FeelTables prologue_feel_tables_;
     rules::SlideTables prologue_slide_;
+    prologue::ForceTables prologue_force_; // (0x3BC7F0's tables)
     gt3r::sim::exact::Proximity prologue_near_{}; // (phase 14's tables of the cars' pairs)
     std::unique_ptr<prologue::Collision> prologue_collide_;
     prologue::AidTables prologue_aids_;

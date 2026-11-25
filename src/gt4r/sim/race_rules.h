@@ -18,6 +18,7 @@ struct RaceRules {
     rules::HitRules hits;
     std::array<u8, 2> speed_cap{}; // +0x42 / +0x43 (km/h; 0 none)
     u8 penalty_cap = 0;            // +0x4B
+    u8 mileage = 0;                // +0x45 the mileage a test asks for (tenths of a kilometer per liter; 0 none: Prologue's test 36)
     // A race's rolling start by car (+0x4E + k: km/h, a car without one car 0's; +0x54 + 2 k: metres from the line, below 0
     // behind it): car 0's from the row (+0x42 and +0x14 in Gran Turismo 4's columns), Prologue's tests 26 .. 35's other cars'
     // from 0x3E1C20. All 0: a standing start.

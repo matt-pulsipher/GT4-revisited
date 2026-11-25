@@ -570,13 +570,10 @@ another race's for checks: then its own F+0x560, F+0x650, places, clock and fini
 - **The pits** (§11): the program's pass, request, service and the stop's timing, `PitStops` on the session; the car
   stands in its box by the brake (no placing in the box without the session's hook), tires and fuel through hooks.
 - Not done: the line-5 records, T+0x158's factor (1 throughout in this program).
-- Without the mapped program (Prologue, another release) the drivers run with neutral values: no
+- Without the mapped program (another release) the drivers run with neutral values: no
   spreads, no offset of the aim, a fallback of the passing lines to the main line, the shared
-  engine's tire records (16 surfaces) and no slip scaling of the steering gain; on a road without
-  the clusters' checkpoint lists (Prologue's) the lines' distances are taken between the
-  checkpoint lines. Prologue's
-  disc has no driver files (`crs/*.ad`): its courses carry the lines and sets in slots 31 and
-  37 .. 40 ([formats/prologue.md](../formats/prologue.md) "The drivers").
+  engine's tire records (16 surfaces) and no slip scaling of the steering gain. Prologue's drivers are its own
+  ([formats/prologue.md](../formats/prologue.md) "The computer drivers"), which `Field` runs on its sessions.
 
 Facts of the step our drivers keep:
 

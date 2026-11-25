@@ -92,6 +92,10 @@ struct PrologueHud::Impl {
     SDL_Renderer* r = nullptr;
     std::map<std::string, Picture> pictures;
     Picture logo;
+    Picture flows;                        // the hybrid's monitor: its palette's indices, its colors, the waves' phase
+    std::vector<u8> flow_index;
+    std::array<u32, 256> flow_palette{};
+    float flow_phase = 0;
     gt3r::text::FontFile fonts, more_fonts;
     std::map<std::string, const gt3r::text::LatinFont*> font_by_name;
     std::map<std::pair<const gt3r::text::LatinFont*, int>, SDL_Texture*> atlases;
@@ -99,9 +103,11 @@ struct PrologueHud::Impl {
     std::vector<Face> rev_faces, speed_faces;
     race::CourseMap map;
     SDL_Texture* map_texture = nullptr;
-    Needle needles[2];
+    Needle needles[3];
+    std::array<float, 2> pedals{}; // the replay monitor's last brake and throttle
+    float sign = 0;                // the wrong-way sign's fade
     float rank_shown = 0; // the rank's rolling digit (+0x2C)
-    double clock = 0;
+    double clock = 0, step = 0;
     Uint64 last_ns = 0;
 
     SDL_Texture* make_texture(const gt3r::Tex1::Image& img) {
@@ -207,7 +213,20 @@ struct PrologueHud::Impl {
     void draw_lap(const hr::HudRow& row, int lap, int laps, float opacity);
     void draw_time(float x, float y, int ha, s64 ms, const std::string& label, const char* icon, float ix, float iy, float opacity);
     void draw_map(const hr::HudRow& row, const HudState& s, float opacity);
-    void draw_dial(const Box& b, const std::string& face, float value, float min, float max, float a0, float a1, float red_from, Needle& n, float opacity);
+    struct DialShape { // a dial's base picture, its middle below the box's, its radius and its needle from its tail to its tip (of it)
+        const char* base = "GT4_meter_texture_sprv_base";
+        float down = 16.5f, radius = 77.5f, tail = -0.30970f, tip = 0.96130f;
+    };
+    void draw_dial(const Box& b, const std::string& face, float value, float min, float max, float a0, float a1, float red_from, Needle& n, float opacity, const DialShape& shape);
+    void draw_dial(const Box& b, const std::string& face, float value, float min, float max, float a0, float a1, float red_from, Needle& n, float opacity) {
+        draw_dial(b, face, value, min, max, a0, a1, red_from, n, opacity, DialShape{});
+    }
+    void draw_boost(const Extra& e, float opacity);
+    void draw_hybrid(const HudState& s, const Extra& e, float opacity);
+    void draw_flows(const Extra& e, float opacity);
+    void load_monitor(ByteSpan set);
+    void draw_pedals(const hr::HudRow& row, const Extra& e, float opacity);
+    void draw_cones(const hr::HudRow& row, const Extra& e, float opacity);
     void draw_onboard(const HudState& s, const Extra& e, float opacity);
     void draw_simple(const HudState& s, const Extra& e, float opacity);
     void draw_gear(const FontSpec& f, float x, float y, int gear, float opacity);
@@ -230,6 +249,7 @@ PrologueHud::PrologueHud(App& app, ByteSpan gtcm) : impl_(std::make_unique<Impl>
             const gt3r::Tex1::Image img = imgs.decode(*file, i);
             m.pictures[imgs.entries[i].name] = {m.make_texture(img), float(img.width), float(img.height)};
         }
+        if (const int at = imgs.find("prius_monitor"); at >= 0) m.load_monitor(imgs.set(*file, size_t(at)));
         if (const std::optional<Bytes> f = vfs->read("font/race.fnt")) m.fonts = menu::read_fonts(*f);
         if (const std::optional<Bytes> f = vfs->read("font/system.fnt")) m.more_fonts = menu::read_fonts(*f); // (sw_*)
         for (const gt3r::text::FontFile* file : {&m.fonts, &m.more_fonts})
@@ -283,6 +303,7 @@ PrologueHud::~PrologueHud() {
     for (auto& [key, t] : impl_->atlases)
         if (t) SDL_DestroyTexture(t);
     if (impl_->logo.texture) SDL_DestroyTexture(impl_->logo.texture);
+    if (impl_->flows.texture) SDL_DestroyTexture(impl_->flows.texture);
     if (impl_->map_texture) SDL_DestroyTexture(impl_->map_texture);
 }
 
@@ -386,13 +407,13 @@ void PrologueHud::Impl::draw_map(const hr::HudRow& row, const HudState& s, float
 
 // 0x397268 / 0x397308 / 0x397968 / 0x397518: a dial: its black base, the red zone's ring (twice, at a third), the face, and the needle
 // (eight copies at a sixth, led by its motion).
-void PrologueHud::Impl::draw_dial(const Box& b, const std::string& face, float value, float min, float max, float a0, float a1, float red_from, Needle& n, float opacity) {
-    const Picture& base = picture("GT4_meter_texture_sprv_base");
+void PrologueHud::Impl::draw_dial(const Box& b, const std::string& face, float value, float min, float max, float a0, float a1, float red_from, Needle& n, float opacity, const DialShape& shape) {
+    const Picture& base = picture(shape.base);
     const Picture& p = picture(face);
     draw_picture(base, panel(b), 0x80000000, opacity);
     const float kx = p.w > 0 ? b.w / p.w : 1, ky = p.h > 0 ? b.h / p.h : 1;
-    const float cx = b.x + float(int(b.w) / 2), cy = b.y + float(int(b.h) / 2) + 16.5f * ky;
-    const float rx = 77.5f * kx, ry = 77.5f * ky;
+    const float cx = b.x + float(int(b.w) / 2), cy = b.y + float(int(b.h) / 2) + shape.down * ky;
+    const float rx = shape.radius * kx, ry = shape.radius * ky;
     const float rad = kPi / 180;
     if (red_from > 0) {
         const float inner = 0.73548f, outer = inner + 0.26450f;
@@ -418,7 +439,7 @@ void PrologueHud::Impl::draw_dial(const Box& b, const std::string& face, float v
     const float lead = n.set ? (angle - n.angle) * 0.125f : 0;
     n.angle = angle, n.set = true;
     static const float kJitter[8][2] = {{0.5f, 0}, {-0.5f, 0.5f}, {0.5f, 0}, {-0.5f, -0.25f}, {0.5f, 0}, {-0.5f, 0.5f}, {0.5f, 0}, {-0.5f, -0.75f}};
-    const float back = -0.30970f, length = 0.96130f - back;
+    const float back = shape.tail, length = shape.tip - back;
     float jx = 0, jy = 0;
     const Rgba8 c = gs(kRed, opacity / 6);
     for (int k = 0; k < 8; ++k) {
@@ -431,6 +452,129 @@ void PrologueHud::Impl::draw_dial(const Box& b, const std::string& face, float v
         triangles({q0, q1, q2, q2, q1, q3});
         jx += kJitter[k][0], jy += kJitter[k][1];
     }
+}
+
+// 0x398520 / 0x398660: the boost gauge of a car with a turbocharger, 0 .. 2 over half a turn, at (508, 418).
+void PrologueHud::Impl::draw_boost(const Extra& e, float opacity) {
+    if (!e.turbo) return;
+    DialShape s;
+    s.base = "GT4_meter_texture_trb_base", s.down = 0, s.radius = 32, s.tail = -0.53125f, s.tip = 0.90625f;
+    draw_dial({508, 418 - 64, 64, 64}, "GT4_meter_texture_trb_scale", std::min(e.boost, 2.0f), 0, 2, 90, 270, 0, needles[2], opacity, s);
+}
+
+// A hybrid's panel in place of the dials (0x3930D8, 0x393300, 0x3933C8): the picture at (617, 428) of 406 x 42, the speed, the mileage
+// and the fuel (thousandths of a liter) over it, the stability lamp at its right end and the brake's at its left.
+void PrologueHud::Impl::draw_hybrid(const HudState& s, const Extra& e, float opacity) {
+    const Picture& base = picture("meter_prius_base");
+    const float x = 617 + wide_side(), y = 428, w = 406, h = 42;
+    draw_picture(base, {x - base.w, y - base.h, base.w, base.h}, 0x80FFFFFF, opacity);
+    char b[32];
+    std::snprintf(b, sizeof b, "%3d", int(std::fabs(s.speed) * 3.6f + 0.5f));
+    text(font("DC_24_5"), x - 300, y - 12, 0x809CB246, opacity, b, true);
+    const FontSpec f = font("FC_16", 90);
+    std::snprintf(b, sizeof b, "%2.1f", double(std::floor((e.hybrid_mileage + 0.05f) * 10) / 10));
+    text(f, x - 138, y - 12, 0x80B58F43, opacity, b, true);
+    std::snprintf(b, sizeof b, "%4d", std::min(int(e.hybrid_fuel * 1000 + 0.0005f), 9999));
+    text(f, x - 42, y - 12, 0x800363FD, opacity, b, true);
+    const float blink = std::fmod(clock, 0.2) < 0.1 ? 1.0f : 0.0f;
+    const int aid = std::max(e.asm_status, e.tcs_status);
+    const Picture& vsc = picture("meter_prius_vsc");
+    draw_picture(vsc, {x - vsc.w, y - vsc.h, vsc.w, vsc.h}, 0x800099FF, opacity * (aid >= 2 ? blink : aid == 1 ? 0.5f : 0));
+    const Picture& brake = picture("meter_prius_brake");
+    draw_picture(brake, {x - w, y - h, brake.w, brake.h}, 0x800000C8, opacity * (e.parking_brake ? 1.0f : 0.0f));
+}
+
+// The hybrid's monitor's picture: its palette's indices kept, its colors changed each picture.
+void PrologueHud::Impl::load_monitor(ByteSpan set) {
+    Bytes copy(set.begin(), set.end());
+    const gt3r::Tex1 tex = gt3r::Tex1::parse(copy);
+    const gt3r::Tex1::Buffer* clut = nullptr;
+    for (const auto& buffer : tex.buffers)
+        if (buffer.width == 16 && buffer.height == 16) clut = &buffer;
+    if (tex.textures.empty() || !clut || size_t(clut->offset) + 1024 > copy.size()) return;
+    const auto decode = [&] {
+        gt3r::GsMemory gs;
+        tex.upload(copy, gs);
+        return tex.decode(gs, 0);
+    };
+    const gt3r::Tex1::Image image = decode();
+    for (u32 k = 0; k < 256; ++k) {
+        u32 x = 0, y = 0;
+        gt3r::csm1_position(k, x, y);
+        u8* at = &copy[clut->offset + 4 * (y * 16 + x)];
+        flow_palette[k] = u32(at[0]) | u32(at[1]) << 8 | u32(at[2]) << 16 | u32(std::min(255, at[3] * 2)) << 24;
+        at[0] = u8(k), at[1] = at[2] = 0, at[3] = 0x80;
+    }
+    const gt3r::Tex1::Image indices = decode();
+    if (indices.width != image.width || indices.rgba.size() != image.rgba.size()) return;
+    flow_index.resize(size_t(image.width) * image.height);
+    for (size_t k = 0; k < flow_index.size(); ++k) flow_index[k] = u8(indices.rgba[k]);
+    flows = {make_texture(image), float(image.width), float(image.height)};
+}
+
+// 0x393718 .. 0x393E50: the energy's flows, lit along their eight colors of the picture's palette in waves (three a second), and the
+// store's eighths, at (26, 425).
+void PrologueHud::Impl::draw_flows(const Extra& e, float opacity) {
+    if (!flows.texture) return;
+    flow_phase = float(std::fmod(double(flow_phase) + 3 * step, 1.0));
+    std::array<u32, 256> colors = flow_palette;
+    struct Flow {
+        u32 row, start, count;
+        bool up;
+        std::array<float, 3> color;
+    };
+    const std::array<float, 3> orange{0.99f, 0.39f, 0.01f}, green{0.2f, 0.93f, 0.11f}, yellow{0.98f, 0.89f, 0}, none{};
+    const int motor = (e.hybrid_flags >> 1) & 3, store = (e.hybrid_flags >> 4) & 3;
+    const Flow list[] = {{0xD, 0, 8, false, e.hybrid_flags & 1 ? orange : none},
+                         {0xC, 0, 8, motor == 1, motor == 1 ? green : motor == 2 ? yellow : none},
+                         {0xB, 0, 8, false, e.hybrid_flags & 8 ? orange : none},
+                         {0xA, 1, 1, false, store == 1 ? green : store == 3 ? yellow : none},
+                         {0xA, 0, 1, false, store == 2 ? yellow : none}};
+    for (const Flow& f : list)
+        for (u32 k = 0; k < f.count; ++k) {
+            const float x = float(k) / float(f.count) + (f.up ? flow_phase : -flow_phase);
+            const float v = (std::sin(x * 2 * kPi) * 0.5f + 0.5f) * 255;
+            colors[f.row * 16 + f.start + k] = u32(v * f.color[0]) | u32(v * f.color[1]) << 8 | u32(v * f.color[2]) << 16 | 0xFF000000u;
+        }
+    for (u32 k = 0; k < 8; ++k) colors[0x90 + k] = float(k + 1) / 8 <= e.hybrid_store ? 0xFF00E3FAu : 0xFF202020u;
+    std::vector<u32> pixels(flow_index.size());
+    for (size_t k = 0; k < pixels.size(); ++k) pixels[k] = colors[flow_index[k]];
+    SDL_UpdateTexture(flows.texture, nullptr, pixels.data(), int(flows.w) * 4);
+    draw_picture(flows, {left_of(26, flows.w, 4), 425 - flows.h, flows.w, flows.h}, 0x80FFFFFF, opacity);
+}
+
+// 0x391110: the pedals of a replay's monitor, the brake left and the throttle right: a dark box each, a bar up it to the lesser of the
+// pedal's last two values, fading out to the greater, and the sign under it.
+void PrologueHud::Impl::draw_pedals(const hr::HudRow& row, const Extra& e, float opacity) {
+    const float w = row.w, h = row.h, x = left_of(row.x, 2 * w + 4, row.align), y = row.valign == 1 ? row.y - h : float(row.y);
+    const float sign = float(int(w - 4) * 16 / 22), bar = h - sign - 8;
+    const std::array<float, 2> now{std::clamp(e.brake, 0.0f, 1.0f), std::clamp(e.accelerator, 0.0f, 1.0f)};
+    for (int k = 0; k < 2; ++k) {
+        const float left = x + float(k) * (w + 4);
+        fill({left, y, w, h}, 0x80000000, opacity * 0.5f);
+        fill({left + 2, y + 2, w - 4, bar}, 0x80202020, opacity);
+        const Picture& p = picture(k ? "replay_sign_accel" : "replay_sign_brake");
+        draw_picture(p, {left + 2, y + h - sign - 4, w - 4, sign}, 0x80FFFFFF, opacity);
+        const float lo = std::min(now[size_t(k)], pedals[size_t(k)]), hi = std::max(now[size_t(k)], pedals[size_t(k)]);
+        const u32 color = k ? 0x802BCC49 : 0x800000F0;
+        const float bottom = y + 2 + bar, at_lo = bottom - bar * lo, at_hi = bottom - bar * hi;
+        fill({left + 2, at_lo, w - 4, bottom - at_lo}, color, opacity);
+        const Rgba8 c = gs(color, opacity), none = gs(color, 0);
+        const SDL_Vertex a = vertex(left + 2, at_hi, none), b = vertex(left + w - 2, at_hi, none), d = vertex(left + 2, at_lo, c), f = vertex(left + w - 2, at_lo, c);
+        triangles({a, b, d, d, b, f});
+    }
+    pedals = now;
+}
+
+// 0x394028: the cones knocked down and the test's count as a time is written, with the cone's picture.
+void PrologueHud::Impl::draw_cones(const hr::HudRow& row, const Extra& e, float opacity) {
+    if (e.cones_total <= 0) return;
+    const FontSpec f = font("FC_16", 90);
+    const std::string t = std::to_string(e.cones) + "/" + std::to_string(e.cones_total);
+    const Picture& p = picture("pylon");
+    const float x = left_of(row.x, 0, row.align); // (❓ the pen's end in the program; its place on the row's left here)
+    draw_picture(p, {x, row.y - p.h + 4, p.w, p.h}, 0x80FFFFFF, opacity, 0.502f);
+    text(f, x + p.w + 10, row.y, kOrange, opacity, t);
 }
 
 // 0x38F5F8: the gear over the font's blank segments ('J'): 'A' + gear - 1, 'I' the reverse in red.
@@ -460,6 +604,7 @@ void PrologueHud::Impl::draw_onboard(const HudState& s, const Extra& e, float op
             break;
         }
     const Box tach{345, 431 - 122, 155, 122}, dial{295 - 155, 431 - 122, 155, 122};
+    draw_boost(e, opacity);
     draw_dial(tach, rev->name, s.rpm, 1000, rev->max, 174, 394, e.shift_rpm, needles[1], opacity);
     draw_dial(dial, speed->name, kmh, 0, speed->max, 146, 366, 0, needles[0], opacity);
     // The lamps (0x390D60): the fuel, the stability control's triangle (half when on, blinking while it acts), the oil, the brake.
@@ -551,9 +696,10 @@ void PrologueHud::draw(Ui& ui, const HudState& s, const Extra& e) {
     Impl& m = *impl_;
     m.r = ui.renderer();
     const Uint64 now = App::frame_time_ns();
-    if (m.last_ns) m.clock += std::min(0.1, double(now - m.last_ns) / 1e9);
+    m.step = m.last_ns ? std::min(0.1, double(now - m.last_ns) / 1e9) : 0;
+    m.clock += m.step;
     m.last_ns = now;
-    if (!e.live) { // (a replay: the display hidden by default; the mark of the game fades in and out over a minute)
+    if (!e.live && !e.guide) { // (a replay: the display hidden by default; the mark of the game fades in and out over a minute)
         const double t = std::fmod(m.clock + 54, 60.0);
         const float a = t < 30 ? float(std::clamp(t / 3, 0.0, 1.0)) : float(std::clamp((33 - t) / 3, 0.0, 1.0));
         const Impl::Picture& p = m.picture("gt_logo_mini");
@@ -582,6 +728,8 @@ void PrologueHud::draw(Ui& ui, const HudState& s, const Extra& e) {
     const int view = e.onboard ? 0 : 1;
     for (const hr::HudRow& row : hr::hud_layout(mode)) {
         if (row.view != hr::kAnyView && int(row.view) != view) continue;
+        // (a lesson's guide film: the pedals, the clock and the simple panel; ✔ the original's lesson 1)
+        if (e.guide && row.part != hr::HudPart::AccelBrake && row.part != hr::HudPart::TimeLine && row.part != hr::HudPart::Meters) continue;
         switch (row.part) {
         case hr::HudPart::Rank:
             if (s.show_position && mode != hr::HudMode::License) m.draw_rank(row, s.place, opacity);
@@ -591,7 +739,9 @@ void PrologueHud::draw(Ui& ui, const HudState& s, const Extra& e) {
             break;
         case hr::HudPart::Meters:
             if (!s.show_meter) break;
-            if (row.sub == 0 && view == 0) m.draw_onboard(s, e, opacity);
+            if (e.hybrid) {
+                if (int(row.sub) == view) m.draw_hybrid(s, e, opacity), m.draw_flows(e, opacity);
+            } else if (row.sub == 0 && view == 0) m.draw_onboard(s, e, opacity);
             else if (row.sub == 1 && view == 1) m.draw_simple(s, e, opacity);
             break;
         case hr::HudPart::Map:
@@ -607,7 +757,9 @@ void PrologueHud::draw(Ui& ui, const HudState& s, const Extra& e) {
             case hr::TimeLine::Total: m.draw_time(row.x, row.y, row.align, s.total_ms, "Total", nullptr, 0, 0, opacity); break;
             case hr::TimeLine::Lap:
             case hr::TimeLine::Time: m.draw_time(row.x, row.y, row.align, std::max<s64>(0, s.lap_ms), "", "GT4_meter_texture_laptime", -2, 4, opacity); break;
-            default: break;
+            default:
+                if (row.sub == 15) m.draw_cones(row, e, opacity); // (RaceCountDisplay)
+                break;
             }
             break;
         }
@@ -617,6 +769,22 @@ void PrologueHud::draw(Ui& ui, const HudState& s, const Extra& e) {
             break;
         }
         case hr::HudPart::Messages:
+            // 0x386740: the seconds left of a test's lead; 0x38A890: the wrong-way sign, its blink of 0.2 s lit for 0.06 (in 0.05 s, out
+            // 0.1), not in a test of cones; AUTO DRIVE while the car's driver brings it to the line.
+            if (e.time_left > 0) {
+                std::string t = m.words.count("KeepLeader") ? m.words["KeepLeader"] : "%d";
+                if (const size_t at = t.find("%d"); at != std::string::npos) t.replace(at, 2, std::to_string(e.time_left));
+                m.draw_message(row.x, row.y, m.font("sw_16"), kOrange, opacity, t);
+            }
+            else if (e.penalty <= 0 && e.wrong_way && e.cones_total <= 0) {
+                m.sign += (std::fmod(m.clock, 0.2) < 0.06 ? 1 / 0.05f : -1 / 0.1f) * float(m.step);
+                m.sign = std::clamp(m.sign, 0.0f, 1.0f);
+                const Impl::Picture& p = m.picture("GT4_meter_texture_wrongway");
+                m.draw_picture(p, {row.x - p.w / 2, row.y - p.h / 2, p.w, p.h}, 0x80FFFFFF, opacity * m.sign);
+            } else if (e.penalty <= 0 && e.auto_drive) {
+                const auto it = m.words.find("AutoDrive");
+                m.draw_message(row.x, row.y, m.font("sw_16"), kOrange, opacity, it != m.words.end() ? it->second : std::string("AUTO DRIVE"));
+            }
             // 0x38A7B8: the penalty's seconds.
             if (e.penalty > 0) {
                 std::string t = m.words.count("Penalty") ? m.words["Penalty"] : "%d";
@@ -626,10 +794,12 @@ void PrologueHud::draw(Ui& ui, const HudState& s, const Extra& e) {
             }
             break;
         case hr::HudPart::Events:
-            if (!s.event.empty()) m.draw_message(row.x, row.y, m.font("sw_16"), kEvent, opacity * s.event_opacity, s.event);
-            if (!s.event_gap.empty()) m.draw_message(row.x, row.y + 20, m.font("sw_16"), kEvent, opacity * s.event_gap_opacity, s.event_gap);
+            if (!s.event.empty()) m.draw_message(row.x, row.y, m.font("FC_16", 90), kEvent, opacity * s.event_opacity, s.event);
+            if (!s.event_gap.empty()) m.draw_message(row.x, row.y + 20, m.font("FC_16", 90), kEvent, opacity * s.event_gap_opacity, s.event_gap);
             break;
-        case hr::HudPart::AccelBrake: break;
+        case hr::HudPart::AccelBrake:
+            if (row.sub == 0 && !e.live) m.draw_pedals(row, e, opacity);
+            break;
         case hr::HudPart::Title:
             // The count (0x38A558: 0.8 s a second, fading over the last 0.15), START (0x38CDC8: one second), FINISH (0x38CE68: three,
             // fading over the last).
