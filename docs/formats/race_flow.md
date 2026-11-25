@@ -252,9 +252,10 @@ FREE_QUALIFY, LOGGER, OPTION 22), `raceLabel`, `courseLabel`, `goldTime` / `silv
 The single race fills it (`fn_00111A40`, `fn_00111B50`): each car's name and paint by its grid
 place, `numberOfEntries`, `playerGridNumber` (the player's place), `courseLabel`, `IsBSpec`,
 `IsDryCourse`, the race's tire for every row, the quick tune from the player's settings
-(transmission, assists), `canReplay` 0. ❓ Here IsBSpec and IsDryCourse answer 1 (the course's
-condition and record byte are not read), and only the first chip word (the paint's colour) is
-filled.
+(transmission, assists), `canReplay` 0. `IsBSpec` (0x110CB8; the time trial's and the free run's
+too): a paved course (its COURSE row's +0x10 0) whose byte +0x14 is not 0; `IsDryCourse`: not
+kind 2 or 3; the tire on kind 3 is 12 (`start_quick_work`; the race side still writes 1 for both
+on the single race). ❓ Only the first chip word (the paint's colour) is filled.
 
 ## Saved replays
 

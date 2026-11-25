@@ -255,6 +255,23 @@ void start_quick_work(Runtime& rt, const RaceRequest& q) {
     QuickWork& w = quick_work(s);
     if (q.sequence == "time_trial" || q.sequence == "freerun" || q.sequence == "machinetest") w.set("BestTime", s32(QuickWork::kNoTime)); // 0x112E78, 0x117718, 0x116070
     if (q.sequence == "freerun") w.set("canLoadGhost", 1); // 0x117718
+    // The B-spec button (Arcade's race 0x111A40, its time trial 0x112E78, the free run 0x117718: 0x110CB8): on a paved course
+    // (its COURSE row's +0x10 0) whose row's byte +0x14 is not 0.
+    const bool arcade = q.sequence == "single_race" || q.sequence == "time_trial";
+    if (const std::shared_ptr<GameNatives> n = natives_of(rt); n && (arcade || q.sequence == "freerun")) {
+        const ByteSpan course = n->db().row("COURSE", q.course);
+        const int kind = course.size() > 0x10 ? course[0x10] : -1;
+        w.set("IsBSpec", kind == 0 && course.size() > 0x14 && course[0x14] ? 1 : 0);
+        if (arcade) { // (0x111B50, 0x112FE8)
+            const int tire = kind == 3 ? 12 : q.tire;
+            w.set("IsDryCourse", kind == 2 || kind == 3 ? 0 : 1);
+            w.set("QuickTunePowerLevel", 0), w.set("QuickTuneWeightLevel", 0);
+            w.set("QuickTuneFrontTireType", tire), w.set("QuickTuneRearTireType", tire);
+            w.set("QuickTuneTransmission", q.manual ? 1 : 0);
+            w.set("QuickTuneDrivingAssist", q.assist_asm ? 2 : q.assist_tcs ? 1 : 0);
+            w.set("IsQuickTuned", 0);
+        }
+    }
     if (q.sequence == "machinetest") w.set("DisableLogger", 1); // 0x116124
     if (q.sequence == "license_race") w.set("BestTime", s32(QuickWork::kNoTime)); // ❓ (Prologue's constructor is not read: dashes, as before)
     if (q.sequence == "license") {
@@ -516,6 +533,8 @@ s64 Runtime::race_finished(const RaceResult& r) {
         day.code = d.code(kCourseTable, r.course);
         break;
     }
+    // Arcade's sequences put no day (0x111498 and 0x112620 reach none of the routines that do).
+    if (r.kind == RaceResult::Kind::Course && r.course_kind == 7) return prize;
     // A license test's day is the sequence's, put when it ends (0x110800); a run outside a
     // sequence puts it at once.
     if (r.kind == RaceResult::Kind::License && s.race_session.license_open) s.race_session.license_day = day;

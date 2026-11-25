@@ -1171,7 +1171,12 @@ void complete_race_request(Runtime& rt, RaceRequest& r) {
             break;
         }
     const ByteSpan row = race.empty() ? ByteSpan{} : d.row("RACE", race);
-    if (r.course.empty() && row.size() >= 8) r.course = d.label(u64(r32(row, 0)) | u64(r32(row, 4)) << 32);
+    const bool test = r.sequence.find("license") != std::string::npos || r.sequence.find("mission") != std::string::npos;
+    // The course the scripts set (Arcade's, the free run's, practice's, photo drive's, and an event's when they set one:
+    // 0x447C78, 0x4471E0); a license test's, a mission's and the machine test's is always their event's (0x1151F0, 0x11D0F8,
+    // 0x11BEC0, 0x115F58), whatever another mode left.
+    if ((r.course.empty() || test || r.sequence == "machinetest") && row.size() >= 8)
+        r.course = d.label(u64(r32(row, 0)) | u64(r32(row, 4)) << 32);
     // Prologue's arcade races are their events': the grid (RACE +0x3E, 1 on "gt4p_dirt", the run
     // without opponents) and the laps (+0x43, 2), which its scripts do not set.
     // docs/formats/prologue.md "The menus".
@@ -1192,7 +1197,6 @@ void complete_race_request(Runtime& rt, RaceRequest& r) {
         std::copy_n(s.course_record.data() + *at + 0x228, 8, r.bspec_course_marks.begin());
         r.bspec_course_known = true;
     }
-    const bool test = r.sequence.find("license") != std::string::npos || r.sequence.find("mission") != std::string::npos;
     // Whose car: the garage's driven car in Gran Turismo mode's sequences (0x10F948: the event's 0x113B48, the championship's
     // 0x118EF0, the free run's 0x116E20, practice's 0x1181C8, the machine test's 0x115A90, photo drive's 0x11ABE0), the event's
     // own in a license test and a mission (0x10F880, 0x10F8E0), the scripts' car_code in Arcade's (0x10F7D8): a code left by
