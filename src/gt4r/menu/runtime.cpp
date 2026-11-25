@@ -715,7 +715,10 @@ void Runtime::track_actor(const std::shared_ptr<script::Heap>& a) {
 
 void Runtime::dispatch(Event& e) {
     if (trace_calls && e.kind == Event::Kind::Key) note(std::string("key ") + key_name(e.key));
-    if (e.kind == Event::Kind::Key) return e.release ? dispatch_release(e.key) : dispatch_key(e.key);
+    if (e.kind == Event::Kind::Key) {
+        key_repeated_ = e.repeat;
+        return e.release ? dispatch_release(e.key) : dispatch_key(e.key);
+    }
     if (e.kind == Event::Kind::Call) return run(e.callee, std::move(e.args), std::move(e.what));
     const auto object = e.value.as<Object>();
     if (!object) return;
@@ -1020,10 +1023,10 @@ bool Runtime::keys_taken() {
     return !mask.is_number() || s32(mask.as_float()) != 0 || mask.as_float() != 0;
 }
 
-void Runtime::key(Key k) {
+void Runtime::key(Key k, bool repeat) {
     if (!keys_taken()) return;
     Event e;
-    e.kind = Event::Kind::Key, e.key = k;
+    e.kind = Event::Kind::Key, e.key = k, e.repeat = repeat;
     events_.push_back(std::move(e));
     last_input_frame_ = frame_;
 }

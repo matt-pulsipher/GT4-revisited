@@ -422,7 +422,7 @@ bool bar_key(Runtime& rt, LiveWidget& w, Key k) {
     // ScaleBar (0x238D10): a press of a key along it starts a hold (repeat_start, 0x238FF0) and tells the step
     // (0x238A10); then the widget's own handling (its script's onKeyPress) has the key: the runtime calls
     // scale_bar_key_after when that did not take it.
-    if (dir) {
+    if (dir && !rt.key_repeated()) {
         bar_set(w, "repeat_start", std::clamp(bar_num(w, "value", 0), bar_num(w, "min", 0), bar_num(w, "max", 100)));
         scale_step_notify(rt, w);
     }

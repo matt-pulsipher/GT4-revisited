@@ -71,6 +71,7 @@ struct LiveWidget : script::Module {
     std::shared_ptr<script::Reference> member(script::Vm&, const script::Value& self, const std::string& name) override;
 
     std::shared_ptr<script::Reference> element(script::Vm& vm, const script::Value& self, const std::string& name) override;
+    std::shared_ptr<script::Reference> dotted(script::Vm& vm, const script::Value& self, const std::string& name) override;
     std::string describe() const override { return "<" + data.type + " " + path() + ">"; }
     void clear() override;
 
@@ -157,7 +158,10 @@ public:
     // queued are given to the scripts, the actors move.
     void update();
     // A press of a pad button: queued for the event thread.
-    void key(Key k);
+    unsigned directions_held = 0; // what the app's directions were last frame (bits: up, down, left, right): a press of one still held is a repeat
+    // `repeat`: the key is held since an earlier press of it.
+    void key(Key k, bool repeat = false);
+    bool key_repeated() const { return key_repeated_; } // of the key being dealt with
     // The pad as it is held now (the program's mask) and its sticks (-1 .. 1: right x, right y, left x, left y): once a
     // picture. What the scripts ask of it (getPadButtonState, getPadAnalogChannel); a button let go queues its key release.
     struct Pad {
@@ -279,6 +283,7 @@ private:
         enum class Kind { Key, Script, Call } kind = Kind::Script;
         Key key = Key::Accept;
         bool release = false;                      // a Key let go
+        bool repeat = false;                       // a Key still held
         script::Value value;                       // an MScriptEvent / MFunctionEvent
         script::Value callee;                      // a Call's
         std::vector<script::Value> args;
@@ -322,6 +327,7 @@ private:
     std::deque<std::string> log_;
     std::vector<SoundCall> sounds_;
     u64 frame_ = 0, last_input_frame_ = 0;
+    bool key_repeated_ = false;
     std::weak_ptr<LiveWidget> entered_; // the widget the cursor last went into (its onEnter)
     bool finished_ = false;
     std::string sequence_ = "boot"; // the part of the game running: "boot", then "menu"

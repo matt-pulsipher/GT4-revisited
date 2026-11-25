@@ -394,7 +394,9 @@ SDL_AppResult App::iterate() {
     }
     input_->update(dt);
     if (!menu_pad_.connected) menu_pad_ = input_->menu_pad();
-    menu_.update(scripted.buttons ? scripted : input_->menu_pad(), dt);
+    const bool sticks = drive_.sticks[0] != 0 || drive_.sticks[1] != 0;
+    if (sticks) scripted.set_axis(gt3r::PadAxis::LX, drive_.sticks[0]), scripted.set_axis(gt3r::PadAxis::LY, drive_.sticks[1]);
+    menu_.update(scripted.buttons || sticks ? scripted : input_->menu_pad(), dt);
     if (!screens_.empty()) screens_.back()->update(*this, dt);
     apply_screen_changes();
     if (screens_.empty()) quit_ = true;

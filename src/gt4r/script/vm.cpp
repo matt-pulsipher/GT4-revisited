@@ -945,7 +945,8 @@ Vm::Step Vm::execute(Task& t, Frame& f) {
                     }
                 }
                 const Value of = deref(*this, pop());
-                std::shared_ptr<Reference> r = member(of, in.text);
+                std::shared_ptr<Reference> r = of.p ? of.p->dotted(*this, of, in.text) : nullptr;
+                if (!r) r = member(of, in.text);
                 if (!r) fail(f, pc, "no \"" + in.text + "\" in " + of.to_string());
                 st.push_back(reference(std::move(r)));
                 break;

@@ -5,6 +5,7 @@
 #include "gt4r/app/app.h"
 #include "gt4r/app/menu_cursor.h"
 #include "gt4r/app/menu_page_drawer.h"
+#include "gt4r/app/menu_painter.h"
 #include "gt4r/app/photo_faces.h"
 #include "gt4r/app/race_world.h"
 
@@ -36,23 +37,6 @@ using RVec = render::Vec3;
 constexpr float kPi = 3.14159274f;
 constexpr int kSlotPhoto = 51; // the location's block (CRPM)
 
-// The pad as the menus' runtime takes it.
-menu::Runtime::Pad runtime_pad(const gt3r::PadState& p) {
-    using Pad = menu::Runtime::Pad;
-    static const std::pair<PadButton, u32> bits[] = {
-        {PadButton::Up, Pad::kUp},         {PadButton::Down, Pad::kDown},         {PadButton::Left, Pad::kLeft},     {PadButton::Right, Pad::kRight},
-        {PadButton::L1, Pad::kL1},         {PadButton::L2, Pad::kL2},             {PadButton::R1, Pad::kR1},         {PadButton::R2, Pad::kR2},
-        {PadButton::Cross, Pad::kCross},   {PadButton::Circle, Pad::kCircle},     {PadButton::Triangle, Pad::kTriangle}, {PadButton::Square, Pad::kSquare},
-        {PadButton::Start, Pad::kStart},
-    };
-    Pad out;
-    for (const auto& [b, bit] : bits)
-        if (p.down(b)) out.buttons |= bit;
-    const gt3r::PadAxis axes[4] = {gt3r::PadAxis::RX, gt3r::PadAxis::RY, gt3r::PadAxis::LX, gt3r::PadAxis::LY};
-    for (int i = 0; i < 4; ++i) out.sticks[i] = photo::stick(p.axis(axes[i]));
-    return out;
-}
-
 class PhotoScreen : public Screen {
 public:
     PhotoScreen(App& app, menu::Runtime& menus, const menu::RaceRequest& request) : app_(app), rt_(menus), drawer_(app), faces_(app) {
@@ -83,7 +67,7 @@ public:
             const int steps = std::min(int(time_ * 60.0), 4);
             time_ = steps == 4 ? 0.0 : time_ - steps / 60.0;
             send_keys(m);
-            const menu::Runtime::Pad pad = runtime_pad(app.menu_pad());
+            const menu::Runtime::Pad pad = menu_runtime_pad(app.menu_pad());
             for (int i = 0; i < steps; ++i) {
                 rt_.set_pad(pad);
                 step();
@@ -186,10 +170,7 @@ private:
         };
         // (The photo page's own modes take the directions: the page's script keeps them from the focus.)
         const bool map_mode = rt_.photo && rt_.photo->mode != photo::Mode::None && rt_.photo->mode != photo::Mode::MapZoom;
-        if (!map_mode) {
-            if (m.vertical()) rt_.key(m.vertical() < 0 ? menu::Key::Up : menu::Key::Down);
-            if (m.horizontal()) rt_.key(m.horizontal() < 0 ? menu::Key::Left : menu::Key::Right);
-        }
+        send_menu_directions(rt_, m, !map_mode);
         for (const auto& [button, key] : keys)
             if (m.pressed(button)) rt_.key(key);
     }
