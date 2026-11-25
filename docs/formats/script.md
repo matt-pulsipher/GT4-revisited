@@ -120,7 +120,7 @@ declares, and the interpreter runs the scripts themselves.
 | `FUNCTION_DEFINE`, `METHOD_DEFINE` | Define the function in the current module or class. A method runs with its object: the object's attributes are names in reach |
 | `STATIC_DEFINE` | A variable of the current module |
 | `ATTRIBUTE_DEFINE` | An attribute every object of the current class gets |
-| `IMPORT` | Brings one name of a module, or all (`*`), in reach of the block |
+| `IMPORT` | Brings one name of a module, or all (`*`), in reach of the block and of the module's other functions (Prologue's `onLoad` imports `MMovieFace` for its pages) |
 | `REQUIRE` | Pops a name. `menu`, `gt4app`: one of the program's own modules, filled into the current module. `/config/course`: a script file (`config/course.adc`), run in the current module; a bare name is a file beside the one running. Names are in any case (`us_carlist` for `US_carlist.adc`) |
 
 A compiled statement can leave a value behind on the stack (an expression whose result is not

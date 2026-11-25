@@ -7,6 +7,7 @@
 #include "gt4r/formats/model/mdls_skin.h"
 #include "gt4r/menu/faces_car.h"
 #include "gt4r/menu/model_motion.h"
+#include "gt4r/menu/model_stream_prologue.h"
 #include "gt4r/menu/project.h"
 #include "gt4r/menu/stage_motion.h"
 #include "gt4r/race/car_visual.h"
@@ -14,14 +15,17 @@
 
 #include <SDL3/SDL_render.h>
 
+#include <functional>
 #include <future>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 
 namespace gt4r {
 
 class App;
+class MenuMovies;
 
 class MenuCars {
 public:
@@ -34,6 +38,10 @@ public:
     // Draws a car face (PageDrawer::draw_live): `at` its rectangle in the page, `dst` on the screen.
     void draw(const menu::LiveWidget& face, menu::Project* project, const std::string& page, const menu::Rect& at, const SDL_FRect& dst, float opacity);
     size_t shown() const { return faces_.size(); }
+    // For a face with a model stream (Prologue's new-car page): the film it stands in, and the
+    // scripts' onStreamFinish told at the stream's end.
+    const MenuMovies* movies = nullptr;
+    std::function<void(menu::LiveWidget& face, const std::string& function)> on_event;
 
 private:
     struct Car {
@@ -51,6 +59,9 @@ private:
         std::string car; // car_code#paint
         bool seen = false;
         u64 stepped = 0; // the picture its motion was last stepped to
+        std::string stream; // the model stream it stands in, "" : none
+        std::optional<menu::ModelStream> stream_file;
+        bool stream_told = false;
         // The posed copies of its skinned sets, one per model motion (two motions of one set are
         // two copies in a picture).
         std::vector<std::unique_ptr<gt3r::render::GpuModel>> posed;
@@ -66,6 +77,8 @@ private:
         int skinned_model = -1; // the model drawn with the bones (symbol SKINNING)
     };
     Car* car(const std::string& code, int color);
+    // The face's camera and lights by its model stream; false: it has none.
+    bool stream_view(const menu::LiveWidget& face, menu::CarFaceSettings& s);
     SDL_GPUTexture* env_texture(menu::Project* project, const std::string& page, const std::string& path);
 
     App& app_;

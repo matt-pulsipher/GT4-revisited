@@ -1820,6 +1820,21 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
             };
             return a;
         }
+        // stream (Prologue's MModelStream): load(name), sync_mpeg; the app moves the face's camera
+        // and lights by it (menu/model_stream_prologue.h).
+        if (n == "stream") {
+            auto& cell = w->extras["stream"];
+            if (!cell) {
+                auto stream = std::make_shared<Object>("MModelStream");
+                stream->method("load", [w](Vm&, const Value&, Args a) {
+                    if (!a.empty()) w->set_property("model_stream", Value::string(a.back().to_string()));
+                    return Value{};
+                });
+                stream->set("sync_mpeg", Value::integer(0));
+                cell = std::make_shared<script::Variable>(object_value(stream));
+            }
+            return cell;
+        }
         if (n == "car_code") {
             auto a = std::make_shared<Accessor>();
             a->read = [w] { return Value::string(w->data.text("car_code")); };
@@ -1880,8 +1895,14 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
                 w->set_property("un_update", Value::integer(a.empty() ? 1 : a[0].truthy()));
                 return Value{};
             });
-        for (const char* m : {"reserveName", "refOther", "load", "unload"})
-            if (n == m) return nothing();
+        // reserveName(name), load(context, name): the movie it plays from its next picture. (A movie
+        // is let go when its face is no longer drawn, not by unload.)
+        if (n == "reserveName" || n == "load")
+            return fn([w](Vm&, const Value&, Args a) {
+                if (!a.empty() && a.back().kind == script::Kind::String) w->set_property("movie_name", a.back());
+                return Value{};
+            });
+        if (n == "refOther" || n == "unload") return nothing();
     }
     if (type == "ModelFace") {
         // setModelSetPath(path, a, from disk, b) (0x2BB220: the path, then three flags of +0x308;

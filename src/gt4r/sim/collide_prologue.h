@@ -7,6 +7,7 @@
 // (sim/course_collision.h), each body's committed state copied in from its car and out after (0x1E8730 / 0x1E8828's
 // roles).
 
+#include "gt4r/sim/collide.h"
 #include "sim/collision_exact.h"
 #include "sim/course_collision.h"
 #include "sim/exact/car_record.h"
@@ -30,13 +31,11 @@ public:
         float strength = 0;
         gt3r::u8 kind = 0;
         int car = -1;
-        // The last hit's part (0x3B9430's: a corner 0 .. 7, a side + 8) and the step's summed strength in EE form (walls |j| /
-        // 100,000, cars |j| / 15,000; at most 1), for the hit's judge.
-        int part = -1;
-        gt3r::ee::F sum;
     };
-    // One step of every car (the cars' positions, velocities, headings and yaw rates in and out).
-    void step(std::vector<gt3r::sim::exact::Car>& cars, std::vector<Contact>& contacts);
+    // One step of every car (the cars' positions, velocities, headings and yaw rates in and out). `hits`: the step's hits in
+    // order, as 0x3B9430 is handed each (a wall's impulse |j| with the corner 0 .. 7 or the side + 8 that met it, a car's
+    // |j| / 15,000 to the car whose side was met, its side + 8, then to the other, its corner).
+    void step(std::vector<gt3r::sim::exact::Car>& cars, std::vector<Contact>& contacts, std::vector<collide::Hit>* hits = nullptr);
     const gt3r::sim::collide::exact::Body& body(size_t i) const { return bodies_[i]; }
 
 private:

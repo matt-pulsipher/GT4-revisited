@@ -118,7 +118,7 @@ section, the older layout Gran Turismo 4's reader already takes from 17 of its `
 slots 37 .. 40 (0x40 bytes; Gran Turismo 4's sets begin with the same 27 bytes, its later bytes
 are 0 here). All 62 files have lines, 57 the four sets (`gt4tool prologue <disc> drivers`); Laguna Seca, the photo
 stages and `test2` carry another road's lines (the same counts as other files), as some of the
-Concept discs' development courses do.
+Concept discs' development courses do. How the race prepares and drives them: "The computer drivers" below.
 
 ## Cars ✅ (race view)
 
@@ -176,6 +176,10 @@ not located, the place in the data most like Gran Turismo 3's values.
 Prologue's step (0x3B7020, the conductor's car i at conductor + 0x77A8 + 0xC64 i, its parameter block at + 0xC8 + 0xEDC i,
 the count at + 0x107E4) has Gran Turismo 4's phases in Gran Turismo 4's order (the same three phases Gran Turismo 3 has not,
 0x3BDEC8, 0x3C3C90, 0x3C4400). Its routines are a mix: some are Gran Turismo 3's, some Gran Turismo 4's, some its own.
+The session runs a Prologue car's phases in the same frame as Gran Turismo 4's (`Session::step_once`): the phases before the
+input over every car (phase 4's downforce part, 0x3DBB70's end, included), then each car's driver and input, the phases to 12,
+the collision step over all, phases 14 and 15, then the rest car by car; races of six cars still end to the millisecond
+(`disc_prologue_demonstrations`).
 
 **The record.** The car record is Gran Turismo 3's without the parameter block: an offset of Gran Turismo 3's record from
 +0xEC0 is Prologue's + 0xEAC (the state block F at car + 0xD8, the wheels at car + 0x138 + 0xA4 w, the drive blocks at
@@ -233,17 +237,20 @@ program's on the record as the program has it, every field compared. On a test d
 |---|---|---|
 | 1 | 0x3B2480 | the engine's (Gran Turismo 3's) |
 | 4 | 0x3BF608 (with the peak force 0x3BF338, slip angles 0x3BF598, aerodynamics 0x3DBB70) | the engine's |
-| 5 | 0x3DEDE0 | Prologue's (`prologue::driver_input_pad`): the input phase's steering prefilter (row 0 of the controller settings' +0x70 rows; kind 6 rows 1 / 2), the pad path 0x3DED50 with 0x3DE270: the engine's pedals, reverse, shift and clutch with Prologue's eased pedals, and its steering 0x3DDC98 (`prologue::pad_steering`): the lock curve by speed (a pad: curve B, C on a loose surface: the steered wheels' least class of 0x504AC0, 2 counted as 0; a wheel: A, C on a dirt course), the steering wheel's least lock, the steered wheels' mean slip direction's extension, the full lock; the follower 0x3DDA10 (Gran Turismo 4's 0x3485D0) with its own gains and limits by rate class and mode, a pull toward the mean slip direction, limits moving with the speed; the HUD percentage. Its settings are the controls' set-up 0x3DD068 (Gran Turismo 4's 0x347A00, `prologue::controls`) on the controller settings' bytes. 1,200 of 1,200 calls equal (Civic, Impreza) |
+| 5 | 0x3DEDE0 | Prologue's (`prologue::driver_input_pad`): the input phase's steering prefilter (row 0 of the controller settings' +0x70 rows; kind 6 rows 1 / 2), the pad path 0x3DED50 with 0x3DE270 (`pad_pedals`): the pad's pedals eased by the settings' byte +0x11 (the back axis too), a wheel's by its curves 0x715220 / 0x715230 (made by 0x3C2938 from the settings' +0x64 .. +0x69), reverse, shift, the clutch by the pedal style (0x3DD608) and the hybrid's, the special kind 8's clutch at once and the stepless gearbox's creep; its steering 0x3DDC98 (`prologue::pad_steering`): the lock curve by speed (a pad: curve B, C on a loose surface: the steered wheels' least class of 0x504AC0, 2 counted as 0; a wheel: A, C on a dirt course), the steering wheel's least lock, the steered wheels' mean slip direction's extension, the full lock; the follower 0x3DDA10 (Gran Turismo 4's 0x3485D0) with its own gains and limits by rate class and mode, a pull toward the mean slip direction, limits moving with the speed; the HUD percentage. Its settings are the controls' set-up 0x3DD068 (Gran Turismo 4's 0x347A00, `prologue::controls`) on the controller settings' bytes. 1,200 of 1,200 calls equal (Civic, Impreza) |
 | 7 | 0x3B5A20 | the engine's angles; with the steering mode (0x714880: 1 in a race, built by 0x3B57D0 from the static block's +0xB9 .. +0xC0, Gran Turismo 4's rule) Gran Turismo 4's steering offset (0x3F7EA8's) but a wheel without the slip's fade aims at 0; no follower, no compliance steer (`prologue::wheel_steer`) |
 | 8 | 0x3BA450 with 0x3BA070 | Gran Turismo 4's slip ratio but the direct one: (hub less rim speed) / the static block's +0xE6 (driving) or +0xE5 (braking) km/h, each falling back to the other, then 50 (`prologue::slip_ratios`) |
-| 10 | 0x3BBFE0 | the engine's order and routines (brakes and clutch, tire curves, the class grip, longitudinal force, wheel torques, vectoring, axles, wheel speeds, engine speed, gearbox, the hold); Gran Turismo 4's tire slip force (0x3BB138: its direct lateral speed's scale pi / 2 over the static byte +0xE4 km/h; the mean slip angle into F + 0x420 with the switch 0x506612, which the race's set-up leaves 1) and forward step (0x3BAC98); the lateral forces and yaw (0x3BB5D0) Gran Turismo 4's but the lateral acceleration the sum times P + 0x4C (1 / mass), no yaw follower, no computer driver's grip (`prologue::dynamics`); the rolling resistance and the brake heat (phase 11) the engine's within a unit in the last place (another order of operations) |
-| 19 | 0x3B29D0 | Prologue's ground contact 0x3754D8 (`prologue::ground_contact`: the query points along the body's up axis by the hub's rest drop, Gran Turismo 3's road query 0x3882D0 = 0x18FB58 on the course's GTRW road (the engine's `CourseGround`, bit-exact), its own bump tables), terrain 0x375D00 (Gran Turismo 4's dot product) with its places 0x375A38 (one terrain factor for every wheel, the parameter block's +0x28C tire drop), the suspension (0x375F58) the engine's, its attitude 0x3765F8 (Gran Turismo 4's 0x36B0C8 but every damper counted, the sums times P +0x50, each wheel's whole load onto the ground's up axis, no speed part's lift; its pitch terms 0x376440 at the tire's radius by the static byte +0xD9; the start's hold 0x376330 the engine's with Gran Turismo 4's axes), its bump nudge 0x376EC8 (Gran Turismo 4's 0x36BA88 on these places), the ground frame (0x3C4D80) the engine's pitch, roll and height with Gran Turismo 4's axes; the hub offsets, speed ramp, speeds and wheel spin the engine's. The whole phase as the session runs it equal at every call but the effects' fields (below) |
+| 10 | 0x3BBFE0 | the engine's order and routines (brakes and clutch, tire curves, the class grip, longitudinal force, wheel torques, vectoring, axles, wheel speeds, engine speed, gearbox, the hold), the hybrid's axles and box (0x3CEAE0 with 0x3CC448: below), the one-speed gearbox 0x3BABC8; Gran Turismo 4's tire slip force (0x3BB138: its direct lateral speed's scale pi / 2 over the static byte +0xE4 km/h; the mean slip angle into F + 0x420 with the switch 0x506612, which the race's set-up leaves 1) and forward step (0x3BAC98); the lateral forces and yaw (0x3BB5D0) Gran Turismo 4's but the lateral acceleration the sum times P + 0x4C (1 / mass), no yaw follower, no computer driver's grip (`prologue::dynamics`); the rolling resistance and the brake heat (phase 11) the engine's within a unit in the last place (another order of operations) |
+| 19 | 0x3B29D0 | Prologue's ground contact 0x3754D8 (`prologue::ground_contact`: the query points along the body's up axis by the hub's rest drop, Gran Turismo 3's road query 0x3882D0 = 0x18FB58 on the course's GTRW road (the engine's `CourseGround`, bit-exact), its own bump tables), terrain 0x375D00 (Gran Turismo 4's dot product) with its places 0x375A38 (one terrain factor for every wheel, the parameter block's +0x28C tire drop), the suspension (0x375F58) the engine's with the special kind 7's ride (0x3B15E8 on the bytes 0x503CB0, the SL55 AMG's), its attitude 0x3765F8 (Gran Turismo 4's 0x36B0C8 but every damper counted, the sums times P +0x50, each wheel's whole load onto the ground's up axis, no speed part's lift; its pitch terms 0x376440 at the tire's radius by the static byte +0xD9; the start's hold 0x376330 the engine's with Gran Turismo 4's axes), its bump nudge 0x376EC8 (Gran Turismo 4's 0x36BA88 on these places), the ground frame (0x3C4D80) the engine's pitch, roll and height with Gran Turismo 4's axes; the hub offsets, speed ramp, speeds and wheel spin the engine's. The whole phase as the session runs it equal at every call but the effects' fields (below) |
 
 | 9 | 0x3E0838 | Prologue's (`aids_prologue.*`): the engine's indicators (0x3E02A0 = the engine's 0x1E3708), its own traction control 0x3E1960 (no clutch test, class factor, speed raise or follower; the target from curve D's rising side with the static block's +0xE3), brakes 0x3E1540 (the ABS target blended toward curve D's falling side at the wheel's curve A byte by the static block's +0xE1 + axle, 100 % on the rear on the disc; the dirt cut by its +0xB5 .. +0xB7) and stability control 0x3E11F8 (Gran Turismo 4's 0x3F94C0 without the throttle cut, its multiplier's operands in another order: 1 x scale and scale x 1 differ on the PlayStation 2), Gran Turismo 4's brake shares 0x3E1008 / 0x3E1078, the speed caps 0x3E0670. 1,200 of 1,200 calls equal with the entry's aids on (the engine's, Gran Turismo 3's 0x1E3B18: 1,197) |
 | 13 | 0x3B6FB8 with 0x41CA90 | Gran Turismo 3's collision step (0x1FA8F8 in another layout): the engine's port (`collision_exact`) on the GTRW road's walls, grid and links (`CourseCollision`), `collide_prologue.*`. The test drive's wall touch at step 862 equal to the program's |
 | 8, 11 | 0x3B3810, 0x3BBF18 | the engine's brake heat and rolling resistance on Prologue's own race-start constants (0x3B3740's brake heat constants, 0x3C5BC0's rolling curve: the later builds' roundings, 0x46191FFF, 0x3DCCCCCC, 0x3E8E38E3, 0x3A83126E): equal at every call |
 | 20, 21 | 0x3BBBB8, 0x3BBD80 | the engine's tire wear and wear flags: equal at every call |
-| 14 | 0x3DC1C8 | the cars' pairs (slipstream): the engine's (Gran Turismo 3's) on Prologue's tables; `gt4r_diff <disc> prologue-near <course> <cars> <steps>` and the test `disc_prologue_pairs_pass_equal`: 6,000 of 6,000 car records equal but the drivers' zone cells and contact, which only a computer driver reads |
+| 14 | 0x3DC1C8 | the cars' pairs (slipstream): the engine's (Gran Turismo 3's) on Prologue's tables; `gt4r_diff <disc> prologue-near <course> <cars> <steps>` and the test `disc_prologue_pairs_pass_equal`: 6,000 of 6,000 car records equal, the drivers' zone cells (0x4281E8) and contact (0x428530) too (`prologue::near_drivers`) |
+| 15 | 0x3B1C58 | the aerodynamic devices that move with speed (the parameter block's kind +0xE84 1, 2 or 4; states F + 0x514 / 0x518, flags F + 0x51C / 0x51D, speeds P + 0xE88 / 0xE8C, rate P + 0xE90), set up by 0x3B1BD0, their downforce in phase 4: `prologue::part_*`, equal on a made-up device (`prologue_taps.cpp`; no car of the disc has one) |
+| 22 | 0x3C26F0 | the flaps: the engine's (Gran Turismo 3's) arithmetic on the VU0's random register, which the tire effects and other draws of the step move too |
+| 10 | 0x3BC7F0 | the steering force (a wheel's force feedback): Gran Turismo 4's 0x353EE8 without the steering change's factor, on Prologue's tables 0x714958 + 0x8C m (0x3BC350 makes them from the rows 0x5049C4 + 0x20 m and the bytes 0x503F20 .. 0x503F26) with its smoothing kinds; the pad block's index is F + 0x3EC (`prologue::steer_force`), equal at every call |
 | 19 | 0x3C5740 | the speeds' bookkeeping (`prologue::speeds`, `feel_prologue.*`): the speeds along the ground's frame and the hubs' velocities by the wheel layout (Gran Turismo 4's 0x35D920 / 0x35D6B0 with Prologue's lean and roll switches), the odometer, the engine's condition by the step's distance, the top speed, the speedometer at car + 0xC60 (111.1 m/s a second), the free wheels. 1,200 of 1,200 equal |
 | 19 | 0x3B4238, 0x3B9020, 0x3CB1E0, 0x3CE1A8 | the view's follower (its own gains 0x571C98 / 0x571CA0; its block in the conductor + 0xDB48), the engine sound's levels (scales of the effects block 0x504B08 + 0x1E0), the tire effects (Gran Turismo 4's 0x367148 on Prologue's surfaces and its effects block) and the pad's vibration (its block in the conductor + 0xDAC8): `prologue::view_follow`, `engine_sound`, `tire_effects`, `pad_rumble`, each 1,200 of 1,200 equal |
 
@@ -252,9 +259,13 @@ slip bytes +0x84, the direct speeds +0xE4 .. +0xE6, the steering offset's +0xB9 
 gain 0x504294 / 0x504298, the wheel layouts 0x503FA8 (Gran Turismo 4's 0x54-byte rows), the surfaces whose offset aims at 0
 0x504AC0, the controller settings 0x504950 (Gran Turismo 4's 0x622110; read by the input phase).
 
-What a test drive gives (the program's / ours, km/h): 9.3 / 9.6 at 1 s of throttle,
-46.3 / 47.7 at 3.5 s in first gear (the engine's whole step before: 45.1 in second; it shifted at 33 km/h with its wheels
-spinning), 73.7 / 75.6 at 7.5 s; Impreza WRC 146.7 / 147.3 at 8.5 s.
+**The hybrid** (the Prius, gearbox kind 3): the box's state is at car + 0x5DC (+0x8 the fuel used, +0xC the kilometers per
+liter), set up by 0x3CC0B8; its routines are Gran Turismo 4's (`rules_hybrid.*`, the HybridCar overload) on the tables 0x504560,
+0x5045B0, 0x504638, 0x504648, the engine's fuel an hour. The mileage (0x3CC298): every 30 steps (F + 0x4A0) the distance over
+the fuel since the last (F + 0x3B0 / 0x3B4), in tenths of a kilometer per liter, at most 999.
+
+**Hits** (0x3B9430): each is handed on by itself, in the collision step's order: kind 0 a wall, 1 a car, 2 a cone; the part
+0 .. 7 a corner, 8 .. a side (the classes 0x571DA0: 1 to 4, under 3 the front).
 
 ### What runs where
 
@@ -265,29 +276,69 @@ as the table above, the collision step Gran Turismo 3's on the GTRW road (`colli
 step and compares the step's end (`=front`: phases 1 .. 11 alone; `GT4R_VS19`, `GT4R_AFTER19`, `GT4R_GROUND_CHECK`,
 `GT4R_SHOW_COLLIDE`): on the test drive (Civic Type R, Tsukuba, 1,200 steps, aids on) every physics field equal on every
 step of 2,400 (two touches of a wall in them; Tsukuba with the Civic, New York with the Impreza WRC; the test
-`disc_prologue_whole_step_equal`). (The octagon of the collision step cuts its corners by 0x3E4CCCCC of the width, 0x41C8E0: the
-engine's builder has it as its later builds' constant.) `GT4R_START=1` with it compares the car's set-up: on `L_20r60r2` every
-field of the pose equal, on Tsukuba within a unit in the last place of the road's height (the set-up's single query 0x3881F8;
-❓ not followed) and what follows from it. A plain run from the start follows the program's to the unit of rpm through step 840.
+`disc_prologue_whole_step_equal`; the Prius, the SL55 AMG and the cars of every lesson's recording too, "The recorded runs"). (The octagon of the collision step cuts its corners by 0x3E4CCCCC of the width, 0x41C8E0: the
+engine's builder has it as its later builds' constant.) `GT4R_START=1` with it compares the car's set-up: on
+`L_20r60r2` and Tsukuba every field equal but the plan of a car no driver was made for.
 
 - **The car's set-up** (0x3C93A0, `Session::place`): the place's heading turned by 0x40490FDA (0x388138), the body's front on the
   place, the pose 0x3C89D8 (the height under the place, Gran Turismo 4's axes, the wheels' points on the GTRW road, their loads at
   rest, Prologue's ground frame, the pitch of the ride heights), the view's lags at rest (0x3B41E8), the standing start 0x3C8E10
-  (the engine's but F + 0x420 and the steering force's byte at 0). ❓ A rolling start's set-up is the engine's
-  moving start on that pose (the wheels' and engine's speeds for the road speed).
-- **The flaps** (0x3C26F0, phase 22): the arithmetic and constants are the engine's Gran Turismo 3 ones (compared routine by
-  routine); they differ in the whole step by the state of the shared random stream, which other parts of the program draw from.
+  (the engine's but F + 0x420 and the steering force's byte at 0). The wheel type is the entry's +0x3FB4 + 1 (0x3DDC30).
+- **Starts on the move**: kind 2 (behind the line) or 1 (past it), the license's 0x3B6888 and 0x3B67B0: the place on the main
+  line at the distance (0x3B61F0, at most the lap less 20 m; 0x429860: the line's place there and 10 m on, the road under it from
+  the segment of the point there), the body's middle on it; the line by the kind (2 .. 5 the main line, 8 the nearest, else the
+  pad's line 7, a computer's by its grid place % 6 and the table 0x504518, lines 1 and 2 changed over by the side of the grid's
+  second place); a pad's car of kinds 2 .. 4 driven by its driver (0x3B3FD0: kind 1, onto the main line, its shift lock 12); the
+  moving start 0x3C9108, the engine's but for its gear (0x3CD4C0: 2,000 rpm under the up-shift in first, 500 in the others).
+  `prologue::moving_start`, `CourseLines::start_place`; equal to the program's field for field on every lesson's start.
+- **A computer's car** takes the axles' grips of the rule block (+0x04 / +0x08 + class), and in a race (the conductor's virtual
+  11: the single player's and the training's) every car but the reference its band's time scale, the overall percent's
+  arithmetic included (0x3F7FFFFE for 100).
 
-Still not run:
+Still not run, or not Prologue's own:
 
-- Phase 15 (0x3B1C58, Gran Turismo 4's 0x3F28B8): the aerodynamic devices that move with speed (the parameter block's kind
-  +0xE84 1, 2 or 4; states F + 0x514 / 0x518, flags F + 0x51C / 0x51D, speeds P + 0xE88 / 0xE8C, rate P + 0xE90): no car of the
-  disc has one.
-- The steering force 0x3BC7F0 (Gran Turismo 4's 0x353EE8 "larger change"; a wheel's force feedback): Gran Turismo 3's runs.
-- Phases 2, 3 and 6 (0x3BDEC8, 0x3C3C90, 0x3C4400: a special car's part 7 and the special car kind 1's moods): not run
-  (the special kinds 1 and 2 are `pod_tmv_01` and `r35_gtr_tmv_01`, not in Prologue's database).
-- The computer drivers' fields of the player's car (`ai.*`, the gear hint, laps): the program runs its line planner for every
-  car; ours not for a player's.
+- Phases 2, 3 and 6 (0x3BDEC8, 0x3C3C90, 0x3C4400: the four-motor layout 7's state and the special car kind 1's moods): not run
+  (no car of the database has either; the special kinds 1 and 2 are `pod_tmv_01` and `r35_gtr_tmv_01`).
+- The special kind 8's clutch and no blips (`mtr_gmv_04`), the in-line lean's steering (0x3DE310, kind 4), the computer drivers'
+  stop zone (0x3C46C8 ..: the conductor's +0x10BA8, set by no race here) and their PD steering and throttle (0x506612 of 2 or
+  more; 1 on the disc): not ported.
+- The program's sensor lines of a pit stop: no Prologue course has the records.
+
+## The computer drivers ✔
+
+Prologue's driver object is Gran Turismo 3's record (car + 0x1C, 0xBC bytes: +0x80 the recovery state, +0x81 the line, +0x82 the
+next point, +0x83 the mode, +0x84 the next stretch's kind, +0x85 held to the pit's speed, +0x86 the line before, +0x88 the steps in
+the arc, +0x8C / +0x90 the two speeds, +0x94 the blend, +0x9A the lane change's cooldown, +0x9C / +0xA0 / +0xA4 / +0xA8 / +0xAA the
+outputs, +0xAE the stop's state, +0xAF the status, +0xB0 the contact, +0xB4 eight zone cells), its parameters in the conductor
+(+0x10808 + 0x74 k, 0x424BC8). The program (`sim/ai/drivers_prologue.*`, which `sim::ai::Field` runs on a Prologue session) is a
+step between Gran Turismo 3's drivers and Gran Turismo 4's:
+
+| Routine | Prologue | |
+|---|---|---|
+| the lines prepared | 0x4292C8 | Gran Turismo 3's 0x1F92F8 (order 0x5066E8, fallbacks 0x5066F0) |
+| a line's place, the span, the stop line | 0x429CA0, 0x429B90, 0x42A090 | Gran Turismo 3's |
+| a line's neighbors | 0x42A3C8, 0x42A408 (the side map 0x42A2B0 changes them over) | 1 → 6 (2 without it), 6 → 2; 2 → 6 (1), 6 → 1 |
+| parameters | 0x427450 on the set (0x4273C0: the course's by class, else 0x5065B0 by its kind), 0x427AA0 | the braking factor is 100 / its byte |
+| the event's percents | 0x427840 | throttle rule +0x0C, braking +0x10, arcs +0x14 + class; a computer's car differs by its grid index (braking - 7 (i % 3) %, arcs - (4 i & 4) %, - 2 (7 i % 5) km/h, the yaw gain x (97 + 3 ((i + 1) % 3)) %) |
+| an arc's speed, the segments | 0x427AE8, 0x427E00, 0x427ED0 | Gran Turismo 3's (no adjustment byte skipped, no draws) |
+| the braking point | 0x424E80 | the front's grip, load, peak and camber as Gran Turismo 3's, the steered wheels' wear, the downforce at both speeds; + 18 m x contact + 2 m; 25 m early for status 1 |
+| the decision | 0x425F20 | below |
+| traffic | 0x428610 | from 5 s + 0.1 s x rank on; a passing line only where the front cell on its side is under 2; 180 steps' cooldown; back to the main line (a blend anew every step) with nothing around |
+| zones, contact | 0x4281E8, 0x428530 | phase 14's |
+| the steering's rate, the outputs | 0x425B28, 0x425DC0 | the throttle moves by dt a step in the arcs |
+| the stop, parked | 0x425BB0, 0x425CD8 | kind 6 brakes at 0.2, the others at 0.5, kind 8 under 0.25 km/h and 3 degrees a second |
+| the engine held | 0x424CC8 | Gran Turismo 3's blips by the rank, from 13 steps before the start by the speed |
+| the step of a driven car | 0x3E8C98 | the clutch asked for over 3/4 of the up-shift speed, kept down to idle |
+
+The decision: the look ahead by the speed (a computer's car that starts under 30 km/h, off a dirt course, 200 m longer falling over
+the first 5 s; else 40 m over 2 s), 5 m on the stop line, 10 / 40 m backing out and turning round; the drive and the recovery as
+Gran Turismo 3's later builds (turning round to backing out also where the line's heading is 60 degrees off the car's); the pure
+pursuit's yaw rate by the gain x the share of the peak slip angle the front's mean slip angle (F + 0x424) leaves, the steered
+wheels' mean peak and slip direction; the stretch's speed by its mode, the corner's bonus, the straight's bonus of the static block's
++0xDC / +0xDD (0 on the disc); the throttle cut and the brake past the peak.
+
+A player's pad car plans only (0x428AA8: the braking point and the suggested gear). Phase 5 reads every car's controller all the
+same: its steering's prefilter runs, and a pad's car keeps its display's values, while its driver drives.
 
 ## The license tests
 
@@ -298,18 +349,28 @@ Still not run:
   rows: a wall hit whose change of speed is past the row's +0x16 (10 m/s on most tests, 20 on two), a car hit past +0x18, a cone
   (counted where the test has cones, +0x5B), the time limit, and every wheel off the course where the course counts it (not on a
   dirt or snow course): the program's table 0x503E28, materials 2, 3, 4 and 6. ✔ The original's lesson 1 off the course: fails at
-  once, "失格です", no time, retry / EXIT. ❓ The pit lane's rule (only inside the course's pit zone, 0x42A670) is not applied. The
-  clock runs from the start signal whether the car moves or not (the original's too).
+  once, "失格です", no time, retry / EXIT. A car hit counts at the front and its corners alone (the part's class under 3, 0x3C5F40;
+  Gran Turismo 4's 0x35FE80 the same). The pit lane's surface counts inside the course's pit zone (0x42A670: along the stop line from
+  its second point to its third from the end; `race/license_prologue.*`). The clock runs from the start signal whether the car moves
+  or not (the original's too).
+- **Ending** (`judge_license`, 0x3C1318): a stop in the box at the clock + the speed's share x 50; the cones all down (+0x46 of them) at the
+  clock + 50; a lead held for the rules' seconds (+0x44: 10 s on lessons 29, 30 and 31) at the clock + 50; else the goal or the laps
+  by the crossing's share. The judge runs within the race's step: the cones it counts and the place it reads are the last step's.
+- **How the run ends** (0x3C0DD8, 0x3C0F28: `end_mode`, `fail_mode`): by the rules' +0x41 (1: driven on, 2: coasting down, 3:
+  braking), else by the kind (3 and 4 driven on, others coasting), braking for cones, driven on with other cars; ✔ states of the
+  original: driver kind 5 after lesson 1's medal, 8 after its course-out.
+- **The grade** (0x3C1050): with fewer than three other cars the first target time that is not beaten by the time (an unset target:
+  any time), none with another car ahead; with three or more the place (gold, silver, bronze). Lesson 36 (the Prius, rule +0x45 = 100)
+  asks for 10.0 km/l of the run.
 - **A race's rules** (the race's copy of its row 0x3C5978 into the conductor's rule block + 0x10780; `sim/race_rules.*`): every
   `gt4p_*` race gives a **penalty** for a hit at the car's front (DynamicsConductor's virtual 45, 0x3C6078): a wall hit past 20,
   10 or 5 m/s (the row as it is, `_h`, `_p`) or a car hit past strength 1 caps the car at 50 km/h (the block's +0x4B, a constant
   of 0x3C5978) for 10 seconds (the counter F + 0x51E, counted down by the aids' phase 0x3C5FE8); the display counts it (0x38A7B8,
-  the words `RaceDisplay::Penalty`). Test `disc_prologue_race_rules`. ❓ Our collision step keeps a step's summed impulse, not
-  each point's, so two points hitting in one step are judged together. Gran Turismo 4's rows have the same rule (5 seconds in the
+  the words `RaceDisplay::Penalty`). Test `disc_prologue_race_rules`. Each hit of a step is judged by itself. Gran Turismo 4's rows have the same rule (5 seconds in the
   rally events and missions), run by its own judge in the session.
 - **A test's own changes**: 0x3C5978 hands the test's number (+0x5A) to 0x3E1C20, a switch (0x572CC0) that for test 1 writes the
   cars' speed cap +0x42 = 50 km/h (✔ the original's lesson 1 tops at 50), for tests 26 .. 35 the other cars' starts (+0x4F .. the
-  speeds, +0x56 .. the distances, below), for test 36 +0x45 = 100 ❓. `sim::race_rules` reads the cases' constants from the code.
+  speeds, +0x56 .. the distances, below), for test 36 the mileage +0x45 = 100. `sim::race_rules` reads the cases' constants from the code.
 - **The test's car** is entry 0 of its event's pool with that entry's parts, settings and paint (`lcns_pt_*`, `lcns_pr_*`: lesson 2's
   Fit pulls to 52 km/h in first, the car as sold to 50; ✔ its speeds against the original's lesson 2 within 1 km/h over 4.5 s).
   Gran Turismo 4's tests the same: the files of its demonstrations hold entry 0's equipment for their car (test
@@ -320,14 +381,14 @@ Still not run:
   (the start kind 2, the driver kind F + 0x538 = 1 from 0x3B3FD0; 0x3B4C88 gives the car back). 25 tests (8 .. 12, 14, 15, 17, 18,
   21, 22, 24, 26 .. 35, 41 .. 43; test `disc_prologue_test_starts`). Tests 26 .. 35 have one to five other cars, the pool's entries
   from 1 in order, placed by the switch: behind the line, or ahead of it (up to 1,950 m; those cars go at once, their crossings' count
-  1). The clock starts as the player's car takes the line (0x3B4C88 writes the race's clock into F + 0x534, and the test's time is
-  counted from it). ❓ The pace the computer keeps until the line is taken as the start's speed.
+  1; at the line, distance 0, on the grid and counted by its sector). The clock runs from the first step (no hold); 0x3B4C88 writes
+  the moment each car takes the line (its share of the step x 50 units, in ms) into F + 0x534, and its times count from it.
 - **The cones** (the lessons' gadgets): the road's records (GTRW +0x50 / +0x54, the records of Gran Turismo 4's RNW4) with the kinds of
   `GDGT` (slot 47): `L_fisco6` has 64 of three kinds. The bodies step as Gran Turismo 4's (0x39B368, 0x39B608 .. 0x39D758) but no
   kind stays fixed (flag bit 1) and a wall's impulse has no check of the energy (0x39CFB8). A cone touched ends a test that counts
   none: ✔ the original's lesson 2 driven straight on ends as the car passes the blue cones after 0'04.516, ours at 0'04.583.
 - **After the test** the camera circles the car (CameraSys::CameraFinishType1, 0x3D4018: half a degree a step, 4 m away, 30 degrees
-  up, a lens of 65 degrees: 0x504674 .. 0x50467C) and the car brakes to a stand (✔ the original's; ❓ its routine not read). The race
+  up, a lens of 65 degrees: 0x504674 .. 0x50467C) while the car's driver stops it or drives on (above). The race
   display fades out; with a medal its three target times stay. ✔ (`reference/37-prologue-medal`)
 - **The medal**: gold and silver by their times, bronze by its time or, where the test has none, for any finish (✔ the original's
   lesson 1: 1'49.301 past the silver 1'48.000 is bronze). The emblem `race/trophy.mdl` (a `GTM1` with its own reflection picture, the
@@ -360,6 +421,69 @@ Still not run:
   eight characters from part x 8 (0x3FE710), `category` / `detail` by the names; `forcePassedAll` does nothing (0x3FEF38).
   The saved game takes the units' first 0x2E0 bytes (`prologue_license_units` / `prologue_license_load`; the file is gt-mode's,
   `save/prologue_data.*`).
+
+- **A start's hold** is 4 s (the race information's start type 1, 0x37A7B8).
+- **Wrong way** (0x3C0878 with 0x3C0038, `step_wrong_way`): shown once the car goes back along the lap faster than 5 km/h with
+  nothing touched, until it goes forward or slower than 3 km/h (not while its driver drives).
+- **The lesson's page** plays the lesson's recorded run behind it (its entry's aids: ASM off and TCS on but in 44) with the
+  replay's cameras; ✔ the original's lesson 1 page, its car on our run's line to the cm. **The guide film** (`dispGuidePage`,
+  COMMAND_DEMONSTRATION): the course's scenic shots once (slot 48), then the recorded run under the display's monitors with the
+  narration (`startStream("narration", <label>)`), "AUTO DRIVE" lit; it ends with the recording (`onSceneViewFinish`).
+
+## The recorded runs ✔
+
+`replay/JP/<label>/<label>` (`formats/replay/demonstration_prologue.*`): Gran Turismo 4's replay data a version earlier, its body
+complemented, "GT2K"; the RACE and COURSE rows, the entries (equipment, condition, place, pedal style, aids), a control stream
+a recorder (16-byte pad records, the deltas' bases 0x5031D8). 46 lessons and ten races. They were recorded on the console, so a run
+of one in our race is held to it to the millisecond: `race/demonstration_run_prologue.*`, test `disc_prologue_demonstrations`.
+**43 of the 46 lessons end at the recorded time to the millisecond**, from 9.6 s (lesson 23) through four minutes of New York with
+another car (31) to ten laps of Fuji in a McLaren against four cars (35, 13'09.602), standing starts and starts on the move, pads
+and a wheel, with every crossing, stop, cone and lead. The others: lessons 2 and 3 end a step before their recordings, where the
+program's own step ends them too (`gt4r_diff <disc> prologue-demo`); 26's file has another traction control than its pool's car
+(its TCSC part and index), and 36's keeps no time.
+
+`gt4r_diff <prologue disc> prologue-demo <label> [steps]` runs a recording through the program's own conductor (a race against
+others under DynamicsConductorTraining's virtuals) beside ours and names the first steps that differ (`GT4R_DEMO_CAR` the car
+compared, `GT4R_DEMO_EVERY`, `GT4R_DEMO_LEAST`, `GT4R_DEMO_SHOW`): every physics field equal on every car through the runs looked
+at (9 .. 12, 27, 29, 30, 32 and 35, 1,200 to 5,000 steps).
+
+## School Mode
+
+The lessons open in the order 1 .. 10, 37, 11 .. 16, 38, 17 .. 23, 39, 24 .. 29, 40, 30 .. 36, 46, 41 .. 45. Each lesson passed for
+the first time gives a car (`PrizeRoot`), five of them an emblem too (`StatusRoot`, after 6, 12, 19, 25 and 45), lesson 25 the
+ending movie (`MovieRoot`). Test `disc_prologue_school_lessons` passes all 46 through the menus and reads the record back from the
+card. A lesson asks the race for no car of its own (the request's car and sequence are empty): the race takes the pool's. With
+`GT4R_LESSON_DRIVE=1` the recordings drive the lessons in the app (lesson 1 through the whole chain, `data` kept on the card: its
+finish 1'48.664, the medal, the name, the page).
+
+**The new-car page** (`PrizeRoot`). `MMovieFace::expandAlpha(1)`; its two movie faces load the same film `prize_<course>`
+(`prize_w_<course>` in a wide picture; the course by the present unit) and its car face's `stream` (`MModelStream`) loads
+`mpeg/prologue/prize_<course>.lmv`. The film is 640 x 448 at 29.97 a second, each half a field of 224 lines: in a field the left
+320 pixels are the colors, the next 160 the alpha (128 full: what stands before the car), and the 128 x 128 at 480 what the car
+reflects, a sphere map. `MpegBack` (`blend` 2) draws the colors whole, the car stands on them, `MpegFront` draws the colors by the
+alpha. The film's frame 90 fades the page's text out (`setFrameHook`); the stream's end (`onStreamFinish`, 14 s) or Cancel leaves the
+page. Read by 0x1FFCB0 / 0x200E70, sampled by 0x1FFE70 / 0x1FFD00 (`menu/model_stream_prologue.*`, `app/expanded_film.*`; test
+`disc_prologue_model_streams`):
+
+| Offset | What |
+|---|---|
+| 0x00 | `LMOV` |
+| 0x0C | version, 2 |
+| 0x10 | frames (840: 60 a second) |
+| 0x14 | where they are (0xD0) |
+| 0x20, 0x70 | two lights: direction toward it, shadow color, diffuse, ambient, specular, four floats each |
+| frames, 0x30 each | eye x y z, rotation x y z and field of view (degrees), each light's scale (its ambient, diffuse, specular and its shadow's alpha times it), 0 |
+
+❓ What follows the frames in the files (0xB50 .. 0x21A0 bytes; the program's loader does not point at it).
+❓ The stream's clock without `sync_mpeg`. ❓ The original shows the page's dark picture (`Veil.bg`, `best_bg.png`) behind the words
+until the film's frame 90, though its layout hides it (`visible` 0) and no script shows it: what does is not found, and here the car
+stands on black for those three seconds (the film itself is black until then).
+
+**Arcade's settings** (0x10A360, 0x1A0130): the stability control by the driving assist (0x402348; the traction control by an
+option word), the gearbox by the game's bit 0, and the tire grip (`tire_type`, the names 0x505110) as the player's equipment's
+byte +0x13E: "low" 0, "high" 1, any other 3, its own. With 0 or 1 the spec takes the compounds of the tires of the ENEMY_CARS rows
+labeled at 0x505298 / 0x50529C on the car's own sizes (0x406258, 0x406400; `prologue::fit_grip_tires`, test
+`disc_prologue_arcade_tires`).
 
 ## The pass codes
 
@@ -406,8 +530,11 @@ km/h by 1.1 x the top speed (0x3CDFF8, 0x5713D0). The needles turn from 174 to 3
 The race's opening (0x389D30): the course's logo (the course file's slot 49) at the bottom right from half a second for five, the
 display fading in over half a second from 4.5 s before the start. A replay shows only `gt_logo_mini` until its display is asked
 for (a minute's slow blink). ✔ Against the original at Tsukuba and lesson 1 (`reference/14-prologue`): the rank, laps, times, map,
-dials, gear, small panel, cups, logo and count in the same places and colors. ❓ Not drawn: the boost gauge, the Prius panel, the
-steering and pedal monitors of replays, the car's name and view mode of a replay, the tests' cones count, the wrong way sign; the
+dials, gear, small panel, cups, logo and count in the same places and colors. The other parts: the boost gauge (0x398520, a turbo's car, its needle by the panel's motion), the pedals' monitor of replays and
+the guide (RaceABMonitor 0x391110), the Prius's panel (0x3930D8) and energy monitor (0x393718, its arrows by palette), the cones'
+count (0x394028; ❓ its place is judged), the wrong-way sign (0x38A890: blinking at 0.2 s, lit 0.06), the seconds of a lead
+(KeepLeader), AUTO DRIVE's word. An event's times have no label. (The steering's monitor is in the program, but nothing puts it in
+the list of parts drawn.) ❓ Not drawn: the car's name and view mode of a replay; the
 lamps of fuel and oil never light; the small tachometer's bar is cut by its width where the program tests its alpha ramp.
 
 The

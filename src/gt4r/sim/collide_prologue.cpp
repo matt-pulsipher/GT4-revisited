@@ -25,7 +25,7 @@ Collision::Collision(const gt3r::course::Road& road, const std::vector<ex::Car>&
     cx::pair_tables(bodies_);
 }
 
-void Collision::step(std::vector<ex::Car>& cars, std::vector<Contact>& contacts) {
+void Collision::step(std::vector<ex::Car>& cars, std::vector<Contact>& contacts, std::vector<collide::Hit>* hits) {
     const size_t n = std::min(cars.size(), bodies_.size());
     for (size_t i = 0; i < n; ++i) {
         cx::Body& b = bodies_[i];
@@ -37,7 +37,16 @@ void Collision::step(std::vector<ex::Car>& cars, std::vector<Contact>& contacts)
         b.dt_in = c.dt, b.steer = c.steer_pct, b.ghost = c.ghost != 0, b.control = c.control;
         b.rumble = &c.hit_rumble;
     }
-    cx::step_all(bodies_);
+    cx::Trace trace;
+    cx::step_all(bodies_, hits ? &trace : nullptr);
+    for (const cx::Response& r : trace) {
+        if (r.kind == cx::Response::Point) hits->push_back({r.body, 0, r.feature, r.mag});
+        else if (r.kind == cx::Response::Corner) hits->push_back({r.body, 0, r.feature + 8, r.mag});
+        else {
+            const gt3r::ee::F s = r.mag / gt3r::ee::F::raw(0x466A6000); // 15,000
+            hits->push_back({r.body, 1, r.feature + 8, s}), hits->push_back({r.other, 1, r.vertex, s});
+        }
+    }
     contacts.assign(n, {});
     for (size_t i = 0; i < n; ++i) {
         cx::Body& b = bodies_[i];
@@ -50,14 +59,9 @@ void Collision::step(std::vector<ex::Car>& cars, std::vector<Contact>& contacts)
         k.strength = b.car_hit || b.wall_hit ? std::min(b.strength.host(), 1.0f) : 0.0f;
         k.kind = b.car_hit ? 2 : b.wall_hit ? 1 : 0;
         if (b.car_hit && b.other >= 0 && size_t(b.other) < n && size_t(b.other) != i) k.car = b.other;
-        k.sum = b.strength;
-        if (k.kind == 1) k.part = b.wcorner && !b.wpoint ? b.we + 8 : b.wk;
-        else if (k.kind == 2) {
-            // the car whose side was met keeps the pair (its side + 8); the other its corner
-            k.part = b.hit_edge + 8;
-            for (size_t o = 0; !b.pair && o < n; ++o)
-                if (o != i && bodies_[o].car_hit && bodies_[o].pair && bodies_[o].other == int(i)) k.part = bodies_[o].vertex, k.car = int(o);
-        }
+        if (k.kind == 2 && !b.pair) // (the car whose side was met keeps the pair)
+            for (size_t o = 0; o < n; ++o)
+                if (o != i && bodies_[o].car_hit && bodies_[o].pair && bodies_[o].other == int(i)) k.car = int(o);
     }
 }
 

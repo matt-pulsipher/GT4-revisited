@@ -26,10 +26,10 @@ F rpm_of(F omega) { return (omega * kSixty) / kTwoPi; }
 
 // 0x367FD8 with 0x367DD0 / 0x367EB8: the motor's greatest torque at the driveline's speed (by the up-shift class: 3 the G
 // Touring's curve).
-F motor_torque(const DrivelineBlock& d, F omega) {
+F motor_torque(u8 shift_class, F omega) {
     F r = rpm_of(omega);
     if (r < k0) r = -r;
-    if (d.x13 == 3) {
+    if (shift_class == 3) {
         if (r < F::raw(0x44960000)) return F::raw(0x43C7EB83);
         if (r < F::raw(0x44BB8000)) return F::raw(0x48E90B72) / r;
         if (r < F::raw(0x45B86000)) {
@@ -49,16 +49,16 @@ F motor_torque(const DrivelineBlock& d, F omega) {
     return k0;
 }
 // 0x368040 / 0x368088 / 0x3680C0 / 0x3680F8: the engine's speeds and the store's size by the up-shift class.
-F engine_top(const DrivelineBlock& d) { return d.x13 == 3 ? F::raw(0x4402E651) : d.x13 == 2 ? F::raw(0x43EB9E92) : F::raw(0x43D17082); }
-F follow_max(const DrivelineBlock& d) { return d.x13 == 3 ? F::raw(0x4482E651) : F::raw(0x442A2B69); }
-F follow_min(const DrivelineBlock& d) { return d.x13 == 3 ? F::raw(0xC482E651) : F::raw(0xC42A2B69); }
-F store_size(const DrivelineBlock& d) { return d.x13 == 3 ? F::raw(0x43FA0000) : F::raw(0x43890000); }
+F engine_top(u8 shift_class) { return shift_class == 3 ? F::raw(0x4402E651) : shift_class == 2 ? F::raw(0x43EB9E92) : F::raw(0x43D17082); }
+F follow_max(u8 shift_class) { return shift_class == 3 ? F::raw(0x4482E651) : F::raw(0x442A2B69); }
+F follow_min(u8 shift_class) { return shift_class == 3 ? F::raw(0xC482E651) : F::raw(0xC42A2B69); }
+F store_size(u8 shift_class) { return shift_class == 3 ? F::raw(0x43FA0000) : F::raw(0x43890000); }
 // 0x368128: the engine's fuel rate at its power, 0 below idle.
-F fuel_rate(const ex::Car& c, const DrivelineBlock& d, const HybridTables& t, F omega, F power, F idle) {
+F fuel_rate(const ex::Car& c, u8 shift_class, const HybridTables& t, F omega, F power, F idle) {
     if (c.omega < idle) return k0;
     if (power <= k0) return k0;
     const F r = rpm_of(omega);
-    return power * (d.x13 == 1 ? bisect(t.fuel_class1, r) : bisect(t.fuel_other, r));
+    return power * (shift_class == 1 ? bisect(t.fuel_class1, r) : bisect(t.fuel_other, r));
 }
 // 0x3681E0: the power asked for at a speed and throttle.
 F power_wanted(const HybridTables& t, F speed, F throttle) {
@@ -82,12 +82,13 @@ F demand(const ex::Car& c, F throttle, F speed) {
 }
 } // namespace
 
-HybridTables hybrid_tables(const Program& program) {
+HybridTables hybrid_tables(const Program& program, u32 fuel_class1, u32 fuel_other, u32 power_up, u32 power_low) {
     HybridTables t;
-    t.fuel_class1 = read_table(program, 0x620BA8), t.fuel_other = read_table(program, 0x620BF8);
-    t.power_up = read_table(program, 0x620C80), t.power_low = read_table(program, 0x620C90);
+    t.fuel_class1 = read_table(program, fuel_class1), t.fuel_other = read_table(program, fuel_other);
+    t.power_up = read_table(program, power_up), t.power_low = read_table(program, power_low);
     return t;
 }
+HybridTables hybrid_tables(const Program& program) { return hybrid_tables(program, 0x620BA8, 0x620BF8, 0x620C80, 0x620C90); }
 
 ex::Table<12> hybrid_engine_speeds(const ex::Table<24>& torque) {
     ex::Table<12> e{};
@@ -117,12 +118,21 @@ void hybrid_clutch_request(ex::Car& c) {
 void hybrid_start(HybridState& h) { h.store = k1, h.mode = 0, h.engine_target = k0, h.flags = 0; }
 
 F hybrid_box(ex::Car& c, DriveExtra& x, HybridState& h, const HybridTables& t, u16 idle_rpm) {
-    const DrivelineBlock& d = x.d;
+    HybridCar k;
+    k.shift_class = u8(x.d.x13), k.driven_axle = u8(x.d.driven_axle), k.ratio = x.d.ratio[c.gear < 10 ? c.gear : 9];
+    k.torque = [&](F throttle) { return engine_torque(c, x, throttle); };
+    k.speed = [&](F power) { return bisect(hybrid_engine_speeds(x.e.torque), power); };
+    k.fuel = &x.fuel.used;
+    return hybrid_box(c, k, h, t, idle_rpm);
+}
+
+F hybrid_box(ex::Car& c, const HybridCar& k, HybridState& h, const HybridTables& t, u16 idle_rpm) {
+    const u8 d = k.shift_class;
     const F idle = int_to_f(idle_rpm) * F::raw(0x3DD6774E);
     const F dt = c.dt;
     bool engine_on = false, engine_stall = false; // sp+4 / sp+8
     const bool no_request = c.clutch_req == k0;   // sp+C
-    F shaft = c.axle_speed[d.driven_axle & 1] * d.ratio[c.gear < 10 ? c.gear : 9];
+    F shaft = c.axle_speed[k.driven_axle & 1] * k.ratio;
     if (c.gear == 0) shaft = -shaft;
     bool braking = no_request && F::raw(0x3F4CCCCC) < c.brake_pedal && k0 < c.throttle_pedal;
     // The store's mode by its eighths.
@@ -138,7 +148,7 @@ F hybrid_box(ex::Car& c, DriveExtra& x, HybridState& h, const HybridTables& t, u
         }
     }
     const bool on = h.mode != 0, low = h.mode == 2;
-    bool cruise = d.x13 == 3 && F::raw(0x3CE38E37) <= c.speed;
+    bool cruise = d == 3 && F::raw(0x3CE38E37) <= c.speed;
     if (c.gear == 0) cruise = false;
     F wanted = k0, target_power = k0; // f30, f23
     F speed = c.speed;
@@ -197,7 +207,7 @@ F hybrid_box(ex::Car& c, DriveExtra& x, HybridState& h, const HybridTables& t, u
             if (speed < F::raw(0x419B8E38) && !cruise && motor_power < F::raw(0x41200000)) skip = true;
             if (!skip) {
                 if (cruise) {
-                    engine_speed = bisect(hybrid_engine_speeds(x.e.torque), target_power);
+                    engine_speed = k.speed(target_power);
                     if (top < engine_speed) engine_speed = top;
                 } else
                     engine_speed = top * f2;
@@ -263,13 +273,16 @@ F hybrid_box(ex::Car& c, DriveExtra& x, HybridState& h, const HybridTables& t, u
             throttle = engine_speed / F::raw(0x43D17082) + k0;
             if (k1 < throttle) throttle = k1;
         }
-        engine_torque_v = engine_torque(c, x, throttle);
+        engine_torque_v = k.torque(throttle);
         if (!cruise && want * engine_torque_v < k0) engine_torque_v = k0;
         omega = c.omega;
         engine_power = (engine_torque_v * rpm_of(omega)) * kKw;
     }
     if (cruise) motor_power = wanted - engine_power;
-    x.fuel.used = x.fuel.used + fuel_rate(c, d, t, omega, engine_power, idle) * dt;
+    F rate_of_fuel = fuel_rate(c, d, t, omega, engine_power, idle);
+    if (k.fuel_hourly) rate_of_fuel = rate_of_fuel / F::raw(0x45610000);
+    *k.fuel = *k.fuel + rate_of_fuel * dt;
+    if (k.burnt) k.burnt();
     F charge = k0, f4 = k0;                       // f22, f4
     if (k0 < engine_power) {
         if (stopped) {

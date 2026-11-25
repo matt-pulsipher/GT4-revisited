@@ -1120,8 +1120,10 @@ Vm::Step Vm::execute(Task& t, Frame& f) {
                                                                                 : in.symbols)->get(*this));
                 if (in.text == "*") f.imports.push_back(m);
                 else if (std::shared_ptr<Reference> r = member(m, in.text)) {
-                    // (In a module's body the name is in reach of the module's functions.)
-                    (f.scopes.size() > f.base_scopes ? f.scopes.back()->imported : f.imported)[in.text] = std::move(r);
+                    // (In a module's body the name is in reach of the module's functions; so what one of its functions imports
+                    // is in the others': Prologue's onLoad imports MMovieFace for its pages.)
+                    if (f.scopes.size() <= f.base_scopes) f.imported[in.text] = r;
+                    f.scopes.back()->imported[in.text] = std::move(r);
                 }
                 else fail(f, pc, "no \"" + in.text + "\" in " + m.to_string());
                 break;

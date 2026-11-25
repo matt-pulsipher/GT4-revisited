@@ -49,6 +49,8 @@ public:
     // differential type letters (0x3DF0D8), four wheel drive system 3's gain and capacity bytes (0x3DFFD0), the byte that
     // gives the special kind 7 its pitch tire term (0x3B1498).
     static constexpr u32 kSpecialBodies = 0x5040F8, kLsdLetters = 0x504AD0, kAwd3 = 0x504AD8, kKind7Tire = 0x503CB0;
+    // The stepless gearboxes' rates (bytes; 0x3DB730).
+    static constexpr u32 kStepless = 0x504930;
     // The car set-up's (0x3C93A0): set, an entry with the stability control off keeps its switches' bits 6 and 7.
     static constexpr u32 kAsmKeep = 0x504B04;
 

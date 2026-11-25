@@ -282,7 +282,9 @@ private:
                 runtime->push_event(menu::object_value(e));
             };
             MenuMovies* movies = movies_.get();
+            movies_->expand_alpha = [runtime] { return runtime->movie_expand_alpha; };
             cars_ = std::make_unique<MenuCars>(app);
+            cars_->movies = movies_.get(), cars_->on_event = movies_->on_event;
             MenuCars* cars = cars_.get();
             models_ = std::make_unique<MenuModels>(app);
             loading_ = std::make_unique<MenuLoading>(app);

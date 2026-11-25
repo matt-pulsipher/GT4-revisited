@@ -4,6 +4,7 @@
 // engine's player, drawn in its place in the page; a movie that does not repeat calls the
 // face's onMovieFinish when it ends. docs/formats/menu.md, "Movies".
 
+#include "gt4r/app/expanded_film.h"
 #include "gt4r/menu/faces_movie.h"
 #include "gt4r/menu/runtime.h"
 #include "video/movie_player.h"
@@ -13,6 +14,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 
 namespace gt3r {
@@ -38,6 +40,13 @@ public:
     void draw(const menu::LiveWidget& face, const SDL_FRect& dst, float opacity);
     void stop_all();
     size_t playing() const { return movies_.size(); }
+    const std::string& root() const { return root_; }
+    // Whether films carry their alpha beside their colors (MMovieFace::expandAlpha).
+    std::function<bool()> expand_alpha;
+    // The film of that kind drawn last this picture: its time (seconds; nullopt: none), and what a
+    // car standing in it reflects.
+    std::optional<double> film_time() const { return film_time_; }
+    SDL_GPUTexture* film_reflection() const { return film_ && film_time_ ? film_->reflection() : nullptr; }
 
 private:
     struct Playing {
@@ -45,7 +54,12 @@ private:
         std::string name;
         gt3r::video::MoviePlayer player;
         bool finish_told = false, seen = false, failed = false;
+        long shown = -1; // the picture shown the last time
     };
+    // Draws the face's part of a film whose alpha is beside its colors.
+    void draw_film(Playing& m, const menu::LiveWidget& face, const SDL_FRect& dst, float opacity);
+    std::unique_ptr<ExpandedFilm> film_;
+    std::optional<double> film_time_;
     // The still for a movie from course.ipic while its first picture is decoded (nullptr: none).
     SDL_Texture* still(const std::string& name);
 
