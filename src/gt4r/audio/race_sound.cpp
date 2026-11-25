@@ -186,6 +186,9 @@ bool RaceSound::play_effect(const char* name, float level) {
 
 float RaceSound::stream_level(bool racing) const {
     if (!(replay_ ? options_.replay_music_on : options_.music_on)) return 0;
+    // Prologue's options hold the racing music's level themselves, the constructor's (0x3FFA50) and nothing sets it: 0 in a
+    // race (its races are run without music), 0.9 in a replay (RaceBGMPS2::vf5 0x37E168); its other pieces play at 1.
+    if (mix_->tables.prologue) return !racing ? 1.0f : replay_ ? 0.9f : 0.0f;
     const float table = library_ ? library_->levels().level(int(options_.mode), sound::VolumeTable::Stream) : 1.0f;
     return racing ? table * float(replay_ ? options_.replay_music : options_.music) / 128.0f : table;
 }
@@ -195,9 +198,10 @@ bool RaceSound::play_stream(const char* group, int number, bool racing) {
     const int g = sound::stream_group(group);
     const std::string file = g >= 0 ? library_->stream_file(g, number) : std::string();
     if (file.empty()) return false;
-    report_.music = file;
     const float level = stream_level(racing);
-    if (!music_.play || level <= 0) return false;
+    if (level <= 0) return false;
+    report_.music = file;
+    if (!music_.play) return false;
     return music_.play(file, false, level);
 }
 
@@ -251,8 +255,7 @@ void RaceSound::start_signal() {
 
 void RaceSound::rolling() {
     if (racing_) return;
-    racing_ = true;
-    if (!play_racing() && !music_.play) racing_ = false;
+    racing_ = play_racing(); // (with the music off nothing plays and no next piece is asked for)
 }
 
 void RaceSound::duck() { fade(designer_shot_ && replay_ ? 0.45f : free_run_duck_ ? 0.2f : 1.0f, 1.0f); }

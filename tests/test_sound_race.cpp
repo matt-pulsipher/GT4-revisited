@@ -911,6 +911,16 @@ TEST(sound_race_prologue_master) {
     const float table = library->levels().level(int(audio::OutputMode::Stereo), sound::VolumeTable::Race);
     std::printf("  Prologue: the master %.3f (the mix level %.3f)\n", double(sound.master()), double(table));
     CHECK(near(sound.master(), table, 1e-5));
+    // Its races run without music (the racing level is 0 in its options, 0.9 in a replay); the jingles play at 1.
+    std::vector<std::pair<std::string, float>> played;
+    audio::StreamPlayer music;
+    music.play = [&](const std::string& path, bool, float level) { return played.emplace_back(path, level), true; };
+    audio::RaceSound race(vfs, s.mixer(), s.driver(), library, audio::RaceSoundTables::from_core(disc->read_program()), music);
+    race.begin_run(audio::RaceMusic::Race, 2);
+    race.start();
+    CHECK(played.size() == 1 && played[0].first.find("str01j") != std::string::npos && played[0].second == 1.0f && race.report().starts == 1);
+    race.replay();
+    CHECK(played.size() == 2 && near(played[1].second, 0.9, 1e-6));
 }
 
 // Prologue's own in-car view: every sound of the car at the camera, so the exhaust is not behind it (no inverted side), and
