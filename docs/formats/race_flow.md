@@ -257,15 +257,15 @@ engine's Gran Turismo 3 code). The player notices them roughly in this order.
 
 | Piece | Where | Runs | The GT4 routine that should replace a stand-in |
 |---|---|---|---|
-| The rolling start's run-up: the field's pace until the line | `RaceWorld` `pace_kmh_`, `release_start` | the rule GT4 (0x3F7880: capped while more than 3 s at the start's speed short of the line, each car released at its crossing, vf20 0x347928); the cap itself **judged** (the throttle eased, a touch of brake) | the car's driver kind 1 (0x3452F0) so that the aids' own cap (0x3F76E8, `sim/rules_aids` `start_pace`) holds it; the release 0x345228 in the session (`sim-step`) |
+| The rolling start's run-up: the field's pace until the line | `sim::Session` (`sim-step`), `RaceWorld::release_start` | GT4 (0x3452F0 at set-up: F +0x467 = 1, driver kind 1; the aids' start pace 0x3F7880 / 0x3F76E8; each car released at its crossing, vf20 0x347928 → 0x345228 / 0x3F37B8). Tsukuba: the player's crossing 4.37 s on the clock (the original's 4.2); the stand-in simulation keeps the judged cap | |
 | The rolling start's distance, speed, spacing | `race/start_rule.*` `apply_drivers_file` | GT4 (vf28 0x34D490, 0x466B90) | |
 | The race clock's start in a rolling start, the opening shots' end | `race_flow.*` `clock_running`, `screen_race.cpp` `opening_tv` | GT4 (vf20 0x347928: the first car's crossing; the camera state 0x3FD620 by the pace 0x3F7880) | |
 | The held starts (missions' places with a start delay) | `sim/ai/drivers.cpp` `Field::drive` | the seconds GT4 (CFG +0x60, the count K +0xCBFC, 0x34DB30); the hold **judged** (the brake on, the engine blipped) | the start's hold F +0x4BC per car (`sim-step`) |
-| A standing start's hold, count, START | `race_flow.*` | GT4 (0x3C0208, 0x39D390, 0x39E9B0); the hold's length for a license test (8 s) from its demonstration, for other races 10 s ❓ | the race information's start type byte +0x40 (its writer) |
+| A standing start's hold, count, START | `race_flow.*`; the hold in `sim::Session` (`hold_once`: the countdown's flag a step at a time, the race information's +0xBC, 0x34C210 / the car's start hold) | GT4 (0x3C0208, 0x39D390, 0x39E9B0); the hold's length for a license test (8 s) from its demonstration, for other races 10 s ❓ | the race information's start type byte +0x40 (its writer) |
 | The opening shots (start motion, replay start) | `start_camera.*` | GT4 (CameraPathanim 0x37D338, 0x37D620) | |
 | The replay cameras (TV shots), their choice by distance | `replay_script.*` | GT4 (0x37C138, 0x3FD980 → 0x3DDFF0); the dissolve's drawing judged | |
 | The scenic shots behind the menus | `replay_script.*` `ScenicCamera` | GT4 (mode 5, 0x375980) | |
-| The driving views | `drive_camera.*` | the car's camera places (CAR4); their springs ❓ | |
+| The driving views | `drive_camera.*` | the car's camera places (CAR4); the on-board lens as the original shows it (61.2 degrees: its K and its chase pictures, camera.md); their springs ❓ | how the program's 90 degrees becomes it (the screen's scale) |
 | Laps, crossings, times, finish | `race_flow.*` | GT4 (0x358608, vf21 0x357B98); the race order's comparison judged | the order routine (❓ not found) |
 | License tests' rules | `license_rules.*`, `judge_license` | GT4 (0x3F8D70, 0x369888 → vf49, 0x35FE80); the hits' strengths from the simulation's contact (its sum per step, not the program's per hit), the mass P +0x48 | the hit records 0x350530 (`sim-step`) |
 | Cones and boards knocked about | `gadget_bodies.*` | GT4 (0x3E2B28 with 0x3E3748 / 0x3E3840, 0x3E44E8 / 0x3E4708, 0x3E3C48 / 0x3E3ED0 / 0x3E43B8, 0x3E5108, set-up 0x3E2710; course.md "Cones and boards: the bodies") in host floats; the road query and the car boxes' extents judged | the road query 0x3E5A30; the car record's box extents (+0x48C .. +0x494) |
@@ -274,14 +274,20 @@ engine's Gran Turismo 3 code). The player notices them roughly in this order.
 | Looking back | `gt3r::race::look_back_held` | **engine** | ❓ not read |
 | The race display: places, numbers, meters | `race_display.*`, `race_hud.*` | GT4 tables (RaceDisplay); the speedometer's face by the car's top speed estimate (P +0xFD8); how some parts move their pictures judged | the meters' drawing routines |
 | The driver's view's fuel arc and pedal bars | `race_hud.cpp` `draw_bars` | GT4 (0x3A8968: places, steps, colours); the fuel gauge's flag +0x1B judged (always) | |
-| The suggested gear | not drawn | | the driver's +0x40 by 0x469E58 / 0x36BF68 (race_display.md): the player's car's computer driver's target speed (`ai-drivers`) |
+| The suggested gear | `race_hud.cpp` `draw_suggested_gear`, `RaceWorld::suggested_gear` | GT4 (the driver's suggestion 0x469E58, `ai-drivers`; the gear 0x36BF68, the session's); its drawing judged | the display's vf5 0x3A7108 |
 | The license display's trophy times | `race_hud.cpp` | places judged | RaceLicenseDisplay::vf9 |
-| B-spec's display and commands | `race_hud.cpp`, `screen_race.cpp` | display mode 1 GT4; the pace bar, speed plate and help strip places judged; Select Car's order ❓ | the B-spec display's routines |
+| B-spec's display and commands | `race_hud.cpp`, `screen_race.cpp` | display mode 1 GT4; the meters the followed car's; the pace bar, speed plate and help strip places judged; Select Car's order ❓ | the B-spec display's routines |
+| B-spec's driver record and skill | `race_world.cpp` | GT4 (the book's record 0x468710, `gt-mode-2`; the skill 0x468C50 and the experience, `ai-drivers`); the skill's course flag (cond + 0xCBE7) taken as the course's marks being known ❓ | the flag's writer |
 | The replay's card, logo, caption timings | `screen_race.cpp` `fill` | **judged** (3 s, 4.5–14 s) | their caller's times |
 | The results and pause pages | `strobe*`, `screen_race.cpp` | GT4 movies and callbacks | |
 | Sun, glare, lamp glows, billboards, smoke, wet road, the scenery's fade | `race_world.cpp`, `course_scene.cpp` | **engine** routines on GT4's layouts (`gt3r::race::SunGlare`, `SunDisc`, `LampGlows`, `Billboards`, `CarLampGlows`, `TyreSmoke`, `WetRoad`, `SceneryFade`) | GT4's own effect routines (not read) |
 | The car icons on the map | `race_world.cpp` | angles and size judged (CarIconMaker 0x393B70) | |
 | The section times | `race/sections.*`, `screen_race.cpp` `step_splits` | the points GT4 (the road's list); the gap's partner judged | event 15 (0x359C10) and its display |
-| B-spec's Race Monitor | `screen_race.cpp` `fill_monitor` | the movie GT4; the rows' contents partly (gap judged); the map's letters drawn by us (not the movie's `CARPOS_`); the gap strip, pit panel not filled | 0x3D8DB8, 0x3DAF60, 0x3DBF90, 0x3DC5D8 |
+| B-spec's Race Monitor | `screen_race.cpp` `fill_monitor`, `fill_gap_strip` | the movie GT4; the rows (names fitted with "..." 0x3DA668, the followed car lit 0x3DAF60), the gap strip GT4 (0x3DBF90: places 0x3DBE98, gaps 0x3DBDF0, their text 0x3DBEE8, the unit); the gap column judged; the map's letters drawn by us; the strip's car pictures, its pace-up marks (0x3FA508) and the pit panel not filled | 0x3D8DB8, 0x3DB7B8 (pit panel), 0x3FA508 |
 | B-spec's pit command | `RaceWorld::pit`, `sim/ai/pit_stops.*` | GT4 (`ai-drivers`' port of 0x35B060) | |
-| Not built | | far-level wheels, brake disc glow, fitted wings, the driver figure, moving models, animated skies, cone shadows | |
+| The cars' levels of detail | `car_visual.cpp` `CarVisual::level` | GT4 (0x07's size and centre, the car's rule 0x4539A8, T = 200); K, the view's factor (0x456918), from the chase view's measured 721.2 by the lens's angle (judged: the lens) | the race's lens (camera.md) |
+| The far level's wheels | `car_visual.cpp` | GT4 (the body's own shapes with the wheel set's last texture set, callback 46) | |
+| The brake discs' glow | `car_visual.cpp`, `race_world.cpp` | GT4 (heat² x `Env0` +0x4C / +0x38, the sponsor's vf24 0x3D75F0; heat from the simulation); the blend as the renderer's added pass with its alpha 🔎 | |
+| Fitted wings | `car_visual.cpp`, `race_world.cpp` (the entry's WING part) | GT4 (0x4533A8's place and scale, callback 47 = 1); "spoiler taken off" (2) not reached: no part names it ❓ | |
+| Moving models | `race/animated_models.cpp` | GT4 (the models' scripts and their programs' register moves 0x44 .. 0x4B: seoul's and lasvegas's turning signs) | icerace's walkers (two switches), the animated skies |
+| Not built | | the driver figure (HumanModel `character/driver.mdl`, RaceDriverModel 0x3B1858, the posture 0x3B2708; the car file's +0x34 set is a black head-and-shoulders silhouette), animated skies, cone shadows | |

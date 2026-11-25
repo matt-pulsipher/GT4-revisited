@@ -221,7 +221,12 @@ start:
   (0x06 with id 3, 5 or 7, one case; checked on 786 sets) and draws the face through outside
   slot 2.
 - **Wing**: no race car file carries one (+0x28 is 0 on all 807); fitted wings are the files
-  `wing/lod/<name>`, `wing/menu/<name>`.
+  `wing/lod/<name>`, `wing/menu/<name>`, `<name>` the `WING` row's label (`p001` .. `p021`; a
+  car's record keeps the part at +0x100). The race model's wing (RaceCarModel vf20, 0x390340):
+  no name: callback 47 reads 0 (as built); an empty name: 2 (the spoiler taken off); a name:
+  the set loaded (0x454378) and 1. The draw (0x4533A8, before the body) multiplies by
+  translate(parts block +0xD0) and scale(+0xDC / 2) and draws the set's model 0. R34: (0, 1.10,
+  2.03), 1.6 wide.
 - **Driver**: +0x34, on 801 of the 807 race cars.
 
 ### Car info (+0x10)
@@ -298,9 +303,21 @@ switch reads; ids not listed do nothing and read 0. Uses counted on the 807 `car
 | 46 | 785 | Binds the wheel set's last texture set (the far level's turning face) to outside slot 2: the body's far level draws its wheels as shapes of its own with that picture (`0x50 2`) |
 | 47 | 588 (3 cases) | **Stock spoiler / wing**: 0 as built, 1 a wing is fitted (the game draws the wing set before the body, at the parts block's place), 2 the spoiler taken off |
 
-The second entry point (level of detail, command 0x07): a level forced by the race when it is
-not negative; else, with T the car's threshold (200, set for every car at the race's start):
-v > T: 0, v > 0.33 T: 1, else 2. A wheel set's callback: the forced level, else the default
+The second entry point (level of detail, command 0x07; 0x4539A8): a level forced by the race
+when model +0x8C is not negative (-1 when made); else, with T the car's threshold (model +0x90:
+220 when made, 200 set for every car at the race's start): v > T: 0, v > 0.33 T: 1, else 2.
+The race bodies' switch comes after a 0x22 at the program's start; its size is 3.0 on the cars
+looked at (R34, Panoz, Legacy, Celica, Supra, XA), its centre about 0.45 m up the car's middle.
+**K** (the view's factor, kept at 0x8465E4) measured in the original's saved states: 721.2 in the
+chase view at Tsukuba's start, 121.4 in a wide start shot, 1851.6 in a replay shot, 3905.6 in a
+telephoto opening pass. A car 3.0 in size in the chase view is at level 0 nearer than 10.8 m
+of depth, level 1 to 32.8 m, level 2 beyond. (The race view here: K = 721.2 / tan(A / 2), A the
+lens's angle across a 4:3 picture, calibrated on the chase view, which this race view draws at
+90 degrees 🔎 the lens itself is judged: camera.md.)
+
+**The far level** (level 2) draws the wheels as shapes of the body, binding with callback 46
+the wheel set's last texture set (its far level's turning face) to slot 2; no wheel or brake
+callback runs there. (The race view here: that set appended to the body's lists for the build.) A wheel set's callback: the forced level, else the default
 rule (four levels).
 
 **Brake lamps** are a switch (id 0) between two sets of shapes, not a texture swap: all but
@@ -325,8 +342,14 @@ radius R, rim radius r. Callback 11 + i then multiplies the body's matrix by, in
 4. translate(-W / 2, 0, 0) on the left, (+W / 2, 0, 0) on the right: from the hub's middle to
    the outer face
 
-The body's program draws the brake parts here (unscaled shapes of the body set, in metres;
-their colour scale's alpha is the disc's glow, from the brake's heat 🔎). Callback 15 + i goes on:
+The body's program draws the brake parts here (unscaled shapes of the body set, in metres),
+under the colour scale (1, 1, 1, glow) the callback sets (offset 0 first): the disc's glow is
+their added shape (an orange ring picture, unlit, no depth writes), whose strength is that alpha.
+The race's sponsor gives the glow per wheel (vf24, 0x3D75F0): **heat² x `Env0` +0x4C / `Env0`
++0x38**, heat the simulation's wheel +0xA4 (0x3F3A28 read at the step's end: the brake's heat,
+0..1, physics.md); the environment reached as car +0x08 -> +0x04 -> +0x80 (the same chain
+reads +0xEA0 and +0x1794). Tsukuba: 0.2 / 2.0, so a disc at full heat adds its ring at 0.1.
+Callback 15 + i goes on:
 
 5. rotate about x by the spin angle
 6. scale by r, all three axes

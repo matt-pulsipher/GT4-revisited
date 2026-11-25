@@ -5,14 +5,16 @@
 // of the model sets"). Each such model is decoded once per key shape, at both ends of the blend;
 // every frame the script runs and the shown shape is the blend the registers ask for.
 //
-// Models whose programs move or turn by registers (the walking people of one course) are not
-// taken: they stay still in the scenery.
+// Models whose programs move or turn the whole model by registers (the walking people of icerace,
+// the turning signs of lasvegas and seoul) are moved so; a model that moves only some of its shapes
+// stays still in the scenery.
 
 #include "formats/model/gtm1.h"
 #include "gt4r/formats/model/model_script.h"
 #include "gt4r/race/simulation.h"
 #include "scene/model.h"
 
+#include <array>
 #include <span>
 #include <vector>
 
@@ -20,6 +22,11 @@ namespace gt4r::race {
 
 class AnimatedModels {
 public:
+    // A matrix command of a draw program that takes its values from registers (0x44 .. 0x4B).
+    struct Move {
+        u8 op = 0;
+        int cell = -1;
+    };
     // `set`: the model set (a course's slot 1); `decode`: the options its still models are decoded
     // with; `color_scale`: the factor on its stored colors.
     AnimatedModels(ByteSpan set, float color_scale, const gt3r::gtm1::Options& decode);
@@ -50,9 +57,12 @@ private:
     struct Animated {
         u32 model = 0;
         int switch_cell = -1, weight_cell = -1; // the registers its program reads; -1: none
+        std::vector<Move> moves;                // its moves by register, in program order
+        std::array<float, 16> pivot{}, pivot_inverse{}; // the program's matrix at its first move, and its inverse
         std::vector<Key> keys;                  // one per case of the switch (one without a switch)
     };
     float ask(u32 id, std::span<const u32> cells, std::span<const CarState> cars) const;
+    std::array<float, 16> move_matrix(std::span<const Move> moves) const;
 
     mdls::Script script_;
     mdls::ScriptState state_;

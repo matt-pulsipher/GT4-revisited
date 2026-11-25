@@ -7,6 +7,9 @@
 #include "gt4r/audio/race_tables.h"
 #include "audio/audio_engine.h"
 #include "gt4r/formats/course/course_file.h"
+#include "gt4r/formats/db/car_parts.h"
+#include "gt4r/menu/game_bspec.h"
+#include "gt4r/sim/ai/bspec_skill.h"
 #include "gt4r/formats/model/car_model.h"
 #include "gt4r/race/car_spec.h"
 #include "gt4r/sim/rules_wear.h"
@@ -76,7 +79,15 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
             if (c.label == e.label) entry = &c;
         if (!entry) throw FormatError("The car database has no car " + e.label + ".");
         const race::CarSpec spec = race::read_car_spec(*app.db(), entry->label);
-        std::unique_ptr<race::CarVisual>& visual = m.visuals_by_model[entry->model + "#" + std::to_string(e.paint)];
+        // A fitted wing: the entry's, else its equipment's WING part (record +0x100, table 30).
+        std::string wing = e.wing;
+        if (wing.empty() && e.equipment) {
+            const db::PartId part = e.equipment->part(0x100);
+            if (part != db::kNoPart && db::part_table(part) == u32(db::PartTable::Wing))
+                if (const db::Labels* l = app.db()->labels("WING"))
+                    if (const std::string* name = l->label(db::part_row_id(part))) wing = *name;
+        }
+        std::unique_ptr<race::CarVisual>& visual = m.visuals_by_model[entry->model + "#" + std::to_string(e.paint) + "#" + wing];
         if (!visual) {
             const std::optional<Bytes> file = app.vfs()->read("car/lod/" + entry->model);
             if (!file || (!car::CarFile::is_car(*file) && !race::CarVisual::is_gt3_car(*file))) throw FormatError("This car has no race model on the disc (" + entry->model + ").");
@@ -85,12 +96,18 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
             race::CarVisual::Options o;
             o.paint = paints.empty() ? e.paint : paints[e.paint % paints.size()];
             o.lamp_level = night_ ? 1 : 0;
+            const std::optional<Bytes> wing_file = wing.empty() ? std::nullopt : app.vfs()->read("wing/lod/" + wing);
+            if (wing_file) o.wing = *wing_file;
             visual = std::make_unique<race::CarVisual>(gpu, *file, pat ? ByteSpan(*pat) : ByteSpan{}, spec, o, entry->label);
             // The course's strengths of the three lamp lists (Env0 +0x1794: lights, brake, tail).
             if (const ByteSpan e0 = course_->section(course::kSlotEnv); e0.size() >= 0x17A0) {
                 float v[3];
                 std::memcpy(v, e0.data() + 0x1794, 12);
                 visual->set_lamp_strengths(v[0], v[1], v[2]);
+                // The brake discs' glow: heat^2 x Env0 +0x4C / +0x38 (the race's sponsor, 0x3D75F0).
+                float gain, scale;
+                std::memcpy(&gain, e0.data() + 0x4C, 4), std::memcpy(&scale, e0.data() + 0x38, 4);
+                visual->set_brake_glow_gain(scale > 0 ? gain / scale : 0.0f);
             }
             const gt3r::race::SunParams& env = course_->env();
             if (env.has_shadow) {
@@ -204,16 +221,31 @@ void RaceWorld::build_simulation() {
                 session_->set_wear_rules(rule_block, !session_->loose(), program);
             }
             // The computer drivers: every car but the player's (his too when he watches).
+            // The player's own car keeps a driver that plans but does not drive (the program's pad car: its decision each
+            // step, the suggested gear from it).
             std::vector<size_t> computer;
-            for (size_t i = computer_player_ ? 0 : 1; i < setup_.entries.size(); ++i) computer.push_back(i);
-            field_.reset(), pits_.reset();
+            for (size_t i = 0; i < setup_.entries.size(); ++i) computer.push_back(i);
+            field_.reset(), pits_.reset(), bspec_driven_ = false;
             if (!computer.empty()) {
                 try {
                     field_ = sim::ai::Field::open(*app_.disc(), setup_.course, *session_, computer, setup_.pace);
                     // B-spec: the player's car's driver takes his commands.
-                    if (computer_player_) field_->set_bspec(0);
+                    if (computer_player_) {
+                        field_->set_bspec(0);
+                        // The driver's record of the book for the car's class (0x468710) and its skill from it (0x468C50).
+                        const int k = sim::ai::bspec_class(gt3r::ee::F(session_->rating(0)));
+                        const std::array<u8, 0x40> rec =
+                            menu::bspec::race_record(setup_.bspec_book, k, setup_.bspec_course_known ? setup_.bspec_course_marks.data() : nullptr);
+                        field_->set_bspec_record(0, rec, k);
+                        if (const std::optional<sim::ai::BSpecSkill> sk = sim::ai::bspec_skill(sim::ai::BSpecTables::load(program),
+                                                                                                 sim::ai::BSpecRecord::from_bytes(rec.data()),
+                                                                                                 gt3r::ee::F(session_->rating(0)), setup_.bspec_course_known))
+                            field_->set_bspec_skill(0, sk->corner, sk->brake, sk->alongside);
+                        bspec_driven_ = true;
+                    } else field_->set_shadow(0);
                     for (size_t c = 0; c < commands_.size(); ++c) field_->command(c, {commands_[c].pace - 1, commands_[c].overtake ? 1 : 0});
-                    for (size_t car : computer) session_->set_driver_aids(car, field_->params(car).aids, field_->params(car).grip); // (their aids)
+                    for (size_t car : computer)
+                        if (car > 0 || computer_player_) session_->set_driver_aids(car, field_->params(car).aids, field_->params(car).grip); // (their aids)
                     // Their pit stops (the program's pit pass, request and stop; no fuel or wear counted here).
                     sim::ai::PitRace pr;
                     pr.laps = setup_.laps;
@@ -268,12 +300,11 @@ void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool pla
         if (computer_player_ && session_) session_->set_shift_factor(0, field_->shift_factor(0));
         inputs = driven;
     }
-    // A rolling start's pace (0x3F7880, `sim::rules::start_pace`): a car not yet over the line and more than 3 s at
-    // the start's speed short of it is capped at that speed; from 3 s out it runs free. (❓ Stand-in for the cap's
-    // throttle rule 0x3F76E8 in the car's aids, which runs once the session marks the car's driver kind:
-    // the throttle eased toward the speed, a touch of brake above it.)
+    // A rolling start's pace on the stand-in simulation (the game's caps its cars itself: Session's start pace
+    // 0x3F7880 / 0x3F76E8): a car not yet over the line and more than 3 s at the start's speed short of it is capped
+    // at that speed (judged: the throttle eased toward the speed, a touch of brake above it); from 3 s out it runs free.
     std::vector<race::CarInput> capped;
-    if (!hold && std::any_of(pace_kmh_.begin(), pace_kmh_.end(), [](float k) { return k > 0; })) {
+    if (!hold && !session_ && std::any_of(pace_kmh_.begin(), pace_kmh_.end(), [](float k) { return k > 0; })) {
         capped.assign(inputs.begin(), inputs.end());
         capped.resize(car_visuals_.size());
         const std::span<const race::CarState> now = sim_->cars();
@@ -345,6 +376,20 @@ int RaceWorld::gadget_contacts(size_t i) const {
 
 float RaceWorld::car_top_speed(size_t i) const {
     return session_ && i < car_visuals_.size() ? session_->record(i).p.top_speed.host() : 0.0f;
+}
+
+std::optional<std::array<u8, 0x40>> RaceWorld::bspec_record(size_t car) const {
+    if (!field_ || car != 0 || !bspec_driven_) return std::nullopt;
+    return field_->bspec_record(car);
+}
+
+int RaceWorld::bspec_class(size_t car) const { return session_ && car < car_visuals_.size() ? sim::ai::bspec_class(gt3r::ee::F(session_->rating(car))) : 0; }
+
+int RaceWorld::suggested_gear(size_t i) const {
+    // The car's driver's suggestion (0x469E58) and the gearbox's gear for its speed (0x36BF68); -1 none.
+    if (!field_ || !session_ || i >= car_visuals_.size()) return -1;
+    const sim::ai::Field::Suggestion sg = field_->suggestion(i);
+    return sg.on ? session_->gear_for_speed(i, sg.speed) : -1;
 }
 
 float RaceWorld::fuel_share(size_t i) const {
@@ -491,9 +536,16 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
     }
     const size_t n = std::min(cars.size(), car_visuals_.size());
     for (size_t i = 0; i < n; ++i) car_visuals_[i]->add_shadow_items(m.items, cars[i]);
+    // The cars' levels of detail by their size on screen (race::CarVisual::level): K, the program's
+    // factor of the view (0x456918), one unit's height at depth 1 on a picture 448 lines high x 10 / 7:
+    // 224 / (0.75 tan(A / 2)) x 10 / 7, A the lens across a 4:3 picture's width (721.2 in the original's
+    // chase view, its 0x8465E4 in a saved state).
+    race::CarVisual::LodView lod_view;
+    lod_view.forward = RVec{-pose.view.at(2, 0), -pose.view.at(2, 1), -pose.view.at(2, 2)};
+    lod_view.k = (224.0f / 0.75f) * (10.0f / 7.0f) / std::max(std::tan(pose.fov * 0.5f), 1e-3f);
     for (size_t i = 0; i < n; ++i) {
         if (int(i) == hidden) continue;
-        car_visuals_[i]->add_items(m.items, cars[i], pose.eye, kStep);
+        car_visuals_[i]->add_items(m.items, cars[i], pose.eye, kStep, &lod_view);
     }
     course_->add_after_items(m.items);
     if (m.smoke.loaded()) {

@@ -290,8 +290,7 @@ The race display draws the signs, the shift lamp, the G meter and the trip meter
 (`RaceHud::Impl::draw_small_parts`); ❓ judged: the signs stay unlit (a third of their color: the
 simulation does not say when an aid works), the lamp lights past 97 % of the red line, the G
 meter's point runs over two g each way, the trip meter counts whole miles or kilometres of the
-race. Not drawn: the suggested gear (it needs the course line's gear), the boost gauge, the
-nitrous gauge.
+race. Not drawn: the boost gauge, the nitrous gauge.
 
 **The suggested gear** (`RaceSuggestedGearDisplay`, the panels' member 0xA78 / 0x17C; shown with the display's
 flag bit 8, panel vf23): its value (the display's +0x54, set by the panel's vf24 from `RaceDisplay::vf2`
@@ -301,8 +300,11 @@ car's speed (F +0x53C) is at or over the driver's target speed (+0x28; with the 
 lower of +0x28 and +0x24; mode 3 and 4 also set +0x41), then 0x36BF68 at that target speed: the lowest gear
 from first whose up-shift engine speed (0x36BEE0) less 500 rpm (2,000 rpm in first) x 2 pi / 60 over the
 gear's speed factor (P +0x2A0 + 4 g) reaches it (a car whose gearbox 0x368398 / 0x3F1F78 answers: 1). So it
-shows ahead of a corner the gear the driver's line would brake to. Not drawn here: it needs the computer
-driver's target speed for the player's car (`sim/ai`, ❓ not kept for a car the player drives).
+shows ahead of a corner the gear the driver's line would brake to. Here the player's car keeps a planning
+driver (`Field::set_shadow`, its suggestion `Field::suggestion`) and the gear is `Session::gear_for_speed`
+(`RaceWorld::suggested_gear`); drawn as a red digit in the display's box (❓ the display's own drawing, vf5
+0x3A7108, not read; colour and size from the original's in-car view, where a red 3 shows above the gear).
+✔ Seen: the Ka '01 at Tsukuba, a red 3 from 74 km/h before the first corner.
 
 ### Chase views: `RaceSimplePanel`
 
