@@ -182,12 +182,12 @@ public:
     void on_event(App&, const SDL_Event& e) override {
         if (!editing_) return;
         if (e.type == SDL_EVENT_TEXT_INPUT) keys_.close(); // (a real keyboard types: ours is not needed)
-        typed_ = gt3r::text_field_event(e, text_, false);
+        typed_ = gt3r::text_field_event(e, text_, !keys_.is_open());
         if (typed_ != gt3r::TextKeyboard::Result::None) pending_ = typed_;
     }
 
     void render(App& app, Ui& ui) override {
-        ui.header(page_ == Page::Host ? (through_server_ ? "OPEN A LOBBY WITH A CODE" : "OPEN A LOBBY ON THE LOCAL NETWORK") : "LAN BATTLE", player_name(&rt_));
+        ui.header(page_ == Page::Host ? (through_server_ ? "OPEN A LOBBY WITH A CODE" : "OPEN A LOBBY ON THE LOCAL NETWORK") : "MULTI-LAN RACE", player_name(&rt_));
         if (page_ == Page::Connecting) {
             ui.text_center(150, connecting_text_, colors::kText);
             ui.footer("{Triangle}: stop");
