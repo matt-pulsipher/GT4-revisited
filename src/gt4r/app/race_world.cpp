@@ -1,5 +1,7 @@
 #include "gt4r/app/race_world.h"
 
+#include "gt4r/net/lan_rules.h"
+
 #include "gt4r/race/aspec_points.h"
 
 #include "gt4r/sim/showroom.h"
@@ -266,6 +268,13 @@ void RaceWorld::build_simulation() {
                 u8 rule_block[0x80] = {};
                 sim::rules::event_wear_bytes(setup_.event_row.data(), rule_block);
                 session_->set_wear_rules(rule_block, !session_->loose(), program);
+            }
+            if (setup_.lan_wear >= 0) { // (a battle between machines: 0x354F30 in place of the event's)
+                u8 rule_block[0x80] = {};
+                const std::array<u8, 9> wear = net::lan_wear(program, setup_.lan_wear);
+                std::copy(wear.begin(), wear.end(), rule_block + 0x2C);
+                session_->set_wear_rules(rule_block, false, program);
+                net::lan_boost(program, setup_.lan_boost, setup_.pace);
             }
             // The computer drivers: every car but the player's (his too when he watches).
             // The player's own car keeps a driver that plans but does not drive (the program's pad car: its decision each

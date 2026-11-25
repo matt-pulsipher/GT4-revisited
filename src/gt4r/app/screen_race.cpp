@@ -537,6 +537,7 @@ public:
         ws.conductor = setup.conductor, ws.section = setup.rules.section;
         ws.own_hold = setup.skip == 0 && race::start_hold_steps(setup.start, setup.start_seconds) > 0;
         ws.pace = setup.pace;
+        if (setup.online) ws.lan_wear = setup.online->rules.tire_wear ? 1 : 0, ws.lan_boost = setup.online->rules.boost;
         ws.bspec_book = setup.bspec_book, ws.bspec_course_marks = setup.bspec_course_marks, ws.bspec_course_known = setup.bspec_course_known;
         ws.event_row = setup.event_row;
         // The race's conductor: a run alone (its virtual 6 answers 1: the time trial and free run, the license tests but the

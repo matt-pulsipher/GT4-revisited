@@ -76,6 +76,9 @@ struct WorldSetup {
     race::Conductor conductor = race::Conductor::Other;
     int section = -1;
     bool own_hold = false; // the race counts its start's hold itself, from the set-up's state (no steps of the session's own)
+    // An online race's rules (a battle's conductor sets them in place of the event's: net/lan_rules.h): the tire damage (-1: no
+    // such race) and the boost.
+    int lan_wear = -1, lan_boost = 0;
     int laps = 0;       // the race's laps (the pit stops' last lap; 0 a run without an end)
     bool computer_player = false; // the computer drivers drive the player's car too
     // The B-spec driver's book (menu::bspec::Book: three tables of 8 x 8) and the course's marks, which give the race's
