@@ -194,7 +194,7 @@ void install_race_natives(Runtime& rt, script::Module& menu) {
         o->method("getGridCarName", [r, row](Vm& vm, const Value&, Args a) {
             const QuickRow* q = row(a);
             if (!q || q->car.empty()) return text("");
-            return text(vm.attribute(make_car_object(*r, q->car, q->paint), "name").to_string());
+            return text(vm.attribute(make_car_object(*r, q->car, q->paint), "short_name").to_string()); // (0x120238 -> 0x445450: CAR_NAME +0x08)
         });
         o->property("licenseCarName", [r, work]() {
             const QuickWork& w = work();
