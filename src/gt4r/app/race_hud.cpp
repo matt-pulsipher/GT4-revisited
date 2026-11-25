@@ -907,8 +907,13 @@ void RaceHud::draw(Ui& ui, const HudState& s) {
     if (s.replay && s.mode_opacity > 0 && !s.mode_text.empty()) {
         const DisplayPlace* p = impl_->layout.find(element::kReplayMode);
         const DisplayRect at = race::place_rect(p ? *p : DisplayPlace{element::kReplayMode, 20, 22, 132, 20, 4, 0}, 132, 20, true);
-        impl_->draw_picture(impl_->picture("replay_plate"), at, 0x800086E6u, s.mode_opacity);
-        impl_->draw_menu_text("hm_16", 1, at.x + at.w / 2, at.y + 13, gt3r::text::HAlign::Center, 0x80000000u, s.mode_opacity, s.mode_text, at.w * 0.9f, 0.8f, 0.8f);
+        // (✔ its color on the screen is 0x0086E6 as it is.)
+        impl_->draw_picture(impl_->picture("replay_plate"), at, 0x80004373u, s.mode_opacity);
+        // (The speed's words are the button font's: "%FGaiji HH".)
+        std::string words = s.mode_text;
+        const char* face = "hm_16";
+        if (words.rfind("%FGaiji ", 0) == 0) words.erase(0, 8), face = "Gaiji";
+        impl_->draw_menu_text(face, 1, at.x + at.w / 2, at.y + 13, gt3r::text::HAlign::Center, 0x80000000u, s.mode_opacity, words, at.w * 0.9f, 0.8f, 0.8f);
     }
     if (s.replay_paused) {
         // SimplePause 0x3C3B08: a black strip to the bottom from 438 of 480 down, its line in the middle of 408 .. 448 of 448.
@@ -926,7 +931,8 @@ void RaceHud::draw(Ui& ui, const HudState& s) {
     }
     if (s.replay) {
         // The replay's sign at its place (the place's rectangle is the sign's room: its own size, top left).
-        if (const DisplayPlace* p = impl_->layout.find(element::kReplaySign)) {
+        // (the mode's plate hides it: 0x39F058)
+        if (const DisplayPlace* p = impl_->layout.find(element::kReplaySign); p && s.mode_opacity <= 0) {
             const Impl::Picture& sign = impl_->picture("JP/replay");
             DisplayPlace at = *p;
             at.w = at.h = 0;
