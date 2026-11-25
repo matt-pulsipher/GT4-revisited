@@ -131,7 +131,7 @@ struct BlinkActor : Actor {
     bool repeat = true, reverse_phase = false, wave_form = false;
 
     using Actor::Actor;
-    void attached(LiveWidget& w) override { shown_before = w.data.number("alpha", 1); }
+    void attached(LiveWidget& w) override { shown_before = own_alpha(w); }
     void set_period(float seconds) {
         stride = (destination - source) / std::max(seconds * 60.0f, 1e-3f);
         rewind();
@@ -218,14 +218,54 @@ struct ChaseActor : Actor {
     float base_x = 0, base_y = 0, range_x = 0, range_y = 16, stride = 360.0f / (8.5f * 60.0f), period = 8.5f;
     int phase = 0;
     bool stopped = true;
+    // Prologue's (its 0x293E40): the widget chases the page's focus, the board's cone. A new focus is told to the widget's
+    // script (`onFocusChanged(context, focused)`) and starts the time again; the widget's middle eases to the focused one's by
+    // `ratio` (0.3) until `floating_wait` (x 60 pictures, 60), then stands over it, hopping: up by |sin| of 0.8 of the phase
+    // x range y, across by sin of the phase x range x (both 16).
+    bool follows = false, floating = true;
+    float ratio = 0.3f, wait = 60, clock = 0;
+    std::weak_ptr<LiveWidget> told;
     using Actor::Actor;
     void attached(LiveWidget& w) override {
         const Rect r = rect_of(w);
         base_x = r.x, base_y = r.y;
     }
+    void chase(LiveWidget& w) {
+        LiveWidget* page = w.page();
+        const std::shared_ptr<LiveWidget> focus = page ? page->focus.lock() : nullptr;
+        if (focus != told.lock()) {
+            told = focus, clock = 0;
+            if (w.runtime) {
+                const Value fn = w.runtime->vm().attribute(widget_value(w.self()), "onFocusChanged");
+                if (fn.p && fn.p->callable() && focus) w.runtime->queue_function(fn, {w.runtime->context(), widget_value(focus)}, w.path() + "::onFocusChanged");
+            }
+        }
+        float cx = 320, cy = 240;
+        if (focus) {
+            const Rect f = rect_of(*focus);
+            cx = f.x + f.w / 2, cy = f.y + f.h / 2;
+            for (const LiveWidget* up = focus->parent_widget(); up && up != page; up = up->parent_widget()) {
+                const Rect r = rect_of(*up);
+                cx += r.x, cy += r.y;
+            }
+        }
+        const Rect own = rect_of(w);
+        if (floating) {
+            clock += stride;
+            const float x = clock - wait * stride;
+            if (x > 0) {
+                const float across = std::sin(float(int(x) % 360) * 0.017453292f), up = std::fabs(std::sin(float(int(x * 0.8f) % 360) * 0.017453292f));
+                w.set_property("x", Value::number(cx + across * range_x - own.w / 2)), w.set_property("y", Value::number(cy - up * range_y - own.h / 2));
+                return;
+            }
+        }
+        const float mx = own.x + own.w / 2, my = own.y + own.h / 2;
+        w.set_property("x", Value::number(mx + (cx - mx) * ratio - own.w / 2)), w.set_property("y", Value::number(my + (cy - my) * ratio - own.h / 2));
+    }
     void step() override {
         const auto w = widget.lock();
         if (!w) return;
+        if (follows) return chase(*w);
         float x = base_x, y = base_y;
         if (!stopped) {
             phase = int(float(phase) + stride) % 360;
@@ -285,7 +325,7 @@ struct ButtonActor : Actor {
     using Actor::Actor;
     void attached(LiveWidget& w) override {
         home = rect_of(w);
-        if (const auto a = w.child("Active")) active_alpha = a->data.number("alpha", 1);
+        if (const auto a = w.child("Active")) active_alpha = own_alpha(*a);
     }
     void step() override {
         const auto w = widget.lock();
@@ -645,7 +685,7 @@ void install_actor_natives(Runtime& rt, script::Module& menu) {
     menu.define("MBlinkActor", Vm::native("MBlinkActor", [widget_of](Vm&, const Value&, Args a) {
         auto act = std::make_shared<BlinkActor>("MBlinkActor");
         act->widget = widget_of(a);
-        if (const auto w = act->widget.lock()) act->shown_before = w->data.number("alpha", 1);
+        if (const auto w = act->widget.lock()) act->shown_before = own_alpha(*w);
         BlinkActor* p = act.get();
         common_methods(act);
         flag_field(*act, "repeat", &p->repeat);
@@ -690,6 +730,12 @@ void install_actor_natives(Runtime& rt, script::Module& menu) {
         act->widget = w;
         if (w) act->attached(*w);
         ChaseActor* p = act.get();
+        if (w && w->runtime && w->runtime->is_prologue()) {
+            p->follows = true, p->range_x = 16, p->stride = 6, p->period = 1;
+            number_field(*act, "ratio", &p->ratio);
+            flag_field(*act, "floating", &p->floating);
+            act->property("floating_wait", [p] { return Value::number(p->wait / 60); }, [p](const Value& v) { p->wait = v.as_float() * 60; });
+        }
         common_methods(act);
         act->method("doStart", [p](Vm&, const Value&, Args) {
             p->stopped = false, p->phase = 0;
@@ -705,7 +751,7 @@ void install_actor_natives(Runtime& rt, script::Module& menu) {
         });
         number_field(*act, "floating_range_x", &p->range_x);
         number_field(*act, "floating_range_y", &p->range_y);
-        act->set("floating_wait", Value::integer(0));
+        if (!p->follows) act->set("floating_wait", Value::integer(0));
         return object_value(act);
     }));
 

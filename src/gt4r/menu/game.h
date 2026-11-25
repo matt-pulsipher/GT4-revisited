@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <array>
 #include <deque>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -352,6 +353,19 @@ struct GameState {
     // file its last load read (the Replay Theater, the program's load_replay sequence 0x10CA50).
     int card_action = 0;
     std::string replay_file;
+    // The run the race's menus save (labomode with MODE_SAVE_FULL_REPLAY: the card manager's new file), and what writes it.
+    struct PendingReplay {
+        std::string course, car; // labels
+        std::string mode;        // the race's mode by the program's name (race/replay_file.h)
+        int submode = -1;
+        u32 time_ms = 0;
+        bool bspec = false;
+        int kb = 1;
+        std::vector<u32> picture; // 64 x 64, or empty
+        // Writes it under the title; over the file `path` ("": a new one). False when it cannot be written.
+        std::function<bool(const std::string& title, const std::string& path)> save;
+    };
+    std::shared_ptr<PendingReplay> pending_replay;
     // The pictures the scripts hold as texture chunks (a card file's getIconTexture): an image face's `image_chunk` is the
     // picture's name here.
     std::map<std::string, gt3r::Tex1::Image> chunk_pictures;

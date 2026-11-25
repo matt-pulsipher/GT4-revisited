@@ -278,7 +278,9 @@ TEST(menu_game_state) {
     CHECK(h.option_int("race_laps") == 5 && h.option_text("netconf") == "a \"b\"" && std::get<float>(h.options["some_ratio"]) == 0.25f);
     CHECK(h.option_text("game_zone") == "US"); // the zone by its name (0 UNDEF, 1 JP, 2 US, ...)
 
-    menu::Runtime rt(no_files());
+    menu::RuntimeConfig config;
+    config.console_card = true;
+    menu::Runtime rt(no_files(), config);
     rt.boot();
     script::Vm& vm = rt.vm();
     const Value game = vm.lookup("game");

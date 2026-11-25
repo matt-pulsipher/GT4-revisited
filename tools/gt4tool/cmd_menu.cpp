@@ -75,6 +75,7 @@ void print_tree(const menu::LiveWidget& w, int depth) {
 
 int cmd_menu_run(Disc& disc, const std::vector<std::string>& a) {
     menu::Runtime::Config config;
+    config.console_card = true; // (the original's card dialogs: card=none, card=empty, card=saved)
     config.list = disc_lister(disc);
     config.program = [&disc] { return disc.read_program(); };
     const std::vector<std::string> languages = menu::project_languages(config.list, a[0] == "boot" ? "boot" : a[0]);

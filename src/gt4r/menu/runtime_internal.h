@@ -115,6 +115,13 @@ struct TextMeasure {
 };
 TextMeasure& text_measure();
 
+// A face's own alpha (mWidget's slots 56 to 59; mColorFace 0x2862C0): its first color's, or what a script or an actor set.
+inline float own_alpha(const LiveWidget& w) {
+    if (w.data.has("alpha")) return w.data.number("alpha", 1);
+    const std::vector<Rgba> colors = w.is("TextFace") ? std::vector<Rgba>{} : w.data.colors("color");
+    return colors.empty() ? 1.0f : float(colors[0].a) / 255;
+}
+
 // ---- game_natives.cpp
 // main::game and the classes of the game's state (MGame, MOption, MGarage, MCarData, ...).
 void install_game_natives(Runtime& rt, script::Module& menu);

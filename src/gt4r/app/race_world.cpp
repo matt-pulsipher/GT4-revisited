@@ -291,6 +291,7 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
     const ByteSpan env0 = course_->section(course::kSlotEnv);
     m.sun.load(*app.vfs(), app.renderer(), &gpu, env0);
     m.sun_disc.load(gpu, m.sun.params());
+    effects_.setup(course_->env());
     m.lamps.load(app.renderer(), &gpu, course_->section(course::kSlotEffects), env0, course_->section(course::kSlotWorldVis),
                  course_->section(course::kSlotFlareShape));
     m.billboards.load(gpu, course_->section(course::kSlotBillboards), setup.course);
@@ -886,6 +887,7 @@ void RaceWorld::present(std::span<const race::CarState> cars, std::span<const au
 void RaceWorld::present(std::span<const race::CarState> cars, const audio::SoundListener* camera, int target, bool live, const sim::Session* heard) {
     Impl& m = *impl_;
     m.pit_live = live;
+    effects_.step();
     if (camera && m.sound) {
         m.sound->set_more_cameras(m.more_cameras);
         if (live && session_) m.sound->update(*session_, *camera, target);
@@ -1163,7 +1165,8 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
     }
     o.overlay = &m.overlay;
     o.post_grade = grade_;
-    o.snapshot = snapshot_, o.dissolve = dissolve_, o.keep_last = keep_last_;
+    o.snapshot = snapshot_, o.dissolve = dissolve_, o.keep_last = keep_last_ || trail_ > 0, o.trail = trail_;
+    effects_.apply(o, pose, proj, effect_view_, effect_settings_, far);
     if (lens_) o.dof = lens_->dof, o.vignette = lens_->vignette;
     v.view->draw(ui.renderer(), rect, pose.view, proj, pose.eye, m.items, o);
     if (v.frame == 5)
@@ -1171,6 +1174,51 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
                  me.position.y, me.position.z, me.forward.x, me.forward.z, pose.eye.x, pose.eye.y, pose.eye.z, v.view->stats().meshes_drawn,
                  v.view->stats().triangles);
     ++v.frame;
+}
+
+race::MusicMarkers RaceWorld::music_markers(const std::string& file) const {
+    race::MusicMarkers m;
+    const size_t dot = file.rfind('.');
+    if (dot == std::string::npos || !app_.vfs()) return m;
+    const std::optional<Bytes> data = app_.vfs()->read(file.substr(0, dot) + ".adm");
+    if (!data) return m;
+    try {
+        const gt3r::sound::MadsMarkers markers = sound::parse_markers(*data);
+        if (markers.rate == 0) return m;
+        for (u32 s : markers.tracks[0]) m.at.push_back(float(s) / float(markers.rate));
+        m.length = float(markers.length) / float(markers.rate);
+    } catch (const std::exception& e) {
+        LOG_WARN("Markers of %s: %s", file.c_str(), e.what());
+    }
+    return m;
+}
+
+bool RaceWorld::load_dive(race::DiveDirector& d) const {
+    const std::shared_ptr<const gt3r::CoreImage> image = app_.disc() ? app_.disc()->program_image() : nullptr;
+    return image && d.load(image->program, image->load_address);
+}
+
+race::DiveDirector::World RaceWorld::dive_world(std::span<const race::CarState> cars, const race::ReplayScript& script) const {
+    race::DiveDirector::World w;
+    w.cars = std::min(cars.size(), car_visuals_.size());
+    w.script = &script, w.lap_length = lap_length();
+    w.car = [this, cars](size_t i) {
+        const race::CarVisual& v = *car_visuals_[i];
+        return race::DiveDirector::Car{&cars[i], v.body_matrix(cars[i]), v.bounds_min(), v.bounds_max(), v.mounts()};
+    };
+    w.ground = [this](const RVec& at, float y_max, float& y) { return course_->road().height_at(at.x, at.z, y_max, y); };
+    w.blocked = [this](const RVec& a, const RVec& b) { return course_->occluder().segment_blocked(a, b); };
+    return w;
+}
+
+float RaceWorld::nearest_depth(size_t i, const race::CarState& state, const render::Mat4& view) const {
+    if (i >= car_visuals_.size()) return 0;
+    const race::CarVisual& v = *car_visuals_[i];
+    const render::Mat4 to_view = view * v.body_matrix(state);
+    const RVec lo = v.bounds_min(), hi = v.bounds_max();
+    float nearest = 1e9f;
+    for (int k = 0; k < 8; ++k) nearest = std::min(nearest, -to_view.transform_point({k & 1 ? hi.x : lo.x, k & 2 ? hi.y : lo.y, k & 4 ? hi.z : lo.z}).z);
+    return nearest;
 }
 
 // A car's length and height, metres (its CHASSIS row's +0x08 / +0x0A, mm: 0x445D90 / 0x445DC0).

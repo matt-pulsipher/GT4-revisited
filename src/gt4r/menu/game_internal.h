@@ -11,6 +11,7 @@
 #include "gt4r/menu/prologue_license.h"
 #include "gt4r/menu/runtime_internal.h"
 #include "gt4r/save/memory_card.h"
+#include "gt4r/save/save_library.h"
 #include "gt4r/sim/program.h"
 #include "gt4r/sim/showroom.h"
 
@@ -158,6 +159,11 @@ void make_used_condition(Database& d, CarRecord& r, u32 meters);
 
 // ---- game_records.cpp
 void install_records(GameNatives& n, Object& game, script::Module& menu);
+// Whether all 16 tests of a license ("l0b", "l0a", "lib", "lia", "l0s") are passed with bronze or better (0x4312B0).
+bool license_all_bronze(Database& d, const GameState& s, const std::string& category);
+// Whether the player may drive an event himself (the race's menus' IsASpec): it asks for no license (its RACE row's byte
+// +0x45), or every test of that license is passed (0x110498).
+bool event_aspec_allowed(Database& d, const GameState& s, u8 license);
 // Gran Turismo 4 Prologue's main::game.license: install_prologue_license (prologue_license.h).
 // A Prologue license run's points (0x19F410) from its RACE row (in Gran Turismo 4's columns), its result's name and time.
 s32 prologue_license_points(ByteSpan row, const std::string& result, u32 time_ms);
@@ -217,7 +223,20 @@ struct GameNatives {
     script::Value make_game();
     script::Value make_card_manager(script::Args a);
     std::shared_ptr<save::GameSave> card_save, card2_save;
+    std::string card2_folder;
     save::GameSave& card();
+    // The saved games (no console's card).
+    save::SaveLibrary library();
+    save::Codes codes();
+    // The game written: over the one there, or made anew (and then the one being played).
+    save::Result write_game(const std::string& title);
+    // What the scripts keep put into the state a save writes (Prologue's license record).
+    void collect();
+    // The game there read into the state.
+    save::Result load_game();
+    bool save_failure_told = false, load_failure_told = false, unreadable = false;
+    bool checked = false; // Prologue: the boot looked for a game (a state that no boot set up is never saved over one)
+    u32 saved_print = 0; // of the game as it was last saved or loaded (no_card.cpp)
     // The card in slot 2 (the data folder's memorycard2/; not connected when there is no such folder).
     save::GameSave& card2();
     // The garage object of a state.

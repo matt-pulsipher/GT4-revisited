@@ -122,7 +122,7 @@ std::vector<SavedGame> SaveLibrary::games(const Codes& codes) const {
         g.card = card, g.current = card == now, g.when = file_time(fs::path(card) / game_ / game_);
         menu::GameState s;
         g.readable = GameSave(card, codes, {}, product_).load(s) == Result::Ok;
-        if (g.readable) g.name = s.username, g.money = s.money, g.day = s.today, g.cars = s.garage_count();
+        if (g.readable) g.name = s.username, g.money = s.money, g.day = int(s.today) - int(menu::GameState::kFirstDay) + 1, g.cars = s.garage_count();
         out.push_back(std::move(g));
     }
     return out;

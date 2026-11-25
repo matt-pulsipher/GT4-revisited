@@ -10,6 +10,9 @@
 #include "gt4r/app/menu_loading.h"
 #include "gt4r/app/menu_models.h"
 #include "gt4r/app/menu_movies.h"
+#include "gt4r/app/screen_saves.h"
+#include "gt4r/menu/game_internal.h"
+#include "gt4r/menu/no_card.h"
 #include "gt4r/app/menu_page_drawer.h"
 #include "gt4r/app/menu_painter.h"
 #include "gt4r/app/menu_slides.h"
@@ -64,7 +67,7 @@ class MenuViewer : public Screen {
 public:
     // `player`: the game itself (make_game_screen): from power on, no lists, no log beside the
     // pages; leaving the menus leaves the screen.
-    explicit MenuViewer(App& app, bool player = false) : player_(player) {
+    explicit MenuViewer(App& app, bool player = false, std::string new_card = {}) : player_(player), new_card_(std::move(new_card)) {
         start_boot_ = player;
         advertise_on_ = player; // (scripted runs: GT4R_MENU advertise=1)
         const auto list = [&app](const std::string& folder) { return app.vfs()->list_dir(folder); };
@@ -240,6 +243,8 @@ private:
             if (disc) config.program_image = [disc] { return disc->program_image(); };
             if (disc && disc->info().serial.rfind("SCPS", 0) == 0) config.region = "jp"; // (Prologue: its units, PS and kgfm)
             config.data_dir = app.save_dir();
+            config.console_card = !card_.empty(); // (GT4R_MENU card=: the original's card pages)
+            config.new_card = new_card_;
             while (!config.data_dir.empty() && (config.data_dir.back() == '/' || config.data_dir.back() == '\\')) config.data_dir.pop_back();
             if (!projects_.empty()) config.language = projects_[size_t(std::clamp(project_sel_, 0, int(projects_.size()) - 1))].language;
             runtime_ = std::make_unique<menu::Runtime>([vfs](const std::string& path) { return vfs->read(path); }, config);
@@ -303,16 +308,32 @@ private:
             if (const script::Value root = runtime_->vm().lookup("MpegRoot"); root.kind == script::Kind::String) movies_->set_root(root.as_string());
             if (const script::Value n = runtime_->vm().lookup("DemonstrationSlideNum"); n.is_number()) slides_->set_count(int(n.as_float()));
             race_.reset();
+            // A new game chosen on the saved games' page: Gran Turismo 4's boot at its name entry (Prologue has no such page).
+            if (from_boot && !new_card_.empty() && !runtime_->is_prologue()) runtime_->game().next_menu_arg = "EntryRoot";
             runtime_->start_project(from_boot || projects_.empty() ? runtime_->first_project() : projects_[size_t(project_sel_)].name);
+            new_card_.clear();
         } catch (const std::exception& ex) {
             stop();
             error_ = ex.what();
             LOG_WARN("Menu viewer: %s", ex.what());
         }
     }
+    // The game from its start again with another game (`load`: its folder) or a new one (`new_card`), the one played saved before.
+    void restart(const std::string& load, const std::string& new_card) {
+        if (!runtime_ || !app_) return;
+        App& app = *app_;
+        menu::autosave(*runtime_);
+        if (!load.empty())
+            if (const auto n = menu::natives_of(*runtime_)) n->library().set_current(load);
+        stop();
+        new_card_ = new_card;
+        advertise_on_ = false, skip_opening_ = true;
+        run(app, true);
+    }
     void stop() {
         if (held_) SDL_DestroyTexture(held_), held_ = nullptr;
         if (trail_) SDL_DestroyTexture(trail_), trail_ = nullptr;
+        if (page_picture_) SDL_DestroyTexture(page_picture_), page_picture_ = nullptr;
         menu::text_measure().measure = nullptr;
         movies_.reset(), cars_.reset(), models_.reset(), slides_.reset(), loading_.reset(), advertise_.reset(), live_drawer_.reset(), runtime_.reset(), race_.reset();
         if (app_)
@@ -348,6 +369,17 @@ private:
             for (int i = 0; i < steps; ++i) runtime_->set_pad(pad), runtime_->update(), cursor_.step(*runtime_);
             if (loading_) loading_->step(float(steps) / 60.0f);
             if (timing_ && double(SDL_GetTicksNS() - u0) / 1e6 > 20) LOG_INFO("Menu timing: the scripts took %.1f ms", double(SDL_GetTicksNS() - u0) / 1e6);
+            // Started again from the saved games' page: without the opening movie.
+            if (skip_opening_ && !runtime_->finished() && runtime_->current_page() && runtime_->current_page()->name == "MovieRoot") skip_opening_ = false, runtime_->key(menu::Key::Start);
+            // The saved games' page (the title's Save Game, Prologue's save and load items).
+            if (runtime_->take_saves_asked()) {
+                SavesHooks hooks;
+                hooks.save_now = [this]() { return menu::save_game_now(*runtime_); };
+                hooks.load = [this](const std::string& card) { restart(card, {}); };
+                hooks.new_game = [this](const std::string& card) { restart({}, card); };
+                app.push(make_saves_screen(app, hooks));
+                return;
+            }
             // A script that ended its project names the next one, or asks for a race.
             if (runtime_->finished() && (!race_ || (loading_ && loading_->active()))) {
                 if (!race_) race_ = runtime_->race_request();
@@ -447,15 +479,42 @@ private:
             Affine grown;
             grown.a = grown.d = tp.page_scale, grown.e = 320 * (1 - tp.page_scale), grown.f = 240 * (1 - tp.page_scale);
             live_drawer_->menu_frame = runtime_->frame();
+            // A transition that shows an earlier picture (blocks, a trail) and the capture loading page need the pages as a
+            // picture: then they are drawn into one of their own, in the screen's pixels.
+            const bool hold = loading_ && !loading_->active() && runtime_->game().loading_mode == "capture" && !runtime_->finished();
+            SDL_Renderer* r = app_->renderer();
+            SDL_FRect shown{};
+            const float pixels = SDL_GetRenderLogicalPresentationRect(r, &shown) && shown.w > 0 ? shown.w / float(Ui::kWidth) : 1.0f;
+            const int tw = std::max(1, int(640 * scale * pixels + 0.5f)), th = std::max(1, int(480 * scale * pixels + 0.5f));
+            const bool own = (hold || tp.trail || tp.blocks) && page_target(page_picture_, tw, th);
+            SDL_Texture* before = SDL_GetRenderTarget(r);
+            const float ox = own ? 0 : x, ps = own ? float(tw) / 640 : scale;
+            if (own) {
+                SDL_SetRenderTarget(r, page_picture_);
+                SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_NONE);
+                SDL_SetRenderDrawColor(r, 0, 0, 0, 255);
+                SDL_RenderClear(r);
+            }
             for (const auto& page : runtime_->open_pages())
-                if (menu::Project* project = runtime_->project_of(*page)) live_drawer_->draw(*project, *page, x, 0, scale, 0, grown, tp.page_opacity);
+                if (menu::Project* project = runtime_->project_of(*page)) live_drawer_->draw(*project, *page, ox, 0, ps, 0, grown, tp.page_opacity);
             if (movies_) movies_->end_frame();
             if (cars_) cars_->end_frame();
             if (models_) models_->end_frame();
             if (slides_) slides_->end_frame();
-            draw_trail(tp, x, scale);
+            if (own) {
+                draw_trail(tp, ps);
+                SDL_SetRenderTarget(r, before);
+                const SDL_FRect dst{x, 0, 640 * scale, 480 * scale};
+                SDL_SetTextureBlendMode(page_picture_, SDL_BLENDMODE_NONE);
+                SDL_SetTextureAlphaMod(page_picture_, 255);
+                SDL_RenderTexture(r, page_picture_, nullptr, &dst);
+                if (hold) loading_->keep(page_picture_);
+            }
             draw_cursor(x, scale);
             draw_blocks(tp, x, scale);
+            if (tp.trail && own) std::swap(page_picture_, trail_);
+            else if (trail_) SDL_DestroyTexture(trail_), trail_ = nullptr;
+            if (!own && page_picture_) SDL_DestroyTexture(page_picture_), page_picture_ = nullptr;
             // The transition's colour over the pages.
             if (timing_) {
                 // The pages' drawing (movies and 3D included) and the whole frame, in ms.
@@ -473,7 +532,6 @@ private:
                 }
             }
             if (const float cover = runtime_->fade_cover(); cover > 0) ui.fill(x, 0, 640 * scale, 480 * scale, Color{0, 0, 0, u8(std::clamp(cover, 0.0f, 1.0f) * 255.0f)});
-            if (loading_ && !loading_->active() && runtime_->game().loading_mode == "capture" && !runtime_->finished()) loading_->keep(x, scale);
             if (loading_) loading_->draw(x, scale);
         }
         // What the scripts did, beside the page (the game itself: only what stopped them).
@@ -511,13 +569,12 @@ private:
             return;
         }
         SDL_Renderer* r = app_->renderer();
-        if (tp.capture || !held_) {
-            if (held_) SDL_DestroyTexture(held_), held_ = nullptr;
-            const SDL_Rect page{int(x), 0, int(640 * scale), int(480 * scale)};
-            if (SDL_Surface* shot = SDL_RenderReadPixels(r, &page)) {
-                held_ = SDL_CreateTextureFromSurface(r, shot);
-                SDL_DestroySurface(shot);
-            }
+        if ((tp.capture || !held_) && page_picture_ && page_target(held_, page_picture_->w, page_picture_->h)) {
+            SDL_Texture* before = SDL_GetRenderTarget(r);
+            SDL_SetRenderTarget(r, held_);
+            SDL_SetTextureBlendMode(page_picture_, SDL_BLENDMODE_NONE);
+            SDL_RenderTexture(r, page_picture_, nullptr, nullptr);
+            SDL_SetRenderTarget(r, before);
         }
         if (!held_) return;
         float tw = 1, th = 1;
@@ -538,33 +595,26 @@ private:
     // drawn over the one just drawn at the transition's weight, from its rectangle cut by
     // `magnify_diff` page pixels a side (so magnified), then black at 0.1 (`with_black`); the
     // result is the next picture's last. (The first picture of the trail has none before it.)
-    void draw_trail(const menu::TransitionPicture& tp, float x, float scale) {
+    void draw_trail(const menu::TransitionPicture& tp, float scale) {
+        if (!tp.trail || !trail_) return;
         SDL_Renderer* r = app_->renderer();
-        if (!tp.trail) {
-            if (trail_) SDL_DestroyTexture(trail_), trail_ = nullptr;
-            return;
+        const float tw = float(trail_->w), th = float(trail_->h);
+        const float cut = std::clamp(tp.trail_diff * scale, 0.0f, std::min(tw, th) / 2 - 1);
+        const SDL_FRect src{cut, cut * th / tw, tw - 2 * cut, th - 2 * cut * th / tw};
+        SDL_SetTextureBlendMode(trail_, SDL_BLENDMODE_BLEND);
+        SDL_SetTextureAlphaMod(trail_, u8(tp.trail_ratio * 255));
+        SDL_RenderTexture(r, trail_, &src, nullptr);
+        if (tp.trail_black) {
+            SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+            SDL_SetRenderDrawColor(r, 0, 0, 0, u8(0.1f * 255));
+            SDL_RenderFillRect(r, nullptr);
         }
-        const SDL_Rect page{int(x), 0, int(640 * scale), int(480 * scale)};
-        if (trail_) {
-            float tw = 1, th = 1;
-            SDL_GetTextureSize(trail_, &tw, &th);
-            const float cut = std::clamp(tp.trail_diff * scale, 0.0f, std::min(tw, th) / 2 - 1);
-            const SDL_FRect src{cut, cut * th / tw, tw - 2 * cut, th - 2 * cut * th / tw};
-            const SDL_FRect dst{float(page.x), 0, float(page.w), float(page.h)};
-            SDL_SetTextureBlendMode(trail_, SDL_BLENDMODE_BLEND);
-            SDL_SetTextureAlphaMod(trail_, u8(tp.trail_ratio * 255));
-            SDL_RenderTexture(r, trail_, &src, &dst);
-            if (tp.trail_black) {
-                SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
-                SDL_SetRenderDrawColor(r, 0, 0, 0, u8(0.1f * 255));
-                SDL_RenderFillRect(r, &dst);
-            }
-            SDL_DestroyTexture(trail_), trail_ = nullptr;
-        }
-        if (SDL_Surface* shot = SDL_RenderReadPixels(r, &page)) {
-            trail_ = SDL_CreateTextureFromSurface(r, shot);
-            SDL_DestroySurface(shot);
-        }
+    }
+    // A texture the pages are drawn into, of this size (made when it has another).
+    bool page_target(SDL_Texture*& t, int w, int h) {
+        if (t && (t->w != w || t->h != h)) SDL_DestroyTexture(t), t = nullptr;
+        if (!t && (t = SDL_CreateTexture(app_->renderer(), SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_TARGET, w, h))) SDL_SetTextureScaleMode(t, SDL_SCALEMODE_LINEAR);
+        return t != nullptr;
     }
 
     // The menus' pointer (menu_cursor.h).
@@ -578,6 +628,8 @@ private:
     std::unique_ptr<menu::Runtime> runtime_;
     std::unique_ptr<PageDrawer> live_drawer_;
     std::unique_ptr<MenuMovies> movies_; // the running menus' movie faces
+    std::string new_card_;               // a new game to make there (started so)
+    bool skip_opening_ = false;
     std::unique_ptr<MenuCars> cars_;     // and car faces
     std::unique_ptr<MenuModels> models_; // and model faces
     std::unique_ptr<MenuSlides> slides_; // and slide shows
@@ -585,6 +637,7 @@ private:
     std::unique_ptr<MenuAdvertise> advertise_; // the pictures before the first menus
     bool advertise_on_ = false;
     MenuCursor cursor_;
+    SDL_Texture* page_picture_ = nullptr; // the pages as a picture, while something needs it
     SDL_Texture* held_ = nullptr; // a block transition's screen
     SDL_Texture* trail_ = nullptr; // a cross transition's last picture
     int project_sel_ = 0, page_sel_ = 0, state_ = 0;
@@ -606,7 +659,7 @@ private:
 } // namespace
 
 std::unique_ptr<Screen> make_menu_viewer(App& app) { return std::make_unique<MenuViewer>(app); }
-std::unique_ptr<Screen> make_game_screen(App& app) { return std::make_unique<MenuViewer>(app, true); }
+std::unique_ptr<Screen> make_game_screen(App& app, const std::string& new_card) { return std::make_unique<MenuViewer>(app, true, new_card); }
 
 } // namespace gt4r
 
@@ -631,12 +684,15 @@ public:
         Affine grown;
         grown.a = grown.d = tp.page_scale, grown.e = 320 * (1 - tp.page_scale), grown.f = 240 * (1 - tp.page_scale);
         drawer_.menu_frame = rt.frame();
+        drawer_.beside = scale > 0 ? x / scale : 0;
         cars_.begin_frame(rt.frame()), models_.begin_frame(rt.frame());
         for (const auto& page : rt.open_pages())
             if (menu::Project* project = rt.project_of(*page)) drawer_.draw(*project, *page, x, 0, scale, 0, grown, tp.page_opacity);
         cars_.end_frame(), models_.end_frame();
-        // The pointer (menu_cursor.h), a step a picture drawn.
-        cursor_.step(rt);
+        // The pointer (menu_cursor.h), a step a picture of the menus.
+        if (stepped_ > rt.frame()) stepped_ = 0;
+        for (int n = 0; stepped_ < rt.frame() && n < 10; ++n, ++stepped_) cursor_.step(rt);
+        stepped_ = rt.frame();
         cursor_.draw(rt, drawer_, x, scale);
     }
 
@@ -645,6 +701,7 @@ private:
     MenuCars cars_;     // the prize pages' models
     MenuModels models_;
     MenuCursor cursor_;
+    u64 stepped_ = 0; // the menus' picture the pointer was last stepped to
 };
 
 } // namespace

@@ -20,10 +20,12 @@ struct Flow {
     Disc& disc;
     std::unique_ptr<menu::Runtime> rt;
 
-    explicit Flow(Disc& d, const std::string& language = "US", const std::string& data_dir = {}) : disc(d) {
+    // `console_card`: with a console's memory card and its dialogs (the original's pages); else saves of their own (menu/no_card.h).
+    explicit Flow(Disc& d, const std::string& language = "US", const std::string& data_dir = {}, bool console_card = true, const std::string& new_card = {}) : disc(d) {
         menu::Runtime::Config config;
         config.language = language;
         config.data_dir = data_dir;
+        config.console_card = console_card, config.new_card = new_card;
         config.list = [&d](const std::string& folder) {
             std::vector<std::string> out;
             for (const gt3r::Volume::Entry& e : d.volume().entries()) {

@@ -11,9 +11,11 @@
 #include "base/ee_float.h"
 #include "gt4r/race/car_visual.h"
 #include "gt4r/race/course_scene.h"
+#include "gt4r/race/dive_camera.h"
 #include "gt4r/race/gadget_bodies.h"
 #include "gt4r/race/race_start.h"
 #include "gt4r/race/rail_simulation.h"
+#include "gt4r/race/replay_effects.h"
 #include "gt4r/race/replay_script.h"
 #include "gt4r/race/simulation.h"
 #include "gt4r/sim/ai/drivers.h"
@@ -286,6 +288,18 @@ public:
     void render_mirror(Ui& ui, const SDL_FRect& rect, std::span<const race::CarState> cars, const race::ViewPose& pose, int hidden, int half = -1, float zoom = 1.3f);
     // The picture's correction (the screen settings, race/picture_settings.h) from the next frame.
     void set_grade(const gt3r::render::DrawOptions::PostGrade& g) { grade_ = g; }
+    // The next frame's passes of a replay (race/replay_effects.h), and the player's choices about them.
+    void set_effects(const race::EffectView& v, const race::ReplayEffectSettings& s) { effect_view_ = v, effect_settings_ = s; }
+    // The motion trail: the last picture shown over the next one at this weight (0 none).
+    void set_trail(float weight) { trail_ = weight; }
+    // The markers of a piece of music (its .adm beside `file`; track 0), none when it has none.
+    race::MusicMarkers music_markers(const std::string& file) const;
+    // The Dive director's tables, from the disc's program.
+    bool load_dive(race::DiveDirector& d) const;
+    // What the director sees of the cars' states.
+    race::DiveDirector::World dive_world(std::span<const race::CarState> cars, const race::ReplayScript& script) const;
+    // The depth of car `i`'s nearest point before a view (its box's corners; negative behind it), for the camera's focus.
+    float nearest_depth(size_t i, const race::CarState& state, const gt3r::render::Mat4& view) const;
     // The next frame's dissolve: `snapshot` freezes the last picture shown, drawn over the new one at
     // `weight`; `keep_last` keeps each picture for a later snapshot.
     void set_dissolve(bool snapshot, float weight, bool keep_last) { snapshot_ = snapshot, dissolve_ = weight, keep_last_ = keep_last; }
@@ -428,7 +442,10 @@ private:
     bool night_ = false, noted_ = false;
     gt3r::render::DrawOptions::PostGrade grade_;
     bool snapshot_ = false, keep_last_ = false;
-    float dissolve_ = 0;
+    float dissolve_ = 0, trail_ = 0;
+    race::ReplayEffects effects_;
+    race::EffectView effect_view_;
+    race::ReplayEffectSettings effect_settings_;
     std::optional<Lens> lens_;
     std::unique_ptr<Impl> impl_;
 };

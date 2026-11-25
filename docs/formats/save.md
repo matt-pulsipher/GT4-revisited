@@ -94,7 +94,36 @@ player, credits, day, the 22 cars, the licenses and their rankings as written. I
 then needed the screen's figures (+0x24, below): without them the original's license test drew
 its display over a black picture.
 
-## The game's other saves (photos and the slide show's list: [photo.md](photo.md); 🔎 the others are not written here; the Replay Theater lists the race's own replay files)
+## Several games
+
+A data folder holds any number of games (`save/save_library.*`): each in a folder as a card's is (the game's folder inside it), the
+first in `memorycard/`, the others in `games/<number>/`; `games/current-<product>` names the one being played (Gran Turismo 4's
+and Prologue's games stand beside each other by their products). Each stays in the game's own format, so any of them goes onto a
+card (`export_card`) and a card's comes in (`import_card`) as before; the saved games' page (`app/screen_saves.*`: the home screen,
+the title's Save Game, Prologue's save and load items) lists them, loads, starts a new one, exports, imports and deletes.
+`SaveLibrary::change_mark` tells a part that another one wrote a game.
+
+## Without a card
+
+The player has no card that could be missing, full, unformatted or another one (`menu/no_card.*`; `RuntimeConfig::console_card` gives a
+console's card and its dialogs instead, as the original shows them: `GT4R_MENU card=none|empty|saved` and the tests use it):
+
+- The natives: both slots connected and formatted, 7,999 KB free (8,000 is the scripts' unformatted card), `isChanged` 0; slot 2 in MODE_LOAD_GAME is the other game saved
+  last (trading, Arcade's slot 2 garage; not connected when there is none); `saveNew` beside a game makes a folder of its own and
+  it becomes the current one; `remove` takes nothing away; a game that cannot be read counts as none and is never written over.
+- The common `ConfirmDialog`'s `open` (the scripts reach it through `context.getCommonPage`) answers the texts a card would ask,
+  found by the disc's own page and key (`kRules`), without opening the page; a real failure is told once with the save's folder.
+- Texts that only speak of a card are reworded (English: `reword_card_texts`).
+- The boot: CheckRoot's questions are answered, so an empty folder goes to the opening movie and the title with no game loaded;
+  Gran Turismo mode then goes to the name entry (`startCreateGameData`), and `createGameData` writes the game. The program's own
+  boot goes to the project the game was saved in (`endBoot`): Gran Turismo mode's map for a game saved there.
+- Prologue's `memcard` project is not run: its boot loads the game there and the title comes; its save and load items are the saved
+  games' page. It has no new game's page: its first change makes the game.
+- Saving by itself (`autosave`): at each page opened or closed, with no script running, when the bytes a save would write differ
+  from those last saved or loaded (where the menus stand left out); Gran Turismo 4's option Autosave is kept (off: only the
+  scripts' own saves, the car's change), Prologue has none. The program's own (`doAutoSave` on the map, isNeedSave) runs too.
+
+## The game's other saves (photos and the slide show's list: [photo.md](photo.md); 🔎 the others are read, not written as a card's: the Replay Theater lists them beside the race's own replay files)
 
 The card manager's modes (0x179570's table) name the other kinds of save: `MODE_LOAD_REPLAY`,
 `MODE_SAVE_FULL_REPLAY`, `MODE_LOAD_BESTLAP_REPLAY`, `MODE_SAVE_BESTLAP_REPLAY`, the photo
@@ -106,9 +135,33 @@ films and pictures, the replay and slide-show play lists, the patch. Each is a f
 program's sequence `load_replay` (the title's third item asks for it), which runs the project
 `labomode` in `MODE_LOAD_REPLAY`: its scripts list the card's replays through the manager's
 `list`, `count`, `getFile(i)` and each file's `title`, `racemode`, `racesubmode`, `size`,
-`load`, `remove`, `isInfoValid`, `writeInfo`. The replay's own layout: replay.md ("The file", "A replay of ours", its
-folder on a card). Not read further: the folders' names. Here MODE_LOAD_REPLAY lists the replays the race saved in the data
-folder's `replays/` (`menu/game_replays.cpp`; menu.md "The Replay Theater").
+`load`, `remove`, `isInfoValid`, `writeInfo`. Here MODE_LOAD_REPLAY, MODE_SAVE_FULL_REPLAY and
+MODE_SAVE_BESTLAP_REPLAY list the replays the race saved in the data folder's `replays/` and Gran Turismo 4's own
+(`menu/game_replays.cpp`): a save's folder of `replays/` or of the memory card's folder (the data file named like it beside its
+`thumbnail`, `icon0.ico`, `icon.sys`), or the data file alone in `replays/`.
+
+### A replay's particulars
+
+A replay's or a photo's folder holds a 256-byte `thumbnail` beside the data (0x1CF400 writes it, 0x1CF628 reads it): the 0xE8
+bytes its list row shows, scrambled as the game data is ("Scrambling", key 0) with three differences: the head's two words go to
+places of 0.3142 and 0.4686 of the length (0x3EA0D979, 0x3EEFF200), and the bytes after the first word are shuffled (the last one
+down, each with one drawn by the twister seeded with the first word). `save/replay_particulars.*`; ✔ a card's replay of B license
+test 1 written by the running original reads as its list shows it.
+
+| at | |
+|---|---|
+| +0x00 | u64 the car's code (its name is made again from it when read, 0x1CF1E8) |
+| +0x08 | u64 the course's code |
+| +0x10 | the title, +0x50 the course's label, +0x90 the car's name: 0x40 bytes each |
+| +0xD0 | u32 the time in ms (`time`: 0x1CF308) |
+| +0xD8 | s8 the race's mode, an index into the names at 0x6A0020 (`racemode`: NOTHING, ARCADE_SINGLE_RACE, ARCADE_TIME_TRIAL, GTMODE_LICENSE, its B, A, IB, IA, S, COFFEE_BREAK and MISSION, GTMODE_FREE_RUN, FREE_PRACTICE, EVENT_RACE, CHAMPIONSHIP, MACHINE_TEST and its 0_400, 0_1000, MAX_SPEED) |
+| +0xD9 | s8 its number (`racesubmode`: the test's or the mission's, -1 none) |
+| +0xE0 | u32 the B-spec driver's run (`spectatorMode`) |
+| +0xE4 | u32 a license test's (`objectName`: FileReplayLicense, else FileReplayFull, 0x1D0360) |
+
+`date` is the card's own date of the file, the year of the century, the month and the day (0x1CC1C8). `writeInfo` writes the
+particulars again with the new title.
+The replay's own layout: replay.md ("The file", "A replay of ours", its folder on a card).
 
 ### The icon's picture
 
@@ -117,8 +170,8 @@ A replay's or a photo's `icon0.ico` (the console's icon format: shapes, vertices
 picture in the texture's top left 64 x 64. The lists' file object gives it to the scripts as a
 texture chunk (`getIconTexture`, 0x176FF0: a Tex1 of 64 x 64 16-bit pixels, each made opaque),
 which they put in the row's image face (`image_chunk`; its size there 72 x 54). Here
-`save/card_icon.h` decodes it and `GameState::chunk_pictures` holds it by name; the demo replays'
-are shown, the race's own saved replays have none.
+`save/card_icon.h` decodes it and `GameState::chunk_pictures` holds it by name. The race's own saved replays carry a picture of
+their own (race_flow.md "Saved replays").
 
 ## Results the scripts see (0x1CBF40)
 

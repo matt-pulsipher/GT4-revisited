@@ -9,6 +9,7 @@
 #include "gt4r/menu/faces_car.h"
 #include "gt4r/menu/photo_natives.h"
 #include "gt4r/menu/runtime_internal.h"
+#include "gt4r/menu/text_layout.h"
 
 #include <algorithm>
 #include <cmath>
@@ -663,7 +664,9 @@ void arrange_list(Runtime& rt, LiveWidget& list, bool) {
         row->set_property("visible", Value::integer(item.visible));
         row->set_state(kActive, item.active);
         row->set_state(kInsensitive, item.insensitive);
-        row->state = i == focus && has_focus ? row->state | (kFocus | kPrelight) : row->state & ~(kFocus | kPrelight);
+        // The cursor points at the chosen row while the list has the focus (prelight); the focused widget is the list
+        // itself, so no row has the focus bit (0x2B3518 -> 0x263A68).
+        row->state = (row->state & ~(kFocus | kPrelight)) | (i == focus && has_focus ? kPrelight : 0);
         list.children.push_back(row);
     }
 }
@@ -1143,7 +1146,9 @@ void step_widgets(Runtime& rt, LiveWidget& w) {
             if (is_select_box(*c)) more[0] = select_box_more(*c, true), more[1] = select_box_more(*c, false);
             else if (c->is("ListBox")) {
                 const int count = list_count(*c), focus = list_focus_index(*c);
-                more[0] = focus < count - 1, more[1] = focus > 0;
+                // (mListBox's slots 106 and 107, 0x2B46B0, 0x2B4728: a row further on and the rows past the box's end; a row
+                // before and the rows moved.)
+                more[0] = focus + 1 < count && c->scroll + lb_total(*c) > lb_extent(*c), more[1] = focus != 0 && c->scroll < 0;
             } else continue;
             if (const W inc = w.child("inc_arrow")) inc->set_state(kActive, more[0]);
             if (const W dec = w.child("dec_arrow")) dec->set_state(kActive, more[1]);
@@ -1773,7 +1778,7 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
                     w->set_property("model_sets", Value::string(sets.empty() ? path : sets + "|" + path));
                 return Value{};
             });
-        if (n == "setData" || n == "setColor" || n == "setColorIndex" || n == "syncLoading" || n == "loadModelSet" || n == "loadModelMotion" ||
+        if (n == "setData" || n == "setColor" || (n == "setColorIndex" && type != "CarFace") || n == "syncLoading" || n == "loadModelSet" || n == "loadModelMotion" ||
             n == "loadModelOptionMotion")
             return nothing();
     }
@@ -1830,6 +1835,23 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
             }
             return cell;
         }
+        if (n == "car_code") {
+            auto a = std::make_shared<Accessor>();
+            a->read = [w] { return Value::string(w->data.text("car_code")); };
+            a->write = [r, w](const Value& v) {
+                const std::string code = v.is_nil() ? std::string() : v.to_string();
+                w->set_property("car_code", Value::string(code));
+                // (A car set stands where the layout says from now, before the script's own placing: the arcade car page
+                // brings it in from 8.5 m toward the camera, its front first.)
+                const std::shared_ptr<CarModelObject> model = car_model_of(r, w);
+                if (!code.empty() && model->m.placed_car != code) {
+                    const CarFaceSettings s = car_face_settings(w->data);
+                    model->m.set_car(s.trans, s.rotate);
+                    model->m.placed_car = code;
+                }
+            };
+            return a;
+        }
         if (n == "car_model") {
             car_model_of(r, w);
             return w->extras["car_model"];
@@ -1841,7 +1863,7 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
             });
     }
     if (type == "ColorFace" || type == "ColorWindow") {
-        if (n == "getAlpha") return fn([w](Vm&, const Value&, Args) { return w->get("alpha"); });
+        if (n == "getAlpha") return fn([w](Vm&, const Value&, Args) { return Value::number(own_alpha(*w)); });
         if (n == "setAlpha")
             return fn([w](Vm&, const Value&, Args a) {
                 if (!a.empty()) w->set_property("alpha", a[0]);
@@ -1935,24 +1957,45 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
             return Value{};
         });
     if (type == "InputTextFace") {
-        // The text typed (`value`), at most `max_input_length` characters. The cursor is kept
-        // at the end: left and right do nothing here.
+        // The text typed (`value`), at most `max_input_length` characters, and the place the next letter goes: kept as the
+        // letters after it (`input_after`), the end to begin with. (The program's key handling, 0x2A6D10.)
+        auto place = [](const LiveWidget& face, const std::string& value) {
+            size_t at = value.size();
+            for (int k = int(face.data.number("input_after")); k > 0 && at > 0; --k) at = utf8_before(value, at);
+            return at;
+        };
+        auto after = [](LiveWidget& face, int n) { face.set_property("input_after", Value::integer(std::max(n, 0))); };
         if (n == "putString")
-            return fn([w](Vm&, const Value&, Args a) {
-                std::string value = w->data.text("value") + (a.empty() ? std::string() : a[0].to_string());
-                const size_t most = w->data.has("max_input_length") ? size_t(std::max(w->data.number("max_input_length"), 0.0f)) : value.size();
-                if (value.size() > most) value.resize(most);
+            return fn([w, place](Vm&, const Value&, Args a) {
+                std::string value = w->data.text("value");
+                const std::string typed = a.empty() ? std::string() : a[0].to_string();
+                const size_t most = w->data.has("max_input_length") ? size_t(std::max(w->data.number("max_input_length"), 0.0f)) : value.size() + typed.size();
+                if (value.size() >= most) return Value{};
+                value.insert(place(*w, value), typed.substr(0, most - value.size()));
                 w->set_property("value", Value::string(value));
                 return Value{};
             });
         if (n == "backspace" || n == "delete")
-            return fn([w](Vm&, const Value&, Args) {
+            return fn([w, place, after, back = n == "backspace"](Vm&, const Value&, Args) {
                 std::string value = w->data.text("value");
-                if (!value.empty()) value.pop_back();
+                size_t at = place(*w, value);
+                if (back ? at == 0 : at >= value.size()) return Value{};
+                size_t from = back ? utf8_before(value, at) : at;
+                size_t to = at;
+                if (!back) {
+                    to = at + 1;
+                    while (to < value.size() && (u8(value[to]) & 0xC0) == 0x80) ++to;
+                    after(*w, int(w->data.number("input_after")) - 1);
+                }
+                value.erase(from, to - from);
                 w->set_property("value", Value::string(value));
                 return Value{};
             });
-        if (n == "left" || n == "right") return nothing();
+        if (n == "left" || n == "right")
+            return fn([w, place, after, left = n == "left"](Vm&, const Value&, Args) {
+                if (!left || place(*w, w->data.text("value")) > 0) after(*w, int(w->data.number("input_after")) + (left ? 1 : -1));
+                return Value{};
+            });
     }
     // The boxes that lay their children out: adjustSize() and the automatic rows and columns.
     if (w->is_composite()) {

@@ -6,6 +6,7 @@
 
 #include "gt4r/menu/layout.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdlib>
@@ -69,6 +70,25 @@ inline Affine widget_transform(const Widget& w, const Rect& at) {
     m.a = a00, m.c = a01, m.b = a10, m.d = a11;
     m.e = cx + tx - (a00 * cx + a01 * cy), m.f = cy + ty - (a10 * cx + a11 * cy);
     return m;
+}
+
+// A clip cut by another (0x231A50).
+inline Rect cut(const Rect& a, const Rect& b) {
+    const float x0 = std::max(a.x, b.x), y0 = std::max(a.y, b.y), x1 = std::min(a.x + a.w, b.x + b.w), y1 = std::min(a.y + a.h, b.y + b.h);
+    return {x0, y0, std::max(x1 - x0, 0.0f), std::max(y1 - y0, 0.0f)};
+}
+
+// A clip as the program's scissor has it (0x215F78, 0x215FE0, 0x4A2DF8): the page's 480 lines on the 448 of the frame
+// buffer, halved for a field's 224, and the place and the size each cut to a whole line (the place and the width to a
+// whole pixel across). So a box that is not a whole number of lines high loses up to a line at its bottom: the gap
+// between a regulations page's rows. Back in the page's units.
+// (448 / 480 is the program's quotient, rounded toward zero: an exact number of lines comes out one less.) ❓ The page's
+// own clip, which loses the frame's last line so (black in the original's captures), is kept whole here.
+inline Rect scissor(const Rect& r) {
+    if (r.x <= 0 && r.y <= 0 && r.x + r.w >= 640 && r.h >= 480) return r;
+    constexpr double k = double(0.93333328f) * 0.5; // (0x3F6EEEEE)
+    auto line = [](float v) { return float(int(double(v) * k) * (480.0 / 224.0)); };
+    return {float(int(r.x)), line(r.y), float(int(r.w)), line(r.h)};
 }
 
 // The cursor's target on a widget's rectangle (x1, y1, x2, y2) by its `cursor_align` (the table

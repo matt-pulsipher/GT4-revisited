@@ -67,7 +67,7 @@ const render::GpuModel* MenuModels::model(menu::Project* project, const std::str
 }
 
 SDL_GPUTexture* MenuModels::env_texture(menu::Project* project, const std::string& page, const std::string& path) {
-    const gt3r::Tex1::Image* img = project && !path.empty() ? project->image(page, path) : nullptr;
+    const gt3r::Tex1::Image* img = project && !path.empty() ? project->image(page, path, true) : nullptr;
     if (!img || !img->width || !img->height) return nullptr;
     SDL_GPUTexture*& t = env_[image_key(*img)];
     if (!t) {
