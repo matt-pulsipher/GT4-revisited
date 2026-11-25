@@ -315,8 +315,8 @@ private:
             if (loading_) loading_->step(float(steps) / 60.0f);
             if (timing_ && double(SDL_GetTicksNS() - u0) / 1e6 > 20) LOG_INFO("Menu timing: the scripts took %.1f ms", double(SDL_GetTicksNS() - u0) / 1e6);
             // A script that ended its project names the next one, or asks for a race.
-            if (runtime_->finished() && !race_) {
-                race_ = runtime_->race_request();
+            if (runtime_->finished() && (!race_ || (loading_ && loading_->active()))) {
+                if (!race_) race_ = runtime_->race_request();
                 // The title left alone (its `timeout_count_to_autodemo`, 20 s) asks for the
                 // "autodemo" sequence: the opening movie (demo_movie, after the Polyphony logo),
                 // then the project the title named (`next_menu_project`, arcade), as the original
@@ -344,6 +344,13 @@ private:
                 // A race with its own menus: the race screen runs them over the race on these menus
                 // and leaves them where the race sequence ends (race_natives.h).
                 if (race_ && (!menu::quick_project(race_->sequence).empty() || race_->sequence == "replay" || race_->sequence == "race_view") && app.gpu()) {
+                    // The loading page before it, when the scripts asked for the last page held.
+                    if (loading_ && runtime_->game().loading_mode == "capture") {
+                        if (!loading_->active()) loading_->begin_capture();
+                        if (!loading_->covered()) return;
+                        loading_->stop();
+                        runtime_->game().loading_mode = "default"; // (the race's menus', quick.pp)
+                    }
                     RaceStart start;
                     start.course = race_->course, start.car = race_->car, start.paint = race_->paint;
                     start.cars = std::max(1, race_->max_entry);
@@ -410,6 +417,7 @@ private:
                 }
             }
             if (const float cover = runtime_->fade_cover(); cover > 0) ui.fill(x, 0, 640 * scale, 480 * scale, Color{0, 0, 0, u8(std::clamp(cover, 0.0f, 1.0f) * 255.0f)});
+            if (loading_ && !loading_->active() && runtime_->game().loading_mode == "capture" && !runtime_->finished()) loading_->keep(x, scale);
             if (loading_) loading_->draw(x, scale);
         }
         // What the scripts did, beside the page (the game itself: only what stopped them).
@@ -427,7 +435,7 @@ private:
             ui.text(x + 640 * scale + 2, 2, "Select+Start:", colors::kDim);
             ui.text(x + 640 * scale + 2, 14, "stop", colors::kDim);
         }
-        if (race_) {
+        if (race_ && !(loading_ && loading_->active())) {
             // The menus' work is done: this is what a race would be started from.
             const float px = x + 60 * scale, py = 150 * scale, pw = 520 * scale;
             ui.fill(px, py, pw, 84, colors::kPanel);

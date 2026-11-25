@@ -1246,7 +1246,11 @@ void install_game_natives(Runtime& rt, script::Module& menu) {
         static_fn(*cls, "GetMaxMemorySize", [](Vm&, const Value&, Args) { return number(32 * 1024 * 1024); });
         static_fn(*cls, "IsOEM", [](Vm&, const Value&, Args) { return number(0); });
         static_fn(*cls, "IsDrawPerfMeter", [](Vm&, const Value&, Args) { return number(0); });
-        for (const char* nothing : {"SetDrawPerfMeter", "SetLoadingMode", "DumpMemoryBlock", "SyncUnitWithLanguage", "Reboot"})
+        static_fn(*cls, "SetLoadingMode", [r](Vm&, const Value&, Args a) {
+            r->game().loading_mode = arg_text(a, 0);
+            return Value{};
+        });
+        for (const char* nothing : {"SetDrawPerfMeter", "DumpMemoryBlock", "SyncUnitWithLanguage", "Reboot"})
             static_fn(*cls, nothing, [](Vm&, const Value&, Args) { return Value{}; });
         auto now = [] {
             const std::time_t t = std::time(nullptr);

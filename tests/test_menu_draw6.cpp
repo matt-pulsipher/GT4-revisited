@@ -2,6 +2,7 @@
 
 #include "test_framework.h"
 
+#include "gt4r/formats/model/mdls.h"
 #include "gt4r/formats/model/mdls_skin.h"
 #include "gt4r/sim/ai/run.h"
 #include "gt4r/sim/equipment.h"
