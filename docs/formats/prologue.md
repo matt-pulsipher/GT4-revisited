@@ -273,8 +273,8 @@ field of the pose equal, on Tsukuba within a unit in the last place of the road'
 - **The car's set-up** (0x3C93A0, `Session::place`): the place's heading turned by 0x40490FDA (0x388138), the body's front on the
   place, the pose 0x3C89D8 (the height under the place, Gran Turismo 4's axes, the wheels' points on the GTRW road, their loads at
   rest, Prologue's ground frame, the pitch of the ride heights), the view's lags at rest (0x3B41E8), the standing start 0x3C8E10
-  (the engine's but F + 0x420 and the steering force's byte at 0). ❓ A rolling start's and a moving start's set-up (kinds 1 .. 8)
-  are Gran Turismo 4's.
+  (the engine's but F + 0x420 and the steering force's byte at 0). ❓ A rolling start's set-up is the engine's
+  moving start on that pose (the wheels' and engine's speeds for the road speed).
 - **The flaps** (0x3C26F0, phase 22): the arithmetic and constants are the engine's Gran Turismo 3 ones (compared routine by
   routine); they differ in the whole step by the state of the shared random stream, which other parts of the program draw from.
 
@@ -283,7 +283,7 @@ Still not run:
 - Phase 15 (0x3B1C58, Gran Turismo 4's 0x3F28B8): the aerodynamic devices that move with speed (the parameter block's kind
   +0xE84 1, 2 or 4; states F + 0x514 / 0x518, flags F + 0x51C / 0x51D, speeds P + 0xE88 / 0xE8C, rate P + 0xE90): no car of the
   disc has one.
-- The steering force 0x3BC7F0 (Gran Turismo 4's 0x353EE8 "larger change"; a wheel's force feedback), in neither game.
+- The steering force 0x3BC7F0 (Gran Turismo 4's 0x353EE8 "larger change"; a wheel's force feedback): Gran Turismo 3's runs.
 - Phases 2, 3 and 6 (0x3BDEC8, 0x3C3C90, 0x3C4400: a special car's part 7 and the special car kind 1's moods): not run
   (the special kinds 1 and 2 are `pod_tmv_01` and `r35_gtr_tmv_01`, not in Prologue's database).
 - The computer drivers' fields of the player's car (`ai.*`, the gear hint, laps): the program runs its line planner for every
@@ -307,21 +307,46 @@ Still not run:
   the words `RaceDisplay::Penalty`). Test `disc_prologue_race_rules`. ❓ Our collision step keeps a step's summed impulse, not
   each point's, so two points hitting in one step are judged together. Gran Turismo 4's rows have the same rule (5 seconds in the
   rally events and missions), run by its own judge in the session.
-- **Lesson 1's speed**: 0x3C5978 hands the test's number (+0x5A) to 0x3E1C20, a switch (0x572CC0) that for test 1 writes the cars'
-  speed cap +0x42 = 50 km/h (✔ the original's lesson 1 tops at 50); for tests 26 .. 35 it gives each opponent a speed and a
-  start distance (+0x4F .., +0x56 ..; DynamicsConductorTraining's virtuals 32 and 33), ❓ not applied here; for test 36
-  +0x45 = 100 ❓.
+- **A test's own changes**: 0x3C5978 hands the test's number (+0x5A) to 0x3E1C20, a switch (0x572CC0) that for test 1 writes the
+  cars' speed cap +0x42 = 50 km/h (✔ the original's lesson 1 tops at 50), for tests 26 .. 35 the other cars' starts (+0x4F .. the
+  speeds, +0x56 .. the distances, below), for test 36 +0x45 = 100 ❓. `sim::race_rules` reads the cases' constants from the code.
+- **The test's car** is entry 0 of its event's pool with that entry's parts, settings and paint (`lcns_pt_*`, `lcns_pr_*`: lesson 2's
+  Fit pulls to 52 km/h in first, the car as sold to 50; ✔ its speeds against the original's lesson 2 within 1 km/h over 4.5 s).
+  Gran Turismo 4's tests the same: the files of its demonstrations hold entry 0's equipment for their car (test
+  `disc_license_car_is_the_pools`: 47 of 53 equal in every part and setting; the rest list the pace car first, or another region's
+  car).
+- **Rolling starts**: a test with a start speed (RACE +0x27, km/h) and a start distance (+0x1E, metres, below 0 behind the line; the
+  rule block's +0x4E and +0x54) sets its cars moving at that speed and distance, each driven by the computer until it takes the line
+  (the start kind 2, the driver kind F + 0x538 = 1 from 0x3B3FD0; 0x3B4C88 gives the car back). 25 tests (8 .. 12, 14, 15, 17, 18,
+  21, 22, 24, 26 .. 35, 41 .. 43; test `disc_prologue_test_starts`). Tests 26 .. 35 have one to five other cars, the pool's entries
+  from 1 in order, placed by the switch: behind the line, or ahead of it (up to 1,950 m; those cars go at once, their crossings' count
+  1). The clock starts as the player's car takes the line (0x3B4C88 writes the race's clock into F + 0x534, and the test's time is
+  counted from it). ❓ The pace the computer keeps until the line is taken as the start's speed.
+- **The cones** (the lessons' gadgets): the road's records (GTRW +0x50 / +0x54, the records of Gran Turismo 4's RNW4) with the kinds of
+  `GDGT` (slot 47): `L_fisco6` has 64 of three kinds. The bodies step as Gran Turismo 4's (0x39B368, 0x39B608 .. 0x39D758) but no
+  kind stays fixed (flag bit 1) and a wall's impulse has no check of the energy (0x39CFB8). A cone touched ends a test that counts
+  none: ✔ the original's lesson 2 driven straight on ends as the car passes the blue cones after 0'04.516, ours at 0'04.583.
 - **After the test** the camera circles the car (CameraSys::CameraFinishType1, 0x3D4018: half a degree a step, 4 m away, 30 degrees
-  up, a lens of 65 degrees: 0x504674 .. 0x50467C) and the car brakes to a stand (✔ the original's; ❓ its routine not read).
+  up, a lens of 65 degrees: 0x504674 .. 0x50467C) and the car brakes to a stand (✔ the original's; ❓ its routine not read). The race
+  display fades out; with a medal its three target times stay. ✔ (`reference/37-prologue-medal`)
+- **The medal**: gold and silver by their times, bronze by its time or, where the test has none, for any finish (✔ the original's
+  lesson 1: 1'49.301 past the silver 1'48.000 is bronze). The emblem `race/trophy.mdl` (a `GTM1` with its own reflection picture, the
+  gold, silver and bronze sets by 0x572B68) turns over the whole picture where the movie places its `BRONZ` (0x3D99C0; its motion
+  0x3DA130 / 0x3DA310 is Gran Turismo 4's). ❓ The movie's words are under it here where they cross it.
 - **The laps**: the RACE row's +0x29 (the race's getter 0x37CFD0 reads it through the race information's row pointer +0x28):
   2 on lesson 1 (`l0p0001`, "Lap 1/2" in the original), 1 on lesson 2, 2, 3 or 5 on the championship races by their
   variant; it is Gran Turismo 4's column +0x43 in our database (the byte +0x25 read before is not the laps). A test whose
   road's goal lies inside the lap ends there on its last lap. 
+- **Where the crossings start** (0x3C9790 .. 0x3C9860): the sector of the car's start place among the road's split points (GTRW
+  +0x22 / +0x24: 8 bytes each, u16 type 0 the start, 1 the goal, 2 a split point, u16 its list, f32 the distance; 0x415FE0,
+  0x416028): the last sector 0, else 1, as Gran Turismo 4's; so a grid past the line (Fuji) runs its laps and no more.
 - **The results movie** (`menu/result_license.strb`, ResultLicense 0x3D95D8): GetTime the time as 0x409D88 writes it
   (M'SS.mmm), PrizeLevel (the result kind 1, 2 → 0, 3 → 1, 4, 5 → 2, else 3), GetRank the run's place in the test's
   ranking (0x3FE3B0: the first of ten entries that is empty or slower; -1: no name entry), GetDefaultName the user
-  profile's name (0x402428, +0x1133C; ❓ before any entry: the page's "AAA"), NameEntry the name into the run's record
-  (0x37B378) and the profile (0x402438). The ranking keeps each run with its name at its place.
+  profile's name (0x402428, +0x1133C; empty before any entry: the page then takes one letter at a time, each from A; else the three
+  letters stand with the cursor on the last), NameEntry the name into the run's record (0x37B378) and the profile (0x402438). Its
+  script keeps the 41 letters in an array, hides the letters not reached (`_visible`) and slides the cursor (`_x`); Down is the next
+  letter, accept the next box, cancel one back; the third letter enters the name and the page goes back to the lesson's. ✔ The ranking keeps each run with its name at its place.
 - **The record** (`menu/prologue_license.*`): the 48 units in the program's layout (a unit of 0x2E8 bytes, 0x3FDFC0: +0x00 the
   category, an index into the names at 0x504FD0 (none, B, A, IB, IA, S, D, GREEN, ORANGE, BLUE, RED, PURPLE, COFFEE); +0x04 the
   medal, an index into 0x505008's (none, bronze, silver, gold); +0x08 the most points; from +0x10 ten entries of 0x48 bytes in
@@ -391,9 +416,7 @@ pause and results are the race movies `menu/pause.strb`, `menu/result.strb`,
 record; its callbacks `GetTime`, `GetRank`, `GetDefaultName`, `PrizeLevel`, `EXIT_MENU`).
 Its texts are drawn in `font/race.fnt` (FC_16 .. FC_48, DC_12) and the movies' own fonts (`font/menu.fnt`), and its mask
 track is a box the texts are clipped to, as the program draws it ([strobe.md](strobe.md), the track's clip depth): the white
-box the page drew was the mask's bar. A passing run shows `TIME 0'07.866`, "New Record" and the three letters to enter
-(`~/gt4re-out/prologue/r6/shots/pass6.png`); ❓ the medal's picture (`kind 7`, the host's: "_EXT"), and the view behind the
-page (the original's: the car from a trackside camera) are not drawn.
+box the page drew was the mask's bar. What a passing run shows: "The license tests" above.
 
 ## The saved game ✔ written and read (`src/gt4r/save/prologue_data.*`)
 
@@ -473,13 +496,13 @@ that Gran Turismo 4's do not:
   0x48 bytes each). The license race's end (0x19ED58) records a run: its medal, its time and its points (0x19F410: by
   the test's RACE +0x22 and +0x5B and whether it has a bronze time, 0x19F508: gold 100 x (silver - time) /
   (silver - gold), silver 50 x (bronze - time) / (bronze - silver), bronze 10; 0x19F620: 100 / 50 / 10; 0x19F670: gold as
-  0x19F508, silver 50, bronze 10; integer arithmetic, ms). Ours keeps them for the session (`recordResult`, called from
-  the race's end) with the name entered on the results page; ❓ their save, the pass codes, `isPassed`'s own native (taken as a medal).
+  0x19F508, silver 50, bronze 10; integer arithmetic, ms). `recordResult` from the race's end keeps
+  them with the name entered on the results page (the record and its save: above and "The saved game").
 - A license race's gold, silver and bronze times go into the race menus' work (`MQuickWork` goldTime ..) from its
   RACE row as the program's race set-up does (0x1A1C10 with 0x409B70 ..): the race display's three medal lines show
   them (`~/gt4re-out/prologue/r5/lic3.png`: test 1 1'47.600 / 1'48.000 / none; `lic4.png`: test 2 0'12.180 / 0'12.200 / 0'13.000).
-- A license test's car is the first of its event's opponents (`demio_sport_03` for `l0p0001` on
-  `L_20r60r2`), its grid the event's (1).
+- A license test's car is the first of its event's pool (`demio_sport_03` for `l0p0001` on `L_20r60r2`), its grid the event's
+  (1; 2 to 6 on tests 26 .. 35: "The license tests").
 
 **The older layouts.** Prologue's `.mproject` files give a face's states as `cond_active`,
 `cond_focus`, `cond_prelight`, `cond_insensitive` (0 either, 2 the bit off, 3 on), read as the

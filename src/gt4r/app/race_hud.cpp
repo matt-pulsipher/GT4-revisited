@@ -268,7 +268,7 @@ RaceHud::RaceHud(App& app, ByteSpan gtcm) : impl_(std::make_unique<Impl>()) {
         LOG_WARN("Race display: %s", e.what());
         m.layout = {};
     }
-    if (!ready()) LOG_WARN("Race display: the disc's program or files are not the ones its places were read from; a plain read-out is shown");
+    if (!ready() && app.disc()->info().game != Game::Prologue) LOG_WARN("Race display: the disc's program or files are not the ones its places were read from; a plain read-out is shown");
 }
 
 RaceHud::~RaceHud() {
