@@ -1064,7 +1064,8 @@ GT4's own routines, checked against the user's program where the note says so:
 - a car's figures in the player's units (0x445F70 / 0x445EE8 the catalog's, truncated; 0x1462D8 / 0x146128 the current
   ones, half added; the units' factors 0x4729A0, 0x472A08; ❓ `GetPowerForDisplay` / `GetTorqueForDisplay`, 0x1AF598 /
   0x1AF760, are not read); the options' `*_volume` (raw / 128, 0x180AA8 and its six likes); the A-spec and B-spec meters
-  (0x10FA58, 0x114058; ❓ a run is counted as all one driver's);
+  (0x10FA58, 0x114058, not in license tests, missions or Arcade; ❓ a run is counted as all one driver's); whose car a race takes
+  by its sequence (0x10F948 the garage's, 0x10F880 / 0x10F8E0 the event's, 0x10F7D8 the scripts' car_code);
 - a championship's grid from its second race on (0x3EE9F8: opponents by kg over PS of their showroom cars, ties in
   entry order, the player last; `championship_grid_places`, `menu/game.h`; the reference's Tuning Car Grand Prix race 2
   grid reproduced with the event's parts and race 1's grid as the entrants' order, ❓ that order is inferred from this one

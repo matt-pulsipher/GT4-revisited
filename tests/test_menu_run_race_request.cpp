@@ -128,3 +128,61 @@ TEST(disc_race_request_bspec_book_not_spoiled) {
     std::printf("  won with a record below the book: 777 -> %d\n", int(g.bspec_book[kCell]));
     CHECK(g.bspec_book[kCell] <= 777);
 }
+
+// Whose car a race takes, by its sequence (0x10F948 the garage's driven car in every Gran Turismo mode sequence, 0x10F880 /
+// 0x10F8E0 the event's own in license tests and missions, 0x10F7D8 the scripts' car_code in Arcade's): a car code left by
+// Arcade or by a license's next test is not taken by a Gran Turismo mode race.
+TEST(disc_race_request_car_by_sequence) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    Flow f(*disc);
+    CHECK(f.gt_mode_with_a_car());
+    menu::GameState& g = f.rt->game();
+    if (g.riding_car < 0) return;
+    const std::string mine = g.garage[size_t(g.riding_car)].car;
+    for (const char* sequence : {"solo_event", "championship", "freerun", "practice", "photo_drive", "machinetest"}) {
+        menu::RaceRequest r;
+        r.sequence = sequence, r.race = "am_sunday_0001", r.course = "tsukuba", r.car = "ka_01";
+        menu::complete_race_request(*f.rt, r);
+        CHECK(r.car == mine && r.garage_slot == g.riding_car);
+    }
+    menu::RaceRequest test;
+    test.sequence = "license", test.race = "l0b0002", test.car = "ka_01";
+    menu::complete_race_request(*f.rt, test);
+    CHECK(test.car != "ka_01" && !test.car.empty() && test.garage_slot == -1);
+    menu::RaceRequest mission;
+    mission.sequence = "mission", mission.race = "l0m0001", mission.car = "ka_01";
+    menu::complete_race_request(*f.rt, mission);
+    CHECK(mission.car != "ka_01" && !mission.car.empty() && mission.garage_slot == -1);
+    for (const char* sequence : {"single_race", "time_trial"}) {
+        menu::RaceRequest arcade;
+        arcade.sequence = sequence, arcade.course = "tsukuba", arcade.car = "ka_01";
+        menu::complete_race_request(*f.rt, arcade);
+        CHECK(arcade.car == "ka_01" && arcade.garage_slot == -1);
+    }
+}
+
+// The meters and the B-spec book by the kind of run: an Arcade time trial counts no meters (0x112620 does not call
+// 0x10FA58); practice and the machine test write no B-spec record back (0x468AF0 is not called by 0x1181C8, 0x115A90).
+TEST(disc_race_request_course_runs) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    Flow f(*disc);
+    CHECK(ask_for_a_run(f));
+    menu::GameState& g = f.rt->game();
+    const s64 a0 = g.aspec_distance, b0 = g.bspec_distance;
+    menu::RaceResult r;
+    r.kind = menu::RaceResult::Kind::Course, r.course_kind = 7, r.course = "tsukuba", r.finished = true, r.distance_m = 4200;
+    f.rt->race_finished(r);
+    CHECK(g.aspec_distance == a0 && g.bspec_distance == b0);
+    for (const int kind : {3, 6}) {
+        menu::RaceResult p = bspec_run(g.race.bspec_book, "ka_01", 1, 5);
+        p.kind = menu::RaceResult::Kind::Course, p.course_kind = kind, p.race.clear();
+        f.rt->race_finished(p);
+        CHECK(g.bspec_book[kCell] == 777);
+    }
+    menu::RaceResult free_run = bspec_run(g.race.bspec_book, "ka_01", 0, 5);
+    free_run.kind = menu::RaceResult::Kind::Course, free_run.course_kind = 1, free_run.race.clear();
+    f.rt->race_finished(free_run);
+    CHECK(g.bspec_book[kCell] == 782);
+}

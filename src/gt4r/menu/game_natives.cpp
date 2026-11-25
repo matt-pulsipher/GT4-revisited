@@ -1187,8 +1187,14 @@ void complete_race_request(Runtime& rt, RaceRequest& r) {
         std::copy_n(s.course_record.data() + *at + 0x228, 8, r.bspec_course_marks.begin());
         r.bspec_course_known = true;
     }
-    if (!r.car.empty()) return;
     const bool test = r.sequence.find("license") != std::string::npos || r.sequence.find("mission") != std::string::npos;
+    // Whose car: the garage's driven car in Gran Turismo mode's sequences (0x10F948: the event's 0x113B48, the championship's
+    // 0x118EF0, the free run's 0x116E20, practice's 0x1181C8, the machine test's 0x115A90, photo drive's 0x11ABE0), the event's
+    // own in a license test and a mission (0x10F880, 0x10F8E0), the scripts' car_code in Arcade's (0x10F7D8): a code left by
+    // another mode is not taken. ❓ The photo shoot's and Preview's are not read: the scripts' car when they set one.
+    static const std::set<std::string> garage_sequences = {"solo_event", "championship", "freerun", "practice", "machinetest", "photo_drive"};
+    if (test || garage_sequences.count(r.sequence)) r.car.clear();
+    if (!r.car.empty()) return;
     if (test) {
         // A test's grid is its event's (RACE +0x3E: 1 on the license tests).
         if (row.size() > 0x3E && row[0x3E]) r.max_entry = row[0x3E];

@@ -2002,9 +2002,10 @@ private:
         }
         // A B-spec race: the driver's record back for the book (0x468860), the car's class.
         if (spectator_)
-            if (const std::optional<std::array<u8, 0x40>> rec = race_->bspec_record())
+            if (const std::optional<std::array<u8, 0x40>> rec = race_->bspec_record()) {
                 r.bspec_record = rec, r.bspec_class = race_->bspec_class(), r.bspec_course = setup_.bspec_course_known;
                 r.bspec_start = race_->world_setup().bspec_book, r.bspec_start_marks = race_->world_setup().bspec_course_marks;
+            }
         // Every car in finishing order.
         for (const race::RaceFlow::ResultRow& row : flow.results()) {
             menu::RaceResult::Finisher f;
