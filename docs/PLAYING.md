@@ -79,8 +79,10 @@ The ones a player meets first:
 - The used car list's scroll bar does not follow the list and its paint swatches are too bright.
 - More than half of the license tests begin with the car moving in the original (a run-up at 30 to
   200 km/h); here every test starts from rest.
-- In B-spec the Ka laps Tsukuba about 8 % faster than the original's.
-- At Apricot Hill Reverse some of the computer's cars are 1 to 3 % faster than the original's.
+- The B-spec driver's Ka is somewhat faster than the original's at Tsukuba (about 2 % over several
+  races; a race varies by more than that with the traffic).
+- At Apricot Hill Reverse some of the computer's cars were 1 to 3 % faster than the original's in the
+  few races compared.
 
 ## Scripted play (for checks)
 
