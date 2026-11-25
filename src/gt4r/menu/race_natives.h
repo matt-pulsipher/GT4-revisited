@@ -62,6 +62,8 @@ std::string next_license_test(const std::string& code);
 // a test's car and grid): menu::Runtime::race_request (runtime_internal.h).
 struct RaceRequest;
 void complete_race_request(Runtime& rt, RaceRequest& request);
+// The race menus' work as a sequence makes it anew (0x127E60, then its own fill): what its pages show before a run.
+void start_quick_work(Runtime& rt, const RaceRequest& request);
 
 // The quick work of the game's state (made on first use).
 QuickWork& quick_work(GameState& game);

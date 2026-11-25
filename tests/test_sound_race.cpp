@@ -296,24 +296,27 @@ TEST(sound_race_contact_recorder_on_disc) {
     Disc* disc = full_disc();
     if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
     const std::string cars[] = {"nsx_r_02"};
-    const std::unique_ptr<sim::Session> s = sim::Session::open(*disc, "tsukuba", cars);
-    race::CarInput in;
-    in.throttle = 1;
     int steps = 0, single = 0, stronger = 0, silent = 0;
-    for (int i = 0; i < 40 * 60 && steps < 60; ++i) {
-        s->step_once({&in, 1});
-        const race::CarState& c = s->cars()[0];
-        const audio::CarSoundState st = audio::sound_state(*s, 0);
-        if (c.contact_kind != 1) {
-            CHECK(st.contact == 0);
-            continue;
+    for (const float steer : {0.0f, 0.02f, -0.02f, 0.1f}) { // (a touch of steering: other ways into the wall)
+        const std::unique_ptr<sim::Session> s = sim::Session::open(*disc, "tsukuba", cars);
+        race::CarInput in;
+        in.throttle = 1, in.steer = steer;
+        const int until = steps + 60;
+        for (int i = 0; i < 40 * 60 && steps < until; ++i) {
+            s->step_once({&in, 1});
+            const race::CarState& c = s->cars()[0];
+            const audio::CarSoundState st = audio::sound_state(*s, 0);
+            if (c.contact_kind != 1) {
+                CHECK(st.contact == 0);
+                continue;
+            }
+            ++steps;
+            const float doubled = std::min(2 * c.contact, 1.0f);
+            CHECK(st.contact_kind == 0 && st.contact <= doubled + 1e-6f);
+            if (st.contact > 0 && near(st.contact, doubled, 1e-5)) ++single;
+            else if (st.contact > 0) ++stronger; // (two contacts or more: the stronger, not the sum)
+            else if (doubled >= 0.2f) ++silent;  // (several, each under 0.2, that together pass it)
         }
-        ++steps;
-        const float doubled = std::min(2 * c.contact, 1.0f);
-        CHECK(st.contact_kind == 0 && st.contact <= doubled + 1e-6f);
-        if (st.contact > 0 && near(st.contact, doubled, 1e-5)) ++single;
-        else if (st.contact > 0) ++stronger; // (two contacts or more: the stronger, not the sum)
-        else if (doubled >= 0.2f) ++silent;  // (several, each under 0.2, that together pass it)
     }
     std::printf("  %d steps against the wall: %d the doubled sum (one contact), %d the strongest of several, %d silent where the sum is not\n", steps,
                 single, stronger, silent);
