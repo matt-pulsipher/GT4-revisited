@@ -241,10 +241,6 @@ The ones a player meets first:
 
 - Photo Lab: films cannot be developed, and the printer and USB memory pages find no device. In photos the
   car reflects the sky more strongly than the original's.
-- The Replay Theater's Demo tab lists its 13 demonstrations; Play does not play them.
-- The Penalty option of Arcade's settings does nothing.
-- The B-spec driver's Ka is faster than the original's at Tsukuba (about 4 % in the race compared; the
-  order and the traffic differ).
 
 ## Scripted play (for checks)
 
