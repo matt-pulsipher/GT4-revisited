@@ -21,6 +21,9 @@
 //   gt4tool sweep <disc> stop [course=tsukuba] [car=ka_01] [run=8] [idle=4] [hold=1] [launch=8] [manual=0] [aids=1]
 //       the player's car alone through the pad's path: driven, braked to a full stop, stood (the brake held or not),
 //       then a full-throttle launch; a line every quarter second (gear, speed, rpm, the reverse request).
+//   gt4tool sweep <disc> grid [filter] [cars=6]
+//       where every course's grid places stand along the course (m from the line, negative behind it / the session's
+//       lap there) and how many are past the line.
 //
 // Flags: ERROR (could not be set up), NAN (a car's state not a number), STILL (under 50 m covered), SLOW (top under
 // 60 km/h), STUCK (over 5 s under 5 km/h after the start), SPINS (more than 2), WALLS (more than 10 wall hits),
@@ -425,6 +428,43 @@ int sweep_pad(Disc& disc, const Args& a) {
     return 0;
 }
 
+// Where every course's grid stands: each place's distance along the course (metres; past half the lap: behind the line),
+// the session's lap there, and how many of the places are past the line.
+int sweep_grid(Disc& disc, const Args& a) {
+    db::SpecDb db = sim::ai::open_specdb(disc);
+    const sim::Program program = sim::Program::load(disc);
+    const int ncars = std::clamp(int(option(a, "cars", 6)), 1, 16);
+    const std::string wanted = filter_of(a);
+    std::printf("#course\tlap_m\tcars\tpast_line\tplaces_m\n");
+    for (const std::string& name : disc.volume().list_dir("crs/")) {
+        if (name.find('.') != std::string::npos || name.find('/') != std::string::npos) continue;
+        if (!wanted.empty() && name.find(wanted) == std::string::npos) continue;
+        try {
+            std::shared_ptr<const course::Runway> road = load_road(disc, name);
+            std::vector<sim::Entry> entries{size_t(ncars)};
+            for (sim::Entry& e : entries)
+                if (!sim::stock_car(db, program, option_str(a, "car", "nsx_r_02"), e.equipment)) throw std::runtime_error("no car");
+            sim::Session session(db, program, road, entries);
+            std::vector<race::CarInput> in{size_t(ncars)};
+            session.hold_once(in);
+            std::string places;
+            int past = 0;
+            for (const race::CarState& c : session.cars()) {
+                const bool behind = c.course_v > road->length * 0.5f;
+                past += !behind;
+                char b[32];
+                std::snprintf(b, sizeof b, "%s%.1f/%d", places.empty() ? "" : ",", double(behind ? c.course_v - road->length : c.course_v), c.lap);
+                places += b;
+            }
+            std::printf("%s\t%.0f\t%d\t%d\t%s\n", name.c_str(), double(road->length), ncars, past, places.c_str());
+        } catch (const std::exception& e) {
+            std::printf("%s\t-\t-\t-\t%s\n", name.c_str(), e.what());
+        }
+        std::fflush(stdout);
+    }
+    return 0;
+}
+
 // A stop on the brake and a launch, the player's car alone through the pad's path: driven `run` s, braked to a stop
 // (the pad's brake full), stood `idle` s (the brake held, or released with hold=0), then full throttle `launch` s.
 // A line every quarter second: phase, time, gear, speed km/h and mph, rpm, the record's reverse request.
@@ -477,6 +517,7 @@ int sweep_stop(Disc& disc, const Args& a) {
 
 int cmd_sweep(Disc& disc, const std::vector<std::string>& a) {
     if (a[0] == "stop") return sweep_stop(disc, a);
+    if (a[0] == "grid") return sweep_grid(disc, a);
     if (a.empty()) return 2;
     if (a[0] == "courses") return sweep_courses(disc, a);
     if (a[0] == "cars") return sweep_cars(disc, a);
