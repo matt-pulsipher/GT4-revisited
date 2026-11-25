@@ -150,6 +150,10 @@ TextLayout layout_menu_text(std::string_view s, const TextStyle& st, float x, fl
             }
         }
         if (c == '\r') continue;
+        if (c == '\n' && st.one_line) {
+            space();
+            continue;
+        }
         if (c == '\n' || c == '\v') {
             lines.back().soft = c == '\v';
             lines.emplace_back();

@@ -45,6 +45,9 @@ struct TextStyle {
     TextColor color;
     // `equalized`: each line broken at a soft break ('\v') is spread to this width at its spaces.
     float justify_width = 0;
+    // A text face that is not `multiline` draws its text on one line (0x491418 with one line,
+    // 0x491220): a '\n' in it takes a space's place (the Nissan hub's "One-make\r\nRaces").
+    bool one_line = false;
     // "%Bc" to "%Bf" (the four shape buttons) are drawn in these; other buttons in gray.
     std::array<TextColor, 4> button_colors{};
 };

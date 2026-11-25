@@ -563,6 +563,7 @@ private:
         gt3r::text::FontVariant variant = gt3r::text::FontVariant::Plain;
         menu::TextStyle st = style_of(w, &variant);
         if (!st.font) return;
+        st.one_line = w.type == "TextFace" && w.number("multiline") == 0;
         // adjustScale(): drawn narrower when it would pass the face's width; abbreviate(): cut
         // there and ended in dots.
         if (at.w > 0) {
@@ -576,7 +577,12 @@ private:
         if ((w.number("multiline") != 0 || w.type == "TextBoxFace") && w.number("packing") == 0 && at.w > 0) s = wrapped(s, st, at.w, w.number("equalized") != 0);
         // Where in its rectangle: 0..8, rows from the top, columns from the left; the middle (4)
         // when not given (the text style's default).
-        const int align = w.has("align") ? int(w.number("align")) : 4;
+        // The program's word wrapper (`equalized`, 0x245C90) draws word by word from the pen at the
+        // rectangle's top left (0x490A08, 0x490660, 0x490760): `align` is not used there, the last
+        // line stays at the left and a text taller than its rectangle runs on below it (the
+        // Driving Missions' texts).
+        const bool spread = w.number("equalized") != 0 && at.w > 0;
+        const int align = spread ? 0 : w.has("align") ? int(w.number("align")) : 4;
         const int col = align % 3, row = align / 3;
         st.align = col == 0 ? gt3r::text::HAlign::Left : col == 1 ? gt3r::text::HAlign::Center : gt3r::text::HAlign::Right;
         st.valign = row == 0 ? gt3r::text::VAlign::Top : row == 1 ? gt3r::text::VAlign::Middle : gt3r::text::VAlign::Bottom;
@@ -605,7 +611,7 @@ private:
         }
         const Rgba base = w.color("text_color").value_or(Rgba{212, 212, 212, 255}); // the text style's default
         st.color = {base.r, base.g, base.b, base.a};
-        if (w.number("equalized") != 0 && at.w > 0) st.justify_width = at.w;
+        if (spread) st.justify_width = at.w;
         const menu::TextLayout lay = menu::layout_menu_text(s, st, x, y);
 
         // A pass of the glyphs; `shadow`: all in one colour, offset.
