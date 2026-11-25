@@ -72,6 +72,7 @@ public:
 
 private:
     Disc() = default;
+    static std::unique_ptr<Disc> open_image(const std::string& path, std::string& problem);
     std::unique_ptr<gt3r::Reader> file_;
     std::vector<std::unique_ptr<gt3r::Iso9660>> layers_;
     std::unique_ptr<ArchiveImage> image_;

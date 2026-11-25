@@ -1,4 +1,5 @@
 #include "gt4r/app/race_hud.h"
+#include "gt4r/app/game_area.h"
 #include "gt4r/menu/text_layout.h"
 
 #include "base/log.h"
@@ -26,13 +27,14 @@ namespace element = race::element;
 constexpr float kPi = 3.14159265f;
 // The display's canvas is 640 x 480 (y down); on a wide picture it runs from x = -106.667 to
 // 746.667, and the whole is drawn at one scale so that everything keeps its shape.
-constexpr float kCanvasH = 480.0f, kWideLeft = -106.667f;
+// (Other shapes of the picture: game_area.h.)
+constexpr float kCanvasH = 480.0f;
 constexpr float kScale = float(Ui::kHeight) / kCanvasH;
 
 constexpr u32 kTextGray = 0x80C8C8C8u, kMeterBlue = 0x80E3B896u, kNeutral = 0x80808080u, kRefuelTint = 0x805EA8F2u;
 
-SDL_FRect to_ui(const DisplayRect& r) { return {(r.x - kWideLeft) * kScale, r.y * kScale, r.w * kScale, r.h * kScale}; }
-SDL_FPoint to_ui(float x, float y) { return {(x - kWideLeft) * kScale, y * kScale}; }
+SDL_FRect to_ui(const DisplayRect& r) { return {(r.x + game_area::side()) * kScale, r.y * kScale, r.w * kScale, r.h * kScale}; }
+SDL_FPoint to_ui(float x, float y) { return {(x + game_area::side()) * kScale, y * kScale}; }
 
 // A text color: the GS color's RGB as it is, its alpha with 0x80 as opaque.
 Rgba8 text_color(u32 c, float opacity) {
@@ -378,19 +380,23 @@ void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlaye
             std::vector<SDL_Vertex> v;
             v.reserve(d.group->triangles.size());
             // (Prologue's movies: a shape across the whole 640 covers a wide picture too, as its 4:3 one.)
-            bool across = !m.race_fonts.fonts.empty();
+            // (And on a picture wider than 16:9 a shape across all of a 16:9 one.)
+            const float side = game_area::side();
+            const bool prologue = !m.race_fonts.fonts.empty(), wider = side > 107.0f;
+            const float from = prologue ? 0.5f : -106.0f, to = 640.0f - from;
+            bool across = prologue || wider;
             if (across) {
                 float x0 = 1e9f, x1 = -1e9f;
                 for (const race::StrobeMovie::Point& p : d.group->triangles) {
                     const float x = d.m[0] * p.x + d.m[2] * p.y + d.m[4];
                     x0 = std::min(x0, x), x1 = std::max(x1, x);
                 }
-                across = x0 <= 0.5f && x1 >= 639.5f;
+                across = x0 <= from && x1 >= to;
             }
             for (const race::StrobeMovie::Point& p : d.group->triangles) {
                 SDL_Vertex x{};
                 float px = d.m[0] * p.x + d.m[2] * p.y + d.m[4];
-                if (across) px = px <= 0.5f ? std::min(px, -107.0f) : px >= 639.5f ? std::max(px, 747.0f) : px;
+                if (across) px = px <= from ? std::min(px, -side - 0.5f) : px >= to ? std::max(px, 640.5f + side) : px;
                 x.position = to_ui(px, d.m[1] * p.x + d.m[3] * p.y + d.m[5]);
                 const float u = mat ? p.x * (*mat)[0] + p.y * (*mat)[4] + (*mat)[12] : 0, w = mat ? p.x * (*mat)[1] + p.y * (*mat)[5] + (*mat)[13] : 0;
                 x.tex_coord = {u, w};
@@ -880,7 +886,7 @@ void RaceHud::draw(Ui& ui, const HudState& s) {
         // the line "power  tires  race" in hm_16 at (320, 260), color 0x80C8C8C8, over the picture
         // darkened (❓ the darkening's strength is judged from the original's replay).
         const float a = std::clamp(s.card_opacity, 0.0f, 1.0f);
-        const SDL_FRect c = to_ui(DisplayRect{-200, 0, 1040, 480});
+        const SDL_FRect c = to_ui(DisplayRect{-game_area::side(), 0, 640 + 2 * game_area::side(), 480});
         SDL_SetRenderDrawBlendMode(impl_->r, SDL_BLENDMODE_BLEND);
         SDL_SetRenderDrawColor(impl_->r, 0, 0, 0, u8(190 * a));
         SDL_RenderFillRect(impl_->r, &c);
@@ -993,7 +999,7 @@ void RaceHud::Impl::draw_fuel(const HudState& s, const DisplayPlace& place) {
 // RaceTooltipDisplay::vf5 (0x3AE138): a black strip 640 x 42 at the bottom, the line centered 22 down it, squeezed into 15/16 of
 // its width.
 void RaceHud::Impl::draw_tooltip(const std::string& words, float opacity) {
-    fill({kWideLeft, 438, 640 - 2 * kWideLeft, 42}, 0, 0, 0, opacity);
+    fill({-game_area::side(), 438, 640 + 2 * game_area::side(), 42}, 0, 0, 0, opacity);
     draw_menu_text("hm_16", 1, 320, 460, gt3r::text::HAlign::Center, kTextGray, opacity, words, 600);
 }
 
