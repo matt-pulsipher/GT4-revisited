@@ -574,18 +574,38 @@ struct StrobePlayer::Impl {
 
     // ---- drawing
 
-    void draw(const Clip& c, const float* m, const float* mul, const float* add, std::vector<Draw>& out) const {
+    // A clip box (canvas units, x0 .. y1), intersected with the one already there.
+    struct ClipBox {
+        bool on = false;
+        float x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+        void add(float bx0, float by0, float bx1, float by1) {
+            if (!on) x0 = bx0, y0 = by0, x1 = bx1, y1 = by1, on = true;
+            else x0 = std::max(x0, bx0), y0 = std::max(y0, by0), x1 = std::min(x1, bx1), y1 = std::min(y1, by1);
+        }
+    };
+    static void set_clip(Draw& d, const ClipBox& clip) {
+        if (!clip.on) return;
+        d.clipped = true;
+        d.clip[0] = clip.x0, d.clip[1] = clip.y0, d.clip[2] = clip.x1, d.clip[3] = clip.y1;
+    }
+
+    void draw(const Clip& c, const float* m, const float* mul, const float* add, std::vector<Draw>& out) const { draw(c, m, mul, add, out, ClipBox{}); }
+    void draw(const Clip& c, const float* m, const float* mul, const float* add, std::vector<Draw>& out, const ClipBox& outer) const {
         if (!c.visible) return;
         if (c.kind == Clip::ButtonClip) {
             const int state = &c == focus ? (pressed > 0 ? 2 : 1) : 0;
             const Clip* s = c.states[size_t(state)] ? c.states[size_t(state)].get() : c.states[0].get();
-            if (s) draw(*s, m, mul, add, out);
+            if (s) draw(*s, m, mul, add, out, outer);
             return;
         }
         const Movie::Sprite& sp = movie->sprites[size_t(c.index)];
+        ClipBox clip = outer; // (what the tracks so far are drawn inside)
+        u32 clip_until = 0;   // a mask track of this sprite is on for the tracks up to this depth
+        ClipBox within = outer;
         for (size_t i = 0; i < sp.tracks.size(); ++i) {
             const Movie::Track& t = sp.tracks[i];
             if (!(t.first <= c.frame && c.frame < t.end)) continue;
+            if (t.depth > clip_until) clip = outer, clip_until = 0; // (the mask ended)
             const Movie::Key& k = t.key_at(c.frame);
             float l[6], w[6];
             local(k, l);
@@ -597,9 +617,27 @@ struct StrobePlayer::Impl {
                 wm[j] = km[j] * mul[j];
                 wa[j] = ka[j] * mul[j] + add[j];
             }
+            if (t.clip != 0) { // a mask: its shape's box, in this track's place, for the tracks above up to its depth
+                within = outer;
+                float x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+                if (t.kind != Movie::kSprite && t.kind != Movie::kButton && t.kind != Movie::kText && t.kind != Movie::kExternal &&
+                    t.kind == 0 && size_t(t.index) < movie->shapes.size()) {
+                    const Movie::Shape& sh = movie->shapes[t.index];
+                    const float px[2] = {sh.x0, sh.x1}, py[2] = {sh.y0, sh.y1};
+                    x0 = y0 = 1e9f, x1 = y1 = -1e9f;
+                    for (int a = 0; a < 2; ++a)
+                        for (int b = 0; b < 2; ++b) {
+                            const float qx = w[0] * px[a] + w[2] * py[b] + w[4], qy = w[1] * px[a] + w[3] * py[b] + w[5];
+                            x0 = std::min(x0, qx), y0 = std::min(y0, qy), x1 = std::max(x1, qx), y1 = std::max(y1, qy);
+                        }
+                }
+                within.add(x0, y0, x1, y1);
+                clip = within, clip_until = t.clip;
+                continue;
+            }
             if (t.kind == Movie::kSprite || t.kind == Movie::kButton) {
                 const auto it = c.children.find(i);
-                if (it != c.children.end()) draw(*it->second, w, wm, wa, out);
+                if (it != c.children.end()) draw(*it->second, w, wm, wa, out, clip);
             } else if (t.kind == Movie::kText) {
                 if (size_t(t.index) >= movie->texts.size()) continue;
                 Draw d;
@@ -607,17 +645,20 @@ struct StrobePlayer::Impl {
                 const auto it = c.children.find(i);
                 d.words = it != c.children.end() ? it->second->text : d.text->text;
                 std::memcpy(d.m, w, sizeof w), std::memcpy(d.mul, wm, sizeof wm), std::memcpy(d.add, wa, sizeof wa);
+                set_clip(d, clip);
                 out.push_back(std::move(d));
             } else if (t.kind == Movie::kExternal) {
                 Draw d;
                 d.external = !t.name.empty() ? t.name : !c.name.empty() ? c.name : std::string("_EXT"); // the picture's own name, else its clip's
                 std::memcpy(d.m, w, sizeof w), std::memcpy(d.mul, wm, sizeof wm), std::memcpy(d.add, wa, sizeof wa);
+                set_clip(d, clip);
                 out.push_back(std::move(d));
-            } else if (size_t(t.index) < movie->shapes.size()) {
+            } else if (t.kind == 0 && size_t(t.index) < movie->shapes.size()) { // (kind 1: a morph shape, none in these movies)
                 for (const Movie::Shape::Group& g : movie->shapes[t.index].groups) {
                     Draw d;
                     d.group = &g;
                     std::memcpy(d.m, w, sizeof w), std::memcpy(d.mul, wm, sizeof wm), std::memcpy(d.add, wa, sizeof wa);
+                    set_clip(d, clip);
                     out.push_back(std::move(d));
                 }
             }

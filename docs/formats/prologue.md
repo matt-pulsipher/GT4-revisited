@@ -332,9 +332,6 @@ little-endian number, as decimal digits least first, padded with '0' to 30 and t
 from 0xFFFFFFFF, x 3 plus each later digit's character, modulo 10. `gt4r_diff <disc> prologue-passcode [n]` runs the program's
 0x1A31A0 on made-up fields against ours (test `disc_prologue_pass_codes_equal`: equal on every set). The arcade's course records
 (the `course` object's units, `quick-arcade`'s PasscodePopup) carry codes too: ❓ their maker 0x1A0498 not followed.
-- ❓ Not done: the movie's two strip pictures (1024 x 1 and 1 x 512, PSMCT32) decode (a black row and an orange column), yet the
-  box under the name entry draws white.
-
 ## The race display ✅ (Gran Turismo 3's)
 
 Prologue's race display is Gran Turismo 3's, not Gran Turismo 4's (`RaceDisplay`'s layout tables
@@ -356,8 +353,11 @@ Turismo 3's drawing of `rev_*` does not find the renamed faces and draws its own
 pause and results are the race movies `menu/pause.strb`, `menu/result.strb`,
 `menu/result_license.strb` (Prologue's: TIME, the medal, a three-letter name entry for a new
 record; its callbacks `GetTime`, `GetRank`, `GetDefaultName`, `PrizeLevel`, `EXIT_MENU`).
-❓ Its pictures 0 and 2 (1024 x 1, 1 x 512) are drawn as a white box; `GetRank` and the name
-entry are not answered.
+Its texts are drawn in `font/race.fnt` (FC_16 .. FC_48, DC_12) and the movies' own fonts (`font/menu.fnt`), and its mask
+track is a box the texts are clipped to, as the program draws it ([strobe.md](strobe.md), the track's clip depth): the white
+box the page drew was the mask's bar. A passing run shows `TIME 0'07.866`, "New Record" and the three letters to enter
+(`~/gt4re-out/prologue/r6/shots/pass6.png`); ❓ the medal's picture (`kind 7`, the host's: "_EXT"), and the view behind the
+page (the original's: the car from a trackside camera) are not drawn.
 
 ## The saved game (🔎 layout read, not written yet)
 

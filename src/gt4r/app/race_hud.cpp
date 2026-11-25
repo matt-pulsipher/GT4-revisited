@@ -58,6 +58,7 @@ struct RaceHud::Impl {
     std::map<std::pair<const gt3r::text::LatinFont*, int>, SDL_Texture*> atlases;
     std::map<std::string, menu::FontSpacing> spacing; // the fonts' GT4 spacing (FT01 +0x14, +0x15) by name
     gt3r::text::FontFile menu_fonts; // the movies' (font/menu.fnt)
+    gt3r::text::FontFile race_fonts; // the movies' on Prologue's disc (font/race.fnt: FC_16 .. FC_48, DC_12)
     std::map<std::pair<const race::StrobeMovie*, size_t>, SDL_Texture*> movie_textures;
     Bytes pack_file;
     std::optional<menu::ImagePack> pack;
@@ -230,6 +231,11 @@ RaceHud::RaceHud(App& app, ByteSpan gtcm) : impl_(std::make_unique<Impl>()) {
             for (const auto& [name, sp] : menu::read_font_spacing(*file)) m.spacing.emplace(name, sp);
         }
         for (const gt3r::text::LatinFont& f : m.menu_fonts.fonts) m.font_by_name.emplace(f.name, &f);
+        if (const std::optional<Bytes> file = app.vfs()->read("font/race.fnt")) {
+            m.race_fonts = menu::read_fonts(*file);
+            for (const auto& [name, sp] : menu::read_font_spacing(*file)) m.spacing.emplace(name, sp);
+        }
+        for (const gt3r::text::LatinFont& f : m.race_fonts.fonts) m.font_by_name.emplace(f.name, &f);
         // The region's pack: the disc's own region first.
         const std::string serial = app.disc()->info().serial;
         m.mph = serial.rfind("SCUS", 0) == 0;
@@ -337,6 +343,21 @@ void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlaye
         return t;
     };
     for (const race::StrobePlayer::Draw& d : player.draw_list()) {
+        // A mask's box (a track of a clip depth): what is drawn only inside it.
+        struct ClipScope {
+            SDL_Renderer* r;
+            bool on;
+            ClipScope(SDL_Renderer* renderer, const race::StrobePlayer::Draw& d, const std::function<SDL_FPoint(float, float)>& ui) : r(renderer), on(d.clipped) {
+                if (!on) return;
+                const SDL_FPoint a = ui(d.clip[0], d.clip[1]), b = ui(d.clip[2], d.clip[3]);
+                const SDL_Rect box{int(std::floor(std::min(a.x, b.x))), int(std::floor(std::min(a.y, b.y))),
+                                   std::max(0, int(std::ceil(std::abs(b.x - a.x)))), std::max(0, int(std::ceil(std::abs(b.y - a.y))))};
+                SDL_SetRenderClipRect(r, &box);
+            }
+            ~ClipScope() {
+                if (on) SDL_SetRenderClipRect(r, nullptr);
+            }
+        } clip_scope(m.r, d, [](float x, float y) { return to_ui(x, y); });
         if (!d.external.empty()) {
             if (externals) externals->push_back({d.external, d.m[4], d.m[5], std::hypot(d.m[0], d.m[1]), std::clamp(d.mul[3], 0.0f, 1.0f)});
             continue;

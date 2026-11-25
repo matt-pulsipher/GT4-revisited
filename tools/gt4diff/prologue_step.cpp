@@ -103,6 +103,18 @@ int whole_step(Disc& disc, const std::string& course, const std::string& car, in
         gt3r::sim::exact::load_image(at19, im.data());
         seen19 = true;
     });
+    if (std::getenv("GT4R_TRACE_NUDGE")) { // (the collision's stuck nudge, 0x41D8A8: the body's yaw rate before and after)
+        static u32 ra = 0, body = 0;
+        ee.add_probe(0x41D8A8, [&](Ee& e) {
+            body = u32(e.a(0)), ra = e.g32(31);
+            std::printf("  nudge: body %08X w %08X v %08X %08X last %08X steer %d dt %08X touch flags %d\n", body, e.r32(body + 0x3D0), e.r32(body + 0x3C4),
+                        e.r32(body + 0x3C8), e.r32(body + 0x3C4 + 0), int(gt3r::s8(e.r8(e.r32(body + 0x450) + 0x5FF))), e.r32(body + 0x4DC), int(e.r8(body + 0x43C)));
+            if (ra) e.add_probe(ra, [](Ee& x) {
+                    if (body) std::printf("  nudge after: w %08X\n", x.r32(body + 0x3D0));
+                    body = 0;
+                });
+        });
+    }
     for (int i = 0; i < steps; ++i) {
         const Pad p = drive(i);
         r.pad[0] = p;
