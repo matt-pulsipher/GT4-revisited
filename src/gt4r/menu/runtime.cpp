@@ -575,6 +575,11 @@ void Runtime::finish() {
         game_->race_session.sequence = race->sequence;
         game_->race_session.license_open = race->sequence == "license";
         game_->quick_work.reset();
+        // What the race's side reads of the request that the scripts do not set themselves (game().race: RaceScreen, the
+        // result routines): the garage car's place, the B-spec driver's book and the course's marks.
+        game_->race.garage_slot = race->garage_slot;
+        game_->race.bspec_book = race->bspec_book, game_->race.bspec_course_marks = race->bspec_course_marks;
+        game_->race.bspec_course_known = race->bspec_course_known;
     }
     game_->sequence_asked = false;
     note(race ? "the project finished; the scripts ask for " + race->sequence + ": " + race->car + " at " + race->course

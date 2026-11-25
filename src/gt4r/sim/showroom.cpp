@@ -163,7 +163,17 @@ Showroom::Showroom(db::SpecDb& db, const Program& program) : db_(db), program_(p
 
 Showroom::~Showroom() = default;
 
-bool Showroom::record(const Equipment& eq, Spec& spec, Record& out, int x156) const {
+std::optional<std::array<F, 2>> Showroom::droop(const Equipment& eq) const {
+    Spec spec;
+    Record r;
+    ParamBlock block;
+    if (!program_.known() || !record(eq, spec, r, -1, &block)) return std::nullopt;
+    std::array<F, 2> out;
+    for (u32 a = 0; a < 2; ++a) out[a] = block.f(0x308 + 0x58 * a + 0x08) - block.f(0x308 + 0x58 * a + 0x10);
+    return out;
+}
+
+bool Showroom::record(const Equipment& eq, Spec& spec, Record& out, int x156, ParamBlock* block) const {
     build_spec(db_, program_, eq, 0, spec);
     if (x156 >= 0) spec.set_b(0x156, u32(x156));
     if (spec.weight_kg() <= 0 || spec.b(0xBF) == 0) return false;
@@ -172,7 +182,7 @@ bool Showroom::record(const Equipment& eq, Spec& spec, Record& out, int x156) co
     ConvertIn in;
     for (u32 i = 0; i < u32(in.rules.size()); ++i) in.rules[i] = program_.b(kShowroomRules + i);
     out = Record{};
-    build_record(spec, program_, data_->tables, in, out);
+    build_record(spec, program_, data_->tables, in, out, block);
     return true;
 }
 

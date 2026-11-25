@@ -81,6 +81,8 @@ struct WorldSetup {
 
 class RaceWorld {
 public:
+    // The B-spec driver's book and the course's marks the next run's driver starts from (a run again in the same sequence).
+    void set_bspec_book(const std::array<u16, 3 * 64>& book, const std::array<u8, 8>& marks) { setup_.bspec_book = book, setup_.bspec_course_marks = marks; }
     // Throws FormatError (no such course, a car without a race model).
     RaceWorld(App& app, const WorldSetup& setup);
     ~RaceWorld();

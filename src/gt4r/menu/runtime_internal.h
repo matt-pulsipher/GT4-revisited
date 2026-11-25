@@ -88,6 +88,7 @@ void widget_children_changed(Runtime& rt, LiveWidget& w);
 void widget_focus_entered(Runtime& rt, LiveWidget& w);
 // Sizes and places a page's widgets that are packed by their boxes (packing.cpp).
 void pack_page(LiveWidget& page);
+void note_face_sizes(LiveWidget& w); // the faces under it: their parents' sizes they are fractions of
 // One frame of the widgets' own movement (scrolling, a list's rows).
 void step_widgets(Runtime& rt, LiveWidget& page);
 // The widget of a page the focus goes to first.

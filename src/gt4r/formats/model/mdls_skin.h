@@ -44,10 +44,17 @@ struct Symbol {
 std::vector<Symbol> read_symbols(ByteSpan mdls);
 
 struct SkinVertex {
+    // The stored pose as floats (to_gtm1 writes these; SkinTable keys on them).
     float pos[3] = {0, 0, 0};
     float normal[3] = {0, 0, 0};
     std::array<u8, 4> bones{};
     std::array<float, 4> weights{};
+    // What the program's blend (VU0 0x2E8 / 0x460) starts from, as the bits it converts or loads:
+    // the packed layout's integers (s16 position, s8 normal, s8 weights, the block's position
+    // scale), or the float layout's floats (scale 1.0).
+    bool packed = false;
+    s32 ipos[3] = {0, 0, 0}, inormal[3] = {0, 0, 0}, iweight[4] = {0, 0, 0, 0};
+    float scale = 1.0f;
 };
 struct SkinBlock {
     u32 dest = 0; // where the normals go in VU memory: 0x80 (lit), 0x40 (reflection pass), 0 none
@@ -82,9 +89,17 @@ private:
 using Palette = std::vector<gt3r::render::Mat4>;
 
 // `bind`'s meshes (the set's model as decoded, each with its transform) moved by the palette into
-// `out` (each transform the identity): a vertex found in `table` is sum_k w_k (palette[b_k] p),
-// its normal turned the same way and made unit length; the others are left at their place (by
-// their mesh's transform). Returns how many vertices were moved.
+// `out` (each transform the identity): a vertex found in `table` is blended as the program's VU0
+// micro-routine 0x2E8 does (blend() below); the others are left at their place (by their mesh's
+// transform). Returns how many vertices were moved.
+// One vertex blended in the program's order and arithmetic (VU0 0x2E8 / 0x308; the PS2's floats,
+// ee::F): weights = int x (1/127) (a multiply by 0x3C010204, never renormalized), the position =
+// int x scale, each input component multiplied by the weight first, then one multiply-add chain
+// over the bones 0..3 (rows x, y, z, then the translation row x the weight), the normal the same
+// chain without translations, renormalized by 1/sqrt((x*x + y*y) + z*z). A bone past the palette
+// draws with the identity.
+void blend(const SkinVertex& v, const Palette& palette, float pos[3], float normal[3]);
+
 size_t pose(const std::vector<gt3r::scene::Mesh>& bind, const SkinTable& table, const Palette& palette, std::vector<gt3r::scene::Mesh>& out);
 
 } // namespace gt4r::mdls
