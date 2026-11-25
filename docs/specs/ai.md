@@ -627,6 +627,14 @@ recording played on the program's race step (car 0's distance and speed each ste
 - ✔ Six small cars finish three laps of Tsukuba (circuit), Seattle (city) and Grand Canyon (dirt)
   with no car standing still.
 
+**A whole race taken up from the original's saved state**, our session with our drivers beside the program's run of it
+(`gt4r_diff <disc> states <state> <state> none`, `GT4R_STATES_DRIVERS=<event or none>`, `GT4R_STATES_FIELD=<steps>` both fields
+printed; the drivers' state and the race's clock taken from the program once, then ours run free): the Tuning Car Grand Prix's
+three laps at Apricot Hill Reverse from 12 s on, tires wearing: the five opponents' last crossings 264.0 / 266.2 / 264.6 /
+265.4 / 264.2 s against the program's 264.0 / 264.1 / 264.5 / 265.7 / 264.4; the arcade race at Tsukuba with a B-spec Ka (its
+two laps): the Ka 197.2 against 198.3 s, the others 179.1 / 196.9 / 200.8 / 184.2 / 179.3 against 179.2 / 197.9 / 196.5 /
+187.7 / 179.6. (Traffic is chaotic: the program's own run from starts 2 .. 10 cm apart moves the Ka by 5 s.)
+
 ## 11. The pits
 
 A stop is the race's own (`sim/ai/pit_flow.*`, the program's routines; `sim/ai/pit_stops.*` on our session). The car's pit
