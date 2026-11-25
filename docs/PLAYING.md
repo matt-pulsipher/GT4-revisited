@@ -85,8 +85,8 @@ The ones a player meets first:
 - Game Status' B-spec Mileage does not move after a B-spec race.
 - The used car list's scroll bar does not follow the list, its paint swatches are too bright, and
   some torques are 0.01 ft.lb too high.
-- In the Tuning Car Grand Prix's first race the computer's cars are 1 to 3 % faster than the
-  original's, and further apart.
+- Races at Fuji Speedway and Suzuka from a standing start run one lap too many.
+- At Apricot Hill Reverse some of the computer's cars are 1 to 3 % faster than the original's.
 
 ## Scripted play (for checks)
 
