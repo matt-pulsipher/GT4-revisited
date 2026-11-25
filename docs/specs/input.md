@@ -104,6 +104,7 @@ the stop first (0x43D680): so a paused race, a menu and a replay send it.
 | The settings, their pages' calls, their saved block | Gran Turismo 4 (`input/key_config.*`, `menu/game_controllers.cpp`, `save/game_data.cpp`) |
 | A port's report into the frame and words (0x43CF90 with 0x43BBC0, 0x43C260, 0x438870, 0x4386F0) | Gran Turismo 4 (`input/race_input.*`): equal to the program's |
 | The frame's use | Gran Turismo 4 (`sim/rules_input.*`, physics.md §3.6) |
+| The second port | the two-player battle's (`app/screen_split.cpp`): its own device, settings (`*_2p`), frame, vibration and force; without a device the keyboard's second set of keys, for the battle's time |
 | The race's gearbox, aids and wheel options | Gran Turismo 4's rules above (`RaceScreen::player_choice`) |
 | The devices: SDL's gamepads, wheels, keyboard, hot plug, bindings, dead zone and response curve | the shared engine's input layer (`gt3r::InputManager`) on a virtual DualShock 2 |
 | The devices into a port (`input/player_controls.*`) | ours: a pad without pressures is the console's kind 4 (its buttons pressed or not); the sticks are read finer than a byte; a trigger's travel set to a pedal moves it as an axis; a wheel's axis x its rotation over the original wheel's (200 or 900 degrees) |
@@ -120,5 +121,5 @@ with the friction circle; the TCS at work. Nothing is sent for a car the pad doe
 the program's centering force of a car the computer drives is not sent (safety).
 
 Not done: a Cheetah's condition effect (the engine plays a spring and a constant force), the wheel's own spring while the
-race does not drive, the second player's port (no two-player race here), the ghost's and best line's buttons (read, nothing
+race does not drive, the ghost's and best line's buttons (read, nothing
 uses them), the wheel's left and right views.

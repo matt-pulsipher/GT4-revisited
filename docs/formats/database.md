@@ -184,6 +184,7 @@ follows a 0x10-byte header, so the methods' offsets are the row's + 0x10.
 | +0x2E s16 x 5 | Kept by the race (0x4477D0) ❓ |
 | +0x38, +0x3A s16 | `getNeedYearRange`: the model years allowed |
 | +0x3E u8 | `entry_num`: the cars on the grid, the player's included (✔ 6 on the races, 1 on the license tests) |
+| +0x40, +0x41 u8 | The start: its type (0 a hold of +0x41 seconds, 1 and 2 the opening shots over 8 and 10 s, 3 none) and its seconds (race_flow.md "The start") |
 | +0x42 u8 | Kept by the race ❓ |
 | +0x43 u8 | `getNumberOfLaps` (✔ 2 on the Sunday Cup) |
 | +0x44 u8 | Kept by the race with the laps ❓ |

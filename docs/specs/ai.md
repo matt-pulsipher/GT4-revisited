@@ -421,7 +421,8 @@ sim-parts-2).
   85 % and take the arcs at 90 %.
 - The **rubber band** (0x365790 with 0x365910, 0x365688 / 0x365718; set from the event row by
   0x365480: percents x 0.01, the start gaps in metres, the full gaps x 10 m, the overall percent (0: 100)
-  x 0.01): the reference is the first car of the order the computer does not drive (none: car 0); in
+  x 0.01): the reference is the first car of the order whose control source (F +0x466) is not 2, the computer's (0x34E418; none: car 0),
+  whose own factor stays as it was; in
   mode 0 from it outwards along the order each car against the car between it and the reference, the
   factors chained (mode 1: every car against the reference; mode 2: each against its neighbour, not
   chained): the reference's lead g in whole laps and metres (a lap taken over where they disagree in

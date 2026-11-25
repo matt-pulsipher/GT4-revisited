@@ -60,6 +60,10 @@ DisplayLayout read_single_race_layout(ByteSpan program, u32 load_address);
 // total time, the message lower): the B-spec race's display here.
 DisplayLayout read_mode1_layout(ByteSpan program, u32 load_address);
 
+// A two-player half's layout (RaceSplitDisplayBase: the display's kinds 8 and 9): a view above or below (the table 0x6A0DE0, on a
+// canvas 240 high), or one of two side by side (0x6A0FD8, on a canvas 426.667 wide). Empty when the program is another one.
+DisplayLayout read_split_layout(ByteSpan program, u32 load_address, bool side_by_side);
+
 // A total time as display mode 1 writes it: H:MM'SS.mmm.
 std::string format_total_time(s64 milliseconds);
 

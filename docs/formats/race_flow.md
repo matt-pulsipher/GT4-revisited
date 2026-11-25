@@ -23,8 +23,11 @@ the pause's "retry"; 5 a restart inside the run (free run only); 6 the time limi
 
 ## The start (`fn_003C0208`, every frame; reset by `fn_003C0190`)
 
-The start type is the race information's byte +0x40, its seconds byte +0x41 (❓ their writers:
-the event's record); `RaceBase::vf38` makes it -1 when the conductor has a rolling start with a
+The start type is the race information's byte +0x40, its seconds byte +0x41: the event's `RACE` row's
+bytes +0x40 and +0x41 (0x4470E8 copies the row into the information; seconds 0: the type's own). ✔ On the
+disc: type 2 on 585 events (the races, `sample_entry_1` among them), 1 on 60 (the license tests that stand), 3
+on 60 (the tests and missions that start moving), 0 with 7 s on 4 (the machine tests). The base conductor
+(vf10 0x34C1B0) keeps the row's type unless its configuration has a speed for car 0 (CFG +0x4E); `RaceBase::vf38` makes it -1 when the conductor has a rolling start with a
 speed (K +0xF884 distance < 0 and K +0xF886 km/h != 0; `DynamicsConductorSinglePlayer::vf10`
 0x3475B8).
 
@@ -67,9 +70,8 @@ Nürburgring 60 km/h, Motegi 70, Le Mans 750 m, Route 5 500 m, Capri 180 m, Kash
 
 The race's menus here take the course's start: rolling (every car at the course's speed in single
 file, the last place its distance before the line and its spacing between places:
-`sim::Entry::start_speed` and `start_distance` by `sim::rules::rolling_start_distance`) or ❓ a standing start of 10 s with the
-opening shots (the race information's own type byte is not traced to its source; the original's
-Grand Canyon start fits it). In a rolling start the computer drivers drive the player's car too
+`sim::Entry::start_speed` and `start_distance` by `sim::rules::rolling_start_distance`) or the row's type 2, a standing start of 10 s with the
+opening shots (the original's Grand Canyon start). In a rolling start the computer drivers drive the player's car too
 until it takes the line. The conductor holds the race clock while its flag K +0xCBE4 is set
 (`DynamicsConductor::vf15` 0x357E80 adds a step to K +0xF898 only when it is clear);
 `DynamicsConductorSinglePlayer::vf27` (0x3477C8) sets it for a rolling start with a spacing. The car set-up
@@ -355,6 +357,74 @@ its step n. The Replay Theater lists them.
   millimetre and their speeds to 0.0003 km/h; 298 steps after the clock's start the four cars behind the leader are still within 1 mm
   and 0.0001 km/h (the leader, whose pace follows the player's place, 6 mm off: the player's pad differs).
 
+## 2 Player Battle
+
+Code: `src/gt4r/race/split_battle.*` (its rules, starts, halves, gaps), `src/gt4r/app/screen_split.cpp` (its screen),
+`RaceWorld` with `WorldSetup::players` 2. Classes: the sequence `split_battle` (0x10C0E8), the race `RaceSplitBattle`, the
+conductor `DynamicsConductorBattle2P`, the display `RaceSplitDisplayBase` ([race_display.md](race_display.md) "The two-player
+halves"), the results page `ResultArcade`.
+
+**The sequence** (no quick menus): the race in mode 0; an end code 4 (the pause's Retry) runs it again; any other end is
+followed by the replay (mode 2), whatever the run came to and however short it was; code 4 in the replay races again, any other
+end of it ends the sequence (the menus come back to Arcade's project). Two entries, car i at grid place i (0x3C0608), its
+control source 0x100 + i (0x3B4F18: the pad of its port); the laps are the option `split_race_laps`; the car page gives each
+player's gearbox, TCS and ASM and the tire (0x3D6350; request +0x60, chosen when >= 0), the options his `steering_assist_1p` /
+`_2p` and `active_steering_1p` / `_2p`. The event is `sample_entry_1`: a standing start of 10 s.
+
+**The rules** (the block 0x3BFB10 copies from the options; a new game's values 0x4363A0):
+
+| Offset | Option | New game | What the conductor does with it |
+|---|---|---|---|
+| +0x0C | `split_race_laps` | 2 | the laps |
+| +0x14 | `split_tire_damage` | 0 | 0 none, 1, 2: the wear's curve, the same bytes as Arcade's `tire_damage` (virtual 11, 0x354F30); only on a paved course whose `COURSE` +0x14 is 1 (0x34CCD4) |
+| +0x18 | `split_handicap` | 0 | meters (the page's slider x 5): virtual 30, below |
+| +0x1C | `split_boost_level` | 1 | the rubber band: virtual 12, below |
+
+- **Handicap** (virtual 30, 0x347108): 0 both on the grid. Above 0 both stand on the driving line (start kind 1): car 0 10 m
+  before the line and car 1 the handicap, at least 20 m, before it. Below 0 the other way round.
+- **Boost** (virtual 12, 0x354EB8): the car behind is hurried (the rubber band, [ai.md](../specs/ai.md)): mild up to 7 % from 20 m
+  back, strong up to 20 % from 10 m back, in full at 200 m; 0 no band (CFG +0x22 0xFF). The leader is not slowed. The band's
+  reference is the first car of the order whose control source is not the computer's (0x34E418), so the leader of the two; a
+  finished car's factor is the chain's (0x365790).
+- **Tires** (0x330650): 11 on a course of kind 2, 12 on kind 3, else the chosen ones.
+- **The finish** (virtual 21, 0x347230): as a single race's, without a time limit: at the line with the laps run, or with the
+  other already finished; the car goes to its driver (0x343D78, mode 3).
+- **Hits** are the generic ones (virtual 50), no penalty for leaving the course (virtual 49 is empty).
+
+**The gaps** (0x3578B0, told by 0x359238). Each point of the lap (the split points and the line) keeps the cars' arrivals on the
+highest lap any car has reached it on. Each new arrival after the first is told its time behind the first arrival unless its
+place in the race is already better than its place among the arrivals; when the second arrival is the race's second, the first
+is told the same gap as a lead (negative). A car that reaches the point a lap or more behind is told the number of laps.
+
+**The results** page goes up at the first finish of either car (`ResultArcade` vf8, 0x3DF1B8: its +0x64 is 1) while the other
+drives on; its Exit works at once (+0x4FC) by the first player's controller, and ends the run for both.
+
+**The pause** is the first player's alone (the race's virtual 70, 0x32F910, answers his controller; 0x38B0E0): Continue, Retry
+and Exit, no screen settings and no question. It opens in the replay too (virtual 23, 0x5F2BD0, answers 0): Retry races again, Exit
+ends it. The player's own pit stops are not in this race (no pit menu object).
+
+**The views**: each player changes his own; at the end both go back into the options `view_type` and `view_type_2p` (0x32F838).
+
+**The picture** (draw 0x32FCC8): two halves with a black line 2 of 448 lines (units) wide between them. Without the wide-screen
+option (`wide_mode`, 0x6184F0) one above the other, the lens x 1.2; with it side by side, the lens as it is. In a replay the
+halves stay only with the option `replay_2p_split` (+0x1144), else the first player's replay fills the screen. The mirror of the
+driver's view: stacked 240 x 40 at (200, 16), in the lower half (200, 8), of the half's 640 x 224, its lens' zoom 2.0; side by
+side 140 x 46 at (90, 41) of 320 x 448, zoom 1.3 (the single race's). What a half leaves out of the scenery:
+[course.md](course.md) "The race view's frame" (the several-view draw 0x33FD88: visibility list slot 4, the mirror's 7 or 3, the far clip x 0.5, the view flags `Env0` +0xF34 and the mirror's +0xF38, no slot 17, the mirror's fog and far plane at 60 m).
+
+**The sound**: one mix for both, the ambience combined over both cameras without panning (0x398B70), each car's engine heard by its
+own half's camera (0x3B5E80), the count's beep once a frame for both displays.
+
+**The cameras**: each half has its own screen of the camera manager. At the start both show the same long clip (it stands at the
+course's start place, camera.md "The start's shots"), then each his own car.
+
+❓ Not seen in the original (no capture of the race): every figure above is the program's, the pictures are not compared. Judged
+here: the lowest texture list the several-view draw forces on the scenery is not used (the full one is); a replay's dissolves
+between cameras are cuts in the halves; the camera after a car's finish (mode value 11) keeps the view driven.
+
+Here without a controller of his own the second player drives with his keys of the keyboard (the input layer's second set);
+a controller that goes away in the race opens the pause.
+
 ## What runs where (the race screen)
 
 Every piece of the race as the player sees it, by whose code it runs: **GT4** (ported from the program,
@@ -367,7 +437,7 @@ engine's Gran Turismo 3 code). The player notices them roughly in this order.
 | The rolling start's distance, speed, spacing | `race/start_rule.*` `apply_drivers_file` | GT4 (vf28 0x34D490, 0x466B90) | |
 | The race clock's start in a rolling start, the opening shots' end | `race_flow.*` `clock_running`, `screen_race.cpp` `opening_tv` | GT4 (vf20 0x347928: the first car's crossing; the camera state 0x3FD620 by the pace 0x3F7880) | |
 | The held starts (missions' places with a start delay) | `sim/ai/drivers.cpp` `Field::drive` | the seconds GT4 (CFG +0x60, the count K +0xCBFC, 0x34DB30); the hold **judged** (the brake on, the engine blipped) | the start's hold F +0x4BC per car (`sim-step`) |
-| A standing start's hold, count, START | `race_flow.*`; the hold in `sim::Session` (`hold_once`: the countdown's flag a step at a time, the race information's +0xBC, 0x34C210 / the car's start hold) | GT4 (0x3C0208, 0x39D390, 0x39E9B0); the hold's length for a license test (8 s) from its demonstration, for other races 10 s ❓ | the race information's start type byte +0x40 (its writer) |
+| A standing start's hold, count, START | `race_flow.*`; the hold in `sim::Session` (`hold_once`: the countdown's flag a step at a time, the race information's +0xBC, 0x34C210 / the car's start hold) | GT4 (0x3C0208, 0x39D390, 0x39E9B0); the hold's length for a license test (8 s) from its demonstration, for other races the row's type 2 | a machine test's 7 s (the row's type 0: here 10 s) |
 | The opening shots (start motion, replay start) | `start_camera.*` | GT4 (CameraPathanim 0x37D338, 0x37D620); none in a free run (its pace 0x3F7880 is 0) | |
 | The replay cameras (TV shots), their choice by distance, their lens | `replay_script.*`, `drive_camera.h` `shown_angle` | GT4 (0x37C138, 0x3FD980 → 0x3DDFF0); ✔ the lens and the picture against 47 of the original's replay states (camera.md); the dissolve's drawing judged | |
 | The scenic shots behind the menus | `replay_script.*` `ScenicCamera` | GT4 (mode 5, 0x375980) | |
@@ -396,7 +466,7 @@ engine's Gran Turismo 3 code). The player notices them roughly in this order.
 | The race display's small parts | `race_hud.cpp` `draw_small_parts`, `draw_tires`, `draw_fuel` | GT4: the tire diagram (0x3A5FD8's picture, boxes, 0x3677F8 colors from the wheel's wear level +0xB1; drawn when the race wears tires), the fuel gauge (0x3A57A8; drawn when fuel is counted), the pedals (0x3A54F8, 0x3AB570), the signs (0x3A6C28, lit as 0x39E280: the aids' status, the handbrake, the oil), the gear digit (0x3A6DE0, 0x3A6D60) | the other drivetrain kinds' tire mapping (0x359538) not read |
 | Sun, glare, lamp glows, billboards, smoke, wet road, the scenery's fade | `race_world.cpp`, `course_scene.cpp` | **engine** routines on GT4's layouts (`gt3r::race::SunGlare`, `SunDisc`, `LampGlows`, `Billboards`, `CarLampGlows`, `TyreSmoke`, `WetRoad`, `SceneryFade`) | GT4's own effect routines (not read) |
 | The car icons on the map | `race_world.cpp` | angles and size judged (CarIconMaker 0x393B70) | |
-| The section times | `race/sections.*`, `screen_race.cpp` `step_splits` | the points GT4 (the road's list); the gap's partner judged | event 15 (0x359C10) and its display |
+| The section times | `race/sections.*`, `screen_race.cpp` `step_splits` | the points GT4 (the road's list); the gap's partner: GT4's rule under "2 Player Battle", the split screen's; judged in the single race | event 15 (0x359C10) and its display |
 | B-spec's Race Monitor | `screen_race.cpp` `fill_monitor`, `fill_gap_strip` | the movie GT4; the rows (names fitted with "..." 0x3DA668, the followed car lit 0x3DAF60), the gap strip GT4 (0x3DBF90: places 0x3DBE98, gaps 0x3DBDF0, their text 0x3DBEE8, the unit), its cars' pictures at the movie's `CARPOS_` externals, the rows' paint chips at `chip` (the paint's words; the place judged by 1 unit), the followed car's picture (CarIconMaker's kind 0: 30 units a metre, turned by the car's size, at most 158 degrees) without the lens's 18 degrees; the help line `RaceMonitorToolTip1`; the gap column judged; the map's letters drawn by us | the pace-up marks (0x3FA508), the tire panel, the view's speed (L1 + Left / Right), Show Map (Cross), the `sector` externals |
 | The pit stops | `RaceWorld::pit_command` / `pit_offer` / `pit_stage`, `sim/ai/pit_stops.*`; `screen_race.cpp` `update_pit_menu`, `race_hud.cpp` (the messages, the refuel bar) | GT4: the pass (0x35B060), the command (0x3F19E0: not before the first crossing nor on the last lap, taken back by a second press), the PIT STOP menu (0x3DCC50, 0x3DCFB0, 0x3DD540, 0x3DD5D8; strobe.md), the messages (RaceDisplay::vf28), the refuel bar (0x3A59D8) and its stop (0x35BFC0), the driving mode's choice (0x3F19E0 command 10). ✔ The stages, messages, panel and menu beside the original's stop (`26-endurance/fc_pitwindow_*`) | |
 | The cars' levels of detail | `car_visual.cpp` `CarVisual::level` | GT4 (0x07's size and centre, the car's rule 0x4539A8, T = 200); K, the view's factor (0x456918), from the chase view's measured 721.2 by the lens's angle (judged: the lens) | the race's lens (camera.md) |
@@ -407,5 +477,9 @@ engine's Gran Turismo 3 code). The player notices them roughly in this order.
 | The pit crew | `race/pit_scene.*`, `RaceWorld::step_pit_scene`, `pit_camera` | GT4: the men, the wheels, the hoses, the shadows, the sounds, the pit's cameras ([pit_scene.md](pit_scene.md)) | a replay's stops; the men's lower levels |
 | The driver figure | `race/driver_figure.*`, `driver_posture.*`, `posture_*`, `car_visual.cpp`, `RaceWorld::add_drivers` (`GT4R_RACE` `driver=0` leaves them out) | GT4: the set (the car's own +0x34 or a character file by the cockpit kind 0x3B5438), its skeleton, the posture's solver bit for bit (`gt4r_diff posture`), the still posture of the closed cars, the driving posture of the single-seaters, their wheel, hands, elbows and body each step (model.md "The driver in the car") | the rest of the record's step 0x403260: the gaze, the gear change |
 | Missions | `load_test`, `draw_grid` (the pool in its order), `judge_license`, `race_flow.*` | GT4. ✔ Mission 21 driven by the computers: 3'55.346, 3'57.123, 3'58.953, 4'00.795, 4'02.956 against the original's 3'55.340, 3'57.122, 3'58.953, 4'00.757, 4'02.952 (`31-progress6`, another player's car) | the win's page and missions 2 .. 5 and 8 (no original's picture) |
+| 2 Player Battle: the sequence, the options' rules, the handicap's starts, the boost, the gaps, the results, the pause, the replay | `race/split_battle.*`, `screen_split.cpp`; the rubber band `sim/ai/drivers.cpp` | GT4 ("2 Player Battle") | the original's pictures; the camera after a finish |
+| 2 Player Battle: the halves, their mirrors, the several-view draw | `screen_split.cpp`, `RaceWorld::render` (`half`), `course_scene.*` (`View::Half`, `View::HalfMirror`) | GT4's places, lenses, far planes, visibility lists and flags, on the engine's view; the texture list judged | the lower texture lists |
+| 2 Player Battle: two controllers, their rumble and wheel forces | `screen_split.cpp` (`read_player`, `RaceFeedback` per port) | [input.md](../specs/input.md) | |
+| 2 Player Battle: the sound | `audio/race_sound.*` `set_more_cameras` | GT4's rule (0x398B70, 0x3B5E80) in the engine's mixer | |
 | A-spec points | `race/aspec_points.*`, `RaceWorld::aspec_points`, `fill` | GT4 (0x3C0FF8, 0x3C1220, 0x39C570, 0x39C6D0) | in a standing start the original hides the rest of the display and shows the course's logo until about 5 s in: here it shows |
 | Not built | | cone shadows | |
