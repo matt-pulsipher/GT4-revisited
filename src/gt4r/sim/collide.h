@@ -143,6 +143,9 @@ struct Hit {
     int car = 0;
     s32 kind = 0, part = 0;
     F strength;
+    // Two cars (ours, for online races): the other's index, the point and the impulse this car took (N s), in the record's frame.
+    int other = -1;
+    F x, y, jx, jy;
 };
 // `hits`: the step's hits in the program's order (none kept when null).
 void step_all(std::vector<Body>& bodies, const std::vector<CarIn>& cars, const Walls& walls, std::vector<Hit>* hits = nullptr);
