@@ -140,6 +140,7 @@ void NetField::set_gone(size_t car) {
     if (car >= cars_.size() || car == ours_) return;
     cars_[car].gone = true;
     race_->set_ghost(car, true);
+    race_->set_shown(car, {{0, -2000.0f, 0}, 0}); // (out of the picture, its sound with it)
     update_ghosts(0);
 }
 

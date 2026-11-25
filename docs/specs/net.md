@@ -37,6 +37,9 @@ drivers' frames, not the cars**:
   seconds +0x41 are the row's own bytes), a standing start from the grid (the conductor's virtuals
   10 and 30 are the base's: no rolling start, no handicap; only `DynamicsConductorBattle2P`'s
   virtual 30, 0x347108, reads a handicap).
+- The penalty's kind is for the arcade's single race alone: `DynamicsConductor`'s virtual 26 (0x34CA20) sets the rule
+  block's +0x48 (40), +0x49 (8) and +0x4A (10 s of speed cap for kind 1, 0xFF the pit lane's mark for kind 2; 0 and
+  0xFF, 0xFF for none) from the race information's +0x04 only when the race is a `RaceArcadeSingle` (0x3BFD00).
 - The race information's settings (0x10D080, from the host's six words): +0x00 the laps, +0x04 the
   penalty's kind, +0x08 the tire damage, the same three again at +0x0C, +0x10 and **+0x14**,
   +0x18 the handicap, **+0x1C the boost**.
@@ -169,7 +172,7 @@ laps apart, once one has finished, before the first state, after its player left
 | Tire wear | the host's setting by `lan_wear` (0x354F30's numbers from the program) | the same |
 | Boost | by `lan_boost` (0x354EB8's numbers), the rubber band from the leader; off by default | the same |
 | Fuel | as the race row's (`sample_entry_1`) on the course | the same |
-| Penalty | not applied ❓ | a speed limit or the pit lane after a hit (the kinds' rules not read) |
+| Penalty | none | none: the host's kind is sent, but the conductor's virtual 26 (0x34CA20) takes it only in a `RaceArcadeSingle` (0x3BFD00); a LAN race keeps its row's, which has none |
 | Handicap | none | none |
 | Pause | opens the race's window; the race goes on | stops everybody |
 | A player gone | his car leaves the race; the others race on | the race ends (`DISCONNECTED`) |
