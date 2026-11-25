@@ -21,6 +21,8 @@
 //   gt4tool sweep <disc> stop [course=tsukuba] [car=ka_01] [run=8] [idle=4] [hold=1] [launch=8] [manual=0] [aids=1]
 //       the player's car alone through the pad's path: driven, braked to a full stop, stood (the brake held or not),
 //       then a full-throttle launch; a line every quarter second (gear, speed, rpm, the reverse request).
+//   gt4tool sweep <disc> wall [course=tsukuba] [car=integra_r_98] [event=<label>] [run=6] [after=10]
+//       a wall hit under an event's rules (the penalty and its speed cap) and the speed after it.
 //   gt4tool sweep <disc> grid [filter] [cars=6]
 //       where every course's grid places stand along the course (m from the line, negative behind it / the session's
 //       lap there) and how many are past the line.
@@ -32,12 +34,14 @@
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/formats/course/runway_gtrw.h"
+#include "gt4r/formats/db/race_events.h"
 #include "gt4r/formats/db/specdb.h"
 #include "gt4r/sim/ai/drivers.h"
 #include "gt4r/sim/ai/run.h"
 #include "gt4r/sim/car_spec.h"
 #include "gt4r/sim/line_driver.h"
 #include "gt4r/sim/program.h"
+#include "gt4r/sim/race_rules.h"
 #include "gt4r/sim/session.h"
 
 #include <algorithm>
@@ -433,6 +437,49 @@ int sweep_pad(Disc& disc, const Args& a) {
     return 0;
 }
 
+// A wall hit and what follows under an event's rules (event=<label>: its RACE row's hit penalty; none: no rules): the
+// player's car alone drives `run` s, steers into the wall on the right at full throttle until a contact (or 20 s), then
+// drives on along the road at full throttle for `after` s. The strongest contact, the penalty's seconds as the session
+// shows them and the speed, each half second.
+int sweep_wall(Disc& disc, const Args& a) {
+    const std::string course = option_str(a, "course", "tsukuba"), car = option_str(a, "car", "integra_r_98"), label = option_str(a, "event", "");
+    const double run = option(a, "run", 6), after = option(a, "after", 10);
+    db::SpecDb db = sim::ai::open_specdb(disc);
+    const sim::Program program = sim::Program::load(disc);
+    std::shared_ptr<const course::Runway> road = load_road(disc, course);
+    std::vector<sim::Entry> entries{1};
+    if (!sim::stock_car(db, program, car, entries[0].equipment)) return std::fprintf(stderr, "no car %s\n", car.c_str()), 1;
+    sim::Session session(db, program, road, entries);
+    if (!label.empty()) {
+        const db::RaceEvents events(db, [&disc](const std::string& path) { const gt3r::Volume::Entry* f = disc.volume().find(path); return f ? disc.volume().read(*f) : Bytes{}; });
+        const std::optional<db::RaceEvent> e = events.event(label);
+        if (!e) return std::fprintf(stderr, "no event %s\n", label.c_str()), 1;
+        const sim::RaceRules r = sim::race_rules(e->bytes, program);
+        std::printf("# %s: wall limit %d, car limit %d, penalty %d s, cap %d km/h\n", label.c_str(), int(r.hits.wall_limit), int(r.hits.car_limit), int(r.hits.penalty), int(r.penalty_cap));
+        session.set_race_rules(r.hits, r.speed_cap, r.penalty_cap);
+    }
+    sim::LineDriver pad(session, 0);
+    std::vector<race::CarInput> in{1};
+    for (int k = 0; k < sim::Session::kHoldSteps; ++k) session.hold_once(in);
+    for (int k = 0; k < int(run * 60); ++k) in[0] = pad.drive(1.0f, true), session.step_once(in);
+    float worst = 0;
+    int hit_at = -1;
+    for (int k = 0; k < 20 * 60 && hit_at < 0; ++k) {
+        in[0] = {}, in[0].throttle = 1, in[0].steer = 1;
+        session.step_once(in);
+        if (session.cars()[0].contact > 0) hit_at = k;
+    }
+    for (int k = 0; k < int(after * 60); ++k) {
+        in[0] = pad.drive(1.0f, false);
+        session.step_once(in);
+        const race::CarState& s = session.cars()[0];
+        if (s.contact > 0) worst = std::max(worst, s.contact);
+        if (k % 30 == 29) std::printf("%.1f s  %.1f km/h  penalty %d s  worst contact %.2f\n", double(k + 1) / 60, double(s.speed) * 3.6, session.penalty_seconds(0), double(worst));
+    }
+    std::printf("# hit %s\n", hit_at < 0 ? "none" : "yes");
+    return 0;
+}
+
 // Where every course's grid stands: each place's distance along the course (metres; past half the lap: behind the line),
 // the session's lap there, and how many of the places are past the line.
 int sweep_grid(Disc& disc, const Args& a) {
@@ -523,6 +570,7 @@ int sweep_stop(Disc& disc, const Args& a) {
 int cmd_sweep(Disc& disc, const std::vector<std::string>& a) {
     if (a[0] == "stop") return sweep_stop(disc, a);
     if (a[0] == "grid") return sweep_grid(disc, a);
+    if (a[0] == "wall") return sweep_wall(disc, a);
     if (a.empty()) return 2;
     if (a[0] == "courses") return sweep_courses(disc, a);
     if (a[0] == "cars") return sweep_cars(disc, a);
