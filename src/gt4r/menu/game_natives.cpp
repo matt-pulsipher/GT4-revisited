@@ -305,7 +305,10 @@ const Database::Spec& Database::spec(const std::string& label) {
                 Paint& paint = sp.paints[at >= 1 && at <= n ? at - 1 : i];
                 if (names_) paint.name = names_->at(r32(r, 0x0C));
                 if (r.size() >= 0x2C) std::memcpy(paint.flags, r.data() + 0x24, 8);
+                if (r.size() >= 0x34) std::memcpy(paint.chip, r.data() + 0x24, 16);
                 if (r.size() >= 0x27) paint.rgb[0] = r[0x24], paint.rgb[1] = r[0x25], paint.rgb[2] = r[0x26];
+                // (Rows without the words, Prologue's: the one colour.)
+                if (!(paint.chip[0] & 0x1000000u)) paint.chip[0] = u32(paint.rgb[0]) | u32(paint.rgb[1]) << 8 | u32(paint.rgb[2]) << 16 | 0x1000000u;
             }
         }
     return sp;
@@ -1295,7 +1298,11 @@ void install_game_natives(Runtime& rt, script::Module& menu) {
         static_fn(*cls, "GetMaxMemorySize", [](Vm&, const Value&, Args) { return number(32 * 1024 * 1024); });
         static_fn(*cls, "IsOEM", [](Vm&, const Value&, Args) { return number(0); });
         static_fn(*cls, "IsDrawPerfMeter", [](Vm&, const Value&, Args) { return number(0); });
-        for (const char* nothing : {"SetDrawPerfMeter", "SetLoadingMode", "DumpMemoryBlock", "SyncUnitWithLanguage", "Reboot"})
+        static_fn(*cls, "SetLoadingMode", [r](Vm&, const Value&, Args a) {
+            r->game().loading_mode = arg_text(a, 0);
+            return Value{};
+        });
+        for (const char* nothing : {"SetDrawPerfMeter", "DumpMemoryBlock", "SyncUnitWithLanguage", "Reboot"})
             static_fn(*cls, nothing, [](Vm&, const Value&, Args) { return Value{}; });
         auto now = [] {
             const std::time_t t = std::time(nullptr);

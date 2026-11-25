@@ -780,7 +780,8 @@ TEST(disc_menu_gt_mode_places) {
         CHECK(race && race->sequence == "license" && race->race == "l0b0001" && race->car == "demio_glx_99" && race->course == "testcourse_100m");
         CHECK(l.clean());
     }
-    // A mission.
+    // A mission: the first asks for the International B license (the page's "ib" badge), so a player without
+    // licenses is told so; with the licenses, the mission.
     {
         Flow m(*disc);
         CHECK(m.gt_mode_with_a_car());
@@ -788,6 +789,10 @@ TEST(disc_menu_gt_mode_places) {
         m.press({menu::Key::Accept});
         CHECK(m.page() == "MissionRoot");
         m.press({menu::Key::Accept});
+        CHECK(m.page() == "ConfirmDialog" && !m.rt->race_request());
+        m.press({menu::Key::Accept});
+        CHECK(m.page() == "MissionRoot");
+        m.press_licensed(menu::Key::Accept);
         race = m.rt->race_request();
         CHECK(race && race->sequence == "mission" && !race->car.empty() && race->car != car && !race->course.empty());
         CHECK(m.clean());

@@ -102,10 +102,17 @@ public:
         std::string s = d.text("text");
         if (s.empty()) s = d.text("value");
         menu::TextStyle st = style_of(d);
+        st.one_line = d.type == "TextFace" && d.number("multiline") == 0;
         w = h = 0;
         if (!st.font || s.empty()) return;
-        // A face of several lines (and a text box) breaks its lines at its width.
-        if (const std::optional<Rect> g = d.rect("geometry"); g && g->w > 0 && (d.number("multiline") != 0 || d.type == "TextBoxFace") && d.number("packing") == 0) s = wrapped(s, st, g->w, d.number("equalized") != 0);
+        // A face of several lines (and a text box) breaks its lines at its width; an equalized
+        // text is measured by the renderer's own break, not the word wrapper's that draws it
+        // (0x2452A8: the license pages' information box).
+        // (A face without a rectangle of its own fills its parent's.)
+        std::optional<Rect> own = d.rect("geometry");
+        if (!own && d.number("multiline") != 0 && d.number("packing") == 0)
+            if (const LiveWidget* parent = face.parent_widget()) own = parent->data.rect("geometry");
+        if (const std::optional<Rect>& g = own; g && g->w > 0 && (d.number("multiline") != 0 || d.type == "TextBoxFace") && d.number("packing") == 0) s = wrapped(s, st, g->w, d, false);
         // An abbreviated text measures as it is drawn, cut and ended in dots (the header's car name
         // is placed by its width: gtmode's refreshHeaderAlignment).
         if (const std::optional<Rect> g = d.rect("geometry"); g && g->w > 0 && d.number("abbreviate") != 0 && d.number("adjust_scale") == 0 &&
@@ -116,6 +123,12 @@ public:
         st.align = gt3r::text::HAlign::Left, st.valign = gt3r::text::VAlign::Top;
         const menu::TextLayout lay = menu::layout_menu_text(s, st, 0, 0);
         w = lay.width, h = lay.height;
+        // A text that is not `aligned` measures as wide as its rectangle and as high as its pen came
+        // down: its line steps, without the last line (0x491618 to 0x491638).
+        if (d.type == "TextFace" && d.has("aligned") && d.number("aligned") == 0) {
+            w = d.number("multiline") != 0 && own ? own->w : 640.0f;
+            h = float(st.font->line_height) * st.scale_y * float(lay.lines - 1);
+        }
     }
 
     // The page's 640 x 480 into (x, y) at `scale`; `state`: the bits every widget is drawn in.
@@ -252,6 +265,35 @@ private:
     SDL_FPoint image_size(const std::string& path) {
         const gt3r::Tex1::Image* img = path.empty() ? nullptr : project_->image(page_, path);
         return img ? SDL_FPoint{float(img->width), float(img->height)} : SDL_FPoint{0, 0};
+    }
+
+    // A car's paint (mColorChipFace 0x159C38): its words' colours in bands down the face (or shaded
+    // from one to the next), the gloss picture over them: the first for a metallic paint, the
+    // second for a solid one. With no colour nothing is drawn.
+    void chip(const Widget& w, const Rect& at, float opacity, const Rgba& tint) {
+        u32 word[4] = {};
+        int n = 0;
+        for (int i = 0; i < 4; ++i) {
+            word[i] = u32(s32(w.number("chip_" + std::to_string(i))));
+            n += (word[i] >> 24) & 1;
+        }
+        if (n <= 0) return;
+        const bool metallic = (word[0] >> 25) & 1, shaded = (word[0] >> 26) & 1, reversed = (word[0] >> 27) & 1;
+        // The bands' ends, as parts of the height from the first color on.
+        static const float ends[4][4] = {{1, 1, 1, 1}, {0.5f, 1, 1, 1}, {0.5f, 0.75f, 1, 1}, {0.5f, 0.75f, 0.875f, 1}};
+        static const float shades[4][4] = {{1, 1, 1, 1}, {1, 1, 1, 1}, {0.5f, 1, 1, 1}, {0.5f, 0.75f, 1, 1}};
+        auto color = [&](int i) { return Rgba{u8(word[i]), u8(word[i] >> 8), u8(word[i] >> 16), 255}; };
+        const int bands = shaded && n > 1 ? n - 1 : n;
+        float from = 0;
+        for (int i = 0; i < bands; ++i) {
+            const float to = (shaded && n > 1 ? shades : ends)[n - 1][i];
+            const float y0 = reversed ? 1 - to : from, y1 = reversed ? 1 - from : to;
+            Rgba top = color(i), bottom = shaded && n > 1 ? color(i + 1) : top;
+            if (reversed) std::swap(top, bottom);
+            fill({at.x, at.y + at.h * y0, at.w, at.h * (y1 - y0)}, {top, top, bottom, bottom}, opacity, false);
+            from = to;
+        }
+        image(w.text(metallic ? "image_path0" : "image_path1"), at, tint, opacity, false);
     }
 
     // One colour, or four for the corners clockwise from the top left.
@@ -477,13 +519,72 @@ private:
         st.align = gt3r::text::HAlign::Left, st.valign = gt3r::text::VAlign::Top;
         return menu::layout_menu_text(line, st, 0, 0).width;
     }
-    // A text of several lines is broken at spaces where a line would pass the face's width.
-    // `equalized`: the program's word wrapper for spread text; otherwise (❓ the renderer's own
-    // break, 0x491418, is not ported) a line breaks when the next word would pass the width.
-    std::string wrapped(const std::string& s, const menu::TextStyle& st, float width, bool equalized = true) const {
-        // ❓ Prologue's texts carry their own line ends and are not broken (its card dialog's
-        // first line passes its face's width by 5 pixels in one line).
+    // Whether the program's word wrapper spreads an `equalized` face's lines: not in Japanese,
+    // Korean and Chinese (0x245568: language 0 and 9 to 11), nor in Prologue.
+    bool word_wrapper() const {
+        if (!fonts_.count("hn_14")) return false;
+        const std::string lang = project_ ? project_->language() : std::string("US");
+        return lang != "JP" && lang != "KR" && lang != "TW" && lang != "CN";
+    }
+    // A text of several lines, broken as its face's text style has it: `equalized` by the word
+    // wrapper; else a face whose text is `aligned` (the default) only at its line ends; one whose
+    // text is not, at the character that would pass its right edge.
+    std::string wrapped(const std::string& s, const menu::TextStyle& st, float width, const Widget& face, bool drawn = true) const {
+        const bool box = face.type == "TextBoxFace";
+        if (drawn && face.number("equalized") != 0 && word_wrapper()) return wrapped_words(s, st, width);
+        if (!box) return face.has("aligned") && face.number("aligned") == 0 ? broken_characters(s, st, width) : s;
+        // ❓ A text box's own break (mTextBoxFace) is not read: at a space where the next word would
+        // pass the width. Prologue's carry their line ends (its card dialog's first line passes
+        // its face's width by 5 pixels in one line).
         if (!fonts_.count("hn_14")) return s;
+        std::string out, line;
+        auto flush = [&] { out += line, line.clear(); };
+        size_t at = 0;
+        while (at <= s.size()) {
+            const size_t end = std::min(s.find_first_of(" \n", at), s.size());
+            const std::string word = s.substr(at, end - at);
+            const std::string tried = line.empty() ? word : line + " " + word;
+            if (!line.empty() && width_of(tried, st) > width + 0.5f) flush(), out += '\v', line = word;
+            else line = tried;
+            if (end < s.size() && s[end] == '\n') flush(), out += '\n';
+            at = end + 1;
+        }
+        flush();
+        return out;
+    }
+    // The renderer's break (0x490660, 0x492748, 0x492E14): when the pen after a character reaches
+    // the width less the font's double-byte step, the next character starts a line, unless it is
+    // one that may not (. , ' and, after a double-byte character, the comma, the full stop, the
+    // closing bracket, the small kana and the full-width dash).
+    std::string broken_characters(const std::string& s, const menu::TextStyle& st, float width) const {
+        const gt3r::text::FontGlyph* space_glyph = st.font ? st.font->glyph(' ') : nullptr;
+        const int advance = space_glyph ? int(space_glyph->advance) : st.font ? int(st.font->size / 2) : 8;
+        const float pen_extra = float(advance / 2) * st.scale_x; // (a line's width is its pen less that)
+        const float limit = width - float(st.spacing.wide_advance) * st.scale_x;
+        std::string out, line;
+        for (size_t at = 0; at < s.size();) {
+            const u8 c = u8(s[at]);
+            size_t n = c >= 0xF0 ? 4 : c >= 0xE0 ? 3 : c >= 0xC0 ? 2 : 1;
+            if (c == '%' && at + 1 < s.size()) n = s[at + 1] == 'C' ? 5 : s[at + 1] == 'B' ? 3 : 2;
+            n = std::min(n, s.size() - at);
+            const std::string ch = s.substr(at, n);
+            at += n;
+            if (c == '\n') {
+                out += line, out += '\n', line.clear();
+                continue;
+            }
+            line += ch;
+            if (at >= s.size() || s[at] == '\n' || width_of(line, st) + pen_extra < limit) continue;
+            const std::string rest = s.substr(at, 3);
+            bool stays = rest[0] == '.' || rest[0] == ',' || rest[0] == '\'';
+            if (c >= 0xE0)
+                for (const char* k : {"\u3001", "\u3002", "\u300C", "\u3083", "\u3085", "\u3087", "\u3063", "\uFF0D"}) stays |= rest == k;
+            if (stays) continue;
+            out += line, out += '\n', line.clear();
+        }
+        return out + line;
+    }
+    std::string wrapped_words(const std::string& s, const menu::TextStyle& st, float width) const {
         // The program's word wrapper (0x245C90): each word measured by itself; a word starts a new
         // line when the line so far (its words, each with a space after it) and it reach the
         // width less the font's double-byte step (❓ that margin: the renderer's own right edge,
@@ -495,23 +596,6 @@ private:
         // (A word's width is its pen's: width_of() gives a line's, half a space less.)
         const float pen_extra = float(advance / 2) * st.scale_x;
         const float limit = width - float(st.spacing.wide_advance) * st.scale_x;
-        if (!equalized) {
-            // (The events' one-line notices fill their 544 units within a few: no margin there.)
-            std::string out, line;
-            auto flush = [&] { out += line, line.clear(); };
-            size_t at = 0;
-            while (at <= s.size()) {
-                const size_t end = std::min(s.find_first_of(" \n", at), s.size());
-                const std::string word = s.substr(at, end - at);
-                const std::string tried = line.empty() ? word : line + " " + word;
-                if (!line.empty() && width_of(tried, st) > width + 0.5f) flush(), out += '\v', line = word;
-                else line = tried;
-                if (end < s.size() && s[end] == '\n') flush(), out += '\n';
-                at = end + 1;
-            }
-            flush();
-            return out;
-        }
         std::string out, line;
         float cur = 0;
         auto flush = [&] { out += line, line.clear(), cur = 0; };
@@ -563,20 +647,33 @@ private:
         gt3r::text::FontVariant variant = gt3r::text::FontVariant::Plain;
         menu::TextStyle st = style_of(w, &variant);
         if (!st.font) return;
+        st.one_line = w.type == "TextFace" && w.number("multiline") == 0;
         // adjustScale(): drawn narrower when it would pass the face's width; abbreviate(): cut
         // there and ended in dots.
         if (at.w > 0) {
             const float width = width_of(s, st); // the widest line's
-            if (width > at.w && w.number("adjust_scale") != 0) st.scale_x *= at.w / width;
-            else if (width > at.w && w.number("abbreviate") != 0 && s.find('\n') == std::string::npos) {
+            if (w.number("adjust_scale") != 0) {
+                // (0x2455C0: each axis by itself, where the text passes the face.)
+                menu::TextStyle plain = st;
+                plain.align = gt3r::text::HAlign::Left, plain.valign = gt3r::text::VAlign::Top;
+                const float height = menu::layout_menu_text(s, plain, 0, 0).height;
+                if (width > at.w) st.scale_x *= at.w / width;
+                if (height > at.h && at.h > 0) st.scale_y *= at.h / height;
+            } else if (width > at.w && w.number("abbreviate") != 0 && s.find('\n') == std::string::npos) {
                 while (s.size() > 1 && width_of(s + "...", st) > at.w) s.pop_back();
                 s += "...";
             }
         }
-        if ((w.number("multiline") != 0 || w.type == "TextBoxFace") && w.number("packing") == 0 && at.w > 0) s = wrapped(s, st, at.w, w.number("equalized") != 0);
+        if ((w.number("multiline") != 0 || w.type == "TextBoxFace") && w.number("packing") == 0 && at.w > 0) s = wrapped(s, st, at.w, w);
         // Where in its rectangle: 0..8, rows from the top, columns from the left; the middle (4)
         // when not given (the text style's default).
-        const int align = w.has("align") ? int(w.number("align")) : 4;
+        // The program's word wrapper (`equalized`, 0x245C90) draws word by word from the pen at the
+        // rectangle's top left (0x490A08, 0x490660, 0x490760), and so does the renderer a text that
+        // is not `aligned` (0x491490): `align` is not used there, and a text taller than its
+        // rectangle runs on below it (the Driving Missions' texts).
+        const bool spread = w.number("equalized") != 0 && at.w > 0 && word_wrapper();
+        const bool unaligned = w.type == "TextFace" && w.has("aligned") && w.number("aligned") == 0;
+        const int align = spread || unaligned ? 0 : w.has("align") ? int(w.number("align")) : 4;
         const int col = align % 3, row = align / 3;
         st.align = col == 0 ? gt3r::text::HAlign::Left : col == 1 ? gt3r::text::HAlign::Center : gt3r::text::HAlign::Right;
         st.valign = row == 0 ? gt3r::text::VAlign::Top : row == 1 ? gt3r::text::VAlign::Middle : gt3r::text::VAlign::Bottom;
@@ -605,7 +702,7 @@ private:
         }
         const Rgba base = w.color("text_color").value_or(Rgba{212, 212, 212, 255}); // the text style's default
         st.color = {base.r, base.g, base.b, base.a};
-        if (w.number("equalized") != 0 && at.w > 0) st.justify_width = at.w;
+        if (spread) st.justify_width = at.w;
         const menu::TextLayout lay = menu::layout_menu_text(s, st, x, y);
 
         // A pass of the glyphs; `shadow`: all in one colour, offset.
@@ -716,9 +813,7 @@ private:
             text(tip, at, face, &live);
         } else if (t == "TextFace" || t == "InputTextFace" || t == "InputNumberFace" || t == "ToolTipFace" || t == "TextBoxFace") text(w, at, face, &live);
         else if (t == "ColorChipFace") {
-            // A car's paint: its colour under the chip's picture.
-            if (w.has("chip_r")) fill(at, {Rgba{u8(w.number("chip_r")), u8(w.number("chip_g")), u8(w.number("chip_b")), 255}}, face, false);
-            image(w.text("image_path0"), at, tint, face, false);
+            chip(w, at, face, tint);
         } else if (t == "GraphFace") graph(w, at, face);
         else if (t == "FlashFace") flash(live, at, face);
         else if (draw_live) draw_live(live, project_, page_, at, to_screen(bounds(at)), face);

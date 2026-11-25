@@ -299,30 +299,23 @@ struct Packer {
     }
 };
 
-bool uses_packing(const LiveWidget& w) {
-    if (packing(w)) return true;
-    for (const auto& c : w.children)
-        if (uses_packing(*c)) return true;
-    return false;
-}
+} // namespace
 
 // The faces' fractions are of their parent's size as it was before any packing (the
-// program's load, 0x268478): noted for each face the first time its page is packed, before
-// that picture's allocation.
-void note_faces(LiveWidget& w) {
+// program's load, 0x268478): noted when the page is made, before its scripts run; a copy of a
+// widget keeps them.
+void note_face_sizes(LiveWidget& w) {
     for (const auto& c : w.children) {
         if (is_face(*c) && c->data.rect("geometry") && !c->data.has("pack_pw")) {
             const Box pb = rect_of(w);
             c->set_property("pack_pw", Value::number(pb.w)), c->set_property("pack_ph", Value::number(pb.h));
         }
-        note_faces(*c);
+        note_face_sizes(*c);
     }
 }
 
-} // namespace
-
 void pack_page(LiveWidget& page) {
-    note_faces(page);
+    note_face_sizes(page); // (widgets made since)
     Packer p;
     p.update(page);
     p.draw(page);

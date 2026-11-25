@@ -10,6 +10,7 @@
 #include "gt4r/app/menu_models.h"
 #include "gt4r/app/menu_movies.h"
 #include "gt4r/app/menu_page_drawer.h"
+#include "gt4r/app/menu_slides.h"
 
 #include "base/log.h"
 #include "formats/text/charset.h"
@@ -259,15 +260,19 @@ private:
             loading_ = std::make_unique<MenuLoading>(app);
             if (from_boot && advertise_on_) advertise_ = std::make_unique<MenuAdvertise>(app);
             MenuModels* models = models_.get();
-            drawer->draw_live = [movies, cars, models](const LiveWidget& face, menu::Project* project, const std::string& page, const Rect& at, const SDL_FRect& dst, float opacity) {
+            slides_ = std::make_unique<MenuSlides>(app);
+            MenuSlides* slides = slides_.get();
+            drawer->draw_live = [movies, cars, models, slides](const LiveWidget& face, menu::Project* project, const std::string& page, const Rect& at, const SDL_FRect& dst, float opacity) {
                 if (face.is("MovieFace")) movies->draw(face, dst, opacity);
                 else if (face.is("CarFace")) cars->draw(face, project, page, at, dst, opacity);
                 else if (face.is("ModelFace")) models->draw(face, project, page, at, dst, opacity);
+                else if (face.is("SlideShowFace")) slides->draw(face, at, dst, opacity);
             };
             menu::text_measure().measure = [drawer](const LiveWidget& face, float& w, float& h) { drawer->measure(face, w, h); };
             cursor_ = {};
             runtime_->boot();
             if (const script::Value root = runtime_->vm().lookup("MpegRoot"); root.kind == script::Kind::String) movies_->set_root(root.as_string());
+            if (const script::Value n = runtime_->vm().lookup("DemonstrationSlideNum"); n.is_number()) slides_->set_count(int(n.as_float()));
             race_.reset();
             runtime_->start_project(from_boot || projects_.empty() ? runtime_->first_project() : projects_[size_t(project_sel_)].name);
         } catch (const std::exception& ex) {
@@ -280,7 +285,7 @@ private:
         if (held_) SDL_DestroyTexture(held_), held_ = nullptr;
         if (trail_) SDL_DestroyTexture(trail_), trail_ = nullptr;
         menu::text_measure().measure = nullptr;
-        movies_.reset(), cars_.reset(), models_.reset(), loading_.reset(), advertise_.reset(), live_drawer_.reset(), runtime_.reset(), race_.reset();
+        movies_.reset(), cars_.reset(), models_.reset(), slides_.reset(), loading_.reset(), advertise_.reset(), live_drawer_.reset(), runtime_.reset(), race_.reset();
         if (app_)
             if (audio::AppSound* sound = app_->sound()) sound->stop();
     }
@@ -315,8 +320,8 @@ private:
             if (loading_) loading_->step(float(steps) / 60.0f);
             if (timing_ && double(SDL_GetTicksNS() - u0) / 1e6 > 20) LOG_INFO("Menu timing: the scripts took %.1f ms", double(SDL_GetTicksNS() - u0) / 1e6);
             // A script that ended its project names the next one, or asks for a race.
-            if (runtime_->finished() && !race_) {
-                race_ = runtime_->race_request();
+            if (runtime_->finished() && (!race_ || (loading_ && loading_->active()))) {
+                if (!race_) race_ = runtime_->race_request();
                 // The title left alone (its `timeout_count_to_autodemo`, 20 s) asks for the
                 // "autodemo" sequence: the opening movie (demo_movie, after the Polyphony logo),
                 // then the project the title named (`next_menu_project`, arcade), as the original
@@ -344,6 +349,13 @@ private:
                 // A race with its own menus: the race screen runs them over the race on these menus
                 // and leaves them where the race sequence ends (race_natives.h).
                 if (race_ && (!menu::quick_project(race_->sequence).empty() || race_->sequence == "replay" || race_->sequence == "race_view") && app.gpu()) {
+                    // The loading page before it, when the scripts asked for the last page held.
+                    if (loading_ && runtime_->game().loading_mode == "capture") {
+                        if (!loading_->active()) loading_->begin_capture();
+                        if (!loading_->covered()) return;
+                        loading_->stop();
+                        runtime_->game().loading_mode = "default"; // (the race's menus', quick.pp)
+                    }
                     RaceStart start;
                     start.course = race_->course, start.car = race_->car, start.paint = race_->paint;
                     start.cars = std::max(1, race_->max_entry);
@@ -380,6 +392,15 @@ private:
             if (movies_) movies_->begin_frame();
             if (cars_) cars_->begin_frame(runtime_->frame());
             if (models_) models_->begin_frame(runtime_->frame());
+            if (slides_) {
+                auto option = [this](const char* name, int otherwise) {
+                    const auto& o = runtime_->game().options;
+                    const auto it = o.find(name);
+                    return it != o.end() && std::holds_alternative<s32>(it->second) ? int(std::get<s32>(it->second)) : otherwise;
+                };
+                slides_->set_options(option("album_slide_play_time", 8), option("album_slide_transition_time", 4), option("album_slide_effect", 1) != 0);
+                slides_->begin_frame(runtime_->frame());
+            }
             const menu::TransitionPicture tp = menu::transition_picture(runtime_->vm().attribute(runtime_->context(), "transition"));
             // A cross transition coming in: the pages grown about the screen's middle.
             Affine grown;
@@ -390,6 +411,7 @@ private:
             if (movies_) movies_->end_frame();
             if (cars_) cars_->end_frame();
             if (models_) models_->end_frame();
+            if (slides_) slides_->end_frame();
             draw_trail(tp, x, scale);
             draw_cursor(x, scale);
             draw_blocks(tp, x, scale);
@@ -410,6 +432,7 @@ private:
                 }
             }
             if (const float cover = runtime_->fade_cover(); cover > 0) ui.fill(x, 0, 640 * scale, 480 * scale, Color{0, 0, 0, u8(std::clamp(cover, 0.0f, 1.0f) * 255.0f)});
+            if (loading_ && !loading_->active() && runtime_->game().loading_mode == "capture" && !runtime_->finished()) loading_->keep(x, scale);
             if (loading_) loading_->draw(x, scale);
         }
         // What the scripts did, beside the page (the game itself: only what stopped them).
@@ -427,7 +450,7 @@ private:
             ui.text(x + 640 * scale + 2, 2, "Select+Start:", colors::kDim);
             ui.text(x + 640 * scale + 2, 14, "stop", colors::kDim);
         }
-        if (race_) {
+        if (race_ && !(loading_ && loading_->active())) {
             // The menus' work is done: this is what a race would be started from.
             const float px = x + 60 * scale, py = 150 * scale, pw = 520 * scale;
             ui.fill(px, py, pw, 84, colors::kPanel);
@@ -515,6 +538,7 @@ private:
     std::unique_ptr<MenuMovies> movies_; // the running menus' movie faces
     std::unique_ptr<MenuCars> cars_;     // and car faces
     std::unique_ptr<MenuModels> models_; // and model faces
+    std::unique_ptr<MenuSlides> slides_; // and slide shows
     std::unique_ptr<MenuLoading> loading_; // the page between projects
     std::unique_ptr<MenuAdvertise> advertise_; // the pictures before the first menus
     bool advertise_on_ = false;
@@ -552,14 +576,21 @@ namespace {
 
 class RuntimePainter : public MenuPainter {
 public:
-    explicit RuntimePainter(App& app) : drawer_(app) {}
+    explicit RuntimePainter(App& app) : drawer_(app), cars_(app), models_(app) {
+        drawer_.draw_live = [this](const LiveWidget& face, menu::Project* project, const std::string& page, const Rect& at, const SDL_FRect& dst, float opacity) {
+            if (face.is("CarFace")) cars_.draw(face, project, page, at, dst, opacity);
+            else if (face.is("ModelFace")) models_.draw(face, project, page, at, dst, opacity);
+        };
+    }
     void draw(menu::Runtime& rt, float x, float scale) override {
         const menu::TransitionPicture tp = menu::transition_picture(rt.vm().attribute(rt.context(), "transition"));
         Affine grown;
         grown.a = grown.d = tp.page_scale, grown.e = 320 * (1 - tp.page_scale), grown.f = 240 * (1 - tp.page_scale);
         drawer_.menu_frame = rt.frame();
+        cars_.begin_frame(rt.frame()), models_.begin_frame(rt.frame());
         for (const auto& page : rt.open_pages())
             if (menu::Project* project = rt.project_of(*page)) drawer_.draw(*project, *page, x, 0, scale, 0, grown, tp.page_opacity);
+        cars_.end_frame(), models_.end_frame();
         // The pointer (menu_cursor.h), a step a picture drawn.
         cursor_.step(rt);
         cursor_.draw(rt, drawer_, x, scale);
@@ -567,6 +598,8 @@ public:
 
 private:
     PageDrawer drawer_;
+    MenuCars cars_;     // the prize pages' models
+    MenuModels models_;
     MenuCursor cursor_;
 };
 

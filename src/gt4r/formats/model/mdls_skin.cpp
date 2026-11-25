@@ -2,6 +2,8 @@
 
 #include "gt4r/formats/model/mdls.h"
 
+#include "base/ee_float.h"
+
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -82,13 +84,24 @@ SkinBlock read_skin_block(ByteSpan d, size_t at, bool packed) {
             for (u32 i = 0; i < count; ++i, p += stride) {
                 SkinVertex v;
                 v.bones = bones;
-                for (int k = 0; k < 3; ++k) v.pos[k] = float(s16(rd16(d, p + 2 * size_t(k)))) * scale;
+                v.packed = true;
+                v.scale = scale;
+                for (int k = 0; k < 3; ++k) {
+                    v.ipos[k] = s16(rd16(d, p + 2 * size_t(k)));
+                    v.pos[k] = float(v.ipos[k]) * scale;
+                }
                 size_t w = p + 6;
                 if (b.dest) {
-                    for (int k = 0; k < 3; ++k) v.normal[k] = float(std::int8_t(d[p + 6 + size_t(k)])) / 127.0f;
+                    for (int k = 0; k < 3; ++k) {
+                        v.inormal[k] = std::int8_t(d[p + 6 + size_t(k)]);
+                        v.normal[k] = float(v.inormal[k]) / 127.0f;
+                    }
                     w = p + 9;
                 }
-                for (int k = 0; k < 4; ++k) v.weights[size_t(k)] = float(std::int8_t(d[w + size_t(k)])) / 127.0f;
+                for (int k = 0; k < 4; ++k) {
+                    v.iweight[k] = std::int8_t(d[w + size_t(k)]);
+                    v.weights[size_t(k)] = float(v.iweight[k]) / 127.0f;
+                }
                 b.vertices.push_back(v);
             }
         }
@@ -163,6 +176,48 @@ const SkinVertex* SkinTable::find(const float pos[3], const float normal[3]) con
     return it == map_.end() ? nullptr : &it->second;
 }
 
+void blend(const SkinVertex& v, const Palette& palette, float pos[3], float normal[3]) {
+    using gt3r::ee::F;
+    static const gt3r::render::Mat4 kIdentity = gt3r::render::Mat4::identity();
+    const gt3r::render::Mat4* m[4];
+    for (int k = 0; k < 4; ++k) m[k] = v.bones[size_t(k)] < palette.size() ? &palette[v.bones[size_t(k)]] : &kIdentity;
+    // Row i of the program's (row-vector) matrix is column i here: lane r of row i = at(r, i).
+    auto e = [&](int k, int r, int i) { return F(m[k]->at(r, i)); };
+    F w[4], p[3], n[3];
+    for (int k = 0; k < 4; ++k)
+        w[k] = v.packed ? gt3r::ee::int_to_f(v.iweight[k]) * F::raw(0x3C010204u) : F(v.weights[size_t(k)]);
+    const F scale = v.packed ? F(v.scale) : F::raw(0x3F800000u);
+    for (int i = 0; i < 3; ++i) {
+        p[i] = (v.packed ? gt3r::ee::int_to_f(v.ipos[i]) : F(v.pos[i])) * scale;
+        n[i] = v.packed ? gt3r::ee::int_to_f(v.inormal[i]) : F(v.normal[i]);
+    }
+    F a[4][3], b[4][3];
+    for (int k = 0; k < 4; ++k)
+        for (int i = 0; i < 3; ++i) a[k][i] = n[i] * w[k], b[k][i] = p[i] * w[k];
+    F N[3], P[3];
+    for (int r = 0; r < 3; ++r) {
+        F acc = e(0, r, 0) * a[0][0];
+        F accp = e(0, r, 0) * b[0][0];
+        for (int k = 0; k < 4; ++k) {
+            for (int i = 0; i < 3; ++i) {
+                if (k == 0 && i == 0) continue;
+                acc = gt3r::ee::madd(acc, e(k, r, i), a[k][i]);
+                accp = gt3r::ee::madd(accp, e(k, r, i), b[k][i]);
+            }
+            accp = gt3r::ee::madd(accp, e(k, r, 3), w[k]);
+        }
+        N[r] = acc, P[r] = accp;
+    }
+    const F l2 = (N[0] * N[0] + N[1] * N[1]) + N[2] * N[2];
+    for (int r = 0; r < 3; ++r) pos[r] = P[r].host();
+    if (l2.bits & 0x7F800000u) {
+        const F q = gt3r::ee::rsqrt(F::raw(0x3F800000u), l2);
+        for (int r = 0; r < 3; ++r) normal[r] = (N[r] * q).host();
+    } else {
+        for (int r = 0; r < 3; ++r) normal[r] = v.normal[r];
+    }
+}
+
 size_t pose(const std::vector<gt3r::scene::Mesh>& bind, const SkinTable& table, const Palette& palette, std::vector<gt3r::scene::Mesh>& out) {
     using gt3r::render::Mat4;
     out = bind;
@@ -171,23 +226,15 @@ size_t pose(const std::vector<gt3r::scene::Mesh>& bind, const SkinTable& table, 
         const Mat4 own = Mat4::from(m.transform);
         for (gt3r::scene::Vertex& v : m.vertices) {
             const SkinVertex* s = table.find(v.pos, v.normal);
-            float p[3] = {0, 0, 0}, n[3] = {0, 0, 0};
             if (s) {
-                for (int k = 0; k < 4; ++k) {
-                    const float w = s->weights[size_t(k)];
-                    if (w == 0 || s->bones[size_t(k)] >= palette.size()) continue;
-                    const Mat4& b = palette[s->bones[size_t(k)]];
-                    for (int r = 0; r < 3; ++r) {
-                        p[r] += w * (b.at(r, 0) * v.pos[0] + b.at(r, 1) * v.pos[1] + b.at(r, 2) * v.pos[2] + b.at(r, 3));
-                        n[r] += w * (b.at(r, 0) * v.normal[0] + b.at(r, 1) * v.normal[1] + b.at(r, 2) * v.normal[2]);
-                    }
-                }
+                blend(*s, palette, v.pos, v.normal);
                 ++moved;
-            } else {
-                for (int r = 0; r < 3; ++r) {
-                    p[r] = own.at(r, 0) * v.pos[0] + own.at(r, 1) * v.pos[1] + own.at(r, 2) * v.pos[2] + own.at(r, 3);
-                    n[r] = own.at(r, 0) * v.normal[0] + own.at(r, 1) * v.normal[1] + own.at(r, 2) * v.normal[2];
-                }
+                continue;
+            }
+            float p[3], n[3];
+            for (int r = 0; r < 3; ++r) {
+                p[r] = own.at(r, 0) * v.pos[0] + own.at(r, 1) * v.pos[1] + own.at(r, 2) * v.pos[2] + own.at(r, 3);
+                n[r] = own.at(r, 0) * v.normal[0] + own.at(r, 1) * v.normal[1] + own.at(r, 2) * v.normal[2];
             }
             const float len = std::sqrt(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
             for (int r = 0; r < 3; ++r) v.pos[r] = p[r], v.normal[r] = len > 1e-6f ? n[r] / len : v.normal[r];
