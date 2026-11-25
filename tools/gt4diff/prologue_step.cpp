@@ -118,6 +118,33 @@ int whole_step(Disc& disc, const std::string& course, const std::string& car, in
         gt3r::sim::exact::load_image(at19, im.data());
         seen19 = true;
     });
+    if (std::getenv("GT4R_TRACE_YAW")) { // (every write of a collision body's yaw rate, +0x3D0, its value after)
+        static const u32 writes[] = {0x41D32C, 0x41D9E8, 0x41E304, 0x41F098, 0x41F500, 0x420290, 0x420324};
+        static const int base[] = {3, 5, 7, 18, 18, 16, 17};
+        for (size_t k = 0; k < std::size(writes); ++k)
+            ee.add_probe(writes[k] + 4, [k](Ee& e) { std::printf("  yaw write %06X: w %08X vx %08X vy %08X\n", writes[k], e.r32(e.g32(base[k]) + 0x3D0), e.r32(e.g32(base[k]) + 0x3C4), e.r32(e.g32(base[k]) + 0x3C8)); });
+    }
+    if (std::getenv("GT4R_TRACE_YAW")) {
+        ee.add_probe(0x41EE74, [](Ee& e) { std::printf("  cos %08X sin %08X\n", e.r32(e.g32(29) + 0x10), e.fpr[0]); });
+        ee.add_probe(0x41F1E4, [](Ee& e) { std::printf("  j %08X k %08X vp %08X %08X\n", e.fpr[1], e.fpr[10], e.r32(e.g32(7)), e.r32(e.g32(7) + 4)); });
+        ee.add_probe(0x41EF34, [](Ee& e) {
+            const u32 sp = e.g32(29);
+            std::printf("  J %08X %08X f %08X %08X %08X\n", e.r32(sp), e.r32(sp + 4), e.r32(sp + 0x40), e.r32(sp + 0x44), e.r32(sp + 0x48));
+        });
+        ee.add_probe(0x41F094, [](Ee& e) {
+            const u32 sp = e.g32(29);
+            std::printf("  moment %08X jl %08X %08X e %08X w %08X\n", e.fpr[0], e.r32(sp + 0x50), e.r32(sp + 0x54), e.g32(2), e.fpr[2]);
+            std::printf("  edge %08X %08X\n", e.r32(e.g32(2)), e.r32(e.g32(2) + 4));
+            for (u32 k = 0; k < 8; ++k) std::printf("    its edge %u %08X %08X point %08X %08X\n", k, e.r32(e.g32(18) + 0x228 + 0x2C * k), e.r32(e.g32(18) + 0x22C + 0x2C * k), e.r32(e.g32(18) + 8 + 0x44 * k), e.r32(e.g32(18) + 0xC + 0x44 * k));
+        });
+    }
+    if (std::getenv("GT4R_TRACE_YAW")) // (a point's impulse on a wall as it starts, 0x41EE48, and the hit as it is found)
+        ee.add_probe(0x41EE48, [](Ee& e) {
+            const u32 b = u32(e.a(0));
+            std::printf("  point: im %08X ii %08X wk %d wseg %08X u %08X %08X ts %08X s %08X %08X %08X sh %08X v %08X %08X w %08X d %08X %08X\n", e.r32(b), e.r32(b + 4), int(e.r32(b + 0x41C)),
+                        e.r32(b + 0x428), e.r32(b + 0x420), e.r32(b + 0x424), e.r32(b + 0x38C), e.r32(b + 0x390), e.r32(b + 0x394), e.r32(b + 0x398), e.r32(b + 0x39C), e.r32(b + 0x3C4),
+                        e.r32(b + 0x3C8), e.r32(b + 0x3D0), e.r32(b + 0x3B4), e.r32(b + 0x3B8));
+        });
     if (std::getenv("GT4R_TRACE_NUDGE")) { // (the collision's stuck nudge, 0x41D8A8: the body's yaw rate before and after)
         static u32 ra = 0, body = 0;
         ee.add_probe(0x41D8A8, [&](Ee& e) {
@@ -181,6 +208,11 @@ int whole_step(Disc& disc, const std::string& course, const std::string& car, in
                         double(b.cz.host()), double(at19.vel.x.host()), double(at19.vel.y.host()), double(at19.vel.z.host()), double(b.cvx.host()),
                         double(b.cvy.host()), double(b.cvz.host()), double(at19.heading.host()), double(b.ch.host()), double(at19.yaw_rate.host()),
                         double(b.cw.host()), b.hint, int(b.wall_hit));
+            std::printf("    ours: im %08X ii %08X wk %d wseg %d u %08X %08X ts %08X s %08X %08X %08X sh %08X v %08X %08X w %08X\n", b.im.bits, b.ii.bits, b.wk, b.wseg, b.ux.bits, b.uy.bits,
+                        b.ts.bits, b.sx.bits, b.sy.bits, b.sz.bits, b.sh.bits, b.vx.bits, b.vy.bits, b.w.bits);
+            const u32 body = ee.r32(r.car(0) + 0xD0);
+            (void)body;
+            for (int k = 0; k < 8; ++k) std::printf("      edge %d %08X %08X point %08X %08X\n", k, b.e[size_t(k)].sx.bits, b.e[size_t(k)].sy.bits, b.p[size_t(k)].lx.bits, b.p[size_t(k)].ly.bits);
         } else if (std::getenv("GT4R_SHOW_COLLIDE") && i < from + 5) {
             const sim::collide::Body& b = session->body(0);
             std::printf("    step %d collision: pos %.9g %.9g %.9g / %.9g %.9g %.9g  vel %.9g %.9g %.9g / %.9g %.9g %.9g  heading %.9g / %.9g  yaw %.9g / %.9g\n", i + 1,
