@@ -1800,6 +1800,14 @@ public:
                     setup_.player_equipment = menu::race_equipment(menus_->game(), q.garage_slot);
                     setup_.player_condition = menu::race_condition(menus_->game(), q.garage_slot);
                 }
+                // Prologue's arcade: the tire grip chosen.
+                if (sequence_ == "single_race" && app.db()) {
+                    const sim::Program program = sim::Program::load(*app.disc());
+                    sim::Equipment eq;
+                    if (setup_.player_equipment) eq = *setup_.player_equipment;
+                    else sim::stock_equipment(*app.db(), q.car, eq);
+                    if (!program.known() && sim::prologue::fit_grip_tires(*app.db(), program, q.tire_type, eq)) setup_.player_equipment = eq;
+                }
                 setup_.bspec_book = q.bspec_book, setup_.bspec_course_marks = q.bspec_course_marks, setup_.bspec_course_known = q.bspec_course_known;
                 setup_.playlist = playlist_from(menus_->game().bgm_playlist);
                 // The Replay Theater's Play: the saved replay, then the menus again.
@@ -2765,7 +2773,12 @@ private:
         RaceWorld::PlayerChoice c;
         const menu::GameSettings s = menu::settings_of(menus_->game());
         controllers_ = s.controllers; // (the Key Configuration, the vibration, the wheel's forces: the options' now)
-        if (asked && (sequence_ == "single_race" || sequence_ == "time_trial")) {
+        if (sequence_ == "single_race" && app_.db() && app_.db()->prologue()) {
+            // Prologue's arcade, its settings popup's (0x10A360 with 0x402348): the stability control by the driving assist, the
+            // traction control by the option (on; ❓ which of the option page's sets it).
+            const menu::RaceRequest& q = menus_->game().race;
+            c.automatic = q.manual == 0, c.asm_on = q.assist_type != 0, c.tcs_on = true;
+        } else if (asked && (sequence_ == "single_race" || sequence_ == "time_trial")) {
             const menu::RaceRequest& q = menus_->game().race;
             c.automatic = q.manual == 0, c.asm_on = q.assist_asm != 0, c.tcs_on = q.assist_asm != 0 || q.assist_tcs != 0;
         } else if (sequence_ == "single_race" || sequence_ == "time_trial") {

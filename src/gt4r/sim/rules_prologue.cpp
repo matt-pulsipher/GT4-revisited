@@ -389,6 +389,24 @@ void near_drivers(std::span<ex::Car> cars) {
         }
 }
 
+bool fit_grip_tires(db::SpecDb& db, const Program& program, const std::string& type, Equipment& eq) {
+    const int kind = type == "low" ? 0 : type == "high" ? 1 : -1;
+    if (kind < 0 || !PrologueProgram::locate(program).recognized()) return false;
+    std::string label;
+    for (u32 at = program.w(0x505298 + 4 * u32(kind)); label.size() < 64 && program.b(at); ++at) label += char(program.b(at));
+    // (an ENEMY_CARS row: its DEFAULT_PARTS row's tires)
+    const db::Labels* names = db.labels("ENEMY_CARS");
+    const std::optional<u32> id = names ? names->id(label) : std::nullopt;
+    const db::Table* rows = db.table("ENEMY_CARS");
+    const db::Table* parts = db.table("DEFAULT_PARTS");
+    if (!id || !rows || !parts) return false;
+    const ByteSpan row = rows->row(*id);
+    const ByteSpan p = row.size() >= 0x10 ? parts->row(rd32(row, 8)) : ByteSpan{};
+    if (p.size() < 0xD0) return false;
+    eq.grip_front = db::part_id(rd32(p, 0xC4), rd32(p, 0xC0)), eq.grip_rear = db::part_id(rd32(p, 0xCC), rd32(p, 0xC8));
+    return true;
+}
+
 int gear_for_speed(const ex::Car& c, F v) {
     if (v < F()) return 0;
     if (c.p.d.kind == 3 || c.p.d.kind == 1) return 1; // (one speed; stepless)

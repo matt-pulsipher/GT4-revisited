@@ -172,6 +172,10 @@ struct CarPart {
 };
 // 0x3CC0B8: the hybrid's box at the car's set-up (nothing for another car).
 void hybrid_start(const ex::Car& c, CarPart& x);
+// The arcade's tire grip on the player's car (0x1A0238 of its race, `type` by the program's names 0x505110): "low" (the street
+// tires) and "high" (the sports tires) the compounds of the stock tires of the cars labeled at 0x505298 and 0x50529C; any other
+// its own. False when it changes nothing.
+bool fit_grip_tires(db::SpecDb& db, const Program& program, const std::string& type, Equipment& eq);
 // 0x3CD4C0: the lowest gear whose up-shift speed less 500 rpm (2,000 in first) reaches a speed; 0x3C9108: a moving start at
 // `v` m/s (the throttle open for a driver whose stretch is a straight: c.ai.mode 0).
 int gear_for_speed(const ex::Car& c, F v);

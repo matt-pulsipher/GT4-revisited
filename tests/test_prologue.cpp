@@ -140,6 +140,31 @@ TEST(disc_prologue_database) {
     CHECK(sdb.courses().size() == 64);
 }
 
+// The arcade's tire grip: the street and the sports tires' compounds on the car's own sizes, the street tires with the least grip.
+TEST(disc_prologue_arcade_tires) {
+    Disc* disc = prologue_disc();
+    if (!disc) SKIP("no Prologue disc");
+    db::SpecDb sdb = open_db(*disc);
+    const sim::Program program = sim::Program::load(*disc);
+    sim::Spec own, low, high;
+    sim::Equipment eq;
+    CHECK(sim::stock_equipment(sdb, "demio_sport_03", eq));
+    sim::build_spec(sdb, program, eq, 0, own);
+    CHECK(!sim::prologue::fit_grip_tires(sdb, program, "medium", eq) && !sim::prologue::fit_grip_tires(sdb, program, "unselectable", eq));
+    sim::Equipment e = eq;
+    CHECK(sim::prologue::fit_grip_tires(sdb, program, "low", e));
+    sim::build_spec(sdb, program, e, 0, low);
+    e = eq;
+    CHECK(sim::prologue::fit_grip_tires(sdb, program, "high", e));
+    sim::build_spec(sdb, program, e, 0, high);
+    const auto grip = [](const sim::Spec& s, int axle) { return int(s.b(sim::Spec::tire_block(3 * axle))); };
+    std::printf("  front / rear grips: street %d / %d, its own %d / %d, sports %d / %d\n", grip(low, 0), grip(low, 1), grip(own, 0), grip(own, 1), grip(high, 0), grip(high, 1));
+    for (int axle = 0; axle < 2; ++axle) {
+        CHECK(grip(low, axle) < grip(high, axle) && grip(low, axle) < grip(own, axle));
+        for (const u32 at : {0x1C8u, 0x1CAu, 0x1CCu}) CHECK(low.b(at + u32(axle)) == own.b(at + u32(axle))); // (the sizes)
+    }
+}
+
 // Every course's road (in either table) reads as a Runway: the start grid on the road and
 // facing along the course, the checkpoints rising, every triangle found through the lookup tree.
 TEST(disc_prologue_roads) {
