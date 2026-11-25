@@ -876,16 +876,11 @@ void RaceHud::Impl::draw_bars(const HudState& s, float x, float y) {
 void RaceHud::draw(Ui& ui, const HudState& s) {
     if (!ready() || s.opacity <= 0) return;
     impl_->cur = s.bspec && !s.replay && impl_->mode1.valid() ? &impl_->mode1 : &impl_->layout;
-    (void)ui;
+    if (s.replay && s.replay_cover > 0) ui.fill(0, 0, ui.width(), ui.height(), Color{0, 0, 0, u8(std::lround(255 * std::clamp(s.replay_cover, 0.0f, 1.0f)))});
     if (s.replay && s.card_opacity > 0) {
         // A replay's opening card (RaceDisplay::vf45, 0x39C838): the car's name in hb_24 at (320, 220),
-        // the line "power  tires  race" in hm_16 at (320, 260), color 0x80C8C8C8, over the picture
-        // darkened (❓ the darkening's strength is judged from the original's replay).
+        // the line "power  tires  race" in hm_16 at (320, 260), color 0x80C8C8C8.
         const float a = std::clamp(s.card_opacity, 0.0f, 1.0f);
-        const SDL_FRect c = to_ui(DisplayRect{-game_area::side(), 0, 640 + 2 * game_area::side(), 480});
-        SDL_SetRenderDrawBlendMode(impl_->r, SDL_BLENDMODE_BLEND);
-        SDL_SetRenderDrawColor(impl_->r, 0, 0, 0, u8(190 * a));
-        SDL_RenderFillRect(impl_->r, &c);
         impl_->draw_text(impl_->font("hb_24", 100, 1), 320, 220, kCentered, kTextGray, s.opacity * a, s.card_title);
         impl_->draw_text(impl_->font("hm_16", 100, 1), 320, 260, kCentered, kTextGray, s.opacity * a, s.card_line);
     }
@@ -900,8 +895,9 @@ void RaceHud::draw(Ui& ui, const HudState& s) {
         // it (❓ the fonts, places and colour judged from the original's replay).
         const float a = s.opacity * std::clamp(s.caption_opacity, 0.0f, 1.0f);
         // (The original's note before the title is not in these fonts: not drawn.)
-        impl_->draw_text(impl_->font("hm_16", 90, 1), 42, 432, 0, kTextGray, a, s.caption_title);
-        if (!s.caption_artist.empty()) impl_->draw_text(impl_->font("hm_16", 70, 1), 42, 449, 0, kTextGray, a, s.caption_artist);
+        const float left = race::place_rect({0, 42, 432, 0, 0, 4, 0}, 1, 1, true).x; // (the left side's on a wide screen)
+        impl_->draw_text(impl_->font("hm_16", 90, 1), left, 432, 0, kTextGray, a, s.caption_title);
+        if (!s.caption_artist.empty()) impl_->draw_text(impl_->font("hm_16", 70, 1), left, 449, 0, kTextGray, a, s.caption_artist);
     }
     // The playback mode's plate (RaceReplayModeDisplay 0x3AE5E0): black words on it in the middle, 13 down.
     if (s.replay && s.mode_opacity > 0 && !s.mode_text.empty()) {
@@ -926,9 +922,10 @@ void RaceHud::draw(Ui& ui, const HudState& s) {
         // default): the small Gran Turismo 4 logo, its right bottom at (604, 441) (member 0x1170),
         // ❓ at about 60 % (judged from the original's replay; its draw colour is not read).
         const Impl::Picture& logo = impl_->picture("JP/gt_logo_mini");
-        if (logo.w > 0 && s.card_opacity <= 0 && s.logo_opacity <= 0 && s.caption_opacity <= 0) impl_->draw_picture(logo, race::place_rect({0, 604, 441, 0, 0, 1, 1}, logo.w, logo.h, true), kNeutral, s.opacity * 0.6f);
+        if (const float a = s.caption_title.empty() ? s.replay_shown : s.mini_logo; logo.w > 0 && a > 0) impl_->draw_picture(logo, race::place_rect({0, 604, 441, 0, 0, 1, 1}, logo.w, logo.h, true), kNeutral, s.opacity * 0.6f * a);
         return;
     }
+    if (s.replay && s.replay_shown <= 0) return;
     if (s.replay) {
         // The replay's sign at its place (the place's rectangle is the sign's room: its own size, top left).
         // (the mode's plate hides it: 0x39F058)

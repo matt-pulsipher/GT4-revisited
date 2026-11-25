@@ -60,6 +60,7 @@ struct HudState {
     bool replay_display = false;      // the replay's display on (else only the logo)
     std::string mode_text;            // a replay: its playback mode's plate
     float mode_opacity = 0;
+    float replay_cover = 0, replay_shown = 1, mini_logo = 1; // a replay's opening: the black over the picture, the display after the card, the small logo after the caption
     bool replay_paused = false;       // a replay held still: "Press SELECT to resume" on a strip
     float opacity = 1;                // of the whole display
     // The panels' smaller parts.

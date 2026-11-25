@@ -695,7 +695,7 @@ TEST(replay_camera_another_car) {
 
 TEST(replay_script_disc) {
     if (test::discs().empty()) SKIP("set GT4R_DISC");
-    size_t scripts = 0, records = 0, covered = 0, asked = 0, backward = 0;
+    size_t scripts = 0, records = 0, covered = 0, asked = 0, backward = 0, focused = 0, hazy = 0;
     bool full_game = false;
     for (const auto& disc : test::discs()) {
         full_game |= disc->info().game == Game::GT4;
@@ -717,6 +717,12 @@ TEST(replay_script_disc) {
                 }
                 if (slot != 44) continue;
                 ++scripts, records += s.records.size();
+                // What the shots ask of the picture: the depth of field with every opening but 8, the haze on some.
+                if (disc->info().game == Game::GT4)
+                    for (const race::ReplayRecord& r : s.records) {
+                        CHECK(r.depth_of_field == (r.aperture != 8));
+                        focused += r.depth_of_field, hazy += r.haze;
+                    }
                 // A car driven round the lap has a shot nearly everywhere.
                 const ByteSpan rs = file.section(data, course::kSlotRunway);
                 if (!Runway::is_runway(rs) || !(s.lap_length > 0)) continue;
@@ -738,7 +744,7 @@ TEST(replay_script_disc) {
         }
     }
     if (!scripts) SKIP("no Gran Turismo 4 disc");
-    if (full_game) CHECK(scripts >= 100 && records > 6000);
+    if (full_game) CHECK(scripts >= 100 && records > 6000 && focused > 2000 && hazy > 200);
     CHECK(backward <= 3);
     CHECK(covered == asked);
 }

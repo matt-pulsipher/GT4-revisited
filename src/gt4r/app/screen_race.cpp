@@ -1103,7 +1103,7 @@ public:
     const race::ReplayView& view() const { return view_; }
     void begin_view() {
         view_.begin(replay_style_);
-        replay_focus_ = 0, view_pad_ = {}, mode_steps_ = -1, music_off_ = false;
+        replay_focus_ = 0, view_pad_ = {}, mode_time_ = -1, music_off_ = false, view_time_ = 0;
         replay_camera_.set_zoom(1);
     }
     // The pad's keys for the next step (the ones that go down are kept until it).
@@ -1114,10 +1114,11 @@ public:
         q.left_held = pad.left_held, q.right_held = pad.right_held, q.triangle_held = pad.triangle_held;
     }
     void step_view(std::span<const race::CarState> cars) {
-        if (mode_steps_ >= 0) ++mode_steps_;
+        view_time_ += kStep / float(view_.speed());
+        if (mode_time_ >= 0) mode_time_ += kStep / float(view_.speed());
         const race::ReplayView::Events e = view_.step(view_pad_);
         view_pad_ = {false, false, false, false, false, false, false, false, false, false, view_pad_.left_held, view_pad_.right_held, view_pad_.triangle_held};
-        auto say = [&](const char* word) { mode_word_ = word, mode_steps_ = 0; };
+        auto say = [&](const char* word) { mode_word_ = word, mode_time_ = 0; };
         if (e.style) say(view_.style() == race::ReplayStyle::Display ? "ReplayModeNormalDisplay" : view_.style() == race::ReplayStyle::Dive ? "ReplayModeDive" : "ReplayModeNormal");
         if (e.speed) say(view_.fast() ? "ReplayModeAccelerate" : "ReplayModeNormalSpeed");
         if (e.music) {
@@ -1260,9 +1261,9 @@ public:
         if (const float top = world_->car_top_speed(shown_car); top > 0) h.top_speed = top;
         h.driver_view = !viewing() && mount_ != race::DriveCamera::kChase && mount_ != kTvView; // (a replay's meters are the small panel)
         h.mode_text.clear(), h.mode_opacity = 0;
-        if (viewing() && mode_steps_ >= 0) {
+        if (viewing() && mode_time_ >= 0) {
             // The playback mode's plate (0x39F018): in over 0.25 s, 3 s, out over 0.25 s.
-            const float t = float(mode_steps_) / 60;
+            const float t = mode_time_;
             h.mode_opacity = std::clamp(std::min(t / 0.25f, (3.5f - t) / 0.25f), 0.0f, 1.0f);
             h.mode_text = hud.word(mode_word_);
         }
@@ -1289,13 +1290,16 @@ public:
             return t < 0 ? 0.0f : t < hold ? 1.0f : std::max(0.0f, 1 - (t - hold) / fade);
         };
         h.message.clear(), h.message_opacity = 0;
-        // A replay's opening card for its first seconds (❓ 3 s with fades of 0.5 s, judged from the
-        // original's replay; the program's times come from its caller, not read).
-        h.card_opacity = 0;
-        const size_t shown_at = demo ? demo_step_ : replay_at_;
-        if ((replaying_ || demo) && shown_at < 210) {
-            const float t = float(shown_at) / 60;
-            h.card_opacity = std::min({1.0f, t / 0.5f + 0.2f, (3.5f - t) / 0.5f});
+        // A replay's opening card (RaceDisplay::vf30 0x39BEC8): 0.1 s in, over 1 s each way, gone at 6.1 s; its display after it
+        // over 0.5 s. The picture under it: black at first (✔ the original's replays: until about 2.1 s, there by 2.9; its
+        // fader was not read).
+        h.card_opacity = h.replay_cover = 0, h.replay_shown = h.mini_logo = 1;
+        if ((replaying_ || demo) && view_time_ < 20) {
+            const float t = view_time_;
+            h.card_opacity = std::clamp(std::min(t - 0.1f, 6.1f - t), 0.0f, 1.0f);
+            h.replay_cover = std::clamp((2.9f - t) / 0.8f, 0.0f, 1.0f);
+            h.replay_shown = std::clamp((t - 6.1f) / 0.5f, 0.0f, 1.0f);
+            h.mini_logo = replaying_ ? std::clamp(t - 18.0f, 0.0f, 1.0f) : h.replay_shown;
             h.card_title = world_->car_name(0);
             char power[32] = "--";
             const float ps = world_->player_power_ps();
@@ -1321,8 +1325,8 @@ public:
         h.logo_opacity = replaying_ || demo ? h.card_opacity : 0;
         h.caption_opacity = 0;
         if (replaying_) {
-            const float t = float(replay_at_) / 60;
-            h.caption_opacity = std::clamp(std::min((t - 4.5f) / 0.5f, (14.0f - t) / 0.5f), 0.0f, 1.0f);
+            // (✔ the original's replay: from 7.2 s to 17.6, the small logo after it.)
+            h.caption_opacity = std::clamp(std::min(view_time_ - 7.2f, 17.6f - view_time_) / 0.25f, 0.0f, 1.0f);
         }
         if (replaying_ || demo) {
         } else if (flow_.player_finished()) {
@@ -1774,8 +1778,8 @@ private:
     race::ReplayStyle replay_style_ = race::ReplayStyle::Plain;
     race::ReplayPad view_pad_;
     size_t replay_focus_ = 0;
-    std::string mode_word_; // the playback mode's plate, and its steps shown (-1 none)
-    int mode_steps_ = -1;
+    std::string mode_word_; // the playback mode's plate, and its seconds shown (-1 none); the seconds watched
+    float mode_time_ = -1, view_time_ = 0;
     bool music_off_ = false;
     bool tv_valid_ = false, snapshot_ = false;
     // The last step but one, for frames shown between steps.
