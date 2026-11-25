@@ -911,3 +911,33 @@ TEST(sound_race_prologue_master) {
     std::printf("  Prologue: the master %.3f (the mix level %.3f)\n", double(sound.master()), double(table));
     CHECK(near(sound.master(), table, 1e-5));
 }
+
+// Prologue's own in-car view: every sound of the car at the camera, so the exhaust is not behind it (no inverted side), and
+// the players' inputs of its saved state of a race (the 240ZG at 5,217 rpm, both levels 15).
+TEST(sound_race_prologue_in_car) {
+    Disc* disc = nullptr;
+    for (const std::unique_ptr<Disc>& d : test::discs())
+        if (d->info().game == Game::Prologue) disc = d.get();
+    if (!disc) SKIP("needs the Prologue disc (GT4R_DISC)");
+    gt3r::Vfs vfs(&disc->volume());
+    audio::OfflineSound s(false);
+    audio::with_surround_cue(s.mixer());
+    auto library = std::make_shared<audio::SoundLibrary>(vfs);
+    auto mix = std::make_shared<audio::RaceMix>();
+    mix->tables = audio::RaceSoundTables::from_core(disc->read_program());
+    CHECK(mix->tables.prologue);
+    audio::CarSound car(vfs, s.mixer(), &s.driver(), library);
+    car.set_mix(mix);
+    CHECK(car.load("fairlady_240zg_71"));
+    audio::SoundListener at;
+    at.kind = audio::SoundListener::Kind::InCar;
+    audio::CarSoundState in;
+    in.rpm = 5217, in.engine_level = in.exhaust_level = 15;
+    in.speed = 25, in.heart = true;
+    in.wheels[0].landing = 1; // (its frame has no landing)
+    for (int i = 0; i < 150; ++i) car.update(in, at, true), s.advance(1);
+    const audio::LayerPlayer::Input &e = car.engine().input(), &x = car.exhaust().input();
+    std::printf("  engine %d / %d, exhaust %d / %d, single notes %d\n", e.left, e.right, x.left, x.right, car.report().notes);
+    CHECK(std::abs(e.left - 15204) <= 2 && std::abs(e.right - 15204) <= 2 && std::abs(x.left - 12489) <= 2 && std::abs(x.right - 12489) <= 2);
+    CHECK(car.report().notes == 0 && car.report().heartbeats == 0);
+}

@@ -327,6 +327,7 @@ void CarSound::play_once(const Effect& e, float strength, float gain, const Plac
     SoundParams p;
     p.left = at.left * level, p.right = at.right * level;
     p.priority = note_priority(level);
+    if (sound_log()) LOG_INFO("Sound: a car's single note of program %d at %.4f", e.program, double(level));
     if (effects_->note_on(e.bank, e.program, p)) ++report_.notes;
 }
 
@@ -356,8 +357,8 @@ void CarSound::update(const CarSoundState& car, const SoundListener& listener, b
     // view they are around the driver's head; from anywhere else all three are the car's.
     float px[3], pz[3];
     if (view == SoundView::InCarTarget) {
-        const float engine = car.engine_place == 2 ? kHere : car.engine_place == 3 ? -kAhead : kAhead;
-        const float ahead[3] = {engine, kHere, -kAhead};
+        const float engine = t.prologue ? 0.0f : car.engine_place == 2 ? kHere : car.engine_place == 3 ? -kAhead : kAhead;
+        const float ahead[3] = {engine, t.prologue ? 0.0f : kHere, t.prologue ? 0.0f : -kAhead};
         const float c = std::cos(listener.look), s = std::sin(listener.look);
         for (int i = 0; i < 3; ++i) px[i] = -ahead[i] * s, pz[i] = ahead[i] * c;
     } else {
@@ -369,7 +370,9 @@ void CarSound::update(const CarSoundState& car, const SoundListener& listener, b
     Placement at_body = place_sound(t.mic(mode, 2), px[1], pz[1]);
     Placement at_exhaust = place_sound(t.mic(mode, 1), px[2], pz[2]);
     const float master = mix.master;
-    const auto held = [&](const Placement& p) { return std::clamp(p.gain * master, -1.0f, 1.0f); };
+    const auto held = [&](const Placement& p) {
+        return t.prologue ? std::clamp(p.gain, -1.0f, 1.0f) * master : std::clamp(p.gain * master, -1.0f, 1.0f);
+    };
     const float g_engine = held(at_engine), g_body = held(at_body), g_exhaust = held(at_exhaust);
     report_.engine = at_engine, report_.body = at_body, report_.exhaust = at_exhaust;
     // The surround cue (the panner's two flags, 0x39A7B0): a sound behind the camera has one side
@@ -441,9 +444,10 @@ void CarSound::update(const CarSoundState& car, const SoundListener& listener, b
     {
         const float level = car.live ? std::min(k.incar_gain * car.drag * speed * speed * (1.0f - car.cabin_wake), k.incar_max) : 0.0f;
         const float pitch = lerp_clamped(std::fabs(speed), k.incar_speed_lo, k.incar_speed_hi, k.incar_pitch_lo, k.incar_pitch_hi);
-        report_.cabin = ease(cabin_, g_body * gain(SoundChannel::InCar) * level);
+        const float rush = g_body * gain(SoundChannel::InCar) * level;
+        report_.cabin = t.prologue ? rush : ease(cabin_, rush);
         send(cabin_, cabin_fx_, report_.cabin, at_body, doppler * pitch);
-        const float flowing = view == SoundView::InCarTarget && car.live && car.nitrous ? 1.0f : 0.0f;
+        const float flowing = !t.prologue && view == SoundView::InCarTarget && car.live && car.nitrous ? 1.0f : 0.0f;
         send(nitrous_, nitrous_fx_, ease(nitrous_, g_body * flowing), at_body, 1.0f);
     }
 
@@ -453,7 +457,7 @@ void CarSound::update(const CarSoundState& car, const SoundListener& listener, b
         const race::Vec3 from = sub(wheel.position, listener.position);
         Placement at = place_sound(t.mic(mode, 2), dot(from, listener.right), dot(from, listener.forward));
         behind(wheel_cue_[w], at);
-        const float g = held(at) * master;
+        const float g = t.prologue ? held(at) : held(at) * master;
         float level[kWheelNotes] = {}, pitch[kWheelNotes];
         std::fill(pitch, pitch + kWheelNotes, doppler);
         if (car.live) {
@@ -485,7 +489,7 @@ void CarSound::update(const CarSoundState& car, const SoundListener& listener, b
         for (int n = 0; n < kWheelNotes; ++n) {
             Loop& loop = wheels_[w][size_t(n)];
             float v = g * level[n];
-            if (n > Rain) v = ease(loop, v); // (the squeal, the roar and the rain follow at once)
+            if (n > Rain && !t.prologue) v = ease(loop, v); // (the squeal, the roar and the rain follow at once)
             report_.wheel[w][size_t(n)] = v;
             send(loop, wheel_fx_[size_t(n)], v, at, pitch[n]);
         }
@@ -500,6 +504,7 @@ void CarSound::update(const CarSoundState& car, const SoundListener& listener, b
     // whenever the phase passes 1, the phase rising (0.8 + 2.2 x) / 60 a step with x = |speed| / 66.67 m/s
     // (at most 1), at the strength 0.6 + 0.4 x at the body; heard from the car's own in-car view only.
     report_.heartbeats = heart_count_;
+    if (t.prologue) return;
     if (car.heart) {
         const float x = std::min(std::fabs(car.speed) / 66.666664f, 1.0f);
         heart_phase_ += (x * 2.2f + 0.8f) * (1.0f / 60.0f);

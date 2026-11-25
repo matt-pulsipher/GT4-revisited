@@ -159,6 +159,7 @@ bool RaceSound::play_effect(const char* name, float level) {
     if (!e) return false;
     const auto bank = library_->effect_bank(e->bank);
     if (!bank) return false;
+    if (sound_log()) LOG_INFO("Sound: %s at %.4f", name, double(level));
     SoundParams p;
     p.left = p.right = level;
     if (e->sequence) return driver_.play_effect(bank, e->index, e->key, p) != 0;
