@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 
 // The interpreter's library stubs name Gran Turismo 3 addresses through this; they are not used here.
 namespace gt3r::diff {
@@ -32,7 +33,25 @@ constexpr u32 kStep = 0x34DB30;      // (conductor, first car)
 // Two places in the program's code that nothing of a race runs, taken for the stand-ins' entry points.
 constexpr u32 kStubZero = 0x100000, kStubPad = 0x100004;
 
+OrigRace* g_active = nullptr;
+
 } // namespace
+
+OrigRace* active_race() { return g_active; }
+
+void pad_frame(const Pad& p, u8* b) {
+    std::memset(b, 0, 0x20);
+    auto axis = [](float v) { return s32(std::lround(std::clamp(v, -1.0f, 1.0f) * 4096.0f)); };
+    auto digital = [](float v) { return s32(v > 0 ? 1 : v < 0 ? -1 : 0); };
+    auto w16 = [&](u32 o, s32 v) { b[o] = u8(v), b[o + 1] = u8(u32(v) >> 8); };
+    b[0] = p.flags, b[1] = p.kind, b[2] = u8(gt3r::s8(p.shift)), b[7] = p.nitrous;
+    w16(4, p.raw ? s32(p.raw_steer) : (p.flags & 1) ? -axis(p.steer) : -digital(p.steer));
+    w16(8, (p.flags & 2) ? axis(p.throttle) : digital(p.throttle));
+    w16(0xA, (p.flags & 4) ? axis(p.brake) : digital(p.brake));
+    w16(0xC, (p.flags & 8) ? axis(p.back) : digital(p.back));
+    w16(0xE, (p.flags & 0x10) ? axis(p.third) : digital(p.third));
+    for (u32 k = 0; k < 16; ++k) b[0x10 + k] = p.buttons[k];
+}
 
 db::SpecDb open_db(Disc& disc) {
     gt3r::Volume* vol = &disc.volume();
@@ -73,7 +92,7 @@ void boot(Ee& ee, Disc& disc, db::SpecDb& sdb) {
 }
 
 bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, const std::vector<std::string>& labels, int human, OrigRace& o,
-                std::string& err, bool drivers, const std::vector<std::array<u8, 0x178>>* equipment) {
+                std::string& err, bool drivers, const std::vector<std::array<u8, 0x178>>* equipment, const std::function<void()>& before_init) {
     o = OrigRace{};
     o.cars = int(labels.size());
     try {
@@ -124,6 +143,8 @@ bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, 
         for (u32 k = 0; k < 0x400; k += 8) ee.w32(pad_vt + k + 4, kStubZero);
         ee.w32(pad_vt + 0x28 + 4, kStubPad);
         OrigRace* race_state = &o;
+        g_active = &o;
+        o.disc = &disc, o.course_label = course;
         ee.hle(
             kStubPad,
             [race_state](Ee& e) {
@@ -134,9 +155,9 @@ bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, 
                     e.set_v0(0);
                     return;
                 }
-                auto axis = [](float v) { return s32(std::lround(std::clamp(v, -1.0f, 1.0f) * 4096.0f)); };
-                e.w8(frame + 0, 1 | 2 | 4), e.w8(frame + 1, 3), e.w8(frame + 2, u8(gt3r::s8(p.shift)));
-                e.w16(frame + 4, u16(gt3r::s16(-axis(p.steer)))), e.w16(frame + 8, u16(axis(p.throttle))), e.w16(frame + 0xA, u16(axis(p.brake)));
+                u8 b[0x20];
+                pad_frame(p, b);
+                for (u32 k = 0; k < 0x20; ++k) e.w8(frame + k, b[k]);
                 e.set_v0(0);
             },
             "pad frame");
@@ -180,6 +201,7 @@ bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, 
         }
         ee.w32(o.cond, o.info);
         ee.w32(o.cond + kCondCars, u32(o.cars));
+        if (before_init) before_init();
         const u32 vt = ee.r32(o.cond + kCondVtable);
         const u32 init = vt + 0xE0;
         ee.call(ee.r32(init + 4), {Arg::ptr(o.cond + u32(s32(s16(ee.r16(init))))), Arg::integer(0)}, 2'000'000'000);

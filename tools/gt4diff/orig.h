@@ -9,6 +9,7 @@
 #include "gt4r/formats/db/specdb.h"
 
 #include <array>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -42,8 +43,19 @@ struct Pad {
     float steer = 0;    // -1 left .. +1 right
     float throttle = 0, brake = 0;
     int shift = 0;      // +1 up, -1 down
+    // The frame's other parts (rules_input.h PadFrame); the default is an analog DualShock (kind 3). A digital axis (its
+    // flag clear) gives 1 when its value is not 0 (the steering: its sign).
+    u8 kind = 3;
+    u8 flags = 1 | 2 | 4;  // bit 0 steering, 1 throttle, 2 brake, 3 back axis, 4 third axis analog
+    float back = 0, third = 0;
+    u8 nitrous = 0;        // +0x07
+    std::array<u8, 16> buttons{}; // +0x10 ..
+    s16 raw_steer = 0;     // with raw: the frame's steering as it is (+ left)
+    bool raw = false;
     const u8* frame = nullptr; // a recorded pad record (0x20 bytes, a demonstration's) given as it is, instead of the above
 };
+// The frame the pad stub writes for a pad (0x20 bytes).
+void pad_frame(const Pad& p, u8* frame);
 
 struct OrigRace {
     u32 cond = 0, info = 0, course = 0, container = 0, runway = 0;
@@ -52,7 +64,11 @@ struct OrigRace {
     u32 car(int i) const { return cond + kCar0 + kCarSize * u32(i); }
     u32 params(int i) const { return cond + kParams0 + kParamsSize * u32(i); }
     Pad pad[6]; // read by the pad stub at each step
+    Disc* disc = nullptr;    // the disc and course the race was set up from
+    std::string course_label;
 };
+// The race setup_race set up last (the one the pad stub reads).
+OrigRace* active_race();
 
 // One race step of the program's own (0x34DB30) for every car.
 void orig_step(Ee& ee, OrigRace& o);
@@ -63,8 +79,10 @@ void orig_step(Ee& ee, OrigRace& o);
 // `drivers`: the computer drivers run (the course's driver file in the course object; else their start and decision are
 // left out).
 // `equipment`: each entry's equipment record (0x178 bytes) written over the car as sold (a demonstration's entries).
+// `before_init`: run after the conductor's constructor, before its initialisation (to install probes on the set-up).
 bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, const std::vector<std::string>& labels, int human, OrigRace& o,
-                std::string& err, bool drivers = false, const std::vector<std::array<u8, 0x178>>* equipment = nullptr);
+                std::string& err, bool drivers = false, const std::vector<std::array<u8, 0x178>>* equipment = nullptr,
+                const std::function<void()>& before_init = {});
 // (`o` must stay where it is while the race runs: the pad stub reads it.)
 
 } // namespace gt4r::diff

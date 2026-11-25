@@ -126,6 +126,16 @@ private:
 void add_taps_aids(Taps& taps); // the driving aids' phase and routines (taps_aids.cpp)
 void add_taps_steer(Taps& taps); // the steering phase and its routines (taps_steer.cpp)
 void add_step_taps(Taps& taps);  // the step's other ported routines (step.cpp)
+void add_taps_near(Taps& taps);   // proximity, slipstream, the speed-switched part (taps_near.cpp)
+void add_taps_phases(Taps& taps); // phases 1, 2, 3, 6, the preparation, the hit records (taps_phases.cpp)
+void add_taps_input(Taps& taps);  // the driver's input (taps_input.cpp)
+void add_taps_start(Taps& taps);  // the start's hold, the attitude's start hold, the rolling hold and its release (taps_start.cpp)
+// The car's set-up as the conductor's initialisation runs it and the race step's start hold per car (taps_start.cpp: before
+// the initialisation), and what GT4R_START_* asks of the race before each step.
+void install_setup_taps(Ee& ee, const OrigRace& race, const ex::RaceInputs& inputs);
+void start_before_step(Ee& ee, OrigRace& o, int step);
+void print_start_spans();
+void start_spans(const std::function<void(const std::string& name, u64 calls, u64 clean)>& each);
 void set_step_program(const sim::Program* program); // the program whose tables those taps read (run_step sets its own)
 
 } // namespace gt4r::diff

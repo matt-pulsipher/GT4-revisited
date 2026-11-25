@@ -50,6 +50,8 @@ struct DrivelineBlock {
     std::array<F, 2> wheel_gain;           // +0xB4
     std::array<F, 2> axle_inertia;         // +0xBC
     F inv_axle_inertia, inv_engine_inertia; // +0xC4 / +0xC8
+    u16 built_down_rpm0 = 0;               // (not the block's) +0x30 as 0x34ACA8 left it, before a stepless box of kind 1's
+                                           // hold speed (0x360780): the settings page's gear chart's (sim::build_record sets it)
 };
 constexpr u32 kDriveline = 0x234;
 

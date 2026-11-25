@@ -139,5 +139,9 @@ void attitude(ex::Car& c, BodyExtra& x, const ChassisExtra& ch, const TireExtra&
 // 0x36BA88: a wheel past its bump stop lifts and turns the body back over it, as the engine's but on the
 // wheel layout; the body axes; the downward speed held to the ground plane's.
 void bump_nudge(ex::Car& c, const BodyExtra& x, const WheelLayout& l);
+// 0x36A690: wheel w's half track at a travel (signed by side), shortened by its swing arm's arc.
+F wheel_half_track(const ex::Car& c, const WheelLayout& l, int w, F travel);
+// 0x36A578: wheel w's camber at a travel, with the steering's share on a wheel ahead of the center of gravity.
+F wheel_camber(const ex::Car& c, const WheelLayout& l, int w, F steer, F travel);
 
 } // namespace gt4r::sim::rules

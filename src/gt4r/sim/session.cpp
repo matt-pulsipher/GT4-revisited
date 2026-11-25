@@ -127,6 +127,10 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
     const char* rules_env = std::getenv("GT4R_SIM_RULES");
     gt4_rules_ = gt4_ready_ && !(rules_env && std::string(rules_env) == "engine");
     if (gt4_ready_) tables_ = rules::tables(program, race_.statics);
+    // (the active steering aims along the driving line, 0x4649F0 on the computer drivers' line object: it runs for a car only
+    // while its caller gives the line's heading, set_line_heading)
+    active_on_ = tables_.pad.active_on;
+    line_heading_.assign(entries.size(), std::nullopt);
     if (!gt4_ready_ && !(rules_env && std::string(rules_env) == "engine")) { // Prologue's own step (rules_prologue.h)
         prologue::Tables t = prologue::tables(program);
         if (t.found) prologue_ = t, prologue_cars_.resize(entries.size());
@@ -138,6 +142,13 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
     aid_race_.lap_length = F(road_->length);
     if (gt4_ready_) tables_.bumps = rules::bump_tables(program, aid_race_.course_kind);
     driver_aids_.assign(entries.size(), std::nullopt);
+    mail_.assign(entries.size(), {});
+    if (gt4_ready_) mood_tables_ = rules::mood_tables(program);
+    start_tables_ = rules::start_tables(program);
+    start_counters_.assign(entries.size(), 0);
+    // A rolling start's pace (0x3F7880 while a car is held in it): the race's speed (the rule block's +0x6E, km/h).
+    for (const Entry& e : entries)
+        if (e.start_speed > 0 && aid_race_.start_speed == 0) aid_race_.start_speed = u8(std::lround(std::min(e.start_speed * 3.6f, 255.0f)));
     driver_grip_.assign(entries.size(), std::nullopt);
     specs_.resize(entries.size());
     states_.resize(entries.size());
@@ -166,6 +177,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
             // The fuel and the nitrous at the start (0x354AF8; the race's fuel rule, the rule block's +0x4C: Entry::fuel).
             rules::fuel_start(c, r.x.drive.fuel, e.fuel ? 1 : 0, program.b(0x620E24), r.x.chassis.mass, r.x.body.sprung_mass);
             r.x.aids.fuel = r.x.drive.fuel.fuel, r.x.aids.fuel_capacity = r.x.drive.fuel.capacity;
+            rules::step_params(specs_[i], r); // (the step's own routines' words of the parameter block)
             gx_[i] = r.x;
             layouts_[i] = r.layout;
             speed_tables_[i] = rules::speed_tables(program, r.x.steer.lean_row);
@@ -190,10 +202,14 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
         }
         c.pedal_style = e.automatic ? 0 : 1;
         // The start place: the entry's, or one further back along the first place's line when the grid is shorter;
-        // a rolling start's on the road's middle at its distance along the course.
+        // a rolling start's on the road's middle at its distance along the course (❓ the program's on the course's
+        // driving line there, 0x34C5E0 through the line object 0x46ADE8: the session has no line). The start's kind
+        // (the conductor's virtual +0xF0): 0 the grid, 1 a rolling start at or past the line, 2 before it.
         const int want = e.grid_place >= 0 ? e.grid_place : int(i);
         course::Runway::Place at = places[size_t(want) % places.size()];
+        int kind = 0;
         if (!std::isnan(e.start_distance) && road_->length > 0) {
+            kind = e.start_distance < 0 ? 2 : 1;
             float v = std::fmod(e.start_distance, road_->length);
             if (v < 0) v += road_->length;
             Vec3 point, dir, middle;
@@ -209,7 +225,8 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
             GroundHit h;
             if (ground_->at_place(at.pos, h)) at.pos.y = h.point.y;
         }
-        place(i, at);
+        if (gt4_rules_) setup(i, at, kind, e.start_speed, e.fuel);
+        else place(i, at);
         publish(i);
     }
     // The collision bodies (0x45B978: an octagon from the body's extents, the mass and the yaw inertia).
@@ -222,16 +239,84 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
     }
     collide::pair_tables(bodies_);
     if (prologue_ && road_->gtrw) prologue_collide_ = std::make_unique<prologue::Collision>(*road_->gtrw, cars_); // (Prologue's: Gran Turismo 3's step)
-    // The start's hold: the cars held as during a start's countdown until the engines idle and the
-    // bodies have settled on their springs.
-    for (int i = 0; i < kHoldSteps; ++i) hold_once({});
-    // A rolling start: the cars moving at time 0 (the car's set-up, 0x363868), the throttle open as the computer
-    // that drives every car's run-up leaves it.
-    for (size_t i = 0; i < cars_.size(); ++i) {
-        if (!(entries[i].start_speed > 0)) continue;
-        rules::moving_start(cars_[i], gx_[i].drive, F(entries[i].start_speed), true);
-        publish(i);
-    }
+    // A standing start: the last two seconds of the race's countdown before the session's time 0, the cars held
+    // (F + 0x4BC) while the engines idle and the bodies settle on their springs (the original's countdown runs
+    // longer, through the opening shot and the count: a caller adds its own with hold_once or set_countdown). A
+    // rolling start goes at once, the cars moving from the set-up (0x363868).
+    bool moving = false;
+    for (const Entry& e : entries) moving = moving || e.start_speed > 0;
+    if (!moving)
+        for (int i = 0; i < kHoldSteps; ++i) hold_once({});
+    if (!gt4_rules_) // (the engine's rules: its moving start after the hold)
+        for (size_t i = 0; i < cars_.size(); ++i) {
+            if (!(entries[i].start_speed > 0)) continue;
+            rules::moving_start(cars_[i], gx_[i].drive, F(entries[i].start_speed), true);
+            publish(i);
+        }
+}
+
+rules::PoseHooks Session::pose_hooks() {
+    rules::PoseHooks h;
+    h.query = [this](ex::Ground& g) -> u8 { // 0x395760: from 5 m above the point
+        GroundHit hit;
+        const F at[3] = {g.x, g.h + F::raw(0x40A00000), g.z};
+        const bool found = ground_->query(at, hit);
+        fill(g, found, hit, true);
+        return found ? u8(surface_index(hit.material, hit.flags)) : 0;
+    };
+    h.soft = [this](const ex::Ground& g) { return tables_.bumps.soft[size_t(g.material & 31)] != 0; };
+    h.distance = [this](const ex::Car& c) {
+        float v = 0;
+        return ground_->distance_along(to_course(c.pos), v) ? F(v) : F();
+    };
+    return h;
+}
+
+// Gran Turismo 4's set-up of a car on its start place (0x363B10 from the converter on, rules::car_setup).
+void Session::setup(size_t i, const course::Runway::Place& at, int kind, float speed, bool fuel) {
+    ex::Car& c = cars_[i];
+    rules::SetupArgs a;
+    a.index = int(i);
+    a.control = 0;
+    a.pedal_style = c.pedal_style;
+    a.start_kind = kind;
+    a.fuel_rule = fuel ? 1 : 0; // (the rule block's +0x4C)
+    a.speed = F(speed * 3.6f);
+    a.hint = -1;
+    // The place in the record's frame (x, y, z up); the car faces the place's heading turned half a turn.
+    a.x = F(at.pos.x), a.y = F(-at.pos.z), a.z = F(at.pos.y);
+    a.heading = F(at.heading) + kPi;
+    rules::SetupHooks h;
+    h.pose = pose_hooks();
+    rules::car_setup(c, gx_[i], layouts_[i], start_tables_, tables_.wear, a, h);
+    // (the session's own ground records: the kinds and materials publish reads)
+    for (size_t w = 0; w < 4; ++w) extra_[i].kinds[w] = c.g[w].miss ? 0 : c.g[w].flags, extra_[i].materials[w] = c.g[w].miss ? 0 : c.g[w].material;
+    c.x16d1 = 1;
+    c.dist_total = k0;
+    rules::save_previous(c, layouts_[i]);
+    ex::wheel_spin(c);
+}
+
+void Session::release_start(int car) {
+    if (car < 0 || size_t(car) >= cars_.size()) return;
+    // (the session has no line object: the driver's line change is taken as made)
+    rules::release(cars_[size_t(car)], gx_[size_t(car)], true);
+    publish(size_t(car));
+}
+
+void Session::place_standing(size_t car, F x, F y, F z, F heading) {
+    if (car >= cars_.size() || !gt4_rules_) return;
+    ex::Car& c = cars_[car];
+    sim::Extra& g = gx_[car];
+    rules::pose(c, g, layouts_[car], start_tables_, pose_hooks(), c.road_seg, x, y, z, heading);
+    rules::clear_view_lags(c);
+    rules::standing_start(c, g, layouts_[car]);
+    for (size_t w = 0; w < 4; ++w) extra_[car].kinds[w] = c.g[w].miss ? 0 : c.g[w].flags, extra_[car].materials[w] = c.g[w].miss ? 0 : c.g[w].material;
+    publish(car);
+}
+
+void Session::set_pit_hold(size_t car, u16 steps) {
+    if (car < cars_.size()) cars_[car].hold = steps;
 }
 
 void Session::set_wear_rules(const u8* rule_block, bool second_on, const Program& program) {
@@ -256,6 +341,10 @@ void Session::new_tire(size_t i, int wheel) {
     if (i < cars_.size() && wheel >= 0 && wheel < 4) rules::new_tire(cars_[i], gx_[i].wear, wheel, tables_.wear);
 }
 
+void Session::set_line_heading(size_t car, F heading) {
+    if (car < line_heading_.size()) line_heading_[car] = heading;
+}
+
 void Session::set_driver_aids(size_t car, const gt3r::sim::exact::Aids& block) {
     if (car < driver_aids_.size()) driver_aids_[car] = block;
 }
@@ -266,15 +355,13 @@ void Session::set_driver_aids(size_t car, const gt3r::sim::exact::Aids& block, c
 }
 
 void Session::hold_once(std::span<const race::CarInput> inputs) {
-    const u64 steps = steps_;
-    race_.prep.start_count = 1;
+    holding_ = true;
     step_once(inputs);
-    race_.prep.start_count = 0;
-    steps_ = steps;
+    holding_ = false;
 }
 
-// The car at rest on a start place (the engine's race start: the pose on the road, the standing
-// start), with the nose at the place.
+// The car at rest on a start place with the engine's rules (GT4R_SIM_RULES=engine: the engine's race start, the pose
+// on the road and the standing start), with the nose at the place.
 void Session::place(size_t i, const course::Runway::Place& at) {
     ex::Car& c = cars_[i];
     // The record's heading: the place's turned half a turn (forward is (sin, cos) of the place's in x, z).
@@ -394,7 +481,8 @@ void Session::ground_contact(ex::Car& c, Extra& x) {
     if (gt4_rules_) {
         std::array<u8, 4> surface{}, material{};
         for (size_t i = 0; i < 4; ++i) material[i] = x.materials[i], surface[i] = u8(surface_index(x.materials[i], x.kinds[i]));
-        rules::road_bumps(c, layouts_[size_t(&c - cars_.data())], tables_.bumps, surface, material);
+        rules::road_bumps(c, layouts_[car], tables_.bumps, surface, material);
+        rules::course_out(c, gx_[car], layouts_[car], tables_.bumps.soft); // (0x369888's end: soft ground, the pit lane, leaving the course)
     }
     c.x535 = u8(c.x535 & 0xEF);
     c.road_seg = c.g[0].seg;
@@ -415,9 +503,9 @@ void Session::chassis(size_t i) {
         const rules::WheelLayout& l = layouts_[i];
         rules::terrain(c, g.body, l);
         rules::suspension(c, g.body, g.chassis, l, tables_.body);
-        // (while the hold counter runs, the engine's start hold: the program's 0x36AE20 is not ported)
-        if (c.hold != 0) ex::attitude(c, k0);
-        else rules::attitude(c, g.body, g.chassis, g.tires, l, tables_.body);
+        // The attitude (0x36B0C8), first its start hold while the hold counter runs (0x36AE20). (❓ The hold turns the car
+        // toward its driving line's heading; the session has no line: its own heading, no turn.)
+        if (!rules::attitude_hold(c, g.body, c.heading)) rules::attitude(c, g.body, g.chassis, g.tires, l, tables_.body);
         rules::bump_nudge(c, g.body, l);
     } else {
         if (prologue_) prologue::terrain(c, prologue_cars_[i]); // (Prologue's 0x375D00)
@@ -486,13 +574,19 @@ void Session::collide() {
         in.dt = c.dt;
         in.ghost = c.ghost != 0;
         in.player = c.control == 0 && c.driver_kind == 0;
-        // F +0x45C, the steering's value: 0x348800 of the steering command (the command x 12 / pi, within +-1) ❓ the
-        // input phase (0x349FD0) writes it so for the pads' kinds it has been read for
-        const F v = c.steer_cmd * F::raw(0x40747648), one = F::raw(0x3F800000), minus = F::raw(0xBF800000);
-        in.steer = one < v ? one : v < minus ? minus : v;
+        // F +0x45C, the steering's value as the input phase (0x349FD0) leaves it; with the engine's rules 0x348800 of the command
+        if (gt4_rules_) in.steer = gx_[i].input.steer_view;
+        else {
+            const F v = c.steer_cmd * F::raw(0x40747648), one = F::raw(0x3F800000), minus = F::raw(0xBF800000);
+            in.steer = one < v ? one : v < minus ? minus : v;
+        }
         in.rumble = &cars_[i].hit_rumble;
     }
-    collide::step_all(bodies_, body_cars_, *walls_);
+    hits_.clear();
+    collide::step_all(bodies_, body_cars_, *walls_, gt4_rules_ ? &hits_ : nullptr);
+    // The hit records (0x350530, in the step's order): the moods, the incident count, the conductor's judge, the pad's record.
+    for (const collide::Hit& h : hits_)
+        rules::hit(cars_[size_t(h.car)], gx_[size_t(h.car)], mood_tables_, hit_rules_, rules::Judge::Penalty, &pylons_hit_, h.kind, h.part, h.strength);
     for (size_t i = 0; i < cars_.size(); ++i) { // 0x3F4C18
         collide::Body& b = bodies_[i];
         ex::Car& c = cars_[i];
@@ -521,73 +615,107 @@ void Session::collide() {
 
 void Session::step_once(std::span<const race::CarInput> inputs) {
     const u8 course_kind = ex::course_category(race_.aids.course_category);
+    // The race's countdown (the race information's +0xBC; 0x34C210): the cars held while it runs.
+    const bool countdown = holding_ || countdown_ > 0;
+    race_.prep.start_count = countdown ? 1 : 0; // (the engine's rules' hold)
     for (size_t i = 0; i < cars_.size(); ++i) {
         ex::Car& c = cars_[i];
         Extra& x = extra_[i];
         const race::CarInput in = i < inputs.size() ? inputs[i] : race::CarInput{};
-        // The driver's frame: an analog pad.
-        ex::PadFrame f;
-        f.flags = 1 | 2 | 4, f.kind = 3;
-        f.steer = gt3r::s16(std::lround(std::clamp(-in.steer, -1.0f, 1.0f) * 4096.0f));
-        const u16 throttle = u16(std::lround(std::clamp(in.throttle, 0.0f, 1.0f) * 4096.0f));
-        if (in.reverse) f.flags |= 8, f.back = throttle;
-        else f.throttle = throttle;
-        f.brake = u16(std::lround(std::clamp(in.brake, 0.0f, 1.0f) * 4096.0f));
-        f.third = in.handbrake ? 1 : 0;
-        const u8 buttons = u8((in.shift_up ? 1 : 0) | (in.shift_down ? 2 : 0));
-        const u8 pressed = u8(buttons & ~x.prev_buttons);
-        x.prev_buttons = buttons;
-        f.shift = pressed & 1 ? 1 : pressed & 2 ? -1 : 0;
-
-        ex::save_previous(c);
-        const F filter = c.slip_filter;
-        // The engine's prep reads the tire record by the core's 16 surface rows: a wet surface (20 .. 22, Gran
-        // Turismo 4's index) is given its core row for it (GT4's own prep_tires below reads the surface as it is).
-        u8 surfaces[4];
-        for (size_t w = 0; w < 4; ++w) {
-            surfaces[w] = c.w[w].surface;
-            if (gt4_rules_ && c.w[w].surface >= 16) c.w[w].surface = u8(core_surface(c.w[w].surface));
-        }
-        ex::prep(c, race_.prep);
-        for (size_t w = 0; w < 4; ++w) c.w[w].surface = surfaces[w];
-        if (gt4_rules_) { // Gran Turismo 4's aerodynamics (0x3F3090) in place of the engine's
-            c.slip_filter = filter;
-            const rules::BodyExtra& b = gx_[i].body;
-            rules::aero(c, gx_[i].chassis, b.speed_part_kind, b.speed_part_lift, tables_.aero);
-            // The masses with the fuel (0x354AC0), and the fuel the aids read.
-            sim::Extra& g = gx_[i];
-            rules::masses(c, g.drive.fuel, g.chassis.mass, g.body.sprung_mass);
-            g.aids.fuel = g.drive.fuel.fuel, g.aids.fuel_capacity = g.drive.fuel.capacity;
+        // The driver's frame: a recorded one, or an analog pad's from the input's fields.
+        rules::PadFrame f;
+        if (in.pad) f = rules::PadFrame::from_bytes(in.pad->bytes.data());
+        else {
+            f.flags = 1 | 2 | 4, f.kind = 3;
+            f.steer = gt3r::s16(std::lround(std::clamp(-in.steer, -1.0f, 1.0f) * 4096.0f));
+            const u16 throttle = u16(std::lround(std::clamp(in.throttle, 0.0f, 1.0f) * 4096.0f));
+            if (in.reverse) f.flags |= 8, f.back = throttle;
+            else f.throttle = throttle;
+            f.brake = u16(std::lround(std::clamp(in.brake, 0.0f, 1.0f) * 4096.0f));
+            f.third = in.handbrake ? 1 : 0;
+            const u8 buttons = u8((in.shift_up ? 1 : 0) | (in.shift_down ? 2 : 0));
+            const u8 pressed = u8(buttons & ~x.prev_buttons);
+            x.prev_buttons = buttons;
+            f.shift = gt3r::s8(pressed & 1 ? 1 : pressed & 2 ? -1 : 0);
         }
         // (a computer's car: its driver's grip, 0x467470)
         const std::array<F, 3>* grip = in.computer && driver_grip_[i] ? &*driver_grip_[i] : nullptr;
-        if (gt4_rules_) rules::prep_tires(c, gx_[i], layouts_[i], tables_, race_.prep.condition, grip);
-        if (in.computer) {
-            // A computer driver's outputs into the controls as the program's drivers write them (0x464F38).
+        // A computer driver's outputs into the controls as the program's drivers write them (0x464F38).
+        auto computer_outputs = [&] {
             c.full_throttle = 1;
             c.throttle_pedal = c.throttle = gt3r::ee::F(std::clamp(in.throttle, 0.0f, 1.0f));
             ex::set_brake_pedal(c, gt3r::ee::F(std::clamp(in.brake, 0.0f, 1.0f)));
             c.reverse_req = gt3r::s8(in.reverse ? 1 : 0);
             if (in.shift_lock) c.shift_lockout = in.shift_lock;
             c.shift_req = 0;
-            // The clutch's request (0x3F3400, for an ordinary gearbox): released for a stopped driver (kind 8); racing, with the
-            // clutch open it is requested once the rpm passes three quarters of the up-shift speed, with it closed it stays
-            // requested down to idle. (Under the start's hold and the hold counter the program leaves it as it was: ours 0.)
+        };
+        // The clutch's request (0x3F3400, for an ordinary gearbox): released for a stopped driver (kind 8); racing, with the
+        // clutch open it is requested once the rpm passes three quarters of the up-shift speed, with it closed it stays
+        // requested down to idle. (Under the start's hold and the hold counter the program leaves it as it was: ours 0.)
+        auto computer_clutch = [&] {
             const F one = gt3r::ee::F::raw(0x3F800000);
             if (c.race_hold != 0 || c.hold != 0 || c.driver_kind == 8) c.clutch_req = F();
             else if (!gt4_rules_) c.clutch_req = one;
             else if (c.clutch == 0) c.clutch_req = s32(c.rpm) > ((s32(gx_[i].drive.d.up_rpm) * 3) >> 2) ? one : F();
             else c.clutch_req = s32(c.rpm) < s32(c.p.e.idle) ? F() : one;
-        } else if (prologue_) prologue::driver_input_pad(c, race_.pad, f, course_kind, prologue_cars_[i].layout, *prologue_);
-        else
-            ex::driver_input_pad(c, race_.pad, f, course_kind);
-        // A hybrid one-speed box's clutch request, a pad's (0x349418) or a computer's (0x3F3400): 0x348368.
-        if (gt4_rules_ && gx_[i].drive.d.kind == 3) rules::hybrid_clutch_request(c);
+            // (a hybrid one-speed box's: 0x348368)
+            if (gt4_rules_ && gx_[i].drive.d.kind == 3) rules::hybrid_clutch_request(c);
+        };
+
+        if (gt4_rules_) {
+            sim::Extra& g = gx_[i];
+            const rules::WheelLayout& l = layouts_[i];
+            rules::save_previous(c, l);                                  // phase 1 (0x343ED0)
+            rules::layout7_step(c, g);                                   // phase 2 (0x355E10)
+            rules::moods(c, g, mood_tables_, l, tables_.bumps.soft, 0);  // phase 3 (0x35CA60; ❓ no pass-by states: no rival)
+            rules::start_hold(c, countdown, start_counters_[i]);          // (0x34C210 and the car's own counter)
+            rules::prep(c, g, l, tables_, race_.prep.condition, grip);   // phase 4 (0x357700)
+            // (the masses with the fuel, 0x354AC0, as the fuel's state has them, and the fuel the aids read)
+            rules::masses(c, g.drive.fuel, g.chassis.mass, g.body.sprung_mass);
+            g.aids.fuel = g.drive.fuel.fuel, g.aids.fuel_capacity = g.drive.fuel.capacity;
+            // Phase 5 (0x349FD0): the driver's input, by the control source (a computer's car 2, the B-spec car 1).
+            c.control = in.computer ? gt3r::s8(in.control) : 0;
+            rules::post_mail(f, mail_[i], c.control, !in.computer);
+            rules::InputRace race;
+            race.course_kind = loose_ ? 2 : 0; // ❓ wet and snow courses not told apart
+            rules::InputHooks hk;
+            hk.computer_clutch = computer_clutch;
+            hk.computer_outputs = [&] {
+                computer_outputs();
+                if (c.driver_kind == 8) c.handbrake = F::raw(0x3F800000);
+            };
+            hk.ground = [&](const F p[3]) {
+                rules::GroundAnswer a;
+                GroundHit h;
+                const F at[3] = {p[0], p[1] + F::raw(0x40A00000), p[2]};
+                if (ground_->query(at, h)) a.found = true, a.height = F(h.point.y), a.triangle = u32(u16(gt3r::s16(h.cluster))) << 16 | u32(u16(h.triangle));
+                return a;
+            };
+            race.line_heading = line_heading_[i] ? *line_heading_[i] : F();
+            tables_.pad.active_on = line_heading_[i] ? active_on_ : 0;
+            rules::driver_input(c, g, l, tables_.pad, tables_.steer, race, hk, f);
+            rules::stop_count(c, g); // phase 6 (0x35D1D0)
+        } else {
+            ex::save_previous(c);
+            ex::prep(c, race_.prep);
+            if (in.computer) {
+                computer_outputs();
+                computer_clutch();
+            } else {
+                ex::PadFrame e;
+                e.flags = f.flags, e.kind = f.kind == 6 ? 4 : f.kind, e.shift = f.shift, e.steer = f.steer, e.throttle = f.throttle;
+                e.brake = f.brake, e.back = f.back, e.third = f.third;
+                if (prologue_) prologue::driver_input_pad(c, race_.pad, e, course_kind, prologue_cars_[i].layout, *prologue_);
+                else ex::driver_input_pad(c, race_.pad, e, course_kind);
+            }
+        }
         // A computer driver's own command: the road wheels' angle as the game's drivers set it (0x464F38 writes it into the
         // steering command directly), within the full lock, past the pad's lock curve (no later phase reads the bounds).
         if (!std::isnan(in.steer_angle)) {
             const gt3r::ee::F lock = c.p.max_lock;
             c.steer_cmd = gt3r::ee::F(std::clamp(in.steer_angle, -lock.host(), lock.host()));
+            // (F +0x45C as the computer's path of 0x349FD0 makes it of the command 0x464F38 wrote)
+            if (gt4_rules_) gx_[i].input.steer_view = rules::steer_unit(c.steer_cmd) * F::raw(0x3F2AACD9);
         }
         if (gt4_rules_) {
             // Gran Turismo 4's steering (0x3F7EA8): the angles, the follower, the slip angle's offset and the compliance.
@@ -602,7 +730,6 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
         else ex::slip_ratios(c, race_.statics);
         if (gt4_rules_) {
             // Gran Turismo 4's aids (0x3F79A0): a computer's car (control source 2) by its driver's block.
-            if (in.computer) c.control = 2;
             const ex::Aids* driver = in.computer && driver_aids_[i] ? &*driver_aids_[i] : nullptr;
             sim::Extra& g = gx_[i];
             rules::aids(c, g.aids, g.tires, g.drive, layouts_[i], tables_.aids, aid_race_, driver);
@@ -617,9 +744,18 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
         else ex::dynamics(c, race_.statics, race_.gears, race_.class_grip);
         if (gt4_rules_) rules::brake_heat(c, layouts_[i], tables_.brake_heat, gx_[i].drive.d.tire_radius);
         else ex::brake_heat(c, race_.brake_heat);
-        ex::clear_feedback(c);
+        ex::clear_feedback(c); // (the engine's feedback, for its routines that still read it)
+        if (gt4_rules_) rules::clear_hit(gx_[i].phases); // phase 12 (0x350308)
     }
     collide();
+    if (gt4_rules_) {
+        // Phase 14 (0x3F4638): which cars are near which, the slipstream's targets; phase 15 (0x3F28B8): the part that
+        // changes with speed.
+        std::vector<rules::NearCar> near(cars_.size());
+        for (size_t i = 0; i < cars_.size(); ++i) near[i] = {&cars_[i], &gx_[i].near};
+        rules::proximity(near, pairs_, F(road_->length), 0);
+        for (size_t i = 0; i < cars_.size(); ++i) rules::speed_part(cars_[i], gx_[i].near, gx_[i].body.speed_part_kind, gx_[i].chassis.speed_part_state);
+    }
     for (size_t i = 0; i < cars_.size(); ++i) {
         ex::Car& c = cars_[i];
         chassis(i);
@@ -628,6 +764,7 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
             // drivers' pit flow, sim/ai), the flaps (0x35A678).
             rules::tire_wear(c, gx_[i].wear, gx_[i].tires, layouts_[i], tables_.wear); // (0x352EA0)
             rules::flaps(c, layouts_[i], random_state_);
+            rules::hit_steps(gx_[i].phases); // (0x34DB30's end: the recent hit's steps)
         } else {
             ex::tire_wear(c, race_.prep.wear);
             ex::wear_flags(c, race_.prep.wear, {});
@@ -635,7 +772,9 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
         }
         publish(i);
     }
-    ++steps_;
+    // (❓ the race flow counts its countdown down after the step)
+    if (countdown_ > 0) --countdown_;
+    if (!countdown) ++steps_;
 }
 
 void Session::step(std::span<const race::CarInput> inputs, float dt) {
@@ -671,6 +810,7 @@ void Session::publish(size_t i) {
     s.brake_lamps = c.brake_pedal.host() > 0;
     s.reverse_lamps = c.gear == 0;
     s.contact = x.contact, s.contact_kind = x.contact_kind, s.contact_car = x.contact_car;
+    s.rolling = gt4_rules_ && c.driver_kind == 1;
     // A wheel back on the ground: loaded at this step's end after a step without load.
     s.landed = false;
     for (size_t w = 0; w < 4; ++w) {
@@ -711,6 +851,19 @@ void Session::publish(size_t i) {
             const float d = v - x.last_v;
             if (d < -road_->length * 0.5f) ++s.lap;
             else if (d > road_->length * 0.5f) --s.lap;
+        }
+        // The distance along the course F +0x4A4 and its change a step x 60, F +0x650 (0x358608 after the step: phase 14 reads
+        // both). ❓ ours is measured between the checkpoint gates, not along the program's own line.
+        if (i < gx_.size()) {
+            F rate = F();
+            if (x.has_v && road_->length > 0) {
+                float d = v - x.last_v;
+                if (d < -road_->length * 0.5f) d += road_->length;
+                else if (d > road_->length * 0.5f) d -= road_->length;
+                rate = F(d) * F::raw(0x42700000);
+            }
+            cars_[i].f3e4 = F(v);
+            gx_[i].near.course_rate = rate;
         }
         // A start place behind the line: the first lap begins when the car crosses it.
         if (!x.has_v && road_->length > 0 && v > road_->length * 0.5f) s.lap = -1;

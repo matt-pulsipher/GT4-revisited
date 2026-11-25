@@ -14,6 +14,7 @@
 #include "gt4r/sim/convert.h"
 #include "gt4r/sim/exact_bridge.h"
 #include "gt4r/sim/rules_build.h"
+#include "gt4r/sim/rules_step.h"
 #include "taps.h"
 #include "sim/exact/car_fields.h"
 #include "sim/exact/start.h"
@@ -298,6 +299,7 @@ ParamsResult run_params(Disc& disc, bool print) {
             static const sim::rules::Tables race_tables = sim::rules::tables(program, ex::Statics{});
             sim::Record ours{car, {}, {}};
             sim::build_record(spec, program, race_tables, sim::ConvertIn{}, ours);
+            sim::rules::step_params(spec, ours); // (the step's own routines' words, rules_step.h)
             Image im;
             im.car.assign(sim::layout::kCarSize, 0), im.params.resize(sim::layout::kParamsSize);
             ee.read_bytes(p_at, im.params.data(), u32(im.params.size()));

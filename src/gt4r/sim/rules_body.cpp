@@ -598,4 +598,8 @@ void bump_nudge(ex::Car& c, const BodyExtra& x, const WheelLayout& l) {
     if (c.vel.z < floor) c.vel.z = floor;
 }
 
+// (for the start's pose, rules_start.cpp: 0x36A690 and 0x36A578 on their own)
+F wheel_half_track(const ex::Car& c, const WheelLayout& l, int w, F travel) { return half_track(c, l, w, travel); }
+F wheel_camber(const ex::Car& c, const WheelLayout& l, int w, F steer, F travel) { return camber(c, l, w, steer, travel); }
+
 } // namespace gt4r::sim::rules
