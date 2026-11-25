@@ -264,15 +264,19 @@ int race_license_rules(Disc& disc, const Args& a) {
     db::SpecDb sdb(read, [vol](const std::string& dir) { return vol->list_dir(dir); }, "american");
     const db::RaceEvents ev(sdb, read);
     const std::string prefix = a.size() > 1 ? a[1] : "";
-    std::printf("%-16s %-22s kind opp x41 secs x4a cones wall car  laps sect\n", "event", "course");
+    std::printf("%-16s %-22s kind opp x41 secs x4a cones wall car  laps sect  start m  km/h  (places 1 .. 5: m, km/h)\n", "event", "course");
     for (const std::string& label : ev.labels()) {
         if (label.rfind(prefix, 0) != 0) continue;
         const std::optional<db::RaceEvent> e = ev.event(label);
         if (!e) continue;
         const race::LicenseRules r = race::LicenseRules::from_row(e->bytes);
         if (prefix.empty() && !r.any()) continue;
-        std::printf("%-16s %-22s %4d %3d %3d %4d %3d %5d %4d %4d %4d %4d\n", label.c_str(), e->course.c_str(), r.kind, r.opponents, r.x41, r.time_limit,
+        std::printf("%-16s %-22s %4d %3d %3d %4d %3d %5d %4d %4d %4d %4d", label.c_str(), e->course.c_str(), r.kind, r.opponents, r.x41, r.time_limit,
                     r.x4a, r.pylons, r.wall_limit, r.car_limit, e->laps, r.section);
+        const race::RowStart rs = race::RowStart::from_row(e->bytes);
+        std::printf("  %7d  %4d ", rs.distance[0], rs.speed[0]);
+        for (size_t k = 1; k < 6; ++k) std::printf(" %d,%d", rs.distance[k], rs.speed[k]);
+        std::printf("\n");
     }
     return 0;
 }
