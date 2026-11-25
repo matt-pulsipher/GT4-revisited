@@ -271,7 +271,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
         if (prologue_ && kind == 0 && !e.place && !road_->grid.empty()) at.heading = road_->grid[0].heading; // (0x3B6D5C: every car the first place's)
         if (e.line_start) at.pos = {e.line_start->x.host(), e.line_start->z.host(), -e.line_start->y.host()}, at.heading = (e.line_start->heading - kPi).host();
         if (gt4_rules_) setup(i, at, kind, e.start_speed, e.fuel, e.line_start ? &*e.line_start : nullptr, e.control, e.driver, e.line_start ? e.line_start->open_throttle : e.open_throttle);
-        else place(i, at, !e.line_start, e.line_start ? e.line_start->hint : -1);
+        else place(i, at, !e.line_start, e.line_start ? e.line_start->hint : -1, e.line_start ? &e.line_start->heading : nullptr);
         publish(i);
     }
     // The collision bodies (0x45B978: an octagon from the body's extents, the mass and the yaw inertia).
@@ -526,11 +526,11 @@ void Session::hold_once(std::span<const race::CarInput> inputs, const Decider& d
 
 // The car at rest on a start place with the engine's rules (GT4R_SIM_RULES=engine: the engine's race start, the pose
 // on the road and the standing start), with the nose at the place.
-void Session::place(size_t i, const course::Runway::Place& at, bool by_front, s32 hint) {
+void Session::place(size_t i, const course::Runway::Place& at, bool by_front, s32 hint, const F* line_heading) {
     ex::Car& c = cars_[i];
     // The record's heading: the place's turned half a turn (forward is (sin, cos) of the place's in x, z).
     // (Prologue's half turn is 0x40490FDA: 0x388138)
-    const F heading = F(at.heading) + (prologue_ ? F::raw(0x40490FDA) : kPi);
+    const F heading = line_heading ? *line_heading : F(at.heading) + (prologue_ ? F::raw(0x40490FDA) : kPi);
     F x = F(at.pos.x), y = F(-at.pos.z);
     const F front = c.p.body_front;
     if (by_front) { // (a start on a driving line, 0x3C93A0's kinds 1 .. 5, stands the car itself there)

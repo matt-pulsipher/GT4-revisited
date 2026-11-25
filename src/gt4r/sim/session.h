@@ -288,7 +288,7 @@ private:
         int contact_car = -1;
         float wall_hit = 0, car_hit = 0; // (race::CarState::wall_hit, car_hit)
     };
-    void place(size_t i, const course::Runway::Place& at, bool by_front = true, s32 hint = -1);
+    void place(size_t i, const course::Runway::Place& at, bool by_front = true, s32 hint = -1, const gt3r::ee::F* line_heading = nullptr);
     void setup(size_t i, const course::Runway::Place& at, int kind, float speed, bool fuel, const Entry::LineStart* line, gt3r::s8 control, u8 driver,
                const std::function<bool(gt3r::ee::F)>& open_throttle);
     rules::PoseHooks pose_hooks();
