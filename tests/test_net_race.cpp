@@ -2,6 +2,8 @@
 
 #include "net_machines.h"
 
+#include "gt4r/net/lan_rules.h"
+
 #include <cstdlib>
 
 using namespace gt4r;
@@ -213,4 +215,23 @@ TEST(net_race_six_cars) {
     for (auto& m : r.machines) contacts += m->field->hits_sent(), warnings += m->warnings;
     std::printf("  six cars: rms %.2f cm, worst %.1f cm; hits sent %u, warnings %u\n", e.rms() * 100, e.worst * 100, contacts, warnings);
     CHECK(e.worst < 2.0 && warnings == 0);
+}
+
+// The battle's own rules as the program has them: the tire wear's curve and the boost by the host's settings.
+TEST(net_lan_rules) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    const sim::Program program = sim::Program::load(*disc);
+    const std::array<u8, 9> none = net::lan_wear(program, 0), one = net::lan_wear(program, 1), two = net::lan_wear(program, 2);
+    CHECK(none == (std::array<u8, 9>{}));
+    auto show = [](const std::array<u8, 9>& b) {
+        for (u8 v : b) std::printf(" %d", v);
+    };
+    std::printf("  wear 1:"), show(one), std::printf("; 2:"), show(two);
+    // (a faster wear for 2: shorter distances; both on, past the same load)
+    CHECK(one[0] > two[0] && one[0] > 0 && one[1] == two[1] && one[2] == two[2] && one[3] == 1 && two[3] == 1);
+    sim::ai::Pace p0, p1, p2;
+    net::lan_boost(program, 0, p0), net::lan_boost(program, 1, p1), net::lan_boost(program, 2, p2);
+    std::printf("; boost 1: %d %% from %d m to %d m, 2: %d %% from %d m to %d m\n", p1.fast_pct, p1.fast_start_m, p1.fast_full_10m * 10, p2.fast_pct, p2.fast_start_m, p2.fast_full_10m * 10);
+    CHECK(p0.fast_pct == 0 && p1.fast_pct > 0 && p2.fast_pct > p1.fast_pct && p2.fast_start_m < p1.fast_start_m && p1.fast_full_10m == p2.fast_full_10m && p1.slow_pct == 0);
 }

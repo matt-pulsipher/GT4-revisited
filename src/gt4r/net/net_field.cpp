@@ -40,7 +40,7 @@ void NetField::before_step(s64 clock) {
     for (size_t i = 0; i < cars_.size(); ++i) {
         Car& c = cars_[i];
         if (i == ours_ || c.gone) continue;
-        c.remote.set_surroundings(race_->slipstream(i), race_->line_heading(i), race_->line_mode(i));
+        c.remote.set_surroundings(race_->slipstream(i), race_->line_heading(i), race_->line_mode(i), race_->record(i).time_scale);
         if (const sim::Session* s = c.remote.predict(clock + kClockPerStep)) {
             race_->pose(i, *s);
             race_->set_shown(i, c.remote.shown(clock + kClockPerStep));
