@@ -660,86 +660,7 @@ static F angle_between(F a, F b) {
 
 F Field::course_s(size_t car) const { return F(session_->state(car).course_v); }
 
-bool Field::place(int line, int hint, F s, F& x, F& y, F& h) const {
-    const std::vector<LinePoint>& p = lines_.line(line);
-    if (p.empty()) return false;
-    const F lap(lines_.lap());
-    if (line == CourseLines::kPitStop) {
-        // 0x46B7B8: the stop line, its distances a lap on in the lap's first half: straight between its points.
-        if (s < k::zero) s = s + lap;
-        else if (lap <= s) s = s - lap;
-        if (s < lap * k::half) s = s + lap;
-        const size_t n = p.size();
-        if (s < F(p[0].dist) || F(p[n - 1].dist) <= s) return false;
-        size_t i = 0;
-        while (i + 1 < n && !(F(p[i].dist) <= s && s < F(p[i + 1].dist))) ++i;
-        if (i + 1 >= n) return false;
-        const LinePoint &a = p[i], &b = p[i + 1];
-        const F t = (s - F(a.dist)) / (F(b.dist) - F(a.dist));
-        x = t * (F(b.x) - F(a.x)) + F(a.x);
-        y = t * (F(b.y) - F(a.y)) + F(a.y);
-        h = t * (F(b.height) - F(a.height)) + F(a.height);
-        return true;
-    }
-    if (s < k::zero) s = s + lap;
-    else if (lap <= s) s = s - lap;
-    // 0x46B310: the span: before the first point or past the last (the last to the first), else searched from the hint
-    // outwards (hint, hint + 1, hint - 1, hint + 2, ...).
-    const int n = int(p.size());
-    int from = -1, to = -1, kind = 0;
-    if (s < F(p[0].dist)) from = n - 1, to = 0, kind = 1;
-    else if (F(p[size_t(n - 1)].dist) <= s) from = n - 1, to = 0, kind = 2;
-    else {
-        int at = hint;
-        for (int step = 0; step <= n; ++step) {
-            int cand = (step & 1) ? at + step : at - step;
-            at = cand;
-            if (cand < 0) cand += n;
-            else if (!(cand < n)) cand -= n;
-            if (cand == 0 || cand < 0 || cand >= n) continue;
-            if (F(p[size_t(cand - 1)].dist) <= s && s < F(p[size_t(cand)].dist)) {
-                from = cand - 1, to = cand, kind = 3;
-                break;
-            }
-        }
-    }
-    if (kind == 0) return false;
-    const LinePoint &a = p[size_t(from)], &b = p[size_t(to)];
-    const F ad(a.dist), bd(b.dist);
-    F num, den;
-    if (kind == 1) num = (s + lap) - ad, den = (bd + lap) - ad;
-    else if (kind == 2) num = s - ad, den = (bd + lap) - ad;
-    else num = s - ad, den = bd - ad;
-    const F t = num / den;
-    const F ax(a.x), ay(a.y), bx(b.x), by(b.y);
-    if (a.kind == 0) {
-        x = t * (bx - ax) + ax;
-        y = t * (by - ay) + ay;
-    } else {
-        const F hd(a.heading);
-        const F sn = -gt3r::ee::sin(hd);
-        const F cs = gt3r::ee::cos(hd);
-        F r(a.radius);
-        const F cx = ax - cs * r, cy = ay + sn * r;
-        const F a0 = ai::atan2(cx - ax, ay - cy);
-        F a1 = ai::atan2(cx - bx, by - cy);
-        F from_ang = a0, d;
-        if (k::zero < r) {
-            if (a1 < from_ang) a1 = a1 + k::two_pi;
-            d = a1 - from_ang;
-        } else {
-            r = -r;
-            if (from_ang < a1) from_ang = from_ang + k::two_pi;
-            d = a1 - from_ang;
-        }
-        const F ang = from_ang + t * d;
-        x = cx - gt3r::ee::sin(ang) * r;
-        y = cy + gt3r::ee::cos(ang) * r;
-    }
-    const F ah(a.height), bh(b.height);
-    h = t * (bh - ah) + ah;
-    return true;
-}
+bool Field::place(int line, int hint, F s, F& x, F& y, F& h) const { return lines_.place(line, hint, s, x, y, h); }
 
 F Field::target(const Driver& d, int line, F look, F& ox, F& oy) const {
     const ex::Car& c = session_->record(d.car);
@@ -996,6 +917,29 @@ void Field::set_bspec_skill(size_t car, F corner, F brake, F alongside) {
     Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
     if (!d) return;
     d->corner_mult = corner, d->brake_mult = brake, d->alongside_mult = alongside;
+}
+
+bool Field::hold_rolling(size_t car) {
+    Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
+    if (!d || d->control == 4) return false;
+    // 0x3452F0: off the passing line 7 (a pad car's), the computer driving.
+    const bool driven = (d->kind >= 2 && d->kind <= 4) || (d->control == 0 && d->kind == 0);
+    if (driven && d->line == 7) request_line(*d, CourseLines::kMain, true);
+    d->kind = 1;
+    return true;
+}
+
+bool Field::release_rolling(size_t car) {
+    Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
+    if (!d) return true; // (no driver: let go)
+    // 0x345228: a pad car's driver onto line 7 (its fallback), one on the pit lane's lines onto the main line; the kind cleared.
+    if (d->control == 0) {
+        if (!request_line(*d, 7, false)) return false;
+    } else if (d->kind >= 2 && d->kind <= 4) {
+        if (!request_line(*d, CourseLines::kMain, false)) return false;
+    }
+    d->kind = 0;
+    return true;
 }
 
 int Field::control(size_t car) const { return car < drivers_.size() && drivers_[car] ? drivers_[car]->control : -1; }

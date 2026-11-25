@@ -43,6 +43,18 @@ struct Entry {
     // The car's own start place, in place of its grid place (a license test's road section has its own: 0x3952C0); a plain
     // grid start (start kind 0).
     std::optional<course::Runway::Place> place;
+    // The car's start on a driving line (the set-up's start kinds 1 and 2: race::car_start, CourseLines::start_place), in place
+    // of its grid place and of start_distance: the place and heading in the record's frame (x, y, z up), the speed (km/h,
+    // whole; 0 standing), F + 0x65B.
+    struct LineStart {
+        int kind = 1;
+        gt3r::ee::F x, y, z, heading;
+        s32 hint = -1; // the road triangle there
+        int speed = 0;
+        u8 mark = 0;
+    };
+    std::optional<LineStart> line_start;
+    u8 start_mark = 0; // F + 0x65B of a car on the grid
     // The race uses fuel (its rule block's byte +0x4C): the tank filled at the start (the car's tank less the program's byte
     // 0x620E24), burnt by the engine's output, its weight in the mass. Off: no tank (the races seen).
     bool fuel = false;
@@ -60,12 +72,16 @@ class Session final : public race::Simulation {
 public:
     static constexpr float kStep = 1.0f / 60.0f;
     static constexpr int kHoldSteps = 120; // a standing start's countdown before the session's time 0 (the constructor's)
+    // Further settings of a session.
+    struct Options {
+        int hold_steps = kHoldSteps; // the constructor's countdown (0: the caller's own hold, from the set-up's state)
+    };
 
     // `course`: the course's row; without it the kind is guessed (dirt when the first start place is on a loose surface).
     // Throws std::runtime_error for a session that cannot be set up (no entries, a course without a
     // start place on the road, a car whose parameters cannot be built).
     Session(db::SpecDb& db, const Program& program, std::shared_ptr<const course::Runway> road, std::span<const Entry> entries,
-            std::optional<CourseRow> course = {});
+            std::optional<CourseRow> course = {}, const Options* options = nullptr);
     ~Session() override;
     // A session on a disc's course ("tsukuba": the file crs/tsukuba) with cars as sold, by their labels
     // ("nsx_r_02"), in grid order. Throws std::runtime_error (no such course or car, or as the constructor).
@@ -219,7 +235,7 @@ private:
         int contact_car = -1;
     };
     void place(size_t i, const course::Runway::Place& at);
-    void setup(size_t i, const course::Runway::Place& at, int kind, float speed, bool fuel);
+    void setup(size_t i, const course::Runway::Place& at, int kind, float speed, bool fuel, const Entry::LineStart* line, u8 mark);
     rules::PoseHooks pose_hooks();
     void ground_contact(gt3r::sim::exact::Car& c, Extra& x);
     void chassis(size_t i);
@@ -256,6 +272,7 @@ private:
     rules::Tables tables_;
     rules::StartTables start_tables_;
     std::vector<u32> start_counters_; // each car's own start hold counter (conductor + 0xCBFC + 4 i: 0 in a single race)
+    std::vector<u8> pace_kmh_;        // each car's rolling start's pace (0x3F7880: the entry's speed, km/h)
     u32 countdown_ = 0;               // the race's countdown (the race information's +0xBC)
     bool holding_ = false;            // (hold_once's step)
     bool gt4_ready_ = false, gt4_rules_ = false;

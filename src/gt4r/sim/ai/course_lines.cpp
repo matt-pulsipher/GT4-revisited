@@ -321,6 +321,121 @@ int CourseLines::span(int k, int hint, float s, int& from, int& to) const {
     return 0;
 }
 
+bool CourseLines::place(int line, int hint, F s, F& x, F& y, F& h) const {
+    if (line < 0 || line > 7) return false;
+    const std::vector<LinePoint>& p = lines_[size_t(line)];
+    if (p.empty()) return false;
+    const F lap(lines_.lap());
+    if (line == kPitStop) {
+        // 0x46B7B8: the stop line, its distances a lap on in the lap's first half: straight between its points.
+        if (s < zero) s = s + lap;
+        else if (lap <= s) s = s - lap;
+        if (s < lap * half) s = s + lap;
+        const size_t n = p.size();
+        if (s < F(p[0].dist) || F(p[n - 1].dist) <= s) return false;
+        size_t i = 0;
+        while (i + 1 < n && !(F(p[i].dist) <= s && s < F(p[i + 1].dist))) ++i;
+        if (i + 1 >= n) return false;
+        const LinePoint &a = p[i], &b = p[i + 1];
+        const F t = (s - F(a.dist)) / (F(b.dist) - F(a.dist));
+        x = t * (F(b.x) - F(a.x)) + F(a.x);
+        y = t * (F(b.y) - F(a.y)) + F(a.y);
+        h = t * (F(b.height) - F(a.height)) + F(a.height);
+        return true;
+    }
+    if (s < zero) s = s + lap;
+    else if (lap <= s) s = s - lap;
+    // 0x46B310: the span: before the first point or past the last (the last to the first), else searched from the hint
+    // outwards (hint, hint + 1, hint - 1, hint + 2, ...).
+    const int n = int(p.size());
+    int from = -1, to = -1, kind = 0;
+    if (s < F(p[0].dist)) from = n - 1, to = 0, kind = 1;
+    else if (F(p[size_t(n - 1)].dist) <= s) from = n - 1, to = 0, kind = 2;
+    else {
+        int at = hint;
+        for (int step = 0; step <= n; ++step) {
+            int cand = (step & 1) ? at + step : at - step;
+            at = cand;
+            if (cand < 0) cand += n;
+            else if (!(cand < n)) cand -= n;
+            if (cand == 0 || cand < 0 || cand >= n) continue;
+            if (F(p[size_t(cand - 1)].dist) <= s && s < F(p[size_t(cand)].dist)) {
+                from = cand - 1, to = cand, kind = 3;
+                break;
+            }
+        }
+    }
+    if (kind == 0) return false;
+    const LinePoint &a = p[size_t(from)], &b = p[size_t(to)];
+    const F ad(a.dist), bd(b.dist);
+    F num, den;
+    if (kind == 1) num = (s + lap) - ad, den = (bd + lap) - ad;
+    else if (kind == 2) num = s - ad, den = (bd + lap) - ad;
+    else num = s - ad, den = bd - ad;
+    const F t = num / den;
+    const F ax(a.x), ay(a.y), bx(b.x), by(b.y);
+    if (a.kind == 0) {
+        x = t * (bx - ax) + ax;
+        y = t * (by - ay) + ay;
+    } else {
+        const F hd(a.heading);
+        const F sn = -gt3r::ee::sin(hd);
+        const F cs = gt3r::ee::cos(hd);
+        F r(a.radius);
+        const F cx = ax - cs * r, cy = ay + sn * r;
+        const F a0 = sim::ai::atan2(cx - ax, ay - cy);
+        F a1 = sim::ai::atan2(cx - bx, by - cy);
+        F from_ang = a0, d;
+        if (zero < r) {
+            if (a1 < from_ang) a1 = a1 + two_pi;
+            d = a1 - from_ang;
+        } else {
+            r = -r;
+            if (from_ang < a1) from_ang = from_ang + two_pi;
+            d = a1 - from_ang;
+        }
+        const F ang = from_ang + t * d;
+        x = cx - gt3r::ee::sin(ang) * r;
+        y = cy + gt3r::ee::cos(ang) * r;
+    }
+    const F ah(a.height), bh(b.height);
+    h = t * (bh - ah) + ah;
+    return true;
+}
+
+bool CourseLines::start_place(int line, F s, bool one_way, StartPlace& out) const {
+    const int k = resolve(line);
+    if (k < 0 || !ground_) return false;
+    const std::vector<LinePoint>& p = lines_[size_t(k)];
+    const F lap(lap_), zero = F::raw(0);
+    if (one_way) { // (no further than the line's last point, a lap short of it)
+        const F last = F(p.back().dist) - lap;
+        if (s < last) s = last;
+    }
+    while (s < zero) s = s + lap;
+    while (lap <= s) s = s - lap;
+    // The first point at or past it (the last without one).
+    size_t i = 0;
+    while (i < p.size() && !(s <= F(p[i].dist))) ++i;
+    if (i == p.size()) i = p.size() - 1;
+    F x, y, h, x1, y1, h1;
+    if (!place(k, int(i), s, x, y, h)) return false;
+    if (!place(k, int(i), s + F::raw(0x41200000), x1, y1, h1)) x1 = x, y1 = y;
+    out.x = x, out.y = y, out.h = h;
+    // The road there (0x46A0C8: from 5 m above the line's height), else from a metre higher.
+    GroundHit hit;
+    auto road = [&](F height) {
+        const F at[3] = {x, height + F::raw(0x40A00000), -y};
+        return ground_->query(at, hit);
+    };
+    bool found = road(h);
+    if (!found) found = road(h + F::raw(0x3F800000));
+    if (found) out.h = F(hit.point.y), out.hint = s32(u32(u16(gt3r::s16(hit.cluster))) << 16 | u32(u16(hit.triangle)));
+    else out.h = zero;
+    out.heading = sim::ai::atan2(x - x1, y1 - y);
+    return true;
+}
+
 bool CourseLines::evaluate(int k, int hint, float s, float& x, float& y, float& h) const {
     const std::vector<LinePoint>& p = lines_[size_t(k) & 7];
     if (p.empty()) return false;

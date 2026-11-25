@@ -58,6 +58,17 @@ public:
     // Line k's place at distance s along the course (wrapped into the lap), searching from point `hint`:
     // straights interpolate, arcs turn about their center. False when the line has no span there.
     bool evaluate(int k, int hint, float s, float& x, float& y, float& h) const;
+    // 0x46B480 in the program's arithmetic: line k's place at course distance s (any lap), from the span around point `hint`;
+    // false (the outputs kept) where the line has none.
+    bool place(int line, int hint, gt3r::ee::F s, gt3r::ee::F& x, gt3r::ee::F& y, gt3r::ee::F& h) const;
+    // 0x46ADE8: where a car that starts on a driving line stands: the line (its fallback) at course distance s, the road
+    // under it there (its triangle the car's hint), facing the line's place 10 m on. `one_way`: a course without a lap (the
+    // distance no less than the line's last point's less a lap). False without the line.
+    struct StartPlace {
+        gt3r::ee::F x, y, h, heading; // the simulation's frame; the car's heading
+        s32 hint = -1;                // cluster << 16 | triangle (-1 no road)
+    };
+    bool start_place(int line, gt3r::ee::F s, bool one_way, StartPlace& out) const;
     // The line's heading at distance s: towards the first place at least 0.2 m on, in 0.5 m steps.
     float heading_at(int k, int hint, float s) const;
     // The course distance of a simulation-frame point (the road's checkpoints), false off the course.

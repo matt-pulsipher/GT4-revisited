@@ -231,6 +231,10 @@ public:
     bool pit_stop(size_t car);
     bool pit_leave(size_t car);
     bool pit_return(size_t car);
+    // A car driven by its driver in its rolling start (0x3452F0: kind 1, off line 7), its control source kept, and let go
+    // (0x345228: a pad car's driver onto line 7, the kind cleared). release_rolling false: the line is not there, still held.
+    bool hold_rolling(size_t car);
+    bool release_rolling(size_t car);
     // The speed limits of kind 5 (the race's configuration +0x42 for the player's car, +0x43 for the computer's; km/h, above
     // 80 none).
     void set_limits(u8 player_kmh, u8 computer_kmh) { limit_player_ = player_kmh, limit_computer_ = computer_kmh; }
