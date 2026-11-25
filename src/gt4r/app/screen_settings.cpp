@@ -81,10 +81,12 @@ public:
     SettingsScreen(App& app, int page, std::string install) : scripted_(app.scripted()), page_(std::clamp(page, 0, int(kPages) - 1)), install_(std::move(install)) {}
 
     bool menu_input_any_device() const override { return true; }
-    bool takes_dropped_file(const std::string& path) const override { return path.size() > 4 && gt3r::to_lower(path.substr(path.size() - 4)) == ".zip"; }
+    // (nothing is taken in while a job reads the disc or the mods)
+    bool takes_dropped_file(const std::string& path) const override { return dump_.running() || job_ || is_zip(path); }
+    static bool is_zip(const std::string& path) { return path.size() > 4 && gt3r::to_lower(path.substr(path.size() - 4)) == ".zip"; }
 
     void on_event(App& app, const SDL_Event& e) override {
-        if (e.type == SDL_EVENT_DROP_FILE && e.drop.data && takes_dropped_file(e.drop.data)) install(app, e.drop.data);
+        if (e.type == SDL_EVENT_DROP_FILE && e.drop.data && is_zip(e.drop.data)) install(app, e.drop.data);
         // (back from a file manager: what was copied in or taken away)
         if (e.type == SDL_EVENT_WINDOW_FOCUS_GAINED) look_again_ = true;
     }
@@ -104,6 +106,10 @@ public:
         if (question_.open()) return question_.update(app);
         if (job_ && job_->stage() != InstallJob::Stage::Planned) return; // (unpacking: it waits)
         const MenuInput& m = app.menu();
+        if (dump_.running()) {
+            if (m.pressed(PadButton::Triangle)) dump_.cancel();
+            return;
+        }
         build(app);
         for (const Pointer& a : app.pointer()) {
             if (a.kind != Pointer::Kind::Click) continue;
@@ -152,7 +158,6 @@ private:
         look_again_ = page == kMods || page == kDisc;
     }
     void back(App& app) {
-        if (dump_.running()) return dump_.cancel();
         if (!mod_.empty()) {
             mod_.clear(), message_.clear();
             rows_.selected = list_row_, rows_.scroll.first = list_first_;
@@ -428,7 +433,7 @@ private:
             });
         }
         rows_.action("Save the game's textures", "for making a pack", "save them", [this, a] {
-            question_.ask("Save the game's textures?", {"Every car's, course's and figure's texture as a PNG picture,", "a few minutes and some gigabytes, into", Ui::elide(dump_dir(*a), 340)}, "Save", "Cancel",
+            question_.ask("Save the game's textures?", {"Every car's, course's and figure's texture as a PNG picture,", "a few minutes and about a gigabyte, into", Ui::elide(dump_dir(*a), 340)}, "Save", "Cancel",
                           [this, a] { dump_.start(*a, dump_dir(*a)); });
         });
         if (!app.vfs() || app.vfs()->mods().empty()) return;

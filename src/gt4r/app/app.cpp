@@ -342,6 +342,10 @@ gt3r::PadState App::scripted_keys() {
             quit_ = true, ++key_;
             return pad;
         }
+        if (k == "f12") { // a screenshot, as the key takes one
+            screenshot_wanted_ = true, ++key_;
+            continue;
+        }
         if (k == "release") {
             drive_ = {}, ++key_;
             continue;
