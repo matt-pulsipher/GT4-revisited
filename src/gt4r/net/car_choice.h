@@ -36,6 +36,12 @@ struct CarChoice {
 void write_choice(gt3r::net::Writer& w, const CarChoice& c);
 bool read_choice(gt3r::net::Reader& r, CarChoice& c);
 
+// Why an equipment's settings are none the settings pages give ("" : they are): each the default of its fitted part or within
+// the page's range (the part's row: 0x1490B0 on, menu/game_car.cpp), the numbers no page sets as the program's set-car leaves
+// them. A settable gearbox's ratios are held to the ranges round the set its slider and final drive make, a quarter wider
+// (❓ judged: parts fitted after the box was set move the set, not the ratios).
+std::string settings_problem(db::SpecDb& db, const sim::Program& program, const sim::Equipment& eq);
+
 // The disc's side: builds the cars of descriptors.
 class CarBuilder {
 public:
