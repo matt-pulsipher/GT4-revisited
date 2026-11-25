@@ -301,6 +301,12 @@ public:
     // The game's simulation (null: the stand-in runs).
     const sim::Session* session() const { return session_.get(); }
     sim::Session* session() { return session_.get(); }
+    // How solid a car is drawn (a ghost of an online race 0.5; 1).
+    void set_car_alpha(size_t car, float alpha) {
+        if (car >= alpha_.size()) alpha_.resize(car + 1, 1.0f);
+        alpha_[car] = alpha;
+    }
+    float car_alpha(size_t car) const { return car < alpha_.size() ? alpha_[car] : 1.0f; }
     // What the player chose for his own car and controls: the gearbox, the aids, the steering wheel's (its lock by the options'
     // AMATEUR .. SIMULATION: the entry's +0x344C, its active steering +0x3458, its force's strength and assist). True when the
     // cars must be set up anew for it (the next restart).
@@ -351,6 +357,7 @@ private:
     race::GadgetBodies gadget_bodies_; // the cones and boards as the cars leave them
     unsigned gadget_hits_ = 0;
     std::vector<std::optional<WorldEntry>> overrides_;
+    std::vector<float> alpha_; // set_car_alpha
     PlayerChoice player_;
     std::array<u32, 32> soft_{};
     struct Command {

@@ -1057,6 +1057,8 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
         const size_t first = m.items.size();
         m.add_drivers(m.items, i, cars[i], pose.eye, &lod_view);
         car_visuals_[i]->add_items(m.items, cars[i], pose.eye, kStep, &lod_view, !(m.pit_live && m.pit_scene && int(i) == m.pit_shown && m.pit_scene->wheels_off(i)));
+        if (const float a = car_alpha(i); a < 1)
+            for (size_t k = first; k < m.items.size(); ++k) m.items[k].alpha = a;
         if (m.pit_live && int(i) == m.pit_shown) m.add_pit_crew(m.items, i, *car_visuals_[i]);
         m.light_items(env, first, m.lit[i], m.lamp_lit[i]);
     }
@@ -1248,8 +1250,11 @@ void RaceWorld::render_mirror(Ui& ui, const SDL_FRect& rect, std::span<const rac
     for (size_t i = 0; i < n; ++i) {
         if (int(i) == hidden) continue;
         car_visuals_[i]->add_shadow_items(m.mirror_items, cars[i]);
+        const size_t first = m.mirror_items.size();
         m.add_drivers(m.mirror_items, i, cars[i], pose.eye, nullptr);
         car_visuals_[i]->add_items(m.mirror_items, cars[i], pose.eye, kStep);
+        if (const float a = car_alpha(i); a < 1)
+            for (size_t k = first; k < m.mirror_items.size(); ++k) m.mirror_items[k].alpha = a;
     }
     render::DrawOptions o = draw_options(*course_, kDepth);
     o.mirrored = true;

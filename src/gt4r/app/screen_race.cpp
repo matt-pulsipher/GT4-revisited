@@ -963,6 +963,8 @@ public:
             along[i] = double(flow_.car(i).counter) * world_->lap_length() + cars[i].course_v - (behind ? world_->lap_length() : 0.0f);
         }
         net_->set_progress(along, world_->lap_length());
+        if (const net::NetField* f = net_->field())
+            for (size_t i = 1; i < f->size(); ++i) world_->set_car_alpha(i, f->ghost(i) ? 0.5f : 1.0f);
         net_->after_step(net_clock(), inputs_[0], flow_.car(0).laps_done);
         for (const size_t i : ev.finished) {
             if (i == 0) net_->finished(flow_.car(0).finish_units, flow_.car(0).best_lap_ms >= 0 ? flow_.car(0).best_lap_ms * 3 : -1);
