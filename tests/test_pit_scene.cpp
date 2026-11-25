@@ -5,6 +5,7 @@
 #include "gt4r/race/pit_scene.h"
 
 #include <cmath>
+#include <map>
 
 using namespace gt4r;
 
@@ -108,6 +109,62 @@ TEST(pit_scene_stop_disc) {
         c.stage = 2, c.kind = 3;
         run(10);
         CHECK(scene.man(0, 0).idle && scene.man(0, 3).idle && !scene.man(0, 4).idle);
+    }
+    if (!ran) SKIP("the American disc is not among GT4R_DISC");
+}
+
+// The sounds' times of a stop against the original's recording (26-endurance/family_cup_bspec_pit_stop_whole_race.mp4, the
+// effects found by their samples): tires and fuel, the hold counter's stages.
+TEST(pit_scene_sounds_disc) {
+    using race::PitScene;
+    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    size_t ran = 0;
+    for (const auto& disc : test::discs()) {
+        const gt3r::Volume::Entry* e = disc->volume().find("pit/pit_001");
+        if (!e || disc->info().serial.rfind("SCUS_973.28", 0) != 0) continue;
+        ++ran;
+        PitScene scene(nullptr, disc->volume().read(*e));
+        PitScene::CarSizes s;
+        s.tire_radius[0] = s.tire_radius[1] = 0.32f;
+        s.filler = {0.85f, 0.684f, 1.832f}, s.filler_axis = {-1, 0, 0};
+        scene.set_car(0, s);
+        PitScene::Car c;
+        c.body = gt3r::render::Mat4::identity();
+        c.hub[0] = {-0.762f, 0.02f, -1.332f}, c.hub[1] = {0.762f, 0.02f, -1.332f};
+        c.hub[2] = {-0.767f, 0.02f, 1.332f}, c.hub[3] = {0.767f, 0.02f, 1.332f};
+        c.has_box = true;
+        std::map<std::string, std::vector<float>> at;
+        float now = 0;
+        const auto sound = [&](const char* n) { at[n].push_back(now); };
+        c.stage = 0;
+        scene.step({&c, 1}, 0, 1 / 60.0f, sound);
+        c.stage = 1, c.kind = 2, c.service = 0x1C;
+        for (int i = 0; i < 300; ++i) scene.step({&c, 1}, 0, 1 / 60.0f, sound);
+        c.kind = 3, c.service = 0x1C0;
+        int refuel = 0;
+        for (int hold = 0x2D0; hold > 0; --hold) {
+            now = float(0x2D0 - hold) / 60;
+            c.stage = hold >= 0x285 ? 2 : hold >= 0x3C ? 3 : 4;
+            // (the fuel went in for 1.7 s there)
+            c.refuelling = c.stage == 3 && refuel++ < 102;
+            scene.step({&c, 1}, 0, 1 / 60.0f, sound);
+        }
+        // Seconds after the first of them, two steps' room (the recording's effects are found to 10 ms).
+        const auto is = [&](const char* n, std::vector<float> want) {
+            std::vector<float>& t = at[n];
+            CHECK(!t.empty());
+            for (float w : want) {
+                bool found = false;
+                for (float x : t) found |= near(x - at["jackup"][0], w, 0.034f);
+                CHECK(found);
+            }
+        };
+        is("jackup", {0});
+        is("oiltank", {1.25f, 2.95f});
+        is("wheelgun", {1.50f, 1.85f, 1.89f, 1.97f, 8.38f, 8.69f, 8.81f});
+        is("dropnut", {2.69f, 2.77f});
+        is("droptire", {4.54f, 4.59f, 4.64f, 4.72f, 4.82f, 4.94f});
+        CHECK(at["droptire"].size() == 8); // (two at once twice, as there)
     }
     if (!ran) SKIP("the American disc is not among GT4R_DISC");
 }
