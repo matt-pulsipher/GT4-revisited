@@ -374,6 +374,11 @@ int RaceWorld::gadget_contacts(size_t i) const {
     return i < c.size() ? c[i] : 0;
 }
 
+float RaceWorld::gadget_impulse(size_t i) const {
+    const std::vector<float>& j = gadget_bodies_.impulses();
+    return i < j.size() ? j[i] : 0.0f;
+}
+
 float RaceWorld::car_top_speed(size_t i) const {
     return session_ && i < car_visuals_.size() ? session_->record(i).p.top_speed.host() : 0.0f;
 }
@@ -411,6 +416,12 @@ void RaceWorld::present(std::span<const race::CarState> cars, const audio::Sound
     if (camera && m.sound) {
         if (live && session_) m.sound->update(*session_, *camera, target);
         else m.sound->update(cars, *camera, target);
+        // The pit scene of the car shown (0x3CFA98 through 0x35BE38): the stop's "tires on" bit (F +0x4B8 0x200) taken
+        // and cleared, the jack let down.
+        if (live && pits_ && target >= 0 && size_t(target) < car_visuals_.size()) {
+            sim::ai::PitCar& pc = pits_->car(size_t(target));
+            if (pc.service & 0x200) pc.service = u16(pc.service ^ 0x200), m.sound->pit_effect("jackdown");
+        }
     }
     if (!m.smoke.loaded()) return;
     const course::Runway& road = course_->road();
