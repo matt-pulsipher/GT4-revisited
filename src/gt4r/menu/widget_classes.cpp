@@ -8,6 +8,7 @@
 #include "formats/tex1.h"
 #include "gt4r/menu/faces_car.h"
 #include "gt4r/menu/runtime_internal.h"
+#include "gt4r/menu/text_layout.h"
 
 #include <algorithm>
 #include <cmath>
@@ -1931,24 +1932,45 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
             return Value{};
         });
     if (type == "InputTextFace") {
-        // The text typed (`value`), at most `max_input_length` characters. The cursor is kept
-        // at the end: left and right do nothing here.
+        // The text typed (`value`), at most `max_input_length` characters, and the place the next letter goes: kept as the
+        // letters after it (`input_after`), the end to begin with. (The program's key handling, 0x2A6D10.)
+        auto place = [](const LiveWidget& face, const std::string& value) {
+            size_t at = value.size();
+            for (int k = int(face.data.number("input_after")); k > 0 && at > 0; --k) at = utf8_before(value, at);
+            return at;
+        };
+        auto after = [](LiveWidget& face, int n) { face.set_property("input_after", Value::integer(std::max(n, 0))); };
         if (n == "putString")
-            return fn([w](Vm&, const Value&, Args a) {
-                std::string value = w->data.text("value") + (a.empty() ? std::string() : a[0].to_string());
-                const size_t most = w->data.has("max_input_length") ? size_t(std::max(w->data.number("max_input_length"), 0.0f)) : value.size();
-                if (value.size() > most) value.resize(most);
+            return fn([w, place](Vm&, const Value&, Args a) {
+                std::string value = w->data.text("value");
+                const std::string typed = a.empty() ? std::string() : a[0].to_string();
+                const size_t most = w->data.has("max_input_length") ? size_t(std::max(w->data.number("max_input_length"), 0.0f)) : value.size() + typed.size();
+                if (value.size() >= most) return Value{};
+                value.insert(place(*w, value), typed.substr(0, most - value.size()));
                 w->set_property("value", Value::string(value));
                 return Value{};
             });
         if (n == "backspace" || n == "delete")
-            return fn([w](Vm&, const Value&, Args) {
+            return fn([w, place, after, back = n == "backspace"](Vm&, const Value&, Args) {
                 std::string value = w->data.text("value");
-                if (!value.empty()) value.pop_back();
+                size_t at = place(*w, value);
+                if (back ? at == 0 : at >= value.size()) return Value{};
+                size_t from = back ? utf8_before(value, at) : at;
+                size_t to = at;
+                if (!back) {
+                    to = at + 1;
+                    while (to < value.size() && (u8(value[to]) & 0xC0) == 0x80) ++to;
+                    after(*w, int(w->data.number("input_after")) - 1);
+                }
+                value.erase(from, to - from);
                 w->set_property("value", Value::string(value));
                 return Value{};
             });
-        if (n == "left" || n == "right") return nothing();
+        if (n == "left" || n == "right")
+            return fn([w, place, after, left = n == "left"](Vm&, const Value&, Args) {
+                if (!left || place(*w, w->data.text("value")) > 0) after(*w, int(w->data.number("input_after")) + (left ? 1 : -1));
+                return Value{};
+            });
     }
     // The boxes that lay their children out: adjustSize() and the automatic rows and columns.
     if (w->is_composite()) {

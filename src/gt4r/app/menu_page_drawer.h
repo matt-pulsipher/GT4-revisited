@@ -640,8 +640,22 @@ private:
         return atlas;
     }
 
+    // An input's caret (0x2A8170): 4 wide and as high as a line where the next letter goes, in half the text's color, while the face
+    // has the focus state, 15 pictures of 30 (0x2A8480).
+    void caret(const Widget& w, const std::string& s, float x, float y, float line, menu::TextStyle st, const Rgba& color, float opacity) {
+        if (menu_frame % 30 >= 15) return;
+        const size_t after = size_t(std::max(w.number("input_after"), 0.0f));
+        size_t cut = s.size();
+        for (size_t k = 0; k < after && cut > 0; ++k) cut = menu::utf8_before(s, cut);
+        // Where the next letter's pen is.
+        st.align = gt3r::text::HAlign::Left, st.valign = gt3r::text::VAlign::Top;
+        const menu::TextLayout next = menu::layout_menu_text(s.substr(0, cut) + "M", st, 0, 0), alone = menu::layout_menu_text("M", st, 0, 0);
+        const float pen = next.glyphs.empty() || alone.glyphs.empty() ? 0.0f : next.glyphs.back().x - alone.glyphs[0].x;
+        fill({x + pen, y, 4, line}, {Rgba{color.r, color.g, color.b, u8(color.a / 2)}}, opacity, false);
+    }
+
     // `id`: the live face (a tool tip's motion is kept by it).
-    void text(const Widget& w, const Rect& at, float opacity, const Rect& clip, const void* id = nullptr) {
+    void text(const Widget& w, const Rect& at, float opacity, const Rect& clip, const void* id = nullptr, bool typing = false) {
         std::string s = w.text("text");
         if (s.empty()) s = w.text("value"); // a tool tip's, an input's
         if (s.empty() && w.has("key")) {
@@ -655,6 +669,8 @@ private:
                 if (w.type == "ToolTipFace" && s == w.text("key")) s.clear();
             }
         }
+        const bool empty = s.empty();
+        if (empty && typing) s = " ";
         if (s.empty()) return;
         gt3r::text::FontVariant variant = gt3r::text::FontVariant::Plain;
         menu::TextStyle st = style_of(w, &variant);
@@ -753,6 +769,7 @@ private:
             pass(&sc, shadow, shadow);
         }
         pass(nullptr, 0, 0);
+        if (typing) caret(w, empty ? std::string() : s, lay.x, lay.y, lay.height, st, base, opacity);
         if (tip_clip) set_clip(clip);
     }
 
@@ -827,7 +844,8 @@ private:
                     break;
                 }
             text(tip, at, face, clip, &live);
-        } else if (t == "TextFace" || t == "InputTextFace" || t == "InputNumberFace" || t == "ToolTipFace" || t == "TextBoxFace") text(w, at, face, clip, &live);
+        } else if (t == "TextFace" || t == "InputTextFace" || t == "InputNumberFace" || t == "ToolTipFace" || t == "TextBoxFace")
+            text(w, at, face, clip, &live, t == "InputTextFace" && (state & menu::kFocus));
         else if (t == "ColorChipFace") {
             chip(w, at, face, colors);
         } else if (t == "GraphFace") graph(w, at, face);

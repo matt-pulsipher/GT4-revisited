@@ -278,3 +278,37 @@ TEST(menu_replay_file_sections) {
     CHECK(g.title == f.title && g.mode == f.mode && g.submode == 1 && g.time_ms == 11166 && g.bspec && g.picture == f.picture && g.other == f.other);
     CHECK(g.steps.size() == 3 && g.course == "somewhere");
 }
+
+// The keyboard page's text: letters go where the caret is, the arrow keys move it, backspace takes the letter before it.
+TEST(menu_input_text_caret) {
+    menu::Runtime rt([](const std::string&) -> std::optional<Bytes> { return std::nullopt; });
+    const std::shared_ptr<menu::LiveWidget> top = rt.start_layout(menu::parse_layout(std::string_view(R"(Project {
+	name string {"TestProject"}
+	children [1] {
+		RootWindow {
+			name string {"Top"}
+			children [1] { InputTextFace { name string {"input"} geometry rectangle {0 0 200 40} max_input_length digit {6} } }
+		}
+	}
+})")))->child("Top");
+    rt.open_page(top, true);
+    const std::shared_ptr<menu::LiveWidget> input = top->child("input");
+    script::Vm& vm = rt.vm();
+    auto call = [&](const char* method, const char* text = nullptr) {
+        const Value a[1] = {Value::string(text ? text : "")};
+        vm.call(vm.attribute(menu::widget_value(input), method), text ? std::span<const Value>(a) : std::span<const Value>());
+    };
+    auto value = [&] { return input->data.text("value"); };
+    call("putString", "ABD"), call("left"), call("putString", "C");
+    CHECK(value() == "ABCD");
+    call("backspace");
+    CHECK(value() == "ABD");
+    for (int i = 0; i < 9; ++i) call("left");
+    call("backspace"), call("putString", "\xC3\x89");
+    CHECK(value() == "\xC3\x89" "ABD");
+    call("right"), call("backspace");
+    CHECK(value() == "\xC3\x89" "BD");
+    for (int i = 0; i < 9; ++i) call("right");
+    call("putString", "1234");
+    CHECK(value() == "\xC3\x89" "BD12");
+}

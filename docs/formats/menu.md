@@ -402,6 +402,9 @@ Faces: `TextFace` (`getTextSize`, `abbreviate`, `adjustScale`: the text made nar
 its rectangle), `ImageFace` (`adjustSize`), `InputTextFace` (`putString`, `backspace`,
 `max_input_length`), `ColorChipFace.setData`, `CarFace` (`car_data`, `car_model`,
 `setColorIndex`; not drawn), `ToolTipFace`. ❓ From the scripts' use.
+An **InputTextFace** keeps the place the next letter goes (the keys of the script's keyboard: `putString` puts there, `left` / `right`
+move it, `backspace` takes the letter before it, `delete` the one after) and draws a caret there (0x2A8170): 4 wide, a line high,
+half the text's color, in the focus state, 15 pictures of 30 (0x2A8480).
 
 ### Actors and transitions
 
