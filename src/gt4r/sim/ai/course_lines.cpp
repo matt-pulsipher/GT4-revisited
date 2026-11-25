@@ -325,7 +325,7 @@ bool CourseLines::place(int line, int hint, F s, F& x, F& y, F& h) const {
     if (line < 0 || line > 7) return false;
     const std::vector<LinePoint>& p = lines_[size_t(line)];
     if (p.empty()) return false;
-    const F lap(lines_.lap());
+    const F zero = F::raw(0), half = F::raw(0x3F000000), two_pi = F::raw(0x40C90FDA), lap(lap_);
     if (line == kPitStop) {
         // 0x46B7B8: the stop line, its distances a lap on in the lap's first half: straight between its points.
         if (s < zero) s = s + lap;

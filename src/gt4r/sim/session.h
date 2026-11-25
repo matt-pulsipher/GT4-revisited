@@ -62,7 +62,7 @@ struct Entry {
     };
     std::optional<LineStart> line_start;
     u8 driver = 0;     // the entry's +0x344C: 0 a pad, 1 and 2 the steering wheels (F + 0x547 2 and 3), any other a computer's
-    s8 control = 0;    // F + 0x466 at the set-up: 0 the player's pad, 1 B-spec, 2 the computer
+    gt3r::s8 control = 0; // F + 0x466 at the set-up: 0 the player's pad, 1 B-spec, 2 the computer
     // The race uses fuel (its rule block's byte +0x4C): the tank filled at the start (the car's tank less the program's byte
     // 0x620E24), burnt by the engine's output, its weight in the mass. Off: no tank (the races seen).
     bool fuel = false;
@@ -247,7 +247,7 @@ private:
         int contact_car = -1;
     };
     void place(size_t i, const course::Runway::Place& at);
-    void setup(size_t i, const course::Runway::Place& at, int kind, float speed, bool fuel, const Entry::LineStart* line, s8 control, u8 driver);
+    void setup(size_t i, const course::Runway::Place& at, int kind, float speed, bool fuel, const Entry::LineStart* line, gt3r::s8 control, u8 driver);
     rules::PoseHooks pose_hooks();
     void ground_contact(gt3r::sim::exact::Car& c, Extra& x);
     void chassis(size_t i);

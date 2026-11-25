@@ -312,7 +312,7 @@ rules::PoseHooks Session::pose_hooks() {
 }
 
 // Gran Turismo 4's set-up of a car on its start place (0x363B10 from the converter on, rules::car_setup).
-void Session::setup(size_t i, const course::Runway::Place& at, int kind, float speed, bool fuel, const Entry::LineStart* line, s8 control, u8 driver) {
+void Session::setup(size_t i, const course::Runway::Place& at, int kind, float speed, bool fuel, const Entry::LineStart* line, gt3r::s8 control, u8 driver) {
     ex::Car& c = cars_[i];
     rules::SetupArgs a;
     a.index = int(i);

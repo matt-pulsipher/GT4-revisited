@@ -54,7 +54,10 @@ TEST(race_flow_section_test) {
     for (int i = 0; i < 400 && end_step < 0; ++i) {
         cars[0].course_v += 10;
         const race::RaceFlow::Events e = flow.step(cars);
-        if (e.start) start_step = i, CHECK(e.started == std::vector<size_t>{0});
+        if (e.start) {
+            start_step = i;
+            CHECK(e.started.size() == 1 && e.started[0] == 0);
+        }
         if (e.player_finished) end_step = i;
         if (start_step < 0) CHECK(flow.lap_ms(0) == 0);
     }

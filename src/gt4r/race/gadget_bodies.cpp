@@ -1,5 +1,7 @@
 #include "gt4r/race/gadget_bodies.h"
 
+#include "sim/exact/car_record.h"
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
