@@ -22,7 +22,7 @@ DemonstrationRun run_demonstration(Disc& disc, db::SpecDb& sdb, const std::strin
     try {
         const sim::Program program = sim::Program::load(disc);
         std::string error;
-        const std::optional<sim::ai::DemoRun> demo = sim::ai::DemoRun::load(disc, program, label, &error);
+        const std::optional<sim::ai::DemoRun> demo = opt.run ? std::optional<sim::ai::DemoRun>(*opt.run) : sim::ai::DemoRun::load(disc, program, label, &error);
         if (!demo) return r.error = error, r;
         r.recorded_ms = demo->recorded_ms();
         gt3r::Volume* vol = &disc.volume();
@@ -78,7 +78,7 @@ DemonstrationRun run_demonstration(Disc& disc, db::SpecDb& sdb, const std::strin
         std::unique_ptr<sim::ai::Field> field;
         if (ad) {
             sim::ai::Pace pace = sim::ai::pace_for(*ev);
-            pace.solo = conductor == Conductor::License, pace.random_spread = false;
+            pace.solo = conductor == Conductor::License, pace.random_spread = false, pace.strip = cs.strip, pace.start_look = u8(std::max(0, start_code_digit(cs.code, 3)));
             std::vector<size_t> cars(entries.size());
             for (size_t i = 0; i < cars.size(); ++i) cars[i] = i;
             field = std::make_unique<sim::ai::Field>(session, *ad, program, cars, pace);
@@ -135,6 +135,8 @@ DemonstrationRun run_demonstration(Disc& disc, db::SpecDb& sdb, const std::strin
             for (const size_t i : e.started)
                 if (session.cars()[i].rolling && (!field || field->release_rolling(i))) session.release_start(int(i));
             for (size_t i = 0; i < entries.size(); ++i) session.set_crossings(i, flow.car(i).counter), session.set_rank(i, flow.place(i));
+            if (field)
+                for (const size_t i : e.finished) field->finish_run(session, i);
             if (!hold && !flow.player_finished()) {
                 const CarState& c = session.cars()[0];
                 if (const std::optional<float> share = rules.kind == 1 ? stopped_in_box(c) : std::nullopt) flow.finish_now(0, *share);

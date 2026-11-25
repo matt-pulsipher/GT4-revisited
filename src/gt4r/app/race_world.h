@@ -6,6 +6,7 @@
 // are the screen's (screen_race.cpp); this draws a frame for a camera and a set of car states,
 // live or recorded.
 
+#include "gt4r/formats/replay/demonstration.h"
 #include "gt4r/app/app.h"
 #include "base/ee_float.h"
 #include "gt4r/race/car_visual.h"
@@ -82,6 +83,7 @@ struct WorldSetup {
     // The B-spec driver's book (menu::bspec::Book: three tables of 8 x 8) and the course's marks, which give the race's
     // record of the player's driver (0x468710) when B-spec drives his car.
     std::array<u16, 3 * 64> bspec_book{};
+    std::optional<std::array<u8, 0x40>> bspec_info; // a recorded race's: the driver's record as the recording keeps it (the race information's +0x20)
     std::array<u8, 8> bspec_course_marks{};
     bool bspec_course_known = false;
     // The game's options (menu::GameState::options: the sound's volumes and output) and the race
@@ -200,8 +202,25 @@ public:
     // Where the car is in a pit visit (0x35BBD8): 0 none, 1 down the lane or waiting for the choice, 2 the stop's start, 3 its work,
     // 4 its end, 5 out of the box to the lane's end.
     int pit_stage(size_t car) const;
-    // B-spec's pit command taken back or given (0x3F19E0 command 6).
+    // A car's race is over (0x343D78: the computer cruises it on); a test's player's: the computer's cars too (0x3F88E8).
+    void finish_car(size_t car, bool test) {
+        if (!field_ || !session_) return;
+        field_->finish_run(*session_, car);
+        if (test) field_->end_computers();
+    }
+    // B-spec's pit command taken back or given (0x3F19E0 command 6: sim::ai::PitStops::command).
     void pit_command(size_t car);
+    void pit_command(size_t car, bool on) {
+        if (pits_ && car < car_visuals_.size()) pits_->command(car, on);
+    }
+    // The player's car put at the moment a free run's recording starts at (its record, formats/replay.md).
+    bool resume(const replay::RecorderState& state);
+    // The player's car by a recording: its pit choices by its records alone (after the restart); the choice made in the last step
+    // for a B-spec car whose wait ran out.
+    void pits_by_record() {
+        if (pits_) pits_->set_recorded(0);
+    }
+    bool pit_took_default(size_t car) const { return pits_ && pits_->took_default(car); }
     // The refuelling: just begun (0x35BE10: service 0x20 taken), going on (0x35BEB0), stopped by the player (0x35BFC0).
     bool refuel_begun(size_t car);
     bool refuelling(size_t car) const;
@@ -216,7 +235,8 @@ public:
     float tank(size_t car) const { return session_ && car < car_visuals_.size() ? session_->tank(car) : 0; }
     // What goes with the cars shown in a step, live (the simulation's) or recorded: smoke and dust
     // from the wheels, and the race's sound heard from `camera` (none: no sound) about car `target`.
-    void present(std::span<const race::CarState> cars, const audio::SoundListener* camera, int target, bool live);
+    // `heard`: a recorded step's simulation run again (a saved replay's recording): heard in place of the states.
+    void present(std::span<const race::CarState> cars, const audio::SoundListener* camera, int target, bool live, const sim::Session* heard = nullptr);
     // The same with the cameras of a split screen's views, each about the car of its number.
     void present(std::span<const race::CarState> cars, std::span<const audio::SoundListener> cameras, bool live);
     void clear_effects();
@@ -311,8 +331,9 @@ public:
     bool simulated() const { return session_ != nullptr; }
     bool night() const { return night_; }
     const WorldSetup& setup() const { return setup_; }
-    // The game's simulation (null: the stand-in runs).
+    // The game's simulation (null: the stand-in runs), and its entries as the race was set up with them.
     const sim::Session* session() const { return session_.get(); }
+    const std::vector<sim::Entry>& session_entries() const { return entries_; }
     // What the player chose for his own car and controls: the gearbox, the aids, the steering wheel's (its lock by the options'
     // AMATEUR .. SIMULATION: the entry's +0x344C, its active steering +0x3458, its force's strength and assist). True when the
     // cars must be set up anew for it (the next restart).
@@ -323,10 +344,6 @@ public:
         bool operator==(const PlayerChoice&) const = default;
     };
     bool set_player(const PlayerChoice& c, size_t player = 0);
-    // A player's run is over (the two-player battle's conductor, 0x347230: 0x343D78 with 3): his car's driver cruises on with it.
-    void finish_player(size_t car) {
-        if (field_) field_->finish(car, 3, true);
-    }
     // The player's car's power as built, PS (0: not known).
     float player_power_ps() const { return player_ps_; }
     const gt3r::render::DrawStats& draw_stats() const;
@@ -349,6 +366,7 @@ private:
     race::Simulation* sim_ = nullptr;
     std::unique_ptr<race::RailSimulation> rail_; // the stand-in, when the simulation is not running
     std::unique_ptr<sim::Session> session_;
+    std::vector<sim::Entry> entries_;
     std::unique_ptr<sim::ai::Field> field_; // the computer drivers, on the game's simulation
     std::unique_ptr<sim::ai::PitStops> pits_; // their pit stops
     bool counts_fuel_ = false;

@@ -14,13 +14,6 @@ SplitRules SplitRules::from_options(const std::map<std::string, std::variant<s32
     return r;
 }
 
-void put_tire_damage(std::vector<u8>& row, int level) {
-    if (row.size() < 0x74) return;
-    // CFG +0x2C .. +0x30, +0x33, +0x34, +0x31, +0x32.
-    static constexpr u8 kCurves[2][9] = {{8, 40, 12, 5, 5, 5, 5, 4, 0}, {6, 40, 12, 1, 5, 4, 5, 3, 0}};
-    for (size_t k = 0; k < 9; ++k) row[0x6B + k] = level == 1 || level == 2 ? kCurves[level - 1][k] : u8(0);
-}
-
 void put_boost(std::vector<u8>& row, int level) {
     if (row.size() < 0x6B) return;
     const bool on = level == 1 || level == 2;

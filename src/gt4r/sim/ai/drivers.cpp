@@ -181,7 +181,9 @@ void Field::init(const course::AiData& data, const Program& program, std::span<c
     {
         const Pace& p = pace_;
         Band b;
-        b.on = p.slow_pct || p.fast_pct || (p.band_global && p.band_global != 100);
+        // (0x365480 is asked by the conductor's virtual 12: 1 for the races, the pace car tests and the missions, 0 for a run
+        // alone. Without percents it still runs: 100 x 0.01 is just below 1 in the console's arithmetic.)
+        b.on = program.known() ? !p.solo : p.slow_pct || p.fast_pct || (p.band_global && p.band_global != 100);
         b.mode = p.band_mode;
         b.slow = int_f(p.slow_pct) * kHundredth, b.slow_start = int_f(p.slow_start_m), b.slow_full = int_f(p.slow_full_10m) * F::raw(0x41200000);
         b.fast = int_f(p.fast_pct) * kHundredth, b.fast_start = int_f(p.fast_start_m), b.fast_full = int_f(p.fast_full_10m) * F::raw(0x41200000);
@@ -258,11 +260,12 @@ void Field::setup(Driver& d) {
         d.pace = tables_.pace_start[1], d.overtake = !pace_.solo, d.pace_brake = l.brake, d.pace_corner = l.corner, d.shift = l.shift;
     }
     // The random draws (0x4639E0): seeded by the grid index for a computer car, then one step.
-    d.rand = u16(d.control == 2 ? d.index + 1 : 1);
-    d.rand = u16(((u32(d.rand) * 0x41C64E6Du + 0x3039u) >> 16) & 0x7FFF);
+    d.rand = seed(d);
     // 0x463AE0: the long look ahead (D +0x1A = 0) for a computer car from a standing start on a paved course.
-    d.start_flag = (d.control == 1 || d.control == 2) && pace_.standing_start && !session_->loose() && c.speed < F::raw(0x41055554) ? 0 : 1;
+    d.start_flag = (d.control == 1 || d.control == 2) && pace_.standing_start && !session_->loose() && c.speed < F::raw(0x41055554) ? pace_.start_look : 1;
 }
+
+u16 Field::seed(const Driver& d) { return u16((((d.control == 2 ? u32(d.index) + 1 : 1u) * 0x41C64E6Du + 0x3039u) >> 16) & 0x7FFF); }
 
 Field::~Field() = default;
 
@@ -299,7 +302,7 @@ int Field::pace_level(size_t car) const { return car < drivers_.size() && driver
 bool Field::overtaking(size_t car) const { return car < drivers_.size() && drivers_[car] && drivers_[car]->overtake; }
 u8 Field::shift_factor(size_t car) const {
     const Driver* d = driver(car);
-    return d && d->control == 1 && d->kind == 0 ? d->shift : 128;
+    return d && d->control == 1 ? d->shift : 128; // (the up-shift speeds take it for kind 0 alone: the gearbox's own, 0x36BEE0)
 }
 
 void Field::apply_start_delays(Session& session) {
@@ -370,6 +373,7 @@ Field::Probe Field::probe_get(size_t car) const {
     p.pit = d.pit, p.arc_ticks = d.arc_ticks, p.blend = d.blend, p.offset = d.offset;
     p.steer = d.steer, p.throttle = d.throttle, p.brake = d.brake, p.reverse = d.reverse, p.shift_lock = d.shift_lock;
     p.kind = d.kind;
+    p.aim_x = d.aim_x, p.aim_y = d.aim_y;
     p.pd_last = d.pd_last, p.pd_rate = d.pd_rate;
     p.record = d.record, p.car_class = d.car_class;
     p.follow = z.follow, p.chain = z.chain, p.contact = z.contact, p.zone = z.zone, p.gap_left = z.gap_left, p.gap_right = z.gap_right;
@@ -823,6 +827,17 @@ void Field::set_kind(Driver& d, int kind) {
     if (kind == 6 || (kind < 7 && kind == 5 && was != 4)) d.stop_count = 120;
 }
 
+// 0x464E40: the outputs cleared (0x464ED8), the steering straightened.
+void Field::idle(Driver& d) {
+    const ex::Car& c = session_->record(d.car);
+    d.steer = c.steer_cmd, d.throttle = F(), d.brake = F(), d.reverse = false, d.shift_lock = 0;
+    if (tables_.tuning.blend_by_distance == 0 && k::zero < d.blend) {
+        const F b = d.blend - c.dt;
+        d.blend = b < k::zero ? k::zero : b;
+    }
+    steer_to(d, F());
+}
+
 // 0x464C80: the stop driver: the steering to `steer`, no throttle; stopped (under 0.25 km/h, turning under 3 degrees a
 // second) the brake off and kind 8; else kind 6 holds a speed falling by 1 km/h a step through its count, the brake coming
 // on over its last 30 steps (0.8 after), any other kind brakes at half.
@@ -872,6 +887,19 @@ void Field::finish(size_t car, int mode, bool player_car) {
         if (d.line == 7) request_line(d, CourseLines::kMain, true);
         set_kind(d, mode == 3 ? 5 : 6);
     } else set_kind(d, 7);
+}
+
+void Field::finish_run(Session& session, size_t car, int mode) {
+    session.set_finished(car);
+    finish(car, mode);
+}
+
+void Field::end_computers() {
+    for (const auto& d : drivers_)
+        if (d && d->control == 2 && !(d->kind >= 2 && d->kind <= 4)) {
+            if (d->line == 7) request_line(*d, CourseLines::kMain, true);
+            set_kind(*d, 5);
+        }
 }
 
 int Field::kind(size_t car) const { return car < drivers_.size() && drivers_[car] ? drivers_[car]->kind : 0; }
@@ -953,6 +981,8 @@ void Field::set_bspec_skill(size_t car, F corner, F brake, F alongside) {
 void Field::start_line(size_t car, int line) {
     Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
     if (!d) return;
+    // (0x4639E0 seeds the draws and makes the plan once, on the start's line: the constructor's plan took a draw)
+    d->rand = seed(*d);
     if (request_line(*d, line, true)) --d->inc.lane_changes;
 }
 
@@ -1496,7 +1526,7 @@ void Field::decide(Driver& d) {
         d.throttle = d.throttle * scale;
         int rank = ranks_[d.car];
         session_->rank(d.car, rank);
-        if (5000 + 100 * rank < s32(clock_ / 3)) traffic(d);
+        if (5000 + 100 * rank < s32(clock_ / 3) && !pace_.strip) traffic(d);
     } else {
         if (drive == -1) d.reverse = true, d.throttle = k::one;
         else d.throttle = F();
@@ -1549,7 +1579,7 @@ void Field::rubber_band() {
     const F lap(lines_.lap()), one = kOne;
     auto scale = [&](size_t r, size_t car, F prev) {
         F s = one;
-        if (!cars.finished(car) && !(drivers_[car] && drivers_[car]->kind >= 5)) { // (F +0x4B2: a run that is over)
+        if (!cars.finished(car)) {
             // 0x365910: the reference's lead in whole laps and metres, a lap taken over where the two disagree in sign.
             int laps = cars.state(r).lap - cars.state(car).lap;
             F gap = course_s(r) - course_s(car);
@@ -1654,7 +1684,7 @@ void Field::incidents_after(Driver& d) {
     if (steps_ > 600 && std::fabs(st.speed) < 5 * kKmh) d.inc.stuck_seconds += kStep;
 }
 
-void Field::begin_step() {
+void Field::begin_step(bool near_pass) {
     const Cars& cars = *session_;
     // The order by laps and distance (1 first).
     {
@@ -1690,7 +1720,7 @@ void Field::begin_step() {
     for (auto& d : drivers_)
         if (d) d->s = lines_.wrap_lap(cars.state(d->car).course_v);
     rubber_band();
-    proximity();
+    if (near_pass) proximity();
 }
 
 void Field::end_step() {
@@ -1719,7 +1749,12 @@ void Field::decide_car(size_t car, race::CarInput& in) {
     if (car >= drivers_.size() || !drivers_[car]) return;
     Driver& d = *drivers_[car];
     incidents_after(d);
-    decide(d);
+    // (0x3F3400: a driven car stood in its pit box, F +0x4BA, or stopped for good, kind 8, decides nothing)
+    {
+        const ex::Car& c = session_->record(d.car);
+        if ((d.control != 0 || d.kind != 0) && c.race_hold == 0 && (c.hold != 0 || d.kind == 8)) idle(d);
+        else decide(d);
+    }
     // The outputs into the controls (0x464F38): the throttle pedal slews to the wanted throttle by the step in the arcs.
     const ex::Car& c = session_->record(d.car);
     const F thr = pedal(d);
@@ -1746,8 +1781,9 @@ void Field::decide_car(size_t car, race::CarInput& in) {
     in.throttle = d.applied_throttle;
     in.brake = d.brake.host();
     in.reverse = d.reverse;
-    // (a player's car its driver drives in its rolling start keeps its control source, 0: F +0x467 tells the input)
-    in.computer = d.control != 0 || c.driver_kind != 1;
+    // (a player's car its driver drives, in its rolling start, the pits or after its finish, keeps its control source, 0: F +0x467
+    // tells the input)
+    in.computer = d.control != 0 || c.driver_kind == 0;
     in.control = u8(d.control == 1 ? 1 : 2); // (F +0x466: the B-spec car 1)
     in.shift_lock = u8(d.shift_lock);
 }
@@ -1778,16 +1814,22 @@ void Field::blip(Driver& d, u32 count) {
 }
 
 void Field::step(Session& session, std::span<race::CarInput> inputs, int keep, u32 count) {
-    begin_step();
+    begin_step(false);
     // (the band is run at a step's end, for the next: the race's first step runs at the cars' own step length)
     if (first_step_ && session.time() == 0) std::fill(scale_.begin(), scale_.end(), kOne);
     first_step_ = false;
     apply_time_scales(session);
+    for (const auto& dp : drivers_)
+        if (dp) {
+            session.set_pace_level(dp->car, dp->pace);
+            session.set_driver_kind(dp->car, u8(dp->kind));
+            if (dp->control == 1) session.set_shift_factor(dp->car, session.tank(dp->car) > 0 ? shift_factor(dp->car) : 128); // (0x3F19E0: with a tank, 0x354E38)
+        }
     auto plans_only = [&](const Driver& d) { return (d.control == 0 && d.kind == 0) || int(d.car) == keep; };
     for (auto& dp : drivers_)
         if (dp && dp->car < inputs.size() && !plans_only(*dp)) {
             race::CarInput& in = inputs[dp->car];
-            in.computer = dp->control != 0 || session_->record(dp->car).driver_kind != 1;
+            in.computer = dp->control != 0 || session_->record(dp->car).driver_kind == 0;
             in.control = u8(dp->control == 1 ? 1 : 2);
         }
     auto decide_one = [&](size_t car, race::CarInput& in) {
@@ -1807,8 +1849,9 @@ void Field::step(Session& session, std::span<race::CarInput> inputs, int keep, u
         }
         session.set_line_heading(car, line_heading_at(car), line_mode_at(car));
     };
-    if (count > 0) return session.hold_once(inputs, decide_one); // (no step of the race's clock)
-    session.step_once(inputs, decide_one);
+    const auto near_cars = [this] { proximity(); }; // (0x3F4638, within the step)
+    if (count > 0) return session.hold_once(inputs, decide_one, near_cars); // (no step of the race's clock)
+    session.step_once(inputs, decide_one, near_cars);
     end_step();
 }
 

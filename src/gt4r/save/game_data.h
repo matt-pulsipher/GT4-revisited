@@ -29,6 +29,8 @@ Codes database_codes(db::SpecDb& db);
 // A new game's payload: what the program's constructors make (the blocks the state does not
 // name are taken from here when no saved game was loaded).
 Bytes new_game_payload();
+// A play list as the options keep it (0x810 bytes; a saved replay's header has the races' music's).
+Bytes playlist_block(const menu::GameState::PlayList& list);
 // The state as a payload (its header's length and CRC filled in).
 Bytes write_game(const menu::GameState& state, const Codes& codes);
 // Whether a payload is this program's game data: the magic, the length, the CRC (0x43AA68).

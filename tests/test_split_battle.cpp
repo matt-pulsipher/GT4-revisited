@@ -249,7 +249,7 @@ TEST(disc_split_two_pads) {
             else CHECK(behind == 1.0f);
             CHECK(session.cars()[1 - leader].speed > 5);
             // The leader's finish: its driver cruises; the other's pad goes on.
-            field->finish(leader, 3, true);
+            field->finish_run(session, leader);
             CHECK(field->kind(leader) == 5 && field->kind(1 - leader) == 0);
             for (int step = 0; step < 1200; ++step) {
                 for (size_t i = 0; i < 2; ++i) in[i] = {};

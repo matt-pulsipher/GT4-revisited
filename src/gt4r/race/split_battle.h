@@ -23,12 +23,10 @@ struct SplitRules {
     static SplitRules from_options(const std::map<std::string, std::variant<s32, float, std::string>>& options);
 };
 
-// The race's row of its event with what the conductor puts in its place (the configuration CFG the row is copied into,
-// 0x35E108; here in the row, where CFG has it from):
-// - the tread wear's curve by the tire damage (virtual 11: 0x354F30; CFG +0x2C .. +0x34 from the row's +0x6B .. +0x73);
-// - the rubber band by the boost (virtual 12: 0x354EB8; CFG +0x22 and +0x28 .. +0x2A from +0x64 and +0x68 .. +0x6A): the car
-//   behind hurried by up to 7 % (mild, from 20 m) or 20 % (strong, from 10 m), in full at 200 m.
-void put_tire_damage(std::vector<u8>& row, int level);
+// The rubber band by the boost, in the race's row of its event (the conductor puts it into the configuration CFG the row is
+// copied into, 0x35E108; virtual 12: 0x354EB8; CFG +0x22 and +0x28 .. +0x2A from the row's +0x64 and +0x68 .. +0x6A): the car
+// behind hurried by up to 7 % (mild, from 20 m) or 20 % (strong, from 10 m), in full at 200 m. (The tire damage:
+// start_rule.h's put_tire_damage.)
 void put_boost(std::vector<u8>& row, int level);
 
 // How a car starts with a handicap (virtual 30, 0x347108): none on the grid; else both stand on the driving line: the first

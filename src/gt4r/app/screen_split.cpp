@@ -254,7 +254,7 @@ public:
         const bool hold = flow_.holding();
         for (size_t i = 0; i < kPlayers; ++i) {
             inputs_[i] = {};
-            if (flow_.car(i).finished) continue; // (his car's driver cruises on: finish_player)
+            if (flow_.car(i).finished) continue; // (his car's driver cruises on: finish_car)
             if (unseen || setup_.auto_drive[i]) {
                 if (!hold) inputs_[i] = race::follow_line(world_->line(), cars[i], i & 1 ? 2.0f : -2.0f, 1.0f - 0.05f * float(i));
                 continue;
@@ -276,7 +276,7 @@ public:
         for (size_t i = 0; i < kPlayers; ++i) world_->set_crossings(i, flow_.car(i).counter), world_->set_rank(i, flow_.place(i));
         const bool first_finish = !ev.finished.empty() && !flow_.everyone_finished() ? true : ev.finished.size() == kPlayers;
         for (const size_t i : ev.finished) {
-            world_->finish_player(i);
+            world_->finish_car(i, false); // (the battle's conductor 0x347230: 0x343D78 with 3)
             half_[i].finish_steps = 0;
             LOG_INFO("Split: player %zu finishes, place %d, %.3f s", i + 1, flow_.place(i), double(flow_.run_ms(i)) / 1000);
         }

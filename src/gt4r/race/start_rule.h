@@ -12,6 +12,7 @@
 #include <array>
 #include <span>
 #include <string>
+#include <vector>
 
 namespace gt4r::db {
 class SpecDb;
@@ -31,6 +32,7 @@ struct CourseStart {
     int kind = 0;           // the row's +0x10 (K +0xCBDD, 0x34C968; 255 reads 0): 2 and 3 the loose courses, where a
                             // license test does not count the wheels off the course (0x34C998)
     int way = 0;            // the row's +0x12 (K +0xCBDE): 1 a course without a lap, 2 no distance along it
+    bool strip = false;     // COURSE +0x13 of 2 and more (K +0xCBE1; the drag strip): its drivers keep their lanes
     bool fuel = false;      // the course's races count fuel (the row's +0x14, K +0xCBE0, on a paved course: 0x34CA20)
     float speed() const { return speed_kmh / 3.6f; } // metres per second
 };
@@ -94,5 +96,11 @@ std::array<u8, 0x80> event_rule_block(std::span<const u8> row);
 
 // A start code's digit (0-15; -1: not a hex digit).
 int start_code_digit(const std::string& code, size_t i);
+// An arcade single race's rules (the conductor's virtuals 26 and 11, 0x34CA20 / 0x354F30: the options penalty_type 0 none, 1 the
+// speed limit, 2 the pit lane, and tire_damage 0 .. 2, the race information's +4 and +8) over its RACE row's columns.
+void arcade_rules(std::vector<u8>& row, int penalty, int tire_damage);
+// The tread wear's curve by a tire damage option (virtual 11, 0x354F30: none but 1 and 2; rule block +0x2C .. +0x34, here the
+// row's +0x6B .. +0x73 they come from).
+void put_tire_damage(std::vector<u8>& row, int level);
 
 } // namespace gt4r::race
