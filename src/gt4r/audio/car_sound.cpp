@@ -422,7 +422,9 @@ void CarSound::update(const CarSoundState& car, const SoundListener& listener, b
     send(turbine_, turbine_fx_, report_.turbine, at_engine, float(car.turbine_pitch) / 6144.0f);
     {
         float level = 0, pitch = 1.0f;
-        if (car.live && (car.gear_whine || files_.whine) && car.clutch != 0 && k.whine_torque > 0 && car.low_ratio != 0) {
+        if (car.live && car.whine_given) {
+            level = car.whine_level, pitch = car.whine_pitch;
+        } else if (car.live && (car.gear_whine || files_.whine) && car.clutch != 0 && k.whine_torque > 0 && car.low_ratio != 0) {
             const float torque = std::min(std::fabs(car.drive_torque), k.whine_torque);
             const float x = std::fabs(torque * car.gear_ratio / (k.whine_torque * car.low_ratio));
             level = k.whine_gain_lo + (k.whine_gain_hi - k.whine_gain_lo) * x;

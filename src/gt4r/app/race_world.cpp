@@ -374,6 +374,11 @@ int RaceWorld::gadget_contacts(size_t i) const {
     return i < c.size() ? c[i] : 0;
 }
 
+float RaceWorld::gadget_impulse(size_t i) const {
+    const std::vector<float>& j = gadget_bodies_.impulses();
+    return i < j.size() ? j[i] : 0.0f;
+}
+
 float RaceWorld::car_top_speed(size_t i) const {
     return session_ && i < car_visuals_.size() ? session_->record(i).p.top_speed.host() : 0.0f;
 }

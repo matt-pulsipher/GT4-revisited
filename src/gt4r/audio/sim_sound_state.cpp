@@ -1,6 +1,7 @@
 #include "gt4r/audio/sim_sound_state.h"
 
 #include "gt4r/sim/car_spec.h"
+#include "gt4r/sim/rules.h"
 #include "gt4r/sim/rules_drive.h"
 #include "gt4r/sim/session.h"
 
@@ -57,6 +58,23 @@ CarSoundState sound_state(const sim::Session& session, size_t i, const RaceSound
         const sim::rules::DrivelineBlock& d = session.gt4_record(i).drive.d;
         s.gear_ratio = d.ratio[size_t(gear)].host(), s.low_ratio = d.ratio[1].host();
         s.shaft_speed = sim::rules::driven_axle_speed(c, d).host();
+        if (d.layout == 7) {
+            // Layout 7's motors (0x356D88): the front wheels' mean rim speed x 0.012 + 0.4, the
+            // level the motors' output (F +0x51C) / 4, its sign kept.
+            s.whine_given = true;
+            s.whine_pitch = 0.5f * (std::fabs(c.w[0].rim_speed.host()) + std::fabs(c.w[1].rim_speed.host())) * 0.012f + 0.4f;
+            s.whine_level = c.clutch_torque.host() * 0.25f;
+        } else if (d.kind == 3) {
+            // A one-speed box (0x369510): only with the brake pedal down and the clutch asked for, the
+            // driven group's two wheels: their mean rim speed x 0.012 + 0.3, their brake pressures x 0.2.
+            s.whine_given = true;
+            if (c.brake_pedal.host() != 0 && c.clutch_req.host() != 0) {
+                const sim::rules::WheelLayout& l = session.wheel_layout(i);
+                const size_t a = l.group_first[std::min<size_t>(d.driven_axle, 3)] & 3, b = l.partner[a] < 4 ? l.partner[a] : a;
+                s.whine_pitch = std::fabs(0.5f * (c.w[a].rim_speed.host() + c.w[b].rim_speed.host())) * 0.012f + 0.3f;
+                s.whine_level = (c.w[a].brake.host() + c.w[b].brake.host()) * 0.2f;
+            }
+        }
     } else {
         s.gear_ratio = c.p.d.ratio[size_t(std::min(gear, 7))].host(), s.low_ratio = c.p.d.ratio[1].host();
         const size_t axle = c.p.d.driven_axle ? 2 : 0;

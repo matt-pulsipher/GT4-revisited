@@ -53,6 +53,9 @@ public:
     float reverb_target() const { return target_; }
     size_t emitters(int c) const { return lists_[size_t(c)].size(); }
     float emitter_gain(int c, size_t i) const { return lists_[size_t(c)][i].gain; }
+    // An emitter's gates as course distances (equal: not gated) and its points.
+    std::pair<float, float> emitter_gates(int c, size_t i) const { return {lists_[size_t(c)][i].lo, lists_[size_t(c)][i].hi}; }
+    const gt3r::sound::CrssEmitter& emitter(int c, size_t i) const { return lists_[size_t(c)][i].src; }
 
 private:
     struct Emitter {

@@ -294,7 +294,8 @@ void RaceSound::update(std::span<const CarSoundState> states, const SoundListene
     distances.reserve(states.size());
     for (size_t i = 0; i < states.size() && i < cars_.size(); ++i) {
         CarSoundState s = states[i];
-        if (contact_[i] > 0) s.contact = contact_[i], s.contact_kind = contact_kind_[i];
+        // (the recorder keeps the step's strongest of every kind)
+        if (contact_[i] > s.contact) s.contact = contact_[i], s.contact_kind = contact_kind_[i];
         contact_[i] = 0;
         cars_[i]->update(s, camera, int(i) == target);
         distances.push_back(s.course_distance);

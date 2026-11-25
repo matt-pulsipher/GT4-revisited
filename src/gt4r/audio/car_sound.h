@@ -99,6 +99,11 @@ struct CarSoundState {
     float drive_torque = 0;             // through the clutch, N m (F +0x51C)
     float gear_ratio = 1, low_ratio = 1; // the gear's ratio and the whine's reference
     float shaft_speed = 0;              // the driven axles' speed, rad/s (0x350DA0)
+    // A drive that makes its own whine instead of the gearbox's rule (0x34FED0's first two
+    // branches): layout 7's motors (0x356D88) and a one-speed box (gearbox kind 3, 0x369510) give
+    // the level and pitch themselves, whatever the gearbox's grade and clutch.
+    bool whine_given = false;
+    float whine_level = 0, whine_pitch = 1;
     bool nitrous = false;               // flowing
     bool afterfire = false;             // a flame started at the exhaust this step
     // ... or the program's rule for one (0x3F3368, 0x3D6D30): the step that ends a shift (the

@@ -479,6 +479,50 @@ TEST(sound_race_gear_whine_on_disc) {
     CHECK(car.report().whine == 0);
 }
 
+// The whine of a drive that makes its own (0x34FED0's first branches): layout 7's motors (the Acura
+// DN-X, 0x356D88) by the front wheels' speed and the motors' output; a one-speed box (the Prius,
+// 0x369510) only while braking with the clutch asked for, by the driven wheels' speed and brakes.
+TEST(sound_race_motor_and_one_speed_whine_on_disc) {
+    Disc* disc = full_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    {
+        const std::string cars[] = {"acura_dnx_02"};
+        const std::unique_ptr<sim::Session> s = sim::Session::open(*disc, "tsukuba", cars);
+        CHECK(s->gt4_rules() && s->gt4_record(0).drive.d.layout == 7);
+        race::CarInput in;
+        in.throttle = 1;
+        for (int i = 0; i < 180; ++i) s->step_once({&in, 1});
+        const audio::CarSoundState st = audio::sound_state(*s, 0);
+        const auto& c = s->record(0);
+        const float front = 0.5f * (std::fabs(c.w[0].rim_speed.host()) + std::fabs(c.w[1].rim_speed.host()));
+        std::printf("  DN-X: %.1f km/h, whine pitch %.3f, level %.3f\n", double(st.speed * 3.6f), double(st.whine_pitch), double(st.whine_level));
+        CHECK(st.whine_given && near(st.whine_pitch, front * 0.012f + 0.4f, 1e-5) && near(st.whine_level, c.clutch_torque.host() * 0.25f, 1e-6));
+        CHECK(st.whine_pitch > 0.4f);
+    }
+    {
+        const std::string cars[] = {"prius_g_02"};
+        const std::unique_ptr<sim::Session> s = sim::Session::open(*disc, "tsukuba", cars);
+        CHECK(s->gt4_record(0).drive.d.kind == 3);
+        race::CarInput in;
+        in.throttle = 1;
+        for (int i = 0; i < 240; ++i) s->step_once({&in, 1});
+        audio::CarSoundState st = audio::sound_state(*s, 0);
+        CHECK(st.whine_given && st.whine_level == 0 && st.whine_pitch == 1.0f); // (no brake: none)
+        in = race::CarInput{};
+        in.brake = 1;
+        float most = 0;
+        for (int i = 0; i < 60; ++i) {
+            s->step_once({&in, 1});
+            st = audio::sound_state(*s, 0);
+            const auto& c = s->record(0);
+            if (c.brake_pedal.host() != 0 && c.clutch_req.host() != 0) CHECK(st.whine_level > 0 && st.whine_pitch >= 0.3f);
+            else CHECK(st.whine_level == 0);
+            most = std::max(most, st.whine_level);
+        }
+        std::printf("  Prius braking: whine up to %.3f\n", double(most));
+    }
+}
+
 // A race: a session on Tsukuba with its course sound, the count's beeps at 3, 2 and 1 seconds,
 // the start, then the cars driving.
 TEST(sound_race_session_on_disc) {
