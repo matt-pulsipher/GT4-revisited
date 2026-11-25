@@ -53,6 +53,12 @@ public:
     static s64 race_clock(int hold_left, s64 clock) { return hold_left > 1 ? -s64(hold_left - 1) * kClockPerStep : clock; }
     // Each car's distance from the start (crossings x the lap + its place in it), after a step.
     void set_progress(std::span<const double> distance, double lap);
+    // What changed our car outside its state in the step that ends at `clock` (a pit stop: net/car_service.h; each step's hold
+    // counter too), given before after_step: sent with our car-info block when there is something new.
+    void service(const ServiceEvent& e) { service_.add(e); }
+    const ServiceLog& service_log() const { return service_; }
+    // The pit stop's tire change on the other cars' predictions (NetField::set_tire_change), kept for a race set up anew.
+    void set_tire_change(std::function<void(sim::Session& solo, RemoteCar& car)> make);
     // Our car finished (the race's time and the best lap in units of 1/3000 s; -1 no lap); a car our race saw finish.
     void finished(s64 units, s64 best_units);
     void observed_finish(size_t car, s64 units);
@@ -97,6 +103,8 @@ public:
 private:
     void handle(const gt3r::net::Event& e);
     int world_of(u8 id) const;
+    void take_service(size_t car);    // a car's section of its car-info block
+    void publish_service(s64 clock);  // ours
 
     gt3r::net::Session* net_;
     OnlineRace race_;
@@ -118,6 +126,8 @@ private:
     std::deque<gt3r::net::Event> rest_;
     std::string why_;
     u32 states_sent_ = 0;
+    ServiceLog service_;
+    std::function<void(sim::Session& solo, RemoteCar& car)> tire_change_;
 };
 
 } // namespace gt4r::net

@@ -1090,7 +1090,7 @@ public:
             ++demo_step_;
         }
         const bool opening = opening_tv();
-        if (net_) net_->before_step(net_clock());
+        if (net_) net_->before_step(net_step_clock_ = net_clock());
         world_->step(inputs_, hold, demo ? demo_bspec_ : (auto_drive || watched_ || setup_.auto_drive), u32(std::max(0, flow_.hold_left() - 1)));
         if (recording_ && !demo && world_->pit_took_default(0) && records_.back().bytes[0x10] == 0)
             for (size_t k = 0; k < 4; ++k) records_.back().bytes[0x10 + k] = k ? 0xFE : 1; // (0x35BF08 posts it in the step's mail)
@@ -1180,6 +1180,8 @@ public:
     // An online race: the race's clock, its state after a step to the others, their cars' laps here.
     void attach_online(net::NetRace* net) {
         net_ = net;
+        world_->note_service(net_ != nullptr);
+        if (net_) net_->set_tire_change(world_->prediction_tire_change()); // (the others' pit stops on their predictions)
         if (net_ && world_->session()) net_->attach(*world_->session());
     }
     s64 net_clock() const { return net::NetRace::race_clock(flow_.hold_left(), flow_.clock()); }
@@ -1193,6 +1195,9 @@ public:
         net_->set_progress(along, world_->lap_length());
         if (const net::NetField* f = net_->field())
             for (size_t i = 1; i < f->size(); ++i) world_->set_car_alpha(i, f->ghost(i) ? 0.5f : 1.0f);
+        // What our car's pit stop did outside its state, by the race's clock (before the step: its start's; after it: its end's).
+        for (const RaceWorld::ServiceNote& n : world_->take_service())
+            net_->service({s32(n.after ? net_clock() : net_step_clock_), n.kind, n.value});
         net_->after_step(net_clock(), inputs_[0], flow_.car(0).laps_done);
         for (const size_t i : ev.finished) {
             if (i == 0) net_->finished(flow_.car(0).finish_units, flow_.car(0).best_lap_ms >= 0 ? flow_.car(0).best_lap_ms * 3 : -1);
@@ -2114,6 +2119,7 @@ private:
     race::StartCamera start_camera_;
     race::RaceFlow flow_;
     net::NetRace* net_ = nullptr; // an online race's other machines
+    s64 net_step_clock_ = 0;      // (the race's clock at the step's start)
     std::vector<std::string> player_names_;
     std::vector<OnlineRaceUi::Label> labels_; // and where its cars are in the picture
     race::ResultBoard board_;

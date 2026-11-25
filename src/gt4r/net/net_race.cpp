@@ -45,8 +45,28 @@ void NetRace::attach(sim::Session& race) {
     const u32 tick = field_ ? field_->tick() : 0;
     field_ = std::make_unique<NetField>(race, std::move(info), 0);
     field_->set_tick(tick);
+    if (tire_change_) field_->set_tire_change(tire_change_);
     for (size_t w = 0; w < standing_.size(); ++w)
         if (standing_[w].retired && !standing_[w].ours) field_->set_gone(w);
+    for (size_t w = 1; w < standing_.size(); ++w) take_service(w);
+}
+
+void NetRace::set_tire_change(std::function<void(sim::Session& solo, RemoteCar& car)> make) {
+    tire_change_ = std::move(make);
+    if (field_ && tire_change_) field_->set_tire_change(tire_change_);
+}
+
+void NetRace::take_service(size_t car) {
+    if (!field_ || car == 0 || car >= standing_.size()) return;
+    const Bytes* block = net_->car_info(standing_[car].id);
+    if (!block) return;
+    if (const std::optional<CarService> s = service_of(*block); s && s->round == race_.round && !s->events.empty()) field_->add_service(car, s->events, clock_);
+}
+
+void NetRace::publish_service(s64 clock) {
+    if (lost_ || !net_->joined() || net_->my_id() < 0) return;
+    const Bytes* now = net_->car_info(u8(net_->my_id()));
+    net_->set_car_info(with_service(now ? ByteSpan(*now) : ByteSpan(), {race_.round, service_.recent(clock)}));
 }
 
 int NetRace::world_of(u8 id) const {
@@ -101,6 +121,10 @@ void NetRace::handle(const gt3r::net::Event& e) {
         if (phase_ != Phase::Over) phase_ = Phase::Racing; // (drive on alone)
         break;
     case K::Lobby: phase_ = Phase::Over; break;
+    case K::CarInfo: // (a player's record, with what a pit stop did to his car since)
+        if (w > 0) take_service(size_t(w));
+        rest_.push_back(e);
+        break;
     default: rest_.push_back(e); break;
     }
 }
@@ -168,6 +192,8 @@ void NetRace::after_step(s64 clock, const race::CarInput& ours, int laps) {
     clock_ = clock;
     if (!field_) return;
     field_->after_step(clock);
+    service_.end_step(s32(clock));
+    if (service_.take_changed()) publish_service(clock);
     const CarSnapshot s = field_->state(ours, clock, laps);
     // GT4R_NET_DEBUG=1: every half second where every car is here, by the race's clock (two machines' logs compare).
     static const bool debug = std::getenv("GT4R_NET_DEBUG") != nullptr;

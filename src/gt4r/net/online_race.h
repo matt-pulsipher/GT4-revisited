@@ -44,6 +44,7 @@ struct OnlineRace {
     RaceRules rules;
     std::vector<RaceCar> cars; // in grid order, the pole first
     int ours = 0;              // this machine's index in cars
+    u16 round = 0;             // the lobby's round (the host's record): a car's service section of another race is not taken
 };
 
 } // namespace gt4r::net

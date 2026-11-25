@@ -18,6 +18,7 @@
 #include "gt4r/race/replay_effects.h"
 #include "gt4r/race/replay_script.h"
 #include "gt4r/race/simulation.h"
+#include "gt4r/net/car_service.h"
 #include "gt4r/sim/ai/drivers.h"
 #include "gt4r/sim/ai/pit_stops.h"
 #include "gt4r/sim/equipment.h"
@@ -98,6 +99,10 @@ struct WorldSetup {
     std::map<std::string, std::variant<s32, float, std::string>> options;
     std::shared_ptr<audio::RacePlaylist> playlist;
 };
+
+namespace net {
+class RemoteCar;
+}
 
 class RaceWorld {
 public:
@@ -194,6 +199,17 @@ public:
         pits_->request(car);
         return true;
     }
+    // An online race: what a pit stop did to car 0 outside its state in the last step (net/car_service.h), oldest first; `after`
+    // the step (the pit pass, the refuelling) or before it (the stop's timing, with each step's hold counter). Noted once asked.
+    struct ServiceNote {
+        bool after = false;
+        net::ServiceEvent::Kind kind = net::ServiceEvent::Hold;
+        u32 value = 0;
+    };
+    void note_service(bool on) { service_on_ = on, service_.clear(); }
+    std::vector<ServiceNote> take_service() { return std::exchange(service_, {}); }
+    // And the program's pit tire change for the others' predictions (NetRace::set_tire_change); empty without the program.
+    std::function<void(sim::Session& solo, net::RemoteCar& car)> prediction_tire_change() const;
     // The car's pit message (F +0x5FA, 0x35ACD8's codes; 0 none) and its stops made.
     int pit_message(size_t car) const { return pits_ && car < car_visuals_.size() ? pits_->message(car) : 0; }
     // The B-spec driver's record after the race (car +0x8C, 0x40 bytes) and the car's class (0x468418); nullopt when
@@ -429,6 +445,8 @@ private:
     std::vector<u8> pit_asked_;               // each car's choice was already asked at the last look (pit_offer)
     std::function<std::pair<int, int>(size_t)> tires_fitted_; // (their hook: the kinds on the car)
     std::shared_ptr<const sim::Program> program_; // (what their tire change reads)
+    bool service_on_ = false;                 // car 0's service noted (note_service)
+    std::vector<ServiceNote> service_;
     bool bspec_driven_ = false;               // a B-spec driver drove the player's car (its record set)
     bool computer_player_ = false, cars_hidden_ = false;
     std::vector<bool> ended_; // the cars whose run is over (finish_car)
