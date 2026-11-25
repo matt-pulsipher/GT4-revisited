@@ -122,7 +122,9 @@ CourseScene::CourseScene(render::GpuContext& ctx, ByteSpan course_file, const st
     after_ = build(ctx, course::kSlotAfter, name + "/after", false, false);
     // The cones and boards: their kinds' shapes, drawn where the road file puts them.
     try {
-        gadgets_ = Gadgets::parse(file_.section(data_, course::kSlotGadgets), file_.section(data_, course::kSlotRunway));
+        ByteSpan road = file_.section(data_, course::kSlotRunway);
+        if (road.empty()) road = file_.section(data_, course::kSlotRoadGtrw); // (Prologue's)
+        gadgets_ = Gadgets::parse(file_.section(data_, course::kSlotGadgets), road);
         if (!gadgets_.models.empty() && !gadgets_.placements.empty() && mdls::is_mdls(gadgets_.models)) {
             mdls::Scene sc;
             sc.color_scale = color_scale_;

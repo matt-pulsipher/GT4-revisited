@@ -131,7 +131,7 @@ StrobeMovie StrobeMovie::parse(ByteSpan d) {
             const size_t q = tracks.at + 0x28 * size_t(t);
             Track tr;
             tr.kind = rd16(d, q), tr.first = s16(rd16(d, q + 2)), tr.end = s16(rd16(d, q + 4)), tr.index = rd16(d, q + 6);
-            tr.depth = rd32(d, q + 8);
+            tr.depth = rd32(d, q + 8) & 0xFFFF, tr.clip = rd16(d, q + 10);
             const List clip = table(d, q + 0x10, 8), keys = table(d, q + 0x18, 0x24);
             for (u32 i = 0; i < clip.count; ++i) tr.clip_actions.push_back({rd32(d, clip.at + 8 * i), int(s16(rd16(d, clip.at + 8 * i + 4)))});
             for (u32 i = 0; i < keys.count; ++i) {
