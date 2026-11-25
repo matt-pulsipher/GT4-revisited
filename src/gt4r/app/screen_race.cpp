@@ -52,6 +52,7 @@
 #include "gt4r/menu/game_settings.h"
 #include "gt4r/menu/race_natives.h"
 #include "gt4r/menu/runtime.h"
+#include "gt4r/net/online_race.h"
 #include "race/controls.h"
 #include "race/interp.h"
 #include "gt4r/race/car_pose.h"
@@ -138,7 +139,34 @@ struct Setup {
     std::optional<std::array<u8, 0x20>> player_condition; // and its condition block
     std::vector<std::optional<sim::Equipment>> opponent_equipment; // per opponent (as `opponents`): its pool's parts and settings
     std::shared_ptr<audio::RacePlaylist> playlist;   // the races' music (the game's play list)
+    std::shared_ptr<const net::OnlineRace> online;   // an online race (its cars in grid order); online_order: our entries' places in it
+    std::vector<size_t> online_order;                // (entry 0 is ours, the others follow in grid order)
 };
+
+// An online race's set-up: our car entry 0, the others in grid order, every car as its owner sent it on its place of the grid.
+void online_set_up(Setup& setup, const std::shared_ptr<const net::OnlineRace>& online) {
+    setup.online = online;
+    const net::OnlineRace& o = *online;
+    setup.online_order = {size_t(o.ours)};
+    for (size_t i = 0; i < o.cars.size(); ++i)
+        if (int(i) != o.ours) setup.online_order.push_back(i);
+    setup.cars = int(o.cars.size());
+    setup.laps = std::clamp(o.rules.laps, 1, 99);
+    setup.opponents.clear(), setup.opponent_equipment.clear(), setup.paints.clear(), setup.grid_slots.clear();
+    for (size_t e = 0; e < setup.online_order.size(); ++e) {
+        const net::RaceCar& c = o.cars[setup.online_order[e]];
+        if (e == 0) {
+            setup.car = c.label, setup.paint = c.paint, setup.wing = c.wing;
+            setup.player_equipment = c.equipment, setup.player_condition = c.condition;
+            setup.player.automatic = c.automatic, setup.player.asm_on = c.asm_on, setup.player.tcs_on = c.tcs_on, setup.player.wheel_aid = c.wheel_aid, setup.player.wheel_lock = c.driver;
+        } else {
+            setup.opponents.push_back(c.label);
+            setup.opponent_equipment.push_back(c.equipment);
+        }
+        setup.paints.push_back(c.paint);
+        setup.grid_slots.push_back(int(setup.online_order[e]));
+    }
+}
 
 Setup setup_from_env() {
     Setup s;
@@ -547,6 +575,10 @@ public:
                 // gives (0xFF: the race's choice, here by its number).
                 e.equipment = setup.opponent_equipment[size_t(i - 1)];
                 if (const u8 p = e.equipment->b(0x18); p != 0xFF && size_t(i) >= setup.paints.size()) e.paint = p;
+            }
+            if (setup.online && i > 0) { // (its owner's gearbox, aids and condition)
+                const net::RaceCar& c = setup.online->cars[setup.online_order[size_t(i)]];
+                e.automatic = c.automatic, e.asm_on = c.asm_on, e.tcs_on = c.tcs_on, e.wheel_aid = c.wheel_aid, e.driver = c.driver, e.condition = c.condition, e.wing = c.wing;
             }
             ws.entries.push_back(e);
         }
@@ -1636,6 +1668,13 @@ public:
             if (const char* e = SDL_getenv("GT4R_AUTODRIVE"); e && *e == '1') setup_.auto_drive = true;
             menus_ = chosen->menus, sequence_ = chosen->sequence;
             setup_.sequence = chosen->sequence;
+            if (chosen->online) {
+                const Setup env = setup_from_env(); // (a scripted run: `drive`, `view`, `skip`, `hud`)
+                setup_.auto_drive = setup_.auto_drive || env.auto_drive, setup_.view = env.view, setup_.hud = env.hud;
+                online_set_up(setup_, chosen->online);
+                setup_.options = chosen->options;
+                if (!setup_.options.empty()) pictures_from_options(setup_.options);
+            }
             if (menus_) setup_.race = menus_->game().race.race;
             if (menus_) {
                 const menu::RaceRequest& q = menus_->game().race;
@@ -1774,9 +1813,14 @@ public:
         settings_ = menu::settings_from(setup_.options);
         controllers_ = settings_.controllers;
         if (menus_) setup_.player = player_choice(true);
+        if (setup_.online) { // (the wheel's forces are this machine's)
+            const input::DeviceConfig& wheel = controllers_.port[0].of(input::Device::Cheetah);
+            setup_.player.wheel_strength = gt3r::s16(std::clamp(input::get_feedback(wheel, input::Device::Cheetah, "POWER"), 0, 2));
+            setup_.player.wheel_assist = gt3r::s16(input::get_feedback(wheel, input::Device::Cheetah, "POWER_ASSIST"));
+        }
         // The first view of a race of the menus: the options' (view_type: SUBJECTIVE the nose,
         // BONNET the higher one, OVERLOOK the chase view).
-        if (from_menus_) setup_.view = settings_.view == "OVERLOOK" ? race::DriveCamera::kChase : settings_.view == "BONNET" ? race::DriveCamera::kRoof : race::DriveCamera::kInCar;
+        if (from_menus_ && (!setup_.online || !setup_.options.empty())) setup_.view = settings_.view == "OVERLOOK" ? race::DriveCamera::kChase : settings_.view == "BONNET" ? race::DriveCamera::kRoof : race::DriveCamera::kInCar;
         if (sequence_ == "race_view") setup_.view = kTvView;
         // A race without the menus: the races' music by the play list a new game has (the
         // configuration script's, run by menus booted for it).
