@@ -9,6 +9,7 @@
 #include <cstring>
 #include <deque>
 #include <functional>
+#include <optional>
 #include <cstdio>
 #include <cstdlib>
 

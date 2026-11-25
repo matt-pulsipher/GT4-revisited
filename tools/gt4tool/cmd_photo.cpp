@@ -19,6 +19,7 @@
 #include "gt4r/save/codec.h"
 #include "gt4r/save/photo_file.h"
 
+#include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
