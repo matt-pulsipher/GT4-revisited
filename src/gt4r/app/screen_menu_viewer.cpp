@@ -280,6 +280,8 @@ private:
             if (!photos_) photos_ = std::make_unique<PhotoFaces>(app);
             PhotoFaces* photos = photos_.get();
             photos->picture = [this]() { return runtime_ ? runtime_->photo_picture.get() : nullptr; };
+            slides->card_list = [this]() { return runtime_ ? menu::slide_folders(*runtime_) : std::vector<std::string>{}; };
+            slides->card_photo = [this](const std::string& folder) { return runtime_ ? menu::slide_photo(*runtime_, folder) : std::nullopt; };
             drawer->draw_live = [movies, cars, models, slides, photos](const LiveWidget& face, menu::Project* project, const std::string& page, const Rect& at, const SDL_FRect& dst, float opacity) {
                 if (face.is("MovieFace")) movies->draw(face, dst, opacity);
                 else if (face.is("CarFace")) cars->draw(face, project, page, at, dst, opacity);

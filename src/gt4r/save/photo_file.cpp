@@ -295,11 +295,16 @@ Result PhotoCard::save(const PhotoInfo& info, ByteSpan jpeg, const std::vector<u
     if (!write_file(dir / "thumbnail", scramble(rec.encode(), 0, chance(), FileKind::Info))) return Result::DeviceError;
     if (!write_file(dir / folder, scramble(jpeg, 0, chance(), FileKind::Photo))) return Result::DeviceError;
     if (const Bytes icon = make_icon(small, info.portrait); !icon.empty()) write_file(dir / "icon0.ico", icon);
+    write_icon_sys(dir.string(), title + "[" + std::to_string(number + 1) + "]");
+    return Result::Ok;
+}
+
+// icon.sys: the disc's with the title "GRAN TURISMO 4" and a second line ("Photo data[1]").
+void PhotoCard::write_icon_sys(const std::string& dir, const std::string& title) const {
     if (std::optional<Bytes> sys = disc_ ? disc_("icon/icon.sys") : std::nullopt; sys && sys->size() >= 0x1C4) {
-        // The title: "GRAN TURISMO 4" and the second line "Photo data[1]".
         Bytes& d = *sys;
         Bytes text = full_width_title("GRAN TURISMO 4");
-        const Bytes second = full_width_title(title + "[" + std::to_string(number + 1) + "]");
+        const Bytes second = full_width_title(title);
         d[6] = u8(text.size()), d[7] = 0;
         text.insert(text.end(), second.begin(), second.end());
         if (text.size() > 0x43) text.resize(0x42);
@@ -310,9 +315,8 @@ Result PhotoCard::save(const PhotoInfo& info, ByteSpan jpeg, const std::vector<u
             std::memcpy(d.data() + at, "icon0.ico", 9);
         }
         d.resize(964);
-        write_file(dir / "icon.sys", d);
+        write_file(fs::path(dir) / "icon.sys", d);
     }
-    return Result::Ok;
 }
 
 Result PhotoCard::write_info(const std::string& folder, const PhotoInfo& info) {
@@ -330,5 +334,56 @@ Result PhotoCard::remove(const std::string& folder) {
     fs::remove_all(fs::path(card_) / folder, ec);
     return ec ? Result::DeviceError : Result::Ok;
 }
+
+bool PhotoCard::has_slides() const {
+    std::error_code ec;
+    const std::string name = product_ + "LSTSLIDE";
+    return !card_.empty() && fs::is_regular_file(fs::path(card_) / name / name, ec);
+}
+
+Result PhotoCard::load_slides(std::vector<Listed>& out) const {
+    out.clear();
+    if (card_.empty()) return Result::NoCard;
+    if (!has_slides()) return Result::FileNotFound;
+    const std::string name = product_ + "LSTSLIDE";
+    const Bytes d = read_file(fs::path(card_) / name / name);
+    if (d.size() < 0xC88 || rd32(d, 0xC80) > u32(kListSize)) return Result::InvalidFile;
+    for (u32 i = 0; i < rd32(d, 0xC80); ++i) {
+        const u64 v = get64(d, i * 8);
+        out.push_back({v & 0x00FFFFFFFFFFFFFFull, char(v >> 56)});
+    }
+    return Result::Ok;
+}
+
+Result PhotoCard::save_slides(const std::vector<Listed>& list, const std::string& title) {
+    if (card_.empty()) return Result::NoCard;
+    const std::string name = product_ + "LSTSLIDE";
+    const fs::path dir = fs::path(card_) / name;
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    if (ec) return Result::DeviceError;
+    // The list as it is in memory (400 places, the count), padded to 64 bytes; not scrambled (0x1D0F38).
+    Bytes d(0xCC0, 0);
+    const size_t n = std::min<size_t>(list.size(), size_t(kListSize));
+    for (size_t i = 0; i < n; ++i) {
+        const u64 v = (list[i].id & 0x00FFFFFFFFFFFFFFull) | u64(u8(list[i].kind)) << 56;
+        put32(d, i * 8, u32(v)), put32(d, i * 8 + 4, u32(v >> 32));
+    }
+    put32(d, 0xC80, u32(n));
+    if (!write_file(dir / name, d)) return Result::DeviceError;
+    if (disc_)
+        if (const std::optional<Bytes> icon = disc_("icon/GT4_Playlist_slide.ico")) write_file(dir / "icon0.ico", *icon);
+    write_icon_sys(dir.string(), title);
+    return Result::Ok;
+}
+
+Result PhotoCard::remove_slides() {
+    if (card_.empty()) return Result::NoCard;
+    std::error_code ec;
+    fs::remove_all(fs::path(card_) / (product_ + "LSTSLIDE"), ec);
+    return ec ? Result::DeviceError : Result::Ok;
+}
+
+std::string PhotoCard::folder(const Listed& l) const { return product_ + l.kind + folder_letters(l.id); }
 
 } // namespace gt4r::save

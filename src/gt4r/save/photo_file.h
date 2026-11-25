@@ -63,10 +63,24 @@ public:
     // A new photo; `title`: icon.sys's second line ("Photo data").
     Result save(const PhotoInfo& info, ByteSpan jpeg, const std::vector<u16>& small, const std::string& title);
     Result remove(const std::string& folder);
+
+    // The slide show's list (the folder ...LSTSLIDE): the photos' folder numbers with their kinds, in order.
+    struct Listed {
+        u64 id = 0;      // the folder's letters as a number
+        char kind = 'P'; // the folder's first letter
+    };
+    static constexpr int kListSize = 400, kListKb = 76;
+    bool has_slides() const;
+    Result load_slides(std::vector<Listed>& out) const;
+    Result save_slides(const std::vector<Listed>& list, const std::string& title);
+    Result remove_slides();
+    // A listed photo's folder.
+    std::string folder(const Listed& l) const;
     // The record written again (a photo renamed: 0x1CF578).
     Result write_info(const std::string& folder, const PhotoInfo& info);
 
 private:
+    void write_icon_sys(const std::string& dir, const std::string& title) const;
     std::string card_, product_;
     Reader disc_;
     Bytes make_icon(const std::vector<u16>& small, bool portrait) const;

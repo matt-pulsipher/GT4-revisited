@@ -201,6 +201,17 @@ int photos_kb(Runtime& rt) {
     return kb;
 }
 
+std::vector<std::string> slide_folders(Runtime& rt) {
+    std::vector<std::string> out;
+    const save::PhotoCard card = photo_card(rt, 0);
+    std::vector<save::PhotoCard::Listed> ids;
+    if (!rt.game().card.connected || card.load_slides(ids) != save::Result::Ok) return out;
+    for (const save::PhotoCard::Listed& id : ids) out.push_back(card.folder(id));
+    return out;
+}
+
+std::optional<Bytes> slide_photo(Runtime& rt, const std::string& folder) { return photo_card(rt, 0).picture(folder); }
+
 void photo_day(Runtime& rt, const std::string& course) {
     DayEvent day;
     day.type = 8, day.b3 = 5, day.b1 = 15, day.b2 = 14, day.word = kNoTime;
@@ -271,16 +282,44 @@ bool install_photo_manager(GameNatives& n, Object& manager, const std::string& m
     manager.property("free", [rt, slot] { return number(card_free_kb(*rt, slot)); });
     manager.property("realFree", [rt, slot] { return number(card_free_kb(*rt, slot)); });
     manager.set("cursorPos", number(0));
-    manager.set("autoloadPlayListResult", text("OK"));
 
-    // The slide show's list: kept as the file the scripts save (❓ the program's LSTSLIDE file is not written).
+    // The slide show's list: the card's LSTSLIDE file, read into the list the scripts give it.
     auto shown = std::make_shared<std::shared_ptr<PlayListObject>>();
+    auto loaded = std::make_shared<save::Result>(save::Result::FileNotFound);
+    manager.property("autoloadPlayListResult", [loaded] { return text(save::result_name(*loaded)); });
     auto auto_list = std::make_shared<Object>("MMemoryCardFile");
-    auto_list->property("list", [shown] { return *shown ? object_value(*shown) : Value{}; }, [shown](const Value& v) {
-        if (const auto l = v.as<PlayListObject>()) *shown = l;
+    auto_list->property("list", [shown] { return *shown ? object_value(*shown) : Value{}; }, [np, rt, slot, shown, loaded](const Value& v) {
+        const auto l = v.as<PlayListObject>();
+        if (!l) return;
+        *shown = l;
+        const save::PhotoCard card = photo_card(*rt, slot);
+        std::vector<save::PhotoCard::Listed> ids;
+        *loaded = card.load_slides(ids);
+        if (*loaded != save::Result::Ok) return;
+        const std::vector<save::PhotoEntry> photos = card.list('P');
+        l->files.clear();
+        for (const save::PhotoCard::Listed& id : ids) {
+            const std::string folder = card.folder(id);
+            for (const save::PhotoEntry& e : photos)
+                if (e.folder == folder) l->files.push_back(make_file(*np, e, slot));
+        }
     });
-    auto_list->set("size", number(4));
-    auto_list->method("save", [](Vm&, const Value&, Args) { return text("OK"); });
+    auto_list->set("size", number(save::PhotoCard::kListKb));
+    auto_list->method("isExist", [connected, rt, slot](Vm&, const Value&, Args) { return number(!connected() ? -1 : photo_card(*rt, slot).has_slides() ? 0 : 1); });
+    auto_list->method("readSize", [](Vm&, const Value&, Args) { return number(save::PhotoCard::kListKb); });
+    auto_list->method("format", [](Vm&, const Value&, Args) { return number(1); });
+    auto_list->method("remove", [rt, slot](Vm&, const Value&, Args) { return number(photo_card(*rt, slot).remove_slides() == save::Result::Ok); });
+    for (const char* nothing : {"dump", "setNewFile"}) auto_list->method(nothing, [](Vm&, const Value&, Args) { return Value{}; });
+    // save(manager) / saveNew(manager, the icon's second line)
+    for (const char* write : {"save", "saveNew"}) auto_list->method(write, [rt, slot, shown, loaded](Vm&, const Value&, Args a) {
+        std::vector<save::PhotoCard::Listed> ids;
+        if (*shown)
+            for (const auto& f : (*shown)->files)
+                if (const std::optional<u64> id = save::folder_id(f->entry.folder.substr(f->entry.folder.size() - 7))) ids.push_back({*id, f->entry.kind});
+        const save::Result r = photo_card(*rt, slot).save_slides(ids, a.size() > 1 ? a[1].to_string() : std::string("Slideshow"));
+        if (r == save::Result::Ok) *loaded = r;
+        return text(save::result_name(r));
+    });
     manager.set("autoloadPlayList", object_value(auto_list));
 
     // The list: the card's photos or films, or the play list's files.

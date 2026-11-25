@@ -7,6 +7,7 @@
 
 #include "gt4r/menu/game_internal.h"
 #include "gt4r/menu/game_bspec.h"
+#include "gt4r/formats/sound/sound_index.h"
 #include "gt4r/menu/game_opponents.h"
 #include "gt4r/sim/ai/bspec_skill.h"
 #include "gt4r/menu/game_settings.h"
@@ -897,7 +898,25 @@ g.method("menuRef", [s](Vm&, const Value&, Args a) {
         s->during_quick_menu = a.empty() || a[0].truthy();
         return Value{};
     });
-    g.method("getAllMusicList", [](Vm&, const Value&, Args) { return Value::array({}); });
+    // getAllMusicList() (0x165798): the streamed "racing" pieces, [title, artist, genre, number] each.
+    g.method("getAllMusicList", [r](Vm&, const Value&, Args) {
+        std::vector<Value> out;
+        for (const std::string& path : {"bgm/" + r->region() + "/ads.inf", std::string("bgm/us/ads.inf")}) {
+            const std::optional<Bytes> inf = r->reader()(path);
+            if (!inf || inf->size() < 0x14) continue;
+            try {
+                const sound::MusicIndex index = sound::MusicIndex::parse(*inf);
+                const int racing = sound::stream_group("racing");
+                if (racing < 0 || size_t(racing) >= index.groups.size()) continue;
+                for (const sound::MusicRecord& m : index.groups[size_t(racing)])
+                    out.push_back(Value::array({Value::string(m.title), Value::string(m.artist), Value::string(m.genre), number(s32(out.size()))}));
+            } catch (const std::exception&) {
+                continue;
+            }
+            break;
+        }
+        return Value::array(std::move(out));
+    });
     g.method("getBattleSettingRace", [](Vm&, const Value&, Args) { return Value{}; });
     g.method("getBattleSettingEntry", [](Vm&, const Value&, Args) { return Value{}; });
     g.property("option", [this] { return make_option(); });
