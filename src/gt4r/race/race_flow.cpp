@@ -243,6 +243,10 @@ void ResultBoard::follow(const RaceFlow& flow) {
     }
 }
 
+void ResultBoard::touch() {
+    for (Row& r : rows_) r.changed = true;
+}
+
 bool ResultBoard::take_changed(size_t row) {
     if (row >= rows_.size()) return false;
     const bool c = rows_[row].changed;

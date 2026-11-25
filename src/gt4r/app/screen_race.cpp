@@ -2329,8 +2329,8 @@ private:
                 if (n == "ISCHAMPIONSHIP") return V::boolean(true);
                 if (n == "ISSTAGE1") return V::boolean(g.series.races_run == 0);
                 if (n == "TOPOINTDISP") points_phase_ = 1;
-                if (n == "TOPOINTADDPHASE") points_phase_ = 2;
-                if (n == "TOPOINTRANKINGPHASE") points_phase_ = 3;
+                if (n == "TOPOINTADDPHASE") points_phase_ = 2, board.touch(); // (the rows read again for this part)
+                if (n == "TOPOINTRANKINGPHASE") points_phase_ = 3, board.touch();
                 if (n == "GETPOINT") {
                     const std::string at = args.empty() ? std::string() : args[0].to_string();
                     const int r = at.size() > 1 && (at[0] == 'R' || at[0] == 'r') ? std::atoi(at.c_str() + 1) - 1 : -1;

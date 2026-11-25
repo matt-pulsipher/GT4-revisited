@@ -147,6 +147,8 @@ public:
     // While the page is up: the running cars' rows from the race's order now.
     void follow(const RaceFlow& flow);
     // The page's question for a row: changed since it last asked (the mark is taken).
+    // Every row as changed: the results movie reads them all again (the points pages of a championship).
+    void touch();
     bool take_changed(size_t row);
     const std::vector<Row>& rows() const { return rows_; }
     int player_row() const { return player_row_; }
