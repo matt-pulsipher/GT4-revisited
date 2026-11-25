@@ -121,6 +121,7 @@ struct Setup {
     s64 targets[3] = {-1, -1, -1};
     std::map<std::string, std::variant<s32, float, std::string>> options; // the game's (the sound's volumes); empty: a new game's
     std::optional<sim::Equipment> player_equipment;  // a garage car's parts and settings
+    std::optional<std::array<u8, 0x20>> player_condition; // and its condition block
     std::vector<std::optional<sim::Equipment>> opponent_equipment; // per opponent (as `opponents`): its pool's parts and settings
     std::shared_ptr<audio::RacePlaylist> playlist;   // the races' music (the game's play list)
 };
@@ -376,7 +377,7 @@ public:
                 e.start_speed = setup.start_speed;
                 e.start_distance = float(sim::rules::rolling_start_distance(-int(std::lround(setup.start_back)), int(std::lround(setup.start_spacing)), setup.cars, e.grid_place));
             }
-            if (i == 0) e.equipment = setup.player_equipment, e.wing = setup.wing;
+            if (i == 0) e.equipment = setup.player_equipment, e.condition = setup.player_condition, e.wing = setup.wing;
             else if (size_t(i - 1) < setup.opponent_equipment.size() && setup.opponent_equipment[size_t(i - 1)]) {
                 // An opponent entered as its pool enters it: its parts, settings and the paint the pool
                 // gives (0xFF: the race's choice, here by its number).
@@ -1261,7 +1262,10 @@ public:
                 setup_.options = menus_->game().options;
                 pictures_from_options(setup_.options);
                 // The garage car's own parts and settings (the sheet in use).
-                if (q.garage_slot >= 0) setup_.player_equipment = menu::race_equipment(menus_->game(), q.garage_slot);
+                if (q.garage_slot >= 0) {
+                    setup_.player_equipment = menu::race_equipment(menus_->game(), q.garage_slot);
+                    setup_.player_condition = menu::race_condition(menus_->game(), q.garage_slot);
+                }
                 setup_.bspec_book = q.bspec_book, setup_.bspec_course_marks = q.bspec_course_marks, setup_.bspec_course_known = q.bspec_course_known;
                 setup_.playlist = playlist_from(menus_->game().bgm_playlist);
                 // The Replay Theater's Play: the saved replay, then the menus again.
@@ -2152,7 +2156,7 @@ private:
         report();
         setup_.course = q.course, setup_.race = q.race;
         if (q.laps > 0) setup_.laps = std::clamp(q.laps, 1, 99);
-        if (sequence_ == "license") setup_.car = q.car, setup_.paint = u32(std::max(0, q.paint)), setup_.player_equipment.reset();
+        if (sequence_ == "license") setup_.car = q.car, setup_.paint = u32(std::max(0, q.paint)), setup_.player_equipment.reset(), setup_.player_condition.reset();
         if (sequence_ == "championship") { // the start places from the second race on (0x3EE9F8); the entries keep their numbers
             std::vector<std::pair<std::string, std::optional<sim::Equipment>>> entries{{setup_.car, setup_.player_equipment}};
             for (size_t i = 0; i < setup_.opponents.size(); ++i)

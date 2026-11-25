@@ -190,7 +190,18 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
         if (gt4_ready_) { // the parameter block from the spec, as the car's set-up makes it (Gran Turismo 4's converter)
             Record r;
             r.car = c;
-            build_record(specs_[i], program, tables_, ConvertIn{}, r, &blocks_[i]);
+            ConvertIn ci;
+            std::array<u8, 0x20> condition{};
+            if (e.condition) condition = *e.condition;
+            else condition[0x14] = 1;
+            ci.condition = condition.data();
+            build_record(specs_[i], program, tables_, ci, r, &blocks_[i]);
+            {
+                std::array<u32, 8> w;
+                std::memcpy(w.data(), condition.data(), condition.size()); // (into F + 0x5D8)
+                c.odometer = decltype(c.odometer)(w[0]), c.engine_wear = F::raw(w[1]), c.oil = F::raw(w[2]), c.dirt = F::raw(w[3]);
+                for (size_t k = 0; k < 4; ++k) c.x408[k] = w[4 + k];
+            }
             r.x.aids.assist = assist; // (the entry's aid switches, already in the spec)
             c.p = r.car.p;
             // The fuel and the nitrous at the start (0x354AF8; the race's fuel rule, the rule block's +0x4C: Entry::fuel).
@@ -354,6 +365,15 @@ void Session::place_standing(size_t car, F x, F y, F z, F heading) {
     hold_heading_[car] = heading;
     for (size_t w = 0; w < 4; ++w) extra_[car].kinds[w] = c.g[w].miss ? 0 : c.g[w].flags, extra_[car].materials[w] = c.g[w].miss ? 0 : c.g[w].material;
     publish(car);
+}
+
+std::array<u8, 0x20> Session::condition(size_t i) const {
+    std::array<u8, 0x20> b{};
+    if (i >= cars_.size()) return b;
+    const ex::Car& c = cars_[i];
+    const std::array<u32, 8> w{u32(c.odometer), c.engine_wear.bits, c.oil.bits, c.dirt.bits, c.x408[0], c.x408[1], c.x408[2], c.x408[3]};
+    std::memcpy(b.data(), w.data(), b.size());
+    return b;
 }
 
 void Session::set_start_delay(size_t car, u32 steps) {
@@ -741,7 +761,8 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
         auto computer_outputs = [&] {
             c.full_throttle = 1;
             c.throttle_pedal = c.throttle = gt3r::ee::F(std::clamp(in.throttle, 0.0f, 1.0f));
-            ex::set_brake_pedal(c, gt3r::ee::F(std::clamp(in.brake, 0.0f, 1.0f)));
+            if (gt4_rules_) rules::brake_pedal(c, layouts_[i], F(std::clamp(in.brake, 0.0f, 1.0f))); // (0x343D60)
+            else ex::set_brake_pedal(c, gt3r::ee::F(std::clamp(in.brake, 0.0f, 1.0f)));
             c.reverse_req = gt3r::s8(in.reverse ? 1 : 0);
             if (in.shift_lock) c.shift_lockout = in.shift_lock;
             c.shift_req = 0;
@@ -769,7 +790,7 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
             { // phase 4 (0x357700; the pit stop's counter 0x35C0B8 not when the caller keeps it: set_pit_hold)
                 const u16 hold = c.hold;
                 if (i < pit_by_caller_.size() && pit_by_caller_[i]) c.hold = 0;
-                rules::prep(c, g, l, tables_, race_.prep.condition, grip);
+                rules::prep(c, g, l, tables_, grip);
                 c.hold = hold;
             }
             // (the masses with the fuel, 0x354AC0, as the fuel's state has them, and the fuel the aids read)

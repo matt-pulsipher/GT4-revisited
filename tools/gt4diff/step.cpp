@@ -392,6 +392,13 @@ StepResult run_step(Disc& disc, bool print, const std::string& course_label, con
     add_taps_force(taps);
     add_taps_parts(taps);
     parts_before_run(ee, o);
+    // GT4R_STEP_CONDITION=<engine m>,<oil m>: the car's condition (F + 0x5DC / + 0x5E0, +0x5EC 0): its torque by it (0x34E9A0).
+    if (const char* k = std::getenv("GT4R_STEP_CONDITION")) {
+        float en = 0, oil = 0;
+        std::sscanf(k, "%f,%f", &en, &oil);
+        const u32 F = o.car(0) + 0x104;
+        ee.wf(F + 0x5DC, en), ee.wf(F + 0x5E0, oil), ee.w8(F + 0x5EC, 0);
+    }
     // GT4R_STEP_COLLIDE: the collision step and the road query against ours at every call (collide_check.cpp).
     std::unique_ptr<CollideCheck> collide_check;
     if (std::getenv("GT4R_STEP_COLLIDE")) {
