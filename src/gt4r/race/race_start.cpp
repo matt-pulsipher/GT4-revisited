@@ -90,7 +90,7 @@ int first_line(const StartRace& r, const PlannedStart& p, bool pad, int grid_pla
     constexpr u32 kGridLines = 0x620AD8;
     int line = int(program.w(kGridLines + 4 * u32(std::max(0, grid_place) % 6)));
     const course::Runway::Place &a = r.road->grid[0], &b = r.road->grid[1];
-    const F h = F(a.heading) + F::raw(0x40490FDB);
+    const F h = F(a.heading) + F::raw(0x40490FDA);
     const F side = (F(a.pos.x) - F(b.pos.x)) * gt3r::ee::cos(h) - (-gt3r::ee::sin(h)) * (-(F(a.pos.z) - F(b.pos.z)));
     if (!(side < F()) && (line == 1 || line == 2)) line = 3 - line;
     return line;

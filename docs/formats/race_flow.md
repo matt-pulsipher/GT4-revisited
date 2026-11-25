@@ -219,8 +219,8 @@ before (0x357830: no crossing yet, or the mark 1).
 **The judge** (`DynamicsConductorLicense::vf15` → 0x3F8D70, each step for the player's car while its run
 has not ended, F +0x4B2 clear) reads the rule bits F +0x4B3 and fails the test with kind 3 for bit 2, 5 for
 bit 4, 4 for bit 1 (0x3F8980: event 10, the run's time none). Then by the test's kind: 1, the stop in the
-box (0x3F91F0: all four wheels on triangles flagged bit 2 and the squared speed under 0.2778, timed that
-share of a step into it, → 0x3F8AB0); 6, the car's place byte (car +0x5B3, 1 the leader) at 1 fails with
+box (0x3F91F0: all four wheels on triangles flagged bit 2 and the speed at most 0.2778 m/s, 1 km/h, timed the
+speed's share of that of a step into it, → 0x3F8AB0); 6, the car's place byte (car +0x5B3, 1 the leader) at 1 fails with
 kind 6 ❓ (read, not seen: a lap behind the pace car that may not be passed); when the test counts cones
 (CFG +0x46 > 0) and the count K +0x1003C reaches it, the run ends timed (0x3F8AB0); with a time limit the
 count K +0x1003E runs a frame a step while the car's byte F +0x4AF is 1 and starts again otherwise

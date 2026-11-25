@@ -91,8 +91,8 @@ private:
     LicenseFail fail_ = LicenseFail::None;
 };
 
-// 0x3F91F0: the car stopped in the stopping box: every wheel on a triangle flagged bit 2 and the squared speed no more than
-// 0.2778 (m/s)^2, in the program's arithmetic; the step's share at which it counts (the squared speed over 0.2778), none while
+// 0x3F91F0: the car stopped in the stopping box: every wheel on a triangle flagged bit 2 and the speed no more than
+// 0.2778 m/s (1 km/h), in the program's arithmetic; the step's share at which it counts (the speed over 0.2778), none while
 // it is not.
 std::optional<float> stopped_in_box(const CarState& c);
 

@@ -241,7 +241,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
         if (e.place) {
             at = *e.place; // (the section's own start place: a plain grid start)
             GroundHit h;
-            if (ground_->at_place(at.pos, h)) at.pos.y = h.point.y;
+            if (!gt4_rules_ && ground_->at_place(at.pos, h)) at.pos.y = h.point.y;
         } else if (!std::isnan(e.start_distance) && road_->length > 0) {
             kind = e.start_distance < 0 ? 2 : 1;
             float v = std::fmod(e.start_distance, road_->length);
@@ -252,6 +252,8 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
             at.pos = point, at.heading = std::atan2(dir.x, dir.z);
             GroundHit h;
             if (ground_->at_place(at.pos, h)) at.pos.y = h.point.y;
+        } else if (gt4_rules_ && size_t(want) < road_->grid.size()) {
+            at = road_->grid[size_t(want)]; // (the place as the road has it: the set-up's query finds the road from 5 m above)
         } else if (size_t(want) >= places.size()) {
             at = places[0];
             const float back = 8.0f * float(want);
@@ -325,7 +327,7 @@ void Session::setup(size_t i, const course::Runway::Place& at, int kind, float s
     a.hint = -1;
     // The place in the record's frame (x, y, z up); the car faces the place's heading turned half a turn.
     a.x = F(at.pos.x), a.y = F(-at.pos.z), a.z = F(at.pos.y);
-    a.heading = F(at.heading) + kPi;
+    a.heading = F(at.heading) + F::raw(0x40490FDA); // (0x395228)
     if (line) { // (on its driving line)
         a.start_kind = line->kind, a.speed = gt3r::ee::int_to_f(line->speed), a.hint = line->hint, a.start_mark = line->mark;
         a.x = line->x, a.y = line->y, a.z = line->z, a.heading = line->heading;

@@ -973,8 +973,8 @@ public:
     // docs/formats/race_flow.md "The license tests' rules"), each step from the start signal until the
     // player's car's run ends:
     // - a test of kind 1 ends when all four wheels are in the stopping box (triangles flagged bit 2, the
-    //   wheel ground record's +0x33 bit 2 that 0x3F91F0 reads) and the car is slower than 0.527 m/s (its
-    //   squared speed under 0.2778), timed that share of a step in;
+    //   wheel ground record's +0x33 bit 2 that 0x3F91F0 reads) and the car is slower than 0.2778 m/s (1 km/h), timed that
+    //   share of a step in;
     // - it fails (no time) when every wheel on the ground is on a material off the course (but on the
     //   loose courses) or on the pit lane, on a wall hit or car hit over the test's limits, on a cone
     //   touched where the test counts none, or (kind 6) when the car leads the race;
