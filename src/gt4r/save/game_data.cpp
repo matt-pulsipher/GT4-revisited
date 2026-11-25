@@ -17,7 +17,7 @@ using menu::GarageEntry;
 namespace {
 
 // The blocks of the payload (save.md "The game data", the block map).
-constexpr size_t kProfile = 0x10, kDiaryCount = 0x230, kDiary = 0x234, kToday = 0xB8D4, kGarageList = 0xB8E0, kGarageTail = 0x135E0,
+constexpr size_t kProfile = 0x10, kBspecBook = 0xA4, kDiaryCount = 0x230, kDiary = 0x234, kToday = 0xB8D4, kGarageList = 0xB8E0, kGarageTail = 0x135E0,
                  kRidingRecord = 0x135FC, kRaceUnits = 0x13AC0, kCourseRecord = 0x146C0, kMachineRecord = 0x262C0, kLicenseRecord = 0x26BA0,
                  kAvailable = 0x361C0, kFavoriteCars = 0x385D0, kFavoriteCourses = 0x386E0, kPresents = 0x387F0, kChampionship = 0x38870,
                  kUsedCar = 0x38900, kOptionHead = 0x38930, kGameZone = 0x39AF0, kControllers = 0x39B00, kLan = 0x39BC0, kNetwork = 0x39C6C,
@@ -194,6 +194,7 @@ Bytes write_game(const GameState& s, const Codes& codes) {
     for (size_t i = 0; i < 7; ++i) put32(b, 0x5C + 4 * i, s.rank_counts[i]);
     put64(b, 0x78, u64(s.aspec_distance)), put64(b, 0x80, u64(s.bspec_distance));
     put32(b, 0x88, u32(s.withdrawn)), put32(b, 0x8C, u32(s.withdrawn_gt4p)), b[0x90] = u8(s.met_type);
+    for (size_t i = 0; i < s.bspec_book.size(); ++i) b[kBspecBook + 2 * i] = u8(s.bspec_book[i]), b[kBspecBook + 2 * i + 1] = u8(s.bspec_book[i] >> 8);
     // The calendar: the days kept, oldest first; today.
     put32(b, kDiaryCount, u32(s.diary.size()));
     std::memset(b.data() + kDiary, 0, GameState::kDiaryDays * 16);
@@ -336,6 +337,7 @@ bool read_game(ByteSpan p, GameState& s, const Codes& codes, std::vector<int>* r
     for (size_t i = 0; i < 7; ++i) s.rank_counts[i] = get32(p, 0x5C + 4 * i);
     s.aspec_distance = s64(get64(p, 0x78)), s.bspec_distance = s64(get64(p, 0x80));
     s.withdrawn = int(get32(p, 0x88)), s.withdrawn_gt4p = int(get32(p, 0x8C)), s.met_type = p[0x90];
+    for (size_t i = 0; i < s.bspec_book.size(); ++i) s.bspec_book[i] = u16(p[kBspecBook + 2 * i] | p[kBspecBook + 2 * i + 1] << 8);
     const u32 days = std::min<u32>(get32(p, kDiaryCount), GameState::kDiaryDays);
     for (u32 i = 0; i < days; ++i) {
         const size_t o = kDiary + 16 * i;

@@ -13,10 +13,12 @@ using render::Mat4;
 using RVec = render::Vec3;
 
 constexpr float kPi = 3.14159265f;
-// The on-board camera's angle for the in-car and chase views (docs/formats/camera.md "Field of
-// view"): the program's own number; how it meets the picture has not been compared with the
-// original running.
-constexpr float kOnBoardAngle = 90.0f * kPi / 180.0f;
+// The on-board camera's lens for the in-car and chase views (docs/formats/camera.md "Field of view"): the
+// program's 90 degrees as the original's picture shows it, 61.2 degrees across a 4:3 picture's width. Two
+// measures agree: the view's size factor K (0x8465E4) is 721.2 in the original's chase view, and for a picture
+// 448 lines high K = 224 / (0.75 tan(A / 2)) x 10 / 7 (0x456918), so tan(A / 2) = 0.5916; and the Ka and the
+// R390 are as wide in its chase pictures (20-race-chase, 25-sound-cars) as this lens draws them.
+constexpr float kOnBoardAngle = 2 * 0.53418f; // 2 atan(0.5916)
 
 float wrap(float a) {
     while (a > kPi) a -= 2 * kPi;

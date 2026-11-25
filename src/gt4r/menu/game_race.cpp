@@ -2,6 +2,7 @@
 // 0x1A0F80 on; docs/formats/database.md "RACE"), and the opponents' pool of a race (its file
 // specdb/<set>/RACES/<the race's code>).
 
+#include "gt4r/menu/game_bspec.h"
 #include "gt4r/menu/game_internal.h"
 #include "gt4r/menu/race_natives.h"
 
@@ -145,6 +146,11 @@ s32 championship_points(Database& d, int place) {
     return s32(s8(d.program.b(kChampionshipPoints + u32(place))));
 }
 
+s32 Runtime::points_for_place(int place) {
+    const std::shared_ptr<GameNatives> n = natives_of(*this);
+    return n ? championship_points(n->db(), place) : 0;
+}
+
 // A distance driven added to a car's condition as the race's step does (0x35DE20, 0x35DD00):
 // the odometer (whole meters, capped at 100,000,000; 0x343518), and unless the car has no
 // wear the engine's distance up to its limit (0x3435E8), the oil's (0x343708: from below 0 it
@@ -227,6 +233,12 @@ s64 Runtime::race_finished(const RaceResult& r) {
             if (name == kNames[i]) return i;
         return 15u;
     };
+    // The B-spec driver's record back into its book (0x468AF0 -> 0x468860), and the course's marks.
+    if (r.bspec_record && (r.kind == RaceResult::Kind::Event || r.kind == RaceResult::Kind::Championship || r.kind == RaceResult::Kind::Course)) {
+        std::optional<size_t> at = r.bspec_course ? bspec_course_unit(d, s, r.course) : std::nullopt;
+        bspec::write_back(s.bspec_book, std::clamp(r.bspec_class, 0, 7), *r.bspec_record, r.bspec_doubled, at ? 2 : 0,
+                          at ? s.course_record.data() + *at + 0x228 : nullptr);
+    }
     // The player's place in the finishing order (0x110570), or the one given.
     int place = r.place;
     for (size_t i = 0; i < r.order.size(); ++i)

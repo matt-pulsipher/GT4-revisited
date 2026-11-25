@@ -2,6 +2,8 @@
 
 #include "prologue_taps.h"
 
+#include "gt4r/sim/aids_prologue.h"
+
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/formats/course/runway_gtrw.h"
 #include "gt4r/sim/exact_bridge.h"
@@ -323,6 +325,20 @@ void add_prologue_taps(PTaps& taps, const Disc& disc, const std::string& course)
                   part.tires = x, part.layout = layout(c), part.chassis = ch;
                   sim::prologue::lateral_yaw(c.car, part, c.ee.a(1) != 0, t);
               }});
+    static sim::prologue::AidTables aid_tables;
+    aid_tables = sim::prologue::aid_tables(sim::Program::load(const_cast<Disc&>(disc)));
+    taps.add({0x3E0838, "Prologue's aids", [=](PTapCall& c) {
+                  const sim::prologue::AidTables& g = aid_tables;
+                  sim::prologue::CarPart part;
+                  part.tires = extra(c), part.layout = layout(c);
+                  // (each wheel's curve A byte, +0x27, as the tire slip force left it)
+                  for (u32 w = 0; w < 4; ++w)
+                      part.tires.curve_a[w] = gt3r::ee::int_to_f(c.ee.r8(c.car_addr + 0x138 + 0xA4 * w + 0x27)) * gt3r::ee::F::raw(0x3C000000);
+                  const u32 rules = c.ee.r32(c.car_addr + 4) + 0x10780;
+                  sim::prologue::AidRace r;
+                  r.speed_cap = {c.ee.r8(rules + 0x42), c.ee.r8(rules + 0x43)}, r.start_cap = c.ee.r8(rules + 0x4B);
+                  sim::prologue::aids(c.car, part, g, r, c.inputs.aids);
+              }});
     taps.add({0x3C4D80, "engine's ground frame, GT4's axes", [=](PTapCall& c) {
                   ex::ground_frame(c.car);
                   sim::rules::body_axes(c.car.ground_pitch, c.car.ground_roll, c.car.heading, c.car.ground_fwd, c.car.ground_lat, c.car.ground_up);
@@ -498,7 +514,7 @@ std::vector<PTapStat> check(Disc& disc, const std::string& course, const std::st
     Ee ee;
     boot(ee, disc);
     Race r;
-    if (!setup_race(ee, disc, sdb, course, {car}, 1, r, err)) return {};
+    if (!setup_race(ee, disc, sdb, course, {car}, 1, r, err, true)) return {};
     const sim::Program program = sim::Program::load(disc);
     const ex::ProgramData data = sim::core_program(program);
     const ex::RaceInputs inputs = ex::race_inputs(data, ex::Conductor::SinglePlayer, ex::RaceConfig{}, false, 0);

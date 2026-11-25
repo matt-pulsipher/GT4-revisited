@@ -7,6 +7,8 @@
 // Gran Turismo 4 part made from Prologue's (prologue_extra), or Prologue's own (below). Addresses are SCPS-15055 v1.01's.
 
 #include "gt4r/sim/car_spec.h"
+#include "gt4r/sim/convert_prologue.h"
+#include "gt4r/sim/equipment.h"
 #include "gt4r/sim/record.h"
 #include "gt4r/sim/rules_chassis.h"
 #include "gt4r/sim/rules_steer.h"
@@ -98,6 +100,8 @@ struct Tables {
     u8 rolling_n = 0;
     std::array<F, 8> rolling_x, rolling_y;
     ex::BrakeHeatConsts brake_heat;
+    ConvertData convert; // what the converter reads (convert_prologue.h)
+    u8 asm_keep = 0;     // 0x504B04: an entry with the stability control off keeps its switches' bits 6 and 7
 };
 // The engine's statics with Prologue's own values where they differ (the rolling resistance's curve; its per-surface
 // coefficients, 0x504438, are the engine's).
@@ -125,15 +129,8 @@ rules::TireExtra tire_extra(const ex::Params& p, const TireKinds& kinds, const T
 // scale).
 void slip_ratios(ex::Car& c, const rules::TireExtra& x, const rules::WheelLayout& l, const Tables& t);
 
-// Prologue's converter (0x3C74B8) where it is not the engine's (Gran Turismo 3's 0x1DBFD8), on the engine's parameter
-// block: each tire record's base grip times its load curve at its axle's static load per wheel (half the axle's static
-// load plus the unsprung weight, over the axle's width: Gran Turismo 4's rule, 0x361798), and for a record read at its
-// sideways speed the slip angle of curve A's peak the axis point of its greatest value (Gran Turismo 4's 0x353800).
-void convert(ex::Params& p, const Spec& spec);
-
-// A tire record's kind bytes from Gran Turismo 4's spec of the car (Spec::tire_block(k) +3 .. +5: the builder writes
-// Prologue's there as its spec's tire block +0x6C .. +0x6E).
-TireKinds tire_kinds(const Spec& spec);
+// A tire record's kind bytes from Prologue's parameter block (each record's +0x1B4 .. +0x1B6).
+TireKinds tire_kinds(const Block& p);
 
 // What a car of Prologue's step keeps beside the engine's record: Gran Turismo 4's tire part, the mass the forward step
 // divides by (the parameter block's), its wheel layout.
@@ -146,10 +143,20 @@ struct CarPart {
     rules::ChassisExtra chassis;
     rules::WheelLayout layout;
 };
-CarPart car_part(const ex::Car& c, const Spec& spec, const Tables& t);
+// The part from the car's record and Prologue's parameter block: the wheel layout of its +0x30, the tire records' kind bytes.
+CarPart car_part(const ex::Car& c, const Block& p, const Tables& t);
 
-// The parts of the parameter block (its image, Gran Turismo 3's layout) that the engine's record has no member for.
+// The parts of the parameter block (its image, Gran Turismo 3's layout or Prologue's: the same below the tire records) that
+// the engine's record has no member for.
 void image_part(CarPart& x, const u8* params);
+
+// A car of Prologue's race as its set-up makes it (0x3C93A0): Prologue's spec (convert_prologue.h core_spec) of `s`, the
+// spec of the equipment `eq` by Gran Turismo 4's builder, on a course of kind `course_kind` (2: dirt); the entry's aid
+// switches (0x3C93A0: the stability control's switches off, its bits 6 and 7 kept while 0x504B04 is set; the traction
+// control off); Prologue's converter at `base` (convert_prologue.h), its block read into c.p (the engine's layout) and the
+// part beside it. `block`: the block too, when wanted.
+CarPart build_car(db::SpecDb& db, const Spec& s, const Equipment& eq, int course_kind, bool asm_on, bool tcs_on, const Tables& t, u32 base,
+                  ex::Car& c, Block* block = nullptr);
 
 // Each wheel's tire's x1da for the forward step and the lateral forces: the record of the wheel's surface (Gran Turismo 4
 // copies it in its peak force, 0x357418; Prologue reads the record).

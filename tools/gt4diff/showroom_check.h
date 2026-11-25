@@ -40,5 +40,13 @@ struct ChartsResult {
     std::string first_engine, first_gears;
 };
 ChartsResult run_charts(Disc& disc, bool print);
+// The B-spec driver's book (menu/game_bspec.h) on made-up books against the program's: the four figures
+// (0x468B58 on [0x622F4C] + 0x3E4), the race's record (0x468710) and the record written back (0x468860,
+// both ways of `doubled`, with and without the course's marks), for a car of each class.
+struct BookResult {
+    bool ran = false;
+    size_t figures = 0, figures_equal = 0, records = 0, records_equal = 0, backs = 0, backs_equal = 0;
+};
+BookResult run_bspec_book(Disc& disc, bool print, int books = 40);
 
 } // namespace gt4r::diff

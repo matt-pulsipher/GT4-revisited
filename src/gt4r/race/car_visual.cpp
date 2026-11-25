@@ -17,13 +17,14 @@ namespace {
 namespace scene = gt3r::scene;
 using render::Mat4;
 
-constexpr int kSkip = 99; // a callback value no switch has a case for: the construct is left out
+constexpr int kSkip = 99;       // a callback value no switch has a case for: the construct is left out
+constexpr int kWheelLevels = 2; // the body's levels whose wheels are items of their own (the far level draws its own)
 
 render::Vec3 v3(const course::Vec3& v) { return {v.x, v.y, v.z}; }
 
 // The callback values of a car's body for the race view's draws: the wheels' constructs are left
 // out (the wheels are items of their own), the spoiler is as built.
-mdls::Scene body_scene(bool brake, int lamp_level) {
+mdls::Scene body_scene(bool brake, int lamp_level, int spoiler = 0) {
     mdls::Scene s;
     s.resolve_callbacks = true;
     s.callback_default = 0;
@@ -31,7 +32,7 @@ mdls::Scene body_scene(bool brake, int lamp_level) {
     s.callback_values[7] = lamp_level;
     for (u16 id = 11; id <= 18; ++id) s.callback_values[id] = kSkip;
     for (u16 id = 20; id <= 39; ++id) s.callback_values[id] = kSkip;
-    s.callback_values[47] = 0;
+    s.callback_values[47] = spoiler; // 0 as built, 1 a wing fitted, 2 the spoiler taken off
     return s;
 }
 
@@ -102,6 +103,36 @@ bool is_mirror_model(ByteSpan set, u32 model) {
     return false;
 }
 
+// A model set with one more texture set in each of its lists, `tex1` (a Tex1 set of another file):
+// the new set's number is the set's count of sets before. Its lists and the set go after the block.
+Bytes with_texture_set(ByteSpan set, ByteSpan tex1, int& index) {
+    const mdls::Header h = mdls::read_header(set);
+    index = int(h.texture_sets);
+    const u32 tex_size = tex1.size() >= 0x10 ? std::min<u32>(rd32(tex1, 0x0C), u32(tex1.size())) : 0;
+    Bytes out(set.begin(), set.begin() + std::min<size_t>(h.size ? h.size : set.size(), set.size()));
+    auto align = [&] { out.resize((out.size() + 15) & ~size_t(15), 0); };
+    auto put32 = [&](size_t at, u32 v) { std::memcpy(out.data() + at, &v, 4); };
+    align();
+    const u32 tex_at = u32(out.size());
+    out.insert(out.end(), tex1.begin(), tex1.begin() + tex_size);
+    for (u32 l = 0; l < h.texture_lists; ++l) {
+        align();
+        const u32 list = u32(out.size());
+        const u32 old_list = rd32(set, h.texture_table + 4 * l);
+        for (u32 k = 0; k < h.texture_sets; ++k) {
+            const u32 v = old_list + 4 * k + 4 <= set.size() ? rd32(set, old_list + 4 * k) : 0;
+            out.resize(out.size() + 4), put32(out.size() - 4, v);
+        }
+        out.resize(out.size() + 4), put32(out.size() - 4, tex_at);
+        put32(h.texture_table + 4 * l, list);
+    }
+    align();
+    const u16 sets = u16(h.texture_sets + 1);
+    std::memcpy(out.data() + 0x1C, &sets, 2);
+    put32(0x10, u32(out.size()));
+    return out;
+}
+
 Mat4 basis(const render::Vec3& right, const render::Vec3& up, const render::Vec3& back, const render::Vec3& origin) {
     Mat4 m;
     m.m = {right.x, right.y, right.z, 0, up.x, up.y, up.z, 0, back.x, back.y, back.z, 0, origin.x, origin.y, origin.z, 1};
@@ -126,11 +157,65 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
     }
     const u32 body_models = mdls::read_header(body).models;
 
-    // The body with its lamps unlit and lit. The far level draws its wheels as shapes of its own
-    // with a picture of the wheel set, which this reader does not bind: the two nearer levels.
-    constexpr int kLevels = 2;
+    // The level of detail's switch at the start of the body's program (0x07: centre, size), after the
+    // render-state commands without operands that come before it (0x22 on the cars looked at).
+    {
+        const mdls::Header h = mdls::read_header(body);
+        u32 pc = h.models && h.model_table + 0x1C <= body.size() ? rd32(body, h.model_table + 0x18) : 0;
+        const auto plain = [](u8 op) {
+            for (u8 o : {0x01, 0x0B, 0x0C, 0x0D, 0x17, 0x18, 0x1A, 0x1B, 0x1D, 0x1E, 0x22, 0x23, 0x25, 0x26, 0x2D, 0x2E, 0x30, 0x40, 0x4E, 0x4F, 0x56, 0x57, 0x58})
+                if (op == o) return true;
+            return false;
+        };
+        for (int k = 0; pc && k < 8 && pc < body.size() && plain(body[pc]); ++k) ++pc;
+        if (pc && pc + 18 <= body.size() && body[pc] == 0x07) {
+            float f[4];
+            std::memcpy(f, body.data() + pc + 1, 16);
+            lod_centre_ = {f[0], f[1], f[2]}, lod_size_ = f[3], lod_levels_ = body[pc + 17];
+        }
+    }
+    // A fitted wing (wing/lod/<label>): the stock spoiler's case 1 of callback 47; the wing set's
+    // model 0 is drawn before the body at the parts block's place (+0xD0), scaled by half its width
+    // (+0xDC) (0x4533A8).
+    const int spoiler = opt.wing.empty() ? 0 : 1;
+    if (!opt.wing.empty() && c.info && c.info + 0x58 <= file.size()) {
+        const u32 parts = rd32(file, c.info + 0x50);
+        if (parts && parts + 0xE0 <= file.size()) {
+            float f[4];
+            std::memcpy(f, file.data() + parts + 0xD0, 16);
+            wing_place_ = {f[0], f[1], f[2]}, wing_scale_ = f[3] * 0.5f;
+            mdls::Scene ws;
+            ws.resolve_callbacks = true;
+            scene::Model m = build_levels(opt.wing, 0, ws, 3, 0, name + "/wing");
+            for (const scene::Mesh& mesh : m.meshes) wing_lods_ = std::max(wing_lods_, mesh.lod + 1);
+            if (!m.meshes.empty()) to_gpu(wing_, m);
+        }
+    }
+    // The body with its lamps unlit and lit, at its three levels of detail. The far level draws its
+    // wheels as shapes of its own with the picture callback 46 binds to slot 2: the wheel set's last
+    // texture set (its far level's turning face), given to the body as a set of its own here.
+    constexpr int kLevels = kWheelLevels;
+    Bytes far_body;
+    int far_set = -1;
+    if (c.wheel) {
+        const ByteSpan wheel_set = file.subspan(c.wheel);
+        const mdls::Header wh = mdls::read_header(wheel_set);
+        const u32 list = wh.texture_lists ? rd32(wheel_set, wh.texture_table) : 0;
+        const u32 last = wh.texture_sets && list + 4 * wh.texture_sets <= wheel_set.size() ? rd32(wheel_set, list + 4 * (wh.texture_sets - 1)) : 0;
+        if (lod_levels_ >= 3 && last && last + 0x20 <= wheel_set.size()) far_body = with_texture_set(body, wheel_set.subspan(last), far_set);
+    }
     for (int brake = 0; brake < 2; ++brake) {
-        scene::Model m = build_levels(body, 0, body_scene(brake != 0, opt.lamp_level), kLevels, 0, name);
+        scene::Model m = build_levels(body, 0, body_scene(brake != 0, opt.lamp_level, spoiler), kLevels, 0, name);
+        if (!far_body.empty()) {
+            mdls::Scene sc = body_scene(brake != 0, opt.lamp_level, spoiler);
+            sc.outside_sets[mdls::kWheelFaceSlot] = far_set;
+            gt3r::gtm1::Options o = car_options();
+            o.node = 0;
+            o.run.lod = 2;
+            scene::Model far = mdls::build_model(far_body, o, sc, name);
+            for (scene::Mesh& mesh : far.meshes) mesh.lod = 2;
+            gt3r::course::append_model(m, std::move(far));
+        }
         if (m.meshes.empty()) throw FormatError("The car's body has nothing to draw.");
         if (brake == 0) {
             m.compute_bounds();
@@ -145,14 +230,21 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
         mdls::Scene sc = body_scene(false, opt.lamp_level);
         sc.callback_values[u16(11 + w)] = 0;
         sc.only_inside = 11 + w;
-        scene::Model m = build_levels(body, 0, sc, 1, 0, name + "/brake");
-        // The disc's glow (an additive shape whose strength is the brake's heat) is left out: cold brakes.
-        bool any = false;
+        scene::Model m = build_levels(body, 0, sc, kLevels, 0, name + "/brake");
+        // The disc's glow: the added shapes among them, which the program draws under the colour scale
+        // (1, 1, 1, glow) callback 11 + w sets (0x453798); an item of its own whose alpha is the glow.
+        scene::Model glow = m;
+        bool any = false, any_glow = false;
         for (scene::Mesh& mesh : m.meshes) {
             std::erase_if(mesh.primitives, [](const scene::Primitive& p) { return (p.flags & scene::kAdditive) != 0; });
             any |= !mesh.primitives.empty();
         }
+        for (scene::Mesh& mesh : glow.meshes) {
+            std::erase_if(mesh.primitives, [](const scene::Primitive& p) { return (p.flags & scene::kAdditive) == 0; });
+            any_glow |= !mesh.primitives.empty();
+        }
         if (any) to_gpu(brakes_[w], m);
+        if (any_glow) to_gpu(glows_[w], glow);
     }
     // Wheels and tires, still and turning. Both sets are in units of the rim's radius, modelled
     // as a left wheel with the outer face at x = 0.
@@ -227,6 +319,7 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
                 r.test = {f(o + 0x48), f(o + 0x4C), f(o + 0x50)};
                 r.exponent = 1;
                 r.fade = (rd16(file, o + 0x64) & 1) != 0;
+                if ((rd16(file, o + 0x64) & 2) && spoiler != 0) continue; // a lamp of the stock spoiler, which a wing replaces
                 lists[l]->push_back(r);
             }
         }
@@ -315,11 +408,27 @@ void CarVisual::set_shadow(const Shadow& s) {
 
 Mat4 CarVisual::body_matrix(const CarState& s) const { return race::body_matrix(s, spec_); }
 
-void CarVisual::add_items(std::vector<render::DrawItem>& items, const CarState& s, const render::Vec3& eye, float step) const {
+int CarVisual::level(const CarState& s, const render::Vec3& eye, const LodView* view) const {
     const Mat4 body = body_matrix(s);
-    const render::Vec3 pos = v3(s.position);
-    const float dist = render::length(pos - eye);
-    const int lod = std::min(dist < 30.0f ? 0 : 1, lods_ - 1);
+    if (!view || lod_size_ <= 0) return std::min(render::length(v3(s.position) - eye) < 30.0f ? 0 : 1, lods_ - 1);
+    // The program's choice (0x07 with the car's callback, 0x4539A8): v = K x size / depth of the switch's
+    // centre; v > T: 0, v > 0.33 T: 1, else 2, T = 200.
+    const render::Vec3 c = body.transform_point(lod_centre_);
+    const float depth = std::max(render::dot(c - eye, view->forward), 0.0001f);
+    const float v = view->k * lod_size_ / depth;
+    constexpr float kT = 200;
+    const int level = v > kT ? 0 : v > kT * 0.33f ? 1 : 2;
+    return std::min(level, lods_ - 1);
+}
+
+void CarVisual::add_items(std::vector<render::DrawItem>& items, const CarState& s, const render::Vec3& eye, float step, const LodView* view) const {
+    const Mat4 body = body_matrix(s);
+    const int lod = level(s, eye, view);
+    if (wing_) {
+        render::DrawItem it{wing_.get(), body * render::translate(wing_place_) * render::scale({wing_scale_, wing_scale_, wing_scale_}), std::min(lod, wing_lods_ - 1)};
+        it.far_whole = true;
+        items.push_back(it);
+    }
     if (const render::GpuModel* m = body_[s.brake_lamps ? 1 : 0].get()) {
         render::DrawItem it{m, body, lod};
         it.far_whole = true;
@@ -328,7 +437,13 @@ void CarVisual::add_items(std::vector<render::DrawItem>& items, const CarState& 
     for (int w = 0; w < 4; ++w) {
         // The brake parts in the wheel's frame; the tire and the wheel turned and scaled in it, with
         // their turning pictures when the wheel turns fast enough.
-        if (lod == 0 && brakes_[size_t(w)]) items.push_back({brakes_[size_t(w)].get(), wheel_frame(s, spec_, w), 0});
+        if (lod >= kWheelLevels) break; // the far level draws its wheels itself
+        if (brakes_[size_t(w)]) items.push_back({brakes_[size_t(w)].get(), wheel_frame(s, spec_, w), lod});
+        if (const float glow = brake_glow(s.wheels[w].brake_heat); glow > 0 && glows_[size_t(w)]) {
+            render::DrawItem it{glows_[size_t(w)].get(), wheel_frame(s, spec_, w), lod};
+            it.alpha = glow;
+            items.push_back(it);
+        }
         const bool turning = wheel_turning(s.wheels[w], step);
         const render::GpuModel* wheel = wheels_[size_t(w)][turning ? 1 : 0] ? wheels_[size_t(w)][turning ? 1 : 0].get() : wheels_[size_t(w)][0].get();
         if (wheel) items.push_back({wheel, wheel_matrix(s, spec_, w), lod});

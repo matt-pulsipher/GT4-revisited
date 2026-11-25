@@ -111,12 +111,15 @@ manager's, for all six screens at once) for which no caller was found; a special
 shot at the finish) switches to 75 or 100 with the screen's scale applied. The roof view, as
 every other mount, uses its mount: 2 atan(1 / zoom) = 52 degrees, times the screen's scale.
 Mounts 0 and 6 carry the same zoom on every car, which suggests views 0 and 6 are meant to
-match; a level chase view 1.7 m up and 6 m back needs about 60 degrees across a 4:3 picture
-or more to show the car's wheels. Until the screen's lens is read from the running game, treat
-the three angles as open: 90 is the program's number for views 0 and 1, 52 the data's for
-mount 0 and the roof, 40.7 the data's for mount 1. The race view here draws views 0 and 1 with
-90 degrees across a 4:3 picture's width (a wider picture shows more at the sides), 🔎 judged by
-eye only: the car in the chase view then takes about a quarter of a 4:3 picture's width.
+match. **The on-board lens as the original shows it: 61.2 degrees across a 4:3 picture's width**
+(47.9 degrees high). Two measures agree: the view's size factor K (0x456918: one unit's height
+at depth 1 on screen x 10 / 7; kept at 0x8465E4) is 721.2 in a saved state of the original's
+chase view, and for a picture 448 lines high K = 224 / (0.75 tan(A / 2)) x 10 / 7, so
+tan(A / 2) = 0.5916; and the cars in the original's chase pictures are as wide as this lens
+draws them (the Ka in 20-race-chase, the R390 in 25-sound-cars: about 300 of 640 pixels for its
+2 m). The other states' K (121.4 a wide start shot, 1851.6 a replay shot, 3905.6 a telephoto
+opening pass) give those lenses the same way: 2 atan(426.7 / K). 🔎 How the program's 90 becomes
+this (the screen's scale) has not been read; the in-car view is taken to use the same lens.
 
 ### Chase view (view 1)
 

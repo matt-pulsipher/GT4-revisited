@@ -229,7 +229,7 @@ TEST(disc_prologue_step_routines_equal) {
         if (!err.empty()) std::printf("  %s\n", err.c_str());
         CHECK(err.empty());
         // (the engine's routines Prologue does not share are tapped too, to show how they differ)
-        static const std::set<std::string> differ = {"slip ratios", "tire slip force", "forward step", "lateral and yaw", "wheel steer",
+        static const std::set<std::string> differ = {"slip ratios", "tire slip force", "forward step", "lateral and yaw", "wheel steer", "aids",
                                                      "attitude", "ground frame", "rolling resistance", "brake heat",
                                                      "terrain factor", "pad rumble", "steer force", "tire effects", "engine sound",
                                                      "view follow", "speed bookkeeping", "engine's driver input"};
@@ -267,6 +267,9 @@ TEST(disc_prologue_license_target_times) {
         if (e->target_ms[1] > 0) CHECK(e->target_ms[0] <= e->target_ms[1]);
         if (e->target_ms[2] > 0) CHECK(e->target_ms[1] <= e->target_ms[2]);
         if (n <= 6) std::printf("  %s on %s, %d laps: %u / %u / %u ms\n", label, e->course.c_str(), e->laps, e->target_ms[0], e->target_ms[1], e->target_ms[2]);
+        // (the laps, RACE +0x29: lesson 1 two, as the original runs it; lesson 2 one, its road's section)
+        if (n == 1) CHECK(e->laps == 2);
+        if (n == 2) CHECK(e->laps == 1);
     }
     std::printf("  %d of 46 tests have a gold time\n", with_gold);
     CHECK(with_gold == 46);
@@ -287,4 +290,21 @@ TEST(disc_prologue_license_goal) {
     if (!r) return;
     std::printf("  L_fisco6: lap %.1f m, goal %.1f m\n", double(r->length), double(r->goal_v));
     CHECK(r->goal_v > 200 && r->goal_v < 206 && r->goal_v < r->length - 1);
+}
+
+// Prologue's spec builder (0x3B3998) and converter (0x3C74B8) as the program runs them in the interpreter on every car of
+// its database, against ours (convert_prologue.h): every spec byte and every word of the parameter block equal.
+#include "prologue_race.h"
+
+TEST(disc_prologue_converter_equal) {
+    Disc* disc = prologue_disc();
+    if (!disc) SKIP("no Prologue disc");
+    const diff::prologue::ConvertStats st = diff::prologue::convert_compare(*disc, "tsukuba", "civic_r_98", false);
+    std::printf("  %d cars: %d blocks, %d specs equal; the race's start's values %s\n", st.cars, st.equal_blocks, st.equal_specs,
+                st.race_start_equal ? "equal" : "differ");
+    CHECK(st.err.empty());
+    CHECK(st.cars >= 80);
+    CHECK(st.equal_blocks == st.cars);
+    CHECK(st.equal_specs == st.cars);
+    CHECK(st.race_start_equal);
 }

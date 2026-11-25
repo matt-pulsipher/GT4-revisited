@@ -196,6 +196,7 @@ struct RaceHud::Impl {
     void draw_chase_panel(const HudState& s);
     void draw_driver_panel(const HudState& s);
     void draw_bars(const HudState& s, float x, float y);
+    void draw_suggested_gear(const DisplayRect& box, const HudState& s);
     void draw_dial(const DisplayRect& at, const std::string& face, float ox, float value, float min, float max, float a0, float a1,
                    float red_from, float& last_angle, float opacity);
     void draw_gear(const DisplayRect& box, const HudState& s);
@@ -294,11 +295,14 @@ SDL_FRect RaceHud::canvas() { return to_ui(DisplayRect{0, 0, 640, 480}); }
 
 void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlayer& player, std::vector<MovieExternal>* externals) {
     Impl& m = *impl_;
-    // A colour of the movie (0xAABBGGRR, 0x80 a full channel) through a draw's colour change.
-    auto colour = [](u32 c, const race::StrobePlayer::Draw& d) {
+    // A colour of the movie (0xAABBGGRR) through a draw's colour change. A shape without a picture is drawn in its
+    // colour as the GS takes a vertex colour (RGB 0xFF full, alpha 0x80 opaque: the Race Monitor's lit row
+    // 0x800099FF is orange, its 0x1A grey cells 0x1A); a picture is modulated by it (0x80 a full channel).
+    auto colour = [](u32 c, const race::StrobePlayer::Draw& d, bool textured = false) {
         SDL_FColor o;
         float ch[4];
-        for (int j = 0; j < 4; ++j) ch[j] = std::clamp(float((c >> (8 * j)) & 0xFF) / 128.0f * d.mul[j] + d.add[j], 0.0f, 1.0f);
+        for (int j = 0; j < 4; ++j)
+            ch[j] = std::clamp(float((c >> (8 * j)) & 0xFF) / (j < 3 && !textured ? 255.0f : 128.0f) * d.mul[j] + d.add[j], 0.0f, 1.0f);
         o.r = ch[0], o.g = ch[1], o.b = ch[2], o.a = ch[3];
         return o;
     };
@@ -366,7 +370,7 @@ void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlaye
                     if (u > st.back().first) c = st.back().second;
                     x.color = colour(c, d);
                 } else {
-                    x.color = colour(0x80808080u, d);
+                    x.color = colour(0x80808080u, d, true);
                 }
                 v.push_back(x);
             }
@@ -398,7 +402,22 @@ void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlaye
             const float bx = d.m[0] * (t.x0 + 2) + d.m[2] * (t.y0 + 2) + d.m[4], by = d.m[1] * (t.x0 + 2) + d.m[3] * (t.y0 + 2) + d.m[5];
             const float bw = std::max(0.0f, t.x1 - t.x0 - 4) * sx, bh = std::max(0.0f, t.y1 - t.y0 - 4) * sy;
             const int align = t.align == 2 ? 1 : t.align == 1 ? 2 : 0;
-            const menu::TextLayout lay = menu::layout_menu_text_in(word(d.words), st, bx, by, bw, bh, align);
+            std::string words = word(d.words);
+            menu::TextLayout lay = menu::layout_menu_text_in(words, st, bx, by, bw, bh, align);
+            if (fitted_fields_.count(&t) && lay.width > bw && !words.empty()) {
+                // Cut to the box's width, "..." after the longest start that fits with it.
+                std::string cut = words;
+                while (!cut.empty()) {
+                    while (!cut.empty()) { // one whole UTF-8 character off the end
+                        const unsigned char c = static_cast<unsigned char>(cut.back());
+                        cut.pop_back();
+                        if ((c & 0xC0) != 0x80) break;
+                    }
+                    lay = menu::layout_menu_text_in(cut + "...", st, bx, by, bw, bh, align);
+                    if (lay.width <= bw) break;
+                }
+                words = cut + "...";
+            }
             SDL_Texture*& atlas = m.atlases[{f.font, f.variant}];
             if (!atlas) atlas = m.make_texture(f.font->atlas[size_t(std::clamp(f.variant, 0, 1))]);
             if (!atlas) continue;
@@ -556,6 +575,14 @@ void RaceHud::Impl::draw_gear(const DisplayRect& box, const HudState& s) {
     draw_text(font("GT4meter", 100, 1), box.x + box.w / 2, box.y + box.h - 12, kCentered | kMiddleOfLine, 0x80000000u, s.opacity, std::string(1, c));
 }
 
+// The suggested gear (RaceSuggestedGearDisplay) in its box: the digit in red (❓ the display's own drawing, vf5
+// 0x3A7108, is not read: the colour and size judged from the original's in-car view).
+void RaceHud::Impl::draw_suggested_gear(const DisplayRect& box, const HudState& s) {
+    if (s.suggested_gear < 1 || s.suggested_gear > 9) return;
+    draw_text(font("GT4meter", 100, 1), box.x + box.w / 2, box.y + box.h / 2, kCentered | kMiddleOfLine, 0x800000C8u, s.opacity,
+              std::string(1, char('0' + s.suggested_gear)));
+}
+
 // The chase view's meters at the bottom right: the speed on its plate, the gear, the rev bar.
 void RaceHud::Impl::draw_chase_panel(const HudState& s) {
     const int R = 640, B = 464;
@@ -566,6 +593,7 @@ void RaceHud::Impl::draw_chase_panel(const HudState& s) {
     const DisplayPlace speed{0, R - 59, B - 26, 0, 0, 13, 1};
     draw_text(meter, race::place_x(speed, true), float(speed.y), kEndsAtPen, kMeterBlue, o, speed_text(s));
     draw_gear(race::place_rect({0, R - 114, B - 44, 24, 26, 13, 0}, 24, 26, true), s);
+    draw_suggested_gear(race::place_rect({0, R - 143, B - 45, 44, 32, 13, 0}, 44, 32, true), s);
     // The rev bar: the unlit bar in black at half strength, the lit part over it, and a red line
     // over the part past the red line.
     const DisplayPlace bar{0, R - 26, B, 160, 10, 13, 1};
@@ -599,10 +627,10 @@ void RaceHud::Impl::draw_small_parts(const HudState& s, bool driver) {
         draw_at("sign_brake", {0, L + 147, B, 24, 24, 6, 1}, 0x800000C8u, o / 3);
         draw_at("sign_oil", {0, L + 175, B, 24, 24, 6, 1}, 0x800000C8u, o / 3);
     }
-    // The shift lamp.
+    // The shift lamp: its picture under a color scale of the lamp's level x 1.5 (0x3A7360), black when out.
     const bool shift = s.red_line > 0 && s.rpm >= 0.97f * s.red_line;
-    if (driver) draw_at("timing_lamp", {0, C + 103, B - 62, 8, 8, 2, 2}, shift ? kNeutral : 0x80404040u, o);
-    else draw_at("timing_lamp", {0, 640 - 142, B - 28, 8, 8, 13, 0}, shift ? kNeutral : 0x80404040u, o);
+    if (driver) draw_at("timing_lamp", {0, C + 103, B - 62, 8, 8, 2, 2}, shift ? kNeutral : 0x80000000u, o);
+    else draw_at("timing_lamp", {0, 640 - 142, B - 28, 8, 8, 13, 0}, shift ? kNeutral : 0x80000000u, o);
     // The sideways G meter: its base, and its point moved along it.
     {
         const DisplayRect base = draw_at("g_meter_base", {0, C, B, 214, 24, 2, u8(driver ? 2 : 1)}, kNeutral, o);
@@ -698,6 +726,7 @@ void RaceHud::Impl::draw_driver_panel(const HudState& s) {
         draw_dial(race::place_rect({0, C + 168, B - 100, 130, 100, 1, 0}, 130, 100, true), f->picture, -1, s.rpm, f->min, f->max, 84, 304, s.red_line, needle_from[1], o);
     needle_set = true;
     draw_gear(race::place_rect({0, C, B - 64, 24, 26, 2, 1}, 24, 26, true), s);
+    draw_suggested_gear(race::place_rect({0, C, B - 111, 44, 34, 2, 2}, 44, 34, true), s);
     const FontSpec meter = font("GT4meter", 100, 1);
     const float width = text_width(meter, "000");
     draw_text(meter, float(C - 2) + width / 2, float(B - 41), kEndsAtPen, kMeterBlue, o, speed_text(s));

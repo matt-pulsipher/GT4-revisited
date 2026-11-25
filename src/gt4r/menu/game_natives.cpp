@@ -6,7 +6,9 @@
 // docs/formats/menu.md ("The game's state") says what each answers and why.
 
 #include "gt4r/menu/game_internal.h"
+#include "gt4r/menu/game_bspec.h"
 #include "gt4r/menu/game_opponents.h"
+#include "gt4r/sim/ai/bspec_skill.h"
 #include "gt4r/menu/game_settings.h"
 #include "gt4r/save/card_image.h"
 
@@ -798,19 +800,31 @@ g.method("menuRef", [s](Vm&, const Value&, Args a) {
         for (u32 c : s->rank_counts) n += c;
         return number(s32(n));
     });
-    // The distances driven (meters ❓), in the player's unit with commas and the unit's name.
+    // The distances driven (meters ❓), in the player's unit with commas and the unit's name after them.
     auto distance = [s](const s64* m) {
         return [s, m](Vm&, const Value&, Args) {
             const bool miles = s->option_text("unit_velocity") == "MPH";
             const s64 v = s64(double(*m) * (miles ? 0.00062139 : 0.001));
-            return text((v > 0 ? money_text(v) : std::string("0")) + (miles ? " miles" : " km"));
+            return text((v > 0 ? money_text(v) : std::string("0")) + (miles ? "miles" : "km")); // "31miles", as the original's Status page
         };
     };
     g.method("getAspecDistance", distance(&s->aspec_distance));
     g.method("getBspecDistance", distance(&s->bspec_distance));
-    // ❓ The B-spec driver's experience (0x468B58) is not read: none.
-    for (const char* zero : {"getBspecTotalExperience", "getBspecCarExperience", "getBspecCourseExperience", "getBspecBattleExperience"})
-        g.method(zero, [](Vm&, const Value&, Args) { return number(0); });
+    // The B-spec driver's experience from its book (0x468B58; game_bspec.h): the total 0 .. 10000, the car's, the
+    // courses' and the battles' 0 .. 100, weighed by the program's table 0x623E40.
+    {
+        GameNatives* self = this;
+        auto figure = [s, self](int (*fn)(const bspec::Book&, const bspec::Weights&)) {
+            return [s, self, fn](Vm&, const Value&, Args) {
+                const sim::ai::BSpecTables t = sim::ai::BSpecTables::load(self->db().program);
+                return number(fn(s->bspec_book, t.weight));
+            };
+        };
+        g.method("getBspecTotalExperience", figure(&bspec::total_experience));
+        g.method("getBspecCarExperience", figure(&bspec::car_experience));
+        g.method("getBspecCourseExperience", figure(&bspec::course_experience));
+        g.method("getBspecBattleExperience", figure(&bspec::battle_experience));
+    }
     field(g, "username", &s->username), field(g, "password", &s->password), field(g, "last_entry_name", &s->last_entry_name);
     g.property("withdrawn", [s] { return number(s->withdrawn); }, [s](const Value& v) { s->withdrawn = v.truthy(); });
     g.property("withdrawnGT4p", [s] { return number(s->withdrawn_gt4p); }, [s](const Value& v) { s->withdrawn_gt4p = v.truthy(); });
@@ -1080,6 +1094,16 @@ Value make_car_object(Runtime& rt, const std::string& label, int paint) {
     return make_car_value(*n, c);
 }
 
+// The place of a course's record in the game's course records (0x433C10 on the label as 0x468690 gives it).
+std::optional<size_t> bspec_course_unit(Database& d, const GameState& s, std::string label) {
+    if (label.size() >= 2 && label.compare(label.size() - 2, 2, "24") == 0) label.resize(label.size() - 2);
+    const u64 code = d.code(kCourseTable, label);
+    if (code == kNoCode || s.course_record.size() < kCourseUnit * kCourseUnits) return std::nullopt;
+    for (size_t i = 0; i < kCourseUnits; ++i)
+        if (r32(s.course_record, i * kCourseUnit) == u32(code) && r32(s.course_record, i * kCourseUnit + 4) == u32(code >> 32)) return i * kCourseUnit;
+    return std::nullopt;
+}
+
 void complete_race_request(Runtime& rt, RaceRequest& r) {
     const std::shared_ptr<GameNatives> n = g_natives_of(rt).lock();
     if (!n) return;
@@ -1102,6 +1126,14 @@ void complete_race_request(Runtime& rt, RaceRequest& r) {
     if (d.db && d.db->prologue() && row.size() > 0x43) {
         if (row[0x3E]) r.max_entry = std::min(r.max_entry > 0 ? r.max_entry : 99, int(row[0x3E]));
         if (r.laps <= 0 && row[0x43]) r.laps = row[0x43];
+    }
+    // The B-spec driver's book and the course's marks (0x468690: a label ending in "24" is looked up without it;
+    // 0x433C10 finds the course's record, none: no marks).
+    r.bspec_book = s.bspec_book;
+    r.bspec_course_known = false;
+    if (const std::optional<size_t> at = bspec_course_unit(d, s, r.course)) {
+        std::copy_n(s.course_record.data() + *at + 0x228, 8, r.bspec_course_marks.begin());
+        r.bspec_course_known = true;
     }
     if (!r.car.empty()) return;
     const bool test = r.sequence.find("license") != std::string::npos || r.sequence.find("mission") != std::string::npos;

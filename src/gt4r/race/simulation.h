@@ -48,6 +48,7 @@ struct WheelState {
     float spin_rate = 0;  // radians per second
     float travel = 0;     // suspension travel from rest, metres (+ compressed)
     float slip = 0;       // 0 gripping .. 1 sliding (smoke, squeal)
+    float brake_heat = 0; // the brake's heat (the simulation's wheel +0xA4): its disc glows by its square
     bool on_ground = true;
     u8 surface = 0;       // the flags byte of the road triangle under it (Runway::Triangle::kind)
     u8 material = 0;      // the road's material under it (the triangle's byte +6, bits 0-4)

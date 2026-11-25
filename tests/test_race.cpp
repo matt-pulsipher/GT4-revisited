@@ -846,6 +846,52 @@ TEST(animated_models_disc) {
     if (!ran) SKIP("no Gran Turismo 4 disc");
 }
 
+TEST(animated_models_turning_signs_disc) {
+    // The turning signs of seoul and lasvegas (their programs turn the whole model by the registers
+    // builtin_ra, rx, ry, rz: command 0x48) turn about their own axis as the time goes on.
+    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    size_t ran = 0;
+    for (const auto& disc : test::discs())
+        for (const auto& [name, model] : {std::pair{"crs/seoul", 44u}, std::pair{"crs/lasvegas", 41u}}) {
+            if (disc->info().game != Game::GT4) continue; // (Prologue's courses are other sets)
+            const gt3r::Volume::Entry* e = disc->volume().find(name);
+            if (!e) continue;
+            const Bytes data = disc->volume().read(*e);
+            const course::CourseFile file = course::CourseFile::parse(data);
+            gt3r::gtm1::Options o;
+            o.course_env_maps = true, o.alpha_test = true, o.gs_state = true;
+            race::AnimatedModels set(file.section(data, course::kSlotWorld), 2.0f, o);
+            const std::vector<u32> taken = set.models();
+            CHECK(std::find(taken.begin(), taken.end(), model) != taken.end());
+            auto sign = [&](std::vector<gt3r::scene::Mesh> meshes) {
+                for (gt3r::scene::Mesh& m : meshes)
+                    if (m.node == int(model)) return m;
+                return gt3r::scene::Mesh{};
+            };
+            for (int i = 0; i < 60; ++i) set.tick(1.0f / 60, {});
+            const gt3r::scene::Mesh a = sign(set.meshes({}));
+            for (int i = 0; i < 30; ++i) set.tick(1.0f / 60, {});
+            const gt3r::scene::Mesh b = sign(set.meshes({}));
+            CHECK(!a.vertices.empty() && a.vertices.size() == b.vertices.size());
+            if (a.vertices.empty() || a.vertices.size() != b.vertices.size()) continue;
+            // Turned in place: the vertices moved (but stay within the sign's size), each at the same height, the shape
+            // rigid (every vertex as far from the first as before).
+            float moved = 0, worst = 0;
+            for (size_t v = 0; v < a.vertices.size(); ++v) {
+                const float* p = a.vertices[v].pos;
+                const float* q = b.vertices[v].pos;
+                const float* p0 = a.vertices[0].pos;
+                const float* q0 = b.vertices[0].pos;
+                moved = std::max(moved, std::hypot(p[0] - q[0], p[2] - q[2]));
+                const float dp = std::hypot(p[0] - p0[0], p[1] - p0[1], p[2] - p0[2]), dq = std::hypot(q[0] - q0[0], q[1] - q0[1], q[2] - q0[2]);
+                worst = std::max({worst, std::fabs(p[1] - q[1]), std::fabs(dp - dq)});
+            }
+            CHECK(moved > 0.05f && moved < 20.0f && worst < 0.01f);
+            ++ran;
+        }
+    if (!ran) SKIP("no Gran Turismo 4 disc");
+}
+
 // --- A course's far sets: positions too large for 16 bits ---
 
 TEST(course_backdrop_positions_disc) {

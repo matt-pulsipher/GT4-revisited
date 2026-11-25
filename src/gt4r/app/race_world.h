@@ -48,6 +48,7 @@ struct WorldEntry {
     bool asm_on = true, tcs_on = true; // the aids (sim::Entry)
     float start_speed = 0; // a rolling start: metres per second at time 0 (sim::Entry::start_speed)
     std::optional<sim::Equipment> equipment; // the car's parts and settings (a garage car's); none: as sold
+    std::string wing; // a fitted wing's label (a WING row); empty: the equipment's (record +0x100), else none
     float start_distance = std::numeric_limits<float>::quiet_NaN(); // a rolling start's place (sim::Entry::start_distance)
 };
 
@@ -61,6 +62,11 @@ struct WorldSetup {
     std::vector<u8> event_row; // the event's RACE row: the race's tire wear (sim::rules::event_wear_bytes); empty: no wear
     int laps = 0;       // the race's laps (the pit stops' last lap; 0 a run without an end)
     bool computer_player = false; // the computer drivers drive the player's car too
+    // The B-spec driver's book (menu::bspec::Book: three tables of 8 x 8) and the course's marks, which give the race's
+    // record of the player's driver (0x468710) when B-spec drives his car.
+    std::array<u16, 3 * 64> bspec_book{};
+    std::array<u8, 8> bspec_course_marks{};
+    bool bspec_course_known = false;
     // The game's options (menu::GameState::options: the sound's volumes and output) and the race
     // play list; none: a new game's.
     std::map<std::string, std::variant<s32, float, std::string>> options;
@@ -92,11 +98,17 @@ public:
     // A rolling start (an entry with a start speed): each such car is held to the start's pace until it is
     // released as it takes the line (DynamicsConductorSinglePlayer::vf20 0x347928 → 0x345228). A released car
     // stays released until the next restart.
+    // With the game's simulation the session holds the cars itself (F +0x467 = 1, the aids' start pace 0x3F7880 /
+    // 0x3F76E8) and lets each go (0x345228, 0x3F37B8); the stand-in simulation is held here.
     void release_start(size_t car) {
+        if (car < pace_kmh_.size() && pace_kmh_[car] > 0 && sim_) sim_->release_start(int(car));
         if (car < pace_kmh_.size()) pace_kmh_[car] = 0;
     }
     // Whether a car is still held to the start's pace (its driver kind 1, F +0x467).
-    bool rolling(size_t car) const { return car < pace_kmh_.size() && pace_kmh_[car] > 0; }
+    bool rolling(size_t car) const {
+        if (session_ && sim_ && car < sim_->cars().size()) return sim_->cars()[car].rolling;
+        return car < pace_kmh_.size() && pace_kmh_[car] > 0;
+    }
     // B-spec's commands for a car the computer drives: its pace 1 .. 5 (3 the race's own) and the
     // overtake, to its driver (sim::ai::Field::command; kept for the next restart).
     void command(size_t car, int pace, bool overtake) {
@@ -113,7 +125,15 @@ public:
     }
     // The car's pit message (F +0x5FA, 0x35ACD8's codes; 0 none) and its stops made.
     int pit_message(size_t car) const { return pits_ && car < car_visuals_.size() ? pits_->message(car) : 0; }
+    // The B-spec driver's record after the race (car +0x8C, 0x40 bytes) and the car's class (0x468418); nullopt when
+    // no B-spec driver drove the car.
+    std::optional<std::array<u8, 0x40>> bspec_record(size_t car) const;
+    int bspec_class(size_t car) const;
     int pit_stops(size_t car) const { return pits_ && car < car_visuals_.size() ? pits_->stops(car) : 0; }
+    // A car's last pit stops, newest first (the lap, the tires fitted; lap 0 none): the Race Monitor's pit panel.
+    std::array<sim::ai::PitStops::StopRecord, 4> pit_record(size_t car) const {
+        return pits_ && car < car_visuals_.size() ? pits_->stop_record(car) : std::array<sim::ai::PitStops::StopRecord, 4>{};
+    }
     // What goes with the cars shown in a step, live (the simulation's) or recorded: smoke and dust
     // from the wheels, and the race's sound heard from `camera` (none: no sound) about car `target`.
     void present(std::span<const race::CarState> cars, const audio::SoundListener* camera, int target, bool live);
@@ -162,6 +182,8 @@ public:
     int gadget_contacts(size_t i) const;
     // A car's mass as the step reads it (the spec's weight, kg; 0 not known): the license tests' wall rule.
     float car_mass(size_t i) const;
+    // The suggested gear for a car the player drives (-1 none).
+    int suggested_gear(size_t i) const;
     // A car's fuel left as a share of its tank (1 without a tank).
     float fuel_share(size_t i) const;
     // A car's top speed as the program estimates it from the gearing (P +0xFD8, m/s; 0 not known): the
@@ -193,6 +215,7 @@ private:
     std::unique_ptr<sim::Session> session_;
     std::unique_ptr<sim::ai::Field> field_; // the computer drivers, on the game's simulation
     std::unique_ptr<sim::ai::PitStops> pits_; // their pit stops
+    bool bspec_driven_ = false;               // a B-spec driver drove the player's car (its record set)
     bool computer_player_ = false;
     float player_ps_ = 0;
     std::vector<float> pace_kmh_; // each car's rolling start speed until released (0: none)

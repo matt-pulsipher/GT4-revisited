@@ -92,6 +92,18 @@ TEST(disc_menu_arcade_opponents) {
     CHECK(gt.size() == 6);
     for (const std::string& c : gt) std::printf("  %s", c.c_str());
     std::printf("\n");
+    // The reference's grids on longer courses (24-arcade-grids): the Ka at Laguna Seca, Suzuka, Trial
+    // Mountain and Grand Valley drew from exactly six cars; the Ford GT '05 at New York and the Mustang
+    // GT '05 at Hong Kong each fielded five of their window.
+    std::set<std::string> ka_long, gt_long, mustang;
+    CHECK(picks("ka_01", -0.025f, ka_long));
+    CHECK(ka_long == std::set<std::string>({"today_g_85", "midget2_d_type_98", "s500_63", "ram_1500_hemi_4cab_04", "panda_super_ie_90",
+                                            "karmann_ghia_type1_1500_68"}));
+    CHECK(picks("ford_gt_05", -0.025f, gt_long));
+    for (const char* c : {"viper_gtsr_00", "ctr_87", "cobra_67", "sl65_amg_04", "ford_gt_concept_dmv_02"}) CHECK(gt_long.count(c));
+    CHECK(picks("mustang_gt_05", -0.025f, mustang));
+    for (const char* c : {"celica_gt_four_rc_91", "stagea_25t_rs_fours_98", "legacy_wgn_30r_03", "legnum_vr4_v_98", "_240sx_silvia_us_96"})
+        CHECK(mustang.count(c));
 }
 
 // A new car's figures (0x434E38 -> 0x440F78, 0x434FD0): run in, its showroom car's power; the never-driven
@@ -114,6 +126,17 @@ TEST(disc_menu_new_car_power) {
     const s32 shown = s32(float(e.power) / 100.0f * unit.factor + 0.5f);
     std::printf("  Panda: entry power %u, weight %u, shown %d %s\n", e.power, e.weight, shown, unit.name);
     CHECK(shown == 44);
+    // The Nissan R390 GT1 Race Car '98: its car page writes the catalog's figure (getCatPs: ENGINE +0x1A,
+    // 650 PS = 641 HP), the race menus' grid the showroom car's (0x364E90: 800 PS = 789 HP), as in the
+    // original (reference 12-incar, r390_gt1_race_car_98_tsukuba_tt.mp4).
+    const std::vector<Value> r390{Value::string("r390_race_98"), Value::integer(0)};
+    const Value cg = vm.call(vm.lookup("main::menu::MCarGarage"), r390);
+    const Value cat = vm.call(vm.attribute(cg, "getCatPs"), {});
+    const Value at = vm.call(vm.attribute(garage, "addNewCar"), r390);
+    const s32 grid = at.is_number() && at.i >= 0 ? s32(float(f.rt->game().garage[size_t(at.i)].power) / 100.0f * unit.factor) : -1;
+    std::printf("  R390 GT1 Race Car: car page %s HP, showroom %d HP\n", cat.to_string().c_str(), grid);
+    CHECK(cat.is_number() && cat.i == 641);
+    CHECK(grid == 789);
 }
 
 // The settings pages' charts: the engine's (0x34B960) equal to the program's on every car, new and worn; the gear

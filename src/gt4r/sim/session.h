@@ -8,6 +8,8 @@
 #include "gt4r/race/simulation.h"
 #include "gt4r/sim/car_spec.h"
 #include "gt4r/sim/collide.h"
+#include "gt4r/sim/aids_prologue.h"
+#include "gt4r/sim/collide_prologue.h"
 #include "gt4r/sim/ground.h"
 #include "gt4r/sim/record.h"
 #include "gt4r/sim/rules_prologue.h"
@@ -114,6 +116,8 @@ public:
     // And Prologue's part of a car (rules_prologue.h; a session running Prologue's step).
     const prologue::CarPart& prologue_part(size_t i) const { return prologue_cars_[i]; }
     void load_prologue_part(size_t i, const prologue::CarPart& x) { prologue_cars_[i] = x; }
+    // Prologue's collision step (collide_prologue.h; null on Gran Turismo 4's disc).
+    const prologue::Collision* prologue_collision() const { return prologue_collide_.get(); }
     collide::Body& body(size_t i) { return bodies_[i]; }
     const collide::Body& body(size_t i) const { return bodies_[i]; }
     const rules::WheelLayout& wheel_layout(size_t i) const { return layouts_[i]; }
@@ -209,6 +213,9 @@ private:
     // Prologue's program: its own step (rules_prologue.h) in place of the engine's routines it does not share.
     std::optional<prologue::Tables> prologue_;
     std::vector<prologue::CarPart> prologue_cars_;
+    std::unique_ptr<prologue::Collision> prologue_collide_;
+    prologue::AidTables prologue_aids_;
+    std::vector<prologue::Collision::Contact> prologue_contacts_;
     std::vector<Spec> specs_;
     std::vector<race::CarState> states_;
     std::vector<std::string> notes_;
