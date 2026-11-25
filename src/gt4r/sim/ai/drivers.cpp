@@ -302,7 +302,7 @@ int Field::pace_level(size_t car) const { return car < drivers_.size() && driver
 bool Field::overtaking(size_t car) const { return car < drivers_.size() && drivers_[car] && drivers_[car]->overtake; }
 u8 Field::shift_factor(size_t car) const {
     const Driver* d = driver(car);
-    return d && d->control == 1 && d->kind == 0 ? d->shift : 128;
+    return d && d->control == 1 ? d->shift : 128; // (the up-shift speeds take it for kind 0 alone: the gearbox's own, 0x36BEE0)
 }
 
 void Field::apply_start_delays(Session& session) {
@@ -1792,7 +1792,8 @@ void Field::step(Session& session, std::span<race::CarInput> inputs, int keep, u
     for (const auto& dp : drivers_)
         if (dp) {
             session.set_pace_level(dp->car, dp->pace);
-            if (dp->control == 1) session.set_shift_factor(dp->car, shift_factor(dp->car));
+            session.set_driver_kind(dp->car, u8(dp->kind));
+            if (dp->control == 1) session.set_shift_factor(dp->car, session.tank(dp->car) > 0 ? shift_factor(dp->car) : 128); // (0x3F19E0: with a tank, 0x354E38)
         }
     auto plans_only = [&](const Driver& d) { return (d.control == 0 && d.kind == 0) || int(d.car) == keep; };
     for (auto& dp : drivers_)

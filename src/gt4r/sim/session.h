@@ -127,6 +127,7 @@ public:
     u32 countdown() const { return countdown_; }
     // A car's crossings of the line as its race counts them (F + 0x4AC: the rolling start's pace and the pad's lap read it).
     void set_crossings(size_t car, int n);
+    int crossings(size_t car) const; // as set, else by the session's own laps
     // A car's place in the race (F + 0x4AF, 1 the leader).
     void set_rank(size_t car, int place);
     // A car held in its rolling start (F + 0x467 = 1: its computer driver drives it, the rolling start's pace caps it,
@@ -254,6 +255,14 @@ public:
     // one-speed or stepless box of kind 1, else the lowest whose up-shift speed (less 2,000 rpm in first, 500 after; a B-spec
     // driver's factor in it) the speed is under, else the top gear.
     int gear_for_speed(size_t i, gt3r::ee::F speed) const;
+    // What the drivers and the pit pass keep of a car in the program's record: the driver's kind (F +0x467; the rolling start's 1 is
+    // the session's own) and the pit flags (F +0x4B1; its bit 0x10 the session's).
+    void set_driver_kind(size_t car, u8 kind) {
+        if (car < cars_.size() && gt4_rules_ && kind != 1 && cars_[car].driver_kind != 1) cars_[car].driver_kind = decltype(cars_[car].driver_kind)(kind);
+    }
+    void set_pit_flags(size_t car, u8 flags) {
+        if (car < cars_.size() && gt4_rules_) cars_[car].x535 = u8((cars_[car].x535 & 0x10) | (flags & ~0x10));
+    }
     // A driver's pace level (car +0x81, D +0x6D: 0 .. 4; 2 as the set-up leaves it): the TCS target's factor of a B-spec driver's car.
     void set_pace_level(size_t car, int level) {
         if (car < gx_.size()) gx_[car].aids.tcs_class = u8(level);
@@ -339,6 +348,7 @@ private:
     std::vector<race::CarState> states_;
     std::vector<std::string> notes_;
     gt3r::Vu0Random rng_;
+    bool crossings_set_ = false;
     u32 random_state_ = 0; // (the program's shared random stream, 0x874D50, for the flaps: ours from 0)
     bool loose_ = false;
     u8 course_kind_ = 0, course_road_ = 0;

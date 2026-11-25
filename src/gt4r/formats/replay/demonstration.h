@@ -17,6 +17,7 @@
 
 #include <array>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -49,10 +50,23 @@ struct PadRecord {
 // i + 1 counted from the recording's start; T - 1 frames for a stream of T, then the playback is done.
 struct ControlStream {
     u32 frame_count = 0; // T, as stored
+    Bytes state;         // the recorder's own header (0x14F4 bytes; a save of several recorders, a free run's lap: a recording from
+                         // a moment of the race on), else empty (RecorderState)
     std::vector<PadRecord> frames;
     // The record at step i (past the end: an empty record, as the done playback leaves it).
     PadRecord frame(size_t i) const { return i < frames.size() ? frames[i] : PadRecord{}; }
 };
+
+// What a recorder's header holds of the moment its stream starts at (0x35AB08, read back by 0x35ABA8; docs/formats/replay.md).
+struct RecorderState {
+    u8 units = 0;        // +0x02 the race clock's units (0 .. 50) since the line when it was kept
+    u8 laps = 0;         // +0x03
+    u32 frame = 0;       // +0x04 the recorder's frame then
+    u32 share = 0;       // +0x0C (f32) the share of the step after the line
+    std::span<const u8> car;  // +0x54 the car's record (0x10A0)
+    std::span<const u8> body; // +0x10F4 its collision body's contacts (0x400; all 0: none)
+};
+std::optional<RecorderState> recorder_state(const ControlStream& s);
 
 // An entry of the race's header (0x228 bytes from +0x960, written from the race entry by RaceBase's virtual 27).
 struct DemoEntry {

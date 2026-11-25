@@ -175,7 +175,7 @@ void RecordedRace::step() {
         const std::array<u8, 6> m = run_.mail(at_);
         if (p.field && m[4] == 4) p.pace = std::clamp(int(m[5]), 0, 4), p.field->command(0, {p.pace, -1});
         else if (p.field && m[4] == 5) p.field->command(0, {-1, m[5] ? 1 : 0});
-        else if (p.pits && m[4] == 6) p.pits->request(0);
+        else if (p.pits && m[4] == 6) p.pits->command(0, m[5] != 0);
         if (p.pits && m[0] != 0) p.pits->choose(0, m[1], m[2], m[3], m[0]);
     } else p.inputs[0] = run_.input(at_);
     const bool hold = flow_.holding();

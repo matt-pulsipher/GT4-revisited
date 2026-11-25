@@ -213,6 +213,7 @@ DemoScore run_recording(Disc& disc, const replay::Demonstration& recording, cons
         ee.probe(0x3F6588, [](Ee& x) { std::printf("  vf21 car %u a2 %u a3 %u t0 %u t1 %u\n", x.g32(5), x.g32(6), x.g32(7), x.g32(8), x.g32(9)); });
     }
     if (const char* w = std::getenv("GT4R_FLOATS_WATCH")) ee.watch = (o.car(0) + u32(std::strtoul(w, nullptr, 16))) & ~3u; // (debugging)
+    bool opt_hold_none = false;
     // GT4R_FLOATS_TAPS=1: every routine of ours tapped in at each of the program's calls (step.cpp's taps), the report at
     // the end (where ours and the program part on a demonstration).
     std::unique_ptr<Taps> taps;
@@ -226,6 +227,19 @@ DemoScore run_recording(Disc& disc, const replay::Demonstration& recording, cons
         add_step_taps(*taps), add_taps_aids(*taps), add_taps_steer(*taps), add_taps_input(*taps), add_taps_start(*taps);
         add_taps_near(*taps), add_taps_phases(*taps);
     }
+    // A free run's recording starts at its lap's line: the car's state as the recorder kept it (RaceFreeRun::vf153, 0x359D40: the race
+    // clock's, the car's record and collision body, its times and crossings), no hold.
+    if (free_run && !d->streams[0].state.empty()) {
+        const u32 controller = ee.r32(o.entries[0] + 0x343C), header = ee.alloc_bytes(d->streams[0].state, 16), keep = ee.alloc(0x14F4 * 4, 16);
+        ee.w32(controller + 0xD4 + 4, 2), ee.w32(controller + 0xD4 + 0x60, header); // (its recorder: one header)
+        ee.w32(controller + 0x14C, keep);
+        ee.w32(o.car(0) + 0xC, controller);
+        if (print && opt.verbose) std::printf("  the recorder's state: %02x %02x laps %u frame %u share %.6f\n", d->streams[0].state[0], d->streams[0].state[2], d->streams[0].state[3], rd32(d->streams[0].state, 4), double(gt3r::ee::F::raw(rd32(d->streams[0].state, 0xC)).host()));
+        ee.hle(0x346B70, [](Ee&) {}, "recorder rewind");
+        ee.call(0x359D40, {Arg::ptr(o.cond), Arg::integer(0)}, 50'000'000);
+        ee.w32(controller + 0xD4 + 4, 0);
+        opt_hold_none = true;
+    }
     if (opt.on_setup) opt.on_setup(ee);
 
     // The start's hold (0x3C0208): none when the conductor's virtual 10 answers a moving start (RaceBase::vf38), else by the event row's
@@ -235,7 +249,7 @@ DemoScore run_recording(Disc& disc, const replay::Demonstration& recording, cons
         const u32 vt = ee.r32(o.cond + kCondVtable), slot = vt + 8 * 10;
         const u32 start = u32(ee.call(ee.r32(slot + 4), {Arg::ptr(o.cond + u32(s32(s16(ee.r16(slot)))))}, 5'000'000).v0.lo);
         const u32 row = ee.r32(o.info + 0x70), type = ee.r8(row + 0x40);
-        const int seconds = start != 1 ? 0 : type == 0 ? ee.r8(row + 0x41) : type == 1 ? 8 : type == 2 ? 10 : 0;
+        const int seconds = opt_hold_none || start != 1 ? 0 : type == 0 ? ee.r8(row + 0x41) : type == 1 ? 8 : type == 2 ? 10 : 0;
         r.hold = opt.hold >= 0 ? opt.hold : seconds * 60;
         if (print && opt.verbose) std::printf("  start: virtual 10 %u, the row's type %u, seconds %u: a hold of %d\n", start, type, ee.r8(row + 0x41), r.hold);
     }

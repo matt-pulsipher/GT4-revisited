@@ -176,15 +176,27 @@ std::optional<Demonstration> Demonstration::parse(ByteSpan file, const sim::Prog
     size_t at = kHeader + 4;
     const ByteSpan bs(b);
     for (u32 i = 0; i < std::max<u32>(n, 1); ++i) {
+        const size_t header = at;
         if (n != 0) at += kRecorderHeader;
         if (at > b.size()) return fail("a recorder past the body's end");
         size_t used = 0;
         std::optional<ControlStream> s = read_stream(bs.subspan(at), base, &used);
         if (!s) return fail("bad control stream");
+        if (n != 0) s->state.assign(b.begin() + std::ptrdiff_t(header), b.begin() + std::ptrdiff_t(at));
         d.streams.push_back(std::move(*s));
         at += used;
     }
     return d;
+}
+
+std::optional<RecorderState> recorder_state(const ControlStream& s) {
+    if (s.state.size() < kRecorderHeader) return std::nullopt;
+    RecorderState r;
+    r.units = s.state[2], r.laps = s.state[3];
+    r.frame = rd32(s.state, 4), r.share = rd32(s.state, 0xC);
+    r.car = std::span<const u8>(s.state).subspan(0x54, 0x10A0);
+    r.body = std::span<const u8>(s.state).subspan(0x10F4, 0x400);
+    return r;
 }
 
 std::string demonstration_path(const std::string& event_label) { return "replay/license/" + event_label; }

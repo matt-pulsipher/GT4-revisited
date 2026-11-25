@@ -363,7 +363,12 @@ void Session::setup(size_t i, const course::Runway::Place& at, int kind, float s
 }
 
 void Session::set_crossings(size_t car, int n) {
-    if (car < cars_.size()) cars_[car].laps = decltype(cars_[car].laps)(n);
+    if (car < cars_.size()) cars_[car].laps = decltype(cars_[car].laps)(n), crossings_set_ = true;
+}
+
+int Session::crossings(size_t car) const {
+    if (car >= cars_.size()) return 0;
+    return crossings_set_ ? int(cars_[car].laps) : std::max(0, states_[car].lap + 1);
 }
 
 void Session::set_rank(size_t car, int place) {
