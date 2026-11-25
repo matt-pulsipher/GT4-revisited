@@ -25,6 +25,7 @@ FigureClass figure_class(int cockpit_kind);
 // SpecialCarGeometry 0x67DAE0 for kind 0x0A and MTRGeometry 0x67DC70 for kind 0x0F), in the car's frame.
 struct Cockpit {
     int kind = 0;          // info +0x02
+    int lever_kind = 0;    // parts +0x6A
     int style = 0;         // 0x402270: 1 lying (kind 0x0A), 2 kind 0x0F, 3 to 5 the lever's kind
     V3 pedal[2]{}, seat{}, wheel{}, column{f(0), f(0), f(1)};
     F wheel_radius{}, recline{}; // parts +0x18, +0x40

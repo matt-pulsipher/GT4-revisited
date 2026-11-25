@@ -19,6 +19,7 @@
 #include "gt4r/race/car_spec.h"
 #include "gt4r/sim/race_rules.h"
 #include "gt4r/race/driver_figure.h"
+#include "gt4r/race/driver_state.h"
 #include "gt4r/race/start_rule.h"
 #include "gt4r/sim/rules_wear.h"
 #include "gt4r/sim/session.h"
@@ -64,6 +65,18 @@ struct RaceWorld::Impl {
     std::vector<gt3r::race::CarLampGlows::Car> glow_cars;
     gt3r::race::TyreSmoke smoke;
     gt3r::race::WetRoad wet;
+    // The drivers that move (race/driver_figure.h): a car's figures and what each does.
+    struct MovingDriver {
+        size_t car = 0;
+        const race::CarVisual* visual = nullptr;
+        race::posture::Cockpit cockpit;
+        bool co_driver = false;
+        race::posture::DriverState state;
+        std::unique_ptr<race::DriverFigure> figure;
+        bool posed = false;
+    };
+    std::vector<MovingDriver> drivers;
+    void add_drivers(std::vector<render::DrawItem>& items, size_t car, const race::CarState& s, const RVec& eye, const race::CarVisual::LodView* view);
     render::ScreenBatch overlay;
     bool env_ready = false;
     int frame = 0;
@@ -81,8 +94,6 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
     night_ = (flags & 0x8000) != 0;
 
     const std::vector<db::CarEntry>& cars = app.db()->cars();
-    // The drivers' skeleton in its stored pose (every driver set's skeleton has the same sizes).
-    const std::optional<Bytes> driver_skeleton = app.vfs()->read("character/driver.mdl");
     std::map<std::string, std::optional<Bytes>> character_files;
     for (const WorldEntry& e : setup.entries) {
         const db::CarEntry* entry = nullptr;
@@ -109,12 +120,11 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
             o.lamp_level = night_ ? 1 : 0;
             const std::optional<Bytes> wing_file = wing.empty() ? std::nullopt : app.vfs()->read("wing/lod/" + wing);
             if (wing_file) o.wing = *wing_file;
-            if (driver_skeleton) o.driver_skeleton = *driver_skeleton;
             o.driver = setup.drivers;
             if (setup.drivers && car::CarFile::is_car(*file) && !car::CarFile::parse(*file).driver) try {
                     // A car without a driver of its own: a character file by its cockpit kind (0x3B5438).
-                    const race::CockpitPlaces cp = race::read_cockpit(*file);
-                    const std::string path = race::character_driver_file(cp.cockpit_kind, cp.co_driver, int(car_visuals_.size()));
+                    const race::CockpitBytes cp = race::read_cockpit_bytes(*file);
+                    const std::string path = race::character_driver_file(cp.kind, cp.co_driver, int(car_visuals_.size()));
                     if (!path.empty()) {
                         auto [it, fresh] = character_files.try_emplace(path);
                         if (fresh) it->second = app.vfs()->read(path);
@@ -151,6 +161,18 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
             }
         }
         car_visuals_.push_back(visual.get());
+        if (const race::DriverModels* models = visual->moving_driver()) {
+            for (size_t seat = 0; seat < visual->cockpits().size(); ++seat) {
+                Impl::MovingDriver d;
+                d.car = car_visuals_.size() - 1;
+                d.visual = visual.get();
+                d.cockpit = visual->cockpits()[seat];
+                d.co_driver = seat == 1;
+                d.state.reset(d.cockpit);
+                d.figure = std::make_unique<race::DriverFigure>(*models);
+                m.drivers.push_back(std::move(d));
+            }
+        }
         names_.push_back(entry->name.empty() ? entry->label : entry->name);
         // The short name (CAR_NAME_<language> +0x08: "VW Beetle 1100 ..."): in the name table whose
         // first name is the one above.
@@ -722,6 +744,19 @@ float sun_visibility(const race::CourseScene& course, const gt3r::race::SunParam
 
 } // namespace
 
+// A car's moving drivers, posed once a picture.
+void RaceWorld::Impl::add_drivers(std::vector<render::DrawItem>& out, size_t car, const race::CarState& s, const RVec& eye, const race::CarVisual::LodView* lod) {
+    for (MovingDriver& d : drivers) {
+        if (d.car != car || !d.visual->driver_shows(s, eye, lod)) continue;
+        if (!d.posed) {
+            namespace rp = race::posture;
+            d.figure->pose(rp::driving_posture(d.cockpit, d.state.after, {}, {}, d.co_driver));
+            d.posed = true;
+        }
+        d.figure->add_items(out, d.visual->body_matrix(s));
+    }
+}
+
 void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarState> cars, const race::ViewPose& pose, size_t focus, int hidden) {
     Impl& m = *impl_;
     const race::CarState& me = cars[std::min(focus, cars.size() - 1)];
@@ -732,6 +767,7 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
     const render::Mat4 proj = render::perspective(pose.fovy(), aspect, 0.1f, far * 100.0f);
 
     course_->upload_animations(cars);
+    for (Impl::MovingDriver& d : m.drivers) d.posed = false;
     m.fade.update(course_->visible_nodes(pose.eye), pose.eye, kStep);
     m.items.clear();
     // The view's axes in course space (the rows of the view matrix's turn).
@@ -774,6 +810,7 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
     lod_view.k = (224.0f / 0.75f) * (10.0f / 7.0f) / std::max(std::tan(pose.fov * 0.5f), 1e-3f);
     for (size_t i = 0; i < n; ++i) {
         if (int(i) == hidden) continue;
+        m.add_drivers(m.items, i, cars[i], pose.eye, &lod_view);
         car_visuals_[i]->add_items(m.items, cars[i], pose.eye, kStep, &lod_view);
     }
     course_->add_after_items(m.items);
@@ -964,6 +1001,7 @@ void RaceWorld::render_mirror(Ui& ui, const SDL_FRect& rect, std::span<const rac
     for (size_t i = 0; i < n; ++i) {
         if (int(i) == hidden) continue;
         car_visuals_[i]->add_shadow_items(m.mirror_items, cars[i]);
+        m.add_drivers(m.mirror_items, i, cars[i], pose.eye, nullptr);
         car_visuals_[i]->add_items(m.mirror_items, cars[i], pose.eye, kStep);
     }
     render::DrawOptions o = draw_options(*course_, kDepth);

@@ -63,7 +63,7 @@ struct WorldSetup {
     std::vector<WorldEntry> entries; // the first is the player's
     bool smoke = true;
     bool reflection = true;
-    bool drivers = false; // the drivers in their stored pose (the posture is not ported: for checks)
+    bool drivers = true; // the drivers in their cars
     bool rail = false; // the stand-in simulation instead of the game's
     sim::ai::Pace pace; // the computer drivers' (the event's)
     // The event's class grips as they are (a license test's, training's, mission's and practice's conductor); else a byte the

@@ -19,6 +19,8 @@ namespace {
 namespace scene = gt3r::scene;
 using render::Mat4;
 
+thread_local bool t_unuploaded = false; // make_unuploaded is building
+
 constexpr int kSkip = 99;       // a callback value no switch has a case for: the construct is left out
 constexpr int kWheelLevels = 2; // the body's levels whose wheels are items of their own (the far level draws its own)
 
@@ -335,31 +337,30 @@ void CarVisual::build_driver(ByteSpan file, const Options& opt, const std::strin
     const ByteSpan set = c.driver ? file.subspan(c.driver) : opt.driver_set;
     if (set.empty() || !mdls::is_mdls(set)) return;
     try {
-        const CockpitPlaces places = read_cockpit(file);
-        const std::vector<DriverPart> parts = driver_parts(set, opt.driver_skeleton);
-        if (parts.empty()) return;
-        const u32 models = mdls::read_header(set).models;
-        std::vector<int> slot(models, -1);
-        for (const DriverPart& p : parts)
-            if (slot[p.model] < 0) slot[p.model] = int(driver_models_.size()), driver_models_.emplace_back();
-        // (Reserved up front: the slots' places are kept for a later upload.)
-        for (u32 i = 0; i < models; ++i) {
-            if (slot[i] < 0) continue;
-            gt3r::gtm1::Options o = car_options();
-            o.node = int(i);
-            scene::Model m = mdls::build_model(set, o, mdls::Scene{}, name + "/driver");
-            bool any = false;
-            for (const scene::Mesh& mesh : m.meshes) any |= !mesh.indices.empty();
-            if (any) to_gpu(driver_models_[size_t(slot[i])], m);
-        }
-        for (int seat = 0; seat < (places.co_driver ? 2 : 1); ++seat) {
-            const Mat4 root = driver_root(places, set, opt.driver_skeleton, seat == 1);
-            for (const DriverPart& p : parts) driver_items_.push_back({size_t(slot[p.model]), p.skinned ? root : root * p.node});
+        const CockpitBytes cockpit = read_cockpit_bytes(file);
+        const posture::FigureClass cls = posture::figure_class(cockpit.kind);
+        if (cls == posture::FigureClass::None) return;
+        for (int seat = 0; seat < (cockpit.co_driver ? 2 : 1); ++seat) cockpits_.push_back(posture::read_posture_cockpit(file, seat == 1));
+        driver_models_ = std::make_unique<DriverModels>(*ctx_, set, name, t_unuploaded ? &unuploaded_ : nullptr);
+        moving_driver_ = cls != posture::FigureClass::Board;
+        if (moving_driver_) return;
+        for (const posture::Cockpit& k : cockpits_) {
+            still_.push_back(std::make_unique<DriverFigure>(*driver_models_));
+            still_.back()->pose(posture::still_posture(k));
         }
     } catch (const std::exception& e) {
         LOG_WARN("Car %s: driver: %s", name.c_str(), e.what());
-        driver_items_.clear();
+        still_.clear();
+        driver_models_.reset();
+        moving_driver_ = false;
     }
+}
+
+bool CarVisual::driver_shows(const CarState& s, const render::Vec3& eye, const LodView* view) const {
+    const render::Vec3 at = v3(s.position) - eye;
+    const float depth = std::max(view && view->k > 0 ? render::dot(at, view->forward) : render::length(at), 0.0001f);
+    const float k = view && view->k > 0 ? view->k : 721.2f; // (the chase view's)
+    return k / depth / 420.0f >= 0.025f;
 }
 
 void CarVisual::set_lamp_strengths(float head, float brake, float tail) {
@@ -370,10 +371,6 @@ void CarVisual::set_lamp_strengths(float head, float brake, float tail) {
 }
 
 CarVisual::~CarVisual() = default;
-
-namespace {
-thread_local bool t_unuploaded = false; // make_unuploaded is building
-} // namespace
 
 std::unique_ptr<CarVisual> CarVisual::make_unuploaded(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const CarSpec& spec, const Options& opt,
                                                       const std::string& name) {
@@ -466,9 +463,8 @@ void CarVisual::add_items(std::vector<render::DrawItem>& items, const CarState& 
         items.push_back(it);
     }
     // The driver (in the car's frame), before the body and its glass.
-    if (lod < 2)
-        for (const DriverItem& d : driver_items_)
-            if (const render::GpuModel* m = driver_models_[d.model].get()) items.push_back({m, body * d.local, 0});
+    if (!still_.empty() && driver_shows(s, eye, view))
+        for (const std::unique_ptr<DriverFigure>& d : still_) d->add_items(items, body);
     if (const render::GpuModel* m = body_[s.brake_lamps ? 1 : 0].get()) {
         render::DrawItem it{m, body, lod};
         it.far_whole = true;

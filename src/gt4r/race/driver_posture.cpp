@@ -91,10 +91,10 @@ Cockpit read_posture_cockpit(ByteSpan file, bool co_driver) {
         c.pedal[1] = c.pedal[1] + move;
         c.seat = c.seat + move;
     }
-    const int lever_kind = rd16(file, parts + 0x6A);
+    c.lever_kind = rd16(file, parts + 0x6A);
     if (c.kind == 0x0A) c.style = 1;
     else if (c.kind == 0x0F) c.style = 2;
-    else if (lever_kind >= 3 && lever_kind <= 5) c.style = lever_kind;
+    else if (c.lever_kind >= 3 && c.lever_kind <= 5) c.style = c.lever_kind;
     return c;
 }
 
