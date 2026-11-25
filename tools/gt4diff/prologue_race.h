@@ -54,4 +54,7 @@ bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, 
 // One race step of the program's own (0x3B7020) for every car.
 void step(Ee& ee, Race& r);
 
+// GT4R_CONVERT: the program's converter (0x3C74B8) against ours on every car of the database (prologue_convert.cpp).
+int convert_check(Disc& disc, const std::string& course, const std::string& car);
+
 } // namespace gt4r::diff::prologue

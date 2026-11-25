@@ -45,6 +45,10 @@ public:
     static constexpr u32 kController = 0x504950, kPedalSteps = 0x504AA8;
     // The in-line wheel layout's roll terms (six floats; the attitude 0x3765F8).
     static constexpr u32 kInLine = 0x50429C;
+    // The converter's (0x3C74B8): the special cars' bodies and tires (0x78 bytes a row, three rows; 0x3C1F60), the
+    // differential type letters (0x3DF0D8), four wheel drive system 3's gain and capacity bytes (0x3DFFD0), the byte that
+    // gives the special kind 7 its pitch tire term (0x3B1498).
+    static constexpr u32 kSpecialBodies = 0x5040F8, kLsdLetters = 0x504AD0, kAwd3 = 0x504AD8, kKind7Tire = 0x503CB0;
 
     // Finds the build's routines in a program image loaded at `load_address`.
     static PrologueProgram locate(ByteSpan image, u32 load_address);

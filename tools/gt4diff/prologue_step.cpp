@@ -207,6 +207,7 @@ int run(Disc& disc, const std::string& course, const std::string& car, int steps
         return 1;
     }
     if (std::getenv("GT4R_WHOLESTEP")) return whole_step(disc, course, car, steps);
+    if (std::getenv("GT4R_CONVERT")) return convert_check(disc, course, car);
     set_disc(disc);
     db::SpecDb sdb = open_db(disc);
     Ee ee;
