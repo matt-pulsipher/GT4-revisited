@@ -1061,9 +1061,25 @@ GT4's own routines, checked against the user's program where the note says so:
   0x2C8CC8) and the list box (0x2B29C0, 0x2B3918, 0x2B3670, 0x2B4A00, 0x2B48F0; its drag mode not written);
 - the B-spec driver's book and the Status page's figures (0x468B58, 0x468710, 0x468860; game_bspec.h), equal to
   the program's and to the original's page;
+- a championship's grid from its second race on (0x3EE9F8: opponents by kg over PS of their showroom cars, ties in
+  entry order, the player last; `championship_grid_places`, `menu/game.h`; the reference's Tuning Car Grand Prix race 2
+  grid reproduced with the event's parts; the race keeps the entries and takes each one's start slot, 0x3EE7C0);
+- the B-spec book's doubled change (0x468A60) and the course's marks' flag (cond + 0xCBE7, 0x34C7E0 / 0x468A40: the
+  second character of the course's attribute text), save.md "The B-spec driver's book";
+- the completion (Home's "Complete", the halls' locks) by the game's own scripts (`getRaceEventRecordStatistics`,
+  `canEntryEndurance`, `canEntryGTWorldChamp`, `canEntryExtreme`; save.md "A game with progress");
+- Prologue's game data file and its card pages' saving and loading (`save/prologue_data.*`, prologue.md "The saved game";
+  the license units by `prologue_license.*`), its new game's payload equal to the program's byte for byte;
 - `MCourseData.GetAttrString` (0x1B3320); the options' fields and the screen's figures (0x436D60); the
   license day (0x110800); the gear ranges (0x3553A0, 0x355278); the race result routines (0x114498,
   0x119CB8, 0x11C328, 0x1105A8) and the distance added to a car (0x35DE20) as read.
+
+Read from the program, not yet followed here:
+- **A stream's level** (`startStreamEx`, 0x461620): the script's volume x the sound-volume table's column 1 (0.48,
+  sdvol.dat) x menu_bgm_raw / 128 x 16383; MOption's `menu_bgm_volume` getter (0x180AA8) is raw / 128. On a race's menus
+  the race's BGM (`RaceBGMPS2::vf5`, 0x33D568) sets the stream's level instead: column 0 (0.3) x race_bgm_raw / 128
+  (replay_bgm_raw in a replay), 4415 with the options at 115 — the 4416 the saved states' SPU2 holds. Ours: `menu_sound.cpp`
+  plays the pre-race jingle at the race's level only because our option answers the raw 115.
 
 Still the shared engine's code or a stand-in (file, function → the GT4 routine that should replace it):
 - `widget_classes.cpp` the select box's and scroll window's routines are read (0x2DA2B0 on, 0x2D2720 on); the
