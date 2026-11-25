@@ -479,6 +479,143 @@ TEST(sound_race_gear_whine_on_disc) {
     CHECK(car.report().whine == 0);
 }
 
+// The whine of a drive that makes its own (0x34FED0's first branches): layout 7's motors (the Acura
+// DN-X, 0x356D88) by the front wheels' speed and the motors' output; a one-speed box (the Prius,
+// 0x369510) only while braking with the clutch asked for, by the driven wheels' speed and brakes.
+TEST(sound_race_motor_and_one_speed_whine_on_disc) {
+    Disc* disc = full_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    {
+        const std::string cars[] = {"acura_dnx_02"};
+        const std::unique_ptr<sim::Session> s = sim::Session::open(*disc, "tsukuba", cars);
+        CHECK(s->gt4_rules() && s->gt4_record(0).drive.d.layout == 7);
+        race::CarInput in;
+        in.throttle = 1;
+        for (int i = 0; i < 180; ++i) s->step_once({&in, 1});
+        const audio::CarSoundState st = audio::sound_state(*s, 0);
+        const auto& c = s->record(0);
+        const float front = 0.5f * (std::fabs(c.w[0].rim_speed.host()) + std::fabs(c.w[1].rim_speed.host()));
+        std::printf("  DN-X: %.1f km/h, whine pitch %.3f, level %.3f\n", double(st.speed * 3.6f), double(st.whine_pitch), double(st.whine_level));
+        CHECK(st.whine_given && near(st.whine_pitch, front * 0.012f + 0.4f, 1e-5) && near(st.whine_level, c.clutch_torque.host() * 0.25f, 1e-6));
+        CHECK(st.whine_pitch > 0.4f);
+    }
+    {
+        const std::string cars[] = {"prius_g_02"};
+        const std::unique_ptr<sim::Session> s = sim::Session::open(*disc, "tsukuba", cars);
+        CHECK(s->gt4_record(0).drive.d.kind == 3);
+        race::CarInput in;
+        in.throttle = 1;
+        for (int i = 0; i < 240; ++i) s->step_once({&in, 1});
+        audio::CarSoundState st = audio::sound_state(*s, 0);
+        CHECK(st.whine_given && st.whine_level == 0 && st.whine_pitch == 1.0f); // (no brake: none)
+        in = race::CarInput{};
+        in.brake = 1;
+        float most = 0;
+        for (int i = 0; i < 60; ++i) {
+            s->step_once({&in, 1});
+            st = audio::sound_state(*s, 0);
+            const auto& c = s->record(0);
+            if (c.brake_pedal.host() != 0 && c.clutch_req.host() != 0) CHECK(st.whine_level > 0 && st.whine_pitch >= 0.3f);
+            else CHECK(st.whine_level == 0);
+            most = std::max(most, st.whine_level);
+        }
+        std::printf("  Prius braking: whine up to %.3f\n", double(most));
+    }
+}
+
+// The Nike One's heartbeat (category 3): 0.8 beats a second standing, faster with the speed (2.2 more
+// at 240 km/h), heard from its own in-car view only; other cars have none.
+TEST(sound_race_heartbeat_on_disc) {
+    Disc* disc = full_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    gt3r::Vfs vfs(&disc->volume());
+    auto mix = std::make_shared<audio::RaceMix>();
+    mix->tables = audio::RaceSoundTables::from_core(disc->read_program());
+    const std::string cars[] = {"nike_one_04", "ka_01"};
+    const std::unique_ptr<sim::Session> session = sim::Session::open(*disc, "tsukuba", cars);
+    CHECK(audio::sound_state(*session, 0).heart && !audio::sound_state(*session, 1).heart);
+    audio::OfflineSound s(false);
+    auto library = std::make_shared<audio::SoundLibrary>(vfs);
+    audio::CarSound nike(vfs, s.mixer(), &s.driver(), library), chased(vfs, s.mixer(), &s.driver(), library);
+    nike.set_mix(mix), chased.set_mix(mix);
+    CHECK(nike.load("nike_one_04") && chased.load("nike_one_04"));
+    audio::CarSoundState st = audio::sound_state(*session, 0);
+    st.speed = 0;
+    int notes = 0, chase_notes = 0;
+    for (int i = 0; i < 600; ++i) {
+        nike.update(st, audio::listener_at(session->cars()[0], audio::SoundListener::Kind::InCar), true);
+        chased.update(st, audio::listener_at(session->cars()[0], audio::SoundListener::Kind::Chase), true);
+        notes += nike.report().notes, chase_notes += chased.report().notes;
+    }
+    std::printf("  standing: %d beats in 10 s, %d heard in the car, %d from the chase view\n", nike.report().heartbeats, notes, chase_notes);
+    CHECK(nike.report().heartbeats >= 7 && nike.report().heartbeats <= 8 && notes == nike.report().heartbeats && chase_notes == 0);
+    st.speed = 70; // (over 66.7 m/s: 3 beats a second)
+    const int before = nike.report().heartbeats;
+    for (int i = 0; i < 600; ++i) nike.update(st, audio::listener_at(session->cars()[0], audio::SoundListener::Kind::InCar), true);
+    CHECK(nike.report().heartbeats - before >= 29 && nike.report().heartbeats - before <= 30);
+}
+
+// The pit stop's sounds are the index's effects of bank 3, played at the race's master level.
+TEST(sound_race_pit_effects_on_disc) {
+    Disc* disc = full_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    gt3r::Vfs vfs(&disc->volume());
+    auto library = std::make_shared<audio::SoundLibrary>(vfs);
+    for (const char* name : {"jackdown", "jackup", "wheelgun", "dropnut", "droptire", "oiltank", "refueling"}) {
+        const sound::EffectEntry* e = library->effects().find(name);
+        CHECK(e != nullptr && e->bank == 3);
+    }
+    audio::OfflineSound s(false);
+    audio::RaceSound sound(vfs, s.mixer(), s.driver(), library, audio::RaceSoundTables::from_core(disc->read_program()));
+    const audio::CarSoundState none[] = {audio::CarSoundState{}};
+    for (int i = 0; i < 30; ++i) sound.update(none, audio::SoundListener{}, -1), s.advance(1); // (the master fades in)
+    const size_t from = s.pcm.size();
+    sound.pit_effect("jackdown");
+    s.advance(60);
+    double peak = 0;
+    for (size_t i = from; i < s.pcm.size(); ++i) peak = std::max(peak, double(std::abs(s.pcm[i])));
+    std::printf("  jackdown at the master %.3f: peak %.0f\n", double(sound.master()), peak);
+    CHECK(sound.master() > 0.3f && peak > 300);
+}
+
+// The run's replay is heard from the sound inputs the session gave each step (the engine's torques, the wheels,
+// the contacts), not from estimates out of the cars' states.
+TEST(sound_race_replay_from_recording_on_disc) {
+    Disc* disc = full_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    const std::string labels[] = {"nsx_r_02"};
+    const std::unique_ptr<sim::Session> session = sim::Session::open(*disc, "tsukuba", labels);
+    gt3r::Vfs vfs(&disc->volume());
+    audio::OfflineSound s(false);
+    auto library = std::make_shared<audio::SoundLibrary>(vfs);
+    audio::RaceSound sound(vfs, s.mixer(), s.driver(), library, audio::RaceSoundTables::from_core(disc->read_program()));
+    CHECK(sound.add_car("nsx_r_02"));
+    race::CarInput in;
+    std::vector<std::vector<race::CarState>> history;
+    std::vector<int> live_engine, live_exhaust;
+    for (int i = 0; i < 240; ++i) {
+        in.throttle = i < 200 ? 1.0f : 0.0f; // (and a lift: the levels move)
+        session->step_once({&in, 1});
+        history.emplace_back(session->cars().begin(), session->cars().end());
+        sound.update(*session, audio::listener_at(session->cars()[0], audio::SoundListener::Kind::Chase), 0);
+        live_engine.push_back(sound.car(0).report().engine_level), live_exhaust.push_back(sound.car(0).report().exhaust_level);
+    }
+    CHECK(sound.recorded_steps() == 240);
+    sound.replay();
+    int same = 0;
+    for (size_t k = 1; k < history.size(); ++k) {
+        sound.update(history[k], audio::listener_at(history[k][0], audio::SoundListener::Kind::Chase), 0);
+        if (k < 30) continue; // (the levels' averaging forgets the step before the replay)
+        same += sound.car(0).report().engine_level == live_engine[k] && sound.car(0).report().exhaust_level == live_exhaust[k];
+    }
+    std::printf("  replayed steps with the live levels: %d of %zu\n", same, history.size() - 30);
+    CHECK(same == int(history.size()) - 30);
+    // A saved run (no recording): heard from its states.
+    sound.forget_recording();
+    CHECK(sound.recorded_steps() == 0);
+    sound.update(history[5], audio::listener_at(history[5][0], audio::SoundListener::Kind::Chase), 0);
+}
+
 // A race: a session on Tsukuba with its course sound, the count's beeps at 3, 2 and 1 seconds,
 // the start, then the cars driving.
 TEST(sound_race_session_on_disc) {

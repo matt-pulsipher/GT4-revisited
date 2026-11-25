@@ -233,6 +233,7 @@ void RaceSound::replay() {
     fade_ = 0;
     fade(1.0f, 3.0f);
     for (auto& c : cars_) c->stop();
+    replay_step_ = 0;
     racing_ = false;
     if (music_.stop) music_.stop();
     if (first_piece_ >= 0) racing_ = play_stream("racing", first_piece_, true);
@@ -294,7 +295,8 @@ void RaceSound::update(std::span<const CarSoundState> states, const SoundListene
     distances.reserve(states.size());
     for (size_t i = 0; i < states.size() && i < cars_.size(); ++i) {
         CarSoundState s = states[i];
-        if (contact_[i] > 0) s.contact = contact_[i], s.contact_kind = contact_kind_[i];
+        // (the recorder keeps the step's strongest of every kind)
+        if (contact_[i] > s.contact) s.contact = contact_[i], s.contact_kind = contact_kind_[i];
         contact_[i] = 0;
         cars_[i]->update(s, camera, int(i) == target);
         distances.push_back(s.course_distance);
@@ -330,10 +332,20 @@ void RaceSound::update(const sim::Session& session, const SoundListener& camera,
     std::vector<CarSoundState> s;
     s.reserve(session.cars().size());
     for (size_t i = 0; i < session.cars().size(); ++i) s.push_back(sound_state(session, i, &mix_->tables));
+    if (!replay_ && recorded_.size() < kRecordSteps) recorded_.push_back(s);
     update(s, camera, target);
 }
 
 void RaceSound::update(std::span<const race::CarState> cars, const SoundListener& camera, int target) {
+    // A replay of the run just recorded: each step's sound inputs as the session gave them (its contacts, landings,
+    // wheels, the engine's torques), in step with the recording.
+    if (replay_ && replay_step_ + 1 < recorded_.size() && recorded_[replay_step_ + 1].size() == cars.size()) {
+        ++replay_step_;
+        const std::vector<CarSoundState> s = recorded_[replay_step_];
+        update(s, camera, target);
+        return;
+    }
+    if (replay_) ++replay_step_;
     std::vector<CarSoundState> s;
     s.reserve(cars.size());
     for (const race::CarState& c : cars) s.push_back(sound_state(c));
