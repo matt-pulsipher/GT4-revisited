@@ -888,6 +888,12 @@ public:
             h.status = hud.word(throttle_held_ ? "AutoDriveReady" : "AutoDriveFullThrottle");
             h.status_opacity = 1;
         }
+        // The pit messages (RaceDisplay::vf28: F +0x5FA's codes 7 .. 12 of the car shown).
+        if (static constexpr const char* kPit[6] = {"PitTooFast", "PitLastLap", "PitNoTireWear", "PitSpeedLimit", "PitWork", "PitGetOut"}; !replaying_ && !demo && h.status.empty())
+            if (const int code = world_->pit_message(shown_car); code >= 7 && code <= 12) {
+                h.status = hud.word(kPit[code - 7]);
+                h.status_opacity = 1;
+            }
         h.event.clear(), h.event_opacity = 0, h.event_gap.clear(), h.event_gap_opacity = 0;
         if (!replaying_ && split_steps_ >= 0 && split_steps_ < 200 && (event_steps_ < 0 || event_steps_ >= 200)) {
             // "T1   0'27.247" for three seconds; the gap to the first car through that split this lap under it.
@@ -1143,6 +1149,7 @@ public:
         if (watched_ && world_->pit(0)) LOG_INFO("Drive: B-spec pit command at %.1f s", double(flow_.time_ms()) / 1000);
     }
     int pit_message() const { return world_->pit_message(0); }
+    RaceWorld& world() { return *world_; }
     std::array<sim::ai::PitStops::StopRecord, 4> pit_record(size_t car) const { return world_->pit_record(car); }
     std::optional<std::array<u8, 0x40>> bspec_record() const { return world_->bspec_record(0); }
     int bspec_class() const { return world_->bspec_class(0); }
@@ -1471,7 +1478,10 @@ public:
         }
         if (paused_) return update_pause(app, m, dt);
         const gt3r::PadState& pad = app.input().race_pad(0);
-        if (race_->watched()) {
+        const bool pit_menu = update_pit_menu(app, m, dt);
+        if (race_->watched() && pit_menu) {
+            if (monitor_) monitor_->advance(float(dt)), fill_monitor();
+        } else if (race_->watched()) {
             // B-spec's keys (the help strip's): Left / Right the pace, Triangle overtake, Cross the view,
             // R2 the display, Up / Down the car the views follow, Circle the pit (the player's car in at the
             // next pit entry), R1 the Race Monitor.
@@ -1484,6 +1494,8 @@ public:
             if (m.pressed(PadButton::R1)) toggle_monitor(app);
             if (monitor_) monitor_->advance(float(dt)), fill_monitor();
         } else if (m.pressed(PadButton::R1) || m.pressed(PadButton::Select)) race_->next_view();
+        // The refuelling stopped (0x3BAC80: the bar's accept, the help strip's "%Be").
+        if (!pit_menu && race_->world().refuelling(0) && m.pressed(PadButton::Circle) && !race_->replaying()) race_->world().stop_refuel(0);
         look_back_ = gt3r::race::look_back_held(pad, false);
         // Whole simulation steps for the time that has passed (at most four a frame).
         const Uint64 t0 = SDL_GetTicksNS();
@@ -1549,6 +1561,9 @@ public:
                 // A license test: the targets (the page's gold, silver and bronze times).
                 hud_state_.license = is_license(sequence_);
                 for (int k = 0; k < 3; ++k) hud_state_.targets[k] = test_time(k);
+                hud_state_.refuel = !race_->replaying() && race_->world().refuelling(0);
+                hud_state_.refuel_fuel = race_->world().fuel(0), hud_state_.refuel_tank = race_->world().tank(0);
+                hud_state_.tooltip = race_->replaying() ? std::string() : pit_open_ ? hud_->word("TOOLTIP|PitMenu") : hud_state_.refuel ? hud_->word("TOOLTIP|Refuel") : std::string();
                 if (race_->replaying()) {
                     if (caption_for_.empty()) music_caption(app);
                     hud_state_.caption_title = caption_title_, hud_state_.caption_artist = caption_artist_;
@@ -1602,6 +1617,7 @@ public:
             }
             if (!icons.empty()) race_->draw_icons(ui, RaceHud::canvas(), icons);
         }
+        if (pit_open_ && pit_ && hud_ && !results_shown() && !race_->replaying()) hud_->draw_movie(*pit_movie_, *pit_);
         if (paused_) {
             if (pause_ && hud_) {
                 hud_->draw_movie(*pause_movie_, *pause_);
@@ -1796,6 +1812,111 @@ private:
         if (unit.find("%s") != std::string::npos) std::snprintf(b, sizeof b, unit.c_str(), feet ? "ft" : "m");
         else std::snprintf(b, sizeof b, "(%s)", feet ? "ft" : "m");
         m.set("DISTUNIT", "text", V::string(b));
+    }
+
+    // ---- The PIT STOP menu (menu/common/pitmenu.strb, 0x3DCC50 .. 0x3DD688): up from the pit lane's start until the choice is
+    // made or the car is out again, the race going on. True while it is up.
+
+    static constexpr int kFrontTiresOwned = 0x40, kRearTiresOwned = 0x4D; // (0x43F270: the first owned bit of types 0x19 / 0x1A)
+    struct PitChoice {
+        bool tires = false, fuel = false;      // what may be chosen (+0xE8, +0xEC)
+        bool mode = false;                     // the driving mode may be (+0x100)
+        std::array<std::vector<int>, 2> kinds; // the front and rear kinds offered; one past them: no change
+        std::array<int, 2> tire{};             // +0xF0 / +0xF4
+        int feed = 1, bspec = 0;               // +0xF8, +0xFC
+    };
+
+    bool update_pit_menu(App& app, const MenuInput& m, double dt) {
+        if (!race_ || race_->replaying() || quick_ || results_shown()) return pit_open_ = false;
+        RaceWorld& world = race_->world();
+        if (const std::optional<RaceWorld::PitOffer> offer = world.pit_offer(0)) open_pit_menu(app, *offer);
+        if (!pit_open_) return false;
+        if (world.pit_offer_over(0)) {
+            pit_open_ = false;
+            return false;
+        }
+        if (!pit_) return true;
+        pit_->advance(float(dt));
+        bool touched = false;
+        auto key = [&](int code) { pit_->key(code), touched = true; };
+        if (m.vertical()) key(m.vertical() < 0 ? 0x26 : 0x28);
+        if (m.horizontal()) key(m.horizontal() < 0 ? 0x25 : 0x27);
+        if (m.pressed(PadButton::Cross)) key(0x20);
+        if (touched && !pit_touched_) world.pit_wait(0), pit_touched_ = true;
+        return pit_open_;
+    }
+
+    void open_pit_menu(App& app, const RaceWorld::PitOffer& offer) {
+        if (!pit_movie_) {
+            try {
+                if (const std::optional<Bytes> file = app.vfs()->read("menu/common/pitmenu.strb"); file && race::StrobeMovie::is_movie(*file))
+                    pit_movie_ = std::make_shared<const race::StrobeMovie>(race::StrobeMovie::parse(*file));
+            } catch (const std::exception& e) {
+                LOG_WARN("Pit stop menu: %s", e.what());
+            }
+        }
+        RaceWorld& world = race_->world();
+        pit_choice_ = PitChoice{};
+        pit_choice_.tires = offer.tires, pit_choice_.fuel = offer.fuel;
+        for (int a = 0; a < 2; ++a) {
+            std::vector<int>& kinds = pit_choice_.kinds[size_t(a)];
+            kinds = world.pit_tire_kinds(0, a);
+            const int own = world.fitted_tire(0, a);
+            // A Gran Turismo mode race offers the kinds the garage's car has (0x4078D0), and the fitted one.
+            if (menus_ && sequence_ != "single_race" && !sequence_.empty())
+                if (const int at = menus_->game().race.garage_slot; at >= 0 && size_t(at) < menus_->game().garage.size() && menus_->game().garage[size_t(at)].record) {
+                    const menu::CarRecord& car = *menus_->game().garage[size_t(at)].record;
+                    std::erase_if(kinds, [&](int k) { return k != own && !car.owned((a == 0 ? kFrontTiresOwned : kRearTiresOwned) + k); });
+                }
+            const auto at = std::find(kinds.begin(), kinds.end(), own);
+            pit_choice_.tire[size_t(a)] = offer.tires && at != kinds.end() ? int(at - kinds.begin()) : int(kinds.size());
+        }
+        pit_choice_.feed = offer.fuel ? 1 : 0;
+        pit_choice_.bspec = offer.bspec ? 1 : 0;
+        pit_open_ = true, pit_touched_ = false;
+        LOG_INFO("Drive: the pit stop menu at %.1f s (tires %d, fuel %d)", double(race_->flow().time_ms()) / 1000, int(offer.tires), int(offer.fuel));
+        if (!pit_movie_) return;
+        auto kind_of = [](const std::string& n) { return n == "FTIRE" ? 0 : n == "RTIRE" ? 1 : n == "FEED" ? 2 : 3; };
+        auto host = [this, &app, kind_of](const std::string& name, const std::vector<race::StrobePlayer::Value>& args) {
+            using V = race::StrobePlayer::Value;
+            std::string n = name;
+            for (char& c : n) c = char(std::toupper(static_cast<unsigned char>(c)));
+            auto text = [&](size_t i) { return i < args.size() ? args[i].to_string() : std::string(); };
+            auto number = [&](size_t i) { return i < args.size() ? int(args[i].to_number()) : 0; };
+            PitChoice& c = pit_choice_;
+            const int kind = args.empty() ? 3 : kind_of(text(0));
+            const bool allowed = kind < 2 ? c.tires : kind == 2 ? c.fuel : c.mode;
+            if (n == "PLAY_SOUND") {
+                if (audio::AppSound* sound = app.sound()) sound->menu().play(text(0));
+            } else if (n == "NITEM") {
+                return V::number(!allowed ? 1 : kind < 2 ? int(c.kinds[size_t(kind)].size()) + 1 : 2);
+            } else if (n == "DEFAULTVAL") {
+                return V::number(kind < 2 ? c.tire[size_t(kind)] : kind == 2 ? (c.feed ? 1 : 0) : c.mode && c.bspec ? 1 : 0);
+            } else if (n == "ITEM") {
+                const int at = number(1);
+                if (!allowed) return V::string("---");
+                if (kind < 2) {
+                    const std::vector<int>& kinds = c.kinds[size_t(kind)];
+                    if (at < 0 || size_t(at) >= kinds.size()) return V::string(hud_->word("Tire_NoChange"));
+                    char b[16];
+                    std::snprintf(b, sizeof b, "Tire_%02d", kinds[size_t(at)]);
+                    return V::string(hud_->word(b));
+                }
+                return V::string(hud_->word(kind == 2 ? (at == 1 ? "DoFeed" : "DontFeed") : at == 1 ? "BSpecMode" : "ASpecMode"));
+            } else if (n == "RETURNVAL" && args.size() >= 2) {
+                const int v = number(1);
+                if (kind < 2) c.tire[size_t(kind)] = v;
+                else if (kind == 2) c.feed = v != 0;
+                else c.bspec = v != 0;
+            } else if (n == "EXIT") {
+                auto chosen = [&](size_t a) { return u8(size_t(c.tire[a]) < c.kinds[a].size() && c.tires ? c.kinds[a][size_t(c.tire[a])] : 0xFF); };
+                LOG_INFO("Drive: the pit stop's choice at %.1f s: tires %d / %d, fuel %d", double(race_->flow().time_ms()) / 1000, chosen(0), chosen(1), c.feed);
+                race_->world().pit_choose(0, chosen(0), chosen(1), c.feed != 0);
+                pit_open_ = false;
+            }
+            return V{};
+        };
+        pit_ = std::make_unique<race::StrobePlayer>(pit_movie_, host);
     }
 
     // ---- The pause: the game's pause movie (menu/common/pause.strb) and its entries.
@@ -2666,7 +2787,10 @@ private:
     HudState hud_state_;
     std::string error_;
     bool paused_ = false, look_back_ = false, from_menus_ = false;
-    std::shared_ptr<const race::StrobeMovie> pause_movie_, monitor_movie_;
+    std::shared_ptr<const race::StrobeMovie> pause_movie_, monitor_movie_, pit_movie_;
+    std::unique_ptr<race::StrobePlayer> pit_; // the PIT STOP menu
+    PitChoice pit_choice_;
+    bool pit_open_ = false, pit_touched_ = false;
     std::unique_ptr<race::StrobePlayer> monitor_; // B-spec's Race Monitor, while it is up
     std::unique_ptr<race::StrobePlayer> pause_;
     std::string pause_result_;

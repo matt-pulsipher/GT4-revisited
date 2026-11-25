@@ -29,7 +29,7 @@ constexpr float kPi = 3.14159265f;
 constexpr float kCanvasH = 480.0f, kWideLeft = -106.667f;
 constexpr float kScale = float(Ui::kHeight) / kCanvasH;
 
-constexpr u32 kTextGray = 0x80C8C8C8u, kMeterBlue = 0x80E3B896u, kNeutral = 0x80808080u;
+constexpr u32 kTextGray = 0x80C8C8C8u, kMeterBlue = 0x80E3B896u, kNeutral = 0x80808080u, kRefuelTint = 0x805EA8F2u;
 
 SDL_FRect to_ui(const DisplayRect& r) { return {(r.x - kWideLeft) * kScale, r.y * kScale, r.w * kScale, r.h * kScale}; }
 SDL_FPoint to_ui(float x, float y) { return {(x - kWideLeft) * kScale, y * kScale}; }
@@ -531,6 +531,18 @@ void RaceHud::Impl::draw_top(const HudState& s) {
     }
     if (const DisplayPlace* p = cur->find(element::kMessage))
         draw_text(font("FC_48"), race::place_x(*p, true), float(p->y), kCentered, kTextGray, o * s.message_opacity, s.message);
+    // The refuel bar (RaceRefuelMeter::vf6 0x3A59D8): a 256 x 26 plate at (320, 58), both ways centered, the bar from x + 15 by the
+    // share of 155 in the meters' blue, the scale 157 x 12 over it at (x + 14, y + 7), "fuel/tank" ending at x + 241.
+    if (s.refuel && s.refuel_tank > 0) {
+        const DisplayRect at{320 - 128, 58 - 13, 256, 26};
+        draw_picture(picture("refuel_bg"), at, kNeutral, o);
+        const float share = std::clamp(s.refuel_fuel / s.refuel_tank, 0.0f, 1.0f);
+        if (share > 0) draw_picture(picture("refuel_bar"), {at.x + 15, at.y, 155 * share, 26}, kRefuelTint, o);
+        draw_picture(picture("refuel_scale"), {at.x + 14, at.y + 7, 157, 12}, kNeutral, o);
+        char b[32];
+        std::snprintf(b, sizeof b, "%d/%d", int(s.refuel_fuel + 0.5f), int(s.refuel_tank + 0.5f));
+        draw_text(font("hn_20R"), at.x + 14 + 227, at.y + 18, kEndsAtPen, kRefuelTint, o, b);
+    }
     // The status line (member 0x228C): over the driver's panel at (320, 348), over the chase views'
     // at (320, 430); `hn_20R`.
     if (!s.status.empty() && s.status_opacity > 0)
@@ -854,7 +866,7 @@ void RaceHud::draw(Ui& ui, const HudState& s) {
     if (s.bspec && !s.replay) {
         char key[16];
         std::snprintf(key, sizeof key, "key_pace%d", std::clamp(s.pace, 1, 5));
-        impl_->draw_bspec(s, word(s.pit_command ? "key_pitin" : s.overtake ? "key_overtake" : key), word("Tool Tip1"));
+        impl_->draw_bspec(s, word(s.pit_command ? "key_pitin" : s.overtake ? "key_overtake" : key), s.tooltip.empty() ? word("Tool Tip1") : s.tooltip);
         return;
     }
     if (!s.show_meter) return;

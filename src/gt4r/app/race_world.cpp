@@ -301,6 +301,8 @@ void RaceWorld::build_simulation() {
                     }
                     sim::ai::PitRace pr;
                     pr.laps = setup_.laps;
+                    pit_asked_.assign(setup_.entries.size(), 0);
+                    tires_fitted_ = pit_hooks.tires;
                     pits_ = std::make_unique<sim::ai::PitStops>(*field_, program, setup_.entries.size(), pit_hooks, pr);
                 } catch (const std::exception& e) {
                     if (!noted_) LOG_WARN("Drive: no computer drivers (%s); the simple driver drives", e.what());
@@ -482,6 +484,55 @@ int RaceWorld::suggested_gear(size_t i) const {
     if (!field_ || !session_ || i >= car_visuals_.size()) return -1;
     const sim::ai::Field::Suggestion sg = field_->suggestion(i);
     return sg.on ? session_->gear_for_speed(i, sg.speed) : -1;
+}
+
+std::optional<RaceWorld::PitOffer> RaceWorld::pit_offer(size_t car) {
+    if (!pits_ || car >= pit_asked_.size()) return std::nullopt;
+    const sim::ai::PitCar& c = pits_->car(car);
+    const bool asked = (c.service & 0x10) != 0, was = std::exchange(pit_asked_[car], asked) != 0;
+    if (!asked || was) return std::nullopt;
+    return PitOffer{(c.service & 4) != 0, (c.service & 8) != 0, field_ && field_->control(car) == 1};
+}
+
+bool RaceWorld::pit_offer_over(size_t car) const {
+    if (!pits_ || car >= pit_asked_.size()) return true;
+    const sim::ai::PitCar& c = pits_->car(car);
+    return !(c.flags & 0x10) || c.x64C == 1;
+}
+
+void RaceWorld::pit_wait(size_t car) {
+    if (!pits_ || car >= pit_asked_.size()) return;
+    sim::ai::PitCar& c = pits_->car(car);
+    c.x64C = c.x64C <= 0 ? -1 : 0;
+}
+
+int RaceWorld::fitted_tire(size_t car, int axle) const {
+    if (!tires_fitted_ || car >= pit_asked_.size()) return -1;
+    const std::pair<int, int> t = tires_fitted_(car);
+    return axle == 0 ? t.first : t.second;
+}
+
+std::vector<int> RaceWorld::pit_tire_kinds(size_t car, int axle) const {
+    constexpr u32 kClassOf = 0x6A69E0; // (0x441300: a kind's class, by its branch)
+    constexpr int kKinds = 13;
+    const int own = fitted_tire(car, axle);
+    if (own < 0 || own >= kKinds || !program_) return {};
+    std::vector<int> out;
+    for (int k = 0; k < kKinds; ++k)
+        if (program_->w(kClassOf + u32(k) * 4) == program_->w(kClassOf + u32(own) * 4)) out.push_back(k);
+    return out;
+}
+
+bool RaceWorld::refuel_begun(size_t car) {
+    if (!pits_ || car >= pit_asked_.size() || !(pits_->car(car).service & 0x20)) return false;
+    pits_->car(car).service ^= 0x20;
+    return true;
+}
+
+bool RaceWorld::refuelling(size_t car) const {
+    if (!pits_ || car >= pit_asked_.size()) return false;
+    const sim::ai::PitCar& c = pits_->car(car);
+    return (c.service & 0x100) && u32(c.hold - 0x5A) < 0x22C;
 }
 
 float RaceWorld::fuel_share(size_t i) const {

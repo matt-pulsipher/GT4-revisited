@@ -44,6 +44,9 @@ struct HudState {
     float card_opacity = 0;
     std::string status;               // the status line over the panel ("FULL THROTTLE"); UTF-8
     float status_opacity = 0;
+    bool refuel = false; // the refuel bar (0x2D78), with the fuel and the tank (liters)
+    float refuel_fuel = 0, refuel_tank = 0;
+    std::string tooltip; // the help strip's line in place of B-spec's (the pit menu's, the refuel bar's); UTF-8
     float logo_opacity = 0;           // a replay's opening: the course's logo at the bottom right
     std::string caption_title, caption_artist; // a replay: the music's caption at the bottom left
     float caption_opacity = 0;

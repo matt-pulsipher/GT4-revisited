@@ -169,6 +169,32 @@ public:
     std::array<sim::ai::PitStops::StopRecord, 4> pit_record(size_t car) const {
         return pits_ && car < car_visuals_.size() ? pits_->stop_record(car) : std::array<sim::ai::PitStops::StopRecord, 4>{};
     }
+    // The PIT STOP menu of the player's car (0x35BC70): the stop's choice just asked (service 0x10 newly set), with what
+    // may be chosen; nullopt otherwise. Asked each step.
+    struct PitOffer {
+        bool tires = false, fuel = false, bspec = false;
+    };
+    std::optional<PitOffer> pit_offer(size_t car);
+    // The menu's end (0x35BCE8): the car off the pit lane again, or its B-spec wait about to run out, or the choice taken.
+    bool pit_offer_over(size_t car) const;
+    // The player at the menu (0x35BCC8): B-spec's wait stopped.
+    void pit_wait(size_t car);
+    // The kinds of tire the pit may fit to an axle (0 front, 1 rear), in order: those of the fitted kind's class
+    // (0x4076E0 by 0x441300), and the kind fitted.
+    std::vector<int> pit_tire_kinds(size_t car, int axle) const;
+    int fitted_tire(size_t car, int axle) const;
+    // The choice (0x35BF08): tire kinds (0xFF none), fuel.
+    void pit_choose(size_t car, u8 front, u8 rear, bool fuel) {
+        if (pits_ && car < car_visuals_.size()) pits_->choose(car, front, rear, fuel ? 1 : 0);
+    }
+    // The refuelling: just begun (0x35BE10: service 0x20 taken), going on (0x35BEB0), stopped by the player (0x35BFC0).
+    bool refuel_begun(size_t car);
+    bool refuelling(size_t car) const;
+    void stop_refuel(size_t car) {
+        if (pits_ && car < car_visuals_.size()) pits_->choose(car, 0xFF, 0xFF, 0, 2);
+    }
+    float fuel(size_t car) const { return session_ && car < car_visuals_.size() ? session_->fuel(car) : 0; }
+    float tank(size_t car) const { return session_ && car < car_visuals_.size() ? session_->tank(car) : 0; }
     // What goes with the cars shown in a step, live (the simulation's) or recorded: smoke and dust
     // from the wheels, and the race's sound heard from `camera` (none: no sound) about car `target`.
     void present(std::span<const race::CarState> cars, const audio::SoundListener* camera, int target, bool live);
@@ -258,6 +284,8 @@ private:
     std::unique_ptr<sim::Session> session_;
     std::unique_ptr<sim::ai::Field> field_; // the computer drivers, on the game's simulation
     std::unique_ptr<sim::ai::PitStops> pits_; // their pit stops
+    std::vector<u8> pit_asked_;               // each car's choice was already asked at the last look (pit_offer)
+    std::function<std::pair<int, int>(size_t)> tires_fitted_; // (their hook: the kinds on the car)
     std::shared_ptr<const sim::Program> program_; // (what their tire change reads)
     bool bspec_driven_ = false;               // a B-spec driver drove the player's car (its record set)
     bool computer_player_ = false;
