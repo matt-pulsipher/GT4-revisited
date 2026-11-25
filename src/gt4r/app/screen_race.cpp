@@ -115,6 +115,7 @@ struct Setup {
     // (0x3EE9F8 / 0x3EE7C0: the entries keep their order, only their places change).
     std::vector<int> grid_slots;
     std::string sequence; // `menus=single_race`: the race's own menus (the sequence's quick project) round the race
+    std::optional<std::array<u8, 0x40>> bspec_info; // a recorded race's (WorldSetup)
     std::array<u16, 3 * 64> bspec_book{}; // the B-spec driver's book and the course's marks (the request's)
     std::array<u8, 8> bspec_course_marks{};
     bool bspec_course_known = false;
@@ -412,6 +413,8 @@ bool load_recorded_race(App& app, Setup& setup) {
     std::memcpy(&laps, d.information.data(), 4);
     setup.laps = int(laps);
     setup.cars = int(d.entries.size());
+    setup.bspec_info.emplace();
+    std::memcpy(setup.bspec_info->data(), d.information.data() + 0x20, 0x40);
     setup.solo = d.race_class == "RaceFreeRun" || d.race_class == "RaceSolitaire";
     setup.bspec = false;
     setup.opponents.clear(), setup.opponent_equipment.clear(), setup.paints.clear(), setup.grid_slots.clear();
@@ -514,6 +517,7 @@ public:
         ws.own_hold = setup.skip == 0 && race::start_hold_steps(setup.start, setup.start_seconds) > 0;
         ws.pace = setup.pace;
         ws.bspec_book = setup.bspec_book, ws.bspec_course_marks = setup.bspec_course_marks, ws.bspec_course_known = setup.bspec_course_known;
+        ws.bspec_info = setup.bspec_info;
         ws.event_row = setup.event_row;
         // The race's conductor: a run alone (its virtual 6 answers 1: the time trial and free run, the license tests but the
         // three trainings, the machine test), and whose class grips the event's row gives.
@@ -669,6 +673,12 @@ public:
         } else fs.sectors = splits_;
         flow_.begin(fs, world_->cars());
         for (size_t i = 0; i < world_->car_count(); ++i) world_->set_crossings(i, flow_.car(i).counter), world_->set_rank(i, flow_.place(i));
+        // A recorded free run starts at its lap's line (the recorder's state: the clock two steps on, its times from the line, 0x359D40).
+        if (demo && demo_run_ && setup_.solo && !demo_run_->demo.streams.empty())
+            if (const std::optional<replay::RecorderState> st = replay::recorder_state(demo_run_->demo.streams[0]); st && world_->resume(*st)) {
+                flow_.resume(0, 2, (100 - s64(st->units) + s64(st->remainder) - 1) / 3, 100, world_->cars()[0].course_v);
+                world_->set_crossings(0, flow_.car(0).counter);
+            }
         rolled_ = false;
         license_failed_ = false, cones_met_ = 0;
         judge_ = race::LicenseJudge(judge_.rules());
@@ -819,16 +829,9 @@ public:
         const bool demo = demo_run_.has_value();
         if (demo) {
             auto_drive = false;
-            // (A free run's recording is its lap's: it starts as the car takes the line, the run-up its driver's.)
-            const bool before = demo_lap_ && flow_.car(0).counter == 0;
-            if (before) inputs_[0] = {};
-            else if (demo_bspec_) demo_commands(demo_run_->mail(demo_step_++));
+            if (demo_bspec_) demo_commands(demo_run_->mail(demo_step_++));
             else inputs_[0] = demo_run_->input(demo_step_++);
         }
-        // (❓ A recorded race driven with the pad does not come out as recorded to its end: off its line the car comes to a stand, and
-        // the replay ends there.)
-        if (demo && !hold && demo_run_->demo.race_class != "RaceLicense" && demo_run_->demo.race_class != "RaceTraining" && flow_.car(0).counter > 0)
-            demo_still_ = std::fabs(world_->cars()[0].speed) < 1.0f ? demo_still_ + 1 : 0;
         const bool opening = opening_tv();
         world_->step(inputs_, hold, demo ? demo_bspec_ : (auto_drive || watched_ || setup_.auto_drive), u32(std::max(0, flow_.hold_left() - 1)));
         // GT4R_DEMO_LOG=<n>: a demonstration's car every n steps (the record's x, y: the course's x, -z), to compare with a
@@ -1025,18 +1028,18 @@ public:
         }
         world_->set_computer_player(bspec);
         world_->set_entry_overrides(std::move(over));
-        demo_step_ = 0, demo_still_ = 0, demo_logged_ = false, demo_bspec_ = bspec, demo_lap_ = demo_run_->demo.race_class == "RaceFreeRun";
+        demo_step_ = 0, demo_logged_ = false, demo_bspec_ = bspec;
         begin_run(false, true);
         LOG_INFO("Drive: the demonstration %s: %zu steps recorded (%d ms); wear %d, fuel %.1f of %.1f l, race %s", demo_run_->label.c_str(), demo_run_->steps(), demo_run_->recorded_ms(),
                  int(world_->wears_tires()), double(world_->fuel(0)), double(world_->tank(0)), setup_.race.c_str());
     }
     bool demonstrating() const { return demo_run_.has_value(); }
-    bool demo_over() const { return demo_run_ && (demo_run_->over(demo_step_) || demo_still_ > 480); }
+    bool demo_over() const { return demo_run_ && demo_run_->over(demo_step_); }
     // A recorded B-spec race's commands (DemoRun::mail).
     void demo_commands(const std::array<u8, 6>& m) {
         if (m[4] == 4) bspec_pace_ = std::clamp(int(m[5]) + 1, 1, 5), world_->command(0, bspec_pace_, overtake_steps_ > 0);
         else if (m[4] == 5) overtake_steps_ = m[5] ? 1 : 0, world_->command(0, bspec_pace_, overtake_steps_ > 0);
-        else if (m[4] == 6 && world_->pit_requested(0) != (m[5] != 0)) world_->pit_command(0);
+        else if (m[4] == 6) world_->pit_command(0, m[5] != 0);
         if (m[0] == 1) world_->pit_choose(0, m[1], m[2], m[3] != 0);
         else if (m[0] == 2) world_->stop_refuel(0);
     }
@@ -1587,8 +1590,6 @@ private:
     size_t focus_ = 0; // B-spec: the car the views follow
     std::optional<sim::ai::DemoRun> demo_run_; // a demonstration's recording
     size_t run_steps_ = 0, lens_steps_ = 0;
-    int demo_still_ = 0;                       // steps it has stood
-    bool demo_lap_ = false;                    // of a free run's lap (its recording from the line)
     bool demo_bspec_ = false;                  // of a B-spec run: its car by its driver
     int cones_met_ = 0;
     size_t demo_step_ = 0;

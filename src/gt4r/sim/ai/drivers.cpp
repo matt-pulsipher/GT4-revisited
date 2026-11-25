@@ -262,7 +262,7 @@ void Field::setup(Driver& d) {
     // The random draws (0x4639E0): seeded by the grid index for a computer car, then one step.
     d.rand = seed(d);
     // 0x463AE0: the long look ahead (D +0x1A = 0) for a computer car from a standing start on a paved course.
-    d.start_flag = (d.control == 1 || d.control == 2) && pace_.standing_start && !session_->loose() && c.speed < F::raw(0x41055554) ? 0 : 1;
+    d.start_flag = (d.control == 1 || d.control == 2) && pace_.standing_start && !session_->loose() && c.speed < F::raw(0x41055554) ? pace_.start_look : 1;
 }
 
 u16 Field::seed(const Driver& d) { return u16((((d.control == 2 ? u32(d.index) + 1 : 1u) * 0x41C64E6Du + 0x3039u) >> 16) & 0x7FFF); }

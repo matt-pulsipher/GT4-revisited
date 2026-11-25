@@ -6,6 +6,7 @@
 // are the screen's (screen_race.cpp); this draws a frame for a camera and a set of car states,
 // live or recorded.
 
+#include "gt4r/formats/replay/demonstration.h"
 #include "gt4r/app/app.h"
 #include "gt4r/race/car_visual.h"
 #include "gt4r/race/course_scene.h"
@@ -80,6 +81,7 @@ struct WorldSetup {
     // The B-spec driver's book (menu::bspec::Book: three tables of 8 x 8) and the course's marks, which give the race's
     // record of the player's driver (0x468710) when B-spec drives his car.
     std::array<u16, 3 * 64> bspec_book{};
+    std::optional<std::array<u8, 0x40>> bspec_info; // a recorded race's: the driver's record as the recording keeps it (the race information's +0x20)
     std::array<u8, 8> bspec_course_marks{};
     bool bspec_course_known = false;
     // The game's options (menu::GameState::options: the sound's volumes and output) and the race
@@ -198,8 +200,13 @@ public:
     // Where the car is in a pit visit (0x35BBD8): 0 none, 1 down the lane or waiting for the choice, 2 the stop's start, 3 its work,
     // 4 its end, 5 out of the box to the lane's end.
     int pit_stage(size_t car) const;
-    // B-spec's pit command taken back or given (0x3F19E0 command 6).
+    // B-spec's pit command taken back or given (0x3F19E0 command 6: sim::ai::PitStops::command).
     void pit_command(size_t car);
+    void pit_command(size_t car, bool on) {
+        if (pits_ && car < car_visuals_.size()) pits_->command(car, on);
+    }
+    // The player's car put at the moment a free run's recording starts at (its record, formats/replay.md).
+    bool resume(const replay::RecorderState& state);
     // The refuelling: just begun (0x35BE10: service 0x20 taken), going on (0x35BEB0), stopped by the player (0x35BFC0).
     bool refuel_begun(size_t car);
     bool refuelling(size_t car) const;

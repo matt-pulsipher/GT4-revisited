@@ -82,6 +82,8 @@ struct Pace {
     bool solo = false;
     // The drag strip (K +0xCBE1: COURSE +0x13 of 2 and more): no lane changes and no lift behind a car (0x465078's 0x4668EC).
     bool strip = false;
+    // The course's start code's fourth digit (K +0xCBE9, 0x463AE0): not 0, no long look ahead off a standing start.
+    u8 start_look = 0;
 };
 
 // What a driver did, for checks and tools.
