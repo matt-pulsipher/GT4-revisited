@@ -12,6 +12,7 @@
 #include "gt4r/app/menu_page_drawer.h"
 #include "gt4r/app/menu_painter.h"
 #include "gt4r/app/menu_slides.h"
+#include "gt4r/app/photo_faces.h"
 
 #include "base/log.h"
 #include "formats/text/charset.h"
@@ -276,11 +277,15 @@ private:
             MenuModels* models = models_.get();
             slides_ = std::make_unique<MenuSlides>(app);
             MenuSlides* slides = slides_.get();
-            drawer->draw_live = [movies, cars, models, slides](const LiveWidget& face, menu::Project* project, const std::string& page, const Rect& at, const SDL_FRect& dst, float opacity) {
+            if (!photos_) photos_ = std::make_unique<PhotoFaces>(app);
+            PhotoFaces* photos = photos_.get();
+            photos->picture = [this]() { return runtime_ ? runtime_->photo_picture.get() : nullptr; };
+            drawer->draw_live = [movies, cars, models, slides, photos](const LiveWidget& face, menu::Project* project, const std::string& page, const Rect& at, const SDL_FRect& dst, float opacity) {
                 if (face.is("MovieFace")) movies->draw(face, dst, opacity);
                 else if (face.is("CarFace")) cars->draw(face, project, page, at, dst, opacity);
                 else if (face.is("ModelFace")) models->draw(face, project, page, at, dst, opacity);
                 else if (face.is("SlideShowFace")) slides->draw(face, at, dst, opacity);
+                else if (face.is("PhotoRenderFace")) photos->draw(at, dst, opacity);
             };
             menu::text_measure().measure = [drawer](const LiveWidget& face, float& w, float& h) { drawer->measure(face, w, h); };
             cursor_ = {};
@@ -575,6 +580,7 @@ private:
     bool player_ = false; // the game itself
     bool full_ = false, start_run_ = false, start_boot_ = false;
     std::string start_photo_, start_car_;
+    std::unique_ptr<PhotoFaces> photos_; // a photo's preview (Photo Lab)
     std::string error_, start_project_, start_page_, card_;
     double step_time_ = 0; // display time not yet stepped by the menus
     bool timing_ = false;

@@ -531,7 +531,7 @@ std::string Runtime::wanted_project() const { return game_->next_menu_project; }
 std::optional<RaceRequest> Runtime::race_request() const {
     const std::string& next = game_->next_sequence;
     // load_replay is a sequence of menus (the Replay Theater); a replay chosen there is "replay".
-    if (!finished_ || next.empty() || next == "menu" || next == "boot" || next == "load_replay") return std::nullopt;
+    if (!finished_ || next.empty() || next == "menu" || next == "boot" || next == "load_replay" || next == "photo_labo") return std::nullopt;
     RaceRequest r = game_->race;
     r.sequence = next;
     complete_race_request(const_cast<Runtime&>(*this), r);
@@ -549,6 +549,11 @@ bool Runtime::advance() {
     if (game_->next_sequence == "load_replay") {
         game_->next_menu_project = "labomode", game_->next_menu_arg = "ReplayTheaterRoot";
         game_->card_action = 0, game_->replay_file.clear();
+    }
+    // The photo_labo sequence (0x1C7A88): the project labomode, no page named.
+    if (game_->next_sequence == "photo_labo") {
+        game_->next_menu_project = "labomode", game_->next_menu_arg.clear();
+        game_->menu_result.clear();
     }
     const std::string next = game_->next_menu_project;
     if (next.empty()) return false;
@@ -590,6 +595,12 @@ void Runtime::finish() {
         if (game_->card_action == 1 && !game_->replay_file.empty() && !demo) game_->next_sequence = "replay";
         game_->next_menu_project = "labomode", game_->next_menu_arg = "ReplayTheaterRoot";
         game_->card_action = 0;
+    }
+    // The Photo Lab's project ended: the project print when its result is "print", else the lab again, until its result
+    // is "exit" (0x1C7A88; the scripts then ask for a sequence). ❓ Developing a film ("develop") is not built.
+    if (sequence_ == "photo_labo" && game_->next_sequence.empty() && game_->next_menu_project.empty() && game_->menu_result != "exit") {
+        const bool print = game_->menu_result == "print";
+        game_->next_menu_project = print ? "print" : "labomode", game_->next_menu_arg.clear();
     }
     const std::optional<RaceRequest> race = race_request();
     // The scripts asked for a race: its sequence starts (the program makes the race's menus'
