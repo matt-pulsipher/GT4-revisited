@@ -2,6 +2,9 @@
 
 #include "floats.h"
 #include "orig.h"
+#include "taps.h"
+
+#include "gt4r/sim/exact_bridge.h"
 
 #include "gt4r/formats/db/race_events.h"
 #include "gt4r/formats/replay/demonstration.h"
@@ -111,6 +114,9 @@ DemoScore run_float_demo(Disc& disc, const std::string& label, const FloatDemoOp
         const u32 vt = ee.r32(o.cond + kCondVtable), slot = vt + 8 * 3;
         ee.call(ee.r32(slot + 4), {Arg::ptr(o.cond + u32(s32(s16(ee.r16(slot)))))}, 50'000'000);
     }
+    if (print && opt.verbose) std::printf("  course kind (K +0xCBDD) %u, CFG section %d, the course object's section %d, start bytes CFG +0x4E %u +0x6E %u heading %.4f\n", ee.r8(o.cond + 0xCBDD),
+                                                  int(gt3r::s8(ee.r8(o.cond + kCfg + 0x21))), s32(ee.r32(o.course + 0xB0)), ee.r8(o.cond + kCfg + 0x4E), ee.r8(o.cond + kCfg + 0x6E),
+                                                  double(ee.rf(o.car(0) + kF + 0x2C)));
     if (print && opt.verbose)
         for (int i = 0; i < o.cars; ++i)
             std::printf("  car %d: place %d crossings %d dist %.2f at %.2f %.2f %.2f speed %.2f\n", i, gt3r::s8(ee.r8(o.car(i) + 0x5B3)), gt3r::s8(ee.r8(o.car(i) + kF + 0x4AC)),
@@ -135,6 +141,19 @@ DemoScore run_float_demo(Disc& disc, const std::string& label, const FloatDemoOp
         ee.probe(0x3F6588, [](Ee& x) { std::printf("  vf21 car %u a2 %u a3 %u t0 %u t1 %u\n", x.g32(5), x.g32(6), x.g32(7), x.g32(8), x.g32(9)); });
     }
     if (const char* w = std::getenv("GT4R_FLOATS_WATCH")) ee.watch = (o.car(0) + u32(std::strtoul(w, nullptr, 16))) & ~3u; // (debugging)
+    // GT4R_FLOATS_TAPS=1: every routine of ours tapped in at each of the program's calls (step.cpp's taps), the report at
+    // the end (where ours and the program part on a demonstration).
+    std::unique_ptr<Taps> taps;
+    std::unique_ptr<sim::Program> tap_program;
+    std::unique_ptr<ex::RaceInputs> tap_inputs;
+    if (std::getenv("GT4R_FLOATS_TAPS")) {
+        tap_program = std::make_unique<sim::Program>(sim::Program::load(disc));
+        set_step_program(tap_program.get());
+        tap_inputs = std::make_unique<ex::RaceInputs>(ex::race_inputs(sim::core_program(*tap_program), ex::Conductor::SinglePlayer, ex::RaceConfig{}, false, 0));
+        taps = std::make_unique<Taps>(ee, o, *tap_inputs);
+        add_step_taps(*taps), add_taps_aids(*taps), add_taps_steer(*taps), add_taps_input(*taps), add_taps_start(*taps);
+        add_taps_near(*taps), add_taps_phases(*taps);
+    }
     if (opt.on_setup) opt.on_setup(ee);
 
     // The start's hold: a standing start's 8 s (the race information's count, 0x3C0208: its seconds x 60, counted down a
@@ -160,6 +179,7 @@ DemoScore run_float_demo(Disc& disc, const std::string& label, const FloatDemoOp
     if (opt.ours) {
         ours = std::make_unique<OursBeside>(disc);
         if (const char* e = std::getenv("GT4R_FLOATS_OURS_LIST")) ours->list_steps = std::atoi(e);
+        ours->resync = std::getenv("GT4R_FLOATS_RESYNC") != nullptr;
         if (!ours->begin(ee, o, sdb, ev->course, r.hold)) return r.error = ours->error, r;
     }
     try {
@@ -187,6 +207,7 @@ DemoScore run_float_demo(Disc& disc, const std::string& label, const FloatDemoOp
     }
     r.ended_ms = end.ms, r.fail_kind = end.fail;
     r.ran = true;
+    if (taps) taps->print();
     if (ours) {
         r.ours_ran = true;
         r.ours_first_bits = ours->first_bits, r.ours_first_apart = ours->first_apart;

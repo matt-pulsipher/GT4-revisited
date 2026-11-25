@@ -40,9 +40,11 @@ public:
     int first_bits = -1;   // the first step car 0's place differs in a bit (-1 never)
     int first_apart = -1;  // the first step it is more than 1 mm from the program's
     double worst = 0, last_distance = 0; // m
+    bool resync = false;         // ours loaded from the program's records before every step (each step alone)
     int list_steps = 0;          // print the placed fields that differ, from the first step any does, for this many steps
     int first_fields_step = -1;
 private:
+    void load_all(gt3r::diff::Ee& ee);
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };

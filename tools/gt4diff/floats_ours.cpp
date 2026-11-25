@@ -12,6 +12,7 @@
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/formats/course/runway_gtrw.h"
 #include "gt4r/sim/program.h"
+#include "gt4r/sim/rules_body.h"
 #include "gt4r/sim/session.h"
 
 #include <cmath>
@@ -85,6 +86,25 @@ struct OursBeside::Impl {
 OursBeside::OursBeside(Disc& disc) : impl_(std::make_unique<Impl>(disc)) {}
 OursBeside::~OursBeside() = default;
 
+void OursBeside::load_all(Ee& ee) {
+    Impl& m = *impl_;
+    OrigRace& o = *m.o;
+    // Every car's record and collision body as the program's set-up left them.
+    const u32 walls = ee.r32(o.runway + 0x84), manager = o.cond + 0xDA6C;
+    for (int i = 0; i < o.cars; ++i) {
+        sim::Record r;
+        r.car = m.session->record(size_t(i));
+        r.x = m.session->gt4_record(size_t(i));
+        r.layout = m.session->wheel_layout(size_t(i));
+        load(r, read_image(ee, o.car(i)));
+        m.session->load_state(size_t(i), r.car, r.x);
+        std::vector<u8> rec(kBodySize);
+        ee.read_bytes(manager + 0xC + kBodySize * u32(i), rec.data(), kBodySize);
+        load_body(m.session->body(size_t(i)), rec.data(), walls);
+    }
+    m.session->set_random_state(ee.r32(kRandom));
+}
+
 bool OursBeside::begin(Ee& ee, OrigRace& o, db::SpecDb& sdb, const std::string& course, int hold) {
     Impl& m = *impl_;
     m.o = &o;
@@ -104,12 +124,32 @@ bool OursBeside::begin(Ee& ee, OrigRace& o, db::SpecDb& sdb, const std::string& 
             entries[size_t(i)].automatic = ee.r8(en + 0x3448) == 0;
             entries[size_t(i)].asm_on = ee.r8(en + 0x3450) != 0;
             entries[size_t(i)].tcs_on = ee.r8(en + 0x3454) != 0;
-            // (the rolling start's pace: the race's speed, CFG +0x6E km/h, which the session takes from the entries)
-            entries[size_t(i)].start_speed = float(ee.r8(o.cond + 0xF818 + 0x6E)) / 3.6f;
+            // (the rolling start's pace, 0x3F7880: the race's speed CFG +0x6E km/h; without one, CFG +0x4E when the
+            // conductor's virtual 6 answers (a license test's does), else the place's byte K +0xF866 + i; the session takes
+            // it from the entries)
+            u32 kmh = ee.r8(o.cond + 0xF818 + 0x6E);
+            if (kmh == 0) {
+                const u32 vt = ee.r32(o.cond + kCondVtable), slot = vt + 8 * 6;
+                const bool v6 = ee.call(ee.r32(slot + 4), {Arg::ptr(o.cond + u32(s32(s16(ee.r16(slot)))))}, 1'000'000).v0.lo != 0;
+                kmh = v6 ? ee.r8(o.cond + 0xF818 + 0x4E) : ee.r8(o.cond + 0xF866 + ee.r8(o.car(i) + kF + 0x440));
+            }
+            entries[size_t(i)].start_speed = float(kmh) / 3.6f;
         }
         m.session = std::make_unique<sim::Session>(sdb, *m.program, std::make_shared<const course::Runway>(std::move(*road)), entries);
     } catch (const std::exception& e) {
         return error = std::string("our session: ") + e.what(), false;
+    }
+    // The course's kind as the program's conductor has it (K +0xCBDD).
+    m.session->set_course_kind(*m.program, ee.r8(o.cond + 0xCBDD));
+    if (std::getenv("GT4R_FLOATS_BUMPS")) {
+        const sim::rules::BumpTables mine = sim::rules::bump_tables(std::as_const(*m.program), ee.r8(o.cond + 0xCBDD));
+        const sim::rules::BumpTables theirs = sim::rules::bump_tables([&](u32 a) { return ee.r32(a); }, [&](u32 a) { return ee.r8(a); });
+        for (int s = 0; s < 24; ++s)
+            if (mine.amp[size_t(s)].bits != theirs.amp[size_t(s)].bits || mine.freq[size_t(s)].bits != theirs.freq[size_t(s)].bits ||
+                mine.scaled[size_t(s)] != theirs.scaled[size_t(s)] || mine.mode[size_t(s)] != theirs.mode[size_t(s)])
+                std::printf("  bump row %d: ours %08X %08X %u %u program %08X %08X %u %u\n", s, mine.amp[size_t(s)].bits, mine.freq[size_t(s)].bits,
+                            mine.scaled[size_t(s)], mine.mode[size_t(s)], theirs.amp[size_t(s)].bits, theirs.freq[size_t(s)].bits, theirs.scaled[size_t(s)],
+                            theirs.mode[size_t(s)]);
     }
     // The race's class grips as the program's conductor has them (CFG +0x18 .. +0x1B).
     std::array<gt3r::s8, 4> grip_bytes;
@@ -124,20 +164,7 @@ bool OursBeside::begin(Ee& ee, OrigRace& o, db::SpecDb& sdb, const std::string& 
         for (u32 k = 0; k < 3; ++k) grip[k] = F::raw(ee.r32(pb + 0xA8 + 4 * k));
         m.session->set_driver_aids(size_t(i), read_aids(ee, pb + 0x24), grip);
     }
-    // Every car's record and collision body as the program's set-up left them.
-    const u32 walls = ee.r32(o.runway + 0x84), manager = o.cond + 0xDA6C;
-    for (int i = 0; i < o.cars; ++i) {
-        sim::Record r;
-        r.car = m.session->record(size_t(i));
-        r.x = m.session->gt4_record(size_t(i));
-        r.layout = m.session->wheel_layout(size_t(i));
-        load(r, read_image(ee, o.car(i)));
-        m.session->load_state(size_t(i), r.car, r.x);
-        std::vector<u8> rec(kBodySize);
-        ee.read_bytes(manager + 0xC + kBodySize * u32(i), rec.data(), kBodySize);
-        load_body(m.session->body(size_t(i)), rec.data(), walls);
-    }
-    m.session->set_random_state(ee.r32(kRandom));
+    load_all(ee);
     // (the program counts the race information's +0xBC down before its step and holds while it is not 0; the session
     // holds while its count is not 0 and counts it down after)
     if (hold > 1) m.session->set_countdown(u32(hold - 1));
@@ -154,6 +181,7 @@ bool OursBeside::begin(Ee& ee, OrigRace& o, db::SpecDb& sdb, const std::string& 
 void OursBeside::before_step(gt3r::diff::Ee& ee) {
     impl_->heading.clear();
     impl_->rolling0 = ee.r8(impl_->o->car(0) + kF + 0x467) == 1;
+    if (resync) load_all(ee);
 }
 
 void OursBeside::step(Ee& ee, const u8* record) {
