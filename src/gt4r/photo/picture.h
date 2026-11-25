@@ -56,9 +56,19 @@ struct Correction {
     bool plain() const;
 };
 Correction correction(const Filters& f);
-// The vignette's strength at a place of the picture (-1 .. 1 each way): black at this alpha (0x3BBBC0: a ring from 200 to 420 round the
-// middle of a frame of 640 x 448).
-float vignette_alpha(const Filters& f, float x, float y);
+// A vignette (0x3BBBC0): a ring round the middle of a frame of 640 x 448, black, its alpha `strength` at the outer radius and 0 within
+// the inner one. The photo's own and the course's (Env0 +0x950 .. +0x974).
+struct Vignette {
+    float strength = 0, inner = 200, outer = 420;
+    float alpha(float x, float y) const; // at a place of the picture (-1 .. 1 each way)
+};
+Vignette vignette(const Filters& f);
+
+// The photo's pictures added up as the program does it on the GS: each new one is blended under the average so far
+// by a whole number of 128ths, rounded down, so a photo comes out a few levels darker than its pictures.
+// The k-th (from 0) value on the average of those before it.
+int exposure_weight(int k); // the average's weight, 0 .. 128
+constexpr u8 expose(int average, int value, int weight) { return u8((((average - value) * weight) >> 7) + value); }
 
 // The jpeg quality of a photo option's value ("STANDARD" 50, "FINE" 80, "SUPER_FINE" 95).
 int jpeg_quality(const std::string& name);

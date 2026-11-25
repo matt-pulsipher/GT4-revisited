@@ -14,6 +14,15 @@ namespace gt4r::race {
 
 namespace scene = gt3r::scene;
 
+namespace {
+float rd_float(ByteSpan d, size_t o) {
+    const u32 v = gt3r::rd32(d, o);
+    float f;
+    std::memcpy(&f, &v, 4);
+    return f;
+}
+} // namespace
+
 std::unique_ptr<render::GpuModel> CourseScene::build(render::GpuContext& ctx, int slot, const std::string& label, bool keep,
                                                      bool sheen, scene::Model* out, AnimatedSet* animated) {
     const ByteSpan s = file_.section(data_, slot);
@@ -35,6 +44,18 @@ std::unique_ptr<render::GpuModel> CourseScene::build(render::GpuContext& ctx, in
     o.alpha_test = true;
     o.gs_state = true;
     scene::Model m = gt3r::gtm1::build_model(g, o, label);
+    if (!gtm1) {
+        // The reflecting shapes' strength: the course's (Env0 +0x34, and by the angle +0x34 x +0x30); no course's
+        // program sets its own.
+        const ByteSpan env = file_.section(data_, course::kSlotEnv);
+        if (env.size() >= 0x38) {
+            const float k[2] = {rd_float(env, 0x30), rd_float(env, 0x34)};
+            for (scene::Mesh& mesh : m.meshes)
+                for (scene::Primitive& p : mesh.primitives)
+                    if (p.env_kind)
+                        for (int i = 0; i < 3; ++i) p.env_c0[i] = k[1], p.env_c1[i] = k[1] * k[0];
+        }
+    }
     for (scene::Mesh& mesh : m.meshes) gt3r::gtm1::mark_coplanar_overlays(mesh);
     if (animated) {
         // The set's animated models are drawn apart, posed each frame; a set whose scripts do not

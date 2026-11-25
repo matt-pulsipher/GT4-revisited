@@ -64,6 +64,8 @@ struct RaceWorld::Impl {
     std::vector<gt3r::race::CarLampGlows::Car> glow_cars;
     gt3r::race::TyreSmoke smoke;
     gt3r::race::WetRoad wet;
+    race::CarLights car_lights;
+    std::vector<race::CarLights::Light> lights; // the cars', this frame
     render::ScreenBatch overlay;
     bool env_ready = false;
     int frame = 0;
@@ -189,6 +191,7 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
     // The sun, the lamps' glows (their meshes are the course's own, slot 37) and the billboards:
     // the shared engine's layouts, read by its own code.
     const ByteSpan env0 = course_->section(course::kSlotEnv);
+    m.car_lights.load(course_->section(course::kSlotRunway));
     m.sun.load(*app.vfs(), app.renderer(), &gpu, env0);
     m.sun_disc.load(gpu, m.sun.params());
     m.lamps.load(app.renderer(), &gpu, course_->section(course::kSlotEffects), env0, course_->section(course::kSlotWorldVis),
@@ -728,6 +731,14 @@ float sun_visibility(const race::CourseScene& course, const gt3r::race::SunParam
     return float(open) / 9.0f;
 }
 
+// The light a car stands in, on its items from `first`.
+void light_items(std::vector<render::DrawItem>& items, size_t first, const race::CarLights::Light& light) {
+    for (size_t k = first; k < items.size(); ++k) {
+        std::copy(light.scale, light.scale + 3, items[k].light_scale);
+        if (light.own) items[k].lights = &light.lights;
+    }
+}
+
 } // namespace
 
 void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarState> cars, const race::ViewPose& pose, size_t focus, int hidden) {
@@ -741,7 +752,7 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
     if (lens_) proj.at(0, 2) += lens_->shear_x, proj.at(1, 2) += lens_->shear_y;
 
     course_->upload_animations(cars);
-    m.fade.update(course_->visible_nodes(pose.eye), pose.eye, kStep);
+    m.fade.update(lens_ && lens_->full_detail ? nullptr : course_->visible_nodes(pose.eye), pose.eye, kStep);
     m.items.clear();
     // The view's axes in course space (the rows of the view matrix's turn).
     const RVec cam_right{pose.view.at(0, 0), pose.view.at(0, 1), pose.view.at(0, 2)}, cam_up{pose.view.at(1, 0), pose.view.at(1, 1), pose.view.at(1, 2)};
@@ -773,7 +784,12 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
         if (SDL_GPUTexture* t = m.wet.render(*m.view, pose.view, proj, pose.eye, m.wet_items, wo)) m.wet.add_frame_items(m.items, pose.view, pose.fovy(), aspect, t);
     }
     const size_t n = std::min(cars.size(), car_visuals_.size());
-    for (size_t i = 0; i < n; ++i) car_visuals_[i]->add_shadow_items(m.items, cars[i]);
+    m.lights.resize(n);
+    for (size_t i = 0; i < n; ++i) {
+        const RVec at{cars[i].position.x, cars[i].position.y, cars[i].position.z};
+        m.lights[i] = m.car_lights.at(course_->road(), env, at, at.y + 1.0f);
+        car_visuals_[i]->add_shadow_items(m.items, cars[i], &m.lights[i]);
+    }
     // The cars' levels of detail by their size on screen (race::CarVisual::level): K, the program's
     // factor of the view (0x456918), one unit's height at depth 1 on a picture 448 lines high x 10 / 7:
     // 224 / (0.75 tan(A / 2)) x 10 / 7, A the lens across a 4:3 picture's width (721.2 in the original's
@@ -783,7 +799,9 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
     lod_view.k = (224.0f / 0.75f) * (10.0f / 7.0f) / std::max(std::tan(pose.fov * 0.5f), 1e-3f);
     for (size_t i = 0; i < n; ++i) {
         if (int(i) == hidden) continue;
+        const size_t first = m.items.size();
         car_visuals_[i]->add_items(m.items, cars[i], pose.eye, kStep, lens_ && lens_->full_detail ? nullptr : &lod_view);
+        light_items(m.items, first, m.lights[i]);
     }
     course_->add_after_items(m.items);
     if (m.smoke.loaded()) {
@@ -973,8 +991,11 @@ void RaceWorld::render_mirror(Ui& ui, const SDL_FRect& rect, std::span<const rac
     const size_t n = std::min(cars.size(), car_visuals_.size());
     for (size_t i = 0; i < n; ++i) {
         if (int(i) == hidden) continue;
-        car_visuals_[i]->add_shadow_items(m.mirror_items, cars[i]);
+        const race::CarLights::Light* light = i < m.lights.size() ? &m.lights[i] : nullptr;
+        car_visuals_[i]->add_shadow_items(m.mirror_items, cars[i], light);
+        const size_t first = m.mirror_items.size();
         car_visuals_[i]->add_items(m.mirror_items, cars[i], pose.eye, kStep);
+        if (light) light_items(m.mirror_items, first, *light);
     }
     render::DrawOptions o = draw_options(*course_, kDepth);
     o.mirrored = true;

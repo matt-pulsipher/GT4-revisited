@@ -96,12 +96,14 @@ std::array<u8, 3> Correction::apply(u8 r, u8 g, u8 b) const {
     return out;
 }
 
-float vignette_alpha(const Filters& f, float x, float y) {
-    // A ring round the middle of a frame that reaches 320 across and 224 down: clear to 200, black at 420.
-    const float strength = std::min(f.lightness * 0.7f * 0.01f, 1.0f);
+float Vignette::alpha(float x, float y) const {
     const float px = x * 320, py = y * 224;
-    return std::clamp((std::sqrt(px * px + py * py) - 200.0f) / 220.0f, 0.0f, 1.0f) * strength;
+    return std::clamp((std::sqrt(px * px + py * py) - inner) / std::max(outer - inner, 1.0f), 0.0f, 1.0f) * strength;
 }
+
+Vignette vignette(const Filters& f) { return {std::min(f.lightness * 0.7f * 0.01f, 1.0f), 200, 420}; }
+
+int exposure_weight(int k) { return k <= 0 ? 0 : int((1.0f - 1.0f / (float(k) + 1.0f)) * 128.0f); }
 
 int jpeg_quality(const std::string& name) { return name == "STANDARD" ? 50 : name == "SUPER_FINE" ? 95 : 80; }
 

@@ -370,7 +370,7 @@ SDL_AppResult App::iterate() {
     }
 
     apply_screen_changes();
-    const gt3r::PadState scripted = scripted_keys();
+    gt3r::PadState scripted = scripted_keys();
     {
         // The script's presses and held race controls reach the race's pad too (as an overlay on
         // player 1's: a pad plugged in still drives).
@@ -388,8 +388,12 @@ SDL_AppResult App::iterate() {
             if (drive_.held & (1u << b)) ov.buttons |= u16(1u << b), ov.pressure[b] = 255;
         ov.connected = ov.buttons != 0 || drive_.steer != 0 || drive_.sticks[0] != 0 || drive_.sticks[1] != 0 || drive_.sticks[2] != 0 || drive_.sticks[3] != 0;
         input_->set_overlay(0, ov);
+        menu_pad_ = ov;
+        for (unsigned b = 0; b < 16; ++b)
+            if (drive_.held & (1u << b)) scripted.buttons |= u16(1u << b), scripted.pressure[b] = 255;
     }
     input_->update(dt);
+    if (!menu_pad_.connected) menu_pad_ = input_->menu_pad();
     menu_.update(scripted.buttons ? scripted : input_->menu_pad(), dt);
     if (!screens_.empty()) screens_.back()->update(*this, dt);
     apply_screen_changes();

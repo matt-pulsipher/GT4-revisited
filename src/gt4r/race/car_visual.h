@@ -6,6 +6,7 @@
 // docs/formats/model.md "Wheels as the game places them", "A car in a race".
 
 #include "gt4r/base/types.h"
+#include "gt4r/race/car_light.h"
 #include "gt4r/race/car_spec.h"
 #include "gt4r/race/drive_camera.h"
 #include "gt4r/race/simulation.h"
@@ -84,7 +85,8 @@ public:
     bool add_mirror_items(std::vector<render::DrawItem>& items, const CarState& s, const render::Vec3& eye) const;
     // That mirror (course space to course space).
     bool road_mirror(const CarState& s, render::Mat4& out) const;
-    void add_shadow_items(std::vector<render::DrawItem>& items, const CarState& s) const;
+    // `light`: the light it stands in (null: the course's, in full).
+    void add_shadow_items(std::vector<render::DrawItem>& items, const CarState& s, const CarLights::Light* light = nullptr) const;
 
     // The model's frame in course space for a state: the body as drawn.
     render::Mat4 body_matrix(const CarState& s) const;

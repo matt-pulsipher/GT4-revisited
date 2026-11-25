@@ -91,6 +91,8 @@ public:
                 else if (key == "card") card_ = value;
                 else if (key == "credits") credits_ = std::atoll(value.c_str());
                 else if (key == "timing") timing_ = value != "0";
+                else if (key == "photo") start_photo_ = value; // a photo shoot on this course, of `car`
+                else if (key == "car") start_car_ = value;
                 else if (key == "advertise") advertise_on_ = value != "0";
             }
         }
@@ -102,6 +104,13 @@ public:
         if (start_boot_) {
             start_boot_ = false, start_project_.clear();
             run(app, true);
+            if (runtime_ && !start_photo_.empty() && app.gpu()) {
+                menu::RaceRequest q;
+                q.sequence = "photo_shoot", q.course = start_photo_, q.car = start_car_;
+                race_ = q;
+                start_photo_.clear();
+                return rt_photo(app);
+            }
         }
         if (!start_project_.empty()) {
             for (size_t i = 0; i < projects_.size(); ++i)
@@ -392,9 +401,10 @@ private:
     }
 
     void rt_photo(App& app) {
+        const menu::RaceRequest request = *race_;
         race_.reset();
         if (audio::AppSound* sound = app.sound()) sound->menu().stop_music(), sound->menu().stop_stream();
-        app.push(make_photo_screen(app, *runtime_));
+        app.push(make_photo_screen(app, *runtime_, request));
     }
 
     void render_running(Ui& ui) {
@@ -562,6 +572,7 @@ private:
     int project_sel_ = 0, page_sel_ = 0, state_ = 0;
     bool player_ = false; // the game itself
     bool full_ = false, start_run_ = false, start_boot_ = false;
+    std::string start_photo_, start_car_;
     std::string error_, start_project_, start_page_, card_;
     double step_time_ = 0; // display time not yet stepped by the menus
     bool timing_ = false;

@@ -180,6 +180,7 @@ Value Module::make_object() {
 void Module::clear() {
     auto held = std::move(members);
     members.clear();
+    imported.clear();
     base.reset();
     construct = nullptr;
     for (auto& [n, cell] : held)
@@ -818,7 +819,11 @@ std::shared_ptr<Reference> Vm::resolve(Frame& f, const std::vector<std::string>&
     if (f.self.p) at = f.self.p->member(*this, f.self, first);
     if (!at)
         if (auto it = f.imported.find(first); it != f.imported.end()) at = it->second;
-    if (!at) at = find_name(f, first);
+    for (auto s = f.scopes.rbegin(); !at && s != f.scopes.rend(); ++s)
+        for (std::shared_ptr<Module> m = *s; !at && m; m = m->parent.lock()) {
+            at = m->find(first);
+            if (const auto it = m->imported.find(first); !at && it != m->imported.end()) at = it->second;
+        }
     if (!at && first == root_->name) at = std::make_shared<Variable>(Value::of(Kind::Module, root_));
     for (size_t i = 0; !at && i < f.imports.size(); ++i) at = f.imports[i].p ? f.imports[i].p->member(*this, f.imports[i], first) : nullptr;
     if (!at) {
@@ -1113,7 +1118,10 @@ Vm::Step Vm::execute(Task& t, Frame& f) {
                 const Value m = deref(*this, resolve(f, in.symbols.size() == 1 ? std::vector<std::string>{in.symbols[0], in.symbols[0]}
                                                                                 : in.symbols)->get(*this));
                 if (in.text == "*") f.imports.push_back(m);
-                else if (std::shared_ptr<Reference> r = member(m, in.text)) f.imported[in.text] = std::move(r);
+                else if (std::shared_ptr<Reference> r = member(m, in.text)) {
+                    // (In a module's body the name is in reach of the module's functions.)
+                    (f.scopes.size() > f.base_scopes ? f.scopes.back()->imported : f.imported)[in.text] = std::move(r);
+                }
                 else fail(f, pc, "no \"" + in.text + "\" in " + m.to_string());
                 break;
             }

@@ -55,9 +55,9 @@ menu::Runtime::Pad runtime_pad(const gt3r::PadState& p) {
 
 class PhotoScreen : public Screen {
 public:
-    PhotoScreen(App& app, menu::Runtime& menus) : app_(app), rt_(menus), drawer_(app), faces_(app) {
+    PhotoScreen(App& app, menu::Runtime& menus, const menu::RaceRequest& request) : app_(app), rt_(menus), drawer_(app), faces_(app) {
         try {
-            set_up();
+            set_up(request);
         } catch (const std::exception& e) {
             error_ = e.what();
             LOG_WARN("Photo shoot: %s", e.what());
@@ -83,7 +83,7 @@ public:
             const int steps = std::min(int(time_ * 60.0), 4);
             time_ = steps == 4 ? 0.0 : time_ - steps / 60.0;
             send_keys(m);
-            const menu::Runtime::Pad pad = runtime_pad(app.input().menu_pad());
+            const menu::Runtime::Pad pad = runtime_pad(app.menu_pad());
             for (int i = 0; i < steps; ++i) {
                 rt_.set_pad(pad);
                 step();
@@ -120,8 +120,7 @@ public:
     }
 
 private:
-    void set_up() {
-        const menu::RaceRequest& q = rt_.game().race;
+    void set_up(const menu::RaceRequest& q) {
         std::string course = q.course;
         const std::optional<Bytes> file = app_.vfs()->read("crs/" + course);
         if (!file) throw FormatError("There is no course file crs/" + course + ".");
@@ -332,13 +331,20 @@ private:
         world_->render(*ui_, dst, cars_, pose(s), 0, -1);
         world_->set_lens(std::nullopt);
         world_->set_grade({});
-        draw_vignette(r, dst, s.filters);
+        draw_vignette(r, dst, course_vignette());
+        draw_vignette(r, dst, photo::vignette(s.filters));
         if (s.mode == photo::Mode::Car || s.camera.inside_car()) draw_car_box(r, dst, s);
     }
 
+    // The course's vignette, as the replays' picture has it.
+    photo::Vignette course_vignette() const {
+        const gt3r::race::SunParams& env = world_->course().env();
+        if (!env.vignette) return {};
+        return {env.vignette_outer_rgba[3], env.vignette_inner, env.vignette_outer};
+    }
     // The vignette over a picture: a grid of quads, each corner its own darkness.
-    void draw_vignette(SDL_Renderer* r, const SDL_FRect& dst, const photo::Filters& f) {
-        if (f.lightness <= 0) return;
+    void draw_vignette(SDL_Renderer* r, const SDL_FRect& dst, const photo::Vignette& f) {
+        if (f.strength <= 0) return;
         constexpr int kX = 16, kY = 12;
         std::vector<SDL_Vertex> v;
         std::vector<int> index;
@@ -347,7 +353,7 @@ private:
                 const float u = float(x) / kX, w = float(y) / kY;
                 SDL_Vertex p{};
                 p.position = {dst.x + dst.w * u, dst.y + dst.h * w};
-                p.color = {0, 0, 0, photo::vignette_alpha(f, u * 2 - 1, w * 2 - 1)};
+                p.color = {0, 0, 0, f.alpha(u * 2 - 1, w * 2 - 1)};
                 v.push_back(p);
             }
         for (int y = 0; y < kY; ++y)
@@ -505,6 +511,12 @@ private:
         const int w = s.aspect.w * photo::kTiles, h = s.aspect.h * photo::kTiles;
         width_ = stand ? h : w, height_ = stand ? w : h;
         sum_.assign(size_t(width_) * size_t(height_) * 3, 0);
+        dark_.resize(size_t(width_) * size_t(height_) * 2);
+        const photo::Vignette rings[2] = {course_vignette(), photo::vignette(s.filters)};
+        for (int y = 0; y < height_; ++y)
+            for (int x = 0; x < width_; ++x)
+                for (int k = 0; k < 2; ++k)
+                    dark_[(size_t(y) * size_t(width_) + size_t(x)) * 2 + size_t(k)] = u8(rings[k].alpha((float(x) + 0.5f) / float(width_) * 2 - 1, (float(y) + 0.5f) / float(height_) * 2 - 1) * 128);
         samples_ = photo::samples(photo::kSamples);
         const photo::Correction c = s.correction();
         for (int i = 0; i < 256; ++i) {
@@ -556,19 +568,26 @@ private:
         if (++sample_ >= photo::kSamples) develop(s);
     }
 
+    // A picture onto the average: corrected, the vignettes over it, blended (photo::expose).
     void add(const SDL_Surface& rgba, const menu::PhotoShoot& s) {
         const float sat = s.correction().saturation;
+        const int weight = photo::exposure_weight(sample_);
         const int w = std::min(rgba.w, width_), h = std::min(rgba.h, height_);
         for (int y = 0; y < h; ++y) {
             const u8* p = static_cast<const u8*>(rgba.pixels) + size_t(y) * size_t(rgba.pitch);
-            u32* out = &sum_[size_t(y) * size_t(width_) * 3];
-            for (int x = 0; x < w; ++x, p += 4, out += 3) {
+            u8* out = &sum_[size_t(y) * size_t(width_) * 3];
+            const u8* dark = &dark_[size_t(y) * size_t(width_) * 2];
+            for (int x = 0; x < w; ++x, p += 4, out += 3, dark += 2) {
                 int c[3] = {lut_[0][p[0]], lut_[1][p[1]], lut_[2][p[2]]};
                 if (sat != 1) {
                     const float gray = 0.3f * float(c[0]) + 0.59f * float(c[1]) + 0.11f * float(c[2]);
                     for (int& v : c) v = std::clamp(int(sat * float(v) + (1 - sat) * gray), 0, 255);
                 }
-                for (int k = 0; k < 3; ++k) out[k] += u32(c[k]);
+                for (int k = 0; k < 3; ++k) {
+                    for (int ring = 0; ring < 2; ++ring)
+                        if (dark[ring]) c[k] = ((-c[k] * dark[ring]) >> 7) + c[k];
+                    out[k] = photo::expose(out[k], c[k], weight);
+                }
             }
         }
     }
@@ -578,21 +597,15 @@ private:
         auto picture = std::make_shared<menu::PhotoPicture>();
         picture->width = width_, picture->height = height_, picture->version = ++version_;
         picture->rgba.resize(size_t(width_) * size_t(height_));
-        std::vector<u8> rgb(size_t(width_) * size_t(height_) * 3);
         for (int y = 0; y < height_; ++y)
             for (int x = 0; x < width_; ++x) {
                 const size_t i = size_t(y) * size_t(width_) + size_t(x);
-                const float dark = 1 - photo::vignette_alpha(s.filters, (float(x) + 0.5f) / float(width_) * 2 - 1, (float(y) + 0.5f) / float(height_) * 2 - 1);
                 u32 px = 0xFF000000u;
-                for (int k = 0; k < 3; ++k) {
-                    const u8 v = u8(std::clamp(float(sum_[i * 3 + size_t(k)]) / float(photo::kSamples) * dark, 0.0f, 255.0f));
-                    rgb[i * 3 + size_t(k)] = v;
-                    px |= u32(v) << (8 * k);
-                }
+                for (int k = 0; k < 3; ++k) px |= u32(sum_[i * 3 + size_t(k)]) << (8 * k);
                 picture->rgba[i] = px;
             }
         picture->focus = focus_record(s);
-        picture->jpeg = photo::encode_jpeg(rgb, width_, height_, photo::jpeg_quality(rt_.game().option_text("photo_quality")), picture->focus);
+        picture->jpeg = photo::encode_jpeg(sum_, width_, height_, photo::jpeg_quality(rt_.game().option_text("photo_quality")), picture->focus);
         rt_.photo_picture = std::move(picture);
         sum_.clear();
     }
@@ -642,7 +655,7 @@ private:
     int sample_ = 0, width_ = 0, height_ = 0, target_w_ = 0, target_h_ = 0;
     u64 version_ = 0;
     std::vector<photo::Sample> samples_;
-    std::vector<u32> sum_;
+    std::vector<u8> sum_, dark_; // the average so far; the vignettes' alpha, 128 whole
     u8 lut_[3][256] = {};
     SDL_Texture* target_ = nullptr;
     SDL_Texture* corner_[1] = {};
@@ -650,6 +663,6 @@ private:
 
 } // namespace
 
-std::unique_ptr<Screen> make_photo_screen(App& app, menu::Runtime& menus) { return std::make_unique<PhotoScreen>(app, menus); }
+std::unique_ptr<Screen> make_photo_screen(App& app, menu::Runtime& menus, const menu::RaceRequest& request) { return std::make_unique<PhotoScreen>(app, menus, request); }
 
 } // namespace gt4r

@@ -5,6 +5,8 @@
 
 #include "gt4r/menu/runtime_internal.h"
 
+#include "base/log.h"
+
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -140,6 +142,8 @@ void Runtime::load_options() {
 }
 
 void Runtime::note(std::string line) {
+    static const bool logged = std::getenv("GT4R_MENU_LOG") != nullptr; // (for checks)
+    if (logged) LOG_INFO("Menu: %s", line.c_str());
     log_.push_back(std::move(line));
     while (log_.size() > kMaxLog) log_.pop_front();
 }
@@ -613,7 +617,8 @@ void Runtime::finish() {
 
 void Runtime::run(const Value& callee, std::vector<Value> args, std::string what, std::function<void(const Value&)> done) {
     vm_->instructions = 0, vm_->budget = kCallBudget;
-    if (trace_calls) note("call " + what);
+    static const bool traced = std::getenv("GT4R_MENU_LOG") && std::string_view(std::getenv("GT4R_MENU_LOG")) == "calls";
+    if (trace_calls || traced) note("call " + what);
     Running r;
     r.what = std::move(what), r.done = std::move(done);
     running_.push_back(std::move(r));
