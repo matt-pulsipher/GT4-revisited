@@ -76,6 +76,7 @@ public:
     // use), made on first use; null without a disc.
     audio::AppSound* sound();
     gt3r::IniDocument& config() { return config_; }
+    void save_config();
     const MenuInput& menu() const { return menu_; }
     SDL_Renderer* renderer() { return renderer_; }
     // The 3D device; null when the system has none (the 2D screens still work).
@@ -153,6 +154,8 @@ std::unique_ptr<Screen> make_hub_screen();
 // --sweep: the races of a list run one after another in this window, a picture of each
 // (screen_sweep.cpp).
 std::unique_ptr<Screen> make_sweep_screen(const std::string& list, const std::string& out);
+// The player's controls: the device, the race's layout, rumble and force feedback, the bindings.
+std::unique_ptr<Screen> make_controls_screen(App& app);
 std::unique_ptr<Screen> make_browser_screen(const std::string& open_path = "");
 // The menu projects' pages drawn from the disc's layouts (still pictures).
 std::unique_ptr<Screen> make_menu_viewer(App& app);
