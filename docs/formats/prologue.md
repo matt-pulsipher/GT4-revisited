@@ -493,9 +493,12 @@ page. Read by 0x1FFCB0 / 0x200E70, sampled by 0x1FFE70 / 0x1FFD00 (`menu/model_s
 | frames, 0x30 each | eye x y z, rotation x y z and field of view (degrees), each light's scale (its ambient, diffuse, specular and its shadow's alpha times it), 0 |
 
 ❓ What follows the frames in the files (0xB50 .. 0x21A0 bytes; the program's loader does not point at it).
-❓ The stream's clock without `sync_mpeg`. ❓ The original shows the page's dark picture (`Veil.bg`, `best_bg.png`) behind the words
-until the film's frame 90, though its layout hides it (`visible` 0) and no script shows it: what does is not found, and here the car
-stands on black for those three seconds (the film itself is black until then).
+❓ The stream's clock without `sync_mpeg`. The page's dark picture (`Veil.bg`, `best_bg.png`) covers the car until the film's frame
+90, as the original shows it (`37-prologue-medal`, 307.5 .. 311 s): nothing hides it, for Prologue's layout reader (mWidget::vf57)
+has no `visible` (the layout's 0 is not read; `menu/widgets.cpp`); the script's `setFadeActor(Veil::bg, 0)` puts a fade actor on it
+at full (its warp; the actor sets a picture's own alpha, mColorFace::vf55 0x299248, a text's +0x58, mTextFace::vf55), and `start()`
+from the frame hook turns it out with the title, the name and the first line. Ours the same (`~/gt4re-out/prologue8/shots/nc.png`,
+lesson 1's page through the menus).
 
 **Arcade's settings** (0x10A360, 0x1A0130): the stability control by the driving assist (0x402348: Status +0x110 not 0; the traction control by
 the option word Status + 0x2F560, the option object's (Status + 0x2F510) +0x50, the saved options' +0x48: 1 from the
