@@ -197,7 +197,8 @@ void apply_course_start(App& app, Setup& setup, bool start) {
 void load_test(App& app, Setup& setup, const std::string& code) {
     setup.conductor = race::Conductor::Other, setup.rules = {};
     for (s64& t : setup.targets) t = -1;
-    if (!is_license(setup.sequence) && setup.sequence != "mission") return;
+    const bool test = is_license(setup.sequence) || setup.sequence == "mission";
+    if (!test && (!setup.sequence.empty() || code.empty())) return;
     db::SpecDb* sdb = app.db();
     if (!sdb) return;
     try {
@@ -207,8 +208,12 @@ void load_test(App& app, Setup& setup, const std::string& code) {
         for (const std::string& label : {code, "us" + code, "jp" + code}) {
             const std::optional<db::RaceEvent> e = events.event(label);
             if (!e) continue;
-            for (size_t k = 0; k < 3; ++k) setup.targets[k] = e->target_ms[k] > 0 ? s64(e->target_ms[k]) : -1;
             setup.event_row = e->bytes;
+            if (!test) { // (an event by its label without the menus: its row and its drivers' pace)
+                setup.pace = sim::ai::pace_for(*e);
+                return;
+            }
+            for (size_t k = 0; k < 3; ++k) setup.targets[k] = e->target_ms[k] > 0 ? s64(e->target_ms[k]) : -1;
             setup.rules = race::LicenseRules::from_row(e->bytes);
             if (app.disc() && app.disc()->info().serial.rfind("SCPS", 0) != 0) setup.conductor = race::conductor_for(setup.sequence, code);
             break;

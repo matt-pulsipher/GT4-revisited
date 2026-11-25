@@ -654,8 +654,10 @@ void RaceHud::Impl::draw_chase_panel(const HudState& s) {
 void RaceHud::Impl::draw_tires(const HudState& s, const DisplayPlace& place) {
     if (!s.tires_on) return;
     const float o = s.opacity;
-    const DisplayRect at = draw_at("tire_wear", place, kNeutral, o);
+    const Picture& car = picture("tire_wear");
+    const DisplayRect at = race::place_rect(place, car.w, car.h, true);
     if (at.w <= 0 || at.h <= 0) return;
+    draw_picture(car, at, 0x80877B80u, o, 1, true); // (RaceTireWearDisplay's +0x1C)
     static const int kAt[4][2] = {{4, 8}, {30, 8}, {4, 50}, {30, 50}};
     const float sx = at.w / 40, sy = at.h / 68;
     for (int w = 0; w < 4; ++w) {
