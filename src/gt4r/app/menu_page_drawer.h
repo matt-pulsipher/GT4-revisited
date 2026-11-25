@@ -808,10 +808,15 @@ private:
         }
         const bool add = w.number("blend") != 0;
         if (t == "ColorFace") {
-            const bool level = colors.size() < 4 || (same(colors[0], colors[1]) && same(colors[2], colors[3]));
-            if (beside > 0 && m_.identity() && level && w.number("round") == 0 && at.x <= 0.5f && at.x + at.w >= 639.5f && clip.x <= 0 && clip.x + clip.w >= 640) {
+            if (beside > 0 && m_.identity() && w.number("round") == 0 && at.x <= 0.5f && at.x + at.w >= 639.5f && clip.x <= 0 && clip.x + clip.w >= 640) {
+                // (Over a picture wider than the page: on to the screen's edges in the colors it has at its own.)
                 set_clip({-beside, clip.y, 640 + 2 * beside, clip.h});
-                fill({-beside, at.y, 640 + 2 * beside, at.h}, colors, face, add);
+                if (colors.size() < 4) fill({-beside, at.y, 640 + 2 * beside, at.h}, colors, face, add);
+                else {
+                    fill(at, colors, face, add);
+                    fill({-beside, at.y, at.x + beside, at.h}, {colors[0], colors[0], colors[3], colors[3]}, face, add);
+                    fill({at.x + at.w, at.y, 640 + beside - at.x - at.w, at.h}, {colors[1], colors[1], colors[2], colors[2]}, face, add);
+                }
                 set_clip(clip);
             } else fill(at, colors, face, add, w.number("round"));
         }
