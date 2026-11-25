@@ -105,8 +105,11 @@ bool is_select_box(const LiveWidget& w) { return w.is("SelectBox") || w.is("Sele
 std::shared_ptr<LiveWidget> LiveWidget::build(const Widget& layout, const std::shared_ptr<script::Module>& parent, Runtime* runtime) {
     auto w = std::make_shared<LiveWidget>();
     w->data.type = layout.type;
+    // (Prologue's layout reader, mWidget::vf57, has no `visible`: only its scripts set it. The board's film and the options'
+    // OK buttons, which the layouts mark hidden, show; the second board waits beside the screen.)
+    const bool reads_visible = !runtime || !runtime->is_prologue();
     for (const Property& p : layout.properties)
-        if (p.name != "children") w->data.properties.push_back(p);
+        if (p.name != "children" && (reads_visible || p.name != "visible")) w->data.properties.push_back(p);
     w->name = layout.name();
     w->parent = parent;
     w->runtime = runtime;

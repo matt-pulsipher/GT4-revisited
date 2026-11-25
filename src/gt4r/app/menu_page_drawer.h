@@ -67,12 +67,12 @@ inline std::array<menu::TextColor, 4> program_button_colors(App& app) {
 class PageDrawer {
 public:
     explicit PageDrawer(App& app) : r_(app.renderer()), vfs_(app.vfs()) {
-        for (const char* path : {"font/system.fnt", "font/menu.fnt"}) {
+        for (const char* path : {"font/system.fnt", "font/menu.fnt", "font/race.fnt"}) { // (Prologue's lesson pages: FC_16 ..)
             const std::optional<Bytes> file = app.vfs()->read(path);
             if (!file) continue;
             try {
                 files_.push_back(menu::read_fonts(*file));
-                for (const auto& [name, sp] : menu::read_font_spacing(*file)) spacing_[name] = sp;
+                for (const auto& [name, sp] : menu::read_font_spacing(*file)) spacing_.emplace(name, sp);
             } catch (const std::exception& e) {
                 LOG_WARN("%s: %s", path, e.what());
             }
