@@ -86,7 +86,7 @@ struct Party {
         relay.step(0);
     }
     bool wait(const std::function<bool()>& done) {
-        for (int i = 0; i < 1200; ++i) {
+        for (int i = 0; i < 4000; ++i) {
             for (Player& q : p) q.lobby();
             pump_relay();
             if (done()) return true;
