@@ -1743,7 +1743,20 @@ public:
                     if (laps > 0) setup_.laps = std::clamp(laps, 1, 99);
                 }
             }
-            setup_.course_start = true;
+            setup_.course_start = !setup_.online;
+            if (setup_.online) {
+                // The LAN race: a standing start from the grid with the 10 s hold whatever the course's start code (RACE row
+                // sample_entry_1, its start type +0x40 = 2: docs/specs/net.md "Race"), that row its event.
+                setup_.start = race::StartType::Ten, setup_.start_given = true;
+                if (db::SpecDb* sdb = app.db()) {
+                    gt3r::Vfs* vfs = app.vfs();
+                    try {
+                        if (const std::optional<db::RaceEvent> e = db::RaceEvents(*sdb, [vfs](const std::string& path) { return vfs->read(path); }).event("sample_entry_1")) setup_.event_row = e->bytes;
+                    } catch (const std::exception& e) {
+                        LOG_WARN("Drive: the LAN race's row: %s", e.what());
+                    }
+                }
+            }
             // A reversed layout is its own course file (crs/r_<name>); one the disc does not have is
             // driven forward.
             if (!app.vfs()->exists("crs/" + setup_.course) && setup_.course.rfind("r_", 0) == 0) {
