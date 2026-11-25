@@ -251,7 +251,11 @@ void CarSound::set_mix(std::shared_ptr<const RaceMix> mix) {
 }
 
 bool CarSound::load(const std::string& car_label) {
-    files_ = car_sound_files(vfs_, car_label);
+    return load(car_sound_files(vfs_, car_label));
+}
+
+bool CarSound::load(const CarSoundFiles& files) {
+    files_ = files;
     if (files_.engine.empty()) return false;
     return load(files_.id, files_.variant_index());
 }
@@ -273,12 +277,16 @@ bool CarSound::load(int sound_id, int variant) {
     files_.engine = std::string("sound/engine/") + name;
     files_.exhaust = "sound/" + files_.variant + "/" + name;
     const auto bank = [&](const std::string& path) -> std::shared_ptr<const gt3r::sound::EngineBank> {
+        if (banks_)
+            if (const auto it = banks_->find(path); it != banks_->end()) return it->second;
+        std::shared_ptr<const gt3r::sound::EngineBank> b;
         try {
-            if (const auto d = vfs_.read(path)) return std::make_shared<const gt3r::sound::EngineBank>(parse_engine_bank(*d));
+            if (const auto d = vfs_.read(path)) b = std::make_shared<const gt3r::sound::EngineBank>(parse_engine_bank(*d));
         } catch (const std::exception& e) {
             LOG_WARN("%s: %s", path.c_str(), e.what());
         }
-        return nullptr;
+        if (banks_) (*banks_)[path] = b;
+        return b;
     };
     engine_.set_bank(bank(files_.engine));
     exhaust_.set_bank(bank(files_.exhaust));

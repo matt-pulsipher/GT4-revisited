@@ -55,6 +55,18 @@ and go to its own code as they are. `rail_simulation.*` is a stand-in that runs 
 the road's line. The app's part is `app/screen_race.cpp` (the *Drive* screen) and
 `app/race_hud.*` (the display's drawing).
 
+## Loading a race
+
+`app/race_world.cpp` reads the cars' files, then decodes their shapes on threads
+(`CarVisual::make_unuploaded`: a few cars ahead, the first of them while the course is read)
+and hands them to the GPU on the main thread, a car's equal pictures once. What several parts
+of a race read is worked out once: the program unpacked (`Disc::program_image`, begun on a
+thread as the disc opens; every `sim::Program` of a disc holds that one image), the sound banks
+of the race's cars (`audio::EngineBanks`), the triangles of a road by cells of the ground for
+the heights beside it (`course::Runway::Cells`). A course's animated models are decoded a key of
+all of them at a time (`race/animated_models.cpp`). A `gtm1::Gtm1` points into the block it was
+parsed from: the block has to outlive it.
+
 ## Changing the shared engine
 
 A change the engine needs for both games is made in GT3 Revisited, in terms that apply to any

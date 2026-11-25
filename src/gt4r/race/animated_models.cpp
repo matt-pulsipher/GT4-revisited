@@ -6,7 +6,10 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <future>
+#include <map>
 #include <set>
+#include <thread>
 
 namespace gt4r::race {
 
@@ -22,6 +25,7 @@ struct ProgramUse {
     std::vector<AnimatedModels::Layer> layers; // each switch with the weight set before it (a sky's aeroplanes and their trails)
     bool other = false;
     std::set<u32> texture_sets;
+    bool calls = false; // it draws other models by their numbers
     std::vector<AnimatedModels::Move> moves; // matrix commands by register, before any shape is drawn
     bool drawn = false;                     // a shape was drawn on some path
     std::array<float, 16> pivot{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1}; // the matrix at the first move
@@ -153,6 +157,7 @@ ProgramUse scan_program(ByteSpan b, size_t start) {
                 weight = int(rd16(b, a));
             }
             if (op >= 0x02 && op <= 0x05) use.drawn = true;
+            use.calls |= op == 0x02 || op == 0x03;
             if (use.moves.empty() && !use.drawn) { // the matrix the model's moves are made in
                 auto f = [&](size_t o) {
                     float v;
@@ -220,7 +225,7 @@ AnimatedModels::AnimatedModels(ByteSpan set, float color_scale, const gt3r::gtm1
 
     // The models to animate: a draw script, and a program that reads a key shape or a weight
     // from the registers and nothing else of them.
-    std::set<u32> used_sets;
+    std::set<u32> used_sets, calling;
     int most_cases = 1;
     bool any_weight = false;
     for (u32 i = 0; i < h.models && i < script_.models.size(); ++i) {
@@ -239,6 +244,7 @@ AnimatedModels::AnimatedModels(ByteSpan set, float color_scale, const gt3r::gtm1
         if (a.switch2_cell < 0) most_cases = std::max(most_cases, int(a.keys.size()));
         any_weight |= use.weight_cell >= 0 && a.layers.empty();
         used_sets.insert(use.texture_sets.begin(), use.texture_sets.end());
+        if (use.calls) calling.insert(i);
         models_.push_back(std::move(a));
     }
     if (models_.empty()) return;
@@ -251,112 +257,165 @@ AnimatedModels::AnimatedModels(ByteSpan set, float color_scale, const gt3r::gtm1
         for (u32 t = 0; t < h.texture_sets && list && list + 4 * size_t(t) + 4 <= h.size; ++t)
             if (!used_sets.count(t)) std::memset(trimmed.data() + list + 4 * size_t(t), 0, 4);
     }
-    mdls::Scene sc;
-    sc.color_scale = color_scale;
-    for (const Animated& a : models_) sc.only_models.push_back(a.model);
-    gt3r::gtm1::Options o = decode;
-    o.textures = true;
     size_t meshes = 0;
-    // One model's shapes of a converted set into one of its keys, at the first or second end of the blend.
-    auto store = [&](const gt3r::gtm1::Gtm1& g, Animated& a, size_t key, int end) {
-        o.node = int(a.model);
-        scene::Model m = gt3r::gtm1::build_model(g, o, "animated");
-        scene::Mesh mesh;
-        if (!m.meshes.empty()) mesh = std::move(m.meshes[0]);
+    // A decode of one model: what its switches and weights read, and where its shapes go. Models whose decodes ask the
+    // registers for nothing that disagrees are decoded together: one conversion of the set and one reading of its
+    // pictures for all of them.
+    struct Decode {
+        const Animated* model = nullptr;
+        int end = 0; // the end of the blend: every weight without one of its own
+        std::vector<std::pair<u32, u32>> registers;
+        std::vector<std::pair<u16, float>> weights;
+        scene::Mesh* out = nullptr;
+    };
+    struct Batch {
+        bool alone = false; // (a program that calls other models' needs them)
+        int end = 0;
+        std::set<u32> models;
+        std::map<u32, u32> registers;
+        std::map<u16, float> weights;
+        std::vector<Decode> decodes;
+    };
+    std::vector<Batch> batches;
+    const auto add = [&](Decode d) {
+        const bool alone = calling.count(d.model->model) != 0;
+        auto takes = [&](const Batch& b) {
+            if (b.alone || b.end != d.end || b.models.count(d.model->model) || b.weights.empty() != d.weights.empty()) return false;
+            for (const auto& [cell, value] : d.registers)
+                if (const auto it = b.registers.find(cell); it != b.registers.end() && it->second != value) return false;
+            for (const auto& [cell, value] : d.weights)
+                if (const auto it = b.weights.find(cell); it != b.weights.end() && it->second != value) return false;
+            return true;
+        };
+        auto it = alone ? batches.end() : std::find_if(batches.begin(), batches.end(), takes);
+        if (it == batches.end()) it = batches.insert(it, Batch{}), it->alone = alone, it->end = d.end;
+        it->models.insert(d.model->model);
+        it->registers.insert(d.registers.begin(), d.registers.end());
+        it->weights.insert(d.weights.begin(), d.weights.end());
+        it->decodes.push_back(std::move(d));
+    };
+    const int ends = any_weight ? 2 : 1;
+    // The models with one switch or none: a key per case, both ends of the blend (the models with two switches: a key per
+    // pair of cases).
+    for (int end = 0; end < ends; ++end)
+        for (int k = 0; k < most_cases; ++k)
+            for (Animated& a : models_) {
+                if (!a.layers.empty() || a.switch2_cell >= 0 || size_t(k) >= a.keys.size()) continue;
+                Decode d;
+                d.model = &a, d.end = end, d.out = end ? &a.keys[size_t(k)].second : &a.keys[size_t(k)].first;
+                if (a.switch_cell >= 0) d.registers.push_back({u32(a.switch_cell), u32(k)});
+                add(std::move(d));
+            }
+    for (Animated& a : models_) {
+        if (!a.layers.empty() || a.switch2_cell < 0) continue;
+        for (size_t key = 0; key < a.keys.size(); ++key)
+            for (int end = 0; end < ends; ++end) {
+                Decode d;
+                d.model = &a, d.end = end, d.out = end ? &a.keys[key].second : &a.keys[key].first;
+                d.registers = {{u32(a.switch_cell), u32(key / size_t(a.cases2))}, {u32(a.switch2_cell), u32(key % size_t(a.cases2))}};
+                add(std::move(d));
+            }
+    }
+    // The models in layers: the model with every switch at its first case, then each layer's cases at both ends.
+    std::map<const Animated*, scene::Mesh> bases;
+    for (Animated& a : models_) {
+        if (a.layers.empty()) continue;
+        const auto one = [&](size_t layer, int k, float end, scene::Mesh& out) {
+            Decode d;
+            d.model = &a, d.out = &out;
+            for (size_t l = 0; l < a.layers.size(); ++l) {
+                d.weights.push_back({u16(a.layers[l].weight_cell), l == layer ? end : 0.0f});
+                if (a.layers[l].switch_cell >= 0) d.registers.push_back({u32(a.layers[l].switch_cell), l == layer ? u32(k) : 0u});
+            }
+            add(std::move(d));
+        };
+        one(a.layers.size(), 0, 0, bases[&a]);
+        for (size_t l = 0; l < a.layers.size(); ++l) {
+            a.layers[l].keys.resize(size_t(a.layers[l].cases));
+            for (int k = 0; k < a.layers[l].cases; ++k) one(l, k, 0, a.layers[l].keys[size_t(k)].first), one(l, k, 1, a.layers[l].keys[size_t(k)].second);
+        }
+    }
+    // A batch's shapes, in its own list of pictures; and which of its models add to what is behind them.
+    struct Built {
+        scene::Model model;
+        std::set<u32> adds;
+    };
+    const auto build = [&](const Batch& b) {
+        mdls::Scene sc;
+        sc.color_scale = color_scale;
+        sc.only_models.assign(b.models.begin(), b.models.end());
+        sc.others_empty = !b.alone;
+        sc.registers.assign(script_.register_cells, 0);
+        for (const auto& [cell, value] : b.registers)
+            if (cell < sc.registers.size()) sc.registers[cell] = value;
+        sc.morph_weight = float(b.end);
+        sc.morph_weights = b.weights;
+        const Bytes block = mdls::to_gtm1(trimmed, nullptr, sc);
+        const gt3r::gtm1::Gtm1 g = gt3r::gtm1::Gtm1::parse(block);
+        gt3r::gtm1::Options o = decode;
+        o.textures = true;
+        if (b.alone) o.node = int(*b.models.begin());
+        Built out;
+        out.model = gt3r::gtm1::build_model(g, o, "animated");
         // A model drawn with ALPHA 0x48 (Cs x As + Cd) adds to what is behind it: the
         // spectators' camera flashes (a star on black). The shared engine's decode adds
         // so only for cars; here the blended passes of such a model are made additive.
-        bool adds = false;
-        for (const gt3r::gtm1::Draw& d : g.run(a.model)) adds |= d.alpha_mode == 0x48;
-        if (adds)
-            for (scene::Primitive& prim : mesh.primitives)
-                if (prim.flags & scene::kAlphaBlend) prim.flags = (prim.flags & ~u32(scene::kAlphaBlend)) | scene::kAdditive | scene::kNoDepthWrite;
-        // Its pictures into the one list every pose draws with (a decode lists the
-        // pictures in its own order).
-        for (scene::Primitive& prim : mesh.primitives) {
-            if (prim.texture < 0 || size_t(prim.texture) >= m.textures.size()) continue;
-            const scene::Texture& t = m.textures[size_t(prim.texture)];
-            int found = -1;
-            for (size_t n = 0; n < textures_.textures.size() && found < 0; ++n) {
-                const scene::Texture& have = textures_.textures[n];
-                if (have.width == t.width && have.height == t.height && have.clamp_u == t.clamp_u && have.clamp_v == t.clamp_v && have.rgba == t.rgba) found = int(n);
-            }
-            if (found < 0) found = int(textures_.textures.size()), textures_.textures.push_back(t);
-            prim.texture = found;
-        }
-        mesh.node = int(a.model);
-        mesh.name = "node" + std::to_string(a.model);
-        ++meshes;
-        if (end == 0) a.keys[key].first = std::move(mesh);
-        else a.keys[key].second = std::move(mesh);
+        for (u32 model : b.models)
+            for (const gt3r::gtm1::Draw& d : g.run(model))
+                if (d.alpha_mode == 0x48) out.adds.insert(model);
+        return out;
     };
-    const int ends = any_weight ? 2 : 1;
-    try {
-        for (int k = 0; k < most_cases; ++k) {
-            // Every model's switch at case k.
-            sc.registers.assign(script_.register_cells, 0);
-            for (const Animated& a : models_)
-                if (a.switch2_cell < 0 && a.layers.empty() && a.switch_cell >= 0 && size_t(a.switch_cell) < sc.registers.size()) sc.registers[size_t(a.switch_cell)] = u32(k);
-            for (int end = 0; end < ends; ++end) {
-                sc.morph_weight = float(end);
-                const Bytes block = mdls::to_gtm1(trimmed, nullptr, sc);
-                const gt3r::gtm1::Gtm1 g = gt3r::gtm1::Gtm1::parse(block);
-                for (Animated& a : models_)
-                    if (a.switch2_cell < 0 && size_t(k) < a.keys.size()) store(g, a, size_t(k), end);
-            }
-            if (ends == 1)
-                for (Animated& a : models_)
-                    if (a.switch2_cell < 0 && size_t(k) < a.keys.size()) a.keys[size_t(k)].second = a.keys[size_t(k)].first;
-        }
-        // The models with two switches: each key is a pair of cases, converted for that model alone.
-        for (Animated& a : models_) {
-            if (a.switch2_cell < 0) continue;
-            sc.only_models = {a.model};
-            for (int ca = 0; size_t(ca) < a.keys.size() / size_t(a.cases2); ++ca)
-                for (int cb = 0; cb < a.cases2; ++cb) {
-                    sc.registers.assign(script_.register_cells, 0);
-                    if (size_t(a.switch_cell) < sc.registers.size()) sc.registers[size_t(a.switch_cell)] = u32(ca);
-                    if (size_t(a.switch2_cell) < sc.registers.size()) sc.registers[size_t(a.switch2_cell)] = u32(cb);
-                    const size_t key = size_t(ca) * size_t(a.cases2) + size_t(cb);
-                    for (int end = 0; end < ends; ++end) {
-                        sc.morph_weight = float(end);
-                        const Bytes block = mdls::to_gtm1(trimmed, nullptr, sc);
-                        const gt3r::gtm1::Gtm1 g = gt3r::gtm1::Gtm1::parse(block);
-                        store(g, a, key, end);
-                    }
-                    if (ends == 1) a.keys[key].second = a.keys[key].first;
+    const auto store = [&](const Batch& b, Built built) {
+        // Its pictures into the one list every pose draws with.
+        std::vector<int> to(built.model.textures.size(), -1);
+        std::map<int, scene::Mesh*> by_node;
+        for (scene::Mesh& mesh : built.model.meshes) by_node.try_emplace(mesh.node, &mesh);
+        for (const Decode& d : b.decodes) {
+            const u32 model = d.model->model;
+            scene::Mesh mesh;
+            if (const auto it = by_node.find(int(model)); it != by_node.end()) mesh = std::move(*it->second);
+            for (scene::Primitive& prim : mesh.primitives) {
+                if (built.adds.count(model) && (prim.flags & scene::kAlphaBlend)) prim.flags = (prim.flags & ~u32(scene::kAlphaBlend)) | scene::kAdditive | scene::kNoDepthWrite;
+                if (prim.texture < 0 || size_t(prim.texture) >= to.size()) continue;
+                int& at = to[size_t(prim.texture)];
+                if (at < 0) {
+                    scene::Texture& t = built.model.textures[size_t(prim.texture)];
+                    const auto same = [&t](const scene::Texture& have) { return have.width == t.width && have.height == t.height && have.clamp_u == t.clamp_u && have.clamp_v == t.clamp_v && have.rgba == t.rgba; };
+                    const auto it = std::find_if(textures_.textures.begin(), textures_.textures.end(), same);
+                    at = int(it - textures_.textures.begin());
+                    if (it == textures_.textures.end()) textures_.textures.push_back(std::move(t));
                 }
+                prim.texture = at;
+            }
+            mesh.node = int(model);
+            mesh.name = "node" + std::to_string(model);
+            ++meshes;
+            *d.out = std::move(mesh);
         }
-        // The models in layers: the model with every switch at its first case, then each layer's cases at both ends.
+    };
+    try {
+        // The batches on a few threads, stored in their order.
+        const size_t ahead = std::clamp<size_t>(std::thread::hardware_concurrency() / 4, 1, 3);
+        std::vector<std::future<Built>> made(batches.size());
+        for (size_t i = 0; i < batches.size(); ++i) {
+            for (size_t k = i; k < batches.size() && k <= i + ahead; ++k)
+                if (!made[k].valid()) made[k] = std::async([&build, &b = batches[k]] { return build(b); });
+            store(batches[i], made[i].get());
+            made[i] = {};
+        }
         for (Animated& a : models_) {
-            if (a.layers.empty()) continue;
-            sc.only_models = {a.model};
-            auto decode_one = [&](size_t layer, int k, float end, scene::Mesh& out_mesh) {
-                sc.registers.assign(script_.register_cells, 0);
-                sc.morph_weight = 0;
-                sc.morph_weights.clear();
-                for (size_t l = 0; l < a.layers.size(); ++l) sc.morph_weights[u16(a.layers[l].weight_cell)] = l == layer ? end : 0.0f;
-                if (layer < a.layers.size() && size_t(a.layers[layer].switch_cell) < sc.registers.size()) sc.registers[size_t(a.layers[layer].switch_cell)] = u32(k);
-                const Bytes block = mdls::to_gtm1(trimmed, nullptr, sc);
-                store(gt3r::gtm1::Gtm1::parse(block), a, 0, 0);
-                out_mesh = a.keys[0].first;
-            };
-            scene::Mesh base;
-            decode_one(a.layers.size(), 0, 0, base);
-            for (size_t l = 0; l < a.layers.size(); ++l) {
-                a.layers[l].keys.resize(size_t(a.layers[l].cases));
-                for (int k = 0; k < a.layers[l].cases; ++k) {
-                    Key& key = a.layers[l].keys[size_t(k)];
-                    decode_one(l, k, 0, key.first), decode_one(l, k, 1, key.second);
+            if (a.layers.empty()) {
+                if (ends == 1)
+                    for (Key& key : a.keys) key.second = key.first;
+                continue;
+            }
+            scene::Mesh& base = bases[&a];
+            for (Layer& l : a.layers)
+                for (Key& key : l.keys)
                     for (scene::Mesh* m : {&key.first, &key.second})
                         if (m->vertices.size() != base.vertices.size() || m->indices.size() != base.indices.size()) *m = base;
-                }
-            }
             a.keys[0].first = a.keys[0].second = std::move(base);
-            sc.morph_weights.clear();
         }
-        sc.only_models.clear();
-        for (const Animated& a : models_) sc.only_models.push_back(a.model);
     } catch (const std::exception& e) {
         LOG_WARN("Animated models: %s; they stay still", e.what());
         models_.clear();

@@ -489,6 +489,11 @@ Bytes to_gtm1(ByteSpan mdls, ConvertStats* stats, const Scene& scene) {
     // The tables GTM1 keeps apart: the programs' offsets, a sphere per model (the model record's
     // centre and radius) and the shapes' offsets.
     while (out.size() & 15) out.push_back(0);
+    if (some && scene.others_empty) { // (a program of its end alone)
+        for (u32 i = 0; i < h.models; ++i)
+            if (!wanted[i]) programs[i] = u32(out.size());
+        out.resize(out.size() + 16, 0);
+    }
     const size_t node_tab = out.size();
     out.resize(node_tab + 4 * size_t(h.models), 0);
     for (u32 i = 0; i < h.models; ++i) put32(out, node_tab + 4 * size_t(i), programs[i]);
