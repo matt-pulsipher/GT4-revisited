@@ -313,7 +313,7 @@ The race's car is the sheet in use: `garage[slot].record->active()` is the
 | 0x1184, 0x1194 | `race_color_correction`, `replay_color_correction`: four s32 each (brightness, contrast, saturation, color balance; the scripts' arrays, here the text "b c s w"); a new game's 3 0 0 0 and 0 0 0 0 |
 | 0x16B0 | `race_display_mode` (not in the saved block) |
 
-`vibration_1p/2p` and `steering_forcefeedback_1p/2p` are the controller settings' (Option +0x11D0, the saved button maps' block; "VIBRATION", "WHEEL FEEDBACK"), not decoded.
+`vibration_1p/2p` and `steering_forcefeedback_1p/2p` are the controller settings' (Option +0x11D0, payload 0x39B00, two ports of 0x60 bytes: [input.md](../specs/input.md) "The settings"), kept here as the options `controllers_1p` / `controllers_2p` (the block's bytes in hexadecimal).
 
 ### The play lists (Option +0x90, +0x8A0; 0x810 each)
 

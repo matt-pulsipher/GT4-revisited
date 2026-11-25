@@ -27,8 +27,11 @@ namespace gt4r::audio {
 class CourseSound {
 public:
     enum Channel : int { Air = 0, City, Crowds, Cheer, Sea, kChannels };
-    // The effect each list plays (sound/gt4se.inf).
-    static const char* effect_name(int channel);
+    // The effect each list plays (sound/gt4se.inf). Prologue's (0x3A2728): air, city, none, crowds, sea.
+    static const char* effect_name(int channel, bool prologue = false);
+    // Prologue's rules (0x4104C8): a list of air or city that holds an emitter plays at 1, the placed lists (crowds is the
+    // fourth) each carry their own pitch, a gated emitter's gain moves by 1/60 a step.
+    void set_prologue(bool on) { prologue_ = on; }
 
     struct Listener {
         race::Vec3 position, velocity, right{1, 0, 0};
@@ -65,6 +68,7 @@ private:
     };
     std::array<std::vector<Emitter>, kChannels> lists_;
     std::array<Out, kChannels> out_{};
+    bool prologue_ = false;
     float tunnel1_ = 0, tunnel2_ = 0;
     float reverb_ = 0.125f, target_ = 0.125f;
 };

@@ -303,6 +303,18 @@ public:
     bool simulated() const { return session_ != nullptr; }
     bool night() const { return night_; }
     const WorldSetup& setup() const { return setup_; }
+    // The game's simulation (null: the stand-in runs).
+    const sim::Session* session() const { return session_.get(); }
+    // What the player chose for his own car and controls: the gearbox, the aids, the steering wheel's (its lock by the options'
+    // AMATEUR .. SIMULATION: the entry's +0x344C, its active steering +0x3458, its force's strength and assist). True when the
+    // cars must be set up anew for it (the next restart).
+    struct PlayerChoice {
+        bool automatic = true, asm_on = true, tcs_on = true, wheel_aid = false;
+        u8 wheel_lock = 0;
+        gt3r::s16 wheel_strength = 1, wheel_assist = 1;
+        bool operator==(const PlayerChoice&) const = default;
+    };
+    bool set_player(const PlayerChoice& c);
     // The player's car's power as built, PS (0: not known).
     float player_power_ps() const { return player_ps_; }
     const gt3r::render::DrawStats& draw_stats() const;
@@ -340,6 +352,7 @@ private:
     race::GadgetBodies gadget_bodies_; // the cones and boards as the cars leave them
     unsigned gadget_hits_ = 0;
     std::vector<std::optional<WorldEntry>> overrides_;
+    PlayerChoice player_;
     std::array<u32, 32> soft_{};
     struct Command {
         int pace = 3;
