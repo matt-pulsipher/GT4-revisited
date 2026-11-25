@@ -19,6 +19,7 @@ namespace gt4r::diff {
 namespace {
 
 constexpr u32 kLicenseCtor = 0x3F5F68;     // DynamicsConductorLicense
+constexpr u32 kFreeRunCtor = 0x3F54E0;     // DynamicsConductorFreeRun
 constexpr u32 kTrainingVtable = 0x685F50;  // DynamicsConductorTraining: the license's constructor, then its table
 constexpr u32 kConfigure = 0x34D418;       // (conductor, race information): the event's row (info +0x70) into CFG
 constexpr u32 kRunTimed = 0x3F8AB0;        // (conductor, car, time ms): the run ends timed
@@ -51,6 +52,16 @@ DemoScore run_float_demo(Disc& disc, const std::string& label, const FloatDemoOp
     std::string err;
     const auto d = replay::Demonstration::parse(disc.volume().read(*e), program, &err);
     if (!d) return r.error = err, r;
+    return run_recording(disc, *d, label, opt, print);
+}
+
+DemoScore run_recording(Disc& disc, const replay::Demonstration& recording, const std::string& label, const FloatDemoOptions& opt, bool print) {
+    DemoScore r;
+    r.label = label;
+    const sim::Program program = sim::Program::load(disc);
+    if (!program.known()) return r.error = "the disc's program is not a mapped build", r;
+    std::string err;
+    const replay::Demonstration* d = &recording;
     if (d->streams.empty()) return r.error = "no controls", r;
     db::SpecDb sdb = open_db(disc);
     gt3r::Volume* vol = &disc.volume();
@@ -78,10 +89,17 @@ DemoScore run_float_demo(Disc& disc, const std::string& label, const FloatDemoOp
     }
     if (labels.empty()) return r.error = "no entries", r;
     r.car = labels[0];
-    const bool training = d->race_class == "RaceTraining" || labels.size() > 1;
+    const bool license = d->race_class == "RaceLicense" || d->race_class == "RaceTraining";
+    const bool training = d->race_class == "RaceTraining";
+    const bool free_run = d->race_class == "RaceFreeRun";
+    std::string course = ev->course;
+    if (!license) // (a race's replay: its course is the header's, its event the mode's generic row)
+        for (const db::CourseEntry& c : sdb.courses())
+            if (c.id == u32(d->code_b8)) course = c.label;
+    r.course = course;
     // The driving lines (the course's driver file): the pace car's driver, and the line's heading the player's active
     // steering reads (0x4649F0); a course without the file runs without them (its heading 0).
-    const bool lines = disc.volume().find("crs/" + ev->course + ".ad") != nullptr;
+    const bool lines = disc.volume().find("crs/" + course + ".ad") != nullptr;
 
     Ee ee;
     boot(ee, disc, sdb);
@@ -110,7 +128,8 @@ DemoScore run_float_demo(Disc& disc, const std::string& label, const FloatDemoOp
             for (u32 k = 0; k < 0x20; ++k) ee.w8(entry + 0x3468 + k, en.condition[k]);
         }
     };
-    if (!setup_race(ee, disc, sdb, ev->course, labels, 1, o, err, lines, &equipment, before_init, kLicenseCtor, training ? kTrainingVtable : 0))
+    const u32 ctor = license ? kLicenseCtor : free_run ? kFreeRunCtor : 0;
+    if (!setup_race(ee, disc, sdb, course, labels, 1, o, err, lines, &equipment, before_init, ctor, training ? kTrainingVtable : 0))
         return r.error = err, r;
     r.kind = ee.r8(o.cond + kCfg + 2);
     // The order before the first step (the conductor's virtual 3, which the step runs after the judge): a training
@@ -152,6 +171,16 @@ DemoScore run_float_demo(Disc& disc, const std::string& label, const FloatDemoOp
     ee.probe(kRunFailed, [&end, player](Ee& x) {
         if (!end.done && x.g32(5) == player) end.done = true, end.fail = s32(x.g32(6));
     });
+    if (!license) {
+        // A race: the player's line crossings as the conductor's virtual 21 gets them (a1 car index, a2 the laps done, t1 the
+        // time in ms); the run ends at the race's laps (the race information's first word), or at the recording's end.
+        const u32 vt = ee.r32(o.cond + kCondVtable), vf21 = ee.r32(vt + 8 * 21 + 4), laps = ee.r32(o.info);
+        ee.probe(vf21, [&end, &r, laps](Ee& x) {
+            if (x.g32(5) != 0) return;
+            r.laps.push_back(s32(x.g32(9)));
+            if (!end.done && laps && x.g32(6) == laps) end.done = true, end.ms = s32(x.g32(9));
+        });
+    }
     if (print && opt.verbose) { // (the line's crossings: the conductor's virtuals 20 and 21)
         ee.probe(0x3F64D0, [](Ee& x) { std::printf("  vf20 car %u a2 %u\n", x.g32(5), x.g32(6)); });
         ee.probe(0x3F6588, [](Ee& x) { std::printf("  vf21 car %u a2 %u a3 %u t0 %u t1 %u\n", x.g32(5), x.g32(6), x.g32(7), x.g32(8), x.g32(9)); });
@@ -198,7 +227,7 @@ DemoScore run_float_demo(Disc& disc, const std::string& label, const FloatDemoOp
         ours = std::make_unique<OursBeside>(disc);
         if (const char* e = std::getenv("GT4R_FLOATS_OURS_LIST")) ours->list_steps = std::atoi(e);
         ours->resync = std::getenv("GT4R_FLOATS_RESYNC") != nullptr;
-        if (!ours->begin(ee, o, sdb, ev->course, r.hold)) return r.error = ours->error, r;
+        if (!ours->begin(ee, o, sdb, course, r.hold)) return r.error = ours->error, r;
     }
     try {
         for (int i = 0; i < steps && !end.done; ++i) {
@@ -238,6 +267,11 @@ DemoScore run_float_demo(Disc& disc, const std::string& label, const FloatDemoOp
         r.ours_first_bits = ours->first_bits, r.ours_first_apart = ours->first_apart;
         r.ours_worst = ours->worst, r.ours_end = ours->last_distance;
     }
+    if (print && !license) {
+        std::printf("  laps:");
+        for (const int ms : r.laps) std::printf(" %d", ms);
+        std::printf("\n");
+    }
     if (print)
         std::printf("demo %s: %s at step %d: %s (recorded %d ms)\n", label.c_str(),
                     end.ms >= 0 ? "timed" : end.fail >= 0 ? "failed" : "no end", r.ended_step,
@@ -257,6 +291,7 @@ int run_floats(Disc& disc, const std::vector<std::string>& args) {
     if (const char* e = std::getenv("GT4R_FLOATS_EXTRA")) opt.extra = std::atoi(e);
     opt.verbose = std::getenv("GT4R_FLOATS_VERBOSE") != nullptr;
     opt.ours = std::getenv("GT4R_FLOATS_OURS") != nullptr;
+    if (what == "replays") return run_floats_replays(disc, std::vector<std::string>(args.begin() + 1, args.end()));
     if (what == "list") {
         for (const std::string& l : demonstration_labels(disc)) std::printf("%s\n", l.c_str());
         return 0;

@@ -11,6 +11,7 @@
 #include <functional>
 #include <memory>
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -19,6 +20,12 @@ class Ee;
 }
 namespace gt4r::db {
 class SpecDb;
+}
+namespace gt4r::replay {
+struct Demonstration;
+}
+namespace gt4r::sim {
+class Program;
 }
 
 namespace gt4r::diff {
@@ -61,6 +68,7 @@ struct DemoScore {
     int ended_ms = -1;      // the program's judged time (0x3F8AB0's), -1 when the run did not end timed
     int ended_step = -1;    // the step the run ended at (timed or failed)
     int fail_kind = -1;     // the judge's failure (0x3F8980's kind), -1 none
+    std::vector<int> laps;  // a race's: the player's line crossings' times (ms) as the conductor's virtual 21 gets them
     int hold = 0;           // the start's hold the run was given (steps)
     bool exact() const { return ended_ms >= 0 && ended_ms == recorded_ms; }
     // With FloatDemoOptions::ours: our session beside the program's run until its end (OursBeside's figures).
@@ -85,6 +93,11 @@ struct FloatDemoOptions {
 // records. Ends when the program's judge ends the run (0x3F8AB0 timed, 0x3F8980 failed) or the records and `extra`
 // steps are played.
 DemoScore run_float_demo(Disc& disc, const std::string& label, const FloatDemoOptions& options = {}, bool print = false);
+
+// The same for any recorded race (the disc's replays, floats_replays.cpp): the race by its class (RaceLicense, RaceTraining,
+// RaceArcadeSingle, RaceFreeRun), its course and event by the header's codes.
+DemoScore run_recording(Disc& disc, const replay::Demonstration& recording, const std::string& label, const FloatDemoOptions& options = {},
+                        bool print = false);
 
 // The demonstrations the program can ask for: replay/license/<label> named as an event of the database.
 std::vector<std::string> demonstration_labels(Disc& disc);
@@ -111,6 +124,12 @@ struct FloatCensus {
 // gt4r_diff <disc> floats [demos] [label,label,... | all]: every demonstration scored (the default: all);
 // gt4r_diff <disc> floats census <label>: the float operations of that demonstration's run, per kind and per address
 // (GT4R_FLOATS_OUT=<file>: the addresses' counts as "address kind count" lines, and the functions' calls).
+// The Replay Theater's demo replays (replay/<name>/<name>, a memory card's replay file: floats_replays.cpp): their names,
+// and one read: unscrambled (the card file's scrambling with the replay class's factors), then the recorded race's
+// cipher and key check (nullopt with the reason when one fails).
+std::vector<std::string> theater_replays(Disc& disc);
+std::optional<replay::Demonstration> theater_replay(Disc& disc, const sim::Program& program, const std::string& name, std::string* error = nullptr);
+int run_floats_replays(Disc& disc, const std::vector<std::string>& args); // the Replay Theater's demo replays (floats_replays.cpp)
 int run_floats(Disc& disc, const std::vector<std::string>& args);
 
 } // namespace gt4r::diff
