@@ -122,10 +122,22 @@ bool App::init(int argc, char** argv) {
         SDL_SetHint(SDL_HINT_JOYSTICK_RAWINPUT, gt3r::InputManager::xbox_rawinput(cfg ? *cfg : gt3r::IniDocument{}) ? "1" : "0");
     }
 #endif
-    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMEPAD | SDL_INIT_JOYSTICK)) {
+    run_ = settings::RunMode::of(std::vector<std::string>(argv + std::min(argc, 1), argv + argc), [](const char* name) { return SDL_getenv(name); });
+    if (run_.windowless) {
+        // Nothing of the run reaches whoever is at the machine: no Dock icon and no activation, no sound (unless the environment
+        // names a driver: what is set there comes first), the display may sleep.
+        SDL_SetHint(SDL_HINT_MAC_BACKGROUND_APP, "1");
+        SDL_SetHint(SDL_HINT_VIDEO_ALLOW_SCREENSAVER, "1");
+        SDL_SetHint(SDL_HINT_AUDIO_DRIVER, "dummy");
+        LOG_INFO("No window, no sound, no real input (--visible shows a scripted run)");
+    }
+    // (a scripted run's controllers are its own: none is opened)
+    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | (run_.scripted ? SDL_InitFlags(0) : SDL_INIT_GAMEPAD | SDL_INIT_JOYSTICK))) {
         LOG_ERROR("SDL_Init failed: %s", SDL_GetError());
         return false;
     }
+    scripted_ = run_.scripted;
+    if (scripted_) SDL_SetEventFilter([](void*, SDL_Event* e) { return !settings::is_real_input(e->type); }, nullptr);
     data_dir_ = user_data_dir();
     SDL_CreateDirectory(data_dir_.c_str());
     SDL_CreateDirectory(mods_dir().c_str());
@@ -134,12 +146,9 @@ bool App::init(int argc, char** argv) {
     LOG_INFO("GT4 Revisited %s; user data: %s", GT4R_VERSION, data_dir_.c_str());
     load_settings();
 
-    // A scripted run (pictures, a sweep) does not take the keyboard from whoever is at the
-    // machine: its window opens without becoming the active one and cannot be focused.
-    bool& scripted = scripted_;
-    for (int i = 1; i < argc; ++i)
-        if (const std::string a = argv[i]; a == "--shot" || a == "--sweep") scripted = true;
-    if (scripted) SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN, "0");
+    // A scripted run does not take the keyboard from whoever is at the machine: its window is never shown, or (--visible) opens
+    // without becoming the active one and cannot be focused.
+    if (scripted_) SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN, "0");
     // (A picture's window in another shape, for checks: GT4R_WINDOW=1600x700.)
     int window_w = 1280, window_h = 720;
     if (const char* size = SDL_getenv("GT4R_WINDOW"); size && std::sscanf(size, "%dx%d", &window_w, &window_h) != 2) window_w = 1280, window_h = 720;
@@ -147,13 +156,16 @@ bool App::init(int argc, char** argv) {
     SDL_SetHint(SDL_HINT_VIDEO_MAC_FULLSCREEN_MENU_VISIBILITY, "1");
     window_ = SDL_CreateWindow("GT4 Revisited", std::clamp(window_w, 320, 8192), std::clamp(window_h, 180, 8192),
                                SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY |
-                                   (scripted ? SDL_WINDOW_NOT_FOCUSABLE : video_.fullscreen ? SDL_WINDOW_FULLSCREEN : SDL_WindowFlags(0)));
+                                   (run_.windowless ? SDL_WINDOW_HIDDEN | SDL_WINDOW_NOT_FOCUSABLE
+                                    : scripted_     ? SDL_WINDOW_NOT_FOCUSABLE
+                                    : video_.fullscreen ? SDL_WINDOW_FULLSCREEN
+                                                        : SDL_WindowFlags(0)));
     if (!window_) {
         LOG_ERROR("Window creation failed: %s", SDL_GetError());
         return false;
     }
     gt3r::render::GpuOptions gpu;
-    gpu.msaa = video_.msaa, gpu.anisotropy = video_.anisotropy, gpu.vsync = video_.vsync;
+    gpu.msaa = video_.msaa, gpu.anisotropy = video_.anisotropy, gpu.vsync = video_.vsync && !run_.windowless;
     gpu.gles = video_.gpu == settings::Gpu::Gles || video_.gpu == settings::Gpu::GlesDriver;
     gpu.angle = video_.gpu != settings::Gpu::GlesDriver;
     bool use_gpu = video_.gpu != settings::Gpu::Off;
@@ -163,7 +175,7 @@ bool App::init(int argc, char** argv) {
     if (gpu_) {
         renderer_ = gpu_->renderer2d();
         gpu_->warm_pipelines();
-        gt3r::platform::keep_composited(window_); // (macOS: no switching between the display's two ways of showing a full screen)
+        if (!run_.windowless) gt3r::platform::keep_composited(window_); // (macOS: no switching between the display's two ways of showing a full screen)
     } else {
         if (use_gpu) LOG_WARN("3D drawing is not available; continuing with the 2D screens only");
         renderer_ = SDL_CreateRenderer(window_, nullptr);
@@ -171,7 +183,7 @@ bool App::init(int argc, char** argv) {
             LOG_ERROR("Renderer creation failed: %s", SDL_GetError());
             return false;
         }
-        SDL_SetRenderVSync(renderer_, video_.vsync ? 1 : 0);
+        SDL_SetRenderVSync(renderer_, gpu.vsync ? 1 : 0);
     }
     ui_ = std::make_unique<Ui>(renderer_);
     layout_ui(false);
@@ -200,6 +212,7 @@ bool App::init(int argc, char** argv) {
         else if (a == "--fast") paced_ = false;
         else if (a == "--sweep" && has_value) sweep_ = argv[++i];
         else if (a == "--sweep-out" && has_value) sweep_out_ = argv[++i];
+        else if (a == "--pace" && has_value) ++i; // (run_)
         else if (a == "--keys" && has_value) {
             // "@<file>" among the keys: the keys of that file there (files may name files).
             std::function<void(const std::string&, int)> add = [&](const std::string& text, int depth) {
@@ -216,7 +229,7 @@ bool App::init(int argc, char** argv) {
             add(argv[++i], 0);
         } else if (!a.empty() && a[0] != '-') disc_path = a;
     }
-    if (!shot_path_.empty() || !sweep_.empty()) keep_pace_in_background();
+    if (scripted_) keep_pace_in_background();
     if (disc_path.empty()) disc_path = config_.get("game", "disc").value_or("");
     if (!disc_path.empty()) last_error_ = open_disc(disc_path);
     if (disc_) {
@@ -424,9 +437,14 @@ gt3r::PadState App::scripted_keys() {
 
 SDL_AppResult App::iterate() {
     const Uint64 now = SDL_GetTicksNS();
-    const double wall_ms = double(now - last_ticks_) / 1e6; // since the last frame
+    const double wall_ms = double(now - last_ticks_) / 1e6; // since the last frame (since its wait, where the frames are held to a pace)
     double dt = std::min(wall_ms / 1e3, 0.1);
     last_ticks_ = now;
+    if (run_.pace != 0) { // no display holds the frames: this does
+        const double rate = run_.pace > 0 ? run_.pace : refresh_rate() > 0 ? refresh_rate() : settings::RunMode::kPace;
+        if (wall_ms < 1000.0 / rate) SDL_DelayPrecise(Uint64((1000.0 / rate - wall_ms) * 1e6)), last_ticks_ = SDL_GetTicksNS();
+        dt = std::min(wall_ms / 1e3 + double(last_ticks_ - now) / 1e9, 0.1);
+    }
     idle_cursor(now);
     if (fps_last_) ++fps_frames_, fps_time_ += double(now - fps_last_) / 1e9; // (a picture's frame: with the wait in it)
     fps_last_ = now;
@@ -442,6 +460,7 @@ SDL_AppResult App::iterate() {
             if (const double slept = double(last_ticks_ - now) / 1e6; slept > 250) LOG_WARN("Frame %d: a wait of %.1f ms took %.0f ms", frame_, 1000.0 / 60.0 - wall_ms, slept);
         }
     }
+    frame_time_ns_ += Uint64(dt * 1e9);
     // A frame that came long after the last one ended: the time went outside the frame's work.
     if (end_ticks_ && double(now - end_ticks_) / 1e6 > 250) LOG_WARN("Frame %d: %.0f ms between frames", frame_, double(now - end_ticks_) / 1e6);
 
@@ -525,7 +544,7 @@ SDL_AppResult App::iterate() {
     }
     for (const std::string& p : pictures_) save_screenshot(p);
     pictures_.clear();
-    if (!stats_path_.empty()) write_stats(wall_ms);
+    if (!stats_path_.empty()) write_stats(std::max(0.0, wall_ms - gpu_wait_ms_));
     if (!shot_path_.empty() && frame_ >= shot_frame_) {
         save_screenshot(shot_path_);
         quit_ = true;
@@ -543,7 +562,18 @@ SDL_AppResult App::iterate() {
     }
     if (gamma_frame_) gamma_pass_->end(video_.gamma); // (after the pictures: they keep the game's own colors)
     const Uint64 before_present = SDL_GetTicksNS();
-    SDL_RenderPresent(renderer_);
+    if (!run_.windowless) SDL_RenderPresent(renderer_);
+    else {
+        // Nothing is presented: the display would hold the frames back (or, asleep, not give a picture to draw into). Reading a
+        // pixel back instead has what the frame drew drawn and waits for it, so frames do not pile up. (The middle's: inside the
+        // game's picture whatever its shape; a viewport without it has all of itself read.)
+        int pw = 0, ph = 0;
+        SDL_GetRenderOutputSize(renderer_, &pw, &ph);
+        const SDL_Rect pixel{pw / 2, ph / 2, 1, 1};
+        SDL_Surface* read = SDL_RenderReadPixels(renderer_, &pixel);
+        SDL_DestroySurface(read ? read : SDL_RenderReadPixels(renderer_, nullptr));
+        gpu_wait_ms_ = double(SDL_GetTicksNS() - before_present) / 1e6;
+    }
     if (gpu_) gpu_->frame_presented();
     // A graphics driver that gave up never comes back, and the frames that never finish fill the memory: closed with a message.
     if (gpu_ && std::strstr(SDL_GetError(), "DEVICE_LOST")) {
@@ -614,16 +644,20 @@ void App::save_screenshot(const std::string& path) {
 }
 
 // --stats: a line a second (60 frames): the frame, the seconds since launch, the frames' mean
-// and longest wall time in ms, the process's resident memory in MB.
+// and longest work in ms, the process's resident memory in MB; a run without a window adds the frames' mean wait for the GPU in
+// ms, which its work is without (with a window the work has the presenting, whose wait for the display it is when nothing paces
+// the frames).
 void App::write_stats(double frame_ms) {
-    if (frame_ > 1) stats_ms_ += frame_ms, stats_max_ = std::max(stats_max_, frame_ms), ++stats_frames_;
+    if (frame_ > 1) stats_ms_ += frame_ms, stats_wait_ms_ += gpu_wait_ms_, stats_max_ = std::max(stats_max_, frame_ms), ++stats_frames_;
     if (frame_ % 60 != 0 || !stats_frames_) return;
     if (std::FILE* f = std::fopen(stats_path_.c_str(), "a")) {
-        std::fprintf(f, "%d %.1f %.2f %.2f %.1f\n", frame_, double(SDL_GetTicksNS() - start_ticks_) / 1e9, stats_ms_ / stats_frames_, stats_max_,
+        std::fprintf(f, "%d %.1f %.2f %.2f %.1f", frame_, double(SDL_GetTicksNS() - start_ticks_) / 1e9, stats_ms_ / stats_frames_, stats_max_,
                      double(resident_bytes()) / (1024.0 * 1024.0));
+        if (run_.windowless) std::fprintf(f, " %.2f", stats_wait_ms_ / stats_frames_);
+        std::fprintf(f, "\n");
         std::fclose(f);
     }
-    stats_ms_ = stats_max_ = 0, stats_frames_ = 0;
+    stats_ms_ = stats_max_ = stats_wait_ms_ = 0, stats_frames_ = 0;
 }
 
 void App::shutdown() {
