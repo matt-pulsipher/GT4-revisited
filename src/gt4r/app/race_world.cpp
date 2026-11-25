@@ -75,6 +75,7 @@ struct RaceWorld::Impl {
         race::posture::DriverState state;
         std::unique_ptr<race::DriverFigure> figure;
         bool posed = false;
+        race::posture::F follow, follow_rate; // the steering command's follower (0x40CC58), here of the front wheels' angle
     };
     std::vector<MovingDriver> drivers;
     void add_drivers(std::vector<render::DrawItem>& items, size_t car, const race::CarState& s, const RVec& eye, const race::CarVisual::LodView* view);
@@ -319,6 +320,10 @@ void RaceWorld::build_simulation() {
     if (!setup_.rail && app_.disc()) {
         try {
             const sim::Program program = sim::Program::load(*app_.disc());
+            if (program.known() && !hand_speeds_ && !impl_->drivers.empty()) {
+                hand_speeds_.emplace();
+                for (u32 k = 0; k < 11; ++k) (*hand_speeds_)[k] = race::posture::F::raw(program.w(0x622A20 + 4 * k));
+            }
             // The materials off the course (0x622430, read by 0x3F4EA0).
             for (u32 m = 0; m < soft_.size(); ++m) soft_[m] = program.w(sim::Program::kSoft + 4 * m);
             std::vector<sim::Entry> entries(setup_.entries.size());
@@ -492,6 +497,7 @@ void RaceWorld::restart() {
     gadget_bodies_.reset(course_->gadgets(), course_->road());
     course_->restart_animations();
     clear_effects();
+    for (Impl::MovingDriver& d : impl_->drivers) d.state.reset(d.cockpit), d.follow = d.follow_rate = race::posture::F(0.0f);
 }
 
 void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool player_by_computer, u32 hold_left) {
@@ -828,6 +834,16 @@ void RaceWorld::present(std::span<const race::CarState> cars, const audio::Sound
         m.sound->refueling(live && m.pit_scene && m.pit_scene->hose());
     }
     m.pit_sounds.clear();
+    // The moving drivers' step: their cars' steering (the program's follower of 11.25 x the command).
+    if (hand_speeds_)
+        for (Impl::MovingDriver& d : m.drivers) {
+            if (d.car >= cars.size()) continue;
+            using F = race::posture::F;
+            const F aim(-11.25f * 0.5f * (cars[d.car].wheels[0].steer + cars[d.car].wheels[1].steer)), dt(kStep);
+            d.follow_rate = d.follow_rate + (((aim - d.follow) * F(200.0f)) - (d.follow_rate * F(20.0f))) * dt;
+            d.follow = d.follow + d.follow_rate * dt;
+            d.state.step(d.cockpit, d.follow, dt, *hand_speeds_);
+        }
     if (!m.smoke.loaded()) return;
     const course::Runway& road = course_->road();
     for (size_t c = 0; c < cars.size() && c < car_visuals_.size(); ++c) {

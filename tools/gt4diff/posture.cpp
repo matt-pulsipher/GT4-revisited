@@ -7,9 +7,11 @@
 
 #include "orig.h"
 #include "gt4r/race/driver_posture.h"
+#include "gt4r/race/driver_state.h"
 #include "gt4r/race/posture_hands.h"
 #include "gt4r/race/posture_solver.h"
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -181,6 +183,78 @@ Bytes read_all(const std::string& path) {
 
 } // namespace
 
+// The driver's step (0x403260) on a state's memory against ours: the fields ours has.
+static void compare_steps(Ee& ee, const Bytes& mem, u32 model, int& steps, int& equal) {
+    ee.reset();
+    ee.protect_text = false;
+    ee.write_bytes(0, mem);
+    ee.clear_probes();
+    const u32 car = ee.r32(model + 4), block = car + 0x9A0;
+    Reader r{ee};
+    if (!ee.r32(block + 0x368)) return;
+    u32 car_file = 0;
+    const u32 set = ee.r32(model + kHuman);
+    for (u32 a = set & ~15u; a > 0x100000 && set - a < 0x200000; a -= 16)
+        if (ee.r32(a) == 0x34524143) {
+            car_file = a;
+            break;
+        }
+    if (!car_file) return;
+    Bytes file(ee.r32(car_file + 8));
+    ee.read_bytes(car_file, file.data(), u32(file.size()));
+    const auto rebase = [&](u32 at) {
+        u32 w;
+        std::memcpy(&w, file.data() + at, 4);
+        if (w) w -= car_file;
+        std::memcpy(file.data() + at, &w, 4);
+        return w;
+    };
+    for (u32 at = 0x14; at < 0x38; at += 4) rebase(at);
+    rebase(rebase(0x10) + 0x50);
+    const rp::Cockpit cockpit = rp::read_posture_cockpit(ByteSpan(file), false);
+    if (cockpit.style != 0 || rp::figure_class(cockpit.kind) == rp::FigureClass::Board) return;
+    rp::HandSpeeds speeds;
+    for (u32 k = 0; k < 11; ++k) speeds[k] = r.f(0x622A20 + 4 * k);
+    // Several steps on, the steering command's follower swung from one lock to the other.
+    rp::DriverState s;
+    const auto load = [&] {
+        for (u32 n = 0; n < 64; ++n) s.before.v[n] = r.f(block + 0x160 + 4 * n), s.after.v[n] = r.f(block + 0x160 + 4 * n);
+        const u32 k = block + 0x40;
+        for (u32 h = 0; h < 2; ++h) {
+            s.hand[h] = r.f(k + 0x90 + 4 * h), s.way[h] = r.f(k + 0x88 + 4 * h);
+            s.state[h] = u8(ee.r32(block + 0x30) >> (8 * h)), s.was[h] = u8(ee.r32(block + 0x30) >> (16 + 8 * h));
+        }
+        s.idle = r.f(k + 0x74);
+        for (u32 n = 0; n < 4; ++n) s.rates[n] = r.f(k + 0xAC + 4 * n);
+    };
+    load();
+    for (int step = 0; step < 240; ++step) {
+        const float follow = 12.0f * std::sin(float(step) * 0.06f) * std::sin(float(step) * 0.013f);
+        ee.w32(car + 0x768, rp::F(follow).bits);
+        for (u32 n = 0; n < 64; ++n) ee.w32(block + 0x160 + 4 * n, s.after.v[n].bits);
+        try {
+            ee.call(0x403260, {Arg::ptr(block), Arg::ptr(car)}, 50'000'000);
+        } catch (const std::exception& e) {
+            std::printf("  model %06X step %d: %s\n", model, step, e.what());
+            return;
+        }
+        s.step(cockpit, rp::F(follow), r.f(car + 0x54C), speeds);
+        ++steps;
+        int bad = 0;
+        for (u32 at : {0x34u, 0x38u, 0x3Cu, 0x40u, 0x44u, 0x48u, 0x4Cu, 0x50u, 0x54u, 0x78u, 0x7Cu, 0x8Cu, 0x90u}) {
+            const rp::F theirs = r.f(block + 0x160 + at);
+            if (s.after.at(at) == theirs) continue;
+            if (!bad++) std::printf("  model %06X step %d:", model, step);
+            std::printf(" +%02X ours %.6f program %.6f", at, s.after.at(at).host(), theirs.host());
+        }
+        if (bad) {
+            std::printf(" (states ours %d %d program %08X; follow %.3f)\n", s.state[0], s.state[1], ee.r32(block + 0x30), follow);
+            return;
+        }
+        ++equal;
+    }
+}
+
 int run_posture(Disc& disc, const std::vector<std::string>& paths) {
     db::SpecDb sdb = open_db(disc);
     Ee ee;
@@ -205,6 +279,9 @@ int run_posture(Disc& disc, const std::vector<std::string>& paths) {
             if (set >= 0x100000 && set < Ee::kRamSize && sponsor >= 0x100000 && sponsor < Ee::kRamSize && made) models.push_back(model);
         }
         std::printf("%s: %zu models\n", path.c_str(), models.size());
+        int steps = 0, steps_equal = 0;
+        for (u32 model : models) compare_steps(ee, mem, model, steps, steps_equal);
+        std::printf("  the driver's step: %d, %d with the wheel, the hands, the elbows and the clavicles equal\n", steps, steps_equal);
         for (u32 model : models)
             for (int recorded = 0; recorded < 2; ++recorded)
                 for (float alpha : {0.0f, 0.37f, 1.0f}) {

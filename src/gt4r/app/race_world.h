@@ -7,6 +7,7 @@
 // live or recorded.
 
 #include "gt4r/app/app.h"
+#include "base/ee_float.h"
 #include "gt4r/race/car_visual.h"
 #include "gt4r/race/course_scene.h"
 #include "gt4r/race/gadget_bodies.h"
@@ -310,6 +311,7 @@ public:
     const gt3r::render::DrawStats& draw_stats() const;
 
 private:
+    std::optional<std::array<gt3r::ee::F, 11>> hand_speeds_; // the drivers' (race/driver_state.h), from the program
     void open_pit_scene();
     void step_pit_scene();
     struct Impl;
