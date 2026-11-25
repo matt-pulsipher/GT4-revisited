@@ -624,7 +624,16 @@ public:
         if (!demo && demo_run_) end_demo();
         // (A demonstration drives the player's car by its recording.)
         world_->set_computer_player(demo ? demo_bspec_ : watched || setup_.auto_drive);
-        if (!demo && (ran_ || watched != watched_)) world_->restart();
+        // (the lesson page's recorded run drove with its own aids: the player's again; GT4R_LESSON_DRIVE=1: the recording drives
+        // the lesson itself, for checks)
+        const bool recorded = !demo && preview_pads_;
+        lesson_pads_ = nullptr, lesson_at_ = 0;
+        if (recorded) {
+            std::vector<std::optional<WorldEntry>> over;
+            if (SDL_getenv("GT4R_LESSON_DRIVE")) lesson_pads_ = preview_pads_, over = recorded_entry();
+            preview_pads_ = nullptr;
+            world_->set_entry_overrides(std::move(over)); // (restarts)
+        } else if (!demo && (ran_ || watched != watched_)) world_->restart();
         watched_ = watched;
         ran_ = true;
         // B-spec: the pace "Steady", the low view from the car's nose (as the original's B-spec race
@@ -697,12 +706,7 @@ public:
         guide_done_ = false, guide_steps_ = 0;
         if (preview_) world_->set_computer_player(!preview_pads_);
         if (preview_pads_) {
-            std::vector<std::optional<WorldEntry>> over(world_->car_count());
-            WorldEntry e = world_->setup().entries[0];
-            e.automatic = preview_pads_->entry.pedal_style != 1, e.pedal_style = preview_pads_->entry.pedal_style;
-            e.asm_on = preview_pads_->entry.asm_on != 0, e.tcs_on = preview_pads_->entry.tcs_on != 0;
-            over[0] = e;
-            world_->set_entry_overrides(std::move(over)); // (restarts)
+            world_->set_entry_overrides(recorded_entry()); // (restarts)
         } else if (ran_ || preview_) world_->restart();
         ran_ = true;
         menu_scene_ = true, replaying_ = false, over_ = false;
@@ -856,6 +860,15 @@ public:
                 me.throttle = std::max(pedal(PadButton::Cross), pedal(PadButton::Triangle));
                 me.brake = pedal(PadButton::Square);
             }
+        }
+        if (lesson_pads_ && !flow_.player_finished()) {
+            auto_drive = false;
+            inputs_[0] = {};
+            if (lesson_at_ < lesson_pads_->pads.size()) {
+                inputs_[0] = sim::ai::pad_input(replay::PadRecord{lesson_pads_->pads[lesson_at_].bytes});
+                inputs_[0].pad = &lesson_pads_->pads[lesson_at_];
+            }
+            ++lesson_at_;
         }
         // Prologue's license test ended: its driver drives on or stops the car, the other cars' drive on (license_prologue.h).
         if (gt3_road_ && is_license(setup_.sequence) && flow_.player_finished() && !run_ended_) {
@@ -1694,7 +1707,19 @@ private:
         }
         return *recorded_;
     }
+    // The player's car as the recording has it (its gearbox and aids).
+    std::vector<std::optional<WorldEntry>> recorded_entry() {
+        std::vector<std::optional<WorldEntry>> over(world_->car_count());
+        const replay::prologue::Entry& r = recorded_run().entry;
+        WorldEntry e = world_->setup().entries[0];
+        e.automatic = r.pedal_style != 1, e.pedal_style = r.pedal_style;
+        e.asm_on = r.asm_on != 0, e.tcs_on = r.tcs_on != 0;
+        over[0] = e;
+        return over;
+    }
     std::optional<RecordedRun> recorded_;
+    const RecordedRun* lesson_pads_ = nullptr; // (GT4R_LESSON_DRIVE)
+    size_t lesson_at_ = 0;
     const RecordedRun* preview_pads_ = nullptr;
     size_t preview_at_ = 0;
     int guide_ = 0, guide_steps_ = 0; // the guide film: 1 its shots, 2 its run
