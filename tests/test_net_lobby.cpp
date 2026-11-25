@@ -313,7 +313,7 @@ TEST(disc_net_cars) {
     DiscCars a;
     if (!a.disc || !a.program.known()) SKIP("needs the Gran Turismo 4 disc");
     DiscCars b;
-    int cars = 0, garage = 0, dirt = 0, snow = 0, tires = 0;
+    int cars = 0, garage = 0, dirt = 0, snow = 0, tires = 0, fitted = 0;
     for (const db::CarEntry& e : a.db->cars()) {
         net::CarChoice c;
         c.label = e.label, c.paint = 1;
@@ -345,8 +345,36 @@ TEST(disc_net_cars) {
         net::CarChoice d = c;
         d.condition[6] ^= 1;
         CHECK(b.builder->problem(d) == "the car is different on this disc");
-        d = c, d.equipment.set_h(sim::Equipment::FinalDrive, u16(d.equipment.h(sim::Equipment::FinalDrive) + 50)), d.equipment.set_h(sim::Equipment::FinalDrive2, d.equipment.h(sim::Equipment::FinalDrive));
-        CHECK(!b.builder->problem(d).empty());
+        d = c, d.equipment.set_b(sim::Equipment::Ballast, 20); // (another car than the digest's)
+        CHECK(b.builder->problem(d) == "the car is different on this disc");
+        // Settings no page gives, with a digest of their own.
+        auto refused = [&](const std::function<void(sim::Equipment&)>& change) {
+            net::CarChoice x = c;
+            change(x.equipment);
+            x.digest = a.builder->digest(x);
+            return b.builder->problem(x).find("out of its range") != std::string::npos;
+        };
+        CHECK(refused([](sim::Equipment& e) { e.set_h(sim::Equipment::OutputFactor, 1500); }));
+        CHECK(refused([](sim::Equipment& e) { e.set_b(sim::Equipment::PowerPct, 120); }));
+        CHECK(refused([](sim::Equipment& e) { e.set_b(sim::Equipment::WeightPct, 80); }));
+        CHECK(refused([](sim::Equipment& e) { e.set_b(sim::Equipment::GripAdd, 20); }));
+        CHECK(refused([](sim::Equipment& e) { e.set_b(sim::Equipment::Ballast, 230); }));
+        CHECK(refused([](sim::Equipment& e) { e.set_b(sim::Equipment::SpringFront, 255); }));
+        CHECK(refused([](sim::Equipment& e) { e.set_h(sim::Equipment::GearRatios + 2, 60000); }));
+        // Every part that fits it, one at a time with its default settings: a car the game can make.
+        for (const sim::FittingPart& f : sim::fitting_parts(b.read, *b.db, stock.part(sim::Equipment::Car))) {
+            const u32 table = db::part_table(f.part);
+            std::optional<db::CarParts> parts = db::car_parts(*b.db, e.label);
+            if (!parts || table < 1 || table > 26) continue;
+            parts->parts[table - 1] = f.part;
+            sim::Equipment tuned;
+            if (!sim::parts_equipment(*b.db, *parts, tuned)) continue;
+            sim::computed_gears(*b.db, b.program, tuned);
+            const std::string p = net::settings_problem(*b.db, b.program, tuned);
+            if (!p.empty()) std::printf("  %s with %s: %s\n", e.label.c_str(), db::part_table_name(table), p.c_str());
+            CHECK(p.empty());
+            ++fitted;
+        }
         // Another car's engine.
         d = c;
         sim::Equipment other;
@@ -357,6 +385,6 @@ TEST(disc_net_cars) {
         }
         ++garage;
     }
-    std::printf("  %d cars, %d as garage cars, dirt tires on %d, snow on %d, chosen tires on %d\n", cars, garage, dirt, snow, tires);
-    CHECK(cars > 600 && garage > 80 && tires > 400);
+    std::printf("  %d cars, %d as garage cars with %d parts fitted, dirt tires on %d, snow on %d, chosen tires on %d\n", cars, garage, fitted, dirt, snow, tires);
+    CHECK(fitted > 2000 && cars > 600 && garage > 80 && tires > 400);
 }
