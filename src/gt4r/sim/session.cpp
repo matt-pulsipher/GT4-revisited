@@ -253,6 +253,12 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
     if (!gt4_rules_) // (the engine's rules: its moving start after the hold)
         for (size_t i = 0; i < cars_.size(); ++i) {
             if (!(entries[i].start_speed > 0)) continue;
+            if (prologue_) { // (driven by its driver until the line, 0x3B3FD0; ❓ the pace it keeps judged: the start's speed)
+                ex::moving_start(cars_[i], F(entries[i].start_speed));
+                cars_[i].driver_kind = 1, prologue_feel_[i].start_pace = F(entries[i].start_speed);
+                publish(i);
+                continue;
+            }
             rules::moving_start(cars_[i], gx_[i].drive, F(entries[i].start_speed), true);
             publish(i);
         }
@@ -306,6 +312,11 @@ void Session::setup(size_t i, const course::Runway::Place& at, int kind, float s
 
 void Session::release_start(int car) {
     if (car < 0 || size_t(car) >= cars_.size()) return;
+    if (prologue_) {
+        cars_[size_t(car)].driver_kind = 0, prologue_feel_[size_t(car)].start_pace = F();
+        publish(size_t(car));
+        return;
+    }
     // (the session has no line object: the driver's line change is taken as made)
     rules::release(cars_[size_t(car)], gx_[size_t(car)], true);
     publish(size_t(car));
@@ -799,6 +810,10 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
             r.dirt = loose_, r.speed_cap = aid_race_.speed_cap, r.penalty_cap = aid_race_.start_cap;
             r.penalty = c.driver_kind != 5 && prologue_feel_[i].penalty != 0;
             if (r.penalty) --prologue_feel_[i].penalty; // (0x3C5FE8)
+            if (k0 < prologue_feel_[i].start_pace) {
+                const u8 pace = u8(std::lround(prologue_feel_[i].start_pace.host() * 3.6f));
+                for (u8& cap : r.speed_cap) cap = cap == 0 ? pace : std::min(cap, pace);
+            }
             prologue::aids(c, prologue_cars_[i], prologue_aids_, r, race_.aids);
         } else ex::aids(c, race_.aids);
         if (gt4_rules_) rules::dynamics(c, gx_[i], layouts_[i], tables_, grip);
@@ -875,7 +890,7 @@ void Session::publish(size_t i) {
     s.brake_lamps = c.brake_pedal.host() > 0;
     s.reverse_lamps = c.gear == 0;
     s.contact = x.contact, s.contact_kind = x.contact_kind, s.contact_car = x.contact_car;
-    s.rolling = gt4_rules_ && c.driver_kind == 1;
+    s.rolling = (gt4_rules_ || prologue_) && c.driver_kind == 1;
     // A wheel back on the ground: loaded at this step's end after a step without load.
     s.landed = false;
     for (size_t w = 0; w < 4; ++w) {

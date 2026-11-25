@@ -1,8 +1,8 @@
 #pragma once
 
 // Gran Turismo 4 Prologue's opening shots (CameraSys::CameraStarting, 0x3D3A90): the last record of the course's REP4 in
-// slot 45 (a race) or 46 (a replay), a path in the followed car's frame, run on the start's count. docs/formats/camera.md
-// "Prologue's start camera".
+// slot 45 (a race) or 46 (a replay), a path in the followed car's frame, run on the start's count. docs/formats/prologue.md
+// "The cameras of a race".
 
 #include "gt4r/race/replay_script.h"
 

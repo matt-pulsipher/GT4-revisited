@@ -33,6 +33,7 @@
 #include "gt4r/race/license_rules.h"
 #include "gt4r/race/sections.h"
 #include "gt4r/sim/program_prologue.h"
+#include "gt4r/sim/race_rules.h"
 #include "gt4r/race/start_camera.h"
 #include "gt4r/race/start_rule.h"
 #include "gt4r/race/picture_settings.h"
@@ -94,6 +95,7 @@ struct Setup {
     race::StartType start = race::StartType::Ten;
     int start_seconds = 0;
     float start_speed = 0; // a rolling start's (metres per second)
+    std::vector<std::array<float, 2>> test_starts; // Prologue's test's rolling start, by car: km/h, metres from the line (sim::RaceRules)
     float start_back = 400, start_spacing = 20; // a rolling start's last place behind the line and the gap between places (metres)
     bool course_start = false; // the start the course's start code gives (race/start_rule.h)
     int course_kind = 0;       // the course's COURSE row +0x10 (race/start_rule.h CourseStart::kind)
@@ -220,6 +222,19 @@ void draw_grid(App& app, Setup& setup, const menu::RaceRequest& q) {
         if (!asked.entries.empty())
             for (size_t i = 0; i < grid.size() && i < paints.size(); ++i)
                 if (!grid[i].player && grid[i].paint < 0) grid[i].paint = paints[i];
+        // A test of Prologue's with other cars: its pool in order, entry 0 the player's car (its grid 0x3E1C20's places).
+        if (const std::optional<db::RaceEvent> e = events.event(q.race); e && sdb->prologue() && e->label.rfind("l0p", 0) == 0) {
+            grid.clear();
+            const std::vector<db::Opponent> pool = events.pool(*e);
+            for (size_t i = 1; i < pool.size() && int(i) < e->grid; ++i) {
+                sim::ai::GridEntry g;
+                g.car = pool[i].car, g.paint = pool[i].paint, g.parts = pool[i].parts, g.param = pool[i].param, g.enemy = pool[i].enemy;
+                grid.push_back(g);
+            }
+            sim::ai::GridEntry me;
+            me.car = q.car, me.paint = q.paint, me.player = true;
+            grid.push_back(me);
+        }
         std::optional<sim::Program> program;
         if (Disc* disc = app.disc()) try {
                 program = sim::Program::load(*disc);
@@ -337,6 +352,7 @@ public:
                 e.start_speed = setup.start_speed;
                 e.start_distance = float(sim::rules::rolling_start_distance(-int(std::lround(setup.start_back)), int(std::lround(setup.start_spacing)), setup.cars, e.grid_place));
             }
+            if (size_t(i) < setup.test_starts.size()) e.start_speed = setup.test_starts[size_t(i)][0] / 3.6f, e.start_distance = setup.test_starts[size_t(i)][1];
             if (i == 0) e.equipment = setup.player_equipment, e.wing = setup.wing;
             else if (size_t(i - 1) < setup.opponent_equipment.size() && setup.opponent_equipment[size_t(i - 1)]) {
                 // An opponent entered as its pool enters it: its parts, settings and the paint the pool
@@ -426,6 +442,8 @@ public:
         fs.laps = setup_.laps;
         fs.player = 0;
         fs.lap_length = world_->lap_length();
+        fs.player_clock = !setup_.test_starts.empty();
+        for (const std::array<float, 2>& s : setup_.test_starts) fs.past_line.push_back(s[1] >= 0);
         flow_.begin(fs, world_->cars());
         rolled_ = false;
         license_failed_ = false, section_prev_ = -1;
@@ -439,6 +457,8 @@ public:
         distance_ = 0;
         replaying_ = false, over_ = false;
         event_steps_ = -1;
+        for (size_t i = 0; i < setup_.test_starts.size() && i < world_->car_count(); ++i) // (the cars that start past the line)
+            if (setup_.test_starts[i][1] >= 0) world_->release_start(i);
         begin_start_camera(false);
     }
 
@@ -1299,7 +1319,8 @@ public:
         }
         // The sequences that run the player's car alone (RaceFreeRun, the tests); the free run's race
         // code is "freerun" (0x116E20).
-        if (setup_.sequence == "time_trial" || setup_.sequence == "freerun" || is_license(setup_.sequence) || setup_.sequence == "machinetest" ||
+        const bool prologue_test = is_license(setup_.sequence) && app.db() && app.db()->prologue() && (!setup_.opponents.empty() || (!chosen && setup_.cars > 1)); // (tests 26 .. 35)
+        if (setup_.sequence == "time_trial" || setup_.sequence == "freerun" || (is_license(setup_.sequence) && !prologue_test) || setup_.sequence == "machinetest" ||
             setup_.sequence == "photo_drive")
             setup_.cars = 1, setup_.opponents.clear();
         if (setup_.sequence == "freerun" && setup_.race.empty()) setup_.race = "freerun";
@@ -2469,12 +2490,29 @@ private:
         ui.text_center(y + h + 4, Ui::expand_prompts("{Cross}: OK"), colors::kDim);
     }
 
+    // Prologue's license tests that start on the move: the player's car from its row, the others' from the test's case.
+    void prologue_test_start(App& app) {
+        setup_.test_starts.clear();
+        if (!app.db() || !app.db()->prologue() || !app.disc() || !is_license(sequence_.empty() ? setup_.sequence : sequence_)) return;
+        try {
+            const sim::RaceRules r = sim::race_rules(setup_.event_row, sim::Program::load(*app.disc()));
+            if (r.start_speed[0] == 0 || r.start_distance[0] >= 0) return;
+            for (size_t k = 0; k < r.start_speed.size() && int(k) < setup_.cars; ++k) setup_.test_starts.push_back({float(r.start_speed[k]), float(r.start_distance[k])});
+            setup_.start = race::StartType::Rolling;
+            setup_.start_speed = float(r.start_speed[0]) / 3.6f;
+            LOG_INFO("Drive: the test starts on the move: %d km/h, %d m before the line", r.start_speed[0], -r.start_distance[0]);
+        } catch (const std::exception& e) {
+            LOG_WARN("Drive: the test's start: %s", e.what());
+        }
+    }
+
     void start(App& app) {
         error_.clear();
         if (!app.gpu()) {
             error_ = "3D drawing is not available on this system.";
             return;
         }
+        prologue_test_start(app);
         try {
             race_ = std::make_unique<Race>(app, setup_, cars_);
             if (setup_.bspec) spectator_ = true;

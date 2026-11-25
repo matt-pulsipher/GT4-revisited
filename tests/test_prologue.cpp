@@ -362,6 +362,41 @@ TEST(disc_prologue_pairs_pass_equal) {
 // and the Lupo cup's penalty: a hit at the wall past its limit, then the cap for ten seconds. Full throttle, no steering.
 #include "gt4r/sim/race_rules.h"
 
+TEST(disc_prologue_test_starts) {
+    Disc* disc = prologue_disc();
+    if (!disc) SKIP("no Prologue disc");
+    db::SpecDb db = open_db(*disc);
+    gt3r::Volume* vol = &disc->volume();
+    db::RaceEvents events(db, [vol](const std::string& path) -> std::optional<Bytes> {
+        const gt3r::Volume::Entry* e = vol->find(path);
+        return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
+    });
+    const sim::Program program = sim::Program::load(*disc);
+    int moving = 0, others = 0;
+    for (int n = 1; n <= 48; ++n) {
+        char label[16];
+        std::snprintf(label, sizeof label, "l0p%04d", n);
+        const std::optional<db::RaceEvent> e = events.event(label);
+        if (!e) continue;
+        const sim::RaceRules r = sim::race_rules(e->bytes, program);
+        if (r.start_speed[0] == 0) continue;
+        std::printf("  %s on %s:", label, e->course.c_str());
+        for (size_t k = 0; k < 6; ++k) std::printf(" %d km/h %d m%s", r.start_speed[k], r.start_distance[k], k < 5 ? "," : "\n");
+        ++moving;
+        CHECK(r.start_distance[0] < 0 && r.start_distance[0] > -400);
+        for (size_t k = 1; k < 6; ++k) {
+            CHECK(r.start_speed[k] != 0); // (its own or car 0's)
+            if (r.start_distance[k] == 0) continue;
+            ++others;
+            CHECK(r.start_distance[k] != r.start_distance[0]);
+            CHECK(std::abs(r.start_distance[k]) < 2000);
+        }
+    }
+    std::printf("  %d tests on the move, %d other cars' places\n", moving, others);
+    CHECK(moving > 20);
+    CHECK(others > 9);
+}
+
 TEST(disc_prologue_race_rules) {
     Disc* disc = prologue_disc();
     if (!disc) SKIP("no Prologue disc");

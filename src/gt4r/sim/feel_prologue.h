@@ -15,6 +15,7 @@ namespace gt4r::sim::prologue {
 // What these routines keep beside the engine's record.
 struct FeelPart {
     F speedo; // car + 0xC60: the speedometer (|speed| followed at 111.1 m/s a second)
+    F start_pace;    // a rolling start's speed while the car's driver brings it to the line (m/s; 0: none)
     u16 penalty = 0; // F + 0x51E / 0x51F (low, high): the steps left of the speed cap a hit gave
 };
 
