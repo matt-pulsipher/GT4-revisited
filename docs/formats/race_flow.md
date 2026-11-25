@@ -104,9 +104,15 @@ of its number (`DynamicsConductor::vf28` 0x34D490: position and heading from the
 
 ## Laps, times, order, the finish
 
-- Per car and tick (`fn_00358608`): a forward wrap past the line adds a crossing (car +0x5B0: 0
-  behind the line at the start, 1 past it, +1 a lap); the first crossing is the start line, every
-  later one completes a lap. A backward wrap takes one back. The crossing's time = the race clock
+- Per car and tick (`fn_00358608`): a forward wrap past the line adds a crossing (car +0x5B0, +1 a
+  lap). **Where it starts** (the set-up 0x363B10, 0x364300 .. 0x36444C): the car's sector (F +0x4AE) is the
+  first of the road's split points past its distance (the conductor's virtual +0x150 the sectors, one more
+  than the points; +0x158 a point), else the last; the crossings are **1 unless the car is in the last
+  sector**; there still 1 short of the section's goal (0x34C470, virtual +0x138) or in the lap's first half,
+  else 0 (behind the line: the first crossing is then the start line). A place of more than a lap keeps its own
+  count (register s5 there, ❓ its making). Fuji's and Suzuka's standing grids are 166 to 258 m past the line: 1.
+  Here `race::start_crossings` (a section test has no split points; Prologue's cars start at 0, its program not read).
+  Every later crossing completes a lap. A backward wrap takes one back. The crossing's time = the race clock
   (K +0xF898, **3000 units a second, 50 a tick**) + trunc(the tick's share before the line x 50);
   milliseconds = units / 3. A lap's time runs from the last completed lap's crossing; the first
   lap from the start signal (0).
@@ -179,8 +185,11 @@ Deep Forest's section 2 gives (-8.891, 7.280, -256.900) heading -1.563 rad in th
 stands at 3505.52 m along the course (checked against the program's own set-up run in the interpreter, `floats`).
 Its goal is the section's, reached at 0x34C470 when it lies 1 m .. the lap less 1 m along. Here `RoadSection::grid`,
 `WorldEntry::place` and `sim::Entry::place` (`screen_race.cpp` `set_license_rules`); the stand-in of earlier rounds
-(the section's start on the driving line) was wrong. B-3's demonstration recording, played through it, takes the corner
-and returns to the test's page (the car's whole path bit-identical to the program's from this pose, `floats`).
+(the section's start on the road's middle) was wrong. The count at +0x0A is the number of 16-byte places between the
+record's pointers +0x18 and +0x1C on all 95 sections of the disc that have places; on 77 of them the place is within 60 m of the
+section's start (by the nearest checkpoint), on 18 it is not (a run-up, or a section whose start reads 0). ❓ The mark F +0x65B (from the start's flag): with 1 the lap step waits
+for the car to pass the section's start (0x3589DC .. 0x358ADC) and then calls the conductor's virtual +0xB0 with the
+moment, the mark 2: where such a test's clock starts is not settled here.
 
 **The judge** (`DynamicsConductorLicense::vf15` → 0x3F8D70, each step for the player's car while its run
 has not ended, F +0x4B2 clear) reads the rule bits F +0x4B3 and fails the test with kind 3 for bit 2, 5 for

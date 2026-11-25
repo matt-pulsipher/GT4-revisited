@@ -2,6 +2,7 @@
 // the road sections' own start places, with the movie's external pictures.
 #include "test_framework.h"
 #include "gt4r/formats/course/course_file.h"
+#include "gt4r/formats/course/runway_gtrw.h"
 #include "gt4r/race/license_trophy.h"
 #include "gt4r/race/race_display.h"
 #include "gt4r/race/sections.h"
@@ -72,5 +73,50 @@ TEST(strobe_external_pictures_disc) {
         // The live picture (300 x 225 about its origin) and the trophy's panel.
         CHECK(m.externals[0].name == "screen" && std::fabs(m.externals[0].x1 - 150) < 0.1f && std::fabs(m.externals[0].y1 - 112.5f) < 0.1f);
         CHECK(m.externals[1].name == "TropyPanel");
+    }
+}
+
+// Every course's sections: the count at +0x0A is the number of 16-byte places between the pointers +0x18 and +0x1C, and
+// a section's first place lies along the course where the section starts (a car's length or so either way of it).
+TEST(road_section_places_every_course_disc) {
+    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    for (const auto& disc : test::discs()) {
+        if (disc->info().serial.rfind("SCUS_973.28", 0) != 0) continue;
+        size_t courses = 0, sections = 0, with_place = 0, count_agrees = 0, near_start = 0;
+        for (const std::string& name : disc->volume().list_dir("crs")) {
+            const gt3r::Volume::Entry* e = disc->volume().find("crs/" + name);
+            if (!e) continue;
+            const Bytes data = disc->volume().read(*e);
+            if (!course::CourseFile::looks_like_course(data)) continue;
+            const course::CourseFile f = course::CourseFile::parse(data);
+            const ByteSpan road = f.section(data, course::kSlotRunway);
+            if (road.size() < 0xA0 || !gt3r::has_magic(road, "RNW4")) continue;
+            ++courses;
+            const std::optional<course::Runway> parsed = course::course_road(f, data);
+            const std::vector<race::RoadSection> list = race::road_sections(road);
+            const u32 at = rd32(road, 0x9C);
+            for (size_t i = 0; i < list.size(); ++i) {
+                ++sections;
+                const size_t rec = at + 0x20 * i;
+                if (list[i].grid.empty()) continue;
+                ++with_place;
+                const u32 gap = rd32(road, rec + 0x1C) - rd32(road, rec + 0x18);
+                if (gap == 16 * list[i].grid.size()) ++count_agrees;
+                else std::printf("  %s section %zu: %zu places, %u bytes\n", name.c_str(), i, list[i].grid.size(), gap);
+                if (!parsed) continue;
+                // The nearest checkpoint to the place, against the section's start.
+                float best = 1e9f, v = 0;
+                for (const course::Runway::Checkpoint& c : parsed->checkpoints) {
+                    const float d = std::hypot(c.middle.x - list[i].grid[0].pos.x, c.middle.z - list[i].grid[0].pos.z);
+                    if (d < best) best = d, v = c.v;
+                }
+                float off = std::fabs(v - list[i].start);
+                if (parsed->length > 0) off = std::min(off, std::fabs(parsed->length - off));
+                if (off < 60) ++near_start;
+                else std::printf("  %s section %zu: start %.1f, its place by %.1f\n", name.c_str(), i, double(list[i].start), double(v));
+            }
+        }
+        std::printf("  %zu courses, %zu sections, %zu with places: the count agrees on %zu, near the start on %zu\n", courses, sections, with_place, count_agrees, near_start);
+        CHECK(with_place > 0 && count_agrees == with_place);
     }
 }

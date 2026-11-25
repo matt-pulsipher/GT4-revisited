@@ -7,7 +7,7 @@
 // auto (the simple driver takes the first car too) or pad, `skip` simulation steps run before the
 // first picture (the start's hold is left out then), `paint` the first car's paint, `laps` the
 // race's length, `start` the start: 10 or 8 (a hold of so many seconds with the opening shots),
-// <seconds> (a plain hold), none, rolling, course (the course's own: race/start_rule.h); `view=tv` the course's replay cameras; `driver=1` the drivers in their stored pose; `replay=N` drives
+// <seconds> (a plain hold), none, rolling, course (the course's own: race/start_rule.h); `view=tv` the course's replay cameras; `driver=1` the drivers in their stored pose; (GT4R_DEMO_LOG=<n> logs a demonstration's car every n steps); `replay=N` drives
 // N steps unseen and plays them back through the replay cameras; `bspec=1` a B-spec run (GT4R_HITCH=<ms>
 // logs every frame longer than that, with the race's work and the present before it); `menus=single_race` the race
 // sequence's own menus (quick-arcade) before and after the race (any sequence: solo_event,
@@ -420,6 +420,11 @@ public:
         fs.laps = setup_.laps;
         fs.player = 0;
         fs.lap_length = world_->lap_length();
+        // Where the cars' crossings start (GT4's roads): a section test has no split points of its own.
+        const course::Runway& road = world_->course().road();
+        fs.counted = !road.gtrw;
+        if (!on_section_) fs.sectors = splits_;
+        fs.goal = goal_ > 0 ? goal_ : road.goal_v >= 1 && road.goal_v <= fs.lap_length - 1 ? road.goal_v : -1;
         flow_.begin(fs, world_->cars());
         rolled_ = false;
         license_failed_ = false, section_prev_ = -1;
@@ -542,6 +547,14 @@ public:
         if (demo) inputs_[0] = demo_run_->input(demo_step_++), auto_drive = false;
         const bool opening = opening_tv();
         world_->step(inputs_, hold, !demo && (auto_drive || watched_ || setup_.auto_drive));
+        // GT4R_DEMO_LOG=<n>: a demonstration's car every n steps (the record's x, y: the course's x, -z), to compare with a
+        // run of the program's own step (gt4r_diff demo).
+        if (demo)
+            if (const char* every = SDL_getenv("GT4R_DEMO_LOG"); every && std::atoi(every) > 0 && (demo_step_ - 1) % size_t(std::atoi(every)) == 0) {
+                const race::CarState& c = world_->cars()[0];
+                LOG_INFO("Drive: demo step %zu: %.2f km/h at (%.3f, %.3f) v %.2f%s", demo_step_ - 1, double(c.speed) * 3.6, double(c.position.x), double(-c.position.z),
+                         double(c.course_v), hold ? " held" : "");
+            }
         // (A rolling start's clock stands until the first car takes the line: RaceFlow.)
         const race::RaceFlow::Events ev = flow_.step(world_->cars());
         // A rolling start: each car released to its driver as it takes the line (vf20 0x347928).
@@ -891,9 +904,9 @@ public:
         snapshot_ = false;
         world_->render(ui, rect, cars, pose, focus(), pose.body_hidden ? int(focus()) : -1);
         // The in-car view's rear-view mirror at the top (❓ its place, (190, 18) 259 x 63 of the
-        // 640 x 480 picture, measured on the original's in-car view): not in replays, demonstrations, the opening
+        // 640 x 480 picture, measured on the original's in-car view): not in replays, demonstrations, under the results pages, the opening
         // shots (a standing start's or a rolling start's TV cameras), B-spec or looking back.
-        if (mount_ == race::DriveCamera::kInCar && !replaying_ && !demo_run_ && !menu_scene_ && !watched_ && !start_camera_.active() && !opening_tv() && !look_back && !setup_.look_back) {
+        if (mount_ == race::DriveCamera::kInCar && !replaying_ && !demo_run_ && !flow_.player_finished() && !menu_scene_ && !watched_ && !start_camera_.active() && !opening_tv() && !look_back && !setup_.look_back) {
             const SDL_FRect c = RaceHud::canvas();
             const float k = c.h / 480.0f;
             world_->render_mirror(ui, {c.x + 190 * k, c.y + 18 * k, 259 * k, 63 * k}, cars, pose, 0);
@@ -976,6 +989,8 @@ public:
         if (goal_ >= 0 && r.kind == 2 && section_prev_ >= 0 && section_prev_ < goal_ && goal_ <= c.course_v && c.course_v - section_prev_ < 50) {
             flow_.finish_now(0, (c.course_v - goal_) / std::max(1e-3f, c.course_v - section_prev_));
             license_failed_ = false;
+            if (demo_run_) LOG_INFO("Drive: the demonstration %s reached the goal at %lld ms on our clock (recorded %d ms)", demo_run_->label.c_str(),
+                                    (long long)race::clock_ms(flow_.car(0).finish_units), demo_run_->recorded_ms());
         }
         section_prev_ = c.course_v;
     }

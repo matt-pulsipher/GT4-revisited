@@ -24,12 +24,20 @@ int start_hold_steps(StartType type, int given_seconds) {
     }
 }
 
+int start_crossings(float v, float lap_length, std::span<const float> sectors, float goal) {
+    for (const float end : sectors)
+        if (v < end) return 1; // (not in the last sector)
+    if (goal >= 0 && v < goal) return 1;
+    return v < lap_length * 0.5f ? 1 : 0;
+}
+
 void RaceFlow::begin(const FlowSetup& setup, std::span<const CarState> cars) {
     setup_ = setup;
     cars_.assign(cars.size(), CarRecord{});
     for (size_t i = 0; i < cars.size(); ++i) {
         cars_[i].prev_v = cars[i].course_v, cars_[i].has_v = true;
         cars_[i].prev_lap = cars[i].lap;
+        if (setup.counted && setup.lap_length > 0) cars_[i].counter = start_crossings(cars[i].course_v, setup.lap_length, setup.sectors, setup.goal);
     }
     hold_total_ = hold_ = start_hold_steps(setup.start, setup.start_seconds);
     clock_ = 0;

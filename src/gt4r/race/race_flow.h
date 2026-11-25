@@ -29,7 +29,17 @@ struct FlowSetup {
     int laps = 2;          // 0: no lap count (the race ends otherwise)
     size_t player = 0;     // the player's car
     float lap_length = 0;  // metres (the road's)
+    // The road's split points (the sectors' ends but the last; none on a road section) and the race's goal along the course
+    // (-1 none), for where the cars' crossings start. `counted` off: every car starts at 0 (Prologue, not read).
+    std::vector<float> sectors;
+    float goal = -1;
+    bool counted = false;
 };
+
+// A car's crossings of the line where it stands at the start (the set-up 0x363B10, 0x364300 .. 0x36444C: F + 0x4AC), `v`
+// its distance along the course: 1 (past the line) unless it stands in the lap's last sector; there still 1 short of the
+// goal or in the lap's first half; else 0 (behind the line).
+int start_crossings(float v, float lap_length, std::span<const float> sectors, float goal);
 
 // The race clock: 3000 units a second, 50 a step.
 constexpr int kClockPerStep = 50;
