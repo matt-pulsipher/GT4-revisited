@@ -301,9 +301,39 @@ Still the engine's Gran Turismo 3 code, a stand-in or not run:
   ranking (0x3FE3B0: the first of ten entries that is empty or slower; -1: no name entry), GetDefaultName the user
   profile's name (0x402428, +0x1133C; ❓ before any entry: the page's "AAA"), NameEntry the name into the run's record
   (0x37B378) and the profile (0x402438). The ranking keeps each run with its name at its place.
-- ❓ Not done: the license record's save to the card, the pass codes (the unit's getPassCode is a virtual of the license
-  unit, not followed), `isPassed`'s own native; the movie's two strip pictures (1024 x 1 and 1 x 512, PSMCT32) decode
-  (a black row and an orange column), yet the box under the name entry draws white.
+- **The record** (`menu/prologue_license.*`): the 48 units in the program's layout (a unit of 0x2E8 bytes, 0x3FDFC0: +0x00 the
+  category, an index into the names at 0x504FD0 (none, B, A, IB, IA, S, D, GREEN, ORANGE, BLUE, RED, PURPLE, COFFEE); +0x04 the
+  medal, an index into 0x505008's (none, bronze, silver, gold); +0x08 the most points; from +0x10 ten entries of 0x48 bytes in
+  time order; +0x2E0 the unit's number, not saved). An entry (0x3FDF80 empties one): +0x00 the name (16 bytes), +0x10 the time
+  (359,999,999 none), +0x18 the date (u64 seconds from Julian day 0 at noon: 0x4762A8 adds 2,451,544.5 days of seconds to the
+  clock's seconds from 2000-01-01), +0x20 the run's points, +0x24 the pass code (32 bytes, "--------" none). The license race's
+  end (0x19ED58): result kinds 2, 3, 4 keep medal 3, 2, 1 (0x3FE1A0, the best); a run with a time goes to 0x3FE430: the most
+  points kept, the entry at the time's place (0x3FE3B0), the slower moved down (0x3FE250). The unit's natives (0x1582C0):
+  `isPassed` the medal not 0 (0x153640), `isCompletePassed` gold, `getBestTime(k)` / `getDate(k)` / `getEntryName(k)` /
+  `getPoint(k)` entry k's (text by 0x409D88 / 0x3FDED8), `getMaxPoint` the unit's +8, `getPassCode(k[, part])` the code or its
+  eight characters from part x 8 (0x3FE710), `category` / `detail` by the names; `forcePassedAll` does nothing (0x3FEF38).
+  The saved game takes the units' first 0x2E0 bytes (`prologue_license_units` / `prologue_license_load`; the file is gt-mode's,
+  `save/prologue_data.*`).
+
+## The pass codes
+
+A ranking entry's 30 digits (`menu/prologue_passcode.*`), made by 0x19EC08 over 0x1A31A0 from ten fields: the record's kind (5
+bits, 11 for a license run), the car (9: the place of the run's car among table 0's row ids, 0x40A270 with the search 0x406AE8),
+the course (8: its place among table 30's, `COURSE`, 0x40A2A0), a flag (1), the test's number (12: the race code's digits from
+the fourth, 0x19F238), two words (12, 3), the time (22, ms), two more (4, 4); the license run's unnamed ones 0. 0x1A4660 packs
+them low bit first into 80 bits. 0x1A2FA8: the 10 bytes after two zero bytes (12 bytes); bits 0 .. 3 a nibble of a 32-bit hash
+(x ^= x >> 16, >> 8, >> 4) of the program's word 0x5057C0 (0 in every state seen; ❓ what writes it); bits 4 .. 15 the CRC-32
+(0x498530, the standard one) of the 12 bytes folded (c ^ c >> 12 ^ c >> 24, 12 bits); then SAFER SK-128 (the exponent 45 modulo
+257 tables, 0x1A3340; the strengthened key schedule 0x1A3618) of 13 rounds under the program's key halves 0x55CAD0 / 0x55CAD8,
+enciphering the 8 bytes at each offset 0 .. 4 in turn in place (0x1A3E70). The hash (0x1A2EA8; 0x1A2C00 .. 0x1A2E58) keeps 16
+bytes h from zero and steps on 8-byte blocks m (the word's 4 bytes and 4 zeros): t = E[h1 ‖ m](h0) with a 10-round schedule,
+h0 ^= t, t = E[m ‖ h0 (before)](~h1), h1 ^= t; the 32 bits are h's bytes folded 4 apart. 0x1A48B0 writes the 12 bytes, a
+little-endian number, as decimal digits least first, padded with '0' to 30 and turned round; the first digit is then the check:
+from 0xFFFFFFFF, x 3 plus each later digit's character, modulo 10. `gt4r_diff <disc> prologue-passcode [n]` runs the program's
+0x1A31A0 on made-up fields against ours (test `disc_prologue_pass_codes_equal`: equal on every set). The arcade's course records
+(the `course` object's units, `quick-arcade`'s PasscodePopup) carry codes too: ❓ their maker 0x1A0498 not followed.
+- ❓ Not done: the movie's two strip pictures (1024 x 1 and 1 x 512, PSMCT32) decode (a black row and an orange column), yet the
+  box under the name entry draws white.
 
 ## The race display ✅ (Gran Turismo 3's)
 

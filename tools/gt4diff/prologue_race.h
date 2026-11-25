@@ -56,6 +56,8 @@ bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, 
 bool aids_from_env();
 // The game data's layout as the program writes it (prologue_save.cpp): printed.
 bool run_save_layout(Disc& disc);
+// The pass codes (prologue_passcode.cpp): the program's 0x1A31A0 against ours on `count` sets of fields; true when all equal.
+bool run_passcode(Disc& disc, int count);
 // One race step of the program's own (0x3B7020) for every car.
 void step(Ee& ee, Race& r);
 

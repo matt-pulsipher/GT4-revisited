@@ -249,7 +249,8 @@ TEST(disc_prologue_license_record) {
     CHECK(call(unit, "isPassed", {}).i == 0);
     CHECK(call(unit, "getBestTime", {}).as_string() == "\x7F'\x7F\x7F.\x7F\x7F\x7F");
     call(lic, "recordResult", {Value::string("l0p0001"), Value::string("silver"), Value::integer(107900), Value::integer(30), Value::string("ABC")});
-    call(lic, "recordResult", {Value::string("l0p0001"), Value::string("bronze"), Value::integer(107500), Value::integer(10), Value::string("XYZ")});
+    call(lic, "recordResult", {Value::string("l0p0001"), Value::string("bronze"), Value::integer(107500), Value::integer(10), Value::string("XYZ"),
+                               Value::integer(5), Value::integer(3)});
     call(lic, "recordResult", {Value::string("l0p0001"), Value::string("failed"), Value::integer(359999999), Value::integer(0)});
     CHECK(call(unit, "isPassed", {}).i == 1 && call(unit, "isCompletePassed", {}).i == 0);
     CHECK(call(unit, "getRankNum", {}).i == 2);
@@ -261,6 +262,11 @@ TEST(disc_prologue_license_record) {
     CHECK(call(lic, "getDetailCount", {Value::string("silver")}).i == 1);
     CHECK(call(lic, "getTotalPoint", {}).i == 30);
     CHECK(call(unit, "getDate", {Value::integer(0)}).as_string().size() == 19);
+    // The coded run's pass code: 30 digits, in four parts of eight; the other's none.
+    const std::string code = call(unit, "getPassCode", {Value::integer(0)}).as_string();
+    CHECK(code.size() == 30 && code.find_first_not_of("0123456789") == std::string::npos);
+    CHECK(call(unit, "getPassCode", {Value::integer(0), Value::integer(1)}).as_string() == code.substr(8, 8));
+    CHECK(call(unit, "getPassCode", {Value::integer(1)}).as_string() == "--------");
     std::vector<u8> bytes = menu::prologue_license_units(*game.as<menu::Object>());
     CHECK(bytes.size() == 48 * 0x2E0);
     if (bytes.size() != 48 * 0x2E0) return;

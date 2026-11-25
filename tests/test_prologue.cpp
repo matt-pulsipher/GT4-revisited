@@ -308,3 +308,10 @@ TEST(disc_prologue_converter_equal) {
     CHECK(st.equal_specs == st.cars);
     CHECK(st.race_start_equal);
 }
+
+// The pass codes (menu/prologue_passcode.h): the program's 0x1A31A0 in the interpreter against ours on 64 sets of fields.
+TEST(disc_prologue_pass_codes_equal) {
+    Disc* disc = prologue_disc();
+    if (!disc) SKIP("no Prologue disc");
+    CHECK(diff::prologue::run_passcode(*disc, 64));
+}
