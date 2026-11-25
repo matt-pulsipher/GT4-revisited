@@ -135,8 +135,18 @@ headlamps' light on the road (the shared engine's race takes the same three). Th
 the race view's shadow pass with the course's look; their y = 0 is the road (Gran Turismo 4's
 models' is the ride height), so the thrown shape is sheared from the road up. The lamps are the
 info block's three lists (`gt3r::race::CarLampSet`). Pictures: `~/gt4re-out/prologue/r4/v1.png`.
-❓ Not done: the brake parts (Gran Turismo 3's cars draw them inside the wheel models), the
-cars' camera mounts. The menus' 3D car (car faces) takes these files too.
+**Brake parts** ✔ (`race/brake.bin`, 45,488 bytes, loaded by 0x4126B8 into [0x50573C]): Gran Turismo 3's file and rule, drawn by
+Prologue's own copy of Gran Turismo 3's tire packet (RaceTirePacket, vtable 0x53ADA0): the rotor 0x4130C8 (the same constants as
+Gran Turismo 3's 0x2227E0), the caliper 0x413588 (Gran Turismo 3's 0x222CE0: 5 mm outward, the corners turned by the record's
+angle), the glow's square 0x414530 (1 mm outward; drawn when the rotor's flag bit 0 is set, RaceTirePacket::vf5 0x4141E0, with
+the file's glow picture, vf3 0x414008), each wheel's level by its size on screen 0x412918 (0 over 0.09, 1 over 0.03, 2 over
+0.001, else 3; the parts on levels 0 and 1). The info block's two records (+0x14 front, +0x28 rear) choose the pictures and
+place them (the shared engine's `brake_model.*`, its "Brake parts (races)"). Every one of the disc's 82 Gran Turismo 3 car files
+has both axles' parts; 149 axles a caliper, 150 a glowing rotor (test `disc_prologue_brake_parts`). Ours: the shared engine's
+parts in each wheel's frame (`CarVisual::build_gt3`), drawn while the eye is outboard of the wheel's face on levels 0 and 1, the
+glow at FIX = 128 x heat^2 x the course's gain (🔎 the gain the race gives Gran Turismo 4's cars, Env0 +0x4C / +0x38: Prologue's
+own source of it not followed). Picture: `~/gt4re-out/prologue8/shots/cmpwb.png` (the Impreza's front wheel without and with).
+The menus' 3D car (car faces) takes these files too.
 
 ## The program ✅ recognized, 🔎 tables
 

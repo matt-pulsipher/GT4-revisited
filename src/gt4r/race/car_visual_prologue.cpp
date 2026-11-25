@@ -8,8 +8,11 @@
 
 #include "gt4r/race/car_visual.h"
 
+#include "formats/model/brake_model.h"
 #include "formats/model/car_model.h"
+#include "gt4r/race/car_pose.h"
 #include "race/lamp_glows.h"
+#include "race/wheel_fx.h"
 
 #include <algorithm>
 #include <cmath>
@@ -107,6 +110,46 @@ void CarVisual::build_gt3(ByteSpan file_in, const Options& opt, const std::strin
         }
         to_gpu(body_[size_t(brake)], body);
     }
+    // The brake parts (race/brake.bin's rotor and caliper pictures by the info block's two records, and the rotor's
+    // glow): the shared engine's, made in the hub's frame and moved to the wheel's frame here (its outer face).
+    if (!opt.brake_parts.empty() && gt3r::BrakeParts::is_brake_bin(opt.brake_parts)) try {
+            const gt3r::BrakeParts bin = gt3r::BrakeParts::parse(opt.brake_parts);
+            const gt3r::CarFile f = gt3r::CarFile::parse(file);
+            const std::array<gt3r::BrakeRecord, 2> records = gt3r::parse_brake_records(f.info);
+            float shininess = 0;
+            if (f.tire.size() >= 0x1C) std::memcpy(&shininess, f.tire.data() + 0x18, 4);
+            for (int w = 0; w < 4; ++w) {
+                const bool right = (w & 1) != 0;
+                const float face = (right ? 0.5f : -0.5f) * ws.width[w / 2];
+                auto to_wheel = [face](scene::Model m) {
+                    for (scene::Mesh& mesh : m.meshes)
+                        for (scene::Vertex& v : mesh.vertices) v.pos[0] -= face;
+                    return m;
+                };
+                scene::Model parts = gt3r::build_brake_parts(bin, records[size_t(w / 2)], right, shininess);
+                if (!parts.meshes.empty()) to_gpu(brakes_[size_t(w)], to_wheel(std::move(parts)));
+                scene::Model glow = gt3r::build_brake_glow(bin, records[size_t(w / 2)], right);
+                if (!glow.meshes.empty()) to_gpu(glows_[size_t(w)], to_wheel(std::move(glow)));
+            }
+        } catch (const std::exception&) {
+        }
+}
+
+bool CarVisual::gt3_brakes_shown(const CarState& s, int w, const render::Vec3& eye, const LodView* view, bool& parts) const {
+    // The wheel's level by its size on screen (0x412918: the projection's x scale x the wheel's bounding radius over
+    // the hub's depth; 0 over 0.09, 1 over 0.03); the projection's x scale of the program's 4:3 picture is the view's
+    // factor K x 0.75 x 0.7 / 224 (race_world.cpp). The parts while the eye is outboard of the outer face.
+    const int axle = w / 2;
+    const render::Mat4 frame = wheel_frame(s, spec_, w);
+    if (view && view->k > 0) {
+        const render::Vec3 hub{s.wheels[w].center.x, s.wheels[w].center.y, s.wheels[w].center.z};
+        const float r = spec_.tire_radius[axle], half = 0.5f * spec_.tire_width[axle];
+        if (gt3r::race::wheel_detail(view->k * (0.75f * 0.7f / 224.0f), std::sqrt(r * r + half * half), render::dot(hub - eye, view->forward)) >= 2)
+            return false;
+    }
+    const float x = render::inverse(frame).transform_point(eye).x;
+    parts = (w & 1) ? x > 0 : x < 0;
+    return true;
 }
 
 } // namespace gt4r::race
