@@ -68,6 +68,10 @@ public:
     // The race's countdown (the race information's +0xBC): `steps` steps from the next, counted down one a step, the
     // cars held and the session's time standing while it runs. 0 ends it.
     void set_countdown(u32 steps) { countdown_ = steps; }
+    // The race's class grips (the rule block's +0x18 .. +0x1B, conductor + 0xF830: a computer-driven car's extra grip per
+    // drive class, percent). The session starts with a single race's (0x353570: 20 for each the event leaves 0); the
+    // other conductors (a license test's, ...) keep the event's bytes as they are.
+    void set_class_grip(const std::array<gt3r::s8, 4>& grip) { tables_.class_grip = grip; }
     u32 countdown() const { return countdown_; }
     // A car held in its rolling start (F + 0x467 = 1: its computer driver drives it, the rolling start's pace caps it,
     // the input phase takes the car's input as the computer's outputs) let go (the single-player conductor's virtual

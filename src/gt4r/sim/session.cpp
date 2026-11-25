@@ -741,8 +741,9 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
         else if (prologue_) prologue::slip_ratios(c, prologue_cars_[i].tires, prologue_cars_[i].layout, *prologue_);
         else ex::slip_ratios(c, race_.statics);
         if (gt4_rules_) {
-            // Gran Turismo 4's aids (0x3F79A0): a computer's car (control source 2) by its driver's block.
-            const ex::Aids* driver = in.computer && driver_aids_[i] ? &*driver_aids_[i] : nullptr;
+            // Gran Turismo 4's aids (0x3F79A0): a computer's car (control source 2) by its driver's block, and so a
+            // player's car its driver drives (driver kind not 0: held in its rolling start), 0x3F7828.
+            const ex::Aids* driver = (in.computer || c.driver_kind != 0) && driver_aids_[i] ? &*driver_aids_[i] : nullptr;
             sim::Extra& g = gx_[i];
             rules::aids(c, g.aids, g.tires, g.drive, layouts_[i], tables_.aids, aid_race_, driver);
         } else if (prologue_) { // Prologue's (0x3E0838)

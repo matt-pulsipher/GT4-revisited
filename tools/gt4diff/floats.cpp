@@ -56,8 +56,9 @@ DemoScore run_float_demo(Disc& disc, const std::string& label, const FloatDemoOp
         return f ? std::optional<Bytes>(vol->read(*f)) : std::nullopt;
     });
     // (the file's own event code may be another region's row of the same test: the label names the event)
-    auto ev = events.event(label);
+    auto ev = std::getenv("GT4R_FLOATS_BY_CODE") ? events.event(u32(d->code_b0)) : events.event(label);
     if (!ev) ev = events.event(u32(d->code_b0));
+    if (!ev) ev = events.event(label);
     if (!ev) return r.error = "the demonstration's event is not in the database", r;
     r.race_class = d->race_class, r.course = ev->course, r.recorded_ms = d->time_ms;
     r.frames = int(d->streams[0].frames.size());
@@ -155,6 +156,12 @@ DemoScore run_float_demo(Disc& disc, const std::string& label, const FloatDemoOp
     }
     const u32 F = o.car(0) + kF;
     std::vector<replay::PadRecord> rec(1);
+    std::unique_ptr<OursBeside> ours;
+    if (opt.ours) {
+        ours = std::make_unique<OursBeside>(disc);
+        if (const char* e = std::getenv("GT4R_FLOATS_OURS_LIST")) ours->list_steps = std::atoi(e);
+        if (!ours->begin(ee, o, sdb, ev->course, r.hold)) return r.error = ours->error, r;
+    }
     try {
         for (int i = 0; i < steps && !end.done; ++i) {
             // The race's frame counts the start's hold down before the step.
@@ -163,7 +170,9 @@ DemoScore run_float_demo(Disc& disc, const std::string& label, const FloatDemoOp
             rec[0] = s.frame(size_t(i));
             o.pad[0] = Pad{};
             o.pad[0].frame = rec[0].bytes.data();
+            if (ours) ours->before_step(ee);
             orig_step(ee, o);
+            if (ours) ours->step(ee, rec[0].bytes.data());
             if (end.done) r.ended_step = i;
             if (print && opt.verbose && (i % 60 == 0 || end.done))
                 std::printf("  %5d  clock %6u  %7.2f km/h  at %.3f %.3f %.3f  dist %.2f\n", i, ee.r32(o.cond + 0x10000 - 0x768),
@@ -178,6 +187,11 @@ DemoScore run_float_demo(Disc& disc, const std::string& label, const FloatDemoOp
     }
     r.ended_ms = end.ms, r.fail_kind = end.fail;
     r.ran = true;
+    if (ours) {
+        r.ours_ran = true;
+        r.ours_first_bits = ours->first_bits, r.ours_first_apart = ours->first_apart;
+        r.ours_worst = ours->worst, r.ours_end = ours->last_distance;
+    }
     if (print)
         std::printf("demo %s: %s at step %d: %s (recorded %d ms)\n", label.c_str(),
                     end.ms >= 0 ? "timed" : end.fail >= 0 ? "failed" : "no end", r.ended_step,
@@ -196,6 +210,7 @@ int run_floats(Disc& disc, const std::vector<std::string>& args) {
     if (const char* e = std::getenv("GT4R_FLOATS_HOLD")) opt.hold = std::atoi(e);
     if (const char* e = std::getenv("GT4R_FLOATS_EXTRA")) opt.extra = std::atoi(e);
     opt.verbose = std::getenv("GT4R_FLOATS_VERBOSE") != nullptr;
+    opt.ours = std::getenv("GT4R_FLOATS_OURS") != nullptr;
     if (what == "list") {
         for (const std::string& l : demonstration_labels(disc)) std::printf("%s\n", l.c_str());
         return 0;
@@ -245,6 +260,9 @@ int run_floats(Disc& disc, const std::vector<std::string>& args) {
         std::printf("%-12s %-12s kind %d %-28s %-24s recorded %7d  program %-10s step %5d  %s\n", l.c_str(), s.race_class.c_str(), s.kind,
                     s.car.c_str(), s.course.c_str(), s.recorded_ms, got, s.ended_step,
                     s.exact() ? "EXACT" : s.ended_ms >= 0 ? (std::to_string(s.ended_ms - s.recorded_ms) + " ms").c_str() : "");
+        if (s.ours_ran)
+            std::printf("%-12s ours: first bit apart at step %d, 1 mm apart at %d, worst %.6f m, at the end %.6f m\n", l.c_str(), s.ours_first_bits,
+                        s.ours_first_apart, s.ours_worst, s.ours_end);
         std::fflush(stdout);
     }
     std::printf("floats: %d of %d demonstrations end on their recorded time (%zu asked)\n", exact, ran, labels.size());

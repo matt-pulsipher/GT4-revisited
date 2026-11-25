@@ -9,6 +9,7 @@
 #include "gt4r/disc/disc.h"
 
 #include <functional>
+#include <memory>
 #include <map>
 #include <string>
 #include <vector>
@@ -16,8 +17,35 @@
 namespace gt3r::diff {
 class Ee;
 }
+namespace gt4r::db {
+class SpecDb;
+}
 
 namespace gt4r::diff {
+
+struct OrigRace;
+
+// Our session beside the program's run (floats_ours.cpp): started from the program's set-up (every car's record and
+// collision body, the random register, the start's hold), each step fed car 0's record, the driving line's heading the
+// program's active steering read and the computer drivers' outputs of the program's step; car 0 compared after each.
+class OursBeside {
+public:
+    explicit OursBeside(Disc& disc);
+    ~OursBeside();
+    bool begin(gt3r::diff::Ee& ee, OrigRace& o, db::SpecDb& sdb, const std::string& course, int hold);
+    void before_step(gt3r::diff::Ee& ee);               // before the program's step
+    void step(gt3r::diff::Ee& ee, const u8* record);    // after the program's step: ours, then the comparison
+    std::string error;
+    int steps = 0;
+    int first_bits = -1;   // the first step car 0's place differs in a bit (-1 never)
+    int first_apart = -1;  // the first step it is more than 1 mm from the program's
+    double worst = 0, last_distance = 0; // m
+    int list_steps = 0;          // print the placed fields that differ, from the first step any does, for this many steps
+    int first_fields_step = -1;
+private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+};
 
 // One demonstration played through the program (run_float_demo).
 struct DemoScore {
@@ -32,12 +60,17 @@ struct DemoScore {
     int fail_kind = -1;     // the judge's failure (0x3F8980's kind), -1 none
     int hold = 0;           // the start's hold the run was given (steps)
     bool exact() const { return ended_ms >= 0 && ended_ms == recorded_ms; }
+    // With FloatDemoOptions::ours: our session beside the program's run until its end (OursBeside's figures).
+    bool ours_ran = false;
+    int ours_first_bits = -1, ours_first_apart = -1;
+    double ours_worst = 0, ours_end = 0;
 };
 
 struct FloatDemoOptions {
     int hold = -1;          // the start's hold in steps (race information +0xBC); -1: the license tests' (480)
     int extra = 600;        // steps played past the recording's end
     bool verbose = false;   // the run's steps every second
+    bool ours = false;      // our session beside the program's run (OursBeside)
     // Called once the race is set up, before its first step (to install probes; FloatCensus::attach).
     std::function<void(gt3r::diff::Ee&)> on_setup;
 };
