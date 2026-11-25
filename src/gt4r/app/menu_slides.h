@@ -2,8 +2,8 @@
 
 // The slide show faces of the running menus (mSlideShowFace, docs/formats/menu.md "The slide
 // show"): the disc's photos one after another over the whole page, each cross-fading into the next,
-// moving from the place the photo looks at to the whole picture (or back). The memory card's own
-// list of photos (FileGT4SlideShowList) is not read: ❓ always the disc's.
+// moving from the place the photo looks at to the whole picture (or back). The memory card's list
+// of photos is shown when it has any (and the face's `demo` is 0), else the disc's (0x1C6BE8).
 
 #include "base/log.h"
 #include "gt4r/app/app.h"
@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <functional>
 #include <future>
 #include <map>
 #include <memory>
@@ -31,6 +32,9 @@ public:
         for (auto& [w, s] : shows_) clear(*s);
     }
 
+    // The card's list, by name, and one's JPEG.
+    std::function<std::vector<std::string>()> card_list;
+    std::function<std::optional<Bytes>(const std::string&)> card_photo;
     // How many photos the disc's list names (the configuration's DemonstrationSlideNum).
     void set_count(int n) { count_ = std::max(n, 0); }
     // The options' seconds a photo stands and fades, and whether it moves.
@@ -48,12 +52,15 @@ public:
     }
     // `at` the face's rectangle in the page, `dst` on the screen: the photos cover the page's 640 x 480.
     void draw(const menu::LiveWidget& face, const menu::Rect& at, const SDL_FRect& dst, float opacity) {
-        if (face.data.number("slide_playing") == 0 || count_ <= 0 || at.w <= 0) {
+        if (face.data.number("slide_playing") == 0 || at.w <= 0) {
             if (const auto it = shows_.find(&face); it != shows_.end()) clear(*it->second), shows_.erase(it);
             return;
         }
         std::unique_ptr<Show>& s = shows_[&face];
-        if (!s) s = std::make_unique<Show>(), s->stepped = frame_, s->shuffle = face.data.number("shuffle") != 0;
+        if (!s) {
+            s = std::make_unique<Show>(), s->stepped = frame_, s->shuffle = face.data.number("shuffle") != 0;
+            if (card_list && face.data.number("demo") == 0) s->card = card_list();
+        }
         s->seen = true;
         for (int n = 0; s->stepped < frame_ && n < 10; ++n, ++s->stepped) step(*s);
         s->stepped = frame_;
@@ -85,6 +92,7 @@ private:
         Layer layer[2];
         int current = 0;
         std::vector<int> order;
+        std::vector<std::string> card; // the card's photos (empty: the disc's)
         size_t next = 0;
         bool shuffle = false, seen = false;
         u64 stepped = 0;
@@ -109,15 +117,23 @@ private:
             else s.failures = 0;
             return;
         }
+        const int count = s.card.empty() ? count_ : int(s.card.size());
+        if (count <= 0) return void(s.failures = 4);
         if (s.next >= s.order.size()) {
-            s.order.resize(size_t(count_)), s.next = 0;
-            for (int i = 0; i < count_; ++i) s.order[size_t(i)] = i;
+            s.order.resize(size_t(count)), s.next = 0;
+            for (int i = 0; i < count; ++i) s.order[size_t(i)] = i;
             if (s.shuffle)
-                for (int i = 0; i < count_; ++i) std::swap(s.order[size_t(i)], s.order[size_t(int(float(count_) * random()) % count_)]);
+                for (int i = 0; i < count; ++i) std::swap(s.order[size_t(i)], s.order[size_t(int(float(count) * random()) % count)]);
         }
         char path[32];
-        std::snprintf(path, sizeof path, "photo/%03d.JPG", s.order[s.next++]);
-        std::optional<Bytes> file = app_.vfs()->read(path);
+        std::optional<Bytes> file;
+        if (const int n = s.order[s.next++]; s.card.empty()) {
+            std::snprintf(path, sizeof path, "photo/%03d.JPG", n);
+            file = app_.vfs()->read(path);
+        } else {
+            std::snprintf(path, sizeof path, "%s", s.card[size_t(n)].c_str());
+            if (card_photo) file = card_photo(s.card[size_t(n)]);
+        }
         if (!file) {
             ++s.failures;
             return;

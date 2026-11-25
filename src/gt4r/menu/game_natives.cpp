@@ -7,6 +7,7 @@
 
 #include "gt4r/menu/game_internal.h"
 #include "gt4r/menu/game_bspec.h"
+#include "gt4r/formats/sound/sound_index.h"
 #include "gt4r/menu/game_opponents.h"
 #include "gt4r/sim/ai/bspec_skill.h"
 #include "gt4r/menu/game_settings.h"
@@ -146,12 +147,11 @@ float ProgramRandom::next01() {
 db::SpecDb* Database::get(const RuntimeConfig& config) {
     if (tried) return db.get();
     tried = true;
-    if (config.program) {
+    if (config.program || config.program_image) {
         try {
-            const Bytes core = config.program();
-            names = ProgramTables::from_core(core);
-            gt3r::CoreImage image = gt3r::CoreImage::decode(core);
-            program = sim::Program::from_image(std::move(image.program), image.load_address);
+            const std::shared_ptr<const gt3r::CoreImage> image = config.image();
+            names = ProgramTables::find(image->program, image->load_address);
+            program = sim::Program::from_core(image);
         } catch (const std::exception& e) {
             rt->note(std::string("the program's tables were not read: ") + e.what());
         }
@@ -747,7 +747,12 @@ g.method("menuRef", [s](Vm&, const Value&, Args a) {
         s->menu_stack.clear();
         return Value{};
     });
-    for (const char* nothing : {"setReturnToLastMenuProject", "loadShutterSound", "dumpAvailable"})
+    // loadShutterSound(type): the camera whose shutter the "shutter" effect is ("typea" ..): told to the sound player.
+    g.method("loadShutterSound", [r = &rt](Vm&, const Value&, Args a) {
+        r->sound("sound", "loadShutter", a);
+        return Value{};
+    });
+    for (const char* nothing : {"setReturnToLastMenuProject", "dumpAvailable"})
         g.method(nothing, [](Vm&, const Value&, Args) { return Value{}; });
 
     // The menus' place kept in the save (Context: the major project and page, the stack).
@@ -885,7 +890,25 @@ g.method("menuRef", [s](Vm&, const Value&, Args a) {
         s->during_quick_menu = a.empty() || a[0].truthy();
         return Value{};
     });
-    g.method("getAllMusicList", [](Vm&, const Value&, Args) { return Value::array({}); });
+    // getAllMusicList() (0x165798): the streamed "racing" pieces, [title, artist, genre, number] each.
+    g.method("getAllMusicList", [r](Vm&, const Value&, Args) {
+        std::vector<Value> out;
+        for (const std::string& path : {"bgm/" + r->region() + "/ads.inf", std::string("bgm/us/ads.inf")}) {
+            const std::optional<Bytes> inf = r->reader()(path);
+            if (!inf || inf->size() < 0x14) continue;
+            try {
+                const sound::MusicIndex index = sound::MusicIndex::parse(*inf);
+                const int racing = sound::stream_group("racing");
+                if (racing < 0 || size_t(racing) >= index.groups.size()) continue;
+                for (const sound::MusicRecord& m : index.groups[size_t(racing)])
+                    out.push_back(Value::array({Value::string(m.title), Value::string(m.artist), Value::string(m.genre), number(s32(out.size()))}));
+            } catch (const std::exception&) {
+                continue;
+            }
+            break;
+        }
+        return Value::array(std::move(out));
+    });
     g.method("getBattleSettingRace", [](Vm&, const Value&, Args) { return Value{}; });
     g.method("getBattleSettingEntry", [](Vm&, const Value&, Args) { return Value{}; });
     g.property("option", [this] { return make_option(); });
@@ -1026,6 +1049,8 @@ Value GameNatives::make_card_manager(Args a) {
     GameNatives* self = this;
     const std::string mode = arg_text(a, 0);
     m->set("mode", text(mode));
+    // The photos of a card (game_photos.cpp).
+    if (install_photo_manager(*this, *m, mode, arg_int(a, 1))) return object_value(m);
     // MMemoryCardManager(mode, 1): the card in slot 2, read for trading cars: its game is loaded beside the one played
     // (loadInstance: [result, a game object with that game's garage]).
     const bool console = rt.config().console_card;
@@ -1170,6 +1195,7 @@ Value GameNatives::make_card_manager(Args a) {
         std::error_code ec;
         for (const std::string& f : saved_replays(self->rt.data_dir()))
             if (!f.ends_with(".gt4rrep")) used += s32((std::filesystem::file_size(f, ec) + 1023) / 1024);
+        used += photos_kb(self->rt);
         return std::max(0, 8000 - used);
     };
     m->property("free", [free_kb] { return number(free_kb()); });
@@ -1517,7 +1543,8 @@ void install_game_natives(Runtime& rt, script::Module& menu) {
             return Value{};
         });
         static_fn(*cls, "getExistValidGameData", [s](Vm&, const Value&, Args) { return number(s->valid_game_data); });
-        static_fn(*cls, "getPrintList", [](Vm&, const Value&, Args) { return Value::array({}); });
+        install_photo_lists(*n, menu);
+        static_fn(*cls, "getPrintList", [n](Vm&, const Value&, Args) { return n->photo_print_list; });
         static_fn(*cls, "setAction", [s](Vm&, const Value&, Args a) {
             s->card_action = arg_int(a, 0);
             return Value{};

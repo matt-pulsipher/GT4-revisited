@@ -54,8 +54,7 @@ inline std::array<menu::TextColor, 4> program_button_colors(App& app) {
     if (!tried && app.disc()) {
         tried = true;
         try {
-            const Bytes core = app.disc()->read_program();
-            found = menu::find_button_colors(gt3r::CoreImage::decode(core).program);
+            found = menu::find_button_colors(app.disc()->program_image()->program);
         } catch (const std::exception& e) {
             LOG_WARN("The program's button colours: %s", e.what());
         }

@@ -150,6 +150,7 @@ Runway runway_from_gtrw(ByteSpan section) {
     // The start grid: Gran Turismo 3's yaw faces (-sin(yaw + pi), -cos(yaw + pi)) = (sin yaw, cos yaw).
     for (const gt3r::course::GridSlot& g : road.grid) r.grid.push_back({{g.pos.x, g.pos.y, g.pos.z}, g.yaw});
     for (const gt3r::course::WallPoint& w : road.wall_points) r.wall_vertices.push_back({{w.pos.x, w.pos.y, w.pos.z}, w.tag});
+    r.index_triangles();
     return r;
 }
 

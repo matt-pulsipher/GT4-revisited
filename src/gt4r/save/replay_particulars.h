@@ -1,7 +1,7 @@
 #pragma once
 
 // A saved replay's or photo's particulars (its folder's 256-byte `thumbnail` file, docs/formats/save.md "The game's other
-// saves"): what the Replay Theater's rows show. Scrambled as the other files (save/codec.h, FileKind::Particulars).
+// saves"): what the Replay Theater's rows show. Scrambled as the other files (save/codec.h, FileKind::Info).
 
 #include "gt4r/base/types.h"
 

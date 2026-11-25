@@ -95,6 +95,30 @@ void reshape_tire(scene::Model& tire, float width, float rim_radius, float tire_
         }
 }
 
+// A model put together from several decodes of a set (its levels of detail, its lit and unlit lamps) holds the set's
+// pictures once for each: the pictures its shapes use, each kept once.
+void share_textures(scene::Model& m) {
+    const auto same = [](const scene::Texture& a, const scene::Texture& b) {
+        return a.width == b.width && a.height == b.height && a.clamp_u == b.clamp_u && a.clamp_v == b.clamp_v && a.no_mips == b.no_mips && a.nearest == b.nearest &&
+               a.livery_cover == b.livery_cover && a.rgba == b.rgba;
+    };
+    std::vector<int> to(m.textures.size(), -1);
+    std::vector<scene::Texture> kept;
+    for (scene::Mesh& mesh : m.meshes)
+        for (scene::Primitive& p : mesh.primitives) {
+            if (p.texture < 0 || size_t(p.texture) >= to.size()) continue;
+            int& at = to[size_t(p.texture)];
+            if (at < 0) {
+                scene::Texture& t = m.textures[size_t(p.texture)];
+                const auto it = std::find_if(kept.begin(), kept.end(), [&](const scene::Texture& k) { return same(k, t); });
+                at = int(it - kept.begin());
+                if (it == kept.end()) kept.push_back(std::move(t));
+            }
+            p.texture = at;
+        }
+    m.textures = std::move(kept);
+}
+
 // Mirrors a model front to back (a wheel whose right side is the left's mirror image).
 void mirror_z(scene::Model& m) {
     for (scene::Mesh& mesh : m.meshes) {
@@ -200,7 +224,7 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
             scene::Model m = build_levels(opt.wing, 0, ws, 3, 0, name + "/wing");
             for (const scene::Mesh& mesh : m.meshes) wing_lods_ = std::max(wing_lods_, mesh.lod + 1);
             if (opt.reflection_by_draw) reflect_by_draw(m);
-            if (!m.meshes.empty()) to_gpu(wing_, m);
+            if (!m.meshes.empty()) to_gpu(wing_, std::move(m));
         }
     }
     // The body with its lamps unlit and lit, at its three levels of detail. The far level draws its
@@ -236,7 +260,7 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
             for (const scene::Mesh& mesh : m.meshes) lods_ = std::max(lods_, mesh.lod + 1);
         }
         if (opt.reflection_by_draw) reflect_by_draw(m);
-        to_gpu(body_[size_t(brake)], m);
+        to_gpu(body_[size_t(brake)], std::move(m));
     }
     // The brake parts: the shapes the body's program draws in each wheel's frame.
     for (u16 w = 0; w < 4; ++w) {
@@ -256,8 +280,8 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
             std::erase_if(mesh.primitives, [](const scene::Primitive& p) { return (p.flags & scene::kAdditive) == 0; });
             any_glow |= !mesh.primitives.empty();
         }
-        if (any) to_gpu(brakes_[w], m);
-        if (any_glow) to_gpu(glows_[w], glow);
+        if (any) to_gpu(brakes_[w], std::move(m));
+        if (any_glow) to_gpu(glows_[w], std::move(glow));
     }
     // Wheels and tires, still and turning. Both sets are in units of the rim's radius, modelled
     // as a left wheel with the outer face at x = 0.
@@ -296,7 +320,7 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
                 }
                 bool any = false;
                 for (const scene::Mesh& mesh : both.meshes) any |= !mesh.indices.empty();
-                if (any) to_gpu(wheels_[w][size_t(turning)], both);
+                if (any) to_gpu(wheels_[w][size_t(turning)], std::move(both));
             }
         }
     }
@@ -390,8 +414,9 @@ std::unique_ptr<CarVisual> CarVisual::make_unuploaded(render::GpuContext& ctx, B
     return std::make_unique<CarVisual>(ctx, file, pat, spec, opt, name);
 }
 
-void CarVisual::to_gpu(std::unique_ptr<render::GpuModel>& slot, const scene::Model& m) {
-    if (t_unuploaded) unuploaded_.emplace_back(&slot, m);
+void CarVisual::to_gpu(std::unique_ptr<render::GpuModel>& slot, scene::Model m) {
+    share_textures(m);
+    if (t_unuploaded) unuploaded_.emplace_back(&slot, std::move(m));
     else slot = std::make_unique<render::GpuModel>(*ctx_, m);
 }
 
@@ -531,7 +556,7 @@ bool CarVisual::add_mirror_items(std::vector<render::DrawItem>& items, const Car
     return true;
 }
 
-void CarVisual::add_shadow_items(std::vector<render::DrawItem>& items, const CarState& s, float light) const {
+void CarVisual::add_shadow_items(std::vector<render::DrawItem>& items, const CarState& s, const CarLight* light) const {
     if (!shadow_[0] && !shadow_[1] && !shadow_[2]) return;
     // On the road under the car: the plane through the tires' contacts, lifted 2 cm.
     render::Vec3 contact{0, 0, 0};
@@ -551,12 +576,19 @@ void CarVisual::add_shadow_items(std::vector<render::DrawItem>& items, const Car
         // The body's shape flattened onto the road along the light: a point y above the road
         // lands `shear` x y away. (The model's y = 0 is the ride height above the road.)
         const float q = gt3_file_ ? 0.0f : (spec_.ride_height[0] + spec_.ride_height[1]) * 0.5f;
-        const float sx = render::dot(shadow_look_.shear, side), sz = render::dot(shadow_look_.shear, back);
-        Mat4 flat;
-        flat.m = {1, 0, 0, 0, sx, 0, sz, 0, 0, 0, 1, 0, sx * q, 0, sz * q, 1};
-        render::DrawItem it{shadow_[0].get(), ground * flat, 0};
-        it.alpha = std::clamp(light, 0.0f, 1.0f);
-        items.push_back(it);
+        auto cast = [&](const render::Vec3& shear, float alpha) {
+            if (alpha < 0.01f) return;
+            const float sx = render::dot(shear, side), sz = render::dot(shear, back);
+            Mat4 flat;
+            flat.m = {1, 0, 0, 0, sx, 0, sz, 0, 0, 0, 1, 0, sx * q, 0, sz * q, 1};
+            render::DrawItem it{shadow_[0].get(), ground * flat, 0};
+            it.alpha = std::min(alpha, 1.0f);
+            items.push_back(it);
+        };
+        if (light && light->lamps) {
+            // The lamps' shadows, one away from each.
+            for (const CarLight::Cast& k : light->casts) cast(k.shear, shadow_look_.alpha * shadow_look_.light_factor > 0 ? k.alpha / (shadow_look_.alpha * shadow_look_.light_factor) : k.alpha);
+        } else cast(shadow_look_.shear, light ? light->shadow : 1.0f);
     }
     if (shadow_[1]) items.push_back({shadow_[1].get(), ground, 0});
     if (shadow_[2]) items.push_back({shadow_[2].get(), ground, 0});

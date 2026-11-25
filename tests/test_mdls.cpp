@@ -303,7 +303,8 @@ TEST(paint_patches_apply) {
     CHECK(car::paint_count(pat) == 2 && car::paint_count(set) == 0);
     for (u32 paint = 0; paint < 2; ++paint) {
         const Bytes painted = car::apply_paint(set, pat, paint);
-        const gt3r::gtm1::Gtm1 g = gt3r::gtm1::Gtm1::parse(mdls::to_gtm1(painted));
+        const Bytes block = mdls::to_gtm1(painted);
+        const gt3r::gtm1::Gtm1 g = gt3r::gtm1::Gtm1::parse(block);
         CHECK(near(g.materials[0].rows[1][0], paint ? 0.75f : 0.25f) && near(g.materials[0].shininess, paint ? 32.0f : 8.0f));
     }
     CHECK(car::apply_paint(set, pat, 5) == Bytes(set.begin(), set.end())); // no such paint: as stored

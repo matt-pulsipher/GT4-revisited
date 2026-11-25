@@ -6,6 +6,7 @@
 // docs/formats/model.md "Wheels as the game places them", "A car in a race".
 
 #include "gt4r/base/types.h"
+#include "gt4r/race/car_light.h"
 #include "gt4r/race/car_spec.h"
 #include "gt4r/race/drive_camera.h"
 #include "gt4r/race/driver_figure.h"
@@ -89,8 +90,8 @@ public:
     bool add_mirror_items(std::vector<render::DrawItem>& items, const CarState& s, const render::Vec3& eye) const;
     // That mirror (course space to course space).
     bool road_mirror(const CarState& s, render::Mat4& out) const;
-    // `light`: how strong the shadow the light throws is, of its strength in the open.
-    void add_shadow_items(std::vector<render::DrawItem>& items, const CarState& s, float light = 1) const;
+    // `light`: the light it stands in (null: the course's, in full).
+    void add_shadow_items(std::vector<render::DrawItem>& items, const CarState& s, const CarLight* light = nullptr) const;
 
     // The model's frame in course space for a state: the body as drawn.
     render::Mat4 body_matrix(const CarState& s) const;
@@ -119,7 +120,7 @@ public:
 private:
     void build_gt3(ByteSpan car_file, const Options& opt, const std::string& name); // car_visual_prologue.cpp
     // A model to the GPU now, or kept for upload() when made by make_unuploaded.
-    void to_gpu(std::unique_ptr<render::GpuModel>& slot, const gt3r::scene::Model& m);
+    void to_gpu(std::unique_ptr<render::GpuModel>& slot, gt3r::scene::Model m);
     std::vector<std::pair<std::unique_ptr<render::GpuModel>*, gt3r::scene::Model>> unuploaded_;
     CarSpec spec_;
     std::array<std::unique_ptr<render::GpuModel>, 2> body_;        // [brake lamps lit]

@@ -149,7 +149,8 @@ private:
             // The program's own picture of the tachometer (its address in Gran Turismo 4 US: a
             // Tex1 there, else none).
             if (Disc* disc = app_.disc()) {
-                const gt3r::CoreImage core = gt3r::CoreImage::decode(disc->read_program());
+                const std::shared_ptr<const gt3r::CoreImage> image = disc->program_image();
+                const gt3r::CoreImage& core = *image;
                 constexpr u32 kTachometer = 0x68C080;
                 if (kTachometer >= core.load_address && kTachometer - core.load_address + 0x40 < core.program.size()) {
                     const ByteSpan at = ByteSpan(core.program).subspan(kTachometer - core.load_address);

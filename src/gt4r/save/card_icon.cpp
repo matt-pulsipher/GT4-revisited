@@ -45,12 +45,12 @@ std::optional<std::vector<u32>> icon_picture(ByteSpan icon) {
     }
     std::vector<u16> pixels;
     pixels.reserve(kSide * kSide);
-    if (texture & 8) { // packed: a count and one pixel repeated, or (0xFF00 up) 0x10000 - count pixels as they are
+    if (texture & 8) { // packed: a count and one pixel repeated, or (negative) minus that count of pixels as they are
         const u32 length = r.get(4);
         const size_t end = r.at + length;
         while (r.good && r.at < end && pixels.size() < kSide * kSide) {
             const u32 code = r.get(2);
-            if (code >= 0xFF00)
+            if (code >= 0x8000)
                 for (u32 n = 0x10000 - code; n && r.good; --n) pixels.push_back(u16(r.get(2)));
             else pixels.insert(pixels.end(), code, u16(r.get(2)));
         }

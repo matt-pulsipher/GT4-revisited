@@ -23,7 +23,7 @@ std::string text_at(const Bytes& b, size_t at) {
 
 std::optional<ReplayParticulars> decode_particulars(ByteSpan file) {
     if (file.size() != scrambled_size(kPayload)) return std::nullopt;
-    const std::optional<Bytes> b = unscramble(file, 0, FileKind::Particulars);
+    const std::optional<Bytes> b = unscramble(file, 0, FileKind::Info);
     if (!b || b->size() < kPayload) return std::nullopt;
     ReplayParticulars p;
     p.car = u64(rd32(*b, 0)) | u64(rd32(*b, 4)) << 32, p.course = u64(rd32(*b, 8)) | u64(rd32(*b, 12)) << 32;
@@ -37,12 +37,12 @@ std::optional<ReplayParticulars> decode_particulars(ByteSpan file) {
 
 std::optional<Bytes> rename_particulars(ByteSpan file, const std::string& title) {
     if (file.size() != scrambled_size(kPayload)) return std::nullopt;
-    std::optional<Bytes> b = unscramble(file, 0, FileKind::Particulars);
+    std::optional<Bytes> b = unscramble(file, 0, FileKind::Info);
     if (!b) return std::nullopt;
     const size_t n = std::min(title.size(), kText - 1);
     std::memset(b->data() + 0x10, 0, kText);
     std::memcpy(b->data() + 0x10, title.data(), n);
-    return scramble(*b, 0, u32(b->size()) * 0x9E3779B9u ^ crc32(*b), FileKind::Particulars);
+    return scramble(*b, 0, u32(b->size()) * 0x9E3779B9u ^ crc32(*b), FileKind::Info);
 }
 
 } // namespace gt4r::save

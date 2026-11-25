@@ -252,7 +252,7 @@ TEST(menu_replay_particulars) {
     put(0, 444), put(8, 169), put(12, 34), put(0xD0, 11166), put(0xE0, 1), put(0xE4, 1);
     std::memcpy(p.data() + 0x10, "A run", 5), std::memcpy(p.data() + 0x50, "somewhere", 9), std::memcpy(p.data() + 0x90, "A car", 5);
     p[0xD8] = 4, p[0xD9] = 1;
-    const Bytes file = save::scramble(p, 0, 0x12345678, save::FileKind::Particulars);
+    const Bytes file = save::scramble(p, 0, 0x12345678, save::FileKind::Info);
     CHECK(file.size() == 256 && !save::unscramble(file, 0, save::FileKind::Replay) && !save::decode_particulars(ByteSpan(file).first(192)));
     const std::optional<save::ReplayParticulars> a = save::decode_particulars(file);
     CHECK(a && a->car == 444 && a->course == (u64(34) << 32 | 169) && a->title == "A run" && a->course_label == "somewhere" && a->time_ms == 11166);

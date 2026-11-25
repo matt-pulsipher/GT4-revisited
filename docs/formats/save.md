@@ -123,7 +123,7 @@ console's card and its dialogs instead, as the original shows them: `GT4R_MENU c
   from those last saved or loaded (where the menus stand left out); Gran Turismo 4's option Autosave is kept (off: only the
   scripts' own saves, the car's change), Prologue has none. The program's own (`doAutoSave` on the map, isNeedSave) runs too.
 
-## The game's other saves (🔎 read, not written: the Replay Theater lists them beside the race's own replay files)
+## The game's other saves (photos and the slide show's list: [photo.md](photo.md); 🔎 the others are read, not written as a card's: the Replay Theater lists them beside the race's own replay files)
 
 The card manager's modes (0x179570's table) name the other kinds of save: `MODE_LOAD_REPLAY`,
 `MODE_SAVE_FULL_REPLAY`, `MODE_LOAD_BESTLAP_REPLAY`, `MODE_SAVE_BESTLAP_REPLAY`, the photo
@@ -161,6 +161,7 @@ test 1 written by the running original reads as its list shows it.
 
 `date` is the card's own date of the file, the year of the century, the month and the day (0x1CC1C8). `writeInfo` writes the
 particulars again with the new title.
+The replay's own layout: replay.md ("The file", "A replay of ours", its folder on a card).
 
 ### The icon's picture
 

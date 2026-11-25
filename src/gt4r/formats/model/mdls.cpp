@@ -278,8 +278,8 @@ bool rewrite_packet(ByteSpan packet, float scale, bool packed_shape, float color
             packed |= u.vl != 0 || packed_shape;
             known = place(pos, 0x00, u, scale, row, packed_shape);
         } else if (a >= 0x40 && a < 0x80 && u.vn == 1) {
-            packed |= u.vl != 0;
-            known = place(uv, 0x40, u, kUvScale, row);
+            packed |= u.vl != 0 || packed_shape;
+            known = place(uv, 0x40, u, kUvScale, row, packed_shape);
         } else if (a >= 0x40 && a < 0x80 && u.vn == 2) {
             packed |= u.vl != 0;
             known = place(env, 0x40, u, kNormalScale, row);
@@ -489,6 +489,11 @@ Bytes to_gtm1(ByteSpan mdls, ConvertStats* stats, const Scene& scene) {
     // The tables GTM1 keeps apart: the programs' offsets, a sphere per model (the model record's
     // centre and radius) and the shapes' offsets.
     while (out.size() & 15) out.push_back(0);
+    if (some && scene.others_empty) { // (a program of its end alone)
+        for (u32 i = 0; i < h.models; ++i)
+            if (!wanted[i]) programs[i] = u32(out.size());
+        out.resize(out.size() + 16, 0);
+    }
     const size_t node_tab = out.size();
     out.resize(node_tab + 4 * size_t(h.models), 0);
     for (u32 i = 0; i < h.models; ++i) put32(out, node_tab + 4 * size_t(i), programs[i]);

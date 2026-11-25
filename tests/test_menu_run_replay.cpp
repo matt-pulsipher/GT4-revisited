@@ -80,8 +80,7 @@ TEST(disc_menu_replay_theater) {
     CHECK(f.clean());
 }
 
-// The Demo tab: its list, a demo chosen and played. ❓ The race side does not play a disc's replay yet, so the theater comes
-// back instead of a race.
+// The Demo tab: its list, a demo chosen and played: the race side shows the disc's recorded race, then the theater comes back.
 TEST(disc_menu_replay_theater_demo) {
     Disc* disc = gt4_disc();
     if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
@@ -101,10 +100,9 @@ TEST(disc_menu_replay_theater_demo) {
     CHECK(f.focus() == "Play");
     f.press({menu::Key::Accept});
     CHECK(f.rt->finished() && f.rt->game().replay_file == "replay/Rdemo1/Rdemo1");
-    CHECK(!f.rt->race_request());
-    CHECK(f.rt->advance());
-    f.rt->settle();
-    CHECK(f.page() == "ReplayTheaterRoot" && f.clean());
+    const std::optional<menu::RaceRequest> race = f.rt->race_request();
+    CHECK(race && race->sequence == "replay" && race->replay_file == "replay/Rdemo1/Rdemo1");
+    CHECK(f.clean());
 }
 
 // Save Replay: the race's menus open labomode on its save page, the run as the list's new file; its title is the mode's name
