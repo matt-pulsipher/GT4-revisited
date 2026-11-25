@@ -315,3 +315,16 @@ TEST(disc_prologue_pass_codes_equal) {
     if (!disc) SKIP("no Prologue disc");
     CHECK(diff::prologue::run_passcode(*disc, 64));
 }
+
+// Phase 14 (0x3DC1C8) in a race of three cars, the program's own computer drivers driving two: the cars' slipstream (and
+// every other field but the drivers' zone cells and contact) equal to the engine's pairs pass, which the session runs.
+TEST(disc_prologue_pairs_pass_equal) {
+    Disc* disc = prologue_disc();
+    if (!disc) SKIP("no Prologue disc");
+    const diff::prologue::NearStats s = diff::prologue::near_check(*disc, "L_fisco6", "impreza_wrc_03,impreza_wrc_03,impreza_wrc_03", 2000, false);
+    std::printf("  %llu car records, %llu equal, %llu with a slipstream\n", (unsigned long long)s.records, (unsigned long long)s.clean,
+                (unsigned long long)s.with_slip);
+    CHECK(s.err.empty());
+    CHECK(s.records == 6000 && s.clean == s.records);
+    CHECK(s.with_slip > 0);
+}

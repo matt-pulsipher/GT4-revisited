@@ -779,7 +779,8 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
         for (size_t i = 0; i < cars_.size(); ++i) near[i] = {&cars_[i], &gx_[i].near};
         rules::proximity(near, pairs_, F(road_->length), 0);
         for (size_t i = 0; i < cars_.size(); ++i) rules::speed_part(cars_[i], gx_[i].near, gx_[i].body.speed_part_kind, gx_[i].chassis.speed_part_state);
-    }
+    } else if (prologue_)
+        ex::proximity(cars_, prologue_near_); // phase 14 (Prologue's 0x3DC1C8: Gran Turismo 3's 0x1EC098 in another layout)
     for (size_t i = 0; i < cars_.size(); ++i) {
         ex::Car& c = cars_[i];
         chassis(i);

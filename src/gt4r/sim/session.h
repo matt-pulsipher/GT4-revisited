@@ -217,6 +217,7 @@ private:
     std::vector<prologue::FeelPart> prologue_feel_; // (phase 19's bookkeeping and feel, feel_prologue.h)
     rules::FeelTables prologue_feel_tables_;
     rules::SlideTables prologue_slide_;
+    gt3r::sim::exact::Proximity prologue_near_{}; // (phase 14's tables of the cars' pairs)
     std::unique_ptr<prologue::Collision> prologue_collide_;
     prologue::AidTables prologue_aids_;
     std::vector<prologue::Collision::Contact> prologue_contacts_;

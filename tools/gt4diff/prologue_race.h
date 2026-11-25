@@ -58,6 +58,13 @@ bool aids_from_env();
 bool run_save_layout(Disc& disc);
 // The pass codes (prologue_passcode.cpp): the program's 0x1A31A0 against ours on `count` sets of fields; true when all equal.
 bool run_passcode(Disc& disc, int count);
+// Phase 14 (prologue_near.cpp) in a race of `cars` (labels, comma-separated) against the engine's pairs pass.
+int run_near(Disc& disc, const std::string& course, const std::string& cars, int steps);
+struct NearStats {
+    u64 records = 0, clean = 0, with_slip = 0; // car records compared; those equal but for the drivers' zones and contact; those with a slipstream
+    std::string err;
+};
+NearStats near_check(Disc& disc, const std::string& course, const std::string& cars, int steps, bool print);
 // One race step of the program's own (0x3B7020) for every car.
 void step(Ee& ee, Race& r);
 
