@@ -820,6 +820,7 @@ F Field::hold_speed(const Driver& d, F vt) const {
 void Field::set_kind(Driver& d, int kind) {
     const int was = d.kind;
     d.kind = kind;
+    if (prologue_stop_) return; // (Prologue counts none)
     if (kind == 6 || (kind < 7 && kind == 5 && was != 4)) d.stop_count = 120;
 }
 
@@ -844,6 +845,10 @@ void Field::stop(Driver& d, F steer) {
     }
     if (d.kind != 6) {
         d.brake = k::half;
+        return;
+    }
+    if (prologue_stop_) { // (Prologue's 0x425BB0)
+        d.brake = F::raw(0x3E4CCCCC);
         return;
     }
     if (d.stop_count == 0) {
@@ -1210,6 +1215,7 @@ void Field::decide(Driver& d) {
     }
     if (holding) d.throttle = kept;
     if (d.kind == 7) return stop(d, F());
+    if (d.kind == 8) return steer_to(d, F()), void(d.throttle = F()); // (parked: 0x3F3400, Prologue's 0x425CD8)
     if (d.line < 0) return;
     const F scale = braking(d);
     const bool hit_front = d.hit_front, hit_rear = d.hit_rear;

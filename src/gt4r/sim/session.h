@@ -171,6 +171,8 @@ public:
     bool gt4_rules() const { return gt4_rules_; }
     // Whether the session runs Gran Turismo 4 Prologue's own step (its program recognized; rules_prologue.h).
     bool prologue_rules() const { return prologue_.has_value(); }
+    // The driver's kind F +0x467 (Prologue's +0x538) as its driver has it after the car's run (ai::Field::kind; 8 parked).
+    void set_driver_kind(size_t i, u8 kind) { cars_[i].driver_kind = kind; }
     // A car's Gran Turismo 4 part of the record (record.h) and wheel layout.
     const sim::Extra& gt4_record(size_t i) const { return gx_[i]; }
     // The steering wheel's force of the last step (the pad block's +0x02: 0x80 centered, 0x80 - the force (-1 .. 1) x 127;

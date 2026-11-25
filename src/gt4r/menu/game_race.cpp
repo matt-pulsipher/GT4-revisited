@@ -273,7 +273,7 @@ void start_quick_work(Runtime& rt, const RaceRequest& q) {
         }
     }
     if (q.sequence == "machinetest") w.set("DisableLogger", 1); // 0x116124
-    if (q.sequence == "license_race") w.set("BestTime", s32(QuickWork::kNoTime)); // ❓ (Prologue's constructor is not read: dashes, as before)
+    if (q.sequence == "license_race") w.set("BestTime", s32(QuickWork::kNoTime)), w.set("canLoadGhost", 1); // ❓ (Prologue's constructor is not read: dashes, as before; ✔ its card icon is lit on lessons 1 and 2)
     if (q.sequence == "license") {
         // Tests 5, 10 and 15 of B, A, IB and IA run in 0x114E38 (its fill 0x115310: no ghost to load, no Analyzer), the others
         // in 0x11CB38 (0x11D340: a ghost to load unless the RACE row's byte +0x75 is set; ❓ the Analyzer's two other cases,

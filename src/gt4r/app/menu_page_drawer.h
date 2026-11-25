@@ -66,7 +66,7 @@ inline std::array<menu::TextColor, 4> program_button_colors(App& app) {
 class PageDrawer {
 public:
     explicit PageDrawer(App& app) : r_(app.renderer()), vfs_(app.vfs()) {
-        for (const char* path : {"font/system.fnt", "font/menu.fnt"}) {
+        for (const char* path : {"font/system.fnt", "font/menu.fnt", "font/race.fnt"}) { // (the last Prologue's alone)
             const std::optional<Bytes> file = app.vfs()->read(path);
             if (!file) continue;
             try {
@@ -449,7 +449,8 @@ private:
         if (const size_t hash = name.find('#'); hash != std::string::npos) {
             if (variant) *variant = name.compare(hash, 2, "#0") == 0 ? gt3r::text::FontVariant::Outlined : gt3r::text::FontVariant::Plain;
             name.resize(hash);
-        }
+        } else if (variant && name.rfind("FC_", 0) == 0)
+            *variant = gt3r::text::FontVariant::Outlined; // (Prologue's race.fnt; ✔ the lesson page's times)
         auto it = fonts_.find(name);
         if (it == fonts_.end()) it = fonts_.find("hm_16");
         if (it == fonts_.end()) it = fonts_.find("sw_16");

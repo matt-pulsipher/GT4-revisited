@@ -209,6 +209,7 @@ void RaceWorld::build_simulation() {
     field_.reset();
     session_.reset(), rail_.reset();
     starts_.assign(setup_.entries.size(), {});
+    ended_.clear();
     if (!start_course_) start_course_ = std::make_unique<race::StartCourse>(course_->road(), course_->section(course::kSlotRunway), race::course_start(*app_.db(), setup_.course).way);
     start_course_->set_race(setup_.conductor, setup_.event_row, setup_.section);
     if (!setup_.rail && app_.disc()) {
@@ -223,7 +224,7 @@ void RaceWorld::build_simulation() {
                 else if (!sim::stock_car(*app_.db(), program, we.label, entries[i].equipment)) throw std::runtime_error("no parts for " + we.label);
                 entries[i].condition = we.condition;
                 entries[i].grid_place = we.grid_place;
-                entries[i].automatic = we.automatic;
+                entries[i].automatic = we.automatic, entries[i].pedal_style = we.pedal_style;
                 entries[i].asm_on = we.asm_on, entries[i].tcs_on = we.tcs_on, entries[i].wheel_aid = we.wheel_aid;
                 entries[i].driver = we.driver;
                 entries[i].control = i > 0 ? 2 : computer_player_ ? 1 : 0;
@@ -275,6 +276,7 @@ void RaceWorld::build_simulation() {
             if (!computer.empty()) {
                 try {
                     field_ = sim::ai::Field::open(*app_.disc(), setup_.course, *session_, computer, setup_.pace);
+                    field_->set_prologue_stop(session_->prologue_rules());
                     // B-spec: the player's car's driver takes his commands.
                     if (computer_player_) {
                         field_->set_bspec(0);
@@ -332,7 +334,7 @@ void RaceWorld::plan_starts(const sim::Program& program, std::vector<sim::Entry>
     // The driving lines, when a car may start on one (the drivers' own need the session).
     bool on_line = start_course_->may_need_lines(entries.size());
     for (size_t i = 0; i < entries.size(); ++i) on_line = on_line || (i < overrides_.size() && overrides_[i] ? *overrides_[i] : setup_.entries[i]).start_speed > 0;
-    if (on_line && !start_course_->has_lines() && !road.gtrw && app_.disc())
+    if (on_line && !start_course_->has_lines() && app_.disc())
         if (const std::optional<course::AiData> data = sim::ai::Field::read(*app_.disc(), setup_.course)) start_course_->add_lines(*data, sim::ai::Tables::load(program));
     starts_.clear();
     for (size_t i = 0; i < entries.size(); ++i) {
@@ -340,7 +342,7 @@ void RaceWorld::plan_starts(const sim::Program& program, std::vector<sim::Entry>
         std::optional<race::CarStart> rolling;
         if (we.start_speed > 0 && !std::isnan(we.start_distance)) { // a single race's rolling start (0x347618)
             rolling.emplace();
-            rolling->kind = we.start_kind ? we.start_kind : we.start_distance < 0 ? 2 : 1;
+            rolling->kind = we.start_kind ? we.start_kind : we.start_distance < 0 ? 2 : road.gtrw && we.start_distance == 0 ? 0 : 1; // (Prologue: at the line the grid)
             rolling->distance = int(we.start_distance), rolling->speed = int(std::lround(we.start_speed * 3.6f));
         }
         starts_.push_back(race::plan_start(r, i, we.grid_place >= 0 ? we.grid_place : int(i), rolling));
@@ -357,7 +359,16 @@ int RaceWorld::start_crossings(size_t car) const {
 
 // The line each car's driver starts on, and the cars their drivers hold in a rolling start.
 void RaceWorld::first_lines(const sim::Program& program) {
-    if (!program.known() || !field_ || course_->road().gtrw) return;
+    if (!field_) return;
+    if (course_->road().gtrw) { // (Prologue, 0x3C93A0: the main line up to the line, else the player's line 7)
+        for (size_t i = 0; i < starts_.size(); ++i) {
+            if (!starts_[i].line) continue;
+            field_->start_line(i, starts_[i].start.kind >= 2 || i > 0 ? sim::ai::CourseLines::kMain : 7);
+            if (starts_[i].start.kind == 2) field_->hold_rolling(i);
+        }
+        return;
+    }
+    if (!program.known()) return;
     for (size_t i = 0; i < starts_.size(); ++i) {
         const WorldEntry& we = i < overrides_.size() && overrides_[i] ? *overrides_[i] : setup_.entries[i];
         field_->start_line(i, race::first_line(start_course_->race(), starts_[i], i == 0 && !computer_player_, we.grid_place >= 0 ? we.grid_place : int(i), program));
@@ -410,6 +421,8 @@ void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool pla
         }
         inputs = capped;
     }
+    for (size_t i = 0; field_ && session_ && i < ended_.size(); ++i)
+        if (ended_[i]) session_->set_driver_kind(i, u8(field_->kind(i)));
     if (field_ && session_) // (each driver deciding within the step; the player's own input kept once he drives)
         field_->step(*session_, driven, computer_player_ && !player_by_computer ? 0 : -1, hold ? std::max(1u, hold_left) : 0);
     else if (hold && session_) session_->hold_once(inputs);

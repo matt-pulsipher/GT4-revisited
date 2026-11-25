@@ -251,6 +251,8 @@ public:
     // passes its configuration's +0xCBDE when that is 1 and no mode is asked.)
     // The driver's kind after it (8: stopped) is the session's to hold the car by (its clutch open).
     void finish(size_t car, int mode, bool player_car = false);
+    // Prologue's way of stopping (0x425BB0): kind 6 brakes at 0.2 from the first, any other at half; nothing is counted.
+    void set_prologue_stop(bool on) { prologue_stop_ = on; }
     int kind(size_t car) const;
     // The car's control source as the drivers keep it (F +0x466: 2 the computer, 1 B-spec, 0 the pad; -1 not driven).
     int control(size_t car) const;
@@ -401,6 +403,7 @@ private:
 
     std::unique_ptr<SessionCars> own_cars_;
     const Cars* session_;
+    bool prologue_stop_ = false;
     Tables tables_;
     CourseLines lines_;
     Pace pace_;
