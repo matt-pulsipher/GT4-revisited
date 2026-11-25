@@ -698,7 +698,8 @@ shared engine's GT3 drivers. What is still not the program's:
 | `course_lines.cpp` `prepare` | the road's heights under the lines in host floats (last bits) | the road query 0x3E5A30 in EE floats (sim's `RoadGround`) |
 | `drivers.cpp` the start's hold for missions 25–34 | judged: held on the line until the race clock passes the delay | not found |
 | `grid.cpp` the paint draw | our generator | the race's generator 0x621AE8 |
-| `pit_stops.cpp` | the car held in its box by braking, not placed | 0x363560 and phase 4's hold (sim-step) |
+| `pit_stops.cpp` | the car held in its box by braking, not placed | 0x363560 and phase 4's hold: sim-step's `Session::place_standing` / `set_pit_hold` (a4f2526, not on master yet; who runs 0x35C0B8 being agreed) |
+| the steering's active aid | the line's heading per car for sim-step's 0x84357C | `Field::line_heading_at` → `Session::set_line_heading` each step after `drive()` (the race screen) |
 | `demo_driver.cpp` `pad_input` | the recorded pad record mapped onto `CarInput` (steer, pedals, shift) until the session reads the record itself | the input phase 0x349FD0 on the record (sim-step) |
 | `Field::shift_factor` | not applied in the session's gearbox | 0x3F1E30 (control source 1) |
 | B-spec skill | ported, not wired: the save's record and the car's P +0xFE0 | 0x468C50 (✔), 0x3F86E8 (sim-parts) |
