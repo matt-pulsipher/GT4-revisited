@@ -116,16 +116,18 @@ DemonstrationRun run_demonstration(Disc& disc, db::SpecDb& sdb, const std::strin
         if (ad) {
             zone = pit_zone(*lines);
             sim::ai::Pace pace = sim::ai::pace_for(*ev);
+            pace.start_speed = rolling ? rr.start_speed[0] : 0;
             std::vector<size_t> cars(entries.size());
             for (size_t i = 0; i < cars.size(); ++i) cars[i] = i;
             field = std::make_unique<sim::ai::Field>(session, *ad, program, cars, pace);
             field->set_shadow(0);
             for (size_t i : cars) session.set_driver_aids(i, field->params(i).aids, field->params(i).grip);
-            for (size_t i : cars)
-                if (planned[i].line) {
-                    field->start_line(i, planned[i].start.kind >= 2 ? sim::ai::CourseLines::kMain : i == 0 ? 7 : sim::ai::CourseLines::kMain);
-                    if (planned[i].start.kind == 2) field->hold_rolling(i);
-                }
+            for (size_t i : cars) {
+                const int kind = planned[i].line ? planned[i].start.kind : 0;
+                if (kind >= 2 && kind <= 5) field->start_line(i, sim::ai::CourseLines::kMain);
+                else field->start_grid_line(i, entries[i].grid_place);
+                if (kind == 2) field->hold_rolling(i);
+            }
         }
 
         std::vector<float> splits = road_list(section, 0);

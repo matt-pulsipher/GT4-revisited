@@ -892,6 +892,14 @@ void Session::step_once(std::span<const race::CarInput> inputs, const Decider& d
         // requested down to idle. (Under the start's hold and the hold counter the program leaves it as it was: ours 0.)
         auto computer_clutch = [&] {
             const F one = gt3r::ee::F::raw(0x3F800000);
+            if (prologue_) { // (0x3E8C98)
+                c.handbrake = c.driver_kind == 8 ? one : F(); // (0x3DED98)
+                if (c.p.d.kind == 3) rules::hybrid_clutch_request(c);
+                else if (c.race_hold != 0 || c.hold != 0 || c.driver_kind == 8) c.clutch_req = F();
+                else if (c.clutch == 0) c.clutch_req = 3 * s32(c.p.d.up_rpm) / 4 < s32(c.rpm) ? one : F();
+                else c.clutch_req = s32(c.rpm) < s32(c.p.e.idle) ? F() : one;
+                return;
+            }
             if (c.race_hold != 0 || c.hold != 0 || c.driver_kind == 8) c.clutch_req = F();
             else if (!gt4_rules_) c.clutch_req = one;
             else if (c.clutch == 0) c.clutch_req = s32(c.rpm) > ((s32(gx_[i].drive.d.up_rpm) * 3) >> 2) ? one : F();
@@ -959,7 +967,7 @@ void Session::step_once(std::span<const race::CarInput> inputs, const Decider& d
         // steering command directly), within the full lock, past the pad's lock curve (no later phase reads the bounds).
         if (!std::isnan(in.steer_angle)) {
             const gt3r::ee::F lock = c.p.max_lock;
-            c.steer_cmd = gt3r::ee::F(std::clamp(in.steer_angle, -lock.host(), lock.host()));
+            c.steer_cmd = prologue_ ? F(in.steer_angle) : F(std::clamp(in.steer_angle, -lock.host(), lock.host())); // (Prologue's: as it is)
             // (F +0x45C as the computer's path of 0x349FD0 makes it of the command 0x464F38 wrote)
             if (gt4_rules_) gx_[i].input.steer_view = rules::steer_unit(c.steer_cmd) * F::raw(0x3F2AACD9);
         }

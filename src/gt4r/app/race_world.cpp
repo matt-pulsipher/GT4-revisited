@@ -276,8 +276,10 @@ void RaceWorld::build_simulation() {
             field_.reset(), pits_.reset(), bspec_driven_ = false;
             if (!computer.empty()) {
                 try {
-                    field_ = sim::ai::Field::open(*app_.disc(), setup_.course, *session_, computer, setup_.pace);
-                    field_->set_prologue_stop(session_->prologue_rules());
+                    sim::ai::Pace pace = setup_.pace;
+                    const WorldEntry& first = !overrides_.empty() && overrides_[0] ? *overrides_[0] : setup_.entries[0];
+                    pace.start_speed = u8(std::lround(std::clamp(first.start_speed * 3.6f, 0.0f, 255.0f)));
+                    field_ = sim::ai::Field::open(*app_.disc(), setup_.course, *session_, computer, pace);
                     // B-spec: the player's car's driver takes his commands.
                     if (computer_player_) {
                         field_->set_bspec(0);
@@ -361,11 +363,13 @@ int RaceWorld::start_crossings(size_t car) const {
 // The line each car's driver starts on, and the cars their drivers hold in a rolling start.
 void RaceWorld::first_lines(const sim::Program& program) {
     if (!field_) return;
-    if (course_->road().gtrw) { // (Prologue, 0x3C93A0: the main line up to the line, else the player's line 7)
+    if (course_->road().gtrw) { // (Prologue, 0x3C93A0: kinds 2 .. 5 the main line, else by the grid place)
         for (size_t i = 0; i < starts_.size(); ++i) {
-            if (!starts_[i].line) continue;
-            field_->start_line(i, starts_[i].start.kind >= 2 || i > 0 ? sim::ai::CourseLines::kMain : 7);
-            if (starts_[i].start.kind == 2) field_->hold_rolling(i);
+            const WorldEntry& we = i < overrides_.size() && overrides_[i] ? *overrides_[i] : setup_.entries[i];
+            const int kind = starts_[i].line ? starts_[i].start.kind : 0;
+            if (kind >= 2 && kind <= 5) field_->start_line(i, sim::ai::CourseLines::kMain);
+            else field_->start_grid_line(i, we.grid_place >= 0 ? we.grid_place : int(i));
+            if (kind == 2) field_->hold_rolling(i);
         }
         return;
     }
