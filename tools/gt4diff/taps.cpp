@@ -129,6 +129,13 @@ void Taps::leave(u32 ra) {
         if (std::memcmp(theirs, mine, s.size) == 0) continue;
         bool skipped = false;
         for (const std::string& k : skip) skipped = skipped || s.name.compare(0, k.size(), k) == 0;
+        // (car +0x788 .. +0x78F is a category 1 car's mood state, phases.special: other cars keep their own state there, the
+        // hybrid's and layout 7's motors', placed under their own names)
+        if (p.before.params.size() > 0x32) {
+            const bool moods = p.before.params[0x32] == 1;
+            if (s.name.rfind("phases.special", 0) == 0 && !moods) skipped = true;
+            if ((s.name.rfind("hybrid.", 0) == 0 || s.name.rfind("motors.", 0) == 0) && moods) skipped = true;
+        }
         if (skipped) continue;
         double a = 0, b = 0;
         if (s.real) {

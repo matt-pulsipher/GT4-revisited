@@ -7,12 +7,22 @@
 
 #include "gt4r/formats/course/runway.h"
 
+#include <array>
 #include <cmath>
 #include <span>
 
 namespace gt4r::race {
 
 using course::Vec3;
+
+// A recorded pad frame: Gran Turismo 4's own 32 bytes as the recorder (0x345D70) hands them to the input phase (+0 flags:
+// bit 0 the steering analog, 1 the throttle, 2 the brake, 3 the back axis, 4 the third axis; +1 the controller's kind (0
+// digital, 2, 3 a DualShock's stick, 4 and 6 wheels); +2 s8 the shift; +3 the count of button bytes; +4 s16 the steering
+// (+ left, +-4096); +7 u8; +8 the throttle, +0xA the brake, +0xC the back axis, +0xE the third axis; +0x10 .. the button
+// bytes).
+struct PadRecord {
+    std::array<u8, 32> bytes{};
+};
 
 // What a driver asks of a car in a step: the player's pad, or a computer driver's decision.
 struct CarInput {
@@ -27,6 +37,8 @@ struct CarInput {
     // they are, the pad's path not run; shift_lock holds the gearbox that many steps.
     bool computer = false;
     u8 shift_lock = 0;
+    const PadRecord* pad = nullptr; // a recorded pad frame (a demonstration or a replay): the input phase reads it instead of building one from the fields above
+    u8 control = 2; // a computer's car: 2, the B-spec car 1 (F +0x466)
 };
 
 struct WheelState {
@@ -64,6 +76,7 @@ struct CarState {
     u8 contact_kind = 0;
     int contact_car = -1;
     bool landed = false;
+    bool rolling = false; // held in its rolling start (F + 0x467 = 1) until the simulation lets it go (release_start)
 };
 
 // One session's cars. Car 0.. in grid order; `inputs` has one entry per car (a car whose
@@ -73,6 +86,8 @@ public:
     virtual ~Simulation() = default;
     virtual void step(std::span<const CarInput> inputs, float dt) = 0;
     virtual std::span<const CarState> cars() const = 0;
+    // A car held in its rolling start let go (the single-player conductor's virtual 20 (+0xA0): 0x345228).
+    virtual void release_start(int car) {}
 };
 
 } // namespace gt4r::race

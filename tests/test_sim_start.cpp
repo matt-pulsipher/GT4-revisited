@@ -86,11 +86,91 @@ TEST(sim_disc_rolling_start) {
         CHECK(std::fabs(std::hypot(a.x - b.x, a.z - b.z) - 20.0f) < 3.0f);
         CHECK(s.cars()[size_t(i - 1)].forward.x * s.cars()[size_t(i)].forward.x + s.cars()[size_t(i - 1)].forward.z * s.cars()[size_t(i)].forward.z > 0.9f);
     }
-    // Driven on at full throttle, the cars keep their speed.
+    // Held in the rolling start (F + 0x467 = 1): driven on at full throttle, the cars keep the start's speed (the rolling
+    // start's pace, 0x3F7880, well before the line).
+    for (int i = 0; i < 6; ++i) CHECK(s.cars()[size_t(i)].rolling && s.record(size_t(i)).driver_kind == 1);
     std::vector<race::CarInput> in(6);
     for (race::CarInput& i : in) i.throttle = 1;
-    for (int k = 0; k < 60; ++k) s.step_once(in);
-    for (const race::CarState& c : s.cars()) CHECK(c.speed > 20.0f && c.up.y > 0.9f);
+    for (int k = 0; k < 120; ++k) s.step_once(in);
+    // (the Daihatsu Midget II short of it on the climb)
+    for (const race::CarState& c : s.cars()) CHECK(c.speed > 15.0f && c.speed < 80.0f / 3.6f + 1.0f && c.up.y > 0.9f);
+    // Let go (the conductor's virtual 20, 0x347928): the input is the driver's own again, the pace no longer caps.
+    for (int i = 0; i < 6; ++i) s.release_start(i);
+    for (int i = 0; i < 6; ++i) CHECK(!s.cars()[size_t(i)].rolling && s.record(size_t(i)).driver_kind == 0);
+    for (int k = 0; k < 30; ++k) s.step_once(in);
+    for (const race::CarState& c : s.cars()) CHECK(c.speed > 15.0f);
+}
+
+namespace {
+
+// Grand Canyon's standing start: the Ford Ka on the second place, the Volkswagen Beetle on pole, the Ka without aids.
+std::unique_ptr<sim::Session> canyon_start(Disc& disc, db::SpecDb& sdb, const sim::Program& program) {
+    const std::shared_ptr<const course::Runway> road = open_road(disc, "grandcanyon");
+    if (!road) return nullptr;
+    std::vector<sim::Entry> e(2);
+    if (!sim::stock_car(sdb, program, "ka_01", e[0].equipment) || !sim::stock_car(sdb, program, "_1100_standard_type11_49", e[1].equipment)) return nullptr;
+    e[0].grid_place = 1, e[1].grid_place = 0;
+    e[0].asm_on = e[0].tcs_on = false;
+    return std::make_unique<sim::Session>(sdb, program, road, e);
+}
+
+} // namespace
+
+TEST(sim_disc_start_countdown) {
+    Disc* disc = full_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    db::SpecDb sdb = open_db(*disc);
+    const sim::Program program = sim::Program::load(*disc);
+    std::unique_ptr<sim::Session> s = canyon_start(*disc, sdb, program);
+    CHECK(s != nullptr);
+    if (!s) return;
+    // Set up on the grid (0x363B10) and held through the countdown's last two seconds: at rest, in first gear at idle,
+    // held by the countdown (F + 0x4BC) and not by the hold counter, the session's time at 0.
+    const auto& ka = s->record(0);
+    CHECK(ka.race_hold == 1 && ka.hold == 0 && ka.gear == 1 && ka.clutch == 0);
+    CHECK(std::fabs(ka.speed.host()) < 0.02f && ka.rpm > 600 && ka.rpm < 1000);
+    CHECK(s->time() == 0.0);
+    CHECK(s->gt4_record(0).input.wheel_type == 1 && ka.best_lap == 0x157529FF && ka.rank == 1);
+    // A countdown of 90 steps with the throttle held: the engine revs, the car stays, the time stands.
+    const gt3r::sim::exact::Vec3 at = ka.pos;
+    std::vector<race::CarInput> in(2);
+    in[0].throttle = 1;
+    s->set_countdown(90);
+    for (int k = 0; k < 90; ++k) s->step_once(in);
+    CHECK(s->countdown() == 0 && s->time() == 0.0 && ka.race_hold == 1);
+    CHECK(ka.rpm > 4000 && std::fabs(ka.pos.x.host() - at.x.host()) < 0.001f && std::fabs(ka.pos.y.host() - at.y.host()) < 0.001f);
+    // START: both cars away.
+    for (int k = 0; k < 120; ++k) s->step_once(in);
+    CHECK(ka.race_hold == 0 && s->time() > 1.9 && ka.speed.host() > 1.0f);
+}
+
+TEST(sim_disc_start_pit_hold_and_place) {
+    Disc* disc = full_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    db::SpecDb sdb = open_db(*disc);
+    const sim::Program program = sim::Program::load(*disc);
+    std::unique_ptr<sim::Session> s = canyon_start(*disc, sdb, program);
+    CHECK(s != nullptr);
+    if (!s) return;
+    // The hold counter (F + 0x4BA) of a pit start: 120 steps; the car stays under the throttle while it runs down.
+    std::vector<race::CarInput> in(2);
+    in[0].throttle = 1;
+    s->set_pit_hold(0, 120);
+    const auto& ka = s->record(0);
+    for (int k = 0; k < 119; ++k) {
+        s->step_once(in);
+        CHECK(ka.speed.host() < 0.5f);
+    }
+    for (int k = 0; k < 2; ++k) s->step_once(in);
+    CHECK(ka.hold == 0);
+    for (int k = 0; k < 120; ++k) s->step_once(in);
+    CHECK(ka.speed.host() > 2.0f);
+    // Put back standing where it is (the record's frame): at rest on its wheels, first gear, the engine stopped.
+    const gt3r::ee::F x = ka.pos.x, y = ka.pos.y, z = ka.ground_pos.z, heading = ka.heading;
+    s->place_standing(0, x, y, z, heading);
+    CHECK(ka.speed.host() == 0.0f && ka.vel.x.host() == 0.0f && ka.gear == 1 && ka.rpm == 0 && ka.heading.bits == heading.bits);
+    for (size_t w = 0; w < 4; ++w) CHECK(ka.g[w].miss == 0);
+    CHECK(std::fabs(ka.pos.z.host() - (ka.ground_pos.z.host() + ka.up.z.host() * ka.p.cog_height.host())) < 1e-4f);
 }
 
 TEST(sim_disc_contacts) {

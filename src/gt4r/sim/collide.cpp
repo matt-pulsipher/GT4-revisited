@@ -658,7 +658,7 @@ void advance(Body& b, F t) {
 
 // 0x45E028 (0x45E288 the impulse, 0x45E898 friction, 0x45E450 the correction): point wk on wall wseg (tangent u,
 // normal n = (-u.y, u.x)): j = -(1 + e) (v_p . n) / K, the friction, the point held on the wall, J's moment alone.
-void point_response(Body& b, const Walls& walls) {
+void point_response(Body& b, const Walls& walls, std::vector<Hit>* hits) {
     const F cs = ee::cos(b.sh), sn = ee::sin(b.sh), msn = -sn;
     const F r[4] = {cs, msn, sn, cs};
     const Edge& e = b.e[size_t(b.wk)]; // starts at point wk
@@ -674,6 +674,7 @@ void point_response(Body& b, const Walls& walls) {
     if (!(k == kZero)) j = (-(kWallBounce + kOne) * ((vpx * nx) + (vpy * ny))) / k;
     const F jx = j * nx, jy = j * ny;
     b.strength = b.strength + (neg_if_negative(j) / kWallStrength);
+    if (hits) hits->push_back({b.car, 0, b.wk, neg_if_negative(j)});
     record_hit(b, 0, neg_if_negative(j), -1);
     F fx, fy, fz;
     friction(b, jx, jy, vpx, vpy, fx, fy, fz);
@@ -689,7 +690,7 @@ void point_response(Body& b, const Walls& walls) {
 
 // 0x45E570 (0x45E768 the impulse, 0x45E898 friction): a wall corner on edge we: n = the edge's normal, the arm from the
 // center to the corner, j = -(1 + e) (v_p . n) / K, friction; no hold, no correction.
-void corner_response(Body& b, const Walls& walls) {
+void corner_response(Body& b, const Walls& walls, std::vector<Hit>* hits) {
     const F cs = ee::cos(b.sh), sn = ee::sin(b.sh);
     const Edge& e = b.e[size_t(b.we)];
     const Walls::Point& W = walls.points()[e.wall];
@@ -702,6 +703,7 @@ void corner_response(Body& b, const Walls& walls) {
     if (!(k == kZero)) j = (-(kWallBounce + kOne) * ((vpx * nx) + (vpy * ny))) / k;
     const F jx = j * nx, jy = j * ny;
     b.strength = b.strength + (neg_if_negative(j) / kWallStrength);
+    if (hits) hits->push_back({b.car, 0, b.we + 8, neg_if_negative(j)});
     record_hit(b, 0, neg_if_negative(j), -1);
     F fx, fy, fz;
     friction(b, jx, jy, vpx, vpy, fx, fy, fz);
@@ -715,7 +717,7 @@ void corner_response(Body& b, const Walls& walls) {
 
 // 0x45F340 (0x45F5F8 the impulse, 0x45F928 the touch-up): B's vertex on A's edge: the impulse, the touch-up, both
 // bodies' velocities and moments, B's vertex held on A's edge.
-void pair_response(std::vector<Body>& bd, int ia) {
+void pair_response(std::vector<Body>& bd, int ia, std::vector<Hit>* hits) {
     Body& A = bd[size_t(ia)];
     Body& B = bd[size_t(A.other)];
     Point& bp = B.p[size_t(A.vertex)];
@@ -728,6 +730,7 @@ void pair_response(std::vector<Body>& bd, int ia) {
     const F s = neg_if_negative(j) / kPairStrength;
     A.strength = A.strength + s;
     B.strength = B.strength + s;
+    if (hits) hits->push_back({A.car, 1, A.hit_edge + 8, s}), hits->push_back({B.car, 1, A.vertex, s});
     record_hit(A, 1, s, A.other), record_hit(B, 1, s, ia);
     touch_up(A, B, ra, rb);
     const F jlx = (ra[0] * jx) + (ra[2] * jy), jly = (ra[1] * jx) + (ra[3] * jy);
@@ -913,7 +916,7 @@ void pair_tables(std::vector<Body>& bodies) {
         }
 }
 
-void step_all(std::vector<Body>& bd, const std::vector<CarIn>& cars, const Walls& walls) {
+void step_all(std::vector<Body>& bd, const std::vector<CarIn>& cars, const Walls& walls, std::vector<Hit>* hits) {
     const int n = int(bd.size());
     for (int i = 0; i < n; ++i) {
         init(bd[size_t(i)], cars[size_t(i)].dt);
@@ -945,10 +948,10 @@ void step_all(std::vector<Body>& bd, const std::vector<CarIn>& cars, const Walls
         for (Body& b : bd) advance(b, best);
         if (hit & 0x200) {
             Body& b = bd[size_t(hit & ~0x200)];
-            if (b.wpoint) point_response(b, walls);
-            else corner_response(b, walls);
+            if (b.wpoint) point_response(b, walls, hits);
+            else corner_response(b, walls, hits);
         } else {
-            pair_response(bd, hit);
+            pair_response(bd, hit, hits);
         }
         ++round;
     }

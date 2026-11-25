@@ -31,6 +31,7 @@ Tables tables(const Program& program, const ex::Statics&) {
     t.aids = aid_tables(program);
     t.steer = steer_tables(program);
     t.aero = aero_globals(program);
+    t.pad = pad_tables(program);
     t.slide = slide_tables(program);
     t.feel = feel_tables(program);
     t.globals.steer_mode = t.steer.mode; // (0x3F7BE0 writes it at the race's start)
@@ -45,6 +46,13 @@ Tables tables(const Program& program, const ex::Statics&) {
         t.brake_heat.c3 = gt3r::ee::int_to_f(byte(0xAF, false)) * F::raw(0x3C23D70A);
     }
     return t;
+}
+
+void step_params(const Spec& s, Record& r) {
+    InputExtra& in = r.x.input;
+    in.lock_pad = r.car.p.steer_b, in.lock_wheel = r.car.p.steer_c, in.lock_loose = r.car.p.steer_a; // (P +0x58, +0x94, +0xD0 as the mirror holds them)
+    in.wheel_ratio = s.b(0x210) >= 150 ? 1 : 0;
+    speed_part_params(r.x.near, s);
 }
 
 void prep_tires(ex::Car& c, Extra& x, const WheelLayout& l, const Tables& t, const ex::Condition& cond, const std::array<F, 3>* grip) {
