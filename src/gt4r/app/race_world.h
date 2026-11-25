@@ -165,6 +165,7 @@ public:
         float opacity = 1;
     };
     void draw_icons(Ui& ui, const SDL_FRect& canvas, std::span<const Icon> icons);
+    void place_on_line(std::span<const sim::Entry> entries);
     // One model in its own view over `rect` (the license results' trophy), in the course's light:
     // `place` its model matrix in a camera at the origin looking down -z, `proj` the lens.
     void draw_model(Ui& ui, const SDL_FRect& rect, const gt3r::render::GpuModel& model, const gt3r::render::Mat4& place, const gt3r::render::Mat4& proj, float alpha);
