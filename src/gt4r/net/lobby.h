@@ -35,7 +35,8 @@ struct LobbyLimits {
 };
 
 // Why a car may not race by the host's limits, or cannot be built here ("" : it races).
-std::string limits_problem(const CarBuilder& builder, const CarChoice& c, const LobbyLimits& limits);
+// `unit`, `unit_name`: the player's unit of power (of PS).
+std::string limits_problem(const CarBuilder& builder, const CarChoice& c, const LobbyLimits& limits, float unit = 1, const std::string& unit_name = "PS");
 
 // A machine's record. Names as the program's natives have them.
 struct Member {

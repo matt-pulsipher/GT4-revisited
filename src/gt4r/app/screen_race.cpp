@@ -1149,6 +1149,9 @@ public:
         h.driver_view = mount_ != race::DriveCamera::kChase && mount_ != kTvView;
         h.cars.clear();
         for (const race::CarState& c : cars) h.cars.push_back({c.position.x, c.position.z});
+        h.letters.clear();
+        if (net_) // (each car's entry: its place on the grid)
+            for (size_t i = 0; i < cars.size() && i < net_->seats().size(); ++i) h.letters.push_back(int(net_->seats()[i]));
         h.place = flow_.place(0);
         h.lap = flow_.lap_shown(0), h.laps = setup_.laps;
         // (no lap count on a road section and on a course without a lap, 0x34C470 and COURSE +0x12, nor in a test that counts cones)

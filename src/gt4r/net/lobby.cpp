@@ -17,12 +17,13 @@ const Member kNobody{};
 
 } // namespace
 
-std::string limits_problem(const CarBuilder& builder, const CarChoice& c, const LobbyLimits& limits) {
+std::string limits_problem(const CarBuilder& builder, const CarChoice& c, const LobbyLimits& limits, float unit, const std::string& unit_name) {
     if (c.garage && !limits.garage_cars) return "this race is for cars as sold";
     if (const std::string why = builder.problem(c); !why.empty()) return why;
     if (limits.max_power) {
         const int ps = builder.power(c);
-        if (ps > int(limits.max_power)) return "the car has " + std::to_string(ps) + " PS: the host's limit is " + std::to_string(limits.max_power) + " PS";
+        auto text = [&](int v) { return std::to_string(int(float(v) * unit)) + " " + unit_name; };
+        if (ps > int(limits.max_power)) return "the car has " + text(ps) + ": the host's limit is " + text(limits.max_power);
     }
     return {};
 }
@@ -207,8 +208,8 @@ void Lobby::on_event(const gt3r::net::Event& e) {
             const CarChoice& c = *it->second.choice;
             RaceCar car;
             car.id = id;
-            const gt3r::net::Player* p = session_.player(id);
-            car.player = !it->second.account.empty() ? it->second.account : p ? p->name : std::string();
+            for (int i = 0; i < count(); ++i)
+                if (id_of(i) == id) car.player = name(i);
             car.label = c.label, car.paint = c.paint;
             if (c.garage) car.condition = c.condition, car.equipment = c.equipment;
             if (build_car) car.equipment = build_car(c, race.course);
@@ -248,10 +249,17 @@ const Member& Lobby::member(int index) const {
 }
 
 std::string Lobby::name(int index) const {
-    const Member& m = member(index);
-    if (!m.account.empty()) return m.account;
-    const gt3r::net::Player* p = session_.player(id_of(index));
-    return p ? p->name : std::string();
+    auto own = [this](int i) {
+        const Member& m = member(i);
+        if (!m.account.empty()) return m.account;
+        const gt3r::net::Player* p = session_.player(id_of(i));
+        return p ? p->name : std::string();
+    };
+    // (two players of one name: the second "Player1 (2)")
+    const std::string name = own(index);
+    int same = 1;
+    for (int i = 0; i < index; ++i) same += own(i) == name;
+    return same > 1 ? name + " (" + std::to_string(same) + ")" : name;
 }
 
 bool Lobby::changed() { return std::exchange(version_seen_, version_) != version_; }
