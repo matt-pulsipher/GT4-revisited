@@ -424,6 +424,88 @@ void pump(gt3r::InputManager& in) {
 
 } // namespace
 
+// The two-player battle's two pads: each its own player's, read into its own frame and driving its own car on one session; the
+// feeling of a player's car goes to his pad alone.
+TEST(input_two_simulated_devices) {
+    for (const char* hint : {SDL_HINT_JOYSTICK_HIDAPI, SDL_HINT_JOYSTICK_MFI, SDL_HINT_JOYSTICK_IOKIT, SDL_HINT_JOYSTICK_GAMEINPUT, SDL_HINT_XINPUT_ENABLED}) SDL_SetHint(hint, "0");
+    SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
+    if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD | SDL_INIT_JOYSTICK)) SKIP("SDL's joysticks do not start here");
+    {
+        gt3r::InputManager in;
+        in.load(gt3r::IniDocument{});
+        PortConfig config[2];
+        const WheelSettings wheel;
+        pump(in);
+        VirtualPad pad[2];
+        if (!pad[0].plug() || !pad[1].plug()) {
+            std::printf("  no virtual joysticks: %s\n", SDL_GetError());
+        } else {
+            for (VirtualPad& p : pad) p.axis(SDL_GAMEPAD_AXIS_LEFT_TRIGGER, -1), p.axis(SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, -1);
+            pump(in), pump(in);
+            CHECK(in.gamepad(0) && in.gamepad(1) && in.gamepad(0) != in.gamepad(1));
+            // The first pad on the throttle, the second's stick over: each in its own player's frame.
+            pad[0].axis(SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, 1), pad[1].axis(SDL_GAMEPAD_AXIS_LEFTX, -1);
+            pump(in), pump(in);
+            const RaceInput a = read_player(in, 0, config[0], wheel), b = read_player(in, 1, config[1], wheel);
+            CHECK(a.frame.throttle == 4096 && a.frame.steer == 0 && b.frame.throttle == 0 && b.frame.steer == 4096);
+            // The second's own Key Configuration: only his layout changes.
+            set_button(config[1].of(Device::DualShock2), Device::DualShock2, "SQUARE", ButtonAction::None);
+            CHECK(!console_layout(in, 0, config[0]) && console_layout(in, 1, config[1]));
+            config[1] = {};
+            // The second player's menus do not move by his pad (the pause and the results are the first player's).
+            pad[1].button(SDL_GAMEPAD_BUTTON_START, true);
+            pump(in), pump(in);
+            CHECK(!(in.menu_pad().buttons & (1u << unsigned(PadButton::Start))));
+            pad[1].button(SDL_GAMEPAD_BUTTON_START, false);
+            pump(in), pump(in);
+            // A step's feeling of the second player's car: his pad's motors alone.
+            RaceFeedback feedback[2];
+            CarFeel feel;
+            feel.pad_output = true, feel.rumble = 100, feel.impact = 8;
+            feedback[1].step(feel, 1 / 60.0f);
+            feedback[0].frame(in, 0, {}, 1 / 60.0), feedback[1].frame(in, 1, {}, 1 / 60.0);
+            pump(in);
+            CHECK(pad[1].low > 0 && pad[0].low == 0 && pad[0].high == 0);
+            for (size_t i = 0; i < 2; ++i) feedback[i].stop(in, int(i));
+            pump(in);
+            CHECK(pad[1].low == 0 && pad[1].high == 0);
+            // Both cars on one session by their frames.
+            if (Disc* disc = full_disc()) {
+                const std::string cars[2] = {"ka_01", "ka_01"};
+                const std::unique_ptr<sim::Session> s = sim::Session::open(*disc, "tsukuba", cars);
+                pad[1].axis(SDL_GAMEPAD_AXIS_LEFTX, 0);
+                const auto run = [&](int steps) {
+                    for (int k = 0; k < steps; ++k) {
+                        pump(in);
+                        race::PadRecord record[2];
+                        race::CarInput inputs[2];
+                        for (size_t i = 0; i < 2; ++i) {
+                            read_player(in, int(i), config[i], wheel).frame.to_bytes(record[i].bytes.data());
+                            inputs[i].pad = &record[i];
+                        }
+                        s->step_once(inputs);
+                    }
+                };
+                run(240);
+                std::printf("  the first pad's throttle: %.1f and %.1f km/h\n", double(s->cars()[0].speed) * 3.6, double(s->cars()[1].speed) * 3.6);
+                CHECK(s->cars()[0].speed > 5 && s->cars()[1].speed < 1);
+                pad[0].axis(SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, -1), pad[0].axis(SDL_GAMEPAD_AXIS_LEFT_TRIGGER, 1), pad[1].axis(SDL_GAMEPAD_AXIS_RIGHT_TRIGGER, 1);
+                run(240);
+                std::printf("  its brake, and the second's throttle: %.1f and %.1f km/h\n", double(s->cars()[0].speed) * 3.6, double(s->cars()[1].speed) * 3.6);
+                CHECK(s->cars()[0].speed < 2 && s->cars()[1].speed > 5);
+            }
+            // The second pad unplugged: no device of his own; the keyboard's second set of keys can drive him.
+            pad[1].unplug();
+            pump(in), pump(in);
+            CHECK(in.gamepad(0) && !in.gamepad(1) && in.device_name(1) == "No device" && in.device_filter(1) == "auto");
+            in.set_keyboard(1, true);
+            CHECK(in.device_name(1) == "Keyboard" && in.kind(1) == gt3r::DeviceKind::Keyboard);
+        }
+        for (VirtualPad& p : pad) p.unplug();
+    }
+    SDL_QuitSubSystem(SDL_INIT_GAMEPAD | SDL_INIT_JOYSTICK);
+}
+
 TEST(input_simulated_devices) {
     for (const char* hint : {SDL_HINT_JOYSTICK_HIDAPI, SDL_HINT_JOYSTICK_MFI, SDL_HINT_JOYSTICK_IOKIT, SDL_HINT_JOYSTICK_GAMEINPUT, SDL_HINT_XINPUT_ENABLED}) SDL_SetHint(hint, "0");
     SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
