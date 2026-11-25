@@ -12,6 +12,7 @@
 #include "gt4r/sim/ai/bspec_skill.h"
 #include "gt4r/formats/model/car_model.h"
 #include "gt4r/race/car_spec.h"
+#include "gt4r/race/driver_figure.h"
 #include "gt4r/sim/rules_wear.h"
 #include "gt4r/sim/session.h"
 #include "race/billboards.h"
@@ -73,6 +74,9 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
     night_ = (flags & 0x8000) != 0;
 
     const std::vector<db::CarEntry>& cars = app.db()->cars();
+    // The drivers' skeleton in its stored pose (every driver set's skeleton has the same sizes).
+    const std::optional<Bytes> driver_skeleton = app.vfs()->read("character/driver.mdl");
+    std::map<std::string, std::optional<Bytes>> character_files;
     for (const WorldEntry& e : setup.entries) {
         const db::CarEntry* entry = nullptr;
         for (const db::CarEntry& c : cars)
@@ -98,6 +102,19 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
             o.lamp_level = night_ ? 1 : 0;
             const std::optional<Bytes> wing_file = wing.empty() ? std::nullopt : app.vfs()->read("wing/lod/" + wing);
             if (wing_file) o.wing = *wing_file;
+            if (driver_skeleton) o.driver_skeleton = *driver_skeleton;
+            o.driver = setup.drivers;
+            if (setup.drivers && car::CarFile::is_car(*file) && !car::CarFile::parse(*file).driver) try {
+                    // A car without a driver of its own: a character file by its cockpit kind (0x3B5438).
+                    const race::CockpitPlaces cp = race::read_cockpit(*file);
+                    const std::string path = race::character_driver_file(cp.cockpit_kind, cp.co_driver, int(car_visuals_.size()));
+                    if (!path.empty()) {
+                        auto [it, fresh] = character_files.try_emplace(path);
+                        if (fresh) it->second = app.vfs()->read(path);
+                        if (it->second) o.driver_set = *it->second;
+                    }
+                } catch (const std::exception&) {
+                }
             visual = std::make_unique<race::CarVisual>(gpu, *file, pat ? ByteSpan(*pat) : ByteSpan{}, spec, o, entry->label);
             // The course's strengths of the three lamp lists (Env0 +0x1794: lights, brake, tail).
             if (const ByteSpan e0 = course_->section(course::kSlotEnv); e0.size() >= 0x17A0) {
@@ -677,6 +694,20 @@ void RaceWorld::draw_icons(Ui& ui, const SDL_FRect& canvas, std::span<const Icon
     o.composite_alpha = std::clamp(opacity, 0.0f, 1.0f);
     if (m.view && m.env_ready) o.env_cube = m.view->env_cube(), o.env_gt3_lookup = true;
     m.icon_view->draw(ui.renderer(), canvas, render::Mat4::identity(), proj, RVec{0, 0, 100}, items, o);
+}
+
+void RaceWorld::draw_model(Ui& ui, const SDL_FRect& rect, const render::GpuModel& model, const render::Mat4& place, const render::Mat4& proj, float alpha) {
+    Impl& m = *impl_;
+    if (!app_.gpu() || alpha <= 0) return;
+    if (!m.icon_view) m.icon_view = std::make_unique<render::View3D>(*app_.gpu());
+    std::vector<render::DrawItem> items{render::DrawItem{&model, place, 0}};
+    render::DrawOptions o = draw_options(*course_, 100);
+    o.fog = false;
+    o.frustum_cull = false;
+    for (float& c : o.clear) c = 0;
+    o.composite_alpha = std::clamp(alpha, 0.0f, 1.0f);
+    if (m.view && m.env_ready) o.env_cube = m.view->env_cube(), o.env_gt3_lookup = true;
+    m.icon_view->draw(ui.renderer(), rect, render::Mat4::identity(), proj, RVec{0, 0, 0}, items, o);
 }
 
 // The rear-view mirror (docs/formats/course.md "Drawing", step 9: the mirror's fog, its sky,

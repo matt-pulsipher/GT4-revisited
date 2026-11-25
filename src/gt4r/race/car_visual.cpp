@@ -3,6 +3,8 @@
 #include "base/log.h"
 #include "formats/course/course_model.h"
 #include "gt4r/race/car_pose.h"
+#include "gt4r/race/driver_figure.h"
+#include "gt4r/formats/model/mdls_skin.h"
 #include "gt4r/formats/model/car_model.h"
 #include "gt4r/formats/model/mdls.h"
 
@@ -297,6 +299,7 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
         shadow_src_[k] = mdls::build_model(body, o, sc, name + "/shadow");
     }
     mounts_ = read_camera_mounts(file);
+    build_driver(file, opt, name);
     // The lamps (info +0x18, +0x20, +0x28: count and offset from the file's start; 0x70 bytes
     // each): a matrix whose rows are the lamp's axes and place (the third axis points into the
     // car, against the light), its half sizes, the point tested for being in sight, and flags.
@@ -323,6 +326,39 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
                 lists[l]->push_back(r);
             }
         }
+    }
+}
+
+void CarVisual::build_driver(ByteSpan file, const Options& opt, const std::string& name) {
+    const car::CarFile c = car::CarFile::parse(file);
+    if (!opt.driver) return;
+    const ByteSpan set = c.driver ? file.subspan(c.driver) : opt.driver_set;
+    if (set.empty() || !mdls::is_mdls(set)) return;
+    try {
+        const CockpitPlaces places = read_cockpit(file);
+        const std::vector<DriverPart> parts = driver_parts(set, opt.driver_skeleton);
+        if (parts.empty()) return;
+        const u32 models = mdls::read_header(set).models;
+        std::vector<int> slot(models, -1);
+        for (const DriverPart& p : parts)
+            if (slot[p.model] < 0) slot[p.model] = int(driver_models_.size()), driver_models_.emplace_back();
+        // (Reserved up front: the slots' places are kept for a later upload.)
+        for (u32 i = 0; i < models; ++i) {
+            if (slot[i] < 0) continue;
+            gt3r::gtm1::Options o = car_options();
+            o.node = int(i);
+            scene::Model m = mdls::build_model(set, o, mdls::Scene{}, name + "/driver");
+            bool any = false;
+            for (const scene::Mesh& mesh : m.meshes) any |= !mesh.indices.empty();
+            if (any) to_gpu(driver_models_[size_t(slot[i])], m);
+        }
+        for (int seat = 0; seat < (places.co_driver ? 2 : 1); ++seat) {
+            const Mat4 root = driver_root(places, set, opt.driver_skeleton, seat == 1);
+            for (const DriverPart& p : parts) driver_items_.push_back({size_t(slot[p.model]), p.skinned ? root : root * p.node});
+        }
+    } catch (const std::exception& e) {
+        LOG_WARN("Car %s: driver: %s", name.c_str(), e.what());
+        driver_items_.clear();
     }
 }
 
@@ -429,6 +465,10 @@ void CarVisual::add_items(std::vector<render::DrawItem>& items, const CarState& 
         it.far_whole = true;
         items.push_back(it);
     }
+    // The driver (in the car's frame), before the body and its glass.
+    if (lod < 2)
+        for (const DriverItem& d : driver_items_)
+            if (const render::GpuModel* m = driver_models_[d.model].get()) items.push_back({m, body * d.local, 0});
     if (const render::GpuModel* m = body_[s.brake_lamps ? 1 : 0].get()) {
         render::DrawItem it{m, body, lod};
         it.far_whole = true;
