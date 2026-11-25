@@ -399,7 +399,9 @@ Value GameNatives::make_option() {
     option->method("load", [](Vm&, const Value&, Args) { return number(1); });
     option->method("setDefault", [s, r](Vm&, const Value&, Args) {
         const std::string zone = s->option_text("game_zone");
+        const std::array<std::string, 2> controllers{s->option_text("controllers_1p"), s->option_text("controllers_2p")};
         s->option_defaults(zone.empty() ? r->region() : zone);
+        reset_controllers(*s, controllers);
         r->options_changed();
         return Value{};
     });
@@ -409,22 +411,9 @@ option->method("setGameZoneDefault", [s, r](Vm&, const Value&, Args) {
     s->options["game_zone"] = std::string(region == "us" ? "US" : region == "uk" ? "EU" : region == "kr" ? "KR" : "JP");
     return Value{};
 });
-for (const char* nothing : {"applyRaceDisplayMode", "applyMenuDisplayMode", "setDeviceFeedback"})
+for (const char* nothing : {"applyRaceDisplayMode", "applyMenuDisplayMode"})
         option->method(nothing, [](Vm&, const Value&, Args) { return Value{}; });
-    // (Prologue's option page counts with it, 1 the first; its wheels' kept by name, ❓ its default read from no routine)
-    auto device_config = std::make_shared<std::map<std::string, int>>();
-    option->method("getDeviceConfig", [r, device_config](Vm&, const Value&, Args a) {
-        if (!r->is_prologue()) return Value{};
-        const auto at = a.empty() ? device_config->end() : device_config->find(a[0].to_string());
-        return number(at == device_config->end() ? 1 : at->second);
-    });
-    option->method("setDeviceConfig", [device_config](Vm&, const Value&, Args a) {
-        for (size_t k = 0; k + 1 < a.size(); ++k) // (the number and the device's name, in the scripts' order)
-            if (a[k].kind != script::Kind::String && a[k + 1].kind == script::Kind::String) (*device_config)[a[k + 1].to_string()] = int(a[k].as_float());
-            else if (a[k].kind == script::Kind::String) (*device_config)[a[k].to_string()] = int(a[k + 1].as_float());
-        return Value{};
-    });
-    option->method("getDeviceFeedback", [](Vm&, const Value&, Args) { return number(0); });
+    install_controllers(*this, *option);
     // The music and slide-show play lists (GameState::PlayList): `play_data` is a row a piece of
     // the streamed `racing` group, each [place in the order, played, enabled, the place's copy]
     // (the configuration's init_raceplaylist writes them: places for the region's pieces, -1 and
