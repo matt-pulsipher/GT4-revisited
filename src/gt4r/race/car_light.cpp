@@ -61,7 +61,27 @@ CarLights::Light CarLights::at(const course::Runway& road, const gt3r::race::Sun
         const float sun = std::clamp((k0 * float(a.b) + k1 * float(b.b) + k2 * float(c.b)) / 255.0f, 0.0f, 1.0f);
         const float sky = std::clamp((k0 * float(a.c & 0x7F) + k1 * float(b.c & 0x7F) + k2 * float(c.c & 0x7F)) / 127.0f, 0.0f, 1.0f);
         const std::array<float, 3> s = env.light_scale(sun, sky);
-        std::copy(s.begin(), s.end(), out.scale);
+        // The global ambient (Env0 +0xEF0) is not shaded: with one, the lights are made out here.
+        const auto& g = env.global_ambient;
+        if ((g[0] != 0 || g[1] != 0 || g[2] != 0) && s[0] < 1) {
+            for (int i = 0; i < 3; ++i) out.lights.ambient[i] = g[size_t(i)];
+            for (size_t n = 0; n < 4; ++n) {
+                if (!((env.car_light_mask >> n) & 1)) continue;
+                const gt3r::race::SunParams::LampType& type = env.lamps[n];
+                for (int i = 0; i < 3; ++i) out.lights.ambient[i] += type.ambient[size_t(i)] * s[0];
+                const Vec3 dir{env.car_light_dir[n][0], env.car_light_dir[n][1], env.car_light_dir[n][2]};
+                if (gt3r::render::length(dir) < 1e-6f) continue;
+                const Vec3 to = gt3r::render::normalize(dir);
+                const int k = out.lights.count++;
+                for (int i = 0; i < 3; ++i) {
+                    out.lights.dir[k][i] = (&to.x)[i];
+                    out.lights.diffuse[k][i] = type.diffuse[size_t(i)] * s[1];
+                    out.lights.specular[k][i] = type.specular[size_t(i)] * s[2];
+                }
+            }
+            out.own = out.lights.count > 0;
+        }
+        if (!out.own) std::copy(s.begin(), s.end(), out.scale);
         const float full = env.shadow_factor(1, 1);
         out.shadow = full > 0 ? std::clamp(env.shadow_factor(sun, sky) / full, 0.0f, 1.0f) : 1.0f;
         return out;
@@ -94,7 +114,7 @@ CarLights::Light CarLights::at(const course::Runway& road, const gt3r::race::Sun
         picks.push_back(p);
     }
     std::stable_sort(picks.begin(), picks.end(), [](const Pick& x, const Pick& y2) { return x.w > y2.w; });
-    out.own = true;
+    out.own = out.lamps = true;
     for (int i = 0; i < 3; ++i) out.lights.ambient[i] = env.global_ambient[size_t(i)];
     for (const Pick& p : picks) {
         if (out.lights.count >= 4) break;

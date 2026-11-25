@@ -547,7 +547,7 @@ void CarVisual::add_shadow_items(std::vector<render::DrawItem>& items, const Car
             it.alpha = std::min(alpha, 1.0f);
             items.push_back(it);
         };
-        if (light && light->own) {
+        if (light && light->lamps) {
             // The lamps' shadows, one away from each.
             for (const CarLights::Cast& k : light->casts) cast(k.shear, shadow_look_.alpha * shadow_look_.light_factor > 0 ? k.alpha / (shadow_look_.alpha * shadow_look_.light_factor) : k.alpha);
         } else cast(shadow_look_.shear, light ? light->shadow : 1.0f);

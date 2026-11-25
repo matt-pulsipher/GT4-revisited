@@ -23,11 +23,12 @@ public:
         float alpha = 1; // of the shadow's
     };
     struct Light {
-        bool own = false;                  // the lamps' lights, not the course's
+        bool own = false;                  // `lights`, not the course's scaled
+        bool lamps = false;                // the lamps': `casts` in place of the course's shadow
         float scale[3] = {1, 1, 1};        // ambient, diffuse, specular
         float shadow = 1;                  // on the cast shadow's alpha (1: in full light)
         gt3r::render::ItemLights lights;   // `own`
-        std::vector<Cast> casts;           // `own`: in place of the course's shadow
+        std::vector<Cast> casts;           // `lamps`
     };
     // At `at` (a car's place), the road taken from `y_max` down.
     Light at(const course::Runway& road, const gt3r::race::SunParams& env, const gt3r::render::Vec3& at, float y_max) const;
