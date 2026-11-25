@@ -528,8 +528,8 @@ void RaceHud::Impl::draw_top(const HudState& s) {
         draw_text(font("FC_26"), at.x + at.w / 2 - 1 + (digit == 1 ? 4.0f : 0.0f), at.y + at.h - 19, kCentered | kMiddleOfLine, kTextGray, o,
                   std::string(1, char('0' + digit)));
     }
-    if (const DisplayPlace* p = cur->find(element::kLapWord); p && s.show_lap) draw_at("JP/lap", *p, kNeutral, o);
-    if (const DisplayPlace* p = cur->find(element::kLapCount); p && s.show_lap) {
+    if (const DisplayPlace* p = cur->find(element::kLapWord); p && s.show_lap && !s.no_lap) draw_at("JP/lap", *p, kNeutral, o);
+    if (const DisplayPlace* p = cur->find(element::kLapCount); p && s.show_lap && !s.no_lap) {
         char buf[32];
         if (s.laps > 0) std::snprintf(buf, sizeof buf, "%d/%d", std::clamp(s.lap, 0, 999), s.laps);
         else std::snprintf(buf, sizeof buf, "%d", std::clamp(s.lap, 0, 999));
@@ -584,7 +584,12 @@ void RaceHud::Impl::draw_top(const HudState& s) {
     // The status line (member 0x228C): over the driver's panel at (320, 348), over the chase views'
     // at (320, 430); `hn_20R`.
     if (!s.status.empty() && s.status_opacity > 0)
-        draw_text(font("hn_20R"), 320, s.driver_view ? 348.0f : 430.0f, kCentered, kTextGray, o * s.status_opacity, s.status);
+        draw_text(font("hn_20R"), 320, s.driver_view ? 348.0f : 430.0f, kCentered, s.status_red ? 0x800000C8u : kTextGray, o * s.status_opacity, s.status);
+    // The A-spec points (members 0x267C and 0x27CC).
+    if (s.points_opacity > 0) {
+        draw_text(font("hb_24", 100, 1), 320, 264, kCentered, kTextGray, o * s.points_opacity, s.points_title);
+        draw_text(font("hb_24", 130, 1), 320, 304, kCentered, 0x800086E6u, o * s.points_opacity, s.points_line);
+    }
 }
 
 // The course map with the cars on it; it neither turns nor scrolls.

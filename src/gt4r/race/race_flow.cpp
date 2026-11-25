@@ -68,10 +68,11 @@ void RaceFlow::sort_order(std::span<const CarState> cars) {
     for (size_t i = 0; i < order_.size(); ++i) order_[i] = i;
     std::stable_sort(order_.begin(), order_.end(), [&](size_t a, size_t b) {
         const CarRecord &ra = cars_[a], &rb = cars_[b];
-        // More crossings of the line first; on equal crossings a car still running ahead of a
-        // finished one, two finished ones by their finish, two running ones by their distance.
+        // 0x3659E8: more crossings of the line first; on equal crossings a car still running ahead of a finished one (behind it in
+        // a test that ends at its goal and on a course without a lap), two finished ones by their finish, two running ones by
+        // their distance.
         if (ra.counter != rb.counter) return ra.counter > rb.counter;
-        if (ra.finished != rb.finished) return !ra.finished;
+        if (ra.finished != rb.finished) return (setup_.test_kind == 2 || setup_.no_lap) ? ra.finished : !ra.finished;
         if (ra.finished) return ra.finish_order < rb.finish_order;
         return progress(a, cars[a]) > progress(b, cars[b]);
     });
@@ -150,10 +151,13 @@ void RaceFlow::cross(size_t i, float was, float now, Events& ev) {
     }
     // A lap (virtual 21).
     r.laps_done += 1;
-    const s64 ms = t - r.base_ms;
-    r.last_lap_ms = ms;
-    if (r.best_lap_ms < 0 || ms < r.best_lap_ms) r.best_lap_ms = ms;
-    ev.lap_done = int(i);
+    // (0x3F6588: a test with other cars, not of kind 6, keeps and shows no lap times)
+    if (setup_.test_kind == 0 || setup_.test_kind == 6 || cars_.size() <= 1) {
+        const s64 ms = t - r.base_ms;
+        r.last_lap_ms = ms;
+        if (r.best_lap_ms < 0 || ms < r.best_lap_ms) r.best_lap_ms = ms;
+        ev.lap_done = int(i);
+    }
     if (setup_.test_kind != 0) { // the license's (0x3F6588): kinds 3 and 6 end at the laps
         if ((setup_.test_kind == 3 || setup_.test_kind == 6) && setup_.laps == old) end_car(i, at, ev);
         return;
@@ -216,7 +220,7 @@ int RaceFlow::lap_shown(size_t car) const {
 
 s64 RaceFlow::lap_ms(size_t car) const {
     const CarRecord& r = cars_[car];
-    if (r.finished) return r.last_lap_ms;
+    if (r.finished) return r.last_lap_ms >= 0 ? r.last_lap_ms : clock_ms(r.finish_units) - r.base_ms;
     if (hold_ > 0 || !clock_running_) return 0;
     // (0x357830: a license's run that starts moving shows none before its clock starts; a mission's shows the race's clock, 0x3F6ED0)
     if (setup_.start == StartType::Moving && !setup_.mission && (r.counter == 0 || r.mark == 1)) return 0;

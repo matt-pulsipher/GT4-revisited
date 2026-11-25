@@ -439,6 +439,14 @@ int Session::penalty_seconds(size_t i) const {
     return (steps + 59) / 60;
 }
 
+bool Session::held_to_pace(size_t i) const {
+    if (i >= cars_.size() || !gt4_rules_) return false;
+    rules::AidRace race = aid_race_;
+    race.start_speed = pace_kmh_[i];
+    u32 speed = 0;
+    return rules::start_pace(cars_[i], race, speed) == 1;
+}
+
 int Session::gear_for_speed(size_t i, gt3r::ee::F speed) const {
     if (i >= cars_.size() || !gt4_ready_) return 0;
     return rules::gear_for_speed(cars_[i], gx_[i].drive, speed);

@@ -191,6 +191,10 @@ public:
     }
     // The PIT STOP menu's driving mode (0x3F19E0 command 10): the player's car driven by the pad, or by the B-spec driver.
     void set_driving_mode(bool bspec);
+    // The car held to its rolling start's pace (the opening shots' end); nullopt without the game's own step.
+    std::optional<bool> held_to_pace(size_t car) const { return session_ && !course_->road().gtrw ? std::optional<bool>(session_->held_to_pace(car)) : std::nullopt; }
+    // The A-spec points the race offers the player's car (race/aspec_points.h).
+    int aspec_points(bool mission) const;
     // Where the car is in a pit visit (0x35BBD8): 0 none, 1 down the lane or waiting for the choice, 2 the stop's start, 3 its work,
     // 4 its end, 5 out of the box to the lane's end.
     int pit_stage(size_t car) const;

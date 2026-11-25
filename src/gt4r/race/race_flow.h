@@ -48,6 +48,7 @@ struct FlowSetup {
     std::vector<u8> marks;
     int test_kind = 0;
     bool mission = false;
+    bool no_lap = false; // a course without a lap (COURSE +0x12 = 1, K +0xCBDE)
 };
 
 // A car's crossings of the line where it stands at the start (the set-up 0x363B10, 0x364300 .. 0x36444C: F + 0x4AC), `v`

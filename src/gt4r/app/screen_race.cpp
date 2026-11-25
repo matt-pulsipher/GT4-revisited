@@ -350,7 +350,7 @@ void test_car(App& app, Setup& setup, const menu::RaceRequest& q) {
         const std::vector<db::Opponent> pool = events.pool(*e);
         if (pool.empty() || pool[0].car != q.car) return;
         sim::ai::GridEntry g;
-        g.car = pool[0].car, g.paint = (sdb->prologue() || q.paint < 0) && pool[0].paint >= 0 ? pool[0].paint : q.paint, g.parts = pool[0].parts, g.param = pool[0].param, g.enemy = pool[0].enemy;
+        g.car = pool[0].car, g.paint = (sdb->prologue() || q.paint < 0 || q.sequence == "mission") && pool[0].paint >= 0 ? pool[0].paint : q.paint, g.parts = pool[0].parts, g.param = pool[0].param, g.enemy = pool[0].enemy;
         sim::Equipment eq;
         if (!sim::ai::entry_equipment(*sdb, sim::Program::load(*app.disc()), events, g, eq)) return;
         setup.player_equipment = eq;
@@ -645,6 +645,7 @@ public:
                 fs.marks.push_back(world_->start_of(i).start.mark);
             }
             if (setup_.conductor != race::Conductor::Other) fs.test_kind = setup_.rules.kind, fs.mission = setup_.conductor == race::Conductor::Mission;
+            fs.no_lap = world_->start_race().way == 1;
         } else fs.sectors = splits_;
         flow_.begin(fs, world_->cars());
         for (size_t i = 0; i < world_->car_count(); ++i) world_->set_crossings(i, flow_.car(i).counter), world_->set_rank(i, flow_.place(i));
@@ -658,7 +659,7 @@ public:
         history_.clear(), run_dist_.clear();
         if (audio::RaceSound* sound = world_->sound()) sound->forget_recording();
         split_prev_.clear(), split_first_.clear(), split_steps_ = -1;
-        distance_ = 0, bspec_distance_ = 0;
+        distance_ = 0, bspec_distance_ = 0, shown_steps_ = 0;
         replaying_ = false, over_ = false;
         event_steps_ = -1;
         for (size_t i = 0; i < setup_.test_starts.size() && i < world_->car_count(); ++i) // (the cars that start past the line)
@@ -766,6 +767,7 @@ public:
             return;
         }
         const std::span<const race::CarState> cars = world_->cars();
+        ++shown_steps_;
         const bool hold = flow_.holding();
         // A rolling start: the player's car is driven for him until it takes the line.
         auto_drive = auto_drive || flow_.player_finished() || handing_over();
@@ -1073,6 +1075,11 @@ public:
         for (const race::CarState& c : cars) h.cars.push_back({c.position.x, c.position.z});
         h.place = flow_.place(0);
         h.lap = flow_.lap_shown(0), h.laps = setup_.laps;
+        // (no lap count on a road section and on a course without a lap, 0x34C470 and COURSE +0x12, nor in a test that counts cones)
+        {
+            const float start = setup_.conductor != race::Conductor::Other && world_->simulated() ? world_->start_race().section_start : 0;
+            h.no_lap = (start >= 1 && start <= world_->lap_length() - 1) || flow_.setup().no_lap || (setup_.conductor != race::Conductor::Other && setup_.rules.pylons > 0);
+        }
         h.lap_ms = replaying_ ? s64(replay_at_) * 1000 / 60 : flow_.lap_ms(0);
         h.best_ms = flow_.car(0).best_lap_ms, h.last_ms = flow_.car(0).last_lap_ms;
         h.time = double(flow_.time_ms()) / 1000;
@@ -1141,11 +1148,33 @@ public:
             h.message = hud.word("RaceStart");
             h.message_opacity = window(s, 1.0f, 0.15f);
         }
+        // The A-spec points: offered as the race begins (RaceDisplay::vf43: a moving start's 0.2 s in for 2 s; a standing one's
+        // 0.5 s in for the hold less 3.5 s, 2 .. 5 s), taken at the finish (vf44: 1 s in for 2.7 s).
+        h.points_opacity = 0;
+        if (aspec_race() && !replaying_ && !demo && !menu_scene_ && !watched_) {
+            const bool finished = flow_.player_finished(), moving = flow_.hold_total() <= 0;
+            const float since = finished ? float(flow_.steps_since_player_finish()) / 60 - 1 : float(shown_steps_) / 60 - (moving ? 0.2f : 0.5f);
+            const float length = finished ? 2.7f : moving ? 2.0f : std::clamp(float(flow_.hold_total()) / 60 - 3.5f, 2.0f, 5.0f);
+            const float in = finished || moving ? 0.1f : 0.5f, out = finished || moving ? 0.3f : 1.0f;
+            if (since > 0 && since < length + out) {
+                h.points_opacity = std::min(since / in, since < length ? 1.0f : 1 - (since - length) / out);
+                h.points_opacity = std::clamp(h.points_opacity, 0.0f, 1.0f);
+                h.points_title = hud.word(finished ? "AspecPointGet" : "AspecRaceFormat1");
+                h.points_line = hud.word(finished ? "AspecPointFormat" : "AspecRaceFormat2");
+                if (const size_t at = h.points_line.find("%d"); at != std::string::npos)
+                    h.points_line.replace(at, 2, std::to_string(finished ? aspec_taken() : world_->aspec_points(setup_.sequence == "mission")));
+            }
+        }
         // The rolling start's status line (the race words AutoDriveFullThrottle, AutoDriveReady).
-        h.status.clear(), h.status_opacity = 0;
+        h.status.clear(), h.status_opacity = 0, h.status_red = false;
         if (handing_over() && !watched_ && !setup_.auto_drive) {
             h.status = hud.word(throttle_held_ ? "AutoDriveReady" : "AutoDriveFullThrottle");
             h.status_opacity = 1;
+        }
+        // A penalty's seconds left (RaceDisplay::vf27).
+        if (const int left = replaying_ || demo ? 0 : world_->penalty_seconds(shown_car); left > 0) {
+            h.status = hud.word("Penalty"), h.status_opacity = 1, h.status_red = true;
+            if (const size_t at = h.status.find("%d"); at != std::string::npos) h.status.replace(at, 2, std::to_string(left));
         }
         // The pit messages (RaceDisplay::vf28: F +0x5FA's codes 7 .. 12 of the car shown).
         if (static constexpr const char* kPit[6] = {"PitTooFast", "PitLastLap", "PitNoTireWear", "PitSpeedLimit", "PitWork", "PitGetOut"}; !replaying_ && !demo && h.status.empty())
@@ -1248,6 +1277,7 @@ public:
     // - a test that counts cones ends, timed, when that many are knocked down.
     void judge_license() {
         if (flow_.hold_left() > 0 || flow_.player_finished()) return;
+        if (setup_.conductor == race::Conductor::Mission) return; // (its virtuals 46 and 47 answer 0 and its hits are a race's, 0x35FCC8: nothing fails it)
         const race::CarState& c = world_->cars()[0];
         const race::LicenseRules& r = judge_.rules();
         if (gt3_road_ && flow_.steps_since_start() < 0) return;
@@ -1359,7 +1389,19 @@ public:
     // start's pace, more than 3 s at the start's speed short of the line (the camera manager's state 4 from
     // 0x3FD620, which asks the car's pace 0x3F7880); then the race's own view. ✔ The original's Tsukuba start:
     // the player's view about 1.5 s after the clock starts and 4.2 s before he takes the line.
-    bool opening_tv() const { return setup_.start_speed > 0 && setup_.start_kind != 3 && to_line() > 3 * setup_.start_speed; }
+    bool opening_tv() const {
+        if (handing_over() && setup_.skip <= 0)
+            if (const std::optional<bool> held = world_->held_to_pace(0)) return *held;
+        return setup_.start_speed > 0 && setup_.start_kind != 3 && to_line() > 3 * setup_.start_speed;
+    }
+    // A race of A-spec points (0x39C4C8: the single race, the missions, Gran Turismo mode's events, with other cars), and the
+    // points taken in it (0x3C1220): the race's when the player leads at its end and the B-spec driver drove none of it.
+    bool aspec_race() const {
+        return world_->car_count() > 1 && (setup_.sequence == "single_race" || setup_.sequence == "mission" || setup_.sequence == "solo_event" || setup_.sequence == "championship");
+    }
+    int aspec_taken() const {
+        return aspec_race() && flow_.player_finished() && flow_.place(0) == 1 && bspec_distance_ <= 0 ? world_->aspec_points(setup_.sequence == "mission") : 0;
+    }
 
     // A rolling start before the player's car takes the line: it is driven for him.
     bool handing_over() const {
@@ -1519,6 +1561,7 @@ private:
     race::RaceFlow flow_;
     race::ResultBoard board_;
     float distance_ = 0, bspec_distance_ = 0;
+    int shown_steps_ = 0; // since the run began, its hold included
     bool rolled_ = false; // a rolling start's music was started
     int tire_index_ = 4;   // the race's tires (the scripts' index: 4 sports medium)
     std::string race_word_ = "ARCADE_SINGLE_RACE"; // the race's name in the race's words
@@ -2493,6 +2536,7 @@ private:
         r.time_ms = r.finished ? u32(flow.run_ms(0)) : 0;
         r.distance_m = race_->player_distance();
         r.bspec_distance_m = race_->bspec_distance();
+        if (race_->aspec_race() && !r.watched) r.score = race_->aspec_taken();
         if (is_license(sequence_)) {
             r.kind = menu::RaceResult::Kind::License;
             // ❓ The test's grading: the time against the page's gold, silver and bronze times.

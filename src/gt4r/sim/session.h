@@ -213,6 +213,8 @@ public:
     // The seconds left of a car's penalty as the race display counts them (Prologue's 0x3C6030, Gran Turismo 4's the same: the counter's
     // steps + 59 over 60; 0 once the car's race ended).
     int penalty_seconds(size_t i) const;
+    // Whether a car is held to a rolling start's pace (0x3F7880 answering 1), which the opening shots ask.
+    bool held_to_pace(size_t i) const;
     // What the computer drivers' pit flow reads and changes (sim/ai/pit_flow.h): the fuel (liters) and tank, the distance and the
     // fuel since the economy display's last reading (F +0x4C8 / +0x4C4), the fuel counted at all (F +0x5D0's distance > 0 is the
     // flow's own test), a wheel's tread wear (+0xAC) and wear grip (+0x50); new tires on a wheel (0x362E58); the fuel set.

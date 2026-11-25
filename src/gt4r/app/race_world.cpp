@@ -1,5 +1,7 @@
 #include "gt4r/app/race_world.h"
 
+#include "gt4r/race/aspec_points.h"
+
 #include "gt4r/sim/showroom.h"
 #include "gt4r/sim/car_spec.h"
 
@@ -479,6 +481,18 @@ void RaceWorld::arm_bspec(const sim::Program& program) {
             sim::ai::bspec_skill(sim::ai::BSpecTables::load(program), sim::ai::BSpecRecord::from_bytes(rec.data()), gt3r::ee::F(session_->rating(0)), course_flag))
         field_->set_bspec_skill(0, sk->corner, sk->brake, sk->alongside);
     bspec_driven_ = true;
+}
+
+int RaceWorld::aspec_points(bool mission) const {
+    if (!session_) return 0;
+    std::vector<gt3r::ee::F> ratings;
+    for (size_t i = 0; i < car_visuals_.size(); ++i) ratings.push_back(gt3r::ee::F(session_->rating(i)));
+    // (0x445E20: the DRIVETRAIN row's +0x10, 2 four wheel drive; 0x447550: the COURSE row's +0x10)
+    bool loose = race::course_start(*app_.db(), setup_.course).kind == 2;
+    if (const db::PartId train = session_->equipment(0).part(sim::Equipment::Drivetrain); loose && train != db::kNoPart)
+        if (const db::Table* t = app_.db()->table("DRIVETRAIN"))
+            if (const ByteSpan r = t->row(db::part_row_id(train)); r.size() > 0x10) loose = r[0x10] != 2;
+    return race::aspec_points(ratings, 0, mission, loose);
 }
 
 void RaceWorld::set_driving_mode(bool bspec) {

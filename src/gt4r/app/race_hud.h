@@ -29,6 +29,7 @@ struct HudState {
     bool driver_view = false;         // the in-car and roof views' panel, else the chase view's
     int place = 1;                    // 1 the leader
     int lap = 1, laps = 0;            // the lap being driven; the race's laps (0: no count)
+    bool no_lap = false;              // no lap count at all
     s64 lap_ms = -1, best_ms = -1, last_ms = -1;
     struct Dot {
         float x = 0, z = 0;
@@ -45,6 +46,9 @@ struct HudState {
     float card_opacity = 0;
     std::string status;               // the status line over the panel ("FULL THROTTLE"); UTF-8
     float status_opacity = 0;
+    bool status_red = false;          // (a penalty's seconds)
+    std::string points_title, points_line; // the A-spec points' two lines (0x39C570, 0x39C6D0)
+    float points_opacity = 0;
     bool fuel_on = true; // the race counts fuel (its gauge over the chase views)
     bool refuel = false; // the refuel bar (0x2D78), with the fuel and the tank (liters)
     float refuel_fuel = 0, refuel_tank = 0;
