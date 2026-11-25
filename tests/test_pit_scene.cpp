@@ -1,6 +1,8 @@
 // The pit crew (race/pit_scene.h): the motions of pit/pit_001, and a stop of an R34 as the original's saved states have it
 // (the men's places round the car in its box). On the discs of GT4R_DISC.
 #include "test_framework.h"
+#include "gt4r/formats/course/course_file.h"
+#include "gt4r/formats/course/runway.h"
 #include "gt4r/formats/model/car_model.h"
 #include "gt4r/race/pit_scene.h"
 
@@ -188,6 +190,37 @@ TEST(pit_car_files_disc) {
             CHECK(std::fabs(s.filler.x) < 1.3f && s.filler.y > -0.3f && s.filler.y < 1.6f && std::fabs(s.filler.z) < 3.5f);
         }
         CHECK(cars == 807);
+    }
+    if (!ran) SKIP("the American disc is not among GT4R_DISC");
+}
+
+// The light on the roads: in the open everywhere but for some; the night's courses' lamps and their lists.
+TEST(road_light_disc) {
+    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    size_t ran = 0, lamps = 0, dark = 0, lit = 0;
+    for (const auto& disc : test::discs()) {
+        if (disc->info().serial.rfind("SCUS_973.28", 0) != 0) continue;
+        ++ran;
+        for (const std::string name : {"tsukuba", "trialmt", "route5", "lasvegas", "paris_rally"}) {
+            const gt3r::Volume::Entry* e = disc->volume().find("crs/" + name);
+            CHECK(e != nullptr);
+            if (!e) continue;
+            const Bytes data = disc->volume().read(*e);
+            const course::CourseFile file = course::CourseFile::parse(data);
+            const course::Runway road = course::Runway::parse(file.section(data, course::kSlotRunway));
+            lamps += road.lamps.size();
+            for (const auto& v : road.vertices) {
+                if (road.lamps.empty()) (v.b < 16 ? dark : lit) += 1;
+                else CHECK(v.a < 0 || size_t(v.a) + road.lamps_per_list <= road.lamp_lists.size());
+            }
+            for (s16 n : road.lamp_lists) CHECK(n < s16(road.lamps.size()));
+            float sun, sky;
+            const auto& g = road.grid.at(0);
+            CHECK(road.light_at(g.pos.x, g.pos.z, g.pos.y + 2, sun, sky) || name == "lasvegas");
+            CHECK(sun >= 0 && sun <= 1 && sky >= 0 && sky <= 1);
+        }
+        CHECK(lamps == 296 + 71 + 215);
+        CHECK(lit > dark && dark > 100);
     }
     if (!ran) SKIP("the American disc is not among GT4R_DISC");
 }

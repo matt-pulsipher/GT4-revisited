@@ -540,9 +540,22 @@ single-seaters), 0x20 / 0x21 *board* (the closed cars' head and shoulders), else
 solves in eight states (36-driver-sky's Chaparral 2J, Pescarolo C60 and MGF, 25-sound-cars, 20-race-chase): every bone and
 every input bit for bit. (The program leaves two floats of `wrist_phase` unwritten; not compared.)
 
-**The record's step** (0x403260: the wheel's angle, the hands taking new grips, the lean, the heave, the gaze, the gear
-change, the feet) is ported in `race/driver_state.*` as its reset only (0x402320: hands at the rest grips, the eyes straight
-ahead); what is ported of the step is listed there.
+**What the driver does** (`race/driver_state.*`; the record's step 0x403260, every simulation step; the newest record is
++0x160, the one before it +0x260; the filters +0x40, the hands' states +0x30):
+- *the wheel* (0x403F90): -0.4 x the steering command's follower (F +0x664), 480 degrees each way (90 in a car with a yoke,
+  lever kind 1); its rate kept over four steps;
+- *the hands* (0x410E60 → 0x40FC78 a hand): with the wheel until the end of their turn (2.98 / 2.83 rad less a tenth of the
+  wheel's rate, the outer sides the longer); then to a new place on the rim, near the top while the wheel turns under half a
+  turn a second, across it when faster, the way over or along the rim by where the other hand is, at 1.1 x the wheel's rate
+  (14.05 .. 28.1 rad/s) x a table over the way (0x622A20); the other hand follows beside it (1.885 rad). Hands a quarter
+  turn apart for 0.25 s, or crossed for 2 s, go back (0x411150);
+- *the elbows* (0x406388) and *the clavicles* (0x4053A8) by the hands' angles.
+
+✔ 1,920 steps of the Pescarolo, the Chaparral and their like in four states, the follower swung from lock to lock
+(`gt4r_diff posture`): every field of these bit for bit. Not ported: the gaze (0x40DDC0: 6 KB, it looks at the cars around),
+the eyes, the lean (0x404890), the pitch (0x4043C8), the heave (0x4051E0), the gear change (0x411FB0 ...), the feet; the
+other cockpit styles (motorcycles and lever cars) keep the rest. Here the follower is of the front wheels' mean angle (the
+same in a replay); the program's is of the steering command.
 
 ### Paints in the database
 

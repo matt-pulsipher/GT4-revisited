@@ -103,3 +103,28 @@ TEST(driver_figure_disc) {
     }
     if (!ran) SKIP("no Gran Turismo 4 disc");
 }
+
+// The hands go round with the wheel and take new grips when their turn ends; let go, they come back.
+TEST(driver_hands) {
+    namespace rp = race::posture;
+    rp::Cockpit c;
+    c.kind = 0x11;
+    rp::DriverState s;
+    s.reset(c);
+    rp::HandSpeeds speeds;
+    for (rp::F& v : speeds) v = rp::f(1);
+    const rp::F dt(1 / 60.0f);
+    // A little to the left and back: the grips go along.
+    s.step(c, rp::f(0.5f), dt, speeds);
+    CHECK(std::fabs(s.after.at(0x34).host() + 0.2f) < 1e-5f);
+    CHECK(std::fabs(s.after.at(0x48).host() - (-1.09955728f - 0.2f)) < 1e-4f);
+    // Far round: a new grip, and the hands never past their ends.
+    bool moved = false;
+    for (int i = 0; i < 400; ++i) {
+        s.step(c, rp::f(20.0f * std::sin(float(i) * 0.02f)), dt, speeds);
+        moved |= s.state[0] != 0 || s.state[1] != 0;
+        for (u32 h = 0; h < 2; ++h) CHECK(std::fabs(s.hand[h].host()) < 3.2f);
+        CHECK(std::fabs(s.after.at(0x34).host()) <= 8.3776f);
+    }
+    CHECK(moved);
+}
