@@ -2,8 +2,11 @@
 #include "gt4r/menu/race_natives.h"
 
 #include "gt4r/menu/game_settings.h"
+#include "gt4r/menu/photo_natives.h"
 
 #include "gt4r/menu/runtime_internal.h"
+
+#include "base/log.h"
 
 #include <algorithm>
 #include <cctype>
@@ -28,8 +31,8 @@ constexpr const char* kCommonProject = "cursor"; // the cursor and the dialogs e
 
 // The program's key table (US 1.01: 0x6192A0, pairs of pad mask and code). The codes of the
 // buttons other than the directions, accept, cancel and start are named for what the scripts
-// do with them. ❓ Which pad button gives 0x100, 0x200, 0x800, 0x1000 (taken as L1, R1, L2, R2),
-// 0x40000 and 0x80000.
+// do with them. 0x100 L1, 0x200 L2, 0x800 R1, 0x1000 R2 (the photo page's help names what they do, the
+// photo preview's "L1 R1 Zoom" reads 0x100 and 0x800); ❓ which buttons give 0x40000 and 0x80000.
 struct KeyCode {
     Key key;
     const char* name;
@@ -38,7 +41,7 @@ struct KeyCode {
 const KeyCode kKeys[] = {
     {Key::Up, "up", 0xFF52},       {Key::Down, "down", 0xFF54},     {Key::Left, "left", 0xFF51},   {Key::Right, "right", 0xFF53},
     {Key::Accept, "accept", 0xFF0D}, {Key::Cancel, "cancel", 0xFF1B}, {Key::Start, "start", 0xFF8D}, {Key::Select, "select", 0xFF63},
-    {Key::L1, "l1", 0xFFC8},       {Key::R1, "r1", 0xFFC9},         {Key::L2, "l2", 0xFFD2},       {Key::R2, "r2", 0xFFD3},
+    {Key::L1, "l1", 0xFFC8},       {Key::R1, "r1", 0xFFD2},         {Key::L2, "l2", 0xFFC9},       {Key::R2, "r2", 0xFFD3},
     {Key::Square, "square", 0xFFFF}, {Key::Triangle, "triangle", 0xFF13},
 };
 
@@ -140,6 +143,8 @@ void Runtime::load_options() {
 }
 
 void Runtime::note(std::string line) {
+    static const bool logged = std::getenv("GT4R_MENU_LOG") != nullptr; // (for checks)
+    if (logged) LOG_INFO("Menu: %s", line.c_str());
     log_.push_back(std::move(line));
     while (log_.size() > kMaxLog) log_.pop_front();
 }
@@ -174,6 +179,15 @@ void Runtime::install_natives() {
             e->set("args", Value::array(std::vector<Value>(a.begin() + (a.empty() ? 0 : 1), a.end())));
             return object_value(e);
         }));
+        // MKeyPressEvent / MKeyReleaseEvent / MActivateEvent(context, widget[, keysym]): pushed by a script to a widget.
+        for (const char* cls : {"MKeyPressEvent", "MKeyReleaseEvent", "MActivateEvent"})
+            into.define(cls, Vm::native(cls, [cls](Vm&, const Value&, Args a) {
+                auto e = std::make_shared<Object>(cls);
+                e->set("context", a.empty() ? Value{} : a[0]), e->set("widget", a.size() > 1 ? a[1] : Value{});
+                e->set("keysym", a.size() > 2 ? a[2] : Value::integer(0));
+                e->set("state", Value::integer(0)), e->set("port", Value::integer(0));
+                return object_value(e);
+            }));
         // MKeyEvent(keysym): an event a script makes itself.
         into.define("MKeyEvent", Vm::native("MKeyEvent", [](Vm&, const Value&, Args a) {
             auto e = std::make_shared<Object>("MKeyEvent");
@@ -238,8 +252,17 @@ void Runtime::install_natives() {
     update->set("cursor_speed_ratio", Value::number(1));
     update->set("repeat_start", Value::integer(20));
     update->set("repeat_speed", Value::integer(4));
-    for (const char* zero : {"getPadButtonState", "getLastPadButtonState", "getPadAnalogChannel", "getLastPadAnalogChannel"})
-        update->method(zero, [](Vm&, const Value&, Args) { return Value::integer(0); });
+    // The pad held (the program's mask) and the sticks (channels 0 and 1 the right one's, 2 and 3 the left one's): Runtime::set_pad.
+    update->method("getPadButtonState", [this](Vm&, const Value&, Args a) { return Value::integer(arg_int(a, 0) == 0 ? s32(pad_.buttons) : 0); });
+    update->method("getLastPadButtonState", [this](Vm&, const Value&, Args a) { return Value::integer(arg_int(a, 0) == 0 ? s32(pad_last_.buttons) : 0); });
+    update->method("getPadAnalogChannel", [this](Vm&, const Value&, Args a) {
+        const int c = arg_int(a, 1);
+        return Value::number(arg_int(a, 0) == 0 && c >= 0 && c < 4 ? pad_.sticks[c] : 0.0f);
+    });
+    update->method("getLastPadAnalogChannel", [this](Vm&, const Value&, Args a) {
+        const int c = arg_int(a, 1);
+        return Value::number(arg_int(a, 0) == 0 && c >= 0 && c < 4 ? pad_last_.sticks[c] : 0.0f);
+    });
     for (const char* nothing : {"loadGpbFromMC", "setStartPage"}) update->method(nothing, [](Vm&, const Value&, Args) { return Value{}; });
     update->method("existGpbBinary", [](Vm&, const Value&, Args) { return Value::integer(1); });
     update->method("getStartPage", [](Vm&, const Value&, Args) { return Value{}; });
@@ -455,6 +478,7 @@ void Runtime::start_project(const std::string& name, const std::string& language
     note("project " + name + " (" + root_widget_->name + ")");
     vm_->instructions = 0, vm_->budget = kCallBudget;
     vm_->require("/projects/" + name + "/" + name);
+    answer_photo_destination(*root_widget_);
     // A new transition and cursor for each project: the scripts set theirs in onLoad.
     if (auto render = render_context_.as<Object>()) render->set("transition", Value{}), render->set("cursor_visible", Value::integer(1));
     // onLoad on every widget that has one, the children before their parent, the project
@@ -509,7 +533,7 @@ std::string Runtime::wanted_project() const { return game_->next_menu_project; }
 std::optional<RaceRequest> Runtime::race_request() const {
     const std::string& next = game_->next_sequence;
     // load_replay is a sequence of menus (the Replay Theater); a replay chosen there is "replay".
-    if (!finished_ || next.empty() || next == "menu" || next == "boot" || next == "load_replay") return std::nullopt;
+    if (!finished_ || next.empty() || next == "menu" || next == "boot" || next == "load_replay" || next == "photo_labo") return std::nullopt;
     RaceRequest r = game_->race;
     r.sequence = next;
     complete_race_request(const_cast<Runtime&>(*this), r);
@@ -527,6 +551,11 @@ bool Runtime::advance() {
     if (game_->next_sequence == "load_replay") {
         game_->next_menu_project = "labomode", game_->next_menu_arg = "ReplayTheaterRoot";
         game_->card_action = 0, game_->replay_file.clear();
+    }
+    // The photo_labo sequence (0x1C7A88): the project labomode, no page named.
+    if (game_->next_sequence == "photo_labo") {
+        game_->next_menu_project = "labomode", game_->next_menu_arg.clear();
+        game_->menu_result.clear();
     }
     const std::string next = game_->next_menu_project;
     if (next.empty()) return false;
@@ -568,6 +597,12 @@ void Runtime::finish() {
         game_->next_menu_project = "labomode", game_->next_menu_arg = "ReplayTheaterRoot";
         game_->card_action = 0;
     }
+    // The Photo Lab's project ended: the project print when its result is "print", else the lab again, until its result
+    // is "exit" (0x1C7A88; the scripts then ask for a sequence). ❓ Developing a film ("develop") is not built.
+    if (sequence_ == "photo_labo" && game_->next_sequence.empty() && game_->next_menu_project.empty() && game_->menu_result != "exit") {
+        const bool print = game_->menu_result == "print";
+        game_->next_menu_project = print ? "print" : "labomode", game_->next_menu_arg.clear();
+    }
     const std::optional<RaceRequest> race = race_request();
     // The scripts asked for a race: its sequence starts (the program makes the race's menus'
     // work object anew, 0x127E60, and the result routines' session).
@@ -594,7 +629,8 @@ void Runtime::finish() {
 
 void Runtime::run(const Value& callee, std::vector<Value> args, std::string what, std::function<void(const Value&)> done) {
     vm_->instructions = 0, vm_->budget = kCallBudget;
-    if (trace_calls) note("call " + what);
+    static const bool traced = std::getenv("GT4R_MENU_LOG") && std::string_view(std::getenv("GT4R_MENU_LOG")) == "calls";
+    if (trace_calls || traced) note("call " + what);
     Running r;
     r.what = std::move(what), r.done = std::move(done);
     running_.push_back(std::move(r));
@@ -691,10 +727,26 @@ void Runtime::track_actor(const std::shared_ptr<script::Heap>& a) {
 
 void Runtime::dispatch(Event& e) {
     if (trace_calls && e.kind == Event::Kind::Key) note(std::string("key ") + key_name(e.key));
-    if (e.kind == Event::Kind::Key) return dispatch_key(e.key);
+    if (e.kind == Event::Kind::Key) {
+        key_repeated_ = e.repeat;
+        return e.release ? dispatch_release(e.key) : dispatch_key(e.key);
+    }
     if (e.kind == Event::Kind::Call) return run(e.callee, std::move(e.args), std::move(e.what));
     const auto object = e.value.as<Object>();
     if (!object) return;
+    // A key or an activation a script pushed to a widget of its own choice.
+    if (object->label == "MKeyPressEvent" || object->label == "MKeyReleaseEvent" || object->label == "MActivateEvent") {
+        const std::shared_ptr<LiveWidget> target = object->get("widget").as<LiveWidget>();
+        if (!target) return;
+        if (object->label == "MActivateEvent") {
+            std::vector<std::shared_ptr<LiveWidget>> up;
+            for (LiveWidget* w = target.get(); w; w = w->parent_widget()) up.push_back(w->self());
+            return run_chain(std::move(up), 0, "onActivate", {render_context_, e.value}, {});
+        }
+        for (const KeyCode& c : kKeys)
+            if (s32(object->number("keysym")) == c.sym) return object->label == "MKeyPressEvent" ? dispatch_key(c.key, target) : dispatch_release(c.key, target);
+        return;
+    }
     std::vector<Value> args;
     const Value given = object->get("args");
     Value callee = object->get("call");
@@ -961,9 +1013,32 @@ void Runtime::queue_focus_events() {
     }
 }
 
-void Runtime::key(Key k) {
+void Runtime::set_pad(const Pad& pad) {
+    static const std::pair<u32, Key> buttons[] = {
+        {Pad::kUp, Key::Up}, {Pad::kDown, Key::Down}, {Pad::kLeft, Key::Left},   {Pad::kRight, Key::Right}, {Pad::kL1, Key::L1},     {Pad::kL2, Key::L2},
+        {Pad::kR1, Key::R1}, {Pad::kR2, Key::R2},     {Pad::kCross, Key::Accept}, {Pad::kTriangle, Key::Cancel}, {Pad::kSquare, Key::Cancel}, {Pad::kStart, Key::Start},
+    };
+    const u32 released = pad_.buttons & ~pad.buttons;
+    pad_last_ = pad_, pad_ = pad;
+    if (!keys_taken()) return;
+    for (const auto& [bit, key] : buttons)
+        if (released & bit) {
+            Event e;
+            e.kind = Event::Kind::Key, e.key = key, e.release = true;
+            events_.push_back(std::move(e));
+        }
+}
+
+// The context's event mask lets no event through at 0 (the photo map's drags).
+bool Runtime::keys_taken() {
+    const Value mask = vm_->attribute(render_context_, "event_mask");
+    return !mask.is_number() || s32(mask.as_float()) != 0 || mask.as_float() != 0;
+}
+
+void Runtime::key(Key k, bool repeat) {
+    if (!keys_taken()) return;
     Event e;
-    e.kind = Event::Kind::Key, e.key = k;
+    e.kind = Event::Kind::Key, e.key = k, e.repeat = repeat;
     events_.push_back(std::move(e));
     last_input_frame_ = frame_;
 }
@@ -973,15 +1048,16 @@ void Runtime::key(Key k) {
 // its index, 0x2DAD18), then its script (onKeyPress(context, event)). The page, last, turns
 // accept and cancel into their own events and the directions into a move of the focus
 // (0x235680).
-void Runtime::dispatch_key(Key k) {
+void Runtime::dispatch_key(Key pressed, const std::shared_ptr<LiveWidget>& to) {
     const std::shared_ptr<LiveWidget> page = pages_.empty() ? nullptr : pages_.back();
     if (!page) return;
-    const std::shared_ptr<LiveWidget> focus = page->focus.lock();
+    const std::shared_ptr<LiveWidget> focus = to ? to : page->focus.lock();
     std::vector<std::shared_ptr<LiveWidget>> chain;
     for (LiveWidget* w = focus ? focus.get() : page.get(); w; w = w->parent_widget()) {
         chain.push_back(w->self());
         if (w == page.get()) break;
     }
+    const Key k = pressed;
     auto event = std::make_shared<Object>("MKeyPressEvent");
     event->set("keysym", Value::integer(keysym(k)));
     event->set("state", Value::integer(0)), event->set("port", Value::integer(0));
@@ -991,8 +1067,11 @@ void Runtime::dispatch_key(Key k) {
     // One widget after the other: the class, then the script.
     auto step = std::make_shared<std::function<void(size_t)>>();
     std::weak_ptr<std::function<void(size_t)>> weak_step = step;
-    *step = [this, chain, k, ev, page, focus, weak_step](size_t at) {
+    *step = [this, chain, k = pressed, event, ev, page, focus, weak_step](size_t at) mutable {
         const auto self = weak_step.lock();
+        // (A script may give the event another key: the photo map's directions.)
+        for (const KeyCode& c : kKeys)
+            if (s32(event->number("keysym")) == c.sym) k = c.key;
         if (at >= chain.size()) {
             // The page's own handling.
             // Prologue's page (mRootWindow slot 64, 0x230548) takes Start as Accept, and makes its activate event on
@@ -1029,6 +1108,23 @@ void Runtime::dispatch_key(Key k) {
         });
     };
     (*step)(0); // the calls it starts hold it until they end
+}
+
+// A key let go: the focused widget's script and then each parent's, until one deals with it.
+void Runtime::dispatch_release(Key k, const std::shared_ptr<LiveWidget>& to) {
+    const std::shared_ptr<LiveWidget> page = pages_.empty() ? nullptr : pages_.back();
+    if (!page) return;
+    const std::shared_ptr<LiveWidget> focus = to ? to : page->focus.lock();
+    std::vector<std::shared_ptr<LiveWidget>> chain;
+    for (LiveWidget* w = focus ? focus.get() : page.get(); w; w = w->parent_widget()) {
+        chain.push_back(w->self());
+        if (w == page.get()) break;
+    }
+    auto event = std::make_shared<Object>("MKeyReleaseEvent");
+    event->set("keysym", Value::integer(keysym(k)));
+    event->set("state", Value::integer(0)), event->set("port", Value::integer(0));
+    event->set("widget", widget_value(page)), event->set("context", render_context_);
+    run_chain(std::move(chain), 0, "onKeyRelease", {render_context_, object_value(event)}, {});
 }
 
 // The focus moves as the program's search orders the page's candidates (0x270118; the

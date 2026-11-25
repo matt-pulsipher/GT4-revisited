@@ -22,6 +22,8 @@ namespace gt4r::menu {
 
 class Runtime;
 struct GameSettings; // game_settings.h
+struct PhotoShoot;   // photo_natives.h
+struct PhotoPicture;
 
 // A widget's states: the bits a face's "visible_condition" is tested against.
 enum WidgetState : int { kActive = 1, kFocus = 2, kPrelight = 4, kInsensitive = 8 };
@@ -70,6 +72,7 @@ struct LiveWidget : script::Module {
     std::shared_ptr<script::Reference> member(script::Vm&, const script::Value& self, const std::string& name) override;
 
     std::shared_ptr<script::Reference> element(script::Vm& vm, const script::Value& self, const std::string& name) override;
+    std::shared_ptr<script::Reference> dotted(script::Vm& vm, const script::Value& self, const std::string& name) override;
     std::string describe() const override { return "<" + data.type + " " + path() + ">"; }
     void clear() override;
 
@@ -162,7 +165,24 @@ public:
     // queued are given to the scripts, the actors move.
     void update();
     // A press of a pad button: queued for the event thread.
-    void key(Key k);
+    unsigned directions_held = 0; // what the app's directions were last frame (bits: up, down, left, right): a press of one still held is a repeat
+    // `repeat`: the key is held since an earlier press of it.
+    void key(Key k, bool repeat = false);
+    bool key_repeated() const { return key_repeated_; } // of the key being dealt with
+    // The pad as it is held now (the program's mask) and its sticks (-1 .. 1: right x, right y, left x, left y): once a
+    // picture. What the scripts ask of it (getPadButtonState, getPadAnalogChannel); a button let go queues its key release.
+    struct Pad {
+        static constexpr u32 kUp = 1, kDown = 2, kLeft = 4, kRight = 8, kTriangle = 0x10, kCircle = 0x20, kSquare = 0x40, kCross = 0x80, kL1 = 0x100,
+                             kL2 = 0x200, kR1 = 0x800, kR2 = 0x1000, kStart = 0x4000;
+        u32 buttons = 0;
+        float sticks[4] = {};
+    };
+    void set_pad(const Pad& pad);
+    const Pad& pad() const { return pad_; }
+    const Pad& last_pad() const { return pad_last_; }
+    // The photo shoot running (its scripts' camera; photo_natives.h), and the picture the photo faces show.
+    std::shared_ptr<struct PhotoShoot> photo;
+    std::shared_ptr<struct PhotoPicture> photo_picture;
     // Frames until nothing runs or waits and no event is queued (at most `max_frames`); false
     // when it did not settle.
     bool settle(int max_frames = 600);
@@ -269,6 +289,8 @@ private:
     struct Event {
         enum class Kind { Key, Script, Call } kind = Kind::Script;
         Key key = Key::Accept;
+        bool release = false;                      // a Key let go
+        bool repeat = false;                       // a Key still held
         script::Value value;                       // an MScriptEvent / MFunctionEvent
         script::Value callee;                      // a Call's
         std::vector<script::Value> args;
@@ -283,7 +305,10 @@ private:
     void run_chain(std::vector<std::shared_ptr<LiveWidget>> chain, size_t at, std::string name, std::vector<script::Value> args,
                    std::function<void(bool)> done);
     void dispatch(Event& e);
-    void dispatch_key(Key k);
+    void dispatch_key(Key pressed, const std::shared_ptr<LiveWidget>& to = nullptr);
+    void dispatch_release(Key k, const std::shared_ptr<LiveWidget>& to = nullptr);
+    bool keys_taken();
+    Pad pad_, pad_last_;
     void navigate(Key k);
     void unload_project();
     void step_frame_objects();
@@ -309,6 +334,7 @@ private:
     std::deque<std::string> log_;
     std::vector<SoundCall> sounds_;
     u64 frame_ = 0, last_input_frame_ = 0;
+    bool key_repeated_ = false;
     std::weak_ptr<LiveWidget> entered_; // the widget the cursor last went into (its onEnter)
     bool finished_ = false;
     std::string sequence_ = "boot"; // the part of the game running: "boot", then "menu"

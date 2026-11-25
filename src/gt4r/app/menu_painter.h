@@ -5,14 +5,11 @@
 // viewer draws them (screen_menu_viewer.cpp).
 
 #include "gt4r/app/app.h"
+#include "gt4r/menu/runtime.h"
 
 #include <memory>
 
 namespace gt4r {
-
-namespace menu {
-class Runtime;
-}
 
 class MenuPainter {
 public:
@@ -24,5 +21,9 @@ std::unique_ptr<MenuPainter> make_menu_painter(App& app);
 
 // The running menus' keys from the pad as the menu viewer gives them.
 void send_menu_keys(menu::Runtime& menus, const MenuInput& m);
+// Its directions alone; `on` false: they are taken by something else.
+void send_menu_directions(menu::Runtime& menus, const MenuInput& m, bool on);
+// The pad as the menus' scripts read it (Runtime::set_pad).
+menu::Runtime::Pad menu_runtime_pad(const gt3r::PadState& p);
 
 } // namespace gt4r
