@@ -1716,7 +1716,32 @@ void Field::decide_car(size_t car, race::CarInput& in) {
     in.shift_lock = u8(d.shift_lock);
 }
 
-void Field::step(Session& session, std::span<race::CarInput> inputs, int keep) {
+// 0x463CD8: the engine held through the start's hold, `count` steps of it left: 13 and more the throttle up and down at 5 and
+// 10 a second less the car's rank's shares between 3/4 and 15/16 of the up-shift speed; then held by the speed.
+void Field::blip(Driver& d, u32 count) {
+    const ex::Car& c = session_->record(d.car);
+    const F rank = int_f(c.rank);
+    const int up = s32(session_->extra(d.car).drive.d.up_rpm), rpm = s32(c.rpm);
+    if (count >= 13) {
+        if (d.blip == 0) {
+            if (rpm < ((3 * up) >> 2)) d.blip = 1;
+        } else if (!(rpm < (15 * up) / 16)) d.blip = 0;
+        if (d.blip != 0) {
+            d.throttle = d.throttle + c.dt * (F::raw(0x40A00000) - rank * F::raw(0x3E4CCCCC));
+            if (kOne < d.throttle) d.throttle = kOne;
+        } else {
+            d.throttle = d.throttle - c.dt * (F::raw(0x41200000) - rank * F::raw(0x3ECCCCCC));
+            if (d.throttle < F()) d.throttle = F();
+        }
+        return;
+    }
+    const F q = int_f(rpm - up) / int_f(s32(session_->extra(d.car).drive.e.idle));
+    d.throttle = (F::raw(0x3F200000) - rank * F::raw(0x3B03126E)) - (q + q);
+    if (kOne < d.throttle) d.throttle = kOne;
+    else if (d.throttle < F()) d.throttle = F();
+}
+
+void Field::step(Session& session, std::span<race::CarInput> inputs, int keep, u32 count) {
     begin_step();
     apply_time_scales(session);
     auto plans_only = [&](const Driver& d) { return (d.control == 0 && d.kind == 0) || int(d.car) == keep; };
@@ -1726,7 +1751,7 @@ void Field::step(Session& session, std::span<race::CarInput> inputs, int keep) {
             in.computer = dp->control != 0 || session_->record(dp->car).driver_kind != 1;
             in.control = u8(dp->control == 1 ? 1 : 2);
         }
-    session.step_once(inputs, [&](size_t car, race::CarInput& in) {
+    auto decide_one = [&](size_t car, race::CarInput& in) {
         if (car >= drivers_.size() || !drivers_[car]) return;
         Driver& d = *drivers_[car];
         if (plans_only(d)) {
@@ -1736,9 +1761,15 @@ void Field::step(Session& session, std::span<race::CarInput> inputs, int keep) {
             const race::PadRecord* pad = in.pad; // (a player's car in its rolling start: its controller's frame is read all the same)
             decide_car(car, in);
             in.pad = pad;
+            if (d.control != 0 && session_->record(car).race_hold != 0) { // (0x3F3400)
+                blip(d, count + session.start_counter(car));
+                in.throttle = d.throttle.host(), in.brake = 0, in.steer_angle = 0;
+            }
         }
         session.set_line_heading(car, line_heading_at(car), line_mode_at(car));
-    });
+    };
+    if (count > 0) return session.hold_once(inputs, decide_one); // (no step of the race's clock)
+    session.step_once(inputs, decide_one);
     end_step();
 }
 

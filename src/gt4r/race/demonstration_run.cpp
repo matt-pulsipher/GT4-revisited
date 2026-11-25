@@ -60,6 +60,7 @@ DemonstrationRun run_demonstration(Disc& disc, db::SpecDb& sdb, const std::strin
         }
         sim::Session::Options so;
         so.hold_steps = 0;
+        so.rules = event_rule_block(ev->bytes);
         sim::Session session(sdb, program, std::make_shared<const course::Runway>(*road), entries, sim::course_row(sdb, ev->course), &so);
         std::array<gt3r::s8, 4> grip{};
         for (size_t k = 0; k < 4; ++k) grip[k] = gt3r::s8(ev->bytes[0x53 + k]);
@@ -97,7 +98,7 @@ DemonstrationRun run_demonstration(Disc& disc, db::SpecDb& sdb, const std::strin
         }
         fs.test_kind = rules.kind;
         RaceFlow flow(fs, session.cars());
-        for (size_t i = 0; i < entries.size(); ++i) session.set_crossings(i, flow.car(i).counter);
+        for (size_t i = 0; i < entries.size(); ++i) session.set_crossings(i, flow.car(i).counter), session.set_rank(i, flow.place(i));
         LicenseJudge judge(rules);
         std::array<u32, 32> soft{};
         for (u32 m = 0; m < soft.size(); ++m) soft[m] = program.w(sim::Program::kSoft + 4 * m);
@@ -109,27 +110,26 @@ DemonstrationRun run_demonstration(Disc& disc, db::SpecDb& sdb, const std::strin
         }
 
         std::vector<CarInput> in(entries.size());
+        int met = 0;
         r.ran = true;
         for (size_t step = 0; step < demo->steps() + size_t(std::max(0, opt.extra)); ++step) {
             for (CarInput& c : in) c = {};
             in[0] = demo->input(step);
             const bool hold = flow.holding();
-            if (hold) {
-                if (field) field->hold(in);
-                session.hold_once(in);
-            } else if (field) field->step(session, in);
+            if (field) field->step(session, in, -1, hold ? u32(flow.hold_left() - 1) : 0);
+            else if (hold) session.hold_once(in);
             else session.step_once(in);
-            int cones = 0;
+            const int cones = met; // (the cones move after the race's step: what they met is judged in the next)
             if (!gadgets.placements.empty()) {
                 std::vector<GadgetBodies::Car> boxes;
                 for (size_t i = 0; i < entries.size(); ++i) boxes.push_back(gadget_box(session.record(i), session.cars()[i]));
                 bodies.step(gadgets, *road, boxes, sim::Session::kStep);
-                cones = bodies.contacts().empty() ? 0 : bodies.contacts()[0];
+                met = bodies.contacts().empty() ? 0 : bodies.contacts()[0];
             }
             const RaceFlow::Events e = flow.step(session.cars());
             for (const size_t i : e.started)
                 if (session.cars()[i].rolling && (!field || field->release_rolling(i))) session.release_start(int(i));
-            for (size_t i = 0; i < entries.size(); ++i) session.set_crossings(i, flow.car(i).counter);
+            for (size_t i = 0; i < entries.size(); ++i) session.set_crossings(i, flow.car(i).counter), session.set_rank(i, flow.place(i));
             if (!hold && !flow.player_finished()) {
                 const CarState& c = session.cars()[0];
                 if (const std::optional<float> share = rules.kind == 1 ? stopped_in_box(c) : std::nullopt) flow.finish_now(0, *share);

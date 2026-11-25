@@ -304,21 +304,19 @@ void OursBeside::step(Ee& ee, const u8* record) {
         rolling_before = before;
     }
     m.session->step_once(in, [&](size_t car, race::CarInput&) {
-        if (!m.field || car != 0) return;
+        if (!m.field) return;
         race::CarInput unused;
-        m.field->decide_car(0, unused);
-        if (rolling_before && m.field_prints < 20) {
-            const u32 D = o.car(0) + sim::layout::kDriver;
-            const sim::ai::Field::Probe p = m.field->probe_get(0);
+        m.field->decide_car(car, unused);
+        if ((car > 0 ? steps >= 479 : rolling_before) && m.field_prints < 20) {
+            const u32 D = o.car(int(car)) + sim::layout::kDriver;
+            const sim::ai::Field::Probe p = m.field->probe_get(car);
             const u32 a[3] = {ee.r32(D + 0x30), ee.r32(D + 0x34), ee.r32(D + 0x38)}, b[3] = {p.steer.bits, p.throttle.bits, p.brake.bits};
             if (std::getenv("GT4R_FLOATS_DRIVER") || a[0] != b[0] || a[1] != b[1] || a[2] != b[2]) {
                 ++m.field_prints;
-                std::printf("   now: program yaw %08X slip_dir %08X %08X cmd %08X; ours %08X %08X %08X cmd %08X\n", ee.r32(o.car(0) + kF + 0x5A4), ee.r32(o.car(0) + kF + 0x5AC), 0u, ee.r32(o.car(0) + kF + 0x468), m.session->record(0).yaw_rate.bits,
-                            m.session->record(0).w[0].slip_dir.bits, m.session->record(0).w[1].slip_dir.bits, m.session->record(0).steer_cmd.bits);
-                std::printf("  driver step %d: steer %08X %08X (%g %g) throttle %08X %08X brake %08X %08X; next %u %d mode %u %d look.. line %u %d prev %u %d blend %08X %08X off %08X %08X vcur %08X %08X vnext %08X %08X aim %08X %08X / %08X %08X\n", steps, a[0], b[0],
+                std::printf("  driver %zu step %d: steer %08X %08X (%g %g) throttle %08X %08X brake %08X %08X; next %u %d mode %u %d look.. line %u %d prev %u %d blend %08X %08X off %08X %08X vcur %08X %08X vnext %08X %08X aim %08X %08X / %08X %08X\n", car, steps, a[0], b[0],
                             double(F::raw(a[0]).host()), double(p.steer.host()), a[1], b[1], a[2], b[2], ee.r8(D + 0x1D), p.next, ee.r8(D + 0x1E), p.mode, ee.r8(D + 0x1C), p.line,
                             ee.r8(D + 0x21), p.prev_line, ee.r32(D + 0x2C), p.blend.bits, ee.r32(D + 0x54), p.offset.bits, ee.r32(D + 0x24), p.v_cur.bits, ee.r32(D + 0x28), p.v_next.bits,
-                            ee.r32(o.car(0) + kF + 0x61C), p.aim_x.bits, ee.r32(o.car(0) + kF + 0x620), p.aim_y.bits);
+                            ee.r32(o.car(int(car)) + kF + 0x61C), p.aim_x.bits, ee.r32(o.car(int(car)) + kF + 0x620), p.aim_y.bits);
             }
         }
     });

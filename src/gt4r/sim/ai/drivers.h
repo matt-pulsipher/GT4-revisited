@@ -158,7 +158,9 @@ public:
     // A whole step of a session with its drivers, each deciding where the program's do (Session::Decider): the step's common
     // part, every car's time scale, the session's step with each driven car's decision after its preparation and its line's
     // heading for the active steering, the step's end. `keep`: a car whose given input stays (its driver plans only).
-    void step(Session& session, std::span<race::CarInput> inputs, int keep = -1);
+    // `count`: the steps left of the race's start hold (the race information's +0xBC in this step; 0 none): the session's held
+    // step, the computer drivers deciding through it (their throttle the engines' blips, 0x463CD8), the race's clock standing.
+    void step(Session& session, std::span<race::CarInput> inputs, int keep = -1, u32 count = 0);
     // drive() in its parts: the step's common part (the order, the rubber band, the pairs pass), then each driven car's
     // decision, then the step's end.
     void begin_step();
@@ -345,6 +347,7 @@ private:
     void bspec_experience(Driver& d, int table, gt3r::ee::F v);
     void pd_steer(Driver& d, gt3r::ee::F dir, gt3r::ee::F rd, gt3r::ee::F r, gt3r::ee::F amax, gt3r::ee::F ky);
     void set_kind(Driver& d, int kind);
+    void blip(Driver& d, u32 count);
     void stop(Driver& d, gt3r::ee::F steer);
     gt3r::ee::F hold_speed(const Driver& d, gt3r::ee::F target) const;
     void traffic(Driver& d);

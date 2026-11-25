@@ -240,6 +240,7 @@ void RaceWorld::build_simulation() {
             }
             sim::Session::Options options;
             if (setup_.own_hold) options.hold_steps = 0;
+            options.rules = race::event_rule_block(setup_.event_row);
             session_ = std::make_unique<sim::Session>(*app_.db(), program, std::make_shared<const course::Runway>(course_->road()), entries,
                                                       sim::course_row(*app_.db(), setup_.course), &options);
             if (!noted_)
@@ -377,14 +378,13 @@ void RaceWorld::restart() {
     clear_effects();
 }
 
-void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool player_by_computer) {
+void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool player_by_computer, u32 hold_left) {
     // The computer drivers write their own cars' inputs (the player's too while they drive it).
     std::vector<race::CarInput> driven;
     if (field_) {
         driven.assign(inputs.begin(), inputs.end());
         driven.resize(car_visuals_.size());
-        if (hold) field_->hold(driven);
-        else if (pits_) pits_->before(*field_, driven); // (a stop's timing, 0x35C0B8: the car standing in its box held)
+        if (!hold && pits_) pits_->before(*field_, driven); // (a stop's timing, 0x35C0B8: the car standing in its box held)
         // B-spec: the driver's shift speeds into the gearbox (0x3F1E30, control source 1).
         if (computer_player_ && session_) session_->set_shift_factor(0, field_->shift_factor(0));
         inputs = driven;
@@ -411,16 +411,16 @@ void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool pla
         }
         inputs = capped;
     }
-    if (hold && session_) session_->hold_once(inputs);
+    if (field_ && session_) // (each driver deciding within the step; the player's own input kept once he drives)
+        field_->step(*session_, driven, computer_player_ && !player_by_computer ? 0 : -1, hold ? std::max(1u, hold_left) : 0);
+    else if (hold && session_) session_->hold_once(inputs);
     else if (hold) {
         // The stand-in has no hold: the cars stand on their brakes.
         std::vector<race::CarInput> held(inputs.begin(), inputs.end());
         held.resize(car_visuals_.size());
         for (race::CarInput& in : held) in = {}, in.brake = 1;
         sim_->step(held, kStep);
-    } else if (field_ && session_) // (each driver deciding within the step; the player's own input kept once he drives)
-        field_->step(*session_, driven, computer_player_ && !player_by_computer ? 0 : -1);
-    else sim_->step(inputs, kStep);
+    } else sim_->step(inputs, kStep);
     if (!hold && pits_ && session_) pits_->after(*session_, *field_);
     if (!hold) course_->animate(kStep, sim_->cars());
     // The cones and boards the cars run into: each car's box (0x3E5108) at its center of mass, by its heading,

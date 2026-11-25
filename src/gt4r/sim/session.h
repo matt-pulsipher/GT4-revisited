@@ -78,11 +78,14 @@ std::optional<CourseRow> course_row(db::SpecDb& db, const std::string& course);
 
 class Session final : public race::Simulation {
 public:
+    // A computer driver's decision for a car, within the step (step_once).
+    using Decider = std::function<void(size_t car, race::CarInput& input)>;
     static constexpr float kStep = 1.0f / 60.0f;
     static constexpr int kHoldSteps = 120; // a standing start's countdown before the session's time 0 (the constructor's)
     // Further settings of a session.
     struct Options {
         int hold_steps = kHoldSteps; // the constructor's countdown (0: the caller's own hold, from the set-up's state)
+        std::array<u8, 0x80> rules{}; // the race's rule block (race::event_rule_block: the computer cars' axle grips)
     };
 
     // `course`: the course's row; without it the kind is guessed (dirt when the first start place is on a loose surface).
@@ -102,11 +105,12 @@ public:
     // One step of 1/60 s. `decide`: each car's computer driver, asked for its input where the program's drivers decide (0x465078
     // in the input phase 0x349FD0, after the preparation 0x357700: the step's own slip angles, peak forces and torques); the
     // inputs given then only say who drives (computer, control).
-    using Decider = std::function<void(size_t car, race::CarInput& input)>;
     void step_once(std::span<const race::CarInput> inputs, const Decider& decide = {});
     // One step of the race's countdown: every car held (F + 0x4BC, 0x34C210; the engines answer the throttle, the
     // cars stay); the session's time does not advance.
-    void hold_once(std::span<const race::CarInput> inputs);
+    void hold_once(std::span<const race::CarInput> inputs, const Decider& decide = {});
+    // The steps of its hold a car has left (0x34C1C8: the race's countdown and its own): its own start's hold here.
+    u32 start_counter(size_t car) const { return car < start_counters_.size() ? start_counters_[car] : 0; }
     // The race's countdown (the race information's +0xBC): `steps` steps from the next, counted down one a step, the
     // cars held and the session's time standing while it runs. 0 ends it.
     void set_countdown(u32 steps) { countdown_ = steps; }
@@ -117,6 +121,8 @@ public:
     u32 countdown() const { return countdown_; }
     // A car's crossings of the line as its race counts them (F + 0x4AC: the rolling start's pace and the pad's lap read it).
     void set_crossings(size_t car, int n);
+    // A car's place in the race (F + 0x4AF, 1 the leader).
+    void set_rank(size_t car, int place);
     // A car held in its rolling start (F + 0x467 = 1: its computer driver drives it, the rolling start's pace caps it,
     // the input phase takes the car's input as the computer's outputs) let go (the single-player conductor's virtual
     // +0x14, 0x347928: 0x345228 and 0x3F37B8).

@@ -472,9 +472,9 @@ public:
             if (setup_.conductor != race::Conductor::Other) fs.test_kind = setup_.rules.kind, fs.mission = setup_.conductor == race::Conductor::Mission;
         } else fs.sectors = splits_;
         flow_.begin(fs, world_->cars());
-        for (size_t i = 0; i < world_->car_count(); ++i) world_->set_crossings(i, flow_.car(i).counter);
+        for (size_t i = 0; i < world_->car_count(); ++i) world_->set_crossings(i, flow_.car(i).counter), world_->set_rank(i, flow_.place(i));
         rolled_ = false;
-        license_failed_ = false;
+        license_failed_ = false, cones_met_ = 0;
         judge_ = race::LicenseJudge(judge_.rules());
         goal_prev_ = -1;
         board_.begin(world_->car_count(), 0, lap_words_[0], lap_words_[1]);
@@ -594,7 +594,7 @@ public:
         const bool demo = demo_run_.has_value();
         if (demo) inputs_[0] = demo_run_->input(demo_step_++), auto_drive = false;
         const bool opening = opening_tv();
-        world_->step(inputs_, hold, !demo && (auto_drive || watched_ || setup_.auto_drive));
+        world_->step(inputs_, hold, !demo && (auto_drive || watched_ || setup_.auto_drive), u32(std::max(0, flow_.hold_left() - 1)));
         // GT4R_DEMO_LOG=<n>: a demonstration's car every n steps (the record's x, y: the course's x, -z), to compare with a
         // run of the program's own step (gt4r_diff demo).
         if (demo)
@@ -607,7 +607,7 @@ public:
         const race::RaceFlow::Events ev = flow_.step(world_->cars());
         // A car held in its rolling start let go as its start is counted (vf20 0x347928, the license's 0x3F64D0).
         for (const size_t i : ev.started) world_->release_start(i);
-        for (size_t i = 0; i < flow_.car_count(); ++i) world_->set_crossings(i, flow_.car(i).counter);
+        for (size_t i = 0; i < flow_.car_count(); ++i) world_->set_crossings(i, flow_.car(i).counter), world_->set_rank(i, flow_.place(i));
         if (!ev.finished.empty()) board_.finished(flow_, ev.finished);
         // Each car's distance from the line (crossings x lap + along) each step from the start: the gaps.
         if (flow_.steps_since_start() >= 0) {
@@ -1004,7 +1004,8 @@ public:
             }
             return;
         }
-        const race::LicenseStep s = race::license_step(c, [this](u8 m) { return world_->soft_material(m); }, setup_.course_kind, world_->car_mass(0), world_->gadget_contacts(0));
+        const race::LicenseStep s = race::license_step(c, [this](u8 m) { return world_->soft_material(m); }, setup_.course_kind, world_->car_mass(0), cones_met_);
+        cones_met_ = world_->gadget_contacts(0); // (the cones move after the race's step: what they met is judged in the next)
         // A cone's contact is heard (kind 2, clash4) only while the test counts cones knocked down (the
         // rule block's +0x46 not 0: 0x350328 asks 0x35DF00).
         if (r.pylons > 0 && s.cones > 0)
@@ -1221,6 +1222,7 @@ private:
     std::vector<std::vector<float>> run_dist_; // per car, per step since the start: its distance from the line
     size_t focus_ = 0; // B-spec: the car the views follow
     std::optional<sim::ai::DemoRun> demo_run_; // a demonstration's recording
+    int cones_met_ = 0;
     size_t demo_step_ = 0;
     bool demo_logged_ = false;
     int bspec_pace_ = 3, overtake_steps_ = 0;

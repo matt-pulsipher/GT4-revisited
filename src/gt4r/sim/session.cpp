@@ -195,6 +195,8 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
             if (e.condition) condition = *e.condition;
             else condition[0x14] = 1;
             ci.condition = condition.data();
+            ci.control = e.control;
+            if (options) ci.rules = options->rules;
             build_record(specs_[i], program, tables_, ci, r, &blocks_[i]);
             {
                 std::array<u32, 8> w;
@@ -202,7 +204,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
                 c.odometer = decltype(c.odometer)(w[0]), c.engine_wear = F::raw(w[1]), c.oil = F::raw(w[2]), c.dirt = F::raw(w[3]);
                 for (size_t k = 0; k < 4; ++k) c.x408[k] = w[4 + k];
             }
-            r.x.aids.assist = assist; // (the entry's aid switches, already in the spec)
+            r.x.aids.assist = e.control < 2 ? assist : 0; // (the entry's aid switches, already in the spec; a computer's car has none here)
             c.p = r.car.p;
             // The fuel and the nitrous at the start (0x354AF8; the race's fuel rule, the rule block's +0x4C: Entry::fuel).
             rules::fuel_start(c, r.x.drive.fuel, e.fuel ? 1 : 0, program.b(0x620E24), r.x.chassis.mass, r.x.body.sprung_mass);
@@ -353,6 +355,10 @@ void Session::set_crossings(size_t car, int n) {
     if (car < cars_.size()) cars_[car].laps = decltype(cars_[car].laps)(n);
 }
 
+void Session::set_rank(size_t car, int place) {
+    if (car < cars_.size()) cars_[car].rank = gt3r::s8(place);
+}
+
 void Session::release_start(int car) {
     if (car < 0 || size_t(car) >= cars_.size()) return;
     // (the session has no line object: the driver's line change is taken as made)
@@ -461,9 +467,9 @@ void Session::set_driver_aids(size_t car, const gt3r::sim::exact::Aids& block, c
     if (car < driver_grip_.size()) driver_grip_[car] = grip;
 }
 
-void Session::hold_once(std::span<const race::CarInput> inputs) {
+void Session::hold_once(std::span<const race::CarInput> inputs, const Decider& decide) {
     holding_ = true;
-    step_once(inputs);
+    step_once(inputs, decide);
     holding_ = false;
 }
 

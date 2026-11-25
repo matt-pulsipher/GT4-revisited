@@ -109,7 +109,8 @@ public:
     // cars stay).
     // `player_by_computer`: when the computer drivers were set up for the player's car too, they drive
     // it this step (else its input is the caller's: a rolling start handed over).
-    void step(std::span<const race::CarInput> inputs, bool hold = false, bool player_by_computer = true);
+    // `hold_left`: the hold's steps left in this step (the race information's +0xBC).
+    void step(std::span<const race::CarInput> inputs, bool hold = false, bool player_by_computer = true, u32 hold_left = 0);
     std::span<const race::CarState> cars() const { return sim_->cars(); }
     // How the cars start (race/race_start.h): what their starts read, each car's, its crossings of the line at the start.
     const race::StartRace& start_race() const { return start_course_->race(); }
@@ -118,6 +119,9 @@ public:
     // The race's count of a car's crossings of the line, for the simulation (F +0x4AC).
     void set_crossings(size_t car, int n) {
         if (session_) session_->set_crossings(car, n);
+    }
+    void set_rank(size_t car, int place) {
+        if (session_) session_->set_rank(car, place);
     }
     // A rolling start (an entry with a start speed): each such car is held to the start's pace until it is
     // released as it takes the line (DynamicsConductorSinglePlayer::vf20 0x347928 → 0x345228). A released car

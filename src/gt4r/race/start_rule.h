@@ -84,6 +84,12 @@ CarStart car_start(const RowStart& row, Conductor c, size_t car, int section_sta
 // along; else 0.
 int section_start_metres(float start, float lap);
 
+// The race's rule block as the event's row makes it (0x35E108 into the conductor's configuration CFG, K +0xF818; 0x80 bytes):
+// among others +0x01 the laps, +0x02 the test's kind, +0x04 .. +0x0B the computer cars' axle grips and +0x18 .. +0x1B their
+// class grips by drive class, +0x2C .. +0x34 the tread wear's curve, +0x48 / +0x49 the hit limits, +0x4C the fuel (80 here:
+// virtual 26 clears it). A short row: all 0.
+std::array<u8, 0x80> event_rule_block(std::span<const u8> row);
+
 // A start code's digit (0-15; -1: not a hex digit).
 int start_code_digit(const std::string& code, size_t i);
 
