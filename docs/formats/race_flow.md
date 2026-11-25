@@ -280,7 +280,8 @@ B-spec driver drove none of it (car +0x7B0 0), else 0. The display's two lines (
 virtual 42 asks the race's kind: the single race, missions, Gran Turismo mode's events): `AspecRaceFormat1` / `AspecRaceFormat2` as the
 race begins (0x39C33C a moving start: 0.2 s in, 2 s, fades 0.1 / 0.3 s; 0x39C18C a hold: 0.5 s in, the hold less 3.5 s within
 2 .. 5 s, fades 0.5 / 1 s), `AspecPointGet` / `AspecPointFormat` at the finish (1 s in, 2.7 s); `hb_24#1` at (320, 264) and, a 130 % and
-orange, (320, 304). ✔ "250 pt. Race" at 0'00.7 of missions 1 and 21.
+orange, (320, 304). ✔ "250 pt. Race" at 0'00.7 of missions 1 and 21. ✔ The points of the original's two arcade races: the Ka '01 at Tsukuba
+(Beetle 1100, Z ACT, N360, Midget II D, S500) 9, at Grand Canyon (the Beetle 1100) 24, the same here.
 
 ## MQuickWork (`race_natives.*`)
 
@@ -377,5 +378,5 @@ engine's Gran Turismo 3 code). The player notices them roughly in this order.
 | Moving models | `race/animated_models.cpp` | GT4 (the models' scripts and their programs' register moves 0x44 .. 0x4B: seoul's and lasvegas's turning signs; programs with two switches of their own registers, Ice Arena's people: each pair of cases is a key; 37 more of its models move, their motion not compared with the original's; the skies' aeroplanes, not compared with the original's either) | which models the race draws at once |
 | The driver figure | `race/driver_figure.*`, `car_visual.cpp` (`GT4R_RACE` `driver=1`, off by default) | GT4 (the set: the car's own +0x34 or a character file by the cockpit kind 0x3B5438; its parts at the skeleton's nodes 0x3B1070; PELVIS at the seat, parts block +0x34, as saved states show on road cars; not checked on the open racers); the nodes the **stored pose** (judged: the posture not ported) | the posture 0x3B2708 and its solver 0x416FD8 (model.md "The driver in the car") |
 | Missions | `load_test`, `draw_grid` (the pool in its order), `judge_license`, `race_flow.*` | GT4. ✔ Mission 21 driven by the computers: 3'55.346, 3'57.123, 3'58.953, 4'00.795, 4'02.956 against the original's 3'55.340, 3'57.122, 3'58.953, 4'00.757, 4'02.952 (`31-progress6`, another player's car) | the win's page (no original) |
-| A-spec points | `race/aspec_points.*`, `RaceWorld::aspec_points`, `fill` | GT4 (0x3C0FF8, 0x3C1220, 0x39C570, 0x39C6D0) | the points of an event not compared with the original's |
+| A-spec points | `race/aspec_points.*`, `RaceWorld::aspec_points`, `fill` | GT4 (0x3C0FF8, 0x3C1220, 0x39C570, 0x39C6D0) | in a standing start the original hides the rest of the display and shows the course's logo until about 5 s in: here it shows |
 | Not built | | cone shadows | |
