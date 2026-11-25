@@ -395,7 +395,7 @@ AnimatedModels::AnimatedModels(ByteSpan set, float color_scale, const gt3r::gtm1
     };
     try {
         // The batches on a few threads, stored in their order.
-        const size_t ahead = std::clamp<size_t>(std::thread::hardware_concurrency() / 3, 1, 4);
+        const size_t ahead = std::clamp<size_t>(std::thread::hardware_concurrency() / 4, 1, 3);
         std::vector<std::future<Built>> made(batches.size());
         for (size_t i = 0; i < batches.size(); ++i) {
             for (size_t k = i; k < batches.size() && k <= i + ahead; ++k)

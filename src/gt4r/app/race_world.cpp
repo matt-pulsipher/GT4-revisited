@@ -58,7 +58,7 @@ struct CarJob {
 
 // Starts job `at`'s car and the next few (no more: each waits in memory).
 void start_cars(render::GpuContext& gpu, std::vector<std::unique_ptr<CarJob>>& jobs, size_t at) {
-    const size_t ahead = std::clamp<size_t>(std::thread::hardware_concurrency() / 3, 1, 4);
+    const size_t ahead = std::clamp<size_t>(std::thread::hardware_concurrency() / 4, 1, 3);
     for (size_t k = at; k < jobs.size() && k <= at + ahead; ++k) {
         CarJob& j = *jobs[k];
         if (j.made.valid() || !j.file) continue;
