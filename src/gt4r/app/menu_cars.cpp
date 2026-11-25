@@ -3,6 +3,7 @@
 #include "base/log.h"
 #include "gt4r/app/app.h"
 #include "gt4r/app/menu_image_key.h"
+#include "gt4r/app/menu_movies.h"
 #include "gt4r/app/menu_face3d.h"
 #include "gt4r/formats/model/car_model.h"
 #include "gt4r/formats/model/mdls.h"
@@ -408,10 +409,36 @@ void MenuCars::add_model_motions(Face& f, const menu::CarFaceSettings& s, const 
     }
 }
 
+bool MenuCars::stream_view(const menu::LiveWidget& face, menu::CarFaceSettings& s) {
+    const std::string name = face.data.text("model_stream");
+    if (name.empty() || !movies || !app_.vfs()) return false;
+    Face& f = faces_[&face];
+    menu::LiveWidget& live = const_cast<menu::LiveWidget&>(face);
+    f.widget = live.weak_from_this();
+    f.seen = true;
+    if (f.stream != name) {
+        f.stream = name, f.stream_told = false, f.stream_file.reset();
+        const std::string path = menu::model_stream_path(movies->root(), name);
+        if (const std::optional<Bytes> file = app_.vfs()->read(path)) f.stream_file = menu::read_model_stream(*file);
+        if (!f.stream_file) LOG_WARN("Model stream %s: not read", path.c_str());
+    }
+    // ❓ Only the film's clock (sync_mpeg, as its one page asks).
+    const double t = movies->film_time().value_or(0);
+    if (!f.stream_file) return false;
+    f.stream_file->apply(f.stream_file->frame_at(t), s.view);
+    s.advanced = false;
+    if (f.stream_file->ended(t) && !f.stream_told) {
+        f.stream_told = true;
+        if (on_event) on_event(live, "onStreamFinish");
+    }
+    return true;
+}
+
 void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const std::string& page, const menu::Rect& at, const SDL_FRect& dst, float opacity) {
     if (!view_) return;
-    const menu::CarFaceSettings s = menu::car_face_settings(face.data);
+    menu::CarFaceSettings s = menu::car_face_settings(face.data);
     if (s.car_code.empty()) return;
+    const bool streamed = stream_view(face, s);
     Car* c = car(s.car_code, s.car_color);
     if (!c) return;
 
@@ -453,6 +480,10 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
     const menu::FaceView& v = s.view;
     Mat4 proj = menu_face3d::projection_of(v, at, page_part);
     Mat4 view = menu_face3d::view_of(v);
+    // (A model stream's camera, mode 1: turned about the vertical first, then tipped.)
+    if (streamed)
+        view = render::rotate_z(-v.camera_rotate[2] * kDeg) * render::rotate_x(-v.camera_rotate[0] * kDeg) * render::rotate_y(-v.camera_rotate[1] * kDeg) *
+               render::translate({-v.camera_trans[0], -v.camera_trans[1], -v.camera_trans[2]});
     Vec3 eye{v.camera_trans[0], v.camera_trans[1], v.camera_trans[2]};
     std::vector<float> weights; // the stage's backdrops
     if (s.advanced) load_stage();
@@ -556,6 +587,7 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
         o.env_sphere = env;
         o.reflection_strength = 1.0f; // ❓ the program's reflection parameters (1.3, 1.1) are not read
     }
+    if (streamed && movies->film_reflection()) o.env_sphere = movies->film_reflection(), o.reflection_strength = 1.0f;
     // The car's own shadow under it, in light 0's shadow colour.
     race::CarVisual::Shadow sh;
     sh.on = true;

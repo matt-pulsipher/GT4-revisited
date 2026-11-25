@@ -5,7 +5,9 @@
 
 #include "menu_run_flow.h"
 
+#include "gt4r/menu/faces_movie.h"
 #include "gt4r/menu/layout.h"
+#include "gt4r/menu/model_stream_prologue.h"
 #include "gt4r/menu/native.h"
 #include "gt4r/menu/prologue_license.h"
 #include "gt4r/menu/runtime_internal.h"
@@ -338,6 +340,30 @@ TEST(disc_prologue_license_movie_mask) {
 
 // School Mode from a fresh game through its 46 lessons: each chosen on its board, entered, its race asked for (the event's course
 // and the pool's car), passed, its present shown, and the board again with the next ones open; the record kept through a save.
+// The streams the new-car pages show their cars by: 14 s of cameras, the first one looking at the car.
+TEST(disc_prologue_model_streams) {
+    Disc* disc = prologue_menu_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 Prologue disc");
+    for (const char* course : {"assisi", "fisco", "grandcanyon", "newyork", "paris", "tsukuba"}) {
+        const std::string name = std::string("prize_") + course;
+        const std::optional<Bytes> file = disc_file(*disc, menu::model_stream_path("prologue", name).c_str());
+        CHECK(file.has_value());
+        if (!file) continue;
+        const std::optional<menu::ModelStream> s = menu::read_model_stream(*file);
+        CHECK(s.has_value() && s->frames.size() == 840);
+        if (!s || s->frames.empty()) continue;
+        CHECK(s->frame_at(0) == 0 && s->frame_at(1) == 60 && s->frame_at(99) == 839 && !s->ended(13.9) && s->ended(14.0));
+        menu::FaceView v;
+        s->apply(0, v);
+        CHECK(v.lights[0].on && v.lights[1].on && v.view_angle > 10 && v.view_angle < 60);
+        // The view's axis passes within two meters of the car's middle.
+        const float yaw = v.camera_rotate[1] * 3.14159265f / 180;
+        const float dx = -std::sin(yaw), dz = -std::cos(yaw);
+        CHECK(std::abs(v.camera_trans[0] * dz - v.camera_trans[2] * dx) < 2.0f);
+        CHECK(v.camera_trans[0] * dx + v.camera_trans[2] * dz < 0);
+    }
+}
+
 TEST(disc_prologue_school_lessons) {
     Disc* disc = prologue_menu_disc();
     if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 Prologue disc");
@@ -372,6 +398,7 @@ TEST(disc_prologue_school_lessons) {
     };
     db::SpecDb sdb(read, [vol](const std::string& dir) { return vol->list_dir(dir); }, "japanese");
     db::RaceEvents events(sdb, read);
+    int streams = 0;
     std::map<std::string, int> presents; // the pages shown between a pass and the board
     for (int step = 0; step < 60 && done.size() < 46; ++step) {
         CHECK(f.page() == "SchoolRoot");
@@ -417,6 +444,19 @@ TEST(disc_prologue_school_lessons) {
         std::string shown;
         for (int i = 0; i < 6000 && f.page() != "SchoolRoot"; ++i) {
             f.rt->update();
+            if (f.page() == "PrizeRoot" && streams < 2) {
+                // The new-car page's film and the stream its car is shown by.
+                const auto page = f.rt->current_page();
+                const auto back = page ? page->child("MpegBack") : nullptr, front = page ? page->child("MpegFront") : nullptr;
+                const auto car = page ? page->child("CarFace") : nullptr;
+                if (back && front && car && !car->data.text("model_stream").empty() && !front->data.text("movie_name").empty()) {
+                    const std::string film = back->data.text("movie_name"), stream = car->data.text("model_stream");
+                    CHECK(film == front->data.text("movie_name") && f.rt->movie_expand_alpha);
+                    CHECK(disc_file(*disc, menu::movie_path("prologue", film).c_str()).has_value());
+                    CHECK(disc_file(*disc, menu::model_stream_path("prologue", stream).c_str()).has_value());
+                    ++streams;
+                }
+            }
             if (i % 300 == 299 && f.page() != "SchoolRoot") {
                 if (shown.empty() || shown.substr(shown.rfind(' ') + 1) != f.page()) shown += " " + f.page(), ++presents[f.page()];
                 f.rt->key(f.page() == "MovieRoot" ? menu::Key::Start : menu::Key::Cancel);
@@ -439,6 +479,8 @@ TEST(disc_prologue_school_lessons) {
     for (const std::string& l : order) std::printf(" %d", std::atoi(l.c_str() + 3));
     std::printf("\n");
     CHECK(done.size() == 46);
+    CHECK(streams == 2);
+    CHECK(!f.rt->movie_expand_alpha);
     // A car for every lesson, an emblem's page after lessons 6, 12, 19, 25 and the last, the ending movie after 25.
     CHECK(presents["PrizeRoot"] == 46 && presents["StatusRoot"] == 5 && presents["MovieRoot"] == 1);
     CHECK(call(lic, "getDetailCount", {script::Value::string("bronze")}).i == 46);

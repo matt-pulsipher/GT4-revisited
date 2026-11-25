@@ -452,6 +452,27 @@ card. A lesson asks the race for no car of its own (the request's car and sequen
 `GT4R_LESSON_DRIVE=1` the recordings drive the lessons in the app (lesson 1 through the whole chain, `data` kept on the card: its
 finish 1'48.664, the medal, the name, the page).
 
+**The new-car page** (`PrizeRoot`). `MMovieFace::expandAlpha(1)`; its two movie faces load the same film `prize_<course>`
+(`prize_w_<course>` in a wide picture; the course by the present unit) and its car face's `stream` (`MModelStream`) loads
+`mpeg/prologue/prize_<course>.lmv`. The film is 640 x 448 at 29.97 a second, each half a field of 224 lines: in a field the left
+320 pixels are the colors, the next 160 the alpha (128 full: what stands before the car), and the 128 x 128 at 480 what the car
+reflects, a sphere map. `MpegBack` (`blend` 2) draws the colors whole, the car stands on them, `MpegFront` draws the colors by the
+alpha. The film's frame 90 fades the page's text out (`setFrameHook`); the stream's end (`onStreamFinish`, 14 s) or Cancel leaves the
+page. Read by 0x1FFCB0 / 0x200E70, sampled by 0x1FFE70 / 0x1FFD00 (`menu/model_stream_prologue.*`, `app/expanded_film.*`; test
+`disc_prologue_model_streams`):
+
+| Offset | What |
+|---|---|
+| 0x00 | `LMOV` |
+| 0x0C | version, 2 |
+| 0x10 | frames (840: 60 a second) |
+| 0x14 | where they are (0xD0) |
+| 0x20, 0x70 | two lights: direction toward it, shadow color, diffuse, ambient, specular, four floats each |
+| frames, 0x30 each | eye x y z, rotation x y z and field of view (degrees), each light's scale (its ambient, diffuse, specular and its shadow's alpha times it), 0 |
+
+❓ What follows the frames in the files (0xB50 .. 0x21A0 bytes; the program's loader does not point at it).
+❓ The stream's clock without `sync_mpeg`.
+
 **Arcade's settings** (0x10A360, 0x1A0130): the stability control by the driving assist (0x402348; the traction control by an
 option word), the gearbox by the game's bit 0, and the tire grip (`tire_type`, the names 0x505110) as the player's equipment's
 byte +0x13E: "low" 0, "high" 1, any other 3, its own. With 0 or 1 the spec takes the compounds of the tires of the ENEMY_CARS rows

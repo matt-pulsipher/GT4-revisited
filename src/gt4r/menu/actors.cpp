@@ -574,6 +574,11 @@ int transition_phase(const Value& transition) {
     return t && t->active ? t->state : -1;
 }
 
+void transition_page_opened(const Value& transition) {
+    if (const auto t = transition.as<Transition>())
+        if (t->mode == Transition::kOut && t->state != 0) t->active = false, t->state = 3, t->cover = 0;
+}
+
 void step_transition(const Value& transition) {
     if (const auto t = transition.as<Transition>()) t->step();
 }
