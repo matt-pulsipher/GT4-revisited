@@ -244,3 +244,39 @@ TEST(net_session_finish_and_loss) {
     CHECK(party.p[1].own.size() >= ran + 25);
     CHECK(party.p[1].race->all_done());
 }
+
+// The picture at 120 frames a second while the machines' clock estimates wander: it never steps back, and moves evenly.
+TEST(net_session_120hz) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    World w(*disc, "tsukuba");
+    Party party(w, false);
+    if (!party.start(1, 1, 5000, 0)) {
+        CHECK(false && "the lobby did not start the race");
+        return;
+    }
+    for (Player& q : party.p) q.drive = along_the_road(0);
+    double drawn[2] = {-1, -1}, least = 1e9, most = -1e9;
+    size_t ran[2] = {0, 0};
+    int back = 0;
+    for (int k = 0; k < 120 * 6; ++k) {
+        party.p[1].net.set_clock_skew(5000 + 4 * std::sin(double(k) * 0.02)); // (what the host's clock looks like from there)
+        for (int m = 0; m < 2; ++m) {
+            party.p[m].frame(1.0 / 120);
+            ran[m] = party.p[m].own.size();
+            if (ran[m] == 0) continue;
+            const double d = double(ran[m]) - 1 + double(party.p[m].race->alpha());
+            if (drawn[m] >= 0) {
+                const double moved = d - drawn[m];
+                if (moved < -1e-6) ++back;
+                if (k > 240) least = std::min(least, moved), most = std::max(most, moved);
+            }
+            drawn[m] = d;
+        }
+        for (Player& q : party.p) q.net.poll();
+        std::this_thread::sleep_for(std::chrono::microseconds(1500));
+        FakeClock::ms.store(FakeClock::ms.load() + 1000.0 / 120);
+    }
+    std::printf("  a frame moves %.2f to %.2f steps (0.50 even), back %d times\n", least, most, back);
+    CHECK(back == 0 && least > 0.3 && most < 0.7);
+}

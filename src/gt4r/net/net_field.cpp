@@ -88,6 +88,7 @@ void NetField::receive(size_t car, CarSnapshot s, s64 clock) {
     if (car >= cars_.size() || car == ours_ || cars_[car].gone) return;
     Car& c = cars_[car];
     if (c.remote.has() && s.tick <= c.remote.latest().tick) return;
+    if (!sane(s, race_->spec(car).gears())) return;
     complete_snapshot(s);
     c.remote.receive(s, clock);
     const bool contact = c.contact > clock - kShove || c.reported > clock - kShove;

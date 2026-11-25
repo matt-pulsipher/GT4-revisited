@@ -134,6 +134,31 @@ CarSnapshot make_snapshot(const sim::Session& s, size_t car, const CarEntry& ent
     return r;
 }
 
+bool sane(CarSnapshot& s, int gears) {
+    const CarMotion& m = s.motion;
+    auto within = [](u32 bits, float most) {
+        if ((bits & 0x7F800000u) == 0x7F800000u) return false;
+        return std::fabs(F::raw(bits).host()) <= most;
+    };
+    for (const u32 v : m.pos)
+        if (!within(v, 1e5f)) return false;
+    for (const u32 v : m.vel)
+        if (!within(v, 500.0f)) return false;
+    if (!within(m.heading, 1e3f) || !within(m.pitch, 7.0f) || !within(m.roll, 7.0f) || !within(m.yaw_rate, 100.0f)) return false;
+    if (!within(m.omega, 1e4f) || !within(m.steer_cmd, 4.0f) || !within(m.axle_speed[0], 1e4f) || !within(m.axle_speed[1], 1e4f)) return false;
+    if (int(m.gear) > std::max(1, gears) || m.clutch > 3) return false;
+    if (s.clock < -3000 * 600 || s.clock > 3000 * 86400) return false;
+    for (int i = 0; i < s.input_count && i < gt3r::net::kInputHistory; ++i) {
+        PadInput& p = s.inputs[i];
+        const u8 kind = p.kind & 7;
+        if (kind == 1 || kind == 5 || kind == 7) p.kind = u8((p.kind & 8) | 3);
+        p.steer = std::clamp<s16>(p.steer, -4096, 4096);
+        for (u16* a : {&p.throttle, &p.brake, &p.back, &p.third}) *a = std::min<u16>(*a, 4096);
+        p.shift = std::clamp<s8>(p.shift, -1, 1);
+    }
+    return true;
+}
+
 void complete_snapshot(CarSnapshot& s) {
     const CarMotion& m = s.motion;
     auto h = [](u32 bits) { return F::raw(bits).host(); };

@@ -4,6 +4,7 @@
 
 #include "gt4r/net/lan_rules.h"
 
+#include <bit>
 #include <cstdlib>
 
 using namespace gt4r;
@@ -234,4 +235,65 @@ TEST(net_lan_rules) {
     net::lan_boost(program, 0, p0), net::lan_boost(program, 1, p1), net::lan_boost(program, 2, p2);
     std::printf("; boost 1: %d %% from %d m to %d m, 2: %d %% from %d m to %d m\n", p1.fast_pct, p1.fast_start_m, p1.fast_full_10m * 10, p2.fast_pct, p2.fast_start_m, p2.fast_full_10m * 10);
     CHECK(p0.fast_pct == 0 && p1.fast_pct > 0 && p2.fast_pct > p1.fast_pct && p2.fast_start_m < p1.fast_start_m && p1.fast_full_10m == p2.fast_full_10m && p1.slow_pct == 0);
+}
+
+// A car put somewhere else by its own race (a pit stop's box): the others take it there at once, and no check takes it for a
+// teleport.
+TEST(net_race_car_put) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    World w(*disc, "tsukuba");
+    Race r(w, std::vector<std::string>{"nsx_r_02", "r34_gtr_v2_nur_02"}, {50, 5, 0.02});
+    r.machines[0]->drive = weaving(1.0f, 0), r.machines[1]->drive = weaving(0.8f, 0);
+    for (int k = 0; k < 600; ++k) r.step_all();
+    sim::Session& s = *r.machines[0]->session;
+    const auto& c = s.record(0);
+    s.place_standing(0, c.pos.x - c.lat.x * F(6.0f), c.pos.y - c.lat.y * F(6.0f), c.pos.z, c.heading);
+    Errors late;
+    for (int k = 0; k < 240; ++k) {
+        r.step_all();
+        if (k > 60) late.add(r.error(1, 0));
+    }
+    std::printf("  put 6 m aside and stood: a second later rms %.2f cm, worst %.1f cm; warnings %u %s\n", late.rms() * 100, late.worst * 100, r.machines[1]->warnings, r.machines[1]->warning.c_str());
+    CHECK(late.worst < 0.5 && r.machines[1]->warnings == 0);
+}
+
+// States no game sends: refused, or taken without harm.
+TEST(net_race_hostile_states) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    World w(*disc, "tsukuba");
+    Race r(w, std::vector<std::string>{"nsx_r_02", "prius_g_02"}, {});
+    r.machines[0]->drive = weaving(1.0f, 0), r.machines[1]->drive = weaving(1.0f, 0);
+    for (int k = 0; k < 60; ++k) r.step_all();
+    Machine& m = *r.machines[0];
+    u32 seed = 99;
+    auto rnd = [&] { return seed ^= seed << 13, seed ^= seed >> 17, seed ^= seed << 5, seed; };
+    u32 tick = 1000, taken = 0;
+    for (int k = 0; k < 3000; ++k) {
+        net::CarSnapshot s = m.field->remote(1).latest();
+        s.tick = ++tick, s.clock = s32(m.clock) + s32(rnd() % 2000) - 1000;
+        // Some of its bytes anything at all.
+        gt3r::net::Writer out;
+        gt3r::net::write_snapshot(out, s);
+        for (u32 n = rnd() % 12; n > 0; --n) out.data[15 + rnd() % (out.data.size() - 15)] = u8(rnd());
+        gt3r::net::Reader in(out.data);
+        net::CarSnapshot t;
+        if (!gt3r::net::read_snapshot(in, t)) continue;
+        const u32 before = m.field->remote(1).states();
+        m.field->receive(1, t, m.clock);
+        taken += m.field->remote(1).states() - before;
+        if (rnd() % 4 == 0) m.field->take_hit(1, {tick, std::bit_cast<float>(rnd()), std::bit_cast<float>(rnd()), std::bit_cast<float>(rnd()), std::bit_cast<float>(rnd())}, m.clock);
+        if (k % 3 == 0) {
+            m.field->before_step(m.clock);
+            race::CarInput in0;
+            m.session->step_once({&in0, 1});
+            m.clock += net::kClockPerStep;
+            m.field->after_step(m.clock);
+            const race::CarState& me = m.session->cars()[0];
+            CHECK(std::isfinite(me.position.x) && std::isfinite(me.position.y) && std::isfinite(me.speed));
+        }
+    }
+    std::printf("  %u odd states taken\n", taken);
+    CHECK(taken > 200);
 }
