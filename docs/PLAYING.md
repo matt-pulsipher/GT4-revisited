@@ -73,16 +73,19 @@ F11 switches full screen.
 
 The ones a player meets first:
 
-- The prize page after a race has no turning money pouch (its place number and prize are there).
-- A B-spec pit stop happens, without the PIT STOP menu and the SPEED LIMIT notice.
-- A garage car races as sold, without its parts, and its odometer does not move.
-- The used car list's scroll bar does not follow the list and its paint swatches are too bright.
+- Driving Missions race the wrong cars, one lap, from a standing start, and a wall hit ends the run; the
+  wall penalty is not shown.
+- A time trial (Arcade, World Circuits) ends after two laps, and shows a lap total.
 - More than half of the license tests begin with the car moving in the original (a run-up at 30 to
   200 km/h); here every test starts from rest.
+- After an Arcade race a license test runs on the Arcade race's course.
+- A B-spec pit stop happens without the PIT STOP menu and the SPEED LIMIT notice.
+- While a championship's Point Ranking comes up, its point column shows race times for a moment.
+- The pre-race pages of Practice and the Arcade time trial have no B-spec icon.
+- The gloss on the used car list's white and yellow paint swatches is too faint.
 - The B-spec driver's Ka is somewhat faster than the original's at Tsukuba (about 2 % over several
   races; a race varies by more than that with the traffic).
-- At Apricot Hill Reverse some of the computer's cars were 1 to 3 % faster than the original's in the
-  few races compared.
+- Photo Lab (Home) opens a plain page that asks for a race.
 
 ## Scripted play (for checks)
 
@@ -125,6 +128,8 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
   spent sliding.
 - `gt4tool sweep <disc> stop [course=..] [car=..]`: the player's car driven, braked to a stop, stood
   and launched at full throttle: gear, speed and engine speed every quarter second.
+- `gt4tool sweep <disc> wall [event=..] [car=..] [steer=..]`: a wall hit under an event's rules: the
+  penalty's seconds and the speed after it.
 - `gt4tool sweep <disc> grid [filter]`: where every course's grid places stand along the course.
 - A Gran Turismo mode game played forward (every license, the Beginner and Professional events
   but the World Championship won, 26.8 % complete, the presents) for playing the
