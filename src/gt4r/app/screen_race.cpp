@@ -2418,7 +2418,7 @@ private:
             if (setup_.scripted) app.pop();
         }
     }
-    void close_pause(const std::string& result) {
+    void close_pause(std::string result) { // (by value: the result given is often pause_result_ itself)
         paused_ = false;
         pause_.reset();
         pause_result_.clear();
