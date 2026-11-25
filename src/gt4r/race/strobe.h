@@ -114,11 +114,12 @@ public:
     struct Clip; // a sprite's instance
     struct Function;
     struct Value {
-        enum Kind : u8 { Undefined, Null, Bool, Number, String, ClipRef, FunctionRef } kind = Undefined;
+        enum Kind : u8 { Undefined, Null, Bool, Number, String, ClipRef, FunctionRef, ArrayRef } kind = Undefined;
         double n = 0;
         std::string s;
         Clip* clip = nullptr;
         std::shared_ptr<Function> fn;
+        std::shared_ptr<std::vector<Value>> list; // an array, shared by its references
         static Value number(double v) { Value x; x.kind = Number, x.n = v; return x; }
         static Value boolean(bool v) { Value x; x.kind = Bool, x.n = v ? 1 : 0; return x; }
         static Value string(std::string v) { Value x; x.kind = String, x.s = std::move(v); return x; }
@@ -144,6 +145,8 @@ public:
     void restart();
     // The root timeline plays on from where it stopped (a page the program starts).
     void play();
+    // The root timeline at a frame (from 0), stopped there, its scripts run (the program's 0x4751D0).
+    void go_to(int frame);
     // Time passes: a movie frame for every 1/fps seconds.
     void advance(float seconds);
     // A key (Flash's codes: 0x25 left, 0x26 up, 0x27 right, 0x28 down, 0x20 accept, 0x1B cancel).

@@ -253,7 +253,16 @@ struct StrobePlayer::Impl {
         }
         if (f.target) f.target->vars[n] = v;
     }
+    static std::optional<size_t> array_index(const std::string& name) {
+        if (name.empty() || name.size() > 4 || name.find_first_not_of("0123456789") != std::string::npos) return std::nullopt;
+        return size_t(std::atoi(name.c_str()));
+    }
     Value get_member(const Value& o, const std::string& name) {
+        if (o.kind == Value::ArrayRef && o.list) {
+            if (lower(name) == "length") return Value::number(double(o.list->size()));
+            const std::optional<size_t> i = array_index(name);
+            return i && *i < o.list->size() ? (*o.list)[*i] : Value{};
+        }
         if (o.kind != Value::ClipRef || !o.clip) return {};
         Clip& c = *o.clip;
         const std::string n = lower(name);
@@ -268,6 +277,13 @@ struct StrobePlayer::Impl {
         return {};
     }
     void set_member(const Value& o, const std::string& name, const Value& v) {
+        if (o.kind == Value::ArrayRef && o.list) {
+            if (const std::optional<size_t> i = array_index(name)) {
+                if (*i >= o.list->size()) o.list->resize(*i + 1);
+                (*o.list)[*i] = v;
+            }
+            return;
+        }
         if (o.kind != Value::ClipRef || !o.clip) return;
         Clip& c = *o.clip;
         if (c.kind == Clip::TextClip && lower(name) == "text") c.text = v.to_string();
@@ -297,6 +313,15 @@ struct StrobePlayer::Impl {
     Value call_method(Frame& fr, const Value& obj, const std::string& name, const std::vector<Value>& args) {
         const std::string n = lower(name);
         if (obj.kind == Value::String && obj.s == kKeyObject) return n == "getcode" ? Value::number(key_code) : Value{};
+        if (obj.kind == Value::ArrayRef && obj.list) {
+            if (n == "push") obj.list->insert(obj.list->end(), args.begin(), args.end());
+            else if (n == "pop" && !obj.list->empty()) {
+                const Value v = obj.list->back();
+                obj.list->pop_back();
+                return v;
+            }
+            return Value::number(double(obj.list->size()));
+        }
         if (obj.kind == Value::ClipRef && obj.clip) {
             Clip& c = *obj.clip;
             if (n == "gotoandplay" || n == "gotoandstop") {
@@ -382,6 +407,15 @@ struct StrobePlayer::Impl {
                 break;
             }
             case 0x3E: return pop();
+            case 0x40:   // NewObject (an Array)
+            case 0x42: { // InitArray
+                if (op == 0x40) pop();
+                Value v;
+                v.kind = Value::ArrayRef, v.list = std::make_shared<std::vector<Value>>(pop_args());
+                if (op == 0x40) v.list->clear();
+                st.push_back(v);
+                break;
+            }
             case 0x47: { const Value b = pop(), a = pop();
                 if (a.kind == Value::String || b.kind == Value::String) st.push_back(Value::string(a.to_string() + b.to_string()));
                 else st.push_back(Value::number(a.to_number() + b.to_number()));
@@ -700,6 +734,13 @@ std::vector<StrobePlayer::Draw> StrobePlayer::draw_list() const {
 }
 
 int StrobePlayer::frame() const { return impl_->root->frame; }
+
+void StrobePlayer::go_to(int frame) {
+    Impl& m = *impl_;
+    m.go(*m.root, frame, false);
+    m.run_queue();
+    m.check_focus();
+}
 
 void StrobePlayer::play() {
     impl_->root->playing = true;

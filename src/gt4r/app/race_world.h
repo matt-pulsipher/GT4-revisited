@@ -187,6 +187,11 @@ public:
     void pit_choose(size_t car, u8 front, u8 rear, bool fuel) {
         if (pits_ && car < car_visuals_.size()) pits_->choose(car, front, rear, fuel ? 1 : 0);
     }
+    // Where the car is in a pit visit (0x35BBD8): 0 none, 1 down the lane or waiting for the choice, 2 the stop's start, 3 its work,
+    // 4 its end, 5 out of the box to the lane's end.
+    int pit_stage(size_t car) const;
+    // B-spec's pit command taken back or given (0x3F19E0 command 6).
+    void pit_command(size_t car);
     // The refuelling: just begun (0x35BE10: service 0x20 taken), going on (0x35BEB0), stopped by the player (0x35BFC0).
     bool refuel_begun(size_t car);
     bool refuelling(size_t car) const;

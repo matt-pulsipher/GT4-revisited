@@ -523,6 +523,28 @@ std::vector<int> RaceWorld::pit_tire_kinds(size_t car, int axle) const {
     return out;
 }
 
+int RaceWorld::pit_stage(size_t car) const {
+    if (!pits_ || !field_ || car >= pit_asked_.size()) return 0;
+    const sim::ai::PitCar& c = pits_->car(car);
+    const int kind = field_->kind(car);
+    if (kind == 0 || !(c.flags & 0x10)) return 0;
+    if (kind == 2) return 1;
+    if (kind == 4) return 5;
+    if (kind != 3) return 0;
+    if (c.hold == 0) return c.service ? 1 : 5;
+    return c.hold == 0x2D1 ? 1 : c.hold >= 0x285 ? 2 : c.hold >= 0x3C ? 3 : 4;
+}
+
+void RaceWorld::pit_command(size_t car) {
+    if (!pits_ || car >= pit_asked_.size()) return;
+    sim::ai::PitCar& c = pits_->car(car);
+    if (!(c.flags & 8)) c.flags |= 8, c.x5C1 = 0;
+    else {
+        c.flags = u8(c.flags & ~8);
+        if (c.flags & 4) c.x5C1 = 1;
+    }
+}
+
 bool RaceWorld::refuel_begun(size_t car) {
     if (!pits_ || car >= pit_asked_.size() || !(pits_->car(car).service & 0x20)) return false;
     pits_->car(car).service ^= 0x20;

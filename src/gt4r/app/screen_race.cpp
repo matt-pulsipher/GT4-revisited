@@ -915,6 +915,7 @@ public:
     // program's command handler 0x3F19E0 has no timer of its own), the display shown or hidden. They go to the computer drivers of the
     // player's car (RaceWorld::command).
     bool watched() const { return watched_; }
+    bool bspec_overtaking() const { return overtake_steps_ > 0; }
     void bspec_pace(int step) {
         bspec_pace_ = std::clamp(bspec_pace_ + step, 1, 5);
         world_->command(0, bspec_pace_, overtake_steps_ > 0);
@@ -1146,7 +1147,10 @@ public:
 
     // B-spec's pit command (Circle: 0x3F19E0's command 6) for the player's car.
     void bspec_pit() {
-        if (watched_ && world_->pit(0)) LOG_INFO("Drive: B-spec pit command at %.1f s", double(flow_.time_ms()) / 1000);
+        // Not before the car's first crossing (F +0x4AC) nor on its last lap (0x343C20).
+        if (!watched_ || flow_.car(0).counter <= 0 || (setup_.laps > 0 && flow_.car(0).counter >= setup_.laps)) return;
+        world_->pit_command(0);
+        LOG_INFO("Drive: B-spec pit command at %.1f s", double(flow_.time_ms()) / 1000);
     }
     int pit_message() const { return world_->pit_message(0); }
     RaceWorld& world() { return *world_; }
@@ -1496,6 +1500,8 @@ public:
         } else if (m.pressed(PadButton::R1) || m.pressed(PadButton::Select)) race_->next_view();
         // The refuelling stopped (0x3BAC80: the bar's accept, the help strip's "%Be").
         if (!pit_menu && race_->world().refuelling(0) && m.pressed(PadButton::Circle) && !race_->replaying()) race_->world().stop_refuel(0);
+        update_panel(app, dt);
+        if (monitor_ && race_->world().pit_stage(0) != 0) monitor_.reset(); // (into the pits: the live view again)
         look_back_ = gt3r::race::look_back_held(pad, false);
         // Whole simulation steps for the time that has passed (at most four a frame).
         const Uint64 t0 = SDL_GetTicksNS();
@@ -1563,7 +1569,7 @@ public:
                 for (int k = 0; k < 3; ++k) hud_state_.targets[k] = test_time(k);
                 hud_state_.refuel = !race_->replaying() && race_->world().refuelling(0);
                 hud_state_.refuel_fuel = race_->world().fuel(0), hud_state_.refuel_tank = race_->world().tank(0);
-                hud_state_.tooltip = race_->replaying() ? std::string() : pit_open_ ? hud_->word("TOOLTIP|PitMenu") : hud_state_.refuel ? hud_->word("TOOLTIP|Refuel") : std::string();
+                hud_state_.tooltip = race_->replaying() ? std::string() : pit_open_ ? hud_->word("TOOLTIP|PitMenu") : hud_state_.refuel ? hud_->word("TOOLTIP|Refuel") : race_->watched() && race_->world().pit_stage(0) != 0 ? " " : std::string();
                 if (race_->replaying()) {
                     if (caption_for_.empty()) music_caption(app);
                     hud_state_.caption_title = caption_title_, hud_state_.caption_artist = caption_artist_;
@@ -1598,6 +1604,7 @@ public:
             }
             else draw_results(ui);
         }
+        if (panel_ && hud_ && !results_shown()) hud_->draw_movie(*monitor_movie_, *panel_);
         if (monitor_ && hud_ && race_ && race_->watched() && !race_->replaying()) {
             // The followed car's picture at the movie's CURRENTCAR_ICON, the course map at MAP_PANEL (❓ the rows'
             // two externals each are not drawn).
@@ -1659,15 +1666,7 @@ private:
             monitor_.reset();
             return;
         }
-        if (!monitor_movie_) {
-            try {
-                if (const std::optional<Bytes> file = app.vfs()->read("menu/common/racemonitor.strb"); file && race::StrobeMovie::is_movie(*file))
-                    monitor_movie_ = std::make_shared<const race::StrobeMovie>(race::StrobeMovie::parse(*file));
-            } catch (const std::exception& e) {
-                LOG_WARN("Race monitor: %s", e.what());
-            }
-        }
-        if (!monitor_movie_) return;
+        if (!load_monitor_movie(app)) return;
         monitor_ = std::make_unique<race::StrobePlayer>(monitor_movie_, [](const std::string&, const std::vector<race::StrobePlayer::Value>&) {
             return race::StrobePlayer::Value{};
         });
@@ -1683,6 +1682,39 @@ private:
         fill_monitor();
     }
 
+    // The B-spec commands' panel (the movie's PACEPANEL, 0x3DB520): the pace's, the overtake's and the pit's keys lit, the word of
+    // what is asked.
+    void fill_pace(race::StrobePlayer& m) {
+        using V = race::StrobePlayer::Value;
+        const int pace = std::clamp(race_->bspec_pace(), 1, 5);
+        const bool overtake = race_->bspec_overtaking(), pit = race_->world().pit_requested(0);
+        m.set("PACEPANEL.PACETEXT", "text", V::string(hud_->word(pit ? "key_pitin" : overtake ? "key_overtake" : "key_pace" + std::to_string(pace))));
+        for (int k = 1; k <= 7; ++k) m.call("PACEPANEL.PACE" + std::to_string(k), "gotoAndStop", {V::number((k <= 5 ? k == pace : k == 6 ? overtake : pit) ? 2 : 1)});
+    }
+    // The panel over the live race: the monitor's movie at its second frame (0x3D92B0), down while the car is in the pits
+    // (0x3D9998).
+    void update_panel(App& app, double dt) {
+        const bool up = race_ && hud_ && race_->watched() && !race_->replaying() && !monitor_ && !quick_ && race_->world().pit_stage(0) == 0;
+        if (!up) return panel_.reset();
+        if (!panel_ && load_monitor_movie(app)) {
+            panel_ = std::make_unique<race::StrobePlayer>(monitor_movie_, [](const std::string&, const std::vector<race::StrobePlayer::Value>&) {
+                return race::StrobePlayer::Value{};
+            });
+            panel_->go_to(1);
+        }
+        if (panel_) panel_->advance(float(dt)), fill_pace(*panel_);
+    }
+    bool load_monitor_movie(App& app) {
+        if (!monitor_movie_) {
+            try {
+                if (const std::optional<Bytes> file = app.vfs()->read("menu/common/racemonitor.strb"); file && race::StrobeMovie::is_movie(*file))
+                    monitor_movie_ = std::make_shared<const race::StrobeMovie>(race::StrobeMovie::parse(*file));
+            } catch (const std::exception& e) {
+                LOG_WARN("Race monitor: %s", e.what());
+            }
+        }
+        return monitor_movie_ != nullptr;
+    }
     void fill_monitor() {
         if (!monitor_ || !race_ || !hud_) return;
         using V = race::StrobePlayer::Value;
@@ -1710,9 +1742,7 @@ private:
             text("LAP", b);
         }
         text("SPEED", "x 1");
-        const int pace = std::clamp(race_->bspec_pace(), 1, 5);
-        text("PACEPANEL.PACETEXT", hud_->word("key_pace" + std::to_string(pace)));
-        for (int k = 1; k <= 7; ++k) m.call("PACEPANEL.PACE" + std::to_string(k), "gotoAndStop", {V::number(k == pace ? 2 : 1)});
+        fill_pace(m);
         const std::vector<size_t>& order = f.order();
         for (int r = 1; r <= 6; ++r) {
             const std::string bar = "BAR" + std::to_string(r);
@@ -2788,6 +2818,7 @@ private:
     std::string error_;
     bool paused_ = false, look_back_ = false, from_menus_ = false;
     std::shared_ptr<const race::StrobeMovie> pause_movie_, monitor_movie_, pit_movie_;
+    std::unique_ptr<race::StrobePlayer> panel_; // B-spec's commands over the live race
     std::unique_ptr<race::StrobePlayer> pit_; // the PIT STOP menu
     PitChoice pit_choice_;
     bool pit_open_ = false, pit_touched_ = false;

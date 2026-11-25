@@ -110,9 +110,11 @@ struct RaceHud::Impl {
     }
 
     // A picture over a rectangle of the canvas, tinted (0x80 neutral); `part`: the left part of it.
-    void draw_picture(const Picture& p, const DisplayRect& at, u32 tint, float opacity, float part = 1) {
+    // `straight`: the tint as the color itself (a picture that is white where drawn, its tint past 0x80).
+    void draw_picture(const Picture& p, const DisplayRect& at, u32 tint, float opacity, float part = 1, bool straight = false) {
         if (!p.texture || opacity <= 0 || part <= 0) return;
-        const Rgba8 c = race::gs_color(tint, opacity);
+        Rgba8 c = race::gs_color(tint, opacity);
+        if (straight) c.r = u8(tint & 0xFF), c.g = u8((tint >> 8) & 0xFF), c.b = u8((tint >> 16) & 0xFF);
         SDL_SetTextureColorMod(p.texture, c.r, c.g, c.b);
         SDL_SetTextureAlphaMod(p.texture, c.a);
         const SDL_FRect src{0, 0, p.w * part, p.h};
@@ -203,7 +205,9 @@ struct RaceHud::Impl {
                    float red_from, float& last_angle, float opacity);
     void draw_gear(const DisplayRect& box, const HudState& s);
     void draw_small_parts(const HudState& s, bool driver);
-    void draw_bspec(const HudState& s, const std::string& pace_word, const std::string& help);
+    void draw_bspec(const HudState& s, const std::string& help);
+    void draw_fuel(const HudState& s, const DisplayPlace& place);
+    void draw_tooltip(const std::string& words, float opacity);
     // Text in GT4's menu layout with the pad's buttons ("%Bc"), from (x, baseline y).
     void draw_menu_text(const char* font_name, int variant, float x, float y, gt3r::text::HAlign align, u32 color, float opacity, const std::string& s,
                         float max_width = 0);
@@ -537,7 +541,7 @@ void RaceHud::Impl::draw_top(const HudState& s) {
         const DisplayRect at{320 - 128, 58 - 13, 256, 26};
         draw_picture(picture("refuel_bg"), at, kNeutral, o);
         const float share = std::clamp(s.refuel_fuel / s.refuel_tank, 0.0f, 1.0f);
-        if (share > 0) draw_picture(picture("refuel_bar"), {at.x + 15, at.y, 155 * share, 26}, kRefuelTint, o);
+        if (share > 0) draw_picture(picture("refuel_bar"), {at.x + 15, at.y, 155 * share, 26}, kRefuelTint, o, 1, true);
         draw_picture(picture("refuel_scale"), {at.x + 14, at.y + 7, 157, 12}, kNeutral, o);
         char b[32];
         std::snprintf(b, sizeof b, "%d/%d", int(s.refuel_fuel + 0.5f), int(s.refuel_tank + 0.5f));
@@ -694,25 +698,25 @@ void RaceHud::Impl::draw_small_parts(const HudState& s, bool driver) {
         draw_text(font("GT4meter", 60, 1), float(C - 103), float(B - 45), kCentered, kMeterBlue, o, buf);
         return;
     }
-    // The pedals: the throttle's bar and the brake's, from the bottom.
+    // The pedals (RaceABMonitor: vf4 0x3A54F8, vf5): the picture, the brake's bar 4 x 56 at (x + 1, y + 4) red and the
+    // throttle's at x + w - 5 in the meters' blue, from the bottom (RaceSimpleBarMeter).
     {
         const Picture& p = picture("pedals");
         const DisplayRect at = race::place_rect({0, L + 26, B, 22, 66, 4, 1}, p.w > 0 ? p.w : 22, p.h > 0 ? p.h : 66, true);
-        draw_picture(p, at, 0x80202020u, o * 0.6f);
-        const float bw = at.w / 2 - 1;
-        auto bar = [&](float x, float v, u8 r, u8 g, u8 b) {
-            const float h = at.h * std::clamp(v, 0.0f, 1.0f);
+        draw_picture(p, at, kNeutral, o);
+        auto bar = [&](float x, float v, u32 color) {
+            const Rgba8 c = text_color(color, 1);
+            const float h = 56 * std::clamp(v, 0.0f, 1.0f), y1 = at.y + 4 + 56;
             if (h <= 0) return;
-            triangles({vertex(x, at.y + at.h - h, r, g, b, o), vertex(x + bw, at.y + at.h - h, r, g, b, o), vertex(x + bw, at.y + at.h, r, g, b, o),
-                       vertex(x, at.y + at.h - h, r, g, b, o), vertex(x + bw, at.y + at.h, r, g, b, o), vertex(x, at.y + at.h, r, g, b, o)});
+            triangles({vertex(x, y1 - h, c.r, c.g, c.b, o), vertex(x + 4, y1 - h, c.r, c.g, c.b, o), vertex(x + 4, y1, c.r, c.g, c.b, o),
+                       vertex(x, y1 - h, c.r, c.g, c.b, o), vertex(x + 4, y1, c.r, c.g, c.b, o), vertex(x, y1, c.r, c.g, c.b, o)});
         };
-        bar(at.x, s.throttle, 0x40, 0xC0, 0x40);
-        bar(at.x + bw + 2, s.brake, 0xC0, 0x30, 0x30);
+        bar(at.x + 1, s.brake, 0x800000F0u);
+        bar(at.x + at.w - 5, s.throttle, kMeterBlue);
     }
     draw_tires(s, {0, L + 58, B, 40, 68, 4, 1});
     // The fuel gauge: the empty bar, the full one over it by what is left.
-    draw_at("fuel_b0", {0, L + 107, B - 30, 86, 11, 4, 1}, kNeutral, o);
-    draw_at("fuel_b1", {0, L + 107, B - 30, 86, 11, 4, 1}, kNeutral, o, std::clamp(s.fuel, 0.0f, 1.0f));
+    draw_fuel(s, {0, L + 107, B - 30, 86, 11, 4, 1});
 }
 
 // A round meter: the red zone behind the face (from `red_from` in the value's units; past the
@@ -864,11 +868,10 @@ void RaceHud::draw(Ui& ui, const HudState& s) {
         impl_->draw_top(s);
     }
     if (s.bspec && !s.replay) {
-        char key[16];
-        std::snprintf(key, sizeof key, "key_pace%d", std::clamp(s.pace, 1, 5));
-        impl_->draw_bspec(s, word(s.pit_command ? "key_pitin" : s.overtake ? "key_overtake" : key), s.tooltip.empty() ? word("Tool Tip1") : s.tooltip);
+        impl_->draw_bspec(s, s.tooltip.empty() ? word("Tool Tip1") : s.tooltip);
         return;
     }
+    if (!s.tooltip.empty() && !s.replay) impl_->draw_tooltip(s.tooltip, s.opacity);
     if (!s.show_meter) return;
     if (s.driver_view) impl_->draw_driver_panel(s);
     else impl_->draw_chase_panel(s);
@@ -885,9 +888,9 @@ void RaceHud::Impl::draw_menu_text(const char* font_name, int variant, float x, 
     st.button_colors = button_colors;
     st.align = align, st.valign = gt3r::text::VAlign::Baseline;
     if (max_width > 0) {
-        // Squeezed to fit (the font's size kept up to it).
-        const float w = menu::layout_menu_text(text, st, 0, 0).width;
-        if (w > max_width) st.scale_x = st.scale_y = max_width / w;
+        // Squeezed sideways to fit (RaceMessageDisplay::vf5).
+        for (int k = 0; k < 2; ++k)
+            if (const float w = menu::layout_menu_text(text, st, 0, 0).width; w > max_width) st.scale_x *= max_width / w;
     }
     const Rgba8 c = text_color(color, opacity);
     st.color = {c.r, c.g, c.b, c.a};
@@ -905,45 +908,38 @@ void RaceHud::Impl::draw_menu_text(const char* font_name, int variant, float x, 
     }
 }
 
-// The B-spec display (display mode 1, panel layout 2: docs/formats/race_display.md "B-spec"): the
-// place, laps, map, the lap's time and the race's time at mode 1's places; the commands' bar at the
-// top (the pace 1 .. 5 with the chosen one lit, the overtake and pit keys, the pace's word under
-// them); the speed's small plate; the help strip. ❓ The bar's, the plate's and the strip's shapes
-// and places are judged from the original's B-spec race (their drawing is not read).
-void RaceHud::Impl::draw_bspec(const HudState& s, const std::string& pace_word, const std::string& help) {
+// RaceFuelMeter::vf6 (0x3A57A8): the empty bar, the full one over it in ten steps of the fuel left (5.2 wide each, from 15, the
+// second half 4 further).
+void RaceHud::Impl::draw_fuel(const HudState& s, const DisplayPlace& place) {
+    draw_at("fuel_b0", place, kNeutral, s.opacity);
+    const int n = int(std::clamp(s.fuel, 0.0f, 1.0f) * 10 + 0.5f);
+    // (The lit bar is white where lit and the program's tint brightens past 0x80: the tint itself is the color, as the original shows.)
+    const Picture& lit = picture("fuel_b1");
+    draw_picture(lit, race::place_rect(place, lit.w, lit.h, true), kMeterBlue, s.opacity, (float(n) * 5.2f + 15 + (n >= 6 ? 4 : 0)) / 86, true);
+}
+
+// RaceTooltipDisplay::vf5 (0x3AE138): a black strip 640 x 42 at the bottom, the line centered 22 down it, squeezed into 15/16 of
+// its width.
+void RaceHud::Impl::draw_tooltip(const std::string& words, float opacity) {
+    fill({kWideLeft, 438, 640 - 2 * kWideLeft, 42}, 0, 0, 0, opacity);
+    draw_menu_text("hm_16", 1, 320, 460, gt3r::text::HAlign::Center, kTextGray, opacity, words, 600);
+}
+
+// The B-spec display (display mode 1, panel layout 2: docs/formats/race_display.md "B-spec"): the place, laps, map, the lap's time
+// and the race's time at mode 1's places; the tires and the fuel; the speed's small plate (❓ its place judged from the original's
+// B-spec race); the help strip. The commands' panel is the monitor's movie (screen_race.cpp, update_panel).
+void RaceHud::Impl::draw_bspec(const HudState& s, const std::string& help) {
     const float o = s.opacity;
-    // The commands' bar.
-    fill({190, 18, 260, 58}, 0x10, 0x10, 0x14, o * 0.85f);
-    for (int k = 0; k < 7; ++k) {
-        const DisplayRect key{float(198 + k * 30 + (k >= 5 ? 6 : 0)), 24, 26, 26};
-        fill(key, 0xC8, 0xC8, 0xC8, o * (k == 5 ? 0.0f : 0.9f));
-        const float cx = key.x + key.w / 2, base = key.y + 21;
-        if (k < 5) {
-            const bool lit = k + 1 == s.pace && !s.overtake;
-            draw_text(font("hb_24", 100, 1), cx, base, kCentered, lit ? 0x800050F0u : 0x80202020u, o, std::string(1, char('1' + k)));
-        } else if (k == 5) {
-            // The overtake key: the triangle button, lit while the command is on.
-            fill(key, s.overtake ? 0xF0 : 0x58, s.overtake ? 0x80 : 0x58, s.overtake ? 0x20 : 0x60, o * 0.9f);
-            draw_menu_text("hm_16", 1, cx, base - 3, gt3r::text::HAlign::Center, kNeutral, o, "%Bc");
-        } else {
-            draw_text(font("hb_24", 100, 1), cx, base, kCentered, s.pit_command ? 0x800050F0u : 0x80202020u, o, "P");
-        }
-    }
-    draw_text(font("hn_20R", 80, 1), 320, 71, kCentered, kTextGray, o, pace_word);
     // The tire diagram and the fuel bar at the bottom left (the reduced form: L + 26 and L + 74, the bar ❓ its
     // height judged from the original's B-spec display).
     draw_tires(s, {0, 26, 431, 40, 68, 4, 1});
-    draw_at("fuel_b0", {0, 74, 427, 86, 11, 4, 1}, kNeutral, o);
-    draw_at("fuel_b1", {0, 74, 427, 86, 11, 4, 1}, kNeutral, o, std::clamp(s.fuel, 0.0f, 1.0f));
+    draw_fuel(s, {0, 74, 427, 86, 11, 4, 1});
     // The speed's small plate over the help strip.
     const int R = 640, B = 431;
     draw_at(mph ? "remote_speed_mph" : "remote_speed_kmph", {0, R - 26, B, 82, 28, 13, 1}, kNeutral, o);
     draw_text(font("GT4meter", 100, 1), race::place_x({0, R - 59, B - 8, 0, 0, 13, 1}, true), float(B - 8), kEndsAtPen, kMeterBlue, o, speed_text(s));
     // The help strip (member 0x2DA0: 0, 480, 640 x 42, its bottom at the bottom).
-    if (s.help) {
-        fill({kWideLeft, 438, 640 - 2 * kWideLeft, 42}, 0, 0, 0, o * 0.75f);
-        draw_menu_text("hm_16", 1, 18, 463, gt3r::text::HAlign::Left, kTextGray, o, help, 604);
-    }
+    if (s.help) draw_tooltip(help, o);
 }
 
 } // namespace gt4r
