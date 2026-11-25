@@ -752,6 +752,8 @@ below a rectangle it passes. A face that is not `multiline` is one line: a line 
 nothing (0x490760). A carriage return is as wide as a space, as is any character the font lacks
 (0x492978). `getTextSize` measures by the renderer, not the word wrapper (0x2452A8): an `aligned` 0
 text as wide as its rectangle and as high as its pen came down, without the last line (0x491618).
+A line's width, for its alignment, is its pen's less half a space (0x491028), but the pen's whole in a
+face of one line (0x4912AC).
 ❓ `TextBoxFace`'s own break is not read: at spaces, where the next word would pass the width. A face
 without `geometry` takes its parent's width. A text is made narrower when
 the script asked (`adjustScale`: the widest line to the face's width), or cut with an ellipsis
@@ -1093,7 +1095,7 @@ engine's Gran Turismo 3 code or on a judgment:
 | What | Where | Runs | The Gran Turismo 4 routine to port |
 |---|---|---|---|
 | 3D faces' models (car faces' extra sets, model faces, the car stage's backdrops) | `app/menu_cars.cpp`, `app/menu_models.cpp` via `formats/model/mdls.cpp` `to_gtm1` | the engine's GTM1 decoder and renderer (`gtm1.cpp`, `render::View3D`, its GT3 lighting model) | ModelSet2's draw (0x455528, the shape submit 0x49D328) and the VU1 lighting |
-| A skinned set's blend | `formats/model/mdls_skin.cpp` `blend()` | the program's VU0 micro-routine (0x2E8 / 0x460) operation by operation in the PS2's floats (`ee::F`; ❓ a VU's own rounding of multiply-add is taken as the EE's); the palette's matrices are host floats | (the palette: 0x4A7698 and the rotations 0x078 / 0x0B8 / 0x0F8) |
+| A skinned set's blend | `formats/model/mdls_skin.cpp` `blend()` | the program's VU0 micro-routine (0x2E8 / 0x460) operation by operation in the PS2's floats (`ee::F`; ❓ the VU's own rounding of multiply-add and of the reciprocal root is taken as the FPU's: the race step runs no VU0 float instruction, so no recording made on a console judges it); the palette's matrices are host floats | (the palette: 0x4A7698 and the rotations 0x078 / 0x0B8 / 0x0F8) |
 | The menu car | `app/menu_cars.cpp` | `race::CarVisual` (Gran Turismo 4's car parts) drawn by the engine's renderer; ❓ the reflection strength (1.0 here; the program's 1.3, 1.1 not read), the ride-height raise | mCarModelPS2's draw (0x156AA0, 0x156F18) |
 | The car stage | `app/menu_cars.cpp` | the lights, backdrops and the shadow's layers as the program has them; no soft focus, env.mdl, tire.mdl, half-size mask; the engine's lighting model | GT4CarSelect::AnimationStage (0x1D5C00: 0x1D56B0, 0x44EB10, 0x1D6968) |
 | The car's shadows | `race/car_visual.cpp` | the race's shadow models | the stage's shadow (0x4523B0..) |

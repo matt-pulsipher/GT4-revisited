@@ -102,6 +102,7 @@ public:
         std::string s = d.text("text");
         if (s.empty()) s = d.text("value");
         menu::TextStyle st = style_of(d);
+        st.one_line = d.type == "TextFace" && d.number("multiline") == 0;
         w = h = 0;
         if (!st.font || s.empty()) return;
         // A face of several lines (and a text box) breaks its lines at its width; an equalized
