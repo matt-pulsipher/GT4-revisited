@@ -147,7 +147,8 @@ public:
         const SDL_Rect whole = to_clip({0, 0, 640, 480});
         SDL_SetRenderClipRect(r_, &whole);
         over_.clear();
-        widget(page, {0, 0, 640, 480}, opacity, whole, state);
+        forced_ = state;
+        widget(page, {0, 0, 640, 480}, opacity, whole, 0);
         // An option menu's open list lies over everything else of the page.
         const std::vector<Over> over = std::move(over_);
         over_.clear();
@@ -748,16 +749,12 @@ private:
         if (tip_clip) SDL_SetRenderClipRect(r_, had_clip ? &before : nullptr);
     }
 
-    // A widget is drawn in its own state and its parents' (a focused button's faces light up).
-    void widget(const LiveWidget& live, const Rect& parent, float opacity, const SDL_Rect& clip, int state) {
+    // A face is drawn in its parent's state, any other widget in its own (0x231508), shown by its condition (0x265DC8).
+    void widget(const LiveWidget& live, const Rect& parent, float opacity, const SDL_Rect& clip, int parent_state) {
         const Widget& w = live.data;
-        state |= live.state;
-        if (unfocused_) state &= ~kFocusBits;
+        const int state = menu::drawn_state(live, parent_state) | forced_;
         if (w.has("visible") && w.number("visible") == 0) return;
-        if (w.has("visible_condition") || w.has("visible_compare")) {
-            const int want = int(w.number("visible_condition")), mask = int(w.number("visible_compare", float(want)));
-            if ((state & mask) != want) return;
-        }
+        if (!menu::state_shows(state, int(w.number("visible_condition")), int(w.number("visible_compare")))) return;
         Rect at = parent;
         if (const std::optional<Rect> g = w.rect("geometry")) at = {parent.x + g->x, parent.y + g->y, g->w, g->h};
         opacity *= std::clamp(w.number("opacity", 1), 0.0f, 1.0f);
@@ -828,16 +825,7 @@ private:
         const bool open_menu = t == "OptionMenu" && w.number("is_popuped") != 0;
         for (const auto& c : live.children) {
             if (open_menu && c->name == "popup") {
-                over_.push_back({c.get(), at, opacity, state & ~kFocusBits, m_});
-                continue;
-            }
-            // ❓ A closed option menu shows its chosen item in the item's own state: the menu's
-            // focus lights its button, not the item (the options' dialogs).
-            if (t == "OptionMenu" && c->name == "popup") {
-                const bool was = unfocused_;
-                unfocused_ = true;
-                widget(*c, at, opacity, inner, state & ~kFocusBits);
-                unfocused_ = was;
+                over_.push_back({c.get(), at, opacity, state, m_});
                 continue;
             }
             widget(*c, at, opacity, inner, state);
@@ -853,7 +841,7 @@ private:
         Affine m;
     };
     std::vector<Over> over_;
-    bool unfocused_ = false; // drawing a closed option menu's item
+    int forced_ = 0; // the bits every widget is drawn in (the viewer's)
     struct Tip {
         std::string text;
         float w = 0;
