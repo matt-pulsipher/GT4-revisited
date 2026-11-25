@@ -352,6 +352,7 @@ private:
     void pd_steer(Driver& d, gt3r::ee::F dir, gt3r::ee::F rd, gt3r::ee::F r, gt3r::ee::F amax, gt3r::ee::F ky);
     void set_kind(Driver& d, int kind);
     void blip(Driver& d, u32 count);
+    gt3r::ee::F pedal(const Driver& d) const;
     void stop(Driver& d, gt3r::ee::F steer);
     gt3r::ee::F hold_speed(const Driver& d, gt3r::ee::F target) const;
     void traffic(Driver& d);

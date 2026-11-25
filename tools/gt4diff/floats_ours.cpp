@@ -324,6 +324,13 @@ void OursBeside::step(Ee& ee, const u8* record) {
         computer(i, c);
     }
     // (our own drivers on our own cars: the player's while its driver drives it, listed where they part)
+    // (GT4R_FLOATS_FREE=1: ours alone, as the race screen runs it: our drivers in our session's step)
+    if (m.field && std::getenv("GT4R_FLOATS_FREE")) {
+        pin_others = false;
+        std::vector<race::CarInput> own_in(in.size());
+        own_in[0].pad = &m.pad;
+        m.field->step(*m.session, own_in, -1, m.session->countdown());
+    } else {
     bool rolling_before = false;
     const bool held = m.session->countdown() > 0;
     if (m.field) {
@@ -331,17 +338,12 @@ void OursBeside::step(Ee& ee, const u8* record) {
         m.field->begin_step();
         rolling_before = before;
     }
-    // (GT4R_FLOATS_FREE=1: the computer's cars driven by our own drivers, running free)
-    const bool free_run = m.field && std::getenv("GT4R_FLOATS_FREE") != nullptr;
-    if (free_run) pin_others = false;
     if (m.field && steps > 0) m.field->apply_time_scales(*m.session);
     m.session->step_once(in, [&](size_t car, race::CarInput& out) {
         if (!m.field) return;
         race::CarInput unused;
         m.field->decide_car(car, unused);
-        if (free_run && car > 0) {
-            if (m.session->record(car).race_hold == 0) out = unused;
-        }
+        (void)out;
         if ((car > 0 ? steps >= 479 : rolling_before) && m.field_prints < 20) {
             const u32 D = o.car(int(car)) + sim::layout::kDriver;
             const sim::ai::Field::Probe p = m.field->probe_get(car);
@@ -356,6 +358,7 @@ void OursBeside::step(Ee& ee, const u8* record) {
         }
     });
     if (m.field && !held) m.field->end_step();
+    }
     if (m.released) {
         if (m.field) m.field->release_rolling(0);
         m.session->release_start(0), m.released = false;
@@ -367,7 +370,8 @@ void OursBeside::step(Ee& ee, const u8* record) {
     const double d = std::sqrt(dx * dx + dy * dy + dz * dz);
     const bool same = c.pos.x.bits == ee.r32(F0) && c.pos.y.bits == ee.r32(F0 + 4) && c.pos.z.bits == ee.r32(F0 + 8);
     // The placed fields of every car that differ (from the first step any does, for `list_steps` steps).
-    if (list_steps > 0 && (first_fields_step >= 0 ? steps < first_fields_step + list_steps : true)) {
+    const char* list_from = std::getenv("GT4R_FLOATS_LIST_FROM");
+    if (list_steps > 0 && (!list_from || steps >= std::atoi(list_from)) && (first_fields_step >= 0 ? steps < first_fields_step + list_steps : true)) {
         for (int i = 0; i < o.cars; ++i) {
             sim::Record theirs, mine;
             theirs.car = mine.car = m.session->record(size_t(i));

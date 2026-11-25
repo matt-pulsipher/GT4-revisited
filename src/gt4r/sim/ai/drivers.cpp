@@ -1670,12 +1670,8 @@ void Field::end_step() {
     clock_ = std::min<u32>(clock_ + 50, 0x405F7DFD);
 }
 
-void Field::decide_car(size_t car, race::CarInput& in) {
-    if (car >= drivers_.size() || !drivers_[car]) return;
-    Driver& d = *drivers_[car];
-    incidents_after(d);
-    decide(d);
-    // The outputs into the controls (0x464F38): the throttle pedal slews to the wanted throttle by the step in the arcs.
+// The throttle pedal the driver's wanted throttle makes (0x464F38): slewed by the step in the arcs.
+F Field::pedal(const Driver& d) const {
     const ex::Car& c = session_->record(d.car);
     F thr = d.throttle;
     if (tables_.tuning.smooth_throttle == 0 && (d.mode == 1 || d.mode == 2)) {
@@ -1688,6 +1684,17 @@ void Field::decide_car(size_t car, race::CarInput& in) {
             thr = n < thr ? thr : n;
         }
     }
+    return thr;
+}
+
+void Field::decide_car(size_t car, race::CarInput& in) {
+    if (car >= drivers_.size() || !drivers_[car]) return;
+    Driver& d = *drivers_[car];
+    incidents_after(d);
+    decide(d);
+    // The outputs into the controls (0x464F38): the throttle pedal slews to the wanted throttle by the step in the arcs.
+    const ex::Car& c = session_->record(d.car);
+    const F thr = pedal(d);
     d.applied_throttle = thr.host();
     // 0x469E58: the suggested gear's speed.
     {
@@ -1767,7 +1774,7 @@ void Field::step(Session& session, std::span<race::CarInput> inputs, int keep, u
             in.pad = pad;
             if (d.control != 0 && session_->record(car).race_hold != 0) { // (0x3F3400)
                 blip(d, count + session.start_counter(car));
-                in.throttle = d.throttle.host(), in.brake = 0, in.steer_angle = 0;
+                in.throttle = pedal(d).host(), in.brake = 0, in.steer_angle = 0;
             }
         }
         session.set_line_heading(car, line_heading_at(car), line_mode_at(car));

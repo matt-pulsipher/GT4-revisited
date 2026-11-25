@@ -304,6 +304,9 @@ int race_demos(Disc& disc, const Args& a) {
                 const race::CarState& c = s.cars()[0];
                 std::printf("  %5zu  %7.2f km/h  at %.3f %.3f %.3f  dist %.2f%s\n", step, double(c.speed) * 3.6, double(s.record(0).pos.x.host()), double(s.record(0).pos.y.host()),
                             double(s.record(0).pos.z.host()), double(c.course_v), c.rolling ? "  rolling" : "");
+                if (s.cars().size() > 1)
+                    std::printf("         car 1 %7.2f km/h  dist %.2f  thr %.3f brk %.2f steer %.5f place %d scale %.4f\n", double(s.cars()[1].speed) * 3.6, double(s.cars()[1].course_v), double(s.record(1).throttle_pedal.host()),
+                                double(s.record(1).brake_pedal.host()), double(s.record(1).steer_cmd.host()), int(s.record(1).rank), double(s.record(1).time_scale.host()));
             };
         const race::DemonstrationRun r = race::run_demonstration(disc, sdb, label, o);
         if (!r.ran) {
