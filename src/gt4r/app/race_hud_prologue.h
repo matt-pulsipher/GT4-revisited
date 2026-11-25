@@ -44,6 +44,14 @@ public:
         bool parking_brake = false;
         bool failed = false;                  // the test failed (the result's message)
         bool onboard = false;                 // the view's meters are the car's own (not a start camera's)
+        bool wrong_way = false;               // the wrong-way sign (0x3C0878)
+        bool auto_drive = false;              // the car's driver brings it to the line
+        int time_left = 0;                    // the seconds left of a test's lead (the rule block's +0x44)
+        int cones = 0, cones_total = 0;       // the cones knocked down, and a test's count of them (0: none counted)
+        bool turbo = false;                   // the car has a boost gauge
+        float boost = 0;                      // its pressure (F + 0x4F0)
+        float accelerator = 0, brake = 0;     // the pedals (a replay's monitor)
+        bool guide = false;                   // a lesson's guide film: the recorded run's monitors alone
     };
     void draw(Ui& ui, const HudState& s, const Extra& e);
 

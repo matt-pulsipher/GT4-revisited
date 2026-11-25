@@ -95,9 +95,11 @@ struct PrologueHud::Impl {
     std::vector<Face> rev_faces, speed_faces;
     race::CourseMap map;
     SDL_Texture* map_texture = nullptr;
-    Needle needles[2];
+    Needle needles[3];
+    std::array<float, 2> pedals{}; // the replay monitor's last brake and throttle
+    float sign = 0;                // the wrong-way sign's fade
     float rank_shown = 0; // the rank's rolling digit (+0x2C)
-    double clock = 0;
+    double clock = 0, step = 0;
     Uint64 last_ns = 0;
 
     SDL_Texture* make_texture(const gt3r::Tex1::Image& img) {
@@ -203,7 +205,17 @@ struct PrologueHud::Impl {
     void draw_lap(const hr::HudRow& row, int lap, int laps, float opacity);
     void draw_time(float x, float y, int ha, s64 ms, const std::string& label, const char* icon, float ix, float iy, float opacity);
     void draw_map(const hr::HudRow& row, const HudState& s, float opacity);
-    void draw_dial(const Box& b, const std::string& face, float value, float min, float max, float a0, float a1, float red_from, Needle& n, float opacity);
+    struct DialShape { // a dial's base picture, its middle below the box's, its radius and its needle from its tail to its tip (of it)
+        const char* base = "GT4_meter_texture_sprv_base";
+        float down = 16.5f, radius = 77.5f, tail = -0.30970f, tip = 0.96130f;
+    };
+    void draw_dial(const Box& b, const std::string& face, float value, float min, float max, float a0, float a1, float red_from, Needle& n, float opacity, const DialShape& shape);
+    void draw_dial(const Box& b, const std::string& face, float value, float min, float max, float a0, float a1, float red_from, Needle& n, float opacity) {
+        draw_dial(b, face, value, min, max, a0, a1, red_from, n, opacity, DialShape{});
+    }
+    void draw_boost(const Extra& e, float opacity);
+    void draw_pedals(const hr::HudRow& row, const Extra& e, float opacity);
+    void draw_cones(const hr::HudRow& row, const Extra& e, float opacity);
     void draw_onboard(const HudState& s, const Extra& e, float opacity);
     void draw_simple(const HudState& s, const Extra& e, float opacity);
     void draw_gear(const FontSpec& f, float x, float y, int gear, float opacity);
@@ -382,13 +394,13 @@ void PrologueHud::Impl::draw_map(const hr::HudRow& row, const HudState& s, float
 
 // 0x397268 / 0x397308 / 0x397968 / 0x397518: a dial: its black base, the red zone's ring (twice, at a third), the face, and the needle
 // (eight copies at a sixth, led by its motion).
-void PrologueHud::Impl::draw_dial(const Box& b, const std::string& face, float value, float min, float max, float a0, float a1, float red_from, Needle& n, float opacity) {
-    const Picture& base = picture("GT4_meter_texture_sprv_base");
+void PrologueHud::Impl::draw_dial(const Box& b, const std::string& face, float value, float min, float max, float a0, float a1, float red_from, Needle& n, float opacity, const DialShape& shape) {
+    const Picture& base = picture(shape.base);
     const Picture& p = picture(face);
     draw_picture(base, panel(b), 0x80000000, opacity);
     const float kx = p.w > 0 ? b.w / p.w : 1, ky = p.h > 0 ? b.h / p.h : 1;
-    const float cx = b.x + float(int(b.w) / 2), cy = b.y + float(int(b.h) / 2) + 16.5f * ky;
-    const float rx = 77.5f * kx, ry = 77.5f * ky;
+    const float cx = b.x + float(int(b.w) / 2), cy = b.y + float(int(b.h) / 2) + shape.down * ky;
+    const float rx = shape.radius * kx, ry = shape.radius * ky;
     const float rad = kPi / 180;
     if (red_from > 0) {
         const float inner = 0.73548f, outer = inner + 0.26450f;
@@ -414,7 +426,7 @@ void PrologueHud::Impl::draw_dial(const Box& b, const std::string& face, float v
     const float lead = n.set ? (angle - n.angle) * 0.125f : 0;
     n.angle = angle, n.set = true;
     static const float kJitter[8][2] = {{0.5f, 0}, {-0.5f, 0.5f}, {0.5f, 0}, {-0.5f, -0.25f}, {0.5f, 0}, {-0.5f, 0.5f}, {0.5f, 0}, {-0.5f, -0.75f}};
-    const float back = -0.30970f, length = 0.96130f - back;
+    const float back = shape.tail, length = shape.tip - back;
     float jx = 0, jy = 0;
     const Rgba8 c = gs(kRed, opacity / 6);
     for (int k = 0; k < 8; ++k) {
@@ -427,6 +439,48 @@ void PrologueHud::Impl::draw_dial(const Box& b, const std::string& face, float v
         triangles({q0, q1, q2, q2, q1, q3});
         jx += kJitter[k][0], jy += kJitter[k][1];
     }
+}
+
+// 0x398520 / 0x398660: the boost gauge of a car with a turbocharger, 0 .. 2 over half a turn, at (508, 418).
+void PrologueHud::Impl::draw_boost(const Extra& e, float opacity) {
+    if (!e.turbo) return;
+    DialShape s;
+    s.base = "GT4_meter_texture_trb_base", s.down = 0, s.radius = 32, s.tail = -0.53125f, s.tip = 0.90625f;
+    draw_dial({508, 418 - 64, 64, 64}, "GT4_meter_texture_trb_scale", std::min(e.boost, 2.0f), 0, 2, 90, 270, 0, needles[2], opacity, s);
+}
+
+// 0x391110: the pedals of a replay's monitor, the brake left and the throttle right: a dark box each, a bar up it to the lesser of the
+// pedal's last two values, fading out to the greater, and the sign under it.
+void PrologueHud::Impl::draw_pedals(const hr::HudRow& row, const Extra& e, float opacity) {
+    const float w = row.w, h = row.h, x = left_of(row.x, 2 * w + 4, row.align), y = row.valign == 1 ? row.y - h : float(row.y);
+    const float sign = float(int(w - 4) * 16 / 22), bar = h - sign - 8;
+    const std::array<float, 2> now{std::clamp(e.brake, 0.0f, 1.0f), std::clamp(e.accelerator, 0.0f, 1.0f)};
+    for (int k = 0; k < 2; ++k) {
+        const float left = x + float(k) * (w + 4);
+        fill({left, y, w, h}, 0x80000000, opacity * 0.5f);
+        fill({left + 2, y + 2, w - 4, bar}, 0x80202020, opacity);
+        const Picture& p = picture(k ? "replay_sign_accel" : "replay_sign_brake");
+        draw_picture(p, {left + 2, y + h - sign - 4, w - 4, sign}, 0x80FFFFFF, opacity);
+        const float lo = std::min(now[size_t(k)], pedals[size_t(k)]), hi = std::max(now[size_t(k)], pedals[size_t(k)]);
+        const u32 color = k ? 0x802BCC49 : 0x800000F0;
+        const float bottom = y + 2 + bar, at_lo = bottom - bar * lo, at_hi = bottom - bar * hi;
+        fill({left + 2, at_lo, w - 4, bottom - at_lo}, color, opacity);
+        const Rgba8 c = gs(color, opacity), none = gs(color, 0);
+        const SDL_Vertex a = vertex(left + 2, at_hi, none), b = vertex(left + w - 2, at_hi, none), d = vertex(left + 2, at_lo, c), f = vertex(left + w - 2, at_lo, c);
+        triangles({a, b, d, d, b, f});
+    }
+    pedals = now;
+}
+
+// 0x394028: the cones knocked down and the test's count as a time is written, with the cone's picture.
+void PrologueHud::Impl::draw_cones(const hr::HudRow& row, const Extra& e, float opacity) {
+    if (e.cones_total <= 0) return;
+    const FontSpec f = font("FC_16", 90);
+    const std::string t = std::to_string(e.cones) + "/" + std::to_string(e.cones_total);
+    const Picture& p = picture("pylon");
+    const float x = left_of(row.x, 0, row.align); // (❓ the pen's end in the program; its place on the row's left here)
+    draw_picture(p, {x, row.y - p.h + 4, p.w, p.h}, 0x80FFFFFF, opacity, 0.502f);
+    text(f, x + p.w + 10, row.y, kOrange, opacity, t);
 }
 
 // 0x38F5F8: the gear over the font's blank segments ('J'): 'A' + gear - 1, 'I' the reverse in red.
@@ -456,6 +510,7 @@ void PrologueHud::Impl::draw_onboard(const HudState& s, const Extra& e, float op
             break;
         }
     const Box tach{345, 431 - 122, 155, 122}, dial{295 - 155, 431 - 122, 155, 122};
+    draw_boost(e, opacity);
     draw_dial(tach, rev->name, s.rpm, 1000, rev->max, 174, 394, e.shift_rpm, needles[1], opacity);
     draw_dial(dial, speed->name, kmh, 0, speed->max, 146, 366, 0, needles[0], opacity);
     // The lamps (0x390D60): the fuel, the stability control's triangle (half when on, blinking while it acts), the oil, the brake.
@@ -547,9 +602,10 @@ void PrologueHud::draw(Ui& ui, const HudState& s, const Extra& e) {
     Impl& m = *impl_;
     m.r = ui.renderer();
     const Uint64 now = SDL_GetTicksNS();
-    if (m.last_ns) m.clock += std::min(0.1, double(now - m.last_ns) / 1e9);
+    m.step = m.last_ns ? std::min(0.1, double(now - m.last_ns) / 1e9) : 0;
+    m.clock += m.step;
     m.last_ns = now;
-    if (!e.live) { // (a replay: the display hidden by default; the mark of the game fades in and out over a minute)
+    if (!e.live && !e.guide) { // (a replay: the display hidden by default; the mark of the game fades in and out over a minute)
         const double t = std::fmod(m.clock + 54, 60.0);
         const float a = t < 30 ? float(std::clamp(t / 3, 0.0, 1.0)) : float(std::clamp((33 - t) / 3, 0.0, 1.0));
         const Impl::Picture& p = m.picture("gt_logo_mini");
@@ -578,6 +634,8 @@ void PrologueHud::draw(Ui& ui, const HudState& s, const Extra& e) {
     const int view = e.onboard ? 0 : 1;
     for (const hr::HudRow& row : hr::hud_layout(mode)) {
         if (row.view != hr::kAnyView && int(row.view) != view) continue;
+        // (a lesson's guide film: the pedals, the clock and the simple panel; ✔ the original's lesson 1)
+        if (e.guide && row.part != hr::HudPart::AccelBrake && row.part != hr::HudPart::TimeLine && row.part != hr::HudPart::Meters) continue;
         switch (row.part) {
         case hr::HudPart::Rank:
             if (s.show_position && mode != hr::HudMode::License) m.draw_rank(row, s.place, opacity);
@@ -603,7 +661,9 @@ void PrologueHud::draw(Ui& ui, const HudState& s, const Extra& e) {
             case hr::TimeLine::Total: m.draw_time(row.x, row.y, row.align, s.total_ms, "Total", nullptr, 0, 0, opacity); break;
             case hr::TimeLine::Lap:
             case hr::TimeLine::Time: m.draw_time(row.x, row.y, row.align, std::max<s64>(0, s.lap_ms), "", "GT4_meter_texture_laptime", -2, 4, opacity); break;
-            default: break;
+            default:
+                if (row.sub == 15) m.draw_cones(row, e, opacity); // (RaceCountDisplay)
+                break;
             }
             break;
         }
@@ -613,6 +673,18 @@ void PrologueHud::draw(Ui& ui, const HudState& s, const Extra& e) {
             break;
         }
         case hr::HudPart::Messages:
+            // 0x386740: the seconds left of a test's lead; 0x38A890: the wrong-way sign, its blink of 0.2 s lit for 0.06 (in 0.05 s, out
+            // 0.1), not in a test of cones; AUTO DRIVE while the car's driver brings it to the line.
+            if (e.time_left > 0) m.draw_message(row.x, row.y, m.font("sw_16"), kOrange, opacity, std::to_string(e.time_left));
+            else if (e.penalty <= 0 && e.wrong_way && e.cones_total <= 0) {
+                m.sign += (std::fmod(m.clock, 0.2) < 0.06 ? 1 / 0.05f : -1 / 0.1f) * float(m.step);
+                m.sign = std::clamp(m.sign, 0.0f, 1.0f);
+                const Impl::Picture& p = m.picture("GT4_meter_texture_wrongway");
+                m.draw_picture(p, {row.x - p.w / 2, row.y - p.h / 2, p.w, p.h}, 0x80FFFFFF, opacity * m.sign);
+            } else if (e.penalty <= 0 && e.auto_drive) {
+                const auto it = m.words.find("AUTO DRIVE");
+                m.draw_message(row.x, row.y, m.font("sw_16"), kOrange, opacity, it != m.words.end() ? it->second : std::string("AUTO DRIVE"));
+            }
             // 0x38A7B8: the penalty's seconds.
             if (e.penalty > 0) {
                 std::string t = m.words.count("Penalty") ? m.words["Penalty"] : "%d";
@@ -625,7 +697,9 @@ void PrologueHud::draw(Ui& ui, const HudState& s, const Extra& e) {
             if (!s.event.empty()) m.draw_message(row.x, row.y, m.font("sw_16"), kEvent, opacity * s.event_opacity, s.event);
             if (!s.event_gap.empty()) m.draw_message(row.x, row.y + 20, m.font("sw_16"), kEvent, opacity * s.event_gap_opacity, s.event_gap);
             break;
-        case hr::HudPart::AccelBrake: break;
+        case hr::HudPart::AccelBrake:
+            if (row.sub == 0 && !e.live) m.draw_pedals(row, e, opacity);
+            break;
         case hr::HudPart::Title:
             // The count (0x38A558: 0.8 s a second, fading over the last 0.15), START (0x38CDC8: one second), FINISH (0x38CE68: three,
             // fading over the last).

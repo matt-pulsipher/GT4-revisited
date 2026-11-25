@@ -663,6 +663,7 @@ public:
         for (size_t i = 0; i < world_->car_count(); ++i) world_->set_crossings(i, flow_.car(i).counter), world_->set_rank(i, flow_.place(i));
         rolled_ = false;
         license_failed_ = false, cones_met_ = 0, run_ended_ = run_driven_ = false;
+        wrong_way_ = false, wrong_prev_ = -1;
         judge_ = race::LicenseJudge(judge_.rules());
         finish_camera_.angle = 0;
         goal_prev_ = -1;
@@ -681,7 +682,7 @@ public:
 
     // The scene behind the race's menus: the cars standing on the grid, the course's scenic shots
     // (the last run is kept for its replay).
-    void stand() {
+    void stand(bool guide = false) {
         // Prologue's page (Gran Turismo 3's road) runs the race behind it as a replay shows one: the computer drives the
         // player's car too, the start's hold under the replay's start shots, then the course's replay cameras, the cars
         // not heard (the original's Tsukuba page, reference/14-prologue/round5). A lesson's page plays the lesson's recorded run
@@ -691,6 +692,9 @@ public:
         preview_pads_ = preview_ && setup_.test_starts.empty() ? &recorded_run() : nullptr;
         if (preview_pads_ && preview_pads_->pads.empty()) preview_pads_ = nullptr;
         preview_at_ = 0;
+        // The lesson's guide film: the course's scenic shots once, then the run under the replay's monitors (✔ lesson 1's).
+        guide_ = !guide || !preview_ ? 0 : scenic_script_.records.empty() ? 2 : 1;
+        guide_done_ = false, guide_steps_ = 0;
         if (preview_) world_->set_computer_player(!preview_pads_);
         if (preview_pads_) {
             std::vector<std::optional<WorldEntry>> over(world_->car_count());
@@ -715,6 +719,10 @@ public:
             begin_start_camera(true, preview_hold_);
         }
     }
+    // The guide film: whether the run is on (not the shots before it), its seconds from its start's end, and its end.
+    bool guide_run() const { return menu_scene_ && guide_ == 2; }
+    bool guide_done() const { return guide_ != 0 && guide_done_; }
+    float guide_time() const { return std::max(0.0f, float(guide_steps_ - (preview_pads_ ? 4 * 60 : 10 * 60)) / 60); }
     bool has_run() const { return !history_.empty(); }
 
     // The last run as a saved replay, and a saved replay played back.
@@ -754,8 +762,21 @@ public:
     // One simulation step: the player's car from the pad (or the simple driver), the others by the
     // simple driver, each on its own side of the line.
     void step(const gt3r::PadState& pad, bool auto_drive) {
+        if (menu_scene_ && preview_ && guide_ == 1) {
+            const size_t shot = scenic_.shot();
+            scenic_.step();
+            if (scenic_.shot() != shot && scenic_.dissolve() > 0) begin_dissolve(int(std::lround(scenic_.dissolve_seconds() * 60)));
+            step_dissolve();
+            if (scenic_.shot() < shot || scenic_script_.records.size() == 1) guide_ = scenic_.shot() < shot ? 2 : guide_;
+            return;
+        }
         if (menu_scene_ && preview_) {
             keep_previous();
+            if (guide_ == 2) {
+                ++guide_steps_;
+                const size_t length = std::max<size_t>(recorded_run().pads.size(), 600);
+                if (size_t(guide_steps_) > length + 60) guide_done_ = true;
+            }
             const bool hold = preview_hold_ > 1; // (as RaceFlow::holding)
             if (preview_hold_ > 0) --preview_hold_;
             for (race::CarInput& in : inputs_) in = {};
@@ -771,7 +792,7 @@ public:
                 ++preview_at_;
                 world_->step(inputs_, hold, false, u32(std::max(0, preview_hold_)));
             } else world_->step(inputs_, hold, true);
-            if (preview_pads_ && preview_at_ > preview_pads_->pads.size()) { // (the recording has run out: again)
+            if (preview_pads_ && preview_at_ > preview_pads_->pads.size() && guide_ == 0) { // (the recording has run out: again)
                 stand();
                 return;
             }
@@ -915,6 +936,7 @@ public:
             LOG_INFO("Drive: the player's car takes the line at %.1f km/h, %.2f s on the clock", double(world_->cars()[0].speed * 3.6f), double(flow_.time_ms()) / 1000);
         if (is_license(setup_.sequence) || setup_.sequence == "mission") judge_license();
         if (is_license(setup_.sequence)) judge_goal();
+        step_wrong_way(auto_drive);
         if (demo_run_ && flow_.player_finished() && !demo_logged_) {
             demo_logged_ = true;
             LOG_INFO("Drive: the demonstration %s ended at step %zu: %s %lld ms (recorded %d ms)", demo_run_->label.c_str(), demo_step_ - 1, license_failed_ ? "failed" : "timed",
@@ -1346,7 +1368,10 @@ public:
                 license_failed_ = true;
                 return;
             }
-            if (judge_.cones_done()) flow_.finish_now(0);
+            if (judge_.cones_done()) flow_.finish_now(0, 1); // (the clock + 50)
+            // (0x3C1318's end: a lead held for the rules' seconds ends the run)
+            judge_.count_time(flow_.place(0) == 1);
+            if (judge_.seconds_left() == 0) flow_.finish_now(0, 1);
             return;
         }
         const race::LicenseStep s = race::license_step(c, [this](u8 m) { return world_->soft_material(m); }, setup_.course_kind, world_->car_mass(0), cones_met_);
@@ -1390,6 +1415,20 @@ public:
         }
         goal_prev_ = flow_.car(0).counter >= 1 ? v : -1;
     }
+
+    // The wrong-way sign (0x3C0878, 0x3C0038): up while the player's car goes back along the course over 5 km/h, touching nothing;
+    // down when it goes on, or under 3 km/h.
+    void step_wrong_way(bool driven) {
+        const race::CarState& c = world_->cars()[0];
+        const float half = world_->lap_length() * 0.5f, was = wrong_prev_, now = c.course_v;
+        wrong_prev_ = now;
+        if (was < 0 || flow_.holding()) return;
+        const bool back = was <= now ? now - was > half : was - now < half;
+        const float v = std::sqrt(c.velocity.x * c.velocity.x + c.velocity.y * c.velocity.y + c.velocity.z * c.velocity.z);
+        if (!back || v < 0.8333333f) wrong_way_ = false;
+        else if (v > 1.3888888f && c.contact_kind == 0 && !driven && !flow_.player_finished() && !handing_over()) wrong_way_ = true;
+    }
+    bool wrong_way() const { return wrong_way_; }
 
     // Before a step: the cars and the cameras as they are, for the frames shown before the next.
     void keep_previous() {
@@ -1477,8 +1516,8 @@ public:
         const race::CarState& me = cars[f];
         const render::Mat4 body = world_->visual(f).body_matrix(me);
         race::ViewPose pose;
-        const int view = replaying_ || demo_run_ || (menu_scene_ && preview_) || (!menu_scene_ && opening_tv()) ? kTvView : mount_;
-        bool posed = menu_scene_ && !preview_ && scenic_.pose(pose);
+        const int view = replaying_ || demo_run_ || (menu_scene_ && preview_ && guide_ != 1) || (!menu_scene_ && opening_tv()) ? kTvView : mount_;
+        bool posed = menu_scene_ && (!preview_ || guide_ == 1) && scenic_.pose(pose);
         posed = posed || (start_camera_.active() && start_camera_.pose(pose, &body));
         // The replay cameras' shot for the car; the chase view where the script has none.
         if (!posed && finish_view()) posed = finish_camera_.pose(RVec{me.position.x, me.position.y, me.position.z}, pose);
@@ -1606,6 +1645,8 @@ private:
     int gear_shown_ = 1;
     float gear_flash_ = 0;
     bool stop_area_ = false, license_failed_ = false; // a license test's stopping box
+    bool wrong_way_ = false;
+    float wrong_prev_ = -1;
     bool run_ended_ = false, run_driven_ = false;     // Prologue's test is over (the end given to the car's driver)
     float goal_v_ = -1, goal_prev_ = -1;              // a license test's goal distance (judge_goal)
     race::prologue::PitZone pit_zone_;                // (Prologue's license tests: where the pit lane counts)
@@ -1655,6 +1696,8 @@ private:
     std::optional<RecordedRun> recorded_;
     const RecordedRun* preview_pads_ = nullptr;
     size_t preview_at_ = 0;
+    int guide_ = 0, guide_steps_ = 0; // the guide film: 1 its shots, 2 its run
+    bool guide_done_ = false;
     int preview_hold_ = 0;
     size_t replay_at_ = 0;
     int event_steps_ = -1, event_lap_ = 0, beeps_ = 0;
@@ -1834,7 +1877,7 @@ public:
             if (!race_) leave_to_menus(app);
         } else if (menus_ && race_) {
             painter_ = make_menu_painter(app);
-            enter_quick(0);
+            enter_quick(0, true, prologue_hud_ && is_license(sequence_)); // (Prologue's lesson: its guide film first)
         } else if (menus_) {
             leave_to_menus(app);
         }
@@ -1982,6 +2025,14 @@ public:
             race_->render(ui, {0, 0, float(Ui::kWidth), float(Ui::kHeight)}, look_back_);
         }
         if (quick_) {
+            if (guide_page_ && race_->guide_run() && prologue_hud_ && hud_) { // (the recorded run's monitors)
+                race_->fill(hud_state_, *hud_);
+                hud_state_.lap_ms = s64(race_->guide_time() * 1000);
+                PrologueHud::Extra e = prologue_extra();
+                e.live = false, e.guide = true, e.onboard = false, e.over_t = -1, e.penalty = 0, e.wrong_way = false;
+                hud_state_.replay_display = true;
+                prologue_hud_->draw(ui, hud_state_, e);
+            }
             // The race's menus over the scene.
             const float scale = float(Ui::kHeight) / 480.0f, x = (Ui::kWidth - 640 * scale) / 2;
             if (painter_) painter_->draw(*menus_, x, scale);
@@ -2495,11 +2546,14 @@ private:
 
     // The menus before a run (can_replay 0) or after one (1 driven, 2 watched). `refill`: the
     // page's rows from the grid (else they stay as the run's result left them).
-    void enter_quick(int can_replay, bool refill = true) {
-        race_->stand();
+    void enter_quick(int can_replay, bool refill = true, bool guide = false) {
+        race_->stand(guide);
+        guide_page_ = guide, guide_told_ = false;
         quick_ = true, option_ = false, spectator_ = false, paused_ = false;
         if (refill) fill_quick_work(can_replay);
         else menu::quick_work(menus_->game()).set("canReplay", can_replay);
+        menu::quick_work(menus_->game()).set("dispGuidePage", guide ? 1 : 0); // (Prologue's lesson: its guide film's page)
+        if (prologue_hud_ && is_license(sequence_)) menu::quick_work(menus_->game()).set("canSaveGhost", can_replay ? 1 : 0); // (✔ lit after a run)
         last_can_replay_ = can_replay;
         menus_->game().during_quick_menu = true;
         try {
@@ -2667,6 +2721,28 @@ private:
         }
     }
 
+    // The guide film's page told its scene is over: its script's end (COMMAND_CONTINUE).
+    void end_guide() {
+        const std::function<bool(const std::shared_ptr<menu::LiveWidget>&)> tell = [&](const std::shared_ptr<menu::LiveWidget>& w) {
+            if (!w) return false;
+            if (w->is("SceneViewFace")) {
+                auto e = std::make_shared<menu::Object>("MScriptEvent");
+                e->set("module", menu::widget_value(w->self()));
+                e->set("function", script::Value::string("onSceneViewFinish"));
+                menus_->push_event(menu::object_value(e));
+                return true;
+            }
+            for (const std::shared_ptr<menu::LiveWidget>& c : w->children)
+                if (tell(c)) return true;
+            return false;
+        };
+        for (const std::shared_ptr<menu::LiveWidget>& page : menus_->open_pages())
+            if (tell(page)) {
+                guide_told_ = true;
+                return;
+            }
+    }
+
     void update_quick(App& app, const MenuInput& m, double dt) {
         try {
             send_menu_keys(*menus_, m);
@@ -2678,6 +2754,8 @@ private:
         clock_ += dt;
         for (int n = 0; clock_ >= kStep && n < 4; ++n) clock_ -= kStep, race_->step({}, true);
         clock_ = std::min(clock_, double(kStep));
+        // The guide film ends with the recording or on Start (✔ "スタートボタンを押すと終了します").
+        if (guide_page_ && !guide_told_ && (race_->guide_done() || m.pressed(PadButton::Start))) end_guide();
         if (!menus_->finished()) return;
         menu::QuickWork& w = menu::quick_work(menus_->game());
         if (option_) return enter_quick(w.get("canReplay"), false);
@@ -2692,6 +2770,10 @@ private:
             start_run(false);
         } else if (command == "COMMAND_SPECTATOR") {
             start_run(true);
+        } else if (command == "COMMAND_CONTINUE" && guide_page_) {
+            enter_quick(last_can_replay_, false);
+        } else if (command == "COMMAND_DEMONSTRATION" && prologue_hud_ && is_license(sequence_)) {
+            enter_quick(last_can_replay_, false, true);
         } else if (command == "COMMAND_DEMONSTRATION") {
             // The test's recorded run (the event's label names its file), else the computer drives.
             const std::string code = menus_->game().race.race.empty() ? setup_.race : menus_->game().race.race;
@@ -2700,7 +2782,7 @@ private:
         } else if (command == "COMMAND_REPLAY" && race_->has_run()) {
             quick_ = false;
             race_->start_replay();
-        } else if (command == "COMMAND_SAVE_REPLAY" && race_->has_run()) {
+        } else if ((command == "COMMAND_SAVE_REPLAY" || (prologue_hud_ && command == "COMMAND_SAVE_GHOST")) && race_->has_run()) {
             // Save Replay (the program's labomode project with MODE_SAVE_FULL_REPLAY saves to the
             // memory card): the run into the data folder's replays, then the menus again.
             save_replay(app);
@@ -2711,7 +2793,7 @@ private:
             // loaded ghost is not driven against.
             option_ = true;
             menus_->game().next_menu_arg = "MODE_LOAD_BESTLAP_REPLAY";
-            menus_->start_project("labomode");
+            menus_->start_project(prologue_hud_ ? "memcard" : "labomode");
         } else if (command == "COMMAND_OPTION" || command == "COMMAND_SETTINGS") {
             // The options, or the car's settings (the project `setting`), then the menus again.
             option_ = true;
@@ -3273,6 +3355,17 @@ private:
         race_->aid_status(e.asm_status, e.tcs_status);
         if (float limit = 0, shift = 0; race_->rev_marks(limit, shift), limit > 0 && shift > 0) e.rev_limit = limit, e.shift_rpm = shift;
         e.onboard = h.driver_view && !race_->opening() && !h.replay;
+        const race::CarState& me = race_->player();
+        e.accelerator = me.throttle, e.brake = me.brake;
+        if (!h.replay) {
+            e.wrong_way = race_->wrong_way();
+            e.auto_drive = race_->handing_over();
+            if (is_license(sequence_)) {
+                e.time_left = std::max(0, race_->license_judge().seconds_left());
+                e.cones = race_->license_judge().cones(), e.cones_total = race_->license_judge().rules().pylons;
+            }
+        }
+        race_->world().boost(0, e.turbo, e.boost);
         return e;
     }
 
@@ -3320,6 +3413,7 @@ private:
     std::vector<size_t> ranking_shown_; // the finishing row each row of the points pages names
     std::shared_ptr<const race::StrobeMovie> license_movie_;
     bool license_retry_ = false;
+    bool guide_page_ = false, guide_told_ = false; // the guide film's page is up
     int mileage_wanted_ = 0;        // Prologue's test asks for a mileage (tenths of a kilometer per liter)
     bool prologue_license_ = false; // the license results movie is Prologue's
     std::string entered_name_;      // the name entered on Prologue's results page

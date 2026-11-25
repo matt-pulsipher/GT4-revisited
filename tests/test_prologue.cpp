@@ -702,3 +702,49 @@ TEST(disc_prologue_demonstrations) {
     if (!only) std::printf("  %d end timed, %d to the millisecond\n", ended, exact);
     CHECK(ended > 0);
 }
+
+#include "gt4r/race/license_prologue.h"
+
+// Every lesson's rules as the judge reads them, how its run ends and its grade.
+TEST(disc_prologue_lesson_rules) {
+    Disc* disc = prologue_disc();
+    if (!disc) SKIP("no Prologue disc");
+    db::SpecDb db = open_db(*disc);
+    gt3r::Volume* vol = &disc->volume();
+    db::RaceEvents events(db, [vol](const std::string& path) -> std::optional<Bytes> {
+        const gt3r::Volume::Entry* e = vol->find(path);
+        return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
+    });
+    const sim::Program program = sim::Program::load(*disc);
+    int lessons = 0;
+    for (int n = 1; n <= 46; ++n) {
+        char label[16];
+        std::snprintf(label, sizeof label, "l0p%04d", n);
+        const std::optional<db::RaceEvent> e = events.event(label);
+        CHECK(e.has_value());
+        if (!e) continue;
+        ++lessons;
+        const race::LicenseRules r = race::LicenseRules::from_row(e->bytes);
+        const sim::RaceRules rr = sim::race_rules(e->bytes, program);
+        const bool others = r.opponents > 0;
+        std::printf("  %s %-18s kind %d laps %d others %d cones %d x41 %d time limit %d mileage %d targets %u %u %u: ends %d, off the course %d\n", label, e->course.c_str(), r.kind, e->laps, r.opponents,
+                    r.pylons, r.x41, r.time_limit, rr.mileage, e->target_ms[0], e->target_ms[1], e->target_ms[2], race::prologue::end_mode(r, others),
+                    race::prologue::fail_mode(r, others, race::LicenseFail::OffCourse));
+        CHECK(r.kind >= 0 && r.kind <= 6);
+        CHECK(race::prologue::end_mode(r, others) >= 1 && race::prologue::end_mode(r, others) <= 3);
+        // (a run of the gold time takes the gold with no other car ahead; a minute over the last target nothing, or the first
+        // one that is not set)
+        const std::array<s64, 3> t{s64(e->target_ms[0]), s64(e->target_ms[1]), s64(e->target_ms[2])};
+        CHECK(race::prologue::grade(t, t[0], r, 1, 1000, rr.mileage) == 0);
+        if (t[0] > 0 && t[1] > 0 && t[2] > 0) CHECK(race::prologue::grade(t, t[2] + 1, r, 1, 1000, rr.mileage) == (r.opponents < 3 ? 3 : 0));
+        if (rr.mileage > 0) CHECK(race::prologue::grade(t, t[0], r, 1, rr.mileage - 1, rr.mileage) == 3);
+    }
+    CHECK(lessons == 46);
+    // Lesson 1: two laps, the driver drives on past the line; off the course he coasts down.
+    const std::optional<db::RaceEvent> one = events.event("l0p0001");
+    if (one) {
+        const race::LicenseRules r = race::LicenseRules::from_row(one->bytes);
+        CHECK(race::prologue::end_mode(r, false) == 3);
+        CHECK(race::prologue::fail_mode(r, false, race::LicenseFail::OffCourse) == 1);
+    }
+}

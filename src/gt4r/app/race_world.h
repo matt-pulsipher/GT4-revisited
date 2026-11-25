@@ -139,6 +139,12 @@ public:
         ended_[car] = true;
         return true;
     }
+    // A car's boost gauge (Prologue's): whether it has a turbocharger, and its pressure (F + 0x4F0).
+    void boost(size_t car, bool& turbo, float& pressure) const {
+        if (!session_) return;
+        const gt3r::sim::exact::Car& c = session_->record(car);
+        turbo = c.p.e.boost_max.host() != 0, pressure = c.intake.host();
+    }
     // The mileage of a hybrid's run so far (Prologue's 0x3CC320, tenths of a kilometer per liter; 0 for another car).
     int mileage(size_t car) const {
         if (!session_ || !session_->prologue_rules()) return 0;
