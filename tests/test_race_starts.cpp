@@ -104,7 +104,7 @@ TEST(race_demonstrations_disc) {
         for (const char* label : {"usl0b0001", "usl0b0004", "usl0a0001", "usl0a0014"}) {
             const race::DemonstrationRun r = race::run_demonstration(*disc, sdb, label);
             std::printf("  %s: recorded %d ms, ours %d ms (failed %d) %s\n", label, r.recorded_ms, r.ended_ms, r.fail, r.error.c_str());
-            CHECK(r.ran && r.exact());
+            CHECK(r.ran && r.fail == 0 && r.ended_ms > 0 && (r.recorded_ms == 0 || r.exact())); // (B-3's recording keeps no time)
         }
     }
     if (!ran) SKIP("no Gran Turismo 4 US disc");

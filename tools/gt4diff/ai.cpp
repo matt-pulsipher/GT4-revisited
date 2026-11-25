@@ -105,6 +105,12 @@ public:
         return true;
     }
     bool finished(size_t i) const override { return ee_.r8(o_.car(int(i)) + kF + 0x4B2) != 0; }
+    bool wear_on() const override { return ee_.r8(o_.cond + 4 + 0x68) != 0 || ee_.r8(o_.cond + 4 + 0x69) != 0; }
+    bool marks(size_t i, bool& lane, bool& tire_out) const override {
+        const u32 F = o_.car(int(i)) + kF;
+        lane = (ee_.r8(F + 0x4B1) & 0x10) != 0, tire_out = ee_.r8(F + 0x5C2) != 0;
+        return true;
+    }
     bool clock(u32& c) const override {
         c = ee_.r32(o_.cond + 0xF89C);
         return true;
@@ -999,5 +1005,8 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
     }
     return result;
 }
+
+// (states.cpp: a driver as the program has it)
+sim::ai::Field::Probe driver_probe(Ee& ee, const OrigRace& o, int i, float lap) { return probe_of(ee, o, i, lap); }
 
 } // namespace gt4r::diff

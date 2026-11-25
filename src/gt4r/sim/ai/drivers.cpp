@@ -433,6 +433,11 @@ F Field::ai_grip(const Driver& d, int surface) const {
     return d.p.grip[std::min<size_t>(cls, 2)];
 }
 
+void Field::set_marks(size_t car, bool pit_lane, bool tire_out) {
+    if (marks_.size() <= car) marks_.resize(car + 1, {false, false});
+    marks_[car] = {pit_lane, tire_out};
+}
+
 // 0x4674F0, in the program's arithmetic.
 F Field::corner_speed(const Driver& d, int i) {
     const ex::Car& c = session_->record(d.car);
@@ -442,10 +447,26 @@ F Field::corner_speed(const Driver& d, int i) {
     const u8 s = u8(pt.surface % 24);
     const TireView rf = tire_view(*session_, tables_.known, d.car, d.lay, d.lay_raw[0xC], s);
     const TireView rr = tire_view(*session_, tables_.known, d.car, d.lay, d.lay_raw[0xD], s);
-    const F w = d.p.front_weight; // (❓ two flags of the car halve it towards 0.5: not mirrored)
+    bool lane = false, tire_out = false;
+    if (!session_->marks(d.car, lane, tire_out) && d.car < marks_.size()) lane = marks_[d.car][0], tire_out = marks_[d.car][1];
+    F w = d.p.front_weight;
+    // (halfway to a half when the front's and the rear's paved grips differ, P +0x104A, or with a tire out, F +0x5C2)
+    const auto& tires = session_->extra(d.car).tires.tire;
+    if (tires[0].mu[0].bits != tires[3].mu[0].bits || tire_out) w = (w + kHalf) * kHalf;
     const F g = ai_grip(d, s);
     const F mu0 = ((w * rf.mu) * rf.grip) * g, mu1 = (((kOne - w) * rr.mu) * rr.grip) * g;
-    F a = mu0 + mu1; // (with tire wear on: the wheels' wear grips weigh it: not done)
+    F a = mu0 + mu1;
+    // With the race's tire wear on, off the pit lane: each wheel's wear grip (+0x50) of its axle's, shared over the axle's wheels.
+    if (session_->wear_on() && !lane) {
+        a = F();
+        const F mu[2] = {mu0, mu1};
+        const int n = d.lay_raw[1] < 4 ? d.lay_raw[1] : 4;
+        for (int k = 0; k < n; ++k) {
+            const size_t axle = d.lay_raw[0x14 + size_t(k)] & 1;
+            a = a + (c.w[size_t(k)].wear_grip * mu[axle]) / int_f(d.lay_raw[4 + axle]);
+        }
+    }
+    if (tire_out) a = a * F::raw(0x3F666666);
     const F r(pt.radius), bank(pt.bank), zero;
     if (zero <= r) {
         a = a * r;

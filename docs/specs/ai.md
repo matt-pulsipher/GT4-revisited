@@ -196,9 +196,13 @@ segment. A new segment steps the random draw. The re-plan finds the first point 
 
 ### 4.2 An arc's speed (0x4674F0)
 
-μ = w μ_f + (1 - w) μ_r with w = PB+0x58 (halfway to 0.5 for ❓ two flags of the car), each axle's
-compound grip x its surface's percent, both x the class grip PB+0xA8[tire class]; with tire
-wear on, the wheels' wear grips weigh it as GT3; x 0.9 on ❓ F+0x5C2. The bank and the three
+μ = w μ_f + (1 - w) μ_r with w = PB+0x58 (halfway to 0.5 when the front's and the rear's paved grips differ, P +0x104A, or
+with F +0x5C2 set), each axle's compound grip x its surface's percent, both x the class grip PB+0xA8[tire class]; with tire
+wear on (0x367D40: the rules' +0x68 or +0x69) and the car not on the pit lane (F +0x4B1 bit 4), instead Σ over the wheels of
+the wheel's wear grip (+0x50) x its axle's part / the axle's wheels (layout bytes +0x14 + w, +4 + axle); x 0.9 with F +0x5C2.
+F +0x5C2 is the wear phase's (0x353218): a wheel's tread (+0xAC) below 0 (a new tire not scrubbed in: the original's Tuning
+Car GP races its first lap so, 0 by the second) or its wear grip under the race's limit. ✔ Equal with the wear on
+(`GT4R_STEP_TREAD=1 GT4R_AI_WEAR=1.5`, test `ai_decisions_with_tire_wear`). Ours: `PitStops` gives the marks (`Field::set_marks`). The bank and the three
 square roots as GT3 (ai §4.2) with the aero term: v = √(a q), q = PB+0x70 v² + 1 + e, e = PB+0x74
 (0 from a crest point). The scale PB+0x04 x the corner multiplier (D +0xB8, plus the random
 spread for a computer car), x (1 - 5 %) with a car alongside (zone cells left, right, front left
@@ -559,9 +563,7 @@ another race's for checks: then its own F+0x560, F+0x650, places, clock and fini
   a wall within the body's ends or a car overlapping.
 - **The pits** (§11): the program's pass, request, service and the stop's timing, `PitStops` on the session; the car
   stands in its box by the brake (no placing in the box without the session's hook), tires and fuel through hooks.
-- Not done: the line-5 records, the aero bonus (P +0x1077 / +0x1084 not mirrored:
-  0), the two ❓ flags of §4.2 (P +0x104A, F +0x5C2: 0 on every car checked), the arcs' grip with tire
-  wear on, T+0x158's factor (1 throughout in this program).
+- Not done: the line-5 records, T+0x158's factor (1 throughout in this program).
 - Without the mapped program (Prologue, another release) the drivers run with neutral values: no
   spreads, no offset of the aim, a fallback of the passing lines to the main line, the shared
   engine's tire records (16 surfaces) and no slip scaling of the steering gain; on a road without
@@ -626,6 +628,14 @@ recording played on the program's race step (car 0's distance and speed each ste
   where our car's least speeds are 8 .. 18 km/h lower).
 - ✔ Six small cars finish three laps of Tsukuba (circuit), Seattle (city) and Grand Canyon (dirt)
   with no car standing still.
+
+**A whole race taken up from the original's saved state**, our session with our drivers beside the program's run of it
+(`gt4r_diff <disc> states <state> <state> none`, `GT4R_STATES_DRIVERS=<event or none>`, `GT4R_STATES_FIELD=<steps>` both fields
+printed; the drivers' state and the race's clock taken from the program once, then ours run free): the Tuning Car Grand Prix's
+three laps at Apricot Hill Reverse from 12 s on, tires wearing: the five opponents' last crossings 264.0 / 266.2 / 264.6 /
+265.4 / 264.2 s against the program's 264.0 / 264.1 / 264.5 / 265.7 / 264.4; the arcade race at Tsukuba with a B-spec Ka (its
+two laps): the Ka 197.2 against 198.3 s, the others 179.1 / 196.9 / 200.8 / 184.2 / 179.3 against 179.2 / 197.9 / 196.5 /
+187.7 / 179.6. (Traffic is chaotic: the program's own run from starts 2 .. 10 cm apart moves the Ka by 5 s.)
 
 ## 11. The pits
 
