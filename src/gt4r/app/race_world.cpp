@@ -300,12 +300,11 @@ void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool pla
         if (computer_player_ && session_) session_->set_shift_factor(0, field_->shift_factor(0));
         inputs = driven;
     }
-    // A rolling start's pace (0x3F7880, `sim::rules::start_pace`): a car not yet over the line and more than 3 s at
-    // the start's speed short of it is capped at that speed; from 3 s out it runs free. (❓ Stand-in for the cap's
-    // throttle rule 0x3F76E8 in the car's aids, which runs once the session marks the car's driver kind:
-    // the throttle eased toward the speed, a touch of brake above it.)
+    // A rolling start's pace on the stand-in simulation (the game's caps its cars itself: Session's start pace
+    // 0x3F7880 / 0x3F76E8): a car not yet over the line and more than 3 s at the start's speed short of it is capped
+    // at that speed (judged: the throttle eased toward the speed, a touch of brake above it); from 3 s out it runs free.
     std::vector<race::CarInput> capped;
-    if (!hold && std::any_of(pace_kmh_.begin(), pace_kmh_.end(), [](float k) { return k > 0; })) {
+    if (!hold && !session_ && std::any_of(pace_kmh_.begin(), pace_kmh_.end(), [](float k) { return k > 0; })) {
         capped.assign(inputs.begin(), inputs.end());
         capped.resize(car_visuals_.size());
         const std::span<const race::CarState> now = sim_->cars();

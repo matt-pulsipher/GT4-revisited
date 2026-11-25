@@ -98,11 +98,17 @@ public:
     // A rolling start (an entry with a start speed): each such car is held to the start's pace until it is
     // released as it takes the line (DynamicsConductorSinglePlayer::vf20 0x347928 → 0x345228). A released car
     // stays released until the next restart.
+    // With the game's simulation the session holds the cars itself (F +0x467 = 1, the aids' start pace 0x3F7880 /
+    // 0x3F76E8) and lets each go (0x345228, 0x3F37B8); the stand-in simulation is held here.
     void release_start(size_t car) {
+        if (car < pace_kmh_.size() && pace_kmh_[car] > 0 && sim_) sim_->release_start(int(car));
         if (car < pace_kmh_.size()) pace_kmh_[car] = 0;
     }
     // Whether a car is still held to the start's pace (its driver kind 1, F +0x467).
-    bool rolling(size_t car) const { return car < pace_kmh_.size() && pace_kmh_[car] > 0; }
+    bool rolling(size_t car) const {
+        if (session_ && sim_ && car < sim_->cars().size()) return sim_->cars()[car].rolling;
+        return car < pace_kmh_.size() && pace_kmh_[car] > 0;
+    }
     // B-spec's commands for a car the computer drives: its pace 1 .. 5 (3 the race's own) and the
     // overtake, to its driver (sim::ai::Field::command; kept for the next restart).
     void command(size_t car, int pace, bool overtake) {

@@ -257,7 +257,7 @@ engine's Gran Turismo 3 code). The player notices them roughly in this order.
 
 | Piece | Where | Runs | The GT4 routine that should replace a stand-in |
 |---|---|---|---|
-| The rolling start's run-up: the field's pace until the line | `RaceWorld` `pace_kmh_`, `release_start` | the rule GT4 (0x3F7880: capped while more than 3 s at the start's speed short of the line, each car released at its crossing, vf20 0x347928); the cap itself **judged** (the throttle eased, a touch of brake) | the car's driver kind 1 (0x3452F0) so that the aids' own cap (0x3F76E8, `sim/rules_aids` `start_pace`) holds it; the release 0x345228 in the session (`sim-step`) |
+| The rolling start's run-up: the field's pace until the line | `sim::Session` (`sim-step`), `RaceWorld::release_start` | GT4 (0x3452F0 at set-up: F +0x467 = 1, driver kind 1; the aids' start pace 0x3F7880 / 0x3F76E8; each car released at its crossing, vf20 0x347928 → 0x345228 / 0x3F37B8). Tsukuba: the player's crossing 4.37 s on the clock (the original's 4.2); the stand-in simulation keeps the judged cap | |
 | The rolling start's distance, speed, spacing | `race/start_rule.*` `apply_drivers_file` | GT4 (vf28 0x34D490, 0x466B90) | |
 | The race clock's start in a rolling start, the opening shots' end | `race_flow.*` `clock_running`, `screen_race.cpp` `opening_tv` | GT4 (vf20 0x347928: the first car's crossing; the camera state 0x3FD620 by the pace 0x3F7880) | |
 | The held starts (missions' places with a start delay) | `sim/ai/drivers.cpp` `Field::drive` | the seconds GT4 (CFG +0x60, the count K +0xCBFC, 0x34DB30); the hold **judged** (the brake on, the engine blipped) | the start's hold F +0x4BC per car (`sim-step`) |
