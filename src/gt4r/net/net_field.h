@@ -68,6 +68,10 @@ public:
     // His claimed finish against when we saw it.
     void claim(size_t car, double claimed_s, double observed_s);
 
+    // The number of our last state (a race set up anew goes on from it: the others take newer ones only).
+    u32 tick() const { return tick_; }
+    void set_tick(u32 t) { tick_ = t; }
+
     size_t size() const { return cars_.size(); }
     size_t ours() const { return ours_; }
     const CarInfo& info(size_t car) const { return cars_[car].info; }

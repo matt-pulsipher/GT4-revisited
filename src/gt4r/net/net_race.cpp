@@ -42,7 +42,9 @@ void NetRace::attach(sim::Session& race) {
         const RaceCar& c = race_.cars[seats_[w]];
         info.push_back({c.id, c.player, c.asm_on, c.tcs_on, w < race.cars().size() ? race.record(w).p.top_speed.host() : 0.0f});
     }
+    const u32 tick = field_ ? field_->tick() : 0;
     field_ = std::make_unique<NetField>(race, std::move(info), 0);
+    field_->set_tick(tick);
     for (size_t w = 0; w < standing_.size(); ++w)
         if (standing_[w].retired && !standing_[w].ours) field_->set_gone(w);
 }

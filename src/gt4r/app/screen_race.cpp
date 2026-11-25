@@ -753,6 +753,7 @@ public:
         for (size_t i = 0; i < setup_.test_starts.size() && i < world_->car_count(); ++i) // (the cars that start past the line)
             if (setup_.test_starts[i][1] >= 0) world_->release_start(i);
         begin_start_camera(false);
+        if (net_) attach_online(net_); // (the world's session may be a new one)
     }
 
     // The scene behind the race's menus: the cars standing on the grid, the course's scenic shots

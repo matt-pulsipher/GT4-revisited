@@ -26,7 +26,7 @@ the pause's "retry"; 5 a restart inside the run (free run only); 6 the time limi
 The start type is the race information's byte +0x40, its seconds byte +0x41: the race information begins with its
 event's `RACE` row (SPEC_DATABASE::RaceSpec, 0x446F90; loaded by 0x3BB478 → 0x4470E8), so they are **the row's +0x40
 and +0x41**. ✔ On the US disc: 2 in every race's row (585 rows, the menus' `sample_entry_*` among them), 1 in 60
-standing license tests, 3 in 60 moving ones, 0 with 7 s in the four machine tests.
+license tests (a hold of 8 s), 3 in 60 (none), 0 with 7 s in the four machine tests.
 `RaceBase::vf38` makes it -1 when the conductor has a rolling start with a
 speed (K +0xF884 distance < 0 and K +0xF886 km/h != 0; `DynamicsConductorSinglePlayer::vf10`
 0x3475B8).
