@@ -214,7 +214,7 @@ struct RaceHud::Impl {
     void draw_tooltip(const std::string& words, float opacity);
     // Text in GT4's menu layout with the pad's buttons ("%Bc"), from (x, baseline y).
     void draw_menu_text(const char* font_name, int variant, float x, float y, gt3r::text::HAlign align, u32 color, float opacity, const std::string& s,
-                        float max_width = 0);
+                        float max_width = 0, float scale_x = 1, float scale_y = 1);
     void fill(const DisplayRect& at, u8 red, u8 green, u8 blue, float alpha) {
         triangles({vertex(at.x, at.y, red, green, blue, alpha), vertex(at.x + at.w, at.y, red, green, blue, alpha), vertex(at.x + at.w, at.y + at.h, red, green, blue, alpha),
                    vertex(at.x, at.y, red, green, blue, alpha), vertex(at.x + at.w, at.y + at.h, red, green, blue, alpha), vertex(at.x, at.y + at.h, red, green, blue, alpha)});
@@ -903,6 +903,19 @@ void RaceHud::draw(Ui& ui, const HudState& s) {
         impl_->draw_text(impl_->font("hm_16", 90, 1), 42, 432, 0, kTextGray, a, s.caption_title);
         if (!s.caption_artist.empty()) impl_->draw_text(impl_->font("hm_16", 70, 1), 42, 449, 0, kTextGray, a, s.caption_artist);
     }
+    // The playback mode's plate (RaceReplayModeDisplay 0x3AE5E0): black words on it in the middle, 13 down.
+    if (s.replay && s.mode_opacity > 0 && !s.mode_text.empty()) {
+        const DisplayPlace* p = impl_->layout.find(element::kReplayMode);
+        const DisplayRect at = race::place_rect(p ? *p : DisplayPlace{element::kReplayMode, 20, 22, 132, 20, 4, 0}, 132, 20, true);
+        impl_->draw_picture(impl_->picture("replay_plate"), at, 0x800086E6u, s.mode_opacity);
+        impl_->draw_menu_text("hm_16", 1, at.x + at.w / 2, at.y + 13, gt3r::text::HAlign::Center, 0x80000000u, s.mode_opacity, s.mode_text, at.w * 0.9f, 0.8f, 0.8f);
+    }
+    if (s.replay_paused) {
+        // SimplePause 0x3C3B08: a black strip to the bottom from 438 of 480 down, its line in the middle of 408 .. 448 of 448.
+        const SDL_FRect c = canvas();
+        ui.fill(0, c.y + c.h * 438 / 480, ui.width(), ui.height() - (c.y + c.h * 438 / 480), Color{0, 0, 0, 255});
+        impl_->draw_menu_text("hn_14", 1, 320, 461, gt3r::text::HAlign::Center, 0x80A7A5A5u, 1, word("SimplePauseMessage"), 0, 1.07f, 1);
+    }
     if (s.replay && !s.replay_display) {
         // A replay with its display off (the Replay options' Screen Display: Off, the original's
         // default): the small Gran Turismo 4 logo, its right bottom at (604, 441) (member 0x1170),
@@ -934,11 +947,12 @@ void RaceHud::draw(Ui& ui, const HudState& s) {
 }
 
 void RaceHud::Impl::draw_menu_text(const char* font_name, int variant, float x, float y, gt3r::text::HAlign align, u32 color, float opacity, const std::string& text,
-                                   float max_width) {
+                                   float max_width, float scale_x, float scale_y) {
     const FontSpec f = font(font_name, 100, variant);
     if (!f.font || text.empty() || opacity <= 0) return;
     menu::TextStyle st;
     st.font = f.font;
+    st.scale_x = scale_x, st.scale_y = scale_y;
     if (const auto it = spacing.find(f.font->name); it != spacing.end()) st.spacing = it->second;
     if (const auto g = font_by_name.find("Gaiji"); g != font_by_name.end()) st.gaiji = g->second;
     st.button_colors = button_colors;

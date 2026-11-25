@@ -58,6 +58,9 @@ struct HudState {
     float caption_opacity = 0;
     bool replay = false;              // a replay: its sign in place of the position, laps and times
     bool replay_display = false;      // the replay's display on (else only the logo)
+    std::string mode_text;            // a replay: its playback mode's plate
+    float mode_opacity = 0;
+    bool replay_paused = false;       // a replay held still: "Press SELECT to resume" on a strip
     float opacity = 1;                // of the whole display
     // The panels' smaller parts.
     float lateral_g = 0;              // the car's sideways acceleration in g (+ right)

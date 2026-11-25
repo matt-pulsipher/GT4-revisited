@@ -297,6 +297,7 @@ void RaceSound::set_free_run_duck(bool on) {
 
 void RaceSound::replay() {
     replay_ = true;
+    music_held_ = false;
     started_ = true;
     // A replay's master rises from 0 over 3 s (0x391D98 in the race's modes 2 and 3).
     fade_ = 0;
@@ -326,10 +327,15 @@ void RaceSound::contact(size_t car, int kind, float force) {
     contact_[car] = strength, contact_kind_[car] = kind;
 }
 
+void RaceSound::set_music_on(bool on) {
+    music_held_ = !on;
+    if (music_.pause) music_.pause(paused_ || music_held_);
+}
+
 void RaceSound::pause(bool paused) {
     if (paused == paused_) return;
     paused_ = paused;
-    if (music_.pause) music_.pause(paused);
+    if (music_.pause) music_.pause(paused || music_held_);
     if (paused) {
         for (auto& c : cars_) c->stop();
         quiet_course();
@@ -405,7 +411,7 @@ void RaceSound::update(std::span<const CarSoundState> states, const SoundListene
     mixer_.set_reverb_depth(depth, depth);
 
     // The racing music: the playlist's next piece when one ends.
-    if (racing_ && music_.playing && !music_.playing()) play_racing();
+    if (racing_ && !music_held_ && music_.playing && !music_.playing()) play_racing();
 }
 
 void RaceSound::update(const sim::Session& session, const SoundListener& camera, int target) {

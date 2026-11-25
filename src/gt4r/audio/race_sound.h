@@ -140,6 +140,8 @@ public:
     // coffee break's the kind's goal jingle), the cars and the course faded out over a second (0x391DC8).
     void license_result(int grade);
     void pause(bool paused);
+    // A replay's music switched off and on (Circle: RaceBGM +0x34, 0x33C438): the piece waits.
+    void set_music_on(bool on);
     void stop();
     // The master's fade: toward `target` over `seconds`.
     void fade(float target, float seconds);
@@ -191,7 +193,7 @@ private:
     std::shared_ptr<const course::Runway> road_;
     std::unique_ptr<sim::RoadGround> ground_;
     Held ambience_[CourseSound::kChannels], tunnel_[4], heri_, refueling_;
-    bool helicopter_ = false, refueling_on_ = false, paused_ = false, racing_ = false, started_ = false;
+    bool helicopter_ = false, refueling_on_ = false, paused_ = false, music_held_ = false, racing_ = false, started_ = false;
     float fade_ = 0, fade_target_ = 1, fade_step_ = 1.0f / 18.0f;
     int racing_piece_ = -1;
     int first_piece_ = -1; // the race's first racing piece (a replay plays it again)
