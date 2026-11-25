@@ -30,7 +30,6 @@ struct FeelPart {
     rules::NearExtra part;
     ForcePart force;
     F speedo; // car + 0xC60: the speedometer (|speed| followed at 111.1 m/s a second)
-    F start_pace;    // a rolling start's speed while the car's driver brings it to the line (m/s; 0: none)
     u16 penalty = 0; // F + 0x51E / 0x51F (low, high): the steps left of the speed cap a hit gave
 };
 
@@ -96,7 +95,7 @@ int slide_kind(u8 surface);
 // 0x3B63B0) x 0.001 x dt, into the condition block's +0xC at most 0.8 (0x3B1B00) whatever the engine's state.
 void tire_effects(ex::Car& c, const rules::WheelLayout& l, const rules::SlideTables& t, u8 course_kind);
 
-// The pad's vibration block of car k in the conductor: cond + 0xDAC8 + 0x10 k (k the record's F + 0x4C4; Gran Turismo 4's
+// The pad's vibration block of car k in the conductor: cond + 0xDAC8 + 0x10 k (k the record's F + 0x3EC; Gran Turismo 4's
 // cond + 0xCA58 + 0x10 k), +0x01 the level.
 constexpr u32 kPadBlock = 0xDAC8, kPadSize = 0x10;
 

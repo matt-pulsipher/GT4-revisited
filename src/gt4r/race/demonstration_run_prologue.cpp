@@ -61,15 +61,40 @@ DemonstrationRun run_demonstration(Disc& disc, db::SpecDb& sdb, const std::strin
             g.car = pool[i].car, g.paint = pool[i].paint, g.parts = pool[i].parts, g.param = pool[i].param, g.enemy = pool[i].enemy;
             sim::Entry& e = entries[i];
             if (!sim::ai::entry_equipment(sdb, program, events, g, e.equipment)) return r.error = "no equipment", r;
+            { // (the file's own parts and settings beside the pool's: Prologue's record has Gran Turismo 4's up to +0xF0, its settings 0x20 before)
+                const replay::prologue::Entry& f = run->entries[i];
+                const auto differs = [&](const char* what, u32 at, u32 theirs, u32 ours) {
+                    if (theirs == ours) return;
+                    char t[96];
+                    std::snprintf(t, sizeof t, " car %zu %s +%X file %X ours %X;", i, what, at, theirs, ours);
+                    r.equipment += t;
+                };
+                for (u32 at = 0x20; at < 0xF0; at += 8) differs("part", at, u32(f.code(at)), db::part_row_id(e.equipment.part(sim::Equipment::Slot(at))));
+                for (u32 k = 0; k < 8; ++k) differs("gear", k, f.equipment[0xF8 + 2 * k] | f.equipment[0xF9 + 2 * k] << 8, e.equipment.bytes[0x110 + 2 * k] | e.equipment.bytes[0x111 + 2 * k] << 8);
+                for (u32 at = 0x128; at < 0x15B; ++at) differs("setting", at, f.equipment[at - 0x20], e.equipment.bytes[at]);
+                if (u32(f.code(0)) != db::part_row_id(e.equipment.part(sim::Equipment::Car))) r.equipment += " another car;";
+            }
             e.grid_place = run->entries[i].grid_place;
             e.automatic = i > 0 || run->entries[i].pedal_style != 1;
             e.asm_on = run->entries[i].asm_on != 0, e.tcs_on = run->entries[i].tcs_on != 0;
             e.control = i > 0 ? 2 : 0;
-            if (rolling && i < rr.start_speed.size()) {
-                e.start_speed = float(rr.start_speed[i]) / 3.6f, e.start_distance = float(rr.start_distance[i]);
-                fs.past_line.push_back(rr.start_distance[i] >= 0);
-            }
         }
+        const std::optional<course::AiData> ad = sim::ai::Field::read(disc, ev->course);
+        const sim::RoadGround ground(*road);
+        std::optional<sim::ai::CourseLines> lines;
+        if (ad) lines.emplace(*ad, ground, sim::ai::Tables::load(program));
+        StartRace sr;
+        sr.road = &*road, sr.lines = lines ? &*lines : nullptr, sr.way = cs.way;
+        std::vector<PlannedStart> planned(entries.size());
+        if (rolling)
+            for (size_t i = 0; i < entries.size() && i < rr.start_speed.size(); ++i) {
+                CarStart s;
+                s.distance = rr.start_distance[i], s.speed = rr.start_speed[i];
+                s.kind = s.distance < 0 && s.speed > 0 ? 2 : s.distance != 0 ? 1 : 0;
+                planned[i] = plan_start(sr, i, entries[i].grid_place, s);
+                put_start(entries[i], sr, planned[i], i == 0, entries[i].grid_place, program);
+                fs.past_line.push_back(s.distance >= 0);
+            }
         r.car = pool[0].car;
         sim::Session::Options so;
         so.hold_steps = 0;
@@ -87,15 +112,19 @@ DemonstrationRun run_demonstration(Disc& disc, db::SpecDb& sdb, const std::strin
         }
         PitZone zone;
         std::unique_ptr<sim::ai::Field> field;
-        if (const std::optional<course::AiData> ad = sim::ai::Field::read(disc, ev->course)) {
-            const sim::RoadGround ground(*road);
-            zone = pit_zone(sim::ai::CourseLines(*ad, ground, sim::ai::Tables::load(program)));
+        if (ad) {
+            zone = pit_zone(*lines);
             sim::ai::Pace pace = sim::ai::pace_for(*ev);
             std::vector<size_t> cars(entries.size());
             for (size_t i = 0; i < cars.size(); ++i) cars[i] = i;
             field = std::make_unique<sim::ai::Field>(session, *ad, program, cars, pace);
             field->set_shadow(0);
             for (size_t i : cars) session.set_driver_aids(i, field->params(i).aids, field->params(i).grip);
+            for (size_t i : cars)
+                if (planned[i].line) {
+                    field->start_line(i, planned[i].start.kind >= 2 ? sim::ai::CourseLines::kMain : i == 0 ? 7 : sim::ai::CourseLines::kMain);
+                    if (planned[i].start.kind == 2) field->hold_rolling(i);
+                }
         }
 
         std::vector<float> splits = road_list(section, 0);
@@ -110,7 +139,7 @@ DemonstrationRun run_demonstration(Disc& disc, db::SpecDb& sdb, const std::strin
         RaceFlow flow(fs, session.cars());
         for (size_t i = 0; i < entries.size(); ++i) session.set_crossings(i, flow.car(i).counter), session.set_rank(i, flow.place(i));
         for (size_t i = 0; i < fs.past_line.size(); ++i)
-            if (fs.past_line[i]) session.release_start(int(i));
+            if (fs.past_line[i] && session.record(i).driver_kind == 1) session.release_start(int(i));
         LicenseJudge judge(rules);
         Gadgets gadgets;
         GadgetBodies bodies;
@@ -132,9 +161,10 @@ DemonstrationRun run_demonstration(Disc& disc, db::SpecDb& sdb, const std::strin
         for (size_t step = 0; step < steps; ++step) {
             const bool hold = flow.holding();
             for (CarInput& c : in) c = {};
-            in[0] = sim::ai::pad_input(replay::PadRecord{(step < pads.size() ? pads[step] : kEmpty).bytes});
-            in[0].pad = step < pads.size() ? &pads[step] : &kEmpty;
-            if (field) field->step(session, in, session.cars()[0].rolling ? -1 : 0, hold ? u32(std::max(1, flow.hold_left() - 1)) : 0);
+            const size_t at = size_t(std::max(0, int(step) + opt.shift));
+            in[0] = sim::ai::pad_input(replay::PadRecord{(at < pads.size() ? pads[at] : kEmpty).bytes});
+            in[0].pad = at < pads.size() ? &pads[at] : &kEmpty;
+            if (field) field->step(session, in, session.record(0).driver_kind == 1 ? -1 : 0, hold ? u32(std::max(1, flow.hold_left() - 1)) : 0);
             else if (hold) session.hold_once(in);
             else session.step_once(in);
             int cones = 0;
@@ -145,14 +175,20 @@ DemonstrationRun run_demonstration(Disc& disc, db::SpecDb& sdb, const std::strin
                 cones = bodies.contacts().empty() ? 0 : bodies.contacts()[0];
             }
             const RaceFlow::Events e = flow.step(session.cars());
-            for (const size_t i : e.started) session.release_start(int(i));
+            for (const size_t i : e.started)
+                if (session.record(i).driver_kind == 1 && (!field || field->release_rolling(i))) session.release_start(int(i));
             for (size_t i = 0; i < entries.size(); ++i) session.set_crossings(i, flow.car(i).counter), session.set_rank(i, flow.place(i));
             const CarState& c = session.cars()[0];
             if (!hold && !flow.player_finished() && flow.steps_since_start() >= 0) {
                 if (const std::optional<float> share = (rules.kind == 1 || !rules.any()) && stop_area ? stopped_in_box(c) : std::nullopt) flow.finish_now(0, *share);
-                else if (const LicenseFail f = judge.step(license_step(c, zone, cs.kind, session.record(0).p.mass.host(), cones)); f != LicenseFail::None)
+                else if (const LicenseFail f = judge.step(license_step(c, zone, cs.kind, session.record(0).p.mass.host(), cones)); f != LicenseFail::None && opt.judge)
+{
                     r.fail = int(f), flow.finish_now(0);
-                else if (judge.cones_done()) flow.finish_now(0);
+                    char t[160];
+                    std::snprintf(t, sizeof t, "(wall %.2f m/s of %d, car %.2f of %d, cones %d at %.1f m)", double(c.wall_hit / session.record(0).p.mass.host()), rules.wall_limit, double(c.car_hit),
+                                  rules.car_limit, cones, double(c.course_v));
+                    r.error = t;
+                } else if (judge.cones_done()) flow.finish_now(0);
                 else if (goal > 0 && !stop_area) {
                     if (flow.car(0).counter >= fs.laps && goal_prev >= 0 && goal_prev < goal && goal <= c.course_v && c.course_v - goal_prev < 100)
                         flow.finish_now(0, (goal - goal_prev) / std::max(c.course_v - goal_prev, 1e-4f));

@@ -103,6 +103,12 @@ Tables tables(const Program& program) {
         t.brake_heat.c2 = f_of(program.b(s + 0x7E)) * F::raw(0x3E8E38E3);
         t.brake_heat.c3 = f_of(program.b(s + 0x7F)) * F::raw(0x3C23D70A);
     }
+    t.awd3.negative_full = program.b(PrologueProgram::kAwd3 + 2);
+    t.awd3.fade_start = f_of(program.b(PrologueProgram::kAwd3 + 8)) / F::raw(0x42C80000), t.awd3.fade_floor = f_of(program.b(PrologueProgram::kAwd3 + 0x10)) / F::raw(0x42C80000);
+    {
+        const auto rate = [&](u32 o) { return f_of(program.b(PrologueProgram::kStepless + o)) * F::raw(0x3C23D70A); };
+        t.stepless.full = rate(0), t.stepless.none = rate(1), t.stepless.down = rate(0xC), t.stepless.up = rate(0xD);
+    }
     t.rolling_n = program.b(s + 0x0B);
     for (u32 k = 0; k < 8 && k < t.rolling_n; ++k) {
         t.rolling_x[k] = f_of(u32(program.b(s + 0x0C + k)) << 1) * F::raw(0x3E8E38E3);
@@ -123,6 +129,7 @@ Tables tables(const Program& program) {
 
 void statics(ex::Statics& s, const Tables& t) {
     if (!t.found) return;
+    s.awd3 = t.awd3, s.stepless = t.stepless;
     for (u32 k = 0; k < 8 && k < t.rolling_n; ++k) s.rolling_curve.x[k] = t.rolling_x[k], s.rolling_curve.y[k] = t.rolling_y[k];
 }
 
@@ -324,7 +331,7 @@ void dynamics(ex::Car& c, CarPart& x, const ex::Statics& s, const ex::GearSettin
 
 namespace {
 
-const F kHalf = F::raw(0x3F000000), kPi = F::raw(0x40490FDB);
+const F kHalf = F::raw(0x3F000000), kPi = F::raw(0x40490FDA);
 
 // The aim of wheel w's steering offset.
 F offset_aim(const ex::Car& c, const CarPart& x, const rules::SteerTables& g, int w) {

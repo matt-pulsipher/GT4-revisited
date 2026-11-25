@@ -92,6 +92,7 @@ int whole_step(Disc& disc, const std::string& course, const std::string& car, in
         const std::vector<u8> im = gt3_image(ee, r.car(0));
         c.behaviour = sim::rules::behaviour();
         gt3r::sim::exact::load_image(c, im.data());
+        c.later.ratio = gt3r::ee::F::raw(ee.r32(r.car(0) + 0xD8 + 0x3A4));
     };
     const int from = std::getenv("GT4R_WHOLESTEP_FROM") ? std::atoi(std::getenv("GT4R_WHOLESTEP_FROM")) : 0;
     // (GT4R_WHOLESTEP=front: the session's phases 1 .. 11 on the program's state against the program's record as its phase 19
@@ -418,8 +419,9 @@ int run(Disc& disc, const std::string& course, const std::string& car, int steps
     // GT4R_TAPS: the engine's routines compared with Prologue's at every call (prologue_taps.h).
     const sim::Program taps_program = sim::Program::load(disc);
     const gt3r::sim::exact::ProgramData taps_data = sim::core_program(taps_program);
-    const gt3r::sim::exact::RaceInputs inputs =
+    gt3r::sim::exact::RaceInputs inputs =
         gt3r::sim::exact::race_inputs(taps_data, gt3r::sim::exact::Conductor::SinglePlayer, gt3r::sim::exact::RaceConfig{}, false, 0);
+    sim::prologue::race_inputs(inputs, sim::prologue::tables(taps_program));
     std::unique_ptr<PTaps> taps;
     if (std::getenv("GT4R_TAPS")) {
         taps = std::make_unique<PTaps>(ee, r, inputs);

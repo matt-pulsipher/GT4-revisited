@@ -100,6 +100,11 @@ struct Tables {
     u8 rolling_n = 0;
     std::array<F, 8> rolling_x, rolling_y;
     ex::BrakeHeatConsts brake_heat;
+    // Four wheel drive system 3's fade and switch (0x504AD8: +2 the switch, +8 / +0x10 the fade's start and floor, % (0x3DFFD0
+    // makes the floats between them)) and the stepless gearboxes' rates (0x504930: +0 / +1 kind 1's at full and no throttle,
+    // +0xC / +0xD kind 2's down and up, x 0.01: 0x3DB730).
+    ex::Awd3 awd3;
+    ex::Stepless stepless;
     ConvertData convert; // what the converter reads (convert_prologue.h)
     u8 asm_keep = 0;     // 0x504B04: an entry with the stability control off keeps its switches' bits 6 and 7
 };

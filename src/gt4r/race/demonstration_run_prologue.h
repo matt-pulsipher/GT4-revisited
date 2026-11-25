@@ -9,6 +9,8 @@
 namespace gt4r::race::prologue {
 
 struct Options : DemonstrationOptions {
+    bool judge = true; // (off: nothing fails the run)
+    int shift = 0;     // the recording's step given at the race's first
     int hold = -1; // the start's hold (seconds; -1: the race's own)
 };
 

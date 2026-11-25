@@ -132,6 +132,7 @@ void PTaps::enter(size_t tap) {
     const std::vector<u8> im = gt3_image(ee_, car);
     p.before.behaviour = sim::rules::behaviour();
     ex::load_image(p.before, im.data());
+    p.before.later.ratio = gt3r::ee::F::raw(ee_.r32(car + 0xD8 + 0x3A4)); // (a stepless gearbox's ratio word)
     p.mine = p.before;
     PTapCall call{ee_, car, index, p.mine, inputs_};
     taps_[tap].ours(call);
@@ -161,6 +162,13 @@ void PTaps::leave(u32 ra) {
     const u8* b = reinterpret_cast<const u8*>(&p.before);
     const u8* m = reinterpret_cast<const u8*>(&p.mine);
     bool clean = true;
+    if (const u32 ratio = ee_.r32(p.car + 0xD8 + 0x3A4); ratio != p.before.later.ratio.bits || p.mine.later.ratio.bits != ratio) {
+        if (p.mine.later.ratio.bits != ratio && !taps_[p.tap].at_exit) {
+            clean = false;
+            PFieldStat& fs = st.fields["ratio (F +0x3A4)"];
+            ++fs.off;
+        }
+    }
     for (const Field& f : fields()) {
         if (std::memcmp(a + f.member, b + f.member, f.size) != 0) ++st.written[f.name];
         if (std::memcmp(a + f.member, m + f.member, f.size) == 0) continue;
@@ -199,7 +207,7 @@ void PTaps::leave(u32 ra) {
             if (rel >= fs.worst) {
                 fs.worst = rel;
                 char text[160];
-                std::snprintf(text, sizeof text, "the program's %.9g, ours %.9g (car %d, call %llu)", x, y, p.index, static_cast<unsigned long long>(st.calls));
+                std::snprintf(text, sizeof text, "the program's %.9g (%X), ours %.9g (%X) (car %d, call %llu)", x, program, y, ours, p.index, static_cast<unsigned long long>(st.calls));
                 fs.example = text;
             }
         });
@@ -449,7 +457,7 @@ void add_prologue_taps(PTaps& taps, const Disc& disc, const std::string& course)
                       f.part.speed_state = c.ee.r8(fb + 0x51C), f.part.speed_state2 = c.ee.r8(fb + 0x51D);
                       sim::prologue::part_step(c.car, x, f);
                   },
-                  {"f514", "x51c"}, {}, [](Ee& ee, u32 car, int index, const std::function<void(const char*, u32, u32)>& field) {
+                  {"f514", "x51c", "ffb"}, {}, [](Ee& ee, u32 car, int index, const std::function<void(const char*, u32, u32)>& field) {
                       const sim::prologue::FeelPart& f = parts[index];
                       field("state", ee.r32(car + 0xD8 + 0x514), f.part_state.bits), field("state 2", ee.r32(car + 0xD8 + 0x518), f.part.speed_part_state2.bits);
                       field("flag", ee.r8(car + 0xD8 + 0x51C), f.part.speed_state), field("flag 2", ee.r8(car + 0xD8 + 0x51D), f.part.speed_state2);
@@ -460,7 +468,7 @@ void add_prologue_taps(PTaps& taps, const Disc& disc, const std::string& course)
     { // The steering wheel's force (the pad block's +0x02 .. +0x0F).
         static std::map<int, sim::prologue::ForcePart> force;
         static const sim::prologue::ForceTables ft = sim::prologue::force_tables(sim::Program::load(const_cast<Disc&>(disc)), t.controls);
-        auto at = [](Ee& ee, u32 car) { return ee.r32(car + 4) + sim::prologue::kPadBlock + sim::prologue::kPadSize * ee.r8(car + 0xD8 + 0x4C4); };
+        auto at = [](Ee& ee, u32 car) { return ee.r32(car + 4) + sim::prologue::kPadBlock + sim::prologue::kPadSize * ee.r8(car + 0xD8 + 0x3EC); };
         taps.add({0x3BC7F0, "Prologue's steering force", [=](PTapCall& c) {
                       sim::prologue::CarPart x;
                       x.tires = extra(c);
@@ -519,9 +527,9 @@ void add_prologue_taps(PTaps& taps, const Disc& disc, const std::string& course)
                       static const sim::rules::SlideTables st = sim::prologue::slide_tables(feel_program);
                       sim::prologue::tire_effects(c.car, layout(c), st, c.inputs.aids.course_category);
                   }});
-        { // the pad block, cond + 0xDAC8 + 0x10 k (k the record's F + 0x4C4)
+        { // the pad block, cond + 0xDAC8 + 0x10 k (k the record's F + 0x3EC)
             static std::map<int, std::array<u8, 2>> pads;
-            auto pad_at = [](Ee& ee, u32 car) { return ee.r32(car + 4) + sim::prologue::kPadBlock + sim::prologue::kPadSize * ee.r8(car + 0xD8 + 0x4C4); };
+            auto pad_at = [](Ee& ee, u32 car) { return ee.r32(car + 4) + sim::prologue::kPadBlock + sim::prologue::kPadSize * ee.r8(car + 0xD8 + 0x3EC); };
             taps.add({0x3CE1A8, "Prologue's pad rumble", [=](PTapCall& c) {
                           std::array<u8, 2> p{c.ee.r8(pad_at(c.ee, c.car_addr)), c.ee.r8(pad_at(c.ee, c.car_addr) + 1)};
                           sim::prologue::pad_rumble(c.car, layout(c), p);
@@ -669,7 +677,8 @@ std::vector<PTapStat> check(Disc& disc, const std::string& course, const std::st
     if (!setup_race(ee, disc, sdb, course, {car}, 1, r, err, true)) return {};
     const sim::Program program = sim::Program::load(disc);
     const ex::ProgramData data = sim::core_program(program);
-    const ex::RaceInputs inputs = ex::race_inputs(data, ex::Conductor::SinglePlayer, ex::RaceConfig{}, false, 0);
+    ex::RaceInputs inputs = ex::race_inputs(data, ex::Conductor::SinglePlayer, ex::RaceConfig{}, false, 0);
+    sim::prologue::race_inputs(inputs, sim::prologue::tables(program));
     PTaps taps(ee, r, inputs);
     if (which == "prologue") add_prologue_taps(taps, disc, course);
     else if (which == "input") add_input_taps(taps, r);

@@ -675,6 +675,9 @@ TEST(disc_prologue_demonstrations) {
         if (only && std::string(only) != label) continue;
         race::prologue::Options o;
         if (const char* hold = std::getenv("GT4R_LESSON_HOLD")) o.hold = std::atoi(hold);
+        if (const char* shift = std::getenv("GT4R_LESSON_SHIFT")) o.shift = std::atoi(shift);
+        o.cones = !std::getenv("GT4R_LESSON_NOCONES");
+        o.judge = !std::getenv("GT4R_LESSON_NOJUDGE");
         if (const char* every = std::getenv("GT4R_LESSON_LOG"))
             o.on_step = [n = std::atoi(every)](size_t step, const sim::Session& s) {
                 const race::CarState& c = s.cars()[0];
@@ -683,7 +686,8 @@ TEST(disc_prologue_demonstrations) {
                                 double(c.position.y), double(c.position.z), double(c.course_v), c.lap, c.gear, double(c.throttle), double(c.brake), double(c.steer), c.contact_kind);
             };
         const race::DemonstrationRun r = race::prologue::run_demonstration(*disc, sdb, label, o);
-        std::printf("  %s %-12s %-22s recorded %6d ended %6d fail %d steps %zu %s\n", label, r.course.c_str(), r.car.c_str(), r.recorded_ms, r.ended_ms, r.fail, r.steps, r.error.c_str());
+        std::printf("  %s %-12s %-22s recorded %6d ended %6d fail %d steps %zu kind %d %s\n", label, r.course.c_str(), r.car.c_str(), r.recorded_ms, r.ended_ms, r.fail, r.steps, r.kind, r.error.c_str());
+        if (!r.equipment.empty()) std::printf("      %s\n", r.equipment.c_str());
         exact += r.exact(), ended += r.ended_ms >= 0;
     }
     std::printf("  %d end timed, %d to the millisecond\n", ended, exact);
