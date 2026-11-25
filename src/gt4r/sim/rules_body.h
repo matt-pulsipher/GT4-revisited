@@ -6,6 +6,7 @@
 #include "gt4r/sim/car_layout.h"
 #include "gt4r/sim/rules.h"
 #include "gt4r/sim/rules_chassis.h"
+#include "gt4r/sim/rules_near.h"
 
 namespace gt4r::sim::rules {
 
@@ -17,6 +18,7 @@ struct BodyGlobals {
     u32 damper_table = 0;    // 0x620CB0: not 0: the root fit eased into a square law at the fast end
     std::array<F, 2> bump_knee, bump_share, rebound_knee, rebound_share; // 0x620CB8 / CC0 / CC8 / CD0 + 4 axle
     std::array<F, 6> in_line;                                            // 0x62076C .. 0x620780: the in-line layout's roll terms
+    SpeedDampTables damp;                                                // 0x622268: the speed-switched part's damping rows (0x3F2650)
 };
 constexpr u32 kLateralGeometry = 0x620E11, kNormalMode = 0x620DEC, kDamperLinear = 0x620DD9, kDamperTable = 0x620CB0;
 constexpr u32 kDamperKnees = 0x620CB8, kInLine = 0x62076C;
@@ -31,6 +33,7 @@ template <class W, class B> BodyGlobals body_globals(W&& read, B&& byte) {
         g.rebound_knee[a] = F::raw(read(kDamperKnees + 0x10 + 4 * a)), g.rebound_share[a] = F::raw(read(kDamperKnees + 0x18 + 4 * a));
     }
     for (u32 k = 0; k < 6; ++k) g.in_line[k] = F::raw(read(kInLine + 4 * k));
+    g.damp = speed_damp_tables(read, byte);
     return g;
 }
 
@@ -48,7 +51,7 @@ struct BodyExtra {
     std::array<F, 2> tire_drop;    // P + 0x2DC + 4 a: taken off the tire's radius at the hub's rest point
     F front_share;                 // P + 0x24: the front axle's share of the weight
     F roll_centre;                 // P + 0x1060: added to each wheel's lever for its lateral force
-    u8 speed_part = 0;             // P + 0x1076: the part that changes with speed's damping row (0x3F2650; not ported)
+    u8 speed_part = 0;             // P + 0x1076: the part that changes with speed's damping row (0x3F2650)
     u8 speed_part_kind = 0;        // P + 0x1077 (7: a lift under the body near the ground, P + 0x1084)
     F speed_part_lift;             // P + 0x1084
     F sprung_mass;                 // F + 0x4D8: the mass the heave and its forces are divided by
@@ -125,11 +128,25 @@ void susp_coords(ex::Car& c, const BodyExtra& x, const WheelLayout& l);
 u32 bump_mask(const ex::Car& c, const WheelLayout& l, u32 mask);
 // 0x369B48: an axle's damper force at a travel speed.
 F damper(const ex::Suspension& s, const AxleBody& b, const BodyGlobals& g, F v, u32 axle);
-// 0x36A758: each wheel's normal speed, spring and damper (0x369DE8: the wheel's travel integrated with its
-// own mass; off the ground when it would stand above it), contact state, half track (0x36A690) and
-// camber (0x36A578); the anti-roll bars by wheel group (0x36A048); each wheel's body force with the
-// longitudinal and lateral load transfers and the downforce.
-void suspension(ex::Car& c, BodyExtra& x, const ChassisExtra& ch, const WheelLayout& l, const BodyGlobals& g);
+// What the suspension reads of the car past the body's part: the axles' loads (P + 0x1040 + 4 a, SteerExtra::axle_load:
+// the speed-switched part's lift, 0x3F2650), the car's category (P + 0x32) and a pod's sitting count (car + 0x788,
+// PhaseExtra::special[0]: 0x35D248).
+struct SuspensionCar {
+    std::array<F, 2> axle_load{};
+    u8 category = 0;
+    u8 sit = 0;
+};
+// 0x35D248: wheel w's spring rate: its axle's (the layout's axle, 0 past the layout's count; P + 0x308 + 0x58 a + 0x14). A
+// pod (category 1) sitting down (its count `sit` not 0) lowers its wheels in turn, a wheel every 7 steps: the wheel's turn
+// m is (w + the car's index F + 0x440) mod 4, counted back (3 - m) for an index whose low three bits are 4 or more; with the
+// count below 7 m the rate is whole, at 7 m whole, past it 0 (the rate x max(0, 1 - (count - 7 m))).
+F spring_rate(const ex::Car& c, const WheelLayout& l, int w, u8 category, u8 sit);
+// 0x36A758: each wheel's normal speed, spring (its rate 0x35D248) and damper (0x369DE8: the wheel's travel integrated
+// with its own mass; off the ground when it would stand above it; a loaded wheel's damper force with the speed-switched
+// part's term 0x3F2650 when P + 0x1076 names a row), contact state, half track (0x36A690) and camber (0x36A578); the
+// anti-roll bars by wheel group (0x36A048); each wheel's body force with the longitudinal and lateral load transfers and
+// the downforce.
+void suspension(ex::Car& c, BodyExtra& x, const ChassisExtra& ch, const WheelLayout& l, const BodyGlobals& g, const SuspensionCar& m);
 // 0x36AF30: the tires' longitudinal forces' pitch moment and lift.
 void pitch_terms(const ex::Car& c, const WheelLayout& l, F& moment, F& lift);
 // 0x36B0C8 without its start hold (0x36AE20: the caller's while the hold counter runs): pitch and roll from

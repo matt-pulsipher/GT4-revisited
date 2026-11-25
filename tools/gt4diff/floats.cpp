@@ -230,6 +230,7 @@ DemoScore run_recording(Disc& disc, const replay::Demonstration& recording, cons
         ours = std::make_unique<OursBeside>(disc);
         if (const char* e = std::getenv("GT4R_FLOATS_OURS_LIST")) ours->list_steps = std::atoi(e);
         ours->resync = std::getenv("GT4R_FLOATS_RESYNC") != nullptr;
+        if (std::getenv("GT4R_FLOATS_FREE")) ours->pin_others = false; // (every car of ours free, the others on the program's drivers' outputs)
         if (!ours->begin(ee, o, sdb, course, r.hold)) return r.error = ours->error, r;
     }
     try {

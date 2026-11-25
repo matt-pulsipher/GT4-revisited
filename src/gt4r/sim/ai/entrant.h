@@ -46,6 +46,9 @@ bool entry_equipment(db::SpecDb& db, const Program& program, const db::RaceEvent
 
 // The number of paints of an equipment's car (0x445808: its rows of the paint table).
 int paint_count(db::SpecDb& db, const Equipment& eq);
+// The paints the race chooses among (0x445828): paint_count less the last when the car's GENERIC_CAR row hides it (+0x12
+// bit 1).
+int choice_count(db::SpecDb& db, const Equipment& eq);
 
 // A paint's colour as the race compares paints (0x40A428): the paint row's colour word (+0x24, three bytes), its components
 // / 255 as a direction and a length.
@@ -57,11 +60,16 @@ PaintColour paint_colour(db::SpecDb& db, const Equipment& eq, int paint);
 // The race's paint choice (0x40AA48 with 0x40A6F0, 0x40A338): each car whose paint is the race's to choose (0xFF), in grid
 // order, gets one drawn among its paints, each weighed 1, 0.984375, 0.984375^2 .. and divided by 1 + its likeness to every
 // other candidate on the grid (a car with its paint fixed counting its likeness ^64 x 10,000): the cars avoid the colours
-// already there. `random` gives numbers in [0, 1) (the race's generator: ours, not the program's).
+// already there. `random` gives numbers in [0, 1) (the race's generator, RaceRandom: one a candidate tried, the last
+// candidate taken without one).
 void choose_paints(db::SpecDb& db, std::vector<Equipment>& grid, const std::function<float()>& random);
 
 // Every grid entry's equipment in grid order (entry_equipment), the player's entry `player`'s when given (else the car as
-// sold), then the race's paint choice drawn from `seed`.
+// sold), then the race's paint choice drawn from `random` (after grid_for's draw from the same generator, as the race's
+// set-up runs them).
+std::vector<Equipment> grid_equipment(db::SpecDb& db, const Program& program, const db::RaceEvents& events, const std::vector<GridEntry>& grid,
+                                      RaceRandom& random, const Equipment* player = nullptr);
+// The same from a generator word of `seed` (0: the program's start).
 std::vector<Equipment> grid_equipment(db::SpecDb& db, const Program& program, const db::RaceEvents& events, const std::vector<GridEntry>& grid,
                                       u32 seed, const Equipment* player = nullptr);
 

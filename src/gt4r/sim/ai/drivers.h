@@ -72,6 +72,10 @@ struct Pace {
     std::array<s16, 32> start_delay{};
     // The race lets the cars follow and avoid each other (CFG +0x02 != 6).
     bool contact = true;
+    // A run alone: a free run, a license test or a machine test (the conductor's virtual 6, its vtable's +0x30, answers 1
+    // for DynamicsConductorFreeRun, License and MachineTest, 0 for the races, battles, free practice, training and
+    // missions). Its computer drivers do not pass (0x3F1890) and a B-spec driver's experience counts no company (0x4684A8).
+    bool solo = false;
 };
 
 // What a driver did, for checks and tools.
@@ -177,13 +181,26 @@ public:
     void set_bspec_skill(size_t car, gt3r::ee::F corner, gt3r::ee::F brake, gt3r::ee::F alongside);
     // The B-spec driver's record of the race (car +0x8C, 0x40 bytes: bspec_skill.h's BSpecRecord) as the race starts with it
     // and the car's class (bspec_class of the parameter block's +0xFE0); during the race it gains experience (0x4684A8):
-    // at each new segment of an arc taken within 30 km/h of its speed, in the speed bins of table a; at each lane change of
-    // traffic, of table c; and each time, d[class / 2] + 0x1000 alone, or + 0x555 and e[class / 2] + 0xAAA with a car near.
+    // at each new segment of an arc taken within 30 km/h of its speed, in the speed bins of table a; at each braking point,
+    // of table b; at each lane change of traffic, of table c; and each time, d[class / 2] + 0x1000 alone (or in a run alone:
+    // Pace::solo), or + 0x555 and e[class / 2] + 0xAAA with a car in the driver's cells.
     void set_bspec_record(size_t car, const std::array<u8, 0x40>& record, int car_class);
     std::array<u8, 0x40> bspec_record(size_t car) const;
     // The driving line's heading at the car's distance along the course (0x4649F0 on the driver's line and its next point),
     // for the steering's active aid (sim-step). 0 for a car not driven.
     gt3r::ee::F line_heading_at(size_t car) const;
+    // The car's driver's mode (D +0x1E), beside it: the active steering runs in mode 0.
+    u8 line_mode_at(size_t car) const;
+    // The car closing in on another fastest, for the on-board camera (0x34AA88 over the threat record D +0x53 / +0x60 /
+    // +0x64 the pairs pass keeps, 0x469888): the car it closes on (the least gap / closing speed among those it closes on,
+    // else the nearest of those it does not), the gap (m) and the speed between them as the camera takes it (m/s: the
+    // closing speed negated, negative while the car closes in). The camera's own test (0x3FD528) is a gap under 20 m. None
+    // in a race without contacts (CFG +0x02 = 6) or when no car ahead was near this step.
+    struct Threat {
+        int car = -1;
+        gt3r::ee::F gap, speed;
+    };
+    std::optional<Threat> threat(size_t car) const;
     // A B-spec command (0x3F19E0): the pace level 0 .. 4 (the program's five: 2 the even pace, 0 the slowest, 4 the
     // fastest; -1 unchanged) and passing (0 off, 1 on, -1 unchanged). The driver keeps both until the next command; passing
     // turned off sends a driver on a passing line back to the main line.
@@ -250,6 +267,9 @@ public:
     // Every car's shift byte (the driver's D +0x6F, the car's +0x83) into the session's gearbox, which applies it as 0x3F1E30
     // for control source 1 (the up-shifts with kind 0 only); 128 for a car not driven.
     void apply_shift_factors(Session& session) const;
+    // The places' held starts (Pace::start_delay, seconds) into the session (60 x them as its cars' own start holds, the
+    // conductor's +0xCBFC; none in a rolling start): call once before the first step.
+    void apply_start_delays(Session& session);
     // The band's values as the conductor holds them (+0x7C .. +0x94, for checks against another race) and its mode.
     struct Band {
         gt3r::ee::F slow, slow_start, slow_full, fast, fast_start, fast_full, global{1.0f};
@@ -283,6 +303,8 @@ public:
         gt3r::ee::F pd_rate;      // F +0x484
         std::array<u8, 0x40> record{}; // car +0x8C (B-spec)
         int car_class = 0;
+        int threat = -1;                                        // D +0x53
+        gt3r::ee::F threat_gap{1000.0f}, threat_rate{-1000.0f}; // D +0x60 / +0x64
     };
     void probe_set(size_t car, const Probe& p);
     // For checks of a steering mode this program does not use: T[2] set (the PD steering at 2 or more).

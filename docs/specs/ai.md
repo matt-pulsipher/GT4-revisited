@@ -68,12 +68,9 @@ try, -1 ending a row; ✔ read on the disc: 1 → 1, 6, 2; 2 → 2, 6, 1; 3 → 
 
 In the order of the table at 0x624018 (✔ 6, 0, 1, 2, 5, 3, 4, 7), for each point i of a line:
 
-- **The road's height**: probed straight down at the point (0x46A0C8 → the road query
-  0x395760 at (x, h, -y)) from 1,000 m for the first point of the first line, else from the last
-  height + 0.1 x the chord from the last point + 1 m, then from the last height + 100 m; with no
-  road under it the last height + 3. The next probe starts from trunc(height) + 2. ✔ A line's first point
-  below the last line's end (Suzuka East's stop line: from -1 m, the road at 10.9 m) is found as the
-  program finds it, from 1,000 m.
+- **The road's height**: the height to ask from (q): 1,000 m at a line's first point; then from = q + (0.1 x the chord from
+  the last point as the file has it, + 1 m), with no road under it from + 100; q' = trunc(the height found) + 2, with none
+  trunc(q + 3) + 2. The point's own height is the road from q + 5 (0x46A0C8 → 0x395760 at (x, q + 5, -y)).
 - **The kind**: a non-zero kind becomes 1 when the radius is positive (an arc to the left), 2
   otherwise (to the right); on line 5 always 1.
 - **Line 4, points 3 .. count - 4**: moved onto the nearest pit stop of the road (RNW4 +0x90)
@@ -91,9 +88,13 @@ In the order of the table at 0x624018 (✔ 6, 0, 1, 2, 5, 3, 4, 7), for each poi
   distances do not rise is flagged; lines 1, 2 and 7 so flagged are dropped.
 - **Slope, bank and surface** (0x46A140, all lines but 5): +0x0C the height, +0x12 the surface
   index (0x3F4E40), +0x13 the road record's byte +0x32; +0x1C the slope and +0x20 the bank from
-  four road probes (0x46A0C8) half a metre ahead, behind, left and right of the point along its
+  four road probes (0x46A0C8 from q + 5) half a metre ahead, behind, left and right of the point along its
   heading: atan2(ahead − behind, 1), or with one probe off the road atan2 of the other against
-  the point's own height over 0.5; the bank the same with left and right (+ the left side higher).
+  the point's own height over 0.5; the bank the same with left and right (+ the left side higher). Both probes of a pair
+  missing: the point keeps nothing (height, slope, bank, surface 0). ✔ All in the EE's floats: on the 93 courses whose files
+  are `ADLN` (16,727 points) every value equal to the bit but one heading on each Le Mans variant (the program's FFC00000).
+  On the 17 older fixed-point files (special stages, gymkhanas, the 100 m course) the program writes the fields past its
+  0x28-byte points over the next point's (and loses line 7): ours keep the sane values.
 - Then each point's stretch to the next (+0x2C: the chord, or |r| x the heading's turn on an
   arc), the rise to the next point (+0x30) and its pitch atan2(rise, length) (+0x34); and +0x28
   = 1, a **crest**, where the pitch falls by more than a degree from the last point's.
@@ -453,7 +454,12 @@ draw): for each such car, its paints (0x445828: the car's paint rows, less the l
 table hides it) each get a weight 1, 0.984375, 0.984375² .., divided by 1 + the sum over every
 other car's candidates of their colour likeness (0x40A338) — ^64 x 10,000 for a car whose paint is
 already fixed — normalised; the paint is drawn from the race's generator by those weights: a car
-avoids the colours already on the grid. ❓ 0x40A338's likeness (not read).
+avoids the colours already on the grid. A paint p is the car's row whose +0x04 number is p + 1 (0x4458D0). **The generator**
+is one u32 at 0x621AE8, 0x12345678 at the program's start (0x3BB7E8): a step (0x579330) x' = 17 x + 0x11, the value x' ^
+(x' turned 16 bits), as a float in [0, 1) by 0x578598. Only a race's set-up draws from it: the opponents (0x3BB5A8: index =
+trunc(value x the pool's size), on to the first not drawn yet; no entry is excluded, 0x44A5A8 answers 0) and then the
+paints, so the grids of a run follow from the races entered since the power on. ✔ 40,000 values equal; four of the
+original's saved grids (20 opponents and paints) reproduced, the Sunday Cup's from the start word itself.
 
 **The per-car start delay** (missions): the race keeps per place 0..5 the row's bytes +0x91,
 +0x8C .. +0x90 (0x447828) as seconds at CFG +0x60 + 2 i (s16); ✔ only the ten "catch the cars ahead"
@@ -461,7 +467,7 @@ missions (usl0m0025 .. 0034) set them (e.g. 35, 0, 4, 11, 16, 19). The decision 
 start's long look ahead by them (5 s + delay); the conductor's virtual 41 (0x34DA58) answers whether
 place 0 has one. The held start itself is the conductor's (0x34DB30, [race_flow.md](../formats/race_flow.md) "The held starts"): a count
 of 60 x the seconds per car (K +0xCBFC), the car in the start's hold (F +0x4BC) until it runs out, then its start
-signal. Ours holds such a car on the line (the brake on, the engine blipped) for the same seconds (the hold judged).
+signal. Ours: `Field::apply_start_delays` into the session's own counters (`Session::set_start_delay`).
 
 **The demonstration runs** (a license test's "View a demo run"): recorded, not computed. The disc keeps one per test
 and region under `replay/license/<event label>`, the program's `Serialize::ReplayData`: the race's header (the
@@ -497,10 +503,10 @@ decision with a pace command midway (`gt4r_diff ai GT4R_AI_BSPEC=1,4,20`).
   only); without passing a lane change is only the return to line 6.
 - **Its experience in the race** (0x4684A8, the record at car +0x8C, for a B-spec driver of kind 0 (0x3F33D8)): at each
   new segment of its line (0x463EA8, before the segment's shift) in modes 1 / 2 with its arc's speed v (D +0x24) less
-  30 km/h below the car's speed: table a by v; at each lane change of traffic (0x469AE8, after 0x463C28): table c by the
-  car's speed. The speed's bin: x = (v − 16.67 m/s) / (61.11 − 16.67) for a (72.11 for c) within [0, 1], n = int(64 x)
+  30 km/h below the car's speed: table a by v; at each braking point reached (0x463EA8, its status then 2): table b by the car's speed; at each lane change of traffic (0x469AE8, after 0x463C28): table c by the
+  car's speed. The speed's bin: x = (v − 16.67 m/s) / (61.11 − 16.67) for a (72.11 for b and c) within [0, 1], n = int(64 x)
   − 4, bin n / 8 (toward 0), r the rest: r ≤ 0 adds 64 to the bin, else (8 − r) x 8 to it and 8 r to the next (each u16
-  at most 0xFFFF). Then by company: no car in its cells (or one car in the race, or the conductor's virtual +0x30 ❓ set):
+  at most 0xFFFF). Then by company: no car in its cells (or one car in the race, or a run alone: the conductor's virtual 6, below):
   d[class / 2] + 0x1000; else d + 0x555 and e[class / 2] + 0xAAA. ✔ Equal to the program's after every decision (a
   B-spec S500, `GT4R_AI_BSPEC=0,4,5 GT4R_AI_CHECK=1`, test `ai_bspec_experience_equal_to_the_program`).
   `Field::set_bspec_record` / `bspec_record` (the record in and out of the race; the book's side is gt-mode-2's
@@ -516,13 +522,23 @@ decision with a pace command midway (`gt4r_diff ai GT4R_AI_BSPEC=1,4,20`).
   car's class k (0x468458): its parameter block's +0xFE0 (0x3F86E8 at the conversion), (x − 0.35) / 0.55 within [0, 1],
   x 8, at most 7. Over the classes [max(0, k − 4), min(8, k + 5)) (0x467BE8) with the weights 0x623E40 (8 .. 15): A = Σ
   min(a, 1024) w x 700 / Σ 1024 w, B likewise from b, C = Σ min(c, 256) w x 700 / Σ 256 w (each at most 700); with the
-  race's byte cond + 0xCBE7 set (0x468A40 ❓ what it marks) D = d[k / 2] >> 8, E = e[k / 2] >> 8, else 255; D' = D x
+  race's byte cond + 0xCBE7 set (0x468A40: the course start code's second digit, 0x34C7E0: Tsukuba's 0xF, 0 at the Grand
+  Canyon) D = d[k / 2] >> 8, E = e[k / 2] >> 8, else 255; D' = D x
   300 / 255, E' likewise (at most 300). Then (0x468BC8: p / 100 + (q / 100) x (x / 1000), the bytes 0x623E4A ..: 90 / 10,
   90 / 10, 130 / −30): D +0xB8 = f(90, 10, A + D'), D +0xBC = f(90, 10, B + D'), D +0xC0 = f(130, −30, C + E'). So a
   driver with no record takes the arcs at 90 % and brakes at 90 %, a full one at 100 %. ✔ Equal to the program's
   (`gt4r_diff <disc> bspec`: 320 made-up records on five cars of classes 0 .. 7, the byte both ways; test
-  `ai_bspec_skill_equal_to_the_program`); `Field::set_bspec_skill` sets it. ❓ Not wired: the save's record (the menus)
-  and the car's +0xFE0 (asked of sim-parts).
+  `ai_bspec_skill_equal_to_the_program`); `Field::set_bspec_skill` sets it. The race world sets it and the record
+  (the original's states: 0.9 / 0.9 / 1.3 for an empty record at Tsukuba, as ours).
+- **A run alone** (the conductor's virtual 6, its vtable slot at conductor +0x10140): 1 from the free run's (the time trial
+  runs on it too), the license test's and the machine test's, else 0 (a training, a mission, a single race, practice). It
+  turns a computer driver's passing off (0x3F1890), the braking's follow, contact and +10 / +8 m extras (0x463EA8) and the
+  record's company share (0x4684A8): `Pace::solo`. ❓ Its other callers (0x3F1BD8, 0x468A60, 0x34CB80, 0x34D65C, 0x358BF8,
+  0x358E64, 0x359B18).
+- **The threat record** (0x469888, from 0x469918 when the closing test 0x3F42D0 finds the pair; reset by 0x4694A0): D +0x53
+  the other car, +0x60 the gap, +0x64 the closing speed r: with r above 0 taken when the record's is not or g / r is less
+  than its; else when the record's r is not above 0 and g is less. Read by 0x34AA88 alone (the on-board camera's query
+  0x3FD528: a gap under 20 m), not by the drivers: `Field::threat`.
 
 ## 9. What our drivers run
 
@@ -539,15 +555,11 @@ another race's for checks: then its own F+0x560, F+0x650, places, clock and fini
   `Field::apply_time_scales` (`Session::set_time_scale_raw`).
 - **The collision flags**: from the cars when they give them (the program's own in `gt4r_diff`), else
   a wall within the body's ends or a car overlapping.
-- **The road's heights** come from our road query in host floats: some line points' heights, slopes
-  and banks differ from the program's in their last bits, and so then do the arcs' speeds there (and
-  the lines' lengths and pitches, which the drivers do not read).
 - **The pits** (§11): the program's pass, request, service and the stop's timing, `PitStops` on the session; the car
   stands in its box by the brake (no placing in the box without the session's hook), tires and fuel through hooks.
 - Not done: the line-5 records, the aero bonus (P +0x1077 / +0x1084 not mirrored:
   0), the two ❓ flags of §4.2 (P +0x104A, F +0x5C2: 0 on every car checked), the arcs' grip with tire
-  wear on, T+0x158's factor (1 throughout in this program), the threat
-  record (D+0x53 / +0x60 / +0x64).
+  wear on, T+0x158's factor (1 throughout in this program).
 - Without the mapped program (Prologue, another release) the drivers run with neutral values: no
   spreads, no offset of the aim, a fallback of the passing lines to the main line, the shared
   engine's tire records (16 surfaces) and no slip scaling of the steering gain; on a road without
@@ -692,8 +704,7 @@ shared engine's GT3 drivers. What is still not the program's:
 
 | Where | What | The program's routine |
 |---|---|---|
-| `course_lines.cpp` `prepare` | the road's heights under the lines in host floats (last bits) | the road query 0x3E5A30 in EE floats (sim's `RoadGround`) |
-| `drivers.cpp` the start's hold for missions 25–34 | judged: held on the line until the race clock passes the delay | not found |
-| `grid.cpp` the paint draw | our generator | the race's generator 0x621AE8 |
-| the steering's active aid | the line's heading per car for sim-step's 0x84357C | `Field::line_heading_at` → `Session::set_line_heading` each step after `drive()` (the race screen) |
-| the threat record | not ported | D +0x53 / +0x60 / +0x64 |
+| `course_lines.cpp` `prepare` | the older fixed-point files' overwritten fields kept sane (above) | 0x46A510 |
+| the race's random numbers | the program's generator (`race_random`), started when the app starts as the program's at its start | 0x621AE8 |
+| `Field::threat` | nobody reads it: the on-board camera's query is not ours | 0x3FD528 |
+| pits | the player's own visit to the pit lane and the pit menu (0x35BFE8 with F +0x62E) are not in the game | 0x35BFE8 |

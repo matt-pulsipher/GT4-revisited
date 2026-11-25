@@ -183,6 +183,8 @@ void OursBeside::before_step(gt3r::diff::Ee& ee) {
     impl_->rolling0 = ee.r8(impl_->o->car(0) + kF + 0x467) == 1;
     if (resync) load_all(ee);
     else if (pin_others) load_all(ee, 1);
+    // The rubber band's step lengths as the program's last step left them (F +0x444; the pace car's).
+    for (int i = 0; i < impl_->o->cars; ++i) impl_->session->set_time_scale_raw(size_t(i), ee.r32(impl_->o->car(i) + kF + 0x444));
 }
 
 void OursBeside::step(Ee& ee, const u8* record) {

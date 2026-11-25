@@ -237,14 +237,14 @@ void pit_step(ex::Car& c, Extra& x, const WheelLayout& l, const WearRules& r, co
     if (c.hold == 0x3B) p.pit_flags = u16(p.pit_flags | 0x200);
 }
 
-void prep(ex::Car& c, Extra& x, const WheelLayout& l, const Tables& t, const ex::Condition& cond, const std::array<F, 3>* grip,
+void prep(ex::Car& c, Extra& x, const WheelLayout& l, const Tables& t, const std::array<F, 3>* grip,
           const PitHooks* hooks) {
     if (c.hold != 0) pit_step(c, x, l, t.wear, hooks);
     message_timer(x.phases);
     rules::step_length(c);
     masses(c, x);
     aero(c, x.chassis, x.body.speed_part_kind, x.body.speed_part_lift, t.aero);
-    prep_tires(c, x, l, t, cond, grip);
+    prep_tires(c, x, l, t, grip);
 }
 
 // ---- phases 12 and 13 ----

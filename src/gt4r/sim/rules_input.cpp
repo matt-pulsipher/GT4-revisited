@@ -95,6 +95,13 @@ F slip_aim(const ex::Car& c, F yaw_acc, F k) {
 
 } // namespace
 
+void brake_pedal(ex::Car& c, const WheelLayout& l, F p) {
+    c.brake_pedal = p;
+    set_brakes(c, l, p);
+}
+
+PedalCurve pedal_curve_of(u32 kind, s32 pct) { return make_curve(kind, pct); }
+
 // ---- the frame -------------------------------------------------------------------------------------------------
 
 PadFrame PadFrame::from_bytes(const u8* b) {
