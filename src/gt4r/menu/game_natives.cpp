@@ -1113,8 +1113,8 @@ Value GameNatives::make_card_manager(Args a) {
         else if (!console) self->unreadable = true;
         return text(r == save::Result::Ok || r == save::Result::DeviceError || r == save::Result::InvalidFile ? save::result_name(r) : "");
     });
-    // loadInstance(manager): [result, game] of the card's game beside the one played. ❓ The
-    // second game's object is not made here: the result alone.
+    // loadInstance(manager): [result, game] of the card's game beside the one played, a game object with its garage (Arcade's
+    // garages of the 2 Player Battle and the Multi-LAN Race).
     file->method("loadInstance", [self, s, there, console](Vm&, const Value&, Args) {
         if (!console && there()) { // (Arcade's garage of the game being played)
             auto other = std::make_shared<GameState>();
@@ -1126,8 +1126,13 @@ Value GameNatives::make_card_manager(Args a) {
             return Value::array({text("OK"), object_value(game)});
         }
         if (!there()) return Value::array({text(s->card.has_game_data ? "OK" : "FILE_NOT_FOUND"), Value{}});
-        GameState other;
-        return Value::array({text(save::result_name(self->card().load_instance(other))), Value{}});
+        auto other = std::make_shared<GameState>();
+        const save::Result r = self->card().load_instance(*other);
+        if (r != save::Result::Ok) return Value::array({text(save::result_name(r)), Value{}});
+        self->other_games.push_back(other);
+        auto game = std::make_shared<Object>("MGame");
+        game->set("garage", object_value(self->make_garage(other.get())));
+        return Value::array({text("OK"), object_value(game)});
     });
     // saveNew(manager, title): the save made anew; save(manager): written over.
     file->method("saveNew", [self, s, real, there, console](Vm&, const Value&, Args a) {
