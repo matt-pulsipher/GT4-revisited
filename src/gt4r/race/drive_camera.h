@@ -3,6 +3,8 @@
 // The driving views: the in-car view, the chase view and the roof view, each at one of the
 // car's camera places. docs/formats/camera.md "The driving views".
 
+#include <cmath>
+
 #include "gt4r/race/car_spec.h"
 #include "gt4r/race/simulation.h"
 #include "render/math3d.h"
@@ -22,6 +24,11 @@ struct CameraMount {
 };
 // The places of a car file (car/lod/<model>); empty when it has none.
 std::vector<CameraMount> read_camera_mounts(ByteSpan car_file);
+
+// What a lens of A radians of the program's shows across a 4:3 picture: tan(A / 2) x 1.4556 to a side. The view's size factor K (0x456918,
+// kept at 0x8465E4) of the original's states is 293.1175 / tan(A / 2) for every camera whose lens the disc gives (the replay shots, the
+// scenic ones, the start clips, the roof view), and a picture's half width is 426.667 / K (docs/formats/camera.md).
+inline float shown_angle(float lens) { return 2 * std::atan(std::tan(lens * 0.5f) * (426.6667f / 293.1175f)); }
 
 // A camera for one drawn frame.
 struct ViewPose {

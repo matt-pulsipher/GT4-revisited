@@ -83,6 +83,7 @@ struct StrobePlayer::Clip {
     size_t track = 0; // its track in the parent's sprite
     int frame = 0;
     bool playing = true, visible = true;
+    std::optional<float> set_x, set_y;  // its place in its parent as a script set it (_x, _y), past its track's
     std::map<std::string, Value> vars; // by lower-case name
     std::map<size_t, std::unique_ptr<Clip>> children; // by track
     std::array<std::unique_ptr<Clip>, 3> states;      // a button's: up, over, down
@@ -253,10 +254,30 @@ struct StrobePlayer::Impl {
         }
         if (f.target) f.target->vars[n] = v;
     }
+    // A clip's place in its parent: as a script set it, else its track's now.
+    float place_in(const Clip& c, bool x) const {
+        if (x ? c.set_x.has_value() : c.set_y.has_value()) return x ? *c.set_x : *c.set_y;
+        if (!c.parent || c.parent->kind != Clip::SpriteClip) return 0;
+        const Movie::Key& key = movie->sprites[size_t(c.parent->index)].tracks[c.track].key_at(c.parent->frame);
+        return x ? key.x : key.y;
+    }
+    // The properties of GetProperty / SetProperty by number (Flash's): those the race's movies use.
+    static const char* property(int index) { return index == 0 ? "_x" : index == 1 ? "_y" : index == 7 ? "_visible" : index == 13 ? "_name" : ""; }
     Value get_member(const Value& o, const std::string& name) {
+        if (o.kind == Value::String && o.s == kKeyObject) { // (the Key object's codes)
+            static const std::map<std::string, int> kCodes{{"left", 0x25}, {"up", 0x26}, {"right", 0x27}, {"down", 0x28}, {"space", 0x20}, {"enter", 0x0D}, {"escape", 0x1B}, {"shift", 0x10}};
+            const auto it = kCodes.find(lower(name));
+            return it != kCodes.end() ? Value::number(it->second) : Value{};
+        }
+        if (o.kind == Value::ArrayRef && o.array) {
+            if (lower(name) == "length") return Value::number(double(o.array->size()));
+            const double at = Value::string(name).to_number();
+            return at >= 0 && at < double(o.array->size()) ? (*o.array)[size_t(at)] : Value{};
+        }
         if (o.kind != Value::ClipRef || !o.clip) return {};
         Clip& c = *o.clip;
         const std::string n = lower(name);
+        if (n == "_x" || n == "_y") return Value::number(place_in(c, n == "_x"));
         if (n == "_name") return Value::string(c.name);
         if (n == "_parent") return clip_value(c.parent);
         if (n == "_root") return clip_value(root.get());
@@ -268,10 +289,20 @@ struct StrobePlayer::Impl {
         return {};
     }
     void set_member(const Value& o, const std::string& name, const Value& v) {
+        if (o.kind == Value::ArrayRef && o.array) {
+            if (const double at = Value::string(name).to_number(); at >= 0 && at < 1000) {
+                if (at >= double(o.array->size())) o.array->resize(size_t(at) + 1);
+                (*o.array)[size_t(at)] = v;
+            }
+            return;
+        }
         if (o.kind != Value::ClipRef || !o.clip) return;
         Clip& c = *o.clip;
         if (c.kind == Clip::TextClip && lower(name) == "text") c.text = v.to_string();
         else if (lower(name) == "_visible") c.visible = v.truthy();
+        else if (lower(name) == "_x" || lower(name) == "_y") { // (not a number: left as it was)
+            if (const double at = v.to_number(); !std::isnan(at)) (lower(name) == "_x" ? c.set_x : c.set_y) = float(at);
+        }
         else c.vars[lower(name)] = v;
     }
 
@@ -297,6 +328,20 @@ struct StrobePlayer::Impl {
     Value call_method(Frame& fr, const Value& obj, const std::string& name, const std::vector<Value>& args) {
         const std::string n = lower(name);
         if (obj.kind == Value::String && obj.s == kKeyObject) return n == "getcode" ? Value::number(key_code) : Value{};
+        if (obj.kind == Value::ArrayRef && obj.array) {
+            if (n == "push") obj.array->insert(obj.array->end(), args.begin(), args.end());
+            else if (n == "pop" && !obj.array->empty()) {
+                const Value v = obj.array->back();
+                obj.array->pop_back();
+                return v;
+            }
+            return Value::number(double(obj.array->size()));
+        }
+        if (obj.kind == Value::String && n == "substr") {
+            const double at = args.empty() ? 0 : args[0].to_number(), len = args.size() > 1 ? args[1].to_number() : double(obj.s.size());
+            const size_t from = size_t(std::clamp(at < 0 ? at + double(obj.s.size()) : at, 0.0, double(obj.s.size())));
+            return Value::string(obj.s.substr(from, size_t(std::max(0.0, len))));
+        }
         if (obj.kind == Value::ClipRef && obj.clip) {
             Clip& c = *obj.clip;
             if (n == "gotoandplay" || n == "gotoandstop") {
@@ -371,7 +416,28 @@ struct StrobePlayer::Impl {
                 const int index = int(pop().to_number());
                 const Value t = pop();
                 Clip* c = t.kind == Value::ClipRef ? t.clip : t.to_string().empty() ? target : get_variable(f, t.to_string()).clip;
-                st.push_back(index == 13 && c ? Value::string(c->name) : Value{});
+                st.push_back(c && *property(index) ? get_member(clip_value(c), property(index)) : Value{});
+                break;
+            }
+            case 0x23: { // SetProperty(target, index, value)
+                const Value v = pop();
+                const int index = int(pop().to_number());
+                const Value t = pop();
+                Clip* c = t.kind == Value::ClipRef ? t.clip : t.to_string().empty() ? target : get_variable(f, t.to_string()).clip;
+                if (c && *property(index)) set_member(clip_value(c), property(index), v);
+                break;
+            }
+            case 0x0A: { const Value b = pop(), a = pop(); st.push_back(Value::number(a.to_number() + b.to_number())); break; }
+            case 0x0B: { const Value b = pop(), a = pop(); st.push_back(Value::number(a.to_number() - b.to_number())); break; }
+            case 0x0C: { const Value b = pop(), a = pop(); st.push_back(Value::number(a.to_number() * b.to_number())); break; }
+            case 0x0D: { const Value b = pop(), a = pop(); st.push_back(Value::number(a.to_number() / b.to_number())); break; }
+            case 0x40:   // NewObject (an Array, empty)
+            case 0x42: { // InitArray: the first element on the top
+                if (op == 0x40) pop();
+                Value v;
+                v.kind = Value::ArrayRef, v.array = std::make_shared<std::vector<Value>>(pop_args());
+                if (op == 0x40) v.array->clear();
+                st.push_back(std::move(v));
                 break;
             }
             case 0x3D: { // CallFunction
@@ -495,6 +561,8 @@ struct StrobePlayer::Impl {
             const Movie::Key& key = t.key_at(k.parent->frame);
             float l[6];
             local(key, l);
+            if (k.set_x) l[4] = *k.set_x;
+            if (k.set_y) l[5] = *k.set_y;
             float r[6];
             multiply(m, l, r);
             std::memcpy(m, r, sizeof m);
@@ -574,21 +642,45 @@ struct StrobePlayer::Impl {
 
     // ---- drawing
 
-    void draw(const Clip& c, const float* m, const float* mul, const float* add, std::vector<Draw>& out) const {
+    // A clip box (canvas units, x0 .. y1), intersected with the one already there.
+    struct ClipBox {
+        bool on = false;
+        float x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+        void add(float bx0, float by0, float bx1, float by1) {
+            if (!on) x0 = bx0, y0 = by0, x1 = bx1, y1 = by1, on = true;
+            else x0 = std::max(x0, bx0), y0 = std::max(y0, by0), x1 = std::min(x1, bx1), y1 = std::min(y1, by1);
+        }
+    };
+    static void set_clip(Draw& d, const ClipBox& clip) {
+        if (!clip.on) return;
+        d.clipped = true;
+        d.clip[0] = clip.x0, d.clip[1] = clip.y0, d.clip[2] = clip.x1, d.clip[3] = clip.y1;
+    }
+
+    void draw(const Clip& c, const float* m, const float* mul, const float* add, std::vector<Draw>& out) const { draw(c, m, mul, add, out, ClipBox{}); }
+    void draw(const Clip& c, const float* m, const float* mul, const float* add, std::vector<Draw>& out, const ClipBox& outer) const {
         if (!c.visible) return;
         if (c.kind == Clip::ButtonClip) {
             const int state = &c == focus ? (pressed > 0 ? 2 : 1) : 0;
             const Clip* s = c.states[size_t(state)] ? c.states[size_t(state)].get() : c.states[0].get();
-            if (s) draw(*s, m, mul, add, out);
+            if (s) draw(*s, m, mul, add, out, outer);
             return;
         }
         const Movie::Sprite& sp = movie->sprites[size_t(c.index)];
+        ClipBox clip = outer; // (what the tracks so far are drawn inside)
+        u32 clip_until = 0;   // a mask track of this sprite is on for the tracks up to this depth
+        ClipBox within = outer;
         for (size_t i = 0; i < sp.tracks.size(); ++i) {
             const Movie::Track& t = sp.tracks[i];
             if (!(t.first <= c.frame && c.frame < t.end)) continue;
+            if (t.depth > clip_until) clip = outer, clip_until = 0; // (the mask ended)
             const Movie::Key& k = t.key_at(c.frame);
             float l[6], w[6];
             local(k, l);
+            if (const auto it = c.children.find(i); it != c.children.end()) { // (placed by a script)
+                if (it->second->set_x) l[4] = *it->second->set_x;
+                if (it->second->set_y) l[5] = *it->second->set_y;
+            }
             multiply(m, l, w);
             float km[4], ka[4], wm[4], wa[4];
             for (int j = 0; j < 4; ++j) {
@@ -597,9 +689,27 @@ struct StrobePlayer::Impl {
                 wm[j] = km[j] * mul[j];
                 wa[j] = ka[j] * mul[j] + add[j];
             }
+            if (t.clip != 0) { // a mask: its shape's box, in this track's place, for the tracks above up to its depth
+                within = outer;
+                float x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+                if (t.kind != Movie::kSprite && t.kind != Movie::kButton && t.kind != Movie::kText && t.kind != Movie::kExternal &&
+                    t.kind == 0 && size_t(t.index) < movie->shapes.size()) {
+                    const Movie::Shape& sh = movie->shapes[t.index];
+                    const float px[2] = {sh.x0, sh.x1}, py[2] = {sh.y0, sh.y1};
+                    x0 = y0 = 1e9f, x1 = y1 = -1e9f;
+                    for (int a = 0; a < 2; ++a)
+                        for (int b = 0; b < 2; ++b) {
+                            const float qx = w[0] * px[a] + w[2] * py[b] + w[4], qy = w[1] * px[a] + w[3] * py[b] + w[5];
+                            x0 = std::min(x0, qx), y0 = std::min(y0, qy), x1 = std::max(x1, qx), y1 = std::max(y1, qy);
+                        }
+                }
+                within.add(x0, y0, x1, y1);
+                clip = within, clip_until = t.clip;
+                continue;
+            }
             if (t.kind == Movie::kSprite || t.kind == Movie::kButton) {
                 const auto it = c.children.find(i);
-                if (it != c.children.end()) draw(*it->second, w, wm, wa, out);
+                if (it != c.children.end()) draw(*it->second, w, wm, wa, out, clip);
             } else if (t.kind == Movie::kText) {
                 if (size_t(t.index) >= movie->texts.size()) continue;
                 Draw d;
@@ -607,6 +717,7 @@ struct StrobePlayer::Impl {
                 const auto it = c.children.find(i);
                 d.words = it != c.children.end() ? it->second->text : d.text->text;
                 std::memcpy(d.m, w, sizeof w), std::memcpy(d.mul, wm, sizeof wm), std::memcpy(d.add, wa, sizeof wa);
+                set_clip(d, clip);
                 out.push_back(std::move(d));
             } else if (t.kind == Movie::kExternal) {
                 Draw d;
@@ -614,12 +725,14 @@ struct StrobePlayer::Impl {
                 const std::string listed = size_t(t.index) < movie->externals.size() ? movie->externals[t.index].name : std::string();
                 d.external = !t.name.empty() ? t.name : !c.name.empty() ? c.name : !listed.empty() ? listed : std::string("_EXT");
                 std::memcpy(d.m, w, sizeof w), std::memcpy(d.mul, wm, sizeof wm), std::memcpy(d.add, wa, sizeof wa);
+                set_clip(d, clip);
                 out.push_back(std::move(d));
-            } else if (size_t(t.index) < movie->shapes.size()) {
+            } else if (t.kind == 0 && size_t(t.index) < movie->shapes.size()) { // (kind 1: a morph shape, none in these movies)
                 for (const Movie::Shape::Group& g : movie->shapes[t.index].groups) {
                     Draw d;
                     d.group = &g;
                     std::memcpy(d.m, w, sizeof w), std::memcpy(d.mul, wm, sizeof wm), std::memcpy(d.add, wa, sizeof wa);
+                    set_clip(d, clip);
                     out.push_back(std::move(d));
                 }
             }
@@ -700,6 +813,13 @@ std::vector<StrobePlayer::Draw> StrobePlayer::draw_list() const {
 }
 
 int StrobePlayer::frame() const { return impl_->root->frame; }
+
+void StrobePlayer::go_to(int frame) {
+    Impl& m = *impl_;
+    m.go(*m.root, frame, false);
+    m.run_queue();
+    m.check_focus();
+}
 
 void StrobePlayer::play() {
     impl_->root->playing = true;

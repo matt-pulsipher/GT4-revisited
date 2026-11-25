@@ -12,6 +12,7 @@
 #include "gt4r/sim/ai/demo_driver.h"
 #include "gt4r/sim/ai/drivers.h"
 #include "gt4r/sim/ai/grid.h"
+#include "gt4r/sim/race_rules.h"
 #include "gt4r/sim/rules_wear.h"
 
 namespace gt4r::race {
@@ -65,6 +66,10 @@ DemonstrationRun run_demonstration(Disc& disc, db::SpecDb& sdb, const std::strin
         std::array<gt3r::s8, 4> grip{};
         for (size_t k = 0; k < 4; ++k) grip[k] = gt3r::s8(ev->bytes[0x53 + k]);
         session.set_class_grip(grip);
+        {
+            const sim::RaceRules rr = sim::race_rules(ev->bytes, program);
+            session.set_race_rules(rr.hits, rr.speed_cap, rr.penalty_cap);
+        }
         {
             u8 rule_block[0x80] = {};
             sim::rules::event_wear_bytes(ev->bytes.data(), rule_block);

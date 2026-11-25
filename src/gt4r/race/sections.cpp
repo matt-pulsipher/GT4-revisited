@@ -6,6 +6,17 @@ namespace gt4r::race {
 
 std::vector<float> road_list(ByteSpan d, size_t list) {
     std::vector<float> out;
+    if (d.size() >= 0x60 && gt3r::has_magic(d, "GTRW")) { // (Prologue's 0x415FE0 / 0x416028: the records of type 2 of the list)
+        const u32 n = rd16(d, 0x22), at = rd32(d, 0x24);
+        if (u64(at) + 8 * u64(n) > d.size()) return out;
+        for (u32 i = 0; i < n; ++i) {
+            if (rd16(d, at + 8 * i) != 2 || rd16(d, at + 8 * i + 2) != list) continue;
+            float f;
+            std::memcpy(&f, d.data() + at + 8 * i + 4, 4);
+            out.push_back(f);
+        }
+        return out;
+    }
     if (d.size() < 0x5C || !gt3r::has_magic(d, "RNW4")) return out;
     const u32 lists = rd16(d, 0x38), at = rd32(d, 0x58);
     if (list >= lists || u64(at) + 8 * u64(lists) > d.size()) return out;

@@ -13,7 +13,9 @@ void put32(u8* p, u32 v) { p[0] = u8(v), p[1] = u8(v >> 8), p[2] = u8(v >> 16), 
 
 // The two places a file's head words are swapped to: the body's length times these single
 // precision constants (0.135790..., 0.654860...), whole.
-constexpr u32 kSwapHead = 0x3E0B0C88, kSwapRandom = 0x3F27A4E7;
+// The two fractions (float bits) a kind of file's head swaps take: the game data's (0x1CDAC8), the replays' (0x1CFE68, 0x1CFFF8).
+u32 swap_head(FileKind k) { return k == FileKind::Replay ? 0x3E6B3EF8u : 0x3E0B0C88u; }
+u32 swap_random(FileKind k) { return k == FileKind::Replay ? 0x3F322311u : 0x3F27A4E7u; }
 u32 times_constant(u32 n, u32 bits) {
     const u64 mantissa = (bits & 0x7FFFFF) | 0x800000;
     const int exponent = int((bits >> 23) & 0xFF) - 150;
@@ -96,24 +98,24 @@ u32 Mt19937::below(u32 n) {
     return u32((u64(v) * n) >> 32);
 }
 
-Bytes scramble(ByteSpan payload, u32 key, u32 random) {
+Bytes scramble(ByteSpan payload, u32 key, u32 random, FileKind kind) {
     const size_t size = scrambled_size(payload.size());
     Bytes buf(size, 0);
     std::memcpy(buf.data() + 8, payload.data(), payload.size());
     const u32 check = crc32(ByteSpan(buf.data() + 8, size - 8)) ^ key;
     put32(buf.data(), random), put32(buf.data() + 4, check);
     cipher(buf.data() + 8, size - 8, Mt19937(check + random), Lcg(check ^ random), true);
-    swap4(buf.data(), 4, 4 + times_constant(u32(size - 8), kSwapHead));
-    swap4(buf.data(), 0, times_constant(u32(size - 4), kSwapRandom));
+    swap4(buf.data(), 4, 4 + times_constant(u32(size - 8), swap_head(kind)));
+    swap4(buf.data(), 0, times_constant(u32(size - 4), swap_random(kind)));
     return buf;
 }
 
-std::optional<Bytes> unscramble(ByteSpan file, u32 key) {
+std::optional<Bytes> unscramble(ByteSpan file, u32 key, FileKind kind) {
     const size_t size = file.size();
     if (size < 0x40 || size % 0x40) return std::nullopt;
     Bytes buf(file.begin(), file.end());
-    swap4(buf.data(), 0, times_constant(u32(size - 4), kSwapRandom));
-    swap4(buf.data(), 4, 4 + times_constant(u32(size - 8), kSwapHead));
+    swap4(buf.data(), 0, times_constant(u32(size - 4), swap_random(kind)));
+    swap4(buf.data(), 4, 4 + times_constant(u32(size - 8), swap_head(kind)));
     const u32 random = get32(buf.data()), check = get32(buf.data() + 4);
     cipher(buf.data() + 8, size - 8, Mt19937(check + random), Lcg(check ^ random), false);
     if ((crc32(ByteSpan(buf.data() + 8, size - 8)) ^ key) != check) return std::nullopt;

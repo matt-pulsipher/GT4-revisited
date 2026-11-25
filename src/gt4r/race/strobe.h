@@ -28,7 +28,9 @@ struct StrobeMovie {
         u16 kind = 0;
         int first = 0, end = 0; // frames [first, end)
         u16 index = 0;
-        u32 depth = 0;
+        u32 depth = 0; // the draw order (the low half of the track's depth word)
+        u16 clip = 0;  // its high half: a mask of the tracks above it up to this depth (0x480518: the object drawn as
+                       // a mask, then those tracks through it); 0 none
         std::vector<std::pair<u32, int>> clip_actions; // event mask (0x40: a key pressed), action block
         std::vector<Key> keys;                         // one a frame of the span (the last holds)
         std::string name;
@@ -114,11 +116,12 @@ public:
     struct Clip; // a sprite's instance
     struct Function;
     struct Value {
-        enum Kind : u8 { Undefined, Null, Bool, Number, String, ClipRef, FunctionRef } kind = Undefined;
+        enum Kind : u8 { Undefined, Null, Bool, Number, String, ClipRef, FunctionRef, ArrayRef } kind = Undefined;
         double n = 0;
         std::string s;
         Clip* clip = nullptr;
         std::shared_ptr<Function> fn;
+        std::shared_ptr<std::vector<Value>> array;
         static Value number(double v) { Value x; x.kind = Number, x.n = v; return x; }
         static Value boolean(bool v) { Value x; x.kind = Bool, x.n = v ? 1 : 0; return x; }
         static Value string(std::string v) { Value x; x.kind = String, x.s = std::move(v); return x; }
@@ -135,6 +138,8 @@ public:
         std::string external; // a picture the host draws (its instance's name, else its clip's, else "_EXT"), centred on the origin
         float m[6] = {1, 0, 0, 1, 0, 0}; // x' = m0 x + m2 y + m4, y' = m1 x + m3 y + m5 (canvas units)
         float mul[4] = {1, 1, 1, 1}, add[4] = {0, 0, 0, 0}; // colour = c x mul + add (0..1)
+        bool clipped = false;                             // only inside `clip` (a mask track's box, canvas units)
+        float clip[4] = {0, 0, 0, 0};                     // x0, y0, x1, y1
     };
 
     StrobePlayer(std::shared_ptr<const StrobeMovie> movie, Host host);
@@ -144,6 +149,8 @@ public:
     void restart();
     // The root timeline plays on from where it stopped (a page the program starts).
     void play();
+    // The root timeline at a frame (from 0), stopped there, its scripts run (the program's 0x4751D0).
+    void go_to(int frame);
     // Time passes: a movie frame for every 1/fps seconds.
     void advance(float seconds);
     // A key (Flash's codes: 0x25 left, 0x26 up, 0x27 right, 0x28 down, 0x20 accept, 0x1B cancel).

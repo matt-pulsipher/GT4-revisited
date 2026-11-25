@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <utility>
 
 namespace gt4r::race {
 
@@ -42,8 +43,10 @@ void RaceFlow::begin(const FlowSetup& setup, std::span<const CarState> cars) {
         r.prev_v = cars[i].course_v, r.has_v = true;
         if (i < setup.crossings.size()) r.counter = setup.crossings[i];
         else if (setup.counted && setup.lap_length > 0) r.counter = start_crossings(cars[i].course_v, setup.lap_length, setup.sectors, setup.goal);
+        if (i < setup.past_line.size() && setup.past_line[i]) r.counter = 1;
         if (i < setup.marks.size()) r.mark = setup.marks[i];
     }
+    signal_start_ = false;
     hold_total_ = hold_ = start_hold_steps(setup.start, setup.start_seconds);
     clock_ = 0;
     finishers_ = 0;
@@ -86,7 +89,8 @@ void RaceFlow::start_car(size_t i, s64 t, Events& ev) {
     }
     if (setup_.start != StartType::Rolling) return;
     // The first car over the line starts a rolling start's clock; the player's crossing is his start signal (event 4, car 0).
-    if (!clock_running_) clock_running_ = true, ev.clock_started = true;
+    // (Prologue's tests: the player's crossing, FlowSetup::player_clock.)
+    if (!clock_running_ && (!setup_.player_clock || i == setup_.player)) clock_running_ = true, ev.clock_started = true;
     if (i == setup_.player && started_steps_ < 0) ev.start = true, started_steps_ = 0;
 }
 
@@ -163,6 +167,7 @@ void RaceFlow::cross(size_t i, float was, float now, Events& ev) {
 RaceFlow::Events RaceFlow::step(std::span<const CarState> cars) {
     Events ev;
     if (cars.size() != cars_.size()) return ev;
+    if (std::exchange(signal_start_, false) && started_steps_ < 0) ev.start = true, started_steps_ = 0;
     if (hold_ > 0) {
         // The hold: counted down before the step, the clock stands; a beep at each of the last three whole seconds.
         --hold_;

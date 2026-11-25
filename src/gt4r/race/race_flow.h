@@ -31,6 +31,10 @@ struct FlowSetup {
     int laps = 2;          // 0: no lap count (the race ends otherwise)
     size_t player = 0;     // the player's car
     float lap_length = 0;  // metres (the road's)
+    // Prologue's tests (DynamicsConductorLicense's start line 0x3B4C88, the car's lap time from its own crossing F + 0x534):
+    // the clock starts as the player's car takes the line, whoever took it before.
+    bool player_clock = false;
+    std::vector<bool> past_line; // by car: it starts past the line (its crossings' count 1: 0x3C9838); empty: none
     // The road's split points (the sectors' ends but the last; none on a road section) and the race's goal along the course
     // (-1 none), for where the cars' crossings start. `counted` off: every car starts at 0 (Prologue, not read).
     std::vector<float> sectors;
@@ -129,6 +133,9 @@ public:
     // A car's run ended by a rule of its own (a license test's stop, a failure) `share` of a step
     // into the step just run: its finish at the clock then.
     void finish_now(size_t car, float share = 0);
+    // The player's start signal before the line (a free run's hand-over: event 4 from DynamicsConductorFreeRun::vf14): the next
+    // step's Events::start.
+    void signal_start() { signal_start_ = true; }
     // A finished car's time: the race's (the clock at its finish), a test's from where its clock started (F + 0x614).
     s64 run_ms(size_t car) const;
     bool everyone_finished() const;
@@ -147,6 +154,7 @@ private:
     void end_car(size_t i, s64 at, Events& ev);
 
     FlowSetup setup_;
+    bool signal_start_ = false;
     std::vector<CarRecord> cars_;
     std::vector<size_t> order_;
     int hold_ = 0, hold_total_ = 0;

@@ -82,7 +82,7 @@ TEST(race_flow_section_test) {
     CHECK(lap.player_finished() && lap.car(0).counter == 2);
 }
 
-// Demonstrations played by our own race end on their recorded times: a stop in the box (B-1), a standing section start (B-3),
+// Demonstrations played by our own race end on their recorded times: a stop in the box (B-1), a section with cones passed at speed (B-4),
 // moving section starts, before the section (A-1) and by its driver up to it (A-14).
 TEST(race_demonstrations_disc) {
     if (test::discs().empty()) SKIP("set GT4R_DISC");
@@ -95,7 +95,7 @@ TEST(race_demonstrations_disc) {
             const gt3r::Volume::Entry* e = vol->find(p);
             return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
         }, [vol](const std::string& dir) { return vol->list_dir(dir); }, "american");
-        for (const char* label : {"usl0b0001", "usl0b0003", "usl0a0001", "usl0a0014"}) {
+        for (const char* label : {"usl0b0001", "usl0b0004", "usl0a0001", "usl0a0014"}) {
             const race::DemonstrationRun r = race::run_demonstration(*disc, sdb, label);
             std::printf("  %s: recorded %d ms, ours %d ms (failed %d) %s\n", label, r.recorded_ms, r.ended_ms, r.fail, r.error.c_str());
             CHECK(r.ran && r.fail == 0 && r.ended_ms > 0 && (r.recorded_ms == 0 || r.exact())); // (B-3's recording keeps no time)

@@ -1244,6 +1244,13 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
                 const auto& open = r->open_pages();
                 return Value::integer(std::find(open.begin(), open.end(), w) == open.end());
             });
+        // setExtraGpbName(name) (Prologue's mRootWindow, 0x22CE20): the pictures of `<project>/<LANG>/<name>.gpb` beside the
+        // page's own (a license test's title, icon and map, its race code's pack).
+        if (n == "setExtraGpbName")
+            return fn([r](Vm&, const Value&, Args a) {
+                if (Project* p = r->project(); p && !a.empty()) p->load_pack("projects/" + p->name(), arg_text(a, 0));
+                return Value{};
+            });
         if (n == "buildDefaultList" || n == "fadein" || n == "fadeout" || n == "crossfade" || n == "resetToolTip") return nothing();
     }
 

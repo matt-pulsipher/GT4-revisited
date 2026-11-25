@@ -18,6 +18,13 @@
 #include "gt4r/sim/program_prologue.h"
 #include "gt4r/sim/session.h"
 
+#include "gt4r/race/gadgets.h"
+#include "gt4r/race/sections.h"
+#include "gt4r/race/strobe.h"
+#include "gt4r/sim/ai/demo_driver.h"
+#include "gt4r/sim/ai/entrant.h"
+#include "gt4r/sim/ai/grid.h"
+
 #include <cmath>
 #include <cstring>
 #include <set>
@@ -275,6 +282,35 @@ TEST(disc_prologue_license_target_times) {
     CHECK(with_gold == 46);
 }
 
+// The license tests' rules from their RACE rows (the race's copy 0x3C5978 and the switch 0x409AB8), in Gran Turismo 4's
+// columns: every test a wall-hit limit, tests with cones a count, tests with a time limit one.
+#include "gt4r/race/license_rules.h"
+
+TEST(disc_prologue_license_rules) {
+    Disc* disc = prologue_disc();
+    if (!disc) SKIP("no Prologue disc");
+    db::SpecDb db = open_db(*disc);
+    gt3r::Volume* vol = &disc->volume();
+    db::RaceEvents events(db, [vol](const std::string& path) -> std::optional<Bytes> {
+        const gt3r::Volume::Entry* e = vol->find(path);
+        return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
+    });
+    int tests = 0, walls = 0, cones = 0, timed = 0;
+    for (int n = 1; n <= 46; ++n) {
+        char label[16];
+        std::snprintf(label, sizeof label, "l0p%04d", n);
+        const std::optional<db::RaceEvent> e = events.event(label);
+        if (!e) continue;
+        const race::LicenseRules r = race::LicenseRules::from_row(e->bytes);
+        ++tests;
+        walls += r.wall_limit > 0, cones += r.pylons > 0, timed += r.time_limit > 0;
+        std::printf("  %s: kind %d, walls %d, cars %d, cones %d, time %d, +41 %d, +4A %d\n", label, r.kind, r.wall_limit, r.car_limit, r.pylons,
+                    r.time_limit, r.x41, r.x4a);
+    }
+    CHECK(tests == 46);
+    CHECK(walls > 0 && cones > 0 && timed > 0);
+}
+
 // The roads keep Gran Turismo 3's road block for the program's own ground query (Runway::gtrw), and a license course's
 // goal distance (the block's header +0x1C) lies inside the lap where its test ends: L_fisco6, test 2, 203 m from the line.
 TEST(disc_prologue_license_goal) {
@@ -307,4 +343,271 @@ TEST(disc_prologue_converter_equal) {
     CHECK(st.equal_blocks == st.cars);
     CHECK(st.equal_specs == st.cars);
     CHECK(st.race_start_equal);
+}
+
+// The pass codes (menu/prologue_passcode.h): the program's 0x1A31A0 in the interpreter against ours on 64 sets of fields.
+TEST(disc_prologue_pass_codes_equal) {
+    Disc* disc = prologue_disc();
+    if (!disc) SKIP("no Prologue disc");
+    CHECK(diff::prologue::run_passcode(*disc, 64));
+}
+
+// Phase 14 (0x3DC1C8) in a race of three cars, the program's own computer drivers driving two: the cars' slipstream (and
+// every other field but the drivers' zone cells and contact) equal to the engine's pairs pass, which the session runs.
+TEST(disc_prologue_pairs_pass_equal) {
+    Disc* disc = prologue_disc();
+    if (!disc) SKIP("no Prologue disc");
+    const diff::prologue::NearStats s = diff::prologue::near_check(*disc, "L_fisco6", "impreza_wrc_03,impreza_wrc_03,impreza_wrc_03", 2000, false);
+    std::printf("  %llu car records, %llu equal, %llu with a slipstream\n", (unsigned long long)s.records, (unsigned long long)s.clean,
+                (unsigned long long)s.with_slip);
+    CHECK(s.err.empty());
+    CHECK(s.records == 6000 && s.clean == s.records);
+    CHECK(s.with_slip > 0);
+}
+
+// The race's rules on our session (race_rules.h): lesson 1's speed cap (0x3E1C20: 50 km/h, as the original's lesson 1 drives),
+// and the Lupo cup's penalty: a hit at the wall past its limit, then the cap for ten seconds. Full throttle, no steering.
+#include "gt4r/sim/race_rules.h"
+
+TEST(disc_prologue_test_starts) {
+    Disc* disc = prologue_disc();
+    if (!disc) SKIP("no Prologue disc");
+    db::SpecDb db = open_db(*disc);
+    gt3r::Volume* vol = &disc->volume();
+    db::RaceEvents events(db, [vol](const std::string& path) -> std::optional<Bytes> {
+        const gt3r::Volume::Entry* e = vol->find(path);
+        return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
+    });
+    const sim::Program program = sim::Program::load(*disc);
+    int moving = 0, others = 0;
+    for (int n = 1; n <= 48; ++n) {
+        char label[16];
+        std::snprintf(label, sizeof label, "l0p%04d", n);
+        const std::optional<db::RaceEvent> e = events.event(label);
+        if (!e) continue;
+        const sim::RaceRules r = sim::race_rules(e->bytes, program);
+        if (r.start_speed[0] == 0) continue;
+        std::printf("  %s on %s:", label, e->course.c_str());
+        for (size_t k = 0; k < 6; ++k) std::printf(" %d km/h %d m%s", r.start_speed[k], r.start_distance[k], k < 5 ? "," : "\n");
+        ++moving;
+        CHECK(r.start_distance[0] < 0 && r.start_distance[0] > -400);
+        for (size_t k = 1; k < 6; ++k) {
+            CHECK(r.start_speed[k] != 0); // (its own or car 0's)
+            if (r.start_distance[k] == 0) continue;
+            ++others;
+            CHECK(r.start_distance[k] != r.start_distance[0]);
+            CHECK(std::abs(r.start_distance[k]) < 2000);
+        }
+    }
+    std::printf("  %d tests on the move, %d other cars' places\n", moving, others);
+    CHECK(moving > 20);
+    CHECK(others > 9);
+}
+
+TEST(disc_prologue_race_rules) {
+    Disc* disc = prologue_disc();
+    if (!disc) SKIP("no Prologue disc");
+    db::SpecDb db = open_db(*disc);
+    gt3r::Volume* vol = &disc->volume();
+    db::RaceEvents events(db, [vol](const std::string& path) -> std::optional<Bytes> {
+        const gt3r::Volume::Entry* e = vol->find(path);
+        return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
+    });
+    const sim::Program program = sim::Program::load(*disc);
+    auto run = [&](const char* label, int seconds) {
+        const std::optional<db::RaceEvent> e = events.event(label);
+        CHECK(e.has_value());
+        const sim::RaceRules r = sim::race_rules(e->bytes, program);
+        std::printf("  %s: cap %d, penalty %d s at %d km/h, walls %d, cars %d\n", label, r.speed_cap[0], r.hits.penalty, r.penalty_cap, r.hits.wall_limit, r.hits.car_limit);
+        const std::vector<std::string> labels{"civic_r_98"};
+        auto session = sim::Session::open(*disc, "tsukuba", labels);
+        session->set_race_rules(r.hits, r.speed_cap, r.penalty_cap);
+        std::vector<race::CarInput> in(1);
+        for (int k = 0; k < sim::Session::kHoldSteps; ++k) session->hold_once(in);
+        in[0].throttle = 1;
+        struct {
+            float top = 0, penalty_top = 0;
+            int penalty = 0, steps = 0;
+        } out;
+        for (int k = 0; k < seconds * 60; ++k) {
+            session->step_once(in);
+            const float v = std::fabs(session->cars()[0].speed) * 3.6f;
+            out.top = std::max(out.top, v);
+            const int p = session->penalty_seconds(0);
+            out.penalty = std::max(out.penalty, p);
+            if (p > 0) ++out.steps, in[0].brake = 0;
+            if (p > 0 && p < 5) out.penalty_top = std::max(out.penalty_top, v);
+        }
+        return out;
+    };
+    const auto lesson = run("l0p0001", 12);
+    std::printf("    top %.2f km/h\n", double(lesson.top));
+    CHECK(lesson.top > 49.0f && lesson.top < 51.0f);
+    CHECK(lesson.penalty == 0);
+    const auto cup = run("gt4p_lupo_cup_p", 40);
+    std::printf("    top %.2f km/h, penalty %d s (%d steps), top in its last 5 s %.2f km/h\n", double(cup.top), cup.penalty, cup.steps, double(cup.penalty_top));
+    CHECK(cup.top > 80.0f);
+    CHECK(cup.penalty == 10);
+    CHECK(cup.steps >= 600);
+    CHECK(cup.penalty_top < 52.0f);
+}
+
+// Prologue's opening shots (race/start_camera_prologue.h): the paths of slots 45 and 46 on every course that has them, cut in
+// the replay's last seconds (the original's grid page: one shot a second from 4 s before its end), each shot near the car.
+#include "gt4r/race/start_camera_prologue.h"
+
+TEST(disc_prologue_start_camera) {
+    Disc* disc = prologue_disc();
+    if (!disc) SKIP("no Prologue disc");
+    const gt3r::Volume::Entry* e = disc->volume().find("crs/tsukuba");
+    CHECK(e != nullptr);
+    if (!e) return;
+    const Bytes d = disc->volume().read(*e);
+    const course::CourseFile f = course::CourseFile::parse(d);
+    for (int k = 0; k < 2; ++k) {
+        const ByteSpan s = f.section(d, size_t(k ? race::kSlotPrologueReplayStart : race::kSlotPrologueStart));
+        CHECK(race::ReplayScript::is_script(s));
+        if (!race::ReplayScript::is_script(s)) return;
+        const race::ReplayScript script = race::ReplayScript::parse(s);
+        race::PrologueStartCamera cam;
+        cam.begin(&script, k == 1, 600);
+        gt3r::render::Mat4 body; // (the car at the origin)
+        int steps = 0, cuts = 0, dissolves = 0;
+        std::vector<int> at;
+        gt3r::render::Vec3 last{};
+        for (; cam.active() && steps < 2000; cam.step(), ++steps) {
+            race::ViewPose p;
+            CHECK(cam.pose(body, p));
+            CHECK(std::fabs(p.eye.x) < 60 && std::fabs(p.eye.y) < 20 && std::fabs(p.eye.z) < 60);
+            const gt3r::render::Vec3 to = p.eye - last;
+            if (steps && gt3r::render::length(to) > 1.0f) ++cuts, at.push_back(steps);
+            if (cam.dissolve() > 0) ++dissolves;
+            last = p.eye;
+        }
+        std::printf("  %s: %d steps, %d cuts%s%s, %d dissolves\n", k ? "replay" : "race", steps, cuts, at.empty() ? "" : ", the first at step ",
+                    at.empty() ? "" : std::to_string(at[0]).c_str(), dissolves);
+        CHECK(steps == (k ? 661 : 541));
+        CHECK(cuts >= (k ? 3 : 2));
+        CHECK(dissolves == (k ? 0 : 3));
+    }
+}
+
+// Every step of 1,200 from the program's state, ours against the program's (two touches of a wall in them): every field of the
+// record equal but the flaps (the shared random stream), the steering force and rumble (not run), the distance along the
+// course, the lap's and the drivers' words, and the view's pitch lag.
+TEST(disc_prologue_whole_step_equal) {
+    Disc* disc = prologue_disc();
+    if (!disc) SKIP("no Prologue disc");
+    std::vector<std::string> fields;
+    CHECK(diff::prologue::whole_step_fields(*disc, "tsukuba", "civic_r_98", 1200, fields));
+    static const std::set<std::string> kKnown = {"steer_force", "ffb", "lag_pitch_diff", "lag_heading_diff", "f3e4", "prev.f3e4", "laps", "x535", "x51c", "feedback", "hit_part"};
+    for (const std::string& f : fields) {
+        const bool known = kKnown.count(f) || f.rfind("w.flap", 0) == 0 || f.rfind("ai.", 0) == 0;
+        if (!known) std::printf("  %s differs\n", f.c_str());
+        CHECK(known);
+    }
+}
+
+// A license test's car is the first of its event's pool with that entry's parts and settings (the run's own: what the
+// demonstrations' files keep of their car 0).
+TEST(disc_license_car_is_the_pools) {
+    Disc* disc = nullptr;
+    for (const std::unique_ptr<Disc>& d : test::discs())
+        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d.get();
+    if (!disc) SKIP("no Gran Turismo 4 disc");
+    const sim::Program program = sim::Program::load(*disc);
+    gt3r::Volume* vol = &disc->volume();
+    db::SpecDb sdb = open_db(*disc, "american");
+    db::RaceEvents events(sdb, [vol](const std::string& path) -> std::optional<Bytes> {
+        const gt3r::Volume::Entry* e = vol->find(path);
+        return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
+    });
+    int runs = 0, equal = 0;
+    for (const std::string& label : events.labels()) {
+        if (label.rfind("usl0", 0) != 0) continue;
+        const auto run = sim::ai::DemoRun::load(*disc, program, label);
+        const auto e = events.event(label);
+        if (!run || !e) continue;
+        const std::vector<db::Opponent> pool = events.pool(*e);
+        const auto entries = run->entries();
+        if (pool.empty() || entries.empty()) continue;
+        sim::ai::GridEntry g;
+        g.car = pool[0].car, g.paint = pool[0].paint, g.parts = pool[0].parts, g.param = pool[0].param, g.enemy = pool[0].enemy;
+        sim::Equipment eq;
+        CHECK(sim::ai::entry_equipment(sdb, program, events, g, eq));
+        ++runs;
+        std::string d;
+        // (the record's padding +0x19 / +0x1A and its scratch words from +0x11C left out)
+        for (size_t k = 0; k < eq.bytes.size(); ++k)
+            if (k != 0x19 && k != 0x1A && k < 0x11C && eq.bytes[k] != entries[0].equipment.bytes[k]) {
+                char t[40];
+                std::snprintf(t, sizeof t, " +%zX %02X/%02X", k, eq.bytes[k], entries[0].equipment.bytes[k]);
+                d += t;
+            }
+        if (d.empty()) ++equal;
+        else std::printf("  %s:%s\n", label.c_str(), d.c_str());
+    }
+    // (The rest: the tests with the pace car, whose file lists it first, and B-8, whose car's rows are another region's.)
+    std::printf("  %d demonstrations, %d equal in every part and setting\n", runs, equal);
+    CHECK(runs > 50);
+    CHECK(equal >= 44);
+}
+
+// A passed lesson's name entry in the results movie: one letter at a time when no name is kept, Down the next letter, accept
+// the next box, cancel one back, the third letter the name; the cones of a lesson and its road's split points.
+TEST(disc_prologue_name_entry_and_cones) {
+    Disc* disc = prologue_disc();
+    if (!disc) SKIP("no Prologue disc");
+    gt3r::Volume* vol = &disc->volume();
+    const gt3r::Volume::Entry* e = vol->find("menu/result_license.strb");
+    CHECK(e != nullptr);
+    if (!e) return;
+    auto movie = std::make_shared<const race::StrobeMovie>(race::StrobeMovie::parse(vol->read(*e)));
+    using V = race::StrobePlayer::Value;
+    std::string entered;
+    race::StrobePlayer player(movie, [&](const std::string& name, const std::vector<V>& args) {
+        if (name == "GetRank") return V::number(0);
+        if (name == "PrizeLevel") return V::number(2);
+        if (name == "GetTime") return V::string("1'49.301");
+        if (name == "GetDefaultName") return V::string("");
+        if (name == "NameEntry" && !args.empty()) entered = args[0].to_string();
+        return V{};
+    });
+    player.restart();
+    auto run = [&](float seconds) {
+        for (float t = 0; t < seconds; t += 1.0f / 60) player.advance(1.0f / 60);
+    };
+    run(12);
+    auto letters = [&] {
+        std::string out;
+        for (const race::StrobePlayer::Draw& d : player.draw_list())
+            if (d.text && d.words.size() == 1) out += d.words;
+        return out;
+    };
+    CHECK(letters() == "A");
+    for (int k = 0; k < 2; ++k) player.key(0x28), run(0.3f);
+    player.key(0x26), run(0.3f);
+    CHECK(letters() == "B");
+    player.key(0x20), run(0.5f);
+    CHECK(letters() == "BA");
+    player.key(0x1B), run(0.5f);
+    player.key(0x20), run(0.5f), player.key(0x20), run(0.5f);
+    CHECK(letters() == "BAA");
+    CHECK(entered.empty());
+    player.key(0x20), run(0.5f);
+    CHECK(entered == "BAA");
+
+    const gt3r::Volume::Entry* c = vol->find("crs/L_fisco6");
+    CHECK(c != nullptr);
+    if (!c) return;
+    const Bytes data = vol->read(*c);
+    const course::CourseFile file = course::CourseFile::parse(data);
+    const ByteSpan road = file.section(data, course::kSlotRoadGtrw);
+    const race::Gadgets g = race::Gadgets::parse(file.section(data, course::kSlotGadgets), road);
+    CHECK(g.placements.size() == 64);
+    CHECK(g.kinds.size() == 3);
+    for (const race::Gadgets::Placement& p : g.placements) CHECK(p.kind >= 0 && size_t(p.kind) < g.kinds.size());
+    const std::vector<float> splits = race::road_list(road, 0);
+    CHECK(splits.size() == 2);
+    CHECK(splits.size() == 2 && splits[0] < splits[1] && splits[1] < 4459);
 }

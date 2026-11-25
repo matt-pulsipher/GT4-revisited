@@ -10,6 +10,7 @@
 #include "gt4r/sim/collide.h"
 #include "gt4r/sim/aids_prologue.h"
 #include "gt4r/sim/collide_prologue.h"
+#include "gt4r/sim/feel_prologue.h"
 #include "gt4r/sim/convert.h"
 #include "gt4r/sim/ground.h"
 #include "gt4r/sim/record.h"
@@ -81,6 +82,7 @@ public:
     // A computer driver's decision for a car, within the step (step_once).
     using Decider = std::function<void(size_t car, race::CarInput& input)>;
     static constexpr float kStep = 1.0f / 60.0f;
+    inline static bool skip_hold = false; // (gt4r_diff's comparison of the set-up: the constructor without its hold)
     static constexpr int kHoldSteps = 120; // a standing start's countdown before the session's time 0 (the constructor's)
     // Further settings of a session.
     struct Options {
@@ -127,6 +129,9 @@ public:
     // the input phase takes the car's input as the computer's outputs) let go (the single-player conductor's virtual
     // +0x14, 0x347928: 0x345228 and 0x3F37B8).
     void release_start(int car) override;
+    // A free run's count to the hand-over (F +0x590: 180 steps from the set-up; 0x3F37C0 in DynamicsConductorFreeRun::vf14), a step
+    // of it: true in the step it runs out.
+    bool count_rolling(size_t car);
     // The car standing at (x, y, z) facing `heading`, in the record's frame (x, y, z up: the record's F + 0x00; the
     // course's x, -z, y; z the road's height there): the pose (0x3630C0), 0x3455F0 and the standing start (0x363560).
     // For a pit stop; Gran Turismo 4's rules only.
@@ -199,6 +204,15 @@ public:
     // +0x34) and whether the second wear may run (a single race on a paved course whose row allows it). Set before the start
     // (new tires take them); all off by default, as in every race seen.
     void set_wear_rules(const u8* rule_block, bool second_on, const Program& program);
+    // The race's rules of hits and speed caps (the rule block's +0x46 .. +0x4A, +0x42 / +0x43 and +0x4B, from the race's RACE row:
+    // Gran Turismo 4's 0x35E108, Prologue's 0x3C5978): a hit past the limits caps the car's speed at `penalty_cap` km/h for
+    // `h.penalty` seconds. All 0 (none) by default; holds until set again.
+    void set_race_rules(const rules::HitRules& h, std::array<u8, 2> speed_cap, u8 penalty_cap) {
+        hit_rules_ = h, aid_race_.speed_cap = speed_cap, aid_race_.start_cap = penalty_cap;
+    }
+    // The seconds left of a car's penalty as the race display counts them (Prologue's 0x3C6030, Gran Turismo 4's the same: the counter's
+    // steps + 59 over 60; 0 once the car's race ended).
+    int penalty_seconds(size_t i) const;
     // What the computer drivers' pit flow reads and changes (sim/ai/pit_flow.h): the fuel (liters) and tank, the distance and the
     // fuel since the economy display's last reading (F +0x4C8 / +0x4C4), the fuel counted at all (F +0x5D0's distance > 0 is the
     // flow's own test), a wheel's tread wear (+0xAC) and wear grip (+0x50); new tires on a wheel (0x362E58); the fuel set.
@@ -300,6 +314,10 @@ private:
     // Prologue's program: its own step (rules_prologue.h) in place of the engine's routines it does not share.
     std::optional<prologue::Tables> prologue_;
     std::vector<prologue::CarPart> prologue_cars_;
+    std::vector<prologue::FeelPart> prologue_feel_; // (phase 19's bookkeeping and feel, feel_prologue.h)
+    rules::FeelTables prologue_feel_tables_;
+    rules::SlideTables prologue_slide_;
+    gt3r::sim::exact::Proximity prologue_near_{}; // (phase 14's tables of the cars' pairs)
     std::unique_ptr<prologue::Collision> prologue_collide_;
     prologue::AidTables prologue_aids_;
     std::vector<prologue::Collision::Contact> prologue_contacts_;

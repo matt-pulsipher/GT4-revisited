@@ -109,3 +109,52 @@ TEST(disc_race_menus_work_at_the_start) {
     CHECK(work("freerun", "freerun").get("BestTime") == s32(menu::QuickWork::kNoTime) && work("freerun", "freerun").get("canLoadGhost") == 1);
     CHECK(work("solo_event", "am_sunday_0001").get("BestTime") == 0 && work("solo_event", "am_sunday_0001").get("canLoadGhost") == 0);
 }
+
+// The Replay Theater's Demo tab (28-demo-replays: "Demo: 13 movies"): each row's title, time, course, car, A / B tag and KB, as
+// the original's list shows them.
+TEST(disc_replay_theater_demo_list) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    Flow f(*disc);
+    CHECK(f.gt_mode_with_a_car());
+    script::Vm& vm = f.rt->vm();
+    const Value mode[2] = {Value::string("MODE_DEMONSTRATION"), Value::integer(0)};
+    const Value cls = vm.lookup("menu::MMemoryCardManager");
+    const Value manager = cls.p ? vm.call(cls, mode) : Value{};
+    CHECK(manager.p != nullptr);
+    if (!manager.p) return;
+    struct Row {
+        const char *time, *course, *car;
+        int spectator, kb;
+    };
+    const Row want[] = {{"2'28.362", "paris_rally", "Bentley Speed 8", 0, 43},
+                        {"2'17.056", "yosemite", "Nissan MOTUL PITWORK Z", 1, 24},
+                        {"1'45.085", "icerace", "Mitsubishi Lancer Evolution", 0, 39},
+                        {"1'50.857", "newyork", "BMW M3 GTR", 1, 23},
+                        {"2'38.325", "r_capri", "Chevrolet Corvette Convertible", 0, 38},
+                        {"3'40.867", "sarthe", "Audi R8", 1, 24},
+                        {"1'55.501", "yosemite_dirt", "Ford RS200", 0, 46},
+                        {"1'32.269", "infineon", "Ford GT LM", 0, 36},
+                        {"1'24.724", "highspeedring", "AMG Mercedes CLK-GTR", 1, 24},
+                        {"7'52.780", "nurburgring", "Nissan SKYLINE GT-R V-spec II Nur `02", 0, 63},
+                        {"1'32.636", "paris_tarmac", "Lancia STRATOS", 0, 37},
+                        {"1'21.289", "tsukuba_wet", "Opera Performance S2000", 0, 35},
+                        {"2'14.171", "route5_club", "Plymouth Super Bird", 0, 34}};
+    CHECK(vm.attribute(manager, "count").i == 13);
+    for (int i = 0; i < 13; ++i) {
+        const Value at[1] = {Value::integer(i)};
+        const Value file = vm.call(vm.attribute(manager, "getFile"), at);
+        CHECK(file.p != nullptr);
+        if (!file.p) continue;
+        char title[16];
+        std::snprintf(title, sizeof title, "DEMO_%03d", i);
+        auto str = [&](const char* n) { return vm.attribute(file, n).to_string(); };
+        std::printf("  %s %s %s | %s | %d %d KB\n", str("title").c_str(), str("time").c_str(), str("courseName").c_str(), str("carName").c_str(),
+                    vm.attribute(file, "spectatorMode").i, vm.attribute(file, "size").i);
+        CHECK(str("title") == title && str("time") == want[i].time && str("date") == "--/--/--");
+        CHECK(str("courseName") == want[i].course && str("carName").find(want[i].car) != std::string::npos);
+        CHECK(vm.attribute(file, "spectatorMode").i == want[i].spectator && vm.attribute(file, "size").i == want[i].kb);
+    }
+    const Value sub[2] = {Value::string("MODE_DEMONSTRATION_SUB"), Value::integer(0)};
+    CHECK(vm.attribute(vm.call(cls, sub), "count").i == 0);
+}

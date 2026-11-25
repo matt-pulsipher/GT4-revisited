@@ -286,9 +286,9 @@ unsigned GadgetBodies::step(const Gadgets& g, const course::Runway& road, std::s
                     const float s = now / (now - was);
                     b.pos.x -= s * mx, b.pos.y -= s * my, b.pos.z -= s * mz;
                 }
-                // 0x3E4708: an impulse along the wall's level normal at the hull point most against it
-                // (❓ the program starts its search from 0x6A396C, a NaN, so its first point always), the
-                // body stopped when that would add energy.
+                // 0x3E4708: an impulse along the wall's level normal at the hull point most against it (the search
+                // starts from 0x6A396C = 0x7FFFFFFF, the PlayStation 2's greatest number), the body stopped when
+                // that would add energy (Prologue's 0x39CFB8, else the same, has no such check).
                 const float inv = 1.0f / std::sqrt(ee);
                 const V wn{ez * inv, 0, -ex * inv};
                 auto energy = [&] {
@@ -296,8 +296,11 @@ unsigned GadgetBodies::step(const Gadgets& g, const course::Runway& road, std::s
                            k.mass * dot(b.vel, b.vel);
                 };
                 const float before = energy();
-                if (n > 0) road_impulse(b, k, k.hull[0], wn);
-                if (energy() > before) b.vel = {}, b.omega = {};
+                size_t most = 0;
+                for (size_t i = 1; i < n; ++i)
+                    if (wn.x * pts[i].x + wn.z * pts[i].z < wn.x * pts[most].x + wn.z * pts[most].z) most = i;
+                if (n > 0) road_impulse(b, k, k.hull[most], wn);
+                if (!road.gtrw && energy() > before) b.vel = {}, b.omega = {};
                 cap_turn(b);
                 break;
             }

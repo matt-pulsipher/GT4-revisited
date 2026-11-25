@@ -23,6 +23,7 @@ struct HudState {
     float top_speed = 70;             // metres per second: the speedometer's face
     int gear = 1;                     // -1 reverse, 0 neutral
     bool clutch_closed = true;        // the clutch is locked (0x343BE0): the gear's digit in full, else at half
+    std::array<int, 3> signs{}; // the stability aid's, the brake's and the oil's signs: 0 out, 1 half lit, 2 lit, 3 blinking
     float gear_flash = 0;             // 1 as a new gear is taken with the clutch locked, falling to 0 in 0.15 s
     bool stepless = false;            // a stepless gearbox: forward "C"
     bool driver_view = false;         // the in-car and roof views' panel, else the chase view's
@@ -44,6 +45,10 @@ struct HudState {
     float card_opacity = 0;
     std::string status;               // the status line over the panel ("FULL THROTTLE"); UTF-8
     float status_opacity = 0;
+    bool fuel_on = true; // the race counts fuel (its gauge over the chase views)
+    bool refuel = false; // the refuel bar (0x2D78), with the fuel and the tank (liters)
+    float refuel_fuel = 0, refuel_tank = 0;
+    std::string tooltip; // the help strip's line in place of B-spec's (the pit menu's, the refuel bar's); UTF-8
     float logo_opacity = 0;           // a replay's opening: the course's logo at the bottom right
     std::string caption_title, caption_artist; // a replay: the music's caption at the bottom left
     float caption_opacity = 0;
@@ -113,6 +118,10 @@ public:
         float x = 0, z = 0;
         char letter = 'A';
     };
+    // A paint's chip (its words' colors in bands, the gloss over them) at a place of the canvas.
+    void draw_chip(float x, float y, float w, float h, const std::array<u32, 4>& words);
+    // The help strip with its line (a movie's page).
+    void draw_strip(const std::string& words);
     void draw_map_box(float cx, float cy, float size, std::span<const Letter> cars, size_t lit);
     // The course's logo (piece/crs_logo/<course>.img, a Tex1 picture) for the replays' opening.
     void set_course_logo(ByteSpan tex1);

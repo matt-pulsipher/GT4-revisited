@@ -53,6 +53,7 @@ struct WorldEntry {
     std::optional<sim::Equipment> equipment; // the car's parts and settings (a garage car's); none: as sold
     std::optional<std::array<u8, 0x20>> condition; // a garage car's condition block (sim::Entry::condition)
     std::string wing; // a fitted wing's label (a WING row); empty: the equipment's (record +0x100), else none
+    int start_kind = 0; // a rolling start's kind (RaceFlow's; 0: 2 behind the line, 1 past it)
     float start_distance = std::numeric_limits<float>::quiet_NaN(); // a rolling start's place (sim::Entry::start_distance)
     std::optional<course::Runway::Place> place; // the car's own start place (a license test's road section: sim::Entry::place)
 };
@@ -128,6 +129,7 @@ public:
     // stays released until the next restart.
     // With the game's simulation the session holds the cars itself (F +0x467 = 1, the aids' start pace 0x3F7880 /
     // 0x3F76E8) and lets each go (0x345228, 0x3F37B8); the stand-in simulation is held here.
+    bool count_rolling(size_t car) { return session_ && session_->count_rolling(car); }
     void release_start(size_t car) {
         // (its driver's line first: a driver without it is not let go)
         if (session_ && field_ && rolling(car) && !field_->release_rolling(car)) return;
@@ -169,6 +171,39 @@ public:
     std::array<sim::ai::PitStops::StopRecord, 4> pit_record(size_t car) const {
         return pits_ && car < car_visuals_.size() ? pits_->stop_record(car) : std::array<sim::ai::PitStops::StopRecord, 4>{};
     }
+    // The PIT STOP menu of the player's car (0x35BC70): the stop's choice just asked (service 0x10 newly set), with what
+    // may be chosen; nullopt otherwise. Asked each step.
+    struct PitOffer {
+        bool tires = false, fuel = false, bspec = false;
+    };
+    std::optional<PitOffer> pit_offer(size_t car);
+    // The menu's end (0x35BCE8): the car off the pit lane again, or its B-spec wait about to run out, or the choice taken.
+    bool pit_offer_over(size_t car) const;
+    // The player at the menu (0x35BCC8): B-spec's wait stopped.
+    void pit_wait(size_t car);
+    // The kinds of tire the pit may fit to an axle (0 front, 1 rear), in order: those of the fitted kind's class
+    // (0x4076E0 by 0x441300), and the kind fitted.
+    std::vector<int> pit_tire_kinds(size_t car, int axle) const;
+    int fitted_tire(size_t car, int axle) const;
+    // The choice (0x35BF08): tire kinds (0xFF none), fuel.
+    void pit_choose(size_t car, u8 front, u8 rear, bool fuel) {
+        if (pits_ && car < car_visuals_.size()) pits_->choose(car, front, rear, fuel ? 1 : 0);
+    }
+    // Where the car is in a pit visit (0x35BBD8): 0 none, 1 down the lane or waiting for the choice, 2 the stop's start, 3 its work,
+    // 4 its end, 5 out of the box to the lane's end.
+    int pit_stage(size_t car) const;
+    // B-spec's pit command taken back or given (0x3F19E0 command 6).
+    void pit_command(size_t car);
+    // The refuelling: just begun (0x35BE10: service 0x20 taken), going on (0x35BEB0), stopped by the player (0x35BFC0).
+    bool refuel_begun(size_t car);
+    bool refuelling(size_t car) const;
+    void stop_refuel(size_t car) {
+        if (pits_ && car < car_visuals_.size()) pits_->choose(car, 0xFF, 0xFF, 0, 2);
+    }
+    // The race counts fuel (its gauge shown).
+    bool counts_fuel() const { return counts_fuel_; }
+    float fuel(size_t car) const { return session_ && car < car_visuals_.size() ? session_->fuel(car) : 0; }
+    float tank(size_t car) const { return session_ && car < car_visuals_.size() ? session_->tank(car) : 0; }
     // What goes with the cars shown in a step, live (the simulation's) or recorded: smoke and dust
     // from the wheels, and the race's sound heard from `camera` (none: no sound) about car `target`.
     void present(std::span<const race::CarState> cars, const audio::SoundListener* camera, int target, bool live);
@@ -197,12 +232,15 @@ public:
         size_t car = 0;
         float x = 0, y = 0;
         float opacity = 1;
+        bool large = false; // the maker's other picture (kind 0: 128 x 64, from the front at an angle)
     };
+    // A car's paint chip's words (race::paint_chip).
+    std::array<u32, 4> paint_chip(size_t car) const;
     std::pair<float, float> car_size(size_t i) const;
     void draw_icons(Ui& ui, const SDL_FRect& canvas, std::span<const Icon> icons);
     // One model in its own view over `rect` (the license results' trophy), in the course's light:
     // `place` its model matrix in a camera at the origin looking down -z, `proj` the lens.
-    void draw_model(Ui& ui, const SDL_FRect& rect, const gt3r::render::GpuModel& model, const gt3r::render::Mat4& place, const gt3r::render::Mat4& proj, float alpha);
+    void draw_model(Ui& ui, const SDL_FRect& rect, const gt3r::render::GpuModel& model, const gt3r::render::Mat4& place, const gt3r::render::Mat4& proj, float alpha, bool own_reflection = false);
 
     const race::CourseScene& course() const { return *course_; }
     const race::CarVisual& visual(size_t i) const { return *car_visuals_[i]; }
@@ -223,8 +261,17 @@ public:
     float gadget_impulse(size_t i) const;
     // A car's mass as the step reads it (the spec's weight, kg; 0 not known): the license tests' wall rule.
     float car_mass(size_t i) const;
+    // The seconds left of a car's penalty (the speed cap a hit gave; 0: none).
+    int penalty_seconds(size_t i) const;
+    // A car's stability and traction controls: 0 off, 1 on, 2 acting (Prologue's record F + 0x524 / 0x525).
+    void aid_status(size_t i, u8& asm_status, u8& tcs_status) const;
+    // A car's limiter and automatic up-shift revolutions (P + 0x1C4 and + 0x226; 0 not known).
+    void rev_marks(size_t i, float& limit, float& shift) const;
     // The suggested gear for a car the player drives (-1 none).
     int suggested_gear(size_t i) const;
+    // The signs' states of a car (RaceDisplay::vf2 0x39E280): the aids' (the greater of ASCC's and TCS's status: on 1, acting 3), the
+    // handbrake past 0.25 (2), the oil past its distance (2).
+    std::array<int, 3> signs(size_t i) const;
     // The car's gearbox is a stepless one (0x3F1F78).
     bool stepless(size_t i) const { return session_ && i < car_visuals_.size() && session_->gt4_record(i).drive.d.kind == 1; }
     // A car's fuel left as a share of its tank (1 without a tank).
@@ -258,6 +305,10 @@ private:
     std::unique_ptr<sim::Session> session_;
     std::unique_ptr<sim::ai::Field> field_; // the computer drivers, on the game's simulation
     std::unique_ptr<sim::ai::PitStops> pits_; // their pit stops
+    bool counts_fuel_ = false;
+    mutable std::optional<float> oil_from_;   // the oil's distance its sign lights from
+    std::vector<u8> pit_asked_;               // each car's choice was already asked at the last look (pit_offer)
+    std::function<std::pair<int, int>(size_t)> tires_fitted_; // (their hook: the kinds on the car)
     std::shared_ptr<const sim::Program> program_; // (what their tire change reads)
     bool bspec_driven_ = false;               // a B-spec driver drove the player's car (its record set)
     bool computer_player_ = false;

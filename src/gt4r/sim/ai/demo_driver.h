@@ -57,6 +57,11 @@ struct DemoRun {
 
     // nullopt (with *error) without the file, or when it does not read (a program whose cipher tables are not mapped).
     static std::optional<DemoRun> load(Disc& disc, const Program& program, const std::string& label, std::string* error = nullptr);
+    // A recorded race of the disc's (replay/<name>/<name>: the Replay Theater's Demo tab), scrambled as a card's replay.
+    static std::optional<DemoRun> load_replay(ByteSpan file, const Program& program, const std::string& name, std::string* error = nullptr);
+    // B-spec's command in the record of a step (+0x14 the command, 4 the pace, 5 the overtake, 6 the pit, 10 the mode; +0x15 its
+    // argument) and the pit menu's choice (+0x10 1 the choice, 2 the refuelling stopped; +0x11 front, +0x12 rear, +0x13 fuel).
+    std::array<u8, 6> mail(size_t step) const;
 };
 
 } // namespace gt4r::sim::ai

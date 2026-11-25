@@ -6,7 +6,9 @@
 
 #include "gt4r/menu/game_internal.h"
 
+#include "gt4r/formats/replay/demonstration.h"
 #include "gt4r/race/replay_file.h"
+#include "gt4r/save/codec.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -72,8 +74,7 @@ void install_replay_list(GameNatives& n, Object& manager) {
         std::string car, course = info ? info->course : std::string();
         if (info && !info->cars.empty())
             if (const db::CarEntry* c = d.car(info->cars[0].label)) car = c->name;
-        for (const db::CourseEntry& c : d.courses)
-            if (info && c.label == info->course) course = c.name;
+        // (The course's label: the page's script translates it, CourseNameCaption.)
         // ❓ The program's title and date texts are the card file's own; here the file's name and
         // the day it was written.
         char date[32] = "";
@@ -107,6 +108,82 @@ void install_replay_list(GameNatives& n, Object& manager) {
             files->erase(std::remove(files->begin(), files->end(), path), files->end());
             return text(e ? "DEVICE_ERROR" : "OK");
         });
+        return object_value(f);
+    });
+}
+
+// The Replay Theater's Demo tab (MODE_DEMONSTRATION: the program's DeviceDemo, 0x1D1950): the disc's replays the project's
+// configuration names for the region (DemonstrationFiles, main::), each a folder replay/<name>/ of a replay file (scrambled as
+// the card's replays, then a ReplayData, docs/formats/replay.md), icon.sys, icon0.ico and a thumbnail. Titles "DEMO_000" on,
+// the recorded time, course and first car from the replay, the A / B tag its mode (+0x0C, 1 B-spec), the size the folder's
+// KB as on a card. ❓ Playing one is not done (the original refuses them in the emulator, "Data is corrupted.", what a console
+// does is not known): load answers INVALID_FILE.
+void install_demo_list(GameNatives& n, Object& manager, bool sub) {
+    GameNatives* np = &n;
+    struct Demo {
+        std::string name;
+        std::optional<replay::Demonstration> run;
+        int kb = 0;
+    };
+    auto demos = std::make_shared<std::vector<Demo>>();
+    const Value names = sub ? Value{} : n.rt.vm().lookup("DemonstrationFiles");
+    const std::vector<Value>* list = names.items();
+    Database& db = n.db();
+    for (size_t i = 0; list && i < list->size(); ++i) {
+        Demo d;
+        d.name = (*list)[i].to_string();
+        const std::string folder = "replay/" + d.name + "/";
+        int kb = 0, files = 0;
+        for (const std::string& f : {d.name, std::string("icon.sys"), std::string("icon0.ico"), std::string("thumbnail")})
+            if (const std::optional<Bytes> data = n.rt.reader()(folder + f)) kb += int((data->size() + 1023) / 1024), ++files;
+        d.kb = files ? kb + (files + 1) / 2 + 1 : -1;
+        if (const std::optional<Bytes> data = n.rt.reader()(folder + d.name); data && db.program.known())
+            if (const std::optional<Bytes> body = save::unscramble(*data, 0, save::FileKind::Replay)) {
+                try {
+                    d.run = replay::Demonstration::parse(*body, db.program);
+                } catch (const std::exception&) {
+                }
+            }
+        demos->push_back(std::move(d));
+    }
+    manager.property("count", [demos] { return number(s32(demos->size())); });
+    manager.method("isNoFile", [demos](Vm&, const Value&, Args) { return number(demos->empty()); });
+    manager.method("isConnect", [](Vm&, const Value&, Args) { return number(1); });
+    manager.method("getNewFile", [](Vm&, const Value&, Args) { return Value{}; });
+    auto playlist = std::make_shared<Object>("MReplayPlayList");
+    playlist->set("list", Value::array({}));
+    playlist->method("save", [](Vm&, const Value&, Args) { return text("OK"); });
+    manager.set("autoloadPlayList", object_value(playlist));
+    manager.method("getFile", [np, demos](Vm&, const Value&, Args a) -> Value {
+        const s32 i = arg_int(a, 0, -1);
+        if (i < 0 || size_t(i) >= demos->size()) return Value{};
+        const Demo& d = (*demos)[size_t(i)];
+        Database& db = np->db();
+        std::string car;
+        if (d.run && !d.run->entries.empty()) {
+            const std::string label = db.label(u64(d.run->entries[0].equipment.bytes[0]) | u64(d.run->entries[0].equipment.bytes[1]) << 8 |
+                                               u64(d.run->entries[0].equipment.bytes[2]) << 16 | u64(d.run->entries[0].equipment.bytes[3]) << 24);
+            if (!label.empty()) car = np->rt.vm().attribute(make_car_object(np->rt, label, 0), "short_name").to_string();
+        }
+        // The course's label: the page's script translates it (CourseNameCaption).
+        const std::string course = d.run ? db.label(d.run->code_b8) : std::string();
+        char title[16];
+        std::snprintf(title, sizeof title, "DEMO_%03d", i);
+        auto f = std::make_shared<Object>("MMemoryCardFile");
+        f->set("objectName", text("FileReplayFull"));
+        f->set("title", text(title));
+        f->set("carName", text(car)), f->set("courseName", text(course));
+        f->set("time", text(d.run ? time_text(u32(d.run->time_ms)) : std::string()));
+        f->set("date", text("--/--/--")), f->set("size", number(d.kb));
+        f->set("spectatorMode", number(d.run && d.run->race_mode == 1)), f->set("dispstep", number(0));
+        f->set("portrait", number(0)), f->set("racemode", number(0)), f->set("racesubmode", number(0));
+        const bool valid = d.run.has_value();
+        f->method("isInfoValid", [valid](Vm&, const Value&, Args) { return number(valid); });
+        f->method("isIconValid", [](Vm&, const Value&, Args) { return number(0); });
+        f->method("getIconTexture", [](Vm&, const Value&, Args) { return text(""); });
+        f->method("writeInfo", [](Vm&, const Value&, Args) { return text("OK"); });
+        f->method("load", [](Vm&, const Value&, Args) { return text("INVALID_FILE"); });
+        f->method("remove", [](Vm&, const Value&, Args) { return text("DEVICE_ERROR"); });
         return object_value(f);
     });
 }

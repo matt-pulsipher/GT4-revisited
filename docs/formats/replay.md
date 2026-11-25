@@ -98,3 +98,24 @@ recording 10.083 s (605 steps) ❓ the stop rule's own timing.
 The reference's capture of the B-1 demonstration (`08-more`, `11-license-tt`) shows the original's cameras and title
 card; the car there only creeps, the emulator not playing the recording as the console does (the reference's note):
 its driving is not a reference.
+
+## The Replay Theater's demo replays (`replay/Rdemo<n>/`)
+
+The Demo tab (`menu/game_replays.cpp`, `install_demo_list`): the folders the configuration names for the region
+(`DemonstrationFiles`: `Rdemo0` .. `Rdemo12` on the US disc, four of them the Korean disc's `k`, the European disc's own
+`Rdemo0p` .. `p10`), each a replay of the same name, `icon.sys`, `icon0.ico` and a 256-byte `thumbnail`. A replay is
+scrambled as the card's files with two other swap fractions (0x3E6B3EF8 and 0x3F322311: FileGT4Replay's 0x1CFE68 write and
+0x1CFFF8 read; the game data's are 0x3E0B0C88 and 0x3F27A4E7), then a `ReplayData` as above. ✔ All 13 decipher and parse:
+the recorded times, courses and first cars are the reference's list (28-demo-replays), the mode word (+0x0C) is the A (0) /
+B (1) tag, the size the folder's KB plus 2 entries and one (the original's 43, 24, 39 ... KB). The title `DEMO_000` is the
+row's number. The list's course is the label; the page translates it (`CourseNameCaption`). ❓ Playing one is not done.
+
+**Playing one** (`screen_race.cpp` `load_recorded_race`): the course (+0xB8) and the event's row (+0xB0: `sample_entry_6` for an
+arcade race), the laps (the race information's +0), each entry's equipment, condition, place and aids; the start as the race's own
+(the course's rolling start, else the grid). A-spec (mode 0): car 0 by recorder 0's records from the race's first step. B-spec (mode
+1): its driver, and the records' mail: +0x14 the command (4 the pace, 5 the overtake, 6 the pit, 10 the mode), +0x15 its argument,
++0x10 the pit menu's choice (1; 2 the refuelling stopped), +0x11 / +0x12 the tires, +0x13 the fuel. A free run's recording is its lap's:
+n is 1, and the recorder's header (0x14F4 bytes, 0x35AB08) holds the car's record at the line (+0x54, 0x10A0 bytes) and its collision
+body (+0x10F4, 0x400): ❓ not read here (Rdemo9; it starts from the run-up instead). +0x148 is the music's play list (0x810 bytes). The
+European disc's own (`p`) run at 50 steps a second. ❓ What comes out of the pad's records here leaves the recorded run (race_flow.md).
+

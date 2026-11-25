@@ -19,17 +19,18 @@ int start_code_digit(const std::string& code, size_t i) {
 }
 
 void apply_drivers_file(CourseStart& s, ByteSpan ad) {
-    u8 d = 0, v = 0, g = 0;
+    u8 d = 0, v = 0, g = 0, fd = 0, fv = 0;
     try {
         if (course::AiData::looks_like(ad)) {
             const course::AiData a = course::AiData::parse(ad);
-            if (a.sets[0]) d = (*a.sets[0])[0x23], v = (*a.sets[0])[0x24], g = (*a.sets[0])[0x25];
+            if (a.sets[0]) d = (*a.sets[0])[0x23], v = (*a.sets[0])[0x24], g = (*a.sets[0])[0x25], fd = (*a.sets[0])[0x19], fv = (*a.sets[0])[0x1A];
         }
     } catch (const std::exception&) {
     }
     s.distance_m = d ? float(d) * 10 : 400;
     s.speed_kmh = v ? float(v) : 80;
     s.spacing_m = g ? float(g) : 20;
+    s.free_distance_m = float(fd) * 10, s.free_speed_kmh = float(fv) * 5;
 }
 
 CourseStart course_start(db::SpecDb& db, const std::string& course) {

@@ -5,6 +5,7 @@
 #include "gt4r/menu/prologue_license.h"
 
 #include "gt4r/menu/game_internal.h"
+#include "gt4r/menu/prologue_passcode.h"
 #include "gt4r/menu/runtime_internal.h"
 
 #include "disc/core_image.h"
@@ -34,6 +35,7 @@ struct LicenseRecord : Object {
     std::array<u8, kPrologueLicenseUnits * kUnitStride> bytes{};
     std::vector<std::string> categories, medals;
     std::string no_pass_code;
+    std::optional<PassCoder> coder;
     std::string default_name;
 
     u8* unit(size_t i) { return bytes.data() + i * kUnitStride; }
@@ -118,6 +120,15 @@ u64 clock_seconds() {
 
 } // namespace
 
+s32 prologue_table_place(Database& d, const char* table, u32 table_id, const std::string& label) {
+    const u64 code = d.code(table_id, label);
+    const db::Table* t = d.db ? d.db->table(table) : nullptr;
+    if (code == kNoCode || !t) return -1;
+    const std::vector<u32>& ids = t->ids();
+    const auto it = std::lower_bound(ids.begin(), ids.end(), u32(code));
+    return it != ids.end() && *it == u32(code) ? s32(it - ids.begin()) : -1;
+}
+
 std::string prologue_time_text(u32 ms) { return race::format_lap_time(ms == kNoTimeMs ? -1 : s64(ms)); }
 
 std::vector<u8> prologue_license_units(const Object& game) {
@@ -146,6 +157,7 @@ void install_prologue_license(Object& game, const RuntimeConfig* config) {
                 r->categories = program_names(core.program, core.load_address, kCategoryNames, kCategoryCount);
                 r->medals = program_names(core.program, core.load_address, kMedalNames, kMedalCount);
                 r->no_pass_code = program_text(core.program, core.load_address, kNoPassCode);
+                r->coder = PassCoder::from_program(core.program, core.load_address);
             }
         } catch (const std::exception&) {
         }
@@ -281,14 +293,14 @@ void install_prologue_license(Object& game, const RuntimeConfig* config) {
     });
     lic->method("forcePassedAll", [](Vm&, const Value&, Args) { return Value{}; }); // (0x3FEF38: nothing)
     // (ours) The name the results page offers (the user profile's +0x1133C: 0x402428 reads it, the page's NameEntry writes
-    // it, 0x402438): the last one entered; empty at first (the page then shows its own "AAA").
+    // it, 0x402438): the last one entered; empty at first (the page then takes one letter at a time).
     lic->method("getDefaultName", [r](Vm&, const Value&, Args) { return Value::string(r->default_name); });
     lic->method("setDefaultName", [r](Vm&, const Value&, Args a) {
         if (!a.empty() && a[0].kind == script::Kind::String) r->default_name = a[0].as_string();
         return Value{};
     });
     // A run's result as the license race's end records it (0x19ED58): (race code, result name, time ms, points[, name[,
-    // car, course]]). A medal's result keeps the best medal (0x3FE1A0); a run with a time (359,999,999: none) also goes to
+    // the car's place, the course's place]]: prologue_table_place). A medal's result keeps the best medal (0x3FE1A0); a run with a time (359,999,999: none) also goes to
     // 0x3FE430: the most points kept, then the entry (the name, the time, the clock's date, the points, the pass code) put at the
     // time's place in the ranking, the slower ones moved down, the tenth dropped (0x3FE250); none past the tenth.
     lic->method("recordResult", [r, unit, unit_number](Vm& vm, const Value&, Args a) -> Value {
@@ -315,7 +327,15 @@ void install_prologue_license(Object& game, const RuntimeConfig* config) {
         const u64 date = clock_seconds();
         std::memcpy(e + 0x18, &date, 8);
         LicenseRecord::put32(e + 0x20, u32(points));
-        const std::string code = r->no_pass_code; // (❓ the run's pass code: not made yet)
+        // The run's pass code (0x19EC08 over 0x1A31A0): the record's kind 11, the car's and the course's places in their
+        // tables (none: the 9 and 8 bits of -1), the test's number (the race code's digits, 0x19F238), the time.
+        std::string code = r->no_pass_code;
+        if (r->coder && a.size() > 6 && a[0].kind == script::Kind::String && a[0].as_string().size() > 3) {
+            PassFields f;
+            f.car = u32(arg_int(a, 5, -1)), f.course = u32(arg_int(a, 6, -1));
+            f.test = u32(std::atoi(a[0].as_string().c_str() + 3)), f.time = t;
+            code = r->coder->encode(f);
+        }
         std::memcpy(e + 0x24, code.data(), std::min<size_t>(code.size(), 31));
         return Value::integer(1);
     });
