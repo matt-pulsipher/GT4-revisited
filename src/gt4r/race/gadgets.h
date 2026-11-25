@@ -30,8 +30,8 @@ struct Gadgets {
     ByteSpan models; // the kinds' model set (MDLS at GDGT +0x400): model 2k the kind's shape, 2k + 1 its shadow 🔎
 
     static bool is_gadgets(ByteSpan d) { return d.size() >= 0x20 && gt3r::has_magic(d, "GDGT"); }
-    // `gdgt` slot 47, `rnw4` slot 55 (either may be empty). Throws FormatError.
-    static Gadgets parse(ByteSpan gdgt, ByteSpan rnw4);
+    // `gdgt` slot 47, `road` slot 55 (RNW4) or Prologue's slot 28 (GTRW) (either may be empty). Throws FormatError.
+    static Gadgets parse(ByteSpan gdgt, ByteSpan road);
     // A placement's turn (row-major 3 x 3, body to course), as the shared engine's pylons build it.
     static std::array<float, 9> rotation(const std::array<float, 3>& angles);
 };

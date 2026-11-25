@@ -213,12 +213,12 @@ void aids(ex::Car& c, const CarPart& x, const AidTables& g, const AidRace& r, co
         if (c.driver_kind == 0 || c.hold != 0) own();
         else driver(), statuses();
     } else if (control == 2) driver(), statuses();
-    // The race's speed caps: the rule block's for the control source; a car of driver kind 5 at most 80 km/h; while the
-    // start's counter runs (❓ none in our races) its cap.
+    // The race's speed caps: the rule block's for the control source; a car of driver kind 5 at most 80 km/h; else,
+    // while the car's penalty runs, the penalty's cap.
     u32 cap = control == 2 ? r.speed_cap[1] : r.speed_cap[0];
     if (c.driver_kind == 5) {
         if (cap == 0 || cap > 0x50) cap = 0x50;
-    }
+    } else if (r.penalty && (cap == 0 || r.penalty_cap < cap)) cap = r.penalty_cap;
     if (cap != 0) hold_speed(c, int_to_f(gt3r::s32(cap)) * kKmh);
 }
 

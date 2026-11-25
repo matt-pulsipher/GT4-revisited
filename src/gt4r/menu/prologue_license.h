@@ -8,7 +8,7 @@
 // a result keeps the best, 0x3FE1A0), +0x08 its most points (0x3FE430), from +0x10 ten ranking entries of 0x48 bytes in
 // time order (0x3FE250 inserts one; 0x3FDF80 empties one), +0x2E0 its number (not saved). An entry: +0x00 the name
 // (16 bytes), +0x10 the time (ms; 359,999,999 none), +0x18 the date (u64 seconds counted from Julian day 0 at noon:
-// 0x4762A8), +0x20 the run's points, +0x24 the pass code (32 bytes; "--------" none).
+// 0x4762A8), +0x20 the run's points, +0x24 the pass code (32 bytes; "--------" none; prologue_passcode.h).
 
 #include "gt4r/base/types.h"
 
@@ -20,6 +20,7 @@ namespace gt4r::menu {
 
 struct Object;
 struct RuntimeConfig;
+struct Database;
 
 constexpr size_t kPrologueLicenseUnits = 48;
 constexpr size_t kPrologueLicenseUnitBytes = 0x2E0; // what the save writes of each unit (0x3FE998)
@@ -34,6 +35,10 @@ bool prologue_license_load(Object& game, ByteSpan units);
 // main::game.license on `game` (once). The names of the categories and medals are the program's (`config`'s program,
 // when it is Prologue's); without them a unit's category and medal are kept by number only.
 void install_prologue_license(Object& game, const RuntimeConfig* config = nullptr);
+
+// A row's place among its table's ids (0x406AE8, as 0x40A270 / 0x40A2A0 ask it of the car's and course's tables for a pass
+// code): the row of `label` in table `table_id` of the database (`table` its name); -1 when none.
+s32 prologue_table_place(Database& d, const char* table, u32 table_id, const std::string& label);
 
 // The time as the program writes it (0x409D88): M'SS.mmm, the dashes for none.
 std::string prologue_time_text(u32 ms);
