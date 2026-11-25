@@ -228,6 +228,24 @@ bool LiveWidget::shown() const {
     return true;
 }
 
+bool is_face(const LiveWidget& w) {
+    if (w.data.has("is_face")) return w.data.number("is_face") != 0;
+    return w.data.type.size() >= 4 && w.data.type.compare(w.data.type.size() - 4, 4, "Face") == 0;
+}
+
+bool state_shows(int state, int condition, int compare) {
+    if (compare) return ((state ^ condition) & compare) == 0;
+    return !condition || (state & condition) != 0;
+}
+
+int drawn_state(const LiveWidget& w, int parent_state) { return is_face(w) ? parent_state : w.state; }
+
+void LiveWidget::set_state(int bit, bool on) {
+    state = on ? state | bit : state & ~bit;
+    if (!is_face(*this)) return;
+    if (LiveWidget* up = parent_widget()) up->set_state(bit, on);
+}
+
 bool LiveWidget::is_composite() const {
     return !one_of(data.type, {"ImageFace", "TextFace", "ColorFace", "FrameImageFace", "ToolTipFace", "ColorChipFace", "ModelFace", "InputTextFace",
                                "InputNumberFace", "CarFace", "SceneViewFace", "MovieFace", "FlashFace", "PhotoRenderFace", "GraphFace", "SlideShowFace",
@@ -255,8 +273,12 @@ Value LiveWidget::get(const std::string& n) const {
         const float v[4] = {r ? r->x : 0, r ? r->y : 0, r ? r->w : 0, r ? r->h : 0};
         return Value::number(v[i]);
     }
-    if (n == "active") return Value::integer((state & kActive) != 0);
-    if (n == "insensitive") return Value::integer((state & kInsensitive) != 0);
+    if (n == "active" || n == "insensitive") {
+        // A face has its parent's state from its last picture on.
+        const LiveWidget* from = this;
+        while (is_face(*from) && from->parent_widget()) from = from->parent_widget();
+        return Value::integer((from->state & (n == "active" ? kActive : kInsensitive)) != 0);
+    }
     if (n == "can_focus") return Value::integer(can_focus());
     const Property* p = data.find(n);
     if (!p || p->values.empty()) {
@@ -281,8 +303,7 @@ Value LiveWidget::get(const std::string& n) const {
 
 void LiveWidget::set(const std::string& n, const Value& v) {
     if (n == "active" || n == "insensitive") {
-        const int bit = n == "active" ? kActive : kInsensitive;
-        state = v.truthy() ? state | bit : state & ~bit;
+        set_state(n == "active" ? kActive : kInsensitive, v.truthy());
         set_property(n, Value::integer(v.truthy()));
         return;
     }
@@ -290,6 +311,9 @@ void LiveWidget::set(const std::string& n, const Value& v) {
         widget_set_index(*runtime, *this, v.is_number() ? int(v.as_float()) : 0, false);
         return;
     }
+    // A text's scale set after adjustScale() is the one drawn (the Replay Theater's titles).
+    if (const int bit = n == "scale_x" ? 1 : n == "scale_y" ? 2 : 0; bit && data.has("adjust_scale"))
+        set_property("adjust_scale", Value::integer(int(data.number("adjust_scale")) & ~bit));
     set_property(n, v);
     if (n == "index" && is_select_box(*this)) select_box_layout(*this, true);
     // A text given directly replaces the one looked up by key.
@@ -404,7 +428,7 @@ std::shared_ptr<script::Reference> common_member(const W& w, const std::string& 
     if (n == "next_window") return constant(widget_value(sibling(w, 1, true)));
     if (n == "prev_window") return constant(widget_value(sibling(w, -1, true)));
     if (n == "is_composite") return constant(Value::integer(w->is_composite()));
-    if (n == "is_face") return constant(Value::integer(!w->is_composite()));
+    if (n == "is_face") return constant(Value::integer(menu::is_face(*w)));
     if (n == "context" || n == "window_context") return constant(w->runtime ? w->runtime->context() : Value{});
     if (n == "actor") {
         auto a = std::make_shared<Accessor>();

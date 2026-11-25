@@ -5,6 +5,7 @@
 // what the scripts set and a saved game can be put behind it. The scripts' view of it is in
 // game_natives.cpp. docs/formats/menu.md ("The game's state").
 
+#include "formats/tex1.h"
 #include "gt4r/base/types.h"
 #include "gt4r/sim/equipment.h"
 
@@ -349,6 +350,9 @@ struct GameState {
     // file its last load read (the Replay Theater, the program's load_replay sequence 0x10CA50).
     int card_action = 0;
     std::string replay_file;
+    // The pictures the scripts hold as texture chunks (a card file's getIconTexture): an image face's `image_chunk` is the
+    // picture's name here.
+    std::map<std::string, gt3r::Tex1::Image> chunk_pictures;
     // The race's menus' shared object (MQuickWork): race_natives.h.
     std::shared_ptr<QuickWork> quick_work;
 };

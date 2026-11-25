@@ -108,4 +108,4 @@ scrambled as the card's files with two other swap fractions (0x3E6B3EF8 and 0x3F
 0x1CFFF8 read; the game data's are 0x3E0B0C88 and 0x3F27A4E7), then a `ReplayData` as above. ✔ All 13 decipher and parse:
 the recorded times, courses and first cars are the reference's list (28-demo-replays), the mode word (+0x0C) is the A (0) /
 B (1) tag, the size the folder's KB plus 2 entries and one (the original's 43, 24, 39 ... KB). The title `DEMO_000` is the
-row's number. The list's course is the label; the page translates it (`CourseNameCaption`). ❓ Playing one is not done.
+row's number. The list's course is the label; the page translates it (`CourseNameCaption`); the row's picture is the icon's (save.md "The icon's picture"). ❓ `load` gives the sequence the file's path on the disc, and until the race plays such a one the theater comes back. The original answers "Data is corrupted." in the emulator; what a console does is not known.

@@ -8,6 +8,7 @@
 
 #include "gt4r/formats/replay/demonstration.h"
 #include "gt4r/race/replay_file.h"
+#include "gt4r/save/card_icon.h"
 #include "gt4r/save/codec.h"
 
 #include <algorithm>
@@ -114,15 +115,17 @@ void install_replay_list(GameNatives& n, Object& manager) {
 
 // The Replay Theater's Demo tab (MODE_DEMONSTRATION: the program's DeviceDemo, 0x1D1950): the disc's replays the project's
 // configuration names for the region (DemonstrationFiles, main::), each a folder replay/<name>/ of a replay file (scrambled as
-// the card's replays, then a ReplayData, docs/formats/replay.md), icon.sys, icon0.ico and a thumbnail. Titles "DEMO_000" on,
+// the card's replays, then a ReplayData, docs/formats/replay.md), icon.sys, icon0.ico (the list's picture is its, save/card_icon.h) and a thumbnail. Titles "DEMO_000" on,
 // the recorded time, course and first car from the replay, the A / B tag its mode (+0x0C, 1 B-spec), the size the folder's
-// KB as on a card. ❓ Playing one is not done (the original refuses them in the emulator, "Data is corrupted.", what a console
-// does is not known): load answers INVALID_FILE.
+// KB as on a card. load gives the sequence the file's path on the disc (the original refuses them in the emulator, "Data is
+// corrupted."; a console's answer is not known).
 void install_demo_list(GameNatives& n, Object& manager, bool sub) {
     GameNatives* np = &n;
+    GameState* s = &n.state();
     struct Demo {
         std::string name;
         std::optional<replay::Demonstration> run;
+        std::string icon; // the name of its picture (GameState::chunk_pictures), "" none
         int kb = 0;
     };
     auto demos = std::make_shared<std::vector<Demo>>();
@@ -144,6 +147,11 @@ void install_demo_list(GameNatives& n, Object& manager, bool sub) {
                 } catch (const std::exception&) {
                 }
             }
+        if (const std::optional<Bytes> data = n.rt.reader()(folder + "icon0.ico"))
+            if (std::optional<std::vector<u32>> picture = save::icon_picture(*data)) {
+                d.icon = folder + "icon0.ico";
+                n.state().chunk_pictures[d.icon] = {save::kIconPicture, save::kIconPicture, std::move(*picture)};
+            }
         demos->push_back(std::move(d));
     }
     manager.property("count", [demos] { return number(s32(demos->size())); });
@@ -154,7 +162,7 @@ void install_demo_list(GameNatives& n, Object& manager, bool sub) {
     playlist->set("list", Value::array({}));
     playlist->method("save", [](Vm&, const Value&, Args) { return text("OK"); });
     manager.set("autoloadPlayList", object_value(playlist));
-    manager.method("getFile", [np, demos](Vm&, const Value&, Args a) -> Value {
+    manager.method("getFile", [np, s, demos](Vm&, const Value&, Args a) -> Value {
         const s32 i = arg_int(a, 0, -1);
         if (i < 0 || size_t(i) >= demos->size()) return Value{};
         const Demo& d = (*demos)[size_t(i)];
@@ -179,10 +187,14 @@ void install_demo_list(GameNatives& n, Object& manager, bool sub) {
         f->set("portrait", number(0)), f->set("racemode", number(0)), f->set("racesubmode", number(0));
         const bool valid = d.run.has_value();
         f->method("isInfoValid", [valid](Vm&, const Value&, Args) { return number(valid); });
-        f->method("isIconValid", [](Vm&, const Value&, Args) { return number(0); });
-        f->method("getIconTexture", [](Vm&, const Value&, Args) { return text(""); });
+        f->method("isIconValid", [icon = d.icon](Vm&, const Value&, Args) { return number(!icon.empty()); });
+        f->method("getIconTexture", [icon = d.icon](Vm&, const Value&, Args) { return text(icon); });
         f->method("writeInfo", [](Vm&, const Value&, Args) { return text("OK"); });
-        f->method("load", [](Vm&, const Value&, Args) { return text("INVALID_FILE"); });
+        f->method("load", [s, valid, path = "replay/" + d.name + "/" + d.name](Vm&, const Value&, Args) {
+            if (!valid) return text("INVALID_FILE");
+            s->replay_file = path;
+            return text("OK");
+        });
         f->method("remove", [](Vm&, const Value&, Args) { return text("DEVICE_ERROR"); });
         return object_value(f);
     });

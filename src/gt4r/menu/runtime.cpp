@@ -563,7 +563,9 @@ void Runtime::finish() {
     // action set (labomode's Play: load, setAction(1), the page closed) is shown, then the theater
     // again (the sequence's loop, 0x10CA50).
     if (sequence_ == "load_replay" && game_->next_sequence.empty() && game_->next_menu_project.empty()) {
-        if (game_->card_action == 1 && !game_->replay_file.empty()) game_->next_sequence = "replay";
+        // ❓ A demo replay (a path on the disc) is not played yet: the theater again.
+        const bool demo = game_->replay_file.compare(0, 7, "replay/") == 0;
+        if (game_->card_action == 1 && !game_->replay_file.empty() && !demo) game_->next_sequence = "replay";
         game_->next_menu_project = "labomode", game_->next_menu_arg = "ReplayTheaterRoot";
         game_->card_action = 0;
     }
@@ -887,17 +889,33 @@ void Runtime::set_focus(LiveWidget& page, const std::shared_ptr<LiveWidget>& w) 
     // Only the reference changes here: the picture after, the focus leave and enter events are
     // queued (0x22FBE0), so a page's onInitialize can set the focus before its widgets' actors
     // are made.
-    if (before) before->state &= ~(kFocus | kPrelight);
     page.focus = w;
-    if (!w) return;
-    w->state |= kFocus | kPrelight; // the faces of a focused widget test either bit
-    scroll_into_view(*w);
+    mark_focus(page);
+    if (w) scroll_into_view(*w);
+}
+
+// The focus bits: the focused widget's, and every parent's of a widget that has them, each picture (0x263A68, 0x207208).
+// (❓ Prelight is the widget the cursor points at: here the focused one.)
+void Runtime::mark_focus(LiveWidget& page) {
+    std::vector<std::weak_ptr<LiveWidget>> now;
+    for (std::shared_ptr<LiveWidget> w = page.focus.lock(); w;) {
+        now.push_back(w);
+        LiveWidget* up = w.get() == &page ? nullptr : w->parent_widget();
+        w = up ? up->self() : nullptr;
+    }
+    auto same = [](const std::weak_ptr<LiveWidget>& a, const std::weak_ptr<LiveWidget>& b) { return !a.owner_before(b) && !b.owner_before(a); };
+    if (now.size() == page.focus_chain.size() && std::equal(now.begin(), now.end(), page.focus_chain.begin(), same)) return;
+    for (const auto& w : page.focus_chain)
+        if (const auto held = w.lock()) held->state &= ~(kFocus | kPrelight);
+    for (const auto& w : now) w.lock()->state |= kFocus | kPrelight;
+    page.focus_chain = std::move(now);
 }
 
 // Each picture (0x22FBE0): a page whose focus is not the one its last picture had queues an
 // MFocusLeaveEvent for the old and an MFocusEnterEvent for the new.
 void Runtime::queue_focus_events() {
     for (const auto& page : pages_) {
+        mark_focus(*page);
         const std::shared_ptr<LiveWidget> now = page->focus.lock(), seen = page->focus_seen.lock();
         if (now == seen) continue;
         page->focus_seen = now;

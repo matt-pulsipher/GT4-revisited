@@ -58,9 +58,9 @@ none compared with the program's own code yet):
 | `geometry` | The widget's rectangle in its parent's; a widget without one fills its parent. The screen is 640 x 480 |
 | `children` | Drawn in order over the widget |
 | `visible` 0 | Not drawn, nor its children |
-| `visible_condition`, `visible_compare` | Drawn when `(state & visible_compare) == visible_condition` (either absent: 0, and the mask is the condition). The state's bits by the older files' `cond_active`, `cond_focus`, `cond_prelight`, `cond_insensitive`: 1 active, 2 focus, 4 prelight, 8 insensitive; a focused widget's faces test 2 or 4 (the runtime sets both) |
+| `visible_condition`, `visible_compare` | Which states a widget shows in (0x265DC8): with a compare, when the compared bits equal the condition's; with a condition alone, when any of its bits is on; with neither, always. The bits: 1 active, 2 focus, 4 prelight, 8 insensitive (the older files' `cond_active`, `cond_focus`, `cond_prelight`, `cond_insensitive`). Whose state: "States" under "Running" |
 | `opacity` | Multiplies the alpha of the widget and its children |
-| `clip` 1 | Children are cut to the rectangle. The boxes (`Box`, `HBox`, `VBox`, `FBox`, `MBox`), `RootWindow` (0x232E00) and `SelectBox` (0x2D8C90: the event halls' lists) cut by default (mBox's constructor 0x200C08 sets it, 0x206858); `OptionMenu` (0x2C7498), `ScaleBar` (0x236860) and `SliderBar` (0x2DD820), boxes too, turn it off again; other composites do not (0x204F10): the layouts write `clip 0` on boxes and `clip 1` on the others |
+| `clip` 1 | Children are cut to the rectangle. The boxes (`Box`, `HBox`, `VBox`, `FBox`, `MBox`), `RootWindow` (0x232E00) and `SelectBox` (0x2D8C90: the event halls' lists) cut by default (mBox's constructor 0x200C08 sets it, 0x206858); `OptionMenu` (0x2C7498), `ScaleBar` (0x236860) and `SliderBar` (0x2DD820), boxes too, turn it off again; so does the list box a layout's is copied from (its constructor 0x2AEA98 does not set it; measured in four saved states, in the same set of widgets whose faces have `is_face`, and the Replay Theater's rows are cut; Arcade's list writes `clip 0`); other composites do not (0x204F10): the layouts write `clip 0` on boxes and `clip 1` on the others |
 | `ColorFace` `color` | One colour, or four for the corners clockwise from the top left |
 | `ImageFace` `image_path`, `color` | The picture over the rectangle, tinted; `blend` 1 adds |
 | `FrameImageFace` `tl_`, `t_`, `tr_`, `l_`, `r_`, `bl_`, `b_`, `br_image_path`, `image_path` | Corners at their own size, sides stretched between, the middle over the rest |
@@ -227,6 +227,23 @@ down License.
 **A page's first focus** (0x234D60): a focus kept from when the page closed, else the
 script's `setFocus` in `onInitialize`, else the "next" search (0x26EEF8): the candidates by
 their parents' places (y, then x), then their own, then the order they were made in.
+
+### States
+
+A widget's four bits are its own. At drawing a face (`is_face`, bit 13 of the flags word at +0x98)
+first takes its parent's in place of its own (0x231508); any other widget keeps its own, so a
+row's active flag reaches the row's faces and not those of a box inside the row (the Replay
+Theater's row: its plate asks active or focus, its A / B tag is a box with an active flag of its
+own). The `...Face` classes are faces unless a layout says otherwise, the others are not (measured
+in the reference's saved states, all twelve looked at).
+
+Setting active (0x265FF0), focus (0x266098) or insensitive (0x266200) on a face sets its parent's
+too, up to the first that is no face. Each picture a widget's focus bit is whether it is the
+focused widget and its prelight bit whether it is the one the cursor points at (0x263A68); a box
+with a child that has one has it too (0x207208, the list's rows 0x2B3518), so all the parents of
+the focused widget have both (measured: five saved states). ❓ Here the pointed widget is the
+focused one, and a list's chosen row has both bits while the list has the focus; the program gives
+the row neither the focus nor, as far as read, more than the cursor's prelight.
 
 ### Widgets
 
@@ -595,7 +612,8 @@ sequence starts when the scripts that asked for it finish (a new work object, 0x
   real date, the pass code). Its day is the sequence's: when the license sequence ends (0x114E38
   -> 0x110800) the diary gets the last run's day (result, note 14, time), or a day with nothing in
   it when there was no run or its result is 13: every visit to a test's page is a day, as the
-  original's calendar shows. **A course's run** (0x115A90) is a day of the diary.
+  original's calendar shows. **A course's run** (0x115A90) is a day of the diary;
+  Arcade's race and time trial are none (0x111498 and 0x112620 reach none of 0x42F0E0's callers).
 
 The prize page of the quick projects counts the prize into the credits (`incMoney`, ten at a
 time); the presents (prize cars, licenses) are given by Gran Turismo mode's present page on
@@ -856,9 +874,6 @@ height "%.1t%s" (tenths, `ft` or `m`, 0x1AEFC0): "12.94miles", "984.2ft".
 The menus step at the program's 60 pictures a second whatever the display's rate. The faces
 with content of their own are drawn in their place in the page's order (`draw_live` of
 `app/menu_page_drawer.h`): movies, cars and models below.
-
-A closed option menu shows its chosen item in the item's own state (the menu's focus lights
-its button, not the item: the options' dialogs); ❓ judged from the original's pictures.
 
 Here: every model face draws through a view of its own (the engine's view is read when the
 frame is submitted, so two faces of one size through one view showed the same picture), and a

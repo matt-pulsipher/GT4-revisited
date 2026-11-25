@@ -154,6 +154,13 @@ TEST(disc_race_request_car_by_sequence) {
     mission.sequence = "mission", mission.race = "l0m0001", mission.car = "ka_01";
     menu::complete_race_request(*f.rt, mission);
     CHECK(mission.car != "ka_01" && !mission.car.empty() && mission.garage_slot == -1);
+    // Their course is their event's, not one another mode left (playtest's B52: B-1 at Tsukuba after an Arcade time trial).
+    for (menu::RaceRequest* r : {&test, &mission}) {
+        menu::RaceRequest fresh, left;
+        fresh.sequence = left.sequence = r->sequence, fresh.race = left.race = r->race, left.course = "tsukuba";
+        menu::complete_race_request(*f.rt, fresh), menu::complete_race_request(*f.rt, left);
+        CHECK(!fresh.course.empty() && left.course == fresh.course && fresh.course != "tsukuba");
+    }
     for (const char* sequence : {"single_race", "time_trial"}) {
         menu::RaceRequest arcade;
         arcade.sequence = sequence, arcade.course = "tsukuba", arcade.car = "ka_01";
@@ -172,15 +179,18 @@ TEST(disc_race_request_course_runs) {
     menu::GameState& g = f.rt->game();
     const s64 a0 = g.aspec_distance, b0 = g.bspec_distance;
     menu::RaceResult r;
+    const size_t days = g.diary.size();
     r.kind = menu::RaceResult::Kind::Course, r.course_kind = 7, r.course = "tsukuba", r.finished = true, r.distance_m = 4200;
     f.rt->race_finished(r);
     CHECK(g.aspec_distance == a0 && g.bspec_distance == b0);
+    CHECK(g.diary.size() == days); // Arcade's runs are no day of the calendar (B53)
     for (const int kind : {3, 6}) {
         menu::RaceResult p = bspec_run(g.race.bspec_book, "ka_01", 1, 5);
         p.kind = menu::RaceResult::Kind::Course, p.course_kind = kind, p.race.clear();
         f.rt->race_finished(p);
         CHECK(g.bspec_book[kCell] == 777);
     }
+    CHECK(g.diary.size() == days + 2);
     menu::RaceResult free_run = bspec_run(g.race.bspec_book, "ka_01", 0, 5);
     free_run.kind = menu::RaceResult::Kind::Course, free_run.course_kind = 1, free_run.race.clear();
     f.rt->race_finished(free_run);

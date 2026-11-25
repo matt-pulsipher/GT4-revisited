@@ -28,10 +28,6 @@ BoxKind kind_of(const LiveWidget& w) {
     return BoxKind::None;
 }
 
-bool is_face(const LiveWidget& w) {
-    if (w.data.has("is_face")) return w.data.number("is_face") != 0;
-    return w.data.type.size() >= 4 && w.data.type.compare(w.data.type.size() - 4, 4, "Face") == 0;
-}
 bool packing(const LiveWidget& w) { return w.data.number("packing") != 0; }
 bool takes_part(const LiveWidget& box, const LiveWidget& c) { return !is_face(c) && c.visible() && packing(box) == packing(c); }
 float num(const LiveWidget& w, const char* name, float fallback = 0) { return w.data.has(name) ? w.data.number(name) : fallback; }

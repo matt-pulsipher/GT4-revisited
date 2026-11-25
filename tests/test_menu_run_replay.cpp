@@ -79,3 +79,30 @@ TEST(disc_menu_replay_theater) {
     std::printf("  back at %s\n", pages(f).c_str());
     CHECK(f.clean());
 }
+
+// The Demo tab: its list, a demo chosen and played. ❓ The race side does not play a disc's replay yet, so the theater comes
+// back instead of a race.
+TEST(disc_menu_replay_theater_demo) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    const std::filesystem::path dir = std::filesystem::temp_directory_path() / "gt4r-menu-test-demos";
+    std::filesystem::create_directories(dir);
+    Flow f(*disc, "US", dir.string());
+    CHECK(f.boot_to_title());
+    f.press({menu::Key::Down, menu::Key::Down, menu::Key::Accept});
+    CHECK(f.rt->advance());
+    f.rt->settle();
+    CHECK(f.page() == "ReplayTheaterRoot");
+    f.press({menu::Key::Up, menu::Key::Accept});
+    std::printf("  the theater: %s\n", pages(f).c_str());
+    f.press({menu::Key::Right});
+    CHECK(f.focus() == "List");
+    f.press({menu::Key::Down, menu::Key::Accept, menu::Key::Right});
+    CHECK(f.focus() == "Play");
+    f.press({menu::Key::Accept});
+    CHECK(f.rt->finished() && f.rt->game().replay_file == "replay/Rdemo1/Rdemo1");
+    CHECK(!f.rt->race_request());
+    CHECK(f.rt->advance());
+    f.rt->settle();
+    CHECK(f.page() == "ReplayTheaterRoot" && f.clean());
+}

@@ -7,6 +7,7 @@
 #include "gt4r/menu/race_natives.h"
 
 #include <cstdio>
+#include <set>
 
 using script::Value;
 
@@ -107,6 +108,21 @@ TEST(disc_race_menus_work_at_the_start) {
     CHECK(work("license", "l0b0005").get("canLoadGhost") == 0 && work("license", "l0b0005").get("DisableLogger") == 1);
     CHECK(work("time_trial", "").get("BestTime") == s32(menu::QuickWork::kNoTime) && work("time_trial", "").get("canLoadGhost") == 0);
     CHECK(work("freerun", "freerun").get("BestTime") == s32(menu::QuickWork::kNoTime) && work("freerun", "freerun").get("canLoadGhost") == 1);
+    // The B-spec button on a paved course (08-more's arcade time trial and 26-endurance's practice at Tsukuba have it), and the
+    // quick tune's values of an Arcade run.
+    auto at = [&f](const char* sequence, const char* course) -> menu::QuickWork& {
+        menu::RaceRequest q;
+        q.sequence = sequence, q.course = course, q.tire = 4, q.assist_tcs = 1;
+        menu::start_quick_work(*f.rt, q);
+        return menu::quick_work(f.rt->game());
+    };
+    for (const char* sequence : {"single_race", "time_trial", "freerun"}) {
+        CHECK(at(sequence, "tsukuba").get("IsBSpec") == 1);
+        CHECK(at(sequence, "grandcanyon").get("IsBSpec") == 0 && at(sequence, "icerace").get("IsBSpec") == 0);
+    }
+    CHECK(at("time_trial", "tsukuba").get("IsDryCourse") == 1 && at("time_trial", "grandcanyon").get("IsDryCourse") == 0);
+    CHECK(at("time_trial", "tsukuba").get("QuickTuneFrontTireType") == 4 && at("time_trial", "tsukuba").get("QuickTuneRearTireType") == 4);
+    CHECK(at("time_trial", "icerace").get("QuickTuneFrontTireType") == 12 && at("time_trial", "tsukuba").get("QuickTuneDrivingAssist") == 1);
     CHECK(work("solo_event", "am_sunday_0001").get("BestTime") == 0 && work("solo_event", "am_sunday_0001").get("canLoadGhost") == 0);
 }
 
@@ -154,7 +170,33 @@ TEST(disc_replay_theater_demo_list) {
         CHECK(str("title") == title && str("time") == want[i].time && str("date") == "--/--/--");
         CHECK(str("courseName") == want[i].course && str("carName").find(want[i].car) != std::string::npos);
         CHECK(vm.attribute(file, "spectatorMode").i == want[i].spectator && vm.attribute(file, "size").i == want[i].kb);
+        // Its picture is its icon's.
+        CHECK(vm.call(vm.attribute(file, "isIconValid"), {}).i == 1);
+        const auto picture = f.rt->game().chunk_pictures.find(vm.call(vm.attribute(file, "getIconTexture"), {}).to_string());
+        CHECK(picture != f.rt->game().chunk_pictures.end() && picture->second.width == 64 && picture->second.rgba.size() == 64 * 64);
+        if (picture != f.rt->game().chunk_pictures.end())
+            CHECK(std::set<u32>(picture->second.rgba.begin(), picture->second.rgba.end()).size() > 64);
     }
     const Value sub[2] = {Value::string("MODE_DEMONSTRATION_SUB"), Value::integer(0)};
     CHECK(vm.attribute(vm.call(cls, sub), "count").i == 0);
+}
+
+// The license page's Load Best Lap Replay (COMMAND_LOAD_GHOST): labomode's load page opens on its empty list, and Cancel ends it.
+TEST(disc_license_load_best_lap_page) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    Flow f(*disc);
+    CHECK(f.gt_mode_with_a_car());
+    f.rt->game().next_menu_arg = "MODE_LOAD_BESTLAP_REPLAY";
+    f.rt->start_project("labomode");
+    for (int i = 0; i < 90; ++i) f.rt->update();
+    f.rt->settle();
+    std::printf("  %s [%s]\n", f.page().c_str(), f.focus().c_str());
+    CHECK(f.page() == "LoadReplayRoot");
+    f.press({menu::Key::Cancel});
+    for (int i = 0; i < 90; ++i) f.rt->update();
+    f.rt->settle();
+    std::printf("  then %s finished %d\n", f.page().c_str(), int(f.rt->finished()));
+    CHECK(f.rt->finished());
+    CHECK(f.clean());
 }

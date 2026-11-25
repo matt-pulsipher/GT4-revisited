@@ -35,6 +35,7 @@ struct LiveWidget : script::Module {
     std::map<std::string, std::shared_ptr<script::Reference>> extras; // attributes the program keeps that are no layout property
     bool by_name_ = false; // inside element(): a name that is not there is nil
     std::weak_ptr<LiveWidget> focus;                                  // a page's: the widget of it that has the focus
+    std::vector<std::weak_ptr<LiveWidget>> focus_chain;               // a page's: the widgets that have the focus bits (the focus and its parents)
     std::weak_ptr<LiveWidget> focus_seen;                             // a page's: the focus its last picture had (the focus events)
     Runtime* runtime = nullptr;                                       // the one running it (none for a page only drawn)
     // A list box's rows (mListBox's items): the widget the scripts gave or made for the row (none:
@@ -81,6 +82,9 @@ struct LiveWidget : script::Module {
     bool can_focus() const;
     bool is_composite() const;
     int index() const { return int(data.number("index")); }
+    // A state bit on or off; a face's is its parent's too, up to the first that is no face (active 0x265FF0, focus 0x266098,
+    // insensitive 0x266200).
+    void set_state(int bit, bool on);
     LiveWidget* parent_widget() const { return dynamic_cast<LiveWidget*>(parent.lock().get()); }
     LiveWidget* page();    // the root window it is in
     LiveWidget* project(); // the project widget above it
@@ -89,6 +93,14 @@ struct LiveWidget : script::Module {
     Rect screen_rect() const;
     float opacity() const { return data.has("opacity") ? data.number("opacity") : 1.0f; }
 };
+
+// A face (`is_face`: the ...Face classes, unless the layout says; the bit 13 of the program's flags word).
+bool is_face(const LiveWidget& w);
+// Whether a widget shows in `state` by its `visible_condition` and `visible_compare` (0x265DC8): the compared bits equal the
+// condition's; without a compare any bit of the condition; without either always.
+bool state_shows(int state, int condition, int compare);
+// The state a widget is drawn in (0x231508): a face its parent's, any other widget its own.
+int drawn_state(const LiveWidget& w, int parent_state);
 
 inline script::Value widget_value(const std::shared_ptr<LiveWidget>& w) { return w ? script::Value::of(script::Kind::Module, w) : script::Value{}; }
 
@@ -256,6 +268,7 @@ private:
         std::string what;
     };
     void install_natives();
+    void mark_focus(LiveWidget& page);
     void queue_focus_events();
     void pump();
     void run(const script::Value& callee, std::vector<script::Value> args, std::string what, std::function<void(const script::Value&)> done = {});

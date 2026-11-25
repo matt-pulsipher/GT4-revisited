@@ -114,7 +114,7 @@ void arrange_option_menu(LiveWidget& menu) {
             items[i]->set_property("pack_fill_x", Value::integer(1));
         }
         items[i]->set_property("visible", Value::integer(open || chosen));
-        items[i]->state = open && chosen ? items[i]->state | kActive : items[i]->state & ~kActive;
+        items[i]->set_state(kActive, open && chosen);
     }
     for (const auto& c : list->children)
         if (!c->is_composite()) c->set_property("visible", Value::integer(open));
@@ -660,8 +660,8 @@ void arrange_list(Runtime& rt, LiveWidget& list, bool) {
         row->set_property("x", Value::number(item.x)), row->set_property("y", Value::number(item.y));
         row->set_property("w", Value::number(item.w)), row->set_property("h", Value::number(item.h));
         row->set_property("visible", Value::integer(item.visible));
-        row->state = item.active ? row->state | kActive : row->state & ~kActive;
-        row->state = item.insensitive ? row->state | kInsensitive : row->state & ~kInsensitive;
+        row->set_state(kActive, item.active);
+        row->set_state(kInsensitive, item.insensitive);
         row->state = i == focus && has_focus ? row->state | (kFocus | kPrelight) : row->state & ~(kFocus | kPrelight);
         list.children.push_back(row);
     }
@@ -759,7 +759,7 @@ void select_box_layout(LiveWidget& box, bool warp) {
         const float scale = i == index ? magnify : 1.0f;
         row.set_property("w", Value::number(box.item_w * scale));
         row.set_property("h", Value::number(box.item_h * scale));
-        row.state = i == index ? row.state | kActive : row.state & ~kActive;
+        row.set_state(kActive, i == index);
         if (vertical) {
             row.set_property("x", Value::number(border));
             row.set_property("y", Value::number(at));
@@ -811,10 +811,8 @@ void collect_focusable(const W& w, std::vector<W>& out) {
 
 bool condition_holds(const LiveWidget& w) {
     if (!w.visible()) return false;
-    const int condition = int(w.data.number("visible_condition")), mask = int(w.data.number("visible_compare"));
-    if (mask) return ((w.state ^ condition) & mask) == 0;
-    if (condition) return (w.state & condition) != 0;
-    return true;
+    const LiveWidget* up = w.parent_widget();
+    return state_shows(is_face(w) && up ? up->state : w.state, int(w.data.number("visible_condition")), int(w.data.number("visible_compare")));
 }
 
 namespace {
@@ -1146,8 +1144,8 @@ void step_widgets(Runtime& rt, LiveWidget& w) {
                 const int count = list_count(*c), focus = list_focus_index(*c);
                 more[0] = focus < count - 1, more[1] = focus > 0;
             } else continue;
-            if (const W inc = w.child("inc_arrow")) inc->state = more[0] ? inc->state | kActive : inc->state & ~kActive;
-            if (const W dec = w.child("dec_arrow")) dec->state = more[1] ? dec->state | kActive : dec->state & ~kActive;
+            if (const W inc = w.child("inc_arrow")) inc->set_state(kActive, more[0]);
+            if (const W dec = w.child("dec_arrow")) dec->set_state(kActive, more[1]);
             place_scroll_box_pinch(w, *c);
             break;
         }
@@ -1630,7 +1628,8 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
                 return Value::array({Value::number(tw), Value::number(th)});
             });
         // abbreviate(): a text too long for its box ends in dots; adjustScale(): it is drawn
-        // narrower to fit. Both are done when the text is drawn.
+        // narrower to fit (1: across, 2: down; a scale the script sets after it stands). Both are
+        // done when the text is drawn.
         if (n == "abbreviate")
             return fn([w](Vm&, const Value&, Args) {
                 w->set_property("abbreviate", Value::integer(1));
@@ -1638,7 +1637,7 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
             });
         if (n == "adjustScale")
             return fn([w](Vm&, const Value&, Args) {
-                w->set_property("adjust_scale", Value::integer(1));
+                w->set_property("adjust_scale", Value::integer(3));
                 return Value{};
             });
     }
