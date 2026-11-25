@@ -37,7 +37,7 @@ const Default kDefaults[] = {
     {"view_type", std::string("SUBJECTIVE")}, {"view_type_1p", 0}, {"view_type_2p", std::string("SUBJECTIVE")}, {"split_race_laps", 2}, {"split_tire_damage", 0}, {"split_handicap", 0},
     {"split_boost_level", 1}, {"photo_quality", std::string("STANDARD")}, {"photo_manual_focus", 0}, {"photo_aspect", std::string("4x3")}, {"photo_shutter", std::string("typeA")}, {"photo_professional", 0},
     {"photo_saturation", 0}, {"photo_save_slot", 0}, {"photo_save_method", 2},
-    {"vibration_1p", 1}, {"vibration_2p", 1}, {"steering_assist_1p", std::string("AMATEUR")}, {"steering_assist_2p", std::string("AMATEUR")}, {"active_steering_1p", 0},
+    {"controllers_1p", std::string()}, {"controllers_2p", std::string()}, {"vibration_1p", 1}, {"vibration_2p", 1}, {"steering_assist_1p", std::string("AMATEUR")}, {"steering_assist_2p", std::string("AMATEUR")}, {"active_steering_1p", 0},
     {"active_steering_2p", 0}, {"steering_forcefeedback_1p", 0}, {"steering_forcefeedback_2p", 0},
     {"replay_mode", std::string("NORMAL")}, {"replay_play_mode", std::string("STRAIGHT")}, {"replay_display_enable", 0}, {"race_display_config", 0}, {"race_display_map", 1},
     {"race_display_steering", 0}, {"race_display_meter", 1}, {"race_display_time", 1}, {"race_display_lap", 1}, {"race_display_position", 1},

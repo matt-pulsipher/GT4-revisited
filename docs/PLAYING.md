@@ -23,25 +23,94 @@ Prologue disc starts the same way.
 
 ## Controls
 
-A pad works as the console's (the Gran Turismo layout of a DualShock 2: Cross confirms, Triangle
-goes back, Start pauses a race). On a keyboard:
+In the menus a pad works as the console's (the Gran Turismo layout of a DualShock 2: Cross confirms,
+Triangle goes back). In races, unless you change it:
 
-| | Menus | Racing (the default "modern" layout) |
-|---|---|---|
-| Arrows | move | Up / Down accelerate and brake, Left / Right steer |
-| Enter | Cross (confirm) | |
-| Escape, Backspace | Triangle (back) | Escape: pause |
-| P | Start | pause |
-| Tab | Select | |
-| W / S | | accelerate / brake |
-| A / D | | steer |
-| E / Q | | shift up / down (manual gears) |
-| Space | | handbrake |
-| R | | reverse |
-| C | | change view |
-| X | | look back |
+| | Pad | Keyboard | Steering wheel |
+|---|---|---|---|
+| Accelerate, brake | right, left trigger | Up, Down (or W, S) | the pedals |
+| Steer | left stick (or the direction buttons) | Left, Right (or A, D) | the wheel |
+| Shift up, down (manual gears) | Cross, Square (A, X) | E, Q | right, left paddle |
+| Handbrake | Circle (B) | Space | Circle |
+| Reverse | L1 | R | Triangle |
+| Change view | Triangle (Y), Select | C, Tab | Select |
+| Look back | right stick pressed | X | the direction buttons' Down |
+| Nitrous | R1, direction buttons' Down | F | (bind it) |
+| Pause | Start | Escape, P | Start |
 
-F11 switches full screen.
+Menus on a keyboard: arrows move, Enter is Cross, Escape and Backspace Triangle, P Start, Tab
+Select. F11 switches full screen.
+
+**The game's own Options** work as the console's. *DUALSHOCK 2 button config 1P*: once you change it,
+races read your pad through that page, button for button (Cross accelerates unless the page says
+otherwise; a trigger set to Gas or Brake works by its travel); the page's Default brings the layout above
+back. *Driving Force Pro button config 1P* (or *Driving Force*'s, if you choose that wheel below) holds
+for a wheel. *Vibration*: the rumble and the triggers on or off. *Steering*: for a wheel, the active
+steering, the steering type (Amateur to Simulation), the power assist and the force's strength. The
+race's options: the gearbox for Gran Turismo mode's races, license tests and missions; Arcade asks on its
+own pages.
+
+**The home screen's Controls** (Select and Start together, then Controls) has what a computer's devices
+need: which device drives; the race controls, Modern (the table above) or Gran Turismo 4 original
+(always the console's pad); the steering's dead zone and response; the rumble, Modern (Automatic is
+Modern too: hits, rough ground, kerbs, slides, on both motors) or Gran Turismo 4 original (the console's
+one level on the large motor, as the game sends it); the triggers' effects (a DualSense's brake
+resistance and the edge of grip under the throttle, an Xbox pad's impulse triggers); for a wheel which
+of the console's wheels it is, how far it turns, and its force feedback; what each control is bound to;
+and bars that show what the race reads. It is kept in `config.ini` when you leave the page:
+
+```
+[player1]
+race = modern            ; modern | original
+rumble = auto            ; auto (Modern) | modern | original
+[wheel]
+kind = driving_force_pro ; driving_force_pro (900 degrees) | driving_force (200 degrees)
+rotation = 900           ; how far your wheel turns, lock to lock, as its own driver has it
+[ffb]                    ; wheel, wheel_mode (auto | modern | original), strength, steering, spring, understeer,
+                         ; triggers, trigger_force, invert
+```
+
+A race pauses when its window loses the focus (unless the controller is set to keep driving) and when
+the pad or wheel is unplugged. Rumble, triggers and force feedback are sent only while you drive: they
+stop on a pause, a replay, the menus and the end of a run.
+
+### To try with a real pad and wheel
+
+Nobody has driven this with a real device yet: the frames, the levels and the stops are tested with
+simulated ones. What to try, and what to look for:
+
+Pad (a DualSense and, if there is one, an Xbox pad):
+1. *Controls* with the pad plugged in: its name at the top right; the bars follow the stick and both
+   triggers from end to end; the stick at rest shows no steering.
+2. Unplug and plug it in on the home screen, in the menus, and in a race (the race pauses; plugged in
+   again it drives on).
+3. Arcade, a road car, automatic, aids on: at half trigger the car accelerates gently; the car stops
+   straight; a light touch of the stick steers finely. Then Transmission Manual: one press, one gear.
+4. Rumble, Automatic: still on a smooth straight; pulses on the kerbs; holds on grass; a thump on a wall
+   (both grips, the left stronger; on a DualSense closer together); light in a slide or wheelspin. Then
+   Gran Turismo 4 original: the left motor only, busy over bumps.
+5. Triggers on a DualSense: resistance on the brake from a fifth of its travel, a buzz with the ABS, a
+   buzz under the throttle near the grip's edge (aids off, a powerful car). Triggers: Free stops them.
+6. Each stops at once on Start (pause), at the finish, in the replay, on leaving the race, when another
+   window comes to the front; Options > Vibration off silences it (the triggers too).
+7. Options > DUALSHOCK 2 button config 1P: swap two controls, OK, race: the pad follows the page.
+   Default there, then OK: the Modern layout again.
+
+Wheel:
+1. *Controls*: it says the wheel's name; set "Wheel's rotation" to what its driver has; the steering bar
+   is full only at 450 degrees each way (Driving Force Pro) and moves from the first degree; the pedals
+   go from empty to full. Bind the steering axis, the pedals, paddles and buttons where the defaults
+   (axis 0; axes 1 and 2) are not your wheel's.
+2. A race with the force's strength low first (Strength 30 %). Straight on: no pull. Steering at speed:
+   the wheel pushes back toward the middle. **If it pulls into the turn instead**, "Force's direction:
+   The other way", and say so.
+3. The force grows with the corner and goes lighter as the front slides (Modern); at a stand it only
+   centers. Gran Turismo 4 original: the game's force alone over a plain spring.
+4. It keeps working for minutes, through a pause and back, and after a wall.
+5. Nothing is left pulling on the pause, at the finish, in the replay, in the menus, with another window
+   in front, or after quitting.
+6. Options > Steering: the feedback strength Weak and Strong differ; the steering type and active steering (Driving
+   Force) change how it feels. Wheel driven as Driving Force: 100 degrees is full lock.
 
 ## What works
 
@@ -53,7 +122,8 @@ F11 switches full screen.
   B-spec watching the computer drive), the results, the replay, back to Arcade for another race.
   Time Trial and the other race kinds reach their races the same way.
 - **Options**: every page opens and keeps its values in the data folder; the laps, the units and
-  the race settings take effect in the races.
+  the race settings (the gearbox among them), the button configurations, the vibration and the wheel's
+  settings take effect in the races.
 - **Gran Turismo mode**: a new game (name, introduction), the map, the used car and new car
   showrooms (buying a car, getting in it), the events (the Sunday Cup and the others: the event
   page, the regulations, the pre-race page with the drawn field), racing them for real (A-spec or
@@ -141,12 +211,12 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
 - The window, the frame loop, the screens, the scripted keys, the pictures and the sweeps are the
   app's own (`src/gt4r/app/app.*`, `screen_sweep.cpp`); the home screen, the setup screen and the
   asset browser are tools of this app, not pages of the game.
-- The pad and keyboard are read by the shared engine's input layer (`gt3r::InputManager`, its
-  button mapping and the "modern" keyboard layout), which hands the race a pad state; from there the
-  race's own path (`sim::Session`, the pad's frame) turns it into the car's controls: from the frame on
-  that is the game's own input phase (0x349FD0, `docs/specs/physics.md` §3.6). What fills the frame
-  from the pad is not the game's controller (0x426D50): the engine's mapper reads the stick (with a
-  dead zone and a response curve of its own) and the pedals' pressures.
+- The pad, wheel and keyboard are read by the shared engine's input layer (`gt3r::InputManager`: devices,
+  hot plug, bindings, the steering's dead zone and response); from its virtual pads on the race's frame is
+  the game's own (the controller 0x43CF90, `src/gt4r/input`, equal to the program's), and so is what the
+  step makes of it (0x349FD0). The original rumble's level and the wheel's force are the game's; the Modern
+  rumble, the triggers and the Modern wheel force are the shared engine's, fed from the game's step
+  (`docs/specs/input.md`).
 - The 2D drawing toolkit of the home screen, the setup screen and the browser is the shared
   engine's (`ui.cpp`, `ui_font.cpp`, `button_prompts.cpp`); the game's pages are drawn by the menu
   code (`src/gt4r/menu`, `screen_menu_viewer.cpp`).

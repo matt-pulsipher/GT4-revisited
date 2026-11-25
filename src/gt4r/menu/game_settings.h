@@ -6,6 +6,7 @@
 // controls). docs/formats/menu.md "The options and who reads them" lists, for each, the part
 // that reads it and the call that part makes.
 
+#include "gt4r/input/key_config.h"
 #include "gt4r/menu/game.h"
 
 #include <array>
@@ -42,6 +43,9 @@ struct GameSettings {
     bool license_manual = false;             // license_transmission_MT: license tests in manual
     std::string steering_assist = "AMATEUR"; // steering_assist_1p
     bool active_steering = false;            // active_steering_1p
+    // The race entry's +0x344C: the steering wheel's lock (F +0x547): 0 AMATEUR, 1 PROFESSIONAL, 2 SIMULATION.
+    u8 steering_assist_kind() const { return steering_assist == "PROFESSIONAL" ? 1 : steering_assist == "SIMULATION" ? 2 : 0; }
+    input::Controllers controllers;          // controllers_1p / _2p: the Key Configuration, the vibration, the wheel's forces
     int laps = 2;                            // race_laps (Arcade)
     int tire_damage = 0;                     // tire_damage (Arcade): 0 .. 2
     std::string penalty = "NONE";            // penalty_type: NONE, SPEED_LIMITATION, PASSING_PITLANE

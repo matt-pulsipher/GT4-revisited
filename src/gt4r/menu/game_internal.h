@@ -183,6 +183,11 @@ std::string course_attribute(Database& d, const std::string& course);
 // A race's pool of opponents (its RACES file): the ENEMY_CARS label and paint (-1: any).
 std::vector<std::pair<std::string, int>> race_entries(Database& d, const std::string& race);
 
+// ---- game_controllers.cpp
+// MOption's controller settings, and their part of the options' reset (`before`: both ports' text as it was).
+void install_controllers(GameNatives& n, Object& option);
+void reset_controllers(GameState& s, const std::array<std::string, 2>& before);
+
 // The place of a course's record in the game's course records for the B-spec driver's marks (0x468690, 0x433C10).
 std::optional<size_t> bspec_course_unit(Database& d, const GameState& s, std::string label);
 
