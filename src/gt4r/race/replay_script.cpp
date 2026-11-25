@@ -74,6 +74,18 @@ ReplayScript ReplayScript::parse(ByteSpan d) {
         s.end = std::max(s.end, r.end);
         s.records.push_back(std::move(r));
     }
+    const u32 pn = rd32(d, 0x2C), pat = rd32(d, 0x30);
+    if (pn <= 4096 && pat + 0x30 * u64(pn) <= d.size())
+        for (u32 i = 0; i < pn; ++i) {
+            const size_t o = pat + 0x30 * size_t(i);
+            ReplayPoint p;
+            p.kind = rd32(d, o), p.at = {f32_at(d, o + 4), f32_at(d, o + 8), f32_at(d, o + 12)};
+            p.start = f32_at(d, o + 16), p.end = f32_at(d, o + 20), p.fov = f32_at(d, o + 36);
+            s.points.push_back(p);
+        }
+    const u32 mn = rd32(d, 0x34), mat = rd32(d, 0x38);
+    if (mn <= 4096 && mat + 4 * u64(mn) <= d.size())
+        for (u32 i = 0; i < mn; ++i) s.marks.push_back(f32_at(d, mat + 4 * size_t(i)));
     return s;
 }
 

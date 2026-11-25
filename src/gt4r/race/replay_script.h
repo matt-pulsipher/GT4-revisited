@@ -39,11 +39,21 @@ struct ReplayRecord {
     bool full_roll() const { return (kind & 0x400) != 0; }
 };
 
+// A roadside point (the script's second list): its place, the stretch of the lap it serves, its lens.
+struct ReplayPoint {
+    u32 kind = 0;
+    gt3r::render::Vec3 at;
+    float start = 0, end = 0;
+    float fov = 30;
+};
+
 struct ReplayScript {
     float lap_length = 0;
     float end = 0;       // the largest record end
     u32 variants = 0;    // as the header states them
     std::vector<ReplayRecord> records; // by start
+    std::vector<ReplayPoint> points;
+    std::vector<float> marks; // distances
 
     static bool is_script(ByteSpan d) { return d.size() >= 0x40 && gt3r::has_magic(d, "REP4"); }
     // Throws FormatError.

@@ -11,6 +11,7 @@
 #include "base/ee_float.h"
 #include "gt4r/race/car_visual.h"
 #include "gt4r/race/course_scene.h"
+#include "gt4r/race/dive_camera.h"
 #include "gt4r/race/gadget_bodies.h"
 #include "gt4r/race/race_start.h"
 #include "gt4r/race/rail_simulation.h"
@@ -256,6 +257,12 @@ public:
     void set_effects(const race::EffectView& v, const race::ReplayEffectSettings& s) { effect_view_ = v, effect_settings_ = s; }
     // The motion trail: the last picture shown over the next one at this weight (0 none).
     void set_trail(float weight) { trail_ = weight; }
+    // The markers of a piece of music (its .adm beside `file`; track 0), none when it has none.
+    race::MusicMarkers music_markers(const std::string& file) const;
+    // The Dive director's tables, from the disc's program.
+    bool load_dive(race::DiveDirector& d) const;
+    // What the director sees of the cars' states.
+    race::DiveDirector::World dive_world(std::span<const race::CarState> cars, const race::ReplayScript& script) const;
     // The depth of car `i`'s nearest point before a view (its box's corners; negative behind it), for the camera's focus.
     float nearest_depth(size_t i, const race::CarState& state, const gt3r::render::Mat4& view) const;
     // The next frame's dissolve: `snapshot` freezes the last picture shown, drawn over the new one at

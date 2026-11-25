@@ -2,6 +2,8 @@
 #include "race/sun_glare.h"
 
 #include "base/config.h"
+#include "gt4r/formats/course/course_file.h"
+#include "gt4r/race/dive_camera.h"
 #include "gt4r/race/drive_camera.h"
 #include "gt4r/race/replay_effects.h"
 #include "gt4r/race/replay_script.h"
@@ -173,4 +175,85 @@ TEST(drive_camera_look_and_shake) {
     }
     CHECK(most > 1e-3 && most < std::sin(2.01 * 0.0174532925));
     CHECK_NEAR(steady, 0, 1e-4);
+}
+
+TEST(dive_clock_and_markers) {
+    race::MusicMarkers m;
+    m.at = {1, 2.5f, 4}, m.length = 10;
+    CHECK_NEAR(*m.next(0), 1 - 1.0 / 30, 1e-5); // (it looks 1 / 30 s ahead)
+    CHECK_NEAR(*m.next(4), 10 + 1 - 4 - 1.0 / 30, 1e-5); // the piece goes round
+    CHECK(m.passed(0.95f, 0.97f) && !m.passed(0.97f, 1.0f) && m.passed(9.9f, 0));
+    CHECK(!race::MusicMarkers{}.next(0));
+    // Cuts at the markers while the next is within 8 s, else every 8 s.
+    race::DiveClock clock;
+    int cuts = 0;
+    float before = 0, now = 0;
+    for (int i = 0; i < 600; ++i) {
+        before = now, now += 1.0f / 60;
+        if (now >= m.length) now -= m.length;
+        cuts += clock.step(m.next(now), m.passed(before, now));
+    }
+    CHECK_EQ(cuts, 4); // the three markers and the piece's end
+    race::DiveClock alone;
+    cuts = 0;
+    for (int i = 0; i < 1000; ++i) cuts += alone.step(std::nullopt, false);
+    CHECK_EQ(cuts, 2);
+    const race::EaseCurve line, slow(0.1f, 0, 1, 0);
+    CHECK_NEAR(line.at(0.3f), 0.3, 1e-6);
+    CHECK_NEAR(slow.at(0), 0, 1e-6);
+    CHECK_NEAR(slow.at(1), 1, 1e-6);
+    CHECK_NEAR(slow.at(0.5f), 0.5, 1e-6);
+}
+
+// The director over the courses: every step a view of a car, cut by its clock.
+TEST(dive_director_disc) {
+    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    int courses = 0;
+    for (const auto& disc : test::discs()) {
+        if (disc->info().game != Game::GT4) continue;
+        race::DiveDirector d;
+        const auto image = disc->program_image();
+        CHECK(image && d.load(image->program, image->load_address));
+        for (const char* name : {"crs/tsukuba", "crs/trialmt", "crs/newyork"}) {
+            const auto* e = disc->volume().find(name);
+            if (!e) continue;
+            const Bytes data = disc->volume().read(*e);
+            const course::CourseFile file = course::CourseFile::parse(data);
+            const race::ReplayScript script = race::ReplayScript::parse(file.section(data, course::kSlotReplay));
+            CHECK(script.points.size() > 20);
+            ++courses;
+            std::vector<race::CarState> cars(3);
+            race::DiveDirector::World w;
+            w.cars = cars.size(), w.script = &script, w.lap_length = script.lap_length;
+            w.car = [&](size_t i) {
+                race::DiveDirector::Car c;
+                c.state = &cars[i];
+                c.body.at(0, 3) = cars[i].position.x, c.body.at(1, 3) = cars[i].position.y, c.body.at(2, 3) = cars[i].position.z;
+                c.box_min = {-0.9f, 0, -2}, c.box_max = {0.9f, 1.3f, 2};
+                return c;
+            };
+            d.reset(1234, 0);
+            int cut = 0, seen = 0;
+            for (int i = 0; i < 1800; ++i) {
+                for (size_t k = 0; k < cars.size(); ++k) {
+                    // (along the script's points, as a car goes round)
+                    cars[k].course_v = std::fmod(float(i) * 0.6f + float(k) * 12, script.lap_length);
+                    const race::ReplayPoint* at = &script.points[0];
+                    for (const race::ReplayPoint& p : script.points)
+                        if (std::fabs((p.start + p.end) / 2 - cars[k].course_v) < std::fabs((at->start + at->end) / 2 - cars[k].course_v)) at = &p;
+                    cars[k].position = {at->at.x + 4, at->at.y, at->at.z + 3};
+                    cars[k].velocity = {0, 0, 36}, cars[k].speed = 36;
+                }
+                race::ViewPose p;
+                CHECK(d.step(w, i % 90 == 0, 1.5f, p));
+                cut += d.is_cut();
+                CHECK(std::isfinite(p.eye.x) && std::isfinite(p.view.at(0, 0)) && p.fov > 0.01f && p.fov < 3.0f);
+                CHECK(d.trail() >= 0 && d.trail() <= 1.5f);
+                seen |= 1 << int(d.kind());
+            }
+            CHECK_EQ(cut, 20);
+            CHECK((seen & (1 << int(race::DiveDirector::Kind::Point))) != 0);
+        }
+    }
+    if (!courses) SKIP("no Gran Turismo 4 disc");
 }

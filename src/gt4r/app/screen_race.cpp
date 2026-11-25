@@ -865,7 +865,8 @@ public:
             const size_t car = focus();
             camera_.step(history_[replay_at_][car], kStep);
             step_gear(history_[replay_at_][car]);
-            step_tv(history_[replay_at_][car], car);
+            if (diving()) step_dive(history_[replay_at_]);
+            else step_tv(history_[replay_at_][car], car);
             // The music ducked under the course's replay-script shots (the designer's cameras).
             if (audio::RaceSound* sound = world_->sound()) sound->set_replay_shot(tv_valid_ && !start_camera_.active());
             hear(history_[replay_at_], false);
@@ -992,7 +993,8 @@ public:
         const size_t f = focus();
         camera_.step(world_->cars()[f], kStep);
         step_gear(world_->cars()[f]);
-        if (mount_ == kTvView || opening || demo) step_tv(world_->cars()[f], f);
+        if (demo && diving()) step_dive(world_->cars());
+        else if (mount_ == kTvView || opening || demo) step_tv(world_->cars()[f], f);
         if (event_steps_ >= 0) ++event_steps_;
         if (split_steps_ >= 0) ++split_steps_;
         if (history_.size() < kHistory) history_.emplace_back(world_->cars().begin(), world_->cars().end());
@@ -1104,6 +1106,7 @@ public:
     const race::ReplayView& view() const { return view_; }
     void begin_view() {
         view_.begin(replay_style_);
+        if (replay_style_ == race::ReplayStyle::Dive) begin_dive();
         replay_focus_ = 0, view_pad_ = {}, mode_time_ = -1, music_off_ = false, view_time_ = 0;
         replay_camera_.set_zoom(1);
     }
@@ -1130,6 +1133,45 @@ public:
         if (e.select_car != 0) select_replay_car(cars, e.select_car);
         replay_camera_.set_zoom(view_.zoom());
         if (e.view || e.style) view_cut_ = true;
+        step_music();
+        dive_asked_ = e.director || (e.style && view_.style() == race::ReplayStyle::Dive);
+        if (e.style && view_.style() == race::ReplayStyle::Dive) begin_dive();
+    }
+    bool diving() const { return viewing() && view_.style() == race::ReplayStyle::Dive && dive_loaded_ && !start_camera_.active(); }
+    void begin_dive() {
+        if (!dive_tried_) dive_tried_ = true, dive_loaded_ = world_->load_dive(dive_);
+        dive_.reset(u32(SDL_GetTicksNS() >> 10) | 1, focus());
+        dive_clock_.reset();
+        dive_asked_ = true;
+        if (music_off_) { // (Dive's cuts need the music: 0x33C610)
+            music_off_ = false;
+            if (audio::RaceSound* sound = world_->sound()) sound->set_music_on(true);
+        }
+    }
+    // Where the piece of music is, by its own steps since it began (its markers: Dive's cuts).
+    void step_music() {
+        const audio::RaceSound* sound = world_->sound();
+        const std::string playing = sound ? sound->report().music : std::string();
+        if (playing != markers_for_) markers_for_ = playing, markers_ = world_->music_markers(playing), music_time_ = music_before_ = 0;
+        music_before_ = music_time_;
+        if (!music_off_) music_time_ += kStep / float(view_.speed());
+        if (markers_.length > 0 && music_time_ >= markers_.length) music_time_ -= markers_.length;
+    }
+    void step_dive(std::span<const race::CarState> cars) {
+        const bool beat = dive_clock_.step(markers_.next(music_time_), markers_.passed(music_before_, music_time_));
+        race::ViewPose p;
+        tv_valid_ = dive_.step(world_->dive_world(cars, replay_script_), beat || dive_asked_, dive_clock_.length(), p);
+        dive_asked_ = false;
+        if (tv_valid_) {
+            // (kept as the program's angle, as the replay cameras' shots are)
+            p.fov = 2 * std::atan(std::tan(p.fov * 0.5f) * (293.1175f / 426.6667f));
+            tv_pose_ = p;
+        }
+        if (dive_.is_cut()) {
+            view_cut_ = true;
+            if (dive_.car() != replay_focus_) replay_focus_ = dive_.car(), camera_.reset(cars[replay_focus_]), camera_prev_ = camera_;
+        }
+        step_dissolve();
     }
     // Up / Down: the car ahead or behind in the race's order (0x3FD5A8), the shot chosen anew.
     void select_replay_car(std::span<const race::CarState> cars, int dir) {
@@ -1458,7 +1500,10 @@ public:
             cars = blended_;
         }
         // The racing views' screen settings; the replays' and the B-spec race's their own.
-        world_->set_grade(picture_settings(replaying_ || watched_).grade());
+        const bool dive = diving() && tv_valid_;
+        const auto grade = picture_settings(replaying_ || watched_).grade();
+        world_->set_grade(dive ? dive_.grade(grade) : grade);
+        world_->set_trail(dive && effect_settings_.trail ? std::min(dive_.trail(), 0.8f) : 0.0f);
         race::ViewPose pose = current_pose(shown(), look_back);
         // (A cut is shown at once: two shots of one trackside camera stand too close together for blend_poses to tell.)
         if (blend && !view_cut_ && start_prev_.active() == start_camera_.active()) pose = race::blend_poses(previous_pose(look_back), pose, blend_);
@@ -1796,6 +1841,12 @@ private:
     race::ReplayView view_; // watching a replay
     race::ReplayStyle replay_style_ = race::ReplayStyle::Plain;
     race::ReplayPad view_pad_;
+    race::DiveDirector dive_;
+    race::DiveClock dive_clock_;
+    race::MusicMarkers markers_; // of the piece `markers_for_`, played for music_time_ seconds
+    std::string markers_for_;
+    float music_time_ = 0, music_before_ = 0;
+    bool dive_tried_ = false, dive_loaded_ = false, dive_asked_ = false;
     size_t replay_focus_ = 0;
     std::string mode_word_; // the playback mode's plate, and its seconds shown (-1 none); the seconds watched
     float mode_time_ = -1, view_time_ = 0;

@@ -1131,6 +1131,41 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
     ++m.frame;
 }
 
+race::MusicMarkers RaceWorld::music_markers(const std::string& file) const {
+    race::MusicMarkers m;
+    const size_t dot = file.rfind('.');
+    if (dot == std::string::npos || !app_.vfs()) return m;
+    const std::optional<Bytes> data = app_.vfs()->read(file.substr(0, dot) + ".adm");
+    if (!data) return m;
+    try {
+        const gt3r::sound::MadsMarkers markers = sound::parse_markers(*data);
+        if (markers.rate == 0) return m;
+        for (u32 s : markers.tracks[0]) m.at.push_back(float(s) / float(markers.rate));
+        m.length = float(markers.length) / float(markers.rate);
+    } catch (const std::exception& e) {
+        LOG_WARN("Markers of %s: %s", file.c_str(), e.what());
+    }
+    return m;
+}
+
+bool RaceWorld::load_dive(race::DiveDirector& d) const {
+    const std::shared_ptr<const gt3r::CoreImage> image = app_.disc() ? app_.disc()->program_image() : nullptr;
+    return image && d.load(image->program, image->load_address);
+}
+
+race::DiveDirector::World RaceWorld::dive_world(std::span<const race::CarState> cars, const race::ReplayScript& script) const {
+    race::DiveDirector::World w;
+    w.cars = std::min(cars.size(), car_visuals_.size());
+    w.script = &script, w.lap_length = lap_length();
+    w.car = [this, cars](size_t i) {
+        const race::CarVisual& v = *car_visuals_[i];
+        return race::DiveDirector::Car{&cars[i], v.body_matrix(cars[i]), v.bounds_min(), v.bounds_max(), v.mounts()};
+    };
+    w.ground = [this](const RVec& at, float y_max, float& y) { return course_->road().height_at(at.x, at.z, y_max, y); };
+    w.blocked = [this](const RVec& a, const RVec& b) { return course_->occluder().segment_blocked(a, b); };
+    return w;
+}
+
 float RaceWorld::nearest_depth(size_t i, const race::CarState& state, const render::Mat4& view) const {
     if (i >= car_visuals_.size()) return 0;
     const race::CarVisual& v = *car_visuals_[i];
