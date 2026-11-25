@@ -22,6 +22,9 @@ struct HudState {
     float rpm = 0, red_line = 7000, rev_limit = 7500;
     float top_speed = 70;             // metres per second: the speedometer's face
     int gear = 1;                     // -1 reverse, 0 neutral
+    bool clutch_closed = true;        // the clutch is locked (0x343BE0): the gear's digit in full, else at half
+    float gear_flash = 0;             // 1 as a new gear is taken with the clutch locked, falling to 0 in 0.15 s
+    bool stepless = false;            // a stepless gearbox: forward "C"
     bool driver_view = false;         // the in-car and roof views' panel, else the chase view's
     int place = 1;                    // 1 the leader
     int lap = 1, laps = 0;            // the lap being driven; the race's laps (0: no count)

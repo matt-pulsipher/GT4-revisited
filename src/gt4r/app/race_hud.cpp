@@ -583,11 +583,15 @@ void RaceHud::draw_map_box(float cx, float cy, float size, std::span<const Lette
     }
 }
 
-// The gear in its pale box: black, in the meters' font ("R" reverse; its "K" draws N).
+// The gear in its pale box (RaceShiftPositionDisplay::vf5 0x3A6DE0, vf11 0x3A6D60): in the meters' font, black, the meters'
+// blue x 1.5 x the flash of a new gear (a ramp of 0.15 s); at half while the clutch is open ("R" reverse, "C" a stepless
+// gearbox; the font's "K" draws N).
 void RaceHud::Impl::draw_gear(const DisplayRect& box, const HudState& s) {
     draw_picture(picture("gear_base"), box, 0x80FFFFFFu, s.opacity);
-    const char c = s.gear < 0 ? 'R' : s.gear == 0 ? 'K' : char('0' + std::clamp(s.gear, 1, 9));
-    draw_text(font("GT4meter", 100, 1), box.x + box.w / 2, box.y + box.h - 12, kCentered | kMiddleOfLine, 0x80000000u, s.opacity, std::string(1, c));
+    const char c = s.gear < 0 ? 'R' : s.gear == 0 ? 'K' : s.stepless ? 'C' : char('0' + std::clamp(s.gear, 1, 9));
+    u32 color = 0x80000000u;
+    for (int k = 0; k < 3; ++k) color |= u32(std::clamp(float(kMeterBlue >> (8 * k) & 0xFF) * 1.5f * s.gear_flash, 0.0f, 255.0f)) << (8 * k);
+    draw_text(font("GT4meter", 100, 1), box.x + box.w / 2, box.y + box.h - 12, kCentered | kMiddleOfLine, color, s.opacity * (s.clutch_closed ? 1.0f : 0.5f), std::string(1, c));
 }
 
 // The suggested gear (RaceSuggestedGearDisplay) in its box: the digit in red (❓ the display's own drawing, vf5

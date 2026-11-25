@@ -553,6 +553,7 @@ public:
             ++replay_at_;
             start_camera_.step();
             camera_.step(history_[replay_at_][0], kStep);
+            step_gear(history_[replay_at_][0]);
             step_tv(history_[replay_at_][0]);
             // The music ducked under the course's replay-script shots (the designer's cameras).
             if (audio::RaceSound* sound = world_->sound()) sound->set_replay_shot(tv_valid_ && !start_camera_.active());
@@ -650,11 +651,18 @@ public:
         start_camera_.step();
         const size_t f = focus();
         camera_.step(world_->cars()[f], kStep);
+        step_gear(world_->cars()[f]);
         if (mount_ == kTvView || opening || demo) step_tv(world_->cars()[f], f);
         if (event_steps_ >= 0) ++event_steps_;
         if (split_steps_ >= 0) ++split_steps_;
         if (history_.size() < kHistory) history_.emplace_back(world_->cars().begin(), world_->cars().end());
         hear(world_->cars(), true);
+    }
+
+    // The gear's flash (0x3A6D60): lit as a new gear is taken with the clutch locked, off in 0.15 s.
+    void step_gear(const race::CarState& c) {
+        if (c.clutch_closed && c.gear != gear_shown_) gear_shown_ = c.gear, gear_flash_ = 1;
+        else gear_flash_ = std::max(0.0f, gear_flash_ - kStep / 0.15f);
     }
 
     // The section times: each car through the course's split points (the road's first checkpoint list,
@@ -790,6 +798,8 @@ public:
         const race::CarState& me = cars[shown_car];
         const race::CarSpec& spec = world_->visual(shown_car).spec();
         h.speed = me.speed, h.rpm = me.engine_rpm, h.gear = me.gear;
+        h.clutch_closed = me.clutch_closed, h.gear_flash = gear_flash_;
+        h.stepless = world_->stepless(shown_car);
         h.throttle = me.throttle, h.brake = me.brake;
         h.fuel = replaying_ ? 1.0f : world_->fuel_share(shown_car);
         // The tire diagram: only in a race that wears its tires (the display's flag), each wheel in the color of its
@@ -1202,6 +1212,8 @@ private:
     int tire_index_ = 4;   // the race's tires (the scripts' index: 4 sports medium)
     std::string race_word_ = "ARCADE_SINGLE_RACE"; // the race's name in the race's words
     bool throttle_held_ = false;
+    int gear_shown_ = 1;
+    float gear_flash_ = 0;
     bool stop_area_ = false, license_failed_ = false; // a license test's stopping box
     float goal_v_ = -1, goal_prev_ = -1;              // a license test's goal distance (judge_goal)
     bool gt3_road_ = false;                           // the road is Gran Turismo 3's (Prologue's courses)

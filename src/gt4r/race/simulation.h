@@ -61,6 +61,7 @@ struct CarState {
     float speed = 0;              // along `forward`, metres per second (negative backing up)
     float engine_rpm = 0;
     int gear = 1;                 // -1 reverse, 0 neutral, 1.. forward gears
+    bool clutch_closed = true;    // the clutch is locked (F +0x522 = 1): the race display's gear digit is dimmed while it is not
     float throttle = 0, brake = 0, steer = 0; // as applied this step (after the aids)
     bool brake_lamps = false, reverse_lamps = false;
     WheelState wheels[4];         // front left, front right, rear left, rear right

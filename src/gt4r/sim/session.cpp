@@ -930,6 +930,7 @@ void Session::publish(size_t i) {
     s.speed = c.speed.host();
     s.engine_rpm = c.omega.host() * 9.549297f;
     s.gear = c.gear == 0 ? -1 : int(c.gear);
+    s.clutch_closed = c.clutch == 1;
     s.throttle = c.throttle.host(), s.brake = c.brake_pedal.host();
     const float lock = c.p.max_lock.host();
     s.steer = lock > 0 ? -c.steer_cmd.host() / lock : 0;

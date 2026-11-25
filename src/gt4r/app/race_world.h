@@ -220,6 +220,8 @@ public:
     float car_mass(size_t i) const;
     // The suggested gear for a car the player drives (-1 none).
     int suggested_gear(size_t i) const;
+    // The car's gearbox is a stepless one (0x3F1F78).
+    bool stepless(size_t i) const { return session_ && i < car_visuals_.size() && session_->gt4_record(i).drive.d.kind == 1; }
     // A car's fuel left as a share of its tank (1 without a tank).
     float fuel_share(size_t i) const;
     // A car's top speed as the program estimates it from the gearing (P +0xFD8, m/s; 0 not known): the
