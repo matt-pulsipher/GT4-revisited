@@ -2623,7 +2623,9 @@ private:
                         return V::number(1);
                     }
                 }
-                if (n == "GETTIME") return V::string(seconds(t, false));
+                // (A test not driven to its end keeps the page's first words: no time, no gap; ResultLicense::vf2 0x3E08D0.)
+                if (n == "GETTIME") return V::string(f.player_finished() ? seconds(t, false) : race::format_lap_time(-1));
+                if (n == "GETTIMEDIF" && !f.player_finished()) return V::string("");
                 if (n == "GETTIMEDIF") {
                     // The gap to the next grade up (a failed run: to bronze).
                     const int level = prize_level();

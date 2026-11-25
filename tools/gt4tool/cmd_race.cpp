@@ -22,6 +22,8 @@
 #include "gt4r/formats/model/model_script.h"
 #include "gt4r/formats/db/race_events.h"
 #include "gt4r/formats/db/specdb.h"
+#include "gt4r/formats/replay/demonstration.h"
+#include "gt4r/save/codec.h"
 #include "gt4r/race/demonstration_run.h"
 #include "gt4r/race/license_rules.h"
 #include "gt4r/race/start_camera.h"
@@ -284,6 +286,53 @@ int race_license_rules(Disc& disc, const Args& a) {
 }
 
 // The license tests' demonstrations played by our own race (no picture), against their recorded times.
+// The disc's recorded races (replay/<name>/<name>): class, event, course, entries and controls.
+int race_replays(gt4r::Disc& disc, const std::vector<std::string>& a) {
+    const sim::Program program = sim::Program::load(disc);
+    for (const std::string& dir : disc.volume().list_dir("replay")) {
+        const std::string name = dir.substr(0, dir.find('/'));
+        if (a.size() > 1 && name.find(a[1]) == std::string::npos) continue;
+        const gt3r::Volume::Entry* e = disc.volume().find("replay/" + name + "/" + name);
+        if (!e) continue;
+        std::string error;
+        Bytes file = disc.volume().read(*e);
+        if (std::optional<Bytes> plain = save::unscramble(file, 0, save::FileKind::Replay)) file = std::move(*plain);
+        const std::optional<replay::Demonstration> d = replay::Demonstration::parse(file, program, &error);
+        if (!d) {
+            for (size_t k = 0; k < 0x60 && k < file.size(); ++k) std::printf("%02x%s", file[k], k % 16 == 15 ? "\n" : " ");
+            std::printf("%s: %s\n", name.c_str(), error.c_str());
+            continue;
+        }
+        std::printf("%s: %s mode %u event %llx course %llx time %d / %d, %zu entries, controls %u, %zu streams:", name.c_str(), d->race_class.c_str(), d->race_mode,
+                    (unsigned long long)d->code_b0, (unsigned long long)d->code_b8, d->time_ms, d->time2_ms, d->entries.size(), d->controls_flag, d->streams.size());
+        for (const auto& st : d->streams) std::printf(" %zu", st.frames.size());
+        if (a.size() > 2) {
+            const Bytes body = file;
+            const u32 hdr = u32(file[0]) | u32(file[1]) << 8, len = u32(file[4]) | u32(file[5]) << 8 | u32(file[6]) << 16;
+            const u32 key = u32(file[0xC]) | u32(file[0xD]) << 8 | u32(file[0xE]) << 16 | u32(file[0xF]) << 24;
+            if (const std::optional<Bytes> plain = replay::decipher_body(ByteSpan(file.data() + hdr, len), key, program)) {
+                std::printf("\n");
+                for (size_t k = 0xC0; k < 0x960; k += 4) {
+                    u32 v;
+                    std::memcpy(&v, plain->data() + k, 4);
+                    if (v) std::printf(" [%zx] %x", k, v);
+                }
+            }
+        }
+        std::printf("\n   info");
+        for (size_t k = 0; k < 0x60; k += 4) {
+            u32 v;
+            std::memcpy(&v, d->information.data() + k, 4);
+            std::printf(" %x", v);
+        }
+        std::printf("\n");
+        for (const auto& en : d->entries)
+            std::printf("   place %d kind %d pedals %d aids %d %d %d %d x198 %x var %llx\n", en.grid_place, en.driver_kind, en.pedal_style, en.aids[0], en.aids[1], en.aids[2], en.aids[3], en.x198,
+                        (unsigned long long)en.equipment.part(sim::Equipment::Variation));
+    }
+    return 0;
+}
+
 int race_demos(Disc& disc, const Args& a) {
     gt3r::Volume* vol = &disc.volume();
     auto read = [vol](const std::string& path) -> std::optional<Bytes> {
@@ -480,6 +529,7 @@ int cmd_race(Disc& disc, const Args& a) {
     if (a[0] == "license-rules") return race_license_rules(disc, a);
     if (a[0] == "starts") return race_starts(disc, a);
     if (a[0] == "demos") return race_demos(disc, a);
+    if (a[0] == "replays") return race_replays(disc, a);
     if (a[0] == "motion" && a.size() > 1) return race_motion(disc, a);
     if (a[0] == "strobe-tree" && a.size() > 1) return race_strobe_tree(disc, a);
     std::fprintf(stderr, "race: unknown request %s\n", a[0].c_str());
