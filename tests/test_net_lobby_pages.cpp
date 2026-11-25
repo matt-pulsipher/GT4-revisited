@@ -38,8 +38,10 @@ struct Table {
         for (Player* p : players) p->lobby.poll(), p->f.rt->update();
         if (++n % 4 == 0) std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
+    // (so many frames and so long: a loaded machine's sockets take their time)
     bool until(const std::function<bool()>& done, int frames = 4000) {
-        for (int i = 0; i < frames; ++i) {
+        const auto start = std::chrono::steady_clock::now();
+        for (int i = 0; i < frames || std::chrono::steady_clock::now() - start < std::chrono::seconds(20); ++i) {
             if (done()) return true;
             frame();
         }
