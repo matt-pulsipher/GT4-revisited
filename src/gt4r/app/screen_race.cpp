@@ -2734,9 +2734,15 @@ private:
             // Save Replay: the program's project labomode on its save page (MODE_SAVE_FULL_REPLAY: "Create new file" or over
             // one there, a title typed), here into the data folder's replays; then the menus again.
             pend_replay(app);
-            option_ = true;
-            menus_->game().next_menu_arg = "MODE_SAVE_FULL_REPLAY";
-            menus_->start_project("labomode");
+            if (menus_->is_prologue()) { // (no labomode there: its memcard project's page is not run, the file is written at once)
+                menus_->game().pending_replay->save("", "");
+                menus_->game().pending_replay.reset();
+                enter_quick(w.get("canReplay"), !session_over);
+            } else {
+                option_ = true;
+                menus_->game().next_menu_arg = "MODE_SAVE_FULL_REPLAY";
+                menus_->start_project("labomode");
+            }
         } else if (command == "COMMAND_LOAD_GHOST") {
             // Load Best Lap Replay: the program's project labomode on its load page (0x11CF08, 0x10FEE8: next_menu_arg
             // MODE_LOAD_BESTLAP_REPLAY), then the menus again. ❓ No best lap replays are kept here: its list is empty, and a
