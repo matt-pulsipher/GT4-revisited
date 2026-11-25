@@ -1,4 +1,5 @@
 #include "gt4r/menu/runtime.h"
+#include "gt4r/menu/race_natives.h"
 
 #include "gt4r/menu/game_settings.h"
 
@@ -574,7 +575,7 @@ void Runtime::finish() {
         game_->race_session = {};
         game_->race_session.sequence = race->sequence;
         game_->race_session.license_open = race->sequence == "license";
-        game_->quick_work.reset();
+        start_quick_work(*this, *race);
         // What the race's side reads of the request that the scripts do not set themselves (game().race: RaceScreen, the
         // result routines): the garage car's place, the B-spec driver's book and the course's marks.
         game_->race.garage_slot = race->garage_slot;

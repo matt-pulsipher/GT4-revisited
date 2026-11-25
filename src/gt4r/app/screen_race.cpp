@@ -2133,6 +2133,8 @@ private:
             q.race = next, q.course.clear(), q.car.clear(), q.garage_slot = -1;
             menu::complete_race_request(*menus_, q);
             if (q.course.empty() || q.car.empty()) return false;
+            q.sequence = sequence_;
+            menu::start_quick_work(*menus_, q);
         } else {
             return false;
         }

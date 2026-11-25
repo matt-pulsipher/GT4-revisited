@@ -89,3 +89,23 @@ TEST(disc_gt_mode_won_event_asks) {
     std::printf("  then %s [%s]\n", f.page().c_str(), f.focus().c_str());
     CHECK(f.page() == "ConfirmDialog" && !f.rt->race_request());
 }
+
+// What the race menus' work holds before a run (the original's, 05-gtmode/state_license_b1_menu.p2s: B-1 best 0, a ghost to
+// load; arcade_tt: best no time; practice_state_outlap, a free run: best no time, a ghost to load).
+TEST(disc_race_menus_work_at_the_start) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    Flow f(*disc);
+    f.rt->boot();
+    auto work = [&f](const char* sequence, const char* race) -> menu::QuickWork& {
+        menu::RaceRequest q;
+        q.sequence = sequence, q.race = race;
+        menu::start_quick_work(*f.rt, q);
+        return menu::quick_work(f.rt->game());
+    };
+    CHECK(work("license", "l0b0001").get("BestTime") == 0 && work("license", "l0b0001").get("canLoadGhost") == 1 && work("license", "l0b0001").get("DisableLogger") == 0);
+    CHECK(work("license", "l0b0005").get("canLoadGhost") == 0 && work("license", "l0b0005").get("DisableLogger") == 1);
+    CHECK(work("time_trial", "").get("BestTime") == s32(menu::QuickWork::kNoTime) && work("time_trial", "").get("canLoadGhost") == 0);
+    CHECK(work("freerun", "freerun").get("BestTime") == s32(menu::QuickWork::kNoTime) && work("freerun", "freerun").get("canLoadGhost") == 1);
+    CHECK(work("solo_event", "am_sunday_0001").get("BestTime") == 0 && work("solo_event", "am_sunday_0001").get("canLoadGhost") == 0);
+}

@@ -128,8 +128,8 @@ QuickWork::QuickWork() {
     for (const char* minus : {"QuickTuneFrontTireType", "QuickTuneRearTireType", "playerGridNumber", "SeriesRank", "PsValue", "TorqueValue",
                               "driveTrainType", "carCategory"})
         ints[minus] = -1;
-    // (BestTime: no run yet, shown as dashes on the test page.)
-    for (const char* none : {"goldTime", "silverTime", "bronzeTime", "BestTime"}) ints[none] = kNoTime;
+    for (const char* none : {"goldTime", "silverTime", "bronzeTime"}) ints[none] = kNoTime;
+    ints["BestTime"] = 0; // (+0x498: "0'00.000" on a license test's page before a run, as the original's)
 }
 
 s32 QuickWork::get(const std::string& name) const {

@@ -241,6 +241,29 @@ std::vector<int> championship_grid_places(Runtime& rt, const std::vector<std::pa
     return championship_grid_places(kg, ps);
 }
 
+void start_quick_work(Runtime& rt, const RaceRequest& q) {
+    GameState& s = rt.game();
+    s.quick_work.reset();
+    QuickWork& w = quick_work(s);
+    if (q.sequence == "time_trial" || q.sequence == "freerun" || q.sequence == "machinetest") w.set("BestTime", s32(QuickWork::kNoTime)); // 0x112E78, 0x117718, 0x116070
+    if (q.sequence == "freerun") w.set("canLoadGhost", 1); // 0x117718
+    if (q.sequence == "machinetest") w.set("DisableLogger", 1); // 0x116124
+    if (q.sequence == "license_race") w.set("BestTime", s32(QuickWork::kNoTime)); // ❓ (Prologue's constructor is not read: dashes, as before)
+    if (q.sequence == "license") {
+        // Tests 5, 10 and 15 of B, A, IB and IA run in 0x114E38 (its fill 0x115310: no ghost to load, no Analyzer), the others
+        // in 0x11CB38 (0x11D340: a ghost to load unless the RACE row's byte +0x75 is set; ❓ the Analyzer's two other cases,
+        // 0x11D400, are not read).
+        const std::shared_ptr<GameNatives> n = natives_of(rt);
+        ByteSpan row;
+        for (const std::string& label : {q.race, "us" + q.race, "jp" + q.race})
+            if (row.empty() && n && !q.race.empty()) row = n->db().row("RACE", label);
+        const int test = q.race.size() >= 7 ? std::atoi(q.race.c_str() + 3) : 0;
+        const bool short_one = q.race.compare(0, 3, "l0s") != 0 && q.race.compare(0, 3, "l0c") != 0 && (test == 5 || test == 10 || test == 15);
+        if (short_one) w.set("DisableLogger", 1);
+        else w.set("canLoadGhost", row.size() > 0x75 && row[0x75] ? 0 : 1);
+    }
+}
+
 // The program's result routines (docs/formats/menu.md "After a race"). The race's menus' work
 // (MQuickWork) gets what the routines write into it: the prize, the rows in finishing order
 // (0x114390, 0x11A168, 0x11C1D8), the player's place, and a championship's grand prize and rank.
