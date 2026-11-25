@@ -588,6 +588,8 @@ class SplitScreen : public Screen {
 public:
     SplitScreen(App& app, const RaceStart* chosen) : app_(app), setup_(chosen ? Setup{} : setup_from_env()) {
         wheel_ = input::WheelSettings::load(app.config());
+        // Without a controller of his own the second player drives with his keys of the keyboard, for the battle's time.
+        if (app.input().device_filter(1) == "auto" && app.input().device_name(1) == "No device") app.input().set_keyboard(1, keys_lent_ = true);
         if (chosen && chosen->menus) {
             menus_ = chosen->menus;
             menu::GameState& g = menus_->game();
@@ -642,7 +644,10 @@ public:
             }
         if (!race_ && menus_) leave(app);
     }
-    ~SplitScreen() override { stop_feedback(); }
+    ~SplitScreen() override {
+        stop_feedback();
+        if (keys_lent_) app_.input().set_keyboard(1, false);
+    }
 
     void update(App& app, double dt) override {
         const MenuInput& m = app.menu();
@@ -947,6 +952,7 @@ private:
     std::array<input::RaceInput, kPlayers> inputs_;
     std::array<u32, kPlayers> last_views_{}, last_menu_{};
     std::array<input::RaceFeedback, kPlayers> feedback_;
+    bool keys_lent_ = false;
     std::array<std::string, kPlayers> device_;
     std::shared_ptr<const race::StrobeMovie> pause_movie_, result_movie_;
     std::unique_ptr<race::StrobePlayer> pause_, result_;
