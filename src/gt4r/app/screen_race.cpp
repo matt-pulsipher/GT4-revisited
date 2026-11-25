@@ -2103,7 +2103,7 @@ private:
     // The results movie (menu/common/result.strb) with the race's rows: its callbacks answer from the
     // race's results (docs/formats/strobe.md "The results movie").
     void open_results(App& app) {
-        result_tried_ = true, result_exit_ = false;
+        result_tried_ = true, result_exit_ = false, points_phase_ = 0;
         entered_name_.clear();
         if (!result_movie_) {
             try {
@@ -2136,6 +2136,50 @@ private:
             race::ResultBoard& board = race_->board();
             const int i = args.empty() ? -1 : int(args[0].to_number());
             const race::ResultBoard::Row* row = i >= 0 && size_t(i) < board.rows().size() ? &board.rows()[size_t(i)] : nullptr;
+            // A championship's points pages (result.strb from frame 31; docs/formats/strobe.md): Drivers Point, each row's
+            // points for its place (getPoint("R1") .. "R6": "+10 pt"); past the first race (isStage1) the Point Ranking,
+            // the rows in order of the points so far with this race's added ("20 pt" in the time's place).
+            if (sequence_ == "championship" && menus_) {
+                const menu::GameState& g = menus_->game();
+                auto entrant_of = [this](int car) { return car <= 0 ? size_t(0) : size_t(race_->entry(size_t(car)).grid_place + 1); };
+                auto total_of = [&](size_t r) {
+                    const int car = board.rows()[r].car;
+                    const size_t e = entrant_of(car);
+                    return (e < g.series.entrants.size() ? g.series.entrants[e].points : 0) + menus_->points_for_place(int(r));
+                };
+                // The rows in ranking order: the most points first, a tie in this race's order.
+                auto ranking = [&]() {
+                    std::vector<size_t> order(board.rows().size());
+                    for (size_t r = 0; r < order.size(); ++r) order[r] = r;
+                    std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) { return total_of(a) > total_of(b); });
+                    return order;
+                };
+                if (n == "ISCHAMPIONSHIP") return V::boolean(true);
+                if (n == "ISSTAGE1") return V::boolean(g.series.races_run == 0);
+                if (n == "TOPOINTDISP") points_phase_ = 1;
+                if (n == "TOPOINTADDPHASE") points_phase_ = 2;
+                if (n == "TOPOINTRANKINGPHASE") points_phase_ = 3;
+                if (n == "GETPOINT") {
+                    const std::string at = args.empty() ? std::string() : args[0].to_string();
+                    const int r = at.size() > 1 && (at[0] == 'R' || at[0] == 'r') ? std::atoi(at.c_str() + 1) - 1 : -1;
+                    if (r < 0 || size_t(r) >= board.rows().size()) return V::string({});
+                    return V::string("+" + std::to_string(menus_->points_for_place(r)) + " pt");
+                }
+                if (points_phase_ == 3 && i >= 0 && size_t(i) < board.rows().size()) {
+                    const std::vector<size_t> order = ranking();
+                    const size_t r = order[size_t(i)];
+                    if (n == "CB_GETNAME") {
+                        const int car = board.rows()[r].car;
+                        return V::string(car >= 0 ? race_->car_short_name(size_t(car)) : std::string());
+                    }
+                    if (n == "CB_GETTIME") return V::string(std::to_string(total_of(r)) + " pt");
+                }
+                if (points_phase_ == 3 && n == "CB_PLAYERRANK") {
+                    const std::vector<size_t> order = ranking();
+                    for (size_t k = 0; k < order.size(); ++k)
+                        if (int(order[k]) == board.player_row()) return V::number(double(k));
+                }
+            }
             // (docs/formats/race_flow.md "The results": the program's callbacks over its rows.)
             if (n == "CB_ISVISIBLE") return V::boolean(row != nullptr);
             if (n == "CB_STABLE") return V::boolean(row && board.take_changed(size_t(i)));
@@ -2406,6 +2450,7 @@ private:
     std::shared_ptr<const race::StrobeMovie> result_movie_;
     std::unique_ptr<race::StrobePlayer> result_;
     bool result_tried_ = false, result_exit_ = false;
+    int points_phase_ = 0; // a championship's results movie: 0 the times, 1 Drivers Point, 2 the points added, 3 Point Ranking
     std::shared_ptr<const race::StrobeMovie> license_movie_;
     bool license_retry_ = false;
     bool prologue_license_ = false; // the license results movie is Prologue's

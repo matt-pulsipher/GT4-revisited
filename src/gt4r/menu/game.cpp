@@ -223,7 +223,7 @@ void GameState::new_game() {
     bgm_playlist = {}, slide_playlist = {};
     bgm_playlist.seed = 0x3355, slide_playlist.seed = 0x3476;
     money = 0, username.clear(), password.clear(), last_entry_name.clear();
-    score = 0, total_prize_money = 0, total_prize_cars = 0, rank_counts = {}, aspec_distance = 0, bspec_distance = 0;
+    score = 0, total_prize_money = 0, total_prize_cars = 0, rank_counts = {}, aspec_distance = 0, bspec_distance = 0, bspec_book = {};
     withdrawn = 0, withdrawn_gt4p = 0, met_type = 0;
     today = kFirstDay, diary.clear();
     garage.clear(), riding_car = -1, garage_key = 0, garage_serial = 0, garage_kept = {};

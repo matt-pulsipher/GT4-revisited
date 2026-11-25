@@ -641,6 +641,23 @@ void Runtime::queue_call(LiveWidget& w, const std::string& name, std::vector<Val
     events_.push_back(std::move(e));
 }
 
+void Runtime::queue_function(const Value& callee, std::vector<Value> args, std::string what) {
+    Event e;
+    e.kind = Event::Kind::Call, e.callee = callee, e.args = std::move(args), e.what = std::move(what);
+    events_.push_back(std::move(e));
+}
+
+bool Runtime::is_prologue() {
+    if (prologue_ < 0) prologue_ = read_("config/config-prologue.adc") && !read_("config/config-main.adc") ? 1 : 0;
+    return prologue_ == 1;
+}
+
+LiveWidget* Runtime::cursor_widget() {
+    LiveWidget* focus = focused();
+    if (focus && focus->is("ListBox")) return list_cursor_row(*focus);
+    return focus;
+}
+
 void Runtime::push_event(const Value& event) {
     Event e;
     e.kind = Event::Kind::Script, e.value = event;
@@ -955,9 +972,12 @@ void Runtime::dispatch_key(Key k) {
         const auto self = weak_step.lock();
         if (at >= chain.size()) {
             // The page's own handling.
-            if (k == Key::Accept || k == Key::Cancel) {
-                const bool accept = k == Key::Accept;
-                const std::shared_ptr<LiveWidget> target = page->focus.lock() ? page->focus.lock() : (accept ? nullptr : page);
+            // Prologue's page (mRootWindow slot 64, 0x230548) takes Start as Accept, and makes its activate event on
+            // the page itself, so a page without a focus hears onActivate (its opening movie's skip).
+            const bool prologue = is_prologue();
+            if (k == Key::Accept || k == Key::Cancel || (prologue && k == Key::Start)) {
+                const bool accept = k != Key::Cancel;
+                const std::shared_ptr<LiveWidget> target = page->focus.lock() ? page->focus.lock() : (accept && !prologue ? nullptr : page);
                 if (!target) return;
                 auto e = std::make_shared<Object>(accept ? "MActivateEvent" : "MCancelEvent");
                 e->set("widget", widget_value(target)), e->set("context", render_context_);
@@ -969,18 +989,19 @@ void Runtime::dispatch_key(Key k) {
         }
         LiveWidget& w = *chain[at];
         if (&w != page.get() && widget_key(*this, w, k)) return;
-        // A ScaleBar moves its value after its script, when that did not take the key (0x238D10).
-        const bool scale = &w != page.get() && w.is("ScaleBar");
+        // A ScaleBar moves its value (0x238D10) and a ListBox its focus (0x2B3918) after the
+        // widget's script, when that did not take the key.
+        const bool scale = &w != page.get() && (w.is("ScaleBar") || w.is("ListBox"));
         std::shared_ptr<LiveWidget> held = chain[at];
         const auto it = w.members.find("onKeyPress");
         if (it == w.members.end() || it->second->value.kind != Kind::Function) {
-            if (scale && scale_bar_key_after(*this, w, k)) return;
+            if (scale && class_key_after(*this, w, k)) return;
             if (self) (*self)(at + 1);
             return;
         }
         run(it->second->value, {render_context_, ev}, w.path() + "::onKeyPress", [this, self, at, scale, held, k](const Value& result) {
             if (result.is_number() && result.as_float() != 0) return;
-            if (scale && scale_bar_key_after(*this, *held, k)) return;
+            if (scale && class_key_after(*this, *held, k)) return;
             if (self) (*self)(at + 1);
         });
     };

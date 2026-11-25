@@ -54,6 +54,8 @@ bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, 
                 std::string& err, bool aids = true);
 // The switches gt4r_diff's runs give the entries: on, GT4R_AIDS=0 off.
 bool aids_from_env();
+// The game data's layout as the program writes it (prologue_save.cpp): printed.
+bool run_save_layout(Disc& disc);
 // One race step of the program's own (0x3B7020) for every car.
 void step(Ee& ee, Race& r);
 
