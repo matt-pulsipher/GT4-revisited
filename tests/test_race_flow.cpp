@@ -79,12 +79,10 @@ TEST(race_flow_standing_start) {
     CHECK(flow.lap_shown(0) == 1);
     // The race: car 1 drives 2 laps first and finishes; the others finish as they next cross the line.
     std::vector<size_t> finish_order;
-    int laps_done_by_1 = 0;
     for (int i = 0; i < 4000 && !flow.everyone_finished(); ++i) {
         f.step();
         const race::RaceFlow::Events ev = flow.step(f.cars);
         for (size_t c : ev.finished) finish_order.push_back(c);
-        laps_done_by_1 += ev.lap_done == 1;
     }
     CHECK(flow.everyone_finished());
     CHECK(finish_order == std::vector<size_t>({1, 0, 2}));

@@ -57,17 +57,21 @@ TEST(disc_gt_mode_bspec_book_after_a_race) {
     // The meters: a B-spec race's to the B-spec total, a driven one's to the A-spec total (0x10FA58), no garage car needed.
     tsukuba.bspec_book = g.bspec_book;
     menu::RaceResult driven = bspec_result(tsukuba, 1, 0, k);
-    driven.distance_m = 4200.75f;
+    driven.distance_m = driven.bspec_distance_m = 4200.75f;
     const s64 a0 = g.aspec_distance, b0 = g.bspec_distance;
     f.rt->race_finished(driven);
     CHECK(g.bspec_distance == b0 + 4200 && g.aspec_distance == a0);
-    driven.bspec_record.reset();
+    driven.bspec_record.reset(), driven.bspec_distance_m = 0;
     f.rt->race_finished(driven);
     CHECK(g.bspec_distance == b0 + 4200 && g.aspec_distance == a0 + 4200);
+    // Split by the pit's driving mode.
+    driven.bspec_distance_m = 1200;
+    f.rt->race_finished(driven);
+    CHECK(g.bspec_distance == b0 + 5400 && g.aspec_distance == a0 + 7200);
     // A mission's sequence (0x11BB60) does not count its meters.
     driven.kind = menu::RaceResult::Kind::Mission;
     f.rt->race_finished(driven);
-    CHECK(g.bspec_distance == b0 + 4200 && g.aspec_distance == a0 + 4200);
+    CHECK(g.bspec_distance == b0 + 5400 && g.aspec_distance == a0 + 7200);
     // The options' volumes as the scripts read them (0x180AA8): the raw 115 / 128, and back.
     {
         script::Vm& vm = f.rt->vm();

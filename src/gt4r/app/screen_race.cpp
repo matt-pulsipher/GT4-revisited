@@ -646,7 +646,7 @@ public:
         history_.clear(), run_dist_.clear();
         if (audio::RaceSound* sound = world_->sound()) sound->forget_recording();
         split_prev_.clear(), split_first_.clear(), split_steps_ = -1;
-        distance_ = 0;
+        distance_ = 0, bspec_distance_ = 0;
         replaying_ = false, over_ = false;
         event_steps_ = -1;
         for (size_t i = 0; i < setup_.test_starts.size() && i < world_->car_count(); ++i) // (the cars that start past the line)
@@ -830,7 +830,7 @@ public:
             run_dist_.resize(now.size());
             for (size_t i = 0; i < now.size(); ++i) run_dist_[i].push_back(float(flow_.car(i).counter) * world_->lap_length() + now[i].course_v);
         }
-        if (!hold) distance_ += std::fabs(world_->cars()[0].speed) * kStep;
+        if (const float run = std::fabs(world_->cars()[0].speed) * kStep; !hold) distance_ += run, bspec_distance_ += watched_ ? run : 0;
         {
             // The player's sideways acceleration (the G meter), smoothed over a few steps.
             const race::CarState& c = world_->cars()[0];
@@ -1021,6 +1021,7 @@ public:
     void aid_status(u8& asm_status, u8& tcs_status) const { world_->aid_status(0, asm_status, tcs_status); }
     race::ResultBoard& board() { return board_; }
     float player_distance() const { return distance_; } // metres the player's car ran this run
+    float bspec_distance() const { return bspec_distance_; } // those of them the B-spec driver drove
     float lap_length() const { return world_->lap_length(); }
     // The race's words for one lap and several (the results' "+1Lap").
     void set_card(int tire, std::string race_word) { tire_index_ = tire, race_word_ = std::move(race_word); }
@@ -1428,6 +1429,14 @@ public:
         LOG_INFO("Drive: B-spec pit command at %.1f s", double(flow_.time_ms()) / 1000);
     }
     int pit_message() const { return world_->pit_message(0); }
+    // The PIT STOP menu's driving mode: the player's car from here on by the pad or by the B-spec driver. The display's
+    // mode follows; the pace stays as it was (0x3F19E0's command 10).
+    void set_driving_mode(bool bspec) {
+        if (bspec == watched_ || setup_.auto_drive) return;
+        watched_ = bspec, focus_ = 0;
+        world_->set_driving_mode(bspec);
+        LOG_INFO("Drive: the driving mode at %.1f s: %s", double(flow_.time_ms()) / 1000, bspec ? "B-spec" : "A-spec");
+    }
     RaceWorld& world() { return *world_; }
     std::array<sim::ai::PitStops::StopRecord, 4> pit_record(size_t car) const { return world_->pit_record(car); }
     std::optional<std::array<u8, 0x40>> bspec_record() const { return world_->bspec_record(0); }
@@ -1497,7 +1506,7 @@ private:
     race::StartCamera start_camera_;
     race::RaceFlow flow_;
     race::ResultBoard board_;
-    float distance_ = 0;
+    float distance_ = 0, bspec_distance_ = 0;
     bool rolled_ = false; // a rolling start's music was started
     int tire_index_ = 4;   // the race's tires (the scripts' index: 4 sports medium)
     std::string race_word_ = "ARCADE_SINGLE_RACE"; // the race's name in the race's words
@@ -2171,7 +2180,7 @@ private:
     static constexpr int kFrontTiresOwned = 0x40, kRearTiresOwned = 0x4D; // (0x43F270: the first owned bit of types 0x19 / 0x1A)
     struct PitChoice {
         bool tires = false, fuel = false;      // what may be chosen (+0xE8, +0xEC)
-        bool mode = false;                     // the driving mode may be (+0x100)
+        bool mode = true;                      // the driving mode may be (+0x100: the race's +0x970, 0x110498: an event only without its license, which its entry asks for)
         std::array<std::vector<int>, 2> kinds; // the front and rear kinds offered; one past them: no change
         std::array<int, 2> tire{};             // +0xF0 / +0xF4
         int feed = 1, bspec = 0;               // +0xF8, +0xFC
@@ -2263,11 +2272,13 @@ private:
                 auto chosen = [&](size_t a) { return u8(size_t(c.tire[a]) < c.kinds[a].size() && c.tires ? c.kinds[a][size_t(c.tire[a])] : 0xFF); };
                 LOG_INFO("Drive: the pit stop's choice at %.1f s: tires %d / %d, fuel %d", double(race_->flow().time_ms()) / 1000, chosen(0), chosen(1), c.feed);
                 race_->world().pit_choose(0, chosen(0), chosen(1), c.feed != 0);
+                if (c.mode && !setup_.auto_drive) spectator_ = c.bspec != 0, race_->set_driving_mode(spectator_);
                 pit_open_ = false;
             }
             return V{};
         };
         pit_ = std::make_unique<race::StrobePlayer>(pit_movie_, host);
+        pit_->navigate(true, false); // (0x3DCC50: the movie's +0x18 set, +0x14 clear)
     }
 
     // ---- The pause: the game's pause movie (menu/common/pause.strb) and its entries.
@@ -2422,10 +2433,7 @@ private:
             w.set("CourseLength", s32(race_->lap_length()));
             return;
         }
-        // ❓ The Spectator button's rule (the course's condition and its record's byte +0x14) and
-        // the dry-course rule are not read from the course here: both answer yes.
-        w.set("IsBSpec", 1);
-        w.set("IsDryCourse", 1);
+        // (IsBSpec and IsDryCourse: the sequence's start sets them, menu::start_quick_work)
         w.set("QuickTunePowerLevel", 0), w.set("QuickTuneWeightLevel", 0);
         w.set("QuickTuneFrontTireType", q.tire), w.set("QuickTuneRearTireType", q.tire);
         w.set("QuickTuneTransmission", q.manual ? 1 : 0);
@@ -2472,6 +2480,7 @@ private:
         r.place = std::max(0, flow.place(0) - 1);
         r.time_ms = r.finished ? u32(flow.run_ms(0)) : 0;
         r.distance_m = race_->player_distance();
+        r.bspec_distance_m = race_->bspec_distance();
         if (is_license(sequence_)) {
             r.kind = menu::RaceResult::Kind::License;
             // ❓ The test's grading: the time against the page's gold, silver and bronze times.
@@ -2491,12 +2500,11 @@ private:
             r.course_kind = sequence_ == "freerun" ? 1 : sequence_ == "practice" ? 3 : sequence_ == "photo_drive" ? 4 : sequence_ == "machinetest" ? 6 : 7;
             if (const s64 best = flow.car(0).best_lap_ms; best > 0) r.time_ms = u32(best);
         }
-        // A B-spec race: the driver's record back for the book (0x468860), the car's class.
-        if (spectator_)
-            if (const std::optional<std::array<u8, 0x40>> rec = race_->bspec_record()) {
-                r.bspec_record = rec, r.bspec_class = race_->bspec_class(), r.bspec_course = setup_.bspec_course_known;
-                r.bspec_start = race_->world_setup().bspec_book, r.bspec_start_marks = race_->world_setup().bspec_course_marks;
-            }
+        // A race the B-spec driver drove in: his record back for the book (0x468860), the car's class.
+        if (const std::optional<std::array<u8, 0x40>> rec = race_->bspec_record()) {
+            r.bspec_record = rec, r.bspec_class = race_->bspec_class(), r.bspec_course = setup_.bspec_course_known;
+            r.bspec_start = race_->world_setup().bspec_book, r.bspec_start_marks = race_->world_setup().bspec_course_marks;
+        }
         // Every car in finishing order.
         for (const race::RaceFlow::ResultRow& row : flow.results()) {
             menu::RaceResult::Finisher f;

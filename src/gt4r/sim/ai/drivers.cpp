@@ -277,6 +277,11 @@ void Field::set_bspec(size_t car) {
     d.pace = tables_.pace_start[0], d.overtake = false, d.pace_brake = l.brake, d.pace_corner = l.corner, d.shift = l.shift;
 }
 
+void Field::set_control(size_t car, int control) {
+    Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
+    if (d) d->control = control, d->suggest = {}; // (0x469E48)
+}
+
 void Field::command(size_t car, const BSpecCommand& c) {
     if (car >= drivers_.size() || !drivers_[car]) return;
     Driver& d = *drivers_[car];
@@ -909,6 +914,8 @@ void Field::set_shadow(size_t car) {
     if (!d) return;
     d->control = 0;
     setup(*d); // (its parameters without a computer driver's spread: 0x467148 runs for control source 2 only)
+    const Tables::PaceLevel& l = tables_.pace[tables_.pace_start[0]]; // (0x3F1890: the player's starting level, whoever drives)
+    d->pace = tables_.pace_start[0], d->overtake = false, d->pace_brake = l.brake, d->pace_corner = l.corner, d->shift = l.shift;
 }
 
 Field::Suggestion Field::suggestion(size_t car) const {

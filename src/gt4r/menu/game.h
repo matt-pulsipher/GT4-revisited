@@ -88,6 +88,7 @@ struct RaceResult {
     std::string pass_code; // a ranking entry's (up to 32 characters)
     std::string name;      // a ranking entry's name (Prologue's license results: the three letters entered; empty: none)
     float distance_m = 0;  // what the car driven covered
+    float bspec_distance_m = 0; // and how much of it the B-spec driver drove
     int score = -1;        // the race's A-spec points (-1: none)
     int garage_slot = -1;  // the car driven's place in the garage (-1: not a garage car)
     // Every car in finishing order (the player's place in it is `place` when it finished).

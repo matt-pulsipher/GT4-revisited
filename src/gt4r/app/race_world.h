@@ -189,6 +189,8 @@ public:
     void pit_choose(size_t car, u8 front, u8 rear, bool fuel) {
         if (pits_ && car < car_visuals_.size()) pits_->choose(car, front, rear, fuel ? 1 : 0);
     }
+    // The PIT STOP menu's driving mode (0x3F19E0 command 10): the player's car driven by the pad, or by the B-spec driver.
+    void set_driving_mode(bool bspec);
     // Where the car is in a pit visit (0x35BBD8): 0 none, 1 down the lane or waiting for the choice, 2 the stop's start, 3 its work,
     // 4 its end, 5 out of the box to the lane's end.
     int pit_stage(size_t car) const;
@@ -292,6 +294,7 @@ public:
 private:
     struct Impl;
     void build_simulation();
+    void arm_bspec(const sim::Program& program);
 
     App& app_;
     WorldSetup setup_;

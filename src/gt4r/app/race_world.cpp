@@ -276,19 +276,7 @@ void RaceWorld::build_simulation() {
                     // B-spec: the player's car's driver takes his commands.
                     if (computer_player_) {
                         field_->set_bspec(0);
-                        // The driver's record of the book for the car's class (0x468710) and its skill from it (0x468C50).
-                        const int k = sim::ai::bspec_class(gt3r::ee::F(session_->rating(0)));
-                        // (the skill weighs the record's course marks where the race's course flag is set: cond + 0xCBE7, the
-                        // start code's second digit, 0x34C7E0; without marks they are 0)
-                        const bool course_flag = race::start_code_digit(race::course_start(*app_.db(), setup_.course).code, 1) > 0;
-                        const std::array<u8, 0x40> rec =
-                            menu::bspec::race_record(setup_.bspec_book, k, setup_.bspec_course_known ? setup_.bspec_course_marks.data() : nullptr);
-                        field_->set_bspec_record(0, rec, k);
-                        if (const std::optional<sim::ai::BSpecSkill> sk = sim::ai::bspec_skill(sim::ai::BSpecTables::load(program),
-                                                                                                 sim::ai::BSpecRecord::from_bytes(rec.data()),
-                                                                                                 gt3r::ee::F(session_->rating(0)), course_flag))
-                            field_->set_bspec_skill(0, sk->corner, sk->brake, sk->alongside);
-                        bspec_driven_ = true;
+                        arm_bspec(program);
                     } else field_->set_shadow(0);
                     for (size_t c = 0; c < commands_.size(); ++c) field_->command(c, {commands_[c].pace - 1, commands_[c].overtake ? 1 : 0});
                     // (their aids: the player's too, which a car its driver drives in its rolling start takes)
@@ -477,6 +465,28 @@ float RaceWorld::gadget_impulse(size_t i) const {
 
 float RaceWorld::car_top_speed(size_t i) const {
     return session_ && i < car_visuals_.size() ? session_->record(i).p.top_speed.host() : 0.0f;
+}
+
+void RaceWorld::arm_bspec(const sim::Program& program) {
+    // The driver's record of the book for the car's class (0x468710) and its skill from it (0x468C50).
+    const int k = sim::ai::bspec_class(gt3r::ee::F(session_->rating(0)));
+    // (the skill weighs the record's course marks where the race's course flag is set: cond + 0xCBE7, the
+    // start code's second digit, 0x34C7E0; without marks they are 0)
+    const bool course_flag = race::start_code_digit(race::course_start(*app_.db(), setup_.course).code, 1) > 0;
+    const std::array<u8, 0x40> rec = menu::bspec::race_record(setup_.bspec_book, k, setup_.bspec_course_known ? setup_.bspec_course_marks.data() : nullptr);
+    field_->set_bspec_record(0, rec, k);
+    if (const std::optional<sim::ai::BSpecSkill> sk =
+            sim::ai::bspec_skill(sim::ai::BSpecTables::load(program), sim::ai::BSpecRecord::from_bytes(rec.data()), gt3r::ee::F(session_->rating(0)), course_flag))
+        field_->set_bspec_skill(0, sk->corner, sk->brake, sk->alongside);
+    bspec_driven_ = true;
+}
+
+void RaceWorld::set_driving_mode(bool bspec) {
+    if (!field_ || !session_ || !program_ || computer_player_ == bspec) return;
+    computer_player_ = bspec;
+    if (bspec && !bspec_driven_) arm_bspec(*program_);
+    field_->set_control(0, bspec ? 1 : 0);
+    session_->set_shift_factor(0, field_->shift_factor(0));
 }
 
 std::optional<std::array<u8, 0x40>> RaceWorld::bspec_record(size_t car) const {

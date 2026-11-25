@@ -186,6 +186,8 @@ public:
     };
     Suggestion suggestion(size_t car) const;
     void set_bspec(size_t car);
+    // The control source changed in the race (F +0x466 by 0x3F19E0's command 10: 0 the pad, 1 the B-spec driver), its pace as it was.
+    void set_control(size_t car, int control);
     // The B-spec driver's skill (0x468C50, bspec_skill.h): its arcs', braking and alongside multipliers (D +0xB8 / +0xBC /
     // +0xC0), set at the race's start after set_bspec.
     void set_bspec_skill(size_t car, gt3r::ee::F corner, gt3r::ee::F brake, gt3r::ee::F alongside);
