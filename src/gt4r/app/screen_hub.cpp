@@ -74,6 +74,7 @@ public:
                 case 6: app.push(make_race_screen(app)); break;
                 case 7: app.push(make_game_screen(app)); break;
                 case 8: app.push(make_controls_screen(app)); break;
+                case 9: app.push(make_save_editor(app)); break;
                 default: app.quit(); break;
                 }
                 error_.clear();
@@ -127,6 +128,7 @@ private:
             items_.push_back({"Menu pages", std::to_string(menus) + " projects", 5});
         items_.push_back({"Asset browser", std::to_string(app.disc()->files().size()) + " files", 2});
         items_.push_back({"Controls", app.input().device_name(0), 8});
+        items_.push_back({"Save editor", "", 9});
         items_.push_back({"Another disc", "", 3});
         items_.push_back({"Quit", "", 4});
     }

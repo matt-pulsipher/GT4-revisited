@@ -156,6 +156,8 @@ std::unique_ptr<Screen> make_hub_screen();
 std::unique_ptr<Screen> make_sweep_screen(const std::string& list, const std::string& out);
 // The player's controls: the device, the race's layout, rumble and force feedback, the bindings.
 std::unique_ptr<Screen> make_controls_screen(App& app);
+// The save editor (screen_save_editor.cpp): a saved game of the library by its card's folder (save/save_library.h), "" the list.
+std::unique_ptr<Screen> make_save_editor(App& app, const std::string& card = "");
 std::unique_ptr<Screen> make_browser_screen(const std::string& open_path = "");
 // The menu projects' pages drawn from the disc's layouts (still pictures).
 std::unique_ptr<Screen> make_menu_viewer(App& app);
