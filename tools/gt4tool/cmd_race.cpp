@@ -10,12 +10,14 @@
 //   gt4tool race <disc> motion <course> [replay]   the start's camera clips: eye, look, up and lens at their ends
 //   gt4tool race <disc> strobe-tree <path> [seconds]  a race movie's instances after it plays that long
 //   gt4tool race <disc> license-rules [prefix]     the events' test rules (RACE row bytes the race keeps), a line an event
+//   gt4tool race <disc> driver <model | path>      a car's cockpit places and driver set (or a character file's set)
 
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/formats/course/runway.h"
 #include "gt4r/formats/model/car_model.h"
 #include "gt4r/formats/model/mdls.h"
+#include "gt4r/formats/model/mdls_skin.h"
 #include "gt4r/formats/model/model_script.h"
 #include "gt4r/formats/db/race_events.h"
 #include "gt4r/formats/db/specdb.h"
@@ -295,8 +297,10 @@ int race_strobe_tree(Disc& disc, const Args& a) {
     const gt3r::Volume::Entry* e = disc.volume().find(a[1]);
     if (!e) throw FormatError("no file " + a[1]);
     auto movie = std::make_shared<const race::StrobeMovie>(race::StrobeMovie::parse(disc.volume().read(*e)));
-    race::StrobePlayer p(movie, [](const std::string& name, const std::vector<race::StrobePlayer::Value>&) {
-        std::printf("(host: %s)\n", name.c_str());
+    race::StrobePlayer p(movie, [](const std::string& name, const std::vector<race::StrobePlayer::Value>& args) {
+        std::printf("(host: %s", name.c_str());
+        for (const race::StrobePlayer::Value& v : args) std::printf(" %s", v.to_string().c_str());
+        std::printf(")\n");
         return race::StrobePlayer::Value{};
     });
     p.restart();
@@ -310,7 +314,8 @@ int race_strobe_tree(Disc& disc, const Args& a) {
             if (d.group) {
                 const race::StrobeMovie::Fill* f = d.group->fill < movie->fills.size() ? &movie->fills[d.group->fill] : nullptr;
                 std::printf("shape fill %u kind %d value %08x", unsigned(d.group->fill), f ? int(f->kind) : -1, f ? unsigned(f->value) : 0u);
-            } else std::printf("text \"%s\"", d.words.c_str());
+            } else if (!d.external.empty()) std::printf("external %s scale %.2f", d.external.c_str(), double(std::hypot(d.m[0], d.m[1])));
+            else std::printf("text \"%s\"", d.words.c_str());
             std::printf(" at %.0f,%.0f mul %.2f %.2f %.2f %.2f add %.2f %.2f %.2f %.2f\n", double(d.m[4]), double(d.m[5]), double(d.mul[0]), double(d.mul[1]),
                         double(d.mul[2]), double(d.mul[3]), double(d.add[0]), double(d.add[1]), double(d.add[2]), double(d.add[3]));
         }
@@ -339,9 +344,65 @@ int race_motion(Disc& disc, const Args& a) {
     return 0;
 }
 
+// A car's driver: the info block's cockpit bytes, the parts block's places the posture reads, the
+// driver set's symbols and bones and each model's extent (docs/formats/model.md "The driver in
+// the car").
+int race_driver(Disc& disc, const Args& a) {
+    const std::string path = a[1].find('/') == std::string::npos ? "car/lod/" + a[1] : a[1];
+    const gt3r::Volume::Entry* e = disc.volume().find(path);
+    if (!e) throw FormatError("no file " + path);
+    const Bytes file = disc.volume().read(*e);
+    ByteSpan set = file;
+    if (car::CarFile::is_car(file)) {
+        const car::CarFile c = car::CarFile::parse(file);
+        const u32 info = c.info;
+        std::printf("info +0x00 %u, cockpit kind (+0x02) %u, co-driver (+0x03) %u\n", file[info], file[info + 2], file[info + 3]);
+        const u32 parts = rd32(file, info + 0x50);
+        auto f = [&](u32 o) {
+            float v;
+            std::memcpy(&v, file.data() + parts + o, 4);
+            return v;
+        };
+        std::printf("steering wheel centre (+0x00) %.3f %.3f %.3f, column (+0x0C) %.3f %.3f %.3f, +0x18 %.3f\n", f(0), f(4), f(8), f(0xC), f(0x10), f(0x14), f(0x18));
+        std::printf("pedals (+0x1C, +0x28) %.3f %.3f %.3f / %.3f %.3f %.3f, seat (+0x34) %.3f %.3f %.3f\n", f(0x1C), f(0x20), f(0x24), f(0x28), f(0x2C), f(0x30), f(0x34),
+                    f(0x38), f(0x3C));
+        std::printf("+0x4C %.3f %.3f %.3f, +0x6C %.3f %.3f %.3f, shifter kind (+0x6A) %u\n", f(0x4C), f(0x50), f(0x54), f(0x6C), f(0x70), f(0x74), rd16(file, parts + 0x6A));
+        if (!c.driver) {
+            std::printf("no driver set\n");
+            return 0;
+        }
+        set = ByteSpan(file).subspan(c.driver);
+    }
+    for (const mdls::Symbol& s : mdls::read_symbols(set)) std::printf("symbol %s = %u\n", s.name.c_str(), s.value);
+    for (const mdls::Bone& b : mdls::read_bones(set)) {
+        const gt3r::render::Mat4 bind = gt3r::render::inverse(b.inverse_bind);
+        std::printf("bone %-14s slot %2u at %.3f %.3f %.3f\n", b.name.c_str(), b.index, bind.m[12], bind.m[13], bind.m[14]);
+    }
+    const u32 models = mdls::read_header(set).models;
+    for (u32 i = 0; i < models; ++i) {
+        mdls::Options o;
+        o.model = int(i);
+        o.textures = false;
+        const gt3r::scene::Model m = mdls::build_model(set, o, "driver");
+        float lo[3] = {1e9f, 1e9f, 1e9f}, hi[3] = {-1e9f, -1e9f, -1e9f};
+        size_t n = 0;
+        for (const gt3r::scene::Mesh& mesh : m.meshes)
+            for (const gt3r::scene::Vertex& v : mesh.vertices) {
+                const float* t = mesh.transform.data();
+                const float p[3] = {t[0] * v.pos[0] + t[4] * v.pos[1] + t[8] * v.pos[2] + t[12], t[1] * v.pos[0] + t[5] * v.pos[1] + t[9] * v.pos[2] + t[13],
+                                    t[2] * v.pos[0] + t[6] * v.pos[1] + t[10] * v.pos[2] + t[14]};
+                for (int k = 0; k < 3; ++k) lo[k] = std::min(lo[k], p[k]), hi[k] = std::max(hi[k], p[k]);
+                ++n;
+            }
+        std::printf("model %u: %zu vertices, from %.3f %.3f %.3f to %.3f %.3f %.3f\n", i, n, lo[0], lo[1], lo[2], hi[0], hi[1], hi[2]);
+    }
+    return 0;
+}
+
 } // namespace
 
 int cmd_race(Disc& disc, const Args& a) {
+    if (a[0] == "driver" && a.size() > 1) return race_driver(disc, a);
     if (a[0] == "sections") return race_sections(disc, a);
     if (a[0] == "rail") return race_rail(disc, a);
     if (a[0] == "replay-script" && a.size() > 1) return race_replay_script(disc, a);

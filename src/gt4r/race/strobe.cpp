@@ -237,6 +237,12 @@ StrobeMovie StrobeMovie::parse(ByteSpan d) {
         const size_t o = tex.at + 0x10 * size_t(i);
         m.textures.push_back({rd32(d, o), rd32(d, o + 4), rd16(d, o + 8), rd16(d, o + 10)});
     }
+    const List ext = table(d, 0xB8, 0x18);
+    for (u32 i = 0; i < ext.count; ++i) {
+        const size_t o = ext.at + 0x18 * size_t(i);
+        External e{f32_at(d, o), f32_at(d, o + 4), f32_at(d, o + 8), f32_at(d, o + 12), chars(d, {rd32(d, o + 16), rd32(d, o + 20)})};
+        m.externals.push_back(std::move(e));
+    }
     return m;
 }
 

@@ -95,6 +95,55 @@ struct Driver {
         call(g, "setCarAvailable", {Value::string(label)});
         return s32(place.i);
     }
+    // Gran Turismo mode's script's own functions and data (its project loaded).
+    Value project(const std::string& path) { return rt.vm().lookup("GTmodeProject::" + path); }
+    Value script_call(const std::string& fn, std::vector<Value> args) {
+        const Value f = project(fn);
+        if (f.kind != script::Kind::Function) throw std::runtime_error("GTmodeProject::" + fn + " not found");
+        return rt.vm().call(f, std::span<const Value>(args.data(), args.size()));
+    }
+    // An event list's race codes (the event data's lists hold the list's name first, then the
+    // events; getRaceEventRecordStatistics reads them from index 1).
+    std::vector<std::string> event_codes(const std::string& list) {
+        std::vector<std::string> out;
+        const Value v = project("EventData::" + list);
+        const std::vector<Value>* items = v.items();
+        if (!items) return out;
+        for (size_t j = 1; j < items->size(); ++j) {
+            const Value code = rt.vm().attribute((*items)[j], "race_code");
+            if (code.kind == script::Kind::String) out.push_back(code.as_string());
+        }
+        return out;
+    }
+    bool won(const std::string& code) { return script_call("wonRace", {Value::string(code)}).truthy(); }
+    // An event won in first place, each race's result through the program's result routines
+    // (0x114498 a race; 0x119CB8 / 0x119F28 a championship's races, the player first in each),
+    // as the race sequence starts each race afresh. The races run: their count.
+    int win_event(const std::string& code, const std::string& car) {
+        const Value subs = script_call("extractSubRaceCode", {Value::string(code)});
+        const std::vector<Value>* list = subs.items();
+        if (!list || list->empty()) return 0;
+        const bool championship = script_call("isChampionship", {Value::string(code)}).truthy();
+        GameState& g = rt.game();
+        int run = 0;
+        for (const Value& sub : *list) {
+            g.race_session = {};
+            RaceResult r;
+            r.kind = championship ? RaceResult::Kind::Championship : RaceResult::Kind::Event;
+            r.race = sub.as_string();
+            if (championship) r.series = code;
+            r.place = 0, r.finished = true, r.time_ms = 0;
+            for (int e = 0; e < 6; ++e) {
+                RaceResult::Finisher f;
+                f.entry = e, f.car = car, f.time_ms = u32(e);
+                r.order.push_back(f);
+            }
+            rt.race_finished(r);
+            ++run;
+        }
+        if (championship) g.suspend_series(false), g.series = {};
+        return run;
+    }
     // The present page shown on entering Gran Turismo mode (its project's onLoad) until the map:
     // each present's page waited through and accepted.
     bool presents() {
@@ -114,6 +163,17 @@ struct Driver {
 
 } // namespace
 
+int completion_permille(Runtime& rt) {
+    const std::shared_ptr<script::Module> m = rt.vm().lookup("GTmodeProject").as<script::Module>();
+    const Value f = rt.vm().lookup("GTmodeProject::getRaceEventRecordStatistics");
+    if (!m || f.kind != script::Kind::Function) return -1;
+    for (const char* cached : {"cached_achievement", "cached_aspec_score"})
+        if (const std::shared_ptr<script::Variable> v = m->find(cached)) v->value = {};
+    const Value r = rt.vm().call(f, {});
+    const std::vector<Value>* items = r.items();
+    return items && !items->empty() ? int((*items)[0].as_float()) : -1;
+}
+
 ProgressPlan default_progress_plan(Runtime& rt) {
     ProgressPlan plan;
     (void)rt;
@@ -121,6 +181,13 @@ ProgressPlan default_progress_plan(Runtime& rt) {
     // and a four-wheel drive sports car driven (the US disc's labels; the ones it has are kept).
     const char* const wanted[] = {"panda_super_ie_90", "impreza_wrx_sti_02", "rx8_03", "nsx_r_02", "ford_gt_05", "r390_race_98", "r34_gtr_v2_nur_02"};
     for (const char* label : wanted) plan.cars.emplace_back(label, 0);
+    // Gran Turismo mode opened up: every Beginner and Professional event but the Gran Turismo World
+    // Championship won (the championship then open: canEntryGTWorldChamp), the endurance hall's
+    // 25 % (canEntryEndurance) passed with more events (not the Extreme or Endurance halls',
+    // which stay to be run), and a car of the Supercar Festival's power driven.
+    plan.completion_permille = 260;
+    plan.fill_lists_skipped = {"ExtremeHall", "EnduranceHall"};
+    plan.driven = "ford_gt_05";
     return plan;
 }
 
@@ -179,12 +246,61 @@ ProgressReport play_progress(Runtime& rt, const ProgressPlan& plan) {
             const Value passed_now = d.call(rt.vm().attribute(d.game(), "race_record"), "isLicensePassed", {Value::string(cat)});
             out.steps.push_back(cat + ": " + std::to_string(passed) + " tests " + plan.license_result + (passed_now.i ? ", license held" : ", NOT held"));
         }
+        // The events won, each race a day of the calendar.
+        const std::string won_car = last >= 0 ? g.garage[size_t(last)].car : std::string();
+        auto skipped = [&](const std::string& code) {
+            return std::find(plan.events_not_won.begin(), plan.events_not_won.end(), code) != plan.events_not_won.end();
+        };
+        for (const std::string& list : plan.event_lists) {
+            const std::vector<std::string> codes = d.event_codes(list);
+            int events = 0, races = 0;
+            for (const std::string& code : codes)
+                if (!skipped(code) && !d.won(code)) races += d.win_event(code, won_car), ++events;
+            out.steps.push_back(list + ": " + std::to_string(events) + " of " + std::to_string(codes.size()) + " events won (" + std::to_string(races) +
+                                " races)");
+        }
+        // More events won until the completion asked for: the event data's other lists in turn.
+        int done = completion_permille(rt);
+        {
+            std::string names;
+            const std::vector<Value>* lists = d.project("EventData::AllEvents").items();
+            for (size_t i = 0; lists && i < lists->size(); ++i)
+                if (const std::vector<Value>* e = (*lists)[i].items(); e && !e->empty()) names += " " + (*e)[0].to_string() + "(" + std::to_string(e->size() - 1) + ")";
+            out.steps.push_back("event lists:" + names);
+        }
+        if (plan.completion_permille > 0 && done < plan.completion_permille) {
+            const Value all = d.project("EventData::AllEvents");
+            const std::vector<Value>* lists = all.items();
+            for (size_t i = 0; lists && i < lists->size() && done < plan.completion_permille; ++i) {
+                const std::vector<Value>* events = (*lists)[i].items();
+                if (!events || events->empty()) continue;
+                const std::string name = (*events)[0].to_string();
+                if (std::find(plan.fill_lists_skipped.begin(), plan.fill_lists_skipped.end(), name) != plan.fill_lists_skipped.end()) continue;
+                int n = 0;
+                for (size_t j = 1; j < events->size() && done < plan.completion_permille; ++j) {
+                    const Value code = rt.vm().attribute((*events)[j], "race_code");
+                    if (code.kind != script::Kind::String || skipped(code.as_string()) || d.won(code.as_string())) continue;
+                    d.win_event(code.as_string(), won_car);
+                    ++n;
+                    done = completion_permille(rt);
+                }
+                if (n) out.steps.push_back("won " + std::to_string(n) + " events of " + name);
+            }
+        }
+        if (done >= 0) out.steps.push_back("completion " + std::to_string(done / 10) + "." + std::to_string(done % 10) + " %");
         // The presents the records entitle the player to (license papers, their cars, courses by
-        // weeks gone by), through the present page.
+        // weeks gone by, cars by completion), through the present page.
         const int cars_before = g.garage_count();
         if (!d.presents()) return out;
         out.steps.push_back("presents: " + std::to_string(g.garage_count() - cars_before) + " cars got; " + std::to_string(g.available_courses.size()) +
                             " courses open in Arcade");
+        if (!plan.driven.empty())
+            for (size_t i = 0; i < g.garage.size(); ++i)
+                if (g.garage[i].used && g.garage[i].car == plan.driven) {
+                    d.call(rt.vm().attribute(d.game(), "garage"), "changeRidingCar", {Value::integer(s32(i))});
+                    out.steps.push_back("driving " + plan.driven + " (place " + std::to_string(i) + ", " + std::to_string(g.garage[i].power / 100) + " PS)");
+                    break;
+                }
         g.money = plan.credits;
         g.username = plan.name;
         // Saved by the card manager, as the map's auto save does.
