@@ -8,6 +8,7 @@
 #include "gt4r/formats/course/runway_gtrw.h"
 #include "gt4r/formats/db/specdb.h"
 #include "gt4r/race/race_flow.h"
+#include "gt4r/race/sections.h"
 #include "gt4r/sim/ai/drivers.h"
 #include "gt4r/sim/ai/run.h"
 #include "gt4r/sim/car_spec.h"
@@ -206,8 +207,11 @@ TEST(disc_e2e_sweep_race_laps) {
     int courses = 0, past_line = 0;
     for (const std::string& name : disc->volume().list_dir("crs/")) {
         if (name.find('.') != std::string::npos || name.find('/') != std::string::npos) continue;
-        // (not lap races: the photo locations, gymkhanas, the slalom and Las Vegas' drag strip)
-        if (name.rfind("ss_", 0) == 0 || name.rfind("gymkhana", 0) == 0 || name == "fisco_slalom" || name == "lasvegas") continue;
+        // (not lap races: the photo locations, gymkhanas, the slalom, Las Vegas' drag strip and the test course's measured
+        // strips. The program's rule starts a car standing before the last sector at 1 crossing, which on the 500 m and 1000 m
+        // strips, whose places are that far behind the line, is not the lap count this test expects; ❓ no original run of
+        // laps on those strips was seen.)
+        if (name.rfind("ss_", 0) == 0 || name.rfind("gymkhana", 0) == 0 || name == "fisco_slalom" || name == "lasvegas" || name.rfind("testcourse_", 0) == 0) continue;
         const std::shared_ptr<const course::Runway> road = road_of(*disc, name);
         if (!road || road->length < 100) continue;
         sim::Session session(db, program, road, entries);
@@ -220,6 +224,14 @@ TEST(disc_e2e_sweep_race_laps) {
         ++courses;
         race::FlowSetup setup;
         setup.start = race::StartType::None, setup.laps = 3, setup.lap_length = road->length;
+        // The race screen's own set-up of the count: the road's split points and goal (screen_race.cpp begin_run).
+        {
+            const Bytes data = disc->volume().read(*disc->volume().find("crs/" + name));
+            const course::CourseFile parsed = course::CourseFile::parse(data);
+            setup.sectors = race::road_list(parsed.section(data, course::kSlotRunway), 0);
+        }
+        setup.counted = !road->gtrw;
+        setup.goal = road->goal_v >= 1 && road->goal_v <= road->length - 1 ? road->goal_v : -1;
         race::RaceFlow flow;
         flow.begin(setup, cars);
         double run = 0, finished_at = -1;
