@@ -24,7 +24,7 @@ using gt3r::s64;
 
 class RemoteCar {
 public:
-    static constexpr int kMaxAhead = 15;          // steps (0.25 s) ahead of the newest state; older data is held, not flung on
+    static constexpr int kMaxAhead = 24;          // steps (0.4 s) ahead of the newest state; older data is held, not flung on
     static constexpr int kMaxReplay = 30;         // steps of the owner's run between two states made up for
     static constexpr float kBlend = 0.1f;         // s, the time constant of a shown correction
     static constexpr float kSnapDistance = 8.0f;  // m: larger jumps are not blended
