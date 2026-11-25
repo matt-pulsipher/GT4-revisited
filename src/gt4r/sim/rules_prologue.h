@@ -110,6 +110,9 @@ struct Tables {
     // +0xC / +0xD kind 2's down and up, x 0.01: 0x3DB730).
     ex::Awd3 awd3;
     ex::Stepless stepless;
+    // The special kind 7's ride (the SL55 AMG; 0x503CB0: on, the travel (mm), the lift (%), each axle's share (%), the drop (mm)
+    // and the two speeds it comes on between (km/h); made by 0x3B14A8, in each wheel's suspension by 0x3B15E8).
+    ex::Kind7Ride ride{};
     rules::HybridTables hybrid; // the hybrid's box's (0x504560, 0x5045B0, 0x504638, 0x504648)
     ConvertData convert; // what the converter reads (convert_prologue.h)
     u8 asm_keep = 0;     // 0x504B04: an entry with the stability control off keeps its switches' bits 6 and 7

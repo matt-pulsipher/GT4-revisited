@@ -96,6 +96,14 @@ Tables tables(const Program& program) {
         for (u32 k = 0; k < kControlBytes; ++k) c[k] = program.b(PrologueProgram::kController + k);
         t.controls = controls(c.data());
     }
+    { // 0x3B14A8
+        const auto b = [&](u32 k) { return gt3r::ee::int_to_f(s32(program.b(PrologueProgram::kKind7Tire + k))); };
+        const F milli = F::raw(0x3A83126E), kmh = F::raw(0x3E8E38E3), hundred = F::raw(0x42C80000);
+        t.ride.on = program.b(PrologueProgram::kKind7Tire) != 0;
+        t.ride.travel = b(1) * milli, t.ride.lift = b(2) / hundred;
+        for (u32 a = 0; a < 2; ++a) t.ride.share[a] = b(3 + a) / hundred;
+        t.ride.drop = b(5) * milli, t.ride.v0 = b(6) * kmh, t.ride.v1 = b(7) * kmh;
+    }
     t.hybrid = rules::hybrid_tables(program, 0x504560, 0x5045B0, 0x504638, 0x504648);
     t.pedal_ramps = program.b(PrologueProgram::kController + 0x11) != 0;
     t.throttle_up = t.controls.throttle_up, t.throttle_down = t.controls.throttle_down;
