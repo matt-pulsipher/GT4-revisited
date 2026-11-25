@@ -30,6 +30,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <optional>
 #include <span>
@@ -297,7 +298,25 @@ int race_strobe_tree(Disc& disc, const Args& a) {
     const gt3r::Volume::Entry* e = disc.volume().find(a[1]);
     if (!e) throw FormatError("no file " + a[1]);
     auto movie = std::make_shared<const race::StrobeMovie>(race::StrobeMovie::parse(disc.volume().read(*e)));
-    race::StrobePlayer p(movie, [](const std::string& name, const std::vector<race::StrobePlayer::Value>& args) {
+    // Answers by the call's name ("ISCHAMPIONSHIP=1,ISSTAGE1=0"): GT4R_STROBE_ANSWERS.
+    std::vector<std::pair<std::string, double>> answers;
+    if (const char* e2 = std::getenv("GT4R_STROBE_ANSWERS"))
+        for (const char* q = e2; *q;) {
+            const char* eq = std::strchr(q, '=');
+            if (!eq) break;
+            const char* end = std::strchr(eq, ',');
+            answers.emplace_back(std::string(q, size_t(eq - q)), std::atof(eq + 1));
+            if (!end) break;
+            q = end + 1;
+        }
+    race::StrobePlayer p(movie, [answers](const std::string& name, const std::vector<race::StrobePlayer::Value>& args) {
+        std::string up = name;
+        for (char& c : up) c = char(std::toupper(static_cast<unsigned char>(c)));
+        for (const auto& [n, v] : answers)
+            if (n == up) {
+                std::printf("(host: %s = %g)\n", name.c_str(), v);
+                return race::StrobePlayer::Value::number(v);
+            }
         std::printf("(host: %s", name.c_str());
         for (const race::StrobePlayer::Value& v : args) std::printf(" %s", v.to_string().c_str());
         std::printf(")\n");

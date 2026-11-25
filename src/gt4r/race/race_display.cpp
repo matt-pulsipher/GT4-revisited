@@ -10,6 +10,17 @@
 
 namespace gt4r::race {
 
+u32 tire_color(int t) {
+    int r = 0, g = 0, b = 0;
+    const int hi = 0xFC; // (the program's -4, a byte)
+    if (t >= 0x40) r = hi, g = 2 * (0x7F - t);
+    else if (t >= 0x20) r = hi, g = 4 * (0x5F - t);
+    else if (t >= 0) r = 8 * t, g = hi;
+    else if (t >= -0x3F) g = hi + 4 * t, b = -4 * t;
+    auto byte = [](int v) { return u32(v & 0xFF); };
+    return byte(r) | byte(g) << 8 | byte(b) << 16;
+}
+
 namespace {
 
 // The single race's tables in SCUS-97328 v1.01's program: the elements every race of that kind

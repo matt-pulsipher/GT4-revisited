@@ -38,6 +38,9 @@ struct Entry {
     // the road's middle there, facing along the course (NaN: the grid place). The race's rule for it:
     // rules::rolling_start_distance (rules_start.h).
     float start_distance = std::numeric_limits<float>::quiet_NaN();
+    // The car's own start place, in place of its grid place (a license test's road section has its own: 0x3952C0); a plain
+    // grid start (start kind 0).
+    std::optional<course::Runway::Place> place;
     // The race uses fuel (its rule block's byte +0x4C): the tank filled at the start (the car's tank less the program's byte
     // 0x620E24), burnt by the engine's output, its weight in the mass. Off: no tank (the races seen).
     bool fuel = false;
@@ -139,6 +142,8 @@ public:
     float tread(size_t i, int wheel) const { return cars_[i].w[size_t(wheel)].wear.host(); }
     float wear_grip(size_t i, int wheel) const { return cars_[i].w[size_t(wheel)].wear_grip.host(); }
     const rules::WearRules& wear_rules() const { return tables_.wear; }
+    // A wheel's wear level as the race display takes it (wheel +0xB1, -0x80 .. 0x7F).
+    int wear_level(size_t i, int wheel) const { return i < cars_.size() ? int(cars_[i].w[size_t(wheel)].wear_level) : -0x80; }
     void new_tire(size_t i, int wheel);
     // The flaps' random stream (the program's 0x874D50), for gt4r_diff's whole step.
     void set_random_state(u32 state) { random_state_ = state; }
