@@ -1621,7 +1621,8 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
                 return Value::array({Value::number(tw), Value::number(th)});
             });
         // abbreviate(): a text too long for its box ends in dots; adjustScale(): it is drawn
-        // narrower to fit. Both are done when the text is drawn.
+        // narrower to fit (1: across, 2: down; a scale the script sets after it stands). Both are
+        // done when the text is drawn.
         if (n == "abbreviate")
             return fn([w](Vm&, const Value&, Args) {
                 w->set_property("abbreviate", Value::integer(1));
@@ -1629,7 +1630,7 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
             });
         if (n == "adjustScale")
             return fn([w](Vm&, const Value&, Args) {
-                w->set_property("adjust_scale", Value::integer(1));
+                w->set_property("adjust_scale", Value::integer(3));
                 return Value{};
             });
     }

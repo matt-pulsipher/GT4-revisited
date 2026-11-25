@@ -311,6 +311,9 @@ void LiveWidget::set(const std::string& n, const Value& v) {
         widget_set_index(*runtime, *this, v.is_number() ? int(v.as_float()) : 0, false);
         return;
     }
+    // A text's scale set after adjustScale() is the one drawn (the Replay Theater's titles).
+    if (const int bit = n == "scale_x" ? 1 : n == "scale_y" ? 2 : 0; bit && data.has("adjust_scale"))
+        set_property("adjust_scale", Value::integer(int(data.number("adjust_scale")) & ~bit));
     set_property(n, v);
     if (n == "index" && is_select_box(*this)) select_box_layout(*this, true);
     // A text given directly replaces the one looked up by key.

@@ -110,6 +110,16 @@ program's sequence `load_replay` (the title's third item asks for it), which run
 replay's own layout. Here MODE_LOAD_REPLAY lists the replays the race saved in the data
 folder's `replays/` (`menu/game_replays.cpp`; menu.md "The Replay Theater").
 
+### The icon's picture
+
+A replay's or a photo's `icon0.ico` (the console's icon format: shapes, vertices, an animation, a
+128 x 128 texture of 16-bit pixels, packed when the texture word's bit 8 is set) carries its
+picture in the texture's top left 64 x 64. The lists' file object gives it to the scripts as a
+texture chunk (`getIconTexture`, 0x176FF0: a Tex1 of 64 x 64 16-bit pixels, each made opaque),
+which they put in the row's image face (`image_chunk`; its size there 72 x 54). Here
+`save/card_icon.h` decodes it and `GameState::chunk_pictures` holds it by name; the demo replays'
+are shown, the race's own saved replays have none.
+
 ## Results the scripts see (0x1CBF40)
 
 0 `OK`, 1 `DEVICE_ERROR`, 2 `INVALID_FILE`, 3 `FILE_NOT_FOUND`, 4 `DIFFERENT_MEMORYCARD`,

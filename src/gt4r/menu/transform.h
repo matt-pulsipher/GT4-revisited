@@ -34,9 +34,9 @@ struct Affine {
 // the event halls' and Photo Travel's lists) and the root window (0x232E00); the option menu
 // (0x2C7498), the scale bar (0x236860) and the slider bar (0x2DD820), boxes too, turn it off again
 // (the slider's value tag stands above its bar); other composites do not cut (mComposite's,
-// 0x204F10). The layouts write `clip 0` on boxes and `clip 1` on the others.
+// 0x204F10). The list box a layout's is copied from cuts (a saved state's; its constructor, 0x2AEA98, does not). The layouts write `clip 0` on boxes and `clip 1` on the others.
 inline bool clips_by_default(std::string_view type) {
-    for (std::string_view box : {"Box", "DBox", "HBox", "VBox", "FBox", "MBox", "RootWindow", "PhotoMapWindow", "SelectBox"})
+    for (std::string_view box : {"Box", "DBox", "HBox", "VBox", "FBox", "MBox", "RootWindow", "PhotoMapWindow", "SelectBox", "ListBox"})
         if (type == box) return true;
     return false;
 }

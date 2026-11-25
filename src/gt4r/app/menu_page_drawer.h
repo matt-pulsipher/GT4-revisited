@@ -14,6 +14,7 @@
 #include "gt4r/menu/faces_graph.h"
 #include "gt4r/menu/faces_tooltip.h"
 #include "gt4r/menu/font.h"
+#include "gt4r/menu/game.h"
 #include "gt4r/menu/project.h"
 #include "gt4r/menu/runtime.h"
 #include "gt4r/menu/text_layout.h"
@@ -222,8 +223,9 @@ private:
 
     // `uv`: the picture's coordinates of the four corners clockwise from the top left
     // (mImageFace's `texcoord`); none: the whole picture.
-    void image(const std::string& path, const Rect& at, Rgba tint, float opacity, bool add, const SDL_FPoint* uv = nullptr, bool from_disk = false) {
-        const gt3r::Tex1::Image* img = path.empty() ? nullptr : from_disk ? disk_image(path) : project_->image(page_, path);
+    void image(const std::string& path, const Rect& at, Rgba tint, float opacity, bool add, const SDL_FPoint* uv = nullptr, bool from_disk = false,
+               const gt3r::Tex1::Image* held = nullptr) {
+        const gt3r::Tex1::Image* img = held ? held : path.empty() ? nullptr : from_disk ? disk_image(path) : project_->image(page_, path);
         SDL_Texture* t = texture(img, path);
         if (!t) return;
         SDL_SetTextureColorMod(t, 255, 255, 255);
@@ -653,13 +655,13 @@ private:
         // there and ended in dots.
         if (at.w > 0) {
             const float width = width_of(s, st); // the widest line's
-            if (w.number("adjust_scale") != 0) {
+            if (const int adjust = int(w.number("adjust_scale")); adjust != 0) {
                 // (0x2455C0: each axis by itself, where the text passes the face.)
                 menu::TextStyle plain = st;
                 plain.align = gt3r::text::HAlign::Left, plain.valign = gt3r::text::VAlign::Top;
                 const float height = menu::layout_menu_text(s, plain, 0, 0).height;
-                if (width > at.w) st.scale_x *= at.w / width;
-                if (height > at.h && at.h > 0) st.scale_y *= at.h / height;
+                if ((adjust & 1) && width > at.w) st.scale_x *= at.w / width;
+                if ((adjust & 2) && height > at.h && at.h > 0) st.scale_y *= at.h / height;
             } else if (width > at.w && w.number("abbreviate") != 0 && s.find('\n') == std::string::npos) {
                 while (s.size() > 1 && width_of(s + "...", st) > at.w) s.pop_back();
                 s += "...";
@@ -786,7 +788,13 @@ private:
                 for (size_t i = 0; i < 4; ++i)
                     uv[i] = {tc->items[i].values.size() > 0 ? std::strtof(tc->items[i].values[0].c_str(), nullptr) : 0,
                              tc->items[i].values.size() > 1 ? std::strtof(tc->items[i].values[1].c_str(), nullptr) : 0};
-            image(w.text("image_path"), at, tint, face, add, has_uv ? uv : nullptr, w.number("from_disk") != 0);
+            // A picture the script holds (`image_chunk`), else the one the layout names.
+            const gt3r::Tex1::Image* chunk = nullptr;
+            if (live.runtime && w.has("image_chunk")) {
+                const auto& held = live.runtime->game().chunk_pictures;
+                if (const auto it = held.find(w.text("image_chunk")); it != held.end()) chunk = &it->second;
+            }
+            image(w.text("image_path"), at, tint, face, add, has_uv ? uv : nullptr, w.number("from_disk") != 0, chunk);
         }
         else if (t == "FrameImageFace") frame(w, at, tint, face);
         else if (t == "ToolTipFace" && w.number("detached") == 0 && w.text("value").empty() && w.text("text").empty() && !w.has("key")) {
