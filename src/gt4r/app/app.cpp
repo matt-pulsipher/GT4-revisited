@@ -225,6 +225,7 @@ bool App::init(int argc, char** argv) {
         else if (start_ == "menus") push(make_menu_viewer(*this));
         else if (start_ == "race") push(make_race_screen(*this));
         else if (start_ == "controls") push(make_controls_screen(*this));
+        else if (start_ == "saveeditor") push(make_save_editor(*this));
         else if (start_ == "settings") push(make_settings_screen(*this));
         else if (start_ == "cars" || start_ == "courses") { // (the hub's items: Play, Cars, Courses)
             const std::vector<std::string> to = start_ == "cars" ? std::vector<std::string>{"down", "cross"} : std::vector<std::string>{"down", "down", "cross"};
@@ -591,7 +592,7 @@ SDL_AppResult App::event(const SDL_Event& e) {
     if (e.type == SDL_EVENT_WINDOW_DISPLAY_CHANGED) apply_frame_limit(); // (another display's rate)
     SDL_Event local = e; // the pointer in UI units
     SDL_ConvertEventToRenderCoordinates(renderer_, &local);
-    pointer_.event(local);
+    if (!scripted_) pointer_.event(local); // (a scripted run's mouse is its script's)
     if (!screens_.empty()) screens_.back()->on_event(*this, local);
     return SDL_APP_CONTINUE;
 }
