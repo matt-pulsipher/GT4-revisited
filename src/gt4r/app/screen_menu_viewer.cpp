@@ -11,7 +11,9 @@
 #include "gt4r/app/menu_models.h"
 #include "gt4r/app/menu_movies.h"
 #include "gt4r/app/menu_page_drawer.h"
+#include "gt4r/app/menu_painter.h"
 #include "gt4r/app/menu_slides.h"
+#include "gt4r/app/photo_faces.h"
 
 #include "base/log.h"
 #include "formats/text/charset.h"
@@ -22,6 +24,7 @@
 #include "gt4r/menu/project.h"
 #include "gt4r/menu/race_natives.h"
 #include "gt4r/menu/runtime.h"
+#include "gt4r/photo/photo_camera.h"
 #include "gt4r/menu/native.h"
 #include "gt4r/menu/runtime_internal.h"
 
@@ -92,6 +95,8 @@ public:
                 else if (key == "card") card_ = value;
                 else if (key == "credits") credits_ = std::atoll(value.c_str());
                 else if (key == "timing") timing_ = value != "0";
+                else if (key == "photo") start_photo_ = value; // a photo shoot on this course, of `car`
+                else if (key == "car") start_car_ = value;
                 else if (key == "advertise") advertise_on_ = value != "0";
             }
         }
@@ -105,6 +110,13 @@ public:
         if (start_boot_) {
             start_boot_ = false, start_project_.clear();
             run(app, true);
+            if (runtime_ && !start_photo_.empty() && app.gpu()) {
+                menu::RaceRequest q;
+                q.sequence = "photo_shoot", q.course = start_photo_, q.car = start_car_;
+                race_ = q;
+                start_photo_.clear();
+                return rt_photo(app);
+            }
         }
         if (!start_project_.empty()) {
             for (size_t i = 0; i < projects_.size(); ++i)
@@ -236,7 +248,10 @@ private:
             if (credits_ >= 0) runtime_->game().money = credits_;
             app_ = &app;
             runtime_->on_sound = [&app](const menu::SoundCall& call) {
-                if (audio::AppSound* sound = app.sound()) play_sound_call(sound->menu(), call);
+                audio::AppSound* sound = app.sound();
+                // (The photo mode's camera: its shutter's effect bank.)
+                if (sound && call.object == "sound" && call.method == "loadShutter") sound->library_ptr()->set_shutter(call.args.empty() ? std::string() : call.args[0].to_string());
+                else if (sound) play_sound_call(sound->menu(), call);
             };
             // The options' menu volumes (game_settings.h).
             // Prologue's options have the music on or off only (its option object's menu_bgm, race_bgm, replay_bgm: no volume
@@ -268,11 +283,17 @@ private:
             MenuModels* models = models_.get();
             slides_ = std::make_unique<MenuSlides>(app);
             MenuSlides* slides = slides_.get();
-            drawer->draw_live = [movies, cars, models, slides](const LiveWidget& face, menu::Project* project, const std::string& page, const Rect& at, const SDL_FRect& dst, float opacity) {
+            if (!photos_) photos_ = std::make_unique<PhotoFaces>(app);
+            PhotoFaces* photos = photos_.get();
+            photos->picture = [this]() { return runtime_ ? runtime_->photo_picture.get() : nullptr; };
+            slides->card_list = [this]() { return runtime_ ? menu::slide_folders(*runtime_) : std::vector<std::string>{}; };
+            slides->card_photo = [this](const std::string& folder) { return runtime_ ? menu::slide_photo(*runtime_, folder) : std::nullopt; };
+            drawer->draw_live = [movies, cars, models, slides, photos](const LiveWidget& face, menu::Project* project, const std::string& page, const Rect& at, const SDL_FRect& dst, float opacity) {
                 if (face.is("MovieFace")) movies->draw(face, dst, opacity);
                 else if (face.is("CarFace")) cars->draw(face, project, page, at, dst, opacity);
                 else if (face.is("ModelFace")) models->draw(face, project, page, at, dst, opacity);
                 else if (face.is("SlideShowFace")) slides->draw(face, at, dst, opacity);
+                else if (face.is("PhotoRenderFace")) photos->draw(at, dst, opacity);
             };
             menu::text_measure().measure = [drawer](const LiveWidget& face, float& w, float& h) { drawer->measure(face, w, h); };
             cursor_ = {};
@@ -303,7 +324,7 @@ private:
             static const std::pair<PadButton, menu::Key> keys[] = {
                 {PadButton::Cross, menu::Key::Accept}, {PadButton::Triangle, menu::Key::Cancel}, {PadButton::Start, menu::Key::Start},
                 {PadButton::Select, menu::Key::Select}, {PadButton::L1, menu::Key::L1},         {PadButton::R1, menu::Key::R1},
-                {PadButton::L2, menu::Key::L2},         {PadButton::R2, menu::Key::R2},         {PadButton::Square, menu::Key::Square},
+                {PadButton::L2, menu::Key::L2},         {PadButton::R2, menu::Key::R2},         {PadButton::Square, menu::Key::Cancel},
             };
             // The pictures before the menus: the menus start after them.
             if (advertise_ && advertise_->active()) {
@@ -314,15 +335,15 @@ private:
             }
             // (The loading page takes no keys.)
             const bool keys_on = !loading_ || !loading_->active();
-            if (keys_on && m.vertical()) runtime_->key(m.vertical() < 0 ? menu::Key::Up : menu::Key::Down);
-            if (keys_on && m.horizontal()) runtime_->key(m.horizontal() < 0 ? menu::Key::Left : menu::Key::Right);
+            send_menu_directions(*runtime_, m, keys_on);
             for (const auto& [button, key] : keys)
                 if (keys_on && m.pressed(button)) runtime_->key(key);
             // The menus run at the program's 60 pictures a second, whatever the display's rate.
             const int steps = std::min(int(step_time_ * 60.0), 4);
             step_time_ = steps == 4 ? 0.0 : step_time_ - steps / 60.0;
             const Uint64 u0 = SDL_GetTicksNS();
-            for (int i = 0; i < steps; ++i) runtime_->update(), cursor_.step(*runtime_);
+            const menu::Runtime::Pad pad = menu_runtime_pad(app.menu_pad());
+            for (int i = 0; i < steps; ++i) runtime_->set_pad(pad), runtime_->update(), cursor_.step(*runtime_);
             if (loading_) loading_->step(float(steps) / 60.0f);
             if (timing_ && double(SDL_GetTicksNS() - u0) / 1e6 > 20) LOG_INFO("Menu timing: the scripts took %.1f ms", double(SDL_GetTicksNS() - u0) / 1e6);
             // A script that ended its project names the next one, or asks for a race.
@@ -351,6 +372,11 @@ private:
                         if (!runtime_->advance()) runtime_->note("the menus ended and asked for nothing");
                         if (loading_) loading_->end();
                     }
+                }
+                // A photo shoot runs its own project on these menus (screen_photo.cpp).
+                if (race_ && race_->sequence == "photo_shoot" && app.gpu()) {
+                    rt_photo(app);
+                    return;
                 }
                 // A race with its own menus: the race screen runs them over the race on these menus
                 // and leaves them where the race sequence ends (race_natives.h).
@@ -387,6 +413,13 @@ private:
         } catch (const std::exception& ex) {
             runtime_->note(std::string("stopped: ") + ex.what());
         }
+    }
+
+    void rt_photo(App& app) {
+        const menu::RaceRequest request = *race_;
+        race_.reset();
+        if (audio::AppSound* sound = app.sound()) sound->menu().stop_music(), sound->menu().stop_stream();
+        app.push(make_photo_screen(app, *runtime_, request));
     }
 
     void render_running(Ui& ui) {
@@ -555,6 +588,8 @@ private:
     int project_sel_ = 0, page_sel_ = 0, state_ = 0;
     bool player_ = false; // the game itself
     bool full_ = false, start_run_ = false, start_boot_ = false;
+    std::string start_photo_, start_car_;
+    std::unique_ptr<PhotoFaces> photos_; // a photo's preview (Photo Lab)
     std::string error_, start_project_, start_page_, card_;
     double step_time_ = 0; // display time not yet stepped by the menus
     bool timing_ = false;
@@ -614,14 +649,39 @@ private:
 
 std::unique_ptr<MenuPainter> make_menu_painter(App& app) { return std::make_unique<RuntimePainter>(app); }
 
+menu::Runtime::Pad menu_runtime_pad(const gt3r::PadState& p) {
+    using Pad = menu::Runtime::Pad;
+    static const std::pair<PadButton, u32> bits[] = {
+        {PadButton::Up, Pad::kUp},         {PadButton::Down, Pad::kDown},         {PadButton::Left, Pad::kLeft},     {PadButton::Right, Pad::kRight},
+        {PadButton::L1, Pad::kL1},         {PadButton::L2, Pad::kL2},             {PadButton::R1, Pad::kR1},         {PadButton::R2, Pad::kR2},
+        {PadButton::Cross, Pad::kCross},   {PadButton::Circle, Pad::kCircle},     {PadButton::Triangle, Pad::kTriangle}, {PadButton::Square, Pad::kSquare},
+        {PadButton::Start, Pad::kStart},
+    };
+    Pad out;
+    for (const auto& [b, bit] : bits)
+        if (p.down(b)) out.buttons |= bit;
+    const gt3r::PadAxis axes[4] = {gt3r::PadAxis::RX, gt3r::PadAxis::RY, gt3r::PadAxis::LX, gt3r::PadAxis::LY};
+    for (int i = 0; i < 4; ++i) out.sticks[i] = photo::stick(p.axis(axes[i]));
+    return out;
+}
+
+void send_menu_directions(menu::Runtime& rt, const MenuInput& m, bool on) {
+    static const std::pair<PadButton, menu::Key> dirs[] = {{PadButton::Up, menu::Key::Up}, {PadButton::Down, menu::Key::Down}, {PadButton::Left, menu::Key::Left}, {PadButton::Right, menu::Key::Right}};
+    unsigned held = 0;
+    for (unsigned i = 0; i < 4; ++i) {
+        if (m.held(dirs[i].first)) held |= 1u << i;
+        if (on && m.pressed(dirs[i].first) && !m.pressed(dirs[i ^ 1].first)) rt.key(dirs[i].second, (rt.directions_held >> i & 1) != 0);
+    }
+    rt.directions_held = held;
+}
+
 void send_menu_keys(menu::Runtime& rt, const MenuInput& m) {
     static const std::pair<PadButton, menu::Key> keys[] = {
         {PadButton::Cross, menu::Key::Accept}, {PadButton::Triangle, menu::Key::Cancel}, {PadButton::Start, menu::Key::Start},
         {PadButton::Select, menu::Key::Select}, {PadButton::L1, menu::Key::L1},         {PadButton::R1, menu::Key::R1},
-        {PadButton::L2, menu::Key::L2},         {PadButton::R2, menu::Key::R2},         {PadButton::Square, menu::Key::Square},
+        {PadButton::L2, menu::Key::L2},         {PadButton::R2, menu::Key::R2},         {PadButton::Square, menu::Key::Cancel},
     };
-    if (m.vertical()) rt.key(m.vertical() < 0 ? menu::Key::Up : menu::Key::Down);
-    if (m.horizontal()) rt.key(m.horizontal() < 0 ? menu::Key::Left : menu::Key::Right);
+    send_menu_directions(rt, m, true);
     for (const auto& [button, key] : keys)
         if (m.pressed(button)) rt.key(key);
 }
