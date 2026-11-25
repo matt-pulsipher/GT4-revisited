@@ -97,6 +97,10 @@ struct Setup {
     int course_kind = 0;       // the course's COURSE row +0x10 (race/start_rule.h CourseStart::kind)
     bool start_given = false;
     std::vector<std::string> opponents; // the other cars by label (empty: from the car list)
+    // Each entry's start place (0 the front), by the entry's number (0 the player); empty: the player
+    // at the back, the others ahead in entry order. A championship's races from the second on
+    // (0x3EE9F8 / 0x3EE7C0: the entries keep their order, only their places change).
+    std::vector<int> grid_slots;
     std::string sequence; // `menus=single_race`: the race's own menus (the sequence's quick project) round the race
     std::array<u16, 3 * 64> bspec_book{}; // the B-spec driver's book and the course's marks (the request's)
     std::array<u8, 8> bspec_course_marks{};
@@ -323,7 +327,8 @@ public:
         ws.options = setup.options;
         ws.playlist = setup.playlist;
         // The grid: the player at the back, the others ahead of him in entry order.
-        const std::vector<int> places = race::grid_places(size_t(setup.cars), 0);
+        std::vector<int> places = race::grid_places(size_t(setup.cars), 0);
+        if (setup.grid_slots.size() == places.size()) places = setup.grid_slots;
         for (int i = 0; i < setup.cars; ++i) {
             WorldEntry e;
             e.label = i == 0 || setup.opponents.empty() ? cars[(first + size_t(i) * 37) % cars.size()].label
@@ -1824,7 +1829,8 @@ private:
         menu::QuickWork& w = menu::quick_work(menus_->game());
         const menu::RaceRequest& q = menus_->game().race;
         const size_t n = race_->car_count();
-        const std::vector<int> places = race::grid_places(n, 0);
+        std::vector<int> places(n);
+        for (size_t i = 0; i < n; ++i) places[i] = std::clamp(race_->entry(i).grid_place, 0, int(n) - 1);
         w.rows.assign(n, menu::QuickRow{});
         for (size_t i = 0; i < n; ++i) {
             menu::QuickRow& row = w.rows[size_t(places[i])];
@@ -1847,7 +1853,7 @@ private:
             // The grid's Pts column (the page reads getPower: the work's +0x364, which holds each entrant's points so
             // far in a championship, 0x11A168; none before the first race).
             for (size_t i = 0; i < n; ++i) {
-                const size_t entrant = i == 0 ? 0 : size_t(race_->entry(i).grid_place + 1); // (as report_result numbers them)
+                const size_t entrant = i; // (the car's number is its entry's, as report_result numbers them)
                 w.rows[size_t(places[i])].power = entrant < g.series.entrants.size() ? g.series.entrants[entrant].points : 0;
             }
             w.race_label = championship_race();
@@ -1934,7 +1940,7 @@ private:
         // Every car in finishing order.
         for (const race::RaceFlow::ResultRow& row : flow.results()) {
             menu::RaceResult::Finisher f;
-            f.entry = row.car == 0 ? 0 : race_->entry(row.car).grid_place + 1;
+            f.entry = int(row.car); // the car's number is its entry's (0 the player)
             f.car = race_->entry(row.car).label, f.paint = int(race_->entry(row.car).paint);
             f.finished = row.finished;
             if (row.finished) f.time_ms = u32(row.total_ms);
@@ -2264,7 +2270,7 @@ private:
             // the rows in order of the points so far with this race's added ("20 pt" in the time's place).
             if (sequence_ == "championship" && menus_) {
                 const menu::GameState& g = menus_->game();
-                auto entrant_of = [this](int car) { return car <= 0 ? size_t(0) : size_t(race_->entry(size_t(car)).grid_place + 1); };
+                auto entrant_of = [](int car) { return car <= 0 ? size_t(0) : size_t(car); };
                 auto total_of = [&](size_t r) {
                     const int car = board.rows()[r].car;
                     const size_t e = entrant_of(car);

@@ -685,6 +685,20 @@ void RaceWorld::draw_icons(Ui& ui, const SDL_FRect& canvas, std::span<const Icon
     m.icon_view->draw(ui.renderer(), canvas, render::Mat4::identity(), proj, RVec{0, 0, 100}, items, o);
 }
 
+void RaceWorld::draw_model(Ui& ui, const SDL_FRect& rect, const render::GpuModel& model, const render::Mat4& place, const render::Mat4& proj, float alpha) {
+    Impl& m = *impl_;
+    if (!app_.gpu() || alpha <= 0) return;
+    if (!m.icon_view) m.icon_view = std::make_unique<render::View3D>(*app_.gpu());
+    std::vector<render::DrawItem> items{render::DrawItem{&model, place, 0}};
+    render::DrawOptions o = draw_options(*course_, 100);
+    o.fog = false;
+    o.frustum_cull = false;
+    for (float& c : o.clear) c = 0;
+    o.composite_alpha = std::clamp(alpha, 0.0f, 1.0f);
+    if (m.view && m.env_ready) o.env_cube = m.view->env_cube(), o.env_gt3_lookup = true;
+    m.icon_view->draw(ui.renderer(), rect, render::Mat4::identity(), proj, RVec{0, 0, 0}, items, o);
+}
+
 // The rear-view mirror (docs/formats/course.md "Drawing", step 9: the mirror's fog, its sky,
 // slot 1 by slot 3's list, the cars). ❓ Its lens and depth are the shared engine's mirror's (the
 // in-car view's angle zoomed 1.3 times, 120 m), not read from this program.

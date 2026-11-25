@@ -297,8 +297,10 @@ int race_strobe_tree(Disc& disc, const Args& a) {
     const gt3r::Volume::Entry* e = disc.volume().find(a[1]);
     if (!e) throw FormatError("no file " + a[1]);
     auto movie = std::make_shared<const race::StrobeMovie>(race::StrobeMovie::parse(disc.volume().read(*e)));
-    race::StrobePlayer p(movie, [](const std::string& name, const std::vector<race::StrobePlayer::Value>&) {
-        std::printf("(host: %s)\n", name.c_str());
+    race::StrobePlayer p(movie, [](const std::string& name, const std::vector<race::StrobePlayer::Value>& args) {
+        std::printf("(host: %s", name.c_str());
+        for (const race::StrobePlayer::Value& v : args) std::printf(" %s", v.to_string().c_str());
+        std::printf(")\n");
         return race::StrobePlayer::Value{};
     });
     p.restart();
@@ -312,7 +314,8 @@ int race_strobe_tree(Disc& disc, const Args& a) {
             if (d.group) {
                 const race::StrobeMovie::Fill* f = d.group->fill < movie->fills.size() ? &movie->fills[d.group->fill] : nullptr;
                 std::printf("shape fill %u kind %d value %08x", unsigned(d.group->fill), f ? int(f->kind) : -1, f ? unsigned(f->value) : 0u);
-            } else std::printf("text \"%s\"", d.words.c_str());
+            } else if (!d.external.empty()) std::printf("external %s scale %.2f", d.external.c_str(), double(std::hypot(d.m[0], d.m[1])));
+            else std::printf("text \"%s\"", d.words.c_str());
             std::printf(" at %.0f,%.0f mul %.2f %.2f %.2f %.2f add %.2f %.2f %.2f %.2f\n", double(d.m[4]), double(d.m[5]), double(d.mul[0]), double(d.mul[1]),
                         double(d.mul[2]), double(d.mul[3]), double(d.add[0]), double(d.add[1]), double(d.add[2]), double(d.add[3]));
         }
