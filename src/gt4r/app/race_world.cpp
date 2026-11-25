@@ -825,6 +825,7 @@ void RaceWorld::present(std::span<const race::CarState> cars, const audio::Sound
             if (pc.service & 0x200) pc.service = u16(pc.service ^ 0x200), m.sound->pit_effect("jackdown");
             for (const char* name : m.pit_sounds) m.sound->pit_effect(name);
         }
+        m.sound->refueling(live && m.pit_scene && m.pit_scene->hose());
     }
     m.pit_sounds.clear();
     if (!m.smoke.loaded()) return;
