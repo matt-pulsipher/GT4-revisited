@@ -2362,16 +2362,19 @@ private:
             if (sequence_ == "championship" && menus_) {
                 const menu::GameState& g = menus_->game();
                 auto entrant_of = [](int car) { return car <= 0 ? size_t(0) : size_t(car); };
-                auto total_of = [&](size_t r) {
-                    const int car = board.rows()[r].car;
-                    const size_t e = entrant_of(car);
-                    return (e < g.series.entrants.size() ? g.series.entrants[e].points : 0) + menus_->points_for_place(int(r));
+                auto before_of = [&](size_t r) {
+                    const size_t e = entrant_of(board.rows()[r].car);
+                    return e < g.series.entrants.size() ? g.series.entrants[e].points : 0;
                 };
-                // The rows in ranking order: the most points first, a tie in this race's order.
-                auto ranking = [&]() {
+                auto total_of = [&](size_t r) { return before_of(r) + menus_->points_for_place(int(r)); };
+                // The rows in order of points (0x40C538): the most first, a tie in this race's order; before this race, or
+                // with its points.
+                auto ranking = [&](bool with_race) {
                     std::vector<size_t> order(board.rows().size());
                     for (size_t r = 0; r < order.size(); ++r) order[r] = r;
-                    std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) { return total_of(a) > total_of(b); });
+                    std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) {
+                        return with_race ? total_of(a) > total_of(b) : before_of(a) > before_of(b);
+                    });
                     return order;
                 };
                 if (n == "ISCHAMPIONSHIP") return V::boolean(true);
@@ -2380,22 +2383,26 @@ private:
                 if (n == "TOPOINTADDPHASE") points_phase_ = 2, board.touch(); // (the rows read again for this part)
                 if (n == "TOPOINTRANKINGPHASE") points_phase_ = 3, board.touch();
                 if (n == "GETPOINT") {
+                    // (a row's point text: "+10 pt" by its place; once the points are added the totals, in the order before
+                    // this race)
                     const std::string at = args.empty() ? std::string() : args[0].to_string();
                     const int r = at.size() > 1 && (at[0] == 'R' || at[0] == 'r') ? std::atoi(at.c_str() + 1) - 1 : -1;
                     if (r < 0 || size_t(r) >= board.rows().size()) return V::string({});
+                    if (points_phase_ >= 2) return V::string(" " + std::to_string(total_of(ranking(false)[size_t(r)])) + " pt");
                     return V::string("+" + std::to_string(menus_->points_for_place(r)) + " pt");
                 }
-                if (points_phase_ == 3 && i >= 0 && size_t(i) < board.rows().size()) {
-                    const std::vector<size_t> order = ranking();
-                    const size_t r = order[size_t(i)];
+                if (points_phase_ >= 2 && i >= 0 && size_t(i) < board.rows().size()) {
+                    const size_t r = ranking(points_phase_ == 3)[size_t(i)];
                     if (n == "CB_GETNAME") {
                         const int car = board.rows()[r].car;
                         return V::string(car >= 0 ? race_->car_short_name(size_t(car)) : std::string());
                     }
-                    if (n == "CB_GETTIME") return V::string(std::to_string(total_of(r)) + " pt");
+                    if (n == "CB_GETTIME")
+                        return V::string(points_phase_ == 3 ? " " + std::to_string(total_of(r)) + " pt"
+                                                            : std::to_string(before_of(r)) + " + " + std::to_string(menus_->points_for_place(int(r))) + " pt");
                 }
-                if (points_phase_ == 3 && n == "CB_PLAYERRANK") {
-                    const std::vector<size_t> order = ranking();
+                if (points_phase_ >= 2 && n == "CB_PLAYERRANK") {
+                    const std::vector<size_t> order = ranking(points_phase_ == 3);
                     for (size_t k = 0; k < order.size(); ++k)
                         if (int(order[k]) == board.player_row()) return V::number(double(k));
                 }
