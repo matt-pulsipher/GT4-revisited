@@ -288,4 +288,5 @@ engine's Gran Turismo 3 code). The player notices them roughly in this order.
 | The far level's wheels | `car_visual.cpp` | GT4 (the body's own shapes with the wheel set's last texture set, callback 46) | |
 | The brake discs' glow | `car_visual.cpp`, `race_world.cpp` | GT4 (heat² x `Env0` +0x4C / +0x38, the sponsor's vf24 0x3D75F0; heat from the simulation); the blend as the renderer's added pass with its alpha 🔎 | |
 | Fitted wings | `car_visual.cpp`, `race_world.cpp` (the entry's WING part) | GT4 (0x4533A8's place and scale, callback 47 = 1); "spoiler taken off" (2) not reached: no part names it ❓ | |
-| Not built | | the driver figure, moving models, animated skies, cone shadows | |
+| Moving models | `race/animated_models.cpp` | GT4 (the models' scripts and their programs' register moves 0x44 .. 0x4B: seoul's and lasvegas's turning signs) | icerace's walkers (two switches), the animated skies |
+| Not built | | the driver figure (HumanModel `character/driver.mdl`, RaceDriverModel 0x3B1858, the posture 0x3B2708; the car file's +0x34 set is a black head-and-shoulders silhouette), animated skies, cone shadows | |

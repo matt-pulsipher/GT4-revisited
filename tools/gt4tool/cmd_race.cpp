@@ -242,7 +242,7 @@ int race_script(Disc& disc, const Args& a) {
                     std::string name = "r" + std::to_string(c);
                     for (const mdls::Script::Variable& v : script.registers)
                         if (v.cell == c) name = v.name;
-                    std::printf("  %s = %d / %g", name.c_str(), s32(state.registers[c]), state.register_f(u32(c)));
+                    std::printf("  %s@%zu = %d / %g", name.c_str(), c, s32(state.registers[c]), state.register_f(u32(c)));
                 }
             std::printf("\n");
         }

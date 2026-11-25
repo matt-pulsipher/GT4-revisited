@@ -312,9 +312,15 @@ list) is the same routine. Which lists belong to which view, from the draw routi
 
 Code: `src/gt4r/formats/model/model_script.*` (the machine), `src/gt4r/race/animated_models.*`
 (a course's models that pick a key shape and a blend weight: decoded once per key shape, blended
-each frame), `gt4tool race <disc> script <course> [slot] [ms]`. The models that also move or
-turn by registers (icerace's walkers, a turning sign each on lasvegas and seoul) and the animated
-skies are drawn still.
+each frame), `gt4tool race <disc> script <course> [slot] [ms]`. A model whose program moves or
+turns it whole by registers (0x44 .. 0x4B before its shapes) is moved so each frame: the turning
+sign of seoul (model 44) and of lasvegas (41). Seoul's program: push, translate to the sign's
+place, push, run the script, 0x48 by `builtin_ra` / `rx` / `ry` / `rz` (cells 0 .. 3: the angle in
+degrees, then the axis; 90, (0, 1, 0) at 3 s), push, translate and scale the shape, draw, pop x 3:
+the turn about the sign's own vertical axis (the race view takes the decoded shapes back through
+the literal matrix at the first move, turns them and puts them back). Still drawn still: icerace's
+walkers (a second register switch, `cb`, picks the person's clip: two switches are not decoded
+together) and the six animated skies.
 
 The sky, backdrop and scenery sets carry a small program per animated model: flags, people who
 walk or step back from the road, turning signs. Counts on the US disc: 3,347 scenery models
