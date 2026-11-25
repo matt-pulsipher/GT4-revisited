@@ -93,6 +93,9 @@ public:
     void set_playlist(std::shared_ptr<RacePlaylist> list) { playlist_ = std::move(list); }
     // A helicopter's sound overhead (a replay's view from the air).
     void set_helicopter(bool on) { helicopter_ = on; }
+    // A split screen's other views' cameras (0x3B5E80: car i is heard as its own view's, i its number; 0x398B70: the course by
+    // the greatest of them all).
+    void set_more_cameras(std::vector<SoundListener> cameras) { more_cameras_ = std::move(cameras); }
 
     // One step of 1/60 s: the cars' states in grid order, the camera, and the camera's car (-1: none).
     void update(std::span<const CarSoundState> cars, const SoundListener& camera, int target);
@@ -191,6 +194,7 @@ private:
     std::shared_ptr<const course::Runway> road_;
     std::unique_ptr<sim::RoadGround> ground_;
     Held ambience_[CourseSound::kChannels], tunnel_[4], heri_, refueling_;
+    std::vector<SoundListener> more_cameras_;
     bool helicopter_ = false, refueling_on_ = false, paused_ = false, racing_ = false, started_ = false;
     float fade_ = 0, fade_target_ = 1, fade_step_ = 1.0f / 18.0f;
     int racing_piece_ = -1;
