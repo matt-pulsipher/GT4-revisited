@@ -1,4 +1,6 @@
 #include "gt4r/app/race_world.h"
+
+#include "gt4r/sim/showroom.h"
 #include "gt4r/sim/car_spec.h"
 
 #include "base/log.h"
@@ -520,6 +522,19 @@ std::vector<int> RaceWorld::pit_tire_kinds(size_t car, int axle) const {
     std::vector<int> out;
     for (int k = 0; k < kKinds; ++k)
         if (program_->w(kClassOf + u32(k) * 4) == program_->w(kClassOf + u32(own) * 4)) out.push_back(k);
+    return out;
+}
+
+std::array<int, 3> RaceWorld::signs(size_t i) const {
+    std::array<int, 3> out{};
+    if (!session_ || i >= car_visuals_.size()) return out;
+    const sim::rules::AidExtra& a = session_->gt4_record(i).aids;
+    const int aid = std::max(a.ascc_status, a.tcs_status);
+    out[0] = aid == 2 ? 3 : aid == 1 ? 1 : 0;
+    const auto& c = session_->record(i);
+    out[1] = c.handbrake.host() > 0.25f ? 2 : 0;
+    if (program_ && !oil_from_) oil_from_ = sim::condition_limits(*program_).oil_from.host();
+    out[2] = oil_from_ && c.oil.host() >= *oil_from_ ? 2 : 0;
     return out;
 }
 

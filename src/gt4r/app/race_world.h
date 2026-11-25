@@ -256,6 +256,9 @@ public:
     float car_mass(size_t i) const;
     // The suggested gear for a car the player drives (-1 none).
     int suggested_gear(size_t i) const;
+    // The signs' states of a car (RaceDisplay::vf2 0x39E280): the aids' (the greater of ASCC's and TCS's status: on 1, acting 3), the
+    // handbrake past 0.25 (2), the oil past its distance (2).
+    std::array<int, 3> signs(size_t i) const;
     // The car's gearbox is a stepless one (0x3F1F78).
     bool stepless(size_t i) const { return session_ && i < car_visuals_.size() && session_->gt4_record(i).drive.d.kind == 1; }
     // A car's fuel left as a share of its tank (1 without a tank).
@@ -289,6 +292,7 @@ private:
     std::unique_ptr<sim::Session> session_;
     std::unique_ptr<sim::ai::Field> field_; // the computer drivers, on the game's simulation
     std::unique_ptr<sim::ai::PitStops> pits_; // their pit stops
+    mutable std::optional<float> oil_from_;   // the oil's distance its sign lights from
     std::vector<u8> pit_asked_;               // each car's choice was already asked at the last look (pit_offer)
     std::function<std::pair<int, int>(size_t)> tires_fitted_; // (their hook: the kinds on the car)
     std::shared_ptr<const sim::Program> program_; // (what their tire change reads)

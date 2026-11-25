@@ -73,6 +73,7 @@ struct RaceHud::Impl {
     bool mph = false;
     float needle_from[2] = {0, 0}; // the dials' needles last frame (speed, revs), for their trail
     bool needle_set = false;
+    float sign_levels[3] = {}; // the signs' last levels
 
     SDL_Texture* make_texture(const gt3r::Tex1::Image& img) {
         if (!img.width || !img.height) return nullptr;
@@ -669,15 +670,23 @@ void RaceHud::Impl::draw_tires(const HudState& s, const DisplayPlace& place) {
 void RaceHud::Impl::draw_small_parts(const HudState& s, bool driver) {
     const float o = s.opacity;
     const int C = 320, B = driver ? 452 : 464, L = 0;
-    // The signs: the stability aid's in its own color, the brake's and the oil's red.
-    if (driver) {
-        draw_at("sign_asm", {0, C - 199, B, 24, 24, 1, 2}, 0x80E3B896u, o / 3);
-        draw_at("sign_brake", {0, C - 166, B, 24, 24, 1, 2}, 0x800000C8u, o / 3);
-        draw_at("sign_oil", {0, C + 166, B, 24, 24, 0, 2}, 0x800000C8u, o / 3);
-    } else {
-        draw_at("sign_asm", {0, L + 119, B, 24, 24, 6, 1}, 0x80E3B896u, o / 3);
-        draw_at("sign_brake", {0, L + 147, B, 24, 24, 6, 1}, 0x800000C8u, o / 3);
-        draw_at("sign_oil", {0, L + 175, B, 24, 24, 6, 1}, 0x800000C8u, o / 3);
+    // The signs (RaceIndicator::vf5 0x3A6C28): a picture under a color scaled by its level (a state's half; 3 blinking: 0.1 s on,
+    // then out over 0.07 s, every 0.2 s), the greater of this frame's and the last's; black when out.
+    {
+        static const char* kNames[3] = {"sign_asm", "sign_brake", "sign_oil"};
+        static constexpr u32 kTints[3] = {0x80E3B896u, 0x800000C8u, 0x800000C8u};
+        const DisplayPlace places[3] = {driver ? DisplayPlace{0, C - 199, B, 24, 24, 1, 2} : DisplayPlace{0, L + 119, B, 24, 24, 6, 1},
+                                        driver ? DisplayPlace{0, C - 166, B, 24, 24, 1, 2} : DisplayPlace{0, L + 147, B, 24, 24, 6, 1},
+                                        driver ? DisplayPlace{0, C + 166, B, 24, 24, 0, 2} : DisplayPlace{0, L + 175, B, 24, 24, 6, 1}};
+        for (size_t k = 0; k < 3; ++k) {
+            const float t = float(std::fmod(s.time, 0.2));
+            const float now = s.signs[k] == 3 ? (t < 0.1f ? 1.0f : std::max(0.0f, 1 - (t - 0.1f) / 0.07f)) : float(s.signs[k]) * 0.5f;
+            const float level = std::max(now, std::exchange(sign_levels[k], now));
+            u32 tint = 0x80000000u;
+            for (int c = 0; c < 3; ++c) tint |= u32(float(kTints[k] >> (8 * c) & 0xFF) * level) << (8 * c);
+            const Picture& p = picture(kNames[k]);
+            draw_picture(p, race::place_rect(places[k], p.w, p.h, true), tint, o, 1, true);
+        }
     }
     // The shift lamp: its picture under a color scale of the lamp's level x 1.5 (0x3A7360), black when out.
     const bool shift = s.red_line > 0 && s.rpm >= 0.97f * s.red_line;

@@ -806,6 +806,7 @@ public:
         h.speed = me.speed, h.rpm = me.engine_rpm, h.gear = me.gear;
         h.clutch_closed = me.clutch_closed, h.gear_flash = gear_flash_;
         h.stepless = world_->stepless(shown_car);
+        h.signs = replaying_ ? std::array<int, 3>{} : world_->signs(shown_car);
         h.throttle = me.throttle, h.brake = me.brake;
         h.fuel = replaying_ ? 1.0f : world_->fuel_share(shown_car);
         // The tire diagram: only in a race that wears its tires (the display's flag), each wheel in the color of its
