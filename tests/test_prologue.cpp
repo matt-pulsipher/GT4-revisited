@@ -686,10 +686,19 @@ TEST(disc_prologue_demonstrations) {
                                 double(c.position.y), double(c.position.z), double(c.course_v), c.lap, c.gear, double(c.throttle), double(c.brake), double(c.steer), c.contact_kind);
             };
         const race::DemonstrationRun r = race::prologue::run_demonstration(*disc, sdb, label, o);
-        std::printf("  %s %-12s %-22s recorded %6d ended %6d fail %d steps %zu kind %d %s\n", label, r.course.c_str(), r.car.c_str(), r.recorded_ms, r.ended_ms, r.fail, r.steps, r.kind, r.error.c_str());
-        if (!r.equipment.empty()) std::printf("      %s\n", r.equipment.c_str());
+        if (only || std::getenv("GT4R_LESSON_ALL"))
+            std::printf("  %s %-12s %-22s recorded %6d ended %6d fail %d steps %zu kind %d %s\n", label, r.course.c_str(), r.car.c_str(), r.recorded_ms, r.ended_ms, r.fail, r.steps, r.kind, r.error.c_str());
+        if (only && !r.equipment.empty()) std::printf("      %s\n", r.equipment.c_str());
         exact += r.exact(), ended += r.ended_ms >= 0;
+        if (o.hold >= 0 || o.shift != 0 || !o.cones || !o.judge) continue;
+        // The recordings that start at rest end as they did on the console: to the millisecond, or (recorded with an earlier
+        // clock, ❓) a step later in lessons 2 and 3, two in the training lessons 37 to 40. Lesson 36's keeps no time.
+        static constexpr int kExact[] = {1, 4, 5, 6, 7, 13, 16, 19, 20, 23, 25, 44, 45, 46};
+        if (std::find(std::begin(kExact), std::end(kExact), k) != std::end(kExact)) CHECK(r.ended_ms == r.recorded_ms);
+        if (k == 2 || k == 3) CHECK(r.recorded_ms - r.ended_ms >= 16 && r.recorded_ms - r.ended_ms <= 17);
+        if (k >= 37 && k <= 40) CHECK(r.recorded_ms - r.ended_ms >= 33 && r.recorded_ms - r.ended_ms <= 34);
+        if (k == 36) CHECK(r.ended_ms > 0 && r.fail == 0);
     }
-    std::printf("  %d end timed, %d to the millisecond\n", ended, exact);
+    if (!only) std::printf("  %d end timed, %d to the millisecond\n", ended, exact);
     CHECK(ended > 0);
 }

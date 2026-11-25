@@ -457,7 +457,7 @@ void add_prologue_taps(PTaps& taps, const Disc& disc, const std::string& course)
                       f.part.speed_state = c.ee.r8(fb + 0x51C), f.part.speed_state2 = c.ee.r8(fb + 0x51D);
                       sim::prologue::part_step(c.car, x, f);
                   },
-                  {"f514", "x51c", "ffb"}, {}, [](Ee& ee, u32 car, int index, const std::function<void(const char*, u32, u32)>& field) {
+                  {"f514", "x51c", "ffb", "lag_pitch_rate"}, {}, [](Ee& ee, u32 car, int index, const std::function<void(const char*, u32, u32)>& field) {
                       const sim::prologue::FeelPart& f = parts[index];
                       field("state", ee.r32(car + 0xD8 + 0x514), f.part_state.bits), field("state 2", ee.r32(car + 0xD8 + 0x518), f.part.speed_part_state2.bits);
                       field("flag", ee.r8(car + 0xD8 + 0x51C), f.part.speed_state), field("flag 2", ee.r8(car + 0xD8 + 0x51D), f.part.speed_state2);

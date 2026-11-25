@@ -375,8 +375,10 @@ void one_speed_gear(ex::Car& c) {
 } // namespace
 
 void dynamics(ex::Car& c, CarPart& x, const ex::Statics& s, const ex::GearSettings& g, const ex::ClassGrip& grip, const Tables& t) {
+    const F request = c.clutch_req;
+    if (c.p.d.kind == 3) c.clutch = 0, c.clutch_req = F(); // (the hybrid's by its request alone, 0x3B9DE8)
     ex::brakes_and_clutch(c);
-    if (c.p.d.kind == 3) c.clutch = c.clutch_req == F() ? 0 : 1; // (0x3B9DE8)
+    if (c.p.d.kind == 3) c.clutch_req = request, c.clutch = request == F() ? 0 : 1;
     if (c.p.special == 8) c.clutch = 1;
     ex::rolling_resistance(c, s);
     ex::tyre_curves(c);
