@@ -240,7 +240,7 @@ bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, 
         if (before_init) before_init();
         const u32 vt = ee.r32(o.cond + kCondVtable);
         const u32 init = vt + 0xE0;
-        ee.call(ee.r32(init + 4), {Arg::ptr(o.cond + u32(s32(s16(ee.r16(init))))), Arg::integer(0)}, 2'000'000'000);
+        ee.call(ee.r32(init + 4), {Arg::ptr(o.cond + u32(s32(s16(ee.r16(init))))), Arg::integer(o.mode)}, 2'000'000'000);
     } catch (const std::exception& e) {
         char b[64];
         std::snprintf(b, sizeof b, " (pc %08X, ra %08X)", ee.cur_pc, ee.g32(31));

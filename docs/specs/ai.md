@@ -253,7 +253,7 @@ speed takes a line point's height in its last bits (§9).
 - **The look ahead**: kind 3: 5 m; kind 4 on the pit speed (D+0x20): 5 m below 30 km/h, else 10 m;
   recovering: 10 m (backing out) or 40 m; else 0x464E88 (PB+0x1C at rest, PB+0x20 from 1 / PB+0x18,
   linear between), plus the start's: with D+0x1A = 0 (a computer or B-spec car from a standing start on
-  a paved course below 30 km/h, 0x463AE0) left = 5,000 − ms + 1,000 x the place's held seconds,
+  a paved course below 30 km/h whose start code's fourth digit, K +0xCBE9, is 0: 0x463AE0) left = 5,000 − ms + 1,000 x the place's held seconds,
   look + left x 200 / 5,000, else 2,000 − ms + 1,000 x the seconds, + left x 40 / 2,000 (left > 0; ms the
   race's clock, the conductor's +0xF89C / 3, +50 a step); then + D+0x52 / 3.
 - **The aim** (0x464868): from the car's course distance F+0x4A4 (not wrapped) + look, the line's
@@ -428,6 +428,9 @@ sim-parts-2).
   sign); behind (laps > 0 or g > 0): 1 + fast, ramped (g − start) / (full − start) past the start, full
   past the full gap or a lap (none on the pit lane); ahead: 1 − slow likewise; a finished car 1; x the
   chain's factor, at most 1.3 (0x3FA66666); the car's time scale F+0x444 = that x the overall factor.
+  Asked for by the conductor's virtual 12 (1 the single race's, training's and mission's; 0 a run alone's and practice's:
+  then every factor 1). With no percents it still runs: the overall 100 x 0.01 is 0x3F7FFFFE in the console's arithmetic, so a
+  computer car's steps are a hair short (✔ the demo replays, replay.md).
   ✔ Equal to the program's for every car at every step (`gt4r_diff ai GT4R_AI_BAND=1 GT4R_AI_CHECK=1`,
   the conductor's own values: 69,960 compared). ✔ Only the 12 license-test events of the US disc carry
   it (slowing by 50 %); no race does.
@@ -497,13 +500,15 @@ decision with a pace command midway (`gt4r_diff ai GT4R_AI_BSPEC=1,4,20`).
 
 - **Its pace levels** (0x3F1790 at boot, from the bytes 0x622088 .. 0x6220A4; five levels): ✔ the
   shift byte (s x 128 + 12,800) / 100 = 115, 121, 128, 129, 129; the braking factor D+0x70 = 0.90, 0.95,
-  1.00, 1.05, 1.10; the arcs' factor D+0x74 the same; a fourth (0x6220E0: 0.8 .. 1.2) ❓ its use. Its
+  1.00, 1.05, 1.10; the arcs' factor D+0x74 the same; a fourth (0x6220E0: 0.8 .. 1.2) the TCS target's factor by the level (car +0x81 is D +0x6D). Its
   setup (0x3F1890): level 0x622080 (✔ 2) for a pad or B-spec car, passing off; 0x622081 (✔ 2) for a
   computer car, passing on (off where the conductor's virtual at +0x30 says so); the shift byte 128 where
-  F+0x4CC ❓ is not above 0.
+  the tank F+0x4CC is not above 0 (0x354E38; so for a command).
 - **Its commands** (0x3F19E0, from the race's per-car step 0x349FD0): 4 the level (the three values
   above), 5 passing (turned off with kind 0 on a passing line: back to line 6, blended), 6 the pit
-  (F+0x4B1 bit 3), 10 the control source. The driver keeps them until the next.
+  (F+0x4B1 bit 3; not before the first crossing, F+0x4AC 0, nor once the laps are run, 0x343C20; 0 takes it back), 10 the control
+  source. The driver keeps them until the next. The down-shift speeds take the shift byte whatever the driver's kind (0x36BF28), the
+  up-shift speeds for kind 0 (0x36BEE0).
 - **In the drivers**: the arcs' scale x D+0x74 (after the spread) and the braking factor x D+0x70 for a
   B-spec driver of kind 0; its draws seeded with 1, no spread by grid index (0x467148: computer cars
   only); without passing a lane change is only the return to line 6.
@@ -572,7 +577,14 @@ another race's for checks: then its own F+0x560, F+0x650, places, clock and fini
 Facts of the step our drivers keep:
 
 - **When they decide**: in the race's per-car step 0x349FD0 (after phase 4, 0x357700), inside the simulation's step, from that
-  step's slip angles (`Field::step`, `Session::Decider`). In a hold each car's hold decision is made there too.
+  step's slip angles (`Field::step`, `Session::Decider`). In a hold each car's hold decision is made there too. The step runs each phase
+  over every car before the next (0x34DB30), so a driver decides while no car has moved: the car it follows is where it was.
+- **The proximity pass** (0x3F4638) is the step's phase 14: after the collision step, from the cars' moved bodies, their last step's axes and
+  distances along the course; the decisions of the next step read it (`Session::step_once`'s `near_pass`).
+- **The draws' seed** (0x4639E0): the grid index + 1 (1 for another), one step, then the plan made once on the first line.
+- **Held in its box** (F +0x4BA) or stopped for good (kind 8) a driven car decides nothing: its outputs cleared, the wheel straightened
+  (0x3F3400, 0x464E40).
+- **The drag strip** (COURSE +0x13 of 2 and more: K +0xCBE1; lasvegas): no traffic (0x4668EC).
 - **The hold** (0x463CD8): the engine blipped by the rev limit (P +0x200), the throttle pedal moved by its slew.
 - **The corner and brake spreads** are drawn only where the conductor's virtual 52 answers 1 (the single race's and free run's
   conductors; not a license's, a training's, a mission's).

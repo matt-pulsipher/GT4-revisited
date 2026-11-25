@@ -111,10 +111,12 @@ public:
     // One step of 1/60 s. `decide`: each car's computer driver, asked for its input where the program's drivers decide (0x465078
     // in the input phase 0x349FD0, after the preparation 0x357700: the step's own slip angles, peak forces and torques); the
     // inputs given then only say who drives (computer, control).
-    void step_once(std::span<const race::CarInput> inputs, const Decider& decide = {});
+    // `near_pass`: the drivers' proximity pass where the program's runs (0x3F4638, phase 14: after the collision step, before the
+    // bodies' phases and the distance along the course).
+    void step_once(std::span<const race::CarInput> inputs, const Decider& decide = {}, const std::function<void()>& near_pass = {});
     // One step of the race's countdown: every car held (F + 0x4BC, 0x34C210; the engines answer the throttle, the
     // cars stay); the session's time does not advance.
-    void hold_once(std::span<const race::CarInput> inputs, const Decider& decide = {});
+    void hold_once(std::span<const race::CarInput> inputs, const Decider& decide = {}, const std::function<void()>& near_pass = {});
     // The steps of its hold a car has left (0x34C1C8: the race's countdown and its own): its own start's hold here.
     u32 start_counter(size_t car) const { return car < start_counters_.size() ? start_counters_[car] : 0; }
     // The race's countdown (the race information's +0xBC): `steps` steps from the next, counted down one a step, the
@@ -127,6 +129,7 @@ public:
     u32 countdown() const { return countdown_; }
     // A car's crossings of the line as its race counts them (F + 0x4AC: the rolling start's pace and the pad's lap read it).
     void set_crossings(size_t car, int n);
+    int crossings(size_t car) const; // as set, else by the session's own laps
     // A car's place in the race (F + 0x4AF, 1 the leader).
     void set_rank(size_t car, int place);
     // A car held in its rolling start (F + 0x467 = 1: its computer driver drives it, the rolling start's pace caps it,
@@ -140,6 +143,10 @@ public:
     // course's x, -z, y; z the road's height there): the pose (0x3630C0), 0x3455F0 and the standing start (0x363560).
     // For a pit stop; Gran Turismo 4's rules only.
     void place_standing(size_t car, gt3r::ee::F x, gt3r::ee::F y, gt3r::ee::F z, gt3r::ee::F heading);
+    // A car stopped in its pit box (0x363560, the standing state where it is; the hold turns it to `heading`, 0x36AE20), and turned
+    // there at once (the pass at the stop's second step: F +0x570 and the axes).
+    void stop_in_box(size_t car, gt3r::ee::F heading);
+    void face(size_t car, gt3r::ee::F heading);
     // The car's hold counter (F + 0x4BA) as its caller's pit stop keeps it (the computer drivers' PitStops runs the stop's
     // timing, 0x35C0B8, on its own record): the car is held (the attitude's start hold 0x36AE20, the input's), and once a
     // car's counter is given so the session's preparation no longer runs 0x35C0B8 for it. Set it each step.
@@ -172,7 +179,7 @@ public:
     // Whether the session runs Gran Turismo 4 Prologue's own step (its program recognized; rules_prologue.h).
     bool prologue_rules() const { return prologue_.has_value(); }
     // The driver's kind F +0x467 (Prologue's +0x538) as its driver has it after the car's run (ai::Field::kind; 8 parked).
-    void set_driver_kind(size_t i, u8 kind) { cars_[i].driver_kind = kind; }
+    void set_ended_kind(size_t i, u8 kind) { cars_[i].driver_kind = kind; }
     // A car's Gran Turismo 4 part of the record (record.h) and wheel layout.
     const sim::Extra& gt4_record(size_t i) const { return gx_[i]; }
     // The steering wheel's force of the last step (the pad block's +0x02: 0x80 centered, 0x80 - the force (-1 .. 1) x 127;
@@ -200,6 +207,8 @@ public:
     // For gt4r_diff's whole-step comparison: a car's state set as a whole (the engine's mirror and Gran Turismo 4's
     // part), and its collision body.
     void load_state(size_t i, const gt3r::sim::exact::Car& c, const sim::Extra& x) { cars_[i] = c, gx_[i] = x; }
+    // A car put at a moment of a recorded race (a free run's recording: its record at the line); its laps from 0.
+    void load_moment(size_t i, const gt3r::sim::exact::Car& c, const sim::Extra& x);
     // And Prologue's part of a car (rules_prologue.h; a session running Prologue's step).
     const prologue::CarPart& prologue_part(size_t i) const { return prologue_cars_[i]; }
     void load_prologue_part(size_t i, const prologue::CarPart& x) { prologue_cars_[i] = x; }
@@ -266,6 +275,21 @@ public:
     // one-speed or stepless box of kind 1, else the lowest whose up-shift speed (less 2,000 rpm in first, 500 after; a B-spec
     // driver's factor in it) the speed is under, else the top gear.
     int gear_for_speed(size_t i, gt3r::ee::F speed) const;
+    // What the drivers and the pit pass keep of a car in the program's record: the driver's kind (F +0x467; the rolling start's 1 is
+    // the session's own) and the pit flags (F +0x4B1; its bit 0x10 the session's).
+    void set_driver_kind(size_t car, u8 kind) {
+        if (car < cars_.size() && gt4_rules_ && kind != 1 && cars_[car].driver_kind != 1) cars_[car].driver_kind = decltype(cars_[car].driver_kind)(kind);
+    }
+    void set_finished(size_t car) { // (F +0x4B2)
+        if (car < cars_.size() && gt4_rules_) cars_[car].finished = 1, gx_[car].phases.finished = 1;
+    }
+    void set_pit_flags(size_t car, u8 flags) {
+        if (car < cars_.size() && gt4_rules_) cars_[car].x535 = u8((cars_[car].x535 & 0x10) | (flags & ~0x10));
+    }
+    // A driver's pace level (car +0x81, D +0x6D: 0 .. 4; 2 as the set-up leaves it): the TCS target's factor of a B-spec driver's car.
+    void set_pace_level(size_t car, int level) {
+        if (car < gx_.size()) gx_[car].aids.tcs_class = u8(level);
+    }
     void set_shift_factor(size_t i, u8 factor) {
         if (i < gx_.size()) gx_[i].drive.shift_factor = factor;
     }
@@ -352,6 +376,7 @@ private:
     std::vector<race::CarState> states_;
     std::vector<std::string> notes_;
     gt3r::Vu0Random rng_;
+    bool crossings_set_ = false;
     u32 random_state_ = 0; // (the program's shared random stream, 0x874D50, for the flaps: ours from 0)
     bool loose_ = false;
     u8 course_kind_ = 0, course_road_ = 0;

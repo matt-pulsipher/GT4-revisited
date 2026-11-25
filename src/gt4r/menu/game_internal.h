@@ -170,6 +170,15 @@ struct GameNatives;
 void install_replay_list(GameNatives& n, Object& manager);
 void install_demo_list(GameNatives& n, Object& manager, bool sub);
 
+// ---- game_photos.cpp
+// The card manager's photo modes (MODE_LOAD_PHOTO_PICTURE, MODE_SAVE_PHOTO_PICTURE, ..._FILM, MODE_PHOTO_PLAYLIST,
+// MODE_PHOTO_PRINTLIST) over the photos on the card in `slot`; true when `mode` is one.
+bool install_photo_manager(GameNatives& n, Object& manager, const std::string& mode, int slot);
+// MMemoryCardPlayList: the photos chosen for the slide show or the printer.
+void install_photo_lists(GameNatives& n, script::Module& menu);
+// The KB the photos take on the card in slot 1.
+int photos_kb(Runtime& rt);
+
 // ---- game_race.cpp
 void install_race_classes(GameNatives& n, script::Module& menu);
 // A distance driven added to a car's condition (odometer, engine, oil, body) as the race does.
@@ -217,6 +226,7 @@ struct GameNatives {
     std::vector<std::shared_ptr<GameState>> other_games;
     // The program's generator (0x874D50: MRandom.GetValue, the opponent picker), its state from 0x12345678.
     ProgramRandom random{0x12345678u};
+    script::Value photo_print_list = {}; // the photos chosen for the printer (game_photos.cpp)
 };
 
 // The screen's figures for the option's monitor_size and wide_mode (0x436D60).

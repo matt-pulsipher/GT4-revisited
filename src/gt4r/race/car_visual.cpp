@@ -547,7 +547,7 @@ bool CarVisual::add_mirror_items(std::vector<render::DrawItem>& items, const Car
     return true;
 }
 
-void CarVisual::add_shadow_items(std::vector<render::DrawItem>& items, const CarState& s, float light) const {
+void CarVisual::add_shadow_items(std::vector<render::DrawItem>& items, const CarState& s, const CarLight* light) const {
     if (!shadow_[0] && !shadow_[1] && !shadow_[2]) return;
     // On the road under the car: the plane through the tires' contacts, lifted 2 cm.
     render::Vec3 contact{0, 0, 0};
@@ -567,12 +567,19 @@ void CarVisual::add_shadow_items(std::vector<render::DrawItem>& items, const Car
         // The body's shape flattened onto the road along the light: a point y above the road
         // lands `shear` x y away. (The model's y = 0 is the ride height above the road.)
         const float q = gt3_file_ ? 0.0f : (spec_.ride_height[0] + spec_.ride_height[1]) * 0.5f;
-        const float sx = render::dot(shadow_look_.shear, side), sz = render::dot(shadow_look_.shear, back);
-        Mat4 flat;
-        flat.m = {1, 0, 0, 0, sx, 0, sz, 0, 0, 0, 1, 0, sx * q, 0, sz * q, 1};
-        render::DrawItem it{shadow_[0].get(), ground * flat, 0};
-        it.alpha = std::clamp(light, 0.0f, 1.0f);
-        items.push_back(it);
+        auto cast = [&](const render::Vec3& shear, float alpha) {
+            if (alpha < 0.01f) return;
+            const float sx = render::dot(shear, side), sz = render::dot(shear, back);
+            Mat4 flat;
+            flat.m = {1, 0, 0, 0, sx, 0, sz, 0, 0, 0, 1, 0, sx * q, 0, sz * q, 1};
+            render::DrawItem it{shadow_[0].get(), ground * flat, 0};
+            it.alpha = std::min(alpha, 1.0f);
+            items.push_back(it);
+        };
+        if (light && light->lamps) {
+            // The lamps' shadows, one away from each.
+            for (const CarLight::Cast& k : light->casts) cast(k.shear, shadow_look_.alpha * shadow_look_.light_factor > 0 ? k.alpha / (shadow_look_.alpha * shadow_look_.light_factor) : k.alpha);
+        } else cast(shadow_look_.shear, light ? light->shadow : 1.0f);
     }
     if (shadow_[1]) items.push_back({shadow_[1].get(), ground, 0});
     if (shadow_[2]) items.push_back({shadow_[2].get(), ground, 0});

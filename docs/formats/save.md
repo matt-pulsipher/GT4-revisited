@@ -94,7 +94,7 @@ player, credits, day, the 22 cars, the licenses and their rankings as written. I
 then needed the screen's figures (+0x24, below): without them the original's license test drew
 its display over a black picture.
 
-## The game's other saves (🔎 not written here; the Replay Theater lists the race's own replay files)
+## The game's other saves (photos and the slide show's list: [photo.md](photo.md); 🔎 the others are not written here; the Replay Theater lists the race's own replay files)
 
 The card manager's modes (0x179570's table) name the other kinds of save: `MODE_LOAD_REPLAY`,
 `MODE_SAVE_FULL_REPLAY`, `MODE_LOAD_BESTLAP_REPLAY`, `MODE_SAVE_BESTLAP_REPLAY`, the photo
@@ -106,8 +106,8 @@ films and pictures, the replay and slide-show play lists, the patch. Each is a f
 program's sequence `load_replay` (the title's third item asks for it), which runs the project
 `labomode` in `MODE_LOAD_REPLAY`: its scripts list the card's replays through the manager's
 `list`, `count`, `getFile(i)` and each file's `title`, `racemode`, `racesubmode`, `size`,
-`load`, `remove`, `isInfoValid`, `writeInfo`. Not read further: the folders' names and the
-replay's own layout. Here MODE_LOAD_REPLAY lists the replays the race saved in the data
+`load`, `remove`, `isInfoValid`, `writeInfo`. The replay's own layout: replay.md ("The file", "A replay of ours", its
+folder on a card). Not read further: the folders' names. Here MODE_LOAD_REPLAY lists the replays the race saved in the data
 folder's `replays/` (`menu/game_replays.cpp`; menu.md "The Replay Theater").
 
 ### The icon's picture

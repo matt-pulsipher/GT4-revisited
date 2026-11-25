@@ -79,6 +79,8 @@ struct Heap : std::enable_shared_from_this<Heap> {
     // value["name"]: the member, where a value answers differently for a name that is not there
     // (a widget without that child gives nil).
     virtual std::shared_ptr<Reference> element(Vm& vm, const Value& self, const std::string& name) { return member(vm, self, name); }
+    // value.name: the member, where `.` and `::` name different things (a scale bar's state `popup` and its child of that name).
+    virtual std::shared_ptr<Reference> dotted(Vm& vm, const Value& self, const std::string& name) { return member(vm, self, name); }
     virtual bool callable() const { return false; }
     virtual Value call(Vm&, Args) { throw ScriptError("not a function: " + describe()); }
     virtual std::string describe() const = 0;
@@ -120,7 +122,7 @@ struct Module : Heap {
     std::shared_ptr<Module> base;        // a class's
     std::vector<std::string> attributes; // a class's ATTRIBUTE_DEFINEs
     std::map<std::string, std::shared_ptr<Variable>> members;
-    std::map<std::string, std::shared_ptr<Reference>> imported; // names its functions imported, in reach of its other functions
+    std::map<std::string, std::shared_ptr<Reference>> imported; // IMPORT in its body: names its functions reach too
     bool stubbed = false; // a native module nothing provides: any name asked of it is a stub
     // A native class's objects (null: plain script objects).
     std::function<Value(Vm&, Args)> construct;
