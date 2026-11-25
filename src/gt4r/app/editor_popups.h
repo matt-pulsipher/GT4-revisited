@@ -34,6 +34,7 @@ struct ChoicePopup {
         std::string label{}, note{};
         bool swatch = false, mark = false; // `mark`: the one now
         u8 rgb[3] = {};
+        std::string picture{}; // what the page shows beside the list for it (a car's label)
     };
     static constexpr int kRows = 14;
     bool active = false;
@@ -89,9 +90,14 @@ struct ChoicePopup {
         }
     }
     void wheel(int steps) { top -= steps, clamp_top(); }
+    // The panel; room for a picture is kept right of the list when the items have them (at `picture`).
+    gt3r::UiRect picture;
     void render(Ui& ui, gt3r::HitList& hits) {
         const int n = std::min(kRows, int(items.size()));
-        const gt3r::UiRect r = popup_panel(ui, hits, 420, 44 + float(n) * 17, title);
+        const bool pictures = !items.empty() && !items[0].picture.empty();
+        gt3r::UiRect r = popup_panel(ui, hits, pictures ? 560 : 420, 36 + float(pictures ? std::max(n, 7) : n) * 17, title);
+        picture = {r.x + 416, r.y + 28, pictures ? 132.0f : 0.0f, 99};
+        r.w = 420;
         if (!typed.empty()) ui.text_right(r.x + r.w - 12, r.y + 9, typed, colors::kText);
         for (int i = top; i < std::min(int(items.size()), top + kRows); ++i) {
             const Item& it = items[size_t(i)];

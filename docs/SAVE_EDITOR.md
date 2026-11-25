@@ -12,7 +12,8 @@ The first page lists the saved games of the data folder (`save/save_library.h`: 
 and *Another save*: a PlayStation 2 memory card image (`.ps2`, `.mcd`) or the game data file in a save's folder; a file dropped on
 the window is opened too. A save opens on its pages; up and down choose a row, left and right change it, Cross (Enter) opens it or
 types its value, L1 and R1 (Q and E) turn the page, Triangle (Escape) goes back, Start (P) saves. The mouse clicks rows, their
-arrows, the tabs and Save; the wheel scrolls; letters typed in a list go to the first name that has them.
+arrows, the tabs and Save; the wheel scrolls; letters typed in a list go to the first name that has them. A car's
+picture is the disc's own (`piece/car_pict/<label>.img`, in the paint the disc has it in; a few cars have none).
 
 | Page | What it changes |
 |---|---|

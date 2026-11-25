@@ -45,7 +45,7 @@ std::vector<s32> ints(const Value& v) {
 } // namespace
 
 void SaveEditor::read_cars() {
-    cars_.clear();
+    cars_.clear(), car_index_.clear();
     Database& d = natives().db();
     for (const db::CarEntry& c : d.cars) {
         CarKind k;
@@ -62,6 +62,7 @@ void SaveEditor::read_cars() {
                 if (k.maker.empty()) k.maker = it->second;
             }
         }
+        car_index_[k.label] = cars_.size();
         cars_.push_back(std::move(k));
     }
 }
@@ -84,9 +85,8 @@ void SaveEditor::read_wheels() {
 }
 
 std::string SaveEditor::car_name(const std::string& label) const {
-    for (const CarKind& k : cars_)
-        if (k.label == label) return k.name;
-    return label;
+    const auto it = car_index_.find(label);
+    return it == car_index_.end() ? label : cars_[it->second].name;
 }
 
 std::vector<SaveEditor::Paint> SaveEditor::paints(const std::string& label) {

@@ -533,7 +533,7 @@ void SaveEditor::set_present_given(const Present& p, bool on) {
 
 bool SaveEditor::present_earned(const Present& p) {
     if (present_given(p)) return false;
-    completion();
+    if (p.kind == "achievement") completion(); // (the script keeps its figure: worked out again)
     const Value column = call(lookup("GTmodeProject::PresentRoot::makeColumn"), {Value::integer(p.id)});
     const Value rule = lookup("GTmodeProject::PresentRoot::" + p.kind);
     return rule.kind == Kind::Function && call(rule, {Value::integer(p.id), column}).truthy();

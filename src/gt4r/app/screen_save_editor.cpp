@@ -17,6 +17,7 @@
 #include "gt4r/save/save_library.h"
 
 #include "base/config.h"
+#include "formats/tex1.h"
 
 #include <SDL3/SDL_dialog.h>
 
@@ -86,6 +87,7 @@ struct Row {
     std::function<void()> activate{}, square{};
     std::string square_hint{}; // "{Square}: ..."
     const char* cross_hint = "open"; // what Cross does
+    std::string car{}; // a car shown beside the list (its label)
     bool selectable() const { return kind != Kind::Heading && kind != Kind::Info; }
 };
 
@@ -93,6 +95,49 @@ struct Page {
     std::string title;
     std::function<void()> build{};
     int sel = -1, top = 0;
+    std::string car{}; // the page's car, shown when the row has none
+};
+
+// The cars' pictures of the disc (piece/car_pict/<label>.img), the last one drawn kept.
+class CarPictures {
+public:
+    ~CarPictures() {
+        if (texture_) SDL_DestroyTexture(texture_);
+    }
+    // Drawn `w` wide at (x, y); the height drawn (0: the disc has none).
+    float draw(App& app, const std::string& label, float x, float y, float w) {
+        if (label != label_) load(app, label);
+        if (!texture_) return 0;
+        const float h = w * 3 / 4; // (a 4:3 picture whatever its texels, as the menus show it)
+        const SDL_FRect at{x, y, w, h};
+        SDL_RenderTexture(app.renderer(), texture_, nullptr, &at);
+        return h;
+    }
+
+private:
+    std::string label_;
+    SDL_Texture* texture_ = nullptr;
+    void load(App& app, const std::string& label) {
+        label_ = label;
+        if (texture_) SDL_DestroyTexture(texture_);
+        texture_ = nullptr;
+        if (label.empty()) return;
+        try {
+            const std::optional<Bytes> data = app.vfs()->read("piece/car_pict/" + label + ".img");
+            if (!data || !gt3r::Tex1::is_tex1(*data)) return;
+            const gt3r::Tex1 set = gt3r::Tex1::parse(*data);
+            if (set.textures.empty()) return;
+            gt3r::GsMemory gs;
+            set.upload(*data, gs);
+            const gt3r::Tex1::Image img = set.decode(gs, 0);
+            texture_ = SDL_CreateTexture(app.renderer(), SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, int(img.width), int(img.height));
+            if (!texture_) return;
+            SDL_UpdateTexture(texture_, nullptr, img.rgba.data(), int(img.width) * 4);
+            SDL_SetTextureBlendMode(texture_, SDL_BLENDMODE_BLEND);
+        } catch (const std::exception&) {
+            // (no picture)
+        }
+    }
 };
 
 class SaveEditorScreen : public Screen {
@@ -166,7 +211,10 @@ public:
         hits_.clear();
         if (!editing()) render_list(ui);
         else render_pages(ui);
-        if (picker_.active) picker_.render(ui, hits_);
+        if (picker_.active) {
+            picker_.render(ui, hits_);
+            if (const std::string& label = picker_.items[size_t(picker_.sel)].picture; !label.empty()) pictures_.draw(app_, label, picker_.picture.x, picker_.picture.y, picker_.picture.w);
+        }
         if (pad_.active) pad_.render(ui, hits_);
         if (text_.active) text_.render(ui, hits_);
         if (confirm_.active) confirm_.render(ui, hits_);
@@ -182,6 +230,7 @@ private:
     HitList hits_;
     PointerInput pointer_;
     int typed_wait_ = 0;
+    CarPictures pictures_;
     ChoicePopup picker_;
     NumberPopup pad_;
     TextPopup text_;
@@ -664,8 +713,12 @@ private:
                 if (r.square && !r.square_hint.empty()) foot += "  " + r.square_hint;
             }
         }
+        if (!picker_.active) {
+            const std::string& car = p.sel >= 0 && p.sel < n && !rows_[size_t(p.sel)].car.empty() ? rows_[size_t(p.sel)].car : p.car;
+            if (!car.empty()) pictures_.draw(app_, car, px, y + 4, 140);
+        }
         if (!prologue_) {
-            y = kListY + 11 * kRowH;
+            y = kListY + 12 * kRowH;
             ui.text(px, y, Ui::elide(state().username, pw), colors::kText), y += 14;
             ui.text(px, y, credits(state().money), colors::kDim), y += 12;
             ui.text(px, y, "Day " + with_commas(editor_->days() + 1), colors::kDim), y += 12;
@@ -754,6 +807,7 @@ private:
                 r.hint = paints[size_t(p)].name;
             }
             r.hint += (r.hint.empty() ? "" : ". ") + with_commas(editor_->odometer(i)) + " " + editor_->distance_unit() + ". Got on day " + with_commas(editor_->got_on_day(i) + 1) + ".";
+            r.car = g.car;
             r.square = [this, i] { remove_car(i); };
             r.square_hint = "{Square}: remove";
         };
@@ -788,7 +842,7 @@ private:
         std::sort(cars.begin(), cars.end(), [](const auto* a, const auto* b) { return a->maker != b->maker ? a->maker < b->maker : a->year != b->year ? a->year < b->year : a->name < b->name; });
         for (const SaveEditor::CarKind* k : cars) {
             ChoicePopup::Item it;
-            it.label = k->name, it.note = k->price ? credits(k->price) : "";
+            it.label = k->name, it.note = k->price ? credits(k->price) : "", it.picture = k->label;
             items.push_back(std::move(it)), labels.push_back(k->label);
         }
         picker_.open("Add a car: which?", std::move(items), 0, [this, labels](int i) { pick_paint(labels[size_t(i)], 0, "Add it in which paint?", [this, label = labels[size_t(i)]](int paint) { add_car(label, paint); }); });
@@ -797,7 +851,7 @@ private:
         std::vector<ChoicePopup::Item> items;
         for (const SaveEditor::Paint& p : editor_->paints(label)) {
             ChoicePopup::Item it;
-            it.label = p.name.empty() ? "Paint" : p.name, it.swatch = true, std::copy_n(p.rgb, 3, it.rgb);
+            it.label = p.name.empty() ? "Paint" : p.name, it.swatch = true, std::copy_n(p.rgb, 3, it.rgb), it.picture = label;
             items.push_back(std::move(it));
         }
         if (items.size() < 2) return f(0);
@@ -812,6 +866,7 @@ private:
     }
     void open_car(int slot) {
         push(editor_->car_name(state().garage[size_t(slot)].car), [this, slot] { build_car(slot); });
+        page().car = state().garage[size_t(slot)].car;
     }
     void build_car(int slot) {
         SaveEditor& e = *editor_;
@@ -844,8 +899,8 @@ private:
         number("Dirt", e.dirt(slot), 0, 100, 10, [this, slot](s64 v) { editor_->set_dirt(slot, int(v)); }, "", [](s64 v) { return v == 0 ? std::string("Clean") : percent(int(v)) + " dirty"; });
         heading("Parts and settings");
         choice("Settings sheet", {"Set A", "Set B", "Set C"}, e.sheet(slot), [this, slot](int i) { editor_->set_sheet(slot, i); }, "The parts fitted and the settings below are this sheet's.");
-        link("Parts", "", "What is fitted and what the car has in stock.", [this, slot] { push("Parts", [this, slot] { build_parts(slot); }); });
-        link("Settings", "", "What the fitted parts let you set.", [this, slot] { push("Settings", [this, slot] { build_settings(slot); }); });
+        link("Parts", "", "What is fitted and what the car has in stock.", [this, slot] { push("Parts", [this, slot] { build_parts(slot); }), page().car = state().garage[size_t(slot)].car; });
+        link("Settings", "", "What the fitted parts let you set.", [this, slot] { push("Settings", [this, slot] { build_settings(slot); }), page().car = state().garage[size_t(slot)].car; });
         static const char* const kTires[4] = {"Wheels for road tires", "Wheels for racing tires", "Wheels for dirt tires", "Wheels for snow tires"};
         if (e.wheels_allowed(slot))
             for (int c = 0; c < 4; ++c) link(kTires[c], extra_name(e.wheels(), e.wheel(slot, c), "The car's own"), "", [this, slot, c] { pick_extra(kTires[c], editor_->wheels(), editor_->wheel(slot, c), "The car's own", [this, slot, c](const std::string& l) { editor_->set_wheel(slot, c, l); }); });
@@ -1025,7 +1080,7 @@ private:
             Row& r = link(e.name, event_state(e), e.championship ? "A championship of " + times(int(e.races.size()), "race", "races") + "." : times(int(e.races.size()), "race", "races") + ".",
                           [this, l, i] { push(editor_->events()[l].events[i].name, [this, l, i] { build_event(l, i); }); });
             r.accent = editor_->won(e);
-            if (!e.prize.empty()) r.hint += " Prize car: " + editor_->car_name(e.prize) + ".";
+            if (!e.prize.empty()) r.hint += " Prize car: " + editor_->car_name(e.prize) + ".", r.car = e.prize;
         }
     }
     std::vector<std::string> place_names(int now) {
@@ -1047,7 +1102,7 @@ private:
         if (!e.prize.empty()) {
             Row& r = choice("Prize car: " + editor_->car_name(e.prize), {"Not waiting", "Waiting"}, editor_->prize_waiting(e), [this, l, i](int v) { editor_->set_prize_waiting(editor_->events()[l].events[i], v == 1); },
                             "A waiting prize car is given when you next go to Gran Turismo mode, or on the Prizes page here.");
-            r.enabled = editor_->won(e);
+            r.enabled = editor_->won(e), r.car = e.prize;
         }
         heading(e.championship ? "Races (the best place in each)" : "Races");
         for (size_t k = 0; k < e.races.size(); ++k) {
@@ -1116,7 +1171,7 @@ private:
             const bool given = editor_->present_given(p);
             const bool earned = !given && editor_->present_earned(p);
             Row& row = choice(p.what, {earned ? "Earned, waiting" : "Not given yet", "Given"}, given, [this, i](int v) { editor_->set_present_given(editor_->presents()[i], v == 1); }, "For: " + p.how + ".");
-            row.accent = earned;
+            row.accent = earned, row.car = p.car;
         }
     }
 
@@ -1186,6 +1241,7 @@ private:
                     if (k.maker == m) {
                         const bool on = state().available_cars.count(k.label) > 0;
                         choice(k.name, {"Closed", "Open"}, on, [this, label = k.label](int v) { editor_->set_car_open(label, v == 1); }).accent = on;
+                        rows_.back().car = k.label;
                     }
             }); });
     }

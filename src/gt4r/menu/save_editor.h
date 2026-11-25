@@ -10,6 +10,7 @@
 #include <array>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -280,6 +281,7 @@ private:
     std::vector<Present> presents_;
     std::vector<Course> courses_;
     std::vector<CarKind> cars_;
+    std::unordered_map<std::string, size_t> car_index_;
     std::vector<Extra> wheels_, wings_;
 
     GameNatives& natives();
