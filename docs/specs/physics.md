@@ -1166,6 +1166,95 @@ object 0x6235A8 + 0x134 + 4 x table id; the row cache left out), and compares:
   START (F +0x521), which depends on the countdown's length and when the throttle went down.
 - Not compared yet: the step's routines not in §3.3, §3.6 and §6, §7.
 
+## 9b. Floats
+
+The session and the interpreter run the shared engine's EE float model (`engine/gt3r/src/base/ee_float.*`: the multiplier's
+Booth array with its lost carries, the SRT divider and square root, the adder with one guard bit, all black-boxed and proven
+by Gran Turismo 3's 58 hardware-recorded demonstrations). This section is what Gran Turismo 4's own recordings say.
+**The saved-state checks (`gt4r_diff states`, §9) test rules, not floats**: their numbers were computed by PCSX2, whose
+arithmetic differs from the console's (a Gran Turismo 4 demonstration run on it does not end as recorded, below). Float
+fidelity is judged only by recordings made on the console.
+
+### The evidence
+
+- **The cipher of the replay files** (formats/replay.md): one multiply and one divide a byte, the console's, then a CRC of the
+  result checked against the file's key. ✔ The program's own routine (0x579E00, `gt4r_diff <disc> floats cipher`) passes 466
+  of 466 files under `replay/license` and 32 of 32 of the Replay Theater's demo replays (`replay/Rdemo<n><p|k>/`: a memory
+  card's replay file unscrambled with the factors FileGT4Replay's loader gives, key 0: 0x3F322311 for the head's first word and
+  0x3E6B3EF8 for the second) on our model. With a scratch model of PCSX2's EE FPU in its place it passes none of the 498, and
+  none with that model's multiplier alone or its divider alone. So this check is the one PCSX2's arithmetic cannot pass; that it
+  is what the emulator's "Data is corrupted" reports is an inference ❓ (the message's path is not read).
+- **The license demonstrations**: 85 files named for the US disc's tests, recorded on the console with a steering wheel, through
+  the program's own race step (0x34DB30) in the interpreter (`gt4r_diff <disc> floats [label,... | all]`) under the license
+  conductor (`DynamicsConductorLicense` 0x3F5F68, a training test's with the training's table 0x685F50 over it): the
+  event's row into CFG (0x34D418), the file's race information, equipment and entry words, the course's driver file
+  (the pace car's driver, the driving line's heading), the run judged by the program's own judge (a probe on 0x3F8AB0,
+  its time in ms, and 0x3F8980, the failing kind, for car 0) and compared with the recorded time (file +0xC0).
+
+### The score
+
+How the harness was settled, for weighing the score: its set-up was completed by looking at failing files (the laps in the
+race information from S-1, the judge's car from B-5, the pace car's lead from B-5), and the start's hold, 480 steps when the
+car stands after its set-up and 0 when it moves, was chosen on B-1 and A-1 (A-1 is exact with 0, fails with 60 .. 420). Each
+was then used unchanged on all the files. No choice was made per file. ❓ The program's own choice (the race
+organization's state at info +0xB0 / +0xB4) is not read.
+
+| Files | |
+|---|---|
+| 85 | named for the US tests; B-8's car is not in this disc's database (no car), 84 run |
+| 14 | record no time (0): they end timed by the program, in no recorded time to compare |
+| 70 | with a recorded time: **63 end on it to the millisecond** (runs of 10 .. 419 s, all sixteen Super License laps but S-3, which records no time, among them) |
+| 3 | coffee breaks with cones (C-2, C-3, C-5): the harness sets up no cones, so they are not judged (they run past their end) |
+| 4 | miss: B-6 (-34 ms), the training tests B-10, IA-15 and IB-15 (the pace car drives; they end off the road or on a wall) |
+
+**The controls** (the interpreter's FPU arithmetic replaced from outside, `GT3R_FLOAT_ORACLE`; a scratch model of PCSX2 2.8.2's
+EE FPU, outside the repository): with its multiplier, divider, square root and adder all replaced 9 of the 70 end on their times; with
+its multiplier alone 13, its divider alone 10, its square root alone 11, its adder alone 63 (it does not differ from ours
+on these runs). So the demonstrations do discriminate the multiplier, the divider and the square root, and the adder's
+difference between the two models is not exercised by them.
+
+**The misses**:
+- B-6 ends at 22,715 ms under our model and under PCSX2's alike (the recording 22,749), so it does not turn on the float model.
+  Its stop is at the same step with holds of 476, 478, 479, 480 and 481; a hold of 478 gives 22,748. ❓ Not explained, and 478 is
+  not used: it would be a value fitted to this one file.
+- The training tests B-10, IA-15 and IB-15 leave the road or meet a wall under both models (steps 4,317 / 3,986, 2,985 / 2,973,
+  1,868 / 1,861). Failing under PCSX2's model too says nothing about ours, so the cause is open: the pace car's computer driver,
+  something of the set-up, or an operation. Changing the shared random stream's start state changes nothing (tried on IB-15).
+  ❓ The other nine training tests are exact.
+
+### The operations (a census of the race step)
+
+`gt4r_diff <disc> floats census <label>` counts every FPU and VU0 float instruction the program executes (a probe at each
+float instruction of the text). Over 83 of the license runs (333,003 steps; B-8 and C-3 not): 5,305 multiplies, 5,278
+adds/subtracts, 967 multiply-adds, 299 divides, 49 square roots, 6.2 reciprocal square roots, 487 conversions per step, 3,442
+compares, moves and absolute values; **no VU0 float instruction at all**. Operands at the model's edges (zero-exponent operands, exponent 255, division by zero, underflowing products) occur in the
+three runs looked at (B-1, B-6, B-7).
+
+The VU0 macro float instructions: 114 between 0x340000 and 0x470000, in 19 functions (72 functions in the whole text). By
+direct calls from the race step (0x34DB30) and the conductor's virtuals tried as roots (the collision step, the license's
+judge, the order, the crossings, the distance), only three functions with such code are reachable: 0x3E21D8 and 0x3E2220 (matrix
+transforms, from the cones' contact 0x3E3C48 → 0x3E3ED0) and 0x48D4C0 (from 0x3F71C8, unread); calls through other virtuals are
+not in the analysis's call graph. The census never ran any of them, but the harness sets up no cones. The others' known
+callers draw: `RaceCarModel::vf36` / `vf39`, `RacePS2Base::vf109` and its relatives, the model sets, the environment camera.
+So the engine's VU0 model (the FPU's functions) is **not proven by any recording**: the physics in these runs does not use it.
+
+### Our session
+
+Started from the program's set-up state (every car's record and collision body, the random state) and fed the recorded
+pad records, the driving line's heading the program's active steering read and, for other cars, the program's
+record of them each step, car 0's place equals the program's in every bit over the whole run (`FloatDemoOptions::ours`) on
+all the files it is run on (the test `floats_demonstrations_end_on_their_recorded_times` plays seven). That holds only for the state the program's set-up leaves: our own set-up of a
+license race is the race screen's. Two session settings a license race needs, found here:
+`Session::set_class_grip` (the license conductor keeps the event's drive-class grip bytes, CFG +0x18 .. +0x1B) and
+`set_course_kind` (dirt and snow by the COURSE row's kind, K +0xCBDD: the bump tables' surface 5 takes row 15 on snow), and
+a player's car in its rolling start (driver kind not 0) takes its driver's aid block and grip (0x3F79A0, 0x467470). A license
+test's rolling start runs capped at CFG +0x4E (0x3F7880, the conductor's virtual 6 answers 1).
+
+### Not done
+
+The demo replays' races (arcade single races, B-spec and free runs) are read but not run: their start (rolling or
+standing, the free run's flying start) is not set up by the harness. The VU0 model is unproven. The cones are not set up.
+
 ## 10. Open
 
 - Everything marked ❓ above; the rewritten routines of §1; the three new phases.

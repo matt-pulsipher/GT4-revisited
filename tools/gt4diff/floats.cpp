@@ -73,6 +73,8 @@ DemoScore run_recording(Disc& disc, const replay::Demonstration& recording, cons
     auto ev = std::getenv("GT4R_FLOATS_BY_CODE") ? events.event(u32(d->code_b0)) : events.event(label);
     if (!ev) ev = events.event(u32(d->code_b0));
     if (!ev) ev = events.event(label);
+    // (another region's file of a test: this disc's row of the same test, the label's first two letters changed)
+    if (!ev && label.size() > 2) ev = events.event("us" + label.substr(2));
     if (!ev) return r.error = "the demonstration's event is not in the database", r;
     r.race_class = d->race_class, r.course = ev->course, r.recorded_ms = d->time_ms;
     r.frames = int(d->streams[0].frames.size());
@@ -210,7 +212,8 @@ DemoScore run_recording(Disc& disc, const replay::Demonstration& recording, cons
     r.hold = opt.hold >= 0 ? opt.hold : moving ? 0 : kLicenseHold;
     ee.w32(o.info + 0xBC, u32(r.hold));
     const replay::ControlStream& s = d->streams[0];
-    const int steps = int(s.frames.size()) + opt.extra;
+    int steps = int(s.frames.size()) + opt.extra;
+    if (const char* e = std::getenv("GT4R_FLOATS_STEPS")) steps = std::min(steps, std::atoi(e)); // (a look at the start only)
     if (print)
         std::printf("demo %s: %s kind %d, %s on %s, %zu frames, recorded %d ms, hold %d\n", label.c_str(), d->race_class.c_str(), r.kind,
                     r.car.c_str(), r.course.c_str(), s.frames.size(), r.recorded_ms, r.hold);
@@ -292,6 +295,7 @@ int run_floats(Disc& disc, const std::vector<std::string>& args) {
     opt.verbose = std::getenv("GT4R_FLOATS_VERBOSE") != nullptr;
     opt.ours = std::getenv("GT4R_FLOATS_OURS") != nullptr;
     if (what == "replays") return run_floats_replays(disc, std::vector<std::string>(args.begin() + 1, args.end()));
+    if (what == "cipher") return run_floats_cipher(disc, true).files ? 0 : 1;
     if (what == "list") {
         for (const std::string& l : demonstration_labels(disc)) std::printf("%s\n", l.c_str());
         return 0;

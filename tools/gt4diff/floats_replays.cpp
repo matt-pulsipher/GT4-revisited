@@ -1,6 +1,7 @@
 // The Replay Theater's demo replays (replay/Rdemo<n>/Rdemo<n>; floats.h).
 
 #include "floats.h"
+#include "orig.h"
 
 #include "gt4r/formats/replay/demonstration.h"
 #include "gt4r/save/codec.h"
@@ -69,6 +70,40 @@ std::optional<replay::Demonstration> theater_replay(Disc& disc, const sim::Progr
         return std::nullopt;
     }
     return replay::Demonstration::parse(*payload, program, error);
+}
+
+CipherResult run_floats_cipher(Disc& disc, bool print) {
+    CipherResult r;
+    db::SpecDb sdb = open_db(disc);
+    Ee ee;
+    boot(ee, disc, sdb);
+    auto one = [&](const std::string& name, ByteSpan file) {
+        if (file.size() < 0x50) return;
+        const u32 head = get32(file.data()), n = get32(file.data() + 4), key = get32(file.data() + 0xC);
+        if (head + n > file.size()) return;
+        ++r.files;
+        const u32 src = ee.alloc_bytes(file.subspan(head, n), 16), dst = ee.alloc(n + 16, 16);
+        const bool ok = ee.call(0x579E00, {Arg::ptr(dst), Arg::ptr(src), Arg::integer(s64(n)), Arg::integer(s64(s32(key)))}, 500'000'000).v0_s32() != 0;
+        r.passed += ok ? 1 : 0;
+        r.bytes += n;
+        if (!ok && print && r.files - r.passed <= 5) std::printf("  %s: the key check fails\n", name.c_str());
+        ee.free_all();
+        boot(ee, disc, sdb);
+    };
+    const gt3r::Volume& vol = disc.volume();
+    for (const std::string& n : vol.list_dir("replay/license")) {
+        const gt3r::Volume::Entry* e = vol.find("replay/license/" + n);
+        if (e && n.size() >= 9 && n.size() <= 10) one(n, vol.read(*e));
+    }
+    const size_t license = r.files, license_ok = r.passed;
+    for (const std::string& n : theater_replays(disc)) {
+        const gt3r::Volume::Entry* e = vol.find("replay/" + n + "/" + n);
+        const auto payload = e ? unscramble_replay(vol.read(*e)) : std::nullopt;
+        if (payload) one(n, *payload);
+    }
+    if (print)
+        std::printf("cipher (0x579E00): %zu of %zu license files and %zu of %zu demo replays pass the key check\n", license_ok, license, r.passed - license_ok, r.files - license);
+    return r;
 }
 
 int run_floats_replays(Disc& disc, const std::vector<std::string>& args) {

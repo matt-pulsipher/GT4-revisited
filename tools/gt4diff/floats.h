@@ -129,6 +129,13 @@ struct FloatCensus {
 // cipher and key check (nullopt with the reason when one fails).
 std::vector<std::string> theater_replays(Disc& disc);
 std::optional<replay::Demonstration> theater_replay(Disc& disc, const sim::Program& program, const std::string& name, std::string* error = nullptr);
+// The program's own decipherer and key check (0x579E00, a multiply and a divide a byte) run on every license demonstration and
+// demo replay in the interpreter (on its float model: GT3R_FLOAT_ORACLE replaces it).
+struct CipherResult {
+    size_t files = 0, passed = 0;
+    u64 bytes = 0;
+};
+CipherResult run_floats_cipher(Disc& disc, bool print);
 int run_floats_replays(Disc& disc, const std::vector<std::string>& args); // the Replay Theater's demo replays (floats_replays.cpp)
 int run_floats(Disc& disc, const std::vector<std::string>& args);
 
