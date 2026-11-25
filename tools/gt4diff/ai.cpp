@@ -9,6 +9,7 @@
 #include "whole_step.h"
 #include "orig.h"
 #include "pit_check.h"
+#include "gt4r/sim/ai/bspec_skill.h"
 #include "taps.h"
 
 #include "gt4r/formats/course/course_file.h"
@@ -148,6 +149,8 @@ sim::ai::Field::Probe probe_of(Ee& ee, const OrigRace& o, int i, float lap) {
     p.kind = ee.r8(Fs + 0x467);
     for (u32 k = 0; k < 5; ++k) p.pd_last[k] = F::raw(ee.r32(D + 4 * k));
     p.pd_rate = F::raw(ee.r32(Fs + 0x484));
+    for (u32 k = 0; k < 0x40; ++k) p.record[k] = ee.r8(o.car(i) + 0x8C + k);
+    p.car_class = sim::ai::bspec_class(F::raw(ee.r32(ee.r32(o.car(i) + 0x10) + 0xFE0)));
     return p;
 }
 
@@ -374,6 +377,36 @@ public:
     void install() {
         ee_.add_probe(0x465078, [this](Ee&) { decision_in(); });
         ee_.add_probe(0x3F4638, [this](Ee&) { proximity_in(); });
+        // 0x469E58, the suggested gear's speed: ours from the driver as the call finds it, against D +0x40 / +0x41 after.
+        ee_.add_probe(0x469E58, [this](Ee& e) {
+            const u32 D = u32(e.a(0));
+            using gt3r::ee::F;
+            // GT4R_AI_SUGFORCE: the driver's targets and mode made up around the car's speed at the call (every branch run)
+            if (std::getenv("GT4R_AI_SUGFORCE")) {
+                const float sp = e.rf(e.r32(D + 0xE8) + 0x104 + 0x53C);
+                const u32 n = ++sug_force_;
+                e.wf(D + 0x28, sp * (0.5f + 0.25f * float(n % 4)));
+                e.wf(D + 0x24, sp * (0.4f + 0.3f * float((n / 4) % 4)));
+                e.w8(D + 0x1E, u8((n / 16) % 5));
+            }
+            const F vnext = F::raw(e.r32(D + 0x28)), vcur = F::raw(e.r32(D + 0x24)), v = F::raw(e.r32(e.r32(D + 0xE8) + 0x104 + 0x53C));
+            const int mode = e.r8(D + 0x1E);
+            F target = vnext;
+            if (mode == 4 && !(vnext < vcur)) target = vcur;
+            if (std::getenv("GT4R_AI_SUGTRACE") && (++sug_n_ % 120) == 1)
+                std::printf("  suggest: mode %d v_next %g v_cur %g speed %g\n", mode, double(vnext.host()), double(vcur.host()), double(v.host()));
+            sug_d_ = D, sug_on_ = !(v < target), sug_firm_ = sug_on_ && (mode == 3 || mode == 4), sug_sp_ = e.g32(29);
+            const u32 ra = e.g32(31);
+            if (sug_rets_.insert(ra).second)
+                ee_.add_probe(ra, [this](Ee& x) {
+                    if (!sug_d_ || x.g32(29) != sug_sp_) return;
+                    const gt3r::s8 gear = gt3r::s8(x.r8(sug_d_ + 0x40));
+                    t_["suggested gear set"].add("set", gear != -1 ? 1 : 0, sug_on_ ? 1 : 0, 0);
+                    t_["suggested gear firm"].add("firm", x.r8(sug_d_ + 0x41), sug_firm_ ? 1 : 0, 0);
+                    if (gear != -1) t_["suggested gear (the program's set)"].add("gear", gear, gear, 0);
+                    sug_d_ = 0;
+                });
+        });
     }
 
 private:
@@ -411,6 +444,15 @@ private:
         t_["decision steer"].bits(w, th.steer.bits, my.steer);
         for (size_t k = 0; k < 5; ++k) t_["decision pd terms"].bits(w, th.pd_last[k].bits, my.pd_last[k]);
         t_["decision pd rate"].bits(w, th.pd_rate.bits, my.pd_rate);
+        t_["decision bspec record"].add("record", th.record == my.record ? 1 : 0, 1, 0);
+        if (th.record != my.record && std::getenv("GT4R_AI_RECTRACE"))
+            for (u32 k = 0; k < 0x40; k += 2)
+                if (th.record[k] != my.record[k] || th.record[k + 1] != my.record[k + 1])
+                    std::printf("  record %s +%02X: the program's %u, ours %u\n", w, k, th.record[k] | (th.record[k + 1] << 8), my.record[k] | (my.record[k + 1] << 8));
+        if (th.record != rec_last_[p.car]) {
+            rec_last_[p.car] = th.record;
+            t_["decision bspec record (the program's changes)"].add("changes", 1, 1, 0);
+        }
         if (std::getenv("GT4R_AI_PDTRACE") && th.pd_rate.bits != 0 && (++pd_seen_ % 600) == 1)
             std::printf("  pd %s: rate %g terms %g %g %g %g %g steer %g\n", w, double(th.pd_rate.host()), double(th.pd_last[0].host()), double(th.pd_last[1].host()),
                         double(th.pd_last[2].host()), double(th.pd_last[3].host()), double(th.pd_last[4].host()), double(th.steer.host()));
@@ -484,7 +526,11 @@ private:
     std::vector<Pending> decisions_;
     std::vector<sim::ai::Field::Probe> prox_;
     u32 prox_sp_ = 0;
-    std::set<u32> returns_;
+    std::set<u32> returns_, sug_rets_;
+    u32 sug_d_ = 0, sug_sp_ = 0, sug_n_ = 0, sug_force_ = 0;
+    std::map<int, std::array<u8, 0x40>> rec_last_;
+    u64 rec_changes_ = 0;
+    bool sug_on_ = false, sug_firm_ = false;
     int shown_ = 0;
 
 public:
@@ -706,6 +752,20 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
                                     double(ee.rf(F + kDistance)), double(ee.rf(F + 0x53C)) * 3.6, ee.r8(F + 0x467), ee.r8(o.car(pc) + 0x14 + 0x1C), ee.r8(F + 0x4B1),
                                     ee.r8(F + 0x4B2), int(gt3r::s8(ee.r8(F + 0x4B7))), ee.r16(F + 0x4B8), ee.r16(F + 0x4BA), ee.r8(F + 0x62E), int(s16(ee.r16(F + 0x64C))),
                                     ee.r8(F + 0x5C3), ee.r8(F + 0x5FA), ee.r8(F + 0x5FB));
+                }
+            }
+            // GT4R_AI_PAD=<car>: that car the pad's (control source 0, a steady part throttle, no steering): its own driver plans
+            // and the input phase gives it the suggested gear (0x469E58, checked with GT4R_AI_CHECK).
+            if (const char* pe = std::getenv("GT4R_AI_PAD")) {
+                const int pc = std::atoi(pe);
+                if (pc >= 0 && pc < o.cars) {
+                    if (step == 0) ee.w8(o.car(pc) + kF + 0x466, 0);
+                    // (the pad follows the car's own driver's outputs of the last step, roughly: its steering over the lock)
+                    const u32 D = o.car(pc) + 0x14;
+                    o.pad[pc] = Pad{};
+                    o.pad[pc].steer = std::clamp(-ee.rf(D + 0x30) / std::max(ee.rf(o.car(pc) + kF + 0x498), 0.05f), -1.0f, 1.0f);
+                    o.pad[pc].throttle = ee.rf(D + 0x34), o.pad[pc].brake = ee.rf(D + 0x38);
+                    if (std::getenv("GT4R_AI_SUGFORCE")) o.pad[pc] = Pad{}, o.pad[pc].throttle = step < 600 ? 0.5f : 0.0f, o.pad[pc].brake = step < 600 ? 0.0f : 0.3f;
                 }
             }
             if (step == bspec_step && bspec_car >= 0) {
