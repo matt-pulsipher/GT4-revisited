@@ -176,6 +176,10 @@ not located, the place in the data most like Gran Turismo 3's values.
 Prologue's step (0x3B7020, the conductor's car i at conductor + 0x77A8 + 0xC64 i, its parameter block at + 0xC8 + 0xEDC i,
 the count at + 0x107E4) has Gran Turismo 4's phases in Gran Turismo 4's order (the same three phases Gran Turismo 3 has not,
 0x3BDEC8, 0x3C3C90, 0x3C4400). Its routines are a mix: some are Gran Turismo 3's, some Gran Turismo 4's, some its own.
+The session runs a Prologue car's phases in the same frame as Gran Turismo 4's (`Session::step_once`): the phases before the
+input over every car (phase 4's downforce part, 0x3DBB70's end, included), then each car's driver and input, the phases to 12,
+the collision step over all, phases 14 and 15, then the rest car by car; races of six cars still end to the millisecond
+(`disc_prologue_demonstrations`).
 
 **The record.** The car record is Gran Turismo 3's without the parameter block: an offset of Gran Turismo 3's record from
 +0xEC0 is Prologue's + 0xEAC (the state block F at car + 0xD8, the wheels at car + 0x138 + 0xA4 w, the drive blocks at
