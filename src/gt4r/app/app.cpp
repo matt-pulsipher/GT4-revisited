@@ -5,7 +5,12 @@
 #include "app/button_prompts.h"
 #include "base/file.h"
 #include "base/log.h"
+#include "base/log_file.h"
 #include "formats/png_writer.h"
+#include "formats/texture_pack.h"
+#include "platform/crash_handlers.h"
+#include "platform/mac_layer.h"
+#include "vfs/mod_archive.h"
 #include "gt4r_version.h"
 
 #include <algorithm>
@@ -13,6 +18,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
 #include <functional>
 
 #if defined(__APPLE__)
@@ -99,6 +105,14 @@ std::string user_data_dir() {
 
 bool App::init(int argc, char** argv) {
     SDL_SetAppMetadata("GT4 Revisited", GT4R_VERSION, "org.gt4revisited.gt4r");
+    // The log file first, so that it has everything after it: gt3r.log in the data folder (the shared engine's name for it), the
+    // session before in gt3r.prev.log, and why the game closed when it did not close by itself.
+    {
+        const std::string dir = user_data_dir();
+        SDL_CreateDirectory(dir.c_str());
+        gt3r::log_file::open(dir);
+    }
+    if (const char* c = SDL_getenv("GT4R_CRASH_TEST")) gt3r::platform::crash_test(c); // throw | segv | abort
 #ifdef SDL_PLATFORM_WINDOWS
     // Xbox pads through SDL's RAWINPUT driver, for their impulse triggers, unless [input] xbox_driver = xinput: SDL takes it
     // as it starts its joysticks.
@@ -117,26 +131,38 @@ bool App::init(int argc, char** argv) {
     config_path_ = data_dir_ + "config.ini";
     if (auto cfg = gt3r::IniDocument::load(config_path_)) config_ = std::move(*cfg);
     LOG_INFO("GT4 Revisited %s; user data: %s", GT4R_VERSION, data_dir_.c_str());
+    load_settings();
 
     // A scripted run (pictures, a sweep) does not take the keyboard from whoever is at the
     // machine: its window opens without becoming the active one and cannot be focused.
-    bool scripted = false;
+    bool& scripted = scripted_;
     for (int i = 1; i < argc; ++i)
         if (const std::string a = argv[i]; a == "--shot" || a == "--sweep") scripted = true;
     if (scripted) SDL_SetHint(SDL_HINT_WINDOW_ACTIVATE_WHEN_SHOWN, "0");
-    window_ = SDL_CreateWindow("GT4 Revisited", 1280, 720,
-                               SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY | (scripted ? SDL_WINDOW_NOT_FOCUSABLE : SDL_WindowFlags(0)));
+    // (A picture's window in another shape, for checks: GT4R_WINDOW=1600x700.)
+    int window_w = 1280, window_h = 720;
+    if (const char* size = SDL_getenv("GT4R_WINDOW"); size && std::sscanf(size, "%dx%d", &window_w, &window_h) != 2) window_w = 1280, window_h = 720;
+    // macOS: in full screen the menu bar comes down at the screen's top as in other apps.
+    SDL_SetHint(SDL_HINT_VIDEO_MAC_FULLSCREEN_MENU_VISIBILITY, "1");
+    window_ = SDL_CreateWindow("GT4 Revisited", std::clamp(window_w, 320, 8192), std::clamp(window_h, 180, 8192),
+                               SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY |
+                                   (scripted ? SDL_WINDOW_NOT_FOCUSABLE : video_.fullscreen ? SDL_WINDOW_FULLSCREEN : SDL_WindowFlags(0)));
     if (!window_) {
         LOG_ERROR("Window creation failed: %s", SDL_GetError());
         return false;
     }
-    bool use_gpu = true;
+    gt3r::render::GpuOptions gpu;
+    gpu.msaa = video_.msaa, gpu.anisotropy = video_.anisotropy, gpu.vsync = video_.vsync;
+    gpu.gles = video_.gpu == settings::Gpu::Gles || video_.gpu == settings::Gpu::GlesDriver;
+    gpu.angle = video_.gpu != settings::Gpu::GlesDriver;
+    bool use_gpu = video_.gpu != settings::Gpu::Off;
     for (int i = 1; i < argc; ++i)
         if (std::string(argv[i]) == "--no-gpu") use_gpu = false;
-    if (use_gpu) gpu_ = gt3r::render::GpuContext::create(window_, gt3r::render::GpuOptions{});
+    if (use_gpu) gpu_ = gt3r::render::GpuContext::create(window_, gpu);
     if (gpu_) {
         renderer_ = gpu_->renderer2d();
         gpu_->warm_pipelines();
+        gt3r::platform::keep_composited(window_); // (macOS: no switching between the display's two ways of showing a full screen)
     } else {
         if (use_gpu) LOG_WARN("3D drawing is not available; continuing with the 2D screens only");
         renderer_ = SDL_CreateRenderer(window_, nullptr);
@@ -144,11 +170,12 @@ bool App::init(int argc, char** argv) {
             LOG_ERROR("Renderer creation failed: %s", SDL_GetError());
             return false;
         }
-        SDL_SetRenderVSync(renderer_, 1);
+        SDL_SetRenderVSync(renderer_, video_.vsync ? 1 : 0);
     }
-    SDL_SetRenderLogicalPresentation(renderer_, Ui::kWidth, Ui::kHeight, SDL_LOGICAL_PRESENTATION_LETTERBOX);
     ui_ = std::make_unique<Ui>(renderer_);
-    ui_->set_layout(float(Ui::kWidth), float(Ui::kHeight), {0, 0, float(Ui::kWidth), float(Ui::kHeight)}, false);
+    layout_ui(false);
+    reset_dynamic_scale();
+    apply_frame_limit();
 
     input_ = std::make_unique<gt3r::InputManager>();
     {
@@ -156,7 +183,8 @@ bool App::init(int argc, char** argv) {
         input::translate_config(controls);
         input_->load(controls);
     }
-    audio_ = std::make_unique<gt3r::AudioEngine>(config_.get("audio", "device").value_or(""));
+    audio_ = std::make_unique<gt3r::AudioEngine>(sound_settings_.device);
+    apply_sound();
     dialog_mutex_ = SDL_CreateMutex();
 
     std::string disc_path;
@@ -197,6 +225,7 @@ bool App::init(int argc, char** argv) {
         else if (start_ == "menus") push(make_menu_viewer(*this));
         else if (start_ == "race") push(make_race_screen(*this));
         else if (start_ == "controls") push(make_controls_screen(*this));
+        else if (start_ == "settings") push(make_settings_screen(*this));
         else if (start_ == "cars" || start_ == "courses") { // (the hub's items: Play, Cars, Courses)
             const std::vector<std::string> to = start_ == "cars" ? std::vector<std::string>{"down", "cross"} : std::vector<std::string>{"down", "down", "cross"};
             keys_.insert(keys_.begin(), to.begin(), to.end());
@@ -214,7 +243,7 @@ std::vector<std::string> App::parse_key_script(std::string_view text) {
     for (std::string_view line : gt3r::split(text, '\n')) {
         if (const size_t hash = line.find('#'); hash != std::string_view::npos) line = line.substr(0, hash);
         for (std::string_view k : gt3r::split(line, ','))
-            if (const std::string_view t = gt3r::trim(k); !t.empty()) keys.emplace_back(t[0] == '@' ? std::string(t) : gt3r::to_lower(t)); // (a file's name as written)
+            if (const std::string_view t = gt3r::trim(k); !t.empty()) keys.emplace_back(t[0] == '@' || t.substr(0, 5) == "drop:" ? std::string(t) : gt3r::to_lower(t)); // (a file's name as written)
     }
     return keys;
 }
@@ -235,6 +264,7 @@ std::string App::open_disc(const std::string& path) {
     disc_->prepare_program(); // (on a thread: the menus and the races read its tables)
     vfs_ = std::make_unique<gt3r::Vfs>(&disc_->volume());
     vfs_->scan_mods(mods_dir(), &config_);
+    use_texture_packs();
     // Remembered as an absolute path, so a launch from another folder finds it.
     std::string saved = path;
     if (path.find("://") == std::string::npos) {
@@ -242,15 +272,19 @@ std::string App::open_disc(const std::string& path) {
             saved = std::string(real) + path, SDL_free(real);
         else SDL_free(real);
     }
-    if (config_.get("game", "disc").value_or("") != saved) {
-        config_.set("game", "disc", saved);
-        if (!config_.save(config_path_)) LOG_WARN("Could not save %s", config_path_.c_str());
-    }
+    // The disc opened at the next start, the list of the discs opened, what this one is.
+    const DiscInfo& d = disc_->info();
+    const std::string before = config_.serialize();
+    std::vector<std::string> recent = recent_discs();
+    config_.set("game", "disc", saved);
+    gt3r::platform::save_recent_discs(config_, gt3r::platform::push_recent_disc(std::move(recent), saved));
+    gt3r::platform::save_disc_record(config_, saved, {d.serial, d.version, "", d.digest, d.key, d.description, d.verified, d.modified});
+    if (config_.serialize() != before) save_config();
     return {};
 }
 
 audio::AppSound* App::sound() {
-    if (!sound_ && audio_ && vfs_) sound_ = std::make_unique<audio::AppSound>(*audio_, *vfs_);
+    if (!sound_ && audio_ && vfs_) sound_ = std::make_unique<audio::AppSound>(*audio_, *vfs_), apply_sound();
     return sound_.get();
 }
 
@@ -273,6 +307,10 @@ void App::save_config() {
 }
 
 void App::show_open_dialog() {
+    if (scripted_) { // (no window over whoever is at the machine: GT4R_DIALOG is the answer)
+        if (const char* path = SDL_getenv("GT4R_DIALOG")) request_disc(path);
+        return;
+    }
     SDL_ShowOpenFileDialog(on_dialog, this, window_, kDiscFilters, SDL_arraysize(kDiscFilters), nullptr, false);
 }
 
@@ -304,6 +342,10 @@ gt3r::PadState App::scripted_keys() {
         if (k == "quit") {
             quit_ = true, ++key_;
             return pad;
+        }
+        if (k == "f12") { // a screenshot, as the key takes one
+            screenshot_wanted_ = true, ++key_;
+            continue;
         }
         if (k == "release") {
             drive_ = {}, drive2_ = {}, ++key_;
@@ -341,6 +383,18 @@ gt3r::PadState App::scripted_keys() {
         const std::string k = second ? whole.substr(3) : whole;
         gt3r::PadState& to = second ? press2_ : pad;
         const bool wait = k.compare(0, 4, "wait") == 0;
+        if (pointer_token(k)) { // the mouse
+            ++key_, key_frames_ = 0;
+            return pad;
+        }
+        if (k.compare(0, 5, "drop:") == 0) { // a file dropped on the window
+            SDL_Event e{};
+            const std::string path = k.substr(5);
+            ++key_, key_frames_ = 0;
+            e.type = SDL_EVENT_DROP_FILE, e.drop.data = path.c_str();
+            event(e);
+            return pad;
+        }
         if (k.compare(0, 5, "shot:") == 0) { // a picture of this frame, then the next key
             key_shot_ = k.substr(5), ++key_, key_frames_ = 0;
             return pad;
@@ -370,6 +424,10 @@ SDL_AppResult App::iterate() {
     const double wall_ms = double(now - last_ticks_) / 1e6; // since the last frame
     double dt = std::min(wall_ms / 1e3, 0.1);
     last_ticks_ = now;
+    idle_cursor(now);
+    if (fps_last_) ++fps_frames_, fps_time_ += double(now - fps_last_) / 1e9; // (a picture's frame: with the wait in it)
+    fps_last_ = now;
+    if (fps_time_ >= 0.5) fps_shown_ = fps_frames_ / fps_time_, fps_frames_ = 0, fps_time_ = 0;
     if (!sweep_.empty()) dt = 1.0 / 60.0; // (a sweep's frames: a 60th of a second each, as fast as they come)
     if (!shot_path_.empty()) {
         // Pictures do not depend on the machine's speed: a frame is a 60th of a second, and the
@@ -384,10 +442,12 @@ SDL_AppResult App::iterate() {
     // A frame that came long after the last one ended: the time went outside the frame's work.
     if (end_ticks_ && double(now - end_ticks_) / 1e6 > 250) LOG_WARN("Frame %d: %.0f ms between frames", frame_, double(now - end_ticks_) / 1e6);
 
-    std::string chosen;
+    std::string chosen, mod;
     SDL_LockMutex(dialog_mutex_);
     chosen.swap(dialog_result_);
+    mod.swap(dropped_mod_);
     SDL_UnlockMutex(dialog_mutex_);
+    if (!mod.empty() && disc_) push(make_settings_screen(*this, 4, mod)); // a .zip dropped: the Mods page installs it
     if (!chosen.empty()) {
         last_error_ = open_disc(chosen);
         if (last_error_.empty()) {
@@ -425,17 +485,35 @@ SDL_AppResult App::iterate() {
             if (drive_.held & (1u << b)) scripted.buttons |= u16(1u << b), scripted.pressure[b] = 255;
     }
     input_->update(dt);
+    pointer_actions_ = pointer_.take();
+    pointer_actions_.insert(pointer_actions_.end(), scripted_pointer_.begin(), scripted_pointer_.end());
+    scripted_pointer_.clear();
     if (!menu_pad_.connected) menu_pad_ = input_->menu_pad();
     const bool sticks = drive_.sticks[0] != 0 || drive_.sticks[1] != 0;
     if (sticks) scripted.set_axis(gt3r::PadAxis::LX, drive_.sticks[0]), scripted.set_axis(gt3r::PadAxis::LY, drive_.sticks[1]);
-    menu_.update(scripted.buttons || sticks ? scripted : input_->menu_pad(), dt);
+    {
+        Screen* top = screens_.empty() ? nullptr : screens_.back().get();
+        gt3r::PadState pad = scripted.buttons || sticks ? scripted : top && top->menu_input_any_device() ? input_->any_device_pad() : input_->menu_pad();
+        // The mouse's right button goes back on the app's own pages.
+        if (top && !top->follows_aspect())
+            for (const gt3r::PointerInput::Action& a : pointer_actions_)
+                if (a.kind == gt3r::PointerInput::Action::Kind::Back) pad.buttons |= u16(1u << unsigned(PadButton::Triangle)), pad.connected = true;
+        menu_.update(pad, dt);
+    }
     if (!screens_.empty()) screens_.back()->update(*this, dt);
     apply_screen_changes();
     if (screens_.empty()) quit_ = true;
 
+    const bool game = !screens_.empty() && screens_.back()->follows_aspect();
+    layout_ui(game);
     Ui::set_prompts(gt3r::button_prompts(*input_, false, false)); // "{Cross}" in the hints
+    begin_gamma_frame();
     ui_->clear();
     if (!screens_.empty()) screens_.back()->render(*this, *ui_);
+    draw_fps(!game);
+    // (GT4R_SHOT_GAMMA=1: the pictures as the window shows them, for checks)
+    static const bool shot_gamma = SDL_getenv("GT4R_SHOT_GAMMA") != nullptr;
+    if (gamma_frame_ && shot_gamma) gamma_pass_->end(video_.gamma), gamma_frame_ = false;
     ++frame_;
     if (!key_shot_.empty() && !shot_path_.empty()) {
         const size_t slash = shot_path_.find_last_of('/');
@@ -449,9 +527,32 @@ SDL_AppResult App::iterate() {
         save_screenshot(shot_path_);
         quit_ = true;
     }
+    if (screenshot_wanted_) { // F12
+        screenshot_wanted_ = false;
+        const std::string dir = data_dir_ + "screenshots";
+        SDL_CreateDirectory(dir.c_str());
+        char stamp[40];
+        const std::time_t t = std::time(nullptr);
+        std::strftime(stamp, sizeof stamp, "%Y-%m-%d %H.%M.%S", std::localtime(&t));
+        std::string path = dir + "/GT4R " + stamp + ".png";
+        for (int n = 2; gt3r::host_path_exists(path); ++n) path = dir + "/GT4R " + stamp + " (" + std::to_string(n) + ").png";
+        save_screenshot(path);
+    }
+    if (gamma_frame_) gamma_pass_->end(video_.gamma); // (after the pictures: they keep the game's own colors)
     const Uint64 before_present = SDL_GetTicksNS();
     SDL_RenderPresent(renderer_);
     if (gpu_) gpu_->frame_presented();
+    // A graphics driver that gave up never comes back, and the frames that never finish fill the memory: closed with a message.
+    if (gpu_ && std::strstr(SDL_GetError(), "DEVICE_LOST")) {
+        LOG_ERROR("The graphics device was lost: %s", SDL_GetError());
+        if (!scripted_) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "GT4 Revisited", "The graphics driver stopped responding, so the game has to close.", window_);
+        return SDL_APP_FAILURE;
+    }
+    if (dynamic_on_)
+        if (const float s = dynamic_.frame(wall_ms, double(SDL_GetTicksNS() - before_present) / 1e6); s != gpu_->render_scale()) {
+            LOG_INFO("Dynamic resolution: %d %%", int(std::lround(s * 100)));
+            gpu_->set_render_scale(s);
+        }
     end_ticks_ = SDL_GetTicksNS();
     if (double(end_ticks_ - before_present) / 1e6 > 250) LOG_WARN("Frame %d: presenting took %.0f ms", frame_, double(end_ticks_ - before_present) / 1e6);
     if (double(before_present - now) / 1e6 > 250) LOG_WARN("Frame %d: its work took %.0f ms", frame_, double(before_present - now) / 1e6);
@@ -464,10 +565,34 @@ SDL_AppResult App::event(const SDL_Event& e) {
     // Back in front: the controllers' motors as they should be now (a stop sent while away can be lost).
     if (e.type == SDL_EVENT_WINDOW_FOCUS_GAINED) input_->window_focus_gained();
     if (audio_ && (e.type == SDL_EVENT_AUDIO_DEVICE_ADDED || e.type == SDL_EVENT_AUDIO_DEVICE_REMOVED)) audio_->device_event(e);
-    if (e.type == SDL_EVENT_DROP_FILE && e.drop.data) request_disc(e.drop.data);
-    if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F11 && !e.key.repeat)
-        SDL_SetWindowFullscreen(window_, !(SDL_GetWindowFlags(window_) & SDL_WINDOW_FULLSCREEN));
-    if (!screens_.empty()) screens_.back()->on_event(*this, e);
+    mouse_event(e);
+    if (e.type == SDL_EVENT_DROP_FILE && e.drop.data && (screens_.empty() || !screens_.back()->takes_dropped_file(e.drop.data))) {
+        const std::string path = e.drop.data;
+        const bool zip = path.size() > 4 && gt3r::to_lower(path.substr(path.size() - 4)) == ".zip";
+        if (!zip) request_disc(path);
+        // (a mod for the open disc; over a game or a race being played only once that is left)
+        else if (disc_ && !screens_.empty() && !screens_.back()->follows_aspect()) push_dropped_mod(path);
+    }
+    if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F12 && !e.key.repeat) screenshot_wanted_ = true;
+    if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F11 && !e.key.repeat) {
+        settings::Video v = video_;
+        v.fullscreen = !fullscreen();
+        video_.fullscreen = fullscreen();
+        set_video(v);
+    }
+    // Full screen entered or left another way (macOS's green button, the window manager): kept too.
+    if ((e.type == SDL_EVENT_WINDOW_ENTER_FULLSCREEN || e.type == SDL_EVENT_WINDOW_LEAVE_FULLSCREEN) && !scripted_) {
+        if (const bool on = e.type == SDL_EVENT_WINDOW_ENTER_FULLSCREEN; video_.fullscreen != on) {
+            settings::Video v = video_;
+            v.fullscreen = on;
+            set_video(v);
+        }
+    }
+    if (e.type == SDL_EVENT_WINDOW_DISPLAY_CHANGED) apply_frame_limit(); // (another display's rate)
+    SDL_Event local = e; // the pointer in UI units
+    SDL_ConvertEventToRenderCoordinates(renderer_, &local);
+    pointer_.event(local);
+    if (!screens_.empty()) screens_.back()->on_event(*this, local);
     return SDL_APP_CONTINUE;
 }
 
@@ -504,14 +629,17 @@ void App::shutdown() {
     sound_.reset();
     audio_.reset();
     db_.reset();
+    gt3r::texture_pack::set_pack(nullptr);
     vfs_.reset();
     disc_.reset();
+    gamma_pass_.reset();
     ui_.reset();
     input_.reset();
     if (dialog_mutex_) SDL_DestroyMutex(dialog_mutex_);
     if (gpu_) gpu_.reset(); // (its renderer goes with it)
     else if (renderer_) SDL_DestroyRenderer(renderer_);
     if (window_) SDL_DestroyWindow(window_);
+    gt3r::log_file::close();
     SDL_Quit();
 }
 

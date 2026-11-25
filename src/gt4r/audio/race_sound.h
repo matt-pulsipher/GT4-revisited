@@ -133,6 +133,8 @@ public:
     // hold of 8 or 10 s) the kind's start jingle, -1 (rolling) the racing music at once (rolling()), any other nothing until
     // the start.
     void begin_run(RaceMusic kind, int start);
+    // Ours: the racing music's next song, or the one heard before this one (-1), while the racing music plays.
+    bool skip_song(int direction);
     // The race's start jingle (before the count) and finish jingle (0x3A0228; the license tests' display, 0x3BD330, plays
     // none at their finish).
     void intro();
@@ -201,6 +203,7 @@ private:
     bool designer_shot_ = false, free_run_duck_ = false;
     void duck();
     std::shared_ptr<RacePlaylist> playlist_;
+    std::vector<int> songs_heard_; // this run's racing pieces, for skip_song()
     static constexpr size_t kRecordSteps = 60 * 60 * 10;
     std::vector<std::vector<CarSoundState>> recorded_;
     size_t replay_step_ = 0;

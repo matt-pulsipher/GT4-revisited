@@ -6,6 +6,7 @@
 // view=in,view2=chase,drive=auto,drive2=auto,skip=600,replay=<steps>,paint=1,paint2=2,hud=1" (drive / drive2 auto: the simple driver takes
 // that player's car; skip: steps run before the first picture, without the start's hold).
 
+#include "gt4r/app/game_area.h"
 #include "gt4r/app/race_common.h"
 #include "gt4r/app/race_hud.h"
 #include "gt4r/app/race_world.h"
@@ -339,9 +340,11 @@ public:
     void set_look_back(size_t i, bool on) { half_[i].look_back = on; }
     void set_blend(float t) { blend_ = std::clamp(t, 0.0f, 1.0f); }
 
+    // (A picture narrower than 16:9 has no room for two displays beside each other.)
+    bool side_by_side() const { return setup_.side_by_side && game_area::side() > 106.0f; }
     // A half's part of the picture (0x32FCC8), and the line between the two.
     SDL_FRect half_rect(const SDL_FRect& whole, size_t i) const {
-        if (setup_.side_by_side) return {whole.x + whole.w / 2 * float(i), whole.y, whole.w / 2, whole.h};
+        if (side_by_side()) return {whole.x + whole.w / 2 * float(i), whole.y, whole.w / 2, whole.h};
         return {whole.x, whole.y + whole.h / 2 * float(i), whole.w, whole.h / 2};
     }
     void render(Ui& ui, const SDL_FRect& whole) {
@@ -360,20 +363,20 @@ public:
         }
         for (size_t i = 0; i < kPlayers; ++i) {
             const SDL_FRect rect = half_rect(whole, i);
-            const race::SplitView view = race::split_view(setup_.side_by_side, int(i));
+            const race::SplitView view = race::split_view(side_by_side(), int(i));
             const race::ViewPose pose = half_pose(i, blend);
             race::ViewPose seen = pose;
             seen.fov = 2 * std::atan(std::tan(pose.fov * 0.5f) / view.lens);
             world_->render(ui, rect, cars, seen, i, pose.body_hidden ? int(i) : -1, int(i));
             // The rear-view mirror of the in-car view, while the race is driven.
             if (!replaying_ && half_[i].mount == race::DriveCamera::kInCar && pose.body_hidden && !half_[i].look_back && !half_[i].start_camera.active()) {
-                const float kx = setup_.side_by_side ? rect.w / view.picture[0] : whole.h * 4 / 3 / view.picture[0], ky = rect.h / view.picture[1];
-                const float x = setup_.side_by_side ? rect.x + view.mirror[0] * kx : rect.x + rect.w / 2 + (view.mirror[0] - view.picture[0] / 2) * kx;
+                const float kx = side_by_side() ? rect.w / view.picture[0] : whole.h * 4 / 3 / view.picture[0], ky = rect.h / view.picture[1];
+                const float x = side_by_side() ? rect.x + view.mirror[0] * kx : rect.x + rect.w / 2 + (view.mirror[0] - view.picture[0] / 2) * kx;
                 world_->render_mirror(ui, {x, rect.y + view.mirror[1] * ky, view.mirror[2] * kx, view.mirror[3] * ky}, cars, pose, int(i), int(i), view.mirror_zoom);
             }
         }
         const float line = whole.h * 2 / 448;
-        if (setup_.side_by_side) ui.fill(whole.x + whole.w / 2 - line / 2, whole.y, line, whole.h, Color{0, 0, 0, 255});
+        if (side_by_side()) ui.fill(whole.x + whole.w / 2 - line / 2, whole.y, line, whole.h, Color{0, 0, 0, 255});
         else ui.fill(whole.x, whole.y + whole.h / 2 - line / 2, whole.w, line, Color{0, 0, 0, 255});
     }
 
@@ -383,7 +386,7 @@ public:
         const Half& me = half_[i];
         const race::CarState& c = cars[i];
         const race::CarSpec& spec = world_->visual(i).spec();
-        h.split = setup_.side_by_side ? 2 : 1, h.half = int(i);
+        h.split = side_by_side() ? 2 : 1, h.half = int(i);
         h.replay = replaying_;
         h.speed = c.speed, h.rpm = c.engine_rpm, h.gear = c.gear, h.clutch_closed = c.clutch_closed, h.gear_flash = me.gear_flash;
         h.stepless = world_->stepless(i);
@@ -650,6 +653,8 @@ public:
         if (keys_lent_) app_.input().set_keyboard(1, false);
     }
 
+    bool follows_aspect() const override { return race_ != nullptr; }
+
     void update(App& app, double dt) override {
         const MenuInput& m = app.menu();
         if (!race_) {
@@ -693,6 +698,10 @@ public:
                 return open_pause(app);
             }
         }
+        // (Settings > Controls: the songs' own controls)
+        for (int p = 0; p < gt3r::InputManager::kMaxPlayers; ++p)
+            if (const int song = int(app.input().action_pressed(p, gt3r::PadAction::NextSong)) - int(app.input().action_pressed(p, gt3r::PadAction::PreviousSong)))
+                if (audio::RaceSound* sound = race_->world().sound()) sound->skip_song(song);
         clock_ += pacer_.step(dt);
         int n = 0;
         for (; clock_ >= kStep && n < 4; ++n) {
@@ -719,7 +728,7 @@ public:
     }
 
     void render(App&, Ui& ui) override {
-        const SDL_FRect whole{0, 0, float(Ui::kWidth), float(Ui::kHeight)};
+        const SDL_FRect whole{0, 0, ui.width(), float(Ui::kHeight)};
         if (!race_) {
             ui.fill(0, 0, whole.w, whole.h, Color{0, 0, 0, 255});
             if (!error_.empty()) ui.text_center(Ui::kHeight / 2, error_, colors::kBad);

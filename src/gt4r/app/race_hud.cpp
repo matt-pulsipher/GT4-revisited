@@ -1,4 +1,5 @@
 #include "gt4r/app/race_hud.h"
+#include "gt4r/app/game_area.h"
 #include "gt4r/menu/text_layout.h"
 
 #include "base/log.h"
@@ -26,15 +27,16 @@ namespace element = race::element;
 constexpr float kPi = 3.14159265f;
 // The display's canvas is 640 x 480 (y down); on a wide picture it runs from x = -106.667 to
 // 746.667, and the whole is drawn at one scale so that everything keeps its shape.
-constexpr float kCanvasH = 480.0f, kWideLeft = -106.667f;
+// (Other shapes of the picture: game_area.h.)
+constexpr float kCanvasH = 480.0f;
 constexpr float kScale = float(Ui::kHeight) / kCanvasH;
 
 constexpr u32 kTextGray = 0x80C8C8C8u, kMeterBlue = 0x80E3B896u, kNeutral = 0x80808080u, kRefuelTint = 0x805EA8F2u;
 
 // Where the canvas' own (0, 0) lies on it: moved while a two-player half's display is drawn.
 SDL_FPoint origin{0, 0};
-SDL_FRect to_ui(const DisplayRect& r) { return {(r.x + origin.x - kWideLeft) * kScale, (r.y + origin.y) * kScale, r.w * kScale, r.h * kScale}; }
-SDL_FPoint to_ui(float x, float y) { return {(x + origin.x - kWideLeft) * kScale, (y + origin.y) * kScale}; }
+SDL_FRect to_ui(const DisplayRect& r) { return {(r.x + origin.x + game_area::side()) * kScale, (r.y + origin.y) * kScale, r.w * kScale, r.h * kScale}; }
+SDL_FPoint to_ui(float x, float y) { return {(x + origin.x + game_area::side()) * kScale, (y + origin.y) * kScale}; }
 struct OriginScope {
     explicit OriginScope(SDL_FPoint at) { origin = at; }
     ~OriginScope() { origin = {0, 0}; }
@@ -214,7 +216,10 @@ struct RaceHud::Impl {
     };
     static PanelForm panel_form(const HudState& s) {
         if (s.split == 1) return {0, 640, 320, 464 - 240, false}; // (the panel is drawn 240 higher: 0x3A23C0)
-        if (s.split == 2) return {-96, 330, 117, 464, true};
+        if (s.split == 2) { // (213, 464, 426 wide, tied to the left)
+            const int push = int(std::lround(race::anchor_push(game_area::side())));
+            return {-push, 426 - push, 213 - push, 464, true};
+        }
         return {};
     }
     void draw_chase_panel(const HudState& s);
@@ -397,19 +402,23 @@ void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlaye
             std::vector<SDL_Vertex> v;
             v.reserve(d.group->triangles.size());
             // (Prologue's movies: a shape across the whole 640 covers a wide picture too, as its 4:3 one.)
-            bool across = !m.race_fonts.fonts.empty();
+            // (And on a picture wider than 16:9 a shape across all of a 16:9 one.)
+            const float side = game_area::side();
+            const bool prologue = !m.race_fonts.fonts.empty(), wider = side > 107.0f;
+            const float from = prologue ? 0.5f : -106.0f, to = 640.0f - from;
+            bool across = prologue || wider;
             if (across) {
                 float x0 = 1e9f, x1 = -1e9f;
                 for (const race::StrobeMovie::Point& p : d.group->triangles) {
                     const float x = d.m[0] * p.x + d.m[2] * p.y + d.m[4];
                     x0 = std::min(x0, x), x1 = std::max(x1, x);
                 }
-                across = x0 <= 0.5f && x1 >= 639.5f;
+                across = x0 <= from && x1 >= to;
             }
             for (const race::StrobeMovie::Point& p : d.group->triangles) {
                 SDL_Vertex x{};
                 float px = d.m[0] * p.x + d.m[2] * p.y + d.m[4];
-                if (across) px = px <= 0.5f ? std::min(px, -107.0f) : px >= 639.5f ? std::max(px, 747.0f) : px;
+                if (across) px = px <= from ? std::min(px, -side - 0.5f) : px >= to ? std::max(px, 640.5f + side) : px;
                 x.position = to_ui(px, d.m[1] * p.x + d.m[3] * p.y + d.m[5]);
                 const float u = mat ? p.x * (*mat)[0] + p.y * (*mat)[4] + (*mat)[12] : 0, w = mat ? p.x * (*mat)[1] + p.y * (*mat)[5] + (*mat)[13] : 0;
                 x.tex_coord = {u, w};
@@ -608,7 +617,7 @@ void RaceHud::Impl::draw_top(const HudState& s) {
     // The status line (member 0x228C): over the driver's panel at (320, 348), over the chase views'
     // at (320, 430); `hn_20R`.
     if (!s.status.empty() && s.status_opacity > 0)
-        draw_text(font("hn_20R"), s.split == 2 ? 203.0f - 96 : 320.0f, s.split == 1 ? 430.0f - 240 : s.split == 2 ? 380.0f : s.driver_view ? 348.0f : 430.0f, kCentered, s.status_red ? 0x800000C8u : kTextGray, o * s.status_opacity, s.status);
+        draw_text(font("hn_20R"), s.split == 2 ? 203.0f - race::anchor_push(game_area::side()) : 320.0f, s.split == 1 ? 430.0f - 240 : s.split == 2 ? 380.0f : s.driver_view ? 348.0f : 430.0f, kCentered, s.status_red ? 0x800000C8u : kTextGray, o * s.status_opacity, s.status);
     // The A-spec points (members 0x267C and 0x27CC).
     if (s.points_opacity > 0) {
         draw_text(font("hb_24", 100, 1), 320, 264, kCentered, kTextGray, o * s.points_opacity, s.points_title);
@@ -905,7 +914,7 @@ void RaceHud::draw(Ui& ui, const HudState& s) {
         // A two-player half's display: its canvas 640 x 240 (the first's 10 units lower: RaceSplitDisplayBase::vf9 0x3A29A0), or
         // 426.667 x 480 of the wide one. In a replay with its display off nothing shows (the logo's place is outside both).
         if (!split_ready() || (s.replay && !s.replay_display)) return;
-        const OriginScope scope(s.split == 1 ? SDL_FPoint{0, s.half == 0 ? 10.0f : 240.0f} : SDL_FPoint{s.half == 0 ? 0.0f : 1280.0f / 3, 0});
+        const OriginScope scope(s.split == 1 ? SDL_FPoint{0, s.half == 0 ? 10.0f : 240.0f} : SDL_FPoint{s.half == 0 ? 0.0f : 320.0f + game_area::side(), 0});
         impl_->cur = &impl_->split[s.split - 1];
         if (s.replay)
             if (const DisplayPlace* p = impl_->cur->find(element::kReplaySign)) {
@@ -924,7 +933,7 @@ void RaceHud::draw(Ui& ui, const HudState& s) {
         // the line "power  tires  race" in hm_16 at (320, 260), color 0x80C8C8C8, over the picture
         // darkened (❓ the darkening's strength is judged from the original's replay).
         const float a = std::clamp(s.card_opacity, 0.0f, 1.0f);
-        const SDL_FRect c = to_ui(DisplayRect{-200, 0, 1040, 480});
+        const SDL_FRect c = to_ui(DisplayRect{-game_area::side(), 0, 640 + 2 * game_area::side(), 480});
         SDL_SetRenderDrawBlendMode(impl_->r, SDL_BLENDMODE_BLEND);
         SDL_SetRenderDrawColor(impl_->r, 0, 0, 0, u8(190 * a));
         SDL_RenderFillRect(impl_->r, &c);
@@ -1037,7 +1046,7 @@ void RaceHud::Impl::draw_fuel(const HudState& s, const DisplayPlace& place) {
 // RaceTooltipDisplay::vf5 (0x3AE138): a black strip 640 x 42 at the bottom, the line centered 22 down it, squeezed into 15/16 of
 // its width.
 void RaceHud::Impl::draw_tooltip(const std::string& words, float opacity) {
-    fill({kWideLeft, 438, 640 - 2 * kWideLeft, 42}, 0, 0, 0, opacity);
+    fill({-game_area::side(), 438, 640 + 2 * game_area::side(), 42}, 0, 0, 0, opacity);
     draw_menu_text("hm_16", 1, 320, 460, gt3r::text::HAlign::Center, kTextGray, opacity, words, 600);
 }
 

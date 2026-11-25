@@ -3,6 +3,7 @@
 // pictures.
 
 #include "gt4r/app/app.h"
+#include "gt4r/app/page.h"
 
 #include "base/log.h"
 #include "render/camera.h"
@@ -41,6 +42,8 @@ public:
             if (n > 0) {
                 const int prev = sel_;
                 sel_ = std::clamp(sel_ + m.vertical(), 0, n - 1);
+                mouse_.pick(app, 0, sel_, n);
+                over_ = mouse_.over(app, 0);
                 if (sel_ != prev) settle_ = 0;
             }
             using gt3r::PadAxis;
@@ -145,11 +148,12 @@ private:
         const int n = int(items_.size());
         const int rows = int((kBottom - kTop) / kRowH);
         const int first = ui.list_window(n, sel_, rows);
+        mouse_.begin(), mouse_.rows(0, first, std::min(rows, n - first), 4, kTop - 2, kListW - 4, kRowH);
         ui.fill(0, kTop - 4, kListW + 2, kBottom - kTop + 4, colors::kBackground);
         for (int i = 0; i < rows && first + i < n; ++i) {
             const int idx = first + i;
             const float y = kTop + i * kRowH;
-            if (idx == sel_) ui.fill(4, y - 2, kListW - 4, kRowH, colors::kHighlight);
+            if (idx == sel_ || idx == over_) ui.fill(4, y - 2, kListW - 4, kRowH, idx == sel_ ? colors::kHighlight : colors::kPanel);
             ui.text(8, y, Ui::clip(items_[size_t(idx)], kListW - 12), idx == loaded_ ? colors::kAccent : colors::kText);
         }
     }
@@ -208,6 +212,8 @@ private:
     std::string title_;
     std::vector<std::string> items_;
     ModelLoader load_;
+    RowPointer mouse_; // the list's
+    int over_ = -1;
     int sel_ = 0, loaded_ = -1, max_lod_ = 0;
     double settle_ = 1.0; // load the first item at once
     bool fullscreen_ = false, show_grid_ = true, clean_ = false;

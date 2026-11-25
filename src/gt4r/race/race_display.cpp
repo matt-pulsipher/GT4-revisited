@@ -66,9 +66,14 @@ DisplayRect place_rect(const DisplayPlace& p, float w, float h, bool wide) {
     return r;
 }
 
+namespace {
+float g_wide_push = 96.0f;
+}
+void set_wide_push(float units) { g_wide_push = units; }
+
 float place_x(const DisplayPlace& p, bool wide) {
     float x = float(p.x);
-    if (wide && (p.anchor_x & 4)) x += (p.anchor_x & 8) ? 96.0f : -96.0f;
+    if (wide && (p.anchor_x & 4)) x += (p.anchor_x & 8) ? g_wide_push : -g_wide_push;
     return x;
 }
 

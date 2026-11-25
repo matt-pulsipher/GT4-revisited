@@ -10,7 +10,11 @@
 #include "gt4r/audio/app_sound.h"
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/db/specdb.h"
+#include "gt4r/settings/video.h"
 #include "input/input_manager.h"
+#include "platform/recent_discs.h"
+#include "render/dynamic_scale.h"
+#include "render/gamma_pass.h"
 #include "render/gpu_context.h"
 #include "scene/model.h"
 #include "vfs/vfs.h"
@@ -37,7 +41,15 @@ public:
     virtual ~Screen() = default;
     virtual void update(App& app, double dt) = 0;
     virtual void render(App& app, Ui& ui) = 0;
-    virtual void on_event(App&, const SDL_Event&) {}
+    virtual void on_event(App&, const SDL_Event&) {} // pointer coordinates in UI units
+    // The game's own pictures (its menus, its races): laid out over the picture of Settings > Display > Aspect ratio (Ui::width() is
+    // 640 at 16:9, 480 at 4:3, the window's shape with fill; 360 tall). The app's own pages keep 640 x 360.
+    virtual bool follows_aspect() const { return false; }
+    // Read from every controller and the keyboard, whatever player 1's are: pages that choose the controllers.
+    virtual bool menu_input_any_device() const { return false; }
+    // A file dropped on the window that this screen takes itself (it gets the event); else a .zip is a mod to install and
+    // anything else a disc image.
+    virtual bool takes_dropped_file(const std::string&) const { return false; }
 };
 
 class App {
@@ -53,6 +65,50 @@ public:
     void show_open_dialog();
     // A disc to open on the next frame (the dialog's answer, a dropped file).
     void request_disc(std::string path);
+    // The discs opened before ([game] recent1.., the latest first), what each was then, and one taken off the list.
+    std::vector<std::string> recent_discs() const;
+    std::optional<gt3r::platform::DiscRecord> disc_record(const std::string& path) const;
+    void forget_disc(const std::string& path);
+
+    // The display's settings (settings/video.h), applied at once and kept in config.ini; the 3D renderer is taken at the start.
+    const settings::Video& video() const { return video_; }
+    void set_video(const settings::Video& v);
+    bool renderer_needs_restart() const { return video_.gpu != video_started_; }
+    bool fullscreen() const;
+    double refresh_rate() const; // the display's, 0 when it is not known
+    // The scale dynamic resolution has settled on now, null while it is off.
+    const gt3r::render::DynamicScale* dynamic_scale() const { return dynamic_on_ ? &dynamic_ : nullptr; }
+    // The menus' cars and prizes as the console draws them (640 x 448) while Settings says so: the fixed size of a 3D view over
+    // `dst` (UI units), 0 x 0 for the screen's own.
+    SDL_Point menu_model_size(const SDL_FRect& dst) const;
+
+    // The sound's settings ([audio]): the output device, the music's and the effects' level (on top of the game's own options), the
+    // rear cue.
+    struct Sound {
+        std::string device; // empty: the system's
+        float music = 0.8f, effects = 0.8f;
+        bool rear_cue = true;
+    };
+    const Sound& sound_settings() const { return sound_settings_; }
+    void set_sound(const Sound& s);
+
+    // Where the saved games, the replays and the photos are: [saves] folder, by default the data folder; ends with a separator.
+    std::string save_dir() const;
+    bool save_dir_chosen() const;
+    // Another folder (empty: the data folder again): what the new one does not have of the saves is copied there first. An error
+    // for the player, empty when it is done.
+    std::string set_save_dir(const std::string& path, bool* has_its_own = nullptr); // (the folder has games already: those are used)
+
+    // The mods folder read again; a mod switched on or off for this disc.
+    void rescan_mods();
+    void set_mod_enabled(const std::string& id, bool on);
+
+    // What the mouse did since the last frame (UI units), for the page on top.
+    const std::vector<gt3r::PointerInput::Action>& pointer() const { return pointer_actions_; }
+    bool mouse_at(float& x, float& y) const { return !cursor_hidden_ && pointer_.hover_pos(x, y); }
+    SDL_Window* window() { return window_; }
+    bool scripted() const { return scripted_; } // a --shot or --sweep run: opens nothing outside its own window
+    const std::string& config_path() const { return config_path_; }
 
     void push(std::unique_ptr<Screen> s) { pending_.push_back(std::move(s)); }
     void pop() { ++pops_; }
@@ -107,6 +163,37 @@ private:
     gt3r::PadState menu_pad_; // pad()
     gt3r::PadState scripted_keys(); // this frame's --keys press, none when the script is done
     void write_stats(double frame_ms);
+    // (app_settings.cpp)
+    void layout_ui(bool game);
+    void load_settings();
+    void apply_frame_limit();
+    void reset_dynamic_scale();
+    void apply_sound();
+    void begin_gamma_frame();
+    void draw_fps(bool own_page);
+    void idle_cursor(Uint64 now);
+    void mouse_event(const SDL_Event& e);
+    void use_texture_packs();
+    bool pointer_token(const std::string& token); // --keys' mouse
+    void push_dropped_mod(const std::string& path);
+
+    settings::Video video_;
+    settings::Gpu video_started_ = settings::Gpu::Automatic;
+    Sound sound_settings_;
+    bool scripted_ = false; // --shot, --sweep
+    double frame_limit_ = 0;
+    gt3r::render::DynamicScale dynamic_;
+    bool dynamic_on_ = false;
+    std::unique_ptr<gt3r::render::GammaPass> gamma_pass_;
+    bool gamma_frame_ = false;
+    int fps_frames_ = 0;
+    double fps_time_ = 0, fps_shown_ = 0;
+    Uint64 fps_last_ = 0;
+    Uint64 mouse_used_ns_ = 0;
+    bool cursor_hidden_ = false, screenshot_wanted_ = false;
+    gt3r::PointerInput pointer_;
+    std::vector<gt3r::PointerInput::Action> pointer_actions_, scripted_pointer_;
+    std::string dropped_mod_;
 
     SDL_Window* window_ = nullptr;
     SDL_Renderer* renderer_ = nullptr; // the 3D device's when there is one
@@ -161,7 +248,9 @@ std::unique_ptr<Screen> make_hub_screen();
 // (screen_sweep.cpp).
 std::unique_ptr<Screen> make_sweep_screen(const std::string& list, const std::string& out);
 // The player's controls: the device, the race's layout, rumble and force feedback, the bindings.
-std::unique_ptr<Screen> make_controls_screen(App& app);
+std::unique_ptr<Screen> make_controls_screen(App& app, int player = 0);
+// The app's settings (screen_settings.cpp), from a page on (0 Display, 1 Audio, 2 Controls, 3 Disc & saves, 4 Mods).
+std::unique_ptr<Screen> make_settings_screen(App& app, int page = 0, const std::string& install = {});
 std::unique_ptr<Screen> make_browser_screen(const std::string& open_path = "");
 // The menu projects' pages drawn from the disc's layouts (still pictures).
 std::unique_ptr<Screen> make_menu_viewer(App& app);

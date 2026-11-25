@@ -35,6 +35,8 @@ struct DisplayRect {
 DisplayRect place_rect(const DisplayPlace& p, float w, float h, bool wide);
 // The x the anchor refers to, moved to its side on a wide screen.
 float place_x(const DisplayPlace& p, bool wide);
+// Ours: how far that move is on the picture shown now (race/game_area.h anchor_push; 96, the program's, until set).
+void set_wide_push(float units);
 
 // The elements of the single race, by their numbers in the program's tables.
 namespace element {

@@ -657,8 +657,8 @@ option).
   for 1 s, then out over 0.25 s; the FINISH message 3.7 s with a fade of 0.3 s (0x3A1568). The other half goes on.
 - Which gap each display is told: [race_flow.md](race_flow.md) "2 Player Battle".
 
-Here `RaceHud::draw` with `HudState::split` 1 (stacked) or 2 (side by side). A picture wider than 16:9 or a stacked half's on a wide
-screen: the stacked half's sides are tied to the screen's sides as the single race's are (judged).
+Here `RaceHud::draw` with `HudState::split` 1 (stacked) or 2 (side by side). On a picture narrower than 16:9 the halves are stacked
+whatever the option says; on a wider one a half's display keeps to the screen's sides as the single race's does (stacked), or to its half's left (side by side) (ours).
 
 ## License tests
 

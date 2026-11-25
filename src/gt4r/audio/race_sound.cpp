@@ -238,6 +238,17 @@ bool RaceSound::play_racing() {
     racing_piece_ = playlist_ ? playlist_->next() : racing_piece_ + 1;
     if (racing_piece_ < 0) return false;
     if (first_piece_ < 0) first_piece_ = racing_piece_;
+    songs_heard_.push_back(racing_piece_);
+    return play_stream("racing", racing_piece_, true);
+}
+
+bool RaceSound::skip_song(int direction) {
+    if (!racing_) return false;
+    if (direction > 0) return play_racing();
+    // (the first song again when there is none before it)
+    if (songs_heard_.size() > 1) songs_heard_.pop_back();
+    if (songs_heard_.empty()) return false;
+    racing_piece_ = songs_heard_.back();
     return play_stream("racing", racing_piece_, true);
 }
 
@@ -250,6 +261,7 @@ void RaceSound::begin_run(RaceMusic kind, int start) {
     kind_ = kind;
     started_ = racing_ = replay_ = false;
     first_piece_ = -1;
+    songs_heard_.clear();
     if (music_.stop) music_.stop();
     fade_ = 0;
     fade(1.0f, kFadeIn);

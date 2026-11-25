@@ -83,15 +83,17 @@ public:
         }
     }
 
+    bool follows_aspect() const override { return true; }
+
     void render(App&, Ui& ui) override {
-        ui.fill(0, 0, Ui::kWidth, Ui::kHeight, {0, 0, 0});
+        ui.fill(0, 0, ui.width(), Ui::kHeight, {0, 0, 0});
         if (!error_.empty()) {
             ui.text_center(Ui::kHeight / 2 - 10, "The photo shoot could not start: " + error_, colors::kBad);
             ui.footer("{Cross}: back");
             return;
         }
         if (rt_.photo && rt_.photo->rendering) expose(ui);
-        const float scale = float(Ui::kHeight) / 480.0f, x = (Ui::kWidth - 640 * scale) / 2;
+        const float scale = float(Ui::kHeight) / 480.0f, x = (ui.width() - 640 * scale) / 2;
         ui_ = &ui;
         const menu::TransitionPicture tp = menu::transition_picture(rt_.vm().attribute(rt_.context(), "transition"));
         drawer_.menu_frame = rt_.frame();
