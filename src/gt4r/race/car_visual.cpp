@@ -51,11 +51,20 @@ gt3r::gtm1::Options car_options() {
     return o;
 }
 
-// The reflection passes without weight rows of their own take the draw's (Options::reflection_by_draw).
-void reflect_by_draw(scene::Model& m) {
+// The reflection passes' weights: those the program draws with its constant factors (0x57, marked C1 = -0 by
+// mdls::to_gtm1) keep C0 = 1, C1 = 0; the others take the draw's (Options::reflection_by_draw, reflection_c0 / _c1).
+void weigh_reflections(scene::Model& m, bool by_draw, float c0, float c1) {
     for (scene::Mesh& mesh : m.meshes)
-        for (scene::Primitive& p : mesh.primitives)
-            if ((p.flags & scene::kEnvironmentMap) && p.env_c0[0] == 1 && p.env_c1[0] == 0) p.env_rows = false;
+        for (scene::Primitive& p : mesh.primitives) {
+            if (!(p.flags & scene::kEnvironmentMap) || !p.env_rows || p.env_c0[0] != 1 || p.env_c1[0] != 0) continue;
+            if (std::signbit(p.env_c1[0])) {
+                for (float& c : p.env_c1) c = 0;
+            } else if (c0 >= 0) {
+                for (int i = 0; i < 3; ++i) p.env_c0[i] = c0, p.env_c1[i] = c1;
+            } else if (by_draw) {
+                p.env_rows = false;
+            }
+        }
 }
 
 // A set's model at every level of detail it has (at most `levels`) as one model, the meshes
@@ -182,6 +191,7 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
         build_gt3(file, opt, name); // (Prologue's cars)
         return;
     }
+    reflection_by_draw_ = opt.reflection_by_draw, reflection_c0_ = opt.reflection_c0, reflection_c1_ = opt.reflection_c1;
     const car::CarFile c = car::CarFile::parse(file);
     if (c.body_paint && c.body_paint < file.size()) pat = file.subspan(c.body_paint);
     Bytes painted;
@@ -223,7 +233,6 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
             ws.resolve_callbacks = true;
             scene::Model m = build_levels(opt.wing, 0, ws, 3, 0, name + "/wing");
             for (const scene::Mesh& mesh : m.meshes) wing_lods_ = std::max(wing_lods_, mesh.lod + 1);
-            if (opt.reflection_by_draw) reflect_by_draw(m);
             if (!m.meshes.empty()) to_gpu(wing_, std::move(m));
         }
     }
@@ -259,7 +268,6 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
             max_ = {m.bounds_max[0], m.bounds_max[1], m.bounds_max[2]};
             for (const scene::Mesh& mesh : m.meshes) lods_ = std::max(lods_, mesh.lod + 1);
         }
-        if (opt.reflection_by_draw) reflect_by_draw(m);
         to_gpu(body_[size_t(brake)], std::move(m));
     }
     // The brake parts: the shapes the body's program draws in each wheel's frame.
@@ -415,6 +423,7 @@ std::unique_ptr<CarVisual> CarVisual::make_unuploaded(render::GpuContext& ctx, B
 }
 
 void CarVisual::to_gpu(std::unique_ptr<render::GpuModel>& slot, scene::Model m) {
+    weigh_reflections(m, reflection_by_draw_, reflection_c0_, reflection_c1_);
     share_textures(m);
     if (t_unuploaded) unuploaded_.emplace_back(&slot, std::move(m));
     else slot = std::make_unique<render::GpuModel>(*ctx_, m);

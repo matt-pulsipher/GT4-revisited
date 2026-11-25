@@ -62,7 +62,7 @@ handler steps over:
 | 0x50 / 0x51 | u8 / u16 slot | draws with the texture set the game bound to that slot (16 slots) |
 | 0x52 / 0x53 | 4 floats | colour scale / colour offset |
 | 0x54 / 0x55 | 4 x u16 | the same from registers |
-| 0x56 / 0x57 | 0 | texture-coordinate modes |
+| 0x56 / 0x57 | 0 | the reflection passes' weight C0 + C1 min(V.N, 0): 0x56 the draw's factors (the globals [0x6238A0] / [0x62389C]; a draw starts with them, 0x455370), 0x57 C0 = 1, C1 = 0 (handlers 0x4566D0, 0x4566F8). On 88 cars' bodies and wheels (718 of each), the constant pairs around a few kind-2 shapes. `to_gtm1` copies such a program with GTM1's 0x36 / 0x32 in their place, C1 = -0 marking the constant ones |
 | 0x58 | 0 | two render states off |
 | 0x59 / 0x5A | u8 / u16 id | calls the model's callback with the id; what it returns is not used (a car's ids: [the car's callback](#the-cars-callback)) |
 
@@ -429,6 +429,11 @@ the distance the hub moved on screen since the last draw (in units of the half s
 `RaceCarParamSponsor` (the showroom and replays have their own). Each frame it copies the
 brake state, the per-wheel values and the lamp level into the model; drawing is:
 
+- **Reflections**: the body's, wheels' and wing's reflection passes (kind 2) weigh the reflection picture by the
+  course's factors, C0 = `Env0` +0x34 and C1 = +0x34 x +0x30 (0x397CE0 sets the draw's every frame), but where the
+  program switches to its constant ones (0x57). ✔ At Times Square (0.85, 0.85: nothing head-on) the original's memory
+  has C0 = C1 = 0.85 during the shoot; the photo's car then comes out within 2 to 4 levels of the original's
+  (it was 14 to 25 levels lighter with a constant weight of 1).
 - **Body**: the wing (callback 47's state 1), then model 0 with the callback above. The body's
   level of detail is the 0x07 switch at the program's start (size 3 on the R34). `car/lod` is
   the race's file, `car/menu` the showroom's.

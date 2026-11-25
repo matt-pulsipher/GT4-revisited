@@ -36,6 +36,9 @@ public:
         // The reflection passes' weight from the draw's own factors (DrawOptions::reflection_strength and _fresnel: the
         // program's globals [0x6238A0] and [0x62389C], op 0x56), not the constant 1 the shapes get without them.
         bool reflection_by_draw = false;
+        // C0 >= 0: the draw's factors written on those passes instead (a race: the course's Env0 +0x34 and
+        // +0x34 x +0x30, 0x397CE0), for a draw whose own factors stay C0 = 1, C1 = 0.
+        float reflection_c0 = -1, reflection_c1 = 0;
         bool driver = false; // draw the driver
     };
     // `car_file`: car/lod/<model>; `pat`: the paint file next to it when the car file has none
@@ -135,6 +138,9 @@ private:
     std::array<std::unique_ptr<render::GpuModel>, 3> shadow_;
     gt3r::race::CarLampSet lamps_;
     render::GpuContext* ctx_ = nullptr;
+    // How a Gran Turismo 4 car's reflection passes are weighted (Options' fields).
+    bool reflection_by_draw_ = false;
+    float reflection_c0_ = -1, reflection_c1_ = 0;
     Shadow shadow_look_;
     std::vector<CameraMount> mounts_;
     render::Vec3 min_, max_;

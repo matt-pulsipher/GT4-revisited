@@ -131,6 +131,21 @@ TEST(mdls_becomes_gtm1) {
         threw = true;
     }
     CHECK(threw);
+
+    // The reflection factors: 0x57 (constant) and 0x56 (the draw's) become GTM1's 0x36 / 0x32 in a copy of the
+    // program, C1 = -0 marking the constant ones; the jump between them is aimed again.
+    Bytes factors = set;
+    const u8 program[] = {0x57, 0x08, 0x02, 0x00, 0x04, 0x00, 0x56, 0x04, 0x00, 0x00}; // 0x111: jump over the end to 0x114
+    std::memset(factors.data() + 0x110, 0, 0x20);
+    std::memcpy(factors.data() + 0x110, program, sizeof program);
+    const Bytes factors_block = mdls::to_gtm1(factors);
+    const gt3r::gtm1::Gtm1 fg = gt3r::gtm1::Gtm1::parse(factors_block);
+    const std::vector<gt3r::gtm1::Draw> fd = fg.run(0);
+    CHECK(fd.size() == 2);
+    if (fd.size() == 2) {
+        CHECK(fd[0].env_c0[0] == 1 && fd[0].env_c1[0] == 0 && std::signbit(fd[0].env_c1[0]));
+        CHECK(fd[1].env_c0[0] == 1 && fd[1].env_c1[0] == 0 && !std::signbit(fd[1].env_c1[0]));
+    }
 }
 
 TEST(disc_models_decode) {
@@ -164,6 +179,30 @@ TEST(disc_models_decode) {
         gt3r::scene::Model b = body;
         b.compute_bounds();
         CHECK(b.bounds_max[2] - b.bounds_min[2] > 3.0f && b.bounds_max[2] - b.bounds_min[2] < 5.0f); // a car's length in metres
+        // A body whose program draws reflection passes with its constant factors (0x57) and the draw's (0x56).
+        if (const gt3r::Volume::Entry* civic = disc->volume().find("car/lod/hond0077")) {
+            const Bytes cd = disc->volume().read(*civic);
+            const Bytes block = mdls::to_gtm1(ByteSpan(cd).subspan(mdls::find_model_sets(cd).at(0)));
+            const gt3r::gtm1::Gtm1 g = gt3r::gtm1::Gtm1::parse(block);
+            size_t plain = 0, by_draw = 0;
+            for (const gt3r::gtm1::Draw& d : g.run(0))
+                if ((g.chunks[d.chunk].flags & 0x1F) == 2) (std::signbit(d.env_c1[0]) ? plain : by_draw)++;
+            CHECK(plain >= 1 && by_draw > plain);
+            // Every car's sets convert, the programs that switch the factors copied.
+            size_t sets = 0, converted = 0;
+            for (const gt3r::Volume::Entry& e : disc->volume().entries()) {
+                if (e.path.compare(0, 8, "car/lod/") != 0 || e.path.find('.') != std::string::npos) continue;
+                const Bytes data = disc->volume().read(e);
+                for (size_t off : mdls::find_model_sets(data)) try {
+                        ++sets;
+                        converted += !mdls::to_gtm1(ByteSpan(data).subspan(off)).empty();
+                    } catch (const std::exception& x) {
+                        std::printf("  %s +0x%zx: %s\n", e.path.c_str(), off, x.what());
+                    }
+            }
+            CHECK(sets > 2000 && converted == sets);
+            std::printf("  hond0077: %zu reflection passes by the draw's factors, %zu constant\n", by_draw, plain);
+        }
     }
 }
 

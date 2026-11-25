@@ -280,8 +280,7 @@ cameras to the race's views. On a pad whose right stick does nothing else it loo
 
 The ones a player meets first:
 
-- Photo Lab: films cannot be developed, and the printer and USB memory pages find no device. In photos the
-  car reflects the sky more strongly than the original's.
+- Photo Lab: films cannot be developed, and the printer and USB memory pages find no device.
 
 ## Scripted play (for checks)
 

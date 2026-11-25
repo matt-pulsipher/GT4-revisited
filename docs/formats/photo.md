@@ -147,6 +147,9 @@ bytes and not scrambled (0x1D0F38). The slide show face shows the list's photos,
 The reference's Times Square (saved states, the saved photo, the pages' pictures): the camera's place,
 heading and angle, the car's place and heading from the saved state to the last digit shown; the pages
 and dialogs by eye; the photo against the original's: the same geometry, levels within 2 to 5 of 255
-in every part (the corners' darkening included), the car lit the same. 🔎 Left: the car reflects the sky
-about half as strongly again as in the original's photo; the darkest parts are about 4 levels lighter
-(the program's half-strength 8-bit picture rounds down at every step).
+in every part (the corners' darkening included), the car lit the same. The car's reflections are weighted by the course's factors as in a race (Times Square's
+0.85 and 0.85, nothing head-on; [model.md](model.md) "A car in a race"): mean levels of the car 39.4 against the original's
+37.1, its bonnet 52.2 / 49.8, its roof 31.6 / 27.3 (`~/gt4re-out/looks/bin/cmp.py`, the pictures blurred).
+🔎 Left: the darkest parts are 2 to 5 levels lighter than the original's (the night sky 31.8 / 26.8). The live
+view in the finder is too, by as much (its top 37.4 / 31.2, against `times_square_photo_page.png`, the page's grey
+the same), so it is the scene's drawing, not the photo's steps: the correction's black level is 0 (0x3EFC10, +0x0C).
