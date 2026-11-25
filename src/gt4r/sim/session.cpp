@@ -260,7 +260,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
             if (ground_->at_place(at.pos, h)) at.pos.y = h.point.y;
         }
         if (e.line_start) at.pos = {e.line_start->x.host(), e.line_start->z.host(), -e.line_start->y.host()}, at.heading = (e.line_start->heading - kPi).host();
-        if (gt4_rules_) setup(i, at, kind, e.start_speed, e.fuel, e.line_start ? &*e.line_start : nullptr, e.control);
+        if (gt4_rules_) setup(i, at, kind, e.start_speed, e.fuel, e.line_start ? &*e.line_start : nullptr, e.control, e.driver);
         else place(i, at);
         publish(i);
     }
@@ -312,11 +312,12 @@ rules::PoseHooks Session::pose_hooks() {
 }
 
 // Gran Turismo 4's set-up of a car on its start place (0x363B10 from the converter on, rules::car_setup).
-void Session::setup(size_t i, const course::Runway::Place& at, int kind, float speed, bool fuel, const Entry::LineStart* line, s8 control) {
+void Session::setup(size_t i, const course::Runway::Place& at, int kind, float speed, bool fuel, const Entry::LineStart* line, s8 control, u8 driver) {
     ex::Car& c = cars_[i];
     rules::SetupArgs a;
     a.index = int(i);
     a.control = control;
+    a.entry_driver = driver;
     a.pedal_style = c.pedal_style;
     a.start_kind = kind;
     a.fuel_rule = fuel ? 1 : 0; // (the rule block's +0x4C)

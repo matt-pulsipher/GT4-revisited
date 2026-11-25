@@ -8,6 +8,7 @@
 #include "gt4r/base/types.h"
 #include "gt4r/race/simulation.h"
 
+#include <functional>
 #include <optional>
 #include <span>
 
@@ -54,6 +55,11 @@ struct LicenseStep {
     float wall_hit = 0, car_hit = 0;
     int cones = 0;
 };
+
+// A step from the car's state: the wheels by the road under them (`soft`: the program's table 0x622430), the collision step's
+// contact (a wall's impulse |j| over the car's mass P +0x48, a car's strength), the cones met; `course_kind` the COURSE row's
+// +0x10 (2 and 3: off-course does not count).
+LicenseStep license_step(const CarState& c, const std::function<bool(u8)>& soft, int course_kind, float mass, int cones);
 
 // The judge's state for the player's car (F +0x4B3, the cone counter K +0x1003C, the time-limit counter
 // K +0x1003E).

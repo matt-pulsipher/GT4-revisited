@@ -47,6 +47,8 @@ struct WorldEntry {
     int grid_place = -1;   // the course's start place (-1: the entry's index)
     bool automatic = true; // the gearbox shifts itself
     bool asm_on = true, tcs_on = true; // the aids (sim::Entry)
+    bool wheel_aid = false;            // the steering wheel's slip aid (sim::Entry::wheel_aid)
+    u8 driver = 0;                     // who drives (sim::Entry::driver)
     float start_speed = 0; // a rolling start: metres per second at time 0 (sim::Entry::start_speed)
     std::optional<sim::Equipment> equipment; // the car's parts and settings (a garage car's); none: as sold
     std::optional<std::array<u8, 0x20>> condition; // a garage car's condition block (sim::Entry::condition)

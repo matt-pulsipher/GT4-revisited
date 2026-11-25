@@ -219,7 +219,8 @@ void RaceWorld::build_simulation() {
                 entries[i].condition = we.condition;
                 entries[i].grid_place = we.grid_place;
                 entries[i].automatic = we.automatic;
-                entries[i].asm_on = we.asm_on, entries[i].tcs_on = we.tcs_on;
+                entries[i].asm_on = we.asm_on, entries[i].tcs_on = we.tcs_on, entries[i].wheel_aid = we.wheel_aid;
+                entries[i].driver = we.driver;
                 entries[i].control = i > 0 ? 2 : computer_player_ ? 1 : 0;
                 // An event's race counts fuel (0x35E108 sets the rule block's +0x4C to 80; vf26 0x34CA20 clears it on a course
                 // whose row's +0x14 is 0, a loose course and in a run alone, 0x3F7058 a training's and a mission's); a run
@@ -354,27 +355,12 @@ int RaceWorld::start_crossings(size_t car) const {
     return car < starts_.size() ? race::planned_crossings(start_course_->race(), starts_[car], sim_->cars()[car].course_v) : 0;
 }
 
-// The line each car's driver starts on (0x363B10: on the grid a computer's car by its place, 0x620AD8's row of six, mirrored
-// where the second place lies on the first's other side; a car started on a driving line the main line, the player's the
-// passing line 7), and the cars their drivers hold in a rolling start.
+// The line each car's driver starts on, and the cars their drivers hold in a rolling start.
 void RaceWorld::first_lines(const sim::Program& program) {
     if (!program.known() || !field_ || course_->road().gtrw) return;
-    const course::Runway& road = course_->road();
     for (size_t i = 0; i < starts_.size(); ++i) {
-        const int kind = starts_[i].start.kind;
-        const bool pad = i == 0 && !computer_player_;
-        int line = 6;
-        if (kind < 2) {
-            if (pad) line = 7;
-            else if (start_course_->race().way != 1 && road.grid.size() >= 2) {
-                const WorldEntry& we = i < overrides_.size() && overrides_[i] ? *overrides_[i] : setup_.entries[i];
-                const int place = we.grid_place >= 0 ? we.grid_place : int(i);
-                line = int(program.w(0x620AD8 + 4 * u32(place % 6)));
-                const float h = road.grid[0].heading + kPi, dx = road.grid[0].pos.x - road.grid[1].pos.x, dz = road.grid[0].pos.z - road.grid[1].pos.z;
-                if (!(dx * std::cos(h) - std::sin(h) * dz < 0) && (line == 1 || line == 2)) line = 3 - line;
-            }
-        }
-        field_->start_line(i, line);
+        const WorldEntry& we = i < overrides_.size() && overrides_[i] ? *overrides_[i] : setup_.entries[i];
+        field_->start_line(i, race::first_line(start_course_->race(), starts_[i], i == 0 && !computer_player_, we.grid_place >= 0 ? we.grid_place : int(i), program));
         if (session_->cars()[i].rolling) field_->hold_rolling(i);
     }
 }
@@ -452,12 +438,8 @@ void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool pla
             const race::CarState& c = now[i];
             race::GadgetBodies::Car b;
             b.right = c.right, b.up = c.up, b.forward = c.forward, b.vel = c.velocity;
-            if (session_) {
-                const auto& r = session_->record(i);
-                b.pos = {r.pos.x.host(), r.pos.z.host(), -r.pos.y.host()};
-                b.yaw_rate = r.yaw_rate.host();
-                b.front = r.p.body_front.host(), b.rear = r.p.body_rear.host(), b.half_width = r.p.body_width.host() / 2;
-            } else {
+            if (session_) b = race::gadget_box(session_->record(i), c);
+            else {
                 const race::CarSpec& spec = car_visuals_[i]->spec();
                 b.pos = {(c.wheels[0].center.x + c.wheels[1].center.x + c.wheels[2].center.x + c.wheels[3].center.x) / 4,
                          (c.wheels[0].center.y + c.wheels[1].center.y + c.wheels[2].center.y + c.wheels[3].center.y) / 4,

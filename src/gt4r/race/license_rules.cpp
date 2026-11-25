@@ -28,6 +28,21 @@ bool hit_over(int limit, float value) {
     return int(std::trunc(value)) >= limit;
 }
 
+LicenseStep license_step(const CarState& c, const std::function<bool(u8)>& soft, int course_kind, float mass, int cones) {
+    LicenseStep s;
+    s.wheels = 4;
+    for (const WheelState& w : c.wheels) {
+        if (!w.on_ground) continue;
+        if (soft(w.material)) ++s.wheels_off;
+        if (w.surface & 1) ++s.wheels_pit;
+    }
+    s.off_counts = course_kind != 2 && course_kind != 3;
+    if (c.contact > 0 && c.contact_kind == 1) s.wall_hit = mass > 0 ? c.contact * 100000.0f / mass : 1e9f;
+    else if (c.contact > 0 && c.contact_kind == 2) s.car_hit = c.contact;
+    s.cones = cones;
+    return s;
+}
+
 std::optional<float> stopped_in_box(const CarState& c) {
     using gt3r::ee::F;
     for (const WheelState& w : c.wheels)

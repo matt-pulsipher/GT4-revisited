@@ -10,10 +10,15 @@
 
 #include "gt4r/formats/course/runway.h"
 #include "gt4r/race/gadgets.h"
+#include "gt4r/race/simulation.h"
 
 #include <array>
 #include <span>
 #include <vector>
+
+namespace gt3r::sim::exact {
+struct Car;
+}
 
 namespace gt4r::race {
 
@@ -66,5 +71,9 @@ private:
     std::vector<float> impulses_;
     bool moved_ = false;
 };
+
+// A car's box (0x3E5108) at its center of mass, by its heading, its body's extents (❓ the program reads them from its car
+// record +0x48C .. +0x494, taken here as the collision body's: P +0x00 .. +0x08, half the width).
+GadgetBodies::Car gadget_box(const gt3r::sim::exact::Car& record, const CarState& state);
 
 } // namespace gt4r::race

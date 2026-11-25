@@ -752,6 +752,7 @@ public:
             WorldEntry e = world_->setup().entries[i];
             e.equipment = entries[i].equipment, e.grid_place = entries[i].grid_place;
             e.automatic = entries[i].automatic, e.asm_on = entries[i].asm_on, e.tcs_on = entries[i].tcs_on;
+            e.wheel_aid = entries[i].wheel_aid, e.condition = entries[i].condition, e.driver = entries[i].driver;
             over[i] = e;
         }
         world_->set_computer_player(false);
@@ -993,20 +994,7 @@ public:
             }
             return;
         }
-        race::LicenseStep s;
-        s.wheels = 4;
-        for (const race::WheelState& w : c.wheels) {
-            if (!w.on_ground) continue;
-            if (world_->soft_material(w.material)) ++s.wheels_off;
-            if (w.surface & 1) ++s.wheels_pit;
-        }
-        s.off_counts = setup_.course_kind != 2 && setup_.course_kind != 3;
-        // The collision step's contact: a wall's impulse |j| over the car's mass, a car's strength.
-        if (c.contact > 0 && c.contact_kind == 1) {
-            const float mass = world_->car_mass(0);
-            s.wall_hit = mass > 0 ? c.contact * 100000.0f / mass : 1e9f;
-        } else if (c.contact > 0 && c.contact_kind == 2) s.car_hit = c.contact;
-        s.cones = world_->gadget_contacts(0);
+        const race::LicenseStep s = race::license_step(c, [this](u8 m) { return world_->soft_material(m); }, setup_.course_kind, world_->car_mass(0), world_->gadget_contacts(0));
         // A cone's contact is heard (kind 2, clash4) only while the test counts cones knocked down (the
         // rule block's +0x46 not 0: 0x350328 asks 0x35DF00).
         if (r.pylons > 0 && s.cones > 0)

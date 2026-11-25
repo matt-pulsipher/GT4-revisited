@@ -2,6 +2,9 @@
 
 #include "gt4r/race/race_flow.h"
 
+#include "base/ee_math.h"
+
+#include <algorithm>
 #include <cmath>
 
 namespace gt4r::race {
@@ -78,6 +81,19 @@ PlannedStart plan_start(const StartRace& r, size_t car, int grid_place, std::opt
     }
     if (r.section && !r.section->grid.empty()) p.place = r.section->grid[size_t(std::max(0, grid_place)) % r.section->grid.size()];
     return p;
+}
+
+int first_line(const StartRace& r, const PlannedStart& p, bool pad, int grid_place, const sim::Program& program) {
+    if (p.start.kind >= 2) return sim::ai::CourseLines::kMain;
+    if (pad) return 7;
+    if (r.way == 1 || !r.road || r.road->grid.size() < 2 || !program.known()) return sim::ai::CourseLines::kMain;
+    constexpr u32 kGridLines = 0x620AD8;
+    int line = int(program.w(kGridLines + 4 * u32(std::max(0, grid_place) % 6)));
+    const course::Runway::Place &a = r.road->grid[0], &b = r.road->grid[1];
+    const F h = F(a.heading) + F::raw(0x40490FDB);
+    const F side = (F(a.pos.x) - F(b.pos.x)) * gt3r::ee::cos(h) - (-gt3r::ee::sin(h)) * (-(F(a.pos.z) - F(b.pos.z)));
+    if (!(side < F()) && (line == 1 || line == 2)) line = 3 - line;
+    return line;
 }
 
 int planned_crossings(const StartRace& r, const PlannedStart& p, float v) {

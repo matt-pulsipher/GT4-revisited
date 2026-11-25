@@ -64,6 +64,11 @@ struct PlannedStart {
 // km/h) a single race's rolling start.
 PlannedStart plan_start(const StartRace& race, size_t car, int grid_place, std::optional<CarStart> rolling = {});
 
+// The driving line a car's driver starts on (0x363B10's end): the main line for a car its driver drives up to its start
+// (kinds 2 ..); else the passing line 7 for a car driven by a pad, and for a computer's on the grid the line of its place
+// (0x620AD8's row of six), the side lines 1 and 2 exchanged where the grid's second place lies on the first's other side.
+int first_line(const StartRace& race, const PlannedStart& p, bool pad, int grid_place, const sim::Program& program);
+
 // The car's crossings of the line at its start (F + 0x4AC, 0x363B10): on a driving line 0 before the line and one more than
 // the whole laps past it; on the grid by its sector (start_crossings). `v`: the car's distance along the course.
 int planned_crossings(const StartRace& race, const PlannedStart& p, float v);

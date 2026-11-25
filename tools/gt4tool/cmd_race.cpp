@@ -10,6 +10,7 @@
 //   gt4tool race <disc> motion <course> [replay]   the start's camera clips: eye, look, up and lens at their ends
 //   gt4tool race <disc> strobe-tree <path> [seconds]  a race movie's instances after it plays that long
 //   gt4tool race <disc> license-rules [prefix]     the events' test rules (RACE row bytes the race keeps), a line an event
+//   gt4tool race <disc> demos [prefix] [every]     the license tests' demonstrations played by our own race against their times
 //   gt4tool race <disc> driver <model | path>      a car's cockpit places and driver set (or a character file's set)
 
 #include "gt4r/disc/disc.h"
@@ -21,6 +22,7 @@
 #include "gt4r/formats/model/model_script.h"
 #include "gt4r/formats/db/race_events.h"
 #include "gt4r/formats/db/specdb.h"
+#include "gt4r/race/demonstration_run.h"
 #include "gt4r/race/license_rules.h"
 #include "gt4r/race/start_camera.h"
 #include "gt4r/race/start_rule.h"
@@ -281,6 +283,46 @@ int race_license_rules(Disc& disc, const Args& a) {
     return 0;
 }
 
+// The license tests' demonstrations played by our own race (no picture), against their recorded times.
+int race_demos(Disc& disc, const Args& a) {
+    gt3r::Volume* vol = &disc.volume();
+    auto read = [vol](const std::string& path) -> std::optional<Bytes> {
+        const gt3r::Volume::Entry* e = vol->find(path);
+        return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
+    };
+    db::SpecDb sdb(read, [vol](const std::string& dir) { return vol->list_dir(dir); }, "american");
+    const db::RaceEvents ev(sdb, read);
+    const std::string prefix = a.size() > 1 ? a[1] : "us";
+    const int trace = a.size() > 2 ? std::atoi(a[2].c_str()) : 0;
+    int ran = 0, exact = 0, timed = 0;
+    for (const std::string& label : vol->list_dir("replay/license")) {
+        if (label.rfind(prefix, 0) != 0 || !ev.event(label)) continue;
+        race::DemonstrationOptions o;
+        if (trace > 0)
+            o.on_step = [&](size_t step, const sim::Session& s) {
+                if (step % size_t(trace)) return;
+                const race::CarState& c = s.cars()[0];
+                std::printf("  %5zu  %7.2f km/h  at %.3f %.3f %.3f  dist %.2f%s\n", step, double(c.speed) * 3.6, double(s.record(0).pos.x.host()), double(s.record(0).pos.y.host()),
+                            double(s.record(0).pos.z.host()), double(c.course_v), c.rolling ? "  rolling" : "");
+            };
+        const race::DemonstrationRun r = race::run_demonstration(disc, sdb, label, o);
+        if (!r.ran) {
+            std::printf("%-12s error: %s\n", label.c_str(), r.error.c_str());
+            continue;
+        }
+        ++ran, exact += r.exact(), timed += r.recorded_ms > 0;
+        char got[48];
+        if (r.ended_ms >= 0) std::snprintf(got, sizeof got, "%d ms", r.ended_ms);
+        else if (r.fail) std::snprintf(got, sizeof got, "FAIL %d", r.fail);
+        else std::snprintf(got, sizeof got, "no end");
+        std::printf("%-12s kind %d %-24s recorded %7d  ours %-10s step %5zu  %s%s\n", label.c_str(), r.kind, r.course.c_str(), r.recorded_ms, got, r.steps - 1,
+                    r.exact() ? "EXACT" : r.ended_ms >= 0 ? (std::to_string(r.ended_ms - r.recorded_ms) + " ms").c_str() : "", r.error.empty() ? "" : ("  " + r.error).c_str());
+        std::fflush(stdout);
+    }
+    std::printf("demos: %d ran, %d with a recorded time, %d end on it\n", ran, timed, exact);
+    return 0;
+}
+
 int race_starts(Disc& disc, const Args&) {
     gt3r::Volume* vol = &disc.volume();
     auto read = [vol](const std::string& path) -> std::optional<Bytes> {
@@ -434,6 +476,7 @@ int cmd_race(Disc& disc, const Args& a) {
     if (a[0] == "script") return race_script(disc, a);
     if (a[0] == "license-rules") return race_license_rules(disc, a);
     if (a[0] == "starts") return race_starts(disc, a);
+    if (a[0] == "demos") return race_demos(disc, a);
     if (a[0] == "motion" && a.size() > 1) return race_motion(disc, a);
     if (a[0] == "strobe-tree" && a.size() > 1) return race_strobe_tree(disc, a);
     std::fprintf(stderr, "race: unknown request %s\n", a[0].c_str());

@@ -23,7 +23,9 @@ std::vector<Entry> DemoRun::entries() const {
         e.equipment = d.equipment;
         e.grid_place = d.grid_place;
         e.automatic = d.pedal_style == 0;
-        e.asm_on = d.aids[0] != 0, e.tcs_on = d.aids[1] != 0;
+        e.asm_on = d.aids[0] != 0, e.tcs_on = d.aids[1] != 0, e.wheel_aid = d.aids[2] != 0;
+        e.condition = d.condition;
+        e.driver = d.driver_kind;
         out.push_back(e);
     }
     return out;
