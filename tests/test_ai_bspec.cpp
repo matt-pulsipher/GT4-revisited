@@ -50,6 +50,26 @@ TEST(ai_pd_steering_equal_to_the_program) {
     }
 }
 
+TEST(ai_decisions_with_tire_wear) {
+    Disc* disc = nullptr;
+    for (const std::unique_ptr<Disc>& d : test::discs())
+        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d.get();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    // The race's tire wear on (a tread curve from the start, a limit above a new tire's grip: F +0x5C2 set): the arcs' speeds by
+    // the wheels' wear grips (0x4674F0) and every decision as the program's.
+    setenv("GT4R_STEP_TREAD", "1", 1), setenv("GT4R_AI_WEAR", "1.5", 1), setenv("GT4R_AI_PITCHECK", "1", 1);
+    diff::AiRunOptions opt;
+    opt.checks = true;
+    opt.seconds = 40;
+    const diff::AiRunResult r = diff::run_ai(*disc, false, "tsukuba", {"nsx_r_02", "ka_01"}, 1, opt);
+    unsetenv("GT4R_STEP_TREAD"), unsetenv("GT4R_AI_WEAR"), unsetenv("GT4R_AI_PITCHECK");
+    CHECK(r.ran);
+    for (const char* n : {"corner speed", "decision v_cur", "decision v_next", "decision steer", "decision throttle", "decision brake"}) {
+        const auto it = r.checks.find(n);
+        CHECK(it != r.checks.end() && it->second.compared > 500 && it->second.differ == 0);
+    }
+}
+
 TEST(ai_suggested_gear_speed_equal_to_the_program) {
     Disc* disc = nullptr;
     for (const std::unique_ptr<Disc>& d : test::discs())

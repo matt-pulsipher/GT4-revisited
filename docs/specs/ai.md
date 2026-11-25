@@ -196,9 +196,13 @@ segment. A new segment steps the random draw. The re-plan finds the first point 
 
 ### 4.2 An arc's speed (0x4674F0)
 
-μ = w μ_f + (1 - w) μ_r with w = PB+0x58 (halfway to 0.5 for ❓ two flags of the car), each axle's
-compound grip x its surface's percent, both x the class grip PB+0xA8[tire class]; with tire
-wear on, the wheels' wear grips weigh it as GT3; x 0.9 on ❓ F+0x5C2. The bank and the three
+μ = w μ_f + (1 - w) μ_r with w = PB+0x58 (halfway to 0.5 when the front's and the rear's paved grips differ, P +0x104A, or
+with F +0x5C2 set), each axle's compound grip x its surface's percent, both x the class grip PB+0xA8[tire class]; with tire
+wear on (0x367D40: the rules' +0x68 or +0x69) and the car not on the pit lane (F +0x4B1 bit 4), instead Σ over the wheels of
+the wheel's wear grip (+0x50) x its axle's part / the axle's wheels (layout bytes +0x14 + w, +4 + axle); x 0.9 with F +0x5C2.
+F +0x5C2 is the wear phase's (0x353218): a wheel's tread (+0xAC) below 0 (a new tire not scrubbed in: the original's Tuning
+Car GP races its first lap so, 0 by the second) or its wear grip under the race's limit. ✔ Equal with the wear on
+(`GT4R_STEP_TREAD=1 GT4R_AI_WEAR=1.5`, test `ai_decisions_with_tire_wear`). Ours: `PitStops` gives the marks (`Field::set_marks`). The bank and the three
 square roots as GT3 (ai §4.2) with the aero term: v = √(a q), q = PB+0x70 v² + 1 + e, e = PB+0x74
 (0 from a crest point). The scale PB+0x04 x the corner multiplier (D +0xB8, plus the random
 spread for a computer car), x (1 - 5 %) with a car alongside (zone cells left, right, front left
@@ -558,8 +562,7 @@ another race's for checks: then its own F+0x560, F+0x650, places, clock and fini
 - **The pits** (§11): the program's pass, request, service and the stop's timing, `PitStops` on the session; the car
   stands in its box by the brake (no placing in the box without the session's hook), tires and fuel through hooks.
 - Not done: the line-5 records, the aero bonus (P +0x1077 / +0x1084 not mirrored:
-  0), the two ❓ flags of §4.2 (P +0x104A, F +0x5C2: 0 on every car checked), the arcs' grip with tire
-  wear on, T+0x158's factor (1 throughout in this program).
+  0), T+0x158's factor (1 throughout in this program).
 - Without the mapped program (Prologue, another release) the drivers run with neutral values: no
   spreads, no offset of the aim, a fallback of the passing lines to the main line, the shared
   engine's tire records (16 surfaces) and no slip scaling of the steering gain; on a road without

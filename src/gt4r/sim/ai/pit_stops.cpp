@@ -142,6 +142,7 @@ void PitStops::after(const Session& session, Field& field) {
         bool lane = false;
         for (const race::WheelState& w : st.wheels) lane = lane || (w.on_ground && (w.surface & 1));
         c.flags = u8((c.flags & ~0x10) | (lane && race_.pits ? 0x10 : 0));
+        field.set_marks(i, (c.flags & 0x10) != 0, c.tire_out != 0);
         std::vector<PitAction> acts;
         ServiceInputs sv;
         sv.pits_on = race_.pits, sv.lap_state = lap_state, sv.fuel_on = need.fuel_on, sv.control = gt3r::s8(control);

@@ -2,6 +2,12 @@
 
 #include "states.h"
 
+#include "gt4r/formats/db/race_events.h"
+#include "gt4r/sim/ai/drivers.h"
+#include "gt4r/sim/ai/bspec_skill.h"
+#include "gt4r/sim/ai/entrant.h"
+#include "gt4r/sim/ai/run.h"
+
 #include "taps.h"
 
 #include "gt4r/formats/course/course_file.h"
@@ -21,6 +27,9 @@
 #include <map>
 
 namespace gt4r::diff {
+
+sim::ai::Field::Probe driver_probe(Ee& ee, const OrigRace& o, int i, float lap); // (ai.cpp)
+
 
 namespace {
 
@@ -431,6 +440,45 @@ StatesResult run_states(Disc& disc, const std::string& state0, const std::string
         }
     }
 
+    // GT4R_STATES_DRIVERS=<event label>: ours on from state 0 with our own drivers (their state taken from the program's at
+    // state 0), the program's run beside it: GT4R_STATES_FIELD prints both.
+    std::unique_ptr<sim::ai::Field> field;
+    if (const char* ev = std::getenv("GT4R_STATES_DRIVERS"); ev && session) {
+        try {
+            const sim::Program program = sim::Program::load(disc);
+            u8 rules_block[0x80];
+            ee.read_bytes(o.cond + 0xF818, rules_block, sizeof rules_block);
+            session->set_wear_rules(rules_block, ee.r8(o.cond + 4 + 0x69) != 0, program);
+            std::array<gt3r::s8, 4> grip{};
+            for (size_t k = 0; k < 4; ++k) grip[k] = gt3r::s8(rules_block[0x18 + k]);
+            session->set_class_grip(grip);
+            load_ours();
+            db::SpecDb edb = sim::ai::open_specdb(disc);
+            const db::RaceEvents events(edb, [&disc](const std::string& path) -> std::optional<Bytes> {
+                const gt3r::Volume::Entry* en = disc.volume().find(path);
+                return en ? std::optional<Bytes>(disc.volume().read(*en)) : std::nullopt;
+            });
+            const std::optional<db::RaceEvent> e = events.event(ev);
+            sim::ai::Pace pace = e ? sim::ai::pace_for(*e) : sim::ai::Pace{};
+            std::vector<size_t> all;
+            for (int i = 0; i < o.cars; ++i) all.push_back(size_t(i));
+            field = sim::ai::Field::open(disc, res.course, *session, all, pace);
+            const float lap = session->ground().road().length;
+            for (int i = 0; i < o.cars; ++i) {
+                const u8 control = ee.r8(o.car(i) + kF + 0x466);
+                if (control == 1) field->set_bspec(size_t(i)), field->command(size_t(i), {int(ee.r8(o.car(i) + 0x81)), int(ee.r8(o.car(i) + 0x82))});
+                else if (control == 0) field->set_shadow(size_t(i));
+                const sim::ai::Field::Probe p = driver_probe(ee, o, i, lap);
+                field->probe_set(size_t(i), p);
+                const sim::ai::Params& q = field->params(size_t(i));
+                session->set_driver_aids(size_t(i), q.aids, q.grip);
+            }
+        } catch (const std::exception& e) {
+            std::printf("  our drivers: %s\n", e.what());
+            field.reset();
+        }
+    }
+
     // Per car and field, ours against the program's run: the first step it differs, how often, the worst.
     struct Track {
         int first = -1;
@@ -500,7 +548,21 @@ StatesResult run_states(Disc& disc, const std::string& state0, const std::string
                 }
                 std::printf("\n");
             }
-            if (session && step <= res.frames) {
+            if (field) {
+                std::vector<race::CarInput> in(size_t(o.cars));
+                for (int i = 0; i < o.cars; ++i) // (the pits' marks as the program's race has them)
+                    field->set_marks(size_t(i), (ee.r8(o.car(i) + kF + 0x4B1) & 0x10) != 0, ee.r8(o.car(i) + kF + 0x5C2) != 0);
+                field->step(*session, in, -1, ee.r32(o.info + 0xBC)); // (the race's start hold left)
+                if (const char* fe = std::getenv("GT4R_STATES_FIELD"); fe && print && step % std::max(1, std::atoi(fe)) == 0) {
+                    std::printf("ours %5d:", step);
+                    for (int i = 0; i < o.cars; ++i) {
+                        const sim::ai::Field::Probe p = field->probe_get(size_t(i));
+                        std::printf("  %7.1f %4.1f l%d m%d %4.1f/%4.1f t%.2f b%.2f", double(session->cars()[size_t(i)].course_v), double(session->cars()[size_t(i)].speed), p.line, p.mode,
+                                    double(p.v_cur.host()), double(p.v_next.host()), double(p.throttle.host()), double(p.brake.host()));
+                    }
+                    std::printf("\n");
+                }
+            } else if (session && step <= res.frames) {
                 std::vector<race::CarInput> in(size_t(o.cars));
                 for (int i = 0; i < o.cars; ++i) {
                     race::CarInput& c = in[size_t(i)];

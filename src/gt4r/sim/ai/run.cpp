@@ -3,6 +3,7 @@
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/formats/course/runway_gtrw.h"
+#include "gt4r/sim/ai/pit_stops.h"
 #include "gt4r/sim/car_spec.h"
 #include "gt4r/sim/rules_start.h"
 
@@ -53,7 +54,9 @@ FieldRun run_field(Disc& disc, const std::string& course, const std::vector<Fiel
     for (size_t i = 0; i < entries.size(); ++i)
         if (entries[i].start_speed > 0 && std::isnan(entries[i].start_distance))
             entries[i].start_distance = float(rules::rolling_start_distance(-400, 20, int(entries.size()), entries[i].grid_place >= 0 ? entries[i].grid_place : int(i)));
-    auto session = std::make_unique<Session>(db, program, std::make_shared<const course::Runway>(std::move(*road)), entries, course_row(db, course));
+    Session::Options options;
+    options.hold_steps = 0; // (the run's own, the drivers deciding through it)
+    auto session = std::make_unique<Session>(db, program, std::make_shared<const course::Runway>(std::move(*road)), entries, course_row(db, course), &options);
     std::vector<size_t> computer(cars.size());
     for (size_t i = 0; i < computer.size(); ++i) computer[i] = i;
     bool rolling = false;
@@ -70,22 +73,28 @@ FieldRun run_field(Disc& disc, const std::string& course, const std::vector<Fiel
     out.cars.resize(cars.size());
     for (size_t i = 0; i < cars.size(); ++i) out.cars[i].car = cars[i];
     std::vector<race::CarInput> in(cars.size());
+    if (rolling)
+        for (size_t i = 0; i < cars.size(); ++i)
+            if (session->cars()[i].rolling) field->hold_rolling(i);
     // A standing start's two seconds held; a rolling start goes at once.
-    for (int k = 0; k < (rolling ? 0 : 120); ++k) {
-        field->hold(in);
-        session->hold_once(in);
-    }
+    for (u32 left = rolling ? 0 : 120; left > 0; --left) field->step(*session, in, -1, left);
     // At least 400 s a lap, more on a long course (5 m/s on average).
     if (limit <= 0) limit = std::max(400.0, double(out.lap_length) / 5.0) * std::max(laps, 1) + 60.0;
     std::vector<int> last_lap(cars.size());
     std::vector<double> lap_start(cars.size(), 0.0);
     for (size_t i = 0; i < cars.size(); ++i) last_lap[i] = session->cars()[i].lap;
     const int steps = int(limit * 60.0);
+    std::unique_ptr<PitStops> pits;
     for (int step = 0; step < steps; ++step) {
         if (control) control(*session, *field);
-        field->drive(in);
-        field->apply_time_scales(*session);
-        session->step_once(in);
+        if (step == 0 && program.known() && (session->wear_rules().tread_on || session->tank(0) > 0)) { // (a race that wears its tires or burns its fuel: its pit stops)
+            PitRace race;
+            race.laps = laps;
+            pits = std::make_unique<PitStops>(*field, program, cars.size(), session_pit_hooks(*session), race);
+        }
+        if (pits) pits->before(*field, in);
+        field->step(*session, in);
+        if (pits) pits->after(*session, *field);
         if (on_step) on_step(*session, *field);
         const double t = session->time();
         bool all = true;
@@ -93,7 +102,10 @@ FieldRun run_field(Disc& disc, const std::string& course, const std::vector<Fiel
             CarRun& r = out.cars[i];
             const race::CarState& st = session->cars()[i];
             r.top_speed = std::max(r.top_speed, st.speed);
-            if (st.lap > last_lap[i] && rolling) session->release_start(int(i)); // (let go at its crossing: the conductor's virtual 20)
+            if (st.lap > last_lap[i] && session->cars()[i].rolling) { // (let go at its crossing: the conductor's virtual 20)
+                session->release_start(int(i));
+                field->release_rolling(i);
+            }
             if (st.lap > last_lap[i] && !r.finished) {
                 // A car that starts behind the line counts its laps from its first crossing; one ahead of it, from the start.
                 if (last_lap[i] < 0) lap_start[i] = t;

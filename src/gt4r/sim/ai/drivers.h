@@ -119,6 +119,14 @@ public:
     virtual bool clock(u32&) const { return false; }
     // A car that has finished the race (F +0x4B2).
     virtual bool finished(size_t) const { return false; }
+    // The race's tire wear on (0x367D40: the tread's or the second's, the wear rules' +0x68 / +0x69).
+    virtual bool wear_on() const { return false; }
+    // The wear phase's and the pits' marks of a car (false: not known, the field keeps what the pit stops give it): on the pit
+    // lane (F +0x4B1 bit 4) and a tire not scrubbed in, worn out or gone (F +0x5C2, 0x353218).
+    virtual bool marks(size_t, bool& lane, bool& tire_out) const {
+        lane = tire_out = false;
+        return false;
+    }
 };
 
 // A session's cars.
@@ -132,6 +140,7 @@ public:
     bool loose() const override { return s_->loose(); }
     const RoadGround& ground() const override { return s_->ground(); }
     const sim::Extra& extra(size_t i) const override { return s_->gt4_record(i); }
+    bool wear_on() const override { return s_->wear_rules().tread_on != 0 || s_->wear_rules().second_on != 0; }
     // The collision step's front and rear flags of the car's body (+0x434 / +0x438) as the last step left them.
     bool hits(size_t i, bool& front, bool& rear) const override {
         front = s_->body(i).front != 0, rear = s_->body(i).rear != 0;
@@ -245,6 +254,8 @@ public:
     // (0x345228: a pad car's driver onto line 7, the kind cleared). release_rolling false: the line is not there, still held.
     // The line a car's driver starts on (0x4639E0: the line's fallback, at once): before the first step.
     void start_line(size_t car, int line);
+    // A car's marks after a step's wear and pit phases (Cars::marks), from its race's pit stops (PitStops::after).
+    void set_marks(size_t car, bool pit_lane, bool tire_out);
     bool hold_rolling(size_t car);
     bool release_rolling(size_t car);
     // The speed limits of kind 5 (the race's configuration +0x42 for the player's car, +0x43 for the computer's; km/h, above
@@ -383,6 +394,7 @@ private:
     std::vector<std::unique_ptr<Driver>> drivers_; // by car index (null: not driven)
     std::vector<int> ranks_;
     u64 steps_ = 0;
+    std::vector<std::array<bool, 2>> marks_; // per car: on the pit lane, a tire out
     bool first_step_ = true;
     u32 clock_ = 0; // the race's clock as the conductor keeps it (+0xF89C): 50 a step, a third of it in milliseconds
     // Per car (every car, driven or not): the proximity pass's results (the driver object's +0x44 .. +0x6A).
