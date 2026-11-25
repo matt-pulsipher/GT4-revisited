@@ -53,7 +53,7 @@ void App::set_video(const settings::Video& v) {
     video_.save(config_);
     save_config();
     if (v.fullscreen != was.fullscreen && !scripted_ && fullscreen() != v.fullscreen) SDL_SetWindowFullscreen(window_, v.fullscreen);
-    if (v.vsync != was.vsync) SDL_SetRenderVSync(renderer_, v.vsync ? 1 : 0);
+    if (v.vsync != was.vsync && !run_.windowless) SDL_SetRenderVSync(renderer_, v.vsync ? 1 : 0);
     if (v.limit_60fps != was.limit_60fps) apply_frame_limit();
     if (gpu_ && v.msaa != was.msaa) gpu_->set_msaa(v.msaa);
     if (gpu_ && v.anisotropy != was.anisotropy) gpu_->set_anisotropy(v.anisotropy);
@@ -154,7 +154,7 @@ void App::draw_fps(bool own_page) {
 
 // The cursor goes 2 s after the mouse was last used, and comes back with it.
 void App::idle_cursor(Uint64 now) {
-    if (cursor_hidden_) return;
+    if (cursor_hidden_ || scripted_) return;
     if (!mouse_used_ns_) mouse_used_ns_ = now;
     if (now - mouse_used_ns_ < 2'000'000'000) return;
     SDL_HideCursor();
