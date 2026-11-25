@@ -133,6 +133,9 @@ public:
     // A car's run ended by a rule of its own (a license test's stop, a failure) `share` of a step
     // into the step just run: its finish at the clock then.
     void finish_now(size_t car, float share = 0);
+    // The player's start signal before the line (a free run's hand-over: event 4 from DynamicsConductorFreeRun::vf14): the next
+    // step's Events::start.
+    void signal_start() { signal_start_ = true; }
     // A finished car's time: the race's (the clock at its finish), a test's from where its clock started (F + 0x614).
     s64 run_ms(size_t car) const;
     bool everyone_finished() const;
@@ -151,6 +154,7 @@ private:
     void end_car(size_t i, s64 at, Events& ev);
 
     FlowSetup setup_;
+    bool signal_start_ = false;
     std::vector<CarRecord> cars_;
     std::vector<size_t> order_;
     int hold_ = 0, hold_total_ = 0;

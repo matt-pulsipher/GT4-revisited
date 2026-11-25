@@ -129,6 +129,7 @@ public:
     // stays released until the next restart.
     // With the game's simulation the session holds the cars itself (F +0x467 = 1, the aids' start pace 0x3F7880 /
     // 0x3F76E8) and lets each go (0x345228, 0x3F37B8); the stand-in simulation is held here.
+    bool count_rolling(size_t car) { return session_ && session_->count_rolling(car); }
     void release_start(size_t car) {
         // (its driver's line first: a driver without it is not let go)
         if (session_ && field_ && rolling(car) && !field_->release_rolling(car)) return;
@@ -199,6 +200,8 @@ public:
     void stop_refuel(size_t car) {
         if (pits_ && car < car_visuals_.size()) pits_->choose(car, 0xFF, 0xFF, 0, 2);
     }
+    // The race counts fuel (its gauge shown).
+    bool counts_fuel() const { return counts_fuel_; }
     float fuel(size_t car) const { return session_ && car < car_visuals_.size() ? session_->fuel(car) : 0; }
     float tank(size_t car) const { return session_ && car < car_visuals_.size() ? session_->tank(car) : 0; }
     // What goes with the cars shown in a step, live (the simulation's) or recorded: smoke and dust
@@ -299,6 +302,7 @@ private:
     std::unique_ptr<sim::Session> session_;
     std::unique_ptr<sim::ai::Field> field_; // the computer drivers, on the game's simulation
     std::unique_ptr<sim::ai::PitStops> pits_; // their pit stops
+    bool counts_fuel_ = false;
     mutable std::optional<float> oil_from_;   // the oil's distance its sign lights from
     std::vector<u8> pit_asked_;               // each car's choice was already asked at the last look (pit_offer)
     std::function<std::pair<int, int>(size_t)> tires_fitted_; // (their hook: the kinds on the car)

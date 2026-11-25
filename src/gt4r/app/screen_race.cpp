@@ -189,6 +189,10 @@ Setup setup_from_env() {
     return s;
 }
 
+// The sequences the free run's conductor runs (DynamicsConductorFreeRun: the arcade's time trial, the free run, Gran Turismo
+// mode's practice): the player's car alone, no number of laps (its virtual 37 answers 0).
+bool free_run(const std::string& sequence) { return sequence == "time_trial" || sequence == "freerun" || sequence == "practice"; }
+
 // The course's start (race/start_rule.h): its kind always; with `start` its start code's start, a
 // rolling start at the distance, speed and spacing of its drivers' file.
 void apply_course_start(App& app, Setup& setup, bool start) {
@@ -201,11 +205,12 @@ void apply_course_start(App& app, Setup& setup, bool start) {
     // (❓ other races' 10 s: the race information's type byte's writer not traced. A test's start: load_test.)
     setup.start = cs.rolling ? race::StartType::Rolling : race::StartType::Ten;
     setup.start_speed = cs.speed(), setup.start_back = cs.distance_m, setup.start_spacing = cs.spacing_m;
-    // A free run or time trial (DynamicsConductorFreeRun::vf30 0x3F5670): the course's free run-up, or the grid.
-    if (setup.solo || setup.sequence == "freerun" || setup.sequence == "time_trial") {
+    // A free run (DynamicsConductorFreeRun::vf30 0x3F5670): the course's free run-up, or the grid.
+    if (setup.solo || free_run(setup.sequence)) {
         if (const bool prologue = sdb->prologue(); !prologue) {
             setup.start = cs.free_speed_kmh > 0 ? race::StartType::Rolling : race::StartType::Ten;
             setup.start_speed = cs.free_speed_kmh / 3.6f, setup.start_back = cs.free_distance_m, setup.start_kind = 3;
+            if (free_run(setup.sequence)) setup.laps = 0;
         }
     }
 }
@@ -809,6 +814,8 @@ public:
                          flow_.car(i).counter);
             }
         // (A rolling start's clock stands until the first car takes the line: RaceFlow.)
+        // A free run's hand-over, 3 s from the set-up (DynamicsConductorFreeRun::vf14).
+        if (!hold && world_->count_rolling(0)) world_->release_start(0), flow_.signal_start();
         const race::RaceFlow::Events ev = flow_.step(world_->cars());
         // A car held in its rolling start let go as its start is counted (vf20 0x347928, the license's 0x3F64D0).
         for (const size_t i : ev.started) world_->release_start(i);
@@ -1032,6 +1039,7 @@ public:
         h.stepless = world_->stepless(shown_car);
         h.signs = replaying_ ? std::array<int, 3>{} : world_->signs(shown_car);
         h.throttle = me.throttle, h.brake = me.brake;
+        h.fuel_on = world_->counts_fuel() && !world_->course().road().gtrw;
         h.fuel = replaying_ ? 1.0f : world_->fuel_share(shown_car);
         // The tire diagram: only in a race that wears its tires (the display's flag), each wheel in the color of its
         // wear level; B-spec's pit command waiting.
@@ -1141,7 +1149,7 @@ public:
         }
         if (!replaying_ && event_steps_ >= 0 && event_steps_ < 200) {
             // "L1/3   1'23.456" for three seconds.
-            h.event = hud.word("WordOfLapTime") + std::to_string(event_lap_) + "/" + std::to_string(setup_.laps) + "   " + race::format_lap_time(flow_.car(0).last_lap_ms);
+            h.event = hud.word("WordOfLapTime") + std::to_string(event_lap_) + (setup_.laps > 0 ? "/" + std::to_string(setup_.laps) : std::string()) + "   " + race::format_lap_time(flow_.car(0).last_lap_ms);
             h.event_opacity = std::min(1.0f, float(event_steps_) / 9.0f) * window(event_steps_, 3.0f, 0.15f);
         }
     }
@@ -1335,7 +1343,7 @@ public:
     // start's pace, more than 3 s at the start's speed short of the line (the camera manager's state 4 from
     // 0x3FD620, which asks the car's pace 0x3F7880); then the race's own view. ✔ The original's Tsukuba start:
     // the player's view about 1.5 s after the clock starts and 4.2 s before he takes the line.
-    bool opening_tv() const { return setup_.start_speed > 0 && to_line() > 3 * setup_.start_speed; }
+    bool opening_tv() const { return setup_.start_speed > 0 && setup_.start_kind != 3 && to_line() > 3 * setup_.start_speed; }
 
     // A rolling start before the player's car takes the line: it is driven for him.
     bool handing_over() const {

@@ -538,7 +538,7 @@ void RaceHud::Impl::draw_top(const HudState& s) {
         float width = text_width(f, buf), squeeze = 1;
         if (p->w > 0 && width > float(p->w)) squeeze = float(p->w) / width, width = float(p->w);
         DisplayPlace q = *p;
-        q.h = 0;
+        q.w = q.h = 0; // (its own width, not the element's)
         const DisplayRect at = race::place_rect(q, width, 0, true);
         draw_text(f, at.x, float(p->y), 0, kTextGray, o, buf, squeeze);
     }
@@ -955,6 +955,7 @@ void RaceHud::Impl::draw_menu_text(const char* font_name, int variant, float x, 
 // RaceFuelMeter::vf6 (0x3A57A8): the empty bar, the full one over it in ten steps of the fuel left (5.2 wide each, from 15, the
 // second half 4 further).
 void RaceHud::Impl::draw_fuel(const HudState& s, const DisplayPlace& place) {
+    if (!s.fuel_on) return;
     draw_at("fuel_b0", place, kNeutral, s.opacity);
     const int n = int(std::clamp(s.fuel, 0.0f, 1.0f) * 10 + 0.5f);
     // (The lit bar is white where lit and the program's tint brightens past 0x80: the tint itself is the color, as the original shows.)

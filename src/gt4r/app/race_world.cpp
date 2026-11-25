@@ -232,6 +232,7 @@ void RaceWorld::build_simulation() {
                 entries[i].fuel = setup_.event_row.size() > 0x43 && setup_.event_row[0x43] != 0 && setup_.conductor == race::Conductor::Other &&
                                   !setup_.pace.solo && race::course_start(*app_.db(), setup_.course).fuel;
             }
+            counts_fuel_ = !entries.empty() && entries[0].fuel;
             plan_starts(program, entries);
             // The player's car's power as built (the replay's card).
             try {

@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <utility>
 
 namespace gt4r::race {
 
@@ -45,6 +46,7 @@ void RaceFlow::begin(const FlowSetup& setup, std::span<const CarState> cars) {
         if (i < setup.past_line.size() && setup.past_line[i]) r.counter = 1;
         if (i < setup.marks.size()) r.mark = setup.marks[i];
     }
+    signal_start_ = false;
     hold_total_ = hold_ = start_hold_steps(setup.start, setup.start_seconds);
     clock_ = 0;
     finishers_ = 0;
@@ -165,6 +167,7 @@ void RaceFlow::cross(size_t i, float was, float now, Events& ev) {
 RaceFlow::Events RaceFlow::step(std::span<const CarState> cars) {
     Events ev;
     if (cars.size() != cars_.size()) return ev;
+    if (std::exchange(signal_start_, false) && started_steps_ < 0) ev.start = true, started_steps_ = 0;
     if (hold_ > 0) {
         // The hold: counted down before the step, the clock stands; a beep at each of the last three whole seconds.
         --hold_;

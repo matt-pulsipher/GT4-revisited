@@ -167,7 +167,8 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
     // A rolling start's pace (0x3F7880 while a car is held in it): the race's speed (the rule block's +0x6E, km/h), without one
     // the license's (+0x4E), else the place's own: the entry's.
     pace_kmh_.clear();
-    for (const Entry& e : entries) pace_kmh_.push_back(e.line_start ? u8(e.line_start->speed) : u8(std::lround(std::clamp(e.start_speed * 3.6f, 0.0f, 255.0f))));
+    for (const Entry& e : entries) pace_kmh_.push_back(e.line_start ? u8(e.line_start->kind == 3 ? 0 : e.line_start->speed) // (a free run's run-up has no pace: vf28 clears K +0xF886 for a run alone)
+                                         : u8(std::lround(std::clamp(e.start_speed * 3.6f, 0.0f, 255.0f))));
     driver_grip_.assign(entries.size(), std::nullopt);
     specs_.resize(entries.size());
     equipment_.resize(entries.size()), blocks_.resize(entries.size());
@@ -378,6 +379,12 @@ void Session::release_start(int car) {
     // (the session has no line object: the driver's line change is taken as made)
     rules::release(cars_[size_t(car)], gx_[size_t(car)], true);
     publish(size_t(car));
+}
+
+bool Session::count_rolling(size_t car) {
+    if (car >= cars_.size() || !gt4_rules_ || prologue_) return false;
+    u16& left = gx_[car].start.rolling_steps;
+    return left > 0 && --left == 0;
 }
 
 void Session::place_standing(size_t car, F x, F y, F z, F heading) {

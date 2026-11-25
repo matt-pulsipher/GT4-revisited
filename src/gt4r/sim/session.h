@@ -129,6 +129,9 @@ public:
     // the input phase takes the car's input as the computer's outputs) let go (the single-player conductor's virtual
     // +0x14, 0x347928: 0x345228 and 0x3F37B8).
     void release_start(int car) override;
+    // A free run's count to the hand-over (F +0x590: 180 steps from the set-up; 0x3F37C0 in DynamicsConductorFreeRun::vf14), a step
+    // of it: true in the step it runs out.
+    bool count_rolling(size_t car);
     // The car standing at (x, y, z) facing `heading`, in the record's frame (x, y, z up: the record's F + 0x00; the
     // course's x, -z, y; z the road's height there): the pose (0x3630C0), 0x3455F0 and the standing start (0x363560).
     // For a pit stop; Gran Turismo 4's rules only.

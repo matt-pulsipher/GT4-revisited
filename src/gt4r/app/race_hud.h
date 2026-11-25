@@ -45,6 +45,7 @@ struct HudState {
     float card_opacity = 0;
     std::string status;               // the status line over the panel ("FULL THROTTLE"); UTF-8
     float status_opacity = 0;
+    bool fuel_on = true; // the race counts fuel (its gauge over the chase views)
     bool refuel = false; // the refuel bar (0x2D78), with the fuel and the tank (liters)
     float refuel_fuel = 0, refuel_tank = 0;
     std::string tooltip; // the help strip's line in place of B-spec's (the pit menu's, the refuel bar's); UTF-8
