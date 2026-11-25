@@ -18,7 +18,9 @@
 //                                                   the car driven flat out from the first revs to the
 //                                                   second (its speed the revs over the last number,
 //                                                   200 by default), heard from that view of it, mixed by
-//                                                   the program's tables at the new game's levels
+//                                                   the program's tables at the new game's levels;
+//                                                   @<file> for the revs: lines "seconds rpm [throttle [clutch [m/s]]]",
+//                                                   joined by straight lines (a recording's revs read off it)
 //   gt4tool sound <disc> session-wav <label> <out.wav> <script> [incar|chase|other] [course]
 //                                                   the car driven by the simulation by a script of
 //                                                   phases ("hold:1,idle:4,full:8"), its race sound
@@ -45,12 +47,14 @@
 #include "vfs/vfs.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
 #include <cstdio>
 #include <filesystem>
 #include <map>
 #include <set>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -429,7 +433,25 @@ int drive_wav(Disc& disc, const Args& a) {
         return 1;
     }
     float rpm0 = 0, rpm1 = 0;
-    if (std::sscanf(a[3].c_str(), "%f:%f", &rpm0, &rpm1) < 2) rpm1 = rpm0;
+    std::vector<std::array<float, 5>> track; // seconds, rpm, throttle, clutch, speed
+    if (a[3][0] == '@') {
+        const auto text = gt3r::read_host_file(a[3].substr(1));
+        if (!text) {
+            std::fprintf(stderr, "error: cannot read %s\n", a[3].c_str() + 1);
+            return 1;
+        }
+        std::istringstream in(std::string(text->begin(), text->end()));
+        for (std::string line; std::getline(in, line);) {
+            std::array<float, 5> r{0, 0, 1, 1, -1};
+            if (std::sscanf(line.c_str(), "%f %f %f %f %f", &r[0], &r[1], &r[2], &r[3], &r[4]) >= 2) track.push_back(r);
+        }
+        if (track.empty()) {
+            std::fprintf(stderr, "error: no revs in %s\n", a[3].c_str() + 1);
+            return 1;
+        }
+    } else if (std::sscanf(a[3].c_str(), "%f:%f", &rpm0, &rpm1) < 2) {
+        rpm1 = rpm0;
+    }
     const double seconds = a.size() > 4 ? std::atof(a[4].c_str()) : 5.0;
     const std::string view = a.size() > 5 ? a[5] : "chase";
     const float per = a.size() > 6 ? float(std::atof(a[6].c_str())) : 200.0f;
@@ -442,6 +464,18 @@ int drive_wav(Disc& disc, const Args& a) {
         in.rpm = rpm0 + (rpm1 - rpm0) * float(i) / float(std::max(1, steps - 1));
         in.throttle = 1, in.torque_full = 3, in.torque_friction = 1;
         in.speed = in.rpm / per;
+        if (!track.empty()) {
+            const float t = float(i) / 60.0f;
+            size_t k = 0;
+            while (k + 1 < track.size() && track[k + 1][0] <= t) ++k;
+            const auto& p = track[k];
+            const auto& q = track[std::min(k + 1, track.size() - 1)];
+            const float x = q[0] > p[0] ? std::clamp((t - p[0]) / (q[0] - p[0]), 0.0f, 1.0f) : 0.0f;
+            in.rpm = p[1] + (q[1] - p[1]) * x;
+            in.throttle = p[2] + (q[2] - p[2]) * x;
+            in.clutch = int(p[3]);
+            in.speed = p[4] >= 0 && q[4] >= 0 ? p[4] + (q[4] - p[4]) * x : in.rpm / per;
+        }
         // The chase camera 5 m behind the car; another camera 20 m to the side; in the car: at it.
         const float behind = at.kind == audio::SoundListener::Kind::Chase ? 5.0f : 0.0f;
         in.position = at.kind == audio::SoundListener::Kind::Other ? race::Vec3{20, 0, 0} : race::Vec3{0, 0, behind};

@@ -80,7 +80,10 @@ struct CarSoundState {
     race::Vec3 position, velocity;      // course space; metres, metres per second
     float course_distance = 0;          // metres along the course (the crowds' gates)
     float rpm = 0;
-    float throttle = 0;                 // as the engine takes it, 0..1
+    float throttle = 0;                 // the engine's load, 0..1: the throttle, a boosted engine's times its boost (F +0x4F0)
+    // The two banks' levels as the simulation keeps them (0x350080's bytes F +0x604 and +0x605), 0..127;
+    // below 0: worked out here from the throttle and the torques.
+    int engine_level = -1, exhaust_level = -1;
     // The engine's torque at these revs with the throttle open and what its friction takes:
     // the throttle at which the two cancel is where the engine is quietest.
     float torque_full = 1.0f, torque_friction = 0.6f;

@@ -386,6 +386,8 @@ void CarSound::update(const CarSoundState& car, const SoundListener& listener, b
     // The two banks' levels: each moves half way to its target every step.
     if (!car.live || (car.hybrid && car.rpm < car.idle_rpm)) {
         engine_level_ = exhaust_level_ = 0;
+    } else if (car.engine_level >= 0 && car.exhaust_level >= 0) {
+        engine_level_ = car.engine_level, exhaust_level_ = car.exhaust_level;
     } else {
         const float sum = car.torque_full + car.torque_friction;
         const float quiet = sum > 0 ? car.torque_friction / sum : 0.0f; // the throttle that just holds the revs

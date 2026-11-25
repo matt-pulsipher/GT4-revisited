@@ -26,12 +26,18 @@ CarSoundState sound_state(const sim::Session& session, size_t i, const RaceSound
     s.position = car.position, s.velocity = car.velocity;
     s.course_distance = car.course_v;
     s.rpm = c.omega.host() * 9.549297f;
-    s.throttle = c.throttle.host();
+    // The engine's load (F +0x4F0, a boosted engine's throttle times its boost) and the two levels the step
+    // itself works out from it (0x350080: F +0x604, +0x605).
+    s.throttle = c.turbo_load.host();
+    s.engine_level = c.x4e4, s.exhaust_level = c.x4e5;
     s.torque_full = c.torque_wot.host(), s.torque_friction = c.torque_friction.host();
     s.clutch = c.clutch;
     s.speed = c.speed.host();
-    s.drag = c.p.drag_coef.host();
-    s.slipstream = s.cabin_wake = c.slip_filter.host();
+    // The wind and the cabin's rush take the body's drag coefficient alone (P +0x1064, the spec's byte +0x42 / 100), not
+    // the force's (P +0x1068, times half the air's density and the frontal area).
+    s.drag = float(session.spec(i).b(0x42)) * 0.01f;
+    s.slipstream = c.slip_target.host(); // (0x34FA90: F +0x59C)
+    s.cabin_wake = c.slip_filter.host(); // (0x34FBC0: F +0x5A0)
     s.engine_place = engine_place(session.spec(i));
     s.heart = session.spec(i).b(1) == 3; // (the car's category, P + 0x32)
     // (the record's spool level and blow-off already carry the program's two scales)
