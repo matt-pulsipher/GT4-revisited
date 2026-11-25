@@ -233,7 +233,7 @@ public:
     void draw_icons(Ui& ui, const SDL_FRect& canvas, std::span<const Icon> icons);
     // One model in its own view over `rect` (the license results' trophy), in the course's light:
     // `place` its model matrix in a camera at the origin looking down -z, `proj` the lens.
-    void draw_model(Ui& ui, const SDL_FRect& rect, const gt3r::render::GpuModel& model, const gt3r::render::Mat4& place, const gt3r::render::Mat4& proj, float alpha);
+    void draw_model(Ui& ui, const SDL_FRect& rect, const gt3r::render::GpuModel& model, const gt3r::render::Mat4& place, const gt3r::render::Mat4& proj, float alpha, bool own_reflection = false);
 
     const race::CourseScene& course() const { return *course_; }
     const race::CarVisual& visual(size_t i) const { return *car_visuals_[i]; }
@@ -254,6 +254,12 @@ public:
     float gadget_impulse(size_t i) const;
     // A car's mass as the step reads it (the spec's weight, kg; 0 not known): the license tests' wall rule.
     float car_mass(size_t i) const;
+    // The seconds left of a car's penalty (the speed cap a hit gave; 0: none).
+    int penalty_seconds(size_t i) const;
+    // A car's stability and traction controls: 0 off, 1 on, 2 acting (Prologue's record F + 0x524 / 0x525).
+    void aid_status(size_t i, u8& asm_status, u8& tcs_status) const;
+    // A car's limiter and automatic up-shift revolutions (P + 0x1C4 and + 0x226; 0 not known).
+    void rev_marks(size_t i, float& limit, float& shift) const;
     // The suggested gear for a car the player drives (-1 none).
     int suggested_gear(size_t i) const;
     // The signs' states of a car (RaceDisplay::vf2 0x39E280): the aids' (the greater of ASCC's and TCS's status: on 1, acting 3), the

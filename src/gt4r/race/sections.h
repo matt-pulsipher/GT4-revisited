@@ -13,8 +13,9 @@
 namespace gt4r::race {
 
 // The road file's (RNW4, course slot 55) checkpoint list `list` (+0x38 u16 the lists, +0x58 -> {u32 count,
-// u32 -> f32[count]} each): its distances; empty without it.
-std::vector<float> road_list(ByteSpan rnw4, size_t list);
+// u32 -> f32[count]} each): its distances; empty without it. Prologue's road (GTRW, slot 28): +0x22 u16 records, +0x24 ->
+// 8 bytes each {u16 type (0 the start, 1 the goal, 2 a split point), u16 the list, f32 the distance}: the list's split points.
+std::vector<float> road_list(ByteSpan road, size_t list);
 
 // The road's sections (RNW4 +0x54 u16 the count, +0x9C -> 0x20 bytes each): the stretch a license test or
 // mission runs on, f32 +0x00 its start and +0x04 its goal, distances along the lap (DynamicsConductor::vf38 /

@@ -18,6 +18,7 @@
 #include "gt4r/sim/program.h"
 #include "gt4r/sim/program_prologue.h"
 #include "formats/menu/imgs.h"
+#include "formats/png_writer.h"
 #include "gt4r/race/strobe.h"
 #include "race/hud_layout.h"
 #include "sim/exact/program_data.h"
@@ -246,6 +247,12 @@ int strobe(Disc& disc, const std::string& path) {
                 tex.upload(set, gs);
                 const gt3r::Tex1::Image img = tex.decode(gs, 0);
                 std::printf(" decoded %u x %u:", img.width, img.height);
+                if (const char* dir = std::getenv("GT4R_STROBE_DUMP")) { // each picture as a PNG
+                    char name[256];
+                    std::snprintf(name, sizeof name, "%s/texture%zu.png", dir, i);
+                    const Bytes png = gt3r::encode_png(img.width, img.height, img.rgba);
+                    if (std::FILE* f = std::fopen(name, "wb")) std::fwrite(png.data(), 1, png.size(), f), std::fclose(f);
+                }
                 const size_t n = img.rgba.size();
                 for (size_t k = 0; k < n; k += std::max<size_t>(1, n / 16)) std::printf(" %08X", img.rgba[k]);
             }
@@ -256,7 +263,62 @@ int strobe(Disc& disc, const std::string& path) {
         }
         std::printf("\n");
     }
-    for (size_t i = 0; i < m.texts.size(); ++i) std::printf("text %zu: \"%s\"\n", i, m.texts[i].text.c_str());
+    if (const char* run = std::getenv("GT4R_STROBE_RUN")) { // "<prize level>,<seconds>": the results movie played with the answers of a run
+        int prize = 0;
+        float seconds = 1;
+        std::sscanf(run, "%d,%f", &prize, &seconds);
+        auto movie = std::make_shared<const race::StrobeMovie>(m);
+        race::StrobePlayer p(movie, [prize](const std::string& name, const std::vector<race::StrobePlayer::Value>& args) {
+            using V = race::StrobePlayer::Value;
+            std::printf("(host %s", name.c_str());
+            for (const V& a : args) std::printf(" %s", a.to_string().c_str());
+            std::printf(")\n");
+            std::string n = name;
+            for (char& c : n) c = char(std::toupper(static_cast<unsigned char>(c)));
+            if (n == "PRIZELEVEL") return V::number(prize);
+            if (n == "GETTIME") return V::string("0'07.867");
+            if (n == "GETRANK") return V::number(0);
+            if (n == "GETDEFAULTNAME") return V::string("AAA");
+            return V{};
+        });
+        p.restart();
+        for (float t = 0; t < seconds; t += 1.0f / 30.0f) p.advance(1.0f / 30.0f);
+        std::printf("root frame %d\n", p.frame());
+        for (const std::string& l : p.tree()) std::printf("%s\n", l.c_str());
+        for (const race::StrobePlayer::Draw& d : p.draw_list()) {
+            if (d.text) std::printf("text \"%s\" at %.0f,%.0f clipped %d mul %.2f %.2f %.2f %.2f\n", d.words.c_str(), double(d.m[4]), double(d.m[5]), int(d.clipped), double(d.mul[0]), double(d.mul[1]), double(d.mul[2]), double(d.mul[3]));
+        }
+    }
+    if (std::getenv("GT4R_STROBE_SHAPES")) { // the fills, their matrices, the shapes with their fills, the tracks
+        for (size_t i = 0; i < m.fills.size(); ++i) {
+            const auto& f = m.fills[i];
+            std::printf("fill %zu: kind %u index %u value %08X", i, f.kind, f.index, f.value);
+            if (f.kind == 4 && f.value < m.matrices.size()) {
+                const auto& t = m.matrices[f.value];
+                std::printf(" matrix [%g %g %g %g / %g %g %g %g / %g %g %g %g / %g %g %g %g]", t[0], t[1], t[2], t[3], t[4], t[5], t[6], t[7], t[8], t[9], t[10], t[11], t[12], t[13], t[14], t[15]);
+            }
+            std::printf("\n");
+        }
+        for (size_t i = 0; i < m.shapes.size(); ++i) {
+            const auto& sh = m.shapes[i];
+            std::printf("shape %zu: %g %g .. %g %g", i, sh.x0, sh.y0, sh.x1, sh.y1);
+            for (const auto& g : sh.groups) {
+                float lo[2] = {1e9f, 1e9f}, hi[2] = {-1e9f, -1e9f};
+                for (const auto& q : g.triangles) lo[0] = std::min(lo[0], q.x), lo[1] = std::min(lo[1], q.y), hi[0] = std::max(hi[0], q.x), hi[1] = std::max(hi[1], q.y);
+                std::printf(" group fill %u flags %X tris %zu (%g %g .. %g %g)", g.fill, g.flags, g.triangles.size() / 3, lo[0], lo[1], hi[0], hi[1]);
+            }
+            std::printf("\n");
+        }
+        for (size_t k = 0; k < m.sprites.size(); ++k) {
+            std::printf("sprite %zu:", k);
+            for (const auto& t : m.sprites[k].tracks) std::printf(" [kind %u index %u depth %u%s]", t.kind, t.index, t.depth, t.name.empty() ? "" : (" " + t.name).c_str());
+            std::printf("\n");
+        }
+    }
+    for (size_t i = 0; i < m.texts.size(); ++i)
+        std::printf("text %zu: \"%s\" font %d (%s) color %08X box %g %g .. %g %g height %g align %u\n", i, m.texts[i].text.c_str(), m.texts[i].font,
+                    m.texts[i].font >= 0 && size_t(m.texts[i].font) < m.fonts.size() ? m.fonts[size_t(m.texts[i].font)].c_str() : "?", m.texts[i].color,
+                    double(m.texts[i].x0), double(m.texts[i].y0), double(m.texts[i].x1), double(m.texts[i].y1), double(m.texts[i].height), m.texts[i].align);
     for (size_t s = 0; s < m.sprites.size(); ++s)
         for (const auto& t : m.sprites[s].tracks)
             if (!t.name.empty()) std::printf("sprite %zu track \"%s\"\n", s, t.name.c_str());

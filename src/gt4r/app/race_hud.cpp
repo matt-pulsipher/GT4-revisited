@@ -58,6 +58,7 @@ struct RaceHud::Impl {
     std::map<std::pair<const gt3r::text::LatinFont*, int>, SDL_Texture*> atlases;
     std::map<std::string, menu::FontSpacing> spacing; // the fonts' GT4 spacing (FT01 +0x14, +0x15) by name
     gt3r::text::FontFile menu_fonts; // the movies' (font/menu.fnt)
+    gt3r::text::FontFile race_fonts; // the movies' on Prologue's disc (font/race.fnt: FC_16 .. FC_48, DC_12)
     std::map<std::pair<const race::StrobeMovie*, size_t>, SDL_Texture*> movie_textures;
     Bytes pack_file;
     std::optional<menu::ImagePack> pack;
@@ -237,6 +238,11 @@ RaceHud::RaceHud(App& app, ByteSpan gtcm) : impl_(std::make_unique<Impl>()) {
             for (const auto& [name, sp] : menu::read_font_spacing(*file)) m.spacing.emplace(name, sp);
         }
         for (const gt3r::text::LatinFont& f : m.menu_fonts.fonts) m.font_by_name.emplace(f.name, &f);
+        if (const std::optional<Bytes> file = app.vfs()->read("font/race.fnt")) {
+            m.race_fonts = menu::read_fonts(*file);
+            for (const auto& [name, sp] : menu::read_font_spacing(*file)) m.spacing.emplace(name, sp);
+        }
+        for (const gt3r::text::LatinFont& f : m.race_fonts.fonts) m.font_by_name.emplace(f.name, &f);
         // The region's pack: the disc's own region first.
         const std::string serial = app.disc()->info().serial;
         m.mph = serial.rfind("SCUS", 0) == 0;
@@ -267,7 +273,7 @@ RaceHud::RaceHud(App& app, ByteSpan gtcm) : impl_(std::make_unique<Impl>()) {
         LOG_WARN("Race display: %s", e.what());
         m.layout = {};
     }
-    if (!ready()) LOG_WARN("Race display: the disc's program or files are not the ones its places were read from; a plain read-out is shown");
+    if (!ready() && app.disc()->info().game != Game::Prologue) LOG_WARN("Race display: the disc's program or files are not the ones its places were read from; a plain read-out is shown");
 }
 
 RaceHud::~RaceHud() {
@@ -344,6 +350,21 @@ void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlaye
         return t;
     };
     for (const race::StrobePlayer::Draw& d : player.draw_list()) {
+        // A mask's box (a track of a clip depth): what is drawn only inside it.
+        struct ClipScope {
+            SDL_Renderer* r;
+            bool on;
+            ClipScope(SDL_Renderer* renderer, const race::StrobePlayer::Draw& d, const std::function<SDL_FPoint(float, float)>& ui) : r(renderer), on(d.clipped) {
+                if (!on) return;
+                const SDL_FPoint a = ui(d.clip[0], d.clip[1]), b = ui(d.clip[2], d.clip[3]);
+                const SDL_Rect box{int(std::floor(std::min(a.x, b.x))), int(std::floor(std::min(a.y, b.y))),
+                                   std::max(0, int(std::ceil(std::abs(b.x - a.x)))), std::max(0, int(std::ceil(std::abs(b.y - a.y))))};
+                SDL_SetRenderClipRect(r, &box);
+            }
+            ~ClipScope() {
+                if (on) SDL_SetRenderClipRect(r, nullptr);
+            }
+        } clip_scope(m.r, d, [](float x, float y) { return to_ui(x, y); });
         if (!d.external.empty()) {
             if (externals) externals->push_back({d.external, d.m[4], d.m[5], std::hypot(d.m[0], d.m[1]), std::clamp(d.mul[3], 0.0f, 1.0f)});
             continue;
@@ -355,9 +376,21 @@ void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlaye
             const race::StrobeMovie::Gradient* grad = fill.kind == 1 && fill.index < movie.gradients.size() ? &movie.gradients[fill.index] : nullptr;
             std::vector<SDL_Vertex> v;
             v.reserve(d.group->triangles.size());
+            // (Prologue's movies: a shape across the whole 640 covers a wide picture too, as its 4:3 one.)
+            bool across = !m.race_fonts.fonts.empty();
+            if (across) {
+                float x0 = 1e9f, x1 = -1e9f;
+                for (const race::StrobeMovie::Point& p : d.group->triangles) {
+                    const float x = d.m[0] * p.x + d.m[2] * p.y + d.m[4];
+                    x0 = std::min(x0, x), x1 = std::max(x1, x);
+                }
+                across = x0 <= 0.5f && x1 >= 639.5f;
+            }
             for (const race::StrobeMovie::Point& p : d.group->triangles) {
                 SDL_Vertex x{};
-                x.position = to_ui(d.m[0] * p.x + d.m[2] * p.y + d.m[4], d.m[1] * p.x + d.m[3] * p.y + d.m[5]);
+                float px = d.m[0] * p.x + d.m[2] * p.y + d.m[4];
+                if (across) px = px <= 0.5f ? std::min(px, -107.0f) : px >= 639.5f ? std::max(px, 747.0f) : px;
+                x.position = to_ui(px, d.m[1] * p.x + d.m[3] * p.y + d.m[5]);
                 const float u = mat ? p.x * (*mat)[0] + p.y * (*mat)[4] + (*mat)[12] : 0, w = mat ? p.x * (*mat)[1] + p.y * (*mat)[5] + (*mat)[13] : 0;
                 x.tex_coord = {u, w};
                 if (fill.kind == 0) x.color = colour(fill.value, d);

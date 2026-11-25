@@ -31,6 +31,10 @@ struct FlowSetup {
     int laps = 2;          // 0: no lap count (the race ends otherwise)
     size_t player = 0;     // the player's car
     float lap_length = 0;  // metres (the road's)
+    // Prologue's tests (DynamicsConductorLicense's start line 0x3B4C88, the car's lap time from its own crossing F + 0x534):
+    // the clock starts as the player's car takes the line, whoever took it before.
+    bool player_clock = false;
+    std::vector<bool> past_line; // by car: it starts past the line (its crossings' count 1: 0x3C9838); empty: none
     // The road's split points (the sectors' ends but the last; none on a road section) and the race's goal along the course
     // (-1 none), for where the cars' crossings start. `counted` off: every car starts at 0 (Prologue, not read).
     std::vector<float> sectors;

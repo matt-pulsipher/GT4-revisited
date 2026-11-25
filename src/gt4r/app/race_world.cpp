@@ -15,6 +15,7 @@
 #include "gt4r/sim/ai/pit_tire_change.h"
 #include "gt4r/formats/model/car_model.h"
 #include "gt4r/race/car_spec.h"
+#include "gt4r/sim/race_rules.h"
 #include "gt4r/race/driver_figure.h"
 #include "gt4r/race/start_rule.h"
 #include "gt4r/sim/rules_wear.h"
@@ -248,6 +249,8 @@ void RaceWorld::build_simulation() {
             if (!noted_)
                 for (const std::string& note : session_->notes()) LOG_INFO("Drive: %s", note.c_str());
             sim_ = session_.get();
+            const sim::RaceRules race_rules = sim::race_rules(setup_.event_row, program);
+            session_->set_race_rules(race_rules.hits, race_rules.speed_cap, race_rules.penalty_cap);
             { // the race's class grips (the rule block's +0x18 .. +0x1B from the row's +0x53 .. +0x56, 0x35E108)
                 std::array<gt3r::s8, 4> grip{};
                 if (setup_.event_row.size() > 0x56)
@@ -578,6 +581,20 @@ float RaceWorld::fuel_share(size_t i) const {
     return tank > 0 ? std::clamp(session_->fuel(i) / tank, 0.0f, 1.0f) : 1.0f;
 }
 
+int RaceWorld::penalty_seconds(size_t i) const { return session_ && i < car_visuals_.size() ? session_->penalty_seconds(i) : 0; }
+
+void RaceWorld::aid_status(size_t i, u8& asm_status, u8& tcs_status) const {
+    asm_status = tcs_status = 0;
+    if (!session_ || i >= car_visuals_.size()) return;
+    asm_status = u8(session_->record(i).ascc_status), tcs_status = u8(session_->record(i).tcs_status);
+}
+
+void RaceWorld::rev_marks(size_t i, float& limit, float& shift) const {
+    limit = shift = 0;
+    if (!session_ || i >= car_visuals_.size()) return;
+    limit = float(session_->record(i).p.e.rev_limit), shift = float(session_->record(i).p.d.up_rpm);
+}
+
 float RaceWorld::car_mass(size_t i) const {
     // The parameter block's mass, P +0x48 (what the license rule 0x35FE80 divides a wall hit by).
     return session_ && i < car_visuals_.size() ? session_->record(i).p.mass.host() : 0.0f;
@@ -872,17 +889,18 @@ void RaceWorld::draw_icons(Ui& ui, const SDL_FRect& canvas, std::span<const Icon
     m.icon_view->draw(ui.renderer(), canvas, render::Mat4::identity(), proj, RVec{0, 0, 100}, items, o);
 }
 
-void RaceWorld::draw_model(Ui& ui, const SDL_FRect& rect, const render::GpuModel& model, const render::Mat4& place, const render::Mat4& proj, float alpha) {
+void RaceWorld::draw_model(Ui& ui, const SDL_FRect& rect, const render::GpuModel& model, const render::Mat4& place, const render::Mat4& proj, float alpha, bool own_reflection) {
     Impl& m = *impl_;
     if (!app_.gpu() || alpha <= 0) return;
     if (!m.icon_view) m.icon_view = std::make_unique<render::View3D>(*app_.gpu());
     std::vector<render::DrawItem> items{render::DrawItem{&model, place, 0}};
+    items[0].sphere_map = own_reflection; // (the reflection picture is in the model)
     render::DrawOptions o = draw_options(*course_, 100);
     o.fog = false;
     o.frustum_cull = false;
     for (float& c : o.clear) c = 0;
     o.composite_alpha = std::clamp(alpha, 0.0f, 1.0f);
-    if (m.view && m.env_ready) o.env_cube = m.view->env_cube(), o.env_gt3_lookup = true;
+    if (!own_reflection && m.view && m.env_ready) o.env_cube = m.view->env_cube(), o.env_gt3_lookup = true;
     m.icon_view->draw(ui.renderer(), rect, render::Mat4::identity(), proj, RVec{0, 0, 0}, items, o);
 }
 

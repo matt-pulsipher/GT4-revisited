@@ -27,11 +27,13 @@ struct AidTables {
 AidTables aid_tables(const Program& program);
 
 // What the phase reads of the race: the course is dirt (0x3B63E0: the conductor's course kind 2), the rule block's speed
-// caps (+0x42 a car's, +0x43 a computer's (control source 2), +0x4B while the start's counter runs; km/h, 0 none).
+// caps (+0x42 a car's, +0x43 a computer's (control source 2), +0x4B while the car's penalty (`penalty`: its counter F + 0x51E runs);
+// km/h, 0 none).
 struct AidRace {
     bool dirt = false;
     std::array<u8, 2> speed_cap{};
-    u8 start_cap = 0;
+    u8 penalty_cap = 0;
+    bool penalty = false;
 };
 
 // The wheel's curve A byte (+0x27, 0x3BB138: the curve's value x 128) as its readers take it: x 1 / 128.

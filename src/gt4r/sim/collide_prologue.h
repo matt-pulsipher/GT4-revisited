@@ -30,6 +30,10 @@ public:
         float strength = 0;
         gt3r::u8 kind = 0;
         int car = -1;
+        // The last hit's part (0x3B9430's: a corner 0 .. 7, a side + 8) and the step's summed strength in EE form (walls |j| /
+        // 100,000, cars |j| / 15,000; at most 1), for the hit's judge.
+        int part = -1;
+        gt3r::ee::F sum;
     };
     // One step of every car (the cars' positions, velocities, headings and yaw rates in and out).
     void step(std::vector<gt3r::sim::exact::Car>& cars, std::vector<Contact>& contacts);

@@ -9,6 +9,7 @@
 #include "gt4r/menu/native.h"
 #include "gt4r/menu/prologue_license.h"
 #include "gt4r/menu/runtime_internal.h"
+#include "gt4r/race/strobe.h"
 #include "race/hud_layout.h"
 
 #include <cmath>
@@ -249,7 +250,8 @@ TEST(disc_prologue_license_record) {
     CHECK(call(unit, "isPassed", {}).i == 0);
     CHECK(call(unit, "getBestTime", {}).as_string() == "\x7F'\x7F\x7F.\x7F\x7F\x7F");
     call(lic, "recordResult", {Value::string("l0p0001"), Value::string("silver"), Value::integer(107900), Value::integer(30), Value::string("ABC")});
-    call(lic, "recordResult", {Value::string("l0p0001"), Value::string("bronze"), Value::integer(107500), Value::integer(10), Value::string("XYZ")});
+    call(lic, "recordResult", {Value::string("l0p0001"), Value::string("bronze"), Value::integer(107500), Value::integer(10), Value::string("XYZ"),
+                               Value::integer(5), Value::integer(3)});
     call(lic, "recordResult", {Value::string("l0p0001"), Value::string("failed"), Value::integer(359999999), Value::integer(0)});
     CHECK(call(unit, "isPassed", {}).i == 1 && call(unit, "isCompletePassed", {}).i == 0);
     CHECK(call(unit, "getRankNum", {}).i == 2);
@@ -261,6 +263,11 @@ TEST(disc_prologue_license_record) {
     CHECK(call(lic, "getDetailCount", {Value::string("silver")}).i == 1);
     CHECK(call(lic, "getTotalPoint", {}).i == 30);
     CHECK(call(unit, "getDate", {Value::integer(0)}).as_string().size() == 19);
+    // The coded run's pass code: 30 digits, in four parts of eight; the other's none.
+    const std::string code = call(unit, "getPassCode", {Value::integer(0)}).as_string();
+    CHECK(code.size() == 30 && code.find_first_not_of("0123456789") == std::string::npos);
+    CHECK(call(unit, "getPassCode", {Value::integer(0), Value::integer(1)}).as_string() == code.substr(8, 8));
+    CHECK(call(unit, "getPassCode", {Value::integer(1)}).as_string() == "--------");
     std::vector<u8> bytes = menu::prologue_license_units(*game.as<menu::Object>());
     CHECK(bytes.size() == 48 * 0x2E0);
     if (bytes.size() != 48 * 0x2E0) return;
@@ -275,4 +282,49 @@ TEST(disc_prologue_license_record) {
     CHECK(menu::prologue_license_load(*game.as<menu::Object>(), bytes));
     CHECK(call(call(lic, "getUnit", {Value::integer(1)}), "isCompletePassed", {}).i == 1);
     CHECK(menu::prologue_license_units(*game.as<menu::Object>()) == bytes);
+}
+
+// The license results movie (menu/result_license.strb) of a passing run: its mask track (a clip depth) is not drawn but
+// the texts above it are clipped by its box, the time shows, and the bright bar never covers the page.
+TEST(disc_prologue_license_movie_mask) {
+    Disc* disc = prologue_menu_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 Prologue disc");
+    const std::optional<Bytes> file = disc_file(*disc, "menu/result_license.strb");
+    CHECK(file.has_value() && gt4r::race::StrobeMovie::is_movie(*file));
+    if (!file) return;
+    auto movie = std::make_shared<const gt4r::race::StrobeMovie>(gt4r::race::StrobeMovie::parse(*file));
+    int masks = 0;
+    for (const auto& s : movie->sprites)
+        for (const auto& t : s.tracks) masks += t.clip != 0;
+    CHECK(masks > 0);
+    gt4r::race::StrobePlayer p(movie, [](const std::string& name, const std::vector<gt4r::race::StrobePlayer::Value>&) {
+        using V = gt4r::race::StrobePlayer::Value;
+        std::string n = name;
+        for (char& c : n) c = char(std::toupper(static_cast<unsigned char>(c)));
+        if (n == "PRIZELEVEL") return V::number(0);
+        if (n == "GETTIME") return V::string("0'07.867");
+        if (n == "GETRANK") return V::number(0);
+        if (n == "GETDEFAULTNAME") return V::string("AAA");
+        return V{};
+    });
+    p.restart();
+    bool time_shown = false, clipped_text = false;
+    float largest_bar = 0;
+    for (int i = 0; i < 360; ++i) {
+        p.advance(1.0f / 30.0f);
+        for (const gt4r::race::StrobePlayer::Draw& d : p.draw_list()) {
+            if (d.text && d.words == "0'07.867") time_shown = true;
+            if (d.text && d.words == "New Record" && d.clipped) clipped_text = true;
+            if (d.group && d.group->fill < movie->fills.size() && movie->fills[d.group->fill].kind == 0 && movie->fills[d.group->fill].value == 0x80FFFFFFu) {
+                float x0 = 1e9f, x1 = -1e9f;
+                for (const auto& q : d.group->triangles) {
+                    const float x = d.m[0] * q.x + d.m[2] * q.y + d.m[4];
+                    x0 = std::min(x0, x), x1 = std::max(x1, x);
+                }
+                largest_bar = std::max(largest_bar, x1 - x0);
+            }
+        }
+    }
+    CHECK(time_shown && clipped_text);
+    CHECK(largest_bar < 60); // (the mask's bar is 38 units wide before its scaling; drawn it was 225)
 }
