@@ -236,8 +236,8 @@ most 7). The cell [7][0] of tables 1 and 2 holds instead the sum of the courses'
 +0x228 .. +0x22F: two sets of four bytes). Before a race the program copies the car's column and the course's marks
 into the driver's record of 0x40 bytes (0x468710); after it, it writes the record back (0x468860: as it is, or with
 the change doubled, at most 0xFFFF; the marks likewise, at most 255, their change added to the sums). The change is
-doubled (0x468A60) when the race was a race (not a free run, a license test, a machine test or a training run: their
-conductors' vf6, 0x3F5518 / 0x3F5FA0 / 0x3F6990 / 0x3F7050, say so; DynamicsConductor's 0x358248 does not), of two cars or
+doubled (0x468A60) when the run's conductor's vf6 gives 0 (the base 0x358248: races, free practice, missions and
+training, 0x3F7050; a free run 0x3F5518, a license test 0x3F5FA0 and a machine test 0x3F6990 give 1), of two cars or
 more (cond + 0xF8A0, the car count), that the car finished (its +0x5B6) first (its place byte +0x5B3 at 1). The course's
 marks are read and written (0x468A40) only when the race's byte cond + 0xCBE7 is set: 0x34C7E0 fills cond + 0xCBE6 ..
 +0xCBED from the course's attribute text (0x447F08, `MCourseData.GetAttrString`), a character a value (digits, hex

@@ -75,6 +75,34 @@ TEST(disc_gt_mode_used_cars_by_day) {
     CHECK(f.clean());
 }
 
+// The catalog's figures in the player's units on that list (0x445F70, 0x445EE8: the engine row's integer times the
+// unit's factor, truncated), as the original's pages show them on 9 APR (playtest's B38).
+TEST(disc_gt_mode_used_cars_figures) {
+    Disc* disc = gt4_disc();
+    if (!disc || !sim::Program::load(*disc).known()) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    Flow f(*disc);
+    CHECK(f.gt_mode_with_a_car());
+    if (f.page() != "TopRoot") return;
+    f.rt->game().today = menu::date_to_day(2005, 4, 9);
+    f.map_focus("UsedCarEU");
+    f.press({menu::Key::Accept});
+    if (f.page() == "ConfirmDialog") f.press({menu::Key::Accept});
+    CHECK(f.page() == "UsedCarRoot");
+    std::string all;
+    for (int k = 0; k < 60; ++k) {
+        all += focused_texts(f) + "\n";
+        f.press({menu::Key::Down});
+    }
+    for (const char* torque : {"202.52", "260.38", "249.53", "162.74", "271.23", "216.98", "117.89", "73.77", "224.21", "278.46", "115.72", "332.71", "110.66", "78.11",
+                               "137.42", "253.15", "151.89"}) {
+        const bool found = all.find(std::string("Torque:") + torque + "ft.lb") != std::string::npos;
+        CHECK(found);
+        if (!found) std::printf("  no row with %s ft.lb\n", torque);
+    }
+    const size_t miata = all.find("Name=Mazda MX-5 Miata 1.8 RS");
+    CHECK(miata != std::string::npos && all.substr(miata, all.find('\n', miata) - miata).find("Power:142HP") != std::string::npos);
+}
+
 // The Professional hall's events in order with their modes, and the Tuning Car Grand Prix's regulations, as the
 // reference's pages (21-gtmode-deep: professional_events_hall_*.png, tuning_car_gp_regulations.png).
 TEST(disc_gt_mode_professional_hall) {

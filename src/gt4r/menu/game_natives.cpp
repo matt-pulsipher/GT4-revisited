@@ -359,6 +359,13 @@ Value GameNatives::make_option() {
             else s->options[n] = v.kind == Kind::Int ? v.i : s32(v.truthy());
         });
     }
+    // The volumes as the scripts pass them on: the raw option / 128 (menu_bgm_volume's 0x180AA8 and its six likes 0x180DA0,
+    // 0x181098, 0x181390, 0x181688, 0x181980, 0x181B80, the same routine but for the field); written, x 128 truncated.
+    for (const char* name : {"menu_bgm_volume", "menu_se_volume", "race_bgm_volume", "race_se_volume", "replay_bgm_volume", "replay_se_volume", "slide_bgm_volume"}) {
+        const std::string raw = std::string(name) + "_raw";
+        option->property(name, [s, raw] { return Value::number(option_value(s->options[raw]).as_float() / 128.0f); },
+                         [s, raw](const Value& v) { s->options[raw] = s32(v.as_float() * 128.0f); });
+    }
     // The screen settings: [brightness, contrast, saturation, color balance] as the Picture Quality
     // page reads and writes them (the program's four numbers at Option +0x1184, +0x1194).
     for (const char* name : {"race_color_correction", "replay_color_correction"}) {

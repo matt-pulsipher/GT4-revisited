@@ -367,9 +367,12 @@ the option words mean is not followed: a loaded game's options are kept as they 
 
 **The file**: the card's folder `BISCPS-15055GAMEDATA` (the product, 0x19BCB0, and "GAMEDATA", 0x19D250) holds the game
 data file of the folder's name (the file path as Gran Turismo 4's, File::vf15), `icon0.ico` (the disc's
-`icon/gamedata.ico`) and `icon.sys` (the disc's, with the title). The game data file is the payload as it is: Prologue's
-program has no counterpart of Gran Turismo 4's file encoder (0x1D4D10), decoder (0x1D4E60) or bit shuffle (0x1D4B78),
-and its file read (0x19C9D0) calls no decoder; there is no garage file (the count is 0). ❓ The title's text in
+`icon/gamedata.ico`) and `icon.sys` (the disc's, with the title). The game data file is the payload as it is: the read (0x19C9D0) makes a buffer of the file's size
+rounded up to 64 (0x4CC708, a vector's resize, the same routine as Gran Turismo 4's 0x5D0F50), reads the file into it and
+nothing else, and the load (0x19D2F8) hands that buffer to the Status's check and load, where Gran Turismo 4's read
+(0x1CDAC8) calls its decoder (0x1D4E60) in between. ❓ The write side (0x19C0F0) is not followed past its virtual calls,
+nor the file's padded size on the card;
+there is no garage file (the count is 0). ❓ The title's text in
 icon.sys (the program builds it at +0xC0 in 0x19C488 with a "[%d]" number): here the title the page gives.
 Not checked against a card the original wrote (no Prologue save from the console here).
 

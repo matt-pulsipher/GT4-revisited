@@ -53,6 +53,28 @@ TEST(disc_gt_mode_bspec_book_after_a_race) {
     tsukuba.bspec_book = g.bspec_book;
     f.rt->race_finished(bspec_result(tsukuba, 1, 10, k));
     CHECK(g.bspec_book[cell] == u16(before + 30));
+    // The meters: a B-spec race's to the B-spec total, a driven one's to the A-spec total (0x10FA58), no garage car needed.
+    tsukuba.bspec_book = g.bspec_book;
+    menu::RaceResult driven = bspec_result(tsukuba, 1, 0, k);
+    driven.distance_m = 4200.75f;
+    const s64 a0 = g.aspec_distance, b0 = g.bspec_distance;
+    f.rt->race_finished(driven);
+    CHECK(g.bspec_distance == b0 + 4200 && g.aspec_distance == a0);
+    driven.bspec_record.reset();
+    f.rt->race_finished(driven);
+    CHECK(g.bspec_distance == b0 + 4200 && g.aspec_distance == a0 + 4200);
+    // A mission's sequence (0x11BB60) does not count its meters.
+    driven.kind = menu::RaceResult::Kind::Mission;
+    f.rt->race_finished(driven);
+    CHECK(g.bspec_distance == b0 + 4200 && g.aspec_distance == a0 + 4200);
+    // The options' volumes as the scripts read them (0x180AA8): the raw 115 / 128, and back.
+    {
+        script::Vm& vm = f.rt->vm();
+        const script::Value opt = vm.attribute(vm.lookup("game"), "option");
+        CHECK(vm.attribute(opt, "menu_bgm_volume").as_float() == 115.0f / 128.0f && vm.attribute(opt, "menu_bgm_volume_raw").i == 115);
+        vm.member(opt, "replay_bgm_volume")->set(vm, script::Value::number(0.5f));
+        CHECK(vm.attribute(opt, "replay_bgm_volume_raw").i == 64);
+    }
     // A free run (a course's run) is never doubled.
     tsukuba.bspec_book = g.bspec_book;
     menu::RaceResult run = bspec_result(tsukuba, 0, 10, k);
