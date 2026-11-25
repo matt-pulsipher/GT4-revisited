@@ -80,9 +80,11 @@ void orig_step(Ee& ee, OrigRace& o);
 // left out).
 // `equipment`: each entry's equipment record (0x178 bytes) written over the car as sold (a demonstration's entries).
 // `before_init`: run after the conductor's constructor, before its initialisation (to install probes on the set-up).
+// `conductor`: another conductor's constructor (0: the single race's, DynamicsConductorSinglePlayer 0x3474C0), and
+// `vtable` the class's table written over the constructor's (0: none; a class without a constructor of its own).
 bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, const std::vector<std::string>& labels, int human, OrigRace& o,
                 std::string& err, bool drivers = false, const std::vector<std::array<u8, 0x178>>* equipment = nullptr,
-                const std::function<void()>& before_init = {});
+                const std::function<void()>& before_init = {}, u32 conductor = 0, u32 vtable = 0);
 // (`o` must stay where it is while the race runs: the pad stub reads it.)
 
 } // namespace gt4r::diff

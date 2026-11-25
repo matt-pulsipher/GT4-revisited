@@ -93,7 +93,8 @@ void boot(Ee& ee, Disc& disc, db::SpecDb& sdb) {
 }
 
 bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, const std::vector<std::string>& labels, int human, OrigRace& o,
-                std::string& err, bool drivers, const std::vector<std::array<u8, 0x178>>* equipment, const std::function<void()>& before_init) {
+                std::string& err, bool drivers, const std::vector<std::array<u8, 0x178>>* equipment, const std::function<void()>& before_init,
+                u32 conductor, u32 vtable) {
     o = OrigRace{};
     o.cars = int(labels.size());
     try {
@@ -218,7 +219,8 @@ bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, 
         ee.hle(0x449E10, [](Ee&) {}, "parts information open");
         ee.hle(0x44A048, [](Ee& e) { e.set_v0(0); }, "parts information row");
         o.cond = ee.alloc(kCondSize, 64);
-        ee.call(kConductorCtor, {Arg::ptr(o.cond)}, 50'000'000);
+        ee.call(conductor ? conductor : kConductorCtor, {Arg::ptr(o.cond)}, 50'000'000);
+        if (vtable) ee.w32(o.cond + kCondVtable, vtable);
         // GT4R_STEP_FUEL: the race's fuel rule (the rule block's byte +0x4C) on, every car's tank filled at its set-up.
         if (std::getenv("GT4R_STEP_FUEL")) ee.w8(o.cond + 0xF818 + 0x4C, 1);
         // GT4R_STEP_TREAD: a tread wear curve in the rule block (+0x2C .. +0x34), which the configuration makes the wear rules of.
