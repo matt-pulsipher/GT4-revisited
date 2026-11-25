@@ -697,17 +697,19 @@ public:
         const std::span<const race::CarState> cars = shown();
         const bool demo = demo_run_.has_value();
         h.replay = replaying_ || demo;
-        const race::CarState& me = cars[0];
-        const race::CarSpec& spec = world_->visual(0).spec();
+        // B-spec: the meters are the followed car's (Select Car), as the race display shows its target car.
+        const size_t shown_car = watched_ && !replaying_ ? std::min(focused(), cars.size() - 1) : 0;
+        const race::CarState& me = cars[shown_car];
+        const race::CarSpec& spec = world_->visual(shown_car).spec();
         h.speed = me.speed, h.rpm = me.engine_rpm, h.gear = me.gear;
         h.throttle = me.throttle, h.brake = me.brake;
-        h.fuel = replaying_ ? 1.0f : world_->fuel_share(0);
+        h.fuel = replaying_ ? 1.0f : world_->fuel_share(shown_car);
         h.suggested_gear = replaying_ || watched_ || demo ? -1 : world_->suggested_gear(0);
         h.trip_m = replaying_ ? 0 : distance_;
         h.lateral_g = replaying_ ? 0 : lateral_g_;
         h.red_line = spec.red_line, h.rev_limit = spec.rev_limit;
         // The speedometer's face by the car's top speed as the program estimates it (P +0xFD8).
-        if (const float top = world_->car_top_speed(0); top > 0) h.top_speed = top;
+        if (const float top = world_->car_top_speed(shown_car); top > 0) h.top_speed = top;
         h.driver_view = mount_ != race::DriveCamera::kChase && mount_ != kTvView;
         h.cars.clear();
         for (const race::CarState& c : cars) h.cars.push_back({c.position.x, c.position.z});
