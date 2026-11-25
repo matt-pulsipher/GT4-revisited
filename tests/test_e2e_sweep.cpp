@@ -75,8 +75,6 @@ std::vector<double> drive(Disc& disc, db::SpecDb& db, const sim::Program& progra
 // branch, each said in the output: delete an entry when its fix is merged.
 // B17: a race on tsukuba_wet crashes in the first step (fixed on agent/sim-step).
 const char* const kKnownCourses[] = {"tsukuba_wet"};
-// B18: the Priuses' hybrid box (fixed on agent/sim-parts e67ab90, ad49c04).
-const char* const kKnownCars[] = {"prius_g_02", "prius_g_touring_03"};
 
 template <size_t N> bool known(const char* const (&list)[N], const std::string& name) {
     for (const char* k : list)
@@ -150,10 +148,6 @@ TEST(disc_e2e_sweep_every_car) {
             if (sim::stock_car(db, program, c.label, one[0].equipment)) m = drive(*disc, db, program, "testcourse", road, one, 15.0)[0];
         } catch (const std::exception& e) {
             std::printf("  %s: %s\n", c.label.c_str(), e.what());
-        }
-        if (m < 10.0 && known(kKnownCars, c.label)) {
-            std::printf("  %s: %.0f m (an open problem, BUGS.md)\n", c.label.c_str(), m);
-            continue;
         }
         if (m < 10.0) {
             ++bad;
