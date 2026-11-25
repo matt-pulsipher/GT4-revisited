@@ -721,8 +721,9 @@ void Session::chassis(size_t i) {
         prologue::pad_rumble(c, prologue_cars_[i].layout, gx_[i].feel.pad);
     else
         ex::pad_rumble(c);
-    if (gt4_rules_) { // (0x353EE8: into the pad block; the engine's byte kept with it. A controller's own wheel options: none, 1 / 1)
+    if (gt4_rules_) { // (0x353EE8: into the pad block; the engine's byte kept with it)
         rules::ForceRace fr;
+        if (i < wheel_options_.size()) fr.strength = wheel_options_[i][0], fr.turn_factor = wheel_options_[i][1];
         fr.loose = aid_race_.course_kind != 0; // (0x34C998)
         rules::steer_force(c, gx_[i], layouts_[i], tables_.force, tables_.steer, fr);
         c.steer_force = gx_[i].force.out;

@@ -21,6 +21,10 @@ class Vfs;
 
 namespace gt4r::audio {
 
+// GT4R_SOUND_LOG set: the streams and the race's single effects are logged as they start (a check of the app without sound).
+bool sound_log();
+
+
 // The folder of the disc's region under music/, bgm/ and narration/ ("us", "jp"): the one that
 // holds a music index. Empty when the disc has none.
 std::string sound_region(gt3r::Vfs& vfs);

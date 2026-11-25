@@ -178,6 +178,14 @@ public:
     // The steering wheel's force of the last step (the pad block's +0x02: 0x80 centered, 0x80 - the force (-1 .. 1) x 127;
     // rules::steer_force, or the engine's on its own rules).
     u8 steer_force(size_t i) const { return cars_[i].steer_force; }
+    // A car's controller's own wheel options (RaceInput::vf4: the Driving Force Pro's POWER 0 .. 2, the strength's index, and its
+    // POWER_ASSIST, the steering change's factor on; 1 and 1 without them). They hold until set again.
+    void set_wheel_options(size_t car, gt3r::s16 strength, gt3r::s16 turn_factor) {
+        if (car >= wheel_options_.size()) wheel_options_.resize(car + 1, {gt3r::s16(1), gt3r::s16(1)});
+        wheel_options_[car] = {std::clamp<gt3r::s16>(strength, 0, 2), turn_factor};
+    }
+    // The hits of the last step in the program's order (0x350530: the car, 0 a wall, 1 a car, 2 a pylon, the part, the strength).
+    const std::vector<collide::Hit>& hits() const { return hits_; }
     // The aid block of the computer driver that drives a car (rules::driver_block from the course's set for the car:
     // 0x466C20), which Gran Turismo 4's aids use while a computer drives it. Without one a computer's car has no aids.
     void set_driver_aids(size_t car, const gt3r::sim::exact::Aids& block);
@@ -313,6 +321,7 @@ private:
     rules::HitRules hit_rules_;             // (the rule block's +0x46 .. +0x4A: all 0 in a single race)
     s16 pylons_hit_ = 0;                    // cond + 0x1003C
     std::vector<rules::PadMail> mail_;      // each car's request to its controller (a pit stop's answer, a B-spec command)
+    std::vector<std::array<gt3r::s16, 2>> wheel_options_; // set_wheel_options
     std::vector<collide::Hit> hits_;        // the collision step's hits this step
     u32 active_on_ = 0;                     // the active steering's switch as the controls' tables have it (0x84357C)
     std::vector<std::optional<gt3r::ee::F>> hold_heading_; // a car stood in its pit box: the box's heading (the hold's, 0x46BE70)

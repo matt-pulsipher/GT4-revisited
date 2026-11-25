@@ -3,10 +3,17 @@
 #include "base/log.h"
 #include "vfs/vfs.h"
 
+#include <cstdlib>
 #include <algorithm>
 #include <cctype>
 
 namespace gt4r::audio {
+
+bool sound_log() {
+    static const bool on = std::getenv("GT4R_SOUND_LOG") != nullptr;
+    return on;
+}
+
 
 namespace {
 
