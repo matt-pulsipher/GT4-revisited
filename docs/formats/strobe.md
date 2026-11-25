@@ -337,6 +337,23 @@ over the page's first frames; over it the run's time and its gap in red (`GetTim
 `GetTimeDif()`: seconds with three decimals, "133.366" and "+122.066" in the original's B-1 run,
 the gap to the bronze time), the test's title (`GetTitle()`, "License B-1"), the FAIL picture,
 then RETRY and EXIT (`EXIT_MENU("retry")` / `EXIT_MENU("exit")`, the RETRY row named `DEFAULT`).
+The movie's pictures the program draws are listed in the header (+0xB8: 0x18 bytes each, f32 x0, y0,
+x1, y1 the box about the track's origin, u32 name, u32 length), an external track's index naming one:
+here `screen` (300 x 225: the live picture) and `TropyPanel` (282.3 x 270.5). ResultLicense's picture
+callback (0x3E0E38): `screen` sets the race view's box (the FAIL page's inset; the PASSED part has
+none, so a passed test's page shows the race over the whole picture), any other name draws the
+trophy (0x3E0FF8): `race/trophy.mdl` in its material set by the result's kind (table 0x6A38F0: kinds
+1, 2 set 0, 3 set 1, 4, 5 set 2; gold, silver, bronze), through a lens 50 degrees high (0x49AC00:
+0.1 .. 100 m, the 640 x 448 picture's aspect), the whole picture then put into the panel's box; three
+passes a frame averaged, the motion stepped half a frame between them. The motion (0x3E18D0, stepped
+by 0x3E1A80, each value v += ((target - v) x gain + rate) x dt): the place's z from -0.5 to -2.5 at
+gain 0.5 (0.35 for kinds 1, 2), the turn about y at the rate of a spin easing to 60 degrees a second
+(gain 0.5), the picture's opacity 0 to 1 (gain 1); kinds 1, 2 start turned -22.5 degrees, kind 3 at 180
+with its spin from 1000 (gain 1.2), kinds 4, 5 at 270 and turned over (about x from -180 to 0, gain
+1.5; the spin's gain 3). The race display's three target times with their trophies stay over the
+page (the original's pass pictures). Here: the trophy drawn once a frame (no averaged passes), the
+grade's kind gold 1, silver 3, bronze 4 (❓ the result's kind +0x88 is not read), the live picture
+from the course's TV cameras (❓ the program's camera for the page is not read).
 Here: the grade from the run's time against the page's gold, silver and bronze times (❓ the
 tests' own failing rules are not read), the gap to the next grade up, the title from the race code
 (❓ the program's title routine is not read); RETRY runs the test again at once.

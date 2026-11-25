@@ -6,6 +6,7 @@
 // 0x3C0098 → 0x395498 → 0x3E6C20) and pushes event 15 with the time (0x359C10).
 
 #include "gt4r/base/types.h"
+#include "gt4r/formats/course/runway.h"
 
 #include <vector>
 
@@ -20,8 +21,11 @@ std::vector<float> road_list(ByteSpan rnw4, size_t list);
 // vf39 → 0x395528 / 0x395588 take them when the course object's section +0xB0 is set, else the road's +0x18 /
 // +0x1C). A race with a goal (1 m .. the lap less 1 m, 0x34C470) ends a car's run of kind 2 where it passes it
 // (0x358608 → vf23). ❓ The rest of the record (+0x08 .. +0x1C: counts and three pointers, a place among them).
+// +0x18 -> a section's own start places, u16 count at +0x0A (the program's grid place of the section, 0x3952C0:
+// road +0x5C's records otherwise; 16 bytes each: the place and its heading).
 struct RoadSection {
     float start = 0, goal = 0;
+    std::vector<course::Runway::Place> grid;
 };
 std::vector<RoadSection> road_sections(ByteSpan rnw4);
 
