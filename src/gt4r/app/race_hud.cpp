@@ -196,6 +196,7 @@ struct RaceHud::Impl {
     void draw_chase_panel(const HudState& s);
     void draw_driver_panel(const HudState& s);
     void draw_bars(const HudState& s, float x, float y);
+    void draw_suggested_gear(const DisplayRect& box, const HudState& s);
     void draw_dial(const DisplayRect& at, const std::string& face, float ox, float value, float min, float max, float a0, float a1,
                    float red_from, float& last_angle, float opacity);
     void draw_gear(const DisplayRect& box, const HudState& s);
@@ -556,6 +557,14 @@ void RaceHud::Impl::draw_gear(const DisplayRect& box, const HudState& s) {
     draw_text(font("GT4meter", 100, 1), box.x + box.w / 2, box.y + box.h - 12, kCentered | kMiddleOfLine, 0x80000000u, s.opacity, std::string(1, c));
 }
 
+// The suggested gear (RaceSuggestedGearDisplay) in its box: the digit in red (❓ the display's own drawing, vf5
+// 0x3A7108, is not read: the colour and size judged from the original's in-car view).
+void RaceHud::Impl::draw_suggested_gear(const DisplayRect& box, const HudState& s) {
+    if (s.suggested_gear < 1 || s.suggested_gear > 9) return;
+    draw_text(font("GT4meter", 100, 1), box.x + box.w / 2, box.y + box.h / 2, kCentered | kMiddleOfLine, 0x800000C8u, s.opacity,
+              std::string(1, char('0' + s.suggested_gear)));
+}
+
 // The chase view's meters at the bottom right: the speed on its plate, the gear, the rev bar.
 void RaceHud::Impl::draw_chase_panel(const HudState& s) {
     const int R = 640, B = 464;
@@ -566,6 +575,7 @@ void RaceHud::Impl::draw_chase_panel(const HudState& s) {
     const DisplayPlace speed{0, R - 59, B - 26, 0, 0, 13, 1};
     draw_text(meter, race::place_x(speed, true), float(speed.y), kEndsAtPen, kMeterBlue, o, speed_text(s));
     draw_gear(race::place_rect({0, R - 114, B - 44, 24, 26, 13, 0}, 24, 26, true), s);
+    draw_suggested_gear(race::place_rect({0, R - 143, B - 45, 44, 32, 13, 0}, 44, 32, true), s);
     // The rev bar: the unlit bar in black at half strength, the lit part over it, and a red line
     // over the part past the red line.
     const DisplayPlace bar{0, R - 26, B, 160, 10, 13, 1};
@@ -599,10 +609,10 @@ void RaceHud::Impl::draw_small_parts(const HudState& s, bool driver) {
         draw_at("sign_brake", {0, L + 147, B, 24, 24, 6, 1}, 0x800000C8u, o / 3);
         draw_at("sign_oil", {0, L + 175, B, 24, 24, 6, 1}, 0x800000C8u, o / 3);
     }
-    // The shift lamp.
+    // The shift lamp: its picture under a color scale of the lamp's level x 1.5 (0x3A7360), black when out.
     const bool shift = s.red_line > 0 && s.rpm >= 0.97f * s.red_line;
-    if (driver) draw_at("timing_lamp", {0, C + 103, B - 62, 8, 8, 2, 2}, shift ? kNeutral : 0x80404040u, o);
-    else draw_at("timing_lamp", {0, 640 - 142, B - 28, 8, 8, 13, 0}, shift ? kNeutral : 0x80404040u, o);
+    if (driver) draw_at("timing_lamp", {0, C + 103, B - 62, 8, 8, 2, 2}, shift ? kNeutral : 0x80000000u, o);
+    else draw_at("timing_lamp", {0, 640 - 142, B - 28, 8, 8, 13, 0}, shift ? kNeutral : 0x80000000u, o);
     // The sideways G meter: its base, and its point moved along it.
     {
         const DisplayRect base = draw_at("g_meter_base", {0, C, B, 214, 24, 2, u8(driver ? 2 : 1)}, kNeutral, o);
@@ -698,6 +708,7 @@ void RaceHud::Impl::draw_driver_panel(const HudState& s) {
         draw_dial(race::place_rect({0, C + 168, B - 100, 130, 100, 1, 0}, 130, 100, true), f->picture, -1, s.rpm, f->min, f->max, 84, 304, s.red_line, needle_from[1], o);
     needle_set = true;
     draw_gear(race::place_rect({0, C, B - 64, 24, 26, 2, 1}, 24, 26, true), s);
+    draw_suggested_gear(race::place_rect({0, C, B - 111, 44, 34, 2, 2}, 44, 34, true), s);
     const FontSpec meter = font("GT4meter", 100, 1);
     const float width = text_width(meter, "000");
     draw_text(meter, float(C - 2) + width / 2, float(B - 41), kEndsAtPen, kMeterBlue, o, speed_text(s));

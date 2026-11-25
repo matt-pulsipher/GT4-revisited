@@ -163,6 +163,8 @@ public:
     int gadget_contacts(size_t i) const;
     // A car's mass as the step reads it (the spec's weight, kg; 0 not known): the license tests' wall rule.
     float car_mass(size_t i) const;
+    // The suggested gear for a car the player drives (-1 none).
+    int suggested_gear(size_t i) const;
     // A car's fuel left as a share of its tank (1 without a tank).
     float fuel_share(size_t i) const;
     // A car's top speed as the program estimates it from the gearing (P +0xFD8, m/s; 0 not known): the

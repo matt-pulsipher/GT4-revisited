@@ -49,6 +49,7 @@ struct HudState {
     // The panels' smaller parts.
     float lateral_g = 0;              // the car's sideways acceleration in g (+ right)
     float throttle = 0, brake = 0;    // the pedals, 0..1
+    int suggested_gear = -1;          // the gear the car's driver would take for the corner ahead (-1 none)
     float trip_m = 0;                 // metres the car ran this race (the trip meter)
     float fuel = 1, tire_wear = 1;    // 0..1 left
     // B-spec (the player directs, the computer drives his car): display mode 1's places (the total
