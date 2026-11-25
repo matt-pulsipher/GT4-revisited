@@ -361,7 +361,8 @@ void RaceSound::update(std::span<const CarSoundState> states, const SoundListene
         // (the recorder keeps the step's strongest of every kind)
         if (contact_[i] > s.contact) s.contact = contact_[i], s.contact_kind = contact_kind_[i];
         contact_[i] = 0;
-        cars_[i]->update(s, camera, int(i) == target);
+        if (i > 0 && i <= more_cameras_.size()) cars_[i]->update(s, more_cameras_[i - 1], true);
+        else cars_[i]->update(s, camera, int(i) == target);
         places.emplace_back(s.rank, s.course_distance);
     }
 
@@ -370,13 +371,18 @@ void RaceSound::update(std::span<const CarSoundState> states, const SoundListene
     std::stable_sort(places.begin(), places.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
     std::vector<float> distances;
     for (const auto& p : places) distances.push_back(p.second);
-    CourseSound::Listener at;
-    at.position = camera.position, at.velocity = camera.velocity, at.right = camera.right;
-    if (ground_) {
-        sim::GroundHit hit;
-        if (ground_->under(camera.position, hit)) at.road_flags = hit.flags;
+    std::vector<CourseSound::Listener> listeners;
+    for (size_t k = 0; k <= more_cameras_.size(); ++k) {
+        const SoundListener& from = k == 0 ? camera : more_cameras_[k - 1];
+        CourseSound::Listener at;
+        at.position = from.position, at.velocity = from.velocity, at.right = from.right;
+        if (ground_) {
+            sim::GroundHit hit;
+            if (ground_->under(from.position, hit)) at.road_flags = hit.flags;
+        }
+        listeners.push_back(at);
     }
-    course_.update({at}, distances);
+    course_.update(listeners, distances);
     for (int c = 0; c < CourseSound::kChannels; ++c) {
         const CourseSound::Out& o = course_.channel(c);
         const float l = std::min(o.left * master, 1.0f), r = std::min(o.right * master, 1.0f);

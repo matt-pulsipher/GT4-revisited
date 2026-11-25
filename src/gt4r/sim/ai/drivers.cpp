@@ -1532,7 +1532,7 @@ void Field::decide(Driver& d) {
 }
 
 // The rubber band (the conductor's virtual 4, 0x365790, with 0x365910, 0x365688 and 0x365718, in the program's arithmetic):
-// from the reference car (the first of the order the field does not drive; none: car 0) outwards along the order, each car
+// from the reference car (the first of the order the computer does not drive; none: car 0) outwards along the order, each car
 // against the car between it and the reference, the factors chained: a car ahead slowed by up to the slowing's share past
 // its start gap, fully past its full gap or a lap ahead; a car behind hurried the same way (not on the pit lane); a finished
 // car keeps the chain's factor; each at most 1.3, times the overall factor.
@@ -1543,13 +1543,13 @@ void Field::rubber_band() {
     std::vector<size_t> order(n);
     for (size_t i = 0; i < n; ++i) order[size_t(std::clamp(ranks_[i], 1, int(n))) - 1] = i;
     size_t ref = n;
-    for (size_t pos = 0; pos < n && ref == n; ++pos)
-        if (!drivers_[order[pos]]) ref = order[pos];
+    for (size_t pos = 0; pos < n && ref == n; ++pos) // (0x34E418: the first of the order whose control source is not 2)
+        if (!drivers_[order[pos]] || drivers_[order[pos]]->control != 2) ref = order[pos];
     if (ref == n) ref = 0;
     const F lap(lines_.lap()), one = kOne;
     auto scale = [&](size_t r, size_t car, F prev) {
         F s = one;
-        if (!cars.finished(car)) {
+        if (!cars.finished(car) && !(drivers_[car] && drivers_[car]->kind >= 5)) { // (F +0x4B2: a run that is over)
             // 0x365910: the reference's lead in whole laps and metres, a lap taken over where the two disagree in sign.
             int laps = cars.state(r).lap - cars.state(car).lap;
             F gap = course_s(r) - course_s(car);

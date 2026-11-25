@@ -348,7 +348,7 @@ private:
                 }
                 // A race with its own menus: the race screen runs them over the race on these menus
                 // and leaves them where the race sequence ends (race_natives.h).
-                if (race_ && (!menu::quick_project(race_->sequence).empty() || race_->sequence == "replay" || race_->sequence == "race_view") && app.gpu()) {
+                if (race_ && (!menu::quick_project(race_->sequence).empty() || race_->sequence == "replay" || race_->sequence == "race_view" || race_->sequence == "split_battle") && app.gpu()) {
                     // The loading page before it, when the scripts asked for the last page held.
                     if (loading_ && runtime_->game().loading_mode == "capture") {
                         if (!loading_->active()) loading_->begin_capture();

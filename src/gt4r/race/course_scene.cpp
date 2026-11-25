@@ -149,6 +149,13 @@ CourseScene::CourseScene(render::GpuContext& ctx, ByteSpan course_file, const st
 
     vis_[size_t(View::Race)] = gt3r::course::Visibility::parse(file_.section(data_, course::kSlotWorldVis));
     vis_[size_t(View::Mirror)] = gt3r::course::Visibility::parse(file_.section(data_, course::kSlotWorldVis + 1));
+    // (The race view's and its mirror's lists where a course has none for the halves.)
+    const auto lists = [&](int slot, View otherwise) {
+        const ByteSpan s = file_.section(data_, slot);
+        return gt3r::course::Visibility::parse(s.empty() ? file_.section(data_, otherwise == View::Race ? course::kSlotWorldVis : course::kSlotWorldVis + 1) : s);
+    };
+    vis_[size_t(View::Half)] = lists(course::kSlotWorldVis + 2, View::Race);
+    vis_[size_t(View::HalfMirror)] = lists(course::kSlotWorldVis + 5, View::Mirror);
     env_vis_ = gt3r::course::Visibility::parse(file_.section(data_, course::kSlotEnvironment + 1));
 
     // The road reflection: the scenery stored mirrored below the road (slot 9) and the road as its
@@ -210,7 +217,7 @@ void CourseScene::upload_animations(std::span<const CarState> cars) {
 void CourseScene::add_items(std::vector<render::DrawItem>& items, const render::Vec3& eye, View view,
                             const gt3r::race::SceneryFade* fade) const {
     const render::ItemLights* lights = has_lights_ ? &lights_ : nullptr;
-    const bool mirror = view == View::Mirror;
+    const bool mirror = view == View::Mirror || view == View::HalfMirror;
     // The sky is drawn round the camera with the view's translation taken off.
     const render::GpuModel* sky = mirror && mirror_sky_ ? mirror_sky_.get() : sky_.get();
     const render::GpuModel* planes = !(mirror && mirror_sky_) && animated_sky_.gpu && animated_sky_.gpu->valid() ? animated_sky_.gpu.get() : nullptr;

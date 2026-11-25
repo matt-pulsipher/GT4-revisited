@@ -15,6 +15,7 @@
 
 #include "gt4r/app/app.h"
 #include "gt4r/app/menu_painter.h"
+#include "gt4r/app/race_common.h"
 #include "gt4r/app/race_hud.h"
 #include "gt4r/app/race_hud_prologue.h"
 #include "gt4r/app/race_world.h"
@@ -439,6 +440,8 @@ bool load_recorded_race(App& app, Setup& setup) {
     return true;
 }
 
+} // namespace
+
 // The screen settings of the racing views and of the replays and B-spec races, kept while the app
 // runs. ❓ The options' Picture Quality page keeps them in MOption (race_color_correction,
 // replay_color_correction: four numbers each); the menus here do not hold them as numbers yet.
@@ -494,6 +497,8 @@ std::shared_ptr<audio::RacePlaylist> new_game_playlist(App& app) {
         return nullptr;
     }
 }
+
+namespace {
 
 // The race itself: the world (race_world.h), its flow (race_flow.h) and the cameras.
 class Race {
@@ -3457,7 +3462,13 @@ private:
 
 } // namespace
 
-std::unique_ptr<Screen> make_race_screen(App& app) { return std::make_unique<RaceScreen>(app); }
-std::unique_ptr<Screen> make_race_screen(App& app, const RaceStart& start) { return std::make_unique<RaceScreen>(app, &start); }
+std::unique_ptr<Screen> make_race_screen(App& app) {
+    if (const char* e = SDL_getenv("GT4R_RACE"); e && (std::string(",") + e).find(",players=2") != std::string::npos) return make_split_screen(app, nullptr);
+    return std::make_unique<RaceScreen>(app);
+}
+std::unique_ptr<Screen> make_race_screen(App& app, const RaceStart& start) {
+    if (start.sequence == "split_battle") return make_split_screen(app, &start);
+    return std::make_unique<RaceScreen>(app, &start);
+}
 
 } // namespace gt4r

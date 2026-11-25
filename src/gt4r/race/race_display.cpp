@@ -25,7 +25,7 @@ namespace {
 
 // The single race's tables in SCUS-97328 v1.01's program: the elements every race of that kind
 // shows, then the lap times' side.
-constexpr u32 kTableCommon = 0x6A09A8, kTableTimes = 0x6A0838, kTableMode1 = 0x6A0BA0;
+constexpr u32 kTableCommon = 0x6A09A8, kTableTimes = 0x6A0838, kTableMode1 = 0x6A0BA0, kTableStacked = 0x6A0DE0, kTableSide = 0x6A0FD8;
 constexpr size_t kRow = 0x24;
 
 // Reads a table's rows (ending at a zero first word); false when what is there is not a table.
@@ -90,6 +90,13 @@ DisplayLayout read_mode1_layout(ByteSpan program, u32 load_address) {
     DisplayLayout l;
     if (!read_table(program, load_address, kTableMode1, l.places)) l.places.clear();
     if (!l.find(element::kPosition) || !l.find(element::kTotalTime) || l.find(element::kBestTime)) l.places.clear();
+    return l;
+}
+
+DisplayLayout read_split_layout(ByteSpan program, u32 load_address, bool side_by_side) {
+    DisplayLayout l;
+    if (!read_table(program, load_address, side_by_side ? kTableSide : kTableStacked, l.places)) l.places.clear();
+    if (!l.find(element::kPosition) || !l.find(element::kMap) || !l.find(element::kLapTime) || l.find(element::kLapCount)) l.places.clear();
     return l;
 }
 

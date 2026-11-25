@@ -82,6 +82,9 @@ struct HudState {
     // of the last lap (ms; <= 0 none).
     bool license = false;
     s64 targets[3] = {-1, -1, -1};
+    // A two-player half (0 the whole picture's display): 1 one above the other, 2 side by side; which of the two.
+    int split = 0, half = 0;
+    bool event_gap_lead = false; // the gap is a lead (blue), not behind (red)
     // The display's parts the options leave on (race_display_*).
     bool show_map = true, show_time = true, show_lap = true, show_position = true, show_meter = true;
 };
@@ -97,6 +100,8 @@ public:
     void draw(Ui& ui, const HudState& s);
     // Only a license test's three target times with their trophies (over its results page).
     void draw_license_targets(Ui& ui, const HudState& s);
+    // The two-player halves' layouts are the program's (HudState::split).
+    bool split_ready() const;
     // The race's words by key ("RaceStart"); the key itself when the table has none.
     std::string word(const std::string& key) const;
     bool mph() const;
