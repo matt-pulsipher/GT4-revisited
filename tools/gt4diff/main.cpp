@@ -3,10 +3,12 @@
 //   gt4r_diff <disc> [test]      tests: spec (every car's equipment and spec), params (the parameter block's fields)
 //   gt4r_diff <disc> ai [course] [cars] [laps]   the program's own computer drivers run a field (ai.cpp)
 //   gt4r_diff <disc> showroom [cars]             every car's showroom figures and evaluation (showroom.cpp)
+//   gt4r_diff <disc> states <state 0> <state 1> [keys]   the step from the original's saved states (states.cpp)
 
 #include "base/log.h"
 #include "diff.h"
 #include "showroom_check.h"
+#include "states.h"
 
 namespace gt4r::diff::prologue {
 int run(Disc& disc, const std::string& course, const std::string& car, int steps);
@@ -53,6 +55,17 @@ int main(int argc, char** argv) {
         }
         if (test == "bspec") // gt4r_diff <disc> bspec: the B-spec skill on made-up records
             ok = gt4r::diff::run_bspec_skill(*disc, true, {"s500_63", "nsx_r_02", "ka_01", "_787b_91", "impreza_wrx_sti_02"}).ran && ok;
+        if (test == "states") { // gt4r_diff <disc> states <state 0 eeMemory.bin> <state 1 eeMemory.bin> [keys] (states.cpp)
+            gt4r::diff::StatesOptions so;
+            if (argc > 5) so.keys = argv[5];
+            if (const char* e = std::getenv("GT4R_STATES_FRAMES")) so.frames = std::atoi(e);
+            so.resync = std::getenv("GT4R_STATES_RESYNC") != nullptr;
+            so.ours = std::getenv("GT4R_STATES_PROGRAM_ONLY") == nullptr;
+            if (const char* e = std::getenv("GT4R_STATES_OWN_START")) so.own_start = std::atoi(e);
+            const gt4r::diff::StatesResult r = gt4r::diff::run_states(*disc, argc > 3 ? argv[3] : "", argc > 4 ? argv[4] : "", so, true);
+            if (!r.ran) std::printf("states: %s\n", r.error.c_str());
+            return r.ran ? 0 : 1;
+        }
         if (test == "demo") ok = gt4r::diff::run_demo(*disc, true, argc > 3 ? argv[3] : "usl0b0001").ran && ok; // gt4r_diff <disc> demo [label]
         return ok ? 0 : 1;
     } catch (const std::exception& e) {
