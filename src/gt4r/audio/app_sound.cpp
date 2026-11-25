@@ -1,6 +1,7 @@
 #include "gt4r/audio/app_sound.h"
 
 #include "audio/audio_engine.h"
+#include "base/log.h"
 #include "vfs/vfs.h"
 
 #include <cstdio>
@@ -19,10 +20,16 @@ bool ends_with(const std::string& s, const char* tail) {
 StreamPlayer stream_player(gt3r::AudioEngine& audio, gt3r::Vfs& vfs) {
     StreamPlayer p;
     p.play = [&audio, &vfs](const std::string& path, bool repeat, float level) {
-        return audio.play_music(vfs, path, repeat, stream_request(level));
+        const bool ok = audio.play_music(vfs, path, repeat, stream_request(level));
+        if (sound_log()) LOG_INFO("Sound: stream %s%s at %.4f%s", path.c_str(), repeat ? ", repeating" : "", double(level), ok ? "" : ": not played");
+        return ok;
     };
-    p.stop = [&audio] { audio.stop_music(); };
+    p.stop = [&audio] {
+        if (sound_log() && audio.music_playing()) LOG_INFO("Sound: stream stopped");
+        audio.stop_music();
+    };
     p.pause = [&audio](bool paused) {
+        if (sound_log()) LOG_INFO("Sound: stream %s", paused ? "paused" : "on");
         if (paused)
             audio.pause_music();
         else

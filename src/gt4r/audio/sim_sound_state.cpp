@@ -25,13 +25,20 @@ CarSoundState sound_state(const sim::Session& session, size_t i, const RaceSound
     CarSoundState s;
     s.position = car.position, s.velocity = car.velocity;
     s.course_distance = car.course_v;
+    s.rank = c.rank;
     s.rpm = c.omega.host() * 9.549297f;
-    s.throttle = c.throttle.host();
+    // The engine's load (F +0x4F0, a boosted engine's throttle times its boost) and the two levels the step
+    // itself works out from it (0x350080: F +0x604, +0x605).
+    s.throttle = c.turbo_load.host();
+    s.engine_level = c.x4e4, s.exhaust_level = c.x4e5;
     s.torque_full = c.torque_wot.host(), s.torque_friction = c.torque_friction.host();
     s.clutch = c.clutch;
     s.speed = c.speed.host();
-    s.drag = c.p.drag_coef.host();
-    s.slipstream = s.cabin_wake = c.slip_filter.host();
+    // The wind and the cabin's rush take the body's drag coefficient alone (P +0x1064, the spec's byte +0x42 / 100), not
+    // the force's (P +0x1068, times half the air's density and the frontal area).
+    s.drag = float(session.spec(i).b(0x42)) * 0.01f;
+    s.slipstream = (session.gt4_rules() ? c.slip_target : c.slip_filter).host(); // (0x34FA90: F +0x59C; Prologue's 0x3B8AD8 and Gran Turismo 3: the filtered one)
+    s.cabin_wake = c.slip_filter.host(); // (0x34FBC0: F +0x5A0)
     s.engine_place = engine_place(session.spec(i));
     s.heart = session.spec(i).b(1) == 3; // (the car's category, P + 0x32)
     // (the record's spool level and blow-off already carry the program's two scales)
@@ -50,6 +57,7 @@ CarSoundState sound_state(const sim::Session& session, size_t i, const RaceSound
         o.rim_speed = in.rim_speed.host();
         o.width = c.p.width[w >> 1].host();
     }
+    s.nitrous = session.gt4_rules() && session.gt4_record(i).drive.fuel.nitrous_power.host() != 0; // (F +0x4DC, 0x354EB0)
     // The gearbox's whine (0x34FED0): the clutch's torque (F +0x51C), the gear's ratio against the
     // first's (the driveline block's +0x40 + 4 gear), the driven axles' speed (0x350DA0, by the
     // layout). Without Gran Turismo 4's routines running, the engine's record and the driven wheels.

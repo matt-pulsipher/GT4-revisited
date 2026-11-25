@@ -231,7 +231,7 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
         }
         m.sound = std::make_unique<audio::RaceSound>(vfs, engine.voices(), sound->driver(), sound->library_ptr(), audio::RaceSoundTables::from_program(program ? ByteSpan(program->program) : ByteSpan{}), music);
         for (const WorldEntry& e : setup.entries)
-            if (!m.sound->add_car(*app.db(), e.label)) LOG_WARN("Drive: no engine sound for %s", e.label.c_str());
+            if (!m.sound->add_car(*app.db(), e.label, e.equipment ? &*e.equipment : nullptr)) LOG_WARN("Drive: no engine sound for %s", e.label.c_str());
         m.sound->set_course(course_->section(course::kSlotSound), std::make_shared<const course::Runway>(course_->road()));
         // The volumes and output of the game's options, and the player's play list of racing music.
         m.sound->set_options(audio::race_sound_options(setup.options));
