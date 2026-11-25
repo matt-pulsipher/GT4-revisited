@@ -772,6 +772,46 @@ TEST(sound_race_session_on_disc) {
     CHECK(s.mixer().active_voices() == 0);
 }
 
+// A split screen's two cameras: each player's car is heard by his own half's camera, so the second player's engine sounds as
+// near as the first's however far apart they are, and the course's sound is the greatest of both places'.
+TEST(sound_race_two_cameras_on_disc) {
+    Disc* disc = full_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    Bytes data;
+    course::CourseFile file;
+    const auto road = open_road(*disc, "tsukuba", data, file);
+    CHECK(road != nullptr && road->grid.size() > 1);
+    if (!road || road->grid.size() < 2) return;
+    gt3r::Vfs vfs(&disc->volume());
+    const auto level = [&](bool two, size_t loud) {
+        audio::OfflineSound s(false);
+        auto library = std::make_shared<audio::SoundLibrary>(vfs);
+        audio::RaceSound sound(vfs, s.mixer(), s.driver(), library, audio::RaceSoundTables::from_core(disc->read_program()), {});
+        CHECK(sound.add_car("ka_01") && sound.add_car("ka_01"));
+        sound.set_course(file.section(data, course::kSlotSound), road);
+        sound.start();
+        std::vector<audio::CarSoundState> cars(2);
+        for (size_t i = 0; i < 2; ++i) {
+            cars[i].rpm = i == loud ? 5000.0f : 800.0f, cars[i].throttle = i == loud ? 1.0f : 0.0f, cars[i].torque_full = 3, cars[i].torque_friction = 1;
+            const course::Runway::Place& g = road->grid[0];
+            cars[i].position = {g.pos.x + (i ? 600.0f : 0.0f), g.pos.y, g.pos.z}; // (600 m apart)
+            cars[i].rank = int(i) + 1;
+        }
+        audio::SoundListener at[2];
+        for (size_t i = 0; i < 2; ++i) at[i].kind = audio::SoundListener::Kind::InCar, at[i].position = cars[i].position;
+        if (two) sound.set_more_cameras({at[1]});
+        for (int k = 0; k < 120; ++k) {
+            sound.update(cars, at[0], 0);
+            s.advance(1);
+        }
+        return rms(s.pcm, 60 * 800, 48000);
+    };
+    const double own = level(true, 0), other = level(true, 1), far = level(false, 1), idle = level(false, 2);
+    std::printf("  the first player's engine %.0f, the second's by his own camera %.0f, by the first's %.0f (both idle %.0f)\n", own, other, far, idle);
+    CHECK(own > 100 && near(other / own, 1.0, 0.15));
+    CHECK(far < other * 0.6);
+}
+
 // A rolling start (the original's arcade races): the racing music as the race begins to run, the
 // start's sound when the player's car reaches the line; the play list's pieces in turn; the replay
 // plays the race's first piece again at the replay's levels.

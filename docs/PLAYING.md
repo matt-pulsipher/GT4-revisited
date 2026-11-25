@@ -122,7 +122,7 @@ Wheel:
   B-spec watching the computer drive), the results, the replay, back to Arcade for another race.
   Time Trial and the other race kinds reach their races the same way.
 - **2 Player Battle**: the course, each player's car, paint and driving options, the race on a split screen (one half above the
-  other, or side by side with Options > Wide Screen) with its handicap, boost, tire damage and laps from the options, the
+  other, or side by side with the options at a 16:9 screen) with its handicap, boost, tire damage and laps from the options, the
   results, the replay. The second player's controller is the second one connected (Controls); without one, his keys of the
   keyboard. The first player's Start pauses.
 - **Options**: every page opens and keeps its values in the data folder; the laps, the units and
