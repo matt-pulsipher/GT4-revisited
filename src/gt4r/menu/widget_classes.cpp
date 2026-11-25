@@ -1037,6 +1037,85 @@ bool widget_key(Runtime& rt, LiveWidget& w, Key k) {
     return false;
 }
 
+namespace {
+
+// How a scrolling list stands in its box, as fractions of its whole length: where the shown part
+// starts (mScrollable's slot 104: 0x2DB9E8 a select box's, 0x2B45E0 a list box's) and how long it
+// is (slot 105: 0x2DBAD0, 0x2B4668).
+bool scroll_fractions(const LiveWidget& list, float& start, float& part) {
+    float extent = 0, total = 0;
+    if (is_select_box(list)) {
+        const std::vector<W> rows = rows_of(list);
+        const std::optional<Rect> g = list.data.rect("geometry");
+        if (rows.empty() || !g) return false;
+        const bool vertical = list.data.number("direction") != 0;
+        const float magnify = list.data.has("magnify_ratio") ? list.data.number("magnify_ratio") : 1.0f;
+        const float item = vertical ? list.item_h : list.item_w;
+        extent = vertical ? g->h : g->w;
+        total = (item + list.data.number("spacing")) * float(rows.size() - 1) + item * magnify;
+    } else if (list.is("ListBox")) {
+        if (list.list_items.empty()) return false;
+        extent = lb_extent(list), total = lb_total(list);
+    } else {
+        return false;
+    }
+    if (total <= 0) return false;
+    const float moved = -list.scroll;
+    start = moved < 0 ? 0.0f : std::min(1.0f - extent / total, moved / total);
+    part = extent / total;
+    return true;
+}
+
+// A scroll box's `pinch` (0x2CFBE0): along the list beside it, at the list's own start plus the
+// shown part's start of its length, the shown part of it long.
+void place_scroll_box_pinch(LiveWidget& box, const LiveWidget& list) {
+    const W pinch = box.child("pinch");
+    const std::optional<Rect> g = list.data.rect("geometry");
+    float start = 0, part = 1;
+    if (!pinch || !g || !scroll_fractions(list, start, part)) return;
+    start = std::max(start, 0.0f), part = std::min(part, 1.0f);
+    const bool vertical = list.data.number("direction") != 0;
+    pinch->set_property(vertical ? "y" : "x", Value::number(vertical ? g->y + start * g->h : g->x + start * g->w));
+    pinch->set_property(vertical ? "h" : "w", Value::number(part * (vertical ? g->h : g->w)));
+}
+
+// A scroll window's bars, `hbar` and `vbar`: their `base`, `pinch` and arrows `dec` / `inc`.
+Rect own_rect(const LiveWidget& w) { return w.data.rect("geometry").value_or(Rect{0, 0, 128, 128}); }
+void put_rect(LiveWidget& w, const Rect& r) {
+    w.set_property("x", Value::number(r.x)), w.set_property("y", Value::number(r.y));
+    w.set_property("w", Value::number(r.w)), w.set_property("h", Value::number(r.h));
+}
+float bar_arrow(const LiveWidget& bar, bool across) {
+    const W dec = bar.child("dec");
+    return !dec ? 0.0f : across ? own_rect(*dec).w : own_rect(*dec).h;
+}
+// The bar's parts along it (updateGeometry: 0x2D2068): the arrows at its ends, the base between.
+void arrange_scroll_bar(LiveWidget& bar, bool across) {
+    const Rect g = own_rect(bar);
+    const float length = across ? g.w : g.h, breadth = across ? g.h : g.w, arrow = bar_arrow(bar, across);
+    auto at = [across](LiveWidget& w, float along) {
+        w.set_property("x", Value::number(across ? along : 0.0f)), w.set_property("y", Value::number(across ? 0.0f : along));
+    };
+    if (const W dec = bar.child("dec")) at(*dec, 0);
+    if (const W inc = bar.child("inc")) at(*inc, length - arrow);
+    if (const W base = bar.child("base"))
+        put_rect(*base, across ? Rect{arrow, 0, length - 2 * arrow, breadth} : Rect{0, arrow, breadth, length - 2 * arrow});
+    if (const W pinch = bar.child("pinch")) at(*pinch, arrow);
+}
+// Each picture (0x2D3970, 0x2D2288): the pinch as long on its base as the window is on the space.
+void place_scroll_bar_pinch(const LiveWidget& window, const LiveWidget& space, LiveWidget& bar, bool across) {
+    const W base = bar.child("base"), pinch = bar.child("pinch");
+    if (!base || !pinch) return;
+    const Rect g = own_rect(bar), b = own_rect(*base), view = own_rect(window), whole = own_rect(space);
+    const float total = across ? whole.w : whole.h;
+    if (total <= 0) return;
+    const float ratio = (across ? b.w : b.h) / total, breadth = across ? g.h : g.w;
+    const float at = bar_arrow(bar, across) - (across ? whole.x : whole.y) * ratio, length = (across ? view.w : view.h) * ratio;
+    put_rect(*pinch, across ? Rect{at, 0, length, breadth} : Rect{0, at, breadth, length});
+}
+
+} // namespace
+
 void step_widgets(Runtime& rt, LiveWidget& w) {
     if (is_select_box(w)) select_box_layout(w, false);
     if (w.is("SliderBar") || w.is("ScaleBar")) arrange_slider(w);
@@ -1057,6 +1136,7 @@ void step_widgets(Runtime& rt, LiveWidget& w) {
             } else continue;
             if (const W inc = w.child("inc_arrow")) inc->state = more[0] ? inc->state | kActive : inc->state & ~kActive;
             if (const W dec = w.child("dec_arrow")) dec->state = more[1] ? dec->state | kActive : dec->state & ~kActive;
+            place_scroll_box_pinch(w, *c);
             break;
         }
     }
@@ -1075,6 +1155,10 @@ void step_widgets(Runtime& rt, LiveWidget& w) {
                 content->set_property("x", Value::number(std::fabs(tx - x) < 0.01f ? tx : x + (tx - x) * ratio));
                 content->set_property("y", Value::number(std::fabs(ty - y) < 0.01f ? ty : y + (ty - y) * ratio));
             }
+        }
+        if (content) {
+            if (const W bar = w.child("hbar")) place_scroll_bar_pinch(w, *content, *bar, true);
+            if (const W bar = w.child("vbar")) place_scroll_bar_pinch(w, *content, *bar, false);
         }
     } else if (w.is("ScrollBox")) {
         // The content follows the focused widget: it moves a part of the way each frame.
@@ -1433,6 +1517,25 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
     if (type == "ScrollWindow" || type == "ScrollBox") {
         if (n == "updateGeometry")
             return fn([w](Vm&, const Value&, Args) {
+                // A scroll window's space is what its children cover with its own start (0x2D2BF8,
+                // 0x208568; with none, the window's size), and its bars are laid out.
+                if (w->is("ScrollWindow")) {
+                    LiveWidget* space = scroll_content(*w);
+                    if (!space) return Value{};
+                    if (space->children.empty()) put_rect(*space, {0, 0, own_rect(*w).w, own_rect(*w).h});
+                    else {
+                        float x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+                        for (const auto& c : space->children) {
+                            const Rect g = own_rect(*c);
+                            x0 = std::min(x0, g.x), y0 = std::min(y0, g.y);
+                            x1 = std::max(x1, g.x + g.w), y1 = std::max(y1, g.y + g.h);
+                        }
+                        put_rect(*space, {x0, y0, x1 - x0, y1 - y0});
+                    }
+                    if (const W bar = w->child("hbar")) arrange_scroll_bar(*bar, true);
+                    if (const W bar = w->child("vbar")) arrange_scroll_bar(*bar, false);
+                    return Value{};
+                }
                 // The content is as tall as what is in it.
                 if (LiveWidget* content = scroll_content(*w)) {
                     float bottom = 0;
