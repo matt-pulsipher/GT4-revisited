@@ -578,6 +578,44 @@ TEST(sound_race_pit_effects_on_disc) {
     CHECK(sound.master() > 0.3f && peak > 300);
 }
 
+// The run's replay is heard from the sound inputs the session gave each step (the engine's torques, the wheels,
+// the contacts), not from estimates out of the cars' states.
+TEST(sound_race_replay_from_recording_on_disc) {
+    Disc* disc = full_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    const std::string labels[] = {"nsx_r_02"};
+    const std::unique_ptr<sim::Session> session = sim::Session::open(*disc, "tsukuba", labels);
+    gt3r::Vfs vfs(&disc->volume());
+    audio::OfflineSound s(false);
+    auto library = std::make_shared<audio::SoundLibrary>(vfs);
+    audio::RaceSound sound(vfs, s.mixer(), s.driver(), library, audio::RaceSoundTables::from_core(disc->read_program()));
+    CHECK(sound.add_car("nsx_r_02"));
+    race::CarInput in;
+    std::vector<std::vector<race::CarState>> history;
+    std::vector<int> live_engine, live_exhaust;
+    for (int i = 0; i < 240; ++i) {
+        in.throttle = i < 200 ? 1.0f : 0.0f; // (and a lift: the levels move)
+        session->step_once({&in, 1});
+        history.emplace_back(session->cars().begin(), session->cars().end());
+        sound.update(*session, audio::listener_at(session->cars()[0], audio::SoundListener::Kind::Chase), 0);
+        live_engine.push_back(sound.car(0).report().engine_level), live_exhaust.push_back(sound.car(0).report().exhaust_level);
+    }
+    CHECK(sound.recorded_steps() == 240);
+    sound.replay();
+    int same = 0;
+    for (size_t k = 1; k < history.size(); ++k) {
+        sound.update(history[k], audio::listener_at(history[k][0], audio::SoundListener::Kind::Chase), 0);
+        if (k < 30) continue; // (the levels' averaging forgets the step before the replay)
+        same += sound.car(0).report().engine_level == live_engine[k] && sound.car(0).report().exhaust_level == live_exhaust[k];
+    }
+    std::printf("  replayed steps with the live levels: %d of %zu\n", same, history.size() - 30);
+    CHECK(same == int(history.size()) - 30);
+    // A saved run (no recording): heard from its states.
+    sound.forget_recording();
+    CHECK(sound.recorded_steps() == 0);
+    sound.update(history[5], audio::listener_at(history[5][0], audio::SoundListener::Kind::Chase), 0);
+}
+
 // A race: a session on Tsukuba with its course sound, the count's beeps at 3, 2 and 1 seconds,
 // the start, then the cars driving.
 TEST(sound_race_session_on_disc) {

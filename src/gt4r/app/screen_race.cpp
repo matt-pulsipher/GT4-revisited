@@ -416,6 +416,7 @@ public:
         board_.begin(world_->car_count(), 0, lap_words_[0], lap_words_[1]);
         camera_.reset(world_->cars()[0]);
         history_.clear(), run_dist_.clear();
+        if (audio::RaceSound* sound = world_->sound()) sound->forget_recording();
         split_prev_.clear(), split_first_.clear(), split_steps_ = -1;
         distance_ = 0;
         replaying_ = false, over_ = false;
@@ -447,6 +448,7 @@ public:
     }
     void play_saved(race::ReplayFile&& f) {
         history_ = std::move(f.steps);
+        if (audio::RaceSound* sound = world_->sound()) sound->forget_recording(); // (a saved run: heard from its states)
         for (std::vector<race::CarState>& s : history_) s.resize(world_->car_count());
         ran_ = true;
         // (The replay's music: the play list's next piece, as a race's first.)
