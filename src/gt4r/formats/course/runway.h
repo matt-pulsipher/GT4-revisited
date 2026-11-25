@@ -102,6 +102,18 @@ struct Runway {
     // the triangle's corners; 0x3E5A30): 1 and 1 in the open. False (and 1, 1) without a triangle or on a GTRW road.
     // (`triangle`: the road triangle under it, -1 none.)
     bool light_at(float x, float z, float y_max, float& sun, float& sky) const;
+
+    // Made by parse(): the triangles by square cells of the ground, for a height no triangle of the point's cluster gives
+    // (a point beside the road would ask them all). Without it (a road put together by hand) all are asked.
+    void index_triangles();
+    struct Cells {
+        float x = 0, z = 0, size = 0; // the first cell's corner, a cell's side
+        int nx = 0, nz = 0;
+        std::vector<u32> start; // nx x nz + 1, into `list`
+        std::vector<u16> list;  // ascending within a cell
+        std::vector<u16> thin;  // triangles with hardly any area seen from above: asked everywhere
+        size_t triangles = 0;   // of the road it was made from
+    } cells;
 };
 
 // The road as a mesh: its triangles flat shaded by kind, a little above the surface.

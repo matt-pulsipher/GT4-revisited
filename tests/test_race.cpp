@@ -666,6 +666,33 @@ TEST(replay_script) {
     CHECK(threw);
 }
 
+// Another car followed from the same trackside camera: the shot's first view is on the new car (no turn left over
+// from the last one), and it says it is a cut, so that no frame is shown between the two cars' views.
+TEST(replay_camera_another_car) {
+    const race::ReplayScript s = race::ReplayScript::parse(two_shot_script());
+    race::CarState a, b;
+    a.course_v = 100, a.lap = -1;
+    b.course_v = 300, b.lap = -1;
+    gt3r::render::Mat4 at_a, at_b;
+    at_a.at(0, 3) = 10, at_a.at(2, 3) = -30;
+    at_b.at(0, 3) = 10, at_b.at(2, 3) = 30;
+    race::ReplayCamera cam;
+    race::ViewPose p, q, r;
+    CHECK(cam.pose(s, a, at_a, p) && cam.cut());
+    for (int i = 0; i < 30; ++i) CHECK(cam.pose(s, a, at_a, p) && !cam.cut());
+    cam.reset();
+    CHECK(cam.pose(s, b, at_b, q) && cam.cut());
+    CHECK(cam.record() == &s.records[0] && q.eye.x == p.eye.x && q.eye.z == p.eye.z);
+    CHECK(std::fabs(q.view.transform_point({10, 0.4f, 30}).x) < 1e-3f && q.view.transform_point({10, 0.4f, 30}).z < -29);
+    CHECK(cam.pose(s, b, at_b, r) && !cam.cut());
+    CHECK(std::fabs(r.view.transform_point({10, 0.4f, 30}).x) < 0.5f);
+    // (By their places alone the two views would be blended.)
+    CHECK(race::blend_poses(p, q, 0.5f).view.at(2, 2) != q.view.at(2, 2));
+    // From one shot to the next.
+    b.course_v = 875;
+    CHECK(cam.pose(s, b, at_b, r) && cam.cut());
+}
+
 TEST(replay_script_disc) {
     if (test::discs().empty()) SKIP("set GT4R_DISC");
     size_t scripts = 0, records = 0, covered = 0, asked = 0, backward = 0;

@@ -146,12 +146,11 @@ float ProgramRandom::next01() {
 db::SpecDb* Database::get(const RuntimeConfig& config) {
     if (tried) return db.get();
     tried = true;
-    if (config.program) {
+    if (config.program || config.program_image) {
         try {
-            const Bytes core = config.program();
-            names = ProgramTables::from_core(core);
-            gt3r::CoreImage image = gt3r::CoreImage::decode(core);
-            program = sim::Program::from_image(std::move(image.program), image.load_address);
+            const std::shared_ptr<const gt3r::CoreImage> image = config.image();
+            names = ProgramTables::find(image->program, image->load_address);
+            program = sim::Program::from_core(image);
         } catch (const std::exception& e) {
             rt->note(std::string("the program's tables were not read: ") + e.what());
         }

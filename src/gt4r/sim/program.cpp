@@ -12,7 +12,7 @@ namespace gt4r::sim {
 namespace {
 
 // FNV-1a over a stretch of the image.
-u64 hash(const Bytes& image, u32 base, u32 from, u32 to) {
+u64 hash(ByteSpan image, u32 base, u32 from, u32 to) {
     if (from < base || to > base + image.size() || from >= to) return 0;
     u64 h = 0xcbf29ce484222325ull;
     for (u32 a = from; a < to; ++a) h = (h ^ image[a - base]) * 0x100000001b3ull;
@@ -34,12 +34,18 @@ constexpr Routine kRoutines[] = {
 } // namespace
 
 Program Program::from_image(Bytes image, u32 load_address) {
+    auto core = std::make_shared<gt3r::CoreImage>();
+    core->program = std::move(image), core->load_address = load_address;
+    return from_core(std::move(core));
+}
+
+Program Program::from_core(std::shared_ptr<const gt3r::CoreImage> core) {
     Program p;
-    p.image_ = std::move(image);
-    p.base_ = load_address;
+    p.core_ = std::move(core);
+    p.base_ = p.core_->load_address;
     p.known_ = true;
     for (const Routine& r : kRoutines)
-        if (hash(p.image_, p.base_, r.from, r.to) != r.hash) p.known_ = false;
+        if (hash(p.image(), p.base_, r.from, r.to) != r.hash) p.known_ = false;
     // The static block's shape: a rolling-resistance curve of 1 to 8 rising speeds.
     if (p.known_) {
         const u32 n = p.b(kStatic + 0x0B);
@@ -55,8 +61,7 @@ Program Program::from_image(Bytes image, u32 load_address) {
 
 Program Program::load(Disc& disc) {
     try {
-        gt3r::CoreImage core = gt3r::CoreImage::decode(disc.read_program());
-        return from_image(std::move(core.program), core.load_address);
+        return from_core(disc.program_image());
     } catch (const std::exception& e) {
         Program p;
         p.issue_ = std::string("the disc's program cannot be read: ") + e.what();
@@ -65,8 +70,8 @@ Program Program::load(Disc& disc) {
 }
 
 u8 Program::b(u32 addr) const {
-    if (addr < base_ || addr - base_ >= image_.size()) return 0;
-    return image_[addr - base_];
+    if (!core_ || addr < base_ || addr - base_ >= core_->program.size()) return 0;
+    return core_->program[addr - base_];
 }
 
 } // namespace gt4r::sim

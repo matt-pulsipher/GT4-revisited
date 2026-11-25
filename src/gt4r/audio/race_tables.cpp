@@ -182,8 +182,15 @@ RaceSoundTables RaceSoundTables::find(ByteSpan image) {
 
 RaceSoundTables RaceSoundTables::from_core(ByteSpan core_file) {
     try {
-        const gt3r::CoreImage core = gt3r::CoreImage::decode(core_file);
-        return find(core.program);
+        return from_program(gt3r::CoreImage::decode(core_file).program);
+    } catch (const std::exception&) {
+        return flat();
+    }
+}
+
+RaceSoundTables RaceSoundTables::from_program(ByteSpan program) {
+    try {
+        return find(program);
     } catch (const std::exception&) {
         return flat();
     }
