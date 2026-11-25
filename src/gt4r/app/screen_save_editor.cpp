@@ -4,7 +4,9 @@
 // back). Pad, keyboard and mouse: up and down choose, left and right change, Cross opens or sets, L1 and R1 turn the page,
 // Triangle goes back, Start saves.
 //
-// GT4R_SAVE_EDITOR="open=<path>": that save opened at once (a card image, a save's folder), for scripted runs.
+// GT4R_SAVE_EDITOR="open=<path>;click=<frame>:<x>:<y>;move=<frame>:<x>:<y>", for scripted runs: that save opened at once (a card
+// image, a save's folder), the mouse clicked or moved at a frame (in the 640 x 360 picture). A scripted run's window takes no
+// other mouse.
 
 #include "gt4r/app/app.h"
 #include "gt4r/app/editor_popups.h"
@@ -13,6 +15,8 @@
 #include "gt4r/save/card_image.h"
 #include "gt4r/save/save_edit.h"
 #include "gt4r/save/save_library.h"
+
+#include "base/config.h"
 
 #include <SDL3/SDL_dialog.h>
 
@@ -81,6 +85,7 @@ struct Row {
     std::function<void(int)> change{};
     std::function<void()> activate{}, square{};
     std::string square_hint{}; // "{Square}: ..."
+    const char* cross_hint = "open"; // what Cross does
     bool selectable() const { return kind != Kind::Heading && kind != Kind::Info; }
 };
 
@@ -100,8 +105,15 @@ public:
         if (db::SpecDb* sdb = app.db()) codes_ = save::database_codes(*sdb);
         read_list();
         if (!card.empty()) open_card(card);
+        scripted_ = (SDL_GetWindowFlags(SDL_GetRenderWindow(app.renderer())) & SDL_WINDOW_NOT_FOCUSABLE) != 0;
         if (const char* env = std::getenv("GT4R_SAVE_EDITOR"))
-            if (const std::string e = env; e.rfind("open=", 0) == 0) open_path(e.substr(5));
+            for (std::string_view part : gt3r::split(env, ';')) {
+                const std::string t(part);
+                ScriptedMouse m;
+                if (t.rfind("open=", 0) == 0) open_path(t.substr(5));
+                else if (std::sscanf(t.c_str(), "click=%d:%f:%f", &m.frame, &m.x, &m.y) == 3) m.click = true, mouse_.push_back(m);
+                else if (std::sscanf(t.c_str(), "move=%d:%f:%f", &m.frame, &m.x, &m.y) == 3) mouse_.push_back(m);
+            }
     }
 
     void on_event(App& app, const SDL_Event& e) override {
@@ -112,7 +124,7 @@ public:
         }
         SDL_Event local = e;
         SDL_ConvertEventToRenderCoordinates(app.renderer(), &local);
-        pointer_.event(local);
+        if (!scripted_) pointer_.event(local);
         if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat) {
             // Typed into the field in front; its frames are not also the pad's keys.
             if (pad_.active) pad_.key(e.key), typed_wait_ = 12;
@@ -175,7 +187,30 @@ private:
     TextPopup text_;
     QuestionPopup confirm_;
 
+    struct ScriptedMouse {
+        int frame = 0;
+        float x = 0, y = 0;
+        bool click = false;
+    };
+    bool scripted_ = false;
+    std::vector<ScriptedMouse> mouse_;
+    void scripted_mouse(int frame) {
+        for (const ScriptedMouse& m : mouse_) {
+            if (m.frame != frame) continue;
+            SDL_Event e{};
+            e.type = SDL_EVENT_MOUSE_MOTION, e.motion.x = m.x, e.motion.y = m.y;
+            pointer_.event(e);
+            if (!m.click) continue;
+            for (const Uint32 type : {SDL_EVENT_MOUSE_BUTTON_DOWN, SDL_EVENT_MOUSE_BUTTON_UP}) {
+                SDL_Event b{};
+                b.type = type, b.button.button = SDL_BUTTON_LEFT, b.button.down = type == SDL_EVENT_MOUSE_BUTTON_DOWN, b.button.x = m.x, b.button.y = m.y;
+                pointer_.event(b);
+            }
+        }
+    }
+
     void pointer(App& app) {
+        if (!mouse_.empty()) scripted_mouse(app.frame());
         for (const PointerInput::Action& a : pointer_.take()) {
             const gt3r::HitArea* h = hits_.at(a.x, a.y);
             using K = PointerInput::Action::Kind;
@@ -625,7 +660,7 @@ private:
             for (const std::string& line : Ui::wrap(r.hint, pw)) ui.text(px, y, line, colors::kDim), y += 12;
             if (r.enabled) {
                 if (r.change) foot += "  {Left/Right}: change";
-                if (r.activate) foot += r.kind == Row::Kind::Number ? "  {Cross}: type it" : "  {Cross}: open";
+                if (r.activate) foot += std::string("  {Cross}: ") + (r.kind == Row::Kind::Number ? "type it" : r.cross_hint);
                 if (r.square && !r.square_hint.empty()) foot += "  " + r.square_hint;
             }
         }
@@ -693,7 +728,7 @@ private:
                 confirm_.open("Give up " + c + "?", {{"Give it up", [this] { editor_->abandon_championship(), changed(); }}, {"Keep it", [] {}}});
             });
         if (const int sold = e.used_sold())
-            link("Used cars sold this week", times(sold, "car", "cars"), "Put them back on sale.", [this] { editor_->restock_used(), changed(); });
+            link("Used cars sold this week", times(sold, "car", "cars"), "Put them back on sale.", [this] { editor_->restock_used(), changed(); }).cross_hint = "choose";
     }
 
     // ---- Garage --------------------------------------------------------------------------------------------------------
@@ -785,7 +820,7 @@ private:
         const menu::GarageEntry& g = s.garage[size_t(slot)];
         info(e.car_name(g.car), car_figures(slot));
         if (slot == s.riding_car) info("Your car now", "This one");
-        else link("Your car now", "Drive this one", "It becomes the car you are driving.", [this, slot] { editor_->set_active(slot), changed(); });
+        else link("Your car now", "Drive this one", "It becomes the car you are driving.", [this, slot] { editor_->set_active(slot), changed(); }).cross_hint = "choose";
         const std::vector<SaveEditor::Paint> paints = e.paints(g.car);
         const int paint = e.car_paint(slot);
         if (!paints.empty()) {
@@ -816,7 +851,7 @@ private:
             for (int c = 0; c < 4; ++c) link(kTires[c], extra_name(e.wheels(), e.wheel(slot, c), "The car's own"), "", [this, slot, c] { pick_extra(kTires[c], editor_->wheels(), editor_->wheel(slot, c), "The car's own", [this, slot, c](const std::string& l) { editor_->set_wheel(slot, c, l); }); });
         if (e.wing_allowed(slot)) link("Wing", extra_name(e.wings(), e.wing(slot), "None, or the car's own"), "", [this, slot] { pick_extra("Wing", editor_->wings(), editor_->wing(slot), "None, or the car's own", [this, slot](const std::string& l) { editor_->set_wing(slot, l); }); });
         heading("");
-        link("Remove this car", "", "", [this, slot] { remove_car(slot); });
+        link("Remove this car", "", "", [this, slot] { remove_car(slot); }).cross_hint = "choose";
     }
     static std::string extra_name(const std::vector<SaveEditor::Extra>& all, const std::string& label, const char* none) {
         if (label.empty()) return none;
@@ -836,7 +871,7 @@ private:
         picker_.open(title, std::move(items), at, [this, labels, f = std::move(f)](int i) { f(labels[size_t(i)]), changed(); });
     }
     void build_parts(int slot) {
-        link("Have every part", "", "Every part this car can take is in stock. Work on the engine and the body is not done by it.", [this, slot] { editor_->own_all_parts(slot), changed(); });
+        link("Have every part", "", "Every part this car can take is in stock. Work on the engine and the body is not done by it.", [this, slot] { editor_->own_all_parts(slot), changed(); }).cross_hint = "choose";
         bool work = false;
         for (const SaveEditor::PartKind& k : editor_->parts(slot)) {
             if (k.permanent && !work) heading("Work that is not undone in the game"), work = true;
@@ -949,7 +984,7 @@ private:
                         if (editor_->set_time(editor_->licenses()[k].tests[i], u32(v))) changed();
                     });
                 };
-                r.hint += " {Cross}: type the best time.";
+                r.cross_hint = "type the best time";
             }
         }
     }
@@ -1004,7 +1039,7 @@ private:
         link(editor_->won(e) ? "Clear this event" : "Win this event", event_state(e), e.championship ? "Every race of it and the championship." : "Every race of it.", [this, l, i] {
             const SaveEditor::Event& ev = editor_->events()[l].events[i];
             editor_->set_won(ev, !editor_->won(ev)), changed();
-        });
+        }).cross_hint = "choose";
         if (e.championship) {
             const int p = editor_->place(e.unit);
             choice("The championship", {"Not won", "Won"}, p == 0, [this, l, i](int v) { editor_->set_series(editor_->events()[l].events[i], v ? 0 : SaveEditor::kNotRun); });
@@ -1054,7 +1089,8 @@ private:
                 if (editor_->place(unit) == SaveEditor::kNotRun) return;
                 pad_.open("A-spec points", editor_->score(unit), 0, std::max(SaveEditor::kMaxScore, editor_->score(unit)), false, [this, unit](s64 v) { editor_->set_score(unit, int(v)), changed(); });
             };
-            r.hint += ". A-spec points: " + std::to_string(editor_->score(m.unit)) + (now == SaveEditor::kNotRun ? "." : ". {Cross}: type them.");
+            r.hint += ". A-spec points: " + std::to_string(editor_->score(m.unit)) + ".";
+            r.cross_hint = "type the A-spec points";
         }
     }
 
@@ -1067,13 +1103,13 @@ private:
             changed();
             done(times(got, "prize car", "prize cars") + " received." + (full ? " The garage is full: the rest could not be kept." : ""));
         });
-        r.enabled = waiting > 0;
+        r.enabled = waiting > 0, r.cross_hint = "receive them";
         int events = 0, set = 0;
         for (const SaveEditor::EventList& l : editor_->events())
             for (const SaveEditor::Event& e : l.events)
                 if (!e.prize.empty() && editor_->won(e)) ++events, set += editor_->prize_waiting(e);
         Row& w = link("Prize cars of the events won", std::to_string(set) + " of " + std::to_string(events) + " waiting", "Have the prize car of every event won waiting again.", [this] { editor_->all_prizes_waiting(), changed(); });
-        w.enabled = set < events;
+        w.enabled = set < events, w.cross_hint = "choose";
         heading("Given once each");
         for (size_t i = 0; i < editor_->presents().size(); ++i) {
             const SaveEditor::Present& p = editor_->presents()[i];
@@ -1110,7 +1146,7 @@ private:
                 Row& row = link(std::to_string(i + 1) + ". " + (r.entries[i].car.empty() ? "-" : r.entries[i].car), record_value(r, i), r.entries[i].date.empty() ? "" : "Set on " + r.entries[i].date + ".", [this, r, i] {
                     confirm_.open("Delete this time?", {{"Delete it", [this, r, i] { editor_->delete_entry(r, i), changed(); }}, {"Keep it", [] {}}});
                 });
-                row.square = row.activate, row.square_hint = "{Square}: delete";
+                row.cross_hint = "delete it";
             }
             if (r.entries.empty()) info("No times are kept", "");
             else

@@ -149,6 +149,11 @@ A payload of N bytes is stored in `S = (N + 0x47) & ~0x3F` bytes:
 
 Reading undoes the swaps, deciphers, and refuses a CRC that does not match (`INVALID_FILE`).
 
+A save's files can be run through these routines of the disc's program: `gt4r_diff <disc> save <folder or card image>`
+(`tools/gt4diff/save_check.*`): the decoder, the check, the read and what the write then makes of it, the garage's header and slots.
+The saves the reference made in the original, and the ones the save editor writes ([SAVE_EDITOR.md](../SAVE_EDITOR.md)), come back
+byte for byte.
+
 ## The garage file
 
 Money and the full records of the cars not driven are here, tied to the game data by a 32-bit
@@ -256,7 +261,8 @@ marks are read and written (0x468A40) only when the race's byte cond + 0xCBE7 is
 letters); +0xCBE7 is the second character's: Tsukuba "1ff0" set, Grand Canyon "0000" not. The record is written back only over the book and marks the
 run started from (`RaceResult::bspec_start`), and a doubled change below zero, which the program's 16-bit store would wrap,
 is not written (❓ whether a run can lower its record is not read). Tests: `disc_gt_mode_bspec_book_after_a_race`,
-`disc_race_request_*`. The Status
+`disc_race_request_*`. The courses whose second attribute character is not 0 are 58, and 58 x 4 marks x 255 = 59,160 = 0xE718, the most the
+figures count of each sum (test `disc_save_edit_career_and_records`). The Status
 page's figures (0x468B58): Machine (0x467C58), Course (0x467D90), Battle (0x467F60), each 0 .. 100, and the B-spec
 Skill (0x4680D8) 0 .. 10000, weighed by the program's 0x623E40 (8 .. 15). ✔ Equal to the program's on made-up books
 (`gt4r_diff <disc> book`) and to the original's Status page on the reference's card (29-bspec-record: 508 / 10 / 7 /
@@ -295,6 +301,9 @@ The race's car is the sheet in use: `garage[slot].record->active()` is the
   last result, 12-15 the result shown on the map, 16-23 the best score. Results: 0 .. 7 the
   places, 8 abandon, 9 gold, 10 silver, 11 bronze, 12 red, 13 failed, 14 view, 15 none. A new
   unit: 0x0000FFF0.
+  The last result is what the present page has not looked at yet: Gran Turismo mode's `PresentRoot::win` takes it (sets it to none), a
+  single race's into the result shown on the map when that is better; an event's prize car is given when every race of it is
+  first on the map and one of them has just become so, a championship's when its own record's last result is first.
 - **A license test's ranking** (0x1F8): 10 entries of 0x2C (u32 time ms, u16 year, u8 month,
   u8 day of the real clock, u8 result, 32 bytes of pass code, "--------" when empty), then 16
   u32 section times. Empty times are 359,999,999.

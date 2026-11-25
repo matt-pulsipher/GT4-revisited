@@ -158,6 +158,9 @@ TEST(disc_save_edit_career_and_records) {
     for (int k = 0; k < SaveEditor::kCarClasses; ++k) ed.set_bspec_class_level(k, 100);
     ed.set_bspec_course_level(100);
     const SaveEditor::BSpec most = ed.bspec();
+    // (The courses' sums are the marks', at most the program's own most: 58 courses of four marks.)
+    std::printf("  the courses' sums %u and %u of %u\n", ed.state().bspec_book[64 + 56], ed.state().bspec_book[128 + 56], 0xE718u);
+    CHECK(ed.state().bspec_book[64 + 56] == ed.state().bspec_book[128 + 56] && ed.state().bspec_book[64 + 56] % 1020 == 0);
     std::printf("  B-spec at its most: %d, %d / %d / %d; courses %d %%\n", most.skill, most.machine, most.course, most.battle, ed.bspec_course_level());
     CHECK(most.skill >= 9'900 && most.machine >= 99 && most.course >= 99 && most.battle >= 99 && ed.bspec_course_level() == 100);
     ed.set_bspec_class_level(3, 40);

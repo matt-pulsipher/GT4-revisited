@@ -18,8 +18,12 @@ Prologue disc starts the same way.
    card without game data: the game offers to make one (OK), which leads to Gran Turismo mode's
    name entry and introduction; Cancel and "Start game" play without one (Arcade only).
 4. Select and Start together leave the game for the home screen: the disc's cars, courses, menu
-   pages and files, a race set up by hand (*Drive*), another disc, and *Play* to start the game
+   pages and files, a race set up by hand (*Drive*), the *Save editor*, another disc, and *Play* to start the game
    again. `[game] start = hub` in `config.ini` opens the home screen first.
+5. The *Save editor* changes a saved game: credits and the day, the garage (any car of the game, its paint, parts and
+   settings), licenses, events, missions, prize cars, records, what Arcade mode has open. Nothing is written until you
+   save, and the save as it was is kept in the data folder's `backups/` first. It also opens PlayStation 2 memory card
+   images. [SAVE_EDITOR.md](SAVE_EDITOR.md).
 
 ## Controls
 
