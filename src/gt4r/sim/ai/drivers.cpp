@@ -373,6 +373,7 @@ Field::Probe Field::probe_get(size_t car) const {
     p.pit = d.pit, p.arc_ticks = d.arc_ticks, p.blend = d.blend, p.offset = d.offset;
     p.steer = d.steer, p.throttle = d.throttle, p.brake = d.brake, p.reverse = d.reverse, p.shift_lock = d.shift_lock;
     p.kind = d.kind;
+    p.aim_x = d.aim_x, p.aim_y = d.aim_y;
     p.pd_last = d.pd_last, p.pd_rate = d.pd_rate;
     p.record = d.record, p.car_class = d.car_class;
     p.follow = z.follow, p.chain = z.chain, p.contact = z.contact, p.zone = z.zone, p.gap_left = z.gap_left, p.gap_right = z.gap_right;

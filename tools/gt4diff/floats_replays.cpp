@@ -109,7 +109,7 @@ struct AloneBeside {
                     if (std::memcmp(a, b, sl.size) == 0) continue;
                     // (display's and the drivers' words the session does not keep)
                     if (sl.name.rfind("input.line_", 0) == 0 || sl.name.rfind("input.driver_", 0) == 0 || sl.name.rfind("input.pace_", 0) == 0 || sl.name == "input.overtake" || sl.name == "input.steer_kind" ||
-                        sl.name == "near.driver_line" || sl.name == "aids.tcs_class")
+                        sl.name == "near.driver_line" || sl.name == "lap_base" || sl.name == "aids.fuel" || sl.name == "start.line" || sl.name == "phases.wrong_way" || sl.name == "aids.scale_on" || sl.name == "start.x6c4" || sl.name == "aids.tcs_class")
                         continue;
                     u32 x = 0, y = 0;
                     std::memcpy(&x, a, std::min<u32>(sl.size, 4)), std::memcpy(&y, b, std::min<u32>(sl.size, 4));
@@ -132,11 +132,17 @@ struct AloneBeside {
                     if (a != b) std::snprintf(t, sizeof t, " %s %d %d", what, a, b), out += t;
                 };
                 const bool pad = ee.r8(F0 + 0x466) == 0 && ee.r8(F0 + 0x467) == 0;
+                if (pad && !std::getenv("GT4R_FLOATS_SHADOW")) continue; // (a pad car's driver only plans)
                 if (!pad) bits("steer", ee.r32(D + 0x30), p.steer.bits), bits("throttle", ee.r32(D + 0x34), p.throttle.bits), bits("brake", ee.r32(D + 0x38), p.brake.bits), num("mode", ee.r8(D + 0x1E), p.mode);
-                num("rand", ee.r16(D + 0x68), p.rand), bits("corner", ee.r32(D + 0xB8), p.corner_mult.bits), bits("braking", ee.r32(D + 0xBC), p.brake_mult.bits), bits("gap left", ee.r32(D + 0x58), p.gap_left.bits), bits("gap right", ee.r32(D + 0x5C), p.gap_right.bits);
+                num("arc ticks", ee.r16(D + 0x22), p.arc_ticks), num("status", gt3r::s8(ee.r8(D + 0x43)), p.status), num("cooldown", gt3r::s8(0) + s16(ee.r16(D + 0x18)), p.cooldown), num("state", ee.r8(D + 0x1B), p.state);
+                num("follow", gt3r::s8(ee.r8(D + 0x51)), p.follow), bits("contact", ee.r32(D + 0x44), p.contact.bits), num("start flag", ee.r8(D + 0x1A), p.start_flag), num("stop count", ee.r8(D + 0x52), p.stop_count), num("kind", ee.r8(F0 + 0x467), p.kind);
+                num("rand", ee.r16(D + 0x68), p.rand);
+                if (ee.r8(F0 + 0x466) != 0) bits("corner", ee.r32(D + 0xB8), p.corner_mult.bits), bits("braking", ee.r32(D + 0xBC), p.brake_mult.bits);
+                bits("gap left", ee.r32(D + 0x58), p.gap_left.bits), bits("gap right", ee.r32(D + 0x5C), p.gap_right.bits);
                 for (u32 k = 0; k < 8; ++k) num(("zone" + std::to_string(k)).c_str(), ee.r8(D + 0x48 + k), p.zone[k]);
                 num("next", ee.r8(D + 0x1D), p.next), num("line", ee.r8(D + 0x1C), p.line), num("prev", ee.r8(D + 0x21), p.prev_line);
                 bits("blend", ee.r32(D + 0x2C), p.blend.bits), bits("offset", ee.r32(D + 0x54), p.offset.bits), bits("v_cur", ee.r32(D + 0x24), p.v_cur.bits), bits("v_next", ee.r32(D + 0x28), p.v_next.bits);
+                if (!pad) bits("aim x", ee.r32(F0 + 0x61C), p.aim_x.bits), bits("aim y", ee.r32(F0 + 0x620), p.aim_y.bits);
                 if (!out.empty()) std::printf("  driver %d step %d (program ours, mode %d):%s\n", i, step, ee.r8(D + 0x1E), out.c_str()), ++driver_lists;
             }
         if (any) ++steps_listed;
@@ -225,7 +231,6 @@ int run_floats_replays(Disc& disc, const std::vector<std::string>& args) {
                 run.label = n, run.demo = *d;
                 for (const replay::PadRecord& f : run.demo.streams[0].frames) run.pads.push_back({f.bytes});
                 alone = std::make_unique<AloneBeside>(disc, sdb, std::move(run));
-                opt.on_setup = [&](Ee&) {};
                 opt.on_step = [&](Ee& ee, OrigRace& o, int step) {
                     alone->race.step();
                     alone->compare(ee, o, step);
