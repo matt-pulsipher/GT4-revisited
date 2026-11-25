@@ -1788,6 +1788,11 @@ void Field::step(Session& session, std::span<race::CarInput> inputs, int keep, u
     if (first_step_ && session.time() == 0) std::fill(scale_.begin(), scale_.end(), kOne);
     first_step_ = false;
     apply_time_scales(session);
+    for (const auto& dp : drivers_)
+        if (dp) {
+            session.set_pace_level(dp->car, dp->pace);
+            if (dp->control == 1) session.set_shift_factor(dp->car, shift_factor(dp->car));
+        }
     auto plans_only = [&](const Driver& d) { return (d.control == 0 && d.kind == 0) || int(d.car) == keep; };
     for (auto& dp : drivers_)
         if (dp && dp->car < inputs.size() && !plans_only(*dp)) {

@@ -379,7 +379,7 @@ void Session::release_start(int car) {
     }
     // (the session has no line object: the driver's line change is taken as made)
     rules::release(cars_[size_t(car)], gx_[size_t(car)], true);
-    publish(size_t(car));
+    states_[size_t(car)].rolling = cars_[size_t(car)].driver_kind == 1; // (not published again: the step's change along the course stays)
 }
 
 bool Session::count_rolling(size_t car) {

@@ -254,6 +254,10 @@ public:
     // one-speed or stepless box of kind 1, else the lowest whose up-shift speed (less 2,000 rpm in first, 500 after; a B-spec
     // driver's factor in it) the speed is under, else the top gear.
     int gear_for_speed(size_t i, gt3r::ee::F speed) const;
+    // A driver's pace level (car +0x81, D +0x6D: 0 .. 4; 2 as the set-up leaves it): the TCS target's factor of a B-spec driver's car.
+    void set_pace_level(size_t car, int level) {
+        if (car < gx_.size()) gx_[car].aids.tcs_class = u8(level);
+    }
     void set_shift_factor(size_t i, u8 factor) {
         if (i < gx_.size()) gx_[i].drive.shift_factor = factor;
     }
