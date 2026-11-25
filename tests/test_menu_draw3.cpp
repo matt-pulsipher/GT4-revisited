@@ -102,8 +102,8 @@ namespace menu_draw3_test {
 // The boxes cut their children to their rectangles unless their layout says not (mBox's
 // constructor); other composites do not.
 TEST(menu_boxes_clip_by_default) {
-    for (const char* box : {"Box", "HBox", "VBox", "FBox", "MBox", "RootWindow", "SelectBox"}) CHECK(menu::clips_by_default(box));
-    for (const char* other : {"Composite", "ScrollBox", "ScrollWindow", "SelectBar", "ListBox", "TextFace", "Button", "OptionMenu", "SliderBar", "ScaleBar"})
+    for (const char* box : {"Box", "HBox", "VBox", "FBox", "MBox", "RootWindow", "SelectBox", "ListBox"}) CHECK(menu::clips_by_default(box));
+    for (const char* other : {"Composite", "ScrollBox", "ScrollWindow", "SelectBar", "TextFace", "Button", "OptionMenu", "SliderBar", "ScaleBar"})
         CHECK(!menu::clips_by_default(other));
 }
 

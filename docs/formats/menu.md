@@ -60,7 +60,7 @@ none compared with the program's own code yet):
 | `visible` 0 | Not drawn, nor its children |
 | `visible_condition`, `visible_compare` | Which states a widget shows in (0x265DC8): with a compare, when the compared bits equal the condition's; with a condition alone, when any of its bits is on; with neither, always. The bits: 1 active, 2 focus, 4 prelight, 8 insensitive (the older files' `cond_active`, `cond_focus`, `cond_prelight`, `cond_insensitive`). Whose state: "States" under "Running" |
 | `opacity` | Multiplies the alpha of the widget and its children |
-| `clip` 1 | Children are cut to the rectangle. The boxes (`Box`, `HBox`, `VBox`, `FBox`, `MBox`), `RootWindow` (0x232E00) and `SelectBox` (0x2D8C90: the event halls' lists) cut by default (mBox's constructor 0x200C08 sets it, 0x206858); `OptionMenu` (0x2C7498), `ScaleBar` (0x236860) and `SliderBar` (0x2DD820), boxes too, turn it off again; other composites do not (0x204F10): the layouts write `clip 0` on boxes and `clip 1` on the others |
+| `clip` 1 | Children are cut to the rectangle. The boxes (`Box`, `HBox`, `VBox`, `FBox`, `MBox`), `RootWindow` (0x232E00) and `SelectBox` (0x2D8C90: the event halls' lists) cut by default (mBox's constructor 0x200C08 sets it, 0x206858); `OptionMenu` (0x2C7498), `ScaleBar` (0x236860) and `SliderBar` (0x2DD820), boxes too, turn it off again; so does the list box a layout's is copied from (its constructor 0x2AEA98 does not set it; measured in four saved states, in the same set of widgets whose faces have `is_face`, and the Replay Theater's rows are cut; Arcade's list writes `clip 0`); other composites do not (0x204F10): the layouts write `clip 0` on boxes and `clip 1` on the others |
 | `ColorFace` `color` | One colour, or four for the corners clockwise from the top left |
 | `ImageFace` `image_path`, `color` | The picture over the rectangle, tinted; `blend` 1 adds |
 | `FrameImageFace` `tl_`, `t_`, `tr_`, `l_`, `r_`, `bl_`, `b_`, `br_image_path`, `image_path` | Corners at their own size, sides stretched between, the middle over the rest |
@@ -612,7 +612,8 @@ sequence starts when the scripts that asked for it finish (a new work object, 0x
   real date, the pass code). Its day is the sequence's: when the license sequence ends (0x114E38
   -> 0x110800) the diary gets the last run's day (result, note 14, time), or a day with nothing in
   it when there was no run or its result is 13: every visit to a test's page is a day, as the
-  original's calendar shows. **A course's run** (0x115A90) is a day of the diary.
+  original's calendar shows. **A course's run** (0x115A90) is a day of the diary;
+  Arcade's race and time trial are none (0x111498 and 0x112620 reach none of 0x42F0E0's callers).
 
 The prize page of the quick projects counts the prize into the credits (`incMoney`, ten at a
 time); the presents (prize cars, licenses) are given by Gran Turismo mode's present page on
