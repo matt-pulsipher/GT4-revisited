@@ -317,7 +317,10 @@ void Session::place_standing(size_t car, F x, F y, F z, F heading) {
 }
 
 void Session::set_pit_hold(size_t car, u16 steps) {
-    if (car < cars_.size()) cars_[car].hold = steps;
+    if (car >= cars_.size()) return;
+    cars_[car].hold = steps;
+    if (pit_by_caller_.size() < cars_.size()) pit_by_caller_.resize(cars_.size(), 0);
+    pit_by_caller_[car] = 1;
 }
 
 void Session::set_wear_rules(const u8* rule_block, bool second_on, const Program& program) {
@@ -662,7 +665,12 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
             rules::layout7_step(c, g);                                   // phase 2 (0x355E10)
             rules::moods(c, g, mood_tables_, l, tables_.bumps.soft, 0);  // phase 3 (0x35CA60; ❓ no pass-by states: no rival)
             rules::start_hold(c, countdown, start_counters_[i]);          // (0x34C210 and the car's own counter)
-            rules::prep(c, g, l, tables_, race_.prep.condition, grip);   // phase 4 (0x357700)
+            { // phase 4 (0x357700; the pit stop's counter 0x35C0B8 not when the caller keeps it: set_pit_hold)
+                const u16 hold = c.hold;
+                if (i < pit_by_caller_.size() && pit_by_caller_[i]) c.hold = 0;
+                rules::prep(c, g, l, tables_, race_.prep.condition, grip);
+                c.hold = hold;
+            }
             // (the masses with the fuel, 0x354AC0, as the fuel's state has them, and the fuel the aids read)
             rules::masses(c, g.drive.fuel, g.chassis.mass, g.body.sprung_mass);
             g.aids.fuel = g.drive.fuel.fuel, g.aids.fuel_capacity = g.drive.fuel.capacity;

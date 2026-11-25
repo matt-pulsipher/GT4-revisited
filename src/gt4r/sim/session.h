@@ -75,8 +75,9 @@ public:
     // course's x, -z, y; z the road's height there): the pose (0x3630C0), 0x3455F0 and the standing start (0x363560).
     // For a pit stop; Gran Turismo 4's rules only.
     void place_standing(size_t car, gt3r::ee::F x, gt3r::ee::F y, gt3r::ee::F z, gt3r::ee::F heading);
-    // The car's hold counter (F + 0x4BA): the preparation's pit stop counter (0x35C0B8) runs while it is above 0, and the
-    // attitude's start hold (0x36AE20) holds the body over the ground.
+    // The car's hold counter (F + 0x4BA) as its caller's pit stop keeps it (the computer drivers' PitStops runs the stop's
+    // timing, 0x35C0B8, on its own record): the car is held (the attitude's start hold 0x36AE20, the input's), and once a
+    // car's counter is given so the session's preparation no longer runs 0x35C0B8 for it. Set it each step.
     void set_pit_hold(size_t car, u16 steps);
     double time() const { return double(steps_) * double(kStep); }
     const RoadGround& ground() const { return *ground_; }
@@ -198,6 +199,7 @@ private:
     std::vector<collide::Hit> hits_;        // the collision step's hits this step
     u32 active_on_ = 0;                     // the active steering's switch as the controls' tables have it (0x84357C)
     std::vector<std::optional<gt3r::ee::F>> line_heading_; // each car's driving line's heading, when its caller gives it
+    std::vector<u8> pit_by_caller_;         // the car's hold counter is its caller's (set_pit_hold)
     rules::Tables tables_;
     rules::StartTables start_tables_;
     std::vector<u32> start_counters_; // each car's own start hold counter (conductor + 0xCBFC + 4 i: 0 in a single race)
