@@ -163,6 +163,9 @@ void MenuCars::load_stage() {
                 mdls::Options mo;
                 mo.model = int(i);
                 gt3r::scene::Model bg = mdls::build_model(*f, mo, "bg" + std::to_string(i));
+                // (Its program writes no depth: the backdrops share their places.)
+                for (gt3r::scene::Mesh& mesh : bg.meshes)
+                    for (gt3r::scene::Primitive& p : mesh.primitives) p.flags |= gt3r::scene::kNoDepthWrite;
                 stage_.push_back(std::make_unique<render::GpuModel>(*app_.gpu(), bg));
             }
         }
@@ -513,13 +516,13 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
     o.repeated = true;
     o.sort_blended = true;
     o.gt3_lighting = true;
-    // The stage's lights from light.mot at its time (light 3 is all zero): each one's place as
-    // the direction toward it (❓ the program's lights are not read as points or directions),
-    // ambient, diffuse and specular; its ColorScale on the car's colour; light 0 throws the car's
-    // shadow, shadowDarkness0 its strength, bottomShadow the shadow under the car (❓
-    // shadowBlur0 is not applied).
+    // The stage's lights from light.mot at its time (CustumLightPosition 0x1D6C98): each one's place
+    // as the direction toward it, in the world, with its ambient, diffuse and specular; the global
+    // ambient 0. (Light 3, all zero, lights nothing. The file's ColorScale is not read by the
+    // program.) Light 0 throws the car's shadow: shadowDarkness0 its strength, shadowBlur0 how far
+    // its layers spread; bottomShadow is the shadow under the car.
     menu::FaceView lit = v;
-    float color_scale = 1;
+    float stage_dark = 0, stage_blur = 0;
     race::CarVisual::Shadow stage_shadow;
     render::Vec3 shear{0, 0, 0};
     const bool stage_lights = s.advanced && light_motion_ && !light_motion_->lights.empty();
@@ -539,14 +542,14 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
             L.pos[3] = 0;
         }
         for (float& a : lit.world_ambient) a = 0;
-        color_scale = light_motion_->named_at("ColorScale", stage_time_, 1.0f);
         const render::Vec3 l0 = render::normalize({lit.lights[0].pos[0], lit.lights[0].pos[1], lit.lights[0].pos[2]});
         if (l0.y > 0.2f) shear = {-l0.x / l0.y, 0, -l0.z / l0.y};
         const float bottom = std::clamp(light_motion_->named_at("bottomShadow", stage_time_, 0.7f), 0.01f, 1.0f);
         const float dark = std::clamp(light_motion_->named_at("shadowDarkness0", stage_time_, 0.6f), 0.0f, 1.0f);
         stage_shadow.on = true;
         stage_shadow.alpha = std::round(bottom * 64) / 64;
-        stage_shadow.light_factor = std::round(dark / stage_shadow.alpha * 64) / 64;
+        stage_shadow.light_factor = 1 / stage_shadow.alpha; // (the thrown shape whole: its layers weigh it)
+        stage_dark = dark, stage_blur = std::max(light_motion_->named_at("shadowBlur0", stage_time_, 0.0f), 0.0f);
     }
     menu_face3d::light(lit, o);
     if (SDL_GPUTexture* env = env_texture(project, page, s.env_image)) {
@@ -558,6 +561,7 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
     sh.on = true;
     for (int i = 0; i < 3; ++i) sh.rgb[i] = v.lights[0].sdw[i];
     sh.alpha = shadow_opacity >= 0 ? shadow_opacity : v.lights[0].sdw[3];
+    sh.light_factor = 0; // (a car face asks for no thrown shadow, only the car's own under it: 0x451D18)
     if (stage_lights) sh = stage_shadow;
     // (set_shadow makes the shadows' models anew: only when the look changes; the light's
     // direction is set apart, every picture.)
@@ -565,13 +569,22 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
     c->visual->set_shadow_shear(shear);
     items_.clear();
     if (s.advanced)
-        // Each backdrop with a weight, cross-faded over black (0x1D5588).
+    {
+        // The backdrops averaged by their weights, one over another at its part of the sum so far
+        // (0x1D5588), then faded to black by what the sum lacks of 1 (0x1D5620).
+        float whole = 0, sum = 0;
+        for (size_t i = 0; i < stage_.size() && i < weights.size(); ++i) whole += weights[i];
         for (size_t i = 0; i < stage_.size() && i < weights.size(); ++i)
-            if (stage_[i] && weights[i] > 0.004f) {
+            if (stage_[i] && weights[i] > 0) {
+                sum += weights[i];
+                if (weights[i] / sum < 1.0f / 128) continue;
                 render::DrawItem it{stage_[i].get(), Mat4::identity(), -2};
-                it.alpha = weights[i];
+                it.alpha = weights[i] / sum;
+                it.tint = std::min(whole, 1.0f);
+                it.in_order = true;
                 items_.push_back(it);
             }
+    }
     // The page's other models (loadModelSet: a mechanic, a shadow), moved by their motions.
     std::vector<render::DrawItem> sets;
     if (!s.advanced && fade >= 0.02f) add_model_motions(f, s, m, project, page, placed, c->spec, fade, sets);
@@ -607,10 +620,42 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
         }
     }
     items_.insert(items_.end(), sets.begin(), sets.end());
-    c->visual->add_shadow_items(items_, state);
-    const size_t car_from = items_.size();
+    if (!stage_lights) c->visual->add_shadow_items(items_, state);
+    else {
+        // The stage's shadow (0x1D6378, 0x1D6968): per sample, five throws of the shape along the
+        // light tilted sideways by the blur, weighing 1/2, 1/4 .. 1/32 (the alpha bits they
+        // write), all the samples averaged. Here each is a layer over the last, at the alpha that
+        // leaves the sum where they all cover. ❓ Not its tires' own throws (tire.mdl) nor the half
+        // resolution it is made at.
+        std::vector<render::DrawItem> thrown;
+        c->visual->set_shadow_shear(shear);
+        c->visual->add_shadow_items(thrown, state);
+        if (thrown.size() < 2) items_.insert(items_.end(), thrown.begin(), thrown.end());
+        else {
+            const float lx = lit.lights[0].pos[0], ly = lit.lights[0].pos[1], lz = lit.lights[0].pos[2];
+            const render::Vec3 n = render::normalize({lx, ly, lz}), r2 = render::normalize({-n.z, 0, n.x});
+            constexpr int kSamples = 4;
+            static const float kTurn[6] = {-1, 1, -2, 2, -3, 3}; // (0x6956B8)
+            float before = 0;
+            for (int p = 1; p < 6; ++p)
+                for (int i = 0; i < kSamples; ++i) {
+                    const float angle = stage_blur * float(10 + p) / 16 * kDeg, phi = (float(i) + 0.125f) / kSamples + kTurn[p] / 8;
+                    const float k = std::tan(angle) * std::sin(3.14159265f * phi);
+                    const render::Vec3 l{n.x + r2.x * k, n.y, n.z + r2.z * k};
+                    if (l.y < 0.1f) continue;
+                    const float w = stage_dark * float(1 << (7 - p)) / 128 / kSamples;
+                    c->visual->set_shadow_shear({-l.x / l.y, 0, -l.z / l.y});
+                    std::vector<render::DrawItem> one;
+                    c->visual->add_shadow_items(one, state);
+                    one[0].alpha = w / (1 - before);
+                    one[0].in_order = true;
+                    items_.push_back(one[0]);
+                    before += w;
+                }
+            items_.insert(items_.end(), thrown.begin() + 1, thrown.end());
+        }
+    }
     c->visual->add_items(items_, state, eye);
-    for (size_t i = car_from; i < items_.size(); ++i) items_[i].tint *= color_scale;
     view_->draw(app_.renderer(), page_rect, view, proj, eye, items_, o);
 }
 
