@@ -1,0 +1,37 @@
+#pragma once
+
+// main::network (the program's MNetwork, 0x1E9A40) on a lobby of ours (net/lobby.h), and what the arcade project's LAN
+// Battle pages need beside it. docs/specs/net.md "The game's own pages". Without a lobby (Runtime::network null) the natives
+// answer as a console without the Network Adaptor.
+
+#include "gt4r/menu/game.h"
+#include "gt4r/net/lobby.h"
+
+#include "gt4r/script/vm.h"
+
+#include <optional>
+#include <string>
+
+namespace gt4r::menu {
+
+class Runtime;
+struct GameNatives;
+
+// The MNetwork object.
+script::Value make_network(Runtime& rt);
+
+// The arcade project's pages with a lobby: every car (the makers' and the garages' pages of the 2-Player Battle) beside
+// the favorites when the host lets them race, a car the host does not let race told at once. Called when the project's
+// scripts are read.
+void adapt_lan_pages(Runtime& rt);
+
+// The race's settings as the LAN battle takes them (getBattleSettingRace, 0x161F28: the 2-Player Battle's options).
+net::RaceRules rules_from_options(const GameState& g);
+// The car the pages' player chose (the garage's car, else the car page's car, color and tires), with its driving settings;
+// nullopt without one. The digest is not made.
+std::optional<net::CarChoice> choice_of_pages(Runtime& rt);
+
+// The pages left from outside: the lobby gone, the arcade's first page next (a lost connection, the lobby's Leave).
+void leave_lan_pages(Runtime& rt);
+
+} // namespace gt4r::menu

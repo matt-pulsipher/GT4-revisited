@@ -23,8 +23,10 @@
 #include <SDL3/SDL.h>
 
 #include <functional>
+#include <map>
 #include <memory>
 #include <string>
+#include <variant>
 #include <vector>
 
 namespace gt4r {
@@ -280,6 +282,9 @@ namespace menu {
 class Runtime;
 struct RaceRequest;
 }
+namespace net {
+struct OnlineRace;
+}
 
 struct RaceStart {
     std::string course; // a course file's name ("tsukuba")
@@ -291,6 +296,10 @@ struct RaceStart {
     // ("single_race"): the race runs that sequence's own menus on them and leaves them where it ends.
     menu::Runtime* menus = nullptr;
     std::string sequence;
+    // An online race the lobby loaded (net/online_race.h): its cars, rules and places in place of the fields above, and the
+    // game's options (menu::GameState::options; empty: a new game's).
+    std::shared_ptr<const net::OnlineRace> online;
+    std::map<std::string, std::variant<s32, float, std::string>> options;
 };
 std::unique_ptr<Screen> make_race_screen(App& app, const RaceStart& start);
 // The photo shoot the menus ask for (the sequence "photo_shoot"): the location and the car of the running menus' request; it runs the

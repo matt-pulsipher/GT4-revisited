@@ -35,6 +35,7 @@ struct HudState {
         float x = 0, z = 0;
     };
     std::vector<Dot> cars;            // every car's place on the course; the first is the player's
+    std::vector<int> letters;         // a network race: each car's letter (0 "A" .. 5 "F", its entry), in place of the dots
     double time = 0;                  // seconds since the race began, for the pulsing marker
     std::string message;              // the big middle message ("3", "START", "FINISH"); UTF-8
     float message_opacity = 0;

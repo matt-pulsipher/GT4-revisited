@@ -1,5 +1,7 @@
 #include "gt4r/app/race_world.h"
 
+#include "gt4r/net/lan_rules.h"
+
 #include "gt4r/race/aspec_points.h"
 
 #include "gt4r/sim/showroom.h"
@@ -332,7 +334,7 @@ void RaceWorld::build_simulation() {
                 entries[i].automatic = we.automatic, entries[i].pedal_style = we.pedal_style;
                 entries[i].asm_on = we.asm_on, entries[i].tcs_on = we.tcs_on, entries[i].wheel_aid = we.wheel_aid;
                 entries[i].driver = we.driver;
-                entries[i].control = pad_car(i) ? 0 : i == 0 ? 1 : 2;
+                entries[i].control = players_car(i) ? 0 : i == 0 ? 1 : 2;
                 // An event's race counts fuel (0x35E108 sets the rule block's +0x4C to 80; vf26 0x34CA20 clears it on a course
                 // whose row's +0x14 is 0, a loose course and in a run alone, 0x3F7058 a training's and a mission's); a run
                 // without laps (practice, a free run) runs on the free-run conductor, whose rule block holds 0 there (the
@@ -376,6 +378,13 @@ void RaceWorld::build_simulation() {
                 if (!race::course_start(*app_.db(), setup_.course).fuel && !app_.db()->prologue()) std::memset(rule_block, 0, sizeof rule_block);
                 session_->set_wear_rules(rule_block, !session_->loose(), program);
             }
+            if (setup_.lan_wear >= 0) { // (a battle between machines: 0x354F30 in place of the event's)
+                u8 rule_block[0x80] = {};
+                const std::array<u8, 9> wear = net::lan_wear(program, setup_.lan_wear);
+                std::copy(wear.begin(), wear.end(), rule_block + 0x2C);
+                session_->set_wear_rules(rule_block, false, program);
+                net::lan_boost(program, setup_.lan_boost, setup_.pace);
+            }
             // The computer drivers: every car but the player's (his too when he watches).
             // The player's own car keeps a driver that plans but does not drive (the program's pad car: its decision each
             // step, the suggested gear from it).
@@ -396,7 +405,7 @@ void RaceWorld::build_simulation() {
                         arm_bspec(program);
                     }
                     for (size_t i = 0; i < setup_.entries.size(); ++i)
-                        if (pad_car(i)) field_->set_shadow(i);
+                        if (players_car(i)) field_->set_shadow(i);
                     for (size_t c = 0; c < commands_.size(); ++c) field_->command(c, {commands_[c].pace - 1, commands_[c].overtake ? 1 : 0});
                     // (their aids: the player's too, which a car its driver drives in its rolling start takes)
                     for (size_t car : computer) session_->set_driver_aids(car, field_->params(car).aids, field_->params(car).grip);
@@ -468,7 +477,7 @@ void RaceWorld::plan_starts(const sim::Program& program, std::vector<sim::Entry>
         starts_.push_back(race::plan_start(r, i, we.grid_place >= 0 ? we.grid_place : int(i), rolling));
         const race::PlannedStart& p = starts_.back();
         entries[i].start_speed = p.line ? 0.0f : we.start_speed;
-        race::put_start(entries[i], r, p, pad_car(i), we.grid_place >= 0 ? we.grid_place : int(i), program);
+        race::put_start(entries[i], r, p, players_car(i), we.grid_place >= 0 ? we.grid_place : int(i), program);
         if (rolling && !p.line) entries[i].start_distance = we.start_distance; // (no driving line: the road's middle)
     }
 }
@@ -493,7 +502,7 @@ void RaceWorld::first_lines(const sim::Program& program) {
     if (!program.known()) return;
     for (size_t i = 0; i < starts_.size(); ++i) {
         const WorldEntry& we = i < overrides_.size() && overrides_[i] ? *overrides_[i] : setup_.entries[i];
-        field_->start_line(i, race::first_line(start_course_->race(), starts_[i], pad_car(i), we.grid_place >= 0 ? we.grid_place : int(i), program));
+        field_->start_line(i, race::first_line(start_course_->race(), starts_[i], players_car(i), we.grid_place >= 0 ? we.grid_place : int(i), program));
         if (session_->cars()[i].rolling) field_->hold_rolling(i);
     }
 }
@@ -1103,6 +1112,8 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
         const size_t first = m.items.size();
         m.add_drivers(m.items, i, cars[i], pose.eye, lens_ && lens_->full_detail ? nullptr : &lod_view);
         car_visuals_[i]->add_items(m.items, cars[i], pose.eye, dt, lens_ && lens_->full_detail ? nullptr : &lod_view, !(m.pit_live && m.pit_scene && int(i) == m.pit_shown && m.pit_scene->wheels_off(i)));
+        if (const float a = car_alpha(i); a < 1)
+            for (size_t k = first; k < m.items.size(); ++k) m.items[k].alpha = a;
         if (m.pit_live && int(i) == m.pit_shown) m.add_pit_crew(m.items, i, *car_visuals_[i]);
         light_items(m.items, first, m.lights[i]);
     }
@@ -1352,6 +1363,8 @@ void RaceWorld::render_mirror(Ui& ui, const SDL_FRect& rect, std::span<const rac
         m.add_drivers(m.mirror_items, i, cars[i], pose.eye, nullptr);
         car_visuals_[i]->add_items(m.mirror_items, cars[i], pose.eye, half <= 0 ? kStep : 0.0f);
         if (light) light_items(m.mirror_items, first, *light);
+        if (const float a = car_alpha(i); a < 1)
+            for (size_t k = first; k < m.mirror_items.size(); ++k) m.mirror_items[k].alpha = a;
     }
     render::DrawOptions o = draw_options(*course_, kDepth);
     o.mirrored = true;

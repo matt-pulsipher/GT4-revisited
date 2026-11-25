@@ -111,9 +111,9 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
     : road_(std::move(road)) {
     if (!road_) throw std::runtime_error("session: no road");
     if (entries.empty()) throw std::runtime_error("session: no cars");
-    ground_ = std::make_unique<RoadGround>(*road_);
+    ground_ = std::make_shared<RoadGround>(*road_);
     if (!program.known()) notes_.push_back(program.issue() + ": the shared engine's tables serve");
-    data_ = std::make_unique<ex::ProgramData>(core_program(program));
+    data_ = std::make_shared<ex::ProgramData>(core_program(program));
 
     // The start places that stand on the road, each at the road's height.
     std::vector<course::Runway::Place> places;
@@ -278,7 +278,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
         publish(i);
     }
     // The collision bodies (0x45B978: an octagon from the body's extents, the mass and the yaw inertia).
-    walls_ = std::make_unique<collide::Walls>(*road_, *ground_);
+    walls_ = std::make_shared<collide::Walls>(*road_, *ground_);
     bodies_.resize(cars_.size());
     body_cars_.resize(cars_.size());
     for (size_t i = 0; i < cars_.size(); ++i) {
@@ -460,7 +460,7 @@ void Session::set_start_delay(size_t car, u32 steps) {
 }
 
 void Session::set_pit_hold(size_t car, u16 steps) {
-    if (car >= cars_.size()) return;
+    if (car >= cars_.size() || posed(car)) return;
     cars_[car].hold = steps;
     if (pit_by_caller_.size() < cars_.size()) pit_by_caller_.resize(cars_.size(), 0);
     pit_by_caller_[car] = 1;
@@ -848,19 +848,32 @@ void Session::collide() {
             in.steer = one < v ? one : v < minus ? minus : v;
         }
         in.rumble = &cars_[i].hit_rumble;
+        if (!posed(i)) continue;
+        // A posed car: its body starts back along the posed motion (the pose is the end of this step), from its own outline, with
+        // none of the last step's contacts held.
+        b.cx = c.pos.x - (c.vel.x * c.dt), b.cy = c.pos.y - (c.vel.y * c.dt), b.cz = c.pos.z - (c.vel.z * c.dt);
+        b.heading = c.heading - (c.yaw_rate * c.dt);
+        b.have_points = 0;
+        for (collide::Point& q : b.p) q.flags = 0;
+        in.player = false;
     }
     hits_.clear();
+    car_contacts_.clear();
     collide::step_all(bodies_, body_cars_, *walls_, gt4_rules_ ? &hits_ : nullptr);
+    for (const collide::Hit& h : hits_) // (each pair's hit once: the car whose side was met)
+        if (h.kind == 1 && h.part >= 8 && h.other >= 0) car_contacts_.push_back({h.car, h.other, h.x.host(), -h.y.host(), h.jx.host(), -h.jy.host()});
     // The hit records (0x350530, in the step's order): the moods, the incident count, the conductor's judge, the pad's record.
     judge_hits();
     for (const collide::Hit& h : hits_)
-        rules::hit(cars_[size_t(h.car)], gx_[size_t(h.car)], mood_tables_, hit_rules_, rules::Judge::Penalty, &pylons_hit_, h.kind, h.part, h.strength);
+        if (!posed(size_t(h.car))) rules::hit(cars_[size_t(h.car)], gx_[size_t(h.car)], mood_tables_, hit_rules_, rules::Judge::Penalty, &pylons_hit_, h.kind, h.part, h.strength);
     for (size_t i = 0; i < cars_.size(); ++i) { // 0x3F4C18
         collide::Body& b = bodies_[i];
         ex::Car& c = cars_[i];
-        c.pos = {b.cx, b.cy, b.cz};
-        c.vel = {b.cvx, b.cvy, b.cvz};
-        c.heading = b.heading, c.yaw_rate = b.yaw_rate;
+        if (!posed(i)) { // (a posed car's record keeps the pose: its owner's machine answers its hits)
+            c.pos = {b.cx, b.cy, b.cz};
+            c.vel = {b.cvx, b.cvy, b.cvz};
+            c.heading = b.heading, c.yaw_rate = b.yaw_rate;
+        }
         // The step's contact as the collision step leaves it on the body: the summed impulses' strength (at most 1),
         // whether a wall or a car was met, and the car: one that was met this step whose edge this body's vertex met
         // (the body's last pair), or whose vertex met this body's edge (that body's last pair), or on whose edge a
@@ -892,6 +905,7 @@ void Session::step_once(std::span<const race::CarInput> inputs, const Decider& d
     std::vector<race::CarInput> car_inputs(cars_.size());
     std::vector<const std::array<F, 3>*> grips(cars_.size());
     for (size_t i = 0; i < cars_.size(); ++i) {
+        if (posed(i)) continue; // (an online race's other car: it stands where its last pose left it until phase 13)
         ex::Car& c = cars_[i];
         race::CarInput& in = car_inputs[i];
         if (i < inputs.size()) in = inputs[i];
@@ -917,6 +931,11 @@ void Session::step_once(std::span<const race::CarInput> inputs, const Decider& d
         }
     }
     for (size_t i = 0; i < cars_.size(); ++i) {
+        if (posed(i)) { // (its driver plans along all the same: its line's heading and mode, for its prediction's active steering)
+            race::CarInput none;
+            if (decide) decide(i, none);
+            continue;
+        }
         ex::Car& c = cars_[i];
         Extra& x = extra_[i];
         race::CarInput& in = car_inputs[i];
@@ -1013,6 +1032,7 @@ void Session::step_once(std::span<const race::CarInput> inputs, const Decider& d
         }
     }
     for (size_t i = 0; i < cars_.size(); ++i) {
+        if (posed(i)) continue;
         ex::Car& c = cars_[i];
         const race::CarInput& in = car_inputs[i];
         const std::array<F, 3>* grip = grips[i];
@@ -1059,7 +1079,11 @@ void Session::step_once(std::span<const race::CarInput> inputs, const Decider& d
     }
     // (0x34DB30 after phase 12, before the collision step: each car's recent hit's steps counted down)
     if (gt4_rules_)
-        for (size_t i = 0; i < cars_.size(); ++i) rules::hit_steps(gx_[i].phases);
+        for (size_t i = 0; i < cars_.size(); ++i)
+            if (!posed(i)) rules::hit_steps(gx_[i].phases);
+    // Between phases 12 and 13, where the program takes the other machines' cars in (0x3F1368): the posed cars at the step's end.
+    for (size_t i = 0; i < posed_.size(); ++i)
+        if (posed(i)) take_pose(i);
     collide();
     if (near_pass) near_pass();
     if (gt4_rules_) {
@@ -1068,7 +1092,8 @@ void Session::step_once(std::span<const race::CarInput> inputs, const Decider& d
         std::vector<rules::NearCar> near(cars_.size());
         for (size_t i = 0; i < cars_.size(); ++i) near[i] = {&cars_[i], &gx_[i].near};
         rules::proximity(near, pairs_, F(road_->length), 0);
-        for (size_t i = 0; i < cars_.size(); ++i) rules::speed_part(cars_[i], gx_[i].near, gx_[i].body.speed_part_kind, gx_[i].chassis.speed_part_state);
+        for (size_t i = 0; i < cars_.size(); ++i)
+            if (!posed(i)) rules::speed_part(cars_[i], gx_[i].near, gx_[i].body.speed_part_kind, gx_[i].chassis.speed_part_state);
     } else if (prologue_)
     {
         ex::proximity(cars_, prologue_near_); // phase 14 (Prologue's 0x3DC1C8: Gran Turismo 3's 0x1EC098 in another layout)
@@ -1077,6 +1102,10 @@ void Session::step_once(std::span<const race::CarInput> inputs, const Decider& d
     }
     for (size_t i = 0; i < cars_.size(); ++i) {
         ex::Car& c = cars_[i];
+        if (posed(i)) {
+            publish(i);
+            continue;
+        }
         chassis(i);
         if (gt4_rules_) {
             // Phases 20 .. 22: the tire wear (0x352EA0, by the race's wear rules), the pit flags (0x353218's: the computer
@@ -1205,6 +1234,158 @@ void Session::publish(size_t i) {
         x.last_v = v, x.has_v = true;
         s.course_v = v;
     }
+    if (i < shown_.size() && posed(i) && (shown_[i].yaw != 0 || shown_[i].shift.x != 0 || shown_[i].shift.y != 0 || shown_[i].shift.z != 0)) {
+        const Shown& d = shown_[i];
+        const float cs = std::cos(d.yaw), sn = std::sin(d.yaw);
+        auto turn = [&](const Vec3& q) { return Vec3{q.x * cs + q.z * sn, q.y, q.z * cs - q.x * sn}; };
+        auto move = [&](const Vec3& q) {
+            const Vec3 t = turn({q.x - cog.x, q.y - cog.y, q.z - cog.z});
+            return Vec3{cog.x + t.x + d.shift.x, cog.y + t.y + d.shift.y, cog.z + t.z + d.shift.z};
+        };
+        s.position = move(s.position);
+        s.right = turn(s.right), s.up = turn(s.up), s.forward = turn(s.forward);
+        for (race::WheelState& w : s.wheels) w.center = move(w.center);
+    }
+}
+
+// ---- online races ---------------------------------------------------------------------------------------------------
+
+void Session::set_posed(size_t car, bool on) {
+    if (car >= cars_.size()) return;
+    posed_.resize(cars_.size(), 0), shown_.resize(cars_.size());
+    posed_[car] = on ? 1 : 0;
+}
+
+void Session::pose(size_t car, const Session& from, size_t other) {
+    if (car >= cars_.size() || other >= from.cars_.size()) return;
+    poses_.resize(cars_.size());
+    Pose& p = poses_[car];
+    p.set = true;
+    p.car = from.cars_[other], p.gt4 = from.gx_[other], p.own = from.extra_[other];
+    p.emits.clear();
+    for (const rules::TireEmit& e : from.emits_)
+        if (e.car == from.cars_[other].index) p.emits.push_back(e);
+}
+
+void Session::take_pose(size_t car) {
+    if (car >= poses_.size() || !poses_[car].set) return;
+    Pose& p = poses_[car];
+    p.set = false;
+    const ex::Car old = cars_[car];
+    ex::Car& c = cars_[car];
+    c = p.car;
+    c.index = old.index, c.ghost = old.ghost;
+    c.laps = old.laps, c.lap_base = old.lap_base, c.best_lap = old.best_lap;
+    c.finished = old.finished, c.rank = old.rank;
+    c.hit_rumble = old.hit_rumble, c.f3e4 = old.f3e4;
+    c.time_scale = old.time_scale;
+    const rules::NearExtra near = gx_[car].near;
+    const auto ended = gx_[car].phases.finished;
+    gx_[car] = p.gt4;
+    gx_[car].phases.finished = ended;
+    rules::NearExtra& n = gx_[car].near; // (who is near it is this race's; the part that changes with speed its own)
+    const rules::NearExtra part = n;
+    n = near;
+    n.speed_lo = part.speed_lo, n.speed_hi = part.speed_hi, n.speed_rate = part.speed_rate;
+    n.speed_state = part.speed_state, n.speed_state2 = part.speed_state2, n.speed_part_state2 = part.speed_part_state2;
+    Extra& x = extra_[car];
+    for (size_t w = 0; w < 4; ++w) {
+        x.kinds[w] = p.own.kinds[w], x.materials[w] = p.own.materials[w];
+        if (!x.rest_set[w]) x.rest_drop[w] = p.own.rest_drop[w], x.rest_set[w] = p.own.rest_set[w];
+    }
+    for (rules::TireEmit& e : p.emits) {
+        e.car = old.index;
+        emits_.push_back(e);
+    }
+}
+
+void Session::set_shown(size_t car, const Shown& s) {
+    if (car < shown_.size()) shown_[car] = s;
+}
+
+void Session::set_ghost(size_t car, bool on) {
+    if (car < cars_.size()) cars_[car].ghost = on ? 1 : 0;
+}
+
+std::unique_ptr<Session> Session::solo(size_t car) const {
+    if (car >= cars_.size() || prologue_) return nullptr;
+    std::unique_ptr<Session> s(new Session());
+    s->road_ = road_, s->ground_ = ground_, s->data_ = data_, s->walls_ = walls_;
+    s->race_ = race_;
+    s->cars_ = {cars_[car]};
+    s->cars_[0].index = 0, s->cars_[0].ghost = 0;
+    s->bodies_ = {bodies_[car]};
+    s->bodies_[0].car = 0;
+    s->bodies_[0].have_points = 0;
+    for (collide::Point& q : s->bodies_[0].p) q.flags = 0;
+    collide::pair_tables(s->bodies_);
+    s->body_cars_.resize(1);
+    s->extra_ = {extra_[car]};
+    s->gx_ = {gx_[car]};
+    s->layouts_ = {layouts_[car]};
+    s->speed_tables_ = {speed_tables_[car]};
+    s->driver_aids_ = {driver_aids_[car]};
+    s->driver_grip_ = {driver_grip_[car]};
+    s->aid_race_ = aid_race_, s->mood_tables_ = mood_tables_, s->hit_rules_ = hit_rules_;
+    s->mail_.resize(1);
+    if (car < wheel_options_.size()) s->wheel_options_ = {wheel_options_[car]};
+    s->active_on_ = active_on_;
+    s->hold_heading_ = {hold_heading_[car]};
+    s->line_heading_ = {line_heading_[car]};
+    s->tables_ = tables_, s->start_tables_ = start_tables_;
+    s->start_counters_ = {start_counters_[car]};
+    s->pace_kmh_ = {pace_kmh_[car]};
+    s->gt4_ready_ = gt4_ready_, s->gt4_rules_ = gt4_rules_;
+    s->specs_ = {specs_[car]}, s->equipment_ = {equipment_[car]}, s->blocks_ = {blocks_[car]};
+    s->states_ = {states_[car]};
+    s->rng_ = rng_, s->random_state_ = random_state_;
+    s->crossings_set_ = crossings_set_;
+    s->loose_ = loose_, s->course_kind_ = course_kind_, s->course_road_ = course_road_;
+    s->steps_ = steps_;
+    return s;
+}
+
+void Session::save(size_t i, Memory& m) const {
+    if (i >= cars_.size()) return;
+    m.car = cars_[i], m.gt4 = gx_[i], m.own = extra_[i], m.body = bodies_[i], m.mail = mail_[i];
+    m.random = random_state_, m.countdown = countdown_, m.steps = steps_;
+}
+
+void Session::restore(size_t i, const Memory& m) {
+    if (i >= cars_.size()) return;
+    cars_[i] = m.car, gx_[i] = m.gt4, extra_[i] = m.own, bodies_[i] = m.body, mail_[i] = m.mail;
+    random_state_ = m.random, countdown_ = m.countdown, steps_ = m.steps;
+}
+
+void Session::apply_impulse(size_t car, float x, float z, float jx, float jz) {
+    if (car >= cars_.size() || car >= bodies_.size()) return;
+    ex::Car& c = cars_[car];
+    const collide::Body& b = bodies_[car];
+    const F rx = F(x) - c.pos.x, ry = F(-z) - c.pos.y, px(jx), py(-jz);
+    c.vel.x = c.vel.x + (px * b.im);
+    c.vel.y = c.vel.y + (py * b.im);
+    c.yaw_rate = c.yaw_rate + (((rx * py) - (ry * px)) * b.ii);
+}
+
+void Session::settle_moved(size_t i, ex::Vec3 was) {
+    if (i >= cars_.size()) return;
+    ex::Car& c = cars_[i];
+    const F dx = c.pos.x - was.x, dy = c.pos.y - was.y, dz = c.pos.z - was.z;
+    rules::body_axes(c);
+    rules::hub_offsets(c, layouts_[i]);
+    if (dx == k0 && dy == k0 && dz == k0) return;
+    // The wheels' ground points move with the car (until its next step asks the road again).
+    for (size_t w = 0; w < 4; ++w) {
+        ex::Ground& g = c.g[w];
+        g.x = g.x + dx, g.z = g.z - dy, g.h = g.h + dz;
+        if (!g.miss) g.height = g.height + dz;
+        c.w[w].ground = c.w[w].ground + dz, c.w[w].ground0 = c.w[w].ground0 + dz;
+    }
+    c.ground_pos = {c.ground_pos.x + dx, c.ground_pos.y + dy, c.ground_pos.z + dz};
+    // The collision step's hint: the road's triangle under wheel 0.
+    GroundHit h;
+    const F at[3] = {c.g[0].x, c.g[0].h + F::raw(0x40A00000), c.g[0].z};
+    if (ground_->query(at, h)) c.road_seg = s32(u32(u16(gt3r::s16(h.cluster))) << 16 | u32(u16(h.triangle)));
 }
 
 } // namespace gt4r::sim

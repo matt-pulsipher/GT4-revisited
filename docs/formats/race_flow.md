@@ -282,7 +282,7 @@ The conductor's set-up (virtual 26, 0x34CA20, for a RaceArcadeSingle: 0x3BFD00) 
 - `penalty_type` (the race information's +0x04; 0 in a run alone): 0 no penalty (rule block +0x4A 0, the limits +0x48 / +0x49 255);
   1 the speed limit, 10 s (+0x4A), past a wall's 8 m/s (+0x49) or a car's 40 (+0x48); 2 the pit lane: the same limits, the mark (+0x4A
   0xFF; none on a course without pits). ❓ What the mark asks of the driver (a pass through the pit lane) is not done here.
-- `tire_damage` (+0x08; virtual 11, 0x354F30): 0 no wear; 1 and 2 the wear's curve (+0x2C .. +0x34): 8, 40, 12, 5, 5, 4, 0, 5, 5 and 6, 40, 12,
+- `tire_damage` (+0x08; virtual 11, 0x354F30): 0 no wear; 1 and 2 the wear's curve (+0x2C .. +0x34): 8, 40, 12, 1, 5, 4, 0, 5, 5 and 6, 40, 12,
   1, 5, 3, 0, 4, 5.
 Any race's wear runs only on a course that counts fuel (COURSE +0x14, not loose: 0x34CCD4).
 

@@ -294,7 +294,51 @@ public:
         if (i < gx_.size()) gx_[i].drive.shift_factor = factor;
     }
 
+    // ---- online races (docs/specs/net.md "Race"): cars their owners' machines run ----
+    // A posed car is not stepped here: its caller gives its record at the end of the coming step before each step (pose). It is
+    // taken in between phases 12 and 13 (so the drivers decide while it, as every car, has not moved yet); the step skips its
+    // phases 1 .. 12 and 15 .. 22 but keeps it in the collision step, whose result for it is thrown away (its
+    // body moves along the posed motion), and in phase 14 (the others' slipstream).
+    void set_posed(size_t car, bool on);
+    bool posed(size_t car) const { return car < posed_.size() && posed_[car] != 0; }
+    // Car `car`'s record from car `other` of another session (its prediction, run on one car alone): all of it but what the
+    // race here keeps (the index, the laps, the place, the race's end, the ghost flag, who is near it).
+    void pose(size_t car, const Session& from, size_t other = 0);
+    // What a posed car is shown displaced by (the correction blended out): metres, and radians about the course's up axis.
+    struct Shown {
+        Vec3 shift{};
+        float yaw = 0;
+    };
+    void set_shown(size_t car, const Shown& s);
+    // A car not in the race for the collision step, the slipstream and the drivers (F + 0x441).
+    void set_ghost(size_t car, bool on);
+    // A car alone on this course as it stands now: its record, its body and the race's tables (a prediction runs on from it).
+    std::unique_ptr<Session> solo(size_t car) const;
+    // What phase 14 gave a car as its slipstream (F + 0x59C), and to give a car: a prediction runs alone, its race knows who is
+    // ahead of it. And the driving line's heading and mode as the car's caller gave them.
+    gt3r::ee::F slipstream(size_t car) const { return car < cars_.size() ? cars_[car].slip_target : gt3r::ee::F(); }
+    void set_slipstream(size_t car, gt3r::ee::F x) {
+        if (car < cars_.size()) cars_[car].slip_target = x;
+    }
+    std::optional<gt3r::ee::F> line_heading(size_t car) const { return car < line_heading_.size() ? line_heading_[car] : std::nullopt; }
+    u8 line_mode(size_t car) const { return car < gx_.size() ? gx_[car].input.driver_32 : 0; }
+    // All the step keeps of a car, to run on from again.
+    struct Memory;
+    void save(size_t car, Memory& m) const;
+    void restore(size_t car, const Memory& m);
+    // The last step's hits between cars: the impulse (N s, the course's frame) `struck` took from `striker` at the point (x, z).
+    struct CarContact {
+        int struck = 0, striker = 0;
+        float x = 0, z = 0, jx = 0, jz = 0;
+    };
+    const std::vector<CarContact>& car_contacts() const { return car_contacts_; }
+    // An impulse on a car as the collision step's car response gives one: a hit another machine saw and this one did not.
+    void apply_impulse(size_t car, float x, float z, float jx, float jz);
+    // The road's triangle under a moved car's hint (c.road_seg) and its axes and hubs from its attitude.
+    void settle_moved(size_t car, gt3r::sim::exact::Vec3 was);
+
 private:
+    Session() = default; // (solo)
     struct Extra { // per car, outside the record
         int checkpoint = -1; // distance_along's hint
         float last_v = 0;
@@ -323,13 +367,13 @@ private:
     void publish(size_t i);
 
     std::shared_ptr<const course::Runway> road_;
-    std::unique_ptr<RoadGround> ground_;
+    std::shared_ptr<RoadGround> ground_;
     std::unique_ptr<gt3r::sim::exact::CourseGround> course_ground_; // (Prologue's road: the program's query on its GTRW)
     std::unique_ptr<gt3r::sim::exact::CourseQuery> course_query_;   // (and its single-point queries: the set-up's ground 0x3881F8, the progress 0x388198)
-    std::unique_ptr<gt3r::sim::exact::ProgramData> data_;
+    std::shared_ptr<gt3r::sim::exact::ProgramData> data_;
     gt3r::sim::exact::RaceInputs race_;
     std::vector<gt3r::sim::exact::Car> cars_;
-    std::unique_ptr<collide::Walls> walls_;
+    std::shared_ptr<collide::Walls> walls_;
     std::vector<collide::Body> bodies_;
     std::vector<collide::CarIn> body_cars_;
     std::vector<Extra> extra_;
@@ -382,6 +426,28 @@ private:
     u8 course_kind_ = 0, course_road_ = 0;
     float pending_ = 0;
     u64 steps_ = 0;
+    std::vector<u8> posed_;
+    std::vector<Shown> shown_;
+    std::vector<CarContact> car_contacts_;
+    struct Pose { // a posed car's record for the end of the coming step
+        bool set = false;
+        gt3r::sim::exact::Car car;
+        sim::Extra gt4;
+        Extra own;
+        std::vector<rules::TireEmit> emits;
+    };
+    std::vector<Pose> poses_;
+    void take_pose(size_t car);
+};
+
+struct Session::Memory {
+    gt3r::sim::exact::Car car;
+    sim::Extra gt4;
+    Extra own;
+    collide::Body body;
+    rules::PadMail mail;
+    u32 random = 0, countdown = 0;
+    u64 steps = 0;
 };
 
 } // namespace gt4r::sim

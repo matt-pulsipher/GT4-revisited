@@ -638,13 +638,17 @@ void RaceHud::Impl::draw_map(const HudState& s) {
     };
     const Picture& target = picture("point_target");
     const Picture& rival = picture("point_rival");
-    if (!s.cars.empty()) marker(target, s.cars[0], 0x80000000u, s.opacity); // the player's, black, under the map
+    const bool lettered = s.letters.size() == s.cars.size() && !s.letters.empty(); // (the network races': carptr_0 .. carptr_5)
+    auto letter = [&](size_t i) -> const Picture& { return picture("carptr_" + std::to_string(std::clamp(s.letters[i], 0, 5))); };
+    if (!s.cars.empty() && !lettered) marker(target, s.cars[0], 0x80000000u, s.opacity); // the player's, black, under the map
     SDL_SetTextureColorMod(map_texture, 255, 255, 255);
     SDL_SetTextureAlphaMod(map_texture, u8(255 * std::clamp(s.opacity, 0.0f, 1.0f)));
     const SDL_FRect dst = to_ui(at);
     SDL_RenderTexture(r, map_texture, nullptr, &dst);
-    for (size_t i = 1; i < s.cars.size(); ++i) marker(rival, s.cars[i], kNeutral, s.opacity);
-    if (!s.cars.empty()) {
+    for (size_t i = 1; i < s.cars.size(); ++i) marker(lettered ? letter(i) : rival, s.cars[i], kNeutral, s.opacity);
+    if (lettered) {
+        marker(letter(0), s.cars[0], 0x805EA8F2u, s.opacity);
+    } else if (!s.cars.empty()) {
         // The player's marker pulses twice a second: up in a tenth of a second, down in three.
         const float t = float(std::fmod(s.time, 0.5));
         const float b = t < 0.25f ? std::min(1.0f, t / 0.1f) : std::max(0.0f, 1.0f - (t - 0.25f) / 0.3f);

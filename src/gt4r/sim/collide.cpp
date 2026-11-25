@@ -738,7 +738,11 @@ void pair_response(std::vector<Body>& bd, int ia, std::vector<Hit>* hits) {
     const F s = neg_if_negative(j) / kPairStrength;
     A.strength = A.strength + s;
     B.strength = B.strength + s;
-    if (hits) hits->push_back({A.car, 1, A.hit_edge + 8, s}), hits->push_back({B.car, 1, A.vertex, s});
+    if (hits) {
+        const F px = A.sx + ((ra[0] * A.cpx) + (ra[1] * A.cpy)), py = A.sy + ((ra[2] * A.cpx) + (ra[3] * A.cpy));
+        hits->push_back({A.car, 1, A.hit_edge + 8, s, B.car, px, py, jx, jy});
+        hits->push_back({B.car, 1, A.vertex, s, A.car, px, py, -jx, -jy});
+    }
     record_hit(A, 1, s, A.other), record_hit(B, 1, s, ia);
     touch_up(A, B, ra, rb);
     const F jlx = (ra[0] * jx) + (ra[2] * jy), jly = (ra[1] * jx) + (ra[3] * jy);

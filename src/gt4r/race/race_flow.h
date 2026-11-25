@@ -75,6 +75,7 @@ public:
         bool finished = false;
         int finish_order = -1;  // 0 the first to finish
         s64 finish_units = -1;  // the race clock at the finish (the total time)
+        s64 seen_units = -1;    // the race clock when it was seen to finish here (an online race's car finishes by its owner's)
         s64 base_ms = 0;        // F + 0x614: the moment its times count from (ms)
         s64 start_ms = 0;       // (FlowSetup::player_clock: its crossing of the line, the whole run's)
         u8 mark = 0;            // F + 0x65B: 1 before the section's start, 2 past it
@@ -138,6 +139,9 @@ public:
     // A car's run ended by a rule of its own (a license test's stop, a failure) `share` of a step
     // into the step just run: its finish at the clock then.
     void finish_now(size_t car, float share = 0);
+    // A car's finish as its own machine has it (an online race): its time, now or when it is seen to finish here, and its best
+    // lap (ms; -1 none). The finished cars' order follows their times then.
+    void claim_finish(size_t car, s64 units, s64 best_ms);
     // The player's start signal before the line (a free run's hand-over: event 4 from DynamicsConductorFreeRun::vf14): the next
     // step's Events::start.
     void signal_start() { signal_start_ = true; }
@@ -160,6 +164,8 @@ private:
 
     FlowSetup setup_;
     bool signal_start_ = false;
+    void order_finishers();
+    std::vector<s64> claims_; // claim_finish's, by car (empty: none)
     std::vector<CarRecord> cars_;
     std::vector<size_t> order_;
     int hold_ = 0, hold_total_ = 0;

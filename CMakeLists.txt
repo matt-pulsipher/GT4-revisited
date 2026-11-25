@@ -85,9 +85,9 @@ add_custom_command(OUTPUT ${GT3R_UI_FONT_SRC}
   COMMENT "Embedding UI fonts"
   VERBATIM)
 add_library(gt3r_ui_fonts STATIC ${GT3R_UI_FONT_SRC})
-# Its UI toolkit (src/app there is the GT3 game's executable; these three files are the
+# Its UI toolkit (src/app there is the GT3 game's executable; these files are the
 # game-independent part).
-set(GT3R_UI_SOURCES ${GT3R_DIR}/src/app/ui.cpp ${GT3R_DIR}/src/app/ui_font.cpp ${GT3R_DIR}/src/app/button_prompts.cpp)
+set(GT3R_UI_SOURCES ${GT3R_DIR}/src/app/ui.cpp ${GT3R_DIR}/src/app/ui_font.cpp ${GT3R_DIR}/src/app/button_prompts.cpp ${GT3R_DIR}/src/app/text_keyboard.cpp)
 
 # ---------------------------------------------------------------------------
 # GT4 Revisited: everything under src/gt4r except the executable (src/gt4r/app).

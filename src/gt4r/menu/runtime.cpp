@@ -1,4 +1,6 @@
 #include "gt4r/menu/runtime.h"
+
+#include "gt4r/menu/game_network.h"
 #include "gt4r/menu/race_natives.h"
 
 #include "gt4r/menu/game_settings.h"
@@ -535,6 +537,7 @@ void Runtime::start_project(const std::string& asked, const std::string& languag
     vm_->instructions = 0, vm_->budget = kCallBudget;
     vm_->require("/projects/" + name + "/" + name);
     answer_photo_destination(*root_widget_);
+    if (name == "arcade" && network) adapt_lan_pages(*this);
     // A new transition and cursor for each project: the scripts set theirs in onLoad.
     if (auto render = render_context_.as<Object>()) render->set("transition", Value{}), render->set("cursor_visible", Value::integer(1));
     // onLoad on every widget that has one, the children before their parent, the project

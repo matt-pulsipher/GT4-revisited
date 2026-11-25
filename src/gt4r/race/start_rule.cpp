@@ -88,7 +88,7 @@ void arcade_rules(std::vector<u8>& r, int penalty, int damage) {
 
 void put_tire_damage(std::vector<u8>& r, int damage) {
     if (r.size() < 0x74) return;
-    static constexpr u8 kWear[3][9] = {{0, 0, 0, 0, 0, 0, 0, 0, 0}, {8, 40, 12, 5, 5, 5, 5, 4, 0}, {6, 40, 12, 1, 5, 4, 5, 3, 0}};
+    static constexpr u8 kWear[3][9] = {{0, 0, 0, 0, 0, 0, 0, 0, 0}, {8, 40, 12, 1, 5, 5, 5, 4, 0}, {6, 40, 12, 1, 5, 4, 5, 3, 0}};
     const u8(&k)[9] = kWear[damage == 1 || damage == 2 ? damage : 0];
     std::copy(std::begin(k), std::end(k), r.begin() + 0x6B);
 }

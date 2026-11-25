@@ -1,4 +1,5 @@
 #include "gt4r/app/app.h"
+#include "gt4r/app/online.h"
 
 #include "gt4r/input/player_controls.h"
 
@@ -237,6 +238,7 @@ bool App::init(int argc, char** argv) {
         else if (!browse_.empty()) push(make_browser_screen(browse_));
         else if (start_ == "menus") push(make_menu_viewer(*this));
         else if (start_ == "race") push(make_race_screen(*this));
+        else if (start_ == "online") push(make_online_script_screen(*this));
         else if (start_ == "controls") push(make_controls_screen(*this));
         else if (start_ == "saveeditor") push(make_save_editor(*this));
         else if (start_ == "settings") push(make_settings_screen(*this));

@@ -19,6 +19,10 @@
 #include <utility>
 #include <vector>
 
+namespace gt4r::net {
+class Lobby;
+}
+
 namespace gt4r::menu {
 
 class Runtime;
@@ -235,6 +239,8 @@ public:
     // MMovieFace::expandAlpha(on): the movies' pictures carry their alpha beside their colors.
     bool movie_expand_alpha = false;
     void options_changed();
+    // The online lobby the network's natives and the LAN Battle's pages use (game_network.h); null: no network.
+    net::Lobby* network = nullptr;
     // Notes every call the event thread makes and every key it handles in the log.
     bool trace_calls = false;
     // The colour and how much of it covers the page: the transition the scripts started.

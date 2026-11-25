@@ -47,6 +47,7 @@ void RaceFlow::begin(const FlowSetup& setup, std::span<const CarState> cars) {
         if (i < setup.marks.size()) r.mark = setup.marks[i];
     }
     signal_start_ = false;
+    claims_.clear();
     hold_total_ = hold_ = start_hold_steps(setup.start, setup.start_seconds);
     clock_ = 0;
     finishers_ = 0;
@@ -99,9 +100,31 @@ void RaceFlow::end_car(size_t i, s64 at, Events& ev) {
     CarRecord& r = cars_[i];
     r.finished = true;
     r.finish_order = finishers_++;
-    r.finish_units = at;
+    r.seen_units = at;
+    r.finish_units = i < claims_.size() && claims_[i] >= 0 ? claims_[i] : at;
+    if (!claims_.empty()) order_finishers();
     ev.finished.push_back(i);
     if (i == setup_.player) ev.player_finished = true, player_finish_steps_ = 0;
+}
+
+void RaceFlow::claim_finish(size_t car, s64 units, s64 best_ms) {
+    if (car >= cars_.size()) return;
+    claims_.resize(cars_.size(), -1);
+    claims_[car] = units;
+    if (best_ms >= 0) cars_[car].best_lap_ms = best_ms;
+    if (cars_[car].finished) cars_[car].finish_units = units;
+    order_finishers();
+}
+
+void RaceFlow::order_finishers() {
+    std::vector<size_t> f;
+    for (size_t i = 0; i < cars_.size(); ++i)
+        if (cars_[i].finished) f.push_back(i);
+    std::stable_sort(f.begin(), f.end(), [&](size_t a, size_t b) {
+        if (cars_[a].counter != cars_[b].counter) return cars_[a].counter > cars_[b].counter;
+        return cars_[a].finish_units < cars_[b].finish_units;
+    });
+    for (size_t k = 0; k < f.size(); ++k) cars_[f[k]].finish_order = int(k);
 }
 
 void RaceFlow::resume(size_t car, int crossings, s64 base_ms, s64 clock, float v) {

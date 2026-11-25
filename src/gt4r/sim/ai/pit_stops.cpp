@@ -108,6 +108,7 @@ bool PitStops::in_stretch(size_t car, float lap) const {
 void PitStops::after(const Session& session, Field& field) {
     const F L(field.lines().lap());
     for (size_t i = 0; i < cars_.size() && i < session.cars().size(); ++i) {
+        if (session.posed(i)) continue; // (an online race's other cars: their owners' machines run their stops)
         PitCar& c = cars_[i];
         const race::CarState& st = session.cars()[i];
         const F d(st.course_v);

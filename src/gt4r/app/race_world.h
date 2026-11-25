@@ -61,6 +61,7 @@ struct WorldEntry {
     int start_kind = 0; // a rolling start's kind (RaceFlow's; 0: 2 behind the line, 1 past it)
     float start_distance = std::numeric_limits<float>::quiet_NaN(); // a rolling start's place (sim::Entry::start_distance)
     std::optional<course::Runway::Place> place; // the car's own start place (a license test's road section: sim::Entry::place)
+    bool remote = false; // another player's car of an online race: posed from its owner's states (net/net_race.h), its driver plans only
 };
 
 struct WorldSetup {
@@ -80,6 +81,9 @@ struct WorldSetup {
     race::Conductor conductor = race::Conductor::Other;
     int section = -1;
     bool own_hold = false; // the race counts its start's hold itself, from the set-up's state (no steps of the session's own)
+    // An online race's rules (a battle's conductor sets them in place of the event's: net/lan_rules.h): the tire damage (-1: no
+    // such race) and the boost.
+    int lan_wear = -1, lan_boost = 0;
     int laps = 0;       // the race's laps (the pit stops' last lap; 0 a run without an end)
     int players = 1;    // the first cars are players' (two in the two-player battle), the others the computer's
     bool computer_player = false; // the computer drivers drive the player's car too
@@ -377,6 +381,13 @@ public:
     const WorldSetup& setup() const { return setup_; }
     // The game's simulation (null: the stand-in runs), and its entries as the race was set up with them.
     const sim::Session* session() const { return session_.get(); }
+    sim::Session* session() { return session_.get(); }
+    // How solid a car is drawn (a ghost of an online race 0.5; 1).
+    void set_car_alpha(size_t car, float alpha) {
+        if (car >= alpha_.size()) alpha_.resize(car + 1, 1.0f);
+        alpha_[car] = alpha;
+    }
+    float car_alpha(size_t car) const { return car < alpha_.size() ? alpha_[car] : 1.0f; }
     const std::vector<sim::Entry>& session_entries() const { return entries_; }
     // What the player chose for his own car and controls: the gearbox, the aids, the steering wheel's (its lock by the options'
     // AMATEUR .. SIMULATION: the entry's +0x344C, its active steering +0x3458, its force's strength and assist). True when the
@@ -430,9 +441,12 @@ private:
     race::GadgetBodies gadget_bodies_; // the cones and boards as the cars leave them
     unsigned gadget_hits_ = 0;
     std::vector<std::optional<WorldEntry>> overrides_;
+    std::vector<float> alpha_; // set_car_alpha
     std::vector<PlayerChoice> choices_{1}; // by player
     // The car is a player's, driven by his pad (not by the B-spec driver or a scripted run's computer).
     bool pad_car(size_t i) const { return i < size_t(setup_.players) && !(i == 0 && computer_player_); }
+    // Or another player's, on his own machine (an online race).
+    bool players_car(size_t i) const { return pad_car(i) || (i < setup_.entries.size() && setup_.entries[i].remote); }
     std::array<u32, 32> soft_{};
     struct Command {
         int pace = 3;

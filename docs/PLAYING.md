@@ -100,7 +100,8 @@ Every change is applied at once and kept in `config.ini`; the 3D renderer is tak
   heat haze, the vignette, the motion trail and the depth of field. A race takes these as it starts and as its pause closes.
 - *Disc & saves*: the disc in use, whether its files are a tested release's own and whether the image is complete; the
   disc images opened before (Cross opens one, Square takes it off the list); the folder the games, replays and photos
-  are kept in (a new one gets a copy of what it does not have; nothing is written over); what opens at the start; the data
+  are kept in (a new one gets a copy of what it does not have; nothing is written over); the server of the races over the
+  internet (none until you choose one); what opens at the start; the data
   folder; the log of this session and of the one before (`gt3r.log`, `gt3r.prev.log` in the data folder: an uncaught error or
   a crash is its last line; your name is taken out of the paths); the version.
 - *Mods*: below.
@@ -190,6 +191,44 @@ Wheel:
 6. Options > Steering: the feedback strength Weak and Strong differ; the steering type and active steering (Driving
    Force) change how it feels. Wheel driven as Driving Force: 100 degrees is full lock.
 
+## Racing others (Multi-LAN Race)
+
+Arcade's *Multi-LAN Race* races other copies of the game, up to six players, each with his own car, with the game's own
+pages. Both need the same disc (a modified copy meets only the same modified copy), and Gran Turismo 4: Prologue has no such
+race.
+
+1. Arcade, *Multi-LAN Race*. The page that opens connects: a lobby found on the local network is listed (Cross joins it);
+   *Open a lobby* makes one; *Join by address* takes the address the host's panel shows (UDP port 47634). *Open a lobby with a
+   code* and *Join with a code* go through a server, for players who are not on one network: the first time it asks which
+   server to use, and nothing is sent to any before that. Your own server can be typed.
+2. The host chooses: how many players the menus wait for, laps, tire wear and boost (the 2 Player Battle's options), a power
+   limit, garage cars or cars as sold, every car or the favorites alone (as the original), and above which round trip two
+   cars do not touch.
+3. *Waiting for connection*: a panel lists the players with their links and the rules, and for a lobby with a code the code
+   to pass on. The host's Start begins with those who are there. Select opens the panel on the pages after it: the host
+   removes a player with Square, and Start leaves the lobby.
+4. The course: whoever takes one first takes it for all. Then everyone's car: the makers, the garages of the memory cards
+   (1 and 2), the favorites; its color, gearbox, aids and tires. The race starts when everyone is through. A car the host does
+   not let race is told there; a car that is different on another machine's disc is named on the panel and the race does not
+   start with it.
+5. The race goes on for nobody's pause: Start opens a window to leave it. The names stand over the cars, the map has the
+   players' letters, the list at the right the order. A player whose connection goes leaves the race; the others race on.
+6. After the results the host takes everyone back to the course page for another race.
+
+Copies of two versions of the game may not meet: the page says which must be updated. The server is kept in `config.ini`,
+with the rules a host chose:
+
+```
+[online]
+server =                 ; none until you choose one (Settings > Disc & saves, or the page that asks)
+port = 47634             ; the local network's (the next three are tried too)
+players = 2              ; 2 .. 6: how many the menus wait for
+max_power = 0            ; PS; 0: no limit
+garage_cars = 1          ; 1 | 0: cars as sold alone
+any_car = 1              ; 1 | 0: the favorites alone
+ghost_ms = 150           ; contact up to this round trip; 0: always
+```
+
 ## What works
 
 - **The boot**: the logo, the opening movie, the title with its
@@ -198,7 +237,8 @@ Wheel:
 - **Arcade**: Single Race (course categories, the course pages, every maker and car, paints, the
   driving options), the race's menus before and after a race, the race itself (A-spec with the pad,
   B-spec watching the computer drive), the results, the replay, back to Arcade for another race.
-  Time Trial and the other race kinds reach their races the same way.
+  Time Trial and the other race kinds reach their races the same way. The tires of the driving options are the race's, on
+  every car of it (dirt and snow courses put on theirs).
 - **2 Player Battle**: the course, each player's car, paint and driving options, the race on a split screen (one half above the
   other, or side by side with the options at a 16:9 screen) with its handicap, boost, tire damage and laps from the options, the
   results, the replay. The second player's controller is the second one connected (Controls); without one, his keys of the
