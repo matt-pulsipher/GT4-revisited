@@ -51,6 +51,8 @@ public:
     bool resync = false;         // ours loaded from the program's records before every step (each step alone)
     int list_steps = 0;          // print the placed fields that differ, from the first step any does, for this many steps
     int first_fields_step = -1;
+    bool own = false;            // from our own set-up (GT4R_FLOATS_OWN)
+    int compare(gt3r::diff::Ee& ee, const char* what); // prints the placed fields that differ
 private:
     void load_all(gt3r::diff::Ee& ee, int first = 0);
     struct Impl;

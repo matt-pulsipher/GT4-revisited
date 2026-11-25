@@ -10,6 +10,8 @@
 #include "gt4r/sim/car_layout.h"
 
 #include "gt4r/formats/course/course_file.h"
+#include "gt4r/race/race_start.h"
+#include "gt4r/sim/ai/drivers.h"
 #include "gt4r/formats/course/runway_gtrw.h"
 #include "gt4r/sim/program.h"
 #include "gt4r/sim/rules_body.h"
@@ -135,6 +137,30 @@ bool OursBeside::begin(Ee& ee, OrigRace& o, db::SpecDb& sdb, const std::string& 
             }
             entries[size_t(i)].start_speed = float(kmh) / 3.6f;
         }
+        // GT4R_FLOATS_OWN=1: from our own set-up (race/race_start.h, the race screen's), not the program's: its fields that differ
+        // listed, and the run from there.
+        if (own = std::getenv("GT4R_FLOATS_OWN") != nullptr) {
+            std::vector<u8> row(151);
+            ee.read_bytes(ee.r32(o.info + 0x70), row.data(), u32(row.size()));
+            const race::Conductor c = ee.r32(o.cond + kCondVtable) == 0x685F50 ? race::Conductor::Training : race::Conductor::License;
+            race::StartCourse starts(*road, parsed.section(data, course::kSlotRunway), race::course_start(sdb, course).way);
+            const race::StartRace& race = starts.set_race(c, row, int(gt3r::s8(ee.r8(o.cond + 0xF818 + 0x21))));
+            if (const std::optional<course::AiData> ad = sim::ai::Field::read(m.disc, course)) starts.add_lines(*ad, sim::ai::Tables::load(*m.program));
+            for (int i = 0; i < o.cars; ++i) {
+                sim::Entry& e = entries[size_t(i)];
+                const u32 en = o.entries[size_t(i)];
+                const race::PlannedStart p = race::plan_start(race, size_t(i), e.grid_place);
+                e.line_start = p.line, e.place = p.place;
+                e.wheel_aid = ee.r8(en + 0x3458) != 0, e.driver = ee.r8(en + 0x344C), e.control = i > 0 ? 2 : 0;
+                e.condition.emplace();
+                ee.read_bytes(en + 0x3468, e.condition->data(), 0x20);
+            }
+            sim::Session::Options so;
+            so.hold_steps = 0;
+            m.session = std::make_unique<sim::Session>(sdb, *m.program, std::make_shared<const course::Runway>(*road), entries, sim::course_row(sdb, course), &so);
+            for (int i = 0; i < o.cars; ++i)
+                m.session->set_crossings(size_t(i), race::planned_crossings(race, race::plan_start(race, size_t(i), entries[size_t(i)].grid_place), m.session->cars()[size_t(i)].course_v));
+        } else
         m.session = std::make_unique<sim::Session>(sdb, *m.program, std::make_shared<const course::Runway>(std::move(*road)), entries);
     } catch (const std::exception& e) {
         return error = std::string("our session: ") + e.what(), false;
@@ -164,7 +190,11 @@ bool OursBeside::begin(Ee& ee, OrigRace& o, db::SpecDb& sdb, const std::string& 
         for (u32 k = 0; k < 3; ++k) grip[k] = F::raw(ee.r32(pb + 0xA8 + 4 * k));
         m.session->set_driver_aids(size_t(i), read_aids(ee, pb + 0x24), grip);
     }
-    load_all(ee);
+    if (!own) load_all(ee);
+    else {
+        compare(ee, "start");
+        m.session->set_random_state(ee.r32(kRandom));
+    }
     // (the program counts the race information's +0xBC down before its step and holds while it is not 0; the session
     // holds while its count is not 0 and counts it down after)
     if (hold > 1) m.session->set_countdown(u32(hold - 1));
@@ -176,6 +206,29 @@ bool OursBeside::begin(Ee& ee, OrigRace& o, db::SpecDb& sdb, const std::string& 
     });
     ee.add_probe(kAfterLineHeading, [mp](Ee& e) { mp->heading[e.g32(17) - kF] = F::raw(e.fpr[0]); });
     return true;
+}
+
+// Every placed field of every car that differs.
+int OursBeside::compare(Ee& ee, const char* what) {
+    Impl& m = *impl_;
+    int n = 0;
+    for (int i = 0; i < m.o->cars; ++i) {
+        sim::Record theirs, mine;
+        theirs.car = mine.car = m.session->record(size_t(i));
+        theirs.x = mine.x = m.session->gt4_record(size_t(i));
+        theirs.layout = mine.layout = m.session->wheel_layout(size_t(i));
+        load(theirs, read_image(ee, m.o->car(i)));
+        for (const Slot& sl : slots()) {
+            const u8* a = reinterpret_cast<const u8*>(&theirs) + sl.member;
+            const u8* b = reinterpret_cast<const u8*>(&mine) + sl.member;
+            if (std::memcmp(a, b, sl.size) == 0) continue;
+            u32 x = 0, y = 0;
+            std::memcpy(&x, a, std::min<u32>(sl.size, 4)), std::memcpy(&y, b, std::min<u32>(sl.size, 4));
+            std::printf("  ours %s car %d: %s program %08X ours %08X (%g %g)\n", what, i, sl.name.c_str(), x, y, double(F::raw(x).host()), double(F::raw(y).host()));
+            ++n;
+        }
+    }
+    return n;
 }
 
 void OursBeside::before_step(gt3r::diff::Ee& ee) {
