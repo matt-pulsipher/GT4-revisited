@@ -1136,6 +1136,14 @@ std::optional<size_t> bspec_course_unit(Database& d, const GameState& s, std::st
     return std::nullopt;
 }
 
+std::string course_attribute(Database& d, const std::string& course) {
+    const ByteSpan r = d.row("COURSE", course);
+    db::SpecDb* db = d.db.get();
+    const db::Strings* units = db ? db->strings("UnistrDB") : nullptr;
+    if (r.size() < 0x0C || !units) return {};
+    return units->at(u32(r[8]) | u32(r[9]) << 8 | u32(r[10]) << 16 | u32(r[11]) << 24);
+}
+
 void complete_race_request(Runtime& rt, RaceRequest& r) {
     const std::shared_ptr<GameNatives> n = g_natives_of(rt).lock();
     if (!n) return;
@@ -1161,9 +1169,13 @@ void complete_race_request(Runtime& rt, RaceRequest& r) {
     }
     // The B-spec driver's book and the course's marks (0x468690: a label ending in "24" is looked up without it;
     // 0x433C10 finds the course's record, none: no marks).
+    // The race's course flag (cond + 0xCBE7, 0x468A40; set by 0x34C7E0 from the course's attribute text, 0x447F08: its
+    // second character's value, '0' none): the marks are read and written back only when it is set ("1ff0" Tsukuba,
+    // "0000" Grand Canyon).
     r.bspec_book = s.bspec_book;
     r.bspec_course_known = false;
-    if (const std::optional<size_t> at = bspec_course_unit(d, s, r.course)) {
+    const std::string attribute = course_attribute(d, r.course);
+    if (const std::optional<size_t> at = attribute.size() > 1 && attribute[1] != '0' ? bspec_course_unit(d, s, r.course) : std::nullopt) {
         std::copy_n(s.course_record.data() + *at + 0x228, 8, r.bspec_course_marks.begin());
         r.bspec_course_known = true;
     }

@@ -100,8 +100,10 @@ struct RaceResult {
     };
     std::vector<Finisher> order;
     // The B-spec driver's record after the race (the car's +0x8C), when the race kept one: written back into
-    // the book for the car's class (bspec::write_back, 0x468860), the change doubled with `bspec_doubled`
-    // (0x468A60), the course's marks too with `bspec_course` (the race's byte cond + 0xCBE7, 0x468A40).
+    // the book for the car's class (bspec::write_back, 0x468860), the change doubled (0x468A60: race_finished works it
+    // out from the result, a race of two cars or more won; `bspec_doubled` forces it), the course's marks too with
+    // `bspec_course` (the race's byte cond + 0xCBE7, 0x468A40: the request's bspec_course_known, from the course's
+    // attribute text).
     std::optional<std::array<u8, 0x40>> bspec_record;
     int bspec_class = 0;
     bool bspec_doubled = false, bspec_course = false;

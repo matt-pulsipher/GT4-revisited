@@ -257,7 +257,13 @@ s64 Runtime::race_finished(const RaceResult& r) {
     // The B-spec driver's record back into its book (0x468AF0 -> 0x468860), and the course's marks.
     if (r.bspec_record && (r.kind == RaceResult::Kind::Event || r.kind == RaceResult::Kind::Championship || r.kind == RaceResult::Kind::Course)) {
         std::optional<size_t> at = r.bspec_course ? bspec_course_unit(d, s, r.course) : std::nullopt;
-        bspec::write_back(s.bspec_book, std::clamp(r.bspec_class, 0, 7), *r.bspec_record, r.bspec_doubled, at ? 2 : 0,
+        // Doubled (0x468A60): a race (not a free run, a test or a training run: their conductors' vf6 says so), of two
+        // cars or more (cond + 0xF8A0), that the car finished (+0x5B6) in first place (its place byte +0x5B3 at 1).
+        int first = r.place;
+        for (size_t i = 0; i < r.order.size(); ++i)
+            if (r.order[i].entry == 0) first = int(i);
+        const bool doubled = r.bspec_doubled || (r.kind != RaceResult::Kind::Course && r.order.size() >= 2 && r.finished && first == 0);
+        bspec::write_back(s.bspec_book, std::clamp(r.bspec_class, 0, 7), *r.bspec_record, doubled, at ? 2 : 0,
                           at ? s.course_record.data() + *at + 0x228 : nullptr);
     }
     // The player's place in the finishing order (0x110570), or the one given.

@@ -235,7 +235,14 @@ column a class of the car (0x468418: the parameter block's +0xFE0 rating, (x - 0
 most 7). The cell [7][0] of tables 1 and 2 holds instead the sum of the courses' marks (each course record's
 +0x228 .. +0x22F: two sets of four bytes). Before a race the program copies the car's column and the course's marks
 into the driver's record of 0x40 bytes (0x468710); after it, it writes the record back (0x468860: as it is, or with
-the change doubled, at most 0xFFFF; the marks likewise, at most 255, their change added to the sums). The Status
+the change doubled, at most 0xFFFF; the marks likewise, at most 255, their change added to the sums). The change is
+doubled (0x468A60) when the race was a race (not a free run, a license test, a machine test or a training run: their
+conductors' vf6, 0x3F5518 / 0x3F5FA0 / 0x3F6990 / 0x3F7050, say so; DynamicsConductor's 0x358248 does not), of two cars or
+more (cond + 0xF8A0, the car count), that the car finished (its +0x5B6) first (its place byte +0x5B3 at 1). The course's
+marks are read and written (0x468A40) only when the race's byte cond + 0xCBE7 is set: 0x34C7E0 fills cond + 0xCBE6 ..
++0xCBED from the course's attribute text (0x447F08, `MCourseData.GetAttrString`), a character a value (digits, hex
+letters); +0xCBE7 is the second character's: Tsukuba "1ff0" set, Grand Canyon "0000" not. Test:
+`disc_gt_mode_bspec_book_after_a_race`. The Status
 page's figures (0x468B58): Machine (0x467C58), Course (0x467D90), Battle (0x467F60), each 0 .. 100, and the B-spec
 Skill (0x4680D8) 0 .. 10000, weighed by the program's 0x623E40 (8 .. 15). ✔ Equal to the program's on made-up books
 (`gt4r_diff <disc> book`) and to the original's Status page on the reference's card (29-bspec-record: 508 / 10 / 7 /

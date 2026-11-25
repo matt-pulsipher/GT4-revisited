@@ -176,6 +176,8 @@ void add_distance(Database& d, CarRecord& rec, float meters);
 constexpr u32 kChampionshipPoints = 0x6A6EF0;
 s32 championship_points(Database& d, int place);
 int series_race_count(const std::string& label);
+// A course's attribute text (MCourseData.GetAttrString, 0x447F08: the UnistrDB string the COURSE row's +0x08 names).
+std::string course_attribute(Database& d, const std::string& course);
 // A race's pool of opponents (its RACES file): the ENEMY_CARS label and paint (-1: any).
 std::vector<std::pair<std::string, int>> race_entries(Database& d, const std::string& race);
 
