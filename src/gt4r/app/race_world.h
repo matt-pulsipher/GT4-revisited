@@ -50,6 +50,7 @@ struct WorldEntry {
     std::optional<sim::Equipment> equipment; // the car's parts and settings (a garage car's); none: as sold
     std::string wing; // a fitted wing's label (a WING row); empty: the equipment's (record +0x100), else none
     float start_distance = std::numeric_limits<float>::quiet_NaN(); // a rolling start's place (sim::Entry::start_distance)
+    std::optional<course::Runway::Place> place; // the car's own start place (a license test's road section: sim::Entry::place)
 };
 
 struct WorldSetup {
@@ -132,6 +133,11 @@ public:
     // no B-spec driver drove the car.
     std::optional<std::array<u8, 0x40>> bspec_record(size_t car) const;
     int bspec_class(size_t car) const;
+    // The race wears its tires (its rules on), and a wheel's wear level as the display takes it (-0x80 .. 0x7F).
+    bool wears_tires() const { return session_ && (session_->wear_rules().tread_on || session_->wear_rules().second_on); }
+    int tire_level(size_t car, int wheel) const { return session_ ? session_->wear_level(car, wheel) : -0x80; }
+    // B-spec's pit command waiting for this car (0x3F19E0 command 6: F +0x4B1 bit 3).
+    bool pit_requested(size_t car) const { return pits_ && car < car_visuals_.size() && (pits_->car(car).flags & 8) != 0; }
     int pit_stops(size_t car) const { return pits_ && car < car_visuals_.size() ? pits_->stops(car) : 0; }
     // A car's last pit stops, newest first (the lap, the tires fitted; lap 0 none): the Race Monitor's pit panel.
     std::array<sim::ai::PitStops::StopRecord, 4> pit_record(size_t car) const {

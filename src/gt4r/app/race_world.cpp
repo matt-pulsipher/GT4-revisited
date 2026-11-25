@@ -216,6 +216,7 @@ void RaceWorld::build_simulation() {
                 entries[i].asm_on = we.asm_on, entries[i].tcs_on = we.tcs_on;
                 entries[i].start_speed = we.start_speed;
                 entries[i].start_distance = we.start_distance;
+                entries[i].place = we.place;
                 // An event's race counts fuel (0x35E108 sets the rule block's +0x4C to 80); a run without laps (practice, a
                 // free run) runs on the free-run conductor, whose rule block holds 0 there (the original's Practice state).
                 entries[i].fuel = setup_.event_row.size() > 0x43 && setup_.event_row[0x43] != 0;

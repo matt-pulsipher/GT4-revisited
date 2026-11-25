@@ -28,6 +28,15 @@ std::vector<RoadSection> road_sections(ByteSpan d) {
         RoadSection r;
         std::memcpy(&r.start, d.data() + at + 0x20 * i, 4);
         std::memcpy(&r.goal, d.data() + at + 0x20 * i + 4, 4);
+        const size_t rec = at + 0x20 * size_t(i);
+        const u32 places = rd16(d, rec + 0x0A), grid_at = rd32(d, rec + 0x18);
+        for (u32 j = 0; j < places && j < 16 && u64(grid_at) + 16 * (u64(j) + 1) <= d.size(); ++j) {
+            const size_t o = grid_at + 16 * size_t(j);
+            course::Runway::Place place;
+            std::memcpy(&place.pos.x, d.data() + o, 4), std::memcpy(&place.pos.y, d.data() + o + 4, 4), std::memcpy(&place.pos.z, d.data() + o + 8, 4);
+            std::memcpy(&place.heading, d.data() + o + 12, 4);
+            r.grid.push_back(place);
+        }
         out.push_back(r);
     }
     return out;
