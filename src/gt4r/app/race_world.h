@@ -239,6 +239,18 @@ public:
     // `weight`; `keep_last` keeps each picture for a later snapshot.
     void set_dissolve(bool snapshot, float weight, bool keep_last) { snapshot_ = snapshot, dissolve_ = weight, keep_last_ = keep_last; }
 
+    // The photo mode's lens on the next frames (none: the plain one): a shear of the projection (photo/picture.h), the depth of
+    // field, the cars in their nearest level of detail.
+    struct Lens {
+        float shear_x = 0, shear_y = 0;
+        gt3r::render::DrawOptions::DepthOfField dof;
+        bool full_detail = true;
+        const gt3r::render::ScreenBatch* vignette = nullptr;
+    };
+    void set_lens(std::optional<Lens> lens) { lens_ = std::move(lens); }
+    // A car stood still on the road at (x, z) of the course, `heading` in radians (Session::place_standing: the photo mode's 0x3C75F0).
+    void stand_car(size_t car, float x, float z, float heading);
+
     // The cars' icons (the results page's): each car standing side-on, its front to the left, drawn
     // over `canvas` (the 640 x 480 page on the screen) with its middle at (x, y) of the page.
     struct Icon {
@@ -369,6 +381,7 @@ private:
     gt3r::render::DrawOptions::PostGrade grade_;
     bool snapshot_ = false, keep_last_ = false;
     float dissolve_ = 0;
+    std::optional<Lens> lens_;
     std::unique_ptr<Impl> impl_;
 };
 

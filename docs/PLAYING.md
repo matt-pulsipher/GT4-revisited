@@ -24,7 +24,7 @@ Prologue disc starts the same way.
 ## Controls
 
 In the menus a pad works as the console's (the Gran Turismo layout of a DualShock 2: Cross confirms,
-Triangle goes back). In races, unless you change it:
+Triangle and Square go back). In races, unless you change it:
 
 | | Pad | Keyboard | Steering wheel |
 |---|---|---|---|
@@ -165,6 +165,11 @@ Copies of two versions of the game may not meet: the page says which must be upd
 - **Later in Gran Turismo mode**: the halls of Professional Events, a championship of five races
   (each race's pre-race page with the points so far, Session Results, Next Race, Abandon), the
   dealers' tune shops (buying a part and fitting it), the calendar going by a day a race.
+- **Photo Travel and Photo Lab**: the 15 places with the car you drive; the map (place the car and the
+  camera: select them with Cross, the left stick moves them, L2 / R2 turn the car, L1 / R1 zoom), the
+  camera (hold Cross on a button, or L1, L2, R1, R2, with the left stick), lens, aperture, focus, filters,
+  the wheels' angle, portrait, the aspect and quality options; the photo, saved (Start) with the game's save files in
+  the original's format; Photo Lab's list, preview, renaming, deleting and the slide show.
 
 ## Known problems
 
@@ -182,7 +187,8 @@ The ones a player meets first:
 - The gloss on the used car list's white and yellow paint swatches is too faint.
 - The B-spec driver's Ka is somewhat faster than the original's at Tsukuba (about 2 % over several
   races; a race varies by more than that with the traffic).
-- Photo Lab (Home) opens a plain page that asks for a race.
+- Photo Lab: films cannot be developed, and the printer and USB memory pages find no device. In photos the
+  car reflects the sky more strongly than the original's.
 
 ## Scripted play (for checks)
 
@@ -196,12 +202,15 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
 
 - `--keys`: presses (`cross`, `down`, `start`, ...), `waitN` (N frames), `shot:<name>` (a
   picture beside `--shot`'s), `quit`; race controls held until changed: `gas=0..1`,
-  `brake=0..1`, `steer=-1..1`, `reverse=0..1`, `handbrake=0|1`, `release`; `@<file>` reads keys
+  `brake=0..1`, `steer=-1..1`, `reverse=0..1`, `handbrake=0|1`, `lx=` `ly=` `rx=` `ry=` (the sticks, -1..1),
+  `l1=0|1` and any other button so (held), `release`; `@<file>` reads keys
   from a file (`#` comments; files may name files).
 - With `--shot` a frame is a 60th of a second and the frames are held to that pace, so the
   movies keep step with the keys (`--fast`: not held).
 - `--stats <file>`: a line a second: the frame, the seconds since launch, the frames' mean and
   longest work in ms, the resident memory in MB.
+- `GT4R_MENU="boot=1,photo=ss_times,car=ford_gt_05"` starts a photo shoot at once; `GT4R_MENU_LOG=1` logs
+  what the menus do (`calls`: each script call too).
 - `GT4R_MENU` and `GT4R_RACE` set up the menu pages and *Drive* screens for a check (the tops of
   `src/gt4r/app/screen_menu_viewer.cpp` and `screen_race.cpp`).
 - Scripted runs (`--shot`, `--sweep`) open their window without making it the active one, and it

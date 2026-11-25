@@ -318,7 +318,17 @@ gt3r::PadState App::scripted_keys() {
         else if (name == "steer") drive_.steer = std::clamp(v, -1.0f, 1.0f);
         else if (name == "reverse") drive_.reverse = std::clamp(v, 0.0f, 1.0f);
         else if (name == "handbrake") drive_.handbrake = v != 0;
-        else LOG_WARN("--keys: no control named %s", name.c_str());
+        else if (name == "lx" || name == "ly" || name == "rx" || name == "ry") drive_.sticks[name[0] == 'l' ? (name[1] == 'x' ? 0 : 1) : (name[1] == 'x' ? 2 : 3)] = std::clamp(v, -1.0f, 1.0f);
+        else {
+            // A button held ("l1=1" .. "l1=0"): the photo mode's.
+            std::string button = name;
+            button[0] = char(std::toupper(static_cast<unsigned char>(button[0])));
+            if (button.size() == 2) button[1] = char(std::toupper(static_cast<unsigned char>(button[1])));
+            if (const auto b = gt3r::pad_button_from_name(button)) {
+                const u16 bit = u16(1u << unsigned(*b));
+                drive_.held = u16(v != 0 ? drive_.held | bit : drive_.held & ~bit);
+            } else LOG_WARN("--keys: no control named %s", name.c_str());
+        }
         ++key_, key_frames_ = 0;
     }
     if (key_ < keys_.size()) {
@@ -382,7 +392,7 @@ SDL_AppResult App::iterate() {
     }
 
     apply_screen_changes();
-    const gt3r::PadState scripted = scripted_keys();
+    gt3r::PadState scripted = scripted_keys();
     {
         // The script's presses and held race controls reach the race's pad too (as an overlay on
         // player 1's: a pad plugged in still drives).
@@ -394,12 +404,21 @@ SDL_AppResult App::iterate() {
         };
         hold(PadButton::Cross, drive_.gas), hold(PadButton::Square, drive_.brake), hold(PadButton::Triangle, drive_.reverse);
         hold(PadButton::Circle, drive_.handbrake ? 1.0f : 0.0f);
-        ov.set_axis(gt3r::PadAxis::LX, drive_.steer);
-        ov.connected = ov.buttons != 0 || drive_.steer != 0;
+        ov.set_axis(gt3r::PadAxis::LX, drive_.sticks[0] != 0 ? drive_.sticks[0] : drive_.steer);
+        ov.set_axis(gt3r::PadAxis::LY, drive_.sticks[1]), ov.set_axis(gt3r::PadAxis::RX, drive_.sticks[2]), ov.set_axis(gt3r::PadAxis::RY, drive_.sticks[3]);
+        for (unsigned b = 0; b < 16; ++b)
+            if (drive_.held & (1u << b)) ov.buttons |= u16(1u << b), ov.pressure[b] = 255;
+        ov.connected = ov.buttons != 0 || drive_.steer != 0 || drive_.sticks[0] != 0 || drive_.sticks[1] != 0 || drive_.sticks[2] != 0 || drive_.sticks[3] != 0;
         input_->set_overlay(0, ov);
+        menu_pad_ = ov;
+        for (unsigned b = 0; b < 16; ++b)
+            if (drive_.held & (1u << b)) scripted.buttons |= u16(1u << b), scripted.pressure[b] = 255;
     }
     input_->update(dt);
-    menu_.update(scripted.buttons ? scripted : input_->menu_pad(), dt);
+    if (!menu_pad_.connected) menu_pad_ = input_->menu_pad();
+    const bool sticks = drive_.sticks[0] != 0 || drive_.sticks[1] != 0;
+    if (sticks) scripted.set_axis(gt3r::PadAxis::LX, drive_.sticks[0]), scripted.set_axis(gt3r::PadAxis::LY, drive_.sticks[1]);
+    menu_.update(scripted.buttons || sticks ? scripted : input_->menu_pad(), dt);
     if (!screens_.empty()) screens_.back()->update(*this, dt);
     apply_screen_changes();
     if (screens_.empty()) quit_ = true;
