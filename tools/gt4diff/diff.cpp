@@ -406,8 +406,8 @@ ParamsResult run_params(Disc& disc, bool print) {
         check("engine friction", double(ee.rf(E + 0xD0)), p.e.friction.host());
         // The driveline (+0x234): gears, each gear's speed factor (+0x68), tire radius (+0x90) and width (+0xA0).
         const u32 D = p_at + 0x234;
-        if (std::getenv("GT4R_LIST_DRIVES") && (ee.r8(D + 0x12) != 0 || ee.r8(D) > 6 || ee.r8(D + 2) > 7 || gt3r::s16(ee.r16(p_at + 0x134)) > 16))
-            std::printf("  drive %s: layout %d, kind %d, gears %d, curve %d, special %d\n", c.label.c_str(), ee.r8(D), ee.r8(D + 0x12), ee.r8(D + 2),
+        if (std::getenv("GT4R_LIST_DRIVES") && (ee.r8(D + 0x12) != 0 || ee.r8(D) > 6 || ee.r8(D + 2) > 7 || gt3r::s16(ee.r16(p_at + 0x134)) > 16 || ee.r8(p_at + 0x32) >= 4 || ee.r8(p_at + 0x30) != 0))
+            std::printf("  drive %s: layout %d, kind %d, gears %d, wheels row %d, curve %d, category %d\n", c.label.c_str(), ee.r8(D), ee.r8(D + 0x12), ee.r8(D + 2), ee.r8(p_at + 0x30),
                         gt3r::s16(ee.r16(p_at + 0x134)), ee.r8(p_at + 0x32));
         check("forward gears", ee.r8(D + 2), p.d.gears);
         check("driveline layout", ee.r8(D), p.d.layout);

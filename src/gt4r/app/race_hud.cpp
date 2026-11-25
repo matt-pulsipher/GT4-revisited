@@ -195,6 +195,7 @@ struct RaceHud::Impl {
     void draw_map(const HudState& s);
     void draw_chase_panel(const HudState& s);
     void draw_driver_panel(const HudState& s);
+    void draw_bars(const HudState& s, float x, float y);
     void draw_dial(const DisplayRect& at, const std::string& face, float ox, float value, float min, float max, float a0, float a1,
                    float red_from, float& last_angle, float opacity);
     void draw_gear(const DisplayRect& box, const HudState& s);
@@ -702,6 +703,39 @@ void RaceHud::Impl::draw_driver_panel(const HudState& s) {
     draw_text(meter, float(C - 2) + width / 2, float(B - 41), kEndsAtPen, kMeterBlue, o, speed_text(s));
     draw_at(mph ? "mph" : "kmph", {0, C, B - 24, 28, 9, 2, 1}, kNeutral, o);
     draw_small_parts(s, true);
+    draw_bars(s, float(C - 168), float(B - 100));
+}
+
+// The driver's panel's bars (0x3A8968, from the speedometer's corner x, y): the brake (red, 0x800000F0) at
+// x + 121 and the throttle (light blue, 0x80E3B896) at x + 195, `pedal_bar` 20 x 58 filled from y + 79.5 up by the
+// pedal; the fuel gauge `fuel_a0` 38 x 64 at x - 22, y + 19 and over it `fuel_a1` lit from the bottom in ten steps
+// of the fuel left (its top 60 - 5.2 n, 4 higher from the sixth), red under three steps, else light blue.
+void RaceHud::Impl::draw_bars(const HudState& s, float x, float y) {
+    const float o = s.opacity;
+    auto lit = [&](const Picture& p, float x0, float top, float bottom, float w, u32 tint) {
+        if (!p.texture || bottom <= top) return;
+        const float h = bottom - top;
+        // (The bars' pictures are white where lit and the program's tint brightens past 0x80, which a
+        // texture's colour can't: the tint itself is the colour, as the original's light blue shows.)
+        const Rgba8 c = race::gs_color(tint, o);
+        SDL_SetTextureColorMod(p.texture, u8(tint & 0xFF), u8((tint >> 8) & 0xFF), u8((tint >> 16) & 0xFF));
+        SDL_SetTextureAlphaMod(p.texture, c.a);
+        const SDL_FRect src{0, p.h - h, p.w, h};
+        const SDL_FRect dst = to_ui({x0, top, w, h});
+        SDL_RenderTexture(r, p.texture, &src, &dst);
+    };
+    const Picture& bar = picture("pedal_bar");
+    const float bottom = y + 23 - 1.5f + 58;
+    lit(bar, x + 121, bottom - std::clamp(s.brake, 0.0f, 1.0f) * 58, bottom, 20, 0x800000F0u);
+    lit(bar, x + 195, bottom - std::clamp(s.throttle, 0.0f, 1.0f) * 58, bottom, 20, 0x80E3B896u);
+    const DisplayRect at{x - 22, y + 19, 38, 64};
+    draw_picture(picture("fuel_a0"), at, kNeutral, o);
+    const int n = int(std::clamp(s.fuel, 0.0f, 1.0f) * 10 + 0.5f);
+    if (n > 0) {
+        float top = 60 - float(n) * 52 * 0.1f;
+        if (n >= 6) top -= 4;
+        lit(picture("fuel_a1"), at.x, at.y + top, at.y + 64, 38, n < 3 ? 0x800000C8u : 0x80E3B896u);
+    }
 }
 
 void RaceHud::draw(Ui& ui, const HudState& s) {

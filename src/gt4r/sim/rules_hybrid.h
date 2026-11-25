@@ -38,6 +38,11 @@ HybridTables hybrid_tables(const Program& program);
 // first hybrid car; ours for each).
 ex::Table<12> hybrid_engine_speeds(const ex::Table<24>& torque);
 
+// 0x348368 (the input phase, a pad's 0x349418 and a computer's 0x3F3400, for gearbox kind 3): the clutch's request: none while
+// the start or the hold counter holds the car or for a stopped driver (kind 8); with the clutch open, requested while the
+// brake is below 0.1; with it closed, kept unless braking above 0.1 within 1 km/h of standstill.
+void hybrid_clutch_request(ex::Car& c);
+
 // 0x3683C8: the state at the car's set-up.
 void hybrid_start(HybridState& h);
 

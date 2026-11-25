@@ -8,6 +8,7 @@
 #include "gt4r/formats/model/mdls.h"
 #include "gt4r/menu/runtime.h"
 #include "gt4r/menu/stage_motion.h"
+#include "gt4r/formats/db/specdb.h"
 #include "gt4r/race/car_spec.h"
 #include "render/gpu_context.h"
 
@@ -180,22 +181,160 @@ const menu::StageMotion* MenuCars::option_motion(menu::Project* project, const s
     return it->second && it->second->camera ? it->second.get() : nullptr;
 }
 
-const std::vector<std::unique_ptr<gt3r::render::GpuModel>>* MenuCars::model_set(menu::Project* project, const std::string& page, const std::string& path) {
+const MenuCars::ModelSet* MenuCars::model_set(menu::Project* project, const std::string& page, const std::string& path) {
     auto [it, fresh] = model_sets_.try_emplace(page + ":" + path);
-    if (fresh && project && app_.gpu()) try {
-            if (const std::optional<Bytes> f = project->entry(page, path); f && f->size() > 0x18) {
-                const u32 count = rd16(*f, 0x16);
-                for (u32 i = 0; i < count && i < 16; ++i) {
-                    mdls::Options mo;
-                    mo.model = int(i);
-                    gt3r::scene::Model m = mdls::build_model(*f, mo, path + "#" + std::to_string(i));
-                    it->second.push_back(std::make_unique<render::GpuModel>(*app_.gpu(), m));
+    if (fresh) {
+        it->second = std::make_unique<ModelSet>();
+        if (project && app_.gpu()) try {
+                if (const std::optional<Bytes> f = project->entry(page, path); f && mdls::is_mdls(*f)) {
+                    ModelSet& set = *it->second;
+                    set.bones = mdls::read_bones(*f);
+                    set.symbols = mdls::read_symbols(*f);
+                    if (!set.bones.empty()) {
+                        set.skin = mdls::SkinTable::of(*f);
+                        for (const mdls::Symbol& sym : set.symbols)
+                            if (sym.name == "SKINNING") set.skinned_model = int(sym.value);
+                    }
+                    const u32 count = rd16(*f, 0x16);
+                    for (u32 i = 0; i < count && i < 16; ++i) {
+                        mdls::Options mo;
+                        mo.model = int(i);
+                        gt3r::scene::Model m = mdls::build_model(*f, mo, path + "#" + std::to_string(i));
+                        // ❓ A skinned set's reflection passes (the shapes of kind 2: 0.35 x the
+                        // picture of outside slot 0) are left out: which picture the program binds
+                        // there for these sets is not read, and the face's own (GT Auto's orange
+                        // page) covers or tints the clothes, where the original shows the
+                        // mechanic's yellow shirt and dark brown trousers with a faint sheen.
+                        if (!set.bones.empty())
+                            for (gt3r::scene::Mesh& mesh : m.meshes)
+                                for (gt3r::scene::Primitive& p : mesh.primitives)
+                                    if (p.flags & gt3r::scene::kEnvironmentMap) p.index_count = 0;
+                        // The page sees the face's picture through its alpha: an opaque
+                        // primitive's texels are opaque there (the clothes' texture alpha weighs
+                        // the reflection passes in the frame, not what shows).
+                        if (!set.bones.empty()) {
+                            std::vector<bool> opaque(m.textures.size(), false), blended(m.textures.size(), false);
+                            for (const gt3r::scene::Mesh& mesh : m.meshes)
+                                for (const gt3r::scene::Primitive& p : mesh.primitives)
+                                    if (p.texture >= 0 && size_t(p.texture) < m.textures.size() && p.index_count)
+                                        ((p.flags & (gt3r::scene::kAlphaBlend | gt3r::scene::kAlphaTest | gt3r::scene::kAdditive)) ? blended : opaque)[size_t(p.texture)] = true;
+                            for (size_t t = 0; t < m.textures.size(); ++t)
+                                if (opaque[t] && !blended[t])
+                                    for (u32& c : m.textures[t].rgba) c |= 0xFF000000u;
+                        }
+                        set.models.push_back(std::make_unique<render::GpuModel>(*app_.gpu(), m));
+                        set.stored.push_back(set.bones.empty() ? gt3r::scene::Model{} : std::move(m));
+                    }
                 }
+            } catch (const std::exception& e) {
+                LOG_WARN("Car face models %s: %s", path.c_str(), e.what());
             }
+    }
+    return it->second.get();
+}
+
+const menu::SkeletonMotion* MenuCars::skeleton_motion(menu::Project* project, const std::string& page, const std::string& path) {
+    auto [it, fresh] = skeleton_motions_.try_emplace(page + ":" + path);
+    if (fresh && project) try {
+            if (const std::optional<Bytes> f = project->entry(page, path); f && menu::SkeletonMotion::is_motion(*f))
+                it->second = std::make_unique<menu::SkeletonMotion>(menu::SkeletonMotion::parse(*f));
         } catch (const std::exception& e) {
-            LOG_WARN("Car face models %s: %s", path.c_str(), e.what());
+            LOG_WARN("Car face motion %s: %s", path.c_str(), e.what());
         }
-    return &it->second;
+    return it->second.get();
+}
+
+std::array<float, 2> MenuCars::body_length(const std::string& code, const race::CarSpec& spec) {
+    auto [it, fresh] = body_lengths_.try_emplace(code, std::array<float, 2>{spec.wheelbase / 2 + 0.9f, spec.wheelbase / 2 + 0.9f});
+    if (!fresh) return it->second;
+    // The body's box of the car's first paint row (VARIATION +0x18 / +0x1C, mm): how far it
+    // reaches ahead of and behind its middle.
+    if (db::SpecDb* db = app_.db()) {
+        const db::Labels* cars = db->labels("GENERIC_CAR");
+        const db::Table* link = db->table("CAR_VARIATION_american");
+        const db::Table* rows = db->table("VARIATIONamerican");
+        const std::optional<u32> id = cars ? cars->id(code) : std::nullopt;
+        if (id && link && rows) {
+            const ByteSpan l = link->row(*id);
+            size_t first = 0;
+            if (l.size() >= 4 && rows->rows(rd32(l, 0), first) > 0) {
+                const ByteSpan r = rows->row_at(first);
+                float ahead = 0, behind = 0;
+                if (r.size() >= 0x20) std::memcpy(&ahead, r.data() + 0x18, 4), std::memcpy(&behind, r.data() + 0x1C, 4);
+                if (ahead > 500 && ahead < 5000 && behind > 500 && behind < 5000) it->second = {ahead / 1000, behind / 1000};
+            }
+        }
+    }
+    return it->second;
+}
+
+void MenuCars::add_model_motions(Face& f, const menu::CarFaceSettings& s, const menu::CarMotion& m, menu::Project* project, const std::string& page,
+                                 const Mat4& car, const race::CarSpec& spec, float fade, std::vector<render::DrawItem>& out) {
+    std::vector<const ModelSet*> sets;
+    for (const std::string& path : s.model_sets) sets.push_back(model_set(project, page, path));
+    if (m.model_motions.empty()) {
+        // Without motions each set is drawn as it is stored (garageShadow.mdl).
+        for (const ModelSet* set : sets)
+            if (set)
+                for (const auto& g : set->models) out.push_back(render::DrawItem{g.get(), Mat4::identity(), 0});
+        return;
+    }
+    // The places on the car the motions start from (0x156AA0, table 0x68FDC0), in the car's frame
+    // (x to its right, the front at -z): the outer faces of the left tires at the axles, midway
+    // and three quarters back, and the body's ends on its centre line.
+    const float front = -spec.wheelbase / 2, rear = spec.wheelbase / 2, mid = (front + rear) / 2;
+    const float left_front = -(spec.half_track[0] + spec.tire_width[0] / 2), left_rear = -(spec.half_track[1] + spec.tire_width[1] / 2);
+    const std::array<float, 2> ends = body_length(s.car_code, spec);
+    struct Place {
+        float x, z, yaw;
+    };
+    const Place places[11] = {{0, 0, 0},
+                              {left_front, front, 0},
+                              {-left_front, front, 180},
+                              {left_rear, rear, 0},
+                              {-left_rear, rear, 180},
+                              {left_front, mid, 0},
+                              {-left_front, mid, 180},
+                              {left_front, front + 0.75f * (rear - front), 0},
+                              {-left_front, front + 0.75f * (rear - front), 180},
+                              {0, mid - ends[0], -90},
+                              {0, mid + ends[1], 90}};
+    if (f.posed.size() < m.model_motions.size()) f.posed.resize(m.model_motions.size());
+    for (size_t e = 0; e < m.model_motions.size(); ++e) {
+        const menu::CarMotion::ModelMotion& mm = m.model_motions[e];
+        const int index = mm.set >= 0 && size_t(mm.set) < sets.size() ? mm.set : 0;
+        const ModelSet* set = index < int(sets.size()) ? sets[size_t(index)] : nullptr;
+        const menu::SkeletonMotion* motion = skeleton_motion(project, page, mm.path);
+        if (!set || set->models.empty() || !motion) continue;
+        const Place& p = places[mm.align >= 0 && mm.align <= 10 ? mm.align : 0];
+        const float k = m.model_scale;
+        // The motion's start: the car's matrix, the place, turned, scaled (flattened onto the
+        // floor for a shadow).
+        const Mat4 start = car * render::translate({p.x, 0, p.z}) * render::rotate_y((mm.rot + p.yaw) * kDeg) * render::scale({k, mm.shadow ? 0.0f : k, k});
+        const float t = m.clock.time(frame_, motion->length(), motion->loop_start());
+        const std::map<std::string, Mat4> nodes = motion->nodes(t, start);
+        // A symbol named as a node: that model drawn there (the oil change's cart, careerPos).
+        for (const mdls::Symbol& sym : set->symbols) {
+            const auto at = nodes.find(sym.name);
+            if (at == nodes.end() || sym.value >= set->models.size()) continue;
+            render::DrawItem it{set->models[sym.value].get(), at->second, 0};
+            it.alpha = fade;
+            out.push_back(it);
+        }
+        // The skinned model moved by the bones.
+        if (set->skinned_model >= 0 && size_t(set->skinned_model) < set->stored.size() && !set->skin.empty()) {
+            const mdls::Palette pal = menu::palette(set->bones, nodes);
+            std::vector<gt3r::scene::Mesh> meshes;
+            mdls::pose(set->stored[size_t(set->skinned_model)].meshes, set->skin, pal, meshes);
+            std::unique_ptr<render::GpuModel>& g = f.posed[e];
+            if (!g) g = std::make_unique<render::GpuModel>(*app_.gpu(), *set->models[size_t(set->skinned_model)]);
+            if (g->update_geometry(meshes)) {
+                render::DrawItem it{g.get(), Mat4::identity(), 0};
+                it.alpha = fade;
+                out.push_back(it);
+            }
+        }
+    }
 }
 
 void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const std::string& page, const menu::Rect& at, const SDL_FRect& dst, float opacity) {
@@ -211,14 +350,15 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
     if (const auto it = live.extras.find("car_model"); it != live.extras.end())
         if (auto cell = std::dynamic_pointer_cast<script::Variable>(it->second)) model = cell->value.as<menu::CarModelObject>();
     if (!model) {
-        model = menu::make_car_model_object();
+        model = menu::make_car_model_object([this] { return frame_; });
         live.extras["car_model"] = std::make_shared<script::Variable>(menu::object_value(model));
     }
     Face& f = faces_[&face];
     const std::string key = s.car_code + "#" + std::to_string(s.car_color);
-    if (f.widget.expired() || f.car.substr(0, f.car.find('#')) != s.car_code) {
-        // A car set on the face: placed where the layout says and faded in.
+    if (model->m.placed_car != s.car_code) {
+        // A car set on the face (by its code): placed where the layout says and faded in.
         model->m.set_car(s.trans, s.rotate);
+        model->m.placed_car = s.car_code;
     }
     f.widget = live.weak_from_this();
     f.car = key;
@@ -261,11 +401,16 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
         proj = menu_face3d::projection_of(sv, page_part, page_part);
     }
     const menu::StageMotion* om = s.advanced || s.option_motion.empty() ? nullptr : option_motion(project, page, s.option_motion);
+    // The page's camera motion (loadModelOptionMotion) at its clock's time (0 until the page plays
+    // it): its eye, the point looked at, its up and field of view; and its named values: `fade`
+    // the opacity of the model sets (not drawn under 0.02), `lift` the car raised on a jack,
+    // `shadowOpacity` the car's shadow (0x156F18).
+    float fade = 1, lift = 0, shadow_opacity = -1;
     if (om) {
-        // The page's camera motion (loadModelOptionMotion) from the picture it was given at,
-        // held at its end: its eye, the point looked at, its up and field of view.
-        const float len = om->length();
-        const float t = std::clamp(float(s64(frame_) - s64(s.option_motion_frame)) / 60.0f, 0.0f, len > 0 ? len : 0.0f);
+        const float t = m.clock.time(frame_, om->length(), m.option_loop_start);
+        fade = std::clamp(om->named_at("fade", t, 1.0f), 0.0f, 1.0f);
+        lift = std::max(om->named_at("lift", t, 0.0f), 0.0f);
+        if (om->named.count("shadowOpacity")) shadow_opacity = std::clamp(om->named_at("shadowOpacity", t, 1.0f), 0.0f, 1.0f);
         const auto& c = *om->camera;
         auto at_t = [&](int i) { return om->at(c[size_t(i)], t); };
         eye = {at_t(0), at_t(1), at_t(2)};
@@ -284,7 +429,9 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
     // The model's origin is on the body's underside: the tires stand on y = 0 with the body
     // raised by its ride height (❓ judged from the pictures: the program's ShowRoomCar is not read).
     const float ride = (c->spec.ride_height[0] + c->spec.ride_height[1]) / 2;
-    const race::CarState state = rest_state(placed * render::translate({0, ride, 0}), c->spec);
+    // ❓ On a jack (`lift`) the whole car is raised; the program lets each wheel hang by the
+    // smaller of its travel and the lift (0x1569A0, not read).
+    const race::CarState state = rest_state(placed * render::translate({0, ride + lift, 0}), c->spec);
 
     render::DrawOptions o;
     for (float& k : o.clear) k = 0;
@@ -292,7 +439,42 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
     o.repeated = true;
     o.sort_blended = true;
     o.gt3_lighting = true;
-    menu_face3d::light(v, o);
+    // The stage's lights from light.mot at its time (light 3 is all zero): each one's place as
+    // the direction toward it (❓ the program's lights are not read as points or directions),
+    // ambient, diffuse and specular; its ColorScale on the car's colour; light 0 throws the car's
+    // shadow, shadowDarkness0 its strength, bottomShadow the shadow under the car (❓
+    // shadowBlur0 is not applied).
+    menu::FaceView lit = v;
+    float color_scale = 1;
+    race::CarVisual::Shadow stage_shadow;
+    render::Vec3 shear{0, 0, 0};
+    const bool stage_lights = s.advanced && light_motion_ && !light_motion_->lights.empty();
+    if (stage_lights) {
+        for (int i = 0; i < 3; ++i) {
+            const auto it = light_motion_->lights.find(i);
+            menu::FaceLight& L = lit.lights[i];
+            L.on = it != light_motion_->lights.end();
+            if (!L.on) continue;
+            const menu::StageMotion::Light& ml = it->second;
+            for (int k = 0; k < 3; ++k) {
+                L.pos[k] = light_motion_->at(ml.position[size_t(k)], stage_time_);
+                L.amb[k] = light_motion_->at(ml.ambient[size_t(k)], stage_time_);
+                L.dif[k] = light_motion_->at(ml.diffuse[size_t(k)], stage_time_);
+                L.spe[k] = light_motion_->at(ml.specular[size_t(k)], stage_time_);
+            }
+            L.pos[3] = 0;
+        }
+        for (float& a : lit.world_ambient) a = 0;
+        color_scale = light_motion_->named_at("ColorScale", stage_time_, 1.0f);
+        const render::Vec3 l0 = render::normalize({lit.lights[0].pos[0], lit.lights[0].pos[1], lit.lights[0].pos[2]});
+        if (l0.y > 0.2f) shear = {-l0.x / l0.y, 0, -l0.z / l0.y};
+        const float bottom = std::clamp(light_motion_->named_at("bottomShadow", stage_time_, 0.7f), 0.01f, 1.0f);
+        const float dark = std::clamp(light_motion_->named_at("shadowDarkness0", stage_time_, 0.6f), 0.0f, 1.0f);
+        stage_shadow.on = true;
+        stage_shadow.alpha = std::round(bottom * 64) / 64;
+        stage_shadow.light_factor = std::round(dark / stage_shadow.alpha * 64) / 64;
+    }
+    menu_face3d::light(lit, o);
     if (SDL_GPUTexture* env = env_texture(project, page, s.env_image)) {
         o.env_sphere = env;
         o.reflection_strength = 1.0f; // ❓ the program's reflection parameters (1.3, 1.1) are not read
@@ -301,9 +483,12 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
     race::CarVisual::Shadow sh;
     sh.on = true;
     for (int i = 0; i < 3; ++i) sh.rgb[i] = v.lights[0].sdw[i];
-    sh.alpha = v.lights[0].sdw[3];
-    // (set_shadow makes the shadows' models anew: only when the look changes.)
+    sh.alpha = shadow_opacity >= 0 ? shadow_opacity : v.lights[0].sdw[3];
+    if (stage_lights) sh = stage_shadow;
+    // (set_shadow makes the shadows' models anew: only when the look changes; the light's
+    // direction is set apart, every picture.)
     if (std::memcmp(&sh, &c->shadow, sizeof sh) != 0 || !c->shadow_set) c->visual->set_shadow(sh), c->shadow = sh, c->shadow_set = true;
+    c->visual->set_shadow_shear(shear);
     items_.clear();
     if (s.advanced)
         // Each backdrop with a weight, cross-faded over black (0x1D5588).
@@ -313,10 +498,14 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
                 it.alpha = weights[i];
                 items_.push_back(it);
             }
-    // `mirror` (normal mode): first the car turned upside down about the floor it stands on,
-    // without its shadow, at 0.3 of its alpha (0x156820, 0x217058); then the car.
+    // The page's other models (loadModelSet: a mechanic, a shadow), moved by their motions.
+    std::vector<render::DrawItem> sets;
+    if (!s.advanced && fade >= 0.02f) add_model_motions(f, s, m, project, page, placed, c->spec, fade, sets);
+    // `mirror` (normal mode): first the car and those models turned upside down about the floor
+    // they stand on, without the car's shadow, at 0.3 of its alpha (0x156820, 0x217058); then
+    // the car.
     if (s.mirror && !s.advanced) {
-        std::vector<render::DrawItem> mirrored;
+        std::vector<render::DrawItem> mirrored = sets;
         c->visual->add_items(mirrored, state, eye);
         render::DrawOptions mo = o;
         mo.mirrored = true;
@@ -328,13 +517,11 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
         if (!mirror_view_) mirror_view_ = std::make_unique<render::View3D>(*app_.gpu());
         mirror_view_->draw(app_.renderer(), page_rect, view * flip, proj, under, mirrored, mo);
     }
-    // The page's other models (loadModelSet: a mechanic, a shadow) where their files put them.
-    if (!s.advanced)
-        for (const std::string& path : s.model_sets)
-            if (const auto* set = model_set(project, page, path))
-                for (const auto& m : *set) items_.push_back(render::DrawItem{m.get(), Mat4::identity(), 0});
+    items_.insert(items_.end(), sets.begin(), sets.end());
     c->visual->add_shadow_items(items_, state);
+    const size_t car_from = items_.size();
     c->visual->add_items(items_, state, eye);
+    for (size_t i = car_from; i < items_.size(); ++i) items_[i].tint *= color_scale;
     view_->draw(app_.renderer(), page_rect, view, proj, eye, items_, o);
 }
 

@@ -16,6 +16,7 @@ LicenseRules LicenseRules::from_row(std::span<const u8> r) {
     l.pylons = r[0x75];
     l.wall_limit = r[0x8A];
     l.car_limit = r[0x8B];
+    l.section = std::max(-1, int(gt3r::s8(r[0x89])));
     return l;
 }
 

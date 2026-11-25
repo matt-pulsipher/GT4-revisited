@@ -4,6 +4,8 @@
 // read from the program's routines and what is judged from the scripts is in
 // docs/formats/menu.md ("Running").
 
+#include "formats/gs_memory.h"
+#include "formats/tex1.h"
 #include "gt4r/menu/faces_car.h"
 #include "gt4r/menu/runtime_internal.h"
 
@@ -1110,6 +1112,18 @@ void scroll_into_view(LiveWidget& inside) {
     }
 }
 
+// A car face's car model (face.car_model), made when first asked for: where the model stands, how
+// it turns, the model sets' motions (menu/faces_car.cpp).
+std::shared_ptr<CarModelObject> car_model_of(Runtime* r, const W& w) {
+    const auto it = w->extras.find("car_model");
+    if (it != w->extras.end())
+        if (auto cell = std::dynamic_pointer_cast<script::Variable>(it->second))
+            if (auto m = cell->value.as<CarModelObject>()) return m;
+    const std::shared_ptr<CarModelObject> model = make_car_model_object([r] { return r->frame(); });
+    w->extras["car_model"] = std::make_shared<script::Variable>(object_value(model));
+    return model;
+}
+
 std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, const std::string& n) {
     Runtime* r = &rt;
     auto fn = [&](script::NativeFunction f) { return constant(Vm::native(n, std::move(f))); };
@@ -1525,19 +1539,48 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
             return fn([r, w](Vm&, const Value&, Args) {
                 LiveWidget* page = w->page();
                 Project* project = page ? r->project_of(*page) : nullptr;
-                if (const gt3r::Tex1::Image* image = project ? project->image(page->name, w->data.text("image_path")) : nullptr) {
+                const std::string path = w->data.text("image_path");
+                if (w->data.number("from_disk") != 0) {
+                    // A picture of the disc (`piece/crs_logo/<course>.img`): its size as drawn.
+                    std::string name = path;
+                    while (!name.empty() && name[0] == '/') name.erase(0, 1);
+                    try {
+                        if (const std::optional<Bytes> data = name.empty() ? std::nullopt : r->reader()(name); data && gt3r::Tex1::is_tex1(*data)) {
+                            const gt3r::Tex1 set = gt3r::Tex1::parse(*data);
+                            if (!set.textures.empty()) {
+                                gt3r::GsMemory gs;
+                                set.upload(*data, gs);
+                                const gt3r::Tex1::Image image = set.decode(gs, 0);
+                                w->set_property("w", Value::number(float(image.width)));
+                                w->set_property("h", Value::number(float(image.height)));
+                            }
+                        }
+                    } catch (const std::exception&) {
+                    }
+                    return Value{};
+                }
+                if (const gt3r::Tex1::Image* image = project ? project->image(page->name, path) : nullptr) {
                     w->set_property("w", Value::number(float(image->width)));
                     w->set_property("h", Value::number(float(image->height)));
                 }
                 return Value{};
             });
-        // setData(car, index): a paint chip takes the car's paint of that index.
+        // setData(car, index): a paint chip takes the car's paint of that index; setData(garage
+        // car): that car's own paint (the header's car, the used cars' rows).
         if (type == "ColorChipFace" && n == "setData")
             return fn([w](Vm& vm, const Value&, Args a) {
-                if (a.size() < 2) return Value{};
+                if (a.empty()) return Value{};
+                s32 i = 0;
+                if (a.size() >= 2) i = arg_int(a, 1);
+                else {
+                    const Value own = vm.attribute(a[0], "getColorIndex");
+                    if (own.is_nil()) return Value{};
+                    const Value v = vm.call(own, {});
+                    if (!v.is_number()) return Value{};
+                    i = s32(v.as_float());
+                }
                 const Value colors = vm.call(vm.attribute(a[0], "getColors"), {});
                 const std::vector<Value>* list = colors.items();
-                const s32 i = arg_int(a, 1);
                 if (!list || i < 0 || size_t(i) >= list->size()) return Value{};
                 const Value& c = (*list)[size_t(i)];
                 w->set_property("chip_r", Value::integer(s32(vm.attribute(c, "r").as_float() * 255.0f)));
@@ -1561,6 +1604,37 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
             return fn([r, w](Vm&, const Value&, Args a) {
                 w->set_property("option_motion", a.empty() ? Value::string({}) : a[0]);
                 w->set_property("option_motion_frame", Value::number(float(r->frame())));
+                // Its clip's length: isPlayingModelMotion answers for it.
+                const std::shared_ptr<CarModelObject> model = car_model_of(r, w);
+                model->m.has_option_motion = false;
+                LiveWidget* page = w->page();
+                Project* project = page ? r->project_of(*page) : nullptr;
+                if (!a.empty() && project) try {
+                        if (const std::optional<Bytes> f = project->entry(page->name, a[0].to_string()); f && SkeletonMotion::is_motion(*f)) {
+                            const SkeletonMotion sm = SkeletonMotion::parse(*f);
+                            model->m.has_option_motion = true;
+                            model->m.option_length = sm.length(), model->m.option_loop_start = sm.loop_start();
+                        }
+                    } catch (const std::exception&) {
+                    }
+                return Value{};
+            });
+        // loadModelMotion(path, set, align = 0, shadow = 0, rot = 0): a motion for a model set
+        // (0x139030 -> 0x1540C8), appended to the car model's.
+        if (type == "CarFace" && n == "loadModelMotion")
+            return fn([r, w](Vm&, const Value&, Args a) {
+                if (a.empty()) return Value{};
+                CarMotion::ModelMotion e;
+                e.path = a[0].to_string();
+                e.set = a.size() > 1 ? arg_int(a, 1) : 0;
+                e.align = a.size() > 2 ? arg_int(a, 2) : 0;
+                e.shadow = a.size() > 3 && a[3].truthy();
+                e.rot = a.size() > 4 && a[4].is_number() ? a[4].as_float() : 0.0f;
+                std::vector<CarMotion::ModelMotion>& list = car_model_of(r, w)->m.model_motions;
+                // (A page set up again on the same face asks for the same entries again.)
+                for (const CarMotion::ModelMotion& o : list)
+                    if (o.path == e.path && o.set == e.set && o.align == e.align && o.shadow == e.shadow && o.rot == e.rot) return Value{};
+                list.push_back(e);
                 return Value{};
             });
         if (type == "CarFace" && n == "loadModelSet")
@@ -1571,7 +1645,6 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
                     w->set_property("model_sets", Value::string(sets.empty() ? path : sets + "|" + path));
                 return Value{};
             });
-        // ❓ loadModelMotion(path, set, clip): the sets' skinned motions are not played.
         if (n == "setData" || n == "setColor" || n == "setColorIndex" || n == "syncLoading" || n == "loadModelSet" || n == "loadModelMotion" ||
             n == "loadModelOptionMotion")
             return nothing();
@@ -1595,6 +1668,14 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
                 const std::string code = v.is_nil() ? std::string() : r->vm().attribute(v, "car_code").to_string();
                 w->set_property("car_code", Value::string(code));
                 if (!code.empty()) w->extras["car_data of " + code] = std::make_shared<script::Variable>(v);
+                // A new car stands where the layout says from now: the script's own placing after
+                // it (Home's garage car turned to its front, ry 180 and warp) holds.
+                const std::shared_ptr<CarModelObject> model = car_model_of(r, w);
+                if (!code.empty() && model->m.placed_car != code) {
+                    const CarFaceSettings s = car_face_settings(w->data);
+                    model->m.set_car(s.trans, s.rotate);
+                    model->m.placed_car = code;
+                }
                 // A garage car shows in its own paint (its record's).
                 if (!code.empty()) {
                     const Value index = r->vm().attribute(v, "getColorIndex");
@@ -1607,11 +1688,8 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
             return a;
         }
         if (n == "car_model") {
-            const auto it = w->extras.find("car_model");
-            if (it != w->extras.end()) return it->second;
-            // Where the model stands and how it turns (menu/faces_car.cpp).
-            const std::shared_ptr<CarModelObject> model = make_car_model_object();
-            return w->extras["car_model"] = std::make_shared<script::Variable>(object_value(model));
+            car_model_of(r, w);
+            return w->extras["car_model"];
         }
         if (n == "setColorIndex")
             return fn([w](Vm&, const Value&, Args a) {
@@ -1646,7 +1724,19 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
             if (n == m) return nothing();
     }
     if (type == "ModelFace") {
-        for (const char* m : {"getModelSetPath", "setModelSetPath", "getEnvImagePath", "setEnvImagePath", "getModelMotionPath", "setModelMotionPath",
+        // setModelSetPath(path, a, from disk, b) (0x2BB220: the path, then three flags of +0x308;
+        // the second is model_set_from_disk, 0x2BE938): the prize page's money pouch,
+        // piece/prize/other.mdl. getModelSetPath: the path.
+        if (n == "setModelSetPath")
+            return fn([w](Vm&, const Value&, Args a) {
+                if (a.empty()) return Value{};
+                w->set_property("model_set_path", Value::string(a[0].to_string()));
+                if (a.size() > 2) w->set_property("model_set_from_disk", Value::integer(a[2].truthy() ? 1 : 0));
+                return Value{};
+            });
+        if (n == "getModelSetPath")
+            return fn([w](Vm&, const Value&, Args) { return Value::string(w->data.text("model_set_path")); });
+        for (const char* m : {"getEnvImagePath", "setEnvImagePath", "getModelMotionPath", "setModelMotionPath",
                               "reset", "stopRotate"})
             if (n == m) return nothing();
     }

@@ -62,6 +62,10 @@ struct TransitionPicture {
     float cover = 0, page_opacity = 1, page_scale = 1;
     const std::vector<float>* blocks = nullptr;
     bool capture = false;
+    // A cross transition coming in (0x2182E0): the picture shown last drawn over the new one at
+    // `trail_ratio`, its source cut by `trail_diff` pixels a side, then black at 0.1.
+    bool trail = false, trail_black = false;
+    float trail_ratio = 0, trail_diff = 0;
 };
 TransitionPicture transition_picture(const script::Value& transition);
 

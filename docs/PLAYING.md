@@ -63,19 +63,28 @@ F11 switches full screen.
   the race display (in the units the options set), the B-spec display and commands, the pause
   menu, the results, the replays through the course's cameras.
 - **License tests**: the License Center, a test's page, the test driven with its own display and
-  trophy times, ended when the car stops in the box, its results with Retry and Exit.
+  trophy times, ended when the car stops in the box or fails (cones, walls, off the course), its
+  results with Retry and Exit, the trophy on the license's grid.
+- **Later in Gran Turismo mode**: the halls of Professional Events, a championship of five races
+  (each race's pre-race page with the points so far, Session Results, Next Race, Abandon), the
+  dealers' tune shops (buying a part and fitting it), the calendar going by a day a race.
 
 ## Known problems
 
 The ones a player meets first:
 
-- Arcade's opponents are always five Mercedes-Benz SL 500s (the game's choice of opponents by
-  your car's performance is not built yet).
-- The replay after a B-spec race shows the course without the cars.
-- Your car's row in the race's grid tables is not marked in orange.
-- On some courses an opening shot of the race looks out from inside your car.
-- Prologue keeps its memory card in Gran Turismo 4's folder of the data folder: the two games'
-  saves overwrite each other when both are played with one data folder.
+- A race on Tsukuba Circuit Wet stops the game as it starts.
+- The Toyota Prius does not move.
+- Seoul Central (forward): the computer's cars spin and back up on its long boulevard; race cars
+  driven by the computer spin at Tsukuba.
+- A championship has no Point Ranking page between its races.
+- The prize page after a race has no place number or turning money pouch.
+- An event page's Preview opens a plain page that asks for a race (Cross drives it) instead of
+  the preview.
+- On an event page after its first race, the strip of the series' course logos is drawn twice its
+  size over the title.
+- The license test page's "Best" reads 0'00.000 after a run.
+- In Prologue, Start does not skip the opening movie (Triangle does).
 - The copyright notice and the "Sony Computer Entertainment America Presents" page before the
   first dialog are not shown.
 
@@ -99,3 +108,37 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
   longest work in ms, the resident memory in MB.
 - `GT4R_MENU` and `GT4R_RACE` set up the menu pages and *Drive* screens for a check (the tops of
   `src/gt4r/app/screen_menu_viewer.cpp` and `screen_race.cpp`).
+- Scripted runs (`--shot`, `--sweep`) open their window without making it the active one, and it
+  cannot take the keyboard's focus.
+
+## Sweeps (for checks)
+
+- `gt4r <disc> --sweep <list> --sweep-out <dir>`: the races of a list, one after another in one
+  window, a picture of each at the frames the list asks for. A line: `<name>` TAB `<GT4R_RACE's
+  setup>` [TAB `<frames, ';' between>`]. `<dir>/results.tsv` gets a line a race: its status, the
+  race screen's setup time, the frames' work, the memory after it, the warnings it logged. Started
+  again with the same list, the run goes on after the last race it finished, and a race it ended
+  inside is written as a crash and passed over (`src/gt4r/app/screen_sweep.cpp`).
+- `gt4tool sweep <disc> courses [filter]`: every course file with a field of computer drivers for a
+  lap: set-up time, lap times, spins (and where they began), contacts, cars stuck.
+- `gt4tool sweep <disc> cars [filter] [course=..] [seconds=..]`: every car of the database driven
+  by the course's computer driver: distance, top speed, 0-100 km/h, spins, stuck time.
+- `gt4tool sweep <disc> pad [courses]`: the player's car driven through the pad's path (an analog
+  stick and pedals following the road), with the automatic and the manual gearbox, the aids on and
+  off, against computer drivers: lap times, contacts, shifts, the place at the end.
+- A Gran Turismo mode game played forward (every license, 22 cars, the presents) for playing the
+  later events: `gt4tool save <disc> progress <data folder> [name] [credits]`, then
+  `GT4R_DATA_DIR=<data folder> gt4r <disc>`.
+
+## What runs where (the app's shell)
+
+- The window, the frame loop, the screens, the scripted keys, the pictures and the sweeps are the
+  app's own (`src/gt4r/app/app.*`, `screen_sweep.cpp`); the home screen, the setup screen and the
+  asset browser are tools of this app, not pages of the game.
+- The pad and keyboard are read by the shared engine's input layer (`gt3r::InputManager`, its
+  button mapping and the "modern" keyboard layout), which hands the race a pad state; from there the
+  race's own path (`sim::Session`, the pad's frame) turns it into the car's controls. The game's
+  own pad reading for the race is being ported (`sim-step`).
+- The 2D drawing toolkit of the home screen, the setup screen and the browser is the shared
+  engine's (`ui.cpp`, `ui_font.cpp`, `button_prompts.cpp`); the game's pages are drawn by the menu
+  code (`src/gt4r/menu`, `screen_menu_viewer.cpp`).

@@ -33,6 +33,7 @@ constexpr u32 kCarTable = 0, kWheelTable = 29, kWingTable = 30, kCourseTable = 0
 struct Database {
     Runtime* rt = nullptr;
     std::unique_ptr<db::SpecDb> db;
+    std::string language = "american"; // its name tables' (the menus' language)
     bool tried = false;
     std::vector<db::CarEntry> cars;
     std::map<std::string, size_t> by_label;
