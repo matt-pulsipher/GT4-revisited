@@ -7,6 +7,7 @@
 #include "gt4r/formats/replay/demonstration.h"
 #include "gt4r/race/demonstration_run.h"
 #include "gt4r/race/recorded_race.h"
+#include "gt4r/race/replay_file.h"
 #include "gt4r/sim/ai/drivers.h"
 #include "gt4r/sim/car_layout.h"
 #include "gt4r/save/codec.h"
@@ -64,13 +65,25 @@ std::vector<std::string> theater_replays(Disc& disc) {
     return names;
 }
 
+// A recording's file: one of the disc's by its name, else a file by its path (a card's replay, or a saved replay of the app's:
+// the recording it keeps).
+std::optional<Bytes> replay_bytes(Disc& disc, const std::string& name) {
+    if (const gt3r::Volume::Entry* e = disc.volume().find("replay/" + name + "/" + name)) return disc.volume().read(*e);
+    std::ifstream in(name, std::ios::binary);
+    if (!in) return std::nullopt;
+    const Bytes b((std::istreambuf_iterator<char>(in)), {});
+    if (!race::ReplayFile::is_replay(b)) return b;
+    const race::ReplayFile f = race::ReplayFile::decode(b);
+    return f.recording() ? std::optional<Bytes>(*f.recording()) : std::nullopt;
+}
+
 std::optional<replay::Demonstration> theater_replay(Disc& disc, const sim::Program& program, const std::string& name, std::string* error) {
-    const gt3r::Volume::Entry* e = disc.volume().find("replay/" + name + "/" + name);
-    if (!e) {
+    const std::optional<Bytes> file = replay_bytes(disc, name);
+    if (!file) {
         if (error) *error = "no replay " + name;
         return std::nullopt;
     }
-    const auto payload = unscramble_replay(disc.volume().read(*e));
+    const auto payload = unscramble_replay(*file);
     if (!payload) {
         if (error) *error = "does not unscramble";
         return std::nullopt;
@@ -245,13 +258,14 @@ ReplayBeside run_replay_beside(Disc& disc, const std::string& name) {
 }
 
 int run_floats_replays(Disc& disc, const std::vector<std::string>& args) {
-    const gt3r::Volume& vol = disc.volume();
     const sim::Program program = sim::Program::load(disc);
-    for (const std::string& n : theater_replays(disc)) {
+    std::vector<std::string> names = theater_replays(disc);
+    if (!args.empty() && args[0].find('/') != args[0].npos) names = {args[0]};
+    for (const std::string& n : names) {
         if (!args.empty() && args[0] != n) continue;
-        const gt3r::Volume::Entry* e = vol.find("replay/" + n + "/" + n);
-        if (!e) continue;
-        const Bytes file = vol.read(*e);
+        const std::optional<Bytes> found = replay_bytes(disc, n);
+        if (!found) continue;
+        const Bytes& file = *found;
         std::string err;
         const auto d = theater_replay(disc, program, n, &err);
         if (!d) {

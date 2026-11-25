@@ -11,6 +11,9 @@
 //   gt4tool race <disc> strobe-tree <path> [seconds]  a race movie's instances after it plays that long
 //   gt4tool race <disc> license-rules [prefix]     the events' test rules (RACE row bytes the race keeps), a line an event
 //   gt4tool race <disc> demos [prefix] [every]     the license tests' demonstrations played by our own race against their times
+//   gt4tool race <disc> replays [name] [x]         the Replay Theater's recorded races: class, event, course, entries
+//   gt4tool race <disc> recording <file> [out]     a replay's recording (a card's file, or an app's saved replay's) run by our own race;
+//                                                  `out`: its card file written there
 //   gt4tool race <disc> driver <model | path>      a car's cockpit places and driver set (or a character file's set)
 
 #include "gt4r/disc/disc.h"
@@ -25,6 +28,8 @@
 #include "gt4r/formats/replay/demonstration.h"
 #include "gt4r/save/codec.h"
 #include "gt4r/race/demonstration_run.h"
+#include "gt4r/race/recorded_race.h"
+#include "gt4r/race/replay_file.h"
 #include "gt4r/race/license_rules.h"
 #include "gt4r/race/start_camera.h"
 #include "gt4r/race/start_rule.h"
@@ -36,6 +41,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <optional>
 #include <span>
 #include <string>
@@ -338,11 +344,57 @@ int race_replays(gt4r::Disc& disc, const std::vector<std::string>& a) {
             std::printf(" %x", v);
         }
         std::printf("\n");
-        for (const auto& en : d->entries)
-            std::printf("   place %d kind %d pedals %d aids %d %d %d %d x198 %x var %llx\n", en.grid_place, en.driver_kind, en.pedal_style, en.aids[0], en.aids[1], en.aids[2], en.aids[3], en.x198,
+        for (const auto& en : d->entries) {
+            std::printf("   place %d kind %d pedals %d aids %d %d %d %d x198 %x var %llx cond", en.grid_place, en.driver_kind, en.pedal_style, en.aids[0], en.aids[1], en.aids[2], en.aids[3], en.x198,
                         (unsigned long long)en.equipment.part(sim::Equipment::Variation));
+            for (size_t k = 0; k < en.condition.size(); ++k) std::printf("%s%02x", k % 4 ? "" : " ", en.condition[k]);
+            std::printf("\n");
+        }
     }
     return 0;
+}
+
+// A replay's recording run again: against the file's times, and against the run it was made of (an app's saved replay holds both).
+int race_recording(Disc& disc, const Args& a) {
+    std::ifstream in(a[1], std::ios::binary);
+    Bytes file((std::istreambuf_iterator<char>(in)), {});
+    std::optional<race::ReplayFile> kept;
+    if (race::ReplayFile::is_replay(file)) {
+        kept = race::ReplayFile::decode(file);
+        if (!kept->recording()) return std::printf("%s holds no recording\n", a[1].c_str()), 1;
+        file = *kept->recording();
+    }
+    if (a.size() > 2) std::ofstream(a[2], std::ios::binary).write(reinterpret_cast<const char*>(file.data()), std::streamsize(file.size()));
+    const sim::Program program = sim::Program::load(disc);
+    std::string error;
+    std::optional<sim::ai::DemoRun> run = sim::ai::DemoRun::load_replay(file, program, a[1], &error);
+    if (!run) return std::printf("%s: %s\n", a[1].c_str(), error.c_str()), 1;
+    gt3r::Volume* vol = &disc.volume();
+    db::SpecDb sdb(
+        [vol](const std::string& path) -> std::optional<Bytes> {
+            const gt3r::Volume::Entry* e = vol->find(path);
+            return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
+        },
+        [vol](const std::string& dir) { return vol->list_dir(dir); }, "american");
+    const s32 time = run->demo.time_ms, best = run->demo.time2_ms;
+    std::printf("%s: %zu bytes, %s, mode %u, %zu entries, %zu steps, %d ms, best lap %d ms\n", a[1].c_str(), file.size(), run->demo.race_class.c_str(), run->demo.race_mode, run->demo.entries.size(), run->steps(), time, best);
+    race::RecordedRace race(disc, sdb, std::move(*run));
+    size_t apart = 0, compared = 0;
+    for (; !race.over();) {
+        race.step();
+        if (!kept || race.steps() > kept->steps.size()) continue;
+        const std::vector<race::CarState>& was = kept->steps[race.steps() - 1];
+        ++compared;
+        for (size_t i = 0; i < was.size() && i < race.session().cars().size() && apart == 0; ++i) {
+            const race::CarState& c = race.session().cars()[i];
+            if (std::memcmp(&c.position, &was[i].position, sizeof c.position) != 0)
+                apart = race.steps(), std::printf("  car %zu is %.6f m from the run's at step %zu\n", i, double(std::hypot(c.position.x - was[i].position.x, c.position.z - was[i].position.z)), race.steps());
+        }
+    }
+    std::printf("  ran to %lld ms (%s)", (long long)race.total_ms(), race.exact() ? "the recorded time" : "not the recorded time");
+    if (kept) std::printf("; %zu of %zu steps compared: %s", compared, kept->steps.size(), apart ? "apart" : "every car's place equal in every bit");
+    std::printf("\n");
+    return apart ? 1 : 0;
 }
 
 int race_demos(Disc& disc, const Args& a) {
@@ -542,6 +594,7 @@ int cmd_race(Disc& disc, const Args& a) {
     if (a[0] == "starts") return race_starts(disc, a);
     if (a[0] == "demos") return race_demos(disc, a);
     if (a[0] == "replays") return race_replays(disc, a);
+    if (a[0] == "recording" && a.size() > 1) return race_recording(disc, a);
     if (a[0] == "motion" && a.size() > 1) return race_motion(disc, a);
     if (a[0] == "strobe-tree" && a.size() > 1) return race_strobe_tree(disc, a);
     std::fprintf(stderr, "race: unknown request %s\n", a[0].c_str());

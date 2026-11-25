@@ -304,8 +304,9 @@ public:
     bool simulated() const { return session_ != nullptr; }
     bool night() const { return night_; }
     const WorldSetup& setup() const { return setup_; }
-    // The game's simulation (null: the stand-in runs).
+    // The game's simulation (null: the stand-in runs), and its entries as the race was set up with them.
     const sim::Session* session() const { return session_.get(); }
+    const std::vector<sim::Entry>& session_entries() const { return entries_; }
     // What the player chose for his own car and controls: the gearbox, the aids, the steering wheel's (its lock by the options'
     // AMATEUR .. SIMULATION: the entry's +0x344C, its active steering +0x3458, its force's strength and assist). True when the
     // cars must be set up anew for it (the next restart).
@@ -335,6 +336,7 @@ private:
     race::Simulation* sim_ = nullptr;
     std::unique_ptr<race::RailSimulation> rail_; // the stand-in, when the simulation is not running
     std::unique_ptr<sim::Session> session_;
+    std::vector<sim::Entry> entries_;
     std::unique_ptr<sim::ai::Field> field_; // the computer drivers, on the game's simulation
     std::unique_ptr<sim::ai::PitStops> pits_; // their pit stops
     bool counts_fuel_ = false;

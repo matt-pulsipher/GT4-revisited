@@ -237,6 +237,7 @@ void RaceWorld::build_simulation() {
             }
             counts_fuel_ = !entries.empty() && entries[0].fuel;
             plan_starts(program, entries);
+            entries_ = entries;
             // The player's car's power as built (the replay's card).
             try {
                 sim::Spec spec;
