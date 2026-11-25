@@ -97,7 +97,7 @@ public:
     bool save_dir_chosen() const;
     // Another folder (empty: the data folder again): what the new one does not have of the saves is copied there first. An error
     // for the player, empty when it is done.
-    std::string set_save_dir(const std::string& path);
+    std::string set_save_dir(const std::string& path, bool* has_its_own = nullptr); // (the folder has games already: those are used)
 
     // The mods folder read again; a mod switched on or off for this disc.
     void rescan_mods();

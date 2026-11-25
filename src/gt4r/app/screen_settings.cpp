@@ -385,9 +385,10 @@ private:
     }
 
     void use_save_folder(App& app, const std::string& path) {
-        const std::string why = app.set_save_dir(path);
+        bool its_own = false;
+        const std::string why = app.set_save_dir(path, &its_own);
         if (!why.empty()) return say(why, true);
-        say("Games, replays and photos are kept in " + (app.save_dir_chosen() ? app.save_dir() : std::string("the data folder")) + " from now on.");
+        say((its_own ? "The games already there are used: " : "Games, replays and photos are kept there now: ") + (app.save_dir_chosen() ? app.save_dir() : std::string("the data folder")));
     }
 
     void show(App& app, const std::string& path) {

@@ -476,6 +476,9 @@ SDL_AppResult App::iterate() {
     ui_->clear();
     if (!screens_.empty()) screens_.back()->render(*this, *ui_);
     draw_fps(!game);
+    // (GT4R_SHOT_GAMMA=1: the pictures as the window shows them, for checks)
+    static const bool shot_gamma = SDL_getenv("GT4R_SHOT_GAMMA") != nullptr;
+    if (gamma_frame_ && shot_gamma) gamma_pass_->end(video_.gamma), gamma_frame_ = false;
     ++frame_;
     if (!key_shot_.empty() && !shot_path_.empty()) {
         const size_t slash = shot_path_.find_last_of('/');

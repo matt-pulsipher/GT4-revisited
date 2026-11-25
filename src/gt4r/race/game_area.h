@@ -13,7 +13,8 @@ constexpr float canvas_side(float picture_width) { return std::max(0.0f, (pictur
 // (race_display.h); ours between them in proportion, and beyond 16:9 with the picture's edge.
 constexpr float anchor_push(float side) {
     constexpr float kWide = 320.0f / 3.0f, kPush = 96.0f;
-    return side <= kWide ? kPush * side / kWide : kPush + (side - kWide);
+    if (side > kWide - 0.01f && side < kWide + 0.01f) return kPush;
+    return side < kWide ? kPush * side / kWide : kPush + (side - kWide);
 }
 
 } // namespace gt4r::race

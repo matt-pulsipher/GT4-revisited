@@ -238,7 +238,7 @@ std::string App::save_dir() const {
     return dir;
 }
 
-std::string App::set_save_dir(const std::string& path) {
+std::string App::set_save_dir(const std::string& path, bool* has_its_own) {
     std::string to = path;
     if (!to.empty() && to.back() != '/' && to.back() != '\\') to += '/';
     if (to == data_dir_) to.clear();
@@ -253,6 +253,7 @@ std::string App::set_save_dir(const std::string& path) {
         if (!gt3r::write_host_file(probe, gt3r::ByteSpan(&byte, 1))) return "The folder cannot be written in: " + target;
         fs::remove(fs::path(probe), ec);
     }
+    if (has_its_own) *has_its_own = fs::exists(fs::path(target) / "memorycard", ec) || fs::exists(fs::path(target) / "games", ec);
     // What the new folder does not have is copied there; nothing of either is written over or taken away.
     for (const char* part : {"memorycard", "memorycard2", "games", "replays", "photos"}) {
         const fs::path a = fs::path(from) / part, b = fs::path(target) / part;
