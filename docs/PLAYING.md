@@ -126,7 +126,8 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
 - `gt4tool sweep <disc> pad [courses]`: the player's car driven through the pad's path (an analog
   stick and pedals following the road), with the automatic and the manual gearbox, the aids on and
   off, against computer drivers: lap times, contacts, shifts, the place at the end.
-- A Gran Turismo mode game played forward (every license, 22 cars, the presents) for playing the
+- A Gran Turismo mode game played forward (every license, the Beginner and Professional events
+  but the World Championship won, 26.8 % complete, the presents) for playing the
   later events: `gt4tool save <disc> progress <data folder> [name] [credits]`, then
   `GT4R_DATA_DIR=<data folder> gt4r <disc>`.
 

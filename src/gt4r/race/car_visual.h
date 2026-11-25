@@ -28,6 +28,12 @@ public:
         u32 paint = 0;      // Pat0 paint
         int lamp_level = 0; // 0 lights off, 1 on (a night course)
         ByteSpan wing;      // a fitted wing's model set (wing/lod/<label>); empty: none
+        // The driver: a character file's set for a car without its own (driver_figure.h
+        // character_driver_file), and character/driver.mdl, whose bones stand the skeleton in its
+        // stored pose for the sets without bones. Empty: the car's own set alone / no figure.
+        ByteSpan driver_set;
+        ByteSpan driver_skeleton;
+        bool driver = false; // draw the driver (its posture is not ported: the stored pose)
     };
     // `car_file`: car/lod/<model>; `pat`: the paint file next to it when the car file has none
     // inside. Throws FormatError.
@@ -121,6 +127,15 @@ private:
     render::Vec3 min_, max_;
     render::Vec3 lod_centre_{0, 0, 0}; // the body program's level switch (0x07): its centre and size
     float lod_size_ = 0;
+    // The driver figure (and a co-driver's): each model of the set once, drawn at its node in the
+    // figure's frame, the figure's frame at the seat.
+    std::vector<std::unique_ptr<render::GpuModel>> driver_models_;
+    struct DriverItem {
+        size_t model = 0;
+        render::Mat4 local;
+    };
+    std::vector<DriverItem> driver_items_;
+    void build_driver(ByteSpan file, const Options& opt, const std::string& name);
     std::unique_ptr<render::GpuModel> wing_; // a fitted wing, at the parts block's place and scale
     render::Vec3 wing_place_{0, 0, 0};
     float wing_scale_ = 1;

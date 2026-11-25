@@ -1122,9 +1122,30 @@ GT4's own routines, checked against the user's program where the note says so:
   0x2C8CC8) and the list box (0x2B29C0, 0x2B3918, 0x2B3670, 0x2B4A00, 0x2B48F0; its drag mode not written);
 - the B-spec driver's book and the Status page's figures (0x468B58, 0x468710, 0x468860; game_bspec.h), equal to
   the program's and to the original's page;
+- a car's figures in the player's units (0x445F70 / 0x445EE8 the catalog's, truncated; 0x1462D8 / 0x146128 the current
+  ones, half added; the units' factors 0x4729A0, 0x472A08; ❓ `GetPowerForDisplay` / `GetTorqueForDisplay`, 0x1AF598 /
+  0x1AF760, are not read); the options' `*_volume` (raw / 128, 0x180AA8 and its six likes); the A-spec and B-spec meters
+  (0x10FA58, 0x114058; ❓ a run is counted as all one driver's);
+- a championship's grid from its second race on (0x3EE9F8: opponents by kg over PS of their showroom cars, ties in
+  entry order, the player last; `championship_grid_places`, `menu/game.h`; the reference's Tuning Car Grand Prix race 2
+  grid reproduced with the event's parts and race 1's grid as the entrants' order, ❓ that order is inferred from this one
+  championship; the race keeps the entries and takes each one's start slot, 0x3EE7C0);
+- the B-spec book's doubled change (0x468A60) and the course's marks' flag (cond + 0xCBE7, 0x34C7E0 / 0x468A40: the
+  second character of the course's attribute text), save.md "The B-spec driver's book";
+- the completion (Home's "Complete", the halls' locks) by the game's own scripts (`getRaceEventRecordStatistics`,
+  `canEntryEndurance`, `canEntryGTWorldChamp`, `canEntryExtreme`; save.md "A game with progress");
+- Prologue's game data file and its card pages' saving and loading (`save/prologue_data.*`, prologue.md "The saved game";
+  the license units by `prologue_license.*`), its new game's payload equal to the program's byte for byte;
 - `MCourseData.GetAttrString` (0x1B3320); the options' fields and the screen's figures (0x436D60); the
   license day (0x110800); the gear ranges (0x3553A0, 0x355278); the race result routines (0x114498,
   0x119CB8, 0x11C328, 0x1105A8) and the distance added to a car (0x35DE20) as read.
+
+- **A stream's level**: `startStreamEx`'s code is turned into a kind (0x4607A0: "pcm" -2, "narration" -3, else a
+  sequence, -1), and 0x4608C8 branches on it. A stream (-2 -> 0x460220 -> 0x45FFF8 -> 0x45FFC0) plays at the script's
+  volume x sdvol.dat's column 0 (0.3), with no option in it; only a sequence (-1 -> 0x461978 .. 0x461620) takes column 1
+  (0.48) and menu_bgm_raw / 128. The pre-race jingle's volume is MOption's `menu_bgm_volume`, raw / 128 (0x180AA8):
+  0.3 x 115 / 128 x 16383 = 4415.7, the 4416 the original's sound chip holds. (`RaceBGMPS2::vf5`, 0x33D568, puts the
+  option in only for its code 12.)
 
 Still the shared engine's code or a stand-in (file, function → the GT4 routine that should replace it):
 - `widget_classes.cpp` the select box's and scroll window's routines are read (0x2DA2B0 on, 0x2D2720 on); the

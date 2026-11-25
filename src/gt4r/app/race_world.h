@@ -57,6 +57,7 @@ struct WorldSetup {
     std::vector<WorldEntry> entries; // the first is the player's
     bool smoke = true;
     bool reflection = true;
+    bool drivers = false; // the drivers in their stored pose (the posture is not ported: for checks)
     bool rail = false; // the stand-in simulation instead of the game's
     sim::ai::Pace pace; // the computer drivers' (the event's)
     std::vector<u8> event_row; // the event's RACE row: the race's tire wear (sim::rules::event_wear_bytes); empty: no wear
@@ -164,6 +165,9 @@ public:
         float opacity = 1;
     };
     void draw_icons(Ui& ui, const SDL_FRect& canvas, std::span<const Icon> icons);
+    // One model in its own view over `rect` (the license results' trophy), in the course's light:
+    // `place` its model matrix in a camera at the origin looking down -z, `proj` the lens.
+    void draw_model(Ui& ui, const SDL_FRect& rect, const gt3r::render::GpuModel& model, const gt3r::render::Mat4& place, const gt3r::render::Mat4& proj, float alpha);
 
     const race::CourseScene& course() const { return *course_; }
     const race::CarVisual& visual(size_t i) const { return *car_visuals_[i]; }

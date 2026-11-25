@@ -413,16 +413,17 @@ Value make_car_value(GameNatives& n, std::shared_ptr<CarHandle> c) {
         const Database::Spec& sp = spec();
         if (!sp.engine || sp.power_rpm.empty() || sp.power_rpm[0] == '-') return text("----");
         const GameState::Unit unit = st->power_unit();
-        const Value v = number(s32(float(sp.ps) * unit.factor));
+        const Value v = number(gt3r::ee::to_int(sim::F(float(sp.ps)) * sim::F(unit.factor))); // 0x445EE8: truncated
         return a.empty() ? v : format_with(vm, a[0], {v, text(unit.name), text(sp.power_rpm), text("rpm")});
     });
     car->method("getCatTq", [spec, st](Vm& vm, const Value&, Args a) {
         const Database::Spec& sp = spec();
         if (!sp.engine) return text("----");
         const GameState::Unit unit = st->torque_unit();
-        const float v = sp.torque * unit.factor;
-        if (a.empty()) return Value::number(v);
-        return format_with(vm, a[0], {fixed_for(a[0].to_string(), v), text(unit.name), text(sp.torque_rpm), text("rpm")});
+        // 0x445F70: the engine row's 0.01 kgf m times the unit's factor, truncated; the page's "%.2t" writes it.
+        const s32 v = gt3r::ee::to_int(sim::F(float(std::lround(sp.torque * 100.0f))) * sim::F(unit.factor));
+        if (a.empty()) return Value::number(float(v) / 100.0f);
+        return format_with(vm, a[0], {number(v), text(unit.name), text(sp.torque_rpm), text("rpm")});
     });
     car->method("getCatMs", [spec](Vm& vm, const Value&, Args a) {
         if (!spec().weight) return text("----");
@@ -457,16 +458,17 @@ Value make_car_value(GameNatives& n, std::shared_ptr<CarHandle> c) {
     car->method("getCurrentWeight", [c](Vm&, const Value&, Args) { return number(c->weight); });
     car->method("getCurrentPs", [c, spec, st](Vm& vm, const Value&, Args a) {
         const GameState::Unit unit = st->power_unit();
-        const Value v = number(s32(float(c->power100) / 100.0f * unit.factor + 0.5f));
+        const Value v = number(gt3r::ee::to_int(sim::F(float(c->power100)) / sim::F(100.0f) * sim::F(unit.factor) + sim::F(0.5f))); // 0x146128
         if (a.empty()) return v;
         if (spec().power_rpm.empty() || spec().power_rpm[0] == '-') return text("----");
         return format_with(vm, a[0], {v, text(unit.name), text(spec().power_rpm), text("rpm")});
     });
     car->method("getCurrentTq", [c, spec, st](Vm& vm, const Value&, Args a) {
         const GameState::Unit unit = st->torque_unit();
-        const float v = float(c->torque100) / 100.0f * unit.factor;
-        if (a.empty()) return Value::number(v);
-        return format_with(vm, a[0], {fixed_for(a[0].to_string(), v), text(unit.name), text(spec().torque_rpm), text("rpm")});
+        // 0x1462D8: (the torque / 100 x the unit's factor) x 100 + 0.5, truncated.
+        const s32 v = gt3r::ee::to_int(sim::F(float(c->torque100)) / sim::F(100.0f) * sim::F(unit.factor) * sim::F(100.0f) + sim::F(0.5f));
+        if (a.empty()) return Value::number(float(v) / 100.0f);
+        return format_with(vm, a[0], {number(v), text(unit.name), text(spec().torque_rpm), text("rpm")});
     });
     car->method("getCurrentMs", [c](Vm& vm, const Value&, Args a) {
         if (c->weight <= 0) return text("----");
