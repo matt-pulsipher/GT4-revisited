@@ -5,6 +5,7 @@
 #include "gt4r/net/lan_rules.h"
 
 #include <bit>
+#include <chrono>
 #include <cstdlib>
 
 using namespace gt4r;
@@ -14,7 +15,8 @@ using gt3r::ee::F;
 namespace {
 
 struct Run {
-    Errors e;
+    Errors e, apart; // (apart: no contact in the last two seconds)
+    s64 contact = 0; // steps in contact
     u32 warnings = 0;
     std::string warning;
 };
@@ -28,12 +30,21 @@ Run run(World& w, std::span<const std::string> labels, const Link& link, int sec
         for (size_t k = 1; k < labels.size(); ++k) r.machines[m]->field->remote(k).set_physics(kind == Kind::Own);
     }
     Run out;
+    int touched = -1000;
+    std::vector<s64> was(r.machines.size(), 0);
     for (int k = 0; k < seconds * 60; ++k) {
         r.step_all();
+        for (size_t m = 0; m < r.machines.size(); ++m) {
+            const race::CarState& me = r.machines[m]->session->cars()[0];
+            if (r.machines[m]->contact_steps != was[m] || me.contact_kind != 0) touched = k, ++out.contact, was[m] = r.machines[m]->contact_steps;
+        }
         if (k < 30) continue;
         for (size_t m = 0; m < r.machines.size(); ++m)
             for (size_t c = 0; c < r.machines.size(); ++c)
-                if (c != m) out.e.add(r.error(m, c));
+                if (c != m) {
+                    out.e.add(r.error(m, c));
+                    if (k - touched > 120) out.apart.add(r.error(m, c));
+                }
     }
     for (auto& m : r.machines) out.warnings += m->warnings, out.warning += m->warning;
     return out;
@@ -63,8 +74,8 @@ TEST(net_race_remote_car_error) {
     for (const Case& c : cases) {
         const Run own = run(w, labels, c.link, table ? 60 : 20, c.smooth, Kind::Own);
         const Run dead = table ? run(w, labels, c.link, 60, c.smooth, Kind::Dead) : Run{};
-        std::printf("  %s %3.0f ms + %2.0f, loss %2.0f %%: rms %6.2f cm, worst %6.1f cm; dead reckoning rms %6.2f, worst %6.1f; warnings %u %s\n", c.smooth ? "smooth" : "jerky ", c.link.delay_ms,
-                    c.link.jitter_ms, c.link.loss * 100, own.e.rms() * 100, own.e.worst * 100, dead.e.rms() * 100, dead.e.worst * 100, own.warnings, own.warning.c_str());
+        std::printf("  %s %3.0f ms + %2.0f, loss %2.0f %%: rms %6.2f cm, worst %6.1f cm (%lld steps in contact; without: %.2f / %.1f); dead reckoning rms %6.2f, worst %6.1f; warnings %u %s\n", c.smooth ? "smooth" : "jerky ", c.link.delay_ms,
+                    c.link.jitter_ms, c.link.loss * 100, own.e.rms() * 100, own.e.worst * 100, (long long)own.contact, own.apart.rms() * 100, own.apart.worst * 100, dead.e.rms() * 100, dead.e.worst * 100, own.warnings, own.warning.c_str());
         CHECK(own.e.rms() * 100 < c.rms_cm && own.e.worst * 100 < c.worst_cm);
         CHECK(own.warnings == 0);
     }
@@ -296,4 +307,27 @@ TEST(net_race_hostile_states) {
     }
     std::printf("  %u odd states taken\n", taken);
     CHECK(taken > 200);
+}
+
+// What a remote car costs: its prediction's steps.
+TEST(net_race_prediction_cost) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    World w(*disc, "tsukuba");
+    Race r(w, std::vector<std::string>{"nsx_r_02", "r34_gtr_v2_nur_02"}, {});
+    r.machines[0]->drive = weaving(1.0f, 0), r.machines[1]->drive = weaving(1.0f, 0);
+    for (int k = 0; k < 300; ++k) r.step_all();
+    const std::unique_ptr<sim::Session> s = r.machines[0]->session->solo(1);
+    sim::Session::Memory m;
+    s->save(0, m);
+    race::CarInput in;
+    in.throttle = 1;
+    const auto t0 = std::chrono::steady_clock::now();
+    for (int k = 0; k < 2000; ++k) {
+        s->step_once({&in, 1});
+        if (k % 10 == 9) s->restore(0, m);
+    }
+    const double us = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t0).count() / 2000;
+    std::printf("  a step of a remote car alone: %.1f us (five of them, seven steps each: %.2f ms a frame)\n", us, us * 35 / 1000);
+    CHECK(us < 2000);
 }
