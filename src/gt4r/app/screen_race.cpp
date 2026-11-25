@@ -7,8 +7,8 @@
 // auto (the simple driver takes the first car too) or pad, `skip` simulation steps run before the
 // first picture (the start's hold is left out then), `paint` the first car's paint, `laps` the
 // race's length, `start` the start: 10 or 8 (a hold of so many seconds with the opening shots),
-// <seconds> (a plain hold), none, rolling, course (the course's own: race/start_rule.h); `view=tv` the course's replay cameras; `driver=1` the drivers in their stored pose; (GT4R_DEMO_LOG=<n> logs a demonstration's car every n steps); `replay=N` drives
-// N steps unseen and plays them back through the replay cameras; `bspec=1` a B-spec run (GT4R_HITCH=<ms>
+// <seconds> (a plain hold), none, rolling, course (the course's own: race/start_rule.h); `view=tv` the course's replay cameras; `driver=0` no drivers in the cars; (GT4R_DEMO_LOG=<n> logs a demonstration's car every n steps); `replay=N` drives
+// N steps unseen and plays them back through the replay cameras; `bspec=1` a B-spec run, `pit=1` its car asked into the pits from the start (GT4R_HITCH=<ms>
 // logs every frame longer than that, with the race's work and the present before it); `menus=single_race` the race
 // sequence's own menus (quick-arcade) before and after the race (any sequence: solo_event,
 // championship, license, mission, time_trial, freerun, practice, machinetest), `race=<label>` its event.
@@ -92,6 +92,7 @@ struct Setup {
     int view = race::DriveCamera::kChase;
     bool look_back = false;
     bool auto_drive = false;
+    bool pit = false;     // `pit=1`: its car asked into the pits from the start
     RaceWorld::PlayerChoice player; // the gearbox, the aids, the wheel's (`mt=1`, `asm=0`, `tcs=0`; a race of the menus: its choices)
     bool bspec = false;   // `bspec=1`: a B-spec run (the computer drives the player's car; its display and commands)
     int skip = 0;
@@ -100,7 +101,7 @@ struct Setup {
     int laps = 3;
     int replay = 0;
     bool smoke = true;
-    bool drivers = false;
+    bool drivers = true;
     bool reflection = true;
     bool rail = false;     // the stand-in simulation instead of the game's
     bool scripted = false; // from GT4R_RACE: no lists
@@ -163,6 +164,7 @@ Setup setup_from_env() {
             if (!v.empty() && std::isdigit(static_cast<unsigned char>(v[0]))) s.view = std::atoi(v.c_str());
         } else if (k == "drive") s.auto_drive = v == "auto";
         else if (k == "bspec") s.bspec = v != "0";
+        else if (k == "pit") s.pit = v != "0";
         else if (k == "mt") s.player.automatic = v == "0";
         else if (k == "asm") s.player.asm_on = v != "0";
         else if (k == "tcs") s.player.tcs_on = v != "0";
@@ -489,7 +491,7 @@ std::shared_ptr<audio::RacePlaylist> new_game_playlist(App& app) {
         menu::Runtime::Config config;
         gt3r::Vfs* vfs = app.vfs();
         config.list = [vfs](const std::string& folder) { return vfs->list_dir(folder); };
-        if (Disc* disc = app.disc()) config.program = [disc] { return disc->read_program(); };
+        if (Disc* disc = app.disc()) config.program_image = [disc] { return disc->program_image(); };
         config.data_dir = app.data_dir();
         menu::Runtime rt([vfs](const std::string& path) { return vfs->read(path); }, config);
         rt.boot();
@@ -621,6 +623,7 @@ public:
         begin_run(setup.bspec);
         built_ = true;
         // A scripted run that skips ahead: those steps unseen.
+        if (setup.pit) world_->pit_command(0);
         for (int i = 0; i < setup.skip; ++i) step({}, true);
         if (setup.replay > 0) {
             // A run driven unseen, then shown through the replay cameras.
@@ -1367,7 +1370,8 @@ public:
         // The racing views' screen settings; the replays' and the B-spec race's their own.
         world_->set_grade(picture_settings(replaying_ || watched_).grade());
         race::ViewPose pose = current_pose(shown(), look_back);
-        if (blend) pose = race::blend_poses(previous_pose(look_back), pose, blend_);
+        // (A cut is shown at once: two shots of one trackside camera stand too close together for blend_poses to tell.)
+        if (blend && !view_cut_ && start_prev_.active() == start_camera_.active()) pose = race::blend_poses(previous_pose(look_back), pose, blend_);
         // A cut's dissolve: the last picture frozen at the cut, over the new one as it fades.
         world_->set_dissolve(snapshot_, dissolve_total_ > 0 ? float(dissolve_left_) / float(dissolve_total_) : 0.0f, replaying_ || menu_scene_ || mount_ == kTvView || start_camera_.active() || dissolve_total_ > 0);
         snapshot_ = false;
@@ -1376,7 +1380,8 @@ public:
         // The in-car view's rear-view mirror at the top (❓ its place, (190, 18) 259 x 63 of the
         // 640 x 480 picture, measured on the original's in-car view): not in replays, demonstrations, under the results pages, the opening
         // shots (a standing start's or a rolling start's TV cameras), B-spec or looking back.
-        if (mount_ == race::DriveCamera::kInCar && !finish_view() && !replaying_ && !demo_run_ && !flow_.player_finished() && !menu_scene_ && !watched_ && !start_camera_.active() && !opening_tv() && !look_back && !setup_.look_back) {
+        race::ViewPose pit;
+        if (mount_ == race::DriveCamera::kInCar && !world_->pit_camera(focus(), pit) && !finish_view() && !replaying_ && !demo_run_ && !flow_.player_finished() && !menu_scene_ && !watched_ && !start_camera_.active() && !opening_tv() && !look_back && !setup_.look_back) {
             const SDL_FRect c = RaceHud::canvas();
             const float k = c.h / 480.0f;
             world_->render_mirror(ui, {c.x + 190 * k, c.y + 18 * k, 259 * k, 63 * k}, cars, pose, 0);
@@ -1494,11 +1499,14 @@ public:
         prev_cars_.assign(now.begin(), now.end());
         camera_prev_ = camera_, start_prev_ = start_camera_;
         tv_prev_ = tv_pose_, tv_prev_valid_ = tv_valid_;
+        view_cut_ = false;
     }
     // The camera at the last step but one (its cameras as they were then, on the cars as they were).
     race::ViewPose previous_pose(bool look_back) {
         std::swap(camera_, camera_prev_), std::swap(start_camera_, start_prev_), std::swap(tv_pose_, tv_prev_), std::swap(tv_valid_, tv_prev_valid_);
+        before_ = true;
         const race::ViewPose p = current_pose(prev_cars_, look_back);
+        before_ = false;
         std::swap(camera_, camera_prev_), std::swap(start_camera_, start_prev_), std::swap(tv_pose_, tv_prev_), std::swap(tv_valid_, tv_prev_valid_);
         return p;
     }
@@ -1548,6 +1556,7 @@ public:
     void step_tv(const race::CarState& car, size_t index = 0) {
         const render::Mat4 body = world_->visual(index).body_matrix(car);
         tv_valid_ = replay_camera_.pose(replay_script_, car, body, tv_pose_);
+        view_cut_ = view_cut_ || replay_camera_.cut() || tv_valid_ != tv_prev_valid_;
         if (const float d = replay_camera_.cut_dissolve(); d > 0) begin_dissolve(int(std::lround(d * 60)));
         step_dissolve();
         // GT4R_LENS_LOG=<n>: the replay camera's place and lens every n steps.
@@ -1580,6 +1589,8 @@ public:
         // The replay cameras' shot for the car; the chase view where the script has none.
         if (!posed && finish_view()) posed = finish_camera_.pose(RVec{me.position.x, me.position.y, me.position.z}, pose);
         if (!posed && view == kTvView && tv_valid_) pose = tv_pose_, posed = true;
+        // The pit's own camera from the car's nearing its box until it has left it.
+        if (!posed && !replaying_ && !menu_scene_) posed = world_->pit_camera(f, pose, before_);
         // Prologue's shots: a lens of A degrees shows 10 / 7 of the width ours does (✔ against the original's start, grid page and
         // trackside shots at Tsukuba: 1.43; 4/3 x 480/448, the angle up its 448 lines).
         if (posed && gt3_road_) pose.fov = 2 * std::atan(std::tan(pose.fov * 0.5f) * 10 / 7);
@@ -1620,7 +1631,8 @@ public:
     // mode follows; the pace stays as it was (0x3F19E0's command 10).
     void set_driving_mode(bool bspec) {
         if (bspec == watched_ || setup_.auto_drive) return;
-        watched_ = bspec, focus_ = 0;
+        watched_ = bspec;
+        follow(0);
         world_->set_driving_mode(bspec);
         LOG_INFO("Drive: the driving mode at %.1f s: %s", double(flow_.time_ms()) / 1000, bspec ? "B-spec" : "A-spec");
     }
@@ -1639,9 +1651,15 @@ public:
         for (size_t k = 0; k < order.size(); ++k)
             if (order[k] == focus_) at = k;
         at = (at + order.size() + size_t(dir > 0 ? 1 : order.size() - 1)) % order.size();
-        focus_ = order[at];
-        camera_.reset(world_->cars()[focus_]);
+        follow(order[at]);
+    }
+    // The views follow another car: they start on it, with nothing of the last car's motion.
+    void follow(size_t car) {
+        if (car == focus_) return;
+        focus_ = car;
+        camera_.reset(world_->cars()[car]);
         replay_camera_.reset();
+        prev_cars_.clear(); // (no frame between the two cars' views)
     }
 
     void quiet() { world_->quiet(); }
@@ -1679,6 +1697,8 @@ private:
     race::StartCamera start_prev_;
     race::ViewPose tv_prev_;
     bool tv_prev_valid_ = false;
+    bool view_cut_ = false; // the last step cut the replay cameras' view
+    bool before_ = false; // the pose asked for is the last step but one's
     float blend_ = 1;
     int dissolve_total_ = 0, dissolve_left_ = 0;
     race::CameraMotion start_motion_, replay_motion_;
@@ -1881,7 +1901,7 @@ public:
             menu::Runtime::Config config;
             gt3r::Vfs* vfs = app.vfs();
             config.list = [vfs](const std::string& folder) { return vfs->list_dir(folder); };
-            if (Disc* disc = app.disc()) config.program = [disc] { return disc->read_program(); };
+            if (Disc* disc = app.disc()) config.program_image = [disc] { return disc->program_image(); };
             if (Disc* disc = app.disc(); disc && disc->info().serial.rfind("SCPS", 0) == 0) config.region = "jp", config.language = "JP"; // (Prologue: its text is Japan's)
             config.data_dir = app.data_dir();
             own_menus_ = std::make_unique<menu::Runtime>([vfs](const std::string& path) { return vfs->read(path); }, config);

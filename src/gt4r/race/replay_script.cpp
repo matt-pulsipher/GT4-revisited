@@ -172,7 +172,7 @@ float AimDamper::step(float target, float follow) {
 }
 
 bool ReplayCamera::pose(const ReplayScript& script, const CarState& car, const render::Mat4& body, ViewPose& out) {
-    cut_dissolve_ = 0;
+    cut_dissolve_ = 0, first_ = false;
     if (script.records.empty()) return false;
     // (`lap` is the laps completed, -1 before the line: the crossings less one.)
     float d = script.distance(car.lap + 1, car.course_v);
@@ -210,6 +210,7 @@ bool ReplayCamera::pose(const ReplayScript& script, const CarState& car, const r
     const float lens = raw.fov * 180 / kPi;
     const float roll_raw = r.roll.empty() ? 0.0f : r.roll.at(t);
     const bool fresh = cut_;
+    first_ = fresh;
     if (cut_) {
         // A cut: everything starts on its value; a random roll share (1 with kind 0x400).
         cut_ = false;

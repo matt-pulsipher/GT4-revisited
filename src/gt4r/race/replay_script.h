@@ -101,12 +101,14 @@ public:
     // (`out` untouched).
     bool pose(const ReplayScript& script, const CarState& car, const gt3r::render::Mat4& body, ViewPose& out);
     const ReplayRecord* record() const { return record_; }
+    // The step's shot is its first (after another shot, or after reset()): the pose does not go on from the last step's.
+    bool cut() const { return first_; }
     // The step was a cut from one record to another: the ended record's dissolve, seconds (0 none).
     float cut_dissolve() const { return cut_dissolve_; }
 
 private:
     const ReplayRecord* record_ = nullptr;
-    bool cut_ = true;
+    bool cut_ = true, first_ = false;
     float cut_dissolve_ = 0;
     float roll_scale_ = 1;
     AimDamper yaw_, pitch_;

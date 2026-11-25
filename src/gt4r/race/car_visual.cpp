@@ -19,6 +19,8 @@ namespace {
 namespace scene = gt3r::scene;
 using render::Mat4;
 
+thread_local bool t_unuploaded = false; // make_unuploaded is building
+
 constexpr int kSkip = 99;       // a callback value no switch has a case for: the construct is left out
 constexpr int kWheelLevels = 2; // the body's levels whose wheels are items of their own (the far level draws its own)
 
@@ -84,6 +86,30 @@ void reshape_tire(scene::Model& tire, float width, float rim_radius, float tire_
             v.pos[0] *= kx;
             if (d > 1e-6f) v.pos[1] *= to / d, v.pos[2] *= to / d;
         }
+}
+
+// A model put together from several decodes of a set (its levels of detail, its lit and unlit lamps) holds the set's
+// pictures once for each: the pictures its shapes use, each kept once.
+void share_textures(scene::Model& m) {
+    const auto same = [](const scene::Texture& a, const scene::Texture& b) {
+        return a.width == b.width && a.height == b.height && a.clamp_u == b.clamp_u && a.clamp_v == b.clamp_v && a.no_mips == b.no_mips && a.nearest == b.nearest &&
+               a.livery_cover == b.livery_cover && a.rgba == b.rgba;
+    };
+    std::vector<int> to(m.textures.size(), -1);
+    std::vector<scene::Texture> kept;
+    for (scene::Mesh& mesh : m.meshes)
+        for (scene::Primitive& p : mesh.primitives) {
+            if (p.texture < 0 || size_t(p.texture) >= to.size()) continue;
+            int& at = to[size_t(p.texture)];
+            if (at < 0) {
+                scene::Texture& t = m.textures[size_t(p.texture)];
+                const auto it = std::find_if(kept.begin(), kept.end(), [&](const scene::Texture& k) { return same(k, t); });
+                at = int(it - kept.begin());
+                if (it == kept.end()) kept.push_back(std::move(t));
+            }
+            p.texture = at;
+        }
+    m.textures = std::move(kept);
 }
 
 // Mirrors a model front to back (a wheel whose right side is the left's mirror image).
@@ -190,7 +216,7 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
             ws.resolve_callbacks = true;
             scene::Model m = build_levels(opt.wing, 0, ws, 3, 0, name + "/wing");
             for (const scene::Mesh& mesh : m.meshes) wing_lods_ = std::max(wing_lods_, mesh.lod + 1);
-            if (!m.meshes.empty()) to_gpu(wing_, m);
+            if (!m.meshes.empty()) to_gpu(wing_, std::move(m));
         }
     }
     // The body with its lamps unlit and lit, at its three levels of detail. The far level draws its
@@ -225,7 +251,7 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
             max_ = {m.bounds_max[0], m.bounds_max[1], m.bounds_max[2]};
             for (const scene::Mesh& mesh : m.meshes) lods_ = std::max(lods_, mesh.lod + 1);
         }
-        to_gpu(body_[size_t(brake)], m);
+        to_gpu(body_[size_t(brake)], std::move(m));
     }
     // The brake parts: the shapes the body's program draws in each wheel's frame.
     for (u16 w = 0; w < 4; ++w) {
@@ -245,8 +271,8 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
             std::erase_if(mesh.primitives, [](const scene::Primitive& p) { return (p.flags & scene::kAdditive) == 0; });
             any_glow |= !mesh.primitives.empty();
         }
-        if (any) to_gpu(brakes_[w], m);
-        if (any_glow) to_gpu(glows_[w], glow);
+        if (any) to_gpu(brakes_[w], std::move(m));
+        if (any_glow) to_gpu(glows_[w], std::move(glow));
     }
     // Wheels and tires, still and turning. Both sets are in units of the rim's radius, modelled
     // as a left wheel with the outer face at x = 0.
@@ -285,7 +311,7 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
                 }
                 bool any = false;
                 for (const scene::Mesh& mesh : both.meshes) any |= !mesh.indices.empty();
-                if (any) to_gpu(wheels_[w][size_t(turning)], both);
+                if (any) to_gpu(wheels_[w][size_t(turning)], std::move(both));
             }
         }
     }
@@ -335,31 +361,30 @@ void CarVisual::build_driver(ByteSpan file, const Options& opt, const std::strin
     const ByteSpan set = c.driver ? file.subspan(c.driver) : opt.driver_set;
     if (set.empty() || !mdls::is_mdls(set)) return;
     try {
-        const CockpitPlaces places = read_cockpit(file);
-        const std::vector<DriverPart> parts = driver_parts(set, opt.driver_skeleton);
-        if (parts.empty()) return;
-        const u32 models = mdls::read_header(set).models;
-        std::vector<int> slot(models, -1);
-        for (const DriverPart& p : parts)
-            if (slot[p.model] < 0) slot[p.model] = int(driver_models_.size()), driver_models_.emplace_back();
-        // (Reserved up front: the slots' places are kept for a later upload.)
-        for (u32 i = 0; i < models; ++i) {
-            if (slot[i] < 0) continue;
-            gt3r::gtm1::Options o = car_options();
-            o.node = int(i);
-            scene::Model m = mdls::build_model(set, o, mdls::Scene{}, name + "/driver");
-            bool any = false;
-            for (const scene::Mesh& mesh : m.meshes) any |= !mesh.indices.empty();
-            if (any) to_gpu(driver_models_[size_t(slot[i])], m);
-        }
-        for (int seat = 0; seat < (places.co_driver ? 2 : 1); ++seat) {
-            const Mat4 root = driver_root(places, set, opt.driver_skeleton, seat == 1);
-            for (const DriverPart& p : parts) driver_items_.push_back({size_t(slot[p.model]), p.skinned ? root : root * p.node});
+        const CockpitBytes cockpit = read_cockpit_bytes(file);
+        const posture::FigureClass cls = posture::figure_class(cockpit.kind);
+        if (cls == posture::FigureClass::None) return;
+        for (int seat = 0; seat < (cockpit.co_driver ? 2 : 1); ++seat) cockpits_.push_back(posture::read_posture_cockpit(file, seat == 1));
+        driver_models_ = std::make_unique<DriverModels>(*ctx_, set, name, t_unuploaded ? &unuploaded_ : nullptr);
+        moving_driver_ = cls != posture::FigureClass::Board;
+        if (moving_driver_) return;
+        for (const posture::Cockpit& k : cockpits_) {
+            still_.push_back(std::make_unique<DriverFigure>(*driver_models_));
+            still_.back()->pose(posture::still_posture(k));
         }
     } catch (const std::exception& e) {
         LOG_WARN("Car %s: driver: %s", name.c_str(), e.what());
-        driver_items_.clear();
+        still_.clear();
+        driver_models_.reset();
+        moving_driver_ = false;
     }
+}
+
+bool CarVisual::driver_shows(const CarState& s, const render::Vec3& eye, const LodView* view) const {
+    const render::Vec3 at = v3(s.position) - eye;
+    const float depth = std::max(view && view->k > 0 ? render::dot(at, view->forward) : render::length(at), 0.0001f);
+    const float k = view && view->k > 0 ? view->k : 721.2f; // (the chase view's)
+    return k / depth / 420.0f >= 0.025f;
 }
 
 void CarVisual::set_lamp_strengths(float head, float brake, float tail) {
@@ -371,10 +396,6 @@ void CarVisual::set_lamp_strengths(float head, float brake, float tail) {
 
 CarVisual::~CarVisual() = default;
 
-namespace {
-thread_local bool t_unuploaded = false; // make_unuploaded is building
-} // namespace
-
 std::unique_ptr<CarVisual> CarVisual::make_unuploaded(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const CarSpec& spec, const Options& opt,
                                                       const std::string& name) {
     struct Flag {
@@ -384,8 +405,9 @@ std::unique_ptr<CarVisual> CarVisual::make_unuploaded(render::GpuContext& ctx, B
     return std::make_unique<CarVisual>(ctx, file, pat, spec, opt, name);
 }
 
-void CarVisual::to_gpu(std::unique_ptr<render::GpuModel>& slot, const scene::Model& m) {
-    if (t_unuploaded) unuploaded_.emplace_back(&slot, m);
+void CarVisual::to_gpu(std::unique_ptr<render::GpuModel>& slot, scene::Model m) {
+    share_textures(m);
+    if (t_unuploaded) unuploaded_.emplace_back(&slot, std::move(m));
     else slot = std::make_unique<render::GpuModel>(*ctx_, m);
 }
 
@@ -457,7 +479,7 @@ int CarVisual::level(const CarState& s, const render::Vec3& eye, const LodView* 
     return std::min(level, lods_ - 1);
 }
 
-void CarVisual::add_items(std::vector<render::DrawItem>& items, const CarState& s, const render::Vec3& eye, float step, const LodView* view) const {
+void CarVisual::add_items(std::vector<render::DrawItem>& items, const CarState& s, const render::Vec3& eye, float step, const LodView* view, bool wheels) const {
     const Mat4 body = body_matrix(s);
     const int lod = level(s, eye, view);
     if (wing_) {
@@ -466,9 +488,8 @@ void CarVisual::add_items(std::vector<render::DrawItem>& items, const CarState& 
         items.push_back(it);
     }
     // The driver (in the car's frame), before the body and its glass.
-    if (lod < 2)
-        for (const DriverItem& d : driver_items_)
-            if (const render::GpuModel* m = driver_models_[d.model].get()) items.push_back({m, body * d.local, 0});
+    if (!still_.empty() && driver_shows(s, eye, view))
+        for (const std::unique_ptr<DriverFigure>& d : still_) d->add_items(items, body);
     if (const render::GpuModel* m = body_[s.brake_lamps ? 1 : 0].get()) {
         render::DrawItem it{m, body, lod};
         it.far_whole = true;
@@ -484,10 +505,18 @@ void CarVisual::add_items(std::vector<render::DrawItem>& items, const CarState& 
             it.alpha = glow;
             items.push_back(it);
         }
+        if (!wheels) continue;
         const bool turning = wheel_turning(s.wheels[w], step);
         const render::GpuModel* wheel = wheels_[size_t(w)][turning ? 1 : 0] ? wheels_[size_t(w)][turning ? 1 : 0].get() : wheels_[size_t(w)][0].get();
         if (wheel) items.push_back({wheel, wheel_matrix(s, spec_, w), lod});
     }
+}
+
+void CarVisual::add_loose_wheel(std::vector<render::DrawItem>& items, int wheel, const Mat4& hub) const {
+    const size_t w = size_t(wheel) & 3;
+    if (!wheels_[w][0]) return;
+    const float r = spec_.rim_radius[w / 2];
+    items.push_back({wheels_[w][0].get(), hub * render::translate({-0.5f * spec_.tire_width[w / 2], 0, 0}) * render::scale({r, r, r}), 0});
 }
 
 bool CarVisual::road_mirror(const CarState& s, Mat4& out) const {
@@ -518,7 +547,7 @@ bool CarVisual::add_mirror_items(std::vector<render::DrawItem>& items, const Car
     return true;
 }
 
-void CarVisual::add_shadow_items(std::vector<render::DrawItem>& items, const CarState& s) const {
+void CarVisual::add_shadow_items(std::vector<render::DrawItem>& items, const CarState& s, float light) const {
     if (!shadow_[0] && !shadow_[1] && !shadow_[2]) return;
     // On the road under the car: the plane through the tires' contacts, lifted 2 cm.
     render::Vec3 contact{0, 0, 0};
@@ -541,7 +570,9 @@ void CarVisual::add_shadow_items(std::vector<render::DrawItem>& items, const Car
         const float sx = render::dot(shadow_look_.shear, side), sz = render::dot(shadow_look_.shear, back);
         Mat4 flat;
         flat.m = {1, 0, 0, 0, sx, 0, sz, 0, 0, 0, 1, 0, sx * q, 0, sz * q, 1};
-        items.push_back({shadow_[0].get(), ground * flat, 0});
+        render::DrawItem it{shadow_[0].get(), ground * flat, 0};
+        it.alpha = std::clamp(light, 0.0f, 1.0f);
+        items.push_back(it);
     }
     if (shadow_[1]) items.push_back({shadow_[1].get(), ground, 0});
     if (shadow_[2]) items.push_back({shadow_[2].get(), ground, 0});

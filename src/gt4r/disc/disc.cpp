@@ -144,6 +144,32 @@ Bytes Disc::read_program() {
     return core->first->read(core->second);
 }
 
+namespace {
+
+std::shared_ptr<const gt3r::CoreImage> unpack(const Bytes& core) { return std::make_shared<const gt3r::CoreImage>(gt3r::CoreImage::decode(core)); }
+
+} // namespace
+
+void Disc::prepare_program() {
+    std::lock_guard lock(program_mutex_);
+    if (program_.valid()) return;
+    try {
+        program_ = std::async(std::launch::async, [core = read_program()] { return unpack(core); }).share();
+    } catch (const std::exception&) {
+        // (no program, or no thread: program_image() says so, or does it)
+    }
+}
+
+std::shared_ptr<const gt3r::CoreImage> Disc::program_image() {
+    std::shared_future<std::shared_ptr<const gt3r::CoreImage>> work;
+    {
+        std::lock_guard lock(program_mutex_);
+        if (!program_.valid()) program_ = std::async(std::launch::deferred, [core = read_program()] { return unpack(core); }).share();
+        work = program_;
+    }
+    return work.get();
+}
+
 std::vector<gt3r::Iso9660*> Disc::file_systems() const {
     std::vector<gt3r::Iso9660*> v;
     for (const auto& l : layers_) v.push_back(l.get());
