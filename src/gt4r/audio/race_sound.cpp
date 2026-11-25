@@ -44,7 +44,8 @@ const char* race_start_group(RaceMusic k) {
     switch (k) {
     case RaceMusic::Championship: return "champ_start";
     case RaceMusic::TimeTrial: return "timeattack_start";
-    case RaceMusic::License: return "license_start";
+    case RaceMusic::License:
+    case RaceMusic::Mission: return "license_start";
     case RaceMusic::Coffee: return "coffee_start";
     case RaceMusic::Other: return "etc_start";
     case RaceMusic::Last: return "last_start";
@@ -56,13 +57,29 @@ const char* race_goal_group(RaceMusic k) {
     switch (k) {
     case RaceMusic::Championship: return "champ_goal";
     case RaceMusic::TimeTrial: return "timeattack_goal";
-    case RaceMusic::License: return "license_gold";
+    case RaceMusic::License:
+    case RaceMusic::Mission: return "license_gold";
     case RaceMusic::Coffee: return "coffee_goal";
     case RaceMusic::Other: return "etc_goal";
     case RaceMusic::Last: return "last_goal";
     default: return "goal";
     }
 }
+
+RaceMusic race_music(const std::string& sequence, const std::string& label, bool last_race) {
+    if (sequence == "championship") return last_race ? RaceMusic::Last : RaceMusic::Championship;
+    if (sequence == "license" || sequence == "license_race") {
+        // ("usl0c0002" or "l0c0002": after the region's two letters, 'l', '0' or 'i', the class)
+        const size_t l = label.find('l', label.size() > 8 ? 2 : 0);
+        return l != std::string::npos && l + 2 < label.size() && label[l + 2] == 'c' ? RaceMusic::Coffee : RaceMusic::License;
+    }
+    if (sequence == "mission") return RaceMusic::Mission;
+    if (sequence == "time_trial" || sequence == "freerun" || sequence == "machinetest") return RaceMusic::TimeTrial;
+    if (sequence == "practice") return RaceMusic::Other;
+    return RaceMusic::Race;
+}
+
+bool racing_music(RaceMusic kind) { return kind != RaceMusic::License && kind != RaceMusic::Coffee; }
 
 RaceSound::RaceSound(gt3r::Vfs& vfs, gt3r::VoiceMixer& mixer, SoundDriver& driver, std::shared_ptr<SoundLibrary> library,
                      const RaceSoundTables& tables, StreamPlayer music)
@@ -72,10 +89,11 @@ RaceSound::RaceSound(gt3r::Vfs& vfs, gt3r::VoiceMixer& mixer, SoundDriver& drive
     fade(1.0f, kFadeIn);
     set_options(options_);
     if (library_)
-        for (int c = 0; c < CourseSound::kChannels; ++c) ambience_[c] = held(CourseSound::effect_name(c));
+        for (int c = 0; c < CourseSound::kChannels; ++c) ambience_[c] = held(CourseSound::effect_name(c, tables.prologue));
+    course_.set_prologue(tables.prologue);
     if (library_) {
         tunnel_[0] = held("tunnel1_l"), tunnel_[1] = held("tunnel1_r"), tunnel_[2] = held("tunnel2_l"), tunnel_[3] = held("tunnel2_r");
-        heri_ = held("heri");
+        heri_ = held("heri"), refueling_ = held("refueling");
     }
 }
 
@@ -84,10 +102,10 @@ RaceSound::~RaceSound() {
     mixer_.set_reverb_depth(reverb_before_, reverb_before_);
 }
 
-bool RaceSound::add_car(const std::string& label) {
+bool RaceSound::add_car(const std::string& label, const sim::Equipment* equipment) {
     auto s = std::make_unique<CarSound>(vfs_, mixer_, &driver_, library_);
     s->set_mix(mix_);
-    const bool ok = s->load(label);
+    const bool ok = (equipment && s->load(*equipment)) || s->load(label);
     if (!ok) LOG_WARN("Race sound: no engine sound for %s", label.c_str());
     cars_.push_back(std::move(s));
     contact_.push_back(0), contact_kind_.push_back(0);
@@ -159,6 +177,7 @@ bool RaceSound::play_effect(const char* name, float level) {
     if (!e) return false;
     const auto bank = library_->effect_bank(e->bank);
     if (!bank) return false;
+    if (sound_log()) LOG_INFO("Sound: %s at %.4f", name, double(level));
     SoundParams p;
     p.left = p.right = level;
     if (e->sequence) return driver_.play_effect(bank, e->index, e->key, p) != 0;
@@ -167,6 +186,9 @@ bool RaceSound::play_effect(const char* name, float level) {
 
 float RaceSound::stream_level(bool racing) const {
     if (!(replay_ ? options_.replay_music_on : options_.music_on)) return 0;
+    // Prologue's options hold the racing music's level themselves, the constructor's (0x3FFA50) and nothing sets it: 0 in a
+    // race (its races are run without music), 0.9 in a replay (RaceBGMPS2::vf5 0x37E168); its other pieces play at 1.
+    if (mix_->tables.prologue) return !racing ? 1.0f : replay_ ? 0.9f : 0.0f;
     const float table = library_ ? library_->levels().level(int(options_.mode), sound::VolumeTable::Stream) : 1.0f;
     return racing ? table * float(replay_ ? options_.replay_music : options_.music) / 128.0f : table;
 }
@@ -176,9 +198,10 @@ bool RaceSound::play_stream(const char* group, int number, bool racing) {
     const int g = sound::stream_group(group);
     const std::string file = g >= 0 ? library_->stream_file(g, number) : std::string();
     if (file.empty()) return false;
-    report_.music = file;
     const float level = stream_level(racing);
-    if (!music_.play || level <= 0) return false;
+    if (level <= 0) return false;
+    report_.music = file;
+    if (!music_.play) return false;
     return music_.play(file, false, level);
 }
 
@@ -203,7 +226,25 @@ bool RaceSound::play_racing() {
 
 void RaceSound::start() {
     start_signal();
-    rolling();
+    if (racing_music(kind_)) rolling();
+}
+
+void RaceSound::begin_run(RaceMusic kind, int start) {
+    kind_ = kind;
+    started_ = racing_ = replay_ = false;
+    first_piece_ = -1;
+    if (music_.stop) music_.stop();
+    fade_ = 0;
+    fade(1.0f, kFadeIn);
+    if (start == 1 || start == 2) intro();
+    else if (start == -1) rolling();
+}
+
+void RaceSound::license_result(int grade) {
+    fade(0.0f, 1.0f);
+    const char* const groups[] = {"license_goal", "license_silver", "license_bronze"};
+    const bool passed = grade >= 0 && grade < 3;
+    play_stream(!passed ? "license_failed" : kind_ == RaceMusic::Coffee ? race_goal_group(kind_) : groups[grade], 0, false);
 }
 
 void RaceSound::start_signal() {
@@ -214,8 +255,7 @@ void RaceSound::start_signal() {
 
 void RaceSound::rolling() {
     if (racing_) return;
-    racing_ = true;
-    if (!play_racing() && !music_.play) racing_ = false;
+    racing_ = play_racing(); // (with the music off nothing plays and no next piece is asked for)
 }
 
 void RaceSound::duck() { fade(designer_shot_ && replay_ ? 0.45f : free_run_duck_ ? 0.2f : 1.0f, 1.0f); }
@@ -245,6 +285,11 @@ void RaceSound::finish() {
     play_stream(race_goal_group(kind_), 0, false);
 }
 
+void RaceSound::refueling(bool on) {
+    if (on != refueling_on_ && sound_log()) LOG_INFO("Sound: refueling %s at %.4f", on ? "on" : "off", double(master()));
+    refueling_on_ = on;
+}
+
 void RaceSound::contact(size_t car, int kind, float force) {
     if (car >= contact_.size()) return;
     const float strength = contact_strength(kind, force);
@@ -268,7 +313,7 @@ void RaceSound::quiet_course() {
     };
     for (Held& h : ambience_) off(h);
     for (Held& h : tunnel_) off(h);
-    off(heri_);
+    off(heri_), off(refueling_);
 }
 
 void RaceSound::stop() {
@@ -283,6 +328,7 @@ void RaceSound::update(std::span<const CarSoundState> states, const SoundListene
     // The master level. In a replay the duck is asked for every step (RaceBase virtual 75): the
     // step toward it is worked out again from where the master is.
     if (replay_) duck();
+    if (mix_->tables.prologue) fade_ = fade_target_ = 1.0f; // (Prologue's master has no fade and no duck: [0x50397C] is 1)
     fade_ = fade_ < fade_target_ ? std::min(fade_ + fade_step_, fade_target_) : std::max(fade_ - fade_step_, fade_target_);
     const float table = library_ ? library_->levels().level(int(options_.mode), sound::VolumeTable::Race) : 1.0f;
     const bool on = replay_ ? options_.replay_effects_on : options_.effects_on;
@@ -291,18 +337,22 @@ void RaceSound::update(std::span<const CarSoundState> states, const SoundListene
     const float master = mix_->master;
 
     // The cars.
-    std::vector<float> distances;
-    distances.reserve(states.size());
+    std::vector<std::pair<int, float>> places; // (each car's race position and distance)
+    places.reserve(states.size());
     for (size_t i = 0; i < states.size() && i < cars_.size(); ++i) {
         CarSoundState s = states[i];
         // (the recorder keeps the step's strongest of every kind)
         if (contact_[i] > s.contact) s.contact = contact_[i], s.contact_kind = contact_kind_[i];
         contact_[i] = 0;
         cars_[i]->update(s, camera, int(i) == target);
-        distances.push_back(s.course_distance);
+        places.emplace_back(s.rank, s.course_distance);
     }
 
-    // The course.
+    // The course. The crowds' gates count the cars in the race's order (the program's list of the race's cars, sorted by
+    // position: the first counts 1, each further 0.8 of the last); cars without a position stay in the grid's order.
+    std::stable_sort(places.begin(), places.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+    std::vector<float> distances;
+    for (const auto& p : places) distances.push_back(p.second);
     CourseSound::Listener at;
     at.position = camera.position, at.velocity = camera.velocity, at.right = camera.right;
     if (ground_) {
@@ -320,6 +370,7 @@ void RaceSound::update(std::span<const CarSoundState> states, const SoundListene
     send(tunnel_[0], t1, 0, 1), send(tunnel_[1], 0, t1, 1);
     send(tunnel_[2], 0, t2, 1), send(tunnel_[3], t2, 0, 1); // (the second pair's halves cross)
     send(heri_, helicopter_ ? 1.0f : 0.0f, helicopter_ ? 1.0f : 0.0f, 1);
+    send(refueling_, refueling_on_ ? master : 0.0f, refueling_on_ ? master : 0.0f, 1);
     report_.tunnel1 = t1, report_.tunnel2 = t2, report_.reverb = course_.reverb();
     const s16 depth = s16(course_.reverb() * 32767.0f);
     mixer_.set_reverb_depth(depth, depth);

@@ -1,5 +1,7 @@
 #include "gt4r/app/app.h"
 
+#include "gt4r/input/player_controls.h"
+
 #include "app/button_prompts.h"
 #include "base/file.h"
 #include "base/log.h"
@@ -97,6 +99,14 @@ std::string user_data_dir() {
 
 bool App::init(int argc, char** argv) {
     SDL_SetAppMetadata("GT4 Revisited", GT4R_VERSION, "org.gt4revisited.gt4r");
+#ifdef SDL_PLATFORM_WINDOWS
+    // Xbox pads through SDL's RAWINPUT driver, for their impulse triggers, unless [input] xbox_driver = xinput: SDL takes it
+    // as it starts its joysticks.
+    {
+        const std::optional<gt3r::IniDocument> cfg = gt3r::IniDocument::load(user_data_dir() + "config.ini");
+        SDL_SetHint(SDL_HINT_JOYSTICK_RAWINPUT, gt3r::InputManager::xbox_rawinput(cfg ? *cfg : gt3r::IniDocument{}) ? "1" : "0");
+    }
+#endif
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMEPAD | SDL_INIT_JOYSTICK)) {
         LOG_ERROR("SDL_Init failed: %s", SDL_GetError());
         return false;
@@ -141,7 +151,11 @@ bool App::init(int argc, char** argv) {
     ui_->set_layout(float(Ui::kWidth), float(Ui::kHeight), {0, 0, float(Ui::kWidth), float(Ui::kHeight)}, false);
 
     input_ = std::make_unique<gt3r::InputManager>();
-    input_->load(config_);
+    {
+        gt3r::IniDocument controls = config_; // (our words for the original's layouts as the engine has them)
+        input::translate_config(controls);
+        input_->load(controls);
+    }
     audio_ = std::make_unique<gt3r::AudioEngine>(config_.get("audio", "device").value_or(""));
     dialog_mutex_ = SDL_CreateMutex();
 
@@ -182,6 +196,7 @@ bool App::init(int argc, char** argv) {
         else if (!browse_.empty()) push(make_browser_screen(browse_));
         else if (start_ == "menus") push(make_menu_viewer(*this));
         else if (start_ == "race") push(make_race_screen(*this));
+        else if (start_ == "controls") push(make_controls_screen(*this));
         else if (start_ == "cars" || start_ == "courses") { // (the hub's items: Play, Cars, Courses)
             const std::vector<std::string> to = start_ == "cars" ? std::vector<std::string>{"down", "cross"} : std::vector<std::string>{"down", "down", "cross"};
             keys_.insert(keys_.begin(), to.begin(), to.end());
@@ -250,6 +265,10 @@ db::SpecDb* App::db() {
         }
     }
     return db_.get();
+}
+
+void App::save_config() {
+    if (!config_.save(config_path_)) LOG_WARN("Could not save %s", config_path_.c_str());
 }
 
 void App::show_open_dialog() {
@@ -418,6 +437,8 @@ SDL_AppResult App::iterate() {
 SDL_AppResult App::event(const SDL_Event& e) {
     if (e.type == SDL_EVENT_QUIT) return SDL_APP_SUCCESS;
     input_->handle_event(e);
+    // Back in front: the controllers' motors as they should be now (a stop sent while away can be lost).
+    if (e.type == SDL_EVENT_WINDOW_FOCUS_GAINED) input_->window_focus_gained();
     if (audio_ && (e.type == SDL_EVENT_AUDIO_DEVICE_ADDED || e.type == SDL_EVENT_AUDIO_DEVICE_REMOVED)) audio_->device_event(e);
     if (e.type == SDL_EVENT_DROP_FILE && e.drop.data) request_disc(e.drop.data);
     if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F11 && !e.key.repeat)

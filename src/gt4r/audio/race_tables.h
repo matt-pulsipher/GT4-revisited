@@ -89,6 +89,10 @@ struct RaceSoundTables {
     // The layer players' attack (ADSR1 of a new layer's voice): Prologue's program (found by its
     // float gains, as above) keys its layers with a slower attack than Gran Turismo 4's.
     u16 layer_adsr1 = LayerPlayer::kAdsr1;
+    // Prologue's frame and mix (0x378870, 0x3A18A8, found by its float gains): from the car's own in-car view every sound
+    // of the car is at the camera (no places ahead and behind); the panner's gain is held to 1 before the master; the held
+    // notes follow at once and the wheels' take the master once; no landing, afterfire, nitrous or heartbeat.
+    bool prologue = false;
     bool found() const { return found_gains && found_mics && found_params; }
 
     float view_gain(SoundView v, SoundChannel c) const { return gain[size_t(v)][size_t(c)]; }

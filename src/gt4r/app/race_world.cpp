@@ -179,7 +179,7 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
         const Bytes program = app.disc() ? app.disc()->read_program() : Bytes{};
         m.sound = std::make_unique<audio::RaceSound>(vfs, engine.voices(), sound->driver(), sound->library_ptr(), audio::RaceSoundTables::from_core(program), music);
         for (const WorldEntry& e : setup.entries)
-            if (!m.sound->add_car(e.label)) LOG_WARN("Drive: no engine sound for %s", e.label.c_str());
+            if (!m.sound->add_car(e.label, e.equipment ? &*e.equipment : nullptr)) LOG_WARN("Drive: no engine sound for %s", e.label.c_str());
         m.sound->set_course(course_->section(course::kSlotSound), std::make_shared<const course::Runway>(course_->road()));
         // The volumes and output of the game's options, and the player's play list of racing music.
         m.sound->set_options(audio::race_sound_options(setup.options));
@@ -253,6 +253,7 @@ void RaceWorld::build_simulation() {
             if (!noted_)
                 for (const std::string& note : session_->notes()) LOG_INFO("Drive: %s", note.c_str());
             sim_ = session_.get();
+            session_->set_wheel_options(0, player_.wheel_strength, player_.wheel_assist);
             const sim::RaceRules race_rules = sim::race_rules(setup_.event_row, program);
             session_->set_race_rules(race_rules.hits, race_rules.speed_cap, race_rules.penalty_cap);
             { // the race's class grips (the rule block's +0x18 .. +0x1B from the row's +0x53 .. +0x56, 0x35E108)
@@ -368,6 +369,16 @@ void RaceWorld::first_lines(const sim::Program& program) {
 void RaceWorld::set_entry_overrides(std::vector<std::optional<WorldEntry>> overrides) {
     overrides_ = std::move(overrides);
     restart();
+}
+
+bool RaceWorld::set_player(const PlayerChoice& c) {
+    if (setup_.entries.empty()) return false;
+    WorldEntry& e = setup_.entries[0];
+    const bool anew = e.automatic != c.automatic || e.asm_on != c.asm_on || e.tcs_on != c.tcs_on || e.wheel_aid != c.wheel_aid || e.driver != c.wheel_lock;
+    player_ = c;
+    e.automatic = c.automatic, e.asm_on = c.asm_on, e.tcs_on = c.tcs_on, e.wheel_aid = c.wheel_aid, e.driver = c.wheel_lock;
+    if (session_) session_->set_wheel_options(0, c.wheel_strength, c.wheel_assist);
+    return anew;
 }
 
 void RaceWorld::restart() {
