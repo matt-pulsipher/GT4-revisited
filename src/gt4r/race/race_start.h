@@ -9,13 +9,11 @@
 #include "gt4r/sim/ai/course_lines.h"
 #include "gt4r/sim/session.h"
 
+#include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
-
-namespace gt4r {
-class Disc;
-}
 
 namespace gt4r::race {
 
@@ -30,6 +28,29 @@ struct StartRace {
     u8 way = 0;                               // COURSE +0x12 (K +0xCBDE): 1 a course without a lap
     std::vector<float> sectors;               // the split points (the sectors' ends but the last)
     float goal = -1;                          // the race's goal along the course (-1 none)
+};
+
+// The reading of a course's files for its starts: the sections, the split points, the goal, and (asked for) the driving lines.
+class StartCourse {
+public:
+    // `runway`: the course's road file (RNW4; the sections and split points); `section` -1: the whole road.
+    StartCourse(const course::Runway& road, ByteSpan runway, int way);
+    // The race of a conductor on it, with an event's row. The result points into this object.
+    const StartRace& set_race(Conductor conductor, std::span<const u8> event_row, int section);
+    // Whether a car of index below `cars` may start on a driving line by the row.
+    bool may_need_lines(size_t cars) const;
+    // The driving lines (once): from the course's driver file.
+    void add_lines(const course::AiData& data, const sim::ai::Tables& tables);
+    bool has_lines() const { return lines_ != nullptr; }
+    const StartRace& race() const { return race_; }
+
+private:
+    const course::Runway* road_;
+    std::vector<RoadSection> sections_;
+    std::vector<float> splits_;
+    std::unique_ptr<sim::RoadGround> ground_;
+    std::unique_ptr<sim::ai::CourseLines> lines_;
+    StartRace race_;
 };
 
 // A car's start.

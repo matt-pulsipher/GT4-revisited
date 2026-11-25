@@ -6,7 +6,9 @@
 // docs/formats/race_flow.md "The license tests' rules".
 
 #include "gt4r/base/types.h"
+#include "gt4r/race/simulation.h"
 
+#include <optional>
 #include <span>
 
 namespace gt4r::race {
@@ -82,6 +84,11 @@ private:
     int frames_ = 0;
     LicenseFail fail_ = LicenseFail::None;
 };
+
+// 0x3F91F0: the car stopped in the stopping box: every wheel on a triangle flagged bit 2 and the squared speed no more than
+// 0.2778 (m/s)^2, in the program's arithmetic; the step's share at which it counts (the squared speed over 0.2778), none while
+// it is not.
+std::optional<float> stopped_in_box(const CarState& c);
 
 // 0x35FC10: a hit of `value` against a limit byte: 0 any hit fails, 255 none, else value (truncated) at or over it.
 bool hit_over(int limit, float value);

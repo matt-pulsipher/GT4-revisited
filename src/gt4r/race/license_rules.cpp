@@ -1,5 +1,7 @@
 #include "gt4r/race/license_rules.h"
 
+#include "base/ee_float.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -24,6 +26,17 @@ bool hit_over(int limit, float value) {
     if (limit == 0) return true;
     if (limit == 0xFF) return false;
     return int(std::trunc(value)) >= limit;
+}
+
+std::optional<float> stopped_in_box(const CarState& c) {
+    using gt3r::ee::F;
+    for (const WheelState& w : c.wheels)
+        if ((w.surface & 4) == 0) return std::nullopt;
+    // (the record's x, y, z: the course's x, -z, y)
+    const F x(c.velocity.x), y(c.velocity.z), z(c.velocity.y), limit = F::raw(0x3E8E38E3);
+    const F v2 = (x * x + y * y) + z * z;
+    if (limit < v2) return std::nullopt;
+    return (v2 / limit).host();
 }
 
 LicenseFail LicenseJudge::step(const LicenseStep& s) {

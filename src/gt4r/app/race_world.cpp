@@ -203,6 +203,9 @@ void RaceWorld::build_simulation() {
     sim_ = nullptr;
     field_.reset();
     session_.reset(), rail_.reset();
+    starts_.assign(setup_.entries.size(), {});
+    if (!start_course_) start_course_ = std::make_unique<race::StartCourse>(course_->road(), course_->section(course::kSlotRunway), race::course_start(*app_.db(), setup_.course).way);
+    start_course_->set_race(setup_.conductor, setup_.event_row, setup_.section);
     if (!setup_.rail && app_.disc()) {
         try {
             const sim::Program program = sim::Program::load(*app_.disc());
@@ -323,32 +326,12 @@ void RaceWorld::build_simulation() {
 // The cars' starts by the race's rule, into the session's entries.
 void RaceWorld::plan_starts(const sim::Program& program, std::vector<sim::Entry>& entries) {
     const course::Runway& road = course_->road();
-    sections_ = race::road_sections(course_->section(course::kSlotRunway));
-    start_race_ = {};
-    race::StartRace& r = start_race_;
-    r.conductor = road.gtrw ? race::Conductor::Other : setup_.conductor;
-    r.row = race::RowStart::from_row(setup_.event_row);
-    r.road = &road;
-    r.way = race::course_start(*app_.db(), setup_.course).way;
-    if (r.conductor != race::Conductor::Other && setup_.section >= 0 && size_t(setup_.section) < sections_.size()) r.section = &sections_[size_t(setup_.section)];
-    if (!road.gtrw) {
-        r.section_start = r.section ? r.section->start : road.start_v;
-        const float goal = r.section ? r.section->goal : road.goal_v;
-        r.goal = goal >= 1 && goal <= road.length - 1 ? goal : -1;
-        if (!r.section) r.sectors = race::road_list(course_->section(course::kSlotRunway), 0);
-    }
+    const race::StartRace& r = start_course_->race();
     // The driving lines, when a car may start on one (the drivers' own need the session).
-    bool on_line = false;
-    for (size_t i = 0; i < entries.size(); ++i) {
-        const WorldEntry& we = i < overrides_.size() && overrides_[i] ? *overrides_[i] : setup_.entries[i];
-        on_line = on_line || we.start_speed > 0 || race::car_start(r.row, r.conductor, i, 0).on_line();
-    }
-    if (on_line && !lines_ && !road.gtrw && app_.disc())
-        if (const std::optional<course::AiData> data = sim::ai::Field::read(*app_.disc(), setup_.course)) {
-            lines_ground_ = std::make_unique<sim::RoadGround>(road);
-            lines_ = std::make_unique<sim::ai::CourseLines>(*data, *lines_ground_, sim::ai::Tables::load(program));
-        }
-    r.lines = lines_.get();
+    bool on_line = start_course_->may_need_lines(entries.size());
+    for (size_t i = 0; i < entries.size(); ++i) on_line = on_line || (i < overrides_.size() && overrides_[i] ? *overrides_[i] : setup_.entries[i]).start_speed > 0;
+    if (on_line && !start_course_->has_lines() && !road.gtrw && app_.disc())
+        if (const std::optional<course::AiData> data = sim::ai::Field::read(*app_.disc(), setup_.course)) start_course_->add_lines(*data, sim::ai::Tables::load(program));
     starts_.clear();
     for (size_t i = 0; i < entries.size(); ++i) {
         const WorldEntry& we = i < overrides_.size() && overrides_[i] ? *overrides_[i] : setup_.entries[i];
@@ -367,7 +350,7 @@ void RaceWorld::plan_starts(const sim::Program& program, std::vector<sim::Entry>
 }
 
 int RaceWorld::start_crossings(size_t car) const {
-    return car < starts_.size() ? race::planned_crossings(start_race_, starts_[car], sim_->cars()[car].course_v) : 0;
+    return car < starts_.size() ? race::planned_crossings(start_course_->race(), starts_[car], sim_->cars()[car].course_v) : 0;
 }
 
 // The line each car's driver starts on (0x363B10: on the grid a computer's car by its place, 0x620AD8's row of six, mirrored
@@ -382,7 +365,7 @@ void RaceWorld::first_lines(const sim::Program& program) {
         int line = 6;
         if (kind < 2) {
             if (pad) line = 7;
-            else if (start_race_.way != 1 && road.grid.size() >= 2) {
+            else if (start_course_->race().way != 1 && road.grid.size() >= 2) {
                 const WorldEntry& we = i < overrides_.size() && overrides_[i] ? *overrides_[i] : setup_.entries[i];
                 const int place = we.grid_place >= 0 ? we.grid_place : int(i);
                 line = int(program.w(0x620AD8 + 4 * u32(place % 6)));

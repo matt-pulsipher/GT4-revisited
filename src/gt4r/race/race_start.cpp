@@ -8,6 +8,40 @@ namespace gt4r::race {
 
 using gt3r::ee::F;
 
+StartCourse::StartCourse(const course::Runway& road, ByteSpan runway, int way) : road_(&road), sections_(road_sections(runway)), splits_(road_list(runway, 0)) {
+    race_.road = road_;
+    race_.way = u8(way);
+}
+
+const StartRace& StartCourse::set_race(Conductor conductor, std::span<const u8> event_row, int section) {
+    StartRace& r = race_;
+    r.conductor = road_->gtrw ? Conductor::Other : conductor; // (Prologue's own start is not read)
+    r.row = RowStart::from_row(event_row);
+    r.section = r.conductor != Conductor::Other && section >= 0 && size_t(section) < sections_.size() ? &sections_[size_t(section)] : nullptr;
+    r.section_start = 0, r.goal = -1;
+    r.sectors.clear();
+    if (road_->gtrw) return r;
+    r.section_start = r.section ? r.section->start : road_->start_v;
+    const float goal = r.section ? r.section->goal : road_->goal_v;
+    if (goal >= 1 && goal <= road_->length - 1) r.goal = goal;
+    if (!r.section) r.sectors = splits_;
+    return r;
+}
+
+bool StartCourse::may_need_lines(size_t cars) const {
+    if (race_.conductor == Conductor::Other) return false;
+    for (size_t i = 0; i < cars; ++i)
+        if (car_start(race_.row, race_.conductor, i, 0).on_line()) return true;
+    return false;
+}
+
+void StartCourse::add_lines(const course::AiData& data, const sim::ai::Tables& tables) {
+    if (lines_) return;
+    ground_ = std::make_unique<sim::RoadGround>(*road_);
+    lines_ = std::make_unique<sim::ai::CourseLines>(data, *ground_, tables);
+    race_.lines = lines_.get();
+}
+
 PlannedStart plan_start(const StartRace& r, size_t car, int grid_place, std::optional<CarStart> rolling) {
     PlannedStart p;
     const float lap = r.road ? r.road->length : 0;

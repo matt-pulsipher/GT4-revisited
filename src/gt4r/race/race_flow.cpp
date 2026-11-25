@@ -193,7 +193,7 @@ void RaceFlow::finish_now(size_t car, float share) {
     CarRecord& r = cars_[car];
     r.finished = true;
     r.finish_order = finishers_++;
-    r.finish_units = std::max<s64>(0, clock_ - kClockPerStep + s64(std::trunc(std::clamp(share, 0.0f, 1.0f) * float(kClockPerStep))));
+    r.finish_units = std::max<s64>(0, clock_ - kClockPerStep + s64(gt3r::ee::to_int((gt3r::ee::F(std::clamp(share, 0.0f, 1.0f)) * gt3r::ee::F::raw(0x42480000)).bits)));
     if (car == setup_.player) player_finish_steps_ = 0;
 }
 

@@ -109,7 +109,7 @@ public:
     void step(std::span<const race::CarInput> inputs, bool hold = false, bool player_by_computer = true);
     std::span<const race::CarState> cars() const { return sim_->cars(); }
     // How the cars start (race/race_start.h): what their starts read, each car's, its crossings of the line at the start.
-    const race::StartRace& start_race() const { return start_race_; }
+    const race::StartRace& start_race() const { return start_course_->race(); }
     const race::PlannedStart& start_of(size_t car) const { return starts_[car]; }
     int start_crossings(size_t car) const;
     // The race's count of a car's crossings of the line, for the simulation (F +0x4AC).
@@ -252,11 +252,8 @@ private:
     bool bspec_driven_ = false;               // a B-spec driver drove the player's car (its record set)
     bool computer_player_ = false;
     float player_ps_ = 0;
-    std::vector<race::RoadSection> sections_;
-    race::StartRace start_race_;
+    std::unique_ptr<race::StartCourse> start_course_;
     std::vector<race::PlannedStart> starts_;
-    std::unique_ptr<sim::RoadGround> lines_ground_; // (the starts' own lines: the drivers' need the session)
-    std::unique_ptr<sim::ai::CourseLines> lines_;
     void plan_starts(const sim::Program& program, std::vector<sim::Entry>& entries);
     void first_lines(const sim::Program& program);
     std::vector<float> pace_kmh_; // each car's rolling start speed until released (0: none)
