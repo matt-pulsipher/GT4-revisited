@@ -50,7 +50,7 @@ Pad drive(int i) {
 
 // GT4R_WHOLESTEP: every step from the program's state: the record (and Prologue's part of it) loaded into our session, a
 // step of each, every field of the record compared; the fields listed by the step they first differ in.
-int whole_step(Disc& disc, const std::string& course, const std::string& car, int steps) {
+int whole_step(Disc& disc, const std::string& course, const std::string& car, int steps, std::vector<std::string>* fields = nullptr) {
     db::SpecDb sdb = open_db(disc);
     Ee ee;
     boot(ee, disc);
@@ -96,7 +96,7 @@ int whole_step(Disc& disc, const std::string& course, const std::string& car, in
     const int from = std::getenv("GT4R_WHOLESTEP_FROM") ? std::atoi(std::getenv("GT4R_WHOLESTEP_FROM")) : 0;
     // (GT4R_WHOLESTEP=front: the session's phases 1 .. 11 on the program's state against the program's record as its phase 19
     // starts; the collision's outputs and what phases 14 and 15 write are not compared)
-    const bool front = std::string(std::getenv("GT4R_WHOLESTEP")) == "front";
+    const bool front = std::getenv("GT4R_WHOLESTEP") && std::string(std::getenv("GT4R_WHOLESTEP")) == "front";
     const sim::Program program = sim::Program::load(disc);
     const gt3r::sim::exact::ProgramData data = sim::core_program(program);
     const gt3r::sim::exact::RaceInputs inputs = gt3r::sim::exact::race_inputs(data, gt3r::sim::exact::Conductor::SinglePlayer, {}, false, 0);
@@ -262,6 +262,10 @@ int whole_step(Disc& disc, const std::string& course, const std::string& car, in
         }
         compare(after, mine, st);
     }
+    if (fields) {
+        for (const auto& [name, f] : st.fields) fields->push_back(name);
+        return st.calls == u64(steps) ? 0 : 1;
+    }
     std::printf("prologue: the whole step from the program's state, %llu steps, %llu with every field equal\n", (unsigned long long)st.calls,
                 (unsigned long long)st.clean);
     std::vector<std::pair<std::string, PFieldStat>> v(st.fields.begin(), st.fields.end());
@@ -270,6 +274,10 @@ int whole_step(Disc& disc, const std::string& course, const std::string& car, in
     for (const auto& [name, f] : v)
         std::printf("    %-24s differs in %llu, most by %.3g; %s\n", name.c_str(), (unsigned long long)f.off, f.worst, f.example.c_str());
     return 0;
+}
+
+bool whole_step_fields(Disc& disc, const std::string& course, const std::string& car, int steps, std::vector<std::string>& fields) {
+    return whole_step(disc, course, car, steps, &fields) == 0;
 }
 
 int run(Disc& disc, const std::string& course, const std::string& car, int steps) {

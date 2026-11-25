@@ -65,6 +65,9 @@ struct NearStats {
     std::string err;
 };
 NearStats near_check(Disc& disc, const std::string& course, const std::string& cars, int steps, bool print);
+// The whole step (GT4R_WHOLESTEP): the fields of the record that differ in any of `steps` steps from the program's state;
+// false when the run stops early.
+bool whole_step_fields(Disc& disc, const std::string& course, const std::string& car, int steps, std::vector<std::string>& fields);
 // One race step of the program's own (0x3B7020) for every car.
 void step(Ee& ee, Race& r);
 

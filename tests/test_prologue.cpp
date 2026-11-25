@@ -449,3 +449,19 @@ TEST(disc_prologue_start_camera) {
         CHECK(dissolves == (k ? 0 : 3));
     }
 }
+
+// Every step of 1,200 from the program's state, ours against the program's (two touches of a wall in them): every field of the
+// record equal but the flaps (the shared random stream), the steering force and rumble (not run), the distance along the
+// course, the lap's and the drivers' words, and the view's pitch lag.
+TEST(disc_prologue_whole_step_equal) {
+    Disc* disc = prologue_disc();
+    if (!disc) SKIP("no Prologue disc");
+    std::vector<std::string> fields;
+    CHECK(diff::prologue::whole_step_fields(*disc, "tsukuba", "civic_r_98", 1200, fields));
+    static const std::set<std::string> kKnown = {"steer_force", "ffb", "lag_pitch_diff", "lag_heading_diff", "f3e4", "prev.f3e4", "laps", "x535", "x51c", "feedback", "hit_part"};
+    for (const std::string& f : fields) {
+        const bool known = kKnown.count(f) || f.rfind("w.flap", 0) == 0 || f.rfind("ai.", 0) == 0;
+        if (!known) std::printf("  %s differs\n", f.c_str());
+        CHECK(known);
+    }
+}
