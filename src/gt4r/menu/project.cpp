@@ -52,17 +52,20 @@ Project::Pack& Project::pack_of(const std::string& page) {
 
 namespace {
 
-const gt3r::Tex1::Image* decode(std::optional<ImagePack>& pack, std::map<std::string, std::unique_ptr<gt3r::Tex1::Image>>& images, const std::string& path) {
+const gt3r::Tex1::Image* decode(std::optional<ImagePack>& pack, std::map<std::string, std::unique_ptr<gt3r::Tex1::Image>>& images, const std::string& path,
+                                bool face_alpha) {
     if (!pack) return nullptr;
-    if (const auto it = images.find(path); it != images.end()) return it->second.get();
+    const std::string key = face_alpha ? path + "|face" : path;
+    if (const auto it = images.find(key); it != images.end()) return it->second.get();
     const ImagePack::Entry* e = pack->find(path);
     if (!e) return nullptr;
-    std::unique_ptr<gt3r::Tex1::Image>& slot = images[path];
+    std::unique_ptr<gt3r::Tex1::Image>& slot = images[key];
     try {
-        const Bytes data = pack->read(*e);
+        Bytes data = pack->read(*e);
         if (!gt3r::Tex1::is_tex1(data)) return nullptr;
         const gt3r::Tex1 set = gt3r::Tex1::parse(data);
         if (set.textures.empty()) return nullptr;
+        if (face_alpha) data = Project::face_alpha(set, std::move(data));
         gt3r::GsMemory gs;
         set.upload(data, gs);
         slot = std::make_unique<gt3r::Tex1::Image>(set.decode(gs, 0));
@@ -74,11 +77,23 @@ const gt3r::Tex1::Image* decode(std::optional<ImagePack>& pack, std::map<std::st
 
 } // namespace
 
-const gt3r::Tex1::Image* Project::image(const std::string& page, const std::string& path) {
+Bytes Project::face_alpha(const gt3r::Tex1& set, Bytes data) {
+    for (const gt3r::Tex1::Buffer& b : set.buffers) {
+        if (b.dpsm != 0) continue; // (32-bit colors: a palette's, or a picture's own)
+        bool colors = false;
+        for (const gt3r::Tex1::Texture& t : set.textures) colors = colors || t.tex0.cbp == b.dbp || (t.tex0.tbp == b.dbp && t.tex0.psm == 0);
+        if (!colors) continue;
+        for (u64 k = 0, n = u64(b.width) * b.height; k < n && b.offset + k * 4 + 3 < data.size(); ++k) data[b.offset + k * 4 + 3] = u8(u32(data[b.offset + k * 4 + 3]) * 63 >> 7);
+    }
+    return data;
+}
+
+const gt3r::Tex1::Image* Project::image(const std::string& page, const std::string& path, bool plain) {
     Pack& p = pack_of(page);
-    if (const gt3r::Tex1::Image* image = decode(p.pack, p.images, path)) return image;
+    const bool face = face_alpha_ && !plain;
+    if (const gt3r::Tex1::Image* image = decode(p.pack, p.images, path, face)) return image;
     for (auto& [name, extra] : extra_)
-        if (const gt3r::Tex1::Image* image = decode(extra.pack, extra.images, path)) return image;
+        if (const gt3r::Tex1::Image* image = decode(extra.pack, extra.images, path, face)) return image;
     return nullptr;
 }
 
@@ -93,6 +108,14 @@ std::optional<Bytes> Project::entry(const std::string& page, const std::string& 
     for (auto& [name, extra] : extra_)
         if (std::optional<Bytes> b = from(extra.pack)) return b;
     return std::nullopt;
+}
+
+bool Project::has_entry(const std::string& page, const std::string& path) {
+    if (!page.empty()) pack_of(page);
+    for (const auto* packs : {&packs_, &extra_})
+        for (const auto& [name, p] : *packs)
+            if (p.pack && p.pack->find(path)) return true;
+    return false;
 }
 
 bool Project::load_pack(const std::string& folder, const std::string& name) {

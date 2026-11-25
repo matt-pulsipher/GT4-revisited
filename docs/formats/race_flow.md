@@ -337,11 +337,18 @@ The program's Save Replay runs the project `labomode` with `next_menu_arg` =
 rebuild keeps the cars' states instead, step by step, in a file of its own under the data folder's
 `replays/` (`<course>-<date>-<time>.gt4rrep`; `race/replay_file.*`): `"GT4RRPL1"`, u32 the body's
 size, u32 its deflated size, then the zlib-deflated body: the course, the sequence and the race's
-labels, the laps, the cars (label, paint), the steps (every car's state), then sections (u32 tag, u32
-size, bytes): `DETL` each state's brakes' heat and clutch, `RPLD` an arcade race's or a license test's run as the program keeps
-it (replay.md "A replay of ours"). The Drive screen plays
-one with `GT4R_RACE="replay_file=<path>"` through the course's replay cameras (a card's own replay file too); `save=<n>` saves a run at
-its step n. The Replay Theater lists them.
+labels, the laps, the cars (label, paint), the steps (every car's state), then tagged sections until the body ends (u32 the
+tag's four letters, u32 the bytes' size, the bytes; a section a reader does not know is kept): `INFO` the title, the race's
+mode by the program's name, u32 its number (-1 none), u32 the time in ms, u8 the B-spec driver's run; `PICT` 64 x 64 RGBA8
+pixels; `DETL` each state's brakes' heat and clutch; `RPLD` an arcade race's or a license test's run as the program keeps it
+(replay.md "A replay of ours"). `save=<n>` saves a run at its step n. The Drive screen (a card's own replay file too) plays one with `GT4R_RACE="replay_file=<path>"` through the course's replay cameras; the Replay
+Theater lists them.
+
+Save Replay in the race's menus (COMMAND_SAVE_REPLAY) opens `labomode` on its save page: the run is the list's new file
+(`GameState::pending_replay`; its title by the mode's name and number, as the page's script makes it), "Create new file" or a
+replay there to write over, the keyboard for the title, then the menus again. The picture is the race as it stands when the
+menus come up after the run (❓ where the program takes its own is not read; its captures show the road from the driver's
+view). ❓ The number is given for license tests and missions alone.
 
 ## A free run's start, and the arcade's start against the original
 
@@ -457,7 +464,11 @@ engine's Gran Turismo 3 code). The player notices them roughly in this order.
 | The license display's trophy times | `race_hud.cpp` | places judged | RaceLicenseDisplay::vf9 |
 | B-spec's display and commands | `race_hud.cpp`, `screen_race.cpp` `update_panel` | display mode 1 GT4; the commands' panel the Race Monitor's movie at its second frame (0x3D92B0, `PACEPANEL` 0x3DB520), down while the car is in the pits (0x3D9998, 0x35BBD8); the help strip GT4 (RaceTooltipDisplay 0x3AE138); the speed plate's place judged; Select Car's order ❓ | the plate's place |
 | B-spec's driver record and skill | `race_world.cpp` | GT4 (the book's record 0x468710, `gt-mode-2`; the skill 0x468C50 and the experience, `ai-drivers`); the skill's course flag (cond + 0xCBE7) taken as the course's marks being known ❓ | the flag's writer |
-| The replay's card, logo, caption timings | `screen_race.cpp` `fill` | **judged** (3 s, 4.5–14 s) | their caller's times |
+| Watching a replay: the keys, the car followed, the car's cameras, the zoom, the mode's plate, the pause | `replay_view.*`, `screen_race.cpp` `step_view`, `race_hud.cpp` | GT4 (camera.md "Watching a replay"); the display's numbers in a replay the meters alone, of the car followed | the photo drive, the x 4 sound |
+| Dive: the cuts to the music, the cameras, the colors, the trail | `dive_camera.*` | GT4 (camera.md "Dive"), its random numbers ours | |
+| The depth of field, haze and vignette of the views not driven in | `replay_effects.*` | GT4's rules and lens on the shared engine's passes (course.md "The passes of a replay") | |
+| The replay's card and logo | `screen_race.cpp` `fill` | GT4's times (0x39BEC8) | the black under it, the caption's and the small logo's times measured |
+| B-spec's views | `screen_race.cpp` `next_view` | GT4: the course's cameras, Cross the car's nose | the Race Monitor's own view keys |
 | The results and pause pages | `strobe*`, `screen_race.cpp` | GT4 movies and callbacks; a passed license test's page also the trophy (0x3E18D0 / 0x3E1A80, race/license_trophy.*), drawn once a frame (no averaged passes), the program's camera for its live picture judged (the course's TV cameras), the trophy's kind by the grade judged | ResultLicense's result kind (+0x88) and its camera |
 | The race display's small parts | `race_hud.cpp` `draw_small_parts`, `draw_tires`, `draw_fuel` | GT4: the tire diagram (0x3A5FD8's picture, boxes, 0x3677F8 colors from the wheel's wear level +0xB1; drawn when the race wears tires), the fuel gauge (0x3A57A8; drawn when fuel is counted), the pedals (0x3A54F8, 0x3AB570), the signs (0x3A6C28, lit as 0x39E280: the aids' status, the handbrake, the oil), the gear digit (0x3A6DE0, 0x3A6D60) | the other drivetrain kinds' tire mapping (0x359538) not read |
 | Sun, glare, lamp glows, billboards, smoke, wet road, the scenery's fade | `race_world.cpp`, `course_scene.cpp` | **engine** routines on GT4's layouts (`gt3r::race::SunGlare`, `SunDisc`, `LampGlows`, `Billboards`, `CarLampGlows`, `TyreSmoke`, `WetRoad`, `SceneryFade`) | GT4's own effect routines (not read) |

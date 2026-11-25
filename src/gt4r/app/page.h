@@ -126,6 +126,7 @@ class FileWindow {
 public:
     void open_file(App& app, const SDL_DialogFileFilter* filters, int count); // (the filters must live on)
     void open_folder(App& app);
+    void save_file(App& app, const SDL_DialogFileFilter* filters, int count, const std::string& name); // a file to write
     bool waiting() const { return slot_ != nullptr; }
     // True once, when the player has answered: `path` empty when they chose none (`error`: why it could not open).
     bool take(std::string& path, std::string& error);

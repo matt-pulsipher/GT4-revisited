@@ -49,7 +49,22 @@ void DriveCamera::reset(const CarState& car) {
     heading_rate_ = heading_accel_ = pitch_rate_ = 0;
     nod_ = nod_rate_ = 0;
     road_pitch_ = pitch_;
+    side_ = look_ = 0;
+    shake_pitch_ = {}, shake_yaw_ = {};
 }
+
+float DriveCamera::draw() {
+    seed_ = seed_ * 1664525u + 1013904223u;
+    return float(seed_ >> 8) / float(1u << 24);
+}
+
+void DriveCamera::Shaker::step(float input) {
+    v += ((input - u) - 12.0f * v) / 60.0f;
+    x += v / 60.0f;
+    u = input;
+}
+
+bool DriveCamera::aside() const { return std::fabs(side_) > 5.0f || std::fabs(look_) > 0.35f; }
 
 void DriveCamera::step(const CarState& car, float h) {
     // The chase view's heading follows the car's through a spring of 120 / 15, its pitch through
@@ -73,6 +88,23 @@ void DriveCamera::step(const CarState& car, float h) {
     const float target = 3.0f * std::clamp(wrap(car_pitch(car) - road_pitch_), -limit, limit);
     nod_rate_ += (100.0f * (target - nod_) - 20.0f * nod_rate_) * h;
     nod_ += nod_rate_ * h;
+
+    // The shake: A, 0.3 of each tire's slip ratio and its slip angle's share of a quarter turn; a draw under a half gives both
+    // shakers an input of their own (the yaw's first).
+    float slips = 0;
+    for (const WheelState& w : car.wheels) slips += std::fabs(w.slip_ratio) * 0.3f + std::fabs(w.slip_angle) / (kPi / 2);
+    const bool kick = draw() < 0.5f;
+    const float yaw = kick ? (draw() - 0.5f) * slips * 250 : 0.0f;
+    const float pitch = kick ? (draw() - 0.5f) * slips * 250 : 0.0f;
+    shake_yaw_.step(yaw), shake_pitch_.step(pitch);
+    const RVec vel = v3(car.velocity);
+    shake_speed_ = std::clamp(render::length(vel), 2.7777778f, 33.333332f) / 33.333332f;
+    // The sideways look eases by 0.2 of the rest a step; the stick's way round the car over about 0.2 s.
+    side_ += (side_held_ - side_) * 0.2f;
+    const float reach = std::sqrt(stick_x_ * stick_x_ + stick_y_ * stick_y_);
+    float want = 0;
+    if (reach > 0.2f) want = std::atan2(stick_x_, stick_y_) * std::min(1.0f, (reach - 0.2f) / 0.3f);
+    look_ += (want - look_) * (1 - std::exp(-14.0f * h));
 }
 
 std::vector<CameraMount> read_camera_mounts(ByteSpan file) {
@@ -103,6 +135,9 @@ ViewPose DriveCamera::pose(const CarState& car, const Mat4& body, std::span<cons
     ViewPose p;
     const RVec origin{body.at(0, 3), body.at(1, 3), body.at(2, 3)};
     CameraMount m;
+    const bool far_chase = mount == kFarChase, in_car_view = in_car(mount);
+    if (far_chase) mount = kChase;
+    if (in_car_view) mount = kInCar;
     if (mount >= 0 && size_t(mount) < mounts.size() && mounts[size_t(mount)].flags != 0) m = mounts[size_t(mount)];
     else if (mount == kChase) m.pos = {0, 1.7f, 6.0f}, m.flags = 2; // (a car without the record: the place most cars have)
     else m.pos = {0, 1.0f, 0.2f}, m.zoom = 2.0503f, m.flags = 5;
@@ -110,7 +145,9 @@ ViewPose DriveCamera::pose(const CarState& car, const Mat4& body, std::span<cons
     if (mount == kChase) {
         // A level frame at the car's origin with the lagged heading and pitch; the eye at the
         // place in it, looking straight along it. Looking back turns the frame half round.
-        const float heading = look_back ? heading_ + kPi : heading_, pitch = look_back ? -pitch_ : pitch_;
+        // (The stick's look goes round the car.)
+        const float heading = look_back ? heading_ + kPi : heading_ - look_, pitch = look_back ? -pitch_ : pitch_ * std::cos(look_);
+        if (far_chase) m.pos = m.pos * 1.45f;
         const RVec level{std::sin(heading), 0, std::cos(heading)};
         const RVec right = render::cross(level, {0, 1, 0});
         const RVec ahead = turn(level, right, pitch), up = render::cross(right, ahead);
@@ -128,6 +165,14 @@ ViewPose DriveCamera::pose(const CarState& car, const Mat4& body, std::span<cons
         ahead = turn(ahead, right, nod_), up = turn(up, right, nod_);
         p.fov = kOnBoardAngle;
         if (look_back) ahead = ahead * -1.0f, right = right * -1.0f;
+        // Looking aside, then the shake nearest the eye: 2 and 8 degrees by the speed.
+        const float aside = side_ * kPi / 180.0f + (look_back ? 0.0f : look_);
+        ahead = turn(ahead, up, -aside), right = turn(right, up, -aside);
+        if (shake_on_) {
+            const float yaw = 2 * shake_speed_ * std::clamp(shake_yaw_.x, -1.0f, 1.0f) * kPi / 180.0f, tip = 8 * shake_speed_ * std::clamp(shake_pitch_.x, -1.0f, 1.0f) * kPi / 180.0f;
+            ahead = turn(ahead, up, -yaw), right = turn(right, up, -yaw);
+            ahead = turn(ahead, right, -tip), up = turn(up, right, -tip);
+        }
     } else {
         // The place's own turn: yaw (to the right), then pitch (a positive one looks down: the
         // chase place's 8 degrees toward the car), then roll.
@@ -151,6 +196,7 @@ ViewPose blend_poses(const ViewPose& a, const ViewPose& b, float t, float cut) {
     ViewPose p = b;
     p.eye = {a.eye.x + dx * t, a.eye.y + dy * t, a.eye.z + dz * t};
     p.fov = a.fov + (b.fov - a.fov) * t;
+    p.focus = a.focus + (b.focus - a.focus) * t;
     // The turn's rows (the view's axes in course space): blended, then made square: the backward
     // axis, the up axis square to it, the right axis from both.
     float row[3][3];

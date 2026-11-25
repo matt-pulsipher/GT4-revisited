@@ -469,7 +469,7 @@ SDL_AppResult App::iterate() {
     chosen.swap(dialog_result_);
     mod.swap(dropped_mod_);
     SDL_UnlockMutex(dialog_mutex_);
-    if (!mod.empty() && disc_) push(make_settings_screen(*this, 4, mod)); // a .zip dropped: the Mods page installs it
+    if (!mod.empty() && disc_) push(make_settings_screen(*this, kModsPage, mod)); // a .zip dropped: the Mods page installs it
     if (!chosen.empty()) {
         last_error_ = open_disc(chosen);
         if (last_error_.empty()) {

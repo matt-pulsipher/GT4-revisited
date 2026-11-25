@@ -71,6 +71,13 @@ struct TextLayout {
 // the program has no such table.
 std::optional<std::array<TextColor, 4>> find_button_colors(ByteSpan program_image);
 
+// Where the letter before `at` starts in UTF-8 text (0 at its start).
+inline size_t utf8_before(std::string_view s, size_t at) {
+    if (at > s.size()) at = s.size();
+    while (at > 0 && (static_cast<unsigned char>(s[--at]) & 0xC0) == 0x80) {}
+    return at;
+}
+
 // Lays out UTF-8 text from (x, y) as the alignment says: each line on its own. The text's marks:
 // "%%" a percent sign, "%Crgb" a colour (hex digits), "%Bx" the button x of the Gaiji font,
 // "%F<name> " (a font) is skipped; "\r" is a space wide; "\v" is a line broken to fit (justified with

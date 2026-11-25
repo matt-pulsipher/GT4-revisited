@@ -4,6 +4,7 @@
 
 #include "gt4r/app/app.h"
 #include "gt4r/app/online.h"
+#include "gt4r/app/screen_saves.h"
 #include "gt4r/app/page.h"
 #include "gt4r/app/texture_dump.h"
 #include "gt4r/input/player_controls.h"
@@ -77,7 +78,8 @@ private:
 
 class SettingsScreen : public Screen {
 public:
-    enum Page { kDisplay, kAudio, kControls, kDisc, kMods, kPages };
+    enum Page { kDisplay, kAudio, kControls, kViews, kDisc, kMods, kPages };
+    static_assert(int(kMods) == kModsPage);
 
     SettingsScreen(App& app, int page, std::string install) : scripted_(app.scripted()), page_(std::clamp(page, 0, int(kPages) - 1)), install_(std::move(install)) {}
 
@@ -131,7 +133,7 @@ public:
 
     void render(App& app, Ui& ui) override {
         ui.header("SETTINGS", "GT4 Revisited " GT4R_VERSION);
-        static constexpr const char* kNames[kPages] = {"Display", "Audio", "Controls", "Disc & saves", "Mods"};
+        static constexpr const char* kNames[kPages] = {"Display", "Audio", "Controls", "Views & replays", "Disc & saves", "Mods"};
         float x = 20;
         for (int i = 0; i < kPages; ++i) {
             tabs_[i] = {x, 25, ui.tab_width(kNames[i]), 17};
@@ -184,6 +186,7 @@ private:
         case kDisplay: return display(app);
         case kAudio: return audio(app);
         case kControls: return controls(app);
+        case kViews: return views(app);
         case kDisc: return disc(app);
         default: return mod_.empty() ? mods(app) : mod(app);
         }
@@ -330,6 +333,34 @@ private:
         if (names.empty()) rows_.info("Only the keyboard", "");
     }
 
+    // --- Views & replays ---
+
+    // The race reads these from the config as it starts and as its pause closes (race/replay_effects.h). `otherwise`:
+    // the value while the config has none of `options`.
+    void config_row(App& app, const char* label, const char* section, const char* key, const std::vector<std::pair<std::string, std::string>>& options, const char* otherwise) {
+        App* a = &app;
+        std::string now = gt3r::to_lower(app.config().get(section, key).value_or(otherwise));
+        if (std::none_of(options.begin(), options.end(), [&](const auto& o) { return o.first == now; })) now = otherwise;
+        rows_.pick(label, options, now, [a, section, key](const std::string& v) {
+            a->config().set(section, key, v);
+            a->save_config();
+        });
+    }
+
+    void views(App& app) {
+        rows_.heading("Races");
+        config_row(app, "Views", "cameras", "race_views", {{"original", "The game's three"}, {"all", "All"}}, "original");
+        config_row(app, "In-car camera", "cameras", "in_car_shake", {{"off", "Steady"}, {"on", "Shakes as the game's"}}, "on");
+        rows_.heading("Replays");
+        const std::vector<std::pair<std::string, std::string>> drawn{{"off", "Not drawn"}, {"on", "As the game draws it"}};
+        config_row(app, "Heat haze", "video", "heat_haze", drawn, "off");
+        config_row(app, "Vignette", "video", "replay_vignette", drawn, "on");
+        config_row(app, "Motion trail", "video", "replay_trail", drawn, "on");
+        config_row(app, "Depth of field", "video", "depth_of_field", {{"off", "Not drawn"}, {"standard", "Standard"}, {"high", "High"}}, "high");
+        if (!app.gpu())
+            for (PageRow& r : rows_.rows) r.enabled = false;
+    }
+
     // --- Disc & saves ---
 
     void disc(App& app) {
@@ -370,6 +401,7 @@ private:
         rows_.heading("Saves");
         PageRow& saves = rows_.action("Save folder", app.save_dir_chosen() ? app.save_dir() : std::string("the data folder"), "choose another", [this, a] { folder_.open_folder(*a); });
         if (app.save_dir_chosen()) saves.other = [this, a] { use_save_folder(*a, ""); }, saves.other_hint = "the data folder";
+        rows_.action("Saved games", "", "open the list", [a] { a->push(make_saves_screen(*a)); });
         // The server the races over the internet meet through (the Multi-LAN Race's page asks for one the first time, and takes a
         // name typed): none is contacted before one is chosen.
         rows_.heading("Online races");

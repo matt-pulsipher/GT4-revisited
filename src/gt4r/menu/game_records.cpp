@@ -90,7 +90,30 @@ int license_unit(std::string label) {
     return unit >= 0 && unit < int(kLicenseUnits) ? unit : -1;
 }
 
+// Every test 1 .. `last` of a license's category ("l0b", ...) by a rule on its unit's type and result (0x430B58 on).
+template <class Rule> bool all_tests(Database& d, const GameState& s, const std::string& cat, int last, Rule rule) {
+    for (int i = 1; i <= last; ++i) {
+        char label[16];
+        std::snprintf(label, sizeof label, "%s%04d", cat.c_str(), i);
+        const int unit = d.race_unit(label);
+        if (unit < 0) return false;
+        const u32 w = s.race_units[size_t(unit)];
+        if (!rule(w & 15, (w >> 4) & 15)) return false;
+    }
+    return true;
+}
+
 } // namespace
+
+bool license_all_bronze(Database& d, const GameState& s, const std::string& cat) {
+    return all_tests(d, s, cat, 16, [](u32, u32 r) { return r != 15 && r <= 11; });
+}
+
+bool event_aspec_allowed(Database& d, const GameState& s, u8 license) {
+    static const char* const kCategories[5] = {"l0b", "l0a", "lib", "lia", "l0s"};
+    if (license == 0) return true;
+    return license <= 5 && license_all_bronze(d, s, kCategories[license - 1]);
+}
 
 void install_records(GameNatives& n, Object& g, script::Module& menu) {
     GameNatives* np = &n;
@@ -264,19 +287,8 @@ void install_records(GameNatives& n, Object& g, script::Module& menu) {
         const int unit = db().race_unit(arg_text(a, 0));
         return unit < 0 ? Value{} : race_unit(unit);
     });
-    // The license predicates: tests 1 .. 16 (or 15) of a category ("l0b", ...), each by a rule
-    // on its unit's type and result (0x430B58 on).
-    auto all = [s, db](const std::string& cat, int last, auto rule) {
-        for (int i = 1; i <= last; ++i) {
-            char label[16];
-            std::snprintf(label, sizeof label, "%s%04d", cat.c_str(), i);
-            const int unit = db().race_unit(label);
-            if (unit < 0) return false;
-            const u32 w = s->race_units[size_t(unit)];
-            if (!rule(w & 15, (w >> 4) & 15)) return false;
-        }
-        return true;
-    };
+    // The license predicates: tests 1 .. 16 (or 15) of a category ("l0b", ...), each by a rule.
+    auto all = [s, db](const std::string& cat, int last, auto rule) { return all_tests(db(), *s, cat, last, rule); };
     race_record->method("isLicensePerfect", [all](Vm&, const Value&, Args a) {
         return number(all(arg_text(a, 0), 16, [](u32 t, u32 r) { return t == 1 ? r == 9 : (t == 2 || t == 3) && r == 0; }));
     });
@@ -286,7 +298,7 @@ void install_records(GameNatives& n, Object& g, script::Module& menu) {
     race_record->method("isLicensePassed", [all](Vm&, const Value&, Args a) {
         return number(all(arg_text(a, 0), 16, [](u32 t, u32 r) { return t == 1 ? r < 13 : (t == 2 || t == 3) && r == 0; }));
     });
-    race_record->method("isLicenseAllBronze", [all](Vm&, const Value&, Args a) { return number(all(arg_text(a, 0), 16, [](u32, u32 r) { return r != 15 && r <= 11; })); });
+    race_record->method("isLicenseAllBronze", [s, db](Vm&, const Value&, Args a) { return number(license_all_bronze(db(), *s, arg_text(a, 0))); });
     race_record->method("canTryLastLicense", [all](Vm&, const Value&, Args a) { return number(all(arg_text(a, 0), 15, [](u32, u32 r) { return r != 15 && r <= 11; })); });
     // isMissionClear("from,to", result): every mission of the range at least that result.
     race_record->method("isMissionClear", [s, db](Vm&, const Value&, Args a) {

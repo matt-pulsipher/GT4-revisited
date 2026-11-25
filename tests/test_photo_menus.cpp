@@ -171,7 +171,7 @@ TEST(disc_photo_shoot_pages) {
         const script::Value slides = vm.attribute(manager, "autoloadPlayList");
         if (const auto r = vm.member(slides, "list")) r->set(vm, list);
         CHECK(vm.attribute(manager, "autoloadPlayListResult").to_string() == "OK"); // (no list yet: an empty one, nothing to ask)
-        CHECK(vm.attribute(manager, "isConnect").p && vm.attribute(manager, "free").as_float() == 8000);
+        CHECK(vm.attribute(manager, "isConnect").p && vm.attribute(manager, "free").as_float() == 7999);
         call(list, "append", {file});
         CHECK(call(slides, "saveNew", {manager, script::Value::string("Slides")}).to_string() == "OK");
         CHECK(menu::slide_folders(*f.rt).size() == 1);

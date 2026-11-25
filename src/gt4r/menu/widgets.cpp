@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <unordered_set>
 
 namespace gt4r::menu {
 
@@ -104,8 +105,11 @@ bool is_select_box(const LiveWidget& w) { return w.is("SelectBox") || w.is("Sele
 std::shared_ptr<LiveWidget> LiveWidget::build(const Widget& layout, const std::shared_ptr<script::Module>& parent, Runtime* runtime) {
     auto w = std::make_shared<LiveWidget>();
     w->data.type = layout.type;
+    // (Prologue's layout reader, mWidget::vf57, has no `visible`: only its scripts set it. The board's film and the options'
+    // OK buttons, which the layouts mark hidden, show; the second board waits beside the screen.)
+    const bool reads_visible = !runtime || !runtime->is_prologue();
     for (const Property& p : layout.properties)
-        if (p.name != "children") w->data.properties.push_back(p);
+        if (p.name != "children" && (reads_visible || p.name != "visible")) w->data.properties.push_back(p);
     w->name = layout.name();
     w->parent = parent;
     w->runtime = runtime;
@@ -173,6 +177,15 @@ std::shared_ptr<LiveWidget> LiveWidget::copy() const {
 void LiveWidget::append(const std::shared_ptr<LiveWidget>& child, const LiveWidget* before) {
     if (LiveWidget* old = child->parent_widget(); old && old != this) old->remove(child);
     children.erase(std::remove(children.begin(), children.end(), child), children.end());
+    // A name a sibling has already is made its own (0x206888 -> 0x25AD20, 0x25ADF8): its letters without the digits at its
+    // end, and the first number from 0 on that is free ("Item", "Item0", "Item1" ...).
+    if (!child->name.empty()) {
+        std::unordered_set<std::string> taken;
+        for (const auto& c : children) taken.insert(c->name);
+        std::string base = child->name;
+        while (!base.empty() && base.back() >= '0' && base.back() <= '9') base.pop_back();
+        for (int i = 0; taken.count(child->name); ++i) child->name = base + std::to_string(i);
+    }
     child->parent = std::static_pointer_cast<script::Module>(shared_from_this());
     child->runtime = runtime;
     auto at = children.end();
@@ -283,7 +296,8 @@ Value LiveWidget::get(const std::string& n) const {
     const Property* p = data.find(n);
     if (!p || p->values.empty()) {
         if (n == "visible") return Value::integer(1);
-        if (n == "alpha" || n == "opacity" || n == "scale_x" || n == "scale_y" || n == "sx" || n == "sy") return Value::number(1);
+        if (n == "alpha") return Value::number(own_alpha(*this));
+        if (n == "opacity" || n == "scale_x" || n == "scale_y" || n == "sx" || n == "sy") return Value::number(1);
         if (n == "text" || n == "key" || n == "image_path" || n == "movie_name" || n == "car_code" || n == "tooltip_key") return Value::string({});
         if (n == "value" && (is("TextFace") || is("ToolTipFace") || is("InputTextFace"))) {
             // A text face without a value gives its key: Prologue's car page keeps the formats of

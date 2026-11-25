@@ -1138,6 +1138,7 @@ void Session::publish(size_t i) {
         o.spin = x.spin[w];
         o.travel = c.p.susp[a].x_static.host() - wheel.susp.host();
         o.slip = std::clamp(wheel.slip_intensity.host(), 0.0f, 1.0f);
+        o.slip_angle = c.t[size_t(w)].slip_angle.host(), o.slip_ratio = wheel.slip_ratio.host();
         o.brake_heat = wheel.brake_heat.host();
         o.surface = x.kinds[w];
         o.material = x.materials[w];

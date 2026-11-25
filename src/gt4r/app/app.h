@@ -258,7 +258,9 @@ std::unique_ptr<Screen> make_hub_screen();
 std::unique_ptr<Screen> make_sweep_screen(const std::string& list, const std::string& out);
 // The player's controls: the device, the race's layout, rumble and force feedback, the bindings.
 std::unique_ptr<Screen> make_controls_screen(App& app, int player = 0);
-// The app's settings (screen_settings.cpp), from a page on (0 Display, 1 Audio, 2 Controls, 3 Disc & saves, 4 Mods).
+// The app's settings (screen_settings.cpp), from a page on (0 Display, 1 Audio, 2 Controls, 3 Views & replays, 4 Disc & saves,
+// 5 Mods: kModsPage).
+constexpr int kModsPage = 5;
 std::unique_ptr<Screen> make_settings_screen(App& app, int page = 0, const std::string& install = {});
 // The save editor (screen_save_editor.cpp): a saved game of the library by its card's folder (save/save_library.h), "" the list.
 std::unique_ptr<Screen> make_save_editor(App& app, const std::string& card = "");
@@ -267,7 +269,8 @@ std::unique_ptr<Screen> make_browser_screen(const std::string& open_path = "");
 std::unique_ptr<Screen> make_menu_viewer(App& app);
 // The game itself: the menus running from power on, over the whole window, as a player sees
 // them (screen_menu_viewer.cpp). Select and Start together leave it.
-std::unique_ptr<Screen> make_game_screen(App& app);
+// (`new_card`: a new game, to be made in this folder: save/save_library.h.)
+std::unique_ptr<Screen> make_game_screen(App& app, const std::string& new_card = {});
 // A list of models and a 3D view of the selected one; `load` builds the model of an item.
 using ModelLoader = std::function<gt3r::scene::Model(App& app, size_t index)>;
 std::unique_ptr<Screen> make_model_viewer(std::string title, std::vector<std::string> items, ModelLoader load);

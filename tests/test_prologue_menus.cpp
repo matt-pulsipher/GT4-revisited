@@ -158,6 +158,7 @@ TEST(disc_prologue_switch_colors) {
     Disc* disc = prologue_menu_disc();
     if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 Prologue disc");
     menu::RuntimeConfig config;
+    config.console_card = true;
     config.program = [disc] { return disc->read_program(); };
     const std::optional<menu::SwitchColors> c = menu::prologue_switch_colors(config);
     CHECK(c.has_value());
@@ -175,6 +176,7 @@ TEST(disc_prologue_switch_colors) {
     for (const std::unique_ptr<Disc>& d : test::discs())
         if (d->info().game == Game::GT4) {
             menu::RuntimeConfig other;
+            other.console_card = true;
             Disc* g = d.get();
             other.program = [g] { return g->read_program(); };
             CHECK(!menu::prologue_switch_colors(other).has_value());

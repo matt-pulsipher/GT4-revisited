@@ -41,7 +41,7 @@ std::string card_dir(Runtime& rt, int) { return rt.data_dir().empty() ? std::str
 
 save::PhotoCard photo_card(Runtime& rt, int slot) { return save::PhotoCard(card_dir(rt, slot), rt.reader()); }
 
-constexpr s32 kFreeKb = 8000; // (always room: the save files are not a card's)
+constexpr s32 kFreeKb = 7999; // (always room: the save files are not a card's; 8,000 is the scripts' unformatted card)
 
 std::vector<u16> small_picture(const PhotoPicture& p) {
     std::vector<u8> rgb(size_t(p.width) * size_t(p.height) * 3);
