@@ -63,7 +63,7 @@ Next, in order:
    list, contacts, landings and the gearbox's whine from the simulation; checked against the
    original's recordings (`gt4tool sound compare`; the engine's pitch, the players' volumes, the
    count, which music plays when). Left: the Drive screen's calls for a rolling start and the
-   replay, the play list from the save, the replay's camera kind for the master's duck, the streams' level in the IOP's module (about 2 dB under the program's), pit sounds.
+   replay, the play list from the save, the replay's camera kind for the master's duck, the streams' level in the IOP's module (about 2 dB under the program's), the pit crews' sounds (their scene is not built; the jack's drop plays).
 3. **Cars, the rest**: the far level's wheels, the brake discs' glow, fitted wings, the moving
    parts of the few cars with scripts, the skinned drivers, how a race picks opponents' paints.
 4. **Courses, the rest**: the mirror, cones and boards (`GDGT`), skid marks, the models that

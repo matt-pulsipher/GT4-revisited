@@ -22,13 +22,15 @@ names `SDDRV::SqSequencer` and `SDDRV::SeSequencer`); [F] from the files; 🔎 i
 | The engine, exhaust and wind banks' players (0x558FD8 and its helpers; the voice of kind 4) | `layer_player.*` | Gran Turismo 4's: every started player of 46 saved states the same; Prologue's (0x481588) with its own attack |
 | A car's frame and mix (0x3B5E80, 0x392640): views, gains, microphones, panner, Doppler, the master, its fades and ducks | `car_sound.*`, `race_sound.*`, `race_tables.*` | Gran Turismo 4's, tables from the disc's program |
 | The surround cue (the panner's two flags) | the shared `gt3r::SurroundCue` | the same rule as the program's, in every output mode as the program does it: the shared mixer's option is on while a disc is open (`with_surround_cue`; the shared engine's own screens keep their setting) |
-| The levels (0x350080), wind (0x34FA90), cabin (0x34FBC0), whine (0x34FED0, 0x350DA0), afterfire (0x3F3368, 0x3F3278), the hit sound's recorder (0x350328), landings (0x3FA7B8) | `sim_sound_state.*`, `car_sound.*`, the recorder in `sim/collide.cpp` | Gran Turismo 4's, from the session's records; not built: a stepless gearbox's and a motor's whine (0x369510, 0x356D88), the heartbeat, contacts with the course's objects (kind 2, 0x3E3C48) |
-| A race heard without its session (a replay, a saved run) | `sound_state(race::CarState)` | judged from what the seam keeps: the quietest throttle 3/8 (torques 1 : 0.6), the skid's pitch from the slip, the rim's speed from the car's, a landing at the downward speed / 5, a contact as twice the step's summed strength; the program replays its cars' records ❓ |
+| The levels (0x350080), wind (0x34FA90), cabin (0x34FBC0), whine (0x34FED0, 0x350DA0; a one-speed box's 0x369510, layout 7's motors' 0x356D88), afterfire (0x3F3368, 0x3F3278), the hit sound's recorder (0x350328), landings (0x3FA7B8), the heartbeat (0x355868, 0x355950) | `sim_sound_state.*`, `car_sound.*`, the recorder in `sim/collide.cpp` | Gran Turismo 4's, from the session's records; the heartbeat's phase kept by `CarSound` (the program keeps it in the car record, car + 0x788) |
+| Contacts with the course's cones and boards (kind 2, 0x3E3C48 → 0x350530) | `race/gadget_bodies.*` (the impulse), the Drive screen's license judge → `RaceSound::contact` | Gran Turismo 4's: heard only while the rule block's +0x46 (the cones a test counts) is not 0 (0x35DF00) |
+| The run's replay | `RaceSound` keeps each step's `CarSoundState` from the session and plays them again | Gran Turismo 4's inputs as the live run had them (the program runs its replay through the step again from the pad records, so its sound is the step's) |
+| A saved run played back (no session, no recording) | `sound_state(race::CarState)` | judged from what the seam keeps: the quietest throttle 3/8 (torques 1 : 0.6), the skid's pitch from the slip, the rim's speed from the car's, a landing at the downward speed / 5, a contact as twice the step's summed strength |
 | The course's ambience (0x398B70, the emitters 0x457918) | `course_sound.*` | Gran Turismo 4's, the `CRSS` section read by the shared reader (the same layout); the slots a course allows (0x3922B0) are not applied, as a wheel's notes follow the surface under it |
 | The count, the music's messages, the play list (0x39DA80, 0x389758, 0x438170) | `race_sound.*`, `race_playlist.*` | Gran Turismo 4's |
-| The menus' sound object (`menu::MSound`) | `menu_sound.*` | Gran Turismo 4's; Prologue's music level ❓ (1.0 in its saved states) |
+| The menus' sound object (`menu::MSound`) | `menu_sound.*` | Gran Turismo 4's; Prologue's music at its own level 1.0 (its level setter 0x421AB8 has no caller) |
 | Streams (`.ads`): reading, decoding, playing | the shared `gt3r::AudioEngine` stream player | the IOP's stream module (not in `CORE.GT4`), at the program's levels (the SPU2's registers in the saved states); the original plays a stream on two SPU2 voices with the SPU2's interpolation, ours resamples it apart from the voices |
-| Pit sounds (`wheelgun`, `dropnut`, ...) | | not played |
+| Pit sounds | `RaceSound::pit_effect`; the Drive world takes the stop's bit 0x200 | `jackdown` as Gran Turismo 4's pit scene plays it (0x35BE38, for the car shown 🔎); the crew's (`wheelgun`, `dropnut`, `droptire`, `jackup`: their motions' channels), `oiltank` and the held `refueling` not played: the pit crews and their scene (0x3CFA98, 0x3D03E0) are not built |
 
 ## What is on the discs (`gt4tool sound <disc> survey`)
 
@@ -75,7 +77,7 @@ The magic and the first 0x20 bytes are Gran Turismo 3's; the tables are new.
 |---|---|---|
 | 0 | programs | music banks, `gt4race.ins`, `gt4race2.ins` |
 | 1 | velocity map: 2 bytes, then the played velocity for each of the 128 written ones (the identity in every bank) | all |
-| 2 | ❓ 64 bytes; the driver's lookup of an lfo wave reads it as `u16 last, u16 offset[]` to waves of 60 steps, and the one offset points past the header | music banks |
+| 2 | the lfo waves: the driver's lookup of an lfo wave reads it as `u16 last, u16 offset[]` to waves of 60 steps (the one offset points past the header); its only reader, and what it gives a music voice is replaced by the channel's bend before the pitch is made (below, "lfo"): it is never heard | music banks |
 | 3 | effect sequences | `gt4sys`, `gt4count`, `gt4pod`, `gt4shutter*` |
 | 4 | ❓ a 16-byte head (`u8 100`, then 0) and 24 records of 16 bytes numbered 0 to 23 (`u8 0, u8 n, u8 0, u8 100, u8 0x40, 7 × 0, u8 4, u8 0, u8 100, u8 0`): 🔎 a default for each of 24 channels or voices (a volume 100, the center pan, 4, 100). The same bytes in every effect bank of both discs (`gt4sys`, `gt4count`, Prologue's `gt4pod` too), whatever their sequences; no reader found in `CORE.GT4`, and the effects' levels match the original without it | the same |
 | 5 | effect programs | the same |
@@ -548,8 +550,16 @@ sides' crossfaded levels).
   and the driveline block's ratios (P + 0x234 + 0x40 + 4 gear), none while the clutch (F +0x522) is
   open; pitch p[4] / 10 + slope × |the driven axles' speed| (0x350DA0: by the layout, F +0x52C the
   front's, +0x530 the rear's, their mean, or the rear's plus the split × the difference), all read by
-  `sound_state(session, i)` from Gran Turismo 4's drive routines; a stepless gearbox (0x369510) and
-  a motor (0x356D88) have their own ❓); in_car G7 at the
+  `sound_state(session, i)` from Gran Turismo 4's drive routines. 0x34FED0 first asks the car's draw mode
+  (0x366678: 3 for a car in the race, F +0x441 0; a ghost has no whine), then two drives make their own, whatever
+  the gearbox's grade and the clutch: **layout 7's motors** (P + 0x234 byte 0 = 7, 0x355D48: the Acura DN-X;
+  0x356D88): pitch 0.4 + 0.012 × the front wheels' mean |rim speed| (wheels 0 and 1, +0x20), level the motors'
+  output (F +0x51C) / 4, its sign kept; **a one-speed box** (the gearbox's kind, P + 0x234 + 0x12, = 3, 0x368398:
+  the Toyota Priuses; 0x369510): only while the brake pedal (F +0x48C) and the clutch's request (F +0x514) are
+  both not 0, pitch 0.3 + 0.012 × |the mean rim speed| of the driven group's two wheels (the layout row's +0x0C +
+  P + 0x237 and its partner +0x24 + w), level 0.2 × their brake pressures (+0x64) summed; else pitch 1, level 0.
+  Rendered (`CarSoundState::whine_given`): the DN-X at 56 km/h pitch 0.59, level 0.30; a Prius braking up to
+  0.37); in_car G7 at the
   body; nos 1 for the in-car own view while flowing; body_noiz always 0. in_car, body_noiz and
   nos ease: rising at once, falling 0.05 a step.
 - **The wheels** (wheel record car + 0x164 + 0xEC w: +0x89 surface, +0xB4 slip intensity,
@@ -579,7 +589,10 @@ sides' crossfaded levels).
   (0x45E288, 0x45E768) pass kind 0 with the contact's impulse |j| (N s), after adding |j| / 100000
   to the body's strength (+0x448); the car-against-car routine 0x45F340 adds |j| / 15000 to both
   bodies' strength and passes that same number, kind 1, for each of the two cars; 0x3E3C48 passes
-  kind 2 for a course object (the course's objects at [0x6D6054]). So the sound's strength is
+  kind 2 for a course object (the course's objects at [0x6D6054]): the impulse 0x3E3ED0 gives the cone or board
+  (`race::GadgetBodies::impulses`), recorded only while 0x35DF00 (the race's rule block +0x46, the cones a license
+  test counts) is not 0, so a cone is silent in a race and in a test that fails at the first cone, and heard
+  (`clash4`) in one that counts them. So the sound's strength is
   twice what the contact adds to the body's strength, against a wall and a car alike.
   The race step (0x34DB30) clears the recorder (0x350308, kinds 0 and 1) before the collision
   step; the sound frame reads it (0x350468; a kind 2 is cleared there). Built in the collision step
@@ -606,7 +619,14 @@ sides' crossfaded levels).
   (P +0x230, the boost's cap, over 0), a pair of powers × 10 PS: under the first 0, from it 0.25
   rising to 0.75 at the second and above. US 1.01: kind 0 500..1000 PS (with a boost 250..500), 1
   200..400 (150..400), 2 200..400 (150..400), 3 100..400 (100..400). The Ka and the Tsukuba
-  session's two stock cars: 0; heartbeat (P[0x32] = 3) ❓ not played.
+  session's two stock cars: 0. **The heartbeat** (single note 10, `heartbeat`, frame +0x2C8, at the body; 0x355950 gives it
+  in the car's own in-car view only, for a car of category 3, P + 0x32: the Nike One): 0x355868 in the race step (0x34DB30)
+  adds (0.8 + 2.2 x) / 60 to a phase (car + 0x788) each step, x = |the speed along the body| (F + 0x53C) / 66.67 m/s at most
+  1; when the phase reaches 1 it loses 1 and car + 0x78C is 0.6 + 0.4 x for that step (else 0): a beat, 48 a minute
+  standing and 180 from 240 km/h, at that strength (no view gain: 0x392EB8 takes it as it is, times the body's place).
+  The other single notes: 0 `b_off`, 1..3 `clash` / `clash2` / `clash4` (by the contact's kind), 4..6 `clash10` .. `clash12`
+  (always 0), 7 `on_bound`, 8 / 9 `backfire` / `backfire2`; the table at 0x621418 pairs each with its place (0 the
+  engine's, 1 the body's, 2 the exhaust's).
 - 🔎 The frame's reverb flag (+4) is never written: the voices send to the reverb.
 
 ### The course (0x398B70)
@@ -671,7 +691,15 @@ Measured on Tsukuba: four crowd emitters and no others; the crowds at 1 × M.
   game (0x4363A0) has every flag on and 115; so do the original's saved states, the record at
   0x9A6290 and its copies). Menu effects in a race: menu_se / 128 × sdvol level 3.
   `audio::race_sound_options` reads them from the game state's options.
-- Pit sounds (`wheelgun`, `dropnut`, ... through 0x393428 and 0x3934A0 from 0x3D0230..) ❓ not played.
+- **Pit sounds** (0x393428: an effect of the index by its number in the name table 0x623A78, key 0x40, at the
+  master's level × the given level, pitch 1; 0x3934A0 the same held, by a handle): the pit scene 0x3CFA98 for each car's
+  box, for the car it shows (the scene's +0x10000 - 0x6988 🔎): `wheelgun` (67), `dropnut` (63), `droptire` (64) and
+  `jackup` (66) when the crew's motion channels `wheel_gun`, `wheel_nut`, `tire_sound2` and `jack_up` (0x429740, between
+  the last frame and this one) are above 0; `jackdown` (65, at 1) when the stop's service has its bit 0x200 (the tires on,
+  set at the stop's 59th step from the end): 0x35BE38 clears it as it plays (so the original's B-spec stop reads it 0 ten
+  steps later); `oiltank` (69) at a crew state change (0x3CC960: state 4); `refueling` (70) held while any of the scene's
+  six hoses (+0x98B8) runs (0x3D3358). Built: `jackdown`, for the camera's car. The crews, their motions and the hoses
+  are not built, so the others are not played.
 
 ### Prologue
 
@@ -692,13 +720,13 @@ the Doppler constant at 0x378B88) but other tables:
   setup (RaceBase virtual 22, 0x37BB08, and 0x37D794) sets the second to 1.0. Both read 1.0 in the
   original's saved states of a race and of the pre-race page. `RaceSoundTables::option_level` is
   false for this program and `RaceSound` takes the option as 1 or 0.
-- **Its music's level** is 1.0 in both its saved states (the level 0x421AB8 keeps at [0x50587C]: a
+- **Its music's level** stays 1.0: the level 0x421AB8 sets is never called (no caller, no pointer to it in the
+  program), so [0x50587C] keeps the image's 1.0 and a piece plays at the script's volume × 1.0 (0x421800). It reads 1.0 in both its saved states (the level 0x421AB8 keeps at [0x50587C]: a
   sequence through 0x421238, the driver's music master × 16383, a stream through 0x4225B0): the
   driver's music master is 16383 and on the starting grid page the stream's two voices play at
   16383, where Gran Turismo 4's carry the options' 115 / 128 (its recording's arcade pages at
-  -11.6 dB agree: our options sequence at 1.0 renders at -12.7 dB). Ours: the menus give
-  `MenuSound` the options' 115 / 128 for Prologue too ❓ (who calls 0x421AB8 with what, and whether
-  Prologue's options only switch it, is not found).
+  -11.6 dB agree: our options sequence at 1.0 renders at -12.7 dB). Ours: the menus give `MenuSound` 1.0 on
+  Prologue's disc.
 - **Its car sounds** are read as Gran Turismo 4's from its database presented in Gran Turismo 4's
   layout ([prologue.md](prologue.md)): every engine's file is on the disc.
 
@@ -751,10 +779,46 @@ memory matched against the disc's `.ads` by their data; levels × 16383):
 | License B-1: the count, the result | `gt4jg-19`, `gt4jg-09` (`license_bronze`) | 4915: a race's other pieces at the stream level 0.3 alone (RaceBGMPS2 vf5, 0x33D568: only code 12 takes the option) |
 | Prologue's starting grid page | `str10j` | 16383 |
 
+**A menu stream's level** (0x4608C8, kind -2, 0x460220 → 0x45FFF8 → 0x45FFC0): the script's volume × `sdvol` level 0 (0.3),
+no option; `option.menu_bgm_volume` (0x180AA8) is the raw option / 128, so the pages that pass it play at 0.3 × 115 / 128,
+4416. Kind -1 (0x461978 → 0x461808 → 0x4616E8, which 0x461C28 marks 2) starts a *sequence*, with level 1 (0.48) and the
+menu music option through 0x461620. `startStream` without a volume is taken as 1 ❓.
+
 So the pre-race and result pages' music is `default_quick`'s (two pieces), started as a menu stream
 (the menus' level), not by the race; Route 5 at night plays `race_68`.
 
-❓ Not compared yet: the course ambience (crowds, tunnels: Route 5's recording has no racing piece
-the play list explains), the wheels' notes (no clean recording of a slide), Grand Canyon's dirt
-sounds, Seattle.
+**Four cars at Tsukuba** (`reference/25-sound-cars`: Time Trial, AT, the car stopped, four seconds' idle,
+then full throttle through the gears; ours `gt4tool sound <disc> session-wav <car> <out> "hold:0.5,full:2.5,brake:3,
+idle:4,full:6" incar|chase tsukuba [only=cars]`: the session driving the car, the race's mix, each launch laid on
+the recording's by the level over time (shift dips within 0.1 s), then compared second by second, 60 Hz .. 4 kHz):
+
+| Car, view (station) | Level, ours / the original (dB, each second of the launch) | Pitch | Shape |
+|---|---|---|---|
+| Mazda RX-8 '03, bonnet (back straight) | -23.5/-24.1, -22.3/-21.4, -19.1/-19.0, -22.0/-22.4, -21.4/-21.8 | 0, -1, 0, -9 cents (-107 the first) | 0.89 .. 0.99 |
+| Ford Mustang GT '05, bonnet (back straight) | -21.2/-20.7, -19.8/-18.9, -19.1/-18.6, -22.8/-23.7, -20.0/-20.3; octaves 81 Hz .. 5 kHz within 0.5 .. 2 dB | -7 .. +8 cents | 0.86 .. 0.94 |
+| Nissan R390 GT1 '98, bonnet (back straight) | -17.7/-17.0, -17.0/-15.3, -16.3/-17.1, -15.1/-16.3, -12.4/-15.4 (the original lifts at 5 s) | -4, +8 cents in 1st | 0.88 in 1st |
+| Mustang, chase (main straight, at the grandstand) | four seconds -21.7 / -21.1; octaves 322 Hz .. 5 kHz within 0.6 dB, 81 .. 161 Hz 2 .. 4 dB under | | |
+| RX-8, chase (the same) | -21.8 / -20.2 | | |
+
+The bonnet views' sides correlate as the original's (-0.6 .. -0.7: the exhaust behind the camera on the surround
+cue's inverted side). The chase launches pass the grandstand: the crowds there (Tsukuba's first emitter, gated
+2,081 .. 94 m) bring the highs (without them ours is 5 .. 7 dB under above 2 kHz); (our tool's chase camera stands 6 m behind, 1.5 m up 🔎).
+The table leaves out what does not agree: the R390's bonnet launch is +41, -37 and +100 cents and 3 dB over in its
+third to fifth seconds (the shapes match 0.77, 0.58, 0.91 there; laid on at 114.0 instead of 113.8 s the three gears
+are -2, -11 and +6 cents, shapes 0.93, 0.88, 0.95: the fit of the two launches decides it); the chase launches' pitch
+ratios (from -888 to +248 cents, shapes 0.42 .. 0.86) do not settle anything ❓; the Ka's launches (its car held near
+17 mph in first gear, on the road, the warning lamp lit) do not follow ours: at 4,900 rpm from the bonnet ours is
++1 cent off the stretch at 48.5 s, but 3 dB under it, the shapes matching only 0.56, and no rev fits the stretch at
+46.5 s ❓. 🔎 What is under in the chase launches'
+lows (81 .. 161 Hz, 2 .. 4 dB): the pictures show the cars by the curb; not checked.
+**Idle** ❓: the R390's recording has more than ours in 322 .. 645 Hz (7 to 15 dB by octave; 5 dB in the first reading) and its sides correlate -0.36 where ours do
+-0.97, so something besides the inverted exhaust sounds there (an engine level over 0, or other revs: its tach reads
+about 1,000 by eye, the car at 1 mph); ours stands at 800 rpm with the clutch open, the engine's level 0 as in the
+original's Grand Canyon start (that saved state: clutch 0, engine 0, exhaust 5). Whose rule differs is not found.
+**Prologue's 240ZG** (`14-prologue/round4`, the chase view: its sides correlate +0.98 as ours): at idle its two
+strongest notes 65 and 94 Hz in both, the same balance (right 1.5 dB under); the launch's level is not settled, the
+recording carrying the race's music.
+
+❓ Not compared yet: tunnels (Route 5's recording has no racing piece the play list explains), the wheels' notes (no
+clean recording of a slide), Grand Canyon's dirt sounds, Seattle.
 

@@ -52,6 +52,8 @@ public:
     unsigned step(const Gadgets& g, const course::Runway& road, std::span<const Car> cars, float dt);
     // The last step's contacts per car (each a report of kind 2 to the car, 0x3E3C48 -> 0x350530).
     const std::vector<int>& contacts() const { return contacts_; }
+    // And per car the strongest of the step's contacts' impulses |j| (what 0x3E3C48 reports with each).
+    const std::vector<float>& impulses() const { return impulses_; }
     const std::vector<Body>& bodies() const { return bodies_; }
     // A body has moved from its place (the scene draws it where it is).
     bool moved() const { return moved_; }
@@ -61,6 +63,7 @@ private:
     void place(Body& b, const Gadgets::Kind& k, const course::Runway* road) const;
     std::vector<Body> bodies_;
     std::vector<int> contacts_;
+    std::vector<float> impulses_;
     bool moved_ = false;
 };
 

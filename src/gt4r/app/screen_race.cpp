@@ -428,6 +428,7 @@ public:
         board_.begin(world_->car_count(), 0, lap_words_[0], lap_words_[1]);
         camera_.reset(world_->cars()[0]);
         history_.clear(), run_dist_.clear();
+        if (audio::RaceSound* sound = world_->sound()) sound->forget_recording();
         split_prev_.clear(), split_first_.clear(), split_steps_ = -1;
         distance_ = 0;
         replaying_ = false, over_ = false;
@@ -459,6 +460,7 @@ public:
     }
     void play_saved(race::ReplayFile&& f) {
         history_ = std::move(f.steps);
+        if (audio::RaceSound* sound = world_->sound()) sound->forget_recording(); // (a saved run: heard from its states)
         for (std::vector<race::CarState>& s : history_) s.resize(world_->car_count());
         ran_ = true;
         // (The replay's music: the play list's next piece, as a race's first.)
@@ -951,6 +953,10 @@ public:
             s.wall_hit = mass > 0 ? c.contact * 100000.0f / mass : 1e9f;
         } else if (c.contact > 0 && c.contact_kind == 2) s.car_hit = c.contact;
         s.cones = world_->gadget_contacts(0);
+        // A cone's contact is heard (kind 2, clash4) only while the test counts cones knocked down (the
+        // rule block's +0x46 not 0: 0x350328 asks 0x35DF00).
+        if (r.pylons > 0 && s.cones > 0)
+            if (audio::RaceSound* sound = world_->sound()) sound->contact(0, 2, world_->gadget_impulse(0));
         if (judge_.step(s) != race::LicenseFail::None) {
             LOG_INFO("Drive: the test failed (kind %d: wall %.2f, car %.2f, cones %d, wheels off %d, pit %d) at %.3f s", int(judge_.fail()), double(s.wall_hit),
                      double(s.car_hit), s.cones, s.wheels_off, s.wheels_pit, double(flow_.time_ms()) / 1000);
