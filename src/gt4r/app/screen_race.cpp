@@ -409,6 +409,8 @@ public:
         // B-spec: the pace "Steady", the low view from the car's nose (as the original's B-spec race
         // opens), the help strip shown.
         bspec_pace_ = 3, overtake_steps_ = 0, bspec_help_ = true, focus_ = 0;
+        if (before_tv_ && mount_ == kTvView) mount_ = *before_tv_; // (the results page's cameras, back to the player's view)
+        before_tv_.reset();
         if (watched) mount_ = race::DriveCamera::kInCar;
         menu_scene_ = false;
         race::FlowSetup fs;
@@ -864,7 +866,9 @@ public:
     // The course's TV cameras (a license test's results page shows the car from the trackside ❓ which
     // of the program's cameras is not read).
     void tv_view() {
-        if (!replay_script_.records.empty()) mount_ = kTvView;
+        if (replay_script_.records.empty() || mount_ == kTvView) return;
+        before_tv_ = mount_;
+        mount_ = kTvView;
     }
 
     void render(Ui& ui, const SDL_FRect& rect, bool look_back) {
@@ -1204,6 +1208,7 @@ private:
     int split_steps_ = -1, split_index_ = 0;
     s64 split_ms_ = 0, split_gap_ms_ = 0;
     int mount_ = race::DriveCamera::kChase;
+    std::optional<int> before_tv_; // the view before tv_view
 };
 
 class RaceScreen : public Screen {
