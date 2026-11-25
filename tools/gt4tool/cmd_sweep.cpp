@@ -11,7 +11,7 @@
 //       course's computer driver for [seconds]. Columns: index, label, name, build ms, run ms, metres covered, top km/h,
 //       0-100 km/h s, stuck s, wall hits, spins, off-road, laps, flags, where the spins began, error.
 //
-//   gt4tool sweep <disc> pad [course,course..] [car=nsx_r_02] [cars=4] [laps=2] [line=1]
+//   gt4tool sweep <disc> pad [course,course..] [car=nsx_r_02] [cars=4] [laps=2] [line=1] [kind=2]
 //       the player's car driven through the pad's path (an analog stick, throttle and brake: steering to the road's
 //       middle, easing and braking for bends; with the manual gearbox, shifting up 300 rpm under the rev limit and
 //       down under 55 % of the power's speed) against computer drivers, in each gearbox (AT, MT) with the aids on
@@ -42,6 +42,7 @@
 #include "gt4r/sim/line_driver.h"
 #include "gt4r/sim/program.h"
 #include "gt4r/sim/race_rules.h"
+#include "gt4r/sim/rules_input.h"
 #include "gt4r/sim/session.h"
 
 #include <algorithm>
@@ -330,6 +331,7 @@ int sweep_pad(Disc& disc, const Args& a) {
     const std::string car = option_str(a, "car", "nsx_r_02");
     const int ncars = std::clamp(int(option(a, "cars", 4)), 1, 16);
     const int laps = std::max(1, int(option(a, "laps", 2)));
+    const int kind = int(option(a, "kind", 2)); // the controller's: 2 a stick, 3 the direction buttons by their pressure, 0 digital
     const bool line = option(a, "line", 1) != 0; // 0: no line heading, the active steering off
     const std::vector<std::string> field_labels = {"integra_r_98", "civic_r_98", "s2000_a_99", "rx7_r_eu_93", "supra_rz_97", "lancer_evo8_gsr_03"};
     db::SpecDb db = sim::ai::open_specdb(disc);
@@ -387,6 +389,15 @@ int sweep_pad(Disc& disc, const Args& a) {
                             else if (me.engine_rpm < 0.55f * float(fig.power_rpm) && me.gear > 1) p.shift_down = true, hold_shift = 20, ++shifts;
                         }
                         --hold_shift;
+                        // The controller's frame (docs/specs/input.md): the steering and the pedals as axes, or digital.
+                        sim::rules::PadFrame frame;
+                        race::PadRecord record;
+                        frame.kind = u8(kind), frame.flags = kind == 0 ? 2 | 4 : 1 | 2 | 4;
+                        frame.steer = gt3r::s16(kind == 0 ? (p.steer > 0.15f ? -2 : p.steer < -0.15f ? 2 : 0) : std::lround(std::clamp(-p.steer, -1.0f, 1.0f) * 4096.0f));
+                        frame.throttle = u16(std::lround(std::clamp(p.throttle, 0.0f, 1.0f) * 4096.0f)), frame.brake = u16(std::lround(std::clamp(p.brake, 0.0f, 1.0f) * 4096.0f));
+                        frame.shift = gt3r::s8(p.shift_up ? 1 : p.shift_down ? -1 : 0);
+                        frame.to_bytes(record.bytes.data());
+                        p.pad = &record;
                         in[0] = p;
                         session.step_once(in);
                         const race::CarState& s = session.cars()[0];
