@@ -10,6 +10,9 @@
 #include "gt4r/menu/stage_motion.h"
 #include "gt4r/formats/db/specdb.h"
 #include "gt4r/race/car_spec.h"
+#include "gt4r/sim/equipment.h"
+#include "gt4r/sim/program.h"
+#include "gt4r/sim/showroom.h"
 #include "render/gpu_context.h"
 
 #include <chrono>
@@ -35,7 +38,8 @@ Vec3 apply(const Mat4& m, const Vec3& v, float w) {
 
 // The car standing in the model's frame `model`: its axes and its wheels at rest, so that the
 // body is drawn with its origin (the middle of the wheelbase on its underside) at the frame's.
-race::CarState rest_state(const Mat4& model, const race::CarSpec& spec) {
+// `hang`: how far each axle's wheels hang below the body (the jack's lift).
+race::CarState rest_state(const Mat4& model, const race::CarSpec& spec, const std::array<float, 2>& hang = {0, 0}) {
     race::CarState s;
     s.position = cv(apply(model, {0, 0, 0}, 1));
     s.right = cv(render::normalize(apply(model, {1, 0, 0}, 0)));
@@ -45,7 +49,7 @@ race::CarState rest_state(const Mat4& model, const race::CarSpec& spec) {
         const int axle = w / 2;
         const float x = (w & 1) ? spec.half_track[axle] : -spec.half_track[axle];
         const float z = axle == 0 ? -spec.wheelbase / 2 : spec.wheelbase / 2;
-        s.wheels[w].center = cv(apply(model, {x, spec.tire_radius[axle] - spec.ride_height[axle], z}, 1));
+        s.wheels[w].center = cv(apply(model, {x, spec.tire_radius[axle] - spec.ride_height[axle] - hang[size_t(axle)], z}, 1));
     }
     return s;
 }
@@ -244,6 +248,30 @@ const menu::SkeletonMotion* MenuCars::skeleton_motion(menu::Project* project, co
     return it->second.get();
 }
 
+struct MenuCars::Sim {
+    sim::Program program;
+    sim::Showroom showroom;
+    Sim(db::SpecDb& db, Disc& disc) : program(sim::Program::load(disc)), showroom(db, program) {}
+};
+
+std::array<float, 2> MenuCars::wheel_droop(const std::string& code) {
+    auto [it, fresh] = droops_.try_emplace(code, std::array<float, 2>{0, 0});
+    if (!fresh) return it->second;
+    try {
+        db::SpecDb* db = app_.db();
+        if (!db || !app_.disc()) return it->second;
+        if (!sim_) sim_ = std::make_unique<Sim>(*db, *app_.disc());
+        sim::Equipment eq;
+        if (!sim::stock_equipment(*db, code, eq)) return it->second;
+        if (const auto d = sim_->showroom.droop(eq))
+            for (size_t a = 0; a < 2; ++a) it->second[a] = std::max((*d)[a].host(), 0.0f);
+    } catch (const std::exception& e) {
+        LOG_WARN("Menu car %s: wheel droop: %s", code.c_str(), e.what());
+    }
+    LOG_INFO("Menu car %s: wheels hang %.3f / %.3f m on the jack", code.c_str(), double(it->second[0]), double(it->second[1]));
+    return it->second;
+}
+
 std::array<float, 2> MenuCars::body_length(const std::string& code, const race::CarSpec& spec) {
     auto [it, fresh] = body_lengths_.try_emplace(code, std::array<float, 2>{spec.wheelbase / 2 + 0.9f, spec.wheelbase / 2 + 0.9f});
     if (!fresh) return it->second;
@@ -429,9 +457,15 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
     // The model's origin is on the body's underside: the tires stand on y = 0 with the body
     // raised by its ride height (❓ judged from the pictures: the program's ShowRoomCar is not read).
     const float ride = (c->spec.ride_height[0] + c->spec.ride_height[1]) / 2;
-    // ❓ On a jack (`lift`) the whole car is raised; the program lets each wheel hang by the
-    // smaller of its travel and the lift (0x1569A0, not read).
-    const race::CarState state = rest_state(placed * render::translate({0, ride + lift, 0}), c->spec);
+    // On a jack (`lift`) the body is raised and each wheel hangs below it by the smaller of the lift
+    // and its axle's travel (0x156950; the showroom car's suspension, 0x364B30): the wheels stay on
+    // the ground until the lift exceeds their travel.
+    std::array<float, 2> hang{0, 0};
+    if (lift > 0) {
+        const std::array<float, 2> travel = wheel_droop(s.car_code);
+        for (size_t a = 0; a < 2; ++a) hang[a] = std::clamp(travel[a], 0.0f, lift);
+    }
+    const race::CarState state = rest_state(placed * render::translate({0, ride + lift, 0}), c->spec, hang);
 
     render::DrawOptions o;
     for (float& k : o.clear) k = 0;

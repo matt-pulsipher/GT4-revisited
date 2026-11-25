@@ -3,8 +3,14 @@
 #include "test_framework.h"
 
 #include "gt4r/formats/model/mdls_skin.h"
+#include "gt4r/sim/ai/run.h"
+#include "gt4r/sim/equipment.h"
+#include "gt4r/sim/program.h"
+#include "gt4r/sim/showroom.h"
 
 #include <cmath>
+#include <cstdio>
+#include <memory>
 
 using namespace gt4r;
 namespace render = gt3r::render;
@@ -51,4 +57,25 @@ TEST(menu_skin_blend_two_bones) {
     far.bones = {0, 9, 0, 0};
     mdls::blend(far, pal, p, n);
     CHECK(std::fabs(p[1] + 0.2f) < 1e-5f);
+}
+
+// How far a car's wheels hang on the oil change's jack: each axle's remaining travel from where the car sits
+// (0x364B30), a few centimetres; the same for the same car again.
+TEST(disc_menu_wheel_droop) {
+    Disc* disc = nullptr;
+    for (const std::unique_ptr<Disc>& d : test::discs())
+        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d.get();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    db::SpecDb sdb = sim::ai::open_specdb(*disc);
+    const sim::Program program = sim::Program::load(*disc);
+    const sim::Showroom sr(sdb, program);
+    for (const char* label : {"panda_super_ie_90", "ka_01", "skyline_gtr_r34_vspec2_nur_02"}) {
+        sim::Equipment eq;
+        if (!sim::stock_equipment(sdb, label, eq)) continue;
+        const auto d = sr.droop(eq);
+        CHECK(d.has_value());
+        if (!d) continue;
+        std::printf("  %s: front %.3f rear %.3f m\n", label, double((*d)[0].host()), double((*d)[1].host()));
+        CHECK((*d)[0].host() > 0 && (*d)[0].host() < 0.2f && (*d)[1].host() > 0 && (*d)[1].host() < 0.2f);
+    }
 }
