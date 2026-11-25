@@ -82,21 +82,6 @@ void keep_pace_in_background() {
 #endif
 }
 
-// The events a scripted run takes from the system: none of the keyboard's, the mouse's, a touch screen's, a pen's, a controller's
-// or the clipboard's, nothing dropped, no change of focus.
-bool SDLCALL not_real_input(void*, SDL_Event* e) {
-    switch (e->type) {
-    case SDL_EVENT_WINDOW_MOUSE_ENTER:
-    case SDL_EVENT_WINDOW_MOUSE_LEAVE:
-    case SDL_EVENT_WINDOW_FOCUS_GAINED:
-    case SDL_EVENT_WINDOW_FOCUS_LOST: return false;
-    default: break;
-    }
-    const auto in = [e](Uint32 first, Uint32 last) { return e->type >= first && e->type <= last; };
-    return !in(SDL_EVENT_KEY_DOWN, SDL_EVENT_CLIPBOARD_UPDATE) && !in(SDL_EVENT_DROP_FILE, SDL_EVENT_DROP_POSITION) &&
-           !in(SDL_EVENT_PEN_PROXIMITY_IN, SDL_EVENT_PEN_AXIS);
-}
-
 } // namespace
 
 double App::resident_mb() { return double(resident_bytes()) / (1024.0 * 1024.0); }
@@ -151,7 +136,7 @@ bool App::init(int argc, char** argv) {
         return false;
     }
     scripted_ = run_.scripted;
-    if (scripted_) SDL_SetEventFilter(not_real_input, nullptr);
+    if (scripted_) SDL_SetEventFilter([](void*, SDL_Event* e) { return !settings::is_real_input(e->type); }, nullptr);
     data_dir_ = user_data_dir();
     SDL_CreateDirectory(data_dir_.c_str());
     SDL_CreateDirectory(mods_dir().c_str());

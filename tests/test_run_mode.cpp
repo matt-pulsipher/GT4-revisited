@@ -63,3 +63,15 @@ TEST(run_mode_pace) {
     CHECK(mode({"--pace", "30"}).pace == 0); // (a window's run: the display's)
     CHECK(mode({"--pace", "30", "--headless"}).pace == 30);
 }
+
+// What a scripted run does not take from the system, and what it does.
+TEST(run_mode_real_input) {
+    using gt4r::settings::is_real_input;
+    for (Uint32 type : {SDL_EVENT_KEY_DOWN, SDL_EVENT_KEY_UP, SDL_EVENT_TEXT_INPUT, SDL_EVENT_MOUSE_MOTION, SDL_EVENT_MOUSE_BUTTON_DOWN, SDL_EVENT_MOUSE_WHEEL,
+                        SDL_EVENT_JOYSTICK_AXIS_MOTION, SDL_EVENT_GAMEPAD_BUTTON_DOWN, SDL_EVENT_GAMEPAD_ADDED, SDL_EVENT_FINGER_DOWN, SDL_EVENT_DROP_FILE,
+                        SDL_EVENT_PEN_DOWN, SDL_EVENT_WINDOW_FOCUS_LOST})
+        CHECK(is_real_input(type));
+    for (Uint32 type : {SDL_EVENT_QUIT, SDL_EVENT_WINDOW_RESIZED, SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED, SDL_EVENT_WINDOW_DISPLAY_CHANGED, SDL_EVENT_AUDIO_DEVICE_ADDED,
+                        SDL_EVENT_RENDER_TARGETS_RESET, SDL_EVENT_USER})
+        CHECK(!is_real_input(type));
+}

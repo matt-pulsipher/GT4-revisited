@@ -255,8 +255,7 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
   nothing: no window, no Dock icon, nothing to take the focus; they play no sound (`SDL_AUDIODRIVER` names another
   driver), leave the display to sleep, and read no key, mouse, touch, pen or controller but the script's (no controller is
   opened, so none rumbles). The pictures are the same as with the window. They draw with the same GPU into the same
-  size of picture, so they need a signed-in session with a GPU; nothing is presented, so neither the display nor its
-  rate holds them: `--shot` keeps its 60 frames a second, `--fast` and `--sweep` go as fast as the machine draws, and a
+  size of picture; nothing is presented, so neither the display nor its rate holds them: `--shot` keeps its 60 frames a second, `--fast` and `--sweep` go as fast as the machine draws, and a
   run that goes by the clock (`--keys` or `--stats` alone) is held to 60 (`--pace 120`, `--pace display`: the display's rate,
   `--pace off`). A run whose script has no end stays until it is ended (`quit` among the keys, SIGTERM).
 - `--visible` (`GT4R_VISIBLE=1`) shows a scripted run: a `--shot` or `--sweep` window is not made the active one, cannot

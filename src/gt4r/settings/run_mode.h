@@ -4,6 +4,8 @@
 // window, no Dock icon, no focus taken, none of the machine's real input read, no sound played. --visible (GT4R_VISIBLE=1) puts
 // its window on the screen, --headless (GT4R_HEADLESS=1) hides a run that would have shown one.
 
+#include <SDL3/SDL_events.h>
+
 #include <cstdlib>
 #include <functional>
 #include <string>
@@ -52,5 +54,20 @@ struct RunMode {
         return m;
     }
 };
+
+// The events a scripted run does not take from the system: the keyboard's, the mouse's, a touch screen's, a pen's, a controller's, the
+// clipboard's, what is dropped on the window, a change of focus.
+inline bool is_real_input(Uint32 type) {
+    switch (type) {
+    case SDL_EVENT_WINDOW_MOUSE_ENTER:
+    case SDL_EVENT_WINDOW_MOUSE_LEAVE:
+    case SDL_EVENT_WINDOW_FOCUS_GAINED:
+    case SDL_EVENT_WINDOW_FOCUS_LOST: return true;
+    default: break;
+    }
+    const auto in = [type](Uint32 first, Uint32 last) { return type >= first && type <= last; };
+    return in(SDL_EVENT_KEY_DOWN, SDL_EVENT_CLIPBOARD_UPDATE) || in(SDL_EVENT_DROP_FILE, SDL_EVENT_DROP_POSITION) ||
+           in(SDL_EVENT_PEN_PROXIMITY_IN, SDL_EVENT_PEN_AXIS);
+}
 
 } // namespace gt4r::settings
