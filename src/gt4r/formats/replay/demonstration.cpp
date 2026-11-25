@@ -145,7 +145,7 @@ std::optional<ControlStream> read_stream(ByteSpan d, const std::array<s32, 8>& b
 
 } // namespace
 
-Bytes encode_stream(const std::vector<PadRecord>& frames, const std::optional<PadRecord>& last, const sim::Program&) {
+Bytes encode_stream(const std::vector<PadRecord>& frames, const std::optional<PadRecord>& last) {
     BitWriter w;
     PadRecord state;
     s32 prev = 0;
@@ -250,7 +250,7 @@ Bytes Demonstration::encode(const sim::Program& program) const {
     w32(b, kHeader, several ? u32(streams.size()) : 0);
     for (const ControlStream& s : streams) {
         if (several) b.insert(b.end(), s.state.begin(), s.state.end());
-        const Bytes bits = encode_stream(s.frames, s.last, program);
+        const Bytes bits = encode_stream(s.frames, s.last);
         b.insert(b.end(), bits.begin(), bits.end());
     }
     w32(b, 0, u32(b.size()));

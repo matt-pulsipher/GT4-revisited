@@ -103,7 +103,7 @@ struct Demonstration {
 };
 
 // A recorder's stream of records as the program's recorder writes it (0x346138 a step, 0x346498 its end): `frames` then `last`.
-Bytes encode_stream(const std::vector<PadRecord>& frames, const std::optional<PadRecord>& last, const sim::Program& program);
+Bytes encode_stream(const std::vector<PadRecord>& frames, const std::optional<PadRecord>& last);
 // A body enciphered (0x579F38); `key` takes its key (CRC-32's low 24 bits, the first byte on top).
 Bytes encipher_body(ByteSpan plain, u32& key, const sim::Program& program);
 
