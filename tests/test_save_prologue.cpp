@@ -77,6 +77,12 @@ TEST(disc_prologue_game_saved_and_loaded) {
         CHECK(units.size() == save::kPrologueLicenseUnits * save::kPrologueLicenseUnit && differ == 0);
         call(vm, lic, "recordResult", {Value::string("l0p0001"), Value::string("gold"), Value::integer(107500), Value::integer(100), Value::string("GTR")});
         call(vm, lic, "setDefaultName", {Value::string("GTR")});
+        // Back at the title after the test: its present (the script's present list: a passed test's car) shows first.
+        vm.member(vm.lookup("game"), "race_code")->set(vm, Value::string("l0p0001"));
+        f.rt->start_project("prologue");
+        f.rt->settle();
+        std::printf("  after the test: %s\n", f.page().c_str());
+        CHECK(f.page() == "PrizeRoot");
         // The title's Save: the memory card project's GameSave page, Yes.
         f.rt->game().next_menu_arg = "save_game";
         f.rt->start_project("memcard");
@@ -119,6 +125,10 @@ TEST(disc_prologue_game_saved_and_loaded) {
         CHECK(unit.p && call(vm, unit, "isCompletePassed", {}).truthy());
         CHECK(unit.p && call(vm, unit, "getBestTime", {Value::integer(0)}).as_string() == "1'47.500");
         CHECK(call(vm, lic, "getDefaultName", {}).as_string() == "GTR");
+        // The title: the loaded record's present counted as given (refreshPresent), the school's ring.
+        f.rt->start_project("prologue");
+        f.rt->settle();
+        CHECK(f.page() == "SchoolRoot");
         CHECK(f.clean());
     }
 }
