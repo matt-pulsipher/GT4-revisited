@@ -145,7 +145,14 @@ int whole_step(Disc& disc, const std::string& course, const std::string& car, in
         in.steer = p.steer, in.throttle = p.throttle, in.brake = p.brake;
         session->step_once({&in, 1});
         if (i < from) continue;
-        if (std::getenv("GT4R_SHOW_COLLIDE") && i < from + 5) {
+        if (std::getenv("GT4R_SHOW_COLLIDE") && i < from + 5 && session->prologue_collision()) {
+            const auto& b = session->prologue_collision()->body(0);
+            std::printf("    step %d collision: pos %.9g %.9g %.9g / %.9g %.9g %.9g  vel %.9g %.9g %.9g / %.9g %.9g %.9g  heading %.9g / %.9g  yaw %.9g / %.9g  hint %d wall %d\n", i + 1,
+                        double(at19.pos.x.host()), double(at19.pos.y.host()), double(at19.pos.z.host()), double(b.cx.host()), double(b.cy.host()),
+                        double(b.cz.host()), double(at19.vel.x.host()), double(at19.vel.y.host()), double(at19.vel.z.host()), double(b.cvx.host()),
+                        double(b.cvy.host()), double(b.cvz.host()), double(at19.heading.host()), double(b.ch.host()), double(at19.yaw_rate.host()),
+                        double(b.cw.host()), b.hint, int(b.wall_hit));
+        } else if (std::getenv("GT4R_SHOW_COLLIDE") && i < from + 5) {
             const sim::collide::Body& b = session->body(0);
             std::printf("    step %d collision: pos %.9g %.9g %.9g / %.9g %.9g %.9g  vel %.9g %.9g %.9g / %.9g %.9g %.9g  heading %.9g / %.9g  yaw %.9g / %.9g\n", i + 1,
                         double(at19.pos.x.host()), double(at19.pos.y.host()), double(at19.pos.z.host()), double(b.cx.host()), double(b.cy.host()),

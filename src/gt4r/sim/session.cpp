@@ -220,6 +220,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
         collide::build(bodies_[i], int(i), p.body_front, p.body_rear, p.body_width, p.mass, p.yaw_inertia);
     }
     collide::pair_tables(bodies_);
+    if (prologue_ && road_->gtrw) prologue_collide_ = std::make_unique<prologue::Collision>(*road_->gtrw, cars_); // (Prologue's: Gran Turismo 3's step)
     // The start's hold: the cars held as during a start's countdown until the engines idle and the
     // bodies have settled on their springs.
     for (int i = 0; i < kHoldSteps; ++i) hold_once({});
@@ -442,6 +443,14 @@ void Session::chassis(size_t i) {
 // The collision step (phase 13: 0x3F4B20, 0x45BB60, 0x3F4C18): every car's body moved through the step against the
 // road's walls and the other cars.
 void Session::collide() {
+    if (prologue_collide_) { // Prologue's (0x3B6FB8 with 0x41CA90)
+        prologue_collide_->step(cars_, prologue_contacts_);
+        for (size_t i = 0; i < cars_.size() && i < prologue_contacts_.size(); ++i) {
+            const prologue::Collision::Contact& k = prologue_contacts_[i];
+            extra_[i].contact = k.strength, extra_[i].contact_kind = k.kind, extra_[i].contact_car = k.car;
+        }
+        return;
+    }
     for (size_t i = 0; i < cars_.size(); ++i) { // 0x3F4B20
         collide::Body& b = bodies_[i];
         const ex::Car& c = cars_[i];
