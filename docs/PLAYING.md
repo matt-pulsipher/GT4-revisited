@@ -24,7 +24,7 @@ Prologue disc starts the same way.
 ## Controls
 
 In the menus a pad works as the console's (the Gran Turismo layout of a DualShock 2: Cross confirms,
-Triangle goes back). In races, unless you change it:
+Triangle and Square go back). In races, unless you change it:
 
 | | Pad | Keyboard | Steering wheel |
 |---|---|---|---|

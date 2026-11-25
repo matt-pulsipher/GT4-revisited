@@ -352,7 +352,7 @@ calls `onValueChanged(context, index)` at once (with `has_script`); ScaleBar que
 `onValueChanged(context, bar)` and `onStepChanged(context, bar)` (also at focus enter and a
 fresh press). The pinch slides after the value (0.4 a picture, 0.2 for the ScaleBar) between
 the display ends, in the popup while open, else in the bar. `incIndex` / `decIndex` move by
-their argument and send nothing. A ScaleBar's script name `popup` is whether it is open (its child of that name is `::popup`). A ScaleBar's key (0x238D10): in popup mode accept opens or
+their argument and send nothing. The pad's logical buttons (0x214AC0) come from a map not read: here Cross accepts, Triangle and Square cancel (the US pages' foot says "Square Return", the reference's driver went back with Triangle). A ScaleBar's script name `popup` is whether it is open (its child of that name is `::popup`). A ScaleBar's key (0x238D10): in popup mode accept opens or
 closes it and cancel closes it; a fresh press along it sets `repeat_start` to the value and tells the
 step; then its own script (`onKeyPress`) has the key, and only when that does not take it does the
 value move a step (and the value and step are told); closed in popup mode the key goes on. **ListBox** (mListBox, 0x2AEA98): its rows are items, not children (`setItemCount(n)`,
