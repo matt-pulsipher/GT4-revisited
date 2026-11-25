@@ -56,6 +56,7 @@ struct WorldEntry {
     int start_kind = 0; // a rolling start's kind (RaceFlow's; 0: 2 behind the line, 1 past it)
     float start_distance = std::numeric_limits<float>::quiet_NaN(); // a rolling start's place (sim::Entry::start_distance)
     std::optional<course::Runway::Place> place; // the car's own start place (a license test's road section: sim::Entry::place)
+    bool remote = false; // another player's car of an online race: posed from its owner's states (net/net_race.h), its driver plans only
 };
 
 struct WorldSetup {
@@ -293,6 +294,7 @@ public:
     const WorldSetup& setup() const { return setup_; }
     // The game's simulation (null: the stand-in runs).
     const sim::Session* session() const { return session_.get(); }
+    sim::Session* session() { return session_.get(); }
     // What the player chose for his own car and controls: the gearbox, the aids, the steering wheel's (its lock by the options'
     // AMATEUR .. SIMULATION: the entry's +0x344C, its active steering +0x3458, its force's strength and assist). True when the
     // cars must be set up anew for it (the next restart).

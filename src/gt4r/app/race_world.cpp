@@ -226,7 +226,7 @@ void RaceWorld::build_simulation() {
                 entries[i].automatic = we.automatic;
                 entries[i].asm_on = we.asm_on, entries[i].tcs_on = we.tcs_on, entries[i].wheel_aid = we.wheel_aid;
                 entries[i].driver = we.driver;
-                entries[i].control = i > 0 ? 2 : computer_player_ ? 1 : 0;
+                entries[i].control = i > 0 ? (we.remote ? 0 : 2) : computer_player_ ? 1 : 0;
                 // An event's race counts fuel (0x35E108 sets the rule block's +0x4C to 80; vf26 0x34CA20 clears it on a course
                 // whose row's +0x14 is 0, a loose course and in a run alone, 0x3F7058 a training's and a mission's); a run
                 // without laps (practice, a free run) runs on the free-run conductor, whose rule block holds 0 there (the
@@ -281,6 +281,8 @@ void RaceWorld::build_simulation() {
                         field_->set_bspec(0);
                         arm_bspec(program);
                     } else field_->set_shadow(0);
+                    for (size_t c = 1; c < setup_.entries.size(); ++c)
+                        if (setup_.entries[c].remote) field_->set_shadow(c); // (its owner's machine drives it)
                     for (size_t c = 0; c < commands_.size(); ++c) field_->command(c, {commands_[c].pace - 1, commands_[c].overtake ? 1 : 0});
                     // (their aids: the player's too, which a car its driver drives in its rolling start takes)
                     for (size_t car : computer) session_->set_driver_aids(car, field_->params(car).aids, field_->params(car).grip);
@@ -347,7 +349,7 @@ void RaceWorld::plan_starts(const sim::Program& program, std::vector<sim::Entry>
         starts_.push_back(race::plan_start(r, i, we.grid_place >= 0 ? we.grid_place : int(i), rolling));
         const race::PlannedStart& p = starts_.back();
         entries[i].start_speed = p.line ? 0.0f : we.start_speed;
-        race::put_start(entries[i], r, p, i == 0 && !computer_player_, we.grid_place >= 0 ? we.grid_place : int(i), program);
+        race::put_start(entries[i], r, p, i == 0 ? !computer_player_ : we.remote, we.grid_place >= 0 ? we.grid_place : int(i), program);
         if (rolling && !p.line) entries[i].start_distance = we.start_distance; // (no driving line: the road's middle)
     }
 }
@@ -361,7 +363,7 @@ void RaceWorld::first_lines(const sim::Program& program) {
     if (!program.known() || !field_ || course_->road().gtrw) return;
     for (size_t i = 0; i < starts_.size(); ++i) {
         const WorldEntry& we = i < overrides_.size() && overrides_[i] ? *overrides_[i] : setup_.entries[i];
-        field_->start_line(i, race::first_line(start_course_->race(), starts_[i], i == 0 && !computer_player_, we.grid_place >= 0 ? we.grid_place : int(i), program));
+        field_->start_line(i, race::first_line(start_course_->race(), starts_[i], i == 0 ? !computer_player_ : we.remote, we.grid_place >= 0 ? we.grid_place : int(i), program));
         if (session_->cars()[i].rolling) field_->hold_rolling(i);
     }
 }
