@@ -95,6 +95,39 @@ void FloatCensus::attach(Ee& ee) {
         u64* total = &by_kind[kind];
         ee.add_probe(a, [here, total, lanes](Ee&) { ++*here, *total += u64(lanes); });
     }
+    // GT4R_FLOATS_SPECIAL: the operands at the float model's edges, per kind and address (the operand classes below).
+    if (std::getenv("GT4R_FLOATS_SPECIAL")) {
+        for (const auto& [a, k] : kind_at) {
+            const u32 op = ee.r32(a);
+            if ((op >> 26) != 0x11) continue;
+            const u32 fs = (op >> 11) & 31, ft = (op >> 16) & 31, funct = op & 63;
+            auto* out = &special;
+            const std::string kind = k;
+            ee.add_probe(a, [out, a, fs, ft, funct, kind](Ee& e) {
+                const u32 x = e.fpr[fs], y = e.fpr[ft];
+                const u32 ex = (x >> 23) & 255, ey = (y >> 23) & 255;
+                auto note = [&](const char* what) { ++(*out)[kind + " " + what][a]; };
+                const bool two = kind != "fpu.sqrt" && kind != "fpu.cvt";
+                const bool den_x = ex == 0 && (x & 0x7FFFFF), den_y = two && ey == 0 && (y & 0x7FFFFF);
+                if (den_x || den_y) note("denormal operand");
+                if (ex == 255 || (two && ey == 255)) note("exponent 255 operand");
+                if (kind == "fpu.div") {
+                    if ((y & 0x7FFFFFFF) == 0) note("by zero");
+                    if (ex != 0 && ey != 0 && ex > ey + 126) note("near overflow");
+                    if (ex != 0 && ey != 0 && ey > ex + 125) note("near underflow");
+                }
+                if (kind == "fpu.sqrt" && (y >> 31) && (y & 0x7FFFFFFF)) note("negative");
+                if (kind == "fpu.mul" || kind == "fpu.madd") {
+                    if (ex != 0 && ey != 0) {
+                        const int sum = int(ex) + int(ey) - 127;
+                        if (sum >= 255) note("overflow product");
+                        if (sum <= 0) note("underflow product");
+                    }
+                }
+                (void)funct;
+            });
+        }
+    }
     if (const char* path = std::getenv("GT4R_FLOATS_FUNCTIONS")) {
         std::ifstream in(path);
         std::string line;

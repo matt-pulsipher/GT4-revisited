@@ -40,11 +40,12 @@ public:
     int first_bits = -1;   // the first step car 0's place differs in a bit (-1 never)
     int first_apart = -1;  // the first step it is more than 1 mm from the program's
     double worst = 0, last_distance = 0; // m
+    bool pin_others = true;      // every other car's record loaded from the program's before every step: car 0 alone runs free
     bool resync = false;         // ours loaded from the program's records before every step (each step alone)
     int list_steps = 0;          // print the placed fields that differ, from the first step any does, for this many steps
     int first_fields_step = -1;
 private:
-    void load_all(gt3r::diff::Ee& ee);
+    void load_all(gt3r::diff::Ee& ee, int first = 0);
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
@@ -100,6 +101,7 @@ struct FloatCensus {
     std::map<std::string, u64> by_kind;    // executions (VU0: lanes) per kind
     std::map<u32, u64> calls;              // function entries (with a function list)
     u64 steps = 0;
+    std::map<std::string, std::map<u32, u64>> special; // (GT4R_FLOATS_SPECIAL) operands at the model's edges: what -> address -> count
     // Installs the probes on `ee` (the program's text scanned once).
     void attach(gt3r::diff::Ee& ee);
     // The float instructions of the text (address -> kind), scanned from the loaded program.

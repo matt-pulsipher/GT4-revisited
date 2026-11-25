@@ -87,6 +87,11 @@ DemoScore run_float_demo(Disc& disc, const std::string& label, const FloatDemoOp
     boot(ee, disc, sdb);
     OrigRace o;
     const auto before_init = [&] {
+        if (print && opt.verbose) {
+            ee.probe(0x3640DC, [&o](Ee& x) { std::printf("  set-up: 0x46B108 gives line %u, cond +0xCBDE %u\n", x.g32(2), x.r8(o.cond + 0xCBDE)); });
+            ee.probe(0x34C5E0, [](Ee& x) { std::printf("  set-up: 0x34C5E0 a0 %08X a1 %08X a2 %d a3 %08X f12 %.3f f13 %.3f (from %08X)\n", x.g32(4), x.g32(5), s32(x.g32(6)), x.g32(7),
+                                                    double(x.r8(0) * 0 + gt3r::ee::F::raw(x.fpr[12]).host()), double(gt3r::ee::F::raw(x.fpr[13]).host()), x.g32(31)); });
+        }
         // The event's row where the race information keeps it (+0x70), copied into CFG as RaceBase::vf38 does.
         // The race information's first 0x60 bytes as the file keeps them (+0 the laps the conductor's virtual 37 answers).
         for (u32 k = 0; k < 0x60; ++k) ee.w8(o.info + k, d->information[k]);
@@ -113,6 +118,17 @@ DemoScore run_float_demo(Disc& disc, const std::string& label, const FloatDemoOp
     {
         const u32 vt = ee.r32(o.cond + kCondVtable), slot = vt + 8 * 3;
         ee.call(ee.r32(slot + 4), {Arg::ptr(o.cond + u32(s32(s16(ee.r16(slot)))))}, 50'000'000);
+    }
+    if (print && opt.verbose) {
+        const u32 vt = ee.r32(o.cond + kCondVtable);
+        auto slot = [&](u32 k, u32 arg) {
+            const u32 sl = vt + 8 * k;
+            return ee.call(ee.r32(sl + 4), {Arg::ptr(o.cond + u32(s32(s16(ee.r16(sl))))), Arg::integer(arg)}, 5'000'000);
+        };
+        const u32 n = u32(slot(42, 0).v0.lo);
+        std::printf("  virtual 42 (sectors): %u; virtual 43:", n);
+        for (u32 k = 0; k + 1 < n; ++k) std::printf(" (%u) %.3f", k, double(slot(43, k).f0_host()));
+        std::printf("\n");
     }
     if (print && opt.verbose) std::printf("  course kind (K +0xCBDD) %u, CFG section %d, the course object's section %d, start bytes CFG +0x4E %u +0x6E %u heading %.4f\n", ee.r8(o.cond + 0xCBDD),
                                                   int(gt3r::s8(ee.r8(o.cond + kCfg + 0x21))), s32(ee.r32(o.course + 0xB0)), ee.r8(o.cond + kCfg + 0x4E), ee.r8(o.cond + kCfg + 0x6E),
@@ -161,6 +177,7 @@ DemoScore run_float_demo(Disc& disc, const std::string& label, const FloatDemoOp
     // program's choice between them (the race organization's state at info +0xB0 / +0xB4) is not read: taken here from
     // the car's speed after the set-up.
     const bool moving = std::fabs(ee.rf(o.car(0) + kF + 0x53C)) > 0.01f;
+    if (const char* e = std::getenv("GT4R_FLOATS_RANDOM")) ee.w32(0x874D50, u32(std::strtoul(e, nullptr, 16))); // (experiment: the shared random stream's state)
     r.hold = opt.hold >= 0 ? opt.hold : moving ? 0 : kLicenseHold;
     ee.w32(o.info + 0xBC, u32(r.hold));
     const replay::ControlStream& s = d->streams[0];
@@ -174,6 +191,7 @@ DemoScore run_float_demo(Disc& disc, const std::string& label, const FloatDemoOp
         std::printf("\n");
     }
     const u32 F = o.car(0) + kF;
+    if (print && opt.verbose) std::printf("  shared random state %08X\n", ee.r32(0x874D50));
     std::vector<replay::PadRecord> rec(1);
     std::unique_ptr<OursBeside> ours;
     if (opt.ours) {
@@ -194,9 +212,16 @@ DemoScore run_float_demo(Disc& disc, const std::string& label, const FloatDemoOp
             orig_step(ee, o);
             if (ours) ours->step(ee, rec[0].bytes.data());
             if (end.done) r.ended_step = i;
-            if (print && opt.verbose && (i % 60 == 0 || end.done))
-                std::printf("  %5d  clock %6u  %7.2f km/h  at %.3f %.3f %.3f  dist %.2f\n", i, ee.r32(o.cond + 0x10000 - 0x768),
+            const char* from = std::getenv("GT4R_FLOATS_FROM"); // (from this step on every step, 60 of them)
+            if (print && opt.verbose && (i % 60 == 0 || end.done || (from && i >= std::atoi(from) && i < std::atoi(from) + 60)))
+                std::printf("  %5d  clock %6u  thr %4d brk %4d steer %5d  %7.2f km/h  at %.3f %.3f %.3f  dist %.2f\n", i, ee.r32(o.cond + 0x10000 - 0x768), int(rec[0].throttle()), int(rec[0].brake()), int(rec[0].steer()),
                             double(ee.rf(F + 0x53C)) * 3.6, double(ee.rf(F)), double(ee.rf(F + 4)), double(ee.rf(F + 8)), double(ee.rf(F + 0x4A4)));
+            if (print && opt.verbose && o.cars > 1 && (i % 60 == 0 || end.done)) {
+                const u32 G = o.car(1) + kF;
+                std::printf("         car 1  %7.2f km/h  dist %.2f  %.2f m from car 0, its rule bits %u, place %d, driver modes %u %u\n", double(ee.rf(G + 0x53C)) * 3.6,
+                            double(ee.rf(G + 0x4A4)), std::hypot(double(ee.rf(G) - ee.rf(F)), double(ee.rf(G + 4) - ee.rf(F + 4))), ee.r8(G + 0x4B3), int(gt3r::s8(ee.r8(o.car(1) + 0x5B3))),
+                            ee.r8(o.car(1) + 0x14 + 0x1E), ee.r8(G + 0x466));
+            }
         }
     } catch (const std::exception& ex) {
         char b[160];
@@ -245,6 +270,11 @@ int run_floats(Disc& disc, const std::vector<std::string>& args) {
         const double steps = double(std::max(1, s.ended_step + 1));
         std::printf("census of %s: %d steps\n", label.c_str(), s.ended_step + 1);
         for (const auto& [k, n] : c.by_kind) std::printf("  %-10s %12llu  %10.1f a step\n", k.c_str(), (unsigned long long)n, double(n) / steps);
+        for (const auto& [what, by] : c.special) {
+            u64 n = 0;
+            for (const auto& [a, k] : by) n += k;
+            std::printf("  special: %-32s %10llu in %zu places\n", what.c_str(), (unsigned long long)n, by.size());
+        }
         if (const char* out = std::getenv("GT4R_FLOATS_OUT")) {
             if (FILE* f = std::fopen(out, "w")) {
                 for (const auto& [a, n] : c.at)

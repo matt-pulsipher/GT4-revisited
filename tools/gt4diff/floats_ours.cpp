@@ -86,12 +86,12 @@ struct OursBeside::Impl {
 OursBeside::OursBeside(Disc& disc) : impl_(std::make_unique<Impl>(disc)) {}
 OursBeside::~OursBeside() = default;
 
-void OursBeside::load_all(Ee& ee) {
+void OursBeside::load_all(Ee& ee, int first) {
     Impl& m = *impl_;
     OrigRace& o = *m.o;
     // Every car's record and collision body as the program's set-up left them.
     const u32 walls = ee.r32(o.runway + 0x84), manager = o.cond + 0xDA6C;
-    for (int i = 0; i < o.cars; ++i) {
+    for (int i = first; i < o.cars; ++i) {
         sim::Record r;
         r.car = m.session->record(size_t(i));
         r.x = m.session->gt4_record(size_t(i));
@@ -102,7 +102,7 @@ void OursBeside::load_all(Ee& ee) {
         ee.read_bytes(manager + 0xC + kBodySize * u32(i), rec.data(), kBodySize);
         load_body(m.session->body(size_t(i)), rec.data(), walls);
     }
-    m.session->set_random_state(ee.r32(kRandom));
+    if (first == 0) m.session->set_random_state(ee.r32(kRandom));
 }
 
 bool OursBeside::begin(Ee& ee, OrigRace& o, db::SpecDb& sdb, const std::string& course, int hold) {
@@ -182,6 +182,7 @@ void OursBeside::before_step(gt3r::diff::Ee& ee) {
     impl_->heading.clear();
     impl_->rolling0 = ee.r8(impl_->o->car(0) + kF + 0x467) == 1;
     if (resync) load_all(ee);
+    else if (pin_others) load_all(ee, 1);
 }
 
 void OursBeside::step(Ee& ee, const u8* record) {
