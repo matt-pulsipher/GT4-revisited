@@ -1,5 +1,6 @@
 #include "gt4r/save/codec.h"
 
+#include <algorithm>
 #include <cstring>
 #include <utility>
 #include <vector>
@@ -13,9 +14,10 @@ void put32(u8* p, u32 v) { p[0] = u8(v), p[1] = u8(v >> 8), p[2] = u8(v >> 16), 
 
 // The two places a file's head words are swapped to: the body's length times these single
 // precision constants (0.135790..., 0.654860...), whole.
-// The two fractions (float bits) a kind of file's head swaps take: the game data's (0x1CDAC8), the replays' (0x1CFE68, 0x1CFFF8).
-u32 swap_head(FileKind k) { return k == FileKind::Replay ? 0x3E6B3EF8u : 0x3E0B0C88u; }
-u32 swap_random(FileKind k) { return k == FileKind::Replay ? 0x3F322311u : 0x3F27A4E7u; }
+// The two fractions (float bits) a kind of file's head swaps take: the game data's (0x1CDAC8), the replays' (0x1CFE68, 0x1CFFF8), a replay's or a
+// photo's particulars' (its thumbnail file: 0x1CF628).
+u32 swap_head(FileKind k) { return k == FileKind::Particulars ? 0x3EA0D979u : k == FileKind::Replay ? 0x3E6B3EF8u : 0x3E0B0C88u; }
+u32 swap_random(FileKind k) { return k == FileKind::Particulars ? 0x3EEFF200u : k == FileKind::Replay ? 0x3F322311u : 0x3F27A4E7u; }
 u32 times_constant(u32 n, u32 bits) {
     const u64 mantissa = (bits & 0x7FFFFF) | 0x800000;
     const int exponent = int((bits >> 23) & 0xFF) - 150;
@@ -49,6 +51,12 @@ void swap_bits(u8* d, u32 i, u32 j) {
     if (i == j) return;
     const int bi = (d[i >> 3] >> (i & 7)) & 1, bj = (d[j >> 3] >> (j & 7)) & 1;
     if (bi != bj) d[i >> 3] ^= u8(1 << (i & 7)), d[j >> 3] ^= u8(1 << (j & 7));
+}
+
+void shuffle_bytes(u8* d, size_t n, u32 seed, bool back) {
+    auto list = swaps(u32(n), seed);
+    if (back) std::reverse(list.begin(), list.end());
+    for (const auto& [i, j] : list) std::swap(d[i], d[j]);
 }
 
 } // namespace
@@ -106,6 +114,7 @@ Bytes scramble(ByteSpan payload, u32 key, u32 random, FileKind kind) {
     put32(buf.data(), random), put32(buf.data() + 4, check);
     cipher(buf.data() + 8, size - 8, Mt19937(check + random), Lcg(check ^ random), true);
     swap4(buf.data(), 4, 4 + times_constant(u32(size - 8), swap_head(kind)));
+    if (kind == FileKind::Particulars) shuffle_bytes(buf.data() + 4, size - 4, random ^ key, false);
     swap4(buf.data(), 0, times_constant(u32(size - 4), swap_random(kind)));
     return buf;
 }
@@ -115,6 +124,8 @@ std::optional<Bytes> unscramble(ByteSpan file, u32 key, FileKind kind) {
     if (size < 0x40 || size % 0x40) return std::nullopt;
     Bytes buf(file.begin(), file.end());
     swap4(buf.data(), 0, times_constant(u32(size - 4), swap_random(kind)));
+    // (The particulars' bytes after the first word are shuffled too, by a generator seeded with it: 0x1D4E60.)
+    if (kind == FileKind::Particulars) shuffle_bytes(buf.data() + 4, size - 4, get32(buf.data()) ^ key, true);
     swap4(buf.data(), 4, 4 + times_constant(u32(size - 8), swap_head(kind)));
     const u32 random = get32(buf.data()), check = get32(buf.data() + 4);
     cipher(buf.data() + 8, size - 8, Mt19937(check + random), Lcg(check ^ random), false);

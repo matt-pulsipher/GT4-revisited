@@ -1144,7 +1144,9 @@ void step_widgets(Runtime& rt, LiveWidget& w) {
             if (is_select_box(*c)) more[0] = select_box_more(*c, true), more[1] = select_box_more(*c, false);
             else if (c->is("ListBox")) {
                 const int count = list_count(*c), focus = list_focus_index(*c);
-                more[0] = focus < count - 1, more[1] = focus > 0;
+                // (mListBox's slots 106 and 107, 0x2B46B0, 0x2B4728: a row further on and the rows past the box's end; a row
+                // before and the rows moved.)
+                more[0] = focus + 1 < count && c->scroll + lb_total(*c) > lb_extent(*c), more[1] = focus != 0 && c->scroll < 0;
             } else continue;
             if (const W inc = w.child("inc_arrow")) inc->set_state(kActive, more[0]);
             if (const W dec = w.child("dec_arrow")) dec->set_state(kActive, more[1]);

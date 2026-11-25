@@ -24,6 +24,15 @@ struct ReplayFile {
     int laps = 0;
     std::vector<Car> cars;
     std::vector<std::vector<CarState>> steps; // a step's states, one per car
+    // The Replay Theater's row (a tagged section "INFO" after the steps, "PICT" the picture): the title the player gave, the
+    // run's time (0: none), whether the B-spec driver drove it, the race's mode by the program's name (0x6A0020:
+    // "GTMODE_EVENT_RACE") and its number within it (-1 none), and a 64 x 64 picture (RGBA8; empty: none).
+    std::string title, mode;
+    int submode = -1;
+    u32 time_ms = 0;
+    bool bspec = false;
+    std::vector<u32> picture;
+    std::vector<std::pair<u32, Bytes>> other; // the sections this reader does not know, kept
 
     Bytes encode() const;
     // Throws FormatError.

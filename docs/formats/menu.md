@@ -297,7 +297,8 @@ on (0x2DAD18). A change plays the sound and calls `onValueChanged(context, index
 scrolling child. The pinch (0x2CFBE0) lies along that list: from the list's start by the shown part's
 place x the list's length, the shown part x the length long; shown part = extent / total, its place
 min(1 - extent / total, -scroll / total), not under 0 (a select box 0x2DB9E8 / 0x2DBAD0, a list box
-0x2B45E0 / 0x2B4668).
+0x2B45E0 / 0x2B4668). An arrow is active while the list says there is more that way (a list box 0x2B46B0 / 0x2B4728: a row after
+the chosen one and the rows reaching past the box's end; a row before it and the rows moved).
 
 **OptionMenu** (mOptionMenu, 0x2C7498; `index`, `setIndex`, `getItem`, `Count`, `applyAppend`,
 `setInsensitive`; a new one is 128 x 24): its children `popup`, `popup::vbox` (the list) and
@@ -743,14 +744,16 @@ the start, when a game is loaded and when the scripts apply, save or reset the o
 **The Replay Theater** (the title's third item; the program's sequence `load_replay`,
 0x10CA50): the runtime turns the sequence into the project `labomode` with the menu argument
 `ReplayTheaterRoot` (0x42FC98, 0x10B290). Its card manager in MODE_LOAD_REPLAY lists the replays
-in the data folder's `replays/` (`game_replays.cpp`; newest first; each file's title its name,
-❓ the date the day it was written, the car and course by the database's names, its size in KB).
-Play loads the one chosen (`file.load`, `MMemoryCardManager.setAction(1)`) and closes the page:
+in the data folder's `replays/` and Gran Turismo 4's own on the memory card (`game_replays.cpp`; the newest first; a row
+shows the picture, time, title, date, course, car, A or B and KB: save.md "A replay's particulars", race_flow.md "Saved
+replays"). Play loads the one chosen (`file.load`, `MMemoryCardManager.setAction(1)`) and closes the page:
 the project ends, and `race_request()` answers the sequence `replay` with `replay_file` (the
-path); after it the theater comes back (the sequence's loop). Exit returns to the title. ❓ The
-demonstrations' folder and the play list are empty; `labo_folder` / `labo_list_index` start at -1.
-The card's free KB: 8,000 less a KB, the game's save and the replays (the scripts take 8,000
-for an unformatted card).
+path); after it the theater comes back (the sequence's loop). The pen renames (`writeInfo`). Exit returns to the title.
+❓ The play list is empty; `labo_folder` / `labo_list_index` start at -1.
+Save Replay (the race's menus) is the same project on `SaveReplayRoot` with MODE_SAVE_FULL_REPLAY: `getNewFile()` is the run
+(`GameState::pending_replay`), `saveNew` writes it. The card's free KB: 8,000 less a KB, the game's save and Gran Turismo 4's
+own replays on it (the scripts take 8,000 for an unformatted card); the race's own replays are in the data folder and take
+none of it.
 
 **A game with progress** (`game_progress.*`, `gt4tool save <disc> progress`): save.md.
 
@@ -763,7 +766,8 @@ countries and categories, found in the disc's program file by their content
 0x48EE00: year first for JP, KR, TW), `MUtility` (`GetMoneyString`, `GetTimeString` as the
 program's text, `GetPriceMagnification` 100 for "jp"), `MNetwork`, `MShell`, `MProgress`,
 `MGamePort` (a controller port's device by name: "USB port1" a wheel's or "DISCONNECT"; Prologue's wheel settings ask it),
-`MGpb` (`context.loadGpb(folder, name)` adds `<folder>/<LANG>/<name>.gpb` to the pictures).
+`MGpb` (`context.loadGpb(folder, name)` adds `<folder>/<LANG>/<name>.gpb` to the pictures;
+`existGpbBinary(path)` whether a loaded pack has the picture: the event halls' rows and the dealers' lists pick theirs by it).
 
 A project's script names files of the disc's top beside its own (gtmode's
 `usedcar/US_used0000` is `usedcar/US_used0000.adc`; ❓ the program's search is not read).

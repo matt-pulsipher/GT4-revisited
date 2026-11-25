@@ -15,6 +15,7 @@
 
 #include "gt4r/app/app.h"
 #include "gt4r/app/menu_painter.h"
+#include "gt4r/app/replay_picture.h"
 #include "gt4r/app/race_hud.h"
 #include "gt4r/app/race_hud_prologue.h"
 #include "gt4r/app/race_world.h"
@@ -1981,6 +1982,9 @@ public:
             ui.fill(0, 0, Ui::kWidth, Ui::kHeight, Color{0, 0, 0, 255});
         } else {
             race_->render(ui, {0, 0, float(Ui::kWidth), float(Ui::kHeight)}, look_back_);
+            // (As the menus come up after a run, before they are drawn: the picture a saved replay shows.)
+            if (menus_ && replay_picture_.empty() && quick_ && race_->has_run() && !race_->replaying())
+                replay_picture_ = replay_picture(app.renderer());
         }
         if (quick_) {
             // The race's menus over the scene.
@@ -2568,6 +2572,7 @@ private:
         spectator_ = watched;
         demo_ = demo;
         reported_ = false;
+        replay_picture_.clear();
         if (menus_ && !sequence_.empty()) race_->set_bspec_book(menus_->game().race.bspec_book, menus_->game().race.bspec_course_marks);
         race_->set_player(player_choice());
         race_->begin_run(watched);
@@ -2705,7 +2710,7 @@ private:
         clock_ = std::min(clock_, double(kStep));
         if (!menus_->finished()) return;
         menu::QuickWork& w = menu::quick_work(menus_->game());
-        if (option_) return enter_quick(w.get("canReplay"), false);
+        if (option_) return menus_->game().pending_replay.reset(), enter_quick(w.get("canReplay"), false);
         // The command the scripts chose (the sequences' tables: docs/formats/race_flow.md).
         const std::string command = w.take_command();
         menus_->game().during_quick_menu = false;
@@ -2726,10 +2731,12 @@ private:
             quick_ = false;
             race_->start_replay();
         } else if (command == "COMMAND_SAVE_REPLAY" && race_->has_run()) {
-            // Save Replay (the program's labomode project with MODE_SAVE_FULL_REPLAY saves to the
-            // memory card): the run into the data folder's replays, then the menus again.
-            save_replay(app);
-            enter_quick(w.get("canReplay"), !session_over);
+            // Save Replay: the program's project labomode on its save page (MODE_SAVE_FULL_REPLAY: "Create new file" or over
+            // one there, a title typed), here into the data folder's replays; then the menus again.
+            pend_replay(app);
+            option_ = true;
+            menus_->game().next_menu_arg = "MODE_SAVE_FULL_REPLAY";
+            menus_->start_project("labomode");
         } else if (command == "COMMAND_LOAD_GHOST") {
             // Load Best Lap Replay: the program's project labomode on its load page (0x11CF08, 0x10FEE8: next_menu_arg
             // MODE_LOAD_BESTLAP_REPLAY), then the menus again. ❓ No best lap replays are kept here: its list is empty, and a
@@ -2831,25 +2838,65 @@ private:
                 }
     }
 
+    // The run for the menus' save page (menu::GameState::pending_replay; the modes by the program's names, 0x6A0020; ❓ the
+    // number given for the license tests and missions alone).
+    void pend_replay(App& app) {
+        const menu::RaceRequest& q = menus_->game().race;
+        auto pending = std::make_shared<menu::GameState::PendingReplay>();
+        auto file = std::make_shared<race::ReplayFile>(race_->replay_file(sequence_, q.race));
+        static const std::pair<const char*, const char*> kModes[] = {
+            {"single_race", "ARCADE_SINGLE_RACE"}, {"time_trial", "ARCADE_TIME_TRIAL"},    {"solo_event", "GTMODE_EVENT_RACE"}, {"championship", "GTMODE_CHAMPIONSHIP"},
+            {"freerun", "GTMODE_FREE_RUN"},        {"practice", "GTMODE_FREE_PRACTICE"}, {"mission", "GTMODE_LICENSE_MISSION"},
+        };
+        pending->mode = "NOTHING";
+        for (const auto& [sequence, mode] : kModes)
+            if (sequence_ == sequence) pending->mode = mode;
+        if (sequence_ == "machinetest") // ("mt400_testcourse")
+            pending->mode = q.race.find("mt1000") != q.race.npos ? "GTMODE_MACHINE_TEST_0_1000" : q.race.find("mtmax") != q.race.npos ? "GTMODE_MACHINE_TEST_MAX_SPEED" : "GTMODE_MACHINE_TEST_0_400";
+        const std::string label = q.race.size() > 7 ? q.race.substr(q.race.size() - 7) : q.race; // "l0b0001"
+        if (is_license(sequence_)) {
+            static const std::pair<const char*, const char*> kTests[] = {{"l0b", "GTMODE_LICENSE_B"},   {"l0a", "GTMODE_LICENSE_A"}, {"lib", "GTMODE_LICENSE_IB"},
+                                                                        {"lia", "GTMODE_LICENSE_IA"}, {"l0s", "GTMODE_LICENSE_S"}, {"l0c", "GTMODE_LICENSE_COFFEE_BREAK"}};
+            pending->mode = "GTMODE_LICENSE";
+            for (const auto& [prefix, mode] : kTests)
+                if (label.rfind(prefix, 0) == 0) pending->mode = mode;
+        }
+        if ((is_license(sequence_) || sequence_ == "mission") && label.size() == 7) pending->submode = std::atoi(label.c_str() + 3);
+        pending->course = file->course, pending->car = file->cars.empty() ? std::string() : file->cars[0].label;
+        if (race_->flow().player_finished()) pending->time_ms = u32(race_->flow().run_ms(0));
+        pending->bspec = spectator_, pending->picture = replay_picture_;
+        file->mode = pending->mode, file->submode = pending->submode, file->time_ms = pending->time_ms, file->bspec = pending->bspec, file->picture = replay_picture_;
+        pending->kb = int((file->encode().size() + 1023) / 1024);
+        pending->save = [this, &app, file](const std::string& title, const std::string& path) {
+            file->title = title;
+            return write_replay(app, *file, path);
+        };
+        menus_->game().pending_replay = pending;
+    }
+
     // The last run as a file of the data folder's `replays` (the Drive screen plays one with
     // GT4R_RACE="replay_file=<path>").
     void save_replay(App& app) {
+        const menu::RaceRequest* q = menus_ ? &menus_->game().race : nullptr;
+        write_replay(app, race_->replay_file(sequence_, q ? q->race : std::string()), {});
+    }
+    bool write_replay(App& app, const race::ReplayFile& file, const std::string& over) {
         const std::string folder = app.data_dir() + "/replays";
         SDL_CreateDirectory(folder.c_str());
         char stamp[32];
         const std::time_t now = std::time(nullptr);
         std::strftime(stamp, sizeof stamp, "%Y%m%d-%H%M%S", std::localtime(&now));
-        const std::string path = folder + "/" + setup_.course + "-" + stamp + ".gt4rrep";
-        const menu::RaceRequest* q = menus_ ? &menus_->game().race : nullptr;
-        const Bytes b = race_->replay_file(sequence_, q ? q->race : std::string()).encode();
+        const std::string path = over.empty() ? folder + "/" + setup_.course + "-" + stamp + ".gt4rrep" : over;
+        const Bytes b = file.encode();
         if (std::FILE* fp = std::fopen(path.c_str(), "wb")) {
             std::fwrite(b.data(), 1, b.size(), fp);
             std::fclose(fp);
             last_saved_ = path;
             LOG_INFO("Drive: the replay saved to %s (%zu bytes)", path.c_str(), b.size());
-        } else {
-            LOG_WARN("Drive: cannot write %s", path.c_str());
+            return true;
         }
+        LOG_WARN("Drive: cannot write %s", path.c_str());
+        return false;
     }
 
     // The race sequence is over: the menus go on where the scripts said (their next project), as
@@ -3406,6 +3453,7 @@ private:
     std::unique_ptr<menu::Runtime> own_menus_; // a scripted run's
     std::string sequence_;              // the race sequence ("single_race")
     std::unique_ptr<MenuPainter> painter_;
+    std::vector<u32> replay_picture_; // the run's, for a saved replay (replay_picture.h)
     bool quick_ = false, option_ = false, spectator_ = false;
     double clock_ = 0;
     gt3r::race::FramePacer pacer_;

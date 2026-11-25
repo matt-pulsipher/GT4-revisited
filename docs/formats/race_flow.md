@@ -318,9 +318,17 @@ The program's Save Replay runs the project `labomode` with `next_menu_arg` =
 rebuild keeps the cars' states instead, step by step, in a file of its own under the data folder's
 `replays/` (`<course>-<date>-<time>.gt4rrep`; `race/replay_file.*`): `"GT4RRPL1"`, u32 the body's
 size, u32 its deflated size, then the zlib-deflated body: the course, the sequence and the race's
-labels, the laps, the cars (label, paint), the steps (every car's state). The Drive screen plays
-one with `GT4R_RACE="replay_file=<path>"` through the course's replay cameras. ❓ The menus'
-Replay Theater does not list these files yet.
+labels, the laps, the cars (label, paint), the steps (every car's state), then tagged sections until the body ends (u32 the
+tag's four letters, u32 the bytes' size, the bytes; a section a reader does not know is kept): `INFO` the title, the race's
+mode by the program's name, u32 its number (-1 none), u32 the time in ms, u8 the B-spec driver's run; `PICT` 64 x 64 RGBA8
+pixels. The Drive screen plays one with `GT4R_RACE="replay_file=<path>"` through the course's replay cameras; the Replay
+Theater lists them.
+
+Save Replay in the race's menus (COMMAND_SAVE_REPLAY) opens `labomode` on its save page: the run is the list's new file
+(`GameState::pending_replay`; its title by the mode's name and number, as the page's script makes it), "Create new file" or a
+replay there to write over, the keyboard for the title, then the menus again. The picture is the race as it stands when the
+menus come up after the run (❓ where the program takes its own is not read; its captures show the road from the driver's
+view). ❓ The number is given for license tests and missions alone.
 
 ## A free run's start, and the arcade's start against the original
 

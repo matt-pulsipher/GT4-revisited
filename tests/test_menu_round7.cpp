@@ -5,12 +5,17 @@
 
 #include "gt4r/menu/faces_frame.h"
 #include "gt4r/menu/game_internal.h"
+#include "gt4r/menu/program_sort.h"
 #include "gt4r/menu/race_natives.h"
 #include "gt4r/menu/runtime_internal.h"
 #include "gt4r/menu/transform.h"
+#include "gt4r/race/replay_file.h"
+#include "gt4r/save/codec.h"
+#include "gt4r/save/replay_particulars.h"
 
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 
 using script::Value;
 
@@ -153,4 +158,123 @@ TEST(disc_menu_arcade_best_score) {
     r.finished = true;
     f.rt->race_finished(r);
     CHECK(best() == 200 && g.today == today);
+}
+
+// A child appended beside one of its name gets a free one: the name's digits dropped, the first free number (0x25ADF8), so
+// each row of a list built from one template is found by its own name.
+TEST(menu_unique_child_names) {
+    menu::Runtime rt([](const std::string&) -> std::optional<Bytes> { return std::nullopt; });
+    const std::shared_ptr<menu::LiveWidget> top = rt.start_layout(menu::parse_layout(std::string_view(R"(Project {
+	name string {"TestProject"}
+	children [1] {
+		RootWindow {
+			name string {"Top"}
+			children [2] {
+				Composite { name string {"Box"} geometry rectangle {0 0 200 200} }
+				Composite { name string {"Row7"} geometry rectangle {0 0 200 20} }
+			}
+		}
+	}
+})")))->child("Top");
+    rt.open_page(top, true);
+    script::Vm& vm = rt.vm();
+    const std::shared_ptr<menu::LiveWidget> box = top->child("Box"), row = top->child("Row7");
+    for (int i = 0; i < 3; ++i) {
+        const Value copy = vm.call(vm.attribute(menu::widget_value(row), "doCopy"), {});
+        const Value a[2] = {rt.context(), copy};
+        vm.call(vm.attribute(menu::widget_value(box), "appendChild"), a);
+    }
+    rt.settle();
+    CHECK(box->children.size() == 3);
+    if (box->children.size() != 3) return;
+    std::printf("  %s %s %s\n", box->children[0]->name.c_str(), box->children[1]->name.c_str(), box->children[2]->name.c_str());
+    CHECK(box->children[0]->name == "Row7" && box->children[1]->name == "Row0" && box->children[2]->name == "Row1");
+}
+
+// A scroll box's arrows follow the list in it (mListBox's slots 106 and 107): rows past the box's end, not only rows after
+// the chosen one.
+TEST(menu_scroll_box_arrows) {
+    for (const int count : {3, 9}) {
+        menu::Runtime rt([](const std::string&) -> std::optional<Bytes> { return std::nullopt; });
+        const std::shared_ptr<menu::LiveWidget> top = rt.start_layout(menu::parse_layout(std::string_view(R"(Project {
+	name string {"TestProject"}
+	children [1] {
+		RootWindow {
+			name string {"Top"}
+			children [2] {
+				ScrollBox { name string {"Scroll"} geometry rectangle {100 100 200 100} children [3] {
+					ListBox { name string {"List"} can_focus digit {1} geometry rectangle {0 0 200 100} direction digit {1} }
+					Composite { name string {"inc_arrow"} geometry rectangle {0 90 20 10} }
+					Composite { name string {"dec_arrow"} geometry rectangle {0 0 20 10} }
+				} }
+				Composite { name string {"Row"} geometry rectangle {0 0 200 20} }
+			}
+		}
+	}
+})")))->child("Top");
+        rt.open_page(top, true);
+        const std::shared_ptr<menu::LiveWidget> box = top->child("Scroll"), list = box->child("List");
+        script::Vm& vm = rt.vm();
+        const Value lv = menu::widget_value(list);
+        const Value t[2] = {rt.context(), menu::widget_value(top->child("Row"))}, n[1] = {Value::integer(count)};
+        vm.call(vm.attribute(lv, "setItemTemplate"), t);
+        vm.call(vm.attribute(lv, "setItemCount"), n);
+        rt.set_focus(*top, list);
+        for (int i = 0; i < 40; ++i) rt.update();
+        auto lit = [&](const char* name) { return (box->child(name)->state & menu::kActive) != 0; };
+        CHECK(lit("inc_arrow") == (count == 9) && !lit("dec_arrow"));
+        for (int k = 0; k < count - 1; ++k) rt.key(menu::Key::Down);
+        for (int i = 0; i < 120; ++i) rt.update();
+        CHECK(!lit("inc_arrow") && lit("dec_arrow") == (count == 9));
+    }
+}
+
+// The program's sort (0x2F03C8) is not stable past 16: equal items change places, and the order follows the rule all the same.
+TEST(menu_program_sort) {
+    std::vector<std::pair<int, int>> few, many;
+    for (int i = 0; i < 10; ++i) few.emplace_back(i % 2, i);
+    for (int i = 0; i < 40; ++i) many.emplace_back((i * 7) % 3, i);
+    auto less = [](const auto& a, const auto& b) { return a.first < b.first; };
+    menu::program_sort(few, less), menu::program_sort(many, less);
+    bool stable = true;
+    for (size_t i = 1; i < few.size(); ++i) CHECK(few[i - 1].first < few[i].first || few[i - 1].second < few[i].second); // (an insertion sort)
+    for (size_t i = 1; i < many.size(); ++i) {
+        CHECK(many[i - 1].first <= many[i].first);
+        if (many[i - 1].first == many[i].first && many[i - 1].second > many[i].second) stable = false;
+    }
+    CHECK(!stable);
+}
+
+// A saved replay's particulars (the 256-byte file beside it): its fields, and a new title with the rest kept.
+TEST(menu_replay_particulars) {
+    Bytes p(0xE8, 0);
+    auto put = [&](size_t at, u32 v) { std::memcpy(p.data() + at, &v, 4); };
+    put(0, 444), put(8, 169), put(12, 34), put(0xD0, 11166), put(0xE0, 1), put(0xE4, 1);
+    std::memcpy(p.data() + 0x10, "A run", 5), std::memcpy(p.data() + 0x50, "somewhere", 9), std::memcpy(p.data() + 0x90, "A car", 5);
+    p[0xD8] = 4, p[0xD9] = 1;
+    const Bytes file = save::scramble(p, 0, 0x12345678, save::FileKind::Particulars);
+    CHECK(file.size() == 256 && !save::unscramble(file, 0, save::FileKind::Replay) && !save::decode_particulars(ByteSpan(file).first(192)));
+    const std::optional<save::ReplayParticulars> a = save::decode_particulars(file);
+    CHECK(a && a->car == 444 && a->course == (u64(34) << 32 | 169) && a->title == "A run" && a->course_label == "somewhere" && a->time_ms == 11166);
+    CHECK(a && std::string(save::kReplayModes[a->mode]) == "GTMODE_LICENSE_B" && a->submode == 1 && a->spectator && a->license);
+    const std::optional<Bytes> renamed = save::rename_particulars(file, "Another, with a longer name");
+    CHECK(renamed && renamed->size() == 256);
+    const std::optional<save::ReplayParticulars> b = renamed ? save::decode_particulars(*renamed) : std::nullopt;
+    CHECK(b && b->title == "Another, with a longer name" && b->course_label == "somewhere" && b->time_ms == 11166 && b->car == 444);
+}
+
+// The race's own replay file: the row's particulars and picture in their sections, a section it does not know kept.
+TEST(menu_replay_file_sections) {
+    race::ReplayFile f;
+    f.course = "somewhere", f.sequence = "license", f.laps = 1;
+    f.cars.push_back({"a_car", 2});
+    f.steps.assign(3, std::vector<race::CarState>(1));
+    const race::ReplayFile bare = race::ReplayFile::decode(f.encode());
+    CHECK(bare.title.empty() && bare.submode == -1 && bare.picture.empty() && bare.other.empty() && bare.steps.size() == 3);
+    f.title = "A run", f.mode = "GTMODE_LICENSE_B", f.submode = 1, f.time_ms = 11166, f.bspec = true;
+    f.picture.assign(64 * 64, 0xFF336699u);
+    f.other.emplace_back(0x444C5052u, Bytes{1, 2, 3});
+    const race::ReplayFile g = race::ReplayFile::decode(f.encode());
+    CHECK(g.title == f.title && g.mode == f.mode && g.submode == 1 && g.time_ms == 11166 && g.bspec && g.picture == f.picture && g.other == f.other);
+    CHECK(g.steps.size() == 3 && g.course == "somewhere");
 }

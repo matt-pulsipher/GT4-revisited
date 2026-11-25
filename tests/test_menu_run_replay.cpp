@@ -106,3 +106,40 @@ TEST(disc_menu_replay_theater_demo) {
     f.rt->settle();
     CHECK(f.page() == "ReplayTheaterRoot" && f.clean());
 }
+
+// Save Replay: the race's menus open labomode on its save page, the run as the list's new file; its title is the mode's name
+// and number, the keyboard gives it another, and saveNew writes it.
+TEST(disc_menu_save_replay) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    const std::filesystem::path dir = std::filesystem::temp_directory_path() / "gt4r-menu-test-save-replay";
+    std::filesystem::remove_all(dir);
+    std::filesystem::create_directories(dir / "replays");
+    Flow f(*disc, "US", dir.string());
+    CHECK(f.boot_to_title());
+    menu::GameState& g = f.rt->game();
+    auto q = std::make_shared<menu::GameState::PendingReplay>();
+    q->course = "tsukuba", q->car = "panda_super_ie_90", q->mode = "GTMODE_LICENSE_B", q->submode = 3, q->time_ms = 61234, q->kb = 40;
+    q->picture.assign(64 * 64, 0xFF336699u);
+    std::vector<std::pair<std::string, std::string>> saved;
+    q->save = [&](const std::string& title, const std::string& path) {
+        saved.emplace_back(title, path);
+        write_replay(dir / "replays" / "new.gt4rrep", "tsukuba", "panda_super_ie_90");
+        return true;
+    };
+    g.pending_replay = q;
+    g.next_menu_arg = "MODE_SAVE_FULL_REPLAY";
+    f.rt->start_project("labomode");
+    f.rt->settle();
+    CHECK(f.page() == "SaveReplayRoot");
+    std::printf("  %s: %s\n", pages(f).c_str(), f.text_of("title").c_str());
+    f.press({menu::Key::Accept}); // Create new file: the keyboard, on enter
+    f.rt->settle();
+    std::printf("  %s\n", pages(f).c_str());
+    f.press({menu::Key::Accept}); // enter
+    f.rt->settle();
+    for (int i = 0; i < 6 && saved.empty(); ++i) f.press({menu::Key::Accept}), f.rt->settle();
+    std::printf("  saved %zu: \"%s\" over \"%s\"\n", saved.size(), saved.empty() ? "" : saved[0].first.c_str(), saved.empty() ? "" : saved[0].second.c_str());
+    CHECK(saved.size() == 1 && !saved.empty() && !saved[0].first.empty() && saved[0].first.back() == '3' && saved[0].second.empty());
+    CHECK(f.clean());
+}

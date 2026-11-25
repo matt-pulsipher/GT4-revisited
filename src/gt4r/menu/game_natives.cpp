@@ -1084,13 +1084,15 @@ Value GameNatives::make_card_manager(Args a) {
     for (const char* no : {"isExistGT4pData", "isExistGT3Data"}) m->method(no, [](Vm&, const Value&, Args) { return number(0); });
     for (const char* none : {"inheritGT4pData", "inheritGT3Data"}) m->method(none, [](Vm&, const Value&, Args) { return text("FILE_NOT_FOUND"); });
     // The card's free KB. The scripts take 8,000 for an unformatted card; the data folder's card
-    // is formatted: 8,000 less a KB for its directory, the game's save and the replays kept
-    // (❓ the program's count of a real card's clusters is not followed).
+    // is formatted: 8,000 less a KB for its directory, the game's save and Gran Turismo 4's own replays on it (❓ the
+    // program's count of a real card's clusters is not followed). The replays the race keeps are in the data folder's
+    // replays/, not on the card: as many as the player likes.
     auto free_kb = [self, s, real]() -> s32 {
         if (!real()) return s->card.free_kb;
         s32 used = 1 + std::max(0, self->card().used_kb());
         std::error_code ec;
-        for (const std::string& f : saved_replays(self->rt.data_dir())) used += s32((std::filesystem::file_size(f, ec) + 1023) / 1024);
+        for (const std::string& f : saved_replays(self->rt.data_dir()))
+            if (!f.ends_with(".gt4rrep")) used += s32((std::filesystem::file_size(f, ec) + 1023) / 1024);
         return std::max(0, 8000 - used);
     };
     m->property("free", [free_kb] { return number(free_kb()); });
@@ -1100,7 +1102,7 @@ Value GameNatives::make_card_manager(Args a) {
     m->set("count", number(0)), m->set("cursorPos", number(0)), m->set("progress", object_value(progress)), m->set("list", Value::array({}));
     m->set("autoloadPlayList", Value{}), m->set("autoloadPlayListResult", Value{});
     // The Replay Theater's replays (game_replays.cpp).
-    if (mode == "MODE_LOAD_REPLAY") install_replay_list(*this, *m);
+    if (mode == "MODE_LOAD_REPLAY" || mode == "MODE_SAVE_FULL_REPLAY" || mode == "MODE_SAVE_BESTLAP_REPLAY") install_replay_list(*this, *m);
     if (mode == "MODE_DEMONSTRATION") install_demo_list(*this, *m, false);
     if (mode == "MODE_DEMONSTRATION_SUB") install_demo_list(*this, *m, true);
     return object_value(m);
