@@ -55,13 +55,14 @@ int run_demo(Disc& disc, const std::string& label, int limit) {
     const auto pool = events.pool(*ev);
 
     // Ours.
+    const size_t watch = std::getenv("GT4R_DEMO_CAR") ? size_t(std::atoi(std::getenv("GT4R_DEMO_CAR"))) : 0; // (which car is compared)
     std::vector<ex::Car> mine;
     race::prologue::Options o;
     o.judge = false;
     o.on_step = [&](size_t, const sim::Session& s) {
         if (mine.size() >= size_t(limit)) return;
-        ex::Car c = s.record(0);
-        const sim::prologue::CarPart& q = s.prologue_part(0);
+        ex::Car c = s.record(watch);
+        const sim::prologue::CarPart& q = s.prologue_part(watch);
         for (size_t w = 0; w < 4; ++w) c.t[w].steer_sin = q.offset_rate[w], c.t[w].steer_cos = q.tires.steer_offset[w];
         mine.push_back(c);
     };
@@ -74,6 +75,7 @@ int run_demo(Disc& disc, const std::string& label, int limit) {
     Race r;
     Lesson lesson;
     lesson.row = table_row(disc, "RACE", u32(run->event));
+    if (run->entries.size() > 1) lesson.vtable = 0x539788; // (a race against others: DynamicsConductorTraining)
     lesson.entry = [&](Ee& e, u32 entry, int i) {
         const replay::prologue::Entry& n = run->entries[size_t(i)];
         for (u32 k = 0; k < n.equipment.size(); ++k) e.w8(entry + 0x20 + k, n.equipment[k]);
@@ -81,7 +83,9 @@ int run_demo(Disc& disc, const std::string& label, int limit) {
         e.w32(entry + 0x3FA8, u32(n.grid_place)), e.w32(entry + 0x3FAC, n.pedal_style), e.w32(entry + 0x3FB0, n.driver_kind), e.w32(entry + 0x3FB4, n.x16a);
         e.w32(entry + 0x3FB8, n.asm_on), e.w32(entry + 0x3FBC, n.tcs_on);
     };
-    if (!setup_race(ee, disc, sdb, ev->course, {pool[0].car}, 1, r, err, true, &lesson)) return std::printf("%s\n", err.c_str()), 1;
+    std::vector<std::string> labels;
+    for (size_t i = 0; i < run->entries.size() && i < pool.size(); ++i) labels.push_back(pool[i].car);
+    if (!setup_race(ee, disc, sdb, ev->course, labels, 1, r, err, true, &lesson)) return std::printf("%s\n", err.c_str()), 1;
     if (lesson.row.empty()) std::printf("  (no RACE row %u)\n", u32(run->event));
     const bool rolling = ee.r8(r.cond + 0x107CE) != 0; // (no start hold)
     std::printf("  rules: start %d km/h at %d m\n", ee.r8(r.cond + 0x107CE), s16(ee.r16(r.cond + 0x107D4)));
@@ -95,7 +99,7 @@ int run_demo(Disc& disc, const std::string& label, int limit) {
         ee.w32(r.info + 0x74, rolling ? 0 : u32(std::max(0, 239 - int(i))));
         r.pad[0].raw = i < frames.size() ? frames[i].bytes.data() : kNone;
         step(ee, r);
-        const std::vector<u8> im = gt3_image(ee, r.car(0));
+        const std::vector<u8> im = gt3_image(ee, r.car(int(watch)));
         ex::Car after;
         after.behaviour = mine[i].behaviour;
         ex::load_image(after, im.data());

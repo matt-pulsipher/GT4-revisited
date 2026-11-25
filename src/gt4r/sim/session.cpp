@@ -218,8 +218,11 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
             speed_tables_[i] = rules::speed_tables(program, r.x.steer.lean_row);
         } else if (prologue_) { // Prologue's own spec and converter (rules_prologue.h build_car)
             prologue::Block block{};
+            prologue::ConvertIn ci;
+            ci.control = s32(e.control);
+            if (options) std::copy_n(options->rules.begin(), ci.rules.size(), ci.rules.begin());
             prologue_cars_[i] = prologue::build_car(db, specs_[i], e.equipment, loose_ ? 2 : 0, e.asm_on, e.tcs_on, *prologue_,
-                                                    0x01000000u + 0x2000u * u32(i) + ex::kParams, c, &block);
+                                                    0x01000000u + 0x2000u * u32(i) + ex::kParams, c, &block, ci);
             speed_tables_[i] = prologue::speed_tables(program, block[0x33]); // (feel_prologue.h)
         } else { // (a program that is not a known build: the engine's converter on the core's tables)
             ex::ConvertInputs in;
@@ -297,7 +300,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
             const Entry::LineStart* line = entries[i].line_start ? &*entries[i].line_start : nullptr;
             if (prologue_ && line) { // (0x3C93A0: kinds 2 .. 4 driven by their driver until the line, 0x3B3FD0; the moving start 0x3C9108)
                 ex::Car& c = cars_[i];
-                if (line->kind >= 2 && line->kind <= 4) c.driver_kind = 1, c.shift_lockout = 12;
+                if (line->kind >= 2 && line->kind <= 4 && entries[i].control == 0) c.driver_kind = 1, c.shift_lockout = 12;
                 if (line->speed > 0) {
                     c.ai.mode = !line->open_throttle || line->open_throttle(c.f3e4) ? 0 : 1;
                     prologue::moving_start(c, gt3r::ee::int_to_f(line->speed) * F::raw(0x3E8E38E3));
@@ -310,7 +313,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
             if (!(entries[i].start_speed > 0)) continue;
             if (prologue_) {
                 prologue::moving_start(cars_[i], F(entries[i].start_speed));
-                cars_[i].driver_kind = 1;
+                if (entries[i].control == 0) cars_[i].driver_kind = 1;
                 publish(i);
                 continue;
             }
@@ -952,6 +955,7 @@ void Session::step_once(std::span<const race::CarInput> inputs, const Decider& d
             ex::prep(c, race_.prep);
             if (prologue_) prologue::part_downforce(c, prologue_cars_[i], prologue_feel_[i], race_.prep.slip); // (0x3DBB70's end)
             if (decide) decide(i, in);
+            c.control = in.computer ? gt3r::s8(in.control) : 0;
             if (in.computer || (prologue_ && c.driver_kind == 1)) { // (a player's car its driver brings to the line: 0x3DED50)
                 computer_outputs();
                 computer_clutch();

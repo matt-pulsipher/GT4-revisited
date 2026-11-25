@@ -57,6 +57,7 @@ void boot(Ee& ee, Disc& disc);
 // conductor's 0x3B6B20) and each entry's bytes from its equipment to its switches before the set-up.
 struct Lesson {
     u32 conductor = 0x3B4750; // DynamicsConductorLicense
+    u32 vtable = 0;           // (its own virtuals; 0x539788 DynamicsConductorTraining's: RaceTraining 0x384E50 sets them over the License's)
     std::vector<u8> row;
     std::function<void(Ee&, u32 entry, int car)> entry;
 };

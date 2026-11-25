@@ -197,7 +197,7 @@ void Field::init(const course::AiData& data, const Program& program, std::span<c
     {
         const Pace& p = pace_;
         Band b;
-        b.on = p.slow_pct || p.fast_pct || (p.band_global && p.band_global != 100);
+        b.on = p.slow_pct || p.fast_pct || (p.band_global && p.band_global != 100) || (prologue_ && n > 1); // (Prologue's: in every race of several)
         b.mode = p.band_mode;
         b.slow = int_f(p.slow_pct) * kHundredth, b.slow_start = int_f(p.slow_start_m), b.slow_full = int_f(p.slow_full_10m) * F::raw(0x41200000);
         b.fast = int_f(p.fast_pct) * kHundredth, b.fast_start = int_f(p.fast_start_m), b.fast_full = int_f(p.fast_full_10m) * F::raw(0x41200000);
@@ -1099,7 +1099,8 @@ bool Field::hold_rolling(size_t car) {
     if (!d || d->control == 4) return false;
     // 0x3452F0: off the passing line 7 (a pad car's), the computer driving.
     const bool driven = (d->kind >= 2 && d->kind <= 4) || (d->control == 0 && d->kind == 0);
-    if (prologue_) { // (0x3B3FD0: onto the main line, blended)
+    if (prologue_) { // (0x3C99E4: a pad's car; 0x3B3FD0: onto the main line, blended)
+        if (d->control != 0) return false;
         if (driven && !request_line(*d, CourseLines::kMain, false)) return false;
     } else if (driven && d->line == 7) request_line(*d, CourseLines::kMain, true);
     d->kind = 1;

@@ -175,6 +175,7 @@ bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, 
         }
         r.cond = ee.alloc(kCondSize, 64);
         ee.call(lesson ? lesson->conductor : kConductorCtor, {Arg::ptr(r.cond)}, 50'000'000);
+        if (lesson && lesson->vtable) ee.w32(r.cond + kCondVtable, lesson->vtable);
         ee.w32(r.cond, r.info);
         if (lesson && !lesson->row.empty()) {
             const u32 row = ee.alloc_bytes(ByteSpan(lesson->row.data(), lesson->row.size()), 16);

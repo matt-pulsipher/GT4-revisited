@@ -229,7 +229,7 @@ CarPart car_part(const ex::Car& c, const Block& p, const Tables& t) {
 }
 
 CarPart build_car(db::SpecDb& db, const Spec& s, const Equipment& eq, int course_kind, bool asm_on, bool tcs_on, const Tables& t, u32 base,
-                  ex::Car& c, Block* block) {
+                  ex::Car& c, Block* block, const ConvertIn& in) {
     std::string label;
     const u32 car = db::part_row_id(eq.part(Equipment::Car));
     for (const db::CarEntry& e : db.cars())
@@ -239,7 +239,7 @@ CarPart build_car(db::SpecDb& db, const Spec& s, const Equipment& eq, int course
     if (!asm_on) spec[0x109] = t.asm_keep ? u8(spec[0x109] & 0xC0) : 0;
     if (!tcs_on) spec[0x110] = 0;
     Block p{};
-    convert(spec, t.convert, ConvertIn{}, base, p);
+    convert(spec, t.convert, in, base, p);
     const ex::ParamImage image = engine_image(p, base);
     std::vector<u8> record(ex::kCarSize, 0);
     std::copy(image.begin(), image.end(), record.begin() + ex::kParams);

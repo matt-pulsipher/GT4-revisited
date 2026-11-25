@@ -190,7 +190,7 @@ void image_part(CarPart& x, const u8* params);
 // control off); Prologue's converter at `base` (convert_prologue.h), its block read into c.p (the engine's layout) and the
 // part beside it. `block`: the block too, when wanted.
 CarPart build_car(db::SpecDb& db, const Spec& s, const Equipment& eq, int course_kind, bool asm_on, bool tcs_on, const Tables& t, u32 base,
-                  ex::Car& c, Block* block = nullptr);
+                  ex::Car& c, Block* block = nullptr, const ConvertIn& in = {});
 
 // Each wheel's tire's x1da for the forward step and the lateral forces: the record of the wheel's surface (Gran Turismo 4
 // copies it in its peak force, 0x357418; Prologue reads the record).
