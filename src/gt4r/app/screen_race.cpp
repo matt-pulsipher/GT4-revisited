@@ -1657,6 +1657,8 @@ public:
         race::ViewPose pose;
         const int view = viewing() && view_.ride_on() ? view_.mount() : replaying_ || demo_run_ || (menu_scene_ && preview_) || (!menu_scene_ && opening_tv()) ? kTvView : mount_;
         bool posed = menu_scene_ && !preview_ && scenic_.pose(pose);
+        // (A scenic shot too is focused on the screen's car, behind it or not: 0x37C800.)
+        if (posed && pose.depth_of_field) pose.focus = std::max(std::clamp(world_->nearest_depth(f, me, pose.view) + 0.7f, 0.001f, 100000.0f), race::least_focus(pose.fov * 57.29578f));
         posed = posed || (start_camera_.active() && start_camera_.pose(pose, &body));
         // The replay cameras' shot for the car; the chase view where the script has none.
         if (!posed && finish_view()) posed = finish_camera_.pose(RVec{me.position.x, me.position.y, me.position.z}, pose);

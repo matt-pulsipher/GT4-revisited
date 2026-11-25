@@ -309,6 +309,7 @@ bool shot_pose(const ReplayRecord& r, float t, const render::Mat4* car_body, Vie
                   -render::dot(right, eye), -render::dot(up, eye), render::dot(ahead, eye), 1};
     out.fov = fov * kPi / 180;
     out.body_hidden = false;
+    out.haze = r.haze, out.depth_of_field = r.depth_of_field, out.f_number = r.aperture, out.focus = std::max(distance, least_focus(fov));
     return true;
 }
 
