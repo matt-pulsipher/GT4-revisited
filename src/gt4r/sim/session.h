@@ -71,6 +71,10 @@ public:
     // The race's countdown (the race information's +0xBC): `steps` steps from the next, counted down one a step, the
     // cars held and the session's time standing while it runs. 0 ends it.
     void set_countdown(u32 steps) { countdown_ = steps; }
+    // The race's class grips (the rule block's +0x18 .. +0x1B, conductor + 0xF830: a computer-driven car's extra grip per
+    // drive class, percent). The session starts with a single race's (0x353570: 20 for each the event leaves 0); the
+    // other conductors (a license test's, ...) keep the event's bytes as they are.
+    void set_class_grip(const std::array<gt3r::s8, 4>& grip) { tables_.class_grip = grip; }
     u32 countdown() const { return countdown_; }
     // A car held in its rolling start (F + 0x467 = 1: its computer driver drives it, the rolling start's pace caps it,
     // the input phase takes the car's input as the computer's outputs) let go (the single-player conductor's virtual
@@ -96,6 +100,11 @@ public:
     void set_time_scale_raw(size_t i, u32 bits) { if (i < cars_.size()) cars_[i].time_scale = gt3r::ee::F::raw(bits); }
     // The course is a loose one (its first start place is on a loose surface).
     bool loose() const { return loose_; }
+    // The course's kind as the race has it (the COURSE row's +0x10 through 0x34C968, conductor + 0xCBDD: 0 a road course,
+    // 2 dirt, 3 snow): the input phase's course byte, the sliding effects'; the aids and the road bumps' tables go by its
+    // category (0x34C998: dirt 1, snow 2; the bump tables' surface 5 takes row 15 on snow). The session starts with 2 when its first start place is on a loose surface, else 0.
+    void set_course_kind(const Program& program, u8 kind);
+    u8 course_kind() const { return course_kind_; }
     // Gran Turismo 4's own routines where they are ported (rules_step.h; the default), or the shared
     // engine's throughout (Gran Turismo 3's rules on Gran Turismo 4's cars), for comparison.
     void set_gt4_rules(bool on) { gt4_rules_ = on && gt4_ready_; }
@@ -227,6 +236,7 @@ private:
     gt3r::Vu0Random rng_;
     u32 random_state_ = 0; // (the program's shared random stream, 0x874D50, for the flaps: ours from 0)
     bool loose_ = false;
+    u8 course_kind_ = 0;
     float pending_ = 0;
     u64 steps_ = 0;
 };

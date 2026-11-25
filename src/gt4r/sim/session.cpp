@@ -112,6 +112,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
     }
     if (places.empty()) throw std::runtime_error("session: no start place is on the road");
     loose_ = loose_surface(surface_index(start.material, start.flags));
+    course_kind_ = loose_ ? 2 : 0;
     const u8 category = loose_ ? 2 : 0;
     const ex::RaceConfig config{};
     race_ = ex::race_inputs(*data_, ex::Conductor::SinglePlayer, config, false, category);
@@ -352,6 +353,15 @@ void Session::new_tire(size_t i, int wheel) {
     if (i < cars_.size() && wheel >= 0 && wheel < 4) rules::new_tire(cars_[i], gx_[i].wear, wheel, tables_.wear);
 }
 
+void Session::set_course_kind(const Program& program, u8 kind) {
+    course_kind_ = kind;
+    loose_ = u8(kind - 2) < 2;
+    // (0x34C998: the category the aids and the bump tables go by: dirt 1, snow 2, else 0)
+    const u8 category = kind == 2 ? 1 : kind == 3 ? 2 : 0;
+    aid_race_.course_kind = category;
+    if (gt4_ready_) tables_.bumps = rules::bump_tables(program, category);
+}
+
 void Session::set_line_heading(size_t car, F heading) {
     if (car < line_heading_.size()) line_heading_[car] = heading;
 }
@@ -536,7 +546,7 @@ void Session::chassis(size_t i) {
     } else
         ex::pad_rumble(c);
     ex::steer_force(c, race_.feel);
-    if (gt4_rules_) rules::slide_effects(c, layouts_[i], tables_.slide, loose_ ? 2 : 0); // (0x367148)
+    if (gt4_rules_) rules::slide_effects(c, layouts_[i], tables_.slide, course_kind_); // (0x367148)
     else ex::tyre_effects(c, race_.effects, race_.aids.course_category);
     ex::phase12_stub(c);
     if (gt4_rules_) rules::engine_sound(c, tables_.feel, gx_[i].drive.d.kind, rules::draw_mode(c, 0, 0, 0)); // (0x350080)
@@ -649,8 +659,8 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
             x.prev_buttons = buttons;
             f.shift = gt3r::s8(pressed & 1 ? 1 : pressed & 2 ? -1 : 0);
         }
-        // (a computer's car: its driver's grip, 0x467470)
-        const std::array<F, 3>* grip = in.computer && driver_grip_[i] ? &*driver_grip_[i] : nullptr;
+        // (a computer's car: its driver's grip, 0x467470; so a player's car its driver drives, driver kind not 0)
+        const std::array<F, 3>* grip = (in.computer || c.driver_kind != 0) && driver_grip_[i] ? &*driver_grip_[i] : nullptr;
         // A computer driver's outputs into the controls as the program's drivers write them (0x464F38).
         auto computer_outputs = [&] {
             c.full_throttle = 1;
@@ -693,7 +703,7 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
             c.control = in.computer ? gt3r::s8(in.control) : 0;
             rules::post_mail(f, mail_[i], c.control, !in.computer);
             rules::InputRace race;
-            race.course_kind = loose_ ? 2 : 0; // ❓ wet and snow courses not told apart
+            race.course_kind = course_kind_;
             rules::InputHooks hk;
             hk.computer_clutch = computer_clutch;
             hk.computer_outputs = [&] {
@@ -745,8 +755,9 @@ void Session::step_once(std::span<const race::CarInput> inputs) {
         else if (prologue_) prologue::slip_ratios(c, prologue_cars_[i].tires, prologue_cars_[i].layout, *prologue_);
         else ex::slip_ratios(c, race_.statics);
         if (gt4_rules_) {
-            // Gran Turismo 4's aids (0x3F79A0): a computer's car (control source 2) by its driver's block.
-            const ex::Aids* driver = in.computer && driver_aids_[i] ? &*driver_aids_[i] : nullptr;
+            // Gran Turismo 4's aids (0x3F79A0): a computer's car (control source 2) by its driver's block, and so a
+            // player's car its driver drives (driver kind not 0: held in its rolling start), 0x3F7828.
+            const ex::Aids* driver = (in.computer || c.driver_kind != 0) && driver_aids_[i] ? &*driver_aids_[i] : nullptr;
             sim::Extra& g = gx_[i];
             rules::aids(c, g.aids, g.tires, g.drive, layouts_[i], tables_.aids, aid_race_, driver);
         } else if (prologue_) { // Prologue's (0x3E0838)
