@@ -812,7 +812,8 @@ ratios (from -888 to +248 cents, shapes 0.42 .. 0.86) do not settle anything ❓
 +1 cent off the stretch at 48.5 s, but 3 dB under it, the shapes matching only 0.56, and no rev fits the stretch at
 46.5 s ❓. 🔎 What is under in the chase launches'
 lows (81 .. 161 Hz, 2 .. 4 dB): the pictures show the cars by the curb; not checked.
-**Idle** ❓: the R390's recording is over ours by 6 dB in the octave at 161 Hz, 16 dB at 322 Hz and 12 dB at 645 Hz (3 dB over all), and its sides correlate -0.36 where ours do
+**Idle** ❓: after a drive and a stop (ours 6.5 .. 9.5 s, the R390's bonnet recording 110 .. 113 s) the recording is over ours
+by 6 dB in the octave at 161 Hz, 16 dB at 322 Hz and 12 dB at 645 Hz (3 dB over all), and its sides correlate -0.36 where ours do
 -0.97, so something besides the inverted exhaust sounds there (an engine level over 0, or other revs: its tach reads
 about 1,000 by eye, the car at 1 mph); ours stands at 800 rpm with the clutch open, the engine's level 0 as in the
 original's Grand Canyon start (that saved state: clutch 0, engine 0, exhaust 5). Whose rule differs is not found.
