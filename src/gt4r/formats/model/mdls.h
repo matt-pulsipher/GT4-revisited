@@ -72,6 +72,9 @@ struct Scene {
     // >= 0: a shape with two key shapes is written as the one between them at this weight (0 the
     // first, 1 the second), as the game blends them for a draw (commands 0x35 and 0x4C).
     float morph_weight = -1.0f;
+    // The weight by the register the draw takes it from (0x4C's cell), for a program with several (a sky's
+    // aeroplanes); another register's is morph_weight.
+    std::map<u16, float> morph_weights;
     // Not empty: only these models' programs and the shapes they draw are converted (the others
     // are left as they are and must not be decoded): one animated model's pose without the
     // whole set's work.

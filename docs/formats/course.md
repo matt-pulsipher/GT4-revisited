@@ -320,7 +320,13 @@ degrees, then the axis; 90, (0, 1, 0) at 3 s), push, translate and scale the sha
 the turn about the sign's own vertical axis (the race view takes the decoded shapes back through
 the literal matrix at the first move, turns them and puts them back). Still drawn still: icerace's
 walkers (a second register switch, `cb`, picks the person's clip: two switches are not decoded
-together) and the six animated skies.
+together).
+
+**The animated skies** (seoul, tahiti_maze, sarthe24 and their reversed courses; slot 21): aeroplanes crossing with their
+trails, 2, 2 and 8 of them, thin strips on the dome's scale (14 vertices: the aeroplane, the trail). Their model's program has
+per aeroplane 0x4C (its weight, `builtin_tw`) and 0x4D (its switch, `builtin_br`, 4 cases), each case a shape with two keys of
+position and colour (the alpha fades it in and out); the draw script sets both from `time`: 25 s a case and 12.5 s on seoul and
+tahiti_maze. `AnimatedModels::Layer` decodes each layer's cases apart.
 
 The sky, backdrop and scenery sets carry a small program per animated model: flags, people who
 walk or step back from the road, turning signs. Counts on the US disc: 3,347 scenery models

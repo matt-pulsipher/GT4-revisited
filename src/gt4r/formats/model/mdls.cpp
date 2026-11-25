@@ -65,9 +65,10 @@ void put32(Bytes& b, size_t o, u32 v) { std::memcpy(b.data() + o, &v, 4); }
 s32 s16_at(ByteSpan d, size_t o) { return s32(s16(rd16(d, o))); }
 
 // Walks a draw program from `start` over every path and replaces the commands GTM1 lacks.
-void patch_program(Bytes& b, size_t start, ConvertStats& st, const Scene& scene, std::set<u32>* shapes = nullptr) {
+void patch_program(Bytes& b, size_t start, ConvertStats& st, const Scene& scene, std::set<u32>* shapes = nullptr, std::map<u32, u16>* weights = nullptr) {
     std::set<size_t> seen;
     std::vector<size_t> work{start};
+    std::map<size_t, int> weight_at; // a case's: the weight's register before its switch
     std::vector<std::pair<size_t, size_t>> inside; // Scene::only_inside: the constructs kept
     std::vector<std::pair<size_t, size_t>> draws;  // the commands that draw: place, size
     const ByteSpan d(b);
@@ -77,6 +78,7 @@ void patch_program(Bytes& b, size_t start, ConvertStats& st, const Scene& scene,
     while (!work.empty()) {
         size_t pc = work.back();
         work.pop_back();
+        int weight = weight_at.count(pc) ? weight_at[pc] : -1; // the register of the last 0x4C on this path
         while (seen.insert(pc).second) {
             need(pc, 1);
             const u8 op = b[pc];
@@ -90,7 +92,10 @@ void patch_program(Bytes& b, size_t start, ConvertStats& st, const Scene& scene,
                 const size_t tab = a + 3;
                 need(tab, 2 * size_t(n));
                 const size_t after = tab + 2 * size_t(n);
-                for (u32 k = 0; k < n; ++k) work.push_back(size_t(s64(tab + 2 * k) + s16_at(d, tab + 2 * k)));
+                for (u32 k = 0; k < n; ++k) {
+                    work.push_back(size_t(s64(tab + 2 * k) + s16_at(d, tab + 2 * k)));
+                    weight_at.emplace(work.back(), weight);
+                }
                 if (op == 0x06 && scene.only_inside >= 0 && id == u32(scene.only_inside) && n) {
                     // The construct: from its first case to where the jump after the table leads.
                     size_t lo = SIZE_MAX, hi = 0;
@@ -152,6 +157,13 @@ void patch_program(Bytes& b, size_t start, ConvertStats& st, const Scene& scene,
             if (n < 0) throw FormatError("MDLS draw program: unknown command");
             need(a, size_t(n));
             if (op == 0x02 || op == 0x03 || op == 0x04 || op == 0x05 || op == 0x35) draws.emplace_back(pc, size_t(n) + 1);
+            if (op == 0x4C) weight = int(rd16(d, a));
+            if (weights && weight >= 0) { // (the register each shape drawn has its weight from)
+                if (op == 0x04) (*weights)[b[a]] = u16(weight);
+                else if (op == 0x05) (*weights)[rd16(d, a)] = u16(weight);
+                else if (op == 0x35)
+                    for (u32 k = 0; k < rd16(d, a + 2); ++k) (*weights)[rd16(d, a) + k] = u16(weight);
+            }
             if (shapes) { // the shapes this program can draw
                 if (op == 0x04) shapes->insert(b[a]);
                 else if (op == 0x05) shapes->insert(rd16(d, a));
@@ -400,13 +412,14 @@ Bytes to_gtm1(ByteSpan mdls, ConvertStats* stats, const Scene& scene) {
     // Draw programs: one per model (model record +0x18).
     std::vector<u32> programs(h.models);
     std::set<u32> wanted_shapes;
+    std::map<u32, u16> weight_of;
     const bool some = !scene.only_models.empty();
     std::vector<bool> wanted(h.models, !some);
     for (u32 m : scene.only_models)
         if (m < h.models) wanted[m] = true;
     for (u32 i = 0; i < h.models; ++i) {
         programs[i] = rd32(src, h.model_table + 0x28 * size_t(i) + 0x18);
-        if (programs[i] && wanted[i]) patch_program(out, programs[i], st, scene, some ? &wanted_shapes : nullptr);
+        if (programs[i] && wanted[i]) patch_program(out, programs[i], st, scene, some ? &wanted_shapes : nullptr, scene.morph_weights.empty() ? nullptr : &weight_of);
     }
 
     // Shapes: GTM1's chunk layout, +0x04 the scale of packed positions. A shape with packed data
@@ -426,6 +439,9 @@ Bytes to_gtm1(ByteSpan mdls, ConvertStats* stats, const Scene& scene) {
         ++st.shapes;
         std::vector<Stream> packets(count);
         bool packed = false, morph = false;
+        float weight = scene.morph_weight;
+        if (const auto w = weight_of.find(s); w != weight_of.end())
+            if (const auto given = scene.morph_weights.find(w->second); given != scene.morph_weights.end()) weight = given->second;
         for (u32 k = 0; k < count; ++k) {
             const size_t e = so + 0x10 + 8 * size_t(k);
             const u32 po = so + rd32(src, e), qwc = rd16(src, e + 4);
@@ -435,7 +451,7 @@ Bytes to_gtm1(ByteSpan mdls, ConvertStats* stats, const Scene& scene) {
             std::optional<SkinBlock> skin;
             if (shape_flags & kShapeSkinned) skin = read_skin_block(src, po + size_t(qwc) * 16, (shape_flags & kShapeSkinPacked) != 0);
             const bool p = rewrite_packet(src.subspan(po, size_t(qwc) * 16), scale, (shape_flags & 0x80) != 0 && scale > 0, scene.color_scale,
-                                          scene.morph_weight, packets[k], st, skin ? &*skin : nullptr);
+                                          weight, packets[k], st, skin ? &*skin : nullptr);
             st.packed_packets += p;
             packed |= p || scene.color_scale != 1.0f; // (scaled colours are written again too)
             morph |= has_second_key(packets[k].b);

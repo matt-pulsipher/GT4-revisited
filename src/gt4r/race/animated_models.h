@@ -27,6 +27,14 @@ public:
         u8 op = 0;
         int cell = -1;
     };
+    struct Key {
+        gt3r::scene::Mesh first, second; // the ends of the blend (the same shape when it has one end)
+    };
+    // A layer of a model: a key shape and a blend of its own (a sky's aeroplane and its trail: each case the pair of shapes the weight is between).
+    struct Layer {
+        int weight_cell = -1, switch_cell = -1, cases = 0;
+        std::vector<Key> keys;
+    };
     // `set`: the model set (a course's slot 1); `decode`: the options its still models are decoded
     // with; `color_scale`: the factor on its stored colors.
     AnimatedModels(ByteSpan set, float color_scale, const gt3r::gtm1::Options& decode);
@@ -51,13 +59,11 @@ public:
     const mdls::ScriptState& state() const { return state_; }
 
 private:
-    struct Key {
-        gt3r::scene::Mesh first, second; // the ends of the blend (the same shape when it has one end)
-    };
     struct Animated {
         u32 model = 0;
         int switch_cell = -1, weight_cell = -1; // the registers its program reads; -1: none
         int switch2_cell = -1, cases2 = 1;      // a second switch on another register, and its cases
+        std::vector<Layer> layers;              // several switches each with its own weight, drawing shapes of their own
         std::vector<Move> moves;                // its moves by register, in program order
         std::array<float, 16> pivot{}, pivot_inverse{}; // the program's matrix at its first move, and its inverse
         std::vector<Key> keys;                  // one per case of the switch (one without a switch)

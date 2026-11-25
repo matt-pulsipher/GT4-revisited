@@ -87,17 +87,20 @@ public:
     const Stats& stats() const { return stats_; }
 
 private:
+    // A set's animated models: a model holding their pictures, and their shapes of the frame.
+    struct AnimatedSet {
+        AnimatedModels models;
+        std::unique_ptr<render::GpuModel> textures, gpu;
+    };
     std::unique_ptr<render::GpuModel> build(render::GpuContext& ctx, int slot, const std::string& label, bool keep, bool sheen,
-                                            gt3r::scene::Model* out = nullptr, bool animated = false);
+                                            gt3r::scene::Model* out = nullptr, AnimatedSet* animated = nullptr);
 
     Bytes data_;
     course::CourseFile file_;
     course::Runway road_;
     gt3r::race::SunParams env_;
     float color_scale_ = 1;
-    // The scenery's animated models: a model holding their pictures, and their shapes of the frame.
-    AnimatedModels animated_;
-    std::unique_ptr<render::GpuModel> animated_textures_, animated_gpu_;
+    AnimatedSet animated_, animated_sky_; // the scenery's, the sky's (aeroplanes and their trails)
     Bytes reflection_course_;
     float reflection_gain_ = 1;
     std::unique_ptr<render::GpuModel> reflection_sky_;

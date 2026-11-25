@@ -19,6 +19,7 @@ namespace scene = gt3r::scene;
 struct ProgramUse {
     int switch_cell = -1, weight_cell = -1, cases = 0;
     int switch2_cell = -1, cases2 = 0; // a second switch on another register (Ice Arena's people)
+    std::vector<AnimatedModels::Layer> layers; // each switch with the weight set before it (a sky's aeroplanes and their trails)
     bool other = false;
     std::set<u32> texture_sets;
     std::vector<AnimatedModels::Move> moves; // matrix commands by register, before any shape is drawn
@@ -63,6 +64,8 @@ ProgramUse scan_program(ByteSpan b, size_t start) {
     ProgramUse use;
     std::set<size_t> seen;
     std::vector<size_t> work{start};
+    int weight = -1; // the last weight's register, on the first path walked
+    bool several = false, third = false;
     std::vector<Mat> stack{kId}; // the literal matrix commands' stack, on the first path walked
     auto s16_at = [&](size_t o) { return s32(s16(rd16(b, o))); };
     static const auto size = [](u8 op) -> int {
@@ -100,11 +103,14 @@ ProgramUse scan_program(ByteSpan b, size_t start) {
                 for (u32 k = 0; k < n; ++k) work.push_back(size_t(s64(tab + 2 * k) + s16_at(tab + 2 * k)));
                 if (op == 0x4D) {
                     const int cell = int(rd16(b, a));
+                    bool known = false;
+                    for (const AnimatedModels::Layer& l : use.layers) known |= l.switch_cell == cell;
+                    if (!known) use.layers.push_back({weight, cell, int(n)});
                     if (use.switch_cell < 0) use.switch_cell = cell, use.cases = int(n);
                     else if (use.switch_cell != cell) {
                         // A second switch on its own register; a third is not handled.
                         if (use.switch2_cell < 0) use.switch2_cell = cell, use.cases2 = int(n);
-                        else if (use.switch2_cell != cell) use.other = true;
+                        else if (use.switch2_cell != cell) third = true;
                     }
                 }
                 pc = tab + 2 * size_t(n);
@@ -143,7 +149,8 @@ ProgramUse scan_program(ByteSpan b, size_t start) {
             }
             if (op == 0x4C) {
                 if (use.weight_cell < 0) use.weight_cell = int(rd16(b, a));
-                else if (use.weight_cell != int(rd16(b, a))) use.other = true;
+                else if (use.weight_cell != int(rd16(b, a))) several = true;
+                weight = int(rd16(b, a));
             }
             if (op >= 0x02 && op <= 0x05) use.drawn = true;
             if (use.moves.empty() && !use.drawn) { // the matrix the model's moves are made in
@@ -187,6 +194,11 @@ ProgramUse scan_program(ByteSpan b, size_t start) {
             pc = a + size_t(n);
         }
     }
+    // Several weights: each switch with its own. Else one weight, and no more than two switches.
+    std::set<int> weights;
+    for (const AnimatedModels::Layer& l : use.layers) weights.insert(l.weight_cell);
+    const bool layered = several && use.moves.empty() && weights.size() == use.layers.size() && !weights.count(-1);
+    if (!layered) use.layers.clear(), use.other |= several || third;
     return use;
 }
 
@@ -218,13 +230,14 @@ AnimatedModels::AnimatedModels(ByteSpan set, float color_scale, const gt3r::gtm1
         const ProgramUse use = scan_program(set.first(h.size), program);
         if (use.other || (use.switch_cell < 0 && use.weight_cell < 0 && use.moves.empty())) continue;
         Animated a;
-        if (use.switch2_cell >= 0 && use.cases * use.cases2 > 256) continue;
+        a.layers = use.layers;
+        if (use.switch2_cell >= 0 && use.layers.empty() && use.cases * use.cases2 > 256) continue;
         a.model = i, a.switch_cell = use.switch_cell, a.weight_cell = use.weight_cell, a.moves = use.moves;
-        if (use.switch2_cell >= 0) a.switch2_cell = use.switch2_cell, a.cases2 = std::max(use.cases2, 1);
+        if (use.switch2_cell >= 0 && a.layers.empty()) a.switch2_cell = use.switch2_cell, a.cases2 = std::max(use.cases2, 1);
         a.pivot = use.pivot, a.pivot_inverse = inverse_affine(use.pivot);
-        a.keys.resize(size_t(use.switch_cell >= 0 ? std::max(use.cases, 1) : 1) * size_t(a.cases2));
+        a.keys.resize(size_t(use.switch_cell >= 0 && a.layers.empty() ? std::max(use.cases, 1) : 1) * size_t(a.cases2));
         if (a.switch2_cell < 0) most_cases = std::max(most_cases, int(a.keys.size()));
-        any_weight |= use.weight_cell >= 0;
+        any_weight |= use.weight_cell >= 0 && a.layers.empty();
         used_sets.insert(use.texture_sets.begin(), use.texture_sets.end());
         models_.push_back(std::move(a));
     }
@@ -274,7 +287,8 @@ AnimatedModels::AnimatedModels(ByteSpan set, float color_scale, const gt3r::gtm1
         mesh.node = int(a.model);
         mesh.name = "node" + std::to_string(a.model);
         ++meshes;
-        (end == 0 ? a.keys[key].first : a.keys[key].second) = std::move(mesh);
+        if (end == 0) a.keys[key].first = std::move(mesh);
+        else a.keys[key].second = std::move(mesh);
     };
     const int ends = any_weight ? 2 : 1;
     try {
@@ -282,7 +296,7 @@ AnimatedModels::AnimatedModels(ByteSpan set, float color_scale, const gt3r::gtm1
             // Every model's switch at case k.
             sc.registers.assign(script_.register_cells, 0);
             for (const Animated& a : models_)
-                if (a.switch2_cell < 0 && a.switch_cell >= 0 && size_t(a.switch_cell) < sc.registers.size()) sc.registers[size_t(a.switch_cell)] = u32(k);
+                if (a.switch2_cell < 0 && a.layers.empty() && a.switch_cell >= 0 && size_t(a.switch_cell) < sc.registers.size()) sc.registers[size_t(a.switch_cell)] = u32(k);
             for (int end = 0; end < ends; ++end) {
                 sc.morph_weight = float(end);
                 const Bytes block = mdls::to_gtm1(trimmed, nullptr, sc);
@@ -312,6 +326,34 @@ AnimatedModels::AnimatedModels(ByteSpan set, float color_scale, const gt3r::gtm1
                     }
                     if (ends == 1) a.keys[key].second = a.keys[key].first;
                 }
+        }
+        // The models in layers: the model with every switch at its first case, then each layer's cases at both ends.
+        for (Animated& a : models_) {
+            if (a.layers.empty()) continue;
+            sc.only_models = {a.model};
+            auto decode_one = [&](size_t layer, int k, float end, scene::Mesh& out_mesh) {
+                sc.registers.assign(script_.register_cells, 0);
+                sc.morph_weight = 0;
+                sc.morph_weights.clear();
+                for (size_t l = 0; l < a.layers.size(); ++l) sc.morph_weights[u16(a.layers[l].weight_cell)] = l == layer ? end : 0.0f;
+                if (layer < a.layers.size() && size_t(a.layers[layer].switch_cell) < sc.registers.size()) sc.registers[size_t(a.layers[layer].switch_cell)] = u32(k);
+                const Bytes block = mdls::to_gtm1(trimmed, nullptr, sc);
+                store(gt3r::gtm1::Gtm1::parse(block), a, 0, 0);
+                out_mesh = a.keys[0].first;
+            };
+            scene::Mesh base;
+            decode_one(a.layers.size(), 0, 0, base);
+            for (size_t l = 0; l < a.layers.size(); ++l) {
+                a.layers[l].keys.resize(size_t(a.layers[l].cases));
+                for (int k = 0; k < a.layers[l].cases; ++k) {
+                    Key& key = a.layers[l].keys[size_t(k)];
+                    decode_one(l, k, 0, key.first), decode_one(l, k, 1, key.second);
+                    for (scene::Mesh* m : {&key.first, &key.second})
+                        if (m->vertices.size() != base.vertices.size() || m->indices.size() != base.indices.size()) *m = base;
+                }
+            }
+            a.keys[0].first = a.keys[0].second = std::move(base);
+            sc.morph_weights.clear();
         }
         sc.only_models.clear();
         for (const Animated& a : models_) sc.only_models.push_back(a.model);
@@ -415,7 +457,7 @@ std::vector<scene::Mesh> AnimatedModels::meshes(std::span<const CarState> cars) 
     for (const Animated& a : models_) {
         if (script_.models[a.model].draw >= 0) mdls::run_script(script_, script_.models[a.model].draw, state_, cb);
         // A switch value without a case draws nothing.
-        int k = a.switch_cell >= 0 ? state_.register_i(u32(a.switch_cell)) : 0;
+        int k = a.switch_cell >= 0 && a.layers.empty() ? state_.register_i(u32(a.switch_cell)) : 0;
         if (a.switch2_cell >= 0) {
             const int kb = state_.register_i(u32(a.switch2_cell));
             if (k < 0 || kb < 0 || kb >= a.cases2 || size_t(k) >= a.keys.size() / size_t(a.cases2)) continue;
@@ -424,14 +466,34 @@ std::vector<scene::Mesh> AnimatedModels::meshes(std::span<const CarState> cars) 
         if (k < 0 || size_t(k) >= a.keys.size()) continue;
         const Key& key = a.keys[size_t(k)];
         if (key.first.vertices.empty()) continue;
-        const float w = a.weight_cell >= 0 ? std::clamp(state_.register_f(u32(a.weight_cell)), 0.0f, 1.0f) : 0.0f;
         scene::Mesh mesh = key.first;
-        if (w > 0)
+        // Vertex by vertex from `from` toward what it is at `end`, by the weight.
+        auto toward = [&](const scene::Mesh& from_mesh, const scene::Mesh& end, float w) {
             for (size_t i = 0; i < mesh.vertices.size(); ++i) {
                 scene::Vertex& v = mesh.vertices[i];
-                const scene::Vertex& to = key.second.vertices[i];
-                for (int j = 0; j < 3; ++j) v.pos[j] += (to.pos[j] - v.pos[j]) * w, v.normal[j] += (to.normal[j] - v.normal[j]) * w;
+                const scene::Vertex &from = from_mesh.vertices[i], &to = end.vertices[i];
+                for (int j = 0; j < 3; ++j) v.pos[j] += (to.pos[j] - from.pos[j]) * w, v.normal[j] += (to.normal[j] - from.normal[j]) * w;
+                for (int j = 0; j < 2; ++j) v.uv[j] += (to.uv[j] - from.uv[j]) * w;
+                if (from.color == to.color) continue;
+                u32 color = 0;
+                for (int j = 0; j < 32; j += 8) {
+                    const float c = float((v.color >> j) & 0xFF) + (float((to.color >> j) & 0xFF) - float((from.color >> j) & 0xFF)) * w;
+                    color |= u32(std::clamp(std::lround(c), 0L, 255L)) << j;
+                }
+                v.color = color;
             }
+        };
+        auto weight = [&](int cell) { return cell >= 0 ? std::clamp(state_.register_f(u32(cell)), 0.0f, 1.0f) : 0.0f; };
+        if (a.layers.empty()) {
+            if (const float w = weight(a.weight_cell); w > 0) toward(key.first, key.second, w);
+        }
+        // (A layer's vertices are its own: what each changes of the first cases' model adds up.)
+        for (const Layer& l : a.layers) {
+            const int c = state_.register_i(u32(l.switch_cell));
+            if (c < 0 || size_t(c) >= l.keys.size()) continue;
+            const float w = weight(l.weight_cell);
+            toward(key.first, l.keys[size_t(c)].first, 1), toward(l.keys[size_t(c)].first, l.keys[size_t(c)].second, w);
+        }
         if (!a.moves.empty()) {
             // The model moved and turned as its program asks by the registers (row vectors: v' = v M).
             // The shapes as decoded stand where the program's matrix put them without the moves: taken back
