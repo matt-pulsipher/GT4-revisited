@@ -305,7 +305,7 @@ copies, each part padded to 16 bytes (0x401D20), in this order:
 | 0x00 | 0x10 | u32 0xFF60BAD0 (Gran Turismo 4's is 0xFF60BAD3), i32 minus the body's length, u32 the body's CRC-32 (0x498530, the table at 0x51F488: the same CRC as Gran Turismo 4's), 0 | 0x4021F0 |
 | 0x10 | 0x10 | u32 the garage's car count (its list at UserProfile +0x11330), padded | UserProfile::vf5 0x402500 |
 | 0x20 | 0x148 a car | the cars: nothing written (CarGarage::vf5 0x4045F0 only moves on): ❓ Prologue keeps no garage | |
-| then | 0x10 | the profile's name char[0x10] (UserProfile +0x1133C; 0x402428) | |
+| 0x20 | 0x10 | the profile's name char[0x10] (UserProfile +0x1133C; 0x402428) | |
 | then | 48 x 0x2E0 | the license units, the first 0x2E0 bytes of each 0x2E8-byte unit from the license object's +8 (UserProfile +0x11350; 0x3FF190, 0x3FE998) | |
 | then | 64 x 0x550 | the course units from the course object's +8 (UserProfile +0x19ED8; 0x3FD438, 0x3FCE30) | |
 | then | 0x6C0 | the options: 0x6B8 bytes from Option +8 (Status +0x2F510; 0x3FFEF8) | |
@@ -313,12 +313,14 @@ copies, each part padded to 16 bytes (0x401D20), in this order:
 | then | 0xE0 | the LAN battle's settings (Option +0x81C +4; 0x400ED8) | |
 | then | 0x130 | the network settings (Option +0x900 +4; 0x4017B0 -> 0x48B308) | |
 
-The profile's size (0x402460) leaves out its name's 16 bytes, so where the profile ends by its size the options
-begin 16 bytes before the course units end: the options are written over the last course unit's last 16 bytes
-(the program's own order; the load 0x402288 reads them the same way). With no car the payload is 0x10 + 0x10 + 0x10
-+ 0x8A00 + 0x15400 - 0x10 + 0x930 = 0x1E750 bytes. ❓ Not written here yet: our Prologue keeps its license results
-for the session only (`prologue_natives.cpp`); a save in this layout and the GameSave / GameLoad / AutoSave pages
-writing it are next (the constructors' values for a new game's options to be read from 0x3FF970 on).
+Measured on the program's own save of a constructed Status (`gt4r_diff <prologue disc> prologue-save`): 0x1E7A0
+bytes (its size routine says the same, and its check accepts them); the name at 0x20, license unit k at 0x30 +
+0x2E0 k, the options at 0x1DE20: the options begin 16 bytes before the course units end (the profile's size,
+0x402460, counts the name but not the cars' count block's own padding the same way), so they are written over the
+last course unit's last 16 bytes; the load (0x402288) reads them in the same order. ❓ Not written here yet: our
+Prologue keeps its license results for the session only (`prologue_natives.cpp`); a save in this layout and the
+GameSave / GameLoad / AutoSave pages writing it are next (a new game's option bytes: the program's own save of a fresh
+Status, as above).
 
 ## The menus ✅ boot to a race
 

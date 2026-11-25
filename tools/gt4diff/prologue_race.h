@@ -51,6 +51,8 @@ void boot(Ee& ee, Disc& disc);
 // is while the race runs: the pad stub reads it.)
 bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, const std::vector<std::string>& labels, int human, Race& r,
                 std::string& err);
+// The game data's layout as the program writes it (prologue_save.cpp): printed.
+bool run_save_layout(Disc& disc);
 // One race step of the program's own (0x3B7020) for every car.
 void step(Ee& ee, Race& r);
 

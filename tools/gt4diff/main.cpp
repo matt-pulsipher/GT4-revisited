@@ -6,6 +6,7 @@
 
 #include "base/log.h"
 #include "diff.h"
+#include "prologue_race.h"
 #include "showroom_check.h"
 
 namespace gt4r::diff::prologue {
@@ -36,6 +37,7 @@ int main(int argc, char** argv) {
         if (test.empty() || test == "params") ok = gt4r::diff::run_params(*disc, true).ran && ok;
         if (test.empty() || test == "leaves") ok = gt4r::diff::run_leaves(*disc, true).ran && ok;
         if (test.empty() || test == "step") ok = gt4r::diff::run_step(*disc, true).ran && ok;
+        if (test == "prologue-save") return gt4r::diff::prologue::run_save_layout(*disc) ? 0 : 1; // gt4r_diff <prologue disc> prologue-save
         if (test == "prologue") // gt4r_diff <prologue disc> prologue [course] [car] [steps] (prologue_step.cpp)
             return gt4r::diff::prologue::run(*disc, argc > 3 ? argv[3] : "tsukuba", argc > 4 ? argv[4] : "civic_typer_97", argc > 5 ? std::atoi(argv[5]) : 1200);
         if (test == "showroom") ok = gt4r::diff::run_showroom(*disc, true, argc > 3 ? size_t(std::atoi(argv[3])) : 0).ran && ok;
