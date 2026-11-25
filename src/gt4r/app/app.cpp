@@ -333,7 +333,8 @@ void App::apply_screen_changes() {
 // frames without a press; "shot:<name>" a picture; "quit" ends the run. The race's controls
 // are held from their token until another changes them: "gas=<0..1>" (the throttle, Cross's
 // pressure), "brake=<0..1>" (Square's), "steer=<-1..1>" (the left stick, left negative),
-// "reverse=<0..1>" (Triangle's), "handbrake=0|1" (Circle), "release" (all let go).
+// "reverse=<0..1>" (Triangle's), "handbrake=0|1" (Circle), "release" (all let go). The second
+// player's: the same names with a 2 ("gas2=1"), and "p2:<button>" pressed on his pad.
 gt3r::PadState App::scripted_keys() {
     gt3r::PadState pad;
     while (key_ < keys_.size()) { // the tokens that take no frame
@@ -348,18 +349,22 @@ gt3r::PadState App::scripted_keys() {
             continue;
         }
         if (k == "release") {
-            drive_ = {}, ++key_;
+            drive_ = {}, drive2_ = {}, ++key_;
             continue;
         }
         if (eq == std::string::npos || k.compare(0, 5, "shot:") == 0) break;
-        const std::string name = k.substr(0, eq);
+        std::string name = k.substr(0, eq);
+        // ("gas2=", "steer2=" ..: the second pad's; "l2=" and "r2=" are buttons.)
+        const bool second = name.size() > 2 && name.back() == '2';
+        if (second) name.pop_back();
+        ScriptedDrive& drive = second ? drive2_ : drive_;
         const float v = float(std::atof(k.c_str() + eq + 1));
-        if (name == "gas" || name == "throttle") drive_.gas = std::clamp(v, 0.0f, 1.0f);
-        else if (name == "brake") drive_.brake = std::clamp(v, 0.0f, 1.0f);
-        else if (name == "steer") drive_.steer = std::clamp(v, -1.0f, 1.0f);
-        else if (name == "reverse") drive_.reverse = std::clamp(v, 0.0f, 1.0f);
-        else if (name == "handbrake") drive_.handbrake = v != 0;
-        else if (name == "lx" || name == "ly" || name == "rx" || name == "ry") drive_.sticks[name[0] == 'l' ? (name[1] == 'x' ? 0 : 1) : (name[1] == 'x' ? 2 : 3)] = std::clamp(v, -1.0f, 1.0f);
+        if (name == "gas" || name == "throttle") drive.gas = std::clamp(v, 0.0f, 1.0f);
+        else if (name == "brake") drive.brake = std::clamp(v, 0.0f, 1.0f);
+        else if (name == "steer") drive.steer = std::clamp(v, -1.0f, 1.0f);
+        else if (name == "reverse") drive.reverse = std::clamp(v, 0.0f, 1.0f);
+        else if (name == "handbrake") drive.handbrake = v != 0;
+        else if (name == "lx" || name == "ly" || name == "rx" || name == "ry") drive.sticks[name[0] == 'l' ? (name[1] == 'x' ? 0 : 1) : (name[1] == 'x' ? 2 : 3)] = std::clamp(v, -1.0f, 1.0f);
         else {
             // A button held ("l1=1" .. "l1=0"): the photo mode's.
             std::string button = name;
@@ -367,13 +372,17 @@ gt3r::PadState App::scripted_keys() {
             if (button.size() == 2) button[1] = char(std::toupper(static_cast<unsigned char>(button[1])));
             if (const auto b = gt3r::pad_button_from_name(button)) {
                 const u16 bit = u16(1u << unsigned(*b));
-                drive_.held = u16(v != 0 ? drive_.held | bit : drive_.held & ~bit);
+                drive.held = u16(v != 0 ? drive.held | bit : drive.held & ~bit);
             } else LOG_WARN("--keys: no control named %s", name.c_str());
         }
         ++key_, key_frames_ = 0;
     }
+    press2_ = {};
     if (key_ < keys_.size()) {
-        const std::string& k = keys_[key_];
+        const std::string& whole = keys_[key_];
+        const bool second = whole.compare(0, 3, "p2:") == 0;
+        const std::string k = second ? whole.substr(3) : whole;
+        gt3r::PadState& to = second ? press2_ : pad;
         const bool wait = k.compare(0, 4, "wait") == 0;
         if (pointer_token(k)) { // the mouse
             ++key_, key_frames_ = 0;
@@ -399,8 +408,8 @@ gt3r::PadState App::scripted_keys() {
                 name[0] = char(std::toupper(static_cast<unsigned char>(name[0])));
                 if (name.size() == 2) name[1] = char(std::toupper(static_cast<unsigned char>(name[1]))); // "L1"
                 if (const auto b = gt3r::pad_button_from_name(name)) {
-                    pad.buttons |= u16(1u << unsigned(*b));
-                    pad.pressure[size_t(*b)] = 255;
+                    to.buttons |= u16(1u << unsigned(*b));
+                    to.pressure[size_t(*b)] = 255;
                 } else if (key_frames_ == 0) {
                     LOG_WARN("--keys: no button named %s", name.c_str());
                 }
@@ -455,21 +464,24 @@ SDL_AppResult App::iterate() {
     {
         // The script's presses and held race controls reach the race's pad too (as an overlay on
         // player 1's: a pad plugged in still drives).
-        gt3r::PadState ov = scripted;
-        const auto hold = [&ov](PadButton b, float v) {
-            if (v <= 0) return;
-            ov.buttons |= u16(1u << unsigned(b));
-            ov.pressure[size_t(b)] = std::max(ov.pressure[size_t(b)], u8(std::lround(v * 255)));
-        };
-        hold(PadButton::Cross, drive_.gas), hold(PadButton::Square, drive_.brake), hold(PadButton::Triangle, drive_.reverse);
-        hold(PadButton::Circle, drive_.handbrake ? 1.0f : 0.0f);
-        ov.set_axis(gt3r::PadAxis::LX, drive_.sticks[0] != 0 ? drive_.sticks[0] : drive_.steer);
-        ov.set_axis(gt3r::PadAxis::LY, drive_.sticks[1]), ov.set_axis(gt3r::PadAxis::RX, drive_.sticks[2]), ov.set_axis(gt3r::PadAxis::RY, drive_.sticks[3]);
-        for (unsigned b = 0; b < 16; ++b)
-            if (drive_.held & (1u << b)) ov.buttons |= u16(1u << b), ov.pressure[b] = 255;
-        ov.connected = ov.buttons != 0 || drive_.steer != 0 || drive_.sticks[0] != 0 || drive_.sticks[1] != 0 || drive_.sticks[2] != 0 || drive_.sticks[3] != 0;
-        input_->set_overlay(0, ov);
-        menu_pad_ = ov;
+        for (int player = 0; player < 2; ++player) {
+            gt3r::PadState ov = player ? press2_ : scripted;
+            const ScriptedDrive& drive = player ? drive2_ : drive_;
+            const auto hold = [&ov](PadButton b, float v) {
+                if (v <= 0) return;
+                ov.buttons |= u16(1u << unsigned(b));
+                ov.pressure[size_t(b)] = std::max(ov.pressure[size_t(b)], u8(std::lround(v * 255)));
+            };
+            hold(PadButton::Cross, drive.gas), hold(PadButton::Square, drive.brake), hold(PadButton::Triangle, drive.reverse);
+            hold(PadButton::Circle, drive.handbrake ? 1.0f : 0.0f);
+            ov.set_axis(gt3r::PadAxis::LX, drive.sticks[0] != 0 ? drive.sticks[0] : drive.steer);
+            ov.set_axis(gt3r::PadAxis::LY, drive.sticks[1]), ov.set_axis(gt3r::PadAxis::RX, drive.sticks[2]), ov.set_axis(gt3r::PadAxis::RY, drive.sticks[3]);
+            for (unsigned b = 0; b < 16; ++b)
+                if (drive.held & (1u << b)) ov.buttons |= u16(1u << b), ov.pressure[b] = 255;
+            ov.connected = ov.buttons != 0 || drive.steer != 0 || drive.sticks[0] != 0 || drive.sticks[1] != 0 || drive.sticks[2] != 0 || drive.sticks[3] != 0;
+            input_->set_overlay(player, ov);
+            if (player == 0) menu_pad_ = ov;
+        }
         for (unsigned b = 0; b < 16; ++b)
             if (drive_.held & (1u << b)) scripted.buttons |= u16(1u << b), scripted.pressure[b] = 255;
     }

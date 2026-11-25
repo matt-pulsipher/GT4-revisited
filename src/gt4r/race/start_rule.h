@@ -99,5 +99,8 @@ int start_code_digit(const std::string& code, size_t i);
 // An arcade single race's rules (the conductor's virtuals 26 and 11, 0x34CA20 / 0x354F30: the options penalty_type 0 none, 1 the
 // speed limit, 2 the pit lane, and tire_damage 0 .. 2, the race information's +4 and +8) over its RACE row's columns.
 void arcade_rules(std::vector<u8>& row, int penalty, int tire_damage);
+// The tread wear's curve by a tire damage option (virtual 11, 0x354F30: none but 1 and 2; rule block +0x2C .. +0x34, here the
+// row's +0x6B .. +0x73 they come from).
+void put_tire_damage(std::vector<u8>& row, int level);
 
 } // namespace gt4r::race
