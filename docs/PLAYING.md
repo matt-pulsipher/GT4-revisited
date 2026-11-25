@@ -95,7 +95,8 @@ Every change is applied at once and kept in `config.ini`; the 3D renderer is tak
   Xbox controllers are read.
 - *Disc & saves*: the disc in use, whether its files are a tested release's own and whether the image is complete; the
   disc images opened before (Cross opens one, Square takes it off the list); the folder the games, replays and photos
-  are kept in (a new one gets a copy of what it does not have; nothing is written over); what opens at the start; the data
+  are kept in (a new one gets a copy of what it does not have; nothing is written over); the server of the races over the
+  internet (none until you choose one); what opens at the start; the data
   folder; the log of this session and of the one before (`gt3r.log`, `gt3r.prev.log` in the data folder: an uncaught error or
   a crash is its last line; your name is taken out of the paths); the version.
 - *Mods*: below.
@@ -202,7 +203,19 @@ race.
    players' letters, the list at the right the order. A player whose connection goes leaves the race; the others race on.
 6. After the results the host takes everyone back to the course page for another race.
 
-Copies of two versions of the game may not meet: the page says which must be updated.
+Copies of two versions of the game may not meet: the page says which must be updated. The server is kept in `config.ini`,
+with the rules a host chose:
+
+```
+[online]
+server =                 ; none until you choose one (Settings > Disc & saves, or the page that asks)
+port = 47634             ; the local network's (the next three are tried too)
+players = 2              ; 2 .. 6: how many the menus wait for
+max_power = 0            ; PS; 0: no limit
+garage_cars = 1          ; 1 | 0: cars as sold alone
+any_car = 1              ; 1 | 0: the favorites alone
+ghost_ms = 150           ; contact up to this round trip; 0: always
+```
 
 ## What works
 

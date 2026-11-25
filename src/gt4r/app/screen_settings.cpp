@@ -3,6 +3,7 @@
 // applied at once, except where a row says when.
 
 #include "gt4r/app/app.h"
+#include "gt4r/app/online.h"
 #include "gt4r/app/page.h"
 #include "gt4r/app/texture_dump.h"
 #include "gt4r/input/player_controls.h"
@@ -369,6 +370,18 @@ private:
         rows_.heading("Saves");
         PageRow& saves = rows_.action("Save folder", app.save_dir_chosen() ? app.save_dir() : std::string("the data folder"), "choose another", [this, a] { folder_.open_folder(*a); });
         if (app.save_dir_chosen()) saves.other = [this, a] { use_save_folder(*a, ""); }, saves.other_hint = "the data folder";
+        // The server the races over the internet meet through (the Multi-LAN Race's page asks for one the first time, and takes a
+        // name typed): none is contacted before one is chosen.
+        rows_.heading("Online races");
+        {
+            const std::string now = app.config().get("online", "server").value_or("");
+            std::vector<std::pair<std::string, std::string>> servers{{"", "none"}, {kOfferedServer, kOfferedServer}};
+            if (!now.empty() && now != kOfferedServer) servers.emplace_back(now, now);
+            rows_.pick("Internet server", servers, now, [a](const std::string& v) {
+                a->config().set("online", "server", v);
+                a->save_config();
+            });
+        }
         rows_.heading("This app");
         rows_.choice("Starts in", {"The game", "The home screen"}, app.config().get("game", "start").value_or("game") == "hub", [a](size_t i) {
             a->config().set("game", "start", i ? "hub" : "game");
