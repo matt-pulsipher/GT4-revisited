@@ -619,6 +619,7 @@ public:
         // B-spec: the pace "Steady", the low view from the car's nose (as the original's B-spec race
         // opens), the help strip shown.
         bspec_pace_ = 3, overtake_steps_ = 0, bspec_help_ = true, focus_ = 0;
+        snapshot_ = false, dissolve_total_ = dissolve_left_ = 0; // (a cut of the menus' scene behind the page ends with it)
         if (before_tv_ && mount_ == kTvView) mount_ = *before_tv_; // (the results page's cameras, back to the player's view)
         before_tv_.reset();
         if (watched) mount_ = race::DriveCamera::kInCar;
@@ -881,7 +882,7 @@ public:
         beeps_ += ev.beep;
         start_camera_.step();
         if (const float d = start_camera_.dissolve(); d > 0) begin_dissolve(int(std::lround(d * 60)));
-        if (start_paths_[0].records.size() && !demo && mount_ != kTvView) step_dissolve();
+        if (mount_ != kTvView && !opening && !demo) step_dissolve(); // (else step_tv's)
         const size_t f = focus();
         camera_.step(world_->cars()[f], kStep);
         step_gear(world_->cars()[f]);
@@ -1971,7 +1972,9 @@ public:
                     if (e.name == "TropyPanel" && license_page()) draw_trophy(app, ui, e);
                     if (e.name == "BRONZ" && license_page() && prologue_license_) draw_trophy(app, ui, e);
                     if (e.name.rfind("_EXT_CARICON", 0) == 0) {
-                        const int row = std::atoi(e.name.c_str() + 12) - 1;
+                        int row = std::atoi(e.name.c_str() + 12) - 1;
+                        // (a points page's row: the car whose name it shows)
+                        if (points_phase_ >= 2 && row >= 0 && size_t(row) < ranking_shown_.size()) row = int(ranking_shown_[size_t(row)]);
                         if (row >= 0 && size_t(row) < rows.size() && rows[size_t(row)].car >= 0) icons.push_back({size_t(rows[size_t(row)].car), e.x, e.y, e.opacity});
                     }
                 }
@@ -2415,7 +2418,7 @@ private:
             if (setup_.scripted) app.pop();
         }
     }
-    void close_pause(const std::string& result) {
+    void close_pause(std::string result) { // (by value: the result given is often pause_result_ itself)
         paused_ = false;
         pause_.reset();
         pause_result_.clear();
@@ -2874,7 +2877,7 @@ private:
     // The results movie (menu/common/result.strb) with the race's rows: its callbacks answer from the
     // race's results (docs/formats/strobe.md "The results movie").
     void open_results(App& app) {
-        result_tried_ = true, result_exit_ = false, points_phase_ = 0;
+        result_tried_ = true, result_exit_ = false, points_phase_ = 0, ranking_shown_.clear();
         trophy_kind_ = -1, inset_shown_ = true;
         entered_name_.clear();
         if (!result_movie_) {
@@ -2954,6 +2957,8 @@ private:
                 if (points_phase_ >= 2 && i >= 0 && size_t(i) < board.rows().size()) {
                     const size_t r = ranking(points_phase_ == 3)[size_t(i)];
                     if (n == "CB_GETNAME") {
+                        for (size_t k = ranking_shown_.size(); k < board.rows().size(); ++k) ranking_shown_.push_back(k);
+                        ranking_shown_[size_t(i)] = r;
                         const int car = board.rows()[r].car;
                         return V::string(car >= 0 ? race_->car_short_name(size_t(car)) : std::string());
                     }
@@ -3247,6 +3252,7 @@ private:
     std::unique_ptr<race::StrobePlayer> result_;
     bool result_tried_ = false, result_exit_ = false;
     int points_phase_ = 0; // a championship's results movie: 0 the times, 1 Drivers Point, 2 the points added, 3 Point Ranking
+    std::vector<size_t> ranking_shown_; // the finishing row each row of the points pages names
     std::shared_ptr<const race::StrobeMovie> license_movie_;
     bool license_retry_ = false;
     bool prologue_license_ = false; // the license results movie is Prologue's

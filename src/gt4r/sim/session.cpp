@@ -268,7 +268,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
             if (ground_->at_place(at.pos, h)) at.pos.y = h.point.y;
         }
         if (e.line_start) at.pos = {e.line_start->x.host(), e.line_start->z.host(), -e.line_start->y.host()}, at.heading = (e.line_start->heading - kPi).host();
-        if (gt4_rules_) setup(i, at, kind, e.start_speed, e.fuel, e.line_start ? &*e.line_start : nullptr, e.control, e.driver);
+        if (gt4_rules_) setup(i, at, kind, e.start_speed, e.fuel, e.line_start ? &*e.line_start : nullptr, e.control, e.driver, e.line_start ? e.line_start->open_throttle : e.open_throttle);
         else place(i, at);
         publish(i);
     }
@@ -326,7 +326,8 @@ rules::PoseHooks Session::pose_hooks() {
 }
 
 // Gran Turismo 4's set-up of a car on its start place (0x363B10 from the converter on, rules::car_setup).
-void Session::setup(size_t i, const course::Runway::Place& at, int kind, float speed, bool fuel, const Entry::LineStart* line, gt3r::s8 control, u8 driver) {
+void Session::setup(size_t i, const course::Runway::Place& at, int kind, float speed, bool fuel, const Entry::LineStart* line, gt3r::s8 control, u8 driver,
+                    const std::function<bool(F)>& open_throttle) {
     ex::Car& c = cars_[i];
     rules::SetupArgs a;
     a.index = int(i);
@@ -346,10 +347,10 @@ void Session::setup(size_t i, const course::Runway::Place& at, int kind, float s
     }
     rules::SetupHooks h;
     h.pose = pose_hooks();
-    if (line && line->open_throttle) h.open_throttle = [&c, line] { return line->open_throttle(c.f3e4); };
+    if (open_throttle) h.open_throttle = [&c, &open_throttle] { return open_throttle(c.f3e4); };
     rules::car_setup(c, gx_[i], layouts_[i], start_tables_, tables_.wear, a, h);
     rules::view_start(c, gx_[i].feel.view); // (0x3455F0's part outside the record)
-    if (line && line->speed > 0) gx_[i].speeds.speedo = c.speed; // (the meter's speed as the moving start leaves it)
+    if (line ? line->speed > 0 : speed > 0) gx_[i].speeds.speedo = c.speed; // (the meter's speed as the moving start leaves it)
     // (the session's own ground records: the kinds and materials publish reads)
     for (size_t w = 0; w < 4; ++w) extra_[i].kinds[w] = c.g[w].miss ? 0 : c.g[w].flags, extra_[i].materials[w] = c.g[w].miss ? 0 : c.g[w].material;
     c.x16d1 = 1;

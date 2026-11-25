@@ -56,7 +56,7 @@ DemonstrationRun run_demonstration(Disc& disc, db::SpecDb& sdb, const std::strin
         for (size_t i = 0; i < entries.size(); ++i) {
             sim::Entry& e = entries[i];
             planned.push_back(plan_start(race, i, e.grid_place >= 0 ? e.grid_place : int(i)));
-            e.line_start = planned.back().line, e.place = planned.back().place;
+            put_start(e, race, planned.back(), i == 0, e.grid_place >= 0 ? e.grid_place : int(i), program);
             e.control = i > 0 ? 2 : 0;
         }
         sim::Session::Options so;

@@ -107,7 +107,7 @@ CarStart car_start(const RowStart& row, Conductor c, size_t car, int section_sta
     const int distance = row.distance_of(c, car), speed = row.speed_of(c, car);
     if (distance < 0 && speed > 0) s.kind = 2; // (0x34D168)
     else if (distance != 0) s.kind = 1;        // (0x34D070)
-    if (s.kind) s.distance = distance + section_start;
+    if (s.kind) s.distance = distance + section_start; // (0x34D0F8: the speed stays with the grid too)
     s.speed = speed;
     if (section_start != 0 && s.distance > 0) s.mark = s.kind == 2 || s.distance < section_start ? 1 : 2;
     return s;

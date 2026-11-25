@@ -69,6 +69,10 @@ PlannedStart plan_start(const StartRace& race, size_t car, int grid_place, std::
 // (0x620AD8's row of six), the side lines 1 and 2 exchanged where the grid's second place lies on the first's other side.
 int first_line(const StartRace& race, const PlannedStart& p, bool pad, int grid_place, const sim::Program& program);
 
+// A planned start into the session's entry: its line or its section's place, and a moving start from the grid (kind 0 with a speed:
+// 0x363B10 gives it at 0x3646A8 whatever the kind), its throttle open on a straight of its driver's line (0x463B98).
+void put_start(sim::Entry& entry, const StartRace& race, const PlannedStart& p, bool pad, int grid_place, const sim::Program& program);
+
 // The car's crossings of the line at its start (F + 0x4AC, 0x363B10): on a driving line 0 before the line and one more than
 // the whole laps past it; on the grid by its sector (start_crossings). `v`: the car's distance along the course.
 int planned_crossings(const StartRace& race, const PlannedStart& p, float v);
