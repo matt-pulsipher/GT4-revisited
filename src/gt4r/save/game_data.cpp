@@ -39,6 +39,9 @@ std::string get_text(ByteSpan b, size_t o, size_t n) {
     return std::string(reinterpret_cast<const char*>(b.data() + o), len);
 }
 
+// The two ports' controller settings (Option +0x11D0, OptionRaceControllerPS2: input/key_config.h).
+const std::pair<const char*, size_t> kControllerOptions[] = {{"controllers_1p", kControllers}, {"controllers_2p", kControllers + input::PortConfig::kSize}};
+
 // The options that are plain numbers, by their place in the Option object (the MOption
 // natives' fields; save.md "The options").
 struct OptionField {
@@ -110,15 +113,6 @@ void fresh_playlist(Bytes& b, size_t rows) {
     for (size_t i = 0; i < 128; ++i) b[rows + 16 * i + 1] = 1, b[rows + 16 * i + 2] = 0xFF, b[rows + 16 * i + 3] = 0xFF;
 }
 
-// The controllers' default button maps (each player's 0x60 bytes: four pieces, one per kind of
-// pad; the constructors' tables, not decoded further).
-const u8 kControllerMap[0x60] = {
-    0x01, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x03, 0x04, 0x00, 0x01, 0x10, 0xFF, 0x07, 0x06, 0x04, 0x05, 0x0A, 0x08, 0x02,
-    0x03, 0xFF, 0x0F, 0x11, 0x09, 0x01, 0x00, 0x00, 0x01, 0x00, 0x03, 0x04, 0x0A, 0x08, 0x11, 0x07, 0x02, 0x03, 0x01, 0x00, 0x01, 0x00, 0x03, 0x04,
-    0x0D, 0x0E, 0x10, 0x0C, 0x07, 0x06, 0xFF, 0xFF, 0x0A, 0x08, 0x02, 0x03, 0x02, 0x03, 0x11, 0x09, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x03, 0x04,
-    0x0D, 0x0E, 0x10, 0x0C, 0x07, 0x06, 0xFF, 0xFF, 0x0A, 0x08, 0xFF, 0x0F, 0x02, 0x03, 0x11, 0x09, 0x03, 0x02, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00,
-};
-
 void put_record(Bytes& b, size_t o, const CarRecord& r) { std::memcpy(b.data() + o, r.bytes.data(), CarRecord::kSize); }
 
 // A sorted list of codes, the rest -1 (0x42E968).
@@ -174,8 +168,7 @@ Bytes new_game_payload() {
         {0x1180, 4}, {0x1184, 3},
     };
     for (const auto& [at, v] : kNumbers) put32(b, option(at), v);
-    std::memcpy(b.data() + kControllers, kControllerMap, 0x60);
-    std::memcpy(b.data() + kControllers + 0x60, kControllerMap, 0x60);
+    for (size_t i = 0; i < 2; ++i) input::PortConfig().write(b.data() + kControllers + input::PortConfig::kSize * i);
     // LAN: both names "Player1", then the monitor and the machines.
     put_text(b, kLan, 0x40, "Player1"), put_text(b, kLan + 0x44, 0x40, "Player1");
     put32(b, kLan + 0x88, 1), put32(b, kLan + 0x8C, 1), put32(b, kLan + 0x90, 2), put32(b, kLan + 0x9C, 1), put32(b, kLan + 0xA4, 1);
@@ -265,6 +258,9 @@ Bytes write_game(const GameState& s, const Codes& codes) {
     }
     for (size_t i = 0; i < 8; ++i) put32(b, kUsedCar + 4 * i, s.used_sold[i]);
     put32(b, kUsedCar + 0x20, s.used_week);
+    // The controllers' settings.
+    for (const auto& [name, at] : kControllerOptions)
+        if (const std::string t = s.option_text(name); !t.empty()) input::port_from_text(t).write(b.data() + at);
     // The options that are numbers, and the zone.
     for (const OptionField& f : kOptionNumbers)
         if (const auto it = s.options.find(f.name); it != s.options.end())
@@ -400,6 +396,11 @@ bool read_game(ByteSpan p, GameState& s, const Codes& codes, std::vector<int>* r
     }
     for (size_t i = 0; i < 8; ++i) s.used_sold[i] = get32(p, kUsedCar + 4 * i);
     s.used_week = get32(p, kUsedCar + 0x20);
+    for (const auto& [name, at] : kControllerOptions) {
+        input::PortConfig c;
+        c.read(p.data() + at);
+        s.options[name] = input::port_text(c);
+    }
     for (const OptionField& f : kOptionNumbers) s.options[f.name] = s32(get32(p, option(f.at)));
     if (const u32 z = get32(p, kGameZone); z > 0 && z < 6) s.options["game_zone"] = std::string(kZones[z]);
     for (const auto& [name, bit] : kDisplayBits) s.options[name] = s32((get32(p, option(kDisplayWord)) & bit) != 0);
