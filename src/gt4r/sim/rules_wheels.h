@@ -16,6 +16,9 @@ void hub_offsets_xy(ex::Car& c, const WheelLayout& l);
 void hub_offsets_z(ex::Car& c, const WheelLayout& l);
 // 0x345A20 (phase 19): both.
 inline void hub_offsets(ex::Car& c, const WheelLayout& l) { hub_offsets_z(c, l), hub_offsets_xy(c, l); }
+// 0x345A50 (phase 16, after the hub offsets): each wheel's speed ramp (wheel +0x40): the hub's speed along and across the
+// car (wheel +0x28 / +0x2C) x 0.02 (0x3CA3D70B), at most 1; for the layout's wheels.
+void speed_ramp(ex::Car& c, const WheelLayout& l);
 
 // 0x344040 (phase 19, last but the effects): the heading kept within a turn; each wheel's spin angle by its rim speed over
 // its axle's tire radius (the layout's axle; nothing while the start holds the car) within a turn, the last step's moved

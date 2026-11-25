@@ -130,6 +130,11 @@ void add_taps_near(Taps& taps);   // proximity, slipstream, the speed-switched p
 void add_taps_phases(Taps& taps); // phases 1, 2, 3, 6, the preparation, the hit records (taps_phases.cpp)
 void add_taps_input(Taps& taps);  // the driver's input (taps_input.cpp)
 void add_taps_start(Taps& taps);  // the start's hold, the attitude's start hold, the rolling hold and its release (taps_start.cpp)
+void add_taps_force(Taps& taps);  // the steering wheel's force (taps_force.cpp)
+void add_taps_parts(Taps& taps);  // the spring rate 0x35D248, the wheels' emits 0x3668F0 (taps_parts.cpp)
+// GT4R_STEP_CATEGORY / GT4R_STEP_SIT (taps_parts.cpp): the first car's category forced before the run, its handbrake pulled.
+void parts_before_run(Ee& ee, const OrigRace& o);
+void parts_before_step(int step, Pad& pad);
 // The car's set-up as the conductor's initialisation runs it and the race step's start hold per car (taps_start.cpp: before
 // the initialisation), and what GT4R_START_* asks of the race before each step.
 void install_setup_taps(Ee& ee, const OrigRace& race, const ex::RaceInputs& inputs);

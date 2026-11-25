@@ -287,4 +287,13 @@ std::optional<sim::Equipment> race_equipment(const GameState& game, int garage_s
     return q;
 }
 
+std::optional<std::array<u8, 0x20>> race_condition(const GameState& game, int garage_slot) {
+    if (garage_slot < 0 || size_t(garage_slot) >= game.garage.size()) return std::nullopt;
+    const GarageEntry& e = game.garage[size_t(garage_slot)];
+    if (!e.used || !e.record) return std::nullopt;
+    std::array<u8, 0x20> c{};
+    std::copy_n(e.record->bytes.begin() + 0x498, std::min<size_t>(0x20, e.record->bytes.size() - 0x498), c.begin());
+    return c;
+}
+
 } // namespace gt4r::menu

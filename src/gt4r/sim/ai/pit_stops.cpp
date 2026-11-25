@@ -75,10 +75,18 @@ void PitStops::before(const Field& field, std::span<race::CarInput> inputs) {
             const std::pair<int, int> own = hooks_.tires ? hooks_.tires(i) : std::pair<int, int>{-1, -1};
             StopRecord& r = records_[i][0];
             if (chose_f == 0xFE) r.front = own.first;
-            else if (chose_f != 0xFF && e.chosen_tires) r.front = chose_f;
             if (chose_r == 0xFE) r.rear = own.second;
-            else if (chose_r != 0xFF && e.chosen_tires) r.rear = chose_r;
+            if (e.chosen_tires && hooks_.change_tires) { // (the chosen kinds the pit has a part for: fitted and recorded)
+                hooks_.change_tires(i, chose_f, chose_r, u8((svc & 0x40 ? 1 : 0) | (svc & 0x80 ? 2 : 0)));
+                const std::pair<int, int> now = hooks_.tires ? hooks_.tires(i) : std::pair<int, int>{chose_f, chose_r};
+                if (chose_f < 0xFE && now.first == chose_f) r.front = chose_f;
+                if (chose_r < 0xFE && now.second == chose_r) r.rear = chose_r;
+            } else {
+                if (chose_f < 0xFE && e.chosen_tires) r.front = chose_f;
+                if (chose_r < 0xFE && e.chosen_tires) r.rear = chose_r;
+            }
         }
+        if (e.chosen_params && hooks_.retune_tires) hooks_.retune_tires(i, u8((svc & 0x40 ? 1 : 0) | (svc & 0x80 ? 2 : 0)));
         for (int w : e.new_tires)
             if (hooks_.new_tire) hooks_.new_tire(i, w);
         // Standing in the box: the hold counter keeps the car (the preparation's hold, 0x35C0B8 / 0x357700).

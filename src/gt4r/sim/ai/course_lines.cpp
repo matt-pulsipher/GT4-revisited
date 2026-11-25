@@ -2,11 +2,11 @@
 
 #include "base/ee_float.h"
 #include "base/ee_math.h"
-#include "gt4r/sim/rules.h"
-#include "sim/exact/build_math.h"
+#include "gt4r/sim/ai/ee_math.h"
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <numbers>
 
 namespace gt4r::sim::ai {
@@ -58,6 +58,15 @@ bool quad_place(const Vec3& pp, const Vec3& aa, const Vec3& bb, const Vec3& cc, 
     return true;
 }
 
+// 0x36CB90: an angle into [-pi, pi) (beyond three half turns by whole turns, 0x36CB20).
+F angle_in_turn(F x) {
+    const F pi = F::raw(0x40490FDA), two_pi = F::raw(0x40C90FDA), three_pi = F::raw(0x4116CBE3);
+    auto turns = [&] { return gt3r::ee::int_to_f(gt3r::ee::to_int(((gt3r::ee::abs(x) + pi) / two_pi).bits)); };
+    if (x < -pi) return x < -three_pi ? x + turns() * two_pi : x + two_pi;
+    if (pi <= x) return three_pi < x ? x + turns() * (-two_pi) : x - two_pi;
+    return x;
+}
+
 } // namespace
 
 bool CourseLines::course_distance(const Vec3& p, int cluster, float& out) const {
@@ -102,12 +111,17 @@ CourseLines::CourseLines(const course::AiData& data, const RoadGround& ground, c
             LinePoint q;
             q.kind = p.kind, q.brake_adjust = p.brake_adjust, q.speed_adjust = p.speed_adjust;
             // The file's frame is the simulation's turned half round: (x, y) there is (-x, -y) here.
-            q.x = -p.x, q.y = -p.y, q.radius = p.radius, q.heading = (F(p.heading) + F::raw(0x40490FDA)).host(); // (0x46B248, in the program's arithmetic)
+            q.x = -p.x, q.y = -p.y, q.radius = p.radius;
+            // 0x46B248 (a half turn added), or the older files' 0x46BCB0: the heading's whole number of 1/4096 turns x 2 pi / 4096
+            // and the half turn, in the program's arithmetic (ours from the number the reader made a float of).
+            F heading = F(p.heading);
+            if (data.format == course::AiData::Format::Fixed)
+                heading = (gt3r::ee::int_to_f(s32(std::lround(double(p.heading) * 4096.0 / (2 * std::numbers::pi)))) * F::raw(0x40C90FDA)) * F::raw(0x39800000);
+            q.heading = (heading + F::raw(0x40490FDA)).host();
             lines_[size_t(k)].push_back(q);
         }
-    // In the program's order: each line's first height query starts from where the last line's ended.
-    float query = 1000.0f;
-    for (u8 k : tables.order) prepare(k, query);
+    // In the program's order (0x46A510).
+    for (u8 k : tables.order) prepare(k);
 }
 
 bool CourseLines::empty() const {
@@ -116,105 +130,132 @@ bool CourseLines::empty() const {
     return true;
 }
 
-void CourseLines::prepare(int k, float& query) {
+void CourseLines::prepare(int k) {
+    using gt3r::ee::sqrt;
     std::vector<LinePoint>& pts = lines_[size_t(k)];
     if (pts.empty()) return;
     const size_t n = pts.size();
+    const F zero = F::raw(0), one = F::raw(0x3F800000), half = F::raw(0x3F000000), lap(lap_);
+    // 0x46A0C8: the road under (x, y) from 5 m above the height q (0x395760 at (x, q, -y)).
+    auto road = [&](F x, F y, F q, GroundHit& hit) {
+        const F p[3] = {x, q + F::raw(0x40A00000), -y};
+        return ground_->query(p, hit);
+    };
     bool unordered = false, lap_added = false;
-    int hint = -1;
-    float prev_h = 0;
+    // Each line starts from 1,000 m; the last point's place (as the file has it), its height, its distance.
+    F query = F::raw(0x447A0000), last_x = zero, last_y = zero, last_dist = zero;
     for (size_t i = 0; i < n; ++i) {
         LinePoint& p = pts[i];
-        if (p.kind != 0) p.kind = k == kSideMap ? 1 : p.radius > 0 ? 1 : 2;
-        // The stop line's middle points stand on the road's pit stops (the nearest within 5 m), facing the stop's way.
+        const F px(p.x), py(p.y);
+        // The height the road is looked for from: from a little above the last height (more along a longer stretch),
+        // then 100 m higher; its whole metres + 2 (the last's + 3 with no road there).
+        if (i > 0) {
+            const F dx = px - last_x, dy = py - last_y;
+            const F from = query + (sqrt(dx * dx + dy * dy) * F::raw(0x3DCCCCCC) + one);
+            GroundHit hit;
+            F h = query + F::raw(0x40400000);
+            if (road(px, py, from, hit) || road(px, py, from + F::raw(0x42C80000), hit)) h = F(hit.point.y);
+            query = gt3r::ee::int_to_f(gt3r::ee::to_int(h) + 2);
+        }
+        last_x = px, last_y = py;
+        if (p.kind != 0) p.kind = k == kSideMap ? 1 : zero < F(p.radius) ? 1 : 2;
+        // The stop line's middle points stand on the road's pit stops (the first within 5 m, a nearer one after it),
+        // facing the stop's way.
         if (k == kPitStop && i >= 3 && i + 4 <= n) {
             const auto& stops = ground_->road().pit_stops;
             int best = -1;
-            float best_d = 5.0f;
+            F best_d = F::raw(0x47C35000);
             for (size_t j = 0; j < stops.size(); ++j) {
-                const float d = std::hypot(stops[j].pos.x - p.x, -stops[j].pos.z - p.y);
-                if (d < best_d) best_d = d, best = int(j);
+                const F dx = F(stops[j].pos.x) - px, dy = (-F(stops[j].pos.z)) - py;
+                const F d = sqrt(dx * dx + dy * dy);
+                if (F::raw(0x40A00000) < d) continue;
+                if (d < best_d || best < 0) best_d = d, best = int(j);
             }
             if (best >= 0) {
                 const auto& st = stops[size_t(best)];
-                p.x = st.pos.x, p.y = -st.pos.z;
+                p.x = st.pos.x, p.y = (-F(st.pos.z)).host();
                 // A half turn added, then into [-pi, pi) (0x36CB90).
-                const F pi = F::raw(0x40490FDA), two_pi = F::raw(0x40C90FDA);
-                F hd = F(st.heading) + pi;
-                if (hd < -pi) hd = hd + two_pi;
-                else if (pi <= hd) hd = hd - two_pi;
-                p.heading = hd.host();
+                u32 bits;
+                std::memcpy(&bits, &st.heading, 4);
+                p.heading = angle_in_turn(F::raw(bits) + F::raw(0x40490FDA)).host();
             }
         }
-        // The road under the point: from well above the first point, then from a little above the last height (more
-        // along a longer stretch), then from 100 m above.
-        GroundHit hit;
-        bool found = false;
-        // (a line's first point below the last line's end: from 1000 m, the program's own start)
-        if (i == 0) found = ground_->cast_down(course_point(p.x, p.y, query), hit) || ground_->cast_down(course_point(p.x, p.y, 1000.0f), hit);
-        else {
-            const LinePoint& q = pts[i - 1];
-            const float chord = std::hypot(p.x - q.x, p.y - q.y);
-            found = ground_->cast_down(course_point(p.x, p.y, prev_h + 0.1f * chord + 1.0f), hit) ||
-                    ground_->cast_down(course_point(p.x, p.y, prev_h + 100.0f), hit);
+        const F x(p.x), y(p.y);
+        // The distance along the course at the query's height (0x3955E8: the road cluster under it from 1,000 m above).
+        {
+            const F at[3] = {x, query, -y};
+            bool found = false;
+            F s = ground_->course_distance(at, -1, &found);
+            // (a road without the clusters' checkpoint lists, Prologue's: between the checkpoint lines)
+            if (!found && ground_->road().checkpoint_lookup.empty()) {
+                float v = 0;
+                int hint = -1;
+                if (ground_->distance_along(course_point(p.x, p.y, query.host()), v, &hint)) s = F(wrap_lap(v));
+            }
+            p.dist = s.host();
         }
-        if (found) {
-            p.height = hit.point.y;
-            p.surface = surface_index(hit.material, hit.flags);
-            p.pit = hit.flags & 1;
-            // 0x46A140: the slope and bank from the road's heights half a metre ahead and behind, left and right (a probe
-            // that meets no road: the point's own height half a metre from the other).
-            const F h(p.heading), half = F::raw(0x3F000000), one = F::raw(0x3F800000);
-            const F hs = gt3r::ee::sin(h) * half, hc = gt3r::ee::cos(h) * half, x(p.x), y(p.y), at(p.height);
-            auto probe = [&](F px, F py, F& out) {
+        p.height = 0, p.slope = 0, p.bank = 0, p.surface = 0, p.pit = false;
+        // 0x46A140 (not on line 5): the road under the point from the query's height, and its slope and bank from the
+        // road half a metre ahead and behind, left and right (a probe that meets no road: the point's own height half a
+        // metre from the other; neither of a pair: none kept).
+        if (k != kSideMap) {
+            GroundHit hit;
+            if (road(x, y, query, hit)) {
+                const F at(hit.point.y);
+                const F hd(p.heading), hs = gt3r::ee::sin(hd) * half, hc = gt3r::ee::cos(hd) * half;
+                F ahead = zero, behind = zero, left = zero, right = zero;
                 GroundHit g;
-                if (!ground_->under(course_point(px.host(), py.host(), p.height), g)) return false;
-                out = F(g.point.y);
-                return true;
-            };
-            F ahead, behind, left, right;
-            const bool a = probe(x - hs, y + hc, ahead), b = probe(x + hs, y - hc, behind);
-            const bool l = probe(x - hc, y - hs, left), r = probe(x + hc, y + hs, right);
-            const gt3r::sim::Behaviour beh = rules::behaviour();
-            p.slope = p.bank = 0;
-            if (a || b)
-                p.slope = gt3r::sim::exact::atan2(beh, !a ? at - behind : !b ? ahead - at : ahead - behind, a && b ? one : half).host();
-            if (l || r)
-                p.bank = gt3r::sim::exact::atan2(beh, !l ? at - right : !r ? left - at : left - right, l && r ? one : half).host();
-        } else {
-            p.height = i == 0 ? 0 : prev_h;
+                const bool a = road(x - hs, y + hc, query, g);
+                if (a) ahead = F(g.point.y);
+                const bool b = road(x + hs, y - hc, query, g);
+                if (b) behind = F(g.point.y);
+                const bool l = road(x - hc, y - hs, query, g);
+                if (l) left = F(g.point.y);
+                const bool r = road(x + hc, y + hs, query, g);
+                if (r) right = F(g.point.y);
+                if ((a || b) && (l || r)) {
+                    p.height = hit.point.y;
+                    p.surface = surface_index(hit.material, hit.flags);
+                    p.pit = hit.flags & 1;
+                    p.slope = sim::ai::atan2(!a ? at - behind : !b ? ahead - at : ahead - behind, a && b ? one : half).host();
+                    p.bank = sim::ai::atan2(!l ? at - right : !r ? left - at : left - right, l && r ? one : half).host();
+                    query = at;
+                }
+            }
         }
-        prev_h = p.height;
-        query = std::trunc(p.height) + 2.0f;
-        float s = 0;
-        if (course_distance(course_point(p.x, p.y, p.height), found ? hit.cluster : -1, s)) p.dist = s;
-        // (a road without the clusters' checkpoint lists, Prologue's: between the checkpoint lines)
-        else if (ground_->distance_along(course_point(p.x, p.y, p.height), s, &hint)) p.dist = s >= lap_ ? s - lap_ : s < 0 ? s + lap_ : s;
-        else p.dist = i ? pts[i - 1].dist : 0;
+        F dist(p.dist);
         if (k == kPitStop) {
-            if (!lap_added && p.dist < lap_ * 0.5f) lap_added = true;
-            if (lap_added) p.dist += lap_;
+            if (dist < lap * half) lap_added = true;
+            if (lap_added) dist = dist + lap, p.dist = dist.host();
         }
-        if (i > 0 && p.dist <= pts[i - 1].dist) unordered = true;
+        if (!(last_dist < dist)) unordered = true;
+        last_dist = dist;
     }
-    // The stretch to the next point: a chord, or the arc's length.
+    // The stretch to the next point: a chord, or the arc's length; the rise to it and its pitch.
     for (size_t i = 0; i < n; ++i) {
         LinePoint& p = pts[i];
-        const LinePoint& q = pts[(i + 1) % n];
+        const LinePoint& q = pts[i + 1 < n ? i + 1 : 0];
         p.crest = false;
-        if (p.kind == 0) p.length = std::hypot(q.x - p.x, q.y - p.y);
-        else {
-            float h0 = p.heading, h1 = q.heading;
-            if (p.kind == 1 && h1 < h0) h0 -= kTwoPi;
-            if (p.kind == 2 && h0 < h1) h1 -= kTwoPi;
-            p.length = std::fabs(p.radius) * std::fabs(h1 - h0);
+        const F dx = F(q.x) - F(p.x), dy = F(q.y) - F(p.y);
+        F length = sqrt(dx * dx + dy * dy);
+        if (p.kind == 1 || p.kind == 2) {
+            F r(p.radius), h0(p.heading), h1(q.heading);
+            if (r < zero) r = -r;
+            const F two_pi = F::raw(0x40C90FDA);
+            if (p.kind == 1 && h1 < h0) h0 = h0 - two_pi;
+            if (p.kind == 2 && h0 < h1) h1 = h1 - two_pi;
+            F turn = h1 - h0;
+            if (turn < zero) turn = -turn;
+            length = r * turn;
         }
-        p.rise = q.height - p.height;
-        p.pitch = p.length > 0 ? std::atan2(p.rise, p.length) : 0;
+        const F rise = F(q.height) - F(p.height);
+        p.length = length.host(), p.rise = rise.host();
+        p.pitch = zero < length ? sim::ai::atan2(rise, length).host() : 0;
     }
+    // A crest where the pitch falls by more than a degree from the last point's.
     for (size_t i = 0; i < n; ++i) {
-        const LinePoint& prev = pts[(i + n - 1) % n];
-        if (pts[i].pitch - prev.pitch < -kPi / 180.0f) pts[i].crest = true;
+        const LinePoint& prev = pts[i > 0 ? i - 1 : n - 1];
+        if (F(pts[i].pitch) - F(prev.pitch) < F::raw(0xBC8EFA34)) pts[i].crest = true;
     }
     // A passing line or the variant whose distances do not rise is not used.
     if (unordered && (k == 1 || k == 2 || k == 7)) pts.clear();

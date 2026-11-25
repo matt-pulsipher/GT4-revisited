@@ -14,6 +14,7 @@
 
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/sim/ai/drivers.h"
+#include "gt4r/sim/ai/grid.h"
 #include "gt4r/sim/ai/run.h"
 #include "gt4r/sim/car_spec.h"
 #include "gt4r/sim/exact_bridge.h"
@@ -151,6 +152,7 @@ sim::ai::Field::Probe probe_of(Ee& ee, const OrigRace& o, int i, float lap) {
     p.pd_rate = F::raw(ee.r32(Fs + 0x484));
     for (u32 k = 0; k < 0x40; ++k) p.record[k] = ee.r8(o.car(i) + 0x8C + k);
     p.car_class = sim::ai::bspec_class(F::raw(ee.r32(ee.r32(o.car(i) + 0x10) + 0xFE0)));
+    p.threat = gt3r::s8(ee.r8(D + 0x53)), p.threat_gap = F::raw(ee.r32(D + 0x60)), p.threat_rate = F::raw(ee.r32(D + 0x64));
     return p;
 }
 
@@ -200,19 +202,35 @@ void check_lines(Ee& ee, const OrigRace& o, const sim::ai::Field& field, std::ma
         const auto& ours = field.lines().line(k);
         t["line present"].add("line", line ? 1 : 0, ours.empty() ? 0 : 1, 0);
         if (!line) continue;
-        const u32 n = ee.r32(line);
+        // The line as the program's own accessor (0x469F08 / 0x469FC8) gives it: 0x40-byte points ("ADLN" files), or the older
+        // fixed-point files' 0x28-byte ones, where the fields prepared at +0x28 .. +0x34 fall on the next point's first ones
+        // (so only those no write reaches are compared).
+        const u32 view = ee.alloc(16);
+        ee.call(0x469F08, {Arg::ptr(view), Arg::ptr(K), Arg::integer(k)});
+        const u32 n = ee.r32(view + 4), first = ee.r32(view + 8);
+        const bool wide = ee.r8(view) != 0;
         t["line points"].add("count", n, double(ours.size()), 0);
+        if (std::getenv("GT4R_AI_LINES") && ours.empty()) // (a line only the program has)
+            for (u32 i = 0; i < n; ++i) std::printf("  line %d point %2u (the program's only): distance %9.3f\n", k, i, double(ee.rf(first + (wide ? 0x40 : 0x28) * i + 0x14)));
         for (u32 i = 0; i < n && i < ours.size(); ++i) {
-            const u32 P = line + 0x40 + 0x40 * i;
+            const u32 P = first + (wide ? 0x40 : 0x28) * i;
             const sim::ai::LinePoint& q = ours[i];
             char w[48];
             std::snprintf(w, sizeof w, "line %d point %u", k, i);
-            t["line distance"].bits(w, ee.r32(P + 0x14), gt3r::ee::F(q.dist));
+            t[wide ? "line distance" : "fixed-point line distance"].bits(w, ee.r32(P + 0x14), gt3r::ee::F(q.dist));
             if (std::getenv("GT4R_AI_LINES"))
                 std::printf("  line %d point %2u: distance %9.3f / %9.3f slope %+.5f / %+.5f bank %+.5f / %+.5f x %8.2f / %8.2f y %8.2f / %8.2f\n", k, i,
                             double(ee.rf(P + 0x14)), double(q.dist), double(ee.rf(P + 0x1C)), double(q.slope), double(ee.rf(P + 0x20)), double(q.bank),
                             double(ee.rf(P + 4)), double(q.x), double(ee.rf(P + 8)), double(q.y)),
                 std::printf("      height %9.3f / %9.3f\n", double(ee.rf(P + 0x0C)), double(q.height));
+            if (!wide) {
+                t["fixed-point line surface"].add(w, ee.r8(P + 0x12), q.surface, 0);
+                t["fixed-point line radius"].bits(w, ee.r32(P + 0x18), gt3r::ee::F(q.radius));
+                t["fixed-point line slope"].bits(w, ee.r32(P + 0x1C), gt3r::ee::F(q.slope));
+                t["fixed-point line bank"].bits(w, ee.r32(P + 0x20), gt3r::ee::F(q.bank));
+                t["fixed-point line heading"].bits(w, ee.r32(P + 0x24), gt3r::ee::F(q.heading));
+                continue;
+            }
             t["line height"].bits(w, ee.r32(P + 0x0C), gt3r::ee::F(q.height));
             t["line x"].bits(w, ee.r32(P + 0x04), gt3r::ee::F(q.x));
             t["line y"].bits(w, ee.r32(P + 0x08), gt3r::ee::F(q.y));
@@ -366,6 +384,19 @@ void check_math(Ee& ee, std::map<std::string, Tally>& t) {
         t["math atan2"].bits(w, ee.call(0x57D118, {Arg::fbits(a.bits), Arg::fbits(b.bits)}).f0, sim::ai::atan2(a, b));
         t["math atan"].bits(w, ee.call(0x57D008, {Arg::fbits(a.bits)}).f0, gt3r::ee::atan(a));
     }
+    // The race's generator (0x579330 / 0x578598 on a word of our own): 40,000 numbers from several starting words.
+    const u32 word = ee.alloc(16);
+    for (u32 start : {0x12345678u, 0u, 0xFFFFFFFFu, 0x80000000u, 0x7FFFFFFFu, 0x0000FFFFu, 0xDEADBEEFu, 0x00010000u}) {
+        sim::ai::RaceRandom ours(start);
+        ee.w32(word, start);
+        for (int i = 0; i < 5000; ++i) {
+            char w[48];
+            std::snprintf(w, sizeof w, "from %08X, %d", start, i);
+            const gt3r::ee::F mine = ours.next();
+            t["race random"].bits(w, ee.call(0x578598, {Arg::ptr(word)}).f0, mine);
+            t["race random word"].add(w, double(ee.r32(word)), double(ours.state()), 0);
+        }
+    }
 }
 
 // The decision (0x465078) and the proximity pass (0x3F4638) at every call: ours run from the program's state at the
@@ -377,6 +408,23 @@ public:
     void install() {
         ee_.add_probe(0x465078, [this](Ee&) { decision_in(); });
         ee_.add_probe(0x3F4638, [this](Ee&) { proximity_in(); });
+        // 0x3491AC, the active steering's line heading (0x4649F0's return in the pad cars' steering 0x348850, after the car's
+        // decision; $s1 = F): ours as the race world feeds it (Field::line_heading_at / line_mode_at).
+        ee_.add_probe(0x3491AC, [this](Ee& e) {
+            for (int i = 0; i < o_.cars; ++i)
+                if (o_.car(i) + kF == e.g32(17)) {
+                    char w[48];
+                    std::snprintf(w, sizeof w, "car %d", i);
+                    t_["active steering line heading"].bits(w, e.fpr[0], field_.line_heading_at(size_t(i)));
+                    if (std::getenv("GT4R_AI_ACTIVETRACE") && e.fpr[0] != field_.line_heading_at(size_t(i)).bits) {
+                        const auto p = field_.probe_get(size_t(i));
+                        std::printf("  active: line %u/%d next %u/%d s %.3f v %.2f: %.6f / %.6f\n", e.r8(o_.car(i) + 0x30), p.line, e.r8(o_.car(i) + 0x31), p.next,
+                                    double(e.rf(o_.car(i) + kF + kDistance)), double(e.rf(o_.car(i) + kF + 0x53C)), double(gt3r::ee::F::raw(e.fpr[0]).host()),
+                                    double(field_.line_heading_at(size_t(i)).host()));
+                    }
+                    t_["active steering mode"].add(w, e.r8(o_.car(i) + 0x32), field_.line_mode_at(size_t(i)), 0);
+                }
+        });
         // 0x469E58, the suggested gear's speed: ours from the driver as the call finds it, against D +0x40 / +0x41 after.
         ee_.add_probe(0x469E58, [this](Ee& e) {
             const u32 D = u32(e.a(0));
@@ -449,7 +497,12 @@ private:
             for (u32 k = 0; k < 0x40; k += 2)
                 if (th.record[k] != my.record[k] || th.record[k + 1] != my.record[k + 1])
                     std::printf("  record %s +%02X: the program's %u, ours %u\n", w, k, th.record[k] | (th.record[k + 1] << 8), my.record[k] | (my.record[k + 1] << 8));
+        // (the record as the car's first decision leaves it counts as no change)
+        if (!rec_last_.count(p.car)) rec_last_[p.car] = th.record;
         if (th.record != rec_last_[p.car]) {
+            // (the changes with another car near: table e, record +0x38 ..)
+            if (!std::equal(th.record.begin() + 0x38, th.record.end(), rec_last_[p.car].begin() + 0x38))
+                t_["decision bspec record (the program's company)"].add("company", 1, 1, 0);
             rec_last_[p.car] = th.record;
             t_["decision bspec record (the program's changes)"].add("changes", 1, 1, 0);
         }
@@ -514,6 +567,11 @@ private:
             t_["proximity chain"].add(w, th.chain, my.chain, 0);
             t_["proximity gaps"].bits(w, th.gap_left.bits, my.gap_left);
             t_["proximity gaps"].bits(w, th.gap_right.bits, my.gap_right);
+            // The threat record (0x469888 in the pairs pass): the car, its gap and closing speed.
+            t_["proximity threat car"].add(w, th.threat, my.threat, 0);
+            t_["proximity threat gap"].bits(w, th.threat_gap.bits, my.threat_gap);
+            t_["proximity threat rate"].bits(w, th.threat_rate.bits, my.threat_rate);
+            if (th.threat != -1) t_["proximity threat (the program's set)"].add(w, 1, 1, 0);
         }
         prox_.clear();
     }
@@ -635,7 +693,15 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
         const std::optional<course::AiData> ad = sim::ai::Field::read(disc, course);
         std::vector<size_t> computer;
         for (int i = 0; i < o.cars; ++i) computer.push_back(size_t(i));
-        field = std::make_unique<sim::ai::Field>(*pcars, *ad, program, computer);
+        // GT4R_AI_SOLO=1: the run as one alone (a free run's, a license test's): the conductor's virtual 6 (0x358248, the
+        // races') answers 1, the computer drivers' passing off as their set-up (0x3F1890) then leaves it, and ours the same.
+        sim::ai::Pace pace;
+        if (std::getenv("GT4R_AI_SOLO")) {
+            pace.solo = true;
+            ee.hle(0x358248, [](Ee& e) { e.set_v0(1); }, "the conductor's virtual 6: a run alone");
+            for (int i = 0; i < o.cars; ++i) ee.w8(o.car(i) + 0x14 + 0x6E, 0);
+        }
+        field = std::make_unique<sim::ai::Field>(*pcars, *ad, program, computer, pace);
         // GT4R_AI_STEERMODE=<T[2]>: the steering mode this program leaves unused (2: the PD steering), in both races.
         if (const char* m = std::getenv("GT4R_AI_STEERMODE")) {
             ee.w8(0x623E52, u8(std::atoi(m)));
@@ -664,11 +730,23 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
                 ee.w8(o.car(bspec_car) + kF + 0x466, 1);
                 ee.call(0x3F1890, {Arg::ptr(o.cond), Arg::integer(bspec_car)});
                 field->set_bspec(size_t(bspec_car));
+                // The record (car +0x8C, the save's) empty in both races (the harness's set-up leaves the program's unset),
+                // so what the race adds shows; the class as the conversion leaves it.
+                const std::array<u8, 0x40> none{};
+                ee.write_bytes(o.car(bspec_car) + 0x8C, ByteSpan(none.data(), none.size()));
+                field->set_bspec_record(size_t(bspec_car), none, sim::ai::bspec_class(gt3r::ee::F::raw(ee.r32(ee.r32(o.car(bspec_car) + 0x10) + 0xFE0))));
                 // The program's car was set up as a computer car's: its yaw gain as a B-spec driver's (no spread by the
                 // grid index, 0x467148) and its draws seeded with 1 (0x4639E0), as the race sets a B-spec car up.
                 const u32 PB = ee.r32(o.cond + 0x10024 + 4 * u32(bspec_car));
                 ee.w32(PB + 0x0C, field->params(size_t(bspec_car)).yaw_gain.bits);
                 ee.w16(o.car(bspec_car) + 0x14 + 0x68, field->probe_get(size_t(bspec_car)).rand);
+                // GT4R_AI_BSKILL=<corner>,<brake>,<alongside>: its skill's multipliers (D +0xB8 / +0xBC / +0xC0), in both races.
+                if (const char* sk = std::getenv("GT4R_AI_BSKILL")) {
+                    float m[3] = {1, 1, 1};
+                    std::sscanf(sk, "%f,%f,%f", &m[0], &m[1], &m[2]);
+                    for (u32 k = 0; k < 3; ++k) ee.wf(o.car(bspec_car) + 0x14 + 0xB8 + 4 * k, m[k]);
+                    field->set_bspec_skill(size_t(bspec_car), gt3r::ee::F(m[0]), gt3r::ee::F(m[1]), gt3r::ee::F(m[2]));
+                }
             }
         }
         if (checks && !ours) {
@@ -754,23 +832,49 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
                                     ee.r8(F + 0x5C3), ee.r8(F + 0x5FA), ee.r8(F + 0x5FB));
                 }
             }
+            // GT4R_AI_DELAY=<car>,<steps>: that car's own start hold (conductor + 0xCBFC + 4 car, the missions' held starts) set
+            // at the first step; when the program's hold (F + 0x4BC) lets it go and it starts to move printed.
+            if (const char* de = std::getenv("GT4R_AI_DELAY")) {
+                const int dc = std::atoi(de);
+                const char* c = std::strchr(de, ',');
+                if (step == 0 && dc >= 0 && dc < o.cars) ee.w32(o.cond + 0xCBFC + 4 * u32(dc), c ? u32(std::atoi(c + 1)) : 0);
+                if (dc >= 0 && dc < o.cars && print && (step < 4 || step % 30 == 0 || ee.r32(o.cond + 0xCBFC + 4 * u32(dc)) == 1))
+                    std::printf("delay t %.2f car %d counter %u hold %u speed %.2f km/h\n", step / 60.0, dc, ee.r32(o.cond + 0xCBFC + 4 * u32(dc)),
+                                ee.r8(o.car(dc) + kF + 0x4BC), double(ee.rf(o.car(dc) + kF + kSpeed)) * 3.6);
+            }
             // GT4R_AI_PAD=<car>: that car the pad's (control source 0, a steady part throttle, no steering): its own driver plans
             // and the input phase gives it the suggested gear (0x469E58, checked with GT4R_AI_CHECK).
             if (const char* pe = std::getenv("GT4R_AI_PAD")) {
                 const int pc = std::atoi(pe);
                 if (pc >= 0 && pc < o.cars) {
-                    if (step == 0) ee.w8(o.car(pc) + kF + 0x466, 0);
+                    if (step == 0) {
+                        ee.w8(o.car(pc) + kF + 0x466, 0);
+                        if (field) field->set_shadow(size_t(pc));
+                    }
                     // (the pad follows the car's own driver's outputs of the last step, roughly: its steering over the lock)
                     const u32 D = o.car(pc) + 0x14;
                     o.pad[pc] = Pad{};
                     o.pad[pc].steer = std::clamp(-ee.rf(D + 0x30) / std::max(ee.rf(o.car(pc) + kF + 0x498), 0.05f), -1.0f, 1.0f);
                     o.pad[pc].throttle = ee.rf(D + 0x34), o.pad[pc].brake = ee.rf(D + 0x38);
+                    // GT4R_AI_ACTIVE: the stick let go on the straights (the active steering runs with it centered).
+                    // Its pedals after the driver's target speeds (a pad car's decision leaves D +0x34 / +0x38 at 0).
+                    if (std::getenv("GT4R_AI_ACTIVE")) {
+                        if (std::fabs(o.pad[pc].steer) < 0.08f) o.pad[pc].steer = 0;
+                        const int mode = ee.r8(D + 0x1E);
+                        const float target = mode == 0 ? 100.0f : ee.rf(D + (mode < 3 ? 0x24 : 0x28)), gap = target * 0.93f - ee.rf(o.car(pc) + kF + 0x53C);
+                        o.pad[pc].throttle = std::clamp(0.3f + gap * 0.5f, 0.0f, 1.0f), o.pad[pc].brake = std::clamp(-gap * 0.2f, 0.0f, 1.0f);
+                    }
                     if (std::getenv("GT4R_AI_SUGFORCE")) o.pad[pc] = Pad{}, o.pad[pc].throttle = step < 600 ? 0.5f : 0.0f, o.pad[pc].brake = step < 600 ? 0.0f : 0.3f;
                 }
             }
             if (step == bspec_step && bspec_car >= 0) {
                 ee.call(0x3F19E0, {Arg::ptr(o.car(bspec_car)), Arg::integer(0), Arg::integer(4), Arg::integer(bspec_level)});
                 field->command(size_t(bspec_car), {bspec_level, -1});
+                // GT4R_AI_PASS: passing turned on at the same time (command 5), so its lane changes teach it too.
+                if (std::getenv("GT4R_AI_PASS")) {
+                    ee.call(0x3F19E0, {Arg::ptr(o.car(bspec_car)), Arg::integer(0), Arg::integer(5), Arg::integer(1)});
+                    field->command(size_t(bspec_car), {-1, 1});
+                }
             }
             if (checks && !ours && step % 120 == 60) check_corners(ee, o, *field, lap_length, tally);
             if (checks && !ours && step % 4 == 1) check_braking(ee, o, *field, lap_length, tally);
@@ -844,6 +948,16 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
         result.error = b;
         if (print) std::printf("ai: %s\n", b);
     }
+    // GT4R_AI_RECTRACE: the B-spec car's record at the run's end, the program's and ours (a[8], b[8], c[8], d[4], e[4]).
+    if (bspec_car >= 0 && field && std::getenv("GT4R_AI_RECTRACE")) {
+        const std::array<u8, 0x40> mine = field->bspec_record(size_t(bspec_car));
+        for (u32 row = 0; row < 2; ++row) {
+            std::printf("  record %s:", row ? "ours" : "the program's");
+            for (u32 k = 0; k < 0x40; k += 2)
+                std::printf(" %u", row ? u32(mine[k] | (mine[k + 1] << 8)) : u32(ee.r16(o.car(bspec_car) + 0x8C + k)));
+            std::printf("\n");
+        }
+    }
     if (aid_taps && print) aid_taps->print();
     if (pit_check && print) pit_check->print();
     if (pit_check) {
@@ -852,6 +966,8 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
         result.pit_stops = it == pit_check->counts().end() ? 0 : it->second;
         result.hold_calls = pit_check->hold_calls(), result.hold_equal = pit_check->hold_equal();
         result.request_calls = pit_check->need_calls(), result.request_equal = pit_check->need_equal(), result.requests = pit_check->need_asked();
+        result.tire_change_calls = pit_check->change_calls(), result.tire_change_equal = pit_check->change_equal();
+        result.pit_tire_cars = pit_check->list_calls(), result.pit_tire_equal = pit_check->list_equal();
     }
     if (collide_check && print) collide_check->print();
     if (whole && print) whole->print();

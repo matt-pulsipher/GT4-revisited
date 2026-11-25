@@ -47,6 +47,30 @@ int slide_kind(u8 surface);
 // kind 0; none for a car whose condition block's byte +0x14 is set). `course_kind`: the conductor's byte (0x34C968).
 void slide_effects(ex::Car& c, const WheelLayout& l, const SlideTables& t, u8 course_kind);
 
+// What 0x3667A8 hands the course's effects for a wheel (its record of 0x3C bytes, to 0x395C70 with the car's index F + 0x440;
+// and with the car's velocity to 0x395C98 too when the ground's flags have bit 5): the smoke, dust and spray a wheel throws.
+struct TireEmit {
+    s32 wheel = 0;               // +0x00 the wheel
+    u32 surface = 0;             // +0x04 its surface index (wheel +0x89)
+    std::array<F, 3> point;      // +0x08 where, in the course's frame (x, height, z)
+    F heading;                   // +0x14 the car's heading + the wheel's steer angle
+    F attr;                      // +0x18 the ground record's +0x14
+    std::array<F, 3> normal;     // +0x1C the ground's normal (ground record +0x1C)
+    F plane;                     // +0x28 the ground plane's +0x28 less 0.05 x the normal's height: 5 cm above the road
+    F smoke;                     // +0x2C the smoke and dust (wheel +0xBC)
+    F slip_ratio;                // +0x30 wheel +0x38
+    F hub_speed;                 // +0x34 the hub's speed along the car (wheel +0x28)
+    F rim_speed;                 // +0x38 wheel +0x20
+    std::array<F, 3> velocity;   // the car's velocity in the course's frame (x, height, z)
+    u8 car = 0;                  // the car's index (F + 0x440)
+    bool spray = false;          // the ground's flags bit 5 (0x20): to 0x395C98 as well
+};
+// 0x3668F0 (phase 19, after the wheel spin): the wheels' emits, as 0x3667A8 makes them: each wheel of the layout at its hub
+// (the car's place + the hub offset) on its ground's height; a car of category 6 (P + 0x32) one emit per wheel group (the
+// layout's +0x0C + k for k 0, 1, with its partner +0x24 + w): at the middle of the two wheels' hubs and ground heights, for
+// the wheel whose ground record's +0x14 is the larger (the group's first on a tie). Returns how many of `out` it filled.
+int tire_emits(const ex::Car& c, const WheelLayout& l, u8 category, std::array<TireEmit, 4>& out);
+
 // 0x366678: how a car is drawn (3 a car in the race; a ghost: 0 not drawn, 1 hidden, 2 see-through): a car not in the race
 // (F + 0x441) of control source 4 by F + 0x4B2 (0 when set, else 2); otherwise with neither the race's word +0xE0 nor its
 // course's ghost word (`race_e0`, `ghost_word`) 1; a ghost of control source 2 or driver kind 1, 6 or 8 0; else 2.
