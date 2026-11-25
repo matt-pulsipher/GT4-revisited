@@ -75,7 +75,7 @@ RaceSound::RaceSound(gt3r::Vfs& vfs, gt3r::VoiceMixer& mixer, SoundDriver& drive
         for (int c = 0; c < CourseSound::kChannels; ++c) ambience_[c] = held(CourseSound::effect_name(c));
     if (library_) {
         tunnel_[0] = held("tunnel1_l"), tunnel_[1] = held("tunnel1_r"), tunnel_[2] = held("tunnel2_l"), tunnel_[3] = held("tunnel2_r");
-        heri_ = held("heri");
+        heri_ = held("heri"), refueling_ = held("refueling");
     }
 }
 
@@ -268,7 +268,7 @@ void RaceSound::quiet_course() {
     };
     for (Held& h : ambience_) off(h);
     for (Held& h : tunnel_) off(h);
-    off(heri_);
+    off(heri_), off(refueling_);
 }
 
 void RaceSound::stop() {
@@ -320,6 +320,7 @@ void RaceSound::update(std::span<const CarSoundState> states, const SoundListene
     send(tunnel_[0], t1, 0, 1), send(tunnel_[1], 0, t1, 1);
     send(tunnel_[2], 0, t2, 1), send(tunnel_[3], t2, 0, 1); // (the second pair's halves cross)
     send(heri_, helicopter_ ? 1.0f : 0.0f, helicopter_ ? 1.0f : 0.0f, 1);
+    send(refueling_, refueling_on_ ? master : 0.0f, refueling_on_ ? master : 0.0f, 1);
     report_.tunnel1 = t1, report_.tunnel2 = t2, report_.reverb = course_.reverb();
     const s16 depth = s16(course_.reverb() * 32767.0f);
     mixer_.set_reverb_depth(depth, depth);

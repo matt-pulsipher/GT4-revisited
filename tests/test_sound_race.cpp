@@ -323,6 +323,45 @@ TEST(sound_race_contact_recorder_on_disc) {
     CHECK(steps > 0 && single > 0);
 }
 
+// A boosted car's levels: the step keeps the two bytes itself (0x350080) from the engine's load, which a boost raises over
+// the throttle; the sound plays those bytes, and its own rule gives the same from the load it is handed. The wind and the
+// cabin take the body's drag coefficient alone.
+TEST(sound_race_boosted_levels_on_disc) {
+    Disc* disc = full_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    const std::string cars[] = {"r390_race_98"};
+    const std::unique_ptr<sim::Session> s = sim::Session::open(*disc, "tsukuba", cars);
+    gt3r::Vfs vfs(&disc->volume());
+    audio::OfflineSound out(false);
+    auto library = std::make_shared<audio::SoundLibrary>(vfs);
+    auto mix = std::make_shared<audio::RaceMix>();
+    mix->tables = audio::RaceSoundTables::from_core(disc->read_program());
+    audio::CarSound given(vfs, out.mixer(), &out.driver(), library), worked(vfs, out.mixer(), &out.driver(), library);
+    given.set_mix(mix), worked.set_mix(mix);
+    CHECK(given.load(cars[0]) && worked.load(cars[0]));
+    race::CarInput in;
+    int boosted = 0, same = 0, steps = 0;
+    for (int i = 0; i < 60 * 8; ++i) {
+        in.throttle = i < 120 ? 1.0f : 0.5f; // (launch, then half throttle on the boost)
+        s->step_once({&in, 1});
+        audio::CarSoundState st = audio::sound_state(*s, 0);
+        const audio::SoundListener at = audio::listener_at(s->cars()[0], audio::SoundListener::Kind::InCar);
+        given.update(st, at, true);
+        CHECK(given.report().engine_level == st.engine_level && given.report().exhaust_level == st.exhaust_level);
+        const float load = st.throttle;
+        st.engine_level = st.exhaust_level = -1;
+        worked.update(st, at, true);
+        if (i < 30) continue; // (the program's levels start at 127)
+        ++steps;
+        if (load > 0.6f && i > 200) ++boosted;
+        same += std::abs(worked.report().engine_level - given.report().engine_level) <= 1 && worked.report().exhaust_level == given.report().exhaust_level;
+        if (i == 60) CHECK(near(st.drag, float(s->spec(0).b(0x42)) * 0.01f, 1e-6) && st.slipstream == 0);
+        out.advance(1);
+    }
+    std::printf("  %d steps: the rule's levels as the step's at %d, the load over 0.6 at half throttle at %d\n", steps, same, boosted);
+    CHECK(boosted > 60 && same > steps * 95 / 100);
+}
+
 // A car rendered as the race mixes it: level against distance, the pan, the Doppler factor.
 TEST(sound_race_car_mix_on_disc) {
     if (test::discs().empty()) SKIP("no disc");
@@ -579,6 +618,33 @@ TEST(sound_race_pit_effects_on_disc) {
     for (size_t i = from; i < s.pcm.size(); ++i) peak = std::max(peak, double(std::abs(s.pcm[i])));
     std::printf("  jackdown at the master %.3f: peak %.0f\n", double(sound.master()), peak);
     CHECK(sound.master() > 0.3f && peak > 300);
+    // The crew's, each once; the hose held while it runs.
+    const auto loudest = [&](int steps, bool update) {
+        const size_t at = s.pcm.size();
+        for (int i = 0; i < steps; ++i) {
+            if (update) sound.update(none, audio::SoundListener{}, -1);
+            s.advance(1);
+        }
+        int p = 0;
+        for (size_t i = at; i < s.pcm.size(); ++i) p = std::max(p, std::abs(int(s.pcm[i])));
+        return p;
+    };
+    for (const char* name : {"jackup", "wheelgun", "dropnut", "droptire", "oiltank"}) {
+        loudest(180, true); // (the last one's end)
+        sound.pit_effect(name);
+        const int p = loudest(45, true);
+        std::printf("  %s: peak %d\n", name, p);
+        CHECK(p > 300);
+    }
+    loudest(300, true);
+    sound.refueling(true);
+    loudest(60, true);
+    const int held = loudest(240, true);
+    sound.refueling(false);
+    loudest(60, true);
+    const int after = loudest(60, true);
+    std::printf("  refueling: peak %d from the second to the fifth second, %d after\n", held, after);
+    CHECK(held > 300 && after == 0);
 }
 
 // The run's replay is heard from the sound inputs the session gave each step (the engine's torques, the wheels,

@@ -105,8 +105,11 @@ public:
     void contact(size_t car, int kind, float force);
     // A pit stop's sound (0x393428: the effect at the master's level, both sides): "jackdown" as the tires are on
     // (the stop's bit 0x200, taken by the pit scene), "wheelgun", "dropnut", "droptire", "jackup" by the crew's
-    // motions, "oiltank"; "refueling" is held while the hose runs (0x3934A0).
+    // motions (their channels "wheel_gun", "wheel_nut", "tire_sound2", "jack_up"), "oiltank" as the crew's fifth changes motion.
     void pit_effect(const char* name) { play_effect(name, master()); }
+    // The hose's sound (0x3934A0 effect 70, both sides at the master's level): held from the step a hose of the pits
+    // begins to run until none does (0x393528).
+    void refueling(bool on) { refueling_on_ = on; }
     // The sound inputs of every step heard from the session (update(session, ...)) are kept for the run's replay: from
     // replay() on, the steps heard from recorded states (update(cars, ...)) take the kept ones in turn, the first
     // replayed step being the run's second. forget_recording() as a new run begins or another run is played.
@@ -164,8 +167,8 @@ private:
     CourseSound course_;
     std::shared_ptr<const course::Runway> road_;
     std::unique_ptr<sim::RoadGround> ground_;
-    Held ambience_[CourseSound::kChannels], tunnel_[4], heri_;
-    bool helicopter_ = false, paused_ = false, racing_ = false, started_ = false;
+    Held ambience_[CourseSound::kChannels], tunnel_[4], heri_, refueling_;
+    bool helicopter_ = false, refueling_on_ = false, paused_ = false, racing_ = false, started_ = false;
     float fade_ = 0, fade_target_ = 1, fade_step_ = 1.0f / 18.0f;
     int racing_piece_ = -1;
     int first_piece_ = -1; // the race's first racing piece (a replay plays it again)
