@@ -77,6 +77,8 @@ public:
     // missing: nothing is drawn.
     bool ready() const;
     void draw(Ui& ui, const HudState& s);
+    // Only a license test's three target times with their trophies (over its results page).
+    void draw_license_targets(Ui& ui, const HudState& s);
     // The race's words by key ("RaceStart"); the key itself when the table has none.
     std::string word(const std::string& key) const;
     bool mph() const;

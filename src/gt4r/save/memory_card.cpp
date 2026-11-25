@@ -1,6 +1,7 @@
 #include "gt4r/save/memory_card.h"
 
 #include "gt4r/save/codec.h"
+#include "gt4r/save/prologue_data.h"
 
 #include <chrono>
 #include <cstring>
@@ -68,6 +69,7 @@ GameSave::GameSave(std::string card, Codes codes, Reader disc, std::string produ
     // (A product with its region's letters already, "BISCPS-15055" (Prologue's 0x19BCB0), keeps them.)
     const bool region = product.size() > 2 && product[0] == 'B' && (product[1] == 'A' || product[1] == 'I' || product[1] == 'E');
     name_ = (region ? product : "BA" + product) + "GAMEDATA";
+    prologue_ = region && product[1] == 'I';
     if (!card_.empty()) folder_ = (fs::path(card_) / name_).string() + "/";
 }
 
@@ -93,6 +95,33 @@ bool GameSave::write(const std::string& file, ByteSpan data) const {
     return !ec;
 }
 
+std::string GameSave::icon_path() const { return prologue_ ? "icon/gamedata.ico" : "icon/GT4_Gamedata.ico"; }
+
+// Prologue's save: its game data file as the payload is, the icons (FileGT4GameData, 0x19C0F0: the icon
+// "icon%d.ico" and "/%s/icon.sys" from the disc's icon/icon.sys).
+Result GameSave::save_prologue(GameState& s, const std::string* title) {
+    const Bytes payload = write_prologue(s);
+    if (!write(name_, payload)) return Result::DeviceError;
+    s.saved_image = payload;
+    if (title && disc_) {
+        if (const std::optional<Bytes> icon = disc_(icon_path())) write("icon0.ico", *icon);
+        if (std::optional<Bytes> sys = disc_("icon/icon.sys"); sys && sys->size() >= 0x1C4) {
+            // ❓ The title's text: the program builds it at +0xC0 (0x19C488 with "[%d]"); here the title given.
+            Bytes text = full_width(*title);
+            text.resize(std::min<size_t>(text.size(), 0x43));
+            std::memset(sys->data() + 0xC0, 0, 0x44);
+            std::memcpy(sys->data() + 0xC0, text.data(), text.size());
+            (*sys)[6] = 0, (*sys)[7] = 0;
+            for (size_t at : {0x104, 0x144, 0x184}) {
+                std::memset(sys->data() + at, 0, 0x40);
+                std::memcpy(sys->data() + at, "icon0.ico", 9);
+            }
+            write("icon.sys", *sys);
+        }
+    }
+    return Result::Ok;
+}
+
 int GameSave::exists() const {
     if (!connected()) return -1;
     std::error_code ec;
@@ -109,7 +138,8 @@ int GameSave::used_kb() const {
 }
 
 int GameSave::needed_kb() const {
-    const std::optional<Bytes> icon = disc_ ? disc_("icon/GT4_Gamedata.ico") : std::nullopt;
+    const std::optional<Bytes> icon = disc_ ? disc_(icon_path()) : std::nullopt;
+    if (prologue_) return kb(kProloguePayloadSize) + 1 + (icon ? kb(icon->size()) : 0) + (3 + 1) / 2 + 1;
     return kb(scrambled_size(kPayloadSize)) + kb(kGarageFile) + 1 + (icon ? kb(icon->size()) : 0) + (4 + 1) / 2 + 1;
 }
 
@@ -145,6 +175,7 @@ Result GameSave::update_header(GameState& s, u32 serial, bool money) {
 
 Result GameSave::save_new(GameState& s, const std::string& title) {
     if (!connected()) return Result::NoCard;
+    if (prologue_) return save_prologue(s, &title);
     // A new key; serial 0; the garage file's slots noise from the key; its header.
     s.garage_key = crc32(ByteSpan(reinterpret_cast<const u8*>(&title[0]), title.size())) ^ clock_word();
     s.garage_serial = 0, stamp_ = 0;
@@ -186,6 +217,7 @@ Result GameSave::save_new(GameState& s, const std::string& title) {
 
 Result GameSave::save(GameState& s) {
     if (!connected()) return Result::NoCard;
+    if (prologue_) return save_prologue(s, nullptr);
     u32 serial = s.garage_serial + 1;
     if (!serial) serial = 1;
     if (const Result r = update_header(s, serial, true); r != Result::Ok) return r;
@@ -200,6 +232,7 @@ Result GameSave::load_instance(GameState& into) const {
     if (!connected()) return Result::NoCard;
     const std::optional<Bytes> file = read(name_);
     if (!file) return Result::FileNotFound;
+    if (prologue_) return read_prologue(*file, into) ? Result::Ok : Result::InvalidFile;
     const std::optional<Bytes> payload = unscramble(*file, 0);
     if (!payload || !read_game(*payload, into, codes_)) return Result::InvalidFile;
     return Result::Ok;
@@ -209,6 +242,12 @@ Result GameSave::load(GameState& s) {
     if (!connected()) return Result::NoCard;
     const std::optional<Bytes> file = read(name_);
     if (!file) return Result::DeviceError;
+    if (prologue_) {
+        GameState loaded = s;
+        if (!read_prologue(*file, loaded)) return Result::InvalidFile;
+        s.saved_image = std::move(loaded.saved_image), s.username = loaded.username, s.prologue_license = std::move(loaded.prologue_license);
+        return Result::Ok;
+    }
     const std::optional<Bytes> payload = unscramble(*file, 0);
     if (!payload || !valid_game(*payload)) return Result::InvalidFile;
     // The garage file first, so a game whose garage does not match leaves the state as it was.

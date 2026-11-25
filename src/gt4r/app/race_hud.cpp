@@ -192,6 +192,7 @@ struct RaceHud::Impl {
     }
 
     void draw_top(const HudState& s);
+    void draw_targets(const HudState& s);
     void draw_map(const HudState& s);
     void draw_chase_panel(const HudState& s);
     void draw_driver_panel(const HudState& s);
@@ -456,6 +457,28 @@ std::string RaceHud::word(const std::string& key) const {
     return key;
 }
 
+// A license test's three target times, each by its trophy (mark_1st .. 3rd): ❓ the places judged
+// from the original's B-1 (RaceLicenseDisplay::vf9 draws them; its places are not read). They stay
+// over the results page (the original's pass page shows them over the live scene).
+void RaceHud::Impl::draw_targets(const HudState& s) {
+    const float o = s.opacity;
+    const FontSpec times = font("hn_20R");
+    static const char* const kMarks[3] = {"mark_1st", "mark_2nd", "mark_3rd"};
+    for (int k = 0; k < 3; ++k) {
+        if (s.targets[k] <= 0) continue;
+        const float y = 100.0f + 28.0f * float(k);
+        const Picture& mark = picture(kMarks[k]);
+        draw_picture(mark, {485 - mark.w / 2, y - mark.h / 2, mark.w, mark.h}, kNeutral, o);
+        draw_text(times, 608, y + 8, kEndsAtPen, kTextGray, o, race::format_lap_time(s.targets[k]));
+    }
+}
+
+void RaceHud::draw_license_targets(Ui&, const HudState& s) {
+    if (!ready() || s.opacity <= 0) return;
+    impl_->cur = &impl_->layout;
+    impl_->draw_targets(s);
+}
+
 // Position, lap count and the three times.
 void RaceHud::Impl::draw_top(const HudState& s) {
     const float o = s.opacity;
@@ -493,16 +516,7 @@ void RaceHud::Impl::draw_top(const HudState& s) {
     if (const DisplayPlace* p = cur->find(element::kBestTime); p && s.show_time)
         draw_text(times, race::place_x(*p, true), float(p->y), kCentered, kTextGray, o, race::format_lap_time(s.best_ms));
     if (s.license && s.show_time) {
-        // The three target times under the best lap, each by its trophy (mark_1st .. 3rd): ❓ the places
-        // judged from the original's B-1 (RaceLicenseDisplay::vf9 draws them; its places are not read).
-        static const char* const kMarks[3] = {"mark_1st", "mark_2nd", "mark_3rd"};
-        for (int k = 0; k < 3; ++k) {
-            if (s.targets[k] <= 0) continue;
-            const float y = 100.0f + 28.0f * float(k);
-            const Picture& mark = picture(kMarks[k]);
-            draw_picture(mark, {485 - mark.w / 2, y - mark.h / 2, mark.w, mark.h}, kNeutral, o);
-            draw_text(times, 608, y + 8, kEndsAtPen, kTextGray, o, race::format_lap_time(s.targets[k]));
-        }
+        draw_targets(s);
     } else {
         if (const DisplayPlace* p = cur->find(element::kLastWord); p && s.show_time) draw_at("JP/last_time", *p, kNeutral, o);
         if (const DisplayPlace* p = cur->find(element::kLastTime); p && s.show_time)

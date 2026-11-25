@@ -3,7 +3,8 @@
 // The saved game on a memory card, kept as the card's folder under the data folder
 // (docs/formats/save.md): <card>/BASCUS-97328GAMEDATA/ with the game data file of the same
 // name, the garage file, icon.sys and icon0.ico, each as the game writes it, so a folder taken
-// from a real card reads here and the other way round.
+// from a real card reads here and the other way round. Prologue's folder (BISCPS-15055GAMEDATA)
+// holds its game data file, icon.sys and icon0.ico.
 
 #include "gt4r/save/game_data.h"
 
@@ -44,11 +45,16 @@ public:
 
 private:
     std::string card_, folder_, name_;
+    // Gran Turismo 4 Prologue's save ("BI" product): its own payload (save/prologue_data.h) as
+    // the file, no garage file, its disc's icon.
+    bool prologue_ = false;
     Codes codes_;
     Reader disc_;
     u32 stamp_ = 0; // the garage header's stamp last seen (0: none yet)
 
     std::optional<Bytes> read(const std::string& file) const;
+    std::string icon_path() const; // the disc's icon for the save
+    Result save_prologue(menu::GameState& s, const std::string* title); // a new save with a title, else written over
     bool write(const std::string& file, ByteSpan data) const;
     Result update_header(menu::GameState& s, u32 serial, bool money);
 };
