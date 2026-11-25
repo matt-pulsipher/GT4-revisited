@@ -49,6 +49,8 @@ Done:
       parameters, checked against the user's own program on every car (`gt4r_diff`); the
       road query, surfaces and walls; a session that steps cars with the shared engine's
       vehicle rules ([specs/physics.md](specs/physics.md) lists the rules the game changed).
+- [x] Online races (Arcade's Multi-LAN Race with the game's own pages, on one network or through a relay server:
+      [specs/net.md](specs/net.md)).
 
 Next, in order:
 

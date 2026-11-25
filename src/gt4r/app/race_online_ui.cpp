@@ -60,7 +60,7 @@ void OnlineRaceUi::draw_race(Ui& ui, const net::NetRace& net, const std::vector<
         std::string line = std::to_string(k + 1) + "  " + Ui::elide(c.player, 92) + (by_place[k] < net.seats().size() ? std::string("  ") + char('A' + std::min<size_t>(net.seats()[by_place[k]], 25)) : std::string());
         if (c.retired) line += "  out";
         else if (c.finished) line += "  finished";
-        else if (c.ghost) line += "  (no contact)";
+        else if (const std::string why = c.ghost ? c.ghost_reason : ""; !why.empty() && why != "the start" && why != "finished") line += why.rfind("round trip", 0) == 0 ? "  (slow link)" : "  (" + why + ")";
         shadowed(ui, Ui::kWidth - 8 - Ui::text_width(line), y, line, color);
         y += 12;
     }

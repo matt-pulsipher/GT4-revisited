@@ -42,6 +42,12 @@ std::string get_text(ByteSpan b, size_t o, size_t n) {
 // The two ports' controller settings (Option +0x11D0, OptionRaceControllerPS2: input/key_config.h).
 const std::pair<const char*, size_t> kControllerOptions[] = {{"controllers_1p", kControllers}, {"controllers_2p", kControllers + input::PortConfig::kSize}};
 
+// The LAN settings (Option +0x1348 .. +0x13F3 as a block: the MOption natives' fields, 0x187750 on): two names, then numbers.
+const std::pair<const char*, size_t> kLanNames[] = {{"LAN_machine_name", 0x00}, {"LAN_live_target", 0x44}};
+const std::pair<const char*, size_t> kLanNumbers[] = {{"LAN_monitor_num", 0x84}, {"LAN_monitor_position_x", 0x88}, {"LAN_monitor_position_y", 0x8C}, {"LAN_delay_buffer_size", 0x90},
+                                                      {"LAN_host", 0x94}, {"LAN_heavy", 0x98}, {"LAN_player_num", 0x9C}, {"LAN_auto_connect", 0xA0},
+                                                      {"LAN_auto_machine_num", 0xA4}, {"LAN_auto_machine_idx", 0xA8}};
+
 // The options that are plain numbers, by their place in the Option object (the MOption
 // natives' fields; save.md "The options").
 struct OptionField {
@@ -261,6 +267,11 @@ Bytes write_game(const GameState& s, const Codes& codes) {
     // The controllers' settings.
     for (const auto& [name, at] : kControllerOptions)
         if (const std::string t = s.option_text(name); !t.empty()) input::port_from_text(t).write(b.data() + at);
+    for (const auto& [name, at] : kLanNames)
+        if (const std::string t = s.option_text(name); !t.empty()) put_text(b, kLan + at, 0x40, t.substr(0, 0x3F));
+    for (const auto& [name, at] : kLanNumbers)
+        if (const auto it = s.options.find(name); it != s.options.end())
+            if (const s32* v = std::get_if<s32>(&it->second)) put32(b, kLan + at, u32(*v));
     // The options that are numbers, and the zone.
     for (const OptionField& f : kOptionNumbers)
         if (const auto it = s.options.find(f.name); it != s.options.end())
@@ -401,6 +412,8 @@ bool read_game(ByteSpan p, GameState& s, const Codes& codes, std::vector<int>* r
         c.read(p.data() + at);
         s.options[name] = input::port_text(c);
     }
+    for (const auto& [name, at] : kLanNames) s.options[name] = get_text(p, kLan + at, 0x40);
+    for (const auto& [name, at] : kLanNumbers) s.options[name] = s32(get32(p, kLan + at));
     for (const OptionField& f : kOptionNumbers) s.options[f.name] = s32(get32(p, option(f.at)));
     if (const u32 z = get32(p, kGameZone); z > 0 && z < 6) s.options["game_zone"] = std::string(kZones[z]);
     for (const auto& [name, bit] : kDisplayBits) s.options[name] = s32((get32(p, option(kDisplayWord)) & bit) != 0);

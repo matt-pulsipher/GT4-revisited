@@ -46,9 +46,9 @@ const Default kDefaults[] = {
     {"album_memory_card_slot", 0}, {"ustorage_photo_quality", std::string("SUPER_FINE")},
     {"timeout_count_to_autodemo", 20}, {"timeout_count_to_topmenu", 600}, {"machine_role", std::string()}, {"special_arcade_tuner", std::string()},
     {"arcade_skip_to_favorite", 0}, {"opening_after_autoload", 1}, {"can_watch_ending", 0}, {"demo_movie_interval", 3},
-    {"netconf", std::string()}, {"LAN_machine_name", std::string()}, {"LAN_style", std::string("play")}, {"LAN_target_name", std::string()}, {"LAN_live_target", 0},
-    {"LAN_monitor_num", 1}, {"LAN_monitor_position_x", 0}, {"LAN_monitor_position_y", 0}, {"LAN_delay_buffer_size", 0}, {"LAN_host", 0},
-    {"LAN_heavy", 0}, {"LAN_player_num", 0}, {"LAN_auto_connect", 0}, {"LAN_auto_machine_num", 0}, {"LAN_auto_machine_idx", 0},
+    {"netconf", std::string()}, {"LAN_machine_name", std::string("Player1")}, {"LAN_style", std::string("play")}, {"LAN_target_name", std::string("Player1")}, {"LAN_live_target", std::string("Player1")},
+    {"LAN_monitor_num", 0}, {"LAN_monitor_position_x", 1}, {"LAN_monitor_position_y", 1}, {"LAN_delay_buffer_size", 2}, {"LAN_host", 0},
+    {"LAN_heavy", 0}, {"LAN_player_num", 1}, {"LAN_auto_connect", 0}, {"LAN_auto_machine_num", 1}, {"LAN_auto_machine_idx", 0},
     {"event_name", std::string()}, {"arcade_time_limit", 0}, {"default_language", std::string("US")}, {"unit_velocity", std::string("KMPH")}, {"unit_power", std::string("PS")},
     {"unit_torque", std::string("KGFM")},
 };
