@@ -18,6 +18,10 @@
 #include "gt4r/sim/program_prologue.h"
 #include "gt4r/sim/session.h"
 
+#include "gt4r/sim/ai/demo_driver.h"
+#include "gt4r/sim/ai/entrant.h"
+#include "gt4r/sim/ai/grid.h"
+
 #include <cmath>
 #include <cstring>
 #include <set>
@@ -499,4 +503,49 @@ TEST(disc_prologue_whole_step_equal) {
         if (!known) std::printf("  %s differs\n", f.c_str());
         CHECK(known);
     }
+}
+
+// A license test's car is the first of its event's pool with that entry's parts and settings (the run's own: what the
+// demonstrations' files keep of their car 0).
+TEST(disc_license_car_is_the_pools) {
+    Disc* disc = nullptr;
+    for (const std::unique_ptr<Disc>& d : test::discs())
+        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d.get();
+    if (!disc) SKIP("no Gran Turismo 4 disc");
+    const sim::Program program = sim::Program::load(*disc);
+    gt3r::Volume* vol = &disc->volume();
+    db::SpecDb sdb = open_db(*disc, "american");
+    db::RaceEvents events(sdb, [vol](const std::string& path) -> std::optional<Bytes> {
+        const gt3r::Volume::Entry* e = vol->find(path);
+        return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
+    });
+    int runs = 0, equal = 0;
+    for (const std::string& label : events.labels()) {
+        if (label.rfind("usl0", 0) != 0) continue;
+        const auto run = sim::ai::DemoRun::load(*disc, program, label);
+        const auto e = events.event(label);
+        if (!run || !e) continue;
+        const std::vector<db::Opponent> pool = events.pool(*e);
+        const auto entries = run->entries();
+        if (pool.empty() || entries.empty()) continue;
+        sim::ai::GridEntry g;
+        g.car = pool[0].car, g.paint = pool[0].paint, g.parts = pool[0].parts, g.param = pool[0].param, g.enemy = pool[0].enemy;
+        sim::Equipment eq;
+        CHECK(sim::ai::entry_equipment(sdb, program, events, g, eq));
+        ++runs;
+        std::string d;
+        // (the record's padding +0x19 / +0x1A and its scratch words from +0x11C left out)
+        for (size_t k = 0; k < eq.bytes.size(); ++k)
+            if (k != 0x19 && k != 0x1A && k < 0x11C && eq.bytes[k] != entries[0].equipment.bytes[k]) {
+                char t[40];
+                std::snprintf(t, sizeof t, " +%zX %02X/%02X", k, eq.bytes[k], entries[0].equipment.bytes[k]);
+                d += t;
+            }
+        if (d.empty()) ++equal;
+        else std::printf("  %s:%s\n", label.c_str(), d.c_str());
+    }
+    // (The rest: the tests with the pace car, whose file lists it first, and B-8, whose car's rows are another region's.)
+    std::printf("  %d demonstrations, %d equal in every part and setting\n", runs, equal);
+    CHECK(runs > 50);
+    CHECK(equal >= 44);
 }

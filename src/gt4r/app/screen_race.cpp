@@ -264,6 +264,30 @@ void draw_grid(App& app, Setup& setup, const menu::RaceRequest& q) {
     }
 }
 
+// A test's or mission's own car: entry 0 of its event's pool with that entry's parts and settings (both games: the license
+// demonstrations' files hold the same for their car), when the request's car is that one and no garage car's.
+void test_car(App& app, Setup& setup, const menu::RaceRequest& q) {
+    db::SpecDb* sdb = app.db();
+    if (!sdb || !app.disc() || q.garage_slot >= 0 || q.race.empty() || (!is_license(q.sequence) && q.sequence != "mission")) return;
+    try {
+        gt3r::Vfs* vfs = app.vfs();
+        const db::RaceEvents events(*sdb, [vfs](const std::string& path) { return vfs->read(path); });
+        const std::optional<db::RaceEvent> e = events.event(q.race);
+        if (!e) return;
+        const std::vector<db::Opponent> pool = events.pool(*e);
+        if (pool.empty() || pool[0].car != q.car) return;
+        sim::ai::GridEntry g;
+        g.car = pool[0].car, g.paint = (sdb->prologue() || q.paint < 0) && pool[0].paint >= 0 ? pool[0].paint : q.paint, g.parts = pool[0].parts, g.param = pool[0].param, g.enemy = pool[0].enemy;
+        sim::Equipment eq;
+        if (!sim::ai::entry_equipment(*sdb, sim::Program::load(*app.disc()), events, g, eq)) return;
+        setup.player_equipment = eq;
+        if (g.paint >= 0) setup.paint = u32(g.paint);
+        LOG_INFO("Drive: the test's car %s as %s (%s, %s)", g.car.c_str(), g.enemy.c_str(), g.parts.c_str(), g.param.c_str());
+    } catch (const std::exception& e) {
+        LOG_WARN("Drive: the test's car: %s", e.what());
+    }
+}
+
 // The screen settings of the racing views and of the replays and B-spec races, kept while the app
 // runs. ❓ The options' Picture Quality page keeps them in MOption (race_color_correction,
 // replay_color_correction: four numbers each); the menus here do not hold them as numbers yet.
@@ -1288,6 +1312,7 @@ public:
                 // a button (❓ the program's race_view sequence is not read: judged from the event pages' Preview).
                 if (sequence_ == "race_view") setup_.auto_drive = true;
                 setup_.opponents.clear();
+                test_car(app, setup_, q);
                 draw_grid(app, setup_, q);
                 // A request without laps: the event's (its RACE row), else the arcade's option
                 // (race_laps, a new game's 2).
@@ -1361,6 +1386,7 @@ public:
             q.course = setup_.course, q.car = setup_.car, q.paint = int(setup_.paint), q.laps = setup_.laps, q.max_entry = setup_.cars;
             q.race = setup_.race, q.sequence = setup_.sequence;
             q.assist_tcs = 1, q.assist_asm = 1, q.tire = 4;
+            test_car(app, setup_, q);
             // An event's grid from its pool (`race=<label>`, no `opponents`).
             if (!setup_.race.empty() && setup_.opponents.empty() && setup_.cars > 1) draw_grid(app, setup_, q);
             if (!setup_.race.empty() && setup_.event_row.empty()) // (a race of one car: its event's rules)
@@ -2155,7 +2181,7 @@ private:
         report();
         setup_.course = q.course, setup_.race = q.race;
         if (q.laps > 0) setup_.laps = std::clamp(q.laps, 1, 99);
-        if (sequence_ == "license") setup_.car = q.car, setup_.paint = u32(std::max(0, q.paint)), setup_.player_equipment.reset();
+        if (sequence_ == "license") setup_.car = q.car, setup_.paint = u32(std::max(0, q.paint)), setup_.player_equipment.reset(), test_car(app, setup_, q);
         if (!app.vfs()->exists("crs/" + setup_.course) && setup_.course.rfind("r_", 0) == 0) setup_.course = setup_.course.substr(2);
         apply_course_start(app, setup_, true);
         result_.reset(), result_tried_ = false, reported_ = false;
