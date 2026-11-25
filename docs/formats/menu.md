@@ -906,7 +906,7 @@ focus rectangle (0x1C6160) is taken as the longer one.
 
 The paint row's four words (VARIATION +0x24; 0x445B28, setData 0x1581C0, setColor 0x1588C8): low 24
 bits a colour (0x00BBGGRR), bit 24 it is there; of the first, bit 25 a metallic paint (`image_path0`
-over it, else `image_path1`), bit 26 shaded, bit 27 from the bottom up. The n colours stand in bands
+added to it, else `image_path1`: ALPHA 0x48, 0x1598B8), bit 26 shaded, bit 27 from the bottom up. The n colours stand in bands
 ending at 1; 0.5, 1; 0.5, 0.75, 1; 0.5, 0.75, 0.875, 1 of the height; shaded, each runs into the next
 (n = 2 over the whole, 3: 0.5, 1, 4: 0.5, 0.75, 1) (0x159C38). Prologue's rows have the one colour.
 

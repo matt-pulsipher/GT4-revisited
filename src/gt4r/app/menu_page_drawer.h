@@ -271,7 +271,7 @@ private:
     }
 
     // A car's paint (mColorChipFace 0x159C38): its words' colours in bands down the face (or shaded
-    // from one to the next), the gloss picture over them: the first for a metallic paint, the
+    // from one to the next), the gloss picture added to them: the first for a metallic paint, the
     // second for a solid one. With no colour nothing is drawn.
     void chip(const Widget& w, const Rect& at, float opacity, const Rgba& tint) {
         u32 word[4] = {};
@@ -296,7 +296,7 @@ private:
             fill({at.x, at.y + at.h * y0, at.w, at.h * (y1 - y0)}, {top, top, bottom, bottom}, opacity, false);
             from = to;
         }
-        image(w.text(metallic ? "image_path0" : "image_path1"), at, tint, opacity, false);
+        image(w.text(metallic ? "image_path0" : "image_path1"), at, tint, opacity, true); // (blend mode 1, ALPHA 0x48: 0x1598B8, 0x215ED0)
     }
 
     // One colour, or four for the corners clockwise from the top left.
