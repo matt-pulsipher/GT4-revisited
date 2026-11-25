@@ -19,6 +19,10 @@
 //                                                   second (its speed the revs over the last number,
 //                                                   200 by default), heard from that view of it, mixed by
 //                                                   the program's tables at the new game's levels
+//   gt4tool sound <disc> session-wav <label> <out.wav> <script> [incar|chase|other] [course]
+//                                                   the car driven by the simulation by a script of
+//                                                   phases ("hold:1,idle:4,full:8"), its race sound
+//                                                   (cmd_sound_session.cpp)
 //   gt4tool sound <disc> stream-wav <path.ads> <out.wav> [seconds] [level] [spu]   a streamed piece decoded
 //                                                   (from the start, at its own rate, x level; "spu":
 //                                                   through two SPU2 voices at 48 kHz, as the original)
@@ -517,6 +521,9 @@ int stream_wav(Disc& disc, const Args& a) {
 
 } // namespace
 
+bool write_sound_wav(const std::string& path, const std::vector<s16>& pcm) { return write_wav(path, pcm); }
+int sound_session_wav(Disc& disc, const std::vector<std::string>& a); // cmd_sound_session.cpp
+
 int cmd_sound(Disc& disc, const std::vector<std::string>& a) {
     const std::string& what = a[0];
     if (what == "survey") return survey(disc);
@@ -532,10 +539,12 @@ int cmd_sound(Disc& disc, const std::vector<std::string>& a) {
     if (what == "pass-wav" && a.size() > 2) return pass_wav(disc, a);
     if (what == "drive-wav" && a.size() > 3) return drive_wav(disc, a);
     if (what == "stream-wav" && a.size() > 2) return stream_wav(disc, a);
+    if (what == "session-wav" && a.size() > 3) return sound_session_wav(disc, a);
     std::fprintf(stderr, "usage: gt4tool sound <disc> survey | bank <path.ins> | effects | music | pages | seq <bank> [n] |\n"
                          "       seq-wav <bank> <n> <out.wav> [loops] [volume] | se-wav <name> <out.wav> | car <label> [out.wav] |\n"
                          "       race-tables | pass-wav <label> <out.wav> [km/h] |\n"
                          "       drive-wav <label> <out.wav> <rpm>[:<rpm>] <seconds> [incar|chase|other] [rpm per m/s] |\n"
+                         "       session-wav <label> <out.wav> <script> [incar|chase|other] [course] |\n"
                          "       stream-wav <path.ads> <out.wav> [seconds] [level]\n");
     return 2;
 }
