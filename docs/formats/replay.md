@@ -98,3 +98,14 @@ recording 10.083 s (605 steps) ❓ the stop rule's own timing.
 The reference's capture of the B-1 demonstration (`08-more`, `11-license-tt`) shows the original's cameras and title
 card; the car there only creeps, the emulator not playing the recording as the console does (the reference's note):
 its driving is not a reference.
+
+## The Replay Theater's demo replays (`replay/Rdemo<n>/`)
+
+The Demo tab (`menu/game_replays.cpp`, `install_demo_list`): the folders the configuration names for the region
+(`DemonstrationFiles`: `Rdemo0` .. `Rdemo12` on the US disc, four of them the Korean disc's `k`, the European disc's own
+`Rdemo0p` .. `p10`), each a replay of the same name, `icon.sys`, `icon0.ico` and a 256-byte `thumbnail`. A replay is
+scrambled as the card's files with two other swap fractions (0x3E6B3EF8 and 0x3F322311: FileGT4Replay's 0x1CFE68 write and
+0x1CFFF8 read; the game data's are 0x3E0B0C88 and 0x3F27A4E7), then a `ReplayData` as above. ✔ All 13 decipher and parse:
+the recorded times, courses and first cars are the reference's list (28-demo-replays), the mode word (+0x0C) is the A (0) /
+B (1) tag, the size the folder's KB plus 2 entries and one (the original's 43, 24, 39 ... KB). The title `DEMO_000` is the
+row's number. The list's course is the label; the page translates it (`CourseNameCaption`). ❓ Playing one is not done.
