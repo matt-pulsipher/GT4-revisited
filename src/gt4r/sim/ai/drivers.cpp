@@ -1563,6 +1563,7 @@ void Field::hold(std::span<race::CarInput> inputs) {
     for (auto& dp : drivers_) {
         if (!dp || dp->car >= inputs.size()) continue;
         Driver& d = *dp;
+        if (d.control == 0 && d.kind == 0) continue; // (a pad's car: its own input, the engine answering its throttle)
         const ex::Car& c = session_->record(d.car);
         // 0x463CD8: a blip between 3/4 and 15/16 of the shift speed.
         const int up = c.p.d.up_rpm, rpm = c.rpm;
@@ -1572,6 +1573,7 @@ void Field::hold(std::span<race::CarInput> inputs) {
         d.applied_throttle = std::clamp(d.applied_throttle + (d.blip ? 4.0f : -4.0f) * kStep, 0.0f, 1.0f);
         race::CarInput in;
         in.throttle = d.applied_throttle;
+        in.computer = d.control != 0, in.control = u8(d.control == 1 ? 1 : 2);
         inputs[d.car] = in;
     }
 }
