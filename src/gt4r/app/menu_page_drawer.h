@@ -66,7 +66,7 @@ inline std::array<menu::TextColor, 4> program_button_colors(App& app) {
 class PageDrawer {
 public:
     explicit PageDrawer(App& app) : r_(app.renderer()), vfs_(app.vfs()) {
-        for (const char* path : {"font/system.fnt", "font/menu.fnt", "font/race.fnt"}) { // (the last Prologue's alone)
+        for (const char* path : {"font/system.fnt", "font/menu.fnt", "font/race.fnt"}) { // (Prologue's lesson pages: FC_16 ..)
             const std::optional<Bytes> file = app.vfs()->read(path);
             if (!file) continue;
             try {

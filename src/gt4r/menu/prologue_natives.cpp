@@ -74,20 +74,6 @@ std::map<u32, std::array<float, 4>> colors_made(ByteSpan image, u32 load) {
 
 } // namespace
 
-// The option page's wheel tab asks USB port 1 what is there: a steering wheel's name ("COUGAR", "JAGUAR", "CHEETAH") or
-// "DISCONNECT". The wheels the app takes are set in its own settings, so the port answers none is there.
-void install_game_port(script::Module& menu) {
-    menu.define("MGamePort", Vm::native("MGamePort", [](Vm&, const Value&, Args) {
-        auto data = std::make_shared<Object>("MGamePortData");
-        data->set("name", Value::string("DISCONNECT"));
-        auto port = std::make_shared<Object>("MGamePort");
-        port->set("port_name", Value::string(""));
-        port->set("data", object_value(data));
-        port->method("update", [](Vm&, const Value&, Args) { return Value{}; });
-        return object_value(port);
-    }));
-}
-
 std::optional<SwitchColors> prologue_switch_colors(const RuntimeConfig& config) {
     if (!config.program) return std::nullopt;
     try {

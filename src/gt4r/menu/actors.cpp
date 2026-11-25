@@ -2,12 +2,10 @@
 // colour that covers a page while it changes) and watchers (a script function every so many
 // frames), as the program's own routines (docs/formats/menu.md has their addresses).
 
-#include "gt4r/menu/game_internal.h"
 #include "gt4r/menu/runtime_internal.h"
 
 #include <algorithm>
 #include <cmath>
-#include <functional>
 
 namespace gt4r::menu {
 
@@ -220,63 +218,14 @@ struct ChaseActor : Actor {
     float base_x = 0, base_y = 0, range_x = 0, range_y = 16, stride = 360.0f / (8.5f * 60.0f), period = 8.5f;
     int phase = 0;
     bool stopped = true;
-    // Prologue's (0x293E40): the widget goes after its page's focused widget, 0.3 of the way a picture, its script told of each new
-    // one (onFocusChanged), and hops over it once it has been there `wait` pictures.
-    float ratio = 0.3f, wait = 60, hop = 0;
-    const LiveWidget* chased = nullptr;
     using Actor::Actor;
     void attached(LiveWidget& w) override {
         const Rect r = rect_of(w);
         base_x = r.x, base_y = r.y;
     }
-    static Rect screen_rect(const LiveWidget& w) {
-        Rect r = rect_of(w);
-        for (std::shared_ptr<script::Module> p = w.parent.lock(); p; p = p->parent.lock())
-            if (const auto* l = dynamic_cast<const LiveWidget*>(p.get())) {
-                const Rect at = rect_of(*l);
-                r.x += at.x, r.y += at.y;
-            }
-        return r;
-    }
-    void chase(LiveWidget& w) {
-        std::shared_ptr<LiveWidget> focus;
-        for (const std::shared_ptr<LiveWidget>& page : w.runtime->open_pages()) {
-            const std::function<bool(const LiveWidget&)> holds = [&](const LiveWidget& at) {
-                if (&at == &w) return true;
-                return std::any_of(at.children.begin(), at.children.end(), [&](const auto& c) { return c && holds(*c); });
-            };
-            if (page && holds(*page)) focus = page->focus.lock();
-        }
-        if (focus.get() != chased) {
-            auto e = std::make_shared<Object>("MScriptEvent");
-            e->set("module", widget_value(w.self()));
-            e->set("function", Value::string("onFocusChanged"));
-            e->set("args", Value::array({focus ? widget_value(focus) : Value{}}));
-            if (const auto f = w.members.find("onFocusChanged"); f != w.members.end() && focus) w.runtime->push_event(object_value(e));
-            chased = focus.get(), hop = 0;
-        }
-        float cx = 320, cy = 240;
-        if (focus) {
-            const Rect f = screen_rect(*focus);
-            cx = f.x + f.w * 0.5f, cy = f.y + f.h * 0.5f;
-        }
-        const Rect r = rect_of(w), seen = screen_rect(w);
-        cx -= seen.x - r.x, cy -= seen.y - r.y; // (in the widget's own parent)
-        hop += stride;
-        const float p = hop - wait * stride;
-        float x, y;
-        if (p > 0) {
-            const float a = float(int(p) % 360) * 0.017453292f, b = float(int(p * 0.8f) % 360) * 0.017453292f;
-            x = cx + std::sin(a) * range_x - r.w * 0.5f, y = cy - std::fabs(std::sin(b)) * range_y - r.h * 0.5f;
-        } else {
-            x = r.x + (cx - (r.x + r.w * 0.5f)) * ratio, y = r.y + (cy - (r.y + r.h * 0.5f)) * ratio;
-        }
-        w.set_property("x", Value::number(x)), w.set_property("y", Value::number(y));
-    }
     void step() override {
         const auto w = widget.lock();
         if (!w) return;
-        if (const std::shared_ptr<GameNatives> n = w->runtime ? natives_of(*w->runtime) : nullptr; n && n->db().db && n->db().db->prologue()) return chase(*w);
         float x = base_x, y = base_y;
         if (!stopped) {
             phase = int(float(phase) + stride) % 360;
@@ -751,7 +700,7 @@ void install_actor_natives(Runtime& rt, script::Module& menu) {
         });
         number_field(*act, "floating_range_x", &p->range_x);
         number_field(*act, "floating_range_y", &p->range_y);
-        act->property("floating_wait", [p] { return Value::number(p->wait / 60); }, [p](const Value& v) { p->wait = v.as_float() * 60; });
+        act->set("floating_wait", Value::integer(0));
         return object_value(act);
     }));
 
