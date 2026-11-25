@@ -514,7 +514,16 @@ public:
             me.steer = in.steer, me.throttle = in.throttle, me.brake = in.brake, me.handbrake = in.handbrake;
             me.shift_up = in.shift_up, me.shift_down = in.shift_down;
             me.reverse = mapper_.reverse();
-            if (me.reverse) me.throttle = std::max(me.throttle, gt3r::race::pressure_to_pedal(pad.press(PadButton::Triangle)));
+            if (me.reverse) {
+                // The back axis alone (GT4's pad controls 0x349418 take it over a smaller throttle),
+                // the brake from its own button: not the shared mapping's automatic swap, which puts
+                // the back axis on the brake.
+                const auto pedal = [&](PadButton b) {
+                    return !pad.down(b) ? 0.0f : pad.press(b) ? gt3r::race::pressure_to_pedal(pad.press(b), mapper_.config()) : 1.0f;
+                };
+                me.throttle = std::max(pedal(PadButton::Cross), pedal(PadButton::Triangle));
+                me.brake = pedal(PadButton::Square);
+            }
         }
         // A demonstration: car 0 by its recording, step by step from the race's first.
         const bool demo = demo_run_.has_value();
@@ -1112,7 +1121,14 @@ private:
     Setup setup_;
     std::unique_ptr<RaceWorld> world_;
     std::vector<race::CarInput> inputs_;
-    gt3r::race::ControlMapper mapper_;
+    // The pad's raw stick: GT4's input phase (0x349FD0) makes its own analog path, so no dead zone
+    // or curve of the shared mapping goes before it.
+    static gt3r::race::ControlConfig raw_controls() {
+        gt3r::race::ControlConfig c;
+        c.stick_deadzone = 0, c.stick_exponent = 1;
+        return c;
+    }
+    gt3r::race::ControlMapper mapper_{raw_controls()};
     race::DriveCamera camera_;
     race::ReplayScript replay_script_;
     race::ReplayCamera replay_camera_;
