@@ -78,7 +78,6 @@ std::string rules_text(const net::RaceRules& r, const net::LobbyLimits& l) {
     std::string t = std::to_string(r.laps) + (r.laps == 1 ? " lap" : " laps");
     t += r.tire_wear ? ", tires wear" : ", no tire wear";
     t += std::string(", ") + kBoost[std::clamp(r.boost, 0, 2)];
-    if (r.penalty) t += r.penalty == 1 ? ", penalty: speed limit" : ", penalty: pit lane";
     if (l.max_power) t += ", up to " + power_text(l.max_power);
     if (!l.garage_cars) t += ", cars as sold";
     if (!l.any_car) t += ", favorites only";
@@ -304,13 +303,6 @@ private:
             rows_.push_back({"Laps", std::to_string(std::clamp(g.option_int("split_race_laps", 2), 1, 99)), "", {}, [this, &g](int d) { g.options["split_race_laps"] = s32(std::clamp(g.option_int("split_race_laps", 2) + d, 1, 99)), changed_ = true; }});
             rows_.push_back({"Tires", g.option_int("split_tire_damage") ? "wear" : "do not wear", "", {}, [this, &g](int) { g.options["split_tire_damage"] = s32(g.option_int("split_tire_damage") ? 0 : 1), changed_ = true; }});
             option("Boost for the cars behind", "split_boost_level", {"none", "weak", "strong"}, "");
-            {
-                static const std::pair<const char*, const char*> kinds[] = {{"NONE", "none"}, {"SPEED_LIMITATION", "a speed limit"}, {"PASSING_PITLANE", "the pit lane"}};
-                int now = 0;
-                for (int i = 0; i < 3; ++i)
-                    if (g.option_text("penalty_type") == kinds[i].first) now = i;
-                rows_.push_back({"Penalty for a hit", kinds[now].second, "", {}, [this, &g, now](int d) { g.options["penalty_type"] = std::string(kinds[std::clamp(now + d, 0, 2)].first), changed_ = true; }});
-            }
             rows_.push_back({"What may race", "", "", {}, {}});
             rows_.push_back({"Power", limits_.max_power ? "up to " + power_text(limits_.max_power) : std::string("no limit"), "The car's power as it races, its parts and settings counted.", {},
                              [this](int d) { limits_.max_power = u16(std::clamp(int(limits_.max_power) + 25 * d, 0, 1500)), changed_ = true; }});

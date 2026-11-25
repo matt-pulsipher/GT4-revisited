@@ -204,3 +204,122 @@ server in the process; the clocks 5 s apart) and `net_session_finish_and_loss`.
 | Transport, lobby channel, hole punching, relay, clocks, plausibility checks | `engine/gt3r/src/net`, `race/net_race.h` `Plausibility` | the shared engine's, unchanged |
 | The car's state, posing, prediction, hits | `net/`, `sim/session.*` | ours, on Gran Turismo 4's step (nothing of Gran Turismo 3's runs in a car) |
 | Wear, boost, start, grid | `net/lan_rules.*`, `race_world.*` | Gran Turismo 4's |
+
+## The lobby
+
+### What the original's menus share (program facts)
+
+Arcade's *Multi-LAN Race* (the script's `LANBattle`; `GameRoot::LANBattle`, `MatchingRoot`, `MonitorRoot`, `CourseRoot`,
+`CarRoot`, `SettingPopup`, `PregridRoot` of the project `arcade`) runs the same pages on every machine at once. Each machine
+writes its own record and reads the others' through `main::network` (MNetwork, registered at 0x1E9A40; the natives
+0x1E4B20 .. 0x1E7210, on RTIME, the session library, at 0x645570).
+
+- A member's record in RTIME's client table (`raceMenuNotify...` writes ours, `raceMenuPeek...(i)` reads member i's; ours
+  0x4FA008, the others 0x4F9F70 / 0x4F9F18, written back 0x4FA048): +0x00 u32 the time asked for (`NotifyTime`), +0x35 s8 the
+  style (0 .. 2 play, live, monitor; 0x1F0DC0), +0x36 s8 the sequence, +0x37 s8 the players the host waits for
+  (`NotifyClientCount`), +0x39 char[0x40] the car's label and +0x79 its paint (0x1F6EF0), +0xBA 0x20 bytes the entry's
+  setting (0x1F72A0). The session's: +0xF78 char[0x20] the course (0x1F73B0, the host's alone), +0xF98 0x20 bytes the race's
+  setting (0x1F7330, the host's alone), +0xEE0 the members, +0xFCC the menus' state (1: ended, `raceMenuEnd` 0x1F6A98, read
+  by `raceMenuForceEnd` 0x1F6AC0), +0xFD4 a counter of changes (`raceMenuChanged` 0x1F7520).
+- **All connected** (`raceMenuAllConnected`, 0x1F7460): every member has a record, the greatest count asked for is above 0
+  and no more than the members, and the game's time is past the greatest time asked for.
+- **The barrier** (`enterNetSync`, `netSync` 0x1F75C8, `leaveNetSync`): yes once every member entered it, or on an error.
+- **The race's setting** (`getBattleSettingRace`, 0x161F28): six words, the 2-Player Battle's options and two more:
+  split_race_laps, split_handicap, split_boost_level, split_tire_damage not 0, LAN_heavy (the network's load), penalty_type.
+  **An entry's** (`getBattleSettingEntry`, 0x162018): automatic gears, ASM, TCS, vibration, active steering, the tires'
+  kind, the first view, a bit of the race display's word, and one more.
+- The pages: the host waits in *Matching* for `LAN_player_num` + `LAN_monitor_num` members, then names the count and a
+  second from now; all go to the course page together (sequence 3). Any player's course is a proposal (sequence 4); the
+  host takes it, or chooses its own, and is at 5; the others follow a member at 5 or more with its course. The cars are the
+  favorites alone, else the script's `lan_carlist` / `lan_dirt_carlist`; convertibles of the open kind 2 are refused. The
+  driving options' OK sends the settings and goes to the pregrid page (7), which shows six names; when every player is at 7
+  or past it a count runs out and each machine leaves for the sequence `lan_race` (8) with its car. Back from the race the
+  arcade project opens the course page again. There is no chat in the LAN Battle, no removing of a player and no way back
+  from the course and car pages.
+- Options: *LAN* (machine name, host or not, style, players, monitors, the network's load; Option +0x1344 .. +0x13F0: the
+  style, two names of 0x44 bytes, then u32s: monitors, the monitor's place x and y, a delay, host, load, players, automatic
+  connection, its count and index). The project `network` sets a console's network adaptor up and opens RTIME; the LAN
+  Battle goes through it first (`next_menu_project` "network", argument "LAN").
+- **The tires** a race puts on (the race object's virtual 92: `RaceLanBattle` 0x338348, `RaceArcade`, `RaceSplitBattle`,
+  `RaceFreeRun`): on a dirt course kind 11 for every entry, on snow 12, else the entry's chosen kinds (+0x160, +0x161 with
+  +0x165 set), each the car's fitting part of that kind (its CARS file); a car without one keeps its own.
+
+### The game's own pages here
+
+`menu/game_network.*` answers those natives from a `net::Lobby` (`net/lobby.*`): each player's record is one block (at most
+1 KB) in the session's car info (`Session::set_car_info`, which the host passes on, to players who join later too). Nothing
+is added to the shared engine's protocol. The pages are the disc's, unchanged; the record holds the natives' fields, the
+player's car, the barrier's round, and the host's settings.
+
+- **The barrier by rounds.** The host's round goes up with each race. Entering the barrier names the round it leads to and
+  takes the sequence back to 2, so a player still in the last race's menus is not taken for one who chose a course. A player
+  whose menus have not come to a barrier yet (joining late) holds nobody; he takes the course the others are at.
+- **What is added on the pages**, by functions of the scripts given another body when the arcade project is read
+  (`adapt_lan_pages`): after the course the makers' page as the 2-Player Battle has it (every car; the garages of the two
+  card slots), when the host lets every car race (else the favorites alone, as the original); Triangle on a maker's cars
+  goes back to the makers; the driving options' OK says at once why a car may not race and stays. `isClientDisconnected` and
+  `isDisconnected` answer no: a player who leaves ends nothing for the others, and the lobby's own window says what ended.
+- **The host's rules**: the 2-Player Battle's options (laps, tire wear, boost) as the original's, and ours: a power limit (the
+  car's as it races), garage cars or cars as sold, every car or the favorites, contact by round trip. The course is the
+  pages'. Each player's gearbox, aids and tires are his own (the driving options; a garage car's own parts).
+- **The connection's page** (`app/screen_online.cpp`) stands in for the `network` project: the lobbies found on the local
+  network, open one, join by address; open one with a code, join with a code; the player's name (the option's LAN machine
+  name), the server. Text is typed on a keyboard, or with a pad on a keyboard shown.
+- **The players' panel**: on the matching page always (the code or the address to join, who is there, the link and round
+  trip of each, the rules; the host's Start begins with the players there), on the other pages with Select: the host
+  removes a player (Square), anyone leaves the lobby (Start). It says why a car cannot race here.
+- Six players at most (the pregrid page's slots). ❓ The styles live and monitor (watching) are not offered.
+- **After a race** everyone is taken back to the course page by the host (*Again* is the same pages). A player's record goes
+  with him when he leaves; the host closing the lobby or lost ends it for all, with a window that says so.
+
+### The session's identity
+
+The disc's id is `gt4` for the release as it shipped, `gt4:<the files' digest>` for any other Gran Turismo 4 disc
+(`net/identity.*`); Prologue has none and no Multi-LAN Race. Two ids that differ never meet: the host refuses, and the refusal
+calls our disc "another game", whichever side hosts. The version sent is the shared engine's. A relay server that asks for a
+newer version is answered on the page by a text of ours with no other name and no download; the relay's version notices are
+not used.
+
+### The car
+
+`net/car_choice.*`. An arcade car travels as its label, paint and the kind of tires chosen; a garage car with its equipment
+record (0x178 bytes: parts and settings) and condition block (0x20) as well; each with the owner's gearbox, aids and wheel.
+Every machine builds it from its own disc: the car as sold, or the record sent, then the race's tires. The **digest** is
+FNV-1a over the parameter block (0x1100 bytes) the converter makes of the car on a paved course, with a garage car's
+condition; a car whose digest differs here, whose parts are another car's or do not fit it (its CARS file; wheels and wings
+fit any car), or which the disc lacks, is named on the panel with the reason, and the host's race does not start with it. ❓
+A garage car's settings are not checked against the ranges the settings page gives: a setting no page gives would race
+as sent (on every machine alike).
+
+### Finding a lobby
+
+`net/discovery.*`: the host of a lobby on the local network answers on the first free UDP port of 47640 .. 47643; a guest's
+page asks them once a second on each network's broadcast address and on this machine. Question and answer start "GT4L", u8 1
+(the version), u8 1 (a question) or 2 (an answer), u32 the question's number; the answer adds u16 the session's port, the
+host's name and disc id (u8 length and bytes each), u8 players, u8 the most, u8 open. The session's own port is 47634 and the
+three above it. Nothing is sent but to an open page's question.
+
+### The relay server
+
+The shared engine's (`Session::host_via`, `join_code`, its `docs/dev/ONLINE.md` "Server"), named in `config.ini` `[online]
+server`. No server is set until the player chooses one on the page: the first thing that needs one asks, offering
+`gt3r.gameversions.com` or a name typed. A player's own (`gt3r-relay`) is typed there too. Tests use a server of their own on
+the loopback.
+
+### Scripted races
+
+`--screen online` with `GT4R_ONLINE` (the top of `app/screen_online.cpp`): two copies race without the menus, direct or
+through a local relay server; `GT4R_NET_LOOPBACK=1` keeps them on this machine (no addresses told, no broadcast).
+
+### What runs where (the lobby)
+
+| Part | Where | Whose |
+|---|---|---|
+| The pages from *Matching* to the pregrid, their rules and texts | the disc's scripts | Gran Turismo 4 |
+| What the pages share (the natives) | `menu/game_network.*`, `net/lobby.*` | Gran Turismo 4's rules on the shared engine's session |
+| The connection's page, the panel, the rules that are ours | `app/screen_online.cpp`, `app/race_online_ui.*` | ours |
+| The transport, the codes, the relay | `engine/gt3r/src/net` | the shared engine's |
+| The car's parameter block, the race's tires | `sim/convert.*`, `sim/race_tires.*` | Gran Turismo 4 |
+
+Tests: `net_lobby_*`, `disc_net_cars` (every car of the disc through the wire and the digest), `disc_net_lan_pages` and
+`disc_net_lan_garage_car` (two games' menus in one process from the Multi-LAN Race to the race and back).
