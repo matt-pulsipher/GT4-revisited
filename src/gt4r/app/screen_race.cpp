@@ -7,8 +7,8 @@
 // auto (the simple driver takes the first car too) or pad, `skip` simulation steps run before the
 // first picture (the start's hold is left out then), `paint` the first car's paint, `laps` the
 // race's length, `start` the start: 10 or 8 (a hold of so many seconds with the opening shots),
-// <seconds> (a plain hold), none, rolling, course (the course's own: race/start_rule.h); `view=tv` the course's replay cameras; `driver=1` the drivers in their stored pose; (GT4R_DEMO_LOG=<n> logs a demonstration's car every n steps); `replay=N` drives
-// N steps unseen and plays them back through the replay cameras; `bspec=1` a B-spec run (GT4R_HITCH=<ms>
+// <seconds> (a plain hold), none, rolling, course (the course's own: race/start_rule.h); `view=tv` the course's replay cameras; `driver=0` no drivers in the cars; (GT4R_DEMO_LOG=<n> logs a demonstration's car every n steps); `replay=N` drives
+// N steps unseen and plays them back through the replay cameras; `bspec=1` a B-spec run, `pit=1` its car asked into the pits from the start (GT4R_HITCH=<ms>
 // logs every frame longer than that, with the race's work and the present before it); `menus=single_race` the race
 // sequence's own menus (quick-arcade) before and after the race (any sequence: solo_event,
 // championship, license, mission, time_trial, freerun, practice, machinetest), `race=<label>` its event.
@@ -91,6 +91,7 @@ struct Setup {
     int view = race::DriveCamera::kChase;
     bool look_back = false;
     bool auto_drive = false;
+    bool pit = false;     // `pit=1`: its car asked into the pits from the start
     RaceWorld::PlayerChoice player; // the gearbox, the aids, the wheel's (`mt=1`, `asm=0`, `tcs=0`; a race of the menus: its choices)
     bool bspec = false;   // `bspec=1`: a B-spec run (the computer drives the player's car; its display and commands)
     int skip = 0;
@@ -99,7 +100,7 @@ struct Setup {
     int laps = 3;
     int replay = 0;
     bool smoke = true;
-    bool drivers = false;
+    bool drivers = true;
     bool reflection = true;
     bool rail = false;     // the stand-in simulation instead of the game's
     bool scripted = false; // from GT4R_RACE: no lists
@@ -165,6 +166,7 @@ Setup setup_from_env() {
             if (!v.empty() && std::isdigit(static_cast<unsigned char>(v[0]))) s.view = std::atoi(v.c_str());
         } else if (k == "drive") s.auto_drive = v == "auto";
         else if (k == "bspec") s.bspec = v != "0";
+        else if (k == "pit") s.pit = v != "0";
         else if (k == "mt") s.player.automatic = v == "0";
         else if (k == "asm") s.player.asm_on = v != "0";
         else if (k == "tcs") s.player.tcs_on = v != "0";
@@ -631,6 +633,7 @@ public:
         begin_run(setup.bspec);
         built_ = true;
         // A scripted run that skips ahead: those steps unseen.
+        if (setup.pit) world_->pit_command(0);
         for (int i = 0; i < setup.skip; ++i) step({}, true);
         if (setup.replay > 0) {
             // A run driven unseen, then shown through the replay cameras.
@@ -1383,7 +1386,8 @@ public:
         // The in-car view's rear-view mirror at the top (❓ its place, (190, 18) 259 x 63 of the
         // 640 x 480 picture, measured on the original's in-car view): not in replays, demonstrations, under the results pages, the opening
         // shots (a standing start's or a rolling start's TV cameras), B-spec or looking back.
-        if (mount_ == race::DriveCamera::kInCar && !finish_view() && !replaying_ && !demo_run_ && !flow_.player_finished() && !menu_scene_ && !watched_ && !start_camera_.active() && !opening_tv() && !look_back && !setup_.look_back) {
+        race::ViewPose pit;
+        if (mount_ == race::DriveCamera::kInCar && !world_->pit_camera(focus(), pit) && !finish_view() && !replaying_ && !demo_run_ && !flow_.player_finished() && !menu_scene_ && !watched_ && !start_camera_.active() && !opening_tv() && !look_back && !setup_.look_back) {
             const SDL_FRect c = RaceHud::canvas();
             const float k = c.h / 480.0f;
             world_->render_mirror(ui, {c.x + 190 * k, c.y + 18 * k, 259 * k, 63 * k}, cars, pose, 0);
@@ -1497,7 +1501,9 @@ public:
     // The camera at the last step but one (its cameras as they were then, on the cars as they were).
     race::ViewPose previous_pose(bool look_back) {
         std::swap(camera_, camera_prev_), std::swap(start_camera_, start_prev_), std::swap(tv_pose_, tv_prev_), std::swap(tv_valid_, tv_prev_valid_);
+        before_ = true;
         const race::ViewPose p = current_pose(prev_cars_, look_back);
+        before_ = false;
         std::swap(camera_, camera_prev_), std::swap(start_camera_, start_prev_), std::swap(tv_pose_, tv_prev_), std::swap(tv_valid_, tv_prev_valid_);
         return p;
     }
@@ -1579,6 +1585,8 @@ public:
         // The replay cameras' shot for the car; the chase view where the script has none.
         if (!posed && finish_view()) posed = finish_camera_.pose(RVec{me.position.x, me.position.y, me.position.z}, pose);
         if (!posed && view == kTvView && tv_valid_) pose = tv_pose_, posed = true;
+        // The pit's own camera from the car's nearing its box until it has left it.
+        if (!posed && !replaying_ && !menu_scene_) posed = world_->pit_camera(f, pose, before_);
         // Prologue's shots: a lens of A degrees shows 10 / 7 of the width ours does (✔ against the original's start, grid page and
         // trackside shots at Tsukuba: 1.43; 4/3 x 480/448, the angle up its 448 lines).
         if (posed && gt3_road_) pose.fov = 2 * std::atan(std::tan(pose.fov * 0.5f) * 10 / 7);
@@ -1686,6 +1694,7 @@ private:
     race::StartCamera start_prev_;
     race::ViewPose tv_prev_;
     bool tv_prev_valid_ = false;
+    bool before_ = false; // the pose asked for is the last step but one's
     float blend_ = 1;
     int dissolve_total_ = 0, dissolve_left_ = 0;
     race::CameraMotion start_motion_, replay_motion_;

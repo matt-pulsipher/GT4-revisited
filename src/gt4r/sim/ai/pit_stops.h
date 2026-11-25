@@ -120,6 +120,9 @@ public:
     };
     const std::array<StopRecord, 4>& stop_record(size_t i) const { return records_[i]; }
 
+    // Whether a car is on the pit's stretch of the course (0x35AE58): between the stop line's second point and its last.
+    bool in_stretch(size_t car, float lap) const;
+
 private:
     PitFlow flow_;
     PitLine line_;

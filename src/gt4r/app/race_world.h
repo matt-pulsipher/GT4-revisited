@@ -8,6 +8,7 @@
 
 #include "gt4r/formats/replay/demonstration.h"
 #include "gt4r/app/app.h"
+#include "base/ee_float.h"
 #include "gt4r/race/car_visual.h"
 #include "gt4r/race/course_scene.h"
 #include "gt4r/race/gadget_bodies.h"
@@ -64,7 +65,7 @@ struct WorldSetup {
     std::vector<WorldEntry> entries; // the first is the player's
     bool smoke = true;
     bool reflection = true;
-    bool drivers = false; // the drivers in their stored pose (the posture is not ported: for checks)
+    bool drivers = true; // the drivers in their cars
     bool rail = false; // the stand-in simulation instead of the game's
     sim::ai::Pace pace; // the computer drivers' (the event's)
     // The event's class grips as they are (a license test's, training's, mission's and practice's conductor); else a byte the
@@ -222,6 +223,8 @@ public:
     // The refuelling: just begun (0x35BE10: service 0x20 taken), going on (0x35BEB0), stopped by the player (0x35BFC0).
     bool refuel_begun(size_t car);
     bool refuelling(size_t car) const;
+    // The pit's camera for a car (race/pit_scene.h), now or as it was before the last step; false: the race's view.
+    bool pit_camera(size_t car, race::ViewPose& out, bool before = false) const;
     void stop_refuel(size_t car) {
         if (pits_ && car < car_visuals_.size()) pits_->choose(car, 0xFF, 0xFF, 0, 2);
     }
@@ -329,6 +332,9 @@ public:
     const gt3r::render::DrawStats& draw_stats() const;
 
 private:
+    std::optional<std::array<gt3r::ee::F, 11>> hand_speeds_; // the drivers' (race/driver_state.h), from the program
+    void open_pit_scene();
+    void step_pit_scene();
     struct Impl;
     void build_simulation();
     void arm_bspec(const sim::Program& program);
