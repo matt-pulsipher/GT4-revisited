@@ -10,6 +10,7 @@
 
 #include <memory>
 #include <span>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -92,6 +93,9 @@ public:
         float opacity = 1;
     };
     void draw_movie(const race::StrobeMovie& movie, const race::StrobePlayer& player, std::vector<MovieExternal>* externals = nullptr);
+    // A movie's text field whose words are cut to its box's width with "..." (the Race Monitor's car names: 0x3DA668
+    // fits them with 0x48F790 to the field's width).
+    void fit_field(const race::StrobeMovie::TextField* field) { fitted_fields_.insert(field); }
     // The course map fitted in a box `size` canvas units across centred on (cx, cy), each car's letter at its
     // place (`lit` the one drawn orange): the Race Monitor's MAP_PANEL.
     struct Letter {
@@ -105,6 +109,7 @@ public:
     static SDL_FRect canvas();
 
 private:
+    std::set<const race::StrobeMovie::TextField*> fitted_fields_;
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };

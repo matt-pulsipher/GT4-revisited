@@ -1515,8 +1515,9 @@ private:
     // ---- B-spec's Race Monitor (menu/common/racemonitor.strb, R1): the program fills the movie's named
     // instances (0x3D8DB8 each frame: 0x3DAF60 the current car, the lap and the total; 0x3DBF90 the rows and
     // the map's letters; 0x3DC5D8). Here: the followed car's name and pace, the total time, the lap, a row
-    // per car in race order (its name, grid letter, best lap, gap to the leader); ❓ the map's letters, the
-    // gap strip, the pit panel and the replay speed are not filled (hidden).
+    // per car in race order (its name fitted to its field with "...", grid letter, best lap, gap to the leader; the
+    // followed car's row lit); ❓ the map's letters, the gap strip, the pit panel and the replay speed are not filled
+    // (hidden).
 
     void toggle_monitor(App& app) {
         if (monitor_) {
@@ -1536,6 +1537,14 @@ private:
             return race::StrobePlayer::Value{};
         });
         monitor_->restart();
+        // The rows' car names are fitted to their field (0x3DA668): the field the tree names BARn.NAME.
+        if (hud_)
+            for (const std::string& line : monitor_->tree())
+                if (line.rfind("BAR", 0) == 0 && line.find(".NAME ") != std::string::npos)
+                    if (const size_t at = line.find("text "); at != std::string::npos) {
+                        const size_t field = size_t(std::atoi(line.c_str() + at + 5));
+                        if (field < monitor_movie_->texts.size()) hud_->fit_field(&monitor_movie_->texts[field]);
+                    }
         fill_monitor();
     }
 
@@ -1582,7 +1591,7 @@ private:
             const s64 gap = race_->gap_ms(car);
             text(bar + ".DIFF", r == 1 || gap < 0 ? "" : race::format_lap_time(gap));
             m.call(bar + ".GRID", "gotoAndStop", {V::number(letter(car))});
-            m.call(bar, "gotoAndStop", {V::number(car == 0 ? 2 : 1)}); // (the player's row lit)
+            m.call(bar, "gotoAndStop", {V::number(car == me ? 2 : 1)}); // (the followed car's row lit: 0x3DAF60, the monitor's +0x64)
             for (const char* part : {".LAP", ".PIT", ".BEST", ".BESTMARK"}) show(bar + part, false);
         }
         for (char c = 'A'; c <= 'F'; ++c) show(std::string("CARPOS_") + c, false);

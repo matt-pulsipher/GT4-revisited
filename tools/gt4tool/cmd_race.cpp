@@ -302,6 +302,20 @@ int race_strobe_tree(Disc& disc, const Args& a) {
     p.restart();
     p.advance(a.size() > 2 ? float(std::atof(a[2].c_str())) : 0.0f);
     std::printf("root frame %d, state %s\n", p.frame(), p.state().c_str());
+    if (a.size() > 3) {
+        // `<path>:<frame>`: that clip stopped at that frame, then what is drawn (fills, colour changes, places).
+        const size_t colon = a[3].find(':');
+        if (colon != std::string::npos) p.call(a[3].substr(0, colon), "gotoAndStop", {race::StrobePlayer::Value::number(std::atof(a[3].c_str() + colon + 1))});
+        for (const race::StrobePlayer::Draw& d : p.draw_list()) {
+            if (d.group) {
+                const race::StrobeMovie::Fill* f = d.group->fill < movie->fills.size() ? &movie->fills[d.group->fill] : nullptr;
+                std::printf("shape fill %u kind %d value %08x", unsigned(d.group->fill), f ? int(f->kind) : -1, f ? unsigned(f->value) : 0u);
+            } else std::printf("text \"%s\"", d.words.c_str());
+            std::printf(" at %.0f,%.0f mul %.2f %.2f %.2f %.2f add %.2f %.2f %.2f %.2f\n", double(d.m[4]), double(d.m[5]), double(d.mul[0]), double(d.mul[1]),
+                        double(d.mul[2]), double(d.mul[3]), double(d.add[0]), double(d.add[1]), double(d.add[2]), double(d.add[3]));
+        }
+        return 0;
+    }
     for (const std::string& l : p.tree()) std::printf("%s\n", l.c_str());
     for (size_t i = 0; i < movie->sprites.size(); ++i) {
         std::printf("sprite %zu: %d frames", i, int(movie->sprites[i].frames));

@@ -295,11 +295,14 @@ SDL_FRect RaceHud::canvas() { return to_ui(DisplayRect{0, 0, 640, 480}); }
 
 void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlayer& player, std::vector<MovieExternal>* externals) {
     Impl& m = *impl_;
-    // A colour of the movie (0xAABBGGRR, 0x80 a full channel) through a draw's colour change.
-    auto colour = [](u32 c, const race::StrobePlayer::Draw& d) {
+    // A colour of the movie (0xAABBGGRR) through a draw's colour change. A shape without a picture is drawn in its
+    // colour as the GS takes a vertex colour (RGB 0xFF full, alpha 0x80 opaque: the Race Monitor's lit row
+    // 0x800099FF is orange, its 0x1A grey cells 0x1A); a picture is modulated by it (0x80 a full channel).
+    auto colour = [](u32 c, const race::StrobePlayer::Draw& d, bool textured = false) {
         SDL_FColor o;
         float ch[4];
-        for (int j = 0; j < 4; ++j) ch[j] = std::clamp(float((c >> (8 * j)) & 0xFF) / 128.0f * d.mul[j] + d.add[j], 0.0f, 1.0f);
+        for (int j = 0; j < 4; ++j)
+            ch[j] = std::clamp(float((c >> (8 * j)) & 0xFF) / (j < 3 && !textured ? 255.0f : 128.0f) * d.mul[j] + d.add[j], 0.0f, 1.0f);
         o.r = ch[0], o.g = ch[1], o.b = ch[2], o.a = ch[3];
         return o;
     };
@@ -367,7 +370,7 @@ void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlaye
                     if (u > st.back().first) c = st.back().second;
                     x.color = colour(c, d);
                 } else {
-                    x.color = colour(0x80808080u, d);
+                    x.color = colour(0x80808080u, d, true);
                 }
                 v.push_back(x);
             }
@@ -399,7 +402,22 @@ void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlaye
             const float bx = d.m[0] * (t.x0 + 2) + d.m[2] * (t.y0 + 2) + d.m[4], by = d.m[1] * (t.x0 + 2) + d.m[3] * (t.y0 + 2) + d.m[5];
             const float bw = std::max(0.0f, t.x1 - t.x0 - 4) * sx, bh = std::max(0.0f, t.y1 - t.y0 - 4) * sy;
             const int align = t.align == 2 ? 1 : t.align == 1 ? 2 : 0;
-            const menu::TextLayout lay = menu::layout_menu_text_in(word(d.words), st, bx, by, bw, bh, align);
+            std::string words = word(d.words);
+            menu::TextLayout lay = menu::layout_menu_text_in(words, st, bx, by, bw, bh, align);
+            if (fitted_fields_.count(&t) && lay.width > bw && !words.empty()) {
+                // Cut to the box's width, "..." after the longest start that fits with it.
+                std::string cut = words;
+                while (!cut.empty()) {
+                    while (!cut.empty()) { // one whole UTF-8 character off the end
+                        const unsigned char c = static_cast<unsigned char>(cut.back());
+                        cut.pop_back();
+                        if ((c & 0xC0) != 0x80) break;
+                    }
+                    lay = menu::layout_menu_text_in(cut + "...", st, bx, by, bw, bh, align);
+                    if (lay.width <= bw) break;
+                }
+                words = cut + "...";
+            }
             SDL_Texture*& atlas = m.atlases[{f.font, f.variant}];
             if (!atlas) atlas = m.make_texture(f.font->atlas[size_t(std::clamp(f.variant, 0, 1))]);
             if (!atlas) continue;
