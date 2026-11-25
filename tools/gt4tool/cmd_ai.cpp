@@ -363,7 +363,7 @@ int demo_run(Disc& disc, const Args& a, int hold) {
     if (!road) return 1;
     std::vector<sim::Entry> entries = run->entries();
     entries.resize(1); // (car 0: the recording's)
-    sim::Session session(sdb, program, std::make_shared<const course::Runway>(std::move(*road)), entries);
+    sim::Session session(sdb, program, std::make_shared<const course::Runway>(std::move(*road)), entries, sim::course_row(sdb, event->course));
     std::vector<race::CarInput> in(1);
     const race::CarState& c = session.cars()[0];
     const course::Vec3 start = c.position;

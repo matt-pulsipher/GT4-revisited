@@ -184,7 +184,7 @@ int cmd_drive(Disc& disc, const Args& a) {
     }
     const double seconds = a.size() > 2 ? std::atof(a[2].c_str()) : 30.0;
     const bool no_steer = a.size() > 3 && a[3] == "straight", careful = a.size() > 3 && a[3] == "careful";
-    sim::Session session(sdb, program, std::make_shared<const course::Runway>(std::move(*road)), std::span<const sim::Entry>(&entry, 1));
+    sim::Session session(sdb, program, std::make_shared<const course::Runway>(std::move(*road)), std::span<const sim::Entry>(&entry, 1), sim::course_row(sdb, a[1]));
     for (const std::string& n : session.notes()) std::printf("note: %s\n", n.c_str());
     print_figures(sdb, program, a[0]);
     std::printf("%s course, lap %.1f m\n", session.loose() ? "loose" : "paved", double(session.ground().road().length));

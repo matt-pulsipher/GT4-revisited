@@ -189,6 +189,8 @@ public:
     // The driving line's heading at the car's distance along the course (0x4649F0 on the driver's line and its next point),
     // for the steering's active aid (sim-step). 0 for a car not driven.
     gt3r::ee::F line_heading_at(size_t car) const;
+    // The car's driver's mode (D +0x1E), beside it: the active steering runs in mode 0.
+    u8 line_mode_at(size_t car) const;
     // The car closing in on another fastest, for the on-board camera (0x34AA88 over the threat record D +0x53 / +0x60 /
     // +0x64 the pairs pass keeps, 0x469888): the car it closes on (the least gap / closing speed among those it closes on,
     // else the nearest of those it does not), the gap (m) and the speed between them as the camera takes it (m/s: the
@@ -266,9 +268,7 @@ public:
     // for control source 1 (the up-shifts with kind 0 only); 128 for a car not driven.
     void apply_shift_factors(Session& session) const;
     // The places' held starts (Pace::start_delay, seconds) into the session (60 x them as its cars' own start holds, the
-    // conductor's +0xCBFC; none in a rolling start): call once before the first step. Until it is called drive() holds such
-    // a car itself on its brake until the race's clock passes its seconds (judged, kept for callers without the session's
-    // hold).
+    // conductor's +0xCBFC; none in a rolling start): call once before the first step.
     void apply_start_delays(Session& session);
     // The band's values as the conductor holds them (+0x7C .. +0x94, for checks against another race) and its mode.
     struct Band {
@@ -364,7 +364,6 @@ private:
     Pace pace_;
     std::vector<std::unique_ptr<Driver>> drivers_; // by car index (null: not driven)
     std::vector<int> ranks_;
-    bool start_delays_held_ = false; // (apply_start_delays: the session holds the cars)
     u64 steps_ = 0;
     u32 clock_ = 0; // the race's clock as the conductor keeps it (+0xF89C): 50 a step, a third of it in milliseconds
     // Per car (every car, driven or not): the proximity pass's results (the driver object's +0x44 .. +0x6A).

@@ -33,6 +33,7 @@ struct Entry {
     Equipment equipment;   // the car, its parts and settings (stock_car)
     bool automatic = true; // the gearbox shifts itself
     bool asm_on = true, tcs_on = true;
+    bool wheel_aid = false; // the entry's third aid switch (+0x3458; off for a player in the races seen): a steering wheel's slip aid
     int grid_place = -1;   // the course's start place (-1: the entry's index)
     float start_speed = 0; // a rolling start: metres per second along the place's heading at time 0
     // A rolling start's place: metres along the course from the start line (negative: before it), the car on
@@ -44,14 +45,24 @@ struct Entry {
     bool fuel = false;
 };
 
+// What a race takes of its course's COURSE row: +0x10 the kind (0 dry, 1 wet, 2 dirt, 3 snow; 0xFF reads 0) and +0x12 (2 on
+// the gymkhana and special stages: no active steering, 0x347A00).
+struct CourseRow {
+    u8 kind = 0, road = 0;
+};
+// By the course's label ("tsukuba"); none without a row.
+std::optional<CourseRow> course_row(db::SpecDb& db, const std::string& course);
+
 class Session final : public race::Simulation {
 public:
     static constexpr float kStep = 1.0f / 60.0f;
     static constexpr int kHoldSteps = 120; // a standing start's countdown before the session's time 0 (the constructor's)
 
+    // `course`: the course's row; without it the kind is guessed (dirt when the first start place is on a loose surface).
     // Throws std::runtime_error for a session that cannot be set up (no entries, a course without a
     // start place on the road, a car whose parameters cannot be built).
-    Session(db::SpecDb& db, const Program& program, std::shared_ptr<const course::Runway> road, std::span<const Entry> entries);
+    Session(db::SpecDb& db, const Program& program, std::shared_ptr<const course::Runway> road, std::span<const Entry> entries,
+            std::optional<CourseRow> course = {});
     ~Session() override;
     // A session on a disc's course ("tsukuba": the file crs/tsukuba) with cars as sold, by their labels
     // ("nsx_r_02"), in grid order. Throws std::runtime_error (no such course or car, or as the constructor).
@@ -126,7 +137,9 @@ public:
     // The driving line's heading at a car (0x4649F0 on its driver's line at its distance along the course: the computer
     // drivers' Field::line_heading_at): the active steering of a pad car aims along it. Set it before each step; a car never
     // given one runs without the active steering.
-    void set_line_heading(size_t car, gt3r::ee::F heading);
+    // `mode`: the driver's (D +0x1E, Field::line_mode_at: the line point's kind, 3 / 4 at a braking point), kept in the
+    // record: the active steering runs in mode 0 only, on a straight.
+    void set_line_heading(size_t car, gt3r::ee::F heading, std::optional<u8> mode = {});
     // For gt4r_diff's whole-step comparison: a car's state set as a whole (the engine's mirror and Gran Turismo 4's
     // part), and its collision body.
     void load_state(size_t i, const gt3r::sim::exact::Car& c, const sim::Extra& x) { cars_[i] = c, gx_[i] = x; }
@@ -232,6 +245,7 @@ private:
     std::vector<rules::PadMail> mail_;      // each car's request to its controller (a pit stop's answer, a B-spec command)
     std::vector<collide::Hit> hits_;        // the collision step's hits this step
     u32 active_on_ = 0;                     // the active steering's switch as the controls' tables have it (0x84357C)
+    std::vector<std::optional<gt3r::ee::F>> hold_heading_; // a car stood in its pit box: the box's heading (the hold's, 0x46BE70)
     std::vector<std::optional<gt3r::ee::F>> line_heading_; // each car's driving line's heading, when its caller gives it
     std::vector<u8> pit_by_caller_;         // the car's hold counter is its caller's (set_pit_hold)
     rules::Tables tables_;
@@ -255,7 +269,7 @@ private:
     gt3r::Vu0Random rng_;
     u32 random_state_ = 0; // (the program's shared random stream, 0x874D50, for the flaps: ours from 0)
     bool loose_ = false;
-    u8 course_kind_ = 0;
+    u8 course_kind_ = 0, course_road_ = 0;
     float pending_ = 0;
     u64 steps_ = 0;
 };

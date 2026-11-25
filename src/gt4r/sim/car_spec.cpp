@@ -294,6 +294,31 @@ void builder(db::SpecDb& db, const Program& program, const Equipment& eq, Spec& 
 
 } // namespace
 
+u8 aid_switches(Spec& s, const Program& program, bool asm_on, bool tcs_on, bool wheel_aid, bool loose) {
+    if (loose) asm_on = tcs_on = false;
+    const bool ascc = program.b(Program::kAsccSwitch) != 0; // (the settings' ASCC switch: the channels' bits 6 and 7 apart)
+    if (!asm_on) s.set_b(0x1B8, ascc ? s.b(0x1B8) & 0xC0 : 0);
+    if (!tcs_on) s.set_b(0x1C2, 0);
+    if ((ascc ? s.b(0x1B8) & 0x3F : s.b(0x1B8)) == 0) asm_on = false;
+    if (s.b(0x1C2) == 0) tcs_on = false;
+    u8 bits = 0;
+    if (tcs_on) bits |= 1;
+    if (asm_on) bits |= 4;
+    switch (program.b(0x620E09)) {
+    case 1: bits |= tcs_on ? 2 : 0; break;
+    case 2: bits |= asm_on ? 2 : 0; break;
+    case 3: bits |= 2; break;
+    default: break;
+    }
+    if (wheel_aid) bits |= 8;
+    switch (program.b(0x620E0B)) {
+    case 1: bits |= asm_on ? 0x10 : 0; break;
+    case 2: bits |= 0x10; break;
+    default: break;
+    }
+    return bits;
+}
+
 void build_spec(db::SpecDb& db, const Program& program, const Equipment& eq, int course_kind, Spec& s) {
     s.bytes.fill(0);
     builder(db, program, eq, s);

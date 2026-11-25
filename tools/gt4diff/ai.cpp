@@ -408,6 +408,23 @@ public:
     void install() {
         ee_.add_probe(0x465078, [this](Ee&) { decision_in(); });
         ee_.add_probe(0x3F4638, [this](Ee&) { proximity_in(); });
+        // 0x3491AC, the active steering's line heading (0x4649F0's return in the pad cars' steering 0x348850, after the car's
+        // decision; $s1 = F): ours as the race world feeds it (Field::line_heading_at / line_mode_at).
+        ee_.add_probe(0x3491AC, [this](Ee& e) {
+            for (int i = 0; i < o_.cars; ++i)
+                if (o_.car(i) + kF == e.g32(17)) {
+                    char w[48];
+                    std::snprintf(w, sizeof w, "car %d", i);
+                    t_["active steering line heading"].bits(w, e.fpr[0], field_.line_heading_at(size_t(i)));
+                    if (std::getenv("GT4R_AI_ACTIVETRACE") && e.fpr[0] != field_.line_heading_at(size_t(i)).bits) {
+                        const auto p = field_.probe_get(size_t(i));
+                        std::printf("  active: line %u/%d next %u/%d s %.3f v %.2f: %.6f / %.6f\n", e.r8(o_.car(i) + 0x30), p.line, e.r8(o_.car(i) + 0x31), p.next,
+                                    double(e.rf(o_.car(i) + kF + kDistance)), double(e.rf(o_.car(i) + kF + 0x53C)), double(gt3r::ee::F::raw(e.fpr[0]).host()),
+                                    double(field_.line_heading_at(size_t(i)).host()));
+                    }
+                    t_["active steering mode"].add(w, e.r8(o_.car(i) + 0x32), field_.line_mode_at(size_t(i)), 0);
+                }
+        });
         // 0x469E58, the suggested gear's speed: ours from the driver as the call finds it, against D +0x40 / +0x41 after.
         ee_.add_probe(0x469E58, [this](Ee& e) {
             const u32 D = u32(e.a(0));
@@ -823,12 +840,23 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
             if (const char* pe = std::getenv("GT4R_AI_PAD")) {
                 const int pc = std::atoi(pe);
                 if (pc >= 0 && pc < o.cars) {
-                    if (step == 0) ee.w8(o.car(pc) + kF + 0x466, 0);
+                    if (step == 0) {
+                        ee.w8(o.car(pc) + kF + 0x466, 0);
+                        if (field) field->set_shadow(size_t(pc));
+                    }
                     // (the pad follows the car's own driver's outputs of the last step, roughly: its steering over the lock)
                     const u32 D = o.car(pc) + 0x14;
                     o.pad[pc] = Pad{};
                     o.pad[pc].steer = std::clamp(-ee.rf(D + 0x30) / std::max(ee.rf(o.car(pc) + kF + 0x498), 0.05f), -1.0f, 1.0f);
                     o.pad[pc].throttle = ee.rf(D + 0x34), o.pad[pc].brake = ee.rf(D + 0x38);
+                    // GT4R_AI_ACTIVE: the stick let go on the straights (the active steering runs with it centered).
+                    // Its pedals after the driver's target speeds (a pad car's decision leaves D +0x34 / +0x38 at 0).
+                    if (std::getenv("GT4R_AI_ACTIVE")) {
+                        if (std::fabs(o.pad[pc].steer) < 0.08f) o.pad[pc].steer = 0;
+                        const int mode = ee.r8(D + 0x1E);
+                        const float target = mode == 0 ? 100.0f : ee.rf(D + (mode < 3 ? 0x24 : 0x28)), gap = target * 0.93f - ee.rf(o.car(pc) + kF + 0x53C);
+                        o.pad[pc].throttle = std::clamp(0.3f + gap * 0.5f, 0.0f, 1.0f), o.pad[pc].brake = std::clamp(-gap * 0.2f, 0.0f, 1.0f);
+                    }
                     if (std::getenv("GT4R_AI_SUGFORCE")) o.pad[pc] = Pad{}, o.pad[pc].throttle = step < 600 ? 0.5f : 0.0f, o.pad[pc].brake = step < 600 ? 0.0f : 0.3f;
                 }
             }

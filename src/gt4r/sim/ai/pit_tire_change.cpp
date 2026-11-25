@@ -27,7 +27,7 @@ void add_tire_change(PitHooks& hooks, Session& session, db::SpecDb& db, const Pr
         Equipment eq = s->equipment(i);
         fit_chosen_tires(eq, (*list)[i], front, rear);
         Spec spec;
-        build_spec(*d, *p, eq, s->loose() ? 2 : 0, spec);
+        build_spec(*d, *p, eq, s->course_kind(), spec);
         s->change_tires(i, spec, *p, axles);
     };
     hooks.retune_tires = [s, p](size_t i, u8 axles) { s->retune_tires(i, *p, axles); };

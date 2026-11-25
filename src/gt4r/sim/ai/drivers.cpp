@@ -300,7 +300,6 @@ void Field::apply_start_delays(Session& session) {
     for (const auto& dp : drivers_)
         if (dp && dp->index < 32 && pace_.start_delay[size_t(dp->index)] > 0 && pace_.standing_start)
             session.set_start_delay(dp->car, u32(60 * pace_.start_delay[size_t(dp->index)]));
-    start_delays_held_ = true;
 }
 
 void Field::apply_shift_factors(Session& session) const {
@@ -941,6 +940,11 @@ std::array<u8, 0x40> Field::bspec_record(size_t car) const {
 F Field::line_heading_at(size_t car) const {
     const Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
     return d ? line_heading(*d, d->line, course_s(car)) : F();
+}
+
+u8 Field::line_mode_at(size_t car) const {
+    const Driver* d = car < drivers_.size() ? drivers_[car].get() : nullptr;
+    return d ? u8(d->mode) : 0;
 }
 
 // 0x34AA88: the threat record as the on-board camera asks for it (none with CFG +0x02 = 6), the speed negated.
@@ -1768,23 +1772,6 @@ void Field::drive(std::span<race::CarInput> inputs) {
             decide_car(dp->car, inputs[dp->car]);
         }
     }
-    // A place with a held start (missions: Pace::start_delay), where the session does not hold it (apply_start_delays: the
-    // program's own, a hold of 60 x the seconds per car, K + 0xCBFC, ran at the race's set-up by vf28 / 0x34DB30): the car
-    // stays on the line, its engine held as in the count, until the race's clock passes its seconds (judged).
-    for (auto& dp : drivers_)
-        if (!start_delays_held_ && dp && dp->car < inputs.size() && dp->index < 32 && pace_.start_delay[size_t(dp->index)] > 0 &&
-            s32(clock_ / 3) < 1000 * pace_.start_delay[size_t(dp->index)]) {
-            Driver& d = *dp;
-            const ex::Car& c = session_->record(d.car);
-            const int up = c.p.d.up_rpm, rpm = c.rpm;
-            if (d.blip == 0) {
-                if (rpm < 3 * up / 4) d.blip = 1;
-            } else if (rpm >= 15 * up / 16) d.blip = 0;
-            d.applied_throttle = std::clamp(d.applied_throttle + (d.blip ? 4.0f : -4.0f) * kStep, 0.0f, 1.0f);
-            race::CarInput in;
-            in.throttle = d.applied_throttle, in.brake = 1, in.computer = true;
-            inputs[d.car] = in;
-        }
     end_step();
 }
 

@@ -10,6 +10,7 @@
 #include "gt4r/formats/db/car_parts.h"
 #include "gt4r/menu/game_bspec.h"
 #include "gt4r/sim/ai/bspec_skill.h"
+#include "gt4r/sim/ai/pit_tire_change.h"
 #include "gt4r/formats/model/car_model.h"
 #include "gt4r/race/car_spec.h"
 #include "gt4r/race/driver_figure.h"
@@ -228,7 +229,8 @@ void RaceWorld::build_simulation() {
             } catch (const std::exception&) {
                 player_ps_ = 0;
             }
-            session_ = std::make_unique<sim::Session>(*app_.db(), program, std::make_shared<const course::Runway>(course_->road()), entries);
+            session_ = std::make_unique<sim::Session>(*app_.db(), program, std::make_shared<const course::Runway>(course_->road()), entries,
+                                                      sim::course_row(*app_.db(), setup_.course));
             if (!noted_)
                 for (const std::string& note : session_->notes()) LOG_INFO("Drive: %s", note.c_str());
             sim_ = session_.get();
@@ -263,10 +265,21 @@ void RaceWorld::build_simulation() {
                     for (size_t c = 0; c < commands_.size(); ++c) field_->command(c, {commands_[c].pace - 1, commands_[c].overtake ? 1 : 0});
                     for (size_t car : computer)
                         if (car > 0 || computer_player_) session_->set_driver_aids(car, field_->params(car).aids, field_->params(car).grip); // (their aids)
-                    // Their pit stops (the program's pit pass, request and stop; no fuel or wear counted here).
+                    field_->apply_start_delays(*session_); // (a mission's held places)
+                    // Their pit stops (the program's pit pass, request and stop, the fuel, wear and tires the session's).
+                    sim::ai::PitHooks pit_hooks;
+                    if (program.known()) {
+                        pit_hooks = sim::ai::session_pit_hooks(*session_);
+                        program_ = std::make_shared<const sim::Program>(program);
+                        gt3r::Volume* vol = &app_.disc()->volume();
+                        sim::ai::add_tire_change(pit_hooks, *session_, *app_.db(), *program_, [vol](const std::string& path) -> std::optional<Bytes> {
+                            const gt3r::Volume::Entry* e = vol->find(path);
+                            return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
+                        });
+                    }
                     sim::ai::PitRace pr;
                     pr.laps = setup_.laps;
-                    pits_ = std::make_unique<sim::ai::PitStops>(*field_, program, setup_.entries.size(), sim::ai::PitHooks{}, pr);
+                    pits_ = std::make_unique<sim::ai::PitStops>(*field_, program, setup_.entries.size(), pit_hooks, pr);
                 } catch (const std::exception& e) {
                     if (!noted_) LOG_WARN("Drive: no computer drivers (%s); the simple driver drives", e.what());
                 }
@@ -311,6 +324,9 @@ void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool pla
         driven.resize(car_visuals_.size());
         hold ? field_->hold(driven) : field_->drive(driven);
         if (!hold && session_) field_->apply_time_scales(*session_); // the rubber band's step lengths
+        // The pad cars' active steering aims along their driver's line (0x348850 → 0x4649F0, after their decision).
+        if (!hold && session_)
+            for (size_t i = 0; i < driven.size(); ++i) session_->set_line_heading(i, field_->line_heading_at(i), field_->line_mode_at(i));
         if (computer_player_ && !player_by_computer && !inputs.empty()) driven[0] = inputs[0];
         if (!hold && pits_) pits_->before(*field_, driven); // (a car standing in its box held)
         // B-spec: the driver's shift speeds into the gearbox (0x3F1E30, control source 1).

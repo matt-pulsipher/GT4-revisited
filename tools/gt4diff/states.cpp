@@ -347,11 +347,11 @@ StatesResult run_states(Disc& disc, const std::string& state0, const std::string
             for (int i = 0; i < o.cars; ++i) {
                 ee.read_bytes(o.entries[size_t(i)] + 0x20, entries[size_t(i)].equipment.bytes.data(), sim::Equipment::kSize);
                 entries[size_t(i)].grid_place = int(ee.r32(o.entries[size_t(i)] + 0x3444));
-                // (the pedal style +0x3448: 0 automatic; the aids' switches +0x3450 / +0x3454, both on with TCS & ASM and both off
-                // with Driving Aids None in every state seen: ❓ which is which)
+                // (the pedal style +0x3448: 0 automatic; the aids' switches +0x3450 ASM, +0x3454 TCS)
                 entries[size_t(i)].automatic = ee.r32(o.entries[size_t(i)] + 0x3448) == 0;
-                entries[size_t(i)].tcs_on = ee.r32(o.entries[size_t(i)] + 0x3450) != 0;
-                entries[size_t(i)].asm_on = ee.r32(o.entries[size_t(i)] + 0x3454) != 0;
+                entries[size_t(i)].asm_on = ee.r32(o.entries[size_t(i)] + 0x3450) != 0;
+                entries[size_t(i)].tcs_on = ee.r32(o.entries[size_t(i)] + 0x3454) != 0;
+                entries[size_t(i)].wheel_aid = ee.r32(o.entries[size_t(i)] + 0x3458) != 0;
             }
             session = std::make_unique<sim::Session>(sdb, program, std::make_shared<const course::Runway>(std::move(*road)), entries);
         } catch (const std::exception& e) {
