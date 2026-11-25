@@ -95,6 +95,8 @@ F slip_aim(const ex::Car& c, F yaw_acc, F k) {
 
 } // namespace
 
+PedalCurve pedal_curve_of(u32 kind, s32 pct) { return make_curve(kind, pct); }
+
 // ---- the frame -------------------------------------------------------------------------------------------------
 
 PadFrame PadFrame::from_bytes(const u8* b) {

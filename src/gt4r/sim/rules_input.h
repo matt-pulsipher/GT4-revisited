@@ -61,6 +61,8 @@ struct PedalCurve {
     u32 kind = 0;
     F a, b, c; // +0x04 / +0x08 / +0x0C
 };
+// 0x35A818: a pedal curve from its kind and percentage.
+PedalCurve pedal_curve_of(u32 kind, s32 pct);
 
 // The tables the input reads: what 0x347A00 builds at the race's start (the conductor's virtual 26) from the controller
 // settings' bytes at 0x622110 (K below; static), and the static words beside them it reads as they are.

@@ -52,8 +52,8 @@ FieldRun run_field(Disc& disc, const std::string& course, const std::vector<Fiel
     // A rolling start without places of its own: the race's rule (the last place 400 m before the line, 20 m apart).
     for (size_t i = 0; i < entries.size(); ++i)
         if (entries[i].start_speed > 0 && std::isnan(entries[i].start_distance))
-            entries[i].start_distance = float(rules::rolling_start_distance(-400, 20, int(entries.size()), int(i)));
-    auto session = std::make_unique<Session>(db, program, std::make_shared<const course::Runway>(std::move(*road)), entries);
+            entries[i].start_distance = float(rules::rolling_start_distance(-400, 20, int(entries.size()), entries[i].grid_place >= 0 ? entries[i].grid_place : int(i)));
+    auto session = std::make_unique<Session>(db, program, std::make_shared<const course::Runway>(std::move(*road)), entries, course_row(db, course));
     std::vector<size_t> computer(cars.size());
     for (size_t i = 0; i < computer.size(); ++i) computer[i] = i;
     bool rolling = false;
@@ -61,6 +61,7 @@ FieldRun run_field(Disc& disc, const std::string& course, const std::vector<Fiel
     Pace p = pace;
     if (rolling) p.standing_start = false;
     std::unique_ptr<Field> field = Field::open(disc, course, *session, computer, p);
+    field->apply_start_delays(*session);
     for (size_t car : computer) session->set_driver_aids(car, field->params(car).aids, field->params(car).grip); // (their aids, 0x3F7828)
     FieldRun out;
     out.course = course;
@@ -92,6 +93,7 @@ FieldRun run_field(Disc& disc, const std::string& course, const std::vector<Fiel
             CarRun& r = out.cars[i];
             const race::CarState& st = session->cars()[i];
             r.top_speed = std::max(r.top_speed, st.speed);
+            if (st.lap > last_lap[i] && rolling) session->release_start(int(i)); // (let go at its crossing: the conductor's virtual 20)
             if (st.lap > last_lap[i] && !r.finished) {
                 // A car that starts behind the line counts its laps from its first crossing; one ahead of it, from the start.
                 if (last_lap[i] < 0) lap_start[i] = t;

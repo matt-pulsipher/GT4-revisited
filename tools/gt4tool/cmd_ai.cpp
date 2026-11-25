@@ -19,19 +19,28 @@
 //   gt4tool ai <disc> demo-run <label> [hold=480] the demonstration played on our session (sim::ai::DemoRun): car 0's
 //                                              distance and speed, and where it comes to rest after braking
 //
-// Options anywhere: rolling=<km/h> starts the field moving (Entry::start_speed), trace=<car> prints a car's plan.
+// Options anywhere: bspec=<car>[,<pace 0 .. 4>[,<corner>,<brake>,<alongside>]] drives that car by the B-spec driver (an empty
+// record's skill, `flag`: on a course whose marks count; or the multipliers given); rules (with `race`) runs the event's fuel and tire wear and its class grips;
+// `player` makes the last label entry 0 at the last place, as the game's player; tires=<kind> fits both axles' tires of a kind (0 .. 12) to a field given by labels; rolling=<km/h> starts the field moving (Entry::start_speed), trace=<car> prints a car's plan.
 
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/formats/course/runway_gtrw.h"
 #include "gt4r/formats/replay/demonstration.h"
+#include "gt4r/sim/ai/bspec_skill.h"
 #include "gt4r/sim/ai/demo_driver.h"
 #include "gt4r/sim/ai/entrant.h"
 #include "gt4r/sim/ai/grid.h"
 #include "gt4r/sim/ai/run.h"
+#include "gt4r/sim/pit_tires.h"
+#include "gt4r/sim/rules_wear.h"
 #include "gt4r/sim/session.h"
 
+#include <algorithm>
+#include <array>
 #include <cmath>
+#include <functional>
+#include <memory>
 #include <cstdlib>
 #include <cstdio>
 #include <cstdlib>
@@ -73,6 +82,37 @@ bool flag(const Args& a, const char* name) {
     for (const std::string& x : a)
         if (x == name) return true;
     return false;
+}
+
+// The option bspec=: the car driven by the B-spec driver, its pace and skill set before the first step.
+std::function<void(sim::Session&, sim::ai::Field&)> bspec_control(const Args& args, const sim::Program& program) {
+    std::string v;
+    for (const std::string& a : args)
+        if (a.rfind("bspec=", 0) == 0) v = a.substr(6);
+    if (v.empty()) return {};
+    const std::vector<std::string> p = split(v);
+    const size_t car = size_t(std::atoi(p[0].c_str()));
+    const int pace = p.size() > 1 ? std::atoi(p[1].c_str()) : 2;
+    std::array<float, 3> given{};
+    const bool own = p.size() > 4;
+    for (size_t k = 0; own && k < 3; ++k) given[k] = float(std::atof(p[2 + k].c_str()));
+    const sim::ai::BSpecTables tables = sim::ai::BSpecTables::load(program);
+    auto done = std::make_shared<bool>(false);
+    return [=](sim::Session& s, sim::ai::Field& f) {
+        if (!*done && car < s.cars().size()) {
+            *done = true;
+            f.set_bspec(car);
+            const std::array<u8, 0x40> empty{};
+            f.set_bspec_record(car, empty, sim::ai::bspec_class(gt3r::ee::F(s.rating(car))));
+            if (own) f.set_bspec_skill(car, gt3r::ee::F(given[0]), gt3r::ee::F(given[1]), gt3r::ee::F(given[2]));
+            else if (const auto sk = sim::ai::bspec_skill(tables, sim::ai::BSpecRecord::from_bytes(empty.data()), gt3r::ee::F(s.rating(car)), flag(args, "flag"))) {
+                f.set_bspec_skill(car, sk->corner, sk->brake, sk->alongside);
+                std::printf("bspec car %zu: skill %.4f %.4f %.4f\n", car, double(sk->corner.host()), double(sk->brake.host()), double(sk->alongside.host()));
+            }
+            f.command(car, {pace, -1});
+        }
+        if (car < s.cars().size()) s.set_shift_factor(car, f.shift_factor(car));
+    };
 }
 
 // The positional arguments (options left out).
@@ -363,7 +403,7 @@ int demo_run(Disc& disc, const Args& a, int hold) {
     if (!road) return 1;
     std::vector<sim::Entry> entries = run->entries();
     entries.resize(1); // (car 0: the recording's)
-    sim::Session session(sdb, program, std::make_shared<const course::Runway>(std::move(*road)), entries);
+    sim::Session session(sdb, program, std::make_shared<const course::Runway>(std::move(*road)), entries, sim::course_row(sdb, event->course));
     std::vector<race::CarInput> in(1);
     const race::CarState& c = session.cars()[0];
     const course::Vec3 start = c.position;
@@ -457,7 +497,20 @@ int cmd_ai(Disc& disc, const Args& args) {
         }
         const int laps = a.size() > 2 ? std::max(1, std::atoi(a[2].c_str())) : std::max(1, e->laps);
         print_event(*e);
-        const sim::ai::FieldRun run = sim::ai::run_field(disc, e->course, cars, laps, sim::ai::pace_for(*e));
+        if (flag(args, "rules"))
+            for (sim::ai::FieldCar& c : cars) c.entry.fuel = e->bytes.size() > 0x43 && e->bytes[0x43] != 0;
+        auto control = bspec_control(args, program);
+        bool set = !flag(args, "rules");
+        auto with_rules = [&](sim::Session& s, sim::ai::Field& f) {
+            if (!set && e->bytes.size() >= 0x74) {
+                u8 rule_block[0x80] = {};
+                sim::rules::event_wear_bytes(e->bytes.data(), rule_block);
+                s.set_wear_rules(rule_block, !s.loose(), program);
+            }
+            set = true;
+            if (control) control(s, f);
+        };
+        const sim::ai::FieldRun run = sim::ai::run_field(disc, e->course, cars, laps, sim::ai::pace_for(*e), 0, {}, with_rules);
         std::printf("%s, lap %.1f m, %d laps, %.1f s run\n", run.course.c_str(), double(run.lap_length), laps, run.seconds);
         for (const sim::ai::CarRun& r : run.cars) {
             std::printf("%-28s %-10s", r.car.c_str(), r.finished ? clock(r.total).c_str() : "-");
@@ -499,10 +552,26 @@ int cmd_ai(Disc& disc, const Args& args) {
                 return 1;
             }
             f.entry.start_speed = rolling;
+            if (const int kind = int(option(args, "tires", -1)); kind >= 0) { // (both axles' tires of that kind from the car's parts file)
+                gt3r::Volume* vol = &disc.volume();
+                const auto read = [vol](const std::string& path) -> std::optional<Bytes> {
+                    const gt3r::Volume::Entry* en = vol->find(path);
+                    return en ? std::optional<Bytes>(vol->read(*en)) : std::nullopt;
+                };
+                const auto parts = sim::fitting_parts(read, sdb, f.entry.equipment.part(sim::Equipment::Car));
+                for (int axle = 0; axle < 2; ++axle) {
+                    const db::PartId id = sim::fitting_part(parts, u32(axle == 0 ? db::PartTable::FrontTire : db::PartTable::RearTire), u8(kind));
+                    if (id != db::kNoPart) f.entry.equipment.set_part(axle == 0 ? sim::Equipment::FrontTire : sim::Equipment::RearTire, id);
+                }
+            }
             entries.push_back(f);
         }
+        if (flag(args, "player")) { // (as a race of the game: the last car is entry 0, at the last place, the others before it)
+            for (size_t i = 0; i < entries.size(); ++i) entries[i].entry.grid_place = int(i);
+            std::rotate(entries.begin(), entries.end() - 1, entries.end());
+        }
     }
-    const sim::ai::FieldRun run = sim::ai::run_field(disc, a[0], entries, laps, {}, 0, on_step);
+    const sim::ai::FieldRun run = sim::ai::run_field(disc, a[0], entries, laps, {}, 0, on_step, bspec_control(args, sim::Program::load(disc)));
     for (const std::string& n : run.notes) std::printf("note: %s\n", n.c_str());
     std::printf("%s, lap %.1f m, %d laps, %.1f s run\n", run.course.c_str(), double(run.lap_length), laps, run.seconds);
     std::printf("%-28s %-10s %-10s %s  %5s %4s %4s %5s %5s %6s %s\n", "car", "total", "best", "laps", "top", "wall", "car", "spins", "off", "stuck", "lanes");

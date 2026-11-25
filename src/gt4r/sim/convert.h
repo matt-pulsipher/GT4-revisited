@@ -71,6 +71,13 @@ struct ConvertGlobals {
 // them. `p` is built in place over what it holds (the car's set-up clears it first: a fresh block).
 void convert(Spec spec, const Program& program, const rules::Tables& race, const ConvertIn& in, ParamBlock& p, ConvertGlobals* globals = nullptr);
 
+// The converter's tire part alone, as a pit stop's tire change runs it on the car's block (0x35C0B8): 0x361570 (the tire
+// index per surface, all of it, and the tire records a surface uses, of `axles`: 1 the front's, 2 the rear's, 3 both) from
+// a spec (a copy: the curves' first points' bytes read as 0), and 0x361798 (those records' base grips at the axles' static
+// loads, and P +0x104A). The records of the other axle and those no surface uses are left as they are.
+void convert_tire_records(Spec spec, const Program& program, ParamBlock& p, u32 axles);
+void convert_base_grips(const Program& program, ParamBlock& p, u32 axles);
+
 // 0x350678: the engine condition's limits (the program's words 0x620320 .. 0x620340, from the static block's bytes +0xD0 ..
 // +0xD8): l[0] the first wear word's least, l[1] the torque lost there, l[2] / l[3] the span past which it falls by l[4]; the
 // second word's l[5] (negative) and l[6], l[7] its greatest, l[8] where its fall starts.
