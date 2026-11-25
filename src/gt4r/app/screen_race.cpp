@@ -17,6 +17,7 @@
 #include "gt4r/app/menu_painter.h"
 #include "gt4r/app/race_hud.h"
 #include "gt4r/app/race_hud_prologue.h"
+#include "gt4r/app/race_online_ui.h"
 #include "gt4r/app/race_world.h"
 #include "gt4r/audio/app_sound.h"
 #include "gt4r/audio/race_playlist.h"
@@ -1331,6 +1332,7 @@ public:
         world_->set_dissolve(snapshot_, dissolve_total_ > 0 ? float(dissolve_left_) / float(dissolve_total_) : 0.0f, replaying_ || menu_scene_ || mount_ == kTvView || start_camera_.active() || dissolve_total_ > 0);
         snapshot_ = false;
         world_->render(ui, rect, cars, pose, focus(), pose.body_hidden ? int(focus()) : -1);
+        if (net_) label_cars(cars, pose, rect);
         // The in-car view's rear-view mirror at the top (❓ its place, (190, 18) 259 x 63 of the
         // 640 x 480 picture, measured on the original's in-car view): not in replays, demonstrations, under the results pages, the opening
         // shots (a standing start's or a rolling start's TV cameras), B-spec or looking back.
@@ -1340,6 +1342,24 @@ public:
             world_->render_mirror(ui, {c.x + 190 * k, c.y + 18 * k, 259 * k, 63 * k}, cars, pose, 0);
         }
     }
+
+    // Where each car is in the picture (an online race's names): a point over its roof.
+    void label_cars(std::span<const race::CarState> cars, const race::ViewPose& pose, const SDL_FRect& rect) {
+        labels_.clear();
+        const float ty = std::tan(pose.fovy() * 0.5f), tx = ty * rect.w / std::max(rect.h, 1.0f);
+        for (size_t i = 0; i < cars.size(); ++i) {
+            OnlineRaceUi::Label l;
+            l.car = i;
+            const RVec v = pose.view.transform_point({cars[i].position.x, cars[i].position.y + 1.6f, cars[i].position.z});
+            l.distance = -v.z;
+            if (v.z < -1.0f && std::fabs(v.x) < -v.z * tx * 1.05f && std::fabs(v.y) < -v.z * ty) {
+                l.x = rect.x + rect.w * 0.5f * (1 + v.x / (-v.z * tx)), l.y = rect.y + rect.h * 0.5f * (1 - v.y / (-v.z * ty));
+                l.seen = true;
+            }
+            labels_.push_back(l);
+        }
+    }
+    const std::vector<OnlineRaceUi::Label>& labels() const { return labels_; }
 
     // A license test's or mission's end by its rules (DynamicsConductorLicense::vf15 -> the judge 0x3F8D70,
     // docs/formats/race_flow.md "The license tests' rules"), each step from the start signal until the
@@ -1603,7 +1623,9 @@ public:
 
     const race::CarState& player() const { return shown()[0]; }
     const std::string& car_name(size_t i) const { return world_->car_name(i); }
-    const std::string& car_short_name(size_t i) const { return world_->car_short_name(i); }
+    // (the results' rows: an online race's the players')
+    const std::string& car_short_name(size_t i) const { return i < player_names_.size() ? player_names_[i] : world_->car_short_name(i); }
+    void set_player_names(std::vector<std::string> names) { player_names_ = std::move(names); }
     const WorldEntry& entry(size_t i) const { return world_->setup().entries[i]; }
     size_t car_count() const { return world_->car_count(); }
     const race::CourseScene& course() const { return world_->course(); }
@@ -1636,6 +1658,8 @@ private:
     race::StartCamera start_camera_;
     race::RaceFlow flow_;
     net::NetRace* net_ = nullptr; // an online race's other machines
+    std::vector<std::string> player_names_;
+    std::vector<OnlineRaceUi::Label> labels_; // and where its cars are in the picture
     race::ResultBoard board_;
     float distance_ = 0, bspec_distance_ = 0;
     int shown_steps_ = 0; // since the run began, its hold included
@@ -1894,7 +1918,13 @@ public:
         if (!playing()) feedback_.stop(app.input(), 0);
         if (online_) {
             online_->frame(dt);
+            online_ui_.frame(*online_, dt);
             if (online_->over()) return app.pop(); // (the host is back in its lobby)
+            if (online_left_) { // (the race left, its others still on: until the host goes back)
+                player_input_ = {}, run_steps(app, dt);
+                if (leave_online_asked(m)) app.pop();
+                return;
+            }
         }
         if (quick_ && race_) return update_quick(app, m, dt);
         if (menus_ && sequence_ == "race_view" && race_ &&
@@ -1940,11 +1970,15 @@ public:
                     if (m.horizontal()) result_->key(m.horizontal() < 0 ? 0x25 : 0x27);
                     if (m.pressed(PadButton::Triangle)) result_->key(0x1B);
                 }
-                if (m.pressed(PadButton::Cross)) result_->key(0x20);
+                if (m.pressed(PadButton::Cross) && !online_) result_->key(0x20);
                 result_->advance(float(dt));
                 leave = result_exit_;
             } else {
-                leave = m.pressed(PadButton::Cross);
+                leave = m.pressed(PadButton::Cross) && !online_;
+            }
+            if (online_ && leave_online_asked(m)) {
+                result_.reset();
+                return app.pop();
             }
             if (leave && is_license(sequence_) && license_retry_) {
                 // RETRY: the result given, the test again at once (end code 4).
@@ -1995,7 +2029,7 @@ public:
         if (playing()) {
             // (the player's pad or wheel unplugged: the race waits)
             const std::string device = app.input().kind(0) == gt3r::DeviceKind::Keyboard ? std::string() : app.input().device_name(0);
-            const bool lost = !device_.empty() && device != device_;
+            const bool lost = !device_.empty() && device != device_ && !online_;
             device_ = device;
             if (lost) LOG_INFO("Drive: the player's controller is gone: paused");
             if (lost || (menu_buttons & input::RaceInput::kPause)) {
@@ -2034,7 +2068,7 @@ public:
     // Another window in front: the player's input stops coming, so the race he drives waits (with the motors and the wheel
     // still), unless his controllers are read in the background.
     void on_event(App& app, const SDL_Event& e) override {
-        if (e.type != SDL_EVENT_WINDOW_FOCUS_LOST || !playing()) return;
+        if (e.type != SDL_EVENT_WINDOW_FOCUS_LOST || !playing() || online_) return;
         SDL_Window* window = SDL_GetWindowFromID(e.window.windowID);
         if (window && (SDL_GetWindowFlags(window) & SDL_WINDOW_NOT_FOCUSABLE)) return; // (a scripted run's)
         if (gt3r::race::focus_loss(true, app.input().reads_background(), false) != gt3r::race::FocusLoss::Pause) return;
@@ -2184,8 +2218,21 @@ public:
             hud_->draw_strip(hud_->word("RaceMonitorToolTip1"));
         }
         if (pit_open_ && pit_ && hud_ && !results_shown() && !race_->replaying()) hud_->draw_movie(*pit_movie_, *pit_);
+        if (online_) {
+            const bool host = gt3r::net::online().is_host();
+            if (online_left_) online_ui_.draw_left(ui, *online_, host);
+            else if (results_shown()) online_ui_.draw_results_hint(ui, *online_, host);
+            else if (setup_.hud) {
+                std::vector<int> places;
+                for (size_t i = 0; i < race_->world().car_count(); ++i) places.push_back(race_->flow().place(i));
+                online_ui_.draw_race(ui, *online_, race_->labels(), places);
+                online_ui_.draw_waiting(ui, *online_);
+            }
+        }
         if (paused_) {
-            if (pause_ && hud_) {
+            if (online_) {
+                online_ui_.draw_pause(ui, gt3r::net::online().is_host(), pause_leaving_);
+            } else if (pause_ && hud_) {
                 hud_->draw_movie(*pause_movie_, *pause_);
             } else {
                 ui.fill(0, 0, Ui::kWidth, Ui::kHeight, Color{0, 0, 0, 120});
@@ -2515,6 +2562,10 @@ private:
     void open_pause(App& app) {
         paused_ = true;
         pause_result_.clear();
+        if (online_) { // (a window over the race, which goes on and is heard)
+            pause_leaving_ = false;
+            return;
+        }
         race_->pause_sound(true);
         if (!pause_movie_) {
             try {
@@ -2552,7 +2603,34 @@ private:
         pause_ = std::make_unique<race::StrobePlayer>(pause_movie_, host);
     }
 
+    // An online race over for us: whether the player leaves its results now. The host takes everyone back to the lobby
+    // (asking for it while others still race ends the race for them); a guest goes to the menus, where the others' race is
+    // waited for.
+    bool leave_online_asked(const MenuInput& m) const {
+        const bool host = gt3r::net::online().is_host();
+        if (online_->lost() || !host || online_->all_done()) return m.pressed(PadButton::Cross);
+        return m.pressed(PadButton::Square);
+    }
+
     void update_pause(App& app, const MenuInput& m, double dt) {
+        if (online_) { // (the race goes on under the window)
+            if (pause_leaving_) {
+                if (m.pressed(PadButton::Cross)) {
+                    close_pause("continue");
+                    pause_leaving_ = false;
+                    online_->retire();
+                    online_left_ = gt3r::net::online().is_host() && !online_->lost();
+                    if (!online_left_) app.pop();
+                } else if (m.pressed(PadButton::Triangle) || m.pressed(PadButton::Circle)) {
+                    pause_leaving_ = false;
+                }
+            } else if (m.pressed(PadButton::Start) || m.pressed(PadButton::Triangle)) {
+                close_pause("continue");
+            } else if (m.pressed(PadButton::Square)) {
+                pause_leaving_ = true;
+            }
+            return;
+        }
         if (!pause_) {
             // No movie: Start goes on, Triangle leaves.
             if (m.pressed(PadButton::Start)) close_pause("continue");
@@ -3308,6 +3386,9 @@ private:
             if (setup_.online) {
                 online_ = std::make_unique<net::NetRace>(gt3r::net::online(), *setup_.online);
                 race_->attach_online(online_.get());
+                std::vector<std::string> names;
+                for (const net::NetRace::Standing& c : online_->standings()) names.push_back(c.player);
+                race_->set_player_names(std::move(names));
             }
             if (setup_.bspec) spectator_ = true;
             hud_ = std::make_unique<RaceHud>(app, race_->course().section(course::kSlotMiniMap));
@@ -3434,6 +3515,8 @@ private:
     std::vector<db::CourseEntry> courses_;
     int course_sel_ = 0, car_sel_ = 0, column_ = 0;
     std::unique_ptr<Race> race_;
+    OnlineRaceUi online_ui_;
+    bool online_left_ = false, pause_leaving_ = false; // an online race left before its end; the pause window asks
     std::unique_ptr<net::NetRace> online_; // an online race between its machines (null: a race of this one)
     std::unique_ptr<RaceHud> hud_;
     std::unique_ptr<PrologueHud> prologue_hud_; // (Prologue's display, when the disc's is not Gran Turismo 4's)
