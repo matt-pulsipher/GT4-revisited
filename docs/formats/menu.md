@@ -241,7 +241,8 @@ in the reference's saved states, all twelve looked at).
 
 Setting active (0x265FF0), focus (0x266098) or insensitive (0x266200) on a face sets its parent's
 too, up to the first that is no face. Each picture a widget's focus bit is whether it is the
-focused widget and its prelight bit whether it is the one the cursor points at (0x263A68); a box
+focus of the context's top page (0x2319C0: the last page pushed; 0x235C00 its focus), so a page under a dialog
+shows its focused widget at rest, and its prelight bit whether it is the one the cursor points at (0x263A68); a box
 with a child that has one has it too (0x207208, the list's rows 0x2B3518), so all the parents of
 the focused widget have both (measured: five saved states). A list box's chosen row has the cursor's
 prelight while the list has the focus, and no focus bit (0x2B3518). ❓ Else the pointed widget is the
