@@ -168,6 +168,9 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
             gx_[i] = r.x;
             layouts_[i] = r.layout;
             speed_tables_[i] = rules::speed_tables(program, r.x.steer.lean_row);
+        } else if (prologue_) { // Prologue's own spec and converter (rules_prologue.h build_car)
+            prologue_cars_[i] = prologue::build_car(db, specs_[i], e.equipment, loose_ ? 2 : 0, e.asm_on, e.tcs_on, *prologue_,
+                                                    0x01000000u + 0x2000u * u32(i) + ex::kParams, c);
         } else { // (a program that is not a known build: the engine's converter on the core's tables)
             ex::ConvertInputs in;
             in.data = data_.get();
@@ -183,11 +186,6 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
             ex::load_image(loaded, image.data());
             c.p = loaded.p;
             gt4_params(specs_[i], program, c.p);
-            if (prologue_) {
-                prologue::convert(c.p, specs_[i]);
-                prologue_cars_[i] = prologue::car_part(c, specs_[i], *prologue_);
-                prologue::image_part(prologue_cars_[i], p.data());
-            }
         }
         c.pedal_style = e.automatic ? 0 : 1;
         // The start place: the entry's, or one further back along the first place's line when the grid is shorter;

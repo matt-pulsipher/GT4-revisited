@@ -288,3 +288,20 @@ TEST(disc_prologue_license_goal) {
     std::printf("  L_fisco6: lap %.1f m, goal %.1f m\n", double(r->length), double(r->goal_v));
     CHECK(r->goal_v > 200 && r->goal_v < 206 && r->goal_v < r->length - 1);
 }
+
+// Prologue's spec builder (0x3B3998) and converter (0x3C74B8) as the program runs them in the interpreter on every car of
+// its database, against ours (convert_prologue.h): every spec byte and every word of the parameter block equal.
+#include "prologue_race.h"
+
+TEST(disc_prologue_converter_equal) {
+    Disc* disc = prologue_disc();
+    if (!disc) SKIP("no Prologue disc");
+    const diff::prologue::ConvertStats st = diff::prologue::convert_compare(*disc, "tsukuba", "civic_r_98", false);
+    std::printf("  %d cars: %d blocks, %d specs equal; the race's start's values %s\n", st.cars, st.equal_blocks, st.equal_specs,
+                st.race_start_equal ? "equal" : "differ");
+    CHECK(st.err.empty());
+    CHECK(st.cars >= 80);
+    CHECK(st.equal_blocks == st.cars);
+    CHECK(st.equal_specs == st.cars);
+    CHECK(st.race_start_equal);
+}

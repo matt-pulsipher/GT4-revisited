@@ -498,7 +498,7 @@ std::vector<PTapStat> check(Disc& disc, const std::string& course, const std::st
     Ee ee;
     boot(ee, disc);
     Race r;
-    if (!setup_race(ee, disc, sdb, course, {car}, 1, r, err)) return {};
+    if (!setup_race(ee, disc, sdb, course, {car}, 1, r, err, false)) return {};
     const sim::Program program = sim::Program::load(disc);
     const ex::ProgramData data = sim::core_program(program);
     const ex::RaceInputs inputs = ex::race_inputs(data, ex::Conductor::SinglePlayer, ex::RaceConfig{}, false, 0);

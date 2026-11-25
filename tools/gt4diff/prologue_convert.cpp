@@ -23,7 +23,8 @@ namespace {
 constexpr u32 kSpecBuilder = 0x3B3998, kConverter = 0x3C74B8, kSetCar = 0x407A08;
 }
 
-int convert_check(Disc& disc, const std::string& course, const std::string& car) {
+ConvertStats convert_compare(Disc& disc, const std::string& course, const std::string& car, bool print) {
+    ConvertStats out;
     db::SpecDb sdb = open_db(disc);
     Ee ee;
     boot(ee, disc);
@@ -39,12 +40,15 @@ int convert_check(Disc& disc, const std::string& course, const std::string& car)
     });
     Race r;
     std::string err;
-    if (!setup_race(ee, disc, sdb, course, {car}, 1, r, err)) {
-        std::printf("prologue convert: %s\n", err.c_str());
-        return 1;
+    if (!setup_race(ee, disc, sdb, course, {car}, 1, r, err, aids_from_env())) {
+        out.err = err;
+        return out;
     }
     ee.clear_probes();
-    std::printf("prologue convert: the converter's a2 %08X a3 %08X t0 %08X t1 %08X; the spec builder's a2 %08X a3 %08X\n", conv.a2, conv.a3, conv.t0,
+    auto P = [print](const char* fmt, auto... a) {
+        if (print) std::printf(fmt, a...);
+    };
+    P("prologue convert: the converter's a2 %08X a3 %08X t0 %08X t1 %08X; the spec builder's a2 %08X a3 %08X\n", conv.a2, conv.a3, conv.t0,
                 conv.t1, spec_args.a2, spec_args.a3);
     const sim::Program program = sim::Program::load(disc);
     const sim::prologue::ConvertData data = sim::prologue::convert_data(program);
@@ -52,7 +56,7 @@ int convert_check(Disc& disc, const std::string& course, const std::string& car)
     {
         int off = 0;
         auto check = [&](const char* what, u32 theirs, u32 ours) {
-            if (theirs != ours) ++off, std::printf("  %s: the program's %08X, ours %08X\n", what, theirs, ours);
+            if (theirs != ours) ++off, P("  %s: the program's %08X, ours %08X\n", what, theirs, ours);
         };
         check("air density 0x504A74", ee.r32(0x504A74), data.air_density.bits);
         check("rolling scale 0x504438", ee.r32(0x504438), data.roll_scale.bits);
@@ -62,7 +66,8 @@ int convert_check(Disc& disc, const std::string& course, const std::string& car)
             check("rolling x", ee.r32(xs + 4 * k), data.roll_x[k].bits);
             check("rolling y", ee.r32(ys + 4 * k), data.roll_y[k].bits);
         }
-        std::printf("prologue convert: the race's start's values: %s\n", off ? "differ" : "equal");
+        P("prologue convert: the race's start's values: %s\n", off ? "differ" : "equal");
+        out.race_start_equal = off == 0;
     }
     sim::prologue::ConvertIn in;
     in.control = s32(conv.a2);
@@ -89,13 +94,13 @@ int convert_check(Disc& disc, const std::string& course, const std::string& car)
             ee.call(kSetCar, {Arg::ptr(eq), Arg::integer(s64(db::part_id(0, c.id)))}, 50'000'000);
             ee.call(kSpecBuilder, {Arg::ptr(spec), Arg::ptr(eq), Arg::integer(spec_args.a2), Arg::integer(spec_args.a3)}, 50'000'000);
         } catch (const std::exception& e) {
-            std::printf("  %s: the spec builder stopped: %s\n", c.label.c_str(), e.what());
+            P("  %s: the spec builder stopped: %s\n", c.label.c_str(), e.what());
             continue;
         }
         if (std::getenv("GT4R_CONVERT_LABEL") && c.label == std::getenv("GT4R_CONVERT_LABEL")) {
             const u32 str = ee.alloc_cstr(c.label);
             const auto res = ee.call(0x409F10, {Arg::ptr(str)});
-            std::printf("  %s: the equipment's car %016llX, the label's id %016llX\n", c.label.c_str(), (unsigned long long)ee.r64(eq),
+            P("  %s: the equipment's car %016llX, the label's id %016llX\n", c.label.c_str(), (unsigned long long)ee.r64(eq),
                         (unsigned long long)res.v0.lo);
         }
         gt3r::sim::exact::Spec s{};
@@ -106,7 +111,7 @@ int convert_check(Disc& disc, const std::string& course, const std::string& car)
             ee.call(kConverter, {Arg::ptr(block), Arg::ptr(spec), Arg::integer(conv.a2), Arg::integer(conv.a3), Arg::ptr(conv.t0), Arg::ptr(conv.t1)},
                     200'000'000);
         } catch (const std::exception& e) {
-            std::printf("  %s: the converter stopped: %s\n", c.label.c_str(), e.what());
+            P("  %s: the converter stopped: %s\n", c.label.c_str(), e.what());
             continue;
         }
         // Our spec (Gran Turismo 4's builder on the database, in the core's layout) against the program's.
@@ -121,13 +126,14 @@ int convert_check(Disc& disc, const std::string& course, const std::string& car)
                 for (u32 k = 0; k < core.size(); ++k)
                     if (core[k] != s[k]) {
                         ++n, ++spec_off_bytes[k];
-                        if (std::getenv("GT4R_CONVERT_SPEC")) std::printf("    %s spec +%03X: the program's %3u, ours %3u\n", c.label.c_str(), k, s[k], core[k]);
+                        if (std::getenv("GT4R_CONVERT_SPEC")) P("    %s spec +%03X: the program's %3u, ours %3u\n", c.label.c_str(), k, s[k], core[k]);
                     }
                 if (n) ++spec_cars;
+                else ++out.equal_specs;
                 if (std::getenv("GT4R_CONVERT_GEARS") && s[0xE1] != 0) {
-                    std::printf("    %s E1 %u; ours +0x150..: ", c.label.c_str(), s[0xE1]);
-                    for (u32 k = 0x150; k < 0x162; ++k) std::printf("%02X ", ours_spec.b(k));
-                    std::printf("\n");
+                    P("    %s E1 %u; ours +0x150..: ", c.label.c_str(), s[0xE1]);
+                    for (u32 k = 0x150; k < 0x162; ++k) P("%02X ", ours_spec.b(k));
+                    P("\n");
                 }
             }
         }
@@ -146,22 +152,29 @@ int convert_check(Disc& disc, const std::string& course, const std::string& car)
             if (verbose && off <= 40) {
                 float fa, fb;
                 std::memcpy(&fa, &a, 4), std::memcpy(&fb, &b, 4);
-                std::printf("    %s P+%03X  ours %08X (%g)  the program's %08X (%g)\n", c.label.c_str(), o, a, double(fa), b, double(fb));
+                P("    %s P+%03X  ours %08X (%g)  the program's %08X (%g)\n", c.label.c_str(), o, a, double(fa), b, double(fb));
             }
         }
         int spec_off = 0;
         for (size_t k = 0; k < s.size(); ++k) spec_off += s[k] != theirs_spec[k];
         if (off == 0 && spec_off == 0) ++equal_cars;
-        else std::printf("  %-20s %d words differ, the spec after: %d bytes\n", c.label.c_str(), off, spec_off);
+        else P("  %-20s %d words differ, the spec after: %d bytes\n", c.label.c_str(), off, spec_off);
     }
-    std::printf("prologue convert: %d of %d cars' blocks equal word for word\n", equal_cars, cars);
-    for (const auto& [o, n] : off_words) std::printf("    P+%03X differs on %d cars\n", o, n);
-    std::printf("prologue convert: our spec differs from the program's on %d cars\n", spec_cars);
-    for (const auto& [o, n] : spec_off_bytes) std::printf("    spec +%03X differs on %d cars\n", o, n);
-    std::printf("prologue convert: the spec's bytes (offset:value cars):");
-    for (const auto& [k, n] : spec_bytes[""]) std::printf(" %02X:%02X %d", k >> 8, k & 0xFF, n);
-    std::printf("\n");
-    return equal_cars == cars ? 0 : 1;
+    P("prologue convert: %d of %d cars' blocks equal word for word\n", equal_cars, cars);
+    out.cars = cars, out.equal_blocks = equal_cars;
+    for (const auto& [o, n] : off_words) P("    P+%03X differs on %d cars\n", o, n);
+    P("prologue convert: our spec differs from the program's on %d cars\n", spec_cars);
+    for (const auto& [o, n] : spec_off_bytes) P("    spec +%03X differs on %d cars\n", o, n);
+    P("prologue convert: the spec's bytes (offset:value cars):");
+    for (const auto& [k, n] : spec_bytes[""]) P(" %02X:%02X %d", k >> 8, k & 0xFF, n);
+    P("\n");
+    return out;
+}
+
+int convert_check(Disc& disc, const std::string& course, const std::string& car) {
+    const ConvertStats st = convert_compare(disc, course, car, true);
+    if (!st.err.empty()) std::printf("prologue convert: %s\n", st.err.c_str());
+    return st.err.empty() && st.cars == st.equal_blocks && st.cars == st.equal_specs ? 0 : 1;
 }
 
 } // namespace gt4r::diff::prologue

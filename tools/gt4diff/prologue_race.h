@@ -49,12 +49,23 @@ void boot(Ee& ee, Disc& disc);
 // A single race on a course with cars as sold, in grid order, set up by the program's own conductor (its constructor and
 // initialisation); `human` entries are driven by the pad. False with `err` when the set-up stops. (`r` must stay where it
 // is while the race runs: the pad stub reads it.)
+// `aids`: the entries' stability and traction control switches (on, as our sessions' entries have them).
 bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, const std::vector<std::string>& labels, int human, Race& r,
-                std::string& err);
+                std::string& err, bool aids = true);
+// The switches gt4r_diff's runs give the entries: on, GT4R_AIDS=0 off.
+bool aids_from_env();
 // One race step of the program's own (0x3B7020) for every car.
 void step(Ee& ee, Race& r);
 
-// GT4R_CONVERT: the program's converter (0x3C74B8) against ours on every car of the database (prologue_convert.cpp).
+// GT4R_CONVERT: the program's spec builder (0x3B3998) and converter (0x3C74B8) against ours on every car of the database
+// (prologue_convert.cpp): the cars, those whose block (from the program's spec) is equal word for word, those whose spec
+// (ours) is equal byte for byte, and whether the race's start's values the converter reads are equal.
+struct ConvertStats {
+    int cars = 0, equal_blocks = 0, equal_specs = 0;
+    bool race_start_equal = false;
+    std::string err;
+};
+ConvertStats convert_compare(Disc& disc, const std::string& course, const std::string& car, bool print);
 int convert_check(Disc& disc, const std::string& course, const std::string& car);
 
 } // namespace gt4r::diff::prologue

@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 
 namespace gt4r::diff::prologue {
 
@@ -36,7 +37,7 @@ constexpr u32 kStubZero = 0x100000, kStubPad = 0x100004;
 
 // The entry's layout (0x4000 bytes): +0x20 the equipment, +0x3FA4 the controller (+0x184 set: a player's), +0x3FA8 the
 // grid place, +0x3FAC / +0x3FB0 the driver's words the conductor reads, +0x3FCC the condition block.
-constexpr u32 kEntrySize = 0x4000, kEntryController = 0x3FA4, kEntryPlace = 0x3FA8;
+constexpr u32 kEntrySize = 0x4000, kEntryController = 0x3FA4, kEntryPlace = 0x3FA8, kEntryAsm = 0x3FB8, kEntryTcs = 0x3FBC;
 
 } // namespace
 
@@ -91,8 +92,10 @@ void boot(Ee& ee, Disc& disc) {
     }
 }
 
+bool aids_from_env() { return !(std::getenv("GT4R_AIDS") && std::string(std::getenv("GT4R_AIDS")) == "0"); }
+
 bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, const std::vector<std::string>& labels, int human, Race& r,
-                std::string& err) {
+                std::string& err, bool aids) {
     r = Race{};
     r.cars = int(labels.size());
     try {
@@ -159,6 +162,8 @@ bool setup_race(Ee& ee, Disc& disc, db::SpecDb& sdb, const std::string& course, 
             if (!car_id) return err = "no car " + labels[size_t(i)], false;
             ee.call(kSetCar, {Arg::ptr(entry + 0x20), Arg::integer(s64(db::part_id(0, car_id)))}, 50'000'000);
             ee.w32(entry + kEntryPlace, u32(i));
+            // The entry's stability and traction control switches (+0x3FB8 / +0x3FBC, read by the car's set-up 0x3C93A0).
+            ee.w32(entry + kEntryAsm, aids ? 1 : 0), ee.w32(entry + kEntryTcs, aids ? 1 : 0);
             ee.w32(arr + 4 * u32(i), entry);
             r.entries.push_back(entry);
         }
