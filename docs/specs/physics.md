@@ -1017,7 +1017,7 @@ rules in the PlayStation 2's arithmetic), fed with Gran Turismo 4's data:
 | The query points (phase 16, 0x3697A8), the steep ground's normal (phase 17, 0x344458), the wheels' surfaces as 24-row indexes, wheel 0's triangle as the collision step's hint (phase 18), the ground's frame (phase 19, 0x35D350) | `rules_body.*`, `session.cpp` | Gran Turismo 4 (§6) |
 | The aerodynamics (phase 4, 0x3F3090 with 0x3F2DB8; its globals as 0x3F2F78 and the converter's coefficients as 0x3621B0 make them) and F +0x5BC | `rules_chassis.*`, `exact_bridge.*`, `rules_step.*` | Gran Turismo 4 (§5) |
 | The class grip of a car a computer drives (phase 10; a single race's 20 % for every drive class, 0x353570; `rules::Tables::class_grip`) | `rules_step.*` | Gran Turismo 4 (§2) |
-| Phase order | `session.cpp` | phases 1 .. 13, then 16 .. 22, as the program's step; the engine's remaining routines with the program's C library and constants (`rules::behaviour()`: 2002 Tokyo-Geneva's) |
+| Phase order | `session.cpp` | phases 1 .. 22 as the program's step (each over every car before the next: the phases before the driver's decision, the decision and input, the rest to the hits' clearing, then the collision step on); the engine's remaining routines with the program's C library and constants (`rules::behaviour()`: 2002 Tokyo-Geneva's) |
 | Gran Turismo 4's own part of the record | `convert.*` `load_params` | the converter's block: every field bit for bit on every car (the tire records' base grip and the driveline block's tires, differentials and inertias too) |
 | The engine's torques (phase 4), brakes and clutch, wheel torques, vectoring, the axle step, wheel speeds, engine speed and gearbox (phase 10), brake heat (phase 11) | `rules_drive.*`, `rules_wear.*` through `rules_step.*` | Gran Turismo 4 (§3.3) on the engine and driveline blocks; the four wheel drive's fade, the stepless rates, the controller settings and the brake heat's constants as the program has them (checked, §9). The Priuses' hybrid one-speed box, the box of kind 4 (the MTR GMV) and layout 7's motors (the Acura DN-X) are Gran Turismo 4's; the fuel is counted in an event's race. A car our computer drivers drive shifts by the engine's gearbox: the program shifts a computer's car at its driver's speeds (0x36BEE0 / 0x36BF28 through 0x3F1E30, the speeds x a driver byte / 128 ❓), and with the program's own speeds an automatic box can hunt (the Volkswagen Beetle 1100's down-shift into third and fourth at 3,500 and 4,000 rpm, its up-shift at 4,000). With the rest of the driveline Gran Turismo 4's, the original's arcade field at Tsukuba laps in 96.4 .. 101.7 s (the original's two-lap race: 92 .. 101 s a lap; the engine's throughout: 99.5 .. 105.4 s) |
 | A rolling start | `rules_start.*`, `session.cpp` | the car set-up's moving start (0x363868) after the session's hold; its places (rules::rolling_start_distance, the race's rule) on the road's middle, not the driving line |
@@ -1247,9 +1247,10 @@ fidelity is judged only by recordings made on the console.
 
 How the harness was settled, for weighing the score: its set-up was completed by looking at failing files (the laps in the
 race information from S-1, the judge's car from B-5, the pace car's lead from B-5), and the start's hold, 480 steps when the
-car stands after its set-up and 0 when it moves, was chosen on B-1 and A-1 (A-1 is exact with 0, fails with 60 .. 420). Each
-was then used unchanged on all the files. No choice was made per file. ❓ The program's own choice (the race
-organization's state at info +0xB0 / +0xB4) is not read.
+car stands after its set-up and 0 when it moves, was chosen on B-1 and A-1. Both are now read: the hold is 0x3C0208's (none
+when the conductor's virtual 10 answers a moving start, else the row's type +0x40: 1 8 s, 2 10 s), and the course's start code (0x447F08: the
+UnistrDB string its row names, K +0xCBE6 ..) is given to the set-up, which the harness left out before: its fourth digit (K +0xCBE9, 0x463AE0)
+turns off the computer driver's long look ahead at a standing start, the cause of the three training tests' misses. No choice is made per file.
 
 | Files | |
 |---|---|
