@@ -170,8 +170,8 @@ file of it, in a section `RPLD`: the scrambled `ReplayData` a card's replay file
 last record). ✔ Races driven in the app and saved, then run from the saved file's `RPLD` alone (`gt4tool race <disc> recording`): a driven
 one into walls and traffic (Tsukuba, six cars, 2,400 steps), B-spec ones with commands (7,500 and 4,900 steps, to the recorded time) and a
 pit stop (13,500): every car's place equal in every bit, every step. ✔ The
-program's own step given such a file (`gt4r_diff <disc> floats replays <file> run`, the 4,900-step B-spec race) ends on the recorded time
-(66,548 ms) with every car's place ours in every bit. ✔ License runs driven in the app (B-1, B-5 behind its pace car) come out the same from
+program's own step given such a file (`gt4r_diff <disc> floats replays <file> run`): the 4,900-step B-spec race ends on the recorded time (66,548 ms), and it and the driven
+2,400 steps have every car's place ours in every bit. ✔ License runs driven in the app (B-1, B-5 behind its pace car) come out the same from
 their files.
 `gt4tool race <disc> recording <saved replay> <out>` writes the card's file out; the race screen plays a card's replay file by its path (as the
 Demo tab's: run again from its records).
