@@ -32,7 +32,8 @@ public:
         u16 service = 0;        // F +0x4B8
         bool refuelling = false; // 0x35BEB0
         render::Mat4 body;      // the car's model frame
-        float height = 0;       // the car's position's, course space
+        render::Vec3 position{0, 0, 0}, right{1, 0, 0}, up{0, 1, 0}, back{0, 0, 1}; // the car's position and axes, course space
+        render::Vec3 velocity{0, 0, 0}; // metres per second
         render::Vec3 hub[4];    // the wheels' middles in it
         float steer[4] = {0, 0, 0, 0}, spin[4] = {0, 0, 0, 0}; // about the up axis (+ right), rolled (forward +)
         render::Vec3 box{0, 0, 0}; // the car's box on the road, and its heading about the up axis (0: facing -z)
@@ -44,7 +45,9 @@ public:
         float front = 2.2f, rear = 2.2f, width = 1.75f; // from the model's origin; across
         float tire_width[2] = {0.2f, 0.2f}, tire_radius[2] = {0.31f, 0.31f};
         render::Vec3 filler{0, 0.6f, 1.5f}, filler_axis{-1, 0, 0}; // parts block +0xAC, +0xB8
+        render::Vec3 seat{0, 0.3f, 0}; // parts block +0x34
         u16 flags = 0;          // info +0x00
+        bool known = false;     // a car file was read
     };
 
     // The filler and the flags of a car file (car/lod); the rest as given. Throws FormatError.
@@ -70,9 +73,19 @@ public:
     };
     void add_items(std::vector<render::DrawItem>& items, std::vector<Wheel>& wheels, size_t car);
     // The car's own wheels are off (the scene draws all of them).
-    bool wheels_off(size_t car) const { return car < cars_.size() && cars_[car].stage == 3; }
-    // Whether the car's crew is out.
-    bool active(size_t car) const { return car < cars_.size() && cars_[car].stage > 0 && cars_[car].phase >= 1; }
+    bool wheels_off(size_t car) const { return active(car) && cars_[car].stage == 3; }
+    // Whether the car's crew is out: while the pit's camera is on it (0x3D25B0).
+    bool active(size_t car) const { return car < cars_.size() && cars_[car].stage > 0 && cars_[car].camera_number >= 5; }
+
+    // The pit's own camera for a car (the race's view gives way to it, 0x3FD620 -> CameraSys::CameraPitIn), as it was at the
+    // step `before` the last one or at the last; false: none now.
+    struct CameraShot {
+        render::Vec3 eye{0, 0, 0};
+        render::Mat4 view;
+        float angle = 1; // the program's, radians
+        int shot = 0;    // counts the cuts
+    };
+    bool camera(size_t car, CameraShot& out, bool before = false) const;
 
     // A crew member of a car as it stands (for checks).
     struct Man {
@@ -97,6 +110,17 @@ private:
         float spin[4] = {0, 0, 0, 0};
         render::Mat4 parted;           // the car's frame as it was when the work ended
         render::Vec3 parted_hub[4];
+        // The camera (0x3CBB28, 0x3CC010): its place in the car's sequence, the number it is sent to, the clip picked.
+        int camera_sequence = -1, camera_number = -1, camera_pick = 0, camera_clip = -1;
+        float camera_time = 0, camera_entry = -1;
+        bool stopping = false;         // on the stop line while on the lane
+        bool camera_set = false;
+        float cut_yaw = 0;             // the car's heading and place at the last cut
+        render::Vec3 cut_at{0, 0, 0};
+        render::Vec3 hubs[4];          // the hubs about the car's position as the race began
+        float shake[2] = {0, 0}, shake_to[2] = {0, 0};
+        CameraShot shot, shot_before;
+        bool shot_on = false, shot_before_on = false;
         float turn_out[4] = {1, 1, 1, 1}, turn_in[4] = {0, 0, 0, 0}; // how far the wheels taken off / put on follow the hub's turn
     };
     int number(const Stop& c, int k) const; // the motion's number a man is sent to (-1: not there)
@@ -106,10 +130,14 @@ private:
     void place(Stop& c, int stage);
     float random(float lo, float hi);
     bool wheel_frame(const Stop& c, int k, int which, render::Mat4& out) const;
+    void step_camera(Stop& c, float dt);
+    int camera_number(const Stop& c, bool& cut) const;
+    bool camera_point(const Stop& c, int kind, const render::Vec3& v, bool direction, render::Vec3& out) const;
     menu::SkeletonMotion::Pose pose_of(const Stop& c, int k) const;
 
     render::GpuContext* ctx_ = nullptr;
-    std::vector<menu::SkeletonMotion> motions_;
+    std::vector<menu::SkeletonMotion> motions_, cameras_;
+    std::map<std::string, menu::SkeletonMotion::Name> camera_names_;
     struct Seq {
         int object = 0, sequence = -1;
     };

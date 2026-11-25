@@ -50,6 +50,8 @@ PitScene::PitScene(render::GpuContext* ctx, ByteSpan file) : ctx_(ctx) {
         const auto nodes = motions_[size_t(seq_[k].object)].nodes(motions_[size_t(seq_[k].object)].pose(seq_[k].sequence, 0, 0), Mat4::identity());
         if (const auto it = nodes.find("tire1"); it != nodes.end()) tire1_z_[k] = it->second.m[14];
     }
+    if (const u32 cams = rd32(file, 8); cams && cams < file.size() && menu::SkeletonMotion::is_motion(file.subspan(cams)))
+        cameras_ = menu::SkeletonMotion::parse_all(file.subspan(cams), camera_names_);
     const ByteSpan set = file.subspan(crew);
     if (!mdls::is_mdls(set)) throw FormatError("pit file without its crew");
     bones_ = mdls::read_bones(set);
@@ -86,11 +88,15 @@ void PitScene::read_car_file(ByteSpan file, CarSizes& s) {
     s.flags = rd16(file, car.info);
     s.filler = v(parts + 0xAC);
     s.filler_axis = v(parts + 0xB8);
+    s.seat = v(parts + 0x34);
+    s.known = true;
 }
 
 void PitScene::place_car(Car& out, const CarVisual& visual, const race::CarState& s) {
     out.body = visual.body_matrix(s);
-    out.height = s.position.y;
+    out.position = {s.position.x, s.position.y, s.position.z};
+    out.right = {s.right.x, s.right.y, s.right.z}, out.up = {s.up.x, s.up.y, s.up.z}, out.back = {-s.forward.x, -s.forward.y, -s.forward.z};
+    out.velocity = {s.velocity.x, s.velocity.y, s.velocity.z};
     const render::Vec3 at{out.body.m[12], out.body.m[13], out.body.m[14]};
     for (int w = 0; w < 4; ++w) {
         const auto& c = s.wheels[w].center;
@@ -266,10 +272,15 @@ void PitScene::step(std::span<const Car> cars, int shown, float dt, const std::f
         c.stage = c.now.stage;
         if (c.stage != c.was)
             for (Man& m : c.men) m.idle = m.idle_next;
+        if (c.stage != c.was && c.stage != 0 && c.stage != c.was + 1) {
+            // Stages passed over (0x3CD430): the motions begin at the stage's number, the places come in turn.
+            for (int k = 0; k < kMen; ++k) c.men[size_t(k)].time = motions_[size_t(seq_[k].object)].sequences[size_t(seq_[k].sequence)].start_of(number(c, k));
+            for (int s = 0; s <= c.stage; ++s) place(c, s);
+        }
         place(c, c.stage);
         // Nobody at a wheel that is not changed, nobody with the fuel when none is wanted, nobody at all round a car on
         // its way out (0x35BD10); they go when the stage changes.
-        if (c.stage == 1 && c.now.kind >= 2 && c.now.kind <= 4) {
+        if (c.stage == 1 && c.was != 0 && c.now.kind >= 2 && c.now.kind <= 4) {
             bool front = false, rear = false, fuel = false;
             if (c.now.kind != 4) {
                 const u16 v = c.now.service;
@@ -312,7 +323,7 @@ void PitScene::step(std::span<const Car> cars, int shown, float dt, const std::f
                 const auto* e = q.at(m.time);
                 if (e && e->name == "refuel") {
                     // (The car's height is the course's own, not over the road.)
-                    const float height = c.now.height + c.sizes.filler.y;
+                    const float height = c.now.position.y + c.sizes.filler.y;
                     const float part = std::clamp((height - 0.611999989f) / 0.289999962f, 0.00999999978f, 0.98999995f);
                     const float end = e->start + e->duration;
                     if (want < 2) {
@@ -347,7 +358,155 @@ void PitScene::step(std::span<const Car> cars, int shown, float dt, const std::f
             for (const auto& ch : kChannels)
                 if (motion.events(seq_[k].sequence, ch[0], before, m.time, dt) > 0) sound(ch[1]);
         }
+        step_camera(c, dt);
     }
+}
+
+// The number the camera is sent to (0x3CBD00): 4 on the lane, 8 near the box, 12 / 14 / 16 at the work (the tires, the fuel
+// alone, all the wheels on or none to change), 20 leaving, -1 none.
+int PitScene::camera_number(const Stop& c, bool& cut) const {
+    cut = false;
+    if (c.stage <= 0) return -1;
+    const render::Vec3 d = c.now.position - c.now.box;
+    const float far2 = render::dot(d, d);
+    if (c.stage == 1) {
+        if (c.stopping || c.camera_number == 8) return 8;
+        return c.camera_number == 4 && far2 <= 25 ? 8 : 4;
+    }
+    if (c.stage < 5) {
+        bool none = true, done = true;
+        for (int k = 0; k < 4; ++k) none &= c.men[size_t(k)].idle, done &= c.men[size_t(k)].idle || c.men[size_t(k)].done;
+        const int to = done || none ? 16 : c.stage < 3 ? 12 : 14;
+        cut = to != c.camera_number && none;
+        return to;
+    }
+    return c.camera_number != -1 && far2 <= 900 ? 20 : -1;
+}
+
+// A camera's point or direction in course space (0x3CB2C0): about the car as it moves (0), about the driver's head in it
+// (6), about the box (1), over a wheel on the road where the car was at the cut (2 .. 5), about the car there (7).
+bool PitScene::camera_point(const Stop& c, int kind, const render::Vec3& v, bool direction, render::Vec3& out) const {
+    const Car& n = c.now;
+    render::Vec3 p = v;
+    const auto turned = [](const render::Vec3& a, float yaw) { return render::rotate_y(yaw).transform_point(a); };
+    switch (kind) {
+    case 0:
+    case 6: {
+        if (kind == 6 && !direction) {
+            p = p + render::Vec3{c.sizes.seat.x, c.sizes.seat.y + 1, c.sizes.seat.z};
+            p.y = std::min(p.y, 1.625f);
+        }
+        out = n.right * p.x + n.up * p.y + n.back * p.z;
+        if (!direction) out = out + n.position;
+        break;
+    }
+    case 7:
+        out = turned(p, c.cut_yaw);
+        if (!direction) out = out + c.cut_at;
+        break;
+    case 2:
+    case 3:
+    case 4:
+    case 5: {
+        const int w = kind - 2;
+        if (!direction) p = p + c.hubs[w];
+        out = turned(p, c.cut_yaw);
+        if (!direction) out = out + render::Vec3{c.cut_at.x, n.box.y + c.sizes.tire_radius[w / 2], c.cut_at.z};
+        break;
+    }
+    case 1:
+        out = turned(p, n.box_heading);
+        if (!direction) out = out + n.box;
+        break;
+    default: return false;
+    }
+    if (direction) {
+        const float l = render::length(out);
+        if (l * l >= 9.99999902e-05f) out = out * (1 / l);
+    }
+    return true;
+}
+
+void PitScene::step_camera(Stop& c, float dt) {
+    c.shot_before = c.shot, c.shot_before_on = c.shot_on;
+    c.shot_on = false;
+    if (cameras_.empty()) return;
+    const menu::SkeletonMotion& m = cameras_[0];
+    if (!c.camera_set) {
+        // The sequence by the filler's side (0x3CD188); the hubs as the car stands.
+        c.camera_set = true;
+        const CarSizes& s = c.sizes;
+        const float nx = -s.filler_axis.x, nz = -s.filler_axis.z, px = s.filler_axis.x, pz = s.filler_axis.z;
+        const float most = std::max(std::max(nx, nz), std::max(px, pz));
+        const int side = most == nx ? 0 : most == nz ? 1 : most == px ? 2 : 3;
+        std::string name = "pitcam_tire_unknown_seq";
+        if (s.known && !(s.flags & 8)) {
+            if (s.flags & 4) name = "pitcam_fuel_unknown_seq";
+            else if (side == 0) name = s.filler.z < 0 ? "pitcam_fuel_FR_seq" : "pitcam_fuel_RR_seq";
+            else if (side == 1) name = "pitcam_fuel_R_seq";
+            else if (side == 2) name = s.filler.z < 0 ? "pitcam_fuel_FL_seq" : "pitcam_fuel_RL_seq";
+            else name = "pitcam_fuel_F_seq";
+        }
+        auto it = camera_names_.find(name);
+        if (it == camera_names_.end()) it = camera_names_.find("pitcam_tire_unknown_seq");
+        c.camera_sequence = it == camera_names_.end() ? -1 : it->second.sequence;
+        for (int w = 0; w < 4; ++w) {
+            const render::Vec3 at = c.now.body.transform_point(c.now.hub[w]) - c.now.position;
+            c.hubs[w] = {render::dot(at, c.now.right), render::dot(at, c.now.up), render::dot(at, c.now.back)};
+        }
+    }
+    if (c.camera_sequence < 0 || size_t(c.camera_sequence) >= m.sequences.size()) return;
+    const auto& q = m.sequences[size_t(c.camera_sequence)];
+    if (c.stage == 1 && c.now.kind == 3) c.stopping = true;
+    bool cut = false;
+    c.camera_number = camera_number(c, cut);
+    if (c.camera_number < 0) {
+        c.camera_time = 0, c.camera_entry = -1, c.camera_clip = -1;
+        c.stopping = false;
+        return;
+    }
+    if (cut) c.camera_time = q.start_of(c.camera_number);
+    else c.camera_time = q.advance(c.camera_time, dt, c.camera_number);
+    const auto* e = q.at(c.camera_time);
+    if (!e || e->clips.empty()) return;
+    if (c.camera_entry != e->start) {
+        // An entry begun: one of its clips at random (the first only when it is alone), the car's place kept for the clips about it.
+        c.camera_entry = e->start;
+        const int n = int(e->clips.size());
+        c.camera_pick = n >= 2 ? int(random(0, 1) * float(n - 1)) % (n - 1) + 1 : 0;
+        const int clip = e->clips[size_t(c.camera_pick)];
+        if (clip != c.camera_clip) {
+            c.camera_clip = clip;
+            c.cut_yaw = std::atan2(c.now.back.x, c.now.back.z);
+            c.cut_at = c.now.position;
+            ++c.shot.shot;
+        }
+    }
+    const auto pose = m.pose(c.camera_sequence, c.camera_time, float(c.camera_pick));
+    menu::SkeletonMotion::Camera cam;
+    render::Vec3 eye, target, up;
+    if (!m.camera(pose, cam)) return;
+    const int eye_in = int(m.named("CameraCoord", pose, 0) + 0.5f), target_in = int(m.named("TargetCoord", pose, 0) + 0.5f);
+    if (!camera_point(c, eye_in, cam.eye, false, eye) || !camera_point(c, target_in, cam.target, false, target) || !camera_point(c, eye_in, cam.up, true, up)) return;
+    if (c.camera_number < 5) return; // (the race's own view until the box is near: 0x3D2840)
+    // Held by hand (0x37DC78): a little shake.
+    const float held = 0.1f;
+    for (int a = 0; a < 2; ++a) {
+        if (random(0, 1) < 0.15f) c.shake_to[a] = random(-1, 1);
+        c.shake[a] += (c.shake_to[a] - c.shake[a]) * held * 0.4f;
+    }
+    const float by = 1.4f * cam.angle / 80;
+    c.shot.eye = eye;
+    c.shot.view = render::rotate_x(std::clamp(c.shake[0], -1.0f, 1.0f) * by) * render::rotate_y(std::clamp(c.shake[1], -1.0f, 1.0f) * by) * render::look_at(eye, target, up);
+    c.shot.angle = cam.angle;
+    c.shot_on = true;
+}
+
+bool PitScene::camera(size_t car, CameraShot& out, bool before) const {
+    if (car >= cars_.size()) return false;
+    const Stop& c = cars_[car];
+    out = before ? c.shot_before : c.shot;
+    return before ? c.shot_before_on : c.shot_on;
 }
 
 // The frame a wheel stands in (0x3D1488, 0x3D2C48): `which` 0 the wheel that was on the car, 1 the new one.
@@ -402,7 +561,7 @@ bool PitScene::wheel_frame(const Stop& c, int k, int which, Mat4& out) const {
 void PitScene::add_items(std::vector<render::DrawItem>& items, std::vector<Wheel>& wheels, size_t car) {
     if (car >= cars_.size()) return;
     Stop& c = cars_[car];
-    if (c.stage <= 0 || c.phase < 1) return;
+    if (!active(car)) return;
     const Mat4 root = render::translate(c.place) * render::rotate_y(c.heading);
     for (int k = 0; k < kMen; ++k) {
         const Man& m = c.men[size_t(k)];

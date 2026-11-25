@@ -380,6 +380,27 @@ float SkeletonMotion::named(const std::string& name, const Pose& p, float otherw
     return otherwise;
 }
 
+bool SkeletonMotion::camera(const Pose& p, Camera& out) const {
+    const auto of = [&](const Value& v) {
+        if (v.channel < 0) return v.constant;
+        if (p.a < 0 || size_t(p.a) >= clips.size() || size_t(v.channel) >= clips[size_t(p.a)].channels.size()) return 0.0f;
+        return clips[size_t(p.a)].channels[size_t(v.channel)].at(p.time);
+    };
+    bool placed = false, lens = false;
+    for (const Op& op : program) {
+        if (op.code == 0x0B && op.values.size() >= 9) {
+            float v[9];
+            for (size_t i = 0; i < 9; ++i) v[i] = of(op.values[i]);
+            out.eye = {v[0], v[1], v[2]}, out.target = {v[3], v[4], v[5]}, out.up = {v[6], v[7], v[8]};
+            placed = true;
+        } else if (op.code == 0x0A && !op.values.empty()) {
+            out.angle = of(op.values[0]);
+            lens = true;
+        }
+    }
+    return placed && lens;
+}
+
 float SkeletonMotion::events(int sequence, const std::string& name, float t0, float t1, float dt) const {
     if (sequence < 0 || size_t(sequence) >= sequences.size()) return 0;
     const Sequence& q = sequences[size_t(sequence)];

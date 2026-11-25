@@ -98,6 +98,12 @@ struct SkeletonMotion {
     // quaternions (0x42B440).
     std::map<std::string, gt3r::render::Mat4> nodes(const Pose& p, const gt3r::render::Mat4& start) const;
     float named(const std::string& name, const Pose& p, float otherwise) const;
+    // The program's camera (0x0B, 0x0A) there; none: false.
+    struct Camera {
+        gt3r::render::Vec3 eye, target, up;
+        float angle = 1; // radians
+    };
+    bool camera(const Pose& p, Camera& out) const;
     // The sum of a name's events from t0 to t1, a step of dt (0x429740).
     float events(int sequence, const std::string& name, float t0, float t1, float dt) const;
 

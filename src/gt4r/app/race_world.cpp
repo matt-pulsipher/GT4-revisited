@@ -647,7 +647,10 @@ void RaceWorld::step_pit_scene() {
     for (size_t i = 0; i < m.pit_cars.size(); ++i) {
         race::PitScene::Car& c = m.pit_cars[i];
         const sim::ai::PitCar& pc = pits_->car(i);
-        c.stage = pit_stage(i);
+        if (const int stage = pits_->in_stretch(i, field_->lines().lap()) ? pit_stage(i) : 0; stage != c.stage) {
+            LOG_INFO("Drive: car %zu's pit stop: stage %d to %d (service %03X, hold %03X)", i, c.stage, stage, pc.service, pc.hold);
+            c.stage = stage;
+        }
         c.kind = u8(field_->kind(i));
         c.service = pc.service;
         c.refuelling = refuelling(i);
@@ -660,6 +663,15 @@ void RaceWorld::step_pit_scene() {
         }
     }
     m.pit_scene->step(m.pit_cars, m.pit_shown, kStep, [&](const char* name) { m.pit_sounds.push_back(name); });
+}
+
+bool RaceWorld::pit_camera(size_t car, race::ViewPose& out, bool before) const {
+    const Impl& m = *impl_;
+    race::PitScene::CameraShot shot;
+    if (!m.pit_scene || !m.pit_scene->camera(car, shot, before)) return false;
+    out = {};
+    out.eye = shot.eye, out.view = shot.view, out.fov = shot.angle;
+    return true;
 }
 
 void RaceWorld::pit_command(size_t car) {
@@ -714,7 +726,6 @@ float RaceWorld::car_mass(size_t i) const {
 // by the surface under the wheel.
 void RaceWorld::present(std::span<const race::CarState> cars, const audio::SoundListener* camera, int target, bool live) {
     Impl& m = *impl_;
-    m.pit_shown = target;
     if (camera && m.sound) {
         if (live && session_) m.sound->update(*session_, *camera, target);
         else m.sound->update(cars, *camera, target);
@@ -838,6 +849,7 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
     // (The backdrop's far plane lies a hundred times as far as the scenery's.)
     const render::Mat4 proj = render::perspective(pose.fovy(), aspect, 0.1f, far * 100.0f);
 
+    m.pit_shown = int(focus);
     course_->upload_animations(cars);
     for (Impl::MovingDriver& d : m.drivers) d.posed = false;
     m.fade.update(course_->visible_nodes(pose.eye), pose.eye, kStep);

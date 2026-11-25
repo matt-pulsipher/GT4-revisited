@@ -70,14 +70,14 @@ TEST(pit_scene_stop_disc) {
         c.hub[0] = {-0.762f, 0.02f, -1.332f}, c.hub[1] = {0.762f, 0.02f, -1.332f};
         c.hub[2] = {-0.767f, 0.02f, 1.332f}, c.hub[3] = {0.767f, 0.02f, 1.332f};
         c.box = {0, 0, 0}, c.box_heading = -1.5708f, c.has_box = true;
-        c.height = 0.5f;
+        c.position = {100, 0.5f, 0};
         std::vector<std::string> sounds;
         const auto sound = [&](const char* n) { sounds.push_back(n); };
         const auto run = [&](int steps) {
             for (int i = 0; i < steps; ++i) scene.step({&c, 1}, 0, 1 / 60.0f, sound);
         };
         run(1);
-        CHECK(!scene.active(0) || !scene.wheels_off(0));
+        CHECK(!scene.active(0));
         c.stage = 1, c.kind = 2, c.service = 0x1C; // tires and fuel
         run(600);
         // (The places as the saved state has them, the random parts of them aside.)

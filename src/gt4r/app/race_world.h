@@ -203,6 +203,8 @@ public:
     // The refuelling: just begun (0x35BE10: service 0x20 taken), going on (0x35BEB0), stopped by the player (0x35BFC0).
     bool refuel_begun(size_t car);
     bool refuelling(size_t car) const;
+    // The pit's camera for a car (race/pit_scene.h), now or as it was before the last step; false: the race's view.
+    bool pit_camera(size_t car, race::ViewPose& out, bool before = false) const;
     void stop_refuel(size_t car) {
         if (pits_ && car < car_visuals_.size()) pits_->choose(car, 0xFF, 0xFF, 0, 2);
     }
