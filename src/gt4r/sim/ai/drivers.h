@@ -66,6 +66,10 @@ struct Pace {
     // The same as the event row has them (+0x63 .. +0x6A: the overall percent (0: 100), the mode, the slowing's percent,
     // start (m) and full gap (x 10 m), the hurrying's): what the race sets the band from (0x365480). All 0: no band.
     u8 band_global = 0, band_mode = 0, slow_pct = 0, slow_start_m = 0, slow_full_10m = 0, fast_pct = 0, fast_start_m = 0, fast_full_10m = 0;
+    // The computer drivers differ by draws as they drive (the conductor's virtual 52: a single race's 0x3475B0 and the free
+    // run's 0x3F5520 answer 1, and 0x469468 sets the tuning's bytes); off (the license tests', pace car tests', missions'
+    // conductors) by their grid index (0x467148).
+    bool random_spread = true;
     bool standing_start = true; // the long look ahead off the grid of a standing start
     // Per grid place, the seconds its car is held at the start (RACE +0x91, +0x8C .. +0x90; the decision's long look
     // ahead lasts that much longer).
@@ -378,6 +382,7 @@ private:
     std::vector<std::unique_ptr<Driver>> drivers_; // by car index (null: not driven)
     std::vector<int> ranks_;
     u64 steps_ = 0;
+    bool first_step_ = true;
     u32 clock_ = 0; // the race's clock as the conductor keeps it (+0xF89C): 50 a step, a third of it in milliseconds
     // Per car (every car, driven or not): the proximity pass's results (the driver object's +0x44 .. +0x6A).
     std::vector<Near> near_;

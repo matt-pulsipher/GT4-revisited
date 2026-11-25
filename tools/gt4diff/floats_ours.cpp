@@ -11,7 +11,9 @@
 
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/race/race_start.h"
+#include "gt4r/formats/db/race_events.h"
 #include "gt4r/sim/ai/drivers.h"
+#include "gt4r/sim/ai/grid.h"
 #include "gt4r/formats/course/runway_gtrw.h"
 #include "gt4r/sim/program.h"
 #include "gt4r/sim/rules_body.h"
@@ -166,9 +168,34 @@ bool OursBeside::begin(Ee& ee, OrigRace& o, db::SpecDb& sdb, const std::string& 
                 std::vector<size_t> cars(size_t(o.cars));
                 for (size_t i = 0; i < cars.size(); ++i) cars[i] = i;
                 sim::ai::Pace pace;
+                gt3r::Volume* vol = &m.disc.volume();
+                const db::RaceEvents events(sdb, [vol](const std::string& p) -> std::optional<Bytes> {
+                    const gt3r::Volume::Entry* f = vol->find(p);
+                    return f ? std::optional<Bytes>(vol->read(*f)) : std::nullopt;
+                });
+                for (const std::string& l : events.labels())
+                    if (const auto ev = events.event(l); ev && ev->bytes == row) {
+                        pace = sim::ai::pace_for(*ev);
+                        break;
+                    }
+                pace.random_spread = false;
                 pace.solo = c == race::Conductor::License;
                 m.field = std::make_unique<sim::ai::Field>(*m.session, *ad, *m.program, cars, pace);
                 m.field->set_shadow(0);
+                if (std::getenv("GT4R_FLOATS_DRIVER"))
+                    for (size_t i = 0; i < cars.size(); ++i) {
+                        const u32 pb = ee.r32(o.cond + 0x10024 + 4 * u32(i));
+                        std::printf("  driver %zu's block:", i);
+                        for (u32 k = 0; k < 0xD4; k += 4) std::printf(" %02X:%g", k, double(ee.rf(pb + k)));
+                        const sim::ai::Params& q = m.field->params(i);
+                        std::printf("\n  ours: corner scale %g offset %g bonus %g brake %g throttle %g yaw %g look %g %g %g weight %g downforce %g aero %g grip %g %g %g\n", double(q.corner_scale.host()),
+                                    double(q.corner_offset.host()), double(q.corner_bonus.host()), double(q.brake.host()), double(q.throttle.host()), double(q.yaw_gain.host()),
+                                    double(q.look_min.host()), double(q.look_max.host()), double(q.look_speed.host()), double(q.front_weight.host()), double(q.downforce.host()),
+                                    double(q.aero_bonus.host()), double(q.grip[0].host()), double(q.grip[1].host()), double(q.grip[2].host()));
+                        const u32 D = o.car(int(i)) + sim::layout::kDriver;
+                        std::printf("  program D: B8 %g BC %g C0 %g 70 %g 74 %g  ours corner %g brake %g\n", double(ee.rf(D + 0xB8)), double(ee.rf(D + 0xBC)), double(ee.rf(D + 0xC0)), double(ee.rf(D + 0x70)),
+                                    double(ee.rf(D + 0x74)), double(m.field->probe_get(i).corner_mult.host()), double(m.field->probe_get(i).brake_mult.host()));
+                    }
                 for (size_t i = 0; i < cars.size(); ++i) {
                     m.field->start_line(i, race::first_line(race, race::plan_start(race, i, entries[i].grid_place), i == 0, entries[i].grid_place, *m.program));
                     if (m.session->cars()[i].rolling) m.field->hold_rolling(i);
@@ -298,15 +325,23 @@ void OursBeside::step(Ee& ee, const u8* record) {
     }
     // (our own drivers on our own cars: the player's while its driver drives it, listed where they part)
     bool rolling_before = false;
+    const bool held = m.session->countdown() > 0;
     if (m.field) {
         const bool before = m.session->cars()[0].rolling;
         m.field->begin_step();
         rolling_before = before;
     }
-    m.session->step_once(in, [&](size_t car, race::CarInput&) {
+    // (GT4R_FLOATS_FREE=1: the computer's cars driven by our own drivers, running free)
+    const bool free_run = m.field && std::getenv("GT4R_FLOATS_FREE") != nullptr;
+    if (free_run) pin_others = false;
+    if (m.field && steps > 0) m.field->apply_time_scales(*m.session);
+    m.session->step_once(in, [&](size_t car, race::CarInput& out) {
         if (!m.field) return;
         race::CarInput unused;
         m.field->decide_car(car, unused);
+        if (free_run && car > 0) {
+            if (m.session->record(car).race_hold == 0) out = unused;
+        }
         if ((car > 0 ? steps >= 479 : rolling_before) && m.field_prints < 20) {
             const u32 D = o.car(int(car)) + sim::layout::kDriver;
             const sim::ai::Field::Probe p = m.field->probe_get(car);
@@ -320,7 +355,7 @@ void OursBeside::step(Ee& ee, const u8* record) {
             }
         }
     });
-    if (m.field) m.field->end_step();
+    if (m.field && !held) m.field->end_step();
     if (m.released) {
         if (m.field) m.field->release_rolling(0);
         m.session->release_start(0), m.released = false;

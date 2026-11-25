@@ -73,7 +73,7 @@ DemonstrationRun run_demonstration(Disc& disc, db::SpecDb& sdb, const std::strin
         std::unique_ptr<sim::ai::Field> field;
         if (ad) {
             sim::ai::Pace pace = sim::ai::pace_for(*ev);
-            pace.solo = conductor == Conductor::License;
+            pace.solo = conductor == Conductor::License, pace.random_spread = false;
             std::vector<size_t> cars(entries.size());
             for (size_t i = 0; i < cars.size(); ++i) cars[i] = i;
             field = std::make_unique<sim::ai::Field>(session, *ad, program, cars, pace);

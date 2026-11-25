@@ -358,6 +358,7 @@ public:
         const int license_test = setup.race.size() >= 4 ? std::atoi(setup.race.c_str() + setup.race.size() - 4) : 0;
         const bool training = license_test == 5 || license_test == 10 || license_test == 15;
         ws.pace.solo = setup.sequence == "time_trial" || setup.sequence == "freerun" || setup.sequence == "machinetest" || (is_license(setup.sequence) && !training);
+        ws.pace.random_spread = setup.conductor == race::Conductor::Other;
         ws.event_grips = is_license(setup.sequence) || setup.sequence == "mission" || setup.sequence == "practice";
         ws.laps = setup.laps;
         ws.options = setup.options;

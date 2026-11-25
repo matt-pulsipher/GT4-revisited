@@ -166,6 +166,7 @@ Field::Field(const Cars& cars, const course::AiData& data, const Program& progra
 
 void Field::init(const course::AiData& data, const Program& program, std::span<const size_t> computer) {
     const Cars& session = *session_;
+    if (!pace_.random_spread) tables_.tuning.corner_spread = 0, tables_.tuning.brake_spread = 0;
     sets_ = data.sets;
     if (program.known())
         for (u32 m = 0; m < 24; ++m) soft_[m] = program.w(Program::kSoft + 4 * m);
@@ -1743,6 +1744,9 @@ void Field::blip(Driver& d, u32 count) {
 
 void Field::step(Session& session, std::span<race::CarInput> inputs, int keep, u32 count) {
     begin_step();
+    // (the band is run at a step's end, for the next: the race's first step runs at the cars' own step length)
+    if (first_step_ && session.time() == 0) std::fill(scale_.begin(), scale_.end(), kOne);
+    first_step_ = false;
     apply_time_scales(session);
     auto plans_only = [&](const Driver& d) { return (d.control == 0 && d.kind == 0) || int(d.car) == keep; };
     for (auto& dp : drivers_)
