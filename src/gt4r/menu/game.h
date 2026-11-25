@@ -256,6 +256,8 @@ struct GameState {
     // tests' and the courses' rankings.
     std::array<u32, 768> race_units;
     Bytes license_record, course_record, machine_record;
+    // Gran Turismo 4 Prologue's license units as its save holds them (48 x 0x2E0; save/prologue_data.h); empty: none.
+    Bytes prologue_license;
 
     // Arcade's unlocked cars and courses (labels), favorites (labels, in order), presents given,
     // used cars sold this week, the championship left unfinished.

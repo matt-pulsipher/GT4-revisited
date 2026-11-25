@@ -930,6 +930,36 @@ save::GameSave& GameNatives::card2() {
     return *card2_save;
 }
 
+namespace {
+
+// Gran Turismo 4 Prologue's save (save/prologue_data.h): the license record's units and the profile's name
+// (the license object's default name, the profile's +0x1133C) into the state before a save, and back after a load.
+bool prologue_game(GameNatives& n) {
+    Database& d = n.db();
+    return d.db && d.db->prologue() && n.game;
+}
+void prologue_into_state(GameNatives& n) {
+    if (!prologue_game(n)) return;
+    GameState& s = n.state();
+    s.prologue_license = prologue_license_units(*n.game);
+    Vm& vm = n.rt.vm();
+    const Value license = vm.attribute(object_value(n.game), "license");
+    const Value get = license.p ? vm.attribute(license, "getDefaultName") : Value{};
+    if (get.kind == script::Kind::Function) s.username = vm.call(get, {}).to_string();
+}
+void prologue_from_state(GameNatives& n) {
+    if (!prologue_game(n)) return;
+    GameState& s = n.state();
+    if (!s.prologue_license.empty()) prologue_license_load(*n.game, ByteSpan(s.prologue_license.data(), s.prologue_license.size()));
+    Vm& vm = n.rt.vm();
+    const Value license = vm.attribute(object_value(n.game), "license");
+    const Value set = license.p ? vm.attribute(license, "setDefaultName") : Value{};
+    const Value name[1] = {Value::string(s.username)};
+    if (set.kind == script::Kind::Function) vm.call(set, name);
+}
+
+} // namespace
+
 Value GameNatives::make_card_manager(Args a) {
     auto m = std::make_shared<Object>("MMemoryCardManager");
     GameState* s = &state();
@@ -979,7 +1009,7 @@ Value GameNatives::make_card_manager(Args a) {
         if (!s->card.connected) return text("DEVICE_ERROR");
         if (!there()) return text(s->card.has_game_data ? "OK" : "FILE_NOT_FOUND");
         const save::Result r = self->card().load(*s);
-        if (r == save::Result::Ok) s->card.has_game_data = true, self->rt.options_changed();
+        if (r == save::Result::Ok) s->card.has_game_data = true, prologue_from_state(*self), self->rt.options_changed();
         return text(r == save::Result::Ok || r == save::Result::DeviceError || r == save::Result::InvalidFile ? save::result_name(r) : "");
     });
     // loadInstance(manager): [result, game] of the card's game beside the one played. ❓ The
@@ -993,6 +1023,7 @@ Value GameNatives::make_card_manager(Args a) {
     file->method("saveNew", [self, s, real](Vm&, const Value&, Args a) {
         if (!s->card.connected) return text("DEVICE_ERROR");
         apply_monitor(*self);
+        prologue_into_state(*self);
         if (real()) {
             const save::Result r = self->card().save_new(*s, a.size() > 1 ? a[1].to_string() : std::string("Game Data"));
             if (r != save::Result::Ok) return text(r == save::Result::DifferentMemoryCard ? "DIFFERENT_MEMORYCARD" : "DEVICE_ERROR");
@@ -1003,6 +1034,7 @@ Value GameNatives::make_card_manager(Args a) {
     file->method("save", [self, s, real, there](Vm&, const Value&, Args a) {
         if (!s->card.connected) return text("DEVICE_ERROR");
         apply_monitor(*self);
+        prologue_into_state(*self);
         if (real()) {
             const save::Result r = there() ? self->card().save(*s) : self->card().save_new(*s, a.size() > 1 ? a[1].to_string() : std::string("Game Data"));
             if (r != save::Result::Ok) return text(save::result_name(r));

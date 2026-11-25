@@ -5,6 +5,8 @@
 
 #include "prologue_race.h"
 
+#include "gt4r/save/prologue_data.h"
+
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -56,7 +58,14 @@ bool run_save_layout(Disc& disc) {
     if (const char* out = std::getenv("GT4R_PROLOGUE_SAVE_OUT")) {
         if (FILE* f = std::fopen(out, "wb")) std::fwrite(program, 1, length, f), std::fclose(f);
     }
-    return true;
+    // Ours (save/prologue_data.cpp): a new game's payload against the program's, byte for byte.
+    const Bytes ours = save::new_prologue_payload();
+    size_t differ = 0, first = 0;
+    for (size_t i = 0; i < ours.size() && i < length; ++i)
+        if (ours[i] != program[i] && !differ++) first = i;
+    std::printf("  a new game's payload, ours against the program's: %zu bytes, %zu differ%s", ours.size(), differ, differ ? "" : "\n");
+    if (differ) std::printf(" (the first at 0x%zX: ours %02X, the program's %02X)\n", first, ours[first], program[first]);
+    return ours.size() == length && differ == 0 && save::valid_prologue(ours);
 }
 
 } // namespace gt4r::diff::prologue
