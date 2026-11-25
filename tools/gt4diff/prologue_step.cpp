@@ -73,6 +73,21 @@ int whole_step(Disc& disc, const std::string& course, const std::string& car, in
     }
     PTapStat st;
     st.name = "whole step";
+    if (std::getenv("GT4R_START")) { // (the car's set-up, 0x3C93A0: our session's record before any step against the program's)
+        sim::Session::skip_hold = true;
+        session = sim::Session::open(disc, course, cars);
+        gt3r::sim::exact::Car theirs;
+        const std::vector<u8> im = gt3_image(ee, r.car(0));
+        theirs.behaviour = sim::rules::behaviour();
+        gt3r::sim::exact::load_image(theirs, im.data());
+        gt3r::sim::exact::Car mine = session->record(0);
+        const sim::prologue::CarPart& q = session->prologue_part(0);
+        for (size_t w = 0; w < 4; ++w) mine.t[w].steer_sin = q.offset_rate[w], mine.t[w].steer_cos = q.tires.steer_offset[w];
+        compare(theirs, mine, st);
+        std::printf("prologue: the set-up on %s: %zu fields differ\n", course.c_str(), st.fields.size());
+        for (const auto& [name, f] : st.fields) std::printf("    %-24s most by %.3g; %s\n", name.c_str(), f.worst, f.example.c_str());
+        return 0;
+    }
     auto load = [&](gt3r::sim::exact::Car& c) {
         const std::vector<u8> im = gt3_image(ee, r.car(0));
         c.behaviour = sim::rules::behaviour();

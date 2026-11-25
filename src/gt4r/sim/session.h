@@ -47,6 +47,7 @@ struct Entry {
 class Session final : public race::Simulation {
 public:
     static constexpr float kStep = 1.0f / 60.0f;
+    inline static bool skip_hold = false; // (gt4r_diff's comparison of the set-up: the constructor without its hold)
     static constexpr int kHoldSteps = 120; // a standing start's countdown before the session's time 0 (the constructor's)
 
     // Throws std::runtime_error for a session that cannot be set up (no entries, a course without a

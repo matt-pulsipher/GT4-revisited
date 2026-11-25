@@ -248,7 +248,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
     // rolling start goes at once, the cars moving from the set-up (0x363868).
     bool moving = false;
     for (const Entry& e : entries) moving = moving || e.start_speed > 0;
-    if (!moving)
+    if (!moving && !skip_hold)
         for (int i = 0; i < kHoldSteps; ++i) hold_once({});
     if (!gt4_rules_) // (the engine's rules: its moving start after the hold)
         for (size_t i = 0; i < cars_.size(); ++i) {
@@ -381,7 +381,8 @@ void Session::hold_once(std::span<const race::CarInput> inputs) {
 void Session::place(size_t i, const course::Runway::Place& at) {
     ex::Car& c = cars_[i];
     // The record's heading: the place's turned half a turn (forward is (sin, cos) of the place's in x, z).
-    const F heading = F(at.heading) + kPi;
+    // (Prologue's half turn is 0x40490FDA: 0x388138)
+    const F heading = F(at.heading) + (prologue_ ? F::raw(0x40490FDA) : kPi);
     F x = F(at.pos.x), y = F(-at.pos.z);
     const F front = c.p.body_front;
     x = x + front * gt3r::ee::sin(heading);
@@ -393,13 +394,27 @@ void Session::place(size_t i, const course::Runway::Place& at) {
     c.pitch = k0, c.roll = k0, c.heading = heading;
     c.road_seg = -1;
     c.pos.z = ground + c.p.cog_height;
-    ex::body_axes(c);
+    // Prologue's pose (0x3C89D8): Gran Turismo 4's axes, the wheels' points asked of the road as its ground contact asks them,
+    // its ground frame.
+    const bool own = prologue_ && course_ground_;
+    const auto axes = [&] { own ? rules::body_axes(c.pitch, c.roll, c.heading, c.fwd, c.lat, c.up) : ex::body_axes(c); };
+    if (own) {
+        std::array<ex::Ground, 4> q{};
+        for (ex::Ground& g : q) g.x = x, g.z = -y, g.h = F(at.pos.y), g.seg = -1;
+        course_ground_->query(q, c.behaviour);
+        if (!q[0].miss) c.pos.z = q[0].height + c.p.cog_height;
+    }
+    axes();
     if (gt4_ready_) rules::hub_offsets(c, layouts_[i]);
     else ex::hub_offsets(c);
     for (size_t w = 0; w < 4; ++w) {
         ex::Wheel& wheel = c.w[w];
         ex::Ground& g = c.g[w];
         g.x = c.pos.x + wheel.hub.x, g.z = -(c.pos.y + wheel.hub.y), g.h = c.pos.z + wheel.hub.z;
+        if (own) {
+            g.seg = -1;
+            continue;
+        }
         GroundHit wh;
         const bool hit = ground_->under({g.x.host(), g.h.host(), g.z.host()}, wh);
         g.height = kNoGround;
@@ -415,6 +430,16 @@ void Session::place(size_t i, const course::Runway::Place& at) {
             wheel.ground = wheel.ground0 = ground + wheel.hub.z;
         }
     }
+    if (own) {
+        course_ground_->query(c.g, c.behaviour);
+        for (size_t w = 0; w < 4; ++w) {
+            ex::Wheel& wheel = c.w[w];
+            const ex::Ground& g = c.g[w];
+            wheel.ground = wheel.ground0 = g.miss ? ground + wheel.hub.z : g.height;
+            wheel.surface = g.miss ? 0 : u8(ex::surface_index(g)), wheel.x25 = g.miss ? 0 : g.x32, wheel.surface_flags = g.miss ? 0 : g.flags;
+            extra_[i].kinds[w] = g.miss ? 0 : g.flags, extra_[i].materials[w] = g.miss ? 0 : g.material;
+        }
+    }
     for (int w = 0; w < 4; ++w) {
         ex::Wheel& wheel = c.w[size_t(w)];
         const size_t a = size_t(w >> 1);
@@ -427,10 +452,11 @@ void Session::place(size_t i, const course::Runway::Place& at) {
     }
     c.road_seg = c.g[0].miss ? -1 : c.g[0].seg; // (0x36315C: the set-up's hint, wheel 0's triangle)
     if (gt4_rules_) rules::ground_frame(c, layouts_[i]);
+    else if (own) prologue::ground_frame(c);
     else ex::ground_frame(c);
     c.pitch = c.ground_pitch, c.roll = c.ground_roll;
     c.pitch = c.pitch + ex::atan2(c.behaviour, c.p.ride_height[0] - c.p.ride_height[1], c.p.wheelbase);
-    ex::body_axes(c);
+    axes();
     c.pos.z = c.ground_pos.z + c.up.z * c.p.cog_height;
     if (gt4_ready_) rules::hub_offsets(c, layouts_[i]);
     else ex::hub_offsets(c);
@@ -445,6 +471,10 @@ void Session::place(size_t i, const course::Runway::Place& at) {
     c.rank = gt3r::s8(i + 1);
     c.x16d1 = 1;
     c.dist_total = k0;
+    if (own) { // (0x3B41E8, 0x3C8E10: the view's lags, the torque's share and the steering force's byte at rest)
+        c.lag_heading = c.lag_pitch = k0, c.x420 = k0, c.steer_force = 0, c.x16d0 = 1, c.x16d1 = 0;
+        if (float v = 0; ground_->distance_along(to_course(c.pos), v)) c.f3e4 = F(v);
+    }
     ex::save_previous(c);
     if (gt4_rules_) { // (0x344040)
         const rules::SpeedTables& k = speed_tables_[i];
