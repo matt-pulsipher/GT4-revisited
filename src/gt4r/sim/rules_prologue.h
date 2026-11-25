@@ -137,6 +137,11 @@ TireKinds tire_kinds(const Block& p);
 struct CarPart {
     rules::TireExtra tires;     // (tires.steer_offset: each wheel's steering offset, the drive block's +0x1C)
     std::array<F, 2> tire_drop; // the parameter block's +0x28C + 4 a: taken off the tire's radius at the hub's rest point
+    // Its part that changes with speed (the aerodynamic device, +0xE84 ..): the kind, the two speeds it changes at, how fast
+    // it moves and the rear downforce it adds; no car of the disc has one.
+    u8 part_kind = 0;
+    F part_lo, part_hi, part_rate, part_lift;
+    u8 special_row = 0;         // its +0x33: the special table's row (the steering force's and the prefilter's kind 6 row)
     F front_share;              // the parameter block's +0x24: the front axle's share of the weight (the bump nudge's kind 3)
     std::array<F, 4> offset_rate; // the offset's rate, the drive block's +0x18
     std::array<F, 2> axle_load;   // the parameter block's +0xE6C + 4 k (the engine's +0xE54: each axle's static load)
@@ -199,9 +204,9 @@ void pad_steering(ex::Car& c, const ex::PadFrame& f, u8 course_kind, const rules
 // (Tables::pedal_ramps).
 // The input phase's frame (0x3DEDE0): the steering wheel's position kept (+0x16A4, the last one +0x16A6) and the steering
 // prefiltered by its change (Controls::prefilter_*), within +-4096.
-ex::PadFrame prefilter(ex::Car& c, const ex::PadFrame& f, const Controls& k);
+ex::PadFrame prefilter(ex::Car& c, const ex::PadFrame& f, const Controls& k, u8 special_row = 0);
 void driver_input_pad(ex::Car& c, const ex::PadConstants& k, const ex::PadFrame& f, u8 course_kind, const rules::WheelLayout& l,
-                      const Tables& t);
+                      const Tables& t, u8 special_row = 0); // (`special_row`: P +0x33, a kind 6 wheel's prefilter row)
 
 // 0x376440: the tires' longitudinal forces' pitch moment and lift (Gran Turismo 4's 0x36AF30 on the wheel layout, the
 // force's lever the tire's radius or, with the static block's +0xD9 0, its width).

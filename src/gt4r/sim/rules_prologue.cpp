@@ -234,6 +234,9 @@ void image_part(CarPart& x, const u8* p) {
     auto word = [&](u32 o) { return F::raw(u32(p[o]) | u32(p[o + 1]) << 8 | u32(p[o + 2]) << 16 | u32(p[o + 3]) << 24); };
     x.tire_drop = {word(0x28C), word(0x290)};
     x.front_share = word(0x24);
+    x.special_row = p[0x33];
+    x.part_kind = p[0xE84];
+    x.part_lo = word(0xE88), x.part_hi = word(0xE8C), x.part_rate = word(0xE90), x.part_lift = word(0xE94);
 }
 
 void wheel_kinds(const ex::Car& c, CarPart& x) {
@@ -485,9 +488,9 @@ void pad_steering(ex::Car& c, const ex::PadFrame& f, u8 course_kind, const rules
     }
 }
 
-ex::PadFrame prefilter(ex::Car& c, const ex::PadFrame& in, const Controls& k) {
+ex::PadFrame prefilter(ex::Car& c, const ex::PadFrame& in, const Controls& k, u8 special_row) {
     ex::PadFrame f = in;
-    const size_t row = f.kind == 6 ? 1 : 0; // (❓ row 2 for a car with P +0x33 set: the byte is not kept)
+    const size_t row = f.kind != 6 ? 0 : special_row ? 2 : 1;
     const u8 mode = k.prefilter_mode[row];
     const s32 gain = k.prefilter_gain[row];
     const s32 pos = c.wheel_pos, prev = c.wheel_pos_prev; // (signed halves)
@@ -502,8 +505,8 @@ ex::PadFrame prefilter(ex::Car& c, const ex::PadFrame& in, const Controls& k) {
 }
 
 void driver_input_pad(ex::Car& c, const ex::PadConstants& k, const ex::PadFrame& in, u8 course_kind, const rules::WheelLayout& l,
-                      const Tables& t) {
-    const ex::PadFrame f = prefilter(c, in, t.controls);
+                      const Tables& t, u8 special_row) {
+    const ex::PadFrame f = prefilter(c, in, t.controls, special_row);
     const F throttle = c.throttle_pedal, brake = c.brake_pedal, mean_slip = c.x420, countersteer = c.countersteer;
     c.full_throttle = 1;
     ex::pad_hud(c, f);

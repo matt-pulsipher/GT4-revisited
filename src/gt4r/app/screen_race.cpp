@@ -31,6 +31,7 @@
 #include "gt4r/race/rail_simulation.h"
 #include "gt4r/race/replay_script.h"
 #include "gt4r/race/replay_file.h"
+#include "gt4r/race/license_prologue.h"
 #include "gt4r/race/license_rules.h"
 #include "gt4r/race/license_trophy.h"
 #include "gt4r/formats/model/mdls.h"
@@ -41,7 +42,9 @@
 #include "gt4r/race/start_camera.h"
 #include "gt4r/race/start_rule.h"
 #include "gt4r/race/picture_settings.h"
+#include "gt4r/sim/ai/course_lines.h"
 #include "gt4r/sim/ai/demo_driver.h"
+#include "gt4r/sim/ai/drivers.h"
 #include "gt4r/sim/ai/entrant.h"
 #include "gt4r/sim/ai/grid.h"
 #include "gt4r/sim/rules_start.h"
@@ -582,6 +585,11 @@ public:
             if (gt3_road_ && app.disc()) try { // (Prologue's camera on a finished license test)
                     const sim::Program program = sim::Program::load(*app.disc());
                     const auto real = [&](u32 at) { return std::bit_cast<float>(program.w(at)); };
+                    if (is_license(setup.sequence)) // (the judge's pit zone, 0x42A670)
+                        if (const std::optional<course::AiData> data = sim::ai::Field::read(*app.disc(), setup.course)) {
+                            const sim::RoadGround ground(r);
+                            pit_zone_ = race::prologue::pit_zone(sim::ai::CourseLines(*data, ground, sim::ai::Tables::load(program)));
+                        }
                     if (sim::PrologueProgram::locate(program).recognized()) finish_camera_.fov = real(0x504674), finish_camera_.pitch = real(0x504678), finish_camera_.distance = real(0x50467C);
                 } catch (const std::exception&) {
                 }
@@ -1289,21 +1297,9 @@ public:
             return;
         }
         // Prologue's courses (Gran Turismo 3's roads): the judge's own rules (its DynamicsConductorLicense is Gran Turismo 4's,
-        // 0x3C1318 = 0x3F8D70, with its own rows: LicenseRules from them), but the wheels off the course counted by
-        // Prologue's own table (0x503E28: materials 2, 3, 4 and 6; `gt3_road_`'s flag) and not the pit lane: the program's
-        // rule applies it only inside the pit zone of the course (the distance along the lap, 0x42A670), ❓ not read here
-        // (a car in the pit lane is judged off the course only by its materials, not failed).
+        // 0x3C1318 = 0x3F8D70, with its own rows: LicenseRules from them), its own surfaces and pit zone (license_prologue.h).
         if (gt3_road_) {
-            race::LicenseStep s;
-            s.wheels = 4;
-            for (const race::WheelState& w : c.wheels)
-                if (w.on_ground && (w.material == 2 || w.material == 3 || w.material == 4 || w.material == 6)) ++s.wheels_off;
-            s.off_counts = setup_.course_kind != 2 && setup_.course_kind != 3;
-            if (c.contact > 0 && c.contact_kind == 1) {
-                const float mass = world_->car_mass(0);
-                s.wall_hit = mass > 0 ? c.contact * 100000.0f / mass : 1e9f;
-            } else if (c.contact > 0 && c.contact_kind == 2) s.car_hit = c.contact;
-            s.cones = world_->gadget_contacts(0);
+            const race::LicenseStep s = race::prologue::license_step(c, pit_zone_, setup_.course_kind, world_->car_mass(0), world_->gadget_contacts(0));
             if (judge_.step(s) != race::LicenseFail::None) {
                 LOG_INFO("Drive: the test failed (%s) at %.3f s",
                          judge_.fail() == race::LicenseFail::OffCourse ? "off the course" : judge_.fail() == race::LicenseFail::Hit ? "hit" : "judge",
@@ -1572,6 +1568,7 @@ private:
     float gear_flash_ = 0;
     bool stop_area_ = false, license_failed_ = false; // a license test's stopping box
     float goal_v_ = -1, goal_prev_ = -1;              // a license test's goal distance (judge_goal)
+    race::prologue::PitZone pit_zone_;                // (Prologue's license tests: where the pit lane counts)
     bool gt3_road_ = false;                           // the road is Gran Turismo 3's (Prologue's courses)
     race::LicenseJudge judge_;
     std::vector<std::vector<float>> run_dist_; // per car, per step since the start: its distance from the line

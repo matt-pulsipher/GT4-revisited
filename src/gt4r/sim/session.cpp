@@ -153,7 +153,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
         if (t.found) prologue_ = t, prologue_cars_.resize(entries.size()), prologue_feel_.resize(entries.size());
         if (prologue_ && road_->gtrw) course_ground_ = std::make_unique<ex::CourseGround>(*road_->gtrw);
         if (prologue_) prologue::race_inputs(race_, *prologue_), prologue_aids_ = prologue::aid_tables(program), prologue_feel_tables_ = prologue::feel_tables(program, race_.sound_scales),
-                       prologue_slide_ = prologue::slide_tables(program);
+                       prologue_slide_ = prologue::slide_tables(program), prologue_force_ = prologue::force_tables(program, prologue_->controls);
     }
     // What the aids read of the race: the course's category (0x34C998: dirt 1, snow 2), no speed caps, the lap.
     aid_race_.course_kind = course_kind_ == 2 ? 1 : course_kind_ == 3 ? 2 : 0;
@@ -607,6 +607,8 @@ void Session::place(size_t i, const course::Runway::Place& at) {
     if (own) { // (0x3B41E8, 0x3C8E10: the view's lags, the torque's share and the steering force's byte at rest)
         c.lag_heading = c.lag_pitch = k0, c.x420 = k0, c.steer_force = 0, c.x16d0 = 1, c.x16d1 = 0;
         if (float v = 0; ground_->distance_along(to_course(c.pos), v)) c.f3e4 = F(v);
+        prologue::part_start(c, prologue_cars_[i], prologue_feel_[i]); // (0x3B1BD0)
+        prologue_feel_[i].force = {};                                  // (0x3BC7B0)
     }
     ex::save_previous(c);
     if (gt4_rules_) { // (0x344040)
@@ -711,6 +713,9 @@ void Session::chassis(size_t i) {
         fr.loose = aid_race_.course_kind != 0; // (0x34C998)
         rules::steer_force(c, gx_[i], layouts_[i], tables_.force, tables_.steer, fr);
         c.steer_force = gx_[i].force.out;
+    } else if (prologue_) { // (0x3BC7F0: into the pad block; the engine's byte kept with it)
+        prologue::steer_force(c, prologue_feel_[i].force, prologue_cars_[i], prologue_force_, prologue_->steer, race_.aids.course_category);
+        c.steer_force = prologue_feel_[i].force.out;
     } else
         ex::steer_force(c, race_.feel);
     if (gt4_rules_) rules::slide_effects(c, layouts_[i], tables_.slide, course_kind_); // (0x367148)
@@ -751,17 +756,30 @@ void Session::chassis(size_t i) {
         ex::wheel_spin(c);
 }
 
+// The strongest of the step's hits by kind, for the license tests' judge.
+void Session::judge_hits() {
+    for (Extra& x : extra_) x.wall_hit = x.car_hit = 0;
+    for (const collide::Hit& h : hits_) {
+        Extra& x = extra_[size_t(h.car)];
+        float& most = h.kind == 0 ? x.wall_hit : x.car_hit;
+        most = std::max(most, h.strength.host());
+    }
+}
+
 // The collision step (phase 13: 0x3F4B20, 0x45BB60, 0x3F4C18): every car's body moved through the step against the
 // road's walls and the other cars.
 void Session::collide() {
     if (prologue_collide_) { // Prologue's (0x3B6FB8 with 0x41CA90)
-        prologue_collide_->step(cars_, prologue_contacts_);
+        hits_.clear();
+        prologue_collide_->step(cars_, prologue_contacts_, &hits_);
         for (size_t i = 0; i < cars_.size() && i < prologue_contacts_.size(); ++i) {
             const prologue::Collision::Contact& k = prologue_contacts_[i];
             extra_[i].contact = k.strength, extra_[i].contact_kind = k.kind, extra_[i].contact_car = k.car;
-            if (k.kind != 0 && prologue::hit_penalty(cars_[i], hit_rules_, k.kind == 1 ? 0 : 1, k.part, k.kind == 1 ? k.sum * F::raw(0x47C35000) : k.sum,
-                                                     prologue_feel_[i].penalty != 0))
-                prologue_feel_[i].penalty = u16(hit_rules_.penalty * 60);
+        }
+        judge_hits();
+        for (const collide::Hit& h : hits_) { // (each as it was met: 0x3B9430 -> the conductor's virtual 45)
+            u16& left = prologue_feel_[size_t(h.car)].penalty;
+            if (prologue::hit_penalty(cars_[size_t(h.car)], hit_rules_, h.kind, h.part, h.strength, left != 0)) left = u16(hit_rules_.penalty * 60);
         }
         return;
     }
@@ -788,6 +806,7 @@ void Session::collide() {
     hits_.clear();
     collide::step_all(bodies_, body_cars_, *walls_, gt4_rules_ ? &hits_ : nullptr);
     // The hit records (0x350530, in the step's order): the moods, the incident count, the conductor's judge, the pad's record.
+    judge_hits();
     for (const collide::Hit& h : hits_)
         rules::hit(cars_[size_t(h.car)], gx_[size_t(h.car)], mood_tables_, hit_rules_, rules::Judge::Penalty, &pylons_hit_, h.kind, h.part, h.strength);
     for (size_t i = 0; i < cars_.size(); ++i) { // 0x3F4C18
@@ -909,15 +928,16 @@ void Session::step_once(std::span<const race::CarInput> inputs, const Decider& d
         } else {
             ex::save_previous(c);
             ex::prep(c, race_.prep);
+            if (prologue_) prologue::part_downforce(c, prologue_cars_[i], prologue_feel_[i], race_.prep.slip); // (0x3DBB70's end)
             if (decide) decide(i, in);
             if (in.computer) {
                 computer_outputs();
                 computer_clutch();
             } else {
                 ex::PadFrame e;
-                e.flags = f.flags, e.kind = f.kind == 6 ? 4 : f.kind, e.shift = f.shift, e.steer = f.steer, e.throttle = f.throttle;
+                e.flags = f.flags, e.kind = f.kind == 6 && !prologue_ ? 4 : f.kind, e.shift = f.shift, e.steer = f.steer, e.throttle = f.throttle;
                 e.brake = f.brake, e.back = f.back, e.third = f.third;
-                if (prologue_) prologue::driver_input_pad(c, race_.pad, e, course_kind, prologue_cars_[i].layout, *prologue_);
+                if (prologue_) prologue::driver_input_pad(c, race_.pad, e, course_kind, prologue_cars_[i].layout, *prologue_, prologue_cars_[i].special_row);
                 else ex::driver_input_pad(c, race_.pad, e, course_kind);
             }
         }
@@ -977,7 +997,10 @@ void Session::step_once(std::span<const race::CarInput> inputs, const Decider& d
         rules::proximity(near, pairs_, F(road_->length), 0);
         for (size_t i = 0; i < cars_.size(); ++i) rules::speed_part(cars_[i], gx_[i].near, gx_[i].body.speed_part_kind, gx_[i].chassis.speed_part_state);
     } else if (prologue_)
+    {
         ex::proximity(cars_, prologue_near_); // phase 14 (Prologue's 0x3DC1C8: Gran Turismo 3's 0x1EC098 in another layout)
+        for (size_t i = 0; i < cars_.size(); ++i) prologue::part_step(cars_[i], prologue_cars_[i], prologue_feel_[i]); // phase 15 (0x3B1C58)
+    }
     for (size_t i = 0; i < cars_.size(); ++i) {
         ex::Car& c = cars_[i];
         chassis(i);
@@ -1032,6 +1055,7 @@ void Session::publish(size_t i) {
     s.brake_lamps = c.brake_pedal.host() > 0;
     s.reverse_lamps = c.gear == 0;
     s.contact = x.contact, s.contact_kind = x.contact_kind, s.contact_car = x.contact_car;
+    s.wall_hit = x.wall_hit, s.car_hit = x.car_hit;
     s.rolling = (gt4_rules_ || prologue_) && c.driver_kind == 1;
     // A wheel back on the ground: loaded at this step's end after a step without load.
     s.landed = false;

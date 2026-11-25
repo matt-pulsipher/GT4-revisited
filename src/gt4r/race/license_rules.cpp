@@ -38,8 +38,8 @@ LicenseStep license_step(const CarState& c, const std::function<bool(u8)>& soft,
         if (w.surface & 1) ++s.wheels_pit;
     }
     s.off_counts = course_kind != 2 && course_kind != 3;
-    if (c.contact > 0 && c.contact_kind == 1) s.wall_hit = mass > 0 ? c.contact * 100000.0f / mass : 1e9f;
-    else if (c.contact > 0 && c.contact_kind == 2) s.car_hit = c.contact;
+    if (c.wall_hit > 0) s.wall_hit = mass > 0 ? c.wall_hit / mass : 1e9f;
+    s.car_hit = c.car_hit;
     s.cones = cones;
     return s;
 }

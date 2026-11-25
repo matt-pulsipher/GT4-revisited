@@ -167,6 +167,7 @@ int whole_step(Disc& disc, const std::string& course, const std::string& car, in
             for (size_t w = 0; w < 4; ++w) part.offset_rate[w] = before.t[w].steer_sin, part.tires.steer_offset[w] = before.t[w].steer_cos;
             session->load_state(0, before, session->gt4_record(0));
             session->load_prologue_part(0, part);
+            session->set_vu0_random(ee.vr); // (the flaps' random stream)
         }
         if (front && i >= from) {
             namespace ex = gt3r::sim::exact;

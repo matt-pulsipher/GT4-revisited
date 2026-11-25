@@ -244,6 +244,8 @@ public:
     const ParamBlock& params(size_t i) const { return blocks_[i]; }
     // The flaps' random stream (the program's 0x874D50), for gt4r_diff's whole step.
     void set_random_state(u32 state) { random_state_ = state; }
+    // Prologue's (the VU0's R), likewise.
+    void set_vu0_random(u32 r) { rng_.r = r; }
     // A car's shift byte (car +0x83; 128: none): its gearbox's shift speeds times it / 128 while a B-spec driver drives it
     // (control source 1, 0x3F1E30). Holds until set again.
     // The car's rating, the parameter block's +0xFE0 (0x3F86E8: 0.01 .. 1), which the B-spec skill classes cars by.
@@ -272,6 +274,7 @@ private:
         float contact = 0;
         u8 contact_kind = 0;
         int contact_car = -1;
+        float wall_hit = 0, car_hit = 0; // (race::CarState::wall_hit, car_hit)
     };
     void place(size_t i, const course::Runway::Place& at);
     void setup(size_t i, const course::Runway::Place& at, int kind, float speed, bool fuel, const Entry::LineStart* line, gt3r::s8 control, u8 driver,
@@ -280,6 +283,7 @@ private:
     void ground_contact(gt3r::sim::exact::Car& c, Extra& x);
     void chassis(size_t i);
     void collide();
+    void judge_hits();
     void publish(size_t i);
 
     std::shared_ptr<const course::Runway> road_;
@@ -322,6 +326,7 @@ private:
     std::vector<prologue::FeelPart> prologue_feel_; // (phase 19's bookkeeping and feel, feel_prologue.h)
     rules::FeelTables prologue_feel_tables_;
     rules::SlideTables prologue_slide_;
+    prologue::ForceTables prologue_force_; // (0x3BC7F0's tables)
     gt3r::sim::exact::Proximity prologue_near_{}; // (phase 14's tables of the cars' pairs)
     std::unique_ptr<prologue::Collision> prologue_collide_;
     prologue::AidTables prologue_aids_;

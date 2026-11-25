@@ -31,6 +31,7 @@ struct Pad {
     float steer = 0; // -1 left .. +1 right
     float throttle = 0, brake = 0;
     int shift = 0;
+    u8 kind = 3; // the controller (PadFrame::kind)
 };
 
 struct Race {
