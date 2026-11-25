@@ -2486,7 +2486,6 @@ private:
             w.race_label = championship_race();
         }
         if (sequence_ != "single_race") {
-            w.set("IsASpec", 1); // ❓ the license the event asks for is not checked
             w.set("prize", 0);
             w.set("IsSessionFinished", 0);
             w.set("CourseLength", s32(race_->lap_length()));
@@ -2574,15 +2573,11 @@ private:
             if (row.finished) f.time_ms = u32(row.total_ms);
             r.order.push_back(std::move(f));
         }
-        if (sequence_ == "single_race") {
-            // (The single race keeps its course record only: 0x111E98.)
-        } else {
-            try {
-                const s64 prize = menus_->race_finished(r);
-                if (session_kind()) w.set("prize", s32(std::clamp<s64>(prize, 0, 0x7FFFFFFF)));
-            } catch (const std::exception& e) {
-                LOG_WARN("Race result: %s", e.what());
-            }
+        try {
+            const s64 prize = menus_->race_finished(r); // (the single race keeps its course's best A-spec score: 0x111E98)
+            if (session_kind()) w.set("prize", s32(std::clamp<s64>(prize, 0, 0x7FFFFFFF)));
+        } catch (const std::exception& e) {
+            LOG_WARN("Race result: %s", e.what());
         }
         if (sequence_ == "time_trial" || sequence_ == "freerun" || sequence_ == "machinetest" || is_license(sequence_)) {
             // (A license test's best is its run's time when it passed; the others' their best lap.)

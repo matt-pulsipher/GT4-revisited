@@ -158,6 +158,11 @@ void make_used_condition(Database& d, CarRecord& r, u32 meters);
 
 // ---- game_records.cpp
 void install_records(GameNatives& n, Object& game, script::Module& menu);
+// Whether all 16 tests of a license ("l0b", "l0a", "lib", "lia", "l0s") are passed with bronze or better (0x4312B0).
+bool license_all_bronze(Database& d, const GameState& s, const std::string& category);
+// Whether the player may drive an event himself (the race's menus' IsASpec): it asks for no license (its RACE row's byte
+// +0x45), or every test of that license is passed (0x110498).
+bool event_aspec_allowed(Database& d, const GameState& s, u8 license);
 // Gran Turismo 4 Prologue's main::game.license: install_prologue_license (prologue_license.h).
 // A Prologue license run's points (0x19F410) from its RACE row (in Gran Turismo 4's columns), its result's name and time.
 s32 prologue_license_points(ByteSpan row, const std::string& result, u32 time_ms);

@@ -54,6 +54,10 @@ StageMotion StageMotion::parse(ByteSpan d) {
     m.motion = race::CameraMotion::parse(d);
     const u32 root = rd32(d, 0x10);
     if (size_t(root) + 0x10 > d.size()) throw FormatError("Mot1: no root");
+    if (rd16(d, root) > 0 && size_t(rd32(d, root + 4)) + 8 <= d.size()) { // (the clip: f32 length, f32 loop start)
+        Reader clip{d, rd32(d, root + 4) + 4};
+        m.loop_start_ = clip.f32();
+    }
     Reader r{d, rd32(d, root + 0xC)};
     for (int guard = 0; guard < 4096; ++guard) {
         const u8 op = r.byte();

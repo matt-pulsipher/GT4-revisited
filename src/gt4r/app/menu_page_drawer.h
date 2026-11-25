@@ -11,6 +11,7 @@
 #include "formats/text/charset.h"
 #include "formats/text/text_layout.h"
 #include "gt4r/menu/faces_flash.h"
+#include "gt4r/menu/faces_frame.h"
 #include "gt4r/menu/faces_graph.h"
 #include "gt4r/menu/faces_tooltip.h"
 #include "gt4r/menu/font.h"
@@ -145,8 +146,8 @@ public:
         for (auto it = tips_.begin(); it != tips_.end();) // tips not shown for ten seconds
             if (menu_frame > it->second.seen + 600) it = tips_.erase(it);
             else ++it;
-        const SDL_Rect whole = to_clip({0, 0, 640, 480});
-        SDL_SetRenderClipRect(r_, &whole);
+        const Rect whole{0, 0, 640, 480};
+        set_clip(whole);
         over_.clear();
         forced_ = state;
         widget(page, {0, 0, 640, 480}, opacity, whole, 0);
@@ -154,7 +155,7 @@ public:
         const std::vector<Over> over = std::move(over_);
         over_.clear();
         for (const Over& o : over) {
-            SDL_SetRenderClipRect(r_, &whole);
+            set_clip(whole);
             m_ = o.m;
             widget(*o.live, o.parent, o.opacity, whole, o.state);
         }
@@ -165,9 +166,9 @@ public:
     void draw_one(menu::Project& project, const std::string& page, const LiveWidget& w, float x, float y, float scale, const Affine& m = {}) {
         use(project);
         ox_ = x, oy_ = y, scale_ = scale, page_ = page, m_ = m;
-        const SDL_Rect whole = to_clip({0, 0, 640, 480});
-        SDL_SetRenderClipRect(r_, &whole);
-        widget(w, {0, 0, 640, 480}, 1.0f, whole, 0);
+        const Rect whole{0, 0, 640, 480};
+        set_clip(whole);
+        widget(w, whole, 1.0f, whole, 0);
         SDL_SetRenderClipRect(r_, nullptr);
     }
 
@@ -197,9 +198,13 @@ private:
         else SDL_SetRenderDrawBlendMode(r_, blend);
         SDL_RenderGeometry(r_, t, v, 4, index, 6);
     }
-    SDL_Rect to_clip(const Rect& r) const {
-        const SDL_FRect f = to_screen(r);
-        return {int(std::floor(f.x)), int(std::floor(f.y)), int(std::ceil(f.x + f.w) - std::floor(f.x)), int(std::ceil(f.y + f.h) - std::floor(f.y))};
+    // A clip of the page (the stack's: each cut by the one before, 0x231A50) on the screen: the program's
+    // scissor is in whole lines (menu::scissor; ❓ Prologue's is not read and kept as it is).
+    void set_clip(const Rect& r) {
+        const SDL_FRect f = to_screen(fonts_.count("hn_14") ? menu::scissor(r) : r);
+        const int x0 = int(std::lround(f.x)), y0 = int(std::lround(f.y));
+        const SDL_Rect c{x0, y0, int(std::lround(f.x + f.w)) - x0, int(std::lround(f.y + f.h)) - y0};
+        SDL_SetRenderClipRect(r_, &c);
     }
 
     // By what the picture holds (image_key): a picture freed with its project leaves its
@@ -221,27 +226,36 @@ private:
         return t;
     }
 
-    // `uv`: the picture's coordinates of the four corners clockwise from the top left
-    // (mImageFace's `texcoord`); none: the whole picture.
-    void image(const std::string& path, const Rect& at, Rgba tint, float opacity, bool add, const SDL_FPoint* uv = nullptr, bool from_disk = false,
-               const gt3r::Tex1::Image* held = nullptr) {
+    // A picture over a rectangle in a face's colour, or in four for its corners clockwise from the top left. The
+    // program gives one colour to a textured quad halved (0x4AA168: 255 leaves the picture as it is) and the colours
+    // of corners whole (0x49A150: 255 makes it twice as bright, up to white).
+    // `uv`: the picture's coordinates of the four corners clockwise from the top left (mImageFace's `texcoord`); none: the
+    // whole picture. `held`: the picture itself; else `path`'s of the page, or with `from_disk` of the disc.
+    void image(const std::string& path, const Rect& at, const std::vector<Rgba>& colors, float opacity, bool add, const SDL_FPoint* uv = nullptr,
+               bool from_disk = false, const gt3r::Tex1::Image* held = nullptr) {
         const gt3r::Tex1::Image* img = held ? held : path.empty() ? nullptr : from_disk ? disk_image(path) : project_->image(page_, path);
         SDL_Texture* t = texture(img, path);
         if (!t) return;
         SDL_SetTextureColorMod(t, 255, 255, 255);
         SDL_SetTextureAlphaMod(t, 255);
-        if (m_.identity() && !uv) {
+        const bool corners = colors.size() >= 4;
+        const Rgba tint = colors.empty() ? Rgba{} : colors[0];
+        const SDL_BlendMode blend = add ? SDL_BLENDMODE_ADD : SDL_BLENDMODE_BLEND;
+        if (m_.identity() && !uv && !corners && at.w >= 0 && at.h >= 0) {
             SDL_SetTextureColorMod(t, tint.r, tint.g, tint.b);
             SDL_SetTextureAlphaMod(t, u8(std::clamp(tint.a * opacity, 0.0f, 255.0f)));
-            SDL_SetTextureBlendMode(t, add ? SDL_BLENDMODE_ADD : SDL_BLENDMODE_BLEND);
+            SDL_SetTextureBlendMode(t, blend);
             const SDL_FRect dst = to_screen(at);
             SDL_RenderTexture(r_, t, nullptr, &dst);
             return;
         }
         static const SDL_FPoint whole[4] = {{0, 0}, {1, 0}, {1, 1}, {0, 1}};
-        const SDL_FColor c{tint.r / 255.0f, tint.g / 255.0f, tint.b / 255.0f, std::clamp(tint.a * opacity / 255.0f, 0.0f, 1.0f)};
-        const SDL_FColor colors[4] = {c, c, c, c};
-        quad(t, at, uv ? uv : whole, colors, add ? SDL_BLENDMODE_ADD : SDL_BLENDMODE_BLEND);
+        SDL_FColor c[4];
+        for (size_t i = 0; i < 4; ++i) {
+            const std::array<float, 4> k = menu::corner_color(corners ? colors[i] : tint, opacity, corners);
+            c[i] = {k[0], k[1], k[2], k[3]};
+        }
+        quad(t, at, uv ? uv : whole, c, blend);
     }
     // A picture face's `from_disk` picture: a Tex1 file of the disc (`piece/nation_bg/japan.img`).
     const gt3r::Tex1::Image* disk_image(const std::string& path) {
@@ -265,15 +279,11 @@ private:
         }
         return slot.get();
     }
-    SDL_FPoint image_size(const std::string& path) {
-        const gt3r::Tex1::Image* img = path.empty() ? nullptr : project_->image(page_, path);
-        return img ? SDL_FPoint{float(img->width), float(img->height)} : SDL_FPoint{0, 0};
-    }
 
     // A car's paint (mColorChipFace 0x159C38): its words' colours in bands down the face (or shaded
     // from one to the next), the gloss picture added to them: the first for a metallic paint, the
     // second for a solid one. With no colour nothing is drawn.
-    void chip(const Widget& w, const Rect& at, float opacity, const Rgba& tint) {
+    void chip(const Widget& w, const Rect& at, float opacity, const std::vector<Rgba>& tint) {
         u32 word[4] = {};
         int n = 0;
         for (int i = 0; i < 4; ++i) {
@@ -423,22 +433,17 @@ private:
         SDL_RenderGeometry(r_, nullptr, v.data(), int(v.size()), index.data(), int(index.size()));
     }
 
-    // A frame of nine pictures: the corners at their own size, the sides stretched between
-    // them, the middle over what is left.
-    void frame(const Widget& w, const Rect& at, Rgba tint, float opacity) {
-        const std::string tl = w.text("tl_image_path"), tr = w.text("tr_image_path"), bl = w.text("bl_image_path"), br = w.text("br_image_path");
-        const SDL_FPoint stl = image_size(tl), str = image_size(tr), sbl = image_size(bl), sbr = image_size(br);
-        const float left = std::max(stl.x, sbl.x), right = std::max(str.x, sbr.x), top = std::max(stl.y, str.y), bottom = std::max(sbl.y, sbr.y);
-        const float midw = std::max(at.w - left - right, 0.0f), midh = std::max(at.h - top - bottom, 0.0f);
-        image(w.text("image_path"), {at.x + left, at.y + top, midw, midh}, tint, opacity, false);
-        image(w.text("t_image_path"), {at.x + left, at.y, midw, top}, tint, opacity, false);
-        image(w.text("b_image_path"), {at.x + left, at.y + at.h - bottom, midw, bottom}, tint, opacity, false);
-        image(w.text("l_image_path"), {at.x, at.y + top, left, midh}, tint, opacity, false);
-        image(w.text("r_image_path"), {at.x + at.w - right, at.y + top, right, midh}, tint, opacity, false);
-        image(tl, {at.x, at.y, stl.x, stl.y}, tint, opacity, false);
-        image(tr, {at.x + at.w - str.x, at.y, str.x, str.y}, tint, opacity, false);
-        image(bl, {at.x, at.y + at.h - sbl.y, sbl.x, sbl.y}, tint, opacity, false);
-        image(br, {at.x + at.w - sbr.x, at.y + at.h - sbr.y, sbr.x, sbr.y}, tint, opacity, false);
+    // A frame (mFrameImageFace, 0x298288): nine parts about its frame_width x frame_height (menu::frame_parts), each its
+    // picture stretched over it in the face's colour; with four, each part's corners have the face's own colours there
+    // (0x2979A8). A part without a picture is filled with the colour.
+    void frame(const Widget& w, const Rect& at, const std::vector<Rgba>& colors, float opacity, bool add) {
+        for (const menu::FramePart& part : menu::frame_parts(w, at.w, at.h)) {
+            const Rect r{at.x + part.at.x, at.y + part.at.y, part.at.w, part.at.h};
+            const std::vector<Rgba> c = menu::frame_part_colors(colors, part.at, at.w, at.h);
+            const std::string path = w.text(part.picture);
+            if (!path.empty() && project_->image(page_, path)) image(path, r, c, opacity, add);
+            else fill(r, c.empty() ? std::vector<Rgba>{Rgba{}} : c, opacity, add);
+        }
     }
 
     // "hm_16", or with a palette "hm_16#1"; none: `hn_14`, the text style's default
@@ -632,7 +637,7 @@ private:
     }
 
     // `id`: the live face (a tool tip's motion is kept by it).
-    void text(const Widget& w, const Rect& at, float opacity, const void* id = nullptr) {
+    void text(const Widget& w, const Rect& at, float opacity, const Rect& clip, const void* id = nullptr) {
         std::string s = w.text("text");
         if (s.empty()) s = w.text("value"); // a tool tip's, an input's
         if (s.empty() && w.has("key")) {
@@ -682,7 +687,7 @@ private:
         st.valign = row == 0 ? gt3r::text::VAlign::Top : row == 1 ? gt3r::text::VAlign::Middle : gt3r::text::VAlign::Bottom;
         float x = col == 0 ? at.x : col == 1 ? at.x + at.w / 2 : at.x + at.w;
         float y = row == 0 ? at.y : row == 1 ? at.y + at.h / 2 : at.y + at.h;
-        std::optional<SDL_Rect> tip_clip;
+        std::optional<Rect> tip_clip;
         if (w.type == "ToolTipFace") {
             // A tool tip is not aligned (its style's `aligned` off, 0x248DD0): a new text rises
             // into the face, in the middle across when it fits 95 % of it, else from 5 % in and
@@ -699,9 +704,7 @@ private:
             tip.stepped = menu_frame;
             tip.seen = menu_frame;
             x = at.x + tip.scroll.x(), y = at.y + tip.scroll.y();
-            SDL_Rect now{}, own = to_clip(bounds(at)), cut{};
-            if (SDL_GetRenderClipRect(r_, &now) && now.w > 0 && SDL_GetRectIntersection(&now, &own, &cut)) tip_clip = cut;
-            else tip_clip = own;
+            tip_clip = menu::cut(clip, bounds(at));
         }
         const Rgba base = w.color("text_color").value_or(Rgba{212, 212, 212, 255}); // the text style's default
         st.color = {base.r, base.g, base.b, base.a};
@@ -740,19 +743,17 @@ private:
                 quad(atlas, {g.x + dx, g.y + dy, g.w, g.h}, uv, fcs, SDL_BLENDMODE_BLEND);
             }
         };
-        SDL_Rect before{};
-        const bool had_clip = tip_clip && SDL_GetRenderClipRect(r_, &before) && before.w > 0;
-        if (tip_clip) SDL_SetRenderClipRect(r_, &*tip_clip);
+        if (tip_clip) set_clip(*tip_clip);
         if (const float shadow = w.number("shadow"); shadow > 0) {
             const Rgba sc = w.color("shadow_color").value_or(Rgba{0, 0, 0, 255});
             pass(&sc, shadow, shadow);
         }
         pass(nullptr, 0, 0);
-        if (tip_clip) SDL_SetRenderClipRect(r_, had_clip ? &before : nullptr);
+        if (tip_clip) set_clip(clip);
     }
 
     // A face is drawn in its parent's state, any other widget in its own (0x231508), shown by its condition (0x265DC8).
-    void widget(const LiveWidget& live, const Rect& parent, float opacity, const SDL_Rect& clip, int parent_state) {
+    void widget(const LiveWidget& live, const Rect& parent, float opacity, const Rect& clip, int parent_state) {
         const Widget& w = live.data;
         const int state = menu::drawn_state(live, parent_state) | forced_;
         if (w.has("visible") && w.number("visible") == 0) return;
@@ -775,7 +776,6 @@ private:
             ~Restore() { m = was; }
         } restore{m_, outer};
         const std::vector<Rgba> colors = w.colors("color");
-        const Rgba tint = colors.empty() ? Rgba{} : colors[0];
         const bool add = w.number("blend") != 0;
         const std::string& t = w.type;
         if (t == "ColorFace") fill(at, colors, face, add, w.number("round"));
@@ -794,9 +794,9 @@ private:
                 const auto& held = live.runtime->game().chunk_pictures;
                 if (const auto it = held.find(w.text("image_chunk")); it != held.end()) chunk = &it->second;
             }
-            image(w.text("image_path"), at, tint, face, add, has_uv ? uv : nullptr, w.number("from_disk") != 0, chunk);
+            image(w.text("image_path"), at, colors, face, add, has_uv ? uv : nullptr, w.number("from_disk") != 0, chunk);
         }
-        else if (t == "FrameImageFace") frame(w, at, tint, face);
+        else if (t == "FrameImageFace") frame(w, at, colors, face, add);
         else if (t == "ToolTipFace" && w.number("detached") == 0 && w.text("value").empty() && w.text("text").empty() && !w.has("key")) {
             // An attached tip: the focused widget's (or the nearest parent's with one) tool tip.
             Widget tip = w;
@@ -815,20 +815,20 @@ private:
                     if (LiveWidget* fp = const_cast<LiveWidget*>(f)->page()) put("key_page", fp->name);
                     break;
                 }
-            text(tip, at, face, &live);
-        } else if (t == "TextFace" || t == "InputTextFace" || t == "InputNumberFace" || t == "ToolTipFace" || t == "TextBoxFace") text(w, at, face, &live);
+            text(tip, at, face, clip, &live);
+        } else if (t == "TextFace" || t == "InputTextFace" || t == "InputNumberFace" || t == "ToolTipFace" || t == "TextBoxFace") text(w, at, face, clip, &live);
         else if (t == "ColorChipFace") {
-            chip(w, at, face, tint);
+            chip(w, at, face, colors);
         } else if (t == "GraphFace") graph(w, at, face);
         else if (t == "FlashFace") flash(live, at, face);
         else if (draw_live) draw_live(live, project_, page_, at, to_screen(bounds(at)), face);
 
-        SDL_Rect inner = clip;
+        Rect inner = clip;
         const bool clips = w.has("clip") ? w.number("clip") != 0 : menu::clips_by_default(t);
         if (clips) {
-            const SDL_Rect own = to_clip(bounds(at));
-            if (!SDL_GetRectIntersection(&clip, &own, &inner)) return;
-            SDL_SetRenderClipRect(r_, &inner);
+            inner = menu::cut(clip, bounds(at));
+            if (inner.w <= 0 || inner.h <= 0) return;
+            set_clip(inner);
         }
         const bool open_menu = t == "OptionMenu" && w.number("is_popuped") != 0;
         for (const auto& c : live.children) {
@@ -838,7 +838,7 @@ private:
             }
             widget(*c, at, opacity, inner, state);
         }
-        if (clips) SDL_SetRenderClipRect(r_, &clip);
+        if (clips) set_clip(clip);
     }
 
     struct Over {

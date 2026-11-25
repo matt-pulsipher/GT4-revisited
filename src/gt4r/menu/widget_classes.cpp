@@ -662,7 +662,9 @@ void arrange_list(Runtime& rt, LiveWidget& list, bool) {
         row->set_property("visible", Value::integer(item.visible));
         row->set_state(kActive, item.active);
         row->set_state(kInsensitive, item.insensitive);
-        row->state = i == focus && has_focus ? row->state | (kFocus | kPrelight) : row->state & ~(kFocus | kPrelight);
+        // The cursor points at the chosen row while the list has the focus (prelight); the focused widget is the list
+        // itself, so no row has the focus bit (0x2B3518 -> 0x263A68).
+        row->state = (row->state & ~(kFocus | kPrelight)) | (i == focus && has_focus ? kPrelight : 0);
         list.children.push_back(row);
     }
 }

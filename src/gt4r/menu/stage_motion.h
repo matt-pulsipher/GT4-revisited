@@ -39,6 +39,9 @@ struct StageMotion {
 
     // The first clip's length in seconds (0 without one).
     float length() const;
+    // Where its loop goes back to (the clip's +0x04), in seconds.
+    float loop_start() const { return loop_start_; }
+    float loop_start_ = 0;
     // A value at time t of the first clip.
     float at(const Value& v, float t) const;
     // A named value at t; `otherwise` when the program has none of that name.

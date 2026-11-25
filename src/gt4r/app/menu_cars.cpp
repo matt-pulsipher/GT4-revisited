@@ -7,6 +7,7 @@
 #include "gt4r/formats/model/car_model.h"
 #include "gt4r/formats/model/mdls.h"
 #include "gt4r/menu/runtime.h"
+#include "gt4r/menu/stage_env.h"
 #include "gt4r/menu/stage_motion.h"
 #include "gt4r/formats/db/specdb.h"
 #include "gt4r/race/car_spec.h"
@@ -29,6 +30,7 @@ using render::Vec3;
 namespace {
 
 using menu_face3d::kDeg;
+constexpr int kEnvSize = 128; // the stage's reflection picture (the program's is 256 x 256)
 
 course::Vec3 cv(const Vec3& v) { return {v.x, v.y, v.z}; }
 Vec3 apply(const Mat4& m, const Vec3& v, float w) {
@@ -64,10 +66,17 @@ MenuCars::~MenuCars() {
     cars_.clear();
     view_.reset();
     mirror_view_.reset();
+    stage_view_.reset();
     if (mirror_target_) SDL_DestroyTexture(mirror_target_);
+    if (stage_target_) SDL_DestroyTexture(stage_target_);
+    for (SDL_Texture* t : focus_targets_)
+        if (t) SDL_DestroyTexture(t);
     if (app_.gpu())
+    {
         for (auto& [k, t] : env_)
             if (t) app_.gpu()->release_texture(t);
+        if (env_picture_) app_.gpu()->release_texture(env_picture_);
+    }
 }
 
 void MenuCars::begin_frame(u64 frame) {
@@ -173,9 +182,58 @@ void MenuCars::load_stage() {
             camera_motion_ = std::make_unique<menu::StageMotion>(menu::StageMotion::parse(*f));
         if (const std::optional<Bytes> f = app_.vfs()->read("menu/select/light.mot"))
             light_motion_ = std::make_unique<menu::StageMotion>(menu::StageMotion::parse(*f));
+        Mat4 view, proj;
+        Vec3 eye;
+        if (const std::optional<Bytes> f = app_.vfs()->read("menu/select/env.mdl"); f && stage_camera({}, view, proj, eye)) {
+            std::array<std::array<float, 3>, 3> rows;
+            for (int r = 0; r < 3; ++r)
+                for (int c = 0; c < 3; ++c) rows[size_t(r)][size_t(c)] = view.at(r, c);
+            // (From 0.8 m above the car's place: the stage's middle, where the pages that keep this stage put it.)
+            env_loading_ = std::async(std::launch::async, [file = *f, rows] {
+                std::vector<SphereMap> maps;
+                const u32 count = file.size() > 0x18 ? rd16(file, 0x16) : 0;
+                for (u32 i = 0; i < count && i < 8; ++i) {
+                    mdls::Options mo;
+                    mo.model = int(i);
+                    maps.push_back(menu::sphere_map(mdls::build_model(file, mo, "env" + std::to_string(i)), {0, 0.8f, 0}, rows, kEnvSize));
+                }
+                return maps;
+            });
+        }
     } catch (const std::exception& e) {
         LOG_WARN("Car stage: %s", e.what());
     }
+}
+
+SDL_GPUTexture* MenuCars::stage_environment() {
+    if (env_loading_.valid() && env_loading_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        try {
+            env_maps_ = env_loading_.get();
+        } catch (const std::exception& e) {
+            LOG_WARN("Car stage's reflection: %s", e.what());
+        }
+    }
+    if (env_maps_.empty() || !light_motion_) return nullptr;
+    if (env_picture_ && frame_ - env_made_ < 4 && frame_ >= env_made_) return env_picture_;
+    env_made_ = frame_;
+    std::vector<u32> px(size_t(kEnvSize) * kEnvSize, 0xFF000000u);
+    std::vector<float> w;
+    for (size_t i = 0; i < env_maps_.size(); ++i)
+        w.push_back(std::clamp(light_motion_->named_at("Alpha" + std::to_string(i), stage_time_, i == 0 ? 1.0f : 0.0f), 0.0f, 1.0f));
+    for (size_t k = 0; k < px.size(); ++k) {
+        u32 c = 0xFF000000u;
+        for (int b = 0; b < 3; ++b) {
+            float v = 0;
+            for (size_t i = 0; i < env_maps_.size(); ++i) v += w[i] * env_maps_[i][k][size_t(b)];
+            c |= u32(std::clamp(v, 0.0f, 255.0f)) << (8 * b);
+        }
+        px[k] = c;
+    }
+    render::Uploader up(app_.gpu()->device());
+    if (!env_picture_) env_picture_ = up.texture_rgba(kEnvSize, kEnvSize, px.data(), false);
+    else up.update_rgba(env_picture_, kEnvSize, kEnvSize, px.data(), false, true);
+    up.submit();
+    return env_picture_;
 }
 
 const menu::StageMotion* MenuCars::option_motion(menu::Project* project, const std::string& page, const std::string& path) {
@@ -408,12 +466,124 @@ void MenuCars::add_model_motions(Face& f, const menu::CarFaceSettings& s, const 
     }
 }
 
+// The stage's time: 1/60 s a picture, round the light motion's length to its loop's start (0x157378).
+void MenuCars::step_stage() {
+    if (stage_stepped_ == 0 || stage_stepped_ > frame_) stage_stepped_ = frame_ ? frame_ - 1 : 0;
+    stage_time_ += float(std::min<u64>(frame_ - stage_stepped_, 10)) / 60.0f;
+    stage_stepped_ = frame_;
+    const float len = light_motion_ ? light_motion_->length() : 0;
+    if (len > 0 && stage_time_ > len) stage_time_ -= len - light_motion_->loop_start();
+}
+
+bool MenuCars::stage_camera(const menu::FaceView& v, Mat4& view, Mat4& proj, Vec3& eye) const {
+    if (!camera_motion_ || !camera_motion_->camera) return false;
+    // The stage's camera (menu/select/camera.mot at the stage's time): its eye, the point it looks at and its up; its field of
+    // view across the page's height (0x1D5C00).
+    const auto& c = *camera_motion_->camera;
+    auto at_t = [&](int i) { return camera_motion_->at(c[size_t(i)], stage_time_); };
+    eye = {at_t(0), at_t(1), at_t(2)};
+    view = render::look_at(eye, {at_t(3), at_t(4), at_t(5)}, {at_t(6), at_t(7), at_t(8)});
+    menu::FaceView sv = v;
+    sv.view_angle = (camera_motion_->fov ? camera_motion_->at(*camera_motion_->fov, stage_time_) : 0.45f) / kDeg;
+    sv.near = 0.1f, sv.far = 100;
+    proj = menu_face3d::projection_of(sv, {0, 0, 640, 480}, {0, 0, 640, 480});
+    return true;
+}
+
+// The backdrops averaged by their weights at the stage's time (light.mot's Alpha0 .. Alpha3), one over another at its part of
+// the sum so far (0x1D5588), then faded to black by what the sum lacks of 1 (0x1D5620).
+std::vector<render::DrawItem> MenuCars::backdrops() const {
+    std::vector<render::DrawItem> out;
+    if (!light_motion_) return out;
+    std::vector<float> weights;
+    float whole = 0, sum = 0;
+    for (size_t i = 0; i < stage_.size(); ++i) {
+        weights.push_back(std::clamp(light_motion_->named_at("Alpha" + std::to_string(i), stage_time_, i == 0 ? 1.0f : 0.0f), 0.0f, 1.0f));
+        whole += weights[i];
+    }
+    for (size_t i = 0; i < stage_.size(); ++i)
+        if (stage_[i] && weights[i] > 0) {
+            sum += weights[i];
+            if (weights[i] / sum < 1.0f / 128) continue;
+            render::DrawItem it{stage_[i].get(), Mat4::identity(), -2};
+            it.alpha = weights[i] / sum;
+            it.tint = std::min(whole, 1.0f);
+            it.in_order = true;
+            out.push_back(it);
+        }
+    return out;
+}
+
+void MenuCars::draw_backdrops(const std::vector<render::DrawItem>& backdrops, const Mat4& view, const Mat4& proj, const Vec3& eye,
+                              const SDL_FRect& page_rect, float opacity) {
+    SDL_Renderer* r = app_.renderer();
+    if (!stage_view_) stage_view_ = std::make_unique<render::View3D>(*app_.gpu());
+    auto target = [r](SDL_Texture*& t, int w, int h) {
+        if (t && (t->w != w || t->h != h)) SDL_DestroyTexture(t), t = nullptr;
+        if (!t && (t = SDL_CreateTexture(r, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_TARGET, w, h))) SDL_SetTextureScaleMode(t, SDL_SCALEMODE_LINEAR);
+        return t != nullptr;
+    };
+    // The frame buffer's 640 x 448 reduced 2:1 (0x1D56B0's targets).
+    constexpr int kW = 320, kH = 224;
+    if (!target(stage_target_, std::max(1, int(page_rect.w + 0.5f)), std::max(1, int(page_rect.h + 0.5f))) || !target(focus_targets_[0], kW, kH) ||
+        !target(focus_targets_[1], kW, kH))
+        return;
+    SDL_Texture* before = SDL_GetRenderTarget(r);
+    render::DrawOptions o;
+    o.clear[0] = o.clear[1] = o.clear[2] = 0, o.clear[3] = 1;
+    o.repeated = true;
+    o.sort_blended = true;
+    o.gt3_lighting = true;
+    SDL_SetRenderTarget(r, stage_target_);
+    SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_NONE);
+    SDL_SetRenderDrawColor(r, 0, 0, 0, 255);
+    SDL_RenderClear(r);
+    stage_view_->draw(r, SDL_FRect{0, 0, float(stage_target_->w), float(stage_target_->h)}, view, proj, eye, backdrops, o);
+    // The soft focus: a copy at half the frame's size, a running average over 7 pixels across and then down
+    // (weights exp(-j^2 / (2 x 2.5^2)), each shifted copy laid over the last at its part of the sum so far, in 128ths),
+    // put over the picture at 0.6.
+    auto over = [r](SDL_Texture* from, SDL_Texture* to, float dx, float dy, float alpha, bool first = false) {
+        SDL_SetRenderTarget(r, to);
+        SDL_SetTextureBlendMode(from, first ? SDL_BLENDMODE_NONE : SDL_BLENDMODE_BLEND);
+        SDL_SetTextureAlphaModFloat(from, std::floor(alpha * 128) / 128);
+        const SDL_FRect src{std::max(-dx, 0.0f), std::max(-dy, 0.0f), kW - std::fabs(dx), kH - std::fabs(dy)};
+        const SDL_FRect dst{std::max(dx, 0.0f), std::max(dy, 0.0f), src.w, src.h};
+        if (first) SDL_RenderTexture(r, from, nullptr, nullptr);
+        else SDL_RenderTexture(r, from, &src, &dst);
+    };
+    over(stage_target_, focus_targets_[0], 0, 0, 1, true);
+    for (int pass = 0; pass < 2; ++pass) {
+        SDL_Texture *from = focus_targets_[pass], *to = focus_targets_[1 - pass];
+        float sum = 0;
+        for (int j = 0; j < 7; ++j) { // 0 .. 3 to the right, then 1 .. 3 to the left
+            const int step = j <= 3 ? j : -(j - 3);
+            const float w = std::exp(-float(step * step) / (2 * 2.5f * 2.5f));
+            sum += w;
+            over(from, to, pass == 0 ? float(step) : 0.0f, pass == 0 ? 0.0f : float(step), w / sum, j == 0);
+        }
+    }
+    SDL_SetRenderTarget(r, before);
+    for (SDL_Texture* t : {stage_target_, focus_targets_[0]}) {
+        SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND);
+        SDL_SetTextureAlphaModFloat(t, t == stage_target_ ? opacity : opacity * 76.0f / 128);
+        SDL_RenderTexture(r, t, nullptr, &page_rect);
+    }
+}
+
 void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const std::string& page, const menu::Rect& at, const SDL_FRect& dst, float opacity) {
     if (!view_) return;
     const menu::CarFaceSettings s = menu::car_face_settings(face.data);
     if (s.car_code.empty()) return;
+    if (s.advanced) load_stage(), step_stage();
     Car* c = car(s.car_code, s.car_color);
-    if (!c) return;
+    if (!c) {
+        // (The stage stands there while a car loads.)
+        Mat4 view, proj;
+        Vec3 eye;
+        if (s.advanced && stage_camera(s.view, view, proj, eye))
+            draw_backdrops(backdrops(), view, proj, eye, menu_face3d::on_screen({0, 0, 640, 480}, at, dst), opacity);
+        return;
+    }
 
     // The car model the scripts move (face.car_model), made when they first ask for it.
     menu::LiveWidget& live = const_cast<menu::LiveWidget&>(face);
@@ -437,15 +607,8 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
     menu::CarMotion& m = model->m;
     // One step a picture of the menus, however often the screen is drawn.
     if (f.stepped == 0 || f.stepped > frame_) f.stepped = frame_ ? frame_ - 1 : 0;
-    const u64 steps = frame_ > f.stepped ? frame_ - f.stepped : 0;
     for (int n = 0; f.stepped < frame_ && n < 10; ++n, ++f.stepped) m.step();
     f.stepped = frame_;
-    // The stage's time: 1/60 s a picture, round the light motion's length (0x1D5B88).
-    if (s.advanced) {
-        stage_time_ += float(std::min<u64>(steps, 10)) / 60.0f;
-        const float len = light_motion_ ? light_motion_->length() : 0;
-        if (len > 0) stage_time_ = std::fmod(stage_time_, len);
-    }
 
     // The camera's picture covers the whole page.
     const menu::Rect page_part{0, 0, 640, 480};
@@ -454,23 +617,10 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
     Mat4 proj = menu_face3d::projection_of(v, at, page_part);
     Mat4 view = menu_face3d::view_of(v);
     Vec3 eye{v.camera_trans[0], v.camera_trans[1], v.camera_trans[2]};
-    std::vector<float> weights; // the stage's backdrops
-    if (s.advanced) load_stage();
     // The "advanced" stage takes the car at (x, y, -z) turned half round (0x1D5B88).
     const float z = s.advanced ? -m.cur[2] : m.cur[2];
     const float yaw = s.advanced ? m.yaw + 180 : m.yaw;
-    if (s.advanced && camera_motion_ && camera_motion_->camera) {
-        // The stage's camera (menu/select/camera.mot at the stage's time): its eye, the point
-        // it looks at and its up; its field of view across the page's height (0x1D5C00).
-        const auto& c = *camera_motion_->camera;
-        auto at_t = [&](int i) { return camera_motion_->at(c[size_t(i)], stage_time_); };
-        eye = {at_t(0), at_t(1), at_t(2)};
-        view = render::look_at(eye, {at_t(3), at_t(4), at_t(5)}, {at_t(6), at_t(7), at_t(8)});
-        menu::FaceView sv = v;
-        sv.view_angle = (camera_motion_->fov ? camera_motion_->at(*camera_motion_->fov, stage_time_) : 0.45f) / kDeg;
-        sv.near = 0.1f, sv.far = 100;
-        proj = menu_face3d::projection_of(sv, page_part, page_part);
-    }
+    if (s.advanced) stage_camera(v, view, proj, eye);
     const menu::StageMotion* om = s.advanced || s.option_motion.empty() ? nullptr : option_motion(project, page, s.option_motion);
     // The page's camera motion (loadModelOptionMotion) at its clock's time (0 until the page plays
     // it): its eye, the point looked at, its up and field of view; and its named values: `fade`
@@ -490,10 +640,6 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
         if (om->fov) sv.view_angle = om->at(*om->fov, t) / kDeg;
         sv.far = std::max(sv.far, 100.0f);
         proj = menu_face3d::projection_of(sv, at, page_part);
-    }
-    if (s.advanced && light_motion_) {
-        // The backdrops' weights at the stage's time (light.mot's Alpha0 .. Alpha3).
-        for (size_t i = 0; i < stage_.size(); ++i) weights.push_back(std::clamp(light_motion_->named_at("Alpha" + std::to_string(i), stage_time_, i == 0 ? 1.0f : 0.0f), 0.0f, 1.0f));
     }
     const Mat4 placed = render::translate({m.cur[0], m.cur[1], z}) * render::rotate_z(m.cur_rz * kDeg) * render::rotate_x(m.cur_rx * kDeg) *
                         render::rotate_y(yaw * kDeg);
@@ -552,7 +698,9 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
         stage_dark = dark, stage_blur = std::max(light_motion_->named_at("shadowBlur0", stage_time_, 0.0f), 0.0f);
     }
     menu_face3d::light(lit, o);
-    if (SDL_GPUTexture* env = env_texture(project, page, s.env_image)) {
+    SDL_GPUTexture* env = s.advanced ? stage_environment() : nullptr;
+    if (!env) env = env_texture(project, page, s.env_image);
+    if (env) {
         o.env_sphere = env;
         o.reflection_strength = 1.0f; // ❓ the program's reflection parameters (1.3, 1.1) are not read
     }
@@ -568,23 +716,8 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
     if (std::memcmp(&sh, &c->shadow, sizeof sh) != 0 || !c->shadow_set) c->visual->set_shadow(sh), c->shadow = sh, c->shadow_set = true;
     c->visual->set_shadow_shear(shear);
     items_.clear();
-    if (s.advanced)
-    {
-        // The backdrops averaged by their weights, one over another at its part of the sum so far
-        // (0x1D5588), then faded to black by what the sum lacks of 1 (0x1D5620).
-        float whole = 0, sum = 0;
-        for (size_t i = 0; i < stage_.size() && i < weights.size(); ++i) whole += weights[i];
-        for (size_t i = 0; i < stage_.size() && i < weights.size(); ++i)
-            if (stage_[i] && weights[i] > 0) {
-                sum += weights[i];
-                if (weights[i] / sum < 1.0f / 128) continue;
-                render::DrawItem it{stage_[i].get(), Mat4::identity(), -2};
-                it.alpha = weights[i] / sum;
-                it.tint = std::min(whole, 1.0f);
-                it.in_order = true;
-                items_.push_back(it);
-            }
-    }
+    // The backdrops' picture stands under the car's, whose own alpha fades only the car and its shadow (0x1D6378).
+    if (s.advanced) draw_backdrops(backdrops(), view, proj, eye, page_rect, opacity);
     // The page's other models (loadModelSet: a mechanic, a shadow), moved by their motions.
     std::vector<render::DrawItem> sets;
     if (!s.advanced && fade >= 0.02f) add_model_motions(f, s, m, project, page, placed, c->spec, fade, sets);

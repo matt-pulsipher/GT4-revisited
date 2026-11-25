@@ -41,15 +41,18 @@ public:
         t_ = 0, ending_ = -1, angle_ = 0;
         active_ = capture_ = true;
     }
-    // The page as it is on the screen, kept for the capture (the menus close their pages when they
-    // end: called on each picture from the scripts' asking for the mode on).
-    void keep(float x, float scale) {
-        drop_kept();
-        const SDL_Rect page{int(x), 0, int(640 * scale), int(480 * scale)};
-        if (SDL_Surface* shot = SDL_RenderReadPixels(app_.renderer(), &page)) {
-            kept_ = SDL_CreateTextureFromSurface(app_.renderer(), shot);
-            SDL_DestroySurface(shot);
-        }
+    // The pages' picture, kept for the capture (the menus close their pages when they end: called on each picture from the
+    // scripts' asking for the mode on).
+    void keep(SDL_Texture* page) {
+        SDL_Renderer* r = app_.renderer();
+        if (kept_ && (kept_->w != page->w || kept_->h != page->h)) drop_kept();
+        if (!kept_ && !(kept_ = SDL_CreateTexture(r, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_TARGET, page->w, page->h))) return;
+        SDL_Texture* before = SDL_GetRenderTarget(r);
+        SDL_SetRenderTarget(r, kept_);
+        SDL_SetTextureBlendMode(page, SDL_BLENDMODE_NONE);
+        SDL_RenderTexture(r, page, nullptr, nullptr);
+        SDL_SetRenderTarget(r, before);
+        SDL_SetTextureBlendMode(kept_, SDL_BLENDMODE_NONE);
     }
     // The race takes the screen: gone at once (❓ the program fades it out over 0.25 s).
     void stop() {

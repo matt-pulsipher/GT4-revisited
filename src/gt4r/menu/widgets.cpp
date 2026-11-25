@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <unordered_set>
 
 namespace gt4r::menu {
 
@@ -173,6 +174,15 @@ std::shared_ptr<LiveWidget> LiveWidget::copy() const {
 void LiveWidget::append(const std::shared_ptr<LiveWidget>& child, const LiveWidget* before) {
     if (LiveWidget* old = child->parent_widget(); old && old != this) old->remove(child);
     children.erase(std::remove(children.begin(), children.end(), child), children.end());
+    // A name a sibling has already is made its own (0x206888 -> 0x25AD20, 0x25ADF8): its letters without the digits at its
+    // end, and the first number from 0 on that is free ("Item", "Item0", "Item1" ...).
+    if (!child->name.empty()) {
+        std::unordered_set<std::string> taken;
+        for (const auto& c : children) taken.insert(c->name);
+        std::string base = child->name;
+        while (!base.empty() && base.back() >= '0' && base.back() <= '9') base.pop_back();
+        for (int i = 0; taken.count(child->name); ++i) child->name = base + std::to_string(i);
+    }
     child->parent = std::static_pointer_cast<script::Module>(shared_from_this());
     child->runtime = runtime;
     auto at = children.end();

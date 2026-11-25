@@ -284,6 +284,7 @@ private:
     void stop() {
         if (held_) SDL_DestroyTexture(held_), held_ = nullptr;
         if (trail_) SDL_DestroyTexture(trail_), trail_ = nullptr;
+        if (page_picture_) SDL_DestroyTexture(page_picture_), page_picture_ = nullptr;
         menu::text_measure().measure = nullptr;
         movies_.reset(), cars_.reset(), models_.reset(), slides_.reset(), loading_.reset(), advertise_.reset(), live_drawer_.reset(), runtime_.reset(), race_.reset();
         if (app_)
@@ -406,15 +407,42 @@ private:
             Affine grown;
             grown.a = grown.d = tp.page_scale, grown.e = 320 * (1 - tp.page_scale), grown.f = 240 * (1 - tp.page_scale);
             live_drawer_->menu_frame = runtime_->frame();
+            // A transition that shows an earlier picture (blocks, a trail) and the capture loading page need the pages as a
+            // picture: then they are drawn into one of their own, in the screen's pixels.
+            const bool hold = loading_ && !loading_->active() && runtime_->game().loading_mode == "capture" && !runtime_->finished();
+            SDL_Renderer* r = app_->renderer();
+            SDL_FRect shown{};
+            const float pixels = SDL_GetRenderLogicalPresentationRect(r, &shown) && shown.w > 0 ? shown.w / float(Ui::kWidth) : 1.0f;
+            const int tw = std::max(1, int(640 * scale * pixels + 0.5f)), th = std::max(1, int(480 * scale * pixels + 0.5f));
+            const bool own = (hold || tp.trail || tp.blocks) && page_target(page_picture_, tw, th);
+            SDL_Texture* before = SDL_GetRenderTarget(r);
+            const float ox = own ? 0 : x, ps = own ? float(tw) / 640 : scale;
+            if (own) {
+                SDL_SetRenderTarget(r, page_picture_);
+                SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_NONE);
+                SDL_SetRenderDrawColor(r, 0, 0, 0, 255);
+                SDL_RenderClear(r);
+            }
             for (const auto& page : runtime_->open_pages())
-                if (menu::Project* project = runtime_->project_of(*page)) live_drawer_->draw(*project, *page, x, 0, scale, 0, grown, tp.page_opacity);
+                if (menu::Project* project = runtime_->project_of(*page)) live_drawer_->draw(*project, *page, ox, 0, ps, 0, grown, tp.page_opacity);
             if (movies_) movies_->end_frame();
             if (cars_) cars_->end_frame();
             if (models_) models_->end_frame();
             if (slides_) slides_->end_frame();
-            draw_trail(tp, x, scale);
+            if (own) {
+                draw_trail(tp, ps);
+                SDL_SetRenderTarget(r, before);
+                const SDL_FRect dst{x, 0, 640 * scale, 480 * scale};
+                SDL_SetTextureBlendMode(page_picture_, SDL_BLENDMODE_NONE);
+                SDL_SetTextureAlphaMod(page_picture_, 255);
+                SDL_RenderTexture(r, page_picture_, nullptr, &dst);
+                if (hold) loading_->keep(page_picture_);
+            }
             draw_cursor(x, scale);
             draw_blocks(tp, x, scale);
+            if (tp.trail && own) std::swap(page_picture_, trail_);
+            else if (trail_) SDL_DestroyTexture(trail_), trail_ = nullptr;
+            if (!own && page_picture_) SDL_DestroyTexture(page_picture_), page_picture_ = nullptr;
             // The transition's colour over the pages.
             if (timing_) {
                 // The pages' drawing (movies and 3D included) and the whole frame, in ms.
@@ -432,7 +460,6 @@ private:
                 }
             }
             if (const float cover = runtime_->fade_cover(); cover > 0) ui.fill(x, 0, 640 * scale, 480 * scale, Color{0, 0, 0, u8(std::clamp(cover, 0.0f, 1.0f) * 255.0f)});
-            if (loading_ && !loading_->active() && runtime_->game().loading_mode == "capture" && !runtime_->finished()) loading_->keep(x, scale);
             if (loading_) loading_->draw(x, scale);
         }
         // What the scripts did, beside the page (the game itself: only what stopped them).
@@ -470,13 +497,12 @@ private:
             return;
         }
         SDL_Renderer* r = app_->renderer();
-        if (tp.capture || !held_) {
-            if (held_) SDL_DestroyTexture(held_), held_ = nullptr;
-            const SDL_Rect page{int(x), 0, int(640 * scale), int(480 * scale)};
-            if (SDL_Surface* shot = SDL_RenderReadPixels(r, &page)) {
-                held_ = SDL_CreateTextureFromSurface(r, shot);
-                SDL_DestroySurface(shot);
-            }
+        if ((tp.capture || !held_) && page_picture_ && page_target(held_, page_picture_->w, page_picture_->h)) {
+            SDL_Texture* before = SDL_GetRenderTarget(r);
+            SDL_SetRenderTarget(r, held_);
+            SDL_SetTextureBlendMode(page_picture_, SDL_BLENDMODE_NONE);
+            SDL_RenderTexture(r, page_picture_, nullptr, nullptr);
+            SDL_SetRenderTarget(r, before);
         }
         if (!held_) return;
         float tw = 1, th = 1;
@@ -497,33 +523,26 @@ private:
     // drawn over the one just drawn at the transition's weight, from its rectangle cut by
     // `magnify_diff` page pixels a side (so magnified), then black at 0.1 (`with_black`); the
     // result is the next picture's last. (The first picture of the trail has none before it.)
-    void draw_trail(const menu::TransitionPicture& tp, float x, float scale) {
+    void draw_trail(const menu::TransitionPicture& tp, float scale) {
+        if (!tp.trail || !trail_) return;
         SDL_Renderer* r = app_->renderer();
-        if (!tp.trail) {
-            if (trail_) SDL_DestroyTexture(trail_), trail_ = nullptr;
-            return;
+        const float tw = float(trail_->w), th = float(trail_->h);
+        const float cut = std::clamp(tp.trail_diff * scale, 0.0f, std::min(tw, th) / 2 - 1);
+        const SDL_FRect src{cut, cut * th / tw, tw - 2 * cut, th - 2 * cut * th / tw};
+        SDL_SetTextureBlendMode(trail_, SDL_BLENDMODE_BLEND);
+        SDL_SetTextureAlphaMod(trail_, u8(tp.trail_ratio * 255));
+        SDL_RenderTexture(r, trail_, &src, nullptr);
+        if (tp.trail_black) {
+            SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
+            SDL_SetRenderDrawColor(r, 0, 0, 0, u8(0.1f * 255));
+            SDL_RenderFillRect(r, nullptr);
         }
-        const SDL_Rect page{int(x), 0, int(640 * scale), int(480 * scale)};
-        if (trail_) {
-            float tw = 1, th = 1;
-            SDL_GetTextureSize(trail_, &tw, &th);
-            const float cut = std::clamp(tp.trail_diff * scale, 0.0f, std::min(tw, th) / 2 - 1);
-            const SDL_FRect src{cut, cut * th / tw, tw - 2 * cut, th - 2 * cut * th / tw};
-            const SDL_FRect dst{float(page.x), 0, float(page.w), float(page.h)};
-            SDL_SetTextureBlendMode(trail_, SDL_BLENDMODE_BLEND);
-            SDL_SetTextureAlphaMod(trail_, u8(tp.trail_ratio * 255));
-            SDL_RenderTexture(r, trail_, &src, &dst);
-            if (tp.trail_black) {
-                SDL_SetRenderDrawBlendMode(r, SDL_BLENDMODE_BLEND);
-                SDL_SetRenderDrawColor(r, 0, 0, 0, u8(0.1f * 255));
-                SDL_RenderFillRect(r, &dst);
-            }
-            SDL_DestroyTexture(trail_), trail_ = nullptr;
-        }
-        if (SDL_Surface* shot = SDL_RenderReadPixels(r, &page)) {
-            trail_ = SDL_CreateTextureFromSurface(r, shot);
-            SDL_DestroySurface(shot);
-        }
+    }
+    // A texture the pages are drawn into, of this size (made when it has another).
+    bool page_target(SDL_Texture*& t, int w, int h) {
+        if (t && (t->w != w || t->h != h)) SDL_DestroyTexture(t), t = nullptr;
+        if (!t && (t = SDL_CreateTexture(app_->renderer(), SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_TARGET, w, h))) SDL_SetTextureScaleMode(t, SDL_SCALEMODE_LINEAR);
+        return t != nullptr;
     }
 
     // The menus' pointer (menu_cursor.h).
@@ -543,6 +562,7 @@ private:
     std::unique_ptr<MenuAdvertise> advertise_; // the pictures before the first menus
     bool advertise_on_ = false;
     MenuCursor cursor_;
+    SDL_Texture* page_picture_ = nullptr; // the pages as a picture, while something needs it
     SDL_Texture* held_ = nullptr; // a block transition's screen
     SDL_Texture* trail_ = nullptr; // a cross transition's last picture
     int project_sel_ = 0, page_sel_ = 0, state_ = 0;
