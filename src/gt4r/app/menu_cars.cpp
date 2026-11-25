@@ -591,7 +591,7 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
         // (The stage stands there while a car loads.)
         Mat4 view, proj;
         Vec3 eye;
-        if (s.advanced && stage_camera(s.view, view, proj, eye))
+        if (s.advanced && !stage_.empty() && stage_camera(s.view, view, proj, eye))
             draw_backdrops(backdrops(), view, proj, eye, menu_face3d::on_screen({0, 0, 640, 480}, at, dst), opacity);
         return;
     }
@@ -731,7 +731,8 @@ void MenuCars::draw(const menu::LiveWidget& face, menu::Project* project, const 
     c->visual->set_shadow_shear(shear);
     items_.clear();
     // The backdrops' picture stands under the car's, whose own alpha fades only the car and its shadow (0x1D6378).
-    if (s.advanced) draw_backdrops(backdrops(), view, proj, eye, page_rect, opacity);
+    // (A disc without the stage's files, Prologue's, has the page's own behind.)
+    if (s.advanced && !stage_.empty()) draw_backdrops(backdrops(), view, proj, eye, page_rect, opacity);
     // The page's other models (loadModelSet: a mechanic, a shadow), moved by their motions.
     std::vector<render::DrawItem> sets;
     if (!s.advanced && fade >= 0.02f) add_model_motions(f, s, m, project, page, placed, c->spec, fade, sets);
