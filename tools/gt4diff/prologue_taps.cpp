@@ -429,6 +429,28 @@ void add_prologue_taps(PTaps& taps, const Disc& disc, const std::string& course)
                       field("speedo (car +0xC60)", ee.r32(car + 0xC60), speedo[index].bits);
                   }});
     }
+    { // The view's follower (its state in the conductor, cond + 0xDB48 + 0x14 k).
+        static std::map<int, sim::rules::ViewState> view;
+        static const sim::rules::FeelTables ft = sim::prologue::feel_tables(sim::Program::load(const_cast<Disc&>(disc)));
+        auto block = [](Ee& ee, u32 car) { return ee.r32(car + 4) + sim::prologue::kViewBlock + sim::prologue::kViewSize * ee.r8(car + 0xD8 + 0x3EC); };
+        taps.add({0x3B4238, "Prologue's view follow", [=](PTapCall& c) {
+                      sim::rules::ViewState v;
+                      const u32 b = block(c.ee, c.car_addr);
+                      v.heading = gt3r::ee::F::raw(c.ee.r32(b)), v.heading_rate = gt3r::ee::F::raw(c.ee.r32(b + 4));
+                      v.heading_acc = gt3r::ee::F::raw(c.ee.r32(b + 8)), v.pitch = gt3r::ee::F::raw(c.ee.r32(b + 0xC));
+                      v.pitch_rate = gt3r::ee::F::raw(c.ee.r32(b + 0x10));
+                      sim::prologue::view_follow(c.car, v, ft);
+                      view[c.car_index] = v;
+                  },
+                  {"lag_heading_acc", "lag_heading_rate", "lag_heading[", "lag_pitch_rate"}, {},
+                  [=](Ee& ee, u32 car, int index, const std::function<void(const char*, u32, u32)>& field) {
+                      const u32 b = block(ee, car);
+                      const sim::rules::ViewState& v = view[index];
+                      field("view.heading", ee.r32(b), v.heading.bits), field("view.heading_rate", ee.r32(b + 4), v.heading_rate.bits);
+                      field("view.heading_acc", ee.r32(b + 8), v.heading_acc.bits), field("view.pitch", ee.r32(b + 0xC), v.pitch.bits);
+                      field("view.pitch_rate", ee.r32(b + 0x10), v.pitch_rate.bits);
+                  }});
+    }
     taps.add({0x3BBF18, "rolling resistance, Prologue's curve", [=](PTapCall& c) {
                   ex::Statics s = c.inputs.statics;
                   sim::prologue::statics(s, t);

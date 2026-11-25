@@ -5,6 +5,7 @@
 // Addresses are SCPS-15055 v1.01's.
 
 #include "gt4r/sim/rules_prologue.h"
+#include "gt4r/sim/rules_feel.h"
 #include "gt4r/sim/rules_speeds.h"
 
 namespace gt4r::sim::prologue {
@@ -26,5 +27,16 @@ rules::SpeedTables speed_tables(const Program& program, u8 special_row);
 // by 0x3B9530: the engine's Condition)); the top speed while the car runs (F + 0x4E4 0); the speedometer at car + 0xC60
 // (0x3C55F8: 111.1 m/s a second, 0x42DE38E2); the free wheels (0x3C5380: Gran Turismo 4's 0x35D990).
 void speeds(ex::Car& c, FeelPart& x, const rules::WheelLayout& l, const rules::SpeedTables& t, const ex::Condition& k);
+
+// The view's follower's block of car k in the conductor: cond + 0xDB48 + 0x14 k (Gran Turismo 4's ViewState's first five
+// words; k the record's F + 0x3EC).
+constexpr u32 kViewBlock = 0xDB48, kViewSize = 0x14;
+
+// The tables of Prologue's feel (Gran Turismo 4's rules::FeelTables in Prologue's places): the view's heading gain and
+// damping (0x571C98 / 0x571CA0: 30, 10).
+rules::FeelTables feel_tables(const Program& program);
+
+// 0x3B4238 (phase 19): the view's follower, Gran Turismo 4's 0x345658 (rules::view_follow) with Prologue's gains.
+inline void view_follow(ex::Car& c, rules::ViewState& v, const rules::FeelTables& t) { rules::view_follow(c, v, t); }
 
 } // namespace gt4r::sim::prologue

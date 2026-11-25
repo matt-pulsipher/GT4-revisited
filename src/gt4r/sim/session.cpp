@@ -135,7 +135,7 @@ Session::Session(db::SpecDb& db, const Program& program, std::shared_ptr<const c
         prologue::Tables t = prologue::tables(program);
         if (t.found) prologue_ = t, prologue_cars_.resize(entries.size()), prologue_feel_.resize(entries.size());
         if (prologue_ && road_->gtrw) course_ground_ = std::make_unique<ex::CourseGround>(*road_->gtrw);
-        if (prologue_) prologue::race_inputs(race_, *prologue_), prologue_aids_ = prologue::aid_tables(program);
+        if (prologue_) prologue::race_inputs(race_, *prologue_), prologue_aids_ = prologue::aid_tables(program), prologue_feel_tables_ = prologue::feel_tables(program);
     }
     // What the aids read of the race: the course's kind (a loose course 1), no speed caps, the lap.
     aid_race_.course_kind = loose_ ? 1 : 0;
@@ -542,6 +542,7 @@ void Session::chassis(size_t i) {
     if (gt4_rules_) rules::effects_reset(c, layouts_[i], rules::draw_mode(c, 0, 0, 0)); // (0x366718; no ghosts here)
     else ex::effects_reset(c, 0, 0);
     if (gt4_rules_) rules::view_follow(c, gx_[i].feel.view, tables_.feel); // (0x345658)
+    else if (prologue_) prologue::view_follow(c, gx_[i].feel.view, prologue_feel_tables_); // (0x3B4238)
     else ex::view_follow(c);
     if (gt4_rules_) rules::hub_offsets(c, layouts_[i]); // (0x345A20)
     else ex::hub_offsets(c);

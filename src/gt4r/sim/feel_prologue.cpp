@@ -21,6 +21,12 @@ rules::SpeedTables speed_tables(const Program& program, u8 special_row) {
     return t;
 }
 
+rules::FeelTables feel_tables(const Program& program) {
+    rules::FeelTables t;
+    t.view_heading_gain = F::raw(program.w(0x571C98)), t.view_heading_damp = F::raw(program.w(0x571CA0));
+    return t;
+}
+
 void speeds(ex::Car& c, FeelPart& x, const rules::WheelLayout& l, const rules::SpeedTables& t, const ex::Condition& k) {
     // (the two-wheeler's lean term reads F + 0x480 with the switch 0x5042B8, 0 in the image: ❓ not followed)
     rules::hub_velocities(c, l, t, F());
