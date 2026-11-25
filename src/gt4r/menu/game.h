@@ -107,6 +107,9 @@ struct RaceResult {
     std::optional<std::array<u8, 0x40>> bspec_record;
     int bspec_class = 0;
     bool bspec_doubled = false, bspec_course = false;
+    // The book and the course's marks the run's driver started from: the record is written back only over those.
+    std::optional<std::array<u16, 3 * 64>> bspec_start;
+    std::array<u8, 8> bspec_start_marks{};
 };
 
 // A championship's grid from its second race on (0x3EE9F8, the championship's race information when its

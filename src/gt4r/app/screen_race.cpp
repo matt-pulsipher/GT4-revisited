@@ -395,6 +395,8 @@ public:
 
     // The cars on the grid and the start's hold from the beginning; `watched`: the computer drives the
     // player's car too (B-spec).
+    void set_bspec_book(const std::array<u16, 3 * 64>& book, const std::array<u8, 8>& marks) { world_->set_bspec_book(book, marks); }
+    const WorldSetup& world_setup() const { return world_->setup(); }
     void begin_run(bool watched = false, bool demo = false) {
         if (!demo && demo_run_) end_demo();
         // (A rolling start: the computer drivers drive the player's car up to the line; a demonstration
@@ -1781,6 +1783,7 @@ private:
         if (!paused_ && pause_retry_) {
             // Retry (end code 4): the run again at once, without the menus.
             pause_retry_ = false;
+            if (menus_ && !sequence_.empty()) race_->set_bspec_book(menus_->game().race.bspec_book, menus_->game().race.bspec_course_marks);
             race_->begin_run(spectator_);
             result_tried_ = false, result_.reset(), reported_ = false;
             clock_ = 0;
@@ -1888,6 +1891,7 @@ private:
         spectator_ = watched;
         demo_ = demo;
         reported_ = false;
+        if (menus_ && !sequence_.empty()) race_->set_bspec_book(menus_->game().race.bspec_book, menus_->game().race.bspec_course_marks);
         race_->begin_run(watched);
         clock_ = 0;
     }
@@ -1942,7 +1946,8 @@ private:
         // A B-spec race: the driver's record back for the book (0x468860), the car's class.
         if (spectator_)
             if (const std::optional<std::array<u8, 0x40>> rec = race_->bspec_record())
-                r.bspec_record = rec, r.bspec_class = race_->bspec_class(), r.bspec_course = setup_.bspec_course_known; // (❓ the race's cond + 0xCBE7 taken as the course's marks being known)
+                r.bspec_record = rec, r.bspec_class = race_->bspec_class(), r.bspec_course = setup_.bspec_course_known;
+                r.bspec_start = race_->world_setup().bspec_book, r.bspec_start_marks = race_->world_setup().bspec_course_marks;
         // Every car in finishing order.
         for (const race::RaceFlow::ResultRow& row : flow.results()) {
             menu::RaceResult::Finisher f;
@@ -2429,6 +2434,8 @@ private:
             error_ = "3D drawing is not available on this system.";
             return;
         }
+        // The B-spec driver's book as it is now (race_finished keeps the request's up to date between a sequence's races).
+        if (menus_ && !sequence_.empty()) setup_.bspec_book = menus_->game().race.bspec_book, setup_.bspec_course_marks = menus_->game().race.bspec_course_marks;
         try {
             race_ = std::make_unique<Race>(app, setup_, cars_);
             if (setup_.bspec) spectator_ = true;
