@@ -4,9 +4,9 @@
 // four numbers -5..+5, brightness, contrast, saturation and color balance, one record for the
 // racing views and one for the replays and B-spec races (docs/formats/strobe.md "The pause as
 // the program drives it"). The race's last picture pass is corrected by them (0x3EFDF0 ->
-// 0x3EFC10): a gain of 2^(brightness / 10) on every channel, the red and blue gains moved by
-// -/+ 0.02 x balance (5500 K + 200 K a step against 5500 K), a contrast term 1 - 0.06 x contrast,
-// a saturation (saturation + 10) / 10.
+// 0x3EFC10; the same record the photo mode's corrections are): a gamma of 2^(brightness / 10) on
+// every channel, the red and blue ones moved by -/+ 0.02 x balance (5500 K + 200 K a step against
+// 5500 K), the white level 1 - 0.06 x contrast, a saturation (saturation + 10) / 10.
 
 #include "render/view3d.h"
 
@@ -22,15 +22,12 @@ struct PictureSettings {
     std::array<int, 4> v = kRaceDefault; // brightness, contrast, saturation, balance
 
     struct Correction {
-        float gain[3] = {1, 1, 1}; // red, green, blue
-        float contrast = 1;        // the program's term 1 - 0.06 x contrast
+        float gamma[3] = {1, 1, 1}; // red, green, blue: out = in^(1 / gamma)
+        float contrast = 1;         // the white level
         float saturation = 1;
     };
     Correction correction() const;
-    // The correction as the 3D view's grade pass does it: the green gain and the contrast as levels
-    // (❓ how the program applies the contrast term is not read: taken as a stretch about the middle
-    // by 1 / term), the saturation as the grade's; ❓ the balance (the red and blue gains' shares)
-    // is left out.
+    // The correction as the 3D view's grade pass does it.
     gt3r::render::DrawOptions::PostGrade grade() const;
 };
 

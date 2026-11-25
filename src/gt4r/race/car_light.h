@@ -12,36 +12,19 @@
 
 namespace gt4r::race {
 
-class CarLights {
-public:
-    // `section`: the course's road (RNW4, slot 55).
-    void load(ByteSpan section);
-    bool lamps() const { return !lamps_.empty(); }
-
-    struct Cast { // a shadow a light throws
+struct CarLight {
+    struct Cast { // a shadow a lamp throws
         gt3r::render::Vec3 shear;
-        float alpha = 1; // of the shadow's
+        float alpha = 1;
     };
-    struct Light {
-        bool own = false;                  // `lights`, not the course's scaled
-        bool lamps = false;                // the lamps': `casts` in place of the course's shadow
-        float scale[3] = {1, 1, 1};        // ambient, diffuse, specular
-        float shadow = 1;                  // on the cast shadow's alpha (1: in full light)
-        gt3r::render::ItemLights lights;   // `own`
-        std::vector<Cast> casts;           // `lamps`
-    };
-    // At `at` (a car's place), the road taken from `y_max` down.
-    Light at(const course::Runway& road, const gt3r::race::SunParams& env, const gt3r::render::Vec3& at, float y_max) const;
-
-private:
-    struct Lamp {
-        u32 type = 0;
-        gt3r::render::Vec3 axis, pos;
-        float kind = 0; // 0: `pos` is a direction
-    };
-    std::vector<Lamp> lamps_;
-    std::vector<u16> near_; // lamp numbers, `per_place_` from where a triangle's first vertex names
-    size_t per_place_ = 0;
+    bool own = false;                // `lights`, not the course's scaled
+    bool lamps = false;              // the lamps': `casts` in place of the course's shadow
+    float scale[3] = {1, 1, 1};      // of the course's lights: ambient, diffuse, specular
+    float shadow = 1;                // on the cast shadow's alpha (1: in the open)
+    gt3r::render::ItemLights lights; // `own`
+    std::vector<Cast> casts;         // `lamps`
 };
+// At `at` (a car's place), the road taken from `y_max` down.
+CarLight car_light(const course::Runway& road, const gt3r::race::SunParams& env, const gt3r::render::Vec3& at, float y_max);
 
 } // namespace gt4r::race

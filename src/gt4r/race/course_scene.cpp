@@ -158,7 +158,7 @@ CourseScene::CourseScene(render::GpuContext& ctx, ByteSpan course_file, const st
             for (const scene::Mesh& mesh : m.meshes) nodes += " " + std::to_string(mesh.node);
             LOG_INFO("Course %s: %zu cones and boards of %zu kinds; shapes of models%s", name.c_str(), gadgets_.placements.size(), gadgets_.kinds.size(), nodes.c_str());
             if (!m.meshes.empty()) gadget_model_ = std::make_unique<render::GpuModel>(ctx, m);
-            for (const Gadgets::Kind& k : gadgets_.kinds) gadget_nodes_.push_back({u16(2 * k.index)});
+            for (const Gadgets::Kind& k : gadgets_.kinds) gadget_nodes_.push_back({u16(2 * k.index)}), gadget_shadow_nodes_.push_back({u16(2 * k.index + 1)});
         }
     } catch (const std::exception& e) {
         LOG_WARN("Course %s: no cones and boards (%s)", name.c_str(), e.what());
@@ -300,9 +300,56 @@ void CourseScene::add_items(std::vector<render::DrawItem>& items, const render::
             for (int i = 0; i < 3; ++i)
                 for (int j = 0; j < 3; ++j) at.at(i, j) = r[size_t(i * 3 + j)];
             at.at(0, 3) = pos.x, at.at(1, 3) = pos.y, at.at(2, 3) = pos.z;
+            // The light on the road under it, and the road's plane there (0x3E29F8).
+            if (gadget_light_.size() != gadgets_.placements.size()) gadget_light_.assign(gadgets_.placements.size(), {});
+            GadgetLight& l = gadget_light_[g];
+            if (!l.known || l.at.x != pos.x || l.at.y != pos.y || l.at.z != pos.z) {
+                l.known = true, l.at = pos;
+                road_.light_at(pos.x, pos.z, pos.y + 1.0f, l.sun, l.sky);
+                float y;
+                int tri = -1;
+                l.plane = {0, 1, 0, -pos.y};
+                if (road_.height_at(pos.x, pos.z, pos.y + 1.0f, y, &tri) && tri >= 0) {
+                    const auto v3 = [&](int k) { const auto& q = road_.vertices[road_.triangles[size_t(tri)].v[size_t(k)]].pos; return render::Vec3{q.x, q.y, q.z}; };
+                    const render::Vec3 a = v3(0);
+                    render::Vec3 n = render::normalize(render::cross(v3(1) - a, v3(2) - a));
+                    if (n.y < 0) n = n * -1.0f;
+                    if (n.y > 0.2f) l.plane = {n.x, n.y, n.z, -render::dot(n, a)};
+                }
+                // (A cone that stands above the road file's surface, Tsukuba's pit lane: on the level it stands on.)
+                float low = 0;
+                for (const Gadgets::Kind& k : gadgets_.kinds)
+                    if (k.index == p.kind)
+                        for (const course::Vec3& h : k.hull) low = std::min(low, h.y);
+                if (l.plane[0] * pos.x + l.plane[1] * (pos.y + low) + l.plane[2] * pos.z + l.plane[3] > 0.3f) l.plane = {0, 1, 0, -(pos.y + low)};
+            }
+            if (env_.has_shadow && size_t(p.kind) < gadget_shadow_nodes_.size()) {
+                // Its shadow: the kind's second model thrown onto the road's plane along the light (0x3E4968), as strong as the
+                // light there makes it (0x3983E0).
+                constexpr float kRad = 3.14159265f / 180;
+                const float el = -env_.shadow_elev * kRad, az = -env_.shadow_az * kRad;
+                const render::Vec3 L{std::sin(az) * std::cos(el) * env_.shadow_len, -1, std::cos(az) * std::cos(el) * env_.shadow_len};
+                const float nl = l.plane[0] * L.x + l.plane[1] * L.y + l.plane[2] * L.z;
+                if (nl < -0.05f) {
+                    // p - L (n . p + d) / (n . L)
+                    render::Mat4 flat;
+                    const float Lv[3] = {L.x, L.y, L.z};
+                    for (int i = 0; i < 3; ++i) {
+                        for (int j = 0; j < 3; ++j) flat.at(i, j) = (i == j ? 1.0f : 0.0f) - Lv[i] * l.plane[size_t(j)] / nl;
+                        flat.at(i, 3) = -Lv[i] * l.plane[3] / nl;
+                    }
+                    flat.at(1, 3) += 0.005f;
+                    render::DrawItem sh{gadget_model_.get(), flat * at, 0};
+                    sh.nodes = &gadget_shadow_nodes_[size_t(p.kind)];
+                    sh.alpha = std::min(env_.shadow_factor(l.sun, l.sky) / std::max(color_scale_, 1.0f), 1.0f);
+                    items.push_back(sh);
+                }
+            }
             render::DrawItem it{gadget_model_.get(), at, 0};
             it.nodes = &gadget_nodes_[size_t(p.kind)];
             it.lights = lights;
+            if (env_.car_light_mask)
+                for (int k = 0; k < 3; ++k) it.light_scale[k] = env_.light_scale(l.sun, l.sky)[size_t(k)];
             items.push_back(it);
         }
     if (fade)

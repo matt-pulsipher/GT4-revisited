@@ -9,6 +9,7 @@
 #include "gt4r/race/car_light.h"
 #include "gt4r/race/car_spec.h"
 #include "gt4r/race/drive_camera.h"
+#include "gt4r/race/driver_figure.h"
 #include "gt4r/race/simulation.h"
 #include "race/lamp_glows.h"
 #include "render/gpu_model.h"
@@ -30,11 +31,9 @@ public:
         int lamp_level = 0; // 0 lights off, 1 on (a night course)
         ByteSpan wing;      // a fitted wing's model set (wing/lod/<label>); empty: none
         // The driver: a character file's set for a car without its own (driver_figure.h
-        // character_driver_file), and character/driver.mdl, whose bones stand the skeleton in its
-        // stored pose for the sets without bones. Empty: the car's own set alone / no figure.
+        // character_driver_file). Empty: the car's own set alone / no figure.
         ByteSpan driver_set;
-        ByteSpan driver_skeleton;
-        bool driver = false; // draw the driver (its posture is not ported: the stored pose)
+        bool driver = false; // draw the driver
     };
     // `car_file`: car/lod/<model>; `pat`: the paint file next to it when the car file has none
     // inside. Throws FormatError.
@@ -77,8 +76,11 @@ public:
     int level(const CarState& s, const render::Vec3& eye, const LodView* view = nullptr) const;
     // Appends the car's items for a state as seen from `eye`. `step`: the simulation's step in
     // seconds (the wheels show their turning picture by how far they turn in one).
+    // `wheels` false: its wheels are off (the pit crew has them).
     void add_items(std::vector<render::DrawItem>& items, const CarState& s, const render::Vec3& eye, float step = 1.0f / 60,
-                   const LodView* view = nullptr) const;
+                   const LodView* view = nullptr, bool wheels = true) const;
+    // A wheel away from the car: in a hub's frame, made as a left one (its outer face at -x).
+    void add_loose_wheel(std::vector<render::DrawItem>& items, int wheel, const render::Mat4& hub) const;
     // The shadow under the car: after the course, before any car.
     // The car mirrored in the road under it (a wet road's reflection, the course's flag): the plane
     // through the tires' contacts. False when the car is not on a road it can mirror in.
@@ -86,7 +88,7 @@ public:
     // That mirror (course space to course space).
     bool road_mirror(const CarState& s, render::Mat4& out) const;
     // `light`: the light it stands in (null: the course's, in full).
-    void add_shadow_items(std::vector<render::DrawItem>& items, const CarState& s, const CarLights::Light* light = nullptr) const;
+    void add_shadow_items(std::vector<render::DrawItem>& items, const CarState& s, const CarLight* light = nullptr) const;
 
     // The model's frame in course space for a state: the body as drawn.
     render::Mat4 body_matrix(const CarState& s) const;
@@ -100,6 +102,12 @@ public:
     void set_brake_glow_gain(float gain) { glow_gain_ = gain; }
     // A wheel's glow strength for its brake heat, as the race's sponsor gives it (0x3D75F0).
     float brake_glow(float heat) const { return heat * heat * glow_gain_; }
+    // A car whose driver moves (an open racer): its models and its seats' cockpits, for a figure of each
+    // car of its own (the caller's: DriverFigure). Null for the others, whose figures sit still.
+    const DriverModels* moving_driver() const { return moving_driver_ ? driver_models_.get() : nullptr; }
+    const std::vector<posture::Cockpit>& cockpits() const { return cockpits_; }
+    // Whether the figures show from here (0x3B1750: not below 0.025 of the view's size factor / 420 at a metre).
+    bool driver_shows(const CarState& s, const render::Vec3& eye, const LodView* view = nullptr) const;
     const CarSpec& spec() const { return spec_; }
     int lods() const { return lods_; }
     // The body's box in the model's frame.
@@ -129,14 +137,11 @@ private:
     render::Vec3 min_, max_;
     render::Vec3 lod_centre_{0, 0, 0}; // the body program's level switch (0x07): its centre and size
     float lod_size_ = 0;
-    // The driver figure (and a co-driver's): each model of the set once, drawn at its node in the
-    // figure's frame, the figure's frame at the seat.
-    std::vector<std::unique_ptr<render::GpuModel>> driver_models_;
-    struct DriverItem {
-        size_t model = 0;
-        render::Mat4 local;
-    };
-    std::vector<DriverItem> driver_items_;
+    // The driver's models, and the figures (a co-driver's too) of a car whose driver sits still.
+    std::unique_ptr<DriverModels> driver_models_;
+    std::vector<std::unique_ptr<DriverFigure>> still_;
+    std::vector<posture::Cockpit> cockpits_; // the driver's, a co-driver's
+    bool moving_driver_ = false;
     void build_driver(ByteSpan file, const Options& opt, const std::string& name);
     std::unique_ptr<render::GpuModel> wing_; // a fitted wing, at the parts block's place and scale
     render::Vec3 wing_place_{0, 0, 0};

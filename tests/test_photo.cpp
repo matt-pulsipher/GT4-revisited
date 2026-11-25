@@ -252,16 +252,14 @@ TEST(disc_car_light) {
         const ByteSpan section = c.section(file, course::kSlotRunway);
         const course::Runway road = course::Runway::parse(section);
         const gt3r::race::SunParams env = gt3r::race::SunParams::from_env0(c.section(file, course::kSlotEnv));
-        race::CarLights lights;
-        lights.load(section);
-        CHECK(lights.lamps() == lamps);
+        CHECK(road.lamps.empty() != lamps);
         // Somewhere on the road: the middle of its first large triangle.
         int seen = 0;
         for (size_t t = 0; t < road.triangles.size() && seen < 50; t += 37) {
             const auto& v = road.triangles[t].v;
             const auto &a = road.vertices[v[0]].pos, &b = road.vertices[v[1]].pos, &d = road.vertices[v[2]].pos;
             const gt3r::render::Vec3 at{(a.x + b.x + d.x) / 3, (a.y + b.y + d.y) / 3, (a.z + b.z + d.z) / 3};
-            const race::CarLights::Light l = lights.at(road, env, at, at.y + 0.1f);
+            const race::CarLight l = race::car_light(road, env, at, at.y + 0.1f);
             ++seen;
             if (lamps) {
                 if (l.lamps) CHECK(l.lights.count >= 1 && l.lights.count <= 4);

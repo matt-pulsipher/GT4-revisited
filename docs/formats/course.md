@@ -325,15 +325,19 @@ sign of seoul (model 44) and of lasvegas (41). Seoul's program: push, translate 
 place, push, run the script, 0x48 by `builtin_ra` / `rx` / `ry` / `rz` (cells 0 .. 3: the angle in
 degrees, then the axis; 90, (0, 1, 0) at 3 s), push, translate and scale the shape, draw, pop x 3:
 the turn about the sign's own vertical axis (the race view takes the decoded shapes back through
-the literal matrix at the first move, turns them and puts them back). Still drawn still: icerace's
-walkers (a second register switch, `cb`, picks the person's clip: two switches are not decoded
-together).
+the literal matrix at the first move, turns them and puts them back). Icerace's walkers have a second
+register switch (`cb`, the person's clip): each pair of cases is a key shape.
 
 **The animated skies** (seoul, tahiti_maze, sarthe24 and their reversed courses; slot 21): aeroplanes crossing with their
 trails, 2, 2 and 8 of them, thin strips on the dome's scale (14 vertices: the aeroplane, the trail). Their model's program has
 per aeroplane 0x4C (its weight, `builtin_tw`) and 0x4D (its switch, `builtin_br`, 4 cases), each case a shape with two keys of
 position and colour (the alpha fades it in and out); the draw script sets both from `time`: 25 s a case and 12.5 s on seoul and
 tahiti_maze. `AnimatedModels::Layer` decodes each layer's cases apart.
+
+**Checked**: `gt4r_diff <disc> course_script <course> <eeMemory.bin>...` takes a set's registers out of a saved state (each
+model's as its draw script left them when it was last drawn) and finds the time at which ours are the same: all 43 of Ice
+Arena's models that do not ask about the cars (24 walk) in four of five states (`35-ice-arena`), all 19 flags of Tsukuba in
+three. (The script's arithmetic is the EE's here; the states' last bits, an emulator's, are not judged.)
 
 The sky, backdrop and scenery sets carry a small program per animated model: flags, people who
 walk or step back from the road, turning signs. Counts on the US disc: 3,347 scenery models
@@ -518,7 +522,9 @@ from +0x10 (x, y, z, w = 1), +0x90 f32 radius, +0x94 f32 mass; then at +0x10's o
 sets), then its pictures. The cone (kind 5): radius 0.59 m, 15 kg. The race view draws each
 kind's shape where the road puts it (within 400 m). The cars knock them about (`race/gadget_bodies.*`, below). Tsukuba's cones stand a
 metre above the road file's surface under them (on the pit lane, not in the road file): near its
-place a body keeps the floor it stood on (❓ a stand-in for the surface the program finds there). ❓ The shadows are not drawn.
+place a body keeps the floor it stood on (❓ a stand-in for the surface the program finds there). Their shadows: model 2k + 1 thrown along the light
+onto the road's plane under the body (0x3E4968; on the level it stands on where that is above the road file's surface), the
+alpha by the light on the road there (0x3983E0); the body's lights scaled by it too (0x398058).
 
 ### Cones and boards: the bodies
 
@@ -578,6 +584,8 @@ Code: `runway.*`. All 110 roads read (`gt4tool runway-survey`). Offsets from the
                                          (a point's y is not the road's height: Tsukuba's are 0 to 4.2
                                          where its road lies at 9.2 to 15.5)
 0x3E u16 checkpoint lookups 0x64 u32 -> u16[]
+0x40 u16 lamps              0x68 u32 -> 0x20 bytes each (below)
+0x42 u16 lamp numbers       0x6C u32 -> s16[]; 0x50 u16 the numbers in a list
 0x44 u16 gadgets            0x70 u32 -> 0x20 bytes each
 0x46 u16 vertices           0x74 u32 -> 0x10 bytes: f32 x, y, z, s16, u8, u8
 0x48 u16 triangles          0x78 u32 -> 0x0C bytes: u16 x3 vertices, u8, u8 kind, u32 flags
@@ -586,7 +594,7 @@ Code: `runway.*`. All 110 roads read (`gt4tool runway-survey`). Offsets from the
 0x4C u16 tree depth         0x80 u32 -> the tree
 0x4E u16 wall vertices      0x84 u32 -> 0x10 bytes: f32 x, y, z, u32 tag
 0x88 u32 wall lookups       0x8C u32 -> s16[]
-0x52 u16 pit stops          0x90 u32 -> as grid places
+0x52 u16 pit stops          0x90 u32 -> as grid places (the pit's stands: the air hoses hang there, pit_scene.md)
 0x54 u16 sections           0x9C u32 -> the sections, 0x20 bytes each: f32 start, f32 goal (distances along
                                          the course), then u16 ❓, u16 (a count of 1 on these) and three
                                          pointers: +0x18 -> the section's own start places, as a grid place
@@ -599,18 +607,22 @@ Code: `runway.*`. All 110 roads read (`gt4tool runway-survey`). Offsets from the
   flags: bit 0 the pit lane, bit 1 wet (the wheel is then on the material's wet variant:
   [specs/physics.md](../specs/physics.md) "The ground"); ❓ bits 2-5. Triangles are wound so
   that (b - a) x (c - a) points up.
-- **A vertex's bytes** +0x0E and +0x0F (bits 0-6) are two values of the surface, / 255 and
-  / 127, which the road query interpolates across the triangle: the light a car there stands in
-  ("The light on a car"). Its +0x0C is the first of the lamps near it, on the courses with lamps.
+- **A vertex's bytes** +0x0E / 255 and +0x0F (bits 0-6) / 127 are **the light on the road**, the sun's and the sky's: the
+  road query interpolates them across the triangle (1 and 1 in the open, 0 under a roof). They scale the lights of a car on
+  it ("The light on a car" above) and the shadow the light throws. 0x38E7F8; `Runway::light_at`, `race/car_light.*`. (Here: at
+  the car's place; the program's value for a car with a driver's record ❓ a stored one.)
+- **The lamps of the night's courses** (lasvegas, paris_rally, route5, route5_club and their reverses, ss_fremont,
+  ss_shibuya: +0x40 u16 lamps, +0x68 -> 0x20 bytes each: u32 kind (a car-light record of Env0, 0xD0 + 0x80 x kind), f32 x3 its
+  axis, f32 x3 its place, f32 1 (0: the place is a direction)). A vertex's +0x0C (s16, >= 0) is where its list begins in the
+  numbers at +0x6C (+0x42 of them), +0x50 (6) to a list. A car takes the list of its triangle's first vertex: each lamp's
+  strength 1 / (c0 + c1 r + c2 r²), times cos^exponent inside its cone, 0 outside; the four strongest light it (ambient,
+  diffuse and specular times the strength), the Env0's global ambient with them. 0x38E7F8, 0x3E6C60. ✔ By eye: Special Stage
+  Route 5's tunnel (`route5_night_chase`). Each throws a shadow (0x38F168). ❓ Not built: their highlights (0x38F5D0, +0x140).
 - **The tree** finds the triangles under a point. It is a full binary tree of the given depth
   stored one byte per node, depth first with the left subtree before the right: bits 0-5 a
   place p, bits 6-7 the axis (0 x, 1 y, 2 z). A node splits its box (the root's is the bounds)
   at min + (max - min)(p + 0.5) / 64; the leaves, left to right, are the clusters, each a list
   of triangles. Checked on every course: a triangle's centre leads to a cluster that lists it.
-- **Lamps**: u16 +0x40 how many, u16 +0x50 how many a place names, +0x68 -> 0x20 bytes each {u32 car
-  light record, f32 x3 axis, f32 x3 place, f32 0: the place is a direction}, +0x6C -> u16 lamp
-  numbers; a triangle's first vertex (+0x0C, -1 none) says where its lamps start there. Las Vegas
-  (71), the Paris rally (215), Route 5 (296), `ss_fremont` (8) and `ss_shibuya` (5) have them.
 - **Walls** are closed chains of the wall vertices in order. A chain's first vertex has its
   length in the tag's low 16 bits, and its last vertex minus (length - 1) there: the link to
   the chain's next vertex, as in Gran Turismo 3's wall points, whose collision step reads these
