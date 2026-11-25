@@ -352,7 +352,7 @@ calls `onValueChanged(context, index)` at once (with `has_script`); ScaleBar que
 `onValueChanged(context, bar)` and `onStepChanged(context, bar)` (also at focus enter and a
 fresh press). The pinch slides after the value (0.4 a picture, 0.2 for the ScaleBar) between
 the display ends, in the popup while open, else in the bar. `incIndex` / `decIndex` move by
-their argument and send nothing. A ScaleBar's key (0x238D10): in popup mode accept opens or
+their argument and send nothing. The pad's logical buttons (0x214AC0) come from a map not read: here Cross accepts, Triangle and Square cancel (the US pages' foot says "Square Return", the reference's driver went back with Triangle). A ScaleBar's script name `popup` is whether it is open (its child of that name is `::popup`). A ScaleBar's key (0x238D10): in popup mode accept opens or
 closes it and cancel closes it; a fresh press along it sets `repeat_start` to the value and tells the
 step; then its own script (`onKeyPress`) has the key, and only when that does not take it does the
 value move a step (and the value and step are told); closed in popup mode the key goes on. **ListBox** (mListBox, 0x2AEA98): its rows are items, not children (`setItemCount(n)`,
@@ -885,8 +885,7 @@ sequence `autodemo` (its `onTick`, `context.time_after_last_input`): the opening
 on Arcade Mode, as the original's capture shows (reference 28: no demo race plays from the
 title; the configuration's demo replays, `Rdemo0`.., are the Replay Theater's Demo tab).
 
-❓ Not drawn: `SceneViewFace` (the race draws its scene under its pages), `RaceCourseMapFace`, `PhotoViewFace`,
-`PhotoRenderFace`, `EyetoyFace`, `VirtualFace`, `LoggerFace`; the cursor's `load` icon; the
+❓ Not drawn: `SceneViewFace` (the race draws its scene under its pages), `RaceCourseMapFace`, `EyetoyFace`, `VirtualFace`, `LoggerFace`; the cursor's `load` icon; the
 loading page's modes other than black and capture (below).
 
 #### The slide show (`SlideShowFace`; `app/menu_slides.h`, `menu/jpeg.*`)
@@ -898,8 +897,9 @@ nothing. P and T are the options `album_slide_play_time` (3 to 60 s) and
 `album_slide_transition_time` x 60. With `album_slide_effect` 1 a photo that carries a focus record
 (an APP8 segment "G4PI PDI", type 3: a point and a rectangle in -1..1) moves from the focus,
 magnified, to the whole photo, or the other way for half of them. The disc's list is `photo/%03d.JPG`,
-`DemonstrationSlideNum` of them (62), shuffled with the attribute `shuffle`. ❓ The memory card's own
-list (FileGT4SlideShowList), which comes first in the program, is not read; the limiting axis of the
+`DemonstrationSlideNum` of them (62), shuffled with the attribute `shuffle`. The memory card's list
+(`FileGT4SlideShowList`, [photo.md](photo.md)) comes first when it has photos and the face's `demo` is 0 (0x1C6BE8).
+❓ The limiting axis of the
 focus rectangle (0x1C6160) is taken as the longer one.
 
 #### Color chips (`ColorChipFace`)
@@ -1120,7 +1120,8 @@ engine's Gran Turismo 3 code or on a judgment:
 | Fonts | `menu/font.cpp` | the engine's font reader plus Gran Turismo 4's two bytes; the layout is ours (`text_layout.cpp`, 0x491028) | — |
 | Text breaking | `app/menu_page_drawer.h` `wrapped()` | the program's word wrapper (0x245C90) with a margin judged from the pictures (❓); the renderer's per-character break (0x490660); a text box's break judged; 0x490D08 (the renderer's other break, T +0x50) not read | mTextBoxFace's break, 0x490D08 |
 | The loading page | `app/menu_loading.h` | the black and the capture modes; their holds judged | LoadingPS2's other modes (0x104B68) |
-| The slide show | `app/menu_slides.h` | its timing and places from the program; the disc's list only; our JPEG decoder | FileGT4SlideShowList |
+| The slide show | `app/menu_slides.h` | its timing and places from the program; the card's list or the disc's; our JPEG decoder | — |
+| The photo pages' faces | `app/screen_photo.cpp`, `app/photo_faces.h` | [photo.md](photo.md) "What runs where" | |
 | The cursor, transitions, actors, tool tips, widget transforms, the 3D faces' cameras | `app/menu_cursor.h`, `menu/actors.cpp`, `menu/faces_*` | ported from the program (addresses in the sections above) | — |
 
 ### What runs where (the game's state, Arcade's opponents, the cars' figures)

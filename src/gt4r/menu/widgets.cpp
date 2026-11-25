@@ -568,6 +568,12 @@ std::shared_ptr<script::Reference> LiveWidget::member(Vm& vm, const Value& self_
 // widget["label"]: a child or an attribute by name; nil when the widget has nothing of that
 // name (the scripts ask `w["label"] != nil` of every widget of a page), and a value assigned
 // to it stays.
+std::shared_ptr<script::Reference> LiveWidget::dotted(Vm& vm, const Value& self_value, const std::string& n) {
+    if (n == "popup" && runtime && is("ScaleBar"))
+        if (std::shared_ptr<script::Reference> r = widget_class_member(*runtime, self(), n)) return r;
+    return member(vm, self_value, n);
+}
+
 std::shared_ptr<script::Reference> LiveWidget::element(Vm& vm, const Value& self_value, const std::string& n) {
     const bool was = by_name_;
     by_name_ = true;
