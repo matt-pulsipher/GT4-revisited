@@ -328,3 +328,139 @@ TEST(disc_prologue_license_movie_mask) {
     CHECK(time_shown && clipped_text);
     CHECK(largest_bar < 60); // (the mask's bar is 38 units wide before its scaling; drawn it was 225)
 }
+
+#include "gt4r/formats/db/race_events.h"
+#include "gt4r/formats/db/specdb_prologue.h"
+#include "gt4r/menu/game.h"
+
+#include <map>
+#include <set>
+
+// School Mode from a fresh game through its 46 lessons: each chosen on its board, entered, its race asked for (the event's course
+// and the pool's car), passed, its present shown, and the board again with the next ones open; the record kept through a save.
+TEST(disc_prologue_school_lessons) {
+    Disc* disc = prologue_menu_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 Prologue disc");
+    Flow f(*disc, "JP");
+    f.rt->game().card.connected = false;
+    f.rt->boot();
+    f.rt->start_project("prologue");
+    f.rt->settle();
+    script::Vm& vm = f.rt->vm();
+    const script::Value lic = vm.attribute(vm.lookup("game"), "license");
+    auto call = [&vm](const script::Value& o, const char* m, std::vector<script::Value> a) { return vm.call(vm.attribute(o, m), a); };
+    auto passed = [&](const std::string& label) {
+        const script::Value u = call(lic, "getUnit", {script::Value::string(label)});
+        return u.p && call(u, "isPassed", {}).i != 0;
+    };
+    // The signs of a ring that can be tried (active).
+    auto open = [&](const char* ring) {
+        std::vector<std::string> out;
+        const auto page = f.rt->current_page();
+        const auto blocks = page ? page->child(ring) : nullptr;
+        if (!blocks) return out;
+        for (const auto& w : blocks->children)
+            if (w->name.rfind("l0p", 0) == 0 && (w->state & menu::kActive)) out.push_back(w->name);
+        return out;
+    };
+    std::set<std::string> done;
+    std::vector<std::string> order;
+    gt3r::Volume* vol = &disc->volume();
+    const auto read = [vol](const std::string& path) -> std::optional<Bytes> {
+        const gt3r::Volume::Entry* e = vol->find(path);
+        return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
+    };
+    db::SpecDb sdb(read, [vol](const std::string& dir) { return vol->list_dir(dir); }, "japanese");
+    db::RaceEvents events(sdb, read);
+    std::map<std::string, int> presents; // the pages shown between a pass and the board
+    for (int step = 0; step < 60 && done.size() < 46; ++step) {
+        CHECK(f.page() == "SchoolRoot");
+        if (f.page() != "SchoolRoot") break;
+        // The next sign open and not yet passed.
+        std::string next;
+        const char* ring = "";
+        for (const char* r : {"Blocks", "UraBlocks"})
+            for (const std::string& l : open(r))
+                if (next.empty() && !done.count(l)) next = l, ring = r;
+        if (next.empty()) {
+            std::printf("  no sign open after %zu lessons\n", done.size());
+            break;
+        }
+        if (f.focus() == "SelectBar") f.press({menu::Key::Accept});
+        f.focus_on(next);
+        f.press({menu::Key::Accept});
+        CHECK(f.page() == "EntryPopup");
+        f.press({menu::Key::Accept});
+        const std::optional<menu::RaceRequest> race = f.rt->race_request();
+        CHECK(race.has_value());
+        if (!race) {
+            std::printf("  %s: no race (page %s, focus %s)\n", next.c_str(), f.page().c_str(), f.focus().c_str());
+            break;
+        }
+        CHECK(race->race == next && race->sequence == "license_race");
+        if (race->race != next) {
+            std::printf("  %s: the race of %s\n", next.c_str(), race->race.c_str());
+            break;
+        }
+        menu::RaceResult r;
+        r.kind = menu::RaceResult::Kind::License;
+        r.race = next, r.course = race->course, r.result = "bronze", r.time_ms = 109301, r.name = "ABC";
+        f.rt->race_finished(r);
+        done.insert(next);
+        CHECK(passed(next));
+        menu::GameState& g = f.rt->game();
+        g.next_sequence.clear();
+        g.last_sequence = "license_race";
+        g.next_menu_project = "prologue";
+        f.rt->finish();
+        CHECK(f.rt->advance());
+        std::string shown;
+        for (int i = 0; i < 6000 && f.page() != "SchoolRoot"; ++i) {
+            f.rt->update();
+            if (i % 300 == 299 && f.page() != "SchoolRoot") {
+                if (shown.empty() || shown.substr(shown.rfind(' ') + 1) != f.page()) shown += " " + f.page(), ++presents[f.page()];
+                f.rt->key(f.page() == "MovieRoot" ? menu::Key::Start : menu::Key::Cancel);
+            }
+        }
+        f.rt->settle();
+        for (int i = 0; i < 60; ++i) f.rt->update();
+        order.push_back(next);
+        // (the event's own course and its pool's first car)
+        const std::optional<db::RaceEvent> e = events.event(next);
+        CHECK(e.has_value());
+        if (e) {
+            CHECK(race->course == e->course);
+            const std::vector<db::Opponent> pool = events.pool(*e);
+            CHECK(!pool.empty() && pool[0].car == race->car);
+        }
+    }
+    for (const auto& [page, n] : presents) std::printf("  %s shown after %d lessons\n", page.c_str(), n);
+    std::printf("  %zu lessons passed; the order:", done.size());
+    for (const std::string& l : order) std::printf(" %d", std::atoi(l.c_str() + 3));
+    std::printf("\n");
+    CHECK(done.size() == 46);
+    // A car for every lesson, an emblem's page after lessons 6, 12, 19, 25 and the last, the ending movie after 25.
+    CHECK(presents["PrizeRoot"] == 46 && presents["StatusRoot"] == 5 && presents["MovieRoot"] == 1);
+    CHECK(call(lic, "getDetailCount", {script::Value::string("bronze")}).i == 46);
+    // The record saved and read back into a new game: every lesson still passed and its sign open.
+    const std::vector<u8> bytes = menu::prologue_license_units(*vm.lookup("game").as<menu::Object>());
+    Flow again(*disc, "JP");
+    again.rt->game().card.connected = false;
+    again.rt->boot();
+    script::Vm& vm2 = again.rt->vm();
+    CHECK(menu::prologue_license_load(*vm2.lookup("game").as<menu::Object>(), bytes));
+    const script::Value lic2 = vm2.attribute(vm2.lookup("game"), "license");
+    for (const std::string& l : order) {
+        const script::Value label[1] = {script::Value::string(l)};
+        const script::Value u = vm2.call(vm2.attribute(lic2, "getUnit"), label);
+        CHECK(u.p && vm2.call(vm2.attribute(u, "isPassed"), std::span<const script::Value>{}).i != 0);
+    }
+    again.rt->start_project("prologue");
+    again.rt->settle();
+    size_t signs = 0;
+    for (const char* ring : {"Blocks", "UraBlocks"})
+        if (const auto page = again.rt->current_page(); page && page->child(ring))
+            for (const auto& w : page->child(ring)->children) signs += w->name.rfind("l0p", 0) == 0 && (w->state & menu::kActive);
+    CHECK(signs >= 46); // (and one sign without a lesson)
+    CHECK(f.clean() && again.clean());
+}
