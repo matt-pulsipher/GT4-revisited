@@ -256,7 +256,7 @@ void apply_course_start(App& app, Setup& setup, bool start) {
     if (const std::optional<Bytes> ad = app.vfs()->read("crs/" + setup.course + ".ad")) race::apply_drivers_file(cs, *ad);
     setup.course_kind = cs.kind;
     if (!start) return;
-    // (❓ other races' 10 s: the race information's type byte's writer not traced. A test's start: load_test.)
+    // (A standing start's hold: the event's row's, set in RaceScreen::start (race::row_start). A test's start: load_test.)
     setup.start = cs.rolling ? race::StartType::Rolling : race::StartType::Ten;
     setup.start_speed = cs.speed(), setup.start_back = cs.distance_m, setup.start_spacing = cs.spacing_m;
     // A free run (DynamicsConductorFreeRun::vf30 0x3F5670): the course's free run-up, or the grid.
@@ -2322,8 +2322,7 @@ public:
             setup_.cars = 1, setup_.opponents.clear();
         if (setup_.sequence == "freerun" && setup_.race.empty()) setup_.race = "freerun";
         // A race of the menus (or `start=course`): the start the course's start code gives, rolling
-        // at the program's speed, else ❓ a standing start of 10 s with the opening shots (the race
-        // information's own type is not traced to its source).
+        // at the program's speed, else a standing start whose hold the event's row gives (start).
         if (!setup_.start_given && !setup_.sequence.empty()) setup_.course_start = true;
         apply_course_start(app, setup_, setup_.course_start);
         if (db::SpecDb* sdb = app.db()) {
