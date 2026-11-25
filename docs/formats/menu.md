@@ -155,6 +155,7 @@ A key press (mRootWindow, 0x235680): the page's `onKeyPress(context, event)` cha
 |---|---|
 | Accept (0xFF0D) | `onActivate(context, event)` from the focused widget up; nothing without a focus |
 | Cancel (0xFF1B) | `onCancel(context, event, item)` from the focused widget, or the page |
+| Start (0xFF8D), Prologue | Prologue's page (0x230548) takes it as Accept and makes the activate event on the page itself: without a focus the page hears `onActivate` (the opening movie's skip); Gran Turismo 4's (0x235680) has no case for it |
 | The directions (0xFF51 to 0xFF54, diagonals 0xFEE4 to 0xFEE7) | The focus moves (below); the page's `navigate_sound` plays (default `cursor`) |
 
 The pad's buttons as key numbers (table at 0x6192A0): up 0xFF52, down 0xFF54, left 0xFF51,
@@ -274,10 +275,35 @@ on (0x2DAD18). A change plays the sound and calls `onValueChanged(context, index
 **ScrollBox** (0x2CF868): children named `pinch`, `inc_arrow`, `dec_arrow` beside its
 scrolling child.
 
-**OptionMenu** (`index`, `setIndex`, `getItem`, `Count`, `applyAppend`, `setInsensitive`):
-the rows are the children of `popup::vbox`; accept opens the list with the focus on the
-chosen row, accept on a row chooses it (`onValueChanged`), cancel closes. ❓ The list's
-place, the keys and `selected_item` (here the chosen row) are from the scripts and by eye.
+**OptionMenu** (mOptionMenu, 0x2C7498; `index`, `setIndex`, `getItem`, `Count`, `applyAppend`,
+`setInsensitive`; a new one is 128 x 24): its children `popup`, `popup::vbox` (the list) and
+`popup::shadow` are found at load and put at y 0 (0x2C84A0). The index is a counter over the
+list's rows (the children that are no faces), held at the ends unless the layout's `repeat`
+(0x2C9DB0; 0x57CF10). Closed, the menu shows a copy of the chosen row named `selected_item` at
+its top left, not active (0x2C8198); the chosen row of the list is active (its dot, 0x2C8410).
+- **Accept opens** (the menu's activate, 0x2C9568 -> 0x2C9098): sound `cursor`, the script's
+  `onPopupOpen(context)` (with `has_script`); the rows stacked from the list's top pad, `spacing`
+  between two, the bottom pad, each row made to fill the list's width (x_expand, x_fill) when the
+  menu does not pack (0x2C8FA8); the list as tall as that; the list moved up by the chosen row's
+  top, so that row lies on the menu. The page's band is its height less a twentieth at each
+  edge (24 to 456 on a 640 x 480 page): a list taller than the band stays where it is and
+  scrolls; else a list above the band is put at its top, one below it moved up to end at its
+  bottom. The shadow lies 4 right and 4 down of the list at its size; the popup's opacity is
+  0 and rises 0.1 a picture to 1 (0x2C9C90); the focus goes to the chosen row; the open popup is
+  drawn over everything.
+- **Open, the menu has every key** (0x2C95E8): up and down step the counter, then to the next
+  row that way that is not insensitive (0x2C9740, 0x2C97E8; none: the index stays); a move plays
+  `cursor` and focuses the row (0x2C8DD0). The chosen row above the band sets the list to scroll
+  down by what is missing, one below it up by what is over (0x2C98F0); the list eases 0.4 of the
+  way a picture. Accept and cancel go to the focused row as events and reach the menu.
+- **Closing** (0x2C93C0): sound `cursor`; cancel puts the index back as it was at opening;
+  accept shows the chosen row and always calls `onValueChanged(context, index)`, changed or
+  not; the focus back on the menu; then `onPopupClosed(context)`.
+- `setIndex(context, i)` (0x2C9898): the first sensitive row at or after i (none: unchanged), no
+  script call. `applyAppend()` (0x2C8CC8): the counter over the rows there now, the list closed.
+  `setInsensitive(context, flags)` (0x2C9B68): a flag per row; the chosen row made insensitive
+  moves the index to the first sensitive row. `getItem(i)` the row (0x2C8100), `getItem()` the
+  chosen one, `Count` the rows.
 
 **ScrollWindow** (0x2D2720; layout `interpolate_ratio`, 0.3 when absent, and `floating`):
 its child `clip` shows a part of `clip::space`. The space wants to be where the page's
@@ -305,13 +331,43 @@ the display ends, in the popup while open, else in the bar. `incIndex` / `decInd
 their argument and send nothing. A ScaleBar's key (0x238D10): in popup mode accept opens or
 closes it and cancel closes it; a fresh press along it sets `repeat_start` to the value and tells the
 step; then its own script (`onKeyPress`) has the key, and only when that does not take it does the
-value move a step (and the value and step are told); closed in popup mode the key goes on. **ListBox** (`step_min`, `step_max`, `interpolate_ratio`,
-`magnify_ratio`, `focus_active`, `repeat`, `alignment`, `h_justify`, `v_justify`): ❓ its own
-routines are not read; it answers the scripts' calls, laid out as a select box. Its rows are made
-from the template (`setItemTemplate`, `setItemCount`); the rows that come into view are given to
-`visible_callback(context, [indexes])` (`getItemVisible(i)`: the row is in view), then every row
-in view whose update flag is set to `update_callback(context, [indexes])` (labomode's and
-list_box's scripts set the flag until a row is drawn in full; ❓ from their use).
+value move a step (and the value and step are told); closed in popup mode the key goes on. **ListBox** (mListBox, 0x2AEA98): its rows are items, not children (`setItemCount(n)`,
+0x2B4A00: rows kept up to n, new ones empty; the focus kept among them, -1 on a new list and the
+first row once there are rows). Each item has a place and size, an update countdown and flags
+(in range, active, insensitive), and a widget only when the script makes or gives one
+(`getItemWidget(i, context)` copies the template, `getItemWidget(i)` answers nil until then,
+`setItemWidget(i, context, w)`); a row without one is drawn as the template
+(`setItemTemplate(context, w)`, 0x2B48F0: a copy, whose size is the rows' size; 16 x 16 before).
+Layout and attributes with their defaults (0x2B3D50): `step_min` 1, `step_max` 1,
+`interpolate_ratio` 0.2, `magnify_ratio` 1, `alignment` 0.5, `h_justify` 0, `v_justify` 0
+(also `justify`), `focus_active` 1, `repeat` 0; `direction` 0 lays the rows left to right, 1 top to
+bottom; `spacing` between two.
+- **Each picture** (slot 70, 0x2B29C0): with `postRedraw` pending, every row in range leaves it.
+  The list's start wants (0x2B2400): rows longer than the box (pitch x (n - 1) + the focused
+  row's length, magnified) put the focused row at `alignment` of the box, held so neither end
+  leaves a gap; rows that fit start at 0. The scroll eases `interpolate_ratio` of the way (within
+  0.1 it arrives; more than the box away it starts a box away). The rows in range: all when they
+  fit; else as many pitches (rounded up) as the box's room before and after the focused row
+  (`alignment` of the box less the focused row, the other part after), widened by how far the
+  scroll still has to go, moved back inside the rows. Each row in range is placed along from the
+  scroll (when they fit, moved by `h_justify` of the room left) and across at `v_justify` of the
+  room left; its size eases toward the row's size (magnified for the focused row) by the same
+  ratio; only the focused row is active (with `focus_active`).
+- Rows that came into range or left it change their visible flag, their countdown goes to 0,
+  and they are given to `visible_callback(context, [indexes])`; a row's countdown
+  (`setItemUpdate(i, n)`) falls by one a picture while in range and at 0 the row goes to
+  `update_callback(context, [indexes])`; a focus other than the last one told goes to
+  `focus_callback(context, new, old)`. All three are queued as events (visible, focus, update).
+- **Drawn** (slot 93, 0x2B3848 / 0x2B3670): each row in range, its widget at the item's place and
+  size with the item's flags; while the list has the focus the cursor points at the focused
+  row's widget (0x230B68).
+- **Keys** (slot 72, 0x2B3918), after the list's own script: back (left, or up when vertical) or
+  on by `step_min` rows (`step_max` once a held key has gone 10 rows from where it started),
+  passing insensitive rows without counting them; at an end the move wraps with `repeat`, else
+  does not happen and the key goes on to the page. A move plays the page's `navigate_sound`.
+  `incIndex(n)` / `decIndex(n)` the same; `focus_index = i` sets it (kept among the rows).
+- `getItemVisible`, `getItemUpdate`, `getItemActive`, `getItemInsensitive` and their setters
+  read and write the item's flags. ❓ Drag mode (`enterDragMode`, `drag_index`) is not written.
 
 Faces: `TextFace` (`getTextSize`, `abbreviate`, `adjustScale`: the text made narrower to fit
 its rectangle), `ImageFace` (`adjustSize`), `InputTextFace` (`putString`, `backspace`,
@@ -1001,10 +1057,19 @@ GT4's own routines, checked against the user's program where the note says so:
   (`updateCurrentStatus` 0x146648, garage entries 0x434FD0, the race menus' grid HP and kg 0x364E90 / 0x364FA8);
 - Arcade's opponent picker (0x1308C8; its sort, search, draw and dirt step equal the program's) and the
   program's generator (0x579330, 0x578598: the draws equal);
+- the option menu (0x2C9098 open, 0x2C98F0 keys, 0x2C9C90 fade and scroll, 0x2C93C0 close, 0x2C9898, 0x2C9B68,
+  0x2C8CC8) and the list box (0x2B29C0, 0x2B3918, 0x2B3670, 0x2B4A00, 0x2B48F0; its drag mode not written);
+- the B-spec driver's book and the Status page's figures (0x468B58, 0x468710, 0x468860; game_bspec.h), equal to
+  the program's and to the original's page;
 - `MCourseData.GetAttrString` (0x1B3320); the options' fields and the screen's figures (0x436D60); the
   license day (0x110800); the gear ranges (0x3553A0, 0x355278); the race result routines (0x114498,
   0x119CB8, 0x11C328, 0x1105A8) and the distance added to a car (0x35DE20) as read.
 
 Still the shared engine's code or a stand-in (file, function → the GT4 routine that should replace it):
+- `widget_classes.cpp` the select box's and scroll window's routines are read (0x2DA2B0 on, 0x2D2720 on); the
+  closed option menu shows its chosen row in place of the program's `selected_item` copy (the same picture);
+- `app/screen_race.cpp` the results movie's points pages (isChampionship, isStage1, getPoint, the ranking's
+  rows): what the host answers in each phase is judged from the movie's calls, not read from the program's
+  result page (0x3E0xxx) ❓;
 - `sim/car_spec.cpp` `computed_gears`: a made gearbox's ratios by the engine's generator → 0x443240 /
   0x354FF8 (the same rule, sim-parts' area).

@@ -138,8 +138,10 @@ std::shared_ptr<LiveWidget> LiveWidget::build(const Widget& layout, const std::s
 void LiveWidget::clear() {
     auto held = std::move(children);
     children.clear();
-    auto rows = std::move(items);
-    items.clear();
+    auto rows = std::move(list_items);
+    list_items.clear();
+    auto tmpl = std::move(list_template);
+    list_template.reset();
     auto ex = std::move(extras);
     extras.clear();
     for (auto& [n, cell] : ex)
@@ -148,8 +150,11 @@ void LiveWidget::clear() {
     actor.reset();
     Module::clear();
     for (auto& c : held) c->clear();
-    for (auto& c : rows)
-        if (c) c->clear();
+    for (auto& row : rows) {
+        if (row.widget) row.widget->clear();
+        if (row.drawn) row.drawn->clear();
+    }
+    if (tmpl) tmpl->clear();
 }
 
 std::shared_ptr<LiveWidget> LiveWidget::copy() const {

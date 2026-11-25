@@ -57,6 +57,12 @@ struct RaceRequest {
     std::string replay_file;
     // The car when it is one of the garage's (-1: a car picked by its label).
     int garage_slot = -1, garage_slot_2p = -1;
+    // The B-spec driver (menu/game_bspec.h): its book as the game has it and the course's marks (the course
+    // record's +0x228 bytes; none when the course has no record). The race makes the driver's record of 0x40
+    // bytes for the car's class with bspec::race_record (0x468710).
+    std::array<u16, 3 * 64> bspec_book{};
+    std::array<u8, 8> bspec_course_marks{};
+    bool bspec_course_known = false;
 };
 
 // No time: the program's 359,999,999 ms (shown "--'--.---").
@@ -93,6 +99,12 @@ struct RaceResult {
         u32 time_ms = kNoTime;
     };
     std::vector<Finisher> order;
+    // The B-spec driver's record after the race (the car's +0x8C), when the race kept one: written back into
+    // the book for the car's class (bspec::write_back, 0x468860), the change doubled with `bspec_doubled`
+    // (0x468A60), the course's marks too with `bspec_course` (the race's byte cond + 0xCBE7, 0x468A40).
+    std::optional<std::array<u8, 0x40>> bspec_record;
+    int bspec_class = 0;
+    bool bspec_doubled = false, bspec_course = false;
 };
 
 // A car's record as the garage keeps it: the program's CarGarage (0x4B8 bytes, saved as they
@@ -218,6 +230,9 @@ struct GameState {
     u32 total_prize_cars = 0;
     std::array<u32, 7> rank_counts{}; // 0: races not finished; 1 .. 6: finishes in that place
     s64 aspec_distance = 0, bspec_distance = 0;
+    // The B-spec driver's book (UserProfile +0x9C, Status +0x3E4; game_bspec.h): three tables of 8 x 8 u16, its
+    // experience by the course's and the car's class.
+    std::array<u16, 3 * 64> bspec_book{};
     int withdrawn = 0, withdrawn_gt4p = 0, met_type = 0;
 
     // The calendar: today's day number and the diary, one event a past day, the latest last.

@@ -180,7 +180,7 @@ three match (0x43AA68); there is no version: another size is another program.
 
 | Payload | Size | Block | GameState |
 |---|---|---|---|
-| 0x00010 | 0x218 | the player: name char[0x20], password char[8], last entry name char[0x10], score u64 (+0x38), prize credits u64, prize cars u32, finishes u32[7] (0 not finished, 1 .. 6 the places), A-spec and B-spec distance u64 (+0x68, +0x70), withdrawn u32, withdrawn (Prologue) u32, u8 (`met_type`); the rest not named | `username` ... `met_type` |
+| 0x00010 | 0x218 | the player: name char[0x20], password char[8], last entry name char[0x10], score u64 (+0x38), prize credits u64, prize cars u32, finishes u32[7] (0 not finished, 1 .. 6 the places), A-spec and B-spec distance u64 (+0x68, +0x70), withdrawn u32, withdrawn (Prologue) u32, u8 (`met_type`); at +0x94 (payload 0xA4, Status +0x3E4) the B-spec driver's book, u16 [3][8][8] (below); the rest not named | `username` ... `met_type`, `bspec_book` |
 | 0x00230 | 4 + 2,922 x 0x10 | the diary: the days kept, then the days oldest first (see "The calendar") | `diary` |
 | 0x0B8D4 | 4 | today, a day number | `today` |
 | 0x0B8E0 | 1,000 x 0x20 | the garage's list (below) | `garage` |
@@ -211,6 +211,19 @@ ones). Not saved: the race being set up, `isNeedSave`, and the credits (the gara
 
 Codes are 64-bit `{u32 row, u32 table}` of the car database: cars table 0, courses 0x22, races
 0x23, wheels 29, wings 30.
+
+### The B-spec driver's book (payload 0xA4, 0x180 bytes; menu/game_bspec.h)
+
+Three tables of 8 x 8 u16 (table t, row r, column c at 2 (64 t + 8 r + c)): the B-spec driver's experience, a
+column a class of the car (0x468418: the parameter block's +0xFE0 rating, (x - 0.35) / 0.55 within [0, 1], x 8, at
+most 7). The cell [7][0] of tables 1 and 2 holds instead the sum of the courses' marks (each course record's
++0x228 .. +0x22F: two sets of four bytes). Before a race the program copies the car's column and the course's marks
+into the driver's record of 0x40 bytes (0x468710); after it, it writes the record back (0x468860: as it is, or with
+the change doubled, at most 0xFFFF; the marks likewise, at most 255, their change added to the sums). The Status
+page's figures (0x468B58): Machine (0x467C58), Course (0x467D90), Battle (0x467F60), each 0 .. 100, and the B-spec
+Skill (0x4680D8) 0 .. 10000, weighed by the program's 0x623E40 (8 .. 15). ✔ Equal to the program's on made-up books
+(`gt4r_diff <disc> book`) and to the original's Status page on the reference's card (29-bspec-record: 508 / 10 / 7 /
+0, then 524 after a race).
 
 ### The garage's list (0x20 an entry; 0x434D80 .. 0x435958)
 
