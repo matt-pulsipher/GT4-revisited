@@ -274,7 +274,7 @@ private:
                 const gt3r::Tex1 set = gt3r::Tex1::parse(*data);
                 if (!set.textures.empty()) {
                     gt3r::GsMemory gs;
-                    set.upload(*data, gs);
+                    set.upload(fonts_.count("hn_14") ? *data : menu::Project::face_alpha(set, *data), gs);
                     slot = std::make_unique<gt3r::Tex1::Image>(set.decode(gs, 0));
                 }
             }
@@ -445,7 +445,7 @@ private:
             const Rect r{at.x + part.at.x, at.y + part.at.y, part.at.w, part.at.h};
             const std::vector<Rgba> c = menu::frame_part_colors(colors, part.at, at.w, at.h);
             const std::string path = w.text(part.picture);
-            if (!path.empty() && project_->image(page_, path)) image(path, r, c, opacity, add);
+            if (const gt3r::Tex1::Image* picture = path.empty() ? nullptr : project_->image(page_, path, true)) image(path, r, c, opacity, add, nullptr, false, picture);
             else fill(r, c.empty() ? std::vector<Rgba>{Rgba{}} : c, opacity, add);
         }
     }

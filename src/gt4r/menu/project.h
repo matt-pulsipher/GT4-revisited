@@ -44,8 +44,13 @@ public:
     // A widget's text for a key: the page's own ("BootProject::LanguageRoot"), else the key.
     std::string translate(const std::string& page, const std::string& key) const;
     // A page's picture by the name a widget gives ("image/boot/lang_bg_4.png"); null when the
-    // page's pack has none. Decoded once.
-    const gt3r::Tex1::Image* image(const std::string& page, const std::string& path);
+    // page's pack has none. Decoded once. `plain`: with its alpha as it is stored, else as a picture face draws it, which in
+    // Prologue is another scale (face_alpha).
+    const gt3r::Tex1::Image* image(const std::string& page, const std::string& path, bool plain = false);
+    // Prologue's picture faces draw in a vertex alpha of 63 (0x2B4BA8: half the color's alpha, halved again by 0x1D7240): their
+    // pictures keep alpha as 0 .. 255, where the others' 128 is whole.
+    void set_face_alpha(bool on) { face_alpha_ = on; }
+    static Bytes face_alpha(const gt3r::Tex1& set, Bytes data);
     // Any other file of a page's pack by its name (a model face's "image/gtmode/map/panel_x.mdl"),
     // unpacked; nothing when the page's packs have none.
     std::optional<Bytes> entry(const std::string& page, const std::string& path);
@@ -65,6 +70,7 @@ private:
     };
     Pack& pack_of(const std::string& page);
 
+    bool face_alpha_ = false;
     FileReader read_;
     std::string name_, language_;
     Widget layout_;

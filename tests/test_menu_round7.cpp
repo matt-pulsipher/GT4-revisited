@@ -312,3 +312,13 @@ TEST(menu_input_text_caret) {
     call("putString", "1234");
     CHECK(value() == "\xC3\x89" "BD12");
 }
+
+// Prologue's picture faces: a palette's alpha is 0 .. 255 (255 drawn 125 of 128), the indices as they are.
+TEST(menu_prologue_face_alpha) {
+    gt3r::Tex1 set;
+    set.textures.resize(1);
+    set.textures[0].tex0.psm = 0x13, set.textures[0].tex0.tbp = 0, set.textures[0].tex0.cbp = 0x100;
+    set.buffers.push_back({0, 0, 2, 0x13, 8, 1}), set.buffers.push_back({8, 0x100, 1, 0, 2, 1}), set.buffers.push_back({16, 0x200, 1, 0, 1, 1});
+    const Bytes out = menu::Project::face_alpha(set, Bytes{255, 255, 255, 255, 255, 255, 255, 255, 1, 2, 3, 255, 4, 5, 6, 128, 7, 8, 9, 255});
+    CHECK(out == (Bytes{255, 255, 255, 255, 255, 255, 255, 255, 1, 2, 3, 125, 4, 5, 6, 63, 7, 8, 9, 255}));
+}

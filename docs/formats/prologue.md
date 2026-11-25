@@ -512,6 +512,9 @@ title's one item of eight, the arcade's Start, the five course pictures); ❓ ju
 original's pages. Their scripts call `getDeepCopy` (a widget's copy), read a text face's `value`
 where it has only its `key` (the car page's formats "%Cfff%d %C222%s/..."), and tint picture faces
 with `setColor(color)` (the paint balls).
+**Its pictures' alpha.** A picture face draws in a vertex alpha of 63 (mImageFace::vf63 0x2B4BA8 halves the color's alpha, 0x1D7240
+halves what goes to the GS), so its pictures keep alpha as 0 .. 255, where Gran Turismo 4's have 128 for whole: the board's
+background (130 .. 250) lets the film behind it show. A frame's parts (0x2A4E80) are drawn without that. `Project::set_face_alpha`.
 
 **MSwitchActor's colours** (the arcade's settings buttons, the license signs): the update
 0x2EB848 colours the button's `base`, `text` and `ring` by its state each picture: active base

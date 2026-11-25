@@ -402,7 +402,11 @@ std::string Runtime::first_project() {
     return v.kind == Kind::String && !v.as_string().empty() ? v.as_string() : std::string("boot");
 }
 
-std::shared_ptr<Project> Runtime::load_project_files(const std::string& name, const std::string& language) { return std::make_shared<Project>(read_, name, language); }
+std::shared_ptr<Project> Runtime::load_project_files(const std::string& name, const std::string& language) {
+    auto project = std::make_shared<Project>(read_, name, language);
+    project->set_face_alpha(is_prologue());
+    return project;
+}
 
 Project* Runtime::project_of(const LiveWidget& page) {
     for (const LiveWidget* w = &page; w; w = w->parent_widget())
