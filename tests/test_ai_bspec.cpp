@@ -93,3 +93,33 @@ TEST(ai_bspec_experience_equal_to_the_program) {
     const auto ch = r.checks.find("decision bspec record (the program's changes)");
     CHECK(ch != r.checks.end() && ch->second.compared >= 2);
 }
+
+
+TEST(ai_bspec_shift_factor_on_our_session) {
+    Disc* disc = nullptr;
+    for (const std::unique_ptr<Disc>& d : test::discs())
+        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d.get();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    // A B-spec Ka at its slowest pace (the shift byte 115) shifts up at a lower engine speed than at its fastest (129).
+    auto top_rpm_in_first = [&](int level) {
+        const std::vector<std::string> labels{"ka_01"};
+        auto session = sim::Session::open(*disc, "tsukuba", labels);
+        std::vector<size_t> computer{0};
+        auto field = sim::ai::Field::open(*disc, "tsukuba", *session, computer);
+        field->set_bspec(0);
+        field->command(0, {level, -1});
+        std::vector<race::CarInput> in(1);
+        float top = 0;
+        for (int k = 0; k < sim::Session::kHoldSteps; ++k) field->hold(in), session->hold_once(in);
+        for (int step = 0; step < 600; ++step) {
+            field->drive(in);
+            field->apply_shift_factors(*session);
+            session->step_once(in);
+            if (session->cars()[0].gear == 1) top = std::max(top, session->cars()[0].engine_rpm);
+        }
+        return top;
+    };
+    const float slow = top_rpm_in_first(0), fast = top_rpm_in_first(4);
+    std::printf("  first gear's top: pace 0 %.0f rpm, pace 4 %.0f rpm\n", double(slow), double(fast));
+    CHECK(slow > 0 && fast > slow);
+}

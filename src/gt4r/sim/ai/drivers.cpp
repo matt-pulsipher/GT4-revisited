@@ -1723,6 +1723,7 @@ void Field::decide_car(size_t car, race::CarInput& in) {
     in.brake = d.brake.host();
     in.reverse = d.reverse;
     in.computer = true;
+    in.control = u8(d.control == 1 ? 1 : 2); // (F +0x466: the B-spec car 1)
     in.shift_lock = u8(d.shift_lock);
 }
 

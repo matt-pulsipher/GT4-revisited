@@ -35,7 +35,13 @@ const replay::PadRecord& DemoRun::record(size_t step) const {
     return demo.streams[0].frames[step];
 }
 
-race::CarInput DemoRun::input(size_t step) const { return pad_input(record(step)); }
+race::CarInput DemoRun::input(size_t step) const {
+    race::CarInput in = pad_input(record(step));
+    // (the record itself: the session's input phase reads it as the program's does, 0x349FD0)
+    static const race::PadRecord kEmpty{};
+    in.pad = step < pads.size() ? &pads[step] : &kEmpty;
+    return in;
+}
 
 std::optional<DemoRun> DemoRun::load(Disc& disc, const Program& program, const std::string& label, std::string* error) {
     const gt3r::Volume::Entry* e = disc.volume().find(replay::demonstration_path(label));
@@ -48,6 +54,8 @@ std::optional<DemoRun> DemoRun::load(Disc& disc, const Program& program, const s
     DemoRun r;
     r.label = label;
     r.demo = std::move(*d);
+    if (!r.demo.streams.empty())
+        for (const replay::PadRecord& f : r.demo.streams[0].frames) r.pads.push_back({f.bytes});
     return r;
 }
 

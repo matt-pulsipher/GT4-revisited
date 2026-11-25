@@ -105,10 +105,6 @@ TEST(ai_demo_played_as_the_program) {
     bool braked = false;
     for (int i = 0; i < 1200; ++i) {
         in[0] = run->input(size_t(i));
-        // (the record itself, as the program's input phase reads it: GT4's own port, rules_input.h)
-        race::PadRecord rec;
-        rec.bytes = run->record(size_t(i)).bytes;
-        in[0].pad = &rec;
         session.step_once(in);
         const float d = std::hypot(c.position.x - start.x, c.position.z - start.z);
         worst = std::max(worst, std::fabs(d - theirs.samples[size_t(i)].distance));

@@ -31,6 +31,12 @@ PitHooks session_pit_hooks(Session& session) {
         return v;
     };
     h.new_tire = [s](size_t i, int w) { s->new_tire(i, w); };
+    // 0x35B060 → 0x363560: the car stood where it is, facing the box's heading (the record's frame: x, y, the ground's z).
+    h.place_in_box = [s](size_t i, F heading) {
+        const gt3r::sim::exact::Car& c = s->record(i);
+        s->place_standing(i, c.pos.x, c.pos.y, c.ground_pos.z, heading);
+    };
+    h.hold = [s](size_t i, u16 steps) { s->set_pit_hold(i, steps); };
     return h;
 }
 
@@ -52,6 +58,7 @@ void PitStops::before(const Field& field, std::span<race::CarInput> inputs) {
         const bool held = c.hold != 0;
         // The stop's own timing (0x35C0B8, phase 4, while the hold counter runs): the counter, the tires.
         if (held) e = pit_hold_step(c, std::vector<gt3r::s8>(axle_));
+        if (hooks_.hold) hooks_.hold(i, c.hold); // (the session holds the car while the counter runs)
         // The input phase after it (0x349FD0 → 0x35BFE8): the choice made for a B-spec car whose wait ran out (0x35BF08), or
         // the player's from the pit menu (choose()).
         if (e.default_choice) default_choice_[i] = true;
@@ -75,6 +82,7 @@ void PitStops::before(const Field& field, std::span<race::CarInput> inputs) {
         for (int w : e.new_tires)
             if (hooks_.new_tire) hooks_.new_tire(i, w);
         // Standing in the box: the hold counter keeps the car (the preparation's hold, 0x35C0B8 / 0x357700).
+        if (hooks_.hold) continue;
         race::CarInput& in = inputs[i];
         in.throttle = 0, in.brake = 1, in.steer_angle = 0;
     }
