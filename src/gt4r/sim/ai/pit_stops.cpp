@@ -31,11 +31,9 @@ PitHooks session_pit_hooks(Session& session) {
         return v;
     };
     h.new_tire = [s](size_t i, int w) { s->new_tire(i, w); };
-    // 0x35B060 → 0x363560: the car stood where it is, facing the box's heading (the record's frame: x, y, the ground's z).
-    h.place_in_box = [s](size_t i, F heading) {
-        const gt3r::sim::exact::Car& c = s->record(i);
-        s->place_standing(i, c.pos.x, c.pos.y, c.ground_pos.z, heading);
-    };
+    // 0x35B060 → 0x363560: the car's standing state where it is; at the next step its box's heading.
+    h.place_in_box = [s](size_t i, F heading) { s->stop_in_box(i, heading); };
+    h.face_box = [s](size_t i, F heading) { s->face(i, heading); };
     h.hold = [s](size_t i, u16 steps) { s->set_pit_hold(i, steps); };
     h.flags = [s](size_t i, u8 flags) { s->set_pit_flags(i, flags); };
     return h;
@@ -131,7 +129,7 @@ void PitStops::after(const Session& session, Field& field) {
         PitInputs in;
         in.d = d, in.d_prev = last_d_[i], in.lap = L;
         in.speed = session.record(i).speed;
-        in.side_speed = F(st.velocity.x * st.right.x + st.velocity.y * st.right.y + st.velocity.z * st.right.z);
+        in.side_speed = session.record(i).lat_speed;
         in.control = gt3r::s8(control), in.kind = u8(field.kind(i)), in.index = int(i);
         in.lap_state = lap_state;
         // The collision body's hits this step (0x45CC08: +0x43C a wall or +0x440 a car; 0x45CC30: +0x43C).
@@ -164,7 +162,7 @@ void PitStops::after(const Session& session, Field& field) {
                 if (hooks_.place_in_box) hooks_.place_in_box(i, line_.box_heading(c.box));
                 break;
             case PitAction::Heading:
-                if (hooks_.place_in_box) hooks_.place_in_box(i, a.value);
+                if (hooks_.face_box) hooks_.face_box(i, a.value);
                 break;
             case PitAction::CountStop: { // 0x35AD10
                 if (hooks_.display_event) hooks_.display_event(i, 1);

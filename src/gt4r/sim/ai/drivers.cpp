@@ -827,6 +827,17 @@ void Field::set_kind(Driver& d, int kind) {
     if (kind == 6 || (kind < 7 && kind == 5 && was != 4)) d.stop_count = 120;
 }
 
+// 0x464E40: the outputs cleared (0x464ED8), the steering straightened.
+void Field::idle(Driver& d) {
+    const ex::Car& c = session_->record(d.car);
+    d.steer = c.steer_cmd, d.throttle = F(), d.brake = F(), d.reverse = false, d.shift_lock = 0;
+    if (tables_.tuning.blend_by_distance == 0 && k::zero < d.blend) {
+        const F b = d.blend - c.dt;
+        d.blend = b < k::zero ? k::zero : b;
+    }
+    steer_to(d, F());
+}
+
 // 0x464C80: the stop driver: the steering to `steer`, no throttle; stopped (under 0.25 km/h, turning under 3 degrees a
 // second) the brake off and kind 8; else kind 6 holds a speed falling by 1 km/h a step through its count, the brake coming
 // on over its last 30 steps (0.8 after), any other kind brakes at half.
@@ -1725,7 +1736,12 @@ void Field::decide_car(size_t car, race::CarInput& in) {
     if (car >= drivers_.size() || !drivers_[car]) return;
     Driver& d = *drivers_[car];
     incidents_after(d);
-    decide(d);
+    // (0x3F3400: a driven car stood in its pit box, F +0x4BA, or stopped for good, kind 8, decides nothing)
+    {
+        const ex::Car& c = session_->record(d.car);
+        if ((d.control != 0 || d.kind != 0) && c.race_hold == 0 && (c.hold != 0 || d.kind == 8)) idle(d);
+        else decide(d);
+    }
     // The outputs into the controls (0x464F38): the throttle pedal slews to the wanted throttle by the step in the arcs.
     const ex::Car& c = session_->record(d.car);
     const F thr = pedal(d);

@@ -43,8 +43,9 @@ struct PitHooks {
     std::function<std::pair<int, int>(size_t car)> tires;
     // The race display's events (0x35E000): 1 the car into the pits, 6 out of them.
     std::function<void(size_t car, int event)> display_event;
-    // The car stood in its box (0x363560: the standing start's pose there) facing `heading` (the box's, radians).
-    std::function<void(size_t car, F heading)> place_in_box;
+    // The car stopped in its box (0x363560: the standing state where it is), `heading` the box's (radians); and turned to it at the
+    // stop's next step (F +0x570).
+    std::function<void(size_t car, F heading)> place_in_box, face_box;
     // The stop's hold counter (F +0x4BA) handed to the session each step (0 out of a stop): the session holds the car while it
     // runs (Session::set_pit_hold). Without it the car is braked in its box instead.
     std::function<void(size_t car, u16 hold)> hold;
@@ -58,8 +59,7 @@ struct PitHooks {
 };
 
 // The hooks filled from a session (its fuel, tank, the economy readings, the wear rules and each wheel's wear, new tires):
-// the program's reads of the car (0x353218, 0x354D60, 0x362E58), the box's placing (Session::place_standing where the car
-// stands) and its hold (Session::set_pit_hold).
+// the program's reads of the car (0x353218, 0x354D60, 0x362E58), the box's stop (Session::stop_in_box, face) and its hold (Session::set_pit_hold).
 PitHooks session_pit_hooks(Session& session);
 
 // The race's part (what the conductor answers): its laps (0: a run without an end), whether it has pit stops (the

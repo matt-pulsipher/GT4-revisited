@@ -406,6 +406,18 @@ void Session::place_standing(size_t car, F x, F y, F z, F heading) {
     publish(car);
 }
 
+void Session::stop_in_box(size_t car, F heading) {
+    if (car >= cars_.size() || !gt4_rules_) return;
+    rules::standing_start(cars_[car], gx_[car], layouts_[car]);
+    hold_heading_[car] = heading;
+}
+
+void Session::face(size_t car, F heading) {
+    if (car >= cars_.size() || !gt4_rules_) return;
+    cars_[car].heading = heading;
+    rules::body_axes(cars_[car]);
+}
+
 std::array<u8, 0x20> Session::condition(size_t i) const {
     std::array<u8, 0x20> b{};
     if (i >= cars_.size()) return b;

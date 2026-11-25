@@ -141,6 +141,10 @@ public:
     // course's x, -z, y; z the road's height there): the pose (0x3630C0), 0x3455F0 and the standing start (0x363560).
     // For a pit stop; Gran Turismo 4's rules only.
     void place_standing(size_t car, gt3r::ee::F x, gt3r::ee::F y, gt3r::ee::F z, gt3r::ee::F heading);
+    // A car stopped in its pit box (0x363560, the standing state where it is; the hold turns it to `heading`, 0x36AE20), and turned
+    // there at once (the pass at the stop's second step: F +0x570 and the axes).
+    void stop_in_box(size_t car, gt3r::ee::F heading);
+    void face(size_t car, gt3r::ee::F heading);
     // The car's hold counter (F + 0x4BA) as its caller's pit stop keeps it (the computer drivers' PitStops runs the stop's
     // timing, 0x35C0B8, on its own record): the car is held (the attitude's start hold 0x36AE20, the input's), and once a
     // car's counter is given so the session's preparation no longer runs 0x35C0B8 for it. Set it each step.
