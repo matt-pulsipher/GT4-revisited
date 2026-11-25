@@ -45,6 +45,27 @@ void CarVisual::build_gt3(ByteSpan file_in, const Options& opt, const std::strin
         lamps_ = gt3r::race::CarLampSet::parse(gt3r::CarFile::parse(file).info);
     } catch (const std::exception&) {
     }
+    // The camera mounts: the info block's +0x68 count, +0x6C offset, 0x40 bytes each, their first 0x20 bytes Gran Turismo 4's
+    // record (the place with y down and z forward, pitch, yaw, roll, the lens, the flags); its cameras read them so
+    // (CameraSys 0x3D2BF8: a mount by its flags, bit 1 the car drawn; CameraOnBoard 0x3D24D8: the place, from mount 3 on).
+    try {
+        const ByteSpan g = gt3r::CarFile::parse(file).info;
+        const u32 n = g.size() >= 0x70 ? rd32(g, 0x68) : 0, at = g.size() >= 0x70 ? rd32(g, 0x6C) : 0;
+        for (u32 i = 0; i < n && i < 64 && at + 0x40 * size_t(i) + 0x20 <= g.size(); ++i) {
+            const size_t o = at + 0x40 * size_t(i);
+            auto f = [&](size_t k) {
+                float v;
+                std::memcpy(&v, g.data() + o + k, 4);
+                return v;
+            };
+            CameraMount m;
+            m.pos = {f(0), -f(4), -f(8)};
+            m.pitch = f(12), m.yaw = f(16), m.roll = f(20), m.zoom = f(24), m.flags = rd32(g, o + 28);
+            mounts_.push_back(m);
+        }
+    } catch (const std::exception&) {
+        mounts_.clear();
+    }
     gt3r::WheelSpec ws;
     ws.wheelbase = spec_.wheelbase;
     for (int a = 0; a < 2; ++a) {

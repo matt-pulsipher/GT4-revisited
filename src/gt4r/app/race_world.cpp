@@ -1102,6 +1102,8 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
     for (size_t i = 0; i < n; ++i) {
         const RVec at{cars[i].position.x, cars[i].position.y, cars[i].position.z};
         m.lights[i] = race::car_light(course_->road(), env, at, at.y + 1.0f);
+        // (A Gran Turismo 3 car file's shadows go with its body, as its program draws them: none for the in-car view's own car.)
+        if (int(i) == hidden && car_visuals_[i]->gt3_file()) continue;
         car_visuals_[i]->add_shadow_items(m.items, cars[i], &m.lights[i]);
     }
     // The cars' levels of detail by their size on screen (race::CarVisual::level): K, the program's

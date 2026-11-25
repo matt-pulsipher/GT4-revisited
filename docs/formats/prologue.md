@@ -146,6 +146,14 @@ has both axles' parts; 149 axles a caliper, 150 a glowing rotor (test `disc_prol
 parts in each wheel's frame (`CarVisual::build_gt3`), drawn while the eye is outboard of the wheel's face on levels 0 and 1, the
 glow at FIX = 128 x heat^2 x the course's gain (🔎 the gain the race gives Gran Turismo 4's cars, Env0 +0x4C / +0x38: Prologue's
 own source of it not followed). Picture: `~/gt4re-out/prologue8/shots/cmpwb.png` (the Impreza's front wheel without and with).
+**Camera mounts** ✔: the info block's +0x68 count and +0x6C offset, 0x40 bytes each (20 on every car looked at), their first 0x20
+bytes Gran Turismo 4's mount record (the place with y down and z forward, pitch, yaw, roll in degrees, the lens 1.4352, the
+flags: mount 0 the in-car view 0xD, 1 the chase view 0xA, 2 unused, 3 .. the replay's on-board places 0xF); the program's
+camera system reads them so (0x3D2BF8: a mount chosen by its flags, bit 1 the car drawn; CameraOnBoard 0x3D24D8: the place of
+mount n from mount 3 on, else its own table 0x572078). Ours: `CarVisual::mounts()` from them. The in-car view at Tsukuba's grid
+against the original's (`14-prologue/19_start_banner_nose_view.png`): the stand, the lights and the grid's lines in the same
+places (`~/gt4re-out/prologue8/shots/m_cmp.png`). The car's shadows go with its body, as Gran Turismo 3's program draws them: the
+in-car view's own car has none (the original's grid shows none; with mount 0's place ours showed its front edge).
 The menus' 3D car (car faces) takes these files too.
 
 ## The program ✅ recognized, 🔎 tables

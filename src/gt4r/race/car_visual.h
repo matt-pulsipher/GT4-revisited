@@ -114,6 +114,7 @@ public:
     // Whether the figures show from here (0x3B1750: not below 0.025 of the view's size factor / 420 at a metre).
     bool driver_shows(const CarState& s, const render::Vec3& eye, const LodView* view = nullptr) const;
     const CarSpec& spec() const { return spec_; }
+    bool gt3_file() const { return gt3_file_; } // a Gran Turismo 3 car file (Prologue's)
     int lods() const { return lods_; }
     // The body's box in the model's frame.
     const render::Vec3& bounds_min() const { return min_; }
