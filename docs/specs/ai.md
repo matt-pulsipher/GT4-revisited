@@ -508,9 +508,8 @@ decision with a pace command midway (`gt4r_diff ai GT4R_AI_BSPEC=1,4,20`).
 - **Its shift speeds** (0x36BEE0 / 0x36BF28 → 0x3F1E30): the speed x the car's byte +0x83 >> 7 (the driver's shift byte
   copied to the car): the up-shift speeds for control source 1 and kind 0, the down-shift speeds for control source 1; the
   opponents shift at the gearbox's own. In the session's gearbox (sim-parts' `rules_drive`) by
-  `Field::apply_shift_factors(session)` (each driven car's byte, `Session::set_shift_factor`). ❓ The session still runs a
-  computer-driven car as control source 2, the B-spec car's too, so its gearbox does not scale yet (asked of sim-step: the
-  control source through `CarInput`).
+  `Field::apply_shift_factors(session)` (each driven car's byte, `Session::set_shift_factor`). The B-spec car runs as control source 1
+  (`CarInput::control`), so its pace changes its shift speeds (a Ka's first-gear top 5,824 rpm at pace 0, 6,539 at 4).
 - **Its skill** (0x468C50 from the conductor's virtual 28, for a car of control source 0 or 1 not a ghost, with the switch
   0x623E48 set): the race information's +0x20 .. +0x5F (the B-spec driver's record of its races, from the save: u16 a[8]
   +0x00, b[8] +0x10, c[8] +0x20 by the cars' class, d[4] +0x30 and e[4] +0x38 by half the class) copied to car +0x8C. The
@@ -545,12 +544,10 @@ another race's for checks: then its own F+0x560, F+0x650, places, clock and fini
   the lines' lengths and pitches, which the drivers do not read).
 - **The pits** (§11): the program's pass, request, service and the stop's timing, `PitStops` on the session; the car
   stands in its box by the brake (no placing in the box without the session's hook), tires and fuel through hooks.
-- Not done: B-spec's
-  skill, the line-5 records, the aero bonus (P +0x1077 / +0x1084 not mirrored:
+- Not done: the line-5 records, the aero bonus (P +0x1077 / +0x1084 not mirrored:
   0), the two ❓ flags of §4.2 (P +0x104A, F +0x5C2: 0 on every car checked), the arcs' grip with tire
   wear on, T+0x158's factor (1 throughout in this program), the threat
-  record (D+0x53 / +0x60 / +0x64). The B-spec shift factor (`Field::shift_factor`) is not applied to the
-  session's gearbox.
+  record (D+0x53 / +0x60 / +0x64).
 - Without the mapped program (Prologue, another release) the drivers run with neutral values: no
   spreads, no offset of the aim, a fallback of the passing lines to the main line, the shared
   engine's tire records (16 surfaces) and no slip scaling of the steering gain; on a road without
@@ -698,9 +695,5 @@ shared engine's GT3 drivers. What is still not the program's:
 | `course_lines.cpp` `prepare` | the road's heights under the lines in host floats (last bits) | the road query 0x3E5A30 in EE floats (sim's `RoadGround`) |
 | `drivers.cpp` the start's hold for missions 25–34 | judged: held on the line until the race clock passes the delay | not found |
 | `grid.cpp` the paint draw | our generator | the race's generator 0x621AE8 |
-| `pit_stops.cpp` | the car held in its box by braking, not placed | 0x363560 and phase 4's hold: sim-step's `Session::place_standing` / `set_pit_hold` (a4f2526, not on master yet; who runs 0x35C0B8 being agreed) |
 | the steering's active aid | the line's heading per car for sim-step's 0x84357C | `Field::line_heading_at` → `Session::set_line_heading` each step after `drive()` (the race screen) |
-| `demo_driver.cpp` `pad_input` | the recorded pad record mapped onto `CarInput` (steer, pedals, shift) until the session reads the record itself | the input phase 0x349FD0 on the record (sim-step) |
-| `Field::shift_factor` | not applied in the session's gearbox | 0x3F1E30 (control source 1) |
-| B-spec skill | ported, not wired: the save's record and the car's P +0xFE0 | 0x468C50 (✔), 0x3F86E8 (sim-parts) |
 | the threat record | not ported | D +0x53 / +0x60 / +0x64 |
