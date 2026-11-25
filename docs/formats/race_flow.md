@@ -261,7 +261,7 @@ engine's Gran Turismo 3 code). The player notices them roughly in this order.
 | The rolling start's distance, speed, spacing | `race/start_rule.*` `apply_drivers_file` | GT4 (vf28 0x34D490, 0x466B90) | |
 | The race clock's start in a rolling start, the opening shots' end | `race_flow.*` `clock_running`, `screen_race.cpp` `opening_tv` | GT4 (vf20 0x347928: the first car's crossing; the camera state 0x3FD620 by the pace 0x3F7880) | |
 | The held starts (missions' places with a start delay) | `sim/ai/drivers.cpp` `Field::drive` | the seconds GT4 (CFG +0x60, the count K +0xCBFC, 0x34DB30); the hold **judged** (the brake on, the engine blipped) | the start's hold F +0x4BC per car (`sim-step`) |
-| A standing start's hold, count, START | `race_flow.*` | GT4 (0x3C0208, 0x39D390, 0x39E9B0); the hold's length for a license test (8 s) from its demonstration, for other races 10 s ❓ | the race information's start type byte +0x40 (its writer) |
+| A standing start's hold, count, START | `race_flow.*`; the hold in `sim::Session` (`hold_once`: the countdown's flag a step at a time, the race information's +0xBC, 0x34C210 / the car's start hold) | GT4 (0x3C0208, 0x39D390, 0x39E9B0); the hold's length for a license test (8 s) from its demonstration, for other races 10 s ❓ | the race information's start type byte +0x40 (its writer) |
 | The opening shots (start motion, replay start) | `start_camera.*` | GT4 (CameraPathanim 0x37D338, 0x37D620) | |
 | The replay cameras (TV shots), their choice by distance | `replay_script.*` | GT4 (0x37C138, 0x3FD980 → 0x3DDFF0); the dissolve's drawing judged | |
 | The scenic shots behind the menus | `replay_script.*` `ScenicCamera` | GT4 (mode 5, 0x375980) | |
