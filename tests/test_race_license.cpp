@@ -100,6 +100,29 @@ TEST(race_license_judge) {
     }
 }
 
+TEST(race_license_end_modes) {
+    // 0x3F8818 / 0x3F8980: how the player's car ends (1 coasts down, 2 brakes to a stop, 3 drives on).
+    race::LicenseRules stop = rules(1, 0, 0, 0); // B-1: a stop in the box
+    CHECK(race::license_end_mode(stop) == (2));
+    CHECK(race::license_fail_mode(stop, race::LicenseFail::Hit) == (1));       // past the box into a cone: it coasts down
+    CHECK(race::license_fail_mode(stop, race::LicenseFail::OffCourse) == (1));
+    CHECK(race::license_fail_mode(stop, race::LicenseFail::PitLane) == (2));
+    race::LicenseRules lap = rules(3, 0, 0, 0);
+    CHECK(race::license_end_mode(lap) == (3));
+    CHECK(race::license_fail_mode(lap, race::LicenseFail::OffCourse) == (1)); // alone: coasts rather than drives on
+    lap.opponents = 2;
+    CHECK(race::license_fail_mode(lap, race::LicenseFail::OffCourse) == (3));
+    CHECK(race::license_end_mode(rules(2, 0, 0, 0)) == (1));
+    CHECK(race::license_end_mode(rules(6, 0, 0, 0)) == (3));
+    CHECK(race::license_end_mode(rules(1, 100, 0, 0)) == (2)); // cones counted
+    CHECK(race::license_end_mode(rules(3, 50, 0, 0)) == (2));
+    race::LicenseRules forced = rules(1, 0, 0, 0);
+    for (int k = 1; k <= 3; ++k) {
+        forced.x41 = k;
+        CHECK(race::license_end_mode(forced) == (k == 1 ? 3 : k == 2 ? 1 : 2));
+    }
+}
+
 TEST(race_license_rules_disc) {
     if (test::discs().empty()) SKIP("set GT4R_DISC");
     size_t ran = 0;

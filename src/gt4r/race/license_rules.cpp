@@ -102,3 +102,21 @@ int LicenseJudge::seconds_left() const {
 }
 
 } // namespace gt4r::race
+
+namespace gt4r::race {
+
+int license_end_mode(const LicenseRules& r, bool failed) {
+    if (r.x41 >= 1 && r.x41 <= 3) return r.x41 == 1 ? 3 : r.x41 == 2 ? 1 : 2;
+    int m = r.kind == 1 ? (failed ? 1 : 2) : r.kind == 3 || r.kind == 4 || r.kind == 6 ? 3 : 1;
+    if (r.pylons != 0) m = 2;
+    if (r.opponents != 0) m = 3;
+    return m;
+}
+
+int license_fail_mode(const LicenseRules& r, LicenseFail fail) {
+    if (fail != LicenseFail::OffCourse && fail != LicenseFail::Hit && fail != LicenseFail::Kind6) return 2;
+    const int m = license_end_mode(r, true);
+    return r.opponents == 0 && m == 3 ? 1 : m;
+}
+
+} // namespace gt4r::race

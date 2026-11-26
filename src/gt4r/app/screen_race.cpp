@@ -838,7 +838,7 @@ public:
         split_prev_.clear(), split_first_.clear(), split_steps_ = -1;
         lap_first_.clear(), laps_seen_.clear(), event_gap_ms_ = 0, event_gap_car_ = -1;
         distance_ = 0, bspec_distance_ = 0, shown_steps_ = 0;
-        replaying_ = false, over_ = false;
+        replaying_ = page_replay_ = false, over_ = false;
         event_steps_ = -1;
         release_past_line();
         begin_start_camera(false);
@@ -848,6 +848,13 @@ public:
     // The scene behind the race's menus: the cars standing on the grid, the course's scenic shots
     // (the last run is kept for its replay).
     void stand(bool guide = false) {
+        // A Gran Turismo 4 license test's page (quick-license) shows the last run as its replay: the race in mode 2 (0x11D1B8),
+        // the replay's start shots and cameras; before any run there is none, and the page is black (✔ the original's B-1 page
+        // before and after a run, reference 05-gtmode / 11-license-tt). The course's scenic shots are not used there.
+        if (!gt3_road_ && is_license(setup_.sequence) && has_run()) {
+            start_replay(true);
+            return;
+        }
         // Prologue's page (Gran Turismo 3's road) runs the race behind it as a replay shows one: the computer drives the
         // player's car too, the start's hold under the replay's start shots, then the course's replay cameras, the cars
         // not heard (the original's Tsukuba page, reference/14-prologue/round5). A lesson's page plays the lesson's recorded run
@@ -864,7 +871,7 @@ public:
             world_->set_entry_overrides(recorded_entry()); // (restarts)
         } else if (ran_ || preview_) world_->restart();
         ran_ = true;
-        menu_scene_ = true, replaying_ = false, over_ = false;
+        menu_scene_ = true, replaying_ = page_replay_ = false, over_ = false;
         prev_cars_.clear();
         world_->quiet();
         world_->clear_effects();
@@ -1032,6 +1039,7 @@ public:
         if (replaying_) {
             // The recorded run again; it ends at its end.
             if (replay_at_ + 1 >= history_.size()) {
+                if (page_replay_) return start_replay(true);
                 replay_done_ = true;
                 return;
             }
@@ -1045,6 +1053,7 @@ public:
             if (diving()) step_dive(history_[replay_at_]);
             else step_tv(history_[replay_at_][car], car);
             // The music ducked under the course's replay-script shots (the designer's cameras).
+            if (page_replay_) return;
             if (audio::RaceSound* sound = world_->sound()) sound->set_replay_shot(tv_valid_ && !start_camera_.active());
             hear(history_[replay_at_], false);
             return;
@@ -1141,7 +1150,8 @@ public:
         for (const size_t i : ev.started) world_->release_start(i);
         for (size_t i = 0; i < flow_.car_count(); ++i) world_->set_crossings(i, flow_.car(i).counter), world_->set_rank(i, flow_.place(i));
         if (!ev.finished.empty()) board_.finished(flow_, ev.finished);
-        for (const size_t i : ev.finished) world_->finish_car(i, i == 0 && is_license(setup_.sequence));
+        for (const size_t i : ev.finished)
+            if (i != 0 || !is_license(setup_.sequence) || gt3_road_) world_->finish_car(i, i == 0 && is_license(setup_.sequence)); // (a test's player's: end_test)
         // Each car's distance from the line (crossings x lap + along) each step from the start: the gaps.
         if (flow_.steps_since_start() >= 0) {
             const std::span<const race::CarState> now = world_->cars();
@@ -1176,6 +1186,7 @@ public:
             LOG_INFO("Drive: the player's car takes the line at %.1f km/h, %.2f s on the clock", double(world_->cars()[0].speed * 3.6f), double(flow_.time_ms()) / 1000);
         if (is_license(setup_.sequence) || setup_.sequence == "mission") judge_license();
         if (is_license(setup_.sequence)) judge_goal();
+        end_test();
         if (!flow_.player_finished()) graded_place_ = flow_.place(0);
         step_wrong_way(auto_drive);
         if (demo_run_ && flow_.player_finished() && !demo_logged_) {
@@ -1306,13 +1317,18 @@ public:
         if (replay && !watched_ && flow_.car(0).counter >= 2) start_replay();
     }
 
-    void start_replay() {
-        if (history_.empty() || replaying_) return;
-        replaying_ = true, replay_done_ = false;
+    // `page`: behind a license test's page (stand), again from its start when it ends, not heard (🔎 the original's page is
+    // quiet next to its menus' music; whether the replay's own sound plays under it is not read).
+    void start_replay(bool page = false) {
+        if (history_.empty() || (replaying_ && !page_replay_)) return;
+        replaying_ = true, replay_done_ = false, page_replay_ = page;
         begin_view();
         menu_scene_ = false; // (asked for from the race's menus: the scene behind them ends)
         prev_cars_.clear();
-        if (audio::RaceSound* sound = world_->sound()) sound->replay();
+        if (audio::RaceSound* sound = world_->sound()) {
+            if (page) world_->quiet();
+            else sound->replay();
+        }
         replay_at_ = 0;
         begin_behind();
         camera_.reset(history_[0][0]);
@@ -1445,9 +1461,9 @@ public:
         replay_camera_.reset();
         view_cut_ = true;
     }
-    bool replaying() const { return replaying_; }
+    bool replaying() const { return replaying_ && !page_replay_; } // (not the replay behind a license test's page)
     bool replay_done() const { return replay_done_; }
-    void stop_replay() { replaying_ = false, replay_done_ = true; }
+    void stop_replay() { replaying_ = page_replay_ = false, replay_done_ = true; }
 
     // A demonstration ("View a demo run", sim/ai/demo_driver.h): the race set up with the file's cars
     // (their equipment, places, gearboxes and aids) and car 0 given the recorded pad record at every
@@ -1921,6 +1937,22 @@ public:
         }
         if (judge_.cones_done()) flow_.finish_now(0, 1); // (at the step's end: the clock + 50)
     }
+    // A Gran Turismo 4 test over, by the judge (the stop in the box, a failure, the cones counted), its goal or the line
+    // (0x3F8AB0 / 0x3F8980): the car's driver takes the player's car as the test asks (it stops, coasts down or drives on),
+    // the computer's cars drive on (0x3F88E8). Prologue's: license_prologue.h.
+    void end_test() {
+        if (gt3_road_ || !is_license(setup_.sequence) || !flow_.player_finished() || run_ended_) return;
+        run_ended_ = true;
+        const int mode = license_end_mode();
+        LOG_INFO("Drive: the test's end: the car %s (mode %d)", mode == 1 ? "coasts down" : mode == 2 ? "brakes to a stop" : "drives on", mode);
+        world_->finish_car(0, true, mode);
+    }
+    // How the player's car's run ends as the test is over (race::license_end_mode, race::license_fail_mode).
+    int license_end_mode() const {
+        const race::LicenseRules& r = judge_.rules();
+        if (!license_failed_) return race::license_end_mode(r);
+        return race::license_fail_mode(r, judge_.fail() != race::LicenseFail::None ? judge_.fail() : race::LicenseFail::Kind6);
+    }
     const race::LicenseJudge& license_judge() const { return judge_; }
     // A series' last race has its own jingles.
     void set_last_race(bool last) { last_race_ = last; }
@@ -2265,6 +2297,7 @@ private:
     race::ScenicCamera scenic_;
     std::vector<std::vector<race::CarState>> history_;
     bool replaying_ = false, replay_done_ = false, over_ = false, ran_ = false, menu_scene_ = false, watched_ = false;
+    bool page_replay_ = false; // the replay runs behind a license test's page (stand)
     bool preview_ = false; // the scene behind the menus is Prologue's run (stand)
     // Prologue's lesson's recorded run (read once), and the one the page plays at its step.
     struct RecordedRun {
