@@ -146,6 +146,7 @@ Tables tables(const Program& program) {
         t.sound_scales[3] = f_of(program.b(e + 0x1F)) / ten;
     }
     t.wear_slip_cap = program.b(s + 0x8E);
+    t.drive.awd = t.awd3, t.drive.stepless = t.stepless, t.drive.gears = t.gears, t.drive.hybrid = t.hybrid;
     { // 0x3C5BC0
         t.road.rolling_curve.n = gt3r::s16(t.rolling_n);
         for (u32 k = 0; k < 8 && k < t.rolling_n; ++k) t.road.rolling_curve.x[k] = t.rolling_x[k], t.road.rolling_curve.y[k] = t.rolling_y[k];
@@ -303,8 +304,35 @@ TireKinds tire_kinds(const Block& p) {
     return k;
 }
 
+rules::DriveExtra drive_extra(const ex::Params& p) {
+    rules::DriveExtra x;
+    rules::EngineBlock& e = x.e;
+    e.torque.n = p.e.torque.n;
+    for (size_t k = 0; k < p.e.torque.x.size(); ++k) e.torque.x[k] = p.e.torque.x[k], e.torque.y[k] = p.e.torque.y[k];
+    e.rev_limit = p.e.rev_limit, e.idle = p.e.idle, e.friction = p.e.friction;
+    e.turbo_knee = p.e.turbo_knee, e.turbo_shape = p.e.turbo_shape, e.power_cap_on = p.e.power_cap_on;
+    e.power_cap = p.e.power_cap, e.power_cap_soft = p.e.power_cap_soft;
+    e.turbo_peak = p.e.turbo_peak, e.turbo_rate = p.e.turbo_rate, e.turbo_coef = p.e.turbo_coef, e.boost_max = p.e.boost_max;
+    rules::DrivelineBlock& d = x.d;
+    const ex::Driveline& s = p.d;
+    d.layout = s.layout, d.unequal = s.unequal, d.gears = s.gears, d.driven_axle = s.driven_axle;
+    d.awd_k = s.awd_k, d.awd_capacity = s.awd_capacity, d.engine_inertia = s.engine_inertia;
+    d.diff_type = s.diff_type, d.kind = s.kind, d.x13 = 0;
+    d.diff_initial = s.diff_initial, d.diff_accel = s.diff_accel, d.diff_decel = s.diff_decel;
+    d.launch_rpm = s.launch_rpm, d.up_rpm = s.up_rpm;
+    for (size_t g = 0; g < s.down_rpm.size(); ++g) d.down_rpm[g] = s.down_rpm[g];
+    for (size_t g = 0; g < s.ratio.size(); ++g) d.ratio[g] = s.ratio[g], d.gear_speed[g] = s.gear_speed[g];
+    d.tire_radius = p.tire_radius, d.inv_tire_radius = p.inv_tire_radius, d.width = p.width;
+    d.shift_clutch_torque = s.shift_clutch_torque, d.wheel_gain = s.wheel_gain, d.axle_inertia = s.axle_inertia;
+    d.inv_axle_inertia = s.inv_axle_inertia, d.inv_engine_inertia = s.inv_engine_inertia;
+    d.built_down_rpm0 = s.down_rpm[0];
+    x.ratio_word = kOne;
+    return x;
+}
+
 CarPart car_part(const ex::Car& c, const Block& p, const Tables& t) {
     CarPart x;
+    x.drive = drive_extra(c.p);
     x.layout = wheel_layout(t, p[0x30]);
     x.tires = tire_extra(c.p, tire_kinds(p), t);
     x.chassis.mass = c.p.mass;
@@ -580,8 +608,10 @@ void one_speed_gear(ex::Car& c) {
 
 void dynamics(ex::Car& c, CarPart& x, const ex::Statics& s, const ex::GearSettings& g, const ex::ClassGrip& grip, const Tables& t) {
     const F request = c.clutch_req;
+    rules::DriveExtra& dx = x.drive;
+    dx.ratio_word = c.later.ratio; // (the stepless ratio, the record's)
     if (c.p.d.kind == 3) c.clutch = 0, c.clutch_req = F(); // (the hybrid's by its request alone, 0x3B9DE8)
-    ex::brakes_and_clutch(c);
+    rules::brakes_and_clutch(c, dx, x.layout); // (0x3B9E10: Gran Turismo 4's 0x3511A0 in its layout)
     if (c.p.d.kind == 3) c.clutch_req = request, c.clutch = request == F() ? 0 : 1;
     if (c.p.special == 8) c.clutch = 1;
     rules::rolling_resistance(c, x.layout, t.road); // (0x3BBF18: Gran Turismo 4's 0x3534A0 in its layout)
@@ -592,19 +622,22 @@ void dynamics(ex::Car& c, CarPart& x, const ex::Statics& s, const ex::GearSettin
     if (t.globals.mean_on) c.x420 = x.tires.mean_slip;
     wheel_kinds(c, x);
     rules::forward_step(c, x.chassis, x.tires, x.layout);
-    ex::wheel_net_torque(c);
-    ex::torque_vectoring(c, s.hybrid);
+    // (0x3CE4D0, 0x3CE5A8, 0x3CEAE0, 0x3CF740, 0x3BA6C0, 0x3BAAD8: Gran Turismo 4's 0x36D230, 0x36D2F8, 0x36D818, 0x36E4B8,
+    // 0x3519B8, 0x351DC8; the hybrid's axles and box its own)
+    rules::wheel_torques(c, dx, x.layout);
+    rules::vectoring(c, dx, x.layout);
     const bool hybrid = c.p.d.kind == 3;
     if (hybrid) hybrid_axles(c, x, s, t);
-    else ex::axle_step(c, s.awd3, s.stepless, s.hybrid);
-    ex::wheel_speeds(c);
+    else rules::axle_step(c, dx, x.layout, t.drive);
+    rules::wheel_speeds(c, dx, x.layout);
     if (hybrid) {
         c.rpm = s16(gt3r::ee::to_int((c.omega * F::raw(0x42700000)) / F::raw(0x40C90FDA))); // (0x3CD338)
         one_speed_gear(c);
     } else {
-        ex::engine_speed(c, s.hybrid);
-        ex::gear_step(c, g);
+        rules::engine_speed(c, dx, x.layout, &t.drive);
+        rules::gear_step(c, dx, x.layout, x.tires, t.drive);
     }
+    c.later.ratio = dx.ratio_word;
     const bool air = rules::airborne(c, x.layout); // (0x3BC198: the layout's wheels' loads sum to 0)
     lateral_yaw(c, x, air, t);
     prologue::stop_hold(c, x.layout, air);

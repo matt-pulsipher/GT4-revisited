@@ -11,6 +11,7 @@
 #include "gt4r/sim/equipment.h"
 #include "gt4r/sim/record.h"
 #include "gt4r/sim/rules_chassis.h"
+#include "gt4r/sim/rules_drive.h"
 #include "gt4r/sim/rules_hybrid.h"
 #include "gt4r/sim/rules_input.h"
 #include "gt4r/sim/rules_steer.h"
@@ -128,6 +129,9 @@ struct Tables {
     // The rolling resistance's (0x3BBF18): its curve (0x504428, above) and each surface's factor (0x504438 + 4 s: the static
     // block's s16 +0x2C + 2 s x 0.01, made by 0x3C5BC0), in Gran Turismo 4's form.
     rules::RoadTables road;
+    // Gran Turismo 4's drive routines' tables with Prologue's: four wheel drive system 3's fade (0x504AD8), the stepless
+    // gearboxes' rates (0x504930), the automatic gearbox's settings, the hybrid's.
+    rules::DriveTables drive;
 };
 // The engine's statics with Prologue's own values where they differ (the rolling resistance's curve; its per-surface
 // coefficients, 0x504438, are the engine's).
@@ -187,6 +191,9 @@ struct CarPart {
     std::array<F, 2> axle_load;   // the parameter block's +0xE6C + 4 k (the engine's +0xE54: each axle's static load)
     rules::ChassisExtra chassis;
     rules::WheelLayout layout;
+    // The parameter block's engine (+0x138) and driveline (+0x1F8) and the tires' radii (+0x274 ..) in Gran Turismo 4's form,
+    // for Gran Turismo 4's routines of the drive where Prologue's are its own in another layout (drive_extra).
+    rules::DriveExtra drive;
 };
 // 0x3CC0B8: the hybrid's box at the car's set-up (nothing for another car).
 void hybrid_start(const ex::Car& c, CarPart& x);
@@ -204,6 +211,10 @@ u16 mileage(F fuel, F distance);
 // beside, ahead within 5 m and behind, at least 1 farther ahead and at the corners) and, within 20 m, the contact with a car closed
 // on (0x428530: 1 over 5 km/h, 0.5 within 5 s, else 0.05 under half a meter and 0.1 under 4 m).
 void near_drivers(std::span<ex::Car> cars);
+// The parameter block's engine and driveline (Gran Turismo 3's layout, Prologue's converter's) in Gran Turismo 4's form: the
+// torque curve, limits, turbo stages, the driveline's layout, gears (at most 7 of the block's 8 ratios), differentials, the
+// shift speeds, inertias, and each axle's tire radius and width.
+rules::DriveExtra drive_extra(const ex::Params& p);
 // The part from the car's record and Prologue's parameter block: the wheel layout of its +0x30, the tire records' kind bytes.
 CarPart car_part(const ex::Car& c, const Block& p, const Tables& t);
 

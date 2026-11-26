@@ -12,6 +12,7 @@
 #include "gt4r/sim/program.h"
 #include "gt4r/sim/rules.h"
 #include "gt4r/sim/rules_chassis.h"
+#include "gt4r/sim/rules_drive.h"
 #include "gt4r/sim/rules_effects.h"
 #include "gt4r/sim/rules_input.h"
 #include "gt4r/sim/rules_phases.h"
@@ -375,6 +376,21 @@ void add_prologue_taps(PTaps& taps, const Disc& disc, const std::string& course)
                   const int mode = sim::prologue::draw_mode(c.car, c.ee.r32(race + 0x8C), c.ee.r32(c.ee.r32(race + 0x3C) + 0x13440));
                   sim::rules::effects_reset(c.car, layout(c), mode);
               }});
+    // The drive (phase 10): Gran Turismo 4's routines on the parameter block's drive in their form (drive_extra), the stepless
+    // ratio the record's.
+    auto drive = [=](PTapCall& c, const std::function<void(sim::rules::DriveExtra&)>& f) {
+        sim::rules::DriveExtra x = sim::prologue::drive_extra(c.car.p);
+        x.ratio_word = c.car.later.ratio;
+        f(x);
+        c.car.later.ratio = x.ratio_word;
+    };
+    taps.add({0x3B9E10, "GT4's brakes and clutch", [=](PTapCall& c) { drive(c, [&](sim::rules::DriveExtra& x) { sim::rules::brakes_and_clutch(c.car, x, layout(c)); }); }});
+    taps.add({0x3CE4D0, "GT4's wheel torques", [=](PTapCall& c) { drive(c, [&](sim::rules::DriveExtra& x) { sim::rules::wheel_torques(c.car, x, layout(c)); }); }});
+    taps.add({0x3CE5A8, "GT4's vectoring", [=](PTapCall& c) { drive(c, [&](sim::rules::DriveExtra& x) { sim::rules::vectoring(c.car, x, layout(c)); }); }});
+    taps.add({0x3CEAE0, "GT4's axle step", [=](PTapCall& c) { drive(c, [&](sim::rules::DriveExtra& x) { sim::rules::axle_step(c.car, x, layout(c), t.drive); }); }});
+    taps.add({0x3CF740, "GT4's wheel speeds", [=](PTapCall& c) { drive(c, [&](sim::rules::DriveExtra& x) { sim::rules::wheel_speeds(c.car, x, layout(c)); }); }});
+    taps.add({0x3BA6C0, "GT4's engine speed", [=](PTapCall& c) { drive(c, [&](sim::rules::DriveExtra& x) { sim::rules::engine_speed(c.car, x, layout(c), &t.drive); }); }});
+    taps.add({0x3BAAD8, "GT4's gear step", [=](PTapCall& c) { drive(c, [&](sim::rules::DriveExtra& x) { sim::rules::gear_step(c.car, x, layout(c), extra(c), t.drive); }); }});
     static sim::prologue::AidTables aid_tables;
     aid_tables = sim::prologue::aid_tables(sim::Program::load(const_cast<Disc&>(disc)));
     taps.add({0x3E0838, "Prologue's aids", [=](PTapCall& c) {
