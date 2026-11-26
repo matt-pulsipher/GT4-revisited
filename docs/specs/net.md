@@ -315,6 +315,12 @@ machines compare.
 (`tests/test_net_session.cpp`): `net_session_race` (direct, with datagrams lost, through a relay
 server in the process; the clocks 5 s apart), `net_session_finish_and_loss` and `net_session_120hz`.
 
+The tests' hosts and relay servers (`test_net_session.cpp`, `test_net_lobby.cpp`, `test_net_lobby_pages.cpp`,
+`test_updates.cpp`) bind ports from `tests/net_ports.h`: a port an IPv4 socket was just given, so none of any process holds
+it. On macOS a dual-stack socket bound to port 0 (or to a given port) is not checked against IPv4 sockets: one that holds the
+port already gets every IPv4 datagram to it, and a join to 127.0.0.1 times out. A busy machine (other test runs, other
+programs' sockets) made this a random failure.
+
 ## What runs where
 
 | Piece | Code | Whose |
@@ -418,6 +424,9 @@ page asks them once a second on each network's broadcast address and on this mac
 (the version), u8 1 (a question) or 2 (an answer), u32 the question's number; the answer adds u16 the session's port, the
 host's name and disc id (u8 length and bytes each), u8 players, u8 the most, u8 open. The session's own port is 47634 and the
 three above it. Nothing is sent but to an open page's question.
+On macOS the engine's host socket (dual-stack) binds one of these ports even when another program holds it for IPv4;
+IPv4 guests then reach that program, not the host (the engine's `UdpSocket::open`; a port taken by another dual-stack or
+IPv6 socket is refused and the next one tried).
 
 ### The relay server
 
