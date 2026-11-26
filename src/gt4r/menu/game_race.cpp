@@ -400,6 +400,7 @@ s64 Runtime::race_finished(const RaceResult& r) {
     const bool counted = r.kind == RaceResult::Kind::Event || r.kind == RaceResult::Kind::Championship || (r.kind == RaceResult::Kind::Course && r.course_kind != 7);
     if (counted && r.distance_m > 0) s.bspec_distance += s64(r.bspec_distance_m), s.aspec_distance += s64(r.distance_m - r.bspec_distance_m);
     DayEvent day;
+    bool sequence_day = false; // the day is the sequence's, put when it ends
     s64 prize = 0;
     switch (r.kind) {
     case RaceResult::Kind::Event: {
@@ -556,7 +557,7 @@ s64 Runtime::race_finished(const RaceResult& r) {
     }
     case RaceResult::Kind::Course:
         // A course visit's sequence puts its day when it ends (0x1179F8, 0x1184DC, 0x11B0D8, 0x115E90), not by the run.
-        if (s.race_session.course_kind && s.race_session.course_kind == r.course_kind) return prize;
+        sequence_day = s.race_session.course_kind && s.race_session.course_kind == r.course_kind;
         day.type = 8, day.b3 = u8(r.course_kind), day.b1 = u8(r.finished ? 0 : 15), day.b2 = 14, day.word = r.finished ? r.time_ms : kNoTime;
         day.code = d.code(kCourseTable, r.course);
         break;
@@ -577,7 +578,7 @@ s64 Runtime::race_finished(const RaceResult& r) {
     // A license test's day is the sequence's, put when it ends (0x110800); a run outside a
     // sequence puts it at once.
     if (r.kind == RaceResult::Kind::License && s.race_session.license_open) s.race_session.license_day = day;
-    else s.put_day(day);
+    else if (!sequence_day) s.put_day(day);
     return prize;
 }
 
