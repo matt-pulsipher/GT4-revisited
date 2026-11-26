@@ -41,8 +41,11 @@ struct ViewPose {
     bool haze = false, depth_of_field = false;
     float focus = 100, f_number = 8;
 
-    // The vertical angle for the renderer: a picture wider than 4:3 shows more at the sides.
+    // The vertical angle for the renderer on a 4:3 picture.
     float fovy() const { return 2 * std::atan(std::tan(fov * 0.5f) * 0.75f); }
+    // On a picture `aspect` wide a unit of height (ours): one wider than 4:3 shows more at the sides (the vertical angle stays);
+    // a narrower one keeps 4:3's width of the scene and shows more above and below.
+    float fovy(float aspect) const { return 2 * std::atan(std::tan(fov * 0.5f) * (aspect >= 4.0f / 3.0f ? 0.75f : 1.0f / std::max(aspect, 0.1f))); }
 };
 
 // A pose between two steps' for a frame shown between them (`t` 0 at `a`, 1 at `b`): the eye and

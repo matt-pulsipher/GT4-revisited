@@ -33,8 +33,11 @@ constexpr float kPi = 3.14159265f;
 // The display's frame: 640 x 448, on a wide picture -106.667 .. 746.667 across (the program's 0x3956A0: alignment bit 4 is the
 // wide picture's edge). The in-car panel's parts are in a frame of 480 lines (0x38BEEC: 32 down, 448 / 480 high).
 // (Other shapes of the picture: game_area.h.)
+// On a picture narrower than 4:3 the frame fits its width, in the middle (ours).
 float wide_side() { return game_area::side(); }
-constexpr float kScaleX = 360.0f / 480.0f, kScaleY = float(Ui::kHeight) / 448.0f;
+float scale_x() { return game_area::scale(); }
+float scale_y() { return game_area::scale() * (480.0f / 448.0f); }
+float frame_top() { return game_area::top() * game_area::scale(); } // UI units above the frame
 
 // The display's colors (its program's constants; the GS order, alpha 0x80 opaque).
 constexpr u32 kOrange = 0x805EA8F2, kGray = 0x80B3B3B3, kRed = 0x800000C8, kGreen = 0x809CB246, kEvent = 0x802BCC49;
@@ -42,7 +45,7 @@ constexpr u32 kOrange = 0x805EA8F2, kGray = 0x80B3B3B3, kRed = 0x800000C8, kGree
 struct Box {
     float x = 0, y = 0, w = 0, h = 0;
 };
-SDL_FRect to_ui(const Box& b) { return {(b.x + wide_side()) * kScaleX, b.y * kScaleY, b.w * kScaleX, b.h * kScaleY}; }
+SDL_FRect to_ui(const Box& b) { return {(b.x + wide_side()) * scale_x(), b.y * scale_y() + frame_top(), b.w * scale_x(), b.h * scale_y()}; }
 // 0x3956A0 / 0x395638: a box's left edge by the alignment: 0 left, 1 right, 2 centered, + 4 to the wide picture's edge.
 float left_of(float x, float w, int align) {
     const float wide = (align & 4) ? wide_side() : 0;
@@ -233,7 +236,7 @@ struct PrologueHud::Impl {
     void triangles(const std::vector<SDL_Vertex>& v) { SDL_RenderGeometry(r, nullptr, v.data(), int(v.size()), nullptr, 0); }
     static SDL_Vertex vertex(float x, float y, const Rgba8& c) {
         SDL_Vertex v{};
-        v.position = {(x + wide_side()) * kScaleX, y * kScaleY};
+        v.position = {(x + wide_side()) * scale_x(), y * scale_y() + frame_top()};
         v.color = {float(c.r) / 255, float(c.g) / 255, float(c.b) / 255, float(c.a) / 255};
         return v;
     }

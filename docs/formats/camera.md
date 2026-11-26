@@ -46,7 +46,14 @@ aspect" option: the matrix's x is 1 / aspect for aspect >= 1, else its y is the 
 🔎 So how the square frustum of angle A meets the 4:3 or 16:9 picture (which side spans A) is
 decided below the camera system and has not been read. The shared engine's convention (the
 angle spans the 4:3 picture's width; a 16:9 picture shows more at the sides) is the working
-assumption for every angle in this file.
+assumption for every angle in this file. A picture narrower than 4:3 (ours: fill on a squarer screen) keeps the angle across
+4:3's width and shows more above and below (`ViewPose::fovy(aspect)`).
+GT4's own 16:9 mode (the option's wide flag 0x6184F0) is set when the monitor figures' width / height (Option +0x30 /
++0x34, 425 / 240 for 16:9, 275 / 205 for 4:3) is at least 1.5 (0x4390D0, applied by 0x4365B8 and 0x436640). Its readers
+found: the race display's side push (0x3AFD18 / 0x3AFD78 / 0x3AFDD8), the two-player layouts (0x32FCC8, 0x3A29A0), the
+lens flare's screen factor (0x3B80E8: 1.2140 wide, 0.9110 otherwise, 4/3 apart), loading and a few race routines. 🔎 None of
+them was seen to change the 3D projection, so whether the original's 16:9 shows more at the sides or less above and
+below is not known; ours shows more at the sides.
 
 **Near and far**: the screen's defaults are near 0.1 m and far 750 m (set at 0x3FB48C; no
 other writer found). The on-board camera uses them as they are; every other camera multiplies

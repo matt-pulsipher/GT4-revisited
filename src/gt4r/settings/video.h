@@ -5,7 +5,7 @@
 //
 //   [video]
 //   fullscreen = off         ; on | off (F11 changes it too)
-//   aspect = 16:9            ; 16:9 | 4:3 | fill
+//   aspect = fill            ; fill | 16:9 | 4:3 (a config without it, or with another word: fill)
 //   vsync = on               ; on | off
 //   limit_60fps = off        ; on: displays faster than 60 Hz get about 60 frames a second
 //   show_fps = off           ; on: the frames drawn a second in the top left corner
@@ -39,7 +39,7 @@ struct Video {
     int msaa = gt3r::platform::default_msaa(gt3r::platform::is_mobile()), anisotropy = 4;
     std::optional<float> render_scale; // none: automatic
     float gamma = 1.0f;
-    gt3r::platform::Aspect aspect = gt3r::platform::Aspect::Wide;
+    gt3r::platform::Aspect aspect = gt3r::platform::Aspect::Fill; // (16:9 and 4:3 are the player's choices)
     Gpu gpu = Gpu::Automatic;
 
     bool operator==(const Video&) const = default;
@@ -47,6 +47,12 @@ struct Video {
     // Writes what differs from what the document holds (the rest stays as it is, also where it is not written).
     void save(gt3r::IniDocument& config) const;
 };
+
+// The game's picture in a window of pw x ph pixels: its width in UI units (360 tall, even). 640 at 16:9 and 480 at 4:3, letterboxed;
+// with fill the window's shape up to 4:1. `view`: a race's or replay's picture, which fill takes down to 1:1 (the 3D view and the
+// display fill a screen squarer than 4:3); else (the menus' pages) never narrower than 4:3, with bars above and below.
+int picture_width(gt3r::platform::Aspect a, int pw, int ph, bool view);
+constexpr int kNarrowestView = 360; // 1:1
 
 // The frames a second to draw on a display of `hz` with the limit: every second, third ... refresh, as near 60 as that comes from
 // above (144 Hz: 72, 120: 60, 90: 90). 0: every refresh.

@@ -10,6 +10,8 @@
 #include "gt4r/menu/image_pack.h"
 #include "gt4r/menu/text_table.h"
 
+#include <optional>
+
 #include <algorithm>
 #include <cmath>
 #include <array>
@@ -26,20 +28,47 @@ namespace element = race::element;
 
 constexpr float kPi = 3.14159265f;
 // The display's canvas is 640 x 480 (y down); on a wide picture it runs from x = -106.667 to
-// 746.667, and the whole is drawn at one scale so that everything keeps its shape.
-// (Other shapes of the picture: game_area.h.)
-constexpr float kCanvasH = 480.0f;
-constexpr float kScale = float(Ui::kHeight) / kCanvasH;
+// 746.667, and the whole is drawn at one scale so that everything keeps its shape. On a picture
+// narrower than 4:3 it fits the width, in the middle, and the parts at the top and the bottom move
+// out to the picture's edges (EdgeScope). (game_area.h.)
+float scale() { return game_area::scale(); }
 
 constexpr u32 kTextGray = 0x80C8C8C8u, kMeterBlue = 0x80E3B896u, kNeutral = 0x80808080u, kRefuelTint = 0x805EA8F2u;
 
 // Where the canvas' own (0, 0) lies on it: moved while a two-player half's display is drawn.
 SDL_FPoint origin{0, 0};
-SDL_FRect to_ui(const DisplayRect& r) { return {(r.x + origin.x + game_area::side()) * kScale, (r.y + origin.y) * kScale, r.w * kScale, r.h * kScale}; }
-SDL_FPoint to_ui(float x, float y) { return {(x + origin.x + game_area::side()) * kScale, (y + origin.y) * kScale}; }
+// Ours: how far the parts drawn now move down (canvas units): on a picture narrower than 4:3 the top's up and the bottom's down by
+// what the canvas has above and below it, to the picture's edges.
+float edge_y = 0;
+// Ours, touch screens: a group of parts drawn smaller about a corner of theirs (canvas units), as GroupScale sets it.
+struct Shrink {
+    float k = 1, px = 0, py = 0, dy = 0; // (dy: then moved down so far)
+};
+Shrink shrink;
+SDL_FRect to_ui(const DisplayRect& r) {
+    const float k = scale(), g = shrink.k;
+    const float x = shrink.px + (r.x - shrink.px) * g, y = shrink.py + (r.y - shrink.py) * g + shrink.dy;
+    return {(x + origin.x + game_area::side()) * k, (y + origin.y + edge_y + game_area::top()) * k, r.w * g * k, r.h * g * k};
+}
+SDL_FPoint to_ui(float x, float y) {
+    const float k = scale(), g = shrink.k;
+    x = shrink.px + (x - shrink.px) * g, y = shrink.py + (y - shrink.py) * g + shrink.dy;
+    return {(x + origin.x + game_area::side()) * k, (y + origin.y + edge_y + game_area::top()) * k};
+}
 struct OriginScope {
     explicit OriginScope(SDL_FPoint at) { origin = at; }
     ~OriginScope() { origin = {0, 0}; }
+};
+struct GroupScale {
+    explicit GroupScale(const Shrink& to) : was(shrink) { shrink = to; }
+    ~GroupScale() { shrink = was; }
+    Shrink was;
+};
+// The parts of the top (`dir` -1) or the bottom (1) of the display while it lasts.
+struct EdgeScope {
+    explicit EdgeScope(float dir) : was(edge_y) { edge_y = dir * game_area::top(); }
+    ~EdgeScope() { edge_y = was; }
+    float was;
 };
 
 // Ours, touch screens: how far (UI units) the box `m` moves sideways (`dir` -1 left, 1 right) to keep 4 units from every control
@@ -106,6 +135,9 @@ struct RaceHud::Impl {
     float needle_from[2] = {0, 0}; // the dials' needles last frame (speed, revs), for their trail
     bool needle_set = false;
     float sign_levels[2][3] = {}; // the signs' last levels (by half)
+    // Touch screens: the chase panel's groups tied to the right and to the left side, drawn smaller where the controls leave them
+    // too little room beside the sideways G meter (ours; the shared engine's race display shrinks its meters the same way).
+    Shrink lower_shrink[2]; // (0 left, 1 right)
 
     SDL_Texture* make_texture(const gt3r::Tex1::Image& img) {
         if (!img.width || !img.height) return nullptr;
@@ -353,7 +385,10 @@ void RaceHud::set_course_logo(ByteSpan set) {
     }
 }
 
-SDL_FRect RaceHud::canvas() { return to_ui(DisplayRect{0, 0, 640, 480}); }
+SDL_FRect RaceHud::canvas(float edge) {
+    const EdgeScope at(edge);
+    return to_ui(DisplayRect{0, 0, 640, 480});
+}
 
 bool RaceHud::point_movie(const App& app, race::StrobePlayer& player) {
     using Kind = gt3r::PointerInput::Action::Kind;
@@ -461,11 +496,23 @@ void RaceHud::draw_movie(const race::StrobeMovie& movie, const race::StrobePlaye
                 }
                 across = x0 <= from && x1 >= to;
             }
+            // (On a picture narrower than 4:3 a shape down the whole 480 covers it from its top to its bottom.)
+            const float top = game_area::top();
+            bool down = top > 0;
+            if (down) {
+                float y0 = 1e9f, y1 = -1e9f;
+                for (const race::StrobeMovie::Point& p : d.group->triangles) {
+                    const float y = d.m[1] * p.x + d.m[3] * p.y + d.m[5];
+                    y0 = std::min(y0, y), y1 = std::max(y1, y);
+                }
+                down = y0 <= 0.5f && y1 >= 479.5f;
+            }
             for (const race::StrobeMovie::Point& p : d.group->triangles) {
                 SDL_Vertex x{};
-                float px = d.m[0] * p.x + d.m[2] * p.y + d.m[4];
+                float px = d.m[0] * p.x + d.m[2] * p.y + d.m[4], py = d.m[1] * p.x + d.m[3] * p.y + d.m[5];
                 if (across) px = px <= from ? std::min(px, -side - 0.5f) : px >= to ? std::max(px, 640.5f + side) : px;
-                x.position = to_ui(px, d.m[1] * p.x + d.m[3] * p.y + d.m[5]);
+                if (down) py = py <= 0.5f ? std::min(py, -top - 0.5f) : py >= 479.5f ? std::max(py, 480.5f + top) : py;
+                x.position = to_ui(px, py);
                 const float u = mat ? p.x * (*mat)[0] + p.y * (*mat)[4] + (*mat)[12] : 0, w = mat ? p.x * (*mat)[1] + p.y * (*mat)[5] + (*mat)[13] : 0;
                 x.tex_coord = {u, w};
                 if (fill.kind == 0) x.color = colour(fill.value, d);
@@ -640,7 +687,10 @@ void RaceHud::Impl::draw_top(const HudState& s) {
         if (const DisplayPlace* p = cur->find(element::kLastTime); p && s.show_time)
             draw_text(times, race::place_x(*p, true), float(p->y), kCentered, kTextGray, o, race::format_lap_time(s.last_ms));
     }
-    draw_words(s);
+    {
+        const EdgeScope middle(0); // (the lines in the middle stay there)
+        draw_words(s);
+    }
     // The refuel bar (RaceRefuelMeter::vf6 0x3A59D8): a 256 x 26 plate at (320, 58), both ways centered, the bar from x + 15 by the
     // share of 155 in the meters' blue, the scale 157 x 12 over it at (x + 14, y + 7), "fuel/tank" ending at x + 241.
     if (s.refuel && s.refuel_tank > 0) {
@@ -655,6 +705,8 @@ void RaceHud::Impl::draw_top(const HudState& s) {
     }
     // The status line (member 0x228C): over the driver's panel at (320, 348), over the chase views'
     // at (320, 430); `hn_20R`.
+    std::optional<EdgeScope> bottom; // (the upper half's line stays by the middle)
+    if (!(s.split == 1 && s.half == 0)) bottom.emplace(1);
     if (!s.status.empty() && s.status_opacity > 0)
         draw_text(font("hn_20R"), s.split == 2 ? 203.0f - race::anchor_push(game_area::side()) : 320.0f, s.split == 1 ? 430.0f - 240 : s.split == 2 ? 380.0f : s.driver_view ? 348.0f : 430.0f, kCentered, s.status_red ? 0x800000C8u : kTextGray, o * s.status_opacity, s.status);
 }
@@ -756,6 +808,7 @@ void RaceHud::Impl::draw_chase_panel(const HudState& s) {
     const int R = form.R, B = form.B;
     const u8 right = form.right();
     const float o = s.opacity;
+    std::optional<GroupScale> group(std::in_place, lower_shrink[1]);
     draw_at(mph ? "remote_speed_mph" : "remote_speed_kmph", {0, R - 26, B - 44, 82, 26, right, 0}, kNeutral, o);
     // The digits end where the widest number would.
     const FontSpec meter = font("GT4meter", 100, 1);
@@ -773,6 +826,7 @@ void RaceHud::Impl::draw_chase_panel(const HudState& s) {
     const float x0 = at.x + 0.70625f * at.w, x1 = at.x + at.w - 1, y0 = at.y - 3, y1 = at.y - 1, a = o * float(0x70) / 128.0f;
     triangles({vertex(x0, y0, 0x99, 0, 0, a), vertex(x1, y0, 0x99, 0, 0, a), vertex(x1, y1, 0x99, 0, 0, a), vertex(x0, y0, 0x99, 0, 0, a),
                vertex(x1, y1, 0x99, 0, 0, a), vertex(x0, y1, 0x99, 0, 0, a)});
+    group.reset();
     draw_small_parts(s, false);
 }
 
@@ -822,13 +876,17 @@ void RaceHud::Impl::draw_small_parts(const HudState& s, bool driver) {
             u32 tint = 0x80000000u;
             for (int c = 0; c < 3; ++c) tint |= u32(float(kTints[k] >> (8 * c) & 0xFF) * level) << (8 * c);
             const Picture& p = picture(kNames[k]);
+            const GroupScale group(driver ? Shrink{} : lower_shrink[0]);
             draw_picture(p, race::place_rect(places[k], p.w, p.h, true), tint, o, 1, true);
         }
     }
     // The shift lamp: its picture under a color scale of the lamp's level x 1.5 (0x3A7360), black when out.
     const bool shift = s.red_line > 0 && s.rpm >= 0.97f * s.red_line;
     if (driver) draw_at("timing_lamp", {0, C + 103, B - 62, 8, 8, 2, 2}, shift ? kNeutral : 0x80000000u, o);
-    else draw_at("timing_lamp", {0, form.R - 142, B - 28, 8, 8, form.right(), 0}, shift ? kNeutral : 0x80000000u, o);
+    else {
+        const GroupScale group(lower_shrink[1]);
+        draw_at("timing_lamp", {0, form.R - 142, B - 28, 8, 8, form.right(), 0}, shift ? kNeutral : 0x80000000u, o);
+    }
     // The sideways G meter: its base, and its point moved along it (none side by side).
     if (!form.side) {
         const DisplayRect base = draw_at("g_meter_base", {0, C, B, 214, 24, 2, u8(driver ? 2 : 1)}, kNeutral, o);
@@ -846,6 +904,7 @@ void RaceHud::Impl::draw_small_parts(const HudState& s, bool driver) {
         draw_text(font("GT4meter", 60, 1), float(C - 103), float(B - 45), kCentered, kMeterBlue, o, buf);
         return;
     }
+    const GroupScale group(lower_shrink[0]);
     // The pedals (RaceABMonitor: vf4 0x3A54F8, vf5): the picture, the brake's bar 4 x 56 at (x + 1, y + 4) red and the
     // throttle's at x + w - 5 in the meters' blue, from the bottom (RaceSimpleBarMeter).
     {
@@ -978,8 +1037,33 @@ void RaceHud::draw(Ui& ui, const HudState& s) {
     // where they were last drawn.
     const DisplayRect lower_right = race::take_lower_box(true), lower_left = race::take_lower_box(false);
     const bool touch = !s.split && !s.touch_controls.empty();
-    const TouchShiftScope shift(touch && lower_right.w > 0 ? clear_sideways(to_ui(lower_right), s.touch_controls, -1) / kScale : 0.0f,
-                                touch && lower_left.w > 0 ? clear_sideways(to_ui(lower_left), s.touch_controls, 1) / kScale : 0.0f);
+    const auto clear = [&](const DisplayRect& box, float dir) {
+        const EdgeScope bottom(1);
+        return touch && box.w > 0 ? clear_sideways(to_ui(box), s.touch_controls, dir) / scale() : 0.0f;
+    };
+    const float move_right = clear(lower_right, -1), move_left = clear(lower_left, 1);
+    const TouchShiftScope shift(move_right, move_left);
+    // Moved that far, a group that would reach the G meter in the middle (213 .. 427 of the canvas, 214 wide about 320, its top 24
+    // above the panel's bottom) shrinks about its outer bottom corner, to 70 % at most; if it would still reach it, it goes up
+    // clear of the meter's top.
+    impl_->lower_shrink[0] = impl_->lower_shrink[1] = Shrink{};
+    if (touch && !s.driver_view && !s.bspec) {
+        constexpr float kGap = 6, kMiddleL = 320 - 107 - kGap, kMiddleR = 320 + 107 + kGap, kLeast = 0.7f;
+        const float meter_top = float(Impl::panel_form(s).B) - 24 - kGap;
+        const auto fit = [&](const DisplayRect& box, float outer, float room) {
+            Shrink g{std::clamp(room / box.w, kLeast, 1.0f), outer, box.y + box.h, 0};
+            if (box.w * g.k > room + 0.5f) g.dy = std::min(0.0f, meter_top - g.py);
+            return g;
+        };
+        if (move_right > 0 && lower_right.w > 0) {
+            const float outer = lower_right.x + lower_right.w - move_right; // (its right edge, moved)
+            impl_->lower_shrink[1] = fit(lower_right, outer, outer - kMiddleR);
+        }
+        if (move_left > 0 && lower_left.w > 0) {
+            const float outer = lower_left.x + move_left;
+            impl_->lower_shrink[0] = fit(lower_left, outer, kMiddleL - outer);
+        }
+    }
     if (s.split) {
         // A two-player half's display: its canvas 640 x 240 (the first's 10 units lower: RaceSplitDisplayBase::vf9 0x3A29A0), or
         // 426.667 x 480 of the wide one. In a replay with its display off nothing shows (the logo's place is outside both).
@@ -994,8 +1078,13 @@ void RaceHud::draw(Ui& ui, const HudState& s) {
                 at.w = at.h = 0;
                 impl_->draw_picture(sign, race::place_rect(at, sign.w, sign.h, true), kNeutral, s.opacity);
             }
+        // (Stacked on a picture narrower than 4:3: the upper half's top parts and the lower half's panel at the picture's edges.)
+        std::optional<EdgeScope> edge;
+        if (s.split == 1 && s.half == 0) edge.emplace(-1);
         impl_->draw_map(s);
         impl_->draw_top(s);
+        edge.reset();
+        if (s.split == 1 && s.half == 1) edge.emplace(1);
         if (s.show_meter) impl_->draw_chase_panel(s);
         return;
     }
@@ -1008,6 +1097,8 @@ void RaceHud::draw(Ui& ui, const HudState& s) {
         impl_->draw_text(impl_->font("hb_24", 100, 1), 320, 220, kCentered, kTextGray, s.opacity * a, s.card_title);
         impl_->draw_text(impl_->font("hm_16", 100, 1), 320, 260, kCentered, kTextGray, s.opacity * a, s.card_line);
     }
+    std::optional<EdgeScope> edge; // (the parts below at the top or the bottom of the picture)
+    edge.emplace(1);
     if (s.replay && s.logo_opacity > 0 && impl_->course_logo.texture) {
         // The course's logo under the opening card, its right bottom at (604, 441) (❓ the place and
         // size judged from the original's replay: the logo at its own size there).
@@ -1025,6 +1116,7 @@ void RaceHud::draw(Ui& ui, const HudState& s) {
     }
     // The playback mode's plate (RaceReplayModeDisplay 0x3AE5E0): black words on it in the middle, 13 down.
     if (s.replay && s.mode_opacity > 0 && !s.mode_text.empty()) {
+        const EdgeScope top(-1);
         const DisplayPlace* p = impl_->layout.find(element::kReplayMode);
         const DisplayRect at = race::place_rect(p ? *p : DisplayPlace{element::kReplayMode, 20, 22, 132, 20, 4, 0}, 132, 20, true);
         // (✔ its color on the screen is 0x0086E6 as it is.)
@@ -1037,7 +1129,7 @@ void RaceHud::draw(Ui& ui, const HudState& s) {
     }
     if (s.replay_paused) {
         // SimplePause 0x3C3B08: a black strip to the bottom from 438 of 480 down, its line in the middle of 408 .. 448 of 448.
-        const SDL_FRect c = canvas();
+        const SDL_FRect c = canvas(1);
         ui.fill(0, c.y + c.h * 438 / 480, ui.width(), ui.height() - (c.y + c.h * 438 / 480), Color{0, 0, 0, 255});
         impl_->draw_menu_text("hn_14", 1, 320, 461, gt3r::text::HAlign::Center, 0x80A7A5A5u, 1, word("SimplePauseMessage"), 0, 1.07f, 1);
     }
@@ -1050,6 +1142,7 @@ void RaceHud::draw(Ui& ui, const HudState& s) {
         return;
     }
     if (s.replay && s.replay_shown <= 0) return;
+    edge.reset(), edge.emplace(-1);
     if (s.replay) {
         // The replay's sign at its place (the place's rectangle is the sign's room: its own size, top left).
         // (the mode's plate hides it: 0x39F058)
@@ -1063,6 +1156,7 @@ void RaceHud::draw(Ui& ui, const HudState& s) {
         impl_->draw_map(s);
         impl_->draw_top(s);
     }
+    edge.reset(), edge.emplace(1);
     if (s.bspec && !s.replay) {
         impl_->draw_bspec(s, s.tooltip.empty() ? word("Tool Tip1") : s.tooltip);
         return;

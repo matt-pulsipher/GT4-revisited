@@ -1804,7 +1804,7 @@ public:
         // shots (a standing start's or a rolling start's TV cameras), B-spec or looking back.
         race::ViewPose pit;
         if (mount_ == race::DriveCamera::kInCar && !camera_.aside() && !world_->pit_camera(focus(), pit) && !finish_view() && !replaying_ && !demo_run_ && !flow_.player_finished() && !menu_scene_ && !watched_ && !start_camera_.active() && !opening_tv() && !look_back && !setup_.look_back) {
-            const SDL_FRect c = RaceHud::canvas();
+            const SDL_FRect c = RaceHud::canvas(-1); // (at the top of a picture narrower than 4:3)
             const float k = c.h / 480.0f;
             world_->render_mirror(ui, {c.x + 190 * k, c.y + 18 * k, 259 * k, 63 * k}, cars, pose, 0);
         }
@@ -1829,7 +1829,7 @@ public:
     // Where each car is in the picture (an online race's names): a point over its roof.
     void label_cars(std::span<const race::CarState> cars, const race::ViewPose& pose, const SDL_FRect& rect) {
         labels_.clear();
-        const float ty = std::tan(pose.fovy() * 0.5f), tx = ty * rect.w / std::max(rect.h, 1.0f);
+        const float ty = std::tan(pose.fovy(rect.w / std::max(rect.h, 1.0f)) * 0.5f), tx = ty * rect.w / std::max(rect.h, 1.0f);
         for (size_t i = 0; i < cars.size(); ++i) {
             OnlineRaceUi::Label l;
             l.car = i;
@@ -2529,6 +2529,7 @@ public:
     }
 
     bool follows_aspect() const override { return race_ != nullptr; } // (Drive's lists are the app's own page)
+    bool view_fills_narrow() const override { return race_ != nullptr && !quick_; } // (the race's menus: at 4:3 at least)
     // The driving controls while the player drives, the pad over the race's menus and pauses, none over Drive's lists (tapped).
     gt3r::TouchLayout touch_layout() const override {
         return !race_ ? gt3r::TouchLayout::None : playing() ? gt3r::TouchLayout::Driving : gt3r::TouchLayout::Menu;

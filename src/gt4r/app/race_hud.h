@@ -146,7 +146,9 @@ public:
     // The course's logo (piece/crs_logo/<course>.img, a Tex1 picture) for the replays' opening.
     void set_course_logo(ByteSpan tex1);
     // The 640 x 480 canvas on the screen.
-    static SDL_FRect canvas();
+    // (`edge` -1: the canvas of the parts at the top, 1 of those at the bottom, which a picture narrower than 4:3 moves out to its
+    // edges; 0 the middle's)
+    static SDL_FRect canvas(float edge = 0);
     // The pointer's hovers and taps (UI units) on a movie's buttons drawn on the canvas (StrobePlayer::point):
     // a hover or a tap on a button focuses it, a tap on the focused one chooses it. True when one was tapped.
     static bool point_movie(const App& app, race::StrobePlayer& player);
