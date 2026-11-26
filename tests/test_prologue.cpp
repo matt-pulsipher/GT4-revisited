@@ -318,8 +318,10 @@ TEST(disc_prologue_step_routines_equal) {
         const std::vector<diff::prologue::PTapStat> stats = diff::prologue::check(*disc, "tsukuba", car, 600, "prologue", err);
         CHECK(err.empty());
         for (const diff::prologue::PTapStat& st : stats) {
-            if (st.name.rfind("GT4's", 0) != 0 || (std::string(car) == "prius_g_touring_03" && st.name == "GT4's axle step")) continue;
-            if (st.clean != st.calls) std::printf("  %s: %s %llu of %llu calls equal\n", car, st.name.c_str(), static_cast<unsigned long long>(st.clean),
+            // (the hybrid's own path: its axles, its rpm and one-speed box, 0x3CD338 and 0x3BABC8)
+            const bool hybrid = std::string(car) == "prius_g_touring_03";
+            if (st.name.rfind("GT4's", 0) != 0 || (hybrid && (st.name == "GT4's axle step" || st.name == "GT4's engine speed" || st.name == "GT4's gear step"))) continue;
+            if (st.calls == 0 || st.clean != st.calls) std::printf("  %s: %s %llu of %llu calls equal\n", car, st.name.c_str(), static_cast<unsigned long long>(st.clean),
                                                   static_cast<unsigned long long>(st.calls));
             CHECK(st.calls > 0 && st.clean == st.calls);
         }
