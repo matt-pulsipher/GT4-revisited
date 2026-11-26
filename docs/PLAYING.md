@@ -1,8 +1,9 @@
 # Playing GT4 Revisited
 
 GT4 Revisited runs Gran Turismo 4 from your own disc image. This page says how to start, how to
-play, what works and what does not yet. It describes the US disc (SCUS-97328); the Japanese
-Prologue disc starts the same way.
+play, what works and what does not yet. It describes the US disc (SCUS-97328); the European (SCES-51719) and Japanese
+(SCPS-17001) discs and the Japanese Prologue disc start the same way. The European disc asks for its language (English,
+Français, Deutsch, Italiano, Español) at every start, as the console does, and sets the units by it.
 
 ## Starting
 
@@ -269,8 +270,10 @@ cameras to the race's views. On a pad whose right stick does nothing else it loo
 
 The ones a player meets first:
 
-- Discs: Gran Turismo 4 US (SCUS-97328, v1.01) and Gran Turismo 4 Prologue (Japan, SCPS-15055) are the
-  tested releases. Another release opens with "not a tested release" on the home screen, and parts of it may not work.
+- Discs: Gran Turismo 4 US (SCUS-97328, v1.01), Europe (SCES-51719, v1.00), Japan (SCPS-17001, v1.05) and Gran
+  Turismo 4 Prologue (Japan, SCPS-15055) are the tested releases. Another release opens with "not a tested release" on
+  the home screen, and parts of it may not work. The Japanese release races on the US release's driving, computer-driver
+  and race rules for now. The European release races at 60 frames a second like the others, with its own rules.
 - Gran Turismo mode's name entry takes no typed letters: choose them on its keyboard with the arrows and Enter.
 - Photo Lab: films cannot be developed; the printer page finds no printer, and the USB memory is the data folder's
   `photos/`.

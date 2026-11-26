@@ -402,8 +402,11 @@ player's car, the barrier's round, and the host's settings.
 
 ### The session's identity
 
-The disc's id is `gt4` for the release as it shipped, `gt4:<the files' digest>` for any other Gran Turismo 4 disc
-(`net/identity.*`); Prologue has none and no Multi-LAN Race. Two ids that differ never meet: the host refuses, and the refusal
+The disc's id is `gt4` for a release as it shipped (US SCUS-97328, Europe SCES-51719 and Japan SCPS-17001 alike),
+`gt4:<the files' digest>` for any other Gran Turismo 4 disc (`net/identity.*`); the releases race each other (every machine
+steps 60 times a second and runs its own car by its own release's rules), and their differences are met car by car
+(below: a car one disc lacks, or whose parameter block differs, such as a car Europe's inertia floor changes, is named
+with the reason and does not race); Prologue has none and no Multi-LAN Race. Two ids that differ never meet: the host refuses, and the refusal
 calls our disc "another game", whichever side hosts. The version in the relay's requests is the shared engine's (the relay
 holds it to its main game's oldest version). A relay server that asks for a newer one is answered on the page by a text of
 ours with no other name and no download; the relay's own update notices are not used.
