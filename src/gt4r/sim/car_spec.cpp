@@ -3,7 +3,9 @@
 
 #include "gt4r/sim/car_spec.h"
 
-#include "sim/car_spec.h" // the shared engine's gear ratio generator
+#include "base/ee_float.h"
+#include "gt4r/sim/convert.h"
+#include "sim/car_spec.h" // (the shared engine's gear ratio generator: Prologue's for now)
 
 #include <cstring>
 
@@ -374,6 +376,39 @@ void build_spec(db::SpecDb& db, const Program& program, const Equipment& eq, int
     }
 }
 
+// 0x354FF8 (from 0x443240): a made gearbox's ratios x 1000 from the spec's gears (+0x155), rev byte (+0xBD), final drive
+// (+0x150, x 0.001) and the driven tire's radius, and the slider x 10 (km/h): the top gear's ratio from the speed the slider
+// gives at the rev byte's rpm; each gear below by the steps of the program's table 0x620448 (6 bytes a row, the rows of 5, 6
+// and 7 gears and more), eased between a row's pairs by (slider x 10 - 150) / 250; first gear once more by the third pair;
+// reverse (3 first + second) / 4.
+void gear_ratios(const Spec& s, const Program& program, int slider10, gt3r::s16 out[8]) {
+    using gt3r::ee::F;
+    using gt3r::ee::int_to_f;
+    const int n = s.b(0x155);
+    const u32 row = 0x62042A + 6 * u32(n < 5 ? 5 : n < 8 ? n : 7);
+    const F k200 = F::raw(0x43480000);
+    auto step = [&](u32 k) { return k200 / int_to_f(program.b(row + k)); };
+    const F t = int_to_f(slider10 - 150) / F::raw(0x437A0000);
+    F r = int_to_f(100 * s32(s.b(0xBD))) * F::raw(0x3DD6774E); // (rpm to rad/s)
+    r = r * driven_tire_radius(s, program);
+    r = r / (int_to_f(slider10) * F::raw(0x3E8E38E3)); // (km/h to m/s)
+    r = r / (int_to_f(gt3r::s16(s.h(0x150))) * F::raw(0x3A83126E));
+    auto eased = [&](u32 a, u32 b) {
+        const F lo = step(b);
+        return lo + t * (step(a) - lo);
+    };
+    F q1 = eased(0, 1), q2 = eased(2, 3);
+    const F q3 = eased(4, 5);
+    for (int i = n; i > 0; --i) {
+        if (i == 1) r = r * q3;
+        const F v = r * F::raw(0x447A0000);
+        r = r * q1, q1 = q1 * q2;
+        if (i < 8) out[i] = gt3r::s16(u16(u32(gt3r::ee::to_int(v)))); // (truncated and saturated, the low 16 bits kept)
+    }
+    const int rev = 3 * int(out[1]) + int(out[2]);
+    out[0] = gt3r::s16(rev / 4); // (toward zero)
+}
+
 bool computed_gears(db::SpecDb& db, const Program& program, Equipment& eq) {
     const ByteSpan gear = db::part_row(db, eq.part(E::Gear));
     if (gear.size() < 0x2D || gear[0x25] == 0) return false;
@@ -381,12 +416,14 @@ bool computed_gears(db::SpecDb& db, const Program& program, Equipment& eq) {
     build_spec(db, program, eq, 0, s);
     const int n = s.gears();
     if (n < 1 || n > 7) return false;
-    // The driven axle's tire: the front for front drive and for four wheel drive system 0.
-    const int axle = s.drive() == 1 || (s.drive() == 2 && s.b(0x129) == 0) ? 0 : 1;
-    const int rim = s.b(0x1CA + u32(axle));
     gt3r::s16 out[8] = {};
-    gt3r::sim::generate_gear_ratios(n, s.b(0xBD), s.h(0x150), rim < 61 ? rim : (rim + 5) / 10, s.b(0x1C8 + u32(axle)), s.b(0x1CC + u32(axle)),
-                                    eq.b(E::GearSlider), out, s.drive(), s.b(0x129));
+    if (program.known()) gear_ratios(s, program, 10 * int(eq.b(E::GearSlider)), out);
+    else { // ❓ Prologue: the shared engine's generator (Gran Turismo 3's 0x1E28A8) until Prologue's own is placed
+        const int axle = s.drive() == 1 || (s.drive() == 2 && s.b(0x129) == 0) ? 0 : 1;
+        const int rim = s.b(0x1CA + u32(axle));
+        gt3r::sim::generate_gear_ratios(n, s.b(0xBD), s.h(0x150), rim < 61 ? rim : (rim + 5) / 10, s.b(0x1C8 + u32(axle)), s.b(0x1CC + u32(axle)),
+                                        eq.b(E::GearSlider), out, s.drive(), s.b(0x129));
+    }
     for (int i = 0; i <= n; ++i) eq.set_h(E::GearRatios + 2 * u32(i), u16(out[i]));
     return true;
 }

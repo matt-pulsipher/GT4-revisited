@@ -7,6 +7,10 @@
 #include "gt4r/sim/program.h"
 #include "gt4r/sim/program_tables.h"
 #include "gt4r/sim/race_rules.h"
+#include "gt4r/sim/car_spec.h"
+#include "gt4r/sim/equipment.h"
+#include "gt4r/formats/db/specdb.h"
+#include "orig.h"
 
 #include <cstdio>
 
@@ -124,4 +128,37 @@ TEST(disc_program_tables_found_by_their_routines) {
     image->program = moved;
     const sim::Program p = sim::Program::from_core(image), q = sim::Program::from_core(image);
     CHECK(p.known() && p.ours() && &p.check() == &q.check() && p.check().not_found() == 0 && p.b(sim::Program::kStatic + 0x0B) == 8);
+}
+
+// A made gearbox's ratios at every slider: ours (sim::computed_gears, 0x354FF8 ported) and the program's own 0x443240 in the
+// interpreter, word for word, on every car whose gearbox is made.
+TEST(disc_gear_ratios_equal_the_programs) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    db::SpecDb sdb = diff::open_db(*disc);
+    const sim::Program program = sim::Program::load(*disc);
+    diff::Ee ee;
+    diff::boot(ee, *disc, sdb);
+    const u32 eq_at = ee.alloc(0x200);
+    size_t cars = 0, checked = 0, equal = 0;
+    for (const db::CarEntry& c : sdb.cars()) {
+        sim::Equipment eq;
+        if (!sim::stock_equipment(sdb, c.label, eq)) continue;
+        const ByteSpan gear = db::part_row(sdb, eq.part(sim::Equipment::Gear));
+        if (gear.size() < 0x2D || gear[0x25] == 0) continue;
+        ++cars;
+        for (int slider = 10; slider <= 50; slider += 4) {
+            eq.set_b(sim::Equipment::GearSlider, u8(slider));
+            sim::Equipment ours = eq;
+            if (!sim::computed_gears(sdb, program, ours)) continue;
+            for (u32 o = 0; o < sim::Equipment::kSize; ++o) ee.w8(eq_at + o, eq.bytes[o]);
+            ee.call(0x443240, {diff::Arg::ptr(eq_at)}, 50'000'000);
+            const u32 n = gear[0x24];
+            bool same = true;
+            for (u32 i = 0; i <= n; ++i) same &= ee.r16(eq_at + 0x110 + 2 * i) == ours.h(0x110 + 2 * i);
+            ++checked, equal += same;
+        }
+    }
+    std::printf("  %zu cars with a made gearbox, %zu car and slider pairs checked, %zu equal\n", cars, checked, equal);
+    CHECK(checked > 1000 && equal == checked);
 }
