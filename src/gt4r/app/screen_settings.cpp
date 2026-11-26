@@ -6,6 +6,8 @@
 #include "gt4r/app/online.h"
 #include "gt4r/app/screen_saves.h"
 #include "gt4r/app/page.h"
+#include "gt4r/app/presence.h"
+#include "gt4r/app/updates.h"
 #include "gt4r/app/texture_dump.h"
 #include "gt4r/input/player_controls.h"
 #include "gt4r/settings/mod_files.h"
@@ -414,6 +416,7 @@ private:
                 a->save_config();
             });
         }
+        updates_rows(app);
         rows_.heading("This app");
         rows_.choice("Starts in", {"The game", "The home screen"}, app.config().get("game", "start").value_or("game") == "hub", [a](size_t i) {
             a->config().set("game", "start", i ? "hub" : "game");
@@ -433,6 +436,28 @@ private:
         }
         rows_.info("Version", "GT4 Revisited " GT4R_VERSION ", engine " GT3R_VERSION);
         rows_.info("Settings file", app.config_path());
+    }
+
+    // The update check (app/updates.h) and the Discord status (app/presence.h).
+    void updates_rows(App& app) {
+        App* a = &app;
+        Updates& up = updates();
+        rows_.heading("Updates");
+        rows_.choice("Check for updates", {"Only when asked", "At startup"}, Updates::enabled(app), [a](size_t i) { Updates::set_enabled(*a, i == 1); });
+        rows_.action("Check now", up.status_text(), "ask " + Updates::server(app), [a] { updates().check_now(*a); });
+        rows_.info("This version", net::this_version().to_string());
+        rows_.info("Latest release", (up.latest().known() ? up.latest().number() : std::string("unknown")) + (up.checked().empty() ? "" : "  (as of " + up.checked() + ")"));
+        // (races through the relay server need it; the local network and addresses never do)
+        rows_.info("Online play needs", up.min_online().known() ? "version " + up.min_online().number() + " or later" : "any version");
+        const gt3r::net::UpdateLinks links = up.links();
+        const bool due = up.prompt() != gt3r::net::UpdatePrompt::None;
+        rows_.action("Download update", due ? "version " + up.latest().number() : up.known() ? std::string("up to date") : std::string("no release known"), "open the update", [] { updates().open_dialog(); }).enabled = due;
+        rows_.action("Release notes", links.notes.empty() ? std::string("not known yet") : links.notes, "open the page", [] { updates().open_notes(); }).enabled = !links.notes.empty();
+        if (Presence::supported() && !Presence::app_id(app).empty()) {
+            rows_.heading("Discord");
+            rows_.choice("Show what you're playing", {"No", "Yes"}, Presence::enabled(app), [a](size_t i) { discord_status().set_enabled(*a, i == 1); });
+            rows_.info("Discord", discord_status().status_text(app));
+        }
     }
 
     void use_save_folder(App& app, const std::string& path) {

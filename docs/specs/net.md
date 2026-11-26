@@ -299,9 +299,9 @@ player's car, the barrier's round, and the host's settings.
 
 The disc's id is `gt4` for the release as it shipped, `gt4:<the files' digest>` for any other Gran Turismo 4 disc
 (`net/identity.*`); Prologue has none and no Multi-LAN Race. Two ids that differ never meet: the host refuses, and the refusal
-calls our disc "another game", whichever side hosts. The version sent is the shared engine's. A relay server that asks for a
-newer version is answered on the page by a text of ours with no other name and no download; the relay's version notices are
-not used.
+calls our disc "another game", whichever side hosts. The version in the relay's requests is the shared engine's (the relay
+holds it to its main game's oldest version). A relay server that asks for a newer one is answered on the page by a text of
+ours with no other name and no download; the relay's own update notices are not used.
 
 ### The car
 
@@ -329,6 +329,45 @@ server`. No server is set until the player chooses one on the page: the first th
 `gt3r.gameversions.com` or a name typed. A player's own (`gt3r-relay`) is typed there too. Tests use a server of their own on
 the loopback.
 
+### Versions and updates
+
+This game's version is its own (`project(GT4Revisited VERSION x.y.z)`, `gt4r_version.h`; `net::this_version()`), not the
+shared engine's. The update check (`net/version_check.*`, `app/updates.*`) asks the relay server which versions of **this
+game** it announces:
+
+- **The question**: the engine's VersionQuery (our version, the platform), then a game tag: the id `gt4r` and our version
+  again, padded to 199 bytes (the engine's `docs/dev/ONLINE.md` "Other games on one relay"). A relay that keeps versions
+  per game answers this game's latest release, oldest version for online play and release page, with our id after the
+  page. A relay that does not (the public relay until the change is deployed) answers its main game's versions without
+  the id: that answer is not taken, and nothing is shown, as when nobody answers.
+- **When**: at startup when Settings > Disc & saves > *Check for updates* is *At startup* (the default) **and a server has
+  been chosen** (`[online] server`; the online page promises that none is contacted before), and on *Check now*, which
+  asks the chosen server or else `gt3r.gameversions.com`. Scripted runs use only the kept answer unless
+  `GT4R_UPDATE_CHECK=1`.
+- **Kept** in `config.ini` `[online]`: `update_latest`, `update_min_online`, `update_url`, `update_checked`,
+  `update_dismissed`.
+- **The dialog**, drawn by the app over any screen, as the engine's: *Update available* ("GT4 Revisited x.y.z is
+  available. You have a.b.c.") or *Update required to play online* ("Online play needs GT4 Revisited x.y.z or newer. You
+  have a.b.c. Offline play is not affected."); *Download update* (this platform's package: `gt4r-macos-arm64.zip`,
+  `gt4r-windows-x64.zip`, `gt4r-linux-x86_64.tar.gz` in place of the page's `{asset}`), *Later*, *Release notes*. At
+  startup it shows once per release over the home screen or the game's title (Arcade's `TopRoot`); Later remembers the
+  release.
+- **Enforcement**: the relay holds our session requests to its main game's oldest version by the engine's version in
+  them. ❓ Holding them to this game's own versions needs the engine to add the game tag to the session's requests
+  (`Session::set_game_tag`, an engine change not in the shared engine yet); until then, each raise of the main game's
+  oldest version stops our races through the relay until the shared engine is brought up to it. The local network and
+  addresses are never affected.
+
+### Discord status
+
+Settings > Disc & saves > *Show what you're playing* (`[discord] status`, off by default; shown only on desktop builds and
+when a Discord application id is known: `kDiscordAppId` in `app/presence.h`, or `[discord] app_id`). The engine's own client
+(`platform/discord_presence.*`) talks to the Discord app on this computer only. The text (`net/presence_text.*`): the
+menus by the project running (the title, Arcade, Gran Turismo mode, Options, Car settings, the Replay Theater, Photo Travel,
+Photo Lab, Multi-LAN Race), a race by its kind and course, then the car, the lap and the place; the picture is the
+application's `logo` art asset (the app's icon). The clock is the session's. Scripted runs leave Discord alone unless
+`GT4R_DISCORD=1`.
+
 ### Scripted races
 
 `--screen online` with `GT4R_ONLINE` (the top of `app/screen_online.cpp`): two copies race without the menus, direct or
@@ -342,7 +381,8 @@ through a local relay server; `GT4R_NET_LOOPBACK=1` keeps them on this machine (
 | What the pages share (the natives) | `menu/game_network.*`, `net/lobby.*` | Gran Turismo 4's rules on the shared engine's session |
 | The connection's page, the panel, the rules that are ours | `app/screen_online.cpp`, `app/race_online_ui.*` | ours |
 | The transport, the codes, the relay | `engine/gt3r/src/net` | the shared engine's |
+| The update check's question, the update dialog, the Discord status's text | `net/version_check.*`, `app/updates.*`, `net/presence_text.*`, `app/presence.*` | ours (the engine's prompt rules, links and Discord client) |
 | The car's parameter block, the race's tires | `sim/convert.*`, `sim/race_tires.*` | Gran Turismo 4 |
 
-Tests: `net_lobby_*`, `disc_net_cars` (every car of the disc through the wire and the digest), `disc_net_lan_pages` and
+Tests: `updates_*`, `net_lobby_*`, `disc_net_cars` (every car of the disc through the wire and the digest), `disc_net_lan_pages` and
 `disc_net_lan_garage_car` (two games' menus in one process from the Multi-LAN Race to the race and back).

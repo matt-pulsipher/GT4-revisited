@@ -62,6 +62,7 @@ std::unique_ptr<Screen> make_courses_screen(App& app) {
 class HubScreen : public Screen {
 public:
     bool menu_input_any_device() const override { return true; } // (a way to Settings whatever the controllers are set to)
+    bool update_prompts() const override { return true; }      // (the update dialog at startup: app/updates.h)
 
     void update(App& app, double) override {
         const MenuInput& m = app.menu();

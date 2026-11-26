@@ -18,6 +18,8 @@
 #include "gt4r/app/menu_slides.h"
 #include "gt4r/app/online.h"
 #include "gt4r/app/photo_faces.h"
+#include "gt4r/app/presence.h"
+#include "gt4r/net/lobby.h"
 
 #include "base/log.h"
 #include "formats/text/charset.h"
@@ -68,6 +70,8 @@ class MenuViewer : public Screen {
 public:
     // `player`: the game itself (make_game_screen): from power on, no lists, no log beside the
     // pages; leaving the menus leaves the screen.
+    int title_frames_ = 0; // frames the game's title has been up (the update dialog waits for it: update_prompts)
+
     explicit MenuViewer(App& app, bool player = false, std::string new_card = {}) : player_(player), new_card_(std::move(new_card)) {
         start_boot_ = player;
         advertise_on_ = player; // (scripted runs: GT4R_MENU advertise=1)
@@ -108,8 +112,27 @@ public:
 
     bool follows_aspect() const override { return runtime_ || player_; }
 
+    // The game's title (Arcade's top page): the update dialog may open over it; the Discord status says which menus run.
+    std::pair<std::string, std::string> where() const {
+        if (!runtime_ || !runtime_->project() || runtime_->open_pages().empty()) return {};
+        return {runtime_->project()->name(), runtime_->open_pages().front()->data.name()};
+    }
+    bool update_prompts() const override { return player_ && title_frames_ >= 180; } // (the title shown a moment: faded in)
+    bool presence(App&, net::PresenceText& t) override {
+        if (!player_) return false;
+        const auto [project, page] = where();
+        t = net::menu_presence(project, page);
+        if (const net::Lobby& l = net::lobby(); l.active()) { // the Multi-LAN Race's lobby, whatever page is up
+            t.details = "Multi-LAN Race";
+            t.state = l.host() ? "Hosting a lobby" : "In a lobby";
+            t.party_size = l.count(), t.party_max = 6; // (six players at most: the pregrid's slots)
+        }
+        return !t.details.empty();
+    }
+
     void update(App& app, double dt) override {
         step_time_ += dt;
+        title_frames_ = where() == std::pair<std::string, std::string>{"arcade", "TopRoot"} ? title_frames_ + 1 : 0;
         const MenuInput& m = app.menu();
         if (start_boot_) {
             start_boot_ = false, start_project_.clear();

@@ -1,5 +1,7 @@
 #include "gt4r/app/app.h"
 #include "gt4r/app/online.h"
+#include "gt4r/app/presence.h"
+#include "gt4r/app/updates.h"
 
 #include "gt4r/input/player_controls.h"
 
@@ -250,8 +252,19 @@ bool App::init(int argc, char** argv) {
         // screen under it ([game] start = hub: the home screen).
         else if (start_ == "game" || (start_.empty() && config_.get("game", "start").value_or("game") != "hub")) push(make_game_screen(*this));
     } else push(make_setup_screen());
+    // The update check and the Discord status: scripted runs reach neither unless asked (GT4R_UPDATE_CHECK=1, GT4R_DISCORD=1).
+    const char* uc = SDL_getenv("GT4R_UPDATE_CHECK");
+    const char* dc = SDL_getenv("GT4R_DISCORD");
+    updates().startup(*this, !scripted_ || (uc && *uc == '1'));
+    discord_status().startup(*this, !scripted_ || (dc && *dc == '1'));
     last_ticks_ = start_ticks_ = SDL_GetTicksNS();
     return true;
+}
+
+bool App::screen_presence(net::PresenceText& t) {
+    for (auto it = screens_.rbegin(); it != screens_.rend(); ++it)
+        if ((*it)->presence(*this, t)) return true;
+    return false;
 }
 
 std::vector<std::string> App::parse_key_script(std::string_view text) {
@@ -481,6 +494,10 @@ SDL_AppResult App::iterate() {
     }
 
     apply_screen_changes();
+    updates().poll(*this);
+    discord_status().frame(*this);
+    updates().frame(*this, !screens_.empty() && screens_.back()->update_prompts());
+    const bool modal = updates().modal(); // the update dialog takes the menu input
     gt3r::PadState scripted = scripted_keys();
     {
         // The script's presses and held race controls reach the race's pad too (as an overlay on
@@ -527,7 +544,8 @@ SDL_AppResult App::iterate() {
                 if (a.kind == gt3r::PointerInput::Action::Kind::Back) pad.buttons |= u16(1u << unsigned(PadButton::Triangle)), pad.connected = true;
         menu_.update(pad, dt);
     }
-    if (!screens_.empty()) screens_.back()->update(*this, dt);
+    if (modal) updates().dialog_update(*this);
+    else if (!screens_.empty()) screens_.back()->update(*this, dt);
     apply_screen_changes();
     if (screens_.empty()) quit_ = true;
 
@@ -537,6 +555,7 @@ SDL_AppResult App::iterate() {
     begin_gamma_frame();
     ui_->clear();
     if (!screens_.empty()) screens_.back()->render(*this, *ui_);
+    updates().dialog_render(*ui_); // (centered on whatever width the screen below laid out)
     draw_fps(!game);
     // (GT4R_SHOT_GAMMA=1: the pictures as the window shows them, for checks)
     static const bool shot_gamma = SDL_getenv("GT4R_SHOT_GAMMA") != nullptr;
@@ -666,6 +685,7 @@ void App::write_stats(double frame_ms) {
 }
 
 void App::shutdown() {
+    discord_status().shutdown(); // clears the Discord status
     screens_.clear(); // (screens stop their streams before the audio and the disc go)
     pending_.clear();
     sound_.reset();

@@ -15,6 +15,7 @@
 
 #include "gt4r/app/app.h"
 #include "gt4r/app/page.h"
+#include "gt4r/app/presence.h"
 #include "gt4r/app/menu_painter.h"
 #include "gt4r/app/replay_picture.h"
 #include "gt4r/app/race_common.h"
@@ -2429,6 +2430,21 @@ public:
     }
 
     bool follows_aspect() const override { return race_ != nullptr; } // (Drive's lists are the app's own page)
+    // The Discord status (app/presence.h): the kind of run and the course, the car, the lap and the place.
+    bool presence(App& app, net::PresenceText& t) override {
+        if (!race_) return false;
+        net::RacePresence r;
+        r.sequence = sequence_.empty() ? setup_.sequence : sequence_;
+        r.online = online_ != nullptr, r.replay = race_->replaying() || saved_replay_, r.demonstration = demo_ || race_->demonstrating();
+        r.course = course_title(app, setup_.course);
+        r.car = race_->car_name(0);
+        const race::RaceFlow& f = race_->flow();
+        r.cars = int(f.car_count()), r.place = r.cars > 0 ? f.place(0) : 0, r.lap = r.cars > 0 ? f.lap_shown(0) : 0;
+        r.laps = setup_.laps, r.finished = f.player_finished();
+        if (r.online) r.players = r.cars;
+        t = net::race_presence(r);
+        return true;
+    }
 
     void update(App& app, double dt) override {
         // (The time from the last frame's drawing to this update: its present and the events.)
