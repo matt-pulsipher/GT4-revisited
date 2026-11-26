@@ -190,3 +190,56 @@ TEST(updates_session_names_the_game) {
     rv::Session real;
     (void)net::name_the_game(real);
 }
+
+namespace {
+
+// A relay's versions for this game, where the shared engine's relay keeps versions per game (false: it does not).
+template <class V>
+auto list_game(V& v, const char* latest, const char* min_online, int) -> decltype(v.games, bool()) {
+    auto& g = v.games[net::kGameId];
+    g.latest = ver(latest), g.min_online = ver(min_online), g.release_url = "https://example.org/ours";
+    return true;
+}
+template <class V>
+bool list_game(V&, const char*, const char*, long) {
+    return false;
+}
+
+} // namespace
+
+TEST(updates_relay_holds_us_to_our_versions) {
+    // With an engine whose relay keeps versions per game and whose session takes the game tag: the relay's main game asks for a
+    // version no copy of ours has, yet our session is held to our own versions only.
+    rv::RelayServer server;
+    rv::RelayServer::Versions v;
+    v.latest = v.min_online = ver("99.0.0");
+    v.release_url = "https://example.org/main";
+    if (!list_game(v, net::this_version().number().c_str(), net::this_version().number().c_str(), 0)) SKIP("the shared engine has no game tags yet");
+    if (!server.open(0)) SKIP("no UDP sockets here");
+    server.set_versions(v);
+    const std::string at = "127.0.0.1:" + std::to_string(server.port());
+    const auto run = [&](rv::Session& s) {
+        for (int t = 0; t < 5000 && s.code().empty() && !s.update_required(); t += 2) server.step(0), s.poll(), std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    };
+    {
+        rv::Session s; // not named: the main game's versions
+        CHECK(s.host_via(at, "One", "", 0));
+        run(s);
+        CHECK(s.update_required().has_value() && s.code().empty());
+    }
+    {
+        rv::Session s; // named: ours
+        CHECK(net::name_the_game(s));
+        CHECK(s.host_via(at, "One", "", 0));
+        run(s);
+        CHECK(!s.update_required() && !s.code().empty());
+    }
+    // Our oldest version raised above this one: refused with our release.
+    list_game(v, "99.0.0", "99.0.0", 0);
+    server.set_versions(v);
+    rv::Session s;
+    net::name_the_game(s);
+    CHECK(s.host_via(at, "One", "", 0));
+    run(s);
+    CHECK(s.update_required() && s.update_required()->url == "https://example.org/ours");
+}
