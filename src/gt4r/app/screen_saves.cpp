@@ -110,9 +110,9 @@ private:
         if (chosen_ >= 0 && chosen_ < int(games_.size())) {
             const save::SavedGame g = games_[size_t(chosen_)];
             if (g.readable)
-                row(hooks_.load ? "Load" : "Play this game", g.current ? "the game being played" : "", "choose", [this, g] {
+                row(hooks_.load ? "Load" : "Play this game", g.current ? "the game being played" : "", "play", [this, g, ap] {
                     if (hooks_.load) hooks_.load(g.card), closing_ = true;
-                    else if (library_->set_current(g.card)) chosen_ = -1, rows_.selected = 0, say("Play goes on with this game.");
+                    else if (library_->set_current(g.card)) chosen_ = -1, rows_.selected = 0, stale_ = true, ap->push(make_game_screen(*ap)); // (the game from power on, with this one)
                     else say("The choice could not be kept in the save folder.", true);
                 });
             row("Export to PS2", "a memory card image", "choose the file", [this, g, ap] {
@@ -121,7 +121,7 @@ private:
             });
             // (Not while a game runs: it saves by itself.)
             if (g.readable && !hooks_.load) row("Edit", "the save editor", "open", [this, g, ap] { ap->push(make_save_editor(*ap, g.card)), stale_ = true; });
-            row(sure_ ? "Delete: again to take this game away" : "Delete", "", "delete", [this, g] {
+            row(sure_ ? "Delete: press again to delete this game" : "Delete", "", "delete", [this, g] {
                 if (!sure_) return void(sure_ = true);
                 sure_ = false;
                 if (g.current && hooks_.load) say("The game being played cannot be deleted: load another first.", true);

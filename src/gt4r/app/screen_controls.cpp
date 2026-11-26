@@ -74,7 +74,7 @@ public:
         bar(76, "Accelerator", pedal(f.flags & 2, f.throttle), false);
         bar(102, "Brake", pedal(f.flags & 4, f.brake), false);
         bar(128, "Reverse", pedal(f.flags & 8, f.back), false);
-        std::string more = f.kind == 6 ? "wheel, 900 degrees" : f.kind == 4 ? "wheel, 200 degrees" : f.kind == 2 ? "stick" : "buttons";
+        std::string more = std::string("Steered by ") + (f.kind == 6 ? "a wheel, 900 degrees" : f.kind == 4 ? "a wheel, 200 degrees" : f.kind == 2 ? "a stick" : "buttons");
         if (f.shift) more += f.shift > 0 ? ", shift up" : ", shift down";
         if (f.third) more += ", handbrake";
         if (f.nitrous) more += ", nitrous";

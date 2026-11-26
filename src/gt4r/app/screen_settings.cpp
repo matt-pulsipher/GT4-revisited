@@ -373,7 +373,7 @@ private:
         const std::string current = app.disc() ? app.config().get("game", "disc").value_or("") : "";
         if (app.disc()) {
             const DiscInfo& d = app.disc()->info();
-            rows_.info("Disc", d.description + ", " + d.serial + " version " + d.version);
+            rows_.info("Disc", d.description + (d.serial.empty() ? std::string() : ", " + d.key + " v" + d.version));
             rows_.info("Its files", d.verified ? "a tested release's own" : d.modified ? "a modified copy of a tested release" : "not a tested release");
             if (d.problem.empty()) rows_.info("The image", "complete");
             else {
@@ -384,8 +384,7 @@ private:
         }
         rows_.action("Open a disc image", ".iso or .chd", "choose the file", [a] { a->show_open_dialog(); });
         if (!app.last_error().empty()) {
-            PageRow& r = rows_.info("The last one could not be opened", "");
-            (void)r;
+            rows_.info("The last one could not be opened", "").bad = true;
             for (const std::string& line : Ui::wrap(app.last_error(), 560)) rows_.info(line, "");
         }
         if (!discs_.empty()) rows_.heading("Discs opened before");
