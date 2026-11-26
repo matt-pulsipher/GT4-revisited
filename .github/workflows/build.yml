@@ -9,10 +9,10 @@ on:
   workflow_dispatch: # also builds the release packages
     inputs:
       platforms:
-        description: "Which platforms' jobs run (all, or one: macos, linux, windows)"
+        description: "Which platforms' jobs run (all, or one: macos, linux, windows, android)"
         default: all
         type: choice
-        options: [all, macos, linux, windows]
+        options: [all, macos, linux, windows, android]
 
 # A newer run of the same branch or tag cancels the one still running (Windows minutes count double).
 concurrency:
@@ -21,6 +21,7 @@ concurrency:
 
 # Desktop: build the app, gt4tool and the unit tests on macOS, Linux and Windows and run the
 # tests that need no disc image (the tests that read game data skip without GT4R_DISC).
+# Android: build the debug APK (arm64-v8a + x86_64) with the pinned NDK.
 #
 # Needs: GitHub's hosted runners only; no secrets. The engine is the engine/gt3r submodule,
 # fetched from its public repository, so the submodule commit must be pushed there. SDL 3.4.12,
@@ -36,6 +37,7 @@ concurrency:
 
 jobs:
   desktop:
+    if: github.event_name != 'workflow_dispatch' || inputs.platforms != 'android'
     strategy:
       fail-fast: false
       matrix:
@@ -60,6 +62,54 @@ jobs:
       - name: Unit tests (no disc image)
         run: ctest --test-dir build -C Release --output-on-failure --verbose # (the tests run, skipped and failed, at the end)
 
+  # Android (android/README.md): the debug APK (arm64-v8a + x86_64) with the pinned NDK, as an artifact. Gradle's downloads
+  # are kept in GRADLE_USER_HOME=.gradle-home in the workspace, cached from master (Maven Central answers busy CI addresses
+  # with HTTP 429).
+  android:
+    if: github.event_name != 'workflow_dispatch' || inputs.platforms == 'all' || inputs.platforms == 'android'
+    runs-on: ubuntu-24.04
+    env:
+      GRADLE_USER_HOME: ${{ github.workspace }}/.gradle-home
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: 21
+      - name: Gradle cache (restore)
+        id: gradle-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .gradle-home/caches/modules-2
+            .gradle-home/wrapper/dists
+          key: gradle-${{ hashFiles('android/build.gradle', 'android/app/build.gradle', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-
+      - name: Install NDK and CMake
+        run: |
+          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --install \
+            "ndk;27.0.12077973" "cmake;3.22.1" > /dev/null
+      - name: Fetch SDL
+        run: android/fetch-sdl.sh
+      - name: Build APK
+        working-directory: android
+        run: ./gradlew --no-daemon assembleDebug
+      # Saved from master only: a pull request's cache would be visible to that pull request alone.
+      - name: Gradle cache (save)
+        if: github.ref == 'refs/heads/master' && steps.gradle-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            .gradle-home/caches/modules-2
+            .gradle-home/wrapper/dists
+          key: ${{ steps.gradle-cache.outputs.cache-primary-key }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gt4r-android-debug
+          path: android/app/build/outputs/apk/debug/*.apk
+
   # ANGLE for the Windows package (packaging/angle.ps1, ~18 min), kept in the cache from master: a
   # tag's run restores only its own tag's caches and the default branch's. Built again when the
   # script or the triplets change; every other push just restores it, which also keeps it from
@@ -81,7 +131,7 @@ jobs:
         run: ./packaging/angle.ps1
 
   package:
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.platforms != 'android')
     strategy:
       fail-fast: false
       matrix:
