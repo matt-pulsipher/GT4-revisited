@@ -40,17 +40,29 @@ SDL_FPoint origin{0, 0};
 // Ours: how far the parts drawn now move down (canvas units): on a picture narrower than 4:3 the top's up and the bottom's down by
 // what the canvas has above and below it, to the picture's edges.
 float edge_y = 0;
+// Ours, touch screens: a group of parts drawn smaller about a corner of theirs (canvas units), as GroupScale sets it.
+struct Shrink {
+    float k = 1, px = 0, py = 0, dy = 0; // (dy: then moved down so far)
+};
+Shrink shrink;
 SDL_FRect to_ui(const DisplayRect& r) {
-    const float k = scale();
-    return {(r.x + origin.x + game_area::side()) * k, (r.y + origin.y + edge_y + game_area::top()) * k, r.w * k, r.h * k};
+    const float k = scale(), g = shrink.k;
+    const float x = shrink.px + (r.x - shrink.px) * g, y = shrink.py + (r.y - shrink.py) * g + shrink.dy;
+    return {(x + origin.x + game_area::side()) * k, (y + origin.y + edge_y + game_area::top()) * k, r.w * g * k, r.h * g * k};
 }
 SDL_FPoint to_ui(float x, float y) {
-    const float k = scale();
+    const float k = scale(), g = shrink.k;
+    x = shrink.px + (x - shrink.px) * g, y = shrink.py + (y - shrink.py) * g + shrink.dy;
     return {(x + origin.x + game_area::side()) * k, (y + origin.y + edge_y + game_area::top()) * k};
 }
 struct OriginScope {
     explicit OriginScope(SDL_FPoint at) { origin = at; }
     ~OriginScope() { origin = {0, 0}; }
+};
+struct GroupScale {
+    explicit GroupScale(const Shrink& to) : was(shrink) { shrink = to; }
+    ~GroupScale() { shrink = was; }
+    Shrink was;
 };
 // The parts of the top (`dir` -1) or the bottom (1) of the display while it lasts.
 struct EdgeScope {
@@ -123,6 +135,9 @@ struct RaceHud::Impl {
     float needle_from[2] = {0, 0}; // the dials' needles last frame (speed, revs), for their trail
     bool needle_set = false;
     float sign_levels[2][3] = {}; // the signs' last levels (by half)
+    // Touch screens: the chase panel's groups tied to the right and to the left side, drawn smaller where the controls leave them
+    // too little room beside the sideways G meter (ours; the shared engine's race display shrinks its meters the same way).
+    Shrink lower_shrink[2]; // (0 left, 1 right)
 
     SDL_Texture* make_texture(const gt3r::Tex1::Image& img) {
         if (!img.width || !img.height) return nullptr;
@@ -780,6 +795,7 @@ void RaceHud::Impl::draw_chase_panel(const HudState& s) {
     const int R = form.R, B = form.B;
     const u8 right = form.right();
     const float o = s.opacity;
+    std::optional<GroupScale> group(std::in_place, lower_shrink[1]);
     draw_at(mph ? "remote_speed_mph" : "remote_speed_kmph", {0, R - 26, B - 44, 82, 26, right, 0}, kNeutral, o);
     // The digits end where the widest number would.
     const FontSpec meter = font("GT4meter", 100, 1);
@@ -797,6 +813,7 @@ void RaceHud::Impl::draw_chase_panel(const HudState& s) {
     const float x0 = at.x + 0.70625f * at.w, x1 = at.x + at.w - 1, y0 = at.y - 3, y1 = at.y - 1, a = o * float(0x70) / 128.0f;
     triangles({vertex(x0, y0, 0x99, 0, 0, a), vertex(x1, y0, 0x99, 0, 0, a), vertex(x1, y1, 0x99, 0, 0, a), vertex(x0, y0, 0x99, 0, 0, a),
                vertex(x1, y1, 0x99, 0, 0, a), vertex(x0, y1, 0x99, 0, 0, a)});
+    group.reset();
     draw_small_parts(s, false);
 }
 
@@ -846,13 +863,17 @@ void RaceHud::Impl::draw_small_parts(const HudState& s, bool driver) {
             u32 tint = 0x80000000u;
             for (int c = 0; c < 3; ++c) tint |= u32(float(kTints[k] >> (8 * c) & 0xFF) * level) << (8 * c);
             const Picture& p = picture(kNames[k]);
+            const GroupScale group(driver ? Shrink{} : lower_shrink[0]);
             draw_picture(p, race::place_rect(places[k], p.w, p.h, true), tint, o, 1, true);
         }
     }
     // The shift lamp: its picture under a color scale of the lamp's level x 1.5 (0x3A7360), black when out.
     const bool shift = s.red_line > 0 && s.rpm >= 0.97f * s.red_line;
     if (driver) draw_at("timing_lamp", {0, C + 103, B - 62, 8, 8, 2, 2}, shift ? kNeutral : 0x80000000u, o);
-    else draw_at("timing_lamp", {0, form.R - 142, B - 28, 8, 8, form.right(), 0}, shift ? kNeutral : 0x80000000u, o);
+    else {
+        const GroupScale group(lower_shrink[1]);
+        draw_at("timing_lamp", {0, form.R - 142, B - 28, 8, 8, form.right(), 0}, shift ? kNeutral : 0x80000000u, o);
+    }
     // The sideways G meter: its base, and its point moved along it (none side by side).
     if (!form.side) {
         const DisplayRect base = draw_at("g_meter_base", {0, C, B, 214, 24, 2, u8(driver ? 2 : 1)}, kNeutral, o);
@@ -870,6 +891,7 @@ void RaceHud::Impl::draw_small_parts(const HudState& s, bool driver) {
         draw_text(font("GT4meter", 60, 1), float(C - 103), float(B - 45), kCentered, kMeterBlue, o, buf);
         return;
     }
+    const GroupScale group(lower_shrink[0]);
     // The pedals (RaceABMonitor: vf4 0x3A54F8, vf5): the picture, the brake's bar 4 x 56 at (x + 1, y + 4) red and the
     // throttle's at x + w - 5 in the meters' blue, from the bottom (RaceSimpleBarMeter).
     {
@@ -1006,7 +1028,29 @@ void RaceHud::draw(Ui& ui, const HudState& s) {
         const EdgeScope bottom(1);
         return touch && box.w > 0 ? clear_sideways(to_ui(box), s.touch_controls, dir) / scale() : 0.0f;
     };
-    const TouchShiftScope shift(clear(lower_right, -1), clear(lower_left, 1));
+    const float move_right = clear(lower_right, -1), move_left = clear(lower_left, 1);
+    const TouchShiftScope shift(move_right, move_left);
+    // Moved that far, a group that would reach the G meter in the middle (213 .. 427 of the canvas, 214 wide about 320, its top 24
+    // above the panel's bottom) shrinks about its outer bottom corner, to 70 % at most; if it would still reach it, it goes up
+    // clear of the meter's top.
+    impl_->lower_shrink[0] = impl_->lower_shrink[1] = Shrink{};
+    if (touch && !s.driver_view && !s.bspec) {
+        constexpr float kGap = 6, kMiddleL = 320 - 107 - kGap, kMiddleR = 320 + 107 + kGap, kLeast = 0.7f;
+        const float meter_top = float(Impl::panel_form(s).B) - 24 - kGap;
+        const auto fit = [&](const DisplayRect& box, float outer, float room) {
+            Shrink g{std::clamp(room / box.w, kLeast, 1.0f), outer, box.y + box.h, 0};
+            if (box.w * g.k > room + 0.5f) g.dy = std::min(0.0f, meter_top - g.py);
+            return g;
+        };
+        if (move_right > 0 && lower_right.w > 0) {
+            const float outer = lower_right.x + lower_right.w - move_right; // (its right edge, moved)
+            impl_->lower_shrink[1] = fit(lower_right, outer, outer - kMiddleR);
+        }
+        if (move_left > 0 && lower_left.w > 0) {
+            const float outer = lower_left.x + move_left;
+            impl_->lower_shrink[0] = fit(lower_left, outer, kMiddleL - outer);
+        }
+    }
     if (s.split) {
         // A two-player half's display: its canvas 640 x 240 (the first's 10 units lower: RaceSplitDisplayBase::vf9 0x3A29A0), or
         // 426.667 x 480 of the wide one. In a replay with its display off nothing shows (the logo's place is outside both).

@@ -347,7 +347,9 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
   than 4:3 (fill on a screen squarer than 4:3, down to 1:1) the display fits the width with its top and bottom parts at
   the picture's edges (ours: `race/game_area.h`, `RaceHud`'s EdgeScope; Prologue's display fits the width in the middle).
   The 3D view of a race or replay shows more at the sides on a picture wider than 4:3 and keeps 4:3's width of the scene,
-  showing more above and below, on a narrower one (ours: `ViewPose::fovy(aspect)`). The game's menus and pages stay 4:3
+  showing more above and below, on a narrower one (ours: `ViewPose::fovy(aspect)`). With touch controls up, the chase
+  panel's side groups move clear of them; where that would bring a group onto the sideways G meter it is drawn smaller about its
+  outer bottom corner (down to 70 %), and if still too wide lifted above the meter (ours). The game's menus and pages stay 4:3
   in the middle at every shape, with bars beside or above and below them.
 - Android (`android/`, [android/README.md](../android/README.md)): the APK's activity, the disc picker's lasting access,
   the save folder's documents and the user data folder in the Files app are the shared engine's Java, compiled from the
