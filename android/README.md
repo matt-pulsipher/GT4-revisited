@@ -84,16 +84,23 @@ local debug key, so a debug and a release build cannot update each other: uninst
 
 ## Meta Quest
 
-What a GT4 Revisited flavor for Meta Quest headsets needs (docs/PLAYING.md "What runs where"):
+The Meta Quest app is the same game as an immersive OpenXR app ([docs/VR.md](../docs/VR.md)): the menus on a large virtual
+screen, the races in stereo from the car's seat or behind it, the Touch controllers as a pad and a pointer.
 
-- The phone APK itself installs on a Quest in developer mode and runs as a flat 2D app window
-  (arm64, Vulkan), played with a Bluetooth controller. Not tried on a headset.
-- An immersive VR app as the shared engine's own Quest APK is: the build plumbing (SDL's
-  development branch with SDL_GPU's OpenXR support, `fetch-sdl.sh --xr`; `GT3R_XR` with the
-  OpenXR headers on the engine library; the Khronos OpenXR loader package; the headset's
-  manifest with the VR launcher categories) plus app code this app does not have yet: an
-  `xr::Session` (the engine's `src/xr`) made from the GPU device, every frame drawn into its
-  canvas and handed to it, the controllers' input and pointer, recentering. With those the menus
-  and the races would show on the engine's virtual screen. A race in stereo needs a race view
-  drawn per eye from the head pose, which the engine's own game has in its race screen and this
-  app's race screen does not.
+```bash
+android/fetch-sdl.sh --xr
+```
+```bash
+cd android && ./gradlew assembleDebug -Pquest
+```
+
+`-Pquest` builds with SDL's development branch (`third_party/SDL-xr`, at the commit the shared engine pins; `-PSDL_XR_DIR=...`
+for another checkout), arm64 only, `-DGT3R_XR=ON`, the Khronos OpenXR loader package
+(`org.khronos.openxr:openxr_loader_for_android`) and the headset's manifest (`app/src/quest/AndroidManifest.xml`: the VR
+launcher categories, head tracking, the OpenXR broker, optional hand tracking so a Bluetooth controller can start it). The APK
+is `app/build/outputs/apk/debug/app-quest-debug.apk`, with the phone app's application id. It is tested the way the phone app
+is (`files/args.txt`, above); the engine's docs/dev/VR.md "Testing" has the headset's own steps (keeping it awake without
+wearing it, its screenshots, its frame rate in logcat).
+
+The phone APK itself also installs on a Quest in developer mode and runs as a flat window, played with a Bluetooth
+controller (not tried on a headset).

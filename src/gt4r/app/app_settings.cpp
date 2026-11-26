@@ -70,6 +70,9 @@ double App::refresh_rate() const {
 
 // The frame limit is SDL's main loop rate: every second, third ... refresh, which vsync still shows on a refresh.
 void App::apply_frame_limit() {
+#if GT3R_XR
+    if (xr_) return; // (a headset paces the frames: a rate under its refresh would make it miss frames)
+#endif
     const double rate = settings::limited_rate(refresh_rate(), video_.limit_60fps);
     if (rate == frame_limit_) return;
     frame_limit_ = rate;
@@ -81,6 +84,9 @@ void App::apply_frame_limit() {
 void App::reset_dynamic_scale() {
     dynamic_on_ = false;
     if (!gpu_) return;
+#if GT3R_XR
+    if (xr_) return; // (the eyes are sized by [vr] resolution)
+#endif
     int pw = 0, ph = 0;
     SDL_GetWindowSizeInPixels(window_, &pw, &ph);
     const float scale = video_.render_scale ? *video_.render_scale : gt3r::platform::auto_render_scale(pw, ph, gt3r::platform::is_mobile());
@@ -105,6 +111,9 @@ SDL_Point App::menu_model_size(const SDL_FRect& dst) const {
 void App::layout_ui(bool game) {
     int pw = 0, ph = 0;
     SDL_GetRenderOutputSize(renderer_, &pw, &ph);
+#if GT3R_XR
+    if (xr_) SDL_GetCurrentRenderOutputSize(renderer_, &pw, &ph); // (the canvas stands in for the window)
+#endif
     const int w = game ? gt3r::platform::game_width(video_.aspect, pw, ph) & ~1 : Ui::kWidth;
     int cur_w = 0, cur_h = 0;
     SDL_RendererLogicalPresentation mode = SDL_LOGICAL_PRESENTATION_DISABLED;
@@ -119,6 +128,9 @@ void App::layout_ui(bool game) {
 // The window clear of a phone's display cutout and rounded corners (window units): where the on-screen controls go. SDL's own safe
 // area counts the system's gesture bands too, so the cutout comes from the activity where it can be read.
 SDL_FRect App::safe_area_window() const {
+#if GT3R_XR
+    if (xr_) return {0, 0, float(xr_->canvas_width()), float(xr_->canvas_height())};
+#endif
     int ww = 0, wh = 0;
     SDL_GetWindowSize(window_, &ww, &wh);
     SDL_FRect r{0, 0, float(ww), float(wh)};
@@ -145,7 +157,11 @@ SDL_FRect App::safe_area_window() const {
 // The gamma: the frame goes into the pass's target, which its end puts on the window just before it is shown.
 void App::begin_gamma_frame() {
     gamma_frame_ = false;
-    if (!gpu_ || !gt3r::render::gamma_changes(video_.gamma)) {
+    bool headset = false;
+#if GT3R_XR
+    headset = xr_ != nullptr; // (the headset shows the canvases as they are)
+#endif
+    if (!gpu_ || headset || !gt3r::render::gamma_changes(video_.gamma)) {
         gamma_pass_.reset();
         return;
     }
