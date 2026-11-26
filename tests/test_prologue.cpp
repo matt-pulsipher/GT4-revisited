@@ -278,7 +278,7 @@ TEST(disc_prologue_race) {
     for (const std::unique_ptr<Disc>& other : test::discs())
         if (other->info().game == Game::GT4) CHECK(!sim::PrologueProgram::locate(sim::Program::load(*other)).recognized());
     // Two cars, a lap each.
-    const sim::ai::FieldRun run = sim::ai::run_field(*disc, "tsukuba", {"impreza_wrc_03", "civic_r_98"}, 1);
+    const sim::ai::FieldRun run = sim::ai::run_field(*disc, "tsukuba", std::vector<std::string>{"impreza_wrc_03", "civic_r_98"}, 1);
     for (const sim::ai::CarRun& c : run.cars) {
         std::printf("  %s: %s lap %.3f s, top %.1f km/h\n", c.car.c_str(), c.finished ? "finished" : "did not finish",
                     c.laps.empty() ? 0.0 : c.laps[0], double(c.top_speed) * 3.6);

@@ -203,7 +203,7 @@ TEST(disc_texture_pack_car) {
     std::set<std::string> folders;
     for_each_texture(path, file, read, [&](const std::string& name, const gt3r::texture_pack::FileTexture& t) { named.emplace(t.key, name), folders.insert(name); });
     for (u32 p = 0; p < paints; ++p) {
-        char folder[16];
+        char folder[24];
         std::snprintf(folder, sizeof folder, "/paint%02u", p);
         CHECK(folders.count(path + folder));
         // (the plain textures of the model: those the decoder leaves as the set has them)
