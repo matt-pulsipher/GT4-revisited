@@ -6,7 +6,7 @@
 // (or its model's name), `cars` how many on the grid, `view` in | chase | roof | back, `drive`
 // auto (the simple driver takes the first car too) or pad, `skip` simulation steps run before the
 // first picture (the start's hold is left out then), `paint` the first car's paint, `laps` the
-// race's length, `start` the start: 10 or 8 (a hold of so many seconds with the opening shots),
+// race's length, `limit` a time limit in seconds (no laps then), `start` the start: 10 or 8 (a hold of so many seconds with the opening shots),
 // <seconds> (a plain hold), none, rolling, course (the course's own: race/start_rule.h); `view=tv` the course's replay cameras;
 // `eye=x:y:z:tx:ty:tz[:ux:uy:uz]` the view from that eye toward that point (with that up) through the view's own lens; `driver=0` no drivers in the cars; (GT4R_DEMO_LOG=<n> logs a demonstration's car every n steps); `replay=N` drives
 // N steps unseen and plays them back through the replay cameras; `bspec=1` a B-spec run, `pit=1` its car asked into the pits from the start (GT4R_HITCH=<ms>
@@ -155,6 +155,7 @@ struct Setup {
     std::string race;     // `race=<label>`: the event (the car database's RACE row) the sequence runs
     sim::ai::Pace pace;   // the computer drivers' (the event's)
     std::vector<u8> event_row; // the event's RACE row (its tire wear's curve); empty: none
+    int limit_seconds = 0;     // `limit=<seconds>`: the race's time limit in place of its row's (checks of the time limit's finish)
     // A license test, pace car test or mission: its conductor, its rules (its row's) and its target times.
     race::Conductor conductor = race::Conductor::Other;
     race::LicenseRules rules;
@@ -234,6 +235,7 @@ Setup setup_from_env() {
         else if (k == "reflection") s.reflection = v != "0";
         else if (k == "sim") s.rail = v == "rail";
         else if (k == "laps") s.laps = std::clamp(std::atoi(v.c_str()), 1, 99);
+        else if (k == "limit") s.limit_seconds = std::max(0, std::atoi(v.c_str()));
         else if (k == "menus") s.sequence = v;
         else if (k == "race") s.race = v;
         else if (k == "opponents")
@@ -768,6 +770,8 @@ public:
         fs.start = setup_.skip > 0 ? race::StartType::None : setup_.start;
         fs.start_seconds = setup_.start_seconds;
         fs.laps = setup_.laps;
+        fs.limit_ms = setup_.online || setup_.conductor != race::Conductor::Other ? 0 : race::row_time_limit_ms(setup_.event_row);
+        if (setup_.limit_seconds > 0) fs.limit_ms = s64(setup_.limit_seconds) * 1000;
         fs.player = 0;
         fs.lap_length = world_->lap_length();
         fs.player_clock = !setup_.test_starts.empty();
@@ -832,7 +836,7 @@ public:
         judge_ = race::LicenseJudge(judge_.rules());
         finish_camera_.angle = 0;
         goal_prev_ = -1;
-        board_.begin(world_->car_count(), 0, lap_words_[0], lap_words_[1]);
+        board_.begin(world_->car_count(), 0, lap_words_[0], lap_words_[1], flow_.setup().limit_ms > 0);
         camera_.reset(world_->cars()[0]);
         history_.clear(), run_dist_.clear(), saved_recording_.clear(), behind_.reset();
         if (audio::RaceSound* sound = world_->sound()) {
@@ -4349,6 +4353,9 @@ private:
             race::row_start(setup_.event_row, setup_.start, setup_.start_seconds);
         try {
             load_test(app, setup_, menus_ && !setup_.demo_run ? menus_->game().race.race : setup_.race);
+            // An endurance race of a time limit (RACE +0x18 minutes, its laps +0x43 0): no number of laps, the time ends it.
+            if (!setup_.online && race::row_time_limit_ms(setup_.event_row) > 0 && setup_.event_row.size() > 0x43 && setup_.event_row[0x43] == 0) setup_.laps = 0;
+            if (setup_.limit_seconds > 0) setup_.laps = 0;
             race_ = std::make_unique<Race>(app, setup_, cars_);
             if (setup_.online) {
                 online_ = std::make_unique<net::NetRace>(gt3r::net::online(), *setup_.online);

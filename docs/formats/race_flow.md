@@ -121,8 +121,16 @@ of its number (`DynamicsConductor::vf28` 0x34D490: position and heading from the
   milliseconds = units / 3. A lap's time runs from the last completed lap's crossing; the first
   lap from the start signal (0).
 - **The finish** (`DynamicsConductor::vf21` 0x357B98), when a car completes a lap: it finishes
-  if the leader (rank slot 0) has finished, or the race has laps and the car has driven them (or
-  the time limit is over and it leads). Event 5 for the car; the player's finish shows the
+  if the leader (rank slot 0, K +0xF8A4 by 0x3658D8) has finished, or the race has laps and the car has driven them, or
+  the time limit is over and it leads. **The time limit** (0x34C140): the conductor's u16 +0xF850 (the rule block's +0x38,
+  copied by 0x35E108 from the `RACE` row's +0x18; cleared by 0x34D418 when the race's +0xEC or +0xDC is set) x 60,000 ms;
+  0x34C158 asks whether the crossing's moment (ms, the value then kept in F +0x614) is at or past it (none when 0). So in a
+  timed race the first car to cross the line once the time is over finishes there if it leads, and every other car at its
+  next crossing. ✔ On the US disc eight events have a limit, all with 0 laps (`en_nur4h_0001` and `en_roadster4h_0001` 240
+  minutes, `en_infinion_alms_0001` 165, `en_motegi8h_0001` 480, `en_tsukuba9h_0001` 540, `en_nur24h_0001`,
+  `en_sarthe24h_0001`, `en_sarthe_old24h_0001` 1440): the time alone ends them (`test_endurance.cpp`). The pit stops' last
+  lap reads the same limit (0x343C20). Here: `FlowSetup::limit_ms` (`race::row_time_limit_ms`), the race's laps 0 then
+  (`screen_race.cpp` `start`); `GT4R_RACE="...,limit=<seconds>"` sets a limit for checks. Event 5 for the car; the player's finish shows the
   middle message `RaceFinish` (+0x130) for 3.7 s with a 0.3 s fade (`RaceDisplay::vf36`
   0x3A0228, vf41 0x3A1568) and the finish view (camera value 11, ❓ what it shows).
 - Order: ❓ the comparison itself; taken here as crossings first, a car still running ahead of
@@ -132,7 +140,11 @@ of its number (`DynamicsConductor::vf28` 0x34D490: position and heading from the
 ## The results
 
 `ResultArcade` (0x3DEEA0..; base `RaceResultBase`): a row per place, filled as each car finishes
-(`ResultArcade::vf6` 0x3DFCC8). The page (`menu/common/result.strb`, a converted Flash movie)
+(`ResultArcade::vf6` 0x3DFCC8). A row's time by the result's kind +0x50 (ResultArcade::vf9 0x3DFEB0, its table 0x6A3790): kind 0
+(0x3E0030) the winner's whole time, the others on its laps their gap (`+M'SS.mmm`), the others `+N` and the word for laps short;
+kind 1, a race with a time limit (set by vf2 0x3DF0A4 when 0x34C140 is not 0; 0x3E00B0), the winner's laps (`" %d"` and
+`WordOfLap` / `WordOfLaps`, 0x3E0348), the others on its laps their gap, the rest their own laps the same way. A car's laps
+(0x343B50): its crossings F +0x4AC less one once it has finished. The page (`menu/common/result.strb`, a converted Flash movie)
 goes up at the player's finish: the race's tick (`RaceBasic::vf74` 0x38AB98) runs the result (race +0xE41C, set by
 0x38B8D8; ResultArcade at RaceArcade +0x22738) through its vf4: `RaceResultBase::vf4` (0x3E05A0) fills a row for each event 5
 of the step (vf6) and, when the car is the player's (vf8) and the page is not up, calls vf7 (0x3DFE20: +0 = 1, +0x4FC = 1,
@@ -531,7 +543,7 @@ engine's Gran Turismo 3 code). The player notices them roughly in this order.
 | The scenic shots behind the menus | `replay_script.*` `ScenicCamera` | GT4 (mode 5, 0x375980) | |
 | A license test's page's scene | `screen_race.cpp` `stand`, `start_replay(page)` | GT4 (mode 2 from 0x11D1B8: the last run's replay; black before a run) | the replay's sound under the page; what the replay does at its end (ours: again) |
 | The driving views | `drive_camera.*` | the car's camera places (CAR4); the on-board lens as the original shows it (61.2 degrees: its K and its chase pictures, camera.md), the roof view's by its mount as the program's angles show (`shown_angle`); their springs ❓ | the on-board camera's own lens |
-| Laps, crossings, times, finish | `race_flow.*` | GT4 (0x358608, vf21 0x357B98); the race order's comparison judged | the order routine (❓ not found) |
+| Laps, crossings, times, finish | `race_flow.*` | GT4 (0x358608, vf21 0x357B98 with the time limit 0x34C158; the results' rows by kind 0 and 1, 0x3E0030 / 0x3E00B0); the race order's comparison judged | the order routine (❓ not found) |
 | License tests' rules | `license_rules.*` (`stopped_in_box`, `license_step`), `judge_license` | GT4 (0x3F8D70, 0x369888 → vf49, 0x35FE80; the stop in the box at or under 1 km/h, the share of the step before it; cones judged a step after they moved); the hits' strengths from the simulation's contact (its sum per step, not the program's per hit), the mass P +0x48 | the hit records 0x350530 |
 | Cones and boards knocked about | `gadget_bodies.*` | GT4 (0x3E2B28 with 0x3E3748 / 0x3E3840, 0x3E44E8 / 0x3E4708, 0x3E3C48 / 0x3E3ED0 / 0x3E43B8, 0x3E5108, set-up 0x3E2710; course.md "Cones and boards: the bodies") in host floats; the road query and the car boxes' extents judged | the road query 0x3E5A30; the car record's box extents (+0x48C .. +0x494) |
 | The demonstrations | `screen_race.cpp` `begin_demo`, `sim/ai/demo_driver.*`; headless `race/demonstration_run.*` (`gt4tool race <disc> demos us`) | GT4 (the recordings on our own race: starts, hold, run-up by the driver, rules, cones). ✔ 69 of the 70 US tests with a recorded time end on it to the millisecond (B-6 is 34 ms early, as in the program's own run of the file). B-8's car is not in the US database; 14 files record no time | |

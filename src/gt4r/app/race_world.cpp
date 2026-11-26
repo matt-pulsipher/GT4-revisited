@@ -4,6 +4,7 @@
 #include "gt4r/net/net_field.h"
 
 #include "gt4r/race/aspec_points.h"
+#include "gt4r/race/race_flow.h"
 
 #include "gt4r/sim/showroom.h"
 #include "gt4r/sim/car_spec.h"
@@ -378,8 +379,9 @@ void RaceWorld::build_simulation() {
                 // An event's race counts fuel (0x35E108 sets the rule block's +0x4C to 80; vf26 0x34CA20 clears it on a course
                 // whose row's +0x14 is 0, a loose course and in a run alone, 0x3F7058 a training's and a mission's); a run
                 // without laps (practice, a free run) runs on the free-run conductor, whose rule block holds 0 there (the
-                // original's Practice state).
-                entries[i].fuel = setup_.event_row.size() > 0x43 && setup_.event_row[0x43] != 0 && setup_.conductor == race::Conductor::Other &&
+                // original's Practice state); an endurance race of a time limit has no laps and counts it.
+                entries[i].fuel = setup_.event_row.size() > 0x43 && (setup_.event_row[0x43] != 0 || race::row_time_limit_ms(setup_.event_row) > 0) &&
+                                  setup_.conductor == race::Conductor::Other &&
                                   !setup_.pace.solo && race::course_start(*app_.db(), setup_.course).fuel;
             }
             counts_fuel_ = !entries.empty() && entries[0].fuel;
@@ -483,6 +485,7 @@ void RaceWorld::build_simulation() {
                     }
                     sim::ai::PitRace pr;
                     pr.laps = setup_.laps;
+                    pr.limit_minutes = u32(race::row_time_limit_ms(setup_.event_row) / 60000); // (the conductor's +0xF850)
                     pr.pit_menu = setup_.players < 2; // (a two-player battle has no pit menu: 0x32F028 makes none)
                     pit_asked_.assign(setup_.entries.size(), 0);
                     tires_fitted_ = pit_hooks.tires;
