@@ -212,9 +212,9 @@ TEST(race_start_motion_curves) {
 }
 
 TEST(race_start_motion_disc) {
-    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    if (test::reference_discs().empty()) SKIP("set GT4R_DISC");
     size_t courses = 0;
-    for (const auto& disc : test::discs()) {
+    for (const auto& disc : test::reference_discs()) {
         for (const gt3r::Volume::Entry& e : disc->volume().entries()) {
             if (e.path.compare(0, 4, "crs/") != 0 || e.path.find('/', 4) != std::string::npos || e.path.find('.') != std::string::npos) continue;
             const Bytes data = disc->volume().read(e);
@@ -263,9 +263,9 @@ TEST(race_start_motion_disc) {
 #include "gt4r/race/strobe.h"
 
 TEST(strobe_pause_movie_disc) {
-    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    if (test::reference_discs().empty()) SKIP("set GT4R_DISC");
     size_t movies = 0;
-    for (const auto& disc : test::discs()) {
+    for (const auto& disc : test::reference_discs()) {
         const gt3r::Volume::Entry* e = disc->volume().find("menu/common/pause.strb");
         if (!e) continue;
         ++movies;
@@ -355,9 +355,9 @@ TEST(strobe_pause_movie_disc) {
 // Taps and clicks on the pause's rows (as GT3R's pause takes them): a tap on a row not focused
 // focuses it, a tap on the focused row chooses it; a hover focuses; off the rows nothing.
 TEST(strobe_pause_movie_taps_disc) {
-    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    if (test::reference_discs().empty()) SKIP("set GT4R_DISC");
     size_t movies = 0;
-    for (const auto& disc : test::discs()) {
+    for (const auto& disc : test::reference_discs()) {
         const gt3r::Volume::Entry* e = disc->volume().find("menu/common/pause.strb");
         if (!e) continue;
         ++movies;
@@ -404,9 +404,9 @@ TEST(strobe_pause_movie_taps_disc) {
 // menu off (no row has the focus while its row plays, a second press does nothing) and makes the
 // choice (EXIT) once.
 TEST(strobe_pit_menu_disc) {
-    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    if (test::reference_discs().empty()) SKIP("set GT4R_DISC");
     size_t movies = 0;
-    for (const auto& disc : test::discs()) {
+    for (const auto& disc : test::reference_discs()) {
         const gt3r::Volume::Entry* e = disc->volume().find("menu/common/pitmenu.strb");
         if (!e) continue;
         ++movies;
@@ -446,9 +446,9 @@ TEST(strobe_pit_menu_disc) {
 }
 
 TEST(strobe_result_movie_disc) {
-    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    if (test::reference_discs().empty()) SKIP("set GT4R_DISC");
     size_t movies = 0;
-    for (const auto& disc : test::discs()) {
+    for (const auto& disc : test::reference_discs()) {
         const gt3r::Volume::Entry* e = disc->volume().find("menu/common/result.strb");
         if (!e) continue;
         ++movies;
@@ -501,10 +501,10 @@ TEST(strobe_result_movie_disc) {
 }
 
 TEST(race_course_start_disc) {
-    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    if (test::reference_discs().empty()) SKIP("set GT4R_DISC");
     CHECK(race::start_code_digit("1ff0", 0) == 1 && race::start_code_digit("1ff0", 1) == 15 && race::start_code_digit("x", 0) == -1);
     size_t ran = 0;
-    for (const auto& disc : test::discs()) {
+    for (const auto& disc : test::reference_discs()) {
         if (disc->info().serial.rfind("SCUS_973.28", 0) != 0) continue;
         gt3r::Volume* vol = &disc->volume();
         db::SpecDb sdb(
@@ -610,9 +610,9 @@ TEST(race_replay_file) {
 }
 
 TEST(race_gadgets_disc) {
-    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    if (test::reference_discs().empty()) SKIP("set GT4R_DISC");
     size_t ran = 0, courses = 0, placed = 0;
-    for (const auto& disc : test::discs()) {
+    for (const auto& disc : test::reference_discs()) {
         if (disc->info().serial.rfind("SCUS_973.28", 0) != 0) continue;
         for (const gt3r::Volume::Entry& e : disc->volume().entries()) {
             if (e.path.compare(0, 4, "crs/") != 0 || e.path.find('/', 4) != std::string::npos || e.path.find('.') != std::string::npos) continue;
@@ -683,9 +683,9 @@ TEST(race_gadget_bodies_disc) {
     // A car driven through Tsukuba's first cone at 15 m/s knocks it away (into the pit wall beside it);
     // it settles on the floor (the program's rest rule seldom puts a knocked body back to rest: it stays
     // awake, all but still); the cones left alone rest where they stand.
-    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    if (test::reference_discs().empty()) SKIP("set GT4R_DISC");
     bool ran = false;
-    for (const auto& disc : test::discs()) {
+    for (const auto& disc : test::reference_discs()) {
         if (disc->info().serial.rfind("SCUS_973.28", 0) != 0) continue;
         const gt3r::Volume::Entry* e = disc->volume().find("crs/tsukuba");
         if (!e) continue;
@@ -725,9 +725,9 @@ TEST(race_gadgets_stand_on_the_road_disc) {
     // Set up (0x3E2710), every cone and board stands on the road file's first surface straight down from 1 m above
     // its record, whatever height the record gives: Laguna Seca's two boards placed at 0 drop about 16 m, Tsukuba's
     // pit cones about 1.5 m (the program's bodies in the reference's saved states sit there, within 5 mm).
-    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    if (test::reference_discs().empty()) SKIP("set GT4R_DISC");
     bool ran = false;
-    for (const auto& disc : test::discs()) {
+    for (const auto& disc : test::reference_discs()) {
         if (disc->info().serial.rfind("SCUS_973.28", 0) != 0) continue;
         for (const char* name : {"crs/laguna", "crs/tsukuba", "crs/infineon"}) {
             const gt3r::Volume::Entry* e = disc->volume().find(name);
@@ -764,9 +764,9 @@ TEST(race_gadgets_stand_on_the_road_disc) {
 
 TEST(race_license_stop_box_disc) {
     // B-1's road (the 100 m test course) has its stopping box: triangles flagged bit 2, past the line.
-    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    if (test::reference_discs().empty()) SKIP("set GT4R_DISC");
     bool ran = false;
-    for (const auto& disc : test::discs()) {
+    for (const auto& disc : test::reference_discs()) {
         if (disc->info().serial.rfind("SCUS_973.28", 0) != 0) continue;
         const gt3r::Volume::Entry* e = disc->volume().find("crs/testcourse_100m");
         if (!e) continue;
@@ -794,9 +794,9 @@ TEST(race_flow_finish_now) {
 }
 
 TEST(strobe_race_monitor_disc) {
-    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    if (test::reference_discs().empty()) SKIP("set GT4R_DISC");
     size_t movies = 0;
-    for (const auto& disc : test::discs()) {
+    for (const auto& disc : test::reference_discs()) {
         const gt3r::Volume::Entry* e = disc->volume().find("menu/common/racemonitor.strb");
         if (!e) continue;
         ++movies;

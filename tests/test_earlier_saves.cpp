@@ -7,6 +7,7 @@
 #include "gt4r/menu/earlier_saves.h"
 #include "gt4r/menu/game_internal.h"
 #include "gt4r/save/earlier_game.h"
+#include "gt4r/save/prologue_data.h"
 
 #include "formats/ps2/memcard.h"
 #include "game/gt_save.h"
@@ -63,13 +64,12 @@ std::string gt3r_save(s64 credits, const std::vector<int>& medals, const std::st
     return gt3r::game::save_to_text(s);
 }
 
-// A made-up Prologue game data file: its header and 25 license units with these medals (0 none .. 3 gold).
+// A Prologue game data file as ours writes it (a new game's, save/prologue_data.h) with this name and its first license units'
+// medals (0 none .. 3 gold).
 Bytes prologue_file(const std::vector<int>& medals, const std::string& name = "PRO") {
-    Bytes f(0x30 + 48 * 0x2E0 + 0x10, 0);
-    const u32 magic = 0xFF60BAD0u;
-    std::memcpy(&f[0], &magic, 4);
-    std::memcpy(&f[0x20], name.data(), name.size());
-    for (size_t k = 0; k < medals.size(); ++k) f[0x34 + k * 0x2E0] = u8(medals[k]);
+    Bytes f = save::new_prologue_payload();
+    std::memcpy(&f[save::kPrologueName], name.data(), name.size());
+    for (size_t k = 0; k < medals.size(); ++k) f[save::kPrologueLicense + 4 + k * save::kPrologueLicenseUnit] = u8(medals[k]);
     return f;
 }
 
@@ -155,15 +155,26 @@ TEST(earlier_prologue_games) {
     // The first 6 units passed open B; the first 25, A too (the Japanese program's rule, 0x1D4698).
     std::vector<int> medals = all(1, 6);
     std::optional<save::EarlierGame> g = save::read_prologue_data_file(prologue_file(medals));
-    CHECK(g && g->name == "PRO" && save::transferred_licenses(*g, "jp") == 1 && save::transferred_licenses(*g, "us") == 0);
+    CHECK(g && g->name == "PRO" && save::transferred_licenses(*g, "jp") == 1 && save::transferred_licenses(*g, "us") == 1);
     g = save::read_prologue_data_file(prologue_file(all(3, 25)));
     CHECK(g && save::transferred_licenses(*g, "jp") == 2);
     g = save::read_prologue_data_file(prologue_file(all(0, 25)));
     CHECK(g && save::transferred_licenses(*g, "jp") == 0);
-    // Our library's Prologue games count where the program reads Prologue's (not the US program).
+    // A Gran Turismo 3 game gives no licenses where the program reads Prologue's for them.
+    CHECK(save::transferred_licenses(*save::read_gt3_data_file(gt3_file(1, all(0), 1, 0), "jp"), "jp") == 0);
+    // Our library's Prologue games; a card's Prologue folder (Europe's: its medals 0x20 further on, 0x1D4698), a card image.
     const fs::path dir = fresh("gt4r-test-prologue-lib");
     put(dir / "memorycard" / "BISCPS-15055GAMEDATA" / "BISCPS-15055GAMEDATA", prologue_file(all(2, 25)));
-    CHECK(save::find_prologue_games(dir.string(), "jp").size() == 1 && save::find_prologue_games(dir.string(), "us").empty());
+    CHECK(save::find_prologue_games(dir.string()).size() == 1 && save::find_prologue_games(dir.string())[0].name == "PRO");
+    Bytes pal = prologue_file({});
+    for (size_t k = 0; k < 6; ++k) pal[0x54 + k * 0x2E0] = 3;
+    const gt3r::ps2::McDir eu{"BESCES-52438GAMEDATA", {{"BESCES-52438GAMEDATA", pal}}};
+    std::string why;
+    g = save::read_earlier_file(gt3r::ps2::make_card({eu}), "eu.ps2", "us", &why, true);
+    CHECK(g && g->kind == save::EarlierGame::Kind::Prologue && save::transferred_licenses(*g, "us") == 1);
+    CHECK(!save::read_earlier_file(gt3r::ps2::make_card({eu}), "eu.ps2", "us", &why, false));
+    const std::vector<save::EarlierGame> card = save::find_card_games((dir / "memorycard").string(), "us", true);
+    CHECK(card.size() == 1 && card[0].kind == save::EarlierGame::Kind::Prologue && save::find_card_games((dir / "memorycard").string(), "us").empty());
     fs::remove_all(dir);
 }
 
@@ -242,7 +253,7 @@ TEST(disc_earlier_gt3_transfer_on_the_status_page) {
     // Start: "Transfer game data". The game asks for the save: the choice is offered (the game being played first).
     f.press({menu::Key::Start});
     std::optional<menu::TransferChoice> c = menu::take_transfer_choice(*f.rt);
-    CHECK(c && c->found.size() == 2 && c->found[0].name == "Started" && c->kind == save::EarlierGame::Kind::Gt3 && !menu::take_transfer_choice(*f.rt));
+    CHECK(c && c->found.size() == 2 && c->found[0].name == "Started" && c->licenses && c->gt3 && !menu::take_transfer_choice(*f.rt));
     CHECK(f.page() == "StatusRoot"); // (the scripts wait)
     if (!c || c->found.size() < 2) return;
     menu::answer_transfer_choice(*f.rt, c->found[1]);
@@ -307,4 +318,65 @@ TEST(disc_earlier_gt3_transfer_from_a_console_card) {
     CHECK(f.rt->game().money == money + 42'000 && (f.unit("l0b0003") & 0xFFF) == 0xCC1 && (f.unit("l0a0001") & 0xF) == 0);
     CHECK(f.rt->game().withdrawn && f.rt->game().withdrawn_gt4p && f.clean());
     fs::remove_all(dir);
+}
+
+// The US disc with a Prologue game too (the user's choice): the licenses from it by the other regions' rule, the question in
+// its words; the credits then asked for from a Gran Turismo 3 game.
+TEST(disc_earlier_prologue_licenses_then_gt3_credits) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    const fs::path dir = fresh("gt4r-test-transfer-prologue"), gt3r = fresh("gt4r-test-transfer-prologue-gt3r");
+    put(gt3r / "saves" / "Done.sav", gt3r_save(30'000, all(-1), "Done"));
+    std::vector<int> medals = all(1, 6); // (B's lessons only: B)
+    put(dir / "memorycard" / "BISCPS-15055GAMEDATA" / "BISCPS-15055GAMEDATA", prologue_file(medals, "LIC"));
+    StatusFlow f(*disc, dir, gt3r.string());
+    CHECK(f.to_map() && f.to_status());
+    menu::set_transfer_chooser(*f.rt, true);
+    const s64 money = f.rt->game().money;
+    f.press({menu::Key::Start});
+    std::optional<menu::TransferChoice> c = menu::take_transfer_choice(*f.rt);
+    CHECK(c && c->licenses && c->gt3 && c->prologue && c->found.size() == 2);
+    if (!c || c->found.size() < 2) return;
+    const auto prologue = std::find_if(c->found.begin(), c->found.end(), [](const save::EarlierGame& g) { return g.kind == save::EarlierGame::Kind::Prologue; });
+    CHECK(prologue != c->found.end() && prologue->name == "LIC");
+    menu::answer_transfer_choice(*f.rt, *prologue);
+    f.rt->settle();
+    f.see();
+    CHECK(!f.dialogs.empty() && f.dialogs.back().rfind("GT4 Prologue game save: LIC\nThe B and A Licenses can be transferred from GT4 Prologue.", 0) == 0);
+    std::printf("  asked: %s\n", f.dialogs.empty() ? "" : f.dialogs.back().c_str());
+    f.press({menu::Key::Right, menu::Key::Accept}); // OK
+    f.see();
+    if (f.page() == "ConfirmDialog") f.press({menu::Key::Accept}); // "Licenses have now been transferred."
+    // The credits: a Prologue game has none, so the choice comes again, of Gran Turismo 3 games only.
+    c = menu::take_transfer_choice(*f.rt);
+    CHECK(c && !c->licenses && c->gt3 && !c->prologue && c->found.size() == 1 && c->found[0].name == "Done");
+    if (!c || c->found.empty()) return;
+    menu::answer_transfer_choice(*f.rt, c->found[0]);
+    f.rt->settle();
+    for (int i = 0; i < 8 && f.page() == "ConfirmDialog"; ++i) {
+        f.see();
+        if (f.message().find("Do you want") != std::string::npos) f.press({menu::Key::Right});
+        f.press({menu::Key::Accept});
+    }
+    for (const std::string& d : f.dialogs) std::printf("  shown: %s\n", d.c_str());
+    // B from Prologue's first six lessons (not A); the credits from Gran Turismo 3.
+    CHECK((f.unit("l0b0001") & 0xFFF) == 0xCC1 && (f.unit("l0b0016") & 0xFFF) == 0xCC1 && (f.unit("l0a0001") & 0xF) == 0);
+    CHECK(f.rt->game().money == money + 30'000 && f.rt->game().withdrawn && f.rt->game().withdrawn_gt4p && f.clean());
+    // Once: Start again says so, in our words for the licenses.
+    f.dialogs.clear();
+    f.press({menu::Key::Start});
+    f.answer_all();
+    CHECK(f.dialogs.size() == 2 && f.dialogs[0] == "You have already transferred licenses from a GT3 or GT4 Prologue game save.");
+    fs::remove_all(dir), fs::remove_all(gt3r);
+}
+
+// The questions name the save instead of the slot, whatever line the slot's sentence ends on (the releases' texts differ).
+TEST(earlier_question_names_the_save) {
+    CHECK(menu::question_naming_the_save("Data in slot %d.\nTake it from GT3?\nOnce only.", "GT3 game save data: A", false) ==
+          "GT3 game save data: A\nTake it from GT3?\nOnce only.");
+    CHECK(menu::question_naming_the_save("Data on the card\nin slot %d. Take up to \n100 now?", "GT3 game save data: A", false) ==
+          "GT3 game save data: A\nTake up to \n100 now?");
+    CHECK(menu::question_naming_the_save("Data in slot %d.\nLicenses from GT3.", "GT4 Prologue game save: P", true) ==
+          "GT4 Prologue game save: P\nLicenses from GT4 Prologue.");
+    CHECK(menu::question_naming_the_save("No slot here.", "x", false).empty());
 }

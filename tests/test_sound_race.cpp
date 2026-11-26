@@ -47,8 +47,8 @@ double rms(const std::vector<s16>& pcm, size_t from, size_t frames) {
 
 // The Gran Turismo 4 disc of GT4R_DISC whose program's tables are mapped (sessions); null without one.
 Disc* full_disc() {
-    for (const std::unique_ptr<Disc>& d : test::discs())
-        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) return d.get();
+    for (Disc* d : test::reference_discs())
+        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) return d;
     return nullptr;
 }
 
@@ -150,8 +150,21 @@ TEST(sound_race_place_sound) {
     CHECK(near(p.gain, 1.0 / 1.5, 1e-6) && near(p.left, 0, 1e-6) && near(p.right, 1, 1e-6));
     p = audio::place_sound(mic, -3, 3); // half way to the left
     CHECK(p.left > p.right && near(p.left * p.left + p.right * p.right, 1, 1e-5));
-    p = audio::place_sound(mic, 0, 0); // at the camera: a quarter metre ahead
-    CHECK(near(p.z, 1, 1e-6) && near(p.gain, 1, 1e-6));
+    p = audio::place_sound(mic, 0, 0); // at the camera: a quarter metre ahead for the level and the pan
+    CHECK(near(p.gain, 1, 1e-6) && near(p.left, p.right, 1e-6));
+    // The surround cue's side: Gran Turismo 4 (0x391AF0) keeps the place before the move (0: behind, the left
+    // inverted), Prologue (0x3A18A8) takes the moved one (ahead: neither).
+    CHECK(near(p.z, 0, 1e-6));
+    gt3r::SurroundCue cue;
+    cue.update(p.x, p.z);
+    CHECK(cue.invert_l && !cue.invert_r);
+    p = audio::place_sound(mic, 0, -0.1f); // just behind: moved to 0.05 m ahead, the cue's side still behind
+    CHECK(p.z < 0);
+    p = audio::place_sound(mic, 0, 0, true);
+    CHECK(near(p.z, 1, 1e-6));
+    cue.reset();
+    cue.update(p.x, p.z);
+    CHECK(!cue.invert_l && !cue.invert_r);
     p = audio::place_sound(audio::RaceSoundTables::Mic{0, 9}, 0, 64); // a microphone switched off: 32 / d
     CHECK(near(p.gain, 0.5, 1e-6));
 }
@@ -415,8 +428,8 @@ TEST(sound_race_car_mix_on_disc) {
 // 4651 / 5464 of 16383 on each side.
 TEST(sound_race_engine_against_original) {
     Disc* disc = nullptr;
-    for (const std::unique_ptr<Disc>& d : test::discs())
-        if (d->info().game == Game::GT4 && d->volume().find("sound/engine/37701")) disc = d.get();
+    for (Disc* d : test::reference_discs())
+        if (d->info().game == Game::GT4 && d->volume().find("sound/engine/37701")) disc = d;
     if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
     gt3r::Vfs vfs(&disc->volume());
     auto library = std::make_shared<audio::SoundLibrary>(vfs);
@@ -462,8 +475,8 @@ TEST(sound_race_engine_against_original) {
 // rendering correlate far less than without it, and the chase view's (the car ahead) not at all less.
 TEST(sound_race_surround_cue_on_disc) {
     Disc* disc = nullptr;
-    for (const std::unique_ptr<Disc>& d : test::discs())
-        if (d->info().game == Game::GT4 && d->volume().find("sound/engine/37701")) disc = d.get();
+    for (Disc* d : test::reference_discs())
+        if (d->info().game == Game::GT4 && d->volume().find("sound/engine/37701")) disc = d;
     if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
     gt3r::Vfs vfs(&disc->volume());
     auto library = std::make_shared<audio::SoundLibrary>(vfs);
@@ -495,8 +508,8 @@ TEST(sound_race_surround_cue_on_disc) {
 // gearbox's grade: 1 close, 2 super close, 3 racing) whines with the clutch in and torque through it.
 TEST(sound_race_gear_whine_on_disc) {
     Disc* disc = nullptr;
-    for (const std::unique_ptr<Disc>& d : test::discs())
-        if (d->info().game == Game::GT4 && d->volume().find("sound/engine/37701")) disc = d.get();
+    for (Disc* d : test::reference_discs())
+        if (d->info().game == Game::GT4 && d->volume().find("sound/engine/37701")) disc = d;
     if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
     gt3r::Vfs vfs(&disc->volume());
     CHECK(!audio::car_sound_files(vfs, "ka_01").whine && audio::car_sound_files(vfs, "impreza_wrc_03").whine);
@@ -817,8 +830,8 @@ TEST(sound_race_two_cameras_on_disc) {
 // plays the race's first piece again at the replay's levels.
 TEST(sound_race_rolling_start_and_replay) {
     Disc* disc = nullptr;
-    for (const std::unique_ptr<Disc>& d : test::discs())
-        if (d->info().game == Game::GT4 && d->volume().find("bgm/us/ads.inf")) disc = d.get();
+    for (Disc* d : test::reference_discs())
+        if (d->info().game == Game::GT4 && d->volume().find("bgm/us/ads.inf")) disc = d;
     if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
     gt3r::Vfs vfs(&disc->volume());
     audio::OfflineSound s(false);
@@ -1000,6 +1013,32 @@ TEST(sound_race_prologue_in_car) {
     std::printf("  engine %d / %d, exhaust %d / %d, single notes %d\n", e.left, e.right, x.left, x.right, car.report().notes);
     CHECK(std::abs(e.left - 15204) <= 2 && std::abs(e.right - 15204) <= 2 && std::abs(x.left - 12489) <= 2 && std::abs(x.right - 12489) <= 2);
     CHECK(car.report().notes == 0 && car.report().heartbeats == 0);
+}
+
+// Prologue's whine (0x3B8E88): the clutch's torque, the gear's ratio against the first's and the driven axles' speed by
+// the layout (0x3B99B8) from its own record (the shared engine's): the 240ZG drives the rear axle.
+TEST(sound_race_prologue_whine_inputs) {
+    Disc* disc = nullptr;
+    for (const std::unique_ptr<Disc>& d : test::discs())
+        if (d->info().game == Game::Prologue) disc = d.get();
+    if (!disc) SKIP("needs the Prologue disc (GT4R_DISC)");
+    const std::string cars[] = {"fairlady_240zg_71"};
+    const std::unique_ptr<sim::Session> s = sim::Session::open(*disc, "tsukuba", cars);
+    CHECK(s != nullptr);
+    if (!s) return;
+    race::CarInput in;
+    in.throttle = 1;
+    int moving = 0;
+    for (int i = 0; i < 60 * 4; ++i) {
+        s->step_once({&in, 1});
+        const gt3r::sim::exact::Car& c = s->record(0);
+        const audio::CarSoundState st = audio::sound_state(*s, 0);
+        CHECK(st.shaft_speed == c.axle_speed[1].host() && !st.whine_given);
+        CHECK(st.drive_torque == c.clutch_torque.host() && st.low_ratio == c.p.d.ratio[1].host());
+        moving += st.shaft_speed > 10;
+    }
+    std::printf("  layout %d; %d of 240 steps with the rear axle over 10 rad/s\n", int(s->record(0).p.d.layout), moving);
+    CHECK(s->record(0).p.d.layout == 0 && moving > 100);
 }
 
 // Prologue's ambience: its crowds are the fourth list (Citta di Aria's one emitter), heard on its disc.

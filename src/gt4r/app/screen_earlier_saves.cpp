@@ -34,11 +34,10 @@ std::string date_text(std::time_t t) {
 }
 
 // What a save holds that the transfer looks at, in the player's words.
-std::string holds(const save::EarlierGame& g) {
+std::string holds(const save::EarlierGame& g, const std::string& region) {
     if (g.kind == save::EarlierGame::Kind::Prologue) {
-        int passed = 0;
-        for (u8 m : g.medals) passed += gt3r::s8(m) > 0;
-        return std::to_string(passed) + " of the first " + std::to_string(g.medals.size()) + " lessons passed";
+        const int l = save::transferred_licenses(g, region);
+        return std::string("GT4 Prologue   ") + (l == 2 ? "B and A licenses" : l == 1 ? "B license" : "no B or A license");
     }
     bool b = g.medals.size() >= 16, a = b;
     for (size_t k = 0; k < g.medals.size() && k < 16; ++k)
@@ -68,16 +67,20 @@ public:
     }
 
     void render(App& app, Ui& ui) override {
-        const bool prologue = choice_.kind == save::EarlierGame::Kind::Prologue;
-        page_header(app, ui, prologue ? "GT4 PROLOGUE GAMES" : "GRAN TURISMO 3 GAMES", "Transfer to Gran Turismo 4", "< Back to game");
+        const bool prologue = choice_.prologue, gt3 = choice_.gt3;
+        page_header(app, ui, gt3 && prologue ? "EARLIER GAMES" : prologue ? "GT4 PROLOGUE GAMES" : "GRAN TURISMO 3 GAMES", "Transfer to Gran Turismo 4",
+                    "< Back to game");
         build(app);
-        ui.text(24, 32, prologue ? "Choose the Gran Turismo 4 Prologue game to transfer licenses from."
-                                 : "Choose the Gran Turismo 3 game to transfer from.",
+        ui.text(24, 32,
+                gt3 && prologue ? "Choose the Gran Turismo 3 or GT4 Prologue game to transfer licenses from."
+                : prologue      ? "Choose the GT4 Prologue game to transfer licenses from."
+                : choice_.licenses ? "Choose the Gran Turismo 3 game to transfer from."
+                                   : "Choose the Gran Turismo 3 game to transfer credits from.",
                 colors::kAccent);
         rows_.render(ui, {20, 46, ui.width() - 40, float(Ui::kHeight) - 46 - 66});
         std::string note = note_;
         if (window_.waiting()) note = "Choose a file in the window that opened.";
-        else if (note.empty() && !prologue) {
+        else if (note.empty() && gt3) {
             if (choice_.looked.empty()) note = "GT3 Revisited's games: Choose a file, then GT3 Revisited's saves folder.";
             else if (choice_.found.empty()) note = "No GT3 Revisited game in " + choice_.looked;
             else note = "GT3 Revisited's games: " + choice_.looked;
@@ -100,10 +103,12 @@ private:
         for (const save::EarlierGame& g : choice_.found) {
             std::string where = g.from + (g.current ? ", being played" : "");
             if (const std::string d = date_text(g.when); !d.empty()) where += "   " + d;
-            rows_.action(g.name + "   " + holds(g), where, "transfer from this game", [this, g] { go_ = [this, g] { give(g); }; });
+            rows_.action(g.name + "   " + holds(g, choice_.region), where, "transfer from this game", [this, g] { go_ = [this, g] { give(g); }; });
         }
-        if (choice_.kind == save::EarlierGame::Kind::Gt3)
-            rows_.action("Choose a file", "a GT3 Revisited save, a PS2 memory card image or save", "choose the file",
+        rows_.action("Choose a file", choice_.prologue && choice_.gt3 ? "a GT3 Revisited save, a GT3 or GT4 Prologue PS2 card image or save"
+                                      : choice_.prologue             ? "a GT4 Prologue PS2 card image or save"
+                                                                     : "a GT3 Revisited save, a PS2 memory card image or save",
+                     "choose the file",
                          [this, ap] { go_ = [this, ap] { window_.open_file(*ap, kFiles, SDL_arraysize(kFiles)); }; });
         rows_.action("Back to the game", "nothing transferred", "back", [this] { go_ = [this] { give({}); }; });
         if (rows_.selected < 0) rows_.selected = 0;
@@ -113,8 +118,9 @@ private:
         const std::optional<Bytes> b = gt3r::read_host_file(path);
         if (!b) return say("The file could not be read: " + path, true);
         std::string why;
-        std::optional<save::EarlierGame> g = save::read_earlier_file(*b, path, choice_.region, &why);
-        if (!g) return say("Not a Gran Turismo 3 game for this disc: " + why + ".", true);
+        std::optional<save::EarlierGame> g = save::read_earlier_file(*b, path, choice_.region, &why, choice_.prologue);
+        if (g && !choice_.gt3 && g->kind == save::EarlierGame::Kind::Gt3) g.reset(), why = "a Gran Turismo 3 game gives no licenses on this disc";
+        if (!g) return say(std::string(choice_.prologue ? "Not a game to transfer from: " : "Not a Gran Turismo 3 game for this disc: ") + why + ".", true);
         give(std::move(g));
     }
 

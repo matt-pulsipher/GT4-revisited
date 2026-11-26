@@ -125,7 +125,7 @@ public:
     // The race's class grips (the rule block's +0x18 .. +0x1B, conductor + 0xF830: a computer-driven car's extra grip per
     // drive class, percent). The session starts with a single race's (0x353570: 20 for each the event leaves 0); the
     // other conductors (a license test's, ...) keep the event's bytes as they are.
-    void set_class_grip(const std::array<gt3r::s8, 4>& grip) { tables_.class_grip = grip; }
+    void set_class_grip(const std::array<gt3r::s8, 4>& grip) { tables_.class_grip = grip, race_.class_grip = grip; } // (Prologue's step reads race_'s)
     u32 countdown() const { return countdown_; }
     // A car's crossings of the line as its race counts them (F + 0x4AC: the rolling start's pace and the pad's lap read it).
     void set_crossings(size_t car, int n);

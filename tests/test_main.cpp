@@ -45,6 +45,16 @@ const std::vector<std::unique_ptr<Disc>>& discs() {
     return list;
 }
 
+const std::vector<Disc*>& reference_discs() {
+    static std::vector<Disc*> list;
+    static bool made = false;
+    if (made) return list;
+    made = true;
+    for (const std::unique_ptr<Disc>& d : discs())
+        if (d->info().game != Game::GT4 || d->info().serial == "SCUS_973.28") list.push_back(d.get());
+    return list;
+}
+
 } // namespace gt4r::test
 
 int main(int argc, char** argv) {

@@ -12,6 +12,7 @@
 #include "gt4r/race/driver_figure.h"
 #include "gt4r/race/simulation.h"
 #include "race/lamp_glows.h"
+#include "gt4r/formats/model/model_script.h"
 #include "render/gpu_model.h"
 #include "render/view3d.h"
 
@@ -23,6 +24,12 @@
 namespace gt4r::race {
 
 namespace render = gt3r::render;
+
+// A lamp's directional power: the record's (+0x60) x the course's factor (Env0 +0x17A0; 0 reads as 1), rounded as the EE does
+// (+ 0.5, toward zero), at most 32; a negative one is none (0x3B8460).
+int lamp_power(float power, float factor);
+// A wheel's level of detail in Prologue (0x412918): by its size on screen, 0 .. 3.
+int prologue_wheel_detail(float proj_x, float bound_radius, float depth);
 
 class CarVisual {
 public:
@@ -106,6 +113,8 @@ public:
     // strengths for each list.
     const gt3r::race::CarLampSet& lamps() const { return lamps_; }
     void set_lamp_strengths(float head, float brake, float tail);
+    // The course's factor on the lamps' directional power (Env0 +0x17A0).
+    void set_lamp_type_factor(float factor);
     // The brake discs' glow on this course: heat^2 x this (Env0 +0x4C over the picture's scale +0x38).
     void set_brake_glow_gain(float gain) { glow_gain_ = gain; }
     // A wheel's glow strength for its brake heat, as the race's sponsor gives it (0x3D75F0).
@@ -116,6 +125,13 @@ public:
     const std::vector<posture::Cockpit>& cockpits() const { return cockpits_; }
     // Whether the figures show from here (0x3B1750: not below 0.025 of the view's size factor / 420 at a metre).
     bool driver_shows(const CarState& s, const render::Vec3& eye, const LodView* view = nullptr) const;
+    // The body's script (the model set's, a few cars': the pace cars' light bars) run on: `seconds` of the model's time
+    // (its +0x34 counts milliseconds, 0x451110), the shapes its draw blends by the script's weight moved to it.
+    // Nothing for a car without one.
+    void animate(float seconds);
+    void restart_animation();
+    // The lamp level it was built with (0 off, 1 on: the course's night, or a car the race lights; RaceBase::vf38).
+    int lamp_level() const { return lamp_level_; }
     const CarSpec& spec() const { return spec_; }
     bool gt3_file() const { return gt3_file_; } // a Gran Turismo 3 car file (Prologue's)
     int lods() const { return lods_; }
@@ -140,6 +156,9 @@ private:
     std::array<gt3r::scene::Model, 3> shadow_src_;
     std::array<std::unique_ptr<render::GpuModel>, 3> shadow_;
     gt3r::race::CarLampSet lamps_;
+    // The lamps' own colors and powers as the file has them, per list (head, tail, brake).
+    std::vector<std::array<float, 3>> lamp_colors_[3];
+    std::vector<float> lamp_powers_[3];
     render::GpuContext* ctx_ = nullptr;
     // How a Gran Turismo 4 car's reflection passes are weighted (Options' fields).
     bool reflection_by_draw_ = false;
@@ -162,6 +181,26 @@ private:
     int lod_levels_ = 0;
     int lods_ = 1;
     bool gt3_file_ = false; // a Gran Turismo 3 car file (Prologue's): its models' y = 0 is the road
+    // The body's script and the shapes its weight moves (a pace car's light bar band, 0x4C by `builtin_tw`): taken out of the
+    // body, per brake lamp state, each mesh's with its vertices at both ends of the weight.
+    struct ScriptMorph {
+        mdls::Script script;
+        mdls::ScriptState state;
+        int time_cell = -1, weight_cell = -1;
+        u32 time_ms = 0;
+        float shown = -1; // the weight the band shows now
+        struct Band {
+            std::vector<gt3r::scene::Mesh> meshes;
+            std::vector<std::vector<gt3r::scene::Vertex>> ends;
+            std::unique_ptr<render::GpuModel> gpu; // drawn with the body's pictures, made at the first animate
+        };
+        std::array<Band, 2> band;
+    };
+    void split_band(gt3r::scene::Model& m, const gt3r::scene::Model& other, ScriptMorph::Band& band);
+    std::unique_ptr<ScriptMorph> morph_;
+    int lamp_level_ = 0;
+    std::vector<std::pair<int, float>> lamp_flash_; // per lit-list lamp: its flashing pattern (0 none) and phase
+    std::array<float, 2> flash_time_{};             // the two patterns' times
     // A Gran Turismo 3 car file's brake parts drawn by its program's rule (car_visual_prologue.cpp): on a wheel's two
     // nearest levels of detail, seen from outside its outer face; their glow on those levels.
     bool gt3_brakes_shown(const CarState& s, int w, const render::Vec3& eye, const LodView* view, bool& parts) const;

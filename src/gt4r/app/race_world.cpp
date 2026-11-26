@@ -24,7 +24,9 @@
 #include "gt4r/sim/record_image.h"
 #include "gt4r/race/driver_figure.h"
 #include "gt4r/race/driver_state.h"
+#include "gt4r/race/license_scene.h"
 #include "gt4r/race/pit_scene.h"
+#include "gt4r/race/sections.h"
 #include "gt4r/race/start_rule.h"
 #include "gt4r/sim/rules_wear.h"
 #include "gt4r/sim/session.h"
@@ -46,6 +48,10 @@
 namespace gt4r {
 
 namespace {
+
+// The pace car's label, which the race's set-up lights whatever the course (RaceBase::vf38, the program's string 0x68D018).
+const std::string kPaceCar = "r34_gtr_v_gtcolor_pc_01";
+
 
 namespace render = gt3r::render;
 using RVec = render::Vec3;
@@ -104,6 +110,7 @@ struct RaceWorld::Impl {
     gt3r::race::LampGlows lamps;
     gt3r::race::Billboards billboards;
     gt3r::race::CarLampGlows car_lamps;
+    gt3r::race::CarLampGlows car_lamps_lit; // a daytime race's: the cars lit whatever the course (CarVisual::lamp_level)
     std::vector<gt3r::race::CarLampGlows::Car> glow_cars;
     gt3r::race::TyreSmoke smoke;
     gt3r::race::WetRoad wet;
@@ -130,6 +137,9 @@ struct RaceWorld::Impl {
     bool pit_live = true; // (a replay's cars have no stops)
     std::vector<race::PitScene::Wheel> pit_wheels;
     void add_pit_crew(std::vector<render::DrawItem>& items, size_t car, const race::CarVisual& visual);
+    // A license test's staff (one car on a road section of a license test: RaceLicense virtual 38, 0x3BC5D0).
+    std::unique_ptr<race::LicenseScene> license_scene;
+    race::LicenseScene::CarSizes license_sizes;
     render::ScreenBatch overlay;
 };
 
@@ -174,7 +184,10 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
                 if (const db::Labels* l = app.db()->labels("WING"))
                     if (const std::string* name = l->label(db::part_row_id(part))) wing = *name;
         }
-        const std::string key = entry->model + "#" + std::to_string(e.paint) + "#" + wing;
+        // The car's lamp level (RaceBase::vf38 0x3882F8, through RaceCarModel::vf43): the course's night flag, but the pace car
+        // (the program's name for it, 0x68D018) always lit: its glows and lit lenses in a daytime race too.
+        const int lamp_level = night_ || entry->label == kPaceCar ? 1 : 0;
+        const std::string key = entry->model + "#" + std::to_string(e.paint) + "#" + wing + "#" + std::to_string(lamp_level);
         if (const auto [at, fresh] = job_of.try_emplace(key, jobs.size()); fresh) {
             jobs.push_back(std::make_unique<CarJob>());
             CarJob& job = *jobs.back();
@@ -186,7 +199,7 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
             const std::vector<u32> paints = race::car_paints(*app.db(), entry->label);
             race::CarVisual::Options& o = job.options;
             o.paint = paints.empty() ? e.paint : paints[e.paint % paints.size()];
-            o.lamp_level = night_ ? 1 : 0;
+            o.lamp_level = lamp_level;
             if (car::CarFile::is_car(*file)) o.reflection_c0 = reflection_c0, o.reflection_c1 = reflection_c1;
             if (!wing.empty()) job.wing = app.vfs()->read("wing/lod/" + wing);
             if (job.wing) o.wing = *job.wing;
@@ -219,17 +232,20 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
         entries.push_back({entry, key});
     }
     start_cars(gpu, jobs, 0); // (the first cars while the course is read)
-    course_ = std::make_unique<race::CourseScene>(gpu, *course, setup.course);
+    course_ = std::make_unique<race::CourseScene>(gpu, *course, setup.course, setup.section);
     if (course_->road().checkpoints.size() < 3) throw FormatError("This place has no lap to drive.");
     for (const auto& [entry, key] : entries) {
         std::unique_ptr<race::CarVisual>& visual = m.visuals_by_model[key];
         if (!visual) {
             visual = take_car(gpu, jobs, job_of[key]);
             // The course's strengths of the three lamp lists (Env0 +0x1794: lights, brake, tail).
-            if (const ByteSpan e0 = course_->section(course::kSlotEnv); e0.size() >= 0x17A0) {
+            if (const ByteSpan e0 = course_->section(course::kSlotEnv); e0.size() >= 0x17A4) {
                 float v[3];
                 std::memcpy(v, e0.data() + 0x1794, 12);
                 visual->set_lamp_strengths(v[0], v[1], v[2]);
+                float power;
+                std::memcpy(&power, e0.data() + 0x17A0, 4);
+                visual->set_lamp_type_factor(power);
                 // The brake discs' glow: heat^2 x Env0 +0x4C / +0x38 (the race's sponsor, 0x3D75F0).
                 float gain, scale;
                 std::memcpy(&gain, e0.data() + 0x4C, 4), std::memcpy(&scale, e0.data() + 0x38, 4);
@@ -285,6 +301,7 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
     course_->set_gadget_bodies(&gadget_bodies_);
     line_job_ = std::async(std::launch::async, [road = &course_->road()] { return race::RailLine(*road); });
     build_simulation();
+    open_license_scene();
     // The race's sound: every car, the course's ambience, the count and the music.
     if (audio::AppSound* sound = app.sound()) {
         gt3r::AudioEngine& engine = app.audio();
@@ -314,6 +331,13 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
                  course_->section(course::kSlotFlareShape));
     m.billboards.load(gpu, course_->section(course::kSlotBillboards), setup.course);
     m.car_lamps.load(app.renderer(), &gpu, env0, course_->section(course::kSlotFlareShape));
+    // A daytime race's lit cars (the pace car): their glows by the same lamp type of the course (Env0 +0x9F0 ..), which every
+    // course has; the shared glows read it at night only, so they are given the course's block with its night flag on.
+    if (!night_ && env0.size() >= 0x14) {
+        Bytes lit(env0.begin(), env0.end());
+        lit[0x11] = u8(lit[0x11] | 0x80);
+        m.car_lamps_lit.load(app.renderer(), &gpu, lit, course_->section(course::kSlotFlareShape));
+    }
     if (setup.reflection && !course_->reflection_course().empty()) m.wet.load(gpu, *app.vfs(), course_->reflection_course(), env0);
     if (setup.smoke) m.smoke.load(gpu, env0, course_->section(course::kSlotSmoke));
     LOG_INFO("Drive: %zu lamps, %zu billboards, sun %s", m.lamps.count(), m.billboards.count(), m.sun.params().enabled ? "on" : "off");
@@ -385,7 +409,8 @@ void RaceWorld::build_simulation() {
                 std::array<gt3r::s8, 4> grip{};
                 if (setup_.event_row.size() > 0x56)
                     for (size_t k = 0; k < 4; ++k) grip[k] = gt3r::s8(setup_.event_row[0x53 + k]);
-                session_->set_class_grip(setup_.event_grips ? grip : sim::rules::single_race_class_grip(grip));
+                // (Prologue's program has no rule that turns a 0 into 20, 0x3BC048: its single races' rows carry the 20)
+                session_->set_class_grip(setup_.event_grips || app_.db()->prologue() ? grip : sim::rules::single_race_class_grip(grip));
             }
             if (setup_.event_row.size() >= 0x74) { // the event's tire wear (the rule block's +0x2C .. +0x34, 0x35E108)
                 u8 rule_block[0x80] = {};
@@ -559,8 +584,11 @@ bool RaceWorld::set_player(const PlayerChoice& c, size_t player) {
 
 void RaceWorld::restart() {
     build_simulation();
+    open_license_scene();
     gadget_bodies_.reset(course_->gadgets(), course_->road());
     course_->restart_animations();
+    for (auto& [key, visual] : impl_->visuals_by_model)
+        if (visual) visual->restart_animation();
     clear_effects();
     for (Impl::MovingDriver& d : impl_->drivers) d.state.reset(d.cockpit), d.follow = d.follow_rate = race::posture::F(0.0f);
 }
@@ -615,6 +643,7 @@ void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool pla
     if (service_on_ && session_ && !hold && service_.size() < 256)
         service_.push_back({false, net::ServiceEvent::Driver, u32(session_->gt4_record(0).aids.tcs_class) | u32(session_->gt4_record(0).drive.shift_factor) << 8});
     if (!hold) step_pit_scene();
+    if (!hold) step_license_scene();
     if (!hold) course_->animate(kStep, sim_->cars());
     // The cones and boards the cars run into: each car's box (0x3E5108) at its center of mass, by its heading,
     // its body's extents (❓ the program reads them from its car record +0x48C .. +0x494, taken here as the
@@ -746,13 +775,15 @@ int RaceWorld::fitted_tire(size_t car, int axle) const {
 }
 
 std::vector<int> RaceWorld::pit_tire_kinds(size_t car, int axle) const {
-    constexpr u32 kClassOf = 0x6A69E0; // (0x441300: a kind's class, by its branch)
+    // 0x441300 (Japan's 0x439B88, the same): a kind's class, 0 for kinds 0 .. 5, 1 for 6 .. 10, 2 for 11, 3 for 12 (its
+    // switch's branches; the table of them, 0x6A69E0, is the code's, not a value served by sim::Program).
     constexpr int kKinds = 13;
+    auto class_of = [](int k) { return k <= 5 ? 0 : k <= 10 ? 1 : k == 11 ? 2 : 3; };
     const int own = fitted_tire(car, axle);
     if (own < 0 || own >= kKinds || !program_) return {};
     std::vector<int> out;
     for (int k = 0; k < kKinds; ++k)
-        if (program_->w(kClassOf + u32(k) * 4) == program_->w(kClassOf + u32(own) * 4)) out.push_back(k);
+        if (class_of(k) == class_of(own)) out.push_back(k);
     return out;
 }
 
@@ -850,6 +881,78 @@ void RaceWorld::step_pit_scene() {
     }
     m.pit_scene->step(m.pit_cars, m.pit_shown, kStep, [&](const char* name) { m.pit_sounds.push_back(name); });
 }
+
+// The license test's staff (race/license_scene.h): set up as the test starts, the men placed by the test car's seat and front wheels.
+void RaceWorld::open_license_scene() {
+    Impl& m = *impl_;
+    std::vector<course::Runway::Place> places;
+    if (setup_.conductor == race::Conductor::License && setup_.section >= 0 && car_visuals_.size() < 2 && session_ && app_.gpu() && !course_->road().gtrw) {
+        const std::vector<race::RoadSection> sections = race::road_sections(course_->section(course::kSlotRunway));
+        if (size_t(setup_.section) < sections.size()) places = sections[size_t(setup_.section)].staff;
+    }
+    if (!places.empty() && !m.license_scene) {
+        if (const std::optional<Bytes> file = app_.vfs()->read("pit/license_001")) try {
+                m.license_scene = std::make_unique<race::LicenseScene>(app_.gpu(), *file);
+                if (const gt3r::race::SunParams& env = course_->env(); env.has_shadow) {
+                    const float el = -env.shadow_elev * kPi / 180, az = -env.shadow_az * kPi / 180;
+                    m.license_scene->set_shadow_shear(RVec{std::sin(az), 0, std::cos(az)} * (env.shadow_len * std::cos(el)));
+                }
+            } catch (const std::exception& e) {
+                LOG_WARN("Drive: no license staff (%s)", e.what());
+            }
+    }
+    if (!m.license_scene) return;
+    // The front wheels across and along the car as it stands (0x344AA8, 0x344C08).
+    race::LicenseScene::CarSizes sizes = m.license_sizes;
+    if (!places.empty()) {
+        race::PitScene::Car c;
+        race::PitScene::place_car(c, *car_visuals_[0], sim_->cars()[0]);
+        for (int w = 0; w < 2; ++w) sizes.wheel_x[w] = c.hub[w].x, sizes.wheel_z[w] = c.hub[w].z;
+    }
+    m.license_scene->start(places, sizes, [road = &course_->road()](float x, float z, float& y, RVec* normal) {
+        int t = -1;
+        if (!road->height_at(x, z, 1000, y, &t)) return false;
+        // The road triangle's plane (0x409B68).
+        if (normal && t >= 0 && size_t(t) < road->triangles.size()) {
+            const auto& tri = road->triangles[size_t(t)];
+            const auto p = [&](int k) { const auto& v = road->vertices[tri.v[size_t(k)]].pos; return RVec{v.x, v.y, v.z}; };
+            RVec n = render::cross(p(1) - p(0), p(2) - p(0));
+            if (n.y < 0) n = n * -1.0f;
+            if (const float l = render::length(n); l > 0) *normal = n * (1 / l);
+        }
+        return true;
+    });
+    if (m.license_scene->on())
+        LOG_INFO("Drive: the license staff at (%.2f, %.2f), %zu places", double(m.license_scene->place().x), double(m.license_scene->place().z), places.size());
+}
+
+void RaceWorld::step_license_scene() {
+    Impl& m = *impl_;
+    if (!m.license_scene || !m.license_scene->on()) return;
+    const int was = m.license_scene->state();
+    // The men at the stopping place: the test car put there at the scene's heading (0x3FAB10).
+    if (m.license_scene->step(kStep)) {
+        const RVec& at = m.license_scene->place();
+        stand_car(0, at.x, at.z, m.license_scene->heading());
+        LOG_INFO("Drive: the license staff come out (%s)", m.license_scene->result() == 1 ? "passed" : "slower than the targets");
+    }
+    if (m.license_scene->state() != was) LOG_INFO("Drive: the license staff's state %d", m.license_scene->state());
+}
+
+void RaceWorld::license_result(bool passed) {
+    if (impl_->license_scene) impl_->license_scene->set_result(passed);
+}
+
+bool RaceWorld::license_camera(race::ViewPose& out, bool before) const {
+    const Impl& m = *impl_;
+    race::LicenseScene::CameraShot shot;
+    if (!m.license_scene || !m.license_scene->on() || !m.license_scene->camera(shot, before)) return false;
+    out = {};
+    out.eye = shot.eye, out.view = shot.view, out.fov = shot.angle;
+    return true;
+}
+
+float RaceWorld::license_brightness() const { return impl_->license_scene && impl_->license_scene->on() ? impl_->license_scene->brightness() : 1.0f; }
 
 bool RaceWorld::pit_camera(size_t car, race::ViewPose& out, bool before) const {
     const Impl& m = *impl_;
@@ -949,6 +1052,10 @@ void RaceWorld::present(std::span<const race::CarState> cars, const audio::Sound
         m.sound->refueling(live && m.pit_scene && m.pit_scene->hose());
     }
     m.pit_sounds.clear();
+    // The cars' own scripts (a pace car's light bar), each model once a step shown: a model's time runs on with its
+    // draws (0x451110), the start's hold and the replays too.
+    for (auto& [key, visual] : m.visuals_by_model)
+        if (visual) visual->animate(kStep);
     // The moving drivers' step: their cars' steering (the program's follower of 11.25 x the command).
     if (hand_speeds_)
         for (Impl::MovingDriver& d : m.drivers) {
@@ -1017,7 +1124,8 @@ render::DrawOptions draw_options(const race::CourseScene& course, float far) {
     o.frustum_cull = true;
     o.sort_blended = true;
     o.far_clip = far;
-    o.guard_near = 0.07f;
+    // The guard band's near plane is the projection's: the screen's 0.1 m (render() sets the camera's own).
+    o.guard_near = race::kScreenNear;
     for (int i = 0; i < 3; ++i) o.clear[i] = 0;
     if (env.has_env) {
         // The course's fog: visibility = b + (1 - b) min(1, A / z) toward the fog color.
@@ -1034,7 +1142,14 @@ render::DrawOptions draw_options(const race::CourseScene& course, float far) {
     const float* sky = course.sky_color();
     const float* ground = course.ground_color();
     for (int i = 0; i < 3; ++i) o.env_sky[i] = sky[i], o.env_horizon[i] = ground[i], o.env_ground[i] = ground[i];
+    // The cars' reflection passes: weighted C0 + C1 min(cos, 0) with the course's C0 = Env0 +0x34 and C1 = +0x34 x +0x30 (put on the
+    // passes' own rows: CarVisual's weigh_reflections); a pass without rows takes 1 + +0x30 min(cos, 0) here, at full strength.
     o.reflection_fresnel = 0.8f;
+    if (const ByteSpan e0 = course.section(course::kSlotEnv); e0.size() >= 0x38) {
+        float k;
+        std::memcpy(&k, e0.data() + 0x30, 4);
+        if (std::isfinite(k)) o.reflection_fresnel = std::clamp(k, 0.0f, 1.0f);
+    }
     o.reflection_strength = 1.0f;
     return o;
 }
@@ -1090,9 +1205,11 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
     Impl::ViewState& v = m.views[first_view ? 0 : 1];
     if (!v.view) v.view = std::make_unique<render::View3D>(*app_.gpu());
     const float aspect = rect.w / std::max(rect.h, 1.0f);
-    const Scene scene = collect(cars, pose, focus, hidden, half, aspect, rect.h);
-    // (The backdrop's far plane lies a hundred times as far as the scenery's.)
-    render::Mat4 proj = render::perspective(pose.fovy(aspect), aspect, 0.1f, scene.far * 100.0f);
+    Scene scene = collect(cars, pose, focus, hidden, half, aspect, rect.h);
+    // The camera's near plane, where the guard band clips too (docs/formats/camera.md "Near and far"). (The backdrop's far plane
+    // lies a hundred times as far as the scenery's.)
+    scene.options.guard_near = pose.near;
+    render::Mat4 proj = render::perspective(pose.fovy(aspect), aspect, pose.near, scene.far * 100.0f);
     if (lens_) proj.at(0, 2) += lens_->shear_x, proj.at(1, 2) += lens_->shear_y;
     draw_view(ui, *v.view, rect, cars, pose, proj, render::Frustum::symmetric(pose.fovy(aspect), aspect), scene);
     if (v.frame == 5) {
@@ -1164,9 +1281,13 @@ RaceWorld::Scene RaceWorld::collect(std::span<const race::CarState> cars, const 
     const RVec cam_right{pose.view.at(0, 0), pose.view.at(0, 1), pose.view.at(0, 2)}, cam_up{pose.view.at(1, 0), pose.view.at(1, 1), pose.view.at(1, 2)};
     course_->add_items(m.items, pose.eye, lists, &v.fade);
     if (m.sun_disc.active()) {
-        // The sun's disc right after the sky (the first item), before the backdrop.
+        // The sun's disc right after the sky (the first item), before the backdrop. GT4 draws it as the shared engine's routine does
+        // (fn_00398650 -> 0x4986D8: the sun's RGB x gain / 2, added at As / 128) into the frame that is then multiplied by the
+        // picture's scale (Env0 +0x38, docs/formats/course.md "The picture's scale"), which ours puts on the stored colors instead:
+        // the disc's passes once per unit of that scale (twice the shared engine's strength at 2.0).
         std::vector<render::DrawItem> disc;
-        m.sun_disc.add_items(disc, pose.eye, cam_right, cam_up);
+        const int times = std::clamp(int(std::lround(course_->color_scale())), 1, 4);
+        for (int k = 0; k < times; ++k) m.sun_disc.add_items(disc, pose.eye, cam_right, cam_up);
         for (render::DrawItem& it : disc) it.background = false, it.in_order = true, it.no_fog = true;
         m.items.insert(m.items.begin() + 1, disc.begin(), disc.end());
     }
@@ -1205,6 +1326,7 @@ RaceWorld::Scene RaceWorld::collect(std::span<const race::CarState> cars, const 
         if (const float a = car_alpha(i); a < 1)
             for (size_t k = first; k < m.items.size(); ++k) m.items[k].alpha = a;
         if (m.pit_live && int(i) == m.pit_shown) m.add_pit_crew(m.items, i, *car_visuals_[i]);
+        if (m.pit_live && i == 0 && m.license_scene) m.license_scene->add_items(m.items);
         light_items(m.items, first, m.lights[i]);
     }
     if (!split) course_->add_after_items(m.items);
@@ -1213,14 +1335,16 @@ RaceWorld::Scene RaceWorld::collect(std::span<const race::CarState> cars, const 
         gt3r::race::TyreSmoke::View sv;
         sv.forward = RVec{-pose.view.at(2, 0), -pose.view.at(2, 1), -pose.view.at(2, 2)};
         sv.proj_x = 1.0f / (std::tan(pose.fovy(aspect) * 0.5f) * std::max(aspect, 1e-3f));
-        sv.near_m = 0.1f, sv.far_m = far;
+        sv.near_m = pose.near, sv.far_m = far;
         m.smoke.add_items(m.items, pose.eye, cam_right, cam_up, sv);
     }
 
     render::DrawOptions& o = s.options;
     o = draw_options(*course_, far);
     // The cars' reflection picture: the course around the car the view is about, refreshed a face
-    // at a time.
+    // at a time. GT4's map camera (DynamicEnvmapCamera, 0x44EEA8 / 0x44E660) is the shared engine's: 0.8 m above the car, tilted
+    // 15 degrees, three panels to 200 m warped at 0.9 into a sphere map, so the engine's lookup is GT4's; the map is 128 pixels
+    // across (race + 0xE330: 256 / 2) and 32 bits a pixel (its frame's format 0, PSMCT32), not GT3's 16: no 5-bit steps.
     {
         m.env_items.clear();
         const RVec at{me.position.x, me.position.y + 0.8f, me.position.z};
@@ -1230,7 +1354,7 @@ RaceWorld::Scene RaceWorld::collect(std::span<const race::CarState> cars, const 
             eo.env_cube = nullptr;
             eo.draw_distance = 200, eo.far_clip = 0;
             eo.fog = false;
-            eo.quantize_rgb5 = true;
+            eo.quantize_rgb5 = false;
             for (float& c : eo.clear) c = 0;
             eo.clear[3] = 1;
             // (Whole when it starts and after a jump: another car, a restart, a replay's start.)
@@ -1281,11 +1405,12 @@ void RaceWorld::draw_view(Ui& ui, render::View3D& view3d, const SDL_FRect& rect,
     const auto blocked = [&](const RVec& a, const RVec& b) { return !split && occluder.segment_blocked(a, b); };
     m.lamps.add(m.overlay, rect, pose.view, pose.eye, frustum, blocked, &proj);
     const size_t n = cars_hidden_ ? 0 : std::min(cars.size(), car_visuals_.size());
-    if (m.car_lamps.active()) {
-        // The cars' lamps at night: the lights, the tail lamps, the brake lamps while braking.
+    if (gt3r::race::CarLampGlows& glows = m.car_lamps.active() ? m.car_lamps : m.car_lamps_lit; glows.active()) {
+        // The cars' lamps (RaceCarModel::vf36: none at lamp level 0): at night every car's, by day the lit cars' (the pace
+        // car's flashing lamps): the lights, the tail lamps, the brake lamps while braking.
         m.glow_cars.clear();
         for (size_t i = 0; i < n; ++i) {
-            if (int(i) == hidden) continue;
+            if (int(i) == hidden || car_visuals_[i]->lamp_level() == 0) continue;
             gt3r::race::CarLampGlows::Car g;
             g.lamps = &car_visuals_[i]->lamps();
             g.model = car_visuals_[i]->body_matrix(cars[i]);
@@ -1293,7 +1418,7 @@ void RaceWorld::draw_view(Ui& ui, render::View3D& view3d, const SDL_FRect& rect,
             g.brake_now = cars[i].brake_lamps;
             m.glow_cars.push_back(g);
         }
-        m.car_lamps.add(m.overlay, rect, pose.view, pose.eye, frustum, m.glow_cars, blocked, &proj);
+        glows.add(m.overlay, rect, pose.view, pose.eye, frustum, m.glow_cars, blocked, &proj);
     }
     o.overlay = &m.overlay;
     o.post_grade = grade_;

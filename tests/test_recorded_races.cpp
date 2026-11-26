@@ -17,8 +17,8 @@ using namespace gt4r;
 
 TEST(recorded_races_end_on_their_recorded_times) {
     Disc* disc = nullptr;
-    for (const std::unique_ptr<Disc>& d : test::discs())
-        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d.get();
+    for (Disc* d : test::reference_discs())
+        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d;
     if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
     gt3r::Volume* vol = &disc->volume();
     const sim::Program program = sim::Program::load(*disc);
@@ -52,8 +52,8 @@ TEST(recorded_races_end_on_their_recorded_times) {
 // byte for byte (the header's every field, the entries, the stream, the cipher and its key), and its scrambled card file reads back.
 TEST(a_race_kept_as_the_program_keeps_it) {
     Disc* disc = nullptr;
-    for (const std::unique_ptr<Disc>& d : test::discs())
-        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d.get();
+    for (Disc* d : test::reference_discs())
+        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d;
     if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
     const sim::Program program = sim::Program::load(*disc);
     int files = 0, equal = 0, read = 0, disc_bytes = 0;

@@ -6,6 +6,7 @@
 // docs/formats/menu.md ("The game's state") says what each answers and why.
 
 #include "gt4r/menu/game_internal.h"
+#include "gt4r/formats/db/race_labels.h"
 #include "gt4r/menu/earlier_saves.h"
 #include "gt4r/menu/game_network.h"
 #include "gt4r/menu/game_bspec.h"
@@ -146,8 +147,24 @@ float ProgramRandom::next01() {
 
 // ---- Database
 
+// The car database's name tables for a menus' language (CAR_NAME_<language>; Europe's disc has british, french, german,
+// italian and spanish; Portuguese has none and takes the British English ones ❓).
+static std::string database_language(const std::string& code) {
+    if (code == "JP") return "japanese";
+    if (code == "GB" || code == "PT") return "british";
+    if (code == "FR") return "french";
+    if (code == "DE") return "german";
+    if (code == "IT") return "italian";
+    if (code == "ES") return "spanish";
+    if (code == "KR") return "korean";
+    if (code == "CN" || code == "TW") return "big5";
+    return "american";
+}
+
 db::SpecDb* Database::get(const RuntimeConfig& config) {
-    if (tried) return db.get();
+    const std::string want = database_language(rt ? rt->language() : config.language);
+    if (tried && (!db || want == language)) return db.get();
+    if (tried) by_label.clear(); // (the language changed: the names again)
     tried = true;
     if (config.program || config.program_image) {
         try {
@@ -164,7 +181,7 @@ db::SpecDb* Database::get(const RuntimeConfig& config) {
         const FolderLister list = config.list;
         // The names in the menus' language: Prologue (Japan) shows its cars' Japanese names
         // (CAR_NAME_japanese: "フェアレディ 240ZG '71"), the US disc the American ones.
-        language = config.language == "JP" ? "japanese" : "american";
+        language = want;
         db = std::make_unique<db::SpecDb>(rt->reader(), [list](const std::string& dir) { return list(!dir.empty() && dir.back() == '/' ? dir : dir + "/"); }, language);
         cars = db->cars();
         for (size_t i = 0; i < cars.size(); ++i) by_label[cars[i].label] = i;
@@ -219,7 +236,7 @@ int Database::race_unit(const std::string& label) {
     const db::Table* t = db ? db->table("RACE") : nullptr;
     const db::Labels* l = labels_of(kRaceTable);
     if (!t || !l || label.empty()) return -1;
-    for (const std::string& tried : {label, "us" + label, "jp" + label}) {
+    for (const std::string& tried : db::race_labels(label, rt ? rt->region() : std::string())) {
         const std::optional<u32> id = l->id(tried);
         if (!id) continue;
         const std::vector<u32>& ids = t->ids();
@@ -1287,7 +1304,7 @@ void complete_race_request(Runtime& rt, RaceRequest& r) {
     // missions are "usl0b0001", the scripts say "l0b0001"; 0x430D20 tries "us" then "jp").
     if (r.sequence == "replay") r.replay_file = s.replay_file;
     std::string race = r.race;
-    for (const std::string& tried : {r.race, "us" + r.race, "jp" + r.race})
+    for (const std::string& tried : db::race_labels(r.race, rt.region()))
         if (!r.race.empty() && d.code(kRaceTable, tried) != kNoCode) {
             race = tried;
             break;

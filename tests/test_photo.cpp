@@ -22,8 +22,8 @@ using namespace gt4r;
 namespace {
 
 Disc* gt4_disc() {
-    for (const auto& disc : test::discs())
-        if (disc->info().game == Game::GT4) return disc.get();
+    for (Disc* disc : test::reference_discs())
+        if (disc->info().game == Game::GT4) return disc;
     return nullptr;
 }
 

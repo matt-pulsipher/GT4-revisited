@@ -829,7 +829,20 @@ as below.
 
 **Names in the menus' language**: the car database's names come from `CAR_NAME_<language>`
 and `<language>_StrDB` of the menus' language (Prologue, Japan: `japanese`, "フェアレディ 240ZG
-`71"; the US disc: `american`).
+`71"; the US disc: `american`; Europe's `british`, `french`, `german`, `italian`, `spanish` by the language chosen,
+Portuguese ❓ `british`).
+
+**The release's region and language** (`DiscInfo::region` / `language`): `MSystem::GetRegionCode` answers "us" on
+SCUS-97328, "uk" on SCES-51719, "jp" on SCPS-17001 and Prologue (each program's own string, 0x68BB20 in the US one). The
+projects' language folders are the release's: US, JP, or Europe's GB, FR, DE, IT, ES (with PT and DB, the text's ids,
+which the game never offers). On "uk" the boot project opens `LanguageRoot` before anything else at every start (its
+`start_next`), five buttons; the one chosen calls `MSystem::SetLanguage` with its code (0x436170: the language index by the
+table 0x6AE404, JP US GB FR DE IT ES PT KR CN TW DB, kept in the game data) and `SyncUnitWithLanguage` (0x4361D0 ->
+0x472528: the units by the language's locale, 0x472408: US mph HP ft.lb; GB mph BHP kgf.m; FR km/h ch kgf.m t/min; DE km/h
+PS kgf.m U/min; IT km/h CV kgf.m G/min; ES and PT km/h CV kgf.m; JP KR CN TW km/h PS kgf.m), then starts `boot` again in
+that language. `GetVideoSystem` answers "PAL" on "uk" (the main script then takes `main_pal`); the race still steps 60
+times a second. ✔ Checked: Europe's language page, French menus after choosing Français, the British English Gran
+Turismo mode map (Europe's dealers' places), Japan's menus in Japanese with its kanji font.
 
 **Before the menus** (`app/menu_advertise.h`; GT4FIRSTADVERTISE::DisplayAdvertiseImage,
 0x108F78): `advertise/us/main.img`'s pictures in the middle of the frame buffer on black, each

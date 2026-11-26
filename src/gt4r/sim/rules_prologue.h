@@ -11,6 +11,7 @@
 #include "gt4r/sim/equipment.h"
 #include "gt4r/sim/record.h"
 #include "gt4r/sim/rules_chassis.h"
+#include "gt4r/sim/rules_drive.h"
 #include "gt4r/sim/rules_hybrid.h"
 #include "gt4r/sim/rules_input.h"
 #include "gt4r/sim/rules_steer.h"
@@ -117,6 +118,20 @@ struct Tables {
     rules::HybridTables hybrid; // the hybrid's box's (0x504560, 0x5045B0, 0x504638, 0x504648)
     ConvertData convert; // what the converter reads (convert_prologue.h)
     u8 asm_keep = 0;     // 0x504B04: an entry with the stability control off keeps its switches' bits 6 and 7
+    // The automatic gearbox's settings (the controller settings' +0x08 .. +0x0B, 0x504958 .., read by the automatic shift
+    // 0x3CD6B8): the mode (1: a held shift input holds the gear), the down-shift's rpm less 100 x +0x09 under throttle, plus
+    // 100 x +0x0A lifted and 100 x +0x0B braking.
+    ex::GearSettings gears;
+    // The engine sound's scales (the effects block's +0x1FC .. +0x1FF, 0x504B08: x 0.01, x 0.01, x 0.01, x 0.1 as the race's
+    // start makes them, 0x3B8720 into 0x714904 .. 0x714910).
+    std::array<F, 4> sound_scales{};
+    u8 wear_slip_cap = 0; // the static block's +0x8E (the tire wear's slip cap, 0x3CB8C8)
+    // The rolling resistance's (0x3BBF18): its curve (0x504428, above) and each surface's factor (0x504438 + 4 s: the static
+    // block's s16 +0x2C + 2 s x 0.01, made by 0x3C5BC0), in Gran Turismo 4's form.
+    rules::RoadTables road;
+    // Gran Turismo 4's drive routines' tables with Prologue's: four wheel drive system 3's fade (0x504AD8), the stepless
+    // gearboxes' rates (0x504930), the automatic gearbox's settings, the hybrid's.
+    rules::DriveTables drive;
 };
 // The engine's statics with Prologue's own values where they differ (the rolling resistance's curve; its per-surface
 // coefficients, 0x504438, are the engine's).
@@ -125,6 +140,13 @@ void statics(ex::Statics& s, const Tables& t);
 // made by 0x3B3740: 1 / (+0x7C x 9800 (0x46191FFF)), 1 / (+0x7D x 0.1 (0x3DCCCCCC) x 100), +0x7E / 3.6 (0x3E8E38E3), +0x7F
 // x 0.01 of the static block, +0x7C and +0x7D 1 when 0), the road's bumps.
 void race_inputs(ex::RaceInputs& r, const Tables& t);
+// What the race's rule block (the conductor + 0x10780, copied from the event's RACE row by 0x3C5978) gives the step:
+// the class grip of a car a computer drives (+0x18 .. +0x1B by the drive class, read by phase 10 at 0x3BC048; Prologue has
+// no rule that turns a 0 into 20: its single races' rows carry 20 themselves), and the tire wear's rules (0x3CB8C8 into the
+// conductor + 0x84 at the race's start, 0x3B650C): off unless +0x2C is set and the knees ascend; with +0x2C set the copy
+// writes +0x31 = 4 and +0x32 = 0 (0x3C5B10). `wear_on`: the conductor's (its virtual +0x50 and 0x3B63E0; ❓ which
+// conductors: +0x2C is 0 in every row of the disc).
+void race_rules(ex::RaceInputs& r, const Tables& t, const u8* rule_block, bool wear_on);
 Tables tables(const Program& program);
 
 // A tire record's kind bytes (Prologue's parameter block: the record's +0x1B4 .. +0x1B6; its spec: the tire block's +0x6C ..
@@ -169,6 +191,9 @@ struct CarPart {
     std::array<F, 2> axle_load;   // the parameter block's +0xE6C + 4 k (the engine's +0xE54: each axle's static load)
     rules::ChassisExtra chassis;
     rules::WheelLayout layout;
+    // The parameter block's engine (+0x138) and driveline (+0x1F8) and the tires' radii (+0x274 ..) in Gran Turismo 4's form,
+    // for Gran Turismo 4's routines of the drive where Prologue's are its own in another layout (drive_extra).
+    rules::DriveExtra drive;
 };
 // 0x3CC0B8: the hybrid's box at the car's set-up (nothing for another car).
 void hybrid_start(const ex::Car& c, CarPart& x);
@@ -186,6 +211,10 @@ u16 mileage(F fuel, F distance);
 // beside, ahead within 5 m and behind, at least 1 farther ahead and at the corners) and, within 20 m, the contact with a car closed
 // on (0x428530: 1 over 5 km/h, 0.5 within 5 s, else 0.05 under half a meter and 0.1 under 4 m).
 void near_drivers(std::span<ex::Car> cars);
+// The parameter block's engine and driveline (Gran Turismo 3's layout, Prologue's converter's) in Gran Turismo 4's form: the
+// torque curve, limits, turbo stages, the driveline's layout, gears (at most 7 of the block's 8 ratios), differentials, the
+// shift speeds, inertias, and each axle's tire radius and width.
+rules::DriveExtra drive_extra(const ex::Params& p);
 // The part from the car's record and Prologue's parameter block: the wheel layout of its +0x30, the tire records' kind bytes.
 CarPart car_part(const ex::Car& c, const Block& p, const Tables& t);
 
@@ -209,6 +238,24 @@ void wheel_kinds(const ex::Car& c, CarPart& x);
 // acceleration, the lateral acceleration the force sum times the parameter block's inverse mass (+0x4C), and no computer
 // driver's grip in the lateral acceleration over the tires' grip.
 void lateral_yaw(ex::Car& c, const CarPart& x, bool airborne, const Tables& t);
+
+// 0x3BB9F0 (phase 10's last): the standstill hold. Gran Turismo 4's (0x352C90) over the layout's wheels but with Gran
+// Turismo 3's rule of when a car stops: under the hold counter the speeds and the yaw cleared; airborne nothing; stopped dead
+// with the race's hold (F +0x4E0), a driver of kind 8, or within 1 km/h with no slip fade on any wheel of the layout and one
+// of them braked (wheel +0x5F bit 1); else the planar velocity takes the step's accelerations.
+void stop_hold(ex::Car& c, const rules::WheelLayout& l, bool airborne);
+// 0x3B3810 (phase 11): each wheel's brake heat (wheel +0x94) by the layout: heating by its axle's brake torque times the
+// tire's radius, the brake, the rim's speed and k.c0, cooling by (the speed + c2) x c1 x (the heat + c3), within 0 .. 1.
+// Gran Turismo 4's (0x3F38D8) without its no heating while the brake pedal is up.
+void brake_heat(ex::Car& c, const rules::WheelLayout& l, const ex::BrakeHeatConsts& k);
+// 0x3CA750: how a car is drawn (3 a car in the race; a ghost (F +0x3EE set): with neither the race's word +0x8C nor the
+// course's ghost word (+0x13440) 1, else 0 for control source 1 or driver kind 1, else 2), for the effects' reset 0x3CA7B0
+// (Gran Turismo 4's 0x366718).
+int draw_mode(const ex::Car& c, u32 race_8c, u32 ghost_word);
+// 0x3BC03C: the class grip of a car a computer drives (control source 1 or 2, or a driver kind): 1 + 0.01 x the race's
+// byte by the drive class on each wheel's slip fade and friction circle, the wheels of the layout (Gran Turismo 4's rule,
+// 0x3535B0).
+void class_grip(ex::Car& c, const rules::WheelLayout& l, const ex::ClassGrip& grip);
 
 // 0x3BBFE0 (phase 10): the engine's phase (brakes and clutch, rolling resistance, tire curves, the class grip, the
 // longitudinal force, wheel torques, vectoring, axles, wheel speeds, engine speed and gearbox, the hold: each equal to

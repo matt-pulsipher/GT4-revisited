@@ -35,8 +35,8 @@ using namespace gt4r;
 namespace {
 
 Disc* prologue_disc() {
-    for (const std::unique_ptr<Disc>& d : test::discs())
-        if (d->info().game == Game::Prologue) return d.get();
+    for (Disc* d : test::reference_discs())
+        if (d->info().game == Game::Prologue) return d;
     return nullptr;
 }
 
@@ -275,7 +275,7 @@ TEST(disc_prologue_race) {
     gt3r::sim::exact::ProgramData pd = gt3r::sim::exact::ProgramData::synthetic();
     CHECK(pp.apply(program, pd));
     CHECK(pd.b(gt3r::sim::exact::ProgramData::Table::Static, 0) == 0x0C); // (the air density byte, x 10)
-    for (const std::unique_ptr<Disc>& other : test::discs())
+    for (Disc* other : test::reference_discs())
         if (other->info().game == Game::GT4) CHECK(!sim::PrologueProgram::locate(sim::Program::load(*other)).recognized());
     // Two cars, a lap each.
     const sim::ai::FieldRun run = sim::ai::run_field(*disc, "tsukuba", std::vector<std::string>{"impreza_wrc_03", "civic_r_98"}, 1);
@@ -309,6 +309,21 @@ TEST(disc_prologue_step_routines_equal) {
                         static_cast<unsigned long long>(st.calls));
             CHECK(st.calls > 0 || st.name == "engine's driver input");
             if (!differ.count(st.name)) CHECK(st.clean == st.calls);
+        }
+    }
+    // Gran Turismo 4's routines where Prologue's are its in another layout, on other drives: four wheel drive with a turbo, the
+    // special kind 7, the hybrid (its axles its own path), rear wheel drive.
+    for (const char* car : {"impreza_wrc_03", "sl55_amg_02", "prius_g_touring_03", "s2000_03"}) {
+        std::string err;
+        const std::vector<diff::prologue::PTapStat> stats = diff::prologue::check(*disc, "tsukuba", car, 600, "prologue", err);
+        CHECK(err.empty());
+        for (const diff::prologue::PTapStat& st : stats) {
+            // (the hybrid's own path: its axles, its rpm and one-speed box, 0x3CD338 and 0x3BABC8)
+            const bool hybrid = std::string(car) == "prius_g_touring_03";
+            if (st.name.rfind("GT4's", 0) != 0 || (hybrid && (st.name == "GT4's axle step" || st.name == "GT4's engine speed" || st.name == "GT4's gear step"))) continue;
+            if (st.calls == 0 || st.clean != st.calls) std::printf("  %s: %s %llu of %llu calls equal\n", car, st.name.c_str(), static_cast<unsigned long long>(st.clean),
+                                                  static_cast<unsigned long long>(st.calls));
+            CHECK(st.calls > 0 && st.clean == st.calls);
         }
     }
     // Steering wheels (the controller kinds 4 and 6) and a digital pad: the input and the steering wheel's force.
@@ -586,12 +601,28 @@ TEST(disc_prologue_whole_step_equal) {
     }
 }
 
+// What the race's start makes of Prologue's own tables for its step, against the program's conductor on a single race's and a
+// lesson's row (gt4r_diff prologue-start): the engine sound's scales, the tire wear's rules (with made-up ones too: no row has
+// any), the class grips; a single race has its wear rules on, a lesson not. The automatic gearbox's settings are the
+// controller settings' +0x08 .. +0x0B (0x3CD6B8 reads them there).
+TEST(disc_prologue_race_start_tables) {
+    Disc* disc = prologue_disc();
+    if (!disc) SKIP("no Prologue disc");
+    const auto st = diff::prologue::start_tables_check(*disc, true);
+    std::printf("  %d of %d values equal %s\n", st.equal, st.checks, st.err.c_str());
+    CHECK(st.err.empty());
+    CHECK(st.checks == 72 && st.equal == st.checks);
+    CHECK(st.single_wear && !st.license_wear);
+    const sim::prologue::Tables t = sim::prologue::tables(sim::Program::load(*disc));
+    CHECK(t.gears.mode == 1 && t.gears.down_throttle == 5 && t.gears.down_lift == 0 && t.gears.down_brake == 0);
+}
+
 // A license test's car is the first of its event's pool with that entry's parts and settings (the run's own: what the
 // demonstrations' files keep of their car 0).
 TEST(disc_license_car_is_the_pools) {
     Disc* disc = nullptr;
-    for (const std::unique_ptr<Disc>& d : test::discs())
-        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d.get();
+    for (Disc* d : test::reference_discs())
+        if (d->info().game == Game::GT4 && sim::Program::load(*d).known()) disc = d;
     if (!disc) SKIP("no Gran Turismo 4 disc");
     const sim::Program program = sim::Program::load(*disc);
     gt3r::Volume* vol = &disc->volume();

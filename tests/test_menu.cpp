@@ -156,8 +156,8 @@ TEST(image_pack_reads) {
 // Every project of the discs: the layout reads, every picture a widget names is in its page's
 // pack and decodes, every text key has its text; the fonts read.
 TEST(disc_menus_read) {
-    if (test::discs().empty()) SKIP("set GT4R_DISC");
-    for (const auto& disc : test::discs()) {
+    if (test::reference_discs().empty()) SKIP("set GT4R_DISC");
+    for (const auto& disc : test::reference_discs()) {
         const menu::FileReader read = [&](const std::string& path) -> std::optional<Bytes> {
             const gt3r::Volume::Entry* e = disc->volume().find(path);
             if (!e) return std::nullopt;

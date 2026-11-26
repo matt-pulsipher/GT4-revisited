@@ -1,5 +1,7 @@
 #include "gt4r/audio/sound_driver.h"
 
+#include "base/ee_float.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -14,11 +16,15 @@ constexpr int kFull = 0x3FFF;
 constexpr float kEffectResolution = 240.0f, kStartTempo = 120.0f;
 constexpr int kNoteKey16 = 60 << 4; // a held note sounds at key 60
 
-// The mixer's priority: 0 keeps its voice against everything, 255 is taken first. The game's
-// runs the other way (a higher number keeps its voice).
-u8 mixer_priority(int game) { return u8(255 - std::clamp(game, 0, 255)); }
-
 } // namespace
+
+s32 level_priority(float level) {
+    using gt3r::ee::F;
+    const F size = abs(F(level));
+    if (F(1.0f) <= size) return 0x7FFFFFFE;
+    const s32 v = gt3r::ee::to_int(size * F::raw(0x4EFFFFFF)); // (2147483520)
+    return v > 0x7FFFFFFE ? 0x7FFFFFFE : v;
+}
 
 int SoundDriver::q14(float v) { return std::clamp(int(v * 16383.0f), -0x4000, kFull); }
 
@@ -26,7 +32,10 @@ int SoundDriver::q14(float v) { return std::clamp(int(v * 16383.0f), -0x4000, kF
 // to the voice's range after the tone's volume is taken) up to just under 2.
 int SoundDriver::note_gain(float v) { return std::clamp(int(v * 16383.0f), -0x8000, 0x7FFF); }
 
-SoundDriver::SoundDriver(gt3r::VoiceMixer& mixer) : mixer_(mixer) { master_.fill(kFull); }
+SoundDriver::SoundDriver(gt3r::VoiceMixer& mixer) : mixer_(mixer) {
+    master_.fill(kFull);
+    for (int i = int(slots_.size()) - 1; i >= 0; --i) free_.push_back(i); // (record 0 at the head)
+}
 
 SoundDriver::~SoundDriver() { stop_all(); }
 
@@ -53,6 +62,103 @@ u32 SoundDriver::number(Sequence& s) {
 void SoundDriver::set_tempo(Sequence& s, float bpm) {
     const float beat = 60000000.0f / bpm; // microseconds
     s.step = ((1000000.0f / beat) * s.resolution) / float(kUpdateRate);
+}
+
+// --- the voice records ------------------------------------------------------------------
+
+// The serial a record takes when it is handed out (0x55C520: the counter at +0xA0, from 0x7FFFFFFF on 0).
+s32 SoundDriver::next_serial() {
+    const s32 s = serial_;
+    serial_ = s == 0x7FFFFFFF ? 0 : s + 1;
+    return s == 0x7FFFFFFF ? 0 : s;
+}
+
+bool SoundDriver::has_free() const { return !free_.empty() && mixer_.active_voices() < gt3r::VoiceMixer::kVoices; }
+
+// A free record (0x55C758: the head of the free list), else one by the claim's rule, its voice cut
+// (0x55D028); the record takes a new serial either way.
+int SoundDriver::claim(const Claim& c) {
+    int pick = -1;
+    // (The shared mixer has 46 voices for the driver's 46 and the stream's two: with the stream's on and
+    // every other voice sounding, a free record waits and the rule picks the voice to cut.)
+    if (has_free()) {
+        pick = free_.back();
+        free_.pop_back();
+    } else if (c.take == Claim::Take::ByPriority) {
+        // 0x55D0B0 → 0x55D070 over the records in order: a priority under the best so far, or the same
+        // priority and at least the best's age.
+        s32 best = c.priority, age = 0;
+        for (int i = 0; i < int(slots_.size()); ++i) {
+            const Slot& s = slots_[size_t(i)];
+            if (!s.busy) continue;
+            if (s.priority < best || (s.priority == best && s.age >= age)) pick = i, best = s.priority, age = s.age;
+        }
+    } else {
+        // 0x55D1C0 → 0x55D148 → 0x55D120: the lowest serial under 0x7FFFFFFF among the allowed records.
+        s32 best = 0x7FFFFFFF;
+        for (int i = 0; i < int(slots_.size()); ++i) {
+            const Slot& s = slots_[size_t(i)];
+            if (!s.busy) continue;
+            if (c.group >= 0 && s.group != c.group) continue;
+            if (c.skip_kept && s.kept) continue;
+            if (s.serial < best) pick = i, best = s.serial;
+        }
+    }
+    if (pick < 0) return -1;
+    Slot& s = slots_[size_t(pick)];
+    if (s.busy) mixer_.stop(s.id);
+    s = Slot{};
+    s.busy = true;
+    s.serial = next_serial();
+    return pick;
+}
+
+gt3r::VoiceId SoundDriver::key_slot(int slot, gt3r::VoiceParams p) {
+    p.priority = 0; // (the records decide; the mixer always has the cut voice free)
+    const gt3r::VoiceId id = mixer_.key_on(p);
+    if (!id.valid()) {
+        release_slot(slot);
+        return {};
+    }
+    slots_[size_t(slot)].id = id;
+    return id;
+}
+
+void SoundDriver::release_slot(int slot) {
+    Slot& s = slots_[size_t(slot)];
+    if (!s.busy) return;
+    s = Slot{};
+    free_.push_back(slot);
+}
+
+// Once a step (0x55D890): a record whose voice has ended goes back to the head of the free list, in the
+// records' order; the others count the step.
+void SoundDriver::age_slots() {
+    for (int i = 0; i < int(slots_.size()); ++i) {
+        Slot& s = slots_[size_t(i)];
+        if (!s.busy) continue;
+        if (!mixer_.playing(s.id))
+            release_slot(i);
+        else
+            ++s.age;
+    }
+}
+
+gt3r::VoiceId SoundDriver::key_layer(const gt3r::VoiceParams& p, s32 priority) {
+    std::lock_guard lock(mutex_);
+    Claim c;
+    c.take = Claim::Take::ByPriority;
+    c.priority = priority;
+    const int slot = claim(c);
+    if (slot < 0) return {};
+    slots_[size_t(slot)].priority = priority;
+    return key_slot(slot, p);
+}
+
+void SoundDriver::set_layer_priority(gt3r::VoiceId id, s32 priority) {
+    std::lock_guard lock(mutex_);
+    for (Slot& s : slots_)
+        if (s.busy && s.id == id) s.priority = priority;
 }
 
 // --- voices -----------------------------------------------------------------------------
@@ -86,7 +192,7 @@ u16 SoundDriver::pitch(Voice& v) {
 }
 
 SoundDriver::Voice* SoundDriver::key_on(const sound::InstBank&, std::shared_ptr<const Bytes> adpcm, const Program& program, const Tone& tone,
-                                        Voice v, bool reverb, int priority) {
+                                        Voice v, bool reverb, const Claim& claim_rule, const SlotSetup& setup) {
     v.base = int(program.volume) * int(tone.volume);
     v.center16 = int(tone.center) << 4;
     v.fine = tone.fine;
@@ -102,10 +208,15 @@ SoundDriver::Voice* SoundDriver::key_on(const sound::InstBank&, std::shared_ptr<
     p.adsr1 = tone.adsr1;
     p.adsr2 = tone.adsr2;
     p.reverb = reverb;
-    p.priority = mixer_priority(priority);
     p.bus = v.kind == Kind::Music ? gt3r::VoiceBus::Music : gt3r::VoiceBus::Effects;
-    v.id = mixer_.key_on(p);
+    if (!p.data || p.start + gt3r::PsAdpcmDecoder::kFrameBytes > p.data->size()) return nullptr;
+    const int slot = claim(claim_rule);
+    if (slot < 0) return nullptr;
+    Slot& s = slots_[size_t(slot)];
+    s.priority = setup.priority, s.group = setup.group, s.kept = setup.kept;
+    v.id = key_slot(slot, p);
     if (!v.id.valid()) return nullptr;
+    v.slot = slot;
     voices_.push_back(v);
     return &voices_.back();
 }
@@ -391,7 +502,8 @@ void SoundDriver::music_note_on(int channel, int key, int velocity) {
         v.pan_tone = tone->pan;
         v.pan_channel = c.pan;
         v.bend = c.bend;
-        key_on(*m.bank, m.bank->adpcm, *c.voice, *tone, v, tone->reverb() || c.reverb, 0);
+        // A free voice, else the first handed out of all (0x611CF0 → 0x55D1C0); priority 0, group 0.
+        key_on(*m.bank, m.bank->adpcm, *c.voice, *tone, v, tone->reverb() || c.reverb, Claim{}, SlotSetup{0, 0, false});
     }
 }
 
@@ -557,7 +669,31 @@ void SoundDriver::effect_note_on(Effect& e, int program, int key, int velocity) 
     v.pan_sequence = e.params.pan;
     v.pan_channel = tone.pan;
     v.pitch_factor = int(e.params.pitch * 4096.0f);
-    key_on(*e.bank, e.bank->adpcm, *p, tone, v, tone.reverb(), e.params.priority ? e.params.priority : tone.priority());
+    // The voice (0x611AA0). With the caller's priority: a free voice, else the lowest priority at or under it
+    // (0x55D0B0); the voice is kept from unprioritized effects when the tone is flagged 0x01. Without one: a free
+    // voice, else the first handed out of the tone's voice group (when it has one), else of the voices no tone
+    // keeps (0x55D1C0); the voice takes the tone's priority.
+    if (e.params.priority != kNoPriority) {
+        Claim c;
+        c.take = Claim::Take::ByPriority;
+        c.priority = e.params.priority;
+        key_on(*e.bank, e.bank->adpcm, *p, tone, v, tone.reverb(), c, SlotSetup{e.params.priority, 0, (tone.flags & 0x01) != 0});
+        return;
+    }
+    const SlotSetup setup{tone.priority(), tone.group(), false};
+    if (tone.group() != 0) {
+        bool any = has_free();
+        for (const Slot& s : slots_) any |= s.busy && s.group == tone.group();
+        if (any) {
+            Claim c;
+            c.group = tone.group();
+            key_on(*e.bank, e.bank->adpcm, *p, tone, v, tone.reverb(), c, setup);
+            return;
+        }
+    }
+    Claim c;
+    c.skip_kept = true;
+    key_on(*e.bank, e.bank->adpcm, *p, tone, v, tone.reverb(), c, setup);
 }
 
 // --- held notes -------------------------------------------------------------------------
@@ -577,7 +713,11 @@ u32 SoundDriver::note_on(std::shared_ptr<const sound::InstBank> bank, int progra
     v.pan_sequence = p.pan;
     v.pan_channel = tone.pan;
     v.pitch_factor = int(p.pitch * 4096.0f);
-    if (!key_on(*bank, bank->adpcm, *g, tone, v, tone.flags != 0 && !p.dry, p.priority)) return 0;
+    // A free voice, else the lowest priority at or under the note's (0x559EB0 → 0x55D0B0).
+    Claim c;
+    c.take = Claim::Take::ByPriority;
+    c.priority = p.priority;
+    if (!key_on(*bank, bank->adpcm, *g, tone, v, tone.flags != 0 && !p.dry, c, SlotSetup{p.priority, -1, false})) return 0;
     notes_.push_back({next_id_, std::move(bank)});
     return next_id_++;
 }
@@ -591,7 +731,7 @@ void SoundDriver::set_note(u32 id, const SoundParams& p) {
             v.pan_sequence = p.pan;
             v.pitch_factor = int(p.pitch * 4096.0f);
             v.dirty = true;
-            mixer_.set_priority(v.id, mixer_priority(p.priority));
+            if (v.slot >= 0 && slots_[size_t(v.slot)].busy && slots_[size_t(v.slot)].id == v.id) slots_[size_t(v.slot)].priority = p.priority;
         }
 }
 
@@ -609,6 +749,7 @@ bool SoundDriver::note_playing(u32 id) const {
 
 void SoundDriver::update() {
     std::lock_guard lock(mutex_);
+    age_slots();
     for (Effect& e : effects_) tick_effect(e);
     tick_music();
     update_voices();
@@ -637,6 +778,8 @@ void SoundDriver::stop_all() {
     std::lock_guard lock(mutex_);
     for (Voice& v : voices_) mixer_.stop(v.id);
     voices_.clear();
+    for (int i = 0; i < int(slots_.size()); ++i)
+        if (slots_[size_t(i)].busy) mixer_.stop(slots_[size_t(i)].id), release_slot(i);
     notes_.clear();
     music_.state = 0;
     music_.number = -1;

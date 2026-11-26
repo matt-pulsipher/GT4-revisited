@@ -131,6 +131,7 @@ struct RaceHud::Impl {
     race::CourseMap map;
     SDL_Texture* map_texture = nullptr;
     std::optional<menu::TextTable> words;
+    std::string language; // the pack's
     bool mph = false;
     float needle_from[2] = {0, 0}; // the dials' needles last frame (speed, revs), for their trail
     bool needle_set = false;
@@ -330,6 +331,7 @@ RaceHud::RaceHud(App& app, ByteSpan gtcm) : impl_(std::make_unique<Impl>()) {
             if (std::optional<Bytes> file = app.vfs()->read("race_display/gt4/" + region + "/display.gpb"); file && menu::ImagePack::is_pack(*file)) {
                 m.pack_file = std::move(*file);
                 m.pack.emplace(menu::ImagePack::parse(m.pack_file));
+                m.language = region;
                 break;
             }
         }
@@ -355,6 +357,21 @@ RaceHud::RaceHud(App& app, ByteSpan gtcm) : impl_(std::make_unique<Impl>()) {
         m.layout = {};
     }
     if (!ready() && app.disc()->info().game != Game::Prologue) LOG_WARN("Race display: the disc's program or files are not the ones its places were read from; a plain read-out is shown");
+}
+
+void RaceHud::set_language(App& app, const std::string& language) {
+    Impl& m = *impl_;
+    if (language.empty() || language == m.language || !app.vfs()) return;
+    std::optional<Bytes> file = app.vfs()->read("race_display/gt4/" + language + "/display.gpb");
+    if (!file || !menu::ImagePack::is_pack(*file)) return;
+    for (auto& [name, p] : m.pictures)
+        if (p.texture) SDL_DestroyTexture(p.texture);
+    m.pictures.clear();
+    m.pack.reset();
+    m.pack_file = std::move(*file);
+    m.pack.emplace(menu::ImagePack::parse(m.pack_file));
+    m.language = language;
+    if (const std::optional<Bytes> t = app.vfs()->read("rtext/race" + language + ".rt2"); t && menu::TextTable::is_table(*t)) m.words.emplace(menu::TextTable::parse(*t));
 }
 
 RaceHud::~RaceHud() {

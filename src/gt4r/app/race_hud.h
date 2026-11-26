@@ -118,6 +118,9 @@ public:
     bool mph() const;
     // The speed in mph (else km/h): the options' unit (unit_velocity); the disc's region by default.
     void set_mph(bool on);
+    // The menus' language (the options' `language`: Europe's player's choice): its pictures' pack
+    // (race_display/gt4/<language>/display.gpb) and words (rtext/race<language>.rt2) where the disc has them.
+    void set_language(App& app, const std::string& language);
     // A race movie (the pause menu, the results) as its player shows it now, over the whole canvas:
     // its shapes, pictures and texts (the texts' words looked up in the race's text table).
     // `externals`: the pictures the program supplies (the results' car icons), where they go on the

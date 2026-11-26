@@ -167,8 +167,10 @@ struct Placement {
     float gain = 1, left = 0.70710678f, right = 0.70710678f;
     float x = 0, z = 1; // over the distance: to the right, ahead
 };
-// `x` to the right and `z` ahead of the camera, metres.
-Placement place_sound(const RaceSoundTables::Mic& mic, float x, float z);
+// `x` to the right and `z` ahead of the camera, metres. A sound within a quarter metre of the camera is
+// moved that far ahead; `cue_moved`: the surround cue's `z` is the moved place's (Prologue's), else the
+// place's own (Gran Turismo 4's).
+Placement place_sound(const RaceSoundTables::Mic& mic, float x, float z, bool cue_moved = false);
 
 // "ENGN" banks read and parsed, by path (nullptr: none on the disc, or bad): a race's cars share the wind's and often an
 // engine's.

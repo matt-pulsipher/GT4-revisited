@@ -8,6 +8,9 @@
 #include "gt4r/audio/render.h"
 #include "gt4r/audio/sound_driver.h"
 #include "gt4r/audio/sound_library.h"
+#include "gt4r/audio/stream_voices.h"
+#include "gt4r/audio/analysis.h"
+#include "formats/ads.h"
 #include "gt4r/formats/db/specdb.h"
 #include "gt4r/formats/sound/inst_bank.h"
 #include "gt4r/formats/sound/sound_index.h"
@@ -504,11 +507,71 @@ TEST(sound_driver_held_notes) {
     s.driver().stop_all();
 }
 
+// The driver's 46 voices (0x55C758, 0x55D0B0, 0x55D1C0): a free one, else a held note takes the lowest
+// priority at or under its own (the oldest of equals by age, the later record of equal ages), a music note
+// the first handed out of all.
+TEST(sound_driver_voice_records) {
+    CHECK(audio::level_priority(0) == 0 && audio::level_priority(1.0f) == 0x7FFFFFFE && audio::level_priority(-3.0f) == 0x7FFFFFFE);
+    // (the EE's multiplier: 0.5 x 2147483520 comes out one under the exact product)
+    CHECK(audio::level_priority(0.5f) == 1073741696 && audio::level_priority(-0.25f) == 536870848);
+    const auto bank = bank_of(make_bank());
+    audio::OfflineSound s(false);
+    audio::SoundParams p;
+    p.priority = 100;
+    std::vector<u32> ids;
+    for (int i = 0; i < 46; ++i) {
+        ids.push_back(s.driver().note_on(bank, 0, p));
+        s.advance(1); // (each a step older than the next)
+    }
+    CHECK(ids.back() != 0 && s.driver().voices() == 46);
+    // Equal priority: the oldest makes way.
+    const u32 a = s.driver().note_on(bank, 0, p);
+    CHECK(a && !s.driver().note_playing(ids[0]) && s.driver().note_playing(ids[1]));
+    // Nothing at or under 99: no voice.
+    p.priority = 99;
+    CHECK(s.driver().note_on(bank, 0, p) == 0);
+    // A higher priority takes the lowest, the oldest of them.
+    p.priority = 101;
+    const u32 b = s.driver().note_on(bank, 0, p);
+    CHECK(b && !s.driver().note_playing(ids[1]) && s.driver().note_playing(ids[2]));
+    // A note's priority sent again: now the lowest.
+    p.priority = 50;
+    s.driver().set_note(ids[20], p);
+    p.priority = 100;
+    CHECK(s.driver().note_on(bank, 0, p) && !s.driver().note_playing(ids[20]) && s.driver().note_playing(ids[2]));
+    // A music note takes the first voice handed out whatever its priority: ids[2] (b's took ids[1]'s later).
+    const auto seq = sqt_of(make_sqt({0x00, 0xC0, 0x00, 0x00, 0x90, 60, 127, 0x87, 0x40, 60, 0, 0x00, 0xFF, 0x2F, 0x00}));
+    s.driver().play_music(bank, seq, 0);
+    s.advance(1);
+    CHECK(!s.driver().note_playing(ids[2]) && s.driver().note_playing(ids[3]) && s.driver().note_playing(b));
+    s.driver().stop_all();
+    CHECK(s.driver().voices() == 0);
+
+    // Keyed in one step, the ages tie: the later record makes way (the last keyed, on a fresh driver whose
+    // free list hands out record 0 first).
+    audio::OfflineSound fresh(false);
+    audio::OfflineSound& s2 = fresh;
+    ids.clear();
+    p.priority = 7;
+    for (int i = 0; i < 46; ++i) ids.push_back(s2.driver().note_on(bank, 0, p));
+    const u32 c = s2.driver().note_on(bank, 0, p);
+    CHECK(c && !s2.driver().note_playing(ids[45]) && s2.driver().note_playing(ids[44]) && s2.driver().note_playing(ids[0]));
+    // A layer player's voice by the same rule; its priority sent again.
+    gt3r::VoiceParams v;
+    v.data = bank->adpcm;
+    p.priority = 8;
+    const gt3r::VoiceId layer = s2.driver().key_layer(v, 8);
+    CHECK(layer.valid() && !s2.driver().note_playing(c) && s2.driver().note_playing(ids[44])); // (record 45 again)
+    s2.driver().set_layer_priority(layer, 1);
+    CHECK(s2.driver().note_on(bank, 0, p) && !s2.mixer().playing(layer));
+    s.driver().stop_all();
+}
+
 // --- on the discs ---------------------------------------------------------------------------
 
 TEST(sound_files_on_disc) {
-    if (test::discs().empty()) SKIP("no disc");
-    for (const auto& disc : test::discs()) {
+    if (test::reference_discs().empty()) SKIP("no disc");
+    for (const auto& disc : test::reference_discs()) {
         const bool gt4 = disc->info().game == Game::GT4;
         size_t banks = 0, sequences = 0, notes = 0, engines = 0, unordered = 0, markers = 0, programs = 0, missing_programs = 0;
         for (const ImageFile& f : disc->files()) {
@@ -579,8 +642,8 @@ TEST(sound_files_on_disc) {
 }
 
 TEST(sound_indexes_on_disc) {
-    if (test::discs().empty()) SKIP("no disc");
-    for (const auto& disc : test::discs()) {
+    if (test::reference_discs().empty()) SKIP("no disc");
+    for (const auto& disc : test::reference_discs()) {
         const bool gt4 = disc->info().game == Game::GT4;
         gt3r::Vfs vfs(&disc->volume());
         audio::SoundLibrary lib(vfs);
@@ -639,10 +702,10 @@ TEST(sound_indexes_on_disc) {
 }
 
 TEST(sound_menu_effects_on_disc) {
-    if (test::discs().empty()) SKIP("no disc");
+    if (test::reference_discs().empty()) SKIP("no disc");
     // The names the menus' scripts play.
     const char* const names[] = {"ok", "cancel", "disable", "cursor", "next", "return", "select", "buy"};
-    for (const auto& disc : test::discs()) {
+    for (const auto& disc : test::reference_discs()) {
         gt3r::Vfs vfs(&disc->volume());
         for (const char* name : names) {
             // (Prologue's "buy" is a tone of volume 0.)
@@ -676,8 +739,8 @@ TEST(sound_menu_effects_on_disc) {
 }
 
 TEST(sound_menu_music_on_disc) {
-    if (test::discs().empty()) SKIP("no disc");
-    for (const auto& disc : test::discs()) {
+    if (test::reference_discs().empty()) SKIP("no disc");
+    for (const auto& disc : test::reference_discs()) {
         const bool gt4 = disc->info().game == Game::GT4;
         gt3r::Vfs vfs(&disc->volume());
         audio::OfflineSound s;
@@ -752,8 +815,8 @@ TEST(sound_menu_music_on_disc) {
 }
 
 TEST(sound_music_renders_on_disc) {
-    if (test::discs().empty()) SKIP("no disc");
-    for (const auto& disc : test::discs()) {
+    if (test::reference_discs().empty()) SKIP("no disc");
+    for (const auto& disc : test::reference_discs()) {
         const bool gt4 = disc->info().game == Game::GT4;
         gt3r::Vfs vfs(&disc->volume());
         audio::SoundLibrary lib(vfs);
@@ -801,8 +864,8 @@ TEST(sound_music_renders_on_disc) {
 }
 
 TEST(sound_cars_on_disc) {
-    if (test::discs().empty()) SKIP("no disc");
-    for (const auto& disc : test::discs()) {
+    if (test::reference_discs().empty()) SKIP("no disc");
+    for (const auto& disc : test::reference_discs()) {
         if (disc->info().game != Game::GT4) continue; // (Prologue's database is in the earlier format)
         gt3r::Vfs vfs(&disc->volume());
         db::SpecDb db([&](const std::string& path) { return vfs.read(path); }, [&](const std::string& dir) { return vfs.list_dir(dir); });
@@ -859,8 +922,8 @@ TEST(sound_cars_on_disc) {
 
 // The music a menu page names is a group of the sequenced music.
 TEST(sound_page_music_on_disc) {
-    if (test::discs().empty()) SKIP("no disc");
-    for (const auto& disc : test::discs()) {
+    if (test::reference_discs().empty()) SKIP("no disc");
+    for (const auto& disc : test::reference_discs()) {
         if (disc->info().game != Game::GT4) continue; // (Prologue's pages name none)
         gt3r::Vfs vfs(&disc->volume());
         audio::SoundLibrary lib(vfs);
@@ -899,8 +962,8 @@ TEST(sound_page_music_on_disc) {
 // exhaust bank.
 TEST(sound_equipped_cars_on_disc) {
     Disc* disc = nullptr;
-    for (const auto& d : test::discs())
-        if (d->info().game == Game::GT4 && d->volume().find("sound/engine/37701")) disc = d.get();
+    for (const auto& d : test::reference_discs())
+        if (d->info().game == Game::GT4 && d->volume().find("sound/engine/37701")) disc = d;
     if (!disc) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
     gt3r::Vfs vfs(&disc->volume());
     db::SpecDb db([&](const std::string& path) { return vfs.read(path); }, [&](const std::string& dir) { return vfs.list_dir(dir); });
@@ -926,4 +989,69 @@ TEST(sound_equipped_cars_on_disc) {
     }
     std::printf("  %zu cars: %zu the same from their stock parts, %zu another exhaust bank with another muffler\n", cars, same, other);
     CHECK(cars > 700 && same == cars && other > 100);
+}
+
+// A streamed piece on two voices (stream_voices.h): the voices' level (the saved states' 4416 and 4915), the piece
+// at its level through the two seconds read at once and on, the SPU2's interpolation taking 1 to 4 dB off from 8 kHz
+// (the original's pre-race page within 0.2 dB of a rendering on SPU2 voices, a plain resampling up to 6 dB brighter),
+// the pause, the end of a piece played once.
+TEST(sound_stream_voices_on_disc) {
+    CHECK(audio::StreamVoices::voice_level(0.26953125f) == 4416 && audio::StreamVoices::voice_level(0.3f) == 4915);
+    CHECK(audio::StreamVoices::voice_level(1.0f) == 0x3FFF && audio::StreamVoices::voice_level(-1.0f) == 0);
+    Disc* gt4 = nullptr;
+    for (Disc* d : test::reference_discs()) // (the US disc: its bgm/us pieces)
+        if (d->info().game == Game::GT4) gt4 = d;
+    if (!gt4) SKIP("needs the Gran Turismo 4 disc (GT4R_DISC)");
+    gt3r::Vfs vfs(&gt4->volume());
+    audio::OfflineSound s(false);
+    audio::StreamVoices streams(s.mixer(), vfs);
+    CHECK(!streams.play("bgm/us/none.ads", false, 1.0f) && !streams.playing());
+    const std::string path = "bgm/us/gt4qm-02.ads";
+    const float level = 0.26953125f;
+    CHECK(streams.play(path, false, level) && streams.playing());
+    s.advance_seconds(6.0);
+    CHECK(streams.playing());
+    // The piece as stored, at its own rate.
+    const Bytes data = disc_file(*gt4, path);
+    const gt3r::AdsHeader h = gt3r::AdsHeader::parse(data);
+    CHECK(h.sample_rate == 44100 && h.channels == 2);
+    gt3r::AdsStream plain_stream(h, [&data](u64 off, void* out, size_t len) {
+        const size_t n = off < data.size() ? std::min<size_t>(len, data.size() - size_t(off)) : 0;
+        std::memcpy(out, data.data() + off, n);
+        std::memset(static_cast<u8*>(out) + n, 0, len - n);
+    }, false);
+    std::vector<s16> plain(size_t(6 * 44100) * 2);
+    plain.resize(plain_stream.read(plain.data(), plain.size() / 2) * 2);
+    const audio::Signal ours = audio::signal_from(s.pcm), stored = audio::signal_from(plain, 44100);
+    const double gain_db = 20 * std::log10(double(audio::StreamVoices::voice_level(level)) / 16384.0);
+    const auto band = [](const audio::Signal& x, double lo, double hi, double from, double to) {
+        const std::vector<double> t = audio::band_track(audio::slice(x, from, to), lo, hi, 0.05);
+        double p = 0;
+        for (double db : t) p += std::pow(10.0, db / 10);
+        return 10 * std::log10(p / double(std::max<size_t>(t.size(), 1)));
+    };
+    // Each second the same level at 0.2 .. 2 kHz (the handover at two seconds included).
+    for (int k = 0; k < 5; ++k) {
+        const double o = band(ours, 200, 2000, k + 0.5, k + 1.5), p = band(stored, 200, 2000, k + 0.5, k + 1.5) + gain_db;
+        std::printf("  %d .. %d s: 0.2 .. 2 kHz %.1f dB (stored %.1f)\n", k, k + 1, o, p);
+        CHECK(std::fabs(o - p) < 0.5);
+    }
+    const double top = band(ours, 8000, 12000, 0.5, 5.5) - band(stored, 8000, 12000, 0.5, 5.5) - gain_db;
+    std::printf("  8 .. 12 kHz %.1f dB against the stored samples\n", top);
+    CHECK(top < -1.0 && top > -5.0);
+    // The pause: silent and holding its place; on again.
+    streams.pause(true);
+    const size_t at = s.pcm.size();
+    s.advance_seconds(0.5);
+    CHECK(peak(std::vector<s16>(s.pcm.begin() + long(at), s.pcm.end()), 0.05, 0.5) == 0 && streams.playing());
+    streams.pause(false);
+    const size_t on = s.pcm.size();
+    s.advance_seconds(0.5);
+    CHECK(peak(std::vector<s16>(s.pcm.begin() + long(on), s.pcm.end()), 0.05, 0.5) > 1000);
+    streams.stop();
+    CHECK(!streams.playing());
+    // A piece played once ends (a jingle: gt4jg-12a, a few seconds).
+    CHECK(streams.play("bgm/us/gt4jg-12a.ads", false, 0.3f));
+    s.advance_seconds(20.0);
+    CHECK(!streams.playing());
 }

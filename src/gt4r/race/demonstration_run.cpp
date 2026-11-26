@@ -110,7 +110,7 @@ DemonstrationRun run_demonstration(Disc& disc, db::SpecDb& sdb, const std::strin
         Gadgets gadgets;
         GadgetBodies bodies;
         if (opt.cones) {
-            gadgets = Gadgets::parse(file.section(data, course::kSlotGadgets), runway);
+            gadgets = Gadgets::parse(file.section(data, course::kSlotGadgets), runway, rules.section);
             bodies.reset(gadgets, *road);
         }
 

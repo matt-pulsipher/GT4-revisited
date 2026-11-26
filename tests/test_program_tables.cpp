@@ -20,8 +20,8 @@ namespace {
 
 // The US disc (these tests read v1.01's code at its addresses).
 Disc* gt4_disc() {
-    for (const std::unique_ptr<Disc>& d : test::discs())
-        if (d->info().game == Game::GT4 && d->info().serial == "SCUS_973.28") return d.get();
+    for (Disc* d : test::reference_discs())
+        if (d->info().game == Game::GT4 && d->info().serial == "SCUS_973.28") return d;
     return nullptr;
 }
 
@@ -39,9 +39,9 @@ TEST(program_tables_values) {
         CHECK(sim::gt4_table_at(t[k].address) == &t[k] && sim::gt4_table_at(t[k].address + u32(t[k].bytes.size()) - 1) == &t[k]);
         CHECK(sim::gt4_table_at(t[k].address - 1) != &t[k] && sim::gt4_table_at(t[k].address + u32(t[k].bytes.size())) != &t[k]);
     }
-    CHECK(bytes == 6084);
+    CHECK(bytes == 6180);
     std::printf("  %zu tables, %zu bytes, hash 0x%016llx\n", t.size(), bytes, (unsigned long long)sim::gt4_tables_hash());
-    CHECK(sim::gt4_tables_hash() == 0xe50e2960529eadf5ull);
+    CHECK(sim::gt4_tables_hash() == 0x45ec3a0138e108ebull);
     // A few values as the readers know them: the static block's rolling-resistance points, the pedals' ramps (1/6), a soft
     // material (2: gravel).
     auto byte = [](u32 a) { const sim::ProgramTable* t = sim::gt4_table_at(a); return t ? t->bytes[a - t->address] : u8(0); };
@@ -63,7 +63,7 @@ TEST(program_tables_per_release) {
     for (sim::Release r : {sim::Release::Us, sim::Release::Europe, sim::Release::Japan})
         std::printf("  %s: hash 0x%016llx\n", sim::release_name(r), (unsigned long long)sim::gt4_tables_hash(r));
     CHECK(sim::gt4_tables_hash(sim::Release::Europe) == sim::gt4_tables_hash(sim::Release::Us));
-    CHECK(sim::gt4_tables_hash(sim::Release::Japan) == 0xd26beb9532a60fafull);
+    CHECK(sim::gt4_tables_hash(sim::Release::Japan) == 0x7ec0cce31612c91dull);
 }
 
 // Every Gran Turismo 4 disc of GT4R_DISC: its program is the release it says (by its code) and its tables are that release's
