@@ -1246,6 +1246,9 @@ GT4's own routines, checked against the user's program where the note says so:
   second character of the course's attribute text), save.md "The B-spec driver's book";
 - the completion (Home's "Complete", the halls' locks) by the game's own scripts (`getRaceEventRecordStatistics`,
   `canEntryEndurance`, `canEntryGTWorldChamp`, `canEntryExtreme`; save.md "A game with progress");
+- the Status page's transfer from Gran Turismo 3 (and, by region, Prologue): the card manager's probes and transfers
+  (0x1D4448 .. 0x1D49C8) over the saves found here, the game's own scripts and texts; the choice among the saves is ours
+  (save.md "Earlier games' saves");
 - Prologue's game data file and its card pages' saving and loading (`save/prologue_data.*`, prologue.md "The saved game";
   the license units by `prologue_license.*`), its new game's payload equal to the program's byte for byte;
 - the event's license in a race's menus (0x110498), Arcade's best A-spec score (0x111E98), the scripts' sort (0x2F03C8),

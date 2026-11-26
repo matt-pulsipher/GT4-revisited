@@ -234,6 +234,14 @@ ghost_ms = 150           ; contact up to this round trip; 0: always
   page, the regulations, the pre-race page with the drawn field), racing them for real (A-spec or
   B-spec), the results, the prize page paying the prize, the day going by, the game saving itself
   when you come back to the map, and loading it at the next start.
+- **Gran Turismo 3 save transfer**: on Gran Turismo mode's Game Status page (Home, Status), Start ("Transfer game data")
+  takes the B and A licenses and up to 100,000 credits from a Gran Turismo 3 game, once each, as the game does from a memory
+  card. A page lists the GT3 Revisited games on this computer (its own folder, or the save folder chosen in its Settings;
+  the one it plays first) and *Choose a file* takes a GT3 Revisited save (`.sav`), a PS2 memory card image (`.ps2`, `.mcd`), a
+  `.psu` or the save's data file, of the US Gran Turismo 3 A-Spec; a card's `BASCUS-97102GAMEDATA` folder or card image put in
+  the data folder's `memorycard/` is offered too. On Android and iOS GT3 Revisited's folder is that app's own: choose its save
+  with *Choose a file* (on Android the file picker shows GT3 Revisited's files; its saves are in `saves/`). The game then asks
+  as it does with a card, naming the save; nothing is written to it. `GT4R_GT3R_DIR` names GT3 Revisited's folder.
 - **Races**: the courses drawn in full with the computer drivers racing, the three driving views,
   the race display (in the units the options set), the B-spec display and commands, the pause
   menu, the results, the replays through the course's cameras or the car's own.
