@@ -69,8 +69,8 @@ steering, the steering type (Amateur to Simulation), the power assist and the fo
 race's options: the gearbox for Gran Turismo mode's races, license tests and missions; Arcade asks on its
 own pages.
 
-**The home screen's Controls** (Select on the title, then Controls; or, in the game's Options, the **Controls** button beside
-its button configurations, steering and vibration pages, or Select there, which go back to that page; player 2's in Settings > Controls) has
+**The home screen's Controls** (Select on the title, then Controls; player 2's in Settings > Controls; also the **Controls**
+button beside the game's own controller pages in Options, or Select there, which comes back to that page) has
 what a computer's devices need: which device drives; the race controls, Modern (the table above), Gran Turismo 4
 original (always the console's pad) or your own bindings (Custom, once there are any); the steering's dead zone and
 response; the rumble, Modern (Automatic is Modern too: hits, rough ground, kerbs, slides, on both motors) or Gran
