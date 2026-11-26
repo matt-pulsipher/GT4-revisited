@@ -176,6 +176,17 @@ IB and IA, 0x11CB38 for the others; the choice in 0x10FBD8 by 0x38A3D0's class: 
 Here the Drive screen rebuilds the race on the next race's course (a test with its own car through
 the menus' request completion) and opens its menus.
 
+**What a license test's page shows behind it.** The test's page (project `quick-license`, 0x11D1B8) runs the race in
+mode 2, the replay of the last run: the replay's start shots round the car, then the course's replay cameras, with no race
+display; before the first run there is no run to play and the page is black. The license's camera (RaceLicense::vf40
+0x3BC350) is put in mode 5 (the scenic shots) only while the demonstration's flag (+0x24EE0, set by 0x3BC5A8 from
+0x11D270's `quick` page, which runs the race in mode 4) is up. ✔ The original's B-1 page before any run (black,
+05-gtmode `36_license_test_b1_page.png`) and after one (05-gtmode `license_b1_test_run_fail.mp4` from 124 s: close-ups
+of the car on its start, then the shot from the stopping box up the straight; 11-license-tt `b1_page_after_pass.png`).
+The course's scenic shots would not do there: Test Course 100 m's four stand 1.5 to 2.0 km from the test's start, where
+that course has no ground. 🔎 Whether the replay's sound plays under the page is not read (ours is quiet); ours plays the
+replay again from its start when it ends.
+
 ### The license tests' rules
 
 Code: `race/license_rules.*` (the rules and the judge), `screen_race.cpp` `judge_license`. The race copies
@@ -492,6 +503,7 @@ engine's Gran Turismo 3 code). The player notices them roughly in this order.
 | The opening shots (start motion, replay start) | `start_camera.*` | GT4 (CameraPathanim 0x37D338, 0x37D620); none in a free run (its pace 0x3F7880 is 0) | |
 | The replay cameras (TV shots), their choice by distance, their lens | `replay_script.*`, `drive_camera.h` `shown_angle` | GT4 (0x37C138, 0x3FD980 → 0x3DDFF0); ✔ the lens and the picture against 47 of the original's replay states (camera.md); the dissolve's drawing judged | |
 | The scenic shots behind the menus | `replay_script.*` `ScenicCamera` | GT4 (mode 5, 0x375980) | |
+| A license test's page's scene | `screen_race.cpp` `stand`, `start_replay(page)` | GT4 (mode 2 from 0x11D1B8: the last run's replay; black before a run) | the replay's sound under the page; what the replay does at its end (ours: again) |
 | The driving views | `drive_camera.*` | the car's camera places (CAR4); the on-board lens as the original shows it (61.2 degrees: its K and its chase pictures, camera.md), the roof view's by its mount as the program's angles show (`shown_angle`); their springs ❓ | the on-board camera's own lens |
 | Laps, crossings, times, finish | `race_flow.*` | GT4 (0x358608, vf21 0x357B98); the race order's comparison judged | the order routine (❓ not found) |
 | License tests' rules | `license_rules.*` (`stopped_in_box`, `license_step`), `judge_license` | GT4 (0x3F8D70, 0x369888 → vf49, 0x35FE80; the stop in the box at or under 1 km/h, the share of the step before it; cones judged a step after they moved); the hits' strengths from the simulation's contact (its sum per step, not the program's per hit), the mass P +0x48 | the hit records 0x350530 |
