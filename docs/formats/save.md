@@ -152,7 +152,7 @@ shown again, `withdrawn` set; "not inherit GT3"; "gt3 data not found in slot n")
 
 The natives (registered at 0x17AC20: `isExistGT4pData` 0x17A300 -> 0x1D4610, `inheritGT4pData` 0x17A438 -> 0x1D4698,
 `isExistGT3Data` 0x17A570 -> 0x1D4940, `inheritGT3Data` 0x17A6A8 -> 0x1D49C8; each answers a result's name, 0x1CBF40). The
-folder by the program's region string (0x68BB20, "us" in this build):
+folder by the program's region string (0x68BB20: "us" in the US build, "uk" in the European one, SCES-51719 v1.00):
 
 | | "uk" | "us" | "kr" | any other ("jp") |
 |---|---|---|---|---|
@@ -176,6 +176,19 @@ header or CRC):
   program's race record units `l0b0001` .. `l0b0016` (`l0a...`; looked up as 0x430D20 does, "us" in front): each one not
   passed yet (0x430C50: a license unit's best below 13) takes the update (0x430A58) of kind 1 (license) and result 12
   ("red"): a unit of no kind becomes that, best and last; a license unit keeps the better best. `OK`.
+
+✔ **Checked in the other releases' programs** (the user's discs: Japan SCPS-17001 v1.05, Europe SCES-51719 v1.00):
+- **Japan**: no region choice; the natives are registered at 0x179218 (isExistGT4pData / inheritGT4pData 0x1D0DC0 / 0x1D0E40,
+  isExistGT3Data / inheritGT3Data 0x1D1030 / 0x1D10B0) with the folders `BISCPS-15055` (Prologue, Japan's) and
+  `BISCPS-15009` (Gran Turismo 3, Japan's) written in. The licenses (0x1D0E40): the units' medal bytes at 0x34 + 0x2E0 k
+  (signed, above 0: passed), 48 looked at, units 0 .. 5 all: B, 0 .. 24 all: B and A, `l0b0001` .. `0016` (`l0a...`) given
+  as passed (the check 0x429868 and the update 0x429670 with kind 1, result 12, the same as the US 0x430C50 / 0x430A58),
+  neither `NO_OPERATION`: the US code's other-region branch exactly. The credits (0x1D10B0): the u64 at 0x50 inverted, 0
+  `NO_OPERATION`, always / 100 (0x5B29C0), at most 100,000, added (0x433880).
+- **Europe**: the US code (0x1D4528 / 0x1D45C0 choose the folders) with the region string "uk": the licenses from
+  `BESCES-52438` (Prologue, Europe's) at 0x54 + 0x2E0 k, the same thresholds and grant; the credits from `BESCES-50294`
+  (Gran Turismo 3, Europe's), not divided. Its texts say so: the Green license (the first 6 units) gives B, the Red (the first
+  25) B and A; "already withdrawn gt4p" names GT4: Prologue (not reworded here).
 
 **Here** (no card): the license and the credits checks of slot 1 (US: both Gran Turismo 3's) take the game the player
 chooses; slot 2 has none, and the "not found" messages are answered without being shown (no_card.cpp) — the choice says what
@@ -203,9 +216,8 @@ card folders are read as a card's, with the game's own messages.
 library's (`BISCPS-15055`, its first game's folder listed once), a Prologue folder copied into `memorycard/` or on a card
 image there, and *Choose a file* takes a Prologue card image, `.psu` (any release's folder: `BISCPS-15055`, `BESCES-52438`,
 `BKSCKA-20022`) or the data file alone. A Prologue game's licenses follow the other regions' path of 0x1D4698 (its first 6
-units passed: B; its first 25: B and A), which the US program's own code holds; ❓ the Japanese GT4 program is not here, so
-that its path is the same as this code's other-region branch is judged; the European Prologue's units at 0x54 are this
-code's "uk" offset, and a data file chosen alone is read as the Japanese release's (0x34). A Prologue game has no credits:
+units passed: B; its first 25: B and A), ✔ checked in the Japanese and European programs (below); a data file chosen alone
+is read as the Japanese release's (0x34). A Prologue game has no credits:
 after one, the credits check asks again among the Gran Turismo 3 games only (a Gran Turismo 3 game chosen for the licenses is
 taken for the credits too, the US program's one folder). Its question says "GT4 Prologue game save: <name>" and "can be
 transferred from GT4 Prologue" where the disc's text says GT3, and "already withdrawn gt4p" says "You have already transferred
