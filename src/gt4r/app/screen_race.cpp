@@ -2761,7 +2761,12 @@ public:
             // B-spec's keys (the help strip's): Left / Right the pace, Triangle overtake, Cross the view,
             // R2 the display, Up / Down the car the views follow, Circle the pit (the player's car in at the
             // next pit entry), R1 the Race Monitor.
-            if (m.horizontal()) race_->bspec_pace(m.horizontal());
+            // The Race Monitor's view speed (0x3D95F0): L1 held, Left one slower, Right one faster, x1 .. x3 (0x3DA008, 0x3D9FB8);
+            // the pace is not changed then.
+            if (monitor_ && m.held(PadButton::L1)) {
+                if (m.pressed(PadButton::Left) && monitor_speed_ >= 2) --monitor_speed_;
+                if (m.pressed(PadButton::Right) && monitor_speed_ < 3) ++monitor_speed_;
+            } else if (m.horizontal()) race_->bspec_pace(m.horizontal());
             if (m.pressed(PadButton::Triangle)) race_->bspec_overtake();
             if (m.pressed(PadButton::Cross)) race_->next_view();
             if (m.pressed(PadButton::R2)) race_->bspec_display();
@@ -2815,7 +2820,9 @@ public:
         int due = online_ ? online_->steps(paced) : std::min(4, int(clock_ / kStep));
         if (due > 0 && !online_) clock_ = due == 4 ? 0 : clock_ - due * double(kStep);
         for (int n = 0; n < due; ++n) {
-            for (int k = race_->viewing() ? race_->view().speed() : 1; k-- > 0;) race_->step(player_input_, setup_.auto_drive || spectator_);
+            // (the Race Monitor up: its speed's steps a frame, RaceBase::vf74 0x389A48 with vf30's scale from 0x3D8B00)
+            const int steps = race_->viewing() ? race_->view().speed() : monitor_ && race_->watched() && !race_->replaying() ? monitor_speed_ : 1;
+            for (int k = steps; k-- > 0;) race_->step(player_input_, setup_.auto_drive || spectator_);
             if (const sim::Session* session = race_->world().session(); session && playing()) feedback_.step(input::car_feel(*session, 0), float(kStep));
         }
         if (playing()) feedback_.frame(app.input(), 0, input::FeedbackOptions::from(controllers_.port[0], wheel_.wheel), dt);
@@ -3070,6 +3077,7 @@ private:
             return;
         }
         if (!load_monitor_movie(app)) return;
+        monitor_speed_ = 1; // (each opening at x1: 0x3D91C0)
         monitor_ = std::make_unique<race::StrobePlayer>(monitor_movie_, [](const std::string&, const std::vector<race::StrobePlayer::Value>&) {
             return race::StrobePlayer::Value{};
         });
@@ -3145,7 +3153,11 @@ private:
             else std::snprintf(b, sizeof b, line.c_str(), lap, laps);
             text("LAP", b);
         }
-        text("SPEED", "x 1");
+        {
+            char b[16];
+            std::snprintf(b, sizeof b, "x %d", monitor_speed_); // (0x3DBBD0: the monitor's +0x74)
+            text("SPEED", b);
+        }
         fill_pace(m);
         const std::vector<size_t>& order = f.order();
         for (int r = 1; r <= 6; ++r) {
@@ -4524,6 +4536,7 @@ private:
     PitChoice pit_choice_;
     bool pit_open_ = false, pit_touched_ = false;
     std::unique_ptr<race::StrobePlayer> monitor_; // B-spec's Race Monitor, while it is up
+    int monitor_speed_ = 1;                       // its view speed (the monitor's +0x74): the race's steps a frame while it is up
     std::unique_ptr<race::StrobePlayer> pause_;
     std::string pause_result_;
     bool pause_exit_ = false, pause_retry_ = false;
