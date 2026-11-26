@@ -252,3 +252,45 @@ names the functions.
 - Floats: MSVC x64 and GCC on x86-64 do not fuse `a * b + c`, clang on arm64 does; everything the
   race steps with goes through the engine's EE float arithmetic, which is the same on every host
   (`gt4tool state-hash` compares a race between two builds).
+
+## Making a release
+
+The workflow `.github/workflows/build.yml` builds the release packages and puts them in a draft
+GitHub Release; nothing is published until it is reviewed and published by hand.
+
+1. Push the version's tag from the commit to release: `git tag v0.1.0 && git push origin v0.1.0`.
+2. The tag's run (Actions, workflow `build`): job `draft` creates a draft release `v0.1.0`
+   (title "GT4 Revisited v0.1.0"; its notes are GitHub's generated ones, only a "Full Changelog"
+   link when no pull requests were merged since the last release); the three
+   `package` jobs build and upload `gt4r-macos-arm64.zip`, `gt4r-linux-x86_64.tar.gz` and
+   `gt4r-windows-x64.zip` to it; job `release` adds `SHA256SUMS` of those files.
+3. On the Releases page, open the draft, check its four files, write the notes, then publish.
+
+The files keep the same names in every release, so
+`https://github.com/<owner>/<repository>/releases/latest/download/gt4r-macos-arm64.zip` (and the
+others) always fetches the newest; inside, the folder is named for the version
+(`gt4r-v0.1.0-macos-arm64/`).
+
+A release run stores nothing in Actions storage: the packages go straight to the release, whose
+files don't count against the account's storage quota. A failed `package` job can be re-run
+(Re-run failed jobs): it replaces its file in the draft, and job `release` then runs again. Pushing
+the tag again for a draft that already exists adds to that draft; a tag whose release is already
+published is left alone (job `draft` stops the run).
+
+**Build attestations** (`gh attestation verify <file> --repo <owner>/<repository>`) need a public
+repository. A run on a private repository makes none and still succeeds. For a release made while
+the repository was private: after the repository is made public, re-run job `release` of the tag's
+run (in the run's page, the job's re-run button, or `gh run rerun <run id> --job <job id>`); it
+checks the repository's visibility as it runs, rewrites the same `SHA256SUMS` and attests the
+release's files.
+
+**A test without a tag:** a manual run with `release_tag` set runs the same path into a draft of
+that name and makes no git tag:
+
+```bash
+gh workflow run build.yml --ref <branch> -f release_tag=v0.1.0-citest
+gh release delete v0.1.0-citest --yes     # afterwards: the test draft
+```
+
+Without `release_tag`, a manual run builds the packages as workflow artifacts (Actions storage)
+and makes no release.
