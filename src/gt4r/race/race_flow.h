@@ -67,6 +67,11 @@ std::vector<int> grid_places(size_t entries, size_t player);
 // The hold's length in steps for a start type (0 for none).
 int start_hold_steps(StartType type, int given_seconds);
 
+// The standing start an event's RACE row gives: its byte +0x40 the start type, +0x41 the seconds, which the race information
+// keeps (0x4470E8) and the start's reset reads (0x3C0190; the hold by the table at 0x6A29C0, 0x3C0208): type 1 a hold of 8 s,
+// 2 of 10 s, 3 none, 0 (and any other) of the row's seconds. False (nothing set) for a row without them.
+bool row_start(std::span<const u8> row, StartType& type, int& seconds);
+
 class RaceFlow {
 public:
     struct CarRecord {
