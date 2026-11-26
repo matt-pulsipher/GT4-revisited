@@ -309,6 +309,13 @@ TEST(strobe_pause_movie_disc) {
             if (retry) p.key(0x28);
             CHECK(p.focus() != "DEFAULT");
             p.key(0x20);
+            // The press switches the rows off (inactivateButton): while the chosen row plays, no
+            // other row takes the focus (it would light up), and another press does nothing.
+            p.advance(2.0f / 30);
+            CHECK(p.focus().empty());
+            p.key(0x20);
+            p.key(0x26);
+            CHECK(p.focus().empty());
             for (int i = 0; i < 20 && exit.empty(); ++i) p.advance(1.0f / 30);
             CHECK(exit == "exit");
             if (!retry) {
