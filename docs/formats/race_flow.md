@@ -313,6 +313,17 @@ At its finish (virtual 21, 0x357B98, the license's 0x3F8AB0) a car is marked (F 
 it cruises on at the race's limit or 80 km/h, the player's car too (`Field::finish_run`, `RaceWorld::finish_car`). A test ended by the player
 sends the computer's cars off the same way (0x3F88E8). A car on the pit lane (kinds 2 .. 4) keeps its driver.
 
+**A license test's end** (0x3F8AB0 for a test timed or ended at its goal, 0x3F8980 for one failed; `race::license_end_mode`,
+`license_fail_mode`, `screen_race.cpp` `end_test`): the player's car is given to its driver in the mode 0x3F8818 picks (1 it coasts down
+and stops, kind 6; 2 it brakes to a stop, kind 7; 3 it drives on, kind 5): the rules' +0x41 1, 2, 3 give 3, 1, 2; else by the test's kind,
+1 (the stop in the box) 2, 3, 4 and 6 3, any other 1; then 2 when the test counts cones (+0x46) and 3 when other cars are in it (+0x40).
+A failure by leaving the course, a hit or kind 6's lead asks the same with kind 1 giving 1, and alone a 3 becomes 1; any other failure 2.
+So B-1's car stays in the box when it has stopped there, and coasts to a stop past it when it runs into the cones. ✔ The original's
+B-1 pass (11-license-tt `license_b1_pass_bronze.mp4`: the car stays in the box under the result scene) and overshoot
+(18-round4-gt `license_b1_whole_test_overshoot_fail.mp4`: stopped past the box). The judge's ends (the stop, a failure, the cones
+counted) come through here as well as the line's; before, the player's car was left to the stand-in follow-the-line driver and drove
+on.
+
 ## A-spec points
 
 Offered by a race (0x3C0FF8) with other cars: 250 in a mission (the race's virtual 95 is 10); else from the cars' ratings (the

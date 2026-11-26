@@ -1150,7 +1150,8 @@ public:
         for (const size_t i : ev.started) world_->release_start(i);
         for (size_t i = 0; i < flow_.car_count(); ++i) world_->set_crossings(i, flow_.car(i).counter), world_->set_rank(i, flow_.place(i));
         if (!ev.finished.empty()) board_.finished(flow_, ev.finished);
-        for (const size_t i : ev.finished) world_->finish_car(i, i == 0 && is_license(setup_.sequence));
+        for (const size_t i : ev.finished)
+            if (i != 0 || !is_license(setup_.sequence) || gt3_road_) world_->finish_car(i, i == 0 && is_license(setup_.sequence)); // (a test's player's: end_test)
         // Each car's distance from the line (crossings x lap + along) each step from the start: the gaps.
         if (flow_.steps_since_start() >= 0) {
             const std::span<const race::CarState> now = world_->cars();
@@ -1182,6 +1183,7 @@ public:
             LOG_INFO("Drive: the player's car takes the line at %.1f km/h, %.2f s on the clock", double(world_->cars()[0].speed * 3.6f), double(flow_.time_ms()) / 1000);
         if (is_license(setup_.sequence) || setup_.sequence == "mission") judge_license();
         if (is_license(setup_.sequence)) judge_goal();
+        end_test();
         if (!flow_.player_finished()) graded_place_ = flow_.place(0);
         step_wrong_way(auto_drive);
         if (demo_run_ && flow_.player_finished() && !demo_logged_) {
@@ -1931,6 +1933,22 @@ public:
             return;
         }
         if (judge_.cones_done()) flow_.finish_now(0, 1); // (at the step's end: the clock + 50)
+    }
+    // A Gran Turismo 4 test over, by the judge (the stop in the box, a failure, the cones counted), its goal or the line
+    // (0x3F8AB0 / 0x3F8980): the car's driver takes the player's car as the test asks (it stops, coasts down or drives on),
+    // the computer's cars drive on (0x3F88E8). Prologue's: license_prologue.h.
+    void end_test() {
+        if (gt3_road_ || !is_license(setup_.sequence) || !flow_.player_finished() || run_ended_) return;
+        run_ended_ = true;
+        const int mode = license_end_mode();
+        LOG_INFO("Drive: the test's end: the car %s (mode %d)", mode == 1 ? "coasts down" : mode == 2 ? "brakes to a stop" : "drives on", mode);
+        world_->finish_car(0, true, mode);
+    }
+    // How the player's car's run ends as the test is over (race::license_end_mode, race::license_fail_mode).
+    int license_end_mode() const {
+        const race::LicenseRules& r = judge_.rules();
+        if (!license_failed_) return race::license_end_mode(r);
+        return race::license_fail_mode(r, judge_.fail() != race::LicenseFail::None ? judge_.fail() : race::LicenseFail::Kind6);
     }
     const race::LicenseJudge& license_judge() const { return judge_; }
     // A series' last race has its own jingles.
