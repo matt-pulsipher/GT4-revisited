@@ -395,6 +395,13 @@ public:
     // handbrake past 0.25 (2), the oil past its distance (2).
     std::array<int, 3> signs(size_t i) const;
     // The car's gearbox is a stepless one (0x3F1F78).
+    // The race display's G meter (RaceDisplay::vf2 0x39E1E0 into RaceSimplePanel::vf27): the car's follower of its
+    // lateral acceleration (F +0x560, 0x35DE20) over -9.81, in g: false off Gran Turismo 4's rules.
+    bool meter_g(size_t i, float& g) const {
+        if (!session_ || !session_->gt4_rules() || i >= session_->cars().size()) return false;
+        g = -session_->gt4_record(i).speeds.g_follow.host() / 9.81f;
+        return true;
+    }
     bool stepless(size_t i) const { return session_ && i < car_visuals_.size() && session_->gt4_record(i).drive.d.kind == 1; }
     // A car's fuel left as a share of its tank (1 without a tank).
     float fuel_share(size_t i) const;
