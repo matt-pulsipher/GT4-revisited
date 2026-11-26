@@ -972,8 +972,10 @@ the body's summed impulse strength (|j| / 15,000 between cars, / 100,000 against
 whether a wall or a car was met, and the car (the one whose edge this body's vertex met, or whose
 vertex met this body's edge). `landed`: a wheel loaded at the step's end after a step without load.
 The program's own results back to the cars (0x3F4C18) keep, per car at cond + 0xCAB8 + 0x30 i, a hit
-flag (+0x24) and, with the switch byte 0x6202BA, a change of velocity in the car's frame past a threshold
-(+0x1C / +0x20) ❓ its readers.
+flag (+0x24) and, with the switch byte 0x6202BA (1 in every race state seen), the change of velocity the step made in the
+car's frame (its two horizontal axes) when its size is past 0x6202E8 (2.78 m/s), scaled by the words 0x6202EC .. 0x6202F8
+(+0x1C / +0x20; the flag 1 for that step). Its one reader is the in-car view (CameraSys::CameraOnBoard::vf10 through 0x34A8B0):
+a jolt of the view with random draws (0x578598) after a hit. Ours has no such jolt (race/drive_camera.*) ❓ its shape.
 
 **The collision step** (0x45BB60 on the manager at conductor + 0xDA6C: +0 the conductor, +4 the count, +8 the
 course object, +0xC the bodies, 0x4F0 bytes each) follows Gran Turismo 3's (physics §5.3) step for step, with
@@ -1001,6 +1003,10 @@ these changes:
   0x35CF40 / 0x35CF88 / 0x35D0C0, F +0x62F .. +0x631, the conductor's virtual +0x190, F +0x608 .. +0x60D) are not
   ours.
 - A body is left out of car contact (0x343BF0) when its car is not in the race or its driver is on line 4.
+- Which races meet other cars: the conductor's virtual +0x68 of a single player's race (Arcade, Championship, GT mode,
+  photo), the two battles, free practice and the training's table (training, missions, licenses) is 0x34DA70: 0x45BB60 on
+  every body together. The base conductor's (free run, machine test) is 0x34DAA8: 0x45BF20 for each body alone, with car
+  contact off (0x45C530 given 0): walls only. Those are races of one car, so ours runs 0x45BB60's step for them too.
 
 ## 8. What runs where in our simulation
 
@@ -1169,7 +1175,12 @@ object 0x6235A8 + 0x134 + 4 x table id; the row cache left out), and compares:
   into ours (wall pointers as indexes), ours steps them on our walls, and at its return every body field (and the
   cars' rumble F +0x610) is compared; at 0x3E5A30's entry ours answers the same point on our road, and every answer
   field is compared. Six computer drivers' cars at Grand Canyon, three laps of the program's race: 61,456 collision
-  steps, every body field equal at every one; 2,203,742 road queries, every answer equal. sincosf (0x57D8A0) is the
+  steps, every body field equal at every one; 2,203,742 road queries, every answer equal. Car contact made on purpose
+  (`GT4R_AI_COLLIDE_SHOVE=<calls>,<m/s>`: every so many steps a body's velocity in the program's own record gains that speed
+  toward its nearest neighbour before either step reads it, and the program's race goes on from the contact): one lap of
+  Grand Canyon shoved every 30 steps by 10 m/s, 30,089 steps (583 with cars met, 188 a wall), and of Laguna Seca, 15,904
+  (882 cars, with every road query equal): every body field equal at every one (test `sim_program_car_contacts_equal`,
+  40 s of Laguna Seca). sincosf (0x57D8A0) is the
   engine's, bit for bit (`leaves`).
 - **The whole step from the program's state** (`whole_step.cpp`: `GT4R_AI_WHOLESTEP=<s>`, `GT4R_AI_WHOLECAR=<i>`):
   from that time, before each of the program's steps every car's record and collision body are loaded into our
