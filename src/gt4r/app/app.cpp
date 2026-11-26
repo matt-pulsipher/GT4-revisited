@@ -168,7 +168,9 @@ bool App::init(int argc, char** argv) {
     SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_LG4FF, "1");
 #endif
     // (a scripted run's controllers are its own: none is opened)
-    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | (run_.scripted ? SDL_InitFlags(0) : SDL_INIT_GAMEPAD | SDL_INIT_JOYSTICK))) {
+    // (phones and tablets: the accelerometer, for tilt steering)
+    const SDL_InitFlags input_flags = run_.scripted ? SDL_InitFlags(0) : SDL_INIT_GAMEPAD | SDL_INIT_JOYSTICK | (mobile ? SDL_INIT_SENSOR : SDL_InitFlags(0));
+    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | input_flags)) {
         LOG_ERROR("SDL_Init failed: %s", SDL_GetError());
         return false;
     }

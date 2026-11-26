@@ -126,6 +126,13 @@ public:
     bool mouse_at(float& x, float& y) const { return !cursor_hidden_ && pointer_.hover_pos(x, y); }
     SDL_Window* window() { return window_; }
     bool touch_ui() const { return touch_ui_; } // phones and tablets: a touch screen, the on-screen controls
+    // The on-screen controls' settings ([touch], input/touch_controls.h), applied at once and kept in config.ini.
+    const gt3r::TouchConfig& touch_config() { return touch_.controls().config(); }
+    void set_touch_config(const gt3r::TouchConfig& c) {
+        touch_.controls().configure(c);
+        touch_.save(config_);
+        save_config();
+    }
     // The on-screen controls showing now (UI units of the game's picture, the bars beside it outside 0..width); none when hidden.
     std::vector<SDL_FRect> touch_control_bounds() const {
         std::vector<SDL_FRect> out;
