@@ -184,7 +184,10 @@ Bytes read_all(const std::string& path) {
 } // namespace
 
 // The driver's step (0x403260) on a state's memory against ours: the fields ours has.
+static int gaze_steps = 0, gaze_equal = 0, gaze_aimed = 0;
 static void compare_steps(Ee& ee, const Bytes& mem, u32 model, int& steps, int& equal) {
+    bool gaze_on = true;
+    const bool gaze_drive = std::getenv("GT4R_POSTURE_GAZE") != nullptr;
     ee.reset();
     ee.protect_text = false;
     ee.write_bytes(0, mem);
@@ -231,6 +234,8 @@ static void compare_steps(Ee& ee, const Bytes& mem, u32 model, int& steps, int& 
         s.height = r.f(k + 0x60), s.lean_left = r.f(k + 0x64), s.nod_left = r.f(k + 0x68);
         s.tilt = r.f(k + 0xD0), s.tilt_rate = r.f(k + 0xD4), s.head_rate = r.f(k + 0xD8);
         s.first = ee.r32(block + 0x28) == 1;
+        s.gaze.state = int(ee.r32(block + 0x1C));
+        s.gaze.rate = r.v(k + 0x30), s.gaze.target = r.v(k + 0x7C), s.gaze.held = r.f(k + 0xF4), s.gaze.aim_angle = r.f(k + 0xF8);
     };
     load();
     for (int step = 0; step < 240; ++step) {
@@ -241,6 +246,12 @@ static void compare_steps(Ee& ee, const Bytes& mem, u32 model, int& steps, int& 
         const rp::F part = r.f(car + 0x554), rest = rp::F(1.0f) - part;
         const auto mixed = [&](u32 now, u32 then) { return (r.f(car + now) * part) + (r.f(car + then) * rest); };
         const float wave = std::sin(float(step) * 0.11f), slow = std::sin(float(step) * 0.023f);
+        if (gaze_drive) { // (GT4R_POSTURE_GAZE: the car on at 30 m/s along its heading, for the gaze's usual way)
+            const rp::V3 ahead = rp::rotate(rp::from_euler(r.f(car + 0x8BC), r.f(car + 0x8C4), -r.f(car + 0x8C0)), {rp::F(0.0f), rp::F(0.0f), rp::F(-0.5f)});
+            for (u32 at : {0x888u, 0x8A4u})
+                ee.w32(car + at, (r.f(car + at) + ahead.x).bits), ee.w32(car + at + 4, (r.f(car + at + 4) + ahead.y).bits),
+                    ee.w32(car + at + 8, (r.f(car + at + 8) + ahead.z).bits);
+        } else
         for (u32 at : {0x888u, 0x8A4u}) {
             ee.w32(car + at, (r.f(car + at) + rp::F(0.5f + 0.3f * wave)).bits);
             ee.w32(car + at + 4, (r.f(car + at + 4) + rp::F(0.02f * wave * slow)).bits);
@@ -256,6 +267,16 @@ static void compare_steps(Ee& ee, const Bytes& mem, u32 model, int& steps, int& 
         motion.roll = mixed(0x8C0, 0x670);
         motion.turn = rp::from_euler(mixed(0x8BC, 0x66C), mixed(0x8C4, 0x674), -motion.roll);
         motion.velocity = {r.f(car + 0x648), r.f(car + 0x650), -r.f(car + 0x64C)};
+        // The gaze's inputs: the front wheels' angles (0x344DA8), the computer driver's aim (0x350CE8).
+        {
+            const rp::F t = rp::F(0.0f) + r.f(car + 0x554);
+            const auto wheel = [&](u32 i) { return (r.f(car + 0x8E0 + 4 * i) * t) + (r.f(car + 0x164 + 236 * i) * (rp::F(1.0f) - t)); };
+            motion.front_wheels = (wheel(0) + wheel(1)) * rp::F(0.5f);
+            const u32 p = car + 0x104;
+            if (ee.r8(ee.r32(car + 4) + 0x10000 - 0x3422) != 2 && s32(ee.r32(p + 0x628)) >= 0)
+                motion.aim = rp::V3{r.f(p + 0x61C), r.f(p + 0x624), -r.f(p + 0x620)};
+        }
+        const int gaze_was = int(ee.r32(block + 0x1C));
         try {
             ee.call(0x403260, {Arg::ptr(block), Arg::ptr(car)}, 50'000'000);
         } catch (const std::exception& e) {
@@ -265,6 +286,29 @@ static void compare_steps(Ee& ee, const Bytes& mem, u32 model, int& steps, int& 
         s.step(cockpit, rp::F(follow), r.f(car + 0x54C), speeds, &motion);
         ++steps;
         int bad = 0;
+        // The gaze while the program's driver keeps its usual way of looking (state 1).
+        if (gaze_was == 1 && ee.r32(block + 0x1C) == 1 && gaze_on) {
+            ++gaze_steps;
+            gaze_aimed += motion.aim ? 1 : 0;
+            int gbad = 0;
+            for (u32 at : {0x58u, 0x5Cu, 0x60u}) {
+                const rp::F theirs = r.f(block + 0x160 + at);
+                if (s.after.at(at) == theirs) continue;
+                if (!gbad++) std::printf("  model %06X step %d gaze:", model, step);
+                std::printf(" +%02X ours %.6f program %.6f", at, s.after.at(at).host(), theirs.host());
+            }
+            const rp::V3 tk = r.v(block + 0x40 + 0x7C);
+            if (gbad || !(tk.x == s.gaze.target.x && tk.y == s.gaze.target.y && tk.z == s.gaze.target.z)) {
+                std::printf("%s target ours %.4f %.4f %.4f program %.4f %.4f %.4f (aim %d)\n", gbad ? "" : "  gaze target:", s.gaze.target.x.host(),
+                            s.gaze.target.y.host(), s.gaze.target.z.host(), tk.x.host(), tk.y.host(), tk.z.host(), motion.aim ? 1 : 0);
+                gaze_on = false;
+            } else {
+                ++gaze_equal;
+            }
+        } else if (gaze_on && ee.r32(block + 0x1C) != 1) {
+            std::printf("  model %06X step %d: the program's driver glances (state %u)\n", model, step, ee.r32(block + 0x1C));
+            gaze_on = false;
+        }
         for (u32 at : {0x00u, 0x04u, 0x08u, 0x0Cu, 0x10u, 0x64u, 0x68u, 0x34u, 0x38u, 0x3Cu, 0x40u, 0x44u, 0x48u, 0x4Cu, 0x50u, 0x54u, 0x78u, 0x7Cu, 0x8Cu, 0x90u}) {
             const rp::F theirs = r.f(block + 0x160 + at);
             if (s.after.at(at) == theirs) continue;
@@ -306,6 +350,9 @@ int run_posture(Disc& disc, const std::vector<std::string>& paths) {
         int steps = 0, steps_equal = 0;
         for (u32 model : models) compare_steps(ee, mem, model, steps, steps_equal);
         std::printf("  the driver's step: %d, %d with the wheel, the body, the hands, the elbows and the clavicles equal\n", steps, steps_equal);
+        std::printf("  the gaze: %d steps in the usual way (%d with the computer driver's aim), %d equal\n", gaze_steps, gaze_aimed, gaze_equal);
+        gaze_steps = gaze_equal = gaze_aimed = 0;
+        if (std::getenv("GT4R_POSTURE_STEPS_ONLY")) continue; // (the driver's step alone, not the solves)
         for (u32 model : models)
             for (int recorded = 0; recorded < 2; ++recorded)
                 for (float alpha : {0.0f, 0.37f, 1.0f}) {

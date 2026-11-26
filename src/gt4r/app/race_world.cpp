@@ -936,6 +936,14 @@ void RaceWorld::present(std::span<const race::CarState> cars, const audio::Sound
             motion.velocity = {F(car.velocity.x), F(car.velocity.y), F(car.velocity.z)};
             motion.turn = turn_of(car);
             motion.roll = F(-std::atan2(car.right.y, car.up.y));
+            // The gaze's: the front wheels' angle, the computer driver's aim (its x, -z; 🔎 at the car's own height, the
+            // program's is the height where the car was put on the road) when the car has one.
+            motion.front_wheels = F(-0.5f * (car.wheels[0].steer + car.wheels[1].steer)); // (the program's + is to the left)
+            motion.co_driver = d.co_driver;
+            if (field_ && d.car < field_->size()) {
+                const sim::ai::Field::Probe p = field_->probe_get(d.car);
+                if (!(p.aim_x == F(0.0f) && p.aim_y == F(0.0f))) motion.aim = race::posture::V3{p.aim_x, F(car.position.y), -p.aim_y};
+            }
             d.state.step(d.cockpit, d.follow, dt, *hand_speeds_, &motion);
         }
     if (!m.smoke.loaded()) return;

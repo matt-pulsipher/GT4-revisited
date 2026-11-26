@@ -563,9 +563,24 @@ every input bit for bit. (The program leaves two floats of `wrist_phase` unwritt
   (0x4043C8: +0x0C 0 .. 5 degrees from a rest of 1.25, +0x04), the lean (0x404890: +0x08 toward what is down for the seat,
   4 degrees at most, +0x00, +0x64, +0x68), the heave (0x4051E0: +0x10, 2 cm off the seat at most).
 
+- *the gaze* (0x40DDC0, `race/driver_gaze.*`): the record's +0x58 .. +0x60, the place looked at in the car's frame, follows a
+  target (filters +0x7C .. +0x84) on springs per axis (k 50, damping 14.14; a co-driver 25 and 10; the speed at most 7.5 m/s):
+  the point 2.5 m from the eye (the seat + 0.8 m up) toward the target, held within 60 degrees of straight ahead (beyond 178
+  degrees straight up the cone's side); on a run's first step it is put there at once. The target in the usual state (the ints'
+  +0x1C = 1): the computer driver's aim (0x350CE8: the driver object's F +0x61C / +0x620, the height where the car was put on
+  the road), relative to the seat in the car's frame (0x40DA48): within 60 degrees of ahead as it is, else turned onto the
+  60-degree edge, none if more than 45 degrees behind the side; its height to the eye's within 15 degrees left alone, at most 30
+  beyond. Without an aim, or when the wheel has stood within 2.5 degrees for 2 s with the aim more than 5 degrees to a side
+  (the tuning object's +0x70, +0x74, +0x6C), the place 6.25 m ahead of the seat turned by the front wheels' mean angle (30
+  degrees at most). ✔ `GT4R_POSTURE_GAZE=1 gt4r_diff <disc> posture <states>`: the car run on at 30 m/s, 1,680 steps of six
+  figures in four states (36-driver-sky's Chaparral 2J and Pescarolo C60) with the program's aim, place and target bit for
+  bit. Not ported: the glances (states 0, 2 to 11: slow or stopped it looks aside, at random one way, at the car nearest for a
+  while, at random moments a short look away, the LCG 0x900D309 of the step's seed).
+- Here the aim is our computer driver's (`sim::ai::Field`), 🔎 at the car's own height.
+
 ✔ 1,920 steps of the Pescarolo, the Chaparral and their like in four states, the car shaken and turned and the follower swung
 from lock to lock
-(`gt4r_diff posture`): every field of these bit for bit. Not ported: the gaze (0x40DDC0: 6 KB, it looks at the cars around),
+(`gt4r_diff posture`): every field of these bit for bit. Not ported: the gaze's glances,
 the eyes, the gear change (0x411FB0 ...), the feet; the
 other cockpit styles (motorcycles and lever cars) keep the rest. Here the follower is of the front wheels' mean angle (the
 same in a replay); the program's is of the steering command.
