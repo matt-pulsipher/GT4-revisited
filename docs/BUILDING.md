@@ -6,8 +6,10 @@
 
 | Build | Compiler | State | Checked |
 |---|---|---|---|
-| Windows x64, native | MSVC 2022 (Visual Studio 17 2022 generator) | ❓ not built yet | the recipe below is the engine's, which builds on the same compiler |
-| Windows x64, cross | MinGW-w64 GCC 15 (from macOS) | ✅ builds | `gt4r.exe`, `gt4tool.exe`, `gt4r_diff.exe`, `gt4r_tests.exe` link; the tests without a disc run under CrossOver's Wine: 499 tests, 201 run, 298 skip, none failing |
+| Windows x64, native | MSVC 2022 14.44 (Visual Studio 17 2022 generator) | ✅ builds, no-disc tests pass | GitHub Actions `windows-2022`: `gt4r`, `gt4tool`, `gt4r_tests` build; the tests without a disc give the same result as macOS test by test (205 run, 305 skipped, none failing) |
+| Windows x64, release package | MSVC 2022, SDL3.dll, ANGLE | ✅ packaged, starts | `gt4r-windows-x64.zip` (11.7 MB: `gt4r.exe`, `gt4tool.exe`, `SDL3.dll`, `libEGL.dll`, `libGLESv2.dll`, `LICENSE-ANGLE.txt`, the notices and docs); started from the archive with no disc on the runner, it draws the disc-choice page through ANGLE on Direct3D 11's software adapter (Microsoft Basic Render Driver) |
+| Windows x64, with the discs | MSVC 2022 | ❓ not run | the disc tests, a race and the 3D renderer on a real GPU (Vulkan) need a Windows PC with the discs |
+| Windows x64, cross | MinGW-w64 GCC 15 (from macOS) | ✅ builds, all tests pass under Wine | CrossOver's Wine: every test with both discs passes; a race's exact car records (`gt4tool state-hash`, Tsukuba, 6 cars, 60 s) are bit for bit the macOS ones, and the online cars' digests (`gt4tool car-digests`, 722 cars) the same |
 
 The renderer on Windows is Vulkan (SPIR-V shaders); on GPUs without Vulkan, OpenGL ES 3.0 through
 ANGLE (Direct3D 11) when ANGLE's DLLs sit beside `gt4r.exe`, as in the release package, else the
@@ -54,6 +56,15 @@ powershell Compress-Archive -Path dist\gt4r-windows-x64 -DestinationPath gt4r-wi
 ANGLE's folder comes from `packaging/angle.ps1` (vcpkg, about 18 minutes). With
 `GT3R_SDL_SHARED=ON` a `gt4r_tests.exe` of that build needs `SDL3.dll` copied beside it; the test
 build above links SDL statically.
+
+### On GitHub Actions
+
+The workflow (`.github/workflows/build.yml`) builds and runs the no-disc tests on `windows-2022`, and a
+manual run (`gh workflow run build.yml --ref <branch> -f platforms=windows`) builds the package too,
+lists its files with the archive's SHA256, and starts it once with no disc (job `package`, step
+"Smoke run (Windows)"): its log is printed, and on a manual run the picture is in the log as base64
+between `---- smoke picture (base64) ----` and `---- end ----`. No disc image goes to the runners,
+so the tests that need one skip there.
 
 ### On a PC over SSH
 
