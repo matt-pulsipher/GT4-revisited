@@ -4,6 +4,7 @@
 // draws with the shared engine's Ui (640x360 units) and reads the menus through its virtual
 // pad, as GT3 Revisited's own screens do.
 
+#include "app/screen_touch_overlay.h"
 #include "app/ui.h"
 #include "audio/audio_engine.h"
 #include "base/config.h"
@@ -13,6 +14,7 @@
 #include "gt4r/settings/run_mode.h"
 #include "gt4r/settings/video.h"
 #include "input/input_manager.h"
+#include "platform/display_insets.h"
 #include "platform/recent_discs.h"
 #include "render/dynamic_scale.h"
 #include "render/gamma_pass.h"
@@ -60,6 +62,9 @@ public:
     virtual bool update_prompts() const { return false; }
     // The Discord status (app/presence.h): what the player is doing here; false lets the screen below say.
     virtual bool presence(App&, net::PresenceText&) { return false; }
+    // Phones and tablets: the on-screen controls over this screen (input/touch_controls.h): none on the app's own pages, which are
+    // tapped, the D-pad and buttons over the game's menus, the driving controls in a race.
+    virtual gt3r::TouchLayout touch_layout() const { return gt3r::TouchLayout::None; }
 };
 
 class App {
@@ -117,6 +122,7 @@ public:
     const std::vector<gt3r::PointerInput::Action>& pointer() const { return pointer_actions_; }
     bool mouse_at(float& x, float& y) const { return !cursor_hidden_ && pointer_.hover_pos(x, y); }
     SDL_Window* window() { return window_; }
+    bool touch_ui() const { return touch_ui_; } // phones and tablets: a touch screen, the on-screen controls
     bool scripted() const { return scripted_; } // opens nothing on the screen, reads no real input (settings/run_mode.h)
     const std::string& config_path() const { return config_path_; }
 
@@ -191,6 +197,7 @@ private:
     void use_texture_packs();
     bool pointer_token(const std::string& token); // --keys' mouse
     void push_dropped_mod(const std::string& path);
+    SDL_FRect safe_area_window() const; // (app_settings.cpp) the window clear of a phone's cutout and rounded corners
 
     settings::Video video_;
     settings::Gpu video_started_ = settings::Gpu::Automatic;
@@ -210,6 +217,11 @@ private:
     gt3r::PointerInput pointer_;
     std::vector<gt3r::PointerInput::Action> pointer_actions_, scripted_pointer_;
     std::string dropped_mod_;
+    // Phones and tablets (and GT4R_TOUCH=1 on a computer, for pictures): the on-screen controls, the display's cutout.
+    bool touch_ui_ = false;
+    gt3r::TouchOverlay touch_;
+    std::optional<gt3r::platform::DisplayInsets> display_insets_;
+    int insets_retry_ = 0;
 
     SDL_Window* window_ = nullptr;
     SDL_Renderer* renderer_ = nullptr; // the 3D device's when there is one

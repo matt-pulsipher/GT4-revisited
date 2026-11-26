@@ -124,7 +124,8 @@ public:
             for (const std::string& line : Ui::wrap(items_[size_t(std::clamp(sel_, 0, int(items_.size()) - 1))].help, 280)) ui.text(340, y, line, colors::kText), y += 12;
         y += 10;
         if (!developer_)
-            for (const std::string& line : Ui::wrap("In the game, Select and Start together come back here.", 280)) ui.text(340, y, line, colors::kDim), y += 12;
+            for (const std::string& line : Ui::wrap(app.touch_ui() ? "In the game, the button beside the title, or Select and Start together, come back here."
+                                                                : "In the game, Select and Start together come back here.", 280)) ui.text(340, y, line, colors::kDim), y += 12;
         y += 8;
         if (!d.problem.empty())
             for (const std::string& line : Ui::wrap(d.problem, 280)) ui.text(340, y, line, colors::kBad), y += 12;

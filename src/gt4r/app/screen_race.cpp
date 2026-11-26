@@ -2505,6 +2505,10 @@ public:
     }
 
     bool follows_aspect() const override { return race_ != nullptr; } // (Drive's lists are the app's own page)
+    // The driving controls while the player drives, the pad over the race's menus and pauses, none over Drive's lists (tapped).
+    gt3r::TouchLayout touch_layout() const override {
+        return !race_ ? gt3r::TouchLayout::None : playing() ? gt3r::TouchLayout::Driving : gt3r::TouchLayout::Menu;
+    }
     // The Discord status (app/presence.h): the kind of run and the course, the car, the lap and the place.
     bool presence(App& app, net::PresenceText& t) override {
         if (!race_) return false;

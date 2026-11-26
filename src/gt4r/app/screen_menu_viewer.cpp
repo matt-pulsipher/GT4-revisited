@@ -111,6 +111,7 @@ public:
     }
 
     bool follows_aspect() const override { return runtime_ || player_; }
+    gt3r::TouchLayout touch_layout() const override { return follows_aspect() ? gt3r::TouchLayout::Menu : gt3r::TouchLayout::None; } // (the game's menus: the pad)
 
     // The game's title (Arcade's top page): the update dialog may open over it; the Discord status says which menus run.
     std::pair<std::string, std::string> where() const {
@@ -368,6 +369,12 @@ private:
     void update_running(App& app, const MenuInput& m) {
         // Select and Start together leave the running menus.
         if (m.held(PadButton::Select) && m.pressed(PadButton::Start)) return stop();
+        // (on a touch screen the title's hint is a button that does the same)
+        if (hint_rect_.w > 0)
+            for (const gt3r::PointerInput::Action& a : app.pointer())
+                if (a.kind == gt3r::PointerInput::Action::Kind::Click && a.x >= hint_rect_.x && a.x < hint_rect_.x + hint_rect_.w &&
+                    a.y >= hint_rect_.y && a.y < hint_rect_.y + hint_rect_.h)
+                    return stop();
         try {
             static const std::pair<PadButton, menu::Key> keys[] = {
                 {PadButton::Cross, menu::Key::Accept}, {PadButton::Triangle, menu::Key::Cancel}, {PadButton::Start, menu::Key::Start},
@@ -594,21 +601,31 @@ private:
     // On the title (and Prologue's board): the way to the home screen (Settings, Controls, Saved games), in the space beside
     // the page, or over its top right corner when the picture has none.
     void title_hint(Ui& ui, float x, float scale) {
+        hint_rect_ = {};
         const LiveWidget* page = runtime_->current_page();
         if (!page || !runtime_->project()) return;
         const bool title = page->name == "TopRoot" && runtime_->project()->name() == "arcade";
         const bool school = page->name == "SchoolRoot" && runtime_->project()->name() == "prologue"; // (Prologue's title and its board)
         if (!title && !school) return;
         const float margin = ui.width() - (x + 640 * scale);
-        static const char* const kLines[] = {"{Select}+{Start}:", "Settings,", "Controls,", "Saved games"};
+        // A touch screen's: a button to tap (Select and Start together are two fingers on the controls), at the top, clear of
+        // the face buttons.
+        const bool touch = app_ && app_->touch_ui();
+        static const char* const kPad[] = {"{Select}+{Start}:", "Settings,", "Controls,", "Saved games"};
+        static const char* const kTouch[] = {"Tap here:", "Settings,", "Controls,", "Saved games"};
+        const char* const* const kLines = touch ? kTouch : kPad;
+        constexpr size_t kCount = std::size(kPad);
         float w = 0;
-        for (const char* l : kLines) w = std::max(w, Ui::text_width(l));
+        for (size_t i = 0; i < kCount; ++i) w = std::max(w, Ui::text_width(kLines[i]));
         const bool beside = margin >= w + 8;
         if (!beside && !title) return; // (over the board only beside it)
         const float left = beside ? x + 640 * scale + (margin - w) / 2 : ui.width() - w - 10;
-        const float top = beside ? Ui::kHeight - 62.0f : 6.0f;
-        if (!beside) ui.fill_round(left - 5, top - 4, w + 10, 12 * float(std::size(kLines)) + 6, 4, Color{0, 0, 0, 150});
-        for (size_t i = 0; i < std::size(kLines); ++i) ui.text(left, top + 12 * float(i), kLines[i], i == 0 ? colors::kText : colors::kDim);
+        const float top = touch ? 40.0f : beside ? Ui::kHeight - 62.0f : 6.0f;
+        if (touch) {
+            hint_rect_ = {left - 5, top - 4, w + 10, 12 * float(kCount) + 6};
+            ui.fill_round(hint_rect_.x, hint_rect_.y, hint_rect_.w, hint_rect_.h, 4, Color{60, 66, 84, 200});
+        } else if (!beside) ui.fill_round(left - 5, top - 4, w + 10, 12 * float(kCount) + 6, 4, Color{0, 0, 0, 150});
+        for (size_t i = 0; i < kCount; ++i) ui.text(left, top + 12 * float(i), kLines[i], i == 0 ? colors::kText : colors::kDim);
     }
 
     // A block transition: the screen held when it started, in blocks that fade by their timers
@@ -705,6 +722,7 @@ private:
     long long credits_ = -1; // a scripted run's credits; -1: the game's own
     std::optional<menu::RaceRequest> race_; // what the running menus asked for at their end
     App* app_ = nullptr;                    // set when the menus start running
+    SDL_FRect hint_rect_{};                 // the title's hint as a touch screen's button (UI units), empty when not shown
 };
 
 } // namespace

@@ -73,7 +73,8 @@ cmake --build build -j
 
 Needs CMake 3.21+, a C++20 compiler and SDL 3.4+ (found on the system, else built from
 source). The shared engine is the `engine/gt3r` submodule; run
-`git submodule update --init` if it is empty. Built and played on macOS so far.
+`git submodule update --init` if it is empty. Built and played on macOS so far. Android phones
+and tablets: [android/README.md](android/README.md) (an APK built with Gradle).
 
 A release package (`gt4r-macos-arm64.zip` or `gt4r-linux-<arch>.tar.gz` with `SHA256SUMS`, built
 from a clean build folder as CI builds it): `tools/release/package.sh`. The app icon is drawn by

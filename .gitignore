@@ -27,3 +27,10 @@ dist/
 # Signing keys
 *.jks
 *.keystore
+
+# Android (android/README.md)
+android/third_party/
+android/.gradle/
+android/.gradle-home/
+android/app/.cxx/
+android/local.properties
