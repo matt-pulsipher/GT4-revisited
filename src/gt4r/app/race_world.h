@@ -415,6 +415,10 @@ public:
         bool operator==(const PlayerChoice&) const = default;
     };
     bool set_player(const PlayerChoice& c, size_t player = 0);
+    // A car's parts and settings from the next restart on (Arcade's Quick Tune on the player's car: sim/quick_tune.h).
+    void set_equipment(size_t car, const sim::Equipment& eq) {
+        if (car < setup_.entries.size()) setup_.entries[car].equipment = eq;
+    }
     // The player's car's power as built, PS (0: not known).
     float player_power_ps() const { return player_ps_; }
     const gt3r::render::DrawStats& draw_stats() const;

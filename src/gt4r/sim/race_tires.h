@@ -12,5 +12,8 @@ namespace gt4r::sim {
 
 // `chosen`: the kind chosen (0 .. 12), -1: the entry's own tires. Answers whether the equipment changed.
 bool fit_race_tires(db::SpecDb& db, const FileReader& read, Equipment& eq, int course_kind, int chosen);
+// The kinds of the entry's +0x160 (front) and +0x161 (rear) with its flag +0x165 set (the Quick Tune's: sim/quick_tune.h):
+// nothing changes when they are the car's own kinds; else each axle takes its kind's fitting part.
+bool fit_race_tires(db::SpecDb& db, const FileReader& read, Equipment& eq, int course_kind, int front, int rear);
 
 } // namespace gt4r::sim
