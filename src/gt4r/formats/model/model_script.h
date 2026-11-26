@@ -57,4 +57,8 @@ using ScriptCallback = std::function<float(u32 id, std::span<const u32> cells)>;
 // the code or takes more than 10,000 commands.
 bool run_script(const Script& s, s32 entry, ScriptState& state, const ScriptCallback& callback = {});
 
+// The registers a still draw reads: the set-up, per-tick and draw entries of every model run once with the game's
+// values `hosts` (by name; floats, but `time` and `timezone` as ints; the others 0). Empty for a set without a script.
+std::vector<u32> still_registers(const Script& s, std::span<const std::pair<std::string, float>> hosts);
+
 } // namespace gt4r::mdls

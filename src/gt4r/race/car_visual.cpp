@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <map>
 
 namespace gt4r::race {
 
@@ -193,6 +194,7 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
         return;
     }
     reflection_by_draw_ = opt.reflection_by_draw, reflection_c0_ = opt.reflection_c0, reflection_c1_ = opt.reflection_c1;
+    lamp_level_ = opt.lamp_level;
     const car::CarFile c = car::CarFile::parse(file);
     if (c.body_paint && c.body_paint < file.size()) pat = file.subspan(c.body_paint);
     Bytes painted;
@@ -250,10 +252,38 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
         const u32 last = wh.texture_sets && list + 4 * wh.texture_sets <= wheel_set.size() ? rd32(wheel_set, list + 4 * (wh.texture_sets - 1)) : 0;
         if (lod_levels_ >= 3 && last && last + 0x20 <= wheel_set.size()) far_body = with_texture_set(body, wheel_set.subspan(last), far_set);
     }
+    // A body whose script sets a blend weight its draw reads (0x4C: the pace cars' light bars, from `time`): the body
+    // built again at the blend's other end, for the shapes that move between the two.
+    mdls::Script script;
+    try {
+        script = mdls::Script::parse(body);
+    } catch (const std::exception&) {
+    }
+    // A scripted body's registers for its still draws, the brake off and on (the brake lamps by script: their lenses under
+    // 0x54's `gtala`, 1 while `brake` is above 0).
+    std::array<std::vector<u32>, 2> still_registers;
     for (int brake = 0; brake < 2; ++brake) {
-        scene::Model m = build_levels(body, 0, body_scene(brake != 0, opt.lamp_level, spoiler), kLevels, 0, name);
+        const std::pair<std::string, float> hosts[] = {{"brake", brake ? 1.0f : 0.0f}, {"taillamp", brake ? 1.0f : 0.0f}, {"timezone", float(opt.lamp_level)}};
+        still_registers[size_t(brake)] = mdls::still_registers(script, hosts);
+    }
+    {
+        int weight = -1;
+        for (const mdls::Script::Variable& v : script.registers)
+            if (v.name.find("_tw") != std::string::npos) weight = weight < 0 ? int(v.cell) : weight;
+        if (!script.empty() && script.host_cell("time") >= 0 && weight >= 0) {
+            morph_ = std::make_unique<ScriptMorph>();
+            morph_->state = mdls::ScriptState(script);
+            morph_->time_cell = script.host_cell("time"), morph_->weight_cell = weight;
+            morph_->script = script;
+        }
+    }
+    const auto body_levels = [&](int brake, float morph_weight) {
+        mdls::Scene base = body_scene(brake != 0, opt.lamp_level, spoiler);
+        base.morph_weight = morph_weight;
+        base.registers = still_registers[size_t(brake)];
+        scene::Model m = build_levels(body, 0, base, kLevels, 0, name);
         if (!far_body.empty()) {
-            mdls::Scene sc = body_scene(brake != 0, opt.lamp_level, spoiler);
+            mdls::Scene sc = base;
             sc.outside_sets[mdls::kWheelFaceSlot] = far_set;
             gt3r::gtm1::Options o = car_options();
             o.node = 0;
@@ -262,6 +292,11 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
             for (scene::Mesh& mesh : far.meshes) mesh.lod = 2;
             gt3r::course::append_model(m, std::move(far));
         }
+        return m;
+    };
+    for (int brake = 0; brake < 2; ++brake) {
+        scene::Model m = body_levels(brake, -1);
+        if (morph_) split_band(m, body_levels(brake, 1.0f), morph_->band[size_t(brake)]);
         if (m.meshes.empty()) throw FormatError("The car's body has nothing to draw.");
         if (brake == 0) {
             m.compute_bounds();
@@ -271,6 +306,8 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
         }
         to_gpu(body_[size_t(brake)], std::move(m));
     }
+    if (morph_ && morph_->band[0].meshes.empty() && morph_->band[1].meshes.empty()) morph_.reset();
+    if (morph_) restart_animation();
     // The brake parts: the shapes the body's program draws in each wheel's frame.
     for (u16 w = 0; w < 4; ++w) {
         mdls::Scene sc = body_scene(false, opt.lamp_level);
@@ -373,6 +410,8 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
                 lists[l]->push_back(r);
                 lamp_colors_[l].push_back(r.rgb);
                 lamp_powers_[l].push_back(float(rd32(file, o + 0x60)));
+                // A lamp that flashes (+0x66: its pattern 1 or 2, +0x68: its phase in seconds; the lit list's, RaceCarModel::vf36).
+                if (l == 0) lamp_flash_.push_back({int(rd16(file, o + 0x66)), f(o + 0x68)});
             }
         }
     }
@@ -409,6 +448,29 @@ bool CarVisual::driver_shows(const CarState& s, const render::Vec3& eye, const L
     const float k = view && view->k > 0 ? view->k : 721.2f; // (the chase view's)
     return k / depth / 420.0f >= 0.025f;
 }
+
+namespace {
+// The flashing patterns (0x391778 fills them once into 0x844348): a period, flashes in it, the time from one to the next, a
+// flash's length (seconds). Pattern 1 one flash of 0.25 s every 0.4 s; pattern 2 five of 0.05 s, 0.05 s apart, every 0.9 s.
+struct FlashPattern {
+    float period;
+    int count;
+    float interval, length;
+};
+constexpr FlashPattern kFlashPatterns[2] = {{0.4f, 1, 0.5f, 0.25f}, {0.9f, 5, 0.05f, 0.05f}};
+// A pattern's strength at its time `t` and a lamp's `phase` (0x3916E0): wrapped once by the period, 0 after the pattern's
+// flashes or between them, inside a flash 1 - x^2 for x from -1 to 1 over its length.
+float flash_strength(const FlashPattern& p, float t, float phase) {
+    t += phase;
+    if (p.period < t) t -= p.period;
+    const int k = int(t / p.interval);
+    if (k >= p.count) return 0;
+    t -= float(k) * p.interval;
+    if (p.length < t) return 0;
+    const float x = t / (p.length * 0.5f) - 1;
+    return 1 - x * x;
+}
+} // namespace
 
 void CarVisual::set_lamp_strengths(float head, float brake, float tail) {
     // The glow's color is the course's lamp color times the lamp's own (record +0x54) times the list's strength (RaceCarModel::vf36
@@ -450,6 +512,107 @@ void CarVisual::to_gpu(std::unique_ptr<render::GpuModel>& slot, scene::Model m) 
     share_textures(m);
     if (t_unuploaded) unuploaded_.emplace_back(&slot, std::move(m));
     else slot = std::make_unique<render::GpuModel>(*ctx_, m);
+}
+
+void CarVisual::restart_animation() {
+    flash_time_ = {};
+    if (!morph_) return;
+    ScriptMorph& m = *morph_;
+    m.state = mdls::ScriptState(m.script);
+    m.time_ms = 0, m.shown = -1;
+    for (const mdls::Script::Entries& e : m.script.models)
+        if (e.setup >= 0) mdls::run_script(m.script, e.setup, m.state);
+}
+
+void CarVisual::animate(float seconds) {
+    // The flashing lamps' patterns (RaceCarModel::vf3 0x390DD8: each pattern's time a frame on, wrapped by its period), and
+    // their lamps' strengths (vf36: the pattern's, in place of the course's for the lit list).
+    if (!lamp_flash_.empty()) {
+        for (size_t k = 0; k < 2; ++k) {
+            flash_time_[k] += seconds;
+            if (kFlashPatterns[k].period < flash_time_[k]) flash_time_[k] -= kFlashPatterns[k].period;
+        }
+        for (size_t i = 0; i < lamp_flash_.size() && i < lamps_.head.size() && i < lamp_colors_[0].size(); ++i) {
+            const auto [pattern, phase] = lamp_flash_[i];
+            if (pattern < 1 || pattern > 2) continue;
+            const float k = flash_strength(kFlashPatterns[pattern - 1], flash_time_[size_t(pattern - 1)], phase);
+            for (int c = 0; c < 3; ++c) lamps_.head[i].rgb[size_t(c)] = lamp_colors_[0][i][size_t(c)] * k;
+        }
+    }
+    if (!morph_) return;
+    ScriptMorph& m = *morph_;
+    // The model's time in milliseconds, trunc(1000 x the step) a step (0x451110); the per-step and draw scripts.
+    m.time_ms += u32(std::max(0.0f, seconds * 1000.0f));
+    m.state.set_host(m.time_cell, m.time_ms);
+    for (const mdls::Script::Entries& e : m.script.models)
+        if (e.tick >= 0) mdls::run_script(m.script, e.tick, m.state);
+    for (const mdls::Script::Entries& e : m.script.models)
+        if (e.draw >= 0) mdls::run_script(m.script, e.draw, m.state);
+    const float w = m.state.register_f(u32(m.weight_cell));
+    if (!std::isfinite(w) || w == m.shown) return;
+    m.shown = w;
+    // The shapes it moves, in a small model of their own drawn with the body's pictures, at the weight.
+    for (size_t b = 0; b < 2; ++b) {
+        ScriptMorph::Band& band = m.band[b];
+        if (band.meshes.empty() || !body_[b]) continue;
+        if (!band.gpu) band.gpu = std::make_unique<render::GpuModel>(*ctx_, *body_[b]);
+        std::vector<scene::Mesh> meshes = band.meshes;
+        for (size_t i = 0; i < meshes.size(); ++i)
+            for (size_t v = 0; v < meshes[i].vertices.size(); ++v) {
+                scene::Vertex& x = meshes[i].vertices[v];
+                const scene::Vertex& e = band.ends[i][v];
+                for (int k = 0; k < 3; ++k) x.pos[k] += (e.pos[k] - x.pos[k]) * w;
+                for (int k = 0; k < 2; ++k) x.uv[k] += (e.uv[k] - x.uv[k]) * w;
+            }
+        band.gpu->update_geometry(meshes);
+    }
+}
+
+// The shapes of `m` that the script's weight moves (their vertices differ in `other`, the body at the weight's other end): their
+// triangles taken out of the body into `band` (each mesh's own, with the other end's vertices beside them).
+void CarVisual::split_band(scene::Model& m, const scene::Model& other, ScriptMorph::Band& band) {
+    for (size_t mi = 0; mi < m.meshes.size() && mi < other.meshes.size(); ++mi) {
+        scene::Mesh& mesh = m.meshes[mi];
+        const scene::Mesh& end = other.meshes[mi];
+        if (mesh.vertices.size() != end.vertices.size()) continue;
+        std::vector<bool> moved(mesh.vertices.size(), false);
+        bool any = false;
+        for (size_t i = 0; i < mesh.vertices.size(); ++i) {
+            const scene::Vertex &a = mesh.vertices[i], &b = end.vertices[i];
+            for (int k = 0; k < 3; ++k) moved[i] = moved[i] || std::fabs(a.pos[k] - b.pos[k]) > 1e-6f;
+            for (int k = 0; k < 2; ++k) moved[i] = moved[i] || std::fabs(a.uv[k] - b.uv[k]) > 1e-6f;
+            any = any || moved[i];
+        }
+        if (!any) continue;
+        scene::Mesh part;
+        part.name = mesh.name + "/band", part.lod = mesh.lod, part.node = mesh.node, part.transform = mesh.transform;
+        std::vector<scene::Vertex> ends;
+        std::map<u32, u32> renumber;
+        const auto take = [&](u32 v) {
+            const auto [at, fresh] = renumber.try_emplace(v, u32(part.vertices.size()));
+            if (fresh) part.vertices.push_back(mesh.vertices[v]), ends.push_back(end.vertices[v]);
+            return at->second;
+        };
+        std::vector<u32> kept;
+        for (scene::Primitive& p : mesh.primitives) {
+            scene::Primitive q = p;
+            q.first_index = u32(part.indices.size()), q.index_count = 0;
+            const u32 first = u32(kept.size());
+            for (u32 t = p.first_index; t + 2 < p.first_index + p.index_count; t += 3) {
+                const u32 a = mesh.indices[t], b = mesh.indices[t + 1], c = mesh.indices[t + 2];
+                if (moved[a] || moved[b] || moved[c]) {
+                    part.indices.push_back(take(a)), part.indices.push_back(take(b)), part.indices.push_back(take(c));
+                    q.index_count += 3;
+                } else kept.push_back(a), kept.push_back(b), kept.push_back(c);
+            }
+            p.first_index = first, p.index_count = u32(kept.size()) - first;
+            if (q.index_count) part.primitives.push_back(q);
+        }
+        mesh.indices = std::move(kept);
+        std::erase_if(mesh.primitives, [](const scene::Primitive& p) { return p.index_count == 0; });
+        band.meshes.push_back(std::move(part));
+        band.ends.push_back(std::move(ends));
+    }
 }
 
 void CarVisual::upload() {
@@ -535,6 +698,13 @@ void CarVisual::add_items(std::vector<render::DrawItem>& items, const CarState& 
         render::DrawItem it{m, body, lod};
         it.far_whole = true;
         items.push_back(it);
+        // (The shapes the body's script moves: a pace car's light bar.)
+        if (morph_)
+            if (const render::GpuModel* band = morph_->band[s.brake_lamps ? 1 : 0].gpu.get(); band && band->valid()) {
+                render::DrawItem b{band, body, lod};
+                b.far_whole = true;
+                items.push_back(b);
+            }
     }
     for (int w = 0; w < 4; ++w) {
         // The brake parts in the wheel's frame; the tire and the wheel turned and scaled in it, with

@@ -457,10 +457,22 @@ brake state, the per-wheel values and the lamp level into the model; drawing is:
   first axis, its third axis as the viewing axis, its place, half sizes and test point; the
   glow's color white for the first list and red for the other two 🔎 by eye, the record's own
   color not having been found, at the strengths below.)
-- **Lamp glows** (when the lamp level is not 0): the info block's three lamp lists, the first
-  at the course's headlamp brightness (or a flashing pattern's), the brake list at the brake
-  brightness x the ramp (flag bit 0) or while braking, the tail list at the tail brightness
-  without glare (🔎 `Env0` +0x1794 / +0x1798 / +0x179C).
+- **Lamp glows** (RaceCarModel::vf36 0x3911D0: none while the car's lamp level, +0x1680, is 0): the info block's three
+  lamp lists, the first at the course's headlamp brightness or, for a lamp with a flashing pattern, the pattern's, the
+  brake list at the brake brightness x the ramp (flag bit 0) or while braking, the tail list at the tail brightness
+  without glare (🔎 `Env0` +0x1794 / +0x1798 / +0x179C; 0 on the daytime courses).
+- **The lamp level** (RaceBase::vf38 0x3882F8 through RaceCarModel::vf43, per car at the race's start): the course's night
+  flag (`Env0` +0x10 bit 15), but 1 for the pace car `r34_gtr_v_gtcolor_pc_01` (the program's name for it, 0x68D018)
+  whatever the course: in a daytime race (B-5's) its lit lenses and its glows, which by day are its flashing lamps alone.
+  Its lit list: two headlamps and two blue lamps beside them, then ten flashing ones: the roof bar's (±0.25 pattern 1,
+  ±0.40 pattern 2), two at the front corners and two low at the front (pattern 2, the last with phase 0.45), two low at
+  the back (z 2.34, pattern 2, phases 0.45 and 0).
+- **Flashing patterns** (0x391778 builds them once into 0x844348; vf3 0x390DD8 steps each pattern's time by 1/60 a
+  frame, less its period when past it): pattern 1 a period of 0.4 s with one flash of 0.25 s; pattern 2 a period of
+  0.9 s with five flashes of 0.05 s, 0.05 s apart. A lamp's strength (0x3916E0): t = the pattern's time + its phase
+  (+0x68), less the period when past it; k = trunc(t / spacing), 0 from the pattern's count on; t' = t - k x spacing,
+  0 past the flash's length; else 1 - x² for x = t' / (length / 2) - 1. ✔ Ours by picture: the pace car's roof bar and
+  rear lamps flashing in B-5 and with the car alone at Tsukuba (a daytime course).
 
 ### What a car's script reads
 
@@ -476,7 +488,7 @@ operand 0x8000 + i.
 | `brake` | the simulation's brake value (float, 0 = off) | 27 |
 | `taillamp` | the brake ramp, 0..1 over four frames | 0 |
 | `timezone` | the lamp level (int: callback 7's value) | 0 |
-| `time` | a counter of the model (int) ❓ its step | 4 |
+| `time` | the model's time in milliseconds (int, CarModel +0x34): trunc(1000 x 1/60) = 16 more a frame (RaceCarModel::vf3 → 0x4511E0 → 0x451110) | 4 |
 | `engineRPM` | engine speed | 2 (`benz0001`, `dmlr0001`) |
 | `pedalLeft`, `pedalRight` | from the driver's model | 2 (`dmlr0001`, `nike0001`) |
 | `steering` | the steering value (callback 5's morph weight) | 0 |
@@ -484,10 +496,22 @@ operand 0x8000 + i.
 | `dirtiness` | the car's dirt (the body's draw also sets a render value to 1 - it 🔎) | 0 |
 | `wing` | the first moving-aero value (callback 6's) | 0 |
 
-- **Brake lamps by script** (27 bodies: `ac__0014`, `bmw_0002`, ...): registers `gtalc<n>`
-  and `gtala<n>` per lamp; the script sets `gtalc` to 1 and `gtala` to 1 while `brake` is
-  above 0, else 0, and the program draws the lit lens under `0x54 gtalc, gtalc, gtalc, gtala`:
-  a colour scale whose alpha switches the lens on. A still model's zero registers leave it off.
+- **Brake lamps by script** (27 race bodies, `car/lod`: `ac__0014`, `bmw_0002`, ...; 21 menu bodies, `car/menu`): registers
+  `gtalc<n>` and `gtala<n>` per lamp; the script sets `gtalc` to 1 and `gtala` to 1 while `brake` is above 0, else 0, and
+  the program draws the lit lens under `0x54 gtalc, gtalc, gtalc, gtala`: a colour scale whose alpha switches the lens on.
+  Here each body is built with the registers its script gives with the brake off and on (`mdls::still_registers`), and a
+  draw under a colour scale whose alpha is 0 is left out (`mdls::to_gtm1`). ✔ The BMW 120i's and the AC 427's lenses lit
+  only while braking (before, `0x54` was a no-op and the lenses were lit all the time).
+- **The cars with a script** (`gt4tool car-scripts`; 1,691 car files, 8,366 model sets, 57 with a script on 31 models):
+  the brake lamps above (reading `brake`); the pace car's band (`niss0088`, `time`); `benz0001` (`engineRPM`, `time` →
+  three turns, 0x48); `dmlr0001` (`engineRPM`, the pedals, `time` → two morphs and two turns; its menu body the turns
+  only); `nike0001` (the pedals, `time` → two morphs). No script reads `timezone`, `steering`, `steering_rot`,
+  `dirtiness`, `wing` or `taillamp`.
+- **The pace car's light bar** (`niss0088`, `r34_gtr_v_gtcolor_pc_01`): its script sets `builtin_tw0` = (time mod 1000) /
+  1000 (and `builtin_br0` 0), the weight of a 0x4C morph whose second key moves the u of a band of 14 vertices around the
+  bar's middle box (x ±0.21 .. ±0.29, y 1.27 .. 1.35, z 0.30 .. 0.40; nearest level of detail only) by +2: a 32 x 16 beam
+  picture swept across it twice a second. Here (`CarVisual::animate`) the script runs each step and those triangles are a
+  small model of their own, blended between the two keys; from behind the band shows little.
 - **Moving parts** (`benz0001`, `dmlr0001`, `nike0001`): registers `builtin_ra<n>`,
   `builtin_rx / ry / rz<n>` (an angle and an axis, command 0x48) and `blend_tw<n>`,
   `blend_br<n>` (morph weights, 0x4C; a 0x4D switch picks the shape) from `engineRPM`, `time`
