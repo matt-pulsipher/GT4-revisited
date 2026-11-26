@@ -1,5 +1,7 @@
 #include "gt4r/app/menu_movies.h"
 
+#include "gt4r/formats/movie_tracks.h"
+
 #include "base/log.h"
 #include "video/ipu.h"
 #include "video/yuv.h"
@@ -89,8 +91,8 @@ void MenuMovies::draw(const menu::LiveWidget& face, const SDL_FRect& dst, float 
             try {
                 m->player.set_audio_device(device_);
                 const float volume = s.audio ? volume_ : 0.0f;
-                if (s.repeat) m->player.start_loop([this, path] { return gt3r::video::open_movie(vfs_, path); }, volume);
-                else m->player.start(gt3r::video::open_movie(vfs_, path), volume);
+                if (s.repeat) m->player.start_loop([this, path] { return gt4r::open_movie(vfs_, path); }, volume);
+                else m->player.start(gt4r::open_movie(vfs_, path), volume);
             } catch (const std::exception& e) {
                 LOG_WARN("Menu movie %s: %s", path.c_str(), e.what());
                 m->failed = true;
