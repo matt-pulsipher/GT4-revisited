@@ -2731,6 +2731,7 @@ public:
                 hud_->draw(ui, hud_state_);
             } else if (prologue_hud_ && hud_) {
                 race_->fill(hud_state_, *hud_);
+                hud_state_.replay_display = race_->viewing() && race_->view().style() == race::ReplayStyle::Display;
                 prologue_hud_->draw(ui, hud_state_, prologue_extra()); // (Prologue's own display)
             } else {
                 draw_overlay(ui);
@@ -4157,6 +4158,7 @@ private:
         else if (setup_.sequence == "time_trial") e.run = gt3r::race::HudRun::TimeTrial;
         else if (setup_.sequence == "freerun") e.run = gt3r::race::HudRun::FreeRun;
         e.live = !h.replay;
+        if (h.replay) e.car_label = race_->world().car_label(race_->focused());
         if (race_ && results_shown() && is_license(sequence_)) e.over_t = float(race_->flow().steps_since_player_finish()) / 60, e.passed = prize_level() < 3;
         const race::RaceFlow& flow = race_->flow();
         if (flow.holding()) e.start_left = double(flow.hold_left()) / 60, e.start_total = double(flow.hold_total()) / 60;

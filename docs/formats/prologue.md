@@ -556,7 +556,14 @@ dials, gear, small panel, cups, logo and count in the same places and colors. Th
 the guide (RaceABMonitor 0x391110), the Prius's panel (0x3930D8) and energy monitor (0x393718, its arrows by palette), the cones'
 count (0x394028; ❓ its place is judged), the wrong-way sign (0x38A890: blinking at 0.2 s, lit 0.06), the seconds of a lead
 (KeepLeader), AUTO DRIVE's word. An event's times have no label. (The steering's monitor is in the program, but nothing puts it in
-the list of parts drawn.) ❓ Not drawn: the car's name and view mode of a replay; the
+the list of parts drawn.) A replay's display (with the display asked for: its replay mode's
+"Display") shows the followed car's name, part 23 (0x38D260: RaceDisplay + 0xF20, a message in `sw_20#1*75,75`, 0x80C0C0C0), its
+text the database's short name (0x38B620 / 0x4087A8: table 35's row by the car's id, +0x04; the database's language is the first
+of its list, `japanese`, index 0 at the database object + 4 in the saved states: CAR_NAME_japanese, whose short names are the
+names without the year, where every short name of CAR_NAME_american is " "), its kana from the disc's double-byte font
+(`unicode.kf`); 🔎 its line in the box (the message's own drawing not followed). The view mode, part 24, has no object in this
+program: RaceReplayModeDisplay (0x3920C0, its pictures `replay_mode_l2` / `_r2`) is never made, so nothing shows.
+Picture: `~/gt4re-out/prologue8/shots/rpdc.png`. ❓ Not drawn: the
 lamps of fuel and oil never light; the small tachometer's bar is cut by its width where the program tests its alpha ramp.
 
 The
