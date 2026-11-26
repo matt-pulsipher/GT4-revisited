@@ -758,13 +758,15 @@ int RaceWorld::fitted_tire(size_t car, int axle) const {
 }
 
 std::vector<int> RaceWorld::pit_tire_kinds(size_t car, int axle) const {
-    constexpr u32 kClassOf = 0x6A69E0; // (0x441300: a kind's class, by its branch)
+    // 0x441300 (Japan's 0x439B88, the same): a kind's class, 0 for kinds 0 .. 5, 1 for 6 .. 10, 2 for 11, 3 for 12 (its
+    // switch's branches; the table of them, 0x6A69E0, is the code's, not a value served by sim::Program).
     constexpr int kKinds = 13;
+    auto class_of = [](int k) { return k <= 5 ? 0 : k <= 10 ? 1 : k == 11 ? 2 : 3; };
     const int own = fitted_tire(car, axle);
     if (own < 0 || own >= kKinds || !program_) return {};
     std::vector<int> out;
     for (int k = 0; k < kKinds; ++k)
-        if (program_->w(kClassOf + u32(k) * 4) == program_->w(kClassOf + u32(own) * 4)) out.push_back(k);
+        if (class_of(k) == class_of(own)) out.push_back(k);
     return out;
 }
 

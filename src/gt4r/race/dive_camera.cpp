@@ -1,5 +1,7 @@
 #include "gt4r/race/dive_camera.h"
 
+#include "gt4r/sim/program_tables.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -98,7 +100,11 @@ bool MusicMarkers::passed(float before, float now) const {
 float DiveDirector::Roll::at(float t) const { return to + (from - to) * std::clamp(ease.at(std::clamp(t / std::max(duration, 1e-3f), 0.0f, 1.0f)), 0.0f, 1.0f); }
 
 bool DiveDirector::load(ByteSpan program, u32 load_address) {
+    // Japan's program (SCPS-17001) has these tables 0x8AA0 (the shares) and 0x8AA8 (the tints and hues) bytes earlier
+    // (0x618608, 0x619C58, 0x619E50, where its routines address them); Europe's are at v1.01's places.
+    const bool japan = sim::release_of(program, load_address) == sim::Release::Japan;
     auto f = [&](u32 at) {
+        if (japan) at -= at >= 0x622700 ? 0x8AA8 : 0x8AA0;
         float v = 0;
         if (at >= load_address && at - load_address + 4 <= program.size()) std::memcpy(&v, program.data() + (at - load_address), 4);
         else v = NAN;

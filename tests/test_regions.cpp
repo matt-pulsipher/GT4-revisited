@@ -6,6 +6,8 @@
 #include "gt4r/formats/db/race_events.h"
 #include "gt4r/formats/db/race_labels.h"
 #include "gt4r/menu/runtime.h"
+#include "gt4r/race/dive_camera.h"
+#include "gt4r/race/race_display.h"
 #include "gt4r/sim/ai/run.h"
 #include "gt4r/sim/program.h"
 
@@ -132,6 +134,25 @@ TEST(disc_regions_license_labels) {
         CHECK(own == d->info().region + "l0b0001");
         CHECK(events.event(own).has_value());
         CHECK(vol->find("replay/license/" + own) != nullptr);
+    }
+    if (!ran) SKIP("needs a Gran Turismo 4 disc (GT4R_DISC)");
+}
+
+// The tables the race's pictures read of the program (the display's places and dials, the replay's dive cameras), found in
+// every release's program: Europe's at v1.01's places, Japan's at its own.
+TEST(disc_regions_program_pictures) {
+    int ran = 0;
+    for (const std::unique_ptr<Disc>& d : test::discs()) {
+        if (d->info().game != Game::GT4) continue;
+        ++ran;
+        const std::shared_ptr<const gt3r::CoreImage> image = d->program_image();
+        CHECK(race::read_single_race_layout(image->program, image->load_address).valid());
+        CHECK(race::read_mode1_layout(image->program, image->load_address).valid());
+        CHECK(race::read_split_layout(image->program, image->load_address, false).valid() && race::read_split_layout(image->program, image->load_address, true).valid());
+        CHECK(!race::read_rev_faces(image->program, image->load_address).empty());
+        CHECK(!race::read_speed_faces(image->program, image->load_address, false).empty() && !race::read_speed_faces(image->program, image->load_address, true).empty());
+        race::DiveDirector dive;
+        CHECK(dive.load(image->program, image->load_address));
     }
     if (!ran) SKIP("needs a Gran Turismo 4 disc (GT4R_DISC)");
 }

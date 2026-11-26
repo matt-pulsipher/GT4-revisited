@@ -11,6 +11,7 @@
 #include "disc/core_image.h"
 #include "formats/gs_memory.h"
 #include "formats/tex1.h"
+#include "gt4r/sim/program_tables.h"
 #include "gt4r/app/app.h"
 #include "gt4r/disc/disc.h"
 
@@ -151,7 +152,8 @@ private:
             if (Disc* disc = app_.disc()) {
                 const std::shared_ptr<const gt3r::CoreImage> image = disc->program_image();
                 const gt3r::CoreImage& core = *image;
-                constexpr u32 kTachometer = 0x68C080;
+                // (Japan's program, SCPS-17001, has it at 0x682A00; Europe's at v1.01's place)
+                const u32 kTachometer = sim::release_of(core.program, core.load_address) == sim::Release::Japan ? 0x682A00 : 0x68C080;
                 if (kTachometer >= core.load_address && kTachometer - core.load_address + 0x40 < core.program.size()) {
                     const ByteSpan at = ByteSpan(core.program).subspan(kTachometer - core.load_address);
                     if (auto img = decode(at, 1)) tacho_ = texture(*img);
