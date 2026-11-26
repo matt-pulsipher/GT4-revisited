@@ -18,9 +18,10 @@ using namespace gt4r;
 
 namespace {
 
+// The US disc (these tests read v1.01's code at its addresses).
 Disc* gt4_disc() {
     for (const std::unique_ptr<Disc>& d : test::discs())
-        if (d->info().game == Game::GT4) return d.get();
+        if (d->info().game == Game::GT4 && d->info().serial == "SCUS_973.28") return d.get();
     return nullptr;
 }
 
@@ -48,6 +49,43 @@ TEST(program_tables_values) {
     CHECK(byte(sim::Program::kStatic + 0x0B) == 8);
     CHECK(word(0x620270) == 0x3E2AAAAA);
     CHECK(word(sim::Program::kSoft + 4 * 2) != 0 && word(sim::Program::kSoft) == 0);
+}
+
+// Each release's tables: v1.01's with that release's own values (Japan's oil limit and the bytes its static block lacks;
+// Europe's step counts are v1.01's at 60 steps a second), each pinned by its hash.
+TEST(program_tables_per_release) {
+    CHECK(sim::gt4_release_bytes(sim::Release::Us) == 0);
+    CHECK(sim::gt4_release_bytes(sim::Release::Europe) == 0);
+    CHECK(sim::gt4_release_bytes(sim::Release::Japan) == 7);
+    auto byte = [](u32 a, sim::Release r) { const sim::ProgramTable* t = sim::gt4_table_at(a, r); return t ? t->bytes[a - t->address] : u8(0); };
+    CHECK(byte(sim::Program::kStatic + 0xD7, sim::Release::Us) == 60 && byte(sim::Program::kStatic + 0xD7, sim::Release::Japan) == 50);
+    CHECK(byte(sim::Program::kStatic + 0x155, sim::Release::Europe) == 4 && byte(sim::Program::kStatic + 0x155, sim::Release::Japan) == 0);
+    for (sim::Release r : {sim::Release::Us, sim::Release::Europe, sim::Release::Japan})
+        std::printf("  %s: hash 0x%016llx\n", sim::release_name(r), (unsigned long long)sim::gt4_tables_hash(r));
+    CHECK(sim::gt4_tables_hash(sim::Release::Europe) == sim::gt4_tables_hash(sim::Release::Us));
+    CHECK(sim::gt4_tables_hash(sim::Release::Japan) == 0xd26beb9532a60fafull);
+}
+
+// Every Gran Turismo 4 disc of GT4R_DISC: its program is the release it says (by its code) and its tables are that release's
+// own, found by their routines, every byte equal (address words its own, Europe's step counts at 50 a second).
+TEST(disc_program_tables_per_release) {
+    size_t ran = 0;
+    for (const std::unique_ptr<Disc>& d : test::discs()) {
+        if (d->info().game != Game::GT4) continue;
+        const sim::Program p = sim::Program::load(*d);
+        const std::string serial = d->info().serial;
+        const sim::Release want = serial == "SCES_517.19" ? sim::Release::Europe : serial == "SCPS_170.01" ? sim::Release::Japan : sim::Release::Us;
+        CHECK(p.release_known() && p.release() == want);
+        const std::shared_ptr<const gt3r::CoreImage> core = d->program_image();
+        const sim::TableCheck c = sim::check_tables(core->program, core->load_address, true);
+        for (const std::string& line : c.lines()) std::printf("  %s\n", line.c_str());
+        CHECK(c.release == want && c.not_found() == 0 && c.differ() == 0);
+        u32 scaled = 0, gap = 0;
+        for (const sim::TableCheck::Row& r : c.rows) scaled += r.scaled, gap += r.gap;
+        CHECK(scaled == (want == sim::Release::Europe ? 13u : 0u) && gap == (want == sim::Release::Japan ? 8u : 0u));
+        ++ran;
+    }
+    if (!ran) SKIP("needs a Gran Turismo 4 disc (GT4R_DISC)");
 }
 
 // The disc's program against ours: SCUS-97328 v1.01's every table bit for bit; a program changed in memory still races on

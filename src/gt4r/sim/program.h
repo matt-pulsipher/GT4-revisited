@@ -38,6 +38,10 @@ public:
     bool ours() const { return ours_; }
     // The disc's program against our tables (empty rows for an image or Prologue's).
     const TableCheck& check() const;
+    // The release whose tables are served (program_tables.h): the program's own, SCUS-97328 v1.01's for another build.
+    Release release() const { return release_; }
+    // Whether the program is one of the releases told apart (else v1.01's tables serve it).
+    bool release_known() const { return release_known_; }
 
     // The image as loaded at base() (kept for a build that is not known too: program_prologue.h).
     ByteSpan image() const { return core_ ? ByteSpan(core_->program) : ByteSpan{}; }
@@ -69,7 +73,8 @@ private:
     std::shared_ptr<const gt3r::CoreImage> core_; // (shared: every Program of a disc holds the one image)
     std::shared_ptr<const TableCheck> check_;     // (shared likewise: made once per image)
     u32 base_ = 0;
-    bool known_ = false, ours_ = false;
+    bool known_ = false, ours_ = false, release_known_ = false;
+    Release release_ = Release::Us;
     std::string issue_ = "no program";
 };
 

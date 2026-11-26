@@ -344,6 +344,11 @@ void build_spec(db::SpecDb& db, const Program& program, const Equipment& eq, int
         if (s.sh(o) == 0) s.set_h(o, u32(int(s.sh(0x10)) / 2));
     if (const u8 p = program.b(Program::kPitchInertiaPct)) s.set_b(0x25, u32(s.b(0x24)) * p / 100);
     if (const u8 p = program.b(Program::kRollInertiaPct)) s.set_b(0x26, u32(s.b(0x24)) * p / 100);
+    // Europe's builder (0x3F3E70 there) then raises the yaw, pitch and roll inertia bytes to the static block's +0x153 ..
+    // +0x155 where those are set (0, 0, 4: the roll's at least 4). v1.01 and Japan's have no such step.
+    if (program.release() == Release::Europe)
+        for (u32 k = 0; k < 3; ++k)
+            if (const u8 least = program.b(Program::kStatic + 0x153 + k); least && s.b(0x24 + k) < least) s.set_b(0x24 + k, least);
     auto default_curve = [&](u32 x, u32 y, u32 from) {
         for (u32 i = 0; i < 6; ++i) s.set_b(x + i, program.b(from + i)), s.set_b(y + i, program.b(from + 8 + i));
     };
