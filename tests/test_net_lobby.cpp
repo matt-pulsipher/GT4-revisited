@@ -3,6 +3,7 @@
 
 #include "test_framework.h"
 
+#include "gt4r/menu/game.h"
 #include "gt4r/net/car_choice.h"
 #include "gt4r/net/discovery.h"
 #include "gt4r/net/identity.h"
@@ -241,6 +242,21 @@ TEST(net_lobby_identity) {
     CHECK(net::refusal_text("update required: the host has a newer version of the game (online protocol 9, yours 6). Please update GT3 Revisited to play online", false)
               .find("GT3") == std::string::npos);
     CHECK(net::refusal_text("the session is full", false) == "The lobby is full.");
+}
+
+// The name the others see is the player's own setting ([online] name), never the Gran Turismo mode player's: none chosen, it
+// is a new game's LAN machine name.
+TEST(net_lobby_online_name_is_its_own) {
+    menu::GameState g;
+    g.option_defaults("US");
+    g.username = "Somebody";
+    CHECK(g.option_text("LAN_machine_name") == net::kDefaultOnlineName);
+    CHECK(net::online_name(std::nullopt) == "Player1");
+    CHECK(net::online_name(std::string()) == "Player1" && net::online_name(std::string("   ")) == "Player1");
+    CHECK(net::online_name(std::string("  Ann  ")) == "Ann");
+    CHECK(net::online_name(std::string("ABCDEFGHIJKLMNOPQRST")) == "ABCDEFGHIJKLMNOP");
+    // (A cut through a letter of several bytes drops the letter: 15 letters, then "e" with an acute accent.)
+    CHECK(net::online_name(std::string("ABCDEFGHIJKLMNO\xC3\xA9Z")) == "ABCDEFGHIJKLMNO");
 }
 
 // A lobby through a rendezvous server of the test's own on the loopback: registered, found by its code, joined; and with
