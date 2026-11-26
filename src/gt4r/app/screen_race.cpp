@@ -3654,7 +3654,11 @@ private:
     // The run is over (its results page left and its replay played, or the pause's Exit): its
     // result to Gran Turismo mode, then the sequence's menus.
     void run_over() {
-        const int can = spectator_ ? 2 : 1;
+        int can = spectator_ ? 2 : 1;
+        // A license test's page after a demonstration has no Replay (0x11CED8: canReplay 0; ✔ 34-b3-demo, the Replay icon a
+        // run added is gone after the demo), nor after a run that ended before 2 s on the race clock (0x11CE3C: 0x358440,
+        // cond + 0xF898 / 3, under 2,001 ms). ❓ The program then also reloads the test's settings (0x1100D0): not done here.
+        if (sequence_ == "license" && (demo_ || race::clock_ms(race_->flow().clock()) < 2001)) can = 0;
         report_result();
         if (session_kind() && !demo_) return enter_quick(can, false);
         enter_quick(can);
