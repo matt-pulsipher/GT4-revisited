@@ -278,7 +278,8 @@ TEST(strobe_pause_movie_disc) {
             for (const auto& g : s.groups) triangles += g.triangles.size();
         CHECK(triangles > 0 && triangles % 3 == 0);
         // The single race's pause: no retry, no confirmation, the screen settings.
-        for (int retry = 0; retry < 2; ++retry) {
+        for (int retry = 0; retry < 3; ++retry) {
+            const bool confirm = retry == 2; // (Gran Turismo mode's: EXIT asks first)
             std::vector<std::string> calls;
             std::string exit;
             race::StrobePlayer* self = nullptr;
@@ -287,9 +288,9 @@ TEST(strobe_pause_movie_disc) {
                 std::string n = name;
                 for (char& c : n) c = char(std::toupper(static_cast<unsigned char>(c)));
                 calls.push_back(n);
-                if (n == "RETRYENABLE") return V::number(retry);
+                if (n == "RETRYENABLE") return V::number(retry == 1);
                 if (n == "SCREENSETTINGENABLE") return V::number(1);
-                if (n == "CONFIRMEXIT") return V::number(0);
+                if (n == "CONFIRMEXIT") return V::number(confirm);
                 if (n == "EXIT_MENU" && !args.empty()) exit = args[0].to_string();
                 if (n == "NAVIGATEVERTICAL" && self) self->navigate(true, false);
                 if (n == "NAVIGATEALL" && self) self->navigate(true, true);
@@ -300,13 +301,13 @@ TEST(strobe_pause_movie_disc) {
             self = &p;
             p.restart();
             p.advance(10.0f / 30);
-            CHECK(p.state() == (retry ? "MENU_RETRY" : "MENU_NORMAL"));
+            CHECK(p.state() == (retry == 1 ? "MENU_RETRY" : "MENU_NORMAL"));
             CHECK(p.focus() == "DEFAULT");
             const size_t drawn = p.draw_list().size();
             CHECK(drawn > 10);
             // Down to EXIT (the second row), accept: the row's animation, then EXIT_MENU("exit").
             p.key(0x28);
-            if (retry) p.key(0x28);
+            if (retry == 1) p.key(0x28);
             CHECK(p.focus() != "DEFAULT");
             p.key(0x20);
             // The press switches the rows off (inactivateButton): while the chosen row plays, no
@@ -316,6 +317,14 @@ TEST(strobe_pause_movie_disc) {
             p.key(0x20);
             p.key(0x26);
             CHECK(p.focus().empty());
+            if (confirm) { // "Exit Sure?": its own CONTINUE has the focus, EXIT below it
+                for (int i = 0; i < 30; ++i) p.advance(1.0f / 30);
+                CHECK(p.state() == "CONFIRM" && exit.empty());
+                CHECK(p.focus() == "DEFAULT");
+                p.key(0x28);
+                CHECK(!p.focus().empty() && p.focus() != "DEFAULT");
+                p.key(0x20);
+            }
             for (int i = 0; i < 20 && exit.empty(); ++i) p.advance(1.0f / 30);
             CHECK(exit == "exit");
             if (!retry) {
@@ -330,6 +339,13 @@ TEST(strobe_pause_movie_disc) {
                 p.key(0x27);
                 CHECK(p.variable("BRIGHTNESS.v").to_number() == 3);
                 CHECK(std::find(calls.begin(), calls.end(), "SETVAL") != calls.end());
+                // OK (two rows down): back to the menu, whose rows take the focus again.
+                p.key(0x28), p.key(0x28), p.key(0x20);
+                for (int i = 0; i < 30; ++i) p.advance(1.0f / 30);
+                CHECK(p.state() == "MENU_NORMAL");
+                CHECK(p.focus() == "DEFAULT");
+                p.key(0x28);
+                CHECK(!p.focus().empty() && p.focus() != "DEFAULT");
             }
         }
     }
