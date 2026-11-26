@@ -38,10 +38,11 @@ float place_x(const DisplayPlace& p, bool wide);
 // Ours: how far that move is on the picture shown now (race/game_area.h anchor_push; 96, the program's, until set).
 void set_wide_push(float units);
 // Ours, touch screens: the places tied to the right edge in the lower half of the canvas (y >= 240: the meters and their
-// small parts) moved `units` left, clear of the on-screen controls (0: where the program puts them). The box those places
-// took since the last take_lower_right_box() (canvas units, as the program puts them; w <= 0: none), for working the move out.
-void set_touch_shift(float units);
-DisplayRect take_lower_right_box();
+// small parts) moved `right` units left, those tied to the left edge there `left` units right, clear of the on-screen controls
+// (0: where the program puts them). The box each side's places took since the last take_lower_box() (canvas units, as the
+// program puts them; w <= 0: none), for working the moves out.
+void set_touch_shift(float right, float left);
+DisplayRect take_lower_box(bool right_side);
 
 // The elements of the single race, by their numbers in the program's tables.
 namespace element {
