@@ -4587,7 +4587,7 @@ private:
         if (prologue_license_) rect = c;
         const render::Mat4 proj = render::perspective(race::LicenseTrophy::kFovDegrees * 3.14159265f / 180, race::LicenseTrophy::kAspect, race::LicenseTrophy::kNear,
                                                       race::LicenseTrophy::kFar);
-        race_->draw_model(ui, rect, *trophy_, trophy_motion_.matrix(), proj, std::clamp(trophy_motion_.fade.value, 0.0f, 1.0f) * panel.opacity, prologue_license_);
+        race_->draw_model(ui, rect, *trophy_, trophy_motion_.matrix(), proj, std::clamp(trophy_motion_.fade.value, 0.0f, 1.0f) * panel.opacity, true); // (its reflection picture its own)
         // Stepped by the time shown, 1/60 s a picture of the original's (two half steps a picture).
         const Uint64 now = App::frame_time_ns();
         float dt = std::min(float(double(now - trophy_ticks_) / 1e9), 0.1f);

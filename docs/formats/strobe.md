@@ -362,8 +362,10 @@ none, so a passed test's page shows the race over the whole picture), any other 
 trophy (0x3E0FF8): `race/trophy.mdl` in its colour by the result's kind (table 0x6A38F0: kinds
 1, 2 set 0, 3 set 1, 4, 5 set 2; gold, silver, bronze; 0x3E18D0 writes it, at most the set's +0x1A, into the model's +0x18).
 The colour is the paint (Tex1 +0x20, three variants): the model's one picture, a 64 x 64 sphere map, read through the gold, the
-grey or the copper palette; its material variations are all white. The reflection is that picture of its own, not the
-course's (✔ the original's bronze, 18-round4-gt `license_b1_whole_test_page_to_bronze_result.mp4`: copper; ours drew it
+grey or the copper palette; its material variations are all white. The reflection is that picture of its own, sphere
+mapped by the view's normals (light faces and dark sides as it turns), not the course's. Its lights are its own too (0x3E1780,
+light set 0x66: ambient 0.3, diffuse 0.5, specular 0.5, and its parameter 13 (0, 1, 0) ❓ taken to be a light from above; ours
+the course's lights) (✔ the original's bronze, 18-round4-gt `license_b1_whole_test_page_to_bronze_result.mp4`: copper; ours drew it
 chrome-silver from the course's reflection picture before), through a lens 50 degrees high (0x49AC00:
 0.1 .. 100 m, the 640 x 448 picture's aspect), the whole picture then put into the panel's box; three
 passes a frame averaged, the motion stepped half a frame between them. The motion (0x3E18D0, stepped
