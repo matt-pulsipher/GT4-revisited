@@ -2102,6 +2102,8 @@ public:
 
     // A Gran Turismo 4 test failed by its rules: CameraFinishType1 (0x37CC58 starts it at 0 degrees, 0x37CCA8 steps it): 4 m from
     // the car's drawn point, 30 degrees above it, turning about it half a degree a step from the course's +z, a lens of 65 degrees.
+    // The results page puts it on (0x3E1E10 → 0x3E1FB0 → 0x3720A0, mode 6) on event 10 with the result word not 0: the rule
+    // failure's end (0x3F8980 sets it to -1), not a slow finish's.
     bool license_fail_view() const { return !gt3_road_ && is_license(setup_.sequence) && license_failed_ && flow_.player_finished() && !replaying_ && !menu_scene_; }
     race::ViewPose fail_orbit_pose(const race::CarState& me) const {
         race::ViewPose p;
