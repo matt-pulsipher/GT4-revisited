@@ -244,6 +244,10 @@ void lateral_yaw(ex::Car& c, const CarPart& x, bool airborne, const Tables& t);
 // with the race's hold (F +0x4E0), a driver of kind 8, or within 1 km/h with no slip fade on any wheel of the layout and one
 // of them braked (wheel +0x5F bit 1); else the planar velocity takes the step's accelerations.
 void stop_hold(ex::Car& c, const rules::WheelLayout& l, bool airborne);
+// 0x3B3810 (phase 11): each wheel's brake heat (wheel +0x94) by the layout: heating by its axle's brake torque times the
+// tire's radius, the brake, the rim's speed and k.c0, cooling by (the speed + c2) x c1 x (the heat + c3), within 0 .. 1.
+// Gran Turismo 4's (0x3F38D8) without its no heating while the brake pedal is up.
+void brake_heat(ex::Car& c, const rules::WheelLayout& l, const ex::BrakeHeatConsts& k);
 // 0x3CA750: how a car is drawn (3 a car in the race; a ghost (F +0x3EE set): with neither the race's word +0x8C nor the
 // course's ghost word (+0x13440) 1, else 0 for control source 1 or driver kind 1, else 2), for the effects' reset 0x3CA7B0
 // (Gran Turismo 4's 0x366718).

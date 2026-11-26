@@ -1086,6 +1086,7 @@ void Session::step_once(std::span<const race::CarInput> inputs, const Decider& d
         else if (prologue_) prologue::dynamics(c, prologue_cars_[i], race_.statics, race_.gears, race_.class_grip, *prologue_);
         else ex::dynamics(c, race_.statics, race_.gears, race_.class_grip);
         if (gt4_rules_) rules::brake_heat(c, layouts_[i], tables_.brake_heat, gx_[i].drive.d.tire_radius);
+        else if (prologue_) prologue::brake_heat(c, prologue_cars_[i].layout, prologue_->brake_heat); // (0x3B3810)
         else ex::brake_heat(c, race_.brake_heat);
         if (!gt4_rules_) ex::clear_feedback(c); // (the engine's hit feedback; Gran Turismo 4's hit record is cleared below)
         if (gt4_rules_) rules::clear_hit(gx_[i].phases); // phase 12 (0x350308)

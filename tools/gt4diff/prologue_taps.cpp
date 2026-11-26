@@ -18,6 +18,7 @@
 #include "gt4r/sim/rules_phases.h"
 #include "gt4r/sim/rules_prologue.h"
 #include "gt4r/sim/rules_tires.h"
+#include "gt4r/sim/rules_wear.h"
 #include "gt4r/sim/rules_wheels.h"
 #include "sim/exact/car_fields.h"
 #include "sim/exact/tick.h"
@@ -391,6 +392,7 @@ void add_prologue_taps(PTaps& taps, const Disc& disc, const std::string& course)
     taps.add({0x3CF740, "GT4's wheel speeds", [=](PTapCall& c) { drive(c, [&](sim::rules::DriveExtra& x) { sim::rules::wheel_speeds(c.car, x, layout(c)); }); }});
     taps.add({0x3BA6C0, "GT4's engine speed", [=](PTapCall& c) { drive(c, [&](sim::rules::DriveExtra& x) { sim::rules::engine_speed(c.car, x, layout(c), &t.drive); }); }});
     taps.add({0x3BAAD8, "GT4's gear step", [=](PTapCall& c) { drive(c, [&](sim::rules::DriveExtra& x) { sim::rules::gear_step(c.car, x, layout(c), extra(c), t.drive); }); }});
+    taps.add({0x3B3810, "Prologue's brake heat", [=](PTapCall& c) { sim::prologue::brake_heat(c.car, layout(c), t.brake_heat); }});
     static sim::prologue::AidTables aid_tables;
     aid_tables = sim::prologue::aid_tables(sim::Program::load(const_cast<Disc&>(disc)));
     taps.add({0x3E0838, "Prologue's aids", [=](PTapCall& c) {

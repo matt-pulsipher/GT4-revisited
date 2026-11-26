@@ -184,6 +184,23 @@ void stop_hold(ex::Car& c, const rules::WheelLayout& l, bool air) {
     c.vel.y = c.vel.y + (ax * c.fwd.y + ay * c.lat.y);
 }
 
+void brake_heat(ex::Car& c, const rules::WheelLayout& l, const ex::BrakeHeatConsts& k) {
+    const F dt = c.dt;
+    for (int w = 0; w < l.count && w < 4; ++w) {
+        ex::Wheel& wh = c.w[size_t(w)];
+        const size_t a = l.axle[size_t(w)] & 1;
+        F v = wh.rim_speed;
+        const F torque = c.p.brake_torque[a] * c.p.tire_radius[a];
+        if (v < F()) v = -v;
+        const F heat = ((torque * wh.brake) * v) * k.c0;
+        const F cool = ((v + k.c2) * k.c1) * (wh.brake_heat + k.c3);
+        F h = wh.brake_heat + (heat - cool) * dt;
+        if (kOne < h) h = kOne;
+        else if (h < F()) h = F();
+        wh.brake_heat = h;
+    }
+}
+
 int draw_mode(const ex::Car& c, u32 race_8c, u32 ghost_word) {
     if (c.ghost == 0) return 3;
     if (race_8c == 0 && ghost_word == 0) return 1;
