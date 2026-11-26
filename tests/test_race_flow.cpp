@@ -353,9 +353,15 @@ TEST(strobe_result_movie_disc) {
             if (n == "CB_RACEEXIT") exit = true;
             return V::number(0);
         };
+        // The page as the program puts it up (at frame 0): the root waits there for its sprite 1 (40 frames at 12 a second),
+        // so for its first 3 s no row and no title is drawn (the race display's FINISH is seen); then the rows.
         race::StrobePlayer p(movie, host);
-        p.play();
-        p.advance(2.0f);
+        CHECK(movie->fps > 11.9f && movie->fps < 12.1f);
+        p.advance(3.0f);
+        CHECK(p.frame() == 0);
+        for (const race::StrobePlayer::Draw& d : p.draw_list()) CHECK(!d.text && d.external.empty());
+        p.advance(2.5f);
+        CHECK(p.frame() > 0);
         std::vector<std::string> words;
         for (const race::StrobePlayer::Draw& d : p.draw_list())
             if (d.text) words.push_back(d.words);

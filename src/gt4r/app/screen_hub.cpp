@@ -67,6 +67,7 @@ public:
     explicit HubScreen(bool developer) : developer_(developer) {}
 
     bool menu_input_any_device() const override { return true; } // (a way to Settings whatever the controllers are set to)
+    bool update_prompts() const override { return true; }      // (the update dialog at startup: app/updates.h)
 
     void update(App& app, double) override {
         const MenuInput& m = app.menu();
@@ -123,7 +124,8 @@ public:
             for (const std::string& line : Ui::wrap(items_[size_t(std::clamp(sel_, 0, int(items_.size()) - 1))].help, 280)) ui.text(340, y, line, colors::kText), y += 12;
         y += 10;
         if (!developer_)
-            for (const std::string& line : Ui::wrap("In the game, Select and Start together come back here.", 280)) ui.text(340, y, line, colors::kDim), y += 12;
+            for (const std::string& line : Ui::wrap(app.touch_ui() ? "In the game, the button beside the title, or Select and Start together, come back here."
+                                                                : "In the game, Select and Start together come back here.", 280)) ui.text(340, y, line, colors::kDim), y += 12;
         y += 8;
         if (!d.problem.empty())
             for (const std::string& line : Ui::wrap(d.problem, 280)) ui.text(340, y, line, colors::kBad), y += 12;
@@ -144,7 +146,7 @@ private:
             const bool prologue = app.disc()->info().game == Game::Prologue;
             items_.push_back({"Play", "", prologue ? "Gran Turismo 4 Prologue from the start: the opening movie, then the title." : "Gran Turismo 4 from the start: the opening movie, then the title.", 7});
             items_.push_back({"Saved games", "", "Your games: load one, start a new one beside the others, delete one, or move one to or from a PlayStation 2 memory card image.", 9});
-            items_.push_back({"Controls", app.input().device_name(0), "Which controller drives, the race controls and your own bindings, steering, rumble, triggers and a wheel's force feedback.", 8});
+            items_.push_back({"Controls", app.touch_ui() && app.input().device_name(0) == "Keyboard" ? std::string("Touch screen") : app.input().device_name(0), "Which controller drives, the race controls and your own bindings, steering, rumble, triggers and a wheel's force feedback.", 8});
             items_.push_back({"Settings", "", "Display, sound, both players' controls, views and replays, the disc and the save folder.", 20});
             items_.push_back({"Mods", app.vfs()->mods().empty() ? std::string() : std::to_string(app.vfs()->mods().size()), "Install mods and texture packs, and choose which are used.", 21});
             items_.push_back({"Save editor", "", "Change a saved game: credits, the garage, licenses, events and more. The save as it was is kept.", 22});

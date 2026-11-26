@@ -109,7 +109,11 @@ Every change is applied at once and kept in `config.ini`; the 3D renderer is tak
   are kept in (a new one gets a copy of what it does not have; nothing is written over); the server of the races over the
   internet (none until you choose one); what opens at the start; the data
   folder; the log of this session and of the one before (`gt4r.log`, `gt4r.prev.log` in the data folder: an uncaught error or
-  a crash is its last line; your name is taken out of the paths); the version.
+  a crash is its last line; your name is taken out of the paths); the version. *Updates*: *Check for updates* at startup
+  (the default) or only when asked; at startup it asks only the internet server you chose, and *Check now* asks that one or
+  else `gt3r.gameversions.com`. When a newer release exists, or online races need a newer one, a window over the home
+  screen or the title says so once per release, with *Download update*, *Later* and *Release notes*; playing on this
+  machine and over the local network is never blocked.
 - *Mods*: below.
 
 ```
@@ -250,8 +254,8 @@ The ones a player meets first:
 - Discs: Gran Turismo 4 US (SCUS-97328, v1.01) and Gran Turismo 4 Prologue (Japan, SCPS-15055) are the
   tested releases. Another release opens with "not a tested release" on the home screen, and parts of it may not work.
 - Gran Turismo mode's name entry takes no typed letters: choose them on its keyboard with the arrows and Enter.
-- Photo Lab: films cannot be developed, and the printer and USB memory pages find no device. In photos the
-  car reflects the sky more strongly than the original's.
+- Photo Lab: films cannot be developed; the printer page finds no printer, and the USB memory is the data folder's
+  `photos/`.
 - Mods: files, textures and texture packs are used; mods' cars, events and liveries are not read yet.
 
 ## Scripted play (for checks)
@@ -340,6 +344,17 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
   resolution, the gamma pass, the output devices, the log file and crash notes, the disc list, the mods' archives,
   the texture packs. The race display's place on a 4:3 picture is the program's; on one wider than 16:9 its parts go out
   with the picture's edge (ours: `race/game_area.h`).
+- Android (`android/`, [android/README.md](../android/README.md)): the APK's activity, the disc picker's lasting access,
+  the save folder's documents and the user data folder in the Files app are the shared engine's Java, compiled from the
+  submodule; the app is ours (`GT4Activity`, the manifest, `org.gt4revisited.gt4r`). The on-screen touch controls are the
+  shared engine's (`input/touch_controls`, `app/screen_touch_overlay`): its D-pad and buttons over the game's menus and pauses,
+  its driving controls while the player drives (`Screen::touch_layout`); the title's hint is a button there. Ours: Select and
+  Start under L1 and R1 at the screen's sides over the menus; the race display's lower corner parts (meters, signs, fuel) moved
+  sideways just clear of the controls (`race::set_touch_shift`; the upper blocks stay); their settings in Settings › Controls
+  (the engine's TouchConfig, and its phone vibration); Android's back button as one press of Start while driving (the pause),
+  else of Triangle (`Screen::back_is_start`). Not yet: the engine's layout editor (dragging each control), which is written
+  for its own app.
+  Meta Quest: android/README.md "Meta Quest" says what a VR app needs; none is built.
 - The 2D drawing toolkit of the home screen, the setup screen and the browser is the shared
   engine's (`ui.cpp`, `ui_font.cpp`, `button_prompts.cpp`); the game's pages are drawn by the menu
   code (`src/gt4r/menu`, `screen_menu_viewer.cpp`).

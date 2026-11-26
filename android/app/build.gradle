@@ -1,0 +1,103 @@
+plugins {
+    id 'com.android.application'
+}
+
+// GT4 Revisited's Android app (android/README.md): the game as libmain.so, hosted by the shared
+// engine's activity code (engine/gt3r/android/app/src/main/java: the disc picker's lasting access,
+// the save folder through the Storage Access Framework, the documents provider that shows the
+// user data folder in the Files app, display cutouts), compiled from the submodule as it is.
+// (A Meta Quest VR app is not built yet: android/README.md "Meta Quest" says what it needs.)
+
+def engineAndroid = file("${rootDir}/../engine/gt3r/android")
+if (!file("${engineAndroid}/app/src/main/java").exists()) {
+    throw new GradleException("The shared engine is missing at ${engineAndroid}. Run: git submodule update --init")
+}
+
+// SDL3's Java glue and native sources come from one SDL checkout so the two always match.
+// fetch-sdl.sh creates it.
+def sdlDir = file(project.findProperty('SDL_DIR') ?: "${rootDir}/third_party/SDL")
+if (!file("${sdlDir}/android-project").exists()) {
+    throw new GradleException("SDL3 source not found at ${sdlDir}. Run android/fetch-sdl.sh first.")
+}
+
+// The version comes from the top-level CMakeLists.txt (project(GT4Revisited VERSION x.y.z)), the
+// single source: versionName "x.y.z", versionCode x*10000 + y*100 + z (minor and patch stay below
+// 100), so every release has a higher code than the one before.
+def gt4rVersion = {
+    def m = file('../../CMakeLists.txt').text =~ /project\(GT4Revisited VERSION (\d+)\.(\d+)\.(\d+)/
+    if (!m.find()) throw new GradleException('No project(GT4Revisited VERSION x.y.z) in CMakeLists.txt')
+    def v = [m.group(1) as int, m.group(2) as int, m.group(3) as int]
+    if (v[1] > 99 || v[2] > 99) throw new GradleException("Version ${v.join('.')}: minor and patch must stay below 100")
+    return v
+}()
+
+android {
+    // The package of the generated R class: the engine's activity code is compiled as it is and
+    // reads its resources (the app's name, its icon) through org.gt3revisited.gt3r.R. The app's
+    // own identity is its applicationId.
+    namespace 'org.gt3revisited.gt3r'
+    compileSdk 35
+    ndkVersion '27.0.12077973'
+
+    defaultConfig {
+        applicationId 'org.gt4revisited.gt4r'
+        minSdk 24
+        targetSdk 35
+        versionCode gt4rVersion[0] * 10000 + gt4rVersion[1] * 100 + gt4rVersion[2]
+        versionName gt4rVersion.join('.')
+        externalNativeBuild {
+            cmake {
+                arguments '-DANDROID_STL=c++_static',
+                          "-DFETCHCONTENT_SOURCE_DIR_SDL3=${sdlDir}",
+                          '-DGT4R_BUILD_TOOLS=OFF', '-DGT4R_BUILD_TESTS=OFF',
+                          // 16 KB page devices (Android 15+): 16 KB-aligned LOAD segments
+                          '-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON'
+                targets 'gt4r'
+                abiFilters 'arm64-v8a', 'x86_64'
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path file('../../CMakeLists.txt')
+            version '3.22.1+'
+        }
+    }
+
+    sourceSets.main.java.srcDirs += ["${engineAndroid}/app/src/main/java", "${sdlDir}/android-project/app/src/main/java"]
+
+    // Release signing: the project's own key (android/make-release-key.sh), never committed. CI
+    // writes it from secrets; locally, set the same variables. Without them the release APK is
+    // unsigned; debug builds use the local debug key.
+    def keystore = System.getenv('GT4R_KEYSTORE')
+    signingConfigs {
+        if (keystore) {
+            release {
+                storeFile file(keystore)
+                storePassword System.getenv('GT4R_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('GT4R_KEY_ALIAS') ?: 'gt4r'
+                keyPassword System.getenv('GT4R_KEY_PASSWORD') ?: System.getenv('GT4R_KEYSTORE_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        // The engine is far too slow unoptimized on a phone, so debug APKs build the native code
+        // like the desktop default: optimized with debug info. The APK itself stays debuggable.
+        debug {
+            externalNativeBuild {
+                cmake {
+                    arguments '-DCMAKE_BUILD_TYPE=RelWithDebInfo'
+                }
+            }
+        }
+        release {
+            minifyEnabled false
+            if (keystore) signingConfig signingConfigs.release
+        }
+    }
+    lint {
+        abortOnError false
+    }
+}

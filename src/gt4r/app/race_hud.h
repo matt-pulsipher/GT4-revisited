@@ -43,6 +43,7 @@ struct HudState {
     float event_opacity = 0;
     std::string event_gap;            // a section time's gap to the car ahead at the split ("+0'05.800"), under the line
     float event_gap_opacity = 0;
+    int event_gap_car = -1;           // the car the gap is to: its picture beside the gap (-1 none)
     std::string card_title, card_line; // a replay's opening card: the car, its power, tires and the race
     float card_opacity = 0;
     std::string status;               // the status line over the panel ("FULL THROTTLE"); UTF-8
@@ -83,6 +84,8 @@ struct HudState {
     bool overtake = false;            // the overtake command is on
     s64 total_ms = -1;                // the race's time
     bool help = true;                 // the help strip along the bottom
+    std::string strip_name;           // Select Car: the followed car's name on the strip, over the help line
+    float strip_name_opacity = 0;
     // A license test (the race's kind 3): no place, the three target times with their trophies in place
     // of the last lap (ms; <= 0 none).
     bool license = false;
@@ -92,6 +95,9 @@ struct HudState {
     bool event_gap_lead = false; // the gap is a lead (blue), not behind (red)
     // The display's parts the options leave on (race_display_*).
     bool show_map = true, show_time = true, show_lap = true, show_position = true, show_meter = true;
+    // Ours, touch screens: the on-screen controls showing (UI units of the game's picture); the meters at the bottom right move
+    // left just clear of them (App::touch_control_bounds).
+    std::vector<SDL_FRect> touch_controls;
 };
 
 class RaceHud {
@@ -141,6 +147,8 @@ public:
     void set_course_logo(ByteSpan tex1);
     // The 640 x 480 canvas on the screen.
     static SDL_FRect canvas();
+    // The event line's place on the canvas in the display `s` draws (false: none).
+    bool event_line_at(const HudState& s, float& x, float& y) const;
 
 private:
     std::set<const race::StrobeMovie::TextField*> fitted_fields_;

@@ -7,6 +7,8 @@
 #include "gt4r/app/online.h"
 #include "gt4r/app/screen_saves.h"
 #include "gt4r/app/page.h"
+#include "gt4r/app/presence.h"
+#include "gt4r/app/updates.h"
 #include "gt4r/app/texture_dump.h"
 #include "gt4r/input/player_controls.h"
 #include "gt4r/settings/mod_files.h"
@@ -203,7 +205,8 @@ private:
             change(n);
             a->set_video(n);
         };
-        rows_.choice("Screen", {"Window", "Full screen"}, v.fullscreen, [set](size_t i) { set([&](auto& n) { n.fullscreen = i == 1; }); });
+        if (!gt3r::platform::is_mobile()) // (phones and tablets: always the whole screen)
+            rows_.choice("Screen", {"Window", "Full screen"}, v.fullscreen, [set](size_t i) { set([&](auto& n) { n.fullscreen = i == 1; }); });
         rows_.choice("Aspect ratio", {"16:9", "4:3", "Fill the screen"}, size_t(v.aspect), [set](size_t i) { set([&](auto& n) { n.aspect = gt3r::platform::Aspect(i); }); });
         rows_.choice("VSync", {"Lowest input delay", "No tearing"}, v.vsync, [set](size_t i) { set([&](auto& n) { n.vsync = i == 1; }); });
         {
@@ -317,21 +320,61 @@ private:
     void controls(App& app) {
         App* a = &app;
         gt3r::InputManager& in = app.input();
-        rows_.action("Player 1's controls", in.device_name(0), "open", [a] { a->push(make_controls_screen(*a, 0)); });
+        // (a touch screen's on-screen controls are player 1's whenever no controller is)
+        const std::string first = in.device_name(0);
+        rows_.action("Player 1's controls", app.touch_ui() && first == "Keyboard" ? std::string("Touch screen") : first, "open", [a] { a->push(make_controls_screen(*a, 0)); });
         rows_.action("Player 2's controls", in.device_name(1), "open", [a] { a->push(make_controls_screen(*a, 1)); });
         const auto keep = [a] {
             input::save_config(a->input(), a->config());
             a->save_config();
         };
-        rows_.choice("Another window in front", {"The race pauses", "Controllers keep driving"}, in.background(), [&in, keep](size_t i) { in.set_background(i == 1), keep(); });
+        if (!gt3r::platform::is_mobile()) // (a phone's app in the background stops)
+            rows_.choice("Another window in front", {"The race pauses", "Controllers keep driving"}, in.background(), [&in, keep](size_t i) { in.set_background(i == 1), keep(); });
 #ifdef SDL_PLATFORM_WINDOWS
         PageRow& xbox = rows_.choice("Xbox controllers", {"XInput", "Raw Input, with the triggers' motors"}, in.xbox_rawinput(), [&in, keep](size_t i) { in.set_xbox_rawinput(i == 1), keep(); });
         if (const char* started = SDL_GetHint(SDL_HINT_JOYSTICK_RAWINPUT); started && in.xbox_rawinput() != (*started == '1')) xbox.tag = "after a restart";
 #endif
+        if (app.touch_ui()) touch(app);
         rows_.heading("Connected");
         const std::vector<std::string> names = in.device_names();
         for (const std::string& n : names) rows_.info(n, "");
-        if (names.empty()) rows_.info("Only the keyboard", "");
+        if (names.empty()) rows_.info(app.touch_ui() ? "Only the touch screen" : "Only the keyboard", "");
+    }
+
+    // Phones and tablets: the on-screen controls (the shared engine's, input/touch_controls.h) and the phone's own vibration.
+    void touch(App& app) {
+        App* a = &app;
+        const gt3r::TouchConfig c = app.touch_config();
+        using TC = gt3r::TouchConfig;
+        const auto set = [a, c](const std::function<void(TC&)>& change) {
+            TC n = c;
+            change(n);
+            a->set_touch_config(n);
+        };
+        const auto percent = [](float v) { return std::to_string(int(std::lround(v * 100))) + " %"; };
+        rows_.heading("Touch screen");
+        rows_.choice("On-screen controls", {"Shown after a touch", "Always shown", "Never shown"}, size_t(c.mode), [set](size_t i) { set([&](TC& n) { n.mode = TC::Mode(i); }); });
+        rows_.choice("Steering", {"Drag on the left half", "Tilt the device", "Left and right buttons"}, size_t(c.steering),
+                     [set](size_t i) { set([&](TC& n) { n.steering = TC::Steering(i); }); });
+        rows_.choice("Pedals", {"Higher on the pedal, harder", "As hard as the screen is pressed", "Always all the way"}, size_t(c.pedals),
+                     [set](size_t i) { set([&](TC& n) { n.pedals = TC::Pedals(i); }); });
+        rows_.slider("Steering drag for full lock", c.steer_range, 0.03f, 0.5f, 0.01f, [percent](float v) { return percent(v) + " of the screen"; },
+                     [set](float v) { set([&](TC& n) { n.steer_range = v; }); });
+        rows_.slider("Tilt for full lock", c.tilt_range, 10, 90, 1, [](float v) { return std::to_string(int(std::lround(v))) + " degrees"; },
+                     [set](float v) { set([&](TC& n) { n.tilt_range = v; }); });
+        rows_.choice("Look around", {"Off", "Drag sideways on the open screen"}, c.look, [set](size_t i) { set([&](TC& n) { n.look = i == 1; }); });
+        rows_.slider("Controls' opacity", c.opacity, 0.05f, 1, 0.05f, percent, [set](float v) { set([&](TC& n) { n.opacity = v; }); });
+        rows_.slider("Controls' size", c.size, 0.6f, 1.6f, 0.05f, percent, [set](float v) { set([&](TC& n) { n.size = v; }); });
+        rows_.choice("Pedals on the", {"Right, steering on the left", "Left, steering on the right"}, c.left_handed,
+                     [set](size_t i) { set([&](TC& n) { n.left_handed = i == 1; }); });
+        if (gt3r::InputManager::phone_vibration_available()) {
+            gt3r::InputManager& in = app.input();
+            rows_.choice("Phone vibration", {"Off", "When the controls have no motor"}, in.phone_vibration(), [a, &in](size_t i) {
+                in.set_phone_vibration(i == 1);
+                input::save_config(a->input(), a->config());
+                a->save_config();
+            });
+        }
     }
 
     // --- Views & replays ---
@@ -414,6 +457,7 @@ private:
                 a->save_config();
             });
         }
+        updates_rows(app);
         rows_.heading("This app");
         rows_.choice("Starts in", {"The game", "The home screen"}, app.config().get("game", "start").value_or("game") == "hub", [a](size_t i) {
             a->config().set("game", "start", i ? "hub" : "game");
@@ -433,6 +477,28 @@ private:
         }
         rows_.info("Version", "GT4 Revisited " GT4R_VERSION ", engine " GT3R_VERSION);
         rows_.info("Settings file", app.config_path());
+    }
+
+    // The update check (app/updates.h) and the Discord status (app/presence.h).
+    void updates_rows(App& app) {
+        App* a = &app;
+        Updates& up = updates();
+        rows_.heading("Updates");
+        rows_.choice("Check for updates", {"Only when asked", "At startup"}, Updates::enabled(app), [a](size_t i) { Updates::set_enabled(*a, i == 1); });
+        rows_.action("Check now", up.status_text(), "ask " + Updates::server(app), [a] { updates().check_now(*a); });
+        rows_.info("This version", net::this_version().to_string());
+        rows_.info("Latest release", (up.latest().known() ? up.latest().number() : std::string("unknown")) + (up.checked().empty() ? "" : "  (as of " + up.checked() + ")"));
+        // (races through the relay server need it; the local network and addresses never do)
+        rows_.info("Online play needs", up.min_online().known() ? "version " + up.min_online().number() + " or later" : "any version");
+        const gt3r::net::UpdateLinks links = up.links();
+        const bool due = up.prompt() != gt3r::net::UpdatePrompt::None;
+        rows_.action("Download update", due ? "version " + up.latest().number() : up.known() ? std::string("up to date") : std::string("no release known"), "open the update", [] { updates().open_dialog(); }).enabled = due;
+        rows_.action("Release notes", links.notes.empty() ? std::string("not known yet") : links.notes, "open the page", [] { updates().open_notes(); }).enabled = !links.notes.empty();
+        if (Presence::supported() && !Presence::app_id(app).empty()) {
+            rows_.heading("Discord");
+            rows_.choice("Show what you're playing", {"No", "Yes"}, Presence::enabled(app), [a](size_t i) { discord_status().set_enabled(*a, i == 1); });
+            rows_.info("Discord", discord_status().status_text(app));
+        }
     }
 
     void use_save_folder(App& app, const std::string& path) {
@@ -468,7 +534,7 @@ private:
 
     void mods(App& app) {
         App* a = &app;
-        rows_.action("Install a mod", ".zip, or drop it on the window", "choose the file", [this, a] { archive_.open_file(*a, kZipFilters, SDL_arraysize(kZipFilters)); });
+        rows_.action("Install a mod", gt3r::platform::is_mobile() ? ".zip" : ".zip, or drop it on the window", "choose the file", [this, a] { archive_.open_file(*a, kZipFilters, SDL_arraysize(kZipFilters)); });
         rows_.action("Mods folder", app.mods_dir(), "open it", [this, a] { show(*a, a->mods_dir()); });
         {
             const settings::Video v = app.video();

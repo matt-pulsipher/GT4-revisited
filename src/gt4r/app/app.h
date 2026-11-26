@@ -4,6 +4,7 @@
 // draws with the shared engine's Ui (640x360 units) and reads the menus through its virtual
 // pad, as GT3 Revisited's own screens do.
 
+#include "app/screen_touch_overlay.h"
 #include "app/ui.h"
 #include "audio/audio_engine.h"
 #include "base/config.h"
@@ -13,6 +14,7 @@
 #include "gt4r/settings/run_mode.h"
 #include "gt4r/settings/video.h"
 #include "input/input_manager.h"
+#include "platform/display_insets.h"
 #include "platform/recent_discs.h"
 #include "render/dynamic_scale.h"
 #include "render/gamma_pass.h"
@@ -38,6 +40,9 @@ using gt3r::Ui;
 namespace colors = gt3r::colors;
 
 class App;
+namespace net {
+struct PresenceText; // net/presence_text.h
+}
 
 class Screen {
 public:
@@ -53,6 +58,16 @@ public:
     // A file dropped on the window that this screen takes itself (it gets the event); else a .zip is a mod to install and
     // anything else a disc image.
     virtual bool takes_dropped_file(const std::string&) const { return false; }
+    // The update dialog may open over this screen at startup (app/updates.h): the home screen, the game's title.
+    virtual bool update_prompts() const { return false; }
+    // The Discord status (app/presence.h): what the player is doing here; false lets the screen below say.
+    virtual bool presence(App&, net::PresenceText&) { return false; }
+    // Phones and tablets: the on-screen controls over this screen (input/touch_controls.h): none on the app's own pages, which are
+    // tapped, the D-pad and buttons over the game's menus, the driving controls in a race.
+    virtual gt3r::TouchLayout touch_layout() const { return gt3r::TouchLayout::None; }
+    // Android's back button here: Start (a race the player drives pauses), else Triangle (back). Either is pressed for one frame
+    // only, so what it closes does not see it held after (App::event).
+    virtual bool back_is_start() const { return false; }
 };
 
 class App {
@@ -110,6 +125,21 @@ public:
     const std::vector<gt3r::PointerInput::Action>& pointer() const { return pointer_actions_; }
     bool mouse_at(float& x, float& y) const { return !cursor_hidden_ && pointer_.hover_pos(x, y); }
     SDL_Window* window() { return window_; }
+    bool touch_ui() const { return touch_ui_; } // phones and tablets: a touch screen, the on-screen controls
+    // The on-screen controls' settings ([touch], input/touch_controls.h), applied at once and kept in config.ini.
+    const gt3r::TouchConfig& touch_config() { return touch_.controls().config(); }
+    void set_touch_config(const gt3r::TouchConfig& c) {
+        touch_.controls().configure(c);
+        touch_.save(config_);
+        save_config();
+    }
+    // The on-screen controls showing now (UI units of the game's picture, the bars beside it outside 0..width); none when hidden.
+    std::vector<SDL_FRect> touch_control_bounds() const {
+        std::vector<SDL_FRect> out;
+        if (touch_ui_)
+            for (const gt3r::TouchRect& r : touch_.control_bounds()) out.push_back({r.x, r.y, r.w, r.h});
+        return out;
+    }
     bool scripted() const { return scripted_; } // opens nothing on the screen, reads no real input (settings/run_mode.h)
     const std::string& config_path() const { return config_path_; }
 
@@ -123,6 +153,8 @@ public:
     // The process's resident memory in MB (0 where it is not read).
     static double resident_mb();
     void quit() { quit_ = true; }
+    // The Discord status's text: the top screen's, else the first screen below that has one.
+    bool screen_presence(net::PresenceText& t);
 
     Disc* disc() { return disc_.get(); }
     gt3r::Vfs* vfs() { return vfs_.get(); }
@@ -182,6 +214,7 @@ private:
     void use_texture_packs();
     bool pointer_token(const std::string& token); // --keys' mouse
     void push_dropped_mod(const std::string& path);
+    SDL_FRect safe_area_window() const; // (app_settings.cpp) the window clear of a phone's cutout and rounded corners
 
     settings::Video video_;
     settings::Gpu video_started_ = settings::Gpu::Automatic;
@@ -201,6 +234,12 @@ private:
     gt3r::PointerInput pointer_;
     std::vector<gt3r::PointerInput::Action> pointer_actions_, scripted_pointer_;
     std::string dropped_mod_;
+    // Phones and tablets (and GT4R_TOUCH=1 on a computer, for pictures): the on-screen controls, the display's cutout.
+    bool touch_ui_ = false;
+    gt3r::TouchOverlay touch_;
+    std::optional<gt3r::platform::DisplayInsets> display_insets_;
+    int insets_retry_ = 0;
+    bool back_pressed_ = false; // Android's back button went down: pressed on player 1's pad for this frame
 
     SDL_Window* window_ = nullptr;
     SDL_Renderer* renderer_ = nullptr; // the 3D device's when there is one
