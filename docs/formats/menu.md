@@ -940,7 +940,10 @@ ending at 1; 0.5, 1; 0.5, 0.75, 1; 0.5, 0.75, 0.875, 1 of the height; shaded, ea
 #### Beside the page
 
 Over a race's picture wider than the page, a `ColorFace` as wide as the page whose colour does not change across goes on to
-the screen's edges (`PageDrawer::beside`): the race's menus' shades and strips.
+the screen's edges (`PageDrawer::beside`): the race's menus' shades and strips. An `ImageFace` over the whole page (from 0, 0, at least 640 x 448, not
+transformed) makes the sides black, as beside the menus' own pages: the quick projects' `PrizeRoot` (`bg`,
+`image/gtmode/prize/event.png`) is a whole-screen page, the race not seen beside it (✔ the original's prize page,
+`30-championship/race1_prize_page_pouch.png`; ours `finish/runs/tcgp`).
 
 #### Graphs (`GraphFace`; `menu/faces_graph.*`)
 
