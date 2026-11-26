@@ -13,14 +13,15 @@ constexpr size_t kTrailer = 6;
 constexpr s32 kStep = 50;
 constexpr u16 kAbsolute = 0xFFFF;
 
-bool valid_kind(u8 k) { return k >= ServiceEvent::Hold && k <= ServiceEvent::Fuel; }
+bool valid_kind(u8 k) { return k >= ServiceEvent::Hold && k <= ServiceEvent::Flags; }
 
 void write_value(gt3r::net::Writer& w, const ServiceEvent& e) {
     switch (e.kind) {
     case ServiceEvent::Hold: w.u16_(u16(e.value)), w.u8_(u8(e.value >> 16)); break;
     case ServiceEvent::Tires: w.u8_(u8(e.value)), w.u8_(u8(e.value >> 8)), w.u8_(u8(e.value >> 16)); break;
     case ServiceEvent::Grips:
-    case ServiceEvent::NewTires: w.u8_(u8(e.value)); break;
+    case ServiceEvent::NewTires:
+    case ServiceEvent::Flags: w.u8_(u8(e.value)); break;
     default: w.u32_(e.value); break;
     }
 }
@@ -37,6 +38,7 @@ u32 read_value(gt3r::net::Reader& r, ServiceEvent::Kind k) {
     }
     case ServiceEvent::Grips: return r.u8_() & 3;
     case ServiceEvent::NewTires: return r.u8_() & 0xF;
+    case ServiceEvent::Flags: return r.u8_();
     default: return r.u32_();
     }
 }
@@ -149,6 +151,10 @@ void ServiceLog::add(const ServiceEvent& e) {
     if (e.kind == ServiceEvent::Fuel) {
         fuel_ = e, fuel_this_step_ = true;
         return;
+    }
+    if (e.kind == ServiceEvent::Flags) {
+        if (u8(e.value) == last_flags_) return;
+        last_flags_ = u8(e.value);
     }
     push(e);
 }

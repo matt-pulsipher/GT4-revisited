@@ -60,13 +60,22 @@ void NetRace::take_service(size_t car) {
     if (!field_ || car == 0 || car >= standing_.size()) return;
     const Bytes* block = net_->car_info(standing_[car].id);
     if (!block) return;
-    if (const std::optional<CarService> s = service_of(*block); s && s->round == race_.round && !s->events.empty()) field_->add_service(car, s->events, clock_);
+    const std::optional<CarService> s = service_of(*block);
+    if (!s || s->round != race_.round || s->events.empty()) return;
+    const size_t had = field_->remote(car).service().size();
+    field_->add_service(car, s->events, clock_);
+    if (const size_t now = field_->remote(car).service().size(); now != had)
+        LOG_INFO("Online: %s's car: %zu service events (newest: kind %d at %.2f s), at %.2f s here", standing_[car].player.c_str(), now, int(s->events.back().kind),
+                 double(s->events.back().clock) / kUnits, double(clock_) / kUnits);
 }
 
 void NetRace::publish_service(s64 clock) {
     if (lost_ || !net_->joined() || net_->my_id() < 0) return;
     const Bytes* now = net_->car_info(u8(net_->my_id()));
-    net_->set_car_info(with_service(now ? ByteSpan(*now) : ByteSpan(), {race_.round, service_.recent(clock)}));
+    const std::vector<ServiceEvent> recent = service_.recent(clock);
+    net_->set_car_info(with_service(now ? ByteSpan(*now) : ByteSpan(), {race_.round, recent}));
+    if (!recent.empty())
+        LOG_INFO("Online: our car's service sent at %.2f s: %zu events, the newest kind %d at %.2f s", double(clock) / kUnits, recent.size(), int(recent.back().kind), double(recent.back().clock) / kUnits);
 }
 
 int NetRace::world_of(u8 id) const {
@@ -200,8 +209,9 @@ void NetRace::after_step(s64 clock, const race::CarInput& ours, int laps) {
     if (debug && sim_ && clock % (30 * kClockPerStep) == 0)
         for (size_t w = 0; w < standing_.size(); ++w) {
             const gt3r::sim::exact::Car& c = sim_->record(w);
-            LOG_INFO("Online: clock %lld player %d at %.4f %.4f %.4f, %.2f km/h%s; a state %lld ms old", (long long)clock, int(standing_[w].id), double(c.pos.x.host()), double(c.pos.y.host()), double(c.pos.z.host()),
-                     double(c.speed.host()) * 3.6, w && field_->ghost(w) ? " (ghost)" : "", w && field_->has_state(w) ? (long long)((clock - s64(field_->remote(w).latest().clock)) / 3) : 0LL);
+            LOG_INFO("Online: clock %lld player %d at %.4f %.4f %.4f, %.2f km/h%s; a state %lld ms old; fuel %.3f, front grip %.4f, tread %.2f, hold %u", (long long)clock, int(standing_[w].id), double(c.pos.x.host()), double(c.pos.y.host()), double(c.pos.z.host()),
+                     double(c.speed.host()) * 3.6, w && field_->ghost(w) ? " (ghost)" : "", w && field_->has_state(w) ? (long long)((clock - s64(field_->remote(w).latest().clock)) / 3) : 0LL,
+                     double(sim_->fuel(w)), double(sim_->gt4_record(w).tires.tire[0].mu[0].host()), double(c.w[0].wear.host()), unsigned(c.hold));
         }
     if (!lost_ && net_->joined() && !retired_) {
         net_->send_state(s);
@@ -233,7 +243,8 @@ void NetRace::finished(s64 units, s64 best_units) {
     if (!lost_ && net_->joined()) net_->send_finish(double(units) / kUnits, best_units >= 0 ? double(best_units) / kUnits : -1.0);
     LOG_INFO("Online: finished in %.3f s; %u states sent, hits sent %u, applied %u", double(units) / kUnits, states_sent_, field_ ? field_->hits_sent() : 0, field_ ? field_->hits_applied() : 0);
     for (size_t w = 1; field_ && w < standing_.size(); ++w)
-        LOG_INFO("Online: %s: %u states, last error %.3f m, round trip %.1f ms", standing_[w].player.c_str(), field_->remote(w).states(), double(field_->remote(w).last_error()), standing_[w].rtt_ms);
+        LOG_INFO("Online: %s: %u states, last error %.3f m, round trip %.1f ms; %zu service events, %u runs again", standing_[w].player.c_str(), field_->remote(w).states(), double(field_->remote(w).last_error()),
+                 standing_[w].rtt_ms, field_->remote(w).service().size(), field_->remote(w).reruns());
 }
 
 void NetRace::observed_finish(size_t car, s64 units) {

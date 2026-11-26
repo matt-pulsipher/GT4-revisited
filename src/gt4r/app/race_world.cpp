@@ -439,6 +439,7 @@ void RaceWorld::build_simulation() {
                         if (auto f = pit_hooks.place_in_box) pit_hooks.place_in_box = [f, note](size_t i, gt3r::ee::F h) { f(i, h), i == 0 ? note(true, K::Box, h.bits) : void(); };
                         if (auto f = pit_hooks.face_box) pit_hooks.face_box = [f, note](size_t i, gt3r::ee::F h) { f(i, h), i == 0 ? note(true, K::Face, h.bits) : void(); };
                         if (auto f = pit_hooks.set_fuel) pit_hooks.set_fuel = [f, note](size_t i, gt3r::ee::F l) { f(i, l), i == 0 ? note(true, K::Fuel, l.bits) : void(); };
+                        if (auto f = pit_hooks.flags) pit_hooks.flags = [f, note](size_t i, u8 x) { f(i, x), i == 0 ? note(true, K::Flags, x) : void(); };
                     }
                     sim::ai::PitRace pr;
                     pr.laps = setup_.laps;

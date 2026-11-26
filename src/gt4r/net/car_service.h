@@ -1,7 +1,7 @@
 #pragma once
 
 // What changes a car outside its state (docs/specs/net.md "Service"): a pit stop's hold counter, the car stood in its box and
-// turned to it, the tires fitted and their base grips, new tread, the fuel put in. None of it is in net::CarSnapshot, so its
+// turned to it, the tires fitted and their base grips, new tread, the fuel put in, the pit pass's flags. None of it is in net::CarSnapshot, so its
 // owner's machine logs each as it happens, by the race's clock, and sends the last seconds of them reliably with its car-info
 // block (after the lobby's record, which stays as it is: net/lobby.h); every other machine applies them to its prediction of
 // that car at the same moment of the car's run (net/remote_car.h), so the prediction runs on the new tires and fuel.
@@ -36,6 +36,8 @@ struct ServiceEvent {
         Box,      // stood in its pit box (0x363560), its hold turning it to the heading `value` (float bits)
         Face,     // turned to the heading `value` (F +0x570)
         Fuel,     // the fuel (car +0x5D4) set to `value` liters (float bits): the last of a refuelling
+        Flags,    // the pit pass's flags (F +0x4B1, Session::set_pit_flags) changed to `value`: bit 0 the line just crossed (the
+                  // active steering's pause), 3 the pits asked for
     };
     s32 clock = 0;
     Kind kind = Hold;
@@ -73,7 +75,8 @@ public:
 
     // Every step of the car (`clock` the step's start): the hold counter its pit stop gives it.
     void hold(s32 clock, u16 count);
-    // An event as it happens. A Fuel event is kept back until a step passes without one (a refuelling sends its last).
+    // An event as it happens. A Fuel event is kept back until a step passes without one (a refuelling sends its last); Flags
+    // that are the last ones again are left out.
     void add(const ServiceEvent& e);
     // After every step (`clock` its end): a refuelling ended.
     void end_step(s32 clock);
@@ -89,6 +92,7 @@ private:
     std::optional<ServiceEvent> fuel_;
     std::vector<ServiceEvent> holds_; // (the last hold events: what hold_at gives)
     u16 last_count_ = 0;
+    u8 last_flags_ = 0;
     bool fuel_this_step_ = false;
     bool changed_ = false;
 };

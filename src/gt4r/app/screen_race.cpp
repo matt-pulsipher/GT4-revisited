@@ -721,7 +721,7 @@ public:
         begin_run(setup.bspec);
         built_ = true;
         // A scripted run that skips ahead: those steps unseen.
-        if (setup.pit) world_->pit_command(0);
+        if (setup.pit) world_->pit_command(0), pit_pending_ = !world_->pit_requested(0);
         for (int i = 0; i < setup.skip; ++i) step({}, true);
         if (setup.replay > 0) {
             // A run driven unseen, then shown through the replay cameras.
@@ -1113,6 +1113,8 @@ public:
         // A free run's hand-over, 3 s from the set-up (DynamicsConductorFreeRun::vf14).
         if (!hold && world_->count_rolling(0)) world_->release_start(0), flow_.signal_start();
         const race::RaceFlow::Events ev = flow_.step(world_->cars());
+        // (`pit=1`: the command taken once the race lets the car ask, after its first crossing)
+        if (pit_pending_ && !hold) world_->pit_command(0, true), pit_pending_ = !world_->pit_requested(0);
         if (net_) step_online(ev);
         // A car held in its rolling start let go as its start is counted (vf20 0x347928, the license's 0x3F64D0).
         for (const size_t i : ev.started) world_->release_start(i);
@@ -2120,6 +2122,7 @@ private:
     race::RaceFlow flow_;
     net::NetRace* net_ = nullptr; // an online race's other machines
     s64 net_step_clock_ = 0;      // (the race's clock at the step's start)
+    bool pit_pending_ = false;    // `pit=1` not taken yet
     std::vector<std::string> player_names_;
     std::vector<OnlineRaceUi::Label> labels_; // and where its cars are in the picture
     race::ResultBoard board_;
@@ -2227,8 +2230,8 @@ public:
             menus_ = chosen->menus, sequence_ = chosen->sequence;
             setup_.sequence = chosen->sequence;
             if (chosen->online) {
-                const Setup env = setup_from_env(); // (a scripted run: `drive`, `view`, `skip`, `hud`)
-                setup_.auto_drive = setup_.auto_drive || env.auto_drive, setup_.view = env.view, setup_.hud = env.hud;
+                const Setup env = setup_from_env(); // (a scripted run: `drive`, `view`, `skip`, `hud`, `pit`)
+                setup_.auto_drive = setup_.auto_drive || env.auto_drive, setup_.view = env.view, setup_.hud = env.hud, setup_.pit = env.pit;
                 online_set_up(setup_, chosen->online);
                 setup_.options = chosen->options;
                 if (!setup_.options.empty()) pictures_from_options(setup_.options);

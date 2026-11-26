@@ -48,7 +48,7 @@ struct PitOwner {
 
 struct Result {
     Errors stop, after, after_apart; // during the stop (the box to the hold's end); 30 s after it; and those 2 s from a contact
-    float grip_owner = 0, grip_seen = 0, fuel_owner = 0, fuel_seen = 0; // (the owner's car and the other's of it at its newest state)
+    float grip_owner = 0, grip_seen = 0, fuel_owner = 0, fuel_seen = 0; // (the owner's car and the other's of it at the stop's end)
     float wear_owner = 0, wear_seen = 0;
     int kinds_before = -1, kinds_after = -1;
     s64 contact = 0;
@@ -96,6 +96,7 @@ Result pit_race(World& w, const Link& link, bool service, bool hardest, int seco
     };
     h.face_box = [f = h.face_box, note](size_t i, gt3r::ee::F hd) { f(i, hd), i == 0 ? note(true, K::Face, hd.bits) : void(); };
     h.set_fuel = [f = h.set_fuel, note](size_t i, gt3r::ee::F l) { f(i, l), i == 0 ? note(true, K::Fuel, l.bits) : void(); };
+    h.flags = [f = h.flags, note](size_t i, u8 x) { f(i, x), i == 0 ? note(true, K::Flags, x) : void(); };
     owner->hooks = h;
     owner->pits = std::make_unique<sim::ai::PitStops>(*owner->field, w.program, m0.session->cars().size(), h);
     m0.inputs = [owner](Machine& m, std::vector<race::CarInput>& in) {
@@ -134,6 +135,13 @@ Result pit_race(World& w, const Link& link, bool service, bool hardest, int seco
         }
         if (r.machines[0]->contact_steps + m1.contact_steps != was_contact || m1.session->cars()[0].contact_kind != 0)
             touched = k, ++out.contact, was_contact = r.machines[0]->contact_steps + m1.contact_steps;
+        // (the other's car as its owner last sent it, once that state is from the stop's end: on the owner's tires, tread and fuel)
+        const gt4r::net::RemoteCar& seen = m1.field->remote(1);
+        if (const sim::Session::Memory* b = seen.base(); b && owner->left >= 0 && out.fuel_seen == 0 && seen.base_clock() >= owner->left && owned.count(seen.base_clock())) {
+            const Owned& o = owned[seen.base_clock()];
+            out.grip_owner = o.grip, out.fuel_owner = o.fuel, out.wear_owner = o.wear;
+            out.grip_seen = b->gt4.tires.tire[0].mu[0].host(), out.fuel_seen = b->gt4.drive.fuel.fuel.host(), out.wear_seen = b->car.w[0].wear.host();
+        }
         const s64 clock = m1.clock;
         if (owner->boxed < 0 || clock <= owner->boxed) continue;
         const double e = r.error(1, 0);
@@ -142,12 +150,6 @@ Result pit_race(World& w, const Link& link, bool service, bool hardest, int seco
             out.after.add(e);
             if (k - touched > 120) out.after_apart.add(e);
         }
-    }
-    const gt4r::net::RemoteCar& seen = r.machines[1]->field->remote(1);
-    if (const sim::Session::Memory* b = seen.base(); b && owned.count(seen.base_clock())) {
-        const Owned& o = owned[seen.base_clock()];
-        out.grip_owner = o.grip, out.fuel_owner = o.fuel, out.wear_owner = o.wear;
-        out.grip_seen = b->gt4.tires.tire[0].mu[0].host(), out.fuel_seen = b->gt4.drive.fuel.fuel.host(), out.wear_seen = b->car.w[0].wear.host();
     }
     out.kinds_after = owner->hooks.tires(0).first;
     out.reruns = r.machines[1]->field->remote(1).reruns();
@@ -168,7 +170,7 @@ TEST(net_service_section) {
     s.round = 7;
     s.events = {{-50, ServiceEvent::Hold, 721}, {100, ServiceEvent::Box, 0x40490FDB}, {150, ServiceEvent::Hold, 721 | 0x10000},
                 {150, ServiceEvent::Tires, 5 | 5 << 8 | 3 << 16}, {200, ServiceEvent::Grips, 3}, {900, ServiceEvent::NewTires, 0xF},
-                {40000, ServiceEvent::Fuel, 0x41A00000}, {40050, ServiceEvent::Hold, 90 | 0x10000}};
+                {40000, ServiceEvent::Fuel, 0x41A00000}, {40000, ServiceEvent::Flags, 0x09}, {40050, ServiceEvent::Hold, 90 | 0x10000}};
     const Bytes b = gt4r::net::with_service(rec.data, s);
     const ByteSpan back = gt4r::net::record_of(b);
     CHECK(Bytes(back.begin(), back.end()) == rec.data);
@@ -202,6 +204,9 @@ TEST(net_service_section) {
     CHECK(!log.take_changed());
     log.end_step(850);
     CHECK(log.take_changed() && log.events().back() == (ServiceEvent{800, ServiceEvent::Fuel, 2}));
+    // The pass's flags: only a change.
+    log.add({850, ServiceEvent::Flags, 0}), log.add({900, ServiceEvent::Flags, 1}), log.add({950, ServiceEvent::Flags, 1});
+    CHECK(log.take_changed() && log.events().back() == (ServiceEvent{900, ServiceEvent::Flags, 1}));
     std::printf("  a state kept to run again from: %zu bytes (%zu kept: %.1f MB a car)\n", sizeof(sim::Session::Memory), size_t(180),
                 double(sizeof(sim::Session::Memory)) * 180 / 1048576);
 }
@@ -237,14 +242,14 @@ TEST(net_race_pit_stop_service) {
                     (long long)with.contact, with.warnings, with.warning.c_str());
         CHECK(with.stop.n > 600 && with.after.n > 0); // (the stop was made and the car raced on)
         CHECK(with.kinds_after != with.kinds_before);  // (on the other tires)
-        // The prediction's car at its newest state on the owner's tires and fuel, bit for bit; without the service on the old
-        // ones. The new tread worn as the owner's (the states' units leave a little apart).
+        // The prediction's car as its owner sent it at the stop's end on the owner's tires, tread and fuel, bit for bit; without
+        // the service on the old ones.
         CHECK(with.grip_seen == with.grip_owner && without.grip_seen != with.grip_owner);
         CHECK(with.fuel_seen == with.fuel_owner && without.fuel_seen != without.fuel_owner);
-        CHECK(std::fabs(with.wear_seen - with.wear_owner) * 50 < std::fabs(without.wear_seen - with.wear_owner));
+        CHECK(with.wear_seen == with.wear_owner && without.wear_seen != with.wear_owner);
         // The stop as the owner's: held in its box.
         CHECK(with.stop.rms() < without.stop.rms());
-        if (link.delay_ms == 0) CHECK(with.stop.worst < 1e-4 && with.after_apart.worst * 100 < 2.0);
+        if (link.delay_ms == 0) CHECK(with.stop.worst * 100 < 1.0 && with.after_apart.worst * 100 < 2.0); // (a block a step late)
         // After it the car's own step on the new tires against its frames held (a softer tire makes a held steering's error
         // a little larger: within 5 %).
         CHECK(with.after_apart.rms() <= without.after_apart.rms() * 1.05 + 1e-4);

@@ -80,6 +80,7 @@ void RemoteCar::apply_one(const ServiceEvent& e) {
     case K::Box: car_->stop_in_box(0, gt3r::ee::F::raw(e.value)); break;
     case K::Face: car_->face(0, gt3r::ee::F::raw(e.value)); break;
     case K::Fuel: car_->set_fuel(0, gt3r::ee::F::raw(e.value)); break;
+    case K::Flags: car_->set_pit_flags(0, u8(e.value)); break;
     }
 }
 
