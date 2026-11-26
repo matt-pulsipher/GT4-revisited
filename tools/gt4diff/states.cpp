@@ -512,6 +512,15 @@ StatesResult run_states(Disc& disc, const std::string& state0, const std::string
     ee.add_probe(kAfterLineHeading, [&line_heading](Ee& e) { line_heading[e.g32(17) - kF] = F::raw(e.fpr[0]); });
     race::PadRecord idle_pad; // (a car its pad drives that is not the player's: a ghost; its frame read gives nothing)
 
+    struct {
+        int step = 0, car = 0, target = -1, every = 3;
+        float speed = 0;
+    } shove;
+    if (const char* e = std::getenv("GT4R_STATES_SHOVE")) {
+        float sp = 0;
+        if (std::sscanf(e, "%d,%d,%d,%f,%d", &shove.step, &shove.car, &shove.target, &sp, &shove.every) >= 4) shove.speed = sp;
+        if (shove.car < 0 || shove.car >= o.cars || shove.target >= o.cars || shove.every < 1) shove.step = 0;
+    }
     const int last = res.frames + std::max(0, options.window);
     size_t best = SIZE_MAX;
     std::vector<Image> at_frames(size_t(o.cars));
@@ -535,6 +544,35 @@ StatesResult run_states(Disc& disc, const std::string& state0, const std::string
             // The race's countdown (the race information's +0xBC): the race's frame counts it down before the step (the
             // states reproduce so, and not with it counted after), and the step holds the cars while it is not 0.
             if (const u32 n = ee.r32(o.info + 0xBC)) ee.w32(o.info + 0xBC, n - 1);
+            // GT4R_STATES_SHOVE=<step>,<car>,<target>,<m/s>: at that step, before both steps, the car's velocity (F +0x544, +0x548)
+            // gains that speed toward the target car (or, for a target of -1 / -2, square to its velocity to the left / right), in
+            // the program's record and in ours alike: a contact made on purpose, the rebound of both runs then traced.
+            if (shove.step == step) {
+                const u32 F = o.car(shove.car) + kF;
+                const float vx = ee.rf(F + 0x544), vy = ee.rf(F + 0x548);
+                float ux = 0, uy = 0;
+                if (shove.target >= 0) {
+                    const u32 T = o.car(shove.target) + kF;
+                    ux = ee.rf(T) - ee.rf(F), uy = ee.rf(T + 4) - ee.rf(F + 4);
+                } else {
+                    ux = shove.target == -1 ? -vy : vy, uy = shove.target == -1 ? vx : -vx;
+                }
+                const float len = std::sqrt(ux * ux + uy * uy);
+                if (print)
+                    for (int j = 0; j < o.cars; ++j)
+                        if (j != shove.car)
+                            std::printf("  car %d at (%.2f, %.2f) from car %d\n", j, double(ee.rf(o.car(j) + kF) - ee.rf(F)), double(ee.rf(o.car(j) + kF + 4) - ee.rf(F + 4)), shove.car);
+                if (len > 0) {
+                    ux = ux / len * shove.speed, uy = uy / len * shove.speed;
+                    ee.wf(F + 0x544, vx + ux), ee.wf(F + 0x548, vy + uy);
+                    if (session) {
+                        ex::Car c = session->record(size_t(shove.car));
+                        c.vel.x = F::raw(ee.r32(F + 0x544)), c.vel.y = F::raw(ee.r32(F + 0x548)); // (the program's record's sums)
+                        session->load_state(size_t(shove.car), c, session->gt4_record(size_t(shove.car)));
+                    }
+                    if (print) std::printf("  shove at step %d: car %d by (%.2f, %.2f) m/s\n", step, shove.car, double(ux), double(uy));
+                }
+            }
             line_heading.clear();
             ee.call(kRaceStep, {Arg::ptr(o.cond), Arg::integer(0)}, 2'000'000'000);
             // GT4R_STATES_FIELD=<every>: every car's distance, speed, line, mode and target speeds in the program's run.
@@ -630,6 +668,13 @@ StatesResult run_states(Disc& disc, const std::string& state0, const std::string
                                         p.clutch_torque.host(), q.clutch_torque.host(), p.throttle.host(), q.throttle.host(), p.w[0].slip_ratio.host(),
                                         q.w[0].slip_ratio.host());
                         }
+                    }
+                    if (shove.step > 0 && print && step >= shove.step - 1 && (step - shove.step) % shove.every == 0 && (i == shove.car || i == shove.target)) {
+                        const ex::Car &p = theirs.car, &q = mine.car;
+                        const double apart = std::hypot(double(p.pos.x.host() - q.pos.x.host()), double(p.pos.y.host() - q.pos.y.host()));
+                        std::printf("    shove %4d car %d  program: v (%7.3f, %7.3f) yaw rate %7.4f heading %8.4f | ours: v (%7.3f, %7.3f) yaw rate %7.4f heading %8.4f | %.4f m apart\n",
+                                    step, i, p.vel.x.host(), p.vel.y.host(), p.yaw_rate.host(), p.heading.host(), q.vel.x.host(), q.vel.y.host(), q.yaw_rate.host(),
+                                    q.heading.host(), apart);
                     }
                     std::vector<std::string> now;
                     for (const Slot* s : differing(theirs, mine)) {
