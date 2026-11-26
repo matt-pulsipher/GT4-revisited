@@ -348,9 +348,12 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
   the save folder's documents and the user data folder in the Files app are the shared engine's Java, compiled from the
   submodule; the app is ours (`GT4Activity`, the manifest, `org.gt4revisited.gt4r`). The on-screen touch controls are the
   shared engine's (`input/touch_controls`, `app/screen_touch_overlay`): its D-pad and buttons over the game's menus and pauses,
-  its driving controls while the player drives (`Screen::touch_layout`); the title's hint is a button there. Not yet: the
-  engine's Settings page for the touch controls (layout editor, tilt steering, opacity), the race display moved clear of the
-  pedals (the speed and gear can sit under them on a 16:9 screen), phone vibration, tilt steering.
+  its driving controls while the player drives (`Screen::touch_layout`); the title's hint is a button there. Ours: Select and
+  Start under L1 and R1 at the screen's sides over the menus; the race display's lower corner parts (meters, signs, fuel) moved
+  sideways just clear of the controls (`race::set_touch_shift`; the upper blocks stay); their settings in Settings › Controls
+  (the engine's TouchConfig, and its phone vibration); Android's back button as one press of Start while driving (the pause),
+  else of Triangle (`Screen::back_is_start`). Not yet: the engine's layout editor (dragging each control), which is written
+  for its own app.
   Meta Quest: the `-Pquest` app, as an immersive OpenXR app ([VR.md](VR.md)).
 - VR headsets ([VR.md](VR.md)): the OpenXR session, its canvas and eyes, the controllers' virtual pad and pointer are the shared
   engine's (`src/xr`); the frame loop's use of them is ours (`app_xr.cpp`), and so is the race in stereo (`race_vr.cpp`,

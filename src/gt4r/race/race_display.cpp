@@ -56,34 +56,37 @@ bool read_table(ByteSpan program, u32 load_address, u32 address, std::vector<Dis
 
 namespace {
 float g_wide_push = 96.0f;
-float g_touch_shift = 0;
-DisplayRect g_lower_right{0, 0, 0, 0};
-bool g_lower_right_any = false;
-bool lower_right(const DisplayPlace& p) { return (p.anchor_x & 12) == 12 && p.y >= 240; }
-void note_lower_right(const DisplayRect& r) {
-    if (!g_lower_right_any) {
-        g_lower_right = r, g_lower_right_any = true;
+// Touch screens: each side's lower places, their move (+ right) and the box they took (0 left, 1 right).
+float g_touch_shift[2] = {0, 0};
+DisplayRect g_lower[2] = {};
+bool g_lower_any[2] = {false, false};
+int lower_side(const DisplayPlace& p) { return p.y < 240 || !(p.anchor_x & 4) ? -1 : (p.anchor_x & 8) ? 1 : 0; }
+void note_lower(int side, const DisplayRect& r) {
+    DisplayRect& b = g_lower[side];
+    if (!g_lower_any[side]) {
+        b = r, g_lower_any[side] = true;
         return;
     }
-    const float x0 = std::min(g_lower_right.x, r.x), y0 = std::min(g_lower_right.y, r.y);
-    const float x1 = std::max(g_lower_right.x + g_lower_right.w, r.x + r.w), y1 = std::max(g_lower_right.y + g_lower_right.h, r.y + r.h);
-    g_lower_right = {x0, y0, x1 - x0, y1 - y0};
+    const float x0 = std::min(b.x, r.x), y0 = std::min(b.y, r.y);
+    const float x1 = std::max(b.x + b.w, r.x + r.w), y1 = std::max(b.y + b.h, r.y + r.h);
+    b = {x0, y0, x1 - x0, y1 - y0};
 }
 } // namespace
 void set_wide_push(float units) { g_wide_push = units; }
-void set_touch_shift(float units) { g_touch_shift = units; }
-DisplayRect take_lower_right_box() {
-    const DisplayRect r = g_lower_right_any ? g_lower_right : DisplayRect{0, 0, 0, 0};
-    g_lower_right_any = false;
+void set_touch_shift(float right, float left) { g_touch_shift[1] = -right, g_touch_shift[0] = left; }
+DisplayRect take_lower_box(bool right_side) {
+    const int side = right_side ? 1 : 0;
+    const DisplayRect r = g_lower_any[side] ? g_lower[side] : DisplayRect{0, 0, 0, 0};
+    g_lower_any[side] = false;
     return r;
 }
 
 float place_x(const DisplayPlace& p, bool wide) {
     float x = float(p.x);
     if (wide && (p.anchor_x & 4)) x += (p.anchor_x & 8) ? g_wide_push : -g_wide_push;
-    if (lower_right(p)) {
-        note_lower_right({x, float(p.y), 0, 0});
-        x -= g_touch_shift;
+    if (const int side = lower_side(p); side >= 0) {
+        note_lower(side, {x, float(p.y), 0, 0});
+        x += g_touch_shift[side];
     }
     return x;
 }
@@ -97,7 +100,7 @@ DisplayRect place_rect(const DisplayPlace& p, float w, float h, bool wide) {
     const int ax = p.anchor_x & 3, ay = p.anchor_y & 3;
     r.x = ax == 0 ? x : ax == 1 ? x - w : x - w * 0.5f;
     r.y = ay == 0 ? y : ay == 1 ? y - h : y - h * 0.5f;
-    if (lower_right(p)) note_lower_right({r.x + g_touch_shift, r.y, r.w, r.h});
+    if (const int side = lower_side(p); side >= 0) note_lower(side, {r.x - g_touch_shift[side], r.y, r.w, r.h});
     return r;
 }
 

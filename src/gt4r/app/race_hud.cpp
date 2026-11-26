@@ -42,27 +42,27 @@ struct OriginScope {
     ~OriginScope() { origin = {0, 0}; }
 };
 
-// Ours, touch screens: how far (UI units) the box `m` moves left to keep 4 units from every control that covers it, as the shared
-// engine's race display moves its blocks; a control that only comes up under the box's bottom (its top within 24 units of it)
-// may overlap it. 0 when none covers it.
-float clear_leftward(const SDL_FRect& m, const std::vector<SDL_FRect>& controls) {
+// Ours, touch screens: how far (UI units) the box `m` moves sideways (`dir` -1 left, 1 right) to keep 4 units from every control
+// that covers it, as the shared engine's race display moves its blocks; a control that only comes up under the box's bottom (its
+// top within 24 units of it) may overlap it. 0 when none covers it.
+float clear_sideways(const SDL_FRect& m, const std::vector<SDL_FRect>& controls, float dir) {
     constexpr float kGap = 4, kUnderlap = 24;
     float s = 0;
     for (bool moved = true; moved;) {
         moved = false;
         for (const SDL_FRect& c : controls) {
             if (c.y >= m.y + m.h - kUnderlap) continue;
-            const float x0 = m.x - s - kGap, x1 = m.x + m.w - s + kGap;
+            const float x0 = m.x + dir * s - kGap, x1 = m.x + m.w + dir * s + kGap;
             if (!(x0 < c.x + c.w && c.x < x1 && m.y - kGap < c.y + c.h && c.y < m.y + m.h + kGap)) continue;
-            s = m.x + m.w + kGap - c.x;
+            s = dir < 0 ? m.x + m.w + kGap - c.x : c.x + c.w + kGap - m.x;
             moved = true;
         }
     }
     return s;
 }
-struct TouchShiftScope { // (the move is the race display's only: the pages drawn after it keep the program's places)
-    explicit TouchShiftScope(float units) { race::set_touch_shift(units); }
-    ~TouchShiftScope() { race::set_touch_shift(0); }
+struct TouchShiftScope { // (the moves are the race display's only: the pages drawn after it keep the program's places)
+    TouchShiftScope(float right, float left) { race::set_touch_shift(right, left); }
+    ~TouchShiftScope() { race::set_touch_shift(0, 0); }
 };
 
 // A text color: the GS color's RGB as it is, its alpha with 0x80 as opaque.
@@ -961,9 +961,12 @@ void RaceHud::draw(Ui& ui, const HudState& s) {
     const bool faded = s.opacity <= 0;
     if (faded && s.replay) return;
     impl_->cur = s.bspec && !s.replay && impl_->mode1.valid() ? &impl_->mode1 : &impl_->layout;
-    // Touch screens: the meters at the bottom right moved clear of the on-screen controls (by where they were last drawn).
-    const DisplayRect lower_right = race::take_lower_right_box();
-    const TouchShiftScope shift(!s.split && !s.touch_controls.empty() && lower_right.w > 0 ? clear_leftward(to_ui(lower_right), s.touch_controls) / kScale : 0.0f);
+    // Touch screens: the parts at the bottom corners (the meters, the signs, the fuel) moved clear of the on-screen controls, by
+    // where they were last drawn.
+    const DisplayRect lower_right = race::take_lower_box(true), lower_left = race::take_lower_box(false);
+    const bool touch = !s.split && !s.touch_controls.empty();
+    const TouchShiftScope shift(touch && lower_right.w > 0 ? clear_sideways(to_ui(lower_right), s.touch_controls, -1) / kScale : 0.0f,
+                                touch && lower_left.w > 0 ? clear_sideways(to_ui(lower_left), s.touch_controls, 1) / kScale : 0.0f);
     if (s.split) {
         // A two-player half's display: its canvas 640 x 240 (the first's 10 units lower: RaceSplitDisplayBase::vf9 0x3A29A0), or
         // 426.667 x 480 of the wide one. In a replay with its display off nothing shows (the logo's place is outside both).

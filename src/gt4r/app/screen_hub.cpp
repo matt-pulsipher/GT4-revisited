@@ -146,7 +146,7 @@ private:
             const bool prologue = app.disc()->info().game == Game::Prologue;
             items_.push_back({"Play", "", prologue ? "Gran Turismo 4 Prologue from the start: the opening movie, then the title." : "Gran Turismo 4 from the start: the opening movie, then the title.", 7});
             items_.push_back({"Saved games", "", "Your games: load one, start a new one beside the others, delete one, or move one to or from a PlayStation 2 memory card image.", 9});
-            items_.push_back({"Controls", app.input().device_name(0), "Which controller drives, the race controls and your own bindings, steering, rumble, triggers and a wheel's force feedback.", 8});
+            items_.push_back({"Controls", app.touch_ui() && app.input().device_name(0) == "Keyboard" ? std::string("Touch screen") : app.input().device_name(0), "Which controller drives, the race controls and your own bindings, steering, rumble, triggers and a wheel's force feedback.", 8});
             items_.push_back({"Settings", "", "Display, sound, both players' controls, views and replays, the disc and the save folder.", 20});
             items_.push_back({"Mods", app.vfs()->mods().empty() ? std::string() : std::to_string(app.vfs()->mods().size()), "Install mods and texture packs, and choose which are used.", 21});
             items_.push_back({"Save editor", "", "Change a saved game: credits, the garage, licenses, events and more. The save as it was is kept.", 22});

@@ -174,7 +174,9 @@ bool App::init(int argc, char** argv) {
     SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_LG4FF, "1");
 #endif
     // (a scripted run's controllers are its own: none is opened)
-    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | (run_.scripted ? SDL_InitFlags(0) : SDL_INIT_GAMEPAD | SDL_INIT_JOYSTICK))) {
+    // (phones and tablets: the accelerometer, for tilt steering)
+    const SDL_InitFlags input_flags = run_.scripted ? SDL_InitFlags(0) : SDL_INIT_GAMEPAD | SDL_INIT_JOYSTICK | (mobile ? SDL_INIT_SENSOR : SDL_InitFlags(0));
+    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | input_flags)) {
         LOG_ERROR("SDL_Init failed: %s", SDL_GetError());
         return false;
     }
@@ -249,6 +251,17 @@ bool App::init(int argc, char** argv) {
     if (const char* t = SDL_getenv("GT4R_TOUCH"); mobile || (t && *t == '1')) {
         touch_ui_ = true;
         touch_.load(config_);
+        // Over the game's menus Select and Start go under L1 and R1, at the screen's sides, not over the middle of the page's
+        // top (the shared engine's place for them); a place the player gave them in [touch] stays theirs.
+        gt3r::TouchConfig tc = touch_.controls().config();
+        for (const auto& [key, side] : {std::pair{"menu.select", gt3r::TouchPlacement::AnchorX::Left}, std::pair{"menu.start", gt3r::TouchPlacement::AnchorX::Right}})
+            if (!config_.get("touch", key)) {
+                gt3r::TouchPlacement p = tc.placement(key);
+                p.ax = side, p.ay = gt3r::TouchPlacement::AnchorY::Top;
+                p.x = 20 * tc.size, p.y = 36 * tc.size; // (L1 and R1 are 40 x 20 at the corners)
+                tc.set_placement(key, p);
+            }
+        touch_.controls().configure(tc);
         if (!mobile) touch_.controls().note_touch();
     }
 #if GT3R_XR
@@ -567,6 +580,12 @@ SDL_AppResult App::iterate() {
         touch_.update(dt, modal || !top ? gt3r::TouchLayout::None : top->touch_layout(), false, *input_);
     }
     gt3r::PadState scripted = scripted_keys();
+    if (back_pressed_) { // (Android's back button, this frame only)
+        back_pressed_ = false;
+        const Screen* top = screens_.empty() ? nullptr : screens_.back().get();
+        const PadButton b = !modal && top && top->back_is_start() ? PadButton::Start : PadButton::Triangle;
+        scripted.buttons |= u16(1u << unsigned(b)), scripted.pressure[size_t(b)] = 255;
+    }
     {
         // The script's presses and held race controls reach the race's pad too (as an overlay on
         // player 1's: a pad plugged in still drives).
@@ -711,6 +730,12 @@ SDL_AppResult App::iterate() {
 
 SDL_AppResult App::event(const SDL_Event& e) {
     if (e.type == SDL_EVENT_QUIT) return SDL_APP_SUCCESS;
+    // Android's back button: not a key of the controls (where it would be Triangle, a race's reverse too, held as long as the system
+    // holds it), but one press of the button the top screen gives it (Screen::back_is_start), taken in iterate().
+    if ((e.type == SDL_EVENT_KEY_DOWN || e.type == SDL_EVENT_KEY_UP) && e.key.scancode == SDL_SCANCODE_AC_BACK) {
+        if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat) back_pressed_ = true;
+        return SDL_APP_CONTINUE;
+    }
     input_->handle_event(e);
     // Back in front: the controllers' motors as they should be now (a stop sent while away can be lost).
     if (e.type == SDL_EVENT_WINDOW_FOCUS_GAINED) input_->window_focus_gained();
