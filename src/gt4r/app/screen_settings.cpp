@@ -208,7 +208,12 @@ private:
         };
         if (!gt3r::platform::is_mobile()) // (phones and tablets: always the whole screen)
             rows_.choice("Screen", {"Window", "Full screen"}, v.fullscreen, [set](size_t i) { set([&](auto& n) { n.fullscreen = i == 1; }); });
-        rows_.choice("Aspect ratio", {"16:9", "4:3", "Fill the screen"}, size_t(v.aspect), [set](size_t i) { set([&](auto& n) { n.aspect = gt3r::platform::Aspect(i); }); });
+        {
+            using gt3r::platform::Aspect;
+            static constexpr Aspect kShapes[] = {Aspect::Fill, Aspect::Wide, Aspect::Classic};
+            const size_t at = v.aspect == Aspect::Wide ? 1 : v.aspect == Aspect::Classic ? 2 : 0;
+            rows_.choice("Aspect ratio", {"Fill the screen", "16:9", "4:3"}, at, [set](size_t i) { set([&](auto& n) { n.aspect = kShapes[std::min<size_t>(i, 2)]; }); });
+        }
         rows_.choice("VSync", {"Lowest input delay", "No tearing"}, v.vsync, [set](size_t i) { set([&](auto& n) { n.vsync = i == 1; }); });
         {
             const double hz = app.refresh_rate(), rate = settings::limited_rate(hz, true);

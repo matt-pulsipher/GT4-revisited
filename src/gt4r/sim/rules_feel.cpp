@@ -74,7 +74,44 @@ FeelTables feel_tables(const Program& program) {
     std::array<u8, 0x210> raw{};
     for (u32 j = 0; j < raw.size(); ++j) raw[j] = program.b(kSlideBytes + j);
     t.cue = cue_table(effect_bytes(raw.data()).data() + 0x1E0);
+    for (u32 j = 0; j < t.jolt_bytes.size(); ++j) t.jolt_bytes[j] = program.b(kSwayBytes + 0xA + j);
     return t;
+}
+
+JoltLimits jolt_limits(const FeelTables& t, u8 course_kind) {
+    const std::array<u8, 7>& b = t.jolt_bytes; // 0x6202BA ..
+    JoltLimits l;
+    l.on = b[0] != 0;
+    s32 lo = b[1], hi = b[2];
+    if (lo == hi) hi = lo + 1;
+    const s32 raise = course_kind == 2 ? b[6] : course_kind == 3 ? b[5] : 0;
+    lo += raise, hi += raise;
+    const F kmh = F::raw(0x3E8E38E3); // 1 / 3.6
+    l.floor = gt3r::ee::int_to_f(lo) * kmh, l.cap = gt3r::ee::int_to_f(hi) * kmh;
+    l.base = gt3r::ee::int_to_f(b[3]) * kmh;
+    const F top = gt3r::ee::int_to_f(b[4]) * kmh;
+    l.gain = (top - l.base) / (l.cap - l.floor);
+    return l;
+}
+
+void view_jolt(const ex::Car& c, const ex::Vec3& after, ViewState& v, const JoltLimits& l) {
+    if (!l.on) return;
+    if (v.jolt != 0) {
+        v.jolt = 0;
+        return;
+    }
+    const F d[3] = {after.x - c.vel.x, after.y - c.vel.y, after.z - c.vel.z};
+    const F fwd[3] = {c.fwd.x, c.fwd.y, c.fwd.z}, lat[3] = {c.lat.x, c.lat.y, c.lat.z};
+    F along = F(), across = F();
+    for (int k = 0; k < 3; ++k) along = along + fwd[k] * d[k], across = across + lat[k] * d[k];
+    F size = sqrt(along * along + across * across);
+    if (!(l.floor < size)) return;
+    F share = F(1.0f);
+    if (l.cap < size) share = l.cap / size, size = l.cap;
+    const F kept = l.base + l.gain * (size - l.floor);
+    share = share * (kept / size);
+    v.jolt = 1;
+    v.jolt_forward = along * share, v.jolt_side = across * share;
 }
 
 void view_start(const ex::Car& c, ViewState& v) {

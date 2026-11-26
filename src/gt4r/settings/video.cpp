@@ -62,7 +62,11 @@ Video Video::load(const gt3r::IniDocument& c) {
     if (const auto t = c.get(kSection, "anisotropy")) v.anisotropy = step_of(std::atoi(t->c_str()), {1, 2, 4, 8, 16});
     v.render_scale = gt3r::platform::parse_render_scale(c.get(kSection, "render_scale").value_or("auto"));
     v.gamma = gt3r::render::parse_gamma(c.get(kSection, "gamma").value_or(""));
-    v.aspect = gt3r::platform::parse_aspect(gt3r::to_lower(c.get(kSection, "aspect").value_or("")));
+    // (the shared engine's reading takes an unknown word for 16:9: here only "16:9" and "4:3" are other than the screen's shape)
+    if (const auto a = c.get(kSection, "aspect")) {
+        const std::string t = gt3r::to_lower(gt3r::trim(*a));
+        v.aspect = t == "16:9" ? gt3r::platform::Aspect::Wide : t == "4:3" ? gt3r::platform::Aspect::Classic : gt3r::platform::Aspect::Fill;
+    }
     const std::string gpu = gt3r::to_lower(c.get(kSection, "gpu").value_or("auto"));
     v.gpu = gpu == "gles" ? Gpu::Gles : gpu == "gles_driver" ? Gpu::GlesDriver : gpu == "off" || gpu == "0" ? Gpu::Off : Gpu::Automatic;
     return v;
@@ -89,6 +93,13 @@ void Video::save(gt3r::IniDocument& c) const {
     }
     if (aspect != was.aspect) c.set(kSection, "aspect", gt3r::platform::aspect_value(aspect));
     if (gpu != was.gpu) c.set(kSection, "gpu", gpu_value(gpu));
+}
+
+int picture_width(gt3r::platform::Aspect a, int pw, int ph, bool view) {
+    using gt3r::platform::Aspect;
+    if (a != Aspect::Fill || pw <= 0 || ph <= 0) return a == Aspect::Classic ? gt3r::platform::kClassicWidth : gt3r::platform::kWideWidth;
+    const int w = int(std::lround(double(gt3r::platform::kGameHeight) * pw / ph));
+    return std::clamp(w, view ? kNarrowestView : gt3r::platform::kClassicWidth, gt3r::platform::kMaxFillWidth) & ~1;
 }
 
 double limited_rate(double hz, bool limit) {

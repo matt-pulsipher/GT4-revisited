@@ -106,15 +106,15 @@ SDL_Point App::menu_model_size(const SDL_FRect& dst) const {
     return {std::max(1, int(std::lround(dst.w * 640.0f / 480.0f))), std::max(1, int(std::lround(dst.h * 448.0f / 360.0f)))};
 }
 
-// The picture of the frame being drawn: the game's (Screen::follows_aspect) as wide as the aspect ratio makes it, the app's pages
-// 640 x 360, both as large as the window holds.
-void App::layout_ui(bool game) {
+// The picture of the frame being drawn: the game's (Screen::follows_aspect) as wide as the aspect ratio makes it (a race's picture,
+// Screen::view_fills_narrow, with fill down to 1:1), the app's pages 640 x 360, both as large as the window holds.
+void App::layout_ui(bool game, bool view) {
     int pw = 0, ph = 0;
     SDL_GetRenderOutputSize(renderer_, &pw, &ph);
 #if GT3R_XR
     if (xr_) SDL_GetCurrentRenderOutputSize(renderer_, &pw, &ph); // (the canvas stands in for the window)
 #endif
-    const int w = game ? gt3r::platform::game_width(video_.aspect, pw, ph) & ~1 : Ui::kWidth;
+    const int w = game ? settings::picture_width(video_.aspect, pw, ph, view) : Ui::kWidth;
     int cur_w = 0, cur_h = 0;
     SDL_RendererLogicalPresentation mode = SDL_LOGICAL_PRESENTATION_DISABLED;
     SDL_GetRenderLogicalPresentation(renderer_, &cur_w, &cur_h, &mode);

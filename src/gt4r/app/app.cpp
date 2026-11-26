@@ -660,7 +660,7 @@ SDL_AppResult App::iterate() {
 #if GT3R_XR
     if (xr_) SDL_SetRenderTarget(renderer_, xr_->canvas()); // (the frame goes into the headset's canvas)
 #endif
-    layout_ui(game);
+    layout_ui(game, game && screens_.back()->view_fills_narrow());
     Ui::set_prompts(gt3r::button_prompts(*input_, touch_ui_ && touch_.controls().visible(), touch_ui_)); // "{Cross}" in the hints
     begin_gamma_frame();
     ui_->clear();

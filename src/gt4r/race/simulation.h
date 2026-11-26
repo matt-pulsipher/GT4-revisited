@@ -82,6 +82,10 @@ struct CarState {
     // |j|, N s) and against another car (its strength |j| / 15,000).
     float wall_hit = 0, car_hit = 0;
     bool landed = false;
+    // A hit's jolt of the in-car view (the collision step's record, sim::rules::view_jolt): for the step that made it, its
+    // change of velocity along the body and across it (to its right), m/s, scaled.
+    bool jolt = false;
+    float jolt_forward = 0, jolt_side = 0;
     bool rolling = false; // held in its rolling start (F + 0x467 = 1) until the simulation lets it go (release_start)
 };
 

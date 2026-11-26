@@ -7,7 +7,8 @@
 // auto (the simple driver takes the first car too) or pad, `skip` simulation steps run before the
 // first picture (the start's hold is left out then), `paint` the first car's paint, `laps` the
 // race's length, `start` the start: 10 or 8 (a hold of so many seconds with the opening shots),
-// <seconds> (a plain hold), none, rolling, course (the course's own: race/start_rule.h); `view=tv` the course's replay cameras; `driver=0` no drivers in the cars; (GT4R_DEMO_LOG=<n> logs a demonstration's car every n steps); `replay=N` drives
+// <seconds> (a plain hold), none, rolling, course (the course's own: race/start_rule.h); `view=tv` the course's replay cameras;
+// `eye=x:y:z:tx:ty:tz[:ux:uy:uz]` the view from that eye toward that point (with that up) through the view's own lens; `driver=0` no drivers in the cars; (GT4R_DEMO_LOG=<n> logs a demonstration's car every n steps); `replay=N` drives
 // N steps unseen and plays them back through the replay cameras; `bspec=1` a B-spec run, `pit=1` its car asked into the pits from the start (GT4R_HITCH=<ms>
 // logs every frame longer than that, with the race's work and the present before it); `menus=single_race` the race
 // sequence's own menus (quick-arcade) before and after the race (any sequence: solo_event,
@@ -79,6 +80,7 @@
 #include <cmath>
 #include <cstring>
 #include <ctime>
+#include <array>
 #include <optional>
 #include <map>
 #include <variant>
@@ -105,6 +107,9 @@ struct Setup {
     int cars = 6;
     int view = race::DriveCamera::kChase;
     bool look_back = false;
+    // `eye=x:y:z:tx:ty:tz[:ux:uy:uz]`: the view's eye, the point it looks at and its up (level when left out), the view's own lens
+    // kept: for pictures matched against the original's saved states.
+    std::optional<std::array<float, 9>> eye;
     bool auto_drive = false;
     bool pit = false;     // `pit=1`: its car asked into the pits from the start
     RaceWorld::PlayerChoice player; // the gearbox, the aids, the wheel's (`mt=1`, `asm=0`, `tcs=0`; a race of the menus: its choices)
@@ -207,7 +212,13 @@ Setup setup_from_env() {
             if (v == "tv") s.view = kTvView;
             if (!v.empty() && std::isdigit(static_cast<unsigned char>(v[0]))) s.view = std::atoi(v.c_str());
         } else if (k == "drive") s.auto_drive = v == "auto";
-        else if (k == "bspec") s.bspec = v != "0";
+        else if (k == "eye") {
+            std::array<float, 9> e{0, 0, 0, 0, 0, 0, 0, 1, 0};
+            size_t i = 0;
+            for (std::string_view n : gt3r::split(v, ':'))
+                if (i < e.size()) e[i++] = float(std::atof(std::string(n).c_str()));
+            if (i == 6 || i == 9) s.eye = e;
+        } else if (k == "bspec") s.bspec = v != "0";
         else if (k == "pit") s.pit = v != "0";
         else if (k == "mt") s.player.automatic = v == "0";
         else if (k == "asm") s.player.asm_on = v != "0";
@@ -1804,9 +1815,9 @@ public:
         // shots (a standing start's or a rolling start's TV cameras), B-spec or looking back.
         race::ViewPose pit;
         if (mount_ == race::DriveCamera::kInCar && !camera_.aside() && !world_->pit_camera(focus(), pit) && !finish_view() && !replaying_ && !demo_run_ && !flow_.player_finished() && !menu_scene_ && !watched_ && !start_camera_.active() && !opening_tv() && !look_back && !setup_.look_back) {
-            const SDL_FRect c = RaceHud::canvas();
+            const SDL_FRect c = RaceHud::canvas(-1); // (at the top of a picture narrower than 4:3)
             const float k = c.h / 480.0f;
-            world_->render_mirror(ui, {c.x + 190 * k, c.y + 18 * k, 259 * k, 63 * k}, cars, pose, 0);
+            world_->render_mirror(ui, {c.x + 190 * k, c.y + 18 * k, 259 * k, 63 * k}, cars, pose, 0, -1, std::tan(pose.fovy() * 0.5f) / race::kMirrorHalfTan);
         }
     }
 
@@ -1829,7 +1840,7 @@ public:
     // Where each car is in the picture (an online race's names): a point over its roof.
     void label_cars(std::span<const race::CarState> cars, const race::ViewPose& pose, const SDL_FRect& rect) {
         labels_.clear();
-        const float ty = std::tan(pose.fovy() * 0.5f), tx = ty * rect.w / std::max(rect.h, 1.0f);
+        const float ty = std::tan(pose.fovy(rect.w / std::max(rect.h, 1.0f)) * 0.5f), tx = ty * rect.w / std::max(rect.h, 1.0f);
         for (size_t i = 0; i < cars.size(); ++i) {
             OnlineRaceUi::Label l;
             l.car = i;
@@ -2065,6 +2076,11 @@ public:
             if (own && mount != race::DriveCamera::kChase && (size_t(mount) >= mounts.size() || mounts[size_t(mount)].flags == 0)) mount = race::DriveCamera::kInCar; // (a place the car does not have)
             pose = camera_.pose(me, body, mounts, mount, own ? view_.look_back() : look_back || setup_.look_back);
             if (!race::DriveCamera::chase(mount) && !race::DriveCamera::in_car(mount) && !gt3_road_) pose.fov = race::shown_angle(pose.fov);
+        }
+        if (setup_.eye) {
+            const std::array<float, 9>& e = *setup_.eye;
+            pose.eye = {e[0], e[1], e[2]};
+            pose.view = render::look_at(pose.eye, {e[3], e[4], e[5]}, {e[6], e[7], e[8]});
         }
         return pose;
     }
@@ -2529,6 +2545,7 @@ public:
     }
 
     bool follows_aspect() const override { return race_ != nullptr; } // (Drive's lists are the app's own page)
+    bool view_fills_narrow() const override { return race_ != nullptr && !quick_; } // (the race's menus: at 4:3 at least)
     // The driving controls while the player drives, the pad over the race's menus and pauses, none over Drive's lists (tapped).
     gt3r::TouchLayout touch_layout() const override {
         return !race_ ? gt3r::TouchLayout::None : playing() ? gt3r::TouchLayout::Driving : gt3r::TouchLayout::Menu;
