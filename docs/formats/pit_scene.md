@@ -106,33 +106,54 @@ For the car watched, between a man's times before and after a step: `wheel_gun` 
 sound while it runs; `jackdown` at the stop's "tires on" bit. ✔ Each time within a step or two of the original's recording
 of a stop (`26-endurance/family_cup_bspec_pit_stop_whole_race.mp4`; `tests/test_pit_scene.cpp`).
 
-## The license scene (`pit/license_001`) 🔎 read, not built
+## The license scene (`pit/license_001`)
 
-The staff round a license test's car after the run (the original's B-1 pass: three men in GT shirts round the car in the box,
-11-license-tt `b1_pass_result_live_scene.png`). The race object keeps it at RaceLicense +0x24E5C; it is loaded by RaceLicense
-virtual 38 (0x3BC5D0) only for a test of one car (the conductor's car count +0xF8A0 under 2) and when memory allows
-(0x3ED9E0 / 0x3ED9D0). The file has pit_001's layout: section 1 `Mot1` the men's motions (`license_stand_master`,
-`license_stand_staff_1`, `_2`; `license_success_*`; `license_failed_*`), 2 `Mot1` the cameras (`license_cam01_seq` .. `03`, clips
-`L_license_cam_01` .. `07`), 3 `MDLS` the men, 4 `MDLS` their shadow.
+Code: `race/license_scene.*` (the program's LicenseConcourse, 0x408120 .. 0x4098A0), `app/race_world.cpp` (`open_license_scene`,
+`step_license_scene`), `app/screen_race.cpp` (the result, the camera, the fade). The staff round a license test's car after a run
+that ends with a time: three men in GT shirts, the master and two of his staff. The race object keeps the scene at RaceLicense
++0x24E5C; RaceLicense virtual 38 (0x3BC5D0) loads it only for a test of one car (the conductor's car count +0xF8A0 under 2) and
+when memory allows (0x3ED9E0 / 0x3ED9D0). The file has pit_001's layout: section 1 `Mot1` the men's motions (object 1 the master:
+`license_stand_master`, `license_success_master`, `license_failed_master`; object 0 his staff: `license_stand_staff_1`, `_2`,
+`license_success_staff_1`, `_2`, `license_failed_staff_1`, `_2`), 2 `Mot1` the cameras (`license_cam01_seq` .. `03`, clips
+`L_license_cam_01` .. `07`), 3 `MDLS` the men (`SKINNING` the body, `CRANIUM` the cap, `pen`, `board`; 20 bones), 4 `MDLS` their
+shadow.
 
-- **Places**: the road's section the test runs on (the course object's +0xB0; RNW4 section record +0x0E u16 count, +0x10 -> 16
-  bytes each: x, y, z, heading; `race/sections.h`). Set-up (0x408F90): none: no scene; with two or more the men stand at place 1,
-  else place 0, in their `stand` motions, drawn 0.94 of their size (0x408F38). The place's height is the road's under it
-  (0x409B48); the scene's heading is the place's + 3.14 (0x408DB8). Each man is then put by the car's outline (0x408B08 through
-  CarGeometry virtuals 2, 4, 18 and 0x344AA8 / 0x344C08): man 0 beside a side of the car 0.5 m out, turned a quarter turn
-  (1.5700); men 1 and 2 at the car's ends 0.75 m out (the 1.0 m added up the car) ❓ the sides and signs not followed.
-- **When** (stepped by RaceLicense virtual 75 → 0x3BC6E0 → 0x409168, dt 1/60): the result is taken once, 1 when the race's
-  result word (+0x6C → +0x88, written by the test's end 0x3F8AB0: 1 .. 3 the grade, ❓ 4 a time past all three targets) is set, 2 when the
-  step's events hold event 10 (a failed test) with it 0. Then +0x24: 0 for 2 s; 1 for 2 s, the race's picture fading out
-  (race +0xCF54 = -1 / 2); 2: the men moved to place 0 (the stopping box) in their `success` or `failed` motions, the camera on
-  the next of `license_cam01_seq`, `02`, `03` in turn (+0x74), the picture fading in over 1 s (+0xCF54 = 1); while in 2 the
-  player's car is put on the place, at the scene's heading, every step (0x3FAB10); 3 after 1 s.
-- **The camera** (0x4091E8, while the scene is up and before state 2 ends): the cameras' sequence at its own clock (0x429BC0);
-  RaceLicense virtuals 139 / 148 ask 0x4096F8 whether it is the race's camera.
-- **Drawn** by RaceLicense virtual 138 (0x4094C8) and 116 (0x408470, 0x4096C0).
-- 🔎 The original's B-1 overshoot (a failure by a cone hit, no time: 18-round4-gt `license_b1_whole_test_overshoot_fail.mp4`) shows
-  no staff and the car left where it stopped, under a camera turning round it, for 25 s; how that agrees with the event-10 test
-  above was not followed.
+- **Places**: the race's road section (the course object's +0xB0) has places for them (RNW4 section record +0x0E u16 count, +0x10
+  -> 16 bytes each: x, y, z, heading; `race::RoadSection::staff`): the 100 m test course's B-1 section the stopping box and a
+  second place 15 m past it; Deep Forest's and Tsukuba's sections one place twice. Set-up (0x408F90): no place, no scene; with
+  two or more the men stand at place 1 through the run and are drawn (+0x1C), else at place 0, not drawn until the end; each in
+  his `stand` motion, drawn 0.94 of his size (0x408F38).
+- **The men round the car** (0x408DB8 → 0x408B08): the place's height is the road's under it (0x409B48); the scene's heading is the
+  place's + 3.14. In the car's frame (x across, z along with the front at -z; the car file's parts block and the wheels'
+  places, NormalCarGeometry virtuals 2, 4, 18 and 0x344AA8 / 0x344C08): the driver's side is the side of the front wheel on
+  the seat's side of the gear lever (the seat +0x34's x against the lever +0x4C's); the master at that wheel's x 0.5 m further
+  out, at the seat's z; the first of the staff 0.75 m out at the seat's z + 1; the other across the car 0.75 m out from the other
+  front wheel, at its z. Each is turned to face the seat (atan2(-dx, -dz), 0x57D118), then all is turned by the scene's heading
+  about the place (0x407DE8), each on the road under him (0x407EF0). The draw turns a man by heading x 180 / 3.14 degrees
+  (0x408490). ✔ The three men within 3 mm and 0.001 rad of the original's pass scene (15-states
+  `state_license_b1_pass_result.p2s`), with the Demio's seat and lever from its car file (`tests/test_license_scene.cpp`).
+- **When** (RaceLicense virtual 75 → 0x3BC6E0 → 0x409168, each step): the result is taken once (0x409138): passed when the
+  test's result word (conductor +0x6C → +0x88) is set, failed when the step's events hold event 10 with it 0. The test's end
+  (0x3F8AB0) sets the word to the grade (1 .. 3) for a time within the targets; a time slower than all three pushes event 10;
+  a run failed by the rules (car +0x441 set: off the course, a wall, a cone, past the stopping box) does neither: **no one comes
+  out** and the car stays where it is (the original's B-1 overshoot, 18-round4-gt `license_b1_whole_test_overshoot_fail.mp4`).
+  Then +0x24: 0 for 2 s; 1 for 2 s (0x409878), the race's picture fading out from the step it begins (race +0xCF54 = -1 / 2);
+  2: the men moved to place 0 (the stopping box) in their `success` or `failed` motions, the camera on the next of
+  `license_cam01_seq`, `02`, `03` in turn (+0x74, kept from one run to the next), the picture fading in over 1 s (+0xCF54 = 1),
+  and, in that step only, the player's car put on the place at the scene's heading (0x409860 → 0x3FAB10); 3 after 1 s (0x409888).
+  ✔ The original's pass (`license_b1_whole_test_page_to_bronze_result.mp4`): the stop at 21.3 s, black about 24.5 .. 25.5 s, the
+  car close up fading in at 26 s, the staff round it at 26.5 s; and its FAIL page after a slow run (05-gtmode
+  `37_license_test_fail_page.png`: 133.366 s, the staff by the car in the inset).
+- **Motions**: each man's and the camera's clock at the number 1 (0x427800 → 0x429BC0): every entry plays through and the last
+  goes round. ✔ A staff man 14.666 s into his motion 20.466 s on (his 15.167 s sequence's last entry of 1.933 s from 13.233 s).
+- **The camera** (0x4091E8 steps it, 0x4094C8 places it): from state 2 on it is the race's (0x4096F8; RaceLicense virtuals 139 /
+  148), its sequence's first clip: eye, target and up in the scene's frame (turned by its heading about the place), the lens
+  (0x428298). ✔ The eye within 1 mm, the lens 0.6436 of the original's state (its eye is the one its last picture was drawn
+  with, a step before its clock).
+- **Drawn** by RaceLicense virtual 116 (0x408470, 0x4096C0 → 0x408490: the men and their shadows, as the pit crew's). A man's
+  shadow is his figure thrown along the light (at most 1.5 m a metre of height) onto the road's plane under him: the road
+  triangle's normal kept when he is placed (0x407EF0; up off the road), the shadow rising -(n.x sx + n.z sz) / n.y a metre
+  (0x407FA0).
 
 ## What runs where
 
@@ -141,4 +162,6 @@ virtual 38 (0x3BC5D0) only for a test of one car (the conductor's car count +0xF
 | the men, places, motions, idle men, wheels, hoses, shadows, sounds, cameras | GT4 |
 | the waits' random steps, the cameras' picks | GT4's rules, our random numbers |
 | a replay's pit stops | not shown: a replay's states carry no pit stage ❓ |
-| the levels of the men (`BAKE_*`), the spare tires' shadows on the floor (0x3D5528, 0x3D3E80), `pit_002`, the license scene's own crew (`pit/license_001`, read above) | not built |
+| the license test's staff: places, motions, cameras, fade, the car put in the box | GT4 |
+| the levels of the men (`BAKE_*`), the spare tires' shadows on the floor (0x3D5528, 0x3D3E80), `pit_002` | not built |
+| the license staff's shadows on the road's plane under each man (0x407EF0 keeps the road triangle's normal, 0x407FA0 the rise along the shadow: -(n.x sx + n.z sz) / n.y) | GT4 (the pit crew's still lie flat at the man's height ❓) |

@@ -24,9 +24,12 @@ std::vector<float> road_list(ByteSpan road, size_t list);
 // (0x358608 → vf23). ❓ The rest of the record (+0x08 .. +0x1C: counts and three pointers, a place among them).
 // +0x18 -> a section's own start places, u16 count at +0x0A (the program's grid place of the section, 0x3952C0:
 // road +0x5C's records otherwise; 16 bytes each: the place and its heading).
+// +0x10 -> the places of a license test's staff, u16 count at +0x0E (0x395338 / 0x395380; 16 bytes each: x, y, z, heading):
+// place 0 the stopping box, place 1 where the men wait during the run (docs/formats/pit_scene.md "The license scene").
 struct RoadSection {
     float start = 0, goal = 0;
     std::vector<course::Runway::Place> grid;
+    std::vector<course::Runway::Place> staff;
 };
 std::vector<RoadSection> road_sections(ByteSpan rnw4);
 

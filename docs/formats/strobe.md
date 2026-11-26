@@ -350,15 +350,22 @@ page. Its first track is a picture the program supplies (kind 7, no name): **the
 picture**, 300 x 225 at its scale, which starts at 2.13 (the whole frame) and shrinks to (214, 239)
 over the page's first frames; over it the run's time and its gap in red (`GetTime()`,
 `GetTimeDif()`: seconds with three decimals, "133.366" and "+122.066" in the original's B-1 run,
-the gap to the bronze time), the test's title (`GetTitle()`, "License B-1"), the FAIL picture,
+the gap to the bronze time; a run failed by the test's rules has no time: "-'--.---" and no gap, as the page's first words
+from ResultLicense::vf2 0x3E08D0, since the test's end 0x3F8AB0 posts a time (conductor +0x8C) only for a run that ended
+with one and 0x3E1EA0 writes the gap only beside a time; ✔ 27-license-fails `b1_fail_page_after_wall.png`), the test's title (`GetTitle()`, "License B-1"), the FAIL picture,
 then RETRY and EXIT (`EXIT_MENU("retry")` / `EXIT_MENU("exit")`, the RETRY row named `DEFAULT`).
 The movie's pictures the program draws are listed in the header (+0xB8: 0x18 bytes each, f32 x0, y0,
 x1, y1 the box about the track's origin, u32 name, u32 length), an external track's index naming one:
 here `screen` (300 x 225: the live picture) and `TropyPanel` (282.3 x 270.5). ResultLicense's picture
 callback (0x3E0E38): `screen` sets the race view's box (the FAIL page's inset; the PASSED part has
 none, so a passed test's page shows the race over the whole picture), any other name draws the
-trophy (0x3E0FF8): `race/trophy.mdl` in its material set by the result's kind (table 0x6A38F0: kinds
-1, 2 set 0, 3 set 1, 4, 5 set 2; gold, silver, bronze), through a lens 50 degrees high (0x49AC00:
+trophy (0x3E0FF8): `race/trophy.mdl` in its colour by the result's kind (table 0x6A38F0: kinds
+1, 2 set 0, 3 set 1, 4, 5 set 2; gold, silver, bronze; 0x3E18D0 writes it, at most the set's +0x1A, into the model's +0x18).
+The colour is the paint (Tex1 +0x20, three variants): the model's one picture, a 64 x 64 sphere map, read through the gold, the
+grey or the copper palette; its material variations are all white. The reflection is that picture of its own, sphere
+mapped by the view's normals (light faces and dark sides as it turns), not the course's. Its lights are its own too (0x3E1780,
+light set 0x66: ambient 0.3, diffuse 0.5, specular 0.5, and its parameter 13 (0, 1, 0) ❓; ours are the course's lights; ✔ by picture against the original's bronze, 18-round4-gt `license_b1_whole_test_page_to_bronze_result.mp4`:
+copper, light and dark faces), through a lens 50 degrees high (0x49AC00:
 0.1 .. 100 m, the 640 x 448 picture's aspect), the whole picture then put into the panel's box; three
 passes a frame averaged, the motion stepped half a frame between them. The motion (0x3E18D0, stepped
 by 0x3E1A80, each value v += ((target - v) x gain + rate) x dt): the place's z from -0.5 to -2.5 at
@@ -368,7 +375,11 @@ with its spin from 1000 (gain 1.2), kinds 4, 5 at 270 and turned over (about x f
 1.5; the spin's gain 3). The race display's three target times with their trophies stay over the
 page (the original's pass pictures). Here: the trophy drawn once a frame (no averaged passes), the
 grade's kind gold 1, silver 3, bronze 4 (❓ the result's kind +0x88 is not read), the live picture
-from the course's TV cameras (❓ the program's camera for the page is not read).
+the race's own view after a run with a time, until the license staff's cameras take it over (pit_scene.md "The license
+scene"), and the course's TV cameras after a run failed by the rules (❓ the program's camera for that is not read). ✔ The
+page's timing against the original's pass (18-round4-gt `license_b1_whole_test_page_to_bronze_result.mp4`, 0.1 s frames
+from the stop): the title 0.1 s after, the time 0.6 s, the trophy fading in from 1.2 s (the original's 0.1 .. 0.3, 0.5 .. 0.7,
+1.3 s). ❓ The original fades the race display out over about 0.3 s as the title comes; ours takes it away at once.
 Here: the grade from the run's time against the page's gold, silver and bronze times (❓ the
 tests' own failing rules are not read), the gap to the next grade up, the title from the race code
 (❓ the program's title routine is not read); RETRY runs the test again at once.

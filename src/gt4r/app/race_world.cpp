@@ -24,7 +24,9 @@
 #include "gt4r/sim/record_image.h"
 #include "gt4r/race/driver_figure.h"
 #include "gt4r/race/driver_state.h"
+#include "gt4r/race/license_scene.h"
 #include "gt4r/race/pit_scene.h"
+#include "gt4r/race/sections.h"
 #include "gt4r/race/start_rule.h"
 #include "gt4r/sim/rules_wear.h"
 #include "gt4r/sim/session.h"
@@ -130,6 +132,9 @@ struct RaceWorld::Impl {
     bool pit_live = true; // (a replay's cars have no stops)
     std::vector<race::PitScene::Wheel> pit_wheels;
     void add_pit_crew(std::vector<render::DrawItem>& items, size_t car, const race::CarVisual& visual);
+    // A license test's staff (one car on a road section of a license test: RaceLicense virtual 38, 0x3BC5D0).
+    std::unique_ptr<race::LicenseScene> license_scene;
+    race::LicenseScene::CarSizes license_sizes;
     render::ScreenBatch overlay;
 };
 
@@ -288,6 +293,7 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
     course_->set_gadget_bodies(&gadget_bodies_);
     line_job_ = std::async(std::launch::async, [road = &course_->road()] { return race::RailLine(*road); });
     build_simulation();
+    open_license_scene();
     // The race's sound: every car, the course's ambience, the count and the music.
     if (audio::AppSound* sound = app.sound()) {
         gt3r::AudioEngine& engine = app.audio();
@@ -563,6 +569,7 @@ bool RaceWorld::set_player(const PlayerChoice& c, size_t player) {
 
 void RaceWorld::restart() {
     build_simulation();
+    open_license_scene();
     gadget_bodies_.reset(course_->gadgets(), course_->road());
     course_->restart_animations();
     clear_effects();
@@ -619,6 +626,7 @@ void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool pla
     if (service_on_ && session_ && !hold && service_.size() < 256)
         service_.push_back({false, net::ServiceEvent::Driver, u32(session_->gt4_record(0).aids.tcs_class) | u32(session_->gt4_record(0).drive.shift_factor) << 8});
     if (!hold) step_pit_scene();
+    if (!hold) step_license_scene();
     if (!hold) course_->animate(kStep, sim_->cars());
     // The cones and boards the cars run into: each car's box (0x3E5108) at its center of mass, by its heading,
     // its body's extents (❓ the program reads them from its car record +0x48C .. +0x494, taken here as the
@@ -856,6 +864,78 @@ void RaceWorld::step_pit_scene() {
     }
     m.pit_scene->step(m.pit_cars, m.pit_shown, kStep, [&](const char* name) { m.pit_sounds.push_back(name); });
 }
+
+// The license test's staff (race/license_scene.h): set up as the test starts, the men placed by the test car's seat and front wheels.
+void RaceWorld::open_license_scene() {
+    Impl& m = *impl_;
+    std::vector<course::Runway::Place> places;
+    if (setup_.conductor == race::Conductor::License && setup_.section >= 0 && car_visuals_.size() < 2 && session_ && app_.gpu() && !course_->road().gtrw) {
+        const std::vector<race::RoadSection> sections = race::road_sections(course_->section(course::kSlotRunway));
+        if (size_t(setup_.section) < sections.size()) places = sections[size_t(setup_.section)].staff;
+    }
+    if (!places.empty() && !m.license_scene) {
+        if (const std::optional<Bytes> file = app_.vfs()->read("pit/license_001")) try {
+                m.license_scene = std::make_unique<race::LicenseScene>(app_.gpu(), *file);
+                if (const gt3r::race::SunParams& env = course_->env(); env.has_shadow) {
+                    const float el = -env.shadow_elev * kPi / 180, az = -env.shadow_az * kPi / 180;
+                    m.license_scene->set_shadow_shear(RVec{std::sin(az), 0, std::cos(az)} * (env.shadow_len * std::cos(el)));
+                }
+            } catch (const std::exception& e) {
+                LOG_WARN("Drive: no license staff (%s)", e.what());
+            }
+    }
+    if (!m.license_scene) return;
+    // The front wheels across and along the car as it stands (0x344AA8, 0x344C08).
+    race::LicenseScene::CarSizes sizes = m.license_sizes;
+    if (!places.empty()) {
+        race::PitScene::Car c;
+        race::PitScene::place_car(c, *car_visuals_[0], sim_->cars()[0]);
+        for (int w = 0; w < 2; ++w) sizes.wheel_x[w] = c.hub[w].x, sizes.wheel_z[w] = c.hub[w].z;
+    }
+    m.license_scene->start(places, sizes, [road = &course_->road()](float x, float z, float& y, RVec* normal) {
+        int t = -1;
+        if (!road->height_at(x, z, 1000, y, &t)) return false;
+        // The road triangle's plane (0x409B68).
+        if (normal && t >= 0 && size_t(t) < road->triangles.size()) {
+            const auto& tri = road->triangles[size_t(t)];
+            const auto p = [&](int k) { const auto& v = road->vertices[tri.v[size_t(k)]].pos; return RVec{v.x, v.y, v.z}; };
+            RVec n = render::cross(p(1) - p(0), p(2) - p(0));
+            if (n.y < 0) n = n * -1.0f;
+            if (const float l = render::length(n); l > 0) *normal = n * (1 / l);
+        }
+        return true;
+    });
+    if (m.license_scene->on())
+        LOG_INFO("Drive: the license staff at (%.2f, %.2f), %zu places", double(m.license_scene->place().x), double(m.license_scene->place().z), places.size());
+}
+
+void RaceWorld::step_license_scene() {
+    Impl& m = *impl_;
+    if (!m.license_scene || !m.license_scene->on()) return;
+    const int was = m.license_scene->state();
+    // The men at the stopping place: the test car put there at the scene's heading (0x3FAB10).
+    if (m.license_scene->step(kStep)) {
+        const RVec& at = m.license_scene->place();
+        stand_car(0, at.x, at.z, m.license_scene->heading());
+        LOG_INFO("Drive: the license staff come out (%s)", m.license_scene->result() == 1 ? "passed" : "slower than the targets");
+    }
+    if (m.license_scene->state() != was) LOG_INFO("Drive: the license staff's state %d", m.license_scene->state());
+}
+
+void RaceWorld::license_result(bool passed) {
+    if (impl_->license_scene) impl_->license_scene->set_result(passed);
+}
+
+bool RaceWorld::license_camera(race::ViewPose& out, bool before) const {
+    const Impl& m = *impl_;
+    race::LicenseScene::CameraShot shot;
+    if (!m.license_scene || !m.license_scene->on() || !m.license_scene->camera(shot, before)) return false;
+    out = {};
+    out.eye = shot.eye, out.view = shot.view, out.fov = shot.angle;
+    return true;
+}
+
+float RaceWorld::license_brightness() const { return impl_->license_scene && impl_->license_scene->on() ? impl_->license_scene->brightness() : 1.0f; }
 
 bool RaceWorld::pit_camera(size_t car, race::ViewPose& out, bool before) const {
     const Impl& m = *impl_;
@@ -1225,6 +1305,7 @@ RaceWorld::Scene RaceWorld::collect(std::span<const race::CarState> cars, const 
         if (const float a = car_alpha(i); a < 1)
             for (size_t k = first; k < m.items.size(); ++k) m.items[k].alpha = a;
         if (m.pit_live && int(i) == m.pit_shown) m.add_pit_crew(m.items, i, *car_visuals_[i]);
+        if (m.pit_live && i == 0 && m.license_scene) m.license_scene->add_items(m.items);
         light_items(m.items, first, m.lights[i]);
     }
     if (!split) course_->add_after_items(m.items);
