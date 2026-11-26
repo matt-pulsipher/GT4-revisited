@@ -95,6 +95,13 @@ void Video::save(gt3r::IniDocument& c) const {
     if (gpu != was.gpu) c.set(kSection, "gpu", gpu_value(gpu));
 }
 
+int picture_width(gt3r::platform::Aspect a, int pw, int ph, bool view) {
+    using gt3r::platform::Aspect;
+    if (a != Aspect::Fill || pw <= 0 || ph <= 0) return a == Aspect::Classic ? gt3r::platform::kClassicWidth : gt3r::platform::kWideWidth;
+    const int w = int(std::lround(double(gt3r::platform::kGameHeight) * pw / ph));
+    return std::clamp(w, view ? kNarrowestView : gt3r::platform::kClassicWidth, gt3r::platform::kMaxFillWidth) & ~1;
+}
+
 double limited_rate(double hz, bool limit) {
     if (!limit || !(hz > 0)) return 0;
     const int every = std::max(1, int(std::floor(hz / 60.0 + 0.25)));
