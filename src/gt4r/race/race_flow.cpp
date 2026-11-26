@@ -28,6 +28,18 @@ int start_hold_steps(StartType type, int given_seconds) {
     }
 }
 
+bool row_start(std::span<const u8> row, StartType& type, int& seconds) {
+    if (row.size() <= 0x41) return false;
+    switch (row[0x40]) {
+    case 1: type = StartType::Eight; break;
+    case 2: type = StartType::Ten; break;
+    case 3: type = StartType::None; break;
+    default: type = StartType::Given; break;
+    }
+    seconds = row[0x41];
+    return true;
+}
+
 int start_crossings(float v, float lap_length, std::span<const float> sectors, float goal) {
     for (const float end : sectors)
         if (v < end) return 1; // (not in the last sector)
