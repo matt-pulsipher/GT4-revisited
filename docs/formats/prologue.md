@@ -331,6 +331,23 @@ engine's builder has it as its later builds' constant.) `GT4R_START=1` with it c
   11: the single player's and the training's) every car but the reference its band's time scale, the overall percent's
   arithmetic included (0x3F7FFFFE for 100).
 
+**Whose code each routine of the step is** (`GT4R_TAPS=prologue`, the test `disc_prologue_step_routines_equal`: each of ours
+at every call of the program's on the record as the program has it, 1,200 of 1,200 equal on the test drive):
+
+- *Gran Turismo 4's port, Prologue's routine being Gran Turismo 4's in its own layout* (the same instructions but for the
+  record's offsets, or the map's "layout only" / "same"): the previous step's values 0x3B2480 (= 0x343ED0), the tire curves
+  0x3BA538 (0x351850), the longitudinal force 0x3BA5E8 (0x3518E8), the rolling resistance 0x3BBF18 (0x3534A0; Prologue's curve
+  and per-surface factors), the slip angles 0x3BF598 (0x357690), the hub offsets 0x3B44B0 / 0x3B4600 (0x3458D0 / 0x345A20), the
+  speed ramp 0x3B4630 (0x345A50), the effects' reset 0x3CA7B0 (0x366718, with Prologue's draw mode 0x3CA750), a computer's
+  brake pedal 0x3B2338 (0x343D60), the tire slip force 0x3BB138 and forward step 0x3BAC98, the airborne flag (0x3BC198).
+- *Prologue's own*: the class grip 0x3BC03C and the standstill hold 0x3BB9F0 (Gran Turismo 3's rule of when a car stops, over
+  the layout's wheels), and the routines the table above names `prologue::`.
+- *The engine's (Gran Turismo 3's) still, each equal to Prologue's at every call*: phase 4's preparation 0x3BF608 with its peak
+  force 0x3BF338 and aerodynamics 0x3DBB70; the steering angles in 0x3B5A20; the aids' indicators 0x3E02A0; in phase 10 the
+  brakes and clutch, wheel torques, vectoring, axles, wheel speeds, engine speed and gearbox; the brake heat; phase 14's pairs;
+  in phase 19 the suspension, wheel spin; phases 20 .. 22 (tire wear, wear flags, flaps); at the start the standing start,
+  new tires, the step's length, the moving start's engine part.
+
 Still not run, or not Prologue's own:
 
 - Phases 2, 3 and 6 (0x3BDEC8, 0x3C3C90, 0x3C4400: the four-motor layout 7's state and the special car kind 1's moods): not run

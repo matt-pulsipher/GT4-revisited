@@ -589,6 +589,7 @@ void Session::place(size_t i, const course::Runway::Place& at, bool by_front, s3
     }
     axes();
     if (gt4_ready_) rules::hub_offsets(c, layouts_[i]);
+    else if (prologue_) rules::hub_offsets(c, prologue_cars_[i].layout); // (0x3B4600 = 0x345A20)
     else ex::hub_offsets(c);
     for (size_t w = 0; w < 4; ++w) {
         ex::Wheel& wheel = c.w[w];
@@ -636,6 +637,7 @@ void Session::place(size_t i, const course::Runway::Place& at, bool by_front, s3
     axes();
     c.pos.z = c.ground_pos.z + c.up.z * c.p.cog_height;
     if (gt4_ready_) rules::hub_offsets(c, layouts_[i]);
+    else if (prologue_) rules::hub_offsets(c, prologue_cars_[i].layout); // (0x3B4600 = 0x345A20)
     else ex::hub_offsets(c);
     c.lag_heading = c.heading, c.lag_pitch = c.pitch;
     rules::view_start(c, gx_[i].feel.view); // (0x3455F0)
@@ -655,7 +657,8 @@ void Session::place(size_t i, const course::Runway::Place& at, bool by_front, s3
         prologue::hybrid_start(c, prologue_cars_[i]);                  // (0x3CC0B8)
         prologue_feel_[i].force = {};                                  // (0x3BC7B0)
     }
-    ex::save_previous(c);
+    if (prologue_) rules::save_previous(c, prologue_cars_[i].layout); // (Prologue's 0x3B2480 = Gran Turismo 4's 0x343ED0 in its layout)
+    else ex::save_previous(c);
     if (gt4_rules_) { // (0x344040)
         const rules::SpeedTables& k = speed_tables_[i];
         rules::wheel_spin(c, gx_[i].feel.anim, layouts_[i], k.special_x10, gx_[i].wear.category, gx_[i].body.in_line_x65c, k.throttle_share, k.brake_share);
@@ -721,8 +724,10 @@ void Session::chassis(size_t i) {
     ex::Car& c = cars_[i];
     Extra& x = extra_[i];
     if (gt4_rules_) rules::hub_offsets_xy(c, layouts_[i]); // (0x3458D0: by the wheel layout)
+    else if (prologue_) rules::hub_offsets_xy(c, prologue_cars_[i].layout); // (Prologue's 0x3B44B0: 0x3458D0 in its layout)
     else ex::hub_offsets_xy(c);
     if (gt4_rules_) rules::speed_ramp(c, layouts_[i]); // (0x345A50)
+    else if (prologue_) rules::speed_ramp(c, prologue_cars_[i].layout); // (0x3B4630: 0x345A50 in its layout)
     else ex::speed_ramp(c);
     ground_contact(c, x);
     if (gt4_rules_) { // Gran Turismo 4's suspension and attitude (0x36A490 .. 0x36BA88)
@@ -772,11 +777,13 @@ void Session::chassis(size_t i) {
     else if (prologue_) prologue::engine_sound(c, prologue_feel_tables_); // (0x3B9020)
     else ex::engine_sound(c, race_.sound_scales);
     if (gt4_rules_) rules::effects_reset(c, layouts_[i], rules::draw_mode(c, 0, 0, 0)); // (0x366718; no ghosts here)
+    else if (prologue_) rules::effects_reset(c, prologue_cars_[i].layout, prologue::draw_mode(c, 0, 0)); // (0x3CA7B0 = 0x366718, Prologue's draw mode)
     else ex::effects_reset(c, 0, 0);
     if (gt4_rules_) rules::view_follow(c, gx_[i].feel.view, tables_.feel); // (0x345658)
     else if (prologue_) prologue::view_follow(c, gx_[i].feel.view, prologue_feel_tables_); // (0x3B4238)
     else ex::view_follow(c);
     if (gt4_rules_) rules::hub_offsets(c, layouts_[i]); // (0x345A20)
+    else if (prologue_) rules::hub_offsets(c, prologue_cars_[i].layout); // (0x3B4600 = 0x345A20)
     else ex::hub_offsets(c);
     if (gt4_rules_) { // (0x36C9F8: the pitch before the roll; 0x35D350)
         rules::body_axes(c);
@@ -929,7 +936,8 @@ void Session::step_once(std::span<const race::CarInput> inputs, const Decider& d
                 c.hold = hold;
             }
         } else {
-            ex::save_previous(c);
+            if (prologue_) rules::save_previous(c, prologue_cars_[i].layout); // phase 1 (0x3B2480: Gran Turismo 4's 0x343ED0)
+            else ex::save_previous(c);
             ex::prep(c, race_.prep);
             if (prologue_) prologue::part_downforce(c, prologue_cars_[i], prologue_feel_[i], race_.prep.slip); // (0x3DBB70's end)
         }
@@ -964,6 +972,7 @@ void Session::step_once(std::span<const race::CarInput> inputs, const Decider& d
             if (!prologue_) c.full_throttle = 1; // (Prologue's: pad_watched)
             c.throttle_pedal = c.throttle = gt3r::ee::F(std::clamp(in.throttle, 0.0f, 1.0f));
             if (gt4_rules_) rules::brake_pedal(c, layouts_[i], F(std::clamp(in.brake, 0.0f, 1.0f))); // (0x343D60)
+            else if (prologue_) rules::brake_pedal(c, prologue_cars_[i].layout, F(std::clamp(in.brake, 0.0f, 1.0f))); // (0x3B2338 = 0x343D60)
             else ex::set_brake_pedal(c, gt3r::ee::F(std::clamp(in.brake, 0.0f, 1.0f)));
             c.reverse_req = gt3r::s8(in.reverse ? 1 : 0);
             if (in.shift_lock) c.shift_lockout = in.shift_lock;

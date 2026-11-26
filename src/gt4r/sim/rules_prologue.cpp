@@ -146,7 +146,59 @@ Tables tables(const Program& program) {
         t.sound_scales[3] = f_of(program.b(e + 0x1F)) / ten;
     }
     t.wear_slip_cap = program.b(s + 0x8E);
+    { // 0x3C5BC0
+        t.road.rolling_curve.n = gt3r::s16(t.rolling_n);
+        for (u32 k = 0; k < 8 && k < t.rolling_n; ++k) t.road.rolling_curve.x[k] = t.rolling_x[k], t.road.rolling_curve.y[k] = t.rolling_y[k];
+        for (u32 k = 0; k < 16; ++k)
+            t.road.rolling_mu[k] = gt3r::ee::int_to_f(s32(gt3r::s16(program.h(s + 0x2C + 2 * k)))) * F::raw(0x3C23D70A);
+    }
     return t;
+}
+
+void stop_hold(ex::Car& c, const rules::WheelLayout& l, bool air) {
+    if (c.hold != 0) {
+        c.vel.y = F(), c.drive_sum = F(), c.yaw_rate = F(), c.vel.x = F();
+        return;
+    }
+    if (air) return;
+    auto stops = [&] {
+        if (c.race_hold != 0 || c.driver_kind == 8) return true;
+        if (!(F::raw(0xBE8E38E3) < c.speed && c.speed < F::raw(0x3E8E38E3))) return false;
+        bool braked = false;
+        for (int i = 0; i < l.count && i < 4; ++i) {
+            const ex::Wheel& w = c.w[size_t(i)];
+            if (w.flags & 2) braked = true;
+            if (!(w.slip_fade == F())) return false;
+        }
+        return braked;
+    };
+    if (stops()) {
+        c.lat_speed = F(), c.yaw_rate = F(), c.vel.x = F(), c.vel.y = F(), c.drive_sum = F();
+        c.a_x = F(), c.a_y = F(), c.lat_g = F(), c.speed = F();
+        return;
+    }
+    const F dt = c.dt;
+    const F ax = c.a_x * dt, ay = c.a_y * dt;
+    c.vel.x = c.vel.x + (ax * c.fwd.x + ay * c.lat.x);
+    c.vel.y = c.vel.y + (ax * c.fwd.y + ay * c.lat.y);
+}
+
+int draw_mode(const ex::Car& c, u32 race_8c, u32 ghost_word) {
+    if (c.ghost == 0) return 3;
+    if (race_8c == 0 && ghost_word == 0) return 1;
+    return c.control == 1 || c.driver_kind == 1 ? 0 : 2;
+}
+
+void class_grip(ex::Car& c, const rules::WheelLayout& l, const ex::ClassGrip& grip) {
+    if (!(c.control == 1 || c.control == 2 || c.driver_kind != 0)) return;
+    const gt3r::s8 pct = grip[size_t(c.p.drive_class) & 3];
+    if (pct == 0) return;
+    const F k = gt3r::ee::int_to_f(pct) * F::raw(0x3C23D70A) + kOne;
+    for (int i = 0; i < l.count && i < 4; ++i) {
+        ex::Wheel& w = c.w[size_t(i)];
+        w.slip_fade = w.slip_fade * k;
+        w.circle = w.circle * k;
+    }
 }
 
 void race_rules(ex::RaceInputs& r, const Tables& t, const u8* c, bool wear_on) {
@@ -532,10 +584,10 @@ void dynamics(ex::Car& c, CarPart& x, const ex::Statics& s, const ex::GearSettin
     ex::brakes_and_clutch(c);
     if (c.p.d.kind == 3) c.clutch_req = request, c.clutch = request == F() ? 0 : 1;
     if (c.p.special == 8) c.clutch = 1;
-    ex::rolling_resistance(c, s);
-    ex::tyre_curves(c);
-    ex::class_grip_scale(c, grip);
-    ex::tyre_long_force(c, s);
+    rules::rolling_resistance(c, x.layout, t.road); // (0x3BBF18: Gran Turismo 4's 0x3534A0 in its layout)
+    rules::tire_curves(c, x.tires, x.layout);       // (0x3BA538: 0x351850)
+    prologue::class_grip(c, x.layout, grip);
+    rules::tire_long_force(c, x.layout, t.slip);    // (0x3BA5E8: 0x3518E8)
     rules::tire_slip_force(c, x.tires, x.layout, t.globals);
     if (t.globals.mean_on) c.x420 = x.tires.mean_slip;
     wheel_kinds(c, x);
@@ -553,9 +605,9 @@ void dynamics(ex::Car& c, CarPart& x, const ex::Statics& s, const ex::GearSettin
         ex::engine_speed(c, s.hybrid);
         ex::gear_step(c, g);
     }
-    const bool air = ex::airborne(c);
+    const bool air = rules::airborne(c, x.layout); // (0x3BC198: the layout's wheels' loads sum to 0)
     lateral_yaw(c, x, air, t);
-    ex::stop_hold(c, air);
+    prologue::stop_hold(c, x.layout, air);
 }
 
 namespace {

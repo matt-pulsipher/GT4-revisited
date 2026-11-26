@@ -125,6 +125,9 @@ struct Tables {
     // start makes them, 0x3B8720 into 0x714904 .. 0x714910).
     std::array<F, 4> sound_scales{};
     u8 wear_slip_cap = 0; // the static block's +0x8E (the tire wear's slip cap, 0x3CB8C8)
+    // The rolling resistance's (0x3BBF18): its curve (0x504428, above) and each surface's factor (0x504438 + 4 s: the static
+    // block's s16 +0x2C + 2 s x 0.01, made by 0x3C5BC0), in Gran Turismo 4's form.
+    rules::RoadTables road;
 };
 // The engine's statics with Prologue's own values where they differ (the rolling resistance's curve; its per-surface
 // coefficients, 0x504438, are the engine's).
@@ -224,6 +227,20 @@ void wheel_kinds(const ex::Car& c, CarPart& x);
 // acceleration, the lateral acceleration the force sum times the parameter block's inverse mass (+0x4C), and no computer
 // driver's grip in the lateral acceleration over the tires' grip.
 void lateral_yaw(ex::Car& c, const CarPart& x, bool airborne, const Tables& t);
+
+// 0x3BB9F0 (phase 10's last): the standstill hold. Gran Turismo 4's (0x352C90) over the layout's wheels but with Gran
+// Turismo 3's rule of when a car stops: under the hold counter the speeds and the yaw cleared; airborne nothing; stopped dead
+// with the race's hold (F +0x4E0), a driver of kind 8, or within 1 km/h with no slip fade on any wheel of the layout and one
+// of them braked (wheel +0x5F bit 1); else the planar velocity takes the step's accelerations.
+void stop_hold(ex::Car& c, const rules::WheelLayout& l, bool airborne);
+// 0x3CA750: how a car is drawn (3 a car in the race; a ghost (F +0x3EE set): with neither the race's word +0x8C nor the
+// course's ghost word (+0x13440) 1, else 0 for control source 1 or driver kind 1, else 2), for the effects' reset 0x3CA7B0
+// (Gran Turismo 4's 0x366718).
+int draw_mode(const ex::Car& c, u32 race_8c, u32 ghost_word);
+// 0x3BC03C: the class grip of a car a computer drives (control source 1 or 2, or a driver kind): 1 + 0.01 x the race's
+// byte by the drive class on each wheel's slip fade and friction circle, the wheels of the layout (Gran Turismo 4's rule,
+// 0x3535B0).
+void class_grip(ex::Car& c, const rules::WheelLayout& l, const ex::ClassGrip& grip);
 
 // 0x3BBFE0 (phase 10): the engine's phase (brakes and clutch, rolling resistance, tire curves, the class grip, the
 // longitudinal force, wheel torques, vectoring, axles, wheel speeds, engine speed and gearbox, the hold: each equal to
