@@ -41,7 +41,7 @@ What the app is made of:
 ## Using it
 
 1. Copy your Gran Turismo 4 `.iso` or `.chd` image to the device (or an SD card or USB drive).
-2. Launch the app and choose **Open disc image**: Android's file picker opens, and the app reads
+2. Launch the app and tap **Choose a disc image**: Android's file picker opens, and the app reads
    the image through the Storage Access Framework, so no storage permission is needed. The image
    is remembered.
 3. Bluetooth and USB controllers work at once. Without one, on-screen touch controls appear: a
@@ -80,7 +80,10 @@ Release APKs are signed with the project's own key, so every release can update 
 copy. Create it once with `android/make-release-key.sh` (the certificate names the project, not
 a person) and keep the `.jks` and its password in a password manager. Then set `GT4R_KEYSTORE`
 (its path) and `GT4R_KEYSTORE_PASSWORD` (and `GT4R_KEY_ALIAS` when it is not `gt4r`) before
-`./gradlew assembleRelease`; without them the release APK is unsigned. Debug builds use the
+`./gradlew assembleRelease`; without them the release APK is unsigned
+(`app-release-unsigned.apk`). The release workflow signs it from the repository secrets
+`ANDROID_KEYSTORE_BASE64` and `ANDROID_KEYSTORE_PASSWORD`, and fails without them
+([docs/BUILDING.md](../docs/BUILDING.md#making-a-release) has the one-time steps). Debug builds use the
 local debug key, so a debug and a release build cannot update each other: uninstall one first
 (which removes the app's storage: move the saves out first).
 

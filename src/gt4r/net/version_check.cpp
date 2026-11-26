@@ -47,11 +47,15 @@ std::string release_asset(RvPlatform platform, bool arm64) {
     case RvPlatform::Windows: return arm64 ? "" : "gt4r-windows-x64.zip";
     case RvPlatform::MacOS: return arm64 ? "gt4r-macos-arm64.zip" : "";
     case RvPlatform::Linux: return arm64 ? "" : "gt4r-linux-x86_64.tar.gz";
+    case RvPlatform::Android: return "gt4r-android.apk"; // one APK for arm64-v8a and x86_64
     default: return "";
     }
 }
 
 std::string this_release_asset() {
+#if GT3R_XR
+    return ""; // (the VR builds have no package of their own: the release page)
+#else
 #if defined(__aarch64__) || defined(_M_ARM64)
     constexpr bool arm64 = true;
 #elif defined(__x86_64__) || defined(_M_X64)
@@ -60,6 +64,7 @@ std::string this_release_asset() {
     return "";
 #endif
     return release_asset(rv::this_platform(), arm64);
+#endif
 }
 
 struct VersionCheck::State {

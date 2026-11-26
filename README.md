@@ -31,9 +31,9 @@ Gran Turismo 4 `SCUS-97328` v1.01 (NTSC-U/C) and Gran Turismo 4 Prologue `SCPS-1
 
 ## Installing
 
-Download the package for your computer from the [Releases](../../releases) page. Each release
-lists `SHA256SUMS`, and every file carries a build attestation: `gh attestation verify <file>
---repo <owner>/<repository>` checks that it was built by this repository's workflow from the
+Download the package for your computer or phone from the [Releases](../../releases) page. Each
+release lists `SHA256SUMS`, and every file carries a build attestation: `gh attestation verify
+<file> --repo <owner>/<repository>` checks that it was built by this repository's workflow from the
 tagged source. The packages are not signed with a developer certificate, so the first launch
 needs one extra step:
 
@@ -46,8 +46,18 @@ needs one extra step:
 - **Linux** (x86_64): `gt4r-linux-x86_64.tar.gz`. Extract it and run `bin/gt4r`. 3D needs a
   Vulkan driver (Mesa's `mesa-vulkan-drivers` on AMD and Intel, or your GPU maker's), or on
   older GPUs OpenGL ES 3.0.
+- **Android** (7.0 or later, arm64 or x86_64, with Vulkan): `gt4r-android.apk`. Open it on the
+  phone or tablet (from the browser's downloads or the Files app) and allow installing apps from
+  that source when Android asks. Where Android requires verified developers for apps installed
+  this way, use its install flow for unverified apps (in Developer options), or install it from a
+  computer with `adb install gt4r-android.apk`. Copy your disc image to the device (or an SD card
+  or USB drive), start GT4 Revisited, tap **Choose a disc image** and pick the image in Android's
+  file picker; it is remembered. A newer release's APK installs over this one and keeps your saves
+  and settings. A copy you built yourself is signed with another key: Android won't update it
+  with the release's APK, so uninstall it first, which deletes its storage (move the saves out
+  through the Files app, "GT4 Revisited", before).
 
-On the first start the app asks for your disc image: press Enter (or Cross) and choose your
+On a computer, the first start asks for your disc image: press Enter (or Cross) and choose your
 Gran Turismo 4 image (`.iso` or `.chd`, made from your own disc), or drop the file on the window.
 It is remembered, and later launches go straight to the game. Your saved games and settings are
 kept in the app's data folder, not beside the program, so a new version replaces the old one
