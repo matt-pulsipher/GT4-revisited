@@ -144,6 +144,29 @@ places of u64 (the folder's number, its letter in the top byte), u32 count at 0x
 bytes and not scrambled (0x1D0F38). The slide show face shows the list's photos, or the disc's
 (`photo/%03d.JPG`) when the card has none or the face's `demo` is set (0x1C6BE8).
 
+## The photo drive and films (read, not built)
+
+- **Where a player meets it**: the sequence `photo_drive` (9 of the program's sequence names, 0x6A53D8), the fourth
+  event of a course in GT Mode (`CourseEvents`: `EventInfo("photo_drive", 3)`, "Photo Drive" Cr 3 beside Practice on
+  the course's page), run by 0x11ABE0 (0x11B160); and the Replay Theater's replays (0x10CA50). Here the photo drive runs
+  as a free run of the car alone, without the pause below.
+- **The pause** (`PhotoPause`, vtable 0x681B98, a `PauseBase`; made at 0x3C3C20): its photo is set up for 640 x 480,
+  4:3, 32 pictures (0x333560, +0x138); the shutter's sound stream `racephoto.strb` (0x3C4640). Each picture (vf4,
+  0x3C4A48): in a pit stop it refuses (the race's text `CantCaptureWhenPitSequence`, sound `disable`); ❓ pad bit 0x80
+  leaves after 3 pictures; 0x20 steps +0x1A8 through 0, 1, 2 (given to the photo at +0x148); bits 0x200, 0x1, 0x400, 0x2
+  pick +0x1AC 0 to 3; the race's camera manager moves the camera by the pad (`CameraSys::CameraShot` vf10 0x37FFB0: the
+  turn, the climb, the zoom between its limits, kept out of the scenery 0x380C50) and says when the shutter is pressed:
+  sound `shutter`, the photo of the camera's focal length, +0x150 = 1 + an option / 10, focus and aperture from the
+  manager (+0x154, +0x158).
+- **After the shot** (0x3C48D8 -> 0x3C51A0): the race's 0x17E0-byte display state is kept, the menus run the project
+  `photo_save` with the argument `filmphoto` over the still race (the photo, START to save), and the state comes back.
+- **Saving** (`photo_save`'s `DestinationDialog`): the method film, film and photo, or photo; the USB memory as slot 2.
+  A **film** (`MODE_SAVE_PHOTO_FILM`, the folder `F%04d`, `icon/GT4_film_*.ico`) holds the photo's settings (0x334FC8:
+  the lens, focus, filters and the car's frame) and one or two frames of the race's replay (0x33A2A0).
+- **Developing** (Photo Lab's Film folder, "Development"): the film is read, `photo_labo` returns `develop`, and
+  0x1C7BF8 runs `RacePhotoDevelop` with a `DevelopCamera`: the course and cars of the frame drawn again at the film's
+  settings into a photo.
+
 ## Checked against the original
 
 The reference's Times Square (saved states, the saved photo, the pages' pictures): the camera's place,
