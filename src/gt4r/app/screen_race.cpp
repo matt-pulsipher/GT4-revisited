@@ -835,6 +835,7 @@ public:
         board_.begin(world_->car_count(), 0, lap_words_[0], lap_words_[1]);
         camera_.reset(world_->cars()[0]);
         history_.clear(), run_dist_.clear(), saved_recording_.clear(), behind_.reset();
+        begin_ghost(watched || demo);
         if (audio::RaceSound* sound = world_->sound()) {
             sound->forget_recording();
             // (built for its menus, the run is not begun yet: its page comes first)
@@ -854,6 +855,7 @@ public:
     // The scene behind the race's menus: the cars standing on the grid, the course's scenic shots
     // (the last run is kept for its replay).
     void stand(bool guide = false) {
+        world_->set_ghost(std::nullopt, kGhostAlpha);
         // A Gran Turismo 4 license test's page (quick-license) shows the last run as its replay: the race in mode 2 (0x11D1B8),
         // the replay's start shots and cameras; before any run there is none, and the page is black (✔ the original's B-1 page
         // before and after a run, reference 05-gtmode / 11-license-tt). The course's scenic shots are not used there.
@@ -1219,6 +1221,7 @@ public:
         if (event_steps_ >= 0) ++event_steps_;
         if (split_steps_ >= 0) ++split_steps_;
         if (name_steps_ >= 0) ++name_steps_;
+        step_ghost(ev, hold);
         if (history_.size() < kHistory) history_.emplace_back(world_->cars().begin(), world_->cars().end());
         hear(world_->cars(), true);
     }
@@ -1325,8 +1328,73 @@ public:
 
     // `page`: behind a license test's page (stand), again from its start when it ends, not heard (🔎 the original's page is
     // quiet next to its menus' music; whether the replay's own sound plays under it is not read).
+    // ---- The best lap's ghost (the time trial's and free run's RaceFreeRun, the license test's RaceLicense: RaceSolitaire's
+    // recorders). The option automatic_ghost (MOption +0x10CC, 1 in a new game) on: each lap the player drives is kept from
+    // its crossing of the line; a lap faster than the ghost's becomes the ghost, and from the next crossing on the ghost runs
+    // that lap again beside the player's car (✔ 25-sound-cars: the time trial's ghost after a first lap). The sequence keeps it
+    // for its next runs (0x3C0B30 keeps the run's best lap, 0x3C08C0 gives it to the next run's race: the race information's
+    // +0x98, +0x94). A license test's run is its lap, from the start to its end; a graded run faster than the ghost's becomes
+    // the ghost of the next run (report_result: ghost_run_graded). Up (BUTTON_GHOST) shows or hides it.
+    // ❓ The program runs the lap's controller records again from its recorder's moment (0x35AB08 / 0x35ABA8) on the ghost car,
+    // entry 1 of the race (the player's equipment copied at 0x3EA768); here the lap's car states are shown as they were, the same
+    // car for a lap driven by the pad. Its look (see-through at a half) and whether a better lap takes over at once are not
+    // read; the original's ghost entry counts in the race display's Position (2 in the time trial's first lap, 25-sound-cars):
+    // not here. Not in Prologue (its own program, not read).
+    struct GhostLap {
+        std::vector<race::CarState> states;
+        s64 ms = -1;
+    };
+    static constexpr float kGhostAlpha = 0.5f;
+    void set_ghost_option(bool on) { ghost_option_ = on; }
+    void toggle_ghost() { ghost_shown_ = !ghost_shown_; }
+    bool ghost_available() const { return ghost_best_ != nullptr; }
+    const GhostLap* ghost_best() const { return ghost_best_.get(); }
+    void begin_ghost(bool watched_or_demo) {
+        const std::string& q = setup_.sequence;
+        ghost_on_ = ghost_option_ && !watched_or_demo && !gt3_road_ && (q == "time_trial" || q == "freerun" || q == "license");
+        ghost_lap_.clear(), ghost_lap_open_ = false, ghost_run_done_ = false, ghost_playing_ = false, ghost_at_ = 0;
+        ghost_counter_ = flow_.car(0).counter;
+        world_->set_ghost(std::nullopt, kGhostAlpha);
+    }
+    void step_ghost(const race::RaceFlow::Events& ev, bool hold) {
+        if (!ghost_on_) return;
+        const race::RaceFlow::CarRecord& c = flow_.car(0);
+        const bool license = is_license(setup_.sequence);
+        bool start = false;
+        if (license) {
+            start = !hold && !ghost_lap_open_ && !ghost_run_done_;
+        } else if (c.counter != ghost_counter_) {
+            // A crossing of the line: the lap just completed kept when it is the best so far; a new lap begins.
+            if (c.counter > ghost_counter_ && ghost_lap_open_ && ev.lap_done == 0 && c.last_lap_ms > 0 && (!ghost_best_ || c.last_lap_ms < ghost_best_->ms)) {
+                auto lap = std::make_shared<GhostLap>();
+                lap->states = std::move(ghost_lap_), lap->ms = c.last_lap_ms;
+                ghost_best_ = std::move(lap);
+                LOG_INFO("Drive: the ghost: a lap of %lld ms", (long long)c.last_lap_ms);
+            }
+            start = c.counter > ghost_counter_;
+            ghost_counter_ = c.counter;
+        }
+        if (start) ghost_lap_.clear(), ghost_lap_open_ = true, ghost_at_ = 0, ghost_playing_ = ghost_best_ != nullptr;
+        if (ghost_lap_open_ && ghost_lap_.size() < kHistory) ghost_lap_.push_back(world_->cars()[0]);
+        if (license && ghost_lap_open_ && (ev.player_finished || flow_.player_finished())) ghost_lap_open_ = false, ghost_run_done_ = true;
+        std::optional<race::CarState> g;
+        if (ghost_playing_ && ghost_best_ && ghost_at_ < ghost_best_->states.size()) g = ghost_best_->states[ghost_at_++];
+        else ghost_playing_ = false;
+        world_->set_ghost(ghost_shown_ ? g : std::nullopt, kGhostAlpha);
+    }
+    // A license run graded (report_result): its run becomes the ghost when faster than the ghost's.
+    void ghost_run_graded(s64 ms) {
+        if (!ghost_on_ || !ghost_run_done_ || ghost_lap_.empty() || ms <= 0 || (ghost_best_ && ms >= ghost_best_->ms)) return;
+        auto lap = std::make_shared<GhostLap>();
+        lap->states = std::move(ghost_lap_), lap->ms = ms;
+        ghost_best_ = std::move(lap);
+        ghost_lap_.clear();
+        LOG_INFO("Drive: the ghost: a run of %lld ms", (long long)ms);
+    }
+
     void start_replay(bool page = false) {
         if (history_.empty() || (replaying_ && !page_replay_)) return;
+        world_->set_ghost(std::nullopt, kGhostAlpha);
         replaying_ = true, replay_done_ = false, page_replay_ = page;
         begin_view();
         menu_scene_ = false; // (asked for from the race's menus: the scene behind them ends)
@@ -2233,6 +2301,11 @@ private:
     std::unique_ptr<race::RecordedRace> behind_;
     sim::rules::PadMail mail_; // what the player asks for the next step (B-spec's commands, the pit menu's choice)
     std::vector<replay::PadRecord> records_; // the run's records, one a step
+    std::shared_ptr<const GhostLap> ghost_best_; // the ghost's lap (kept for the sequence's next runs)
+    std::vector<race::CarState> ghost_lap_;      // the lap being driven, from its crossing
+    bool ghost_option_ = true, ghost_on_ = false, ghost_shown_ = true, ghost_lap_open_ = false, ghost_run_done_ = false, ghost_playing_ = false;
+    int ghost_counter_ = 0;
+    size_t ghost_at_ = 0;
     bool recording_ = false;
     std::optional<std::array<u8, 0x40>> bspec_start_; // the B-spec driver's record at the run's start
     race::PadRecord player_frame_; // the player's frame of this step (inputs_[0].pad)
@@ -2849,7 +2922,9 @@ public:
         const bool mine = !race_->watched() && !race_->replaying();
         player_input_ = input::read_player(app.input(), 0, controllers_.port[0], wheel_, !mine ? input::Mode::Watch : directions_taken ? input::Mode::DriveNoDirections : input::Mode::Drive);
         const std::pair<u32, u32> down{player_input_.views & ~last_views_, player_input_.menu & ~last_menu_};
-        last_views_ = player_input_.views, last_menu_ = player_input_.menu;
+        // Up (BUTTON_GHOST): the best lap's ghost shown or hidden.
+        if (mine && (player_input_.special & ~last_special_ & input::RaceInput::kGhost)) race_->toggle_ghost();
+        last_views_ = player_input_.views, last_menu_ = player_input_.menu, last_special_ = player_input_.special;
         return down;
     }
 
@@ -3614,6 +3689,7 @@ private:
             race_->set_last_race(series.race_count > 0 && series.races_run + 1 >= series.race_count);
         }
         race_->set_player(player_choice());
+        if (menus_) race_->set_ghost_option(menu::settings_of(menus_->game()).ghost);
         race_->begin_run(watched);
         clock_ = 0;
     }
@@ -3691,6 +3767,7 @@ private:
             const int level = prize_level();
             r.result = level == 0 ? "gold" : level == 1 ? "silver" : level == 2 ? "bronze" : "failed";
             r.name = entered_name_;
+            if (r.finished && level <= 2) race_->ghost_run_graded(s64(r.time_ms));
         } else if (sequence_ == "mission") {
             r.kind = menu::RaceResult::Kind::Mission;
         } else if (sequence_ == "championship") {
@@ -4538,6 +4615,7 @@ private:
     input::Controllers controllers_;
     input::WheelSettings wheel_;
     input::RaceInput player_input_;
+    u32 last_special_ = 0;
     u32 last_views_ = 0, last_menu_ = 0;
     input::RaceFeedback feedback_;
     std::string device_; // the player's pad or wheel as last seen while driving
