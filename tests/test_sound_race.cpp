@@ -965,8 +965,11 @@ TEST(sound_race_prologue_master) {
     race.begin_run(audio::RaceMusic::Race, 2);
     race.start();
     CHECK(played.size() == 1 && played[0].first.find("str01j") != std::string::npos && played[0].second == 1.0f && race.report().starts == 1);
+    // A replay runs the start again: the jingle as it begins, the racing piece at 0.9 from the step the run started.
     race.replay();
-    CHECK(played.size() == 2 && near(played[1].second, 0.9, 1e-6));
+    CHECK(played.size() == 2 && played[1].first.find("str01j") != std::string::npos && played[1].second == 1.0f);
+    race.update(std::span<const race::CarState>{}, audio::SoundListener{}, -1);
+    CHECK(played.size() == 3 && played[2].first.find("race_j") != std::string::npos && near(played[2].second, 0.9, 1e-6));
 }
 
 // Prologue's own in-car view: every sound of the car at the camera, so the exhaust is not behind it (no inverted side), and

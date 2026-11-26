@@ -152,6 +152,7 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
 
     const std::vector<db::CarEntry>& cars = app.db()->cars();
     std::map<std::string, std::optional<Bytes>> character_files;
+    std::optional<Bytes> brake_parts; // race/brake.bin, for Gran Turismo 3 car files (Prologue's)
     // The cars' shapes: decoded on threads, a few cars ahead of the one the main thread hands to the GPU.
     std::vector<std::unique_ptr<CarJob>> jobs;
     std::map<std::string, size_t> job_of;
@@ -188,6 +189,10 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
             if (!wing.empty()) job.wing = app.vfs()->read("wing/lod/" + wing);
             if (job.wing) o.wing = *job.wing;
             o.driver = setup.drivers;
+            if (race::CarVisual::is_gt3_car(*file)) {
+                if (!brake_parts) brake_parts = app.vfs()->read("race/brake.bin");
+                if (brake_parts) o.brake_parts = *brake_parts;
+            }
             if (setup.drivers && car::CarFile::is_car(*file) && !car::CarFile::parse(*file).driver) try {
                     // A car without a driver of its own: a character file by its cockpit kind (0x3B5438).
                     const race::CockpitBytes cp = race::read_cockpit_bytes(*file);
@@ -1114,6 +1119,8 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
     for (size_t i = 0; i < n; ++i) {
         const RVec at{cars[i].position.x, cars[i].position.y, cars[i].position.z};
         m.lights[i] = race::car_light(course_->road(), env, at, at.y + 1.0f);
+        // (A Gran Turismo 3 car file's shadows go with its body, as its program draws them: none for the in-car view's own car.)
+        if (int(i) == hidden && car_visuals_[i]->gt3_file()) continue;
         car_visuals_[i]->add_shadow_items(m.items, cars[i], &m.lights[i]);
     }
     // The cars' levels of detail by their size on screen (race::CarVisual::level): K, the program's
