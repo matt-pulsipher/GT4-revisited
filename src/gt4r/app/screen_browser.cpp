@@ -10,6 +10,7 @@
 #include "formats/tex1.h"
 #include "gt4r/formats/course/course_file.h"
 #include "gt4r/formats/model/mdls.h"
+#include "gt4r/formats/movie_tracks.h"
 #include "video/movie_player.h"
 
 #include <algorithm>
@@ -281,7 +282,7 @@ private:
             try {
                 app.audio().stop_music();
                 movie_.set_audio_device(app.audio().output_device_id());
-                movie_.start(gt3r::video::open_movie(*app.vfs(), path), app.audio().music_volume());
+                movie_.start(gt4r::open_movie(*app.vfs(), path), app.audio().music_volume());
                 const gt3r::video::MovieInfo& info = movie_.info();
                 char b[96];
                 std::snprintf(b, sizeof b, ", movie %dx%d %.2f fps", info.width, info.height, info.frame_rate);
