@@ -1164,7 +1164,9 @@ void Session::publish(size_t i) {
     {
         const rules::ViewState& v = gx_[i].feel.view;
         s.jolt = v.jolt != 0, s.jolt_forward = v.jolt_forward.host(), s.jolt_side = v.jolt_side.host();
+        s.nod_given = gt4_rules_ && tables_.feel.sway_pitch_on, s.nod = s.nod_given ? v.sway_pitch.host() : 0.0f;
     }
+    s.accel_side = c.a_y.host(), s.accel_up = c.heave_acc.host();
     s.rolling = (gt4_rules_ || prologue_) && c.driver_kind == 1;
     // A wheel back on the ground: loaded at this step's end after a step without load.
     s.landed = false;

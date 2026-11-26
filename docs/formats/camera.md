@@ -223,6 +223,9 @@ eye):
    The view pitches with the body on its springs up to 10.5 degrees more than the body
    itself: the dive under braking. (Bytes at 0x6202B0: on, 35 tenths of a
    degree, gain 30 tenths, 100, 20; the same set follows for roll, used by the car's drawing.)
+   ✔ It is the simulation's sway (0x34A668, cond + 0xCAB8 + 0x18), which the in-car path reads (0x34A760) and adds to the
+   body's pitch: the d above is the body's pitch less the ground's (the record's). Here `CarState::nod` from the simulation
+   (our own follower of the line through the wheels stays for a simulation that gives none).
 
 Looking back: heading + pi, pitch and roll negated; the sideways angle stays.
 
@@ -235,8 +238,24 @@ with flags bit 2 clear gets the speed wobble: two values that, with probability 
 pick a new random target in -1..1 and move 0.4 x strength of the way to it each frame
 (strength = (speed squared - 7.716) / 493.83 clamped to 0..1, speed in m/s); the view turns
 0.7 degrees per unit in pitch and yaw, and the eye moves sideways and up by twice the output
-(metres) of the two shakers, which outside the in-car view are fed by two values of the car
-(🔎 half of one, twice the other: body movement). Mount 6 has bit 2 set: it is steady.
+(metres) of the two shakers, which outside the in-car view are fed by the body's lateral acceleration x 0.5 and its heave
+acceleration less gravity x 2 (car + 0x658 / + 0x65C, F +0x554 / +0x558; 0x37AAB8). Mount 6 has bit 2 set: it is steady;
+so are the bumper (5, 9), the roof's looks (7, 8), the sides (3, 4, 10, 11); the places beside the wheels and ahead and behind
+(14 .. 19, flags 3) wobble and heave, which shows in the replays' and Dive's on-board shots (a rough road shakes them).
+Here as the program does it (`DriveCamera`; the two shakers are kept apart from the in-car ones, which the program shares,
+so they differ only for a moment after a change of view).
+
+**What moves each view** (CameraOnBoard::vf10 and its getters; no input from the engine, the gears or the surface's kind):
+- **chase** (mount 1, 0x37B3B8): the body's point (car + 0x888, at the center of gravity's height; ✔ ours: the drawn body's
+  place is that point, 0.000 m apart on the Ka, F-150, Range Stormer and Escort) and the followed heading and pitch. Nothing
+  else: ✔ on Grand Canyon's first straight (`07-courses/grand_canyon_start.mp4` 33.5 to 39.5 s, 11 to 34 mph) the distant
+  ridge moves 0.11 pixels rms of 480 from one picture to the next beyond a third of a second's mean (0.23 every second
+  picture); ours over the same straight 0.48 every second picture (its followed pitch 0.019 degrees rms, its body point 6.8 mm
+  rms): both still to the eye.
+- **in-car / nose** (mount 0, 25): the body's pitch, roll and heading with the nod (above: the ride on rough ground, 0.2 to 2.6
+  degrees on Grand Canyon's straight here), the speed shake (tire slips by speed), a hit's jolt; mount 25 the lean.
+- **roof and other places with bit 2**: the body's pitch, roll and heading only.
+- **places without bit 2**: also the speed wobble and the lateral and heave shakes.
 Looking back is defined for view 6 only: the mount's yaw + 180, its pitch and roll negated.
 
 ### The rear-view mirror 🔎
