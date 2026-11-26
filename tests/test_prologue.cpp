@@ -311,6 +311,19 @@ TEST(disc_prologue_step_routines_equal) {
             if (!differ.count(st.name)) CHECK(st.clean == st.calls);
         }
     }
+    // Gran Turismo 4's routines where Prologue's are its in another layout, on other drives: four wheel drive with a turbo, the
+    // special kind 7, the hybrid (its axles its own path), rear wheel drive.
+    for (const char* car : {"impreza_wrc_03", "sl55_amg_02", "prius_g_touring_03", "s2000_03"}) {
+        std::string err;
+        const std::vector<diff::prologue::PTapStat> stats = diff::prologue::check(*disc, "tsukuba", car, 600, "prologue", err);
+        CHECK(err.empty());
+        for (const diff::prologue::PTapStat& st : stats) {
+            if (st.name.rfind("GT4's", 0) != 0 || (std::string(car) == "prius_g_touring_03" && st.name == "GT4's axle step")) continue;
+            if (st.clean != st.calls) std::printf("  %s: %s %llu of %llu calls equal\n", car, st.name.c_str(), static_cast<unsigned long long>(st.clean),
+                                                  static_cast<unsigned long long>(st.calls));
+            CHECK(st.calls > 0 && st.clean == st.calls);
+        }
+    }
     // Steering wheels (the controller kinds 4 and 6) and a digital pad: the input and the steering wheel's force.
     for (u8 kind : {u8(6), u8(4), u8(0)})
         for (const char* which : {"prologue", "input"}) {
