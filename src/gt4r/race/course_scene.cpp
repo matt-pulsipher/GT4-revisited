@@ -82,7 +82,7 @@ std::unique_ptr<render::GpuModel> CourseScene::build(render::GpuContext& ctx, in
     return gpu;
 }
 
-CourseScene::CourseScene(render::GpuContext& ctx, ByteSpan course_file, const std::string& name)
+CourseScene::CourseScene(render::GpuContext& ctx, ByteSpan course_file, const std::string& name, int section)
     : data_(course_file.begin(), course_file.end()), file_(course::CourseFile::parse(data_)) {
     const ByteSpan env = file_.section(data_, course::kSlotEnv);
     env_ = gt3r::race::SunParams::from_env0(env);
@@ -145,7 +145,7 @@ CourseScene::CourseScene(render::GpuContext& ctx, ByteSpan course_file, const st
     try {
         ByteSpan road = file_.section(data_, course::kSlotRunway);
         if (road.empty()) road = file_.section(data_, course::kSlotRoadGtrw); // (Prologue's)
-        gadgets_ = Gadgets::parse(file_.section(data_, course::kSlotGadgets), road);
+        gadgets_ = Gadgets::parse(file_.section(data_, course::kSlotGadgets), road, section);
         if (!gadgets_.models.empty() && !gadgets_.placements.empty() && mdls::is_mdls(gadgets_.models)) {
             mdls::Scene sc;
             sc.color_scale = color_scale_;
@@ -157,7 +157,8 @@ CourseScene::CourseScene(render::GpuContext& ctx, ByteSpan course_file, const st
             scene::Model m = gt3r::gtm1::build_model(g, o, name + "/gadgets");
             std::string nodes;
             for (const scene::Mesh& mesh : m.meshes) nodes += " " + std::to_string(mesh.node);
-            LOG_INFO("Course %s: %zu cones and boards of %zu kinds; shapes of models%s", name.c_str(), gadgets_.placements.size(), gadgets_.kinds.size(), nodes.c_str());
+            LOG_INFO("Course %s: %zu cones and boards of %zu kinds (%zu the section's); shapes of models%s", name.c_str(), gadgets_.placements.size(), gadgets_.kinds.size(),
+                     gadgets_.placements.size() - gadgets_.section_from, nodes.c_str());
             if (!m.meshes.empty()) gadget_model_ = std::make_unique<render::GpuModel>(ctx, m);
             for (const Gadgets::Kind& k : gadgets_.kinds) gadget_nodes_.push_back({u16(2 * k.index)}), gadget_shadow_nodes_.push_back({u16(2 * k.index + 1)});
         }

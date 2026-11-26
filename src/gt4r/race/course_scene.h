@@ -29,8 +29,9 @@ namespace render = gt3r::render;
 
 class CourseScene {
 public:
-    // Builds the models from a course file's bytes. Throws FormatError.
-    CourseScene(render::GpuContext& ctx, ByteSpan course_file, const std::string& name);
+    // Builds the models from a course file's bytes; `section` the race's road section (a license test's, a mission's: its own
+    // cones and gates are placed too), -1 none. Throws FormatError.
+    CourseScene(render::GpuContext& ctx, ByteSpan course_file, const std::string& name, int section = -1);
     ~CourseScene();
 
     // A race's view, its mirror; a split screen's half and its mirror (their own lists: slots 4 and 7).
