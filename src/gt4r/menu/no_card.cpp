@@ -157,7 +157,7 @@ std::optional<CardAnswer> card_answer(Runtime& rt, const std::string& message) {
         case Do::NoGame: a.shown = "There is no saved game yet."; break;
         case Do::NoOtherGame: a.shown = "There is no other saved game."; break;
         case Do::SaveFailed:
-            if (n && !n->save_failure_told) n->save_failure_told = true, a.shown = "The game could not be saved in\n" + folder;
+            if (n && !n->save_failure_told) n->save_failure_told = true, a.shown = "The game could not be saved in\n" + folder + "\nCheck that the folder can be written in.";
             break;
         case Do::LoadFailed:
             if (n && !n->load_failure_told) n->load_failure_told = true, a.shown = "The saved game could not be read:\n" + folder;
@@ -225,7 +225,7 @@ std::string save_game_now(Runtime& rt) {
     if (!n || rt.config().console_card || rt.data_dir().empty()) return "There is no folder to save in.";
     if (rt.is_prologue() ? !n->checked : !n->state().valid_game_data) return "No game has been started yet: Gran Turismo mode starts one.";
     const save::Result r = n->write_game("Game Data");
-    if (r != save::Result::Ok) return "The game could not be saved in " + n->card().folder();
+    if (r != save::Result::Ok) return "The game could not be saved in " + n->card().folder() + ". Check that the folder can be written in.";
     n->saved_print = print_of(*n);
     return {};
 }
@@ -257,7 +257,7 @@ void autosave(Runtime& rt) {
     if (r == save::Result::Ok) n->save_failure_told = false;
     else if (!n->save_failure_told) {
         n->save_failure_told = true;
-        tell(rt, "The game could not be saved in\n" + folded(n->card().folder()));
+        tell(rt, "The game could not be saved in\n" + folded(n->card().folder()) + "\nCheck that the folder can be written in.");
     }
 }
 
