@@ -1876,7 +1876,7 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
                 if (!a.empty()) w->set_property("alpha", a[0]);
                 return Value{};
             });
-        if (n == "getColor" || n == "setColor") return nothing();
+        if (n == "getColor") return nothing();
     }
     if (type == "SlideShowFace") {
         // doPlay(), doStop(), isPlaying() (the state at +0xAC): the photos are the drawing's
