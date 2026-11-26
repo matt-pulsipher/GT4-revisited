@@ -1671,6 +1671,8 @@ public:
             h.caption_opacity = std::clamp(std::min(view_time_ - 7.2f, 17.6f - view_time_) / 0.25f, 0.0f, 1.0f);
         }
         if (replaying_ || demo) {
+        } else if (flow_.player_finished() && is_license(setup_.sequence) && !gt3_road_) {
+            // (A license test's display has no FINISH: RaceLicenseDisplay's virtual 41 does nothing.)
         } else if (flow_.player_finished()) {
             // FINISH: 3.7 s and a fade of 0.3 s.
             h.message = hud.word("RaceFinish");
@@ -2908,9 +2910,11 @@ public:
         // The results page goes up at the player's finish over the race display, which goes on under it: its
         // movie's first 3.3 s show nothing (result.strb's root waits on its sprite 1), so FINISH and the A-spec
         // points are seen first (✔ the original's: the page up at the FINISH state, the rows ~3.5 s after the line).
-        // A license test's page covers it. (Nor is it drawn under the Race Monitor.)
+        // A license test's display goes out over 0.25 s from the test's end under its page (RaceLicenseDisplay 0x3BCFF0 and
+        // virtual 36: its fader +0xBC), its words on their own times. (Nor is it drawn under the Race Monitor.)
         const bool monitor_up = monitor_ && race_->watched() && !race_->replaying();
-        if (setup_.hud && !monitor_up && (!results_shown() || !is_license(sequence_) || (prologue_hud_ && license_page()))) {
+        const bool license_fading = is_license(sequence_) && !prologue_hud_ && results_shown();
+        if (setup_.hud && !monitor_up && (!results_shown() || !is_license(sequence_) || (prologue_hud_ && license_page()) || license_fading)) {
             if (hud_ && hud_->ready()) {
                 race_->fill(hud_state_, *hud_);
                 // At the player's finish the display stays full 1 s, then fades out over 0.25 s (RaceDisplay::vf41 0x3A1568,
@@ -2918,7 +2922,7 @@ public:
                 hud_state_.opacity = 1;
                 if (const race::RaceFlow& f = race_->flow(); !race_->viewing() && f.player_finished()) {
                     const float t = float(f.steps_since_player_finish()) / 60;
-                    hud_state_.opacity = t < 1 ? 1.0f : std::max(0.0f, 1 - (t - 1) / 0.25f);
+                    hud_state_.opacity = license_fading ? std::max(0.0f, 1 - t / 0.25f) : t < 1 ? 1.0f : std::max(0.0f, 1 - (t - 1) / 0.25f);
                 }
                 // The display's parts the options switch off; a replay's display as they say.
                 const menu::GameSettings::Display& d = settings_.display;
