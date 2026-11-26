@@ -125,6 +125,20 @@ script's second lap) have the lens ours has at that distance (to 0.01 degrees wh
 follows the car), and the pictures are the same size (the Dunlop bridge, the R34 under it). The chase view's 721.2 is 44.25 degrees by
 that rule; the in-car view is taken to use the same lens.
 
+**How the program gets there** ✔ (`CameraSys::CameraOnBoard`, read in the saved states `03-race/state_before_first_corner_chase`,
+`state_at_start`, `35-ice-arena/state_ice_bonnet`, `state_ice_chase`): the projection takes the camera's zoom (+0x24) and, where the
+camera's byte +0x266 asks, the screen's scale (vf13 0x37A208 into 0x3FB4C0: the screen's +0x4C, with +0x40 applied when asked). The
+in-car and chase views keep +0xC = 90, zoom 1 and +0x266 = 0; every other mount (the roof's, the bumper's, the ride-on places) sets
++0xC = 2 atan(1 / the mount's zoom) and +0x266 = 1 (0x37B580's path); a lens set from outside (+0x267, the dive's on-board shots) also
+sets +0x266. With K 721.2 for zoom 1 unscaled and 601.0 for the roof's 2.0503 scaled, the screen's scale is 0.4064 (🔎 where it is
+set), so an unscaled zoom z shows tan 0.5916 / z to a side of a 4:3 picture and a scaled one 1.4556 / z (0.5916 / 0.4064: the
+replay rule above). **By picture** ✔: rendered from the original's own eye and turn in those states (`eye=` of `GT4R_RACE`), the chase
+view's scenery at Tsukuba (the pylon, the yellow wall, the ADVAN banner), the nose view's (the stand's roof, the 150 m board) and the
+roof view's at the Ice Arena (the people, the post, the tents) fall on the original's to a pixel or two across 640 and within a
+few pixels up and down (ours a little lower). **The chase view's place** ✔: in `state_before_first_corner_chase` the eye is 6.07 m
+behind and 1.43 m above the car's origin with the frame pitched 2.7 degrees nose up like the car, which is (0, 1.7, 6) of mount 1 in
+that frame; the view looks along it (the mount's pitch 8 unused), as below.
+
 ### Chase view (view 1)
 
 The eye rides a frame at the car's origin that has the car's **lagged heading and lagged
@@ -229,7 +243,7 @@ deep. **Its lens** ✔ by picture: the tangent of half its height is 0.325 (2.67
 saved state at Tsukuba's start (`03-race/state_at_start`, the nose view) the start gantry behind is 103.5 of 640 pixels between its posts,
 and from the same eye and turn (`eye=` of `GT4R_RACE`) the in-car lens zoomed 1.3 (0.341, the shared engine's) drew it 98.5; with 0.325 it
 draws 103.5. ❓ The program's own mirror camera (its lens, depth and place) was not read (no stored view matrix looking back was found in
-that state; the size factor K there is 121.38, set by the mirror's pass): the on-board camera publishes the view's turn (the sideways
+that state; the size factor K there is 121.38, 🔎 presumably the mirror's pass, drawn after the view): the on-board camera publishes the view's turn (the sideways
 angle, + 180 while looking back).
 
 ## Replay cameras: `REP4` (course slots 44, 45, 46, 48)
@@ -521,3 +535,13 @@ dissolve) whose path is the one of course slot 45. `attach.cam` has 33 car-frame
 (kind 0x21), each a fixed eye and look-at point round the car. The program has no string with
 their path and no reader for them was found: the per-course `REP4` slots and the cars' camera
 mounts appear to have taken their place.
+
+## What runs where
+
+- **Gran Turismo 4's**: the in-car, chase and roof views (places, lenses as the program sets them, the chase view's follower, the nod, the
+  speed shake, the speed wobble, a hit's jolt), the replay script and its camera, the scenic shots, the start's shots, Dive, the
+  ride-on places in replays; checked against the original's saved states and pictures as stated above.
+- **Measured on the original's picture**: the rear-view mirror's place and lens (the program's mirror camera not read).
+- **Ours**: the far chase view (mount 1's place x 1.45), the in-car view without the mirror, the right stick's look round the car,
+  the blend of two steps' poses for a frame between them, `eye=` for pictures. Not in replays: the hit's jolt (a replay keeps no hits).
+- **Not built**: the original's blur on the frames after a hit; the lean (place 25) and who asks for it.
