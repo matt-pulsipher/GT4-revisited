@@ -1224,6 +1224,35 @@ std::shared_ptr<CarModelObject> car_model_of(Runtime* r, const W& w) {
     return model;
 }
 
+// A picture face's picture size (mImageFace's vf55 0x2A2360 with a picture: its width and height):
+// the page's picture, or with `from_disk` a Tex1 file of the disc (`piece/crs_logo/<course>.img`)
+// as drawn. None without a picture.
+std::optional<std::pair<float, float>> picture_size(Runtime* r, LiveWidget& w) {
+    LiveWidget* page = w.page();
+    Project* project = page ? r->project_of(*page) : nullptr;
+    const std::string path = w.data.text("image_path");
+    if (w.data.number("from_disk") != 0) {
+        std::string name = path;
+        while (!name.empty() && name[0] == '/') name.erase(0, 1);
+        try {
+            if (const std::optional<Bytes> data = name.empty() ? std::nullopt : r->reader()(name); data && gt3r::Tex1::is_tex1(*data)) {
+                const gt3r::Tex1 set = gt3r::Tex1::parse(*data);
+                if (!set.textures.empty()) {
+                    gt3r::GsMemory gs;
+                    set.upload(*data, gs);
+                    const gt3r::Tex1::Image image = set.decode(gs, 0);
+                    return std::pair{float(image.width), float(image.height)};
+                }
+            }
+        } catch (const std::exception&) {
+        }
+        return std::nullopt;
+    }
+    if (const gt3r::Tex1::Image* image = project && !path.empty() ? project->image(page->name, path) : nullptr)
+        return std::pair{float(image->width), float(image->height)};
+    return std::nullopt;
+}
+
 std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, const std::string& n) {
     Runtime* r = &rt;
     auto fn = [&](script::NativeFunction f) { return constant(Vm::native(n, std::move(f))); };
@@ -1679,31 +1708,9 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
         // adjustSize(): the face takes its picture's size.
         if (n == "adjustSize")
             return fn([r, w](Vm&, const Value&, Args) {
-                LiveWidget* page = w->page();
-                Project* project = page ? r->project_of(*page) : nullptr;
-                const std::string path = w->data.text("image_path");
-                if (w->data.number("from_disk") != 0) {
-                    // A picture of the disc (`piece/crs_logo/<course>.img`): its size as drawn.
-                    std::string name = path;
-                    while (!name.empty() && name[0] == '/') name.erase(0, 1);
-                    try {
-                        if (const std::optional<Bytes> data = name.empty() ? std::nullopt : r->reader()(name); data && gt3r::Tex1::is_tex1(*data)) {
-                            const gt3r::Tex1 set = gt3r::Tex1::parse(*data);
-                            if (!set.textures.empty()) {
-                                gt3r::GsMemory gs;
-                                set.upload(*data, gs);
-                                const gt3r::Tex1::Image image = set.decode(gs, 0);
-                                w->set_property("w", Value::number(float(image.width)));
-                                w->set_property("h", Value::number(float(image.height)));
-                            }
-                        }
-                    } catch (const std::exception&) {
-                    }
-                    return Value{};
-                }
-                if (const gt3r::Tex1::Image* image = project ? project->image(page->name, path) : nullptr) {
-                    w->set_property("w", Value::number(float(image->width)));
-                    w->set_property("h", Value::number(float(image->height)));
+                if (const auto size = picture_size(r, *w)) {
+                    w->set_property("w", Value::number(size->first));
+                    w->set_property("h", Value::number(size->second));
                 }
                 return Value{};
             });
@@ -1999,7 +2006,26 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
     }
     // The boxes that lay their children out: adjustSize() and the automatic rows and columns.
     if (w->is_composite()) {
-        if (n == "adjustSize") return nothing();
+        // adjustSize() (mComposite's, 0x207DB0): each face child goes to the box's top left, and the
+        // box takes the largest of their sizes: a picture face its picture's (vf55, 0x2A2360), any
+        // other face its own. Other children neither move nor count. (A face without a rectangle
+        // of its own stays so: it is at the top left already and fills the box at its new size.)
+        if (n == "adjustSize")
+            return fn([r, w](Vm&, const Value&, Args) {
+                float width = 0, height = 0;
+                for (const auto& c : w->children) {
+                    if (!is_face(*c)) continue;
+                    const std::string& t = c->data.type;
+                    std::optional<std::pair<float, float>> size;
+                    if (t == "ImageFace" || t == "FrameImageFace" || t == "ProgressFace") size = picture_size(r, *c);
+                    if (!size) size = std::pair{c->get("w").as_float(), c->get("h").as_float()};
+                    if (c->data.has("geometry")) c->set_property("x", Value::number(0)), c->set_property("y", Value::number(0));
+                    width = std::max(width, size->first), height = std::max(height, size->second);
+                }
+                w->set_property("w", Value::number(width));
+                w->set_property("h", Value::number(height));
+                return Value{};
+            });
         // arrangeColAuto(columns, x gap, y gap): the children in rows of that many.
         if (n == "arrangeColAuto" || n == "arrangeRowAuto") {
             const bool by_columns = n == "arrangeColAuto";
