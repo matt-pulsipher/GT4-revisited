@@ -253,6 +253,7 @@ bool App::init(int argc, char** argv) {
         else if (a == "--sweep" && has_value) sweep_ = argv[++i];
         else if (a == "--sweep-out" && has_value) sweep_out_ = argv[++i];
         else if (a == "--pace" && has_value) ++i; // (run_)
+        else if (a == "--env" && has_value) ++i;  // (args.txt's, taken above)
         else if (a == "--keys" && has_value) {
             // "@<file>" among the keys: the keys of that file there (files may name files).
             std::function<void(const std::string&, int)> add = [&](const std::string& text, int depth) {

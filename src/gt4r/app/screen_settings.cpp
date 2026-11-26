@@ -493,7 +493,7 @@ private:
 
     void mods(App& app) {
         App* a = &app;
-        rows_.action("Install a mod", ".zip, or drop it on the window", "choose the file", [this, a] { archive_.open_file(*a, kZipFilters, SDL_arraysize(kZipFilters)); });
+        rows_.action("Install a mod", gt3r::platform::is_mobile() ? ".zip" : ".zip, or drop it on the window", "choose the file", [this, a] { archive_.open_file(*a, kZipFilters, SDL_arraysize(kZipFilters)); });
         rows_.action("Mods folder", app.mods_dir(), "open it", [this, a] { show(*a, a->mods_dir()); });
         {
             const settings::Video v = app.video();

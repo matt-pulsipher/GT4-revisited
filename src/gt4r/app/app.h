@@ -122,6 +122,7 @@ public:
     const std::vector<gt3r::PointerInput::Action>& pointer() const { return pointer_actions_; }
     bool mouse_at(float& x, float& y) const { return !cursor_hidden_ && pointer_.hover_pos(x, y); }
     SDL_Window* window() { return window_; }
+    bool touch_ui() const { return touch_ui_; } // phones and tablets: a touch screen, the on-screen controls
     bool scripted() const { return scripted_; } // opens nothing on the screen, reads no real input (settings/run_mode.h)
     const std::string& config_path() const { return config_path_; }
 
