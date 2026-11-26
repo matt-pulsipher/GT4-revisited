@@ -845,7 +845,7 @@ public:
         lap_first_.clear(), laps_seen_.clear(), event_gap_ms_ = 0, event_gap_car_ = -1;
         distance_ = 0, bspec_distance_ = 0, shown_steps_ = 0;
         replaying_ = page_replay_ = false, over_ = false;
-        event_steps_ = -1;
+        event_steps_ = -1, license_line_ms_ = -1;
         release_past_line();
         begin_start_camera(false);
         if (net_) attach_online(net_); // (the world's session may be a new one)
@@ -1206,7 +1206,7 @@ public:
         if (demo_run_ && ev.lap_done == 0) LOG_INFO("Drive: the demonstration %s: lap %d in %lld ms, at step %zu", demo_run_->label.c_str(), flow_.car(0).laps_done, (long long)flow_.car(0).last_lap_ms, demo_step_ - 1);
         step_lap_gaps();
         // The lap's line is the display's car's (RaceDisplayGeneralTimeEvent with the display's target, +0x2E).
-        if (ev.lap_done >= 0 && size_t(ev.lap_done) == display_car()) event_steps_ = 0, event_lap_ = flow_.car(display_car()).laps_done, split_steps_ = -1;
+        if (ev.lap_done >= 0 && size_t(ev.lap_done) == display_car()) event_steps_ = 0, event_lap_ = flow_.car(display_car()).laps_done, split_steps_ = -1, license_line_ms_ = -1;
         step_splits();
         if (finish_view()) finish_camera_.angle += 0.5f;
         beeps_ += ev.beep;
@@ -1745,7 +1745,9 @@ public:
             // The lap's time for three seconds (RaceDisplay::vf47 0x3A0A78): named "L1/3   1'23.456" only with the option
             // race_display_config (the display's flags +0x58 bit 10; a new game's off: ✔ the original's chase race shows
             // "1'47.118"); the gap to the first car through the line on that lap under it, 2.85 s.
-            h.event = (gt3_road_ || !lap_word_ ? std::string() : hud.word("WordOfLapTime") + std::to_string(event_lap_) + (setup_.laps > 0 ? "/" + std::to_string(setup_.laps) : std::string()) + "   ") + race::format_lap_time(flow_.car(target).last_lap_ms);
+            h.event = license_line_ms_ >= 0 ? race::format_lap_time(license_line_ms_)
+                      : (gt3_road_ || !lap_word_ ? std::string() : hud.word("WordOfLapTime") + std::to_string(event_lap_) + (setup_.laps > 0 ? "/" + std::to_string(setup_.laps) : std::string()) + "   ") +
+                            race::format_lap_time(flow_.car(target).last_lap_ms);
             h.event_opacity = std::min(1.0f, float(event_steps_) / 9.0f) * window(event_steps_, 3.0f, 0.15f);
             h.event_gap.clear(), h.event_gap_opacity = 0;
             if (event_gap_ms_ > 0 && !gt3_road_) {
@@ -1960,7 +1962,11 @@ public:
         const int mode = license_end_mode();
         LOG_INFO("Drive: the test's end: the car %s (mode %d)", mode == 1 ? "coasts down" : mode == 2 ? "brakes to a stop" : "drives on", mode);
         world_->finish_car(0, true, mode);
+        // A run ended with a time posts it to the display's lap line, the time alone for 3 s (0x3F8AB0 → RaceDisplayGeneralTimeEvent
+        // 0x35E550, only when it has a time; ✔ the original's B-1 pass: "0'11.166" under the clock from the stop).
+        if (!license_failed_) event_steps_ = 0, license_line_ms_ = flow_.run_ms(0), split_steps_ = -1;
     }
+    s64 license_line_ms_ = -1; // the time a license test's end posted to the lap line (-1: a lap's)
     // How the player's car's run ends as the test is over (race::license_end_mode, race::license_fail_mode).
     int license_end_mode() const {
         const race::LicenseRules& r = judge_.rules();
@@ -2219,7 +2225,7 @@ public:
     void follow(size_t car) {
         if (car == focus_) return;
         focus_ = car;
-        event_steps_ = split_steps_ = -1;
+        event_steps_ = split_steps_ = -1, license_line_ms_ = -1;
         name_steps_ = watched_ && !replaying_ && !menu_scene_ ? 0 : -1;
         camera_.reset(world_->cars()[car]);
         replay_camera_.reset();
