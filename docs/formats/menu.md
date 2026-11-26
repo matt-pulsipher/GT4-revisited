@@ -412,6 +412,14 @@ slot 55, 0x2A2360), any other its own (mWidget's slot 55); the box takes the lar
 the largest height (0 x 0 with no face). Other children neither move nor count. Arcade's makers'
 page (`MakerRoot`) sizes each copied maker item so, then halves it about its centre: each logo at
 half its picture's size, in its own shape (a face without a rectangle of its own fills the item).
+
+**`setColor(color, index)`** (mColorFace's and mColorWindow's, 0x284FB8 → 0x286210: `ColorFace`, `ColorWindow` and the
+picture faces): the color (an `MColorObject`, r g b a from 0 to 1) into every one of the face's colors, so a face with
+four corner colors keeps four; with an index of 0 or more only that one (the last past the end). A face with no color
+takes it as its one color. **`texcoord_top` / `_bottom` / `_left` / `_right`** (mImageFace's, 0x2A1748 / 0x2A17E8 /
+0x2A1888 / 0x2A1928) move one edge of `texcoord` (the whole picture until set): the top corners' v, the bottom
+corners', the left corners' u, the right corners'. The photo-saving progress bar narrows itself and sets
+`texcoord_right` to the same fraction, so it shows that part of its picture rather than the whole picture squeezed.
 An **InputTextFace** keeps the place the next letter goes (the keys of the script's keyboard: `putString` puts there, `left` / `right`
 move it, `backspace` takes the letter before it, `delete` the one after) and draws a caret there (0x2A8170): 4 wide, a line high,
 half the text's color, in the focus state, 15 pictures of 30 (0x2A8480).

@@ -462,20 +462,30 @@ std::shared_ptr<script::Reference> common_member(const W& w, const std::string& 
             attach_actor(*w, a.empty() ? Value{} : a[0]);
             return Value{};
         });
-    // setColor(color) on a picture or text face: its tint, an MColorObject's r, g, b, a (0..1).
-    // (Prologue's paint page tints its color balls so: chip["base"].setColor(car.getColors()[i]).)
-    if (n == "setColor" && (w->is("ImageFace") || w->is("TextFace")))
+    // setColor(color, index = -1) on a colored face (mColorFace's and mColorWindow's, 0x284FB8 / 0x286210): an
+    // MColorObject's r, g, b, a (0..1) into every one of its colors, or with an index into that one (the last
+    // past the end); a face with none takes it as its one color. (Also on a text face: Prologue's paint page tints
+    // its color balls so, chip["base"].setColor(car.getColors()[i]).)
+    if (n == "setColor" && (w->is("ColorFace") || w->is("ColorWindow") || w->is("GraphFace") || w->is("ImageFace") || w->is("FrameImageFace") ||
+                            w->is("MovieFace") || w->is("ProgressFace") || w->is("TextFace")))
         return fn([w](Vm& vm, const Value&, Args a) {
             if (a.empty() || a[0].kind != Kind::Object) return Value{};
             auto part = [&](const char* c, float otherwise) {
                 const Value v = vm.attribute(a[0], c);
                 return v.is_number() ? std::clamp(v.as_float(), 0.0f, 1.0f) : otherwise;
             };
-            Property& p = property(w->data, "color", "");
             Property rgba;
             rgba.type = "RGBA";
             for (float f : {part("r", 1), part("g", 1), part("b", 1), part("a", 1)}) rgba.values.push_back(std::to_string(int(std::lround(f * 255.0f))));
-            p.type.clear(), p.values.clear(), p.widgets.clear(), p.is_list = true, p.items = {std::move(rgba)};
+            Property& p = property(w->data, "color", "");
+            if (p.items.empty()) {
+                p.type.clear(), p.values.clear(), p.widgets.clear(), p.is_list = true, p.items = {std::move(rgba)};
+                return Value{};
+            }
+            const int index = a.size() > 1 && a[1].is_number() ? int(a[1].as_float()) : -1;
+            if (index < 0)
+                for (Property& item : p.items) item = rgba;
+            else p.items[std::min(size_t(index), p.items.size() - 1)] = rgba;
             return Value{};
         });
     // (Prologue's scripts name it getDeepCopy.)
