@@ -6,7 +6,7 @@
 // (or its model's name), `cars` how many on the grid, `view` in | chase | roof | back, `drive`
 // auto (the simple driver takes the first car too) or pad, `skip` simulation steps run before the
 // first picture (the start's hold is left out then), `paint` the first car's paint, `laps` the
-// race's length, `limit` a time limit in seconds (no laps then), `start` the start: 10 or 8 (a hold of so many seconds with the opening shots),
+// race's length, `limit` a time limit in seconds (no laps then), `qualify=1` a Free Qualify's practice of the field, `start` the start: 10 or 8 (a hold of so many seconds with the opening shots),
 // <seconds> (a plain hold), none, rolling, course (the course's own: race/start_rule.h); `view=tv` the course's replay cameras;
 // `eye=x:y:z:tx:ty:tz[:ux:uy:uz]` the view from that eye toward that point (with that up) through the view's own lens; `driver=0` no drivers in the cars; (GT4R_DEMO_LOG=<n> logs a demonstration's car every n steps); `replay=N` drives
 // N steps unseen and plays them back through the replay cameras; `bspec=1` a B-spec run, `pit=1` its car asked into the pits from the start (GT4R_HITCH=<ms>
@@ -156,6 +156,9 @@ struct Setup {
     sim::ai::Pace pace;   // the computer drivers' (the event's)
     std::vector<u8> event_row; // the event's RACE row (its tire wear's curve); empty: none
     int limit_seconds = 0;     // `limit=<seconds>`: the race's time limit in place of its row's (checks of the time limit's finish)
+    // A championship's Free Qualify (0x119310): the race's field in a free practice (no laps, no hold, the others rolling in from
+    // behind the line), its best laps the grid after it.
+    bool qualify = false;
     // A license test, pace car test or mission: its conductor, its rules (its row's) and its target times.
     race::Conductor conductor = race::Conductor::Other;
     race::LicenseRules rules;
@@ -236,6 +239,7 @@ Setup setup_from_env() {
         else if (k == "sim") s.rail = v == "rail";
         else if (k == "laps") s.laps = std::clamp(std::atoi(v.c_str()), 1, 99);
         else if (k == "limit") s.limit_seconds = std::max(0, std::atoi(v.c_str()));
+        else if (k == "qualify") s.qualify = v != "0", s.laps = 0, s.start = race::StartType::None, s.start_given = true;
         else if (k == "menus") s.sequence = v;
         else if (k == "race") s.race = v;
         else if (k == "opponents")
@@ -659,6 +663,9 @@ public:
                 e.start_distance = float(sim::rules::rolling_start_distance(-int(std::lround(setup.start_back)), int(std::lround(setup.start_spacing)), setup.cars, e.grid_place));
             }
             if (size_t(i) < setup.test_starts.size()) e.start_speed = setup.test_starts[size_t(i)][0] / 3.6f, e.start_distance = setup.test_starts[size_t(i)][1];
+            // (Free Qualify, 0x3F4F10: the others rolling at 120 km/h from 300 + 24 x their number metres behind the line; the
+            // player's kind 6 ❓ not worked out: his grid place, standing)
+            if (setup.qualify && i > 0) e.start_speed = race::kQualifyStartKmh / 3.6f, e.start_kind = 0, e.start_distance = race::qualify_start_distance(size_t(i));
             if (i == 0) { // (what the player chose: RaceWorld::PlayerChoice)
                 e.automatic = setup.player.automatic, e.asm_on = setup.player.asm_on, e.tcs_on = setup.player.tcs_on;
                 e.wheel_aid = setup.player.wheel_aid, e.driver = setup.player.wheel_lock;
@@ -3684,6 +3691,7 @@ private:
     // The run is over (its results page left and its replay played, or the pause's Exit): its
     // result to Gran Turismo mode, then the sequence's menus.
     void run_over() {
+        if (setup_.qualify) return end_qualify(app_);
         const int can = spectator_ ? 2 : 1;
         report_result();
         if (session_kind() && !demo_) return enter_quick(can, false);
@@ -3877,6 +3885,8 @@ private:
             // The options, or the car's settings (the project `setting`), then the menus again.
             option_ = true;
             menus_->start_project(command == "COMMAND_OPTION" ? "option" : "setting");
+        } else if (command == "COMMAND_FREE_QUALIFY" && sequence_ == "championship" && !setup_.qualify) {
+            free_qualify(app);
         } else if (command == "COMMAND_NEXT_RACE" && next_race(app)) {
             // The series' or license's next race at once: its menus (0x119428, 0x10FCD0).
         } else if (command == "COMMAND_EXIT" || command == "COMMAND_NOTHING" || command == "COMMAND_RETIRE_CHAMPIONSHIP" || command == "COMMAND_NEXT_RACE" ||
@@ -3895,6 +3905,37 @@ private:
             enter_quick(w.get("canReplay"), !session_over);
         }
     }
+
+    // FREE_QUALIFY (0x119310 .. 0x119420): a free practice of the race's field (RaceFreePractice on the race's information,
+    // driven in mode 0: no laps, no hold, the pause's Exit ends it), then every car's best lap sorts the grid (0x3EE808) unless
+    // the player made no time, the race again behind the menus (mode 4) and the page filled again (0x119918).
+    void free_qualify(App& app) {
+        qualify_saved_ = {setup_.laps, setup_.start, setup_.start_seconds, setup_.start_given};
+        setup_.qualify = true, setup_.laps = 0, setup_.start = race::StartType::None, setup_.start_given = true;
+        result_.reset(), result_tried_ = false, reported_ = false;
+        hud_.reset(), race_.reset();
+        start(app);
+        if (!race_) return;
+        start_run(false);
+    }
+    void end_qualify(App& app) {
+        std::vector<s64> best;
+        for (size_t i = 0; i < race_->flow().car_count(); ++i) best.push_back(race_->flow().car(i).best_lap_ms);
+        setup_.qualify = false;
+        std::tie(setup_.laps, setup_.start, setup_.start_seconds, setup_.start_given) = qualify_saved_;
+        if (!best.empty() && best[0] > 0) {
+            setup_.grid_slots = race::qualify_places(best);
+            std::string line;
+            for (size_t i = 0; i < best.size(); ++i) line += " " + std::to_string(best[i]) + "->" + std::to_string(setup_.grid_slots[i]);
+            LOG_INFO("Drive: Free Qualify's grid by best laps (ms -> place):%s", line.c_str());
+        }
+        result_.reset(), result_tried_ = false, reported_ = false;
+        hud_.reset(), race_.reset();
+        start(app);
+        if (!race_) return;
+        enter_quick(0);
+    }
+    std::tuple<int, race::StartType, int, bool> qualify_saved_{};
 
     // NEXT_RACE: a championship's next race (0x119428: when the series has one, the race rebuilt on
     // its course with the same entrants, the menus before it) or a license's next test (the license

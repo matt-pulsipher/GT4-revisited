@@ -305,6 +305,24 @@ std::string result_time(s64 ms, bool plus) {
     return buf;
 }
 
+std::vector<int> qualify_places(std::span<const s64> best_ms) {
+    const size_t n = best_ms.size();
+    auto t = [&](size_t i) { return best_ms[i] < 0 ? u64(0x157529FF) : u64(best_ms[i]); };
+    std::vector<int> rank(n, 0), place(n, 0);
+    for (size_t i = 0; i < n; ++i)
+        for (size_t j = i + 1; j < n; ++j)
+            if (t(i) != t(j)) ++rank[t(j) < t(i) ? i : j];
+    std::vector<bool> taken(n, false);
+    for (size_t i = 0; i < n; ++i) {
+        size_t p = size_t(rank[i]);
+        while (p < n && taken[p]) ++p;
+        if (p >= n) p = 0;
+        while (taken[p]) ++p;
+        taken[p] = true, place[i] = int(p);
+    }
+    return place;
+}
+
 s64 row_time_limit_ms(std::span<const u8> row) {
     if (row.size() < 0x1A) return 0;
     return s64(u32(row[0x18]) | u32(row[0x19]) << 8) * 60000;

@@ -524,6 +524,23 @@ between cameras are cuts in the halves; the camera after a car's finish (mode va
 Here without a controller of his own the second player drives with his keys of the keyboard (the input layer's second set);
 a controller that goes away in the race opens the pause.
 
+## A championship's Free Qualify
+
+The championship's command FREE_QUALIFY (its sequence 0x118EF0, the case at 0x119310 .. 0x119420): the championship race is
+put away (its vf at +0x8 with 2), a `RaceFreePractice` (0x3B92D0) is made on the same race information (the whole field) and
+driven in mode 0 (vf101), the options applied as for a race (0x10F948, 0x10F770, 0x10F848), the A / B meters counted
+(0x10FA58); the player's best lap (0x35E3F0) read; the practice ended; the championship race made again (0x3EF498); then,
+unless the player made no time (0x157529FF), the grid by every entry's best lap (0x3EE808: an entry's place is the number of
+entries with a strictly better time, ties to the earlier entry, each taking the first place free from there; written to the
+series' slots +0x2FC + 0x188 k and the entries' +0x3444 by 0x3EE7C0); the race behind the menus (mode 4, 0x387EF0) and the
+page filled again (0x119918). The practice's conductor (DynamicsConductorFreePractice): no hold (vf10: start type 3), no laps
+(vf37), no finish at the line (vf21 0x3F5150: the lap's time events only), the starts (vf30 0x3F4F10) the player's car kind 6
+(❓ the pit's, 0x36437C), every other car kind 5 at 120 km/h (300 + 24 x its number) m behind the line; the pause's Exit ends
+it. Here (`screen_race.cpp` `free_qualify`, `end_qualify`, `race::qualify_places`): the field rolling in as the program puts
+it, the player's car on its grid place, standing (judged for kind 6); the grid by the bests after the pause's Exit, the race
+rebuilt and the menus again; no result is reported. `GT4R_RACE="...,qualify=1"` runs the practice for checks. ❓ Not compared
+with a capture of the original's Free Qualify (none in the reference).
+
 ## What runs where (the race screen)
 
 Every piece of the race as the player sees it, by whose code it runs: **GT4** (ported from the program,

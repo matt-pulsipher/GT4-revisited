@@ -129,3 +129,12 @@ TEST(endurance_total_time_display) {
     }
     if (!ran) SKIP("needs a Gran Turismo 4 disc (GT4R_DISC)");
 }
+
+// Free Qualify's grid (0x3EE808): by best laps, ties to the earlier entry, no time last.
+TEST(endurance_qualify_places) {
+    const std::vector<s64> best{65000, 62000, -1, 62000, 70000, 61000};
+    CHECK(race::qualify_places(best) == std::vector<int>({3, 1, 5, 2, 4, 0}));
+    const std::vector<s64> none{-1, -1, -1};
+    CHECK(race::qualify_places(none) == std::vector<int>({0, 1, 2}));
+    CHECK(race::qualify_start_distance(0) == -300 && race::qualify_start_distance(5) == -420);
+}
