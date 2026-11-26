@@ -278,6 +278,11 @@ public:
     bool refuelling(size_t car) const;
     // The pit's camera for a car (race/pit_scene.h), now or as it was before the last step; false: the race's view.
     bool pit_camera(size_t car, race::ViewPose& out, bool before = false) const;
+    // A license test's staff (race/license_scene.h): the run's result once it has ended with a time (passed, or slower than every
+    // target), the scene's own camera (now or before the last step; false: the race's view) and the race's picture brightness.
+    void license_result(bool passed);
+    bool license_camera(race::ViewPose& out, bool before = false) const;
+    float license_brightness() const;
     void stop_refuel(size_t car) {
         if (pits_ && car < car_visuals_.size()) pits_->choose(car, 0xFF, 0xFF, 0, 2);
     }
@@ -447,6 +452,8 @@ private:
     std::optional<std::array<gt3r::ee::F, 11>> hand_speeds_; // the drivers' (race/driver_state.h), from the program
     void open_pit_scene();
     void step_pit_scene();
+    void open_license_scene();
+    void step_license_scene();
     struct Impl;
     // render's two halves: the frame's scene from one place (the items, the cars' reflection picture), then a view of it.
     struct Scene {

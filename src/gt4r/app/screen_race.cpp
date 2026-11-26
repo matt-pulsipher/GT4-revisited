@@ -1828,6 +1828,9 @@ public:
         } else {
             world_->render(ui, rect, cars, pose, focus(), pose.body_hidden ? int(focus()) : -1);
         }
+        // A license test's end: the picture fades out and in round its staff coming out (race +0xCF54).
+        if (const float b = replaying_ || menu_scene_ ? 1.0f : world_->license_brightness(); b < 1)
+            ui.fill(rect.x, rect.y, rect.w, rect.h, Color{0, 0, 0, u8(std::lround((1 - b) * 255))});
         if (net_) label_cars(cars, pose, rect);
         // The in-car view's rear-view mirror at the top (❓ its place, (190, 18) 259 x 63 of the
         // 640 x 480 picture, measured on the original's in-car view): not in replays, demonstrations, under the results pages, the opening
@@ -2094,6 +2097,8 @@ public:
         if (posed && pose.depth_of_field) pose.focus = std::max(std::clamp(world_->nearest_depth(f, me, pose.view) + 0.7f, 0.001f, 100000.0f), race::least_focus(pose.fov * 57.29578f));
         // (Cross leaves a replay's start shots for the car's own cameras: 0x374630.)
         posed = posed || (start_camera_.active() && !(viewing() && view_.ride_on()) && start_camera_.pose(pose, &body));
+        // A license test's staff at the stopping place: their own cameras (RaceLicense virtual 139, 0x4096F8).
+        if (!posed && !replaying_ && !menu_scene_) posed = world_->license_camera(pose, before_);
         // The replay cameras' shot for the car; the chase view where the script has none.
         if (!posed && finish_view()) posed = finish_camera_.pose(RVec{me.position.x, me.position.y, me.position.z}, pose);
         if (!posed && view == kTvView && tv_valid_) pose = tv_pose_, posed = true;
@@ -2678,6 +2683,10 @@ public:
             race_->end_run(false);
             return finish_run(app);
         }
+        // A license test's run ended with a time: its staff come out, passed or not (0x3BC6E0 → 0x409138; a run failed by the rules
+        // has no result and brings no one out).
+        if (is_license(sequence_) && !prologue_hud_ && !race_->replaying() && race_->flow().player_finished() && !race_->license_failed())
+            race_->world().license_result(prize_level() < 3);
         // A replay: Start ends it.
         if (race_->replaying()) {
             if (m.pressed(PadButton::Start)) race_->stop_replay();
