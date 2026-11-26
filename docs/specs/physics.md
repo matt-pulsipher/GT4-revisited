@@ -970,7 +970,7 @@ build is served v1.01's and its differences are logged. `gt4tool tables <disc>` 
   - **Europe's recordings** (its license tests' `uk*` files, the Replay Theater's `Rdemo<n>p`) are 50 records a second.
     They play by time at our 60 steps (step k takes record k x 50 / 60, a shift and a mail on a record's first step:
     `sim::ai::DemoRun::rate`), as a look at them and a check, never on their times. Of the 79 timed license files
-    (`gt4tool race <eu disc> demos uk`), 13 end within 100 ms of their recorded time, most of the B license's straight
+    (`gt4tool race <eu disc> demos uk`), 16 end within 100 ms of their recorded time (10 within 20 ms), most of the B license's straight
     tests within 20 ms (B-1 +10, B-2 -11, B-3 +4, B-4 +18, B-6 -5, B-7 +4); the rest part from the recorded run, as a 50 Hz
     run on a 60 Hz step must.
   - The license tests' and missions' labels are the program's region's (0x430D20: "uk" + the code, then "jp";
