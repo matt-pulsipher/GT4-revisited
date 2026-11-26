@@ -824,7 +824,7 @@ public:
             license_sounded_ = false;
         }
         split_prev_.clear(), split_first_.clear(), split_steps_ = -1;
-        lap_first_.clear(), laps_seen_.clear(), event_gap_ms_ = 0;
+        lap_first_.clear(), laps_seen_.clear(), event_gap_ms_ = 0, event_gap_car_ = -1;
         distance_ = 0, bspec_distance_ = 0, shown_steps_ = 0;
         replaying_ = false, over_ = false;
         event_steps_ = -1;
@@ -1235,8 +1235,8 @@ public:
             const race::RaceFlow::CarRecord& r = flow_.car(i);
             if (r.laps_done <= laps_seen_[i]) continue;
             laps_seen_[i] = r.laps_done;
-            const auto [it, first] = lap_first_.try_emplace(r.laps_done, r.base_ms);
-            if (i == display_car()) event_gap_ms_ = first ? 0 : r.base_ms - it->second;
+            const auto [it, first] = lap_first_.try_emplace(r.laps_done, std::pair<s64, size_t>{r.base_ms, i});
+            if (i == display_car()) event_gap_ms_ = first ? 0 : r.base_ms - it->second.first, event_gap_car_ = first ? -1 : int(it->second.second);
         }
     }
 
@@ -1708,6 +1708,7 @@ public:
             h.event_gap.clear(), h.event_gap_opacity = 0;
             if (event_gap_ms_ > 0 && !gt3_road_) {
                 h.event_gap = "+" + race::format_lap_time(event_gap_ms_);
+                h.event_gap_car = event_gap_car_;
                 h.event_gap_opacity = h.event_opacity * window(event_steps_, 2.85f, 0.15f);
             }
         }
@@ -2265,9 +2266,10 @@ private:
     size_t replay_at_ = 0;
     int event_steps_ = -1, event_lap_ = 0, beeps_ = 0;
     int name_steps_ = -1; // B-spec's Select Car: steps since the display was set up for another car (its name on the strip)
-    std::map<int, s64> lap_first_; // laps done -> the clock (ms) when the first car completed them
+    std::map<int, std::pair<s64, size_t>> lap_first_; // laps done -> the clock (ms) when the first car completed them, and that car
     std::vector<int> laps_seen_;   // each car's laps done as last seen
     s64 event_gap_ms_ = 0;         // the display's car's gap at its last lap's line
+    int event_gap_car_ = -1;       // the car that gap is to (its picture beside it: ✔ the original's chase race, the Beetle's)
     bool lap_word_ = false;        // the option race_display_config: the lap's line names the lap ("L1/3")
     std::vector<float> splits_, split_prev_;          // the split points (m along the lap); each car's last place
     std::map<std::pair<int, int>, std::pair<s64, size_t>> split_first_; // (crossings, split) -> the race clock when the first car passed, and that car
@@ -2830,9 +2832,10 @@ public:
                 hud_->draw(ui, hud_state_);
                 // The gap's car picture beside a section time (RaceCarIconDisplay 0x2D14, set by 0x3A1098): the other car's
                 // icon, its picture's left 89 units left of the event line and its middle 22 below it, for 2.85 s with fades of
-                // 0.15 s (here with the gap's own fades).
+                // 0.15 s (here with the gap's own fades). Like the line's words, not under the display's fade (✔ the original's
+                // chase race: the leader's picture by the gap over FINISH, the map gone).
                 if (float ex = 0, ey = 0; hud_state_.event_gap_car >= 0 && hud_state_.event_gap_opacity > 0 && hud_->event_line_at(hud_state_, ex, ey)) {
-                    const RaceWorld::Icon icon{size_t(hud_state_.event_gap_car), ex - 89 + 32, ey + 22, hud_state_.event_gap_opacity * hud_state_.opacity};
+                    const RaceWorld::Icon icon{size_t(hud_state_.event_gap_car), ex - 89 + 32, ey + 22, hud_state_.event_gap_opacity};
                     race_->draw_icons(ui, RaceHud::canvas(), std::span<const RaceWorld::Icon>(&icon, 1));
                 }
             } else if (prologue_hud_ && hud_) {
