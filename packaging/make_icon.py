@@ -67,29 +67,29 @@ def offset(pts, off, first=0, last=None):
     return out
 
 
-def band(d, centre, inner, outer, first, last, fill):
-    """The strip between two sideways offsets of centre, over points first..last."""
-    poly(d, offset(centre, inner, first, last) + offset(centre, outer, first, last)[::-1], fill)
+def band(d, center, inner, outer, first, last, fill):
+    """The strip between two sideways offsets of center, over points first..last."""
+    poly(d, offset(center, inner, first, last) + offset(center, outer, first, last)[::-1], fill)
 
 
-def road(d, centre, half, edge, dash, dash_color, kerbs=(), kerb=lambda i: 0, kerb_colors=(WHITE, KERB_BLUE),
+def road(d, center, half, edge, dash, dash_color, kerbs=(), kerb=lambda i: 0, kerb_colors=(WHITE, KERB_BLUE),
          dash_every=8, stripe=6):
-    """A road along centre: asphalt, white edge lines, a dashed centre line and kerbs. The
+    """A road along center: asphalt, white edge lines, a dashed center line and kerbs. The
     widths are functions of the point index (a road in perspective narrows); kerbs is a list
     of (first, last, side) point ranges, side +1 right of the direction of travel, -1 left."""
-    n = len(centre) - 1
-    band(d, centre, lambda i: -half(i), half, 0, n, ASPHALT)
+    n = len(center) - 1
+    band(d, center, lambda i: -half(i), half, 0, n, ASPHALT)
     for first, last, side in kerbs:
         for k, i in enumerate(range(first, last, stripe)):
             j = min(i + stripe, last)
             if side > 0:
-                band(d, centre, lambda i: half(i) - 1, lambda i: half(i) + kerb(i), i, j, kerb_colors[k % 2])
+                band(d, center, lambda i: half(i) - 1, lambda i: half(i) + kerb(i), i, j, kerb_colors[k % 2])
             else:
-                band(d, centre, lambda i: -half(i) - kerb(i), lambda i: -half(i) + 1, i, j, kerb_colors[k % 2])
+                band(d, center, lambda i: -half(i) - kerb(i), lambda i: -half(i) + 1, i, j, kerb_colors[k % 2])
     for side in (-1, 1):
-        band(d, centre, lambda i: side * (half(i) - 2 * edge(i)), lambda i: side * (half(i) - edge(i)), 0, n, WHITE)
+        band(d, center, lambda i: side * (half(i) - 2 * edge(i)), lambda i: side * (half(i) - edge(i)), 0, n, WHITE)
     for i in range(0, n, dash_every):
-        band(d, centre, lambda i: -dash(i) / 2, lambda i: dash(i) / 2, i, min(i + dash_every // 2, n), dash_color)
+        band(d, center, lambda i: -dash(i) / 2, lambda i: dash(i) / 2, i, min(i + dash_every // 2, n), dash_color)
 
 
 def const(v):
