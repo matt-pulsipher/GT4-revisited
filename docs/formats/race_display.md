@@ -282,8 +282,10 @@ ten steps n = round(fuel / tank x 10) (+0x2C / +0x30): its top at 60 - 5.2 n (4 
 red 0x800000C8 under three steps, else light blue; with +0x1C the nitrous gauge (`nos_a0`, `nos_a1`, +0x34 /
 +0x38, red 0x800000F0) the same at the rev counter's (x - 16, y + 19). ✔ Against the original's in-car
 view (03-race incar frames): the fuel arc left of the speedometer, the throttle's blue arc right of the
-digits. Drawn here (`RaceHud::Impl::draw_bars`, the gauge always shown: ❓ the flag +0x1B's source not read;
-the nitrous gauge not drawn: no nitrous part yet). Sign
+digits. The flag +0x1B is the followed car's tank (F +0x5D0) more than 0 (`RaceDisplay::vf2` 0x39E598 through 0x354E38;
+the chase panel's fuel meter reads the same flag), and the tank is 0 when the race counts no fuel (0x354AF8: the car's tank
+zeroed by the race's flag): no arc at the Ice Arena (✔ the original's `35-ice-arena`). Drawn here (`RaceHud::Impl::draw_bars`,
+with `fuel_on`; the nitrous gauge not drawn: no nitrous part yet). Sign
 colors: `sign_asm` 0x80E3B896, the other two 0x800000C8. Draw order: plate, the two dials'
 shadows, trip meter, shift lamp, the two dials, boost gauge, gear, suggested gear, digital
 speed, tire wear, signs, unit, G meter, bars.

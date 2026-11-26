@@ -910,6 +910,9 @@ void RaceHud::Impl::draw_bars(const HudState& s, float x, float y) {
     const float bottom = y + 23 - 1.5f + 58;
     lit(bar, x + 121, bottom - std::clamp(s.brake, 0.0f, 1.0f) * 58, bottom, 20, 0x800000F0u);
     lit(bar, x + 195, bottom - std::clamp(s.throttle, 0.0f, 1.0f) * 58, bottom, 20, 0x80E3B896u);
+    // The fuel gauge with the panel's flag +0x1B: the followed car's tank more than 0 (RaceDisplay::vf2 0x39E598, 0x354E38),
+    // 0 when the race counts no fuel (0x354AF8): as the chase views' gauge (`fuel_on`). (✔ the original's Ice Arena: none.)
+    if (!s.fuel_on) return;
     const DisplayRect at{x - 22, y + 19, 38, 64};
     draw_picture(picture("fuel_a0"), at, kNeutral, o);
     const int n = int(std::clamp(s.fuel, 0.0f, 1.0f) * 10 + 0.5f);
