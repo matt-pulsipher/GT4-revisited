@@ -626,15 +626,18 @@ private:
         return true;
     }
 
-    // The pages with a button of ours: the title (GT4R menu beside it: our menu underneath the game) and the Options' button
-    // configurations, every device's and both players' (KeyconfigRoot: Controller Settings in place of its table, ours over the
-    // game). The DualShock 2 model of those tables is narrower than our controls (keyboard, touch, triggers, wheels' own
-    // buttons), so the page shows only the way to ours, as GT3 Revisited's Key Configuration page does.
+    // The pages with a button of ours: the title (GT4R menu beside it: our menu underneath the game) and the Options' controller
+    // pages, the button configurations of every device and both players (KeyconfigRoot), Vibration (ControllerRoot) and Steering
+    // (SteeringRoot): Controller Settings in place of their tables, our Controls over the game, which shows and sets what those
+    // pages set (app/game_options.h). Their model is narrower than our controls (keyboard, touch, triggers, wheels' own buttons),
+    // so the page shows only the way to ours, as GT3 Revisited's Key Configuration page does.
     enum class Way { None, Menu, Keys };
     Way way() const {
         if (on_title()) return Way::Menu;
         const LiveWidget* page = runtime_ ? runtime_->current_page() : nullptr;
-        if (page && page->name == "KeyconfigRoot" && runtime_->project() && runtime_->project()->name() == "option") return Way::Keys;
+        if (page && (page->name == "KeyconfigRoot" || page->name == "ControllerRoot" || page->name == "SteeringRoot") && runtime_->project() &&
+            runtime_->project()->name() == "option")
+            return Way::Keys;
         return Way::None;
     }
     bool select_is_ours() const {
@@ -691,10 +694,13 @@ private:
         return b;
     }
 
-    // Controller Settings in the middle of the button configuration's frame (the page's 380 x 406 at 130, 20), focused: Cross,
-    // Select, a click or a tap opens our controls.
+    // Controller Settings in the middle of the page's frame (its Pane), focused: Cross, Select, a click or a tap opens our controls.
     void draw_key_button(Ui& ui, float x, float scale) {
-        const gt3r::UiRect b = menu_button_ = {x + 210 * scale, 200 * scale, 220 * scale, 44 * scale};
+        menu::Rect pane{130, 20, 380, 406}; // (the button configuration's)
+        if (const std::shared_ptr<LiveWidget> p = runtime_->current_page()->child("Pane"))
+            if (const std::optional<menu::Rect> g = p->data.rect("geometry")) pane = *g;
+        const float cx = pane.x + pane.w / 2, cy = pane.y + std::max(pane.h, 120.0f) / 2;
+        const gt3r::UiRect b = menu_button_ = {x + (cx - 110) * scale, (cy - 22) * scale, 220 * scale, 44 * scale};
         float mx = 0, my = 0;
         const bool hover = app_->mouse_at(mx, my) && b.contains(mx, my);
         ui.button(b, "Controller Settings", true, hover, true);
