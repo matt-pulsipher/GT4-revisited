@@ -3,6 +3,7 @@
 // pages, from the boot project on. How the properties are drawn is in docs/formats/menu.md.
 
 #include "gt4r/app/app.h"
+#include "gt4r/app/game_options.h"
 #include "gt4r/app/page.h"
 #include "gt4r/app/menu_cars.h"
 #include "gt4r/app/menu_advertise.h"
@@ -642,14 +643,21 @@ private:
     }
     void use_button(App& app) {
         if (way() == Way::Menu) return stop();
-        // The page's port (0 the first player's, 1 the second's) and device ("DUALSHOCK 2", or a wheel's: "CHEETAH" the Driving
-        // Force Pro, "JAGUAR" the Driving Force, "COUGAR" the GT FORCE): that player's controls, at the wheel's settings for a wheel.
-        const script::Value port = runtime_->vm().lookup("OptionProject::KeyconfigRoot::port");
-        const script::Value device = runtime_->vm().lookup("OptionProject::KeyconfigRoot::peripheral");
-        const bool wheel = device.kind == script::Kind::String && device.as_string() != "DUALSHOCK 2";
-        app.push(make_controls_screen(app, port.is_number() && port.as_float() == 1 ? 1 : 0, true, wheel));
+        // A button configuration's port (0 the first player's, 1 the second's) and device ("DUALSHOCK 2", or a wheel's: "CHEETAH"
+        // the Driving Force Pro, "JAGUAR" the Driving Force, "COUGAR" the GT FORCE): that player's controls, at the wheel's settings
+        // for a wheel. Vibration and Steering (both players' on one page): the first player's, at the rumble or the steering.
+        const std::string page = runtime_->current_page()->name;
+        int player = 0;
+        ControlsSection section = page == "ControllerRoot" ? ControlsSection::Rumble : page == "SteeringRoot" ? ControlsSection::Steering : ControlsSection::Top;
+        if (page == "KeyconfigRoot") {
+            const script::Value port = runtime_->vm().lookup("OptionProject::KeyconfigRoot::port");
+            const script::Value device = runtime_->vm().lookup("OptionProject::KeyconfigRoot::peripheral");
+            player = port.is_number() && port.as_float() == 1 ? 1 : 0;
+            if (device.kind == script::Kind::String && device.as_string() != "DUALSHOCK 2") section = ControlsSection::Wheel;
+        }
+        app.push(make_controls_screen(app, player, true, section, running_game_options(runtime_->game())));
     }
-    // The button configuration's table, its buttons (Cancel, Default, OK) and its tool tip hidden: the page's frame and title stay.
+    // The page's table, its buttons (Cancel, Default, OK) and its tool tip hidden: the page's frame and title stay.
     void hide_key_table() {
         LiveWidget* page = runtime_->current_page();
         if (const std::shared_ptr<LiveWidget> pane = page->child("Pane"))
