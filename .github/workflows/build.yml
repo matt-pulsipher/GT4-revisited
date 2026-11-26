@@ -93,9 +93,11 @@ jobs:
       contents: read
       id-token: write     # sign this package's provenance attestation
       attestations: write
-    env:
-      PKG: gt4r-${{ github.ref_name }}-${{ matrix.name }}
     steps:
+      # gt4r-<tag>-<platform>; a branch's '/' made '-' (the name is a file's).
+      - name: Package name
+        shell: bash
+        run: echo "PKG=gt4r-${GITHUB_REF_NAME//\//-}-${{ matrix.name }}" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with:
           submodules: recursive
