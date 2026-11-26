@@ -3,6 +3,7 @@
 // pages, from the boot project on. How the properties are drawn is in docs/formats/menu.md.
 
 #include "gt4r/app/app.h"
+#include "gt4r/app/game_options.h"
 #include "gt4r/app/page.h"
 #include "gt4r/app/menu_cars.h"
 #include "gt4r/app/menu_advertise.h"
@@ -367,14 +368,13 @@ private:
     }
 
     void update_running(App& app, const MenuInput& m) {
-        // Select and Start together leave the running menus.
-        if (m.held(PadButton::Select) && m.pressed(PadButton::Start)) return stop();
-        // (on a touch screen the title's hint is a button that does the same)
-        if (hint_rect_.w > 0)
+        // The developer's viewer: Select and Start together stop the running menus.
+        if (!player_ && m.held(PadButton::Select) && m.pressed(PadButton::Start)) return stop();
+        // The game: the title's GT4R menu button (a click or a tap) leaves it for GT4 Revisited's own menu underneath; the
+        // Controller Settings button in place of the Options' button configurations opens ours over them.
+        if (menu_button_.w > 0)
             for (const gt3r::PointerInput::Action& a : app.pointer())
-                if (a.kind == gt3r::PointerInput::Action::Kind::Click && a.x >= hint_rect_.x && a.x < hint_rect_.x + hint_rect_.w &&
-                    a.y >= hint_rect_.y && a.y < hint_rect_.y + hint_rect_.h)
-                    return stop();
+                if (a.kind == gt3r::PointerInput::Action::Kind::Click && menu_button_.contains(a.x, a.y)) return use_button(app);
         try {
             static const std::pair<PadButton, menu::Key> keys[] = {
                 {PadButton::Cross, menu::Key::Accept}, {PadButton::Triangle, menu::Key::Cancel}, {PadButton::Start, menu::Key::Start},
@@ -391,9 +391,18 @@ private:
             // (The loading page takes no keys; nor do the pages while the players' panel has them.)
             const bool panel = online_ && online_->frame(app, m);
             const bool keys_on = !panel && (!loading_ || !loading_->active());
-            send_menu_directions(*runtime_, m, keys_on);
+            // Select does the same as the button (where the page's scripts do nothing with it).
+            if (player_ && keys_on && m.pressed(PadButton::Select) && select_is_ours()) return use_button(app);
+            // A button configuration: its table is hidden (hide_key_table); Cross is the Controller Settings button, Triangle
+            // (and Square) the page's Cancel, back to the Options; nothing else reaches the page.
+            const bool key_page = player_ && way() == Way::Keys;
+            if (key_page) {
+                hide_key_table();
+                if (keys_on && m.pressed(PadButton::Cross)) return use_button(app);
+            }
+            send_menu_directions(*runtime_, m, keys_on && !key_page);
             for (const auto& [button, key] : keys)
-                if (keys_on && m.pressed(button)) runtime_->key(key);
+                if (keys_on && m.pressed(button) && (!key_page || key == menu::Key::Cancel)) runtime_->key(key);
             // The menus run at the program's 60 pictures a second, whatever the display's rate.
             const int steps = std::min(int(step_time_ * 60.0), 4);
             step_time_ = steps == 4 ? 0.0 : step_time_ - steps / 60.0;
@@ -494,6 +503,7 @@ private:
     void render_running(Ui& ui) {
         const float scale = float(Ui::kHeight) / 480.0f, x = (ui.width() - 640 * scale) / 2;
         ui.fill(0, 0, ui.width(), Ui::kHeight, {0, 0, 0});
+        if (player_ && way() == Way::Keys) hide_key_table(); // (from the page's first picture)
         const Uint64 t0 = SDL_GetTicksNS();
         if (advertise_ && advertise_->active()) return advertise_->draw(x, scale);
         if (live_drawer_) {
@@ -545,7 +555,7 @@ private:
                 SDL_RenderTexture(r, page_picture_, nullptr, &dst);
                 if (hold) loading_->keep(page_picture_);
             }
-            draw_cursor(x, scale);
+            if (!(player_ && way() == Way::Keys)) draw_cursor(x, scale); // (the game's arrow points at the hidden table)
             draw_blocks(tp, x, scale);
             if (tp.trail && own) std::swap(page_picture_, trail_);
             else if (trail_) SDL_DestroyTexture(trail_), trail_ = nullptr;
@@ -578,7 +588,7 @@ private:
                 if (log[i].find("stopped:") != std::string::npos || log[i].find("script error") != std::string::npos)
                     for (const std::string& line : Ui::wrap(log[i], x - 4)) ui.text(2, y, line, colors::kBad), y += 12;
         }
-        if (player_) title_hint(ui, x, scale);
+        if (player_) draw_menu_button(ui, x, scale);
         const size_t lines = player_ ? 0 : std::min<size_t>(log.size(), 26);
         for (size_t i = 0; i < lines; ++i) ui.text(2, 14 + float(i) * 12, Ui::clip(log[log.size() - lines + i], x - 4), colors::kDim);
         if (!player_) {
@@ -598,37 +608,124 @@ private:
         }
     }
 
-    // On the title (and Prologue's board): the way to the home screen (Settings, Controls, Saved games), in the space beside
-    // the page, or over its top right corner when the picture has none.
-    void title_hint(Ui& ui, float x, float scale) {
-        hint_rect_ = {};
+    // The title: Arcade's top page, Prologue's board (its title).
+    bool on_title() const {
+        const LiveWidget* page = runtime_ ? runtime_->current_page() : nullptr;
+        if (!page || !runtime_->project()) return false;
+        const std::string& project = runtime_->project()->name();
+        return (page->name == "TopRoot" && project == "arcade") || (page->name == "SchoolRoot" && project == "prologue");
+    }
+    // Select on the title leaves for our menu, except on Prologue's board while the focus is in its ring of signs, where the
+    // board's own script takes it (between the status and the tests). Arcade's top page does nothing with Select.
+    bool select_leaves() const {
+        if (!on_title()) return false;
         const LiveWidget* page = runtime_->current_page();
-        if (!page || !runtime_->project()) return;
-        const bool title = page->name == "TopRoot" && runtime_->project()->name() == "arcade";
-        const bool school = page->name == "SchoolRoot" && runtime_->project()->name() == "prologue"; // (Prologue's title and its board)
-        if (!title && !school) return;
-        const float margin = ui.width() - (x + 640 * scale);
-        // A touch screen's: a button to tap (Select and Start together are two fingers on the controls), at the top, clear of
-        // the face buttons.
-        const bool touch = app_ && app_->touch_ui();
-        static const char* const kPad[] = {"{Select}+{Start}:", "Settings,", "Controls,", "Saved games"};
-        static const char* const kTouch[] = {"Tap here:", "Settings,", "Controls,", "Saved games"};
-        const char* const* const kLines = touch ? kTouch : kPad;
-        constexpr size_t kCount = std::size(kPad);
-        float w = 0;
-        for (size_t i = 0; i < kCount; ++i) w = std::max(w, Ui::text_width(kLines[i]));
-        const bool beside = margin >= w + 8;
-        if (!beside && !title) return; // (over the board only beside it)
-        const float left = beside ? x + 640 * scale + (margin - w) / 2 : ui.width() - w - 10;
-        float top = touch ? 40.0f : beside ? Ui::kHeight - 62.0f : 6.0f;
-        if (touch) // (under the on-screen controls at the top that would cover it: R1, Start)
-            for (const SDL_FRect& c : app_->touch_control_bounds())
-                if (c.y < Ui::kHeight / 2 && c.x < left + w + 9 && left - 9 < c.x + c.w) top = std::max(top, c.y + c.h + 10);
-        if (touch) {
-            hint_rect_ = {left - 5, top - 4, w + 10, 12 * float(kCount) + 6};
-            ui.fill_round(hint_rect_.x, hint_rect_.y, hint_rect_.w, hint_rect_.h, 4, Color{60, 66, 84, 200});
-        } else if (!beside) ui.fill_round(left - 5, top - 4, w + 10, 12 * float(kCount) + 6, 4, Color{0, 0, 0, 150});
-        for (size_t i = 0; i < kCount; ++i) ui.text(left, top + 12 * float(i), kLines[i], i == 0 ? colors::kText : colors::kDim);
+        const std::shared_ptr<LiveWidget> focus = page->focus.lock();
+        for (const LiveWidget* w = focus.get(); w && w != page; w = w->parent_widget())
+            if (w->name == "Blocks") return false;
+        return true;
+    }
+
+    // The pages with a button of ours: the title (GT4R menu beside it: our menu underneath the game) and the Options' controller
+    // pages, the button configurations of every device and both players (KeyconfigRoot), Vibration (ControllerRoot) and Steering
+    // (SteeringRoot): Controller Settings in place of their tables, our Controls over the game, which shows and sets what those
+    // pages set (app/game_options.h). Their model is narrower than our controls (keyboard, touch, triggers, wheels' own buttons),
+    // so the page shows only the way to ours, as GT3 Revisited's Key Configuration page does.
+    enum class Way { None, Menu, Keys };
+    Way way() const {
+        if (on_title()) return Way::Menu;
+        const LiveWidget* page = runtime_ ? runtime_->current_page() : nullptr;
+        if (page && (page->name == "KeyconfigRoot" || page->name == "ControllerRoot" || page->name == "SteeringRoot") && runtime_->project() &&
+            runtime_->project()->name() == "option")
+            return Way::Keys;
+        return Way::None;
+    }
+    bool select_is_ours() const {
+        const Way w = way();
+        return w == Way::Keys || (w == Way::Menu && select_leaves());
+    }
+    void use_button(App& app) {
+        if (way() == Way::Menu) return stop();
+        // A button configuration's port (0 the first player's, 1 the second's) and device ("DUALSHOCK 2", or a wheel's: "CHEETAH"
+        // the Driving Force Pro, "JAGUAR" the Driving Force, "COUGAR" the GT FORCE): that player's controls, at the wheel's settings
+        // for a wheel. Vibration and Steering (both players' on one page): the first player's, at the rumble or the steering.
+        const std::string page = runtime_->current_page()->name;
+        int player = 0;
+        ControlsSection section = page == "ControllerRoot" ? ControlsSection::Rumble : page == "SteeringRoot" ? ControlsSection::Steering : ControlsSection::Top;
+        if (page == "KeyconfigRoot") {
+            const script::Value port = runtime_->vm().lookup("OptionProject::KeyconfigRoot::port");
+            const script::Value device = runtime_->vm().lookup("OptionProject::KeyconfigRoot::peripheral");
+            player = port.is_number() && port.as_float() == 1 ? 1 : 0;
+            if (device.kind == script::Kind::String && device.as_string() != "DUALSHOCK 2") section = ControlsSection::Wheel;
+        }
+        app.push(make_controls_screen(app, player, true, section, running_game_options(runtime_->game())));
+    }
+    // The page's table, its buttons (Cancel, Default, OK) and its tool tip hidden: the page's frame and title stay.
+    void hide_key_table() {
+        LiveWidget* page = runtime_->current_page();
+        if (const std::shared_ptr<LiveWidget> pane = page->child("Pane"))
+            for (const std::shared_ptr<LiveWidget>& c : pane->children)
+                if (c->name != "bg" && c->name != "Title" && c->visible()) c->set_property("visible", script::Value::integer(0));
+        if (const std::shared_ptr<LiveWidget> tip = page->child("ToolTip"); tip && tip->visible()) tip->set_property("visible", script::Value::integer(0));
+    }
+
+    // The button beside the page (UI units; Select does the same): at the bottom of the bar left of the page when
+    // there is room (the game area's own, else the window's beside a game area that has none), else in the window's bar under
+    // the page, else over the page's bottom left corner above its copyright line; moved up clear of the on-screen controls.
+    // `whole`: outside the game area, drawn across the whole window.
+    gt3r::UiRect menu_button_rect(App& app, const Ui& ui, float x, bool& whole) const {
+        constexpr float kMinBar = 60, kH = Ui::kHeight;
+        float wx0 = 0, wy1 = kH; // the window's left edge and bottom, in UI units
+        int ww = 0, wh = 0;
+        if (SDL_GetWindowSize(SDL_GetRenderWindow(app.renderer()), &ww, &wh) && ww > 0 && wh > 0) {
+            float y0 = 0, x1 = 0;
+            if (!SDL_RenderCoordinatesFromWindow(app.renderer(), 0, 0, &wx0, &y0) || !SDL_RenderCoordinatesFromWindow(app.renderer(), float(ww), float(wh), &x1, &wy1))
+                wx0 = 0, wy1 = kH;
+        }
+        wx0 = std::min(wx0, 0.0f), wy1 = std::max(wy1, kH);
+        const float left = x >= kMinBar ? 0.0f : wx0; // the bar's left edge
+        gt3r::UiRect b;
+        if (x - left >= kMinBar) b = {left + 6, kH - 46, std::min(x - left - 12, 90.0f), 22};
+        else if (wy1 - kH >= 34) b = {x + 6, kH + 6, 90, 22};
+        else b = {x + 6, kH - 50, 74, 22};
+        const gt3r::TouchRect r = app.touch_overlay().clear_above({b.x, b.y, b.w, b.h});
+        b = {r.x, r.y, r.w, r.h};
+        whole = b.x < 0 || b.y < 0 || b.right() > ui.width() || b.bottom() > kH;
+        return b;
+    }
+
+    // Controller Settings in the middle of the page's frame (its Pane), focused: Cross, Select, a click or a tap opens our controls.
+    void draw_key_button(Ui& ui, float x, float scale) {
+        menu::Rect pane{130, 20, 380, 406}; // (the button configuration's)
+        if (const std::shared_ptr<LiveWidget> p = runtime_->current_page()->child("Pane"))
+            if (const std::optional<menu::Rect> g = p->data.rect("geometry")) pane = *g;
+        const float cx = pane.x + pane.w / 2, cy = pane.y + std::max(pane.h, 120.0f) / 2;
+        const gt3r::UiRect b = menu_button_ = {x + (cx - 110) * scale, (cy - 22) * scale, 220 * scale, 44 * scale};
+        float mx = 0, my = 0;
+        const bool hover = app_->mouse_at(mx, my) && b.contains(mx, my);
+        ui.button(b, "Controller Settings", true, hover, true);
+    }
+
+    void draw_menu_button(Ui& ui, float x, float scale) {
+        menu_button_ = {};
+        const Way w = way();
+        if (w == Way::None || (loading_ && loading_->active())) return;
+        if (w == Way::Keys) return draw_key_button(ui, x, scale);
+        bool whole = false;
+        const gt3r::UiRect b = menu_button_ = menu_button_rect(*app_, ui, x, whole);
+        float mx = 0, my = 0;
+        const bool hover = app_->mouse_at(mx, my) && b.contains(mx, my);
+        const bool prompt = !app_->touch_ui(); // (a touch screen's Select is one of the on-screen buttons)
+        auto draw = [&](float dx, float dy) {
+            const gt3r::UiRect d{b.x + dx, b.y + dy, b.w, b.h};
+            ui.button(d, "GT4R menu", hover, false);
+            if (!prompt) return;
+            // Under it in the bar beside the page; beside it over the page (clear of the copyright line) and in the bar under it.
+            if (b.right() <= x && b.bottom() + 14 <= Ui::kHeight) ui.text_center_in(d.x, d.w, d.bottom() + 3, "{Select}", colors::kDim);
+            else ui.text(d.right() + 5, d.y + 5, "{Select}", colors::kDim);
+        };
+        if (whole) app_->touch_overlay().draw_whole_window(ui, draw);
+        else draw(0, 0);
     }
 
     // A block transition: the screen held when it started, in blocks that fade by their timers
@@ -725,7 +822,7 @@ private:
     long long credits_ = -1; // a scripted run's credits; -1: the game's own
     std::optional<menu::RaceRequest> race_; // what the running menus asked for at their end
     App* app_ = nullptr;                    // set when the menus start running
-    SDL_FRect hint_rect_{};                 // the title's hint as a touch screen's button (UI units), empty when not shown
+    gt3r::UiRect menu_button_{};            // the button beside the page as last drawn (UI units), empty when not shown (way())
 };
 
 } // namespace

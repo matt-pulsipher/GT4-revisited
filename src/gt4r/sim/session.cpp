@@ -869,6 +869,8 @@ void Session::collide() {
     for (size_t i = 0; i < cars_.size(); ++i) { // 0x3F4C18
         collide::Body& b = bodies_[i];
         ex::Car& c = cars_[i];
+        // The hit's record for the in-car view (cond + 0xCAB8 + 0x30 i + 0x1C ..), from the record's velocity before this.
+        if (gt4_rules_) rules::view_jolt(c, {b.cvx, b.cvy, b.cvz}, gx_[i].feel.view, rules::jolt_limits(tables_.feel, course_kind_));
         if (!posed(i)) { // (a posed car's record keeps the pose: its owner's machine answers its hits)
             c.pos = {b.cx, b.cy, b.cz};
             c.vel = {b.cvx, b.cvy, b.cvz};
@@ -1159,6 +1161,10 @@ void Session::publish(size_t i) {
     s.reverse_lamps = c.gear == 0;
     s.contact = x.contact, s.contact_kind = x.contact_kind, s.contact_car = x.contact_car;
     s.wall_hit = x.wall_hit, s.car_hit = x.car_hit;
+    {
+        const rules::ViewState& v = gx_[i].feel.view;
+        s.jolt = v.jolt != 0, s.jolt_forward = v.jolt_forward.host(), s.jolt_side = v.jolt_side.host();
+    }
     s.rolling = (gt4_rules_ || prologue_) && c.driver_kind == 1;
     // A wheel back on the ground: loaded at this step's end after a step without load.
     s.landed = false;
@@ -1167,6 +1173,9 @@ void Session::publish(size_t i) {
         if (x.airborne[w] && !air) s.landed = true;
         x.airborne[w] = air;
     }
+    // (Gran Turismo 4's rules: the body and the wheels where the game draws them.)
+    const bool placed = gt4_rules_ && !prologue_ && i < layouts_.size();
+    s.body_placed = placed;
     for (size_t w = 0; w < 4; ++w) {
         const ex::Wheel& wheel = c.w[w];
         race::WheelState& o = s.wheels[w];
@@ -1176,7 +1185,20 @@ void Session::publish(size_t i) {
         // The wheel's center: over the suspension's point at the wheel, a tire radius above the road
         // while the tire is on it; off the ground it hangs where it was at rest under the body.
         const float px = c.pos.x.host() + wheel.hub.x.host(), py = c.pos.z.host() + wheel.hub.z.host(), pz = -(c.pos.y.host() + wheel.hub.y.host());
-        if (o.on_ground) {
+        if (placed && w < layouts_[i].count) {
+            // As the game draws a wheel (RaceCarParamSponsor's virtual 10: 0x344AA8, 0x344B40, 0x344C08), in the body's frame
+            // at 0x344040's point (the center of gravity less P +0x50 along the forward axis): across, the wheel's half track at
+            // its travel (+0x08); up, its axle's suspension offset (P block +0x0C) less its suspension travel (+0x94), the road's
+            // bump in it, loaded or not; along, half the wheelbase (P +0x18) ahead for a wheel ahead of the center of gravity
+            // (the layout's byte +0x3C + w above 0), behind for one behind, none at it.
+            const rules::WheelLayout& l = layouts_[i];
+            const gt3r::s8 fore = gt3r::s8(l.fore_aft[w]);
+            const float across = wheel.half_track.host(), up = c.p.susp[l.axle[w] & 1].offset.host() - wheel.susp.host();
+            const float along = fore > 0 ? c.p.wheelbase.host() * 0.5f : fore < 0 ? -c.p.wheelbase.host() * 0.5f : 0.0f;
+            const Vec3 at{cog.x - s.forward.x * back, cog.y - s.forward.y * back, cog.z - s.forward.z * back};
+            o.center = {at.x + s.right.x * across + s.forward.x * along + s.up.x * up, at.y + s.right.y * across + s.forward.y * along + s.up.y * up,
+                        at.z + s.right.z * across + s.forward.z * along + s.up.z * up};
+        } else if (o.on_ground) {
             o.center = {px, wheel.ground.host() + radius, pz};
             if (!x.rest_set[w]) x.rest_drop[w] = py - o.center.y, x.rest_set[w] = true;
         } else {

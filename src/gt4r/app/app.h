@@ -8,6 +8,7 @@
 #include "app/ui.h"
 #include "audio/audio_engine.h"
 #include "base/config.h"
+#include "gt4r/app/pipeline_warm.h"
 #include "gt4r/audio/app_sound.h"
 #include "gt4r/disc/disc.h"
 #include "gt4r/formats/db/specdb.h"
@@ -145,6 +146,11 @@ public:
             for (const gt3r::TouchRect& r : touch_.control_bounds()) out.push_back({r.x, r.y, r.w, r.h});
         return out;
     }
+    // The page's "< Back" (page_header) as drawn this frame, UI units: a click or tap on it is Triangle on the next.
+    void set_back_button(const gt3r::UiRect& r) { back_button_ = r; }
+    // The on-screen controls' overlay: a screen's own button moved clear of them (clear_above) or drawn in the window's bars
+    // beside the game area (draw_whole_window).
+    const gt3r::TouchOverlay& touch_overlay() const { return touch_; }
     bool scripted() const { return scripted_; } // opens nothing on the screen, reads no real input (settings/run_mode.h)
     const std::string& config_path() const { return config_path_; }
 
@@ -263,6 +269,7 @@ private:
     // Phones and tablets (and GT4R_TOUCH=1 on a computer, for pictures): the on-screen controls, the display's cutout.
     bool touch_ui_ = false;
     gt3r::TouchOverlay touch_;
+    gt3r::UiRect back_button_{};          // the page's "< Back" as last drawn (set_back_button), empty when none
     std::optional<gt3r::platform::DisplayInsets> display_insets_;
     int insets_retry_ = 0;
     bool back_pressed_ = false; // Android's back button went down: pressed on player 1's pad for this frame
@@ -270,6 +277,7 @@ private:
     SDL_Window* window_ = nullptr;
     SDL_Renderer* renderer_ = nullptr; // the 3D device's when there is one
     std::unique_ptr<gt3r::render::GpuContext> gpu_;
+    PipelineWarmer gt4_pipelines_; // GT4's pipelines the engine's warm-up leaves out (stopped before gpu_ goes)
     std::unique_ptr<Ui> ui_;
     std::unique_ptr<gt3r::InputManager> input_;
     std::unique_ptr<gt3r::AudioEngine> audio_;
@@ -321,11 +329,16 @@ std::unique_ptr<Screen> make_hub_screen(bool developer = false); // developer: i
 // --sweep: the races of a list run one after another in this window, a picture of each
 // (screen_sweep.cpp).
 std::unique_ptr<Screen> make_sweep_screen(const std::string& list, const std::string& out);
-// The player's controls: the device, the race's layout, rumble and force feedback, the bindings.
-std::unique_ptr<Screen> make_controls_screen(App& app, int player = 0);
+// The player's controls: the device, the race's layout, rumble and force feedback, the game's steering and vibration options, the
+// bindings. `to_game`: opened from the game's pages, which it goes back to; `section`: the part selected (a wheel's settings, the
+// rumble, the steering); `options`: the game's own options shown (app/game_options.h; null: the saved game's).
+class GameOptions;
+enum class ControlsSection { Top, Wheel, Rumble, Steering };
+std::unique_ptr<Screen> make_controls_screen(App& app, int player = 0, bool to_game = false, ControlsSection section = ControlsSection::Top,
+                                             std::shared_ptr<GameOptions> options = nullptr);
 // The app's settings (screen_settings.cpp), from a page on (0 Display, 1 Audio, 2 Controls, 3 Views & replays, 4 Disc & saves,
 // 5 Mods: kModsPage).
-constexpr int kModsPage = 5;
+constexpr int kDiscPage = 4, kModsPage = 5;
 std::unique_ptr<Screen> make_settings_screen(App& app, int page = 0, const std::string& install = {});
 // The save editor (screen_save_editor.cpp): a saved game of the library by its card's folder (save/save_library.h), "" the list.
 std::unique_ptr<Screen> make_save_editor(App& app, const std::string& card = "");
@@ -333,7 +346,7 @@ std::unique_ptr<Screen> make_browser_screen(const std::string& open_path = "");
 // The menu projects' pages drawn from the disc's layouts (still pictures).
 std::unique_ptr<Screen> make_menu_viewer(App& app);
 // The game itself: the menus running from power on, over the whole window, as a player sees
-// them (screen_menu_viewer.cpp). Select and Start together leave it.
+// them (screen_menu_viewer.cpp). On the title, Select or the GT4R menu button beside it leaves it.
 // (`new_card`: a new game, to be made in this folder: save/save_library.h.)
 std::unique_ptr<Screen> make_game_screen(App& app, const std::string& new_card = {});
 // A list of models and a 3D view of the selected one; `load` builds the model of an item.

@@ -662,6 +662,11 @@ AiRunResult run_ai(Disc& disc, bool print, const std::string& course, const std:
         const int mode = options.collide;
         collide_check = std::make_unique<CollideCheck>(ee, o, disc, course);
         collide_check->install(mode != 3, mode != 2);
+        if (const char* s = std::getenv("GT4R_AI_COLLIDE_SHOVE")) {
+            options.shove_every = std::atoi(s);
+            if (const char* c = std::strchr(s, ',')) options.shove_speed = std::atof(c + 1);
+        }
+        collide_check->set_shove(options.shove_every, options.shove_speed);
     }
     if (std::getenv("GT4R_AI_DUMP")) {
         for (u32 a : {0x622080u, 0x622088u, 0x622090u, 0x622098u, 0x6220A0u, 0x6220A8u, 0x6220B0u, 0x6220C8u, 0x6220E0u, 0x623E40u}) {

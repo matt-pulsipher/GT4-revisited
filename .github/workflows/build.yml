@@ -2,6 +2,7 @@ name: build
 
 on:
   # Branches build once, through their pull request; a push runs only for master and tags.
+  # While the repository is private (no Actions minutes), pushes to master build nothing; tags and manual runs still do.
   push:
     branches: [master]
     tags: ['v*']
@@ -52,7 +53,7 @@ concurrency:
 
 jobs:
   desktop:
-    if: github.event_name != 'workflow_dispatch' || inputs.platforms != 'android'
+    if: (github.event_name != 'push' || !github.event.repository.private) && (github.event_name != 'workflow_dispatch' || inputs.platforms != 'android')
     strategy:
       fail-fast: false
       matrix:
@@ -81,7 +82,7 @@ jobs:
   # are kept in GRADLE_USER_HOME=.gradle-home in the workspace, cached from master (Maven Central answers busy CI addresses
   # with HTTP 429).
   android:
-    if: github.event_name != 'workflow_dispatch' || inputs.platforms == 'all' || inputs.platforms == 'android'
+    if: (github.event_name != 'push' || !github.event.repository.private) && (github.event_name != 'workflow_dispatch' || inputs.platforms == 'all' || inputs.platforms == 'android')
     runs-on: ubuntu-24.04
     env:
       GRADLE_USER_HOME: ${{ github.workspace }}/.gradle-home
@@ -131,7 +132,7 @@ jobs:
   # script or the triplets change; every other push just restores it, which also keeps it from
   # expiring (7 days unused).
   angle-cache:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master' && !github.event.repository.private
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@v4

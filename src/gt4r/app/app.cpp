@@ -230,6 +230,7 @@ bool App::init(int argc, char** argv) {
     if (gpu_) {
         renderer_ = gpu_->renderer2d();
         gpu_->warm_pipelines();
+        gt4_pipelines_.start(*gpu_);
         if (!run_.windowless) gt3r::platform::keep_composited(window_); // (macOS: no switching between the display's two ways of showing a full screen)
     } else {
         if (use_gpu) LOG_WARN("3D drawing is not available; continuing with the 2D screens only");
@@ -633,10 +634,14 @@ SDL_AppResult App::iterate() {
         for (size_t b = 0; b < pad.pressure.size(); ++b) pad.pressure[b] = std::max(pad.pressure[b], scripted.pressure[b]);
         if (sticks) pad.set_axis(gt3r::PadAxis::LX, drive_.sticks[0]), pad.set_axis(gt3r::PadAxis::LY, drive_.sticks[1]);
         pad.connected = pad.connected || scripted.buttons != 0 || sticks;
-        // The mouse's right button goes back on the app's own pages.
+        // The mouse's right button goes back on the app's own pages, as does a click or a tap on their "< Back" (the header's
+        // height, a little past its sides: a finger's reach).
         if (top && !top->follows_aspect())
-            for (const gt3r::PointerInput::Action& a : pointer_actions_)
-                if (a.kind == gt3r::PointerInput::Action::Kind::Back) pad.buttons |= u16(1u << unsigned(PadButton::Triangle)), pad.connected = true;
+            for (const gt3r::PointerInput::Action& a : pointer_actions_) {
+                const gt3r::UiRect& b = back_button_;
+                const bool on_back = a.kind == gt3r::PointerInput::Action::Kind::Click && b.w > 0 && a.x >= b.x - 4 && a.x < b.right() + 4 && a.y >= 0 && a.y < 22;
+                if (a.kind == gt3r::PointerInput::Action::Kind::Back || on_back) pad.buttons |= u16(1u << unsigned(PadButton::Triangle)), pad.connected = true;
+            }
         menu_.update(pad, dt);
     }
     if (modal) updates().dialog_update(*this);
@@ -660,6 +665,7 @@ SDL_AppResult App::iterate() {
     Ui::set_prompts(gt3r::button_prompts(*input_, touch_ui_ && touch_.controls().visible(), touch_ui_)); // "{Cross}" in the hints
     begin_gamma_frame();
     ui_->clear();
+    back_button_ = {}; // (the page draws it again: page_header)
     if (!screens_.empty()) screens_.back()->render(*this, *ui_);
     updates().dialog_render(*ui_); // (centered on whatever width the screen below laid out)
     if (touch_ui_) {
@@ -835,6 +841,7 @@ void App::shutdown() {
 #if GT3R_XR
     xr_.reset(); // (its canvases and swapchains before the renderer and the device)
 #endif
+    gt4_pipelines_.stop();
     if (gpu_) gpu_.reset(); // (its renderer goes with it)
     else if (renderer_) SDL_DestroyRenderer(renderer_);
     if (window_) SDL_DestroyWindow(window_);

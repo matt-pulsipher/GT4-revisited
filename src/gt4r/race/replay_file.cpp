@@ -68,7 +68,7 @@ void put_state(Writer& w, const CarState& c) {
     w.f(c.speed), w.f(c.engine_rpm);
     w.u32v(u32(c.gear));
     w.f(c.throttle), w.f(c.brake), w.f(c.steer);
-    w.u8v(u8((c.brake_lamps ? 1 : 0) | (c.reverse_lamps ? 2 : 0) | (c.landed ? 4 : 0)));
+    w.u8v(u8((c.brake_lamps ? 1 : 0) | (c.reverse_lamps ? 2 : 0) | (c.landed ? 4 : 0) | (c.body_placed ? 8 : 0)));
     for (const WheelState& wh : c.wheels) {
         w.vec(wh.center);
         w.f(wh.steer), w.f(wh.spin), w.f(wh.spin_rate), w.f(wh.travel), w.f(wh.slip);
@@ -86,7 +86,7 @@ CarState get_state(Reader& r) {
     c.gear = int(s32(r.u32v()));
     c.throttle = r.f(), c.brake = r.f(), c.steer = r.f();
     const u8 flags = r.u8v();
-    c.brake_lamps = flags & 1, c.reverse_lamps = flags & 2, c.landed = flags & 4;
+    c.brake_lamps = flags & 1, c.reverse_lamps = flags & 2, c.landed = flags & 4, c.body_placed = flags & 8;
     for (WheelState& wh : c.wheels) {
         wh.center = r.vec();
         wh.steer = r.f(), wh.spin = r.f(), wh.spin_rate = r.f(), wh.travel = r.f(), wh.slip = r.f();

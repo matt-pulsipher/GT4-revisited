@@ -149,6 +149,9 @@ public:
     // (`edge` -1: the canvas of the parts at the top, 1 of those at the bottom, which a picture narrower than 4:3 moves out to its
     // edges; 0 the middle's)
     static SDL_FRect canvas(float edge = 0);
+    // The pointer's hovers and taps (UI units) on a movie's buttons drawn on the canvas (StrobePlayer::point):
+    // a hover or a tap on a button focuses it, a tap on the focused one chooses it. True when one was tapped.
+    static bool point_movie(const App& app, race::StrobePlayer& player);
     // The event line's place on the canvas in the display `s` draws (false: none).
     bool event_line_at(const HudState& s, float& x, float& y) const;
 

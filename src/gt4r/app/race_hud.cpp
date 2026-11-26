@@ -390,6 +390,19 @@ SDL_FRect RaceHud::canvas(float edge) {
     return to_ui(DisplayRect{0, 0, 640, 480});
 }
 
+bool RaceHud::point_movie(const App& app, race::StrobePlayer& player) {
+    using Kind = gt3r::PointerInput::Action::Kind;
+    const SDL_FRect c = canvas();
+    if (c.w <= 0 || c.h <= 0) return false;
+    bool tapped = false;
+    for (const gt3r::PointerInput::Action& a : app.pointer()) {
+        if (a.kind != Kind::Hover && a.kind != Kind::Click) continue;
+        const bool tap = a.kind == Kind::Click;
+        if (player.point((a.x - c.x) * 640.0f / c.w, (a.y - c.y) * 480.0f / c.h, tap) && tap) tapped = true;
+    }
+    return tapped;
+}
+
 bool RaceHud::event_line_at(const HudState& s, float& x, float& y) const {
     if (s.split) return false;
     const race::DisplayLayout& l = s.bspec && !s.replay && impl_->mode1.valid() ? impl_->mode1 : impl_->layout;

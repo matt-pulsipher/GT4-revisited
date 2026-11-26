@@ -566,8 +566,13 @@ struct StrobePlayer::Impl {
         for (auto& [i, ch] : c.children) inactivate(*ch);
     }
     // A clip's place on the canvas.
-    void place(const Clip& c, float& x, float& y) {
-        x = y = 0;
+    void place(const Clip& c, float& x, float& y) const {
+        float m[6];
+        world(c, m);
+        x = m[4], y = m[5];
+    }
+    // A clip's matrix on the canvas (its tracks' keys from the root down, a script's _x / _y in place of a key's).
+    void world(const Clip& c, float* out) const {
         std::vector<const Clip*> chain;
         for (const Clip* p = &c; p && p->parent; p = p->parent) chain.push_back(p);
         float m[6] = {1, 0, 0, 1, 0, 0};
@@ -584,7 +589,34 @@ struct StrobePlayer::Impl {
             multiply(m, l, r);
             std::memcpy(m, r, sizeof m);
         }
-        x = m[4], y = m[5];
+        std::memcpy(out, m, sizeof m);
+    }
+    // The canvas box of a sprite's shapes on its first frame (a button's hit area), through `m`.
+    void sprite_box(size_t sprite, const float* m, float* box, int depth) const {
+        if (sprite >= movie->sprites.size() || depth > 4) return;
+        for (const Movie::Track& t : movie->sprites[sprite].tracks) {
+            if (!(t.first <= 0 && 0 < t.end) || t.clip != 0) continue;
+            float l[6], w[6];
+            local(t.key_at(0), l);
+            multiply(m, l, w);
+            if (t.kind == Movie::kSprite) sprite_box(size_t(t.index), w, box, depth + 1);
+            if (t.kind != 0 || size_t(t.index) >= movie->shapes.size()) continue;
+            const Movie::Shape& sh = movie->shapes[size_t(t.index)];
+            for (const float px : {sh.x0, sh.x1})
+                for (const float py : {sh.y0, sh.y1}) {
+                    const float qx = w[0] * px + w[2] * py + w[4], qy = w[1] * px + w[3] * py + w[5];
+                    box[0] = std::min(box[0], qx), box[1] = std::min(box[1], qy), box[2] = std::max(box[2], qx), box[3] = std::max(box[3], qy);
+                }
+        }
+    }
+    // A button's hit area on the canvas (its fourth state's shapes); false when it has none.
+    bool hit_box(const Clip& b, float* box) const {
+        if (b.kind != Clip::ButtonClip || size_t(b.index) >= movie->buttons.size()) return false;
+        float m[6];
+        world(b, m);
+        box[0] = box[1] = 1e30f, box[2] = box[3] = -1e30f;
+        sprite_box(movie->buttons[size_t(b.index)].states[3], m, box, 0);
+        return box[0] <= box[2] && box[1] <= box[3];
     }
     static void local(const Movie::Key& k, float* m) {
         const float c = std::cos(k.rotation), s = std::sin(k.rotation);
@@ -655,6 +687,17 @@ struct StrobePlayer::Impl {
             focus = to;
             conditions(*to, 0x01);
         }
+    }
+
+    // A pointer on the canvas: the last listed button (drawn last, on top) whose hit area holds it.
+    Clip* button_at(float x, float y) {
+        std::vector<Clip*> list;
+        buttons(*root, list);
+        for (auto it = list.rbegin(); it != list.rend(); ++it) {
+            float box[4];
+            if (hit_box(**it, box) && x >= box[0] && x <= box[2] && y >= box[1] && y <= box[3]) return *it;
+        }
+        return nullptr;
     }
 
     // ---- drawing
@@ -820,6 +863,41 @@ void StrobePlayer::key(int code) {
         m.conditions(*m.focus, 0x04);
     }
     m.check_focus();
+}
+
+bool StrobePlayer::point(float x, float y, bool tap) {
+    Impl& m = *impl_;
+    m.check_focus();
+    Clip* b = m.button_at(x, y);
+    if (!b) return false;
+    if (b != m.focus) {
+        m.focus = b;
+        m.conditions(*b, 0x01);
+    } else if (tap) {
+        key(0x20);
+        return true;
+    }
+    m.check_focus();
+    return true;
+}
+
+bool StrobePlayer::button_box(const std::string& path, float box[4]) const {
+    const Clip* c = impl_->focus;
+    if (!path.empty()) { // (the button whose named instances read as `path`, as focus() names it)
+        c = nullptr;
+        std::vector<Clip*> list;
+        impl_->buttons(*impl_->root, list);
+        for (const Clip* b : list) {
+            std::string at;
+            for (const Clip* k = b; k && k->parent; k = k->parent)
+                if (!k->name.empty()) at = k->name + (at.empty() ? "" : "." + at);
+            if (at == path) {
+                c = b;
+                break;
+            }
+        }
+    }
+    return c && impl_->hit_box(*c, box);
 }
 
 std::vector<StrobePlayer::Draw> StrobePlayer::draw_list() const {

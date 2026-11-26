@@ -102,13 +102,14 @@ the stop first (0x43D680): so a paused race, a menu and a replay send it.
 | Part | Runs |
 |---|---|
 | The settings, their pages' calls, their saved block | Gran Turismo 4 (`input/key_config.*`, `menu/game_controllers.cpp`, `save/game_data.cpp`) |
+| Their pages (Options' button configurations, Vibration, Steering) | ours: each shows only a Controller Settings button into our Controls (`app/screen_menu_viewer.cpp`), which reads and writes the same option fields (`app/game_options.*`: the running game's, or the saved game's from the home screen) |
 | A port's report into the frame and words (0x43CF90 with 0x43BBC0, 0x43C260, 0x438870, 0x4386F0) | Gran Turismo 4 (`input/race_input.*`): equal to the program's |
 | The frame's use | Gran Turismo 4 (`sim/rules_input.*`, physics.md §3.6) |
 | The second port | the two-player battle's (`app/screen_split.cpp`): its own device, settings (`*_2p`), frame, vibration and force; without a device the keyboard's second set of keys, for the battle's time |
 | The race's gearbox, aids and wheel options | Gran Turismo 4's rules above (`RaceScreen::player_choice`) |
 | The devices: SDL's gamepads, wheels, keyboard, hot plug, bindings, dead zone and response curve | the shared engine's input layer (`gt3r::InputManager`) on a virtual DualShock 2 |
 | The devices into a port (`input/player_controls.*`) | ours: a pad without pressures is the console's kind 4 (its buttons pressed or not); the sticks are read finer than a byte; a trigger's travel set to a pedal moves it as an axis; a wheel's axis x its rotation over the original wheel's (200 or 900 degrees) |
-| The modern layout (triggers for pedals) | ours, into the same frame (kind 2, the pedals as axes); left for the Key Configuration's keys once they differ from its preset's (the page's OK leaves the preset 0 without a change too) |
+| The modern layout (triggers for pedals) | ours, into the same frame (kind 2, the pedals as axes); left for the Key Configuration's keys once they differ from its preset's (the page's OK leaves the preset 0 without a change too; Controls' *Restore the game's layout* puts the presets back) |
 | The vibration's level, the wheel's force | Gran Turismo 4's (physics.md §3.6), sent as they are with "Gran Turismo 4 original" chosen |
 | The Modern rumble and the Modern wheel force (the default) | the shared engine's (`gt3r::race::RumbleModel`, `force_feedback.*`), fed from Gran Turismo 4's step (`input/race_feedback.*`) |
 | The triggers (a DualSense's resistance and buzz, an Xbox pad's impulse triggers) | the shared engine's, from the step's tires |

@@ -348,7 +348,7 @@ private:
     }
 
     void render_list(Ui& ui) {
-        ui.header("SAVE EDITOR", app_.disc() ? app_.disc()->info().description : std::string());
+        page_header(app_, ui, "SAVE EDITOR", app_.disc() ? app_.disc()->info().description : std::string());
         const int count = int(list_.size()) + 2;
         list_top_ = std::clamp(list_top_, std::max(0, list_sel_ - kShown + 1), list_sel_);
         for (int i = list_top_; i < std::min(count, list_top_ + kShown); ++i) {
@@ -597,7 +597,7 @@ private:
 
     void render_pages(Ui& ui) {
         rebuild();
-        ui.header("SAVE EDITOR", title_ + (edited_ ? "  (changed, not saved)" : ""));
+        page_header(app_, ui, "SAVE EDITOR", title_ + (edited_ ? "  (changed, not saved)" : ""));
         float x = kListX;
         const std::vector<std::string> names = tabs();
         for (size_t i = 0; i < names.size(); ++i) {

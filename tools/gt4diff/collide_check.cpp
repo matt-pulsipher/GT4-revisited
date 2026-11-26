@@ -151,10 +151,36 @@ void CollideCheck::note(const std::string& name, double theirs, double ours, con
     }
 }
 
+void CollideCheck::shove(u32 m, int n) {
+    // Every `shove_every_` calls the next body is pushed at its nearest neighbour within 20 m: its velocity (+0x460) gains
+    // `shove_speed_` toward it, in the program's record before either step reads it, so both meet the same contact (the
+    // program's race goes on from it: the next steps' holds and separations are compared too).
+    if (shove_every_ <= 0 || (calls_ + 1) % u64(shove_every_) != 0) return;
+    const int i = int(shoves_++ % u64(n));
+    const u32 bi = m + 0xC + kBodySize * u32(i);
+    auto rf = [&](u32 a) { return ee_.rf(a); };
+    int best = -1;
+    float best_d2 = 400;
+    for (int j = 0; j < n; ++j) {
+        if (j == i) continue;
+        const u32 bj = m + 0xC + kBodySize * u32(j);
+        const float dx = rf(bj + 0x454) - rf(bi + 0x454), dy = rf(bj + 0x458) - rf(bi + 0x458), dz = rf(bj + 0x45C) - rf(bi + 0x45C);
+        const float d2 = dx * dx + dy * dy;
+        if (std::fabs(dz) < 4 && d2 < best_d2) best_d2 = d2, best = j;
+    }
+    if (best < 0 || best_d2 <= 0) return;
+    const u32 bj = m + 0xC + kBodySize * u32(best);
+    const float d = std::sqrt(best_d2);
+    const float ux = (rf(bj + 0x454) - rf(bi + 0x454)) / d, uy = (rf(bj + 0x458) - rf(bi + 0x458)) / d;
+    ee_.wf(bi + 0x460, rf(bi + 0x460) + float(shove_speed_) * ux);
+    ee_.wf(bi + 0x464, rf(bi + 0x464) + float(shove_speed_) * uy);
+}
+
 void CollideCheck::enter_step() {
     const u32 m = ee_.g32(4);
     const int n = int(ee_.r32(m + 4));
     if (n <= 0 || n > cl::kMaxBodies) return;
+    shove(m, n);
     const u32 walls = ee_.r32(race_.runway + 0x84);
     Pending p;
     p.manager = m;

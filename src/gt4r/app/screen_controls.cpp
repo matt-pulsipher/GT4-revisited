@@ -1,12 +1,15 @@
-// A player's controls: the device, how the race reads it, its motors, triggers and force feedback, what each race control and each
-// menu button is bound to, and the songs' controls. The game's own pages (Options: Key Configuration, Controllers, Steering) keep
-// what the console's do; these are what a computer's pads and wheels need beside them. Kept in config.ini.
+// A player's controls: the device, how the race reads it, its motors, triggers and force feedback, the game's own steering and
+// vibration options, what each race control and each menu button is bound to, and the songs' controls. The game's Options pages
+// for these (the button configurations, Vibration, Steering) show only a way here; what they set is shown and set here, in the
+// game's own options (app/game_options.h). Ours are kept in config.ini.
 
 #include "gt4r/app/app.h"
+#include "gt4r/app/game_options.h"
 #include "gt4r/app/page.h"
 #include "gt4r/input/player_controls.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <functional>
@@ -21,7 +24,11 @@ std::string percent(float v) { return std::to_string(int(std::lround(v * 100))) 
 
 class ControlsScreen : public Screen {
 public:
-    ControlsScreen(App& app, int player) : player_(player), wheel_(input::WheelSettings::load(app.config())) {}
+    ControlsScreen(App& app, int player, bool to_game, ControlsSection section, std::shared_ptr<GameOptions> options)
+        : player_(player), to_game_(to_game), options_(options ? std::move(options) : saved_game_options(app)),
+          wheel_(input::WheelSettings::load(app.config())) {
+        first_row_ = section == ControlsSection::Wheel ? "Wheel driven as" : section == ControlsSection::Rumble ? "Rumble" : section == ControlsSection::Steering ? "Active steering" : "";
+    }
 
     // (a wrong choice of device can be taken back with any other)
     bool menu_input_any_device() const override { return true; }
@@ -40,8 +47,19 @@ public:
             return;
         }
         build(app);
+        // Opened from one of the game's pages: its part selected.
+        if (const std::string first = std::exchange(first_row_, std::string()); !first.empty())
+            for (size_t i = 0; i < rows_.rows.size(); ++i)
+                if (rows_.rows[i].label == first) {
+                    rows_.selected = int(i);
+                    break;
+                }
         if (m.pressed(PadButton::Triangle)) {
             if (changed_) save(app);
+            if (const std::string error = options_->close(); !error.empty()) {
+                message_ = "Your saved game could not be changed: " + error;
+                return;
+            }
             in.set_rumble(player_, {});
             app.pop();
             return;
@@ -55,10 +73,10 @@ public:
 
     void render(App& app, Ui& ui) override {
         gt3r::InputManager& in = app.input();
-        ui.header("PLAYER " + std::to_string(player_ + 1) + "'S CONTROLS", in.device_name(player_));
+        page_header(app, ui, "PLAYER " + std::to_string(player_ + 1) + "'S CONTROLS", in.device_name(player_), to_game_ ? "< Back to game" : "< Back");
         rows_.render(ui, {20, 28, 410, 17 * 18 + 1});
         // What the race would be given now.
-        const input::RaceInput now = input::read_player(in, player_, input::PortConfig{}, wheel_);
+        const input::RaceInput now = input::read_player(in, player_, options_->state() ? options_->port(player_) : input::PortConfig{}, wheel_);
         const sim::rules::PadFrame& f = now.frame;
         const float x = 446, w = 180;
         ui.text(x, 34, "What the race reads", colors::kDim);
@@ -82,11 +100,14 @@ public:
         if (now.views & (input::RaceInput::kBackView | input::RaceInput::kRearView)) more += ", look back";
         ui.text(x, 156, Ui::elide(more, w), colors::kText);
         float y = 182;
-        for (const std::string& line : Ui::wrap("The game's Options hold its own button configurations: once changed there, races read a pad through them.", w))
-            ui.text(x, y, line, colors::kDim), y += 12;
+        if (!in.wheel_steering(player_) && in.race_uses_menu_pad(player_))
+            for (const std::string& line : Ui::wrap("Gran Turismo 4 original reads your pad through the game's own button layout, listed here as your saved game has it.", w))
+                ui.text(x, y, line, colors::kDim), y += 12;
+        if (!message_.empty())
+            for (const std::string& line : Ui::wrap(message_, w)) ui.text(x, y + 6, line, colors::kBad), y += 12;
         std::string hint = rows_.hint();
         if (rows_.selected >= 0 && rows_.selected < int(bound_.size()) && bound_[size_t(rows_.selected)]) hint += "  {Select|Delete}: clear";
-        ui.footer(capturing_ ? std::string("Press it now (Esc: leave it as it is)") : hint + (hint.empty() ? "" : "  ") + "{Triangle}: keep and go back");
+        ui.footer(capturing_ ? std::string("Press it now (Esc: leave it as it is)") : hint + (hint.empty() ? "" : "  ") + (to_game_ ? "{Triangle}: keep and go back to the game" : "{Triangle}: keep and go back"));
         if (capturing_ && chord_ >= 0) {
             std::string held;
             for (const gt3r::InputSource& s : in.chord_so_far()) held += (held.empty() ? "" : " + ") + in.describe(player_, s);
@@ -170,7 +191,14 @@ private:
             rows_.pick("Wheel driven as", {{"3", "Driving Force Pro (900 degrees)"}, {"2", "Driving Force (200 degrees)"}}, std::to_string(int(wheel_.wheel)),
                        [this](const std::string& v) { wheel_.wheel = u8(std::atoi(v.c_str())); });
             rows_.slider("Wheel's rotation, as its driver has it", wheel_.rotation, 180, 1440, 30, [](float v) { return std::to_string(int(v)) + " degrees"; }, [this](float v) { wheel_.rotation = v; });
-            rows_.pick("Force feedback", {{"off", "None"}, {"on", "From the road"}}, ffb.wheel ? "on" : "off", [set_ffb](const std::string& v) { set_ffb([&](auto& c) { c.wheel = v == "on"; }); });
+            // One setting with the game's own ("WHEEL FEEDBACK", per player): the force is sent when both are on.
+            GameOptions* o = options_->state() ? options_.get() : nullptr;
+            const bool forces = ffb.wheel && (!o || o->wheel_feedback(p));
+            rows_.pick("Force feedback", {{"off", "None"}, {"on", "From the road"}}, forces ? "on" : "off", [set_ffb, o, p](const std::string& v) {
+                const bool on = v == "on";
+                if (o) o->set_wheel_feedback(p, on);
+                if (on || !o) set_ffb([&](auto& c) { c.wheel = on; }); // (ours stays on while the game's is per player)
+            });
             rows_.pick("Force model", {{"auto", "Automatic (Modern)"}, {"modern", "Modern"}, {"gt3", "Gran Turismo 4 original"}}, ffb.wheel_mode,
                        [set_ffb](const std::string& v) { set_ffb([&](auto& c) { c.wheel_mode = v; }); });
             rows_.slider("Strength", ffb.strength, 0, 2, 0.05f, percent, [set_ffb](float v) { set_ffb([&](auto& c) { c.strength = v; }); });
@@ -180,8 +208,16 @@ private:
             rows_.pick("Force's direction", {{"off", "As the wheel gives it"}, {"on", "The other way"}}, ffb.invert ? "on" : "off",
                        [set_ffb](const std::string& v) { set_ffb([&](auto& c) { c.invert = v == "on"; }); });
         }
-        rows_.pick("Rumble", {{"auto", "Automatic (Modern)"}, {"modern", "Modern"}, {"gt3", "Gran Turismo 4 original"}}, in.rumble_mode(p),
-                   [&in, p](const std::string& v) { in.set_rumble_mode(p, v); });
+        {
+            // Off is the game's own vibration option (the DualShock 2's "ON", per player), which the race honors whatever the kind.
+            GameOptions* o = options_->state() ? options_.get() : nullptr;
+            std::vector<std::pair<std::string, std::string>> kinds{{"auto", "Automatic (Modern)"}, {"modern", "Modern"}, {"gt3", "Gran Turismo 4 original"}};
+            if (o) kinds.insert(kinds.begin(), {"off", "Off"});
+            rows_.pick("Rumble", kinds, o && !o->vibration(p) ? "off" : in.rumble_mode(p), [&in, p, o](const std::string& v) {
+                if (o) o->set_vibration(p, v != "off");
+                if (v != "off") in.set_rumble_mode(p, v);
+            });
+        }
         if (!wheel) {
             rows_.pick("Triggers", {{"off", "Free"}, {"on", "Brake resistance, the edge of grip"}}, ffb.triggers ? "on" : "off",
                        [set_ffb](const std::string& v) { set_ffb([&](auto& c) { c.triggers = v == "on"; }); });
@@ -199,6 +235,8 @@ private:
         }
         rows_.pick("Keyboard", {{"off", "Does nothing while a controller is there"}, {"on", "Also drives"}}, in.keyboard_enabled(p) ? "on" : "off", [&in, p](const std::string& v) { in.set_keyboard(p, v == "on"); });
 
+        steering_rows(p);
+
         rows_.heading("Race controls");
         const auto add = [&](const Binding& b) {
             bound_.resize(rows_.rows.size());
@@ -207,7 +245,7 @@ private:
             if (capturing_ && target_.label == b.label && target_.menu == b.menu && target_.action == b.action) r.value = "press it now";
             bound_.push_back(b);
         };
-        if (!wheel && in.race_uses_menu_pad(p)) rows_.info("The game's button configurations (Options)", "");
+        if (!wheel && in.race_uses_menu_pad(p)) game_layout_rows(p);
         for (const Binding& b : bindings(in)) add(b);
         rows_.action("Every race control", in.is_race_custom(p) ? "as bound here" : "as it comes", "as it comes", [&in, p] { in.set_race_layout(p, in.race_layout(p)); });
         rows_.heading("Songs (any buttons or keys, held together)");
@@ -223,6 +261,68 @@ private:
             add(this->button(name, button, true));
         rows_.action("Every menu button", in.is_custom(p) ? "as bound here" : "as it comes", "as it comes", [&in, p] { in.reset_bindings(p); });
         bound_.resize(rows_.rows.size());
+    }
+
+    // The game's steering options (its Options' Steering page), this player's.
+    void steering_rows(int p) {
+        rows_.heading("Steering (the game's own options)");
+        GameOptions* o = options_->state() ? options_.get() : nullptr;
+        if (!o) {
+            rows_.info(options_->why(), "");
+            return;
+        }
+        rows_.pick("Active steering", {{"off", "Not used"}, {"on", "Helps against spins"}}, o->active_steering(p) ? "on" : "off",
+                   [o, p](const std::string& v) { o->set_active_steering(p, v == "on"); });
+        rows_.pick("Steering type (GT FORCE, Driving Force)", {{"AMATEUR", "Amateur"}, {"PROFESSIONAL", "Professional"}, {"SIMULATION", "Simulation"}},
+                   o->steering_type(p), [o, p](const std::string& v) { o->set_steering_type(p, v); });
+        rows_.pick("Power assist (Driving Force Pro)", {{"off", "None"}, {"on", "Assisted"}}, o->power_assist(p) ? "on" : "off",
+                   [o, p](const std::string& v) { o->set_power_assist(p, v == "on"); });
+        rows_.pick("Force strength (Driving Force Pro)", {{"0", "Weak"}, {"1", "Strong"}}, o->force_strength(p) > 0 ? "1" : "0",
+                   [o, p](const std::string& v) { o->set_force_strength(p, v == "1" ? 1 : 0); });
+    }
+
+    // Gran Turismo 4 original: the race reads the pad through the game's own button configuration (the saved game's), listed as
+    // it is; Restore puts the game's layout back on every device of this player.
+    void game_layout_rows(int p) {
+        GameOptions* o = options_->state() ? options_.get() : nullptr;
+        if (!o) {
+            rows_.info("As your saved game has them", "");
+            if (!options_->why().empty()) rows_.info(options_->why(), "");
+            return;
+        }
+        const input::DeviceConfig c = o->port(p).of(input::Device::DualShock2);
+        // The pad's keys by the settings' names: LX the left stick, LYF its upward half (F: left or up, L: right or down), CROSS.
+        const auto name = [](const std::string& k) -> std::string {
+            if (k.size() >= 2 && (k[0] == 'L' || k[0] == 'R') && (k[1] == 'X' || k[1] == 'Y') && (k.size() == 2 || k.size() == 3)) {
+                std::string s = std::string(k[0] == 'L' ? "Left" : "Right") + " stick";
+                if (k.size() == 3) s += k[1] == 'X' ? (k[2] == 'F' ? " left" : " right") : (k[2] == 'F' ? " up" : " down");
+                return s;
+            }
+            std::string s = k;
+            for (size_t i = 1; i < s.size(); ++i) s[i] = char(std::tolower(static_cast<unsigned char>(s[i])));
+            return s;
+        };
+        const auto keys = [&name](const std::vector<std::string>& names) {
+            std::string out;
+            for (const std::string& n : names) out += (out.empty() ? "" : ", ") + name(n);
+            return out.empty() ? std::string("none") : out;
+        };
+        using A = input::AxisAction;
+        using B = input::ButtonAction;
+        const auto both = [&](A a, B b) {
+            std::vector<std::string> n = input::keys_with(c, input::Device::DualShock2, a);
+            for (std::string& k : input::keys_with(c, input::Device::DualShock2, b)) n.push_back(k);
+            return keys(n);
+        };
+        const auto one = [&](B b) { return keys(input::keys_with(c, input::Device::DualShock2, b)); };
+        const std::pair<const char*, std::string> list[] = {
+            {"Steer", keys(input::keys_with(c, input::Device::DualShock2, A::Steer))}, {"Steer left", one(B::SteerLeft)}, {"Steer right", one(B::SteerRight)},
+            {"Accelerate", both(A::Accel, B::Accel)}, {"Brake", both(A::Brake, B::Brake)}, {"Reverse", both(A::ReverseGear, B::ReverseGear)},
+            {"Handbrake", both(A::SideBrake, B::SideBrake)}, {"Shift up", both(A::ShiftUp, B::ShiftUp)}, {"Shift down", both(A::ShiftDown, B::ShiftDown)},
+            {"Look back", one(B::BackView)}, {"Change view", one(B::PlayView)}, {"Nitrous", one(B::Special)}, {"Ghost", one(B::Ghost)}};
+        for (const auto& [label, value] : list) rows_.info(label, value);
+        rows_.action("Restore the game's layout", o->keys_changed(p) ? "changed in your saved game" : "as it comes", "restore", [o, p] { o->restore_keys(p); }).enabled =
+            o->keys_changed(p);
     }
 
     static Binding button(const char* label, PadButton b, bool menu = false) {
@@ -246,11 +346,12 @@ private:
                                  button("Accelerate", PadButton::Cross), button("Brake", PadButton::Square), button("Handbrake", PadButton::Circle), button("Reverse", PadButton::Triangle)};
         if (wheel) {
             for (const Binding& b : {button("Right paddle", PadButton::R1), button("Left paddle", PadButton::L1), button("Lever: shift up", PadButton::R2), button("Lever: shift down", PadButton::L2),
-                                     button("Change view", PadButton::Select, true), button("Look back (wheel's Down)", PadButton::Down), button("Pause", PadButton::Start)})
+                                     button("Change view", PadButton::Select, true), button("Look back (wheel's Down)", PadButton::Down), button("Ghost (wheel's Up)", PadButton::Up),
+                                     button("Pause", PadButton::Start)})
                 out.push_back(b);
         } else {
             for (const Binding& b : {button("Shift up", PadButton::R2), button("Shift down", PadButton::L2), button("Change view", PadButton::R1), button("Look back", PadButton::L1),
-                                     button("Nitrous", PadButton::Down), button("Pause", PadButton::Start)})
+                                     button("Nitrous", PadButton::Down), button("Ghost", PadButton::Up), button("Pause", PadButton::Start)})
                 out.push_back(b);
         }
         return out;
@@ -282,6 +383,10 @@ private:
     }
 
     int player_ = 0;
+    bool to_game_ = false;                  // opened from the game's pages (the Options' controller pages): back goes to them
+    std::string first_row_;                 // the row of the section the page was opened at, selected once the rows are there
+    std::shared_ptr<GameOptions> options_;  // the game's own options shown here
+    std::string message_;                   // a write of the saved game that failed
     input::WheelSettings wheel_;
     PageRows rows_;
     std::vector<std::optional<Binding>> bound_; // per row: what it binds
@@ -293,6 +398,8 @@ private:
 
 } // namespace
 
-std::unique_ptr<Screen> make_controls_screen(App& app, int player) { return std::make_unique<ControlsScreen>(app, std::clamp(player, 0, gt3r::InputManager::kMaxPlayers - 1)); }
+std::unique_ptr<Screen> make_controls_screen(App& app, int player, bool to_game, ControlsSection section, std::shared_ptr<GameOptions> options) {
+    return std::make_unique<ControlsScreen>(app, std::clamp(player, 0, gt3r::InputManager::kMaxPlayers - 1), to_game, section, std::move(options));
+}
 
 } // namespace gt4r
