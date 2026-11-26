@@ -647,8 +647,8 @@ TEST(race_gadget_bodies_disc) {
         const course::Vec3 cone = g.placements[0].position;
         race::GadgetBodies::Car car;
         car.forward = {1, 0, 0}, car.right = {0, 0, -1}, car.vel = {15, 0, 0};
-        // (The car's center half a metre over the cone's floor: Tsukuba's pit lane is not in the road file.)
-        const float h = cone.y - 0.11f + 0.5f;
+        // (The car's center half a metre over the cone's foot: the cone stands on the road file's surface.)
+        const float h = bodies.bodies()[0].pos.y - 0.11f + 0.5f;
         car.pos = {cone.x - 5, h, cone.z};
         unsigned hits = 0;
         for (int i = 0; i < 60; ++i) {
@@ -659,9 +659,52 @@ TEST(race_gadget_bodies_disc) {
         CHECK(hits == 1 && bodies.moved());
         CHECK(b.removed || std::hypot(b.pos.x - cone.x, b.pos.z - cone.z) > 0.5f);
         for (int i = 0; i < 600; ++i) bodies.step(g, *road, {}, 1.0f / 60);
-        CHECK(b.removed || (std::sqrt(b.vel.x * b.vel.x + b.vel.y * b.vel.y + b.vel.z * b.vel.z) < 0.5f && std::fabs(b.pos.y - b.floor) < 0.6f));
+        float under = 0;
+        const bool found = road->height_at(b.pos.x, b.pos.z, b.pos.y, under);
+        CHECK(b.removed || (std::sqrt(b.vel.x * b.vel.x + b.vel.y * b.vel.y + b.vel.z * b.vel.z) < 0.5f && found && std::fabs(b.pos.y - under) < 0.8f));
         const race::GadgetBodies::Body& other = bodies.bodies().back();
         CHECK(!other.awake && std::fabs(other.pos.x - g.placements.back().position.x) < 1e-4f);
+    }
+    if (!ran) SKIP("no Gran Turismo 4 US disc");
+}
+
+TEST(race_gadgets_stand_on_the_road_disc) {
+    // Set up (0x3E2710), every cone and board stands on the road file's first surface straight down from 1 m above
+    // its record, whatever height the record gives: Laguna Seca's two boards placed at 0 drop about 16 m, Tsukuba's
+    // pit cones about 1.5 m (the program's bodies in the reference's saved states sit there, within 5 mm).
+    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    bool ran = false;
+    for (const auto& disc : test::discs()) {
+        if (disc->info().serial.rfind("SCUS_973.28", 0) != 0) continue;
+        for (const char* name : {"crs/laguna", "crs/tsukuba", "crs/infineon"}) {
+            const gt3r::Volume::Entry* e = disc->volume().find(name);
+            if (!e) continue;
+            const Bytes data = disc->volume().read(*e);
+            const course::CourseFile file = course::CourseFile::parse(data);
+            const std::optional<course::Runway> road = course::course_road(file, data);
+            const race::Gadgets g = race::Gadgets::parse(file.section(data, course::kSlotGadgets), file.section(data, course::kSlotRunway));
+            if (!road || g.placements.empty()) continue;
+            ran = true;
+            race::GadgetBodies bodies;
+            bodies.reset(g, *road);
+            int on = 0;
+            for (size_t i = 0; i < g.placements.size(); ++i) {
+                const race::GadgetBodies::Body& b = bodies.bodies()[i];
+                const race::Gadgets::Placement& p = g.placements[i];
+                float under = 0;
+                if (!road->height_at(p.position.x, p.position.z, p.position.y + 1, under)) continue;
+                // Hull point 0 (the foot) on the plane there.
+                const std::array<float, 9>& r = b.rot;
+                const course::Vec3& h0 = g.kinds[size_t(p.kind)].hull[0];
+                const float foot = b.pos.y + r[3] * h0.x + r[4] * h0.y + r[5] * h0.z;
+                const float plane = -(b.plane[0] * (b.pos.x + r[0] * h0.x + r[1] * h0.y + r[2] * h0.z) + b.plane[2] * (b.pos.z + r[6] * h0.x + r[7] * h0.y + r[8] * h0.z) + b.plane[3]) / b.plane[1];
+                on += std::fabs(foot - plane) < 1e-3f && std::fabs(plane - under) < 0.05f;
+            }
+            std::printf("  %s: %d of %zu gadgets on the road under them\n", name, on, g.placements.size());
+            CHECK(on == int(g.placements.size()));
+            if (std::string(name) == "crs/laguna" && g.placements.size() == 34)
+                CHECK(g.placements[32].position.y == 0 && bodies.bodies()[32].pos.y < -15.5f && bodies.bodies()[32].pos.y > -17);
+        }
     }
     if (!ran) SKIP("no Gran Turismo 4 US disc");
 }

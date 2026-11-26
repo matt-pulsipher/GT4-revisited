@@ -111,12 +111,14 @@ float side(const std::array<float, 4>& p, const V& q) { return p[0] * q.x + p[1]
 } // namespace
 
 bool GadgetBodies::ground_plane(Body& b, const course::Runway& road) const {
-    // 0x3E29F8: the road's triangle under the body and its plane (❓ the program's query 0x3E5A30 is not
-    // read: here the highest surface up to 1 m above the body's center).
+    // 0x3E29F8 -> 0x3E5A30: the road's first triangle straight down from the body's center (a column from there to
+    // the bottom of the road's box) and its plane. The set-up asks from 1 m above the placed record; the road
+    // file's surface is where every body stands (Tsukuba's 18 cones, Laguna Seca's boards: the program's bodies in
+    // the reference's saved states sit on it, whatever height the record gives).
     float h = 0;
     int t = -1;
     b.on_road = false;
-    if (road.height_at(b.pos.x, b.pos.z, b.pos.y + 1.0f, h, &t) && t >= 0 && size_t(t) < road.triangles.size()) {
+    if (road.height_at(b.pos.x, b.pos.z, b.pos.y, h, &t) && t >= 0 && size_t(t) < road.triangles.size()) {
         const course::Runway::Triangle& tri = road.triangles[size_t(t)];
         const V a = road.vertices[tri.v[0]].pos, p1 = road.vertices[tri.v[1]].pos, p2 = road.vertices[tri.v[2]].pos;
         V n = cross(sub(p1, a), sub(p2, a));
@@ -127,11 +129,6 @@ bool GadgetBodies::ground_plane(Body& b, const course::Runway& road) const {
             b.on_road = true;
         }
     }
-    // (❓ Surfaces the road file lacks, as Tsukuba's pit lane a metre above the road under it: near its
-    // place a body keeps the level floor it stood on when the road there is lower.)
-    const bool near_home = std::hypot(b.pos.x - b.home.x, b.pos.z - b.home.z) < 3.0f;
-    if (near_home && (!b.on_road || -(b.plane[0] * b.pos.x + b.plane[2] * b.pos.z + b.plane[3]) / b.plane[1] < b.floor - 0.05f))
-        b.plane = {0, 1, 0, -b.floor}, b.on_road = true;
     return b.on_road;
 }
 
