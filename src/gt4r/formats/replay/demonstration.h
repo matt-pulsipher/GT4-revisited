@@ -99,12 +99,14 @@ struct Demonstration {
     // tables are the program's (0x655C90, 0x655888): a program that is not the mapped build gives nullopt.
     static std::optional<Demonstration> parse(ByteSpan file, const sim::Program& program, std::string* error = nullptr);
     // The file of it as the program writes one (Serialize::ReplayData, then not scrambled): its body enciphered under its key.
+    // Empty without Gran Turismo 4's tables (another game's program).
     Bytes encode(const sim::Program& program) const;
 };
 
 // A recorder's stream of records as the program's recorder writes it (0x346138 a step, 0x346498 its end): `frames` then `last`.
 Bytes encode_stream(const std::vector<PadRecord>& frames, const std::optional<PadRecord>& last);
-// A body enciphered (0x579F38); `key` takes its key (CRC-32's low 24 bits, the first byte on top).
+// A body enciphered (0x579F38); `key` takes its key (CRC-32's low 24 bits, the first byte on top). Empty, the key 0, without
+// Gran Turismo 4's tables.
 Bytes encipher_body(ByteSpan plain, u32& key, const sim::Program& program);
 
 // The body deciphered (0x579E00): nullopt when the key does not match the deciphered body.

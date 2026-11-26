@@ -39,7 +39,8 @@ replay::Demonstration make_recording(const RecordingSetup& s, const std::vector<
 }
 
 Bytes recording_file(const replay::Demonstration& d, const sim::Program& program, u32 random) {
-    return save::scramble(d.encode(program), 0, random, save::FileKind::Replay);
+    const Bytes file = d.encode(program);
+    return file.empty() ? Bytes{} : save::scramble(file, 0, random, save::FileKind::Replay);
 }
 
 replay::PadRecord mail_record(const RecordMail& m) {
