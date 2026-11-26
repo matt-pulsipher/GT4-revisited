@@ -4549,8 +4549,10 @@ private:
                     o.paint = race::LicenseTrophy::material_for(kind, 3);
                     trophy_ = std::make_unique<render::GpuModel>(*app.gpu(), gt3r::gtm1::build_model(gt3r::gtm1::Gtm1::parse(*f), o, "trophy"));
                 } else if (f && mdls::is_mdls(*f)) {
-                    gt3r::gtm1::Options o; // (as the race's cars: the reflection passes weighted, the course's reflection picture)
-                    o.program_alpha_test = true, o.weighted_reflection = true, o.gs_mip_levels = true;
+                    // Its reflection picture is its own (the file's one Tex1 picture, a sphere map in three palettes: gold,
+                    // silver, bronze by the paint), not the course's.
+                    gt3r::gtm1::Options o;
+                    o.program_alpha_test = true, o.static_env_maps = true, o.gs_mip_levels = true;
                     o.paint = race::LicenseTrophy::material_for(kind, int(mdls::read_header(*f).variations));
                     trophy_ = std::make_unique<render::GpuModel>(*app.gpu(), mdls::build_model(*f, o, mdls::Scene{}, "trophy"));
                 }

@@ -357,8 +357,12 @@ x1, y1 the box about the track's origin, u32 name, u32 length), an external trac
 here `screen` (300 x 225: the live picture) and `TropyPanel` (282.3 x 270.5). ResultLicense's picture
 callback (0x3E0E38): `screen` sets the race view's box (the FAIL page's inset; the PASSED part has
 none, so a passed test's page shows the race over the whole picture), any other name draws the
-trophy (0x3E0FF8): `race/trophy.mdl` in its material set by the result's kind (table 0x6A38F0: kinds
-1, 2 set 0, 3 set 1, 4, 5 set 2; gold, silver, bronze), through a lens 50 degrees high (0x49AC00:
+trophy (0x3E0FF8): `race/trophy.mdl` in its colour by the result's kind (table 0x6A38F0: kinds
+1, 2 set 0, 3 set 1, 4, 5 set 2; gold, silver, bronze; 0x3E18D0 writes it, at most the set's +0x1A, into the model's +0x18).
+The colour is the paint (Tex1 +0x20, three variants): the model's one picture, a 64 x 64 sphere map, read through the gold, the
+grey or the copper palette; its material variations are all white. The reflection is that picture of its own, not the
+course's (✔ the original's bronze, 18-round4-gt `license_b1_whole_test_page_to_bronze_result.mp4`: copper; ours drew it
+chrome-silver from the course's reflection picture before), through a lens 50 degrees high (0x49AC00:
 0.1 .. 100 m, the 640 x 448 picture's aspect), the whole picture then put into the panel's box; three
 passes a frame averaged, the motion stepped half a frame between them. The motion (0x3E18D0, stepped
 by 0x3E1A80, each value v += ((target - v) x gain + rate) x dt): the place's z from -0.5 to -2.5 at

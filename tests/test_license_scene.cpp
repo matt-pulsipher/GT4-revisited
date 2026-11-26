@@ -4,6 +4,8 @@
 #include "gt4r/formats/model/car_model.h"
 #include "gt4r/race/gadgets.h"
 #include "gt4r/race/license_scene.h"
+#include "gt4r/race/license_trophy.h"
+#include "gt4r/formats/model/mdls.h"
 #include "gt4r/race/sections.h"
 #include "gt4r/sim/ai/run.h"
 
@@ -120,5 +122,40 @@ TEST(license_scene_b1_pass_disc) {
         std::printf("  eye %.4f %.4f %.4f, lens %.4f\n", double(shot.eye.x), double(shot.eye.y), double(shot.eye.z), double(shot.angle));
         CHECK(std::fabs(shot.eye.x + 966.9601f) < 0.005f && std::fabs(shot.eye.y - 2.6518f) < 0.005f && std::fabs(shot.eye.z + 1502.2668f) < 0.005f);
         CHECK(std::fabs(shot.angle - 0.6436f) < 0.005f);
+    }
+}
+
+// The result page's trophy (race/trophy.mdl): its one picture, a sphere map, in three palettes chosen by the paint (Tex1 +0x20):
+// gold, silver, bronze for the program's material index 0, 1, 2 (table 0x6A38F0 by the result's kind).
+TEST(license_trophy_palettes_disc) {
+    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    for (const auto& disc : test::discs()) {
+        if (disc->info().serial.rfind("SCUS_973.28", 0) != 0) continue;
+        const gt3r::Volume::Entry* e = disc->volume().find("race/trophy.mdl");
+        CHECK(e != nullptr);
+        if (!e) continue;
+        const Bytes f = disc->volume().read(*e);
+        double mean[3][3] = {};
+        for (int paint = 0; paint < 3; ++paint) {
+            gt3r::gtm1::Options o;
+            o.static_env_maps = true;
+            o.paint = race::LicenseTrophy::material_for(race::LicenseTrophy::kind_for(paint), int(mdls::read_header(f).variations));
+            const gt3r::scene::Model m = mdls::build_model(f, o, mdls::Scene{}, "trophy");
+            CHECK(!m.textures.empty());
+            if (m.textures.empty()) continue;
+            const auto& t = m.textures[0];
+            double n = 0;
+            for (u32 c : t.rgba) {
+                const double w = double(c >> 24) / 255.0 * (double((c & 0xFF) + ((c >> 8) & 0xFF) + ((c >> 16) & 0xFF)) / 765.0);
+                for (int k = 0; k < 3; ++k) mean[paint][k] += w * double((c >> (8 * k)) & 0xFF);
+                n += w;
+            }
+            for (double& v : mean[paint]) v /= std::max(n, 1e-9);
+            std::printf("  paint %d: mean %.0f %.0f %.0f\n", o.paint, mean[paint][0], mean[paint][1], mean[paint][2]);
+        }
+        // Gold: red over blue by far; silver: grey; bronze: red over green over blue, darker than gold.
+        CHECK(mean[0][0] > mean[0][2] * 1.5 && mean[0][1] > mean[0][2] * 1.2);
+        CHECK(std::fabs(mean[1][0] - mean[1][2]) < 25 && std::fabs(mean[1][1] - mean[1][2]) < 25);
+        CHECK(mean[2][0] > mean[2][1] && mean[2][1] > mean[2][2] && mean[2][0] > mean[2][2] * 1.2);
     }
 }
