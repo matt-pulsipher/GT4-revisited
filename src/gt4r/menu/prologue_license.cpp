@@ -113,7 +113,11 @@ std::vector<std::string> program_names(ByteSpan image, u32 load, u32 list, u32 c
 u64 clock_seconds() {
     const std::time_t now = std::time(nullptr);
     std::tm tm = *std::localtime(&now);
+#if defined(_WIN32)
+    const std::time_t local = _mkgmtime(&tm); // (Windows' name for timegm)
+#else
     const std::time_t local = timegm(&tm);
+#endif
     const s64 since_2000 = s64(local) - 946684800;
     return u64(since_2000 + s64(2451544) * 86400 + 43200);
 }

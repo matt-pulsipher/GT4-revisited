@@ -44,17 +44,30 @@ audio::Signal load(const std::string& path) {
         if (!data) throw std::runtime_error("cannot read " + path);
         return audio::read_wav(ByteSpan(*data));
     }
-    // Anything else through ffmpeg; the path is quoted for the shell.
+    // Anything else through ffmpeg; the path is quoted for the shell (cmd.exe on Windows, where
+    // a path cannot hold a double quote, and the pipe is read in binary).
+#if defined(_WIN32)
+    const std::string quoted = "\"" + path + "\"";
+#else
     std::string quoted = "'";
     for (char c : path) quoted += c == '\'' ? std::string("'\\''") : std::string(1, c);
     quoted += "'";
+#endif
     const std::string cmd = "ffmpeg -nostdin -loglevel error -i " + quoted + " -vn -ac 2 -ar 48000 -c:a pcm_s16le -f wav -";
+#if defined(_WIN32)
+    FILE* p = _popen(cmd.c_str(), "rb");
+#else
     FILE* p = popen(cmd.c_str(), "r");
+#endif
     if (!p) throw std::runtime_error("cannot run ffmpeg");
     Bytes data;
     u8 buf[65536];
     for (size_t n; (n = std::fread(buf, 1, sizeof buf, p)) > 0;) data.insert(data.end(), buf, buf + n);
+#if defined(_WIN32)
+    _pclose(p);
+#else
     pclose(p);
+#endif
     // ffmpeg writing to a pipe leaves the sizes unset: take the data to the end.
     if (data.size() > 44) {
         for (size_t at = 12; at + 8 <= data.size();) {

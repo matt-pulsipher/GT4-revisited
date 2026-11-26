@@ -42,7 +42,7 @@ std::string SaveLibrary::current() const {
     std::ifstream in(marker());
     std::string name;
     if (in && std::getline(in, name)) {
-        const fs::path p(name);
+        const fs::path p = fs::path(name).make_preferred(); // (written with '/': Windows' own separator, as cards() names them)
         // (Inside the data folder: "memorycard" or "games/<number>".)
         if (!name.empty() && p.is_relative() && name.find("..") == std::string::npos) {
             const std::string card = (fs::path(dir_) / p).string();
@@ -71,10 +71,13 @@ std::vector<std::string> SaveLibrary::cards() const {
     std::error_code ec;
     for (const auto& e : fs::directory_iterator(fs::path(dir_) / "games", ec))
         if (e.is_directory() && holds_game(e.path().string())) out.push_back(e.path().string());
-    std::sort(out.begin(), out.end(), [this](const std::string& a, const std::string& b) {
-        const std::time_t ta = file_time(fs::path(a) / game_ / game_), tb = file_time(fs::path(b) / game_ / game_);
-        return ta != tb ? ta > tb : a < b;
-    });
+    // Newest first. Each card's time is read once: file_time() goes through the clocks' present moments, which move
+    // between two reads, and a sort whose order changes while it runs reads past its ends.
+    std::vector<std::pair<std::time_t, std::string>> timed;
+    for (std::string& card : out) timed.emplace_back(file_time(fs::path(card) / game_ / game_), std::move(card));
+    std::sort(timed.begin(), timed.end(), [](const auto& a, const auto& b) { return a.first != b.first ? a.first > b.first : a.second < b.second; });
+    out.clear();
+    for (auto& t : timed) out.push_back(std::move(t.second));
     return out;
 }
 
@@ -110,6 +113,10 @@ u64 SaveLibrary::change_mark(const std::string& card) const {
         const auto t = fs::last_write_time(p, ec);
         const u64 size = ec ? 0 : u64(fs::file_size(p, ec));
         for (const u64 v : {ec ? u64(0) : u64(t.time_since_epoch().count()), size}) mark = (mark ^ v) * 0x100000001B3ull;
+        // And the contents: a file's time can be as coarse as a second or two (FAT file systems, some C libraries'), so
+        // two saves of the same size in that time would mark the same.
+        std::ifstream in(p, std::ios::binary);
+        for (std::istreambuf_iterator<char> it(in), end; it != end; ++it) mark = (mark ^ u8(*it)) * 0x100000001B3ull;
     }
     return mark ? mark : 1;
 }

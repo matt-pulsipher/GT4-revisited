@@ -3,6 +3,7 @@
 #include "floats.h"
 #include "orig.h"
 
+#include <bit>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -35,7 +36,7 @@ const char* cop2_kind(u32 op, int* lanes) {
     if (!((op >> 25) & 1)) return nullptr; // qmfc2 / cfc2 / bc2 ...: not arithmetic
     const u32 funct = op & 63;
     const u32 dest = (op >> 21) & 15;
-    *lanes = __builtin_popcount(dest);
+    *lanes = std::popcount(dest);
     if (funct < 0x3C) {
         if (funct < 0x08) return "vu.add";            // vadd/vsub bc
         if (funct < 0x10) return "vu.madd";           // vmadd/vmsub bc
