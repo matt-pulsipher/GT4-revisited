@@ -488,7 +488,7 @@ operand 0x8000 + i.
 | `brake` | the simulation's brake value (float, 0 = off) | 27 |
 | `taillamp` | the brake ramp, 0..1 over four frames | 0 |
 | `timezone` | the lamp level (int: callback 7's value) | 0 |
-| `time` | a counter of the model (int) ❓ its step | 4 |
+| `time` | the model's time in milliseconds (int, CarModel +0x34): trunc(1000 x 1/60) = 16 more a frame (RaceCarModel::vf3 → 0x4511E0 → 0x451110) | 4 |
 | `engineRPM` | engine speed | 2 (`benz0001`, `dmlr0001`) |
 | `pedalLeft`, `pedalRight` | from the driver's model | 2 (`dmlr0001`, `nike0001`) |
 | `steering` | the steering value (callback 5's morph weight) | 0 |
@@ -500,6 +500,11 @@ operand 0x8000 + i.
   and `gtala<n>` per lamp; the script sets `gtalc` to 1 and `gtala` to 1 while `brake` is
   above 0, else 0, and the program draws the lit lens under `0x54 gtalc, gtalc, gtalc, gtala`:
   a colour scale whose alpha switches the lens on. A still model's zero registers leave it off.
+- **The pace car's light bar** (`niss0088`, `r34_gtr_v_gtcolor_pc_01`): its script sets `builtin_tw0` = (time mod 1000) /
+  1000 (and `builtin_br0` 0), the weight of a 0x4C morph whose second key moves the u of a band of 14 vertices around the
+  bar's middle box (x ±0.21 .. ±0.29, y 1.27 .. 1.35, z 0.30 .. 0.40; nearest level of detail only) by +2: a 32 x 16 beam
+  picture swept across it twice a second. Here (`CarVisual::animate`) the script runs each step and those triangles are a
+  small model of their own, blended between the two keys; from behind the band shows little.
 - **Moving parts** (`benz0001`, `dmlr0001`, `nike0001`): registers `builtin_ra<n>`,
   `builtin_rx / ry / rz<n>` (an angle and an axis, command 0x48) and `blend_tw<n>`,
   `blend_br<n>` (morph weights, 0x4C; a 0x4D switch picks the shape) from `engineRPM`, `time`
