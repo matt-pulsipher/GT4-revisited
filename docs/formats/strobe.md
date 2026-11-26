@@ -78,7 +78,12 @@ right one mirrored.
 paths. Path (0x14): `s16 -1, u16 1` ❓, f32 start x, y, list edges. Edge (0x14): u32 0, f32 control x, y,
 f32 end x, y (quadratic; in the pause movie every edge is a straight line: the control is the middle
 point or the start). All shapes of the pause movie are one closed polygon per group (boxes, boxes with
-4-unit notched corners): fill the polygon.
+4-unit notched corners): fill the polygon. A group's paths are filled together (0x47EB20 → 0x47EC98: every path's
+points into the tessellator 0x607640 / 0x607758, then 0x607850; the group's flags byte +2 picks its rule, 1 on the
+only group with two paths): a path inside another is a hole. The one on the disc is the US `result_license.strb`'s
+FAIL, its A an outline (8 edges) and its counter (4 edges, wound the other way). ✔ Ours with the counter cut out
+beside the original's FAIL page (reference `05-gtmode/37_license_test_fail_page.png`); before, each path was filled
+by itself and the A's counter drawn filled.
 
 **Fill style** (8): `u16 kind, u16 index, u32 value`: kind 0 solid color (value 0xAABBGGRR, alpha 0x80
 opaque); kind 1 gradient (index into gradients, value = fill matrix index); kind 4 texture (index into

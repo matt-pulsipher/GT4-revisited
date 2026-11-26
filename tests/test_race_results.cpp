@@ -76,6 +76,40 @@ TEST(strobe_external_pictures_disc) {
     }
 }
 
+// A shape group's paths filled together, a path inside another a hole: the license page's FAIL, whose A is an outline
+// and its counter (the triangle). Its filled area is the outline's less the counter's; every group's triangles cover
+// its paths' area by the even-odd rule.
+TEST(strobe_shape_holes_disc) {
+    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    for (const auto& disc : test::discs()) {
+        if (disc->info().serial.rfind("SCUS_973.28", 0) != 0) continue;
+        const gt3r::Volume::Entry* e = disc->volume().find("menu/US/result_license.strb");
+        if (!e) continue;
+        const race::StrobeMovie m = race::StrobeMovie::parse(disc->volume().read(*e));
+        CHECK(!m.shapes.empty() && m.shapes[0].groups.size() == 4);
+        if (m.shapes.empty() || m.shapes[0].groups.size() < 4) continue;
+        auto area = [](const std::vector<race::StrobeMovie::Point>& t) {
+            float a = 0;
+            for (size_t i = 0; i + 2 < t.size(); i += 3)
+                a += std::fabs((t[i + 1].x - t[i].x) * (t[i + 2].y - t[i].y) - (t[i + 2].x - t[i].x) * (t[i + 1].y - t[i].y)) / 2;
+            return a;
+        };
+        const race::StrobeMovie::Shape::Group& a_letter = m.shapes[0].groups[3];
+        std::printf("  FAIL's A: %.1f of %.1f\n", area(a_letter.triangles), 1213.0f - 122.7f);
+        CHECK(std::fabs(area(a_letter.triangles) - (1213.0f - 122.7f)) < 2.0f);
+        // Its counter's middle is not filled.
+        bool counter_filled = false;
+        const race::StrobeMovie::Point mid{-13.0f, 0.0f};
+        for (size_t i = 0; i + 2 < a_letter.triangles.size(); i += 3) {
+            const auto& t = a_letter.triangles;
+            const auto side = [&](const race::StrobeMovie::Point& p, const race::StrobeMovie::Point& q) { return (q.x - p.x) * (mid.y - p.y) - (q.y - p.y) * (mid.x - p.x); };
+            const float d1 = side(t[i], t[i + 1]), d2 = side(t[i + 1], t[i + 2]), d3 = side(t[i + 2], t[i]);
+            if ((d1 > 0 && d2 > 0 && d3 > 0) || (d1 < 0 && d2 < 0 && d3 < 0)) counter_filled = true;
+        }
+        CHECK(!counter_filled);
+    }
+}
+
 // Every course's sections: the count at +0x0A is the number of 16-byte places between the pointers +0x18 and +0x1C, and
 // a section's first place lies along the course where the section starts (a car's length or so either way of it).
 TEST(road_section_places_every_course_disc) {
