@@ -60,6 +60,7 @@ Tests: `build/gt4r_tests` runs without a disc; set `GT4R_DISC` to one or more im
 ## Documents
 
 - [docs/PLAYING.md](docs/PLAYING.md): starting, controls, what works, known problems
+- [docs/RELEASE_NOTES.md](docs/RELEASE_NOTES.md): what this release has
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how this sits on the shared engine
 - [docs/FORMATS.md](docs/FORMATS.md): the disc's layout and file formats
 - [docs/specs/](docs/specs/): the race step, the computer drivers, online play
