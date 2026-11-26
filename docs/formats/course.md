@@ -187,13 +187,14 @@ multiplies what is in the frame (GS blend fixed factor min(255, 128 x +0x38): 25
   one-view draw, so their `Env0` numbers mean what they mean in the shared engine. (The
   several-view draw puts them in before its multiply and gives the smoke 1 / +0x38 as its color
   factor; 🔎 nothing of the kind was found for its glows.)
-- 🔎 The sun's disc is drawn right after the sky, before the multiply, and no division was found
-  in its routine: the same numbers give twice the strength they give in the shared engine. Not
-  compared with the original running.
+- The sun's disc is drawn right after the sky, before the multiply, by the shared engine's routine (0x398650 -> 0x4986D8:
+  the sun's RGB x gain / 2, added at As / 128, no division): the same numbers give twice the strength they give in the shared
+  engine. Here its passes go in once per unit of +0x38 (`RaceWorld::collect`). 🔎 Not compared with the original running (no
+  capture with the disc in sight).
 
 An adapter that presents this block to the shared engine therefore keeps the fog colors, the
 lights, the glare and the lamp types as stored, scales the stored colors of the model sets by
-+0x38, and (🔎) the sun disc's gain by +0x38.
++0x38, and the sun disc's strength by +0x38.
 
 ### Gran Turismo 3 offset → Gran Turismo 4 offset
 
