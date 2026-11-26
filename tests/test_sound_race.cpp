@@ -1015,6 +1015,32 @@ TEST(sound_race_prologue_in_car) {
     CHECK(car.report().notes == 0 && car.report().heartbeats == 0);
 }
 
+// Prologue's whine (0x3B8E88): the clutch's torque, the gear's ratio against the first's and the driven axles' speed by
+// the layout (0x3B99B8) from its own record (the shared engine's): the 240ZG drives the rear axle.
+TEST(sound_race_prologue_whine_inputs) {
+    Disc* disc = nullptr;
+    for (const std::unique_ptr<Disc>& d : test::discs())
+        if (d->info().game == Game::Prologue) disc = d.get();
+    if (!disc) SKIP("needs the Prologue disc (GT4R_DISC)");
+    const std::string cars[] = {"fairlady_240zg_71"};
+    const std::unique_ptr<sim::Session> s = sim::Session::open(*disc, "tsukuba", cars);
+    CHECK(s != nullptr);
+    if (!s) return;
+    race::CarInput in;
+    in.throttle = 1;
+    int moving = 0;
+    for (int i = 0; i < 60 * 4; ++i) {
+        s->step_once({&in, 1});
+        const gt3r::sim::exact::Car& c = s->record(0);
+        const audio::CarSoundState st = audio::sound_state(*s, 0);
+        CHECK(st.shaft_speed == c.axle_speed[1].host() && !st.whine_given);
+        CHECK(st.drive_torque == c.clutch_torque.host() && st.low_ratio == c.p.d.ratio[1].host());
+        moving += st.shaft_speed > 10;
+    }
+    std::printf("  layout %d; %d of 240 steps with the rear axle over 10 rad/s\n", int(s->record(0).p.d.layout), moving);
+    CHECK(s->record(0).p.d.layout == 0 && moving > 100);
+}
+
 // Prologue's ambience: its crowds are the fourth list (Citta di Aria's one emitter), heard on its disc.
 TEST(sound_race_prologue_crowds) {
     Disc* disc = nullptr;

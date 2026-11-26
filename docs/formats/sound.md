@@ -830,6 +830,13 @@ the Doppler constant at 0x378B88) but other tables:
   `sound_race_prologue_master`.
 - **Its car sounds** are read as Gran Turismo 4's from its database presented in Gran Turismo 4's
   layout ([prologue.md](prologue.md)): every engine's file is on the disc.
+- **Its whine** (0x3B8E88) is Gran Turismo 4's rule (0x34FED0) on its own record, the shared engine's layout four bytes
+  on (the record at car + 0xD8): the clutch's torque (+0x4F8), the gear (+0x43A) and its ratio against the first's (the
+  driveline block's +0x3C + 4 gear), the clutch's state (+0x43B, none while open), the driven axles' speed by the layout
+  (0x3B99B8: rear +0x460, front +0x45C, their mean for 3 and 10, rear + k (front - rear) for 8: Gran Turismo 4's cases),
+  with layout 7's motors (0x3BEE58) and a one-speed box (0x3CD378: the driveline's +0x12 = 3) as Gran Turismo 4's. A car
+  whines when its byte at car + 0xC58 is set (❓ what sets it; ours: the gearbox's `GEAR` row, as on Gran Turismo 4's disc).
+  `sound_state` reads them from the session's record (test `sound_race_prologue_whine_inputs`).
 
 ## Checked against the original
 
