@@ -163,7 +163,11 @@ std::unique_ptr<Disc> Disc::open_image(const std::string& path, std::string& pro
 
     disc->image_ = std::make_unique<ArchiveImage>(image, std::move(files));
     for (size_t i = 0; i < disc->image_->files().size(); ++i) disc->by_path_[disc->image_->files()[i].path] = i;
+#if __has_include("base/app_identity.h") // the engine names a volume in its log lines and errors (with the same change)
+    disc->volume_ = std::make_unique<gt3r::Volume>(*disc->image_, 0, disc->image_->size(), "The disc's volumes");
+#else
     disc->volume_ = std::make_unique<gt3r::Volume>(*disc->image_, 0, disc->image_->size());
+#endif
     Disc* d = disc.get();
     disc->volume_->set_program_reader([d] { return d->read_program(); });
     disc->volume_->set_identity(info.key, info.serial);

@@ -1,4 +1,5 @@
 #include "gt4r/app/app.h"
+#include "gt4r/app/app_identity.h"
 #include "gt4r/app/online.h"
 
 #include "gt4r/input/player_controls.h"
@@ -12,6 +13,7 @@
 #include "platform/crash_handlers.h"
 #include "platform/mac_layer.h"
 #include "vfs/mod_archive.h"
+#include "gt3r_version.h"
 #include "gt4r_version.h"
 
 #include <algorithm>
@@ -105,9 +107,10 @@ std::string user_data_dir() {
 }
 
 bool App::init(int argc, char** argv) {
-    SDL_SetAppMetadata("GT4 Revisited", GT4R_VERSION, "org.gt4revisited.gt4r");
-    // The log file first, so that it has everything after it: gt3r.log in the data folder (the shared engine's name for it), the
-    // session before in gt3r.prev.log, and why the game closed when it did not close by itself.
+    SDL_SetAppMetadata(kAppName, GT4R_VERSION, kAppId);
+    name_the_engine();
+    // The log file first, so that it has everything after it: gt4r.log in the data folder (app_identity.h), the session before
+    // in gt4r.prev.log, and why the game closed when it did not close by itself.
     {
         const std::string dir = user_data_dir();
         SDL_CreateDirectory(dir.c_str());
@@ -143,7 +146,7 @@ bool App::init(int argc, char** argv) {
     SDL_CreateDirectory(mods_dir().c_str());
     config_path_ = data_dir_ + "config.ini";
     if (auto cfg = gt3r::IniDocument::load(config_path_)) config_ = std::move(*cfg);
-    LOG_INFO("GT4 Revisited %s; user data: %s", GT4R_VERSION, data_dir_.c_str());
+    LOG_INFO("%s %s (engine %s); user data: %s", kAppName, GT4R_VERSION, GT3R_VERSION, data_dir_.c_str());
     load_settings();
 
     // A scripted run does not take the keyboard from whoever is at the machine: its window is never shown, or (--visible) opens
@@ -154,7 +157,7 @@ bool App::init(int argc, char** argv) {
     if (const char* size = SDL_getenv("GT4R_WINDOW"); size && std::sscanf(size, "%dx%d", &window_w, &window_h) != 2) window_w = 1280, window_h = 720;
     // macOS: in full screen the menu bar comes down at the screen's top as in other apps.
     SDL_SetHint(SDL_HINT_VIDEO_MAC_FULLSCREEN_MENU_VISIBILITY, "1");
-    window_ = SDL_CreateWindow("GT4 Revisited", std::clamp(window_w, 320, 8192), std::clamp(window_h, 180, 8192),
+    window_ = SDL_CreateWindow(kAppName, std::clamp(window_w, 320, 8192), std::clamp(window_h, 180, 8192),
                                SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY |
                                    (run_.windowless ? SDL_WINDOW_HIDDEN | SDL_WINDOW_NOT_FOCUSABLE
                                     : scripted_     ? SDL_WINDOW_NOT_FOCUSABLE
@@ -584,7 +587,7 @@ SDL_AppResult App::iterate() {
     // A graphics driver that gave up never comes back, and the frames that never finish fill the memory: closed with a message.
     if (gpu_ && std::strstr(SDL_GetError(), "DEVICE_LOST")) {
         LOG_ERROR("The graphics device was lost: %s", SDL_GetError());
-        if (!scripted_) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "GT4 Revisited", "The graphics driver stopped responding, so the game has to close.", window_);
+        if (!scripted_) SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, kAppName, "The graphics driver stopped responding, so the game has to close.", window_);
         return SDL_APP_FAILURE;
     }
     if (dynamic_on_)
