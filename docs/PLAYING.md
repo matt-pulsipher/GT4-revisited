@@ -93,8 +93,8 @@ rotation = 900           ; how far your wheel turns, lock to lock, as its own dr
 **Settings** (the home screen) has pages for the display, the sound, the controls, the disc and the saves, and the mods.
 Every change is applied at once and kept in `config.ini`; the 3D renderer is taken at the next start (the row says so).
 
-- *Display*: window or full screen; the aspect ratio (16:9, 4:3, or the whole screen: races fill it, the game's
-  pages stay 4:3 in the middle); vsync; the frame rate (the display's, or about 60 on a faster one); a frame
+- *Display*: window or full screen; the aspect ratio (Fill the screen, the default on every platform: races and
+  replays fill it whatever its shape, and the game's pages stay 4:3 in the middle; or 16:9 or 4:3 throughout); vsync; the frame rate (the display's, or about 60 on a faster one); a frame
   rate counter; gamma over the whole picture; anti-aliasing; anisotropic filtering; the 3D views' resolution, and
   whether it is lowered while the GPU is too slow; the menus' cars and prizes at the screen's resolution or the
   console's 640x448; the 3D renderer.
@@ -119,7 +119,7 @@ Every change is applied at once and kept in `config.ini`; the 3D renderer is tak
 ```
 [video]
 fullscreen = off         ; on | off
-aspect = 16:9            ; 16:9 | 4:3 | fill
+aspect = fill            ; fill | 16:9 | 4:3
 vsync = on               ; on | off
 limit_60fps = off        ; on: about 60 frames a second on a faster display
 show_fps = off           ; on | off

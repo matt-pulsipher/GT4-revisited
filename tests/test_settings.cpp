@@ -42,7 +42,7 @@ TEST(settings_video_round_trip) {
     CHECK(ini.serialize().find("video") == std::string::npos);
     // Every field changed comes back, and only the changed ones are written.
     v.fullscreen = true, v.vsync = false, v.limit_60fps = true, v.show_fps = true, v.dynamic_resolution = true, v.sharp_menu_models = false, v.texture_packs = false;
-    v.msaa = 8, v.anisotropy = 16, v.render_scale = 1.25f, v.gamma = 1.15f, v.aspect = gt3r::platform::Aspect::Fill, v.gpu = Gpu::Gles;
+    v.msaa = 8, v.anisotropy = 16, v.render_scale = 1.25f, v.gamma = 1.15f, v.aspect = gt3r::platform::Aspect::Classic, v.gpu = Gpu::Gles;
     v.save(ini);
     CHECK(Video::load(ini) == v);
     CHECK(Video::load(gt3r::IniDocument::parse(ini.serialize())) == v);
@@ -56,7 +56,24 @@ TEST(settings_video_round_trip) {
     CHECK_EQ(odd.anisotropy, 16);
     CHECK(!odd.vsync && odd.fullscreen);
     CHECK(!odd.render_scale);
-    CHECK(odd.aspect == gt3r::platform::Aspect::Wide);
+    CHECK(odd.aspect == gt3r::platform::Aspect::Fill);
+    // The screen's shape by default; a config naming 16:9 or 4:3 keeps it.
+    CHECK(Video{}.aspect == gt3r::platform::Aspect::Fill);
+    CHECK(Video::load(gt3r::IniDocument::parse("[video]\nvsync = on\n")).aspect == gt3r::platform::Aspect::Fill);
+    CHECK(Video::load(gt3r::IniDocument::parse("[video]\naspect = 16:9\n")).aspect == gt3r::platform::Aspect::Wide);
+    CHECK(Video::load(gt3r::IniDocument::parse("[video]\naspect = 4:3\n")).aspect == gt3r::platform::Aspect::Classic);
+    CHECK(Video::load(gt3r::IniDocument::parse("[video]\naspect = Fill\n")).aspect == gt3r::platform::Aspect::Fill);
+    {
+        // Another setting changed leaves the shape unwritten (it stays the default); the shape chosen is written.
+        gt3r::IniDocument c;
+        Video d;
+        d.vsync = false;
+        d.save(c);
+        CHECK(!c.get("video", "aspect"));
+        d.aspect = gt3r::platform::Aspect::Wide;
+        d.save(c);
+        CHECK(c.get("video", "aspect").value_or("") == "16:9");
+    }
     CHECK(odd.gpu == Gpu::Off);
     CHECK(std::fabs(odd.gamma - 2.0f) < 1e-6f);
 }

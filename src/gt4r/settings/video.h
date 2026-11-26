@@ -5,7 +5,7 @@
 //
 //   [video]
 //   fullscreen = off         ; on | off (F11 changes it too)
-//   aspect = 16:9            ; 16:9 | 4:3 | fill
+//   aspect = fill            ; fill | 16:9 | 4:3 (a config without it, or with another word: fill)
 //   vsync = on               ; on | off
 //   limit_60fps = off        ; on: displays faster than 60 Hz get about 60 frames a second
 //   show_fps = off           ; on: the frames drawn a second in the top left corner
@@ -39,7 +39,7 @@ struct Video {
     int msaa = gt3r::platform::default_msaa(gt3r::platform::is_mobile()), anisotropy = 4;
     std::optional<float> render_scale; // none: automatic
     float gamma = 1.0f;
-    gt3r::platform::Aspect aspect = gt3r::platform::Aspect::Wide;
+    gt3r::platform::Aspect aspect = gt3r::platform::Aspect::Fill; // (16:9 and 4:3 are the player's choices)
     Gpu gpu = Gpu::Automatic;
 
     bool operator==(const Video&) const = default;
