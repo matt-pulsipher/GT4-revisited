@@ -363,6 +363,7 @@ struct GameState {
         int submode = -1;
         u32 time_ms = 0;
         bool bspec = false;
+        bool best_lap = false; // a best lap's replay (MODE_SAVE_BESTLAP_REPLAY)
         int kb = 1;
         std::vector<u32> picture; // 64 x 64, or empty
         // Writes it under the title; over the file `path` ("": a new one). False when it cannot be written.

@@ -178,7 +178,7 @@ s32 prologue_license_points(ByteSpan row, const std::string& result, u32 time_ms
 std::vector<std::string> saved_replays(const std::string& data_dir);
 struct GameNatives;
 // The card manager's list in MODE_LOAD_REPLAY (the Replay Theater): those replays as files.
-void install_replay_list(GameNatives& n, Object& manager);
+void install_replay_list(GameNatives& n, Object& manager, const std::string& mode);
 void install_demo_list(GameNatives& n, Object& manager, bool sub);
 
 // ---- game_photos.cpp

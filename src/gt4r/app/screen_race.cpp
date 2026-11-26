@@ -81,6 +81,8 @@
 #include <cmath>
 #include <cstring>
 #include <ctime>
+#include <fstream>
+#include <iterator>
 #include <array>
 #include <optional>
 #include <map>
@@ -1374,13 +1376,39 @@ public:
             start = c.counter > ghost_counter_;
             ghost_counter_ = c.counter;
         }
-        if (start) ghost_lap_.clear(), ghost_lap_open_ = true, ghost_at_ = 0, ghost_playing_ = ghost_best_ != nullptr;
+        if (start) {
+            ghost_lap_.clear(), ghost_lap_open_ = true, ghost_at_ = 0, ghost_playing_ = ghost_best_ != nullptr;
+            if (ghost_playing_) LOG_INFO("Drive: the ghost's lap of %lld ms starts", (long long)ghost_best_->ms);
+        }
         if (ghost_lap_open_ && ghost_lap_.size() < kHistory) ghost_lap_.push_back(world_->cars()[0]);
         if (license && ghost_lap_open_ && (ev.player_finished || flow_.player_finished())) ghost_lap_open_ = false, ghost_run_done_ = true;
         std::optional<race::CarState> g;
         if (ghost_playing_ && ghost_best_ && ghost_at_ < ghost_best_->states.size()) g = ghost_best_->states[ghost_at_++];
         else ghost_playing_ = false;
         world_->set_ghost(ghost_shown_ ? g : std::nullopt, kGhostAlpha);
+    }
+    // The ghost's lap as a best lap's replay (Save Best Lap Replay): the player's car alone over the lap.
+    race::ReplayFile ghost_file(const std::string& sequence, const std::string& race_label) const {
+        race::ReplayFile f;
+        if (!ghost_best_) return f;
+        f.course = setup_.course, f.sequence = sequence, f.race = race_label, f.laps = 1;
+        f.cars.push_back({world_->setup().entries[0].label, world_->setup().entries[0].paint});
+        for (const race::CarState& c : ghost_best_->states) f.steps.push_back({c});
+        f.time_ms = u32(ghost_best_->ms);
+        Bytes ms(4);
+        for (int k = 0; k < 4; ++k) ms[size_t(k)] = u8(u32(ghost_best_->ms) >> (8 * k));
+        f.other.emplace_back(race::ReplayFile::kBestLap, ms);
+        return f;
+    }
+    // A best lap's replay loaded (Load Best Lap Replay, 0x11CEF8): its lap is the ghost from the next start or crossing.
+    bool load_ghost(const race::ReplayFile& f) {
+        if (!f.best_lap() || f.steps.empty() || f.time_ms == 0) return false;
+        auto lap = std::make_shared<GhostLap>();
+        for (const std::vector<race::CarState>& step : f.steps)
+            if (!step.empty()) lap->states.push_back(step[0]);
+        lap->ms = s64(f.time_ms);
+        ghost_best_ = std::move(lap);
+        return true;
     }
     // A license run graded (report_result): its run becomes the ghost when faster than the ghost's.
     void ghost_run_graded(s64 ms) {
@@ -3561,6 +3589,12 @@ private:
         else menu::quick_work(menus_->game()).set("canReplay", can_replay);
         menu::quick_work(menus_->game()).set("dispGuidePage", guide ? 1 : 0); // (Prologue's lesson: its guide film's page)
         if (prologue_hud_ && is_license(sequence_)) menu::quick_work(menus_->game()).set("canSaveGhost", can_replay ? 1 : 0); // (✔ lit after a run)
+        // Gran Turismo 4's time trial, free run and license test: once a run made a best lap, Save Best Lap Replay and the Analyzer
+        // (canSaveGhost +0x474, CanLogger +0x4B0: 0x1128E0, 0x117110, 0x11CE1C; ✔ 18-round4-gt, the B-1 page after a bronze run).
+        if (!prologue_hud_ && (sequence_ == "time_trial" || sequence_ == "freerun" || sequence_ == "license") && race_->has_run() && race_->ghost_available()) {
+            menu::QuickWork& w = menu::quick_work(menus_->game());
+            w.set("canSaveGhost", 1), w.set("CanLogger", 1);
+        }
         last_can_replay_ = can_replay;
         menus_->game().during_quick_menu = true;
         try {
@@ -3880,6 +3914,19 @@ private:
         if (guide_page_ && !guide_told_ && (race_->guide_done() || m.pressed(PadButton::Start))) end_guide();
         if (!menus_->finished()) return;
         menu::QuickWork& w = menu::quick_work(menus_->game());
+        if (option_ && loading_ghost_) {
+            loading_ghost_ = false;
+            if (std::string& path = menus_->game().replay_file; !path.empty()) {
+                try {
+                    std::ifstream in(path, std::ios::binary);
+                    const Bytes b((std::istreambuf_iterator<char>(in)), {});
+                    if (race::ReplayFile::is_replay(b) && race_->load_ghost(race::ReplayFile::decode(b))) LOG_INFO("Drive: the ghost loaded from %s", path.c_str());
+                } catch (const std::exception& e) {
+                    LOG_WARN("Drive: the best lap replay %s: %s", path.c_str(), e.what());
+                }
+                path.clear();
+            }
+        }
         if (option_) return menus_->game().pending_replay.reset(), enter_quick(w.get("canReplay"), false);
         // The command the scripts chose (the sequences' tables: docs/formats/race_flow.md).
         const std::string command = w.take_command();
@@ -3919,11 +3966,18 @@ private:
                 menus_->game().next_menu_arg = "MODE_SAVE_FULL_REPLAY";
                 menus_->start_project("labomode");
             }
+        } else if (command == "COMMAND_SAVE_GHOST" && !prologue_hud_ && race_->ghost_available()) {
+            // Save Best Lap Replay (0x112B50, 0x11CF78): labomode's save page in MODE_SAVE_BESTLAP_REPLAY with the ghost's lap.
+            pend_replay(app, true);
+            option_ = true;
+            menus_->game().next_menu_arg = "MODE_SAVE_BESTLAP_REPLAY";
+            menus_->start_project("labomode");
         } else if (command == "COMMAND_LOAD_GHOST") {
             // Load Best Lap Replay: the program's project labomode on its load page (0x11CF08, 0x10FEE8: next_menu_arg
-            // MODE_LOAD_BESTLAP_REPLAY), then the menus again. ❓ No best lap replays are kept here: its list is empty, and a
-            // loaded ghost is not driven against.
-            option_ = true;
+            // MODE_LOAD_BESTLAP_REPLAY: the best lap replays of this course and car), then the menus again; the replay chosen is the
+            // ghost (load_ghost: update_quick on the way back).
+            option_ = true, loading_ghost_ = !prologue_hud_;
+            menus_->game().replay_file.clear();
             menus_->game().next_menu_arg = "MODE_LOAD_BESTLAP_REPLAY";
             menus_->start_project(prologue_hud_ ? "memcard" : "labomode");
         } else if (command == "COMMAND_OPTION" || command == "COMMAND_SETTINGS") {
@@ -4027,10 +4081,10 @@ private:
 
     // The run for the menus' save page (menu::GameState::pending_replay; the modes by the program's names, 0x6A0020; ❓ the
     // number given for the license tests and missions alone).
-    void pend_replay(App& app) {
+    void pend_replay(App& app, bool best_lap = false) {
         const menu::RaceRequest& q = menus_->game().race;
         auto pending = std::make_shared<menu::GameState::PendingReplay>();
-        auto file = std::make_shared<race::ReplayFile>(race_->replay_file(sequence_, q.race));
+        auto file = std::make_shared<race::ReplayFile>(best_lap ? race_->ghost_file(sequence_, q.race) : race_->replay_file(sequence_, q.race));
         static const std::pair<const char*, const char*> kModes[] = {
             {"single_race", "ARCADE_SINGLE_RACE"}, {"time_trial", "ARCADE_TIME_TRIAL"},    {"solo_event", "GTMODE_EVENT_RACE"}, {"championship", "GTMODE_CHAMPIONSHIP"},
             {"freerun", "GTMODE_FREE_RUN"},        {"practice", "GTMODE_FREE_PRACTICE"}, {"mission", "GTMODE_LICENSE_MISSION"},
@@ -4051,6 +4105,7 @@ private:
         if ((is_license(sequence_) || sequence_ == "mission") && label.size() == 7) pending->submode = std::atoi(label.c_str() + 3);
         pending->course = file->course, pending->car = file->cars.empty() ? std::string() : file->cars[0].label;
         if (race_->flow().player_finished()) pending->time_ms = u32(race_->flow().run_ms(0));
+        if (best_lap) pending->time_ms = file->time_ms, pending->best_lap = true;
         pending->bspec = spectator_, pending->picture = replay_picture_;
         file->mode = pending->mode, file->submode = pending->submode, file->time_ms = pending->time_ms, file->bspec = pending->bspec, file->picture = replay_picture_;
         pending->kb = int((file->encode().size() + 1023) / 1024);
@@ -4616,6 +4671,7 @@ private:
     input::WheelSettings wheel_;
     input::RaceInput player_input_;
     u32 last_special_ = 0;
+    bool loading_ghost_ = false; // the race's menus' Load Best Lap Replay page is up
     u32 last_views_ = 0, last_menu_ = 0;
     input::RaceFeedback feedback_;
     std::string device_; // the player's pad or wheel as last seen while driving
