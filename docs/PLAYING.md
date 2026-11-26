@@ -357,7 +357,8 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
   The 3D pipelines are built ahead of use on background threads at start: the shared engine's list, made for GT3's draws
   (`GpuContext::warm_pipelines`), and ours for GT4's depth-biased overlays, which that list lacks (`app/pipeline_warm.*`).
   Nothing keeps them between runs (SDL's Vulkan device has no pipeline cache): a Pixel Fold (Mali-G710) builds the engine's
-  209 in about 27 s at every start, behind the first pages.
+  209 in about 3.8 s and ours in 1.6 s at every start, behind the first pages (several times longer while the system's file
+  picker is in front: a background app's threads run on the slow cores).
   Meta Quest: the `-Pquest` app, as an immersive OpenXR app ([VR.md](VR.md)).
 - VR headsets ([VR.md](VR.md)): the OpenXR session, its canvas and eyes, the controllers' virtual pad and pointer are the shared
   engine's (`src/xr`); the frame loop's use of them is ours (`app_xr.cpp`), and so is the race in stereo (`race_vr.cpp`,
