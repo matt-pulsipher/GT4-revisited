@@ -28,10 +28,12 @@ concurrency:
 # tests that need no disc image (the tests that read game data skip without GT4R_DISC).
 # Android: build the debug APK (arm64-v8a + x86_64) with the pinned NDK.
 #
-# Needs: GitHub's hosted runners only; no secrets. The engine is the engine/gt3r submodule,
-# fetched from its public repository, so the submodule commit must be pushed there. SDL 3.4.12,
-# zlib and libchdr are fetched by CMake (engine/gt3r/cmake/Dependencies.cmake). Shaders are the
-# engine's committed ones, so no shader tools are needed.
+# Needs: GitHub's hosted runners only. Secrets: only the release APK's signing key (job
+# package-android: ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD; docs/BUILDING.md "Making a
+# release"). The engine is the engine/gt3r submodule, fetched from its public repository, so the
+# submodule commit must be pushed there. SDL 3.4.12, zlib and libchdr are fetched by CMake
+# (engine/gt3r/cmake/Dependencies.cmake). Shaders are the engine's committed ones, so no shader
+# tools are needed.
 #
 # Release packages (job `package`, on tags v* and manual runs) build SDL from source so they run
 # without a system SDL, and hold no game data (cmake/Packaging.cmake). tools/release/package.sh
@@ -41,12 +43,13 @@ concurrency:
 #   git tag v0.1.0 && git push origin v0.1.0
 # Job `draft` creates a draft GitHub Release for the tag (or reuses that tag's draft), each
 # `package` job uploads its file to it under a stable name (gt4r-macos-arm64.zip,
-# gt4r-linux-x86_64.tar.gz, gt4r-windows-x64.zip: .../releases/latest/download/<name> always
-# fetches the newest), and job `release` adds SHA256SUMS of the uploaded files. Then review the
-# draft on the Releases page and publish it. A release run stores nothing in Actions storage (no
-# upload-artifact / download-artifact): release assets don't count against it. Build provenance
-# attestations need a public repository: they are made only when the repository is public, and
-# re-running job `release` after the repository is made public attests the files already there.
+# gt4r-linux-x86_64.tar.gz, gt4r-windows-x64.zip, and job `package-android` gt4r-android.apk:
+# .../releases/latest/download/<name> always fetches the newest), and job `release` adds SHA256SUMS
+# of the uploaded files. Then review the draft on the Releases page and publish it. A release run
+# stores nothing in Actions storage (no upload-artifact / download-artifact): release assets don't
+# count against it. Build provenance attestations need a public repository: they are made only
+# when the repository is public, and re-running job `release` after the repository is made public
+# attests the files already there.
 # A manual run with release_tag set (gh workflow run build.yml --ref <branch> -f
 # release_tag=v0.1.0-citest) runs the same path into a draft of that name, without a git tag;
 # delete that draft afterwards (gh release delete v0.1.0-citest).
@@ -312,12 +315,117 @@ jobs:
             ${{ env.PKG }}.tar.gz
           if-no-files-found: error
 
+  # The Android APK (android/README.md): the release build (arm64-v8a + x86_64), signed with the project's own key
+  # (android/make-release-key.sh) from the repository secrets ANDROID_KEYSTORE_BASE64 (the .jks, base64) and
+  # ANDROID_KEYSTORE_PASSWORD; the same key on every release, so installed copies update in place (docs/BUILDING.md,
+  # "Making a release"). Without the secrets the job fails: a release never ships an unsigned or debug APK. The APK
+  # is checked before it goes out: signed (apksigner), not debuggable, and its version the tag's.
+  package-android:
+    needs: [draft]
+    if: >-
+      !cancelled() && (needs.draft.result == 'success' || needs.draft.result == 'skipped') &&
+      (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && (inputs.platforms == 'all' || inputs.platforms == 'android')))
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write     # upload to the draft release
+      id-token: write     # sign the APK's provenance attestation
+      attestations: write
+    env:
+      GRADLE_USER_HOME: ${{ github.workspace }}/.gradle-home
+      RELEASE_TAG: ${{ needs.draft.outputs.tag }} # (empty: not a release run)
+    steps:
+      - name: Package name
+        run: |
+          name="${RELEASE_TAG:-$GITHUB_REF_NAME}"
+          echo "PKG=gt4r-${name//\//-}-android" >> "$GITHUB_ENV"
+      - name: Release key present
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ]; then
+            echo "::error::The repository secrets ANDROID_KEYSTORE_BASE64 and ANDROID_KEYSTORE_PASSWORD are not both set: no APK (docs/BUILDING.md, Making a release: the one-time steps)"
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: 21
+      - name: Gradle cache (restore)
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .gradle-home/caches/modules-2
+            .gradle-home/wrapper/dists
+          key: gradle-${{ hashFiles('android/build.gradle', 'android/app/build.gradle', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-
+      - name: Install NDK and CMake
+        run: |
+          yes | "$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --install \
+            "ndk;27.0.12077973" "cmake;3.22.1" > /dev/null
+      - name: Fetch SDL
+        run: android/fetch-sdl.sh
+      - name: Build APK (release key)
+        working-directory: android
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          GT4R_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          trap 'rm -f "$RUNNER_TEMP/gt4r-release.jks"' EXIT # also when Gradle fails
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/gt4r-release.jks"
+          GT4R_KEYSTORE="$RUNNER_TEMP/gt4r-release.jks" ./gradlew --no-daemon assembleRelease
+      # Signed (an unsigned build is app-release-unsigned.apk and has no app-release.apk), not debuggable, and on a
+      # release run versionName = the tag's x.y.z (v0.1.0, v0.1.0-citest: 0.1.0), so the release's APK can't carry
+      # another version's number.
+      - name: Check APK
+        run: |
+          apk=android/app/build/outputs/apk/release/app-release.apk
+          [ -f "$apk" ] || { echo "::error::no signed $apk"; ls -l android/app/build/outputs/apk/release || true; exit 1; }
+          bt=$(find "$ANDROID_SDK_ROOT/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1) # (the newest)
+          "$bt/apksigner" verify --verbose --print-certs "$apk" | grep -v '^WARNING' | grep -v 'public key\|SHA-1\|MD5'
+          badging=$("$bt/aapt2" dump badging "$apk")
+          echo "$badging" | head -n 1
+          if echo "$badging" | grep -q '^application-debuggable'; then echo "::error::$apk is debuggable"; exit 1; fi
+          if [ -n "$RELEASE_TAG" ]; then
+            want="${RELEASE_TAG#v}"; want="${want%%-*}"
+            echo "$badging" | grep -q "versionName='$want'" || { echo "::error::the APK's versionName is not $want (the version in CMakeLists.txt)"; exit 1; }
+          fi
+          cp "$apk" "$PKG.apk"
+          ls -l "$PKG.apk"; sha256sum "$PKG.apk"
+      - uses: actions/attest-build-provenance@v2
+        if: env.RELEASE_TAG != '' && github.event.repository.private == false
+        with:
+          subject-path: ${{ env.PKG }}.apk
+      # Release runs: straight to the draft release, under the stable name gt4r-android.apk.
+      - name: Upload to the draft release
+        if: env.RELEASE_TAG != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp "$PKG.apk" gt4r-android.apk
+          gh release upload "$RELEASE_TAG" gt4r-android.apk --clobber --repo "$GITHUB_REPOSITORY"
+      # Other manual runs: an artifact.
+      - uses: actions/upload-artifact@v4
+        if: env.RELEASE_TAG == ''
+        with:
+          name: ${{ env.PKG }}
+          path: ${{ env.PKG }}.apk
+          if-no-files-found: error
+
   # SHA256SUMS of the files the package jobs uploaded, and (public repository only) their
   # attestations. Re-run this job alone after the repository is made public to attest a release
-  # made before: it checks the repository's visibility when it runs.
+  # made before: it checks the repository's visibility when it runs. A job that was not asked for
+  # (a manual run for one platform) is skipped; any that failed stops it.
   release:
-    needs: [draft, package]
-    if: ${{ !cancelled() && needs.draft.result == 'success' && needs.package.result == 'success' }}
+    needs: [draft, package, package-android]
+    if: >-
+      !cancelled() && needs.draft.result == 'success' &&
+      (needs.package.result == 'success' || needs.package.result == 'skipped') &&
+      (needs.package-android.result == 'success' || needs.package-android.result == 'skipped') &&
+      (needs.package.result == 'success' || needs.package-android.result == 'success')
     runs-on: ubuntu-24.04
     permissions:
       contents: write     # upload to the release

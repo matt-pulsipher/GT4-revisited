@@ -19,7 +19,7 @@ engine. Nothing from the game is included. How to start: [PLAYING.md](PLAYING.md
 - GT4 Revisited's own menu from the title: Select, or the GT4R menu button beside it
 
 Discs: Gran Turismo 4 US (SCUS-97328, v1.01) and Gran Turismo 4 Prologue (Japan, SCPS-15055).
-Download: macOS on Apple Silicon.
+Download: macOS (Apple Silicon), Windows, Linux and Android.
 
 ## Known problems
 
