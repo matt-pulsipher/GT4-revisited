@@ -1,30 +1,29 @@
 #!/usr/bin/env python3
 """Draws the GT4 Revisited application icon (original artwork, no game assets).
 
-The same family as the shared engine's own icon (a rounded square with a road on it), told
-apart by its palette and its road. Writes packaging/icon.png (1024x1024) and
-packaging/icon.ico (Windows). Needs Pillow:
+The same family as the shared engine's own icon (a rounded square with a road on it): white,
+an S-bend seen from above with navy and blue kerbs, and a 4 in Barlow Condensed SemiBold (the
+engine's own UI font). Writes packaging/icon.png (1024x1024) and packaging/icon.ico (Windows).
+Needs Pillow:
 
-    python3 packaging/make_icon.py                                   # the icon
-    python3 packaging/make_icon.py --variant hairpin --out <file.png>  # one design to a file
-
-Designs: "esses" (the icon: an S-bend seen from above, on green), "hairpin" (a hairpin seen
-from above, on red), "horizon" (a road winding to a low sun).
+    python3 packaging/make_icon.py
 """
-import argparse
 import math
 import os
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+FONT = os.path.join(os.path.dirname(HERE), "engine", "gt3r", "third_party", "fonts", "barlow",
+                    "BarlowCondensed-SemiBold.ttf")
 S = 1024         # the icon's size; every coordinate below is in this space
 SS = 2           # drawn this many times larger, then reduced (smooth edges)
 INSET, RADIUS = 32, 200  # the rounded square, as the engine's icon draws it
 
 WHITE = (240, 242, 244, 255)
 ASPHALT = (54, 58, 64, 255)
-KERB_BLUE = (36, 110, 230, 255)
+KERB_BLUE = (36, 96, 210, 255)
+NAVY = (26, 36, 64, 255)
 
 
 def gradient(top, bottom):
@@ -97,82 +96,39 @@ def const(v):
     return lambda i: v
 
 
-def esses():
-    """An S-bend seen from above on green, blue and white kerbs on both apexes."""
-    img = gradient((28, 124, 86), (6, 42, 32))
+def art():
+    """White, an S-bend on the right with kerbs on both apexes, a 4 in the open top left."""
+    img = gradient((252, 252, 253), (206, 211, 219))
     d = ImageDraw.Draw(img)
     raw = []
     for i in range(600):
         t = i / 599
-        raw.append((512 - 172 * math.sin(2 * math.pi * t) + 40 * (t - 0.5), 1090 - 1160 * t))
+        raw.append((585 - 172 * math.sin(2 * math.pi * t) + 40 * (t - 0.5), 1090 - 1160 * t))
     c = resample(raw, 300)
     n = len(c) - 1
     road(d, c, const(116), const(14), const(16), WHITE,
-         [(int(n * 0.13), int(n * 0.37), 1), (int(n * 0.63), int(n * 0.87), -1)], const(34))
-    return img, (226, 240, 232, 255)
+         [(int(n * 0.13), int(n * 0.37), 1), (int(n * 0.63), int(n * 0.87), -1)], const(34), (NAVY, KERB_BLUE))
+    font = ImageFont.truetype(FONT, int(400 * SS * 1.36))  # a cap height of about 400
+    x, y = 265, 330
+    d.text(((x + 8) * SS, (y + 10) * SS), "4", font=font, fill=(180, 186, 198, 255), anchor="mm")  # shadow
+    d.text((x * SS, y * SS), "4", font=font, fill=NAVY, anchor="mm")
+    return img
 
 
-def hairpin():
-    """A hairpin seen from above on red, the kerb on its inside."""
-    img = gradient((196, 36, 44), (70, 8, 18))
-    d = ImageDraw.Draw(img)
-    cx, cy, r = 512, 440, 220
-    pts = [(cx - r, 1100), (cx - r, cy)]
-    for i in range(1, 121):
-        a = math.pi - math.pi * i / 120
-        pts.append((cx + r * math.cos(a), cy - r * math.sin(a)))
-    pts.append((cx + r, 1100))
-    c = resample(pts, 300)
-    n = len(c) - 1
-    arc0 = int(n * (1100 - cy) / (2 * (1100 - cy) + math.pi * r))
-    road(d, c, const(112), const(13), const(15), WHITE, [(arc0 - 6, n - arc0 + 6, 1)], const(34))
-    return img, (245, 245, 245, 255)
-
-
-def horizon():
-    """A road winding to a low sun on the horizon."""
-    img = gradient((250, 168, 70), (120, 40, 110))
-    d = ImageDraw.Draw(img)
-    hy = 470
-    d.ellipse(((560 - 150) * SS, (hy - 150) * SS, (560 + 150) * SS, (hy + 150) * SS), fill=(255, 226, 150, 255))
-    ground = gradient((40, 26, 60), (18, 12, 30))
-    img.paste(ground.crop((0, hy * SS, S * SS, S * SS)), (0, hy * SS))
-    c = []
-    for i in range(301):
-        s = i / 300
-        p = (1 - s) ** 2
-        c.append((560 - 150 * math.sin(4.2 * s) * (1 - s) ** 0.8 - 90 * p, hy + (1090 - hy) * p))
-    scale = lambda i: (1 - i / 300) ** 2
-    road(d, c, lambda i: 420 * scale(i) + 3, lambda i: 18 * scale(i) + 0.5, lambda i: 22 * scale(i) + 1,
-         (255, 214, 90, 255), dash_every=10)
-    return img, (255, 200, 110, 255)
-
-
-VARIANTS = {"esses": esses, "hairpin": hairpin, "horizon": horizon}
-
-
-def draw(variant="esses", size=S):
-    art, rim = VARIANTS[variant]()
+def draw(size=S):
     big = S * SS
     mask = Image.new("L", (big, big), 0)
     ImageDraw.Draw(mask).rounded_rectangle((INSET * SS, INSET * SS, big - INSET * SS, big - INSET * SS),
                                            radius=RADIUS * SS, fill=255)
     img = Image.new("RGBA", (big, big), (0, 0, 0, 0))
-    img.paste(art, (0, 0), mask)
+    img.paste(art(), (0, 0), mask)
     ImageDraw.Draw(img).rounded_rectangle((34 * SS, 34 * SS, big - 34 * SS, big - 34 * SS), radius=198 * SS,
-                                          outline=rim, width=10 * SS)
+                                          outline=(150, 158, 172, 255), width=10 * SS)
     return img.resize((size, size), Image.LANCZOS)
 
 
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--variant", default="esses", choices=sorted(VARIANTS))
-    ap.add_argument("--out", help="write this design to one PNG instead of the packaging icons")
-    args = ap.parse_args()
-    icon = draw(args.variant)
-    if args.out:
-        icon.save(args.out)
-        return
+    icon = draw()
     icon.save(os.path.join(HERE, "icon.png"))
     icon.save(os.path.join(HERE, "icon.ico"), sizes=[(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
     print("icons written")
