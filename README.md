@@ -54,7 +54,9 @@ kept in the app's data folder, not beside the program, so a new version replaces
 without touching them. [docs/PLAYING.md](docs/PLAYING.md) has the controls and what works.
 
 `gt4tool`, next to the app, is a command-line tool for the disc's files (texture names for
-texture packs, and checks); playing needs only the app.
+texture packs, and checks); playing needs only the app. On macOS its first run from a download is
+blocked the same way: choose **Allow Anyway** for it in **System Settings → Privacy & Security**,
+then run it again.
 
 Or build it yourself ([Building](#building)); a build from source needs none of the steps
 above.
