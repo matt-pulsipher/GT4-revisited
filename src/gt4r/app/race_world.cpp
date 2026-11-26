@@ -1259,9 +1259,13 @@ std::pair<float, float> RaceWorld::car_size(size_t i) const {
 // The icons: one picture over the whole page, an orthographic camera looking down -z, each car
 // side-on, its front to the left, at its icon's place, as the program's small icon stands
 // (CarIconMaker 0x393D20 with its 64 x 32 picture: turned 90 degrees, the middle of its height in the
-// picture's, scaled to 0.85 of the picture's width or height, whichever fills first). ❓ Its picture is
-// drawn once, with its own light (0x394A10's four rows at 0x621470) and an edge darkened (eight
-// faint copies): here in the course's light.
+// picture's, scaled to 0.85 of the picture's width or height, whichever fills first). The program
+// makes the pictures once at the race's set-up through a ShowRoomCar (0x364760), in a light of its own
+// whatever the course (0x394A10: one light, the light set 0x66's ambient 0.8, diffuse 1.5 and specular
+// 1.0 from 0x621480 / 0x621490 / 0x6214A0, toward (1, 0.5, -10.5) from 0x621470; the others off): here
+// the same light each frame, no course fog, car lights or reflection of the course. ❓ The light's
+// direction in our view (the program's view z taken as into the picture), the reflection the maker
+// gives the car, and the edge it darkens (eight faint copies) are not read.
 void RaceWorld::draw_icons(Ui& ui, const SDL_FRect& canvas, std::span<const Icon> icons) {
     Impl& m = *impl_;
     if (icons.empty() || !app_.gpu()) return;
@@ -1326,12 +1330,14 @@ void RaceWorld::draw_icons(Ui& ui, const SDL_FRect& canvas, std::span<const Icon
     proj.at(1, 1) = 2 / h, proj.at(1, 3) = 1;
     proj.at(2, 2) = 1 / (zf - zn), proj.at(2, 3) = zf / (zf - zn);
     proj.at(3, 3) = 1;
-    render::DrawOptions o = draw_options(*course_, zf);
-    o.fog = false;
-    o.frustum_cull = false;
+    render::DrawOptions o;
+    o.sort_blended = true;
     for (float& c : o.clear) c = 0;
     o.composite_alpha = std::clamp(opacity, 0.0f, 1.0f);
-    if (m.views[0].view && m.views[0].env_ready) o.env_cube = m.views[0].view->env_cube(), o.env_gt3_lookup = true;
+    o.gt3_lighting = true;
+    for (int i = 0; i < 3; ++i) o.light_ambient[i] = 0.8f, o.light_diffuse[i] = 1.5f, o.light_specular[i] = 1.0f;
+    o.light_dir = render::normalize(RVec{1, 0.5f, 10.5f});
+    o.reflection_strength = 0;
     m.icon_view->draw(ui.renderer(), canvas, render::Mat4::identity(), proj, RVec{0, 0, 100}, items, o);
 }
 
