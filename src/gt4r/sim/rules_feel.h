@@ -22,6 +22,8 @@ struct ViewState {
     F heading, heading_rate, heading_acc; // +0x00 / +0x04 / +0x08 a follower of the heading (its acceleration kept)
     F pitch, pitch_rate;                  // +0x0C / +0x10 a follower of the pitch
     F sway_pitch_rate, sway_pitch;        // +0x14 / +0x18 the body's pitch against the ground's, followed (0x34A668)
+    F jolt_forward, jolt_side;            // +0x1C / +0x20 a hit's change of velocity along the body and across it, scaled (view_jolt)
+    u32 jolt = 0;                         // +0x24 1 for the step that made them
     F sway_roll_rate, sway_roll;          // +0x28 / +0x2C the same for the roll (0x34A788)
 };
 constexpr u32 kViewBlock = 0xCAB8, kViewSize = 0x30, kPadBlock = 0xCA58, kPadSize = 0x10;
@@ -46,7 +48,23 @@ struct FeelTables {
     // damping.
     std::array<F, 4> sway_pitch{}, sway_roll{};
     std::array<F, 32> cue{}; // 0x843630 ..
+    // 0x6202BA .. 0x6202C0: the hits' record for the in-car view (view_jolt): on, the speeds' bytes (km/h).
+    std::array<u8, 7> jolt_bytes{};
 };
+// 0x34A4B8's last part (0x6202E8 .. 0x6202F8, at the race's start): a hit's change of velocity counts past `floor` (byte
+// 0x6202BB km/h; 2.78 m/s), is held to `cap` (0x6202BC, 55.6; one more than the floor where they are equal), both raised by
+// 0x6202C0 on a course of kind 2 and 0x6202BF on kind 3 (K + 0xCBDD); it is kept as `base` (0x6202BD, 0.278 m/s) at the
+// floor rising by `gain` per m/s (to 0x6202BE, 13.9, at the cap: 0.258).
+struct JoltLimits {
+    bool on = false; // 0x6202BA
+    F floor, cap, base, gain;
+};
+JoltLimits jolt_limits(const FeelTables& t, u8 course_kind);
+// 0x3F4C18's part (the collision step's results back to a car): with `on`, the change of velocity the step made (`after`,
+// the body's, less the record's F + 0x544) along the body's axes F + 0x0C and across them F + 0x18, when its size is past the
+// floor, scaled to the kept size into +0x1C / +0x20 with +0x24 set; a step after one with +0x24 set only clears it. The
+// in-car view's jolt (race/drive_camera.h) reads them.
+void view_jolt(const ex::Car& c, const ex::Vec3& after, ViewState& v, const JoltLimits& l);
 // 0x843630 .. (32 words) as 0x34F6A0 makes them at the race's start from the cue bytes 0x622690 .. (after 0x3FAA10's fix-ups):
 // the engine sound's level scales at +0x64 .. +0x70, the others the steering force's and the cues' ❓.
 constexpr u32 kCueTable = 0x843630, kCueBytes = 0x622690;

@@ -132,6 +132,20 @@ script's second lap) have the lens ours has at that distance (to 0.01 degrees wh
 follows the car), and the pictures are the same size (the Dunlop bridge, the R34 under it). The chase view's 721.2 is 44.25 degrees by
 that rule; the in-car view is taken to use the same lens.
 
+**How the program gets there** ✔ (`CameraSys::CameraOnBoard`, read in the saved states `03-race/state_before_first_corner_chase`,
+`state_at_start`, `35-ice-arena/state_ice_bonnet`, `state_ice_chase`): the projection takes the camera's zoom (+0x24) and, where the
+camera's byte +0x266 asks, the screen's scale (vf13 0x37A208 into 0x3FB4C0: the screen's +0x4C, with +0x40 applied when asked). The
+in-car and chase views keep +0xC = 90, zoom 1 and +0x266 = 0; every other mount (the roof's, the bumper's, the ride-on places) sets
++0xC = 2 atan(1 / the mount's zoom) and +0x266 = 1 (0x37B580's path); a lens set from outside (+0x267, the dive's on-board shots) also
+sets +0x266. With K 721.2 for zoom 1 unscaled and 601.0 for the roof's 2.0503 scaled, the screen's scale is 0.4064 (🔎 where it is
+set), so an unscaled zoom z shows tan 0.5916 / z to a side of a 4:3 picture and a scaled one 1.4556 / z (0.5916 / 0.4064: the
+replay rule above). **By picture** ✔: rendered from the original's own eye and turn in those states (`eye=` of `GT4R_RACE`), the chase
+view's scenery at Tsukuba (the pylon, the yellow wall, the ADVAN banner), the nose view's (the stand's roof, the 150 m board) and the
+roof view's at the Ice Arena (the people, the post, the tents) fall on the original's to a pixel or two across 640 and within a
+few pixels up and down (ours a little lower). **The chase view's place** ✔: in `state_before_first_corner_chase` the eye is 6.07 m
+behind and 1.43 m above the car's origin with the frame pitched 2.7 degrees nose up like the car, which is (0, 1.7, 6) of mount 1 in
+that frame; the view looks along it (the mount's pitch 8 unused), as below.
+
 ### Chase view (view 1)
 
 The eye rides a frame at the car's origin that has the car's **lagged heading and lagged
@@ -177,10 +191,25 @@ eye):
    250 (the yaw shaker draws first), else 0. A shaker with input u: v += ((u - u_before) -
    12 v) / 60, x += v / 60, output x clamped to -1..1. The view pitches by 8 S x and yaws by
    2 S x degrees. (No cap on A was seen.)
-2. **Impact kick**: when the car's record flags an impact, three turns (clamped to 90 degrees)
-   and three shifts (clamped to 0.6, 0.1 and 0.3 m) are driven through springs
-   x'' = 750 (u - x) - 17 x' from the impact's two components, scaled by random draws.
-   🔎 The exact inputs.
+2. **A hit's jolt** (the in-car view only; mount 0 and 25): the collision step's results back to the cars (0x3F4C18), with the
+   switch byte 0x6202BA on (1 on the disc), keep per car at cond + 0xCAB8 + 0x30 i the change of velocity the step made (the
+   body's after it less the record's F + 0x544) along the body (F + 0x0C) as a and across it to the right (F + 0x18) as b,
+   when its size s = sqrt(a^2 + b^2) is past the floor: held to the cap, scaled so that its size is base + gain (s - floor),
+   into +0x1C (a) and +0x20 (b), with +0x24 set for that step (a step after one with it set only clears it). The floor and
+   cap are the bytes 0x6202BB and 0x6202BC in km/h (10 and 200; the cap one more than the floor where they are equal), both
+   raised by 0x6202C0 (20) on a course of kind 2 and by 0x6202BF (0) on kind 3 (K + 0xCBDD); base 0x6202BD km/h (1), gain
+   (0x6202BE km/h (50) - base) / (cap - floor) (0x34A4B8 at the race's start). The in-car view (0x37A8E4 through 0x34A8B0)
+   kicks six springs for that frame, with A = a|a|, B = b|b|, m = sqrt(|A| + |B|) and the random draws (0x578598) r:
+   pitch -(A's sign) x 10 (|A| (0.4 + 0.4 r) + |B| (0.1 + 0.4 r')) (a head-on hit looks down); yaw -10 B; roll 5 m x
+   (0.1 .. 0.8); the shifts m x (0.4 .. 0.8), (0.05 .. 0.2), (0.03 .. 0.3) (each of the last four either way: 0x37A418).
+   Each spring every frame (0x3853A0): v += (750 (input - x) - 17 v) / 60, x += v / 60, the input 0 but for the hit's
+   frame: a bounce of about 4 Hz that dies in half a second. The turns (degrees, within 90) and shifts (metres, within
+   0.6, 0.1, 0.3) are applied as a camera place's are (0x37B13C: roll, pitch, yaw, then the shift). ✔ Against the
+   original's wall hit at Tsukuba's first corner (`03-race/incar_view_start_to_first_corner_runs_off.mp4`, 0'16.5: 44 to
+   3 mph, the view thrown down, back up past level, settled by 0'16.9; the original also blurs those frames, not built)
+   and ours (the Ka, `drive=pad`, the throttle held into the same wall): the same throw and swing. Not in replays here (a replay
+   keeps no record of the hits). Here
+   `sim::rules::view_jolt` keeps the record and `race::DriveCamera` the springs (our random generator for the draws).
 3. **Looking sideways** (not while the car's +0x546 is 6 ❓): an angle that eases towards -60, 0 or +60 degrees by 0.2 of the
    difference per frame while a look-left / look-right button is held (0x37AF94); yaw about
    the eye.
@@ -217,9 +246,12 @@ The original's default (nose) view shows it at the top of the picture, (190, 18)
 higher view have none. The course has visibility lists, a sky and fog for it ([course.md](course.md),
 slots 3 and 24, Env0 +0xA90; drawing step 9). Here (`RaceWorld::render_mirror`) it is the in-car
 view seen backward and mirrored, the course by its mirror lists, sky and fog, the other cars, 120 m
-deep, the in-car view's angle zoomed 1.3 times. ❓ The program's own mirror camera (its lens, depth
-and place) was not read: the on-board camera publishes the view's turn (the sideways angle, + 180
-while looking back).
+deep. **Its lens** ✔ by picture: the tangent of half its height is 0.325 (2.67 across its 259 x 63, 106 degrees): in the original's
+saved state at Tsukuba's start (`03-race/state_at_start`, the nose view) the start gantry behind is 103.5 of 640 pixels between its posts,
+and from the same eye and turn (`eye=` of `GT4R_RACE`) the in-car lens zoomed 1.3 (0.341, the shared engine's) drew it 98.5; with 0.325 it
+draws 103.5. ❓ The program's own mirror camera (its lens, depth and place) was not read (no stored view matrix looking back was found in
+that state; the size factor K there is 121.38, 🔎 presumably the mirror's pass, drawn after the view): the on-board camera publishes the view's turn (the sideways
+angle, + 180 while looking back).
 
 ## Replay cameras: `REP4` (course slots 44, 45, 46, 48)
 
@@ -510,3 +542,13 @@ dissolve) whose path is the one of course slot 45. `attach.cam` has 33 car-frame
 (kind 0x21), each a fixed eye and look-at point round the car. The program has no string with
 their path and no reader for them was found: the per-course `REP4` slots and the cars' camera
 mounts appear to have taken their place.
+
+## What runs where
+
+- **Gran Turismo 4's**: the in-car, chase and roof views (places, lenses as the program sets them, the chase view's follower, the nod, the
+  speed shake, the speed wobble, a hit's jolt), the replay script and its camera, the scenic shots, the start's shots, Dive, the
+  ride-on places in replays; checked against the original's saved states and pictures as stated above.
+- **Measured on the original's picture**: the rear-view mirror's place and lens (the program's mirror camera not read).
+- **Ours**: the far chase view (mount 1's place x 1.45), the in-car view without the mirror, the right stick's look round the car,
+  the blend of two steps' poses for a frame between them, `eye=` for pictures. Not in replays: the hit's jolt (a replay keeps no hits).
+- **Not built**: the original's blur on the frames after a hit; the lean (place 25) and who asks for it.

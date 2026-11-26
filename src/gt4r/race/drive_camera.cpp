@@ -51,11 +51,17 @@ void DriveCamera::reset(const CarState& car) {
     road_pitch_ = pitch_;
     side_ = look_ = 0;
     shake_pitch_ = {}, shake_yaw_ = {};
+    for (Spring& j : jolt_) j = {};
 }
 
 float DriveCamera::draw() {
     seed_ = seed_ * 1664525u + 1013904223u;
     return float(seed_ >> 8) / float(1u << 24);
+}
+
+void DriveCamera::Spring::step(float input) {
+    v += ((input - x) * 750.0f + v * -17.0f) / 60.0f;
+    x += v / 60.0f;
 }
 
 void DriveCamera::Shaker::step(float input) {
@@ -97,6 +103,26 @@ void DriveCamera::step(const CarState& car, float h) {
     const float yaw = kick ? (draw() - 0.5f) * slips * 250 : 0.0f;
     const float pitch = kick ? (draw() - 0.5f) * slips * 250 : 0.0f;
     shake_yaw_.step(yaw), shake_pitch_.step(pitch);
+
+    // A hit's jolt (0x37A8E4 .. 0x37AAAC, the collision step's record of the step: CarState::jolt): with a the change along the
+    // body and b across it, each signed and squared (a|a|, b|b|), and m the size sqrt(a^2 + b^2), the springs are kicked for
+    // that step by: pitch, -(a's sign) x 10 (|a|a|| x (0.4 .. 0.8) + |b|b|| x (0.1 .. 0.5)); yaw, -10 b|b|; roll, 5 m x (0.1 ..
+    // 0.8, either way); the shifts m x (0.4 .. 0.8), (0.05 .. 0.2), (0.03 .. 0.3), each either way (the program's random draws,
+    // 0x578598, are a generator of ours). Each spring: v += (750 (input - x) - 17 v) / 60, x += v / 60.
+    float input[6] = {};
+    if (car.jolt) {
+        const float a = car.jolt_forward, b = car.jolt_side;
+        const float aa = a * std::fabs(a), bb = b * std::fabs(b), m = std::sqrt(std::fabs(aa) + std::fabs(bb));
+        auto range = [](float r, float hi, float lo) { return (hi - lo) * r + lo; };                                 // 0x37A448
+        auto either = [](float r, float hi, float lo) { r -= 0.5f; return (r < 0 ? -lo : lo) + 2 * r * (hi - lo); }; // 0x37A418
+        const float k1 = range(draw(), 0.8f, 0.4f), k2 = range(draw(), 0.5f, 0.1f);
+        const float tip = std::fabs(bb) * 10 * k2 + std::fabs(aa) * 10 * k1;
+        input[0] = 0 < aa ? -tip : tip;
+        input[1] = -bb * 10;
+        input[2] = m * 5 * either(draw(), 0.8f, 0.1f);
+        input[3] = m * either(draw(), 0.8f, 0.4f), input[4] = m * either(draw(), 0.2f, 0.05f), input[5] = m * either(draw(), 0.3f, 0.03f);
+    }
+    for (int k = 0; k < 6; ++k) jolt_[k].step(input[k]);
     const RVec vel = v3(car.velocity);
     shake_speed_ = std::clamp(render::length(vel), 2.7777778f, 33.333332f) / 33.333332f;
     // The sideways look eases by 0.2 of the rest a step; the stick's way round the car over about 0.2 s.
@@ -165,9 +191,18 @@ ViewPose DriveCamera::pose(const CarState& car, const Mat4& body, std::span<cons
         ahead = turn(ahead, right, nod_), up = turn(up, right, nod_);
         p.fov = kOnBoardAngle;
         if (look_back) ahead = ahead * -1.0f, right = right * -1.0f;
-        // Looking aside, then the shake nearest the eye: 2 and 8 degrees by the speed.
+        // Looking aside, then a hit's jolt, then the shake nearest the eye: 2 and 8 degrees by the speed.
         const float aside = side_ * kPi / 180.0f + (look_back ? 0.0f : look_);
         ahead = turn(ahead, up, -aside), right = turn(right, up, -aside);
+        // The jolt (0x37B13C ..): the shifts held within 0.6, 0.1 and 0.3 m, the turns within 90 degrees; turned as a camera
+        // place is (its yaw, pitch, roll about the shifted eye).
+        const float deg = kPi / 180.0f;
+        const float sx = std::clamp(jolt_[3].x, -0.6f, 0.6f), sy = std::clamp(jolt_[4].x, -0.1f, 0.1f), sz = std::clamp(jolt_[5].x, -0.3f, 0.3f);
+        p.eye = p.eye + right * sx - up * sy + ahead * sz;
+        const float jyaw = std::clamp(jolt_[1].x, -90.0f, 90.0f) * deg, jpitch = std::clamp(jolt_[0].x, -90.0f, 90.0f) * deg, jroll = std::clamp(jolt_[2].x, -90.0f, 90.0f) * deg;
+        ahead = turn(ahead, up, -jyaw), right = turn(right, up, -jyaw);
+        ahead = turn(ahead, right, -jpitch), up = turn(up, right, -jpitch);
+        right = turn(right, ahead, jroll), up = turn(up, ahead, jroll);
         if (shake_on_) {
             const float yaw = 2 * shake_speed_ * std::clamp(shake_yaw_.x, -1.0f, 1.0f) * kPi / 180.0f, tip = 8 * shake_speed_ * std::clamp(shake_pitch_.x, -1.0f, 1.0f) * kPi / 180.0f;
             ahead = turn(ahead, up, -yaw), right = turn(right, up, -yaw);

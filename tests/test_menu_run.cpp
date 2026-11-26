@@ -438,6 +438,22 @@ TEST(disc_menu_arcade_to_race) {
     f.press({menu::Key::Accept});
     if (f.page() == "CourseRoot") f.press({menu::Key::Accept}); // the direction (forward) when the course has both
     CHECK(f.page() == "MakerRoot");
+    {
+        // Each maker's logo at half its picture's size, its own shape: the item takes its picture's
+        // size (a composite's adjustSize) before the script halves it.
+        const std::shared_ptr<menu::LiveWidget> page = f.rt->open_pages().back();
+        menu::Project* project = f.rt->project_of(*page);
+        const std::shared_ptr<menu::LiveWidget> space = page->child("ScrollWindow")->child("clip")->child("space");
+        int logos = 0, right = 0;
+        for (const auto& item : space->children) {
+            const std::shared_ptr<menu::LiveWidget> bg = item->child("bg");
+            const gt3r::Tex1::Image* picture = bg && project ? project->image(page->name, bg->data.text("image_path")) : nullptr;
+            if (!picture) continue;
+            ++logos;
+            right += std::fabs(item->get("w").as_float() - picture->width * 0.5f) < 0.01f && std::fabs(item->get("h").as_float() - picture->height * 0.5f) < 0.01f;
+        }
+        CHECK(logos >= 20 && right == logos);
+    }
     // Down from the tabs into the makers, and the first maker's cars.
     f.press({menu::Key::Accept});
     CHECK(f.page() == "MakerRoot" && f.rt->focused() && f.rt->focused()->name != "Maker");
