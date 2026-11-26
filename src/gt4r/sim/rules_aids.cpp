@@ -76,6 +76,7 @@ AidTables aid_tables(const Program& program) {
     s8 b[5];
     for (u32 k = 0; k < 5; ++k) b[k] = s8(program.b(kTcsClassBytes + k));
     g.tcs_class = tcs_classes(b);
+    g.japan = program.release() == Release::Japan;
     return g;
 }
 
@@ -371,7 +372,8 @@ void tcs(ex::Car& c, AidExtra& x, const TireExtra& t, const DriveExtra& d, const
     if (v < kHundredKmh) {
         if (f < kOne) x.tcs_status = 2;
         c.throttle = c.throttle * f;
-        return settle(c, x);
+        if (!g.japan) settle(c, x);
+        return;
     }
     // At speed the throttle follows a damped target a tenth above the limited throttle.
     const F rate = x.tcs_throttle_v + ((c.throttle * f * kTcsLead - x.tcs_throttle) * kFollowSpring - x.tcs_throttle_v * kTcsDamp) * kTick;

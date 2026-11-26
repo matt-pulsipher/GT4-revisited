@@ -489,8 +489,8 @@ operand 0x8000 + i.
 | `taillamp` | the brake ramp, 0..1 over four frames | 0 |
 | `timezone` | the lamp level (int: callback 7's value) | 0 |
 | `time` | the model's time in milliseconds (int, CarModel +0x34): trunc(1000 x 1/60) = 16 more a frame (RaceCarModel::vf3 → 0x4511E0 → 0x451110) | 4 |
-| `engineRPM` | engine speed | 2 (`benz0001`, `dmlr0001`) |
-| `pedalLeft`, `pedalRight` | from the driver's model | 2 (`dmlr0001`, `nike0001`) |
+| `engineRPM` | engine speed: in a race the vehicle's vf23 (RaceCarParamSponsor 0x3D75C8: int(F +0x738), the race display's), set by RaceCarModel vf22 → 0x451AB0; 0 in a showroom (ShowRoomCarParamSponsor::vf23) | 2 (`benz0001`, `dmlr0001`) |
+| `pedalLeft`, `pedalRight` | the driver's (RaceCarModel::vf31 0x391068 → 0x451578, from the posture's block +0x54 .. +0x5C that 0x3B1DB0 fills): cockpit style 1 (kind 0x0A) both the record's +0x14 (the throttle's follower, 0x405470) less up to half on the side the wheel turns to; style 3 (lever kind 3) the record's +0xD8 and +0xC8 (the gear change's second and third lever turns over 0.0873, 0x412C78); otherwise 0 (as made, 0x450980) | 2 (`dmlr0001`, `nike0001`) |
 | `steering` | the steering value (callback 5's morph weight) | 0 |
 | `steering_rot` | the steering wheel's angle, radians (callback 8's) | 0 |
 | `dirtiness` | the car's dirt (the body's draw also sets a render value to 1 - it 🔎) | 0 |
@@ -510,12 +510,30 @@ operand 0x8000 + i.
 - **The pace car's light bar** (`niss0088`, `r34_gtr_v_gtcolor_pc_01`): its script sets `builtin_tw0` = (time mod 1000) /
   1000 (and `builtin_br0` 0), the weight of a 0x4C morph whose second key moves the u of a band of 14 vertices around the
   bar's middle box (x ±0.21 .. ±0.29, y 1.27 .. 1.35, z 0.30 .. 0.40; nearest level of detail only) by +2: a 32 x 16 beam
-  picture swept across it twice a second. Here (`CarVisual::animate`) the script runs each step and those triangles are a
-  small model of their own, blended between the two keys; from behind the band shows little.
-- **Moving parts** (`benz0001`, `dmlr0001`, `nike0001`): registers `builtin_ra<n>`,
-  `builtin_rx / ry / rz<n>` (an angle and an axis, command 0x48) and `blend_tw<n>`,
-  `blend_br<n>` (morph weights, 0x4C; a 0x4D switch picks the shape) from `engineRPM`, `time`
-  and the pedals 🔎 the scripts' arithmetic has not been read.
+  picture swept across it twice a second; from behind the band shows little.
+- **Moving parts** (`benz0001`, `dmlr0001`, `nike0001`; `gt4tool car-scripts <disc> --show car/lod/<file>` lists a set's
+  program and its registers frame by frame): registers `builtin_ra<n>`, `builtin_rx / ry / rz<n>` (an angle in degrees and
+  an axis, command 0x48) and `blend_tw<n>`, `blend_br<n>` (morph weights, 0x4C, clamped by the script below 1; a 0x4D switch
+  picks the key shapes, 0 here). The programs turn a part in its own frame: push, translate to the pivot, push, 0x48, push,
+  translate back, the shapes. `benz0001`: three turns, each step the angle less 0.06 x `engineRPM` degrees (36 a step at
+  600 rpm), wrapped to -360 .. 0: the horizontal flywheel about y at (0, 0.459, 1.076), and about x the crank at
+  (0.098, 0.691, 1.077) and the pulleys and belts at (0, 0.246, 0.129). `dmlr0001`: two turns the same way about x (at
+  (0, 0.257, 0.98) and (-0.004, 0.246, 0.27)) and two morphs, `blend_tw2` from `pedalLeft` and `blend_tw3` from
+  `pedalRight`. `nike0001`: two morphs, `blend_tw0` from `pedalLeft` and `blend_tw1` from `pedalRight`. Neither car has a
+  driver: the pedals come only through RaceCarModel +0x1670, which 0x3B5700 sets for cockpit kinds 1, 2, 5, 6, 7, 0x0A,
+  0x0E and 0x0F or a car with its own driver set (0x38FE30), and both are kind 0 without one. So their pedals stay 0 and the
+  morphs at their first key (the Daimler's lever kind 3 would take the gear change 0x412C78's levers; of the 807 race cars
+  only `benz0001`, `dmlr0001` and `ford0013` have lever kinds 3 to 5, all cockpit kind 0). In a showroom the engine
+  speed is 0: nothing turns.
+- **How they are drawn here** (`CarVisual`, `mdls::register_reads`, `Scene::turned`): each register turn's shapes (those
+  drawn from the command until the stack level it turned is popped) are a model of their own, drawn in the body's frame
+  times P⁻¹ R P, R the command's matrix from the registers and P the program's matrix just before it (the shapes are
+  decoded with the turn left out, at v P; turned they stand at v R P). The shapes the blend weights move are taken out of
+  the body into a band with their vertices at each weight's 1. Every car has its own state (`CarVisual::Motion`: the
+  script's cells, the model's time, the turns, its band), stepped with the car's brake, engine speed and pedals each frame
+  shown, in races and replays (whose records keep the engine speed); the menus draw the parts at rest. ✔ By picture: the
+  Benz's flywheel, crank and pulleys turn step by step at the start's 100 rpm, in place (benz/fly.png, diff.png in the
+  round's notes); the Daimler's front pulley turns.
 
 The script's two "ask the game" opcodes (0xC0, 0xC1) go to the callback's third and fourth
 entry points, which a car leaves at their defaults (0).
@@ -536,6 +554,11 @@ classic2, 0x0A driver_nike, 0x0E driver, 0x0F driver_mtr with a co-driver, else 
 other kinds none (0x20 never comes here: those cars have their own set). On this disc only
 `cthm0001` (kind 1) and `toyt0030` (0x0F) go that way. `character/driver.mdl`: five models,
 `RHAND_BONE` 0 and `LHAND_BONE` 1 (the gloves), `SKINNING` 2, `CRANIUM2` 3, `CRANIUM` 4, 20 bones.
+**Cockpit kind 0 with a set of its own** (`nike0001`, the Nike One; `ford0013`, the Model T, which Single Race refuses):
+0x3B5700 sets RaceCarModel +0x1670 for them (0x38FE30 succeeds), and 0x403260 resets the driver's record and stops there
+(it steps nothing for kind 0). ✔ Yet the original draws no driver: PCSX2, Arcade Single Race at Tsukuba, the Nike One in
+the opening TV shots and in the chase view, no figure at the seat (-0.30, 0.38, 0) the parts block gives nor anywhere
+above the shell. 🔎 What keeps it from drawing is not read; ours draws none for kind 0 (`figure_class`), which matches.
 
 **The skeleton** (HumanModel +0x10, the "pdiRiderman" body library 0x414000-0x424000): 20 nodes,
 names in program table 0x622A50: PELVIS, L/RTHIGH, L/RSHANK, L/RFOOT, LOWER_SPINE, MIDDLE_SPINE,

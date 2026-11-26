@@ -368,7 +368,9 @@ public:
     void draw_icons(Ui& ui, const SDL_FRect& canvas, std::span<const Icon> icons);
     // One model in its own view over `rect` (the license results' trophy), in the course's light:
     // `place` its model matrix in a camera at the origin looking down -z, `proj` the lens.
-    void draw_model(Ui& ui, const SDL_FRect& rect, const gt3r::render::GpuModel& model, const gt3r::render::Mat4& place, const gt3r::render::Mat4& proj, float alpha, bool own_reflection = false);
+    // `lights`: the model's own light set (none: the course's).
+    void draw_model(Ui& ui, const SDL_FRect& rect, const gt3r::render::GpuModel& model, const gt3r::render::Mat4& place, const gt3r::render::Mat4& proj, float alpha, bool own_reflection = false,
+                    const gt3r::render::ItemLights* lights = nullptr);
 
     const race::CourseScene& course() const { return *course_; }
     const race::CarVisual& visual(size_t i) const { return *car_visuals_[i]; }

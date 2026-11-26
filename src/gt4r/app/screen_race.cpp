@@ -856,7 +856,7 @@ public:
         lap_first_.clear(), laps_seen_.clear(), event_gap_ms_ = 0, event_gap_car_ = -1;
         distance_ = 0, bspec_distance_ = 0, shown_steps_ = 0;
         replaying_ = page_replay_ = false, over_ = false;
-        event_steps_ = -1;
+        event_steps_ = -1, license_line_ms_ = -1;
         release_past_line();
         begin_start_camera(false);
         if (net_) attach_online(net_); // (the world's session may be a new one)
@@ -1204,6 +1204,9 @@ public:
         if (is_license(setup_.sequence) || setup_.sequence == "mission") judge_license();
         if (is_license(setup_.sequence)) judge_goal();
         end_test();
+        // A test failed by its rules: the camera circling the car from the fail on (CameraSys::CameraFinishType1, 0x37CCA8: half a
+        // degree a step).
+        if (license_fail_view()) fail_orbit_deg_ = std::fmod(fail_orbit_deg_ + 0.5f, 360.0f);
         if (!flow_.player_finished()) graded_place_ = flow_.place(0);
         step_wrong_way(auto_drive);
         if (demo_run_ && flow_.player_finished() && !demo_logged_) {
@@ -1214,7 +1217,7 @@ public:
         if (demo_run_ && ev.lap_done == 0) LOG_INFO("Drive: the demonstration %s: lap %d in %lld ms, at step %zu", demo_run_->label.c_str(), flow_.car(0).laps_done, (long long)flow_.car(0).last_lap_ms, demo_step_ - 1);
         step_lap_gaps();
         // The lap's line is the display's car's (RaceDisplayGeneralTimeEvent with the display's target, +0x2E).
-        if (ev.lap_done >= 0 && size_t(ev.lap_done) == display_car()) event_steps_ = 0, event_lap_ = flow_.car(display_car()).laps_done, split_steps_ = -1;
+        if (ev.lap_done >= 0 && size_t(ev.lap_done) == display_car()) event_steps_ = 0, event_lap_ = flow_.car(display_car()).laps_done, split_steps_ = -1, license_line_ms_ = -1;
         step_splits();
         if (finish_view()) finish_camera_.angle += 0.5f;
         beeps_ += ev.beep;
@@ -1683,6 +1686,8 @@ public:
             h.caption_opacity = std::clamp(std::min(view_time_ - 7.2f, 17.6f - view_time_) / 0.25f, 0.0f, 1.0f);
         }
         if (replaying_ || demo) {
+        } else if (flow_.player_finished() && is_license(setup_.sequence) && !gt3_road_) {
+            // (A license test's display has no FINISH: RaceLicenseDisplay's virtual 41 does nothing.)
         } else if (flow_.player_finished()) {
             // FINISH: 3.7 s and a fade of 0.3 s.
             h.message = hud.word("RaceFinish");
@@ -1752,7 +1757,9 @@ public:
             // The lap's time for three seconds (RaceDisplay::vf47 0x3A0A78): named "L1/3   1'23.456" only with the option
             // race_display_config (the display's flags +0x58 bit 10; a new game's off: ✔ the original's chase race shows
             // "1'47.118"); the gap to the first car through the line on that lap under it, 2.85 s.
-            h.event = (gt3_road_ || !lap_word_ ? std::string() : hud.word("WordOfLapTime") + std::to_string(event_lap_) + (setup_.laps > 0 ? "/" + std::to_string(setup_.laps) : std::string()) + "   ") + race::format_lap_time(flow_.car(target).last_lap_ms);
+            h.event = license_line_ms_ >= 0 ? race::format_lap_time(license_line_ms_)
+                      : (gt3_road_ || !lap_word_ ? std::string() : hud.word("WordOfLapTime") + std::to_string(event_lap_) + (setup_.laps > 0 ? "/" + std::to_string(setup_.laps) : std::string()) + "   ") +
+                            race::format_lap_time(flow_.car(target).last_lap_ms);
             h.event_opacity = std::min(1.0f, float(event_steps_) / 9.0f) * window(event_steps_, 3.0f, 0.15f);
             h.event_gap.clear(), h.event_gap_opacity = 0;
             if (event_gap_ms_ > 0 && !gt3_road_) {
@@ -1927,7 +1934,7 @@ public:
                          judge_.fail() == race::LicenseFail::OffCourse ? "off the course" : judge_.fail() == race::LicenseFail::Hit ? "hit" : "judge",
                          double(flow_.time_ms()) / 1000);
                 flow_.finish_now(0);
-                license_failed_ = true;
+                license_failed_ = true, fail_orbit_deg_ = fail_orbit_prev_ = 0;
                 return;
             }
             if (judge_.cones_done()) flow_.finish_now(0, 1); // (the clock + 50)
@@ -1946,14 +1953,14 @@ public:
             LOG_INFO("Drive: the test failed (kind %d: wall %.2f, car %.2f, cones %d, wheels off %d, pit %d) at %.3f s", int(judge_.fail()), double(s.wall_hit),
                      double(s.car_hit), s.cones, s.wheels_off, s.wheels_pit, double(flow_.time_ms()) / 1000);
             flow_.finish_now(0);
-            license_failed_ = true;
+            license_failed_ = true, fail_orbit_deg_ = fail_orbit_prev_ = 0;
             return;
         }
         // Kind 6: the car may not lead (its place byte +0x5B3 at 1 fails, 0x3F8F00).
         if (r.kind == 6 && world_->car_count() > 1 && flow_.place(0) == 1) {
             LOG_INFO("Drive: the test failed (kind 6, leading) at %.3f s", double(flow_.time_ms()) / 1000);
             flow_.finish_now(0);
-            license_failed_ = true;
+            license_failed_ = true, fail_orbit_deg_ = fail_orbit_prev_ = 0;
             return;
         }
         if (judge_.cones_done()) flow_.finish_now(0, 1); // (at the step's end: the clock + 50)
@@ -1967,12 +1974,17 @@ public:
         const int mode = license_end_mode();
         LOG_INFO("Drive: the test's end: the car %s (mode %d)", mode == 1 ? "coasts down" : mode == 2 ? "brakes to a stop" : "drives on", mode);
         world_->finish_car(0, true, mode);
+        // A run ended with a time posts it to the display's lap line, the time alone for 3 s (0x3F8AB0 → RaceDisplayGeneralTimeEvent
+        // 0x35E550, only when it has a time; ✔ the original's B-1 pass: "0'11.166" under the clock from the stop).
+        if (!license_failed_) event_steps_ = 0, license_line_ms_ = flow_.run_ms(0), split_steps_ = -1;
     }
+    s64 license_line_ms_ = -1; // the time a license test's end posted to the lap line (-1: a lap's)
     // How the player's car's run ends as the test is over (race::license_end_mode, race::license_fail_mode).
     int license_end_mode() const {
         const race::LicenseRules& r = judge_.rules();
-        if (!license_failed_) return race::license_end_mode(r);
-        return race::license_fail_mode(r, judge_.fail() != race::LicenseFail::None ? judge_.fail() : race::LicenseFail::Kind6);
+        const bool japan = release_ == sim::Release::Japan;
+        if (!license_failed_) return race::license_end_mode(r, false, japan);
+        return race::license_fail_mode(r, judge_.fail() != race::LicenseFail::None ? judge_.fail() : race::LicenseFail::Kind6, japan);
     }
     const race::LicenseJudge& license_judge() const { return judge_; }
     // A series' last race has its own jingles.
@@ -2022,15 +2034,18 @@ public:
         prev_cars_.assign(now.begin(), now.end());
         camera_prev_ = camera_, start_prev_ = start_camera_;
         tv_prev_ = tv_pose_, tv_prev_valid_ = tv_valid_;
+        fail_orbit_prev_ = fail_orbit_deg_;
         view_cut_ = false;
     }
     // The camera at the last step but one (its cameras as they were then, on the cars as they were).
     race::ViewPose previous_pose(bool look_back) {
         std::swap(camera_, camera_prev_), std::swap(start_camera_, start_prev_), std::swap(tv_pose_, tv_prev_), std::swap(tv_valid_, tv_prev_valid_);
+        std::swap(fail_orbit_deg_, fail_orbit_prev_);
         before_ = true;
         const race::ViewPose p = current_pose(prev_cars_, look_back);
         before_ = false;
         std::swap(camera_, camera_prev_), std::swap(start_camera_, start_prev_), std::swap(tv_pose_, tv_prev_), std::swap(tv_valid_, tv_prev_valid_);
+        std::swap(fail_orbit_deg_, fail_orbit_prev_);
         return p;
     }
 
@@ -2098,6 +2113,22 @@ public:
         if (dissolve_left_ == 0) dissolve_total_ = 0;
     }
 
+    // A Gran Turismo 4 test failed by its rules: CameraFinishType1 (0x37CC58 starts it at 0 degrees, 0x37CCA8 steps it): 4 m from
+    // the car's drawn point, 30 degrees above it, turning about it half a degree a step from the course's +z, a lens of 65 degrees.
+    // The results page puts it on (0x3E1E10 → 0x3E1FB0 → 0x3720A0, mode 6) on event 10 with the result word not 0: the rule
+    // failure's end (0x3F8980 sets it to -1), not a slow finish's.
+    bool license_fail_view() const { return !gt3_road_ && is_license(setup_.sequence) && license_failed_ && flow_.player_finished() && !replaying_ && !menu_scene_; }
+    race::ViewPose fail_orbit_pose(const race::CarState& me) const {
+        race::ViewPose p;
+        const RVec c{me.position.x, me.position.y, me.position.z};
+        constexpr float kDeg = 3.14159265f / 180;
+        p.view = render::translate({0, 0, -4}) * render::rotate_x(30 * kDeg) * render::rotate_y(fail_orbit_deg_ * kDeg) * render::translate(c * -1.0f);
+        p.eye = c + render::rotate_y(-fail_orbit_deg_ * kDeg).transform_point(render::rotate_x(-30 * kDeg).transform_point({0, 0, 4}));
+        p.fov = 65 * kDeg;
+        return p;
+    }
+    float fail_orbit_deg_ = 0, fail_orbit_prev_ = 0;
+
     // Prologue's license test ended: the camera circles the car (race/start_camera_prologue.h).
     bool finish_view() const { return gt3_road_ && finish_camera_.distance > 0 && is_license(setup_.sequence) && flow_.player_finished() && !replaying_ && !menu_scene_; }
 
@@ -2115,8 +2146,10 @@ public:
         if (posed && pose.depth_of_field) pose.focus = std::max(std::clamp(world_->nearest_depth(f, me, pose.view) + 0.7f, 0.001f, 100000.0f), race::least_focus(pose.fov * 57.29578f));
         // (Cross leaves a replay's start shots for the car's own cameras: 0x374630.)
         posed = posed || (start_camera_.active() && !(viewing() && view_.ride_on()) && start_camera_.pose(pose, &body));
-        // A license test's staff at the stopping place: their own cameras (RaceLicense virtual 139, 0x4096F8).
+        // A license test's staff at the stopping place: their own cameras (RaceLicense virtual 139, 0x4096F8); a test failed by
+        // its rules: the camera circling the car.
         if (!posed && !replaying_ && !menu_scene_) posed = world_->license_camera(pose, before_);
+        if (!posed && license_fail_view()) pose = fail_orbit_pose(me), posed = true;
         // The replay cameras' shot for the car; the chase view where the script has none.
         if (!posed && finish_view()) posed = finish_camera_.pose(RVec{me.position.x, me.position.y, me.position.z}, pose);
         if (!posed && view == kTvView && tv_valid_) pose = tv_pose_, posed = true;
@@ -2207,7 +2240,7 @@ public:
     void follow(size_t car) {
         if (car == focus_) return;
         focus_ = car;
-        event_steps_ = split_steps_ = -1;
+        event_steps_ = split_steps_ = -1, license_line_ms_ = -1;
         name_steps_ = watched_ && !replaying_ && !menu_scene_ ? 0 : -1;
         camera_.reset(world_->cars()[car]);
         replay_camera_.reset();
@@ -2216,8 +2249,9 @@ public:
 
     void quiet() { world_->quiet(); }
     void draw_icons(Ui& ui, const SDL_FRect& canvas, std::span<const RaceWorld::Icon> icons) { world_->draw_icons(ui, canvas, icons); }
-    void draw_model(Ui& ui, const SDL_FRect& rect, const render::GpuModel& m, const render::Mat4& place, const render::Mat4& proj, float alpha, bool own_reflection = false) {
-        world_->draw_model(ui, rect, m, place, proj, alpha, own_reflection);
+    void draw_model(Ui& ui, const SDL_FRect& rect, const render::GpuModel& m, const render::Mat4& place, const render::Mat4& proj, float alpha, bool own_reflection = false,
+                    const render::ItemLights* lights = nullptr) {
+        world_->draw_model(ui, rect, m, place, proj, alpha, own_reflection, lights);
     }
     audio::RaceSound* sound() { return world_->sound(); }
 
@@ -2931,9 +2965,11 @@ public:
         // The results page goes up at the player's finish over the race display, which goes on under it: its
         // movie's first 3.3 s show nothing (result.strb's root waits on its sprite 1), so FINISH and the A-spec
         // points are seen first (✔ the original's: the page up at the FINISH state, the rows ~3.5 s after the line).
-        // A license test's page covers it. (Nor is it drawn under the Race Monitor.)
+        // A license test's display goes out over 0.25 s from the test's end under its page (RaceLicenseDisplay 0x3BCFF0 and
+        // virtual 36: its fader +0xBC), its words on their own times. (Nor is it drawn under the Race Monitor.)
         const bool monitor_up = monitor_ && race_->watched() && !race_->replaying();
-        if (setup_.hud && !monitor_up && (!results_shown() || !is_license(sequence_) || (prologue_hud_ && license_page()))) {
+        const bool license_fading = is_license(sequence_) && !prologue_hud_ && results_shown();
+        if (setup_.hud && !monitor_up && (!results_shown() || !is_license(sequence_) || (prologue_hud_ && license_page()) || license_fading)) {
             if (hud_ && hud_->ready()) {
                 race_->fill(hud_state_, *hud_);
                 // At the player's finish the display stays full 1 s, then fades out over 0.25 s (RaceDisplay::vf41 0x3A1568,
@@ -2941,7 +2977,7 @@ public:
                 hud_state_.opacity = 1;
                 if (const race::RaceFlow& f = race_->flow(); !race_->viewing() && f.player_finished()) {
                     const float t = float(f.steps_since_player_finish()) / 60;
-                    hud_state_.opacity = t < 1 ? 1.0f : std::max(0.0f, 1 - (t - 1) / 0.25f);
+                    hud_state_.opacity = license_fading ? std::max(0.0f, 1 - t / 0.25f) : t < 1 ? 1.0f : std::max(0.0f, 1 - (t - 1) / 0.25f);
                 }
                 // The display's parts the options switch off; a replay's display as they say.
                 const menu::GameSettings::Display& d = settings_.display;
@@ -4293,9 +4329,8 @@ private:
         if (is_license(sequence_) && license_movie_) {
             // The live picture behind the page: a run that ended with a time keeps the race's own view until the staff's
             // cameras take over (✔ the original's pass, 18-round4-gt, and slow finish, 05-gtmode `license_b1_test_run_fail.mp4`:
-            // the chase view on); a run failed by the rules turns to a camera beside the course (27-license-fails ❓ its rule
-            // not read: the replay's cameras here).
-            if (race_->license_failed() || prologue_license_) race_->tv_view();
+            // the chase view on); a run failed by the rules has the camera circling the car (license_fail_view).
+            if (prologue_license_) race_->tv_view();
             // ResultLicense (0x3E1BF8: result_license.strb): the grade, the time and its gap, the
             // test's title, RETRY / EXIT.
             auto lhost = [this, &app](const std::string& name, const std::vector<race::StrobePlayer::Value>& args) {
@@ -4666,7 +4701,16 @@ private:
         if (prologue_license_) rect = c;
         const render::Mat4 proj = render::perspective(race::LicenseTrophy::kFovDegrees * 3.14159265f / 180, race::LicenseTrophy::kAspect, race::LicenseTrophy::kNear,
                                                       race::LicenseTrophy::kFar);
-        race_->draw_model(ui, rect, *trophy_, trophy_motion_.matrix(), proj, std::clamp(trophy_motion_.fade.value, 0.0f, 1.0f) * panel.opacity, true); // (its reflection picture its own)
+        // Its own light (0x3E1780, light set 0x66 alone: ambient 0.3, diffuse and specular 0.5, from above in the trophy's view).
+        static const render::ItemLights kTrophyLight = [] {
+            render::ItemLights l;
+            l.count = 1;
+            for (int c = 0; c < 3; ++c) l.ambient[c] = 0.3f, l.diffuse[0][c] = 0.5f, l.specular[0][c] = 0.5f;
+            l.dir[0][1] = 1;
+            return l;
+        }();
+        race_->draw_model(ui, rect, *trophy_, trophy_motion_.matrix(), proj, std::clamp(trophy_motion_.fade.value, 0.0f, 1.0f) * panel.opacity, true, // (its reflection picture its own)
+                          prologue_license_ ? nullptr : &kTrophyLight);
         // Stepped by the time shown, 1/60 s a picture of the original's (two half steps a picture).
         const Uint64 now = App::frame_time_ns();
         float dt = std::min(float(double(now - trophy_ticks_) / 1e9), 0.1f);
