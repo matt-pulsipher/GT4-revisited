@@ -1016,13 +1016,15 @@ Our race on Japan's disc takes these of Japan's rules where its program differs 
   draws' switches (0x469468, Japan's 0x461980); the single race's preparation (its virtual 27, 0x341F60) sets them after every
   car is set up. So in a single race the computer drivers differ both by their grid index (0x467148) and by draws; the free
   run's preparation does not set them. `Field::setup`.
+- ✔ **The drivers' decision** (0x45D668, v1.01 0x465078): the look ahead takes no third of the stop count; the stop driver
+  (kind 6) steers without the lock's bound. **Lane changes** (0x462000, v1.01 0x469AE8): a car following (status 3 or 4) on a
+  passing line may change lanes too (v1.01: not). `Field::decide`, `Field::traffic`.
 - ✔ **The player's car after the test** (0x3F14A8, v1.01 0x3F8818): after a stop in the box, passed or failed, it coasts
   down (v1.01: it brakes to a stop when passed). `race::license_end_mode`.
+- ✔ **The stop driver's count** (0x45D238, v1.01 0x464C38): 120 steps from kind 5 after kind 4 too (v1.01: not). `Field::set_kind`.
 - Read, not ported yet 🔎: the line crossing of the license conductor (0x3EF268, v1.01 0x3F6588) and 0x3EF090 keep 4 lap
   splits (v1.01 16); the lap step (0x352D88, v1.01 0x358608) does not call the conductor's virtual 18 at a goal of a race
-  not run alone, and does not write F +0x5C1; the drivers' decision (0x45D668, v1.01 0x465078; reads D +0x1C where v1.01
-  reads D +0x52, drops a third of a count in a term, a check of the line offset D +0x54, field offsets 4 lower from the
-  parameter block's +0x78), the braking (0x45C558), driver kind (0x45D238), 0x462000, the skill (0x3EA6A8, 0x3EA8F0),
+  not run alone, and does not write F +0x5C1; the skill (0x3EA6A8, 0x3EA8F0),
   the engine condition (0x34AFD0), odometer (0x358330), converter (0x35BEC8), the attitude's layout-7 lift (0x365610), the
   start (0x35E050's other calls), the pits (0x355708, 0x34D930, 0x3555C8, 0x356700), the recorder (0x354458), the
   points (0x3BA528) and the rolling start (0x33FAA8: it no longer lets the car go at once, 0x345218, and changes line
@@ -1033,15 +1035,15 @@ Our race on Japan's disc takes these of Japan's rules where its program differs 
 
 With these, our race ends on the program's time in all 73 timed files the program ends, and on the recorded time in **73 of 76**
 (the three cone tests too; the misses are the program's own three). Its cars' places equal the program's in every bit to the end in
-64. The other 12 are tests behind a pace car, whose pace car parts from the program's 20 .. 70 steps before the end, at its own
-line crossing, where the program makes it a driver of kind 5 and ours does not 🔎.
+75; in IB-15 the pace car parts from the program's 57 steps before the end, after its own run is over 🔎.
 
 **The Replay Theater's demo races** (`replay/Rdemo0` .. `Rdemo12`, 11 with a recorded time): Japan's files keep 0 or 4 in the
 race information's laps word, and the recorded time is the sum of the laps crossed while the recording's records last (the
 harness and `RecordedRace::exact` score that too). Japan's program in the interpreter ends **7 of 11** on their times (Rdemo2, 5,
-6 and 12 miss ❓). Our race of each file alone equals the program's in every bit to the end in 6 of 13 (Rdemo2, 4, 7, 8, 9, 11), and
-ends **4 of 11** on the recorded time (7, 8, 9, 11). The others part from the program's in the drivers' decision (0x45D668: a line
-change the program's driver makes, Rdemo0 at step 1770) 🔎.
+6 and 12 miss ❓). Our race of each file alone equals the program's in every bit to the end in 11 of 13, and ends **7 of 11** on the
+recorded time, the program's 7 (Rdemo0, 3, 7, 8, 9, 10, 11). Rdemo5 and Rdemo12 (B-spec races) part from the program's at their
+32nd and 36th steps: the computer drivers' speeds in the arcs (D +0x24) and the B-spec driver's ❓; the drivers' check
+(`gt4r_diff <jp> ai`) finds every driver routine equal at Tsukuba (6 cars, 3 laps) and Laguna.
 
 ## 6. The ground
 
