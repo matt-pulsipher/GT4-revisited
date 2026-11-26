@@ -869,6 +869,8 @@ void Session::collide() {
     for (size_t i = 0; i < cars_.size(); ++i) { // 0x3F4C18
         collide::Body& b = bodies_[i];
         ex::Car& c = cars_[i];
+        // The hit's record for the in-car view (cond + 0xCAB8 + 0x30 i + 0x1C ..), from the record's velocity before this.
+        if (gt4_rules_) rules::view_jolt(c, {b.cvx, b.cvy, b.cvz}, gx_[i].feel.view, rules::jolt_limits(tables_.feel, course_kind_));
         if (!posed(i)) { // (a posed car's record keeps the pose: its owner's machine answers its hits)
             c.pos = {b.cx, b.cy, b.cz};
             c.vel = {b.cvx, b.cvy, b.cvz};
@@ -1159,6 +1161,10 @@ void Session::publish(size_t i) {
     s.reverse_lamps = c.gear == 0;
     s.contact = x.contact, s.contact_kind = x.contact_kind, s.contact_car = x.contact_car;
     s.wall_hit = x.wall_hit, s.car_hit = x.car_hit;
+    {
+        const rules::ViewState& v = gx_[i].feel.view;
+        s.jolt = v.jolt != 0, s.jolt_forward = v.jolt_forward.host(), s.jolt_side = v.jolt_side.host();
+    }
     s.rolling = (gt4_rules_ || prologue_) && c.driver_kind == 1;
     // A wheel back on the ground: loaded at this step's end after a step without load.
     s.landed = false;

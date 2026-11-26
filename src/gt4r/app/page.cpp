@@ -12,6 +12,19 @@ namespace gt4r {
 using gt3r::UiRect;
 using Pointer = gt3r::PointerInput::Action;
 
+void page_header(App& app, gt3r::Ui& ui, std::string_view title, std::string_view hint, std::string_view back) {
+    const UiRect& S = ui.safe();
+    ui.fill(0, 0, ui.width(), 20, gt3r::colors::kPanel);
+    const UiRect b{S.x + 4, 2, std::max(app.touch_ui() ? 72.0f : 64.0f, ui.tab_width(back)), 16};
+    float mx = 0, my = 0;
+    ui.button(b, back, app.mouse_at(mx, my) && b.contains(mx, my), false);
+    app.set_back_button(b);
+    const float tx = b.right() + 10;
+    ui.text(tx, 6, title, gt3r::colors::kAccent);
+    const float room = S.right() - 8 - (tx + gt3r::Ui::text_width(title) + 16);
+    if (room > 16) ui.text_right(S.right() - 8, 6, gt3r::Ui::elide(hint, room), gt3r::colors::kDim);
+}
+
 int ListScroll::keep(int selected, int count, int shown) {
     if (selected < first) first = selected;
     if (selected >= first + shown) first = selected - shown + 1;

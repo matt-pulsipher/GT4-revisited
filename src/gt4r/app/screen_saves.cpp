@@ -73,7 +73,8 @@ public:
     }
 
     void render(App& app, Ui& ui) override {
-        ui.header("SAVED GAMES", prologue_ ? "Gran Turismo 4 Prologue" : "Gran Turismo 4");
+        // (Opened from the game's pages, the title's Save Game: Triangle on the list goes back to them.)
+        page_header(app, ui, "SAVED GAMES", prologue_ ? "Gran Turismo 4 Prologue" : "Gran Turismo 4", chosen_ < 0 && hooks_.load ? "< Back to game" : "< Back");
         build(app);
         if (chosen_ >= 0 && chosen_ < int(games_.size())) {
             const save::SavedGame& g = games_[size_t(chosen_)];

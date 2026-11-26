@@ -1,6 +1,6 @@
 # The save editor
 
-*Save editor* on the home screen (Select and Start together leave the game for it; `--screen saveeditor`) changes a saved game.
+*Save editor* on the home screen (Select on the title, or the GT4R menu button beside it, leaves the game for it; `--screen saveeditor`) changes a saved game.
 Code: `src/gt4r/app/screen_save_editor.cpp` (the pages), `app/editor_popups.h` (their lists, number pad, letters and questions),
 `src/gt4r/menu/save_editor.*`, `save_editor_cars.cpp`, `save_editor_prologue.*` (the changes), `src/gt4r/save/save_edit.*` (the
 files); tests `tests/test_save_edit.cpp`, `tests/test_save_edit_disc.cpp`; the disc's own program on a save `gt4r_diff <disc>
