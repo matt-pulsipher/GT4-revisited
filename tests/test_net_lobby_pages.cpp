@@ -11,6 +11,7 @@
 #include "gt4r/sim/pit_tires.h"
 #include "gt4r/sim/program.h"
 #include "gt4r/sim/car_spec.h"
+#include "net_ports.h"
 
 #include <chrono>
 #include <filesystem>
@@ -85,7 +86,7 @@ bool to_matching(Player& p, bool host, u16 port, int players, bool saved = false
     g.options["LAN_host"] = s32(host), g.options["LAN_style"] = std::string("play"), g.options["LAN_machine_name"] = std::string(host ? "One" : "Two");
     g.options["LAN_player_num"] = s32(players), g.options["LAN_monitor_num"] = s32(0);
     gt3r::net::Session::set_advertise_lan(false);
-    if (host ? !p.session.host(0, "One", "", 0, &error) : !p.session.join("127.0.0.1:" + std::to_string(port), "Two", "", 0, &error)) return false;
+    if (host ? !test::on_free_port([&](u16 at) { return p.session.host(at, "One", "", 0, &error); }) : !p.session.join("127.0.0.1:" + std::to_string(port), "Two", "", 0, &error)) return false;
     p.lobby.begin(host ? "One" : "Two");
     return true;
 }

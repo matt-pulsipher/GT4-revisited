@@ -8,6 +8,7 @@
 #include "net/relay_server.h"
 #include "net/session.h"
 #include "net/socket.h"
+#include "net_ports.h"
 
 #include <atomic>
 #include <chrono>
@@ -101,14 +102,14 @@ struct Party {
         for (Player& q : p) q.net.set_disc({"gt4", "a test"}), q.net.set_loss(loss);
         p[1].net.set_clock_skew(skew_ms);
         if (relayed) {
-            if (!relay.open(0)) return false;
+            if (!test::on_free_port([&](u16 port) { return relay.open(port); })) return false;
             const std::string server = "127.0.0.1:" + std::to_string(relay.port());
             p[1].net.set_block_direct(true), p[1].net.set_punch_give_up_ms(500);
             if (!p[0].net.host_via(server, "One", "a", 0)) return false;
             if (!wait([&] { return !p[0].net.code().empty(); })) return false;
             p[1].net.join_code(server, p[0].net.code(), "Two", "b", 0);
         } else {
-            if (!p[0].net.host(0, "One", "a", 0)) return false;
+            if (!test::on_free_port([&](u16 port) { return p[0].net.host(port, "One", "a", 0); })) return false;
             p[1].net.join("127.0.0.1:" + std::to_string(p[0].net.port()), "Two", "b", 0);
         }
         if (!wait([&] { return p[0].net.players().size() == 2 && p[1].net.players().size() == 2; })) return false;

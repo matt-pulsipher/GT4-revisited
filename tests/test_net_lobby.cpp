@@ -14,6 +14,7 @@
 #include "gt4r/sim/race_tires.h"
 
 #include "net/relay_server.h"
+#include "net_ports.h"
 
 #include <chrono>
 #include <cstring>
@@ -50,7 +51,7 @@ struct Pair {
     Pair() {
         Session::set_advertise_lan(false);
         std::string error;
-        ok = a.session.host(0, "One", "", 0, &error);
+        ok = test::on_free_port([&](u16 port) { return a.session.host(port, "One", "", 0, &error); });
         a.lobby.begin("One");
         ok = ok && b.session.join("127.0.0.1:" + std::to_string(a.session.port()), "Two", "", 0, &error);
         b.lobby.begin("Two");
@@ -179,7 +180,7 @@ TEST(net_lobby_comers) {
     Session::set_advertise_lan(false);
     Machine host;
     std::string error;
-    CHECK(host.session.host(0, "Ann", "", 0, &error));
+    CHECK(test::on_free_port([&](u16 port) { return host.session.host(port, "Ann", "", 0, &error); }));
     host.lobby.begin("Ann");
     std::vector<std::unique_ptr<Machine>> guests;
     std::vector<Machine*> all{&host};
@@ -226,7 +227,7 @@ TEST(net_lobby_identity) {
         theirs.session.set_disc({"gt3", "a Gran Turismo 3 release"});
         Machine &h = we_host ? ours : theirs, &g = we_host ? theirs : ours;
         std::string error;
-        CHECK(h.session.host(0, "Host", "", 0, &error));
+        CHECK(test::on_free_port([&](u16 port) { return h.session.host(port, "Host", "", 0, &error); }));
         h.lobby.begin("Host");
         CHECK(g.session.join("127.0.0.1:" + std::to_string(h.session.port()), "Guest", "", 0, &error));
         g.lobby.begin("Guest");
@@ -249,7 +250,7 @@ TEST(net_lobby_relay) {
         Session::set_advertise_lan(false);
         gt3r::net::RelayServer server;
         std::string error;
-        CHECK(server.open(0, &error));
+        CHECK(test::on_free_port([&](u16 port) { return server.open(port, &error); }));
         const std::string at = "127.0.0.1:" + std::to_string(server.port());
         Machine h, g;
         if (!direct) h.session.set_block_direct(true), g.session.set_block_direct(true), h.session.set_punch_give_up_ms(300), g.session.set_punch_give_up_ms(300);
@@ -297,7 +298,7 @@ TEST(net_lobby_update_required) {
     Session::set_advertise_lan(false);
     gt3r::net::RelayServer server;
     std::string error;
-    CHECK(server.open(0, &error));
+    CHECK(test::on_free_port([&](u16 port) { return server.open(port, &error); }));
     server.set_versions({*gt3r::net::parse_game_version("99.0.0"), *gt3r::net::parse_game_version("99.0.0"), "https://example.invalid/releases"});
     Machine h;
     CHECK(h.session.host_via("127.0.0.1:" + std::to_string(server.port()), "One", "", 0, &error));
