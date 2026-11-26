@@ -11,6 +11,7 @@
 #include "net/session.h"
 #include "net/socket.h"
 #include "net/update_check.h"
+#include "net_ports.h"
 
 #include <chrono>
 #include <thread>
@@ -34,7 +35,7 @@ gt3r::Bytes answer(const char* latest, const char* min_online, const std::string
 template <class Reply>
 std::optional<net::VersionCheck::Result> check_against(Reply reply, int timeout_ms = 3000, gt3r::Bytes* query = nullptr) {
     rv::UdpSocket srv;
-    if (!srv.open(0)) return std::nullopt;
+    if (!test::on_free_port([&](u16 port) { return srv.open(port); })) return std::nullopt;
     net::VersionCheck check;
     check.start("127.0.0.1:" + std::to_string(srv.local_port()), net::this_version(), rv::RvPlatform::MacOS, timeout_ms);
     const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(10);
@@ -113,7 +114,7 @@ TEST(updates_check_against_the_engines_relay) {
     // The engine's own relay server (as the shared engine has it now): whatever it answers, this game's check takes no other
     // game's versions; when it keeps versions per game, it answers ours.
     rv::RelayServer srv;
-    if (!srv.open(0)) SKIP("no UDP sockets here");
+    if (!test::on_free_port([&](u16 port) { return srv.open(port); })) SKIP("no UDP sockets here");
     rv::RelayServer::Versions v;
     v.latest = v.min_online = ver("9.9.0");
     v.release_url = "https://example.org/main";
@@ -215,7 +216,7 @@ TEST(updates_relay_holds_us_to_our_versions) {
     v.latest = v.min_online = ver("99.0.0");
     v.release_url = "https://example.org/main";
     if (!list_game(v, net::this_version().number().c_str(), net::this_version().number().c_str(), 0)) SKIP("the shared engine has no game tags yet");
-    if (!server.open(0)) SKIP("no UDP sockets here");
+    if (!test::on_free_port([&](u16 port) { return server.open(port); })) SKIP("no UDP sockets here");
     server.set_versions(v);
     const std::string at = "127.0.0.1:" + std::to_string(server.port());
     const auto run = [&](rv::Session& s) {
