@@ -217,13 +217,31 @@ machine. The service through the host at twice the delay, a loss costing it the 
 other machine's car against the owner's, without the service and with it; *in the stop* from the box to the hold's end, then
 30 s after it (no contact in these runs: *apart* is *all*).
 
-TABLE_PLACEHOLDER
+| One way | Lost | Tires | In the stop: without, with | 30 s after: without, with |
+|---|---|---|---|---|
+| 0 ms | 0 % | 4 to 5 | 0.21 / 0.7, 0.00 / 0.0 | 0.03 / 0.1, 0.04 / 0.1 |
+| 0 ms | 20 % | 4 to 5 | 1.01 / 22.2, 0.00 / 0.0 | 0.06 / 0.5, 0.06 / 0.5 |
+| 50 ms | 0 % | 4 to 5 | 2.61 / 33.3, 1.55 / 33.3 | 0.22 / 1.9, 0.22 / 2.0 |
+| 50 ms | 20 % | 4 to 5 | 3.95 / 55.5, 1.55 / 33.3 | 0.25 / 1.9, 0.26 / 2.0 |
+| 100 ms | 0 % | 4 to 5 | 7.71 / 66.6, 3.94 / 66.6 | 0.69 / 8.5, 0.70 / 8.8 |
+| 100 ms | 20 % | 4 to 5 | 9.25 / 88.8, 3.94 / 66.6 | 0.72 / 6.4, 0.72 / 6.7 |
+| 250 ms | 0 % | 4 to 5 | 32.97 / 166.5, 14.55 / 166.5 | 4.52 / 46.4, 4.62 / 48.2 |
+| 250 ms | 20 % | 4 to 5 | 34.63 / 188.7, 14.55 / 166.5 | 4.46 / 45.5, 4.54 / 45.5 |
+| 0 ms | 0 % | 4 to 3 | 0.21 / 0.7, 0.00 / 0.0 | 0.03 / 0.1, 0.03 / 0.1 |
+| 0 ms | 20 % | 4 to 3 | 1.01 / 22.2, 0.00 / 0.0 | 0.07 / 1.9, 0.07 / 1.8 |
+| 50 ms | 0 % | 4 to 3 | 2.61 / 33.3, 1.55 / 33.3 | 0.21 / 1.9, 0.19 / 1.8 |
+| 50 ms | 20 % | 4 to 3 | 3.95 / 55.5, 1.55 / 33.3 | 0.31 / 6.2, 0.29 / 5.8 |
+| 100 ms | 0 % | 4 to 3 | 7.71 / 66.6, 3.94 / 66.6 | 0.64 / 6.2, 0.59 / 5.8 |
+| 100 ms | 20 % | 4 to 3 | 9.25 / 88.8, 3.94 / 66.6 | 0.91 / 16.1, 0.85 / 15.1 |
+| 250 ms | 0 % | 4 to 3 | 32.97 / 166.5, 14.55 / 166.5 | 4.74 / 45.5, 4.46 / 42.8 |
+| 250 ms | 20 % | 4 to 3 | 34.63 / 188.7, 14.55 / 166.5 | 5.09 / 50.9, 4.82 / 48.4 |
 
 With the service the car stands in its box as its owner's (held, on its jacks, turned to the box), and its car as the owner
 last sent it is on the owner's tires, tread and fuel bit for bit at the stop's end (without it: the old kind, the worn tread,
 the fuel before the stop). After the stop the position error is the prediction's own run on the frame held: a softer tire
-answers a held steering more, so with the service the error is a little larger after a change to softer tires and a little
-smaller after one to harder ones (within 5 %, either way). Two app copies on this machine (`pit=1` with B-spec driving, tire
+answers a held steering more, so with the service the error is a little larger after a change to softer tires (up to 3 %)
+and smaller after one to harder ones (up to 9 %). The worst in the stop stays: it is the car braking into its box between
+two states. Two app copies on this machine (`pit=1` with B-spec driving, tire
 wear on, two laps of Tsukuba), directly and through a relay server here: ten events a stop (the default choice: no tires
 chosen), each with the state of its clock or before it but one (run again from a kept state, directly); the other's car
 stood held with the same counter (721, 661, 121, 61, 1), at the same height on its jacks (0.14 m above where it stopped),
