@@ -1193,6 +1193,9 @@ public:
         if (is_license(setup_.sequence) || setup_.sequence == "mission") judge_license();
         if (is_license(setup_.sequence)) judge_goal();
         end_test();
+        // A test failed by its rules: the camera circling the car from the fail on (CameraSys::CameraFinishType1, 0x37CCA8: half a
+        // degree a step).
+        if (license_fail_view()) fail_orbit_deg_ = std::fmod(fail_orbit_deg_ + 0.5f, 360.0f);
         if (!flow_.player_finished()) graded_place_ = flow_.place(0);
         step_wrong_way(auto_drive);
         if (demo_run_ && flow_.player_finished() && !demo_logged_) {
@@ -1917,7 +1920,7 @@ public:
                          judge_.fail() == race::LicenseFail::OffCourse ? "off the course" : judge_.fail() == race::LicenseFail::Hit ? "hit" : "judge",
                          double(flow_.time_ms()) / 1000);
                 flow_.finish_now(0);
-                license_failed_ = true;
+                license_failed_ = true, fail_orbit_deg_ = fail_orbit_prev_ = 0;
                 return;
             }
             if (judge_.cones_done()) flow_.finish_now(0, 1); // (the clock + 50)
@@ -1936,14 +1939,14 @@ public:
             LOG_INFO("Drive: the test failed (kind %d: wall %.2f, car %.2f, cones %d, wheels off %d, pit %d) at %.3f s", int(judge_.fail()), double(s.wall_hit),
                      double(s.car_hit), s.cones, s.wheels_off, s.wheels_pit, double(flow_.time_ms()) / 1000);
             flow_.finish_now(0);
-            license_failed_ = true;
+            license_failed_ = true, fail_orbit_deg_ = fail_orbit_prev_ = 0;
             return;
         }
         // Kind 6: the car may not lead (its place byte +0x5B3 at 1 fails, 0x3F8F00).
         if (r.kind == 6 && world_->car_count() > 1 && flow_.place(0) == 1) {
             LOG_INFO("Drive: the test failed (kind 6, leading) at %.3f s", double(flow_.time_ms()) / 1000);
             flow_.finish_now(0);
-            license_failed_ = true;
+            license_failed_ = true, fail_orbit_deg_ = fail_orbit_prev_ = 0;
             return;
         }
         if (judge_.cones_done()) flow_.finish_now(0, 1); // (at the step's end: the clock + 50)
@@ -2012,15 +2015,18 @@ public:
         prev_cars_.assign(now.begin(), now.end());
         camera_prev_ = camera_, start_prev_ = start_camera_;
         tv_prev_ = tv_pose_, tv_prev_valid_ = tv_valid_;
+        fail_orbit_prev_ = fail_orbit_deg_;
         view_cut_ = false;
     }
     // The camera at the last step but one (its cameras as they were then, on the cars as they were).
     race::ViewPose previous_pose(bool look_back) {
         std::swap(camera_, camera_prev_), std::swap(start_camera_, start_prev_), std::swap(tv_pose_, tv_prev_), std::swap(tv_valid_, tv_prev_valid_);
+        std::swap(fail_orbit_deg_, fail_orbit_prev_);
         before_ = true;
         const race::ViewPose p = current_pose(prev_cars_, look_back);
         before_ = false;
         std::swap(camera_, camera_prev_), std::swap(start_camera_, start_prev_), std::swap(tv_pose_, tv_prev_), std::swap(tv_valid_, tv_prev_valid_);
+        std::swap(fail_orbit_deg_, fail_orbit_prev_);
         return p;
     }
 
@@ -2088,6 +2094,20 @@ public:
         if (dissolve_left_ == 0) dissolve_total_ = 0;
     }
 
+    // A Gran Turismo 4 test failed by its rules: CameraFinishType1 (0x37CC58 starts it at 0 degrees, 0x37CCA8 steps it): 4 m from
+    // the car's drawn point, 30 degrees above it, turning about it half a degree a step from the course's +z, a lens of 65 degrees.
+    bool license_fail_view() const { return !gt3_road_ && is_license(setup_.sequence) && license_failed_ && flow_.player_finished() && !replaying_ && !menu_scene_; }
+    race::ViewPose fail_orbit_pose(const race::CarState& me) const {
+        race::ViewPose p;
+        const RVec c{me.position.x, me.position.y, me.position.z};
+        constexpr float kDeg = 3.14159265f / 180;
+        p.view = render::translate({0, 0, -4}) * render::rotate_x(30 * kDeg) * render::rotate_y(fail_orbit_deg_ * kDeg) * render::translate(c * -1.0f);
+        p.eye = c + render::rotate_y(-fail_orbit_deg_ * kDeg).transform_point(render::rotate_x(-30 * kDeg).transform_point({0, 0, 4}));
+        p.fov = 65 * kDeg;
+        return p;
+    }
+    float fail_orbit_deg_ = 0, fail_orbit_prev_ = 0;
+
     // Prologue's license test ended: the camera circles the car (race/start_camera_prologue.h).
     bool finish_view() const { return gt3_road_ && finish_camera_.distance > 0 && is_license(setup_.sequence) && flow_.player_finished() && !replaying_ && !menu_scene_; }
 
@@ -2105,8 +2125,10 @@ public:
         if (posed && pose.depth_of_field) pose.focus = std::max(std::clamp(world_->nearest_depth(f, me, pose.view) + 0.7f, 0.001f, 100000.0f), race::least_focus(pose.fov * 57.29578f));
         // (Cross leaves a replay's start shots for the car's own cameras: 0x374630.)
         posed = posed || (start_camera_.active() && !(viewing() && view_.ride_on()) && start_camera_.pose(pose, &body));
-        // A license test's staff at the stopping place: their own cameras (RaceLicense virtual 139, 0x4096F8).
+        // A license test's staff at the stopping place: their own cameras (RaceLicense virtual 139, 0x4096F8); a test failed by
+        // its rules: the camera circling the car.
         if (!posed && !replaying_ && !menu_scene_) posed = world_->license_camera(pose, before_);
+        if (!posed && license_fail_view()) pose = fail_orbit_pose(me), posed = true;
         // The replay cameras' shot for the car; the chase view where the script has none.
         if (!posed && finish_view()) posed = finish_camera_.pose(RVec{me.position.x, me.position.y, me.position.z}, pose);
         if (!posed && view == kTvView && tv_valid_) pose = tv_pose_, posed = true;
@@ -4227,9 +4249,8 @@ private:
         if (is_license(sequence_) && license_movie_) {
             // The live picture behind the page: a run that ended with a time keeps the race's own view until the staff's
             // cameras take over (✔ the original's pass, 18-round4-gt, and slow finish, 05-gtmode `license_b1_test_run_fail.mp4`:
-            // the chase view on); a run failed by the rules turns to a camera beside the course (27-license-fails ❓ its rule
-            // not read: the replay's cameras here).
-            if (race_->license_failed() || prologue_license_) race_->tv_view();
+            // the chase view on); a run failed by the rules has the camera circling the car (license_fail_view).
+            if (prologue_license_) race_->tv_view();
             // ResultLicense (0x3E1BF8: result_license.strb): the grade, the time and its gap, the
             // test's title, RETRY / EXIT.
             auto lhost = [this, &app](const std::string& name, const std::vector<race::StrobePlayer::Value>& args) {
