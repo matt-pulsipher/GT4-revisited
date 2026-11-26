@@ -3,10 +3,16 @@
 //   gt4tool state-hash <disc> <course> [cars] [seconds=60] [every=10]
 //       a field of computer drivers run headless on <course> (as `gt4tool ai`): every <every> simulated seconds and at the
 //       end, a hash of every car's state (position, axes, velocity, speed, engine speed, gear, course distance, lap, each
-//       wheel's center, spin and travel, bit for bit). Two builds that print the same lines ran the race identically;
+//       wheel's center, spin and travel, bit for bit), then each car's record (the step's own floats: place, axes,
+//       velocity, attitude, engine speed). Two builds that print the same lines ran the race identically;
 //       the first line that differs says when they parted. [cars]: labels joined by commas (default: six small cars).
+//   gt4tool car-digests <disc> [all]
+//       every car of the disc as an online race checks it (net::CarBuilder::digest: its parameter block as the converter
+//       makes it): a hash of all the digests and, with [all], each car's. Machines that race each other online must
+//       print the same.
 
 #include "gt4r/disc/disc.h"
+#include "gt4r/net/car_choice.h"
 #include "gt4r/race/simulation.h"
 #include "gt4r/sim/ai/run.h"
 #include "gt4r/sim/car_spec.h"
@@ -33,6 +39,15 @@ struct Fnv {
     void f(float v) { word(std::bit_cast<u32>(v)); }
     void v3(const course::Vec3& v) { f(v.x), f(v.y), f(v.z); }
 };
+
+// The car's own record (the step's single floats as the program keeps them): place, axes, velocity, attitude, engine.
+u64 record_hash(const gt3r::sim::exact::Car& r) {
+    Fnv h;
+    for (const gt3r::sim::exact::Vec3* v : {&r.pos, &r.fwd, &r.lat, &r.up, &r.vel})
+        h.word(v->x.bits), h.word(v->y.bits), h.word(v->z.bits);
+    for (const gt3r::ee::F f : {r.pitch, r.roll, r.heading, r.yaw_rate, r.omega, r.speed, r.lat_speed}) h.word(f.bits);
+    return h.h;
+}
 
 u64 state_hash(const race::CarState& c) {
     Fnv h;
@@ -91,6 +106,8 @@ int cmd_state_hash(Disc& disc, const std::vector<std::string>& a) {
         next += period;
         std::printf("%8.2f s  %016llx", s.time(), static_cast<unsigned long long>(all.h));
         for (const race::CarState& c : s.cars()) std::printf("  %08x", u32(state_hash(c)));
+        std::printf("  record");
+        for (size_t i = 0; i < s.cars().size(); ++i) std::printf("  %08x", u32(record_hash(s.record(i))));
         std::printf("\n");
     };
     const sim::ai::FieldRun run = sim::ai::run_field(disc, a[0], entries, 99, {}, seconds, on_step);
@@ -100,6 +117,35 @@ int cmd_state_hash(Disc& disc, const std::vector<std::string>& a) {
         for (double l : r.laps) std::printf(" %.4f", l);
         std::printf("\n");
     }
+    return 0;
+}
+
+int cmd_car_digests(Disc& disc, const std::vector<std::string>& a) {
+    const bool all = a.size() > 0 && a[0] == "all";
+    db::SpecDb sdb = sim::ai::open_specdb(disc);
+    const sim::Program program = sim::Program::load(disc);
+    if (!program.known()) { // (online races are Gran Turismo 4's: CarBuilder needs its program)
+        std::fprintf(stderr, "not a Gran Turismo 4 program this builds cars from\n");
+        return 1;
+    }
+    gt3r::Volume* vol = &disc.volume();
+    const sim::FileReader read = [vol](const std::string& path) -> std::optional<Bytes> {
+        const gt3r::Volume::Entry* e = vol->find(path);
+        return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
+    };
+    net::CarBuilder builder(sdb, program, read);
+    Fnv h;
+    int cars = 0;
+    for (const db::CarEntry& e : sdb.cars()) {
+        net::CarChoice c;
+        c.label = e.label, c.paint = 1;
+        const u64 d = builder.digest(c);
+        if (!d) continue;
+        ++cars;
+        for (int i = 0; i < 8; ++i) h.byte(u8(d >> (8 * i)));
+        if (all) std::printf("%-32s %016llx\n", e.label.c_str(), static_cast<unsigned long long>(d));
+    }
+    std::printf("%d cars, digests %016llx\n", cars, static_cast<unsigned long long>(h.h));
     return 0;
 }
 

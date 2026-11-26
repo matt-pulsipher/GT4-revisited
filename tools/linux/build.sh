@@ -4,10 +4,12 @@
 #
 #   tools/linux/build.sh [--arch x86_64|arm64] [--compiler gcc|clang] [--base ubuntu:24.04]
 #                        [--type RelWithDebInfo] [--jobs 4] [--build-dir DIR] [--native]
-#                        [--target T]... [--keep-going] [--test [FILTER]] [-- extra cmake arguments]
+#                        [--target T]... [--keep-going] [--test [FILTER]] [--exec COMMAND]
+#                        [-- extra cmake arguments]
 #
-# The tests read the discs named in GT4R_DISC (";"-separated paths); in Docker each one is mounted
-# read-only. The tests run headless (SDL's dummy video and audio drivers).
+# The tests (and --exec, a shell command run in the build folder after the build) read the discs named in
+# GT4R_DISC (";"-separated paths); in Docker each one is mounted read-only and GT4R_DISC names the mounted
+# copies. Both run headless (SDL's dummy video and audio drivers).
 set -euo pipefail
 
 src=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -21,6 +23,7 @@ native=0
 keep_going=0
 run_tests=0
 test_filter=""
+exec_cmd=""
 targets=()
 cmake_extra=()
 
@@ -39,8 +42,9 @@ while [[ $# -gt 0 ]]; do
     --test)
       run_tests=1; shift
       if [[ $# -gt 0 && $1 != --* ]]; then test_filter=$1; shift; fi ;;
+    --exec) exec_cmd=$2; shift 2 ;;
     --) shift; cmake_extra=("$@"); break ;;
-    -h|--help) sed -n '2,10p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
     *) die "unknown option $1 (see --help)" ;;
   esac
 done
@@ -67,8 +71,9 @@ if [[ $native == 1 ]]; then
   else
     cmake --build "$build_dir" -j "$jobs" ${keep[@]+"${keep[@]}"}
   fi
+  export SDL_VIDEO_DRIVER=${SDL_VIDEO_DRIVER:-dummy} SDL_AUDIODRIVER=${SDL_AUDIODRIVER:-dummy}
+  status=0
   if [[ $run_tests == 1 ]]; then
-    export SDL_VIDEO_DRIVER=${SDL_VIDEO_DRIVER:-dummy} SDL_AUDIODRIVER=${SDL_AUDIODRIVER:-dummy}
     log=$build_dir/tests.log
     echo "build.sh: running the tests (log: $log)"
     set +e
@@ -76,9 +81,11 @@ if [[ $native == 1 ]]; then
     status=$?
     set -e
     grep -E '^ *FAIL|^[0-9]+ run, ' "$log" || true
-    exit $status
   fi
-  exit 0
+  if [[ -n $exec_cmd ]]; then
+    (cd "$build_dir" && bash -c "$exec_cmd") || status=$?
+  fi
+  exit $status
 fi
 
 # Docker: an image per base and architecture, built from tools/linux/Dockerfile.
@@ -105,8 +112,9 @@ args=(--native)
 args+=(--compiler "$compiler" --type "$type" --jobs "$jobs" --build-dir "/src/$build_dir")
 for t in ${targets[@]+"${targets[@]}"}; do args+=(--target "$t"); done
 env=()
-if [[ $run_tests == 1 ]]; then
-  args+=(--test ${test_filter:+"$test_filter"})
+[[ $run_tests == 1 ]] && args+=(--test ${test_filter:+"$test_filter"})
+[[ -n $exec_cmd ]] && args+=(--exec "$exec_cmd")
+if [[ $run_tests == 1 || -n $exec_cmd ]]; then
   discs=""
   if [[ -n ${GT4R_DISC:-} ]]; then
     IFS=';' read -r -a paths <<< "$GT4R_DISC"
