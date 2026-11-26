@@ -9,7 +9,8 @@
 #   both:          <out>/SHA256SUMS
 #
 # Each archive holds one folder, gt4r-v<version>-<platform>, with the app, gt4tool, README.md,
-# LICENSE, THIRD-PARTY-NOTICES.md and the font licenses. No game data, no tests. SDL is built
+# docs/PLAYING.md and docs/SAVE_EDITOR.md, LICENSE, THIRD-PARTY-NOTICES.md and the font licenses.
+# No game data, no tests. SDL is built
 # from source (GT3R_FETCH_SDL), so the package needs no SDL on the player's computer.
 # Defaults: --out dist/release, --build build-release (removed first unless --keep-build).
 set -euo pipefail
