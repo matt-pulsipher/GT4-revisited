@@ -132,6 +132,74 @@ console's card and its dialogs instead, as the original shows them: `GT4R_MENU c
   only by leaving it (EXIT keeps it, 0x119BD8); such a save would hold the series' page (EventCourseRoot) with no series and no
   menu stack, and load into nothing. Closed (retired or run to its end) the series is cleared.
 
+## Earlier games' saves (the Status page's transfer) ✔
+
+Code: `save/earlier_game.*` (what is read, where the saves are, the rules), `menu/earlier_saves.*` (the card manager's four
+natives), `app/screen_earlier_saves.cpp` (the player's choice); `tests/test_earlier_saves.cpp`; `gt4tool xfer`.
+
+**The game's own feature.** Gran Turismo mode's Status page has Start ("%Ba Transfer game data", its tooltip); the map's
+first-day tip at Home says "If you have GT3 game save data, follow the procedure outlined in the Game Status menu", and the
+boot's introduction (ExplainRoot, "GT savedate is available", region not "tw") explains it. Start runs the page's
+`inheritDataCheck` (gtmode `StatusRoot`, region not "tw"): "already withdrawn gt4p" when `game.withdrawnGT4p`, "already
+withdrawn gt3" when `game.withdrawn`; then for slots 1 and 2 (`MMemoryCardManager("MODE_OPERATION", i)`), until both flags
+are set (or the region is "kr" and the license one is): connected, the license check (`isExistGT4pData`; "OK" asks "exist
+gt4p data on slot n. inherit license?" with Cancel focused, then `inheritGT4pData`: "OK" says "inherit GT4p done", refreshes
+the page and sets `withdrawnGT4p`; "NO_OPERATION" says "not inherit GT4p"; another result the card's load messages; a probe's
+"DEVICE_ERROR" "access_error", any other "gt4p data not found in slot n"), then, region not "kr", the credits check the same
+way (`isExistGT3Data`, "exist gt3 data on slot n. inherit license?", `inheritGT3Data`, "inherit GT3 done" with the money
+shown again, `withdrawn` set; "not inherit GT3"; "gt3 data not found in slot n"); a slot not connected says
+"no_memorycard_slot_n". Each transfer is once per game (the flags are the player block's `withdrawn` +0x78 and `withdrawnGT4p` +0x7C, saved).
+
+The natives (registered at 0x17AC20: `isExistGT4pData` 0x17A300 -> 0x1D4610, `inheritGT4pData` 0x17A438 -> 0x1D4698,
+`isExistGT3Data` 0x17A570 -> 0x1D4940, `inheritGT3Data` 0x17A6A8 -> 0x1D49C8; each answers a result's name, 0x1CBF40). The
+folder by the program's region string (0x68BB20, "us" in this build):
+
+| | "uk" | "us" | "kr" | any other ("jp") |
+|---|---|---|---|---|
+| licenses (0x1D4500) | BESCES-52438 (Prologue PAL) | **BASCUS-97102 (Gran Turismo 3 US)** | BKSCKA-20022 (Prologue KR) | BISCPS-15055 (Prologue JP) |
+| credits (0x1D4598) | BESCES-50294 (GT3 PAL) | BASCUS-97102 (GT3 US) | (not asked) | BISCPS-15009 (GT3 JP) |
+
+(each + `GAMEDATA`). So the US program reads Gran Turismo 3's US save for both, and its texts say so ("The B and A Licenses
+can be transferred from GT3"); only the other regions' programs read a Prologue save. A probe (0x1D4448): not connected or
+not formatted `FILE_NOT_FOUND`; else the folder's size: -2 `FILE_NOT_FOUND`, another failure `DEVICE_ERROR`, else `OK`.
+A transfer reads the folder's file of the folder's name whole and as it is (0x1D42E0, rounded up to 64 bytes; no check of its
+header or CRC):
+
+- **Credits** (0x1D49C8): the u64 at file 0x50, inverted (Gran Turismo 3's payload follows its 0x40-byte header inverted:
+  the payload's credits at +0x10). 0: `NO_OPERATION`. Region "jp": / 100 (yen). At most 100,000 (unsigned compare), added
+  to the money (0x43AFB0: the garage's money plus it, 0x4359B0, no cap). `OK`.
+- **Licenses**, region "us" (0x1D4698): the license records start at 0x170 + cars x 0x204 + wheels x 0x44 (the cars at 0x70
+  and the wheels at 0x74, inverted: the payload's +0x30, +0x34), 0x154 apart; a test counts as passed when its record's first
+  byte, stored, has its top bit set (the medal word's low byte, inverted: 0 gold, 1 silver, 2 bronze; -1 none). Records 0 .. 7
+  all passed: B; 8 .. 15: A. Other regions: Prologue's license units at 0x34 + 0x2E0 k ("uk": 0x54 + 0x2E0 k), the byte (its
+  medal, signed) above 0: units 0 .. 5 all: B; 0 .. 24 all: B and A. Neither: `NO_OPERATION`. B (then A) is given as the
+  program's race record units `l0b0001` .. `l0b0016` (`l0a...`; looked up as 0x430D20 does, "us" in front): each one not
+  passed yet (0x430C50: a license unit's best below 13) takes the update (0x430A58) of kind 1 (license) and result 12
+  ("red"): a unit of no kind becomes that, best and last; a license unit keeps the better best. `OK`.
+
+**Here** (no card): the license and the credits checks of slot 1 (US: both Gran Turismo 3's) take the game the player
+chooses; slot 2 has none, and the "not found" messages are answered without being shown (no_card.cpp) — the choice says what
+there is. At the first probe of a Start the scripts wait while the app's page (`screen_earlier_saves.cpp`) offers:
+
+- **GT3 Revisited's saves** (read only): in its data folder (Windows `%APPDATA%\GT3Revisited\GT3Revisited\`, macOS
+  `~/Library/Application Support/GT3Revisited/GT3Revisited/`, Linux `$XDG_DATA_HOME` or `~/.local/share` then
+  `GT3Revisited/GT3Revisited/`; `GT4R_GT3R_DIR` names another), the save folder its Settings chose (its `config.ini`
+  `[saves] folder`), there the region's library (`saves/` for the US release, `saves/eu/`, `saves/jp/`), its game being
+  played (`current.txt`) first, then the newest; before it had a library, its single `gtmode.sav`. Each read with GT3
+  Revisited's own reader (`load_from_text`: its credits and its first 16 license tests' medals); named as GT3 Revisited names
+  it. On Android and iOS GT3 Revisited's folder is another app's: its saves are chosen as files (on Android the system's picker
+  shows GT3 Revisited's files).
+- **A card's**: the region's folder copied into `<data>/memorycard/`, and card images (`*.ps2`, `*.mcd`) there holding it.
+- **Choose a file**: a GT3 Revisited save, a PS2 memory card image (with or without its spare bytes), a `.psu`, or the data
+  file itself (by its 0x40 header, version 7.x; the minor is the release's, 0 Japan, 1 US, 2 Europe: another release's is
+  refused, as the program never looks in its folder).
+- **Back to the game**: nothing chosen; the scripts go on as with no save.
+
+The game's questions then name the save on their first line instead of a slot ("GT3 game save data: <name>", the English
+texts). Prologue's own games in our library (`BISCPS-15055`) are offered where the program reads Prologue's (region "jp");
+the US disc's program never does. Nothing is written to the chosen save. In a run with a console's card
+(`RuntimeConfig::console_card`) the slots' card folders are read as a card's, with the game's own messages.
+
 ## The game's other saves (photos and the slide show's list: [photo.md](photo.md); 🔎 the others are read, not written as a card's: the Replay Theater lists them beside the race's own replay files)
 
 The card manager's modes (0x179570's table) name the other kinds of save: `MODE_LOAD_REPLAY`,

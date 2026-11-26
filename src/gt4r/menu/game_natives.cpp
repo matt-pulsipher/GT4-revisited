@@ -6,6 +6,7 @@
 // docs/formats/menu.md ("The game's state") says what each answers and why.
 
 #include "gt4r/menu/game_internal.h"
+#include "gt4r/menu/earlier_saves.h"
 #include "gt4r/menu/game_network.h"
 #include "gt4r/menu/game_bspec.h"
 #include "gt4r/formats/sound/sound_index.h"
@@ -1196,9 +1197,8 @@ Value GameNatives::make_card_manager(Args a) {
     for (const char* nothing : {"clearAutoSaveDisabled", "requestPause", "waitPause", "start", "restart", "clear"})
         m->method(nothing, [](Vm&, const Value&, Args) { return Value{}; });
     for (const char* ok : {"test", "save"}) m->method(ok, [](Vm&, const Value&, Args) { return text("OK"); });
-    // ❓ What the probes of the earlier games' saves read (0x1D4500 on) is not followed: none.
-    for (const char* no : {"isExistGT4pData", "isExistGT3Data"}) m->method(no, [](Vm&, const Value&, Args) { return number(0); });
-    for (const char* none : {"inheritGT4pData", "inheritGT3Data"}) m->method(none, [](Vm&, const Value&, Args) { return text("FILE_NOT_FOUND"); });
+    // The earlier games' saves (the Status page's transfer): earlier_saves.h.
+    install_earlier_saves(*this, *m, mode, arg_int(a, 1), a.size() > 1);
     // The card's free KB. The scripts take 8,000 for an unformatted card; the data folder's card
     // is formatted: 8,000 less a KB for its directory, the game's save and Gran Turismo 4's own replays on it (❓ the
     // program's count of a real card's clusters is not followed). The replays the race keeps are in the data folder's

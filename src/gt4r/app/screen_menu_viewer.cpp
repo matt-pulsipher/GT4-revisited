@@ -271,6 +271,7 @@ private:
             config.data_dir = app.save_dir();
             config.console_card = !card_.empty(); // (GT4R_MENU card=: the original's card pages)
             config.new_card = new_card_;
+            config.gt3r_dir = gt3r_data_dir(), config.choose_earlier_save = true; // (the Status page's transfer: screen_earlier_saves.cpp)
             while (!config.data_dir.empty() && (config.data_dir.back() == '/' || config.data_dir.back() == '\\')) config.data_dir.pop_back();
             if (!projects_.empty()) config.language = projects_[size_t(std::clamp(project_sel_, 0, int(projects_.size()) - 1))].language;
             runtime_ = std::make_unique<menu::Runtime>([vfs](const std::string& path) { return vfs->read(path); }, config);
@@ -422,6 +423,14 @@ private:
                 hooks.load = [this](const std::string& card) { restart(card, {}); };
                 hooks.new_game = [this](const std::string& card) { restart({}, card); };
                 app.push(make_saves_screen(app, hooks));
+                return;
+            }
+            // The Status page's transfer asks which earlier game's save to take.
+            if (std::optional<menu::TransferChoice> choice = menu::take_transfer_choice(*runtime_)) {
+                std::weak_ptr<int> life = life_;
+                app.push(make_earlier_saves_screen(std::move(*choice), [this, life](std::optional<save::EarlierGame> g) {
+                    if (life.lock() && runtime_) menu::answer_transfer_choice(*runtime_, std::move(g));
+                }));
                 return;
             }
             // A script that ended its project names the next one, or asks for a race.
@@ -793,6 +802,7 @@ private:
     std::vector<std::shared_ptr<LiveWidget>> pages_;
     RowPointer mouse_; // the lists'
     std::unique_ptr<menu::Runtime> runtime_;
+    std::shared_ptr<int> life_ = std::make_shared<int>(0); // (what outlives this page, such as the transfer's choice, asks it whether it is still there)
     std::unique_ptr<OnlineMenus> online_; // the online races' part of the menus
     std::unique_ptr<PageDrawer> live_drawer_;
     std::unique_ptr<MenuMovies> movies_; // the running menus' movie faces
