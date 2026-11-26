@@ -447,6 +447,12 @@ same: its steering's prefilter runs, and a pad's car keeps its display's values,
   replay's cameras; ✔ the original's lesson 1 page, its car on our run's line to the cm. **The guide film** (`dispGuidePage`,
   COMMAND_DEMONSTRATION): the course's scenic shots once (slot 48), then the recorded run under the display's monitors with the
   narration (`startStream("narration", <label>)`), "AUTO DRIVE" lit; it ends with the recording (`onSceneViewFinish`).
+  Its page (GuidePage, `quick.adc` onInitialize) puts a fade actor on `ButtonInfo::ButtonTex` (`image/quick/marubatu.png`, the
+  circle and cross) and on its text (`PushButton_text`), each `MFadeActor(w, 1)`, `over` 17, warped in, then turned out: both
+  stay about 17 s and fade over one. The original shows the text and not the picture (✔ lesson 1's guide); ours hides the
+  picture (`hide_guide_buttons`). ❓ Why: its pack (`GuidePage.gpb`, one Tex1 of 944 bytes, 4-bit, a CLUT of 16) holds it, with
+  the CLUT's alphas 0 .. 0xFF (0x1B, 0x40, 0x65, 0x89, 0xAC, 0xDD, 0xFF: over the GS's 0x80), so the GS would draw it over-full,
+  not hide it; not followed further.
 
 ## The recorded runs ✔
 
