@@ -1084,8 +1084,13 @@ void RaceHud::Impl::draw_bspec(const HudState& s, const std::string& help) {
     const int R = 640, B = 431;
     draw_at(mph ? "remote_speed_mph" : "remote_speed_kmph", {0, R - 26, B, 82, 28, 13, 1}, kNeutral, o);
     draw_text(font("GT4meter", 100, 1), race::place_x({0, R - 59, B - 8, 0, 0, 13, 1}, true), float(B - 8), kEndsAtPen, kMeterBlue, o, speed_text(s));
-    // The help strip (member 0x2DA0: 0, 480, 640 x 42, its bottom at the bottom).
-    if (s.help) draw_tooltip(help, o);
+    // The help strip (member 0x2DA0: 0, 480, 640 x 42, its bottom at the bottom). Select Car's name takes the help line's place
+    // while it shows (❓ the two lines' blend judged from the original's pictures: the name alone on the strip).
+    if (!s.help) return;
+    if (s.strip_name_opacity <= 0) return draw_tooltip(help, o);
+    fill({-game_area::side(), 438, 640 + 2 * game_area::side(), 42}, 0, 0, 0, o);
+    draw_menu_text("hm_16", 1, 320, 460, gt3r::text::HAlign::Center, kTextGray, o * (1 - s.strip_name_opacity), help, 600);
+    draw_menu_text("hm_16", 1, 320, 460, gt3r::text::HAlign::Center, kTextGray, o * s.strip_name_opacity, s.strip_name, 600);
 }
 
 } // namespace gt4r

@@ -83,6 +83,8 @@ struct HudState {
     bool overtake = false;            // the overtake command is on
     s64 total_ms = -1;                // the race's time
     bool help = true;                 // the help strip along the bottom
+    std::string strip_name;           // Select Car: the followed car's name on the strip, over the help line
+    float strip_name_opacity = 0;
     // A license test (the race's kind 3): no place, the three target times with their trophies in place
     // of the last lap (ms; <= 0 none).
     bool license = false;
