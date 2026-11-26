@@ -967,6 +967,14 @@ build is served v1.01's and its differences are logged. `gt4tool tables <disc>` 
     changes. ✔ Ported (`sim/convert.cpp` `europe_share`).
   - **Europe's stopping box** (0x3F9560, a license test's end in the box): the car counts as stopped below 0.4167 m/s
     (1.5 km/h; v1.01 0.2778, 1 km/h), timed by the same share. ✔ Ported (`race/license_rules.cpp`).
+  - **Europe's recordings** (its license tests' `uk*` files, the Replay Theater's `Rdemo<n>p`) are 50 records a second.
+    They play by time at our 60 steps (step k takes record k x 50 / 60, a shift and a mail on a record's first step:
+    `sim::ai::DemoRun::rate`), as a look at them and a check, never on their times. Of the 79 timed license files
+    (`gt4tool race <eu disc> demos uk`), 13 end within 100 ms of their recorded time, most of the B license's straight
+    tests within 20 ms (B-1 +10, B-2 -11, B-3 +4, B-4 +18, B-6 -5, B-7 +4); the rest part from the recorded run, as a 50 Hz
+    run on a 60 Hz step must.
+  - The license tests' and missions' labels are the program's region's (0x430D20: "uk" + the code, then "jp";
+    `db::race_labels`): `ukl0b0001` on Europe's disc, `jpl0b0001` on Japan's, as their RACE rows and demonstration files are.
   - Not rules: the camera's picture height (224 -> 256 lines) and its two aspect factors (1.905 -> 1.667, 1.429 ->
     1.25) in 0x3E0FF8 are the PAL picture's. Our views keep their own (the window's shape).
 - **Japan** is an earlier build with its data moved (0x620AD8 there 0x618040). The address words in its tables are its

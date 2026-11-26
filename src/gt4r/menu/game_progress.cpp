@@ -4,6 +4,7 @@
 // present page, and the card manager's save.
 
 #include "gt4r/menu/game_progress.h"
+#include "gt4r/formats/db/race_labels.h"
 
 #include "gt4r/menu/game_internal.h"
 
@@ -233,7 +234,7 @@ ProgressReport play_progress(Runtime& rt, const ProgressPlan& plan) {
                 // The RACE table's label has the region in front ("usl0b0001"), as the record's
                 // lookup tries it (0x430D20).
                 ByteSpan row;
-                for (const std::string& tried : {std::string(label), "us" + std::string(label), "jp" + std::string(label)})
+                for (const std::string& tried : db::race_labels(label, n ? n->rt.region() : std::string()))
                     if (row.empty() && n) row = n->db().row("RACE", tried);
                 u32 time = 0;
                 const size_t m = 0x76 + 2 * size_t(medal), ms = 0x1A + 2 * size_t(medal);

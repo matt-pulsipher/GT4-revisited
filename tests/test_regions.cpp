@@ -3,7 +3,10 @@
 
 #include "test_framework.h"
 
+#include "gt4r/formats/db/race_events.h"
+#include "gt4r/formats/db/race_labels.h"
 #include "gt4r/menu/runtime.h"
+#include "gt4r/sim/ai/run.h"
 #include "gt4r/sim/program.h"
 
 #include <algorithm>
@@ -108,6 +111,27 @@ TEST(disc_regions_boot_without_language_page) {
         rt->settle();
         CHECK(page_of(*rt) == "ConfirmDialog");
         CHECK(rt->project() && rt->project()->language() == d->info().language);
+    }
+    if (!ran) SKIP("needs a Gran Turismo 4 disc (GT4R_DISC)");
+}
+
+// A license test's code under each release's own prefix (0x430D20): "usl0b0001", "ukl0b0001", "jpl0b0001", its event row and
+// its demonstration's file both there.
+TEST(disc_regions_license_labels) {
+    int ran = 0;
+    for (const std::unique_ptr<Disc>& d : test::discs()) {
+        if (d->info().game != Game::GT4) continue;
+        ++ran;
+        db::SpecDb sdb = sim::ai::open_specdb(*d);
+        gt3r::Volume* vol = &d->volume();
+        const db::RaceEvents events(sdb, [vol](const std::string& path) -> std::optional<Bytes> {
+            const gt3r::Volume::Entry* e = vol->find(path);
+            return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
+        });
+        const std::string own = db::race_labels("l0b0001", d->info().region)[1];
+        CHECK(own == d->info().region + "l0b0001");
+        CHECK(events.event(own).has_value());
+        CHECK(vol->find("replay/license/" + own) != nullptr);
     }
     if (!ran) SKIP("needs a Gran Turismo 4 disc (GT4R_DISC)");
 }

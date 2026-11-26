@@ -6,6 +6,7 @@
 // docs/formats/menu.md ("The game's state") says what each answers and why.
 
 #include "gt4r/menu/game_internal.h"
+#include "gt4r/formats/db/race_labels.h"
 #include "gt4r/menu/earlier_saves.h"
 #include "gt4r/menu/game_network.h"
 #include "gt4r/menu/game_bspec.h"
@@ -235,7 +236,7 @@ int Database::race_unit(const std::string& label) {
     const db::Table* t = db ? db->table("RACE") : nullptr;
     const db::Labels* l = labels_of(kRaceTable);
     if (!t || !l || label.empty()) return -1;
-    for (const std::string& tried : {label, "us" + label, "jp" + label}) {
+    for (const std::string& tried : db::race_labels(label, rt ? rt->region() : std::string())) {
         const std::optional<u32> id = l->id(tried);
         if (!id) continue;
         const std::vector<u32>& ids = t->ids();
@@ -1303,7 +1304,7 @@ void complete_race_request(Runtime& rt, RaceRequest& r) {
     // missions are "usl0b0001", the scripts say "l0b0001"; 0x430D20 tries "us" then "jp").
     if (r.sequence == "replay") r.replay_file = s.replay_file;
     std::string race = r.race;
-    for (const std::string& tried : {r.race, "us" + r.race, "jp" + r.race})
+    for (const std::string& tried : db::race_labels(r.race, rt.region()))
         if (!r.race.empty() && d.code(kRaceTable, tried) != kNoCode) {
             race = tried;
             break;
