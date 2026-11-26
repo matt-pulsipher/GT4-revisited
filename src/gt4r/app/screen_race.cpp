@@ -722,7 +722,7 @@ public:
         begin_run(setup.bspec);
         built_ = true;
         // A scripted run that skips ahead: those steps unseen.
-        if (setup.pit) world_->pit_command(0);
+        if (setup.pit) world_->pit_command(0), pit_pending_ = !world_->pit_requested(0);
         for (int i = 0; i < setup.skip; ++i) step({}, true);
         if (setup.replay > 0) {
             // A run driven unseen, then shown through the replay cameras.
@@ -1097,7 +1097,7 @@ public:
             ++demo_step_;
         }
         const bool opening = opening_tv();
-        if (net_) net_->before_step(net_clock());
+        if (net_) net_->before_step(net_step_clock_ = net_clock());
         world_->step(inputs_, hold, demo ? demo_bspec_ : (auto_drive || watched_ || setup_.auto_drive), u32(std::max(0, flow_.hold_left() - 1)));
         if (recording_ && !demo && world_->pit_took_default(0) && records_.back().bytes[0x10] == 0)
             for (size_t k = 0; k < 4; ++k) records_.back().bytes[0x10 + k] = k ? 0xFE : 1; // (0x35BF08 posts it in the step's mail)
@@ -1120,6 +1120,8 @@ public:
         // A free run's hand-over, 3 s from the set-up (DynamicsConductorFreeRun::vf14).
         if (!hold && world_->count_rolling(0)) world_->release_start(0), flow_.signal_start();
         const race::RaceFlow::Events ev = flow_.step(world_->cars());
+        // (`pit=1`: the command taken once the race lets the car ask, after its first crossing)
+        if (pit_pending_ && !hold) world_->pit_command(0, true), pit_pending_ = !world_->pit_requested(0);
         if (net_) step_online(ev);
         // A car held in its rolling start let go as its start is counted (vf20 0x347928, the license's 0x3F64D0).
         for (const size_t i : ev.started) world_->release_start(i);
@@ -1187,6 +1189,8 @@ public:
     // An online race: the race's clock, its state after a step to the others, their cars' laps here.
     void attach_online(net::NetRace* net) {
         net_ = net;
+        world_->note_service(net_ != nullptr);
+        if (net_) net_->set_tire_change(world_->prediction_tire_change()); // (the others' pit stops on their predictions)
         if (net_ && world_->session()) net_->attach(*world_->session());
     }
     s64 net_clock() const { return net::NetRace::race_clock(flow_.hold_left(), flow_.clock()); }
@@ -1200,6 +1204,9 @@ public:
         net_->set_progress(along, world_->lap_length());
         if (const net::NetField* f = net_->field())
             for (size_t i = 1; i < f->size(); ++i) world_->set_car_alpha(i, f->ghost(i) ? 0.5f : 1.0f);
+        // What our car's pit stop did outside its state, by the race's clock (before the step: its start's; after it: its end's).
+        for (const RaceWorld::ServiceNote& n : world_->take_service())
+            net_->service({s32(n.after ? net_clock() : net_step_clock_), n.kind, n.value});
         net_->after_step(net_clock(), inputs_[0], flow_.car(0).laps_done);
         for (const size_t i : ev.finished) {
             if (i == 0) net_->finished(flow_.car(0).finish_units, flow_.car(0).best_lap_ms >= 0 ? flow_.car(0).best_lap_ms * 3 : -1);
@@ -2121,6 +2128,8 @@ private:
     race::StartCamera start_camera_;
     race::RaceFlow flow_;
     net::NetRace* net_ = nullptr; // an online race's other machines
+    s64 net_step_clock_ = 0;      // (the race's clock at the step's start)
+    bool pit_pending_ = false;    // `pit=1` not taken yet
     std::vector<std::string> player_names_;
     std::vector<OnlineRaceUi::Label> labels_; // and where its cars are in the picture
     race::ResultBoard board_;
@@ -2228,8 +2237,8 @@ public:
             menus_ = chosen->menus, sequence_ = chosen->sequence;
             setup_.sequence = chosen->sequence;
             if (chosen->online) {
-                const Setup env = setup_from_env(); // (a scripted run: `drive`, `view`, `skip`, `hud`)
-                setup_.auto_drive = setup_.auto_drive || env.auto_drive, setup_.view = env.view, setup_.hud = env.hud;
+                const Setup env = setup_from_env(); // (a scripted run: `drive`, `view`, `skip`, `hud`, `pit`)
+                setup_.auto_drive = setup_.auto_drive || env.auto_drive, setup_.view = env.view, setup_.hud = env.hud, setup_.pit = env.pit;
                 online_set_up(setup_, chosen->online);
                 setup_.options = chosen->options;
                 if (!setup_.options.empty()) pictures_from_options(setup_.options);
@@ -2737,6 +2746,7 @@ public:
                 hud_->draw(ui, hud_state_);
             } else if (prologue_hud_ && hud_) {
                 race_->fill(hud_state_, *hud_);
+                hud_state_.replay_display = race_->viewing() && race_->view().style() == race::ReplayStyle::Display;
                 prologue_hud_->draw(ui, hud_state_, prologue_extra()); // (Prologue's own display)
             } else {
                 draw_overlay(ui);
@@ -3412,7 +3422,8 @@ private:
         controllers_ = s.controllers; // (the Key Configuration, the vibration, the wheel's forces: the options' now)
         if (sequence_ == "single_race" && app_.db() && app_.db()->prologue()) {
             // Prologue's arcade, its settings popup's (0x10A360 with 0x402348): the stability control by the driving assist, the
-            // traction control by the option (on; ❓ which of the option page's sets it).
+            // traction control by the option word Status + 0x2F560 (the options' +0x50): 1 from their constructor (0x3FFA50)
+            // and no other store to it found, so on.
             const menu::RaceRequest& q = menus_->game().race;
             c.automatic = q.manual == 0, c.asm_on = q.assist_type != 0, c.tcs_on = true;
         } else if (asked && (sequence_ == "single_race" || sequence_ == "time_trial")) {
@@ -4223,6 +4234,7 @@ private:
         else if (setup_.sequence == "time_trial") e.run = gt3r::race::HudRun::TimeTrial;
         else if (setup_.sequence == "freerun") e.run = gt3r::race::HudRun::FreeRun;
         e.live = !h.replay;
+        if (h.replay) e.car_label = race_->world().car_label(race_->focused());
         if (race_ && results_shown() && is_license(sequence_)) e.over_t = float(race_->flow().steps_since_player_finish()) / 60, e.passed = prize_level() < 3;
         const race::RaceFlow& flow = race_->flow();
         if (flow.holding()) e.start_left = double(flow.hold_left()) / 60, e.start_total = double(flow.hold_total()) / 60;

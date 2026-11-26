@@ -5,6 +5,7 @@
 
 #include "test_framework.h"
 
+#include "gt4r/net/car_service.h"
 #include "gt4r/net/net_field.h"
 #include "gt4r/sim/ai/drivers.h"
 #include "gt4r/sim/car_spec.h"
@@ -90,6 +91,14 @@ struct Machine {
     std::unique_ptr<gt4r::net::NetField> field;
     std::vector<size_t> seat;     // session index -> the race's car (0 .. n - 1)
     std::function<race::CarInput(Machine&)> drive;
+    // Or the whole step's inputs (our car's first) given here, and something to do after the session's step (a pit stop's
+    // pass): for a car the computer drives.
+    std::function<void(Machine&, std::vector<race::CarInput>&)> inputs;
+    std::function<void(Machine&)> after;
+    // Our car's service log (net/car_service.h): sent to the others, reliably, when it has new events; and whether the
+    // others' are taken (false: their predictions without them).
+    gt4r::net::ServiceLog service;
+    bool take_service = true;
     race::PadRecord pad;
     s64 clock = 0;
     struct Message {
@@ -97,6 +106,7 @@ struct Machine {
         size_t from;              // the sender's race car
         Bytes state;              // (empty: a hit)
         gt4r::net::Hit hit;
+        Bytes block;              // a car-info block (state empty)
     };
     std::vector<Message> inbox;
     u32 warnings = 0;
@@ -117,7 +127,9 @@ struct Race {
     }
 
     // `labels`: the cars, in grid order, one a machine. `hold`: steps of the start's countdown.
-    Race(World& w, std::span<const std::string> labels, Link l, int hold = 0, const std::function<void(std::vector<sim::Entry>&)>& change = {}) : world(w), link(l) {
+    // `prepare`: each machine's session before its cars are posed (the race's rules).
+    Race(World& w, std::span<const std::string> labels, Link l, int hold = 0, const std::function<void(std::vector<sim::Entry>&)>& change = {},
+         const std::function<void(sim::Session&)>& prepare = {}) : world(w), link(l) {
         std::vector<sim::Entry> all = w.entries(labels);
         if (change) change(all);
         for (size_t m = 0; m < all.size(); ++m) {
@@ -127,6 +139,7 @@ struct Race {
             for (size_t k = 0; k < all.size(); ++k)
                 if (k != m) mine.push_back(all[k]), mc->seat.push_back(k);
             mc->session = w.session(mine);
+            if (prepare) prepare(*mc->session);
             std::vector<gt4r::net::NetField::CarInfo> info;
             for (size_t k = 0; k < mine.size(); ++k)
                 info.push_back({u8(mc->seat[k]), "player", mine[k].asm_on, mine[k].tcs_on, mc->session->record(k).p.top_speed.host()});
@@ -154,6 +167,15 @@ struct Race {
             machines[m]->inbox.push_back({at, from, hit ? Bytes{} : state, hit ? *hit : gt4r::net::Hit{}});
         }
     }
+    // A car-info block, reliably through the host (machine 0): twice the delay, and the delay twice again for each loss.
+    void send_block(size_t from, const Bytes& block) {
+        for (size_t m = 0; m < machines.size(); ++m) {
+            if (m == from) continue;
+            double at = now_ms + (from == 0 || m == 0 ? 1 : 2) * (link.delay_ms + rnd() * link.jitter_ms);
+            while (rnd() < link.loss) at += 2 * link.delay_ms + 20;
+            machines[m]->inbox.push_back({at, from, {}, {}, block});
+        }
+    }
     // One machine's step.
     void step(size_t m) {
         Machine& mc = *machines[m];
@@ -164,7 +186,9 @@ struct Race {
                 continue;
             }
             const size_t car = index_in(mc, g.from);
-            if (g.state.empty()) mc.field->take_hit(car, g.hit, mc.clock);
+            if (!g.block.empty()) {
+                if (const std::optional<gt4r::net::CarService> sv = gt4r::net::service_of(g.block); sv && mc.take_service) mc.field->add_service(car, sv->events, mc.clock);
+            } else if (g.state.empty()) mc.field->take_hit(car, g.hit, mc.clock);
             else {
                 gt3r::net::Reader r(g.state);
                 gt3r::net::CarSnapshot s;
@@ -175,7 +199,8 @@ struct Race {
         }
         mc.field->before_step(mc.clock);
         std::vector<race::CarInput> in(mc.session->cars().size());
-        in[0] = mc.drive ? mc.drive(mc) : race::CarInput{};
+        if (mc.inputs) mc.inputs(mc, in);
+        else in[0] = mc.drive ? mc.drive(mc) : race::CarInput{};
         if (!in[0].computer && !in[0].pad) {
             mc.pad = pad_of(in[0]);
             in[0] = race::CarInput{};
@@ -183,7 +208,10 @@ struct Race {
         }
         if (mc.clock < 0) mc.session->hold_once(in);
         else mc.session->step_once(in);
+        if (mc.after) mc.after(mc);
         mc.clock += gt4r::net::kClockPerStep;
+        mc.service.end_step(gt4r::net::s32(mc.clock));
+        if (mc.service.take_changed()) send_block(m, gt4r::net::with_service({}, {0, mc.service.recent(mc.clock)}));
         mc.field->after_step(mc.clock);
         if (!mc.field->hits().empty()) ++mc.contact_steps;
         gt3r::net::Writer w;

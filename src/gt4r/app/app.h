@@ -252,7 +252,7 @@ private:
 std::string user_data_dir();
 
 std::unique_ptr<Screen> make_setup_screen();
-std::unique_ptr<Screen> make_hub_screen();
+std::unique_ptr<Screen> make_hub_screen(bool developer = false); // developer: its Developer tools
 // --sweep: the races of a list run one after another in this window, a picture of each
 // (screen_sweep.cpp).
 std::unique_ptr<Screen> make_sweep_screen(const std::string& list, const std::string& out);

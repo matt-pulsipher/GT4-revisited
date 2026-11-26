@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(GT4Revisited VERSION 0.0.1 LANGUAGES C CXX)
+project(GT4Revisited VERSION 0.1.0 LANGUAGES C CXX)
 
 # GT4 Revisited: a reimplementation of the Gran Turismo 4 engine on GT3 Revisited's engine.
 # No game data is part of this project; everything is read at runtime from the user's own
@@ -129,3 +129,6 @@ if(GT4R_BUILD_TESTS)
   target_link_libraries(gt4r_tests PRIVATE gt4r_engine ${CMAKE_DL_LIBS})
   add_test(NAME unit COMMAND gt4r_tests)
 endif()
+
+# Icon, app bundle and install rules for the release packages.
+include(cmake/Packaging.cmake)

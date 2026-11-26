@@ -3,6 +3,7 @@
 // applied at once, except where a row says when.
 
 #include "gt4r/app/app.h"
+#include "gt4r/app/app_identity.h"
 #include "gt4r/app/online.h"
 #include "gt4r/app/screen_saves.h"
 #include "gt4r/app/page.h"
@@ -373,7 +374,7 @@ private:
         const std::string current = app.disc() ? app.config().get("game", "disc").value_or("") : "";
         if (app.disc()) {
             const DiscInfo& d = app.disc()->info();
-            rows_.info("Disc", d.description + ", " + d.serial + " version " + d.version);
+            rows_.info("Disc", d.description + (d.serial.empty() ? std::string() : ", " + d.key + " v" + d.version));
             rows_.info("Its files", d.verified ? "a tested release's own" : d.modified ? "a modified copy of a tested release" : "not a tested release");
             if (d.problem.empty()) rows_.info("The image", "complete");
             else {
@@ -384,8 +385,7 @@ private:
         }
         rows_.action("Open a disc image", ".iso or .chd", "choose the file", [a] { a->show_open_dialog(); });
         if (!app.last_error().empty()) {
-            PageRow& r = rows_.info("The last one could not be opened", "");
-            (void)r;
+            rows_.info("The last one could not be opened", "").bad = true;
             for (const std::string& line : Ui::wrap(app.last_error(), 560)) rows_.info(line, "");
         }
         if (!discs_.empty()) rows_.heading("Discs opened before");
@@ -427,7 +427,7 @@ private:
         const std::string log = gt3r::log_file::path();
         if (!log.empty()) {
             rows_.action("Log of this session", "", "open it", [this, a, log] { show(*a, log); });
-            const std::string before = app.data_dir() + "gt3r.prev.log";
+            const std::string before = app.data_dir() + log_file_name(true);
             if (gt3r::host_path_exists(before)) rows_.action("Log of the session before", "", "open it", [this, a, before] { show(*a, before); });
             rows_.action("Copy both logs", "to the clipboard", "copy", [this, log, before] { copy_logs(log, before); });
         }

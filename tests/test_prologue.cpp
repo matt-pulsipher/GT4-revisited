@@ -4,6 +4,7 @@
 
 #include "test_framework.h"
 
+#include "formats/model/brake_model.h"
 #include "formats/model/car_model.h"
 #include "gt4r/formats/course/ai_line_course.h"
 #include "gt4r/formats/course/course_file.h"
@@ -54,6 +55,44 @@ void put32(Bytes& d, size_t o, u32 v) {
 }
 
 } // namespace
+
+// The brake parts of its cars (Gran Turismo 3's race/brake.bin and the info blocks' records, docs/formats/prologue.md "Cars"):
+// every car's records fall in the file's tables, and each car with a rotor has its parts and, where its rotor glows, the glow.
+TEST(disc_prologue_brake_parts) {
+    Disc* disc = prologue_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 Prologue disc");
+    gt3r::Volume& vol = disc->volume();
+    const gt3r::Volume::Entry* be = vol.find("race/brake.bin");
+    CHECK(be != nullptr);
+    if (!be) return;
+    const Bytes bb = vol.read(*be);
+    CHECK(gt3r::BrakeParts::is_brake_bin(bb));
+    const gt3r::BrakeParts bin = gt3r::BrakeParts::parse(bb);
+    CHECK(bin.rotor_flags.size() == 7 && bin.caliper_place.size() == 30);
+    db::SpecDb sdb = open_db(*disc);
+    size_t cars = 0, with_parts = 0, calipers = 0, glows = 0;
+    std::set<std::string> seen;
+    for (const db::CarEntry& c : sdb.cars()) {
+        if (!seen.insert(c.model).second) continue;
+        const gt3r::Volume::Entry* e = vol.find("car/lod/" + c.model);
+        if (!e) continue;
+        const Bytes file = vol.read(*e);
+        if (!race::CarVisual::is_gt3_car(file) || !gt3r::CarFile::is_car(file)) continue;
+        ++cars;
+        const std::array<gt3r::BrakeRecord, 2> rec = gt3r::parse_brake_records(gt3r::CarFile::parse(file).info);
+        bool parts = true;
+        for (int a = 0; a < 2; ++a) {
+            CHECK(rec[a].rotor < 0 || bin.has_rotor(rec[a].rotor));
+            CHECK(rec[a].caliper < 0 || bin.has_caliper(rec[a].caliper));
+            parts &= !gt3r::build_brake_parts(bin, rec[a], a == 1, 0).meshes.empty();
+            calipers += rec[a].caliper >= 0;
+            glows += !gt3r::build_brake_glow(bin, rec[a], false).meshes.empty();
+        }
+        with_parts += parts;
+    }
+    std::printf("  %zu cars: %zu with both axles' parts, %zu axles with a caliper, %zu with a glowing rotor\n", cars, with_parts, calipers, glows);
+    CHECK(cars > 70 && with_parts == cars);
+}
 
 // A table stored plain, as Prologue's are: the rows at their offsets, every one read.
 TEST(prologue_plain_table) {

@@ -253,6 +253,7 @@ bool RaceSound::skip_song(int direction) {
 }
 
 void RaceSound::start() {
+    if (!replay_ && !started_) start_step_ = recorded_.size();
     start_signal();
     if (racing_music(kind_)) rolling();
 }
@@ -261,6 +262,7 @@ void RaceSound::begin_run(RaceMusic kind, int start) {
     kind_ = kind;
     started_ = racing_ = replay_ = false;
     first_piece_ = -1;
+    start_step_ = replay_piece_step_ = SIZE_MAX;
     songs_heard_.clear();
     if (music_.stop) music_.stop();
     fade_ = 0;
@@ -306,6 +308,14 @@ void RaceSound::replay() {
     replay_step_ = 0;
     racing_ = false;
     if (music_.stop) music_.stop();
+    replay_piece_step_ = SIZE_MAX;
+    // Prologue's (its recording of a replay after a standing start: str01j as the replay begins, the racing piece about
+    // 0.45 s after the replay's START, at 0.9): the start's jingle, the piece from the step the run started.
+    if (mix_->tables.prologue && start_step_ != SIZE_MAX && first_piece_ >= 0) {
+        intro();
+        replay_piece_step_ = start_step_;
+        return;
+    }
     if (first_piece_ >= 0) racing_ = play_stream("racing", first_piece_, true);
 }
 
@@ -431,6 +441,11 @@ void RaceSound::update(const sim::Session& session, const SoundListener& camera,
 void RaceSound::update(std::span<const race::CarState> cars, const SoundListener& camera, int target) {
     // A replay of the run just recorded: each step's sound inputs as the session gave them (its contacts, landings,
     // wheels, the engine's torques), in step with the recording.
+    if (replay_ && replay_piece_step_ != SIZE_MAX && replay_step_ + 1 >= replay_piece_step_) {
+        replay_piece_step_ = SIZE_MAX;
+        if (music_.stop) music_.stop();
+        racing_ = play_stream("racing", first_piece_, true);
+    }
     if (replay_ && replay_step_ + 1 < recorded_.size() && recorded_[replay_step_ + 1].size() == cars.size()) {
         ++replay_step_;
         const std::vector<CarSoundState> s = recorded_[replay_step_];

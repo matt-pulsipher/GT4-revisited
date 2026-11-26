@@ -199,6 +199,7 @@ void Lobby::on_event(const gt3r::net::Event& e) {
         OnlineRace race;
         race.course = e.course;
         race.rules = host_member().rules;
+        race.round = round();
         if (e.laps > 0) race.rules.laps = e.laps;
         for (u8 id : e.grid) {
             const auto it = members_.find(id);

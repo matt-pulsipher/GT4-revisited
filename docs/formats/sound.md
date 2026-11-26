@@ -761,8 +761,8 @@ the Doppler constant at 0x378B88) but other tables:
   setup (RaceBase virtual 22, 0x37BB08, and 0x37D794) sets the second to 1.0. Both read 1.0 in the
   original's saved states of a race and of the pre-race page. `RaceSoundTables::option_level` is
   false for this program and `RaceSound` takes the option as 1 or 0.
-- **Its music's level** stays 1.0: the level 0x421AB8 sets is never called (no caller, no pointer to it in the
-  program), so [0x50587C] keeps the image's 1.0 and a piece plays at the script's volume × 1.0 (0x421800). It reads 1.0 in both its saved states (the level 0x421AB8 keeps at [0x50587C]: a
+- **Its music's level** stays 1.0: the level 0x421AB8 sets is never called (no caller, no `jal` to it and no word 0x00421AB8
+  anywhere in the unpacked program), so [0x50587C] keeps the image's 1.0 and a piece plays at the script's volume × 1.0 (0x421800). It reads 1.0 in both its saved states (the level 0x421AB8 keeps at [0x50587C]: a
   sequence through 0x421238, the driver's music master × 16383, a stream through 0x4225B0): the
   driver's music master is 16383 and on the starting grid page the stream's two voices play at
   16383, where Gran Turismo 4's carry the options' 115 / 128 (its recording's arcade pages at
@@ -783,7 +783,18 @@ the Doppler constant at 0x378B88) but other tables:
 - **Its race music**: the racing piece's level is the option block's own float (+0x1C in a race, +0x28 in a replay), and the block's
   constructor (0x3FFA50) sets 0.9 at +0x28 and leaves +0x1C 0; nothing else writes them, and its saved states hold 0 and 0.9: a race
   runs without music (its recording has none after START, the `str01j` jingle over the hold at 1.0), a replay with it at 0.9. The
-  codes are the groups + 18 (0x14 the racing group).
+  codes are the groups + 18 (0x14 the racing group). The block is the option object at Status + 0x2F510 (vtable 0x53A490):
+  RaceBGMPS2::vf5 (0x37E168) reads Status + 0x2F534 in a race and + 0x2F540 in a replay (the session's +0x340), the
+  constructor writes 0 and 0.9 there, and no other instruction of the program writes either (every saved state: 0 and 0.9).
+  **Checked on the recordings** (in game time; each piece found by its own samples, `scan.py` over the disc's pieces): the
+  arcade race (`14-prologue`, Tsukuba) `str10j` on the grid page, `str01j` from 346.35 s, START at 356.18 s (the clock), then no
+  piece to the end (41 s); lesson 1's passing run (`37-prologue-medal`) `str04j` at its start, no piece while driving,
+  `str08j` with the medal (119.46 s); the replay after EXIT `str01j` as it begins (3.11 s, the start's shots again), then
+  `race_j21` from 13.39 s, 10.28 s after the jingle (the live run's START 9.83 s after its jingle), at 0.878 x the stored
+  samples (correlation 0.993, 14 .. 26 s), the grid page's `str10j` (level 1.0) at 0.983 in the same recording: 0.893, the
+  option's 0.9. Ours (`RaceSound::replay`): a replay of a run with a standing start plays the start's jingle again and the
+  racing piece at 0.9 from the step the run started (🔎 the original's 0.45 s after it not followed); test
+  `sound_race_prologue_master`.
 - **Its car sounds** are read as Gran Turismo 4's from its database presented in Gran Turismo 4's
   layout ([prologue.md](prologue.md)): every engine's file is on the disc.
 

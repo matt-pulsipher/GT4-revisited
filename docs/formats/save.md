@@ -122,6 +122,9 @@ console's card and its dialogs instead, as the original shows them: `GT4R_MENU c
 - Saving by itself (`autosave`): at each page opened or closed, with no script running, when the bytes a save would write differ
   from those last saved or loaded (where the menus stand left out); Gran Turismo 4's option Autosave is kept (off: only the
   scripts' own saves, the car's change), Prologue has none. The program's own (`doAutoSave` on the map, isNeedSave) runs too.
+  Not while a championship runs (a series not kept): the original saves on the map only, which a running championship reaches
+  only by leaving it (EXIT keeps it, 0x119BD8); such a save would hold the series' page (EventCourseRoot) with no series and no
+  menu stack, and load into nothing. Closed (retired or run to its end) the series is cleared.
 
 ## The game's other saves (photos and the slide show's list: [photo.md](photo.md); 🔎 the others are read, not written as a card's: the Replay Theater lists them beside the race's own replay files)
 

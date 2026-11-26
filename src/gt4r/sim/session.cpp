@@ -1349,12 +1349,14 @@ void Session::save(size_t i, Memory& m) const {
     if (i >= cars_.size()) return;
     m.car = cars_[i], m.gt4 = gx_[i], m.own = extra_[i], m.body = bodies_[i], m.mail = mail_[i];
     m.random = random_state_, m.countdown = countdown_, m.steps = steps_;
+    if (i < blocks_.size()) m.block = blocks_[i];
 }
 
 void Session::restore(size_t i, const Memory& m) {
     if (i >= cars_.size()) return;
     cars_[i] = m.car, gx_[i] = m.gt4, extra_[i] = m.own, bodies_[i] = m.body, mail_[i] = m.mail;
     random_state_ = m.random, countdown_ = m.countdown, steps_ = m.steps;
+    if (i < blocks_.size()) blocks_[i] = m.block;
 }
 
 void Session::apply_impulse(size_t car, float x, float z, float jx, float jz) {

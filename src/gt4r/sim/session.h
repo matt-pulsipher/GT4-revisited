@@ -448,6 +448,7 @@ struct Session::Memory {
     rules::PadMail mail;
     u32 random = 0, countdown = 0;
     u64 steps = 0;
+    ParamBlock block; // (a pit stop's tire change rewrites the car's block: change_tires, retune_tires)
 };
 
 } // namespace gt4r::sim

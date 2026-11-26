@@ -839,7 +839,8 @@ private:
         }
         else if (t == "FrameImageFace") frame(w, at, colors, face, add);
         else if (t == "ToolTipFace" && w.number("detached") == 0 && w.text("value").empty() && w.text("text").empty() && !w.has("key")) {
-            // An attached tip: the focused widget's (or the nearest parent's with one) tool tip.
+            // An attached tip: the focused widget's own tool tip (0x235CF8 on focus entry: the root's focus
+            // +0xC8, its `tooltip` flag +0x98 bit 25 and `tooltip_key` +0x8C; no parent's), none without.
             Widget tip = w;
             auto put = [&tip](const char* name, const std::string& value) {
                 for (menu::Property& p : tip.properties)
@@ -850,12 +851,10 @@ private:
             };
             LiveWidget* page = const_cast<LiveWidget&>(live).page();
             std::shared_ptr<LiveWidget> focus = page ? page->focus.lock() : nullptr;
-            for (const LiveWidget* f = focus.get(); f; f = f->parent_widget())
-                if (f->data.number("tooltip") != 0 && !f->data.text("tooltip_key").empty()) {
-                    put("key", f->data.text("tooltip_key"));
-                    if (LiveWidget* fp = const_cast<LiveWidget*>(f)->page()) put("key_page", fp->name);
-                    break;
-                }
+            if (const LiveWidget* f = focus.get(); f && f->data.number("tooltip") != 0 && !f->data.text("tooltip_key").empty()) {
+                put("key", f->data.text("tooltip_key"));
+                if (LiveWidget* fp = const_cast<LiveWidget*>(f)->page()) put("key_page", fp->name);
+            }
             text(tip, at, face, clip, &live);
         } else if (t == "TextFace" || t == "InputTextFace" || t == "InputNumberFace" || t == "ToolTipFace" || t == "TextBoxFace")
             text(w, at, face, clip, &live, t == "InputTextFace" && (state & menu::kFocus));
