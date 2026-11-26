@@ -260,10 +260,11 @@ GitHub Release; nothing is published until it is reviewed and published by hand.
 
 1. Push the version's tag from the commit to release: `git tag v0.1.0 && git push origin v0.1.0`.
 2. The tag's run (Actions, workflow `build`): job `draft` creates a draft release `v0.1.0`
-   (title "GT4 Revisited v0.1.0", notes generated from the merged pull requests); the three
+   (title "GT4 Revisited v0.1.0"; its notes are GitHub's generated ones, only a "Full Changelog"
+   link when no pull requests were merged since the last release); the three
    `package` jobs build and upload `gt4r-macos-arm64.zip`, `gt4r-linux-x86_64.tar.gz` and
    `gt4r-windows-x64.zip` to it; job `release` adds `SHA256SUMS` of those files.
-3. On the Releases page, open the draft, check its four files and edit the notes, then publish.
+3. On the Releases page, open the draft, check its four files, write the notes, then publish.
 
 The files keep the same names in every release, so
 `https://github.com/<owner>/<repository>/releases/latest/download/gt4r-macos-arm64.zip` (and the
