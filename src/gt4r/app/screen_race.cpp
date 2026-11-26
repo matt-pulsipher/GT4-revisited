@@ -824,6 +824,7 @@ public:
             license_sounded_ = false;
         }
         split_prev_.clear(), split_first_.clear(), split_steps_ = -1;
+        lap_first_.clear(), laps_seen_.clear(), event_gap_ms_ = 0;
         distance_ = 0, bspec_distance_ = 0, shown_steps_ = 0;
         replaying_ = false, over_ = false;
         event_steps_ = -1;
@@ -1168,6 +1169,7 @@ public:
                      (long long)flow_.run_ms(0), demo_run_->recorded_ms());
         }
         if (demo_run_ && ev.lap_done == 0) LOG_INFO("Drive: the demonstration %s: lap %d in %lld ms, at step %zu", demo_run_->label.c_str(), flow_.car(0).laps_done, (long long)flow_.car(0).last_lap_ms, demo_step_ - 1);
+        step_lap_gaps();
         if (ev.lap_done == 0) event_steps_ = 0, event_lap_ = flow_.car(0).laps_done, split_steps_ = -1;
         step_splits();
         if (finish_view()) finish_camera_.angle += 0.5f;
@@ -1220,6 +1222,20 @@ public:
     void step_gear(const race::CarState& c) {
         if (c.clutch_closed && c.gear != gear_shown_) gear_shown_ = c.gear, gear_flash_ = 1;
         else gear_flash_ = std::max(0.0f, gear_flash_ - kStep / 0.15f);
+    }
+
+    // Each car's laps: the race clock when the first car completed each lap (a car's crossing, F +0x614), and the player's
+    // gap to it at his own (the lap line's gap: ✔ the original's chase race, "+0'14.284" at lap 1 and the winner's
+    // "+0'25.374" at the finish; ❓ the DiffEvent's partner in the program, 0x35E5FC, not read: taken as the section times').
+    void step_lap_gaps() {
+        laps_seen_.resize(world_->car_count(), 0);
+        for (size_t i = 0; i < laps_seen_.size(); ++i) {
+            const race::RaceFlow::CarRecord& r = flow_.car(i);
+            if (r.laps_done <= laps_seen_[i]) continue;
+            laps_seen_[i] = r.laps_done;
+            const auto [it, first] = lap_first_.try_emplace(r.laps_done, r.base_ms);
+            if (i == 0) event_gap_ms_ = first ? 0 : r.base_ms - it->second;
+        }
     }
 
     // The section times: each car through the course's split points (the road's first checkpoint list,
@@ -1661,10 +1677,19 @@ public:
                 h.event_gap_opacity = h.event_opacity * window(split_steps_, 2.85f, 0.15f);
             }
         }
-        if (!replaying_ && event_steps_ >= 0 && event_steps_ < 200) {
-            // "L1/3   1'23.456" for three seconds.
-            h.event = (gt3_road_ ? std::string() : hud.word("WordOfLapTime") + std::to_string(event_lap_) + (setup_.laps > 0 ? "/" + std::to_string(setup_.laps) : std::string()) + "   ") + race::format_lap_time(flow_.car(0).last_lap_ms);
+        // (B-spec's finish shows no lap line: ✔ the original's 03-race B-spec race and 30-championship race 2, the line there on
+        // the other laps; ❓ the program's cause not read)
+        if (!replaying_ && event_steps_ >= 0 && event_steps_ < 200 && !(watched_ && flow_.player_finished())) {
+            // The lap's time for three seconds (RaceDisplay::vf47 0x3A0A78): named "L1/3   1'23.456" only with the option
+            // race_display_config (the display's flags +0x58 bit 10; a new game's off: ✔ the original's chase race shows
+            // "1'47.118"); the gap to the first car through the line on that lap under it, 2.85 s.
+            h.event = (gt3_road_ || !lap_word_ ? std::string() : hud.word("WordOfLapTime") + std::to_string(event_lap_) + (setup_.laps > 0 ? "/" + std::to_string(setup_.laps) : std::string()) + "   ") + race::format_lap_time(flow_.car(0).last_lap_ms);
             h.event_opacity = std::min(1.0f, float(event_steps_) / 9.0f) * window(event_steps_, 3.0f, 0.15f);
+            h.event_gap.clear(), h.event_gap_opacity = 0;
+            if (event_gap_ms_ > 0 && !gt3_road_) {
+                h.event_gap = "+" + race::format_lap_time(event_gap_ms_);
+                h.event_gap_opacity = h.event_opacity * window(event_steps_, 2.85f, 0.15f);
+            }
         }
     }
 
@@ -1711,6 +1736,7 @@ public:
     // The course's TV cameras (a license test's results page shows the car from the trackside ❓ which
     // of the program's cameras is not read).
     void set_effect_settings(const race::ReplayEffectSettings& s) { effect_settings_ = s; }
+    void set_lap_named(bool on) { lap_word_ = on; }
     void tv_view() {
         if (replay_script_.records.empty() || mount_ == kTvView) return;
         before_tv_ = mount_;
@@ -2212,6 +2238,10 @@ private:
     int preview_hold_ = 0;
     size_t replay_at_ = 0;
     int event_steps_ = -1, event_lap_ = 0, beeps_ = 0;
+    std::map<int, s64> lap_first_; // laps done -> the clock (ms) when the first car completed them
+    std::vector<int> laps_seen_;   // each car's laps done as last seen
+    s64 event_gap_ms_ = 0;         // the player's gap at his last lap's line
+    bool lap_word_ = false;        // the option race_display_config: the lap's line names the lap ("L1/3")
     std::vector<float> splits_, split_prev_;          // the split points (m along the lap); each car's last place
     std::map<std::pair<int, int>, s64> split_first_;  // (crossings, split) -> the race clock when the first car passed
     int split_steps_ = -1, split_index_ = 0;
@@ -2469,6 +2499,7 @@ public:
             const auto word = [&](const char* key, const char* otherwise) { return gt3r::to_lower(app.config().get("cameras", key).value_or(otherwise)); };
             race_->set_view_options(word("race_views", "original") == "all", word("in_car_shake", "on") != "off");
         }
+        if (race_) race_->set_lap_named(settings_.display.config);
         if (race_) race_->set_effect_settings(race::ReplayEffectSettings::load(app.config())), race_->set_replay_style(settings_.replay_mode == "DIVE" ? race::ReplayStyle::Dive : settings_.replay_display ? race::ReplayStyle::Display : race::ReplayStyle::Plain);
         if (!playing()) feedback_.stop(app.input(), 0);
         if (online_) {
