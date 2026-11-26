@@ -278,7 +278,8 @@ TEST(strobe_pause_movie_disc) {
             for (const auto& g : s.groups) triangles += g.triangles.size();
         CHECK(triangles > 0 && triangles % 3 == 0);
         // The single race's pause: no retry, no confirmation, the screen settings.
-        for (int retry = 0; retry < 2; ++retry) {
+        for (int retry = 0; retry < 3; ++retry) {
+            const bool confirm = retry == 2; // (Gran Turismo mode's: EXIT asks first)
             std::vector<std::string> calls;
             std::string exit;
             race::StrobePlayer* self = nullptr;
@@ -287,9 +288,9 @@ TEST(strobe_pause_movie_disc) {
                 std::string n = name;
                 for (char& c : n) c = char(std::toupper(static_cast<unsigned char>(c)));
                 calls.push_back(n);
-                if (n == "RETRYENABLE") return V::number(retry);
+                if (n == "RETRYENABLE") return V::number(retry == 1);
                 if (n == "SCREENSETTINGENABLE") return V::number(1);
-                if (n == "CONFIRMEXIT") return V::number(0);
+                if (n == "CONFIRMEXIT") return V::number(confirm);
                 if (n == "EXIT_MENU" && !args.empty()) exit = args[0].to_string();
                 if (n == "NAVIGATEVERTICAL" && self) self->navigate(true, false);
                 if (n == "NAVIGATEALL" && self) self->navigate(true, true);
@@ -300,15 +301,30 @@ TEST(strobe_pause_movie_disc) {
             self = &p;
             p.restart();
             p.advance(10.0f / 30);
-            CHECK(p.state() == (retry ? "MENU_RETRY" : "MENU_NORMAL"));
+            CHECK(p.state() == (retry == 1 ? "MENU_RETRY" : "MENU_NORMAL"));
             CHECK(p.focus() == "DEFAULT");
             const size_t drawn = p.draw_list().size();
             CHECK(drawn > 10);
             // Down to EXIT (the second row), accept: the row's animation, then EXIT_MENU("exit").
             p.key(0x28);
-            if (retry) p.key(0x28);
+            if (retry == 1) p.key(0x28);
             CHECK(p.focus() != "DEFAULT");
             p.key(0x20);
+            // The press switches the rows off (inactivateButton): while the chosen row plays, no
+            // other row takes the focus (it would light up), and another press does nothing.
+            p.advance(2.0f / 30);
+            CHECK(p.focus().empty());
+            p.key(0x20);
+            p.key(0x26);
+            CHECK(p.focus().empty());
+            if (confirm) { // "Exit Sure?": its own CONTINUE has the focus, EXIT below it
+                for (int i = 0; i < 30; ++i) p.advance(1.0f / 30);
+                CHECK(p.state() == "CONFIRM" && exit.empty());
+                CHECK(p.focus() == "DEFAULT");
+                p.key(0x28);
+                CHECK(!p.focus().empty() && p.focus() != "DEFAULT");
+                p.key(0x20);
+            }
             for (int i = 0; i < 20 && exit.empty(); ++i) p.advance(1.0f / 30);
             CHECK(exit == "exit");
             if (!retry) {
@@ -323,8 +339,55 @@ TEST(strobe_pause_movie_disc) {
                 p.key(0x27);
                 CHECK(p.variable("BRIGHTNESS.v").to_number() == 3);
                 CHECK(std::find(calls.begin(), calls.end(), "SETVAL") != calls.end());
+                // OK (two rows down): back to the menu, whose rows take the focus again.
+                p.key(0x28), p.key(0x28), p.key(0x20);
+                for (int i = 0; i < 30; ++i) p.advance(1.0f / 30);
+                CHECK(p.state() == "MENU_NORMAL");
+                CHECK(p.focus() == "DEFAULT");
+                p.key(0x28);
+                CHECK(!p.focus().empty() && p.focus() != "DEFAULT");
             }
         }
+    }
+    if (!movies) SKIP("no Gran Turismo 4 disc");
+}
+
+// The PIT STOP menu: its rows from OK (DEFAULT) down, round to OK; a press on OK switches the
+// menu off (no row has the focus while its row plays, a second press does nothing) and makes the
+// choice (EXIT) once.
+TEST(strobe_pit_menu_disc) {
+    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    size_t movies = 0;
+    for (const auto& disc : test::discs()) {
+        const gt3r::Volume::Entry* e = disc->volume().find("menu/common/pitmenu.strb");
+        if (!e) continue;
+        ++movies;
+        auto movie = std::make_shared<const race::StrobeMovie>(race::StrobeMovie::parse(disc->volume().read(*e)));
+        int exits = 0;
+        auto host = [&](const std::string& name, const std::vector<race::StrobePlayer::Value>&) {
+            using V = race::StrobePlayer::Value;
+            std::string n = name;
+            for (char& c : n) c = char(std::toupper(static_cast<unsigned char>(c)));
+            if (n == "NITEM") return V::number(2);
+            if (n == "DEFAULTVAL") return V::number(0);
+            if (n == "ITEM") return V::string("x");
+            if (n == "EXIT") ++exits;
+            return V{};
+        };
+        race::StrobePlayer p(movie, host);
+        p.navigate(true, false);
+        p.advance(20.0f / 30);
+        CHECK(p.focus() == "DEFAULT");
+        for (const char* row : {"FTIRE", "RTIRE", "FEED", "DMODE", "DEFAULT"}) {
+            p.key(0x28);
+            CHECK(p.focus() == row);
+        }
+        p.key(0x20);
+        p.advance(2.0f / 30);
+        CHECK(p.focus().empty());
+        p.key(0x20);
+        for (int k = 0; k < 30; ++k) p.advance(1.0f / 30);
+        CHECK(exits == 1);
     }
     if (!movies) SKIP("no Gran Turismo 4 disc");
 }
