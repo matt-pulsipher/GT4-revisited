@@ -42,7 +42,7 @@ std::string SaveLibrary::current() const {
     std::ifstream in(marker());
     std::string name;
     if (in && std::getline(in, name)) {
-        const fs::path p(name);
+        const fs::path p = fs::path(name).make_preferred(); // (written with '/': Windows' own separator, as cards() names them)
         // (Inside the data folder: "memorycard" or "games/<number>".)
         if (!name.empty() && p.is_relative() && name.find("..") == std::string::npos) {
             const std::string card = (fs::path(dir_) / p).string();

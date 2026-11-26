@@ -7,6 +7,7 @@
 #include "gt4r/formats/course/runway.h"
 #include "gt4r/race/rail_simulation.h"
 
+#include <algorithm>
 #include <cmath>
 
 using namespace gt4r;
