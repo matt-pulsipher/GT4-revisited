@@ -58,7 +58,7 @@ jobs:
       - name: Build app, tools and tests
         run: cmake --build build --config Release --parallel 4 --target gt4r gt4tool gt4r_tests
       - name: Unit tests (no disc image)
-        run: ctest --test-dir build -C Release --output-on-failure
+        run: ctest --test-dir build -C Release --output-on-failure --verbose # (the tests run, skipped and failed, at the end)
 
   # ANGLE for the Windows package (packaging/angle.ps1, ~18 min), kept in the cache from master: a
   # tag's run restores only its own tag's caches and the default branch's. Built again when the
