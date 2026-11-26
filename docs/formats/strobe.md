@@ -314,7 +314,7 @@ the callback 0x3EBE28 -> 0x3AEAE8: the race's text table, the one the race displ
 ## The results movie (`menu/common/result.strb`)
 
 142 root frames. Frame 0 asks `isChampionship()` and stops (a championship goes on at frame 31,
-the points pages). The program starts it when the page goes up (here: `play` from frame 0); rows
+the points pages). The program puts it at frame 0 when the page goes up (0x4751D0); the root waits there until its sprite 1 (40 frames, 3.3 s at the movie's 12 frames a second) plays it on; rows
 `R1`..`R6` slide in from frame 1, each with a `BAR` instance whose per-frame script asks
 `cb_stable(row)` and, once the row's result is fixed, fills `RANK` (`gotoAndStop(1)` for the
 player's row `cb_playerrank()`, else 2), the name (`cb_getname(row)`) and the time

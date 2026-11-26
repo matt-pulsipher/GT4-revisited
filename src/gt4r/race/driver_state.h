@@ -6,9 +6,10 @@
 //
 // Of the step: the steering wheel's angle (0x403F90), the nod (0x4043C8), the lean (0x404890) and the heave (0x4051E0) by
 // the seat's acceleration, the hands that go round with the wheel and take new grips (0x410E60 -> 0x40FC78, 0x411150), the
-// elbows (0x406388) and the clavicles (0x4053A8) of a car with a wheel (cockpit style 0). Not here: the gaze, the gear
-// change, the feet.
+// elbows (0x406388) and the clavicles (0x4053A8) of a car with a wheel (cockpit style 0), the gaze's usual way (0x40DDC0,
+// driver_gaze.h). Not here: the gaze's glances, the gear change, the feet.
 
+#include "gt4r/race/driver_gaze.h"
 #include "gt4r/race/driver_posture.h"
 
 #include <array>
@@ -25,6 +26,11 @@ struct DriverMotion {
     Quat turn;
     F roll;
     V3 velocity;
+    // For the gaze (driver_gaze.h): the front wheels' mean angle; the computer driver's aim (course space; none: no aim);
+    // a co-driver.
+    F front_wheels{};
+    std::optional<V3> aim;
+    bool co_driver = false;
 };
 
 struct DriverState {
@@ -40,6 +46,7 @@ struct DriverState {
     F lean_neck_rate, nod_neck_rate, lean_rate, nod_rate, heave_rate, height, lean_left, nod_left, tilt, tilt_rate, head_rate;
     bool first = true; // no step yet (the ints' +0x28)
     u8 state[2] = {0, 0}, was[2] = {0, 0}; // the hands' states (+0x30): 0 hold, 1 at the end of the turn, 2 / 3 going ...
+    DriverGaze gaze; // where the driver looks (+0x58 .. +0x60)
 
     // At rest in the cockpit (0x402320).
     void reset(const Cockpit& c);

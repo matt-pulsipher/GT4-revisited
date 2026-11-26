@@ -835,6 +835,16 @@ private:
                 const auto& held = live.runtime->game().chunk_pictures;
                 if (const auto it = held.find(w.text("image_chunk")); it != held.end()) chunk = &it->second;
             }
+            if (beside > 0 && t == "ImageFace" && m_.identity() && !add && at.x <= 0.5f && at.x + at.w >= 639.5f && at.y <= 0.5f && at.y + at.h >= 447.5f &&
+                clip.x <= 0 && clip.x + clip.w >= 640) {
+                // (A picture over the whole page, a whole-screen page's (the prize page's `bg`): over a picture wider than the
+                // page the sides are black, as beside the menus' own pages, not what is under the page.)
+                set_clip({-beside, clip.y, 640 + 2 * beside, clip.h});
+                const std::vector<Rgba> black{Rgba{0, 0, 0, 255}};
+                fill({-beside, at.y, beside, at.h}, black, face, false);
+                fill({640, at.y, beside, at.h}, black, face, false);
+                set_clip(clip);
+            }
             image(w.text("image_path"), at, colors, face, add, has_uv ? uv : nullptr, w.number("from_disk") != 0, chunk);
         }
         else if (t == "FrameImageFace") frame(w, at, colors, face, add);

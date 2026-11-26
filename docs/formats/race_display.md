@@ -282,8 +282,10 @@ ten steps n = round(fuel / tank x 10) (+0x2C / +0x30): its top at 60 - 5.2 n (4 
 red 0x800000C8 under three steps, else light blue; with +0x1C the nitrous gauge (`nos_a0`, `nos_a1`, +0x34 /
 +0x38, red 0x800000F0) the same at the rev counter's (x - 16, y + 19). ✔ Against the original's in-car
 view (03-race incar frames): the fuel arc left of the speedometer, the throttle's blue arc right of the
-digits. Drawn here (`RaceHud::Impl::draw_bars`, the gauge always shown: ❓ the flag +0x1B's source not read;
-the nitrous gauge not drawn: no nitrous part yet). Sign
+digits. The flag +0x1B is the followed car's tank (F +0x5D0) more than 0 (`RaceDisplay::vf2` 0x39E598 through 0x354E38;
+the chase panel's fuel meter reads the same flag), and the tank is 0 when the race counts no fuel (0x354AF8: the car's tank
+zeroed by the race's flag): no arc at the Ice Arena (✔ the original's `35-ice-arena`). Drawn here (`RaceHud::Impl::draw_bars`,
+with `fuel_on`; the nitrous gauge not drawn: no nitrous part yet). Sign
 colors: `sign_asm` 0x80E3B896, the other two 0x800000C8. Draw order: plate, the two dials'
 shadows, trip meter, shift lamp, the two dials, boost gauge, gear, suggested gear, digital
 speed, tire wear, signs, unit, G meter, bars.
@@ -531,10 +533,10 @@ name).
 |---|---|---|
 | Start countdown | 0x252C: 320, 224 | The whole seconds left of the race's count (🔎 the count's source is the race object, not read), `"%d"`, once a second: font `FC_48` (`FC_48*75,75` for two players), color 0x80C8C8C8; from 3 down each shows 0.8 s and fades out in 0.15 s. The display has **no lights**: numbers only. `FC_48` holds the digits and A C D E F G H I L M N O P R S T U V W Z É Ó |
 | Start | same | Key `RaceStart` ("START"), 1 s, fade out 0.15 s |
-| Finish | same | Key `RaceFinish` ("FINISH"), 3.7 s, fade out 0.3 s; the whole display then fades |
-| Lap time at the line | Event line: 320, 139, w 580 | `"%s%d/%d   %s"`: key `WordOfLapTime` ("L"), the lap, the laps, the time (`"%s%d   %s"` without a lap count): "L1/3   1'23.456". Font `hn_20R`, color 0x80C8C8C8, 3 s, fades 0.15 s |
+| Finish | same | Key `RaceFinish` ("FINISH"), 3.7 s, fade out 0.3 s (`RaceDisplay::vf41` 0x3A1568); with it the display's fader (+0xBC) keeps the rest full 1 s and takes it out over 0.25 s; FINISH, the lap's line and the A-spec points stay on their own times (✔ the original's chase race), under the results page |
+| Lap time at the line | Event line: 320, 139, w 580 | `RaceDisplay::vf47` (0x3A0A78), told by the lap's events (0x39F200: a `RaceDisplayLapTimeEvent` and a `RaceDisplayDiffEvent`, posted at each lap's line and at the finish by 0x35E550 from `DynamicsConductor::vf21`) for the display's car: the time alone, `"%s%d/%d   %s"` (key `WordOfLapTime` "L", the lap, the laps, the time; `"%s%d   %s"` without a lap count) only with the display's flags +0x58 bit 10 (the option `race_display_config`, off in a new game) or on a two-player half. Font `hn_20R`, color 0x80C8C8C8, 3 s, fades 0.15 s. ✔ the original's chase race: "1'47.118" with "+0'14.284" at lap 1, "1'42.771" with "+0'25.374" (the winner's gap) at the finish; in B-spec the finish shows none (03-race B-spec, 30-championship; ❓ why), the other laps do |
 | Section time | Event line | `"%s%d   %s"` with key `WordOfSectionTime` ("T"): "T1   0'35.123", as above. The split points are the road's (RNW4) first checkpoint list (`race/sections.*`; ✔ Tsukuba 505.9 and 1072.2 m, where the original's chase race shows T1 and T2); the lap step 0x358608 compares each car's distance with its next point (F +0x4B4) and pushes event 15 with the time (0x359C10). Here the gap under it is to the first car through that split on that lap, in red (the single race's; who is told which gap: race_flow.md "2 Player Battle"; the original's: "T1 0'27.247 / +0'05.800" with a car's picture); the car's picture is not drawn |
-| Gap to another car 🔎 | Event line, offset (32, 25) | The gap, `hn_20R`, 3 s, with a car marker beside it (`RaceCarIconDisplay`, member 0x2D14, placed 82 or 89 left of and 22 below the line, 2.85 s) |
+| Gap to another car 🔎 | Event line, offset (32, 25) | At a lap's line the gap to the first car through that line on that lap (here; ❓ the DiffEvent's own partner not read), red; the gap, `hn_20R`, 3 s, with a car marker beside it (`RaceCarIconDisplay`, member 0x2D14, placed 82 or 89 left of and 22 below the line, 2.85 s) |
 | Information | Event line | `hn_20R#1`, color 0x80C8C8C8, 3 s: "Final Lap" (key `EnduranceFinal`), "%d laps left", "%s is making a pit stop", ... |
 | Wrong way | Status message 0x228C (320, 430 in the chase views; 320, 348 in the driver's) | The picture `GT4_meter_texture_wrongway` (32 x 32, a no-entry sign), color 0x80FFFFFF, blinking: period 0.2 s, on for 0.3 of it, rise 0.05 s, fall 0.1 s; kept up while the car goes the wrong way |
 | Other status lines | 0x228C | Text in `hn_20R`, color 0x80C8C8C8 ("AUTO DRIVE", pit messages, ...) |
@@ -640,6 +642,30 @@ the bottom, the line centered, its baseline 22 down, squeezed sideways into 15/1
 ❓ Which part of the program sets display mode 1 for B-spec, and the plate's place (its bottom at 431
 as measured), are not read. The commands: Left / Right the pace, Triangle overtake,
 Cross the view, R2 the display; the race opens in the low view from the car's nose.
+
+**The display's car (Select Car).** The display shows one car, its member +0x2E; +0x2F is its own (the
+player's). Each step the race gives it the camera's target (RaceSinglePlayer::vf74 0x3D5FF8 and the network
+races' vf74: the camera manager's current entry, +0x9BC x 0x19C, its car +0x1C, to RaceDisplay::vf11 0x39CDF0).
+When the car changes, vf11 marks the display to be set up again (+0x31, +0x32) and the next frame (0x39EC40) sets
+the panel up for it (0x39D218), clears the event lines and the gap's car picture (vf54) and shows the car's name
+(0x39CFD8: its entry's name on the strip's timed line 0x2F2C, 5 s with fades of 0.2 s, and on 0x23DC). Everything the
+frame reads per car is the target's (RaceDisplay::vf2 0x39DBB8): the place, the laps, the lap's clock (0x3445F0), the
+best and last laps, the lap and section lines with their gaps, the meters; the race's total time stays the race's
+(0x358440). The tire diagram, the fuel gauge and the panel flag +0x1C only for a car a player drives (0x3451D8: the
+control source F +0x466 is 0, 1 or 4 and F +0x441 clear); for any other car they are hidden (0x39E6A0). The commands'
+panel (`PACEPANEL`) shows only while the followed car is the player's and his car is out of the pits (0x3D8C18: the
+monitor's +0x64 = +0x60, +0x40 = 0). ✔ The original's B-spec race following other cars (reference
+`36-driver-sky/gtwc_race1_bspec_chaparral_pescarolo.mp4`): their place, lap clock, section time, the map's red dot on
+the followed car, no pace panel, no tire diagram, the name on the strip for about 5 s. Here: `screen_race.cpp`
+`display_car()` (B-spec live: the followed car; else the player's, a replay keeping its own), `fill`, `update_panel`;
+the name over the help line, the help line faded under it (❓ the two lines' blend judged).
+
+**The gap's car picture** (RaceCarIconDisplay 0x2D14, set by 0x3A1098 for a time gap, 0x3A0E40 for a lap gap): the other car's
+icon (RaceDisplay::vf51 0x3A1030: in the race kinds 1, 2, 17, 18 the car in place 1 when the gap is behind, in place 2 when it
+is a lead; shown when that car's state is 3), its 64 x 32 picture's left 89 units (a lap gap 82) left of the event line and its
+middle 22 below it, 2.85 s with fades of 0.15 s. ✔ The original's section time following the Peugeot (the same reference). Here
+(`screen_race.cpp`, after the display): beside a section time's gap, the car first through that split on that lap, with the
+gap's own fades; ❓ the car's state test is not made.
 
 ## The two-player halves
 

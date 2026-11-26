@@ -18,7 +18,10 @@ namespace ps2 = gt3r::ps2;
 
 constexpr float kUvScale = 1.0f / 4096.0f; // 16-bit texture coordinates: 4.12 fixed point
 constexpr float kNormalScale = 1.0f / 127.0f;
-constexpr u8 kNop = 0x01, kJump16 = 0x09, kSelectSet = 0x2B;
+constexpr u8 kNop = 0x01, kJump8 = 0x08, kJump16 = 0x09, kSelectSet = 0x2B;
+// The reflection passes' weight C0 + C1 min(V.N, 0): 0x56 the draw's factors (the program's globals [0x6238A0] and
+// [0x62389C]), 0x57 the constant C0 = 1, C1 = 0 (the handlers 0x4566D0, 0x4566F8). GTM1 sets them with 0x36 / 0x32.
+constexpr u8 kDrawFactors = 0x56, kPlainFactors = 0x57, kSetC1 = 0x32, kSetC0 = 0x36;
 
 // Operand bytes of a draw-program command; -1: control flow read by the walker, -2: none such.
 // (The game's dispatcher has 0x5B commands; the sizes are what each handler steps over.)
@@ -56,7 +59,7 @@ int operand_bytes(u8 op) {
 
 // Commands GTM1's reader does not have: no-ops there, a callback, the script and what reads its registers,
 // the outside texture sets, the colour scale and offset, the face and texture-coordinate modes.
-bool only_here(u8 op) { return op >= 0x38 && op != 0x4D; }
+bool only_here(u8 op) { return op >= 0x38 && op != 0x4D && op != kDrawFactors && op != kPlainFactors; }
 
 void put16(Bytes& b, size_t o, u32 v) {
     b[o] = u8(v), b[o + 1] = u8(v >> 8);
@@ -186,6 +189,156 @@ void patch_program(Bytes& b, size_t start, ConvertStats& st, const Scene& scene,
             for (const auto& [lo, hi] : inside) keep |= at >= lo && at < hi;
             if (!keep) std::fill(b.begin() + ptrdiff_t(at), b.begin() + ptrdiff_t(at + size), kNop);
         }
+}
+
+// The program from `start` copied to the end of `b` with GT4's factor commands as GTM1's: 0x56 (the draw's factors,
+// as a program starts) as C0 = 1, C1 = 0, 0x57 as C0 = 1, C1 = -0 (mdls.h kPlainFactorsMark). Every command a path
+// reaches is copied in its order, the jumps and tables aimed again (0x08 as 0x09). Returns the copy's offset.
+u32 relink_program(Bytes& b, size_t start) {
+    std::map<size_t, size_t> size_at; // reached command -> its size
+    std::vector<size_t> work{start};
+    const ByteSpan d(b);
+    auto need = [&](size_t o, size_t n) {
+        if (o > b.size() || b.size() - o < n) throw FormatError("MDLS draw program runs past the block");
+    };
+    while (!work.empty()) {
+        size_t pc = work.back();
+        work.pop_back();
+        while (!size_at.count(pc)) {
+            need(pc, 1);
+            const u8 op = b[pc];
+            const size_t a = pc + 1;
+            size_t n = 0;
+            bool ends = false;
+            if (op == 0x00) n = 1, ends = true;
+            else if (op == 0x06 || op == 0x4D) {
+                need(a, 3);
+                n = 4 + 2 * size_t(b[a + 2]);
+                need(pc, n);
+                for (u32 k = 0; k < b[a + 2]; ++k) work.push_back(size_t(s64(a + 3 + 2 * k) + s16_at(d, a + 3 + 2 * k)));
+            } else if (op == 0x07) {
+                need(a, 17);
+                n = 18 + 2 * size_t(b[a + 16]);
+                need(pc, n);
+                for (u32 k = 0; k < b[a + 16]; ++k) work.push_back(size_t(s64(a + 17 + 2 * k) + s16_at(d, a + 17 + 2 * k)));
+                ends = b[a + 16] != 0;
+            } else if (op == kJump8) {
+                need(a, 1);
+                n = 2, ends = true;
+                work.push_back(size_t(s64(a) + std::int8_t(b[a])));
+            } else if (op == kJump16) {
+                need(a, 2);
+                n = 3, ends = true;
+                work.push_back(size_t(s64(a) + s16_at(d, a)));
+            } else if (op == 0x0A) {
+                need(a, 1);
+                const size_t skip = a + 1 + 12 * size_t(b[a]);
+                need(skip, 2);
+                n = skip + 2 - pc;
+                work.push_back(size_t(s64(skip) + s16_at(d, skip)));
+            } else {
+                const int k = operand_bytes(op);
+                if (k < 0) throw FormatError("MDLS draw program: unknown command");
+                n = 1 + size_t(k);
+                need(pc, n);
+            }
+            size_at[pc] = n;
+            if (ends) break;
+            pc += n;
+        }
+    }
+    // The copy: each command's new place, then the relative operands.
+    std::map<size_t, size_t> moved;
+    size_t at = (b.size() + 15) & ~size_t(15);
+    for (const auto& [pc, n] : size_at) {
+        moved[pc] = at - ((b.size() + 15) & ~size_t(15));
+        const u8 op = b[pc];
+        at += op == kDrawFactors || op == kPlainFactors ? 10 : op == kJump8 ? 3 : n;
+    }
+    Bytes c;
+    const size_t base = (b.size() + 15) & ~size_t(15);
+    auto place = [&](size_t target) -> size_t {
+        const auto it = moved.find(target);
+        if (it == moved.end()) throw FormatError("MDLS draw program jumps inside a command");
+        return base + it->second;
+    };
+    auto rel16 = [&](size_t from, size_t target) {
+        const s64 r = s64(place(target)) - s64(base + from);
+        if (r < -32768 || r > 32767) throw FormatError("MDLS draw program too long to copy");
+        c.push_back(u8(r)), c.push_back(u8(u64(r) >> 8));
+    };
+    auto f32 = [&](float v) {
+        u32 w;
+        std::memcpy(&w, &v, 4);
+        for (int i = 0; i < 4; ++i) c.push_back(u8(w >> (8 * i)));
+    };
+    for (const auto& [pc, n] : size_at) {
+        const u8 op = b[pc];
+        const size_t a = pc + 1;
+        if (op == kDrawFactors || op == kPlainFactors) {
+            c.push_back(kSetC0), f32(1.0f);
+            c.push_back(kSetC1), f32(op == kPlainFactors ? -0.0f : 0.0f);
+        } else if (op == kJump8 || op == kJump16) {
+            c.push_back(kJump16);
+            rel16(c.size(), op == kJump8 ? size_t(s64(a) + std::int8_t(b[a])) : size_t(s64(a) + s16_at(d, a)));
+        } else if (op == 0x06 || op == 0x4D || op == 0x07) {
+            const size_t head = op == 0x07 ? 17 : 3, count = op == 0x07 ? b[a + 16] : b[a + 2];
+            c.insert(c.end(), b.begin() + ptrdiff_t(pc), b.begin() + ptrdiff_t(a + head));
+            for (size_t k = 0; k < count; ++k) rel16(c.size(), size_t(s64(a + head + 2 * k) + s16_at(d, a + head + 2 * k)));
+        } else if (op == 0x0A) {
+            const size_t skip = a + 1 + 12 * size_t(b[a]);
+            c.insert(c.end(), b.begin() + ptrdiff_t(pc), b.begin() + ptrdiff_t(skip));
+            rel16(c.size(), size_t(s64(skip) + s16_at(d, skip)));
+        } else {
+            c.insert(c.end(), b.begin() + ptrdiff_t(pc), b.begin() + ptrdiff_t(pc + n));
+        }
+    }
+    b.resize(base, 0);
+    b.insert(b.end(), c.begin(), c.end());
+    return u32(base);
+}
+
+// Whether a path of the program reaches a factor command (0x56, 0x57).
+bool sets_factors(ByteSpan d, size_t start) {
+    std::set<size_t> seen;
+    std::vector<size_t> work{start};
+    while (!work.empty()) {
+        size_t pc = work.back();
+        work.pop_back();
+        while (pc < d.size() && seen.insert(pc).second) {
+            const u8 op = d[pc];
+            const size_t a = pc + 1;
+            if (op == kDrawFactors || op == kPlainFactors) return true;
+            if (op == 0x00) break;
+            if (op == 0x06 || op == 0x4D) {
+                if (a + 3 > d.size()) break;
+                for (u32 k = 0; k < d[a + 2]; ++k) work.push_back(size_t(s64(a + 3 + 2 * k) + s16_at(d, a + 3 + 2 * k)));
+                pc = a + 3 + 2 * size_t(d[a + 2]);
+            } else if (op == 0x07) {
+                if (a + 17 > d.size()) break;
+                for (u32 k = 0; k < d[a + 16]; ++k) work.push_back(size_t(s64(a + 17 + 2 * k) + s16_at(d, a + 17 + 2 * k)));
+                if (d[a + 16]) break;
+                pc = a + 17;
+            } else if (op == kJump8) {
+                if (a >= d.size()) break;
+                pc = size_t(s64(a) + std::int8_t(d[a]));
+            } else if (op == kJump16) {
+                if (a + 2 > d.size()) break;
+                pc = size_t(s64(a) + s16_at(d, a));
+            } else if (op == 0x0A) {
+                if (a >= d.size()) break;
+                const size_t skip = a + 1 + 12 * size_t(d[a]);
+                if (skip + 2 > d.size()) break;
+                work.push_back(size_t(s64(skip) + s16_at(d, skip)));
+                pc = skip + 2;
+            } else {
+                const int n = operand_bytes(op);
+                if (n < 0) break;
+                pc = a + size_t(n);
+            }
+        }
+    }
+    return false;
 }
 
 // A VIF stream being written.
@@ -485,6 +638,10 @@ Bytes to_gtm1(ByteSpan mdls, ConvertStats* stats, const Scene& scene) {
             out.insert(out.end(), packets[k].b.begin(), packets[k].b.end());
         }
     }
+
+    // The programs that switch the reflection factors, copied with GTM1's commands for them.
+    for (u32 i = 0; i < h.models; ++i)
+        if (programs[i] && wanted[i] && sets_factors(out, programs[i])) programs[i] = relink_program(out, programs[i]);
 
     // The tables GTM1 keeps apart: the programs' offsets, a sphere per model (the model record's
     // centre and radius) and the shapes' offsets.

@@ -254,8 +254,8 @@ The ones a player meets first:
 - Discs: Gran Turismo 4 US (SCUS-97328, v1.01) and Gran Turismo 4 Prologue (Japan, SCPS-15055) are the
   tested releases. Another release opens with "not a tested release" on the home screen, and parts of it may not work.
 - Gran Turismo mode's name entry takes no typed letters: choose them on its keyboard with the arrows and Enter.
-- Photo Lab: films cannot be developed, and the printer and USB memory pages find no device. In photos the
-  car reflects the sky more strongly than the original's.
+- Photo Lab: films cannot be developed; the printer page finds no printer, and the USB memory is the data folder's
+  `photos/`.
 - Mods: files, textures and texture packs are used; mods' cars, events and liveries are not read yet.
 
 ## Scripted play (for checks)
