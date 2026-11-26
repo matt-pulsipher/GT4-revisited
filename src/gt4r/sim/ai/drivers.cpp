@@ -1316,7 +1316,7 @@ void Field::traffic(Driver& d) {
         lanes = 0;
     }
     if (d.status == 1 || d.status == 2 || d.status == 5) lanes = 0;
-    else if ((d.status == 3 || d.status == 4) && (d.line == 1 || d.line == 2)) lanes = -1;
+    else if ((d.status == 3 || d.status == 4) && (d.line == 1 || d.line == 2) && !tables_.japan) lanes = -1; // (not in SCPS-17001 v1.05's 0x462000)
     F cn = d.cooldown > 0 ? F() : z.contact;
     if (k::zero < d.blend) lanes = 0;
     if (d.control == 1 && !d.overtake && lanes == 1) lanes = -1;
@@ -1387,7 +1387,7 @@ void Field::decide(Driver& d) {
             if (long_start) look = look + (int_f(left) * F::raw(0x43480000)) / F::raw(0x459C4000);
             else look = look + (int_f(left) * F::raw(0x42200000)) / F::raw(0x44FA0000);
         }
-        if (d.stop_count) look = look + int_f(d.stop_count) * F::raw(0x3EAAAAAA);
+        if (d.stop_count && !tables_.japan) look = look + int_f(d.stop_count) * F::raw(0x3EAAAAAA); // (not in SCPS-17001 v1.05's 0x45D668)
     }
     d.look = look.host();
     F ax, ay;
@@ -1577,6 +1577,8 @@ void Field::decide(Driver& d) {
             if (moving == -1) tgt = -tgt;
         }
     }
+    // (SCPS-17001 v1.05's 0x45D668 gives its stop driver the steering without the lock's bound)
+    if (d.kind == 6 && tables_.japan) return stop(d, tgt);
     const F lock = c.p.max_lock;
     if (lock < tgt) tgt = lock;
     else if (tgt < -lock) tgt = -lock;
