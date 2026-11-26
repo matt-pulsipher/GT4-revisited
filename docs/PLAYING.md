@@ -13,15 +13,14 @@ Prologue disc starts the same way.
    why and what to do: a file that is not there any more (moved, renamed, a drive not connected), a file that
    is not a disc image, another game's disc (a Gran Turismo 3 A-Spec or Gran Turismo Concept image says so), an
    image cut short or damaged (make it again from your disc).
-2. With a disc chosen, the game starts as the console does, without its questions about a memory card: the
-   Polyphony Digital logo, the opening movie (Start skips it), the title. The disc is remembered:
+2. With a disc chosen, the game starts as the console does, without its questions about a memory card. The first
+   time, it asks for your name (the game's own name entry; your game is made then, so everything from the start is
+   saved); then the Polyphony Digital logo, the opening movie (Start skips it), the title. The disc is remembered:
    the next launch goes straight there. `gt4r <disc image>` starts with that disc.
 3. Your saved games, options and replays are kept in the app's data folder (on macOS
    `~/Library/Application Support/GT4Revisited/GT4Revisited/`; a `portable.ini` beside the program
    keeps them beside it: on macOS in the folder that holds `gt4r.app`, not inside the app, which would break its
-   signature; `GT4R_DATA_DIR` names another folder). With none saved yet, choosing Gran Turismo mode
-   starts a new game (the name entry, then back to the title, as the game itself does; choose Gran Turismo mode again
-   to go to the map); Arcade needs none. The game saves itself after every race and purchase (Options,
+   signature; `GT4R_DATA_DIR` names another folder). The game saves itself after every race and purchase (Options,
    Miscellaneous, Autosave) and the next launch goes on with it.
    **Saved games** (the home screen, the title's *Save Game*, Prologue's *Save* and *Load*) lists them: play one, start a
    new one beside the others, delete one, *Export to PS2* (a memory card image the original loads) and *Import from a PS2
