@@ -20,7 +20,9 @@ The APK is written to `app/build/outputs/apk/debug/`. Install it with
 
 `fetch-sdl.sh` checks out SDL3, at the release the shared engine pins, into
 `android/third_party/SDL`. That one checkout supplies both SDL's Java glue (`org.libsdl.app`)
-and the native library, so the two always match. The top-level `CMakeLists.txt` builds the game
+and the native library, so the two always match. It then applies the shared engine's one change to SDL
+(`engine/gt3r/android/sdl-pipeline-cache.patch`): the Vulkan device keeps the pipelines it builds in
+`vulkan_pipelines.cache` in the user data folder, so later starts skip building them again. The top-level `CMakeLists.txt` builds the game
 as `libmain.so`, which SDL's activity loads.
 
 What the app is made of:

@@ -24,3 +24,8 @@ fi
 if [ ! -d third_party/SDL ]; then
   git clone --depth 1 --branch "$TAG" https://github.com/libsdl-org/SDL.git third_party/SDL
 fi
+# The shared engine's change to SDL: the Vulkan device keeps its pipelines in a file between runs (GpuOptions::pipeline_cache).
+patch=../../../engine/gt3r/android/sdl-pipeline-cache.patch
+if ! git -C third_party/SDL apply --reverse --check "$patch" 2>/dev/null; then
+  git -C third_party/SDL apply "$patch"
+fi
