@@ -47,9 +47,9 @@ SDL_AppResult SDL_AppInit(void** state, int argc, char** argv) {
             to_console();
             std::printf("GT4 Revisited %s\n\n", GT4R_VERSION);
             std::printf("usage: gt4r [disc.iso|disc.chd] [options]\n\n"
-                        "With a disc and no other choice the game starts from power on; Select and\n"
-                        "Start together leave it for the home screen ([game] start = hub in config.ini:\n"
-                        "the home screen first).\n\n"
+                        "With a disc and no other choice the game starts from power on; Select on the\n"
+                        "title (or its GT4R menu button) leaves it for the home screen ([game] start =\n"
+                        "hub in config.ini: the home screen first).\n\n"
                         "  --browse <path>     open the asset browser on a file of the disc\n"
                         "  --screen <name>     open game, hub, settings, controls, cars, courses, menus or race at start\n"
                         "  --shot <out.png>    save a picture of one frame, then quit\n"

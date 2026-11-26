@@ -83,7 +83,7 @@ private:
 class SettingsScreen : public Screen {
 public:
     enum Page { kDisplay, kAudio, kControls, kViews, kDisc, kMods, kPages };
-    static_assert(int(kMods) == kModsPage);
+    static_assert(int(kMods) == kModsPage && int(kDisc) == kDiscPage);
 
     SettingsScreen(App& app, int page, std::string install) : scripted_(app.scripted()), page_(std::clamp(page, 0, int(kPages) - 1)), install_(std::move(install)) {}
 
@@ -136,7 +136,7 @@ public:
     }
 
     void render(App& app, Ui& ui) override {
-        ui.header("SETTINGS", "GT4 Revisited " GT4R_VERSION);
+        page_header(app, ui, "SETTINGS", "GT4 Revisited " GT4R_VERSION);
         static constexpr const char* kNames[kPages] = {"Display", "Audio", "Controls", "Views & replays", "Disc & saves", "Mods"};
         float x = 20;
         for (int i = 0; i < kPages; ++i) {
