@@ -189,17 +189,11 @@ struct StatusFlow : Flow {
     void see() {
         if (const std::string m = message(); !m.empty() && (dialogs.empty() || dialogs.back() != m)) dialogs.push_back(m);
     }
-    // Power on to Gran Turismo mode's map with a new game.
+    // Power on to Gran Turismo mode's map with a new game (a first boot: the game's name entry at once).
     bool to_map() {
         rt->boot();
         rt->start_project(rt->first_project());
-        for (int i = 0; i < 400 && page() != "MovieRoot" && !rt->finished(); ++i) rt->update();
-        rt->settle();
-        if (page() == "MovieRoot") press({menu::Key::Start});
-        if (!rt->finished() || !rt->advance()) return false;
-        rt->settle();
-        press({menu::Key::Down, menu::Key::Accept});
-        if (!rt->finished() || !rt->advance()) return false;
+        for (int i = 0; i < 400 && page() != "EntryRoot" && !rt->finished(); ++i) rt->update();
         rt->settle();
         if (page() != "EntryRoot") return false;
         press({menu::Key::Up, menu::Key::Left, menu::Key::Accept, menu::Key::Right, menu::Key::Down});
@@ -250,6 +244,7 @@ TEST(disc_earlier_gt3_transfer_on_the_status_page) {
     std::optional<menu::TransferChoice> c = menu::take_transfer_choice(*f.rt);
     CHECK(c && c->found.size() == 2 && c->found[0].name == "Started" && c->kind == save::EarlierGame::Kind::Gt3 && !menu::take_transfer_choice(*f.rt));
     CHECK(f.page() == "StatusRoot"); // (the scripts wait)
+    if (!c || c->found.size() < 2) return;
     menu::answer_transfer_choice(*f.rt, c->found[1]);
     f.rt->settle();
     // The licenses' question names the save; yes; then the credits'.
