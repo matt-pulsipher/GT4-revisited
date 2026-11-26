@@ -548,6 +548,12 @@ SDL_AppResult App::iterate() {
         touch_.update(dt, modal || !top ? gt3r::TouchLayout::None : top->touch_layout(), false, *input_);
     }
     gt3r::PadState scripted = scripted_keys();
+    if (back_pressed_) { // (Android's back button, this frame only)
+        back_pressed_ = false;
+        const Screen* top = screens_.empty() ? nullptr : screens_.back().get();
+        const PadButton b = !modal && top && top->back_is_start() ? PadButton::Start : PadButton::Triangle;
+        scripted.buttons |= u16(1u << unsigned(b)), scripted.pressure[size_t(b)] = 255;
+    }
     {
         // The script's presses and held race controls reach the race's pad too (as an overlay on
         // player 1's: a pad plugged in still drives).
@@ -680,6 +686,12 @@ SDL_AppResult App::iterate() {
 
 SDL_AppResult App::event(const SDL_Event& e) {
     if (e.type == SDL_EVENT_QUIT) return SDL_APP_SUCCESS;
+    // Android's back button: not a key of the controls (where it would be Triangle, a race's reverse too, held as long as the system
+    // holds it), but one press of the button the top screen gives it (Screen::back_is_start), taken in iterate().
+    if ((e.type == SDL_EVENT_KEY_DOWN || e.type == SDL_EVENT_KEY_UP) && e.key.scancode == SDL_SCANCODE_AC_BACK) {
+        if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat) back_pressed_ = true;
+        return SDL_APP_CONTINUE;
+    }
     input_->handle_event(e);
     // Back in front: the controllers' motors as they should be now (a stop sent while away can be lost).
     if (e.type == SDL_EVENT_WINDOW_FOCUS_GAINED) input_->window_focus_gained();

@@ -65,6 +65,9 @@ public:
     // Phones and tablets: the on-screen controls over this screen (input/touch_controls.h): none on the app's own pages, which are
     // tapped, the D-pad and buttons over the game's menus, the driving controls in a race.
     virtual gt3r::TouchLayout touch_layout() const { return gt3r::TouchLayout::None; }
+    // Android's back button here: Start (a race the player drives pauses), else Triangle (back). Either is pressed for one frame
+    // only, so what it closes does not see it held after (App::event).
+    virtual bool back_is_start() const { return false; }
 };
 
 class App {
@@ -229,6 +232,7 @@ private:
     gt3r::TouchOverlay touch_;
     std::optional<gt3r::platform::DisplayInsets> display_insets_;
     int insets_retry_ = 0;
+    bool back_pressed_ = false; // Android's back button went down: pressed on player 1's pad for this frame
 
     SDL_Window* window_ = nullptr;
     SDL_Renderer* renderer_ = nullptr; // the 3D device's when there is one
