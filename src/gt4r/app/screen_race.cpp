@@ -3674,7 +3674,11 @@ private:
             const s32 have = w.get("BestTime");
             if (best > 0 && (have <= 0 || have == menu::QuickWork::kNoTime || best < have)) w.set("BestTime", s32(best));
         }
-        if (session_kind()) {
+        // A mission's sequence (0x11BB60) counts its session over only when the player's car finished (its +0x5B6): then
+        // the result routine 0x11C328 and the rows; a run left by the pause's Exit (end code 2), timed out or not finished
+        // records the attempt (0x11C2E0) and goes back to the mission's page with Replay and Save (canReplay).
+        // (✔ The original's mission 1 exited: its page again with the two icons added, reference 21-gtmode-deep.)
+        if (session_kind() && !(sequence_ == "mission" && !r.finished)) {
             // The rows in finishing order with their times; a run the player did not finish: no times.
             const std::vector<race::RaceFlow::ResultRow> rows = flow.results();
             const std::vector<menu::QuickRow> kept = w.rows; // (the result routine's: a championship's points, 0x11A168)
