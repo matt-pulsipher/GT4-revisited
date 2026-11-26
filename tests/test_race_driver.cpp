@@ -128,3 +128,32 @@ TEST(driver_hands) {
     }
     CHECK(moved);
 }
+
+// Where the driver looks (driver_gaze.h): the aim on the road within 60 degrees of straight ahead, the place 2.5 m from the
+// eye toward it, reached by its springs. gt4r_diff posture with GT4R_POSTURE_GAZE checks it against the program bit for bit.
+TEST(driver_gaze) {
+    namespace rp = race::posture;
+    const auto near = [](rp::F a, float b, float tol = 1e-3f) { return std::fabs(a.host() - b) < tol; };
+    rp::Cockpit c;
+    c.seat = {rp::f(0.3f), rp::f(0.1f), rp::f(0.2f)};
+    // An aim ahead and a little right is kept; one straight to the right is turned onto the 60 degree edge; one behind is none.
+    const auto ahead = rp::road_target(c, {rp::f(3), rp::f(0.9f), rp::f(-28)});
+    CHECK(ahead && near(ahead->x, 3) && near(ahead->z, -28) && near(ahead->y, 0.9f));
+    const auto side = rp::road_target(c, {rp::f(10), rp::f(0.9f), rp::f(-1)});
+    CHECK(side && near(rp::atan2(side->x, -side->z), 1.0471976f));
+    CHECK(!rp::road_target(c, {rp::f(0.5f), rp::f(0.9f), rp::f(10)}));
+    // Straight ahead, turned left by the front wheels.
+    const rp::V3 left = rp::ahead_of_seat(c, rp::f(0.2f));
+    CHECK(left.x < rp::f(0) && near(left.y, 0.1f));
+    // The first step puts the place 2.5 m out at once; then it follows a target to the side, at most 60 degrees round.
+    rp::DriverGaze g;
+    rp::DriverRecord r;
+    rp::DriverGaze::Inputs in;
+    in.dt = rp::f(1.0f / 60), in.first = true, in.aim = rp::V3{rp::f(0), rp::f(0.9f), rp::f(-28)};
+    g.step(c, in, r);
+    CHECK(near(r.at(0x58), 0.3f - 2.5f * 0.3f / std::sqrt(0.09f + 28.2f * 28.2f)) && near(r.at(0x5C), 0.9f) && near(r.at(0x60), 0.2f - 2.5f, 0.01f));
+    in.first = false, in.aim = rp::V3{rp::f(-30), rp::f(0.9f), rp::f(-2)};
+    for (int k = 0; k < 120; ++k) g.step(c, in, r);
+    const float dx = r.at(0x58).host() - 0.3f, dz = r.at(0x60).host() - 0.2f;
+    CHECK(near(rp::f(std::sqrt(dx * dx + dz * dz)), 2.5f, 0.01f) && near(rp::f(std::atan2(-dx, -dz)), 1.0471976f, 0.01f));
+}

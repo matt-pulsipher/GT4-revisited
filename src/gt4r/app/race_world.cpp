@@ -138,9 +138,17 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
     const std::optional<Bytes> course = app.vfs()->read("crs/" + setup.course);
     if (!course || !course::CourseFile::looks_like_course(*course)) throw FormatError("There is no course file crs/" + setup.course + ".");
     if (setup.entries.empty()) throw FormatError("A race needs a car.");
+    float reflection_c0 = -1, reflection_c1 = 0;
     {
         const ByteSpan env = course::CourseFile::parse(*course).section(*course, course::kSlotEnv);
         night_ = env.size() >= 0x14 && (rd32(env, 0x10) & 0x8000) != 0;
+        // The cars' reflection passes are weighted by the course's factors (0x397CE0 sets the draw's: C0 = +0x34,
+        // C1 = +0x34 x +0x30).
+        if (env.size() >= 0x38) {
+            float k[2];
+            std::memcpy(k, env.data() + 0x30, 8);
+            reflection_c0 = k[1], reflection_c1 = k[1] * k[0];
+        }
     }
 
     const std::vector<db::CarEntry>& cars = app.db()->cars();
@@ -178,6 +186,7 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
             race::CarVisual::Options& o = job.options;
             o.paint = paints.empty() ? e.paint : paints[e.paint % paints.size()];
             o.lamp_level = night_ ? 1 : 0;
+            if (car::CarFile::is_car(*file)) o.reflection_c0 = reflection_c0, o.reflection_c1 = reflection_c1;
             if (!wing.empty()) job.wing = app.vfs()->read("wing/lod/" + wing);
             if (job.wing) o.wing = *job.wing;
             o.driver = setup.drivers;
@@ -954,6 +963,14 @@ void RaceWorld::present(std::span<const race::CarState> cars, const audio::Sound
             motion.velocity = {F(car.velocity.x), F(car.velocity.y), F(car.velocity.z)};
             motion.turn = turn_of(car);
             motion.roll = F(-std::atan2(car.right.y, car.up.y));
+            // The gaze's: the front wheels' angle, the computer driver's aim (its x, -z; 🔎 at the car's own height, the
+            // program's is the height where the car was put on the road) when the car has one.
+            motion.front_wheels = F(-0.5f * (car.wheels[0].steer + car.wheels[1].steer)); // (the program's + is to the left)
+            motion.co_driver = d.co_driver;
+            if (field_ && d.car < field_->size()) {
+                const sim::ai::Field::Probe p = field_->probe_get(d.car);
+                if (!(p.aim_x == F(0.0f) && p.aim_y == F(0.0f))) motion.aim = race::posture::V3{p.aim_x, F(car.position.y), -p.aim_y};
+            }
             d.state.step(d.cockpit, d.follow, dt, *hand_speeds_, &motion);
         }
     if (!m.smoke.loaded()) return;
@@ -1281,9 +1298,13 @@ std::pair<float, float> RaceWorld::car_size(size_t i) const {
 // The icons: one picture over the whole page, an orthographic camera looking down -z, each car
 // side-on, its front to the left, at its icon's place, as the program's small icon stands
 // (CarIconMaker 0x393D20 with its 64 x 32 picture: turned 90 degrees, the middle of its height in the
-// picture's, scaled to 0.85 of the picture's width or height, whichever fills first). ❓ Its picture is
-// drawn once, with its own light (0x394A10's four rows at 0x621470) and an edge darkened (eight
-// faint copies): here in the course's light.
+// picture's, scaled to 0.85 of the picture's width or height, whichever fills first). The program
+// makes the pictures once at the race's set-up through a ShowRoomCar (0x364760), in a light of its own
+// whatever the course (0x394A10: one light, the light set 0x66's ambient 0.8, diffuse 1.5 and specular
+// 1.0 from 0x621480 / 0x621490 / 0x6214A0, toward (1, 0.5, -10.5) from 0x621470; the others off): here
+// the same light each frame, no course fog, car lights or reflection of the course. ❓ The light's
+// direction in our view (the program's view z taken as into the picture), the reflection the maker
+// gives the car, and the edge it darkens (eight faint copies) are not read.
 void RaceWorld::draw_icons(Ui& ui, const SDL_FRect& canvas, std::span<const Icon> icons) {
     Impl& m = *impl_;
     if (icons.empty() || !app_.gpu()) return;
@@ -1348,12 +1369,14 @@ void RaceWorld::draw_icons(Ui& ui, const SDL_FRect& canvas, std::span<const Icon
     proj.at(1, 1) = 2 / h, proj.at(1, 3) = 1;
     proj.at(2, 2) = 1 / (zf - zn), proj.at(2, 3) = zf / (zf - zn);
     proj.at(3, 3) = 1;
-    render::DrawOptions o = draw_options(*course_, zf);
-    o.fog = false;
-    o.frustum_cull = false;
+    render::DrawOptions o;
+    o.sort_blended = true;
     for (float& c : o.clear) c = 0;
     o.composite_alpha = std::clamp(opacity, 0.0f, 1.0f);
-    if (m.views[0].view && m.views[0].env_ready) o.env_cube = m.views[0].view->env_cube(), o.env_gt3_lookup = true;
+    o.gt3_lighting = true;
+    for (int i = 0; i < 3; ++i) o.light_ambient[i] = 0.8f, o.light_diffuse[i] = 1.5f, o.light_specular[i] = 1.0f;
+    o.light_dir = render::normalize(RVec{1, 0.5f, 10.5f});
+    o.reflection_strength = 0;
     m.icon_view->draw(ui.renderer(), canvas, render::Mat4::identity(), proj, RVec{0, 0, 100}, items, o);
 }
 

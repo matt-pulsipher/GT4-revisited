@@ -91,10 +91,12 @@ struct Scene {
 constexpr int kWheelFaceSet = 3;
 constexpr int kWheelFaceSlot = 2;
 
-// The model set as a GTM1 block. Its draw programs keep their layout; commands GTM1 lacks are
-// replaced by no-ops of the same size, so a still model is drawn: no callbacks (a car's
+// The model set as a GTM1 block. Its draw programs keep their layout (but those that switch the reflection
+// factors, which are copied with GTM1's commands for them); commands GTM1 lacks are replaced by no-ops of the same size, so a still model is drawn: no callbacks (a car's
 // wheels), script registers read as 0 (a register switch takes its first branch), outside
 // texture sets as `scene` says. Throws FormatError.
+// A reflection pass drawn with the program's constant factors (command 0x57: C0 = 1, C1 = 0) has C1 = -0
+// (std::signbit); the others C0 = 1, C1 = +0, where the game takes the draw's factors.
 Bytes to_gtm1(ByteSpan mdls, ConvertStats* stats = nullptr, const Scene& scene = {});
 
 // The set's draw of its models (all, or one) through the shared decoder.

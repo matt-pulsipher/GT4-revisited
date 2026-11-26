@@ -55,7 +55,7 @@ struct GameSettings {
     // replay shows the display at all.
     struct Display {
         bool map = true, steering = false, meter = true, time = true, lap = true, position = true, car_name = true, suggested_gear = true,
-             g_meter = true;
+             g_meter = true, config = false; // (config: race_display_config, the lap's line names the lap)
     } display;
     bool replay_display = false;
     std::string replay_mode = "NORMAL"; // NORMAL, DIVE (the replay's cameras)

@@ -87,7 +87,8 @@ add_custom_command(OUTPUT ${GT3R_UI_FONT_SRC}
 add_library(gt3r_ui_fonts STATIC ${GT3R_UI_FONT_SRC})
 # Its UI toolkit (src/app there is the GT3 game's executable; these files are the
 # game-independent part).
-set(GT3R_UI_SOURCES ${GT3R_DIR}/src/app/ui.cpp ${GT3R_DIR}/src/app/ui_font.cpp ${GT3R_DIR}/src/app/button_prompts.cpp ${GT3R_DIR}/src/app/text_keyboard.cpp)
+set(GT3R_UI_SOURCES ${GT3R_DIR}/src/app/ui.cpp ${GT3R_DIR}/src/app/ui_font.cpp ${GT3R_DIR}/src/app/button_prompts.cpp ${GT3R_DIR}/src/app/text_keyboard.cpp
+    ${GT3R_DIR}/src/app/screen_touch_overlay.cpp) # (and the on-screen controls of phones and tablets)
 
 # ---------------------------------------------------------------------------
 # GT4 Revisited: everything under src/gt4r except the executable (src/gt4r/app).
@@ -100,7 +101,13 @@ target_include_directories(gt4r_engine PUBLIC src)
 target_link_libraries(gt4r_engine PUBLIC gt3r_engine)
 
 file(GLOB GT4R_APP_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/src/gt4r/app/*.cpp)
-add_executable(gt4r ${GT4R_APP_SOURCES} ${GT3R_UI_SOURCES})
+if(ANDROID)
+  # Android (android/README.md): the game is libmain.so, which SDL's Java glue loads.
+  add_library(gt4r SHARED ${GT4R_APP_SOURCES} ${GT3R_UI_SOURCES})
+  set_target_properties(gt4r PROPERTIES OUTPUT_NAME main)
+else()
+  add_executable(gt4r ${GT4R_APP_SOURCES} ${GT3R_UI_SOURCES})
+endif()
 target_link_libraries(gt4r PRIVATE gt4r_engine gt3r_ui_fonts)
 target_include_directories(gt4r SYSTEM PRIVATE ${GT3R_DIR}/third_party/stb)
 

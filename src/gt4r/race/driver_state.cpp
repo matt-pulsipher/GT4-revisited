@@ -51,6 +51,7 @@ void DriverState::reset(const Cockpit& c) {
     seat = seat_rate = seat_accel = V3{f(0), f(0), f(0)};
     lean_neck_rate = nod_neck_rate = lean_rate = nod_rate = heave_rate = height = lean_left = nod_left = tilt = tilt_rate = head_rate = f(0);
     first = true;
+    gaze = DriverGaze{};
 }
 
 namespace {
@@ -330,6 +331,7 @@ void DriverState::body_step(const Cockpit& c, const DriverMotion& m, F dt) {
 void DriverState::step(const Cockpit& c, F follow, F dt, const HandSpeeds& speeds, const DriverMotion* motion) {
     before = after;
     if (c.style != 0) return;
+    const bool was_first = first;
     if (motion) body_step(c, *motion, dt);
     const F rate_of = f(1) / dt;
     // The wheel (0x403F90): 0.4 of the follower, 480 degrees each way (90 in a car with a yoke).
@@ -346,6 +348,17 @@ void DriverState::step(const Cockpit& c, F follow, F dt, const HandSpeeds& speed
     }
     rates[0] = rate;
     const F mean = (sum + rate) / f(4);
+    // Where the driver looks (0x40DDC0): the aim in the car's frame, from the seat.
+    if (motion) {
+        DriverGaze::Inputs g;
+        g.dt = dt, g.wheel_angle = after.at(0x34), g.front_wheels = motion->front_wheels;
+        g.first = was_first, g.co_driver = motion->co_driver;
+        if (motion->aim) {
+            const V3 at = rotate(motion->turn, c.seat) + motion->pos;
+            g.aim = rotate(conjugate(motion->turn), *motion->aim - at);
+        }
+        gaze.step(c, g, after);
+    }
     // The hands.
     was[0] = state[0], was[1] = state[1];
     const F turned = rate * dt;
