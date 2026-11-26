@@ -965,10 +965,27 @@ frame is submitted, so two faces of one size through one view showed the same pi
 picture's texture is kept by what the picture holds (pictures are freed with their pages).
 
 The title page left alone for the option `timeout_count_to_autodemo` (20 s) asks for the
-sequence `autodemo` (its `onTick`, `context.time_after_last_input`): the opening movie
-(`demo_movie` with `opening`, after the Polyphony logo), then back to the title with its focus
-on Arcade Mode, as the original's capture shows (reference 28: no demo race plays from the
-title; the configuration's demo replays, `Rdemo0`.., are the Replay Theater's Demo tab).
+sequence `autodemo` (its `onTick`, `context.time_after_last_input`). **The title's
+demonstrations** (0x10BE20; MDemonstration at Status + 0x3B018, made by 0x434590): the
+configuration's `demonstration.initialize(13, 150, 3)` (0x4345D8) sets the list's length (+0x4C),
+a recorded run's time (+0x44) and the tries a time-out makes (`repeat_time`, +0x50); the movie's
+count (+0x6C) starts at the option `demo_movie_interval` (Option +0x116C, 3) less 1. A time-out
+(0x434638: the tries anew; with `restart_from_beginning` +0x60 the list and the count from their
+start) tries one after another (0x434770): when the count has run out and the option is above 0,
+the movie (kind `menu`: the project `demo_movie` with `opening`, after the Polyphony logo; the
+count from the option less 1 again); else the configuration's `setNextDemo(index)` sets the list's
+entry (+0x48, round), the count down one. A try that spends the time-out's tries, or whose script
+answered 0, is the last; the movie skipped (`menu_result` "terminate") ends it too; then the last
+project again (0x42FC50: the title, focus on Arcade Mode). The kinds by name (0x622D90): none,
+autodemo (an Arcade demo race, 0x10BA28), menu (a project), replay (the card's replays 0x4349A8,
+then the disc's recorded race 0x10BBB0), skip_replay; the type setter (0x434690) compares text, so
+the US and European lists' `Demo(2, "Rdemo0")` .. (a number) are kind none and play nothing: with
+the option at 3 every time-out plays the movie once (✔ reference 01-boot, 28's attract cycle: the
+movie, no demo race), at 5 every other time-out, at 1 three times running, at 0 never.
+`resetMovieCount` (the Misc options' OK) sets the count to 0: the movie at the next time-out.
+Here: `menu::autodemo_step` (game_demo.cpp) and the menu viewer's time-out (✔ test
+`disc_menu_title_demonstrations`; a scripted run's picture 31 s after the title: the movie). ❓ The
+kinds autodemo, replay and skip_replay (no disc script sets them) play nothing here.
 
 ❓ Not drawn: `SceneViewFace` (the race draws its scene under its pages), `RaceCourseMapFace`, `EyetoyFace`, `VirtualFace`, `LoggerFace`; the cursor's `load` icon; the
 loading page's modes other than black and capture (below).

@@ -309,6 +309,24 @@ struct GameState {
     // the program's constructors make it). The save module writes the named fields over it.
     Bytes saved_image;
 
+    // The title's demonstrations (MDemonstration, Status + 0x3B018; made by 0x434590): the kind of the one chosen (0 none,
+    // 1 autodemo, 2 menu, 3 replay, 4 skip_replay), its name and argument, and the counts the autodemo sequence keeps.
+    struct Demonstration {
+        int type = 0;
+        std::string name, arg;
+        s32 replay_time = 90;  // +0x44 a recorded run's time
+        s32 index = 0;         // +0x48 the list's next entry
+        s32 count = 0;         // +0x4C the list's length
+        s32 repeat = 4;        // +0x50 the tries a time-out makes (repeat_time)
+        s32 left = 0;          // +0x54 of them left
+        s32 skip_time = 3;     // +0x58
+        s32 skip_at = 0;       // +0x5C
+        s32 restart = 0;       // +0x60 restart_from_beginning
+        s32 card_at = 0;       // +0x64 the card's replays' next
+        s32 movie_left = 0;    // +0x6C demonstrations until the movie
+        bool more = false;     // the time-out's sequence goes on after the project it ran
+    } demonstration;
+
     // Something to save (MGame.isNeedSave answers it and clears it, 0x43AC68): a day put in the
     // diary sets it (0x42F0E0), as does setNeedSave.
     bool need_save = false;
@@ -395,5 +413,8 @@ GameState::Unit torque_unit_of(const std::string& option);
 std::optional<sim::Equipment> race_equipment(const GameState& game, int garage_slot);
 // And its condition block (0x20 bytes from the record's +0x498: the race entry's +0x3468).
 std::optional<std::array<u8, 0x20>> race_condition(const GameState& game, int garage_slot);
+// The title's time-out (the autodemo sequence, 0x10BE20), one demonstration at a time (game_demo.cpp): the menu project to
+// run and its argument, none when the sequence is over. `first` at the time-out, then after each project it ran.
+std::optional<std::pair<std::string, std::string>> autodemo_step(Runtime& rt, bool first);
 
 } // namespace gt4r::menu

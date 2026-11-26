@@ -242,3 +242,47 @@ TEST(disc_car_gets_dirty) {
     }
     CHECK(f.clean());
 }
+
+// The title's time-out (the autodemo sequence 0x10BE20): up to repeat_time (3) tries, each counting the movie's count
+// down (0x434770); the movie (demo_movie, "opening") when it has run out, the option demo_movie_interval less 1 again
+// after it; the disc's demonstration list (setNextDemo: Demo(2, "Rdemo0") .., a number that names no kind) plays nothing.
+// A skipped movie ("terminate") ends the time-out.
+TEST(disc_menu_title_demonstrations) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    Flow f(*disc);
+    CHECK(f.boot_to_title());
+    menu::GameState& g = f.rt->game();
+    menu::GameState::Demonstration& d = g.demonstration;
+    std::printf("  initialized: count %d, replay time %d, tries %d, movie in %d\n", d.count, d.replay_time, d.repeat, d.movie_left);
+    CHECK(d.count == 13 && d.replay_time == 150 && d.repeat == 3 && d.movie_left == 2);
+    // The movies each time-out plays.
+    auto timeout = [&](bool skip = false) {
+        int movies = 0;
+        for (auto step = menu::autodemo_step(*f.rt, true); step; step = menu::autodemo_step(*f.rt, false)) {
+            CHECK(step->first == "demo_movie" && step->second == "opening");
+            ++movies;
+            g.menu_result = skip ? "terminate" : "";
+        }
+        return movies;
+    };
+    for (const auto& [interval, expected] : std::vector<std::pair<int, std::vector<int>>>{{3, {1, 1, 1}}, {5, {0, 1, 0, 1}}, {1, {3, 3}}, {0, {0, 0}}}) {
+        g.options["demo_movie_interval"] = interval;
+        d.movie_left = interval - 1;
+        std::string seen;
+        for (const int want : expected) {
+            const int got = timeout();
+            seen += std::to_string(got) + " ";
+            CHECK(got == want);
+        }
+        std::printf("  interval %d: movies per time-out %s, the list's entry %d\n", interval, seen.c_str(), d.index);
+    }
+    g.options["demo_movie_interval"] = 1, d.movie_left = 0;
+    CHECK(timeout(true) == 1); // skipped: the time-out ends
+    // resetMovieCount (the Misc options' OK): the movie at the next time-out.
+    g.options["demo_movie_interval"] = 5, d.movie_left = 3;
+    script::Vm& vm = f.rt->vm();
+    call(vm, vm.attribute(vm.lookup("game"), "demonstration"), "resetMovieCount");
+    g.menu_result.clear();
+    CHECK(timeout() == 1 && f.clean());
+}

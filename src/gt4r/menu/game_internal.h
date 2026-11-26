@@ -159,6 +159,8 @@ void make_used_condition(Database& d, CarRecord& r, u32 meters);
 
 // ---- game_records.cpp
 void install_records(GameNatives& n, Object& game, script::Module& menu);
+// ---- game_demo.cpp: MDemonstration.
+void install_demonstration(GameNatives& n, Object& game);
 // Whether all 16 tests of a license ("l0b", "l0a", "lib", "lia", "l0s") are passed with bronze or better (0x4312B0).
 bool license_all_bronze(Database& d, const GameState& s, const std::string& category);
 // Whether the player may drive an event himself (the race's menus' IsASpec): it asks for no license (its RACE row's byte

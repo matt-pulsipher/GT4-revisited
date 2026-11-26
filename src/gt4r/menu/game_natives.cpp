@@ -989,12 +989,8 @@ g.method("menuRef", [s](Vm&, const Value&, Args a) {
 
     g.set("garage", object_value(make_garage(s)));
 
-    // The demonstrations the title page falls back to.
-    auto demo = std::make_shared<Object>("MDemonstration");
-    for (const char* nothing : {"initialize", "resetPlayListCounter", "resetMovieCount"}) demo->method(nothing, [](Vm&, const Value&, Args) { return Value{}; });
-    demo->set("type", text("")), demo->set("name", text("")), demo->set("arg", text(""));
-    demo->set("repeat_time", number(0)), demo->set("skip_time", number(0)), demo->set("restart_from_beginning", number(0));
-    g.set("demonstration", object_value(demo));
+    // The demonstrations the title page falls back to (game_demo.cpp).
+    install_demonstration(*this, g);
 
     // The calendar, the records, the favorites, the presents, the used cars (game_records.cpp).
     install_records(*this, g, *rt.vm().lookup("menu").as<script::Module>());
