@@ -148,8 +148,6 @@ race::Vec3 sub(const race::Vec3& a, const race::Vec3& b) { return {a.x - b.x, a.
 
 bool tarmac(int surface) { return surface == 0 || (surface >= 7 && surface <= 9) || surface == 12; }
 
-// The driver's 0..255 priority of a level: the louder, the longer it keeps its voice.
-int note_priority(float level) { return std::min(255, int(std::min(std::fabs(level), 1.0f) * 255.0f)); }
 
 } // namespace
 
@@ -344,7 +342,7 @@ void CarSound::send(Loop& loop, const Effect& e, float level, const Placement& a
     SoundParams p;
     p.left = l, p.right = r;
     p.pitch = pitch;
-    p.priority = note_priority(level);
+    p.priority = level_priority(level);
     if (loop.id && effects_->note_playing(loop.id))
         effects_->set_note(loop.id, p);
     else
@@ -357,7 +355,7 @@ void CarSound::play_once(const Effect& e, float strength, float gain, const Plac
     if (level == 0) return;
     SoundParams p;
     p.left = at.left * level, p.right = at.right * level;
-    p.priority = note_priority(level);
+    p.priority = level_priority(level);
     if (sound_log()) LOG_INFO("Sound: a car's single note of program %d at %.4f", e.program, double(level));
     if (effects_->note_on(e.bank, e.program, p)) ++report_.notes;
 }
@@ -451,7 +449,7 @@ void CarSound::update(const CarSoundState& car, const SoundListener& listener, b
     feed(exhaust_, car.rpm, report_.exhaust_gain, at_exhaust, doppler);
     feed(wind_, wind_rpm, report_.wind_gain, at_engine, doppler);
     const bool mono = mode == OutputMode::Mono;
-    engine_.step(&mixer_, mono), exhaust_.step(&mixer_, mono), wind_.step(&mixer_, mono);
+    engine_.step(&mixer_, mono, effects_), exhaust_.step(&mixer_, mono, effects_), wind_.step(&mixer_, mono, effects_);
     if (!effects_) return;
 
     // The turbo's spool and the gearbox's whine, at the engine.
@@ -577,8 +575,7 @@ void CarSound::feed(LayerPlayer& player, float rpm, float level, const Placement
         return s16(i >= 0x3FFF ? 0x3FFE : std::max(i, -0x3FFF));
     };
     in.left = side(at.left * level), in.right = side(at.right * level);
-    const float size = std::fabs(level);
-    in.priority = size >= 1.0f ? 0x7FFFFFFEu : u32(std::min(double(size) * 2147483520.0, double(0x7FFFFFFE)));
+    in.priority = u32(level_priority(level));
     in.doppler = std::clamp(int(doppler * 4096.0f), 0, 0x3FFF);
     in.rpm = int(s16(int(rpm)));
     in.adsr1 = mix_->tables.layer_adsr1;

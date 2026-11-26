@@ -47,12 +47,20 @@ inline void with_output_level(gt3r::VoiceMixer& mixer) { mixer.set_master_volume
 inline void with_surround_cue(gt3r::VoiceMixer& mixer) { mixer.set_surround_cue(true); }
 inline float stream_request(float level) { return level * kOutputLevel / gt3r::VoiceMixer::kOutputTrim; }
 
+// A voice's priority (docs/formats/sound.md "Voices"): a signed 32-bit number, the higher keeping its voice
+// longer. kNoPriority is the program's default for a sequence's or a note's (0x55A748); an effect sequence
+// without one takes its tones' own priorities and voices by age.
+constexpr s32 kNoPriority = -1;
+// The race's priority for a sound of `level` (0x392640, 0x398B70): |level| x 2147483520 in the EE's floats,
+// truncated, at most 0x7FFFFFFE (from a level of 1 up).
+s32 level_priority(float level);
+
 // What the caller sets on an effect sequence or a held note.
 struct SoundParams {
     float left = 1.0f, right = 1.0f; // side gains, -1..1 (negative inverts the side); a held note's: up to 2
     float pitch = 1.0f;              // pitch factor
     int pan = 0x40;                  // added to the tone's pan (0x40: none)
-    int priority = 0;                // a held note's voice priority: higher keeps its voice longer
+    s32 priority = kNoPriority;      // the voices' priority (above)
     bool dry = false;                // a held note: no reverb send even where the tone asks for one
 };
 
@@ -109,6 +117,13 @@ public:
     void stop_all();
     int voices() const; // sounding now
 
+    // --- the voices ---
+    // A voice for a layer player (layer_player.h; the driver's kind 4, 0x558FD8): one of the driver's 46 by the
+    // rule of a held note (a free one, else the lowest priority at or under `priority`); an invalid id when
+    // none. The player sends its priority again every step.
+    gt3r::VoiceId key_layer(const gt3r::VoiceParams& p, s32 priority);
+    void set_layer_priority(gt3r::VoiceId id, s32 priority);
+
 private:
     struct Slide {
         float target = 0, step = 0, value = 0;
@@ -116,6 +131,7 @@ private:
     };
     struct Voice {
         gt3r::VoiceId id;
+        int slot = -1; // the driver's record it sounds on
         Kind kind = Kind::Music;
         u32 owner = 0; // the effect sequence's or the note's id; 0 for music
         int channel = 0, key = 0;
@@ -170,7 +186,32 @@ private:
         std::shared_ptr<const sound::InstBank> bank;
     };
 
+    // The driver's voice records (0x6518C8 + 0xA8, 0xE0 bytes each; docs "Voices"): 46 that the program hands
+    // out, each the shared mixer's voice while it sounds.
+    struct Slot {
+        gt3r::VoiceId id;
+        bool busy = false;
+        s32 priority = kNoPriority; // +0x34
+        int group = -1;             // +0x40: an effect tone's voice group (0 none), -1 for a held note's or a layer's
+        bool kept = false;          // +0x1A bit 4: a prioritized effect's tone flagged 0x01 (an effect without a priority leaves it)
+        s32 age = 0;                // +0x14: the driver's steps since it was keyed
+        s32 serial = 0;             // +0x48: the order it was handed out
+    };
+    // How a voice is found when none is free: the lowest priority at or under the claim's, the oldest by
+    // age among equals (0x55D0B0); or the first handed out among those the claim allows (0x55D1C0).
+    struct Claim {
+        enum class Take : u8 { ByPriority, Oldest } take = Take::Oldest;
+        s32 priority = kNoPriority; // ByPriority
+        int group = -1;             // Oldest: only that group's voices (-1: any)
+        bool skip_kept = false;     // Oldest: not the voices kept by their tones
+    };
+
     // (all with mutex_ held)
+    int claim(const Claim& c);               // a slot (its old voice cut), -1 when none
+    s32 next_serial();
+    void age_slots();                        // once a step: ended voices go back to the free list, the others age
+    void release_slot(int slot);
+    gt3r::VoiceId key_slot(int slot, gt3r::VoiceParams p); // keys the slot's voice; frees the slot when the mixer refuses
     u8 byte(Sequence& s);
     u32 number(Sequence& s);
     void set_tempo(Sequence& s, float bpm);
@@ -183,8 +224,14 @@ private:
     void tick_effect(Effect& e);
     void effect_event(Effect& e);
     void effect_note_on(Effect& e, int program, int key, int velocity);
+    // What a slot takes on besides its voice.
+    struct SlotSetup {
+        s32 priority = 0;
+        int group = -1;
+        bool kept = false;
+    };
     Voice* key_on(const sound::InstBank& bank, std::shared_ptr<const Bytes> adpcm, const sound::Program& program, const sound::Tone& tone,
-                  Voice v, bool reverb, int priority);
+                  Voice v, bool reverb, const Claim& claim, const SlotSetup& setup);
     void levels(const Voice& v, s16& l, s16& r) const;
     u16 pitch(Voice& v);
     void update_voices();
@@ -198,6 +245,9 @@ private:
     gt3r::VoiceMixer& mixer_;
     mutable std::mutex mutex_;
     std::vector<Voice> voices_;
+    std::array<Slot, gt3r::VoiceMixer::kVoices> slots_{};
+    std::vector<int> free_; // the free list, its head last (0x6518C8 + 0x2AA8)
+    s32 serial_ = 0;        // (+0xA0)
     Music music_;
     std::array<Effect, kEffectSequences> effects_{};
     std::vector<Note> notes_;

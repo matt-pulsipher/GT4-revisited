@@ -504,6 +504,66 @@ TEST(sound_driver_held_notes) {
     s.driver().stop_all();
 }
 
+// The driver's 46 voices (0x55C758, 0x55D0B0, 0x55D1C0): a free one, else a held note takes the lowest
+// priority at or under its own (the oldest of equals by age, the later record of equal ages), a music note
+// the first handed out of all.
+TEST(sound_driver_voice_records) {
+    CHECK(audio::level_priority(0) == 0 && audio::level_priority(1.0f) == 0x7FFFFFFE && audio::level_priority(-3.0f) == 0x7FFFFFFE);
+    // (the EE's multiplier: 0.5 x 2147483520 comes out one under the exact product)
+    CHECK(audio::level_priority(0.5f) == 1073741696 && audio::level_priority(-0.25f) == 536870848);
+    const auto bank = bank_of(make_bank());
+    audio::OfflineSound s(false);
+    audio::SoundParams p;
+    p.priority = 100;
+    std::vector<u32> ids;
+    for (int i = 0; i < 46; ++i) {
+        ids.push_back(s.driver().note_on(bank, 0, p));
+        s.advance(1); // (each a step older than the next)
+    }
+    CHECK(ids.back() != 0 && s.driver().voices() == 46);
+    // Equal priority: the oldest makes way.
+    const u32 a = s.driver().note_on(bank, 0, p);
+    CHECK(a && !s.driver().note_playing(ids[0]) && s.driver().note_playing(ids[1]));
+    // Nothing at or under 99: no voice.
+    p.priority = 99;
+    CHECK(s.driver().note_on(bank, 0, p) == 0);
+    // A higher priority takes the lowest, the oldest of them.
+    p.priority = 101;
+    const u32 b = s.driver().note_on(bank, 0, p);
+    CHECK(b && !s.driver().note_playing(ids[1]) && s.driver().note_playing(ids[2]));
+    // A note's priority sent again: now the lowest.
+    p.priority = 50;
+    s.driver().set_note(ids[20], p);
+    p.priority = 100;
+    CHECK(s.driver().note_on(bank, 0, p) && !s.driver().note_playing(ids[20]) && s.driver().note_playing(ids[2]));
+    // A music note takes the first voice handed out whatever its priority: ids[2] (b's took ids[1]'s later).
+    const auto seq = sqt_of(make_sqt({0x00, 0xC0, 0x00, 0x00, 0x90, 60, 127, 0x87, 0x40, 60, 0, 0x00, 0xFF, 0x2F, 0x00}));
+    s.driver().play_music(bank, seq, 0);
+    s.advance(1);
+    CHECK(!s.driver().note_playing(ids[2]) && s.driver().note_playing(ids[3]) && s.driver().note_playing(b));
+    s.driver().stop_all();
+    CHECK(s.driver().voices() == 0);
+
+    // Keyed in one step, the ages tie: the later record makes way (the last keyed, on a fresh driver whose
+    // free list hands out record 0 first).
+    audio::OfflineSound fresh(false);
+    audio::OfflineSound& s2 = fresh;
+    ids.clear();
+    p.priority = 7;
+    for (int i = 0; i < 46; ++i) ids.push_back(s2.driver().note_on(bank, 0, p));
+    const u32 c = s2.driver().note_on(bank, 0, p);
+    CHECK(c && !s2.driver().note_playing(ids[45]) && s2.driver().note_playing(ids[44]) && s2.driver().note_playing(ids[0]));
+    // A layer player's voice by the same rule; its priority sent again.
+    gt3r::VoiceParams v;
+    v.data = bank->adpcm;
+    p.priority = 8;
+    const gt3r::VoiceId layer = s2.driver().key_layer(v, 8);
+    CHECK(layer.valid() && !s2.driver().note_playing(c) && s2.driver().note_playing(ids[44])); // (record 45 again)
+    s2.driver().set_layer_priority(layer, 1);
+    CHECK(s2.driver().note_on(bank, 0, p) && !s2.mixer().playing(layer));
+    s.driver().stop_all();
+}
+
 // --- on the discs ---------------------------------------------------------------------------
 
 TEST(sound_files_on_disc) {

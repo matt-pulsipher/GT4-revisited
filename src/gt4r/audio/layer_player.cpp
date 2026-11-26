@@ -1,5 +1,7 @@
 #include "gt4r/audio/layer_player.h"
 
+#include "gt4r/audio/sound_driver.h"
+
 #include "gt4r/formats/sound/inst_bank.h"
 
 #include <algorithm>
@@ -107,7 +109,7 @@ void LayerPlayer::stop(gt3r::VoiceMixer& mixer) {
     }
 }
 
-void LayerPlayer::step(gt3r::VoiceMixer* mixer, bool mono) {
+void LayerPlayer::step(gt3r::VoiceMixer* mixer, bool mono, SoundDriver* driver) {
     if (!bank_ || bank_->layers.empty()) return;
     const std::vector<EngineLayer>& layers = bank_->layers;
     const int rpm = std::max(input_.rpm, kMinRpm);
@@ -160,12 +162,15 @@ void LayerPlayer::step(gt3r::VoiceMixer* mixer, bool mono) {
             p.adsr1 = input_.adsr1, p.adsr2 = kAdsr2;
             p.reverb = !input_.dry;
             p.priority = mixer_priority(input_.priority);
-            s.voice = mixer->key_on(p);
+            s.voice = driver ? driver->key_layer(p, s32(std::min<u32>(input_.priority, 0x7FFFFFFF))) : mixer->key_on(p);
             s.sounding = s.voice.valid();
         } else {
             mixer->set_pitch(s.voice, pitch);
             mixer->set_volume(s.voice, l, r);
-            mixer->set_priority(s.voice, mixer_priority(input_.priority));
+            if (driver)
+                driver->set_layer_priority(s.voice, s32(std::min<u32>(input_.priority, 0x7FFFFFFF)));
+            else
+                mixer->set_priority(s.voice, mixer_priority(input_.priority));
         }
     }
 }
