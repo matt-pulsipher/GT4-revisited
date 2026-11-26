@@ -306,6 +306,11 @@ the callback 0x3EBE28 -> 0x3AEAE8: the race's text table, the one the race displ
   only they can be the DEFAULT) and keeps the look it had (its state update 0x484D48 is skipped). The
   pause's rows switch their menu off as they are pressed (`pitmenu.strb` names the method too), so while the chosen row
   plays its animation no row has the focus: none other lights, and further presses do nothing.
+  Ours also takes a mouse and a finger (the program's player has only the pad's virtual pointer): a
+  hover, or a tap on a button not focused, gives that button the focus (its focus conditions run); a
+  tap on the focused one presses it as accept does. The button under the pointer is the one whose hit
+  area (its fourth state's shapes on their first frame, through the instances' matrices; a pause row's
+  is 142 x 20) holds it.
 - Drawing: each shape group is its polygon filled (solid, a picture through its fill matrix, or a
   gradient along the matrix's u); colours are 0xAABBGGRR with 0x80 a full channel, through the
   instances' colour changes (multiply 0x80 = x1, add / 255) from the root down; texts in the

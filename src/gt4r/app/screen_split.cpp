@@ -859,6 +859,7 @@ private:
             if (m.vertical()) pause_->key(m.vertical() < 0 ? 0x26 : 0x28);
             if (m.horizontal()) pause_->key(m.horizontal() < 0 ? 0x25 : 0x27);
             if (m.pressed(PadButton::Cross)) pause_->key(0x20);
+            RaceHud::point_movie(app, *pause_);
             pause_->advance(float(dt));
         }
         if (pause_result_.empty()) return;

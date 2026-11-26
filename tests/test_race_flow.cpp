@@ -352,6 +352,54 @@ TEST(strobe_pause_movie_disc) {
     if (!movies) SKIP("no Gran Turismo 4 disc");
 }
 
+// Taps and clicks on the pause's rows (as GT3R's pause takes them): a tap on a row not focused
+// focuses it, a tap on the focused row chooses it; a hover focuses; off the rows nothing.
+TEST(strobe_pause_movie_taps_disc) {
+    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    size_t movies = 0;
+    for (const auto& disc : test::discs()) {
+        const gt3r::Volume::Entry* e = disc->volume().find("menu/common/pause.strb");
+        if (!e) continue;
+        ++movies;
+        auto movie = std::make_shared<const race::StrobeMovie>(race::StrobeMovie::parse(disc->volume().read(*e)));
+        std::string exit;
+        race::StrobePlayer* self = nullptr;
+        auto host = [&](const std::string& name, const std::vector<race::StrobePlayer::Value>& args) {
+            using V = race::StrobePlayer::Value;
+            std::string n = name;
+            for (char& c : n) c = char(std::toupper(static_cast<unsigned char>(c)));
+            if (n == "SCREENSETTINGENABLE") return V::number(1);
+            if (n == "EXIT_MENU" && !args.empty()) exit = args[0].to_string();
+            if (n == "NAVIGATEALL" && self) self->navigate(true, true);
+            return V{};
+        };
+        race::StrobePlayer p(movie, host);
+        self = &p;
+        p.advance(10.0f / 30);
+        CHECK(p.focus() == "DEFAULT");
+        float cont[4], exit_box[4];
+        CHECK(p.button_box("DEFAULT", cont));
+        p.key(0x28); // (EXIT's box: the focused one's)
+        const std::string exit_row = p.focus();
+        CHECK(p.button_box("", exit_box));
+        p.key(0x26);
+        // The rows' hit areas: 142 x 20 about their centers, 30 apart (strobe.md "A row").
+        CHECK(std::fabs((cont[2] - cont[0]) - 142) < 2 && std::fabs((cont[3] - cont[1]) - 20) < 2);
+        CHECK(std::fabs((exit_box[1] + exit_box[3]) / 2 - (cont[1] + cont[3]) / 2 - 30) < 1);
+        const float ex = (exit_box[0] + exit_box[2]) / 2, ey = (exit_box[1] + exit_box[3]) / 2;
+        CHECK(!p.point(10, 10, true) && p.focus() == "DEFAULT");
+        CHECK(p.point(ex, ey, false) && p.focus() == exit_row); // a hover
+        CHECK(p.point((cont[0] + cont[2]) / 2, (cont[1] + cont[3]) / 2, true) && p.focus() == "DEFAULT"); // a first tap: the focus
+        p.advance(20.0f / 30);
+        CHECK(exit.empty());
+        CHECK(p.point(ex, ey, true) && p.focus() == exit_row);
+        CHECK(p.point(ex, ey, true)); // on the focused row: chosen
+        for (int i = 0; i < 20 && exit.empty(); ++i) p.advance(1.0f / 30);
+        CHECK(exit == "exit");
+    }
+    if (!movies) SKIP("no Gran Turismo 4 disc");
+}
+
 // The PIT STOP menu: its rows from OK (DEFAULT) down, round to OK; a press on OK switches the
 // menu off (no row has the focus while its row plays, a second press does nothing) and makes the
 // choice (EXIT) once.
@@ -382,6 +430,11 @@ TEST(strobe_pit_menu_disc) {
             p.key(0x28);
             CHECK(p.focus() == row);
         }
+        // A tap on a row focuses it (its button's hit area), on the focused one chooses it.
+        float feed[4], ok[4];
+        CHECK(p.button_box("FEED", feed) && p.button_box("DEFAULT", ok));
+        CHECK(p.point((feed[0] + feed[2]) / 2, (feed[1] + feed[3]) / 2, true) && p.focus() == "FEED");
+        CHECK(p.point((ok[0] + ok[2]) / 2, (ok[1] + ok[3]) / 2, true) && p.focus() == "DEFAULT" && exits == 0);
         p.key(0x20);
         p.advance(2.0f / 30);
         CHECK(p.focus().empty());

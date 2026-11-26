@@ -147,6 +147,9 @@ public:
     void set_course_logo(ByteSpan tex1);
     // The 640 x 480 canvas on the screen.
     static SDL_FRect canvas();
+    // The pointer's hovers and taps (UI units) on a movie's buttons drawn on the canvas (StrobePlayer::point):
+    // a hover or a tap on a button focuses it, a tap on the focused one chooses it. True when one was tapped.
+    static bool point_movie(const App& app, race::StrobePlayer& player);
     // The event line's place on the canvas in the display `s` draws (false: none).
     bool event_line_at(const HudState& s, float& x, float& y) const;
 
