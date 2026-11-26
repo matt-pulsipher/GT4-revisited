@@ -311,7 +311,7 @@ void load_test(App& app, Setup& setup, const std::string& code) {
             }
             for (size_t k = 0; k < 3; ++k) setup.targets[k] = e->target_ms[k] > 0 ? s64(e->target_ms[k]) : -1;
             setup.rules = race::LicenseRules::from_row(e->bytes);
-            if (app.disc() && app.disc()->info().serial.rfind("SCPS", 0) != 0) setup.conductor = race::conductor_for(setup.sequence, code);
+            if (app.disc() && app.disc()->info().game != Game::Prologue) setup.conductor = race::conductor_for(setup.sequence, code);
         }
     } catch (const std::exception& e) {
         LOG_WARN("Drive: the test's event: %s", e.what());
@@ -2489,7 +2489,7 @@ public:
             gt3r::Vfs* vfs = app.vfs();
             config.list = [vfs](const std::string& folder) { return vfs->list_dir(folder); };
             if (Disc* disc = app.disc()) config.program_image = [disc] { return disc->program_image(); };
-            if (Disc* disc = app.disc(); disc && disc->info().serial.rfind("SCPS", 0) == 0) config.region = "jp", config.language = "JP"; // (Prologue: its text is Japan's)
+            if (Disc* disc = app.disc()) config.region = disc->info().region, config.language = disc->info().language, config.product = disc->info().product;
             config.data_dir = app.save_dir();
             own_menus_ = std::make_unique<menu::Runtime>([vfs](const std::string& path) { return vfs->read(path); }, config);
             own_menus_->boot();

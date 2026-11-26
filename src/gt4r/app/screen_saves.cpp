@@ -41,7 +41,7 @@ public:
         prologue_ = app.disc() && app.disc()->info().game == Game::Prologue;
         std::string dir = app.save_dir();
         while (!dir.empty() && (dir.back() == '/' || dir.back() == '\\')) dir.pop_back();
-        library_ = std::make_unique<save::SaveLibrary>(dir, prologue_ ? "BISCPS-15055" : "BASCUS-97328");
+        library_ = std::make_unique<save::SaveLibrary>(dir, app.disc() ? app.disc()->info().product : std::string("BASCUS-97328"));
         list(app);
     }
 

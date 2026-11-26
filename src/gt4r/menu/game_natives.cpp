@@ -985,6 +985,7 @@ save::Codes GameNatives::codes() {
 save::SaveLibrary GameNatives::library() {
     Database& base = db();
     base.get(config);
+    if (!config.product.empty()) return save::SaveLibrary(config.data_dir, config.product);
     return save::SaveLibrary(config.data_dir, base.db && base.db->prologue() ? "BISCPS-15055" : "BASCUS-97328");
 }
 
@@ -1422,8 +1423,24 @@ void install_game_natives(Runtime& rt, script::Module& menu) {
         static_fn(*cls, "GetRegionCode", [r](Vm&, const Value&, Args) { return text(r->region()); });
         static_fn(*cls, "GetLanguage", [r](Vm&, const Value&, Args) { return text(r->language()); });
         static_fn(*cls, "GetStaticLanguage", [r](Vm&, const Value&, Args) { return text(r->language()); });
+        // SetLanguage (0x436170): the language by its code (the program's table 0x6AE404: JP, US, GB, FR, DE, IT, ES, PT, KR,
+        // CN, TW, DB), kept in the game's options.
         static_fn(*cls, "SetLanguage", [r](Vm&, const Value&, Args a) {
-            r->note("language asked for: " + arg_text(a, 0));
+            const std::string l = arg_text(a, 0);
+            r->note("language: " + l);
+            r->set_language(l);
+            r->game().options["language"] = l;
+            return Value{};
+        });
+        // SyncUnitWithLanguage (0x4361D0 -> 0x472528): the units by the language's locale (0x472408): mph with HP and ft.lb in
+        // US English, mph with BHP and kgf.m in British English, km/h and kgf.m elsewhere with CH in French, CV in Italian,
+        // Spanish and Portuguese, PS in German, Japanese, Korean and Chinese.
+        static_fn(*cls, "SyncUnitWithLanguage", [r](Vm&, const Value&, Args) {
+            const std::string l = r->language();
+            auto& o = r->game().options;
+            o["unit_velocity"] = std::string(l == "US" || l == "GB" ? "MPH" : "KMPH");
+            o["unit_power"] = std::string(l == "US" ? "HP" : l == "GB" ? "BHP" : l == "FR" ? "CH" : l == "IT" || l == "ES" || l == "PT" ? "CV" : "PS");
+            o["unit_torque"] = std::string(l == "US" ? "FTLB" : "KGFM");
             return Value{};
         });
         static_fn(*cls, "GetVideoSystem", [r](Vm&, const Value&, Args) { return text(r->region() == "uk" ? "PAL" : "NTSC"); });
@@ -1439,7 +1456,7 @@ void install_game_natives(Runtime& rt, script::Module& menu) {
             r->game().loading_mode = arg_text(a, 0);
             return Value{};
         });
-        for (const char* nothing : {"SetDrawPerfMeter", "DumpMemoryBlock", "SyncUnitWithLanguage", "Reboot"})
+        for (const char* nothing : {"SetDrawPerfMeter", "DumpMemoryBlock", "Reboot"})
             static_fn(*cls, nothing, [](Vm&, const Value&, Args) { return Value{}; });
         auto now = [] {
             const std::time_t t = std::time(nullptr);

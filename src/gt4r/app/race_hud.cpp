@@ -323,9 +323,9 @@ RaceHud::RaceHud(App& app, ByteSpan gtcm) : impl_(std::make_unique<Impl>()) {
         }
         for (const gt3r::text::LatinFont& f : m.race_fonts.fonts) m.font_by_name.emplace(f.name, &f);
         // The region's pack: the disc's own region first.
-        const std::string serial = app.disc()->info().serial;
-        m.mph = serial.rfind("SCUS", 0) == 0;
-        std::vector<std::string> regions{m.mph ? "US" : serial.rfind("SCES", 0) == 0 ? "GB" : "JP", "US", "GB", "JP"};
+        const DiscInfo& info = app.disc()->info();
+        m.mph = info.region == "us" || info.region == "uk";
+        std::vector<std::string> regions{info.language, "US", "GB", "JP"};
         for (const std::string& region : regions) {
             if (std::optional<Bytes> file = app.vfs()->read("race_display/gt4/" + region + "/display.gpb"); file && menu::ImagePack::is_pack(*file)) {
                 m.pack_file = std::move(*file);
