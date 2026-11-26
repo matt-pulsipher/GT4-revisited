@@ -2821,6 +2821,7 @@ public:
                 hud_state_.show_position = d.position, hud_state_.show_meter = d.meter;
                 hud_state_.replay_display = race_->viewing() && race_->view().style() == race::ReplayStyle::Display;
                 hud_state_.replay_paused = replay_paused_;
+                hud_state_.touch_controls = app.touch_control_bounds(); // (the meters clear of them)
                 // A license test: the targets (the page's gold, silver and bronze times).
                 hud_state_.license = is_license(sequence_);
                 for (int k = 0; k < 3; ++k) hud_state_.targets[k] = test_time(k);

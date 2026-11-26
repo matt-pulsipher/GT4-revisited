@@ -123,6 +123,13 @@ public:
     bool mouse_at(float& x, float& y) const { return !cursor_hidden_ && pointer_.hover_pos(x, y); }
     SDL_Window* window() { return window_; }
     bool touch_ui() const { return touch_ui_; } // phones and tablets: a touch screen, the on-screen controls
+    // The on-screen controls showing now (UI units of the game's picture, the bars beside it outside 0..width); none when hidden.
+    std::vector<SDL_FRect> touch_control_bounds() const {
+        std::vector<SDL_FRect> out;
+        if (touch_ui_)
+            for (const gt3r::TouchRect& r : touch_.control_bounds()) out.push_back({r.x, r.y, r.w, r.h});
+        return out;
+    }
     bool scripted() const { return scripted_; } // opens nothing on the screen, reads no real input (settings/run_mode.h)
     const std::string& config_path() const { return config_path_; }
 

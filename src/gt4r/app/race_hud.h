@@ -95,6 +95,9 @@ struct HudState {
     bool event_gap_lead = false; // the gap is a lead (blue), not behind (red)
     // The display's parts the options leave on (race_display_*).
     bool show_map = true, show_time = true, show_lap = true, show_position = true, show_meter = true;
+    // Ours, touch screens: the on-screen controls showing (UI units of the game's picture); the meters at the bottom right move
+    // left just clear of them (App::touch_control_bounds).
+    std::vector<SDL_FRect> touch_controls;
 };
 
 class RaceHud {

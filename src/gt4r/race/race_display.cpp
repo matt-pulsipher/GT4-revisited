@@ -54,6 +54,40 @@ bool read_table(ByteSpan program, u32 load_address, u32 address, std::vector<Dis
 
 } // namespace
 
+namespace {
+float g_wide_push = 96.0f;
+float g_touch_shift = 0;
+DisplayRect g_lower_right{0, 0, 0, 0};
+bool g_lower_right_any = false;
+bool lower_right(const DisplayPlace& p) { return (p.anchor_x & 12) == 12 && p.y >= 240; }
+void note_lower_right(const DisplayRect& r) {
+    if (!g_lower_right_any) {
+        g_lower_right = r, g_lower_right_any = true;
+        return;
+    }
+    const float x0 = std::min(g_lower_right.x, r.x), y0 = std::min(g_lower_right.y, r.y);
+    const float x1 = std::max(g_lower_right.x + g_lower_right.w, r.x + r.w), y1 = std::max(g_lower_right.y + g_lower_right.h, r.y + r.h);
+    g_lower_right = {x0, y0, x1 - x0, y1 - y0};
+}
+} // namespace
+void set_wide_push(float units) { g_wide_push = units; }
+void set_touch_shift(float units) { g_touch_shift = units; }
+DisplayRect take_lower_right_box() {
+    const DisplayRect r = g_lower_right_any ? g_lower_right : DisplayRect{0, 0, 0, 0};
+    g_lower_right_any = false;
+    return r;
+}
+
+float place_x(const DisplayPlace& p, bool wide) {
+    float x = float(p.x);
+    if (wide && (p.anchor_x & 4)) x += (p.anchor_x & 8) ? g_wide_push : -g_wide_push;
+    if (lower_right(p)) {
+        note_lower_right({x, float(p.y), 0, 0});
+        x -= g_touch_shift;
+    }
+    return x;
+}
+
 DisplayRect place_rect(const DisplayPlace& p, float w, float h, bool wide) {
     if (p.w > 0) w = float(p.w);
     if (p.h > 0) h = float(p.h);
@@ -63,18 +97,8 @@ DisplayRect place_rect(const DisplayPlace& p, float w, float h, bool wide) {
     const int ax = p.anchor_x & 3, ay = p.anchor_y & 3;
     r.x = ax == 0 ? x : ax == 1 ? x - w : x - w * 0.5f;
     r.y = ay == 0 ? y : ay == 1 ? y - h : y - h * 0.5f;
+    if (lower_right(p)) note_lower_right({r.x + g_touch_shift, r.y, r.w, r.h});
     return r;
-}
-
-namespace {
-float g_wide_push = 96.0f;
-}
-void set_wide_push(float units) { g_wide_push = units; }
-
-float place_x(const DisplayPlace& p, bool wide) {
-    float x = float(p.x);
-    if (wide && (p.anchor_x & 4)) x += (p.anchor_x & 8) ? g_wide_push : -g_wide_push;
-    return x;
 }
 
 const DisplayPlace* DisplayLayout::find(u32 member) const {
