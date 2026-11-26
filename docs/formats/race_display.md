@@ -664,8 +664,9 @@ the name over the help line, the help line faded under it (❓ the two lines' bl
 icon (RaceDisplay::vf51 0x3A1030: in the race kinds 1, 2, 17, 18 the car in place 1 when the gap is behind, in place 2 when it
 is a lead; shown when that car's state is 3), its 64 x 32 picture's left 89 units (a lap gap 82) left of the event line and its
 middle 22 below it, 2.85 s with fades of 0.15 s. ✔ The original's section time following the Peugeot (the same reference). Here
-(`screen_race.cpp`, after the display): beside a section time's gap, the car first through that split on that lap, with the
-gap's own fades; ❓ the car's state test is not made.
+(`screen_race.cpp`, after the display): beside a section time's or a lap line's gap, the car first through that split or line
+on that lap, with the gap's own fades and, like the line's words, not under the display's fade at the finish (✔ the original's
+chase race: the Beetle's picture by "+ 0'14.384" at lap 1 and by "+ 0'25.374" over FINISH); ❓ the car's state test is not made.
 
 ## The two-player halves
 
