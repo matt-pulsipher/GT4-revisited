@@ -354,10 +354,17 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
   (the engine's TouchConfig, and its phone vibration); Android's back button as one press of Start while driving (the pause),
   else of Triangle (`Screen::back_is_start`). Not yet: the engine's layout editor (dragging each control), which is written
   for its own app.
+  The 3D pipelines are built ahead of use on background threads at start: the shared engine's list, made for GT3's draws
+  (`GpuContext::warm_pipelines`), and ours for GT4's depth-biased overlays, which that list lacks (`app/pipeline_warm.*`).
+  Nothing keeps them between runs (SDL's Vulkan device has no pipeline cache): a Pixel Fold (Mali-G710) builds the engine's
+  209 in about 27 s at every start, behind the first pages.
   Meta Quest: the `-Pquest` app, as an immersive OpenXR app ([VR.md](VR.md)).
 - VR headsets ([VR.md](VR.md)): the OpenXR session, its canvas and eyes, the controllers' virtual pad and pointer are the shared
   engine's (`src/xr`); the frame loop's use of them is ours (`app_xr.cpp`), and so is the race in stereo (`race_vr.cpp`,
   `RaceWorld::render_eyes`): GT4's own draw, from the head's place, per eye. Not on a headset yet.
+- The movies are the shared engine's player (`video::MoviePlayer`, its MPEG-2 decoder and PSS demuxer); which of a movie's
+  sound tracks plays is ours, as the game's player picks it (`formats/movie_tracks.*`, [formats/menu.md](formats/menu.md)
+  "Sound tracks").
 - The 2D drawing toolkit of the home screen, the setup screen and the browser is the shared
   engine's (`ui.cpp`, `ui_font.cpp`, `button_prompts.cpp`); the game's pages are drawn by the menu
   code (`src/gt4r/menu`, `screen_menu_viewer.cpp`).
