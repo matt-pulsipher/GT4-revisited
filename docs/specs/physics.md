@@ -1047,6 +1047,14 @@ packets (0x3F1148, 0x3F12B0, 0x3F1368). The frame a player's pad or wheel gives 
 - The constructor's hold steps run every car as a pad's: F +0x633 runs out for a computer's car too (the program leaves it
   at 30; only the steering force reads it).
 - The flaps' random stream starts from 0 (the program's 0x874D50 has run before the race).
+- The drawn car is ours. The program draws the body at 0x344040's point (the center of gravity less P +0x50 along the
+  forward axis) with the body's axes. Ours (`Session::publish`, `race::body_matrix`) draws each wheel on the road under it
+  (its height + the tire's radius, the bump left out) while its tire is loaded, else hanging at its rest place under the body,
+  and raises the body by the mean of the four wheels' misfit against their suspension travel. On a loose surface (bumps of
+  14 .. 20 mm, waves of 4 .. 5 m, 0x620CD8) the tires lose and regain load every step or two, so the drawn wheels jump
+  2 .. 5 cm between the two places and the body's raise jitters (an Impreza WRC at Grand Canyon: 8 mm rms, 11 mm from one
+  step to the next; at Tsukuba 3 mm and 2 mm) while the simulated car rides exactly as the program's. ❓ how the program
+  places the drawn wheels.
 
 | Distance along the course (F +0x4A4 at each step's end: the conductor's virtual +0x108, 0x3585F0 → 0x358558 → 0x3955E8 → 0x3E6858 / 0x3E6610: the point (F +0, F +8, -F +4) in the checkpoints' quads (left, middle) and (middle, right) of the cluster under the hint F +0x4A8, the nearest in height; v_i + (v_j - v_i, + a lap) x u, less a lap past one; 0 outside every quad) and its rate F +0x650 | `ground.*` `RoadGround::course_distance`, `session.cpp` `publish` | Gran Turismo 4: equal at every step (§9); the laps the race view counts are ours (`distance_along`) |
 | The driver of `gt4tool drive` | `line_driver.*` | ours; not a computer driver of the game's |
