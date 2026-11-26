@@ -352,6 +352,46 @@ TEST(strobe_pause_movie_disc) {
     if (!movies) SKIP("no Gran Turismo 4 disc");
 }
 
+// The PIT STOP menu: its rows from OK (DEFAULT) down, round to OK; a press on OK switches the
+// menu off (no row has the focus while its row plays, a second press does nothing) and makes the
+// choice (EXIT) once.
+TEST(strobe_pit_menu_disc) {
+    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    size_t movies = 0;
+    for (const auto& disc : test::discs()) {
+        const gt3r::Volume::Entry* e = disc->volume().find("menu/common/pitmenu.strb");
+        if (!e) continue;
+        ++movies;
+        auto movie = std::make_shared<const race::StrobeMovie>(race::StrobeMovie::parse(disc->volume().read(*e)));
+        int exits = 0;
+        auto host = [&](const std::string& name, const std::vector<race::StrobePlayer::Value>&) {
+            using V = race::StrobePlayer::Value;
+            std::string n = name;
+            for (char& c : n) c = char(std::toupper(static_cast<unsigned char>(c)));
+            if (n == "NITEM") return V::number(2);
+            if (n == "DEFAULTVAL") return V::number(0);
+            if (n == "ITEM") return V::string("x");
+            if (n == "EXIT") ++exits;
+            return V{};
+        };
+        race::StrobePlayer p(movie, host);
+        p.navigate(true, false);
+        p.advance(20.0f / 30);
+        CHECK(p.focus() == "DEFAULT");
+        for (const char* row : {"FTIRE", "RTIRE", "FEED", "DMODE", "DEFAULT"}) {
+            p.key(0x28);
+            CHECK(p.focus() == row);
+        }
+        p.key(0x20);
+        p.advance(2.0f / 30);
+        CHECK(p.focus().empty());
+        p.key(0x20);
+        for (int k = 0; k < 30; ++k) p.advance(1.0f / 30);
+        CHECK(exits == 1);
+    }
+    if (!movies) SKIP("no Gran Turismo 4 disc");
+}
+
 TEST(strobe_result_movie_disc) {
     if (test::discs().empty()) SKIP("set GT4R_DISC");
     size_t movies = 0;
