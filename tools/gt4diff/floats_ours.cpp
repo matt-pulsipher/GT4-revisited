@@ -29,9 +29,9 @@ namespace {
 using gt3r::ee::F;
 namespace ex = gt3r::sim::exact;
 
-constexpr u32 kRandom = 0x874D50;          // the program's shared random stream
+constexpr Pa kRandom{0x874D50};          // the program's shared random stream
 constexpr u32 kBodySize = 0x4F0;           // a collision body (the manager at conductor + 0xDA6C, bodies from +0xC)
-constexpr u32 kAfterLineHeading = 0x3491AC; // 0x4649F0's return into the steering 0x348850 ($s1 = F, f0 the heading)
+constexpr Pa kAfterLineHeading{0x3491AC}; // 0x4649F0's return into the steering 0x348850 ($s1 = F, f0 the heading)
 
 // (as states.cpp reads them)
 ex::Aids read_aids(Ee& ee, u32 at) {
@@ -146,7 +146,7 @@ bool OursBeside::begin(Ee& ee, OrigRace& o, db::SpecDb& sdb, const std::string& 
         if (own = std::getenv("GT4R_FLOATS_OWN") != nullptr) {
             std::vector<u8> row(151);
             ee.read_bytes(ee.r32(o.info + 0x70), row.data(), u32(row.size()));
-            const race::Conductor c = ee.r32(o.cond + kCondVtable) == 0x685F50 ? race::Conductor::Training : race::Conductor::License;
+            const race::Conductor c = ee.r32(o.cond + kCondVtable) == pa(0x685F50) ? race::Conductor::Training : race::Conductor::License;
             race::StartCourse starts(*road, parsed.section(data, course::kSlotRunway), race::course_start(sdb, course).way);
             const race::StartRace& race = starts.set_race(c, row, int(gt3r::s8(ee.r8(o.cond + 0xF818 + 0x21))));
             if (const std::optional<course::AiData> ad = sim::ai::Field::read(m.disc, course)) starts.add_lines(*ad, sim::ai::Tables::load(*m.program));
@@ -242,7 +242,7 @@ bool OursBeside::begin(Ee& ee, OrigRace& o, db::SpecDb& sdb, const std::string& 
     Impl* mp = &m;
     // The player's car let go from its rolling start in the program's step (0x345228, at its crossing): ours after its step.
     const u32 car0 = o.car(0);
-    ee.add_probe(0x345228, [mp, car0](Ee& e) {
+    ee.add_probe(pa(0x345228), [mp, car0](Ee& e) {
         if (e.g32(4) == car0) mp->released = true;
     });
     ee.add_probe(kAfterLineHeading, [mp](Ee& e) { mp->heading[e.g32(17) - kF] = F::raw(e.fpr[0]); });
@@ -293,7 +293,7 @@ void OursBeside::step(Ee& ee, const u8* record) {
         c.steer_angle = F::raw(ee.r32(D + 0x30)).host();
         F thr = F::raw(ee.r32(D + 0x34));
         const u8 mode = ee.r8(D + 0x1E);
-        if (ee.r8(0x623E50) == 0 && (mode == 1 || mode == 2)) {
+        if (ee.r8(pa(0x623E50)) == 0 && (mode == 1 || mode == 2)) {
             const ex::Car& car = m.session->record(size_t(i));
             const F cur = car.throttle_pedal;
             if (cur < thr) {

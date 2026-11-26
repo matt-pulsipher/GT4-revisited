@@ -142,14 +142,14 @@ void zones(NearExtra& x, F dist, F u, F v, F ahead, F behind, F w) {
     }
 }
 
-bool closing(const ex::Car& a, const NearExtra& xa, const ex::Car& b, const NearExtra& xb, F lap, F v, F& gap, F& rate) {
+bool closing(const ex::Car& a, const NearExtra& xa, const ex::Car& b, const NearExtra& xb, F lap, F v, F& gap, F& rate, bool japan) {
     gap = k0, rate = k0;
     const F sa = a.f3e4, sb = b.f3e4;
     const F s = lap * kThreeQuarters < sa && sb < lap * kQuarter ? (sb + lap) - sa : sb - sa;
     const F g = (s - b.p.body_rear) - a.p.body_front;
     if (g <= k0) return false;
     const F diff = xb.course_rate - xa.course_rate;
-    if (g < kTwenty) {
+    if (japan || g < kTwenty) {
         const F h = (a.p.body_width + b.p.body_width) * kHalf;
         if (h < v || v < -h) return false;
     }
@@ -190,7 +190,7 @@ void contact(NearExtra& xa, const ex::Car& b, F gap, F rate) {
     }
 }
 
-void proximity(std::span<const NearCar> cars, NearPairs& pairs, F lap, u8 rule_kind) {
+void proximity(std::span<const NearCar> cars, NearPairs& pairs, F lap, u8 rule_kind, bool japan) {
     const size_t n = cars.size() < size_t(NearPairs::kCars) ? cars.size() : size_t(NearPairs::kCars);
     for (size_t i = 0; i < n; ++i) cars[i].x->chain = 0;
     for (size_t i = 0; i < n; ++i) near_reset(*cars[i].x);
@@ -210,13 +210,13 @@ void proximity(std::span<const NearCar> cars, NearPairs& pairs, F lap, u8 rule_k
             zones(xb, pv.dist, pv.u_b, pv.v_b, ba, ab, w);
             pairs.code[i][j] = position_code(pv.dist, pv.u_a, pv.v_a, ab, ba, w);
             pairs.code[j][i] = position_code(pv.dist, pv.u_b, pv.v_b, ba, ab, w);
-            if (rule_kind == 6) {
+            if (rule_kind == 6 || (japan && !(pv.dist < F::raw(0x42480000)))) {
                 let_go(xa, b), let_go(xb, a);
             } else {
                 F gap, rate;
-                if (closing(a, xa, b, xb, lap, pv.v_a, gap, rate)) contact(xa, b, gap, rate);
+                if (closing(a, xa, b, xb, lap, pv.v_a, gap, rate, japan)) contact(xa, b, gap, rate);
                 else let_go(xa, b);
-                if (closing(b, xb, a, xa, lap, pv.v_b, gap, rate)) contact(xb, a, gap, rate);
+                if (closing(b, xb, a, xa, lap, pv.v_b, gap, rate, japan)) contact(xb, a, gap, rate);
                 else let_go(xb, a);
             }
             pairs.slip[i][j] = slipstream(b, pv.u_b, pv.v_b);

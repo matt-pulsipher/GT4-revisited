@@ -195,7 +195,7 @@ CipherResult run_floats_cipher(Disc& disc, bool print) {
         if (head + n > file.size()) return;
         ++r.files;
         const u32 src = ee.alloc_bytes(file.subspan(head, n), 16), dst = ee.alloc(n + 16, 16);
-        const bool ok = ee.call(0x579E00, {Arg::ptr(dst), Arg::ptr(src), Arg::integer(s64(n)), Arg::integer(s64(s32(key)))}, 500'000'000).v0_s32() != 0;
+        const bool ok = ee.call(pa(0x579E00), {Arg::ptr(dst), Arg::ptr(src), Arg::integer(s64(n)), Arg::integer(s64(s32(key)))}, 500'000'000).v0_s32() != 0;
         r.passed += ok ? 1 : 0;
         r.bytes += n;
         if (!ok && print && r.files - r.passed <= 5) std::printf("  %s: the key check fails\n", name.c_str());

@@ -106,7 +106,7 @@ bool CourseLines::course_distance(const Vec3& p, int cluster, float& out) const 
     return found;
 }
 
-CourseLines::CourseLines(const course::AiData& data, const RoadGround& ground, const Tables& tables) : ground_(&ground), fallback_(tables.fallback) {
+CourseLines::CourseLines(const course::AiData& data, const RoadGround& ground, const Tables& tables) : ground_(&ground), fallback_(tables.fallback), japan_(tables.japan) {
     lap_ = ground.road().length;
     if (ground.road().gtrw) { // Prologue's road: its own preparation (0x4292C8)
         prologue::DriverTables t;
@@ -149,6 +149,7 @@ bool CourseLines::empty() const {
 }
 
 void CourseLines::prepare(int k) {
+    const bool japan = japan_;
     using gt3r::ee::sqrt;
     std::vector<LinePoint>& pts = lines_[size_t(k)];
     if (pts.empty()) return;
@@ -243,8 +244,9 @@ void CourseLines::prepare(int k) {
         if (!(last_dist < dist)) unordered = true;
         last_dist = dist;
     }
-    // The stretch to the next point: a chord, or the arc's length; the rise to it and its pitch.
-    for (size_t i = 0; i < n; ++i) {
+    // The stretch to the next point: a chord, or the arc's length; the rise to it and its pitch (SCPS-17001 v1.05's 0x462A00
+    // makes neither these nor the crests: all 0).
+    for (size_t i = 0; i < n && !japan; ++i) {
         LinePoint& p = pts[i];
         const LinePoint& q = pts[i + 1 < n ? i + 1 : 0];
         p.crest = false;
@@ -265,7 +267,7 @@ void CourseLines::prepare(int k) {
         p.pitch = zero < length ? sim::ai::atan2(rise, length).host() : 0;
     }
     // A crest where the pitch falls by more than a degree from the last point's.
-    for (size_t i = 0; i < n; ++i) {
+    for (size_t i = 0; i < n && !japan; ++i) {
         const LinePoint& prev = pts[i > 0 ? i - 1 : n - 1];
         if (F(pts[i].pitch) - F(prev.pitch) < F::raw(0xBC8EFA34)) pts[i].crest = true;
     }

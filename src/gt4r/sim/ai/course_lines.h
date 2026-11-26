@@ -96,6 +96,7 @@ private:
     std::optional<gt3r::sim::exact::AiCourse> prologue_; // (Prologue's road: its own course object, the queries on it)
     std::array<std::vector<LinePoint>, 8> lines_;
     std::array<std::array<s8, 6>, 8> fallback_{};
+    bool japan_ = false; // SCPS-17001 v1.05 (no stretch lengths, rises, pitches or crests)
 };
 
 } // namespace gt4r::sim::ai

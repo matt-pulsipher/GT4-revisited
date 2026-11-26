@@ -101,8 +101,9 @@ void near_reset(NearExtra& x);
 void zones(NearExtra& x, F dist, F u, F v, F ahead, F behind, F w);
 // 0x3F42D0: a closing on b ahead along the course: the gap along it (a lap `lap` added when a is past three quarters of it
 // and b short of a quarter) less b's rear and a's front, the closing speed the difference of the two F + 0x650; false when
-// the gap is not above 0, or within 20 m a car not overlapping a sideways (v: b across a).
-bool closing(const ex::Car& a, const NearExtra& xa, const ex::Car& b, const NearExtra& xb, F lap, F v, F& gap, F& rate);
+// the gap is not above 0, or within 20 m a car not overlapping a sideways (v: b across a). `japan`: SCPS-17001 v1.05's
+// (0x3ECFE0), at any gap a car not overlapping a sideways.
+bool closing(const ex::Car& a, const NearExtra& xa, const ex::Car& b, const NearExtra& xb, F lap, F v, F& gap, F& rate, bool japan = false);
 // 0x469868: a lets go of b when it follows it.
 void let_go(NearExtra& xa, const ex::Car& b);
 // 0x469888: b as a's threat (the car closing soonest), with its gap and closing speed.
@@ -112,8 +113,9 @@ void contact(NearExtra& xa, const ex::Car& b, F gap, F rate);
 // 0x3F4638, the phase: every car's driver part made anew; every pair i < j of the race's cars: near (pair_view), the zone
 // cells, the codes, the contacts (unless the rule block's byte +0x02 is 6: the cars let go), the slipstreams; then each
 // car's slipstream target (F + 0x59C, ex::Car::slip_target) the sum of its row of `pairs.slip`, at most 1, and each car's
-// follow chain. `lap`: the course's lap length (0x34C230).
-void proximity(std::span<const NearCar> cars, NearPairs& pairs, F lap, u8 rule_kind);
+// follow chain. `lap`: the course's lap length (0x34C230). `japan`: SCPS-17001 v1.05's phase (0x3ED338), the contacts only
+// of cars less than 50 m apart (the others let go).
+void proximity(std::span<const NearCar> cars, NearPairs& pairs, F lap, u8 rule_kind, bool japan = false);
 
 // ---- phase 15 ----------------------------------------------------------------------------------------------------
 

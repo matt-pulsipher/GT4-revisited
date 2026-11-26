@@ -54,6 +54,7 @@ struct Tuning {
 
 struct Tables {
     bool known = false;        // the program's own values (false: the neutral ones)
+    bool japan = false;        // SCPS-17001 v1.05's program (its own rules where they differ)
     Tuning tuning;
     // 0x623DC0: the built-in driver sets, for a course without them (0: paved, 1: loose courses).
     std::array<std::array<u8, 0x40>, 2> builtin{};

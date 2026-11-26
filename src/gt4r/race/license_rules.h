@@ -108,10 +108,10 @@ namespace gt4r::race {
 // How the player's car's run ends when the test is over (0x3F8818; the modes of ai::Field::finish: 1 it coasts down and
 // stops, 2 it brakes to a stop, 3 its driver drives on): by the rules' +0x41 (1: 3, 2: 1, 3: 2); else by the test's kind
 // (1, a stop in the box: 2, or 1 when `failed`; 3, 4 and 6: 3; any other: 1), then 2 for a test that counts cones and 3
-// with other cars in it.
-int license_end_mode(const LicenseRules& r, bool failed = false);
+// with other cars in it. `japan`: SCPS-17001 v1.05's (0x3F14A8): a stop in the box, failed or not, and a goal: 1.
+int license_end_mode(const LicenseRules& r, bool failed = false, bool japan = false);
 // ... of a test failed (0x3F8980, by the judge's kind): leaving the course, a hit and kind 6's lead as license_end_mode(r, true),
 // but alone a car coasts down rather than drives on; anything else brakes to a stop.
-int license_fail_mode(const LicenseRules& r, LicenseFail fail);
+int license_fail_mode(const LicenseRules& r, LicenseFail fail, bool japan = false);
 
 } // namespace gt4r::race
