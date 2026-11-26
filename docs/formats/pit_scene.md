@@ -122,7 +122,7 @@ virtual 38 (0x3BC5D0) only for a test of one car (the conductor's car count +0xF
   CarGeometry virtuals 2, 4, 18 and 0x344AA8 / 0x344C08): man 0 beside a side of the car 0.5 m out, turned a quarter turn
   (1.5700); men 1 and 2 at the car's ends 0.75 m out (the 1.0 m added up the car) ❓ the sides and signs not followed.
 - **When** (stepped by RaceLicense virtual 75 → 0x3BC6E0 → 0x409168, dt 1/60): the result is taken once, 1 when the race's
-  result word (+0x6C → +0x88, written by the test's end 0x3F8AB0: 1 .. 3 the grade, 4 a time under none) is set, 2 when the
+  result word (+0x6C → +0x88, written by the test's end 0x3F8AB0: 1 .. 3 the grade, ❓ 4 a time past all three targets) is set, 2 when the
   step's events hold event 10 (a failed test) with it 0. Then +0x24: 0 for 2 s; 1 for 2 s, the race's picture fading out
   (race +0xCF54 = -1 / 2); 2: the men moved to place 0 (the stopping box) in their `success` or `failed` motions, the camera on
   the next of `license_cam01_seq`, `02`, `03` in turn (+0x74), the picture fading in over 1 s (+0xCF54 = 1); while in 2 the
