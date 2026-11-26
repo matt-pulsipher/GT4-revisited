@@ -931,8 +931,7 @@ private:
             if (n == "NAVIGATEALL" && result_) result_->navigate(true, true);
             return V::number(0);
         };
-        result_ = std::make_unique<race::StrobePlayer>(result_movie_, host);
-        result_->play();
+        result_ = std::make_unique<race::StrobePlayer>(result_movie_, host); // (at its frame 0: the movie plays itself on)
     }
 
     static std::string upper(std::string s) {
