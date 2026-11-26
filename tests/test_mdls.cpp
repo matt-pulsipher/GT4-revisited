@@ -8,6 +8,7 @@
 #include "gt4r/formats/db/specdb.h"
 #include "gt4r/formats/model/car_model.h"
 #include "gt4r/formats/model/mdls.h"
+#include "gt4r/formats/model/model_script.h"
 
 #include <cmath>
 #include <cstring>
@@ -390,4 +391,36 @@ TEST(disc_cars_assemble) {
         CHECK(ok + 3 >= cars.size()); // (all but the three oldest cars, whose wheels are narrower than the check allows)
         std::printf("  %zu of %zu cars have a wheel layout\n", ok, cars.size());
     }
+}
+
+// A car body's brake lamps by script (bmw_0002): the lit lenses drawn under 0x54 with the alpha `gtala`, which the script sets
+// 1 while `brake` is above 0: hidden with the brake off, drawn with it on (more triangles), every register 0 as before (still).
+TEST(disc_brake_lamps_by_script) {
+    if (test::discs().empty()) SKIP("set GT4R_DISC");
+    bool ran = false;
+    for (const auto& disc : test::discs()) {
+        if (disc->info().serial.rfind("SCUS_973.28", 0) != 0) continue;
+        const gt3r::Volume::Entry* e = disc->volume().find("car/lod/bmw_0002");
+        if (!e) continue;
+        const Bytes f = disc->volume().read(*e);
+        const std::vector<size_t> sets = mdls::find_model_sets(f);
+        if (sets.empty()) continue;
+        const ByteSpan body = ByteSpan(f).subspan(sets[0]);
+        const mdls::Script script = mdls::Script::parse(body);
+        CHECK(!script.empty() && script.host_cell("brake") >= 0);
+        auto triangles = [&](float brake) {
+            mdls::Options o;
+            o.model = 0, o.textures = false;
+            const std::pair<std::string, float> hosts[] = {{"brake", brake}};
+            o.scene.registers = mdls::still_registers(script, hosts);
+            size_t n = 0;
+            for (const auto& m : mdls::build_model(body, o).meshes) n += m.indices.size() / 3;
+            return n;
+        };
+        const size_t off = triangles(0), on = triangles(1);
+        std::printf("  bmw_0002: %zu triangles with the brake off, %zu on\n", off, on);
+        CHECK(off > 0 && on > off);
+        ran = true;
+    }
+    if (!ran) SKIP("no Gran Turismo 4 US disc");
 }
