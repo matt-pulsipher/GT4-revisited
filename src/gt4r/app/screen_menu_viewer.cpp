@@ -369,10 +369,11 @@ private:
     void update_running(App& app, const MenuInput& m) {
         // The developer's viewer: Select and Start together stop the running menus.
         if (!player_ && m.held(PadButton::Select) && m.pressed(PadButton::Start)) return stop();
-        // The game: the title's GT4R menu button (a click or a tap) leaves it for GT4 Revisited's own menu underneath.
+        // The game: the title's GT4R menu button (a click or a tap) leaves it for GT4 Revisited's own menu underneath; the
+        // Controls button of the Options' controller pages opens ours over them.
         if (menu_button_.w > 0)
             for (const gt3r::PointerInput::Action& a : app.pointer())
-                if (a.kind == gt3r::PointerInput::Action::Kind::Click && menu_button_.contains(a.x, a.y)) return stop();
+                if (a.kind == gt3r::PointerInput::Action::Kind::Click && menu_button_.contains(a.x, a.y)) return use_button(app);
         try {
             static const std::pair<PadButton, menu::Key> keys[] = {
                 {PadButton::Cross, menu::Key::Accept}, {PadButton::Triangle, menu::Key::Cancel}, {PadButton::Start, menu::Key::Start},
@@ -389,8 +390,8 @@ private:
             // (The loading page takes no keys; nor do the pages while the players' panel has them.)
             const bool panel = online_ && online_->frame(app, m);
             const bool keys_on = !panel && (!loading_ || !loading_->active());
-            // Select on the title does the same as the button (where the title's scripts do nothing with it).
-            if (player_ && keys_on && m.pressed(PadButton::Select) && select_leaves()) return stop();
+            // Select does the same as the button (where the page's scripts do nothing with it).
+            if (player_ && keys_on && m.pressed(PadButton::Select) && select_is_ours()) return use_button(app);
             send_menu_directions(*runtime_, m, keys_on);
             for (const auto& [button, key] : keys)
                 if (keys_on && m.pressed(button)) runtime_->key(key);
@@ -616,7 +617,30 @@ private:
         return true;
     }
 
-    // The "GT4R menu" button beside the title (UI units; Select does the same): at the bottom of the bar left of the page when
+    // The pages with a button of ours beside them: the title (GT4R menu: our menu underneath the game) and the Options' controller
+    // pages, the button configurations, steering and vibration (Controls: ours, over the game).
+    enum class Way { None, Menu, Controls };
+    Way way() const {
+        if (on_title()) return Way::Menu;
+        const LiveWidget* page = runtime_ ? runtime_->current_page() : nullptr;
+        if (page && runtime_->project() && runtime_->project()->name() == "option" &&
+            (page->name == "KeyconfigRoot" || page->name == "SteeringRoot" || page->name == "ControllerRoot"))
+            return Way::Controls;
+        return Way::None;
+    }
+    bool select_is_ours() const {
+        const Way w = way();
+        return w == Way::Controls || (w == Way::Menu && select_leaves());
+    }
+    void use_button(App& app) {
+        if (way() == Way::Menu) return stop();
+        // A button configuration's port (0 the first player's, 1 the second's): that player's controls.
+        const LiveWidget* page = runtime_->current_page();
+        const script::Value port = page->name == "KeyconfigRoot" ? runtime_->vm().lookup("OptionProject::KeyconfigRoot::port") : script::Value{};
+        app.push(make_controls_screen(app, port.is_number() && port.as_float() == 1 ? 1 : 0, true));
+    }
+
+    // The button beside the page (UI units; Select does the same): at the bottom of the bar left of the page when
     // there is room (the game area's own, else the window's beside a game area that has none), else in the window's bar under
     // the page, else over the page's bottom left corner above its copyright line; moved up clear of the on-screen controls.
     // `whole`: outside the game area, drawn across the whole window.
@@ -643,7 +667,8 @@ private:
 
     void draw_menu_button(Ui& ui, float x) {
         menu_button_ = {};
-        if (!on_title() || (loading_ && loading_->active())) return;
+        const Way w = way();
+        if (w == Way::None || (loading_ && loading_->active())) return;
         bool whole = false;
         const gt3r::UiRect b = menu_button_ = menu_button_rect(*app_, ui, x, whole);
         float mx = 0, my = 0;
@@ -651,7 +676,7 @@ private:
         const bool prompt = !app_->touch_ui(); // (a touch screen's Select is one of the on-screen buttons)
         auto draw = [&](float dx, float dy) {
             const gt3r::UiRect d{b.x + dx, b.y + dy, b.w, b.h};
-            ui.button(d, "GT4R menu", hover, false);
+            ui.button(d, w == Way::Menu ? "GT4R menu" : "Controls", hover, false);
             if (!prompt) return;
             // Under it in the bar beside the page; beside it over the page (clear of the copyright line) and in the bar under it.
             if (b.right() <= x && b.bottom() + 14 <= Ui::kHeight) ui.text_center_in(d.x, d.w, d.bottom() + 3, "{Select}", colors::kDim);
@@ -755,7 +780,7 @@ private:
     long long credits_ = -1; // a scripted run's credits; -1: the game's own
     std::optional<menu::RaceRequest> race_; // what the running menus asked for at their end
     App* app_ = nullptr;                    // set when the menus start running
-    gt3r::UiRect menu_button_{};            // the title's GT4R menu button as last drawn (UI units), empty when not shown
+    gt3r::UiRect menu_button_{};            // the button beside the page as last drawn (UI units), empty when not shown (way())
 };
 
 } // namespace

@@ -21,7 +21,7 @@ std::string percent(float v) { return std::to_string(int(std::lround(v * 100))) 
 
 class ControlsScreen : public Screen {
 public:
-    ControlsScreen(App& app, int player) : player_(player), wheel_(input::WheelSettings::load(app.config())) {}
+    ControlsScreen(App& app, int player, bool to_game) : player_(player), to_game_(to_game), wheel_(input::WheelSettings::load(app.config())) {}
 
     // (a wrong choice of device can be taken back with any other)
     bool menu_input_any_device() const override { return true; }
@@ -86,7 +86,7 @@ public:
             ui.text(x, y, line, colors::kDim), y += 12;
         std::string hint = rows_.hint();
         if (rows_.selected >= 0 && rows_.selected < int(bound_.size()) && bound_[size_t(rows_.selected)]) hint += "  {Select|Delete}: clear";
-        ui.footer(capturing_ ? std::string("Press it now (Esc: leave it as it is)") : hint + (hint.empty() ? "" : "  ") + "{Triangle}: keep and go back");
+        ui.footer(capturing_ ? std::string("Press it now (Esc: leave it as it is)") : hint + (hint.empty() ? "" : "  ") + (to_game_ ? "{Triangle}: keep and go back to the game" : "{Triangle}: keep and go back"));
         if (capturing_ && chord_ >= 0) {
             std::string held;
             for (const gt3r::InputSource& s : in.chord_so_far()) held += (held.empty() ? "" : " + ") + in.describe(player_, s);
@@ -282,6 +282,7 @@ private:
     }
 
     int player_ = 0;
+    bool to_game_ = false; // opened from the game's pages (the Options' controller pages): back goes to them
     input::WheelSettings wheel_;
     PageRows rows_;
     std::vector<std::optional<Binding>> bound_; // per row: what it binds
@@ -293,6 +294,8 @@ private:
 
 } // namespace
 
-std::unique_ptr<Screen> make_controls_screen(App& app, int player) { return std::make_unique<ControlsScreen>(app, std::clamp(player, 0, gt3r::InputManager::kMaxPlayers - 1)); }
+std::unique_ptr<Screen> make_controls_screen(App& app, int player, bool to_game) {
+    return std::make_unique<ControlsScreen>(app, std::clamp(player, 0, gt3r::InputManager::kMaxPlayers - 1), to_game);
+}
 
 } // namespace gt4r
