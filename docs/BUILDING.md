@@ -12,6 +12,7 @@ This page has the platform details.
 | Linux x86_64 (Ubuntu 22.04) | GCC 11, GCC 12 | builds (the release package's distribution, for its older glibc) |
 | Linux arm64 (Ubuntu 24.04) | Clang 18 | builds; all tests pass on both discs (x86_64 with Clang ❓ not built) |
 | Windows x64 | MSVC 2022 | builds, no-disc tests pass; package starts; see [Windows](#windows) |
+| Android arm64-v8a + x86_64 | NDK 27 Clang (Gradle) | the APK builds, debug and signed release; see [android/README.md](../android/README.md) |
 
 ## Linux
 
@@ -258,18 +259,54 @@ names the functions.
 The workflow `.github/workflows/build.yml` builds the release packages and puts them in a draft
 GitHub Release; nothing is published until it is reviewed and published by hand.
 
-1. Push the version's tag from the commit to release: `git tag v0.1.0 && git push origin v0.1.0`.
+### Once: the Android signing key
+
+The Android APK is signed with the project's own key. Every release must be signed with the same
+key, or phones that have the game installed can't update it (they would have to uninstall it,
+which removes its saves). Make the key once, on your own computer:
+
+1. Make the key: `android/make-release-key.sh` (it needs Java's `keytool`, which comes with any
+   JDK). It asks for a password twice (the key's password is the same one), and writes
+   `gt4r-release.jks` in the folder you run it from. The certificate names the project, not you.
+2. Keep it safe: put `gt4r-release.jks` and its password in your password manager, and keep a
+   copy of the file somewhere backed up. Never commit it (`.gitignore` leaves out `*.jks`). If the
+   key is lost, later releases can't update installed copies.
+3. Give it to the repository's Actions as two secrets (with the GitHub CLI, from the repository's
+   folder):
+
+   ```bash
+   base64 -i gt4r-release.jks | gh secret set ANDROID_KEYSTORE_BASE64
+   gh secret set ANDROID_KEYSTORE_PASSWORD
+   ```
+
+   The second command asks for the password. On Linux, `base64 -w0 gt4r-release.jks` in place of
+   `base64 -i gt4r-release.jks`. `gh secret list` shows both names (never their values).
+4. Delete the `gt4r-release.jks` you made in step 1 from that folder once it is in the password
+   manager.
+
+Without both secrets the Android job (`package-android`) fails with a message naming them, and
+the release run has no APK and no `SHA256SUMS`: a release never carries an unsigned or debug APK.
+Add the secrets, then re-run the failed job (Re-run failed jobs); job `release` follows it. The job checks the
+APK before it uploads it: signed (`apksigner verify`), not debuggable, and its version the tag's.
+The key's certificate fingerprint (SHA-256) is in the job's log; it is the same in every release.
+
+### Each release
+
+1. Set the version in the top-level `CMakeLists.txt` (`project(GT4Revisited VERSION x.y.z)`); the
+   app and the APK take it from there (the APK's version code is `x*10000 + y*100 + z`: 0.1.0 is
+   100). Push the version's tag from the commit to release: `git tag v0.1.0 && git push origin v0.1.0`.
 2. The tag's run (Actions, workflow `build`): job `draft` creates a draft release `v0.1.0`
    (title "GT4 Revisited v0.1.0"; its notes are GitHub's generated ones, only a "Full Changelog"
-   link when no pull requests were merged since the last release); the three
-   `package` jobs build and upload `gt4r-macos-arm64.zip`, `gt4r-linux-x86_64.tar.gz` and
-   `gt4r-windows-x64.zip` to it; job `release` adds `SHA256SUMS` of those files.
-3. On the Releases page, open the draft, check its four files, write the notes, then publish.
+   link when no pull requests were merged since the last release); the three `package` jobs build
+   and upload `gt4r-macos-arm64.zip`, `gt4r-linux-x86_64.tar.gz` and `gt4r-windows-x64.zip` to it,
+   job `package-android` builds, signs and uploads `gt4r-android.apk`; job `release` adds
+   `SHA256SUMS` of those files.
+3. On the Releases page, open the draft, check its five files, write the notes, then publish.
 
 The files keep the same names in every release, so
 `https://github.com/<owner>/<repository>/releases/latest/download/gt4r-macos-arm64.zip` (and the
-others) always fetches the newest; inside, the folder is named for the version
-(`gt4r-v0.1.0-macos-arm64/`).
+others) always fetches the newest; the game's **Download update** uses them. Inside the desktop
+archives the folder is named for the version (`gt4r-v0.1.0-macos-arm64/`).
 
 A release run stores nothing in Actions storage: the packages go straight to the release, whose
 files don't count against the account's storage quota. A failed `package` job can be re-run
@@ -293,4 +330,8 @@ gh release delete v0.1.0-citest --yes     # afterwards: the test draft
 ```
 
 Without `release_tag`, a manual run builds the packages as workflow artifacts (Actions storage)
-and makes no release.
+and makes no release. A manual run for Android alone: `-f platforms=android`.
+
+❓ The private repository has no Actions minutes: job `package-android` has not run on GitHub yet.
+It runs first on the release tag after the repository is made public. Its steps were checked on a
+Mac: `assembleRelease` with a throwaway key, `apksigner verify` and the APK's checks.

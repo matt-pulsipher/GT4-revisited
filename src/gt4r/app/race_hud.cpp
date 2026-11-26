@@ -833,8 +833,8 @@ void RaceHud::Impl::draw_chase_panel(const HudState& s) {
 // The panels' smaller parts at the places the panels give them (docs/formats/race_display.md
 // "Driver's views", "Chase views"): the warning signs, the shift lamp, the sideways G meter, and in
 // the driver's views the trip meter, in the chase views the pedals, the tire wear and the fuel.
-// ❓ How each part's value moves its picture is judged (their drawing routines are not read): the
-// G meter's point by the sideways g against two either way, a sign unlit at a third (the aids'
+// ❓ How each part's value moves its picture is judged (their drawing routines are not read) but for the G meter's
+// (below): a sign unlit at a third (the aids'
 // work is not given by the simulation), the shift lamp lit past 97 % of the red line, the bars
 // filled by their share.
 // The tire diagram (RaceTireWearDisplay 0x3A5FD8): the car's picture and over it each wheel as a 6 x 11 box at its
@@ -892,8 +892,10 @@ void RaceHud::Impl::draw_small_parts(const HudState& s, bool driver) {
         const DisplayRect base = draw_at("g_meter_base", {0, C, B, 214, 24, 2, u8(driver ? 2 : 1)}, kNeutral, o);
         const Picture& pt = picture("g_meter_point");
         if (pt.texture && base.w > 0) {
-            const float k = std::clamp(s.lateral_g / 2.0f, -1.0f, 1.0f);
-            const float cx = base.x + base.w / 2 + k * (base.w / 2 - pt.w), cy = base.y + base.h / 2;
+            // (RaceSideGravityMeter::vf5 0x3AB240: the value within +-2 (+0x20) as a share of 2, the point's middle that share
+            // of 0.9439 (+0x24) of the half width right of the middle, 8 below the top.)
+            const float k = std::clamp(s.lateral_g, -2.0f, 2.0f) / 2.0f;
+            const float cx = base.x + base.w / 2 + k * (base.w / 2 * 0.9439f), cy = base.y + base.h * (8.0f / 24.0f);
             draw_picture(pt, {cx - pt.w / 2, cy - pt.h / 2, pt.w, pt.h}, kNeutral, o);
         }
     }
@@ -994,11 +996,11 @@ void RaceHud::Impl::draw_driver_panel(const HudState& s) {
 
 // The driver's panel's bars (0x3A8968, from the speedometer's corner x, y): the brake (red, 0x800000F0) at
 // x + 121 and the throttle (light blue, 0x80E3B896) at x + 195, `pedal_bar` 20 x 58 filled from y + 79.5 up by the
-// pedal; the fuel gauge `fuel_a0` 38 x 64 at x - 22, y + 19 and over it `fuel_a1` lit from the bottom in ten steps
+// pedal, the throttle's picture mirrored (its quad's u runs from the picture's width to 0, 0x3A8C04); the fuel gauge `fuel_a0` 38 x 64 at x - 22, y + 19 and over it `fuel_a1` lit from the bottom in ten steps
 // of the fuel left (its top 60 - 5.2 n, 4 higher from the sixth), red under three steps, else light blue.
 void RaceHud::Impl::draw_bars(const HudState& s, float x, float y) {
     const float o = s.opacity;
-    auto lit = [&](const Picture& p, float x0, float top, float bottom, float w, u32 tint) {
+    auto lit = [&](const Picture& p, float x0, float top, float bottom, float w, u32 tint, bool mirrored = false) {
         if (!p.texture || bottom <= top) return;
         const float h = bottom - top;
         // (The bars' pictures are white where lit and the program's tint brightens past 0x80, which a
@@ -1008,12 +1010,12 @@ void RaceHud::Impl::draw_bars(const HudState& s, float x, float y) {
         SDL_SetTextureAlphaMod(p.texture, c.a);
         const SDL_FRect src{0, p.h - h, p.w, h};
         const SDL_FRect dst = to_ui({x0, top, w, h});
-        SDL_RenderTexture(r, p.texture, &src, &dst);
+        SDL_RenderTextureRotated(r, p.texture, &src, &dst, 0, nullptr, mirrored ? SDL_FLIP_HORIZONTAL : SDL_FLIP_NONE);
     };
     const Picture& bar = picture("pedal_bar");
     const float bottom = y + 23 - 1.5f + 58;
     lit(bar, x + 121, bottom - std::clamp(s.brake, 0.0f, 1.0f) * 58, bottom, 20, 0x800000F0u);
-    lit(bar, x + 195, bottom - std::clamp(s.throttle, 0.0f, 1.0f) * 58, bottom, 20, 0x80E3B896u);
+    lit(bar, x + 195, bottom - std::clamp(s.throttle, 0.0f, 1.0f) * 58, bottom, 20, 0x80E3B896u, true); // (its u from the picture's right edge to its left: the arc mirrored to the tachometer's side)
     // The fuel gauge with the panel's flag +0x1B: the followed car's tank more than 0 (RaceDisplay::vf2 0x39E598, 0x354E38),
     // 0 when the race counts no fuel (0x354AF8): as the chase views' gauge (`fuel_on`). (✔ the original's Ice Arena: none.)
     if (!s.fuel_on) return;

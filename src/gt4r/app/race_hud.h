@@ -66,7 +66,7 @@ struct HudState {
     bool replay_paused = false;       // a replay held still: "Press SELECT to resume" on a strip
     float opacity = 1;                // of the whole display
     // The panels' smaller parts.
-    float lateral_g = 0;              // the car's sideways acceleration in g (+ right)
+    float lateral_g = 0;              // the G meter's value in g: the sideways push felt (+ right: the point to the right)
     float throttle = 0, brake = 0;    // the pedals, 0..1
     int suggested_gear = -1;          // the gear the car's driver would take for the corner ahead (-1 none)
     float trip_m = 0;                 // metres the car ran this race (the trip meter)

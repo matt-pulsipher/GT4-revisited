@@ -294,7 +294,8 @@ public:
             const race::CarState& c = world_->cars()[i];
             h.distance += hold ? 0.0f : std::fabs(c.speed) * kStep;
             const float ax = (c.velocity.x - h.last_v.x) / kStep, ay = (c.velocity.y - h.last_v.y) / kStep, az = (c.velocity.z - h.last_v.z) / kStep;
-            h.lateral_g += (std::clamp((ax * c.right.x + ay * c.right.y + az * c.right.z) / 9.81f, -4.0f, 4.0f) - h.lateral_g) * 0.2f;
+            h.lateral_g += (std::clamp(-(ax * c.right.x + ay * c.right.y + az * c.right.z) / 9.81f, -4.0f, 4.0f) - h.lateral_g) * 0.2f;
+            if (float program = 0; world_->meter_g(i, program)) h.lateral_g = program; // (the program's: RaceWorld::meter_g)
             h.last_v = c.velocity;
             step_half(i, c);
             for (int* t : {&h.event_steps, &h.gap_steps, &h.finish_steps})

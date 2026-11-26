@@ -88,7 +88,8 @@ TEST(updates_release_assets) {
     CHECK(net::release_asset(rv::RvPlatform::MacOS, true) == "gt4r-macos-arm64.zip");
     CHECK(net::release_asset(rv::RvPlatform::Windows, false) == "gt4r-windows-x64.zip");
     CHECK(net::release_asset(rv::RvPlatform::Linux, false) == "gt4r-linux-x86_64.tar.gz");
-    CHECK(net::release_asset(rv::RvPlatform::MacOS, false).empty() && net::release_asset(rv::RvPlatform::Android, true).empty());
+    CHECK(net::release_asset(rv::RvPlatform::Android, true) == "gt4r-android.apk" && net::release_asset(rv::RvPlatform::Android, false) == "gt4r-android.apk");
+    CHECK(net::release_asset(rv::RvPlatform::MacOS, false).empty() && net::release_asset(rv::RvPlatform::Other, true).empty());
     // The page and the download from a relay's URL (the engine's rule).
     const rv::UpdateLinks l = rv::update_links("https://github.com/o/r/releases/latest/download/{asset}", net::release_asset(rv::RvPlatform::MacOS, true));
     CHECK(l.download == "https://github.com/o/r/releases/latest/download/gt4r-macos-arm64.zip" && l.notes == "https://github.com/o/r/releases/latest");
