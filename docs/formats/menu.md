@@ -776,6 +776,13 @@ Cancel reads `getOption` again and applies it, Confirm is `setOption` (✔ test 
 The US disc's option project writes `main::game.option` on OK and reads it again on Cancel. Here: a copy's apply
 hands its settings to `on_options` without keeping them; `setOption` keeps them (the data folder's options file).
 
+**`main::game.setReturnToLastMenuProject()`** (0x166398 -> 0x42FC50 with the last project's name; the menus' names at
+Status + 0x3A368: +0x34 the last project, +0x54 the next): the next project is the one the menus came from, the one
+asked for until then (here the running one when none was asked) becomes the last. The option project's Exit when
+`major_menu_project` is empty, the slide show's exit, the memory card's pages after a save (with `next_sequence`
+"menu"), the Analyzer's exit and load and the network's LAN pages leave by it (✔ test
+`disc_menu_options_back_to_last_project`: the options from the title, no major project: the title again).
+
 | Options | GameSettings | Read by | How |
 |---|---|---|---|
 | `menu_bgm`, `menu_se` and their `_volume_raw` | `menu.music`, `menu.effects` (raw / 128, 0 when off) | the menus' sound (`audio::MenuSound`) | the app's `on_options`: `set_music_option`, `set_effect_option` (screen_menu_viewer.cpp) |

@@ -286,3 +286,29 @@ TEST(disc_menu_title_demonstrations) {
     g.menu_result.clear();
     CHECK(timeout() == 1 && f.clean());
 }
+
+// setReturnToLastMenuProject (0x166398 -> 0x42FC50): the options left with no major project go back to the project they
+// came from (the last one), which becomes the next; the slide show, the memory card's pages, the Analyzer and the
+// network's LAN pages leave the same way.
+TEST(disc_menu_options_back_to_last_project) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    Flow f(*disc);
+    CHECK(f.boot_to_title());
+    if (f.page() != "TopRoot") return;
+    for (int i = 0; i < 6 && f.focus() != "Option"; ++i) f.press({menu::Key::Down});
+    f.press({menu::Key::Accept});
+    CHECK(f.rt->finished() && f.rt->wanted_project() == "option" && f.rt->advance());
+    f.rt->settle();
+    menu::GameState& g = f.rt->game();
+    std::printf("  in the options: last %s, major %s\n", g.last_menu_project.c_str(), g.major_menu_project.c_str());
+    CHECK(f.page() == "OptionRoot" && g.last_menu_project == "arcade");
+    g.major_menu_project.clear();
+    f.press({menu::Key::Cancel});
+    CHECK(f.page() == "ConfirmDialog" && f.focus() == "Yes");
+    f.press({menu::Key::Accept});
+    std::printf("  after Exit: next %s, last %s\n", f.rt->wanted_project().c_str(), g.last_menu_project.c_str());
+    CHECK(f.rt->finished() && f.rt->wanted_project() == "arcade" && g.last_menu_project == "option" && f.rt->advance());
+    f.rt->settle();
+    CHECK(f.page() == "TopRoot" && f.clean());
+}

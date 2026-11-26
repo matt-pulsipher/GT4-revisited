@@ -812,8 +812,15 @@ g.method("menuRef", [s](Vm&, const Value&, Args a) {
         r->sound("sound", "loadShutter", a);
         return Value{};
     });
-    for (const char* nothing : {"setReturnToLastMenuProject", "dumpAvailable"})
-        g.method(nothing, [](Vm&, const Value&, Args) { return Value{}; });
+    // setReturnToLastMenuProject (0x166398 -> 0x42FC50 with the last project's name): the project asked for next is the
+    // one the menus came from, and the one asked for until then (the running one when none was) becomes the last.
+    g.method("setReturnToLastMenuProject", [s, r = &rt](Vm&, const Value&, Args) {
+        const std::string last = s->last_menu_project;
+        s->last_menu_project = !s->next_menu_project.empty() ? s->next_menu_project : r->project() ? r->project()->name() : std::string();
+        s->next_menu_project = last;
+        return Value{};
+    });
+    g.method("dumpAvailable", [](Vm&, const Value&, Args) { return Value{}; });
 
     // The menus' place kept in the save (Context: the major project and page, the stack).
     // saveMenuStack keeps a copy of the stack and its length in bytes (0x42FE88); loadMenuStack
