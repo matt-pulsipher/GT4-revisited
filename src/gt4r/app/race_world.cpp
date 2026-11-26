@@ -227,7 +227,7 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
         entries.push_back({entry, key});
     }
     start_cars(gpu, jobs, 0); // (the first cars while the course is read)
-    course_ = std::make_unique<race::CourseScene>(gpu, *course, setup.course);
+    course_ = std::make_unique<race::CourseScene>(gpu, *course, setup.course, setup.section);
     if (course_->road().checkpoints.size() < 3) throw FormatError("This place has no lap to drive.");
     for (const auto& [entry, key] : entries) {
         std::unique_ptr<race::CarVisual>& visual = m.visuals_by_model[key];

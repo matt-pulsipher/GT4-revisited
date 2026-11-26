@@ -69,6 +69,8 @@ Program Program::from_core(std::shared_ptr<const gt3r::CoreImage> core, bool pro
     p.known_ = p.ours_ = true;
     p.issue_ = "";
     p.check_ = checked(p.core_);
+    p.release_known_ = p.check_->release.has_value();
+    p.release_ = p.check_->release.value_or(Release::Us);
     return p;
 }
 
@@ -86,7 +88,7 @@ const TableCheck& Program::check() const { return check_ ? *check_ : kNoCheck; }
 
 u8 Program::b(u32 addr) const {
     if (ours_) {
-        if (const ProgramTable* t = gt4_table_at(addr)) return t->bytes[addr - t->address];
+        if (const ProgramTable* t = gt4_table_at(addr, release_)) return t->bytes[addr - t->address];
         if (core_ && addr >= base_ && addr - base_ < core_->program.size()) {
             static std::atomic<int> told{0};
             if (told.fetch_add(1) < 8) LOG_WARN("Program tables: a read at 0x%06X, outside Gran Turismo 4's tables (0)", addr);

@@ -26,8 +26,10 @@ All of it is optional.
 
 ## Discs
 
-Gran Turismo 4 `SCUS-97328` v1.01 (NTSC-U/C) and Gran Turismo 4 Prologue `SCPS-15055` v1.01
-(NTSC-J). Other releases are not supported yet.
+Gran Turismo 4 `SCUS-97328` v1.01 (NTSC-U/C), `SCES-51719` v1.00 (PAL: English, French, German,
+Italian and Spanish, chosen at each start as on the console) and `SCPS-17001` v1.05 (NTSC-J), and Gran Turismo 4
+Prologue `SCPS-15055` v1.01 (NTSC-J). Every disc races at 60 frames a second, the PAL one too. Each release keeps its own
+saved games. The Japanese release's own driving rules are still being added (it races on the US release's for now).
 
 ## Installing
 

@@ -110,7 +110,7 @@ DemonstrationRun run_demonstration(Disc& disc, db::SpecDb& sdb, const std::strin
         Gadgets gadgets;
         GadgetBodies bodies;
         if (opt.cones) {
-            gadgets = Gadgets::parse(file.section(data, course::kSlotGadgets), runway);
+            gadgets = Gadgets::parse(file.section(data, course::kSlotGadgets), runway, rules.section);
             bodies.reset(gadgets, *road);
         }
 
@@ -139,7 +139,7 @@ DemonstrationRun run_demonstration(Disc& disc, db::SpecDb& sdb, const std::strin
                 for (const size_t i : e.finished) field->finish_run(session, i);
             if (!hold && !flow.player_finished()) {
                 const CarState& c = session.cars()[0];
-                if (const std::optional<float> share = rules.kind == 1 ? stopped_in_box(c) : std::nullopt) flow.finish_now(0, *share);
+                if (const std::optional<float> share = rules.kind == 1 ? stopped_in_box(c, program.release()) : std::nullopt) flow.finish_now(0, *share);
                 else if (const LicenseFail f = judge.step(license_step(c, [&](u8 m) { return soft[m & 31] != 0; }, cs.kind, session.record(0).p.mass.host(), cones)); f != LicenseFail::None)
                     r.fail = int(f), flow.finish_now(0);
                 else if (rules.kind == 6 && entries.size() > 1 && flow.place(0) == 1) r.fail = int(LicenseFail::Kind6), flow.finish_now(0);

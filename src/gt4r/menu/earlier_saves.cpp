@@ -63,7 +63,7 @@ TransferChoice gather(GameNatives& n, Probe probe) {
 // language keeps its own).
 void name_the_save(GameNatives& n, Probe probe, const save::EarlierGame& g) {
     Runtime& rt = n.rt;
-    const std::string& language = rt.config().language;
+    const std::string& language = rt.language(); // (the one the game set: SetLanguage)
     if (!rt.project() || (language != "US" && language != "GB" && language != "UK")) return;
     TransferState& t = transfer(n);
     std::string name;

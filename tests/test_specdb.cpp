@@ -116,8 +116,8 @@ TEST(specdb_labels_and_strings) {
 }
 
 TEST(disc_database_reads) {
-    if (test::discs().empty()) SKIP("set GT4R_DISC");
-    for (const auto& disc : test::discs()) {
+    if (test::reference_discs().empty()) SKIP("set GT4R_DISC");
+    for (const auto& disc : test::reference_discs()) {
         if (disc->info().game != Game::GT4) continue;
         gt3r::Volume* vol = &disc->volume();
         db::SpecDb sdb(

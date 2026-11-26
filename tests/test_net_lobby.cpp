@@ -345,8 +345,8 @@ struct DiscCars {
     std::unique_ptr<net::CarBuilder> builder;
     sim::FileReader read;
     explicit DiscCars() {
-        for (const auto& d : gt4r::test::discs())
-            if (d->info().game == Game::GT4) disc = d.get();
+        for (Disc* d : gt4r::test::reference_discs())
+            if (d->info().game == Game::GT4) disc = d;
         if (!disc) return;
         db = std::make_unique<db::SpecDb>(sim::ai::open_specdb(*disc));
         program = sim::Program::load(*disc);
