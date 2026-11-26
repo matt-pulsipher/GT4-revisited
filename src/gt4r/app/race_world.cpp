@@ -1,6 +1,7 @@
 #include "gt4r/app/race_world.h"
 
 #include "gt4r/net/lan_rules.h"
+#include "gt4r/net/net_field.h"
 
 #include "gt4r/race/aspec_points.h"
 
@@ -427,6 +428,24 @@ void RaceWorld::build_simulation() {
                             return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
                         });
                     }
+                    // (an online race: what the stop does to the player's car outside its state, for the others: net/car_service.h)
+                    {
+                        using K = net::ServiceEvent::Kind;
+                        auto note = [this](bool after, K kind, u32 value) {
+                            if (service_on_ && service_.size() < 256) service_.push_back({after, kind, value});
+                        };
+                        if (auto f = pit_hooks.hold) pit_hooks.hold = [f, note](size_t i, u16 h) { f(i, h), i == 0 ? note(false, K::Hold, h) : void(); };
+                        if (auto f = pit_hooks.change_tires)
+                            pit_hooks.change_tires = [f, note](size_t i, u8 front, u8 rear, u8 axles) {
+                                f(i, front, rear, axles), i == 0 ? note(false, K::Tires, u32(front) | u32(rear) << 8 | u32(axles) << 16) : void();
+                            };
+                        if (auto f = pit_hooks.retune_tires) pit_hooks.retune_tires = [f, note](size_t i, u8 axles) { f(i, axles), i == 0 ? note(false, K::Grips, axles) : void(); };
+                        if (auto f = pit_hooks.new_tire) pit_hooks.new_tire = [f, note](size_t i, int w) { f(i, w), i == 0 ? note(false, K::NewTires, 1u << w) : void(); };
+                        if (auto f = pit_hooks.place_in_box) pit_hooks.place_in_box = [f, note](size_t i, gt3r::ee::F h) { f(i, h), i == 0 ? note(true, K::Box, h.bits) : void(); };
+                        if (auto f = pit_hooks.face_box) pit_hooks.face_box = [f, note](size_t i, gt3r::ee::F h) { f(i, h), i == 0 ? note(true, K::Face, h.bits) : void(); };
+                        if (auto f = pit_hooks.set_fuel) pit_hooks.set_fuel = [f, note](size_t i, gt3r::ee::F l) { f(i, l), i == 0 ? note(true, K::Fuel, l.bits) : void(); };
+                        if (auto f = pit_hooks.flags) pit_hooks.flags = [f, note](size_t i, u8 x) { f(i, x), i == 0 ? note(true, K::Flags, x) : void(); };
+                    }
                     sim::ai::PitRace pr;
                     pr.laps = setup_.laps;
                     pr.pit_menu = setup_.players < 2; // (a two-player battle has no pit menu: 0x32F028 makes none)
@@ -582,6 +601,9 @@ void RaceWorld::step(std::span<const race::CarInput> inputs, bool hold, bool pla
         sim_->step(held, kStep);
     } else sim_->step(inputs, kStep);
     if (!hold && pits_ && session_) pits_->after(*session_, *field_);
+    // (an online race: the pace and shift factor its drivers gave the player's car for the step, for the others)
+    if (service_on_ && session_ && !hold && service_.size() < 256)
+        service_.push_back({false, net::ServiceEvent::Driver, u32(session_->gt4_record(0).aids.tcs_class) | u32(session_->gt4_record(0).drive.shift_factor) << 8});
     if (!hold) step_pit_scene();
     if (!hold) course_->animate(kStep, sim_->cars());
     // The cones and boards the cars run into: each car's box (0x3E5108) at its center of mass, by its heading,
@@ -1395,6 +1417,19 @@ void RaceWorld::render_mirror(Ui& ui, const SDL_FRect& rect, std::span<const rac
     // Its frame: a thin light edge (❓ judged from the original's in-car view).
     SDL_SetRenderDrawColor(ui.renderer(), 200, 200, 200, 255);
     SDL_RenderRect(ui.renderer(), &rect);
+}
+
+std::function<void(sim::Session& solo, net::RemoteCar& car)> RaceWorld::prediction_tire_change() const {
+    db::SpecDb* db = app_.db();
+    if (!program_ || !db || !app_.disc()) return {};
+    gt3r::Volume* vol = &app_.disc()->volume();
+    const std::shared_ptr<const sim::Program> program = program_;
+    return [db, vol, program](sim::Session& solo, net::RemoteCar& car) {
+        net::tire_change_on(*db, *program, [vol](const std::string& path) -> std::optional<Bytes> {
+            const gt3r::Volume::Entry* e = vol->find(path);
+            return e ? std::optional<Bytes>(vol->read(*e)) : std::nullopt;
+        })(solo, car);
+    };
 }
 
 } // namespace gt4r

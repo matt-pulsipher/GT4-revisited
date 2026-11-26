@@ -38,6 +38,9 @@ using gt3r::Ui;
 namespace colors = gt3r::colors;
 
 class App;
+namespace net {
+struct PresenceText; // net/presence_text.h
+}
 
 class Screen {
 public:
@@ -53,6 +56,10 @@ public:
     // A file dropped on the window that this screen takes itself (it gets the event); else a .zip is a mod to install and
     // anything else a disc image.
     virtual bool takes_dropped_file(const std::string&) const { return false; }
+    // The update dialog may open over this screen at startup (app/updates.h): the home screen, the game's title.
+    virtual bool update_prompts() const { return false; }
+    // The Discord status (app/presence.h): what the player is doing here; false lets the screen below say.
+    virtual bool presence(App&, net::PresenceText&) { return false; }
 };
 
 class App {
@@ -123,6 +130,8 @@ public:
     // The process's resident memory in MB (0 where it is not read).
     static double resident_mb();
     void quit() { quit_ = true; }
+    // The Discord status's text: the top screen's, else the first screen below that has one.
+    bool screen_presence(net::PresenceText& t);
 
     Disc* disc() { return disc_.get(); }
     gt3r::Vfs* vfs() { return vfs_.get(); }
@@ -252,7 +261,7 @@ private:
 std::string user_data_dir();
 
 std::unique_ptr<Screen> make_setup_screen();
-std::unique_ptr<Screen> make_hub_screen();
+std::unique_ptr<Screen> make_hub_screen(bool developer = false); // developer: its Developer tools
 // --sweep: the races of a list run one after another in this window, a picture of each
 // (screen_sweep.cpp).
 std::unique_ptr<Screen> make_sweep_screen(const std::string& list, const std::string& out);
