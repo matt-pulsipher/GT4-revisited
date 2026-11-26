@@ -356,6 +356,14 @@ FREE_QUALIFY, LOGGER, OPTION 22), `raceLabel`, `courseLabel`, `goldTime` / `silv
 `getGridCarName`, `getColorChipInfo` (the paint's chip words), `getPower`, `getWeight`,
 `getTireType`, `getGridTime`, and `getCatPs` / `getCatTq` of the player's car.
 
+A license test's **BestTime** (+0x498, the page's "Best") is the session's own: the test's sequence (0x11CB38; the
+short tests' 0x114E38) keeps a best of its own from no time (0x157529FF) and writes it to +0x498 after each run
+(0x11CDA0 / 0x114FFC) through the run's routine 0x1105A8; nothing reads it from the save. So the page shows the new
+object's 0 ("0'00.000") on every entry to a test, after a load and on any revisit too, "-'--.---" after a run without a
+time, and the run's time after a timed one, while the test's Rankings keep the saved times. ✔ The original with its
+own card after a fresh boot (reference 17-export-card `10_roundthree_card_b1_page.png`: "Best: 0'00.000" while
+`10_roundthree_card_b1_rankings.png` holds 0'10.832); ours the same.
+
 The single race fills it (`fn_00111A40`, `fn_00111B50`): each car's name and paint by its grid
 place, `numberOfEntries`, `playerGridNumber` (the player's place), `courseLabel`, `IsBSpec`,
 `IsDryCourse`, the race's tire for every row, the quick tune from the player's settings
