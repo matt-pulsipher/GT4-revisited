@@ -143,7 +143,10 @@ jobs:
       - name: Archive (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: Compress-Archive -Path "dist/$env:PKG" -DestinationPath "$env:PKG.zip"
+        run: |
+          Compress-Archive -Path "dist/$env:PKG" -DestinationPath "$env:PKG.zip"
+          Get-ChildItem -Recurse -File "dist/$env:PKG" | ForEach-Object { Write-Host "  $($_.FullName.Substring((Resolve-Path dist).Path.Length + 1)) $($_.Length)" }
+          Write-Host "$env:PKG.zip $((Get-Item "$env:PKG.zip").Length) bytes, SHA256 $((Get-FileHash "$env:PKG.zip" -Algorithm SHA256).Hash.ToLower())"
       # The packaged game started from its archive with no disc, muted, with a data folder of its own: a scripted run
       # (--shot) shows no window and saves a picture of the disc-choice page. Runners have no GPU with Vulkan: the
       # 3D renderer is ANGLE's OpenGL ES on Direct3D 11's software adapter.
@@ -163,8 +166,15 @@ jobs:
           Get-ChildItem "$d\data\*.log" | ForEach-Object { Get-Content $_ }
           if (-not (Test-Path "$d\no-disc.png")) { throw "no picture" }
           Copy-Item "$d\no-disc.png" "smoke-$env:PKG.png"
+          # Manual runs: the picture in the log too (base64 between the marks), for when artifacts can't be stored.
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            Write-Host "---- smoke picture (base64) ----"
+            [Convert]::ToBase64String([IO.File]::ReadAllBytes("$d\no-disc.png")) -split '(.{1,4000})' | Where-Object { $_ } | ForEach-Object { Write-Host $_ }
+            Write-Host "---- end ----"
+          }
       - uses: actions/upload-artifact@v4
         if: runner.os == 'Windows'
+        continue-on-error: true # (the picture alone)
         with:
           name: smoke-${{ env.PKG }}
           path: smoke-${{ env.PKG }}.png
