@@ -278,3 +278,38 @@ TEST(disc_earlier_gt3_transfer_on_the_status_page) {
     CHECK(std::filesystem::file_size(gt3r / "saves" / "current.txt") == 12);
     fs::remove_all(dir), fs::remove_all(gt3r);
 }
+
+// With a console's card (the original's pages): Gran Turismo 3's folder on the card in slot 1, the game's own texts.
+TEST(disc_earlier_gt3_transfer_from_a_console_card) {
+    Disc* disc = gt4_disc();
+    if (!disc) SKIP("set GT4R_DISC to a Gran Turismo 4 disc");
+    const fs::path dir = fresh("gt4r-test-transfer-card");
+    put(dir / "memorycard" / "BASCUS-97102GAMEDATA" / "BASCUS-97102GAMEDATA", gt3_file(42'000, all(2, 8)));
+    StatusFlow f(*disc, dir, "");
+    {
+        menu::Runtime::Config config = f.rt->config();
+        config.console_card = true;
+        Disc& d = *disc;
+        f.rt = std::make_unique<menu::Runtime>(
+            [&d](const std::string& path) -> std::optional<Bytes> {
+                const gt3r::Volume::Entry* e = d.volume().find(path);
+                return e ? std::optional<Bytes>(d.volume().read(*e)) : std::nullopt;
+            },
+            config);
+    }
+    CHECK(f.gt_mode_with_a_car() && f.to_status());
+    const s64 money = f.rt->game().money;
+    f.press({menu::Key::Start});
+    for (int i = 0; i < 12 && f.page() == "ConfirmDialog"; ++i) {
+        f.see();
+        const bool question = f.message().find("Do you want") != std::string::npos;
+        if (question) f.press({menu::Key::Right});
+        f.press({menu::Key::Accept});
+    }
+    for (const std::string& d : f.dialogs) std::printf("  shown: %s\n", d.c_str());
+    CHECK(!f.dialogs.empty() && f.dialogs[0].find("MEMORY CARD slot 1") != std::string::npos);
+    // B passed (all bronze), A not: B's tests opened; the credits, all of them.
+    CHECK(f.rt->game().money == money + 42'000 && (f.unit("l0b0003") & 0xFFF) == 0xCC1 && (f.unit("l0a0001") & 0xF) == 0);
+    CHECK(f.rt->game().withdrawn && f.rt->game().withdrawn_gt4p && f.clean());
+    fs::remove_all(dir);
+}
