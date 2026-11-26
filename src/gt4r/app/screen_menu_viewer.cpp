@@ -568,16 +568,20 @@ private:
         }
     }
 
-    // On the title: the way to the home screen (Settings, Controls, Saved games), in the space beside
+    // On the title (and Prologue's board): the way to the home screen (Settings, Controls, Saved games), in the space beside
     // the page, or over its top right corner when the picture has none.
     void title_hint(Ui& ui, float x, float scale) {
         const LiveWidget* page = runtime_->current_page();
-        if (!page || page->name != "TopRoot" || !runtime_->project() || runtime_->project()->name() != "arcade") return;
+        if (!page || !runtime_->project()) return;
+        const bool title = page->name == "TopRoot" && runtime_->project()->name() == "arcade";
+        const bool school = page->name == "SchoolRoot" && runtime_->project()->name() == "prologue"; // (Prologue's title and its board)
+        if (!title && !school) return;
         const float margin = ui.width() - (x + 640 * scale);
         static const char* const kLines[] = {"{Select}+{Start}:", "Settings,", "Controls,", "Saved games"};
         float w = 0;
         for (const char* l : kLines) w = std::max(w, Ui::text_width(l));
         const bool beside = margin >= w + 8;
+        if (!beside && !title) return; // (over the board only beside it)
         const float left = beside ? x + 640 * scale + (margin - w) / 2 : ui.width() - w - 10;
         const float top = beside ? Ui::kHeight - 62.0f : 6.0f;
         if (!beside) ui.fill_round(left - 5, top - 4, w + 10, 12 * float(std::size(kLines)) + 6, 4, Color{0, 0, 0, 150});
