@@ -113,6 +113,10 @@ u64 SaveLibrary::change_mark(const std::string& card) const {
         const auto t = fs::last_write_time(p, ec);
         const u64 size = ec ? 0 : u64(fs::file_size(p, ec));
         for (const u64 v : {ec ? u64(0) : u64(t.time_since_epoch().count()), size}) mark = (mark ^ v) * 0x100000001B3ull;
+        // And the contents: a file's time can be as coarse as a second or two (FAT file systems, some C libraries'), so
+        // two saves of the same size in that time would mark the same.
+        std::ifstream in(p, std::ios::binary);
+        for (std::istreambuf_iterator<char> it(in), end; it != end; ++it) mark = (mark ^ u8(*it)) * 0x100000001B3ull;
     }
     return mark ? mark : 1;
 }
