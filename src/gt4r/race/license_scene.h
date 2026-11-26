@@ -43,7 +43,8 @@ public:
     // The test's start (0x408F90): the road section's places for the staff (none: no scene), the car's sizes, and the road's
     // height where a man stands. With two places or more the men stand at place 1 through the run (drawn), else at place 0
     // (not drawn until the end), each in his standing motion.
-    using Height = std::function<bool(float x, float z, float& y)>;
+    // (The road's height under a point and, when asked, its plane's normal there; false off the road.)
+    using Height = std::function<bool(float x, float z, float& y, gt3r::render::Vec3* normal)>;
     void start(const std::vector<course::Runway::Place>& places, const CarSizes& car, Height height);
     bool on() const { return on_; }
 
@@ -81,7 +82,11 @@ public:
         float time = 0;
         gt3r::render::Vec3 pos{0, 0, 0}; // course space
         float heading = 0;               // course space (the place's heading added)
+        gt3r::render::Vec3 ground{0, 1, 0}; // the road's plane under him (0x407EF0; up off the road)
     };
+    // How far a shadow rises on a plane of normal `n` for a metre of the man's height thrown `shift` across the ground (course
+    // space; 0x407FA0): -(n.x sx + n.z sz) / n.y, 0 on a plane standing on its edge.
+    static float shadow_rise(const gt3r::render::Vec3& n, const gt3r::render::Vec3& shift);
     const Man& man(int k) const { return men_[size_t(k)]; }
     int camera_sequence() const { return camera_sequence_; }
     float camera_time() const { return camera_time_; }

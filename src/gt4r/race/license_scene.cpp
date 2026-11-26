@@ -94,7 +94,7 @@ void LicenseScene::set_motion(int k, const char* name) {
 void LicenseScene::place_men(int index) {
     const course::Runway::Place& p = places_[size_t(index)];
     place_ = {p.pos.x, p.pos.y, p.pos.z};
-    if (float y = 0; height_ && height_(place_.x, place_.z, y)) place_.y = y; // (0x409B48: the road under it)
+    if (float y = 0; height_ && height_(place_.x, place_.z, y, nullptr)) place_.y = y; // (0x409B48: the road under it)
     heading_ = p.heading + kHalfTurn;
     // The driver's side: the seat right of the lever (0x408B08: virtual 2 against 18).
     const bool right = car_.seat_x >= car_.lever_x;
@@ -108,8 +108,9 @@ void LicenseScene::place_men(int index) {
         const float turn = std::atan2(-(at[k].x - car_.seat_x), -(at[k].z - car_.seat_z)); // (0x57D118)
         // (0x407DE8: in the place's frame; 0x407EF0: on the road)
         m.pos = turned(at[k], heading_) + place_;
-        if (float y = 0; height_ && height_(m.pos.x, m.pos.z, y)) m.pos.y = y;
-        else m.pos.y = 0;
+        m.ground = {0, 1, 0};
+        if (float y = 0; height_ && height_(m.pos.x, m.pos.z, y, &m.ground)) m.pos.y = y;
+        else m.pos.y = 0, m.ground = {0, 1, 0};
         m.heading = turn + heading_;
     }
 }
@@ -128,6 +129,8 @@ void LicenseScene::start(const std::vector<course::Runway::Place>& places, const
     place_men(drawn_ ? 1 : 0);
     for (int k = 0; k < kMen; ++k) set_motion(k, kStand[k]);
 }
+
+float LicenseScene::shadow_rise(const Vec3& n, const Vec3& shift) { return n.y == 0 ? 0.0f : -(n.x * shift.x + n.z * shift.z) / n.y; }
 
 void LicenseScene::set_result(bool passed) {
     if (!on_ || result_ != 0) return;
@@ -234,14 +237,17 @@ void LicenseScene::add_items(std::vector<render::DrawItem>& items) {
             if (g->update_geometry(meshes)) items.push_back({g.get(), to, 0});
         };
         if (shadows_ && shadow_.skinned >= 0) {
-            // The shadow's figure thrown flat along the light, at most 1.5 m a metre (0x408490, as the pit crew's).
+            // The shadow's figure thrown along the light, at most 1.5 m a metre, onto the road's plane under the man (0x408490,
+            // 0x407FA0: the plane's rise along the shadow per metre of height).
             float sx = at.m[0] * shear_.x + at.m[2] * shear_.z, sz = at.m[8] * shear_.x + at.m[10] * shear_.z;
             if (const float l2 = sx * sx + sz * sz; l2 >= 2.25f) {
                 const float by = 1.5f / std::sqrt(l2);
                 sx *= by, sz *= by;
             }
             Mat4 flat;
-            flat.m = {1, 0, 0, 0, sx, 0, sz, 0, 0, 0, 1, 0, 0, 0.01f, 0, 1};
+            // (the shift a metre of the man's height makes, in course space)
+            const Vec3 shift = Vec3{at.m[0] * sx + at.m[8] * sz, 0, at.m[2] * sx + at.m[10] * sz} * (1 / kScale);
+            flat.m = {1, 0, 0, 0, sx, shadow_rise(man.ground, shift), sz, 0, 0, 0, 1, 0, 0, 0.01f, 0, 1};
             figure(at * flat, shadow_);
         }
         figure(at, crew_);

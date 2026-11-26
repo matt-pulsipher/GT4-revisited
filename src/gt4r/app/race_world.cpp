@@ -890,7 +890,19 @@ void RaceWorld::open_license_scene() {
         race::PitScene::place_car(c, *car_visuals_[0], sim_->cars()[0]);
         for (int w = 0; w < 2; ++w) sizes.wheel_x[w] = c.hub[w].x, sizes.wheel_z[w] = c.hub[w].z;
     }
-    m.license_scene->start(places, sizes, [road = &course_->road()](float x, float z, float& y) { return road->height_at(x, z, 1000, y); });
+    m.license_scene->start(places, sizes, [road = &course_->road()](float x, float z, float& y, RVec* normal) {
+        int t = -1;
+        if (!road->height_at(x, z, 1000, y, &t)) return false;
+        // The road triangle's plane (0x409B68).
+        if (normal && t >= 0 && size_t(t) < road->triangles.size()) {
+            const auto& tri = road->triangles[size_t(t)];
+            const auto p = [&](int k) { const auto& v = road->vertices[tri.v[size_t(k)]].pos; return RVec{v.x, v.y, v.z}; };
+            RVec n = render::cross(p(1) - p(0), p(2) - p(0));
+            if (n.y < 0) n = n * -1.0f;
+            if (const float l = render::length(n); l > 0) *normal = n * (1 / l);
+        }
+        return true;
+    });
     if (m.license_scene->on())
         LOG_INFO("Drive: the license staff at (%.2f, %.2f), %zu places", double(m.license_scene->place().x), double(m.license_scene->place().z), places.size());
 }

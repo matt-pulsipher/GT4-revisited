@@ -91,7 +91,7 @@ TEST(license_scene_b1_pass_disc) {
         const course::CourseFile f = course::CourseFile::parse(course);
         const std::vector<race::RoadSection> sections = race::road_sections(f.section(course, course::kSlotRunway));
         if (sections.empty()) continue;
-        scene.start(sections[0].staff, sizes, [](float, float, float& y) { return y = 0, true; });
+        scene.start(sections[0].staff, sizes, [](float, float, float& y, gt3r::render::Vec3*) { return y = 0, true; });
         CHECK(scene.on());
         // (the men wait at the second place through the run)
         CHECK(std::fabs(scene.man(0).pos.x - sections[0].staff[1].pos.x) < 2.0f);
@@ -158,4 +158,12 @@ TEST(license_trophy_palettes_disc) {
         CHECK(std::fabs(mean[1][0] - mean[1][2]) < 25 && std::fabs(mean[1][1] - mean[1][2]) < 25);
         CHECK(mean[2][0] > mean[2][1] && mean[2][1] > mean[2][2] && mean[2][0] > mean[2][2] * 1.2);
     }
+}
+
+TEST(license_staff_shadow_rise) {
+    // A shadow thrown 1 m across a level road stays on it; on a road rising 10 % along the shadow it rises 0.1 m (0x407FA0).
+    CHECK(race::LicenseScene::shadow_rise({0, 1, 0}, {1, 0, 0}) == 0);
+    const float l = std::sqrt(1.01f);
+    CHECK(std::fabs(race::LicenseScene::shadow_rise({-0.1f / l, 1 / l, 0}, {1, 0, 0}) - 0.1f) < 1e-6f);
+    CHECK(std::fabs(race::LicenseScene::shadow_rise({0, 1 / l, 0.1f / l}, {0, 0, 1}) + 0.1f) < 1e-6f);
 }

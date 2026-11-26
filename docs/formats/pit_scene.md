@@ -150,7 +150,10 @@ shadow.
   148), its sequence's first clip: eye, target and up in the scene's frame (turned by its heading about the place), the lens
   (0x428298). ✔ The eye within 1 mm, the lens 0.6436 of the original's state (its eye is the one its last picture was drawn
   with, a step before its clock).
-- **Drawn** by RaceLicense virtual 116 (0x408470, 0x4096C0 → 0x408490: the men and their shadows, as the pit crew's).
+- **Drawn** by RaceLicense virtual 116 (0x408470, 0x4096C0 → 0x408490: the men and their shadows, as the pit crew's). A man's
+  shadow is his figure thrown along the light (at most 1.5 m a metre of height) onto the road's plane under him: the road
+  triangle's normal kept when he is placed (0x407EF0; up off the road), the shadow rising -(n.x sx + n.z sz) / n.y a metre
+  (0x407FA0).
 
 ## What runs where
 
@@ -161,4 +164,4 @@ shadow.
 | a replay's pit stops | not shown: a replay's states carry no pit stage ❓ |
 | the license test's staff: places, motions, cameras, fade, the car put in the box | GT4 |
 | the levels of the men (`BAKE_*`), the spare tires' shadows on the floor (0x3D5528, 0x3D3E80), `pit_002` | not built |
-| the license staff's shadows on the road's plane under each man (0x407FA0: the plane from 0x409B68) | flat at the man's height, as the pit crew's ❓ |
+| the license staff's shadows on the road's plane under each man (0x407EF0 keeps the road triangle's normal, 0x407FA0 the rise along the shadow: -(n.x sx + n.z sz) / n.y) | GT4 (the pit crew's still lie flat at the man's height ❓) |
