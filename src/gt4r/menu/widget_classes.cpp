@@ -1698,6 +1698,46 @@ std::shared_ptr<script::Reference> widget_class_member(Runtime& rt, const W& w, 
         if (n == "resetAction") return nothing();
     }
 
+    // texcoord_top / _bottom / _left / _right = t (mImageFace's, 0x2A1748 / 0x2A17E8 / 0x2A1888 / 0x2A1928): an edge
+    // of the picture's corners (`texcoord`, clockwise from the top left; the whole picture until set) moved to t:
+    // the top corners' v, the bottom ones', the left corners' u, the right ones'. A bar drawn narrower with its
+    // right edge at the same part of its picture shows that part, not the whole squeezed.
+    if ((type == "ImageFace" || type == "FrameImageFace" || type == "MovieFace" || type == "ProgressFace") && n.rfind("texcoord_", 0) == 0) {
+        const int edge = n == "texcoord_top" ? 0 : n == "texcoord_bottom" ? 1 : n == "texcoord_left" ? 2 : n == "texcoord_right" ? 3 : -1;
+        if (edge >= 0) {
+            static const int corners[4][2] = {{0, 1}, {3, 2}, {0, 3}, {1, 2}};
+            const size_t axis = edge < 2 ? 1 : 0; // v for top and bottom, u for left and right
+            auto a = std::make_shared<Accessor>();
+            a->read = [w, edge, axis] {
+                const Property* p = w->data.find("texcoord");
+                const size_t c = size_t(corners[edge][0]);
+                if (p && p->items.size() >= 4 && p->items[c].values.size() > axis) return Value::number(std::strtof(p->items[c].values[axis].c_str(), nullptr));
+                return Value::number(edge == 1 || edge == 3 ? 1.0f : 0.0f);
+            };
+            a->write = [w, edge, axis](const Value& v) {
+                Property* p = nullptr;
+                for (Property& q : w->data.properties)
+                    if (q.name == "texcoord") p = &q;
+                if (!p) {
+                    w->data.properties.push_back(Property{});
+                    p = &w->data.properties.back();
+                    p->name = "texcoord";
+                }
+                if (p->items.size() < 4) {
+                    static const char* whole[4][2] = {{"0", "0"}, {"1", "0"}, {"1", "1"}, {"0", "1"}};
+                    p->is_list = true, p->items.assign(4, Property{});
+                    for (size_t i = 0; i < 4; ++i) p->items[i].type = "vector", p->items[i].values = {whole[i][0], whole[i][1]};
+                }
+                char text[32];
+                std::snprintf(text, sizeof text, "%g", double(v.is_number() ? v.as_float() : 0.0f));
+                for (const int c : corners[edge]) {
+                    p->items[size_t(c)].values.resize(2, "0");
+                    p->items[size_t(c)].values[axis] = text;
+                }
+            };
+            return a;
+        }
+    }
     if (type == "ImageFace" || type == "FrameImageFace" || type == "ColorChipFace" || type == "CarFace") {
         if (n == "getImagePath") return fn([w](Vm&, const Value&, Args) { return w->get("image_path"); });
         if (n == "setImagePath")
