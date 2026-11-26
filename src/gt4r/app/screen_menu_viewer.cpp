@@ -548,6 +548,7 @@ private:
                 if (log[i].find("stopped:") != std::string::npos || log[i].find("script error") != std::string::npos)
                     for (const std::string& line : Ui::wrap(log[i], x - 4)) ui.text(2, y, line, colors::kBad), y += 12;
         }
+        if (player_) title_hint(ui, x, scale);
         const size_t lines = player_ ? 0 : std::min<size_t>(log.size(), 26);
         for (size_t i = 0; i < lines; ++i) ui.text(2, 14 + float(i) * 12, Ui::clip(log[log.size() - lines + i], x - 4), colors::kDim);
         if (!player_) {
@@ -565,6 +566,22 @@ private:
             ui.text(px + 8, py + 50, std::string(race_->manual ? "Manual" : "Automatic") + " gears   difficulty " + race_->difficulty, colors::kText);
             ui.text(px + 8, py + 66, "Cross: drive it", colors::kDim);
         }
+    }
+
+    // On the title: the way to the home screen (Settings, Controls, Saved games), in the space beside
+    // the page, or over its top right corner when the picture has none.
+    void title_hint(Ui& ui, float x, float scale) {
+        const LiveWidget* page = runtime_->current_page();
+        if (!page || page->name != "TopRoot" || !runtime_->project() || runtime_->project()->name() != "arcade") return;
+        const float margin = ui.width() - (x + 640 * scale);
+        static const char* const kLines[] = {"{Select}+{Start}:", "Settings,", "Controls,", "Saved games"};
+        float w = 0;
+        for (const char* l : kLines) w = std::max(w, Ui::text_width(l));
+        const bool beside = margin >= w + 8;
+        const float left = beside ? x + 640 * scale + (margin - w) / 2 : ui.width() - w - 10;
+        const float top = beside ? Ui::kHeight - 62.0f : 6.0f;
+        if (!beside) ui.fill_round(left - 5, top - 4, w + 10, 12 * float(std::size(kLines)) + 6, 4, Color{0, 0, 0, 150});
+        for (size_t i = 0; i < std::size(kLines); ++i) ui.text(left, top + 12 * float(i), kLines[i], i == 0 ? colors::kText : colors::kDim);
     }
 
     // A block transition: the screen held when it started, in blocks that fade by their timers
