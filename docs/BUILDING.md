@@ -10,7 +10,7 @@ This page has the platform details.
 | Linux x86_64 (Ubuntu 24.04) | GCC 13 | builds; all tests pass on both discs, with the macOS results ([what differs](#linux-and-macos-side-by-side)) |
 | Linux arm64 (Ubuntu 24.04) | GCC 13 | builds; all tests pass on both discs |
 | Linux x86_64 (Ubuntu 22.04) | GCC 11, GCC 12 | builds (the release package's distribution, for its older glibc) |
-| Linux x86_64 (Ubuntu 24.04) | Clang 18 | ❓ not built yet |
+| Linux arm64 (Ubuntu 24.04) | Clang 18 | builds; all tests pass on both discs (x86_64 with Clang ❓ not built) |
 | Windows | | see [Windows](#windows) |
 
 ## Linux
@@ -75,7 +75,7 @@ with `HOME` and `GT4R_DATA_DIR` in the container's `/tmp`: nothing is written ou
 
 A binary built on `ubuntu:22.04` runs on distributions with glibc 2.35 or newer; one built on
 `ubuntu:24.04` needs 2.39. GCC 11 and 12 (Ubuntu 22.04: the release package is built there with
-GCC 12, `tools/release/package.sh`) and GCC 13 build it; GCC's library (libstdc++) does not
+GCC 12, `tools/release/package.sh`) GCC 13 and Clang 18 build it; GCC's library (libstdc++) does not
 bring `<utility>`, `<optional>` or `<cmath>` in through other headers as Apple's does, so each file
 includes what it uses.
 
