@@ -47,6 +47,10 @@ namespace gt4r {
 
 namespace {
 
+// The pace car's label, which the race's set-up lights whatever the course (RaceBase::vf38, the program's string 0x68D018).
+const std::string kPaceCar = "r34_gtr_v_gtcolor_pc_01";
+
+
 namespace render = gt3r::render;
 using RVec = render::Vec3;
 
@@ -104,6 +108,7 @@ struct RaceWorld::Impl {
     gt3r::race::LampGlows lamps;
     gt3r::race::Billboards billboards;
     gt3r::race::CarLampGlows car_lamps;
+    gt3r::race::CarLampGlows car_lamps_lit; // a daytime race's: the cars lit whatever the course (CarVisual::lamp_level)
     std::vector<gt3r::race::CarLampGlows::Car> glow_cars;
     gt3r::race::TyreSmoke smoke;
     gt3r::race::WetRoad wet;
@@ -174,7 +179,10 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
                 if (const db::Labels* l = app.db()->labels("WING"))
                     if (const std::string* name = l->label(db::part_row_id(part))) wing = *name;
         }
-        const std::string key = entry->model + "#" + std::to_string(e.paint) + "#" + wing;
+        // The car's lamp level (RaceBase::vf38 0x3882F8, through RaceCarModel::vf43): the course's night flag, but the pace car
+        // (the program's name for it, 0x68D018) always lit: its glows and lit lenses in a daytime race too.
+        const int lamp_level = night_ || entry->label == kPaceCar ? 1 : 0;
+        const std::string key = entry->model + "#" + std::to_string(e.paint) + "#" + wing + "#" + std::to_string(lamp_level);
         if (const auto [at, fresh] = job_of.try_emplace(key, jobs.size()); fresh) {
             jobs.push_back(std::make_unique<CarJob>());
             CarJob& job = *jobs.back();
@@ -186,7 +194,7 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
             const std::vector<u32> paints = race::car_paints(*app.db(), entry->label);
             race::CarVisual::Options& o = job.options;
             o.paint = paints.empty() ? e.paint : paints[e.paint % paints.size()];
-            o.lamp_level = night_ ? 1 : 0;
+            o.lamp_level = lamp_level;
             if (car::CarFile::is_car(*file)) o.reflection_c0 = reflection_c0, o.reflection_c1 = reflection_c1;
             if (!wing.empty()) job.wing = app.vfs()->read("wing/lod/" + wing);
             if (job.wing) o.wing = *job.wing;
@@ -317,6 +325,13 @@ RaceWorld::RaceWorld(App& app, const WorldSetup& setup) : app_(app), setup_(setu
                  course_->section(course::kSlotFlareShape));
     m.billboards.load(gpu, course_->section(course::kSlotBillboards), setup.course);
     m.car_lamps.load(app.renderer(), &gpu, env0, course_->section(course::kSlotFlareShape));
+    // A daytime race's lit cars (the pace car): their glows by the same lamp type of the course (Env0 +0x9F0 ..), which every
+    // course has; the shared glows read it at night only, so they are given the course's block with its night flag on.
+    if (!night_ && env0.size() >= 0x14) {
+        Bytes lit(env0.begin(), env0.end());
+        lit[0x11] = u8(lit[0x11] | 0x80);
+        m.car_lamps_lit.load(app.renderer(), &gpu, lit, course_->section(course::kSlotFlareShape));
+    }
     if (setup.reflection && !course_->reflection_course().empty()) m.wet.load(gpu, *app.vfs(), course_->reflection_course(), env0);
     if (setup.smoke) m.smoke.load(gpu, env0, course_->section(course::kSlotSmoke));
     LOG_INFO("Drive: %zu lamps, %zu billboards, sun %s", m.lamps.count(), m.billboards.count(), m.sun.params().enabled ? "on" : "off");
@@ -565,6 +580,8 @@ void RaceWorld::restart() {
     build_simulation();
     gadget_bodies_.reset(course_->gadgets(), course_->road());
     course_->restart_animations();
+    for (auto& [key, visual] : impl_->visuals_by_model)
+        if (visual) visual->restart_animation();
     clear_effects();
     for (Impl::MovingDriver& d : impl_->drivers) d.state.reset(d.cockpit), d.follow = d.follow_rate = race::posture::F(0.0f);
 }
@@ -953,6 +970,10 @@ void RaceWorld::present(std::span<const race::CarState> cars, const audio::Sound
         m.sound->refueling(live && m.pit_scene && m.pit_scene->hose());
     }
     m.pit_sounds.clear();
+    // The cars' own scripts (a pace car's light bar), each model once a step shown: a model's time runs on with its
+    // draws (0x451110), the start's hold and the replays too.
+    for (auto& [key, visual] : m.visuals_by_model)
+        if (visual) visual->animate(kStep);
     // The moving drivers' step: their cars' steering (the program's follower of 11.25 x the command).
     if (hand_speeds_)
         for (Impl::MovingDriver& d : m.drivers) {
@@ -1301,11 +1322,12 @@ void RaceWorld::draw_view(Ui& ui, render::View3D& view3d, const SDL_FRect& rect,
     const auto blocked = [&](const RVec& a, const RVec& b) { return !split && occluder.segment_blocked(a, b); };
     m.lamps.add(m.overlay, rect, pose.view, pose.eye, frustum, blocked, &proj);
     const size_t n = cars_hidden_ ? 0 : std::min(cars.size(), car_visuals_.size());
-    if (m.car_lamps.active()) {
-        // The cars' lamps at night: the lights, the tail lamps, the brake lamps while braking.
+    if (gt3r::race::CarLampGlows& glows = m.car_lamps.active() ? m.car_lamps : m.car_lamps_lit; glows.active()) {
+        // The cars' lamps (RaceCarModel::vf36: none at lamp level 0): at night every car's, by day the lit cars' (the pace
+        // car's flashing lamps): the lights, the tail lamps, the brake lamps while braking.
         m.glow_cars.clear();
         for (size_t i = 0; i < n; ++i) {
-            if (int(i) == hidden) continue;
+            if (int(i) == hidden || car_visuals_[i]->lamp_level() == 0) continue;
             gt3r::race::CarLampGlows::Car g;
             g.lamps = &car_visuals_[i]->lamps();
             g.model = car_visuals_[i]->body_matrix(cars[i]);
@@ -1313,7 +1335,7 @@ void RaceWorld::draw_view(Ui& ui, render::View3D& view3d, const SDL_FRect& rect,
             g.brake_now = cars[i].brake_lamps;
             m.glow_cars.push_back(g);
         }
-        m.car_lamps.add(m.overlay, rect, pose.view, pose.eye, frustum, m.glow_cars, blocked, &proj);
+        glows.add(m.overlay, rect, pose.view, pose.eye, frustum, m.glow_cars, blocked, &proj);
     }
     o.overlay = &m.overlay;
     o.post_grade = grade_;

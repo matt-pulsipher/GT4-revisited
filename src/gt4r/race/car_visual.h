@@ -124,6 +124,11 @@ public:
     const std::vector<posture::Cockpit>& cockpits() const { return cockpits_; }
     // Whether the figures show from here (0x3B1750: not below 0.025 of the view's size factor / 420 at a metre).
     bool driver_shows(const CarState& s, const render::Vec3& eye, const LodView* view = nullptr) const;
+    // The car's own animation a step on (`seconds`): its flashing lamps' patterns (a pace car's).
+    void animate(float seconds);
+    void restart_animation();
+    // The lamp level it was built with (0 off, 1 on: the course's night, or a car the race lights; RaceBase::vf38).
+    int lamp_level() const { return lamp_level_; }
     const CarSpec& spec() const { return spec_; }
     bool gt3_file() const { return gt3_file_; } // a Gran Turismo 3 car file (Prologue's)
     int lods() const { return lods_; }
@@ -173,6 +178,9 @@ private:
     int lod_levels_ = 0;
     int lods_ = 1;
     bool gt3_file_ = false; // a Gran Turismo 3 car file (Prologue's): its models' y = 0 is the road
+    int lamp_level_ = 0;
+    std::vector<std::pair<int, float>> lamp_flash_; // per lit-list lamp: its flashing pattern (0 none) and phase
+    std::array<float, 2> flash_time_{};             // the two patterns' times
     // A Gran Turismo 3 car file's brake parts drawn by its program's rule (car_visual_prologue.cpp): on a wheel's two
     // nearest levels of detail, seen from outside its outer face; their glow on those levels.
     bool gt3_brakes_shown(const CarState& s, int w, const render::Vec3& eye, const LodView* view, bool& parts) const;

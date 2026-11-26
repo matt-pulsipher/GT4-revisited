@@ -193,6 +193,7 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
         return;
     }
     reflection_by_draw_ = opt.reflection_by_draw, reflection_c0_ = opt.reflection_c0, reflection_c1_ = opt.reflection_c1;
+    lamp_level_ = opt.lamp_level;
     const car::CarFile c = car::CarFile::parse(file);
     if (c.body_paint && c.body_paint < file.size()) pat = file.subspan(c.body_paint);
     Bytes painted;
@@ -250,10 +251,12 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
         const u32 last = wh.texture_sets && list + 4 * wh.texture_sets <= wheel_set.size() ? rd32(wheel_set, list + 4 * (wh.texture_sets - 1)) : 0;
         if (lod_levels_ >= 3 && last && last + 0x20 <= wheel_set.size()) far_body = with_texture_set(body, wheel_set.subspan(last), far_set);
     }
-    for (int brake = 0; brake < 2; ++brake) {
-        scene::Model m = build_levels(body, 0, body_scene(brake != 0, opt.lamp_level, spoiler), kLevels, 0, name);
+    const auto body_levels = [&](int brake, float morph_weight) {
+        mdls::Scene base = body_scene(brake != 0, opt.lamp_level, spoiler);
+        base.morph_weight = morph_weight;
+        scene::Model m = build_levels(body, 0, base, kLevels, 0, name);
         if (!far_body.empty()) {
-            mdls::Scene sc = body_scene(brake != 0, opt.lamp_level, spoiler);
+            mdls::Scene sc = base;
             sc.outside_sets[mdls::kWheelFaceSlot] = far_set;
             gt3r::gtm1::Options o = car_options();
             o.node = 0;
@@ -262,6 +265,10 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
             for (scene::Mesh& mesh : far.meshes) mesh.lod = 2;
             gt3r::course::append_model(m, std::move(far));
         }
+        return m;
+    };
+    for (int brake = 0; brake < 2; ++brake) {
+        scene::Model m = body_levels(brake, -1);
         if (m.meshes.empty()) throw FormatError("The car's body has nothing to draw.");
         if (brake == 0) {
             m.compute_bounds();
@@ -373,6 +380,8 @@ CarVisual::CarVisual(render::GpuContext& ctx, ByteSpan file, ByteSpan pat, const
                 lists[l]->push_back(r);
                 lamp_colors_[l].push_back(r.rgb);
                 lamp_powers_[l].push_back(float(rd32(file, o + 0x60)));
+                // A lamp that flashes (+0x66: its pattern 1 or 2, +0x68: its phase in seconds; the lit list's, RaceCarModel::vf36).
+                if (l == 0) lamp_flash_.push_back({int(rd16(file, o + 0x66)), f(o + 0x68)});
             }
         }
     }
@@ -409,6 +418,29 @@ bool CarVisual::driver_shows(const CarState& s, const render::Vec3& eye, const L
     const float k = view && view->k > 0 ? view->k : 721.2f; // (the chase view's)
     return k / depth / 420.0f >= 0.025f;
 }
+
+namespace {
+// The flashing patterns (0x391778 fills them once into 0x844348): a period, flashes in it, the time from one to the next, a
+// flash's length (seconds). Pattern 1 one flash of 0.25 s every 0.4 s; pattern 2 five of 0.05 s, 0.05 s apart, every 0.9 s.
+struct FlashPattern {
+    float period;
+    int count;
+    float interval, length;
+};
+constexpr FlashPattern kFlashPatterns[2] = {{0.4f, 1, 0.5f, 0.25f}, {0.9f, 5, 0.05f, 0.05f}};
+// A pattern's strength at its time `t` and a lamp's `phase` (0x3916E0): wrapped once by the period, 0 after the pattern's
+// flashes or between them, inside a flash 1 - x^2 for x from -1 to 1 over its length.
+float flash_strength(const FlashPattern& p, float t, float phase) {
+    t += phase;
+    if (p.period < t) t -= p.period;
+    const int k = int(t / p.interval);
+    if (k >= p.count) return 0;
+    t -= float(k) * p.interval;
+    if (p.length < t) return 0;
+    const float x = t / (p.length * 0.5f) - 1;
+    return 1 - x * x;
+}
+} // namespace
 
 void CarVisual::set_lamp_strengths(float head, float brake, float tail) {
     // The glow's color is the course's lamp color times the lamp's own (record +0x54) times the list's strength (RaceCarModel::vf36
@@ -450,6 +482,25 @@ void CarVisual::to_gpu(std::unique_ptr<render::GpuModel>& slot, scene::Model m) 
     share_textures(m);
     if (t_unuploaded) unuploaded_.emplace_back(&slot, std::move(m));
     else slot = std::make_unique<render::GpuModel>(*ctx_, m);
+}
+
+void CarVisual::restart_animation() { flash_time_ = {}; }
+
+void CarVisual::animate(float seconds) {
+    // The flashing lamps' patterns (RaceCarModel::vf3 0x390DD8: each pattern's time a frame on, wrapped by its period), and
+    // their lamps' strengths (vf36: the pattern's, in place of the course's for the lit list).
+    if (!lamp_flash_.empty()) {
+        for (size_t k = 0; k < 2; ++k) {
+            flash_time_[k] += seconds;
+            if (kFlashPatterns[k].period < flash_time_[k]) flash_time_[k] -= kFlashPatterns[k].period;
+        }
+        for (size_t i = 0; i < lamp_flash_.size() && i < lamps_.head.size() && i < lamp_colors_[0].size(); ++i) {
+            const auto [pattern, phase] = lamp_flash_[i];
+            if (pattern < 1 || pattern > 2) continue;
+            const float k = flash_strength(kFlashPatterns[pattern - 1], flash_time_[size_t(pattern - 1)], phase);
+            for (int c = 0; c < 3; ++c) lamps_.head[i].rgb[size_t(c)] = lamp_colors_[0][i][size_t(c)] * k;
+        }
+    }
 }
 
 void CarVisual::upload() {

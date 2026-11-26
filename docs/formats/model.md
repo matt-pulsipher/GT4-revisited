@@ -457,10 +457,22 @@ brake state, the per-wheel values and the lamp level into the model; drawing is:
   first axis, its third axis as the viewing axis, its place, half sizes and test point; the
   glow's color white for the first list and red for the other two 🔎 by eye, the record's own
   color not having been found, at the strengths below.)
-- **Lamp glows** (when the lamp level is not 0): the info block's three lamp lists, the first
-  at the course's headlamp brightness (or a flashing pattern's), the brake list at the brake
-  brightness x the ramp (flag bit 0) or while braking, the tail list at the tail brightness
-  without glare (🔎 `Env0` +0x1794 / +0x1798 / +0x179C).
+- **Lamp glows** (RaceCarModel::vf36 0x3911D0: none while the car's lamp level, +0x1680, is 0): the info block's three
+  lamp lists, the first at the course's headlamp brightness or, for a lamp with a flashing pattern, the pattern's, the
+  brake list at the brake brightness x the ramp (flag bit 0) or while braking, the tail list at the tail brightness
+  without glare (🔎 `Env0` +0x1794 / +0x1798 / +0x179C; 0 on the daytime courses).
+- **The lamp level** (RaceBase::vf38 0x3882F8 through RaceCarModel::vf43, per car at the race's start): the course's night
+  flag (`Env0` +0x10 bit 15), but 1 for the pace car `r34_gtr_v_gtcolor_pc_01` (the program's name for it, 0x68D018)
+  whatever the course: in a daytime race (B-5's) its lit lenses and its glows, which by day are its flashing lamps alone.
+  Its lit list: two headlamps and two blue lamps beside them, then ten flashing ones: the roof bar's (±0.25 pattern 1,
+  ±0.40 pattern 2), two at the front corners and two low at the front (pattern 2, the last with phase 0.45), two low at
+  the back (z 2.34, pattern 2, phases 0.45 and 0).
+- **Flashing patterns** (0x391778 builds them once into 0x844348; vf3 0x390DD8 steps each pattern's time by 1/60 a
+  frame, less its period when past it): pattern 1 a period of 0.4 s with one flash of 0.25 s; pattern 2 a period of
+  0.9 s with five flashes of 0.05 s, 0.05 s apart. A lamp's strength (0x3916E0): t = the pattern's time + its phase
+  (+0x68), less the period when past it; k = trunc(t / spacing), 0 from the pattern's count on; t' = t - k x spacing,
+  0 past the flash's length; else 1 - x² for x = t' / (length / 2) - 1. ✔ Ours by picture: the pace car's roof bar and
+  rear lamps flashing in B-5 and with the car alone at Tsukuba (a daytime course).
 
 ### What a car's script reads
 
