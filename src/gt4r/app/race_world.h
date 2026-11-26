@@ -306,6 +306,18 @@ public:
     // by its mirror lists and sky, the cars but `hidden`, the mirror's own fog, 120 m deep (a split screen's half 60);
     // `zoom`: its lens against the view's (0x341E50: 1.3, a stacked half's 2).
     void render_mirror(Ui& ui, const SDL_FRect& rect, std::span<const race::CarState> cars, const race::ViewPose& pose, int hidden, int half = -1, float zoom = 1.3f);
+    // A VR headset's frame (app/race_vr.h): the scene collected once from `head` (its eye between the eyes, its lens the eyes'
+    // height), then drawn for each eye into its canvas (a render target, `w` x `h`) from its own place and off-centre lens. The
+    // reflections are looked up from `reflection_view`, the race camera's view, so turning the head does not turn them.
+    struct Eye {
+        gt3r::render::Mat4 view;
+        gt3r::render::Vec3 eye;
+        gt3r::render::Frustum frustum; // the tangents of its half angles (left and down negative)
+        SDL_Texture* canvas = nullptr;
+        int w = 0, h = 0;
+    };
+    void render_eyes(Ui& ui, std::span<const race::CarState> cars, const race::ViewPose& head, const gt3r::render::Mat4& reflection_view,
+                     std::span<const Eye> eyes, size_t focus, int hidden);
     // The picture's correction (the screen settings, race/picture_settings.h) from the next frame.
     void set_grade(const gt3r::render::DrawOptions::PostGrade& g) { grade_ = g; }
     // The next frame's passes of a replay (race/replay_effects.h), and the player's choices about them.
@@ -428,6 +440,18 @@ private:
     void open_pit_scene();
     void step_pit_scene();
     struct Impl;
+    // render's two halves: the frame's scene from one place (the items, the cars' reflection picture), then a view of it.
+    struct Scene {
+        gt3r::render::DrawOptions options;
+        float far = 0;
+        size_t wet_at = 0; // where the road's reflection goes among the items (after the scenery, before the cars)
+        bool wet = false;
+        int hidden = -1;
+        bool split = false;
+    };
+    Scene collect(std::span<const race::CarState> cars, const race::ViewPose& pose, size_t focus, int hidden, int half, float aspect, float lines);
+    void draw_view(Ui& ui, gt3r::render::View3D& view3d, const SDL_FRect& rect, std::span<const race::CarState> cars, const race::ViewPose& pose,
+                   const gt3r::render::Mat4& proj, const gt3r::render::Frustum& frustum, const Scene& scene);
     void build_simulation();
     void arm_bspec(const sim::Program& program);
 

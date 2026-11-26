@@ -94,6 +94,7 @@ struct RaceWorld::Impl {
         int frame = 0;
     };
     std::array<ViewState, 2> views;
+    std::array<std::unique_ptr<render::View3D>, 2> eye_views; // a VR headset's (render_eyes)
     std::vector<audio::SoundListener> more_cameras; // a split screen's second view's, while it is heard
     std::unique_ptr<render::View3D> icon_view; // the results' car icons
     std::vector<render::DrawItem> mirror_items;
@@ -1085,18 +1086,72 @@ void RaceWorld::Impl::add_pit_crew(std::vector<render::DrawItem>& out, size_t ca
 
 void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarState> cars, const race::ViewPose& pose, size_t focus, int hidden, int half) {
     Impl& m = *impl_;
-    const bool split = half >= 0, first_view = half <= 0;
+    const bool first_view = half <= 0;
     Impl::ViewState& v = m.views[first_view ? 0 : 1];
     if (!v.view) v.view = std::make_unique<render::View3D>(*app_.gpu());
+    const float aspect = rect.w / std::max(rect.h, 1.0f);
+    const Scene scene = collect(cars, pose, focus, hidden, half, aspect, rect.h);
+    // (The backdrop's far plane lies a hundred times as far as the scenery's.)
+    render::Mat4 proj = render::perspective(pose.fovy(), aspect, 0.1f, scene.far * 100.0f);
+    if (lens_) proj.at(0, 2) += lens_->shear_x, proj.at(1, 2) += lens_->shear_y;
+    draw_view(ui, *v.view, rect, cars, pose, proj, render::Frustum::symmetric(pose.fovy(), aspect), scene);
+    if (v.frame == 5) {
+        const race::CarState& me = cars[std::min(focus, cars.size() - 1)];
+        LOG_INFO("Drive: the car at (%.1f, %.1f, %.1f) heading (%.2f, %.2f), eye (%.1f, %.1f, %.1f); %d meshes drawn, %zu triangles", me.position.x,
+                 me.position.y, me.position.z, me.forward.x, me.forward.z, pose.eye.x, pose.eye.y, pose.eye.z, v.view->stats().meshes_drawn,
+                 v.view->stats().triangles);
+    }
+    ++v.frame;
+}
+
+void RaceWorld::render_eyes(Ui& ui, std::span<const race::CarState> cars, const race::ViewPose& head, const render::Mat4& reflection_view,
+                            std::span<const Eye> eyes, size_t focus, int hidden) {
+    Impl& m = *impl_;
+    Impl::ViewState& v = m.views[0];
+    if (!v.view) v.view = std::make_unique<render::View3D>(*app_.gpu());
+    if (eyes.empty() || eyes[0].h <= 0) return;
+    const float aspect = float(eyes[0].w) / float(eyes[0].h);
+    Scene scene = collect(cars, head, focus, hidden, -1, aspect, float(Ui::kHeight));
+    scene.options.reflection_view = reflection_view;
+    // The sky round each eye, not round the head between them: a dome tens of metres across centred between the eyes stands at
+    // that distance in stereo, nearer than the scenery drawn over it; round the eye it has no parallax, as far as it should be.
+    // (The items drawn round the camera are placed at its eye: course_scene.cpp, the sun's disc.)
+    std::vector<std::pair<size_t, render::Mat4>> round_eye;
+    for (size_t k = 0; k < m.items.size(); ++k) {
+        const render::Mat4& t = m.items[k].transform;
+        if (t.at(0, 3) == head.eye.x && t.at(1, 3) == head.eye.y && t.at(2, 3) == head.eye.z) round_eye.emplace_back(k, t);
+    }
+    SDL_Renderer* r = ui.renderer();
+    for (size_t i = 0; i < eyes.size(); ++i) {
+        const Eye& e = eyes[i];
+        if (!e.canvas || e.w <= 0 || e.h <= 0) continue;
+        if (!m.eye_views[i % m.eye_views.size()]) m.eye_views[i % m.eye_views.size()] = std::make_unique<render::View3D>(*app_.gpu());
+        for (const auto& [k, t] : round_eye) m.items[k].transform = render::translate(e.eye - head.eye) * t;
+        race::ViewPose pose = head;
+        pose.eye = e.eye, pose.view = e.view;
+        const render::Frustum& f = e.frustum;
+        const render::Mat4 proj = render::frustum(f.left, f.right, f.down, f.up, 0.1f, scene.far * 100.0f);
+        SDL_SetRenderTarget(r, e.canvas);
+        SDL_SetRenderDrawColor(r, 0, 0, 0, 255);
+        SDL_RenderClear(r);
+        draw_view(ui, *m.eye_views[i % m.eye_views.size()], {0, 0, float(e.w), float(e.h)}, cars, pose, proj, f, scene);
+    }
+    for (const auto& [k, t] : round_eye) m.items[k].transform = t;
+    ++v.frame;
+}
+
+RaceWorld::Scene RaceWorld::collect(std::span<const race::CarState> cars, const race::ViewPose& pose, size_t focus, int hidden, int half, float aspect, float lines) {
+    Impl& m = *impl_;
+    Scene s;
+    const bool split = half >= 0, first_view = half <= 0;
+    s.split = split, s.hidden = hidden;
+    Impl::ViewState& v = m.views[first_view ? 0 : 1];
     const race::CourseScene::View lists = split ? race::CourseScene::View::Half : race::CourseScene::View::Race;
     const float dt = first_view ? kStep : 0.0f; // (what both views show steps once a picture)
     const race::CarState& me = cars[std::min(focus, cars.size() - 1)];
-    const float aspect = rect.w / std::max(rect.h, 1.0f);
     const gt3r::race::SunParams& env = course_->env();
     const float far = (env.has_env && env.far_clip > 0 ? env.far_clip : 5000.0f) * (split ? 0.5f : 1.0f);
-    // (The backdrop's far plane lies a hundred times as far as the scenery's.)
-    render::Mat4 proj = render::perspective(pose.fovy(), aspect, 0.1f, far * 100.0f);
-    if (lens_) proj.at(0, 2) += lens_->shear_x, proj.at(1, 2) += lens_->shear_y;
+    s.far = far;
 
     m.pit_shown = int(focus);
     if (first_view) {
@@ -1120,22 +1175,11 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
         for (const gt3r::race::SceneryFade::Group& g : v.fade.faded())
             if (!g.nodes.empty()) m.billboards.add_items(m.items, cam_right, &g.nodes, g.weight);
     }
-    // The road's reflection: the mirrored scenery and its sky drawn into a small picture, which
-    // goes on the road (where the road's mask lets it) after the scenery and before the cars.
+    // The road's reflection goes here, after the scenery and before the cars (draw_view: each view its own).
     // (A split screen's halves have none but where the course asks for it: Env0 +0x10 bit 24.)
     const ByteSpan env0 = course_->section(course::kSlotEnv);
-    if (m.wet.active() && (!split || (env0.size() >= 0x14 && (rd32(env0, 0x10) & 0x1000000)))) {
-        m.wet_items.clear();
-        course_->add_reflection_sky_items(m.wet_items, pose.eye);
-        // The cars mirrored in the wet road when the course asks for them (Env0 +0x10 bit 16).
-        if (m.wet.params().cars && !cars_hidden_)
-            for (size_t i = 0; i < std::min(cars.size(), car_visuals_.size()); ++i)
-                if (int(i) != hidden) car_visuals_[i]->add_mirror_items(m.wet_items, cars[i], pose.eye);
-        m.wet.add_buffer_items(m.wet_items, pose.view, pose.eye, {});
-        for (render::DrawItem& it : m.wet_items) it.tint = course_->reflection_gain();
-        const render::DrawOptions wo = draw_options(*course_, far);
-        if (SDL_GPUTexture* t = m.wet.render(*v.view, pose.view, proj, pose.eye, m.wet_items, wo)) m.wet.add_frame_items(m.items, pose.view, pose.fovy(), aspect, t);
-    }
+    s.wet = m.wet.active() && (!split || (env0.size() >= 0x14 && (rd32(env0, 0x10) & 0x1000000)));
+    s.wet_at = m.items.size();
     const size_t n = cars_hidden_ ? 0 : std::min(cars.size(), car_visuals_.size());
     m.lights.resize(n);
     for (size_t i = 0; i < n; ++i) {
@@ -1152,7 +1196,7 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
     race::CarVisual::LodView lod_view;
     lod_view.forward = RVec{-pose.view.at(2, 0), -pose.view.at(2, 1), -pose.view.at(2, 2)};
     lod_view.k = (224.0f / 0.75f) * (10.0f / 7.0f) / std::max(std::tan(pose.fov * 0.5f), 1e-3f);
-    if (split) lod_view.k *= rect.h / float(Ui::kHeight); // (its lines of the picture)
+    if (split) lod_view.k *= lines / float(Ui::kHeight); // (its lines of the picture)
     for (size_t i = 0; i < n; ++i) {
         if (int(i) == hidden) continue;
         const size_t first = m.items.size();
@@ -1173,7 +1217,8 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
         m.smoke.add_items(m.items, pose.eye, cam_right, cam_up, sv);
     }
 
-    render::DrawOptions o = draw_options(*course_, far);
+    render::DrawOptions& o = s.options;
+    o = draw_options(*course_, far);
     // The cars' reflection picture: the course around the car the view is about, refreshed a face
     // at a time.
     {
@@ -1195,17 +1240,47 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
             if (v.view->render_env_cube(at, m.env_items, eo, 128, faces)) o.env_cube = v.view->env_cube(), o.env_gt3_lookup = true, v.env_ready = true;
         }
     }
+    if (first_view) m.lamps.tick(kStep);
+    return s;
+}
+
+void RaceWorld::draw_view(Ui& ui, render::View3D& view3d, const SDL_FRect& rect, std::span<const race::CarState> cars, const race::ViewPose& pose,
+                          const render::Mat4& proj, const render::Frustum& frustum, const Scene& scene) {
+    Impl& m = *impl_;
+    const float far = scene.far;
+    const bool split = scene.split;
+    const int hidden = scene.hidden;
+    // The road's reflection: the mirrored scenery and its sky drawn into a small picture, which
+    // goes on the road (where the road's mask lets it) after the scenery and before the cars.
+    size_t wet_items = 0;
+    if (scene.wet) {
+        m.wet_items.clear();
+        course_->add_reflection_sky_items(m.wet_items, pose.eye);
+        // The cars mirrored in the wet road when the course asks for them (Env0 +0x10 bit 16).
+        if (m.wet.params().cars && !cars_hidden_)
+            for (size_t i = 0; i < std::min(cars.size(), car_visuals_.size()); ++i)
+                if (int(i) != hidden) car_visuals_[i]->add_mirror_items(m.wet_items, cars[i], pose.eye);
+        m.wet.add_buffer_items(m.wet_items, pose.view, pose.eye, {});
+        for (render::DrawItem& it : m.wet_items) it.tint = course_->reflection_gain();
+        const render::DrawOptions wo = draw_options(*course_, far);
+        if (SDL_GPUTexture* t = m.wet.render(view3d, pose.view, proj, pose.eye, m.wet_items, wo)) {
+            std::vector<render::DrawItem> frame;
+            m.wet.add_frame_items(frame, pose.view, frustum, t);
+            m.items.insert(m.items.begin() + std::ptrdiff_t(scene.wet_at), frame.begin(), frame.end());
+            wet_items = frame.size();
+        }
+    }
+    render::DrawOptions o = scene.options;
     // After the scene: the sun's glare by how much of it the scenery leaves in sight, and the
     // lamps' glows.
     m.overlay.clear();
     m.overlay.rect = rect;
-    const render::Frustum frustum = render::Frustum::symmetric(pose.fovy(), aspect);
     m.sun.add(m.overlay, rect, pose.view, frustum, sun_visibility(*course_, m.sun.params(), pose.eye, pose.fovy()));
     const gt3r::race::Occluder& occluder = course_->occluder();
-    if (first_view) m.lamps.tick(kStep);
     // (The several-view draw tests no glow against the scenery.)
     const auto blocked = [&](const RVec& a, const RVec& b) { return !split && occluder.segment_blocked(a, b); };
     m.lamps.add(m.overlay, rect, pose.view, pose.eye, frustum, blocked, &proj);
+    const size_t n = cars_hidden_ ? 0 : std::min(cars.size(), car_visuals_.size());
     if (m.car_lamps.active()) {
         // The cars' lamps at night: the lights, the tail lamps, the brake lamps while braking.
         m.glow_cars.clear();
@@ -1225,12 +1300,8 @@ void RaceWorld::render(Ui& ui, const SDL_FRect& rect, std::span<const race::CarS
     o.snapshot = snapshot_, o.dissolve = dissolve_, o.keep_last = keep_last_ || trail_ > 0, o.trail = trail_;
     effects_.apply(o, pose, proj, effect_view_, effect_settings_, far);
     if (lens_) o.dof = lens_->dof, o.vignette = lens_->vignette;
-    v.view->draw(ui.renderer(), rect, pose.view, proj, pose.eye, m.items, o);
-    if (v.frame == 5)
-        LOG_INFO("Drive: the car at (%.1f, %.1f, %.1f) heading (%.2f, %.2f), eye (%.1f, %.1f, %.1f); %d meshes drawn, %zu triangles", me.position.x,
-                 me.position.y, me.position.z, me.forward.x, me.forward.z, pose.eye.x, pose.eye.y, pose.eye.z, v.view->stats().meshes_drawn,
-                 v.view->stats().triangles);
-    ++v.frame;
+    view3d.draw(ui.renderer(), rect, pose.view, proj, pose.eye, m.items, o);
+    if (wet_items) m.items.erase(m.items.begin() + std::ptrdiff_t(scene.wet_at), m.items.begin() + std::ptrdiff_t(scene.wet_at + wet_items));
 }
 
 race::MusicMarkers RaceWorld::music_markers(const std::string& file) const {
