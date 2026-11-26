@@ -74,7 +74,7 @@ two points 2 cm over the road at 0.4 and 0.6 of the way, 24 samples, two crossed
 swings (`fn_003CF938`): a spring of 10 and a damping of 2.59 on the motion's `cable_accel_x` / `_z`, x 6.24.
 
 The shadow: section 4's figure posed as the man, thrown flat along the course's shadow (in the man's frame, at most 1.5 m
-a metre).
+a metre; 0x3D1BE0 keeps it level at the man's height, with no rise along a sloping road, unlike the license staff's).
 
 ## The cameras (`fn_003CBB28`, `fn_003CBD00`, `fn_003CC010`, `fn_003CB2C0`; `CameraSys::CameraPitIn`)
 
@@ -135,8 +135,9 @@ shadow.
 - **When** (RaceLicense virtual 75 → 0x3BC6E0 → 0x409168, each step): the result is taken once (0x409138): passed when the
   test's result word (conductor +0x6C → +0x88) is set, failed when the step's events hold event 10 with it 0. The test's end
   (0x3F8AB0) sets the word to the grade (1 .. 3) for a time within the targets; a time slower than all three pushes event 10;
-  a run failed by the rules (car +0x441 set: off the course, a wall, a cone, past the stopping box) does neither: **no one comes
-  out** and the car stays where it is (the original's B-1 overshoot, 18-round4-gt `license_b1_whole_test_overshoot_fail.mp4`).
+  a run failed by the rules (off the course, a wall, a cone, past the stopping box) ends in 0x3F8980, which pushes event 10 too
+  but sets the word to -1 and the time to none (+0x8C = 0x157529FF): the word not 0, **no one comes out** and the car stays
+  where it is (the original's B-1 overshoot, 18-round4-gt `license_b1_whole_test_overshoot_fail.mp4`).
   Then +0x24: 0 for 2 s; 1 for 2 s (0x409878), the race's picture fading out from the step it begins (race +0xCF54 = -1 / 2);
   2: the men moved to place 0 (the stopping box) in their `success` or `failed` motions, the camera on the next of
   `license_cam01_seq`, `02`, `03` in turn (+0x74, kept from one run to the next), the picture fading in over 1 s (+0xCF54 = 1),
@@ -164,4 +165,4 @@ shadow.
 | a replay's pit stops | not shown: a replay's states carry no pit stage ❓ |
 | the license test's staff: places, motions, cameras, fade, the car put in the box | GT4 |
 | the levels of the men (`BAKE_*`), the spare tires' shadows on the floor (0x3D5528, 0x3D3E80), `pit_002` | not built |
-| the license staff's shadows on the road's plane under each man (0x407EF0 keeps the road triangle's normal, 0x407FA0 the rise along the shadow: -(n.x sx + n.z sz) / n.y) | GT4 (the pit crew's still lie flat at the man's height ❓) |
+| the license staff's shadows on the road's plane under each man (0x407EF0 keeps the road triangle's normal, 0x407FA0 the rise along the shadow: -(n.x sx + n.z sz) / n.y) | GT4 (the pit crew's lie flat at the man's height, as the program draws them: 0x3D1BE0's shadow matrix has no rise, 0x407FA0 is the license staff's alone) |
