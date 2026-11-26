@@ -370,7 +370,7 @@ private:
         // The developer's viewer: Select and Start together stop the running menus.
         if (!player_ && m.held(PadButton::Select) && m.pressed(PadButton::Start)) return stop();
         // The game: the title's GT4R menu button (a click or a tap) leaves it for GT4 Revisited's own menu underneath; the
-        // Controls button of the Options' controller pages opens ours over them.
+        // Controller Settings button in place of the Options' button configurations opens ours over them.
         if (menu_button_.w > 0)
             for (const gt3r::PointerInput::Action& a : app.pointer())
                 if (a.kind == gt3r::PointerInput::Action::Kind::Click && menu_button_.contains(a.x, a.y)) return use_button(app);
@@ -392,9 +392,16 @@ private:
             const bool keys_on = !panel && (!loading_ || !loading_->active());
             // Select does the same as the button (where the page's scripts do nothing with it).
             if (player_ && keys_on && m.pressed(PadButton::Select) && select_is_ours()) return use_button(app);
-            send_menu_directions(*runtime_, m, keys_on);
+            // A button configuration: its table is hidden (hide_key_table); Cross is the Controller Settings button, Triangle
+            // (and Square) the page's Cancel, back to the Options; nothing else reaches the page.
+            const bool key_page = player_ && way() == Way::Keys;
+            if (key_page) {
+                hide_key_table();
+                if (keys_on && m.pressed(PadButton::Cross)) return use_button(app);
+            }
+            send_menu_directions(*runtime_, m, keys_on && !key_page);
             for (const auto& [button, key] : keys)
-                if (keys_on && m.pressed(button)) runtime_->key(key);
+                if (keys_on && m.pressed(button) && (!key_page || key == menu::Key::Cancel)) runtime_->key(key);
             // The menus run at the program's 60 pictures a second, whatever the display's rate.
             const int steps = std::min(int(step_time_ * 60.0), 4);
             step_time_ = steps == 4 ? 0.0 : step_time_ - steps / 60.0;
@@ -495,6 +502,7 @@ private:
     void render_running(Ui& ui) {
         const float scale = float(Ui::kHeight) / 480.0f, x = (ui.width() - 640 * scale) / 2;
         ui.fill(0, 0, ui.width(), Ui::kHeight, {0, 0, 0});
+        if (player_ && way() == Way::Keys) hide_key_table(); // (from the page's first picture)
         const Uint64 t0 = SDL_GetTicksNS();
         if (advertise_ && advertise_->active()) return advertise_->draw(x, scale);
         if (live_drawer_) {
@@ -546,7 +554,7 @@ private:
                 SDL_RenderTexture(r, page_picture_, nullptr, &dst);
                 if (hold) loading_->keep(page_picture_);
             }
-            draw_cursor(x, scale);
+            if (!(player_ && way() == Way::Keys)) draw_cursor(x, scale); // (the game's arrow points at the hidden table)
             draw_blocks(tp, x, scale);
             if (tp.trail && own) std::swap(page_picture_, trail_);
             else if (trail_) SDL_DestroyTexture(trail_), trail_ = nullptr;
@@ -579,7 +587,7 @@ private:
                 if (log[i].find("stopped:") != std::string::npos || log[i].find("script error") != std::string::npos)
                     for (const std::string& line : Ui::wrap(log[i], x - 4)) ui.text(2, y, line, colors::kBad), y += 12;
         }
-        if (player_) draw_menu_button(ui, x);
+        if (player_) draw_menu_button(ui, x, scale);
         const size_t lines = player_ ? 0 : std::min<size_t>(log.size(), 26);
         for (size_t i = 0; i < lines; ++i) ui.text(2, 14 + float(i) * 12, Ui::clip(log[log.size() - lines + i], x - 4), colors::kDim);
         if (!player_) {
@@ -617,27 +625,37 @@ private:
         return true;
     }
 
-    // The pages with a button of ours beside them: the title (GT4R menu: our menu underneath the game) and the Options' controller
-    // pages, the button configurations, steering and vibration (Controls: ours, over the game).
-    enum class Way { None, Menu, Controls };
+    // The pages with a button of ours: the title (GT4R menu beside it: our menu underneath the game) and the Options' button
+    // configurations, every device's and both players' (KeyconfigRoot: Controller Settings in place of its table, ours over the
+    // game). The DualShock 2 model of those tables is narrower than our controls (keyboard, touch, triggers, wheels' own
+    // buttons), so the page shows only the way to ours, as GT3 Revisited's Key Configuration page does.
+    enum class Way { None, Menu, Keys };
     Way way() const {
         if (on_title()) return Way::Menu;
         const LiveWidget* page = runtime_ ? runtime_->current_page() : nullptr;
-        if (page && runtime_->project() && runtime_->project()->name() == "option" &&
-            (page->name == "KeyconfigRoot" || page->name == "SteeringRoot" || page->name == "ControllerRoot"))
-            return Way::Controls;
+        if (page && page->name == "KeyconfigRoot" && runtime_->project() && runtime_->project()->name() == "option") return Way::Keys;
         return Way::None;
     }
     bool select_is_ours() const {
         const Way w = way();
-        return w == Way::Controls || (w == Way::Menu && select_leaves());
+        return w == Way::Keys || (w == Way::Menu && select_leaves());
     }
     void use_button(App& app) {
         if (way() == Way::Menu) return stop();
-        // A button configuration's port (0 the first player's, 1 the second's): that player's controls.
-        const LiveWidget* page = runtime_->current_page();
-        const script::Value port = page->name == "KeyconfigRoot" ? runtime_->vm().lookup("OptionProject::KeyconfigRoot::port") : script::Value{};
-        app.push(make_controls_screen(app, port.is_number() && port.as_float() == 1 ? 1 : 0, true));
+        // The page's port (0 the first player's, 1 the second's) and device ("DUALSHOCK 2", or a wheel's: "CHEETAH" the Driving
+        // Force Pro, "JAGUAR" the Driving Force, "COUGAR" the GT FORCE): that player's controls, at the wheel's settings for a wheel.
+        const script::Value port = runtime_->vm().lookup("OptionProject::KeyconfigRoot::port");
+        const script::Value device = runtime_->vm().lookup("OptionProject::KeyconfigRoot::peripheral");
+        const bool wheel = device.kind == script::Kind::String && device.as_string() != "DUALSHOCK 2";
+        app.push(make_controls_screen(app, port.is_number() && port.as_float() == 1 ? 1 : 0, true, wheel));
+    }
+    // The button configuration's table, its buttons (Cancel, Default, OK) and its tool tip hidden: the page's frame and title stay.
+    void hide_key_table() {
+        LiveWidget* page = runtime_->current_page();
+        if (const std::shared_ptr<LiveWidget> pane = page->child("Pane"))
+            for (const std::shared_ptr<LiveWidget>& c : pane->children)
+                if (c->name != "bg" && c->name != "Title" && c->visible()) c->set_property("visible", script::Value::integer(0));
+        if (const std::shared_ptr<LiveWidget> tip = page->child("ToolTip"); tip && tip->visible()) tip->set_property("visible", script::Value::integer(0));
     }
 
     // The button beside the page (UI units; Select does the same): at the bottom of the bar left of the page when
@@ -665,10 +683,20 @@ private:
         return b;
     }
 
-    void draw_menu_button(Ui& ui, float x) {
+    // Controller Settings in the middle of the button configuration's frame (the page's 380 x 406 at 130, 20), focused: Cross,
+    // Select, a click or a tap opens our controls.
+    void draw_key_button(Ui& ui, float x, float scale) {
+        const gt3r::UiRect b = menu_button_ = {x + 210 * scale, 200 * scale, 220 * scale, 44 * scale};
+        float mx = 0, my = 0;
+        const bool hover = app_->mouse_at(mx, my) && b.contains(mx, my);
+        ui.button(b, "Controller Settings", true, hover, true);
+    }
+
+    void draw_menu_button(Ui& ui, float x, float scale) {
         menu_button_ = {};
         const Way w = way();
         if (w == Way::None || (loading_ && loading_->active())) return;
+        if (w == Way::Keys) return draw_key_button(ui, x, scale);
         bool whole = false;
         const gt3r::UiRect b = menu_button_ = menu_button_rect(*app_, ui, x, whole);
         float mx = 0, my = 0;
@@ -676,7 +704,7 @@ private:
         const bool prompt = !app_->touch_ui(); // (a touch screen's Select is one of the on-screen buttons)
         auto draw = [&](float dx, float dy) {
             const gt3r::UiRect d{b.x + dx, b.y + dy, b.w, b.h};
-            ui.button(d, w == Way::Menu ? "GT4R menu" : "Controls", hover, false);
+            ui.button(d, "GT4R menu", hover, false);
             if (!prompt) return;
             // Under it in the bar beside the page; beside it over the page (clear of the copyright line) and in the bar under it.
             if (b.right() <= x && b.bottom() + 14 <= Ui::kHeight) ui.text_center_in(d.x, d.w, d.bottom() + 3, "{Select}", colors::kDim);

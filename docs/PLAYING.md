@@ -62,17 +62,15 @@ Q and E L1 and R1, Z and C L2 and R2, P Start, Tab Select. The name entry's lett
 with the arrows and Enter. F11 switches full screen (remembered), F12 saves a screenshot in `screenshots/` in the data folder. The
 mouse's arrow goes after two seconds without it.
 
-**The game's own Options** work as the console's. *DUALSHOCK 2 button config 1P*: once you change it,
-races read your pad through that page, button for button (Cross accelerates unless the page says
-otherwise; a trigger set to Gas or Brake works by its travel); the page's Default brings the layout above
-back. *Driving Force Pro button config 1P* (or *Driving Force*'s, if you choose that wheel below) holds
-for a wheel. *Vibration*: the rumble and the triggers on or off. *Steering*: for a wheel, the active
-steering, the steering type (Amateur to Simulation), the power assist and the force's strength. The
-race's options: the gearbox for Gran Turismo mode's races, license tests and missions; Arcade asks on its
-own pages.
+**The game's own Options** work as the console's, but for the button configurations (every pad's and wheel's, both
+players'): those pages show a **Controller Settings** button instead of their table (Cross, Select, a click or a tap),
+which opens our Controls for that player, at the wheel's settings from a wheel's page; Triangle there comes back to the
+page, and Triangle on the page back to the Options. *Vibration*: the rumble and the triggers on or off. *Steering*: for a
+wheel, the active steering, the steering type (Amateur to Simulation), the power assist and the force's strength. The
+race's options: the gearbox for Gran Turismo mode's races, license tests and missions; Arcade asks on its own pages.
 
-**The home screen's Controls** (Select on the title, then Controls; player 2's in Settings > Controls; also the **Controls**
-button beside the game's own controller pages in Options, or Select there, which comes back to that page) has
+**The home screen's Controls** (Select on the title, then Controls; player 2's in Settings > Controls; also the Options'
+button configurations' **Controller Settings**) has
 what a computer's devices need: which device drives; the race controls, Modern (the table above), Gran Turismo 4
 original (always the console's pad) or your own bindings (Custom, once there are any); the steering's dead zone and
 response; the rumble, Modern (Automatic is Modern too: hits, rough ground, kerbs, slides, on both motors) or Gran
@@ -336,7 +334,8 @@ GT4R_DATA_DIR=<a scratch folder> SDL_AUDIODRIVER=dummy gt4r <disc> \
 - The window, the frame loop, the screens, the scripted keys, the pictures and the sweeps are the
   app's own (`src/gt4r/app/app.*`, `screen_sweep.cpp`; which runs are scripted and what they do not read:
   `src/gt4r/settings/run_mode.h`); the home screen (its Developer tools too), the setup screen, the asset browser and the
-  title's GT4R menu button and the Options' controller pages' Controls button (`screen_menu_viewer.cpp` `draw_menu_button`)
+  title's GT4R menu button and the Controller Settings button in place of the Options' button configurations
+  (`screen_menu_viewer.cpp` `draw_menu_button`, `hide_key_table`)
   are this app's, not pages of the game. The
   messages for a file that cannot be played are ours (`src/gt4r/disc/disc.cpp`).
 - The pad, wheel and keyboard are read by the shared engine's input layer (`gt3r::InputManager`: devices,

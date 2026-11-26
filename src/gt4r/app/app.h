@@ -324,8 +324,8 @@ std::unique_ptr<Screen> make_hub_screen(bool developer = false); // developer: i
 // (screen_sweep.cpp).
 std::unique_ptr<Screen> make_sweep_screen(const std::string& list, const std::string& out);
 // The player's controls: the device, the race's layout, rumble and force feedback, the bindings. `to_game`: opened from the game's
-// pages, which it goes back to.
-std::unique_ptr<Screen> make_controls_screen(App& app, int player = 0, bool to_game = false);
+// pages, which it goes back to; `wheel_first`: from a wheel's page, the wheel's settings selected (when a wheel steers).
+std::unique_ptr<Screen> make_controls_screen(App& app, int player = 0, bool to_game = false, bool wheel_first = false);
 // The app's settings (screen_settings.cpp), from a page on (0 Display, 1 Audio, 2 Controls, 3 Views & replays, 4 Disc & saves,
 // 5 Mods: kModsPage).
 constexpr int kDiscPage = 4, kModsPage = 5;

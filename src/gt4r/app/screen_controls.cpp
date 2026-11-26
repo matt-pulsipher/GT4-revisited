@@ -21,7 +21,8 @@ std::string percent(float v) { return std::to_string(int(std::lround(v * 100))) 
 
 class ControlsScreen : public Screen {
 public:
-    ControlsScreen(App& app, int player, bool to_game) : player_(player), to_game_(to_game), wheel_(input::WheelSettings::load(app.config())) {}
+    ControlsScreen(App& app, int player, bool to_game, bool wheel_first)
+        : player_(player), to_game_(to_game), wheel_first_(wheel_first), wheel_(input::WheelSettings::load(app.config())) {}
 
     // (a wrong choice of device can be taken back with any other)
     bool menu_input_any_device() const override { return true; }
@@ -40,6 +41,9 @@ public:
             return;
         }
         build(app);
+        if (std::exchange(wheel_first_, false))
+            for (size_t i = 0; i < rows_.rows.size(); ++i)
+                if (rows_.rows[i].label == "Wheel driven as") rows_.selected = int(i);
         if (m.pressed(PadButton::Triangle)) {
             if (changed_) save(app);
             in.set_rumble(player_, {});
@@ -282,7 +286,8 @@ private:
     }
 
     int player_ = 0;
-    bool to_game_ = false; // opened from the game's pages (the Options' controller pages): back goes to them
+    bool to_game_ = false;     // opened from the game's pages (the Options' button configurations): back goes to them
+    bool wheel_first_ = false; // opened from a wheel's button configuration: the wheel's settings selected once they show
     input::WheelSettings wheel_;
     PageRows rows_;
     std::vector<std::optional<Binding>> bound_; // per row: what it binds
@@ -294,8 +299,8 @@ private:
 
 } // namespace
 
-std::unique_ptr<Screen> make_controls_screen(App& app, int player, bool to_game) {
-    return std::make_unique<ControlsScreen>(app, std::clamp(player, 0, gt3r::InputManager::kMaxPlayers - 1), to_game);
+std::unique_ptr<Screen> make_controls_screen(App& app, int player, bool to_game, bool wheel_first) {
+    return std::make_unique<ControlsScreen>(app, std::clamp(player, 0, gt3r::InputManager::kMaxPlayers - 1), to_game, wheel_first);
 }
 
 } // namespace gt4r
